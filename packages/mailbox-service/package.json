@@ -27,5 +27,8 @@
 		"expect-env": "*",
 		"imapflow": "^1.0.171",
 		"short-uuid": "*"
+	},
+	"dependencies": {
+		"p-map": "^7.0.4"
 	}
 }
