@@ -1,4 +1,8 @@
-import { AccountService, getClient } from "@remit/remit-electrodb-service";
+import {
+	AccountService,
+	getClient,
+	MailboxService,
+} from "@remit/remit-electrodb-service";
 import type { Logger } from "@remit/logger-lambda";
 import {
 	createConnectionFromAccount,
@@ -10,13 +14,18 @@ import {
 	deserializeEncryptedPayload,
 } from "@remit/secrets-service";
 import { env } from "expect-env";
-import type { SyncMailboxesEvent } from "../events.js";
+import { emitEvent } from "../emit.js";
+import type { SyncMailboxesEvent, SyncMessagesEvent } from "../events.js";
 
 const client = getClient();
 const dataKeyProvider = createKmsDataKeyProvider(env.KMS_KEY_ID);
 const secrets = createSecretsService(dataKeyProvider);
 
 const accountService = new AccountService({
+	client,
+	table: env.DYNAMODB_TABLE_NAME,
+});
+const mailboxService = new MailboxService({
 	client,
 	table: env.DYNAMODB_TABLE_NAME,
 });
@@ -29,11 +38,12 @@ export const syncMailboxes = async (
 	event: SyncMailboxesEvent,
 	log: Logger,
 ): Promise<void> => {
-	log.info({ accountId: event.accountId }, "Syncing mailboxes");
+	const { accountId } = event;
+	log.info({ accountId }, "Syncing mailboxes");
 
-	const account = await accountService.get(event.accountId);
+	const account = await accountService.get(accountId);
 	if (!account) {
-		throw new Error(`Account ${event.accountId} not found`);
+		throw new Error(`Account ${accountId} not found`);
 	}
 
 	const password = await secrets.decrypt(
@@ -52,8 +62,55 @@ export const syncMailboxes = async (
 
 	await connection.connect();
 
-	await mailboxSyncService
-		.syncMailboxes({ accountId: event.accountId }, connection)
-		.then((result) => log.info({ result }, "Mailbox sync complete"))
+	const result = await mailboxSyncService
+		.syncMailboxes({ accountId }, connection)
 		.finally(() => connection.disconnect());
+
+	log.info({ result }, "Mailbox sync complete");
+
+	// Get all mailboxes and emit SYNC_MESSAGES for each
+	const mailboxes = await collectAllMailboxes(accountId, mailboxService);
+
+	if (mailboxes.length === 0) {
+		log.info({ accountId }, "No mailboxes to sync messages for");
+		return;
+	}
+
+	log.info(
+		{ accountId, count: mailboxes.length },
+		"Emitting SYNC_MESSAGES events",
+	);
+
+	await Promise.all(
+		mailboxes.map((mailboxId) => {
+			const syncEvent: Omit<SyncMessagesEvent, "eventId" | "timestamp"> = {
+				type: "SYNC_MESSAGES",
+				accountId,
+				mailboxId,
+			};
+			return emitEvent(syncEvent);
+		}),
+	);
+};
+
+const collectAllMailboxes = async (
+	accountId: string,
+	mailboxService: MailboxService,
+): Promise<string[]> => {
+	const mailboxIds: string[] = [];
+	let continuationToken: string | undefined;
+
+	do {
+		const result = await mailboxService.listByAccount(accountId, {
+			continuationToken,
+		});
+
+		for (const mailbox of result.items) {
+			mailboxIds.push(mailbox.mailboxId);
+		}
+
+		continuationToken = result.continuationToken ?? undefined;
+	} while (continuationToken);
+
+	return mailboxIds;
 };

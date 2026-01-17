@@ -43,7 +43,7 @@ export const createStorageService = (): StorageService => {
 		return createS3StorageService(client, bucketName);
 	}
 
-	const basePath = process.env.STORAGE_LOCAL_PATH ?? "/tmp/remit";
+	const basePath = process.env.STORAGE_LOCAL_PATH ?? ".remit/storage";
 	return createFilesystemStorageService(basePath);
 };
 

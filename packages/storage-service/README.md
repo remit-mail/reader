@@ -38,7 +38,7 @@ if (await storage.exists(ref.uri)) {
 | -------------------- | -------- | -------------------------------------------- |
 | `S3_BUCKET_NAME`     | No       | S3 bucket name. If set, S3 backend is used   |
 | `S3_ENDPOINT`        | No       | Custom S3 endpoint (for LocalStack/MinIO)    |
-| `STORAGE_LOCAL_PATH` | No       | Local filesystem path. Default: `/tmp/remit` |
+| `STORAGE_LOCAL_PATH` | No       | Local filesystem path. Default: `.remit/storage` |
 
 ### Backend Selection
 
@@ -67,10 +67,10 @@ interface StorageService {
 
 ```typescript
 interface StoreOptions {
-  key: string;                        // Storage path
-  contentEncoding?: ContentEncoding;  // Compression (default: none)
-  contentType?: string;               // MIME type for S3 metadata
-  contentAddressable?: boolean;       // Use content hash as key
+  key: string; // Storage path
+  contentEncoding?: ContentEncoding; // Compression (default: none)
+  contentType?: string; // MIME type for S3 metadata
+  contentAddressable?: boolean; // Use content hash as key
 }
 ```
 
@@ -80,12 +80,12 @@ Returned by `store()`, contains all information needed to retrieve or reference 
 
 ```typescript
 interface StorageReference {
-  uri: string;                    // Full URI: s3://bucket/key or file:///path
-  storageType: StorageTypeValue;  // "s3" | "filesystem"
-  storageLocation: string;        // Bucket name or base path
-  storageKey: string;             // Object key or relative path
-  sizeBytes: number;              // Size after compression
-  checksumSha256: string;         // Hex-encoded SHA-256 of original content
+  uri: string; // Full URI: s3://bucket/key or file:///path
+  storageType: StorageTypeValue; // "s3" | "filesystem"
+  storageLocation: string; // Bucket name or base path
+  storageKey: string; // Object key or relative path
+  sizeBytes: number; // Size after compression
+  checksumSha256: string; // Hex-encoded SHA-256 of original content
   contentEncoding: ContentEncoding;
 }
 ```
@@ -160,7 +160,10 @@ const original = await storage.retrieve(ref.uri);
 For cases where you need direct access to a specific backend:
 
 ```typescript
-import { createS3StorageService, createFilesystemStorageService } from "@remit/storage-service";
+import {
+  createS3StorageService,
+  createFilesystemStorageService,
+} from "@remit/storage-service";
 import { S3Client } from "@aws-sdk/client-s3";
 
 // S3 backend
@@ -254,7 +257,11 @@ export { createS3StorageService } from "./backends/s3.js";
 export { parseStorageUri, buildStorageUri } from "./uri.js";
 
 // Types
-export type { StorageService, StorageReference, StoreOptions } from "./storage.js";
+export type {
+  StorageService,
+  StorageReference,
+  StoreOptions,
+} from "./storage.js";
 export type { StorageTypeValue, ContentEncodingValue } from "./storage.js";
 export type { ParsedStorageUri } from "./uri.js";
 ```

@@ -28,8 +28,15 @@ export interface UpdateFlagsEvent extends BaseEvent {
 	removeFlags?: string[];
 }
 
+export interface SyncMessageBodyEvent extends BaseEvent {
+	type: "SYNC_MESSAGE_BODY";
+	mailboxId: string;
+	messageIds: string[];
+}
+
 export type ImapEvent =
 	| SyncMailboxesEvent
 	| SyncMessagesEvent
+	| SyncMessageBodyEvent
 	| FetchBodyEvent
 	| UpdateFlagsEvent;

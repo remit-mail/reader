@@ -132,4 +132,5 @@ export interface IImapConnection {
 	closeBox(expunge?: boolean): Promise<void>;
 	search(criteria: unknown[]): Promise<number[]>;
 	fetchMessages(uids: number[]): Promise<ImapMessage[]>;
+	fetchMessageBody(uid: number): Promise<Buffer>;
 }

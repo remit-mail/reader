@@ -3,8 +3,21 @@ import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 import { env } from "expect-env";
 import type { ImapEvent } from "./events.js";
 
-const sqs = new SQSClient({});
-const queueUrl = env.SQS_QUEUE_URL;
+const defaultQueueUrl = env.SQS_QUEUE_URL;
+
+const sqs = new SQSClient({
+	endpoint: defaultQueueUrl.startsWith("http://localhost")
+		? new URL(defaultQueueUrl).origin
+		: undefined,
+});
+
+const queueUrlMap: Record<ImapEvent["type"], string> = {
+	SYNC_MAILBOXES: process.env.SQS_QUEUE_URL_MAILBOXES ?? defaultQueueUrl,
+	SYNC_MESSAGES: process.env.SQS_QUEUE_URL_MESSAGES ?? defaultQueueUrl,
+	SYNC_MESSAGE_BODY: process.env.SQS_QUEUE_URL_BODY ?? defaultQueueUrl,
+	FETCH_BODY: process.env.SQS_QUEUE_URL_BODY ?? defaultQueueUrl,
+	UPDATE_FLAGS: process.env.SQS_QUEUE_URL_FLAGS ?? defaultQueueUrl,
+};
 
 export const emitEvent = async (
 	event: Omit<ImapEvent, "eventId" | "timestamp">,
@@ -14,6 +27,8 @@ export const emitEvent = async (
 		eventId: randomUUID(),
 		timestamp: Date.now(),
 	} as ImapEvent;
+
+	const queueUrl = queueUrlMap[event.type];
 
 	await sqs.send(
 		new SendMessageCommand({

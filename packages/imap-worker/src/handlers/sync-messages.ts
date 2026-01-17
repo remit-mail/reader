@@ -17,7 +17,10 @@ import {
 	deserializeEncryptedPayload,
 } from "@remit/secrets-service";
 import { env } from "expect-env";
-import type { SyncMessagesEvent } from "../events.js";
+import { emitEvent } from "../emit.js";
+import type { SyncMessageBodyEvent, SyncMessagesEvent } from "../events.js";
+
+const BODY_BATCH_SIZE = 10;
 
 const client = getClient();
 const dataKeyProvider = createKmsDataKeyProvider(env.KMS_KEY_ID);
@@ -85,7 +88,64 @@ export const syncMessages = async (
 		log,
 	);
 
-	await syncService
-		.syncMessages(mailboxId, account.accountConfigId)
-		.then((count) => log.info({ count }, "Message sync complete"));
+	const count = await syncService.syncMessages(
+		mailboxId,
+		account.accountConfigId,
+	);
+	log.info({ count }, "Message sync complete");
+
+	if (count === 0) {
+		return;
+	}
+
+	const messagesWithoutBody = await collectMessagesWithoutBody(
+		mailboxId,
+		messageService,
+	);
+
+	if (messagesWithoutBody.length === 0) {
+		log.info("No messages need body fetching");
+		return;
+	}
+
+	log.info(
+		{ count: messagesWithoutBody.length },
+		"Emitting SYNC_MESSAGE_BODY events",
+	);
+
+	for (let i = 0; i < messagesWithoutBody.length; i += BODY_BATCH_SIZE) {
+		const batch = messagesWithoutBody.slice(i, i + BODY_BATCH_SIZE);
+		const bodyEvent: Omit<SyncMessageBodyEvent, "eventId" | "timestamp"> = {
+			type: "SYNC_MESSAGE_BODY",
+			accountId: event.accountId,
+			mailboxId,
+			messageIds: batch,
+		};
+		await emitEvent(bodyEvent);
+	}
+};
+
+const collectMessagesWithoutBody = async (
+	mailboxId: string,
+	messageService: MessageService,
+): Promise<string[]> => {
+	const messageIds: string[] = [];
+	let continuationToken: string | undefined;
+
+	do {
+		const result = await messageService.listByMailbox(mailboxId, {
+			limit: 100,
+			continuationToken,
+		});
+
+		for (const message of result.items) {
+			if (!message.bodyStorageKey) {
+				messageIds.push(message.messageId);
+			}
+		}
+
+		continuationToken = result.continuationToken ?? undefined;
+	} while (continuationToken);
+
+	return messageIds;
 };

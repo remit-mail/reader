@@ -4,12 +4,29 @@ import pino from "pino";
 const isDevelopment = process.env.NODE_ENV === "development";
 const logLevel = process.env.LOG_LEVEL ?? "info";
 
-const serializeError = (err: Error): Record<string, unknown> => ({
-	name: err.name,
-	message: err.message,
-	stack: err.stack,
-	...(err.cause ? { cause: err.cause } : {}),
-});
+const serializeError = (err: Error): Record<string, unknown> => {
+	const serialized: Record<string, unknown> = {
+		name: err.name,
+		message: err.message,
+		stack: err.stack,
+	};
+
+	// Capture all enumerable properties (code, errno, syscall, custom props, etc.)
+	for (const key of Object.keys(err)) {
+		if (!(key in serialized)) {
+			const value = (err as unknown as Record<string, unknown>)[key];
+			serialized[key] = value instanceof Error ? serializeError(value) : value;
+		}
+	}
+
+	// Handle cause separately since it's not enumerable
+	if (err.cause) {
+		serialized.cause =
+			err.cause instanceof Error ? serializeError(err.cause) : err.cause;
+	}
+
+	return serialized;
+};
 
 const serializeValue = (value: unknown): unknown => {
 	if (value instanceof Error) {
@@ -68,13 +85,7 @@ const createConsoleLogger = (
 		return (objOrMsg?: Record<string, unknown> | string, msg?: string) => {
 			if (!shouldLog(level)) return;
 			const output = formatMessage(level, objOrMsg, msg);
-			if (level === "error" || level === "fatal") {
-				console.error(output);
-			} else if (level === "warn") {
-				console.warn(output);
-			} else {
-				console.log(output);
-			}
+			console.log(output);
 		};
 	};
 
