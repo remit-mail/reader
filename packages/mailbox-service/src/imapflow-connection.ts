@@ -355,6 +355,11 @@ export class ImapFlowConnection {
 	 */
 	fetchMessages = async (uids: number[]): Promise<ImapMessage[]> => {
 		this.ensureConnected();
+		const { client } = this;
+
+		if (!client) {
+			throw new Error("Not connected to IMAP server");
+		}
 
 		if (!this.currentMailbox) {
 			throw new Error("No mailbox selected");
@@ -369,7 +374,7 @@ export class ImapFlowConnection {
 		// ImapFlow fetch with native envelope support
 		const uidRange = uids.join(",");
 
-		for await (const msg of this.client.fetch(
+		for await (const msg of client.fetch(
 			uidRange,
 			{
 				uid: true,
