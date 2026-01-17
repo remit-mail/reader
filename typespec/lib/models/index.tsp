@@ -14,3 +14,7 @@ import "./BodyPart.tsp";
 
 // Storage Layer
 import "./Storage.tsp";
+
+// Thread Layer
+import "./Thread.tsp";
+import "./ThreadMessage.tsp";
