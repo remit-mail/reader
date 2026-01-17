@@ -18,3 +18,6 @@ import "./MultipartSubtype.tsp";
 // Storage Enums
 import "./StorageType.tsp";
 import "./ContentEncoding.tsp";
+
+// Thread Enums
+import "./StarColor.tsp";
