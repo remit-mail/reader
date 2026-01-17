@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { gunzipSync, gzipSync } from "node:zlib";
 import {
 	DeleteObjectCommand,
 	GetObjectCommand,
@@ -6,9 +8,11 @@ import {
 	type S3Client,
 } from "@aws-sdk/client-s3";
 import { ContentEncoding, StorageType } from "@remit/domain-enums";
-import { createHash } from "node:crypto";
-import { gunzipSync, gzipSync } from "node:zlib";
-import type { StorageReference, StorageService, StoreOptions } from "../storage.js";
+import type {
+	StorageReference,
+	StorageService,
+	StoreOptions,
+} from "../storage.js";
 import { parseStorageUri } from "../uri.js";
 
 export const createS3StorageService = (
@@ -19,7 +23,11 @@ export const createS3StorageService = (
 		content: Buffer,
 		options: StoreOptions,
 	): Promise<StorageReference> => {
-		const { key, contentEncoding = ContentEncoding.None, contentType } = options;
+		const {
+			key,
+			contentEncoding = ContentEncoding.None,
+			contentType,
+		} = options;
 
 		const checksumSha256 = createHash("sha256").update(content).digest("hex");
 		const finalKey = options.contentAddressable
@@ -36,7 +44,9 @@ export const createS3StorageService = (
 				Body: body,
 				ContentType: contentType,
 				ContentEncoding:
-					contentEncoding !== ContentEncoding.None ? contentEncoding : undefined,
+					contentEncoding !== ContentEncoding.None
+						? contentEncoding
+						: undefined,
 				ChecksumSHA256: Buffer.from(checksumSha256, "hex").toString("base64"),
 			}),
 		);

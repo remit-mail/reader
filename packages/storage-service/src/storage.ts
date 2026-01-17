@@ -1,11 +1,12 @@
+import { createHash } from "node:crypto";
 import { S3Client } from "@aws-sdk/client-s3";
 import { ContentEncoding, StorageType } from "@remit/domain-enums";
-import { createHash } from "node:crypto";
 import { createFilesystemStorageService } from "./backends/filesystem.js";
 import { createS3StorageService } from "./backends/s3.js";
 
 export type StorageTypeValue = (typeof StorageType)[keyof typeof StorageType];
-export type ContentEncodingValue = (typeof ContentEncoding)[keyof typeof ContentEncoding];
+export type ContentEncodingValue =
+	(typeof ContentEncoding)[keyof typeof ContentEncoding];
 
 export interface StorageReference {
 	uri: string;

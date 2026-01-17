@@ -24,7 +24,10 @@ describe("parseStorageUri", () => {
 	});
 
 	test("throws for unsupported schemes", () => {
-		assert.throws(() => parseStorageUri("http://example.com/file"), /Unsupported storage URI scheme/);
+		assert.throws(
+			() => parseStorageUri("http://example.com/file"),
+			/Unsupported storage URI scheme/,
+		);
 	});
 });
 
@@ -35,7 +38,11 @@ describe("buildStorageUri", () => {
 	});
 
 	test("builds file URIs", () => {
-		const uri = buildStorageUri(StorageType.Filesystem, "/var/data", "path/to/file");
+		const uri = buildStorageUri(
+			StorageType.Filesystem,
+			"/var/data",
+			"path/to/file",
+		);
 		assert.strictEqual(uri, "file:///var/data/path/to/file");
 	});
 });

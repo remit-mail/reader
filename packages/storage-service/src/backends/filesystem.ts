@@ -1,11 +1,17 @@
-import { ContentEncoding, StorageType } from "@remit/domain-enums";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
-import type { StorageReference, StorageService, StoreOptions } from "../storage.js";
+import { ContentEncoding, StorageType } from "@remit/domain-enums";
+import type {
+	StorageReference,
+	StorageService,
+	StoreOptions,
+} from "../storage.js";
 
-export const createFilesystemStorageService = (basePath: string): StorageService => {
+export const createFilesystemStorageService = (
+	basePath: string,
+): StorageService => {
 	const store = async (
 		content: Buffer,
 		options: StoreOptions,
