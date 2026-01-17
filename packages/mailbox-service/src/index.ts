@@ -10,18 +10,16 @@ export {
 	type ParsedAttributes,
 	parseImapAttributes,
 } from "./attribute-mapper.js";
-
-// IMAP connection (ImapFlow-based)
-export {
-	createImapFlowConnectionFromAccount,
-	ImapFlowConnection,
-} from "./imapflow-connection.js";
-
 // Connection factory
 export {
 	createConnection,
 	createConnectionFromAccount,
 } from "./connection-factory.js";
+// IMAP connection (ImapFlow-based)
+export {
+	createImapFlowConnectionFromAccount,
+	ImapFlowConnection,
+} from "./imapflow-connection.js";
 
 export {
 	type MailboxSyncConfig,
