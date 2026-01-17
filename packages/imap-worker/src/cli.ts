@@ -1,24 +1,7 @@
 #!/usr/bin/env node
-import { randomUUID } from "node:crypto";
-import { inspect, parseArgs } from "node:util";
-import { createLogger } from "@remit/remit-logger-lambda";
+import { parseArgs } from "node:util";
+import { emitEvent } from "./emit.js";
 import type { ImapEvent } from "./events.js";
-import { processEvent } from "./processor.js";
-
-process.on("unhandledRejection", (reason, promise) => {
-	console.error("Unhandled Rejection at:", promise, "reason:", reason);
-	process.exit(1);
-});
-
-process.on("uncaughtException", (err) => {
-	console.error("Uncaught Exception:", err);
-	process.exit(1);
-});
-
-// Ignore SIGPIPE to prevent crashes when output is piped
-process.on("SIGPIPE", () => {
-	console.error("[SIGPIPE received - ignoring]");
-});
 
 const HELP = `
 remit-imap-worker - Process IMAP sync events
@@ -31,14 +14,16 @@ OPTIONS:
   -a, --accountId <id>      Account ID (required)
   -m, --mailboxId <id>      Mailbox ID (required for some event types)
       --messageId <id>      Message ID (required for FETCH_BODY, UPDATE_FLAGS)
+      --messageIds <ids>    Comma-separated message IDs (required for SYNC_MESSAGE_BODY)
       --fullSync            Force full sync, ignoring lastSyncUid (SYNC_MESSAGES only)
   -h, --help                Show this help message
 
 EVENT TYPES:
-  SYNC_MAILBOXES   Sync all mailboxes for an account
-  SYNC_MESSAGES    Sync messages in a specific mailbox
-  FETCH_BODY       Fetch the body of a specific message
-  UPDATE_FLAGS     Update flags on a specific message
+  SYNC_MAILBOXES     Sync all mailboxes for an account
+  SYNC_MESSAGES      Sync messages in a specific mailbox
+  SYNC_MESSAGE_BODY  Fetch and store message bodies in batch
+  FETCH_BODY         Fetch the body of a specific message
+  UPDATE_FLAGS       Update flags on a specific message
 
 EXAMPLES:
   # Sync all mailboxes for an account
@@ -49,6 +34,9 @@ EXAMPLES:
 
   # Force a full sync of messages (ignore lastSyncUid)
   remit-worker -t SYNC_MESSAGES -a account-123 -m mailbox-456 --fullSync
+
+  # Sync message bodies for specific messages
+  remit-worker -t SYNC_MESSAGE_BODY -a account-123 -m mailbox-456 --messageIds id1,id2,id3
 
   # Fetch the body of a specific message
   remit-worker -t FETCH_BODY -a account-123 -m mailbox-456 --messageId msg-789
@@ -63,12 +51,11 @@ const { values } = parseArgs({
 		accountId: { type: "string", short: "a" },
 		mailboxId: { type: "string", short: "m" },
 		messageId: { type: "string" },
+		messageIds: { type: "string" },
 		fullSync: { type: "boolean", default: false },
 		help: { type: "boolean", short: "h", default: false },
 	},
 });
-
-const log = createLogger();
 
 if (values.help) {
 	console.log(HELP);
@@ -84,6 +71,7 @@ if (!values.type || !values.accountId) {
 const validTypes = [
 	"SYNC_MAILBOXES",
 	"SYNC_MESSAGES",
+	"SYNC_MESSAGE_BODY",
 	"FETCH_BODY",
 	"UPDATE_FLAGS",
 ];
@@ -95,7 +83,9 @@ if (!validTypes.includes(values.type)) {
 }
 
 if (
-	["SYNC_MESSAGES", "FETCH_BODY", "UPDATE_FLAGS"].includes(values.type) &&
+	["SYNC_MESSAGES", "SYNC_MESSAGE_BODY", "FETCH_BODY", "UPDATE_FLAGS"].includes(
+		values.type,
+	) &&
 	!values.mailboxId
 ) {
 	console.error(`Error: --mailboxId is required for ${values.type}\n`);
@@ -107,27 +97,28 @@ if (["FETCH_BODY", "UPDATE_FLAGS"].includes(values.type) && !values.messageId) {
 	process.exit(1);
 }
 
+if (values.type === "SYNC_MESSAGE_BODY" && !values.messageIds) {
+	console.error(`Error: --messageIds is required for ${values.type}\n`);
+	process.exit(1);
+}
+
 const event = {
 	type: values.type,
 	accountId: values.accountId,
 	mailboxId: values.mailboxId,
 	messageId: values.messageId,
+	messageIds: values.messageIds?.split(",").map((id) => id.trim()),
 	fullSync: values.fullSync,
-	eventId: randomUUID(),
-	timestamp: Date.now(),
-} as ImapEvent;
+} as Omit<ImapEvent, "eventId" | "timestamp">;
 
-log.info({ event }, "Running CLI event");
+console.log(`Enqueueing ${event.type} event for account ${event.accountId}...`);
 
-try {
-	await processEvent(event, log);
-	log.info("Event processing complete");
-	process.exit(0);
-} catch (error) {
-	console.error(inspect(error));
-	log.error(
-		{ error, stack: (error as Error).stack, reason: (error as Error).reason },
-		"Event processing failed",
-	);
-	process.exit(1);
-}
+emitEvent(event)
+	.then(() => {
+		console.log("Event enqueued successfully");
+		process.exit(0);
+	})
+	.catch((error) => {
+		console.error("Failed to enqueue event:", error);
+		process.exit(1);
+	});

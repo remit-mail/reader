@@ -164,6 +164,9 @@ export class ImapFlowConnection {
 		this.ensureConnected();
 
 		const mailboxes = await this.client?.list();
+		if (!mailboxes) {
+			return [];
+		}
 		const result: FlatMailboxInfo[] = [];
 
 		for (const mailbox of mailboxes) {
@@ -216,6 +219,10 @@ export class ImapFlowConnection {
 			readOnly,
 		});
 
+		if (!mailbox) {
+			throw new Error(`Failed to open mailbox: ${mailboxPath}`);
+		}
+
 		this.currentMailbox = mailboxPath;
 
 		// Extract mailbox name from path
@@ -266,8 +273,11 @@ export class ImapFlowConnection {
 		const searchQuery = this.convertSearchCriteria(criteria);
 
 		const result = await this.client?.search(searchQuery, { uid: true });
-		// search can return false if no messages match
-		return result === false ? [] : result;
+		// search can return false if no messages match, or undefined if client is null
+		if (!result) {
+			return [];
+		}
+		return result;
 	};
 
 	/**
@@ -406,6 +416,36 @@ export class ImapFlowConnection {
 		}
 
 		return messages;
+	};
+
+	/**
+	 * Fetch the full message body (RFC822 source) for a single message by UID.
+	 *
+	 * @param uid - The UID of the message to fetch
+	 * @returns The raw message body as a Buffer
+	 */
+	fetchMessageBody = async (uid: number): Promise<Buffer> => {
+		this.ensureConnected();
+		const { client } = this;
+
+		if (!client) {
+			throw new Error("Not connected to IMAP server");
+		}
+
+		if (!this.currentMailbox) {
+			throw new Error("No mailbox selected");
+		}
+
+		const { content } = await client.download(String(uid), undefined, {
+			uid: true,
+		});
+
+		const chunks: Buffer[] = [];
+		for await (const chunk of content) {
+			chunks.push(chunk);
+		}
+
+		return Buffer.concat(chunks);
 	};
 
 	/**

@@ -75,6 +75,10 @@ model Message {
   @visibility(Lifecycle.Read)
   rootBodyPartId: UUID;
 
+  @doc("Storage URI for the message body (set when body has been fetched and stored)")
+  @visibility(Lifecycle.Read)
+  bodyStorageKey?: string;
+
   @visibility(Lifecycle.Read)
   @createdAt
   createdAt: int64;

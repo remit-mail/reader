@@ -64,3 +64,4 @@ build
 .vscode
 .elasticmq/
 .dynamodb/
+.remit/
