@@ -10,7 +10,20 @@ import { env } from "expect-env";
 import type { ImapEvent } from "./events.js";
 import { processEvent } from "./processor.js";
 
-const queueUrl = env.SQS_QUEUE_URL;
+const defaultQueueUrl = env.SQS_QUEUE_URL;
+
+// Collect all unique queue URLs to poll
+const queueUrls = [
+	...new Set(
+		[
+			defaultQueueUrl,
+			process.env.SQS_QUEUE_URL_MAILBOXES,
+			process.env.SQS_QUEUE_URL_MESSAGES,
+			process.env.SQS_QUEUE_URL_BODY,
+		].filter((url): url is string => Boolean(url)),
+	),
+];
+
 // SQS ReceiveMessage API max is 10 per call
 // Lambda achieves higher throughput via concurrent invocations
 // For local dev, we poll continuously and process in parallel
@@ -18,8 +31,8 @@ const maxConcurrency = Number(process.env.WORKER_MAX_CONCURRENCY) || 10;
 const maxMessages = 10; // SQS API limit
 
 const sqs = new SQSClient({
-	endpoint: queueUrl.startsWith("http://localhost")
-		? new URL(queueUrl).origin
+	endpoint: defaultQueueUrl.startsWith("http://localhost")
+		? new URL(defaultQueueUrl).origin
 		: undefined,
 });
 const log = createLogger();
@@ -46,6 +59,7 @@ process.on("uncaughtException", (err) => {
 });
 
 const processMessage = async (
+	queueUrl: string,
 	messageBody: string,
 	receiptHandle: string,
 ): Promise<void> => {
@@ -88,10 +102,11 @@ const processWithConcurrencyLimit = async <T>(
 	await Promise.all(executing);
 };
 
-const pollQueue = async (): Promise<void> => {
+const pollQueue = async (queueUrl: string): Promise<void> => {
+	const queueName = new URL(queueUrl).pathname.split("/").pop();
 	log.info(
-		{ queueUrl, maxConcurrency, maxMessages },
-		"Worker started, polling queue...",
+		{ queueUrl, queueName, maxConcurrency, maxMessages },
+		"Polling queue...",
 	);
 
 	let consecutiveEmptyPolls = 0;
@@ -134,7 +149,7 @@ const pollQueue = async (): Promise<void> => {
 		}
 
 		log.info(
-			{ count: validMessages.length },
+			{ queueName, count: validMessages.length },
 			"Processing messages in parallel",
 		);
 
@@ -142,27 +157,31 @@ const pollQueue = async (): Promise<void> => {
 			validMessages,
 			maxConcurrency,
 			async (message) => {
-				await processMessage(message.body, message.receiptHandle).catch(
-					(error) => {
-						console.error(inspect(error));
-						log.error(
-							{
-								error,
-								stack: (error as Error).stack,
-								messageId: message.messageId,
-							},
-							"Failed to process message",
-						);
-					},
-				);
+				await processMessage(
+					queueUrl,
+					message.body,
+					message.receiptHandle,
+				).catch((error) => {
+					console.error(inspect(error));
+					log.error(
+						{
+							error,
+							stack: (error as Error).stack,
+							messageId: message.messageId,
+						},
+						"Failed to process message",
+					);
+				});
 			},
 		);
 	}
 
-	log.info("Worker shutdown complete");
+	log.info({ queueName }, "Queue polling stopped");
 };
 
-pollQueue()
+log.info({ queueUrls }, "Worker started, polling queues...");
+
+Promise.all(queueUrls.map((url) => pollQueue(url)))
 	.then(() => process.exit(0))
 	.catch((error) => {
 		console.error("Worker error:", error);

@@ -14,20 +14,6 @@ export interface SyncMessagesEvent extends BaseEvent {
 	fullSync?: boolean; // If true, ignore lastSyncUid
 }
 
-export interface FetchBodyEvent extends BaseEvent {
-	type: "FETCH_BODY";
-	mailboxId: string;
-	messageId: string;
-}
-
-export interface UpdateFlagsEvent extends BaseEvent {
-	type: "UPDATE_FLAGS";
-	mailboxId: string;
-	messageId: string;
-	addFlags?: string[];
-	removeFlags?: string[];
-}
-
 export interface SyncMessageBodyEvent extends BaseEvent {
 	type: "SYNC_MESSAGE_BODY";
 	mailboxId: string;
@@ -37,6 +23,4 @@ export interface SyncMessageBodyEvent extends BaseEvent {
 export type ImapEvent =
 	| SyncMailboxesEvent
 	| SyncMessagesEvent
-	| SyncMessageBodyEvent
-	| FetchBodyEvent
-	| UpdateFlagsEvent;
+	| SyncMessageBodyEvent;

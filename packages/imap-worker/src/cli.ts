@@ -13,7 +13,6 @@ OPTIONS:
   -t, --type <type>         Event type (required)
   -a, --accountId <id>      Account ID (required)
   -m, --mailboxId <id>      Mailbox ID (required for some event types)
-      --messageId <id>      Message ID (required for FETCH_BODY, UPDATE_FLAGS)
       --messageIds <ids>    Comma-separated message IDs (required for SYNC_MESSAGE_BODY)
       --fullSync            Force full sync, ignoring lastSyncUid (SYNC_MESSAGES only)
   -h, --help                Show this help message
@@ -22,8 +21,6 @@ EVENT TYPES:
   SYNC_MAILBOXES     Sync all mailboxes for an account
   SYNC_MESSAGES      Sync messages in a specific mailbox
   SYNC_MESSAGE_BODY  Fetch and store message bodies in batch
-  FETCH_BODY         Fetch the body of a specific message
-  UPDATE_FLAGS       Update flags on a specific message
 
 EXAMPLES:
   # Sync all mailboxes for an account
@@ -37,12 +34,6 @@ EXAMPLES:
 
   # Sync message bodies for specific messages
   remit-worker -t SYNC_MESSAGE_BODY -a account-123 -m mailbox-456 --messageIds id1,id2,id3
-
-  # Fetch the body of a specific message
-  remit-worker -t FETCH_BODY -a account-123 -m mailbox-456 --messageId msg-789
-
-  # Update flags on a message
-  remit-worker -t UPDATE_FLAGS -a account-123 -m mailbox-456 --messageId msg-789
 `;
 
 const { values } = parseArgs({
@@ -50,7 +41,6 @@ const { values } = parseArgs({
 		type: { type: "string", short: "t" },
 		accountId: { type: "string", short: "a" },
 		mailboxId: { type: "string", short: "m" },
-		messageId: { type: "string" },
 		messageIds: { type: "string" },
 		fullSync: { type: "boolean", default: false },
 		help: { type: "boolean", short: "h", default: false },
@@ -68,13 +58,7 @@ if (!values.type || !values.accountId) {
 	process.exit(0);
 }
 
-const validTypes = [
-	"SYNC_MAILBOXES",
-	"SYNC_MESSAGES",
-	"SYNC_MESSAGE_BODY",
-	"FETCH_BODY",
-	"UPDATE_FLAGS",
-];
+const validTypes = ["SYNC_MAILBOXES", "SYNC_MESSAGES", "SYNC_MESSAGE_BODY"];
 if (!validTypes.includes(values.type)) {
 	console.error(
 		`Error: Invalid type "${values.type}". Must be one of: ${validTypes.join(", ")}\n`,
@@ -83,17 +67,10 @@ if (!validTypes.includes(values.type)) {
 }
 
 if (
-	["SYNC_MESSAGES", "SYNC_MESSAGE_BODY", "FETCH_BODY", "UPDATE_FLAGS"].includes(
-		values.type,
-	) &&
+	["SYNC_MESSAGES", "SYNC_MESSAGE_BODY"].includes(values.type) &&
 	!values.mailboxId
 ) {
 	console.error(`Error: --mailboxId is required for ${values.type}\n`);
-	process.exit(1);
-}
-
-if (["FETCH_BODY", "UPDATE_FLAGS"].includes(values.type) && !values.messageId) {
-	console.error(`Error: --messageId is required for ${values.type}\n`);
 	process.exit(1);
 }
 
@@ -106,7 +83,6 @@ const event = {
 	type: values.type,
 	accountId: values.accountId,
 	mailboxId: values.mailboxId,
-	messageId: values.messageId,
 	messageIds: values.messageIds?.split(",").map((id) => id.trim()),
 	fullSync: values.fullSync,
 } as Omit<ImapEvent, "eventId" | "timestamp">;

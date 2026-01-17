@@ -15,8 +15,6 @@ const queueUrlMap: Record<ImapEvent["type"], string> = {
 	SYNC_MAILBOXES: process.env.SQS_QUEUE_URL_MAILBOXES ?? defaultQueueUrl,
 	SYNC_MESSAGES: process.env.SQS_QUEUE_URL_MESSAGES ?? defaultQueueUrl,
 	SYNC_MESSAGE_BODY: process.env.SQS_QUEUE_URL_BODY ?? defaultQueueUrl,
-	FETCH_BODY: process.env.SQS_QUEUE_URL_BODY ?? defaultQueueUrl,
-	UPDATE_FLAGS: process.env.SQS_QUEUE_URL_FLAGS ?? defaultQueueUrl,
 };
 
 export const emitEvent = async (

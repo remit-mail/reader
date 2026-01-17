@@ -39,11 +39,8 @@ npm run cli -- -t SYNC_MESSAGES -a <accountId> -m <mailboxId>
 # Force full sync (ignore lastSyncUid)
 npm run cli -- -t SYNC_MESSAGES -a <accountId> -m <mailboxId> --fullSync
 
-# Fetch the body of a specific message
-npm run cli -- -t FETCH_BODY -a <accountId> -m <mailboxId> --messageId <messageId>
-
-# Update flags on a message
-npm run cli -- -t UPDATE_FLAGS -a <accountId> -m <mailboxId> --messageId <messageId>
+# Sync message bodies for specific messages
+npm run cli -- -t SYNC_MESSAGE_BODY -a <accountId> -m <mailboxId> --messageIds id1,id2,id3
 ```
 
 ## Environment Variables
@@ -58,12 +55,11 @@ npm run cli -- -t UPDATE_FLAGS -a <accountId> -m <mailboxId> --messageId <messag
 
 ## Event Types
 
-| Event            | Description                                    | Required Fields                    |
-| ---------------- | ---------------------------------------------- | ---------------------------------- |
-| `SYNC_MAILBOXES` | Discovers and syncs mailboxes for an account   | `accountId`                        |
-| `SYNC_MESSAGES`  | Fetches new messages for a mailbox             | `accountId`, `mailboxId`           |
-| `FETCH_BODY`     | Fetches full message content                   | `accountId`, `mailboxId`, `messageId` |
-| `UPDATE_FLAGS`   | Syncs flag changes back to the IMAP server     | `accountId`, `mailboxId`, `messageId` |
+| Event               | Description                                    | Required Fields                         |
+| ------------------- | ---------------------------------------------- | --------------------------------------- |
+| `SYNC_MAILBOXES`    | Discovers and syncs mailboxes for an account   | `accountId`                             |
+| `SYNC_MESSAGES`     | Fetches new messages for a mailbox (one batch) | `accountId`, `mailboxId`                |
+| `SYNC_MESSAGE_BODY` | Fetches and stores message bodies in batch     | `accountId`, `mailboxId`, `messageIds`  |
 
 ### Event Schema
 
@@ -95,6 +91,5 @@ SQS Queue
         │
         ├──► syncMailboxes
         ├──► syncMessages
-        ├──► fetchBody
-        └──► updateFlags
+        └──► syncMessageBody
 ```
