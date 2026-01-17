@@ -65,8 +65,7 @@ export class ImapFlowConnection {
 		// When secure is false, STARTTLS may still be used, so we need to handle self-signed certs
 		const tlsOptions = this.config.tlsOptions
 			? {
-					rejectUnauthorized:
-						this.config.tlsOptions.rejectUnauthorized ?? true,
+					rejectUnauthorized: this.config.tlsOptions.rejectUnauthorized ?? true,
 				}
 			: !this.config.tls
 				? {
@@ -164,7 +163,7 @@ export class ImapFlowConnection {
 	listMailboxes = async (nsPrefix?: string): Promise<FlatMailboxInfo[]> => {
 		this.ensureConnected();
 
-		const mailboxes = await this.client!.list();
+		const mailboxes = await this.client?.list();
 		const result: FlatMailboxInfo[] = [];
 
 		for (const mailbox of mailboxes) {
@@ -213,7 +212,7 @@ export class ImapFlowConnection {
 	): Promise<ImapBoxStatus> => {
 		this.ensureConnected();
 
-		const mailbox = await this.client!.mailboxOpen(mailboxPath, {
+		const mailbox = await this.client?.mailboxOpen(mailboxPath, {
 			readOnly,
 		});
 
@@ -248,7 +247,7 @@ export class ImapFlowConnection {
 		this.ensureConnected();
 
 		if (this.currentMailbox) {
-			await this.client!.mailboxClose();
+			await this.client?.mailboxClose();
 			this.currentMailbox = null;
 		}
 	};
@@ -266,7 +265,7 @@ export class ImapFlowConnection {
 		// Convert node-imap style criteria to ImapFlow search object
 		const searchQuery = this.convertSearchCriteria(criteria);
 
-		const result = await this.client!.search(searchQuery, { uid: true });
+		const result = await this.client?.search(searchQuery, { uid: true });
 		// search can return false if no messages match
 		return result === false ? [] : result;
 	};
@@ -370,13 +369,17 @@ export class ImapFlowConnection {
 		// ImapFlow fetch with native envelope support
 		const uidRange = uids.join(",");
 
-		for await (const msg of this.client!.fetch(uidRange, {
-			uid: true,
-			flags: true,
-			envelope: true,
-			internalDate: true,
-			size: true,
-		}, { uid: true })) {
+		for await (const msg of this.client.fetch(
+			uidRange,
+			{
+				uid: true,
+				flags: true,
+				envelope: true,
+				internalDate: true,
+				size: true,
+			},
+			{ uid: true },
+		)) {
 			// Convert internalDate to Date object
 			let internalDate: Date;
 			if (msg.internalDate instanceof Date) {
@@ -404,18 +407,20 @@ export class ImapFlowConnection {
 	 * Convert ImapFlow envelope to our ImapEnvelope format
 	 */
 	private convertEnvelope = (
-		envelope: {
-			date?: Date;
-			subject?: string;
-			from?: Array<{ name?: string; address?: string }>;
-			sender?: Array<{ name?: string; address?: string }>;
-			replyTo?: Array<{ name?: string; address?: string }>;
-			to?: Array<{ name?: string; address?: string }>;
-			cc?: Array<{ name?: string; address?: string }>;
-			bcc?: Array<{ name?: string; address?: string }>;
-			inReplyTo?: string;
-			messageId?: string;
-		} | undefined,
+		envelope:
+			| {
+					date?: Date;
+					subject?: string;
+					from?: Array<{ name?: string; address?: string }>;
+					sender?: Array<{ name?: string; address?: string }>;
+					replyTo?: Array<{ name?: string; address?: string }>;
+					to?: Array<{ name?: string; address?: string }>;
+					cc?: Array<{ name?: string; address?: string }>;
+					bcc?: Array<{ name?: string; address?: string }>;
+					inReplyTo?: string;
+					messageId?: string;
+			  }
+			| undefined,
 	): ImapMessage["envelope"] => {
 		if (!envelope) {
 			return {
