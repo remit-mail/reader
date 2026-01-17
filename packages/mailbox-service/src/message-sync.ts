@@ -23,6 +23,13 @@ const noopLogger: SyncLogger = {
 	info: () => {},
 };
 
+export interface SyncMessagesResult {
+	syncedCount: number;
+	syncedMessageIds: string[];
+	hasMore: boolean;
+	remainingCount: number;
+}
+
 export class MessageSyncService {
 	private log: SyncLogger;
 
@@ -38,11 +45,14 @@ export class MessageSyncService {
 	}
 
 	/**
-	 * Sync messages for a mailbox using newest-first strategy.
+	 * Sync ONE batch of messages for a mailbox using newest-first strategy.
 	 *
 	 * Uses dual-watermark tracking:
 	 * - highWaterMarkUid: highest UID ever seen (detects new messages)
 	 * - lastSyncUid: lowest UID processed (tracks backfill progress)
+	 *
+	 * Returns hasMore=true if there are more messages to sync. The caller
+	 * should re-enqueue another sync event to continue processing.
 	 *
 	 * @param mailboxId - The database mailbox ID
 	 * @param accountConfigId - The account config ID (used for address linking)
@@ -52,7 +62,7 @@ export class MessageSyncService {
 		mailboxId: string,
 		accountConfigId: string,
 		batchSize = 50,
-	): Promise<number> {
+	): Promise<SyncMessagesResult> {
 		const mailbox = await this.mailboxService.get(mailboxId);
 		const mailboxPath = mailbox.fullPath;
 		const lastSyncUid = mailbox.lastSyncUid || 0;
@@ -69,64 +79,73 @@ export class MessageSyncService {
 				{ mailboxId, mailboxPath, total: 0 },
 				"No new messages to sync",
 			);
-			return 0;
+			return {
+				syncedCount: 0,
+				syncedMessageIds: [],
+				hasMore: false,
+				remainingCount: 0,
+			};
 		}
 
 		const totalBatches = Math.ceil(uids.length / batchSize);
 		this.log.info(
 			{ mailboxId, mailboxPath, total: uids.length, batches: totalBatches },
-			"Starting message sync (newest first)",
+			"Starting message sync batch (newest first)",
 		);
 
-		let syncedCount = 0;
-		let batchNumber = 0;
-		let currentHighWaterMark = highWaterMarkUid;
-		let currentLastSyncUid = lastSyncUid;
+		// Process only the first batch
+		const batchUids = uids.slice(0, batchSize);
+		const messages = await this.fetchMessageBatch(mailboxPath, batchUids);
+		const syncedMessageIds: string[] = [];
 
-		for (let i = 0; i < uids.length; i += batchSize) {
-			batchNumber++;
-			const batchUids = uids.slice(i, i + batchSize);
-			const messages = await this.fetchMessageBatch(mailboxPath, batchUids);
-
-			for (const msg of messages) {
-				await this.saveMessage(mailboxId, accountConfigId, msg);
+		for (const msg of messages) {
+			const messageId = await this.saveMessage(mailboxId, accountConfigId, msg);
+			if (messageId) {
+				syncedMessageIds.push(messageId);
 			}
-
-			// Update watermarks
-			const batchMax = Math.max(...batchUids);
-			const batchMin = Math.min(...batchUids);
-
-			currentHighWaterMark = Math.max(currentHighWaterMark, batchMax);
-
-			// Update lastSyncUid only for backfill UIDs (below current lastSyncUid or fresh sync)
-			if (currentLastSyncUid === 0 || batchMin < currentLastSyncUid) {
-				currentLastSyncUid = batchMin;
-			}
-
-			await this.mailboxService.update(mailboxId, {
-				lastSyncUid: currentLastSyncUid,
-				highWaterMarkUid: currentHighWaterMark,
-				lastMessageSyncAt: Date.now(),
-				uidValidity: box.uidvalidity,
-			});
-
-			syncedCount += messages.length;
-
-			this.log.info(
-				{
-					batch: batchNumber,
-					totalBatches,
-					batchSize: messages.length,
-					synced: syncedCount,
-					total: uids.length,
-					highWaterMarkUid: currentHighWaterMark,
-					lastSyncUid: currentLastSyncUid,
-				},
-				"Batch complete",
-			);
 		}
 
-		return syncedCount;
+		// Update watermarks
+		const batchMax = Math.max(...batchUids);
+		const batchMin = Math.min(...batchUids);
+
+		const newHighWaterMark = Math.max(highWaterMarkUid, batchMax);
+
+		// Update lastSyncUid only for backfill UIDs (below current lastSyncUid or fresh sync)
+		const newLastSyncUid =
+			lastSyncUid === 0 || batchMin < lastSyncUid ? batchMin : lastSyncUid;
+
+		await this.mailboxService.update(mailboxId, {
+			lastSyncUid: newLastSyncUid,
+			highWaterMarkUid: newHighWaterMark,
+			lastMessageSyncAt: Date.now(),
+			uidValidity: box.uidvalidity,
+		});
+
+		const remainingCount = uids.length - batchUids.length;
+		const hasMore = remainingCount > 0;
+
+		this.log.info(
+			{
+				batch: 1,
+				totalBatches,
+				batchSize: messages.length,
+				synced: syncedMessageIds.length,
+				total: uids.length,
+				remaining: remainingCount,
+				hasMore,
+				highWaterMarkUid: newHighWaterMark,
+				lastSyncUid: newLastSyncUid,
+			},
+			"Batch complete",
+		);
+
+		return {
+			syncedCount: syncedMessageIds.length,
+			syncedMessageIds,
+			hasMore,
+			remainingCount,
+		};
 	}
 
 	/**
@@ -193,8 +212,8 @@ export class MessageSyncService {
 		mailboxId: string,
 		accountConfigId: string,
 		msg: ImapMessage,
-	) {
-		if (!msg.envelope) return;
+	): Promise<string | null> {
+		if (!msg.envelope) return null;
 
 		const messageId = MessageService.generateIdFromSource(accountConfigId, {
 			messageId: msg.envelope.messageId,
@@ -273,6 +292,8 @@ export class MessageSyncService {
 		});
 
 		// TODO: Save Flags
+
+		return messageId;
 	}
 
 	private async saveAddresses(

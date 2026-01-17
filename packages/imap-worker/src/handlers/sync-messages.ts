@@ -53,7 +53,7 @@ export const syncMessages = async (
 ): Promise<void> => {
 	log.info(
 		{ accountId: event.accountId, mailboxId: event.mailboxId },
-		"Syncing messages",
+		"Syncing messages batch",
 	);
 
 	const account = await accountService.get(event.accountId);
@@ -88,64 +88,50 @@ export const syncMessages = async (
 		log,
 	);
 
-	const count = await syncService.syncMessages(
+	const result = await syncService.syncMessages(
 		mailboxId,
 		account.accountConfigId,
 	);
-	log.info({ count }, "Message sync complete");
-
-	if (count === 0) {
-		return;
-	}
-
-	const messagesWithoutBody = await collectMessagesWithoutBody(
-		mailboxId,
-		messageService,
-	);
-
-	if (messagesWithoutBody.length === 0) {
-		log.info("No messages need body fetching");
-		return;
-	}
-
 	log.info(
-		{ count: messagesWithoutBody.length },
-		"Emitting SYNC_MESSAGE_BODY events",
+		{
+			syncedCount: result.syncedCount,
+			hasMore: result.hasMore,
+			remainingCount: result.remainingCount,
+		},
+		"Message sync batch complete",
 	);
 
-	for (let i = 0; i < messagesWithoutBody.length; i += BODY_BATCH_SIZE) {
-		const batch = messagesWithoutBody.slice(i, i + BODY_BATCH_SIZE);
-		const bodyEvent: Omit<SyncMessageBodyEvent, "eventId" | "timestamp"> = {
-			type: "SYNC_MESSAGE_BODY",
+	// Emit body sync events for the messages we just synced
+	if (result.syncedMessageIds.length > 0) {
+		log.info(
+			{ count: result.syncedMessageIds.length },
+			"Emitting SYNC_MESSAGE_BODY events",
+		);
+
+		for (let i = 0; i < result.syncedMessageIds.length; i += BODY_BATCH_SIZE) {
+			const batch = result.syncedMessageIds.slice(i, i + BODY_BATCH_SIZE);
+			const bodyEvent: Omit<SyncMessageBodyEvent, "eventId" | "timestamp"> = {
+				type: "SYNC_MESSAGE_BODY",
+				accountId: event.accountId,
+				mailboxId,
+				messageIds: batch,
+			};
+			await emitEvent(bodyEvent);
+		}
+	}
+
+	// If there are more messages to sync, emit another SYNC_MESSAGES event
+	if (result.hasMore) {
+		log.info(
+			{ remainingCount: result.remainingCount },
+			"Emitting SYNC_MESSAGES event for next batch",
+		);
+
+		const nextSyncEvent: Omit<SyncMessagesEvent, "eventId" | "timestamp"> = {
+			type: "SYNC_MESSAGES",
 			accountId: event.accountId,
 			mailboxId,
-			messageIds: batch,
 		};
-		await emitEvent(bodyEvent);
+		await emitEvent(nextSyncEvent);
 	}
-};
-
-const collectMessagesWithoutBody = async (
-	mailboxId: string,
-	messageService: MessageService,
-): Promise<string[]> => {
-	const messageIds: string[] = [];
-	let continuationToken: string | undefined;
-
-	do {
-		const result = await messageService.listByMailbox(mailboxId, {
-			limit: 100,
-			continuationToken,
-		});
-
-		for (const message of result.items) {
-			if (!message.bodyStorageKey) {
-				messageIds.push(message.messageId);
-			}
-		}
-
-		continuationToken = result.continuationToken ?? undefined;
-	} while (continuationToken);
-
-	return messageIds;
 };
