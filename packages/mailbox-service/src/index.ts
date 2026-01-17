@@ -10,6 +10,12 @@ export {
 	type ParsedAttributes,
 	parseImapAttributes,
 } from "./attribute-mapper.js";
+export {
+	type BodySyncLogger,
+	BodySyncService,
+	type ConnectionGetter,
+	type SyncBodiesResult,
+} from "./body-sync.js";
 // Connection factory
 export {
 	createConnection,
@@ -20,7 +26,6 @@ export {
 	createImapFlowConnectionFromAccount,
 	ImapFlowConnection,
 } from "./imapflow-connection.js";
-
 export {
 	type MailboxSyncConfig,
 	MailboxSyncService,
@@ -29,6 +34,7 @@ export {
 export {
 	type ImapConnectionFactory,
 	MessageSyncService,
+	type SyncMessagesResult,
 } from "./message-sync.js";
 export type {
 	FlatMailboxInfo,
