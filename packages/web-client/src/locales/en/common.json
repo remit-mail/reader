@@ -1,0 +1,26 @@
+{
+  "app": {
+    "title": "Remit",
+    "loading": "Loading...",
+    "error": "Something went wrong"
+  },
+  "actions": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "close": "Close",
+    "confirm": "Confirm"
+  },
+  "pagination": {
+    "previous": "Previous",
+    "next": "Next",
+    "page": "Page {{current}} of {{total}}",
+    "showing": "Showing {{from}}-{{to}} of {{total}}"
+  },
+  "accessibility": {
+    "skipToContent": "Skip to main content",
+    "loading": "Loading content",
+    "menuOpen": "Open menu",
+    "menuClose": "Close menu"
+  }
+}
