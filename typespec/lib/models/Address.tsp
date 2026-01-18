@@ -99,6 +99,10 @@ model EnvelopeAddress {
   @visibility(Lifecycle.Read)
   displayName?: string;
 
+  @doc("Lowercase full email address (denormalized from Address for efficient queries)")
+  @visibility(Lifecycle.Read)
+  normalizedEmail: string;
+
   @doc("Role of this address in the envelope (from, to, cc, bcc, sender, reply-to)")
   @visibility(Lifecycle.Read)
   addressRole: AddressRole;

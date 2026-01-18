@@ -21,10 +21,12 @@
 		"@remit/electrodb-entities": "*",
 		"@remit/domain-enums": "*",
 		"@remit/storage-service": "*",
+		"@types/mailparser": "*",
 		"@types/uuid": "^10.0.0",
 		"electrodb": "*",
 		"expect-env": "*",
 		"imapflow": "^1.0.171",
+		"mailparser": "*",
 		"short-uuid": "*"
 	},
 	"dependencies": {
