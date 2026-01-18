@@ -14,6 +14,7 @@ import {
 	deserializeEncryptedPayload,
 } from "@remit/secrets-service";
 import { env } from "expect-env";
+import pMap from "p-map";
 import { emitEvent } from "../emit.js";
 import type { SyncMailboxesEvent, SyncMessagesEvent } from "../events.js";
 
@@ -81,15 +82,17 @@ export const syncMailboxes = async (
 		"Emitting SYNC_MESSAGES events",
 	);
 
-	await Promise.all(
-		mailboxes.map((mailboxId) => {
+	await pMap(
+		mailboxes,
+		(mailboxId) => {
 			const syncEvent: Omit<SyncMessagesEvent, "eventId" | "timestamp"> = {
 				type: "SYNC_MESSAGES",
 				accountId,
 				mailboxId,
 			};
 			return emitEvent(syncEvent);
-		}),
+		},
+		{ concurrency: 5 },
 	);
 };
 

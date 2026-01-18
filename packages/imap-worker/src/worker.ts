@@ -7,6 +7,7 @@ import {
 } from "@aws-sdk/client-sqs";
 import { createLogger } from "@remit/logger-lambda";
 import { env } from "expect-env";
+import pMap from "p-map";
 import type { ImapEvent } from "./events.js";
 import { processEvent } from "./processor.js";
 
@@ -81,27 +82,6 @@ const processMessage = async (
 	);
 };
 
-const processWithConcurrencyLimit = async <T>(
-	items: T[],
-	concurrency: number,
-	fn: (item: T) => Promise<void>,
-): Promise<void> => {
-	const executing: Promise<void>[] = [];
-
-	for (const item of items) {
-		const promise = fn(item).then(() => {
-			executing.splice(executing.indexOf(promise), 1);
-		});
-		executing.push(promise);
-
-		if (executing.length >= concurrency) {
-			await Promise.race(executing);
-		}
-	}
-
-	await Promise.all(executing);
-};
-
 const pollQueue = async (queueUrl: string): Promise<void> => {
 	const queueName = new URL(queueUrl).pathname.split("/").pop();
 	log.info(
@@ -153,26 +133,23 @@ const pollQueue = async (queueUrl: string): Promise<void> => {
 			"Processing messages in parallel",
 		);
 
-		await processWithConcurrencyLimit(
+		await pMap(
 			validMessages,
-			maxConcurrency,
-			async (message) => {
-				await processMessage(
-					queueUrl,
-					message.body,
-					message.receiptHandle,
-				).catch((error) => {
-					console.error(inspect(error));
-					log.error(
-						{
-							error,
-							stack: (error as Error).stack,
-							messageId: message.messageId,
-						},
-						"Failed to process message",
-					);
-				});
-			},
+			(message) =>
+				processMessage(queueUrl, message.body, message.receiptHandle).catch(
+					(error) => {
+						console.error(inspect(error));
+						log.error(
+							{
+								error,
+								stack: (error as Error).stack,
+								messageId: message.messageId,
+							},
+							"Failed to process message",
+						);
+					},
+				),
+			{ concurrency: maxConcurrency },
 		);
 	}
 
