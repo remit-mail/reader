@@ -14,7 +14,6 @@ import {
 	deserializeEncryptedPayload,
 } from "@remit/secrets-service";
 import { env } from "expect-env";
-import pMap from "p-map";
 import { emitEvent } from "../emit.js";
 import type { SyncMailboxesEvent, SyncMessagesEvent } from "../events.js";
 
@@ -82,25 +81,27 @@ export const syncMailboxes = async (
 		"Emitting SYNC_MESSAGES events",
 	);
 
-	await pMap(
-		mailboxes,
-		(mailboxId) => {
-			const syncEvent: Omit<SyncMessagesEvent, "eventId" | "timestamp"> = {
-				type: "SYNC_MESSAGES",
-				accountId,
-				mailboxId,
-			};
-			return emitEvent(syncEvent);
-		},
-		{ concurrency: 5 },
-	);
+	// Emit events sequentially to preserve priority order (INBOX first)
+	for (const { mailboxId } of mailboxes) {
+		const syncEvent: Omit<SyncMessagesEvent, "eventId" | "timestamp"> = {
+			type: "SYNC_MESSAGES",
+			accountId,
+			mailboxId,
+		};
+		await emitEvent(syncEvent);
+	}
 };
 
+type MailboxSortEntry = { mailboxId: string; fullPath: string };
+
+/**
+ * Collect all mailboxes for an account, sorted with INBOX first, then alphabetically by path.
+ */
 const collectAllMailboxes = async (
 	accountId: string,
 	mailboxService: MailboxService,
-): Promise<string[]> => {
-	const mailboxIds: string[] = [];
+): Promise<MailboxSortEntry[]> => {
+	const mailboxes: MailboxSortEntry[] = [];
 	let continuationToken: string | undefined;
 
 	do {
@@ -109,11 +110,23 @@ const collectAllMailboxes = async (
 		});
 
 		for (const mailbox of result.items) {
-			mailboxIds.push(mailbox.mailboxId);
+			mailboxes.push({
+				mailboxId: mailbox.mailboxId,
+				fullPath: mailbox.fullPath,
+			});
 		}
 
 		continuationToken = result.continuationToken ?? undefined;
 	} while (continuationToken);
 
-	return mailboxIds;
+	// Sort: INBOX first, then alphabetically by fullPath
+	return mailboxes.sort((a, b) => {
+		const aIsInbox = a.fullPath.toUpperCase() === "INBOX";
+		const bIsInbox = b.fullPath.toUpperCase() === "INBOX";
+
+		if (aIsInbox && !bIsInbox) return -1;
+		if (!aIsInbox && bIsInbox) return 1;
+
+		return a.fullPath.localeCompare(b.fullPath);
+	});
 };
