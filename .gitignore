@@ -62,4 +62,5 @@ typings/
 build
 **/dist
 .vscode
-rm 
+.elasticmq/
+.dynamodb/
