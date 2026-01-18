@@ -22,6 +22,7 @@
 		"@remit/remit-logger-lambda": "*",
 		"@types/aws-lambda": "*",
 		"esbuild": "*",
-		"expect-env": "*"
+		"expect-env": "*",
+		"p-map": "*"
 	}
 }
