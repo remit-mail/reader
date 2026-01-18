@@ -12,7 +12,7 @@
 	},
 	"scripts": {
 		"test:typecheck": "tsc --noEmit",
-		"test:run": "DYNAMODB_PORT=8000 DYNAMODB_TABLE_NAME=remit-local node --import tsx --test 'src/**/*.test.ts'",
+		"test:run": "node --env-file=../../.test.env --import tsx --test 'src/**/*.test.ts'",
 		"test": "npm run test:typecheck && npm run test:run"
 	},
 	"devDependencies": {

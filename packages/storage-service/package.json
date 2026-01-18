@@ -12,7 +12,7 @@
 	},
 	"scripts": {
 		"test:typecheck": "tsc --noEmit",
-		"test:run": "node --import tsx --test 'src/**/*.test.ts'",
+		"test:run": "node --env-file=../../.test.env --import tsx --test 'src/**/*.test.ts'",
 		"test": "npm run test:typecheck && npm run test:run"
 	},
 	"devDependencies": {
