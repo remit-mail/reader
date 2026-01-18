@@ -14,6 +14,7 @@ export {
 	type BodySyncLogger,
 	BodySyncService,
 	type ConnectionGetter,
+	type FetchBodyResult,
 	type SyncBodiesResult,
 } from "./body-sync.js";
 // Connection factory

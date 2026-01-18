@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { ContentEncoding, StorageType } from "@remit/domain-enums";
 import type {
@@ -41,9 +41,19 @@ export const createFilesystemStorageService = (
 		};
 	};
 
-	const retrieve = async (uri: string): Promise<Buffer> => {
+	// Resolve path from URI, handling both absolute and relative paths
+	const resolvePathFromUri = (uri: string): string => {
 		const url = new URL(uri);
-		const fullPath = url.pathname;
+		const pathname = url.pathname;
+		// If path is relative (doesn't start with /), resolve from workspace root
+		if (!pathname.startsWith("/")) {
+			return resolve(pathname);
+		}
+		return pathname;
+	};
+
+	const retrieve = async (uri: string): Promise<Buffer> => {
+		const fullPath = resolvePathFromUri(uri);
 
 		const buffer = await readFile(fullPath);
 
@@ -55,15 +65,15 @@ export const createFilesystemStorageService = (
 	};
 
 	const exists = async (uri: string): Promise<boolean> => {
-		const url = new URL(uri);
-		return stat(url.pathname)
+		const fullPath = resolvePathFromUri(uri);
+		return stat(fullPath)
 			.then(() => true)
 			.catch(() => false);
 	};
 
 	const del = async (uri: string): Promise<void> => {
-		const url = new URL(uri);
-		await unlink(url.pathname);
+		const fullPath = resolvePathFromUri(uri);
+		await unlink(fullPath);
 	};
 
 	const contentAddressableKey = (content: Buffer, prefix = "dedup"): string => {
