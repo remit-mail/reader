@@ -1,0 +1,50 @@
+{
+  "inbox": {
+    "title": "Inbox",
+    "empty": "No messages in your inbox",
+    "emptyFiltered": "No {{filter}} messages",
+    "noSubject": "(No subject)"
+  },
+  "thread": {
+    "messageCount": "{{count}} message",
+    "messageCount_other": "{{count}} messages",
+    "unreadCount": "{{count}} unread",
+    "participants": "{{count}} participant",
+    "participants_other": "{{count}} participants"
+  },
+  "filters": {
+    "all": "All",
+    "unread": "Unread",
+    "starred": "Starred",
+    "attachments": "Has attachments"
+  },
+  "actions": {
+    "compose": "Compose",
+    "reply": "Reply",
+    "replyAll": "Reply all",
+    "forward": "Forward",
+    "archive": "Archive",
+    "markRead": "Mark as read",
+    "markUnread": "Mark as unread",
+    "star": "Star",
+    "unstar": "Remove star",
+    "moveToTrash": "Move to trash"
+  },
+  "compose": {
+    "title": "New message",
+    "description": "Compose a new email message",
+    "to": "To",
+    "cc": "Cc",
+    "bcc": "Bcc",
+    "subject": "Subject",
+    "body": "Message",
+    "send": "Send",
+    "discard": "Discard",
+    "attachFiles": "Attach files"
+  },
+  "time": {
+    "justNow": "Just now",
+    "today": "Today",
+    "yesterday": "Yesterday"
+  }
+}
