@@ -36,6 +36,12 @@ export {
 	MessageSyncService,
 	type SyncMessagesResult,
 } from "./message-sync.js";
+export {
+	extractSnippetFromEmail,
+	generateSnippet,
+	normalizeSubject,
+	removeQuotedContent,
+} from "./snippet.js";
 export type {
 	FlatMailboxInfo,
 	IImapConnection,

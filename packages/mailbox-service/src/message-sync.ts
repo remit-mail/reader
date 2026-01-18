@@ -5,9 +5,17 @@ import {
 	type MailboxService,
 	MessageService,
 	REMIT_NAMESPACE,
+	type ThreadMessageService,
+	ThreadService,
 } from "@remit/remit-electrodb-service";
 import { AddressRole } from "@remit/domain-enums";
-import type { IImapConnection, ImapAddress, ImapMessage } from "./types.js";
+import { normalizeSubject } from "./snippet.js";
+import type {
+	IImapConnection,
+	ImapAddress,
+	ImapEnvelope,
+	ImapMessage,
+} from "./types.js";
 
 /**
  * Factory function to create IMAP connections.
@@ -39,6 +47,8 @@ export class MessageSyncService {
 		private messageService: MessageService,
 		private envelopeService: EnvelopeService,
 		private addressService: AddressService,
+		private threadService: ThreadService,
+		private threadMessageService: ThreadMessageService,
 		logger?: SyncLogger,
 	) {
 		this.log = logger ?? noopLogger;
@@ -293,6 +303,16 @@ export class MessageSyncService {
 
 		// TODO: Save Flags
 
+		// Create Thread and ThreadMessage
+		await this.createThreadForMessage(
+			messageId,
+			mailboxId,
+			accountConfigId,
+			msg.uid,
+			msg.internalDate.getTime(),
+			msg.envelope,
+		);
+
 		return messageId;
 	}
 
@@ -340,9 +360,121 @@ export class MessageSyncService {
 				messageId,
 				addressId,
 				displayName,
+				normalizedEmail,
 				addressRole: role,
 				addressOrder: order++,
 			});
 		}
+	}
+
+	/**
+	 * Create or update Thread and ThreadMessage for a synced message.
+	 *
+	 * Thread ID is derived from the root Message-ID:
+	 * - If inReplyTo exists, use it as the thread root (message is a reply)
+	 * - Otherwise, use messageId as the thread root (message starts a new thread)
+	 */
+	private async createThreadForMessage(
+		messageId: string,
+		mailboxId: string,
+		accountConfigId: string,
+		uid: number,
+		internalDate: number,
+		envelope: ImapEnvelope,
+	): Promise<void> {
+		// Derive root Message-ID for thread grouping
+		const rootMessageIdHeader = envelope.inReplyTo || envelope.messageId;
+		if (!rootMessageIdHeader) {
+			// Cannot create thread without Message-ID
+			return;
+		}
+
+		const threadId = ThreadService.deriveThreadId(
+			accountConfigId,
+			rootMessageIdHeader,
+		);
+
+		// Extract sender info
+		const fromAddr = envelope.from?.[0];
+		const fromEmail = fromAddr
+			? `${fromAddr.mailbox}@${fromAddr.host}`.toLowerCase()
+			: "";
+		const fromName = fromAddr?.name;
+
+		// Parse envelope date
+		const dateValue = envelope.date
+			? new Date(envelope.date).getTime()
+			: internalDate;
+
+		// Check if thread exists
+		const existingThread = await this.threadService.findByThreadId(threadId);
+
+		if (existingThread) {
+			// Update existing thread aggregates
+			const participants = existingThread.participants.includes(fromEmail)
+				? existingThread.participants
+				: [fromEmail, ...existingThread.participants].slice(0, 50);
+
+			const mailboxIds = existingThread.mailboxIds.includes(mailboxId)
+				? existingThread.mailboxIds
+				: [...existingThread.mailboxIds, mailboxId];
+
+			await this.threadService.update(accountConfigId, threadId, {
+				messageCount: existingThread.messageCount + 1,
+				unreadCount: existingThread.unreadCount + 1, // Assume new messages are unread
+				hasUnread: true,
+				participants,
+				participantCount: participants.length,
+				mailboxIds,
+				lastMessageAt: Math.max(existingThread.lastMessageAt, dateValue),
+				firstMessageAt: Math.min(existingThread.firstMessageAt, dateValue),
+			});
+		} else {
+			// Create new thread
+			await this.threadService.create({
+				accountConfigId,
+				rootMessageIdHeader,
+				subject: envelope.subject,
+				subjectNormalized: normalizeSubject(envelope.subject || ""),
+				participants: fromEmail ? [fromEmail] : [],
+				participantCount: fromEmail ? 1 : 0,
+				messageCount: 1,
+				unreadCount: 1,
+				hasUnread: true,
+				hasAttachments: false,
+				hasStars: false,
+				mailboxIds: [mailboxId],
+				firstMessageAt: dateValue,
+				lastMessageAt: dateValue,
+			});
+		}
+
+		// Create ThreadMessage linking message to thread
+		await this.threadMessageService
+			.create({
+				threadId,
+				messageId,
+				accountConfigId,
+				mailboxId,
+				uid,
+				messageIdHeader: envelope.messageId,
+				inReplyTo: envelope.inReplyTo,
+				referenceOrder: envelope.inReplyTo ? 1 : 0,
+				fromEmail,
+				fromName,
+				subject: envelope.subject,
+				internalDate,
+				isRead: false,
+				hasAttachment: false,
+			})
+			.catch((error: unknown) => {
+				// Ignore conflict errors (idempotent create)
+				if (
+					(error as { name?: string })?.name === "CreateFailedConflictError"
+				) {
+					return;
+				}
+				throw error;
+			});
 	}
 }

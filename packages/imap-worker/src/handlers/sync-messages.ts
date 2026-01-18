@@ -5,6 +5,8 @@ import {
 	getClient,
 	MailboxService,
 	MessageService,
+	ThreadMessageService,
+	ThreadService,
 } from "@remit/remit-electrodb-service";
 import type { Logger } from "@remit/remit-logger-lambda";
 import {
@@ -43,6 +45,14 @@ const envelopeService = new EnvelopeService({
 	table: env.DYNAMODB_TABLE_NAME,
 });
 const addressService = new AddressService({
+	client,
+	table: env.DYNAMODB_TABLE_NAME,
+});
+const threadService = new ThreadService({
+	client,
+	table: env.DYNAMODB_TABLE_NAME,
+});
+const threadMessageService = new ThreadMessageService({
 	client,
 	table: env.DYNAMODB_TABLE_NAME,
 });
@@ -85,6 +95,8 @@ export const syncMessages = async (
 		messageService,
 		envelopeService,
 		addressService,
+		threadService,
+		threadMessageService,
 		log,
 	);
 

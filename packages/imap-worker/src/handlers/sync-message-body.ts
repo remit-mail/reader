@@ -3,6 +3,8 @@ import {
 	getClient,
 	MailboxService,
 	MessageService,
+	ThreadMessageService,
+	ThreadService,
 } from "@remit/remit-electrodb-service";
 import type { Logger } from "@remit/remit-logger-lambda";
 import { BodySyncService } from "@remit/mailbox-service";
@@ -32,6 +34,14 @@ const messageService = new MessageService({
 	client,
 	table: env.DYNAMODB_TABLE_NAME,
 });
+const threadService = new ThreadService({
+	client,
+	table: env.DYNAMODB_TABLE_NAME,
+});
+const threadMessageService = new ThreadMessageService({
+	client,
+	table: env.DYNAMODB_TABLE_NAME,
+});
 
 export const syncMessageBody = async (
 	event: SyncMessageBodyEvent,
@@ -57,9 +67,20 @@ export const syncMessageBody = async (
 	const mailbox = await mailboxService.get(mailboxId);
 	const storage = createStorageService();
 
-	const bodySyncService = new BodySyncService(messageService, storage, log);
+	const bodySyncService = new BodySyncService(
+		messageService,
+		storage,
+		threadService,
+		threadMessageService,
+		log,
+	);
 
 	await bodySyncService
-		.syncBodies(messageIds, mailbox.fullPath, scope.getConnection)
+		.syncBodies(
+			messageIds,
+			account.accountConfigId,
+			mailbox.fullPath,
+			scope.getConnection,
+		)
 		.finally(() => scope.disconnect());
 };
