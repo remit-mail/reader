@@ -64,3 +64,5 @@ build
 .elasticmq/
 .dynamodb/
 .remit/
+.tmux/
+.DS_Store
