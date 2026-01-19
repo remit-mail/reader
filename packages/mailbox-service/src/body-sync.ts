@@ -2,7 +2,6 @@ import { appendFileSync } from "node:fs";
 import type {
 	MessageService,
 	ThreadMessageService,
-	ThreadService,
 } from "@remit/remit-electrodb-service";
 import type { StorageService } from "@remit/storage-service";
 import { simpleParser } from "mailparser";
@@ -51,7 +50,6 @@ export class BodySyncService {
 	constructor(
 		private messageService: MessageService,
 		private storageService: StorageService,
-		private threadService: ThreadService,
 		private threadMessageService: ThreadMessageService,
 		logger?: BodySyncLogger,
 	) {
@@ -249,7 +247,7 @@ export class BodySyncService {
 	}
 
 	/**
-	 * Extract snippet from message body and update ThreadMessage and Thread.
+	 * Extract snippet from message body and update ThreadMessage.
 	 */
 	private async updateSnippets(
 		messageId: string,
@@ -301,20 +299,9 @@ export class BodySyncService {
 			{ snippet },
 		);
 
-		// Update Thread snippet (always update - eventual consistency)
-		const threadSnippet = extractSnippetFromEmail(
-			parsed.text,
-			typeof parsed.html === "string" ? parsed.html : undefined,
-			512,
-		);
-
-		await this.threadService.update(accountConfigId, threadMessage.threadId, {
-			snippet: threadSnippet,
-		});
-
 		this.log.debug?.(
 			{ messageId, snippetLength: snippet.length },
-			"Snippets updated",
+			"Snippet updated",
 		);
 	}
 }

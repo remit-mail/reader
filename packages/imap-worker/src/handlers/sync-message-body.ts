@@ -4,7 +4,6 @@ import {
 	MailboxService,
 	MessageService,
 	ThreadMessageService,
-	ThreadService,
 } from "@remit/remit-electrodb-service";
 import type { Logger } from "@remit/logger-lambda";
 import { BodySyncService } from "@remit/mailbox-service";
@@ -31,10 +30,6 @@ const mailboxService = new MailboxService({
 	table: env.DYNAMODB_TABLE_NAME,
 });
 const messageService = new MessageService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-const threadService = new ThreadService({
 	client,
 	table: env.DYNAMODB_TABLE_NAME,
 });
@@ -70,7 +65,6 @@ export const syncMessageBody = async (
 	const bodySyncService = new BodySyncService(
 		messageService,
 		storage,
-		threadService,
 		threadMessageService,
 		log,
 	);

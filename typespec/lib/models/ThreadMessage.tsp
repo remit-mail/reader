@@ -14,7 +14,7 @@ namespace RemitImap;
     sk: [ThreadMessage.threadMessageId],
   }
 )
-// Shares "threadDetails" collection with Thread and ThreadParticipant
+// Collection "threadDetails" on GSI0 - can be extended with ThreadAggregates later
 @index(
   "byThreadId",
   {
@@ -38,6 +38,42 @@ namespace RemitImap;
     index: "gsi2",
     pk: [ThreadMessage.mailboxId],
     sk: [ThreadMessage.internalDate],
+  }
+)
+// LSI1: List messages by date (account-wide)
+@index(
+  "byDate",
+  {
+    index: "lsi1",
+    pk: [ThreadMessage.accountConfigId],
+    sk: [ThreadMessage.internalDate],
+  }
+)
+// LSI2: Filter/count unread messages
+@index(
+  "byUnread",
+  {
+    index: "lsi2",
+    pk: [ThreadMessage.accountConfigId],
+    sk: [ThreadMessage.isRead, ThreadMessage.internalDate],
+  }
+)
+// LSI3: Filter/count messages with attachments
+@index(
+  "byAttachment",
+  {
+    index: "lsi3",
+    pk: [ThreadMessage.accountConfigId],
+    sk: [ThreadMessage.hasAttachment, ThreadMessage.internalDate],
+  }
+)
+// LSI4: Filter/count starred messages
+@index(
+  "byStarred",
+  {
+    index: "lsi4",
+    pk: [ThreadMessage.accountConfigId],
+    sk: [ThreadMessage.hasStars, ThreadMessage.internalDate],
   }
 )
 model ThreadMessage {
@@ -106,6 +142,10 @@ model ThreadMessage {
   @doc("Message-level star color")
   @visibility(Lifecycle.Read)
   star?: StarColor;
+
+  @doc("True if message is starred (for index filtering)")
+  @visibility(Lifecycle.Read)
+  hasStars: boolean;
 
   @doc("Preview text (~256 chars)")
   @visibility(Lifecycle.Read)
