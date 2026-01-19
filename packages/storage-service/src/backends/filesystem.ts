@@ -1,32 +1,35 @@
-import { createHash } from "node:crypto";
 import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { ContentEncoding, StorageType } from "@remit/domain-enums";
-import type {
-	StorageReference,
-	StorageService,
-	StoreOptions,
+import type { StorageReference, StorageService } from "../storage.js";
+import {
+	buildBodyPartKey,
+	buildDeduplicatedKey,
+	buildMessageBodyKey,
+	computeChecksum,
 } from "../storage.js";
+
+interface StoreParams {
+	key: string;
+	content: Buffer;
+	compress?: boolean;
+}
 
 export const createFilesystemStorageService = (
 	basePath: string,
 ): StorageService => {
-	const store = async (
-		content: Buffer,
-		options: StoreOptions,
+	const storeInternal = async (
+		params: StoreParams,
 	): Promise<StorageReference> => {
-		const { key, contentEncoding = ContentEncoding.None } = options;
+		const { key, content, compress = true } = params;
+		const checksumSha256 = computeChecksum(content);
+		const contentEncoding = compress
+			? ContentEncoding.Gzip
+			: ContentEncoding.None;
+		const body = compress ? gzipSync(content) : content;
 
-		const checksumSha256 = createHash("sha256").update(content).digest("hex");
-		const finalKey = options.contentAddressable
-			? `dedup/${checksumSha256.slice(0, 2)}/${checksumSha256}`
-			: key;
-
-		const fullPath = join(basePath, finalKey);
-		const body =
-			contentEncoding === ContentEncoding.Gzip ? gzipSync(content) : content;
-
+		const fullPath = join(basePath, key);
 		await mkdir(dirname(fullPath), { recursive: true });
 		await writeFile(fullPath, body);
 
@@ -34,11 +37,36 @@ export const createFilesystemStorageService = (
 			uri: `file://${fullPath}`,
 			storageType: StorageType.Filesystem,
 			storageLocation: basePath,
-			storageKey: finalKey,
+			storageKey: key,
 			sizeBytes: body.length,
 			checksumSha256,
 			contentEncoding,
 		};
+	};
+
+	const storeMessageBody: StorageService["storeMessageBody"] = (params) => {
+		const { accountId, messageId, content } = params;
+		return storeInternal({
+			key: buildMessageBodyKey(accountId, messageId),
+			content,
+		});
+	};
+
+	const storeBodyPart: StorageService["storeBodyPart"] = (params) => {
+		const { accountId, messageId, partPath, content } = params;
+		return storeInternal({
+			key: buildBodyPartKey(accountId, messageId, partPath),
+			content,
+		});
+	};
+
+	const storeDeduplicated: StorageService["storeDeduplicated"] = (params) => {
+		const { accountId, content } = params;
+		const checksumSha256 = computeChecksum(content);
+		return storeInternal({
+			key: buildDeduplicatedKey(accountId, checksumSha256),
+			content,
+		});
 	};
 
 	// Resolve path from URI, handling both absolute and relative paths
@@ -83,10 +111,12 @@ export const createFilesystemStorageService = (
 		await unlink(fullPath);
 	};
 
-	const contentAddressableKey = (content: Buffer, prefix = "dedup"): string => {
-		const hash = createHash("sha256").update(content).digest("hex");
-		return `${prefix}/${hash.slice(0, 2)}/${hash}`;
+	return {
+		storeMessageBody,
+		storeBodyPart,
+		storeDeduplicated,
+		retrieve,
+		exists,
+		delete: del,
 	};
-
-	return { store, retrieve, exists, delete: del, contentAddressableKey };
 };

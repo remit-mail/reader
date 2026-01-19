@@ -18,20 +18,69 @@ export interface StorageReference {
 	contentEncoding: ContentEncodingValue;
 }
 
-export interface StoreOptions {
-	key: string;
-	contentEncoding?: ContentEncodingValue;
+/** Parameters for storing a message body (raw RFC822 content) */
+export interface StoreMessageBodyParams {
+	accountId: string;
+	messageId: string;
+	content: Buffer;
+}
+
+/** Parameters for storing a body part (attachment, inline content) */
+export interface StoreBodyPartParams {
+	accountId: string;
+	messageId: string;
+	partPath: string;
+	content: Buffer;
 	contentType?: string;
-	contentAddressable?: boolean;
+}
+
+/** Parameters for storing deduplicated content (attachments shared across messages) */
+export interface StoreDeduplicatedParams {
+	accountId: string;
+	content: Buffer;
+	contentType?: string;
 }
 
 export interface StorageService {
-	store(content: Buffer, options: StoreOptions): Promise<StorageReference>;
+	/** Store a message body (raw RFC822 content) */
+	storeMessageBody(params: StoreMessageBodyParams): Promise<StorageReference>;
+
+	/** Store a body part (attachment, inline content) */
+	storeBodyPart(params: StoreBodyPartParams): Promise<StorageReference>;
+
+	/** Store deduplicated content (content-addressable, for attachments) */
+	storeDeduplicated(params: StoreDeduplicatedParams): Promise<StorageReference>;
+
+	/** Retrieve content by URI */
 	retrieve(uri: string): Promise<Buffer>;
+
+	/** Check if content exists */
 	exists(uri: string): Promise<boolean>;
+
+	/** Delete content by URI */
 	delete(uri: string): Promise<void>;
-	contentAddressableKey(content: Buffer, prefix?: string): string;
 }
+
+// Path builders - centralized path formatting per RFC 011
+export const buildMessageBodyKey = (
+	accountId: string,
+	messageId: string,
+): string => `accounts/${accountId}/messages/${messageId}/body.eml`;
+
+export const buildBodyPartKey = (
+	accountId: string,
+	messageId: string,
+	partPath: string,
+): string => `accounts/${accountId}/messages/${messageId}/parts/${partPath}`;
+
+export const buildDeduplicatedKey = (
+	accountId: string,
+	checksumSha256: string,
+): string =>
+	`accounts/${accountId}/dedup/${checksumSha256.slice(0, 2)}/${checksumSha256}`;
+
+export const computeChecksum = (content: Buffer): string =>
+	createHash("sha256").update(content).digest("hex");
 
 export const createStorageService = (): StorageService => {
 	const bucketName = process.env.S3_BUCKET_NAME;
@@ -50,24 +99,51 @@ export const createStorageService = (): StorageService => {
 export const createMockStorageService = (): StorageService => {
 	const storage = new Map<string, Buffer>();
 
+	const storeInternal = (key: string, content: Buffer): StorageReference => {
+		const checksumSha256 = computeChecksum(content);
+		const uri = `mock://${key}`;
+		storage.set(uri, content);
+		return {
+			uri,
+			storageType: StorageType.Filesystem,
+			storageLocation: "mock",
+			storageKey: key,
+			sizeBytes: content.length,
+			checksumSha256,
+			contentEncoding: ContentEncoding.None,
+		};
+	};
+
+	const storeMessageBody: StorageService["storeMessageBody"] = async (
+		params,
+	) => {
+		const { accountId, messageId, content } = params;
+		return storeInternal(buildMessageBodyKey(accountId, messageId), content);
+	};
+
+	const storeBodyPart: StorageService["storeBodyPart"] = async (params) => {
+		const { accountId, messageId, partPath, content } = params;
+		return storeInternal(
+			buildBodyPartKey(accountId, messageId, partPath),
+			content,
+		);
+	};
+
+	const storeDeduplicated: StorageService["storeDeduplicated"] = async (
+		params,
+	) => {
+		const { accountId, content } = params;
+		const checksumSha256 = computeChecksum(content);
+		return storeInternal(
+			buildDeduplicatedKey(accountId, checksumSha256),
+			content,
+		);
+	};
+
 	return {
-		store: async (content, options) => {
-			const checksumSha256 = createHash("sha256").update(content).digest("hex");
-			const finalKey = options.contentAddressable
-				? `dedup/${checksumSha256.slice(0, 2)}/${checksumSha256}`
-				: options.key;
-			const uri = `mock://${finalKey}`;
-			storage.set(uri, content);
-			return {
-				uri,
-				storageType: StorageType.Filesystem,
-				storageLocation: "mock",
-				storageKey: finalKey,
-				sizeBytes: content.length,
-				checksumSha256,
-				contentEncoding: options.contentEncoding ?? ContentEncoding.None,
-			};
-		},
+		storeMessageBody,
+		storeBodyPart,
+		storeDeduplicated,
 		retrieve: async (uri) => {
 			const content = storage.get(uri);
 			if (!content) throw new Error(`Not found: ${uri}`);
@@ -76,10 +152,6 @@ export const createMockStorageService = (): StorageService => {
 		exists: async (uri) => storage.has(uri),
 		delete: async (uri) => {
 			storage.delete(uri);
-		},
-		contentAddressableKey: (content, prefix = "dedup") => {
-			const hash = createHash("sha256").update(content).digest("hex");
-			return `${prefix}/${hash.slice(0, 2)}/${hash}`;
 		},
 	};
 };

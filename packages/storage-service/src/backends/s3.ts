@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { gunzipSync, gzipSync } from "node:zlib";
 import {
 	DeleteObjectCommand,
@@ -8,58 +7,84 @@ import {
 	type S3Client,
 } from "@aws-sdk/client-s3";
 import { ContentEncoding, StorageType } from "@remit/domain-enums";
-import type {
-	StorageReference,
-	StorageService,
-	StoreOptions,
+import type { StorageReference, StorageService } from "../storage.js";
+import {
+	buildBodyPartKey,
+	buildDeduplicatedKey,
+	buildMessageBodyKey,
+	computeChecksum,
 } from "../storage.js";
 import { parseStorageUri } from "../uri.js";
+
+interface StoreParams {
+	key: string;
+	content: Buffer;
+	contentType?: string;
+	compress?: boolean;
+}
 
 export const createS3StorageService = (
 	client: S3Client,
 	bucketName: string,
 ): StorageService => {
-	const store = async (
-		content: Buffer,
-		options: StoreOptions,
+	const storeInternal = async (
+		params: StoreParams,
 	): Promise<StorageReference> => {
-		const {
-			key,
-			contentEncoding = ContentEncoding.None,
-			contentType,
-		} = options;
-
-		const checksumSha256 = createHash("sha256").update(content).digest("hex");
-		const finalKey = options.contentAddressable
-			? `dedup/${checksumSha256.slice(0, 2)}/${checksumSha256}`
-			: key;
-
-		const body =
-			contentEncoding === ContentEncoding.Gzip ? gzipSync(content) : content;
+		const { key, content, contentType, compress = true } = params;
+		const checksumSha256 = computeChecksum(content);
+		const contentEncoding = compress
+			? ContentEncoding.Gzip
+			: ContentEncoding.None;
+		const body = compress ? gzipSync(content) : content;
 
 		await client.send(
 			new PutObjectCommand({
 				Bucket: bucketName,
-				Key: finalKey,
+				Key: key,
 				Body: body,
 				ContentType: contentType,
-				ContentEncoding:
-					contentEncoding !== ContentEncoding.None
-						? contentEncoding
-						: undefined,
+				ContentEncoding: compress ? "gzip" : undefined,
 				ChecksumSHA256: Buffer.from(checksumSha256, "hex").toString("base64"),
 			}),
 		);
 
 		return {
-			uri: `s3://${bucketName}/${finalKey}`,
+			uri: `s3://${bucketName}/${key}`,
 			storageType: StorageType.S3,
 			storageLocation: bucketName,
-			storageKey: finalKey,
+			storageKey: key,
 			sizeBytes: body.length,
 			checksumSha256,
 			contentEncoding,
 		};
+	};
+
+	const storeMessageBody: StorageService["storeMessageBody"] = (params) => {
+		const { accountId, messageId, content } = params;
+		return storeInternal({
+			key: buildMessageBodyKey(accountId, messageId),
+			content,
+			contentType: "message/rfc822",
+		});
+	};
+
+	const storeBodyPart: StorageService["storeBodyPart"] = (params) => {
+		const { accountId, messageId, partPath, content, contentType } = params;
+		return storeInternal({
+			key: buildBodyPartKey(accountId, messageId, partPath),
+			content,
+			contentType,
+		});
+	};
+
+	const storeDeduplicated: StorageService["storeDeduplicated"] = (params) => {
+		const { accountId, content, contentType } = params;
+		const checksumSha256 = computeChecksum(content);
+		return storeInternal({
+			key: buildDeduplicatedKey(accountId, checksumSha256),
+			content,
+			contentType,
+		});
 	};
 
 	const retrieve = async (uri: string): Promise<Buffer> => {
@@ -111,10 +136,12 @@ export const createS3StorageService = (
 		);
 	};
 
-	const contentAddressableKey = (content: Buffer, prefix = "dedup"): string => {
-		const hash = createHash("sha256").update(content).digest("hex");
-		return `${prefix}/${hash.slice(0, 2)}/${hash}`;
+	return {
+		storeMessageBody,
+		storeBodyPart,
+		storeDeduplicated,
+		retrieve,
+		exists,
+		delete: del,
 	};
-
-	return { store, retrieve, exists, delete: del, contentAddressableKey };
 };
