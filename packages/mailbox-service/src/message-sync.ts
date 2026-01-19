@@ -5,11 +5,9 @@ import {
 	type MailboxService,
 	MessageService,
 	REMIT_NAMESPACE,
-	type ThreadMessageService,
-	ThreadService,
+	ThreadMessageService,
 } from "@remit/remit-electrodb-service";
 import { AddressRole } from "@remit/domain-enums";
-import { normalizeSubject } from "./snippet.js";
 import type {
 	IImapConnection,
 	ImapAddress,
@@ -47,7 +45,6 @@ export class MessageSyncService {
 		private messageService: MessageService,
 		private envelopeService: EnvelopeService,
 		private addressService: AddressService,
-		private threadService: ThreadService,
 		private threadMessageService: ThreadMessageService,
 		logger?: SyncLogger,
 	) {
@@ -409,7 +406,7 @@ export class MessageSyncService {
 		}
 
 		// Derive threadId from the root Message-ID (deterministic)
-		const threadId = ThreadService.deriveThreadId(
+		const threadId = ThreadMessageService.deriveThreadId(
 			accountConfigId,
 			rootMessageIdHeader,
 		);
@@ -423,54 +420,6 @@ export class MessageSyncService {
 			? `${fromAddr.mailbox}@${fromAddr.host}`.toLowerCase()
 			: "";
 		const fromName = fromAddr?.name;
-
-		// Parse envelope date
-		const dateValue = envelope.date
-			? new Date(envelope.date).getTime()
-			: internalDate;
-
-		// Check if thread exists
-		const existingThread = await this.threadService.findByThreadId(threadId);
-
-		if (existingThread) {
-			// Update existing thread aggregates
-			const participants = existingThread.participants.includes(fromEmail)
-				? existingThread.participants
-				: [fromEmail, ...existingThread.participants].slice(0, 50);
-
-			const mailboxIds = existingThread.mailboxIds.includes(mailboxId)
-				? existingThread.mailboxIds
-				: [...existingThread.mailboxIds, mailboxId];
-
-			await this.threadService.update(accountConfigId, threadId, {
-				messageCount: existingThread.messageCount + 1,
-				unreadCount: existingThread.unreadCount + (isRead ? 0 : 1),
-				hasUnread: existingThread.hasUnread || !isRead,
-				participants,
-				participantCount: participants.length,
-				mailboxIds,
-				lastMessageAt: Math.max(existingThread.lastMessageAt, dateValue),
-				firstMessageAt: Math.min(existingThread.firstMessageAt, dateValue),
-			});
-		} else {
-			// Create new thread
-			await this.threadService.create({
-				accountConfigId,
-				rootMessageIdHeader,
-				subject: envelope.subject,
-				subjectNormalized: normalizeSubject(envelope.subject || ""),
-				participants: fromEmail ? [fromEmail] : [],
-				participantCount: fromEmail ? 1 : 0,
-				messageCount: 1,
-				unreadCount: isRead ? 0 : 1,
-				hasUnread: !isRead,
-				hasAttachments: false,
-				hasStars: false,
-				mailboxIds: [mailboxId],
-				firstMessageAt: dateValue,
-				lastMessageAt: dateValue,
-			});
-		}
 
 		// Calculate reference order (position in the thread chain)
 		// references.length gives the position since References = [root, parent1, parent2, ...]
@@ -493,6 +442,7 @@ export class MessageSyncService {
 				internalDate,
 				isRead,
 				hasAttachment: false,
+				hasStars: false,
 			})
 			.catch((error: unknown) => {
 				// Ignore conflict errors (idempotent create)
