@@ -72,6 +72,7 @@ export const syncMessageBody = async (
 	await bodySyncService
 		.syncBodies(
 			messageIds,
+			accountId,
 			account.accountConfigId,
 			mailbox.fullPath,
 			scope.getConnection,

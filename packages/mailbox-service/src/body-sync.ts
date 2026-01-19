@@ -60,12 +60,14 @@ export class BodySyncService {
 	 * Sync message bodies for a batch of messages.
 	 *
 	 * @param messageIds - The message IDs to sync bodies for
+	 * @param accountId - The account ID (for storage path)
 	 * @param accountConfigId - The account config ID (for thread updates)
 	 * @param mailboxPath - The IMAP mailbox path
 	 * @param getConnection - Function to get a (lazy) IMAP connection
 	 */
 	async syncBodies(
 		messageIds: string[],
+		accountId: string,
 		accountConfigId: string,
 		mailboxPath: string,
 		getConnection: ConnectionGetter,
@@ -75,6 +77,7 @@ export class BodySyncService {
 			(messageId) =>
 				this.fetchAndStoreBody(
 					messageId,
+					accountId,
 					accountConfigId,
 					mailboxPath,
 					getConnection,
@@ -116,6 +119,7 @@ export class BodySyncService {
 	 * Otherwise fetches from IMAP, stores it, and returns the parsed content.
 	 *
 	 * @param messageId - The message ID to fetch
+	 * @param accountId - The account ID (for storage path)
 	 * @param accountConfigId - The account config ID (for thread updates)
 	 * @param mailboxPath - The IMAP mailbox path
 	 * @param getConnection - Function to get a (lazy) IMAP connection
@@ -123,6 +127,7 @@ export class BodySyncService {
 	 */
 	async fetchAndGetBody(
 		messageId: string,
+		accountId: string,
 		accountConfigId: string,
 		mailboxPath: string,
 		getConnection: ConnectionGetter,
@@ -163,10 +168,10 @@ export class BodySyncService {
 		}
 
 		if (needsStore) {
-			const ref = await this.storageService.store(body, {
-				key: `messages/${message.mailboxId}/${messageId}/body.eml`,
-				contentType: "message/rfc822",
-				contentAddressable: true,
+			const ref = await this.storageService.storeMessageBody({
+				accountId,
+				messageId,
+				content: body,
 			});
 
 			debugLog("Storing body", { messageId, uri: ref.uri });
@@ -214,6 +219,7 @@ export class BodySyncService {
 
 	private async fetchAndStoreBody(
 		messageId: string,
+		accountId: string,
 		accountConfigId: string,
 		mailboxPath: string,
 		getConnection: ConnectionGetter,
@@ -231,10 +237,10 @@ export class BodySyncService {
 		await connection.openBox(mailboxPath);
 
 		const body = await connection.fetchMessageBody(message.uid);
-		const ref = await this.storageService.store(body, {
-			key: `messages/${message.mailboxId}/${messageId}/body.eml`,
-			contentType: "message/rfc822",
-			contentAddressable: true,
+		const ref = await this.storageService.storeMessageBody({
+			accountId,
+			messageId,
+			content: body,
 		});
 
 		await this.messageService.update(messageId, { bodyStorageKey: ref.uri });

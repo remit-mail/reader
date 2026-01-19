@@ -6,7 +6,13 @@ import { join } from "node:path";
 import { describe, test } from "node:test";
 import { ContentEncoding, StorageType } from "@remit/domain-enums";
 import { createFilesystemStorageService } from "./backends/filesystem.js";
-import { createMockStorageService } from "./storage.js";
+import {
+	buildBodyPartKey,
+	buildDeduplicatedKey,
+	buildMessageBodyKey,
+	computeChecksum,
+	createMockStorageService,
+} from "./storage.js";
 import { buildStorageUri, parseStorageUri } from "./uri.js";
 
 describe("parseStorageUri", () => {
@@ -47,14 +53,45 @@ describe("buildStorageUri", () => {
 	});
 });
 
+describe("path builders", () => {
+	test("buildMessageBodyKey formats correctly", () => {
+		const key = buildMessageBodyKey("acc123", "msg456");
+		assert.strictEqual(key, "accounts/acc123/messages/msg456/body.eml");
+	});
+
+	test("buildBodyPartKey formats correctly", () => {
+		const key = buildBodyPartKey("acc123", "msg456", "1.2");
+		assert.strictEqual(key, "accounts/acc123/messages/msg456/parts/1.2");
+	});
+
+	test("buildDeduplicatedKey formats correctly", () => {
+		const hash = "abcdef1234567890";
+		const key = buildDeduplicatedKey("acc123", hash);
+		assert.strictEqual(key, "accounts/acc123/dedup/ab/abcdef1234567890");
+	});
+
+	test("computeChecksum returns SHA-256 hex", () => {
+		const content = Buffer.from("test content");
+		const expected = createHash("sha256").update(content).digest("hex");
+		assert.strictEqual(computeChecksum(content), expected);
+	});
+});
+
 describe("createMockStorageService", () => {
-	test("stores and retrieves content", async () => {
+	test("storeMessageBody stores and retrieves content", async () => {
 		const storage = createMockStorageService();
 		const content = Buffer.from("Hello, world!");
 
-		const ref = await storage.store(content, { key: "test/file.txt" });
+		const ref = await storage.storeMessageBody({
+			accountId: "acc123",
+			messageId: "msg456",
+			content,
+		});
 
-		assert.strictEqual(ref.storageKey, "test/file.txt");
+		assert.strictEqual(
+			ref.storageKey,
+			"accounts/acc123/messages/msg456/body.eml",
+		);
 		assert.strictEqual(ref.sizeBytes, content.length);
 		assert.strictEqual(ref.contentEncoding, ContentEncoding.None);
 
@@ -62,11 +99,52 @@ describe("createMockStorageService", () => {
 		assert.deepStrictEqual(retrieved, content);
 	});
 
+	test("storeBodyPart stores with part path", async () => {
+		const storage = createMockStorageService();
+		const content = Buffer.from("attachment content");
+
+		const ref = await storage.storeBodyPart({
+			accountId: "acc123",
+			messageId: "msg456",
+			partPath: "1.2",
+			content,
+		});
+
+		assert.strictEqual(
+			ref.storageKey,
+			"accounts/acc123/messages/msg456/parts/1.2",
+		);
+
+		const retrieved = await storage.retrieve(ref.uri);
+		assert.deepStrictEqual(retrieved, content);
+	});
+
+	test("storeDeduplicated uses content hash", async () => {
+		const storage = createMockStorageService();
+		const content = Buffer.from("deduplicate me");
+		const hash = computeChecksum(content);
+
+		const ref = await storage.storeDeduplicated({
+			accountId: "acc123",
+			content,
+		});
+
+		assert.strictEqual(
+			ref.storageKey,
+			`accounts/acc123/dedup/${hash.slice(0, 2)}/${hash}`,
+		);
+		assert.strictEqual(ref.checksumSha256, hash);
+	});
+
 	test("checks existence", async () => {
 		const storage = createMockStorageService();
 		const content = Buffer.from("test");
 
-		const ref = await storage.store(content, { key: "exists.txt" });
+		const ref = await storage.storeMessageBody({
+			accountId: "acc123",
+			messageId: "msg456",
+			content,
+		});
 
 		assert.strictEqual(await storage.exists(ref.uri), true);
 		assert.strictEqual(await storage.exists("mock://does-not-exist"), false);
@@ -76,69 +154,78 @@ describe("createMockStorageService", () => {
 		const storage = createMockStorageService();
 		const content = Buffer.from("to delete");
 
-		const ref = await storage.store(content, { key: "delete.txt" });
+		const ref = await storage.storeMessageBody({
+			accountId: "acc123",
+			messageId: "msg456",
+			content,
+		});
 		assert.strictEqual(await storage.exists(ref.uri), true);
 
 		await storage.delete(ref.uri);
 		assert.strictEqual(await storage.exists(ref.uri), false);
-	});
-
-	test("generates content-addressable keys", async () => {
-		const storage = createMockStorageService();
-		const content = Buffer.from("deduplicate me");
-		const hash = createHash("sha256").update(content).digest("hex");
-
-		const ref = await storage.store(content, {
-			key: "ignored",
-			contentAddressable: true,
-		});
-
-		assert.strictEqual(ref.storageKey, `dedup/${hash.slice(0, 2)}/${hash}`);
-		assert.strictEqual(ref.checksumSha256, hash);
-	});
-
-	test("contentAddressableKey returns correct format", () => {
-		const storage = createMockStorageService();
-		const content = Buffer.from("test content");
-		const hash = createHash("sha256").update(content).digest("hex");
-
-		const key = storage.contentAddressableKey(content);
-		assert.strictEqual(key, `dedup/${hash.slice(0, 2)}/${hash}`);
-
-		const customKey = storage.contentAddressableKey(content, "attachments");
-		assert.strictEqual(customKey, `attachments/${hash.slice(0, 2)}/${hash}`);
 	});
 });
 
 describe("createFilesystemStorageService", () => {
 	const testBasePath = join(tmpdir(), `remit-storage-test-${Date.now()}`);
 
-	test("stores and retrieves content", async () => {
+	test("storeMessageBody stores and retrieves content", async () => {
 		const storage = createFilesystemStorageService(testBasePath);
 		const content = Buffer.from("Filesystem test content");
 
-		const ref = await storage.store(content, { key: "test/fs-file.txt" });
+		const ref = await storage.storeMessageBody({
+			accountId: "acc123",
+			messageId: "msg456",
+			content,
+		});
 
 		assert.strictEqual(ref.storageType, StorageType.Filesystem);
 		assert.strictEqual(ref.storageLocation, testBasePath);
-		assert.strictEqual(ref.storageKey, "test/fs-file.txt");
+		assert.strictEqual(
+			ref.storageKey,
+			"accounts/acc123/messages/msg456/body.eml",
+		);
 		assert.ok(ref.uri.startsWith("file://"));
 
 		const retrieved = await storage.retrieve(ref.uri);
 		assert.deepStrictEqual(retrieved, content);
 	});
 
-	test("stores and retrieves gzipped content", async () => {
+	test("storeBodyPart stores with part path", async () => {
 		const storage = createFilesystemStorageService(testBasePath);
-		const content = Buffer.from("Compressed content for testing");
+		const content = Buffer.from("attachment content");
 
-		const ref = await storage.store(content, {
-			key: "test/compressed.txt",
-			contentEncoding: ContentEncoding.Gzip,
+		const ref = await storage.storeBodyPart({
+			accountId: "acc123",
+			messageId: "msg456",
+			partPath: "1.2",
+			content,
 		});
 
-		assert.strictEqual(ref.contentEncoding, ContentEncoding.Gzip);
-		assert.ok(ref.sizeBytes < content.length || ref.sizeBytes > 0);
+		assert.strictEqual(
+			ref.storageKey,
+			"accounts/acc123/messages/msg456/parts/1.2",
+		);
+
+		const retrieved = await storage.retrieve(ref.uri);
+		assert.deepStrictEqual(retrieved, content);
+	});
+
+	test("storeDeduplicated uses content hash", async () => {
+		const storage = createFilesystemStorageService(testBasePath);
+		const content = Buffer.from("dedupe fs content");
+		const hash = computeChecksum(content);
+
+		const ref = await storage.storeDeduplicated({
+			accountId: "acc123",
+			content,
+		});
+
+		assert.strictEqual(
+			ref.storageKey,
+			`accounts/acc123/dedup/${hash.slice(0, 2)}/${hash}`,
+		);
+		assert.strictEqual(ref.checksumSha256, hash);
 
 		const retrieved = await storage.retrieve(ref.uri);
 		assert.deepStrictEqual(retrieved, content);
@@ -148,7 +235,11 @@ describe("createFilesystemStorageService", () => {
 		const storage = createFilesystemStorageService(testBasePath);
 		const content = Buffer.from("exists test");
 
-		const ref = await storage.store(content, { key: "test/exists-fs.txt" });
+		const ref = await storage.storeMessageBody({
+			accountId: "acc123",
+			messageId: "msg789",
+			content,
+		});
 
 		assert.strictEqual(await storage.exists(ref.uri), true);
 		assert.strictEqual(await storage.exists("file:///nonexistent/path"), false);
@@ -158,28 +249,15 @@ describe("createFilesystemStorageService", () => {
 		const storage = createFilesystemStorageService(testBasePath);
 		const content = Buffer.from("to be deleted");
 
-		const ref = await storage.store(content, { key: "test/delete-fs.txt" });
+		const ref = await storage.storeMessageBody({
+			accountId: "acc123",
+			messageId: "msg-delete",
+			content,
+		});
 		assert.strictEqual(await storage.exists(ref.uri), true);
 
 		await storage.delete(ref.uri);
 		assert.strictEqual(await storage.exists(ref.uri), false);
-	});
-
-	test("content-addressable storage", async () => {
-		const storage = createFilesystemStorageService(testBasePath);
-		const content = Buffer.from("dedupe fs content");
-		const hash = createHash("sha256").update(content).digest("hex");
-
-		const ref = await storage.store(content, {
-			key: "ignored",
-			contentAddressable: true,
-		});
-
-		assert.strictEqual(ref.storageKey, `dedup/${hash.slice(0, 2)}/${hash}`);
-		assert.strictEqual(ref.checksumSha256, hash);
-
-		const retrieved = await storage.retrieve(ref.uri);
-		assert.deepStrictEqual(retrieved, content);
 	});
 
 	test("cleanup test directory", async () => {
