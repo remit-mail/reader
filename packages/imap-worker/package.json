@@ -1,0 +1,27 @@
+{
+	"name": "@remit/imap-worker",
+	"version": "1.0.0",
+	"type": "module",
+	"main": "dist/index.js",
+	"bin": {
+		"remit-worker": "./dist/cli.js"
+	},
+	"scripts": {
+		"bundle": "esbuild src/index.ts --sourcemap --bundle --platform=node --format=esm --outfile=dist/index.js",
+		"cli": "node --env-file=../../.localhost.env src/cli.ts",
+		"test:typecheck": "tsc --noEmit",
+		"test:run": "node --env-file=../../.test.env --test 'src/**/*.test.ts'",
+		"test": "npm run test:typecheck && npm run test:run"
+	},
+	"devDependencies": {
+		"@aws-sdk/client-sqs": "*",
+		"@remit/mailbox-service": "*",
+		"@remit/secrets-service": "*",
+		"@remit/storage-service": "*",
+		"@remit/logger-lambda": "*",
+		"@types/aws-lambda": "*",
+		"esbuild": "*",
+		"expect-env": "*",
+		"p-map": "*"
+	}
+}

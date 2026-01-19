@@ -1,0 +1,59 @@
+/**
+ * remit-mailbox-service
+ *
+ * IMAP mailbox synchronization service for Remit
+ */
+
+export {
+	hasChildren,
+	isNoSelect,
+	type ParsedAttributes,
+	parseImapAttributes,
+} from "./attribute-mapper.js";
+export {
+	type BodySyncLogger,
+	BodySyncService,
+	type ConnectionGetter,
+	type FetchBodyResult,
+	type SyncBodiesResult,
+} from "./body-sync.js";
+// Connection factory
+export {
+	createConnection,
+	createConnectionFromAccount,
+} from "./connection-factory.js";
+// IMAP connection (ImapFlow-based)
+export {
+	createImapFlowConnectionFromAccount,
+	ImapFlowConnection,
+} from "./imapflow-connection.js";
+export {
+	type MailboxSyncConfig,
+	MailboxSyncService,
+	type SyncAccountInfo,
+} from "./mailbox-sync.js";
+export {
+	type ParsedMessageContent,
+	parseMessageContent,
+} from "./message-parser.js";
+export {
+	type ImapConnectionFactory,
+	MessageSyncService,
+	type SyncMessagesResult,
+} from "./message-sync.js";
+export {
+	extractSnippetFromEmail,
+	generateSnippet,
+	normalizeSubject,
+	removeQuotedContent,
+} from "./snippet.js";
+export type {
+	FlatMailboxInfo,
+	IImapConnection,
+	ImapBoxStatus,
+	ImapConnectionConfig,
+	ImapConnectionState,
+	ImapNamespace,
+	ImapNamespaces,
+	MailboxSyncResult,
+} from "./types.js";

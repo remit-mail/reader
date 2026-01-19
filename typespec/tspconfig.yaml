@@ -1,0 +1,21 @@
+emit:
+  - "@typespec/openapi3"
+  - "typespec-electrodb-emitter"
+  - "@kattebak/typespec-enum-emitter"
+  - "@kattebak/typespec-zod-emitter"
+options:
+  "@kattebak/typespec-enum-emitter":
+    emitter-output-dir: "{cwd}/build/ts-enums"
+    package-name: "@remit/domain-enums"
+    package-version: "0.0.1"
+  "@kattebak/typespec-zod-emitter":
+    emitter-output-dir: "{cwd}/build/zod-schemas"
+    package-name: "@remit/api-zod-schemas"
+    package-version: "0.0.1"
+  "typespec-electrodb-emitter":
+    emitter-output-dir: "{cwd}/build/ddb-entities"
+    package-name: "@remit/electrodb-entities"
+    package-version: "0.0.1"
+  "@typespec/openapi3":
+    emitter-output-dir: "{cwd}/build/remit-openapi3"
+    file-type: "json"
