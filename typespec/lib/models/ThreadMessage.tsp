@@ -32,12 +32,13 @@ namespace RemitImap;
     sk: [],
   }
 )
+// GSI2: Filter/count unread messages (moved from LSI for independent scaling)
 @index(
-  "byMailboxId",
+  "byUnread",
   {
     index: "gsi2",
-    pk: [ThreadMessage.mailboxId],
-    sk: [ThreadMessage.internalDate],
+    pk: [ThreadMessage.accountConfigId],
+    sk: [ThreadMessage.isRead, ThreadMessage.internalDate],
   }
 )
 // LSI1: List messages by date (account-wide)
@@ -49,13 +50,13 @@ namespace RemitImap;
     sk: [ThreadMessage.internalDate],
   }
 )
-// LSI2: Filter/count unread messages
+// LSI2: List messages by mailbox, ordered by date (for thread grouping in app)
 @index(
-  "byUnread",
+  "byMailboxId",
   {
     index: "lsi2",
     pk: [ThreadMessage.accountConfigId],
-    sk: [ThreadMessage.isRead, ThreadMessage.internalDate],
+    sk: [ThreadMessage.mailboxId, ThreadMessage.internalDate],
   }
 )
 // LSI3: Filter/count messages with attachments
