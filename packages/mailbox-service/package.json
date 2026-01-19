@@ -25,9 +25,12 @@
 		"@types/uuid": "^10.0.0",
 		"electrodb": "*",
 		"expect-env": "*",
+		"franc": "*",
 		"imapflow": "^1.0.171",
 		"mailparser": "*",
-		"short-uuid": "*"
+		"natural": "*",
+		"short-uuid": "*",
+		"stopword": "*"
 	},
 	"dependencies": {
 		"p-map": "^7.0.4"

@@ -5,6 +5,11 @@
  * and normalizing whitespace.
  */
 
+import {
+	createTextNormalizer,
+	type SupportedLanguage,
+} from "./text/normalizer.js";
+
 /**
  * Remove quoted reply content from email body.
  *
@@ -32,76 +37,16 @@ export const removeQuotedContent = (text: string): string => {
 	return result.join("\n");
 };
 
-/**
- * Common stopwords to remove from normalized subjects.
- * Kept minimal to avoid removing meaningful words.
- */
-const STOPWORDS = new Set([
-	"a",
-	"an",
-	"the",
-	"and",
-	"or",
-	"but",
-	"is",
-	"are",
-	"was",
-	"were",
-	"be",
-	"been",
-	"being",
-	"have",
-	"has",
-	"had",
-	"do",
-	"does",
-	"did",
-	"will",
-	"would",
-	"could",
-	"should",
-	"may",
-	"might",
-	"must",
-	"shall",
-	"can",
-	"of",
-	"at",
-	"by",
-	"for",
-	"with",
-	"about",
-	"to",
-	"from",
-	"in",
-	"on",
-	"it",
-	"its",
-	"this",
-	"that",
-	"these",
-	"those",
-	"i",
-	"you",
-	"we",
-	"they",
-	"he",
-	"she",
-	"my",
-	"your",
-	"our",
-	"their",
-]);
+const normalizer = createTextNormalizer();
 
 /**
  * Normalize subject for thread grouping and search.
  *
  * Processing steps:
  * 1. Remove Re:/Fwd:/etc prefixes (multi-language support)
- * 2. Lowercase for case-insensitive matching
- * 3. Remove stopwords for better matching
+ * 2. Auto-detect language or use provided language
+ * 3. Normalize with stemming and stopword removal
  * 4. Deduplicate consecutive words
- * 5. Normalize whitespace
  *
  * Handles common prefixes across languages:
  * - Re, Fwd, Fw (English)
@@ -111,35 +56,29 @@ const STOPWORDS = new Set([
  * - Ynt (Turkish)
  * - Antw (Dutch)
  * - Res (Portuguese)
+ *
+ * @param subject - The email subject line
+ * @param language - Optional language override (auto-detected if not provided)
  */
-export const normalizeSubject = (subject: string): string => {
+export const normalizeSubject = (
+	subject: string,
+	language?: SupportedLanguage,
+): string => {
 	const SUBJECT_PREFIX_PATTERN =
 		/^(\s*(Re|Fwd|Fw|Aw|Sv|Vs|Ref|Rif|Odp|Ynt|Antw|Res)(\[\d+\])?:\s*)+/i;
 
 	// Step 1: Remove prefixes
-	let normalized = subject.replace(SUBJECT_PREFIX_PATTERN, "").trim();
+	const withoutPrefix = subject.replace(SUBJECT_PREFIX_PATTERN, "").trim();
 
-	// Step 2: Lowercase
-	normalized = normalized.toLowerCase();
+	// Step 2: Auto-detect language if not provided
+	const detectedLanguage = language ?? normalizer.detectLanguage(withoutPrefix);
 
-	// Step 3: Remove non-alphanumeric characters (keep spaces for word splitting)
-	normalized = normalized.replace(/[^a-z0-9\s]/g, " ");
-
-	// Step 4: Split into words, remove stopwords, dedupe consecutive words
-	const words = normalized.split(/\s+/).filter((word) => word.length > 0);
-	const result: string[] = [];
-
-	for (const word of words) {
-		// Skip stopwords
-		if (STOPWORDS.has(word)) continue;
-
-		// Skip consecutive duplicates
-		if (result.length > 0 && result[result.length - 1] === word) continue;
-
-		result.push(word);
-	}
-
-	return result.join(" ");
+	// Step 3: Normalize with stemming and stopword removal
+	return normalizer.normalize(withoutPrefix, {
+		language: detectedLanguage,
+		stem: true,
+		removeStopwords: true,
+	});
 };
 
 /**
