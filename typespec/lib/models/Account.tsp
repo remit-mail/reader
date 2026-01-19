@@ -33,6 +33,15 @@ namespace RemitImap;
     sk: [],
   }
 )
+// List all account configs (scan-like query for all records)
+@index(
+  "allAccountConfigs",
+  {
+    index: "gsi2",
+    pk: [],
+    sk: [AccountConfig.accountConfigId],
+  }
+)
 model AccountConfig {
   @doc("Primary identifier")
   @visibility(Lifecycle.Read)
@@ -82,6 +91,15 @@ model AccountConfig {
     index: "gsi0",
     pk: [Account.accountId],
     sk: [],
+  }
+)
+// List all accounts (scan-like query for all records)
+@index(
+  "allAccounts",
+  {
+    index: "gsi2",
+    pk: [],
+    sk: [Account.accountId],
   }
 )
 model Account {

@@ -33,6 +33,10 @@ export {
 	type SyncAccountInfo,
 } from "./mailbox-sync.js";
 export {
+	type ParsedMessageContent,
+	parseMessageContent,
+} from "./message-parser.js";
+export {
 	type ImapConnectionFactory,
 	MessageSyncService,
 	type SyncMessagesResult,
