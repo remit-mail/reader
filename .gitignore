@@ -59,3 +59,8 @@ typings/
 
 .envrc
 *.db
+build
+**/dist
+.elasticmq/
+.dynamodb/
+.remit/
