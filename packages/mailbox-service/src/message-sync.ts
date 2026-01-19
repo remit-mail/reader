@@ -311,6 +311,8 @@ export class MessageSyncService {
 			msg.uid,
 			msg.internalDate.getTime(),
 			msg.envelope,
+			msg.flags,
+			msg.references,
 		);
 
 		return messageId;
@@ -370,9 +372,13 @@ export class MessageSyncService {
 	/**
 	 * Create or update Thread and ThreadMessage for a synced message.
 	 *
-	 * Thread ID is derived from the root Message-ID:
-	 * - If inReplyTo exists, use it as the thread root (message is a reply)
-	 * - Otherwise, use messageId as the thread root (message starts a new thread)
+	 * Thread ID derivation (RFC 2822 compliant):
+	 * 1. If References header exists, use the FIRST entry as thread root
+	 *    (References format: <root> <parent1> ... <direct-parent>)
+	 * 2. Fall back to In-Reply-To if no References
+	 * 3. Fall back to Message-ID (this message is a thread root)
+	 *
+	 * This ensures proper threading even when messages arrive out of order.
 	 */
 	private async createThreadForMessage(
 		messageId: string,
@@ -381,18 +387,35 @@ export class MessageSyncService {
 		uid: number,
 		internalDate: number,
 		envelope: ImapEnvelope,
+		flags: string[],
+		references?: string[],
 	): Promise<void> {
-		// Derive root Message-ID for thread grouping
-		const rootMessageIdHeader = envelope.inReplyTo || envelope.messageId;
-		if (!rootMessageIdHeader) {
+		// Determine the thread root Message-ID
+		let rootMessageIdHeader: string;
+
+		if (references && references.length > 0) {
+			// References header exists - first entry is the thread root (RFC 2822)
+			rootMessageIdHeader = references[0];
+		} else if (envelope.inReplyTo) {
+			// No References, but has In-Reply-To - use as thread root
+			// (This is a reply to a single message, which becomes the root)
+			rootMessageIdHeader = envelope.inReplyTo;
+		} else if (envelope.messageId) {
+			// No References, no In-Reply-To - this message is a thread root
+			rootMessageIdHeader = envelope.messageId;
+		} else {
 			// Cannot create thread without Message-ID
 			return;
 		}
 
+		// Derive threadId from the root Message-ID (deterministic)
 		const threadId = ThreadService.deriveThreadId(
 			accountConfigId,
 			rootMessageIdHeader,
 		);
+
+		// Check if message is read based on IMAP flags
+		const isRead = flags.includes("\\Seen");
 
 		// Extract sender info
 		const fromAddr = envelope.from?.[0];
@@ -421,8 +444,8 @@ export class MessageSyncService {
 
 			await this.threadService.update(accountConfigId, threadId, {
 				messageCount: existingThread.messageCount + 1,
-				unreadCount: existingThread.unreadCount + 1, // Assume new messages are unread
-				hasUnread: true,
+				unreadCount: existingThread.unreadCount + (isRead ? 0 : 1),
+				hasUnread: existingThread.hasUnread || !isRead,
 				participants,
 				participantCount: participants.length,
 				mailboxIds,
@@ -439,8 +462,8 @@ export class MessageSyncService {
 				participants: fromEmail ? [fromEmail] : [],
 				participantCount: fromEmail ? 1 : 0,
 				messageCount: 1,
-				unreadCount: 1,
-				hasUnread: true,
+				unreadCount: isRead ? 0 : 1,
+				hasUnread: !isRead,
 				hasAttachments: false,
 				hasStars: false,
 				mailboxIds: [mailboxId],
@@ -448,6 +471,10 @@ export class MessageSyncService {
 				lastMessageAt: dateValue,
 			});
 		}
+
+		// Calculate reference order (position in the thread chain)
+		// references.length gives the position since References = [root, parent1, parent2, ...]
+		const referenceOrder = references?.length ?? (envelope.inReplyTo ? 1 : 0);
 
 		// Create ThreadMessage linking message to thread
 		await this.threadMessageService
@@ -459,12 +486,12 @@ export class MessageSyncService {
 				uid,
 				messageIdHeader: envelope.messageId,
 				inReplyTo: envelope.inReplyTo,
-				referenceOrder: envelope.inReplyTo ? 1 : 0,
+				referenceOrder,
 				fromEmail,
 				fromName,
 				subject: envelope.subject,
 				internalDate,
-				isRead: false,
+				isRead,
 				hasAttachment: false,
 			})
 			.catch((error: unknown) => {
