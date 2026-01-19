@@ -6,6 +6,7 @@
  */
 
 import { ImapFlow } from "imapflow";
+import { simpleParser } from "mailparser";
 import type {
 	FlatMailboxInfo,
 	ImapAddress,
@@ -381,7 +382,7 @@ export class ImapFlowConnection {
 
 		const messages: ImapMessage[] = [];
 
-		// ImapFlow fetch with native envelope support
+		// ImapFlow fetch with native envelope support + References header
 		const uidRange = uids.join(",");
 
 		for await (const msg of client.fetch(
@@ -392,6 +393,7 @@ export class ImapFlowConnection {
 				envelope: true,
 				internalDate: true,
 				size: true,
+				headers: ["references"],
 			},
 			{ uid: true },
 		)) {
@@ -405,6 +407,9 @@ export class ImapFlowConnection {
 				internalDate = new Date();
 			}
 
+			// Parse References header if present
+			const references = await this.parseReferencesHeader(msg.headers);
+
 			messages.push({
 				uid: msg.uid,
 				seq: msg.seq,
@@ -412,6 +417,7 @@ export class ImapFlowConnection {
 				internalDate,
 				size: msg.size ?? 0,
 				envelope: this.convertEnvelope(msg.envelope),
+				references,
 			});
 		}
 
@@ -446,6 +452,28 @@ export class ImapFlowConnection {
 		}
 
 		return Buffer.concat(chunks);
+	};
+
+	/**
+	 * Parse the References header from IMAP headers buffer.
+	 * Returns an array of Message-IDs, with the first being the thread root.
+	 */
+	private parseReferencesHeader = async (
+		headers: Buffer | undefined,
+	): Promise<string[] | undefined> => {
+		if (!headers) return undefined;
+
+		const parsed = await simpleParser(headers);
+
+		if (!parsed.references) return undefined;
+
+		// mailparser returns references as string or array
+		if (Array.isArray(parsed.references)) {
+			return parsed.references.length > 0 ? parsed.references : undefined;
+		}
+
+		// Single reference as string
+		return [parsed.references];
 	};
 
 	/**

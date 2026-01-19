@@ -107,6 +107,11 @@ export interface ImapMessage {
 	internalDate: Date;
 	size: number;
 	envelope?: ImapEnvelope;
+	/**
+	 * References header from RFC 2822.
+	 * Contains Message-IDs of ancestor messages, with the first being the thread root.
+	 */
+	references?: string[];
 }
 
 /**

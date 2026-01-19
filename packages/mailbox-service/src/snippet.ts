@@ -33,7 +33,75 @@ export const removeQuotedContent = (text: string): string => {
 };
 
 /**
- * Normalize subject by removing Re:/Fwd:/etc prefixes.
+ * Common stopwords to remove from normalized subjects.
+ * Kept minimal to avoid removing meaningful words.
+ */
+const STOPWORDS = new Set([
+	"a",
+	"an",
+	"the",
+	"and",
+	"or",
+	"but",
+	"is",
+	"are",
+	"was",
+	"were",
+	"be",
+	"been",
+	"being",
+	"have",
+	"has",
+	"had",
+	"do",
+	"does",
+	"did",
+	"will",
+	"would",
+	"could",
+	"should",
+	"may",
+	"might",
+	"must",
+	"shall",
+	"can",
+	"of",
+	"at",
+	"by",
+	"for",
+	"with",
+	"about",
+	"to",
+	"from",
+	"in",
+	"on",
+	"it",
+	"its",
+	"this",
+	"that",
+	"these",
+	"those",
+	"i",
+	"you",
+	"we",
+	"they",
+	"he",
+	"she",
+	"my",
+	"your",
+	"our",
+	"their",
+]);
+
+/**
+ * Normalize subject for thread grouping and search.
+ *
+ * Processing steps:
+ * 1. Remove Re:/Fwd:/etc prefixes (multi-language support)
+ * 2. Lowercase for case-insensitive matching
+ * 3. Remove stopwords for better matching
+ * 4. Deduplicate consecutive words
+ * 5. Normalize whitespace
  *
  * Handles common prefixes across languages:
  * - Re, Fwd, Fw (English)
@@ -47,7 +115,31 @@ export const removeQuotedContent = (text: string): string => {
 export const normalizeSubject = (subject: string): string => {
 	const SUBJECT_PREFIX_PATTERN =
 		/^(\s*(Re|Fwd|Fw|Aw|Sv|Vs|Ref|Rif|Odp|Ynt|Antw|Res)(\[\d+\])?:\s*)+/i;
-	return subject.replace(SUBJECT_PREFIX_PATTERN, "").trim();
+
+	// Step 1: Remove prefixes
+	let normalized = subject.replace(SUBJECT_PREFIX_PATTERN, "").trim();
+
+	// Step 2: Lowercase
+	normalized = normalized.toLowerCase();
+
+	// Step 3: Remove non-alphanumeric characters (keep spaces for word splitting)
+	normalized = normalized.replace(/[^a-z0-9\s]/g, " ");
+
+	// Step 4: Split into words, remove stopwords, dedupe consecutive words
+	const words = normalized.split(/\s+/).filter((word) => word.length > 0);
+	const result: string[] = [];
+
+	for (const word of words) {
+		// Skip stopwords
+		if (STOPWORDS.has(word)) continue;
+
+		// Skip consecutive duplicates
+		if (result.length > 0 && result[result.length - 1] === word) continue;
+
+		result.push(word);
+	}
+
+	return result.join(" ");
 };
 
 /**

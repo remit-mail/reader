@@ -42,13 +42,20 @@ export const createFilesystemStorageService = (
 	};
 
 	// Resolve path from URI, handling both absolute and relative paths
+	// Note: URIs like file://.remit/storage/... parse incorrectly - '.remit' becomes hostname
+	// We reconstruct the original path by combining hostname + pathname
 	const resolvePathFromUri = (uri: string): string => {
 		const url = new URL(uri);
+		const hostname = url.hostname;
 		const pathname = url.pathname;
-		// If path is relative (doesn't start with /), resolve from workspace root
-		if (!pathname.startsWith("/")) {
-			return resolve(pathname);
+
+		// If hostname exists, it was part of a relative path (e.g., file://.remit/... -> hostname='.remit')
+		if (hostname) {
+			const relativePath = hostname + pathname;
+			return resolve(relativePath);
 		}
+
+		// Absolute path (file:///absolute/path)
 		return pathname;
 	};
 
