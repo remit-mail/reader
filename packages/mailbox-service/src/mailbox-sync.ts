@@ -44,7 +44,7 @@ export interface SyncAccountInfo {
 export class MailboxSyncService {
 	private mailboxService: MailboxService;
 
-	constructor(private config: MailboxSyncConfig) {
+	constructor(config: MailboxSyncConfig) {
 		this.mailboxService = new MailboxService({
 			client: config.client,
 			table: config.table,
