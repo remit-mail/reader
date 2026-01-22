@@ -159,3 +159,21 @@ model BodyPartParameter {
   @updatedAt
   updatedAt: int64;
 }
+
+// ============================================
+// API Response Models
+// ============================================
+
+@doc("Body part information")
+model BodyPartResponse
+  is PickProperties<
+    BodyPart,
+
+      | "bodyPartId"
+      | "mediaType"
+      | "mediaSubtype"
+      | "disposition"
+      | "dispositionFilename"
+      | "sizeOctets"
+      | "isMultipart"
+  >;
