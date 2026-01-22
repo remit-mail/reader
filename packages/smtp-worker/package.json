@@ -1,0 +1,23 @@
+{
+	"name": "@remit/smtp-worker",
+	"version": "1.0.0",
+	"type": "module",
+	"main": "dist/index.js",
+	"scripts": {
+		"bundle": "node build.mjs",
+		"test:typecheck": "tsc --noEmit",
+		"test:run": "node --env-file=../../.test.env --test 'src/**/*.test.ts'",
+		"test": "npm run test:typecheck && npm run test:run"
+	},
+	"devDependencies": {
+		"@aws-sdk/client-sqs": "*",
+		"@remit/logger-lambda": "*",
+		"@remit/secrets-service": "*",
+		"@remit/smtp-service": "*",
+		"@remit/storage-service": "*",
+		"@types/aws-lambda": "*",
+		"esbuild": "*",
+		"expect-env": "*",
+		"p-map": "*"
+	}
+}
