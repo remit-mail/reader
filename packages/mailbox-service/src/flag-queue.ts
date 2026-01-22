@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
-import type {
-	MessageFlagService,
-	MessageService,
-	ThreadMessageService,
+import {
+	type MessageFlagService,
+	type MessageService,
+	NotFoundError,
+	type ThreadMessageService,
 } from "@remit/remit-electrodb-service";
 import { MessageSystemFlag } from "@remit/domain-enums";
 
@@ -106,6 +107,8 @@ export class FlagQueueService {
 	 *
 	 * Provides composite attributes (sentDate, mailboxId) required by ElectroDB
 	 * to update the GSI/LSI keys when isRead changes.
+	 *
+	 * Handles race condition where ThreadMessage may be deleted between find and update.
 	 */
 	private updateThreadMessageIsRead = async (
 		messageId: string,
@@ -113,7 +116,15 @@ export class FlagQueueService {
 	): Promise<void> => {
 		const threadMessage =
 			await this.threadMessageService.findByMessageId(messageId);
-		if (threadMessage) {
+		if (!threadMessage) {
+			this.log.info(
+				{ messageId },
+				"ThreadMessage not found for messageId - skipping isRead update",
+			);
+			return;
+		}
+
+		try {
 			await this.threadMessageService.update(
 				threadMessage.accountConfigId,
 				threadMessage.threadMessageId,
@@ -133,11 +144,15 @@ export class FlagQueueService {
 				{ messageId, threadMessageId: threadMessage.threadMessageId, isRead },
 				"Updated ThreadMessage.isRead",
 			);
-		} else {
-			this.log.error(
-				{ messageId },
-				"ThreadMessage not found for messageId - cannot update isRead",
-			);
+		} catch (err) {
+			if (err instanceof NotFoundError) {
+				this.log.info(
+					{ messageId, threadMessageId: threadMessage.threadMessageId },
+					"ThreadMessage deleted during update - skipping isRead update",
+				);
+				return;
+			}
+			throw err;
 		}
 	};
 
