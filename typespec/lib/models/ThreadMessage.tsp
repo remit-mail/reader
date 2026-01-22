@@ -56,7 +56,11 @@ namespace RemitImap;
   {
     index: "lsi2",
     pk: [ThreadMessage.accountConfigId],
-    sk: [ThreadMessage.mailboxId, ThreadMessage.internalDate],
+    sk: [
+      ThreadMessage.mailboxId,
+      ThreadMessage.isRead,
+      ThreadMessage.internalDate
+    ],
   }
 )
 // LSI3: Filter/count messages with attachments
