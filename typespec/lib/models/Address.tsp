@@ -120,3 +120,14 @@ model EnvelopeAddress {
   @updatedAt
   updatedAt: int64;
 }
+
+// ============================================
+// API Response Models
+// ============================================
+
+@doc("Envelope address information")
+model EnvelopeAddressResponse
+  is PickProperties<
+    EnvelopeAddress,
+    "displayName" | "normalizedEmail" | "addressRole" | "addressOrder"
+  >;

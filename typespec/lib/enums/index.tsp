@@ -27,3 +27,6 @@ import "./StarColor.tsp";
 import "./MessageStatus.tsp";
 import "./MessageSyncStatus.tsp";
 import "./OutboxMessageStatus.tsp";
+
+// API Enums
+import "./SortOrder.tsp";

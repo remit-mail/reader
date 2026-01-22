@@ -186,3 +186,31 @@ model ThreadMessage {
   @updatedAt
   updatedAt: int64;
 }
+
+// ============================================
+// API Response Models
+// ============================================
+
+@doc("Thread message item returned by list/search operations")
+model ThreadMessageResponse
+  is PickProperties<
+    ThreadMessage,
+
+      | "threadMessageId"
+      | "threadId"
+      | "messageId"
+      | "accountConfigId"
+      | "mailboxId"
+      | "subject"
+      | "fromEmail"
+      | "fromName"
+      | "sentDate"
+      | "isRead"
+      | "hasAttachment"
+      | "hasStars"
+      | "star"
+      | "isDeleted"
+      | "snippet"
+      | "createdAt"
+      | "updatedAt"
+  >;

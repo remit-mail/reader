@@ -19,3 +19,4 @@ options:
   "@typespec/openapi3":
     emitter-output-dir: "{cwd}/build/remit-openapi3"
     file-type: "json"
+    output-file: "openapi.json"
