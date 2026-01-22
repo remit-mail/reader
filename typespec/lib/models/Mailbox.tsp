@@ -96,9 +96,13 @@ model Mailbox {
   @minValue(0)
   totalSize: int64;
 
-  @doc("The highest UID that has been successfully synced")
+  @doc("The lowest UID that has been successfully synced (tracks downward progress)")
   @visibility(Lifecycle.Read)
   lastSyncUid: int64;
+
+  @doc("The highest UID ever seen/synced (used to detect new messages)")
+  @visibility(Lifecycle.Read)
+  highWaterMarkUid: int64;
 
   @doc("Timestamp of the last successful message sync")
   @visibility(Lifecycle.Read)
