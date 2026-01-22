@@ -20,7 +20,18 @@ export interface SyncMessageBodyEvent extends BaseEvent {
 	messageIds: string[];
 }
 
+export interface SyncFlagsEvent extends BaseEvent {
+	type: "SYNC_FLAGS";
+	mailboxId: string;
+	operations: Array<{
+		messageId: string;
+		flagName: string;
+		operation: "add" | "remove";
+	}>;
+}
+
 export type ImapEvent =
 	| SyncMailboxesEvent
 	| SyncMessagesEvent
-	| SyncMessageBodyEvent;
+	| SyncMessageBodyEvent
+	| SyncFlagsEvent;
