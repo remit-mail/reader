@@ -22,3 +22,8 @@ import "./ContentEncoding.tsp";
 
 // Thread Enums
 import "./StarColor.tsp";
+
+// Message Status Enums
+import "./MessageStatus.tsp";
+import "./MessageSyncStatus.tsp";
+import "./OutboxMessageStatus.tsp";

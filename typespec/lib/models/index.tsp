@@ -17,3 +17,6 @@ import "./Storage.tsp";
 
 // Thread Layer
 import "./ThreadMessage.tsp";
+
+// Outbox Layer (SMTP)
+import "./OutboxMessage.tsp";
