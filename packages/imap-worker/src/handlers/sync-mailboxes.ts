@@ -55,9 +55,5 @@ export const syncMailboxes = async (
 	await mailboxSyncService
 		.syncMailboxes({ accountId: event.accountId }, connection)
 		.then((result) => log.info({ result }, "Mailbox sync complete"))
-		.catch((error) => {
-			log.error({ error }, "Mailbox sync failed");
-			throw error;
-		})
 		.finally(() => connection.disconnect());
 };

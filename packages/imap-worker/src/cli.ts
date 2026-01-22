@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { randomUUID } from "node:crypto";
-import { parseArgs } from "node:util";
+import { inspect, parseArgs } from "node:util";
 import { createLogger } from "@remit/remit-logger-lambda";
 import type { ImapEvent } from "./events.js";
 import { processEvent } from "./processor.js";
@@ -124,6 +124,10 @@ try {
 	log.info("Event processing complete");
 	process.exit(0);
 } catch (error) {
-	log.error({ error }, "Event processing failed");
+	console.error(inspect(error));
+	log.error(
+		{ error, stack: (error as Error).stack, reason: (error as Error).reason },
+		"Event processing failed",
+	);
 	process.exit(1);
 }

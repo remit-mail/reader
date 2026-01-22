@@ -15,71 +15,131 @@ import type { IImapConnection, ImapAddress, ImapMessage } from "./types.js";
  */
 export type ImapConnectionFactory = () => IImapConnection;
 
+export interface SyncLogger {
+	info(obj: Record<string, unknown>, msg: string): void;
+}
+
+const noopLogger: SyncLogger = {
+	info: () => {},
+};
+
 export class MessageSyncService {
+	private log: SyncLogger;
+
 	constructor(
 		private createConnection: ImapConnectionFactory,
 		private mailboxService: MailboxService,
 		private messageService: MessageService,
 		private envelopeService: EnvelopeService,
 		private addressService: AddressService,
-	) {}
+		logger?: SyncLogger,
+	) {
+		this.log = logger ?? noopLogger;
+	}
 
+	/**
+	 * Sync messages for a mailbox using newest-first strategy.
+	 *
+	 * Uses dual-watermark tracking:
+	 * - highWaterMarkUid: highest UID ever seen (detects new messages)
+	 * - lastSyncUid: lowest UID processed (tracks backfill progress)
+	 *
+	 * @param mailboxId - The database mailbox ID
+	 * @param accountConfigId - The account config ID (used for address linking)
+	 * @param batchSize - Number of messages to process per batch
+	 */
 	async syncMessages(
 		mailboxId: string,
 		accountConfigId: string,
 		batchSize = 50,
 	): Promise<number> {
-		// 1. Get mailbox from DB to check lastSyncUid
 		const mailbox = await this.mailboxService.get(mailboxId);
-		if (!mailbox) {
-			throw new Error(`Mailbox ${mailboxId} not found`);
-		}
+		const mailboxPath = mailbox.fullPath;
+		const lastSyncUid = mailbox.lastSyncUid || 0;
+		const highWaterMarkUid = mailbox.highWaterMarkUid || 0;
 
-		// 2. Fetch UIDs from IMAP using a fresh connection
-		// Creating a new connection for each IMAP operation avoids IDLE issues
 		const { box, uids } = await this.fetchUidsToSync(
-			mailbox.fullPath,
-			mailbox.lastSyncUid || 0,
+			mailboxPath,
+			lastSyncUid,
+			highWaterMarkUid,
 		);
 
 		if (uids.length === 0) {
+			this.log.info(
+				{ mailboxId, mailboxPath, total: 0 },
+				"No new messages to sync",
+			);
 			return 0;
 		}
 
-		// 3. Process in batches, each batch uses a fresh connection
+		const totalBatches = Math.ceil(uids.length / batchSize);
+		this.log.info(
+			{ mailboxId, mailboxPath, total: uids.length, batches: totalBatches },
+			"Starting message sync (newest first)",
+		);
+
 		let syncedCount = 0;
+		let batchNumber = 0;
+		let currentHighWaterMark = highWaterMarkUid;
+		let currentLastSyncUid = lastSyncUid;
+
 		for (let i = 0; i < uids.length; i += batchSize) {
+			batchNumber++;
 			const batchUids = uids.slice(i, i + batchSize);
-			const messages = await this.fetchMessageBatch(
-				mailbox.fullPath,
-				batchUids,
-			);
+			const messages = await this.fetchMessageBatch(mailboxPath, batchUids);
 
 			for (const msg of messages) {
 				await this.saveMessage(mailboxId, accountConfigId, msg);
 			}
 
-			// Update lastSyncUid
-			const maxUid = Math.max(...batchUids);
+			// Update watermarks
+			const batchMax = Math.max(...batchUids);
+			const batchMin = Math.min(...batchUids);
+
+			currentHighWaterMark = Math.max(currentHighWaterMark, batchMax);
+
+			// Update lastSyncUid only for backfill UIDs (below current lastSyncUid or fresh sync)
+			if (currentLastSyncUid === 0 || batchMin < currentLastSyncUid) {
+				currentLastSyncUid = batchMin;
+			}
+
 			await this.mailboxService.update(mailboxId, {
-				lastSyncUid: maxUid,
+				lastSyncUid: currentLastSyncUid,
+				highWaterMarkUid: currentHighWaterMark,
 				lastMessageSyncAt: Date.now(),
 				uidValidity: box.uidvalidity,
 			});
 
 			syncedCount += messages.length;
+
+			this.log.info(
+				{
+					batch: batchNumber,
+					totalBatches,
+					batchSize: messages.length,
+					synced: syncedCount,
+					total: uids.length,
+					highWaterMarkUid: currentHighWaterMark,
+					lastSyncUid: currentLastSyncUid,
+				},
+				"Batch complete",
+			);
 		}
 
 		return syncedCount;
 	}
 
 	/**
-	 * Fetch UIDs to sync using a fresh connection.
-	 * Opens mailbox, searches for all UIDs, filters by lastSyncUid.
+	 * Fetch UIDs to sync using dual-watermark strategy.
+	 *
+	 * Returns UIDs sorted descending (newest first):
+	 * 1. New messages: UIDs > highWaterMarkUid
+	 * 2. Backfill: UIDs < lastSyncUid (if lastSyncUid > 1)
 	 */
 	private async fetchUidsToSync(
 		mailboxPath: string,
 		lastSyncUid: number,
+		highWaterMarkUid: number,
 	): Promise<{
 		box: { uidvalidity: number; uidnext: number };
 		uids: number[];
@@ -89,16 +149,23 @@ export class MessageSyncService {
 			await connection.connect();
 			const box = await connection.openBox(mailboxPath);
 
-			// If we are up to date, skip
-			if (lastSyncUid >= box.uidnext - 1) {
-				return { box, uids: [] };
-			}
-
-			// Use SEARCH ALL and filter client-side (workaround for mokapi bug with UID range syntax)
 			const allUids = await connection.search(["ALL"]);
-			const uids = allUids.filter((uid) => uid > lastSyncUid);
 
-			return { box, uids };
+			// New messages: UIDs greater than what we've seen
+			const newUids = allUids.filter((uid) => uid > highWaterMarkUid);
+
+			// Backfill: UIDs below our lowest synced point (if sync started)
+			const backfillUids =
+				lastSyncUid > 1 ? allUids.filter((uid) => uid < lastSyncUid) : [];
+
+			// Fresh sync: if no watermarks, sync everything
+			const isFreshSync = highWaterMarkUid === 0 && lastSyncUid === 0;
+			const uidsToSync = isFreshSync ? allUids : [...newUids, ...backfillUids];
+
+			// Sort descending (newest first)
+			uidsToSync.sort((a, b) => b - a);
+
+			return { box, uids: uidsToSync };
 		} finally {
 			await connection.disconnect();
 		}
@@ -115,6 +182,7 @@ export class MessageSyncService {
 		try {
 			await connection.connect();
 			await connection.openBox(mailboxPath);
+			console.log(`Fetching messages: ${mailboxPath}${uids.join(", ")}`);
 			return await connection.fetchMessages(uids);
 		} finally {
 			await connection.disconnect();
@@ -128,28 +196,26 @@ export class MessageSyncService {
 	) {
 		if (!msg.envelope) return;
 
-		const messageIdHeader =
-			msg.envelope.messageId || `no-id-${msg.uid}-${mailboxId}`;
-		const messageId = MessageService.generateId(messageIdHeader);
+		const messageId = MessageService.generateIdFromSource(accountConfigId, {
+			messageId: msg.envelope.messageId,
+			uid: msg.uid,
+			mailboxId,
+			date: msg.envelope.date,
+			subject: msg.envelope.subject,
+			fromMailbox: msg.envelope.from?.[0]?.mailbox,
+			fromHost: msg.envelope.from?.[0]?.host,
+		});
 		const envelopeId = EnvelopeService.generateId(messageId);
 
 		// Save Envelope
-		try {
-			await this.envelopeService.createEnvelope({
-				envelopeId,
-				messageId,
-				dateValue: new Date(msg.envelope.date).getTime(),
-				dateRaw: msg.envelope.date,
-				subject: msg.envelope.subject,
-				messageIdValue: msg.envelope.messageId,
-			});
-		} catch (e: unknown) {
-			if (
-				(e as { name?: string })?.name !== "ConditionalCheckFailedException"
-			) {
-				console.error("Failed to create envelope", e);
-			}
-		}
+		await this.envelopeService.upsertEnvelope({
+			envelopeId,
+			messageId,
+			dateValue: new Date(msg.envelope.date).getTime(),
+			dateRaw: msg.envelope.date,
+			subject: msg.envelope.subject,
+			messageIdValue: msg.envelope.messageId,
+		});
 
 		// Save Addresses
 		await this.saveAddresses(
@@ -190,29 +256,21 @@ export class MessageSyncService {
 		);
 
 		// Save Message
-		try {
-			// Generate a placeholder rootBodyPartId - will be updated when body parts are synced
-			const rootBodyPartId = base36uuidv5(
-				`bodypart:${messageId}:root`,
-				REMIT_NAMESPACE,
-			);
-			await this.messageService.create({
-				messageId,
-				mailboxId,
-				uid: msg.uid,
-				sequenceNumber: msg.seq,
-				rfc822Size: msg.size ?? 0, // Some IMAP servers don't return size
-				internalDate: msg.internalDate.getTime(),
-				envelopeId,
-				rootBodyPartId,
-			});
-		} catch (e: unknown) {
-			if (
-				(e as { name?: string })?.name !== "ConditionalCheckFailedException"
-			) {
-				console.error("Failed to create message", e);
-			}
-		}
+		// Generate a placeholder rootBodyPartId - will be updated when body parts are synced
+		const rootBodyPartId = base36uuidv5(
+			`bodypart:${messageId}:root`,
+			REMIT_NAMESPACE,
+		);
+		await this.messageService.upsert({
+			messageId,
+			mailboxId,
+			uid: msg.uid,
+			sequenceNumber: msg.seq,
+			rfc822Size: msg.size ?? 0, // Some IMAP servers don't return size
+			internalDate: msg.internalDate.getTime(),
+			envelopeId,
+			rootBodyPartId,
+		});
 
 		// TODO: Save Flags
 	}
@@ -240,23 +298,15 @@ export class MessageSyncService {
 				normalizedEmail,
 			);
 
-			try {
-				await this.addressService.createAddress({
-					addressId,
-					accountConfigId,
-					localPart,
-					domain,
-					normalizedEmail,
-					normalizedCompound,
-					displayName,
-				});
-			} catch (e: unknown) {
-				if (
-					(e as { name?: string })?.name !== "ConditionalCheckFailedException"
-				) {
-					console.error("Failed to create address", e);
-				}
-			}
+			await this.addressService.upsertAddress({
+				addressId,
+				accountConfigId,
+				localPart,
+				domain,
+				normalizedEmail,
+				normalizedCompound,
+				displayName,
+			});
 
 			const envelopeAddressId = AddressService.generateEnvelopeAddressId(
 				messageId,
@@ -264,22 +314,14 @@ export class MessageSyncService {
 				order,
 			);
 
-			try {
-				await this.addressService.createEnvelopeAddress({
-					envelopeAddressId,
-					messageId,
-					addressId,
-					displayName,
-					addressRole: role,
-					addressOrder: order++,
-				});
-			} catch (e: unknown) {
-				if (
-					(e as { name?: string })?.name !== "ConditionalCheckFailedException"
-				) {
-					console.error("Failed to create envelope address", e);
-				}
-			}
+			await this.addressService.upsertEnvelopeAddress({
+				envelopeAddressId,
+				messageId,
+				addressId,
+				displayName,
+				addressRole: role,
+				addressOrder: order++,
+			});
 		}
 	}
 }

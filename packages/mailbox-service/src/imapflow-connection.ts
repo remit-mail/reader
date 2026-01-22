@@ -12,7 +12,6 @@ import type {
 	ImapBoxStatus,
 	ImapConnectionConfig,
 	ImapConnectionState,
-	ImapMailbox,
 	ImapMessage,
 	ImapNamespaces,
 } from "./types.js";
@@ -157,54 +156,38 @@ export class ImapFlowConnection {
 	};
 
 	/**
-	 * List all mailboxes
+	 * List all mailboxes as a flat list, preserving original paths from server.
+	 * This avoids path corruption from split/join operations.
 	 *
-	 * @param nsPrefix - Optional namespace prefix to list mailboxes from
+	 * @param nsPrefix - Optional namespace prefix to filter mailboxes
 	 */
-	getBoxes = async (
-		nsPrefix?: string,
-	): Promise<Record<string, ImapMailbox>> => {
+	listMailboxes = async (nsPrefix?: string): Promise<FlatMailboxInfo[]> => {
 		this.ensureConnected();
 
 		const mailboxes = await this.client!.list();
-
-		// Convert ImapFlow's flat list to node-imap's nested structure
-		const result: Record<string, ImapMailbox> = {};
+		const result: FlatMailboxInfo[] = [];
 
 		for (const mailbox of mailboxes) {
 			// Filter by namespace prefix if provided
-			if (nsPrefix !== undefined) {
-				if (!mailbox.path.startsWith(nsPrefix)) {
-					continue;
-				}
+			if (nsPrefix !== undefined && !mailbox.path.startsWith(nsPrefix)) {
+				continue;
 			}
 
-			// Build nested structure
+			// Extract name from path (last component)
 			const pathParts = mailbox.path.split(mailbox.delimiter);
-			let current = result;
+			const name = pathParts[pathParts.length - 1] || mailbox.path;
+			const parentPath =
+				pathParts.length > 1
+					? pathParts.slice(0, -1).join(mailbox.delimiter)
+					: null;
 
-			for (let i = 0; i < pathParts.length; i++) {
-				const part = pathParts[i];
-				const isLast = i === pathParts.length - 1;
-
-				if (!current[part]) {
-					current[part] = {
-						attribs: isLast ? this.convertFlags(mailbox.flags) : [],
-						delimiter: mailbox.delimiter,
-						children: null,
-						parent: null,
-					};
-				}
-
-				if (isLast) {
-					current[part].attribs = this.convertFlags(mailbox.flags);
-				} else {
-					if (!current[part].children) {
-						current[part].children = {};
-					}
-					current = current[part].children!;
-				}
-			}
+			result.push({
+				fullPath: mailbox.path, // Use original path from server
+				name,
+				delimiter: mailbox.delimiter,
+				attributes: this.convertFlags(mailbox.flags),
+				parentPath,
+			});
 		}
 
 		return result;
@@ -268,36 +251,6 @@ export class ImapFlowConnection {
 			await this.client!.mailboxClose();
 			this.currentMailbox = null;
 		}
-	};
-
-	/**
-	 * Flatten nested mailbox structure into a list
-	 */
-	flattenBoxes = (
-		boxes: Record<string, ImapMailbox>,
-		parentPath = "",
-	): FlatMailboxInfo[] => {
-		const result: FlatMailboxInfo[] = [];
-
-		for (const [name, box] of Object.entries(boxes)) {
-			const fullPath = parentPath
-				? `${parentPath}${box.delimiter}${name}`
-				: name;
-
-			result.push({
-				fullPath,
-				name,
-				delimiter: box.delimiter,
-				attributes: box.attribs,
-				parentPath: parentPath || null,
-			});
-
-			if (box.children) {
-				result.push(...this.flattenBoxes(box.children, fullPath));
-			}
-		}
-
-		return result;
 	};
 
 	/**
