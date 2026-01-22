@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
+import {
+	SendMessageBatchCommand,
+	SendMessageCommand,
+	SQSClient,
+} from "@aws-sdk/client-sqs";
 import type {
 	MailboxService,
 	MailboxSpecialUseService,
@@ -142,39 +146,12 @@ export class MessageMoveService {
 		accountId: string,
 		options: DeleteOptions = { toTrash: true },
 	): Promise<void> => {
-		const message = await this.messageService.get([{ messageId }]);
-		const sourceMailbox = await this.mailboxService.get(message.mailboxId);
-
-		// Check if already in Trash
-		const trashMailbox =
-			await this.mailboxSpecialUseService.findTrashMailbox(accountId);
-		const isInTrash =
-			trashMailbox && message.mailboxId === trashMailbox.mailboxId;
-
-		// Determine operation type
-		const shouldMoveToTrash =
-			options.toTrash !== false &&
-			!options.permanent &&
-			!isInTrash &&
-			trashMailbox;
-
-		if (shouldMoveToTrash && trashMailbox) {
-			// Move to Trash (soft delete)
-			await this.moveToTrash(
-				messageId,
-				message,
-				sourceMailbox,
-				trashMailbox,
-				accountId,
-			);
-		} else {
-			// Permanent delete
-			await this.permanentDelete(messageId, message, sourceMailbox, accountId);
-		}
+		await this.deleteMessages([messageId], accountId, options);
 	};
 
 	/**
-	 * Delete multiple messages.
+	 * Delete multiple messages using batch operations.
+	 * By default moves to Trash, unless permanent is specified or already in Trash.
 	 *
 	 * @param messageIds - Messages to delete
 	 * @param accountId - Account ID
@@ -185,91 +162,144 @@ export class MessageMoveService {
 		accountId: string,
 		options: DeleteOptions = { toTrash: true },
 	): Promise<void> => {
-		for (const messageId of messageIds) {
-			await this.deleteMessage(messageId, accountId, options);
+		if (messageIds.length === 0) return;
+
+		// Batch get all messages
+		const messages = await this.messageService.get(messageIds);
+		if (messages.length === 0) return;
+
+		// Get unique mailbox IDs and batch fetch mailboxes
+		const uniqueMailboxIds = [...new Set(messages.map((m) => m.mailboxId))];
+		const mailboxes = await this.mailboxService.get(uniqueMailboxIds);
+		const mailboxMap = new Map(mailboxes.map((m) => [m.mailboxId, m]));
+
+		// Find trash mailbox once
+		const trashMailbox =
+			await this.mailboxSpecialUseService.findTrashMailbox(accountId);
+
+		// Group messages by operation type
+		const moveToTrashMessages: Array<{
+			messageId: string;
+			message: { mailboxId: string; uid: number };
+			sourceMailbox: { mailboxId: string; fullPath: string };
+		}> = [];
+		const permanentDeleteMessages: Array<{
+			messageId: string;
+			message: { mailboxId: string; uid: number };
+			sourceMailbox: { mailboxId: string; fullPath: string };
+		}> = [];
+
+		for (const message of messages) {
+			const sourceMailbox = mailboxMap.get(message.mailboxId);
+			if (!sourceMailbox) continue;
+
+			const isInTrash =
+				trashMailbox && message.mailboxId === trashMailbox.mailboxId;
+			const shouldMoveToTrash =
+				options.toTrash !== false &&
+				!options.permanent &&
+				!isInTrash &&
+				trashMailbox;
+
+			const entry = {
+				messageId: message.messageId,
+				message: { mailboxId: message.mailboxId, uid: message.uid },
+				sourceMailbox: {
+					mailboxId: sourceMailbox.mailboxId,
+					fullPath: sourceMailbox.fullPath,
+				},
+			};
+
+			if (shouldMoveToTrash && trashMailbox) {
+				moveToTrashMessages.push(entry);
+			} else {
+				permanentDeleteMessages.push(entry);
+			}
 		}
-	};
 
-	private moveToTrash = async (
-		messageId: string,
-		message: { mailboxId: string; uid: number },
-		sourceMailbox: { mailboxId: string; fullPath: string },
-		trashMailbox: { mailboxId: string; fullPath: string },
-		accountId: string,
-	): Promise<void> => {
-		// Update local state optimistically
-		await this.messageService.updateForMove(messageId, {
-			mailboxId: trashMailbox.mailboxId,
-			status: MessageStatus.moving,
-			syncStatus: MessageSyncStatus.pending,
-			originalMailboxId: sourceMailbox.mailboxId,
-			originalUid: message.uid,
-		});
+		// Collect all events for batch SQS send
+		const events: MessageDeleteEvent[] = [];
 
-		// Update ThreadMessage
-		await this.updateThreadMessageForMove(
+		// Process move to trash
+		if (trashMailbox && moveToTrashMessages.length > 0) {
+			for (const { messageId, message, sourceMailbox } of moveToTrashMessages) {
+				// Update local state optimistically
+				await this.messageService.updateForMove(messageId, {
+					mailboxId: trashMailbox.mailboxId,
+					status: MessageStatus.moving,
+					syncStatus: MessageSyncStatus.pending,
+					originalMailboxId: sourceMailbox.mailboxId,
+					originalUid: message.uid,
+				});
+
+				// Update ThreadMessage
+				await this.updateThreadMessageForMove(
+					messageId,
+					trashMailbox.mailboxId,
+					true,
+				);
+
+				events.push({
+					type: "MESSAGE_DELETE",
+					eventId: randomUUID(),
+					timestamp: Date.now(),
+					accountId,
+					messageId,
+					mailboxId: sourceMailbox.mailboxId,
+					mailboxPath: sourceMailbox.fullPath,
+					uid: message.uid,
+					operation: "move_to_trash",
+					destinationMailboxId: trashMailbox.mailboxId,
+					destinationMailboxPath: trashMailbox.fullPath,
+				});
+			}
+
+			this.log.info(
+				{
+					count: moveToTrashMessages.length,
+					trashMailboxId: trashMailbox.mailboxId,
+				},
+				"Moved messages to trash (local)",
+			);
+		}
+
+		// Process permanent deletes
+		for (const {
 			messageId,
-			trashMailbox.mailboxId,
-			true,
-		);
+			message,
+			sourceMailbox,
+		} of permanentDeleteMessages) {
+			// Update local state optimistically
+			await this.messageService.update(messageId, {
+				status: MessageStatus.deleting,
+				syncStatus: MessageSyncStatus.pending,
+			});
 
-		this.log.info(
-			{ messageId, trashMailboxId: trashMailbox.mailboxId },
-			"Moved message to trash (local)",
-		);
+			// Update ThreadMessage
+			await this.updateThreadMessageDeleted(messageId, true);
 
-		// Enqueue IMAP sync
-		const event: MessageDeleteEvent = {
-			type: "MESSAGE_DELETE",
-			eventId: randomUUID(),
-			timestamp: Date.now(),
-			accountId,
-			messageId,
-			mailboxId: sourceMailbox.mailboxId,
-			mailboxPath: sourceMailbox.fullPath,
-			uid: message.uid,
-			operation: "move_to_trash",
-			destinationMailboxId: trashMailbox.mailboxId,
-			destinationMailboxPath: trashMailbox.fullPath,
-		};
+			events.push({
+				type: "MESSAGE_DELETE",
+				eventId: randomUUID(),
+				timestamp: Date.now(),
+				accountId,
+				messageId,
+				mailboxId: sourceMailbox.mailboxId,
+				mailboxPath: sourceMailbox.fullPath,
+				uid: message.uid,
+				operation: "permanent_delete",
+			});
+		}
 
-		await this.enqueueEvent(event);
-	};
+		if (permanentDeleteMessages.length > 0) {
+			this.log.info(
+				{ count: permanentDeleteMessages.length },
+				"Marked messages for permanent deletion (local)",
+			);
+		}
 
-	private permanentDelete = async (
-		messageId: string,
-		message: { mailboxId: string; uid: number },
-		sourceMailbox: { mailboxId: string; fullPath: string },
-		accountId: string,
-	): Promise<void> => {
-		// Update local state optimistically
-		await this.messageService.update(messageId, {
-			status: MessageStatus.deleting,
-			syncStatus: MessageSyncStatus.pending,
-		});
-
-		// Update ThreadMessage
-		await this.updateThreadMessageDeleted(messageId, true);
-
-		this.log.info(
-			{ messageId },
-			"Marked message for permanent deletion (local)",
-		);
-
-		// Enqueue IMAP sync
-		const event: MessageDeleteEvent = {
-			type: "MESSAGE_DELETE",
-			eventId: randomUUID(),
-			timestamp: Date.now(),
-			accountId,
-			messageId,
-			mailboxId: sourceMailbox.mailboxId,
-			mailboxPath: sourceMailbox.fullPath,
-			uid: message.uid,
-			operation: "permanent_delete",
-		};
-
-		await this.enqueueEvent(event);
+		// Batch send events to SQS
+		await this.enqueueEventsBatch(events);
 	};
 
 	/**
@@ -538,5 +568,32 @@ export class MessageMoveService {
 			{ eventId: event.eventId, type: event.type },
 			"Enqueued message event",
 		);
+	};
+
+	/**
+	 * Enqueue multiple events to SQS using batch send.
+	 * SQS batch limit is 10 messages, so we chunk if needed.
+	 */
+	private enqueueEventsBatch = async (
+		events: MessageMoveQueueEvent[],
+	): Promise<void> => {
+		if (events.length === 0) return;
+
+		const SQS_BATCH_SIZE = 10;
+
+		for (let i = 0; i < events.length; i += SQS_BATCH_SIZE) {
+			const batch = events.slice(i, i + SQS_BATCH_SIZE);
+			await this.sqs.send(
+				new SendMessageBatchCommand({
+					QueueUrl: this.queueUrl,
+					Entries: batch.map((event, idx) => ({
+						Id: `${i + idx}`,
+						MessageBody: JSON.stringify(event),
+					})),
+				}),
+			);
+		}
+
+		this.log.info({ count: events.length }, "Enqueued message events batch");
 	};
 }
