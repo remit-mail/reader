@@ -83,22 +83,17 @@ export class BodySyncService {
 					accountConfigId,
 					mailboxPath,
 					getConnection,
-				).catch((error) => {
-					this.log.error?.({ messageId, error }, "Failed to fetch body");
-					return { status: "failed" as const };
-				}),
+				),
 			{ concurrency: BODY_SYNC_CONCURRENCY },
 		);
 
 		const synced = results.filter((r) => r.status === "synced");
 		const skipped = results.filter((r) => r.status === "skipped");
-		const failed = results.filter((r) => r.status === "failed");
 
 		this.log.info(
 			{
 				synced: synced.length,
 				skipped: skipped.length,
-				failed: failed.length,
 				total: messageIds.length,
 			},
 			"Body sync complete",
@@ -106,11 +101,9 @@ export class BodySyncService {
 
 		return {
 			syncedCount: synced.length,
-			syncedMessageIds: synced
-				.map((r) => ("messageId" in r ? r.messageId : null))
-				.filter((id): id is string => id !== null),
+			syncedMessageIds: synced.map((r) => r.messageId),
 			skippedCount: skipped.length,
-			failedCount: failed.length,
+			failedCount: 0,
 		};
 	}
 
@@ -177,17 +170,9 @@ export class BodySyncService {
 			});
 
 			debugLog("Storing body", { messageId, uri: ref.uri });
-			try {
-				const updated = await this.messageService.update(messageId, {
-					bodyStorageKey: ref.uri,
-				});
-				debugLog("Update result", {
-					messageId,
-					bodyStorageKey: updated.bodyStorageKey,
-				});
-			} catch (updateErr) {
-				debugLog("Update FAILED", { messageId, error: String(updateErr) });
-			}
+			await this.messageService.update(messageId, {
+				bodyStorageKey: ref.uri,
+			});
 			this.log.info?.({ messageId, storageKey: ref.uri }, "Body stored");
 
 			// Update snippets for thread entities
@@ -225,9 +210,7 @@ export class BodySyncService {
 		accountConfigId: string,
 		mailboxPath: string,
 		getConnection: ConnectionGetter,
-	): Promise<
-		{ status: "synced"; messageId: string } | { status: "skipped" | "failed" }
-	> {
+	): Promise<{ status: "synced"; messageId: string } | { status: "skipped" }> {
 		const message = await this.messageService.get(messageId);
 
 		if (message.bodyStorageKey) {
@@ -286,17 +269,9 @@ export class BodySyncService {
 			return;
 		}
 
-		// Find the ThreadMessage by messageId (efficient GSI lookup)
+		// Get the ThreadMessage by messageId (efficient GSI lookup)
 		const threadMessage =
-			await this.threadMessageService.findByMessageId(messageId);
-
-		if (!threadMessage) {
-			this.log.debug?.(
-				{ messageId },
-				"No ThreadMessage found for snippet update",
-			);
-			return;
-		}
+			await this.threadMessageService.getByMessageId(messageId);
 
 		// Update ThreadMessage snippet
 		await this.threadMessageService.update(

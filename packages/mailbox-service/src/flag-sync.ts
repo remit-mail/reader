@@ -1,6 +1,7 @@
-import type {
-	MessageFlagService,
-	MessageService,
+import {
+	type MessageFlagService,
+	type MessageService,
+	NotFoundError,
 } from "@remit/remit-electrodb-service";
 import { MessageSystemFlag } from "@remit/domain-enums";
 import type { IImapConnection } from "./types.js";
@@ -147,14 +148,19 @@ export class FlagSyncService {
 		>();
 
 		for (const op of operations) {
-			const message = await this.messageService.get(op.messageId).catch(() => {
-				result.errors.push({
-					messageId: op.messageId,
-					error: "Message not found",
+			const message = await this.messageService
+				.get(op.messageId)
+				.catch((error: unknown) => {
+					if (error instanceof NotFoundError) {
+						result.errors.push({
+							messageId: op.messageId,
+							error: "Message not found",
+						});
+						result.failedCount++;
+						return null;
+					}
+					throw error;
 				});
-				result.failedCount++;
-				return null;
-			});
 
 			if (message) {
 				// We need mailbox path for the IMAP operation
