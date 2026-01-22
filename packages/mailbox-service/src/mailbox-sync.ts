@@ -11,9 +11,9 @@ import {
 	MailboxService,
 } from "@remit/remit-electrodb-service";
 import { NamespaceType } from "@remit/domain-enums";
-import type { ImapConnection } from "./imap-connection.js";
 import type {
 	FlatMailboxInfo,
+	IImapConnection,
 	ImapBoxStatus,
 	ImapNamespaces,
 	MailboxSyncResult,
@@ -58,7 +58,7 @@ export class MailboxSyncService {
 	 */
 	syncMailboxes = async (
 		account: SyncAccountInfo,
-		connection: ImapConnection,
+		connection: IImapConnection,
 	): Promise<MailboxSyncResult> => {
 		const result: MailboxSyncResult = {
 			created: 0,
@@ -136,7 +136,7 @@ export class MailboxSyncService {
 	 */
 	syncMailboxMetadata = async (
 		mailboxId: string,
-		connection: ImapConnection,
+		connection: IImapConnection,
 	): Promise<MailboxItem> => {
 		const mailbox = await this.mailboxService.get(mailboxId);
 
@@ -191,7 +191,7 @@ export class MailboxSyncService {
 	 * Fetch all mailboxes from IMAP server across all namespaces
 	 */
 	private fetchAllMailboxes = async (
-		connection: ImapConnection,
+		connection: IImapConnection,
 		namespaces: ImapNamespaces,
 	): Promise<
 		Array<
@@ -278,7 +278,7 @@ export class MailboxSyncService {
 			namespacePrefix: string;
 		},
 		_namespaces: ImapNamespaces,
-		_connection: ImapConnection,
+		_connection: IImapConnection,
 	): Promise<MailboxItem> => {
 		// Skip opening mailbox during initial sync - metadata will be populated
 		// during message sync. This avoids issues with some IMAP servers that
@@ -316,7 +316,7 @@ export class MailboxSyncService {
 	private updateMailbox = async (
 		existing: MailboxItem,
 		mailboxInfo: FlatMailboxInfo,
-		_connection: ImapConnection,
+		_connection: IImapConnection,
 	): Promise<MailboxItem> => {
 		// Check if delimiter changed (shouldn't happen, but handle it)
 		if (existing.hierarchyDelimiter !== mailboxInfo.delimiter) {

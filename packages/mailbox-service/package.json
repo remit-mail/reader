@@ -20,11 +20,10 @@
 		"@aws-sdk/lib-dynamodb": "*",
 		"@remit/electrodb-entities": "*",
 		"@remit/domain-enums": "*",
-		"@types/node-imap": "*",
 		"@types/uuid": "^10.0.0",
 		"electrodb": "*",
 		"expect-env": "*",
-		"node-imap": "*",
+		"imapflow": "^1.0.171",
 		"short-uuid": "*"
 	}
 }
