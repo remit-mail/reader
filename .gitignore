@@ -66,3 +66,4 @@ build
 .remit/
 .tmux/
 .DS_Store
+packages/remit-web-client/src/routeTree.gen.ts
