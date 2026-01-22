@@ -3,6 +3,7 @@ import "typespec-electrodb-emitter";
 import "../enums/MessageFlag.tsp";
 import "../enums/MessageStatus.tsp";
 import "../enums/MessageSyncStatus.tsp";
+import "../enums/StarColor.tsp";
 import "../scalars/string.tsp";
 
 namespace RemitImap;
@@ -148,4 +149,110 @@ model MessageFlag {
   @visibility(Lifecycle.Read)
   @updatedAt
   updatedAt: int64;
+}
+
+// ============================================
+// API Response Models
+// ============================================
+
+@doc("Core message metadata for API responses")
+model MessageSummaryResponse
+  is PickProperties<
+    Message,
+
+      | "messageId"
+      | "mailboxId"
+      | "uid"
+      | "rfc822Size"
+      | "internalDate"
+      | "messageIdHeader"
+  >;
+
+@doc("Message envelope (header metadata)")
+model EnvelopeResponse {
+  @doc("Reference to parent message")
+  messageId: UUID;
+
+  @doc("Message date")
+  date: int64;
+
+  @doc("Message subject")
+  subject?: string;
+
+  @doc("RFC 2822 Message-ID header value")
+  messageIdValue?: string;
+
+  @doc("From addresses")
+  from: EnvelopeAddressResponse[];
+
+  @doc("To addresses")
+  to: EnvelopeAddressResponse[];
+
+  @doc("CC addresses")
+  cc: EnvelopeAddressResponse[];
+
+  @doc("BCC addresses")
+  bcc: EnvelopeAddressResponse[];
+
+  @doc("Reply-To addresses")
+  replyTo: EnvelopeAddressResponse[];
+}
+
+@doc("Complete message description including all related data")
+model DescribeMessageResponse {
+  @doc("Core message metadata")
+  message: MessageSummaryResponse;
+
+  @doc("Envelope data")
+  envelope: EnvelopeResponse;
+
+  @doc("Message flags")
+  flags: string[];
+
+  @doc("Body structure")
+  bodyParts: BodyPartResponse[];
+}
+
+// ============================================
+// API Input Models
+// ============================================
+
+@doc("Input for updating message flags (translated to IMAP flags server-side)")
+model UpdateFlagsInput {
+  @doc("Set message as read (maps to \\Seen flag)")
+  isRead?: boolean;
+
+  @doc("Set message as starred (maps to \\Flagged flag)")
+  isStarred?: boolean;
+
+  @doc("Star color for visual categorization")
+  starColor?: StarColor;
+}
+
+@doc("Input for bulk message operations")
+model BulkMessageInput {
+  @doc("List of message IDs to operate on")
+  @minItems(1)
+  @maxItems(100)
+  messageIds: UUID[];
+}
+
+@doc("Input for moving messages")
+model MoveMessagesInput {
+  ...BulkMessageInput;
+
+  @doc("Destination mailbox ID")
+  destinationMailboxId: UUID;
+}
+
+@doc("Bulk operation result for message operations")
+model MessageBulkOperationResult {
+  @doc("Number of items successfully processed")
+  successCount: int32;
+
+  @doc("Number of items that failed")
+  failureCount: int32;
+
+  @doc("IDs of failed items")
+  failedIds?: UUID[];
 }

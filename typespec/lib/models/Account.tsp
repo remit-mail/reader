@@ -211,3 +211,16 @@ model Account {
   @updatedAt
   updatedAt: int64;
 }
+
+// ============================================
+// API Response Models
+// ============================================
+
+@doc("Sync trigger response")
+model SyncTriggerResponse {
+  @doc("Whether sync was triggered successfully")
+  triggered: boolean;
+
+  @doc("Message about sync status")
+  message: string;
+}

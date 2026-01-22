@@ -50,8 +50,8 @@ model Mailbox {
   accountId: UUID;
 
   @doc("Namespace type: personal, other_users, or shared")
-  @visibility(Lifecycle.Read)
-  namespaceType: NamespaceType;
+  @visibility(Lifecycle.Create, Lifecycle.Read)
+  namespaceType: NamespaceType = NamespaceType.Personal;
 
   @doc("Namespace prefix (e.g., '', '~', '#shared/')")
   @visibility(Lifecycle.Read)
@@ -64,7 +64,8 @@ model Mailbox {
   hierarchyDelimiter: string;
 
   @doc("Complete mailbox path including hierarchy")
-  @visibility(Lifecycle.Read)
+  @visibility(Lifecycle.Create, Lifecycle.Read, Lifecycle.Update)
+  @minLength(1)
   fullPath: String512;
 
   @doc("32-bit value that changes when UIDs are invalidated (RFC 9051 Section 2.3.1.1)")
@@ -229,3 +230,35 @@ model MailboxFlag {
   @visibility(Lifecycle.Read)
   isPermanent: boolean;
 }
+
+// ============================================
+// API Input Models
+// ============================================
+
+@doc("Input for creating a new mailbox")
+model CreateMailboxInput is Create<Mailbox>;
+
+@doc("Input for renaming a mailbox")
+model RenameMailboxInput is Update<Mailbox>;
+
+// ============================================
+// API Response Models
+// ============================================
+
+@doc("Mailbox item returned by list/get operations")
+model MailboxResponse
+  is PickProperties<
+    Mailbox,
+
+      | "mailboxId"
+      | "accountId"
+      | "fullPath"
+      | "namespaceType"
+      | "namespacePrefix"
+      | "hierarchyDelimiter"
+      | "messageCount"
+      | "unseenCount"
+      | "deletedCount"
+      | "createdAt"
+      | "updatedAt"
+  >;
