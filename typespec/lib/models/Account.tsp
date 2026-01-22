@@ -170,6 +170,15 @@ model Account {
   @visibility(Lifecycle.Read)
   smtpStartTls?: boolean;
 
+  @doc("SMTP login username (may differ from IMAP username)")
+  @visibility(Lifecycle.Read)
+  smtpUsername?: string;
+
+  @doc("Hashed password for SMTP authentication (may differ from IMAP)")
+  @visibility(Lifecycle.Read)
+  @secret
+  smtpPasswordHash?: string;
+
   // ============================================
   // Connection State
   // ============================================
