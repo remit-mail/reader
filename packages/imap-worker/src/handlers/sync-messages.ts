@@ -8,12 +8,13 @@ import {
 } from "@remit/remit-electrodb-service";
 import type { Logger } from "@remit/logger-lambda";
 import {
-	createImapConnectionFromAccount,
+	ImapConnection,
 	MessageSyncService,
 } from "@remit/mailbox-service";
 import {
 	createKmsDataKeyProvider,
 	createSecretsService,
+	deserializeEncryptedPayload,
 } from "@remit/secrets-service";
 import { env } from "expect-env";
 import type { SyncMessagesEvent } from "../events.js";
@@ -57,21 +58,22 @@ export const syncMessages = async (
 		throw new Error(`Account ${event.accountId} not found`);
 	}
 
-	const password = await secrets.decrypt(JSON.parse(account.passwordHash));
-	const connection = createImapConnectionFromAccount(
-		{
-			username: account.email,
-			imapHost: account.imapHost,
-			imapPort: account.imapPort,
-			imapTls: account.imapTls,
-		},
-		password,
+	const password = await secrets.decrypt(
+		deserializeEncryptedPayload(JSON.parse(account.passwordHash)),
 	);
 
-	await connection.connect();
+	// Create a connection factory that returns fresh connections
+	const createConnection = () =>
+		new ImapConnection({
+			user: account.username,
+			password,
+			host: account.imapHost,
+			port: account.imapPort,
+			tls: account.imapTls,
+		});
 
 	const syncService = new MessageSyncService(
-		connection,
+		createConnection,
 		mailboxService,
 		messageService,
 		envelopeService,
@@ -79,11 +81,10 @@ export const syncMessages = async (
 	);
 
 	await syncService
-		.syncMessages(event.mailboxId, event.accountId)
+		.syncMessages(event.mailboxId, account.accountConfigId)
 		.then((count) => log.info({ count }, "Message sync complete"))
 		.catch((error) => {
 			log.error({ error }, "Message sync failed");
 			throw error;
-		})
-		.finally(() => connection.disconnect());
+		});
 };

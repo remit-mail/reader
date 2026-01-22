@@ -11,7 +11,6 @@ import {
 	MailboxService,
 } from "@remit/remit-electrodb-service";
 import { NamespaceType } from "@remit/domain-enums";
-import { isNoSelect } from "./attribute-mapper.js";
 import type { ImapConnection } from "./imap-connection.js";
 import type {
 	FlatMailboxInfo,
@@ -243,6 +242,29 @@ export class MailboxSyncService {
 			}
 		}
 
+		// INBOX is implicit in IMAP and may not be returned by LIST commands.
+		// node-imap sometimes filters out INBOX when it has empty attributes.
+		// Explicitly add INBOX if not already present.
+		const hasInbox = results.some(
+			(m) => m.fullPath.toUpperCase() === "INBOX",
+		);
+		if (!hasInbox) {
+			// Use personal namespace delimiter, or "/" as fallback
+			// Delimiter can be false if the server has a flat namespace
+			const nsDelimiter = namespaces.personal[0]?.delimiter;
+			const delimiter =
+				typeof nsDelimiter === "string" ? nsDelimiter : "/";
+			results.unshift({
+				fullPath: "INBOX",
+				name: "INBOX",
+				delimiter,
+				attributes: [],
+				parentPath: null,
+				namespaceType: NamespaceType.Personal,
+				namespacePrefix: "",
+			});
+		}
+
 		return results;
 	};
 
@@ -256,30 +278,14 @@ export class MailboxSyncService {
 			namespacePrefix: string;
 		},
 		_namespaces: ImapNamespaces,
-		connection: ImapConnection,
+		_connection: ImapConnection,
 	): Promise<MailboxItem> => {
-		// Parse attributes - unused for now
-		// const { attributes, specialUse } = parseImapAttributes(
-		// 	mailboxInfo.attributes,
-		// );
-
-		// Get initial metadata by opening the mailbox (if selectable)
-		let uidValidity = 1;
-		let uidNext = 1;
-		let messageCount = 0;
-
-		if (!isNoSelect(mailboxInfo.attributes)) {
-			try {
-				const boxStatus = await connection.openBox(mailboxInfo.fullPath, true);
-				uidValidity = boxStatus.uidvalidity;
-				uidNext = boxStatus.uidnext;
-				messageCount = boxStatus.messages.total;
-				await connection.closeBox(false);
-			} catch (error) {
-				// Failed to open mailbox, use defaults
-				console.warn(`Could not open mailbox ${mailboxInfo.fullPath}:`, error);
-			}
-		}
+		// Skip opening mailbox during initial sync - metadata will be populated
+		// during message sync. This avoids issues with some IMAP servers that
+		// have bugs with EXAMINE/UNSELECT command sequences.
+		const uidValidity = 1;
+		const uidNext = 1;
+		const messageCount = 0;
 
 		const input: CreateMailboxInput = {
 			accountId,
@@ -310,7 +316,7 @@ export class MailboxSyncService {
 	private updateMailbox = async (
 		existing: MailboxItem,
 		mailboxInfo: FlatMailboxInfo,
-		connection: ImapConnection,
+		_connection: ImapConnection,
 	): Promise<MailboxItem> => {
 		// Check if delimiter changed (shouldn't happen, but handle it)
 		if (existing.hierarchyDelimiter !== mailboxInfo.delimiter) {
@@ -319,21 +325,9 @@ export class MailboxSyncService {
 			});
 		}
 
-		// Update metadata by opening the mailbox (if selectable)
-		if (!isNoSelect(mailboxInfo.attributes)) {
-			try {
-				const boxStatus = await connection.openBox(mailboxInfo.fullPath, true);
-				await this.mailboxService.update(existing.mailboxId, {
-					uidValidity: boxStatus.uidvalidity,
-					uidNext: boxStatus.uidnext,
-					messageCount: boxStatus.messages.total,
-				});
-				await connection.closeBox(false);
-			} catch (error) {
-				// Failed to open mailbox
-				console.warn(`Could not open mailbox ${mailboxInfo.fullPath}:`, error);
-			}
-		}
+		// Skip updating metadata by opening the mailbox - this will be done
+		// during message sync. Avoids issues with some IMAP servers that have
+		// bugs with EXAMINE/UNSELECT sequences.
 
 		return this.mailboxService.get(existing.mailboxId);
 	};

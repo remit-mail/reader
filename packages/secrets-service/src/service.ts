@@ -21,6 +21,31 @@ export interface EncryptedPayload {
 	authTag: Buffer;
 }
 
+export interface SerializedEncryptedPayload {
+	encryptedDek: string;
+	encryptedData: string;
+	iv: string;
+	authTag: string;
+}
+
+export const serializeEncryptedPayload = (
+	payload: EncryptedPayload,
+): SerializedEncryptedPayload => ({
+	encryptedDek: payload.encryptedDek.toString("base64"),
+	encryptedData: payload.encryptedData.toString("base64"),
+	iv: payload.iv.toString("base64"),
+	authTag: payload.authTag.toString("base64"),
+});
+
+export const deserializeEncryptedPayload = (
+	serialized: SerializedEncryptedPayload,
+): EncryptedPayload => ({
+	encryptedDek: Buffer.from(serialized.encryptedDek, "base64"),
+	encryptedData: Buffer.from(serialized.encryptedData, "base64"),
+	iv: Buffer.from(serialized.iv, "base64"),
+	authTag: Buffer.from(serialized.authTag, "base64"),
+});
+
 export interface SecretsService {
 	encrypt(plaintext: string): Promise<EncryptedPayload>;
 	decrypt(payload: EncryptedPayload): Promise<string>;

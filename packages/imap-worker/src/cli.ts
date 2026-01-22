@@ -5,6 +5,21 @@ import { createLogger } from "@remit/logger-lambda";
 import type { ImapEvent } from "./events.js";
 import { processEvent } from "./processor.js";
 
+process.on("unhandledRejection", (reason, promise) => {
+	console.error("Unhandled Rejection at:", promise, "reason:", reason);
+	process.exit(1);
+});
+
+process.on("uncaughtException", (err) => {
+	console.error("Uncaught Exception:", err);
+	process.exit(1);
+});
+
+// Ignore SIGPIPE to prevent crashes when output is piped
+process.on("SIGPIPE", () => {
+	console.error("[SIGPIPE received - ignoring]");
+});
+
 const HELP = `
 remit-imap-worker - Process IMAP sync events
 
@@ -103,4 +118,12 @@ const event = {
 } as ImapEvent;
 
 log.info({ event }, "Running CLI event");
-await processEvent(event, log);
+
+try {
+	await processEvent(event, log);
+	log.info("Event processing complete");
+	process.exit(0);
+} catch (error) {
+	log.error({ error }, "Event processing failed");
+	process.exit(1);
+}
