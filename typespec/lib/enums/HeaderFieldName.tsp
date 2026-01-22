@@ -1,3 +1,5 @@
+namespace RemitImap;
+
 @doc("Standard header field names defined in RFC 2822 Section 3.6")
 enum StandardHeaderField {
   @doc("Origination date - RFC 2822 Section 3.6.1 - REQUIRED")

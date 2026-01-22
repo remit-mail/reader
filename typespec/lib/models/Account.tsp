@@ -1,5 +1,7 @@
 import "../enums/ConnectionState.tsp";
 
+namespace RemitImap;
+
 @doc("Represents an IMAP user account. Contains authentication credentials and account metadata.")
 model Account {
   @doc("Primary identifier")

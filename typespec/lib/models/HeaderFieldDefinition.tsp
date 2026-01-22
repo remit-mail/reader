@@ -2,6 +2,8 @@ import "../enums/HeaderFieldCategory.tsp";
 import "../enums/HeaderFieldValueType.tsp";
 import "../enums/HeaderFieldName.tsp";
 
+namespace RemitImap;
+
 @doc("Reference data defining RFC 2822 standard header fields and their constraints. Used for validation and parsing guidance.")
 model HeaderFieldDefinition {
   @doc("Primary identifier")

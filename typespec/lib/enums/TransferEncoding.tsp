@@ -1,3 +1,5 @@
+namespace RemitImap;
+
 @doc("MIME transfer encodings per RFC 2045")
 enum TransferEncoding {
   @doc("7-bit ASCII text")

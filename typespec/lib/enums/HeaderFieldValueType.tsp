@@ -1,3 +1,5 @@
+namespace RemitImap;
+
 @doc("Header field value types for parsing guidance per RFC 2822")
 enum HeaderFieldValueType {
   @doc("Date and time specification - RFC 2822 Section 3.3")

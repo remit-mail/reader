@@ -1,3 +1,5 @@
+namespace RemitImap;
+
 @doc("Content disposition types per RFC 2183")
 enum ContentDisposition {
   @doc("Content should be displayed inline")

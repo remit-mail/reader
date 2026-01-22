@@ -1,3 +1,5 @@
+namespace RemitImap;
+
 @doc("System message flags defined in RFC 9051 Section 2.3.2 - MUST be supported by all servers")
 enum MessageSystemFlag {
   @doc("Message has been read")

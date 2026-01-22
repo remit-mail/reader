@@ -1,3 +1,5 @@
+namespace RemitImap;
+
 @doc("Header field categories per RFC 2822 Section 3.6")
 enum HeaderFieldCategory {
   @doc("Origination date field (Date) - RFC 2822 Section 3.6.1")

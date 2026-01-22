@@ -1,3 +1,5 @@
+namespace RemitImap;
+
 @doc("Mailbox attributes per RFC 9051 Section 7.3.1")
 enum MailboxAttribute {
   @doc("Mailbox does not exist")

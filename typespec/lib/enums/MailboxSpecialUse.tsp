@@ -1,3 +1,5 @@
+namespace RemitImap;
+
 @doc("Mailbox special-use attributes per RFC 6154 and RFC 9051 Section 7.3.1")
 enum MailboxSpecialUse {
   @doc("All messages (virtual folder)")

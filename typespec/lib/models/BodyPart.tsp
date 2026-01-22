@@ -3,6 +3,8 @@ import "../enums/TransferEncoding.tsp";
 import "../enums/ContentDisposition.tsp";
 import "../enums/MultipartSubtype.tsp";
 
+namespace RemitImap;
+
 @doc("Represents MIME body structure (RFC 9051 Section 2.3.6, Section 7.5.2). Supports recursive nesting for multipart messages.")
 model BodyPart {
   @doc("Primary identifier")

@@ -1,7 +1,9 @@
 import "../enums/NamespaceType.tsp";
 
+namespace RemitImap;
+
 @doc("Represents IMAP namespaces as defined in RFC 9051 Section 6.3.10. Each account can have personal, other users', and shared namespaces.")
-model Namespace {
+model ImapNamespace {
   @doc("Primary identifier")
   namespaceId: string;
 

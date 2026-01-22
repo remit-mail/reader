@@ -1,3 +1,5 @@
+namespace RemitImap;
+
 @doc("Groups trace header fields (Return-Path and Received headers) that are prepended to messages during transport per RFC 2822 Section 3.6.7.")
 model TraceBlock {
   @doc("Primary identifier")

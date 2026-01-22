@@ -1,3 +1,5 @@
+namespace RemitImap;
+
 @doc("Normalized email address per RFC 2822 Section 3.4.1. Addresses are deduplicated across messages.")
 model Address {
   @doc("Primary identifier")

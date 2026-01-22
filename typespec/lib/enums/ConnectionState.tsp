@@ -1,3 +1,5 @@
+namespace RemitImap;
+
 @doc("IMAP connection states per RFC 9051 Section 3")
 enum ConnectionState {
   @doc("Connection established but not authenticated")

@@ -1,3 +1,5 @@
+namespace RemitImap;
+
 @doc("Top-level MIME media types per RFC 2046")
 enum MediaType {
   @doc("Textual information")

@@ -1,5 +1,7 @@
 import "../enums/HeaderFieldName.tsp";
 
+namespace RemitImap;
+
 @doc("Stores all RFC 2822/5322 headers for efficient querying without parsing raw message.")
 model MessageHeader {
   @doc("Primary identifier")

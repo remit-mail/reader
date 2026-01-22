@@ -1,3 +1,5 @@
+namespace RemitImap;
+
 @doc("Storage backend types for message and body part content")
 enum StorageType {
   @doc("Amazon S3 or compatible object storage")

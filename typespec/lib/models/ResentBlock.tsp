@@ -1,5 +1,7 @@
 import "../enums/AddressRole.tsp";
 
+namespace RemitImap;
+
 @doc("Groups resent header fields per RFC 2822 Section 3.6.6. Each resending event creates a new block prepended to the message.")
 model ResentBlock {
   @doc("Primary identifier")

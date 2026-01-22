@@ -1,6 +1,8 @@
 import "../enums/AddressRole.tsp";
 import "../enums/ReferenceType.tsp";
 
+namespace RemitImap;
+
 @doc("Parsed representation of RFC 2822/5322 header fields (RFC 9051 Section 2.3.5). Contains the core message metadata.")
 model Envelope {
   @doc("Primary identifier")

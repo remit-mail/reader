@@ -2,6 +2,8 @@ import "../enums/MailboxAttribute.tsp";
 import "../enums/MailboxSpecialUse.tsp";
 import "../enums/MessageFlag.tsp";
 
+namespace RemitImap;
+
 @doc("Represents an IMAP mailbox (folder). Contains IMAP-specific identifiers for message synchronization.")
 model Mailbox {
   @doc("Primary identifier")

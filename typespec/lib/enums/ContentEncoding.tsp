@@ -1,3 +1,5 @@
+namespace RemitImap;
+
 @doc("Content encoding/compression types for stored content")
 enum ContentEncoding {
   @doc("No compression applied")

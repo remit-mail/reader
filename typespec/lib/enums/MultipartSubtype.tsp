@@ -1,3 +1,5 @@
+namespace RemitImap;
+
 @doc("Multipart MIME subtypes per RFC 2046")
 enum MultipartSubtype {
   @doc("Independent parts in sequence")

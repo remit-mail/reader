@@ -1,6 +1,8 @@
 import "../enums/StorageType.tsp";
 import "../enums/ContentEncoding.tsp";
 
+namespace RemitImap;
+
 @doc("Reference to the complete raw message stored externally")
 model RawMessageStorage {
   @doc("Primary identifier")

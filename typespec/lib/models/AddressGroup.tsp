@@ -1,3 +1,5 @@
+namespace RemitImap;
+
 @doc("Group address per RFC 2822 Section 3.4. Groups allow multiple mailboxes to be addressed as a named unit (e.g., 'Committee: john@example.com, jane@example.com;').")
 model AddressGroup {
   @doc("Primary identifier")

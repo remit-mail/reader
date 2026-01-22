@@ -1,5 +1,7 @@
 import "../enums/MessageFlag.tsp";
 
+namespace RemitImap;
+
 @doc("Core message entity. The combination of Mailbox.uidValidity + Message.uid uniquely identifies a message forever per RFC 9051 Section 2.3.1.1.")
 model Message {
   @doc("Primary identifier (internal UUID)")
