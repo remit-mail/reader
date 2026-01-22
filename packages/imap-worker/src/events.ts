@@ -30,8 +30,34 @@ export interface SyncFlagsEvent extends BaseEvent {
 	}>;
 }
 
+export interface MailboxCreateEvent extends BaseEvent {
+	type: "MAILBOX_CREATE";
+	mailboxId: string;
+	path: string;
+	subscribe?: boolean;
+}
+
+export interface MailboxRenameEvent extends BaseEvent {
+	type: "MAILBOX_RENAME";
+	mailboxId: string;
+	oldPath: string;
+	newPath: string;
+}
+
+export interface MailboxDeleteEvent extends BaseEvent {
+	type: "MAILBOX_DELETE";
+	mailboxId: string;
+	path: string;
+}
+
+export type MailboxManagementEvent =
+	| MailboxCreateEvent
+	| MailboxRenameEvent
+	| MailboxDeleteEvent;
+
 export type ImapEvent =
 	| SyncMailboxesEvent
 	| SyncMessagesEvent
 	| SyncMessageBodyEvent
-	| SyncFlagsEvent;
+	| SyncFlagsEvent
+	| MailboxManagementEvent;

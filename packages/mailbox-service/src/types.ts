@@ -153,4 +153,27 @@ export interface IImapConnection {
 	 * Requires mailbox to be open.
 	 */
 	setFlags(uids: number[], flags: string[]): Promise<void>;
+	/**
+	 * Create a new mailbox.
+	 */
+	createMailbox(path: string): Promise<{ path: string; created: boolean }>;
+	/**
+	 * Delete a mailbox.
+	 */
+	deleteMailbox(path: string): Promise<{ path: string }>;
+	/**
+	 * Rename a mailbox.
+	 */
+	renameMailbox(
+		oldPath: string,
+		newPath: string,
+	): Promise<{ path: string; newPath: string }>;
+	/**
+	 * Subscribe to a mailbox.
+	 */
+	subscribeMailbox(path: string): Promise<void>;
+	/**
+	 * Unsubscribe from a mailbox.
+	 */
+	unsubscribeMailbox(path: string): Promise<void>;
 }

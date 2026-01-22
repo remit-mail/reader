@@ -34,6 +34,17 @@ export {
 	ImapFlowConnection,
 } from "./imapflow-connection.js";
 export {
+	type CreateMailboxInput,
+	type DeleteMailboxInput,
+	type MailboxManagementLogger,
+	MailboxManagementService,
+	type MailboxManagementSyncResult,
+	parseMailboxPath,
+	type RenameMailboxInput,
+	validateMailboxOperation,
+	validateMailboxPath,
+} from "./mailbox-management.js";
+export {
 	type MailboxSyncConfig,
 	MailboxSyncService,
 	type SyncAccountInfo,

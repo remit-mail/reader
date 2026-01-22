@@ -1,5 +1,6 @@
 import type { Logger } from "@remit/remit-logger-lambda";
 import type { ImapEvent } from "./events.js";
+import { processMailboxManagement } from "./handlers/mailbox-management.js";
 import { syncFlags } from "./handlers/sync-flags.js";
 import { syncMailboxes } from "./handlers/sync-mailboxes.js";
 import { syncMessageBody } from "./handlers/sync-message-body.js";
@@ -18,6 +19,10 @@ export const processEvent = async (
 			return syncMessageBody(event, log);
 		case "SYNC_FLAGS":
 			return syncFlags(event, log);
+		case "MAILBOX_CREATE":
+		case "MAILBOX_RENAME":
+		case "MAILBOX_DELETE":
+			return processMailboxManagement(event, log);
 		default:
 			throw new Error(`Unknown event type: ${(event as ImapEvent).type}`);
 	}
