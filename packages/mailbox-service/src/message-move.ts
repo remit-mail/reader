@@ -142,7 +142,7 @@ export class MessageMoveService {
 		accountId: string,
 		options: DeleteOptions = { toTrash: true },
 	): Promise<void> => {
-		const message = await this.messageService.get(messageId);
+		const message = await this.messageService.get([{ messageId }]);
 		const sourceMailbox = await this.mailboxService.get(message.mailboxId);
 
 		// Check if already in Trash
