@@ -7,8 +7,7 @@
 	},
 	"files": {
 		"ignoreUnknown": true,
-		"includes": ["**/*.ts", "**/*.tsx", "**/*.js"],
-		"ignore": ["**/routeTree.gen.ts"]
+		"includes": ["**/*.ts", "**/*.tsx", "**/*.js"]
 	},
 	"formatter": {
 		"enabled": true,
@@ -16,6 +15,7 @@
 	},
 	"linter": {
 		"enabled": true,
+		"includes": ["!**/routeTree.gen.ts"],
 		"rules": {
 			"recommended": true,
 			"correctness": {
