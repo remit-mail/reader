@@ -541,6 +541,87 @@ export class ImapFlowConnection {
 	};
 
 	/**
+	 * Add flags to messages by UID.
+	 * Requires mailbox to be open (not read-only).
+	 *
+	 * @param uids - Array of message UIDs
+	 * @param flags - Array of flags to add (e.g., ["\\Seen", "\\Flagged"])
+	 */
+	addFlags = async (uids: number[], flags: string[]): Promise<void> => {
+		this.ensureConnected();
+		const { client } = this;
+
+		if (!client) {
+			throw new Error("Not connected to IMAP server");
+		}
+
+		if (!this.currentMailbox) {
+			throw new Error("No mailbox selected");
+		}
+
+		if (uids.length === 0 || flags.length === 0) {
+			return;
+		}
+
+		const uidRange = uids.join(",");
+		await client.messageFlagsAdd(uidRange, flags, { uid: true });
+	};
+
+	/**
+	 * Remove flags from messages by UID.
+	 * Requires mailbox to be open (not read-only).
+	 *
+	 * @param uids - Array of message UIDs
+	 * @param flags - Array of flags to remove (e.g., ["\\Seen", "\\Flagged"])
+	 */
+	removeFlags = async (uids: number[], flags: string[]): Promise<void> => {
+		this.ensureConnected();
+		const { client } = this;
+
+		if (!client) {
+			throw new Error("Not connected to IMAP server");
+		}
+
+		if (!this.currentMailbox) {
+			throw new Error("No mailbox selected");
+		}
+
+		if (uids.length === 0 || flags.length === 0) {
+			return;
+		}
+
+		const uidRange = uids.join(",");
+		await client.messageFlagsRemove(uidRange, flags, { uid: true });
+	};
+
+	/**
+	 * Replace all flags on messages by UID.
+	 * Requires mailbox to be open (not read-only).
+	 *
+	 * @param uids - Array of message UIDs
+	 * @param flags - Array of flags to set (replaces all existing flags)
+	 */
+	setFlags = async (uids: number[], flags: string[]): Promise<void> => {
+		this.ensureConnected();
+		const { client } = this;
+
+		if (!client) {
+			throw new Error("Not connected to IMAP server");
+		}
+
+		if (!this.currentMailbox) {
+			throw new Error("No mailbox selected");
+		}
+
+		if (uids.length === 0) {
+			return;
+		}
+
+		const uidRange = uids.join(",");
+		await client.messageFlagsSet(uidRange, flags, { uid: true });
+	};
+
+	/**
 	 * Ensure the connection is established
 	 */
 	private ensureConnected = (): void => {

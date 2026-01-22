@@ -138,4 +138,19 @@ export interface IImapConnection {
 	search(criteria: unknown[]): Promise<number[]>;
 	fetchMessages(uids: number[]): Promise<ImapMessage[]>;
 	fetchMessageBody(uid: number): Promise<Buffer>;
+	/**
+	 * Add flags to messages by UID.
+	 * Requires mailbox to be open.
+	 */
+	addFlags(uids: number[], flags: string[]): Promise<void>;
+	/**
+	 * Remove flags from messages by UID.
+	 * Requires mailbox to be open.
+	 */
+	removeFlags(uids: number[], flags: string[]): Promise<void>;
+	/**
+	 * Replace all flags on messages by UID.
+	 * Requires mailbox to be open.
+	 */
+	setFlags(uids: number[], flags: string[]): Promise<void>;
 }

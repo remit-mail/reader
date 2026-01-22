@@ -22,6 +22,12 @@ export {
 	createConnection,
 	createConnectionFromAccount,
 } from "./connection-factory.js";
+export {
+	type FlagOperation,
+	type FlagSyncLogger,
+	type FlagSyncResult,
+	FlagSyncService,
+} from "./flag-sync.js";
 // IMAP connection (ImapFlow-based)
 export {
 	createImapFlowConnectionFromAccount,
