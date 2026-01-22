@@ -7,14 +7,13 @@ import {
 	REMIT_NAMESPACE,
 } from "@remit/remit-electrodb-service";
 import { AddressRole } from "@remit/domain-enums";
-import type { ImapConnection } from "./imap-connection.js";
-import type { ImapAddress, ImapMessage } from "./types.js";
+import type { IImapConnection, ImapAddress, ImapMessage } from "./types.js";
 
 /**
  * Factory function to create IMAP connections.
  * Each call should return a fresh, unconnected connection.
  */
-export type ImapConnectionFactory = () => ImapConnection;
+export type ImapConnectionFactory = () => IImapConnection;
 
 export class MessageSyncService {
 	constructor(

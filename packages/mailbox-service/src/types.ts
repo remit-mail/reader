@@ -2,8 +2,6 @@
  * Types for the remit-mailbox-service
  */
 
-import type Imap from "node-imap";
-
 /**
  * IMAP connection configuration
  */
@@ -135,6 +133,21 @@ export interface MailboxSyncResult {
 }
 
 /**
- * Re-export Imap types for convenience
+ * Common interface for IMAP connections
  */
-export type { Imap };
+export interface IImapConnection {
+	readonly state: ImapConnectionState;
+	readonly isConnected: boolean;
+	connect(): Promise<void>;
+	disconnect(): Promise<void>;
+	getNamespaces(): Promise<ImapNamespaces>;
+	getBoxes(nsPrefix?: string): Promise<Record<string, ImapMailbox>>;
+	openBox(mailboxPath: string, readOnly?: boolean): Promise<ImapBoxStatus>;
+	closeBox(expunge?: boolean): Promise<void>;
+	flattenBoxes(
+		boxes: Record<string, ImapMailbox>,
+		parentPath?: string,
+	): FlatMailboxInfo[];
+	search(criteria: unknown[]): Promise<number[]>;
+	fetchMessages(uids: number[]): Promise<ImapMessage[]>;
+}

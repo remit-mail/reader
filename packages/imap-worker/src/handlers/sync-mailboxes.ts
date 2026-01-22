@@ -1,7 +1,7 @@
 import { AccountService, getClient } from "@remit/remit-electrodb-service";
 import type { Logger } from "@remit/remit-logger-lambda";
 import {
-	createImapConnectionFromAccount,
+	createConnectionFromAccount,
 	MailboxSyncService,
 } from "@remit/mailbox-service";
 import {
@@ -40,7 +40,7 @@ export const syncMailboxes = async (
 		deserializeEncryptedPayload(JSON.parse(account.passwordHash)),
 	);
 
-	const connection = createImapConnectionFromAccount(
+	const connection = createConnectionFromAccount(
 		{
 			username: account.username,
 			imapHost: account.imapHost,

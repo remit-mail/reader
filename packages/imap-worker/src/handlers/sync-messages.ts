@@ -8,7 +8,7 @@ import {
 } from "@remit/remit-electrodb-service";
 import type { Logger } from "@remit/remit-logger-lambda";
 import {
-	ImapConnection,
+	createConnection,
 	MessageSyncService,
 } from "@remit/mailbox-service";
 import {
@@ -63,8 +63,8 @@ export const syncMessages = async (
 	);
 
 	// Create a connection factory that returns fresh connections
-	const createConnection = () =>
-		new ImapConnection({
+	const connectionFactory = () =>
+		createConnection({
 			user: account.username,
 			password,
 			host: account.imapHost,
@@ -73,7 +73,7 @@ export const syncMessages = async (
 		});
 
 	const syncService = new MessageSyncService(
-		createConnection,
+		connectionFactory,
 		mailboxService,
 		messageService,
 		envelopeService,

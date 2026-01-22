@@ -21,11 +21,10 @@
 		"@remit/electrodb-entities": "*",
 		"@remit/remit-electrodb-service": "*",
 		"@remit/domain-enums": "*",
-		"@types/node-imap": "*",
 		"@types/uuid": "^10.0.0",
 		"electrodb": "*",
 		"expect-env": "*",
-		"node-imap": "*",
+		"imapflow": "^1.0.171",
 		"short-uuid": "*"
 	}
 }
