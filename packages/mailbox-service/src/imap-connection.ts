@@ -5,6 +5,7 @@
 import Imap from "node-imap";
 import type {
 	FlatMailboxInfo,
+	ImapAddress,
 	ImapBoxStatus,
 	ImapConnectionConfig,
 	ImapConnectionState,
@@ -62,6 +63,9 @@ export class ImapConnection {
 				tlsOptions: this.config.tlsOptions,
 				connTimeout: this.config.connTimeout ?? 30000,
 				authTimeout: this.config.authTimeout ?? 15000,
+				// Force NOOP instead of IDLE to work around IMAP servers
+				// that don't handle IDLE/DONE correctly (e.g., mokapi)
+				keepalive: { forceNoop: true },
 			});
 
 			this.imap.once("ready", () => {
@@ -93,7 +97,15 @@ export class ImapConnection {
 				return;
 			}
 
+			// Timeout in case server doesn't respond to LOGOUT
+			const timeout = setTimeout(() => {
+				this._state = "disconnected";
+				this.imap = null;
+				resolve();
+			}, 5000);
+
 			this.imap.once("end", () => {
+				clearTimeout(timeout);
 				this._state = "disconnected";
 				this.imap = null;
 				resolve();
@@ -202,7 +214,14 @@ export class ImapConnection {
 		return new Promise((resolve, reject) => {
 			this.ensureConnected();
 
+			// Handle connection errors during closeBox
+			const errorHandler = (err: Error) => {
+				reject(err);
+			};
+			this.imap?.once("error", errorHandler);
+
 			this.imap?.closeBox(expunge, (err) => {
+				this.imap?.removeListener("error", errorHandler);
 				if (err) {
 					reject(err);
 					return;
@@ -261,8 +280,21 @@ export class ImapConnection {
 				return;
 			}
 
+			// Handle connection errors during search
+			const errorHandler = (err: Error) => {
+				reject(err);
+			};
+			const endHandler = () => {
+				reject(new Error("Connection ended"));
+			};
+
+			this.imap.once("error", errorHandler);
+			this.imap.once("end", endHandler);
+
 			// biome-ignore lint/suspicious/noExplicitAny: node-imap expects any[]
 			this.imap.search(criteria as any[], (err, uids) => {
+				this.imap?.removeListener("error", errorHandler);
+				this.imap?.removeListener("end", endHandler);
 				if (err) {
 					reject(err);
 					return;
@@ -274,6 +306,9 @@ export class ImapConnection {
 
 	/**
 	 * Fetch messages by UID
+	 *
+	 * Uses HEADER.FIELDS to fetch envelope data since some IMAP servers
+	 * (like mokapi) don't support the ENVELOPE fetch item properly.
 	 */
 	fetchMessages = (uids: number[]): Promise<ImapMessage[]> => {
 		return new Promise((resolve, reject) => {
@@ -288,8 +323,11 @@ export class ImapConnection {
 			}
 
 			const messages: ImapMessage[] = [];
+
+			// Request headers instead of envelope for broader compatibility
 			const f = this.imap.fetch(uids, {
-				envelope: true,
+				bodies:
+					"HEADER.FIELDS (FROM TO CC BCC SUBJECT DATE MESSAGE-ID IN-REPLY-TO SENDER REPLY-TO)",
 				struct: true,
 			});
 
@@ -298,18 +336,25 @@ export class ImapConnection {
 					seq: seqno,
 					flags: [],
 				};
+				let headerBuffer = "";
+
+				msg.on("body", (stream) => {
+					stream.on("data", (chunk: Buffer) => {
+						headerBuffer += chunk.toString("utf8");
+					});
+				});
 
 				msg.on("attributes", (attrs) => {
 					message.uid = attrs.uid;
 					message.flags = attrs.flags;
 					message.internalDate = attrs.date;
 					message.size = attrs.size;
-					// @ts-expect-error envelope is missing in some type definitions but present when requested
-					message.envelope = attrs.envelope;
 				});
 
 				msg.once("end", () => {
 					if (message.uid) {
+						// Parse headers into envelope
+						message.envelope = this.parseHeadersToEnvelope(headerBuffer);
 						messages.push(message as ImapMessage);
 					}
 				});
@@ -323,6 +368,96 @@ export class ImapConnection {
 				resolve(messages);
 			});
 		});
+	};
+
+	/**
+	 * Parse raw header text into an envelope-like structure
+	 */
+	private parseHeadersToEnvelope = (
+		headers: string,
+	): ImapMessage["envelope"] => {
+		const lines = headers.split(/\r?\n/);
+		const headerMap: Record<string, string> = {};
+
+		let currentHeader = "";
+		let currentValue = "";
+
+		for (const line of lines) {
+			if (line.match(/^\s/)) {
+				// Continuation of previous header
+				currentValue += ` ${line.trim()}`;
+			} else if (line.includes(":")) {
+				// Save previous header
+				if (currentHeader) {
+					headerMap[currentHeader.toLowerCase()] = currentValue;
+				}
+				const colonIdx = line.indexOf(":");
+				currentHeader = line.substring(0, colonIdx);
+				currentValue = line.substring(colonIdx + 1).trim();
+			}
+		}
+		// Save last header
+		if (currentHeader) {
+			headerMap[currentHeader.toLowerCase()] = currentValue;
+		}
+
+		return {
+			date: headerMap.date || "",
+			subject: headerMap.subject || "",
+			from: this.parseAddressList(headerMap.from),
+			sender: this.parseAddressList(headerMap.sender),
+			replyTo: this.parseAddressList(headerMap["reply-to"]),
+			to: this.parseAddressList(headerMap.to),
+			cc: this.parseAddressList(headerMap.cc),
+			bcc: this.parseAddressList(headerMap.bcc),
+			inReplyTo: headerMap["in-reply-to"] || "",
+			messageId: headerMap["message-id"] || "",
+		};
+	};
+
+	/**
+	 * Parse an address list header into ImapAddress array
+	 * Handles formats like: "Name <email@example.com>, other@example.com"
+	 */
+	private parseAddressList = (header: string | undefined): ImapAddress[] => {
+		if (!header) return [];
+
+		const addresses: ImapAddress[] = [];
+
+		// Split by comma and parse each address
+		const parts = header.split(/,\s*/);
+
+		for (const part of parts) {
+			const trimmed = part.trim();
+			if (!trimmed) continue;
+
+			// Try "Name <email@domain>" format first
+			const namedMatch = trimmed.match(
+				/^(?:"?([^"<]+)"?\s+)?<([a-zA-Z0-9._%+-]+)@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})>$/,
+			);
+			if (namedMatch) {
+				addresses.push({
+					name: namedMatch[1]?.trim() || undefined,
+					mailbox: namedMatch[2],
+					host: namedMatch[3],
+				});
+				continue;
+			}
+
+			// Try plain "email@domain" format
+			const plainMatch = trimmed.match(
+				/^([a-zA-Z0-9._%+-]+)@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})$/,
+			);
+			if (plainMatch) {
+				addresses.push({
+					name: undefined,
+					mailbox: plainMatch[1],
+					host: plainMatch[2],
+				});
+			}
+		}
+
+		return addresses;
 	};
 }
 

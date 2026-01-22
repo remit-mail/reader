@@ -1,17 +1,24 @@
 import {
 	AddressService,
+	base36uuidv5,
 	EnvelopeService,
 	type MailboxService,
 	MessageService,
+	REMIT_NAMESPACE,
 } from "@remit/remit-electrodb-service";
 import { AddressRole } from "@remit/domain-enums";
-import { v4 as uuidv4 } from "uuid";
 import type { ImapConnection } from "./imap-connection.js";
 import type { ImapAddress, ImapMessage } from "./types.js";
 
+/**
+ * Factory function to create IMAP connections.
+ * Each call should return a fresh, unconnected connection.
+ */
+export type ImapConnectionFactory = () => ImapConnection;
+
 export class MessageSyncService {
 	constructor(
-		private imap: ImapConnection,
+		private createConnection: ImapConnectionFactory,
 		private mailboxService: MailboxService,
 		private messageService: MessageService,
 		private envelopeService: EnvelopeService,
@@ -29,42 +36,25 @@ export class MessageSyncService {
 			throw new Error(`Mailbox ${mailboxId} not found`);
 		}
 
-		// 2. Open mailbox in IMAP
-		const box = await this.imap.openBox(mailbox.fullPath);
-
-		// Check UIDVALIDITY
-		if (mailbox.uidValidity && mailbox.uidValidity !== box.uidvalidity) {
-			console.warn(
-				`UIDVALIDITY changed for ${mailbox.fullPath}. Full resync required.`,
-			);
-			// TODO: Handle UIDVALIDITY change (invalidate cache)
-		}
-
-		const lastSyncUid = mailbox.lastSyncUid || 0;
-		const uidNext = box.uidnext;
-
-		// If we are up to date (or close enough), skip
-		// Note: uidNext is the *next* UID to be assigned, so if lastSyncUid == uidNext - 1, we are good.
-		if (lastSyncUid >= uidNext - 1) {
-			return 0;
-		}
-
-		// 3. Fetch UIDs in range
-		// Range: lastSyncUid + 1 : *
-		// We use search to get actual UIDs
-		const uids = await this.imap.search([["UID", `${lastSyncUid + 1}:*`]]);
+		// 2. Fetch UIDs from IMAP using a fresh connection
+		// Creating a new connection for each IMAP operation avoids IDLE issues
+		const { box, uids } = await this.fetchUidsToSync(
+			mailbox.fullPath,
+			mailbox.lastSyncUid || 0,
+		);
 
 		if (uids.length === 0) {
-			// Update lastSyncUid to current max just in case?
-			// No, if no UIDs found, maybe they were deleted or gap.
 			return 0;
 		}
 
-		// 4. Process in batches
+		// 3. Process in batches, each batch uses a fresh connection
 		let syncedCount = 0;
 		for (let i = 0; i < uids.length; i += batchSize) {
 			const batchUids = uids.slice(i, i + batchSize);
-			const messages = await this.imap.fetchMessages(batchUids);
+			const messages = await this.fetchMessageBatch(
+				mailbox.fullPath,
+				batchUids,
+			);
 
 			for (const msg of messages) {
 				await this.saveMessage(mailboxId, accountConfigId, msg);
@@ -82,6 +72,54 @@ export class MessageSyncService {
 		}
 
 		return syncedCount;
+	}
+
+	/**
+	 * Fetch UIDs to sync using a fresh connection.
+	 * Opens mailbox, searches for all UIDs, filters by lastSyncUid.
+	 */
+	private async fetchUidsToSync(
+		mailboxPath: string,
+		lastSyncUid: number,
+	): Promise<{
+		box: { uidvalidity: number; uidnext: number };
+		uids: number[];
+	}> {
+		const connection = this.createConnection();
+		try {
+			await connection.connect();
+			const box = await connection.openBox(mailboxPath);
+
+			// If we are up to date, skip
+			if (lastSyncUid >= box.uidnext - 1) {
+				return { box, uids: [] };
+			}
+
+			// Use SEARCH ALL and filter client-side (workaround for mokapi bug with UID range syntax)
+			const allUids = await connection.search(["ALL"]);
+			const uids = allUids.filter((uid) => uid > lastSyncUid);
+
+			return { box, uids };
+		} finally {
+			await connection.disconnect();
+		}
+	}
+
+	/**
+	 * Fetch a batch of messages using a fresh connection.
+	 */
+	private async fetchMessageBatch(
+		mailboxPath: string,
+		uids: number[],
+	): Promise<ImapMessage[]> {
+		const connection = this.createConnection();
+		try {
+			await connection.connect();
+			await connection.openBox(mailboxPath);
+			return await connection.fetchMessages(uids);
+		} finally {
+			await connection.disconnect();
+		}
 	}
 
 	private async saveMessage(
@@ -154,15 +192,20 @@ export class MessageSyncService {
 
 		// Save Message
 		try {
+			// Generate a placeholder rootBodyPartId - will be updated when body parts are synced
+			const rootBodyPartId = base36uuidv5(
+				`bodypart:${messageId}:root`,
+				REMIT_NAMESPACE,
+			);
 			await this.messageService.create({
 				messageId,
 				mailboxId,
 				uid: msg.uid,
 				sequenceNumber: msg.seq,
-				rfc822Size: msg.size,
+				rfc822Size: msg.size ?? 0, // Some IMAP servers don't return size
 				internalDate: msg.internalDate.getTime(),
 				envelopeId,
-				rootBodyPartId: uuidv4(), // Placeholder
+				rootBodyPartId,
 			});
 		} catch (e: unknown) {
 			if (

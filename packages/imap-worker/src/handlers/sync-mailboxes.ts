@@ -7,6 +7,7 @@ import {
 import {
 	createKmsDataKeyProvider,
 	createSecretsService,
+	deserializeEncryptedPayload,
 } from "@remit/secrets-service";
 import { env } from "expect-env";
 import type { SyncMailboxesEvent } from "../events.js";
@@ -35,10 +36,13 @@ export const syncMailboxes = async (
 		throw new Error(`Account ${event.accountId} not found`);
 	}
 
-	const password = await secrets.decrypt(JSON.parse(account.passwordHash));
+	const password = await secrets.decrypt(
+		deserializeEncryptedPayload(JSON.parse(account.passwordHash)),
+	);
+
 	const connection = createImapConnectionFromAccount(
 		{
-			username: account.email,
+			username: account.username,
 			imapHost: account.imapHost,
 			imapPort: account.imapPort,
 			imapTls: account.imapTls,
