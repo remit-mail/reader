@@ -15,12 +15,19 @@ OPTIONS:
   -m, --mailboxId <id>      Mailbox ID (required for some event types)
       --messageIds <ids>    Comma-separated message IDs (required for SYNC_MESSAGE_BODY)
       --fullSync            Force full sync, ignoring lastSyncUid (SYNC_MESSAGES only)
+      --path <path>         Mailbox path (required for MAILBOX_CREATE, MAILBOX_DELETE)
+      --oldPath <path>      Old mailbox path (required for MAILBOX_RENAME)
+      --newPath <path>      New mailbox path (required for MAILBOX_RENAME)
+      --subscribe           Subscribe to mailbox after creation (MAILBOX_CREATE only)
   -h, --help                Show this help message
 
 EVENT TYPES:
   SYNC_MAILBOXES     Sync all mailboxes for an account
   SYNC_MESSAGES      Sync messages in a specific mailbox
   SYNC_MESSAGE_BODY  Fetch and store message bodies in batch
+  MAILBOX_CREATE     Create a new mailbox
+  MAILBOX_RENAME     Rename a mailbox
+  MAILBOX_DELETE     Delete a mailbox
 
 EXAMPLES:
   # Sync all mailboxes for an account
@@ -34,6 +41,15 @@ EXAMPLES:
 
   # Sync message bodies for specific messages
   remit-worker -t SYNC_MESSAGE_BODY -a account-123 -m mailbox-456 --messageIds id1,id2,id3
+
+  # Create a new mailbox
+  remit-worker -t MAILBOX_CREATE -a account-123 -m mailbox-id --path Work/Projects --subscribe
+
+  # Rename a mailbox
+  remit-worker -t MAILBOX_RENAME -a account-123 -m mailbox-id --oldPath Work/Projects --newPath Archive/Projects
+
+  # Delete a mailbox
+  remit-worker -t MAILBOX_DELETE -a account-123 -m mailbox-id --path Work/Projects
 `;
 
 const { values } = parseArgs({
@@ -43,6 +59,10 @@ const { values } = parseArgs({
 		mailboxId: { type: "string", short: "m" },
 		messageIds: { type: "string" },
 		fullSync: { type: "boolean", default: false },
+		path: { type: "string" },
+		oldPath: { type: "string" },
+		newPath: { type: "string" },
+		subscribe: { type: "boolean", default: false },
 		help: { type: "boolean", short: "h", default: false },
 	},
 });
@@ -58,7 +78,14 @@ if (!values.type || !values.accountId) {
 	process.exit(0);
 }
 
-const validTypes = ["SYNC_MAILBOXES", "SYNC_MESSAGES", "SYNC_MESSAGE_BODY"];
+const validTypes = [
+	"SYNC_MAILBOXES",
+	"SYNC_MESSAGES",
+	"SYNC_MESSAGE_BODY",
+	"MAILBOX_CREATE",
+	"MAILBOX_RENAME",
+	"MAILBOX_DELETE",
+];
 if (!validTypes.includes(values.type)) {
 	console.error(
 		`Error: Invalid type "${values.type}". Must be one of: ${validTypes.join(", ")}\n`,
@@ -79,13 +106,83 @@ if (values.type === "SYNC_MESSAGE_BODY" && !values.messageIds) {
 	process.exit(1);
 }
 
-const event = {
-	type: values.type,
-	accountId: values.accountId,
-	mailboxId: values.mailboxId,
-	messageIds: values.messageIds?.split(",").map((id) => id.trim()),
-	fullSync: values.fullSync,
-} as Omit<ImapEvent, "eventId" | "timestamp">;
+// Validation for mailbox management events
+if (
+	["MAILBOX_CREATE", "MAILBOX_DELETE"].includes(values.type) &&
+	!values.path
+) {
+	console.error(`Error: --path is required for ${values.type}\n`);
+	process.exit(1);
+}
+
+if (
+	["MAILBOX_CREATE", "MAILBOX_RENAME", "MAILBOX_DELETE"].includes(
+		values.type,
+	) &&
+	!values.mailboxId
+) {
+	console.error(`Error: --mailboxId is required for ${values.type}\n`);
+	process.exit(1);
+}
+
+if (values.type === "MAILBOX_RENAME" && (!values.oldPath || !values.newPath)) {
+	console.error(
+		`Error: --oldPath and --newPath are required for ${values.type}\n`,
+	);
+	process.exit(1);
+}
+
+// Build the event based on type
+const buildEvent = () => {
+	switch (values.type) {
+		case "SYNC_MAILBOXES":
+			return {
+				type: "SYNC_MAILBOXES" as const,
+				accountId: values.accountId!,
+			};
+		case "SYNC_MESSAGES":
+			return {
+				type: "SYNC_MESSAGES" as const,
+				accountId: values.accountId!,
+				mailboxId: values.mailboxId!,
+				fullSync: values.fullSync,
+			};
+		case "SYNC_MESSAGE_BODY":
+			return {
+				type: "SYNC_MESSAGE_BODY" as const,
+				accountId: values.accountId!,
+				mailboxId: values.mailboxId!,
+				messageIds: values.messageIds!.split(",").map((id) => id.trim()),
+			};
+		case "MAILBOX_CREATE":
+			return {
+				type: "MAILBOX_CREATE" as const,
+				accountId: values.accountId!,
+				mailboxId: values.mailboxId!,
+				path: values.path!,
+				subscribe: values.subscribe,
+			};
+		case "MAILBOX_RENAME":
+			return {
+				type: "MAILBOX_RENAME" as const,
+				accountId: values.accountId!,
+				mailboxId: values.mailboxId!,
+				oldPath: values.oldPath!,
+				newPath: values.newPath!,
+			};
+		case "MAILBOX_DELETE":
+			return {
+				type: "MAILBOX_DELETE" as const,
+				accountId: values.accountId!,
+				mailboxId: values.mailboxId!,
+				path: values.path!,
+			};
+		default:
+			throw new Error(`Unknown event type: ${values.type}`);
+	}
+};
+
+const event = buildEvent();
 
 console.log(`Enqueueing ${event.type} event for account ${event.accountId}...`);
 

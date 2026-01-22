@@ -622,6 +622,109 @@ export class ImapFlowConnection {
 	};
 
 	/**
+	 * Create a new mailbox.
+	 *
+	 * @param path - Full path of the mailbox to create (e.g., "Projects/ClientA")
+	 * @returns Object with path and whether it was created (false if already exists)
+	 */
+	createMailbox = async (
+		path: string,
+	): Promise<{ path: string; created: boolean }> => {
+		this.ensureConnected();
+		const { client } = this;
+
+		if (!client) {
+			throw new Error("Not connected to IMAP server");
+		}
+
+		const result = await client.mailboxCreate(path);
+		return {
+			path: result.path,
+			created: result.created ?? true,
+		};
+	};
+
+	/**
+	 * Delete a mailbox.
+	 *
+	 * @param path - Full path of the mailbox to delete
+	 * @returns Object with the deleted path
+	 */
+	deleteMailbox = async (path: string): Promise<{ path: string }> => {
+		this.ensureConnected();
+		const { client } = this;
+
+		if (!client) {
+			throw new Error("Not connected to IMAP server");
+		}
+
+		// Cannot delete INBOX
+		if (path.toUpperCase() === "INBOX") {
+			throw new Error("Cannot delete INBOX");
+		}
+
+		const result = await client.mailboxDelete(path);
+		return { path: result.path };
+	};
+
+	/**
+	 * Rename a mailbox.
+	 *
+	 * @param oldPath - Current path of the mailbox
+	 * @param newPath - New path for the mailbox
+	 * @returns Object with old and new paths
+	 */
+	renameMailbox = async (
+		oldPath: string,
+		newPath: string,
+	): Promise<{ path: string; newPath: string }> => {
+		this.ensureConnected();
+		const { client } = this;
+
+		if (!client) {
+			throw new Error("Not connected to IMAP server");
+		}
+
+		const result = await client.mailboxRename(oldPath, newPath);
+		return {
+			path: result.path,
+			newPath: result.newPath,
+		};
+	};
+
+	/**
+	 * Subscribe to a mailbox.
+	 *
+	 * @param path - Full path of the mailbox to subscribe to
+	 */
+	subscribeMailbox = async (path: string): Promise<void> => {
+		this.ensureConnected();
+		const { client } = this;
+
+		if (!client) {
+			throw new Error("Not connected to IMAP server");
+		}
+
+		await client.mailboxSubscribe(path);
+	};
+
+	/**
+	 * Unsubscribe from a mailbox.
+	 *
+	 * @param path - Full path of the mailbox to unsubscribe from
+	 */
+	unsubscribeMailbox = async (path: string): Promise<void> => {
+		this.ensureConnected();
+		const { client } = this;
+
+		if (!client) {
+			throw new Error("Not connected to IMAP server");
+		}
+
+		await client.mailboxUnsubscribe(path);
+	};
+
+	/**
 	 * Ensure the connection is established
 	 */
 	private ensureConnected = (): void => {
