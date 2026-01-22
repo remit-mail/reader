@@ -32,16 +32,6 @@ export type ImapConnectionState =
 	| "error";
 
 /**
- * Mailbox structure as returned by node-imap getBoxes()
- */
-export interface ImapMailbox {
-	attribs: string[];
-	delimiter: string;
-	children: Record<string, ImapMailbox> | null;
-	parent: ImapMailbox | null;
-}
-
-/**
  * Namespace structure from IMAP NAMESPACE command
  */
 export interface ImapNamespace {
@@ -126,10 +116,6 @@ export interface MailboxSyncResult {
 	created: number;
 	updated: number;
 	deleted: number;
-	errors: Array<{
-		mailboxPath: string;
-		error: string;
-	}>;
 }
 
 /**
@@ -141,13 +127,9 @@ export interface IImapConnection {
 	connect(): Promise<void>;
 	disconnect(): Promise<void>;
 	getNamespaces(): Promise<ImapNamespaces>;
-	getBoxes(nsPrefix?: string): Promise<Record<string, ImapMailbox>>;
+	listMailboxes(nsPrefix?: string): Promise<FlatMailboxInfo[]>;
 	openBox(mailboxPath: string, readOnly?: boolean): Promise<ImapBoxStatus>;
 	closeBox(expunge?: boolean): Promise<void>;
-	flattenBoxes(
-		boxes: Record<string, ImapMailbox>,
-		parentPath?: string,
-	): FlatMailboxInfo[];
 	search(criteria: unknown[]): Promise<number[]>;
 	fetchMessages(uids: number[]): Promise<ImapMessage[]>;
 }

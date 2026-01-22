@@ -4,6 +4,28 @@ import pino from "pino";
 const isDevelopment = process.env.NODE_ENV === "development";
 const logLevel = process.env.LOG_LEVEL ?? "info";
 
+const serializeError = (err: Error): Record<string, unknown> => ({
+	name: err.name,
+	message: err.message,
+	stack: err.stack,
+	...(err.cause ? { cause: err.cause } : {}),
+});
+
+const serializeValue = (value: unknown): unknown => {
+	if (value instanceof Error) {
+		return serializeError(value);
+	}
+	if (Array.isArray(value)) {
+		return value.map(serializeValue);
+	}
+	if (value && typeof value === "object") {
+		return Object.fromEntries(
+			Object.entries(value).map(([k, v]) => [k, serializeValue(v)]),
+		);
+	}
+	return value;
+};
+
 export type Logger = pino.Logger;
 
 /**
@@ -34,9 +56,11 @@ const createConsoleLogger = (
 				: `${prefix} ${objOrMsg}`;
 		}
 
-		const combined = { ...bindings, ...objOrMsg };
+		const combined = serializeValue({ ...bindings, ...objOrMsg });
 		const context =
-			Object.keys(combined).length > 0 ? ` ${JSON.stringify(combined)}` : "";
+			Object.keys(combined as object).length > 0
+				? ` ${JSON.stringify(combined)}`
+				: "";
 		return msg ? `${prefix} ${msg}${context}` : `${prefix}${context}`;
 	};
 

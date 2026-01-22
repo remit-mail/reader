@@ -72,19 +72,20 @@ export const syncMessages = async (
 			tls: account.imapTls,
 		});
 
+	// Get the mailbox - it must exist (should have been created by mailbox sync)
+	const mailbox = await mailboxService.get(event.mailboxId);
+	const mailboxId = mailbox.mailboxId;
+
 	const syncService = new MessageSyncService(
 		connectionFactory,
 		mailboxService,
 		messageService,
 		envelopeService,
 		addressService,
+		log,
 	);
 
 	await syncService
-		.syncMessages(event.mailboxId, account.accountConfigId)
-		.then((count) => log.info({ count }, "Message sync complete"))
-		.catch((error) => {
-			log.error({ error }, "Message sync failed");
-			throw error;
-		});
+		.syncMessages(mailboxId, account.accountConfigId)
+		.then((count) => log.info({ count }, "Message sync complete"));
 };

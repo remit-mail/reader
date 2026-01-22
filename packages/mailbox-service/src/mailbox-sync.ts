@@ -11,10 +11,10 @@ import {
 	MailboxService,
 } from "@remit/remit-electrodb-service";
 import { NamespaceType } from "@remit/domain-enums";
+import { isNoSelect } from "./attribute-mapper.js";
 import type {
 	FlatMailboxInfo,
 	IImapConnection,
-	ImapBoxStatus,
 	ImapNamespaces,
 	MailboxSyncResult,
 } from "./types.js";
@@ -64,7 +64,6 @@ export class MailboxSyncService {
 			created: 0,
 			updated: 0,
 			deleted: 0,
-			errors: [],
 		};
 
 		// Get existing mailboxes from database
@@ -85,44 +84,47 @@ export class MailboxSyncService {
 
 		// Process each remote mailbox
 		for (const mailboxInfo of remoteMailboxes) {
+			// Skip non-selectable mailboxes (container folders that can't hold messages)
+			if (isNoSelect(mailboxInfo.attributes)) {
+				// Mark as seen so we don't try to delete again in cleanup loop
+				seenPaths.add(mailboxInfo.fullPath);
+				// If this mailbox exists in DB, delete it
+				const existing = existingByPath.get(mailboxInfo.fullPath);
+				if (existing) {
+					await this.mailboxService.delete(existing.mailboxId);
+					console.info(
+						`Deleted non-selectable mailbox: ${existing.mailboxId} (${existing.fullPath})`,
+					);
+					result.deleted++;
+				}
+				continue;
+			}
+
 			seenPaths.add(mailboxInfo.fullPath);
 			const existing = existingByPath.get(mailboxInfo.fullPath);
 
-			try {
-				if (existing) {
-					// Update existing mailbox
-					await this.updateMailbox(existing, mailboxInfo, connection);
-					result.updated++;
-				} else {
-					// Create new mailbox
-					await this.createMailbox(
-						account.accountId,
-						mailboxInfo,
-						namespaces,
-						connection,
-					);
-					result.created++;
-				}
-			} catch (error) {
-				result.errors.push({
-					mailboxPath: mailboxInfo.fullPath,
-					error: error instanceof Error ? error.message : String(error),
-				});
+			if (existing) {
+				await this.updateMailbox(existing, mailboxInfo, connection);
+				result.updated++;
+			} else {
+				await this.createMailbox(
+					account.accountId,
+					mailboxInfo,
+					namespaces,
+					connection,
+				);
+				result.created++;
 			}
 		}
 
 		// Handle deleted mailboxes (exist in DB but not on server)
 		for (const existing of existingMailboxes) {
 			if (!seenPaths.has(existing.fullPath)) {
-				try {
-					await this.mailboxService.delete(existing.mailboxId);
-					result.deleted++;
-				} catch (error) {
-					result.errors.push({
-						mailboxPath: existing.fullPath,
-						error: error instanceof Error ? error.message : String(error),
-					});
-				}
+				await this.mailboxService.delete(existing.mailboxId);
+				console.info(
+					`Deleted mailbox: ${existing.mailboxId} (${existing.fullPath})`,
+				);
+				result.deleted++;
 			}
 		}
 
@@ -139,32 +141,15 @@ export class MailboxSyncService {
 		connection: IImapConnection,
 	): Promise<MailboxItem> => {
 		const mailbox = await this.mailboxService.get(mailboxId);
+		const boxStatus = await connection.openBox(mailbox.fullPath, true);
 
-		// Skip non-selectable mailboxes
-		// We can't open these to get metadata
-		// The Mailbox entity doesn't store attributes directly,
-		// but we check if we can open it
-		let boxStatus: ImapBoxStatus;
-		try {
-			boxStatus = await connection.openBox(mailbox.fullPath, true);
-		} catch (_error) {
-			// If we can't open the mailbox, it might be non-selectable
-			// Just return the current state
-			return mailbox;
-		}
-
-		try {
-			// Update mailbox with fresh metadata
-			return await this.mailboxService.update(mailboxId, {
+		return this.mailboxService
+			.update(mailboxId, {
 				uidValidity: boxStatus.uidvalidity,
 				uidNext: boxStatus.uidnext,
 				messageCount: boxStatus.messages.total,
-				// Note: unseen count requires a STATUS command or search
-				// For now we don't update it here
-			});
-		} finally {
-			await connection.closeBox(false);
-		}
+			})
+			.finally(() => connection.closeBox(false));
 	};
 
 	/**
@@ -188,7 +173,8 @@ export class MailboxSyncService {
 	};
 
 	/**
-	 * Fetch all mailboxes from IMAP server across all namespaces
+	 * Fetch all mailboxes from IMAP server across all namespaces.
+	 * Uses listMailboxes() to preserve original paths from the server.
 	 */
 	private fetchAllMailboxes = async (
 		connection: IImapConnection,
@@ -201,59 +187,40 @@ export class MailboxSyncService {
 			}
 		>
 	> => {
-		const results: Array<
-			FlatMailboxInfo & {
-				namespaceType: NamespaceTypeValue;
-				namespacePrefix: string;
-			}
-		> = [];
-
-		// Process each namespace type
-		const namespaceTypes: Array<{
-			type: NamespaceTypeValue;
-			namespaces: typeof namespaces.personal;
-		}> = [
-			{ type: NamespaceType.Personal, namespaces: namespaces.personal },
-			{ type: NamespaceType.OtherUsers, namespaces: namespaces.other },
-			{ type: NamespaceType.Shared, namespaces: namespaces.shared },
+		// Flatten all namespaces with their types
+		const allNamespaces = [
+			...namespaces.personal.map((ns) => ({
+				type: NamespaceType.Personal as NamespaceTypeValue,
+				prefix: ns.prefix || "",
+			})),
+			...namespaces.other.map((ns) => ({
+				type: NamespaceType.OtherUsers as NamespaceTypeValue,
+				prefix: ns.prefix || "",
+			})),
+			...namespaces.shared.map((ns) => ({
+				type: NamespaceType.Shared as NamespaceTypeValue,
+				prefix: ns.prefix || "",
+			})),
 		];
 
-		for (const { type, namespaces: nsList } of namespaceTypes) {
-			for (const ns of nsList) {
-				const prefix = ns.prefix || "";
-				try {
-					const boxes = await connection.getBoxes(prefix);
-					const flattened = connection.flattenBoxes(boxes);
-
-					for (const mailbox of flattened) {
-						results.push({
-							...mailbox,
-							namespaceType: type,
-							namespacePrefix: prefix,
-						});
-					}
-				} catch (error) {
-					// Skip namespaces we can't access
-					console.warn(
-						`Failed to list mailboxes for namespace ${prefix}:`,
-						error,
-					);
-				}
-			}
-		}
-
-		// INBOX is implicit in IMAP and may not be returned by LIST commands.
-		// node-imap sometimes filters out INBOX when it has empty attributes.
-		// Explicitly add INBOX if not already present.
-		const hasInbox = results.some(
-			(m) => m.fullPath.toUpperCase() === "INBOX",
+		// Fetch mailboxes for each namespace and flatten
+		const nestedResults = await Promise.all(
+			allNamespaces.map(async ({ type, prefix }) => {
+				const mailboxes = await connection.listMailboxes(prefix);
+				return mailboxes.map((mailbox) => ({
+					...mailbox,
+					namespaceType: type,
+					namespacePrefix: prefix,
+				}));
+			}),
 		);
+		const results = nestedResults.flat();
+
+		// INBOX is implicit in IMAP and may not be returned by LIST commands
+		const hasInbox = results.some((m) => m.fullPath.toUpperCase() === "INBOX");
 		if (!hasInbox) {
-			// Use personal namespace delimiter, or "/" as fallback
-			// Delimiter can be false if the server has a flat namespace
 			const nsDelimiter = namespaces.personal[0]?.delimiter;
-			const delimiter =
-				typeof nsDelimiter === "string" ? nsDelimiter : "/";
+			const delimiter = typeof nsDelimiter === "string" ? nsDelimiter : "/";
 			results.unshift({
 				fullPath: "INBOX",
 				name: "INBOX",
@@ -300,6 +267,7 @@ export class MailboxSyncService {
 			deletedCount: 0,
 			totalSize: 0,
 			lastSyncUid: 0,
+			highWaterMarkUid: 0,
 			lastMessageSyncAt: 0,
 			// parentMailboxId would need to be resolved from parentPath
 		};
@@ -307,7 +275,13 @@ export class MailboxSyncService {
 		// TODO: Store attributes and special-use entries in separate entities
 		// For now, we only create the Mailbox entity
 
-		return this.mailboxService.create(input);
+		const mailbox = await this.mailboxService.create(input);
+
+		console.info(
+			`Created mailbox: ${mailbox.mailboxId} (${mailboxInfo.fullPath})`,
+		);
+
+		return mailbox;
 	};
 
 	/**
@@ -318,6 +292,9 @@ export class MailboxSyncService {
 		mailboxInfo: FlatMailboxInfo,
 		_connection: IImapConnection,
 	): Promise<MailboxItem> => {
+		console.info(
+			`Updating mailbox: ${existing.mailboxId} (${mailboxInfo.fullPath})`,
+		);
 		// Check if delimiter changed (shouldn't happen, but handle it)
 		if (existing.hierarchyDelimiter !== mailboxInfo.delimiter) {
 			await this.mailboxService.update(existing.mailboxId, {

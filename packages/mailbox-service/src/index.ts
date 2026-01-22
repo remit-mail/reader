@@ -38,7 +38,6 @@ export type {
 	ImapBoxStatus,
 	ImapConnectionConfig,
 	ImapConnectionState,
-	ImapMailbox,
 	ImapNamespace,
 	ImapNamespaces,
 	MailboxSyncResult,
