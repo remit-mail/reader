@@ -104,7 +104,7 @@ export class FlagQueueService {
 	/**
 	 * Update ThreadMessage.isRead using the byMessageId index.
 	 *
-	 * Provides composite attributes (mailboxId, internalDate) required by ElectroDB
+	 * Provides composite attributes (sentDate, mailboxId) required by ElectroDB
 	 * to update the GSI/LSI keys when isRead changes.
 	 */
 	private updateThreadMessageIsRead = async (
@@ -120,8 +120,12 @@ export class FlagQueueService {
 				{ isRead },
 				{
 					composites: {
+						sentDate: threadMessage.sentDate,
 						mailboxId: threadMessage.mailboxId,
-						internalDate: threadMessage.internalDate,
+						isRead,
+						isDeleted: threadMessage.isDeleted,
+						hasStars: threadMessage.hasStars,
+						hasAttachment: threadMessage.hasAttachment,
 					},
 				},
 			);

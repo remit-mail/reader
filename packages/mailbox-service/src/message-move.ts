@@ -441,22 +441,34 @@ export class MessageMoveService {
 		isDeleted: boolean,
 	): Promise<void> => {
 		const threadMessage =
-			await this.threadMessageService.findByMessageId(messageId);
+			await this.threadMessageService.getByMessageId(messageId);
 
-		if (!threadMessage) {
-			this.log.error({ messageId }, "ThreadMessage not found for messageId");
-			return;
-		}
+		this.log.info(
+			{
+				messageId,
+				accountConfigId: threadMessage.accountConfigId,
+				threadMessageId: threadMessage.threadMessageId,
+				sentDate: threadMessage.sentDate,
+				newMailboxId,
+				isDeleted,
+			},
+			"Updating ThreadMessage for move",
+		);
 
 		await this.threadMessageService.update(
 			threadMessage.accountConfigId,
 			threadMessage.threadMessageId,
 			{ mailboxId: newMailboxId, isDeleted },
 			{
+				// Composites contain CURRENT values for condition checking
+				// ElectroDB uses these to verify the item state before updating
 				composites: {
-					mailboxId: newMailboxId,
-					internalDate: threadMessage.internalDate,
+					mailboxId: threadMessage.mailboxId,
+					sentDate: threadMessage.sentDate,
 					isRead: threadMessage.isRead,
+					isDeleted: threadMessage.isDeleted,
+					hasStars: threadMessage.hasStars,
+					hasAttachment: threadMessage.hasAttachment,
 				},
 			},
 		);
@@ -480,22 +492,21 @@ export class MessageMoveService {
 		isDeleted: boolean,
 	): Promise<void> => {
 		const threadMessage =
-			await this.threadMessageService.findByMessageId(messageId);
-
-		if (!threadMessage) {
-			this.log.error({ messageId }, "ThreadMessage not found for messageId");
-			return;
-		}
+			await this.threadMessageService.getByMessageId(messageId);
 
 		await this.threadMessageService.update(
 			threadMessage.accountConfigId,
 			threadMessage.threadMessageId,
 			{ isDeleted },
 			{
+				// Composites contain CURRENT values for condition checking
 				composites: {
+					sentDate: threadMessage.sentDate,
 					mailboxId: threadMessage.mailboxId,
-					internalDate: threadMessage.internalDate,
 					isRead: threadMessage.isRead,
+					isDeleted: threadMessage.isDeleted,
+					hasStars: threadMessage.hasStars,
+					hasAttachment: threadMessage.hasAttachment,
 				},
 			},
 		);
