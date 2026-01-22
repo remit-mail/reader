@@ -60,5 +60,6 @@ typings/
 .envrc
 *.db
 build
-*/dist
+**/dist
 .vscode
+rm 

@@ -4320,6 +4320,7148 @@ var require_pino = __commonJS({
   }
 });
 
+// ../../node_modules/uuid/dist/esm-node/rng.js
+import crypto2 from "crypto";
+function rng() {
+  if (poolPtr > rnds8Pool.length - 16) {
+    crypto2.randomFillSync(rnds8Pool);
+    poolPtr = 0;
+  }
+  return rnds8Pool.slice(poolPtr, poolPtr += 16);
+}
+var rnds8Pool, poolPtr;
+var init_rng = __esm({
+  "../../node_modules/uuid/dist/esm-node/rng.js"() {
+    rnds8Pool = new Uint8Array(256);
+    poolPtr = rnds8Pool.length;
+  }
+});
+
+// ../../node_modules/uuid/dist/esm-node/regex.js
+var regex_default;
+var init_regex = __esm({
+  "../../node_modules/uuid/dist/esm-node/regex.js"() {
+    regex_default = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|00000000-0000-0000-0000-000000000000)$/i;
+  }
+});
+
+// ../../node_modules/uuid/dist/esm-node/validate.js
+function validate(uuid) {
+  return typeof uuid === "string" && regex_default.test(uuid);
+}
+var validate_default;
+var init_validate = __esm({
+  "../../node_modules/uuid/dist/esm-node/validate.js"() {
+    init_regex();
+    validate_default = validate;
+  }
+});
+
+// ../../node_modules/uuid/dist/esm-node/stringify.js
+function unsafeStringify(arr, offset = 0) {
+  return byteToHex[arr[offset + 0]] + byteToHex[arr[offset + 1]] + byteToHex[arr[offset + 2]] + byteToHex[arr[offset + 3]] + "-" + byteToHex[arr[offset + 4]] + byteToHex[arr[offset + 5]] + "-" + byteToHex[arr[offset + 6]] + byteToHex[arr[offset + 7]] + "-" + byteToHex[arr[offset + 8]] + byteToHex[arr[offset + 9]] + "-" + byteToHex[arr[offset + 10]] + byteToHex[arr[offset + 11]] + byteToHex[arr[offset + 12]] + byteToHex[arr[offset + 13]] + byteToHex[arr[offset + 14]] + byteToHex[arr[offset + 15]];
+}
+function stringify(arr, offset = 0) {
+  const uuid = unsafeStringify(arr, offset);
+  if (!validate_default(uuid)) {
+    throw TypeError("Stringified UUID is invalid");
+  }
+  return uuid;
+}
+var byteToHex, stringify_default;
+var init_stringify = __esm({
+  "../../node_modules/uuid/dist/esm-node/stringify.js"() {
+    init_validate();
+    byteToHex = [];
+    for (let i4 = 0; i4 < 256; ++i4) {
+      byteToHex.push((i4 + 256).toString(16).slice(1));
+    }
+    stringify_default = stringify;
+  }
+});
+
+// ../../node_modules/uuid/dist/esm-node/v1.js
+function v1(options, buf, offset) {
+  let i4 = buf && offset || 0;
+  const b4 = buf || new Array(16);
+  options = options || {};
+  let node = options.node || _nodeId;
+  let clockseq = options.clockseq !== void 0 ? options.clockseq : _clockseq;
+  if (node == null || clockseq == null) {
+    const seedBytes = options.random || (options.rng || rng)();
+    if (node == null) {
+      node = _nodeId = [seedBytes[0] | 1, seedBytes[1], seedBytes[2], seedBytes[3], seedBytes[4], seedBytes[5]];
+    }
+    if (clockseq == null) {
+      clockseq = _clockseq = (seedBytes[6] << 8 | seedBytes[7]) & 16383;
+    }
+  }
+  let msecs = options.msecs !== void 0 ? options.msecs : Date.now();
+  let nsecs = options.nsecs !== void 0 ? options.nsecs : _lastNSecs + 1;
+  const dt = msecs - _lastMSecs + (nsecs - _lastNSecs) / 1e4;
+  if (dt < 0 && options.clockseq === void 0) {
+    clockseq = clockseq + 1 & 16383;
+  }
+  if ((dt < 0 || msecs > _lastMSecs) && options.nsecs === void 0) {
+    nsecs = 0;
+  }
+  if (nsecs >= 1e4) {
+    throw new Error("uuid.v1(): Can't create more than 10M uuids/sec");
+  }
+  _lastMSecs = msecs;
+  _lastNSecs = nsecs;
+  _clockseq = clockseq;
+  msecs += 122192928e5;
+  const tl = ((msecs & 268435455) * 1e4 + nsecs) % 4294967296;
+  b4[i4++] = tl >>> 24 & 255;
+  b4[i4++] = tl >>> 16 & 255;
+  b4[i4++] = tl >>> 8 & 255;
+  b4[i4++] = tl & 255;
+  const tmh = msecs / 4294967296 * 1e4 & 268435455;
+  b4[i4++] = tmh >>> 8 & 255;
+  b4[i4++] = tmh & 255;
+  b4[i4++] = tmh >>> 24 & 15 | 16;
+  b4[i4++] = tmh >>> 16 & 255;
+  b4[i4++] = clockseq >>> 8 | 128;
+  b4[i4++] = clockseq & 255;
+  for (let n4 = 0; n4 < 6; ++n4) {
+    b4[i4 + n4] = node[n4];
+  }
+  return buf || unsafeStringify(b4);
+}
+var _nodeId, _clockseq, _lastMSecs, _lastNSecs, v1_default;
+var init_v1 = __esm({
+  "../../node_modules/uuid/dist/esm-node/v1.js"() {
+    init_rng();
+    init_stringify();
+    _lastMSecs = 0;
+    _lastNSecs = 0;
+    v1_default = v1;
+  }
+});
+
+// ../../node_modules/uuid/dist/esm-node/parse.js
+function parse(uuid) {
+  if (!validate_default(uuid)) {
+    throw TypeError("Invalid UUID");
+  }
+  let v7;
+  const arr = new Uint8Array(16);
+  arr[0] = (v7 = parseInt(uuid.slice(0, 8), 16)) >>> 24;
+  arr[1] = v7 >>> 16 & 255;
+  arr[2] = v7 >>> 8 & 255;
+  arr[3] = v7 & 255;
+  arr[4] = (v7 = parseInt(uuid.slice(9, 13), 16)) >>> 8;
+  arr[5] = v7 & 255;
+  arr[6] = (v7 = parseInt(uuid.slice(14, 18), 16)) >>> 8;
+  arr[7] = v7 & 255;
+  arr[8] = (v7 = parseInt(uuid.slice(19, 23), 16)) >>> 8;
+  arr[9] = v7 & 255;
+  arr[10] = (v7 = parseInt(uuid.slice(24, 36), 16)) / 1099511627776 & 255;
+  arr[11] = v7 / 4294967296 & 255;
+  arr[12] = v7 >>> 24 & 255;
+  arr[13] = v7 >>> 16 & 255;
+  arr[14] = v7 >>> 8 & 255;
+  arr[15] = v7 & 255;
+  return arr;
+}
+var parse_default;
+var init_parse = __esm({
+  "../../node_modules/uuid/dist/esm-node/parse.js"() {
+    init_validate();
+    parse_default = parse;
+  }
+});
+
+// ../../node_modules/uuid/dist/esm-node/v35.js
+function stringToBytes(str) {
+  str = unescape(encodeURIComponent(str));
+  const bytes = [];
+  for (let i4 = 0; i4 < str.length; ++i4) {
+    bytes.push(str.charCodeAt(i4));
+  }
+  return bytes;
+}
+function v35(name, version2, hashfunc) {
+  function generateUUID(value, namespace, buf, offset) {
+    var _namespace;
+    if (typeof value === "string") {
+      value = stringToBytes(value);
+    }
+    if (typeof namespace === "string") {
+      namespace = parse_default(namespace);
+    }
+    if (((_namespace = namespace) === null || _namespace === void 0 ? void 0 : _namespace.length) !== 16) {
+      throw TypeError("Namespace must be array-like (16 iterable integer values, 0-255)");
+    }
+    let bytes = new Uint8Array(16 + value.length);
+    bytes.set(namespace);
+    bytes.set(value, namespace.length);
+    bytes = hashfunc(bytes);
+    bytes[6] = bytes[6] & 15 | version2;
+    bytes[8] = bytes[8] & 63 | 128;
+    if (buf) {
+      offset = offset || 0;
+      for (let i4 = 0; i4 < 16; ++i4) {
+        buf[offset + i4] = bytes[i4];
+      }
+      return buf;
+    }
+    return unsafeStringify(bytes);
+  }
+  try {
+    generateUUID.name = name;
+  } catch (err2) {
+  }
+  generateUUID.DNS = DNS;
+  generateUUID.URL = URL2;
+  return generateUUID;
+}
+var DNS, URL2;
+var init_v35 = __esm({
+  "../../node_modules/uuid/dist/esm-node/v35.js"() {
+    init_stringify();
+    init_parse();
+    DNS = "6ba7b810-9dad-11d1-80b4-00c04fd430c8";
+    URL2 = "6ba7b811-9dad-11d1-80b4-00c04fd430c8";
+  }
+});
+
+// ../../node_modules/uuid/dist/esm-node/md5.js
+import crypto3 from "crypto";
+function md5(bytes) {
+  if (Array.isArray(bytes)) {
+    bytes = Buffer.from(bytes);
+  } else if (typeof bytes === "string") {
+    bytes = Buffer.from(bytes, "utf8");
+  }
+  return crypto3.createHash("md5").update(bytes).digest();
+}
+var md5_default;
+var init_md5 = __esm({
+  "../../node_modules/uuid/dist/esm-node/md5.js"() {
+    md5_default = md5;
+  }
+});
+
+// ../../node_modules/uuid/dist/esm-node/v3.js
+var v3, v3_default;
+var init_v3 = __esm({
+  "../../node_modules/uuid/dist/esm-node/v3.js"() {
+    init_v35();
+    init_md5();
+    v3 = v35("v3", 48, md5_default);
+    v3_default = v3;
+  }
+});
+
+// ../../node_modules/uuid/dist/esm-node/native.js
+import crypto4 from "crypto";
+var native_default;
+var init_native = __esm({
+  "../../node_modules/uuid/dist/esm-node/native.js"() {
+    native_default = {
+      randomUUID: crypto4.randomUUID
+    };
+  }
+});
+
+// ../../node_modules/uuid/dist/esm-node/v4.js
+function v4(options, buf, offset) {
+  if (native_default.randomUUID && !buf && !options) {
+    return native_default.randomUUID();
+  }
+  options = options || {};
+  const rnds = options.random || (options.rng || rng)();
+  rnds[6] = rnds[6] & 15 | 64;
+  rnds[8] = rnds[8] & 63 | 128;
+  if (buf) {
+    offset = offset || 0;
+    for (let i4 = 0; i4 < 16; ++i4) {
+      buf[offset + i4] = rnds[i4];
+    }
+    return buf;
+  }
+  return unsafeStringify(rnds);
+}
+var v4_default;
+var init_v4 = __esm({
+  "../../node_modules/uuid/dist/esm-node/v4.js"() {
+    init_native();
+    init_rng();
+    init_stringify();
+    v4_default = v4;
+  }
+});
+
+// ../../node_modules/uuid/dist/esm-node/sha1.js
+import crypto5 from "crypto";
+function sha1(bytes) {
+  if (Array.isArray(bytes)) {
+    bytes = Buffer.from(bytes);
+  } else if (typeof bytes === "string") {
+    bytes = Buffer.from(bytes, "utf8");
+  }
+  return crypto5.createHash("sha1").update(bytes).digest();
+}
+var sha1_default;
+var init_sha1 = __esm({
+  "../../node_modules/uuid/dist/esm-node/sha1.js"() {
+    sha1_default = sha1;
+  }
+});
+
+// ../../node_modules/uuid/dist/esm-node/v5.js
+var v5, v5_default;
+var init_v5 = __esm({
+  "../../node_modules/uuid/dist/esm-node/v5.js"() {
+    init_v35();
+    init_sha1();
+    v5 = v35("v5", 80, sha1_default);
+    v5_default = v5;
+  }
+});
+
+// ../../node_modules/uuid/dist/esm-node/nil.js
+var nil_default;
+var init_nil = __esm({
+  "../../node_modules/uuid/dist/esm-node/nil.js"() {
+    nil_default = "00000000-0000-0000-0000-000000000000";
+  }
+});
+
+// ../../node_modules/uuid/dist/esm-node/version.js
+function version(uuid) {
+  if (!validate_default(uuid)) {
+    throw TypeError("Invalid UUID");
+  }
+  return parseInt(uuid.slice(14, 15), 16);
+}
+var version_default;
+var init_version = __esm({
+  "../../node_modules/uuid/dist/esm-node/version.js"() {
+    init_validate();
+    version_default = version;
+  }
+});
+
+// ../../node_modules/uuid/dist/esm-node/index.js
+var esm_node_exports = {};
+__export(esm_node_exports, {
+  NIL: () => nil_default,
+  parse: () => parse_default,
+  stringify: () => stringify_default,
+  v1: () => v1_default,
+  v3: () => v3_default,
+  v4: () => v4_default,
+  v5: () => v5_default,
+  validate: () => validate_default,
+  version: () => version_default
+});
+var init_esm_node = __esm({
+  "../../node_modules/uuid/dist/esm-node/index.js"() {
+    init_v1();
+    init_v3();
+    init_v4();
+    init_v5();
+    init_nil();
+    init_version();
+    init_validate();
+    init_stringify();
+    init_parse();
+  }
+});
+
+// ../../node_modules/any-base/src/converter.js
+var require_converter = __commonJS({
+  "../../node_modules/any-base/src/converter.js"(exports, module) {
+    "use strict";
+    function Converter(srcAlphabet, dstAlphabet) {
+      if (!srcAlphabet || !dstAlphabet || !srcAlphabet.length || !dstAlphabet.length) {
+        throw new Error("Bad alphabet");
+      }
+      this.srcAlphabet = srcAlphabet;
+      this.dstAlphabet = dstAlphabet;
+    }
+    Converter.prototype.convert = function(number) {
+      var i4, divide, newlen, numberMap = {}, fromBase = this.srcAlphabet.length, toBase = this.dstAlphabet.length, length = number.length, result = typeof number === "string" ? "" : [];
+      if (!this.isValid(number)) {
+        throw new Error('Number "' + number + '" contains of non-alphabetic digits (' + this.srcAlphabet + ")");
+      }
+      if (this.srcAlphabet === this.dstAlphabet) {
+        return number;
+      }
+      for (i4 = 0; i4 < length; i4++) {
+        numberMap[i4] = this.srcAlphabet.indexOf(number[i4]);
+      }
+      do {
+        divide = 0;
+        newlen = 0;
+        for (i4 = 0; i4 < length; i4++) {
+          divide = divide * fromBase + numberMap[i4];
+          if (divide >= toBase) {
+            numberMap[newlen++] = parseInt(divide / toBase, 10);
+            divide = divide % toBase;
+          } else if (newlen > 0) {
+            numberMap[newlen++] = 0;
+          }
+        }
+        length = newlen;
+        result = this.dstAlphabet.slice(divide, divide + 1).concat(result);
+      } while (newlen !== 0);
+      return result;
+    };
+    Converter.prototype.isValid = function(number) {
+      var i4 = 0;
+      for (; i4 < number.length; ++i4) {
+        if (this.srcAlphabet.indexOf(number[i4]) === -1) {
+          return false;
+        }
+      }
+      return true;
+    };
+    module.exports = Converter;
+  }
+});
+
+// ../../node_modules/any-base/index.js
+var require_any_base = __commonJS({
+  "../../node_modules/any-base/index.js"(exports, module) {
+    var Converter = require_converter();
+    function anyBase(srcAlphabet, dstAlphabet) {
+      var converter = new Converter(srcAlphabet, dstAlphabet);
+      return function(number) {
+        return converter.convert(number);
+      };
+    }
+    anyBase.BIN = "01";
+    anyBase.OCT = "01234567";
+    anyBase.DEC = "0123456789";
+    anyBase.HEX = "0123456789abcdef";
+    module.exports = anyBase;
+  }
+});
+
+// ../../node_modules/short-uuid/index.js
+var require_short_uuid = __commonJS({
+  "../../node_modules/short-uuid/index.js"(exports, module) {
+    var { v4: uuidV4, validate: uuidValidate } = (init_esm_node(), __toCommonJS(esm_node_exports));
+    var anyBase = require_any_base();
+    var constants = {
+      cookieBase90: "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!#$%&'()*+-./:<=>?@[]^_`{|}~",
+      flickrBase58: "123456789abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ",
+      uuid25Base36: "0123456789abcdefghijklmnopqrstuvwxyz"
+    };
+    var baseOptions = {
+      consistentLength: true
+    };
+    var toFlickr;
+    var shortenUUID = (longId, translator2, paddingParams) => {
+      const translated = translator2(longId.toLowerCase().replace(/-/g, ""));
+      if (!paddingParams || !paddingParams.consistentLength) return translated;
+      return translated.padStart(
+        paddingParams.shortIdLength,
+        paddingParams.paddingChar
+      );
+    };
+    var enlargeUUID = (shortId, translator2) => {
+      const uu1 = translator2(shortId).padStart(32, "0");
+      const m4 = uu1.match(/(\w{8})(\w{4})(\w{4})(\w{4})(\w{12})/);
+      return [m4[1], m4[2], m4[3], m4[4], m4[5]].join("-");
+    };
+    var getShortIdLength = (alphabetLength) => Math.ceil(Math.log(2 ** 128) / Math.log(alphabetLength));
+    module.exports = (() => {
+      const makeConvertor = (toAlphabet, options) => {
+        const useAlphabet = toAlphabet || constants.flickrBase58;
+        const selectedOptions = { ...baseOptions, ...options };
+        if ([...new Set(Array.from(useAlphabet))].length !== useAlphabet.length) {
+          throw new Error("The provided Alphabet has duplicate characters resulting in unreliable results");
+        }
+        const shortIdLength = getShortIdLength(useAlphabet.length);
+        const paddingParams = {
+          shortIdLength,
+          consistentLength: selectedOptions.consistentLength,
+          paddingChar: useAlphabet[0]
+        };
+        const fromHex = anyBase(anyBase.HEX, useAlphabet);
+        const toHex = anyBase(useAlphabet, anyBase.HEX);
+        const generate = () => shortenUUID(uuidV4(), fromHex, paddingParams);
+        const validate2 = (shortId, rigorous = false) => {
+          if (!shortId || typeof shortId !== "string") return false;
+          const isCorrectLength = selectedOptions.consistentLength ? shortId.length === shortIdLength : shortId.length <= shortIdLength;
+          const onlyAlphabet = shortId.split("").every((letter) => useAlphabet.includes(letter));
+          if (rigorous === false) return isCorrectLength && onlyAlphabet;
+          return isCorrectLength && onlyAlphabet && uuidValidate(enlargeUUID(shortId, toHex));
+        };
+        const translator2 = {
+          alphabet: useAlphabet,
+          fromUUID: (uuid) => shortenUUID(uuid, fromHex, paddingParams),
+          maxLength: shortIdLength,
+          generate,
+          new: generate,
+          toUUID: (shortUuid) => enlargeUUID(shortUuid, toHex),
+          uuid: uuidV4,
+          validate: validate2
+        };
+        Object.freeze(translator2);
+        return translator2;
+      };
+      makeConvertor.constants = constants;
+      makeConvertor.uuid = uuidV4;
+      makeConvertor.generate = () => {
+        if (!toFlickr) {
+          toFlickr = makeConvertor(constants.flickrBase58).generate;
+        }
+        return toFlickr();
+      };
+      return makeConvertor;
+    })();
+  }
+});
+
+// ../../node_modules/electrodb/src/types.js
+var require_types = __commonJS({
+  "../../node_modules/electrodb/src/types.js"(exports, module) {
+    var KeyTypes = {
+      pk: "pk",
+      sk: "sk"
+    };
+    var DataOptions = {
+      raw: "raw",
+      includeKeys: "includeKeys",
+      attributes: "attributes"
+    };
+    var BatchWriteTypes = {
+      batch: "batch",
+      concurrent: "concurrent"
+    };
+    var ComparisonTypes = {
+      keys: "keys",
+      attributes: "attributes",
+      v2: "v2"
+    };
+    var QueryTypes = {
+      and: "and",
+      gte: "gte",
+      gt: "gt",
+      lte: "lte",
+      lt: "lt",
+      eq: "eq",
+      begins: "begins",
+      between: "between",
+      collection: "collection",
+      clustered_collection: "clustered_collection",
+      is: "is"
+    };
+    var MethodTypes = {
+      check: "check",
+      put: "put",
+      get: "get",
+      query: "query",
+      scan: "scan",
+      update: "update",
+      delete: "delete",
+      remove: "remove",
+      patch: "patch",
+      create: "create",
+      batchGet: "batchGet",
+      batchWrite: "batchWrite",
+      upsert: "upsert",
+      transactWrite: "transactWrite",
+      transactGet: "transactGet"
+    };
+    var TransactionMethods = {
+      transactWrite: MethodTypes.transactWrite,
+      transactGet: MethodTypes.transactGet
+    };
+    var TransactionOperations = {
+      [MethodTypes.get]: "Get",
+      [MethodTypes.check]: "ConditionCheck",
+      [MethodTypes.put]: "Put",
+      [MethodTypes.create]: "Put",
+      [MethodTypes.upsert]: "Update",
+      [MethodTypes.update]: "Update",
+      [MethodTypes.patch]: "Update",
+      [MethodTypes.remove]: "Delete",
+      [MethodTypes.delete]: "Delete"
+    };
+    var MethodTypeTranslation = {
+      put: "put",
+      get: "get",
+      query: "query",
+      scan: "scan",
+      update: "update",
+      delete: "delete",
+      remove: "delete",
+      patch: "update",
+      create: "put",
+      batchGet: "batchGet",
+      batchWrite: "batchWrite",
+      upsert: "update",
+      transactWrite: "transactWrite",
+      transactGet: "transactGet"
+    };
+    var IndexTypes = {
+      isolated: "isolated",
+      clustered: "clustered"
+    };
+    var Comparisons = {
+      lte: "<=",
+      lt: "<",
+      gte: ">=",
+      gt: ">"
+    };
+    var KeyAttributesComparisons = {
+      lt: "<",
+      gte: ">=",
+      /**
+       * gt becomes gte and last character of incoming value is shifted up one character code
+       * example:
+       * sk > '2020-09-05'
+       *   expected
+       *     - 2020-09-06@05:05_hero
+       *     - 2020-10-05@05:05_hero
+       *     - 2022-02-05@05:05_villian
+       *     - 2022-06-05@05:05_clown
+       *     - 2022-09-06@05:05_clown
+       *   actual (bad - includes all 2020-09-05 records)
+       *     - 2020-09-05@05:05_hero
+       *     - 2020-09-06@05:05_hero
+       *     - 2020-10-05@05:05_hero
+       *     - 2022-02-05@05:05_villian
+       *     - 2022-06-05@05:05_clown
+       */
+      gt: ">=",
+      /**
+       * lte becomes lt and last character of incoming value is shifted up one character code
+       * example:
+       * sk >= '2020-09-05'
+       *   expected
+       *     - 2012-02-05@05:05_clown
+       *     - 2015-10-05@05:05_hero
+       *     - 2017-02-05@05:05_clown
+       *     - 2017-02-05@05:05_villian
+       *     - 2020-02-05@05:05_clown
+       *     - 2020-02-25@05:05_clown
+       *     - 2020-09-05@05:05_hero
+       *   actual (bad - missing all 2020-09-05 records)
+       *     - 2012-02-05@05:05_clown
+       *     - 2015-10-05@05:05_hero
+       *     - 2017-02-05@05:05_clown
+       *     - 2017-02-05@05:05_villian
+       *     - 2020-02-05@05:05_clown
+       *     - 2020-02-25@05:05_clown
+       */
+      lte: "<"
+    };
+    var CastTypes = ["string", "number"];
+    var AttributeTypes = {
+      string: "string",
+      number: "number",
+      boolean: "boolean",
+      enum: "enum",
+      map: "map",
+      set: "set",
+      // enumSet: "enumSet",
+      list: "list",
+      any: "any",
+      custom: "custom",
+      static: "static"
+    };
+    var PathTypes = {
+      ...AttributeTypes,
+      item: "item"
+    };
+    var ExpressionTypes = {
+      ConditionExpression: "ConditionExpression",
+      FilterExpression: "FilterExpression"
+    };
+    var ElectroInstance = {
+      entity: /* @__PURE__ */ Symbol("entity"),
+      service: /* @__PURE__ */ Symbol("service"),
+      electro: /* @__PURE__ */ Symbol("electro")
+    };
+    var ElectroInstanceTypes = {
+      electro: "electro",
+      service: "service",
+      entity: "entity",
+      model: "model"
+    };
+    var ModelVersions = {
+      beta: "beta",
+      v1: "v1",
+      v2: "v2"
+    };
+    var EntityVersions = {
+      v1: "v1"
+    };
+    var ServiceVersions = {
+      v1: "v1"
+    };
+    var MaxBatchItems = {
+      [MethodTypes.batchGet]: 100,
+      [MethodTypes.batchWrite]: 25
+    };
+    var AttributeMutationMethods = {
+      get: "get",
+      set: "set"
+    };
+    var Pager = {
+      raw: "raw",
+      named: "named",
+      item: "item",
+      cursor: "cursor"
+    };
+    var UnprocessedTypes = {
+      raw: "raw",
+      item: "item"
+    };
+    var AttributeWildCard = "*";
+    var ItemOperations = {
+      set: "set",
+      delete: "delete",
+      remove: "remove",
+      add: "add",
+      subtract: "subtract",
+      append: "append",
+      ifNotExists: "ifNotExists"
+    };
+    var UpsertOperations = {
+      set: "set",
+      add: "add",
+      subtract: "subtract",
+      append: "append",
+      ifNotExists: "ifNotExists"
+    };
+    var AttributeProxySymbol = /* @__PURE__ */ Symbol("attribute_proxy");
+    var TransactionCommitSymbol = /* @__PURE__ */ Symbol("transaction_commit");
+    var BuilderTypes = {
+      update: "update",
+      filter: "filter"
+    };
+    var ValueTypes = {
+      string: "string",
+      boolean: "boolean",
+      number: "number",
+      array: "array",
+      set: "set",
+      aws_set: "aws_set",
+      object: "object",
+      map: "map",
+      null: "null",
+      undefined: "undefined",
+      unknown: "unknown"
+    };
+    var TraverserIndexes = {
+      readonly: "readonly",
+      required: "required",
+      getters: "getters",
+      setters: "setters"
+    };
+    var ReturnValues = {
+      default: "default",
+      none: "none",
+      all_old: "all_old",
+      updated_old: "updated_old",
+      all_new: "all_new",
+      updated_new: "updated_new"
+    };
+    var FormatToReturnValues = {
+      none: "NONE",
+      default: "NONE",
+      all_old: "ALL_OLD",
+      updated_old: "UPDATED_OLD",
+      all_new: "ALL_NEW",
+      updated_new: "UPDATED_NEW"
+    };
+    var TableIndex = "";
+    var KeyCasing = {
+      none: "none",
+      upper: "upper",
+      lower: "lower",
+      default: "default"
+    };
+    var DefaultKeyCasing = KeyCasing.lower;
+    var EventSubscriptionTypes = ["query", "results"];
+    var TerminalOperation = {
+      go: "go",
+      page: "page"
+    };
+    var AllPages = "all";
+    var ResultOrderOption = {
+      asc: true,
+      desc: false
+    };
+    var ResultOrderParam = "ScanIndexForward";
+    var DynamoDBAttributeTypes = Object.entries({
+      string: "S",
+      stringSet: "SS",
+      number: "N",
+      numberSet: "NS",
+      binary: "B",
+      binarySet: "BS",
+      boolean: "BOOL",
+      null: "NULL",
+      list: "L",
+      map: "M"
+    }).reduce((obj, [name, type]) => {
+      obj[name] = type;
+      obj[type] = type;
+      return obj;
+    }, {});
+    var CastKeyOptions = {
+      string: "string",
+      number: "number"
+    };
+    module.exports = {
+      Pager,
+      KeyTypes,
+      CastTypes,
+      KeyCasing,
+      PathTypes,
+      IndexTypes,
+      QueryTypes,
+      ValueTypes,
+      TableIndex,
+      MethodTypes,
+      DataOptions,
+      Comparisons,
+      BuilderTypes,
+      ReturnValues,
+      MaxBatchItems,
+      ModelVersions,
+      ItemOperations,
+      AttributeTypes,
+      EntityVersions,
+      CastKeyOptions,
+      ComparisonTypes,
+      ServiceVersions,
+      ExpressionTypes,
+      ElectroInstance,
+      TraverserIndexes,
+      UnprocessedTypes,
+      AttributeWildCard,
+      TerminalOperation,
+      FormatToReturnValues,
+      AttributeProxySymbol,
+      ElectroInstanceTypes,
+      MethodTypeTranslation,
+      EventSubscriptionTypes,
+      DynamoDBAttributeTypes,
+      KeyAttributesComparisons,
+      AttributeMutationMethods,
+      AllPages,
+      ResultOrderOption,
+      ResultOrderParam,
+      TransactionCommitSymbol,
+      TransactionOperations,
+      TransactionMethods,
+      UpsertOperations,
+      BatchWriteTypes,
+      DefaultKeyCasing
+    };
+  }
+});
+
+// ../../node_modules/electrodb/src/errors.js
+var require_errors = __commonJS({
+  "../../node_modules/electrodb/src/errors.js"(exports, module) {
+    function getHelpLink(section) {
+      section = section || "unknown-error-5001";
+      return `https://electrodb.dev/en/reference/errors/#${section}`;
+    }
+    var ErrorCode = /* @__PURE__ */ Symbol("error-code");
+    var ErrorCodes = {
+      NoClientDefined: {
+        code: 1001,
+        section: "no-client-defined-on-model",
+        name: "NoClientDefined",
+        sym: ErrorCode
+      },
+      InvalidIdentifier: {
+        code: 1002,
+        section: "invalid-identifier",
+        name: "InvalidIdentifier",
+        sym: ErrorCode
+      },
+      InvalidKeyCompositeAttributeTemplate: {
+        code: 1003,
+        section: "invalid-key-composite-attribute-template",
+        name: "InvalidKeyCompositeAttributeTemplate",
+        sym: ErrorCode
+      },
+      DuplicateIndexes: {
+        code: 1004,
+        section: "duplicate-indexes",
+        name: "DuplicateIndexes",
+        sym: ErrorCode
+      },
+      CollectionNoSK: {
+        code: 1005,
+        section: "collection-without-an-sk",
+        name: "CollectionNoSK",
+        sym: ErrorCode
+      },
+      DuplicateCollections: {
+        code: 1006,
+        section: "duplicate-collections",
+        name: "DuplicateCollections",
+        sym: ErrorCode
+      },
+      MissingPrimaryIndex: {
+        code: 1007,
+        section: "missing-primary-index",
+        name: "MissingPrimaryIndex",
+        sym: ErrorCode
+      },
+      InvalidAttributeDefinition: {
+        code: 1008,
+        section: "invalid-attribute-definition",
+        name: "InvalidAttributeDefinition",
+        sym: ErrorCode
+      },
+      InvalidModel: {
+        code: 1009,
+        section: "invalid-model",
+        name: "InvalidModel",
+        sym: ErrorCode
+      },
+      InvalidOptions: {
+        code: 1010,
+        section: "invalid-options",
+        name: "InvalidOptions",
+        sym: ErrorCode
+      },
+      InvalidFilter: {
+        code: 1011,
+        section: "filters",
+        name: "InvalidFilter",
+        sym: ErrorCode
+      },
+      InvalidWhere: {
+        code: 1012,
+        section: "where",
+        name: "InvalidWhere",
+        sym: ErrorCode
+      },
+      InvalidJoin: {
+        code: 1013,
+        section: "join",
+        name: "InvalidJoin",
+        sym: ErrorCode
+      },
+      DuplicateIndexFields: {
+        code: 1014,
+        section: "duplicate-index-fields",
+        name: "DuplicateIndexField",
+        sym: ErrorCode
+      },
+      DuplicateIndexCompositeAttributes: {
+        code: 1015,
+        section: "duplicate-index-composite-attributes",
+        name: "DuplicateIndexCompositeAttributes",
+        sym: ErrorCode
+      },
+      InvalidAttributeWatchDefinition: {
+        code: 1016,
+        section: "invalid-attribute-watch-definition",
+        name: "InvalidAttributeWatchDefinition",
+        sym: ErrorCode
+      },
+      IncompatibleKeyCompositeAttributeTemplate: {
+        code: 1017,
+        section: "incompatible-key-composite-attribute-template",
+        name: "IncompatibleKeyCompositeAttributeTemplate",
+        sym: ErrorCode
+      },
+      InvalidIndexWithAttributeName: {
+        code: 1018,
+        section: "invalid-index-with-attribute-name",
+        name: "InvalidIndexWithAttributeName",
+        sym: ErrorCode
+      },
+      InvalidCollectionOnIndexWithAttributeFieldNames: {
+        code: 1019,
+        section: "invalid-collection-on-index-with-attribute-field-names",
+        name: "InvalidIndexCompositeWithAttributeName",
+        sym: ErrorCode
+      },
+      IncompatibleKeyCasing: {
+        code: 1020,
+        section: "incompatible-key-casing",
+        name: "IncompatibleKeyCasing",
+        sym: ErrorCode
+      },
+      InvalidListenerProvided: {
+        code: 1020,
+        section: "invalid-listener-provided",
+        name: "InvalidListenerProvided",
+        sym: ErrorCode
+      },
+      InvalidLoggerProvided: {
+        code: 1020,
+        section: "invalid-listener-provided",
+        name: "InvalidListenerProvided",
+        sym: ErrorCode
+      },
+      InvalidClientProvided: {
+        code: 1021,
+        section: "invalid-client-provided",
+        name: "InvalidClientProvided",
+        sym: ErrorCode
+      },
+      InconsistentIndexDefinition: {
+        code: 1022,
+        section: "inconsistent-index-definition",
+        name: "Inconsistent Index Definition",
+        sym: ErrorCode
+      },
+      MissingAttribute: {
+        code: 2001,
+        section: "missing-attribute",
+        name: "MissingAttribute",
+        sym: ErrorCode
+      },
+      IncompleteCompositeAttributes: {
+        code: 2002,
+        section: "missing-composite-attributes",
+        name: "IncompleteCompositeAttributes",
+        sym: ErrorCode
+      },
+      MissingTable: {
+        code: 2003,
+        section: "missing-table",
+        name: "MissingTable",
+        sym: ErrorCode
+      },
+      InvalidConcurrencyOption: {
+        code: 2004,
+        section: "invalid-concurrency-option",
+        name: "InvalidConcurrencyOption",
+        sym: ErrorCode
+      },
+      InvalidPagesOption: {
+        code: 2005,
+        section: "invalid-pages-option",
+        name: "InvalidPagesOption",
+        sym: ErrorCode
+      },
+      InvalidLimitOption: {
+        code: 2006,
+        section: "invalid-limit-option",
+        name: "InvalidLimitOption",
+        sym: ErrorCode
+      },
+      InvalidConversionKeysProvided: {
+        code: 2007,
+        section: "invalid-conversion-values-provided",
+        name: "InvalidConversionKeysProvided",
+        sym: ErrorCode
+      },
+      InvalidConversionCursorProvided: {
+        code: 2008,
+        section: "invalid-conversion-values-provided",
+        name: "InvalidConversionCursorProvided",
+        sym: ErrorCode
+      },
+      InvalidConversionCompositeProvided: {
+        code: 2009,
+        section: "invalid-conversion-values-provided",
+        name: "InvalidConversionCompositeProvided",
+        sym: ErrorCode
+      },
+      DuplicateUpdateCompositesProvided: {
+        code: 2010,
+        section: "duplicate-update-composites-provided",
+        name: "DuplicateUpdateCompositesProvided",
+        sym: ErrorCode
+      },
+      InvalidIndexCondition: {
+        code: 2011,
+        section: "invalid-index-option",
+        name: "InvalidIndexOption",
+        sym: ErrorCode
+      },
+      IncompleteIndexCompositesAttributesProvided: {
+        code: 2012,
+        section: "invalid-index-composite-attributes-provided",
+        name: "IncompleteIndexCompositesAttributesProvided",
+        sym: ErrorCode
+      },
+      InvalidAttribute: {
+        code: 3001,
+        section: "invalid-attribute",
+        name: "InvalidAttribute",
+        sym: ErrorCode
+      },
+      AWSError: {
+        code: 4001,
+        section: "aws-error",
+        name: "AWSError",
+        sym: ErrorCode
+      },
+      UnknownError: {
+        code: 5001,
+        section: "unknown-error",
+        name: "UnknownError",
+        sym: ErrorCode
+      },
+      GeneralError: {
+        code: 5002,
+        section: "",
+        name: "GeneralError",
+        sym: ErrorCode
+      },
+      LastEvaluatedKey: {
+        code: 5003,
+        section: "invalid-last-evaluated-key",
+        name: "LastEvaluatedKey",
+        sym: ErrorCode
+      },
+      NoOwnerForPager: {
+        code: 5004,
+        section: "no-owner-for-pager",
+        name: "NoOwnerForPager",
+        sym: ErrorCode
+      },
+      NoOwnerForCursor: {
+        code: 5004,
+        section: "no-owner-for-pager",
+        name: "NoOwnerForCursor",
+        sym: ErrorCode
+      },
+      PagerNotUnique: {
+        code: 5005,
+        section: "pager-not-unique",
+        name: "NoOwnerForPager",
+        sym: ErrorCode
+      }
+    };
+    function makeMessage(message, section) {
+      return `${message} - For more detail on this error reference: ${getHelpLink(
+        section
+      )}`;
+    }
+    var ElectroError = class _ElectroError extends Error {
+      constructor(code, message, cause, params = null) {
+        super(message, { cause });
+        let detail = ErrorCodes.UnknownError;
+        if (code && code.sym === ErrorCode) {
+          detail = code;
+        }
+        this._message = message;
+        this.message = makeMessage(message, detail.section);
+        if (Error.captureStackTrace) {
+          Error.captureStackTrace(this, _ElectroError);
+        }
+        this.name = "ElectroError";
+        this.ref = code;
+        this.code = detail.code;
+        this.date = Date.now();
+        this.isElectroError = true;
+        applyParamsFn(this, params);
+      }
+    };
+    function applyParamsFn(error2, params = null) {
+      Object.defineProperty(error2, "params", {
+        enumerable: false,
+        writable: true,
+        configurable: true,
+        value: () => {
+          return params;
+        }
+      });
+    }
+    var ElectroValidationError = class extends ElectroError {
+      constructor(errors = []) {
+        const fields = [];
+        const messages = [];
+        for (let i4 = 0; i4 < errors.length; i4++) {
+          const error2 = errors[i4];
+          const message2 = error2 ? error2._message || error2.message : void 0;
+          messages.push(message2);
+          if (error2 instanceof ElectroUserValidationError) {
+            fields.push({
+              field: error2.field,
+              index: error2.index,
+              reason: message2,
+              cause: error2.cause,
+              type: "validation"
+            });
+          } else if (error2 instanceof ElectroAttributeValidationError) {
+            fields.push({
+              field: error2.field,
+              index: error2.index,
+              reason: message2,
+              cause: error2.cause || error2,
+              // error | undefined
+              type: "validation"
+            });
+          } else if (message2) {
+            fields.push({
+              field: "",
+              index: error2.index,
+              reason: message2,
+              cause: error2 !== void 0 ? error2.cause || error2 : void 0,
+              type: "fatal"
+            });
+          }
+        }
+        const message = messages.filter((message2) => typeof message2 === "string" && message2.length).join(", ") || `Invalid value(s) provided`;
+        super(ErrorCodes.InvalidAttribute, message);
+        this.fields = fields;
+        this.name = "ElectroValidationError";
+      }
+    };
+    var ElectroUserValidationError = class extends ElectroError {
+      constructor(field, cause) {
+        let message;
+        let hasCause = false;
+        if (typeof cause === "string") {
+          message = cause;
+        } else if (cause !== void 0 && typeof cause._message === "string" && cause._message.length) {
+          message = cause._message;
+          hasCause = true;
+        } else if (cause !== void 0 && typeof cause.message === "string" && cause.message.length) {
+          message = cause.message;
+          hasCause = true;
+        } else {
+          message = "Invalid value provided";
+        }
+        super(ErrorCodes.InvalidAttribute, message);
+        this.field = field;
+        this.name = "ElectroUserValidationError";
+        if (hasCause) {
+          this.cause = cause;
+        }
+      }
+    };
+    var ElectroAttributeValidationError = class extends ElectroError {
+      constructor(field, reason) {
+        super(ErrorCodes.InvalidAttribute, reason);
+        this.field = field;
+      }
+    };
+    module.exports = {
+      ErrorCodes,
+      ElectroError,
+      applyParamsFn,
+      ElectroValidationError,
+      ElectroUserValidationError,
+      ElectroAttributeValidationError
+    };
+  }
+});
+
+// ../../node_modules/jsonschema/lib/helpers.js
+var require_helpers = __commonJS({
+  "../../node_modules/jsonschema/lib/helpers.js"(exports, module) {
+    "use strict";
+    var uri = __require("url");
+    var ValidationError = exports.ValidationError = function ValidationError2(message, instance, schema, propertyPath, name, argument) {
+      if (propertyPath) {
+        this.property = propertyPath;
+      }
+      if (message) {
+        this.message = message;
+      }
+      if (schema) {
+        if (schema.id) {
+          this.schema = schema.id;
+        } else {
+          this.schema = schema;
+        }
+      }
+      if (instance !== void 0) {
+        this.instance = instance;
+      }
+      this.name = name;
+      this.argument = argument;
+      this.stack = this.toString();
+    };
+    ValidationError.prototype.toString = function toString() {
+      return this.property + " " + this.message;
+    };
+    var ValidatorResult = exports.ValidatorResult = function ValidatorResult2(instance, schema, options, ctx) {
+      this.instance = instance;
+      this.schema = schema;
+      this.propertyPath = ctx.propertyPath;
+      this.errors = [];
+      this.throwError = options && options.throwError;
+      this.disableFormat = options && options.disableFormat === true;
+    };
+    ValidatorResult.prototype.addError = function addError(detail) {
+      var err2;
+      if (typeof detail == "string") {
+        err2 = new ValidationError(detail, this.instance, this.schema, this.propertyPath);
+      } else {
+        if (!detail) throw new Error("Missing error detail");
+        if (!detail.message) throw new Error("Missing error message");
+        if (!detail.name) throw new Error("Missing validator type");
+        err2 = new ValidationError(detail.message, this.instance, this.schema, this.propertyPath, detail.name, detail.argument);
+      }
+      if (this.throwError) {
+        throw err2;
+      }
+      this.errors.push(err2);
+      return err2;
+    };
+    ValidatorResult.prototype.importErrors = function importErrors(res) {
+      if (typeof res == "string" || res && res.validatorType) {
+        this.addError(res);
+      } else if (res && res.errors) {
+        Array.prototype.push.apply(this.errors, res.errors);
+      }
+    };
+    function stringizer(v7, i4) {
+      return i4 + ": " + v7.toString() + "\n";
+    }
+    ValidatorResult.prototype.toString = function toString(res) {
+      return this.errors.map(stringizer).join("");
+    };
+    Object.defineProperty(ValidatorResult.prototype, "valid", { get: function() {
+      return !this.errors.length;
+    } });
+    var SchemaError = exports.SchemaError = function SchemaError2(msg, schema) {
+      this.message = msg;
+      this.schema = schema;
+      Error.call(this, msg);
+      Error.captureStackTrace(this, SchemaError2);
+    };
+    SchemaError.prototype = Object.create(
+      Error.prototype,
+      {
+        constructor: { value: SchemaError, enumerable: false },
+        name: { value: "SchemaError", enumerable: false }
+      }
+    );
+    var SchemaContext = exports.SchemaContext = function SchemaContext2(schema, options, propertyPath, base, schemas) {
+      this.schema = schema;
+      this.options = options;
+      this.propertyPath = propertyPath;
+      this.base = base;
+      this.schemas = schemas;
+    };
+    SchemaContext.prototype.resolve = function resolve(target) {
+      return uri.resolve(this.base, target);
+    };
+    SchemaContext.prototype.makeChild = function makeChild(schema, propertyName) {
+      var propertyPath = propertyName === void 0 ? this.propertyPath : this.propertyPath + makeSuffix(propertyName);
+      var base = uri.resolve(this.base, schema.id || "");
+      var ctx = new SchemaContext(schema, this.options, propertyPath, base, Object.create(this.schemas));
+      if (schema.id && !ctx.schemas[base]) {
+        ctx.schemas[base] = schema;
+      }
+      return ctx;
+    };
+    var FORMAT_REGEXPS = exports.FORMAT_REGEXPS = {
+      "date-time": /^\d{4}-(?:0[0-9]{1}|1[0-2]{1})-(3[01]|0[1-9]|[12][0-9])[tT ](2[0-4]|[01][0-9]):([0-5][0-9]):(60|[0-5][0-9])(\.\d+)?([zZ]|[+-]([0-5][0-9]):(60|[0-5][0-9]))$/,
+      "date": /^\d{4}-(?:0[0-9]{1}|1[0-2]{1})-(3[01]|0[1-9]|[12][0-9])$/,
+      "time": /^(2[0-4]|[01][0-9]):([0-5][0-9]):(60|[0-5][0-9])$/,
+      "email": /^(?:[\w\!\#\$\%\&\'\*\+\-\/\=\?\^\`\{\|\}\~]+\.)*[\w\!\#\$\%\&\'\*\+\-\/\=\?\^\`\{\|\}\~]+@(?:(?:(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-](?!\.)){0,61}[a-zA-Z0-9]?\.)+[a-zA-Z0-9](?:[a-zA-Z0-9\-](?!$)){0,61}[a-zA-Z0-9]?)|(?:\[(?:(?:[01]?\d{1,2}|2[0-4]\d|25[0-5])\.){3}(?:[01]?\d{1,2}|2[0-4]\d|25[0-5])\]))$/,
+      "ip-address": /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/,
+      "ipv6": /^\s*((([0-9A-Fa-f]{1,4}:){7}([0-9A-Fa-f]{1,4}|:))|(([0-9A-Fa-f]{1,4}:){6}(:[0-9A-Fa-f]{1,4}|((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9A-Fa-f]{1,4}:){5}(((:[0-9A-Fa-f]{1,4}){1,2})|:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9A-Fa-f]{1,4}:){4}(((:[0-9A-Fa-f]{1,4}){1,3})|((:[0-9A-Fa-f]{1,4})?:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9A-Fa-f]{1,4}:){3}(((:[0-9A-Fa-f]{1,4}){1,4})|((:[0-9A-Fa-f]{1,4}){0,2}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9A-Fa-f]{1,4}:){2}(((:[0-9A-Fa-f]{1,4}){1,5})|((:[0-9A-Fa-f]{1,4}){0,3}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9A-Fa-f]{1,4}:){1}(((:[0-9A-Fa-f]{1,4}){1,6})|((:[0-9A-Fa-f]{1,4}){0,4}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(:(((:[0-9A-Fa-f]{1,4}){1,7})|((:[0-9A-Fa-f]{1,4}){0,5}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:)))(%.+)?\s*$/,
+      "uri": /^[a-zA-Z][a-zA-Z0-9+-.]*:[^\s]*$/,
+      "color": /^(#?([0-9A-Fa-f]{3}){1,2}\b|aqua|black|blue|fuchsia|gray|green|lime|maroon|navy|olive|orange|purple|red|silver|teal|white|yellow|(rgb\(\s*\b([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\b\s*,\s*\b([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\b\s*,\s*\b([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\b\s*\))|(rgb\(\s*(\d?\d%|100%)+\s*,\s*(\d?\d%|100%)+\s*,\s*(\d?\d%|100%)+\s*\)))$/,
+      // hostname regex from: http://stackoverflow.com/a/1420225/5628
+      "hostname": /^(?=.{1,255}$)[0-9A-Za-z](?:(?:[0-9A-Za-z]|-){0,61}[0-9A-Za-z])?(?:\.[0-9A-Za-z](?:(?:[0-9A-Za-z]|-){0,61}[0-9A-Za-z])?)*\.?$/,
+      "host-name": /^(?=.{1,255}$)[0-9A-Za-z](?:(?:[0-9A-Za-z]|-){0,61}[0-9A-Za-z])?(?:\.[0-9A-Za-z](?:(?:[0-9A-Za-z]|-){0,61}[0-9A-Za-z])?)*\.?$/,
+      "alpha": /^[a-zA-Z]+$/,
+      "alphanumeric": /^[a-zA-Z0-9]+$/,
+      "utc-millisec": function(input) {
+        return typeof input === "string" && parseFloat(input) === parseInt(input, 10) && !isNaN(input);
+      },
+      "regex": function(input) {
+        var result = true;
+        try {
+          new RegExp(input);
+        } catch (e4) {
+          result = false;
+        }
+        return result;
+      },
+      "style": /\s*(.+?):\s*([^;]+);?/,
+      "phone": /^\+(?:[0-9] ?){6,14}[0-9]$/
+    };
+    FORMAT_REGEXPS.regexp = FORMAT_REGEXPS.regex;
+    FORMAT_REGEXPS.pattern = FORMAT_REGEXPS.regex;
+    FORMAT_REGEXPS.ipv4 = FORMAT_REGEXPS["ip-address"];
+    exports.isFormat = function isFormat(input, format2, validator) {
+      if (typeof input === "string" && FORMAT_REGEXPS[format2] !== void 0) {
+        if (FORMAT_REGEXPS[format2] instanceof RegExp) {
+          return FORMAT_REGEXPS[format2].test(input);
+        }
+        if (typeof FORMAT_REGEXPS[format2] === "function") {
+          return FORMAT_REGEXPS[format2](input);
+        }
+      } else if (validator && validator.customFormats && typeof validator.customFormats[format2] === "function") {
+        return validator.customFormats[format2](input);
+      }
+      return true;
+    };
+    var makeSuffix = exports.makeSuffix = function makeSuffix2(key) {
+      key = key.toString();
+      if (!key.match(/[.\s\[\]]/) && !key.match(/^[\d]/)) {
+        return "." + key;
+      }
+      if (key.match(/^\d+$/)) {
+        return "[" + key + "]";
+      }
+      return "[" + JSON.stringify(key) + "]";
+    };
+    exports.deepCompareStrict = function deepCompareStrict(a4, b4) {
+      if (typeof a4 !== typeof b4) {
+        return false;
+      }
+      if (Array.isArray(a4)) {
+        if (!Array.isArray(b4)) {
+          return false;
+        }
+        if (a4.length !== b4.length) {
+          return false;
+        }
+        return a4.every(function(v7, i4) {
+          return deepCompareStrict(a4[i4], b4[i4]);
+        });
+      }
+      if (typeof a4 === "object") {
+        if (!a4 || !b4) {
+          return a4 === b4;
+        }
+        var aKeys = Object.keys(a4);
+        var bKeys = Object.keys(b4);
+        if (aKeys.length !== bKeys.length) {
+          return false;
+        }
+        return aKeys.every(function(v7) {
+          return deepCompareStrict(a4[v7], b4[v7]);
+        });
+      }
+      return a4 === b4;
+    };
+    function deepMerger(target, dst, e4, i4) {
+      if (typeof e4 === "object") {
+        dst[i4] = deepMerge(target[i4], e4);
+      } else {
+        if (target.indexOf(e4) === -1) {
+          dst.push(e4);
+        }
+      }
+    }
+    function copyist(src, dst, key) {
+      dst[key] = src[key];
+    }
+    function copyistWithDeepMerge(target, src, dst, key) {
+      if (typeof src[key] !== "object" || !src[key]) {
+        dst[key] = src[key];
+      } else {
+        if (!target[key]) {
+          dst[key] = src[key];
+        } else {
+          dst[key] = deepMerge(target[key], src[key]);
+        }
+      }
+    }
+    function deepMerge(target, src) {
+      var array = Array.isArray(src);
+      var dst = array && [] || {};
+      if (array) {
+        target = target || [];
+        dst = dst.concat(target);
+        src.forEach(deepMerger.bind(null, target, dst));
+      } else {
+        if (target && typeof target === "object") {
+          Object.keys(target).forEach(copyist.bind(null, target, dst));
+        }
+        Object.keys(src).forEach(copyistWithDeepMerge.bind(null, target, src, dst));
+      }
+      return dst;
+    }
+    module.exports.deepMerge = deepMerge;
+    exports.objectGetPath = function objectGetPath(o4, s4) {
+      var parts = s4.split("/").slice(1);
+      var k4;
+      while (typeof (k4 = parts.shift()) == "string") {
+        var n4 = decodeURIComponent(k4.replace(/~0/, "~").replace(/~1/g, "/"));
+        if (!(n4 in o4)) return;
+        o4 = o4[n4];
+      }
+      return o4;
+    };
+    function pathEncoder(v7) {
+      return "/" + encodeURIComponent(v7).replace(/~/g, "%7E");
+    }
+    exports.encodePath = function encodePointer(a4) {
+      return a4.map(pathEncoder).join("");
+    };
+    exports.getDecimalPlaces = function getDecimalPlaces(number) {
+      var decimalPlaces = 0;
+      if (isNaN(number)) return decimalPlaces;
+      if (typeof number !== "number") {
+        number = Number(number);
+      }
+      var parts = number.toString().split("e");
+      if (parts.length === 2) {
+        if (parts[1][0] !== "-") {
+          return decimalPlaces;
+        } else {
+          decimalPlaces = Number(parts[1].slice(1));
+        }
+      }
+      var decimalParts = parts[0].split(".");
+      if (decimalParts.length === 2) {
+        decimalPlaces += decimalParts[1].length;
+      }
+      return decimalPlaces;
+    };
+  }
+});
+
+// ../../node_modules/jsonschema/lib/attribute.js
+var require_attribute = __commonJS({
+  "../../node_modules/jsonschema/lib/attribute.js"(exports, module) {
+    "use strict";
+    var helpers = require_helpers();
+    var ValidatorResult = helpers.ValidatorResult;
+    var SchemaError = helpers.SchemaError;
+    var attribute = {};
+    attribute.ignoreProperties = {
+      // informative properties
+      "id": true,
+      "default": true,
+      "description": true,
+      "title": true,
+      // arguments to other properties
+      "exclusiveMinimum": true,
+      "exclusiveMaximum": true,
+      "additionalItems": true,
+      // special-handled properties
+      "$schema": true,
+      "$ref": true,
+      "extends": true
+    };
+    var validators = attribute.validators = {};
+    validators.type = function validateType(instance, schema, options, ctx) {
+      if (instance === void 0) {
+        return null;
+      }
+      var result = new ValidatorResult(instance, schema, options, ctx);
+      var types = Array.isArray(schema.type) ? schema.type : [schema.type];
+      if (!types.some(this.testType.bind(this, instance, schema, options, ctx))) {
+        var list2 = types.map(function(v7) {
+          return v7.id && "<" + v7.id + ">" || v7 + "";
+        });
+        result.addError({
+          name: "type",
+          argument: list2,
+          message: "is not of a type(s) " + list2
+        });
+      }
+      return result;
+    };
+    function testSchemaNoThrow(instance, options, ctx, callback, schema) {
+      var throwError = options.throwError;
+      options.throwError = false;
+      var res = this.validateSchema(instance, schema, options, ctx);
+      options.throwError = throwError;
+      if (!res.valid && callback instanceof Function) {
+        callback(res);
+      }
+      return res.valid;
+    }
+    validators.anyOf = function validateAnyOf(instance, schema, options, ctx) {
+      if (instance === void 0) {
+        return null;
+      }
+      var result = new ValidatorResult(instance, schema, options, ctx);
+      var inner = new ValidatorResult(instance, schema, options, ctx);
+      if (!Array.isArray(schema.anyOf)) {
+        throw new SchemaError("anyOf must be an array");
+      }
+      if (!schema.anyOf.some(
+        testSchemaNoThrow.bind(
+          this,
+          instance,
+          options,
+          ctx,
+          function(res) {
+            inner.importErrors(res);
+          }
+        )
+      )) {
+        var list2 = schema.anyOf.map(function(v7, i4) {
+          return v7.id && "<" + v7.id + ">" || v7.title && JSON.stringify(v7.title) || v7["$ref"] && "<" + v7["$ref"] + ">" || "[subschema " + i4 + "]";
+        });
+        if (options.nestedErrors) {
+          result.importErrors(inner);
+        }
+        result.addError({
+          name: "anyOf",
+          argument: list2,
+          message: "is not any of " + list2.join(",")
+        });
+      }
+      return result;
+    };
+    validators.allOf = function validateAllOf(instance, schema, options, ctx) {
+      if (instance === void 0) {
+        return null;
+      }
+      if (!Array.isArray(schema.allOf)) {
+        throw new SchemaError("allOf must be an array");
+      }
+      var result = new ValidatorResult(instance, schema, options, ctx);
+      var self2 = this;
+      schema.allOf.forEach(function(v7, i4) {
+        var valid = self2.validateSchema(instance, v7, options, ctx);
+        if (!valid.valid) {
+          var msg = v7.id && "<" + v7.id + ">" || v7.title && JSON.stringify(v7.title) || v7["$ref"] && "<" + v7["$ref"] + ">" || "[subschema " + i4 + "]";
+          result.addError({
+            name: "allOf",
+            argument: { id: msg, length: valid.errors.length, valid },
+            message: "does not match allOf schema " + msg + " with " + valid.errors.length + " error[s]:"
+          });
+          result.importErrors(valid);
+        }
+      });
+      return result;
+    };
+    validators.oneOf = function validateOneOf(instance, schema, options, ctx) {
+      if (instance === void 0) {
+        return null;
+      }
+      if (!Array.isArray(schema.oneOf)) {
+        throw new SchemaError("oneOf must be an array");
+      }
+      var result = new ValidatorResult(instance, schema, options, ctx);
+      var inner = new ValidatorResult(instance, schema, options, ctx);
+      var count = schema.oneOf.filter(
+        testSchemaNoThrow.bind(
+          this,
+          instance,
+          options,
+          ctx,
+          function(res) {
+            inner.importErrors(res);
+          }
+        )
+      ).length;
+      var list2 = schema.oneOf.map(function(v7, i4) {
+        return v7.id && "<" + v7.id + ">" || v7.title && JSON.stringify(v7.title) || v7["$ref"] && "<" + v7["$ref"] + ">" || "[subschema " + i4 + "]";
+      });
+      if (count !== 1) {
+        if (options.nestedErrors) {
+          result.importErrors(inner);
+        }
+        result.addError({
+          name: "oneOf",
+          argument: list2,
+          message: "is not exactly one from " + list2.join(",")
+        });
+      }
+      return result;
+    };
+    validators.properties = function validateProperties(instance, schema, options, ctx) {
+      if (!this.types.object(instance)) return;
+      var result = new ValidatorResult(instance, schema, options, ctx);
+      var properties = schema.properties || {};
+      for (var property in properties) {
+        if (typeof options.preValidateProperty == "function") {
+          options.preValidateProperty(instance, property, properties[property], options, ctx);
+        }
+        var prop = Object.hasOwnProperty.call(instance, property) ? instance[property] : void 0;
+        var res = this.validateSchema(prop, properties[property], options, ctx.makeChild(properties[property], property));
+        if (res.instance !== result.instance[property]) result.instance[property] = res.instance;
+        result.importErrors(res);
+      }
+      return result;
+    };
+    function testAdditionalProperty(instance, schema, options, ctx, property, result) {
+      if (!this.types.object(instance)) return;
+      if (schema.properties && schema.properties[property] !== void 0) {
+        return;
+      }
+      if (schema.additionalProperties === false) {
+        result.addError({
+          name: "additionalProperties",
+          argument: property,
+          message: "additionalProperty " + JSON.stringify(property) + " exists in instance when not allowed"
+        });
+      } else {
+        var additionalProperties = schema.additionalProperties || {};
+        if (typeof options.preValidateProperty == "function") {
+          options.preValidateProperty(instance, property, additionalProperties, options, ctx);
+        }
+        var res = this.validateSchema(instance[property], additionalProperties, options, ctx.makeChild(additionalProperties, property));
+        if (res.instance !== result.instance[property]) result.instance[property] = res.instance;
+        result.importErrors(res);
+      }
+    }
+    validators.patternProperties = function validatePatternProperties(instance, schema, options, ctx) {
+      if (!this.types.object(instance)) return;
+      var result = new ValidatorResult(instance, schema, options, ctx);
+      var patternProperties = schema.patternProperties || {};
+      for (var property in instance) {
+        var test = true;
+        for (var pattern in patternProperties) {
+          var expr = new RegExp(pattern, "u");
+          if (!expr.test(property)) {
+            continue;
+          }
+          test = false;
+          if (typeof options.preValidateProperty == "function") {
+            options.preValidateProperty(instance, property, patternProperties[pattern], options, ctx);
+          }
+          var res = this.validateSchema(instance[property], patternProperties[pattern], options, ctx.makeChild(patternProperties[pattern], property));
+          if (res.instance !== result.instance[property]) result.instance[property] = res.instance;
+          result.importErrors(res);
+        }
+        if (test) {
+          testAdditionalProperty.call(this, instance, schema, options, ctx, property, result);
+        }
+      }
+      return result;
+    };
+    validators.additionalProperties = function validateAdditionalProperties(instance, schema, options, ctx) {
+      if (!this.types.object(instance)) return;
+      if (schema.patternProperties) {
+        return null;
+      }
+      var result = new ValidatorResult(instance, schema, options, ctx);
+      for (var property in instance) {
+        testAdditionalProperty.call(this, instance, schema, options, ctx, property, result);
+      }
+      return result;
+    };
+    validators.minProperties = function validateMinProperties(instance, schema, options, ctx) {
+      if (!this.types.object(instance)) return;
+      var result = new ValidatorResult(instance, schema, options, ctx);
+      var keys = Object.keys(instance);
+      if (!(keys.length >= schema.minProperties)) {
+        result.addError({
+          name: "minProperties",
+          argument: schema.minProperties,
+          message: "does not meet minimum property length of " + schema.minProperties
+        });
+      }
+      return result;
+    };
+    validators.maxProperties = function validateMaxProperties(instance, schema, options, ctx) {
+      if (!this.types.object(instance)) return;
+      var result = new ValidatorResult(instance, schema, options, ctx);
+      var keys = Object.keys(instance);
+      if (!(keys.length <= schema.maxProperties)) {
+        result.addError({
+          name: "maxProperties",
+          argument: schema.maxProperties,
+          message: "does not meet maximum property length of " + schema.maxProperties
+        });
+      }
+      return result;
+    };
+    validators.items = function validateItems(instance, schema, options, ctx) {
+      var self2 = this;
+      if (!this.types.array(instance)) return;
+      if (!schema.items) return;
+      var result = new ValidatorResult(instance, schema, options, ctx);
+      instance.every(function(value, i4) {
+        var items = Array.isArray(schema.items) ? schema.items[i4] || schema.additionalItems : schema.items;
+        if (items === void 0) {
+          return true;
+        }
+        if (items === false) {
+          result.addError({
+            name: "items",
+            message: "additionalItems not permitted"
+          });
+          return false;
+        }
+        var res = self2.validateSchema(value, items, options, ctx.makeChild(items, i4));
+        if (res.instance !== result.instance[i4]) result.instance[i4] = res.instance;
+        result.importErrors(res);
+        return true;
+      });
+      return result;
+    };
+    validators.minimum = function validateMinimum(instance, schema, options, ctx) {
+      if (!this.types.number(instance)) return;
+      var result = new ValidatorResult(instance, schema, options, ctx);
+      var valid = true;
+      if (schema.exclusiveMinimum && schema.exclusiveMinimum === true) {
+        valid = instance > schema.minimum;
+      } else {
+        valid = instance >= schema.minimum;
+      }
+      if (!valid) {
+        result.addError({
+          name: "minimum",
+          argument: schema.minimum,
+          message: "must have a minimum value of " + schema.minimum
+        });
+      }
+      return result;
+    };
+    validators.maximum = function validateMaximum(instance, schema, options, ctx) {
+      if (!this.types.number(instance)) return;
+      var result = new ValidatorResult(instance, schema, options, ctx);
+      var valid;
+      if (schema.exclusiveMaximum && schema.exclusiveMaximum === true) {
+        valid = instance < schema.maximum;
+      } else {
+        valid = instance <= schema.maximum;
+      }
+      if (!valid) {
+        result.addError({
+          name: "maximum",
+          argument: schema.maximum,
+          message: "must have a maximum value of " + schema.maximum
+        });
+      }
+      return result;
+    };
+    var validateMultipleOfOrDivisbleBy = function validateMultipleOfOrDivisbleBy2(instance, schema, options, ctx, validationType, errorMessage) {
+      if (!this.types.number(instance)) return;
+      var validationArgument = schema[validationType];
+      if (validationArgument == 0) {
+        throw new SchemaError(validationType + " cannot be zero");
+      }
+      var result = new ValidatorResult(instance, schema, options, ctx);
+      var instanceDecimals = helpers.getDecimalPlaces(instance);
+      var divisorDecimals = helpers.getDecimalPlaces(validationArgument);
+      var maxDecimals = Math.max(instanceDecimals, divisorDecimals);
+      var multiplier = Math.pow(10, maxDecimals);
+      if (Math.round(instance * multiplier) % Math.round(validationArgument * multiplier) !== 0) {
+        result.addError({
+          name: validationType,
+          argument: validationArgument,
+          message: errorMessage + JSON.stringify(validationArgument)
+        });
+      }
+      return result;
+    };
+    validators.multipleOf = function validateMultipleOf(instance, schema, options, ctx) {
+      return validateMultipleOfOrDivisbleBy.call(this, instance, schema, options, ctx, "multipleOf", "is not a multiple of (divisible by) ");
+    };
+    validators.divisibleBy = function validateDivisibleBy(instance, schema, options, ctx) {
+      return validateMultipleOfOrDivisbleBy.call(this, instance, schema, options, ctx, "divisibleBy", "is not divisible by (multiple of) ");
+    };
+    validators.required = function validateRequired(instance, schema, options, ctx) {
+      var result = new ValidatorResult(instance, schema, options, ctx);
+      if (instance === void 0 && schema.required === true) {
+        result.addError({
+          name: "required",
+          message: "is required"
+        });
+      } else if (this.types.object(instance) && Array.isArray(schema.required)) {
+        schema.required.forEach(function(n4) {
+          if (instance[n4] === void 0) {
+            result.addError({
+              name: "required",
+              argument: n4,
+              message: "requires property " + JSON.stringify(n4)
+            });
+          }
+        });
+      }
+      return result;
+    };
+    validators.pattern = function validatePattern(instance, schema, options, ctx) {
+      if (!this.types.string(instance)) return;
+      var result = new ValidatorResult(instance, schema, options, ctx);
+      var regexp = new RegExp(schema.pattern, "u");
+      if (!instance.match(regexp)) {
+        result.addError({
+          name: "pattern",
+          argument: schema.pattern,
+          message: "does not match pattern " + JSON.stringify(schema.pattern.toString())
+        });
+      }
+      return result;
+    };
+    validators.format = function validateFormat(instance, schema, options, ctx) {
+      if (instance === void 0) return;
+      var result = new ValidatorResult(instance, schema, options, ctx);
+      if (!result.disableFormat && !helpers.isFormat(instance, schema.format, this)) {
+        result.addError({
+          name: "format",
+          argument: schema.format,
+          message: "does not conform to the " + JSON.stringify(schema.format) + " format"
+        });
+      }
+      return result;
+    };
+    validators.minLength = function validateMinLength(instance, schema, options, ctx) {
+      if (!this.types.string(instance)) return;
+      var result = new ValidatorResult(instance, schema, options, ctx);
+      var hsp = instance.match(/[\uDC00-\uDFFF]/g);
+      var length = instance.length - (hsp ? hsp.length : 0);
+      if (!(length >= schema.minLength)) {
+        result.addError({
+          name: "minLength",
+          argument: schema.minLength,
+          message: "does not meet minimum length of " + schema.minLength
+        });
+      }
+      return result;
+    };
+    validators.maxLength = function validateMaxLength(instance, schema, options, ctx) {
+      if (!this.types.string(instance)) return;
+      var result = new ValidatorResult(instance, schema, options, ctx);
+      var hsp = instance.match(/[\uDC00-\uDFFF]/g);
+      var length = instance.length - (hsp ? hsp.length : 0);
+      if (!(length <= schema.maxLength)) {
+        result.addError({
+          name: "maxLength",
+          argument: schema.maxLength,
+          message: "does not meet maximum length of " + schema.maxLength
+        });
+      }
+      return result;
+    };
+    validators.minItems = function validateMinItems(instance, schema, options, ctx) {
+      if (!this.types.array(instance)) return;
+      var result = new ValidatorResult(instance, schema, options, ctx);
+      if (!(instance.length >= schema.minItems)) {
+        result.addError({
+          name: "minItems",
+          argument: schema.minItems,
+          message: "does not meet minimum length of " + schema.minItems
+        });
+      }
+      return result;
+    };
+    validators.maxItems = function validateMaxItems(instance, schema, options, ctx) {
+      if (!this.types.array(instance)) return;
+      var result = new ValidatorResult(instance, schema, options, ctx);
+      if (!(instance.length <= schema.maxItems)) {
+        result.addError({
+          name: "maxItems",
+          argument: schema.maxItems,
+          message: "does not meet maximum length of " + schema.maxItems
+        });
+      }
+      return result;
+    };
+    function testArrays(v7, i4, a4) {
+      var j4, len = a4.length;
+      for (j4 = i4 + 1, len; j4 < len; j4++) {
+        if (helpers.deepCompareStrict(v7, a4[j4])) {
+          return false;
+        }
+      }
+      return true;
+    }
+    validators.uniqueItems = function validateUniqueItems(instance, schema, options, ctx) {
+      if (schema.uniqueItems !== true) return;
+      if (!this.types.array(instance)) return;
+      var result = new ValidatorResult(instance, schema, options, ctx);
+      if (!instance.every(testArrays)) {
+        result.addError({
+          name: "uniqueItems",
+          message: "contains duplicate item"
+        });
+      }
+      return result;
+    };
+    validators.dependencies = function validateDependencies(instance, schema, options, ctx) {
+      if (!this.types.object(instance)) return;
+      var result = new ValidatorResult(instance, schema, options, ctx);
+      for (var property in schema.dependencies) {
+        if (instance[property] === void 0) {
+          continue;
+        }
+        var dep = schema.dependencies[property];
+        var childContext = ctx.makeChild(dep, property);
+        if (typeof dep == "string") {
+          dep = [dep];
+        }
+        if (Array.isArray(dep)) {
+          dep.forEach(function(prop) {
+            if (instance[prop] === void 0) {
+              result.addError({
+                // FIXME there's two different "dependencies" errors here with slightly different outputs
+                // Can we make these the same? Or should we create different error types?
+                name: "dependencies",
+                argument: childContext.propertyPath,
+                message: "property " + prop + " not found, required by " + childContext.propertyPath
+              });
+            }
+          });
+        } else {
+          var res = this.validateSchema(instance, dep, options, childContext);
+          if (result.instance !== res.instance) result.instance = res.instance;
+          if (res && res.errors.length) {
+            result.addError({
+              name: "dependencies",
+              argument: childContext.propertyPath,
+              message: "does not meet dependency required by " + childContext.propertyPath
+            });
+            result.importErrors(res);
+          }
+        }
+      }
+      return result;
+    };
+    validators["enum"] = function validateEnum(instance, schema, options, ctx) {
+      if (instance === void 0) {
+        return null;
+      }
+      if (!Array.isArray(schema["enum"])) {
+        throw new SchemaError("enum expects an array", schema);
+      }
+      var result = new ValidatorResult(instance, schema, options, ctx);
+      if (!schema["enum"].some(helpers.deepCompareStrict.bind(null, instance))) {
+        result.addError({
+          name: "enum",
+          argument: schema["enum"],
+          message: "is not one of enum values: " + schema["enum"].map(String).join(",")
+        });
+      }
+      return result;
+    };
+    validators["const"] = function validateEnum(instance, schema, options, ctx) {
+      if (instance === void 0) {
+        return null;
+      }
+      var result = new ValidatorResult(instance, schema, options, ctx);
+      if (!helpers.deepCompareStrict(schema["const"], instance)) {
+        result.addError({
+          name: "const",
+          argument: schema["const"],
+          message: "does not exactly match expected constant: " + schema["const"]
+        });
+      }
+      return result;
+    };
+    validators.not = validators.disallow = function validateNot(instance, schema, options, ctx) {
+      var self2 = this;
+      if (instance === void 0) return null;
+      var result = new ValidatorResult(instance, schema, options, ctx);
+      var notTypes = schema.not || schema.disallow;
+      if (!notTypes) return null;
+      if (!Array.isArray(notTypes)) notTypes = [notTypes];
+      notTypes.forEach(function(type) {
+        if (self2.testType(instance, schema, options, ctx, type)) {
+          var schemaId = type && type.id && "<" + type.id + ">" || type;
+          result.addError({
+            name: "not",
+            argument: schemaId,
+            message: "is of prohibited type " + schemaId
+          });
+        }
+      });
+      return result;
+    };
+    module.exports = attribute;
+  }
+});
+
+// ../../node_modules/jsonschema/lib/scan.js
+var require_scan = __commonJS({
+  "../../node_modules/jsonschema/lib/scan.js"(exports, module) {
+    "use strict";
+    var urilib = __require("url");
+    var helpers = require_helpers();
+    module.exports.SchemaScanResult = SchemaScanResult;
+    function SchemaScanResult(found, ref) {
+      this.id = found;
+      this.ref = ref;
+    }
+    module.exports.scan = function scan(base, schema) {
+      function scanSchema(baseuri, schema2) {
+        if (!schema2 || typeof schema2 != "object") return;
+        if (schema2.$ref) {
+          var resolvedUri = urilib.resolve(baseuri, schema2.$ref);
+          ref[resolvedUri] = ref[resolvedUri] ? ref[resolvedUri] + 1 : 0;
+          return;
+        }
+        var ourBase = schema2.id ? urilib.resolve(baseuri, schema2.id) : baseuri;
+        if (ourBase) {
+          if (ourBase.indexOf("#") < 0) ourBase += "#";
+          if (found[ourBase]) {
+            if (!helpers.deepCompareStrict(found[ourBase], schema2)) {
+              throw new Error("Schema <" + schema2 + "> already exists with different definition");
+            }
+            return found[ourBase];
+          }
+          found[ourBase] = schema2;
+          if (ourBase[ourBase.length - 1] == "#") {
+            found[ourBase.substring(0, ourBase.length - 1)] = schema2;
+          }
+        }
+        scanArray(ourBase + "/items", Array.isArray(schema2.items) ? schema2.items : [schema2.items]);
+        scanArray(ourBase + "/extends", Array.isArray(schema2.extends) ? schema2.extends : [schema2.extends]);
+        scanSchema(ourBase + "/additionalItems", schema2.additionalItems);
+        scanObject(ourBase + "/properties", schema2.properties);
+        scanSchema(ourBase + "/additionalProperties", schema2.additionalProperties);
+        scanObject(ourBase + "/definitions", schema2.definitions);
+        scanObject(ourBase + "/patternProperties", schema2.patternProperties);
+        scanObject(ourBase + "/dependencies", schema2.dependencies);
+        scanArray(ourBase + "/disallow", schema2.disallow);
+        scanArray(ourBase + "/allOf", schema2.allOf);
+        scanArray(ourBase + "/anyOf", schema2.anyOf);
+        scanArray(ourBase + "/oneOf", schema2.oneOf);
+        scanSchema(ourBase + "/not", schema2.not);
+      }
+      function scanArray(baseuri, schemas) {
+        if (!Array.isArray(schemas)) return;
+        for (var i4 = 0; i4 < schemas.length; i4++) {
+          scanSchema(baseuri + "/" + i4, schemas[i4]);
+        }
+      }
+      function scanObject(baseuri, schemas) {
+        if (!schemas || typeof schemas != "object") return;
+        for (var p4 in schemas) {
+          scanSchema(baseuri + "/" + p4, schemas[p4]);
+        }
+      }
+      var found = {};
+      var ref = {};
+      scanSchema(base, schema);
+      return new SchemaScanResult(found, ref);
+    };
+  }
+});
+
+// ../../node_modules/jsonschema/lib/validator.js
+var require_validator = __commonJS({
+  "../../node_modules/jsonschema/lib/validator.js"(exports, module) {
+    "use strict";
+    var urilib = __require("url");
+    var attribute = require_attribute();
+    var helpers = require_helpers();
+    var scanSchema = require_scan().scan;
+    var ValidatorResult = helpers.ValidatorResult;
+    var SchemaError = helpers.SchemaError;
+    var SchemaContext = helpers.SchemaContext;
+    var anonymousBase = "/";
+    var Validator = function Validator2() {
+      this.customFormats = Object.create(Validator2.prototype.customFormats);
+      this.schemas = {};
+      this.unresolvedRefs = [];
+      this.types = Object.create(types);
+      this.attributes = Object.create(attribute.validators);
+    };
+    Validator.prototype.customFormats = {};
+    Validator.prototype.schemas = null;
+    Validator.prototype.types = null;
+    Validator.prototype.attributes = null;
+    Validator.prototype.unresolvedRefs = null;
+    Validator.prototype.addSchema = function addSchema(schema, base) {
+      var self2 = this;
+      if (!schema) {
+        return null;
+      }
+      var scan = scanSchema(base || anonymousBase, schema);
+      var ourUri = base || schema.id;
+      for (var uri in scan.id) {
+        this.schemas[uri] = scan.id[uri];
+      }
+      for (var uri in scan.ref) {
+        this.unresolvedRefs.push(uri);
+      }
+      this.unresolvedRefs = this.unresolvedRefs.filter(function(uri2) {
+        return typeof self2.schemas[uri2] === "undefined";
+      });
+      return this.schemas[ourUri];
+    };
+    Validator.prototype.addSubSchemaArray = function addSubSchemaArray(baseuri, schemas) {
+      if (!Array.isArray(schemas)) return;
+      for (var i4 = 0; i4 < schemas.length; i4++) {
+        this.addSubSchema(baseuri, schemas[i4]);
+      }
+    };
+    Validator.prototype.addSubSchemaObject = function addSubSchemaArray(baseuri, schemas) {
+      if (!schemas || typeof schemas != "object") return;
+      for (var p4 in schemas) {
+        this.addSubSchema(baseuri, schemas[p4]);
+      }
+    };
+    Validator.prototype.setSchemas = function setSchemas(schemas) {
+      this.schemas = schemas;
+    };
+    Validator.prototype.getSchema = function getSchema(urn) {
+      return this.schemas[urn];
+    };
+    Validator.prototype.validate = function validate2(instance, schema, options, ctx) {
+      if (!options) {
+        options = {};
+      }
+      var propertyName = options.propertyName || "instance";
+      var base = urilib.resolve(options.base || anonymousBase, schema.id || "");
+      if (!ctx) {
+        ctx = new SchemaContext(schema, options, propertyName, base, Object.create(this.schemas));
+        if (!ctx.schemas[base]) {
+          ctx.schemas[base] = schema;
+        }
+        var found = scanSchema(base, schema);
+        for (var n4 in found.id) {
+          var sch = found.id[n4];
+          ctx.schemas[n4] = sch;
+        }
+      }
+      if (schema) {
+        var result = this.validateSchema(instance, schema, options, ctx);
+        if (!result) {
+          throw new Error("Result undefined");
+        }
+        return result;
+      }
+      throw new SchemaError("no schema specified", schema);
+    };
+    function shouldResolve(schema) {
+      var ref = typeof schema === "string" ? schema : schema.$ref;
+      if (typeof ref == "string") return ref;
+      return false;
+    }
+    Validator.prototype.validateSchema = function validateSchema(instance, schema, options, ctx) {
+      var result = new ValidatorResult(instance, schema, options, ctx);
+      if (typeof schema === "boolean") {
+        if (schema === true) {
+          schema = {};
+        } else if (schema === false) {
+          schema = { type: [] };
+        }
+      } else if (!schema) {
+        throw new Error("schema is undefined");
+      }
+      if (schema["extends"]) {
+        if (Array.isArray(schema["extends"])) {
+          var schemaobj = { schema, ctx };
+          schema["extends"].forEach(this.schemaTraverser.bind(this, schemaobj));
+          schema = schemaobj.schema;
+          schemaobj.schema = null;
+          schemaobj.ctx = null;
+          schemaobj = null;
+        } else {
+          schema = helpers.deepMerge(schema, this.superResolve(schema["extends"], ctx));
+        }
+      }
+      var switchSchema = shouldResolve(schema);
+      if (switchSchema) {
+        var resolved = this.resolve(schema, switchSchema, ctx);
+        var subctx = new SchemaContext(resolved.subschema, options, ctx.propertyPath, resolved.switchSchema, ctx.schemas);
+        return this.validateSchema(instance, resolved.subschema, options, subctx);
+      }
+      var skipAttributes = options && options.skipAttributes || [];
+      for (var key in schema) {
+        if (!attribute.ignoreProperties[key] && skipAttributes.indexOf(key) < 0) {
+          var validatorErr = null;
+          var validator = this.attributes[key];
+          if (validator) {
+            validatorErr = validator.call(this, instance, schema, options, ctx);
+          } else if (options.allowUnknownAttributes === false) {
+            throw new SchemaError("Unsupported attribute: " + key, schema);
+          }
+          if (validatorErr) {
+            result.importErrors(validatorErr);
+          }
+        }
+      }
+      if (typeof options.rewrite == "function") {
+        var value = options.rewrite.call(this, instance, schema, options, ctx);
+        result.instance = value;
+      }
+      return result;
+    };
+    Validator.prototype.schemaTraverser = function schemaTraverser(schemaobj, s4) {
+      schemaobj.schema = helpers.deepMerge(schemaobj.schema, this.superResolve(s4, schemaobj.ctx));
+    };
+    Validator.prototype.superResolve = function superResolve(schema, ctx) {
+      var ref = shouldResolve(schema);
+      if (ref) {
+        return this.resolve(schema, ref, ctx).subschema;
+      }
+      return schema;
+    };
+    Validator.prototype.resolve = function resolve(schema, switchSchema, ctx) {
+      switchSchema = ctx.resolve(switchSchema);
+      if (ctx.schemas[switchSchema]) {
+        return { subschema: ctx.schemas[switchSchema], switchSchema };
+      }
+      var parsed = urilib.parse(switchSchema);
+      var fragment = parsed && parsed.hash;
+      var document = fragment && fragment.length && switchSchema.substr(0, switchSchema.length - fragment.length);
+      if (!document || !ctx.schemas[document]) {
+        throw new SchemaError("no such schema <" + switchSchema + ">", schema);
+      }
+      var subschema = helpers.objectGetPath(ctx.schemas[document], fragment.substr(1));
+      if (subschema === void 0) {
+        throw new SchemaError("no such schema " + fragment + " located in <" + document + ">", schema);
+      }
+      return { subschema, switchSchema };
+    };
+    Validator.prototype.testType = function validateType(instance, schema, options, ctx, type) {
+      if (typeof this.types[type] == "function") {
+        return this.types[type].call(this, instance);
+      }
+      if (type && typeof type == "object") {
+        var res = this.validateSchema(instance, type, options, ctx);
+        return res === void 0 || !(res && res.errors.length);
+      }
+      return true;
+    };
+    var types = Validator.prototype.types = {};
+    types.string = function testString(instance) {
+      return typeof instance == "string";
+    };
+    types.number = function testNumber(instance) {
+      return typeof instance == "number" && isFinite(instance);
+    };
+    types.integer = function testInteger(instance) {
+      return typeof instance == "number" && instance % 1 === 0;
+    };
+    types.boolean = function testBoolean(instance) {
+      return typeof instance == "boolean";
+    };
+    types.array = function testArray(instance) {
+      return Array.isArray(instance);
+    };
+    types["null"] = function testNull(instance) {
+      return instance === null;
+    };
+    types.date = function testDate(instance) {
+      return instance instanceof Date;
+    };
+    types.any = function testAny(instance) {
+      return true;
+    };
+    types.object = function testObject(instance) {
+      return instance && typeof instance === "object" && !Array.isArray(instance) && !(instance instanceof Date);
+    };
+    module.exports = Validator;
+  }
+});
+
+// ../../node_modules/jsonschema/lib/index.js
+var require_lib = __commonJS({
+  "../../node_modules/jsonschema/lib/index.js"(exports, module) {
+    "use strict";
+    var Validator = module.exports.Validator = require_validator();
+    module.exports.ValidatorResult = require_helpers().ValidatorResult;
+    module.exports.ValidationError = require_helpers().ValidationError;
+    module.exports.SchemaError = require_helpers().SchemaError;
+    module.exports.SchemaScanResult = require_scan().SchemaScanResult;
+    module.exports.scan = require_scan().scan;
+    module.exports.validate = function(instance, schema, options) {
+      var v7 = new Validator();
+      return v7.validate(instance, schema, options);
+    };
+  }
+});
+
+// ../../node_modules/electrodb/src/validations.js
+var require_validations = __commonJS({
+  "../../node_modules/electrodb/src/validations.js"(exports, module) {
+    var e4 = require_errors();
+    var { KeyCasing } = require_types();
+    var Validator = require_lib().Validator;
+    Validator.prototype.customFormats.isFunction = function(input) {
+      return typeof input === "function";
+    };
+    Validator.prototype.customFormats.isFunctionOrString = function(input) {
+      return typeof input === "function" || typeof input === "string";
+    };
+    Validator.prototype.customFormats.isFunctionOrRegexp = function(input) {
+      return typeof input === "function" || input instanceof RegExp;
+    };
+    var v7 = new Validator();
+    var Attribute = {
+      id: "/Attribute",
+      type: ["object", "string", "array"],
+      required: ["type"],
+      properties: {
+        type: {
+          // todo: only specific values
+          type: ["string", "array"]
+          // enum: ["string", "number", "boolean", "enum"],
+        },
+        field: {
+          type: "string"
+        },
+        hidden: {
+          type: "boolean"
+        },
+        watch: {
+          type: ["array", "string"],
+          items: {
+            type: "string"
+          }
+        },
+        label: {
+          type: "string"
+        },
+        readOnly: {
+          type: "boolean"
+        },
+        required: {
+          type: "boolean"
+        },
+        cast: {
+          type: "string",
+          enum: ["string", "number"]
+        },
+        default: {
+          type: "any"
+        },
+        validate: {
+          type: "any",
+          format: "isFunctionOrRegexp"
+        },
+        get: {
+          type: "any",
+          format: "isFunction"
+        },
+        set: {
+          type: "any",
+          format: "isFunction"
+        },
+        padding: {
+          type: "object",
+          required: ["length", "char"],
+          properties: {
+            length: {
+              type: "number"
+            },
+            char: {
+              type: "string"
+            }
+          }
+        }
+      }
+    };
+    var Index = {
+      id: "/Index",
+      type: "object",
+      properties: {
+        pk: {
+          type: "object",
+          required: true,
+          properties: {
+            field: {
+              type: "string",
+              required: true
+            },
+            facets: {
+              type: ["array", "string"],
+              items: {
+                type: "string"
+              },
+              required: false
+            },
+            composite: {
+              type: ["array"],
+              items: {
+                type: "string"
+              },
+              required: false
+            },
+            template: {
+              type: "string",
+              required: false
+            },
+            casing: {
+              type: "string",
+              enum: ["upper", "lower", "none", "default"],
+              required: false
+            },
+            cast: {
+              type: "string",
+              enum: ["string", "number"],
+              required: false
+            },
+            scope: {
+              type: "string",
+              required: false
+            }
+          }
+        },
+        sk: {
+          type: "object",
+          required: ["field"],
+          properties: {
+            field: {
+              type: "string",
+              required: true
+            },
+            facets: {
+              type: ["array", "string"],
+              required: false,
+              items: {
+                type: "string"
+              }
+            },
+            composite: {
+              type: ["array"],
+              required: false,
+              items: {
+                type: "string"
+              }
+            },
+            template: {
+              type: "string",
+              required: false
+            },
+            casing: {
+              type: "string",
+              enum: ["upper", "lower", "none", "default"],
+              required: false
+            },
+            cast: {
+              type: "string",
+              enum: ["string", "number"],
+              required: false
+            }
+          }
+        },
+        index: {
+          type: "string"
+        },
+        collection: {
+          type: ["array", "string"]
+        },
+        type: {
+          type: "string",
+          enum: ["clustered", "isolated"],
+          required: false
+        },
+        condition: {
+          type: "any",
+          required: false,
+          format: "isFunction"
+        }
+      }
+    };
+    var Modelv1 = {
+      type: "object",
+      required: true,
+      properties: {
+        model: {
+          type: "object",
+          required: true,
+          properties: {
+            entity: {
+              type: "string",
+              required: true
+            },
+            version: {
+              type: "string",
+              required: true
+            },
+            service: {
+              type: "string",
+              required: true
+            }
+          }
+        },
+        table: {
+          type: "string"
+        },
+        attributes: {
+          type: "object",
+          patternProperties: {
+            ["."]: { $ref: "/Attribute" }
+          }
+        },
+        indexes: {
+          type: "object",
+          minProperties: 1,
+          patternProperties: {
+            ["."]: { $ref: "/Index" }
+          }
+        },
+        filters: { $ref: "/Filters" }
+      },
+      required: ["model", "attributes", "indexes"]
+    };
+    var ModelBeta = {
+      type: "object",
+      required: true,
+      properties: {
+        service: {
+          type: "string",
+          required: true
+        },
+        entity: {
+          type: "string",
+          required: true
+        },
+        table: {
+          type: "string"
+        },
+        version: {
+          type: "string"
+        },
+        attributes: {
+          type: "object",
+          patternProperties: {
+            ["."]: { $ref: "/Attribute" }
+          }
+        },
+        indexes: {
+          type: "object",
+          minProperties: 1,
+          patternProperties: {
+            ["."]: { $ref: "/Index" }
+          }
+        },
+        filters: { $ref: "/Filters" }
+      },
+      required: ["attributes", "indexes"]
+    };
+    var Filters = {
+      id: "/Filters",
+      type: "object",
+      patternProperties: {
+        ["."]: {
+          type: "any",
+          format: "isFunction",
+          message: "Requires function"
+        }
+      }
+    };
+    v7.addSchema(Attribute, "/Attribute");
+    v7.addSchema(Index, "/Index");
+    v7.addSchema(Filters, "/Filters");
+    v7.addSchema(ModelBeta, "/ModelBeta");
+    v7.addSchema(Modelv1, "/Modelv1");
+    function validateModel(model = {}) {
+      let betaErrors = v7.validate(model, "/ModelBeta").errors;
+      if (betaErrors.length) {
+        let errors = v7.validate(model, "/Modelv1").errors;
+        if (errors.length) {
+          throw new e4.ElectroError(
+            e4.ErrorCodes.InvalidModel,
+            errors.map((err2) => {
+              let message = `${err2.property}`;
+              switch (err2.argument) {
+                case "isFunction":
+                  return `${message} must be a function`;
+                case "isFunctionOrString":
+                  return `${message} must be either a function or string`;
+                case "isFunctionOrRegexp":
+                  return `${message} must be either a function or Regexp`;
+                default:
+                  return `${message} ${err2.message}`;
+              }
+            }).join(", ")
+          );
+        }
+      }
+    }
+    function testModel(model) {
+      let isModel = false;
+      let error2 = "";
+      try {
+        validateModel(model);
+        isModel = true;
+      } catch (err2) {
+        error2 = err2.message;
+      }
+      return [isModel, error2];
+    }
+    function isStringHasLength(str) {
+      return typeof str === "string" && str.length > 0;
+    }
+    function isObjectHasLength(obj) {
+      return typeof obj === "object" && Object.keys(obj).length > 0;
+    }
+    function isArrayHasLength(arr) {
+      return Array.isArray(arr) && arr.length > 0;
+    }
+    function isNameEntityRecordType(entityRecord) {
+      return isObjectHasLength(entityRecord) && Object.values(entityRecord).find((value) => {
+        return value._instance !== void 0;
+      });
+    }
+    function isNameModelRecordType(modelRecord) {
+      return isObjectHasLength(modelRecord) && Object.values(modelRecord).find((value) => {
+        return value.model && isStringHasLength(value.model.entity) && isStringHasLength(value.model.version) && isStringHasLength(value.model.service);
+      });
+    }
+    function isBetaServiceConfig(serviceConfig) {
+      return isObjectHasLength(serviceConfig) && (isStringHasLength(serviceConfig.service) || isStringHasLength(serviceConfig.name)) && isStringHasLength(serviceConfig.version);
+    }
+    function isFunction(value) {
+      return typeof value === "function";
+    }
+    function stringArrayMatch(arr1, arr2) {
+      let areArrays = Array.isArray(arr1) && Array.isArray(arr2);
+      let match = areArrays && arr1.length === arr2.length;
+      for (let i4 = 0; i4 < arr1.length; i4++) {
+        if (!match) {
+          break;
+        }
+        match = isStringHasLength(arr1[i4]) && arr1[i4] === arr2[i4];
+      }
+      return match;
+    }
+    function isMatchingCasing(casing1, casing2) {
+      const equivalentCasings = [KeyCasing.default, KeyCasing.lower];
+      if (isStringHasLength(casing1) && isStringHasLength(casing2)) {
+        let isRealCase = KeyCasing[casing1.toLowerCase()] !== void 0;
+        let casingsMatch = casing1 === casing2;
+        let casingsAreEquivalent = [casing1, casing2].every((casing) => {
+          return casing === KeyCasing.lower || casing === KeyCasing.default;
+        });
+        return isRealCase && (casingsMatch || casingsAreEquivalent);
+      } else if (isStringHasLength(casing1)) {
+        return equivalentCasings.includes(casing1.toLowerCase());
+      } else if (isStringHasLength(casing2)) {
+        return equivalentCasings.includes(casing2.toLowerCase());
+      } else {
+        return casing1 === void 0 && casing2 === void 0;
+      }
+    }
+    module.exports = {
+      testModel,
+      isFunction,
+      stringArrayMatch,
+      isMatchingCasing,
+      isArrayHasLength,
+      isStringHasLength,
+      isObjectHasLength,
+      isBetaServiceConfig,
+      isNameModelRecordType,
+      isNameEntityRecordType,
+      model: validateModel
+    };
+  }
+});
+
+// ../../node_modules/electrodb/src/util.js
+var require_util = __commonJS({
+  "../../node_modules/electrodb/src/util.js"(exports, module) {
+    var t4 = require_types();
+    var v7 = require_validations();
+    function parseJSONPath(path = "") {
+      if (typeof path !== "string") {
+        throw new Error("Path must be a string");
+      }
+      path = path.replace(/\[/g, ".");
+      path = path.replace(/\]/g, "");
+      return path.split(".").filter((part) => part !== "");
+    }
+    function genericizeJSONPath(path = "") {
+      return path.replace(/\[\d+\]/g, "[*]");
+    }
+    function getInstanceType(instance = {}) {
+      let [isModel, errors] = v7.testModel(instance);
+      if (!instance || Object.keys(instance).length === 0) {
+        return "";
+      } else if (isModel) {
+        return t4.ElectroInstanceTypes.model;
+      } else if (instance._instance === t4.ElectroInstance.entity) {
+        return t4.ElectroInstanceTypes.entity;
+      } else if (instance._instance === t4.ElectroInstance.service) {
+        return t4.ElectroInstanceTypes.service;
+      } else if (instance._instance === t4.ElectroInstance.electro) {
+        return t4.ElectroInstanceTypes.electro;
+      } else {
+        return "";
+      }
+    }
+    function getModelVersion(model = {}) {
+      let nameOnRoot = model && v7.isStringHasLength(model.entity);
+      let nameInModelNamespace = model && model.model && v7.isStringHasLength(model.model.entity);
+      if (nameInModelNamespace) {
+        return t4.ModelVersions.v1;
+      } else if (nameOnRoot) {
+        return t4.ModelVersions.beta;
+      } else {
+        return "";
+      }
+    }
+    function applyBetaModelOverrides(model = {}, { service = "", version: version2 = "", table = "" } = {}) {
+      let type = getModelVersion(model);
+      if (type !== t4.ModelVersions.beta) {
+        throw new Error("Invalid model");
+      }
+      let copy = Object.assign({}, model);
+      if (v7.isStringHasLength(service)) {
+        copy.service = service;
+      }
+      if (v7.isStringHasLength(version2)) {
+        copy.version = version2;
+      }
+      if (v7.isStringHasLength(table)) {
+        copy.table = table;
+      }
+      return copy;
+    }
+    function batchItems(arr = [], size) {
+      if (isNaN(size)) {
+        throw new Error("Batch size must be of type number");
+      }
+      let batched = [];
+      for (let i4 = 0; i4 < arr.length; i4++) {
+        let partition = Math.floor(i4 / size);
+        batched[partition] = batched[partition] || [];
+        batched[partition].push(arr[i4]);
+      }
+      return batched;
+    }
+    function commaSeparatedString(array = [], prefix = '"', postfix = '"') {
+      return array.map((value) => `${prefix}${value}${postfix}`).join(", ");
+    }
+    function formatStringCasing(str, casing, defaultCase) {
+      if (typeof str !== "string") {
+        return str;
+      }
+      let strCase = defaultCase;
+      if (v7.isStringHasLength(casing) && typeof t4.KeyCasing[casing] === "string") {
+        strCase = t4.KeyCasing.default === casing ? defaultCase : t4.KeyCasing[casing];
+      }
+      switch (strCase) {
+        case t4.KeyCasing.upper:
+          return str.toUpperCase();
+        case t4.KeyCasing.none:
+          return str;
+        case t4.KeyCasing.lower:
+          return str.toLowerCase();
+        case t4.KeyCasing.default:
+        default:
+          return str;
+      }
+    }
+    function toKeyCasingOption(casing) {
+      switch (casing) {
+        case t4.KeyCasing.upper:
+          return t4.KeyCasing.upper;
+        case t4.KeyCasing.none:
+          return t4.KeyCasing.none;
+        case t4.KeyCasing.lower:
+          return t4.KeyCasing.lower;
+        case t4.KeyCasing.default:
+        case void 0:
+          return t4.DefaultKeyCasing;
+        default:
+          throw new Error(`Unknown casing option: ${casing}`);
+      }
+    }
+    function formatKeyCasing(str, casing) {
+      return formatStringCasing(str, casing, t4.DefaultKeyCasing);
+    }
+    function formatAttributeCasing(str, casing) {
+      return formatStringCasing(str, casing, t4.KeyCasing.none);
+    }
+    function formatIndexNameForDisplay(index) {
+      if (index) {
+        return index;
+      } else {
+        return "(Primary Index)";
+      }
+    }
+    var BatchGetOrderMaintainer = class {
+      constructor({ table, enabled, keyFormatter }) {
+        this.table = table;
+        this.enabled = enabled;
+        this.keyFormatter = keyFormatter;
+        this.batchIndexMap = /* @__PURE__ */ new Map();
+        this.currentSlot = 0;
+      }
+      getSize() {
+        return this.batchIndexMap.size;
+      }
+      getOrder(item) {
+        const key = this.keyFormatter(item);
+        const value = this.batchIndexMap.get(key);
+        if (value === void 0) {
+          return -1;
+        }
+        return value;
+      }
+      defineOrder(parameters = []) {
+        if (this.enabled) {
+          for (let i4 = 0; i4 < parameters.length; i4++) {
+            const batchParams = parameters[i4];
+            const recordKeys = batchParams && batchParams.RequestItems && batchParams.RequestItems[this.table] && batchParams.RequestItems[this.table].Keys || [];
+            for (const recordKey of recordKeys) {
+              const indexMapKey = this.keyFormatter(recordKey);
+              this.batchIndexMap.set(indexMapKey, this.currentSlot++);
+            }
+          }
+        }
+      }
+    };
+    function getUnique(arr1, arr2) {
+      return Array.from(/* @__PURE__ */ new Set([...arr1, ...arr2]));
+    }
+    var cursorFormatter = {
+      serialize: (key) => {
+        if (!key) {
+          return null;
+        } else if (typeof val !== "string") {
+          key = JSON.stringify(key);
+        }
+        return Buffer.from(key).toString("base64url");
+      },
+      deserialize: (cursor2) => {
+        if (!cursor2) {
+          return void 0;
+        } else if (typeof cursor2 !== "string") {
+          throw new Error(
+            `Invalid cursor provided, expected type 'string' recieved: ${JSON.stringify(
+              cursor2
+            )}`
+          );
+        }
+        try {
+          return JSON.parse(Buffer.from(cursor2, "base64url").toString("utf8"));
+        } catch (err2) {
+          throw new Error("Unable to parse cursor");
+        }
+      }
+    };
+    function removeFixings({ prefix = "", postfix = "", value = "" } = {}) {
+      if (prefix === "" && postfix === "") return value;
+      const valueLower = value.toLowerCase();
+      const start = valueLower.startsWith(prefix.toLowerCase()) ? prefix.length : 0;
+      const end = value.length - (valueLower.endsWith(postfix.toLowerCase()) ? postfix.length : 0);
+      return value.slice(start, end);
+    }
+    function addPadding({ padding = {}, value = "" } = {}) {
+      return value.padStart(padding.length, padding.char);
+    }
+    function removePadding({ padding = {}, value = "" } = {}) {
+      if (!padding.length || value.length >= padding.length) {
+        return value;
+      }
+      let formatted = "";
+      let useRemaining = false;
+      for (let i4 = 0; i4 < value.length; i4++) {
+        const char = value[i4];
+        if (useRemaining || i4 >= padding.length) {
+          formatted += char;
+        } else if (char !== padding.char) {
+          formatted += char;
+          useRemaining = true;
+        }
+      }
+      return formatted;
+    }
+    function shiftSortOrder(str = "", codePoint) {
+      let newString = "";
+      for (let i4 = 0; i4 < str.length; i4++) {
+        const isLast = i4 === str.length - 1;
+        let char = str[i4];
+        if (isLast) {
+          char = String.fromCodePoint(char.codePointAt(0) + codePoint);
+        }
+        newString += char;
+      }
+      return newString;
+    }
+    function getFirstDefined(...params) {
+      return params.find((val2) => val2 !== void 0);
+    }
+    function regexpEscape(str) {
+      return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    }
+    module.exports = {
+      getUnique,
+      batchItems,
+      addPadding,
+      regexpEscape,
+      removePadding,
+      removeFixings,
+      parseJSONPath,
+      shiftSortOrder,
+      getFirstDefined,
+      getInstanceType,
+      getModelVersion,
+      formatKeyCasing,
+      cursorFormatter,
+      toKeyCasingOption,
+      genericizeJSONPath,
+      commaSeparatedString,
+      formatAttributeCasing,
+      applyBetaModelOverrides,
+      formatIndexNameForDisplay,
+      BatchGetOrderMaintainer
+    };
+  }
+});
+
+// ../../node_modules/electrodb/src/set.js
+var require_set = __commonJS({
+  "../../node_modules/electrodb/src/set.js"(exports, module) {
+    var memberTypeToSetType = {
+      String: "String",
+      Number: "Number",
+      NumberValue: "Number",
+      Binary: "Binary",
+      string: "String",
+      number: "Number"
+    };
+    var DynamoDBSet = class {
+      constructor(list2, type) {
+        this.wrapperName = "Set";
+        this.type = memberTypeToSetType[type];
+        if (this.type === void 0) {
+          new Error(`Invalid Set type: ${type}`);
+        }
+        this.values = Array.from(new Set([].concat(list2)));
+      }
+      initialize(list2, validate2) {
+      }
+      detectType() {
+        return memberTypeToSetType[typeof this.values[0]];
+      }
+      validate() {
+      }
+      toJSON() {
+        return this.values;
+      }
+    };
+    module.exports = { DynamoDBSet };
+  }
+});
+
+// ../../node_modules/electrodb/src/schema.js
+var require_schema = __commonJS({
+  "../../node_modules/electrodb/src/schema.js"(exports, module) {
+    var {
+      CastTypes,
+      ValueTypes,
+      KeyCasing,
+      AttributeTypes,
+      AttributeMutationMethods,
+      AttributeWildCard,
+      PathTypes,
+      TableIndex,
+      ItemOperations,
+      DataOptions
+    } = require_types();
+    var AttributeTypeNames = Object.keys(AttributeTypes);
+    var ValidFacetTypes = [
+      AttributeTypes.string,
+      AttributeTypes.number,
+      AttributeTypes.boolean,
+      AttributeTypes.enum
+    ];
+    var e4 = require_errors();
+    var u4 = require_util();
+    var v7 = require_validations();
+    var { DynamoDBSet } = require_set();
+    function getValueType(value) {
+      if (value === void 0) {
+        return ValueTypes.undefined;
+      } else if (value === null) {
+        return ValueTypes.null;
+      } else if (typeof value === "string") {
+        return ValueTypes.string;
+      } else if (typeof value === "number") {
+        return ValueTypes.number;
+      } else if (typeof value === "boolean") {
+        return ValueTypes.boolean;
+      } else if (Array.isArray(value)) {
+        return ValueTypes.array;
+      } else if (value.wrapperName === "Set") {
+        return ValueTypes.aws_set;
+      } else if (value.constructor.name === "Set") {
+        return ValueTypes.set;
+      } else if (value.constructor.name === "Map") {
+        return ValueTypes.map;
+      } else if (value.constructor.name === "Object") {
+        return ValueTypes.object;
+      } else {
+        return ValueTypes.unknown;
+      }
+    }
+    var AttributeTraverser = class _AttributeTraverser {
+      constructor(parentTraverser) {
+        if (parentTraverser instanceof _AttributeTraverser) {
+          this.parent = parentTraverser;
+          this.paths = this.parent.paths;
+        } else {
+          this.parent = null;
+          this.paths = /* @__PURE__ */ new Map();
+        }
+        this.children = /* @__PURE__ */ new Map();
+      }
+      setChild(name, attribute) {
+        this.children.set(name, attribute);
+      }
+      asChild(name, attribute) {
+        if (this.parent) {
+          this.parent.setChild(name, attribute);
+        }
+      }
+      setPath(path, attribute) {
+        if (this.parent) {
+          this.parent.setPath(path, attribute);
+        }
+        this.paths.set(path, attribute);
+      }
+      getPath(path) {
+        path = u4.genericizeJSONPath(path);
+        if (this.parent) {
+          return this.parent.getPath(path);
+        }
+        return this.paths.get(path);
+      }
+      getChild(name) {
+        return this.children.get(name);
+      }
+      getAllChildren() {
+        return this.children.entries();
+      }
+      getAll() {
+        if (this.parent) {
+          return this.parent.getAll();
+        }
+        return this.paths.entries();
+      }
+    };
+    var Attribute = class _Attribute {
+      constructor(definition = {}) {
+        this.name = definition.name;
+        this.field = definition.field || definition.name;
+        this.label = definition.label;
+        this.readOnly = !!definition.readOnly;
+        this.hidden = !!definition.hidden;
+        this.required = !!definition.required;
+        this.cast = this._makeCast(definition.name, definition.cast);
+        this.default = this._makeDefault(definition.default);
+        this.validate = this._makeValidate(definition.validate);
+        this.isKeyField = !!definition.isKeyField;
+        this.unformat = this._makeDestructureKey(definition);
+        this.format = this._makeStructureKey(definition);
+        this.padding = definition.padding;
+        this.applyFixings = this._makeApplyFixings(definition);
+        this.applyPadding = this._makePadding(definition);
+        this.indexes = [...definition.indexes || []];
+        let { isWatched, isWatcher, watchedBy, watching, watchAll } = _Attribute._destructureWatcher(definition);
+        this._isWatched = isWatched;
+        this._isWatcher = isWatcher;
+        this.watchedBy = watchedBy;
+        this.watching = watching;
+        this.watchAll = watchAll;
+        let { type, enumArray } = this._makeType(this.name, definition);
+        this.type = type;
+        this.enumArray = enumArray;
+        this.parentType = definition.parentType;
+        this.parentPath = definition.parentPath;
+        const pathType = this.getPathType(this.type, this.parentType);
+        const path = _Attribute.buildPath(this.name, pathType, this.parentPath);
+        const fieldPath = _Attribute.buildPath(
+          this.field,
+          pathType,
+          this.parentType
+        );
+        this.path = path;
+        this.fieldPath = fieldPath;
+        this.traverser = new AttributeTraverser(definition.traverser);
+        this.traverser.setPath(this.path, this);
+        this.traverser.setPath(this.fieldPath, this);
+        this.traverser.asChild(this.name, this);
+        this.parent = { parentType: this.type, parentPath: this.path };
+        this.get = this._makeGet(definition.get);
+        this.set = this._makeSet(definition.set);
+        this.getClient = definition.getClient;
+      }
+      static buildChildAttributes(type, definition, parent) {
+        let items;
+        let properties;
+        if (type === AttributeTypes.list) {
+          items = _Attribute.buildChildListItems(definition, parent);
+        } else if (type === AttributeTypes.set) {
+          items = _Attribute.buildChildSetItems(definition, parent);
+        } else if (type === AttributeTypes.map) {
+          properties = _Attribute.buildChildMapProperties(definition, parent);
+        }
+        return { items, properties };
+      }
+      static buildChildListItems(definition, parent) {
+        const { items, getClient: getClient2 } = definition;
+        const prop = { ...items, ...parent };
+        return Schema2.normalizeAttributes(
+          { "*": prop },
+          {},
+          { getClient: getClient2, traverser: parent.traverser, parent }
+        ).attributes["*"];
+      }
+      static buildChildSetItems(definition, parent) {
+        const { items, getClient: getClient2 } = definition;
+        const allowedTypes = [
+          AttributeTypes.string,
+          AttributeTypes.boolean,
+          AttributeTypes.number,
+          AttributeTypes.enum
+        ];
+        if (!Array.isArray(items) && !allowedTypes.includes(items)) {
+          throw new e4.ElectroError(
+            e4.ErrorCodes.InvalidAttributeDefinition,
+            `Invalid "items" definition for Set attribute: "${definition.path}". Acceptable item types include ${u4.commaSeparatedString(
+              allowedTypes
+            )}`
+          );
+        }
+        const prop = { type: items, ...parent };
+        return Schema2.normalizeAttributes(
+          { prop },
+          {},
+          { getClient: getClient2, traverser: parent.traverser, parent }
+        ).attributes.prop;
+      }
+      static buildChildMapProperties(definition, parent) {
+        const { properties, getClient: getClient2 } = definition;
+        if (!properties || typeof properties !== "object") {
+          throw new e4.ElectroError(
+            e4.ErrorCodes.InvalidAttributeDefinition,
+            `Invalid "properties" definition for Map attribute: "${definition.path}". The "properties" definition must describe the attributes that the Map will accept`
+          );
+        }
+        const attributes2 = {};
+        for (let name of Object.keys(properties)) {
+          attributes2[name] = { ...properties[name], ...parent };
+        }
+        return Schema2.normalizeAttributes(
+          attributes2,
+          {},
+          { getClient: getClient2, traverser: parent.traverser, parent }
+        );
+      }
+      static buildPath(name, type, parentPath) {
+        if (!parentPath) return name;
+        switch (type) {
+          case AttributeTypes.string:
+          case AttributeTypes.number:
+          case AttributeTypes.boolean:
+          case AttributeTypes.map:
+          case AttributeTypes.set:
+          case AttributeTypes.list:
+          case AttributeTypes.enum:
+            return `${parentPath}.${name}`;
+          case PathTypes.item:
+            return `${parentPath}[*]`;
+          case AttributeTypes.any:
+          default:
+            return `${parentPath}.*`;
+        }
+      }
+      static _destructureWatcher(definition) {
+        let watchAll = !!definition.watchAll;
+        let watchingArr = watchAll ? [] : [...definition.watching || []];
+        let watchedByArr = [...definition.watchedBy || []];
+        let isWatched = watchedByArr.length > 0;
+        let isWatcher = watchingArr.length > 0;
+        let watchedBy = {};
+        let watching = {};
+        for (let watched of watchedByArr) {
+          watchedBy[watched] = watched;
+        }
+        for (let attribute of watchingArr) {
+          watching[attribute] = attribute;
+        }
+        return {
+          watchAll,
+          watching,
+          watchedBy,
+          isWatched,
+          isWatcher
+        };
+      }
+      _makeGet(get2) {
+        this._checkGetSet(get2, "get");
+        const getter = get2 ? (value, getSiblings) => get2(value, getSiblings()) : (attr) => attr;
+        return (value, getSiblings) => {
+          if (this.hidden) {
+            return;
+          }
+          value = this.unformat(value);
+          return getter(value, getSiblings);
+        };
+      }
+      _makeSet(set) {
+        this._checkGetSet(set, "set");
+        return set ? (value, getSiblings) => set(value, getSiblings()) : (attr) => attr;
+      }
+      _makeApplyFixings({
+        prefix = "",
+        postfix = "",
+        casing = KeyCasing.none
+      } = {}) {
+        return (value) => {
+          if (value === void 0) {
+            return;
+          }
+          if ([AttributeTypes.string, AttributeTypes.enum].includes(this.type)) {
+            value = `${prefix}${value}${postfix}`;
+          }
+          return u4.formatAttributeCasing(value, casing);
+        };
+      }
+      _makeStructureKey() {
+        return (key) => {
+          return this.applyPadding(key);
+        };
+      }
+      _isPaddingEligible(padding = {}) {
+        return !!padding && padding.length && v7.isStringHasLength(padding.char);
+      }
+      _makePadding({ padding = {} }) {
+        return (value) => {
+          if (typeof value !== "string") {
+            return value;
+          } else if (this._isPaddingEligible(padding)) {
+            return u4.addPadding({ padding, value });
+          } else {
+            return value;
+          }
+        };
+      }
+      _makeRemoveFixings({
+        prefix = "",
+        postfix = "",
+        casing = KeyCasing.none
+      } = {}) {
+        return (key) => {
+          let value = "";
+          if (![AttributeTypes.string, AttributeTypes.enum].includes(this.type) || typeof key !== "string") {
+            value = key;
+          } else if (prefix.length > 0 && key.length > prefix.length) {
+            for (let i4 = prefix.length; i4 < key.length - postfix.length; i4++) {
+              value += key[i4];
+            }
+          } else {
+            value = key;
+          }
+          return value;
+        };
+      }
+      _makeDestructureKey({
+        prefix = "",
+        postfix = "",
+        casing = KeyCasing.none,
+        padding = {}
+      } = {}) {
+        return (key) => {
+          let value = "";
+          if (![AttributeTypes.string, AttributeTypes.enum].includes(this.type) || typeof key !== "string") {
+            return key;
+          } else if (key.length > prefix.length) {
+            value = u4.removeFixings({ prefix, postfix, value: key });
+          } else {
+            value = key;
+          }
+          return value;
+        };
+      }
+      acceptable(val2) {
+        return val2 !== void 0;
+      }
+      getPathType(type, parentType) {
+        if (parentType === AttributeTypes.list || parentType === AttributeTypes.set) {
+          return PathTypes.item;
+        }
+        return type;
+      }
+      getAttribute(path) {
+        return this.traverser.getPath(path);
+      }
+      getChild(path) {
+        if (this.type === AttributeTypes.any) {
+          return this;
+        } else if (!isNaN(path) && (this.type === AttributeTypes.list || this.type === AttributeTypes.set)) {
+          return this.traverser.getChild("*");
+        } else {
+          return this.traverser.getChild(path);
+        }
+      }
+      _checkGetSet(val2, type) {
+        if (typeof val2 !== "function" && val2 !== void 0) {
+          throw new e4.ElectroError(
+            e4.ErrorCodes.InvalidAttributeDefinition,
+            `Invalid "${type}" property for attribute ${this.path}. Please ensure value is a function or undefined.`
+          );
+        }
+      }
+      _makeCast(name, cast) {
+        if (cast !== void 0 && !CastTypes.includes(cast)) {
+          throw new e4.ElectroError(
+            e4.ErrorCodes.InvalidAttributeDefinition,
+            `Invalid "cast" property for attribute: "${name}". Acceptable types include ${CastTypes.join(
+              ", "
+            )}`
+          );
+        } else if (cast === AttributeTypes.string) {
+          return (val2) => {
+            if (val2 === void 0) {
+              throw new Error(
+                `Attribute ${name} is undefined and cannot be cast to type ${cast}`
+              );
+            } else if (typeof val2 === "string") {
+              return val2;
+            } else {
+              return JSON.stringify(val2);
+            }
+          };
+        } else if (cast === AttributeTypes.number) {
+          return (val2) => {
+            if (val2 === void 0) {
+              throw new Error(
+                `Attribute ${name} is undefined and cannot be cast to type ${cast}`
+              );
+            } else if (typeof val2 === "number") {
+              return val2;
+            } else {
+              let results = Number(val2);
+              if (isNaN(results)) {
+                throw new Error(
+                  `Attribute ${name} cannot be cast to type ${cast}. Doing so results in NaN`
+                );
+              } else {
+                return results;
+              }
+            }
+          };
+        } else {
+          return (val2) => val2;
+        }
+      }
+      _makeValidate(definition) {
+        if (typeof definition === "function") {
+          return (val2) => {
+            try {
+              let isValid = !!definition(val2);
+              return [
+                isValid,
+                isValid ? [] : [
+                  new e4.ElectroUserValidationError(
+                    this.path,
+                    "Invalid value provided"
+                  )
+                ]
+              ];
+            } catch (err2) {
+              return [false, [new e4.ElectroUserValidationError(this.path, err2)]];
+            }
+          };
+        } else if (definition instanceof RegExp) {
+          return (val2) => {
+            if (val2 === void 0) {
+              return [true, []];
+            }
+            let isValid = definition.test(val2);
+            let reason = [];
+            if (!isValid) {
+              reason.push(
+                new e4.ElectroUserValidationError(
+                  this.path,
+                  `Invalid value for attribute "${this.path}": Failed model defined regex`
+                )
+              );
+            }
+            return [isValid, reason];
+          };
+        } else {
+          return () => [true, []];
+        }
+      }
+      _makeDefault(definition) {
+        if (typeof definition === "function") {
+          return () => definition();
+        } else {
+          return () => definition;
+        }
+      }
+      _makeType(name, definition) {
+        let type = "";
+        let enumArray = [];
+        if (Array.isArray(definition.type)) {
+          type = AttributeTypes.enum;
+          enumArray = [...definition.type];
+        } else {
+          type = definition.type || "string";
+        }
+        if (!AttributeTypeNames.includes(type)) {
+          throw new e4.ElectroError(
+            e4.ErrorCodes.InvalidAttributeDefinition,
+            `Invalid "type" property for attribute: "${name}". Acceptable types include ${AttributeTypeNames.join(
+              ", "
+            )}`
+          );
+        }
+        return { type, enumArray };
+      }
+      isWatcher() {
+        return this._isWatcher;
+      }
+      isWatched() {
+        return this._isWatched;
+      }
+      isWatching(attribute) {
+        return this.watching[attribute] !== void 0;
+      }
+      isWatchedBy(attribute) {
+        return this.watchedBy[attribute] !== void 0;
+      }
+      _isType(value) {
+        if (value === void 0) {
+          let reason2 = [];
+          if (this.required) {
+            reason2.push(
+              new e4.ElectroAttributeValidationError(
+                this.path,
+                `Invalid value type at entity path: "${this.path}". Value is required.`
+              )
+            );
+          }
+          return [!this.required, reason2];
+        }
+        let isTyped = false;
+        let reason = [];
+        switch (this.type) {
+          case AttributeTypes.enum:
+            isTyped = this.enumArray.includes(value);
+            if (!isTyped) {
+              reason.push(
+                new e4.ElectroAttributeValidationError(
+                  this.path,
+                  `Invalid value type at entity path: "${this.path}". Value not found in set of acceptable values: ${u4.commaSeparatedString(
+                    this.enumArray
+                  )}`
+                )
+              );
+            }
+            break;
+          case AttributeTypes.any:
+          case AttributeTypes.static:
+          case AttributeTypes.custom:
+            isTyped = true;
+            break;
+          case AttributeTypes.string:
+          case AttributeTypes.number:
+          case AttributeTypes.boolean:
+          default:
+            isTyped = typeof value === this.type;
+            if (!isTyped) {
+              reason.push(
+                new e4.ElectroAttributeValidationError(
+                  this.path,
+                  `Invalid value type at entity path: "${this.path}". Received value of type "${typeof value}", expected value of type "${this.type}"`
+                )
+              );
+            }
+            break;
+        }
+        return [isTyped, reason];
+      }
+      isValid(value) {
+        try {
+          let [isTyped, typeErrorReason] = this._isType(value);
+          let [isValid, validationError] = isTyped ? this.validate(value) : [false, []];
+          let errors = [...typeErrorReason, ...validationError].filter(
+            (value2) => value2 !== void 0
+          );
+          return [isTyped && isValid, errors];
+        } catch (err2) {
+          return [false, [err2]];
+        }
+      }
+      val(value) {
+        value = this.cast(value);
+        if (value === void 0) {
+          value = this.default();
+        }
+        return value;
+      }
+      getValidate(value) {
+        value = this.val(value);
+        let [isValid, validationErrors] = this.isValid(value);
+        if (!isValid) {
+          throw new e4.ElectroValidationError(validationErrors);
+        }
+        return value;
+      }
+    };
+    var MapAttribute = class extends Attribute {
+      constructor(definition) {
+        super(definition);
+        const properties = Attribute.buildChildMapProperties(definition, {
+          parentType: this.type,
+          parentPath: this.path,
+          traverser: this.traverser
+        });
+        this.properties = properties;
+        this.isRoot = !!definition.isRoot;
+        this.get = this._makeGet(definition.get, properties);
+        this.set = this._makeSet(definition.set, properties);
+      }
+      _makeGet(get2, properties) {
+        this._checkGetSet(get2, "get");
+        const getter = get2 ? (value, getSiblings) => get2(value, getSiblings()) : (val2) => {
+          const isEmpty = !val2 || Object.keys(val2).length === 0;
+          const isNotRequired = !this.required;
+          const doesNotHaveDefault = this.default === void 0;
+          const isRoot = this.isRoot;
+          if (isEmpty && isRoot && isNotRequired && doesNotHaveDefault) {
+            return void 0;
+          }
+          return val2;
+        };
+        return (values, getSiblings) => {
+          const data2 = {};
+          if (this.hidden) {
+            return;
+          }
+          if (values === void 0) {
+            if (!get2) {
+              return void 0;
+            }
+            return getter(data2, getSiblings);
+          }
+          for (const name of Object.keys(properties.attributes)) {
+            const attribute = properties.attributes[name];
+            if (values[attribute.field] !== void 0) {
+              let results = attribute.get(values[attribute.field], () => ({
+                ...values
+              }));
+              if (results !== void 0) {
+                data2[name] = results;
+              }
+            }
+          }
+          return getter(data2, getSiblings);
+        };
+      }
+      _makeSet(set, properties) {
+        this._checkGetSet(set, "set");
+        const setter = set ? (val2, getSiblings) => set(val2, getSiblings()) : (val2) => {
+          const isEmpty = !val2 || Object.keys(val2).length === 0;
+          const isNotRequired = !this.required;
+          const doesNotHaveDefault = this.default === void 0;
+          const defaultIsValue = this.default === val2;
+          const isRoot = this.isRoot;
+          if (defaultIsValue) {
+            return val2;
+          } else if (isEmpty && isRoot && isNotRequired && doesNotHaveDefault) {
+            return void 0;
+          } else {
+            return val2;
+          }
+        };
+        return (values, getSiblings) => {
+          const data2 = {};
+          if (values === void 0) {
+            if (!set) {
+              return void 0;
+            }
+            return setter(values, getSiblings);
+          }
+          for (const name of Object.keys(properties.attributes)) {
+            const attribute = properties.attributes[name];
+            if (values[name] !== void 0) {
+              const results = attribute.set(values[name], () => ({ ...values }));
+              if (results !== void 0) {
+                data2[attribute.field] = results;
+              }
+            }
+          }
+          return setter(data2, getSiblings);
+        };
+      }
+      _isType(value) {
+        if (value === void 0) {
+          let reason2 = [];
+          if (this.required) {
+            reason2.push(
+              new e4.ElectroAttributeValidationError(
+                this.path,
+                `Invalid value type at entity path: "${this.path}". Value is required.`
+              )
+            );
+          }
+          return [!this.required, reason2];
+        }
+        const valueType = getValueType(value);
+        if (valueType !== ValueTypes.object) {
+          return [
+            false,
+            [
+              new e4.ElectroAttributeValidationError(
+                this.path,
+                `Invalid value type at entity path "${this.path}. Received value of type "${valueType}", expected value of type "object"`
+              )
+            ]
+          ];
+        }
+        let reason = [];
+        const [childrenAreValid, childErrors] = this._validateChildren(value);
+        if (!childrenAreValid) {
+          reason = childErrors;
+        }
+        return [childrenAreValid, reason];
+      }
+      _validateChildren(value) {
+        const valueType = getValueType(value);
+        const attributes2 = this.properties.attributes;
+        let errors = [];
+        if (valueType === ValueTypes.object) {
+          for (const child of Object.keys(attributes2)) {
+            const [isValid, errorValues] = attributes2[child].isValid(
+              value === void 0 ? value : value[child]
+            );
+            if (!isValid) {
+              errors = [...errors, ...errorValues];
+            }
+          }
+        } else if (valueType !== ValueTypes.object) {
+          errors.push(
+            new e4.ElectroAttributeValidationError(
+              this.path,
+              `Invalid value type at entity path: "${this.path}". Expected value to be an object to fulfill attribute type "${this.type}"`
+            )
+          );
+        } else if (this.properties.hasRequiredAttributes) {
+          errors.push(
+            new e4.ElectroAttributeValidationError(
+              this.path,
+              `Invalid value type at entity path: "${this.path}". Map attribute requires at least the properties ${u4.commaSeparatedString(
+                Object.keys(attributes2)
+              )}`
+            )
+          );
+        }
+        return [errors.length === 0, errors];
+      }
+      val(value) {
+        const incomingIsEmpty = value === void 0;
+        let fromDefault = false;
+        let data2;
+        if (value === void 0) {
+          data2 = this.default();
+          if (data2 !== void 0) {
+            fromDefault = true;
+          }
+        } else {
+          data2 = value;
+        }
+        const valueType = getValueType(data2);
+        if (data2 === void 0) {
+          return data2;
+        } else if (valueType !== "object") {
+          throw new e4.ElectroAttributeValidationError(
+            this.path,
+            `Invalid value type at entity path: "${this.path}". Expected value to be an object to fulfill attribute type "${this.type}"`
+          );
+        }
+        const response = {};
+        for (const name of Object.keys(this.properties.attributes)) {
+          const attribute = this.properties.attributes[name];
+          const results = attribute.val(data2[attribute.name]);
+          if (results !== void 0) {
+            response[name] = results;
+          }
+        }
+        if (Object.keys(response).length === 0 && !fromDefault && this.isRoot && !this.required && incomingIsEmpty) {
+          return void 0;
+        }
+        return response;
+      }
+    };
+    var ListAttribute = class extends Attribute {
+      constructor(definition) {
+        super(definition);
+        const items = Attribute.buildChildListItems(definition, {
+          parentType: this.type,
+          parentPath: this.path,
+          traverser: this.traverser
+        });
+        this.items = items;
+        this.get = this._makeGet(definition.get, items);
+        this.set = this._makeSet(definition.set, items);
+      }
+      _makeGet(get2, items) {
+        this._checkGetSet(get2, "get");
+        const getter = get2 ? (value, getSiblings) => get2(value, getSiblings()) : (attr) => attr;
+        return (values, getSiblings) => {
+          const data2 = [];
+          if (this.hidden) {
+            return;
+          }
+          if (values === void 0) {
+            return getter(data2, getSiblings);
+          }
+          for (let value of values) {
+            const results = items.get(value, () => [...values]);
+            if (results !== void 0) {
+              data2.push(results);
+            }
+          }
+          return getter(data2, getSiblings);
+        };
+      }
+      _makeSet(set, items) {
+        this._checkGetSet(set, "set");
+        const setter = set ? (value, getSiblings) => set(value, getSiblings()) : (attr) => attr;
+        return (values, getSiblings) => {
+          const data2 = [];
+          if (values === void 0) {
+            return setter(values, getSiblings);
+          }
+          for (const value of values) {
+            const results = items.set(value, () => [...values]);
+            if (results !== void 0) {
+              data2.push(results);
+            }
+          }
+          return setter(data2, getSiblings);
+        };
+      }
+      _validateArrayValue(value) {
+        const reason = [];
+        const valueType = getValueType(value);
+        if (value !== void 0 && valueType !== ValueTypes.array) {
+          return [
+            false,
+            [
+              new e4.ElectroAttributeValidationError(
+                this.path,
+                `Invalid value type at entity path "${this.path}. Received value of type "${valueType}", expected value of type "array"`
+              )
+            ]
+          ];
+        } else {
+          return [true, []];
+        }
+      }
+      _isType(value) {
+        if (value === void 0) {
+          let reason2 = [];
+          if (this.required) {
+            reason2.push(
+              new e4.ElectroAttributeValidationError(
+                this.path,
+                `Invalid value type at entity path: "${this.path}". Value is required.`
+              )
+            );
+          }
+          return [!this.required, reason2];
+        }
+        const [isValidArray, errors] = this._validateArrayValue(value);
+        if (!isValidArray) {
+          return [isValidArray, errors];
+        }
+        let reason = [];
+        const [childrenAreValid, childErrors] = this._validateChildren(value);
+        if (!childrenAreValid) {
+          reason = childErrors;
+        }
+        return [childrenAreValid, reason];
+      }
+      _validateChildren(value) {
+        const valueType = getValueType(value);
+        const errors = [];
+        if (valueType === ValueTypes.array) {
+          for (const i4 in value) {
+            const [isValid, errorValues] = this.items.isValid(value[i4]);
+            if (!isValid) {
+              for (const err2 of errorValues) {
+                if (err2 instanceof e4.ElectroAttributeValidationError || err2 instanceof e4.ElectroUserValidationError) {
+                  err2.index = parseInt(i4);
+                }
+                errors.push(err2);
+              }
+            }
+          }
+        } else {
+          errors.push(
+            new e4.ElectroAttributeValidationError(
+              this.path,
+              `Invalid value type at entity path: "${this.path}". Expected value to be an Array to fulfill attribute type "${this.type}"`
+            )
+          );
+        }
+        return [errors.length === 0, errors];
+      }
+      val(value) {
+        const getValue = (v8) => {
+          v8 = this.cast(v8);
+          if (v8 === void 0) {
+            v8 = this.default();
+          }
+          return v8;
+        };
+        const data2 = value === void 0 ? getValue(value) : value;
+        if (data2 === void 0) {
+          return data2;
+        } else if (!Array.isArray(data2)) {
+          throw new e4.ElectroAttributeValidationError(
+            this.path,
+            `Invalid value type at entity path "${this.path}. Received value of type "${getValueType(
+              value
+            )}", expected value of type "array"`
+          );
+        }
+        const response = [];
+        for (const d4 of data2) {
+          const results = this.items.val(d4);
+          if (results !== void 0) {
+            response.push(results);
+          }
+        }
+        return response;
+      }
+    };
+    var SetAttribute = class extends Attribute {
+      constructor(definition) {
+        super(definition);
+        const items = Attribute.buildChildSetItems(definition, {
+          parentType: this.type,
+          parentPath: this.path,
+          traverser: this.traverser
+        });
+        this.items = items;
+        this.get = this._makeGet(definition.get, items);
+        this.set = this._makeSet(definition.set, items);
+        this.validate = this._makeSetValidate(definition);
+      }
+      _makeSetValidate(definition) {
+        const validate2 = this._makeValidate(definition.validate);
+        return (value) => {
+          switch (getValueType(value)) {
+            case ValueTypes.array:
+              return validate2([...value]);
+            case ValueTypes.aws_set:
+              return validate2([...value.values]);
+            case ValueTypes.set:
+              return validate2(Array.from(value));
+            default:
+              return validate2(value);
+          }
+        };
+      }
+      fromDDBSet(value) {
+        switch (getValueType(value)) {
+          case ValueTypes.aws_set:
+            return [...value.values];
+          case ValueTypes.set:
+            return Array.from(value);
+          default:
+            return value;
+        }
+      }
+      _createDDBSet(value) {
+        const client3 = this.getClient();
+        if (client3 && typeof client3.createSet === "function") {
+          value = Array.isArray(value) ? Array.from(new Set(value)) : value;
+          return client3.createSet(value, { validate: true });
+        } else {
+          return new DynamoDBSet(value, this.items.type);
+        }
+      }
+      acceptable(val2) {
+        return Array.isArray(val2) ? val2.length > 0 : this.items.acceptable(val2);
+      }
+      toDDBSet(value) {
+        const valueType = getValueType(value);
+        let array;
+        switch (valueType) {
+          case ValueTypes.set:
+            array = Array.from(value);
+            return this._createDDBSet(array);
+          case ValueTypes.aws_set:
+            return value;
+          case ValueTypes.array:
+            return this._createDDBSet(value);
+          case ValueTypes.string:
+          case ValueTypes.number: {
+            this.items.getValidate(value);
+            return this._createDDBSet(value);
+          }
+          default:
+            throw new e4.ElectroAttributeValidationError(
+              this.path,
+              `Invalid attribute value supplied to "set" attribute "${this.path}". Received value of type "${valueType}". Set values must be supplied as either Arrays, native JavaScript Set objects, DocumentClient Set objects, strings, or numbers.`
+            );
+        }
+      }
+      _makeGet(get2, items) {
+        this._checkGetSet(get2, "get");
+        const getter = get2 ? (value, getSiblings) => get2(value, getSiblings()) : (attr) => attr;
+        return (values, getSiblings) => {
+          if (values !== void 0) {
+            const data3 = this.fromDDBSet(values);
+            return getter(data3, getSiblings);
+          }
+          const data2 = this.fromDDBSet(values);
+          const results = getter(data2, getSiblings);
+          if (results !== void 0) {
+            return this.fromDDBSet(results);
+          }
+        };
+      }
+      _makeSet(set, items) {
+        this._checkGetSet(set, "set");
+        const setter = set ? (value, getSiblings) => set(value, getSiblings()) : (attr) => attr;
+        return (values, getSiblings) => {
+          const results = setter(this.fromDDBSet(values), getSiblings);
+          if (results !== void 0) {
+            return this.toDDBSet(results);
+          }
+        };
+      }
+      _isType(value) {
+        if (value === void 0) {
+          const reason2 = [];
+          if (this.required) {
+            reason2.push(
+              new e4.ElectroAttributeValidationError(
+                this.path,
+                `Invalid value type at entity path: "${this.path}". Value is required.`
+              )
+            );
+          }
+          return [!this.required, reason2];
+        }
+        let reason = [];
+        const [childrenAreValid, childErrors] = this._validateChildren(value);
+        if (!childrenAreValid) {
+          reason = childErrors;
+        }
+        return [childrenAreValid, reason];
+      }
+      _validateChildren(value) {
+        const valueType = getValueType(value);
+        let errors = [];
+        let arr = [];
+        if (valueType === ValueTypes.array) {
+          arr = value;
+        } else if (valueType === ValueTypes.set) {
+          arr = Array.from(value);
+        } else if (valueType === ValueTypes.aws_set) {
+          arr = value.values;
+        } else {
+          errors.push(
+            new e4.ElectroAttributeValidationError(
+              this.path,
+              `Invalid value type at attribute path: "${this.path}". Expected value to be an Expected value to be an Array, native JavaScript Set objects, or DocumentClient Set objects to fulfill attribute type "${this.type}"`
+            )
+          );
+        }
+        for (const item of arr) {
+          const [isValid, errorValues] = this.items.isValid(item);
+          if (!isValid) {
+            errors = [...errors, ...errorValues];
+          }
+        }
+        return [errors.length === 0, errors];
+      }
+      val(value) {
+        if (value === void 0) {
+          value = this.default();
+        }
+        if (value !== void 0) {
+          return this.toDDBSet(value);
+        }
+      }
+    };
+    var Schema2 = class _Schema {
+      constructor(properties = {}, facets = {}, { traverser = new AttributeTraverser(), getClient: getClient2, parent, isRoot } = {}) {
+        this._validateProperties(properties, parent);
+        let schema = _Schema.normalizeAttributes(properties, facets, {
+          traverser,
+          getClient: getClient2,
+          parent,
+          isRoot
+        });
+        this.getClient = getClient2;
+        this.attributes = schema.attributes;
+        this.enums = schema.enums;
+        this.translationForTable = schema.translationForTable;
+        this.translationForRetrieval = schema.translationForRetrieval;
+        this.hiddenAttributes = schema.hiddenAttributes;
+        this.readOnlyAttributes = schema.readOnlyAttributes;
+        this.requiredAttributes = schema.requiredAttributes;
+        this.translationForWatching = this._formatWatchTranslations(
+          this.attributes
+        );
+        this.traverser = traverser;
+        this.isRoot = !!isRoot;
+      }
+      static normalizeAttributes(attributes2 = {}, facets = {}, { traverser, getClient: getClient2, parent, isRoot } = {}) {
+        const attributeHasParent = !!parent;
+        let invalidProperties = [];
+        let normalized = {};
+        let usedAttrs = {};
+        let enums = {};
+        let translationForTable = {};
+        let translationForRetrieval = {};
+        let watchedAttributes = {};
+        let requiredAttributes = /* @__PURE__ */ new Set();
+        let hiddenAttributes = /* @__PURE__ */ new Set();
+        let readOnlyAttributes = /* @__PURE__ */ new Set();
+        let definitions = {};
+        for (let name in attributes2) {
+          let attribute = attributes2[name];
+          if (typeof attribute === AttributeTypes.string || Array.isArray(attribute)) {
+            attribute = {
+              type: attribute
+            };
+          }
+          const field = attribute.field || name;
+          let isKeyField = false;
+          let prefix = "";
+          let postfix = "";
+          let casing = KeyCasing.none;
+          if (facets.byField && facets.byField[field] !== void 0) {
+            for (const indexName of Object.keys(facets.byField[field])) {
+              let definition2 = facets.byField[field][indexName];
+              if (definition2.facets.length > 1) {
+                throw new e4.ElectroError(
+                  e4.ErrorCodes.InvalidIndexWithAttributeName,
+                  `Invalid definition for "${definition2.type}" field on index "${u4.formatIndexNameForDisplay(
+                    indexName
+                  )}". The ${definition2.type} field "${definition2.field}" shares a field name with an attribute defined on the Entity, and therefore is not allowed to contain composite references to other attributes. Please either change the field name of the attribute, or redefine the index to use only the single attribute "${definition2.field}".`
+                );
+              }
+              if (definition2.isCustom) {
+                const keyFieldLabels = facets.labels[indexName][definition2.type].labels;
+                if (keyFieldLabels.length > 2) {
+                  throw new e4.ElectroError(
+                    e4.ErrorCodes.InvalidIndexWithAttributeName,
+                    `Unexpected definition for "${definition2.type}" field on index "${u4.formatIndexNameForDisplay(
+                      indexName
+                    )}". The ${definition2.type} field "${definition2.field}" shares a field name with an attribute defined on the Entity, and therefore is not possible to have more than two labels as part of it's template. Please either change the field name of the attribute, or reformat the key template to reduce all pre-fixing or post-fixing text around the attribute reference to two.`
+                  );
+                }
+                isKeyField = true;
+                casing = definition2.casing;
+                for (const value of keyFieldLabels) {
+                  if (value.name === field) {
+                    prefix = value.label || "";
+                  } else {
+                    postfix = value.label || "";
+                  }
+                }
+                if (attribute.type !== AttributeTypes.string && !Array.isArray(attribute.type)) {
+                  if (prefix.length > 0 || postfix.length > 0) {
+                    throw new e4.ElectroError(
+                      e4.ErrorCodes.InvalidIndexWithAttributeName,
+                      `definition for "${definition2.type}" field on index "${u4.formatIndexNameForDisplay(
+                        indexName
+                      )}". Index templates may only have prefix or postfix values on "string" or "enum" type attributes. The ${definition2.type} field "${field}" is type "${attribute.type}", and therefore cannot be used with prefixes or postfixes. Please either remove the prefixed or postfixed values from the template or change the field name of the attribute.`
+                    );
+                  }
+                }
+              } else {
+                throw new e4.ElectroError(
+                  e4.ErrorCodes.InvalidIndexCompositeWithAttributeName,
+                  `Unexpected definition for "${definition2.type}" field on index "${u4.formatIndexNameForDisplay(
+                    indexName
+                  )}". The ${definition2.type} field "${definition2.field}" shares a field name with an attribute defined on the Entity, and therefore must be defined with a template. Please either change the field name of the attribute, or add a key template to the "${definition2.type}" field on index "${u4.formatIndexNameForDisplay(
+                    indexName
+                  )}" with the value: "\${${definition2.field}}"`
+                );
+              }
+              if (definition2.inCollection) {
+                throw new e4.ElectroError(
+                  e4.ErrorCodes.InvalidCollectionOnIndexWithAttributeFieldNames,
+                  `Invalid use of a collection on index "${u4.formatIndexNameForDisplay(
+                    indexName
+                  )}". The ${definition2.type} field "${definition2.field}" shares a field name with an attribute defined on the Entity, and therefore the index is not allowed to participate in a Collection. Please either change the field name of the attribute, or remove all collection(s) from the index.`
+                );
+              }
+              if (definition2.field === field) {
+                if (attribute.padding !== void 0) {
+                  throw new e4.ElectroError(
+                    e4.ErrorCodes.InvalidAttributeDefinition,
+                    `Invalid padding definition for the attribute "${name}". Padding is not currently supported for attributes that are also defined as table indexes.`
+                  );
+                }
+              }
+            }
+          }
+          let isKey = !!facets.byIndex && facets.byIndex[TableIndex].all.find((facet) => facet.name === name);
+          let definition = {
+            name,
+            field,
+            getClient: getClient2,
+            casing,
+            prefix,
+            postfix,
+            traverser,
+            isKeyField: isKeyField || isKey,
+            isRoot: !!isRoot,
+            label: attribute.label,
+            required: !!attribute.required,
+            default: attribute.default,
+            validate: attribute.validate,
+            readOnly: !!attribute.readOnly || isKey,
+            hidden: !!attribute.hidden,
+            indexes: facets.byAttr && facets.byAttr[name] || [],
+            type: attribute.type,
+            get: attribute.get,
+            set: attribute.set,
+            watching: Array.isArray(attribute.watch) ? attribute.watch : [],
+            items: attribute.items,
+            properties: attribute.properties,
+            parentPath: attribute.parentPath,
+            parentType: attribute.parentType,
+            padding: attribute.padding
+          };
+          if (definition.type === AttributeTypes.custom) {
+            definition.type = AttributeTypes.any;
+          }
+          if (attribute.watch !== void 0) {
+            if (attribute.watch === AttributeWildCard) {
+              definition.watchAll = true;
+              definition.watching = [];
+            } else if (Array.isArray(attribute.watch)) {
+              definition.watching = attribute.watch;
+            } else {
+              throw new e4.ElectroError(
+                e4.ErrorCodes.InvalidAttributeWatchDefinition,
+                `Attribute Validation Error. The attribute '${name}' is defined to "watch" an invalid value of: '${attribute.watch}'. The watch property must either be a an array of attribute names, or the single string value of "${WatchAll}".`
+              );
+            }
+          } else {
+            definition.watching = [];
+          }
+          if (definition.readOnly) {
+            readOnlyAttributes.add(name);
+          }
+          if (definition.hidden) {
+            hiddenAttributes.add(name);
+          }
+          if (definition.required) {
+            requiredAttributes.add(name);
+          }
+          if (facets.byAttr && facets.byAttr[definition.name] !== void 0 && !ValidFacetTypes.includes(definition.type) && !Array.isArray(definition.type)) {
+            let assignedIndexes = facets.byAttr[name].map(
+              (assigned) => assigned.index === "" ? "Table Index" : assigned.index
+            );
+            throw new e4.ElectroError(
+              e4.ErrorCodes.InvalidAttributeDefinition,
+              `Invalid composite attribute definition: Composite attributes must be one of the following: ${ValidFacetTypes.join(
+                ", "
+              )}. The attribute "${name}" is defined as being type "${attribute.type}" but is a composite attribute of the following indexes: ${assignedIndexes.join(
+                ", "
+              )}`
+            );
+          }
+          if (usedAttrs[definition.field] || usedAttrs[name]) {
+            invalidProperties.push({
+              name,
+              property: "field",
+              value: definition.field,
+              expected: `Unique field property, already used by attribute ${usedAttrs[definition.field]}`
+            });
+          } else {
+            usedAttrs[definition.field] = definition.name;
+          }
+          translationForTable[definition.name] = definition.field;
+          translationForRetrieval[definition.field] = definition.name;
+          for (let watched of definition.watching) {
+            watchedAttributes[watched] = watchedAttributes[watched] || [];
+            watchedAttributes[watched].push(name);
+          }
+          definitions[name] = definition;
+        }
+        for (let name of Object.keys(definitions)) {
+          const definition = definitions[name];
+          definition.watchedBy = Array.isArray(watchedAttributes[name]) ? watchedAttributes[name] : [];
+          switch (definition.type) {
+            case AttributeTypes.map:
+              normalized[name] = new MapAttribute(definition);
+              break;
+            case AttributeTypes.list:
+              normalized[name] = new ListAttribute(definition);
+              break;
+            case AttributeTypes.set:
+              normalized[name] = new SetAttribute(definition);
+              break;
+            default:
+              normalized[name] = new Attribute(definition);
+          }
+        }
+        let watchedWatchers = [];
+        let watchingUnknownAttributes = [];
+        for (let watched of Object.keys(watchedAttributes)) {
+          if (normalized[watched] === void 0) {
+            for (let attribute of watchedAttributes[watched]) {
+              watchingUnknownAttributes.push({ attribute, watched });
+            }
+          } else if (normalized[watched].isWatcher()) {
+            for (let attribute of watchedAttributes[watched]) {
+              watchedWatchers.push({ attribute, watched });
+            }
+          }
+        }
+        if (watchingUnknownAttributes.length > 0) {
+          throw new e4.ElectroError(
+            e4.ErrorCodes.InvalidAttributeWatchDefinition,
+            `Attribute Validation Error. The following attributes are defined to "watch" invalid/unknown attributes: ${watchingUnknownAttributes.map(({ watched, attribute }) => `"${attribute}"->"${watched}"`).join(", ")}.`
+          );
+        }
+        if (watchedWatchers.length > 0) {
+          throw new e4.ElectroError(
+            e4.ErrorCodes.InvalidAttributeWatchDefinition,
+            `Attribute Validation Error. Attributes may only "watch" other attributes also watch attributes. The following attributes are defined with ineligible attributes to watch: ${watchedWatchers.map(({ attribute, watched }) => `"${attribute}"->"${watched}"`).join(", ")}.`
+          );
+        }
+        let missingFacetAttributes = Array.isArray(facets.attributes) ? facets.attributes.filter(({ name }) => !normalized[name]).map((facet) => `"${facet.type}: ${facet.name}"`) : [];
+        if (missingFacetAttributes.length > 0) {
+          throw new e4.ElectroError(
+            e4.ErrorCodes.InvalidKeyCompositeAttributeTemplate,
+            `Invalid key composite attribute template. The following composite attribute attributes were described in the key composite attribute template but were not included model's attributes: ${missingFacetAttributes.join(
+              ", "
+            )}`
+          );
+        }
+        if (invalidProperties.length > 0) {
+          let message = invalidProperties.map(
+            (prop) => `Schema Validation Error. Attribute "${prop.name}" property "${prop.property}". Received: "${prop.value}", Expected: "${prop.expected}"`
+          );
+          throw new e4.ElectroError(
+            e4.ErrorCodes.InvalidAttributeDefinition,
+            message
+          );
+        } else {
+          return {
+            enums,
+            hiddenAttributes,
+            readOnlyAttributes,
+            requiredAttributes,
+            translationForTable,
+            translationForRetrieval,
+            attributes: normalized
+          };
+        }
+      }
+      _validateProperties() {
+      }
+      _formatWatchTranslations(attributes2) {
+        let watchersToAttributes = {};
+        let attributesToWatchers = {};
+        let watchAllAttributes = {};
+        let hasWatchers = false;
+        for (let name of Object.keys(attributes2)) {
+          if (attributes2[name].isWatcher()) {
+            hasWatchers = true;
+            watchersToAttributes[name] = attributes2[name].watching;
+          } else if (attributes2[name].watchAll) {
+            hasWatchers = true;
+            watchAllAttributes[name] = name;
+          } else {
+            attributesToWatchers[name] = attributesToWatchers[name] || {};
+            attributesToWatchers[name] = attributes2[name].watchedBy;
+          }
+        }
+        return {
+          hasWatchers,
+          watchAllAttributes,
+          watchersToAttributes,
+          attributesToWatchers
+        };
+      }
+      getAttribute(path) {
+        return this.traverser.getPath(path);
+      }
+      getLabels() {
+        let labels = {};
+        for (let name of Object.keys(this.attributes)) {
+          let label = this.attributes[name].label;
+          if (label !== void 0) {
+            labels[name] = label;
+          }
+        }
+        return labels;
+      }
+      getLabels() {
+        let labels = {};
+        for (let name of Object.keys(this.attributes)) {
+          let label = this.attributes[name].label;
+          if (label !== void 0) {
+            labels[name] = label;
+          }
+        }
+        return labels;
+      }
+      _applyAttributeMutation(method, include, avoid, payload2) {
+        let data2 = { ...payload2 };
+        const getSiblings = () => ({ ...payload2 });
+        for (let path of Object.keys(include)) {
+          const attribute = this.getAttribute(path);
+          if (attribute !== void 0 && avoid[path] === void 0) {
+            data2[path] = attribute[method](payload2[path], getSiblings);
+          }
+        }
+        return data2;
+      }
+      _fulfillAttributeMutationMethod(method, payload2) {
+        let watchersToTrigger = {};
+        let avoid = {
+          ...this.translationForWatching.watchersToAttributes,
+          ...this.translationForWatching.watchAllAttributes
+        };
+        let data2 = this._applyAttributeMutation(method, payload2, avoid, payload2);
+        if (!this.translationForWatching.hasWatchers) {
+          return data2;
+        }
+        for (let attribute of Object.keys(data2)) {
+          let watchers = this.translationForWatching.attributesToWatchers[attribute];
+          if (watchers !== void 0) {
+            watchersToTrigger = { ...watchersToTrigger, ...watchers };
+          }
+        }
+        let include = {
+          ...data2,
+          ...watchersToTrigger,
+          ...this.translationForWatching.watchAllAttributes
+        };
+        return this._applyAttributeMutation(
+          method,
+          include,
+          this.translationForWatching.attributesToWatchers,
+          data2
+        );
+      }
+      applyAttributeGetters(payload2 = {}) {
+        return this._fulfillAttributeMutationMethod(
+          AttributeMutationMethods.get,
+          payload2
+        );
+      }
+      applyAttributeSetters(payload2 = {}) {
+        return this._fulfillAttributeMutationMethod(
+          AttributeMutationMethods.set,
+          payload2
+        );
+      }
+      translateFromFields(item = {}, options = {}) {
+        let data2 = {};
+        let names = this.translationForRetrieval;
+        for (let [attr, value] of Object.entries(item)) {
+          let name = names[attr];
+          if (name) {
+            data2[name] = value;
+          } else if (options.data === DataOptions.includeKeys) {
+            data2[attr] = value;
+          }
+        }
+        return data2;
+      }
+      translateToFields(payload2 = {}) {
+        let record = {};
+        for (let [name, value] of Object.entries(payload2)) {
+          let field = this.getFieldName(name);
+          if (value !== void 0) {
+            record[field] = value;
+          }
+        }
+        return record;
+      }
+      getFieldName(name) {
+        if (typeof name === "string") {
+          return this.translationForTable[name];
+        }
+      }
+      checkCreate(payload2 = {}) {
+        let record = {};
+        for (let attribute of Object.values(this.attributes)) {
+          let value = payload2[attribute.name];
+          record[attribute.name] = attribute.getValidate(value);
+        }
+        return record;
+      }
+      checkRemove(paths = []) {
+        for (const path of paths) {
+          const attribute = this.traverser.getPath(path);
+          if (!attribute) {
+            throw new e4.ElectroAttributeValidationError(
+              path,
+              `Attribute "${path}" does not exist on model.`
+            );
+          } else if (attribute.readOnly) {
+            throw new e4.ElectroAttributeValidationError(
+              attribute.path,
+              `Attribute "${attribute.path}" is Read-Only and cannot be removed`
+            );
+          } else if (attribute.required) {
+            throw new e4.ElectroAttributeValidationError(
+              attribute.path,
+              `Attribute "${attribute.path}" is Required and cannot be removed`
+            );
+          }
+        }
+        return paths;
+      }
+      checkOperation(attribute, operation2, value) {
+        if (attribute.required && operation2 === ItemOperations.remove) {
+          throw new e4.ElectroAttributeValidationError(
+            attribute.path,
+            `Attribute "${attribute.path}" is Required and cannot be removed`
+          );
+        } else if (attribute.readOnly) {
+          throw new e4.ElectroAttributeValidationError(
+            attribute.path,
+            `Attribute "${attribute.path}" is Read-Only and cannot be updated`
+          );
+        }
+        return value === void 0 ? void 0 : attribute.getValidate(value);
+      }
+      checkUpdate(payload2 = {}, { allowReadOnly } = {}) {
+        let record = {};
+        for (let [path, value] of Object.entries(payload2)) {
+          let attribute = this.traverser.paths.get(path);
+          if (attribute === void 0) {
+            continue;
+          }
+          if (attribute.readOnly && !allowReadOnly) {
+            throw new e4.ElectroAttributeValidationError(
+              attribute.path,
+              `Attribute "${attribute.path}" is Read-Only and cannot be updated`
+            );
+          } else {
+            record[path] = attribute.getValidate(value);
+          }
+        }
+        return record;
+      }
+      getReadOnly() {
+        return Array.from(this.readOnlyAttributes);
+      }
+      getRequired() {
+        return Array.from(this.requiredAttributes);
+      }
+      formatItemForRetrieval(item, config) {
+        let returnAttributes = new Set(config.attributes || []);
+        let hasUserSpecifiedReturnAttributes = returnAttributes.size > 0;
+        let remapped = this.translateFromFields(item, config);
+        let data2 = this._fulfillAttributeMutationMethod("get", remapped);
+        if (this.hiddenAttributes.size > 0 || hasUserSpecifiedReturnAttributes) {
+          for (let attribute of Object.keys(data2)) {
+            if (this.hiddenAttributes.has(attribute)) {
+              delete data2[attribute];
+            }
+            if (hasUserSpecifiedReturnAttributes && !returnAttributes.has(attribute)) {
+              delete data2[attribute];
+            }
+          }
+        }
+        return data2;
+      }
+    };
+    function createCustomAttribute(definition = {}) {
+      return {
+        ...definition,
+        type: "custom"
+      };
+    }
+    function CustomAttributeType(base) {
+      const supported = ["string", "number", "boolean", "any"];
+      if (!supported.includes(base)) {
+        throw new Error(
+          `OpaquePrimitiveType only supports base types: ${u4.commaSeparatedString(
+            supported
+          )}`
+        );
+      }
+      return base;
+    }
+    function createSchema(schema) {
+      v7.model(schema);
+      return schema;
+    }
+    module.exports = {
+      Schema: Schema2,
+      Attribute,
+      CastTypes,
+      SetAttribute,
+      createSchema,
+      CustomAttributeType,
+      createCustomAttribute
+    };
+  }
+});
+
+// ../../node_modules/electrodb/src/filters.js
+var require_filters = __commonJS({
+  "../../node_modules/electrodb/src/filters.js"(exports, module) {
+    var e4 = require_errors();
+    var { MethodTypes, ExpressionTypes } = require_types();
+    var FilterFactory = class {
+      constructor(attributes2 = {}, filterTypes = {}) {
+        this.attributes = { ...attributes2 };
+        this.filters = {
+          ...filterTypes
+        };
+      }
+      getExpressionType(methodType) {
+        switch (methodType) {
+          case MethodTypes.put:
+          case MethodTypes.create:
+          case MethodTypes.update:
+          case MethodTypes.patch:
+          case MethodTypes.delete:
+          case MethodTypes.get:
+          case MethodTypes.upsert:
+            return ExpressionTypes.ConditionExpression;
+          default:
+            return ExpressionTypes.FilterExpression;
+        }
+      }
+      _buildFilterAttributes(setName, setValue) {
+        let attributes2 = {};
+        for (let [name, attribute] of Object.entries(this.attributes)) {
+          let filterAttribute = {};
+          for (let [type, { template }] of Object.entries(this.filters)) {
+            Object.defineProperty(filterAttribute, type, {
+              get: () => {
+                return (...values) => {
+                  let { prop } = setName({}, name, attribute.field);
+                  let attrValues = [];
+                  for (let value of values) {
+                    if (template.length > 1) {
+                      attrValues.push(setValue(name, value, name));
+                    }
+                  }
+                  let expression = template({}, attribute, prop, ...attrValues);
+                  return expression.trim();
+                };
+              }
+            });
+          }
+          attributes2[name] = filterAttribute;
+        }
+        return attributes2;
+      }
+      buildClause(filterFn) {
+        return (entity, state2, ...params) => {
+          const type = this.getExpressionType(state2.query.method);
+          const builder = state2.query.filter[type];
+          let setName = (paths, name, value) => builder.setName(paths, name, value);
+          let setValue = (name, value, path) => builder.setValue(name, value, path);
+          let attributes2 = this._buildFilterAttributes(setName, setValue);
+          const expression = filterFn(attributes2, ...params);
+          if (typeof expression !== "string") {
+            throw new e4.ElectroError(
+              e4.ErrorCodes.InvalidFilter,
+              "Invalid filter response. Expected result to be of type string"
+            );
+          }
+          builder.add(expression);
+          return state2;
+        };
+      }
+      injectFilterClauses(clauses = {}, filters = {}) {
+        let injected = { ...clauses };
+        let filterParents = Object.entries(injected).filter((clause) => {
+          let [name, { children }] = clause;
+          return children.find((child) => ["go", "commit"].includes(child));
+        }).map(([name]) => name);
+        let modelFilters = Object.keys(filters);
+        let filterChildren = [];
+        for (let [name, filter] of Object.entries(filters)) {
+          filterChildren.push(name);
+          injected[name] = {
+            name,
+            action: this.buildClause(filter),
+            children: ["params", "go", "commit", "filter", ...modelFilters]
+          };
+        }
+        filterChildren.push("filter");
+        injected["filter"] = {
+          name: "filter",
+          action: (entity, state2, fn) => {
+            return this.buildClause(fn)(entity, state2);
+          },
+          children: ["params", "go", "commit", "filter", ...modelFilters]
+        };
+        for (let parent of filterParents) {
+          injected[parent] = { ...injected[parent] };
+          injected[parent].children = [
+            ...filterChildren,
+            ...injected[parent].children
+          ];
+        }
+        return injected;
+      }
+    };
+    module.exports = { FilterFactory };
+  }
+});
+
+// ../../node_modules/electrodb/src/updateOperations.js
+var require_updateOperations = __commonJS({
+  "../../node_modules/electrodb/src/updateOperations.js"(exports, module) {
+    var { AttributeTypes, ItemOperations } = require_types();
+    var deleteOperations = {
+      canNest: false,
+      template: function del(options, attr, path, value) {
+        let operation2 = "";
+        let expression = "";
+        switch (attr.type) {
+          case AttributeTypes.any:
+          case AttributeTypes.set:
+            operation2 = ItemOperations.delete;
+            expression = `${path} ${value}`;
+            break;
+          default:
+            throw new Error(
+              `Invalid Update Attribute Operation: "DELETE" Operation can only be performed on attributes with type "set" or "any".`
+            );
+        }
+        return { operation: operation2, expression };
+      }
+    };
+    var UpdateOperations = {
+      ifNotExists: {
+        template: function if_not_exists(options, attr, path, value) {
+          const operation2 = ItemOperations.set;
+          const expression = `${path} = if_not_exists(${path}, ${value})`;
+          return { operation: operation2, expression };
+        }
+      },
+      name: {
+        canNest: true,
+        template: function name(options, attr, path) {
+          return path;
+        }
+      },
+      value: {
+        canNest: true,
+        template: function value(options, attr, path, value) {
+          return value;
+        }
+      },
+      append: {
+        canNest: false,
+        template: function append(options, attr, path, value) {
+          let operation2 = "";
+          let expression = "";
+          switch (attr.type) {
+            case AttributeTypes.any:
+            case AttributeTypes.list:
+              const defaultValue = options.createValue("default_value", []);
+              expression = `${path} = list_append(if_not_exists(${path}, ${defaultValue}), ${value})`;
+              operation2 = ItemOperations.set;
+              break;
+            default:
+              throw new Error(
+                `Invalid Update Attribute Operation: "APPEND" Operation can only be performed on attributes with type "list" or "any".`
+              );
+          }
+          return { operation: operation2, expression };
+        }
+      },
+      add: {
+        canNest: false,
+        template: function add(options, attr, path, value, defaultValue) {
+          let operation2 = "";
+          let expression = "";
+          let type = attr.type;
+          if (type === AttributeTypes.any) {
+            type = typeof value === "number" ? AttributeTypes.number : AttributeTypes.any;
+          }
+          switch (type) {
+            case AttributeTypes.any:
+            case AttributeTypes.set: {
+              operation2 = ItemOperations.add;
+              expression = `${path} ${value}`;
+              break;
+            }
+            case AttributeTypes.number: {
+              if (options.nestedValue) {
+                operation2 = ItemOperations.set;
+                expression = `${path} = ${path} + ${value}`;
+              } else if (defaultValue !== void 0) {
+                operation2 = ItemOperations.set;
+                expression = `${path} = (if_not_exists(${path}, ${defaultValue}) + ${value})`;
+              } else {
+                operation2 = ItemOperations.add;
+                expression = `${path} ${value}`;
+              }
+              break;
+            }
+            default:
+              throw new Error(
+                `Invalid Update Attribute Operation: "ADD" Operation can only be performed on attributes with type "number", "set", or "any".`
+              );
+          }
+          return { operation: operation2, expression };
+        }
+      },
+      subtract: {
+        canNest: false,
+        template: function subtract(options, attr, path, value, defaultValue = 0) {
+          let operation2 = "";
+          let expression = "";
+          switch (attr.type) {
+            case AttributeTypes.any:
+            case AttributeTypes.number: {
+              let resolvedDefaultValue;
+              if (typeof defaultValue === "string" && defaultValue.startsWith(":")) {
+                resolvedDefaultValue = defaultValue;
+              } else if (defaultValue !== void 0) {
+                resolvedDefaultValue = options.createValue(
+                  "default_value",
+                  defaultValue
+                );
+              } else {
+                resolvedDefaultValue = options.createValue("default_value", 0);
+              }
+              operation2 = ItemOperations.set;
+              expression = `${path} = (if_not_exists(${path}, ${resolvedDefaultValue}) - ${value})`;
+              break;
+            }
+            default:
+              throw new Error(
+                `Invalid Update Attribute Operation: "SUBTRACT" Operation can only be performed on attributes with type "number" or "any".`
+              );
+          }
+          return { operation: operation2, expression };
+        }
+      },
+      set: {
+        canNest: false,
+        template: function set(options, attr, path, value) {
+          let operation2 = "";
+          let expression = "";
+          switch (attr.type) {
+            case AttributeTypes.set:
+            case AttributeTypes.list:
+            case AttributeTypes.map:
+            case AttributeTypes.enum:
+            case AttributeTypes.string:
+            case AttributeTypes.number:
+            case AttributeTypes.boolean:
+            case AttributeTypes.any:
+              operation2 = ItemOperations.set;
+              expression = `${path} = ${value}`;
+              break;
+            default:
+              throw new Error(
+                `Invalid Update Attribute Operation: "SET" Operation can only be performed on attributes with type "list", "map", "string", "number", "boolean", or "any".`
+              );
+          }
+          return { operation: operation2, expression };
+        }
+      },
+      remove: {
+        canNest: false,
+        template: function remove(options, attr, ...paths) {
+          let operation2 = "";
+          let expression = "";
+          switch (attr.type) {
+            case AttributeTypes.set:
+            case AttributeTypes.any:
+            case AttributeTypes.list:
+            case AttributeTypes.map:
+            case AttributeTypes.string:
+            case AttributeTypes.number:
+            case AttributeTypes.boolean:
+            case AttributeTypes.enum:
+              operation2 = ItemOperations.remove;
+              expression = paths.join(", ");
+              break;
+            default: {
+              throw new Error(
+                `Invalid Update Attribute Operation: "REMOVE" Operation can only be performed on attributes with type "map", "list", "string", "number", "boolean", or "any".`
+              );
+            }
+          }
+          return { operation: operation2, expression };
+        }
+      },
+      del: deleteOperations,
+      delete: deleteOperations
+    };
+    module.exports = {
+      UpdateOperations
+    };
+  }
+});
+
+// ../../node_modules/electrodb/src/filterOperations.js
+var require_filterOperations = __commonJS({
+  "../../node_modules/electrodb/src/filterOperations.js"(exports, module) {
+    var FilterOperations = {
+      escape: {
+        template: function escape(options, attr) {
+          return `${attr}`;
+        },
+        rawValue: true
+      },
+      size: {
+        template: function size(options, attr, name) {
+          return `size(${name})`;
+        },
+        strict: false
+      },
+      type: {
+        template: function attributeType(options, attr, name, value) {
+          return `attribute_type(${name}, ${value})`;
+        },
+        strict: false
+      },
+      ne: {
+        template: function ne(options, attr, name, value) {
+          return `${name} <> ${value}`;
+        },
+        strict: false
+      },
+      eq: {
+        template: function eq(options, attr, name, value) {
+          return `${name} = ${value}`;
+        },
+        strict: false
+      },
+      gt: {
+        template: function gt(options, attr, name, value) {
+          return `${name} > ${value}`;
+        },
+        strict: false
+      },
+      lt: {
+        template: function lt(options, attr, name, value) {
+          return `${name} < ${value}`;
+        },
+        strict: false
+      },
+      gte: {
+        template: function gte(options, attr, name, value) {
+          return `${name} >= ${value}`;
+        },
+        strict: false
+      },
+      lte: {
+        template: function lte(options, attr, name, value) {
+          return `${name} <= ${value}`;
+        },
+        strict: false
+      },
+      between: {
+        template: function between(options, attr, name, value1, value2) {
+          return `(${name} between ${value1} and ${value2})`;
+        },
+        strict: false
+      },
+      begins: {
+        template: function begins(options, attr, name, value) {
+          return `begins_with(${name}, ${value})`;
+        },
+        strict: false
+      },
+      exists: {
+        template: function exists(options, attr, name) {
+          return `attribute_exists(${name})`;
+        },
+        strict: false
+      },
+      notExists: {
+        template: function notExists(options, attr, name) {
+          return `attribute_not_exists(${name})`;
+        },
+        strict: false
+      },
+      contains: {
+        template: function contains(options, attr, name, value) {
+          return `contains(${name}, ${value})`;
+        },
+        strict: false
+      },
+      notContains: {
+        template: function notContains(options, attr, name, value) {
+          return `not contains(${name}, ${value})`;
+        },
+        strict: false
+      },
+      value: {
+        template: function(options, attr, name, value) {
+          return value;
+        },
+        strict: false,
+        canNest: true
+      },
+      name: {
+        template: function(options, attr, name) {
+          return name;
+        },
+        strict: false,
+        canNest: true
+      },
+      eqOrNotExists: {
+        template: function eq(options, attr, name, value) {
+          return `(${name} = ${value} OR attribute_not_exists(${name}))`;
+        },
+        strict: false
+      },
+      field: {
+        template: function(options, _, fieldName) {
+          return fieldName !== void 0 ? `${fieldName}` : "";
+        },
+        strict: false,
+        canNest: true,
+        rawField: true
+      }
+    };
+    module.exports = {
+      FilterOperations
+    };
+  }
+});
+
+// ../../node_modules/electrodb/src/operations.js
+var require_operations = __commonJS({
+  "../../node_modules/electrodb/src/operations.js"(exports, module) {
+    var {
+      AttributeTypes,
+      ItemOperations,
+      AttributeProxySymbol,
+      BuilderTypes
+    } = require_types();
+    var { UpdateOperations } = require_updateOperations();
+    var { FilterOperations } = require_filterOperations();
+    var e4 = require_errors();
+    var u4 = require_util();
+    var ExpressionState = class {
+      constructor({ prefix } = {}) {
+        this.names = {};
+        this.values = {};
+        this.paths = {};
+        this.counts = {};
+        this.impacted = {};
+        this.expression = "";
+        this.prefix = prefix || "";
+        this.refs = {};
+        this.formattedNameToOriginalNameMap = /* @__PURE__ */ new Map();
+      }
+      incrementName(name) {
+        if (this.counts[name] === void 0) {
+          this.counts[name] = 0;
+        }
+        return `${this.prefix}${this.counts[name]++}`;
+      }
+      formatName(name = "") {
+        const nameWasNotANumber = isNaN(name);
+        const originalName = `${name}`;
+        let formattedName = originalName.replaceAll(/[^\w]/g, "");
+        if (formattedName.length === 0) {
+          formattedName = "p";
+        } else if (nameWasNotANumber !== isNaN(formattedName)) {
+          formattedName = `p${formattedName}`;
+        }
+        const originalFormattedName = formattedName;
+        let nameSuffix = 1;
+        while (this.formattedNameToOriginalNameMap.has(formattedName) && this.formattedNameToOriginalNameMap.get(formattedName) !== originalName) {
+          formattedName = `${originalFormattedName}_${++nameSuffix}`;
+        }
+        this.formattedNameToOriginalNameMap.set(formattedName, originalName);
+        return formattedName;
+      }
+      // todo: make the structure: name, value, paths
+      setName(paths, name, value) {
+        name = this.formatName(name);
+        let json = "";
+        let expression = "";
+        const prop = `#${name}`;
+        if (Object.keys(paths).length === 0) {
+          json = `${name}`;
+          expression = `${prop}`;
+          this.names[prop] = value;
+        } else if (isNaN(name)) {
+          json = `${paths.json}.${name}`;
+          expression = `${paths.expression}.${prop}`;
+          this.names[prop] = value;
+        } else {
+          json = `${paths.json}[${name}]`;
+          expression = `${paths.expression}[${name}]`;
+        }
+        return { json, expression, prop };
+      }
+      getNames() {
+        return this.names;
+      }
+      setValue(name, value) {
+        name = this.formatName(name);
+        let valueCount = this.incrementName(name);
+        let expression = `:${name}${valueCount}`;
+        this.values[expression] = value;
+        return expression;
+      }
+      updateValue(name, value) {
+        this.values[name] = value;
+      }
+      getValues() {
+        return this.values;
+      }
+      setPath(path, value) {
+        this.paths[path] = value;
+      }
+      setExpression(expression) {
+        this.expression = expression;
+      }
+      getExpression() {
+        return this.expression;
+      }
+      setImpacted(operation2, path, ref) {
+        this.impacted[path] = operation2;
+        this.refs[path] = ref;
+      }
+    };
+    var AttributeOperationProxy = class _AttributeOperationProxy {
+      constructor({ builder, attributes: attributes2 = {}, operations = {} }) {
+        this.ref = {
+          attributes: attributes2,
+          operations
+        };
+        this.attributes = _AttributeOperationProxy.buildAttributes(
+          builder,
+          attributes2
+        );
+        this.operations = _AttributeOperationProxy.buildOperations(
+          builder,
+          operations
+        );
+      }
+      invokeCallback(op2, ...params) {
+        return op2(this.attributes, this.operations, ...params);
+      }
+      performOperation({ operation: operation2, path, value, force = false }) {
+        if (value === void 0) {
+          return;
+        }
+        const parts = u4.parseJSONPath(path);
+        let attribute = this.attributes;
+        for (let part of parts) {
+          attribute = attribute[part];
+        }
+        if (attribute) {
+          this.operations[operation2](attribute, value);
+          const { target } = attribute();
+          if (target.readOnly && !force) {
+            throw new Error(
+              `Attribute "${target.path}" is Read-Only and cannot be updated`
+            );
+          }
+        }
+      }
+      fromObject(operation2, record) {
+        for (let path of Object.keys(record)) {
+          this.performOperation({
+            operation: operation2,
+            path,
+            value: record[path]
+          });
+        }
+      }
+      fromArray(operation2, paths) {
+        for (let path of paths) {
+          const parts = u4.parseJSONPath(path);
+          let attribute = this.attributes;
+          for (let part of parts) {
+            attribute = attribute[part];
+          }
+          if (attribute) {
+            this.operations[operation2](attribute);
+            const { target } = attribute();
+            if (target.readOnly) {
+              throw new Error(
+                `Attribute "${target.path}" is Read-Only and cannot be updated`
+              );
+            } else if (operation2 === ItemOperations.remove && target.required) {
+              throw new Error(
+                `Attribute "${target.path}" is Required and cannot be removed`
+              );
+            }
+          }
+        }
+      }
+      static buildOperations(builder, operations) {
+        let ops = {};
+        let seen = /* @__PURE__ */ new Map();
+        for (let operation2 of Object.keys(operations)) {
+          let { template, canNest, rawValue, rawField } = operations[operation2];
+          Object.defineProperty(ops, operation2, {
+            get: () => {
+              return (property, ...values) => {
+                if (property === void 0) {
+                  throw new e4.ElectroError(
+                    e4.ErrorCodes.InvalidWhere,
+                    `Invalid/Unknown property passed in where clause passed to operation: '${operation2}'`
+                  );
+                }
+                if (property[AttributeProxySymbol]) {
+                  const { commit, target } = property();
+                  const fixedValues = values.map((value) => target.applyFixings(value)).filter((value) => value !== void 0);
+                  const isFilterBuilder = builder.type === BuilderTypes.filter;
+                  const takesValueArgument = template.length > 3;
+                  const isAcceptableValue = fixedValues.every((value) => {
+                    const seenAttributes = seen.get(value);
+                    if (seenAttributes) {
+                      return seenAttributes.every((v7) => target.acceptable(v7));
+                    }
+                    return target.acceptable(value);
+                  });
+                  const shouldCommit = (
+                    // if it is a filterBuilder than we don't care what they pass because the user needs more freedom here
+                    isFilterBuilder || // if the operation does not take a value argument then not committing here could cause problems.
+                    // this should be revisited to make more robust, we could hypothetically store the commit in the
+                    // "seen" map for when the value is used, but that's a lot of new complexity
+                    !takesValueArgument || // if the operation takes a value, we should determine if that value is acceptable. For
+                    // example, in the cases of a "set" we check to see if it is empty, or if the value is
+                    // undefined, we should not commit. The "fixedValues" length check is because the
+                    // "fixedValues" array has been filtered for undefined, so no length there indicates an
+                    // undefined value was passed.
+                    takesValueArgument && isAcceptableValue && fixedValues.length > 0
+                  );
+                  if (!shouldCommit) {
+                    return "";
+                  }
+                  const paths = commit();
+                  const attributeValues = [];
+                  let hasNestedValue = false;
+                  for (let fixedValue of fixedValues) {
+                    if (seen.has(fixedValue)) {
+                      attributeValues.push(fixedValue);
+                      hasNestedValue = true;
+                    } else {
+                      let attributeValueName = builder.setValue(
+                        target.name,
+                        fixedValue
+                      );
+                      builder.setPath(paths.json, {
+                        value: fixedValue,
+                        name: attributeValueName
+                      });
+                      attributeValues.push(attributeValueName);
+                    }
+                  }
+                  const options = {
+                    nestedValue: hasNestedValue,
+                    createValue: (name, value) => builder.setValue(`${target.name}_${name}`, value)
+                  };
+                  const formatted = template(
+                    options,
+                    target,
+                    paths.expression,
+                    ...attributeValues
+                  );
+                  builder.setImpacted(operation2, paths.json, target);
+                  if (canNest) {
+                    seen.set(paths.expression, attributeValues);
+                    seen.set(formatted, attributeValues);
+                  }
+                  if (builder.type === BuilderTypes.update && formatted && typeof formatted.operation === "string" && typeof formatted.expression === "string") {
+                    builder.add(formatted.operation, formatted.expression);
+                    return formatted.expression;
+                  }
+                  return formatted;
+                } else if (rawValue) {
+                  let attributeValueName = builder.setValue(property, property);
+                  builder.setPath(property, {
+                    value: property,
+                    name: attributeValueName
+                  });
+                  const formatted = template({}, attributeValueName);
+                  seen.set(attributeValueName, [property]);
+                  seen.set(formatted, [property]);
+                  return formatted;
+                } else if (rawField) {
+                  const { prop, expression } = builder.setName(
+                    {},
+                    property,
+                    property
+                  );
+                  const formatted = template({}, null, prop);
+                  seen.set(expression, [property]);
+                  seen.set(formatted, [property]);
+                  return formatted;
+                } else {
+                  throw new e4.ElectroError(
+                    e4.ErrorCodes.InvalidWhere,
+                    `Invalid Attribute in where clause passed to operation '${operation2}'. Use injected attributes only.`
+                  );
+                }
+              };
+            }
+          });
+        }
+        return ops;
+      }
+      static pathProxy(build) {
+        return new Proxy(() => build(), {
+          get: (_, prop, o4) => {
+            if (prop === AttributeProxySymbol) {
+              return true;
+            } else {
+              return _AttributeOperationProxy.pathProxy(() => {
+                const { commit, root, target, builder } = build();
+                const attribute = target.getChild(prop);
+                const nestedAny = attribute.type === AttributeTypes.any && // if the name doesn't match that's because we are nested under 'any'
+                attribute.name !== prop;
+                let field;
+                if (attribute === void 0) {
+                  throw new Error(
+                    `Invalid attribute "${prop}" at path "${target.path}.${prop}"`
+                  );
+                } else if (nestedAny) {
+                  field = prop;
+                } else {
+                  field = attribute.field;
+                }
+                return {
+                  root,
+                  builder,
+                  nestedAny,
+                  target: attribute,
+                  commit: () => {
+                    const paths = commit();
+                    return builder.setName(paths, prop, field);
+                  }
+                };
+              });
+            }
+          }
+        });
+      }
+      static buildAttributes(builder, attributes2) {
+        let attr = {};
+        for (let [name, attribute] of Object.entries(attributes2)) {
+          Object.defineProperty(attr, name, {
+            get: () => {
+              return _AttributeOperationProxy.pathProxy(() => {
+                return {
+                  root: attribute,
+                  target: attribute,
+                  builder,
+                  commit: () => builder.setName({}, attribute.name, attribute.field)
+                };
+              });
+            }
+          });
+        }
+        return attr;
+      }
+    };
+    var FilterOperationNames = Object.keys(FilterOperations).reduce(
+      (ops, name) => {
+        ops[name] = name;
+        return ops;
+      },
+      {}
+    );
+    var UpdateOperationNames = Object.keys(UpdateOperations).reduce(
+      (ops, name) => {
+        ops[name] = name;
+        return ops;
+      },
+      {}
+    );
+    module.exports = {
+      UpdateOperations,
+      UpdateOperationNames,
+      FilterOperations,
+      FilterOperationNames,
+      ExpressionState,
+      AttributeOperationProxy
+    };
+  }
+});
+
+// ../../node_modules/electrodb/src/where.js
+var require_where = __commonJS({
+  "../../node_modules/electrodb/src/where.js"(exports, module) {
+    var { MethodTypes, ExpressionTypes, BuilderTypes } = require_types();
+    var {
+      AttributeOperationProxy,
+      ExpressionState,
+      FilterOperations
+    } = require_operations();
+    var e4 = require_errors();
+    var FilterExpression = class extends ExpressionState {
+      constructor(props) {
+        super(props);
+        this.expression = "";
+        this.type = BuilderTypes.filter;
+      }
+      _trim(expression) {
+        if (typeof expression === "string" && expression.length > 0) {
+          return expression.replace(/\n|\r/g, "").trim();
+        }
+        return "";
+      }
+      _isEmpty(expression) {
+        if (typeof expression !== "string") {
+          throw new Error("Invalid expression value type. Expected type string.");
+        }
+        return !expression.replace(/\n|\r|\w/g, "").trim();
+      }
+      add(newExpression, filterOptions = {}) {
+        const asPrefix = !!filterOptions.asPrefix;
+        let expression = "";
+        let existingExpression = this.expression;
+        if (typeof existingExpression === "string" && existingExpression.length > 0) {
+          newExpression = this._trim(newExpression);
+          let isEmpty = this._isEmpty(newExpression);
+          if (isEmpty) {
+            return existingExpression;
+          }
+          if (!asPrefix && !existingExpression.startsWith("(") && !existingExpression.endsWith(")")) {
+            existingExpression = `(${existingExpression})`;
+          }
+          if (asPrefix) {
+            expression = `(${newExpression}) AND ${existingExpression}`;
+          } else {
+            expression = `${existingExpression} AND ${newExpression}`;
+          }
+        } else {
+          expression = this._trim(newExpression);
+        }
+        this.expression = expression;
+      }
+      // applies operations without verifying them against known attributes. Used internally for key conditions.
+      unsafeSet(filterOptions, operation2, name, ...values) {
+        const { template } = FilterOperations[operation2] || {};
+        if (template === void 0) {
+          throw new Error(
+            `Invalid operation: "${operation2}". Please report this issue via a bug ticket.`
+          );
+        }
+        const names = this.setName({}, name, name);
+        const valueExpressions = values.map((value) => this.setValue(name, value));
+        const condition = template(
+          {},
+          names.expression,
+          names.prop,
+          ...valueExpressions
+        );
+        this.add(condition, filterOptions);
+      }
+      build() {
+        return this.expression;
+      }
+    };
+    var WhereFactory = class {
+      constructor(attributes2 = {}, operations = {}) {
+        this.attributes = { ...attributes2 };
+        this.operations = { ...operations };
+      }
+      getExpressionType(methodType) {
+        switch (methodType) {
+          case MethodTypes.put:
+          case MethodTypes.create:
+          case MethodTypes.update:
+          case MethodTypes.patch:
+          case MethodTypes.delete:
+          case MethodTypes.remove:
+          case MethodTypes.upsert:
+          case MethodTypes.get:
+          case MethodTypes.check:
+            return ExpressionTypes.ConditionExpression;
+          default:
+            return ExpressionTypes.FilterExpression;
+        }
+      }
+      buildClause(cb) {
+        if (typeof cb !== "function") {
+          throw new e4.ElectroError(
+            e4.ErrorCodes.InvalidWhere,
+            'Where callback must be of type "function"'
+          );
+        }
+        return (entity, state2, ...params) => {
+          const type = this.getExpressionType(state2.query.method);
+          const builder = state2.query.filter[type];
+          const proxy = new AttributeOperationProxy({
+            builder,
+            attributes: this.attributes,
+            operations: this.operations
+          });
+          const expression = proxy.invokeCallback(cb, ...params);
+          if (typeof expression !== "string") {
+            throw new e4.ElectroError(
+              e4.ErrorCodes.InvalidWhere,
+              "Invalid response from where clause callback. Expected return result to be of type string"
+            );
+          }
+          builder.add(expression);
+          return state2;
+        };
+      }
+      injectWhereClauses(clauses = {}, filters = {}) {
+        let injected = { ...clauses };
+        let filterParents = Object.entries(injected).filter((clause) => {
+          let [name, { children }] = clause;
+          return children.find((child) => ["go", "commit"].includes(child));
+        }).map(([name]) => name);
+        let modelFilters = Object.keys(filters);
+        let filterChildren = [];
+        for (let [name, filter] of Object.entries(filters)) {
+          filterChildren.push(name);
+          injected[name] = {
+            name,
+            action: this.buildClause(filter),
+            children: ["params", "go", "commit", "where", ...modelFilters]
+          };
+        }
+        filterChildren.push("where");
+        injected["where"] = {
+          name: "where",
+          action: (entity, state2, fn) => {
+            return this.buildClause(fn)(entity, state2);
+          },
+          children: ["params", "go", "commit", "where", ...modelFilters]
+        };
+        for (let parent of filterParents) {
+          injected[parent] = { ...injected[parent] };
+          injected[parent].children = [
+            ...filterChildren,
+            ...injected[parent].children
+          ];
+        }
+        return injected;
+      }
+    };
+    module.exports = {
+      WhereFactory,
+      FilterExpression
+    };
+  }
+});
+
+// ../../node_modules/electrodb/src/update.js
+var require_update = __commonJS({
+  "../../node_modules/electrodb/src/update.js"(exports, module) {
+    var { UpdateOperations } = require_updateOperations();
+    var { AttributeOperationProxy, ExpressionState } = require_operations();
+    var { ItemOperations, BuilderTypes } = require_types();
+    var UpdateExpression = class extends ExpressionState {
+      constructor(props = {}) {
+        super({ ...props });
+        this.operations = {
+          set: /* @__PURE__ */ new Set(),
+          remove: /* @__PURE__ */ new Set(),
+          add: /* @__PURE__ */ new Set(),
+          subtract: /* @__PURE__ */ new Set(),
+          delete: /* @__PURE__ */ new Set()
+        };
+        this.composites = {};
+        this.seen = /* @__PURE__ */ new Map();
+        this.type = BuilderTypes.update;
+      }
+      addComposite(attrName, value) {
+        if (value !== void 0) {
+          if (this.composites[attrName] === void 0 || this.composites[attrName] === value) {
+            this.composites[attrName] = value;
+            return true;
+          }
+        }
+        return false;
+      }
+      add(type, expression) {
+        this.operations[type].add(expression);
+      }
+      unadd(type, expression) {
+        this.operations[type].delete(expression);
+      }
+      set(name, value, operation2 = ItemOperations.set, attribute) {
+        let operationToApply = operation2;
+        if (operation2 === ItemOperations.ifNotExists) {
+          operationToApply = ItemOperations.set;
+        }
+        const seen = this.seen.get(name);
+        let n4;
+        let v7;
+        if (seen) {
+          n4 = seen.name;
+          v7 = seen.value;
+          this.unadd(operationToApply, seen.expression);
+        } else {
+          n4 = this.setName({}, name, name);
+          v7 = this.setValue(name, value);
+        }
+        let expression = `${n4.prop} = ${v7}`;
+        if (operation2 === ItemOperations.ifNotExists) {
+          expression = `${n4.prop} = if_not_exists(${n4.prop}, ${v7})`;
+        }
+        this.seen.set(name, {
+          name: n4,
+          value: v7,
+          expression
+        });
+        this.add(operationToApply, expression);
+      }
+      remove(name) {
+        const n4 = this.setName({}, name, name);
+        this.add(ItemOperations.remove, `${n4.prop}`);
+      }
+      build() {
+        let expressions = [];
+        for (const type of Object.keys(this.operations)) {
+          const operations = this.operations[type];
+          if (operations.size > 0) {
+            expressions.push(
+              `${type.toUpperCase()} ${Array.from(operations).join(", ")}`
+            );
+          }
+        }
+        return expressions.join(" ");
+      }
+    };
+    var UpdateEntity = class {
+      constructor(attributes2 = {}, operations = {}) {
+        this.attributes = { ...attributes2 };
+        this.operations = { ...operations };
+      }
+      buildCallbackHandler(entity, state2) {
+        const proxy = new AttributeOperationProxy({
+          builder: state2.query.update,
+          attributes: this.attributes,
+          operations: this.operations
+        });
+        return (cb, ...params) => {
+          if (typeof cb !== "function") {
+            throw new Error('Update Callback must be of type "function"');
+          }
+          proxy.invokeCallback(cb, ...params);
+        };
+      }
+    };
+    module.exports = {
+      UpdateEntity,
+      UpdateExpression
+    };
+  }
+});
+
+// ../../node_modules/electrodb/src/clauses.js
+var require_clauses = __commonJS({
+  "../../node_modules/electrodb/src/clauses.js"(exports, module) {
+    var {
+      QueryTypes,
+      MethodTypes,
+      ItemOperations,
+      ExpressionTypes,
+      TransactionCommitSymbol,
+      TransactionOperations,
+      TerminalOperation,
+      KeyTypes,
+      IndexTypes,
+      UpsertOperations,
+      ComparisonTypes
+    } = require_types();
+    var {
+      AttributeOperationProxy,
+      UpdateOperations,
+      FilterOperationNames
+    } = require_operations();
+    var { UpdateExpression } = require_update();
+    var { FilterExpression } = require_where();
+    var v7 = require_validations();
+    var e4 = require_errors();
+    var u4 = require_util();
+    var methodChildren = {
+      upsert: [
+        "upsertSet",
+        "upsertAppend",
+        "upsertAdd",
+        "go",
+        "params",
+        "upsertSubtract",
+        "commit",
+        "upsertIfNotExists",
+        "where"
+      ],
+      update: [
+        "data",
+        "set",
+        "append",
+        "add",
+        "updateRemove",
+        "updateDelete",
+        "go",
+        "params",
+        "subtract",
+        "commit",
+        "composite",
+        "ifNotExists",
+        "where"
+      ],
+      put: ["where", "params", "go", "commit"],
+      del: ["where", "params", "go", "commit"]
+    };
+    function batchAction(action, type, entity, state2, payload2) {
+      if (state2.getError() !== null) {
+        return state2;
+      }
+      try {
+        state2.setMethod(type);
+        for (let facets of payload2) {
+          let batchState = action(entity, state2.createSubState(), facets);
+          if (batchState.getError() !== null) {
+            throw batchState.getError();
+          }
+        }
+        return state2;
+      } catch (err2) {
+        state2.setError(err2);
+        return state2;
+      }
+    }
+    var clauses = {
+      index: {
+        name: "index",
+        children: [
+          "check",
+          "get",
+          "delete",
+          "update",
+          "query",
+          "upsert",
+          "put",
+          "scan",
+          "collection",
+          "clusteredCollection",
+          "create",
+          "remove",
+          "patch",
+          "batchPut",
+          "batchDelete",
+          "batchGet"
+        ]
+      },
+      clusteredCollection: {
+        name: "clusteredCollection",
+        action(entity, state2, collection = "", facets = {}) {
+          if (state2.getError() !== null) {
+            return state2;
+          }
+          try {
+            const { pk, sk } = state2.getCompositeAttributes();
+            return state2.setType(QueryTypes.clustered_collection).setMethod(MethodTypes.query).setCollection(collection).setPK(entity._expectFacets(facets, pk)).ifSK(() => {
+              const { composites, unused } = state2.identifyCompositeAttributes(
+                facets,
+                sk,
+                pk
+              );
+              state2.setSK(composites);
+              state2.beforeBuildParams(({ options, state: state3 }) => {
+                const accessPattern = entity.model.translations.indexes.fromIndexToAccessPattern[state3.query.index];
+                if (options.compare === ComparisonTypes.attributes || options.compare === ComparisonTypes.v2) {
+                  if (!entity.model.indexes[accessPattern].sk.isFieldRef && sk.length > 1) {
+                    state3.filterProperties(FilterOperationNames.eq, {
+                      ...unused,
+                      ...composites
+                    });
+                  }
+                }
+              });
+            }).whenOptions(({ options, state: state3 }) => {
+              if (!options.ignoreOwnership && !state3.getParams()) {
+                state3.query.options.expressions.names = {
+                  ...state3.query.options.expressions.names,
+                  ...state3.query.options.identifiers.names
+                };
+                state3.query.options.expressions.values = {
+                  ...state3.query.options.expressions.values,
+                  ...state3.query.options.identifiers.values
+                };
+                state3.query.options.expressions.expression = state3.query.options.expressions.expression.length > 1 ? `(${state3.query.options.expressions.expression}) AND ${state3.query.options.identifiers.expression}` : `${state3.query.options.identifiers.expression}`;
+              }
+            });
+          } catch (err2) {
+            state2.setError(err2);
+            return state2;
+          }
+        },
+        children: ["between", "gte", "gt", "lte", "lt", "begins", "params", "go"]
+      },
+      collection: {
+        name: "collection",
+        /* istanbul ignore next */
+        action(entity, state2, collection = "", facets = {}) {
+          if (state2.getError() !== null) {
+            return state2;
+          }
+          try {
+            const { pk, sk } = state2.getCompositeAttributes();
+            return state2.setType(QueryTypes.collection).setMethod(MethodTypes.query).setCollection(collection).setPK(entity._expectFacets(facets, pk)).whenOptions(({ options, state: state3 }) => {
+              if (!options.ignoreOwnership && !state3.getParams()) {
+                state3.query.options.expressions.names = {
+                  ...state3.query.options.expressions.names,
+                  ...state3.query.options.identifiers.names
+                };
+                state3.query.options.expressions.values = {
+                  ...state3.query.options.expressions.values,
+                  ...state3.query.options.identifiers.values
+                };
+                state3.query.options.expressions.expression = state3.query.options.expressions.expression.length > 1 ? `(${state3.query.options.expressions.expression}) AND ${state3.query.options.identifiers.expression}` : `${state3.query.options.identifiers.expression}`;
+              }
+            });
+          } catch (err2) {
+            state2.setError(err2);
+            return state2;
+          }
+        },
+        children: ["params", "go"]
+      },
+      scan: {
+        name: "scan",
+        action(entity, state2, config) {
+          if (state2.getError() !== null) {
+            return state2;
+          }
+          try {
+            return state2.setMethod(MethodTypes.scan).whenOptions(({ state: state3, options }) => {
+              if (!options.ignoreOwnership && !state3.getParams()) {
+                state3.unsafeApplyFilter(
+                  {},
+                  FilterOperationNames.eq,
+                  entity.identifiers.entity,
+                  entity.getName()
+                );
+                state3.unsafeApplyFilter(
+                  {},
+                  FilterOperationNames.eq,
+                  entity.identifiers.version,
+                  entity.getVersion()
+                );
+              }
+            });
+          } catch (err2) {
+            state2.setError(err2);
+            return state2;
+          }
+        },
+        children: ["params", "go"]
+      },
+      get: {
+        name: "get",
+        /* istanbul ignore next */
+        action(entity, state2, facets = {}) {
+          if (state2.getError() !== null) {
+            return state2;
+          }
+          try {
+            const { pk, sk } = state2.getCompositeAttributes();
+            const { composites } = state2.identifyCompositeAttributes(
+              facets,
+              sk,
+              pk
+            );
+            return state2.setMethod(MethodTypes.get).setType(QueryTypes.eq).setPK(entity._expectFacets(facets, pk)).ifSK(() => {
+              entity._expectFacets(facets, sk);
+              state2.setSK(composites);
+            });
+          } catch (err2) {
+            state2.setError(err2);
+            return state2;
+          }
+        },
+        children: ["params", "go", "commit"]
+      },
+      check: {
+        name: "check",
+        action(...params) {
+          return clauses.get.action(...params).setMethod(MethodTypes.check);
+        },
+        children: ["commit"]
+      },
+      batchGet: {
+        name: "batchGet",
+        action: (entity, state2, payload2) => batchAction(
+          clauses.get.action,
+          MethodTypes.batchGet,
+          entity,
+          state2,
+          payload2
+        ),
+        children: ["params", "go"]
+      },
+      batchDelete: {
+        name: "batchDelete",
+        action: (entity, state2, payload2) => batchAction(
+          clauses.delete.action,
+          MethodTypes.batchWrite,
+          entity,
+          state2,
+          payload2
+        ),
+        children: ["params", "go"]
+      },
+      delete: {
+        name: "delete",
+        /* istanbul ignore next */
+        action(entity, state2, facets = {}) {
+          if (state2.getError() !== null) {
+            return state2;
+          }
+          try {
+            const { pk, sk } = state2.getCompositeAttributes();
+            const pkComposite = entity._expectFacets(facets, pk);
+            state2.addOption("_includeOnResponseItem", pkComposite);
+            return state2.setMethod(MethodTypes.delete).setType(QueryTypes.eq).setPK(pkComposite).ifSK(() => {
+              entity._expectFacets(facets, sk);
+              const skComposite = state2.buildQueryComposites(facets, sk);
+              state2.setSK(skComposite);
+              state2.addOption("_includeOnResponseItem", {
+                ...skComposite,
+                ...pkComposite
+              });
+            });
+          } catch (err2) {
+            state2.setError(err2);
+            return state2;
+          }
+        },
+        children: ["where", "params", "go", "commit"]
+      },
+      remove: {
+        name: "remove",
+        /* istanbul ignore next */
+        action(entity, state2, facets = {}) {
+          if (state2.getError() !== null) {
+            return state2;
+          }
+          try {
+            const attributes2 = state2.getCompositeAttributes();
+            const filter = state2.query.filter[ExpressionTypes.ConditionExpression];
+            const { pk, sk } = entity._getPrimaryIndexFieldNames();
+            filter.unsafeSet({}, FilterOperationNames.exists, pk);
+            if (sk) {
+              filter.unsafeSet({}, FilterOperationNames.exists, sk);
+            }
+            const pkComposite = entity._expectFacets(facets, attributes2.pk);
+            state2.addOption("_includeOnResponseItem", pkComposite);
+            return state2.setMethod(MethodTypes.delete).setType(QueryTypes.eq).setPK(pkComposite).ifSK(() => {
+              entity._expectFacets(facets, attributes2.sk);
+              const skComposite = state2.buildQueryComposites(
+                facets,
+                attributes2.sk
+              );
+              state2.setSK(skComposite);
+              state2.addOption("_includeOnResponseItem", {
+                ...skComposite,
+                ...pkComposite
+              });
+            });
+          } catch (err2) {
+            state2.setError(err2);
+            return state2;
+          }
+        },
+        children: methodChildren.del
+      },
+      upsert: {
+        name: "upsert",
+        action(entity, state2, payload2 = {}) {
+          if (state2.getError() !== null) {
+            return state2;
+          }
+          try {
+            return state2.setMethod(MethodTypes.upsert).setType(QueryTypes.eq).applyUpsert(UpsertOperations.set, payload2).beforeBuildParams(({ state: state3 }) => {
+              const { upsert, update, updateProxy } = state3.query;
+              state3.query.update.set(entity.identifiers.entity, entity.getName());
+              state3.query.update.set(
+                entity.identifiers.version,
+                entity.getVersion()
+              );
+              const setData = {};
+              const nonSetData = {};
+              let allData = {};
+              for (const name in upsert.data) {
+                const { operation: operation2, value } = upsert.data[name];
+                allData[name] = value;
+                if (operation2 === UpsertOperations.set) {
+                  setData[name] = value;
+                } else {
+                  nonSetData[name] = value;
+                }
+              }
+              const upsertData = entity.model.schema.checkCreate({ ...allData });
+              const attributes2 = state3.getCompositeAttributes();
+              const pkComposite = entity._expectFacets(upsertData, attributes2.pk);
+              state3.addOption("_includeOnResponseItem", pkComposite).setPK(pkComposite).ifSK(() => {
+                entity._expectFacets(upsertData, attributes2.sk);
+                const skComposite = entity._buildQueryFacets(
+                  upsertData,
+                  attributes2.sk
+                );
+                state3.setSK(skComposite);
+                state3.addOption("_includeOnResponseItem", {
+                  ...skComposite,
+                  ...pkComposite
+                });
+              });
+              const appliedData = entity.model.schema.applyAttributeSetters({
+                ...upsertData
+              });
+              const onlySetAppliedData = {};
+              const nonSetAppliedData = {};
+              for (const name in appliedData) {
+                const value = appliedData[name];
+                const isSetOperation = setData[name] !== void 0;
+                const cameFromApplyingSetters = allData[name] === void 0;
+                const isNotUndefined = appliedData[name] !== void 0;
+                const applyAsSet = isSetOperation || cameFromApplyingSetters;
+                if (applyAsSet && isNotUndefined) {
+                  onlySetAppliedData[name] = value;
+                } else {
+                  nonSetAppliedData[name] = value;
+                }
+              }
+              const { pk } = state3.query.keys;
+              const sk = state3.query.keys.sk[0];
+              const {
+                updatedKeys,
+                setAttributes,
+                indexKey,
+                deletedKeys = []
+              } = entity._getPutKeys(pk, sk && sk.facets, onlySetAppliedData);
+              for (const deletedKey of deletedKeys) {
+                state3.query.update.remove(deletedKey);
+              }
+              upsert.indexKey = indexKey;
+              const setFields = entity.model.schema.translateToFields(setAttributes);
+              for (const key in updatedKeys) {
+                const value = updatedKeys[key];
+                if (indexKey[key] === void 0) {
+                  setFields[key] = value;
+                } else {
+                  delete setFields[key];
+                }
+              }
+              entity._maybeApplyUpsertUpdate({
+                fields: Object.entries(setFields),
+                operation: UpsertOperations.set,
+                updateProxy,
+                update
+              });
+              for (const name in nonSetData) {
+                const value = appliedData[name];
+                if (value === void 0 || upsert.data[name] === void 0) {
+                  continue;
+                }
+                const { operation: operation2 } = upsert.data[name];
+                const fields = entity.model.schema.translateToFields({
+                  [name]: value
+                });
+                entity._maybeApplyUpsertUpdate({
+                  fields: Object.entries(fields),
+                  updateProxy,
+                  operation: operation2,
+                  update
+                });
+              }
+            });
+          } catch (err2) {
+            state2.setError(err2);
+            return state2;
+          }
+        },
+        children: methodChildren.upsert
+      },
+      put: {
+        name: "put",
+        /* istanbul ignore next */
+        action(entity, state2, payload2 = {}) {
+          if (state2.getError() !== null) {
+            return state2;
+          }
+          try {
+            let record = entity.model.schema.checkCreate({ ...payload2 });
+            const attributes2 = state2.getCompositeAttributes();
+            return state2.setMethod(MethodTypes.put).setType(QueryTypes.eq).applyPut(record).setPK(entity._expectFacets(record, attributes2.pk)).ifSK(() => {
+              entity._expectFacets(record, attributes2.sk);
+              state2.setSK(state2.buildQueryComposites(record, attributes2.sk));
+            });
+          } catch (err2) {
+            state2.setError(err2);
+            return state2;
+          }
+        },
+        children: methodChildren.put
+      },
+      batchPut: {
+        name: "batchPut",
+        action: (entity, state2, payload2) => batchAction(
+          clauses.put.action,
+          MethodTypes.batchWrite,
+          entity,
+          state2,
+          payload2
+        ),
+        children: ["params", "go"]
+      },
+      create: {
+        name: "create",
+        action(entity, state2, payload2) {
+          if (state2.getError() !== null) {
+            return state2;
+          }
+          try {
+            let record = entity.model.schema.checkCreate({ ...payload2 });
+            const attributes2 = state2.getCompositeAttributes();
+            const filter = state2.query.filter[ExpressionTypes.ConditionExpression];
+            const { pk, sk } = entity._getPrimaryIndexFieldNames();
+            filter.unsafeSet({}, FilterOperationNames.notExists, pk);
+            if (sk) {
+              filter.unsafeSet({}, FilterOperationNames.notExists, sk);
+            }
+            return state2.setMethod(MethodTypes.put).setType(QueryTypes.eq).applyPut(record).setPK(entity._expectFacets(record, attributes2.pk)).ifSK(() => {
+              entity._expectFacets(record, attributes2.sk);
+              state2.setSK(state2.buildQueryComposites(record, attributes2.sk));
+            });
+          } catch (err2) {
+            state2.setError(err2);
+            return state2;
+          }
+        },
+        children: methodChildren.put
+      },
+      patch: {
+        name: "patch",
+        action(entity, state2, facets) {
+          if (state2.getError() !== null) {
+            return state2;
+          }
+          try {
+            const attributes2 = state2.getCompositeAttributes();
+            const filter = state2.query.filter[ExpressionTypes.ConditionExpression];
+            const { pk, sk } = entity._getPrimaryIndexFieldNames();
+            filter.unsafeSet({}, FilterOperationNames.exists, pk);
+            if (sk) {
+              filter.unsafeSet({}, FilterOperationNames.exists, sk);
+            }
+            const pkComposite = entity._expectFacets(facets, attributes2.pk);
+            state2.addOption("_includeOnResponseItem", pkComposite);
+            return state2.setMethod(MethodTypes.update).setType(QueryTypes.eq).setPK(pkComposite).ifSK(() => {
+              entity._expectFacets(facets, attributes2.sk);
+              const skComposite = state2.buildQueryComposites(
+                facets,
+                attributes2.sk
+              );
+              state2.setSK(skComposite);
+              state2.addOption("_includeOnResponseItem", {
+                ...skComposite,
+                ...pkComposite
+              });
+            });
+          } catch (err2) {
+            state2.setError(err2);
+            return state2;
+          }
+        },
+        children: methodChildren.update
+      },
+      update: {
+        name: "update",
+        action(entity, state2, facets) {
+          if (state2.getError() !== null) {
+            return state2;
+          }
+          try {
+            const attributes2 = state2.getCompositeAttributes();
+            const pkComposite = entity._expectFacets(facets, attributes2.pk);
+            state2.addOption("_includeOnResponseItem", pkComposite);
+            return state2.setMethod(MethodTypes.update).setType(QueryTypes.eq).setPK(pkComposite).ifSK(() => {
+              entity._expectFacets(facets, attributes2.sk);
+              const skComposite = state2.buildQueryComposites(
+                facets,
+                attributes2.sk
+              );
+              state2.setSK(skComposite);
+              state2.addOption("_includeOnResponseItem", {
+                ...pkComposite,
+                ...skComposite
+              });
+            });
+          } catch (err2) {
+            state2.setError(err2);
+            return state2;
+          }
+        },
+        children: methodChildren.update
+      },
+      data: {
+        name: "data",
+        action(entity, state2, cb) {
+          if (state2.getError() !== null) {
+            return state2;
+          }
+          try {
+            state2.query.updateProxy.invokeCallback(cb);
+            for (const path of Object.keys(state2.query.update.refs)) {
+              const operation2 = state2.query.update.impacted[path];
+              const attribute = state2.query.update.refs[path];
+              const keyValue = state2.query.update.paths[path] || {};
+              if (!attribute) {
+                throw new e4.ElectroAttributeValidationError(
+                  path,
+                  `Attribute "${path}" does not exist on model.`
+                );
+              }
+              entity.model.schema.checkOperation(
+                attribute,
+                operation2,
+                keyValue.value
+              );
+            }
+            return state2;
+          } catch (err2) {
+            state2.setError(err2);
+            return state2;
+          }
+        },
+        children: methodChildren.update
+      },
+      set: {
+        name: "set",
+        action(entity, state2, data2) {
+          if (state2.getError() !== null) {
+            return state2;
+          }
+          try {
+            entity.model.schema.checkUpdate(data2);
+            state2.query.updateProxy.fromObject(ItemOperations.set, data2);
+            return state2;
+          } catch (err2) {
+            state2.setError(err2);
+            return state2;
+          }
+        },
+        children: methodChildren.update
+      },
+      upsertSet: {
+        name: "set",
+        action(entity, state2, data2) {
+          if (state2.getError() !== null) {
+            return state2;
+          }
+          try {
+            entity.model.schema.checkUpdate(data2, { allowReadOnly: true });
+            state2.query.upsert.addData(UpsertOperations.set, data2);
+            return state2;
+          } catch (err2) {
+            state2.setError(err2);
+            return state2;
+          }
+        },
+        children: methodChildren.upsert
+      },
+      composite: {
+        name: "composite",
+        action(entity, state2, composites = {}) {
+          if (state2.getError() !== null) {
+            return state2;
+          }
+          try {
+            for (const attrName in composites) {
+              if (entity.model.facets.byAttr[attrName]) {
+                const wasSet = state2.query.update.addComposite(
+                  attrName,
+                  composites[attrName]
+                );
+                if (!wasSet) {
+                  throw new e4.ElectroError(
+                    e4.ErrorCodes.DuplicateUpdateCompositesProvided,
+                    `The composite attribute ${attrName} has been provided more than once with different values. Remove the duplication before running again`
+                  );
+                }
+                state2.applyCondition(
+                  FilterOperationNames.eq,
+                  attrName,
+                  composites[attrName]
+                );
+              }
+            }
+            return state2;
+          } catch (err2) {
+            state2.setError(err2);
+            return state2;
+          }
+        },
+        children: methodChildren.update
+      },
+      append: {
+        name: "append",
+        action(entity, state2, data2 = {}) {
+          if (state2.getError() !== null) {
+            return state2;
+          }
+          try {
+            entity.model.schema.checkUpdate(data2);
+            state2.query.updateProxy.fromObject(ItemOperations.append, data2);
+            return state2;
+          } catch (err2) {
+            state2.setError(err2);
+            return state2;
+          }
+        },
+        children: methodChildren.update
+      },
+      ifNotExists: {
+        name: "ifNotExists",
+        action(entity, state2, data2 = {}) {
+          entity.model.schema.checkUpdate(data2);
+          state2.query.updateProxy.fromObject(ItemOperations.ifNotExists, data2);
+          return state2;
+        },
+        children: methodChildren.update
+      },
+      upsertIfNotExists: {
+        name: "ifNotExists",
+        action(entity, state2, data2 = {}) {
+          if (state2.getError() !== null) {
+            return state2;
+          }
+          try {
+            entity.model.schema.checkUpdate(data2, { allowReadOnly: true });
+            state2.query.upsert.addData(UpsertOperations.ifNotExists, data2);
+            return state2;
+          } catch (err2) {
+            state2.setError(err2);
+            return state2;
+          }
+        },
+        children: methodChildren.upsert
+      },
+      upsertAppend: {
+        name: "append",
+        action(entity, state2, data2 = {}) {
+          if (state2.getError() !== null) {
+            return state2;
+          }
+          try {
+            entity.model.schema.checkUpdate(data2, { allowReadOnly: true });
+            state2.query.upsert.addData(UpsertOperations.append, data2);
+            return state2;
+          } catch (err2) {
+            state2.setError(err2);
+            return state2;
+          }
+        },
+        children: methodChildren.upsert
+      },
+      updateRemove: {
+        name: "remove",
+        action(entity, state2, data2) {
+          if (state2.getError() !== null) {
+            return state2;
+          }
+          try {
+            if (!Array.isArray(data2)) {
+              throw new Error("Update method 'remove' expects type Array");
+            }
+            entity.model.schema.checkRemove(data2);
+            state2.query.updateProxy.fromArray(ItemOperations.remove, data2);
+            return state2;
+          } catch (err2) {
+            state2.setError(err2);
+            return state2;
+          }
+        },
+        children: methodChildren.update
+      },
+      updateDelete: {
+        name: "delete",
+        action(entity, state2, data2) {
+          if (state2.getError() !== null) {
+            return state2;
+          }
+          try {
+            entity.model.schema.checkUpdate(data2);
+            state2.query.updateProxy.fromObject(ItemOperations.delete, data2);
+            return state2;
+          } catch (err2) {
+            state2.setError(err2);
+            return state2;
+          }
+        },
+        children: methodChildren.update
+      },
+      add: {
+        name: "add",
+        action(entity, state2, data2) {
+          if (state2.getError() !== null) {
+            return state2;
+          }
+          try {
+            entity.model.schema.checkUpdate(data2);
+            state2.query.updateProxy.fromObject(ItemOperations.add, data2);
+            return state2;
+          } catch (err2) {
+            state2.setError(err2);
+            return state2;
+          }
+        },
+        children: methodChildren.update
+      },
+      upsertAdd: {
+        name: "add",
+        action(entity, state2, data2) {
+          if (state2.getError() !== null) {
+            return state2;
+          }
+          try {
+            entity.model.schema.checkUpdate(data2, { allowReadOnly: true });
+            state2.query.upsert.addData(UpsertOperations.add, data2);
+            return state2;
+          } catch (err2) {
+            state2.setError(err2);
+            return state2;
+          }
+        },
+        children: methodChildren.upsert
+      },
+      upsertSubtract: {
+        name: "subtract",
+        action(entity, state2, data2) {
+          if (state2.getError() !== null) {
+            return state2;
+          }
+          try {
+            entity.model.schema.checkUpdate(data2, { allowReadOnly: true });
+            state2.query.upsert.addData(UpsertOperations.subtract, data2);
+            return state2;
+          } catch (err2) {
+            state2.setError(err2);
+            return state2;
+          }
+        },
+        children: methodChildren.upsert
+      },
+      subtract: {
+        name: "subtract",
+        action(entity, state2, data2) {
+          if (state2.getError() !== null) {
+            return state2;
+          }
+          try {
+            entity.model.schema.checkUpdate(data2);
+            state2.query.updateProxy.fromObject(ItemOperations.subtract, data2);
+            return state2;
+          } catch (err2) {
+            state2.setError(err2);
+            return state2;
+          }
+        },
+        children: methodChildren.update
+      },
+      query: {
+        name: "query",
+        action(entity, state2, facets, options = {}) {
+          if (state2.getError() !== null) {
+            return state2;
+          }
+          try {
+            state2.addOption("_isPagination", true);
+            const { pk, sk } = state2.getCompositeAttributes();
+            return state2.setMethod(MethodTypes.query).setType(QueryTypes.is).setPK(entity._expectFacets(facets, pk)).ifSK(() => {
+              const { composites, unused } = state2.identifyCompositeAttributes(
+                facets,
+                sk,
+                pk
+              );
+              state2.setSK(state2.buildQueryComposites(facets, sk));
+              state2.whenOptions(({ options: options2, state: state3 }) => {
+                if (options2.compare === ComparisonTypes.attributes || options2.compare === ComparisonTypes.v2) {
+                  if (sk.length > 1) {
+                    state3.filterProperties(FilterOperationNames.eq, {
+                      ...unused,
+                      ...composites
+                    });
+                  }
+                }
+                if (state3.query.options.indexType === IndexTypes.clustered && Object.keys(composites).length < sk.length && !options2.ignoreOwnership && !state3.getParams()) {
+                  state3.unsafeApplyFilter(
+                    {},
+                    FilterOperationNames.eq,
+                    entity.identifiers.entity,
+                    entity.getName()
+                  ).unsafeApplyFilter(
+                    {},
+                    FilterOperationNames.eq,
+                    entity.identifiers.version,
+                    entity.getVersion()
+                  );
+                }
+              });
+            });
+          } catch (err2) {
+            state2.setError(err2);
+            return state2;
+          }
+        },
+        children: ["between", "gte", "gt", "lte", "lt", "begins", "params", "go"]
+      },
+      between: {
+        name: "between",
+        action(entity, state2, startingFacets = {}, endingFacets = {}) {
+          if (state2.getError() !== null) {
+            return state2;
+          }
+          try {
+            const { pk, sk } = state2.getCompositeAttributes();
+            const endingSk = state2.identifyCompositeAttributes(
+              endingFacets,
+              sk,
+              pk
+            );
+            const startingSk = state2.identifyCompositeAttributes(
+              startingFacets,
+              sk,
+              pk
+            );
+            const accessPattern = entity.model.translations.indexes.fromIndexToAccessPattern[state2.query.index];
+            return state2.setType(QueryTypes.and).setSK(endingSk.composites).setType(QueryTypes.between).setSK(startingSk.composites).beforeBuildParams(({ options, state: state3 }) => {
+              if (options.compare === ComparisonTypes.attributes || options.compare === ComparisonTypes.v2) {
+                if (!entity.model.indexes[accessPattern].sk.isFieldRef) {
+                  state3.filterProperties(
+                    FilterOperationNames.lte,
+                    endingSk.composites,
+                    { asPrefix: true }
+                  );
+                }
+                if (options.compare === ComparisonTypes.attributes) {
+                  if (!entity.model.indexes[accessPattern].sk.isFieldRef) {
+                    state3.filterProperties(
+                      FilterOperationNames.gte,
+                      startingSk.composites,
+                      { asPrefix: true }
+                    );
+                  }
+                }
+              }
+            });
+          } catch (err2) {
+            state2.setError(err2);
+            return state2;
+          }
+        },
+        children: ["go", "params"]
+      },
+      begins: {
+        name: "begins",
+        action(entity, state2, facets = {}) {
+          if (state2.getError() !== null) {
+            return state2;
+          }
+          try {
+            return state2.setType(QueryTypes.begins).ifSK((state3) => {
+              const attributes2 = state3.getCompositeAttributes();
+              state3.setSK(state3.buildQueryComposites(facets, attributes2.sk));
+            });
+          } catch (err2) {
+            state2.setError(err2);
+            return state2;
+          }
+        },
+        children: ["go", "params"]
+      },
+      gt: {
+        name: "gt",
+        action(entity, state2, facets = {}) {
+          if (state2.getError() !== null) {
+            return state2;
+          }
+          try {
+            return state2.setType(QueryTypes.gt).ifSK((state3) => {
+              const { pk, sk } = state3.getCompositeAttributes();
+              const { composites } = state3.identifyCompositeAttributes(
+                facets,
+                sk,
+                pk
+              );
+              state3.setSK(composites);
+              state3.beforeBuildParams(({ options, state: state4 }) => {
+                if (options.compare === ComparisonTypes.attributes || options.compare === ComparisonTypes.v2) {
+                  const accessPattern = entity.model.translations.indexes.fromIndexToAccessPattern[state4.query.index];
+                  if (!entity.model.indexes[accessPattern].sk.isFieldRef) {
+                    state4.filterProperties(FilterOperationNames.gt, composites, {
+                      asPrefix: true
+                    });
+                  }
+                }
+              });
+            });
+          } catch (err2) {
+            state2.setError(err2);
+            return state2;
+          }
+        },
+        children: ["go", "params"]
+      },
+      gte: {
+        name: "gte",
+        action(entity, state2, facets = {}) {
+          if (state2.getError() !== null) {
+            return state2;
+          }
+          try {
+            return state2.setType(QueryTypes.gte).ifSK((state3) => {
+              const attributes2 = state3.getCompositeAttributes();
+              state3.setSK(state3.buildQueryComposites(facets, attributes2.sk));
+              state3.beforeBuildParams(({ options, state: state4 }) => {
+                const { composites } = state4.identifyCompositeAttributes(
+                  facets,
+                  attributes2.sk,
+                  attributes2.pk
+                );
+                if (options.compare === ComparisonTypes.attributes) {
+                  const accessPattern = entity.model.translations.indexes.fromIndexToAccessPattern[state4.query.index];
+                  if (!entity.model.indexes[accessPattern].sk.isFieldRef && attributes2.sk.length > 1) {
+                    state4.filterProperties(FilterOperationNames.gte, composites, {
+                      asPrefix: true
+                    });
+                  }
+                }
+              });
+            });
+          } catch (err2) {
+            state2.setError(err2);
+            return state2;
+          }
+        },
+        children: ["go", "params"]
+      },
+      lt: {
+        name: "lt",
+        action(entity, state2, facets = {}) {
+          if (state2.getError() !== null) {
+            return state2;
+          }
+          try {
+            return state2.setType(QueryTypes.lt).ifSK((state3) => {
+              const { pk, sk } = state3.getCompositeAttributes();
+              const { composites } = state3.identifyCompositeAttributes(
+                facets,
+                sk,
+                pk
+              );
+              state3.setSK(composites);
+              state3.beforeBuildParams(({ options, state: state4 }) => {
+                if (options.compare === ComparisonTypes.attributes) {
+                  const accessPattern = entity.model.translations.indexes.fromIndexToAccessPattern[state4.query.index];
+                  if (!entity.model.indexes[accessPattern].sk.isFieldRef) {
+                    state4.filterProperties(FilterOperationNames.lt, composites, {
+                      asPrefix: true
+                    });
+                  }
+                }
+              });
+            });
+          } catch (err2) {
+            state2.setError(err2);
+            return state2;
+          }
+        },
+        children: ["go", "params"]
+      },
+      lte: {
+        name: "lte",
+        action(entity, state2, facets = {}) {
+          if (state2.getError() !== null) {
+            return state2;
+          }
+          try {
+            return state2.setType(QueryTypes.lte).ifSK((state3) => {
+              const { pk, sk } = state3.getCompositeAttributes();
+              const { composites } = state3.identifyCompositeAttributes(
+                facets,
+                sk,
+                pk
+              );
+              state3.setSK(composites);
+              state3.beforeBuildParams(({ options, state: state4 }) => {
+                if (options.compare === ComparisonTypes.attributes || options.compare === ComparisonTypes.v2) {
+                  const accessPattern = entity.model.translations.indexes.fromIndexToAccessPattern[state4.query.index];
+                  if (!entity.model.indexes[accessPattern].sk.isFieldRef) {
+                    state4.filterProperties(FilterOperationNames.lte, composites, {
+                      asPrefix: true
+                    });
+                  }
+                }
+              });
+            });
+          } catch (err2) {
+            state2.setError(err2);
+            return state2;
+          }
+        },
+        children: ["go", "params"]
+      },
+      commit: {
+        name: "commit",
+        action(entity, state2, options) {
+          if (state2.getError() !== null) {
+            throw state2.error;
+          }
+          const results = clauses.params.action(entity, state2, {
+            ...options,
+            _returnOptions: true,
+            _isTransaction: true
+          });
+          const method = TransactionOperations[state2.query.method];
+          if (!method) {
+            throw new Error("Invalid commit method");
+          }
+          return {
+            [method]: results.params,
+            [TransactionCommitSymbol]: () => {
+              return {
+                entity
+              };
+            }
+          };
+        },
+        children: []
+      },
+      params: {
+        name: "params",
+        action(entity, state2, options = {}) {
+          if (state2.getError() !== null) {
+            throw state2.error;
+          }
+          try {
+            if (!v7.isStringHasLength(options.table) && !v7.isStringHasLength(entity.getTableName())) {
+              throw new e4.ElectroError(
+                e4.ErrorCodes.MissingTable,
+                `Table name not defined. Table names must be either defined on the model, instance configuration, or as a query option.`
+              );
+            }
+            const method = state2.getMethod();
+            const normalizedOptions = entity._normalizeExecutionOptions({
+              provided: [state2.getOptions(), state2.query.options, options],
+              context: {
+                operation: options._isTransaction ? MethodTypes.transactWrite : void 0
+              }
+            });
+            state2.applyWithOptions(normalizedOptions);
+            state2.applyBeforeBuildParams(normalizedOptions);
+            let results;
+            switch (method) {
+              case MethodTypes.query: {
+                results = entity._queryParams(state2, normalizedOptions);
+                break;
+              }
+              case MethodTypes.batchWrite: {
+                results = entity._batchWriteParams(state2, normalizedOptions);
+                break;
+              }
+              case MethodTypes.batchGet: {
+                results = entity._batchGetParams(state2, normalizedOptions);
+                break;
+              }
+              default: {
+                results = entity._params(state2, normalizedOptions);
+                break;
+              }
+            }
+            if (method === MethodTypes.update && results.ExpressionAttributeValues && Object.keys(results.ExpressionAttributeValues).length === 0) {
+              delete results.ExpressionAttributeValues;
+            }
+            if (options._returnOptions) {
+              results = {
+                params: results,
+                options: normalizedOptions
+              };
+            }
+            state2.setParams(results);
+            return results;
+          } catch (err2) {
+            throw err2;
+          }
+        },
+        children: []
+      },
+      go: {
+        name: "go",
+        action(entity, state2, options = {}) {
+          if (state2.getError() !== null) {
+            return Promise.reject(state2.error);
+          }
+          try {
+            if (entity.client === void 0) {
+              throw new e4.ElectroError(
+                e4.ErrorCodes.NoClientDefined,
+                "No client defined on model"
+              );
+            }
+            options.terminalOperation = TerminalOperation.go;
+            const paramResults = clauses.params.action(entity, state2, {
+              ...options,
+              _returnOptions: true
+            });
+            return entity.go(
+              state2.getMethod(),
+              paramResults.params,
+              paramResults.options
+            );
+          } catch (err2) {
+            return Promise.reject(err2);
+          }
+        },
+        children: []
+      }
+    };
+    var ChainState = class _ChainState {
+      constructor({
+        index = "",
+        compositeAttributes = {},
+        attributes: attributes2 = {},
+        hasSortKey = false,
+        options = {},
+        parentState = null
+      } = {}) {
+        const update = new UpdateExpression({ prefix: "_u" });
+        this.parentState = parentState;
+        this.error = null;
+        this.attributes = attributes2;
+        this.query = {
+          collection: "",
+          index,
+          type: "",
+          method: "",
+          facets: { ...compositeAttributes },
+          update,
+          updateProxy: new AttributeOperationProxy({
+            builder: update,
+            attributes: attributes2,
+            operations: UpdateOperations
+          }),
+          put: {
+            data: {}
+          },
+          upsert: {
+            data: {},
+            indexKey: null,
+            addData(operation2 = UpsertOperations.set, data2 = {}) {
+              for (const name of Object.keys(data2)) {
+                const value = data2[name];
+                this.data[name] = {
+                  operation: operation2,
+                  value
+                };
+              }
+            },
+            getData(operationFilter) {
+              const results = {};
+              for (const name in this.data) {
+                const { operation: operation2, value } = this.data[name];
+                if (!operationFilter || operationFilter === operation2) {
+                  results[name] = value;
+                }
+              }
+              return results;
+            }
+          },
+          keys: {
+            provided: [],
+            pk: {},
+            sk: []
+          },
+          filter: {
+            [ExpressionTypes.ConditionExpression]: new FilterExpression(),
+            [ExpressionTypes.FilterExpression]: new FilterExpression()
+          },
+          options
+        };
+        this.subStates = [];
+        this.hasSortKey = hasSortKey;
+        this.prev = null;
+        this.self = null;
+        this.params = null;
+        this.applyAfterOptions = [];
+        this.beforeBuildParamsOperations = [];
+        this.beforeBuildParamsHasRan = false;
+      }
+      getParams() {
+        return this.params;
+      }
+      setParams(params) {
+        if (params) {
+          this.params = params;
+        }
+      }
+      init(entity, allClauses, currentClause) {
+        let current = {};
+        for (let child of currentClause.children) {
+          const name = allClauses[child].name;
+          current[name] = (...args) => {
+            this.prev = this.self;
+            this.self = child;
+            let results = allClauses[child].action(entity, this, ...args);
+            if (allClauses[child].children.length) {
+              return this.init(entity, allClauses, allClauses[child]);
+            } else {
+              return results;
+            }
+          };
+        }
+        return current;
+      }
+      getMethod() {
+        return this.query.method;
+      }
+      getOptions() {
+        return this.query.options;
+      }
+      addOption(key, value) {
+        this.query.options[key] = value;
+        return this;
+      }
+      _appendProvided(type, attributes2) {
+        const newAttributes = Object.keys(attributes2).map((attribute) => {
+          return {
+            type,
+            attribute
+          };
+        });
+        return u4.getUnique(this.query.keys.provided, newAttributes);
+      }
+      setPK(attributes2) {
+        this.query.keys.pk = attributes2;
+        this.query.keys.provided = this._appendProvided(KeyTypes.pk, attributes2);
+        return this;
+      }
+      ifSK(cb) {
+        if (this.hasSortKey) {
+          cb(this);
+        }
+        return this;
+      }
+      getCompositeAttributes() {
+        return this.query.facets;
+      }
+      buildQueryComposites(provided, definition) {
+        return definition.map((name) => [name, provided[name]]).reduce((result, [name, value]) => {
+          if (value !== void 0) {
+            result[name] = value;
+          }
+          return result;
+        }, {});
+      }
+      identifyCompositeAttributes(provided, defined, skip) {
+        const composites = {};
+        const unused = {};
+        const definedSet = new Set(defined || []);
+        const skipSet = new Set(skip || []);
+        for (const key of Object.keys(provided)) {
+          const value = provided[key];
+          if (definedSet.has(key)) {
+            composites[key] = value;
+          } else if (skipSet.has(key)) {
+            continue;
+          } else {
+            unused[key] = value;
+          }
+        }
+        return {
+          composites,
+          unused
+        };
+      }
+      applyFilter(operation2, name, values, filterOptions) {
+        if (FilterOperationNames[operation2] !== void 0 && name !== void 0 && values !== void 0) {
+          const attribute = this.attributes[name];
+          if (attribute !== void 0) {
+            this.unsafeApplyFilter(
+              filterOptions,
+              operation2,
+              attribute.field,
+              values
+            );
+          }
+        }
+        return this;
+      }
+      applyCondition(operation2, name, ...values) {
+        if (FilterOperationNames[operation2] !== void 0 && name !== void 0 && values.length > 0) {
+          const attribute = this.attributes[name];
+          if (attribute !== void 0) {
+            const filter = this.query.filter[ExpressionTypes.ConditionExpression];
+            filter.unsafeSet({}, operation2, attribute.field, ...values);
+          }
+        }
+        return this;
+      }
+      unsafeApplyFilter(filterOptions = {}, operation2, name, values) {
+        if (FilterOperationNames[operation2] !== void 0 & name !== void 0 && values !== void 0) {
+          const filter = this.query.filter[ExpressionTypes.FilterExpression];
+          filter.unsafeSet(filterOptions, operation2, name, values);
+        }
+        return this;
+      }
+      filterProperties(operation2, obj = {}, filterOptions = {}) {
+        for (const property in obj) {
+          const value = obj[property];
+          if (value !== void 0) {
+            this.applyFilter(operation2, property, value, filterOptions);
+          }
+        }
+        return this;
+      }
+      setSK(attributes2, type = this.query.type) {
+        if (this.hasSortKey) {
+          this.query.keys.sk.push({
+            type,
+            facets: attributes2
+          });
+          this.query.keys.provided = this._appendProvided(KeyTypes.sk, attributes2);
+        }
+        return this;
+      }
+      setType(type) {
+        if (!QueryTypes[type]) {
+          throw new Error(`Invalid query type: "${type}"`);
+        }
+        this.query.type = QueryTypes[type];
+        return this;
+      }
+      setMethod(method) {
+        if (!MethodTypes[method]) {
+          throw new Error(`Invalid method type: "${method}"`);
+        }
+        this.query.method = MethodTypes[method];
+        return this;
+      }
+      setCollection(collection) {
+        this.query.collection = collection;
+        return this;
+      }
+      createSubState() {
+        let subState = new _ChainState({
+          parentState: this,
+          index: this.query.index,
+          attributes: this.attributes,
+          hasSortKey: this.hasSortKey,
+          options: this.query.options,
+          compositeAttributes: this.query.facets
+        });
+        this.subStates.push(subState);
+        return subState;
+      }
+      getError() {
+        return this.error;
+      }
+      setError(err2) {
+        this.error = err2;
+        if (this.parentState) {
+          this.parentState.setError(err2);
+        }
+      }
+      applyUpsert(operation2 = UpsertOperations.set, data2 = {}) {
+        this.query.upsert.addData(operation2, data2);
+        return this;
+      }
+      applyPut(data2 = {}) {
+        this.query.put.data = { ...this.query.put.data, ...data2 };
+        return this;
+      }
+      whenOptions(fn) {
+        if (v7.isFunction(fn)) {
+          this.applyAfterOptions.push((options) => {
+            fn({ options, state: this });
+          });
+        }
+        return this;
+      }
+      // these are ran before "beforeBuildParams"
+      applyWithOptions(options = {}) {
+        this.applyAfterOptions.forEach((fn) => fn(options));
+      }
+      beforeBuildParams(fn) {
+        if (v7.isFunction(fn)) {
+          this.beforeBuildParamsOperations.push((options) => {
+            fn({ options, state: this });
+          });
+        }
+        return this;
+      }
+      applyBeforeBuildParams(options = {}) {
+        if (!this.beforeBuildParamsHasRan) {
+          this.beforeBuildParamsHasRan = true;
+          this.beforeBuildParamsOperations.forEach((fn) => fn(options));
+        }
+      }
+    };
+    module.exports = {
+      clauses,
+      ChainState
+    };
+  }
+});
+
+// ../../node_modules/electrodb/src/events.js
+var require_events = __commonJS({
+  "../../node_modules/electrodb/src/events.js"(exports, module) {
+    var e4 = require_errors();
+    var v7 = require_validations();
+    var EventManager = class _EventManager {
+      static createSafeListener(listener) {
+        if (listener === void 0) {
+          return void 0;
+        }
+        if (!v7.isFunction(listener)) {
+          throw new e4.ElectroError(
+            e4.ErrorCodes.InvalidListenerProvided,
+            `Provided listener is not of type 'function'`
+          );
+        } else {
+          return (...params) => {
+            try {
+              listener(...params);
+            } catch (err2) {
+              console.error(`Error invoking user supplied listener`, err2);
+            }
+          };
+        }
+      }
+      static normalizeListeners(listeners = []) {
+        if (!Array.isArray(listeners)) {
+          throw new e4.ElectroError(
+            e4.ErrorCodes.InvalidListenerProvided,
+            `Listeners must be provided as an array of functions`
+          );
+        }
+        return listeners.map((listener) => _EventManager.createSafeListener(listener)).filter((listener) => {
+          switch (typeof listener) {
+            case "function":
+              return true;
+            case "undefined":
+              return false;
+            default:
+              throw new e4.ElectroError(
+                e4.ErrorCodes.InvalidListenerProvided,
+                `Provided listener is not of type 'function`
+              );
+          }
+        });
+      }
+      constructor({ listeners = [] } = {}) {
+        this.listeners = _EventManager.normalizeListeners(listeners);
+      }
+      add(listeners = []) {
+        if (!Array.isArray(listeners)) {
+          listeners = [listeners];
+        }
+        this.listeners = this.listeners.concat(
+          _EventManager.normalizeListeners(listeners)
+        );
+      }
+      trigger(event, adHocListeners = []) {
+        const allListeners = [
+          ...this.listeners,
+          ..._EventManager.normalizeListeners(adHocListeners)
+        ];
+        for (const listener of allListeners) {
+          listener(event);
+        }
+      }
+    };
+    module.exports = {
+      EventManager
+    };
+  }
+});
+
 // ../../node_modules/@smithy/types/dist-cjs/index.js
 var require_dist_cjs = __commonJS({
   "../../node_modules/@smithy/types/dist-cjs/index.js"(exports) {
@@ -4550,10 +11692,10 @@ var require_dist_cjs3 = __commonJS({
         this.values = values;
       }
       remove(value) {
-        this.values = this.values.filter((v6) => v6 !== value);
+        this.values = this.values.filter((v7) => v7 !== value);
       }
       toString() {
-        return this.values.map((v6) => v6.includes(",") || v6.includes(" ") ? `"${v6}"` : v6).join(", ");
+        return this.values.map((v7) => v7.includes(",") || v7.includes(" ") ? `"${v7}"` : v7).join(", ");
       }
       get() {
         return this.values;
@@ -4852,10 +11994,10 @@ var require_typed_arrays = __commonJS({
       Float64Array: 8
     };
     exports.getMinimalRepresentation = function(array, getter) {
-      var maxType = null, maxPriority = 0, p4, t4, v6, i4, l4;
+      var maxType = null, maxPriority = 0, p4, t4, v7, i4, l4;
       for (i4 = 0, l4 = array.length; i4 < l4; i4++) {
-        v6 = getter ? getter(array[i4]) : array[i4];
-        t4 = exports.getNumberType(v6);
+        v7 = getter ? getter(array[i4]) : array[i4];
+        t4 = exports.getNumberType(v7);
         p4 = TYPE_PRIORITY[t4.name];
         if (p4 > maxPriority) {
           maxPriority = p4;
@@ -5176,8 +12318,8 @@ var require_dist_cjs4 = __commonJS({
       }
       set(key, endpoints) {
         const now = Date.now();
-        this.cache.set(key, endpoints.map(({ Address: Address3, CachePeriodInMinutes }) => ({
-          Address: Address3,
+        this.cache.set(key, endpoints.map(({ Address, CachePeriodInMinutes }) => ({
+          Address,
           Expires: now + CachePeriodInMinutes * 60 * 1e3
         })));
       }
@@ -8457,8 +15599,8 @@ var init_NormalizedSchema = __esm({
       getMemberSchemas() {
         const buffer = {};
         try {
-          for (const [k4, v6] of this.structIterator()) {
-            buffer[k4] = v6;
+          for (const [k4, v7] of this.structIterator()) {
+            buffer[k4] = v7;
           }
         } catch (ignored) {
         }
@@ -8810,7 +15952,7 @@ var init_parse_utils = __esm({
         return void 0;
       }
       const asObject = expectObject(value);
-      const setKeys = Object.entries(asObject).filter(([, v6]) => v6 != null).map(([k4]) => k4);
+      const setKeys = Object.entries(asObject).filter(([, v7]) => v7 != null).map(([k4]) => k4);
       if (setKeys.length === 0) {
         throw new TypeError(`Unions must have exactly one non-null member. None were found.`);
       }
@@ -9245,8 +16387,8 @@ function __generator(thisArg, body) {
     return this;
   }), g4;
   function verb(n4) {
-    return function(v6) {
-      return step([n4, v6]);
+    return function(v7) {
+      return step([n4, v7]);
     };
   }
   function step(op2) {
@@ -9357,8 +16499,8 @@ function __spreadArray(to, from, pack) {
   }
   return to.concat(ar || Array.prototype.slice.call(from));
 }
-function __await(v6) {
-  return this instanceof __await ? (this.v = v6, this) : new __await(v6);
+function __await(v7) {
+  return this instanceof __await ? (this.v = v7, this) : new __await(v7);
 }
 function __asyncGenerator(thisArg, _arguments, generator) {
   if (!Symbol.asyncIterator) throw new TypeError("Symbol.asyncIterator is not defined.");
@@ -9367,23 +16509,23 @@ function __asyncGenerator(thisArg, _arguments, generator) {
     return this;
   }, i4;
   function awaitReturn(f4) {
-    return function(v6) {
-      return Promise.resolve(v6).then(f4, reject);
+    return function(v7) {
+      return Promise.resolve(v7).then(f4, reject);
     };
   }
   function verb(n4, f4) {
     if (g4[n4]) {
-      i4[n4] = function(v6) {
+      i4[n4] = function(v7) {
         return new Promise(function(a4, b4) {
-          q4.push([n4, v6, a4, b4]) > 1 || resume(n4, v6);
+          q4.push([n4, v7, a4, b4]) > 1 || resume(n4, v7);
         });
       };
       if (f4) i4[n4] = f4(i4[n4]);
     }
   }
-  function resume(n4, v6) {
+  function resume(n4, v7) {
     try {
-      step(g4[n4](v6));
+      step(g4[n4](v7));
     } catch (e4) {
       settle(q4[0][3], e4);
     }
@@ -9397,8 +16539,8 @@ function __asyncGenerator(thisArg, _arguments, generator) {
   function reject(value) {
     resume("throw", value);
   }
-  function settle(f4, v6) {
-    if (f4(v6), q4.shift(), q4.length) resume(q4[0][0], q4[0][1]);
+  function settle(f4, v7) {
+    if (f4(v7), q4.shift(), q4.length) resume(q4[0][0], q4[0][1]);
   }
 }
 function __asyncDelegator(o4) {
@@ -9409,8 +16551,8 @@ function __asyncDelegator(o4) {
     return this;
   }, i4;
   function verb(n4, f4) {
-    i4[n4] = o4[n4] ? function(v6) {
-      return (p4 = !p4) ? { value: __await(o4[n4](v6)), done: false } : f4 ? f4(v6) : v6;
+    i4[n4] = o4[n4] ? function(v7) {
+      return (p4 = !p4) ? { value: __await(o4[n4](v7)), done: false } : f4 ? f4(v7) : v7;
     } : f4;
   }
 }
@@ -9421,15 +16563,15 @@ function __asyncValues(o4) {
     return this;
   }, i4);
   function verb(n4) {
-    i4[n4] = o4[n4] && function(v6) {
+    i4[n4] = o4[n4] && function(v7) {
       return new Promise(function(resolve, reject) {
-        v6 = o4[n4](v6), settle(resolve, reject, v6.done, v6.value);
+        v7 = o4[n4](v7), settle(resolve, reject, v7.done, v7.value);
       });
     };
   }
-  function settle(resolve, reject, d4, v6) {
-    Promise.resolve(v6).then(function(v7) {
-      resolve({ value: v7, done: d4 });
+  function settle(resolve, reject, d4, v7) {
+    Promise.resolve(v7).then(function(v8) {
+      resolve({ value: v8, done: d4 });
     }, reject);
   }
 }
@@ -9563,10 +16705,10 @@ var init_tslib_es6 = __esm({
       if (k22 === void 0) k22 = k4;
       o4[k22] = m4[k4];
     });
-    __setModuleDefault = Object.create ? (function(o4, v6) {
-      Object.defineProperty(o4, "default", { enumerable: true, value: v6 });
-    }) : function(o4, v6) {
-      o4["default"] = v6;
+    __setModuleDefault = Object.create ? (function(o4, v7) {
+      Object.defineProperty(o4, "default", { enumerable: true, value: v7 });
+    }) : function(o4, v7) {
+      o4["default"] = v7;
     };
     ownKeys = function(o4) {
       ownKeys = Object.getOwnPropertyNames || function(o5) {
@@ -9650,10 +16792,10 @@ var require_dist_cjs20 = __commonJS({
 });
 
 // ../../node_modules/@smithy/core/dist-es/submodules/serde/generateIdempotencyToken.js
-var import_uuid;
+var import_uuid2;
 var init_generateIdempotencyToken = __esm({
   "../../node_modules/@smithy/core/dist-es/submodules/serde/generateIdempotencyToken.js"() {
-    import_uuid = __toESM(require_dist_cjs20());
+    import_uuid2 = __toESM(require_dist_cjs20());
   }
 });
 
@@ -9700,8 +16842,8 @@ var init_quote_header = __esm({
 });
 
 // ../../node_modules/@smithy/core/dist-es/submodules/serde/schema-serde-lib/schema-date-utils.js
-function range(v6, min, max) {
-  const _v = Number(v6);
+function range(v7, min, max) {
+  const _v = Number(v7);
   if (_v < min || _v > max) {
     throw new Error(`Value ${_v} out of range [${min}, ${max}]`);
   }
@@ -9864,16 +17006,16 @@ var init_split_header = __esm({
         prevChar = char;
       }
       values.push(value.slice(anchor));
-      return values.map((v6) => {
-        v6 = v6.trim();
-        const z3 = v6.length;
+      return values.map((v7) => {
+        v7 = v7.trim();
+        const z3 = v7.length;
         if (z3 < 2) {
-          return v6;
+          return v7;
         }
-        if (v6[0] === `"` && v6[z3 - 1] === `"`) {
-          v6 = v6.slice(1, z3 - 1);
+        if (v7[0] === `"` && v7[z3 - 1] === `"`) {
+          v7 = v7.slice(1, z3 - 1);
         }
-        return v6.replace(/\\"/g, '"');
+        return v7.replace(/\\"/g, '"');
       });
     };
   }
@@ -9933,7 +17075,7 @@ __export(serde_exports, {
   expectShort: () => expectShort,
   expectString: () => expectString,
   expectUnion: () => expectUnion,
-  generateIdempotencyToken: () => import_uuid.v4,
+  generateIdempotencyToken: () => import_uuid2.v4,
   handleFloat: () => handleFloat,
   limitedParseDouble: () => limitedParseDouble,
   limitedParseFloat: () => limitedParseFloat,
@@ -10270,8 +17412,8 @@ var init_HttpProtocol = __esm({
           if (!request.query) {
             request.query = {};
           }
-          for (const [k4, v6] of endpoint.url.searchParams.entries()) {
-            request.query[k4] = v6;
+          for (const [k4, v7] of endpoint.url.searchParams.entries()) {
+            request.query[k4] = v7;
           }
           return request;
         } else {
@@ -11025,7 +18167,7 @@ var init_ToStringShapeSerializer = __esm({
             break;
           default:
             if (ns.isIdempotencyToken()) {
-              this.stringBuffer = (0, import_uuid.v4)();
+              this.stringBuffer = (0, import_uuid2.v4)();
             } else {
               this.stringBuffer = String(value);
             }
@@ -11478,7 +18620,7 @@ var require_dist_cjs21 = __commonJS({
           if (typeof value === "object" && "hostname" in value) {
             const { hostname: hostname2, port, protocol: protocol2 = "", path = "", query = {} } = value;
             const url = new URL(`${protocol2}//${hostname2}${port ? `:${port}` : ""}${path}`);
-            url.search = Object.entries(query).map(([k4, v6]) => `${k4}=${v6}`).join("&");
+            url.search = Object.entries(query).map(([k4, v7]) => `${k4}=${v7}`).join("&");
             return url;
           }
           return new URL(value);
@@ -11746,13 +18888,13 @@ var require_dist_cjs21 = __commonJS({
       const { endpointParams, logger: logger2 } = options;
       const { parameters, rules } = ruleSetObject;
       options.logger?.debug?.(`${debugId} Initial EndpointParams: ${toDebugString(endpointParams)}`);
-      const paramsWithDefault = Object.entries(parameters).filter(([, v6]) => v6.default != null).map(([k4, v6]) => [k4, v6.default]);
+      const paramsWithDefault = Object.entries(parameters).filter(([, v7]) => v7.default != null).map(([k4, v7]) => [k4, v7.default]);
       if (paramsWithDefault.length > 0) {
         for (const [paramKey, paramDefaultValue] of paramsWithDefault) {
           endpointParams[paramKey] = endpointParams[paramKey] ?? paramDefaultValue;
         }
       }
-      const requiredParams = Object.entries(parameters).filter(([, v6]) => v6.required).map(([k4]) => k4);
+      const requiredParams = Object.entries(parameters).filter(([, v7]) => v7.required).map(([k4]) => k4);
       for (const requiredParam of requiredParams) {
         if (endpointParams[requiredParam] == null) {
           throw new EndpointError(`Missing required parameter: '${requiredParam}'`);
@@ -14094,7 +21236,7 @@ var init_CborCodec = __esm({
         const ns = NormalizedSchema.of(schema);
         if (source == null) {
           if (ns.isIdempotencyToken()) {
-            return (0, import_uuid.v4)();
+            return (0, import_uuid2.v4)();
           }
           return source;
         }
@@ -14145,8 +21287,8 @@ var init_CborCodec = __esm({
             }
             const isUnion = ns.isUnionSchema();
             if (isUnion && Array.isArray(sourceObject.$unknown)) {
-              const [k4, v6] = sourceObject.$unknown;
-              newObject[k4] = v6;
+              const [k4, v7] = sourceObject.$unknown;
+              newObject[k4] = v7;
             }
           } else if (ns.isDocumentSchema()) {
             for (const key of Object.keys(sourceObject)) {
@@ -14894,9 +22036,9 @@ var require_dist_cjs28 = __commonJS({
       }
     };
     var decorateServiceException2 = (exception, additions = {}) => {
-      Object.entries(additions).filter(([, v6]) => v6 !== void 0).forEach(([k4, v6]) => {
+      Object.entries(additions).filter(([, v7]) => v7 !== void 0).forEach(([k4, v7]) => {
         if (exception[k4] == void 0 || exception[k4] === "") {
-          exception[k4] = v6;
+          exception[k4] = v7;
         }
       });
       const message = exception.message || exception.Message || "UnknownError";
@@ -15062,8 +22204,8 @@ var require_dist_cjs28 = __commonJS({
     }
     var convertMap = (target) => {
       const output = {};
-      for (const [k4, v6] of Object.entries(target || {})) {
-        output[k4] = [, v6];
+      for (const [k4, v7] of Object.entries(target || {})) {
+        output[k4] = [, v7];
       }
       return output;
     };
@@ -15299,8 +22441,8 @@ var init_ProtocolLib = __esm({
             Type
           };
           Object.assign(output, Error2);
-          for (const [k4, v6] of entries) {
-            Error2[k4 === "message" ? "Message" : k4] = v6;
+          for (const [k4, v7] of entries) {
+            Error2[k4 === "message" ? "Message" : k4] = v7;
           }
           delete Error2.__type;
           output.Error = Error2;
@@ -15525,8 +22667,8 @@ var init_UnionSerde = __esm({
       writeUnknown() {
         if (this.hasUnknown()) {
           const k4 = this.keys.values().next().value;
-          const v6 = this.from[k4];
-          this.to.$unknown = [k4, v6];
+          const v7 = this.from[k4];
+          this.to.$unknown = [k4, v7];
         }
       }
     };
@@ -15751,11 +22893,11 @@ var init_JsonShapeDeserializer = __esm({
         if (ns.isDocumentSchema()) {
           if (isObject) {
             const out = Array.isArray(value) ? [] : {};
-            for (const [k4, v6] of Object.entries(value)) {
-              if (v6 instanceof NumericValue) {
-                out[k4] = v6;
+            for (const [k4, v7] of Object.entries(value)) {
+              if (v7 instanceof NumericValue) {
+                out[k4] = v7;
               } else {
-                out[k4] = this._read(ns, v6);
+                out[k4] = this._read(ns, v7);
               }
             }
             return out;
@@ -15789,15 +22931,15 @@ var init_jsonReplacer = __esm({
         this.stage = 1;
         return (key, value) => {
           if (value instanceof NumericValue) {
-            const v6 = `${NUMERIC_CONTROL_CHAR + "nv" + this.counter++}_` + value.string;
-            this.values.set(`"${v6}"`, value.string);
-            return v6;
+            const v7 = `${NUMERIC_CONTROL_CHAR + "nv" + this.counter++}_` + value.string;
+            this.values.set(`"${v7}"`, value.string);
+            return v7;
           }
           if (typeof value === "bigint") {
             const s4 = value.toString();
-            const v6 = `${NUMERIC_CONTROL_CHAR + "b" + this.counter++}_` + s4;
-            this.values.set(`"${v6}"`, s4);
-            return v6;
+            const v7 = `${NUMERIC_CONTROL_CHAR + "b" + this.counter++}_` + s4;
+            this.values.set(`"${v7}"`, s4);
+            return v7;
           }
           return value;
         };
@@ -15882,8 +23024,8 @@ var init_JsonShapeSerializer = __esm({
             if (ns.isUnionSchema() && Object.keys(out).length === 0) {
               const { $unknown } = value;
               if (Array.isArray($unknown)) {
-                const [k4, v6] = $unknown;
-                out[k4] = this._write(15, v6);
+                const [k4, v7] = $unknown;
+                out[k4] = this._write(15, v7);
               }
             }
             return out;
@@ -15939,7 +23081,7 @@ var init_JsonShapeSerializer = __esm({
         }
         if (ns.isStringSchema()) {
           if (typeof value === "undefined" && ns.isIdempotencyToken()) {
-            return (0, import_uuid.v4)();
+            return (0, import_uuid2.v4)();
           }
           const mediaType = ns.getMergedTraits().mediaType;
           if (value != null && mediaType) {
@@ -15968,12 +23110,12 @@ var init_JsonShapeSerializer = __esm({
         if (ns.isDocumentSchema()) {
           if (isObject) {
             const out = Array.isArray(value) ? [] : {};
-            for (const [k4, v6] of Object.entries(value)) {
-              if (v6 instanceof NumericValue) {
+            for (const [k4, v7] of Object.entries(value)) {
+              if (v7 instanceof NumericValue) {
                 this.useReplacer = true;
-                out[k4] = v6;
+                out[k4] = v7;
               } else {
-                out[k4] = this._write(ns, v6);
+                out[k4] = this._write(ns, v7);
               }
             }
             return out;
@@ -16445,7 +23587,7 @@ var require_fxp = __commonJS({
       function E2(t5) {
         return t5.startIndex + t5[1].length;
       }
-      const v6 = { preserveOrder: false, attributeNamePrefix: "@_", attributesGroupName: false, textNodeName: "#text", ignoreAttributes: true, removeNSPrefix: false, allowBooleanAttributes: false, parseTagValue: true, parseAttributeValue: false, trimValues: true, cdataPropName: false, numberParseOptions: { hex: true, leadingZeros: true, eNotation: true }, tagValueProcessor: function(t5, e5) {
+      const v7 = { preserveOrder: false, attributeNamePrefix: "@_", attributesGroupName: false, textNodeName: "#text", ignoreAttributes: true, removeNSPrefix: false, allowBooleanAttributes: false, parseTagValue: true, parseAttributeValue: false, trimValues: true, cdataPropName: false, numberParseOptions: { hex: true, leadingZeros: true, eNotation: true }, tagValueProcessor: function(t5, e5) {
         return e5;
       }, attributeValueProcessor: function(t5, e5) {
         return e5;
@@ -16862,7 +24004,7 @@ var require_fxp = __commonJS({
       class st {
         constructor(t5) {
           this.externalEntities = {}, this.options = (function(t6) {
-            return Object.assign({}, v6, t6);
+            return Object.assign({}, v7, t6);
           })(t5);
         }
         parse(t5, e5) {
@@ -17252,9 +24394,9 @@ var init_XmlShapeDeserializer = __esm({
             const sourceKey = listValue.getMergedTraits().xmlName ?? "member";
             const source = flat ? value : (value[0] ?? value)[sourceKey];
             const sourceArray = Array.isArray(source) ? source : [source];
-            for (const v6 of sourceArray) {
-              if (v6 != null || sparse) {
-                buffer2.push(this.readSchema(listValue, v6));
+            for (const v7 of sourceArray) {
+              if (v7 != null || sparse) {
+                buffer2.push(this.readSchema(listValue, v7));
               }
             }
             return buffer2;
@@ -17379,7 +24521,7 @@ var init_QueryShapeSerializer = __esm({
             this.writeValue(String(value));
           } else if (ns.isIdempotencyToken()) {
             this.writeKey(prefix);
-            this.writeValue((0, import_uuid.v4)());
+            this.writeValue((0, import_uuid2.v4)());
           }
         } else if (ns.isBigIntegerSchema()) {
           if (value != null) {
@@ -17448,8 +24590,8 @@ var init_QueryShapeSerializer = __esm({
             const memberSchema = ns.getValueSchema();
             const flat = ns.getMergedTraits().xmlFlattened;
             let i4 = 1;
-            for (const [k4, v6] of Object.entries(value)) {
-              if (v6 == null) {
+            for (const [k4, v7] of Object.entries(value)) {
+              if (v7 == null) {
                 continue;
               }
               const keySuffix = this.getKey("key", keySchema.getMergedTraits().xmlName);
@@ -17457,7 +24599,7 @@ var init_QueryShapeSerializer = __esm({
               const valueSuffix = this.getKey("value", memberSchema.getMergedTraits().xmlName);
               const valueKey = flat ? `${prefix}${i4}.${valueSuffix}` : `${prefix}entry.${i4}.${valueSuffix}`;
               this.write(keySchema, k4, key);
-              this.write(memberSchema, v6, valueKey);
+              this.write(memberSchema, v7, valueKey);
               ++i4;
             }
           }
@@ -17476,9 +24618,9 @@ var init_QueryShapeSerializer = __esm({
             if (!didWriteMember && ns.isUnionSchema()) {
               const { $unknown } = value;
               if (Array.isArray($unknown)) {
-                const [k4, v6] = $unknown;
+                const [k4, v7] = $unknown;
                 const key = `${prefix}${k4}`;
-                this.write(15, v6, key);
+                this.write(15, v7, key);
               }
             }
           }
@@ -17819,16 +24961,16 @@ var init_XmlShapeSerializer = __esm({
         }
         const { $unknown } = value;
         if ($unknown && ns.isUnionSchema() && Array.isArray($unknown) && Object.keys(value).length === 1) {
-          const [k4, v6] = $unknown;
+          const [k4, v7] = $unknown;
           const node = import_xml_builder3.XmlNode.of(k4);
-          if (typeof v6 !== "string") {
+          if (typeof v7 !== "string") {
             if (value instanceof import_xml_builder3.XmlNode || value instanceof import_xml_builder3.XmlText) {
               structXmlNode.addChildNode(value);
             } else {
               throw new Error(`@aws-sdk - $unknown union member in XML requires value of type string, @aws-sdk/xml-builder::XmlNode or XmlText.`);
             }
           }
-          this.writeSimpleInto(0, v6, node, xmlns);
+          this.writeSimpleInto(0, v7, node, xmlns);
           structXmlNode.addChildNode(node);
         }
         if (xmlns) {
@@ -17980,7 +25122,7 @@ var init_XmlShapeSerializer = __esm({
         }
         if (ns.isStringSchema()) {
           if (value === void 0 && ns.isIdempotencyToken()) {
-            nodeContents = (0, import_uuid.v4)();
+            nodeContents = (0, import_uuid2.v4)();
           } else {
             nodeContents = String(value);
           }
@@ -20573,8 +27715,8 @@ var require_requestHelpers = __commonJS({
         hostname: url.hostname,
         port: Number(url.port),
         path: url.pathname,
-        query: Array.from(url.searchParams.entries()).reduce((acc, [k4, v6]) => {
-          acc[k4] = v6;
+        query: Array.from(url.searchParams.entries()).reduce((acc, [k4, v7]) => {
+          acc[k4] = v7;
           return acc;
         }, {}),
         fragment: url.hash
@@ -22275,7 +29417,7 @@ var require_ruleset = __commonJS({
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.ruleSet = void 0;
     var u4 = "required";
-    var v6 = "fn";
+    var v7 = "fn";
     var w4 = "argv";
     var x4 = "ref";
     var a4 = true;
@@ -22289,16 +29431,16 @@ var require_ruleset = __commonJS({
     var i4 = { [u4]: false, "type": "string" };
     var j4 = { [u4]: true, "default": false, "type": "boolean" };
     var k4 = { [x4]: "Endpoint" };
-    var l4 = { [v6]: c4, [w4]: [{ [x4]: "UseFIPS" }, true] };
-    var m4 = { [v6]: c4, [w4]: [{ [x4]: "UseDualStack" }, true] };
+    var l4 = { [v7]: c4, [w4]: [{ [x4]: "UseFIPS" }, true] };
+    var m4 = { [v7]: c4, [w4]: [{ [x4]: "UseDualStack" }, true] };
     var n4 = {};
-    var o4 = { [v6]: h4, [w4]: [{ [x4]: g4 }, "supportsFIPS"] };
+    var o4 = { [v7]: h4, [w4]: [{ [x4]: g4 }, "supportsFIPS"] };
     var p4 = { [x4]: g4 };
-    var q4 = { [v6]: c4, [w4]: [true, { [v6]: h4, [w4]: [p4, "supportsDualStack"] }] };
+    var q4 = { [v7]: c4, [w4]: [true, { [v7]: h4, [w4]: [p4, "supportsDualStack"] }] };
     var r4 = [l4];
     var s4 = [m4];
     var t4 = [{ [x4]: "Region" }];
-    var _data4 = { version: "1.0", parameters: { Region: i4, UseDualStack: j4, UseFIPS: j4, Endpoint: i4 }, rules: [{ conditions: [{ [v6]: b4, [w4]: [k4] }], rules: [{ conditions: r4, error: "Invalid Configuration: FIPS and custom endpoint are not supported", type: d4 }, { conditions: s4, error: "Invalid Configuration: Dualstack and custom endpoint are not supported", type: d4 }, { endpoint: { url: k4, properties: n4, headers: n4 }, type: e4 }], type: f4 }, { conditions: [{ [v6]: b4, [w4]: t4 }], rules: [{ conditions: [{ [v6]: "aws.partition", [w4]: t4, assign: g4 }], rules: [{ conditions: [l4, m4], rules: [{ conditions: [{ [v6]: c4, [w4]: [a4, o4] }, q4], rules: [{ endpoint: { url: "https://portal.sso-fips.{Region}.{PartitionResult#dualStackDnsSuffix}", properties: n4, headers: n4 }, type: e4 }], type: f4 }, { error: "FIPS and DualStack are enabled, but this partition does not support one or both", type: d4 }], type: f4 }, { conditions: r4, rules: [{ conditions: [{ [v6]: c4, [w4]: [o4, a4] }], rules: [{ conditions: [{ [v6]: "stringEquals", [w4]: [{ [v6]: h4, [w4]: [p4, "name"] }, "aws-us-gov"] }], endpoint: { url: "https://portal.sso.{Region}.amazonaws.com", properties: n4, headers: n4 }, type: e4 }, { endpoint: { url: "https://portal.sso-fips.{Region}.{PartitionResult#dnsSuffix}", properties: n4, headers: n4 }, type: e4 }], type: f4 }, { error: "FIPS is enabled but this partition does not support FIPS", type: d4 }], type: f4 }, { conditions: s4, rules: [{ conditions: [q4], rules: [{ endpoint: { url: "https://portal.sso.{Region}.{PartitionResult#dualStackDnsSuffix}", properties: n4, headers: n4 }, type: e4 }], type: f4 }, { error: "DualStack is enabled but this partition does not support DualStack", type: d4 }], type: f4 }, { endpoint: { url: "https://portal.sso.{Region}.{PartitionResult#dnsSuffix}", properties: n4, headers: n4 }, type: e4 }], type: f4 }], type: f4 }, { error: "Invalid Configuration: Missing Region", type: d4 }] };
+    var _data4 = { version: "1.0", parameters: { Region: i4, UseDualStack: j4, UseFIPS: j4, Endpoint: i4 }, rules: [{ conditions: [{ [v7]: b4, [w4]: [k4] }], rules: [{ conditions: r4, error: "Invalid Configuration: FIPS and custom endpoint are not supported", type: d4 }, { conditions: s4, error: "Invalid Configuration: Dualstack and custom endpoint are not supported", type: d4 }, { endpoint: { url: k4, properties: n4, headers: n4 }, type: e4 }], type: f4 }, { conditions: [{ [v7]: b4, [w4]: t4 }], rules: [{ conditions: [{ [v7]: "aws.partition", [w4]: t4, assign: g4 }], rules: [{ conditions: [l4, m4], rules: [{ conditions: [{ [v7]: c4, [w4]: [a4, o4] }, q4], rules: [{ endpoint: { url: "https://portal.sso-fips.{Region}.{PartitionResult#dualStackDnsSuffix}", properties: n4, headers: n4 }, type: e4 }], type: f4 }, { error: "FIPS and DualStack are enabled, but this partition does not support one or both", type: d4 }], type: f4 }, { conditions: r4, rules: [{ conditions: [{ [v7]: c4, [w4]: [o4, a4] }], rules: [{ conditions: [{ [v7]: "stringEquals", [w4]: [{ [v7]: h4, [w4]: [p4, "name"] }, "aws-us-gov"] }], endpoint: { url: "https://portal.sso.{Region}.amazonaws.com", properties: n4, headers: n4 }, type: e4 }, { endpoint: { url: "https://portal.sso-fips.{Region}.{PartitionResult#dnsSuffix}", properties: n4, headers: n4 }, type: e4 }], type: f4 }, { error: "FIPS is enabled but this partition does not support FIPS", type: d4 }], type: f4 }, { conditions: s4, rules: [{ conditions: [q4], rules: [{ endpoint: { url: "https://portal.sso.{Region}.{PartitionResult#dualStackDnsSuffix}", properties: n4, headers: n4 }, type: e4 }], type: f4 }, { error: "DualStack is enabled but this partition does not support DualStack", type: d4 }], type: f4 }, { endpoint: { url: "https://portal.sso.{Region}.{PartitionResult#dnsSuffix}", properties: n4, headers: n4 }, type: e4 }], type: f4 }], type: f4 }, { error: "Invalid Configuration: Missing Region", type: d4 }] };
     exports.ruleSet = _data4;
   }
 });
@@ -24037,7 +31179,7 @@ var init_EndpointParameters3 = __esm({
 });
 
 // ../../node_modules/@aws-sdk/nested-clients/dist-es/submodules/sts/endpoint/ruleset.js
-var F, G, H, I, J, a3, b3, c3, d3, e3, f3, g3, h3, i3, j3, k3, l3, m3, n3, o3, p3, q3, r3, s3, t3, u3, v3, w3, x3, y, z, A, B, C, D, E, _data3, ruleSet3;
+var F, G, H, I, J, a3, b3, c3, d3, e3, f3, g3, h3, i3, j3, k3, l3, m3, n3, o3, p3, q3, r3, s3, t3, u3, v6, w3, x3, y, z, A, B, C, D, E, _data3, ruleSet3;
 var init_ruleset3 = __esm({
   "../../node_modules/@aws-sdk/nested-clients/dist-es/submodules/sts/endpoint/ruleset.js"() {
     F = "required";
@@ -24066,7 +31208,7 @@ var init_ruleset3 = __esm({
     s3 = { [J]: "UseFIPS" };
     t3 = { [J]: "UseDualStack" };
     u3 = { "url": "https://sts.amazonaws.com", "properties": { "authSchemes": [{ "name": e3, "signingName": f3, "signingRegion": g3 }] }, "headers": {} };
-    v3 = {};
+    v6 = {};
     w3 = { "conditions": [{ [H]: d3, [I]: [q3, "aws-global"] }], [h3]: u3, [G]: h3 };
     x3 = { [H]: c3, [I]: [s3, true] };
     y = { [H]: c3, [I]: [t3, true] };
@@ -24076,7 +31218,7 @@ var init_ruleset3 = __esm({
     C = [{ [H]: "isSet", [I]: [o3] }];
     D = [x3];
     E = [y];
-    _data3 = { version: "1.0", parameters: { Region: m3, UseDualStack: n3, UseFIPS: n3, Endpoint: m3, UseGlobalEndpoint: n3 }, rules: [{ conditions: [{ [H]: c3, [I]: [{ [J]: "UseGlobalEndpoint" }, b3] }, { [H]: "not", [I]: C }, p3, r3, { [H]: c3, [I]: [s3, a3] }, { [H]: c3, [I]: [t3, a3] }], rules: [{ conditions: [{ [H]: d3, [I]: [q3, "ap-northeast-1"] }], endpoint: u3, [G]: h3 }, { conditions: [{ [H]: d3, [I]: [q3, "ap-south-1"] }], endpoint: u3, [G]: h3 }, { conditions: [{ [H]: d3, [I]: [q3, "ap-southeast-1"] }], endpoint: u3, [G]: h3 }, { conditions: [{ [H]: d3, [I]: [q3, "ap-southeast-2"] }], endpoint: u3, [G]: h3 }, w3, { conditions: [{ [H]: d3, [I]: [q3, "ca-central-1"] }], endpoint: u3, [G]: h3 }, { conditions: [{ [H]: d3, [I]: [q3, "eu-central-1"] }], endpoint: u3, [G]: h3 }, { conditions: [{ [H]: d3, [I]: [q3, "eu-north-1"] }], endpoint: u3, [G]: h3 }, { conditions: [{ [H]: d3, [I]: [q3, "eu-west-1"] }], endpoint: u3, [G]: h3 }, { conditions: [{ [H]: d3, [I]: [q3, "eu-west-2"] }], endpoint: u3, [G]: h3 }, { conditions: [{ [H]: d3, [I]: [q3, "eu-west-3"] }], endpoint: u3, [G]: h3 }, { conditions: [{ [H]: d3, [I]: [q3, "sa-east-1"] }], endpoint: u3, [G]: h3 }, { conditions: [{ [H]: d3, [I]: [q3, g3] }], endpoint: u3, [G]: h3 }, { conditions: [{ [H]: d3, [I]: [q3, "us-east-2"] }], endpoint: u3, [G]: h3 }, { conditions: [{ [H]: d3, [I]: [q3, "us-west-1"] }], endpoint: u3, [G]: h3 }, { conditions: [{ [H]: d3, [I]: [q3, "us-west-2"] }], endpoint: u3, [G]: h3 }, { endpoint: { url: i3, properties: { authSchemes: [{ name: e3, signingName: f3, signingRegion: "{Region}" }] }, headers: v3 }, [G]: h3 }], [G]: j3 }, { conditions: C, rules: [{ conditions: D, error: "Invalid Configuration: FIPS and custom endpoint are not supported", [G]: k3 }, { conditions: E, error: "Invalid Configuration: Dualstack and custom endpoint are not supported", [G]: k3 }, { endpoint: { url: o3, properties: v3, headers: v3 }, [G]: h3 }], [G]: j3 }, { conditions: [p3], rules: [{ conditions: [r3], rules: [{ conditions: [x3, y], rules: [{ conditions: [{ [H]: c3, [I]: [b3, z] }, B], rules: [{ endpoint: { url: "https://sts-fips.{Region}.{PartitionResult#dualStackDnsSuffix}", properties: v3, headers: v3 }, [G]: h3 }], [G]: j3 }, { error: "FIPS and DualStack are enabled, but this partition does not support one or both", [G]: k3 }], [G]: j3 }, { conditions: D, rules: [{ conditions: [{ [H]: c3, [I]: [z, b3] }], rules: [{ conditions: [{ [H]: d3, [I]: [{ [H]: l3, [I]: [A, "name"] }, "aws-us-gov"] }], endpoint: { url: "https://sts.{Region}.amazonaws.com", properties: v3, headers: v3 }, [G]: h3 }, { endpoint: { url: "https://sts-fips.{Region}.{PartitionResult#dnsSuffix}", properties: v3, headers: v3 }, [G]: h3 }], [G]: j3 }, { error: "FIPS is enabled but this partition does not support FIPS", [G]: k3 }], [G]: j3 }, { conditions: E, rules: [{ conditions: [B], rules: [{ endpoint: { url: "https://sts.{Region}.{PartitionResult#dualStackDnsSuffix}", properties: v3, headers: v3 }, [G]: h3 }], [G]: j3 }, { error: "DualStack is enabled but this partition does not support DualStack", [G]: k3 }], [G]: j3 }, w3, { endpoint: { url: i3, properties: v3, headers: v3 }, [G]: h3 }], [G]: j3 }], [G]: j3 }, { error: "Invalid Configuration: Missing Region", [G]: k3 }] };
+    _data3 = { version: "1.0", parameters: { Region: m3, UseDualStack: n3, UseFIPS: n3, Endpoint: m3, UseGlobalEndpoint: n3 }, rules: [{ conditions: [{ [H]: c3, [I]: [{ [J]: "UseGlobalEndpoint" }, b3] }, { [H]: "not", [I]: C }, p3, r3, { [H]: c3, [I]: [s3, a3] }, { [H]: c3, [I]: [t3, a3] }], rules: [{ conditions: [{ [H]: d3, [I]: [q3, "ap-northeast-1"] }], endpoint: u3, [G]: h3 }, { conditions: [{ [H]: d3, [I]: [q3, "ap-south-1"] }], endpoint: u3, [G]: h3 }, { conditions: [{ [H]: d3, [I]: [q3, "ap-southeast-1"] }], endpoint: u3, [G]: h3 }, { conditions: [{ [H]: d3, [I]: [q3, "ap-southeast-2"] }], endpoint: u3, [G]: h3 }, w3, { conditions: [{ [H]: d3, [I]: [q3, "ca-central-1"] }], endpoint: u3, [G]: h3 }, { conditions: [{ [H]: d3, [I]: [q3, "eu-central-1"] }], endpoint: u3, [G]: h3 }, { conditions: [{ [H]: d3, [I]: [q3, "eu-north-1"] }], endpoint: u3, [G]: h3 }, { conditions: [{ [H]: d3, [I]: [q3, "eu-west-1"] }], endpoint: u3, [G]: h3 }, { conditions: [{ [H]: d3, [I]: [q3, "eu-west-2"] }], endpoint: u3, [G]: h3 }, { conditions: [{ [H]: d3, [I]: [q3, "eu-west-3"] }], endpoint: u3, [G]: h3 }, { conditions: [{ [H]: d3, [I]: [q3, "sa-east-1"] }], endpoint: u3, [G]: h3 }, { conditions: [{ [H]: d3, [I]: [q3, g3] }], endpoint: u3, [G]: h3 }, { conditions: [{ [H]: d3, [I]: [q3, "us-east-2"] }], endpoint: u3, [G]: h3 }, { conditions: [{ [H]: d3, [I]: [q3, "us-west-1"] }], endpoint: u3, [G]: h3 }, { conditions: [{ [H]: d3, [I]: [q3, "us-west-2"] }], endpoint: u3, [G]: h3 }, { endpoint: { url: i3, properties: { authSchemes: [{ name: e3, signingName: f3, signingRegion: "{Region}" }] }, headers: v6 }, [G]: h3 }], [G]: j3 }, { conditions: C, rules: [{ conditions: D, error: "Invalid Configuration: FIPS and custom endpoint are not supported", [G]: k3 }, { conditions: E, error: "Invalid Configuration: Dualstack and custom endpoint are not supported", [G]: k3 }, { endpoint: { url: o3, properties: v6, headers: v6 }, [G]: h3 }], [G]: j3 }, { conditions: [p3], rules: [{ conditions: [r3], rules: [{ conditions: [x3, y], rules: [{ conditions: [{ [H]: c3, [I]: [b3, z] }, B], rules: [{ endpoint: { url: "https://sts-fips.{Region}.{PartitionResult#dualStackDnsSuffix}", properties: v6, headers: v6 }, [G]: h3 }], [G]: j3 }, { error: "FIPS and DualStack are enabled, but this partition does not support one or both", [G]: k3 }], [G]: j3 }, { conditions: D, rules: [{ conditions: [{ [H]: c3, [I]: [z, b3] }], rules: [{ conditions: [{ [H]: d3, [I]: [{ [H]: l3, [I]: [A, "name"] }, "aws-us-gov"] }], endpoint: { url: "https://sts.{Region}.amazonaws.com", properties: v6, headers: v6 }, [G]: h3 }, { endpoint: { url: "https://sts-fips.{Region}.{PartitionResult#dnsSuffix}", properties: v6, headers: v6 }, [G]: h3 }], [G]: j3 }, { error: "FIPS is enabled but this partition does not support FIPS", [G]: k3 }], [G]: j3 }, { conditions: E, rules: [{ conditions: [B], rules: [{ endpoint: { url: "https://sts.{Region}.{PartitionResult#dualStackDnsSuffix}", properties: v6, headers: v6 }, [G]: h3 }], [G]: j3 }, { error: "DualStack is enabled but this partition does not support DualStack", [G]: k3 }], [G]: j3 }, w3, { endpoint: { url: i3, properties: v6, headers: v6 }, [G]: h3 }], [G]: j3 }], [G]: j3 }, { error: "Invalid Configuration: Missing Region", [G]: k3 }] };
     ruleSet3 = _data3;
   }
 });
@@ -24978,10 +32120,10 @@ var require_fromWebToken = __commonJS({
       if (k22 === void 0) k22 = k4;
       o4[k22] = m4[k4];
     }));
-    var __setModuleDefault2 = exports && exports.__setModuleDefault || (Object.create ? (function(o4, v6) {
-      Object.defineProperty(o4, "default", { enumerable: true, value: v6 });
-    }) : function(o4, v6) {
-      o4["default"] = v6;
+    var __setModuleDefault2 = exports && exports.__setModuleDefault || (Object.create ? (function(o4, v7) {
+      Object.defineProperty(o4, "default", { enumerable: true, value: v7 });
+    }) : function(o4, v7) {
+      o4["default"] = v7;
     });
     var __importStar2 = exports && exports.__importStar || /* @__PURE__ */ (function() {
       var ownKeys2 = function(o4) {
@@ -25479,13 +32621,13 @@ var require_dist_cjs56 = __commonJS({
               out.BS = av.BS.map(base64Encode);
             }
             if (Array.isArray(av.L)) {
-              out.L = av.L.filter((v6) => v6 != null).map((v6) => this._write(ns, v6, container));
+              out.L = av.L.filter((v7) => v7 != null).map((v7) => this._write(ns, v7, container));
             }
             if (av.M && typeof av.M === "object") {
               out.M = {};
-              for (const [k4, v6] of Object.entries(av.M)) {
-                if (v6 != null) {
-                  out.M[k4] = this._write(ns, v6, container);
+              for (const [k4, v7] of Object.entries(av.M)) {
+                if (v7 != null) {
+                  out.M[k4] = this._write(ns, v7, container);
                 }
               }
             }
@@ -25510,12 +32652,12 @@ var require_dist_cjs56 = __commonJS({
               out.BS = av.BS.map(base64Decoder);
             }
             if (Array.isArray(av.L)) {
-              out.L = av.L.map((v6) => this._read(ns, v6));
+              out.L = av.L.map((v7) => this._read(ns, v7));
             }
             if (av.M && typeof av.M === "object") {
               out.M = {};
-              for (const [k4, v6] of Object.entries(av.M)) {
-                out.M[k4] = this._read(ns, v6);
+              for (const [k4, v7] of Object.entries(av.M)) {
+                out.M[k4] = this._read(ns, v7);
               }
             }
             return out;
@@ -25567,7 +32709,7 @@ var require_ruleset2 = __commonJS({
     var s4 = { [e4]: { [S]: "{Endpoint}", [T]: {}, [U]: {} }, [L]: e4 };
     var t4 = {};
     var u4 = { [O]: "booleanEquals", [P]: [{ [O]: "getAttr", [P]: [{ [Q]: "PartitionResult" }, "supportsFIPS"] }, true] };
-    var v6 = { [O]: "booleanEquals", [P]: [{ [O]: "getAttr", [P]: [{ [Q]: "PartitionResult" }, "supportsDualStack"] }, true] };
+    var v7 = { [O]: "booleanEquals", [P]: [{ [O]: "getAttr", [P]: [{ [Q]: "PartitionResult" }, "supportsDualStack"] }, true] };
     var w4 = { [N]: [{ [O]: "isSet", [P]: [{ [Q]: "AccountIdEndpointMode" }] }, { [O]: c4, [P]: [{ [Q]: "AccountIdEndpointMode" }, "required"] }], [M]: [{ [b4]: "Invalid Configuration: AccountIdEndpointMode is required and FIPS is enabled, but FIPS account endpoints are not supported", [L]: b4 }], [L]: f4 };
     var x4 = { [O]: "getAttr", [P]: [{ [Q]: "PartitionResult" }, "name"] };
     var y2 = { [e4]: { [S]: "https://dynamodb.{Region}.{PartitionResult#dnsSuffix}", [T]: {}, [U]: {} }, [L]: e4 };
@@ -25582,7 +32724,7 @@ var require_ruleset2 = __commonJS({
     var H2 = [{ [O]: "isSet", [P]: [{ [Q]: "AccountIdEndpointMode" }] }, { [O]: "not", [P]: [{ [O]: c4, [P]: [{ [Q]: "AccountIdEndpointMode" }, "disabled"] }] }, { [O]: c4, [P]: [x4, "aws"] }, { [O]: "not", [P]: [p4] }, { [O]: "isSet", [P]: [{ [Q]: "ResourceArnList" }] }, { [O]: "getAttr", [P]: [{ [Q]: "ResourceArnList" }, "[0]"], [R]: "FirstArn" }, { [O]: "aws.parseArn", [P]: [{ [Q]: "FirstArn" }], [R]: "ParsedArn" }, { [O]: c4, [P]: [{ [O]: "getAttr", [P]: [{ [Q]: "ParsedArn" }, "service"] }, g4] }, { [O]: "isValidHostLabel", [P]: [{ [O]: "getAttr", [P]: [{ [Q]: "ParsedArn" }, "region"] }, false] }, { [O]: c4, [P]: [{ [O]: "getAttr", [P]: [{ [Q]: "ParsedArn" }, "region"] }, "{Region}"] }, { [O]: "isValidHostLabel", [P]: [{ [O]: "getAttr", [P]: [{ [Q]: "ParsedArn" }, "accountId"] }, false] }];
     var I2 = [{ [O]: "isSet", [P]: [{ [Q]: "AccountIdEndpointMode" }] }, { [O]: "not", [P]: [{ [O]: c4, [P]: [{ [Q]: "AccountIdEndpointMode" }, "disabled"] }] }, { [O]: c4, [P]: [x4, "aws"] }, { [O]: "not", [P]: [p4] }, { [O]: "isSet", [P]: [{ [Q]: "AccountId" }] }];
     var J2 = [{ [O]: "isValidHostLabel", [P]: [{ [Q]: "AccountId" }, false] }];
-    var _data4 = { version: "1.0", parameters: { Region: h4, UseDualStack: i4, UseFIPS: i4, Endpoint: h4, AccountId: h4, AccountIdEndpointMode: h4, ResourceArn: h4, ResourceArnList: { [K]: a4, [L]: "stringArray" } }, [M]: [{ [N]: [j4, l4, n4], [M]: [o4, q4, { [N]: [{ [O]: c4, [P]: [k4, d4] }], error: "Endpoint override is not supported for dual-stack endpoints. Please enable dual-stack functionality by enabling the configuration. For more details, see: https://docs.aws.amazon.com/sdkref/latest/guide/feature-endpoints.html", [L]: b4 }, s4], [L]: f4 }, { [N]: [j4], [M]: [o4, q4, s4], [L]: f4 }, { [N]: [l4], [M]: [{ [N]: [n4], [M]: [{ [N]: [{ [O]: c4, [P]: [m4, "local"] }], [M]: [{ [N]: E2, error: "Invalid Configuration: FIPS and local endpoint are not supported", [L]: b4 }, { [N]: F2, error: "Invalid Configuration: Dualstack and local endpoint are not supported", [L]: b4 }, { endpoint: { [S]: "http://localhost:8000", [T]: { authSchemes: [{ name: "sigv4", signingName: g4, signingRegion: "us-east-1" }] }, [U]: t4 }, [L]: e4 }], [L]: f4 }, { [N]: [p4, r4], [M]: [{ [N]: [u4, v6], [M]: [w4, { endpoint: { [S]: "https://dynamodb-fips.{Region}.{PartitionResult#dualStackDnsSuffix}", [T]: t4, [U]: t4 }, [L]: e4 }], [L]: f4 }, { error: "FIPS and DualStack are enabled, but this partition does not support one or both", [L]: b4 }], [L]: f4 }, { [N]: E2, [M]: [{ [N]: [u4], [M]: [{ [N]: [{ [O]: c4, [P]: [x4, "aws-us-gov"] }], [M]: [w4, y2], [L]: f4 }, w4, { endpoint: { [S]: "https://dynamodb-fips.{Region}.{PartitionResult#dnsSuffix}", [T]: t4, [U]: t4 }, [L]: e4 }], [L]: f4 }, { error: "FIPS is enabled but this partition does not support FIPS", [L]: b4 }], [L]: f4 }, { [N]: F2, [M]: [{ [N]: [v6], [M]: [{ [N]: G2, endpoint: z2, [L]: e4 }, { [N]: H2, endpoint: z2, [L]: e4 }, { [N]: I2, [M]: [{ [N]: J2, [M]: [{ endpoint: { [S]: "https://{AccountId}.ddb.{Region}.{PartitionResult#dualStackDnsSuffix}", [T]: A2, [U]: t4 }, [L]: e4 }], [L]: f4 }, B2], [L]: f4 }, C2, { endpoint: { [S]: d4, [T]: t4, [U]: t4 }, [L]: e4 }], [L]: f4 }, { error: "DualStack is enabled but this partition does not support DualStack", [L]: b4 }], [L]: f4 }, { [N]: G2, endpoint: D2, [L]: e4 }, { [N]: H2, endpoint: D2, [L]: e4 }, { [N]: I2, [M]: [{ [N]: J2, [M]: [{ endpoint: { [S]: "https://{AccountId}.ddb.{Region}.{PartitionResult#dnsSuffix}", [T]: A2, [U]: t4 }, [L]: e4 }], [L]: f4 }, B2], [L]: f4 }, C2, y2], [L]: f4 }], [L]: f4 }, { error: "Invalid Configuration: Missing Region", [L]: b4 }] };
+    var _data4 = { version: "1.0", parameters: { Region: h4, UseDualStack: i4, UseFIPS: i4, Endpoint: h4, AccountId: h4, AccountIdEndpointMode: h4, ResourceArn: h4, ResourceArnList: { [K]: a4, [L]: "stringArray" } }, [M]: [{ [N]: [j4, l4, n4], [M]: [o4, q4, { [N]: [{ [O]: c4, [P]: [k4, d4] }], error: "Endpoint override is not supported for dual-stack endpoints. Please enable dual-stack functionality by enabling the configuration. For more details, see: https://docs.aws.amazon.com/sdkref/latest/guide/feature-endpoints.html", [L]: b4 }, s4], [L]: f4 }, { [N]: [j4], [M]: [o4, q4, s4], [L]: f4 }, { [N]: [l4], [M]: [{ [N]: [n4], [M]: [{ [N]: [{ [O]: c4, [P]: [m4, "local"] }], [M]: [{ [N]: E2, error: "Invalid Configuration: FIPS and local endpoint are not supported", [L]: b4 }, { [N]: F2, error: "Invalid Configuration: Dualstack and local endpoint are not supported", [L]: b4 }, { endpoint: { [S]: "http://localhost:8000", [T]: { authSchemes: [{ name: "sigv4", signingName: g4, signingRegion: "us-east-1" }] }, [U]: t4 }, [L]: e4 }], [L]: f4 }, { [N]: [p4, r4], [M]: [{ [N]: [u4, v7], [M]: [w4, { endpoint: { [S]: "https://dynamodb-fips.{Region}.{PartitionResult#dualStackDnsSuffix}", [T]: t4, [U]: t4 }, [L]: e4 }], [L]: f4 }, { error: "FIPS and DualStack are enabled, but this partition does not support one or both", [L]: b4 }], [L]: f4 }, { [N]: E2, [M]: [{ [N]: [u4], [M]: [{ [N]: [{ [O]: c4, [P]: [x4, "aws-us-gov"] }], [M]: [w4, y2], [L]: f4 }, w4, { endpoint: { [S]: "https://dynamodb-fips.{Region}.{PartitionResult#dnsSuffix}", [T]: t4, [U]: t4 }, [L]: e4 }], [L]: f4 }, { error: "FIPS is enabled but this partition does not support FIPS", [L]: b4 }], [L]: f4 }, { [N]: F2, [M]: [{ [N]: [v7], [M]: [{ [N]: G2, endpoint: z2, [L]: e4 }, { [N]: H2, endpoint: z2, [L]: e4 }, { [N]: I2, [M]: [{ [N]: J2, [M]: [{ endpoint: { [S]: "https://{AccountId}.ddb.{Region}.{PartitionResult#dualStackDnsSuffix}", [T]: A2, [U]: t4 }, [L]: e4 }], [L]: f4 }, B2], [L]: f4 }, C2, { endpoint: { [S]: d4, [T]: t4, [U]: t4 }, [L]: e4 }], [L]: f4 }, { error: "DualStack is enabled but this partition does not support DualStack", [L]: b4 }], [L]: f4 }, { [N]: G2, endpoint: D2, [L]: e4 }, { [N]: H2, endpoint: D2, [L]: e4 }, { [N]: I2, [M]: [{ [N]: J2, [M]: [{ endpoint: { [S]: "https://{AccountId}.ddb.{Region}.{PartitionResult#dnsSuffix}", [T]: A2, [U]: t4 }, [L]: e4 }], [L]: f4 }, B2], [L]: f4 }, C2, y2], [L]: f4 }], [L]: f4 }, { error: "Invalid Configuration: Missing Region", [L]: b4 }] };
     exports.ruleSet = _data4;
   }
 });
@@ -29014,7 +36156,7 @@ var require_dist_cjs58 = __commonJS({
       extensions.forEach((extension) => extension.configure(extensionConfiguration));
       return Object.assign(runtimeConfig2, regionConfigResolver.resolveAwsRegionExtensionConfiguration(extensionConfiguration), smithyClient.resolveDefaultRuntimeConfig(extensionConfiguration), protocolHttp.resolveHttpHandlerRuntimeConfig(extensionConfiguration), resolveHttpAuthRuntimeConfig4(extensionConfiguration));
     };
-    var DynamoDBClient3 = class extends smithyClient.Client {
+    var DynamoDBClient2 = class extends smithyClient.Client {
       config;
       constructor(...[configuration]) {
         const _config_0 = runtimeConfig.getRuntimeConfig(configuration || {});
@@ -29491,15 +36633,15 @@ var require_dist_cjs58 = __commonJS({
       UpdateTableReplicaAutoScalingCommand,
       UpdateTimeToLiveCommand
     };
-    var DynamoDB = class extends DynamoDBClient3 {
+    var DynamoDB = class extends DynamoDBClient2 {
     };
     smithyClient.createAggregatedClient(commands4, DynamoDB);
-    var paginateListContributorInsights = core.createPaginator(DynamoDBClient3, ListContributorInsightsCommand, "NextToken", "NextToken", "MaxResults");
-    var paginateListExports = core.createPaginator(DynamoDBClient3, ListExportsCommand, "NextToken", "NextToken", "MaxResults");
-    var paginateListImports = core.createPaginator(DynamoDBClient3, ListImportsCommand, "NextToken", "NextToken", "PageSize");
-    var paginateListTables = core.createPaginator(DynamoDBClient3, ListTablesCommand, "ExclusiveStartTableName", "LastEvaluatedTableName", "Limit");
-    var paginateQuery = core.createPaginator(DynamoDBClient3, QueryCommand, "ExclusiveStartKey", "LastEvaluatedKey", "Limit");
-    var paginateScan = core.createPaginator(DynamoDBClient3, ScanCommand, "ExclusiveStartKey", "LastEvaluatedKey", "Limit");
+    var paginateListContributorInsights = core.createPaginator(DynamoDBClient2, ListContributorInsightsCommand, "NextToken", "NextToken", "MaxResults");
+    var paginateListExports = core.createPaginator(DynamoDBClient2, ListExportsCommand, "NextToken", "NextToken", "MaxResults");
+    var paginateListImports = core.createPaginator(DynamoDBClient2, ListImportsCommand, "NextToken", "NextToken", "PageSize");
+    var paginateListTables = core.createPaginator(DynamoDBClient2, ListTablesCommand, "ExclusiveStartTableName", "LastEvaluatedTableName", "Limit");
+    var paginateQuery = core.createPaginator(DynamoDBClient2, QueryCommand, "ExclusiveStartKey", "LastEvaluatedKey", "Limit");
+    var paginateScan = core.createPaginator(DynamoDBClient2, ScanCommand, "ExclusiveStartKey", "LastEvaluatedKey", "Limit");
     var checkState$1 = async (client3, input) => {
       let reason;
       try {
@@ -29959,7 +37101,7 @@ var require_dist_cjs58 = __commonJS({
     exports.DuplicateItemException = DuplicateItemException;
     exports.DuplicateItemException$ = DuplicateItemException$;
     exports.DynamoDB = DynamoDB;
-    exports.DynamoDBClient = DynamoDBClient3;
+    exports.DynamoDBClient = DynamoDBClient2;
     exports.DynamoDBServiceException = DynamoDBServiceException;
     exports.DynamoDBServiceException$ = DynamoDBServiceException$;
     exports.EnableKinesisStreamingConfiguration$ = EnableKinesisStreamingConfiguration$;
@@ -30272,7148 +37414,6 @@ var require_dist_cjs58 = __commonJS({
   }
 });
 
-// ../../node_modules/uuid/dist/esm-node/rng.js
-import crypto2 from "crypto";
-function rng() {
-  if (poolPtr > rnds8Pool.length - 16) {
-    crypto2.randomFillSync(rnds8Pool);
-    poolPtr = 0;
-  }
-  return rnds8Pool.slice(poolPtr, poolPtr += 16);
-}
-var rnds8Pool, poolPtr;
-var init_rng = __esm({
-  "../../node_modules/uuid/dist/esm-node/rng.js"() {
-    rnds8Pool = new Uint8Array(256);
-    poolPtr = rnds8Pool.length;
-  }
-});
-
-// ../../node_modules/uuid/dist/esm-node/regex.js
-var regex_default;
-var init_regex = __esm({
-  "../../node_modules/uuid/dist/esm-node/regex.js"() {
-    regex_default = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|00000000-0000-0000-0000-000000000000)$/i;
-  }
-});
-
-// ../../node_modules/uuid/dist/esm-node/validate.js
-function validate(uuid) {
-  return typeof uuid === "string" && regex_default.test(uuid);
-}
-var validate_default;
-var init_validate = __esm({
-  "../../node_modules/uuid/dist/esm-node/validate.js"() {
-    init_regex();
-    validate_default = validate;
-  }
-});
-
-// ../../node_modules/uuid/dist/esm-node/stringify.js
-function unsafeStringify(arr, offset = 0) {
-  return byteToHex[arr[offset + 0]] + byteToHex[arr[offset + 1]] + byteToHex[arr[offset + 2]] + byteToHex[arr[offset + 3]] + "-" + byteToHex[arr[offset + 4]] + byteToHex[arr[offset + 5]] + "-" + byteToHex[arr[offset + 6]] + byteToHex[arr[offset + 7]] + "-" + byteToHex[arr[offset + 8]] + byteToHex[arr[offset + 9]] + "-" + byteToHex[arr[offset + 10]] + byteToHex[arr[offset + 11]] + byteToHex[arr[offset + 12]] + byteToHex[arr[offset + 13]] + byteToHex[arr[offset + 14]] + byteToHex[arr[offset + 15]];
-}
-function stringify(arr, offset = 0) {
-  const uuid = unsafeStringify(arr, offset);
-  if (!validate_default(uuid)) {
-    throw TypeError("Stringified UUID is invalid");
-  }
-  return uuid;
-}
-var byteToHex, stringify_default;
-var init_stringify = __esm({
-  "../../node_modules/uuid/dist/esm-node/stringify.js"() {
-    init_validate();
-    byteToHex = [];
-    for (let i4 = 0; i4 < 256; ++i4) {
-      byteToHex.push((i4 + 256).toString(16).slice(1));
-    }
-    stringify_default = stringify;
-  }
-});
-
-// ../../node_modules/uuid/dist/esm-node/v1.js
-function v1(options, buf, offset) {
-  let i4 = buf && offset || 0;
-  const b4 = buf || new Array(16);
-  options = options || {};
-  let node = options.node || _nodeId;
-  let clockseq = options.clockseq !== void 0 ? options.clockseq : _clockseq;
-  if (node == null || clockseq == null) {
-    const seedBytes = options.random || (options.rng || rng)();
-    if (node == null) {
-      node = _nodeId = [seedBytes[0] | 1, seedBytes[1], seedBytes[2], seedBytes[3], seedBytes[4], seedBytes[5]];
-    }
-    if (clockseq == null) {
-      clockseq = _clockseq = (seedBytes[6] << 8 | seedBytes[7]) & 16383;
-    }
-  }
-  let msecs = options.msecs !== void 0 ? options.msecs : Date.now();
-  let nsecs = options.nsecs !== void 0 ? options.nsecs : _lastNSecs + 1;
-  const dt = msecs - _lastMSecs + (nsecs - _lastNSecs) / 1e4;
-  if (dt < 0 && options.clockseq === void 0) {
-    clockseq = clockseq + 1 & 16383;
-  }
-  if ((dt < 0 || msecs > _lastMSecs) && options.nsecs === void 0) {
-    nsecs = 0;
-  }
-  if (nsecs >= 1e4) {
-    throw new Error("uuid.v1(): Can't create more than 10M uuids/sec");
-  }
-  _lastMSecs = msecs;
-  _lastNSecs = nsecs;
-  _clockseq = clockseq;
-  msecs += 122192928e5;
-  const tl = ((msecs & 268435455) * 1e4 + nsecs) % 4294967296;
-  b4[i4++] = tl >>> 24 & 255;
-  b4[i4++] = tl >>> 16 & 255;
-  b4[i4++] = tl >>> 8 & 255;
-  b4[i4++] = tl & 255;
-  const tmh = msecs / 4294967296 * 1e4 & 268435455;
-  b4[i4++] = tmh >>> 8 & 255;
-  b4[i4++] = tmh & 255;
-  b4[i4++] = tmh >>> 24 & 15 | 16;
-  b4[i4++] = tmh >>> 16 & 255;
-  b4[i4++] = clockseq >>> 8 | 128;
-  b4[i4++] = clockseq & 255;
-  for (let n4 = 0; n4 < 6; ++n4) {
-    b4[i4 + n4] = node[n4];
-  }
-  return buf || unsafeStringify(b4);
-}
-var _nodeId, _clockseq, _lastMSecs, _lastNSecs, v1_default;
-var init_v1 = __esm({
-  "../../node_modules/uuid/dist/esm-node/v1.js"() {
-    init_rng();
-    init_stringify();
-    _lastMSecs = 0;
-    _lastNSecs = 0;
-    v1_default = v1;
-  }
-});
-
-// ../../node_modules/uuid/dist/esm-node/parse.js
-function parse(uuid) {
-  if (!validate_default(uuid)) {
-    throw TypeError("Invalid UUID");
-  }
-  let v6;
-  const arr = new Uint8Array(16);
-  arr[0] = (v6 = parseInt(uuid.slice(0, 8), 16)) >>> 24;
-  arr[1] = v6 >>> 16 & 255;
-  arr[2] = v6 >>> 8 & 255;
-  arr[3] = v6 & 255;
-  arr[4] = (v6 = parseInt(uuid.slice(9, 13), 16)) >>> 8;
-  arr[5] = v6 & 255;
-  arr[6] = (v6 = parseInt(uuid.slice(14, 18), 16)) >>> 8;
-  arr[7] = v6 & 255;
-  arr[8] = (v6 = parseInt(uuid.slice(19, 23), 16)) >>> 8;
-  arr[9] = v6 & 255;
-  arr[10] = (v6 = parseInt(uuid.slice(24, 36), 16)) / 1099511627776 & 255;
-  arr[11] = v6 / 4294967296 & 255;
-  arr[12] = v6 >>> 24 & 255;
-  arr[13] = v6 >>> 16 & 255;
-  arr[14] = v6 >>> 8 & 255;
-  arr[15] = v6 & 255;
-  return arr;
-}
-var parse_default;
-var init_parse = __esm({
-  "../../node_modules/uuid/dist/esm-node/parse.js"() {
-    init_validate();
-    parse_default = parse;
-  }
-});
-
-// ../../node_modules/uuid/dist/esm-node/v35.js
-function stringToBytes(str) {
-  str = unescape(encodeURIComponent(str));
-  const bytes = [];
-  for (let i4 = 0; i4 < str.length; ++i4) {
-    bytes.push(str.charCodeAt(i4));
-  }
-  return bytes;
-}
-function v35(name, version2, hashfunc) {
-  function generateUUID(value, namespace, buf, offset) {
-    var _namespace;
-    if (typeof value === "string") {
-      value = stringToBytes(value);
-    }
-    if (typeof namespace === "string") {
-      namespace = parse_default(namespace);
-    }
-    if (((_namespace = namespace) === null || _namespace === void 0 ? void 0 : _namespace.length) !== 16) {
-      throw TypeError("Namespace must be array-like (16 iterable integer values, 0-255)");
-    }
-    let bytes = new Uint8Array(16 + value.length);
-    bytes.set(namespace);
-    bytes.set(value, namespace.length);
-    bytes = hashfunc(bytes);
-    bytes[6] = bytes[6] & 15 | version2;
-    bytes[8] = bytes[8] & 63 | 128;
-    if (buf) {
-      offset = offset || 0;
-      for (let i4 = 0; i4 < 16; ++i4) {
-        buf[offset + i4] = bytes[i4];
-      }
-      return buf;
-    }
-    return unsafeStringify(bytes);
-  }
-  try {
-    generateUUID.name = name;
-  } catch (err2) {
-  }
-  generateUUID.DNS = DNS;
-  generateUUID.URL = URL2;
-  return generateUUID;
-}
-var DNS, URL2;
-var init_v35 = __esm({
-  "../../node_modules/uuid/dist/esm-node/v35.js"() {
-    init_stringify();
-    init_parse();
-    DNS = "6ba7b810-9dad-11d1-80b4-00c04fd430c8";
-    URL2 = "6ba7b811-9dad-11d1-80b4-00c04fd430c8";
-  }
-});
-
-// ../../node_modules/uuid/dist/esm-node/md5.js
-import crypto3 from "crypto";
-function md5(bytes) {
-  if (Array.isArray(bytes)) {
-    bytes = Buffer.from(bytes);
-  } else if (typeof bytes === "string") {
-    bytes = Buffer.from(bytes, "utf8");
-  }
-  return crypto3.createHash("md5").update(bytes).digest();
-}
-var md5_default;
-var init_md5 = __esm({
-  "../../node_modules/uuid/dist/esm-node/md5.js"() {
-    md5_default = md5;
-  }
-});
-
-// ../../node_modules/uuid/dist/esm-node/v3.js
-var v32, v3_default;
-var init_v3 = __esm({
-  "../../node_modules/uuid/dist/esm-node/v3.js"() {
-    init_v35();
-    init_md5();
-    v32 = v35("v3", 48, md5_default);
-    v3_default = v32;
-  }
-});
-
-// ../../node_modules/uuid/dist/esm-node/native.js
-import crypto4 from "crypto";
-var native_default;
-var init_native = __esm({
-  "../../node_modules/uuid/dist/esm-node/native.js"() {
-    native_default = {
-      randomUUID: crypto4.randomUUID
-    };
-  }
-});
-
-// ../../node_modules/uuid/dist/esm-node/v4.js
-function v4(options, buf, offset) {
-  if (native_default.randomUUID && !buf && !options) {
-    return native_default.randomUUID();
-  }
-  options = options || {};
-  const rnds = options.random || (options.rng || rng)();
-  rnds[6] = rnds[6] & 15 | 64;
-  rnds[8] = rnds[8] & 63 | 128;
-  if (buf) {
-    offset = offset || 0;
-    for (let i4 = 0; i4 < 16; ++i4) {
-      buf[offset + i4] = rnds[i4];
-    }
-    return buf;
-  }
-  return unsafeStringify(rnds);
-}
-var v4_default;
-var init_v4 = __esm({
-  "../../node_modules/uuid/dist/esm-node/v4.js"() {
-    init_native();
-    init_rng();
-    init_stringify();
-    v4_default = v4;
-  }
-});
-
-// ../../node_modules/uuid/dist/esm-node/sha1.js
-import crypto5 from "crypto";
-function sha1(bytes) {
-  if (Array.isArray(bytes)) {
-    bytes = Buffer.from(bytes);
-  } else if (typeof bytes === "string") {
-    bytes = Buffer.from(bytes, "utf8");
-  }
-  return crypto5.createHash("sha1").update(bytes).digest();
-}
-var sha1_default;
-var init_sha1 = __esm({
-  "../../node_modules/uuid/dist/esm-node/sha1.js"() {
-    sha1_default = sha1;
-  }
-});
-
-// ../../node_modules/uuid/dist/esm-node/v5.js
-var v5, v5_default;
-var init_v5 = __esm({
-  "../../node_modules/uuid/dist/esm-node/v5.js"() {
-    init_v35();
-    init_sha1();
-    v5 = v35("v5", 80, sha1_default);
-    v5_default = v5;
-  }
-});
-
-// ../../node_modules/uuid/dist/esm-node/nil.js
-var nil_default;
-var init_nil = __esm({
-  "../../node_modules/uuid/dist/esm-node/nil.js"() {
-    nil_default = "00000000-0000-0000-0000-000000000000";
-  }
-});
-
-// ../../node_modules/uuid/dist/esm-node/version.js
-function version(uuid) {
-  if (!validate_default(uuid)) {
-    throw TypeError("Invalid UUID");
-  }
-  return parseInt(uuid.slice(14, 15), 16);
-}
-var version_default;
-var init_version = __esm({
-  "../../node_modules/uuid/dist/esm-node/version.js"() {
-    init_validate();
-    version_default = version;
-  }
-});
-
-// ../../node_modules/uuid/dist/esm-node/index.js
-var esm_node_exports = {};
-__export(esm_node_exports, {
-  NIL: () => nil_default,
-  parse: () => parse_default,
-  stringify: () => stringify_default,
-  v1: () => v1_default,
-  v3: () => v3_default,
-  v4: () => v4_default,
-  v5: () => v5_default,
-  validate: () => validate_default,
-  version: () => version_default
-});
-var init_esm_node = __esm({
-  "../../node_modules/uuid/dist/esm-node/index.js"() {
-    init_v1();
-    init_v3();
-    init_v4();
-    init_v5();
-    init_nil();
-    init_version();
-    init_validate();
-    init_stringify();
-    init_parse();
-  }
-});
-
-// ../../node_modules/any-base/src/converter.js
-var require_converter = __commonJS({
-  "../../node_modules/any-base/src/converter.js"(exports, module) {
-    "use strict";
-    function Converter(srcAlphabet, dstAlphabet) {
-      if (!srcAlphabet || !dstAlphabet || !srcAlphabet.length || !dstAlphabet.length) {
-        throw new Error("Bad alphabet");
-      }
-      this.srcAlphabet = srcAlphabet;
-      this.dstAlphabet = dstAlphabet;
-    }
-    Converter.prototype.convert = function(number) {
-      var i4, divide, newlen, numberMap = {}, fromBase = this.srcAlphabet.length, toBase = this.dstAlphabet.length, length = number.length, result = typeof number === "string" ? "" : [];
-      if (!this.isValid(number)) {
-        throw new Error('Number "' + number + '" contains of non-alphabetic digits (' + this.srcAlphabet + ")");
-      }
-      if (this.srcAlphabet === this.dstAlphabet) {
-        return number;
-      }
-      for (i4 = 0; i4 < length; i4++) {
-        numberMap[i4] = this.srcAlphabet.indexOf(number[i4]);
-      }
-      do {
-        divide = 0;
-        newlen = 0;
-        for (i4 = 0; i4 < length; i4++) {
-          divide = divide * fromBase + numberMap[i4];
-          if (divide >= toBase) {
-            numberMap[newlen++] = parseInt(divide / toBase, 10);
-            divide = divide % toBase;
-          } else if (newlen > 0) {
-            numberMap[newlen++] = 0;
-          }
-        }
-        length = newlen;
-        result = this.dstAlphabet.slice(divide, divide + 1).concat(result);
-      } while (newlen !== 0);
-      return result;
-    };
-    Converter.prototype.isValid = function(number) {
-      var i4 = 0;
-      for (; i4 < number.length; ++i4) {
-        if (this.srcAlphabet.indexOf(number[i4]) === -1) {
-          return false;
-        }
-      }
-      return true;
-    };
-    module.exports = Converter;
-  }
-});
-
-// ../../node_modules/any-base/index.js
-var require_any_base = __commonJS({
-  "../../node_modules/any-base/index.js"(exports, module) {
-    var Converter = require_converter();
-    function anyBase(srcAlphabet, dstAlphabet) {
-      var converter = new Converter(srcAlphabet, dstAlphabet);
-      return function(number) {
-        return converter.convert(number);
-      };
-    }
-    anyBase.BIN = "01";
-    anyBase.OCT = "01234567";
-    anyBase.DEC = "0123456789";
-    anyBase.HEX = "0123456789abcdef";
-    module.exports = anyBase;
-  }
-});
-
-// ../../node_modules/short-uuid/index.js
-var require_short_uuid = __commonJS({
-  "../../node_modules/short-uuid/index.js"(exports, module) {
-    var { v4: uuidV4, validate: uuidValidate } = (init_esm_node(), __toCommonJS(esm_node_exports));
-    var anyBase = require_any_base();
-    var constants = {
-      cookieBase90: "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!#$%&'()*+-./:<=>?@[]^_`{|}~",
-      flickrBase58: "123456789abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ",
-      uuid25Base36: "0123456789abcdefghijklmnopqrstuvwxyz"
-    };
-    var baseOptions = {
-      consistentLength: true
-    };
-    var toFlickr;
-    var shortenUUID = (longId, translator2, paddingParams) => {
-      const translated = translator2(longId.toLowerCase().replace(/-/g, ""));
-      if (!paddingParams || !paddingParams.consistentLength) return translated;
-      return translated.padStart(
-        paddingParams.shortIdLength,
-        paddingParams.paddingChar
-      );
-    };
-    var enlargeUUID = (shortId, translator2) => {
-      const uu1 = translator2(shortId).padStart(32, "0");
-      const m4 = uu1.match(/(\w{8})(\w{4})(\w{4})(\w{4})(\w{12})/);
-      return [m4[1], m4[2], m4[3], m4[4], m4[5]].join("-");
-    };
-    var getShortIdLength = (alphabetLength) => Math.ceil(Math.log(2 ** 128) / Math.log(alphabetLength));
-    module.exports = (() => {
-      const makeConvertor = (toAlphabet, options) => {
-        const useAlphabet = toAlphabet || constants.flickrBase58;
-        const selectedOptions = { ...baseOptions, ...options };
-        if ([...new Set(Array.from(useAlphabet))].length !== useAlphabet.length) {
-          throw new Error("The provided Alphabet has duplicate characters resulting in unreliable results");
-        }
-        const shortIdLength = getShortIdLength(useAlphabet.length);
-        const paddingParams = {
-          shortIdLength,
-          consistentLength: selectedOptions.consistentLength,
-          paddingChar: useAlphabet[0]
-        };
-        const fromHex = anyBase(anyBase.HEX, useAlphabet);
-        const toHex = anyBase(useAlphabet, anyBase.HEX);
-        const generate = () => shortenUUID(uuidV4(), fromHex, paddingParams);
-        const validate2 = (shortId, rigorous = false) => {
-          if (!shortId || typeof shortId !== "string") return false;
-          const isCorrectLength = selectedOptions.consistentLength ? shortId.length === shortIdLength : shortId.length <= shortIdLength;
-          const onlyAlphabet = shortId.split("").every((letter) => useAlphabet.includes(letter));
-          if (rigorous === false) return isCorrectLength && onlyAlphabet;
-          return isCorrectLength && onlyAlphabet && uuidValidate(enlargeUUID(shortId, toHex));
-        };
-        const translator2 = {
-          alphabet: useAlphabet,
-          fromUUID: (uuid) => shortenUUID(uuid, fromHex, paddingParams),
-          maxLength: shortIdLength,
-          generate,
-          new: generate,
-          toUUID: (shortUuid) => enlargeUUID(shortUuid, toHex),
-          uuid: uuidV4,
-          validate: validate2
-        };
-        Object.freeze(translator2);
-        return translator2;
-      };
-      makeConvertor.constants = constants;
-      makeConvertor.uuid = uuidV4;
-      makeConvertor.generate = () => {
-        if (!toFlickr) {
-          toFlickr = makeConvertor(constants.flickrBase58).generate;
-        }
-        return toFlickr();
-      };
-      return makeConvertor;
-    })();
-  }
-});
-
-// ../../node_modules/electrodb/src/types.js
-var require_types = __commonJS({
-  "../../node_modules/electrodb/src/types.js"(exports, module) {
-    var KeyTypes = {
-      pk: "pk",
-      sk: "sk"
-    };
-    var DataOptions = {
-      raw: "raw",
-      includeKeys: "includeKeys",
-      attributes: "attributes"
-    };
-    var BatchWriteTypes = {
-      batch: "batch",
-      concurrent: "concurrent"
-    };
-    var ComparisonTypes = {
-      keys: "keys",
-      attributes: "attributes",
-      v2: "v2"
-    };
-    var QueryTypes = {
-      and: "and",
-      gte: "gte",
-      gt: "gt",
-      lte: "lte",
-      lt: "lt",
-      eq: "eq",
-      begins: "begins",
-      between: "between",
-      collection: "collection",
-      clustered_collection: "clustered_collection",
-      is: "is"
-    };
-    var MethodTypes = {
-      check: "check",
-      put: "put",
-      get: "get",
-      query: "query",
-      scan: "scan",
-      update: "update",
-      delete: "delete",
-      remove: "remove",
-      patch: "patch",
-      create: "create",
-      batchGet: "batchGet",
-      batchWrite: "batchWrite",
-      upsert: "upsert",
-      transactWrite: "transactWrite",
-      transactGet: "transactGet"
-    };
-    var TransactionMethods = {
-      transactWrite: MethodTypes.transactWrite,
-      transactGet: MethodTypes.transactGet
-    };
-    var TransactionOperations = {
-      [MethodTypes.get]: "Get",
-      [MethodTypes.check]: "ConditionCheck",
-      [MethodTypes.put]: "Put",
-      [MethodTypes.create]: "Put",
-      [MethodTypes.upsert]: "Update",
-      [MethodTypes.update]: "Update",
-      [MethodTypes.patch]: "Update",
-      [MethodTypes.remove]: "Delete",
-      [MethodTypes.delete]: "Delete"
-    };
-    var MethodTypeTranslation = {
-      put: "put",
-      get: "get",
-      query: "query",
-      scan: "scan",
-      update: "update",
-      delete: "delete",
-      remove: "delete",
-      patch: "update",
-      create: "put",
-      batchGet: "batchGet",
-      batchWrite: "batchWrite",
-      upsert: "update",
-      transactWrite: "transactWrite",
-      transactGet: "transactGet"
-    };
-    var IndexTypes = {
-      isolated: "isolated",
-      clustered: "clustered"
-    };
-    var Comparisons = {
-      lte: "<=",
-      lt: "<",
-      gte: ">=",
-      gt: ">"
-    };
-    var KeyAttributesComparisons = {
-      lt: "<",
-      gte: ">=",
-      /**
-       * gt becomes gte and last character of incoming value is shifted up one character code
-       * example:
-       * sk > '2020-09-05'
-       *   expected
-       *     - 2020-09-06@05:05_hero
-       *     - 2020-10-05@05:05_hero
-       *     - 2022-02-05@05:05_villian
-       *     - 2022-06-05@05:05_clown
-       *     - 2022-09-06@05:05_clown
-       *   actual (bad - includes all 2020-09-05 records)
-       *     - 2020-09-05@05:05_hero
-       *     - 2020-09-06@05:05_hero
-       *     - 2020-10-05@05:05_hero
-       *     - 2022-02-05@05:05_villian
-       *     - 2022-06-05@05:05_clown
-       */
-      gt: ">=",
-      /**
-       * lte becomes lt and last character of incoming value is shifted up one character code
-       * example:
-       * sk >= '2020-09-05'
-       *   expected
-       *     - 2012-02-05@05:05_clown
-       *     - 2015-10-05@05:05_hero
-       *     - 2017-02-05@05:05_clown
-       *     - 2017-02-05@05:05_villian
-       *     - 2020-02-05@05:05_clown
-       *     - 2020-02-25@05:05_clown
-       *     - 2020-09-05@05:05_hero
-       *   actual (bad - missing all 2020-09-05 records)
-       *     - 2012-02-05@05:05_clown
-       *     - 2015-10-05@05:05_hero
-       *     - 2017-02-05@05:05_clown
-       *     - 2017-02-05@05:05_villian
-       *     - 2020-02-05@05:05_clown
-       *     - 2020-02-25@05:05_clown
-       */
-      lte: "<"
-    };
-    var CastTypes = ["string", "number"];
-    var AttributeTypes = {
-      string: "string",
-      number: "number",
-      boolean: "boolean",
-      enum: "enum",
-      map: "map",
-      set: "set",
-      // enumSet: "enumSet",
-      list: "list",
-      any: "any",
-      custom: "custom",
-      static: "static"
-    };
-    var PathTypes = {
-      ...AttributeTypes,
-      item: "item"
-    };
-    var ExpressionTypes = {
-      ConditionExpression: "ConditionExpression",
-      FilterExpression: "FilterExpression"
-    };
-    var ElectroInstance = {
-      entity: /* @__PURE__ */ Symbol("entity"),
-      service: /* @__PURE__ */ Symbol("service"),
-      electro: /* @__PURE__ */ Symbol("electro")
-    };
-    var ElectroInstanceTypes = {
-      electro: "electro",
-      service: "service",
-      entity: "entity",
-      model: "model"
-    };
-    var ModelVersions = {
-      beta: "beta",
-      v1: "v1",
-      v2: "v2"
-    };
-    var EntityVersions = {
-      v1: "v1"
-    };
-    var ServiceVersions = {
-      v1: "v1"
-    };
-    var MaxBatchItems = {
-      [MethodTypes.batchGet]: 100,
-      [MethodTypes.batchWrite]: 25
-    };
-    var AttributeMutationMethods = {
-      get: "get",
-      set: "set"
-    };
-    var Pager = {
-      raw: "raw",
-      named: "named",
-      item: "item",
-      cursor: "cursor"
-    };
-    var UnprocessedTypes = {
-      raw: "raw",
-      item: "item"
-    };
-    var AttributeWildCard = "*";
-    var ItemOperations = {
-      set: "set",
-      delete: "delete",
-      remove: "remove",
-      add: "add",
-      subtract: "subtract",
-      append: "append",
-      ifNotExists: "ifNotExists"
-    };
-    var UpsertOperations = {
-      set: "set",
-      add: "add",
-      subtract: "subtract",
-      append: "append",
-      ifNotExists: "ifNotExists"
-    };
-    var AttributeProxySymbol = /* @__PURE__ */ Symbol("attribute_proxy");
-    var TransactionCommitSymbol = /* @__PURE__ */ Symbol("transaction_commit");
-    var BuilderTypes = {
-      update: "update",
-      filter: "filter"
-    };
-    var ValueTypes = {
-      string: "string",
-      boolean: "boolean",
-      number: "number",
-      array: "array",
-      set: "set",
-      aws_set: "aws_set",
-      object: "object",
-      map: "map",
-      null: "null",
-      undefined: "undefined",
-      unknown: "unknown"
-    };
-    var TraverserIndexes = {
-      readonly: "readonly",
-      required: "required",
-      getters: "getters",
-      setters: "setters"
-    };
-    var ReturnValues = {
-      default: "default",
-      none: "none",
-      all_old: "all_old",
-      updated_old: "updated_old",
-      all_new: "all_new",
-      updated_new: "updated_new"
-    };
-    var FormatToReturnValues = {
-      none: "NONE",
-      default: "NONE",
-      all_old: "ALL_OLD",
-      updated_old: "UPDATED_OLD",
-      all_new: "ALL_NEW",
-      updated_new: "UPDATED_NEW"
-    };
-    var TableIndex = "";
-    var KeyCasing = {
-      none: "none",
-      upper: "upper",
-      lower: "lower",
-      default: "default"
-    };
-    var DefaultKeyCasing = KeyCasing.lower;
-    var EventSubscriptionTypes = ["query", "results"];
-    var TerminalOperation = {
-      go: "go",
-      page: "page"
-    };
-    var AllPages = "all";
-    var ResultOrderOption = {
-      asc: true,
-      desc: false
-    };
-    var ResultOrderParam = "ScanIndexForward";
-    var DynamoDBAttributeTypes = Object.entries({
-      string: "S",
-      stringSet: "SS",
-      number: "N",
-      numberSet: "NS",
-      binary: "B",
-      binarySet: "BS",
-      boolean: "BOOL",
-      null: "NULL",
-      list: "L",
-      map: "M"
-    }).reduce((obj, [name, type]) => {
-      obj[name] = type;
-      obj[type] = type;
-      return obj;
-    }, {});
-    var CastKeyOptions = {
-      string: "string",
-      number: "number"
-    };
-    module.exports = {
-      Pager,
-      KeyTypes,
-      CastTypes,
-      KeyCasing,
-      PathTypes,
-      IndexTypes,
-      QueryTypes,
-      ValueTypes,
-      TableIndex,
-      MethodTypes,
-      DataOptions,
-      Comparisons,
-      BuilderTypes,
-      ReturnValues,
-      MaxBatchItems,
-      ModelVersions,
-      ItemOperations,
-      AttributeTypes,
-      EntityVersions,
-      CastKeyOptions,
-      ComparisonTypes,
-      ServiceVersions,
-      ExpressionTypes,
-      ElectroInstance,
-      TraverserIndexes,
-      UnprocessedTypes,
-      AttributeWildCard,
-      TerminalOperation,
-      FormatToReturnValues,
-      AttributeProxySymbol,
-      ElectroInstanceTypes,
-      MethodTypeTranslation,
-      EventSubscriptionTypes,
-      DynamoDBAttributeTypes,
-      KeyAttributesComparisons,
-      AttributeMutationMethods,
-      AllPages,
-      ResultOrderOption,
-      ResultOrderParam,
-      TransactionCommitSymbol,
-      TransactionOperations,
-      TransactionMethods,
-      UpsertOperations,
-      BatchWriteTypes,
-      DefaultKeyCasing
-    };
-  }
-});
-
-// ../../node_modules/electrodb/src/errors.js
-var require_errors = __commonJS({
-  "../../node_modules/electrodb/src/errors.js"(exports, module) {
-    function getHelpLink(section) {
-      section = section || "unknown-error-5001";
-      return `https://electrodb.dev/en/reference/errors/#${section}`;
-    }
-    var ErrorCode = /* @__PURE__ */ Symbol("error-code");
-    var ErrorCodes = {
-      NoClientDefined: {
-        code: 1001,
-        section: "no-client-defined-on-model",
-        name: "NoClientDefined",
-        sym: ErrorCode
-      },
-      InvalidIdentifier: {
-        code: 1002,
-        section: "invalid-identifier",
-        name: "InvalidIdentifier",
-        sym: ErrorCode
-      },
-      InvalidKeyCompositeAttributeTemplate: {
-        code: 1003,
-        section: "invalid-key-composite-attribute-template",
-        name: "InvalidKeyCompositeAttributeTemplate",
-        sym: ErrorCode
-      },
-      DuplicateIndexes: {
-        code: 1004,
-        section: "duplicate-indexes",
-        name: "DuplicateIndexes",
-        sym: ErrorCode
-      },
-      CollectionNoSK: {
-        code: 1005,
-        section: "collection-without-an-sk",
-        name: "CollectionNoSK",
-        sym: ErrorCode
-      },
-      DuplicateCollections: {
-        code: 1006,
-        section: "duplicate-collections",
-        name: "DuplicateCollections",
-        sym: ErrorCode
-      },
-      MissingPrimaryIndex: {
-        code: 1007,
-        section: "missing-primary-index",
-        name: "MissingPrimaryIndex",
-        sym: ErrorCode
-      },
-      InvalidAttributeDefinition: {
-        code: 1008,
-        section: "invalid-attribute-definition",
-        name: "InvalidAttributeDefinition",
-        sym: ErrorCode
-      },
-      InvalidModel: {
-        code: 1009,
-        section: "invalid-model",
-        name: "InvalidModel",
-        sym: ErrorCode
-      },
-      InvalidOptions: {
-        code: 1010,
-        section: "invalid-options",
-        name: "InvalidOptions",
-        sym: ErrorCode
-      },
-      InvalidFilter: {
-        code: 1011,
-        section: "filters",
-        name: "InvalidFilter",
-        sym: ErrorCode
-      },
-      InvalidWhere: {
-        code: 1012,
-        section: "where",
-        name: "InvalidWhere",
-        sym: ErrorCode
-      },
-      InvalidJoin: {
-        code: 1013,
-        section: "join",
-        name: "InvalidJoin",
-        sym: ErrorCode
-      },
-      DuplicateIndexFields: {
-        code: 1014,
-        section: "duplicate-index-fields",
-        name: "DuplicateIndexField",
-        sym: ErrorCode
-      },
-      DuplicateIndexCompositeAttributes: {
-        code: 1015,
-        section: "duplicate-index-composite-attributes",
-        name: "DuplicateIndexCompositeAttributes",
-        sym: ErrorCode
-      },
-      InvalidAttributeWatchDefinition: {
-        code: 1016,
-        section: "invalid-attribute-watch-definition",
-        name: "InvalidAttributeWatchDefinition",
-        sym: ErrorCode
-      },
-      IncompatibleKeyCompositeAttributeTemplate: {
-        code: 1017,
-        section: "incompatible-key-composite-attribute-template",
-        name: "IncompatibleKeyCompositeAttributeTemplate",
-        sym: ErrorCode
-      },
-      InvalidIndexWithAttributeName: {
-        code: 1018,
-        section: "invalid-index-with-attribute-name",
-        name: "InvalidIndexWithAttributeName",
-        sym: ErrorCode
-      },
-      InvalidCollectionOnIndexWithAttributeFieldNames: {
-        code: 1019,
-        section: "invalid-collection-on-index-with-attribute-field-names",
-        name: "InvalidIndexCompositeWithAttributeName",
-        sym: ErrorCode
-      },
-      IncompatibleKeyCasing: {
-        code: 1020,
-        section: "incompatible-key-casing",
-        name: "IncompatibleKeyCasing",
-        sym: ErrorCode
-      },
-      InvalidListenerProvided: {
-        code: 1020,
-        section: "invalid-listener-provided",
-        name: "InvalidListenerProvided",
-        sym: ErrorCode
-      },
-      InvalidLoggerProvided: {
-        code: 1020,
-        section: "invalid-listener-provided",
-        name: "InvalidListenerProvided",
-        sym: ErrorCode
-      },
-      InvalidClientProvided: {
-        code: 1021,
-        section: "invalid-client-provided",
-        name: "InvalidClientProvided",
-        sym: ErrorCode
-      },
-      InconsistentIndexDefinition: {
-        code: 1022,
-        section: "inconsistent-index-definition",
-        name: "Inconsistent Index Definition",
-        sym: ErrorCode
-      },
-      MissingAttribute: {
-        code: 2001,
-        section: "missing-attribute",
-        name: "MissingAttribute",
-        sym: ErrorCode
-      },
-      IncompleteCompositeAttributes: {
-        code: 2002,
-        section: "missing-composite-attributes",
-        name: "IncompleteCompositeAttributes",
-        sym: ErrorCode
-      },
-      MissingTable: {
-        code: 2003,
-        section: "missing-table",
-        name: "MissingTable",
-        sym: ErrorCode
-      },
-      InvalidConcurrencyOption: {
-        code: 2004,
-        section: "invalid-concurrency-option",
-        name: "InvalidConcurrencyOption",
-        sym: ErrorCode
-      },
-      InvalidPagesOption: {
-        code: 2005,
-        section: "invalid-pages-option",
-        name: "InvalidPagesOption",
-        sym: ErrorCode
-      },
-      InvalidLimitOption: {
-        code: 2006,
-        section: "invalid-limit-option",
-        name: "InvalidLimitOption",
-        sym: ErrorCode
-      },
-      InvalidConversionKeysProvided: {
-        code: 2007,
-        section: "invalid-conversion-values-provided",
-        name: "InvalidConversionKeysProvided",
-        sym: ErrorCode
-      },
-      InvalidConversionCursorProvided: {
-        code: 2008,
-        section: "invalid-conversion-values-provided",
-        name: "InvalidConversionCursorProvided",
-        sym: ErrorCode
-      },
-      InvalidConversionCompositeProvided: {
-        code: 2009,
-        section: "invalid-conversion-values-provided",
-        name: "InvalidConversionCompositeProvided",
-        sym: ErrorCode
-      },
-      DuplicateUpdateCompositesProvided: {
-        code: 2010,
-        section: "duplicate-update-composites-provided",
-        name: "DuplicateUpdateCompositesProvided",
-        sym: ErrorCode
-      },
-      InvalidIndexCondition: {
-        code: 2011,
-        section: "invalid-index-option",
-        name: "InvalidIndexOption",
-        sym: ErrorCode
-      },
-      IncompleteIndexCompositesAttributesProvided: {
-        code: 2012,
-        section: "invalid-index-composite-attributes-provided",
-        name: "IncompleteIndexCompositesAttributesProvided",
-        sym: ErrorCode
-      },
-      InvalidAttribute: {
-        code: 3001,
-        section: "invalid-attribute",
-        name: "InvalidAttribute",
-        sym: ErrorCode
-      },
-      AWSError: {
-        code: 4001,
-        section: "aws-error",
-        name: "AWSError",
-        sym: ErrorCode
-      },
-      UnknownError: {
-        code: 5001,
-        section: "unknown-error",
-        name: "UnknownError",
-        sym: ErrorCode
-      },
-      GeneralError: {
-        code: 5002,
-        section: "",
-        name: "GeneralError",
-        sym: ErrorCode
-      },
-      LastEvaluatedKey: {
-        code: 5003,
-        section: "invalid-last-evaluated-key",
-        name: "LastEvaluatedKey",
-        sym: ErrorCode
-      },
-      NoOwnerForPager: {
-        code: 5004,
-        section: "no-owner-for-pager",
-        name: "NoOwnerForPager",
-        sym: ErrorCode
-      },
-      NoOwnerForCursor: {
-        code: 5004,
-        section: "no-owner-for-pager",
-        name: "NoOwnerForCursor",
-        sym: ErrorCode
-      },
-      PagerNotUnique: {
-        code: 5005,
-        section: "pager-not-unique",
-        name: "NoOwnerForPager",
-        sym: ErrorCode
-      }
-    };
-    function makeMessage(message, section) {
-      return `${message} - For more detail on this error reference: ${getHelpLink(
-        section
-      )}`;
-    }
-    var ElectroError = class _ElectroError extends Error {
-      constructor(code, message, cause, params = null) {
-        super(message, { cause });
-        let detail = ErrorCodes.UnknownError;
-        if (code && code.sym === ErrorCode) {
-          detail = code;
-        }
-        this._message = message;
-        this.message = makeMessage(message, detail.section);
-        if (Error.captureStackTrace) {
-          Error.captureStackTrace(this, _ElectroError);
-        }
-        this.name = "ElectroError";
-        this.ref = code;
-        this.code = detail.code;
-        this.date = Date.now();
-        this.isElectroError = true;
-        applyParamsFn(this, params);
-      }
-    };
-    function applyParamsFn(error2, params = null) {
-      Object.defineProperty(error2, "params", {
-        enumerable: false,
-        writable: true,
-        configurable: true,
-        value: () => {
-          return params;
-        }
-      });
-    }
-    var ElectroValidationError = class extends ElectroError {
-      constructor(errors = []) {
-        const fields = [];
-        const messages = [];
-        for (let i4 = 0; i4 < errors.length; i4++) {
-          const error2 = errors[i4];
-          const message2 = error2 ? error2._message || error2.message : void 0;
-          messages.push(message2);
-          if (error2 instanceof ElectroUserValidationError) {
-            fields.push({
-              field: error2.field,
-              index: error2.index,
-              reason: message2,
-              cause: error2.cause,
-              type: "validation"
-            });
-          } else if (error2 instanceof ElectroAttributeValidationError) {
-            fields.push({
-              field: error2.field,
-              index: error2.index,
-              reason: message2,
-              cause: error2.cause || error2,
-              // error | undefined
-              type: "validation"
-            });
-          } else if (message2) {
-            fields.push({
-              field: "",
-              index: error2.index,
-              reason: message2,
-              cause: error2 !== void 0 ? error2.cause || error2 : void 0,
-              type: "fatal"
-            });
-          }
-        }
-        const message = messages.filter((message2) => typeof message2 === "string" && message2.length).join(", ") || `Invalid value(s) provided`;
-        super(ErrorCodes.InvalidAttribute, message);
-        this.fields = fields;
-        this.name = "ElectroValidationError";
-      }
-    };
-    var ElectroUserValidationError = class extends ElectroError {
-      constructor(field, cause) {
-        let message;
-        let hasCause = false;
-        if (typeof cause === "string") {
-          message = cause;
-        } else if (cause !== void 0 && typeof cause._message === "string" && cause._message.length) {
-          message = cause._message;
-          hasCause = true;
-        } else if (cause !== void 0 && typeof cause.message === "string" && cause.message.length) {
-          message = cause.message;
-          hasCause = true;
-        } else {
-          message = "Invalid value provided";
-        }
-        super(ErrorCodes.InvalidAttribute, message);
-        this.field = field;
-        this.name = "ElectroUserValidationError";
-        if (hasCause) {
-          this.cause = cause;
-        }
-      }
-    };
-    var ElectroAttributeValidationError = class extends ElectroError {
-      constructor(field, reason) {
-        super(ErrorCodes.InvalidAttribute, reason);
-        this.field = field;
-      }
-    };
-    module.exports = {
-      ErrorCodes,
-      ElectroError,
-      applyParamsFn,
-      ElectroValidationError,
-      ElectroUserValidationError,
-      ElectroAttributeValidationError
-    };
-  }
-});
-
-// ../../node_modules/jsonschema/lib/helpers.js
-var require_helpers = __commonJS({
-  "../../node_modules/jsonschema/lib/helpers.js"(exports, module) {
-    "use strict";
-    var uri = __require("url");
-    var ValidationError = exports.ValidationError = function ValidationError2(message, instance, schema, propertyPath, name, argument) {
-      if (propertyPath) {
-        this.property = propertyPath;
-      }
-      if (message) {
-        this.message = message;
-      }
-      if (schema) {
-        if (schema.id) {
-          this.schema = schema.id;
-        } else {
-          this.schema = schema;
-        }
-      }
-      if (instance !== void 0) {
-        this.instance = instance;
-      }
-      this.name = name;
-      this.argument = argument;
-      this.stack = this.toString();
-    };
-    ValidationError.prototype.toString = function toString() {
-      return this.property + " " + this.message;
-    };
-    var ValidatorResult = exports.ValidatorResult = function ValidatorResult2(instance, schema, options, ctx) {
-      this.instance = instance;
-      this.schema = schema;
-      this.propertyPath = ctx.propertyPath;
-      this.errors = [];
-      this.throwError = options && options.throwError;
-      this.disableFormat = options && options.disableFormat === true;
-    };
-    ValidatorResult.prototype.addError = function addError(detail) {
-      var err2;
-      if (typeof detail == "string") {
-        err2 = new ValidationError(detail, this.instance, this.schema, this.propertyPath);
-      } else {
-        if (!detail) throw new Error("Missing error detail");
-        if (!detail.message) throw new Error("Missing error message");
-        if (!detail.name) throw new Error("Missing validator type");
-        err2 = new ValidationError(detail.message, this.instance, this.schema, this.propertyPath, detail.name, detail.argument);
-      }
-      if (this.throwError) {
-        throw err2;
-      }
-      this.errors.push(err2);
-      return err2;
-    };
-    ValidatorResult.prototype.importErrors = function importErrors(res) {
-      if (typeof res == "string" || res && res.validatorType) {
-        this.addError(res);
-      } else if (res && res.errors) {
-        Array.prototype.push.apply(this.errors, res.errors);
-      }
-    };
-    function stringizer(v6, i4) {
-      return i4 + ": " + v6.toString() + "\n";
-    }
-    ValidatorResult.prototype.toString = function toString(res) {
-      return this.errors.map(stringizer).join("");
-    };
-    Object.defineProperty(ValidatorResult.prototype, "valid", { get: function() {
-      return !this.errors.length;
-    } });
-    var SchemaError = exports.SchemaError = function SchemaError2(msg, schema) {
-      this.message = msg;
-      this.schema = schema;
-      Error.call(this, msg);
-      Error.captureStackTrace(this, SchemaError2);
-    };
-    SchemaError.prototype = Object.create(
-      Error.prototype,
-      {
-        constructor: { value: SchemaError, enumerable: false },
-        name: { value: "SchemaError", enumerable: false }
-      }
-    );
-    var SchemaContext = exports.SchemaContext = function SchemaContext2(schema, options, propertyPath, base, schemas) {
-      this.schema = schema;
-      this.options = options;
-      this.propertyPath = propertyPath;
-      this.base = base;
-      this.schemas = schemas;
-    };
-    SchemaContext.prototype.resolve = function resolve(target) {
-      return uri.resolve(this.base, target);
-    };
-    SchemaContext.prototype.makeChild = function makeChild(schema, propertyName) {
-      var propertyPath = propertyName === void 0 ? this.propertyPath : this.propertyPath + makeSuffix(propertyName);
-      var base = uri.resolve(this.base, schema.id || "");
-      var ctx = new SchemaContext(schema, this.options, propertyPath, base, Object.create(this.schemas));
-      if (schema.id && !ctx.schemas[base]) {
-        ctx.schemas[base] = schema;
-      }
-      return ctx;
-    };
-    var FORMAT_REGEXPS = exports.FORMAT_REGEXPS = {
-      "date-time": /^\d{4}-(?:0[0-9]{1}|1[0-2]{1})-(3[01]|0[1-9]|[12][0-9])[tT ](2[0-4]|[01][0-9]):([0-5][0-9]):(60|[0-5][0-9])(\.\d+)?([zZ]|[+-]([0-5][0-9]):(60|[0-5][0-9]))$/,
-      "date": /^\d{4}-(?:0[0-9]{1}|1[0-2]{1})-(3[01]|0[1-9]|[12][0-9])$/,
-      "time": /^(2[0-4]|[01][0-9]):([0-5][0-9]):(60|[0-5][0-9])$/,
-      "email": /^(?:[\w\!\#\$\%\&\'\*\+\-\/\=\?\^\`\{\|\}\~]+\.)*[\w\!\#\$\%\&\'\*\+\-\/\=\?\^\`\{\|\}\~]+@(?:(?:(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-](?!\.)){0,61}[a-zA-Z0-9]?\.)+[a-zA-Z0-9](?:[a-zA-Z0-9\-](?!$)){0,61}[a-zA-Z0-9]?)|(?:\[(?:(?:[01]?\d{1,2}|2[0-4]\d|25[0-5])\.){3}(?:[01]?\d{1,2}|2[0-4]\d|25[0-5])\]))$/,
-      "ip-address": /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/,
-      "ipv6": /^\s*((([0-9A-Fa-f]{1,4}:){7}([0-9A-Fa-f]{1,4}|:))|(([0-9A-Fa-f]{1,4}:){6}(:[0-9A-Fa-f]{1,4}|((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9A-Fa-f]{1,4}:){5}(((:[0-9A-Fa-f]{1,4}){1,2})|:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9A-Fa-f]{1,4}:){4}(((:[0-9A-Fa-f]{1,4}){1,3})|((:[0-9A-Fa-f]{1,4})?:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9A-Fa-f]{1,4}:){3}(((:[0-9A-Fa-f]{1,4}){1,4})|((:[0-9A-Fa-f]{1,4}){0,2}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9A-Fa-f]{1,4}:){2}(((:[0-9A-Fa-f]{1,4}){1,5})|((:[0-9A-Fa-f]{1,4}){0,3}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9A-Fa-f]{1,4}:){1}(((:[0-9A-Fa-f]{1,4}){1,6})|((:[0-9A-Fa-f]{1,4}){0,4}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(:(((:[0-9A-Fa-f]{1,4}){1,7})|((:[0-9A-Fa-f]{1,4}){0,5}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:)))(%.+)?\s*$/,
-      "uri": /^[a-zA-Z][a-zA-Z0-9+-.]*:[^\s]*$/,
-      "color": /^(#?([0-9A-Fa-f]{3}){1,2}\b|aqua|black|blue|fuchsia|gray|green|lime|maroon|navy|olive|orange|purple|red|silver|teal|white|yellow|(rgb\(\s*\b([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\b\s*,\s*\b([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\b\s*,\s*\b([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\b\s*\))|(rgb\(\s*(\d?\d%|100%)+\s*,\s*(\d?\d%|100%)+\s*,\s*(\d?\d%|100%)+\s*\)))$/,
-      // hostname regex from: http://stackoverflow.com/a/1420225/5628
-      "hostname": /^(?=.{1,255}$)[0-9A-Za-z](?:(?:[0-9A-Za-z]|-){0,61}[0-9A-Za-z])?(?:\.[0-9A-Za-z](?:(?:[0-9A-Za-z]|-){0,61}[0-9A-Za-z])?)*\.?$/,
-      "host-name": /^(?=.{1,255}$)[0-9A-Za-z](?:(?:[0-9A-Za-z]|-){0,61}[0-9A-Za-z])?(?:\.[0-9A-Za-z](?:(?:[0-9A-Za-z]|-){0,61}[0-9A-Za-z])?)*\.?$/,
-      "alpha": /^[a-zA-Z]+$/,
-      "alphanumeric": /^[a-zA-Z0-9]+$/,
-      "utc-millisec": function(input) {
-        return typeof input === "string" && parseFloat(input) === parseInt(input, 10) && !isNaN(input);
-      },
-      "regex": function(input) {
-        var result = true;
-        try {
-          new RegExp(input);
-        } catch (e4) {
-          result = false;
-        }
-        return result;
-      },
-      "style": /\s*(.+?):\s*([^;]+);?/,
-      "phone": /^\+(?:[0-9] ?){6,14}[0-9]$/
-    };
-    FORMAT_REGEXPS.regexp = FORMAT_REGEXPS.regex;
-    FORMAT_REGEXPS.pattern = FORMAT_REGEXPS.regex;
-    FORMAT_REGEXPS.ipv4 = FORMAT_REGEXPS["ip-address"];
-    exports.isFormat = function isFormat(input, format2, validator) {
-      if (typeof input === "string" && FORMAT_REGEXPS[format2] !== void 0) {
-        if (FORMAT_REGEXPS[format2] instanceof RegExp) {
-          return FORMAT_REGEXPS[format2].test(input);
-        }
-        if (typeof FORMAT_REGEXPS[format2] === "function") {
-          return FORMAT_REGEXPS[format2](input);
-        }
-      } else if (validator && validator.customFormats && typeof validator.customFormats[format2] === "function") {
-        return validator.customFormats[format2](input);
-      }
-      return true;
-    };
-    var makeSuffix = exports.makeSuffix = function makeSuffix2(key) {
-      key = key.toString();
-      if (!key.match(/[.\s\[\]]/) && !key.match(/^[\d]/)) {
-        return "." + key;
-      }
-      if (key.match(/^\d+$/)) {
-        return "[" + key + "]";
-      }
-      return "[" + JSON.stringify(key) + "]";
-    };
-    exports.deepCompareStrict = function deepCompareStrict(a4, b4) {
-      if (typeof a4 !== typeof b4) {
-        return false;
-      }
-      if (Array.isArray(a4)) {
-        if (!Array.isArray(b4)) {
-          return false;
-        }
-        if (a4.length !== b4.length) {
-          return false;
-        }
-        return a4.every(function(v6, i4) {
-          return deepCompareStrict(a4[i4], b4[i4]);
-        });
-      }
-      if (typeof a4 === "object") {
-        if (!a4 || !b4) {
-          return a4 === b4;
-        }
-        var aKeys = Object.keys(a4);
-        var bKeys = Object.keys(b4);
-        if (aKeys.length !== bKeys.length) {
-          return false;
-        }
-        return aKeys.every(function(v6) {
-          return deepCompareStrict(a4[v6], b4[v6]);
-        });
-      }
-      return a4 === b4;
-    };
-    function deepMerger(target, dst, e4, i4) {
-      if (typeof e4 === "object") {
-        dst[i4] = deepMerge(target[i4], e4);
-      } else {
-        if (target.indexOf(e4) === -1) {
-          dst.push(e4);
-        }
-      }
-    }
-    function copyist(src, dst, key) {
-      dst[key] = src[key];
-    }
-    function copyistWithDeepMerge(target, src, dst, key) {
-      if (typeof src[key] !== "object" || !src[key]) {
-        dst[key] = src[key];
-      } else {
-        if (!target[key]) {
-          dst[key] = src[key];
-        } else {
-          dst[key] = deepMerge(target[key], src[key]);
-        }
-      }
-    }
-    function deepMerge(target, src) {
-      var array = Array.isArray(src);
-      var dst = array && [] || {};
-      if (array) {
-        target = target || [];
-        dst = dst.concat(target);
-        src.forEach(deepMerger.bind(null, target, dst));
-      } else {
-        if (target && typeof target === "object") {
-          Object.keys(target).forEach(copyist.bind(null, target, dst));
-        }
-        Object.keys(src).forEach(copyistWithDeepMerge.bind(null, target, src, dst));
-      }
-      return dst;
-    }
-    module.exports.deepMerge = deepMerge;
-    exports.objectGetPath = function objectGetPath(o4, s4) {
-      var parts = s4.split("/").slice(1);
-      var k4;
-      while (typeof (k4 = parts.shift()) == "string") {
-        var n4 = decodeURIComponent(k4.replace(/~0/, "~").replace(/~1/g, "/"));
-        if (!(n4 in o4)) return;
-        o4 = o4[n4];
-      }
-      return o4;
-    };
-    function pathEncoder(v6) {
-      return "/" + encodeURIComponent(v6).replace(/~/g, "%7E");
-    }
-    exports.encodePath = function encodePointer(a4) {
-      return a4.map(pathEncoder).join("");
-    };
-    exports.getDecimalPlaces = function getDecimalPlaces(number) {
-      var decimalPlaces = 0;
-      if (isNaN(number)) return decimalPlaces;
-      if (typeof number !== "number") {
-        number = Number(number);
-      }
-      var parts = number.toString().split("e");
-      if (parts.length === 2) {
-        if (parts[1][0] !== "-") {
-          return decimalPlaces;
-        } else {
-          decimalPlaces = Number(parts[1].slice(1));
-        }
-      }
-      var decimalParts = parts[0].split(".");
-      if (decimalParts.length === 2) {
-        decimalPlaces += decimalParts[1].length;
-      }
-      return decimalPlaces;
-    };
-  }
-});
-
-// ../../node_modules/jsonschema/lib/attribute.js
-var require_attribute = __commonJS({
-  "../../node_modules/jsonschema/lib/attribute.js"(exports, module) {
-    "use strict";
-    var helpers = require_helpers();
-    var ValidatorResult = helpers.ValidatorResult;
-    var SchemaError = helpers.SchemaError;
-    var attribute = {};
-    attribute.ignoreProperties = {
-      // informative properties
-      "id": true,
-      "default": true,
-      "description": true,
-      "title": true,
-      // arguments to other properties
-      "exclusiveMinimum": true,
-      "exclusiveMaximum": true,
-      "additionalItems": true,
-      // special-handled properties
-      "$schema": true,
-      "$ref": true,
-      "extends": true
-    };
-    var validators = attribute.validators = {};
-    validators.type = function validateType(instance, schema, options, ctx) {
-      if (instance === void 0) {
-        return null;
-      }
-      var result = new ValidatorResult(instance, schema, options, ctx);
-      var types = Array.isArray(schema.type) ? schema.type : [schema.type];
-      if (!types.some(this.testType.bind(this, instance, schema, options, ctx))) {
-        var list2 = types.map(function(v6) {
-          return v6.id && "<" + v6.id + ">" || v6 + "";
-        });
-        result.addError({
-          name: "type",
-          argument: list2,
-          message: "is not of a type(s) " + list2
-        });
-      }
-      return result;
-    };
-    function testSchemaNoThrow(instance, options, ctx, callback, schema) {
-      var throwError = options.throwError;
-      options.throwError = false;
-      var res = this.validateSchema(instance, schema, options, ctx);
-      options.throwError = throwError;
-      if (!res.valid && callback instanceof Function) {
-        callback(res);
-      }
-      return res.valid;
-    }
-    validators.anyOf = function validateAnyOf(instance, schema, options, ctx) {
-      if (instance === void 0) {
-        return null;
-      }
-      var result = new ValidatorResult(instance, schema, options, ctx);
-      var inner = new ValidatorResult(instance, schema, options, ctx);
-      if (!Array.isArray(schema.anyOf)) {
-        throw new SchemaError("anyOf must be an array");
-      }
-      if (!schema.anyOf.some(
-        testSchemaNoThrow.bind(
-          this,
-          instance,
-          options,
-          ctx,
-          function(res) {
-            inner.importErrors(res);
-          }
-        )
-      )) {
-        var list2 = schema.anyOf.map(function(v6, i4) {
-          return v6.id && "<" + v6.id + ">" || v6.title && JSON.stringify(v6.title) || v6["$ref"] && "<" + v6["$ref"] + ">" || "[subschema " + i4 + "]";
-        });
-        if (options.nestedErrors) {
-          result.importErrors(inner);
-        }
-        result.addError({
-          name: "anyOf",
-          argument: list2,
-          message: "is not any of " + list2.join(",")
-        });
-      }
-      return result;
-    };
-    validators.allOf = function validateAllOf(instance, schema, options, ctx) {
-      if (instance === void 0) {
-        return null;
-      }
-      if (!Array.isArray(schema.allOf)) {
-        throw new SchemaError("allOf must be an array");
-      }
-      var result = new ValidatorResult(instance, schema, options, ctx);
-      var self2 = this;
-      schema.allOf.forEach(function(v6, i4) {
-        var valid = self2.validateSchema(instance, v6, options, ctx);
-        if (!valid.valid) {
-          var msg = v6.id && "<" + v6.id + ">" || v6.title && JSON.stringify(v6.title) || v6["$ref"] && "<" + v6["$ref"] + ">" || "[subschema " + i4 + "]";
-          result.addError({
-            name: "allOf",
-            argument: { id: msg, length: valid.errors.length, valid },
-            message: "does not match allOf schema " + msg + " with " + valid.errors.length + " error[s]:"
-          });
-          result.importErrors(valid);
-        }
-      });
-      return result;
-    };
-    validators.oneOf = function validateOneOf(instance, schema, options, ctx) {
-      if (instance === void 0) {
-        return null;
-      }
-      if (!Array.isArray(schema.oneOf)) {
-        throw new SchemaError("oneOf must be an array");
-      }
-      var result = new ValidatorResult(instance, schema, options, ctx);
-      var inner = new ValidatorResult(instance, schema, options, ctx);
-      var count = schema.oneOf.filter(
-        testSchemaNoThrow.bind(
-          this,
-          instance,
-          options,
-          ctx,
-          function(res) {
-            inner.importErrors(res);
-          }
-        )
-      ).length;
-      var list2 = schema.oneOf.map(function(v6, i4) {
-        return v6.id && "<" + v6.id + ">" || v6.title && JSON.stringify(v6.title) || v6["$ref"] && "<" + v6["$ref"] + ">" || "[subschema " + i4 + "]";
-      });
-      if (count !== 1) {
-        if (options.nestedErrors) {
-          result.importErrors(inner);
-        }
-        result.addError({
-          name: "oneOf",
-          argument: list2,
-          message: "is not exactly one from " + list2.join(",")
-        });
-      }
-      return result;
-    };
-    validators.properties = function validateProperties(instance, schema, options, ctx) {
-      if (!this.types.object(instance)) return;
-      var result = new ValidatorResult(instance, schema, options, ctx);
-      var properties = schema.properties || {};
-      for (var property in properties) {
-        if (typeof options.preValidateProperty == "function") {
-          options.preValidateProperty(instance, property, properties[property], options, ctx);
-        }
-        var prop = Object.hasOwnProperty.call(instance, property) ? instance[property] : void 0;
-        var res = this.validateSchema(prop, properties[property], options, ctx.makeChild(properties[property], property));
-        if (res.instance !== result.instance[property]) result.instance[property] = res.instance;
-        result.importErrors(res);
-      }
-      return result;
-    };
-    function testAdditionalProperty(instance, schema, options, ctx, property, result) {
-      if (!this.types.object(instance)) return;
-      if (schema.properties && schema.properties[property] !== void 0) {
-        return;
-      }
-      if (schema.additionalProperties === false) {
-        result.addError({
-          name: "additionalProperties",
-          argument: property,
-          message: "additionalProperty " + JSON.stringify(property) + " exists in instance when not allowed"
-        });
-      } else {
-        var additionalProperties = schema.additionalProperties || {};
-        if (typeof options.preValidateProperty == "function") {
-          options.preValidateProperty(instance, property, additionalProperties, options, ctx);
-        }
-        var res = this.validateSchema(instance[property], additionalProperties, options, ctx.makeChild(additionalProperties, property));
-        if (res.instance !== result.instance[property]) result.instance[property] = res.instance;
-        result.importErrors(res);
-      }
-    }
-    validators.patternProperties = function validatePatternProperties(instance, schema, options, ctx) {
-      if (!this.types.object(instance)) return;
-      var result = new ValidatorResult(instance, schema, options, ctx);
-      var patternProperties = schema.patternProperties || {};
-      for (var property in instance) {
-        var test = true;
-        for (var pattern in patternProperties) {
-          var expr = new RegExp(pattern, "u");
-          if (!expr.test(property)) {
-            continue;
-          }
-          test = false;
-          if (typeof options.preValidateProperty == "function") {
-            options.preValidateProperty(instance, property, patternProperties[pattern], options, ctx);
-          }
-          var res = this.validateSchema(instance[property], patternProperties[pattern], options, ctx.makeChild(patternProperties[pattern], property));
-          if (res.instance !== result.instance[property]) result.instance[property] = res.instance;
-          result.importErrors(res);
-        }
-        if (test) {
-          testAdditionalProperty.call(this, instance, schema, options, ctx, property, result);
-        }
-      }
-      return result;
-    };
-    validators.additionalProperties = function validateAdditionalProperties(instance, schema, options, ctx) {
-      if (!this.types.object(instance)) return;
-      if (schema.patternProperties) {
-        return null;
-      }
-      var result = new ValidatorResult(instance, schema, options, ctx);
-      for (var property in instance) {
-        testAdditionalProperty.call(this, instance, schema, options, ctx, property, result);
-      }
-      return result;
-    };
-    validators.minProperties = function validateMinProperties(instance, schema, options, ctx) {
-      if (!this.types.object(instance)) return;
-      var result = new ValidatorResult(instance, schema, options, ctx);
-      var keys = Object.keys(instance);
-      if (!(keys.length >= schema.minProperties)) {
-        result.addError({
-          name: "minProperties",
-          argument: schema.minProperties,
-          message: "does not meet minimum property length of " + schema.minProperties
-        });
-      }
-      return result;
-    };
-    validators.maxProperties = function validateMaxProperties(instance, schema, options, ctx) {
-      if (!this.types.object(instance)) return;
-      var result = new ValidatorResult(instance, schema, options, ctx);
-      var keys = Object.keys(instance);
-      if (!(keys.length <= schema.maxProperties)) {
-        result.addError({
-          name: "maxProperties",
-          argument: schema.maxProperties,
-          message: "does not meet maximum property length of " + schema.maxProperties
-        });
-      }
-      return result;
-    };
-    validators.items = function validateItems(instance, schema, options, ctx) {
-      var self2 = this;
-      if (!this.types.array(instance)) return;
-      if (!schema.items) return;
-      var result = new ValidatorResult(instance, schema, options, ctx);
-      instance.every(function(value, i4) {
-        var items = Array.isArray(schema.items) ? schema.items[i4] || schema.additionalItems : schema.items;
-        if (items === void 0) {
-          return true;
-        }
-        if (items === false) {
-          result.addError({
-            name: "items",
-            message: "additionalItems not permitted"
-          });
-          return false;
-        }
-        var res = self2.validateSchema(value, items, options, ctx.makeChild(items, i4));
-        if (res.instance !== result.instance[i4]) result.instance[i4] = res.instance;
-        result.importErrors(res);
-        return true;
-      });
-      return result;
-    };
-    validators.minimum = function validateMinimum(instance, schema, options, ctx) {
-      if (!this.types.number(instance)) return;
-      var result = new ValidatorResult(instance, schema, options, ctx);
-      var valid = true;
-      if (schema.exclusiveMinimum && schema.exclusiveMinimum === true) {
-        valid = instance > schema.minimum;
-      } else {
-        valid = instance >= schema.minimum;
-      }
-      if (!valid) {
-        result.addError({
-          name: "minimum",
-          argument: schema.minimum,
-          message: "must have a minimum value of " + schema.minimum
-        });
-      }
-      return result;
-    };
-    validators.maximum = function validateMaximum(instance, schema, options, ctx) {
-      if (!this.types.number(instance)) return;
-      var result = new ValidatorResult(instance, schema, options, ctx);
-      var valid;
-      if (schema.exclusiveMaximum && schema.exclusiveMaximum === true) {
-        valid = instance < schema.maximum;
-      } else {
-        valid = instance <= schema.maximum;
-      }
-      if (!valid) {
-        result.addError({
-          name: "maximum",
-          argument: schema.maximum,
-          message: "must have a maximum value of " + schema.maximum
-        });
-      }
-      return result;
-    };
-    var validateMultipleOfOrDivisbleBy = function validateMultipleOfOrDivisbleBy2(instance, schema, options, ctx, validationType, errorMessage) {
-      if (!this.types.number(instance)) return;
-      var validationArgument = schema[validationType];
-      if (validationArgument == 0) {
-        throw new SchemaError(validationType + " cannot be zero");
-      }
-      var result = new ValidatorResult(instance, schema, options, ctx);
-      var instanceDecimals = helpers.getDecimalPlaces(instance);
-      var divisorDecimals = helpers.getDecimalPlaces(validationArgument);
-      var maxDecimals = Math.max(instanceDecimals, divisorDecimals);
-      var multiplier = Math.pow(10, maxDecimals);
-      if (Math.round(instance * multiplier) % Math.round(validationArgument * multiplier) !== 0) {
-        result.addError({
-          name: validationType,
-          argument: validationArgument,
-          message: errorMessage + JSON.stringify(validationArgument)
-        });
-      }
-      return result;
-    };
-    validators.multipleOf = function validateMultipleOf(instance, schema, options, ctx) {
-      return validateMultipleOfOrDivisbleBy.call(this, instance, schema, options, ctx, "multipleOf", "is not a multiple of (divisible by) ");
-    };
-    validators.divisibleBy = function validateDivisibleBy(instance, schema, options, ctx) {
-      return validateMultipleOfOrDivisbleBy.call(this, instance, schema, options, ctx, "divisibleBy", "is not divisible by (multiple of) ");
-    };
-    validators.required = function validateRequired(instance, schema, options, ctx) {
-      var result = new ValidatorResult(instance, schema, options, ctx);
-      if (instance === void 0 && schema.required === true) {
-        result.addError({
-          name: "required",
-          message: "is required"
-        });
-      } else if (this.types.object(instance) && Array.isArray(schema.required)) {
-        schema.required.forEach(function(n4) {
-          if (instance[n4] === void 0) {
-            result.addError({
-              name: "required",
-              argument: n4,
-              message: "requires property " + JSON.stringify(n4)
-            });
-          }
-        });
-      }
-      return result;
-    };
-    validators.pattern = function validatePattern(instance, schema, options, ctx) {
-      if (!this.types.string(instance)) return;
-      var result = new ValidatorResult(instance, schema, options, ctx);
-      var regexp = new RegExp(schema.pattern, "u");
-      if (!instance.match(regexp)) {
-        result.addError({
-          name: "pattern",
-          argument: schema.pattern,
-          message: "does not match pattern " + JSON.stringify(schema.pattern.toString())
-        });
-      }
-      return result;
-    };
-    validators.format = function validateFormat(instance, schema, options, ctx) {
-      if (instance === void 0) return;
-      var result = new ValidatorResult(instance, schema, options, ctx);
-      if (!result.disableFormat && !helpers.isFormat(instance, schema.format, this)) {
-        result.addError({
-          name: "format",
-          argument: schema.format,
-          message: "does not conform to the " + JSON.stringify(schema.format) + " format"
-        });
-      }
-      return result;
-    };
-    validators.minLength = function validateMinLength(instance, schema, options, ctx) {
-      if (!this.types.string(instance)) return;
-      var result = new ValidatorResult(instance, schema, options, ctx);
-      var hsp = instance.match(/[\uDC00-\uDFFF]/g);
-      var length = instance.length - (hsp ? hsp.length : 0);
-      if (!(length >= schema.minLength)) {
-        result.addError({
-          name: "minLength",
-          argument: schema.minLength,
-          message: "does not meet minimum length of " + schema.minLength
-        });
-      }
-      return result;
-    };
-    validators.maxLength = function validateMaxLength(instance, schema, options, ctx) {
-      if (!this.types.string(instance)) return;
-      var result = new ValidatorResult(instance, schema, options, ctx);
-      var hsp = instance.match(/[\uDC00-\uDFFF]/g);
-      var length = instance.length - (hsp ? hsp.length : 0);
-      if (!(length <= schema.maxLength)) {
-        result.addError({
-          name: "maxLength",
-          argument: schema.maxLength,
-          message: "does not meet maximum length of " + schema.maxLength
-        });
-      }
-      return result;
-    };
-    validators.minItems = function validateMinItems(instance, schema, options, ctx) {
-      if (!this.types.array(instance)) return;
-      var result = new ValidatorResult(instance, schema, options, ctx);
-      if (!(instance.length >= schema.minItems)) {
-        result.addError({
-          name: "minItems",
-          argument: schema.minItems,
-          message: "does not meet minimum length of " + schema.minItems
-        });
-      }
-      return result;
-    };
-    validators.maxItems = function validateMaxItems(instance, schema, options, ctx) {
-      if (!this.types.array(instance)) return;
-      var result = new ValidatorResult(instance, schema, options, ctx);
-      if (!(instance.length <= schema.maxItems)) {
-        result.addError({
-          name: "maxItems",
-          argument: schema.maxItems,
-          message: "does not meet maximum length of " + schema.maxItems
-        });
-      }
-      return result;
-    };
-    function testArrays(v6, i4, a4) {
-      var j4, len = a4.length;
-      for (j4 = i4 + 1, len; j4 < len; j4++) {
-        if (helpers.deepCompareStrict(v6, a4[j4])) {
-          return false;
-        }
-      }
-      return true;
-    }
-    validators.uniqueItems = function validateUniqueItems(instance, schema, options, ctx) {
-      if (schema.uniqueItems !== true) return;
-      if (!this.types.array(instance)) return;
-      var result = new ValidatorResult(instance, schema, options, ctx);
-      if (!instance.every(testArrays)) {
-        result.addError({
-          name: "uniqueItems",
-          message: "contains duplicate item"
-        });
-      }
-      return result;
-    };
-    validators.dependencies = function validateDependencies(instance, schema, options, ctx) {
-      if (!this.types.object(instance)) return;
-      var result = new ValidatorResult(instance, schema, options, ctx);
-      for (var property in schema.dependencies) {
-        if (instance[property] === void 0) {
-          continue;
-        }
-        var dep = schema.dependencies[property];
-        var childContext = ctx.makeChild(dep, property);
-        if (typeof dep == "string") {
-          dep = [dep];
-        }
-        if (Array.isArray(dep)) {
-          dep.forEach(function(prop) {
-            if (instance[prop] === void 0) {
-              result.addError({
-                // FIXME there's two different "dependencies" errors here with slightly different outputs
-                // Can we make these the same? Or should we create different error types?
-                name: "dependencies",
-                argument: childContext.propertyPath,
-                message: "property " + prop + " not found, required by " + childContext.propertyPath
-              });
-            }
-          });
-        } else {
-          var res = this.validateSchema(instance, dep, options, childContext);
-          if (result.instance !== res.instance) result.instance = res.instance;
-          if (res && res.errors.length) {
-            result.addError({
-              name: "dependencies",
-              argument: childContext.propertyPath,
-              message: "does not meet dependency required by " + childContext.propertyPath
-            });
-            result.importErrors(res);
-          }
-        }
-      }
-      return result;
-    };
-    validators["enum"] = function validateEnum(instance, schema, options, ctx) {
-      if (instance === void 0) {
-        return null;
-      }
-      if (!Array.isArray(schema["enum"])) {
-        throw new SchemaError("enum expects an array", schema);
-      }
-      var result = new ValidatorResult(instance, schema, options, ctx);
-      if (!schema["enum"].some(helpers.deepCompareStrict.bind(null, instance))) {
-        result.addError({
-          name: "enum",
-          argument: schema["enum"],
-          message: "is not one of enum values: " + schema["enum"].map(String).join(",")
-        });
-      }
-      return result;
-    };
-    validators["const"] = function validateEnum(instance, schema, options, ctx) {
-      if (instance === void 0) {
-        return null;
-      }
-      var result = new ValidatorResult(instance, schema, options, ctx);
-      if (!helpers.deepCompareStrict(schema["const"], instance)) {
-        result.addError({
-          name: "const",
-          argument: schema["const"],
-          message: "does not exactly match expected constant: " + schema["const"]
-        });
-      }
-      return result;
-    };
-    validators.not = validators.disallow = function validateNot(instance, schema, options, ctx) {
-      var self2 = this;
-      if (instance === void 0) return null;
-      var result = new ValidatorResult(instance, schema, options, ctx);
-      var notTypes = schema.not || schema.disallow;
-      if (!notTypes) return null;
-      if (!Array.isArray(notTypes)) notTypes = [notTypes];
-      notTypes.forEach(function(type) {
-        if (self2.testType(instance, schema, options, ctx, type)) {
-          var schemaId = type && type.id && "<" + type.id + ">" || type;
-          result.addError({
-            name: "not",
-            argument: schemaId,
-            message: "is of prohibited type " + schemaId
-          });
-        }
-      });
-      return result;
-    };
-    module.exports = attribute;
-  }
-});
-
-// ../../node_modules/jsonschema/lib/scan.js
-var require_scan = __commonJS({
-  "../../node_modules/jsonschema/lib/scan.js"(exports, module) {
-    "use strict";
-    var urilib = __require("url");
-    var helpers = require_helpers();
-    module.exports.SchemaScanResult = SchemaScanResult;
-    function SchemaScanResult(found, ref) {
-      this.id = found;
-      this.ref = ref;
-    }
-    module.exports.scan = function scan(base, schema) {
-      function scanSchema(baseuri, schema2) {
-        if (!schema2 || typeof schema2 != "object") return;
-        if (schema2.$ref) {
-          var resolvedUri = urilib.resolve(baseuri, schema2.$ref);
-          ref[resolvedUri] = ref[resolvedUri] ? ref[resolvedUri] + 1 : 0;
-          return;
-        }
-        var ourBase = schema2.id ? urilib.resolve(baseuri, schema2.id) : baseuri;
-        if (ourBase) {
-          if (ourBase.indexOf("#") < 0) ourBase += "#";
-          if (found[ourBase]) {
-            if (!helpers.deepCompareStrict(found[ourBase], schema2)) {
-              throw new Error("Schema <" + schema2 + "> already exists with different definition");
-            }
-            return found[ourBase];
-          }
-          found[ourBase] = schema2;
-          if (ourBase[ourBase.length - 1] == "#") {
-            found[ourBase.substring(0, ourBase.length - 1)] = schema2;
-          }
-        }
-        scanArray(ourBase + "/items", Array.isArray(schema2.items) ? schema2.items : [schema2.items]);
-        scanArray(ourBase + "/extends", Array.isArray(schema2.extends) ? schema2.extends : [schema2.extends]);
-        scanSchema(ourBase + "/additionalItems", schema2.additionalItems);
-        scanObject(ourBase + "/properties", schema2.properties);
-        scanSchema(ourBase + "/additionalProperties", schema2.additionalProperties);
-        scanObject(ourBase + "/definitions", schema2.definitions);
-        scanObject(ourBase + "/patternProperties", schema2.patternProperties);
-        scanObject(ourBase + "/dependencies", schema2.dependencies);
-        scanArray(ourBase + "/disallow", schema2.disallow);
-        scanArray(ourBase + "/allOf", schema2.allOf);
-        scanArray(ourBase + "/anyOf", schema2.anyOf);
-        scanArray(ourBase + "/oneOf", schema2.oneOf);
-        scanSchema(ourBase + "/not", schema2.not);
-      }
-      function scanArray(baseuri, schemas) {
-        if (!Array.isArray(schemas)) return;
-        for (var i4 = 0; i4 < schemas.length; i4++) {
-          scanSchema(baseuri + "/" + i4, schemas[i4]);
-        }
-      }
-      function scanObject(baseuri, schemas) {
-        if (!schemas || typeof schemas != "object") return;
-        for (var p4 in schemas) {
-          scanSchema(baseuri + "/" + p4, schemas[p4]);
-        }
-      }
-      var found = {};
-      var ref = {};
-      scanSchema(base, schema);
-      return new SchemaScanResult(found, ref);
-    };
-  }
-});
-
-// ../../node_modules/jsonschema/lib/validator.js
-var require_validator = __commonJS({
-  "../../node_modules/jsonschema/lib/validator.js"(exports, module) {
-    "use strict";
-    var urilib = __require("url");
-    var attribute = require_attribute();
-    var helpers = require_helpers();
-    var scanSchema = require_scan().scan;
-    var ValidatorResult = helpers.ValidatorResult;
-    var SchemaError = helpers.SchemaError;
-    var SchemaContext = helpers.SchemaContext;
-    var anonymousBase = "/";
-    var Validator = function Validator2() {
-      this.customFormats = Object.create(Validator2.prototype.customFormats);
-      this.schemas = {};
-      this.unresolvedRefs = [];
-      this.types = Object.create(types);
-      this.attributes = Object.create(attribute.validators);
-    };
-    Validator.prototype.customFormats = {};
-    Validator.prototype.schemas = null;
-    Validator.prototype.types = null;
-    Validator.prototype.attributes = null;
-    Validator.prototype.unresolvedRefs = null;
-    Validator.prototype.addSchema = function addSchema(schema, base) {
-      var self2 = this;
-      if (!schema) {
-        return null;
-      }
-      var scan = scanSchema(base || anonymousBase, schema);
-      var ourUri = base || schema.id;
-      for (var uri in scan.id) {
-        this.schemas[uri] = scan.id[uri];
-      }
-      for (var uri in scan.ref) {
-        this.unresolvedRefs.push(uri);
-      }
-      this.unresolvedRefs = this.unresolvedRefs.filter(function(uri2) {
-        return typeof self2.schemas[uri2] === "undefined";
-      });
-      return this.schemas[ourUri];
-    };
-    Validator.prototype.addSubSchemaArray = function addSubSchemaArray(baseuri, schemas) {
-      if (!Array.isArray(schemas)) return;
-      for (var i4 = 0; i4 < schemas.length; i4++) {
-        this.addSubSchema(baseuri, schemas[i4]);
-      }
-    };
-    Validator.prototype.addSubSchemaObject = function addSubSchemaArray(baseuri, schemas) {
-      if (!schemas || typeof schemas != "object") return;
-      for (var p4 in schemas) {
-        this.addSubSchema(baseuri, schemas[p4]);
-      }
-    };
-    Validator.prototype.setSchemas = function setSchemas(schemas) {
-      this.schemas = schemas;
-    };
-    Validator.prototype.getSchema = function getSchema(urn) {
-      return this.schemas[urn];
-    };
-    Validator.prototype.validate = function validate2(instance, schema, options, ctx) {
-      if (!options) {
-        options = {};
-      }
-      var propertyName = options.propertyName || "instance";
-      var base = urilib.resolve(options.base || anonymousBase, schema.id || "");
-      if (!ctx) {
-        ctx = new SchemaContext(schema, options, propertyName, base, Object.create(this.schemas));
-        if (!ctx.schemas[base]) {
-          ctx.schemas[base] = schema;
-        }
-        var found = scanSchema(base, schema);
-        for (var n4 in found.id) {
-          var sch = found.id[n4];
-          ctx.schemas[n4] = sch;
-        }
-      }
-      if (schema) {
-        var result = this.validateSchema(instance, schema, options, ctx);
-        if (!result) {
-          throw new Error("Result undefined");
-        }
-        return result;
-      }
-      throw new SchemaError("no schema specified", schema);
-    };
-    function shouldResolve(schema) {
-      var ref = typeof schema === "string" ? schema : schema.$ref;
-      if (typeof ref == "string") return ref;
-      return false;
-    }
-    Validator.prototype.validateSchema = function validateSchema(instance, schema, options, ctx) {
-      var result = new ValidatorResult(instance, schema, options, ctx);
-      if (typeof schema === "boolean") {
-        if (schema === true) {
-          schema = {};
-        } else if (schema === false) {
-          schema = { type: [] };
-        }
-      } else if (!schema) {
-        throw new Error("schema is undefined");
-      }
-      if (schema["extends"]) {
-        if (Array.isArray(schema["extends"])) {
-          var schemaobj = { schema, ctx };
-          schema["extends"].forEach(this.schemaTraverser.bind(this, schemaobj));
-          schema = schemaobj.schema;
-          schemaobj.schema = null;
-          schemaobj.ctx = null;
-          schemaobj = null;
-        } else {
-          schema = helpers.deepMerge(schema, this.superResolve(schema["extends"], ctx));
-        }
-      }
-      var switchSchema = shouldResolve(schema);
-      if (switchSchema) {
-        var resolved = this.resolve(schema, switchSchema, ctx);
-        var subctx = new SchemaContext(resolved.subschema, options, ctx.propertyPath, resolved.switchSchema, ctx.schemas);
-        return this.validateSchema(instance, resolved.subschema, options, subctx);
-      }
-      var skipAttributes = options && options.skipAttributes || [];
-      for (var key in schema) {
-        if (!attribute.ignoreProperties[key] && skipAttributes.indexOf(key) < 0) {
-          var validatorErr = null;
-          var validator = this.attributes[key];
-          if (validator) {
-            validatorErr = validator.call(this, instance, schema, options, ctx);
-          } else if (options.allowUnknownAttributes === false) {
-            throw new SchemaError("Unsupported attribute: " + key, schema);
-          }
-          if (validatorErr) {
-            result.importErrors(validatorErr);
-          }
-        }
-      }
-      if (typeof options.rewrite == "function") {
-        var value = options.rewrite.call(this, instance, schema, options, ctx);
-        result.instance = value;
-      }
-      return result;
-    };
-    Validator.prototype.schemaTraverser = function schemaTraverser(schemaobj, s4) {
-      schemaobj.schema = helpers.deepMerge(schemaobj.schema, this.superResolve(s4, schemaobj.ctx));
-    };
-    Validator.prototype.superResolve = function superResolve(schema, ctx) {
-      var ref = shouldResolve(schema);
-      if (ref) {
-        return this.resolve(schema, ref, ctx).subschema;
-      }
-      return schema;
-    };
-    Validator.prototype.resolve = function resolve(schema, switchSchema, ctx) {
-      switchSchema = ctx.resolve(switchSchema);
-      if (ctx.schemas[switchSchema]) {
-        return { subschema: ctx.schemas[switchSchema], switchSchema };
-      }
-      var parsed = urilib.parse(switchSchema);
-      var fragment = parsed && parsed.hash;
-      var document = fragment && fragment.length && switchSchema.substr(0, switchSchema.length - fragment.length);
-      if (!document || !ctx.schemas[document]) {
-        throw new SchemaError("no such schema <" + switchSchema + ">", schema);
-      }
-      var subschema = helpers.objectGetPath(ctx.schemas[document], fragment.substr(1));
-      if (subschema === void 0) {
-        throw new SchemaError("no such schema " + fragment + " located in <" + document + ">", schema);
-      }
-      return { subschema, switchSchema };
-    };
-    Validator.prototype.testType = function validateType(instance, schema, options, ctx, type) {
-      if (typeof this.types[type] == "function") {
-        return this.types[type].call(this, instance);
-      }
-      if (type && typeof type == "object") {
-        var res = this.validateSchema(instance, type, options, ctx);
-        return res === void 0 || !(res && res.errors.length);
-      }
-      return true;
-    };
-    var types = Validator.prototype.types = {};
-    types.string = function testString(instance) {
-      return typeof instance == "string";
-    };
-    types.number = function testNumber(instance) {
-      return typeof instance == "number" && isFinite(instance);
-    };
-    types.integer = function testInteger(instance) {
-      return typeof instance == "number" && instance % 1 === 0;
-    };
-    types.boolean = function testBoolean(instance) {
-      return typeof instance == "boolean";
-    };
-    types.array = function testArray(instance) {
-      return Array.isArray(instance);
-    };
-    types["null"] = function testNull(instance) {
-      return instance === null;
-    };
-    types.date = function testDate(instance) {
-      return instance instanceof Date;
-    };
-    types.any = function testAny(instance) {
-      return true;
-    };
-    types.object = function testObject(instance) {
-      return instance && typeof instance === "object" && !Array.isArray(instance) && !(instance instanceof Date);
-    };
-    module.exports = Validator;
-  }
-});
-
-// ../../node_modules/jsonschema/lib/index.js
-var require_lib = __commonJS({
-  "../../node_modules/jsonschema/lib/index.js"(exports, module) {
-    "use strict";
-    var Validator = module.exports.Validator = require_validator();
-    module.exports.ValidatorResult = require_helpers().ValidatorResult;
-    module.exports.ValidationError = require_helpers().ValidationError;
-    module.exports.SchemaError = require_helpers().SchemaError;
-    module.exports.SchemaScanResult = require_scan().SchemaScanResult;
-    module.exports.scan = require_scan().scan;
-    module.exports.validate = function(instance, schema, options) {
-      var v6 = new Validator();
-      return v6.validate(instance, schema, options);
-    };
-  }
-});
-
-// ../../node_modules/electrodb/src/validations.js
-var require_validations = __commonJS({
-  "../../node_modules/electrodb/src/validations.js"(exports, module) {
-    var e4 = require_errors();
-    var { KeyCasing } = require_types();
-    var Validator = require_lib().Validator;
-    Validator.prototype.customFormats.isFunction = function(input) {
-      return typeof input === "function";
-    };
-    Validator.prototype.customFormats.isFunctionOrString = function(input) {
-      return typeof input === "function" || typeof input === "string";
-    };
-    Validator.prototype.customFormats.isFunctionOrRegexp = function(input) {
-      return typeof input === "function" || input instanceof RegExp;
-    };
-    var v6 = new Validator();
-    var Attribute = {
-      id: "/Attribute",
-      type: ["object", "string", "array"],
-      required: ["type"],
-      properties: {
-        type: {
-          // todo: only specific values
-          type: ["string", "array"]
-          // enum: ["string", "number", "boolean", "enum"],
-        },
-        field: {
-          type: "string"
-        },
-        hidden: {
-          type: "boolean"
-        },
-        watch: {
-          type: ["array", "string"],
-          items: {
-            type: "string"
-          }
-        },
-        label: {
-          type: "string"
-        },
-        readOnly: {
-          type: "boolean"
-        },
-        required: {
-          type: "boolean"
-        },
-        cast: {
-          type: "string",
-          enum: ["string", "number"]
-        },
-        default: {
-          type: "any"
-        },
-        validate: {
-          type: "any",
-          format: "isFunctionOrRegexp"
-        },
-        get: {
-          type: "any",
-          format: "isFunction"
-        },
-        set: {
-          type: "any",
-          format: "isFunction"
-        },
-        padding: {
-          type: "object",
-          required: ["length", "char"],
-          properties: {
-            length: {
-              type: "number"
-            },
-            char: {
-              type: "string"
-            }
-          }
-        }
-      }
-    };
-    var Index = {
-      id: "/Index",
-      type: "object",
-      properties: {
-        pk: {
-          type: "object",
-          required: true,
-          properties: {
-            field: {
-              type: "string",
-              required: true
-            },
-            facets: {
-              type: ["array", "string"],
-              items: {
-                type: "string"
-              },
-              required: false
-            },
-            composite: {
-              type: ["array"],
-              items: {
-                type: "string"
-              },
-              required: false
-            },
-            template: {
-              type: "string",
-              required: false
-            },
-            casing: {
-              type: "string",
-              enum: ["upper", "lower", "none", "default"],
-              required: false
-            },
-            cast: {
-              type: "string",
-              enum: ["string", "number"],
-              required: false
-            },
-            scope: {
-              type: "string",
-              required: false
-            }
-          }
-        },
-        sk: {
-          type: "object",
-          required: ["field"],
-          properties: {
-            field: {
-              type: "string",
-              required: true
-            },
-            facets: {
-              type: ["array", "string"],
-              required: false,
-              items: {
-                type: "string"
-              }
-            },
-            composite: {
-              type: ["array"],
-              required: false,
-              items: {
-                type: "string"
-              }
-            },
-            template: {
-              type: "string",
-              required: false
-            },
-            casing: {
-              type: "string",
-              enum: ["upper", "lower", "none", "default"],
-              required: false
-            },
-            cast: {
-              type: "string",
-              enum: ["string", "number"],
-              required: false
-            }
-          }
-        },
-        index: {
-          type: "string"
-        },
-        collection: {
-          type: ["array", "string"]
-        },
-        type: {
-          type: "string",
-          enum: ["clustered", "isolated"],
-          required: false
-        },
-        condition: {
-          type: "any",
-          required: false,
-          format: "isFunction"
-        }
-      }
-    };
-    var Modelv1 = {
-      type: "object",
-      required: true,
-      properties: {
-        model: {
-          type: "object",
-          required: true,
-          properties: {
-            entity: {
-              type: "string",
-              required: true
-            },
-            version: {
-              type: "string",
-              required: true
-            },
-            service: {
-              type: "string",
-              required: true
-            }
-          }
-        },
-        table: {
-          type: "string"
-        },
-        attributes: {
-          type: "object",
-          patternProperties: {
-            ["."]: { $ref: "/Attribute" }
-          }
-        },
-        indexes: {
-          type: "object",
-          minProperties: 1,
-          patternProperties: {
-            ["."]: { $ref: "/Index" }
-          }
-        },
-        filters: { $ref: "/Filters" }
-      },
-      required: ["model", "attributes", "indexes"]
-    };
-    var ModelBeta = {
-      type: "object",
-      required: true,
-      properties: {
-        service: {
-          type: "string",
-          required: true
-        },
-        entity: {
-          type: "string",
-          required: true
-        },
-        table: {
-          type: "string"
-        },
-        version: {
-          type: "string"
-        },
-        attributes: {
-          type: "object",
-          patternProperties: {
-            ["."]: { $ref: "/Attribute" }
-          }
-        },
-        indexes: {
-          type: "object",
-          minProperties: 1,
-          patternProperties: {
-            ["."]: { $ref: "/Index" }
-          }
-        },
-        filters: { $ref: "/Filters" }
-      },
-      required: ["attributes", "indexes"]
-    };
-    var Filters = {
-      id: "/Filters",
-      type: "object",
-      patternProperties: {
-        ["."]: {
-          type: "any",
-          format: "isFunction",
-          message: "Requires function"
-        }
-      }
-    };
-    v6.addSchema(Attribute, "/Attribute");
-    v6.addSchema(Index, "/Index");
-    v6.addSchema(Filters, "/Filters");
-    v6.addSchema(ModelBeta, "/ModelBeta");
-    v6.addSchema(Modelv1, "/Modelv1");
-    function validateModel(model = {}) {
-      let betaErrors = v6.validate(model, "/ModelBeta").errors;
-      if (betaErrors.length) {
-        let errors = v6.validate(model, "/Modelv1").errors;
-        if (errors.length) {
-          throw new e4.ElectroError(
-            e4.ErrorCodes.InvalidModel,
-            errors.map((err2) => {
-              let message = `${err2.property}`;
-              switch (err2.argument) {
-                case "isFunction":
-                  return `${message} must be a function`;
-                case "isFunctionOrString":
-                  return `${message} must be either a function or string`;
-                case "isFunctionOrRegexp":
-                  return `${message} must be either a function or Regexp`;
-                default:
-                  return `${message} ${err2.message}`;
-              }
-            }).join(", ")
-          );
-        }
-      }
-    }
-    function testModel(model) {
-      let isModel = false;
-      let error2 = "";
-      try {
-        validateModel(model);
-        isModel = true;
-      } catch (err2) {
-        error2 = err2.message;
-      }
-      return [isModel, error2];
-    }
-    function isStringHasLength(str) {
-      return typeof str === "string" && str.length > 0;
-    }
-    function isObjectHasLength(obj) {
-      return typeof obj === "object" && Object.keys(obj).length > 0;
-    }
-    function isArrayHasLength(arr) {
-      return Array.isArray(arr) && arr.length > 0;
-    }
-    function isNameEntityRecordType(entityRecord) {
-      return isObjectHasLength(entityRecord) && Object.values(entityRecord).find((value) => {
-        return value._instance !== void 0;
-      });
-    }
-    function isNameModelRecordType(modelRecord) {
-      return isObjectHasLength(modelRecord) && Object.values(modelRecord).find((value) => {
-        return value.model && isStringHasLength(value.model.entity) && isStringHasLength(value.model.version) && isStringHasLength(value.model.service);
-      });
-    }
-    function isBetaServiceConfig(serviceConfig) {
-      return isObjectHasLength(serviceConfig) && (isStringHasLength(serviceConfig.service) || isStringHasLength(serviceConfig.name)) && isStringHasLength(serviceConfig.version);
-    }
-    function isFunction(value) {
-      return typeof value === "function";
-    }
-    function stringArrayMatch(arr1, arr2) {
-      let areArrays = Array.isArray(arr1) && Array.isArray(arr2);
-      let match = areArrays && arr1.length === arr2.length;
-      for (let i4 = 0; i4 < arr1.length; i4++) {
-        if (!match) {
-          break;
-        }
-        match = isStringHasLength(arr1[i4]) && arr1[i4] === arr2[i4];
-      }
-      return match;
-    }
-    function isMatchingCasing(casing1, casing2) {
-      const equivalentCasings = [KeyCasing.default, KeyCasing.lower];
-      if (isStringHasLength(casing1) && isStringHasLength(casing2)) {
-        let isRealCase = KeyCasing[casing1.toLowerCase()] !== void 0;
-        let casingsMatch = casing1 === casing2;
-        let casingsAreEquivalent = [casing1, casing2].every((casing) => {
-          return casing === KeyCasing.lower || casing === KeyCasing.default;
-        });
-        return isRealCase && (casingsMatch || casingsAreEquivalent);
-      } else if (isStringHasLength(casing1)) {
-        return equivalentCasings.includes(casing1.toLowerCase());
-      } else if (isStringHasLength(casing2)) {
-        return equivalentCasings.includes(casing2.toLowerCase());
-      } else {
-        return casing1 === void 0 && casing2 === void 0;
-      }
-    }
-    module.exports = {
-      testModel,
-      isFunction,
-      stringArrayMatch,
-      isMatchingCasing,
-      isArrayHasLength,
-      isStringHasLength,
-      isObjectHasLength,
-      isBetaServiceConfig,
-      isNameModelRecordType,
-      isNameEntityRecordType,
-      model: validateModel
-    };
-  }
-});
-
-// ../../node_modules/electrodb/src/util.js
-var require_util = __commonJS({
-  "../../node_modules/electrodb/src/util.js"(exports, module) {
-    var t4 = require_types();
-    var v6 = require_validations();
-    function parseJSONPath(path = "") {
-      if (typeof path !== "string") {
-        throw new Error("Path must be a string");
-      }
-      path = path.replace(/\[/g, ".");
-      path = path.replace(/\]/g, "");
-      return path.split(".").filter((part) => part !== "");
-    }
-    function genericizeJSONPath(path = "") {
-      return path.replace(/\[\d+\]/g, "[*]");
-    }
-    function getInstanceType(instance = {}) {
-      let [isModel, errors] = v6.testModel(instance);
-      if (!instance || Object.keys(instance).length === 0) {
-        return "";
-      } else if (isModel) {
-        return t4.ElectroInstanceTypes.model;
-      } else if (instance._instance === t4.ElectroInstance.entity) {
-        return t4.ElectroInstanceTypes.entity;
-      } else if (instance._instance === t4.ElectroInstance.service) {
-        return t4.ElectroInstanceTypes.service;
-      } else if (instance._instance === t4.ElectroInstance.electro) {
-        return t4.ElectroInstanceTypes.electro;
-      } else {
-        return "";
-      }
-    }
-    function getModelVersion(model = {}) {
-      let nameOnRoot = model && v6.isStringHasLength(model.entity);
-      let nameInModelNamespace = model && model.model && v6.isStringHasLength(model.model.entity);
-      if (nameInModelNamespace) {
-        return t4.ModelVersions.v1;
-      } else if (nameOnRoot) {
-        return t4.ModelVersions.beta;
-      } else {
-        return "";
-      }
-    }
-    function applyBetaModelOverrides(model = {}, { service = "", version: version2 = "", table = "" } = {}) {
-      let type = getModelVersion(model);
-      if (type !== t4.ModelVersions.beta) {
-        throw new Error("Invalid model");
-      }
-      let copy = Object.assign({}, model);
-      if (v6.isStringHasLength(service)) {
-        copy.service = service;
-      }
-      if (v6.isStringHasLength(version2)) {
-        copy.version = version2;
-      }
-      if (v6.isStringHasLength(table)) {
-        copy.table = table;
-      }
-      return copy;
-    }
-    function batchItems(arr = [], size) {
-      if (isNaN(size)) {
-        throw new Error("Batch size must be of type number");
-      }
-      let batched = [];
-      for (let i4 = 0; i4 < arr.length; i4++) {
-        let partition = Math.floor(i4 / size);
-        batched[partition] = batched[partition] || [];
-        batched[partition].push(arr[i4]);
-      }
-      return batched;
-    }
-    function commaSeparatedString(array = [], prefix = '"', postfix = '"') {
-      return array.map((value) => `${prefix}${value}${postfix}`).join(", ");
-    }
-    function formatStringCasing(str, casing, defaultCase) {
-      if (typeof str !== "string") {
-        return str;
-      }
-      let strCase = defaultCase;
-      if (v6.isStringHasLength(casing) && typeof t4.KeyCasing[casing] === "string") {
-        strCase = t4.KeyCasing.default === casing ? defaultCase : t4.KeyCasing[casing];
-      }
-      switch (strCase) {
-        case t4.KeyCasing.upper:
-          return str.toUpperCase();
-        case t4.KeyCasing.none:
-          return str;
-        case t4.KeyCasing.lower:
-          return str.toLowerCase();
-        case t4.KeyCasing.default:
-        default:
-          return str;
-      }
-    }
-    function toKeyCasingOption(casing) {
-      switch (casing) {
-        case t4.KeyCasing.upper:
-          return t4.KeyCasing.upper;
-        case t4.KeyCasing.none:
-          return t4.KeyCasing.none;
-        case t4.KeyCasing.lower:
-          return t4.KeyCasing.lower;
-        case t4.KeyCasing.default:
-        case void 0:
-          return t4.DefaultKeyCasing;
-        default:
-          throw new Error(`Unknown casing option: ${casing}`);
-      }
-    }
-    function formatKeyCasing(str, casing) {
-      return formatStringCasing(str, casing, t4.DefaultKeyCasing);
-    }
-    function formatAttributeCasing(str, casing) {
-      return formatStringCasing(str, casing, t4.KeyCasing.none);
-    }
-    function formatIndexNameForDisplay(index) {
-      if (index) {
-        return index;
-      } else {
-        return "(Primary Index)";
-      }
-    }
-    var BatchGetOrderMaintainer = class {
-      constructor({ table, enabled, keyFormatter }) {
-        this.table = table;
-        this.enabled = enabled;
-        this.keyFormatter = keyFormatter;
-        this.batchIndexMap = /* @__PURE__ */ new Map();
-        this.currentSlot = 0;
-      }
-      getSize() {
-        return this.batchIndexMap.size;
-      }
-      getOrder(item) {
-        const key = this.keyFormatter(item);
-        const value = this.batchIndexMap.get(key);
-        if (value === void 0) {
-          return -1;
-        }
-        return value;
-      }
-      defineOrder(parameters = []) {
-        if (this.enabled) {
-          for (let i4 = 0; i4 < parameters.length; i4++) {
-            const batchParams = parameters[i4];
-            const recordKeys = batchParams && batchParams.RequestItems && batchParams.RequestItems[this.table] && batchParams.RequestItems[this.table].Keys || [];
-            for (const recordKey of recordKeys) {
-              const indexMapKey = this.keyFormatter(recordKey);
-              this.batchIndexMap.set(indexMapKey, this.currentSlot++);
-            }
-          }
-        }
-      }
-    };
-    function getUnique(arr1, arr2) {
-      return Array.from(/* @__PURE__ */ new Set([...arr1, ...arr2]));
-    }
-    var cursorFormatter = {
-      serialize: (key) => {
-        if (!key) {
-          return null;
-        } else if (typeof val !== "string") {
-          key = JSON.stringify(key);
-        }
-        return Buffer.from(key).toString("base64url");
-      },
-      deserialize: (cursor2) => {
-        if (!cursor2) {
-          return void 0;
-        } else if (typeof cursor2 !== "string") {
-          throw new Error(
-            `Invalid cursor provided, expected type 'string' recieved: ${JSON.stringify(
-              cursor2
-            )}`
-          );
-        }
-        try {
-          return JSON.parse(Buffer.from(cursor2, "base64url").toString("utf8"));
-        } catch (err2) {
-          throw new Error("Unable to parse cursor");
-        }
-      }
-    };
-    function removeFixings({ prefix = "", postfix = "", value = "" } = {}) {
-      if (prefix === "" && postfix === "") return value;
-      const valueLower = value.toLowerCase();
-      const start = valueLower.startsWith(prefix.toLowerCase()) ? prefix.length : 0;
-      const end = value.length - (valueLower.endsWith(postfix.toLowerCase()) ? postfix.length : 0);
-      return value.slice(start, end);
-    }
-    function addPadding({ padding = {}, value = "" } = {}) {
-      return value.padStart(padding.length, padding.char);
-    }
-    function removePadding({ padding = {}, value = "" } = {}) {
-      if (!padding.length || value.length >= padding.length) {
-        return value;
-      }
-      let formatted = "";
-      let useRemaining = false;
-      for (let i4 = 0; i4 < value.length; i4++) {
-        const char = value[i4];
-        if (useRemaining || i4 >= padding.length) {
-          formatted += char;
-        } else if (char !== padding.char) {
-          formatted += char;
-          useRemaining = true;
-        }
-      }
-      return formatted;
-    }
-    function shiftSortOrder(str = "", codePoint) {
-      let newString = "";
-      for (let i4 = 0; i4 < str.length; i4++) {
-        const isLast = i4 === str.length - 1;
-        let char = str[i4];
-        if (isLast) {
-          char = String.fromCodePoint(char.codePointAt(0) + codePoint);
-        }
-        newString += char;
-      }
-      return newString;
-    }
-    function getFirstDefined(...params) {
-      return params.find((val2) => val2 !== void 0);
-    }
-    function regexpEscape(str) {
-      return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    }
-    module.exports = {
-      getUnique,
-      batchItems,
-      addPadding,
-      regexpEscape,
-      removePadding,
-      removeFixings,
-      parseJSONPath,
-      shiftSortOrder,
-      getFirstDefined,
-      getInstanceType,
-      getModelVersion,
-      formatKeyCasing,
-      cursorFormatter,
-      toKeyCasingOption,
-      genericizeJSONPath,
-      commaSeparatedString,
-      formatAttributeCasing,
-      applyBetaModelOverrides,
-      formatIndexNameForDisplay,
-      BatchGetOrderMaintainer
-    };
-  }
-});
-
-// ../../node_modules/electrodb/src/set.js
-var require_set = __commonJS({
-  "../../node_modules/electrodb/src/set.js"(exports, module) {
-    var memberTypeToSetType = {
-      String: "String",
-      Number: "Number",
-      NumberValue: "Number",
-      Binary: "Binary",
-      string: "String",
-      number: "Number"
-    };
-    var DynamoDBSet = class {
-      constructor(list2, type) {
-        this.wrapperName = "Set";
-        this.type = memberTypeToSetType[type];
-        if (this.type === void 0) {
-          new Error(`Invalid Set type: ${type}`);
-        }
-        this.values = Array.from(new Set([].concat(list2)));
-      }
-      initialize(list2, validate2) {
-      }
-      detectType() {
-        return memberTypeToSetType[typeof this.values[0]];
-      }
-      validate() {
-      }
-      toJSON() {
-        return this.values;
-      }
-    };
-    module.exports = { DynamoDBSet };
-  }
-});
-
-// ../../node_modules/electrodb/src/schema.js
-var require_schema = __commonJS({
-  "../../node_modules/electrodb/src/schema.js"(exports, module) {
-    var {
-      CastTypes,
-      ValueTypes,
-      KeyCasing,
-      AttributeTypes,
-      AttributeMutationMethods,
-      AttributeWildCard,
-      PathTypes,
-      TableIndex,
-      ItemOperations,
-      DataOptions
-    } = require_types();
-    var AttributeTypeNames = Object.keys(AttributeTypes);
-    var ValidFacetTypes = [
-      AttributeTypes.string,
-      AttributeTypes.number,
-      AttributeTypes.boolean,
-      AttributeTypes.enum
-    ];
-    var e4 = require_errors();
-    var u4 = require_util();
-    var v6 = require_validations();
-    var { DynamoDBSet } = require_set();
-    function getValueType(value) {
-      if (value === void 0) {
-        return ValueTypes.undefined;
-      } else if (value === null) {
-        return ValueTypes.null;
-      } else if (typeof value === "string") {
-        return ValueTypes.string;
-      } else if (typeof value === "number") {
-        return ValueTypes.number;
-      } else if (typeof value === "boolean") {
-        return ValueTypes.boolean;
-      } else if (Array.isArray(value)) {
-        return ValueTypes.array;
-      } else if (value.wrapperName === "Set") {
-        return ValueTypes.aws_set;
-      } else if (value.constructor.name === "Set") {
-        return ValueTypes.set;
-      } else if (value.constructor.name === "Map") {
-        return ValueTypes.map;
-      } else if (value.constructor.name === "Object") {
-        return ValueTypes.object;
-      } else {
-        return ValueTypes.unknown;
-      }
-    }
-    var AttributeTraverser = class _AttributeTraverser {
-      constructor(parentTraverser) {
-        if (parentTraverser instanceof _AttributeTraverser) {
-          this.parent = parentTraverser;
-          this.paths = this.parent.paths;
-        } else {
-          this.parent = null;
-          this.paths = /* @__PURE__ */ new Map();
-        }
-        this.children = /* @__PURE__ */ new Map();
-      }
-      setChild(name, attribute) {
-        this.children.set(name, attribute);
-      }
-      asChild(name, attribute) {
-        if (this.parent) {
-          this.parent.setChild(name, attribute);
-        }
-      }
-      setPath(path, attribute) {
-        if (this.parent) {
-          this.parent.setPath(path, attribute);
-        }
-        this.paths.set(path, attribute);
-      }
-      getPath(path) {
-        path = u4.genericizeJSONPath(path);
-        if (this.parent) {
-          return this.parent.getPath(path);
-        }
-        return this.paths.get(path);
-      }
-      getChild(name) {
-        return this.children.get(name);
-      }
-      getAllChildren() {
-        return this.children.entries();
-      }
-      getAll() {
-        if (this.parent) {
-          return this.parent.getAll();
-        }
-        return this.paths.entries();
-      }
-    };
-    var Attribute = class _Attribute {
-      constructor(definition = {}) {
-        this.name = definition.name;
-        this.field = definition.field || definition.name;
-        this.label = definition.label;
-        this.readOnly = !!definition.readOnly;
-        this.hidden = !!definition.hidden;
-        this.required = !!definition.required;
-        this.cast = this._makeCast(definition.name, definition.cast);
-        this.default = this._makeDefault(definition.default);
-        this.validate = this._makeValidate(definition.validate);
-        this.isKeyField = !!definition.isKeyField;
-        this.unformat = this._makeDestructureKey(definition);
-        this.format = this._makeStructureKey(definition);
-        this.padding = definition.padding;
-        this.applyFixings = this._makeApplyFixings(definition);
-        this.applyPadding = this._makePadding(definition);
-        this.indexes = [...definition.indexes || []];
-        let { isWatched, isWatcher, watchedBy, watching, watchAll } = _Attribute._destructureWatcher(definition);
-        this._isWatched = isWatched;
-        this._isWatcher = isWatcher;
-        this.watchedBy = watchedBy;
-        this.watching = watching;
-        this.watchAll = watchAll;
-        let { type, enumArray } = this._makeType(this.name, definition);
-        this.type = type;
-        this.enumArray = enumArray;
-        this.parentType = definition.parentType;
-        this.parentPath = definition.parentPath;
-        const pathType = this.getPathType(this.type, this.parentType);
-        const path = _Attribute.buildPath(this.name, pathType, this.parentPath);
-        const fieldPath = _Attribute.buildPath(
-          this.field,
-          pathType,
-          this.parentType
-        );
-        this.path = path;
-        this.fieldPath = fieldPath;
-        this.traverser = new AttributeTraverser(definition.traverser);
-        this.traverser.setPath(this.path, this);
-        this.traverser.setPath(this.fieldPath, this);
-        this.traverser.asChild(this.name, this);
-        this.parent = { parentType: this.type, parentPath: this.path };
-        this.get = this._makeGet(definition.get);
-        this.set = this._makeSet(definition.set);
-        this.getClient = definition.getClient;
-      }
-      static buildChildAttributes(type, definition, parent) {
-        let items;
-        let properties;
-        if (type === AttributeTypes.list) {
-          items = _Attribute.buildChildListItems(definition, parent);
-        } else if (type === AttributeTypes.set) {
-          items = _Attribute.buildChildSetItems(definition, parent);
-        } else if (type === AttributeTypes.map) {
-          properties = _Attribute.buildChildMapProperties(definition, parent);
-        }
-        return { items, properties };
-      }
-      static buildChildListItems(definition, parent) {
-        const { items, getClient } = definition;
-        const prop = { ...items, ...parent };
-        return Schema2.normalizeAttributes(
-          { "*": prop },
-          {},
-          { getClient, traverser: parent.traverser, parent }
-        ).attributes["*"];
-      }
-      static buildChildSetItems(definition, parent) {
-        const { items, getClient } = definition;
-        const allowedTypes = [
-          AttributeTypes.string,
-          AttributeTypes.boolean,
-          AttributeTypes.number,
-          AttributeTypes.enum
-        ];
-        if (!Array.isArray(items) && !allowedTypes.includes(items)) {
-          throw new e4.ElectroError(
-            e4.ErrorCodes.InvalidAttributeDefinition,
-            `Invalid "items" definition for Set attribute: "${definition.path}". Acceptable item types include ${u4.commaSeparatedString(
-              allowedTypes
-            )}`
-          );
-        }
-        const prop = { type: items, ...parent };
-        return Schema2.normalizeAttributes(
-          { prop },
-          {},
-          { getClient, traverser: parent.traverser, parent }
-        ).attributes.prop;
-      }
-      static buildChildMapProperties(definition, parent) {
-        const { properties, getClient } = definition;
-        if (!properties || typeof properties !== "object") {
-          throw new e4.ElectroError(
-            e4.ErrorCodes.InvalidAttributeDefinition,
-            `Invalid "properties" definition for Map attribute: "${definition.path}". The "properties" definition must describe the attributes that the Map will accept`
-          );
-        }
-        const attributes2 = {};
-        for (let name of Object.keys(properties)) {
-          attributes2[name] = { ...properties[name], ...parent };
-        }
-        return Schema2.normalizeAttributes(
-          attributes2,
-          {},
-          { getClient, traverser: parent.traverser, parent }
-        );
-      }
-      static buildPath(name, type, parentPath) {
-        if (!parentPath) return name;
-        switch (type) {
-          case AttributeTypes.string:
-          case AttributeTypes.number:
-          case AttributeTypes.boolean:
-          case AttributeTypes.map:
-          case AttributeTypes.set:
-          case AttributeTypes.list:
-          case AttributeTypes.enum:
-            return `${parentPath}.${name}`;
-          case PathTypes.item:
-            return `${parentPath}[*]`;
-          case AttributeTypes.any:
-          default:
-            return `${parentPath}.*`;
-        }
-      }
-      static _destructureWatcher(definition) {
-        let watchAll = !!definition.watchAll;
-        let watchingArr = watchAll ? [] : [...definition.watching || []];
-        let watchedByArr = [...definition.watchedBy || []];
-        let isWatched = watchedByArr.length > 0;
-        let isWatcher = watchingArr.length > 0;
-        let watchedBy = {};
-        let watching = {};
-        for (let watched of watchedByArr) {
-          watchedBy[watched] = watched;
-        }
-        for (let attribute of watchingArr) {
-          watching[attribute] = attribute;
-        }
-        return {
-          watchAll,
-          watching,
-          watchedBy,
-          isWatched,
-          isWatcher
-        };
-      }
-      _makeGet(get2) {
-        this._checkGetSet(get2, "get");
-        const getter = get2 ? (value, getSiblings) => get2(value, getSiblings()) : (attr) => attr;
-        return (value, getSiblings) => {
-          if (this.hidden) {
-            return;
-          }
-          value = this.unformat(value);
-          return getter(value, getSiblings);
-        };
-      }
-      _makeSet(set) {
-        this._checkGetSet(set, "set");
-        return set ? (value, getSiblings) => set(value, getSiblings()) : (attr) => attr;
-      }
-      _makeApplyFixings({
-        prefix = "",
-        postfix = "",
-        casing = KeyCasing.none
-      } = {}) {
-        return (value) => {
-          if (value === void 0) {
-            return;
-          }
-          if ([AttributeTypes.string, AttributeTypes.enum].includes(this.type)) {
-            value = `${prefix}${value}${postfix}`;
-          }
-          return u4.formatAttributeCasing(value, casing);
-        };
-      }
-      _makeStructureKey() {
-        return (key) => {
-          return this.applyPadding(key);
-        };
-      }
-      _isPaddingEligible(padding = {}) {
-        return !!padding && padding.length && v6.isStringHasLength(padding.char);
-      }
-      _makePadding({ padding = {} }) {
-        return (value) => {
-          if (typeof value !== "string") {
-            return value;
-          } else if (this._isPaddingEligible(padding)) {
-            return u4.addPadding({ padding, value });
-          } else {
-            return value;
-          }
-        };
-      }
-      _makeRemoveFixings({
-        prefix = "",
-        postfix = "",
-        casing = KeyCasing.none
-      } = {}) {
-        return (key) => {
-          let value = "";
-          if (![AttributeTypes.string, AttributeTypes.enum].includes(this.type) || typeof key !== "string") {
-            value = key;
-          } else if (prefix.length > 0 && key.length > prefix.length) {
-            for (let i4 = prefix.length; i4 < key.length - postfix.length; i4++) {
-              value += key[i4];
-            }
-          } else {
-            value = key;
-          }
-          return value;
-        };
-      }
-      _makeDestructureKey({
-        prefix = "",
-        postfix = "",
-        casing = KeyCasing.none,
-        padding = {}
-      } = {}) {
-        return (key) => {
-          let value = "";
-          if (![AttributeTypes.string, AttributeTypes.enum].includes(this.type) || typeof key !== "string") {
-            return key;
-          } else if (key.length > prefix.length) {
-            value = u4.removeFixings({ prefix, postfix, value: key });
-          } else {
-            value = key;
-          }
-          return value;
-        };
-      }
-      acceptable(val2) {
-        return val2 !== void 0;
-      }
-      getPathType(type, parentType) {
-        if (parentType === AttributeTypes.list || parentType === AttributeTypes.set) {
-          return PathTypes.item;
-        }
-        return type;
-      }
-      getAttribute(path) {
-        return this.traverser.getPath(path);
-      }
-      getChild(path) {
-        if (this.type === AttributeTypes.any) {
-          return this;
-        } else if (!isNaN(path) && (this.type === AttributeTypes.list || this.type === AttributeTypes.set)) {
-          return this.traverser.getChild("*");
-        } else {
-          return this.traverser.getChild(path);
-        }
-      }
-      _checkGetSet(val2, type) {
-        if (typeof val2 !== "function" && val2 !== void 0) {
-          throw new e4.ElectroError(
-            e4.ErrorCodes.InvalidAttributeDefinition,
-            `Invalid "${type}" property for attribute ${this.path}. Please ensure value is a function or undefined.`
-          );
-        }
-      }
-      _makeCast(name, cast) {
-        if (cast !== void 0 && !CastTypes.includes(cast)) {
-          throw new e4.ElectroError(
-            e4.ErrorCodes.InvalidAttributeDefinition,
-            `Invalid "cast" property for attribute: "${name}". Acceptable types include ${CastTypes.join(
-              ", "
-            )}`
-          );
-        } else if (cast === AttributeTypes.string) {
-          return (val2) => {
-            if (val2 === void 0) {
-              throw new Error(
-                `Attribute ${name} is undefined and cannot be cast to type ${cast}`
-              );
-            } else if (typeof val2 === "string") {
-              return val2;
-            } else {
-              return JSON.stringify(val2);
-            }
-          };
-        } else if (cast === AttributeTypes.number) {
-          return (val2) => {
-            if (val2 === void 0) {
-              throw new Error(
-                `Attribute ${name} is undefined and cannot be cast to type ${cast}`
-              );
-            } else if (typeof val2 === "number") {
-              return val2;
-            } else {
-              let results = Number(val2);
-              if (isNaN(results)) {
-                throw new Error(
-                  `Attribute ${name} cannot be cast to type ${cast}. Doing so results in NaN`
-                );
-              } else {
-                return results;
-              }
-            }
-          };
-        } else {
-          return (val2) => val2;
-        }
-      }
-      _makeValidate(definition) {
-        if (typeof definition === "function") {
-          return (val2) => {
-            try {
-              let isValid = !!definition(val2);
-              return [
-                isValid,
-                isValid ? [] : [
-                  new e4.ElectroUserValidationError(
-                    this.path,
-                    "Invalid value provided"
-                  )
-                ]
-              ];
-            } catch (err2) {
-              return [false, [new e4.ElectroUserValidationError(this.path, err2)]];
-            }
-          };
-        } else if (definition instanceof RegExp) {
-          return (val2) => {
-            if (val2 === void 0) {
-              return [true, []];
-            }
-            let isValid = definition.test(val2);
-            let reason = [];
-            if (!isValid) {
-              reason.push(
-                new e4.ElectroUserValidationError(
-                  this.path,
-                  `Invalid value for attribute "${this.path}": Failed model defined regex`
-                )
-              );
-            }
-            return [isValid, reason];
-          };
-        } else {
-          return () => [true, []];
-        }
-      }
-      _makeDefault(definition) {
-        if (typeof definition === "function") {
-          return () => definition();
-        } else {
-          return () => definition;
-        }
-      }
-      _makeType(name, definition) {
-        let type = "";
-        let enumArray = [];
-        if (Array.isArray(definition.type)) {
-          type = AttributeTypes.enum;
-          enumArray = [...definition.type];
-        } else {
-          type = definition.type || "string";
-        }
-        if (!AttributeTypeNames.includes(type)) {
-          throw new e4.ElectroError(
-            e4.ErrorCodes.InvalidAttributeDefinition,
-            `Invalid "type" property for attribute: "${name}". Acceptable types include ${AttributeTypeNames.join(
-              ", "
-            )}`
-          );
-        }
-        return { type, enumArray };
-      }
-      isWatcher() {
-        return this._isWatcher;
-      }
-      isWatched() {
-        return this._isWatched;
-      }
-      isWatching(attribute) {
-        return this.watching[attribute] !== void 0;
-      }
-      isWatchedBy(attribute) {
-        return this.watchedBy[attribute] !== void 0;
-      }
-      _isType(value) {
-        if (value === void 0) {
-          let reason2 = [];
-          if (this.required) {
-            reason2.push(
-              new e4.ElectroAttributeValidationError(
-                this.path,
-                `Invalid value type at entity path: "${this.path}". Value is required.`
-              )
-            );
-          }
-          return [!this.required, reason2];
-        }
-        let isTyped = false;
-        let reason = [];
-        switch (this.type) {
-          case AttributeTypes.enum:
-            isTyped = this.enumArray.includes(value);
-            if (!isTyped) {
-              reason.push(
-                new e4.ElectroAttributeValidationError(
-                  this.path,
-                  `Invalid value type at entity path: "${this.path}". Value not found in set of acceptable values: ${u4.commaSeparatedString(
-                    this.enumArray
-                  )}`
-                )
-              );
-            }
-            break;
-          case AttributeTypes.any:
-          case AttributeTypes.static:
-          case AttributeTypes.custom:
-            isTyped = true;
-            break;
-          case AttributeTypes.string:
-          case AttributeTypes.number:
-          case AttributeTypes.boolean:
-          default:
-            isTyped = typeof value === this.type;
-            if (!isTyped) {
-              reason.push(
-                new e4.ElectroAttributeValidationError(
-                  this.path,
-                  `Invalid value type at entity path: "${this.path}". Received value of type "${typeof value}", expected value of type "${this.type}"`
-                )
-              );
-            }
-            break;
-        }
-        return [isTyped, reason];
-      }
-      isValid(value) {
-        try {
-          let [isTyped, typeErrorReason] = this._isType(value);
-          let [isValid, validationError] = isTyped ? this.validate(value) : [false, []];
-          let errors = [...typeErrorReason, ...validationError].filter(
-            (value2) => value2 !== void 0
-          );
-          return [isTyped && isValid, errors];
-        } catch (err2) {
-          return [false, [err2]];
-        }
-      }
-      val(value) {
-        value = this.cast(value);
-        if (value === void 0) {
-          value = this.default();
-        }
-        return value;
-      }
-      getValidate(value) {
-        value = this.val(value);
-        let [isValid, validationErrors] = this.isValid(value);
-        if (!isValid) {
-          throw new e4.ElectroValidationError(validationErrors);
-        }
-        return value;
-      }
-    };
-    var MapAttribute = class extends Attribute {
-      constructor(definition) {
-        super(definition);
-        const properties = Attribute.buildChildMapProperties(definition, {
-          parentType: this.type,
-          parentPath: this.path,
-          traverser: this.traverser
-        });
-        this.properties = properties;
-        this.isRoot = !!definition.isRoot;
-        this.get = this._makeGet(definition.get, properties);
-        this.set = this._makeSet(definition.set, properties);
-      }
-      _makeGet(get2, properties) {
-        this._checkGetSet(get2, "get");
-        const getter = get2 ? (value, getSiblings) => get2(value, getSiblings()) : (val2) => {
-          const isEmpty = !val2 || Object.keys(val2).length === 0;
-          const isNotRequired = !this.required;
-          const doesNotHaveDefault = this.default === void 0;
-          const isRoot = this.isRoot;
-          if (isEmpty && isRoot && isNotRequired && doesNotHaveDefault) {
-            return void 0;
-          }
-          return val2;
-        };
-        return (values, getSiblings) => {
-          const data2 = {};
-          if (this.hidden) {
-            return;
-          }
-          if (values === void 0) {
-            if (!get2) {
-              return void 0;
-            }
-            return getter(data2, getSiblings);
-          }
-          for (const name of Object.keys(properties.attributes)) {
-            const attribute = properties.attributes[name];
-            if (values[attribute.field] !== void 0) {
-              let results = attribute.get(values[attribute.field], () => ({
-                ...values
-              }));
-              if (results !== void 0) {
-                data2[name] = results;
-              }
-            }
-          }
-          return getter(data2, getSiblings);
-        };
-      }
-      _makeSet(set, properties) {
-        this._checkGetSet(set, "set");
-        const setter = set ? (val2, getSiblings) => set(val2, getSiblings()) : (val2) => {
-          const isEmpty = !val2 || Object.keys(val2).length === 0;
-          const isNotRequired = !this.required;
-          const doesNotHaveDefault = this.default === void 0;
-          const defaultIsValue = this.default === val2;
-          const isRoot = this.isRoot;
-          if (defaultIsValue) {
-            return val2;
-          } else if (isEmpty && isRoot && isNotRequired && doesNotHaveDefault) {
-            return void 0;
-          } else {
-            return val2;
-          }
-        };
-        return (values, getSiblings) => {
-          const data2 = {};
-          if (values === void 0) {
-            if (!set) {
-              return void 0;
-            }
-            return setter(values, getSiblings);
-          }
-          for (const name of Object.keys(properties.attributes)) {
-            const attribute = properties.attributes[name];
-            if (values[name] !== void 0) {
-              const results = attribute.set(values[name], () => ({ ...values }));
-              if (results !== void 0) {
-                data2[attribute.field] = results;
-              }
-            }
-          }
-          return setter(data2, getSiblings);
-        };
-      }
-      _isType(value) {
-        if (value === void 0) {
-          let reason2 = [];
-          if (this.required) {
-            reason2.push(
-              new e4.ElectroAttributeValidationError(
-                this.path,
-                `Invalid value type at entity path: "${this.path}". Value is required.`
-              )
-            );
-          }
-          return [!this.required, reason2];
-        }
-        const valueType = getValueType(value);
-        if (valueType !== ValueTypes.object) {
-          return [
-            false,
-            [
-              new e4.ElectroAttributeValidationError(
-                this.path,
-                `Invalid value type at entity path "${this.path}. Received value of type "${valueType}", expected value of type "object"`
-              )
-            ]
-          ];
-        }
-        let reason = [];
-        const [childrenAreValid, childErrors] = this._validateChildren(value);
-        if (!childrenAreValid) {
-          reason = childErrors;
-        }
-        return [childrenAreValid, reason];
-      }
-      _validateChildren(value) {
-        const valueType = getValueType(value);
-        const attributes2 = this.properties.attributes;
-        let errors = [];
-        if (valueType === ValueTypes.object) {
-          for (const child of Object.keys(attributes2)) {
-            const [isValid, errorValues] = attributes2[child].isValid(
-              value === void 0 ? value : value[child]
-            );
-            if (!isValid) {
-              errors = [...errors, ...errorValues];
-            }
-          }
-        } else if (valueType !== ValueTypes.object) {
-          errors.push(
-            new e4.ElectroAttributeValidationError(
-              this.path,
-              `Invalid value type at entity path: "${this.path}". Expected value to be an object to fulfill attribute type "${this.type}"`
-            )
-          );
-        } else if (this.properties.hasRequiredAttributes) {
-          errors.push(
-            new e4.ElectroAttributeValidationError(
-              this.path,
-              `Invalid value type at entity path: "${this.path}". Map attribute requires at least the properties ${u4.commaSeparatedString(
-                Object.keys(attributes2)
-              )}`
-            )
-          );
-        }
-        return [errors.length === 0, errors];
-      }
-      val(value) {
-        const incomingIsEmpty = value === void 0;
-        let fromDefault = false;
-        let data2;
-        if (value === void 0) {
-          data2 = this.default();
-          if (data2 !== void 0) {
-            fromDefault = true;
-          }
-        } else {
-          data2 = value;
-        }
-        const valueType = getValueType(data2);
-        if (data2 === void 0) {
-          return data2;
-        } else if (valueType !== "object") {
-          throw new e4.ElectroAttributeValidationError(
-            this.path,
-            `Invalid value type at entity path: "${this.path}". Expected value to be an object to fulfill attribute type "${this.type}"`
-          );
-        }
-        const response = {};
-        for (const name of Object.keys(this.properties.attributes)) {
-          const attribute = this.properties.attributes[name];
-          const results = attribute.val(data2[attribute.name]);
-          if (results !== void 0) {
-            response[name] = results;
-          }
-        }
-        if (Object.keys(response).length === 0 && !fromDefault && this.isRoot && !this.required && incomingIsEmpty) {
-          return void 0;
-        }
-        return response;
-      }
-    };
-    var ListAttribute = class extends Attribute {
-      constructor(definition) {
-        super(definition);
-        const items = Attribute.buildChildListItems(definition, {
-          parentType: this.type,
-          parentPath: this.path,
-          traverser: this.traverser
-        });
-        this.items = items;
-        this.get = this._makeGet(definition.get, items);
-        this.set = this._makeSet(definition.set, items);
-      }
-      _makeGet(get2, items) {
-        this._checkGetSet(get2, "get");
-        const getter = get2 ? (value, getSiblings) => get2(value, getSiblings()) : (attr) => attr;
-        return (values, getSiblings) => {
-          const data2 = [];
-          if (this.hidden) {
-            return;
-          }
-          if (values === void 0) {
-            return getter(data2, getSiblings);
-          }
-          for (let value of values) {
-            const results = items.get(value, () => [...values]);
-            if (results !== void 0) {
-              data2.push(results);
-            }
-          }
-          return getter(data2, getSiblings);
-        };
-      }
-      _makeSet(set, items) {
-        this._checkGetSet(set, "set");
-        const setter = set ? (value, getSiblings) => set(value, getSiblings()) : (attr) => attr;
-        return (values, getSiblings) => {
-          const data2 = [];
-          if (values === void 0) {
-            return setter(values, getSiblings);
-          }
-          for (const value of values) {
-            const results = items.set(value, () => [...values]);
-            if (results !== void 0) {
-              data2.push(results);
-            }
-          }
-          return setter(data2, getSiblings);
-        };
-      }
-      _validateArrayValue(value) {
-        const reason = [];
-        const valueType = getValueType(value);
-        if (value !== void 0 && valueType !== ValueTypes.array) {
-          return [
-            false,
-            [
-              new e4.ElectroAttributeValidationError(
-                this.path,
-                `Invalid value type at entity path "${this.path}. Received value of type "${valueType}", expected value of type "array"`
-              )
-            ]
-          ];
-        } else {
-          return [true, []];
-        }
-      }
-      _isType(value) {
-        if (value === void 0) {
-          let reason2 = [];
-          if (this.required) {
-            reason2.push(
-              new e4.ElectroAttributeValidationError(
-                this.path,
-                `Invalid value type at entity path: "${this.path}". Value is required.`
-              )
-            );
-          }
-          return [!this.required, reason2];
-        }
-        const [isValidArray, errors] = this._validateArrayValue(value);
-        if (!isValidArray) {
-          return [isValidArray, errors];
-        }
-        let reason = [];
-        const [childrenAreValid, childErrors] = this._validateChildren(value);
-        if (!childrenAreValid) {
-          reason = childErrors;
-        }
-        return [childrenAreValid, reason];
-      }
-      _validateChildren(value) {
-        const valueType = getValueType(value);
-        const errors = [];
-        if (valueType === ValueTypes.array) {
-          for (const i4 in value) {
-            const [isValid, errorValues] = this.items.isValid(value[i4]);
-            if (!isValid) {
-              for (const err2 of errorValues) {
-                if (err2 instanceof e4.ElectroAttributeValidationError || err2 instanceof e4.ElectroUserValidationError) {
-                  err2.index = parseInt(i4);
-                }
-                errors.push(err2);
-              }
-            }
-          }
-        } else {
-          errors.push(
-            new e4.ElectroAttributeValidationError(
-              this.path,
-              `Invalid value type at entity path: "${this.path}". Expected value to be an Array to fulfill attribute type "${this.type}"`
-            )
-          );
-        }
-        return [errors.length === 0, errors];
-      }
-      val(value) {
-        const getValue = (v7) => {
-          v7 = this.cast(v7);
-          if (v7 === void 0) {
-            v7 = this.default();
-          }
-          return v7;
-        };
-        const data2 = value === void 0 ? getValue(value) : value;
-        if (data2 === void 0) {
-          return data2;
-        } else if (!Array.isArray(data2)) {
-          throw new e4.ElectroAttributeValidationError(
-            this.path,
-            `Invalid value type at entity path "${this.path}. Received value of type "${getValueType(
-              value
-            )}", expected value of type "array"`
-          );
-        }
-        const response = [];
-        for (const d4 of data2) {
-          const results = this.items.val(d4);
-          if (results !== void 0) {
-            response.push(results);
-          }
-        }
-        return response;
-      }
-    };
-    var SetAttribute = class extends Attribute {
-      constructor(definition) {
-        super(definition);
-        const items = Attribute.buildChildSetItems(definition, {
-          parentType: this.type,
-          parentPath: this.path,
-          traverser: this.traverser
-        });
-        this.items = items;
-        this.get = this._makeGet(definition.get, items);
-        this.set = this._makeSet(definition.set, items);
-        this.validate = this._makeSetValidate(definition);
-      }
-      _makeSetValidate(definition) {
-        const validate2 = this._makeValidate(definition.validate);
-        return (value) => {
-          switch (getValueType(value)) {
-            case ValueTypes.array:
-              return validate2([...value]);
-            case ValueTypes.aws_set:
-              return validate2([...value.values]);
-            case ValueTypes.set:
-              return validate2(Array.from(value));
-            default:
-              return validate2(value);
-          }
-        };
-      }
-      fromDDBSet(value) {
-        switch (getValueType(value)) {
-          case ValueTypes.aws_set:
-            return [...value.values];
-          case ValueTypes.set:
-            return Array.from(value);
-          default:
-            return value;
-        }
-      }
-      _createDDBSet(value) {
-        const client3 = this.getClient();
-        if (client3 && typeof client3.createSet === "function") {
-          value = Array.isArray(value) ? Array.from(new Set(value)) : value;
-          return client3.createSet(value, { validate: true });
-        } else {
-          return new DynamoDBSet(value, this.items.type);
-        }
-      }
-      acceptable(val2) {
-        return Array.isArray(val2) ? val2.length > 0 : this.items.acceptable(val2);
-      }
-      toDDBSet(value) {
-        const valueType = getValueType(value);
-        let array;
-        switch (valueType) {
-          case ValueTypes.set:
-            array = Array.from(value);
-            return this._createDDBSet(array);
-          case ValueTypes.aws_set:
-            return value;
-          case ValueTypes.array:
-            return this._createDDBSet(value);
-          case ValueTypes.string:
-          case ValueTypes.number: {
-            this.items.getValidate(value);
-            return this._createDDBSet(value);
-          }
-          default:
-            throw new e4.ElectroAttributeValidationError(
-              this.path,
-              `Invalid attribute value supplied to "set" attribute "${this.path}". Received value of type "${valueType}". Set values must be supplied as either Arrays, native JavaScript Set objects, DocumentClient Set objects, strings, or numbers.`
-            );
-        }
-      }
-      _makeGet(get2, items) {
-        this._checkGetSet(get2, "get");
-        const getter = get2 ? (value, getSiblings) => get2(value, getSiblings()) : (attr) => attr;
-        return (values, getSiblings) => {
-          if (values !== void 0) {
-            const data3 = this.fromDDBSet(values);
-            return getter(data3, getSiblings);
-          }
-          const data2 = this.fromDDBSet(values);
-          const results = getter(data2, getSiblings);
-          if (results !== void 0) {
-            return this.fromDDBSet(results);
-          }
-        };
-      }
-      _makeSet(set, items) {
-        this._checkGetSet(set, "set");
-        const setter = set ? (value, getSiblings) => set(value, getSiblings()) : (attr) => attr;
-        return (values, getSiblings) => {
-          const results = setter(this.fromDDBSet(values), getSiblings);
-          if (results !== void 0) {
-            return this.toDDBSet(results);
-          }
-        };
-      }
-      _isType(value) {
-        if (value === void 0) {
-          const reason2 = [];
-          if (this.required) {
-            reason2.push(
-              new e4.ElectroAttributeValidationError(
-                this.path,
-                `Invalid value type at entity path: "${this.path}". Value is required.`
-              )
-            );
-          }
-          return [!this.required, reason2];
-        }
-        let reason = [];
-        const [childrenAreValid, childErrors] = this._validateChildren(value);
-        if (!childrenAreValid) {
-          reason = childErrors;
-        }
-        return [childrenAreValid, reason];
-      }
-      _validateChildren(value) {
-        const valueType = getValueType(value);
-        let errors = [];
-        let arr = [];
-        if (valueType === ValueTypes.array) {
-          arr = value;
-        } else if (valueType === ValueTypes.set) {
-          arr = Array.from(value);
-        } else if (valueType === ValueTypes.aws_set) {
-          arr = value.values;
-        } else {
-          errors.push(
-            new e4.ElectroAttributeValidationError(
-              this.path,
-              `Invalid value type at attribute path: "${this.path}". Expected value to be an Expected value to be an Array, native JavaScript Set objects, or DocumentClient Set objects to fulfill attribute type "${this.type}"`
-            )
-          );
-        }
-        for (const item of arr) {
-          const [isValid, errorValues] = this.items.isValid(item);
-          if (!isValid) {
-            errors = [...errors, ...errorValues];
-          }
-        }
-        return [errors.length === 0, errors];
-      }
-      val(value) {
-        if (value === void 0) {
-          value = this.default();
-        }
-        if (value !== void 0) {
-          return this.toDDBSet(value);
-        }
-      }
-    };
-    var Schema2 = class _Schema {
-      constructor(properties = {}, facets = {}, { traverser = new AttributeTraverser(), getClient, parent, isRoot } = {}) {
-        this._validateProperties(properties, parent);
-        let schema = _Schema.normalizeAttributes(properties, facets, {
-          traverser,
-          getClient,
-          parent,
-          isRoot
-        });
-        this.getClient = getClient;
-        this.attributes = schema.attributes;
-        this.enums = schema.enums;
-        this.translationForTable = schema.translationForTable;
-        this.translationForRetrieval = schema.translationForRetrieval;
-        this.hiddenAttributes = schema.hiddenAttributes;
-        this.readOnlyAttributes = schema.readOnlyAttributes;
-        this.requiredAttributes = schema.requiredAttributes;
-        this.translationForWatching = this._formatWatchTranslations(
-          this.attributes
-        );
-        this.traverser = traverser;
-        this.isRoot = !!isRoot;
-      }
-      static normalizeAttributes(attributes2 = {}, facets = {}, { traverser, getClient, parent, isRoot } = {}) {
-        const attributeHasParent = !!parent;
-        let invalidProperties = [];
-        let normalized = {};
-        let usedAttrs = {};
-        let enums = {};
-        let translationForTable = {};
-        let translationForRetrieval = {};
-        let watchedAttributes = {};
-        let requiredAttributes = /* @__PURE__ */ new Set();
-        let hiddenAttributes = /* @__PURE__ */ new Set();
-        let readOnlyAttributes = /* @__PURE__ */ new Set();
-        let definitions = {};
-        for (let name in attributes2) {
-          let attribute = attributes2[name];
-          if (typeof attribute === AttributeTypes.string || Array.isArray(attribute)) {
-            attribute = {
-              type: attribute
-            };
-          }
-          const field = attribute.field || name;
-          let isKeyField = false;
-          let prefix = "";
-          let postfix = "";
-          let casing = KeyCasing.none;
-          if (facets.byField && facets.byField[field] !== void 0) {
-            for (const indexName of Object.keys(facets.byField[field])) {
-              let definition2 = facets.byField[field][indexName];
-              if (definition2.facets.length > 1) {
-                throw new e4.ElectroError(
-                  e4.ErrorCodes.InvalidIndexWithAttributeName,
-                  `Invalid definition for "${definition2.type}" field on index "${u4.formatIndexNameForDisplay(
-                    indexName
-                  )}". The ${definition2.type} field "${definition2.field}" shares a field name with an attribute defined on the Entity, and therefore is not allowed to contain composite references to other attributes. Please either change the field name of the attribute, or redefine the index to use only the single attribute "${definition2.field}".`
-                );
-              }
-              if (definition2.isCustom) {
-                const keyFieldLabels = facets.labels[indexName][definition2.type].labels;
-                if (keyFieldLabels.length > 2) {
-                  throw new e4.ElectroError(
-                    e4.ErrorCodes.InvalidIndexWithAttributeName,
-                    `Unexpected definition for "${definition2.type}" field on index "${u4.formatIndexNameForDisplay(
-                      indexName
-                    )}". The ${definition2.type} field "${definition2.field}" shares a field name with an attribute defined on the Entity, and therefore is not possible to have more than two labels as part of it's template. Please either change the field name of the attribute, or reformat the key template to reduce all pre-fixing or post-fixing text around the attribute reference to two.`
-                  );
-                }
-                isKeyField = true;
-                casing = definition2.casing;
-                for (const value of keyFieldLabels) {
-                  if (value.name === field) {
-                    prefix = value.label || "";
-                  } else {
-                    postfix = value.label || "";
-                  }
-                }
-                if (attribute.type !== AttributeTypes.string && !Array.isArray(attribute.type)) {
-                  if (prefix.length > 0 || postfix.length > 0) {
-                    throw new e4.ElectroError(
-                      e4.ErrorCodes.InvalidIndexWithAttributeName,
-                      `definition for "${definition2.type}" field on index "${u4.formatIndexNameForDisplay(
-                        indexName
-                      )}". Index templates may only have prefix or postfix values on "string" or "enum" type attributes. The ${definition2.type} field "${field}" is type "${attribute.type}", and therefore cannot be used with prefixes or postfixes. Please either remove the prefixed or postfixed values from the template or change the field name of the attribute.`
-                    );
-                  }
-                }
-              } else {
-                throw new e4.ElectroError(
-                  e4.ErrorCodes.InvalidIndexCompositeWithAttributeName,
-                  `Unexpected definition for "${definition2.type}" field on index "${u4.formatIndexNameForDisplay(
-                    indexName
-                  )}". The ${definition2.type} field "${definition2.field}" shares a field name with an attribute defined on the Entity, and therefore must be defined with a template. Please either change the field name of the attribute, or add a key template to the "${definition2.type}" field on index "${u4.formatIndexNameForDisplay(
-                    indexName
-                  )}" with the value: "\${${definition2.field}}"`
-                );
-              }
-              if (definition2.inCollection) {
-                throw new e4.ElectroError(
-                  e4.ErrorCodes.InvalidCollectionOnIndexWithAttributeFieldNames,
-                  `Invalid use of a collection on index "${u4.formatIndexNameForDisplay(
-                    indexName
-                  )}". The ${definition2.type} field "${definition2.field}" shares a field name with an attribute defined on the Entity, and therefore the index is not allowed to participate in a Collection. Please either change the field name of the attribute, or remove all collection(s) from the index.`
-                );
-              }
-              if (definition2.field === field) {
-                if (attribute.padding !== void 0) {
-                  throw new e4.ElectroError(
-                    e4.ErrorCodes.InvalidAttributeDefinition,
-                    `Invalid padding definition for the attribute "${name}". Padding is not currently supported for attributes that are also defined as table indexes.`
-                  );
-                }
-              }
-            }
-          }
-          let isKey = !!facets.byIndex && facets.byIndex[TableIndex].all.find((facet) => facet.name === name);
-          let definition = {
-            name,
-            field,
-            getClient,
-            casing,
-            prefix,
-            postfix,
-            traverser,
-            isKeyField: isKeyField || isKey,
-            isRoot: !!isRoot,
-            label: attribute.label,
-            required: !!attribute.required,
-            default: attribute.default,
-            validate: attribute.validate,
-            readOnly: !!attribute.readOnly || isKey,
-            hidden: !!attribute.hidden,
-            indexes: facets.byAttr && facets.byAttr[name] || [],
-            type: attribute.type,
-            get: attribute.get,
-            set: attribute.set,
-            watching: Array.isArray(attribute.watch) ? attribute.watch : [],
-            items: attribute.items,
-            properties: attribute.properties,
-            parentPath: attribute.parentPath,
-            parentType: attribute.parentType,
-            padding: attribute.padding
-          };
-          if (definition.type === AttributeTypes.custom) {
-            definition.type = AttributeTypes.any;
-          }
-          if (attribute.watch !== void 0) {
-            if (attribute.watch === AttributeWildCard) {
-              definition.watchAll = true;
-              definition.watching = [];
-            } else if (Array.isArray(attribute.watch)) {
-              definition.watching = attribute.watch;
-            } else {
-              throw new e4.ElectroError(
-                e4.ErrorCodes.InvalidAttributeWatchDefinition,
-                `Attribute Validation Error. The attribute '${name}' is defined to "watch" an invalid value of: '${attribute.watch}'. The watch property must either be a an array of attribute names, or the single string value of "${WatchAll}".`
-              );
-            }
-          } else {
-            definition.watching = [];
-          }
-          if (definition.readOnly) {
-            readOnlyAttributes.add(name);
-          }
-          if (definition.hidden) {
-            hiddenAttributes.add(name);
-          }
-          if (definition.required) {
-            requiredAttributes.add(name);
-          }
-          if (facets.byAttr && facets.byAttr[definition.name] !== void 0 && !ValidFacetTypes.includes(definition.type) && !Array.isArray(definition.type)) {
-            let assignedIndexes = facets.byAttr[name].map(
-              (assigned) => assigned.index === "" ? "Table Index" : assigned.index
-            );
-            throw new e4.ElectroError(
-              e4.ErrorCodes.InvalidAttributeDefinition,
-              `Invalid composite attribute definition: Composite attributes must be one of the following: ${ValidFacetTypes.join(
-                ", "
-              )}. The attribute "${name}" is defined as being type "${attribute.type}" but is a composite attribute of the following indexes: ${assignedIndexes.join(
-                ", "
-              )}`
-            );
-          }
-          if (usedAttrs[definition.field] || usedAttrs[name]) {
-            invalidProperties.push({
-              name,
-              property: "field",
-              value: definition.field,
-              expected: `Unique field property, already used by attribute ${usedAttrs[definition.field]}`
-            });
-          } else {
-            usedAttrs[definition.field] = definition.name;
-          }
-          translationForTable[definition.name] = definition.field;
-          translationForRetrieval[definition.field] = definition.name;
-          for (let watched of definition.watching) {
-            watchedAttributes[watched] = watchedAttributes[watched] || [];
-            watchedAttributes[watched].push(name);
-          }
-          definitions[name] = definition;
-        }
-        for (let name of Object.keys(definitions)) {
-          const definition = definitions[name];
-          definition.watchedBy = Array.isArray(watchedAttributes[name]) ? watchedAttributes[name] : [];
-          switch (definition.type) {
-            case AttributeTypes.map:
-              normalized[name] = new MapAttribute(definition);
-              break;
-            case AttributeTypes.list:
-              normalized[name] = new ListAttribute(definition);
-              break;
-            case AttributeTypes.set:
-              normalized[name] = new SetAttribute(definition);
-              break;
-            default:
-              normalized[name] = new Attribute(definition);
-          }
-        }
-        let watchedWatchers = [];
-        let watchingUnknownAttributes = [];
-        for (let watched of Object.keys(watchedAttributes)) {
-          if (normalized[watched] === void 0) {
-            for (let attribute of watchedAttributes[watched]) {
-              watchingUnknownAttributes.push({ attribute, watched });
-            }
-          } else if (normalized[watched].isWatcher()) {
-            for (let attribute of watchedAttributes[watched]) {
-              watchedWatchers.push({ attribute, watched });
-            }
-          }
-        }
-        if (watchingUnknownAttributes.length > 0) {
-          throw new e4.ElectroError(
-            e4.ErrorCodes.InvalidAttributeWatchDefinition,
-            `Attribute Validation Error. The following attributes are defined to "watch" invalid/unknown attributes: ${watchingUnknownAttributes.map(({ watched, attribute }) => `"${attribute}"->"${watched}"`).join(", ")}.`
-          );
-        }
-        if (watchedWatchers.length > 0) {
-          throw new e4.ElectroError(
-            e4.ErrorCodes.InvalidAttributeWatchDefinition,
-            `Attribute Validation Error. Attributes may only "watch" other attributes also watch attributes. The following attributes are defined with ineligible attributes to watch: ${watchedWatchers.map(({ attribute, watched }) => `"${attribute}"->"${watched}"`).join(", ")}.`
-          );
-        }
-        let missingFacetAttributes = Array.isArray(facets.attributes) ? facets.attributes.filter(({ name }) => !normalized[name]).map((facet) => `"${facet.type}: ${facet.name}"`) : [];
-        if (missingFacetAttributes.length > 0) {
-          throw new e4.ElectroError(
-            e4.ErrorCodes.InvalidKeyCompositeAttributeTemplate,
-            `Invalid key composite attribute template. The following composite attribute attributes were described in the key composite attribute template but were not included model's attributes: ${missingFacetAttributes.join(
-              ", "
-            )}`
-          );
-        }
-        if (invalidProperties.length > 0) {
-          let message = invalidProperties.map(
-            (prop) => `Schema Validation Error. Attribute "${prop.name}" property "${prop.property}". Received: "${prop.value}", Expected: "${prop.expected}"`
-          );
-          throw new e4.ElectroError(
-            e4.ErrorCodes.InvalidAttributeDefinition,
-            message
-          );
-        } else {
-          return {
-            enums,
-            hiddenAttributes,
-            readOnlyAttributes,
-            requiredAttributes,
-            translationForTable,
-            translationForRetrieval,
-            attributes: normalized
-          };
-        }
-      }
-      _validateProperties() {
-      }
-      _formatWatchTranslations(attributes2) {
-        let watchersToAttributes = {};
-        let attributesToWatchers = {};
-        let watchAllAttributes = {};
-        let hasWatchers = false;
-        for (let name of Object.keys(attributes2)) {
-          if (attributes2[name].isWatcher()) {
-            hasWatchers = true;
-            watchersToAttributes[name] = attributes2[name].watching;
-          } else if (attributes2[name].watchAll) {
-            hasWatchers = true;
-            watchAllAttributes[name] = name;
-          } else {
-            attributesToWatchers[name] = attributesToWatchers[name] || {};
-            attributesToWatchers[name] = attributes2[name].watchedBy;
-          }
-        }
-        return {
-          hasWatchers,
-          watchAllAttributes,
-          watchersToAttributes,
-          attributesToWatchers
-        };
-      }
-      getAttribute(path) {
-        return this.traverser.getPath(path);
-      }
-      getLabels() {
-        let labels = {};
-        for (let name of Object.keys(this.attributes)) {
-          let label = this.attributes[name].label;
-          if (label !== void 0) {
-            labels[name] = label;
-          }
-        }
-        return labels;
-      }
-      getLabels() {
-        let labels = {};
-        for (let name of Object.keys(this.attributes)) {
-          let label = this.attributes[name].label;
-          if (label !== void 0) {
-            labels[name] = label;
-          }
-        }
-        return labels;
-      }
-      _applyAttributeMutation(method, include, avoid, payload2) {
-        let data2 = { ...payload2 };
-        const getSiblings = () => ({ ...payload2 });
-        for (let path of Object.keys(include)) {
-          const attribute = this.getAttribute(path);
-          if (attribute !== void 0 && avoid[path] === void 0) {
-            data2[path] = attribute[method](payload2[path], getSiblings);
-          }
-        }
-        return data2;
-      }
-      _fulfillAttributeMutationMethod(method, payload2) {
-        let watchersToTrigger = {};
-        let avoid = {
-          ...this.translationForWatching.watchersToAttributes,
-          ...this.translationForWatching.watchAllAttributes
-        };
-        let data2 = this._applyAttributeMutation(method, payload2, avoid, payload2);
-        if (!this.translationForWatching.hasWatchers) {
-          return data2;
-        }
-        for (let attribute of Object.keys(data2)) {
-          let watchers = this.translationForWatching.attributesToWatchers[attribute];
-          if (watchers !== void 0) {
-            watchersToTrigger = { ...watchersToTrigger, ...watchers };
-          }
-        }
-        let include = {
-          ...data2,
-          ...watchersToTrigger,
-          ...this.translationForWatching.watchAllAttributes
-        };
-        return this._applyAttributeMutation(
-          method,
-          include,
-          this.translationForWatching.attributesToWatchers,
-          data2
-        );
-      }
-      applyAttributeGetters(payload2 = {}) {
-        return this._fulfillAttributeMutationMethod(
-          AttributeMutationMethods.get,
-          payload2
-        );
-      }
-      applyAttributeSetters(payload2 = {}) {
-        return this._fulfillAttributeMutationMethod(
-          AttributeMutationMethods.set,
-          payload2
-        );
-      }
-      translateFromFields(item = {}, options = {}) {
-        let data2 = {};
-        let names = this.translationForRetrieval;
-        for (let [attr, value] of Object.entries(item)) {
-          let name = names[attr];
-          if (name) {
-            data2[name] = value;
-          } else if (options.data === DataOptions.includeKeys) {
-            data2[attr] = value;
-          }
-        }
-        return data2;
-      }
-      translateToFields(payload2 = {}) {
-        let record = {};
-        for (let [name, value] of Object.entries(payload2)) {
-          let field = this.getFieldName(name);
-          if (value !== void 0) {
-            record[field] = value;
-          }
-        }
-        return record;
-      }
-      getFieldName(name) {
-        if (typeof name === "string") {
-          return this.translationForTable[name];
-        }
-      }
-      checkCreate(payload2 = {}) {
-        let record = {};
-        for (let attribute of Object.values(this.attributes)) {
-          let value = payload2[attribute.name];
-          record[attribute.name] = attribute.getValidate(value);
-        }
-        return record;
-      }
-      checkRemove(paths = []) {
-        for (const path of paths) {
-          const attribute = this.traverser.getPath(path);
-          if (!attribute) {
-            throw new e4.ElectroAttributeValidationError(
-              path,
-              `Attribute "${path}" does not exist on model.`
-            );
-          } else if (attribute.readOnly) {
-            throw new e4.ElectroAttributeValidationError(
-              attribute.path,
-              `Attribute "${attribute.path}" is Read-Only and cannot be removed`
-            );
-          } else if (attribute.required) {
-            throw new e4.ElectroAttributeValidationError(
-              attribute.path,
-              `Attribute "${attribute.path}" is Required and cannot be removed`
-            );
-          }
-        }
-        return paths;
-      }
-      checkOperation(attribute, operation2, value) {
-        if (attribute.required && operation2 === ItemOperations.remove) {
-          throw new e4.ElectroAttributeValidationError(
-            attribute.path,
-            `Attribute "${attribute.path}" is Required and cannot be removed`
-          );
-        } else if (attribute.readOnly) {
-          throw new e4.ElectroAttributeValidationError(
-            attribute.path,
-            `Attribute "${attribute.path}" is Read-Only and cannot be updated`
-          );
-        }
-        return value === void 0 ? void 0 : attribute.getValidate(value);
-      }
-      checkUpdate(payload2 = {}, { allowReadOnly } = {}) {
-        let record = {};
-        for (let [path, value] of Object.entries(payload2)) {
-          let attribute = this.traverser.paths.get(path);
-          if (attribute === void 0) {
-            continue;
-          }
-          if (attribute.readOnly && !allowReadOnly) {
-            throw new e4.ElectroAttributeValidationError(
-              attribute.path,
-              `Attribute "${attribute.path}" is Read-Only and cannot be updated`
-            );
-          } else {
-            record[path] = attribute.getValidate(value);
-          }
-        }
-        return record;
-      }
-      getReadOnly() {
-        return Array.from(this.readOnlyAttributes);
-      }
-      getRequired() {
-        return Array.from(this.requiredAttributes);
-      }
-      formatItemForRetrieval(item, config) {
-        let returnAttributes = new Set(config.attributes || []);
-        let hasUserSpecifiedReturnAttributes = returnAttributes.size > 0;
-        let remapped = this.translateFromFields(item, config);
-        let data2 = this._fulfillAttributeMutationMethod("get", remapped);
-        if (this.hiddenAttributes.size > 0 || hasUserSpecifiedReturnAttributes) {
-          for (let attribute of Object.keys(data2)) {
-            if (this.hiddenAttributes.has(attribute)) {
-              delete data2[attribute];
-            }
-            if (hasUserSpecifiedReturnAttributes && !returnAttributes.has(attribute)) {
-              delete data2[attribute];
-            }
-          }
-        }
-        return data2;
-      }
-    };
-    function createCustomAttribute(definition = {}) {
-      return {
-        ...definition,
-        type: "custom"
-      };
-    }
-    function CustomAttributeType(base) {
-      const supported = ["string", "number", "boolean", "any"];
-      if (!supported.includes(base)) {
-        throw new Error(
-          `OpaquePrimitiveType only supports base types: ${u4.commaSeparatedString(
-            supported
-          )}`
-        );
-      }
-      return base;
-    }
-    function createSchema(schema) {
-      v6.model(schema);
-      return schema;
-    }
-    module.exports = {
-      Schema: Schema2,
-      Attribute,
-      CastTypes,
-      SetAttribute,
-      createSchema,
-      CustomAttributeType,
-      createCustomAttribute
-    };
-  }
-});
-
-// ../../node_modules/electrodb/src/filters.js
-var require_filters = __commonJS({
-  "../../node_modules/electrodb/src/filters.js"(exports, module) {
-    var e4 = require_errors();
-    var { MethodTypes, ExpressionTypes } = require_types();
-    var FilterFactory = class {
-      constructor(attributes2 = {}, filterTypes = {}) {
-        this.attributes = { ...attributes2 };
-        this.filters = {
-          ...filterTypes
-        };
-      }
-      getExpressionType(methodType) {
-        switch (methodType) {
-          case MethodTypes.put:
-          case MethodTypes.create:
-          case MethodTypes.update:
-          case MethodTypes.patch:
-          case MethodTypes.delete:
-          case MethodTypes.get:
-          case MethodTypes.upsert:
-            return ExpressionTypes.ConditionExpression;
-          default:
-            return ExpressionTypes.FilterExpression;
-        }
-      }
-      _buildFilterAttributes(setName, setValue) {
-        let attributes2 = {};
-        for (let [name, attribute] of Object.entries(this.attributes)) {
-          let filterAttribute = {};
-          for (let [type, { template }] of Object.entries(this.filters)) {
-            Object.defineProperty(filterAttribute, type, {
-              get: () => {
-                return (...values) => {
-                  let { prop } = setName({}, name, attribute.field);
-                  let attrValues = [];
-                  for (let value of values) {
-                    if (template.length > 1) {
-                      attrValues.push(setValue(name, value, name));
-                    }
-                  }
-                  let expression = template({}, attribute, prop, ...attrValues);
-                  return expression.trim();
-                };
-              }
-            });
-          }
-          attributes2[name] = filterAttribute;
-        }
-        return attributes2;
-      }
-      buildClause(filterFn) {
-        return (entity, state2, ...params) => {
-          const type = this.getExpressionType(state2.query.method);
-          const builder = state2.query.filter[type];
-          let setName = (paths, name, value) => builder.setName(paths, name, value);
-          let setValue = (name, value, path) => builder.setValue(name, value, path);
-          let attributes2 = this._buildFilterAttributes(setName, setValue);
-          const expression = filterFn(attributes2, ...params);
-          if (typeof expression !== "string") {
-            throw new e4.ElectroError(
-              e4.ErrorCodes.InvalidFilter,
-              "Invalid filter response. Expected result to be of type string"
-            );
-          }
-          builder.add(expression);
-          return state2;
-        };
-      }
-      injectFilterClauses(clauses = {}, filters = {}) {
-        let injected = { ...clauses };
-        let filterParents = Object.entries(injected).filter((clause) => {
-          let [name, { children }] = clause;
-          return children.find((child) => ["go", "commit"].includes(child));
-        }).map(([name]) => name);
-        let modelFilters = Object.keys(filters);
-        let filterChildren = [];
-        for (let [name, filter] of Object.entries(filters)) {
-          filterChildren.push(name);
-          injected[name] = {
-            name,
-            action: this.buildClause(filter),
-            children: ["params", "go", "commit", "filter", ...modelFilters]
-          };
-        }
-        filterChildren.push("filter");
-        injected["filter"] = {
-          name: "filter",
-          action: (entity, state2, fn) => {
-            return this.buildClause(fn)(entity, state2);
-          },
-          children: ["params", "go", "commit", "filter", ...modelFilters]
-        };
-        for (let parent of filterParents) {
-          injected[parent] = { ...injected[parent] };
-          injected[parent].children = [
-            ...filterChildren,
-            ...injected[parent].children
-          ];
-        }
-        return injected;
-      }
-    };
-    module.exports = { FilterFactory };
-  }
-});
-
-// ../../node_modules/electrodb/src/updateOperations.js
-var require_updateOperations = __commonJS({
-  "../../node_modules/electrodb/src/updateOperations.js"(exports, module) {
-    var { AttributeTypes, ItemOperations } = require_types();
-    var deleteOperations = {
-      canNest: false,
-      template: function del(options, attr, path, value) {
-        let operation2 = "";
-        let expression = "";
-        switch (attr.type) {
-          case AttributeTypes.any:
-          case AttributeTypes.set:
-            operation2 = ItemOperations.delete;
-            expression = `${path} ${value}`;
-            break;
-          default:
-            throw new Error(
-              `Invalid Update Attribute Operation: "DELETE" Operation can only be performed on attributes with type "set" or "any".`
-            );
-        }
-        return { operation: operation2, expression };
-      }
-    };
-    var UpdateOperations = {
-      ifNotExists: {
-        template: function if_not_exists(options, attr, path, value) {
-          const operation2 = ItemOperations.set;
-          const expression = `${path} = if_not_exists(${path}, ${value})`;
-          return { operation: operation2, expression };
-        }
-      },
-      name: {
-        canNest: true,
-        template: function name(options, attr, path) {
-          return path;
-        }
-      },
-      value: {
-        canNest: true,
-        template: function value(options, attr, path, value) {
-          return value;
-        }
-      },
-      append: {
-        canNest: false,
-        template: function append(options, attr, path, value) {
-          let operation2 = "";
-          let expression = "";
-          switch (attr.type) {
-            case AttributeTypes.any:
-            case AttributeTypes.list:
-              const defaultValue = options.createValue("default_value", []);
-              expression = `${path} = list_append(if_not_exists(${path}, ${defaultValue}), ${value})`;
-              operation2 = ItemOperations.set;
-              break;
-            default:
-              throw new Error(
-                `Invalid Update Attribute Operation: "APPEND" Operation can only be performed on attributes with type "list" or "any".`
-              );
-          }
-          return { operation: operation2, expression };
-        }
-      },
-      add: {
-        canNest: false,
-        template: function add(options, attr, path, value, defaultValue) {
-          let operation2 = "";
-          let expression = "";
-          let type = attr.type;
-          if (type === AttributeTypes.any) {
-            type = typeof value === "number" ? AttributeTypes.number : AttributeTypes.any;
-          }
-          switch (type) {
-            case AttributeTypes.any:
-            case AttributeTypes.set: {
-              operation2 = ItemOperations.add;
-              expression = `${path} ${value}`;
-              break;
-            }
-            case AttributeTypes.number: {
-              if (options.nestedValue) {
-                operation2 = ItemOperations.set;
-                expression = `${path} = ${path} + ${value}`;
-              } else if (defaultValue !== void 0) {
-                operation2 = ItemOperations.set;
-                expression = `${path} = (if_not_exists(${path}, ${defaultValue}) + ${value})`;
-              } else {
-                operation2 = ItemOperations.add;
-                expression = `${path} ${value}`;
-              }
-              break;
-            }
-            default:
-              throw new Error(
-                `Invalid Update Attribute Operation: "ADD" Operation can only be performed on attributes with type "number", "set", or "any".`
-              );
-          }
-          return { operation: operation2, expression };
-        }
-      },
-      subtract: {
-        canNest: false,
-        template: function subtract(options, attr, path, value, defaultValue = 0) {
-          let operation2 = "";
-          let expression = "";
-          switch (attr.type) {
-            case AttributeTypes.any:
-            case AttributeTypes.number: {
-              let resolvedDefaultValue;
-              if (typeof defaultValue === "string" && defaultValue.startsWith(":")) {
-                resolvedDefaultValue = defaultValue;
-              } else if (defaultValue !== void 0) {
-                resolvedDefaultValue = options.createValue(
-                  "default_value",
-                  defaultValue
-                );
-              } else {
-                resolvedDefaultValue = options.createValue("default_value", 0);
-              }
-              operation2 = ItemOperations.set;
-              expression = `${path} = (if_not_exists(${path}, ${resolvedDefaultValue}) - ${value})`;
-              break;
-            }
-            default:
-              throw new Error(
-                `Invalid Update Attribute Operation: "SUBTRACT" Operation can only be performed on attributes with type "number" or "any".`
-              );
-          }
-          return { operation: operation2, expression };
-        }
-      },
-      set: {
-        canNest: false,
-        template: function set(options, attr, path, value) {
-          let operation2 = "";
-          let expression = "";
-          switch (attr.type) {
-            case AttributeTypes.set:
-            case AttributeTypes.list:
-            case AttributeTypes.map:
-            case AttributeTypes.enum:
-            case AttributeTypes.string:
-            case AttributeTypes.number:
-            case AttributeTypes.boolean:
-            case AttributeTypes.any:
-              operation2 = ItemOperations.set;
-              expression = `${path} = ${value}`;
-              break;
-            default:
-              throw new Error(
-                `Invalid Update Attribute Operation: "SET" Operation can only be performed on attributes with type "list", "map", "string", "number", "boolean", or "any".`
-              );
-          }
-          return { operation: operation2, expression };
-        }
-      },
-      remove: {
-        canNest: false,
-        template: function remove(options, attr, ...paths) {
-          let operation2 = "";
-          let expression = "";
-          switch (attr.type) {
-            case AttributeTypes.set:
-            case AttributeTypes.any:
-            case AttributeTypes.list:
-            case AttributeTypes.map:
-            case AttributeTypes.string:
-            case AttributeTypes.number:
-            case AttributeTypes.boolean:
-            case AttributeTypes.enum:
-              operation2 = ItemOperations.remove;
-              expression = paths.join(", ");
-              break;
-            default: {
-              throw new Error(
-                `Invalid Update Attribute Operation: "REMOVE" Operation can only be performed on attributes with type "map", "list", "string", "number", "boolean", or "any".`
-              );
-            }
-          }
-          return { operation: operation2, expression };
-        }
-      },
-      del: deleteOperations,
-      delete: deleteOperations
-    };
-    module.exports = {
-      UpdateOperations
-    };
-  }
-});
-
-// ../../node_modules/electrodb/src/filterOperations.js
-var require_filterOperations = __commonJS({
-  "../../node_modules/electrodb/src/filterOperations.js"(exports, module) {
-    var FilterOperations = {
-      escape: {
-        template: function escape(options, attr) {
-          return `${attr}`;
-        },
-        rawValue: true
-      },
-      size: {
-        template: function size(options, attr, name) {
-          return `size(${name})`;
-        },
-        strict: false
-      },
-      type: {
-        template: function attributeType(options, attr, name, value) {
-          return `attribute_type(${name}, ${value})`;
-        },
-        strict: false
-      },
-      ne: {
-        template: function ne(options, attr, name, value) {
-          return `${name} <> ${value}`;
-        },
-        strict: false
-      },
-      eq: {
-        template: function eq(options, attr, name, value) {
-          return `${name} = ${value}`;
-        },
-        strict: false
-      },
-      gt: {
-        template: function gt(options, attr, name, value) {
-          return `${name} > ${value}`;
-        },
-        strict: false
-      },
-      lt: {
-        template: function lt(options, attr, name, value) {
-          return `${name} < ${value}`;
-        },
-        strict: false
-      },
-      gte: {
-        template: function gte(options, attr, name, value) {
-          return `${name} >= ${value}`;
-        },
-        strict: false
-      },
-      lte: {
-        template: function lte(options, attr, name, value) {
-          return `${name} <= ${value}`;
-        },
-        strict: false
-      },
-      between: {
-        template: function between(options, attr, name, value1, value2) {
-          return `(${name} between ${value1} and ${value2})`;
-        },
-        strict: false
-      },
-      begins: {
-        template: function begins(options, attr, name, value) {
-          return `begins_with(${name}, ${value})`;
-        },
-        strict: false
-      },
-      exists: {
-        template: function exists(options, attr, name) {
-          return `attribute_exists(${name})`;
-        },
-        strict: false
-      },
-      notExists: {
-        template: function notExists(options, attr, name) {
-          return `attribute_not_exists(${name})`;
-        },
-        strict: false
-      },
-      contains: {
-        template: function contains(options, attr, name, value) {
-          return `contains(${name}, ${value})`;
-        },
-        strict: false
-      },
-      notContains: {
-        template: function notContains(options, attr, name, value) {
-          return `not contains(${name}, ${value})`;
-        },
-        strict: false
-      },
-      value: {
-        template: function(options, attr, name, value) {
-          return value;
-        },
-        strict: false,
-        canNest: true
-      },
-      name: {
-        template: function(options, attr, name) {
-          return name;
-        },
-        strict: false,
-        canNest: true
-      },
-      eqOrNotExists: {
-        template: function eq(options, attr, name, value) {
-          return `(${name} = ${value} OR attribute_not_exists(${name}))`;
-        },
-        strict: false
-      },
-      field: {
-        template: function(options, _, fieldName) {
-          return fieldName !== void 0 ? `${fieldName}` : "";
-        },
-        strict: false,
-        canNest: true,
-        rawField: true
-      }
-    };
-    module.exports = {
-      FilterOperations
-    };
-  }
-});
-
-// ../../node_modules/electrodb/src/operations.js
-var require_operations = __commonJS({
-  "../../node_modules/electrodb/src/operations.js"(exports, module) {
-    var {
-      AttributeTypes,
-      ItemOperations,
-      AttributeProxySymbol,
-      BuilderTypes
-    } = require_types();
-    var { UpdateOperations } = require_updateOperations();
-    var { FilterOperations } = require_filterOperations();
-    var e4 = require_errors();
-    var u4 = require_util();
-    var ExpressionState = class {
-      constructor({ prefix } = {}) {
-        this.names = {};
-        this.values = {};
-        this.paths = {};
-        this.counts = {};
-        this.impacted = {};
-        this.expression = "";
-        this.prefix = prefix || "";
-        this.refs = {};
-        this.formattedNameToOriginalNameMap = /* @__PURE__ */ new Map();
-      }
-      incrementName(name) {
-        if (this.counts[name] === void 0) {
-          this.counts[name] = 0;
-        }
-        return `${this.prefix}${this.counts[name]++}`;
-      }
-      formatName(name = "") {
-        const nameWasNotANumber = isNaN(name);
-        const originalName = `${name}`;
-        let formattedName = originalName.replaceAll(/[^\w]/g, "");
-        if (formattedName.length === 0) {
-          formattedName = "p";
-        } else if (nameWasNotANumber !== isNaN(formattedName)) {
-          formattedName = `p${formattedName}`;
-        }
-        const originalFormattedName = formattedName;
-        let nameSuffix = 1;
-        while (this.formattedNameToOriginalNameMap.has(formattedName) && this.formattedNameToOriginalNameMap.get(formattedName) !== originalName) {
-          formattedName = `${originalFormattedName}_${++nameSuffix}`;
-        }
-        this.formattedNameToOriginalNameMap.set(formattedName, originalName);
-        return formattedName;
-      }
-      // todo: make the structure: name, value, paths
-      setName(paths, name, value) {
-        name = this.formatName(name);
-        let json = "";
-        let expression = "";
-        const prop = `#${name}`;
-        if (Object.keys(paths).length === 0) {
-          json = `${name}`;
-          expression = `${prop}`;
-          this.names[prop] = value;
-        } else if (isNaN(name)) {
-          json = `${paths.json}.${name}`;
-          expression = `${paths.expression}.${prop}`;
-          this.names[prop] = value;
-        } else {
-          json = `${paths.json}[${name}]`;
-          expression = `${paths.expression}[${name}]`;
-        }
-        return { json, expression, prop };
-      }
-      getNames() {
-        return this.names;
-      }
-      setValue(name, value) {
-        name = this.formatName(name);
-        let valueCount = this.incrementName(name);
-        let expression = `:${name}${valueCount}`;
-        this.values[expression] = value;
-        return expression;
-      }
-      updateValue(name, value) {
-        this.values[name] = value;
-      }
-      getValues() {
-        return this.values;
-      }
-      setPath(path, value) {
-        this.paths[path] = value;
-      }
-      setExpression(expression) {
-        this.expression = expression;
-      }
-      getExpression() {
-        return this.expression;
-      }
-      setImpacted(operation2, path, ref) {
-        this.impacted[path] = operation2;
-        this.refs[path] = ref;
-      }
-    };
-    var AttributeOperationProxy = class _AttributeOperationProxy {
-      constructor({ builder, attributes: attributes2 = {}, operations = {} }) {
-        this.ref = {
-          attributes: attributes2,
-          operations
-        };
-        this.attributes = _AttributeOperationProxy.buildAttributes(
-          builder,
-          attributes2
-        );
-        this.operations = _AttributeOperationProxy.buildOperations(
-          builder,
-          operations
-        );
-      }
-      invokeCallback(op2, ...params) {
-        return op2(this.attributes, this.operations, ...params);
-      }
-      performOperation({ operation: operation2, path, value, force = false }) {
-        if (value === void 0) {
-          return;
-        }
-        const parts = u4.parseJSONPath(path);
-        let attribute = this.attributes;
-        for (let part of parts) {
-          attribute = attribute[part];
-        }
-        if (attribute) {
-          this.operations[operation2](attribute, value);
-          const { target } = attribute();
-          if (target.readOnly && !force) {
-            throw new Error(
-              `Attribute "${target.path}" is Read-Only and cannot be updated`
-            );
-          }
-        }
-      }
-      fromObject(operation2, record) {
-        for (let path of Object.keys(record)) {
-          this.performOperation({
-            operation: operation2,
-            path,
-            value: record[path]
-          });
-        }
-      }
-      fromArray(operation2, paths) {
-        for (let path of paths) {
-          const parts = u4.parseJSONPath(path);
-          let attribute = this.attributes;
-          for (let part of parts) {
-            attribute = attribute[part];
-          }
-          if (attribute) {
-            this.operations[operation2](attribute);
-            const { target } = attribute();
-            if (target.readOnly) {
-              throw new Error(
-                `Attribute "${target.path}" is Read-Only and cannot be updated`
-              );
-            } else if (operation2 === ItemOperations.remove && target.required) {
-              throw new Error(
-                `Attribute "${target.path}" is Required and cannot be removed`
-              );
-            }
-          }
-        }
-      }
-      static buildOperations(builder, operations) {
-        let ops = {};
-        let seen = /* @__PURE__ */ new Map();
-        for (let operation2 of Object.keys(operations)) {
-          let { template, canNest, rawValue, rawField } = operations[operation2];
-          Object.defineProperty(ops, operation2, {
-            get: () => {
-              return (property, ...values) => {
-                if (property === void 0) {
-                  throw new e4.ElectroError(
-                    e4.ErrorCodes.InvalidWhere,
-                    `Invalid/Unknown property passed in where clause passed to operation: '${operation2}'`
-                  );
-                }
-                if (property[AttributeProxySymbol]) {
-                  const { commit, target } = property();
-                  const fixedValues = values.map((value) => target.applyFixings(value)).filter((value) => value !== void 0);
-                  const isFilterBuilder = builder.type === BuilderTypes.filter;
-                  const takesValueArgument = template.length > 3;
-                  const isAcceptableValue = fixedValues.every((value) => {
-                    const seenAttributes = seen.get(value);
-                    if (seenAttributes) {
-                      return seenAttributes.every((v6) => target.acceptable(v6));
-                    }
-                    return target.acceptable(value);
-                  });
-                  const shouldCommit = (
-                    // if it is a filterBuilder than we don't care what they pass because the user needs more freedom here
-                    isFilterBuilder || // if the operation does not take a value argument then not committing here could cause problems.
-                    // this should be revisited to make more robust, we could hypothetically store the commit in the
-                    // "seen" map for when the value is used, but that's a lot of new complexity
-                    !takesValueArgument || // if the operation takes a value, we should determine if that value is acceptable. For
-                    // example, in the cases of a "set" we check to see if it is empty, or if the value is
-                    // undefined, we should not commit. The "fixedValues" length check is because the
-                    // "fixedValues" array has been filtered for undefined, so no length there indicates an
-                    // undefined value was passed.
-                    takesValueArgument && isAcceptableValue && fixedValues.length > 0
-                  );
-                  if (!shouldCommit) {
-                    return "";
-                  }
-                  const paths = commit();
-                  const attributeValues = [];
-                  let hasNestedValue = false;
-                  for (let fixedValue of fixedValues) {
-                    if (seen.has(fixedValue)) {
-                      attributeValues.push(fixedValue);
-                      hasNestedValue = true;
-                    } else {
-                      let attributeValueName = builder.setValue(
-                        target.name,
-                        fixedValue
-                      );
-                      builder.setPath(paths.json, {
-                        value: fixedValue,
-                        name: attributeValueName
-                      });
-                      attributeValues.push(attributeValueName);
-                    }
-                  }
-                  const options = {
-                    nestedValue: hasNestedValue,
-                    createValue: (name, value) => builder.setValue(`${target.name}_${name}`, value)
-                  };
-                  const formatted = template(
-                    options,
-                    target,
-                    paths.expression,
-                    ...attributeValues
-                  );
-                  builder.setImpacted(operation2, paths.json, target);
-                  if (canNest) {
-                    seen.set(paths.expression, attributeValues);
-                    seen.set(formatted, attributeValues);
-                  }
-                  if (builder.type === BuilderTypes.update && formatted && typeof formatted.operation === "string" && typeof formatted.expression === "string") {
-                    builder.add(formatted.operation, formatted.expression);
-                    return formatted.expression;
-                  }
-                  return formatted;
-                } else if (rawValue) {
-                  let attributeValueName = builder.setValue(property, property);
-                  builder.setPath(property, {
-                    value: property,
-                    name: attributeValueName
-                  });
-                  const formatted = template({}, attributeValueName);
-                  seen.set(attributeValueName, [property]);
-                  seen.set(formatted, [property]);
-                  return formatted;
-                } else if (rawField) {
-                  const { prop, expression } = builder.setName(
-                    {},
-                    property,
-                    property
-                  );
-                  const formatted = template({}, null, prop);
-                  seen.set(expression, [property]);
-                  seen.set(formatted, [property]);
-                  return formatted;
-                } else {
-                  throw new e4.ElectroError(
-                    e4.ErrorCodes.InvalidWhere,
-                    `Invalid Attribute in where clause passed to operation '${operation2}'. Use injected attributes only.`
-                  );
-                }
-              };
-            }
-          });
-        }
-        return ops;
-      }
-      static pathProxy(build) {
-        return new Proxy(() => build(), {
-          get: (_, prop, o4) => {
-            if (prop === AttributeProxySymbol) {
-              return true;
-            } else {
-              return _AttributeOperationProxy.pathProxy(() => {
-                const { commit, root, target, builder } = build();
-                const attribute = target.getChild(prop);
-                const nestedAny = attribute.type === AttributeTypes.any && // if the name doesn't match that's because we are nested under 'any'
-                attribute.name !== prop;
-                let field;
-                if (attribute === void 0) {
-                  throw new Error(
-                    `Invalid attribute "${prop}" at path "${target.path}.${prop}"`
-                  );
-                } else if (nestedAny) {
-                  field = prop;
-                } else {
-                  field = attribute.field;
-                }
-                return {
-                  root,
-                  builder,
-                  nestedAny,
-                  target: attribute,
-                  commit: () => {
-                    const paths = commit();
-                    return builder.setName(paths, prop, field);
-                  }
-                };
-              });
-            }
-          }
-        });
-      }
-      static buildAttributes(builder, attributes2) {
-        let attr = {};
-        for (let [name, attribute] of Object.entries(attributes2)) {
-          Object.defineProperty(attr, name, {
-            get: () => {
-              return _AttributeOperationProxy.pathProxy(() => {
-                return {
-                  root: attribute,
-                  target: attribute,
-                  builder,
-                  commit: () => builder.setName({}, attribute.name, attribute.field)
-                };
-              });
-            }
-          });
-        }
-        return attr;
-      }
-    };
-    var FilterOperationNames = Object.keys(FilterOperations).reduce(
-      (ops, name) => {
-        ops[name] = name;
-        return ops;
-      },
-      {}
-    );
-    var UpdateOperationNames = Object.keys(UpdateOperations).reduce(
-      (ops, name) => {
-        ops[name] = name;
-        return ops;
-      },
-      {}
-    );
-    module.exports = {
-      UpdateOperations,
-      UpdateOperationNames,
-      FilterOperations,
-      FilterOperationNames,
-      ExpressionState,
-      AttributeOperationProxy
-    };
-  }
-});
-
-// ../../node_modules/electrodb/src/where.js
-var require_where = __commonJS({
-  "../../node_modules/electrodb/src/where.js"(exports, module) {
-    var { MethodTypes, ExpressionTypes, BuilderTypes } = require_types();
-    var {
-      AttributeOperationProxy,
-      ExpressionState,
-      FilterOperations
-    } = require_operations();
-    var e4 = require_errors();
-    var FilterExpression = class extends ExpressionState {
-      constructor(props) {
-        super(props);
-        this.expression = "";
-        this.type = BuilderTypes.filter;
-      }
-      _trim(expression) {
-        if (typeof expression === "string" && expression.length > 0) {
-          return expression.replace(/\n|\r/g, "").trim();
-        }
-        return "";
-      }
-      _isEmpty(expression) {
-        if (typeof expression !== "string") {
-          throw new Error("Invalid expression value type. Expected type string.");
-        }
-        return !expression.replace(/\n|\r|\w/g, "").trim();
-      }
-      add(newExpression, filterOptions = {}) {
-        const asPrefix = !!filterOptions.asPrefix;
-        let expression = "";
-        let existingExpression = this.expression;
-        if (typeof existingExpression === "string" && existingExpression.length > 0) {
-          newExpression = this._trim(newExpression);
-          let isEmpty = this._isEmpty(newExpression);
-          if (isEmpty) {
-            return existingExpression;
-          }
-          if (!asPrefix && !existingExpression.startsWith("(") && !existingExpression.endsWith(")")) {
-            existingExpression = `(${existingExpression})`;
-          }
-          if (asPrefix) {
-            expression = `(${newExpression}) AND ${existingExpression}`;
-          } else {
-            expression = `${existingExpression} AND ${newExpression}`;
-          }
-        } else {
-          expression = this._trim(newExpression);
-        }
-        this.expression = expression;
-      }
-      // applies operations without verifying them against known attributes. Used internally for key conditions.
-      unsafeSet(filterOptions, operation2, name, ...values) {
-        const { template } = FilterOperations[operation2] || {};
-        if (template === void 0) {
-          throw new Error(
-            `Invalid operation: "${operation2}". Please report this issue via a bug ticket.`
-          );
-        }
-        const names = this.setName({}, name, name);
-        const valueExpressions = values.map((value) => this.setValue(name, value));
-        const condition = template(
-          {},
-          names.expression,
-          names.prop,
-          ...valueExpressions
-        );
-        this.add(condition, filterOptions);
-      }
-      build() {
-        return this.expression;
-      }
-    };
-    var WhereFactory = class {
-      constructor(attributes2 = {}, operations = {}) {
-        this.attributes = { ...attributes2 };
-        this.operations = { ...operations };
-      }
-      getExpressionType(methodType) {
-        switch (methodType) {
-          case MethodTypes.put:
-          case MethodTypes.create:
-          case MethodTypes.update:
-          case MethodTypes.patch:
-          case MethodTypes.delete:
-          case MethodTypes.remove:
-          case MethodTypes.upsert:
-          case MethodTypes.get:
-          case MethodTypes.check:
-            return ExpressionTypes.ConditionExpression;
-          default:
-            return ExpressionTypes.FilterExpression;
-        }
-      }
-      buildClause(cb) {
-        if (typeof cb !== "function") {
-          throw new e4.ElectroError(
-            e4.ErrorCodes.InvalidWhere,
-            'Where callback must be of type "function"'
-          );
-        }
-        return (entity, state2, ...params) => {
-          const type = this.getExpressionType(state2.query.method);
-          const builder = state2.query.filter[type];
-          const proxy = new AttributeOperationProxy({
-            builder,
-            attributes: this.attributes,
-            operations: this.operations
-          });
-          const expression = proxy.invokeCallback(cb, ...params);
-          if (typeof expression !== "string") {
-            throw new e4.ElectroError(
-              e4.ErrorCodes.InvalidWhere,
-              "Invalid response from where clause callback. Expected return result to be of type string"
-            );
-          }
-          builder.add(expression);
-          return state2;
-        };
-      }
-      injectWhereClauses(clauses = {}, filters = {}) {
-        let injected = { ...clauses };
-        let filterParents = Object.entries(injected).filter((clause) => {
-          let [name, { children }] = clause;
-          return children.find((child) => ["go", "commit"].includes(child));
-        }).map(([name]) => name);
-        let modelFilters = Object.keys(filters);
-        let filterChildren = [];
-        for (let [name, filter] of Object.entries(filters)) {
-          filterChildren.push(name);
-          injected[name] = {
-            name,
-            action: this.buildClause(filter),
-            children: ["params", "go", "commit", "where", ...modelFilters]
-          };
-        }
-        filterChildren.push("where");
-        injected["where"] = {
-          name: "where",
-          action: (entity, state2, fn) => {
-            return this.buildClause(fn)(entity, state2);
-          },
-          children: ["params", "go", "commit", "where", ...modelFilters]
-        };
-        for (let parent of filterParents) {
-          injected[parent] = { ...injected[parent] };
-          injected[parent].children = [
-            ...filterChildren,
-            ...injected[parent].children
-          ];
-        }
-        return injected;
-      }
-    };
-    module.exports = {
-      WhereFactory,
-      FilterExpression
-    };
-  }
-});
-
-// ../../node_modules/electrodb/src/update.js
-var require_update = __commonJS({
-  "../../node_modules/electrodb/src/update.js"(exports, module) {
-    var { UpdateOperations } = require_updateOperations();
-    var { AttributeOperationProxy, ExpressionState } = require_operations();
-    var { ItemOperations, BuilderTypes } = require_types();
-    var UpdateExpression = class extends ExpressionState {
-      constructor(props = {}) {
-        super({ ...props });
-        this.operations = {
-          set: /* @__PURE__ */ new Set(),
-          remove: /* @__PURE__ */ new Set(),
-          add: /* @__PURE__ */ new Set(),
-          subtract: /* @__PURE__ */ new Set(),
-          delete: /* @__PURE__ */ new Set()
-        };
-        this.composites = {};
-        this.seen = /* @__PURE__ */ new Map();
-        this.type = BuilderTypes.update;
-      }
-      addComposite(attrName, value) {
-        if (value !== void 0) {
-          if (this.composites[attrName] === void 0 || this.composites[attrName] === value) {
-            this.composites[attrName] = value;
-            return true;
-          }
-        }
-        return false;
-      }
-      add(type, expression) {
-        this.operations[type].add(expression);
-      }
-      unadd(type, expression) {
-        this.operations[type].delete(expression);
-      }
-      set(name, value, operation2 = ItemOperations.set, attribute) {
-        let operationToApply = operation2;
-        if (operation2 === ItemOperations.ifNotExists) {
-          operationToApply = ItemOperations.set;
-        }
-        const seen = this.seen.get(name);
-        let n4;
-        let v6;
-        if (seen) {
-          n4 = seen.name;
-          v6 = seen.value;
-          this.unadd(operationToApply, seen.expression);
-        } else {
-          n4 = this.setName({}, name, name);
-          v6 = this.setValue(name, value);
-        }
-        let expression = `${n4.prop} = ${v6}`;
-        if (operation2 === ItemOperations.ifNotExists) {
-          expression = `${n4.prop} = if_not_exists(${n4.prop}, ${v6})`;
-        }
-        this.seen.set(name, {
-          name: n4,
-          value: v6,
-          expression
-        });
-        this.add(operationToApply, expression);
-      }
-      remove(name) {
-        const n4 = this.setName({}, name, name);
-        this.add(ItemOperations.remove, `${n4.prop}`);
-      }
-      build() {
-        let expressions = [];
-        for (const type of Object.keys(this.operations)) {
-          const operations = this.operations[type];
-          if (operations.size > 0) {
-            expressions.push(
-              `${type.toUpperCase()} ${Array.from(operations).join(", ")}`
-            );
-          }
-        }
-        return expressions.join(" ");
-      }
-    };
-    var UpdateEntity = class {
-      constructor(attributes2 = {}, operations = {}) {
-        this.attributes = { ...attributes2 };
-        this.operations = { ...operations };
-      }
-      buildCallbackHandler(entity, state2) {
-        const proxy = new AttributeOperationProxy({
-          builder: state2.query.update,
-          attributes: this.attributes,
-          operations: this.operations
-        });
-        return (cb, ...params) => {
-          if (typeof cb !== "function") {
-            throw new Error('Update Callback must be of type "function"');
-          }
-          proxy.invokeCallback(cb, ...params);
-        };
-      }
-    };
-    module.exports = {
-      UpdateEntity,
-      UpdateExpression
-    };
-  }
-});
-
-// ../../node_modules/electrodb/src/clauses.js
-var require_clauses = __commonJS({
-  "../../node_modules/electrodb/src/clauses.js"(exports, module) {
-    var {
-      QueryTypes,
-      MethodTypes,
-      ItemOperations,
-      ExpressionTypes,
-      TransactionCommitSymbol,
-      TransactionOperations,
-      TerminalOperation,
-      KeyTypes,
-      IndexTypes,
-      UpsertOperations,
-      ComparisonTypes
-    } = require_types();
-    var {
-      AttributeOperationProxy,
-      UpdateOperations,
-      FilterOperationNames
-    } = require_operations();
-    var { UpdateExpression } = require_update();
-    var { FilterExpression } = require_where();
-    var v6 = require_validations();
-    var e4 = require_errors();
-    var u4 = require_util();
-    var methodChildren = {
-      upsert: [
-        "upsertSet",
-        "upsertAppend",
-        "upsertAdd",
-        "go",
-        "params",
-        "upsertSubtract",
-        "commit",
-        "upsertIfNotExists",
-        "where"
-      ],
-      update: [
-        "data",
-        "set",
-        "append",
-        "add",
-        "updateRemove",
-        "updateDelete",
-        "go",
-        "params",
-        "subtract",
-        "commit",
-        "composite",
-        "ifNotExists",
-        "where"
-      ],
-      put: ["where", "params", "go", "commit"],
-      del: ["where", "params", "go", "commit"]
-    };
-    function batchAction(action, type, entity, state2, payload2) {
-      if (state2.getError() !== null) {
-        return state2;
-      }
-      try {
-        state2.setMethod(type);
-        for (let facets of payload2) {
-          let batchState = action(entity, state2.createSubState(), facets);
-          if (batchState.getError() !== null) {
-            throw batchState.getError();
-          }
-        }
-        return state2;
-      } catch (err2) {
-        state2.setError(err2);
-        return state2;
-      }
-    }
-    var clauses = {
-      index: {
-        name: "index",
-        children: [
-          "check",
-          "get",
-          "delete",
-          "update",
-          "query",
-          "upsert",
-          "put",
-          "scan",
-          "collection",
-          "clusteredCollection",
-          "create",
-          "remove",
-          "patch",
-          "batchPut",
-          "batchDelete",
-          "batchGet"
-        ]
-      },
-      clusteredCollection: {
-        name: "clusteredCollection",
-        action(entity, state2, collection = "", facets = {}) {
-          if (state2.getError() !== null) {
-            return state2;
-          }
-          try {
-            const { pk, sk } = state2.getCompositeAttributes();
-            return state2.setType(QueryTypes.clustered_collection).setMethod(MethodTypes.query).setCollection(collection).setPK(entity._expectFacets(facets, pk)).ifSK(() => {
-              const { composites, unused } = state2.identifyCompositeAttributes(
-                facets,
-                sk,
-                pk
-              );
-              state2.setSK(composites);
-              state2.beforeBuildParams(({ options, state: state3 }) => {
-                const accessPattern = entity.model.translations.indexes.fromIndexToAccessPattern[state3.query.index];
-                if (options.compare === ComparisonTypes.attributes || options.compare === ComparisonTypes.v2) {
-                  if (!entity.model.indexes[accessPattern].sk.isFieldRef && sk.length > 1) {
-                    state3.filterProperties(FilterOperationNames.eq, {
-                      ...unused,
-                      ...composites
-                    });
-                  }
-                }
-              });
-            }).whenOptions(({ options, state: state3 }) => {
-              if (!options.ignoreOwnership && !state3.getParams()) {
-                state3.query.options.expressions.names = {
-                  ...state3.query.options.expressions.names,
-                  ...state3.query.options.identifiers.names
-                };
-                state3.query.options.expressions.values = {
-                  ...state3.query.options.expressions.values,
-                  ...state3.query.options.identifiers.values
-                };
-                state3.query.options.expressions.expression = state3.query.options.expressions.expression.length > 1 ? `(${state3.query.options.expressions.expression}) AND ${state3.query.options.identifiers.expression}` : `${state3.query.options.identifiers.expression}`;
-              }
-            });
-          } catch (err2) {
-            state2.setError(err2);
-            return state2;
-          }
-        },
-        children: ["between", "gte", "gt", "lte", "lt", "begins", "params", "go"]
-      },
-      collection: {
-        name: "collection",
-        /* istanbul ignore next */
-        action(entity, state2, collection = "", facets = {}) {
-          if (state2.getError() !== null) {
-            return state2;
-          }
-          try {
-            const { pk, sk } = state2.getCompositeAttributes();
-            return state2.setType(QueryTypes.collection).setMethod(MethodTypes.query).setCollection(collection).setPK(entity._expectFacets(facets, pk)).whenOptions(({ options, state: state3 }) => {
-              if (!options.ignoreOwnership && !state3.getParams()) {
-                state3.query.options.expressions.names = {
-                  ...state3.query.options.expressions.names,
-                  ...state3.query.options.identifiers.names
-                };
-                state3.query.options.expressions.values = {
-                  ...state3.query.options.expressions.values,
-                  ...state3.query.options.identifiers.values
-                };
-                state3.query.options.expressions.expression = state3.query.options.expressions.expression.length > 1 ? `(${state3.query.options.expressions.expression}) AND ${state3.query.options.identifiers.expression}` : `${state3.query.options.identifiers.expression}`;
-              }
-            });
-          } catch (err2) {
-            state2.setError(err2);
-            return state2;
-          }
-        },
-        children: ["params", "go"]
-      },
-      scan: {
-        name: "scan",
-        action(entity, state2, config) {
-          if (state2.getError() !== null) {
-            return state2;
-          }
-          try {
-            return state2.setMethod(MethodTypes.scan).whenOptions(({ state: state3, options }) => {
-              if (!options.ignoreOwnership && !state3.getParams()) {
-                state3.unsafeApplyFilter(
-                  {},
-                  FilterOperationNames.eq,
-                  entity.identifiers.entity,
-                  entity.getName()
-                );
-                state3.unsafeApplyFilter(
-                  {},
-                  FilterOperationNames.eq,
-                  entity.identifiers.version,
-                  entity.getVersion()
-                );
-              }
-            });
-          } catch (err2) {
-            state2.setError(err2);
-            return state2;
-          }
-        },
-        children: ["params", "go"]
-      },
-      get: {
-        name: "get",
-        /* istanbul ignore next */
-        action(entity, state2, facets = {}) {
-          if (state2.getError() !== null) {
-            return state2;
-          }
-          try {
-            const { pk, sk } = state2.getCompositeAttributes();
-            const { composites } = state2.identifyCompositeAttributes(
-              facets,
-              sk,
-              pk
-            );
-            return state2.setMethod(MethodTypes.get).setType(QueryTypes.eq).setPK(entity._expectFacets(facets, pk)).ifSK(() => {
-              entity._expectFacets(facets, sk);
-              state2.setSK(composites);
-            });
-          } catch (err2) {
-            state2.setError(err2);
-            return state2;
-          }
-        },
-        children: ["params", "go", "commit"]
-      },
-      check: {
-        name: "check",
-        action(...params) {
-          return clauses.get.action(...params).setMethod(MethodTypes.check);
-        },
-        children: ["commit"]
-      },
-      batchGet: {
-        name: "batchGet",
-        action: (entity, state2, payload2) => batchAction(
-          clauses.get.action,
-          MethodTypes.batchGet,
-          entity,
-          state2,
-          payload2
-        ),
-        children: ["params", "go"]
-      },
-      batchDelete: {
-        name: "batchDelete",
-        action: (entity, state2, payload2) => batchAction(
-          clauses.delete.action,
-          MethodTypes.batchWrite,
-          entity,
-          state2,
-          payload2
-        ),
-        children: ["params", "go"]
-      },
-      delete: {
-        name: "delete",
-        /* istanbul ignore next */
-        action(entity, state2, facets = {}) {
-          if (state2.getError() !== null) {
-            return state2;
-          }
-          try {
-            const { pk, sk } = state2.getCompositeAttributes();
-            const pkComposite = entity._expectFacets(facets, pk);
-            state2.addOption("_includeOnResponseItem", pkComposite);
-            return state2.setMethod(MethodTypes.delete).setType(QueryTypes.eq).setPK(pkComposite).ifSK(() => {
-              entity._expectFacets(facets, sk);
-              const skComposite = state2.buildQueryComposites(facets, sk);
-              state2.setSK(skComposite);
-              state2.addOption("_includeOnResponseItem", {
-                ...skComposite,
-                ...pkComposite
-              });
-            });
-          } catch (err2) {
-            state2.setError(err2);
-            return state2;
-          }
-        },
-        children: ["where", "params", "go", "commit"]
-      },
-      remove: {
-        name: "remove",
-        /* istanbul ignore next */
-        action(entity, state2, facets = {}) {
-          if (state2.getError() !== null) {
-            return state2;
-          }
-          try {
-            const attributes2 = state2.getCompositeAttributes();
-            const filter = state2.query.filter[ExpressionTypes.ConditionExpression];
-            const { pk, sk } = entity._getPrimaryIndexFieldNames();
-            filter.unsafeSet({}, FilterOperationNames.exists, pk);
-            if (sk) {
-              filter.unsafeSet({}, FilterOperationNames.exists, sk);
-            }
-            const pkComposite = entity._expectFacets(facets, attributes2.pk);
-            state2.addOption("_includeOnResponseItem", pkComposite);
-            return state2.setMethod(MethodTypes.delete).setType(QueryTypes.eq).setPK(pkComposite).ifSK(() => {
-              entity._expectFacets(facets, attributes2.sk);
-              const skComposite = state2.buildQueryComposites(
-                facets,
-                attributes2.sk
-              );
-              state2.setSK(skComposite);
-              state2.addOption("_includeOnResponseItem", {
-                ...skComposite,
-                ...pkComposite
-              });
-            });
-          } catch (err2) {
-            state2.setError(err2);
-            return state2;
-          }
-        },
-        children: methodChildren.del
-      },
-      upsert: {
-        name: "upsert",
-        action(entity, state2, payload2 = {}) {
-          if (state2.getError() !== null) {
-            return state2;
-          }
-          try {
-            return state2.setMethod(MethodTypes.upsert).setType(QueryTypes.eq).applyUpsert(UpsertOperations.set, payload2).beforeBuildParams(({ state: state3 }) => {
-              const { upsert, update, updateProxy } = state3.query;
-              state3.query.update.set(entity.identifiers.entity, entity.getName());
-              state3.query.update.set(
-                entity.identifiers.version,
-                entity.getVersion()
-              );
-              const setData = {};
-              const nonSetData = {};
-              let allData = {};
-              for (const name in upsert.data) {
-                const { operation: operation2, value } = upsert.data[name];
-                allData[name] = value;
-                if (operation2 === UpsertOperations.set) {
-                  setData[name] = value;
-                } else {
-                  nonSetData[name] = value;
-                }
-              }
-              const upsertData = entity.model.schema.checkCreate({ ...allData });
-              const attributes2 = state3.getCompositeAttributes();
-              const pkComposite = entity._expectFacets(upsertData, attributes2.pk);
-              state3.addOption("_includeOnResponseItem", pkComposite).setPK(pkComposite).ifSK(() => {
-                entity._expectFacets(upsertData, attributes2.sk);
-                const skComposite = entity._buildQueryFacets(
-                  upsertData,
-                  attributes2.sk
-                );
-                state3.setSK(skComposite);
-                state3.addOption("_includeOnResponseItem", {
-                  ...skComposite,
-                  ...pkComposite
-                });
-              });
-              const appliedData = entity.model.schema.applyAttributeSetters({
-                ...upsertData
-              });
-              const onlySetAppliedData = {};
-              const nonSetAppliedData = {};
-              for (const name in appliedData) {
-                const value = appliedData[name];
-                const isSetOperation = setData[name] !== void 0;
-                const cameFromApplyingSetters = allData[name] === void 0;
-                const isNotUndefined = appliedData[name] !== void 0;
-                const applyAsSet = isSetOperation || cameFromApplyingSetters;
-                if (applyAsSet && isNotUndefined) {
-                  onlySetAppliedData[name] = value;
-                } else {
-                  nonSetAppliedData[name] = value;
-                }
-              }
-              const { pk } = state3.query.keys;
-              const sk = state3.query.keys.sk[0];
-              const {
-                updatedKeys,
-                setAttributes,
-                indexKey,
-                deletedKeys = []
-              } = entity._getPutKeys(pk, sk && sk.facets, onlySetAppliedData);
-              for (const deletedKey of deletedKeys) {
-                state3.query.update.remove(deletedKey);
-              }
-              upsert.indexKey = indexKey;
-              const setFields = entity.model.schema.translateToFields(setAttributes);
-              for (const key in updatedKeys) {
-                const value = updatedKeys[key];
-                if (indexKey[key] === void 0) {
-                  setFields[key] = value;
-                } else {
-                  delete setFields[key];
-                }
-              }
-              entity._maybeApplyUpsertUpdate({
-                fields: Object.entries(setFields),
-                operation: UpsertOperations.set,
-                updateProxy,
-                update
-              });
-              for (const name in nonSetData) {
-                const value = appliedData[name];
-                if (value === void 0 || upsert.data[name] === void 0) {
-                  continue;
-                }
-                const { operation: operation2 } = upsert.data[name];
-                const fields = entity.model.schema.translateToFields({
-                  [name]: value
-                });
-                entity._maybeApplyUpsertUpdate({
-                  fields: Object.entries(fields),
-                  updateProxy,
-                  operation: operation2,
-                  update
-                });
-              }
-            });
-          } catch (err2) {
-            state2.setError(err2);
-            return state2;
-          }
-        },
-        children: methodChildren.upsert
-      },
-      put: {
-        name: "put",
-        /* istanbul ignore next */
-        action(entity, state2, payload2 = {}) {
-          if (state2.getError() !== null) {
-            return state2;
-          }
-          try {
-            let record = entity.model.schema.checkCreate({ ...payload2 });
-            const attributes2 = state2.getCompositeAttributes();
-            return state2.setMethod(MethodTypes.put).setType(QueryTypes.eq).applyPut(record).setPK(entity._expectFacets(record, attributes2.pk)).ifSK(() => {
-              entity._expectFacets(record, attributes2.sk);
-              state2.setSK(state2.buildQueryComposites(record, attributes2.sk));
-            });
-          } catch (err2) {
-            state2.setError(err2);
-            return state2;
-          }
-        },
-        children: methodChildren.put
-      },
-      batchPut: {
-        name: "batchPut",
-        action: (entity, state2, payload2) => batchAction(
-          clauses.put.action,
-          MethodTypes.batchWrite,
-          entity,
-          state2,
-          payload2
-        ),
-        children: ["params", "go"]
-      },
-      create: {
-        name: "create",
-        action(entity, state2, payload2) {
-          if (state2.getError() !== null) {
-            return state2;
-          }
-          try {
-            let record = entity.model.schema.checkCreate({ ...payload2 });
-            const attributes2 = state2.getCompositeAttributes();
-            const filter = state2.query.filter[ExpressionTypes.ConditionExpression];
-            const { pk, sk } = entity._getPrimaryIndexFieldNames();
-            filter.unsafeSet({}, FilterOperationNames.notExists, pk);
-            if (sk) {
-              filter.unsafeSet({}, FilterOperationNames.notExists, sk);
-            }
-            return state2.setMethod(MethodTypes.put).setType(QueryTypes.eq).applyPut(record).setPK(entity._expectFacets(record, attributes2.pk)).ifSK(() => {
-              entity._expectFacets(record, attributes2.sk);
-              state2.setSK(state2.buildQueryComposites(record, attributes2.sk));
-            });
-          } catch (err2) {
-            state2.setError(err2);
-            return state2;
-          }
-        },
-        children: methodChildren.put
-      },
-      patch: {
-        name: "patch",
-        action(entity, state2, facets) {
-          if (state2.getError() !== null) {
-            return state2;
-          }
-          try {
-            const attributes2 = state2.getCompositeAttributes();
-            const filter = state2.query.filter[ExpressionTypes.ConditionExpression];
-            const { pk, sk } = entity._getPrimaryIndexFieldNames();
-            filter.unsafeSet({}, FilterOperationNames.exists, pk);
-            if (sk) {
-              filter.unsafeSet({}, FilterOperationNames.exists, sk);
-            }
-            const pkComposite = entity._expectFacets(facets, attributes2.pk);
-            state2.addOption("_includeOnResponseItem", pkComposite);
-            return state2.setMethod(MethodTypes.update).setType(QueryTypes.eq).setPK(pkComposite).ifSK(() => {
-              entity._expectFacets(facets, attributes2.sk);
-              const skComposite = state2.buildQueryComposites(
-                facets,
-                attributes2.sk
-              );
-              state2.setSK(skComposite);
-              state2.addOption("_includeOnResponseItem", {
-                ...skComposite,
-                ...pkComposite
-              });
-            });
-          } catch (err2) {
-            state2.setError(err2);
-            return state2;
-          }
-        },
-        children: methodChildren.update
-      },
-      update: {
-        name: "update",
-        action(entity, state2, facets) {
-          if (state2.getError() !== null) {
-            return state2;
-          }
-          try {
-            const attributes2 = state2.getCompositeAttributes();
-            const pkComposite = entity._expectFacets(facets, attributes2.pk);
-            state2.addOption("_includeOnResponseItem", pkComposite);
-            return state2.setMethod(MethodTypes.update).setType(QueryTypes.eq).setPK(pkComposite).ifSK(() => {
-              entity._expectFacets(facets, attributes2.sk);
-              const skComposite = state2.buildQueryComposites(
-                facets,
-                attributes2.sk
-              );
-              state2.setSK(skComposite);
-              state2.addOption("_includeOnResponseItem", {
-                ...pkComposite,
-                ...skComposite
-              });
-            });
-          } catch (err2) {
-            state2.setError(err2);
-            return state2;
-          }
-        },
-        children: methodChildren.update
-      },
-      data: {
-        name: "data",
-        action(entity, state2, cb) {
-          if (state2.getError() !== null) {
-            return state2;
-          }
-          try {
-            state2.query.updateProxy.invokeCallback(cb);
-            for (const path of Object.keys(state2.query.update.refs)) {
-              const operation2 = state2.query.update.impacted[path];
-              const attribute = state2.query.update.refs[path];
-              const keyValue = state2.query.update.paths[path] || {};
-              if (!attribute) {
-                throw new e4.ElectroAttributeValidationError(
-                  path,
-                  `Attribute "${path}" does not exist on model.`
-                );
-              }
-              entity.model.schema.checkOperation(
-                attribute,
-                operation2,
-                keyValue.value
-              );
-            }
-            return state2;
-          } catch (err2) {
-            state2.setError(err2);
-            return state2;
-          }
-        },
-        children: methodChildren.update
-      },
-      set: {
-        name: "set",
-        action(entity, state2, data2) {
-          if (state2.getError() !== null) {
-            return state2;
-          }
-          try {
-            entity.model.schema.checkUpdate(data2);
-            state2.query.updateProxy.fromObject(ItemOperations.set, data2);
-            return state2;
-          } catch (err2) {
-            state2.setError(err2);
-            return state2;
-          }
-        },
-        children: methodChildren.update
-      },
-      upsertSet: {
-        name: "set",
-        action(entity, state2, data2) {
-          if (state2.getError() !== null) {
-            return state2;
-          }
-          try {
-            entity.model.schema.checkUpdate(data2, { allowReadOnly: true });
-            state2.query.upsert.addData(UpsertOperations.set, data2);
-            return state2;
-          } catch (err2) {
-            state2.setError(err2);
-            return state2;
-          }
-        },
-        children: methodChildren.upsert
-      },
-      composite: {
-        name: "composite",
-        action(entity, state2, composites = {}) {
-          if (state2.getError() !== null) {
-            return state2;
-          }
-          try {
-            for (const attrName in composites) {
-              if (entity.model.facets.byAttr[attrName]) {
-                const wasSet = state2.query.update.addComposite(
-                  attrName,
-                  composites[attrName]
-                );
-                if (!wasSet) {
-                  throw new e4.ElectroError(
-                    e4.ErrorCodes.DuplicateUpdateCompositesProvided,
-                    `The composite attribute ${attrName} has been provided more than once with different values. Remove the duplication before running again`
-                  );
-                }
-                state2.applyCondition(
-                  FilterOperationNames.eq,
-                  attrName,
-                  composites[attrName]
-                );
-              }
-            }
-            return state2;
-          } catch (err2) {
-            state2.setError(err2);
-            return state2;
-          }
-        },
-        children: methodChildren.update
-      },
-      append: {
-        name: "append",
-        action(entity, state2, data2 = {}) {
-          if (state2.getError() !== null) {
-            return state2;
-          }
-          try {
-            entity.model.schema.checkUpdate(data2);
-            state2.query.updateProxy.fromObject(ItemOperations.append, data2);
-            return state2;
-          } catch (err2) {
-            state2.setError(err2);
-            return state2;
-          }
-        },
-        children: methodChildren.update
-      },
-      ifNotExists: {
-        name: "ifNotExists",
-        action(entity, state2, data2 = {}) {
-          entity.model.schema.checkUpdate(data2);
-          state2.query.updateProxy.fromObject(ItemOperations.ifNotExists, data2);
-          return state2;
-        },
-        children: methodChildren.update
-      },
-      upsertIfNotExists: {
-        name: "ifNotExists",
-        action(entity, state2, data2 = {}) {
-          if (state2.getError() !== null) {
-            return state2;
-          }
-          try {
-            entity.model.schema.checkUpdate(data2, { allowReadOnly: true });
-            state2.query.upsert.addData(UpsertOperations.ifNotExists, data2);
-            return state2;
-          } catch (err2) {
-            state2.setError(err2);
-            return state2;
-          }
-        },
-        children: methodChildren.upsert
-      },
-      upsertAppend: {
-        name: "append",
-        action(entity, state2, data2 = {}) {
-          if (state2.getError() !== null) {
-            return state2;
-          }
-          try {
-            entity.model.schema.checkUpdate(data2, { allowReadOnly: true });
-            state2.query.upsert.addData(UpsertOperations.append, data2);
-            return state2;
-          } catch (err2) {
-            state2.setError(err2);
-            return state2;
-          }
-        },
-        children: methodChildren.upsert
-      },
-      updateRemove: {
-        name: "remove",
-        action(entity, state2, data2) {
-          if (state2.getError() !== null) {
-            return state2;
-          }
-          try {
-            if (!Array.isArray(data2)) {
-              throw new Error("Update method 'remove' expects type Array");
-            }
-            entity.model.schema.checkRemove(data2);
-            state2.query.updateProxy.fromArray(ItemOperations.remove, data2);
-            return state2;
-          } catch (err2) {
-            state2.setError(err2);
-            return state2;
-          }
-        },
-        children: methodChildren.update
-      },
-      updateDelete: {
-        name: "delete",
-        action(entity, state2, data2) {
-          if (state2.getError() !== null) {
-            return state2;
-          }
-          try {
-            entity.model.schema.checkUpdate(data2);
-            state2.query.updateProxy.fromObject(ItemOperations.delete, data2);
-            return state2;
-          } catch (err2) {
-            state2.setError(err2);
-            return state2;
-          }
-        },
-        children: methodChildren.update
-      },
-      add: {
-        name: "add",
-        action(entity, state2, data2) {
-          if (state2.getError() !== null) {
-            return state2;
-          }
-          try {
-            entity.model.schema.checkUpdate(data2);
-            state2.query.updateProxy.fromObject(ItemOperations.add, data2);
-            return state2;
-          } catch (err2) {
-            state2.setError(err2);
-            return state2;
-          }
-        },
-        children: methodChildren.update
-      },
-      upsertAdd: {
-        name: "add",
-        action(entity, state2, data2) {
-          if (state2.getError() !== null) {
-            return state2;
-          }
-          try {
-            entity.model.schema.checkUpdate(data2, { allowReadOnly: true });
-            state2.query.upsert.addData(UpsertOperations.add, data2);
-            return state2;
-          } catch (err2) {
-            state2.setError(err2);
-            return state2;
-          }
-        },
-        children: methodChildren.upsert
-      },
-      upsertSubtract: {
-        name: "subtract",
-        action(entity, state2, data2) {
-          if (state2.getError() !== null) {
-            return state2;
-          }
-          try {
-            entity.model.schema.checkUpdate(data2, { allowReadOnly: true });
-            state2.query.upsert.addData(UpsertOperations.subtract, data2);
-            return state2;
-          } catch (err2) {
-            state2.setError(err2);
-            return state2;
-          }
-        },
-        children: methodChildren.upsert
-      },
-      subtract: {
-        name: "subtract",
-        action(entity, state2, data2) {
-          if (state2.getError() !== null) {
-            return state2;
-          }
-          try {
-            entity.model.schema.checkUpdate(data2);
-            state2.query.updateProxy.fromObject(ItemOperations.subtract, data2);
-            return state2;
-          } catch (err2) {
-            state2.setError(err2);
-            return state2;
-          }
-        },
-        children: methodChildren.update
-      },
-      query: {
-        name: "query",
-        action(entity, state2, facets, options = {}) {
-          if (state2.getError() !== null) {
-            return state2;
-          }
-          try {
-            state2.addOption("_isPagination", true);
-            const { pk, sk } = state2.getCompositeAttributes();
-            return state2.setMethod(MethodTypes.query).setType(QueryTypes.is).setPK(entity._expectFacets(facets, pk)).ifSK(() => {
-              const { composites, unused } = state2.identifyCompositeAttributes(
-                facets,
-                sk,
-                pk
-              );
-              state2.setSK(state2.buildQueryComposites(facets, sk));
-              state2.whenOptions(({ options: options2, state: state3 }) => {
-                if (options2.compare === ComparisonTypes.attributes || options2.compare === ComparisonTypes.v2) {
-                  if (sk.length > 1) {
-                    state3.filterProperties(FilterOperationNames.eq, {
-                      ...unused,
-                      ...composites
-                    });
-                  }
-                }
-                if (state3.query.options.indexType === IndexTypes.clustered && Object.keys(composites).length < sk.length && !options2.ignoreOwnership && !state3.getParams()) {
-                  state3.unsafeApplyFilter(
-                    {},
-                    FilterOperationNames.eq,
-                    entity.identifiers.entity,
-                    entity.getName()
-                  ).unsafeApplyFilter(
-                    {},
-                    FilterOperationNames.eq,
-                    entity.identifiers.version,
-                    entity.getVersion()
-                  );
-                }
-              });
-            });
-          } catch (err2) {
-            state2.setError(err2);
-            return state2;
-          }
-        },
-        children: ["between", "gte", "gt", "lte", "lt", "begins", "params", "go"]
-      },
-      between: {
-        name: "between",
-        action(entity, state2, startingFacets = {}, endingFacets = {}) {
-          if (state2.getError() !== null) {
-            return state2;
-          }
-          try {
-            const { pk, sk } = state2.getCompositeAttributes();
-            const endingSk = state2.identifyCompositeAttributes(
-              endingFacets,
-              sk,
-              pk
-            );
-            const startingSk = state2.identifyCompositeAttributes(
-              startingFacets,
-              sk,
-              pk
-            );
-            const accessPattern = entity.model.translations.indexes.fromIndexToAccessPattern[state2.query.index];
-            return state2.setType(QueryTypes.and).setSK(endingSk.composites).setType(QueryTypes.between).setSK(startingSk.composites).beforeBuildParams(({ options, state: state3 }) => {
-              if (options.compare === ComparisonTypes.attributes || options.compare === ComparisonTypes.v2) {
-                if (!entity.model.indexes[accessPattern].sk.isFieldRef) {
-                  state3.filterProperties(
-                    FilterOperationNames.lte,
-                    endingSk.composites,
-                    { asPrefix: true }
-                  );
-                }
-                if (options.compare === ComparisonTypes.attributes) {
-                  if (!entity.model.indexes[accessPattern].sk.isFieldRef) {
-                    state3.filterProperties(
-                      FilterOperationNames.gte,
-                      startingSk.composites,
-                      { asPrefix: true }
-                    );
-                  }
-                }
-              }
-            });
-          } catch (err2) {
-            state2.setError(err2);
-            return state2;
-          }
-        },
-        children: ["go", "params"]
-      },
-      begins: {
-        name: "begins",
-        action(entity, state2, facets = {}) {
-          if (state2.getError() !== null) {
-            return state2;
-          }
-          try {
-            return state2.setType(QueryTypes.begins).ifSK((state3) => {
-              const attributes2 = state3.getCompositeAttributes();
-              state3.setSK(state3.buildQueryComposites(facets, attributes2.sk));
-            });
-          } catch (err2) {
-            state2.setError(err2);
-            return state2;
-          }
-        },
-        children: ["go", "params"]
-      },
-      gt: {
-        name: "gt",
-        action(entity, state2, facets = {}) {
-          if (state2.getError() !== null) {
-            return state2;
-          }
-          try {
-            return state2.setType(QueryTypes.gt).ifSK((state3) => {
-              const { pk, sk } = state3.getCompositeAttributes();
-              const { composites } = state3.identifyCompositeAttributes(
-                facets,
-                sk,
-                pk
-              );
-              state3.setSK(composites);
-              state3.beforeBuildParams(({ options, state: state4 }) => {
-                if (options.compare === ComparisonTypes.attributes || options.compare === ComparisonTypes.v2) {
-                  const accessPattern = entity.model.translations.indexes.fromIndexToAccessPattern[state4.query.index];
-                  if (!entity.model.indexes[accessPattern].sk.isFieldRef) {
-                    state4.filterProperties(FilterOperationNames.gt, composites, {
-                      asPrefix: true
-                    });
-                  }
-                }
-              });
-            });
-          } catch (err2) {
-            state2.setError(err2);
-            return state2;
-          }
-        },
-        children: ["go", "params"]
-      },
-      gte: {
-        name: "gte",
-        action(entity, state2, facets = {}) {
-          if (state2.getError() !== null) {
-            return state2;
-          }
-          try {
-            return state2.setType(QueryTypes.gte).ifSK((state3) => {
-              const attributes2 = state3.getCompositeAttributes();
-              state3.setSK(state3.buildQueryComposites(facets, attributes2.sk));
-              state3.beforeBuildParams(({ options, state: state4 }) => {
-                const { composites } = state4.identifyCompositeAttributes(
-                  facets,
-                  attributes2.sk,
-                  attributes2.pk
-                );
-                if (options.compare === ComparisonTypes.attributes) {
-                  const accessPattern = entity.model.translations.indexes.fromIndexToAccessPattern[state4.query.index];
-                  if (!entity.model.indexes[accessPattern].sk.isFieldRef && attributes2.sk.length > 1) {
-                    state4.filterProperties(FilterOperationNames.gte, composites, {
-                      asPrefix: true
-                    });
-                  }
-                }
-              });
-            });
-          } catch (err2) {
-            state2.setError(err2);
-            return state2;
-          }
-        },
-        children: ["go", "params"]
-      },
-      lt: {
-        name: "lt",
-        action(entity, state2, facets = {}) {
-          if (state2.getError() !== null) {
-            return state2;
-          }
-          try {
-            return state2.setType(QueryTypes.lt).ifSK((state3) => {
-              const { pk, sk } = state3.getCompositeAttributes();
-              const { composites } = state3.identifyCompositeAttributes(
-                facets,
-                sk,
-                pk
-              );
-              state3.setSK(composites);
-              state3.beforeBuildParams(({ options, state: state4 }) => {
-                if (options.compare === ComparisonTypes.attributes) {
-                  const accessPattern = entity.model.translations.indexes.fromIndexToAccessPattern[state4.query.index];
-                  if (!entity.model.indexes[accessPattern].sk.isFieldRef) {
-                    state4.filterProperties(FilterOperationNames.lt, composites, {
-                      asPrefix: true
-                    });
-                  }
-                }
-              });
-            });
-          } catch (err2) {
-            state2.setError(err2);
-            return state2;
-          }
-        },
-        children: ["go", "params"]
-      },
-      lte: {
-        name: "lte",
-        action(entity, state2, facets = {}) {
-          if (state2.getError() !== null) {
-            return state2;
-          }
-          try {
-            return state2.setType(QueryTypes.lte).ifSK((state3) => {
-              const { pk, sk } = state3.getCompositeAttributes();
-              const { composites } = state3.identifyCompositeAttributes(
-                facets,
-                sk,
-                pk
-              );
-              state3.setSK(composites);
-              state3.beforeBuildParams(({ options, state: state4 }) => {
-                if (options.compare === ComparisonTypes.attributes || options.compare === ComparisonTypes.v2) {
-                  const accessPattern = entity.model.translations.indexes.fromIndexToAccessPattern[state4.query.index];
-                  if (!entity.model.indexes[accessPattern].sk.isFieldRef) {
-                    state4.filterProperties(FilterOperationNames.lte, composites, {
-                      asPrefix: true
-                    });
-                  }
-                }
-              });
-            });
-          } catch (err2) {
-            state2.setError(err2);
-            return state2;
-          }
-        },
-        children: ["go", "params"]
-      },
-      commit: {
-        name: "commit",
-        action(entity, state2, options) {
-          if (state2.getError() !== null) {
-            throw state2.error;
-          }
-          const results = clauses.params.action(entity, state2, {
-            ...options,
-            _returnOptions: true,
-            _isTransaction: true
-          });
-          const method = TransactionOperations[state2.query.method];
-          if (!method) {
-            throw new Error("Invalid commit method");
-          }
-          return {
-            [method]: results.params,
-            [TransactionCommitSymbol]: () => {
-              return {
-                entity
-              };
-            }
-          };
-        },
-        children: []
-      },
-      params: {
-        name: "params",
-        action(entity, state2, options = {}) {
-          if (state2.getError() !== null) {
-            throw state2.error;
-          }
-          try {
-            if (!v6.isStringHasLength(options.table) && !v6.isStringHasLength(entity.getTableName())) {
-              throw new e4.ElectroError(
-                e4.ErrorCodes.MissingTable,
-                `Table name not defined. Table names must be either defined on the model, instance configuration, or as a query option.`
-              );
-            }
-            const method = state2.getMethod();
-            const normalizedOptions = entity._normalizeExecutionOptions({
-              provided: [state2.getOptions(), state2.query.options, options],
-              context: {
-                operation: options._isTransaction ? MethodTypes.transactWrite : void 0
-              }
-            });
-            state2.applyWithOptions(normalizedOptions);
-            state2.applyBeforeBuildParams(normalizedOptions);
-            let results;
-            switch (method) {
-              case MethodTypes.query: {
-                results = entity._queryParams(state2, normalizedOptions);
-                break;
-              }
-              case MethodTypes.batchWrite: {
-                results = entity._batchWriteParams(state2, normalizedOptions);
-                break;
-              }
-              case MethodTypes.batchGet: {
-                results = entity._batchGetParams(state2, normalizedOptions);
-                break;
-              }
-              default: {
-                results = entity._params(state2, normalizedOptions);
-                break;
-              }
-            }
-            if (method === MethodTypes.update && results.ExpressionAttributeValues && Object.keys(results.ExpressionAttributeValues).length === 0) {
-              delete results.ExpressionAttributeValues;
-            }
-            if (options._returnOptions) {
-              results = {
-                params: results,
-                options: normalizedOptions
-              };
-            }
-            state2.setParams(results);
-            return results;
-          } catch (err2) {
-            throw err2;
-          }
-        },
-        children: []
-      },
-      go: {
-        name: "go",
-        action(entity, state2, options = {}) {
-          if (state2.getError() !== null) {
-            return Promise.reject(state2.error);
-          }
-          try {
-            if (entity.client === void 0) {
-              throw new e4.ElectroError(
-                e4.ErrorCodes.NoClientDefined,
-                "No client defined on model"
-              );
-            }
-            options.terminalOperation = TerminalOperation.go;
-            const paramResults = clauses.params.action(entity, state2, {
-              ...options,
-              _returnOptions: true
-            });
-            return entity.go(
-              state2.getMethod(),
-              paramResults.params,
-              paramResults.options
-            );
-          } catch (err2) {
-            return Promise.reject(err2);
-          }
-        },
-        children: []
-      }
-    };
-    var ChainState = class _ChainState {
-      constructor({
-        index = "",
-        compositeAttributes = {},
-        attributes: attributes2 = {},
-        hasSortKey = false,
-        options = {},
-        parentState = null
-      } = {}) {
-        const update = new UpdateExpression({ prefix: "_u" });
-        this.parentState = parentState;
-        this.error = null;
-        this.attributes = attributes2;
-        this.query = {
-          collection: "",
-          index,
-          type: "",
-          method: "",
-          facets: { ...compositeAttributes },
-          update,
-          updateProxy: new AttributeOperationProxy({
-            builder: update,
-            attributes: attributes2,
-            operations: UpdateOperations
-          }),
-          put: {
-            data: {}
-          },
-          upsert: {
-            data: {},
-            indexKey: null,
-            addData(operation2 = UpsertOperations.set, data2 = {}) {
-              for (const name of Object.keys(data2)) {
-                const value = data2[name];
-                this.data[name] = {
-                  operation: operation2,
-                  value
-                };
-              }
-            },
-            getData(operationFilter) {
-              const results = {};
-              for (const name in this.data) {
-                const { operation: operation2, value } = this.data[name];
-                if (!operationFilter || operationFilter === operation2) {
-                  results[name] = value;
-                }
-              }
-              return results;
-            }
-          },
-          keys: {
-            provided: [],
-            pk: {},
-            sk: []
-          },
-          filter: {
-            [ExpressionTypes.ConditionExpression]: new FilterExpression(),
-            [ExpressionTypes.FilterExpression]: new FilterExpression()
-          },
-          options
-        };
-        this.subStates = [];
-        this.hasSortKey = hasSortKey;
-        this.prev = null;
-        this.self = null;
-        this.params = null;
-        this.applyAfterOptions = [];
-        this.beforeBuildParamsOperations = [];
-        this.beforeBuildParamsHasRan = false;
-      }
-      getParams() {
-        return this.params;
-      }
-      setParams(params) {
-        if (params) {
-          this.params = params;
-        }
-      }
-      init(entity, allClauses, currentClause) {
-        let current = {};
-        for (let child of currentClause.children) {
-          const name = allClauses[child].name;
-          current[name] = (...args) => {
-            this.prev = this.self;
-            this.self = child;
-            let results = allClauses[child].action(entity, this, ...args);
-            if (allClauses[child].children.length) {
-              return this.init(entity, allClauses, allClauses[child]);
-            } else {
-              return results;
-            }
-          };
-        }
-        return current;
-      }
-      getMethod() {
-        return this.query.method;
-      }
-      getOptions() {
-        return this.query.options;
-      }
-      addOption(key, value) {
-        this.query.options[key] = value;
-        return this;
-      }
-      _appendProvided(type, attributes2) {
-        const newAttributes = Object.keys(attributes2).map((attribute) => {
-          return {
-            type,
-            attribute
-          };
-        });
-        return u4.getUnique(this.query.keys.provided, newAttributes);
-      }
-      setPK(attributes2) {
-        this.query.keys.pk = attributes2;
-        this.query.keys.provided = this._appendProvided(KeyTypes.pk, attributes2);
-        return this;
-      }
-      ifSK(cb) {
-        if (this.hasSortKey) {
-          cb(this);
-        }
-        return this;
-      }
-      getCompositeAttributes() {
-        return this.query.facets;
-      }
-      buildQueryComposites(provided, definition) {
-        return definition.map((name) => [name, provided[name]]).reduce((result, [name, value]) => {
-          if (value !== void 0) {
-            result[name] = value;
-          }
-          return result;
-        }, {});
-      }
-      identifyCompositeAttributes(provided, defined, skip) {
-        const composites = {};
-        const unused = {};
-        const definedSet = new Set(defined || []);
-        const skipSet = new Set(skip || []);
-        for (const key of Object.keys(provided)) {
-          const value = provided[key];
-          if (definedSet.has(key)) {
-            composites[key] = value;
-          } else if (skipSet.has(key)) {
-            continue;
-          } else {
-            unused[key] = value;
-          }
-        }
-        return {
-          composites,
-          unused
-        };
-      }
-      applyFilter(operation2, name, values, filterOptions) {
-        if (FilterOperationNames[operation2] !== void 0 && name !== void 0 && values !== void 0) {
-          const attribute = this.attributes[name];
-          if (attribute !== void 0) {
-            this.unsafeApplyFilter(
-              filterOptions,
-              operation2,
-              attribute.field,
-              values
-            );
-          }
-        }
-        return this;
-      }
-      applyCondition(operation2, name, ...values) {
-        if (FilterOperationNames[operation2] !== void 0 && name !== void 0 && values.length > 0) {
-          const attribute = this.attributes[name];
-          if (attribute !== void 0) {
-            const filter = this.query.filter[ExpressionTypes.ConditionExpression];
-            filter.unsafeSet({}, operation2, attribute.field, ...values);
-          }
-        }
-        return this;
-      }
-      unsafeApplyFilter(filterOptions = {}, operation2, name, values) {
-        if (FilterOperationNames[operation2] !== void 0 & name !== void 0 && values !== void 0) {
-          const filter = this.query.filter[ExpressionTypes.FilterExpression];
-          filter.unsafeSet(filterOptions, operation2, name, values);
-        }
-        return this;
-      }
-      filterProperties(operation2, obj = {}, filterOptions = {}) {
-        for (const property in obj) {
-          const value = obj[property];
-          if (value !== void 0) {
-            this.applyFilter(operation2, property, value, filterOptions);
-          }
-        }
-        return this;
-      }
-      setSK(attributes2, type = this.query.type) {
-        if (this.hasSortKey) {
-          this.query.keys.sk.push({
-            type,
-            facets: attributes2
-          });
-          this.query.keys.provided = this._appendProvided(KeyTypes.sk, attributes2);
-        }
-        return this;
-      }
-      setType(type) {
-        if (!QueryTypes[type]) {
-          throw new Error(`Invalid query type: "${type}"`);
-        }
-        this.query.type = QueryTypes[type];
-        return this;
-      }
-      setMethod(method) {
-        if (!MethodTypes[method]) {
-          throw new Error(`Invalid method type: "${method}"`);
-        }
-        this.query.method = MethodTypes[method];
-        return this;
-      }
-      setCollection(collection) {
-        this.query.collection = collection;
-        return this;
-      }
-      createSubState() {
-        let subState = new _ChainState({
-          parentState: this,
-          index: this.query.index,
-          attributes: this.attributes,
-          hasSortKey: this.hasSortKey,
-          options: this.query.options,
-          compositeAttributes: this.query.facets
-        });
-        this.subStates.push(subState);
-        return subState;
-      }
-      getError() {
-        return this.error;
-      }
-      setError(err2) {
-        this.error = err2;
-        if (this.parentState) {
-          this.parentState.setError(err2);
-        }
-      }
-      applyUpsert(operation2 = UpsertOperations.set, data2 = {}) {
-        this.query.upsert.addData(operation2, data2);
-        return this;
-      }
-      applyPut(data2 = {}) {
-        this.query.put.data = { ...this.query.put.data, ...data2 };
-        return this;
-      }
-      whenOptions(fn) {
-        if (v6.isFunction(fn)) {
-          this.applyAfterOptions.push((options) => {
-            fn({ options, state: this });
-          });
-        }
-        return this;
-      }
-      // these are ran before "beforeBuildParams"
-      applyWithOptions(options = {}) {
-        this.applyAfterOptions.forEach((fn) => fn(options));
-      }
-      beforeBuildParams(fn) {
-        if (v6.isFunction(fn)) {
-          this.beforeBuildParamsOperations.push((options) => {
-            fn({ options, state: this });
-          });
-        }
-        return this;
-      }
-      applyBeforeBuildParams(options = {}) {
-        if (!this.beforeBuildParamsHasRan) {
-          this.beforeBuildParamsHasRan = true;
-          this.beforeBuildParamsOperations.forEach((fn) => fn(options));
-        }
-      }
-    };
-    module.exports = {
-      clauses,
-      ChainState
-    };
-  }
-});
-
-// ../../node_modules/electrodb/src/events.js
-var require_events = __commonJS({
-  "../../node_modules/electrodb/src/events.js"(exports, module) {
-    var e4 = require_errors();
-    var v6 = require_validations();
-    var EventManager = class _EventManager {
-      static createSafeListener(listener) {
-        if (listener === void 0) {
-          return void 0;
-        }
-        if (!v6.isFunction(listener)) {
-          throw new e4.ElectroError(
-            e4.ErrorCodes.InvalidListenerProvided,
-            `Provided listener is not of type 'function'`
-          );
-        } else {
-          return (...params) => {
-            try {
-              listener(...params);
-            } catch (err2) {
-              console.error(`Error invoking user supplied listener`, err2);
-            }
-          };
-        }
-      }
-      static normalizeListeners(listeners = []) {
-        if (!Array.isArray(listeners)) {
-          throw new e4.ElectroError(
-            e4.ErrorCodes.InvalidListenerProvided,
-            `Listeners must be provided as an array of functions`
-          );
-        }
-        return listeners.map((listener) => _EventManager.createSafeListener(listener)).filter((listener) => {
-          switch (typeof listener) {
-            case "function":
-              return true;
-            case "undefined":
-              return false;
-            default:
-              throw new e4.ElectroError(
-                e4.ErrorCodes.InvalidListenerProvided,
-                `Provided listener is not of type 'function`
-              );
-          }
-        });
-      }
-      constructor({ listeners = [] } = {}) {
-        this.listeners = _EventManager.normalizeListeners(listeners);
-      }
-      add(listeners = []) {
-        if (!Array.isArray(listeners)) {
-          listeners = [listeners];
-        }
-        this.listeners = this.listeners.concat(
-          _EventManager.normalizeListeners(listeners)
-        );
-      }
-      trigger(event, adHocListeners = []) {
-        const allListeners = [
-          ...this.listeners,
-          ..._EventManager.normalizeListeners(adHocListeners)
-        ];
-        for (const listener of allListeners) {
-          listener(event);
-        }
-      }
-    };
-    module.exports = {
-      EventManager
-    };
-  }
-});
-
 // ../../node_modules/@aws-sdk/util-dynamodb/dist-cjs/index.js
 var require_dist_cjs59 = __commonJS({
   "../../node_modules/@aws-sdk/util-dynamodb/dist-cjs/index.js"(exports) {
@@ -37711,9 +37711,9 @@ var require_dist_cjs60 = __commonJS({
           } else if (allChildren) {
             return processAllKeysInObj(obj, processFunc, SELF);
           } else if (goToNextLevel) {
-            return Object.entries(obj ?? {}).reduce((acc, [k4, v6]) => {
-              if (typeof v6 !== "function") {
-                acc[k4] = processObj(v6, processFunc, keyNodes[NEXT_LEVEL]);
+            return Object.entries(obj ?? {}).reduce((acc, [k4, v7]) => {
+              if (typeof v7 !== "function") {
+                acc[k4] = processObj(v7, processFunc, keyNodes[NEXT_LEVEL]);
               }
               return acc;
             }, Array.isArray(obj) ? [] : {});
@@ -37728,9 +37728,9 @@ var require_dist_cjs60 = __commonJS({
         accumulator = obj.filter((item) => typeof item !== "function");
       } else {
         accumulator = {};
-        for (const [k4, v6] of Object.entries(obj)) {
-          if (typeof v6 !== "function") {
-            accumulator[k4] = v6;
+        for (const [k4, v7] of Object.entries(obj)) {
+          if (typeof v7 !== "function") {
+            accumulator[k4] = v7;
           }
         }
       }
@@ -38257,7 +38257,7 @@ var require_dist_cjs60 = __commonJS({
         return async () => handler2(this.clientCommand);
       }
     };
-    var DynamoDBDocumentClient = class _DynamoDBDocumentClient extends smithyClient.Client {
+    var DynamoDBDocumentClient2 = class _DynamoDBDocumentClient extends smithyClient.Client {
       config;
       constructor(client3, translateConfig) {
         super(client3.config);
@@ -38274,7 +38274,7 @@ var require_dist_cjs60 = __commonJS({
       destroy() {
       }
     };
-    var DynamoDBDocument = class _DynamoDBDocument extends DynamoDBDocumentClient {
+    var DynamoDBDocument = class _DynamoDBDocument extends DynamoDBDocumentClient2 {
       static from(client3, translateConfig) {
         return new _DynamoDBDocument(client3, translateConfig);
       }
@@ -38448,8 +38448,8 @@ var require_dist_cjs60 = __commonJS({
         }
       }
     };
-    var paginateQuery = core$1.createPaginator(DynamoDBDocumentClient, QueryCommand, "ExclusiveStartKey", "LastEvaluatedKey", "Limit");
-    var paginateScan = core$1.createPaginator(DynamoDBDocumentClient, ScanCommand, "ExclusiveStartKey", "LastEvaluatedKey", "Limit");
+    var paginateQuery = core$1.createPaginator(DynamoDBDocumentClient2, QueryCommand, "ExclusiveStartKey", "LastEvaluatedKey", "Limit");
+    var paginateScan = core$1.createPaginator(DynamoDBDocumentClient2, ScanCommand, "ExclusiveStartKey", "LastEvaluatedKey", "Limit");
     Object.defineProperty(exports, "$Command", {
       enumerable: true,
       get: function() {
@@ -38473,7 +38473,7 @@ var require_dist_cjs60 = __commonJS({
     exports.BatchWriteCommand = BatchWriteCommand;
     exports.DeleteCommand = DeleteCommand;
     exports.DynamoDBDocument = DynamoDBDocument;
-    exports.DynamoDBDocumentClient = DynamoDBDocumentClient;
+    exports.DynamoDBDocumentClient = DynamoDBDocumentClient2;
     exports.DynamoDBDocumentClientCommand = DynamoDBDocumentClientCommand;
     exports.ExecuteStatementCommand = ExecuteStatementCommand;
     exports.ExecuteTransactionCommand = ExecuteTransactionCommand;
@@ -38815,12 +38815,12 @@ var require_entity = __commonJS({
     var c4 = require_client();
     var u4 = require_util();
     var e4 = require_errors();
-    var v6 = require_validations();
+    var v7 = require_validations();
     var ImpactedIndexTypeSource = {
       composite: "composite",
       provided: "provided"
     };
-    var Entity7 = class {
+    var Entity4 = class {
       constructor(model, config = {}) {
         config = c4.normalizeConfig(config);
         this.eventManager = new EventManager({
@@ -42238,13 +42238,13 @@ var require_entity = __commonJS({
           let indexName = index.index || TableIndex;
           let indexType = typeof index.type === "string" ? index.type : IndexTypes.isolated;
           let indexScope = index.scope || "";
-          if (index.index === void 0 && v6.isFunction(index.condition)) {
+          if (index.index === void 0 && v7.isFunction(index.condition)) {
             throw new e4.ElectroError(
               e4.ErrorCodes.InvalidIndexCondition,
               `The index option 'condition' is only allowed on secondary indexes`
             );
           }
-          let conditionDefined = v6.isFunction(index.condition);
+          let conditionDefined = v7.isFunction(index.condition);
           let indexCondition = index.condition || (() => true);
           if (indexType === "clustered") {
             clusteredIndexes.add(accessPattern);
@@ -42834,7 +42834,7 @@ var require_entity = __commonJS({
       allowMatchOnKeys = false
     } = {}) {
       let entity;
-      if (paramItem && v6.isFunction(paramItem[TransactionCommitSymbol])) {
+      if (paramItem && v7.isFunction(paramItem[TransactionCommitSymbol])) {
         const committed = paramItem[TransactionCommitSymbol]();
         entity = committed.entity;
       }
@@ -42854,7 +42854,7 @@ var require_entity = __commonJS({
       return entityAlias;
     }
     module.exports = {
-      Entity: Entity7,
+      Entity: Entity4,
       clauses,
       getEntityIdentifiers,
       matchToEntityAlias
@@ -42876,14 +42876,14 @@ var require_transaction = __commonJS({
       const paramItems = config._paramItems || [];
       const results = [];
       for (let i4 = 0; i4 < canceled.length; i4++) {
-        const { Item, Code, Message: Message2 } = canceled[i4] || {};
+        const { Item, Code, Message } = canceled[i4] || {};
         const paramItem = paramItems[i4];
         const code = Code || "None";
         const rejected = code !== "None";
         const result = {
           rejected,
           code,
-          message: Message2
+          message: Message
         };
         if (Item) {
           const entityAlias = matchToEntityAlias({
@@ -43047,7 +43047,7 @@ var require_transaction = __commonJS({
 var require_service = __commonJS({
   "../../node_modules/electrodb/src/service.js"(exports, module) {
     var {
-      Entity: Entity7,
+      Entity: Entity4,
       getEntityIdentifiers,
       matchToEntityAlias
     } = require_entity();
@@ -43066,7 +43066,7 @@ var require_service = __commonJS({
     var { FilterFactory } = require_filters();
     var { FilterOperations } = require_operations();
     var { WhereFactory } = require_where();
-    var v6 = require_validations();
+    var v7 = require_validations();
     var c4 = require_client();
     var e4 = require_errors();
     var u4 = require_util();
@@ -43083,11 +43083,11 @@ var require_service = __commonJS({
       unknown: "unknown"
     };
     function inferConstructorType(service) {
-      if (v6.isNameEntityRecordType(service) || v6.isNameModelRecordType(service)) {
+      if (v7.isNameEntityRecordType(service) || v7.isNameModelRecordType(service)) {
         return ConstructorTypes.v1Map;
-      } else if (v6.isBetaServiceConfig(service)) {
+      } else if (v7.isBetaServiceConfig(service)) {
         return ConstructorTypes.beta;
-      } else if (v6.isStringHasLength(service)) {
+      } else if (v7.isStringHasLength(service)) {
         return ConstructorTypes.v1;
       } else {
         return ConstructorTypes.unknown;
@@ -43103,7 +43103,7 @@ var require_service = __commonJS({
       }
       return args;
     }
-    var Service4 = class {
+    var Service = class {
       _betaConstructor(service, config) {
         this.service = {};
         this._modelOverrides = {};
@@ -43118,7 +43118,7 @@ var require_service = __commonJS({
         this.service.version = service.version;
         this.config = config;
         this.client = config.client;
-        if (v6.isFunction(config.logger)) {
+        if (v7.isFunction(config.logger)) {
           this.logger = config.logger;
         }
         this.entities = {};
@@ -43155,7 +43155,7 @@ var require_service = __commonJS({
         this._modelOverrides.table = config.table;
         this.config = config;
         this.client = config.client;
-        if (v6.isFunction(config.logger)) {
+        if (v7.isFunction(config.logger)) {
           this.logger = config.logger;
         }
         this.entities = {};
@@ -43232,7 +43232,7 @@ var require_service = __commonJS({
         let modelVersion = getModelVersion(instance);
         switch (type) {
           case ElectroInstanceTypes.model:
-            entity = new Entity7(instance, options);
+            entity = new Entity4(instance, options);
             break;
           case ElectroInstanceTypes.entity:
             entity = instance;
@@ -43251,7 +43251,7 @@ var require_service = __commonJS({
                 `Invalid instance: Valid instances to join include Models and Entity instances.`
               );
             }
-            entity = new Entity7(instance, options);
+            entity = new Entity4(instance, options);
             break;
         }
         return entity;
@@ -43529,11 +43529,11 @@ var require_service = __commonJS({
       _validateIndexCasingMatch(definition = {}, providedIndex = {}) {
         const definitionSk = definition.sk || {};
         const providedSk = providedIndex.sk || {};
-        const pkCasingMatch = v6.isMatchingCasing(
+        const pkCasingMatch = v7.isMatchingCasing(
           definition.pk.casing,
           providedIndex.pk.casing
         );
-        const skCasingMatch = v6.isMatchingCasing(
+        const skCasingMatch = v7.isMatchingCasing(
           definitionSk.casing,
           providedSk.casing
         );
@@ -43757,21 +43757,21 @@ var require_service = __commonJS({
       _getEntityIndexFromCollectionName(collection, entity) {
         for (let index of Object.values(entity.model.indexes)) {
           let names = [];
-          if (v6.isArrayHasLength(index.collection)) {
+          if (v7.isArrayHasLength(index.collection)) {
             names = index.collection;
           } else {
             names.push(index.collection);
           }
           for (let name of names) {
-            if (v6.isStringHasLength(name) && name === collection) {
+            if (v7.isStringHasLength(name) && name === collection) {
               return index;
             }
           }
         }
         return Object.values(entity.model.indexes).find((index) => {
-          if (v6.isStringHasLength(index.collection)) {
+          if (v7.isStringHasLength(index.collection)) {
             return index.collection === collection;
-          } else if (v6.isArrayHasLength(index.collection)) {
+          } else if (v7.isArrayHasLength(index.collection)) {
             return index.collection.indexOf(collection) > 0;
           }
         });
@@ -43779,12 +43779,12 @@ var require_service = __commonJS({
       _processSubCollections(providedType, existing, provided, entityName, collectionName) {
         let existingSubCollections;
         let providedSubCollections;
-        if (v6.isArrayHasLength(existing)) {
+        if (v7.isArrayHasLength(existing)) {
           existingSubCollections = existing;
         } else {
           existingSubCollections = [existing];
         }
-        if (v6.isArrayHasLength(provided)) {
+        if (v7.isArrayHasLength(provided)) {
           providedSubCollections = provided;
         } else {
           providedSubCollections = [provided];
@@ -43813,7 +43813,7 @@ var require_service = __commonJS({
         for (let i4 = 0; i4 <= length; i4++) {
           let existingCollection = existingSubCollections[i4];
           let providedCollection = providedSubCollections[i4];
-          if (v6.isStringHasLength(existingCollection)) {
+          if (v7.isStringHasLength(existingCollection)) {
             if (existingCollection === providedCollection && providedCollection === collectionName) {
               return i4;
             }
@@ -43823,7 +43823,7 @@ var require_service = __commonJS({
                 `The collection definition for Collection "${collectionName}", on Entity "${entityName}", does not match the established sub-collection order for this service. The collection name provided in slot ${i4 + 1}, "${providedCollection}", on Entity "${entityName}", does not match the established collection name in slot ${i4 + 1}, "${existingCollection}". When using sub-collections, all Entities within a Service must must implement the same order for all preceding sub-collections.`
               );
             }
-          } else if (v6.isStringHasLength(providedCollection)) {
+          } else if (v7.isStringHasLength(providedCollection)) {
             if (providedCollection === collectionName) {
               return i4;
             }
@@ -43940,7 +43940,7 @@ var require_service = __commonJS({
       }
     };
     module.exports = {
-      Service: Service4
+      Service
     };
   }
 });
@@ -44010,8 +44010,8 @@ var require_conversions = __commonJS({
 // ../../node_modules/electrodb/index.js
 var require_electrodb = __commonJS({
   "../../node_modules/electrodb/index.js"(exports, module) {
-    var { Entity: Entity7 } = require_entity();
-    var { Service: Service4 } = require_service();
+    var { Entity: Entity4 } = require_entity();
+    var { Service } = require_service();
     var {
       createGetTransaction,
       createWriteTransaction
@@ -44032,8 +44032,8 @@ var require_electrodb = __commonJS({
       ComparisonTypes
     } = require_types();
     module.exports = {
-      Entity: Entity7,
-      Service: Service4,
+      Entity: Entity4,
+      Service,
       ElectroError,
       createSchema,
       ComparisonTypes,
@@ -45987,8 +45987,8 @@ var require_semver = __commonJS({
     }
     exports.valid = valid;
     function valid(version2, loose) {
-      var v6 = parse2(version2, loose);
-      return v6 ? v6.version : null;
+      var v7 = parse2(version2, loose);
+      return v7 ? v7.version : null;
     }
     exports.clean = clean;
     function clean(version2, loose) {
@@ -46901,9 +46901,9 @@ var require_buffer_list = __commonJS({
       }
       _createClass(BufferList, [{
         key: "push",
-        value: function push(v6) {
+        value: function push(v7) {
           var entry = {
-            data: v6,
+            data: v7,
             next: null
           };
           if (this.length > 0) this.tail.next = entry;
@@ -46913,9 +46913,9 @@ var require_buffer_list = __commonJS({
         }
       }, {
         key: "unshift",
-        value: function unshift(v6) {
+        value: function unshift(v7) {
           var entry = {
-            data: v6,
+            data: v7,
             next: this.head
           };
           if (this.length === 0) this.tail = entry;
@@ -47811,14 +47811,14 @@ var require_stream_duplex = __commonJS({
     require_inherits()(Duplex, Readable);
     {
       keys = objectKeys(Writable.prototype);
-      for (v6 = 0; v6 < keys.length; v6++) {
-        method = keys[v6];
+      for (v7 = 0; v7 < keys.length; v7++) {
+        method = keys[v7];
         if (!Duplex.prototype[method]) Duplex.prototype[method] = Writable.prototype[method];
       }
     }
     var keys;
     var method;
-    var v6;
+    var v7;
     function Duplex(options) {
       if (!(this instanceof Duplex)) return new Duplex(options);
       Readable.call(this, options);
@@ -51557,8 +51557,8 @@ var require_Parser = __commonJS({
                 else
                   val2 = m4[5].split(" ");
                 if (type === "search" || type === "sort")
-                  val2 = val2.map(function(v6) {
-                    return parseInt(v6, 10);
+                  val2 = val2.map(function(v7) {
+                    return parseInt(v7, 10);
                   });
               }
             } else
@@ -53263,8 +53263,8 @@ var require_Connection = __commonJS({
           throw new Error("labels argument must be a string or a non-empty Array");
         if (!Array.isArray(labels))
           labels = [labels];
-        labels = labels.map(function(v6) {
-          return '"' + escape(utf7.encode("" + v6)) + '"';
+        labels = labels.map(function(v7) {
+          return '"' + escape(utf7.encode("" + v7)) + '"';
         }).join(" ");
         uids = uids.join(",");
         this._enqueue(which + "STORE " + uids + " " + mode + "X-GM-LABELS.SILENT (" + labels + ")", cb);
@@ -53457,8 +53457,8 @@ var require_Connection = __commonJS({
         else if (type === "id")
           this._curReq.cbargs.push(info.text);
         else if (type === "capability")
-          this._caps = info.text.map(function(v6) {
-            return v6.toUpperCase();
+          this._caps = info.text.map(function(v7) {
+            return v7.toUpperCase();
           });
         else if (type === "preauth")
           this.state = "authenticated";
@@ -54211,7 +54211,7 @@ var require_ruleset3 = __commonJS({
     var s4 = "required";
     var t4 = "fn";
     var u4 = "argv";
-    var v6 = "ref";
+    var v7 = "ref";
     var a4 = true;
     var b4 = "isSet";
     var c4 = "booleanEquals";
@@ -54221,15 +54221,15 @@ var require_ruleset3 = __commonJS({
     var g4 = "PartitionResult";
     var h4 = { [s4]: false, "type": "string" };
     var i4 = { [s4]: true, "default": false, "type": "boolean" };
-    var j4 = { [v6]: "Endpoint" };
-    var k4 = { [t4]: c4, [u4]: [{ [v6]: "UseFIPS" }, true] };
-    var l4 = { [t4]: c4, [u4]: [{ [v6]: "UseDualStack" }, true] };
+    var j4 = { [v7]: "Endpoint" };
+    var k4 = { [t4]: c4, [u4]: [{ [v7]: "UseFIPS" }, true] };
+    var l4 = { [t4]: c4, [u4]: [{ [v7]: "UseDualStack" }, true] };
     var m4 = {};
-    var n4 = { [t4]: "getAttr", [u4]: [{ [v6]: g4 }, "supportsFIPS"] };
-    var o4 = { [t4]: c4, [u4]: [true, { [t4]: "getAttr", [u4]: [{ [v6]: g4 }, "supportsDualStack"] }] };
+    var n4 = { [t4]: "getAttr", [u4]: [{ [v7]: g4 }, "supportsFIPS"] };
+    var o4 = { [t4]: c4, [u4]: [true, { [t4]: "getAttr", [u4]: [{ [v7]: g4 }, "supportsDualStack"] }] };
     var p4 = [k4];
     var q4 = [l4];
-    var r4 = [{ [v6]: "Region" }];
+    var r4 = [{ [v7]: "Region" }];
     var _data4 = { version: "1.0", parameters: { Region: h4, UseDualStack: i4, UseFIPS: i4, Endpoint: h4 }, rules: [{ conditions: [{ [t4]: b4, [u4]: [j4] }], rules: [{ conditions: p4, error: "Invalid Configuration: FIPS and custom endpoint are not supported", type: d4 }, { conditions: q4, error: "Invalid Configuration: Dualstack and custom endpoint are not supported", type: d4 }, { endpoint: { url: j4, properties: m4, headers: m4 }, type: e4 }], type: f4 }, { conditions: [{ [t4]: b4, [u4]: r4 }], rules: [{ conditions: [{ [t4]: "aws.partition", [u4]: r4, assign: g4 }], rules: [{ conditions: [k4, l4], rules: [{ conditions: [{ [t4]: c4, [u4]: [a4, n4] }, o4], rules: [{ endpoint: { url: "https://kms-fips.{Region}.{PartitionResult#dualStackDnsSuffix}", properties: m4, headers: m4 }, type: e4 }], type: f4 }, { error: "FIPS and DualStack are enabled, but this partition does not support one or both", type: d4 }], type: f4 }, { conditions: p4, rules: [{ conditions: [{ [t4]: c4, [u4]: [n4, a4] }], rules: [{ endpoint: { url: "https://kms-fips.{Region}.{PartitionResult#dnsSuffix}", properties: m4, headers: m4 }, type: e4 }], type: f4 }, { error: "FIPS is enabled but this partition does not support FIPS", type: d4 }], type: f4 }, { conditions: q4, rules: [{ conditions: [o4], rules: [{ endpoint: { url: "https://kms.{Region}.{PartitionResult#dualStackDnsSuffix}", properties: m4, headers: m4 }, type: e4 }], type: f4 }, { error: "DualStack is enabled but this partition does not support DualStack", type: d4 }], type: f4 }, { endpoint: { url: "https://kms.{Region}.{PartitionResult#dnsSuffix}", properties: m4, headers: m4 }, type: e4 }], type: f4 }], type: f4 }, { error: "Invalid Configuration: Missing Region", type: d4 }] };
     exports.ruleSet = _data4;
   }
@@ -57453,9 +57453,6 @@ var fetchBody = async (event, log) => {
   log.info({ event }, "Fetch body not implemented yet");
 };
 
-// src/handlers/sync-mailboxes.ts
-var import_client_dynamodb = __toESM(require_dist_cjs58(), 1);
-
 // ../remit-electrodb-service/src/error.ts
 var HTTPError = class extends Error {
   statusCode = 500;
@@ -57565,15 +57562,6 @@ var AccountService = class {
     const { client: client3, table } = this.config;
     return new import_electrodb.Entity(import_remit_ddb_entities.Account, { client: client3, table });
   }
-  get mailbox() {
-    const { client: client3, table } = this.config;
-    return new import_electrodb.Entity(import_remit_ddb_entities.Mailbox, { client: client3, table });
-  }
-  get accountService() {
-    const { client: client3, table } = this.config;
-    const { account, mailbox } = this;
-    return new import_electrodb.Service({ account, mailbox }, { client: client3, table });
-  }
   async create(input) {
     const { account } = this;
     const accountId = base36uuid();
@@ -57624,8 +57612,6 @@ var import_remit_ddb_entities2 = __toESM(require_ddb_entities(), 1);
 var import_electrodb2 = __toESM(require_electrodb(), 1);
 
 // ../remit-electrodb-service/src/models/address.ts
-var import_remit_ddb_entities3 = __toESM(require_ddb_entities(), 1);
-var import_electrodb3 = __toESM(require_electrodb(), 1);
 var AddressService = class {
   constructor(config) {
     this.config = config;
@@ -57638,14 +57624,6 @@ var AddressService = class {
   }
   static generateEnvelopeAddressId(messageId, role, order) {
     return base36uuidv5(`${messageId}:${role}:${order}`, REMIT_NAMESPACE);
-  }
-  get address() {
-    const { client: client3, table } = this.config;
-    return new import_electrodb3.Entity(import_remit_ddb_entities3.Address, { client: client3, table });
-  }
-  get envelopeAddress() {
-    const { client: client3, table } = this.config;
-    return new import_electrodb3.Entity(import_remit_ddb_entities3.EnvelopeAddress, { client: client3, table });
   }
   async createAddress(input) {
     const { address } = this;
@@ -57705,8 +57683,8 @@ var AddressService = class {
 };
 
 // ../remit-electrodb-service/src/models/envelope.ts
-var import_remit_ddb_entities4 = __toESM(require_ddb_entities(), 1);
-var import_electrodb4 = __toESM(require_electrodb(), 1);
+var import_remit_ddb_entities3 = __toESM(require_ddb_entities(), 1);
+var import_electrodb3 = __toESM(require_electrodb(), 1);
 var EnvelopeService = class {
   constructor(config) {
     this.config = config;
@@ -57716,61 +57694,7 @@ var EnvelopeService = class {
   }
   get envelope() {
     const { client: client3, table } = this.config;
-    return new import_electrodb4.Entity(import_remit_ddb_entities4.Envelope, { client: client3, table });
-  }
-  get messageReference() {
-    const { client: client3, table } = this.config;
-    return new import_electrodb4.Entity(import_remit_ddb_entities4.MessageReference, { client: client3, table });
-  }
-  get envelopeAddress() {
-    const { client: client3, table } = this.config;
-    return new import_electrodb4.Entity(import_remit_ddb_entities4.EnvelopeAddress, { client: client3, table });
-  }
-  get bodyPart() {
-    const { client: client3, table } = this.config;
-    return new import_electrodb4.Entity(import_remit_ddb_entities4.BodyPart, { client: client3, table });
-  }
-  get bodyPartParameter() {
-    const { client: client3, table } = this.config;
-    return new import_electrodb4.Entity(import_remit_ddb_entities4.BodyPartParameter, { client: client3, table });
-  }
-  get rawMessageStorage() {
-    const { client: client3, table } = this.config;
-    return new import_electrodb4.Entity(import_remit_ddb_entities4.RawMessageStorage, { client: client3, table });
-  }
-  get bodyPartStorage() {
-    const { client: client3, table } = this.config;
-    return new import_electrodb4.Entity(import_remit_ddb_entities4.BodyPartStorage, { client: client3, table });
-  }
-  get bodyPartContent() {
-    const { client: client3, table } = this.config;
-    return new import_electrodb4.Entity(import_remit_ddb_entities4.BodyPartContent, { client: client3, table });
-  }
-  get messageDataService() {
-    const { client: client3, table } = this.config;
-    const {
-      envelope,
-      messageReference,
-      envelopeAddress,
-      bodyPart,
-      bodyPartParameter,
-      rawMessageStorage,
-      bodyPartStorage,
-      bodyPartContent
-    } = this;
-    return new import_electrodb4.Service(
-      {
-        envelope,
-        messageReference,
-        envelopeAddress,
-        bodyPart,
-        bodyPartParameter,
-        rawMessageStorage,
-        bodyPartStorage,
-        bodyPartContent
-      },
-      { client: client3, table }
-    );
+    return new import_electrodb3.Entity(import_remit_ddb_entities3.Envelope, { client: client3, table });
   }
   async createEnvelope(input) {
     const { envelope } = this;
@@ -57807,15 +57731,9 @@ var EnvelopeService = class {
 };
 
 // ../remit-electrodb-service/src/models/mailbox.ts
-var import_remit_ddb_entities5 = __toESM(require_ddb_entities(), 1);
-var import_electrodb5 = __toESM(require_electrodb(), 1);
 var MailboxService = class {
   constructor(config) {
     this.config = config;
-  }
-  get mailbox() {
-    const { client: client3, table } = this.config;
-    return new import_electrodb5.Entity(import_remit_ddb_entities5.Mailbox, { client: client3, table });
   }
   async create(input) {
     const { mailbox } = this;
@@ -57855,22 +57773,12 @@ var MailboxService = class {
 };
 
 // ../remit-electrodb-service/src/models/message.ts
-var import_remit_ddb_entities6 = __toESM(require_ddb_entities(), 1);
-var import_electrodb6 = __toESM(require_electrodb(), 1);
 var MessageService = class {
   constructor(config) {
     this.config = config;
   }
   static generateId(messageIdHeader) {
     return base36uuidv5(messageIdHeader, REMIT_NAMESPACE);
-  }
-  get message() {
-    const { client: client3, table } = this.config;
-    return new import_electrodb6.Entity(import_remit_ddb_entities6.Message, { client: client3, table });
-  }
-  get messageFlag() {
-    const { client: client3, table } = this.config;
-    return new import_electrodb6.Entity(import_remit_ddb_entities6.MessageFlag, { client: client3, table });
   }
   async create(input) {
     const { message } = this;
@@ -57906,6 +57814,39 @@ var MessageService = class {
     });
     return resultList(result.data, result.cursor, salt);
   }
+};
+
+// ../remit-electrodb-service/src/test-client.ts
+var import_client_dynamodb = __toESM(require_dist_cjs58(), 1);
+var import_lib_dynamodb = __toESM(require_dist_cjs60(), 1);
+
+// ../../node_modules/expect-env/dist/index.js
+var env = new Proxy(process.env, {
+  get(target, prop) {
+    if (!target[prop])
+      throw new Error(`process.env.${prop} is not set!`);
+    return target[prop];
+  }
+});
+
+// ../remit-electrodb-service/src/test-client.ts
+var isDevelopment2 = process.env.NODE_ENV === "development";
+var getClient = () => {
+  if (isDevelopment2) {
+    const port = env.DYNAMODB_PORT;
+    const endpoint = `http://localhost:${port}`;
+    const ddbClient2 = new import_client_dynamodb.DynamoDBClient({
+      endpoint,
+      credentials: {
+        accessKeyId: "fakeKey",
+        secretAccessKey: "fakeSecretKey"
+      },
+      region: "local"
+    });
+    return import_lib_dynamodb.DynamoDBDocumentClient.from(ddbClient2);
+  }
+  const ddbClient = new import_client_dynamodb.DynamoDBClient({});
+  return import_lib_dynamodb.DynamoDBDocumentClient.from(ddbClient);
 };
 
 // ../../build/ts-enums/enums.js
@@ -58265,14 +58206,13 @@ var createImapConnectionFromAccount = (account, password) => {
 
 // ../remit-mailbox-service/src/mailbox-sync.ts
 var MailboxSyncService = class {
+  mailboxService;
   constructor(config) {
-    this.config = config;
     this.mailboxService = new MailboxService({
       client: config.client,
       table: config.table
     });
   }
-  mailboxService;
   /**
    * Sync all mailboxes for an account from IMAP server
    *
@@ -58644,7 +58584,12 @@ var MessageSyncService = class {
 // ../remit-secrets-service/src/service.ts
 var import_client_kms = __toESM(require_dist_cjs61(), 1);
 import assert from "node:assert";
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash as createHash2,
+  randomBytes
+} from "node:crypto";
 var ALGORITHM = "aes-256-gcm";
 var IV_LENGTH = 12;
 var encryptWithKey = (plaintext, key) => {
@@ -58669,31 +58614,34 @@ var decryptWithKey = (encryptedData, key, iv, authTag) => {
   ]).toString("utf8");
 };
 var FAKE_KMS_KEY_ID = "FAKE_KMS_KEY_ID";
-var FAKE_KEK = Buffer.from(
-  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-  "hex"
-);
+var getFakeDataKey = () => {
+  const dataKey = process.env.FAKE_KMS_DATAKEY;
+  if (!dataKey) {
+    throw new Error(
+      "FAKE_KMS_DATAKEY environment variable is required when using FAKE_KMS_KEY_ID"
+    );
+  }
+  return createHash2("sha256").update(dataKey).digest();
+};
 var createFakeDataKeyProvider = () => ({
   async generateDataKey() {
-    const plaintext = randomBytes(32);
-    const iv = randomBytes(IV_LENGTH);
-    const cipher = createCipheriv(ALGORITHM, FAKE_KEK, iv);
-    const encryptedKey = Buffer.concat([
-      cipher.update(plaintext),
-      cipher.final()
-    ]);
-    const authTag = cipher.getAuthTag();
-    const encrypted = Buffer.concat([iv, authTag, encryptedKey]);
+    console.warn(
+      "WARNING: Using FAKE KMS Data Key Provider. DO NOT USE IN PRODUCTION."
+    );
+    const plaintext = getFakeDataKey();
+    const encrypted = Buffer.concat([Buffer.from("FAKE:"), plaintext]);
     return { plaintext, encrypted };
   },
   async decryptDataKey(encrypted) {
+    console.warn(
+      "WARNING: Using FAKE KMS Data Key Provider. DO NOT USE IN PRODUCTION."
+    );
     const buf = Buffer.from(encrypted);
-    const iv = buf.subarray(0, IV_LENGTH);
-    const authTag = buf.subarray(IV_LENGTH, IV_LENGTH + 16);
-    const encryptedKey = buf.subarray(IV_LENGTH + 16);
-    const decipher = createDecipheriv(ALGORITHM, FAKE_KEK, iv);
-    decipher.setAuthTag(authTag);
-    return Buffer.concat([decipher.update(encryptedKey), decipher.final()]);
+    const prefix = buf.subarray(0, 5).toString();
+    if (prefix !== "FAKE:") {
+      throw new Error("Invalid encrypted data key format for fake provider");
+    }
+    return buf.subarray(5);
   }
 });
 var createKmsDataKeyProvider = (kmsKeyId, kms = new import_client_kms.KMSClient({})) => {
@@ -58739,17 +58687,8 @@ var createSecretsService = (dataKeyProvider3) => ({
   }
 });
 
-// ../../node_modules/expect-env/dist/index.js
-var env = new Proxy(process.env, {
-  get(target, prop) {
-    if (!target[prop])
-      throw new Error(`process.env.${prop} is not set!`);
-    return target[prop];
-  }
-});
-
 // src/handlers/sync-mailboxes.ts
-var client = new import_client_dynamodb.DynamoDBClient({});
+var client = getClient();
 var dataKeyProvider = createKmsDataKeyProvider(env.KMS_KEY_ID);
 var secrets = createSecretsService(dataKeyProvider);
 var accountService = new AccountService({
@@ -58784,8 +58723,7 @@ var syncMailboxes = async (event, log) => {
 };
 
 // src/handlers/sync-messages.ts
-var import_client_dynamodb2 = __toESM(require_dist_cjs58(), 1);
-var client2 = new import_client_dynamodb2.DynamoDBClient({});
+var client2 = getClient();
 var dataKeyProvider2 = createKmsDataKeyProvider(env.KMS_KEY_ID);
 var secrets2 = createSecretsService(dataKeyProvider2);
 var accountService2 = new AccountService({

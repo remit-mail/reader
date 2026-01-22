@@ -1,23 +1,13 @@
 {
-	"$schema": "https://biomejs.dev/schemas/2.3.10/schema.json",
+	"$schema": "https://biomejs.dev/schemas/2.3.11/schema.json",
 	"vcs": {
 		"enabled": true,
 		"clientKind": "git",
 		"useIgnoreFile": true
 	},
 	"files": {
-		"ignoreUnknown": false,
-		"includes": [
-			"**/*.ts",
-			"**/*.tsx",
-			"**/*.js",
-			"**/*.jsx",
-			"**/*.json",
-			"!**/dist",
-			"!**/build",
-			"!**/node_modules",
-			"!**/.claude"
-		]
+		"ignoreUnknown": true,
+		"includes": ["**/*.ts", "**/*.tsx", "**/*.js"]
 	},
 	"formatter": {
 		"enabled": true,
@@ -29,6 +19,14 @@
 			"recommended": true,
 			"correctness": {
 				"noUnusedPrivateClassMembers": "off"
+			},
+			"style": {
+				"useFilenamingConvention": {
+					"level": "error",
+					"options": {
+						"filenameCases": ["kebab-case", "PascalCase", "camelCase"]
+					}
+				}
 			}
 		}
 	},
