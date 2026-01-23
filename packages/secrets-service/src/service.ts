@@ -42,7 +42,7 @@ export const createCachedDataKeyProvider = (
 
 		async decryptDataKey(encrypted: Uint8Array) {
 			const cacheKey = Buffer.from(encrypted).toString("hex");
-			const now = Date.now(); 
+			const now = Date.now();
 
 			const cached = cache.get(cacheKey);
 			if (cached && cached.expiresAt > now) {
