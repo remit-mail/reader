@@ -2,6 +2,7 @@ import "typespec-electrodb-emitter";
 
 import "../enums/MailboxAttribute.tsp";
 import "../enums/MailboxSpecialUse.tsp";
+import "../enums/MailboxSyncStatus.tsp";
 import "../enums/MessageFlag.tsp";
 import "../enums/NamespaceType.tsp";
 import "../scalars/string.tsp";
@@ -111,6 +112,14 @@ model Mailbox {
   @doc("Reference to parent mailbox for hierarchy (null for root)")
   @visibility(Lifecycle.Read)
   parentMailboxId?: string;
+
+  @doc("Sync status for mailbox operations (create, rename, delete)")
+  @visibility(Lifecycle.Read)
+  syncStatus?: MailboxSyncStatus;
+
+  @doc("Previous path before rename (used during RENAME sync)")
+  @visibility(Lifecycle.Read)
+  oldPath?: String512;
 
   @visibility(Lifecycle.Read)
   @createdAt
