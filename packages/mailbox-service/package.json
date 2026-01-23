@@ -17,6 +17,7 @@
 	},
 	"devDependencies": {
 		"@aws-sdk/client-dynamodb": "*",
+		"@aws-sdk/client-sqs": "*",
 		"@aws-sdk/lib-dynamodb": "*",
 		"@remit/electrodb-entities": "*",
 		"@remit/remit-electrodb-service": "*",

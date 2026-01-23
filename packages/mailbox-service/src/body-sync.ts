@@ -284,11 +284,9 @@ export class BodySyncService {
 			return;
 		}
 
-		// Find the ThreadMessage by messageIdHeader (efficient GSI lookup)
-		const threadMessage = await this.threadMessageService.findByMessageIdHeader(
-			accountConfigId,
-			message.messageIdHeader,
-		);
+		// Find the ThreadMessage by messageId (efficient GSI lookup)
+		const threadMessage =
+			await this.threadMessageService.findByMessageId(messageId);
 
 		if (!threadMessage) {
 			this.log.debug?.(
