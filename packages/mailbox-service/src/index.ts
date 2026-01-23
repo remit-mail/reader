@@ -23,6 +23,11 @@ export {
 	createConnectionFromAccount,
 } from "./connection-factory.js";
 export {
+	type FlagQueueConfig,
+	type FlagQueueLogger,
+	FlagQueueService,
+} from "./flag-queue.js";
+export {
 	type FlagOperation,
 	type FlagSyncLogger,
 	type FlagSyncResult,
@@ -44,6 +49,12 @@ export {
 	validateMailboxOperation,
 	validateMailboxPath,
 } from "./mailbox-management.js";
+export {
+	type CreateMailboxQueueInput,
+	type MailboxQueueConfig,
+	type MailboxQueueLogger,
+	MailboxQueueService,
+} from "./mailbox-queue.js";
 export {
 	type MailboxSyncConfig,
 	MailboxSyncService,

@@ -25,10 +25,10 @@ namespace RemitImap;
   }
 )
 @index(
-  "byMessageIdHeader",
+  "byMessageId",
   {
     index: "gsi1",
-    pk: [ThreadMessage.accountConfigId, ThreadMessage.messageIdHeader],
+    pk: [ThreadMessage.messageId],
     sk: [],
   }
 )
@@ -56,11 +56,7 @@ namespace RemitImap;
   {
     index: "lsi2",
     pk: [ThreadMessage.accountConfigId],
-    sk: [
-      ThreadMessage.mailboxId,
-      ThreadMessage.isRead,
-      ThreadMessage.internalDate
-    ],
+    sk: [ThreadMessage.mailboxId, ThreadMessage.internalDate],
   }
 )
 // LSI3: Filter/count messages with attachments
@@ -79,6 +75,19 @@ namespace RemitImap;
     index: "lsi4",
     pk: [ThreadMessage.accountConfigId],
     sk: [ThreadMessage.hasStars, ThreadMessage.internalDate],
+  }
+)
+// LSI5: Filter/count unread status within mailbox
+@index(
+  "byMailboxAndReadStatus",
+  {
+    index: "lsi5",
+    pk: [ThreadMessage.accountConfigId],
+    sk: [
+      ThreadMessage.mailboxId,
+      ThreadMessage.isRead,
+      ThreadMessage.internalDate
+    ],
   }
 )
 model ThreadMessage {
