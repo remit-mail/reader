@@ -301,12 +301,14 @@ export class MessageSyncService {
 		// TODO: Save Flags
 
 		// Create Thread and ThreadMessage
+		const sentDate = new Date(msg.envelope.date).getTime();
 		await this.createThreadForMessage(
 			messageId,
 			mailboxId,
 			accountConfigId,
 			msg.uid,
 			msg.internalDate.getTime(),
+			sentDate,
 			msg.envelope,
 			msg.flags,
 			msg.references,
@@ -383,6 +385,7 @@ export class MessageSyncService {
 		accountConfigId: string,
 		uid: number,
 		internalDate: number,
+		sentDate: number,
 		envelope: ImapEnvelope,
 		flags: string[],
 		references?: string[],
@@ -440,6 +443,7 @@ export class MessageSyncService {
 				fromName,
 				subject: envelope.subject,
 				internalDate,
+				sentDate,
 				isRead,
 				hasAttachment: false,
 				hasStars: false,
