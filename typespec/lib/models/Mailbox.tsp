@@ -96,6 +96,14 @@ model Mailbox {
   @minValue(0)
   totalSize: int64;
 
+  @doc("The highest UID that has been successfully synced")
+  @visibility(Lifecycle.Read)
+  lastSyncUid: int64;
+
+  @doc("Timestamp of the last successful message sync")
+  @visibility(Lifecycle.Read)
+  lastMessageSyncAt: int64;
+
   @doc("Reference to parent mailbox for hierarchy (null for root)")
   @visibility(Lifecycle.Read)
   parentMailboxId?: string;
