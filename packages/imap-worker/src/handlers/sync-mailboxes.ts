@@ -5,14 +5,19 @@ import {
 	createImapConnectionFromAccount,
 	MailboxSyncService,
 } from "@remit/mailbox-service";
-import { expectEnv } from "expect-env";
+import {
+	createKmsDataKeyProvider,
+	createSecretsService,
+} from "@remit/secrets-service";
+import { env } from "expect-env";
 import type { SyncMailboxesEvent } from "../events.js";
 
-const tableName = expectEnv("DYNAMODB_TABLE_NAME");
 const client = new DynamoDBClient({});
+const dataKeyProvider = createKmsDataKeyProvider(env.KMS_KEY_ID);
+const secrets = createSecretsService(dataKeyProvider);
 
-const accountService = new AccountService({ client, table: tableName });
-const mailboxSyncService = new MailboxSyncService({ client, table: tableName });
+const accountService = new AccountService({ client, table: env.DYNAMODB_TABLE_NAME });
+const mailboxSyncService = new MailboxSyncService({ client, table: env.DYNAMODB_TABLE_NAME });
 
 export const syncMailboxes = async (
 	event: SyncMailboxesEvent,
@@ -25,14 +30,16 @@ export const syncMailboxes = async (
 		throw new Error(`Account ${event.accountId} not found`);
 	}
 
-	// TODO: Decrypt password using remit-secrets-service
-	const connection = await createImapConnectionFromAccount({
-		username: account.email,
-		password: account.password || "", // Assuming plaintext for now as per RFC note
-		host: account.imapHost,
-		port: account.imapPort,
-		tls: account.imapTls,
-	});
+	const password = await secrets.decrypt(JSON.parse(account.passwordHash));
+	const connection = createImapConnectionFromAccount(
+		{
+			username: account.email,
+			imapHost: account.imapHost,
+			imapPort: account.imapPort,
+			imapTls: account.imapTls,
+		},
+		password,
+	);
 
 	try {
 		await connection.connect();
@@ -42,6 +49,6 @@ export const syncMailboxes = async (
 		);
 		log.info({ result }, "Mailbox sync complete");
 	} finally {
-		await connection.end();
+		await connection.disconnect();
 	}
 };

@@ -11,17 +11,22 @@ import {
 	createImapConnectionFromAccount,
 	MessageSyncService,
 } from "@remit/mailbox-service";
-import { expectEnv } from "expect-env";
+import {
+	createKmsDataKeyProvider,
+	createSecretsService,
+} from "@remit/secrets-service";
+import { env } from "expect-env";
 import type { SyncMessagesEvent } from "../events.js";
 
-const tableName = expectEnv("DYNAMODB_TABLE_NAME");
 const client = new DynamoDBClient({});
+const dataKeyProvider = createKmsDataKeyProvider(env.KMS_KEY_ID);
+const secrets = createSecretsService(dataKeyProvider);
 
-const accountService = new AccountService({ client, table: tableName });
-const mailboxService = new MailboxService({ client, table: tableName });
-const messageService = new MessageService({ client, table: tableName });
-const envelopeService = new EnvelopeService({ client, table: tableName });
-const addressService = new AddressService({ client, table: tableName });
+const accountService = new AccountService({ client, table: env.DYNAMODB_TABLE_NAME });
+const mailboxService = new MailboxService({ client, table: env.DYNAMODB_TABLE_NAME });
+const messageService = new MessageService({ client, table: env.DYNAMODB_TABLE_NAME });
+const envelopeService = new EnvelopeService({ client, table: env.DYNAMODB_TABLE_NAME });
+const addressService = new AddressService({ client, table: env.DYNAMODB_TABLE_NAME });
 
 export const syncMessages = async (
 	event: SyncMessagesEvent,
@@ -37,14 +42,16 @@ export const syncMessages = async (
 		throw new Error(`Account ${event.accountId} not found`);
 	}
 
-	// TODO: Decrypt password using remit-secrets-service
-	const connection = await createImapConnectionFromAccount({
-		username: account.email,
-		password: account.password || "",
-		host: account.imapHost,
-		port: account.imapPort,
-		tls: account.imapTls,
-	});
+	const password = await secrets.decrypt(JSON.parse(account.passwordHash));
+	const connection = createImapConnectionFromAccount(
+		{
+			username: account.email,
+			imapHost: account.imapHost,
+			imapPort: account.imapPort,
+			imapTls: account.imapTls,
+		},
+		password,
+	);
 
 	try {
 		await connection.connect();
@@ -64,6 +71,6 @@ export const syncMessages = async (
 
 		log.info({ count }, "Message sync complete");
 	} finally {
-		await connection.end();
+		await connection.disconnect();
 	}
 };
