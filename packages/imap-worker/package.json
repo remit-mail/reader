@@ -17,6 +17,7 @@
 		"@aws-sdk/client-sqs": "*",
 		"@remit/remit-electrodb-service": "*",
 		"@remit/mailbox-service": "*",
+		"@remit/secrets-service": "*",
 		"@remit/remit-logger-lambda": "*",
 		"@types/aws-lambda": "*",
 		"esbuild": "*",
