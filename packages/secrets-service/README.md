@@ -7,6 +7,7 @@ Service for encrypting and decrypting sensitive data (primarily IMAP passwords) 
 - **Envelope Encryption**: Uses KMS to generate Data Encryption Keys (DEKs), and performs AES-256-GCM encryption locally.
 - **Cost Effective**: Minimizes KMS API calls by handling bulk encryption locally.
 - **Secure**: Uses authenticated encryption (GCM) to ensure data integrity.
+- **Testable**: Dependency injection allows testing without AWS credentials.
 
 ## Installation
 
@@ -17,9 +18,13 @@ npm install @remit/secrets-service
 ## Usage
 
 ```typescript
-import { createSecretsService } from "@remit/secrets-service";
+import {
+    createSecretsService,
+    createKmsDataKeyProvider,
+} from "@remit/secrets-service";
 
-const secrets = createSecretsService();
+const dataKeyProvider = createKmsDataKeyProvider(process.env.KMS_KEY_ID!);
+const secrets = createSecretsService(dataKeyProvider);
 
 // Encrypting a value
 const encrypted = await secrets.encrypt("my-secret-password");
@@ -39,10 +44,21 @@ const plaintext = await secrets.decrypt(encrypted);
 
 ## Testing
 
-For local testing, you can use the mock service which does not require AWS credentials:
+For unit tests, inject a mock `DataKeyProvider`:
 
 ```typescript
-import { createMockSecretsService } from "@remit/secrets-service";
+import { createSecretsService, type DataKeyProvider } from "@remit/secrets-service";
+import { randomBytes } from "node:crypto";
 
-const secrets = createMockSecretsService();
+const mockProvider: DataKeyProvider = {
+    async generateDataKey() {
+        const key = randomBytes(32);
+        return { plaintext: key, encrypted: key };
+    },
+    async decryptDataKey(encrypted) {
+        return encrypted;
+    },
+};
+
+const secrets = createSecretsService(mockProvider);
 ```

@@ -5,11 +5,9 @@ import {
 	GenerateDataKeyCommand,
 	KMSClient,
 } from "@aws-sdk/client-kms";
-import { expectEnv } from "expect-env";
 
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
-const _AUTH_TAG_LENGTH = 16;
 
 export interface EncryptedPayload {
 	encryptedDek: Buffer;
@@ -23,11 +21,50 @@ export interface SecretsService {
 	decrypt(payload: EncryptedPayload): Promise<string>;
 }
 
-export const createSecretsService = (): SecretsService => {
-	const kmsKeyId = expectEnv("KMS_KEY_ID");
-	const kms = new KMSClient({});
+export interface DataKeyProvider {
+	generateDataKey(): Promise<{ plaintext: Uint8Array; encrypted: Uint8Array }>;
+	decryptDataKey(encrypted: Uint8Array): Promise<Uint8Array>;
+}
 
-	const encrypt = async (plaintext: string): Promise<EncryptedPayload> => {
+export const encryptWithKey = (
+	plaintext: string,
+	key: Uint8Array,
+): { encryptedData: Buffer; iv: Buffer; authTag: Buffer } => {
+	const iv = randomBytes(IV_LENGTH);
+	const cipher = createCipheriv(ALGORITHM, key, iv);
+
+	const encryptedData = Buffer.concat([
+		cipher.update(plaintext, "utf8"),
+		cipher.final(),
+	]);
+
+	return {
+		encryptedData,
+		iv,
+		authTag: cipher.getAuthTag(),
+	};
+};
+
+export const decryptWithKey = (
+	encryptedData: Buffer,
+	key: Uint8Array,
+	iv: Buffer,
+	authTag: Buffer,
+): string => {
+	const decipher = createDecipheriv(ALGORITHM, key, iv);
+	decipher.setAuthTag(authTag);
+
+	return Buffer.concat([
+		decipher.update(encryptedData),
+		decipher.final(),
+	]).toString("utf8");
+};
+
+export const createKmsDataKeyProvider = (
+	kmsKeyId: string,
+	kms: KMSClient = new KMSClient({}),
+): DataKeyProvider => ({
+	async generateDataKey() {
 		const { Plaintext, CiphertextBlob } = await kms.send(
 			new GenerateDataKeyCommand({
 				KeyId: kmsKeyId,
@@ -38,50 +75,41 @@ export const createSecretsService = (): SecretsService => {
 		assert(Plaintext, "KMS failed to return Plaintext key");
 		assert(CiphertextBlob, "KMS failed to return CiphertextBlob");
 
-		const iv = randomBytes(IV_LENGTH);
-		const cipher = createCipheriv(ALGORITHM, Plaintext, iv);
+		return { plaintext: Plaintext, encrypted: CiphertextBlob };
+	},
 
-		const encryptedData = Buffer.concat([
-			cipher.update(plaintext, "utf8"),
-			cipher.final(),
-		]);
-
-		return {
-			encryptedDek: Buffer.from(CiphertextBlob),
-			encryptedData,
-			iv,
-			authTag: cipher.getAuthTag(),
-		};
-	};
-
-	const decrypt = async (payload: EncryptedPayload): Promise<string> => {
-		const { encryptedDek, encryptedData, iv, authTag } = payload;
-
+	async decryptDataKey(encrypted: Uint8Array) {
 		const { Plaintext } = await kms.send(
-			new DecryptCommand({ CiphertextBlob: encryptedDek }),
+			new DecryptCommand({ CiphertextBlob: encrypted }),
 		);
 
 		assert(Plaintext, "KMS failed to return Plaintext key");
+		return Plaintext;
+	},
+});
 
-		const decipher = createDecipheriv(ALGORITHM, Plaintext, iv);
-		decipher.setAuthTag(authTag);
+export const createSecretsService = (
+	dataKeyProvider: DataKeyProvider,
+): SecretsService => ({
+	async encrypt(plaintext: string): Promise<EncryptedPayload> {
+		const { plaintext: key, encrypted: encryptedDek } =
+			await dataKeyProvider.generateDataKey();
 
-		return Buffer.concat([
-			decipher.update(encryptedData),
-			decipher.final(),
-		]).toString("utf8");
-	};
+		const { encryptedData, iv, authTag } = encryptWithKey(plaintext, key);
 
-	return { encrypt, decrypt };
-};
+		return {
+			encryptedDek: Buffer.from(encryptedDek),
+			encryptedData,
+			iv,
+			authTag,
+		};
+	},
 
-export const createMockSecretsService = (): SecretsService => ({
-	encrypt: async (plaintext: string) => ({
-		encryptedDek: Buffer.from("mock"),
-		encryptedData: Buffer.from(plaintext),
-		iv: Buffer.alloc(12),
-		authTag: Buffer.alloc(16),
-	}),
-	decrypt: async (payload: EncryptedPayload) =>
-		payload.encryptedData.toString("utf8"),
+	async decrypt(payload: EncryptedPayload): Promise<string> {
+		const { encryptedDek, encryptedData, iv, authTag } = payload;
+
+		const key = await dataKeyProvider.decryptDataKey(encryptedDek);
+
+		return decryptWithKey(encryptedData, key, iv, authTag);
+	},
 });
