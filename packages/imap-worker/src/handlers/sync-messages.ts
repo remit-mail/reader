@@ -22,11 +22,26 @@ const client = new DynamoDBClient({});
 const dataKeyProvider = createKmsDataKeyProvider(env.KMS_KEY_ID);
 const secrets = createSecretsService(dataKeyProvider);
 
-const accountService = new AccountService({ client, table: env.DYNAMODB_TABLE_NAME });
-const mailboxService = new MailboxService({ client, table: env.DYNAMODB_TABLE_NAME });
-const messageService = new MessageService({ client, table: env.DYNAMODB_TABLE_NAME });
-const envelopeService = new EnvelopeService({ client, table: env.DYNAMODB_TABLE_NAME });
-const addressService = new AddressService({ client, table: env.DYNAMODB_TABLE_NAME });
+const accountService = new AccountService({
+	client,
+	table: env.DYNAMODB_TABLE_NAME,
+});
+const mailboxService = new MailboxService({
+	client,
+	table: env.DYNAMODB_TABLE_NAME,
+});
+const messageService = new MessageService({
+	client,
+	table: env.DYNAMODB_TABLE_NAME,
+});
+const envelopeService = new EnvelopeService({
+	client,
+	table: env.DYNAMODB_TABLE_NAME,
+});
+const addressService = new AddressService({
+	client,
+	table: env.DYNAMODB_TABLE_NAME,
+});
 
 export const syncMessages = async (
 	event: SyncMessagesEvent,
@@ -53,24 +68,22 @@ export const syncMessages = async (
 		password,
 	);
 
-	try {
-		await connection.connect();
+	await connection.connect();
 
-		const syncService = new MessageSyncService(
-			connection,
-			mailboxService,
-			messageService,
-			envelopeService,
-			addressService,
-		);
+	const syncService = new MessageSyncService(
+		connection,
+		mailboxService,
+		messageService,
+		envelopeService,
+		addressService,
+	);
 
-		const count = await syncService.syncMessages(
-			event.mailboxId,
-			event.accountId,
-		);
-
-		log.info({ count }, "Message sync complete");
-	} finally {
-		await connection.disconnect();
-	}
+	await syncService
+		.syncMessages(event.mailboxId, event.accountId)
+		.then((count) => log.info({ count }, "Message sync complete"))
+		.catch((error) => {
+			log.error({ error }, "Message sync failed");
+			throw error;
+		})
+		.finally(() => connection.disconnect());
 };

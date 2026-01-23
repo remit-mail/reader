@@ -16,8 +16,14 @@ const client = new DynamoDBClient({});
 const dataKeyProvider = createKmsDataKeyProvider(env.KMS_KEY_ID);
 const secrets = createSecretsService(dataKeyProvider);
 
-const accountService = new AccountService({ client, table: env.DYNAMODB_TABLE_NAME });
-const mailboxSyncService = new MailboxSyncService({ client, table: env.DYNAMODB_TABLE_NAME });
+const accountService = new AccountService({
+	client,
+	table: env.DYNAMODB_TABLE_NAME,
+});
+const mailboxSyncService = new MailboxSyncService({
+	client,
+	table: env.DYNAMODB_TABLE_NAME,
+});
 
 export const syncMailboxes = async (
 	event: SyncMailboxesEvent,
@@ -41,14 +47,14 @@ export const syncMailboxes = async (
 		password,
 	);
 
-	try {
-		await connection.connect();
-		const result = await mailboxSyncService.syncMailboxes(
-			{ accountId: event.accountId },
-			connection,
-		);
-		log.info({ result }, "Mailbox sync complete");
-	} finally {
-		await connection.disconnect();
-	}
+	await connection.connect();
+
+	await mailboxSyncService
+		.syncMailboxes({ accountId: event.accountId }, connection)
+		.then((result) => log.info({ result }, "Mailbox sync complete"))
+		.catch((error) => {
+			log.error({ error }, "Mailbox sync failed");
+			throw error;
+		})
+		.finally(() => connection.disconnect());
 };
