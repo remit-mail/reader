@@ -403,8 +403,12 @@ export class ImapFlowConnection {
 				internalDate = msg.internalDate;
 			} else if (typeof msg.internalDate === "string") {
 				internalDate = new Date(msg.internalDate);
+			} else if (typeof msg.internalDate === "number") {
+				internalDate = new Date(msg.internalDate);
 			} else {
-				internalDate = new Date();
+				throw new Error(
+					`Unexpected internalDate type for UID ${msg.uid}: ${typeof msg.internalDate} (value: ${JSON.stringify(msg.internalDate)})`,
+				);
 			}
 
 			// Parse References header if present

@@ -141,9 +141,13 @@ model ThreadMessage {
   @visibility(Lifecycle.Read)
   subject?: string;
 
-  @doc("IMAP INTERNALDATE timestamp")
+  @doc("IMAP INTERNALDATE timestamp (when server received the message)")
   @visibility(Lifecycle.Read)
   internalDate: int64;
+
+  @doc("Envelope date from message headers (when message was sent)")
+  @visibility(Lifecycle.Read)
+  sentDate: int64;
 
   @doc("Message has \\Seen flag")
   @visibility(Lifecycle.Read)
