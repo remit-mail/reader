@@ -26,6 +26,41 @@ export interface DataKeyProvider {
 	decryptDataKey(encrypted: Uint8Array): Promise<Uint8Array>;
 }
 
+interface CacheEntry {
+	key: Uint8Array;
+	expiresAt: number;
+}
+
+export const createCachedDataKeyProvider = (
+	provider: DataKeyProvider,
+	ttlMs: number = 5 * 60 * 1000,
+): DataKeyProvider => {
+	const cache = new Map<string, CacheEntry>();
+
+	return {
+		generateDataKey: () => provider.generateDataKey(),
+
+		async decryptDataKey(encrypted: Uint8Array) {
+			const cacheKey = Buffer.from(encrypted).toString("hex");
+			const now = Date.now(); 
+
+			const cached = cache.get(cacheKey);
+			if (cached && cached.expiresAt > now) {
+				return cached.key;
+			}
+
+			const plaintext = await provider.decryptDataKey(encrypted);
+
+			cache.set(cacheKey, {
+				key: plaintext,
+				expiresAt: now + ttlMs,
+			});
+
+			return plaintext;
+		},
+	};
+};
+
 export const encryptWithKey = (
 	plaintext: string,
 	key: Uint8Array,
