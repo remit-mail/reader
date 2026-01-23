@@ -26,6 +26,8 @@ export {
 	type FlagQueueConfig,
 	type FlagQueueLogger,
 	FlagQueueService,
+	type UpdateFlagsInput,
+	type UpdateFlagsResult,
 } from "./flag-queue.js";
 export {
 	type FlagOperation,

@@ -6,7 +6,12 @@ import {
 	NotFoundError,
 	type ThreadMessageService,
 } from "@remit/remit-electrodb-service";
-import { MessageSystemFlag } from "@remit/domain-enums";
+import { MessageSystemFlag, StarColor } from "@remit/domain-enums";
+
+/**
+ * StarColor type derived from the StarColor const object
+ */
+type StarColorValue = (typeof StarColor)[keyof typeof StarColor];
 
 /**
  * Flag operation for SQS event
@@ -41,6 +46,24 @@ const noopLogger: FlagQueueLogger = {
 	info: () => {},
 	error: () => {},
 };
+
+/**
+ * Input for updateFlags API method
+ */
+export interface UpdateFlagsInput {
+	isRead?: boolean;
+	isStarred?: boolean;
+	starColor?: StarColorValue;
+}
+
+/**
+ * Result of updateFlags API method
+ */
+export interface UpdateFlagsResult {
+	messageId: string;
+	isRead: boolean;
+	isStarred: boolean;
+}
 
 /**
  * Configuration for FlagQueueService
@@ -260,6 +283,131 @@ export class FlagQueueService {
 		]);
 
 		return !hasFlag;
+	};
+
+	/**
+	 * Update message flags using API-friendly input format.
+	 * Maps isRead/isStarred to IMAP flags and updates ThreadMessage accordingly.
+	 *
+	 * @param messageId - The message to update
+	 * @param accountId - The account ID for the IMAP sync event
+	 * @param input - The flag updates to apply
+	 * @returns The current flag state after updates
+	 */
+	updateFlags = async (
+		messageId: string,
+		accountId: string,
+		input: UpdateFlagsInput,
+	): Promise<UpdateFlagsResult> => {
+		const message = await this.messageService.get(messageId);
+		const operations: FlagOperation[] = [];
+
+		// Handle isRead -> \Seen flag
+		if (input.isRead !== undefined) {
+			if (input.isRead) {
+				await this.messageFlagService.addFlag(
+					messageId,
+					MessageSystemFlag.Seen,
+				);
+				operations.push({
+					messageId,
+					flagName: MessageSystemFlag.Seen,
+					operation: "add",
+				});
+			} else {
+				await this.messageFlagService.removeFlag(
+					messageId,
+					MessageSystemFlag.Seen,
+				);
+				operations.push({
+					messageId,
+					flagName: MessageSystemFlag.Seen,
+					operation: "remove",
+				});
+			}
+			await this.updateThreadMessageIsRead(messageId, input.isRead);
+		}
+
+		// Handle isStarred -> \Flagged flag and ThreadMessage.hasStars/star
+		if (input.isStarred !== undefined || input.starColor !== undefined) {
+			const threadMessage =
+				await this.threadMessageService.findByMessageId(messageId);
+
+			if (input.isStarred !== undefined) {
+				if (input.isStarred) {
+					await this.messageFlagService.addFlag(
+						messageId,
+						MessageSystemFlag.Flagged,
+					);
+					operations.push({
+						messageId,
+						flagName: MessageSystemFlag.Flagged,
+						operation: "add",
+					});
+				} else {
+					await this.messageFlagService.removeFlag(
+						messageId,
+						MessageSystemFlag.Flagged,
+					);
+					operations.push({
+						messageId,
+						flagName: MessageSystemFlag.Flagged,
+						operation: "remove",
+					});
+				}
+			}
+
+			// Update ThreadMessage hasStars and star color
+			if (threadMessage) {
+				const updates: { hasStars?: boolean; star?: StarColorValue } = {};
+				if (input.isStarred !== undefined) {
+					updates.hasStars = input.isStarred;
+				}
+				if (input.starColor !== undefined) {
+					updates.star = input.starColor;
+				}
+
+				if (Object.keys(updates).length > 0) {
+					await this.threadMessageService.update(
+						threadMessage.accountConfigId,
+						threadMessage.threadMessageId,
+						updates,
+						{
+							composites: {
+								sentDate: threadMessage.sentDate,
+								mailboxId: threadMessage.mailboxId,
+								isRead: threadMessage.isRead,
+								isDeleted: threadMessage.isDeleted,
+								hasStars: updates.hasStars ?? threadMessage.hasStars,
+								hasAttachment: threadMessage.hasAttachment,
+							},
+						},
+					);
+				}
+			}
+		}
+
+		// Enqueue IMAP sync if there are flag operations
+		if (operations.length > 0) {
+			await this.enqueueSync(accountId, message.mailboxId, operations);
+		}
+
+		// Return current state
+		const isRead = await this.messageFlagService.hasFlag(
+			messageId,
+			MessageSystemFlag.Seen,
+		);
+		const isStarred = await this.messageFlagService.hasFlag(
+			messageId,
+			MessageSystemFlag.Flagged,
+		);
+
+		this.log.info(
+			{ messageId, isRead, isStarred, input },
+			"Updated message flags",
+		);
+
+		return { messageId, isRead, isStarred };
 	};
 
 	/**
