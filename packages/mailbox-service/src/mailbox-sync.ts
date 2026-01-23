@@ -11,7 +11,7 @@ import {
 	MailboxService,
 } from "@remit/remit-electrodb-service";
 import { NamespaceType } from "@remit/domain-enums";
-import { isNoSelect, parseImapAttributes } from "./attribute-mapper.js";
+import { isNoSelect } from "./attribute-mapper.js";
 import type { ImapConnection } from "./imap-connection.js";
 import type {
 	FlatMailboxInfo,
@@ -258,10 +258,10 @@ export class MailboxSyncService {
 		_namespaces: ImapNamespaces,
 		connection: ImapConnection,
 	): Promise<MailboxItem> => {
-		// Parse attributes
-		const { attributes, specialUse } = parseImapAttributes(
-			mailboxInfo.attributes,
-		);
+		// Parse attributes - unused for now
+		// const { attributes, specialUse } = parseImapAttributes(
+		// 	mailboxInfo.attributes,
+		// );
 
 		// Get initial metadata by opening the mailbox (if selectable)
 		let uidValidity = 1;
