@@ -293,6 +293,8 @@ export class MailboxSyncService {
 			unseenCount: 0,
 			deletedCount: 0,
 			totalSize: 0,
+			lastSyncUid: 0,
+			lastMessageSyncAt: 0,
 			// parentMailboxId would need to be resolved from parentPath
 		};
 

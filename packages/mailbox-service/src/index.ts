@@ -19,6 +19,7 @@ export {
 	MailboxSyncService,
 	type SyncAccountInfo,
 } from "./mailbox-sync.js";
+export { MessageSyncService } from "./message-sync.js";
 export type {
 	FlatMailboxInfo,
 	ImapBoxStatus,
