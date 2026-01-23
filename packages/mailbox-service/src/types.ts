@@ -176,4 +176,46 @@ export interface IImapConnection {
 	 * Unsubscribe from a mailbox.
 	 */
 	unsubscribeMailbox(path: string): Promise<void>;
+	/**
+	 * Move messages to another mailbox.
+	 * Returns mapping of source UIDs to destination UIDs.
+	 * Requires mailbox to be open.
+	 *
+	 * @param uids - Array of message UIDs to move
+	 * @param destination - Destination mailbox path
+	 * @returns Object with destination path, uidValidity, and uidMap
+	 */
+	moveMessages(
+		uids: number[],
+		destination: string,
+	): Promise<{
+		destination: string;
+		uidValidity: number;
+		uidMap: Map<number, number>;
+	}>;
+	/**
+	 * Copy messages to another mailbox.
+	 * Returns mapping of source UIDs to destination UIDs.
+	 * Requires mailbox to be open.
+	 *
+	 * @param uids - Array of message UIDs to copy
+	 * @param destination - Destination mailbox path
+	 * @returns Object with destination path, uidValidity, and uidMap
+	 */
+	copyMessages(
+		uids: number[],
+		destination: string,
+	): Promise<{
+		destination: string;
+		uidValidity: number;
+		uidMap: Map<number, number>;
+	}>;
+	/**
+	 * Permanently delete messages (mark \Deleted + expunge).
+	 * Requires mailbox to be open.
+	 *
+	 * @param uids - Array of message UIDs to delete
+	 * @returns Number of messages deleted
+	 */
+	deleteMessages(uids: number[]): Promise<number>;
 }

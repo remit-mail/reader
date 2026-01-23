@@ -90,6 +90,15 @@ namespace RemitImap;
     ],
   }
 )
+// LSI6: Filter deleted messages (for trash view)
+@index(
+  "byDeletedStatus",
+  {
+    index: "lsi6",
+    pk: [ThreadMessage.accountConfigId],
+    sk: [ThreadMessage.isDeleted, ThreadMessage.internalDate],
+  }
+)
 model ThreadMessage {
   @doc("Primary identifier")
   @visibility(Lifecycle.Read)
@@ -164,6 +173,10 @@ model ThreadMessage {
   @doc("True if message is starred (for index filtering)")
   @visibility(Lifecycle.Read)
   hasStars: boolean;
+
+  @doc("True if message is in Trash or deleted (for UI filtering)")
+  @visibility(Lifecycle.Read)
+  isDeleted: boolean;
 
   @doc("Preview text (~256 chars)")
   @visibility(Lifecycle.Read)
