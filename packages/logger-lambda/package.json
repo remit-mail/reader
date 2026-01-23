@@ -14,8 +14,8 @@
 		"test:typecheck": "tsc --noEmit"
 	},
 	"devDependencies": {
+		"@types/aws-lambda": "*",
 		"pino": "*",
-		"pino-pretty": "*",
-		"@types/aws-lambda": "*"
+		"pino-pretty": "*"
 	}
 }

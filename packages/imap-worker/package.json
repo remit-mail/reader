@@ -15,10 +15,10 @@
 	},
 	"devDependencies": {
 		"@aws-sdk/client-sqs": "*",
+		"@remit/logger-lambda": "*",
 		"@remit/mailbox-service": "*",
 		"@remit/secrets-service": "*",
 		"@remit/storage-service": "*",
-		"@remit/logger-lambda": "*",
 		"@types/aws-lambda": "*",
 		"esbuild": "*",
 		"expect-env": "*",
