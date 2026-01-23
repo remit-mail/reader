@@ -93,6 +93,34 @@ export interface FlatMailboxInfo {
 	parentPath: string | null;
 }
 
+export interface ImapAddress {
+	name?: string;
+	mailbox: string;
+	host: string;
+}
+
+export interface ImapEnvelope {
+	date: string;
+	subject: string;
+	from: ImapAddress[];
+	sender: ImapAddress[];
+	replyTo: ImapAddress[];
+	to: ImapAddress[];
+	cc: ImapAddress[];
+	bcc: ImapAddress[];
+	inReplyTo: string;
+	messageId: string;
+}
+
+export interface ImapMessage {
+	uid: number;
+	seq: number;
+	flags: string[];
+	internalDate: Date;
+	size: number;
+	envelope?: ImapEnvelope;
+}
+
 /**
  * Result of a mailbox sync operation
  */

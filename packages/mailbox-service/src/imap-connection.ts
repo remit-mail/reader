@@ -9,6 +9,7 @@ import type {
 	ImapConnectionConfig,
 	ImapConnectionState,
 	ImapMailbox,
+	ImapMessage,
 	ImapNamespaces,
 } from "./types.js";
 
@@ -248,6 +249,78 @@ export class ImapConnection {
 		if (!this.imap || this._state !== "authenticated") {
 			throw new Error("Not connected to IMAP server");
 		}
+	};
+
+	/**
+	 * Search for messages
+	 */
+	search = (criteria: any[]): Promise<number[]> => {
+		return new Promise((resolve, reject) => {
+			if (!this.imap || this.state !== "authenticated") {
+				reject(new Error("Not connected"));
+				return;
+			}
+
+			this.imap.search(criteria, (err, uids) => {
+				if (err) {
+					reject(err);
+					return;
+				}
+				resolve(uids);
+			});
+		});
+	};
+
+	/**
+	 * Fetch messages by UID
+	 */
+	fetchMessages = (uids: number[]): Promise<ImapMessage[]> => {
+		return new Promise((resolve, reject) => {
+			if (!this.imap || this.state !== "authenticated") {
+				reject(new Error("Not connected"));
+				return;
+			}
+
+			if (uids.length === 0) {
+				resolve([]);
+				return;
+			}
+
+			const messages: ImapMessage[] = [];
+			const f = this.imap.fetch(uids, {
+				envelope: true,
+				struct: true,
+			});
+
+			f.on("message", (msg, seqno) => {
+				const message: Partial<ImapMessage> = {
+					seq: seqno,
+					flags: [],
+				};
+
+				msg.on("attributes", (attrs) => {
+					message.uid = attrs.uid;
+					message.flags = attrs.flags;
+					message.internalDate = attrs.date;
+					message.size = attrs.size;
+					message.envelope = (attrs as any).envelope;
+				});
+
+				msg.once("end", () => {
+					if (message.uid) {
+						messages.push(message as ImapMessage);
+					}
+				});
+			});
+
+			f.once("error", (err) => {
+				reject(err);
+			});
+
+			f.once("end", () => {
+				resolve(messages);
+			});
+		});
 	};
 }
 
