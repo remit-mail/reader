@@ -21,7 +21,7 @@ namespace RemitImap;
     collection: "threadDetails",
     index: "gsi0",
     pk: [ThreadMessage.threadId],
-    sk: [ThreadMessage.internalDate],
+    sk: [ThreadMessage.sentDate],
   }
 )
 @index(
@@ -38,7 +38,7 @@ namespace RemitImap;
   {
     index: "gsi2",
     pk: [ThreadMessage.accountConfigId],
-    sk: [ThreadMessage.isRead, ThreadMessage.internalDate],
+    sk: [ThreadMessage.isRead, ThreadMessage.sentDate],
   }
 )
 // LSI1: List messages by date (account-wide)
@@ -47,7 +47,7 @@ namespace RemitImap;
   {
     index: "lsi1",
     pk: [ThreadMessage.accountConfigId],
-    sk: [ThreadMessage.internalDate],
+    sk: [ThreadMessage.sentDate],
   }
 )
 // LSI2: List messages by mailbox, ordered by date (for thread grouping in app)
@@ -56,7 +56,7 @@ namespace RemitImap;
   {
     index: "lsi2",
     pk: [ThreadMessage.accountConfigId],
-    sk: [ThreadMessage.mailboxId, ThreadMessage.internalDate],
+    sk: [ThreadMessage.mailboxId, ThreadMessage.sentDate],
   }
 )
 // LSI3: Filter/count messages with attachments
@@ -65,7 +65,7 @@ namespace RemitImap;
   {
     index: "lsi3",
     pk: [ThreadMessage.accountConfigId],
-    sk: [ThreadMessage.hasAttachment, ThreadMessage.internalDate],
+    sk: [ThreadMessage.hasAttachment, ThreadMessage.sentDate],
   }
 )
 // LSI4: Filter/count starred messages
@@ -74,7 +74,7 @@ namespace RemitImap;
   {
     index: "lsi4",
     pk: [ThreadMessage.accountConfigId],
-    sk: [ThreadMessage.hasStars, ThreadMessage.internalDate],
+    sk: [ThreadMessage.hasStars, ThreadMessage.sentDate],
   }
 )
 // LSI5: Filter/count unread status within mailbox
@@ -83,11 +83,7 @@ namespace RemitImap;
   {
     index: "lsi5",
     pk: [ThreadMessage.accountConfigId],
-    sk: [
-      ThreadMessage.mailboxId,
-      ThreadMessage.isRead,
-      ThreadMessage.internalDate
-    ],
+    sk: [ThreadMessage.mailboxId, ThreadMessage.isRead, ThreadMessage.sentDate],
   }
 )
 // LSI6: Filter deleted messages (for trash view)
@@ -96,7 +92,7 @@ namespace RemitImap;
   {
     index: "lsi6",
     pk: [ThreadMessage.accountConfigId],
-    sk: [ThreadMessage.isDeleted, ThreadMessage.internalDate],
+    sk: [ThreadMessage.isDeleted, ThreadMessage.sentDate],
   }
 )
 model ThreadMessage {
