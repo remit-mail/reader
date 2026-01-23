@@ -4,10 +4,10 @@
 		"moduleResolution": "NodeNext",
 		"target": "ES2022",
 		"strict": true,
+		"esModuleInterop": true,
+		"skipLibCheck": true,
 		"outDir": "dist",
-		"declaration": true,
-		"experimentalDecorators": true,
-		"emitDecoratorMetadata": true
+		"declaration": true
 	},
 	"include": ["./src/**/*.ts"]
 }

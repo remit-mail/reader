@@ -1,8 +1,8 @@
-import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
 	AccountService,
 	AddressService,
 	EnvelopeService,
+	getClient,
 	MailboxService,
 	MessageService,
 } from "@remit/remit-electrodb-service";
@@ -18,7 +18,7 @@ import {
 import { env } from "expect-env";
 import type { SyncMessagesEvent } from "../events.js";
 
-const client = new DynamoDBClient({});
+const client = getClient();
 const dataKeyProvider = createKmsDataKeyProvider(env.KMS_KEY_ID);
 const secrets = createSecretsService(dataKeyProvider);
 

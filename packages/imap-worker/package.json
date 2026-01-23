@@ -7,10 +7,10 @@
 		"remit-worker": "./dist/cli.js"
 	},
 	"scripts": {
-		"build": "node build.mjs",
-		"cli": "NODE_ENV=development node --import tsx src/cli.ts",
+		"bundle": "esbuild src/index.ts --sourcemap --bundle --platform=node --format=esm --outfile=dist/index.js",
+		"cli": "node --env-file=../../.localhost.env src/cli.ts",
 		"test:typecheck": "tsc --noEmit",
-		"test:run": "node --import tsx --test 'src/**/*.test.ts'",
+		"test:run": "node --env-file=../../.localhost.env --test 'src/**/*.test.ts'",
 		"test": "npm run test:typecheck && npm run test:run"
 	},
 	"devDependencies": {

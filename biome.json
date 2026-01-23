@@ -6,7 +6,18 @@
 		"useIgnoreFile": true
 	},
 	"files": {
-		"ignoreUnknown": false
+		"ignoreUnknown": false,
+		"includes": [
+			"**/*.ts",
+			"**/*.tsx",
+			"**/*.js",
+			"**/*.jsx",
+			"**/*.json",
+			"!**/dist",
+			"!**/build",
+			"!**/node_modules",
+			"!**/.claude"
+		]
 	},
 	"formatter": {
 		"enabled": true,
