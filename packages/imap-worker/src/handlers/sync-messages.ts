@@ -18,10 +18,12 @@ import {
 	deserializeEncryptedPayload,
 } from "@remit/secrets-service";
 import { env } from "expect-env";
+import pMap from "p-map";
 import { emitEvent } from "../emit.js";
 import type { SyncMessageBodyEvent, SyncMessagesEvent } from "../events.js";
 
-const BODY_BATCH_SIZE = 10;
+const BODY_BATCH_SIZE = 25;
+const EVENT_EMIT_CONCURRENCY = 10;
 
 const client = getClient();
 const dataKeyProvider = createKmsDataKeyProvider(env.KMS_KEY_ID);
@@ -109,21 +111,31 @@ export const syncMessages = async (
 
 	// Emit body sync events for the messages we just synced
 	if (result.syncedMessageIds.length > 0) {
+		// Create batches
+		const batches: string[][] = [];
+		for (let i = 0; i < result.syncedMessageIds.length; i += BODY_BATCH_SIZE) {
+			batches.push(result.syncedMessageIds.slice(i, i + BODY_BATCH_SIZE));
+		}
+
 		log.info(
-			{ count: result.syncedMessageIds.length },
+			{ count: result.syncedMessageIds.length, batches: batches.length },
 			"Emitting SYNC_MESSAGE_BODY events",
 		);
 
-		for (let i = 0; i < result.syncedMessageIds.length; i += BODY_BATCH_SIZE) {
-			const batch = result.syncedMessageIds.slice(i, i + BODY_BATCH_SIZE);
-			const bodyEvent: Omit<SyncMessageBodyEvent, "eventId" | "timestamp"> = {
-				type: "SYNC_MESSAGE_BODY",
-				accountId: event.accountId,
-				mailboxId,
-				messageIds: batch,
-			};
-			await emitEvent(bodyEvent);
-		}
+		// Emit events in parallel with concurrency limit
+		await pMap(
+			batches,
+			(batch) => {
+				const bodyEvent: Omit<SyncMessageBodyEvent, "eventId" | "timestamp"> = {
+					type: "SYNC_MESSAGE_BODY",
+					accountId: event.accountId,
+					mailboxId,
+					messageIds: batch,
+				};
+				return emitEvent(bodyEvent);
+			},
+			{ concurrency: EVENT_EMIT_CONCURRENCY },
+		);
 	}
 
 	// If there are more messages to sync, emit another SYNC_MESSAGES event

@@ -8,12 +8,16 @@ import {
 	ThreadMessageService,
 } from "@remit/remit-electrodb-service";
 import { AddressRole } from "@remit/domain-enums";
+import pMap from "p-map";
 import type {
 	IImapConnection,
 	ImapAddress,
 	ImapEnvelope,
 	ImapMessage,
 } from "./types.js";
+
+const MESSAGE_SAVE_CONCURRENCY = 10;
+const ADDRESS_SAVE_CONCURRENCY = 10;
 
 /**
  * Factory function to create IMAP connections.
@@ -103,14 +107,14 @@ export class MessageSyncService {
 		// Process only the first batch
 		const batchUids = uids.slice(0, batchSize);
 		const messages = await this.fetchMessageBatch(mailboxPath, batchUids);
-		const syncedMessageIds: string[] = [];
 
-		for (const msg of messages) {
-			const messageId = await this.saveMessage(mailboxId, accountConfigId, msg);
-			if (messageId) {
-				syncedMessageIds.push(messageId);
-			}
-		}
+		// Process messages in parallel with concurrency limit
+		const results = await pMap(
+			messages,
+			(msg) => this.saveMessage(mailboxId, accountConfigId, msg),
+			{ concurrency: MESSAGE_SAVE_CONCURRENCY },
+		);
+		const syncedMessageIds = results.filter((id): id is string => id !== null);
 
 		// Update watermarks
 		const batchMax = Math.max(...batchUids);
@@ -222,97 +226,87 @@ export class MessageSyncService {
 	): Promise<string | null> {
 		if (!msg.envelope) return null;
 
+		// Store envelope to preserve narrowing in closures
+		const envelope = msg.envelope;
+
 		const messageId = MessageService.generateIdFromSource(accountConfigId, {
-			messageId: msg.envelope.messageId,
+			messageId: envelope.messageId,
 			uid: msg.uid,
 			mailboxId,
-			date: msg.envelope.date,
-			subject: msg.envelope.subject,
-			fromMailbox: msg.envelope.from?.[0]?.mailbox,
-			fromHost: msg.envelope.from?.[0]?.host,
+			date: envelope.date,
+			subject: envelope.subject,
+			fromMailbox: envelope.from?.[0]?.mailbox,
+			fromHost: envelope.from?.[0]?.host,
 		});
 		const envelopeId = EnvelopeService.generateId(messageId);
-
-		// Save Envelope
-		await this.envelopeService.upsertEnvelope({
-			envelopeId,
-			messageId,
-			dateValue: new Date(msg.envelope.date).getTime(),
-			dateRaw: msg.envelope.date,
-			subject: msg.envelope.subject,
-			messageIdValue: msg.envelope.messageId,
-		});
-
-		// Save Addresses
-		await this.saveAddresses(
-			messageId,
-			accountConfigId,
-			msg.envelope.from,
-			AddressRole.From,
-		);
-		await this.saveAddresses(
-			messageId,
-			accountConfigId,
-			msg.envelope.sender,
-			AddressRole.Sender,
-		);
-		await this.saveAddresses(
-			messageId,
-			accountConfigId,
-			msg.envelope.replyTo,
-			AddressRole.ReplyTo,
-		);
-		await this.saveAddresses(
-			messageId,
-			accountConfigId,
-			msg.envelope.to,
-			AddressRole.To,
-		);
-		await this.saveAddresses(
-			messageId,
-			accountConfigId,
-			msg.envelope.cc,
-			AddressRole.Cc,
-		);
-		await this.saveAddresses(
-			messageId,
-			accountConfigId,
-			msg.envelope.bcc,
-			AddressRole.Bcc,
-		);
-
-		// Save Message
-		// Generate a placeholder rootBodyPartId - will be updated when body parts are synced
 		const rootBodyPartId = base36uuidv5(
 			`bodypart:${messageId}:root`,
 			REMIT_NAMESPACE,
 		);
-		await this.messageService.upsert({
-			messageId,
-			mailboxId,
-			uid: msg.uid,
-			sequenceNumber: msg.seq,
-			rfc822Size: msg.size ?? 0, // Some IMAP servers don't return size
-			internalDate: msg.internalDate.getTime(),
-			envelopeId,
-			rootBodyPartId,
+		const sentDate = new Date(envelope.date).getTime();
+
+		// Prepare all address save operations
+		const addressOps: Array<{
+			addresses: ImapAddress[] | undefined;
+			role: (typeof AddressRole)[keyof typeof AddressRole];
+		}> = [
+			{ addresses: envelope.from, role: AddressRole.From },
+			{ addresses: envelope.sender, role: AddressRole.Sender },
+			{ addresses: envelope.replyTo, role: AddressRole.ReplyTo },
+			{ addresses: envelope.to, role: AddressRole.To },
+			{ addresses: envelope.cc, role: AddressRole.Cc },
+			{ addresses: envelope.bcc, role: AddressRole.Bcc },
+		];
+
+		// Run all entity saves in parallel with concurrency limit
+		const saveOps: Array<() => Promise<void>> = [
+			// Save Envelope
+			async () => {
+				await this.envelopeService.upsertEnvelope({
+					envelopeId,
+					messageId,
+					dateValue: new Date(envelope.date).getTime(),
+					dateRaw: envelope.date,
+					subject: envelope.subject,
+					messageIdValue: envelope.messageId,
+				});
+			},
+			// Save all address roles in parallel
+			...addressOps.map(({ addresses, role }) => async () => {
+				await this.saveAddresses(messageId, accountConfigId, addresses, role);
+			}),
+			// Save Message
+			async () => {
+				await this.messageService.upsert({
+					messageId,
+					mailboxId,
+					uid: msg.uid,
+					sequenceNumber: msg.seq,
+					rfc822Size: msg.size ?? 0,
+					internalDate: msg.internalDate.getTime(),
+					envelopeId,
+					rootBodyPartId,
+				});
+			},
+			// Create Thread and ThreadMessage
+			async () => {
+				await this.createThreadForMessage(
+					messageId,
+					mailboxId,
+					accountConfigId,
+					msg.uid,
+					msg.internalDate.getTime(),
+					sentDate,
+					envelope,
+					msg.flags,
+					msg.references,
+				);
+			},
+		];
+
+		await pMap(saveOps, (op) => op(), {
+			concurrency: ADDRESS_SAVE_CONCURRENCY,
 		});
-
-		// TODO: Save Flags
-
-		// Create Thread and ThreadMessage
-		const sentDate = new Date(msg.envelope.date).getTime();
-		await this.createThreadForMessage(
-			messageId,
-			mailboxId,
-			accountConfigId,
-			msg.uid,
-			msg.internalDate.getTime(),
-			sentDate,
-			msg.envelope,
-			msg.flags,
-			msg.references,
-		);
 
 		return messageId;
 	}
@@ -325,47 +319,73 @@ export class MessageSyncService {
 	) {
 		if (!addresses) return;
 
-		let order = 0;
-		for (const addr of addresses) {
+		// Pre-compute address data with order indices, filtering valid addresses
+		const addressData: Array<{
+			localPart: string;
+			domain: string;
+			displayName: string;
+			order: number;
+		}> = [];
+
+		for (let i = 0; i < addresses.length; i++) {
+			const addr = addresses[i];
 			if (!addr.mailbox || !addr.host) continue;
-
-			const localPart = addr.mailbox;
-			const domain = addr.host;
-			const normalizedEmail = `${localPart}@${domain}`.toLowerCase();
-			const displayName = addr.name || "";
-			const normalizedCompound = `${displayName.toLowerCase()} ${normalizedEmail}`;
-
-			const addressId = AddressService.generateAddressId(
-				accountConfigId,
-				normalizedEmail,
-			);
-
-			await this.addressService.upsertAddress({
-				addressId,
-				accountConfigId,
-				localPart,
-				domain,
-				normalizedEmail,
-				normalizedCompound,
-				displayName,
-			});
-
-			const envelopeAddressId = AddressService.generateEnvelopeAddressId(
-				messageId,
-				role,
-				order,
-			);
-
-			await this.addressService.upsertEnvelopeAddress({
-				envelopeAddressId,
-				messageId,
-				addressId,
-				displayName,
-				normalizedEmail,
-				addressRole: role,
-				addressOrder: order++,
+			addressData.push({
+				localPart: addr.mailbox,
+				domain: addr.host,
+				displayName: addr.name || "",
+				order: i,
 			});
 		}
+
+		// Save all addresses in parallel with concurrency limit
+		await pMap(
+			addressData,
+			async ({ localPart, domain, displayName, order }) => {
+				const normalizedEmail = `${localPart}@${domain}`.toLowerCase();
+				const normalizedCompound = `${displayName.toLowerCase()} ${normalizedEmail}`;
+
+				const addressId = AddressService.generateAddressId(
+					accountConfigId,
+					normalizedEmail,
+				);
+
+				const envelopeAddressId = AddressService.generateEnvelopeAddressId(
+					messageId,
+					role,
+					order,
+				);
+
+				// Both upserts can run in parallel
+				const ops: Array<() => Promise<void>> = [
+					async () => {
+						await this.addressService.upsertAddress({
+							addressId,
+							accountConfigId,
+							localPart,
+							domain,
+							normalizedEmail,
+							normalizedCompound,
+							displayName,
+						});
+					},
+					async () => {
+						await this.addressService.upsertEnvelopeAddress({
+							envelopeAddressId,
+							messageId,
+							addressId,
+							displayName,
+							normalizedEmail,
+							addressRole: role,
+							addressOrder: order,
+						});
+					},
+				];
+
+				await pMap(ops, (op) => op(), { concurrency: 2 });
+			},
+			{ concurrency: ADDRESS_SAVE_CONCURRENCY },
+		);
 	}
 
 	/**

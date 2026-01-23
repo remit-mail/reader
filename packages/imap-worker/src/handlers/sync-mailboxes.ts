@@ -14,8 +14,11 @@ import {
 	deserializeEncryptedPayload,
 } from "@remit/secrets-service";
 import { env } from "expect-env";
+import pMap from "p-map";
 import { emitEvent } from "../emit.js";
 import type { SyncMailboxesEvent, SyncMessagesEvent } from "../events.js";
+
+const EVENT_EMIT_CONCURRENCY = 20;
 
 const client = getClient();
 const dataKeyProvider = createKmsDataKeyProvider(env.KMS_KEY_ID);
@@ -81,15 +84,20 @@ export const syncMailboxes = async (
 		"Emitting SYNC_MESSAGES events",
 	);
 
-	// Emit events sequentially to preserve priority order (INBOX first)
-	for (const { mailboxId } of mailboxes) {
-		const syncEvent: Omit<SyncMessagesEvent, "eventId" | "timestamp"> = {
-			type: "SYNC_MESSAGES",
-			accountId,
-			mailboxId,
-		};
-		await emitEvent(syncEvent);
-	}
+	// Emit events in parallel with concurrency limit
+	// INBOX is first in the sorted list, so it gets priority
+	await pMap(
+		mailboxes,
+		({ mailboxId }) => {
+			const syncEvent: Omit<SyncMessagesEvent, "eventId" | "timestamp"> = {
+				type: "SYNC_MESSAGES",
+				accountId,
+				mailboxId,
+			};
+			return emitEvent(syncEvent);
+		},
+		{ concurrency: EVENT_EMIT_CONCURRENCY },
+	);
 };
 
 type MailboxSortEntry = { mailboxId: string; fullPath: string };

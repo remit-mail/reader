@@ -9,6 +9,8 @@ import pMap from "p-map";
 import { extractSnippetFromEmail } from "./snippet.js";
 import type { IImapConnection } from "./types.js";
 
+const BODY_SYNC_CONCURRENCY = 15;
+
 // Debug log to file (Ink overwrites console)
 const debugLog = (msg: string, data?: unknown) => {
 	const line = `[${new Date().toISOString()}] ${msg} ${data ? JSON.stringify(data) : ""}\n`;
@@ -85,7 +87,7 @@ export class BodySyncService {
 					this.log.error?.({ messageId, error }, "Failed to fetch body");
 					return { status: "failed" as const };
 				}),
-			{ concurrency: 5 },
+			{ concurrency: BODY_SYNC_CONCURRENCY },
 		);
 
 		const synced = results.filter((r) => r.status === "synced");
