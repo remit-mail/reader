@@ -1,0 +1,21 @@
+{
+	"name": "@remit/secrets-service",
+	"version": "1.0.0",
+	"type": "module",
+	"main": "src/index.ts",
+	"types": "src/index.ts",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		}
+	},
+	"scripts": {
+		"test:typecheck": "tsc --noEmit",
+		"test": "node --import tsx --test src/**/*.test.ts"
+	},
+	"devDependencies": {
+		"@aws-sdk/client-kms": "*",
+		"expect-env": "*"
+	}
+}

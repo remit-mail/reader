@@ -106,8 +106,10 @@ export class MessageSyncService {
 				subject: msg.envelope.subject,
 				messageIdValue: msg.envelope.messageId,
 			});
-		} catch (e: any) {
-			if (e.name !== "ConditionalCheckFailedException") {
+		} catch (e: unknown) {
+			if (
+				(e as { name?: string })?.name !== "ConditionalCheckFailedException"
+			) {
 				console.error("Failed to create envelope", e);
 			}
 		}
@@ -162,8 +164,10 @@ export class MessageSyncService {
 				envelopeId,
 				rootBodyPartId: uuidv4(), // Placeholder
 			});
-		} catch (e: any) {
-			if (e.name !== "ConditionalCheckFailedException") {
+		} catch (e: unknown) {
+			if (
+				(e as { name?: string })?.name !== "ConditionalCheckFailedException"
+			) {
 				console.error("Failed to create message", e);
 			}
 		}
@@ -204,8 +208,10 @@ export class MessageSyncService {
 					normalizedCompound,
 					displayName,
 				});
-			} catch (e: any) {
-				if (e.name !== "ConditionalCheckFailedException") {
+			} catch (e: unknown) {
+				if (
+					(e as { name?: string })?.name !== "ConditionalCheckFailedException"
+				) {
 					console.error("Failed to create address", e);
 				}
 			}
@@ -225,8 +231,10 @@ export class MessageSyncService {
 					addressRole: role,
 					addressOrder: order++,
 				});
-			} catch (e: any) {
-				if (e.name !== "ConditionalCheckFailedException") {
+			} catch (e: unknown) {
+				if (
+					(e as { name?: string })?.name !== "ConditionalCheckFailedException"
+				) {
 					console.error("Failed to create envelope address", e);
 				}
 			}

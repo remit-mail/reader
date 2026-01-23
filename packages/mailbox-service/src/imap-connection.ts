@@ -254,14 +254,15 @@ export class ImapConnection {
 	/**
 	 * Search for messages
 	 */
-	search = (criteria: any[]): Promise<number[]> => {
+	search = (criteria: unknown[]): Promise<number[]> => {
 		return new Promise((resolve, reject) => {
 			if (!this.imap || this.state !== "authenticated") {
 				reject(new Error("Not connected"));
 				return;
 			}
 
-			this.imap.search(criteria, (err, uids) => {
+			// biome-ignore lint/suspicious/noExplicitAny: node-imap expects any[]
+			this.imap.search(criteria as any[], (err, uids) => {
 				if (err) {
 					reject(err);
 					return;
@@ -303,7 +304,8 @@ export class ImapConnection {
 					message.flags = attrs.flags;
 					message.internalDate = attrs.date;
 					message.size = attrs.size;
-					message.envelope = (attrs as any).envelope;
+					// @ts-expect-error envelope is missing in some type definitions but present when requested
+					message.envelope = attrs.envelope;
 				});
 
 				msg.once("end", () => {
