@@ -55,9 +55,51 @@ export type MailboxManagementEvent =
 	| MailboxRenameEvent
 	| MailboxDeleteEvent;
 
+/**
+ * Event for deleting a message (move to trash or permanent delete).
+ */
+export interface MessageDeleteEvent extends BaseEvent {
+	type: "MESSAGE_DELETE";
+	messageId: string;
+	mailboxId: string;
+	mailboxPath: string;
+	uid: number;
+	operation: "move_to_trash" | "permanent_delete";
+	destinationMailboxId?: string;
+	destinationMailboxPath?: string;
+}
+
+/**
+ * Event for moving a message to another mailbox.
+ */
+export interface MessageMoveEvent extends BaseEvent {
+	type: "MESSAGE_MOVE";
+	messageId: string;
+	sourceMailboxId: string;
+	sourceMailboxPath: string;
+	destinationMailboxId: string;
+	destinationMailboxPath: string;
+	uid: number;
+}
+
+/**
+ * Event for emptying the Trash mailbox.
+ */
+export interface EmptyTrashEvent extends BaseEvent {
+	type: "EMPTY_TRASH";
+	trashMailboxId: string;
+	trashMailboxPath: string;
+}
+
+export type MessageManagementEvent =
+	| MessageDeleteEvent
+	| MessageMoveEvent
+	| EmptyTrashEvent;
+
 export type ImapEvent =
 	| SyncMailboxesEvent
 	| SyncMessagesEvent
 	| SyncMessageBodyEvent
 	| SyncFlagsEvent
-	| MailboxManagementEvent;
+	| MailboxManagementEvent
+	| MessageManagementEvent;

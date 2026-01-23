@@ -445,6 +445,7 @@ export class MessageSyncService {
 				internalDate,
 				sentDate,
 				isRead,
+				isDeleted: false,
 				hasAttachment: false,
 				hasStars: false,
 			})

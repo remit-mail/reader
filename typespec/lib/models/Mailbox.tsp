@@ -131,6 +131,7 @@ model Mailbox {
 }
 
 @doc("Mailbox attributes as defined in RFC 9051 Section 7.3.1")
+@entity("mailboxAttributeEntry", "remit")
 @index(
   "MailboxAttributeEntry",
   {
@@ -162,6 +163,7 @@ model MailboxAttributeEntry {
 }
 
 @doc("Mailbox special-use attributes indicating mailbox role (RFC 6154, RFC 9051 Section 7.3.1)")
+@entity("mailboxSpecialUseEntry", "remit")
 @index(
   "MailboxSpecialUseEntry",
   {
@@ -193,6 +195,7 @@ model MailboxSpecialUseEntry {
 }
 
 @doc("Defines which flags are valid for messages in this mailbox. Tracks permanent vs session-only flags.")
+@entity("mailboxFlag", "remit")
 @index(
   "MailboxFlag",
   {

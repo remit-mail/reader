@@ -19,6 +19,9 @@ const queueUrlMap: Record<ImapEvent["type"], string> = {
 	MAILBOX_CREATE: process.env.SQS_QUEUE_URL_MAILBOX_MGMT ?? defaultQueueUrl,
 	MAILBOX_RENAME: process.env.SQS_QUEUE_URL_MAILBOX_MGMT ?? defaultQueueUrl,
 	MAILBOX_DELETE: process.env.SQS_QUEUE_URL_MAILBOX_MGMT ?? defaultQueueUrl,
+	MESSAGE_DELETE: process.env.SQS_QUEUE_URL_MESSAGE_MGMT ?? defaultQueueUrl,
+	MESSAGE_MOVE: process.env.SQS_QUEUE_URL_MESSAGE_MGMT ?? defaultQueueUrl,
+	EMPTY_TRASH: process.env.SQS_QUEUE_URL_MESSAGE_MGMT ?? defaultQueueUrl,
 };
 
 export const emitEvent = async (

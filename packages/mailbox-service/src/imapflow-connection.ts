@@ -729,6 +729,177 @@ export class ImapFlowConnection {
 	};
 
 	/**
+	 * Move messages to another mailbox.
+	 * Uses ImapFlow's messageMove which wraps UID MOVE command.
+	 * Returns mapping of source UIDs to destination UIDs from COPYUID response.
+	 *
+	 * @param uids - Array of message UIDs to move
+	 * @param destination - Destination mailbox path
+	 * @returns Object with destination path, uidValidity, and uidMap
+	 */
+	moveMessages = async (
+		uids: number[],
+		destination: string,
+	): Promise<{
+		destination: string;
+		uidValidity: number;
+		uidMap: Map<number, number>;
+	}> => {
+		this.ensureConnected();
+		const { client } = this;
+
+		if (!client) {
+			throw new Error("Not connected to IMAP server");
+		}
+
+		if (!this.currentMailbox) {
+			throw new Error("No mailbox selected");
+		}
+
+		if (uids.length === 0) {
+			return { destination, uidValidity: 0, uidMap: new Map() };
+		}
+
+		const uidRange = uids.join(",");
+		const result = await client.messageMove(uidRange, destination, {
+			uid: true,
+		});
+
+		// messageMove returns false if no messages were moved
+		if (result === false) {
+			return { destination, uidValidity: 0, uidMap: new Map() };
+		}
+
+		return {
+			destination: result.destination,
+			uidValidity: Number(result.uidValidity ?? 0),
+			uidMap: result.uidMap ?? new Map(),
+		};
+	};
+
+	/**
+	 * Copy messages to another mailbox.
+	 * Uses ImapFlow's messageCopy which wraps UID COPY command.
+	 * Returns mapping of source UIDs to destination UIDs from COPYUID response.
+	 *
+	 * @param uids - Array of message UIDs to copy
+	 * @param destination - Destination mailbox path
+	 * @returns Object with destination path, uidValidity, and uidMap
+	 */
+	copyMessages = async (
+		uids: number[],
+		destination: string,
+	): Promise<{
+		destination: string;
+		uidValidity: number;
+		uidMap: Map<number, number>;
+	}> => {
+		this.ensureConnected();
+		const { client } = this;
+
+		if (!client) {
+			throw new Error("Not connected to IMAP server");
+		}
+
+		if (!this.currentMailbox) {
+			throw new Error("No mailbox selected");
+		}
+
+		if (uids.length === 0) {
+			return { destination, uidValidity: 0, uidMap: new Map() };
+		}
+
+		const uidRange = uids.join(",");
+		const result = await client.messageCopy(uidRange, destination, {
+			uid: true,
+		});
+
+		// messageCopy returns false if no messages were copied
+		if (result === false) {
+			return { destination, uidValidity: 0, uidMap: new Map() };
+		}
+
+		return {
+			destination: result.destination,
+			uidValidity: Number(result.uidValidity ?? 0),
+			uidMap: result.uidMap ?? new Map(),
+		};
+	};
+
+	/**
+	 * Permanently delete messages (mark \Deleted + expunge).
+	 * Uses ImapFlow's messageDelete which wraps STORE +FLAGS.SILENT \Deleted
+	 * followed by UID EXPUNGE.
+	 *
+	 * @param uids - Array of message UIDs to delete
+	 * @returns Number of messages deleted
+	 */
+	deleteMessages = async (uids: number[]): Promise<number> => {
+		this.ensureConnected();
+		const { client } = this;
+
+		if (!client) {
+			throw new Error("Not connected to IMAP server");
+		}
+
+		if (!this.currentMailbox) {
+			throw new Error("No mailbox selected");
+		}
+
+		if (uids.length === 0) {
+			return 0;
+		}
+
+		const uidRange = uids.join(",");
+		const result = await client.messageDelete(uidRange, { uid: true });
+
+		// messageDelete returns boolean or deleted count
+		if (typeof result === "number") {
+			return result;
+		}
+		return result ? uids.length : 0;
+	};
+
+	/**
+	 * Append a message to a mailbox.
+	 * Used primarily for testing to seed messages.
+	 *
+	 * @param mailbox - Mailbox path to append to
+	 * @param message - RFC 822 message content
+	 * @param flags - Optional flags to set on the message
+	 * @returns Object with destination path, uidValidity, and uid of the appended message
+	 */
+	append = async (
+		mailbox: string,
+		message: string | Buffer,
+		flags?: string[],
+	): Promise<{
+		destination: string;
+		uidValidity: number;
+		uid: number;
+	}> => {
+		this.ensureConnected();
+		const { client } = this;
+
+		if (!client) {
+			throw new Error("Not connected to IMAP server");
+		}
+
+		const result = await client.append(mailbox, message, flags);
+
+		// append returns false if the message could not be appended
+		if (result === false) {
+			throw new Error(`Failed to append message to ${mailbox}`);
+		}
+
+		return {
+			destination: result.destination,
+			uidValidity: Number(result.uidValidity ?? 0),
+			uid: result.uid ?? 0,
+		};
+	};
+
+	/**
 	 * Ensure the connection is established
 	 */
 	private ensureConnected = (): void => {

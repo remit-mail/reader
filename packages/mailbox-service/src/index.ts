@@ -61,6 +61,12 @@ export {
 	type SyncAccountInfo,
 } from "./mailbox-sync.js";
 export {
+	type DeleteOptions,
+	type MessageMoveConfig,
+	type MessageMoveLogger,
+	MessageMoveService,
+} from "./message-move.js";
+export {
 	type ParsedMessageContent,
 	parseMessageContent,
 } from "./message-parser.js";

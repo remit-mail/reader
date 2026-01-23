@@ -1,6 +1,8 @@
 import "typespec-electrodb-emitter";
 
 import "../enums/MessageFlag.tsp";
+import "../enums/MessageStatus.tsp";
+import "../enums/MessageSyncStatus.tsp";
 import "../scalars/string.tsp";
 
 namespace RemitImap;
@@ -78,6 +80,22 @@ model Message {
   @doc("Storage URI for the message body (set when body has been fetched and stored)")
   @visibility(Lifecycle.Read)
   bodyStorageKey?: string;
+
+  @doc("Message lifecycle status for move/delete operations")
+  @visibility(Lifecycle.Read)
+  status?: MessageStatus;
+
+  @doc("Sync status for move/delete operations")
+  @visibility(Lifecycle.Read)
+  syncStatus?: MessageSyncStatus;
+
+  @doc("Original mailbox ID before move (for restore from trash)")
+  @visibility(Lifecycle.Read)
+  originalMailboxId?: UUID;
+
+  @doc("Original UID before move (for debugging/audit)")
+  @visibility(Lifecycle.Read)
+  originalUid?: int64;
 
   @visibility(Lifecycle.Read)
   @createdAt
