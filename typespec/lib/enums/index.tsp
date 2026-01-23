@@ -1,8 +1,5 @@
 // RFC 2822 Header Enums
 import "./AddressRole.tsp";
-import "./HeaderFieldCategory.tsp";
-import "./HeaderFieldValueType.tsp";
-import "./HeaderFieldName.tsp";
 import "./ReferenceType.tsp";
 
 // IMAP Enums
