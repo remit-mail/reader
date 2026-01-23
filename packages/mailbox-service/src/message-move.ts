@@ -456,6 +456,7 @@ export class MessageMoveService {
 				composites: {
 					mailboxId: newMailboxId,
 					internalDate: threadMessage.internalDate,
+					isRead: threadMessage.isRead,
 				},
 			},
 		);
@@ -494,6 +495,7 @@ export class MessageMoveService {
 				composites: {
 					mailboxId: threadMessage.mailboxId,
 					internalDate: threadMessage.internalDate,
+					isRead: threadMessage.isRead,
 				},
 			},
 		);
