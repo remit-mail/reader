@@ -55,7 +55,7 @@ model AccountConfig {
   updatedAt: int64;
 }
 
-@doc("Represents an IMAP user account. Contains authentication credentials and account metadata.")
+@doc("Represents an IMAP user account. Contains authentication credentials, server connection details, and account metadata.")
 @entity("account", "remit")
 @index(
   "Account",
@@ -107,9 +107,74 @@ model Account {
   @secret
   passwordHash: string;
 
+  // ============================================
+  // IMAP Server Connection Settings
+  // ============================================
+
+  @doc("IMAP server hostname or IP address")
+  @visibility(Lifecycle.Read)
+  @minLength(1)
+  imapHost: string;
+
+  @doc("IMAP server port (typically 993 for TLS, 143 for STARTTLS)")
+  @visibility(Lifecycle.Read)
+  @minValue(1)
+  @maxValue(65535)
+  imapPort: int32;
+
+  @doc("Whether to use TLS/SSL encryption (true for port 993)")
+  @visibility(Lifecycle.Read)
+  imapTls: boolean;
+
+  @doc("Whether to use STARTTLS upgrade (typically for port 143)")
+  @visibility(Lifecycle.Read)
+  imapStartTls: boolean;
+
+  // ============================================
+  // SMTP Server Connection Settings (optional)
+  // ============================================
+
+  @doc("SMTP server hostname or IP address for sending mail")
+  @visibility(Lifecycle.Read)
+  smtpHost?: string;
+
+  @doc("SMTP server port (typically 587 for STARTTLS, 465 for TLS)")
+  @visibility(Lifecycle.Read)
+  @minValue(1)
+  @maxValue(65535)
+  smtpPort?: int32;
+
+  @doc("Whether to use TLS/SSL encryption for SMTP")
+  @visibility(Lifecycle.Read)
+  smtpTls?: boolean;
+
+  @doc("Whether to use STARTTLS upgrade for SMTP")
+  @visibility(Lifecycle.Read)
+  smtpStartTls?: boolean;
+
+  // ============================================
+  // Connection State
+  // ============================================
+
   @doc("Whether the account is active and can login")
   @visibility(Lifecycle.Read)
   isActive: boolean;
+
+  @doc("Current connection state")
+  @visibility(Lifecycle.Read)
+  connectionState: ConnectionState;
+
+  @doc("Timestamp of last successful connection")
+  @visibility(Lifecycle.Read)
+  lastConnectedAt?: int64;
+
+  @doc("Timestamp of last synchronization attempt")
+  @visibility(Lifecycle.Read)
+  lastSyncAt?: int64;
+
+  @doc("Error message from last failed connection attempt")
+  @visibility(Lifecycle.Read)
+  lastError?: string;
 
   @visibility(Lifecycle.Read)
   @createdAt
