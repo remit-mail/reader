@@ -1,0 +1,30 @@
+{
+	"name": "@remit/mailbox-service",
+	"version": "1.0.0",
+	"type": "module",
+	"main": "src/index.ts",
+	"types": "src/index.ts",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		}
+	},
+	"scripts": {
+		"test:typecheck": "tsc --noEmit",
+		"test:run": "DYNAMODB_PORT=8000 DYNAMODB_TABLE_NAME=remit-local node --import tsx --test 'src/**/*.test.ts'",
+		"test": "npm run test:typecheck && npm run test:run"
+	},
+	"devDependencies": {
+		"@aws-sdk/client-dynamodb": "*",
+		"@aws-sdk/lib-dynamodb": "*",
+		"@remit/electrodb-entities": "*",
+		"@remit/remit-electrodb-service": "*",
+		"@remit/domain-enums": "*",
+		"@types/node-imap": "*",
+		"electrodb": "*",
+		"expect-env": "*",
+		"node-imap": "*",
+		"short-uuid": "*"
+	}
+}
