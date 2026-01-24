@@ -3,6 +3,7 @@ emit:
   - "typespec-electrodb-emitter"
   - "@kattebak/typespec-enum-emitter"
   - "@kattebak/typespec-zod-emitter"
+  - "@kattebak/typespec-openapi-types-emitter"
 options:
   "@kattebak/typespec-enum-emitter":
     emitter-output-dir: "{cwd}/build/ts-enums"
@@ -15,6 +16,10 @@ options:
   "typespec-electrodb-emitter":
     emitter-output-dir: "{cwd}/build/ddb-entities"
     package-name: "@remit/electrodb-entities"
+    package-version: "0.0.1"
+  "@kattebak/typespec-openapi-types-emitter":
+    emitter-output-dir: "{cwd}/build/openapi-types"
+    package-name: "@remit/api-openapi-types"
     package-version: "0.0.1"
   "@typespec/openapi3":
     emitter-output-dir: "{cwd}/build/remit-openapi3"

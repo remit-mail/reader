@@ -1,0 +1,31 @@
+{
+	"name": "@remit/backend",
+	"version": "1.0.0",
+	"description": "Remit Mail Inspector API backend",
+	"license": "UNLICENSED",
+	"author": "",
+	"type": "module",
+	"main": "src/index.ts",
+	"scripts": {
+		"test:typecheck": "tsc --noEmit",
+		"bundle": "esbuild 'src/index.ts' --sourcemap --bundle --platform=node --outfile=dist/index.js",
+		"dev": "node --env-file .env.test --watch --import tsx dev-server/server.ts",
+		"dev:remote": "node --env-file ../../.env.dev --watch --import tsx dev-server/server.ts"
+	},
+	"devDependencies": {
+		"@remit/electrodb-entities": "*",
+		"@remit/domain-enums": "*",
+		"@remit/api-openapi-types": "*",
+		"@types/aws-lambda": "*",
+		"@types/express": "^5.0.3",
+		"@types/swagger-ui-express": "^4.1.8",
+		"esbuild": "*",
+		"electrodb": "*",
+		"expect-env": "*",
+		"express": "^5.1.0",
+		"openapi-backend": "*",
+		"pino": "*",
+		"swagger-ui-express": "^5.0.1",
+		"tsx": "*"
+	}
+}
