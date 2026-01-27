@@ -85,9 +85,14 @@ export const ConfigOperations: Record<
 			throw new Error(`AccountConfig not found: ${accountConfigId}`);
 		}
 
+		// Filter out deleted accounts (tombstone pattern)
+		const activeAccounts = description.account.filter(
+			(acc) => acc.deletedAt === undefined,
+		);
+
 		return {
 			accountConfig: toAccountConfigResponse(accountConfig),
-			accounts: description.account.map(toAccountResponse),
+			accounts: activeAccounts.map(toAccountResponse),
 		};
 	},
 };

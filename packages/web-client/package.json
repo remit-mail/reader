@@ -12,7 +12,9 @@
   "devDependencies": {
     "@remit/api-http-client": "file:../../build/remit-client",
     "@tailwindcss/vite": "^4",
+    "@hookform/resolvers": "*",
     "@tanstack/react-query": "^5",
+    "react-hook-form": "*",
     "@tanstack/react-query-devtools": "^5",
     "@tanstack/react-router": "^1",
     "@tanstack/router-plugin": "^1",

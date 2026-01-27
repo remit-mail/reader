@@ -24,6 +24,7 @@
 		"@remit/domain-enums": "*",
 		"@remit/storage-service": "*",
 		"@types/mailparser": "*",
+		"@types/nodemailer": "*",
 		"@types/stopword": "^2.0.3",
 		"@types/uuid": "^10.0.0",
 		"electrodb": "*",
@@ -32,6 +33,7 @@
 		"imapflow": "^1.0.171",
 		"mailparser": "*",
 		"natural": "*",
+		"nodemailer": "*",
 		"short-uuid": "*",
 		"stopword": "*"
 	},

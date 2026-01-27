@@ -210,6 +210,10 @@ model Account {
   @visibility(Lifecycle.Read)
   @updatedAt
   updatedAt: int64;
+
+  @doc("Timestamp when account was marked for deletion (tombstone)")
+  @visibility(Lifecycle.Read)
+  deletedAt?: int64;
 }
 
 // ============================================
@@ -281,4 +285,187 @@ model ConfigDescriptionResponse {
 
   @doc("Associated email accounts")
   accounts: AccountResponse[];
+}
+
+// ============================================
+// Account Management Input Models
+// ============================================
+
+@doc("Input for creating a new email account")
+model CreateAccountInput {
+  @doc("Primary email address for this account")
+  @minLength(1)
+  email: string;
+
+  @doc("Display name (optional)")
+  displayName?: string;
+
+  @doc("IMAP login username (defaults to email if not provided)")
+  username?: string;
+
+  @doc("Account password (will be encrypted)")
+  @minLength(1)
+  @secret
+  password: string;
+
+  @doc("IMAP server hostname")
+  @minLength(1)
+  imapHost: string;
+
+  @doc("IMAP server port")
+  @minValue(1)
+  @maxValue(65535)
+  imapPort: int32;
+
+  @doc("Use TLS encryption")
+  imapTls: boolean;
+
+  @doc("Use STARTTLS upgrade")
+  imapStartTls: boolean;
+
+  @doc("SMTP server hostname (optional)")
+  smtpHost?: string;
+
+  @doc("SMTP server port")
+  @minValue(1)
+  @maxValue(65535)
+  smtpPort?: int32;
+
+  @doc("Use TLS encryption for SMTP")
+  smtpTls?: boolean;
+
+  @doc("Use STARTTLS upgrade for SMTP")
+  smtpStartTls?: boolean;
+
+  @doc("SMTP username if different from IMAP")
+  smtpUsername?: string;
+
+  @doc("SMTP password if different from IMAP")
+  @secret
+  smtpPassword?: string;
+}
+
+@doc("Input for updating an existing account")
+model UpdateAccountInput {
+  @doc("Display name")
+  displayName?: string;
+
+  @doc("Account password (only if changing)")
+  @secret
+  password?: string;
+
+  @doc("IMAP server hostname")
+  imapHost?: string;
+
+  @doc("IMAP server port")
+  @minValue(1)
+  @maxValue(65535)
+  imapPort?: int32;
+
+  @doc("Use TLS encryption")
+  imapTls?: boolean;
+
+  @doc("Use STARTTLS upgrade")
+  imapStartTls?: boolean;
+
+  @doc("SMTP server hostname")
+  smtpHost?: string;
+
+  @doc("SMTP server port")
+  @minValue(1)
+  @maxValue(65535)
+  smtpPort?: int32;
+
+  @doc("Use TLS encryption for SMTP")
+  smtpTls?: boolean;
+
+  @doc("Use STARTTLS upgrade for SMTP")
+  smtpStartTls?: boolean;
+
+  @doc("SMTP username")
+  smtpUsername?: string;
+
+  @doc("SMTP password (only if changing)")
+  @secret
+  smtpPassword?: string;
+
+  @doc("Enable/disable account")
+  isActive?: boolean;
+}
+
+@doc("Input for testing connection without saving")
+model TestConnectionInput {
+  @doc("Account ID (optional, used to retrieve stored password if password is empty)")
+  accountId?: UUID;
+
+  @doc("IMAP login username")
+  @minLength(1)
+  username: string;
+
+  @doc("Account password (optional if accountId provided - uses stored password)")
+  @secret
+  password?: string;
+
+  @doc("IMAP server hostname")
+  @minLength(1)
+  imapHost: string;
+
+  @doc("IMAP server port")
+  @minValue(1)
+  @maxValue(65535)
+  imapPort: int32;
+
+  @doc("Use TLS encryption")
+  imapTls: boolean;
+
+  @doc("Use STARTTLS upgrade")
+  imapStartTls: boolean;
+
+  @doc("SMTP server hostname (optional)")
+  smtpHost?: string;
+
+  @doc("SMTP server port")
+  @minValue(1)
+  @maxValue(65535)
+  smtpPort?: int32;
+
+  @doc("Use TLS encryption for SMTP")
+  smtpTls?: boolean;
+
+  @doc("Use STARTTLS upgrade for SMTP")
+  smtpStartTls?: boolean;
+
+  @doc("SMTP username (defaults to IMAP username)")
+  smtpUsername?: string;
+
+  @doc("SMTP password (defaults to IMAP password)")
+  @secret
+  smtpPassword?: string;
+}
+
+@doc("Connection test result")
+model TestConnectionResponse {
+  @doc("Whether IMAP connection succeeded")
+  imapSuccess: boolean;
+
+  @doc("IMAP error message if failed")
+  imapError?: string;
+
+  @doc("Whether SMTP connection succeeded (null if not tested)")
+  smtpSuccess?: boolean;
+
+  @doc("SMTP error message if failed")
+  smtpError?: string;
+}
+
+@doc("Delete account response (tombstone)")
+model DeleteAccountResponse {
+  @doc("Account ID that was marked for deletion")
+  accountId: UUID;
+
+  @doc("Timestamp when deletion was requested")
+  deletedAt: int64;
+
+  @doc("Message indicating async cleanup will follow")
+  message: string;
 }
