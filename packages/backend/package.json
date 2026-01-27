@@ -13,9 +13,11 @@
 		"dev:remote": "node --env-file ../../.env.dev --watch --import tsx dev-server/server.ts"
 	},
 	"devDependencies": {
+		"@aws-sdk/client-sqs": "*",
 		"@remit/electrodb-entities": "*",
 		"@remit/remit-electrodb-service": "*",
 		"@remit/domain-enums": "*",
+		"@remit/mailbox-service": "*",
 		"@remit/api-openapi-types": "*",
 		"@types/aws-lambda": "*",
 		"@types/express": "^5.0.3",

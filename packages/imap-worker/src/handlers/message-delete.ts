@@ -101,8 +101,12 @@ export const handleMessageDelete = async (
 							},
 							{
 								composites: {
+									sentDate: threadMessage.sentDate,
 									mailboxId: destinationMailboxId,
-									internalDate: threadMessage.internalDate,
+									isRead: threadMessage.isRead,
+									isDeleted: true,
+									hasStars: threadMessage.hasStars,
+									hasAttachment: threadMessage.hasAttachment,
 								},
 							},
 						);

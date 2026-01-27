@@ -147,8 +147,9 @@ describe("FlagQueueService.updateFlags", () => {
 		const flagService = config.messageFlagService as ReturnType<
 			typeof createMockMessageFlagService
 		>;
-		const addFlagCalls = (flagService.addFlag as ReturnType<typeof mock.fn>)
-			.mock.calls;
+		const addFlagCalls = (
+			flagService.addFlag as unknown as ReturnType<typeof mock.fn>
+		).mock.calls;
 		assert.strictEqual(addFlagCalls.length, 1);
 		assert.strictEqual(addFlagCalls[0].arguments[0], messageId);
 		assert.strictEqual(addFlagCalls[0].arguments[1], MessageSystemFlag.Seen);
@@ -172,7 +173,7 @@ describe("FlagQueueService.updateFlags", () => {
 
 		// Verify removeFlag was called with Seen
 		const removeFlagCalls = (
-			flagService.removeFlag as ReturnType<typeof mock.fn>
+			flagService.removeFlag as unknown as ReturnType<typeof mock.fn>
 		).mock.calls;
 		assert.strictEqual(removeFlagCalls.length, 1);
 		assert.strictEqual(removeFlagCalls[0].arguments[0], messageId);
@@ -193,8 +194,9 @@ describe("FlagQueueService.updateFlags", () => {
 		const flagService = config.messageFlagService as ReturnType<
 			typeof createMockMessageFlagService
 		>;
-		const addFlagCalls = (flagService.addFlag as ReturnType<typeof mock.fn>)
-			.mock.calls;
+		const addFlagCalls = (
+			flagService.addFlag as unknown as ReturnType<typeof mock.fn>
+		).mock.calls;
 		assert.strictEqual(addFlagCalls.length, 1);
 		assert.strictEqual(addFlagCalls[0].arguments[0], messageId);
 		assert.strictEqual(addFlagCalls[0].arguments[1], MessageSystemFlag.Flagged);
@@ -226,7 +228,7 @@ describe("FlagQueueService.updateFlags", () => {
 
 		// Verify removeFlag was called with Flagged
 		const removeFlagCalls = (
-			flagService.removeFlag as ReturnType<typeof mock.fn>
+			flagService.removeFlag as unknown as ReturnType<typeof mock.fn>
 		).mock.calls;
 		assert.strictEqual(removeFlagCalls.length, 1);
 		assert.strictEqual(removeFlagCalls[0].arguments[0], messageId);
@@ -260,10 +262,13 @@ describe("FlagQueueService.updateFlags", () => {
 
 		// Verify update was called with star color
 		const updateCalls = (
-			threadMessageService.update as ReturnType<typeof mock.fn>
+			threadMessageService.update as unknown as ReturnType<typeof mock.fn>
 		).mock.calls;
 		assert.strictEqual(updateCalls.length, 1);
-		assert.strictEqual(updateCalls[0].arguments[2].star, StarColor.Blue);
+		assert.strictEqual(
+			(updateCalls[0].arguments[2] as { star?: string }).star,
+			StarColor.Blue,
+		);
 	});
 
 	it("updates both isStarred and starColor together", async () => {
@@ -291,11 +296,17 @@ describe("FlagQueueService.updateFlags", () => {
 
 		// Verify update was called with both hasStars and star
 		const updateCalls = (
-			threadMessageService.update as ReturnType<typeof mock.fn>
+			threadMessageService.update as unknown as ReturnType<typeof mock.fn>
 		).mock.calls;
 		assert.strictEqual(updateCalls.length, 1);
-		assert.strictEqual(updateCalls[0].arguments[2].hasStars, true);
-		assert.strictEqual(updateCalls[0].arguments[2].star, StarColor.Red);
+		assert.strictEqual(
+			(updateCalls[0].arguments[2] as { hasStars?: boolean }).hasStars,
+			true,
+		);
+		assert.strictEqual(
+			(updateCalls[0].arguments[2] as { star?: string }).star,
+			StarColor.Red,
+		);
 	});
 
 	it("handles multiple flags in single call", async () => {
@@ -325,8 +336,9 @@ describe("FlagQueueService.updateFlags", () => {
 		const flagService = config.messageFlagService as ReturnType<
 			typeof createMockMessageFlagService
 		>;
-		const addFlagCalls = (flagService.addFlag as ReturnType<typeof mock.fn>)
-			.mock.calls;
+		const addFlagCalls = (
+			flagService.addFlag as unknown as ReturnType<typeof mock.fn>
+		).mock.calls;
 		assert.strictEqual(addFlagCalls.length, 2);
 
 		// Verify SQS event contains both operations
@@ -359,7 +371,7 @@ describe("FlagQueueService.updateFlags", () => {
 			typeof createMockThreadMessageService
 		>;
 		const updateCalls = (
-			threadMessageService.update as ReturnType<typeof mock.fn>
+			threadMessageService.update as unknown as ReturnType<typeof mock.fn>
 		).mock.calls;
 		assert.strictEqual(updateCalls.length, 0);
 	});

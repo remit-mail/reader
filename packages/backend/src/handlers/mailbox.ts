@@ -46,23 +46,26 @@ export const MailboxOperations: Record<
 			fullPath: string;
 		};
 
-		const mailbox = await getClient().mailbox.create({
+		const mailbox = await getClient().mailboxQueue.createMailbox(
+			{
+				accountId,
+				namespaceType: namespaceType as "personal" | "other_users" | "shared",
+				namespacePrefix: "",
+				hierarchyDelimiter: "/",
+				fullPath,
+				uidValidity: 0,
+				uidNext: 1,
+				messageCount: 0,
+				unseenCount: 0,
+				deletedCount: 0,
+				totalSize: 0,
+				lastSyncUid: 0,
+				highWaterMarkUid: 0,
+				lastMessageSyncAt: 0,
+			},
 			accountId,
-			namespaceType: namespaceType as "personal" | "other_users" | "shared",
-			namespacePrefix: "",
-			hierarchyDelimiter: "/",
-			fullPath,
-			uidValidity: 0,
-			uidNext: 1,
-			messageCount: 0,
-			unseenCount: 0,
-			deletedCount: 0,
-			totalSize: 0,
-			lastSyncUid: 0,
-			highWaterMarkUid: 0,
-			lastMessageSyncAt: 0,
-			syncStatus: "pending",
-		});
+			true, // subscribe
+		);
 
 		return toMailboxResponse(mailbox);
 	},
@@ -87,16 +90,24 @@ export const MailboxDetailOperations: Record<
 			return toMailboxResponse(mailbox);
 		}
 
-		const mailbox = await getClient().mailbox.update(mailboxId, {
+		// Get mailbox to resolve accountId
+		const existingMailbox = await getClient().mailbox.get(mailboxId);
+
+		const mailbox = await getClient().mailboxQueue.renameMailbox(
+			mailboxId,
 			fullPath,
-			syncStatus: "pending",
-		});
+			existingMailbox.accountId,
+		);
 		return toMailboxResponse(mailbox);
 	},
 
 	MailboxDetailOperations_deleteMailbox: async (context) => {
 		const { mailboxId } = context.request.params as { mailboxId: string };
-		await getClient().mailbox.update(mailboxId, { syncStatus: "deleting" });
+
+		// Get mailbox to resolve accountId
+		const mailbox = await getClient().mailbox.get(mailboxId);
+
+		await getClient().mailboxQueue.deleteMailbox(mailboxId, mailbox.accountId);
 		return { statusCode: 204 };
 	},
 };

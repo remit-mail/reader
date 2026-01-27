@@ -99,8 +99,12 @@ export const handleMessageMove = async (
 						{ uid: newUid, mailboxId: destinationMailboxId, isDeleted: false },
 						{
 							composites: {
+								sentDate: threadMessage.sentDate,
 								mailboxId: destinationMailboxId,
-								internalDate: threadMessage.internalDate,
+								isRead: threadMessage.isRead,
+								isDeleted: false,
+								hasStars: threadMessage.hasStars,
+								hasAttachment: threadMessage.hasAttachment,
 							},
 						},
 					);
