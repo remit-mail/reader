@@ -114,6 +114,40 @@ namespace RemitApi {
   }
 
   // ============================================
+  // Account Management Operations
+  // ============================================
+
+  @route("/accounts")
+  namespace AccountOperations {
+    @doc("Create a new email account")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    op createAccount(@body input: CreateAccountInput): AccountResponse;
+
+    @doc("Test IMAP/SMTP connection without saving")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    @route("/test-connection")
+    op testConnection(@body input: TestConnectionInput): TestConnectionResponse;
+  }
+
+  @route("/accounts/{accountId}")
+  namespace AccountDetailOperations {
+    @doc("Update an existing account")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @patch(#{ implicitOptionality: true })
+    op updateAccount(
+      @path accountId: UUID,
+      @body input: UpdateAccountInput,
+    ): AccountResponse;
+
+    @doc("Delete an account and all associated data")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @delete
+    op deleteAccount(@path accountId: UUID): DeleteAccountResponse;
+  }
+
+  // ============================================
   // Thread Operations
   // ============================================
 
