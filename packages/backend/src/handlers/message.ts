@@ -1,4 +1,4 @@
-import type { UpdateThreadMessageInput } from "@remit/remit-electrodb-service";
+import { StarColor } from "@remit/domain-enums";
 import type {
 	BodyPartResponse,
 	EnvelopeAddressResponse,
@@ -11,6 +11,8 @@ import type {
 	MessageOperationIds,
 	OperationHandler,
 } from "../types.js";
+
+type StarColorValue = (typeof StarColor)[keyof typeof StarColor];
 
 export const MessageOperations: Record<
 	MessageOperationIds,
@@ -89,68 +91,21 @@ export const MessageOperations: Record<
 
 		const client = getClient();
 
-		// Get current thread message to update
-		const threadMessage = await client.threadMessage.getByMessageId(messageId);
+		// Resolve accountId from message -> mailbox
+		const message = await client.message.get(messageId);
+		const mailbox = await client.mailbox.get(message.mailboxId);
 
-		// Build update payload
-		type StarColorType = UpdateThreadMessageInput["star"];
-
-		const updatePayload: {
-			isRead?: boolean;
-			hasStars?: boolean;
-			star?: StarColorType;
-		} = {};
-
-		if (isRead !== undefined) {
-			updatePayload.isRead = isRead;
-		}
-		if (isStarred !== undefined) {
-			updatePayload.hasStars = isStarred;
-			if (isStarred && starColor) {
-				updatePayload.star = starColor as StarColorType;
-			} else if (!isStarred) {
-				updatePayload.star = "none";
-			}
-		}
-
-		// Update thread message with composite values for index regeneration
-		const updated = await client.threadMessage.update(
-			threadMessage.accountConfigId,
-			threadMessage.threadMessageId,
-			updatePayload,
-			{
-				composites: {
-					sentDate: threadMessage.sentDate,
-					mailboxId: threadMessage.mailboxId,
-					isRead: updatePayload.isRead ?? threadMessage.isRead,
-					isDeleted: threadMessage.isDeleted,
-					hasStars: updatePayload.hasStars ?? threadMessage.hasStars,
-					hasAttachment: threadMessage.hasAttachment,
-				},
-			},
+		// FlagQueueService handles: MessageFlag + ThreadMessage updates + SQS event
+		const result = await client.flagQueue.updateFlags(
+			messageId,
+			mailbox.accountId,
+			{ isRead, isStarred, starColor: starColor as StarColorValue | undefined },
 		);
 
-		// Update message flags in DynamoDB
-		if (isRead !== undefined) {
-			if (isRead) {
-				await client.messageFlag.addFlag(messageId, "\\Seen");
-			} else {
-				await client.messageFlag.removeFlag(messageId, "\\Seen");
-			}
-		}
-
-		if (isStarred !== undefined) {
-			if (isStarred) {
-				await client.messageFlag.addFlag(messageId, "\\Flagged");
-			} else {
-				await client.messageFlag.removeFlag(messageId, "\\Flagged");
-			}
-		}
-
 		return {
-			messageId,
-			isRead: updated.isRead,
-			isStarred: updated.hasStars,
+			messageId: result.messageId,
+			isRead: result.isRead,
+			isStarred: result.isStarred,
 		};
 	},
 };
@@ -164,49 +119,22 @@ export const MessageBulkOperations: Record<
 			messageIds: string[];
 		};
 
-		const client = getClient();
-		let successCount = 0;
-		const failedIds: string[] = [];
-
-		for (const messageId of messageIds) {
-			try {
-				// Mark message as deleted
-				await client.message.update(messageId, {
-					status: "deleting",
-					syncStatus: "pending",
-				});
-
-				// Update thread message
-				const threadMessage =
-					await client.threadMessage.findByMessageId(messageId);
-				if (threadMessage) {
-					await client.threadMessage.update(
-						threadMessage.accountConfigId,
-						threadMessage.threadMessageId,
-						{ isDeleted: true },
-						{
-							composites: {
-								sentDate: threadMessage.sentDate,
-								mailboxId: threadMessage.mailboxId,
-								isRead: threadMessage.isRead,
-								isDeleted: true,
-								hasStars: threadMessage.hasStars,
-								hasAttachment: threadMessage.hasAttachment,
-							},
-						},
-					);
-				}
-
-				successCount++;
-			} catch {
-				failedIds.push(messageId);
-			}
+		if (messageIds.length === 0) {
+			return { successCount: 0, failureCount: 0 };
 		}
 
+		const client = getClient();
+
+		// Resolve accountId from first message -> mailbox
+		const message = await client.message.get(messageIds[0]);
+		const mailbox = await client.mailbox.get(message.mailboxId);
+
+		// MessageMoveService handles: Message + ThreadMessage updates + SQS events
+		await client.messageMove.deleteMessages(messageIds, mailbox.accountId);
+
 		return {
-			successCount,
-			failureCount: failedIds.length,
-			failedIds: failedIds.length > 0 ? failedIds : undefined,
+			successCount: messageIds.length,
+			failureCount: 0,
 		};
 	},
 
@@ -217,58 +145,29 @@ export const MessageBulkOperations: Record<
 			destinationMailboxId: string;
 		};
 
+		if (messageIds.length === 0) {
+			return { successCount: 0, failureCount: 0 };
+		}
+
 		const client = getClient();
-		let successCount = 0;
-		const failedIds: string[] = [];
 
 		// Verify destination mailbox exists
 		await client.mailbox.get(destinationMailboxId);
 
-		for (const messageId of messageIds) {
-			try {
-				// Get current message
-				const message = await client.message.get(messageId);
+		// Resolve accountId from first message -> mailbox
+		const message = await client.message.get(messageIds[0]);
+		const mailbox = await client.mailbox.get(message.mailboxId);
 
-				// Mark message as moving
-				await client.message.updateForMove(messageId, {
-					status: "moving",
-					syncStatus: "pending",
-					originalMailboxId: message.mailboxId,
-					originalUid: message.uid,
-					mailboxId: destinationMailboxId,
-				});
-
-				// Update thread message mailbox
-				const threadMessage =
-					await client.threadMessage.findByMessageId(messageId);
-				if (threadMessage) {
-					await client.threadMessage.update(
-						threadMessage.accountConfigId,
-						threadMessage.threadMessageId,
-						{ mailboxId: destinationMailboxId },
-						{
-							composites: {
-								sentDate: threadMessage.sentDate,
-								mailboxId: destinationMailboxId,
-								isRead: threadMessage.isRead,
-								isDeleted: threadMessage.isDeleted,
-								hasStars: threadMessage.hasStars,
-								hasAttachment: threadMessage.hasAttachment,
-							},
-						},
-					);
-				}
-
-				successCount++;
-			} catch {
-				failedIds.push(messageId);
-			}
-		}
+		// MessageMoveService handles: Message + ThreadMessage updates + SQS events
+		await client.messageMove.moveMessages(
+			messageIds,
+			destinationMailboxId,
+			mailbox.accountId,
+		);
 
 		return {
-			successCount,
-			failureCount: failedIds.length,
-			failedIds: failedIds.length > 0 ? failedIds : undefined,
+			successCount: messageIds.length,
+			failureCount: 0,
 		};
 	},
 };
