@@ -7,6 +7,10 @@ type MatchPrefix<
 
 export type OperationIds =
 	| "ConfigOperations_getConfig"
+	| "AccountOperations_createAccount"
+	| "AccountOperations_testConnection"
+	| "AccountDetailOperations_updateAccount"
+	| "AccountDetailOperations_deleteAccount"
 	| "MailboxOperations_listMailboxes"
 	| "MailboxOperations_createMailbox"
 	| "MailboxDetailOperations_getMailbox"
@@ -22,6 +26,16 @@ export type OperationIds =
 	| "MessageBulkOperations_moveMessages";
 
 export type ConfigOperationIds = MatchPrefix<"ConfigOperations_", OperationIds>;
+
+export type AccountOperationIds = MatchPrefix<
+	"AccountOperations_",
+	OperationIds
+>;
+
+export type AccountDetailOperationIds = MatchPrefix<
+	"AccountDetailOperations_",
+	OperationIds
+>;
 
 export type MailboxOperationIds = MatchPrefix<
 	"MailboxOperations_",

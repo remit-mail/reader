@@ -16,6 +16,13 @@ import {
 	MessageMoveService,
 } from "@remit/mailbox-service";
 import {
+	createCachedDataKeyProvider,
+	createKmsDataKeyProvider,
+	createSecretsService,
+	FAKE_KMS_KEY_ID,
+	type SecretsService,
+} from "@remit/secrets-service";
+import {
 	createStorageService,
 	type StorageService,
 } from "@remit/storage-service";
@@ -60,6 +67,9 @@ export interface RemitClient {
 	// Storage service
 	storage: StorageService;
 
+	// Secrets service (KMS encryption)
+	secrets: SecretsService;
+
 	// Queue services (writes with IMAP sync)
 	flagQueue: FlagQueueService;
 	mailboxQueue: MailboxQueueService;
@@ -91,6 +101,13 @@ export const getClient = (): RemitClient => {
 		// Storage service - auto-selects filesystem or S3 based on env vars
 		const storageService = createStorageService();
 
+		// Secrets service - uses KMS in production, fake provider in dev
+		const kmsKeyId = process.env.KMS_KEY_ID ?? FAKE_KMS_KEY_ID;
+		const dataKeyProvider = createCachedDataKeyProvider(
+			createKmsDataKeyProvider(kmsKeyId),
+		);
+		const secretsService = createSecretsService(dataKeyProvider);
+
 		client = {
 			// ElectroDB services (reads)
 			accountConfig: accountConfigService,
@@ -104,6 +121,9 @@ export const getClient = (): RemitClient => {
 
 			// Storage service
 			storage: storageService,
+
+			// Secrets service (KMS encryption)
+			secrets: secretsService,
 
 			// Queue services (writes with IMAP sync)
 			flagQueue: new FlagQueueService({
