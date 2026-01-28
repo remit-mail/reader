@@ -211,6 +211,12 @@ model DescribeMessageResponse {
 
   @doc("Body structure")
   bodyParts: BodyPartResponse[];
+
+  @doc("Plain text body content")
+  bodyText?: string;
+
+  @doc("HTML body content (sanitize before rendering)")
+  bodyHtml?: string;
 }
 
 // ============================================
@@ -255,4 +261,65 @@ model MessageBulkOperationResult {
 
   @doc("IDs of failed items")
   failedIds?: UUID[];
+}
+
+// ============================================
+// Bulk Flag Update
+// ============================================
+
+@doc("Input for bulk flag update operations")
+model BulkUpdateFlagsInput {
+  @doc("List of message IDs to update")
+  @minItems(1)
+  @maxItems(100)
+  messageIds: UUID[];
+
+  @doc("Set messages as read (maps to \\Seen flag)")
+  isRead?: boolean;
+
+  @doc("Set messages as starred (maps to \\Flagged flag)")
+  isStarred?: boolean;
+
+  @doc("Star color for visual categorization")
+  starColor?: StarColor;
+}
+
+// ============================================
+// Delete Messages (with options)
+// ============================================
+
+@doc("Input for deleting messages")
+model DeleteMessagesInput {
+  @doc("List of message IDs to delete")
+  @minItems(1)
+  @maxItems(100)
+  messageIds: UUID[];
+
+  @doc("Permanently delete instead of moving to Trash. Default: false")
+  permanent?: boolean;
+}
+
+// ============================================
+// Copy Messages
+// ============================================
+
+@doc("Input for copying messages to another mailbox")
+model CopyMessagesInput {
+  @doc("List of message IDs to copy")
+  @minItems(1)
+  @maxItems(100)
+  messageIds: UUID[];
+
+  @doc("Destination mailbox ID")
+  destinationMailboxId: UUID;
+}
+
+// ============================================
+// Empty Trash Response
+// ============================================
+
+@doc("Response from emptying trash")
+model EmptyTrashResponse {
+  @doc("Number of messages permanently deleted")
+  deletedCount: int32;
 }

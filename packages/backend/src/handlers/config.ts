@@ -1,0 +1,93 @@
+import type {
+	AccountConfigItem,
+	AccountItem,
+} from "@remit/remit-electrodb-service";
+import type {
+	AccountConfigResponse,
+	AccountResponse,
+	ConfigDescriptionResponse,
+} from "@remit/api-openapi-types";
+import type { APIGatewayProxyEvent } from "aws-lambda";
+import type { Context } from "openapi-backend";
+import { getClient } from "../service/dynamodb.js";
+import type { ConfigOperationIds, OperationHandler } from "../types.js";
+
+const toAccountConfigResponse = (
+	config: AccountConfigItem,
+): AccountConfigResponse => ({
+	accountConfigId: config.accountConfigId,
+	userId: config.userId,
+	name: config.name,
+	createdAt: config.createdAt,
+	updatedAt: config.updatedAt,
+});
+
+const toAccountResponse = (account: AccountItem): AccountResponse => ({
+	accountId: account.accountId,
+	accountConfigId: account.accountConfigId,
+	username: account.username,
+	email: account.email,
+	imapHost: account.imapHost,
+	imapPort: account.imapPort,
+	imapTls: account.imapTls,
+	imapStartTls: account.imapStartTls,
+	smtpHost: account.smtpHost,
+	smtpPort: account.smtpPort,
+	smtpTls: account.smtpTls,
+	smtpStartTls: account.smtpStartTls,
+	smtpUsername: account.smtpUsername,
+	isActive: account.isActive,
+	connectionState: account.connectionState,
+	lastConnectedAt: account.lastConnectedAt,
+	lastSyncAt: account.lastSyncAt,
+	lastError: account.lastError,
+	createdAt: account.createdAt,
+	updatedAt: account.updatedAt,
+});
+
+/**
+ * Extract accountConfigId from JWT claims in API Gateway event.
+ * Falls back to environment variable for local development.
+ */
+const getAccountConfigIdFromEvent = (event: APIGatewayProxyEvent): string => {
+	// In production, get from Cognito JWT claims
+	const claims = event.requestContext?.authorizer?.claims;
+	if (claims?.["custom:accountConfigId"]) {
+		return claims["custom:accountConfigId"] as string;
+	}
+
+	// For local development, use environment variable
+	const localAccountConfigId = process.env.LOCAL_ACCOUNT_CONFIG_ID;
+	if (localAccountConfigId) {
+		return localAccountConfigId;
+	}
+
+	throw new Error(
+		"Missing accountConfigId: not found in JWT claims or LOCAL_ACCOUNT_CONFIG_ID env var",
+	);
+};
+
+export const ConfigOperations: Record<
+	ConfigOperationIds,
+	OperationHandler<ConfigOperationIds>
+> = {
+	ConfigOperations_getConfig: async (
+		_context: Context,
+		...args: unknown[]
+	): Promise<ConfigDescriptionResponse> => {
+		const event = args[0] as APIGatewayProxyEvent;
+		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const description =
+			await getClient().accountConfig.describe(accountConfigId);
+
+		const accountConfig = description.accountConfig[0];
+		if (!accountConfig) {
+			throw new Error(`AccountConfig not found: ${accountConfigId}`);
+		}
+
+		return {
+			accountConfig: toAccountConfigResponse(accountConfig),
+			accounts: description.account.map(toAccountResponse),
+		};
+	},
+};

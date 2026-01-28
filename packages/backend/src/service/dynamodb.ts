@@ -1,6 +1,7 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import {
+	AccountConfigService,
 	AccountService,
 	EnvelopeService,
 	MailboxService,
@@ -14,6 +15,10 @@ import {
 	MailboxQueueService,
 	MessageMoveService,
 } from "@remit/mailbox-service";
+import {
+	createStorageService,
+	type StorageService,
+} from "@remit/storage-service";
 import { env } from "expect-env";
 import { logger } from "../logger.js";
 
@@ -43,6 +48,7 @@ const getDocumentClient = (): DynamoDBDocumentClient => {
 
 export interface RemitClient {
 	// ElectroDB services (reads)
+	accountConfig: AccountConfigService;
 	account: AccountService;
 	mailbox: MailboxService;
 	mailboxSpecialUse: MailboxSpecialUseService;
@@ -50,6 +56,9 @@ export interface RemitClient {
 	messageFlag: MessageFlagService;
 	threadMessage: ThreadMessageService;
 	envelope: EnvelopeService;
+
+	// Storage service
+	storage: StorageService;
 
 	// Queue services (writes with IMAP sync)
 	flagQueue: FlagQueueService;
@@ -67,6 +76,7 @@ export const getClient = (): RemitClient => {
 		const config = { client: documentClient, table, salt };
 
 		// ElectroDB services
+		const accountConfigService = new AccountConfigService(config);
 		const accountService = new AccountService(config);
 		const mailboxService = new MailboxService(config);
 		const mailboxSpecialUseService = new MailboxSpecialUseService(config);
@@ -78,8 +88,12 @@ export const getClient = (): RemitClient => {
 		// Queue services (SQS_QUEUE_URL required for write operations)
 		const sqsQueueUrl = env.SQS_QUEUE_URL;
 
+		// Storage service - auto-selects filesystem or S3 based on env vars
+		const storageService = createStorageService();
+
 		client = {
 			// ElectroDB services (reads)
+			accountConfig: accountConfigService,
 			account: accountService,
 			mailbox: mailboxService,
 			mailboxSpecialUse: mailboxSpecialUseService,
@@ -87,6 +101,9 @@ export const getClient = (): RemitClient => {
 			messageFlag: messageFlagService,
 			threadMessage: threadMessageService,
 			envelope: envelopeService,
+
+			// Storage service
+			storage: storageService,
 
 			// Queue services (writes with IMAP sync)
 			flagQueue: new FlagQueueService({

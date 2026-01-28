@@ -224,3 +224,61 @@ model SyncTriggerResponse {
   @doc("Message about sync status")
   message: string;
 }
+
+@doc("Account configuration response")
+model AccountConfigResponse
+  is PickProperties<
+    AccountConfig,
+    "accountConfigId" | "userId" | "name" | "createdAt" | "updatedAt"
+  >;
+
+@doc("Account response (excluding sensitive fields)")
+model AccountResponse
+  is PickProperties<
+    Account,
+
+      | "accountId"
+      | "accountConfigId"
+      | "username"
+      | "email"
+      | "imapHost"
+      | "imapPort"
+      | "imapTls"
+      | "imapStartTls"
+      | "smtpHost"
+      | "smtpPort"
+      | "smtpTls"
+      | "smtpStartTls"
+      | "smtpUsername"
+      | "isActive"
+      | "connectionState"
+      | "lastConnectedAt"
+      | "lastSyncAt"
+      | "lastError"
+      | "createdAt"
+      | "updatedAt"
+  >;
+
+@doc("Address response for address book entries")
+model AddressResponse
+  is PickProperties<
+    Address,
+
+      | "addressId"
+      | "accountConfigId"
+      | "displayName"
+      | "localPart"
+      | "domain"
+      | "normalizedEmail"
+      | "createdAt"
+      | "updatedAt"
+  >;
+
+@doc("Full configuration description including accounts")
+model ConfigDescriptionResponse {
+  @doc("The account configuration")
+  accountConfig: AccountConfigResponse;
+
+  @doc("Associated email accounts")
+  accounts: AccountResponse[];
+}

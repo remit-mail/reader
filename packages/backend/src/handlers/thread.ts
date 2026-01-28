@@ -1,7 +1,11 @@
 import type { ThreadMessageItem } from "@remit/remit-electrodb-service";
 import type { ThreadMessageResponse } from "@remit/api-openapi-types";
 import { getClient } from "../service/dynamodb.js";
-import type { OperationHandler, ThreadOperationIds } from "../types.js";
+import type {
+	OperationHandler,
+	ThreadDetailOperationIds,
+	ThreadOperationIds,
+} from "../types.js";
 
 const toThreadMessageResponse = (
 	item: ThreadMessageItem,
@@ -97,6 +101,27 @@ export const ThreadOperations: Record<
 				continuationToken,
 			},
 		);
+
+		return {
+			items: result.items.map(toThreadMessageResponse).filter(Boolean),
+			continuationToken: result.continuationToken,
+		};
+	},
+};
+
+export const ThreadDetailOperations: Record<
+	ThreadDetailOperationIds,
+	OperationHandler<ThreadDetailOperationIds>
+> = {
+	ThreadDetailOperations_listThreadMessages: async (context) => {
+		const { threadId } = context.request.params as { threadId: string };
+		const { order } = context.request.query as {
+			order?: "asc" | "desc";
+		};
+
+		const result = await getClient().threadMessage.listByThread(threadId, {
+			order: order ?? "desc",
+		});
 
 		return {
 			items: result.items.map(toThreadMessageResponse).filter(Boolean),

@@ -5,6 +5,7 @@ import type {
 	EnvelopeResponse,
 	MessageSummaryResponse,
 } from "@remit/api-openapi-types";
+import { simpleParser } from "mailparser";
 import { getClient } from "../service/dynamodb.js";
 import type {
 	MessageBulkOperationIds,
@@ -73,11 +74,30 @@ export const MessageOperations: Record<
 
 		const flags = description.messageFlag.map((f) => f.flagName);
 
+		// Fetch body content from storage if available
+		let bodyText: string | undefined;
+		let bodyHtml: string | undefined;
+
+		if (message.bodyStorageKey) {
+			const { storage } = getClient();
+			const exists = await storage.exists(message.bodyStorageKey);
+
+			if (exists) {
+				const rawBody = await storage.retrieve(message.bodyStorageKey);
+				const parsed = await simpleParser(rawBody);
+
+				bodyText = parsed.text ?? undefined;
+				bodyHtml = typeof parsed.html === "string" ? parsed.html : undefined;
+			}
+		}
+
 		return {
 			message: messageSummary,
 			envelope: envelopeResponse,
 			flags,
 			bodyParts,
+			bodyText,
+			bodyHtml,
 		};
 	},
 
