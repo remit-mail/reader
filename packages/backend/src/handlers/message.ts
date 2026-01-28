@@ -78,17 +78,40 @@ export const MessageOperations: Record<
 		let bodyText: string | undefined;
 		let bodyHtml: string | undefined;
 
+		const client = getClient();
+		let bodyFetched = false;
+
 		if (message.bodyStorageKey) {
-			const { storage } = getClient();
-			const exists = await storage.exists(message.bodyStorageKey);
+			const exists = await client.storage.exists(message.bodyStorageKey);
 
 			if (exists) {
-				const rawBody = await storage.retrieve(message.bodyStorageKey);
+				const rawBody = await client.storage.retrieve(message.bodyStorageKey);
 				const parsed = await simpleParser(rawBody);
 
 				bodyText = parsed.text ?? undefined;
 				bodyHtml = typeof parsed.html === "string" ? parsed.html : undefined;
+				bodyFetched = true;
 			}
+		}
+
+		// If body not available from storage, fetch on-demand from IMAP
+		if (!bodyFetched) {
+			const mailbox = await client.mailbox.get(message.mailboxId);
+			const account = await client.account.get(mailbox.accountId);
+			const scope = await client.createConnectionScope(mailbox.accountId);
+
+			const result = await client.bodySync
+				.fetchAndGetBody(
+					messageId,
+					mailbox.accountId,
+					account.accountConfigId,
+					mailbox.fullPath,
+					scope.getConnection,
+				)
+				.finally(() => scope.disconnect());
+
+			bodyText = result.text ?? undefined;
+			bodyHtml = result.html ?? undefined;
 		}
 
 		return {

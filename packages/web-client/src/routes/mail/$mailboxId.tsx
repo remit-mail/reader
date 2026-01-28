@@ -1,10 +1,18 @@
 import {
 	messageBulkOperationsDeleteMessagesMutation,
-	threadOperationsListThreadsOptions,
-	threadOperationsSearchThreadsOptions,
+	threadOperationsListThreadsQueryKey,
+	threadOperationsSearchThreadsQueryKey,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import {
+	threadOperationsListThreads,
+	threadOperationsSearchThreads,
+} from "@remit/api-http-client/sdk.gen.ts";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+	useInfiniteQuery,
+	useMutation,
+	useQueryClient,
+} from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { toast } from "sonner";
@@ -35,22 +43,47 @@ function MailboxView() {
 	// Use search API when there's a query, otherwise list API
 	const hasSearchQuery = searchQuery.trim().length > 0;
 
-	const listOptions = threadOperationsListThreadsOptions({
-		path: { mailboxId },
-		query: { order: "desc" },
-	});
+	// Query key for cache management
+	const queryKey = hasSearchQuery
+		? threadOperationsSearchThreadsQueryKey({
+				path: { mailboxId },
+				query: { order: "desc", query: searchQuery.trim() },
+			})
+		: threadOperationsListThreadsQueryKey({
+				path: { mailboxId },
+				query: { order: "desc" },
+			});
 
-	const searchOptions = threadOperationsSearchThreadsOptions({
-		path: { mailboxId },
-		query: { order: "desc", query: searchQuery.trim() },
-	});
-
-	// Choose the appropriate query based on whether we're searching
-	const queryOptions = hasSearchQuery ? searchOptions : listOptions;
-
-	const { data: threadsResponse, isLoading } = useQuery({
-		...queryOptions,
-		// Disable search query when there's no search term
+	const {
+		data: threadsData,
+		isLoading,
+		fetchNextPage,
+		hasNextPage,
+		isFetchingNextPage,
+	} = useInfiniteQuery({
+		queryKey,
+		queryFn: async ({ pageParam }) => {
+			if (hasSearchQuery) {
+				const { data } = await threadOperationsSearchThreads({
+					path: { mailboxId },
+					query: {
+						order: "desc",
+						query: searchQuery.trim(),
+						continuationToken: pageParam,
+					},
+					throwOnError: true,
+				});
+				return data;
+			}
+			const { data } = await threadOperationsListThreads({
+				path: { mailboxId },
+				query: { order: "desc", continuationToken: pageParam },
+				throwOnError: true,
+			});
+			return data;
+		},
+		initialPageParam: undefined as string | undefined,
+		getNextPageParam: (lastPage) => lastPage.continuationToken,
 		enabled: hasSearchQuery ? searchQuery.trim().length > 0 : true,
 	});
 
@@ -61,19 +94,31 @@ function MailboxView() {
 			const messageIds = new Set(variables.body.messageIds);
 
 			// Cancel any outgoing refetches
-			await queryClient.cancelQueries({ queryKey: queryOptions.queryKey });
+			await queryClient.cancelQueries({ queryKey });
 
 			// Snapshot the previous value
-			const previousData = queryClient.getQueryData(queryOptions.queryKey);
+			const previousData = queryClient.getQueryData(queryKey);
 
-			// Optimistically update to remove deleted messages
+			// Optimistically update to remove deleted messages from all pages
 			queryClient.setQueryData(
-				queryOptions.queryKey,
-				(old: { items: RemitImapThreadMessageResponse[] } | undefined) => {
+				queryKey,
+				(
+					old:
+						| {
+								pages: Array<{ items: RemitImapThreadMessageResponse[] }>;
+								pageParams: Array<string | undefined>;
+						  }
+						| undefined,
+				) => {
 					if (!old) return old;
 					return {
 						...old,
-						items: old.items.filter((item) => !messageIds.has(item.messageId)),
+						pages: old.pages.map((page) => ({
+							...page,
+							items: page.items.filter(
+								(item) => !messageIds.has(item.messageId),
+							),
+						})),
 					};
 				},
 			);
@@ -92,7 +137,7 @@ function MailboxView() {
 		onError: (_err, _variables, context) => {
 			// Rollback on error
 			if (context?.previousData) {
-				queryClient.setQueryData(queryOptions.queryKey, context.previousData);
+				queryClient.setQueryData(queryKey, context.previousData);
 			}
 			toast.error("Failed to delete messages");
 		},
@@ -103,7 +148,7 @@ function MailboxView() {
 		},
 		onSettled: () => {
 			// Always refetch after error or success
-			queryClient.invalidateQueries({ queryKey: queryOptions.queryKey });
+			queryClient.invalidateQueries({ queryKey });
 		},
 	});
 
@@ -114,8 +159,8 @@ function MailboxView() {
 		[deleteMutation],
 	);
 
-	// Threads from API response (search handled by backend)
-	const threads = threadsResponse?.items ?? [];
+	// Flatten threads from all pages
+	const threads = threadsData?.pages.flatMap((page) => page.items) ?? [];
 
 	const selectedThread = threads.find((t) => t.messageId === selectedMessageId);
 
@@ -149,6 +194,9 @@ function MailboxView() {
 					searchQuery={searchQuery}
 					onDeleteMessages={handleDeleteMessages}
 					isDeleting={deleteMutation.isPending}
+					onLoadMore={fetchNextPage}
+					hasMore={hasNextPage}
+					isLoadingMore={isFetchingNextPage}
 				/>
 			</Panel>
 			<Panel withBorder={false} className="flex-1">

@@ -245,14 +245,11 @@ export class MailboxSyncService {
 			namespacePrefix: string;
 		},
 		_namespaces: ImapNamespaces,
-		_connection: IImapConnection,
+		connection: IImapConnection,
 	): Promise<MailboxItem> => {
-		// Skip opening mailbox during initial sync - metadata will be populated
-		// during message sync. This avoids issues with some IMAP servers that
-		// have bugs with EXAMINE/UNSELECT command sequences.
-		const uidValidity = 1;
-		const uidNext = 1;
-		const messageCount = 0;
+		// Fetch mailbox status using STATUS command (doesn't require SELECT/EXAMINE)
+		// This gets us message counts including unseen without opening the mailbox
+		const status = await connection.getMailboxStatus(mailboxInfo.fullPath);
 
 		const input: CreateMailboxInput = {
 			accountId,
@@ -260,10 +257,10 @@ export class MailboxSyncService {
 			namespacePrefix: mailboxInfo.namespacePrefix,
 			hierarchyDelimiter: mailboxInfo.delimiter,
 			fullPath: mailboxInfo.fullPath,
-			uidValidity,
-			uidNext,
-			messageCount,
-			unseenCount: 0,
+			uidValidity: status.uidValidity,
+			uidNext: status.uidNext,
+			messageCount: status.messages,
+			unseenCount: status.unseen,
 			deletedCount: 0,
 			totalSize: 0,
 			lastSyncUid: 0,
@@ -290,22 +287,22 @@ export class MailboxSyncService {
 	private updateMailbox = async (
 		existing: MailboxItem,
 		mailboxInfo: FlatMailboxInfo,
-		_connection: IImapConnection,
+		connection: IImapConnection,
 	): Promise<MailboxItem> => {
 		console.info(
 			`Updating mailbox: ${existing.mailboxId} (${mailboxInfo.fullPath})`,
 		);
-		// Check if delimiter changed (shouldn't happen, but handle it)
-		if (existing.hierarchyDelimiter !== mailboxInfo.delimiter) {
-			await this.mailboxService.update(existing.mailboxId, {
-				hierarchyDelimiter: mailboxInfo.delimiter,
-			});
-		}
 
-		// Skip updating metadata by opening the mailbox - this will be done
-		// during message sync. Avoids issues with some IMAP servers that have
-		// bugs with EXAMINE/UNSELECT sequences.
+		// Fetch mailbox status using STATUS command (doesn't require SELECT/EXAMINE)
+		const status = await connection.getMailboxStatus(mailboxInfo.fullPath);
 
-		return this.mailboxService.get(existing.mailboxId);
+		// Update mailbox with fresh status
+		return this.mailboxService.update(existing.mailboxId, {
+			hierarchyDelimiter: mailboxInfo.delimiter,
+			uidValidity: status.uidValidity,
+			uidNext: status.uidNext,
+			messageCount: status.messages,
+			unseenCount: status.unseen,
+		});
 	};
 }

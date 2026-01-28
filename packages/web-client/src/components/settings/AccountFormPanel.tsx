@@ -3,6 +3,7 @@ import {
 	accountDetailOperationsUpdateAccountMutation,
 	accountOperationsCreateAccountMutation,
 	accountOperationsTestConnectionMutation,
+	configOperationsGetConfigQueryKey,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -116,7 +117,7 @@ export const AccountFormPanel = ({
 		...accountOperationsCreateAccountMutation(),
 		onSuccess: () => {
 			queryClient.invalidateQueries({
-				queryKey: ["configOperationsGetConfig"],
+				queryKey: configOperationsGetConfigQueryKey(),
 			});
 			toast.success("Account created successfully");
 			onClose();
@@ -130,7 +131,7 @@ export const AccountFormPanel = ({
 		...accountDetailOperationsUpdateAccountMutation(),
 		onSuccess: () => {
 			queryClient.invalidateQueries({
-				queryKey: ["configOperationsGetConfig"],
+				queryKey: configOperationsGetConfigQueryKey(),
 			});
 			toast.success("Account updated successfully");
 			onClose();
@@ -150,7 +151,7 @@ export const AccountFormPanel = ({
 				username: values.username || values.email,
 				password: useStoredPassword ? undefined : values.password || undefined,
 				imapHost: values.imapHost,
-				imapPort: values.imapPort,
+				imapPort: Number(values.imapPort),
 				imapTls: values.imapTls,
 				imapStartTls: values.imapStartTls,
 			},
@@ -167,11 +168,11 @@ export const AccountFormPanel = ({
 				username: values.username || values.email,
 				password: useStoredPassword ? undefined : values.password || undefined,
 				imapHost: values.imapHost,
-				imapPort: values.imapPort,
+				imapPort: Number(values.imapPort),
 				imapTls: values.imapTls,
 				imapStartTls: values.imapStartTls,
 				smtpHost: values.smtpHost || undefined,
-				smtpPort: values.smtpPort || undefined,
+				smtpPort: values.smtpPort ? Number(values.smtpPort) : undefined,
 				smtpTls: values.smtpTls,
 				smtpStartTls: values.smtpStartTls,
 				smtpUsername: values.useDifferentSmtpCreds
@@ -197,11 +198,11 @@ export const AccountFormPanel = ({
 			// Only send password if creating new account or if password was modified
 			password: !isEditing || passwordModified ? values.password : undefined,
 			imapHost: values.imapHost,
-			imapPort: values.imapPort,
+			imapPort: Number(values.imapPort),
 			imapTls: values.imapTls,
 			imapStartTls: values.imapStartTls,
 			smtpHost: values.smtpHost || undefined,
-			smtpPort: values.smtpPort || undefined,
+			smtpPort: values.smtpPort ? Number(values.smtpPort) : undefined,
 			smtpTls: values.smtpTls,
 			smtpStartTls: values.smtpStartTls,
 			smtpUsername: values.useDifferentSmtpCreds
@@ -222,18 +223,21 @@ export const AccountFormPanel = ({
 	const isSaving = createMutation.isPending || updateMutation.isPending;
 
 	const handleSecurityChange = (type: "tls" | "starttls" | "none") => {
+		const currentPort = form.getValues("imapPort");
+		const isDefaultPort = currentPort === 993 || currentPort === 143;
+
 		if (type === "tls") {
 			form.setValue("imapTls", true);
 			form.setValue("imapStartTls", false);
-			form.setValue("imapPort", 993);
+			if (isDefaultPort) form.setValue("imapPort", 993);
 		} else if (type === "starttls") {
 			form.setValue("imapTls", false);
 			form.setValue("imapStartTls", true);
-			form.setValue("imapPort", 143);
+			if (isDefaultPort) form.setValue("imapPort", 143);
 		} else {
 			form.setValue("imapTls", false);
 			form.setValue("imapStartTls", false);
-			form.setValue("imapPort", 143);
+			if (isDefaultPort) form.setValue("imapPort", 143);
 		}
 	};
 

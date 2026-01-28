@@ -9,21 +9,19 @@ import {
 } from "@remit/remit-electrodb-service";
 import { AddressRole } from "@remit/domain-enums";
 import pMap from "p-map";
-import type {
-	IImapConnection,
-	ImapAddress,
-	ImapEnvelope,
-	ImapMessage,
-} from "./types.js";
+import type { ManagedConnectionFactory } from "./connection-factory.js";
+import type { ImapAddress, ImapEnvelope, ImapMessage } from "./types.js";
 
 const MESSAGE_SAVE_CONCURRENCY = 10;
 const ADDRESS_SAVE_CONCURRENCY = 10;
 
 /**
- * Factory function to create IMAP connections.
- * Each call should return a fresh, unconnected connection.
+ * @deprecated Use ManagedConnectionFactory instead
  */
-export type ImapConnectionFactory = () => IImapConnection;
+export type ImapConnectionFactory = () => {
+	connect(): Promise<void>;
+	disconnect(): Promise<void>;
+};
 
 export interface SyncLogger {
 	info(obj: Record<string, unknown>, msg: string): void;
@@ -44,7 +42,7 @@ export class MessageSyncService {
 	private log: SyncLogger;
 
 	constructor(
-		private createConnection: ImapConnectionFactory,
+		private connectionFactory: ManagedConnectionFactory,
 		private mailboxService: MailboxService,
 		private messageService: MessageService,
 		private envelopeService: EnvelopeService,
@@ -120,7 +118,7 @@ export class MessageSyncService {
 
 		// Process only the first batch
 		const batchUids = uids.slice(0, batchSize);
-		const messages = await this.fetchMessageBatch(mailboxPath, batchUids);
+		const messages = await this.fetchMessageBatch(batchUids);
 
 		// Process messages in parallel with concurrency limit
 		const results = await pMap(
@@ -191,60 +189,46 @@ export class MessageSyncService {
 		unseenCount: number;
 		uids: number[];
 	}> {
-		const connection = this.createConnection();
-		try {
-			await connection.connect();
-			const box = await connection.openBox(mailboxPath);
+		const connection = this.connectionFactory.getConnection();
+		const box = await connection.openBox(mailboxPath);
 
-			// Get mailbox status including unseen count
-			const status = await connection.getMailboxStatus(mailboxPath);
+		// Get mailbox status including unseen count
+		const status = await connection.getMailboxStatus(mailboxPath);
 
-			const allUids = await connection.search(["ALL"]);
+		const allUids = await connection.search(["ALL"]);
 
-			// New messages: UIDs greater than what we've seen
-			const newUids = allUids.filter((uid) => uid > highWaterMarkUid);
+		// New messages: UIDs greater than what we've seen
+		const newUids = allUids.filter((uid) => uid > highWaterMarkUid);
 
-			// Backfill: UIDs below our lowest synced point (if sync started)
-			const backfillUids =
-				lastSyncUid > 1 ? allUids.filter((uid) => uid < lastSyncUid) : [];
+		// Backfill: UIDs below our lowest synced point (if sync started)
+		const backfillUids =
+			lastSyncUid > 1 ? allUids.filter((uid) => uid < lastSyncUid) : [];
 
-			// Fresh sync: if no watermarks, sync everything
-			const isFreshSync = highWaterMarkUid === 0 && lastSyncUid === 0;
-			const uidsToSync = isFreshSync ? allUids : [...newUids, ...backfillUids];
+		// Fresh sync: if no watermarks, sync everything
+		const isFreshSync = highWaterMarkUid === 0 && lastSyncUid === 0;
+		const uidsToSync = isFreshSync ? allUids : [...newUids, ...backfillUids];
 
-			// Sort descending (newest first)
-			uidsToSync.sort((a, b) => b - a);
+		// Sort descending (newest first)
+		uidsToSync.sort((a, b) => b - a);
 
-			return {
-				box: {
-					uidvalidity: box.uidvalidity,
-					uidnext: box.uidnext,
-					messageCount: status.messages,
-				},
-				unseenCount: status.unseen,
-				uids: uidsToSync,
-			};
-		} finally {
-			await connection.disconnect();
-		}
+		return {
+			box: {
+				uidvalidity: box.uidvalidity,
+				uidnext: box.uidnext,
+				messageCount: status.messages,
+			},
+			unseenCount: status.unseen,
+			uids: uidsToSync,
+		};
 	}
 
 	/**
-	 * Fetch a batch of messages using a fresh connection.
+	 * Fetch a batch of messages using the managed connection.
+	 * Assumes mailbox is already open from fetchUidsToSync.
 	 */
-	private async fetchMessageBatch(
-		mailboxPath: string,
-		uids: number[],
-	): Promise<ImapMessage[]> {
-		const connection = this.createConnection();
-		try {
-			await connection.connect();
-			await connection.openBox(mailboxPath);
-			console.log(`Fetching messages: ${mailboxPath}${uids.join(", ")}`);
-			return await connection.fetchMessages(uids);
-		} finally {
-			await connection.disconnect();
-		}
+	private async fetchMessageBatch(uids: number[]): Promise<ImapMessage[]> {
+		const connection = this.connectionFactory.getConnection();
+		return await connection.fetchMessages(uids);
 	}
 
 	private async saveMessage(

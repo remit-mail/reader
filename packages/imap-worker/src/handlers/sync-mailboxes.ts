@@ -15,10 +15,12 @@ import {
 } from "@remit/secrets-service";
 import { env } from "expect-env";
 import pMap from "p-map";
+import { isAccountDeleted } from "../account-check.js";
 import { emitEvent } from "../emit.js";
 import type { SyncMailboxesEvent, SyncMessagesEvent } from "../events.js";
 
 const EVENT_EMIT_CONCURRENCY = 20;
+const SYNC_COOLDOWN_MS = 30_000; // 30 seconds
 
 const client = getClient();
 const dataKeyProvider = createKmsDataKeyProvider(env.KMS_KEY_ID);
@@ -49,6 +51,10 @@ export const syncMailboxes = async (
 		throw new Error(`Account ${accountId} not found`);
 	}
 
+	if (isAccountDeleted(account, log)) {
+		return;
+	}
+
 	const password = await secrets.decrypt(
 		deserializeEncryptedPayload(JSON.parse(account.passwordHash)),
 	);
@@ -72,7 +78,19 @@ export const syncMailboxes = async (
 	log.info({ result }, "Mailbox sync complete");
 
 	// Get all mailboxes and emit SYNC_MESSAGES for each
-	const mailboxes = await collectAllMailboxes(accountId, mailboxService);
+	const allMailboxes = await collectAllMailboxes(accountId, mailboxService);
+
+	// Filter out mailboxes that were synced recently (cooldown)
+	// Always include mailboxes that were never synced (lastMessageSyncAt is 0, undefined, or null)
+	const now = Date.now();
+	const mailboxes = allMailboxes.filter(
+		(m) => !m.lastMessageSyncAt || now - m.lastMessageSyncAt > SYNC_COOLDOWN_MS,
+	);
+
+	const skipped = allMailboxes.length - mailboxes.length;
+	if (skipped > 0) {
+		log.info({ accountId, skipped }, "Skipped mailboxes due to sync cooldown");
+	}
 
 	if (mailboxes.length === 0) {
 		log.info({ accountId }, "No mailboxes to sync messages for");
@@ -100,7 +118,11 @@ export const syncMailboxes = async (
 	);
 };
 
-type MailboxSortEntry = { mailboxId: string; fullPath: string };
+type MailboxSortEntry = {
+	mailboxId: string;
+	fullPath: string;
+	lastMessageSyncAt: number;
+};
 
 /**
  * Collect all mailboxes for an account, sorted with INBOX first, then alphabetically by path.
@@ -121,6 +143,7 @@ const collectAllMailboxes = async (
 			mailboxes.push({
 				mailboxId: mailbox.mailboxId,
 				fullPath: mailbox.fullPath,
+				lastMessageSyncAt: mailbox.lastMessageSyncAt,
 			});
 		}
 
