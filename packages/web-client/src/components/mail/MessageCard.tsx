@@ -4,10 +4,12 @@ import type {
 	RemitImapThreadMessageResponse,
 } from "@remit/api-http-client/types.gen.ts";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, Star } from "lucide-react";
+import { Avatar } from "@/components/ui/Avatar";
 import { formatDatePreset } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { AddressList } from "./AddressDisplay";
+import { MessageActionMenu } from "./MessageActionMenu";
 import { MessageBody } from "./MessageBody";
 
 interface MessageCardProps {
@@ -15,48 +17,79 @@ interface MessageCardProps {
 	isExpanded: boolean;
 	isFocused?: boolean;
 	onToggle: () => void;
+	onToggleStar: () => void;
+	isStarPending?: boolean;
 }
 
 const CollapsedCard = ({
 	threadMessage,
 	isFocused,
 	onToggle,
+	onToggleStar,
+	isStarPending,
 }: {
 	threadMessage: RemitImapThreadMessageResponse;
 	isFocused?: boolean;
 	onToggle: () => void;
+	onToggleStar: () => void;
+	isStarPending?: boolean;
 }) => {
 	const senderName =
 		threadMessage.fromName || threadMessage.fromEmail || "Unknown";
 	const date = formatDatePreset(threadMessage.sentDate, "datetime");
 	const snippet = threadMessage.snippet || "";
+	const isStarred = threadMessage.hasStars;
 
 	return (
-		<button
-			type="button"
-			onClick={onToggle}
+		<div
 			className={cn(
-				"w-full text-left border rounded-lg p-3",
-				"bg-card hover:bg-accent/50 transition-colors",
-				"cursor-pointer",
-				isFocused && "ring-2 ring-ring ring-offset-2 ring-offset-background",
+				"group flex items-start gap-3 py-3 px-2 -mx-2 rounded-lg",
+				"hover:bg-accent/30 transition-colors cursor-pointer",
+				isFocused && "bg-accent/40",
 			)}
+			onClick={onToggle}
 		>
-			<div className="flex items-center justify-between gap-2">
-				<span className="font-medium text-sm text-foreground truncate">
-					{senderName}
-				</span>
-				<div className="flex items-center gap-2 shrink-0">
-					<span className="text-xs text-muted-foreground">{date}</span>
-					<ChevronRight className="size-4 text-muted-foreground" />
+			<Avatar
+				name={threadMessage.fromName ?? undefined}
+				email={threadMessage.fromEmail ?? undefined}
+				size="md"
+			/>
+			<div className="flex-1 min-w-0">
+				<div className="flex items-center justify-between gap-2">
+					<div className="flex items-center gap-2 min-w-0">
+						<span className="font-medium text-sm text-foreground truncate">
+							{senderName}
+						</span>
+						<button
+							type="button"
+							onClick={(e) => {
+								e.stopPropagation();
+								onToggleStar();
+							}}
+							disabled={isStarPending}
+							className={cn(
+								"shrink-0 p-0.5 rounded transition-colors",
+								isStarred
+									? "text-yellow-500"
+									: "text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-yellow-500",
+								isStarPending && "opacity-50",
+							)}
+						>
+							<Star className={cn("size-4", isStarred && "fill-current")} />
+						</button>
+					</div>
+					<div className="flex items-center gap-2 shrink-0">
+						<span className="text-xs text-muted-foreground">{date}</span>
+						<ChevronRight className="size-4 text-muted-foreground" />
+					</div>
 				</div>
+				{snippet && (
+					<div className="text-sm text-muted-foreground truncate mt-0.5">
+						{snippet}
+					</div>
+				)}
 			</div>
-			{snippet && (
-				<div className="text-sm text-muted-foreground truncate mt-1">
-					{snippet}
-				</div>
-			)}
-		</button>
+		</div>
 	);
 };
 
@@ -66,51 +99,82 @@ const ExpandedCard = ({
 	isLoading,
 	isFocused,
 	onToggle,
+	onToggleStar,
+	isStarPending,
 }: {
 	threadMessage: RemitImapThreadMessageResponse;
 	messageData?: RemitImapDescribeMessageResponse;
 	isLoading: boolean;
 	isFocused?: boolean;
 	onToggle: () => void;
+	onToggleStar: () => void;
+	isStarPending?: boolean;
 }) => {
 	const senderName =
 		threadMessage.fromName || threadMessage.fromEmail || "Unknown";
 	const date = formatDatePreset(threadMessage.sentDate, "long");
+	const isStarred = threadMessage.hasStars;
 
 	return (
-		<div
-			className={cn(
-				"border rounded-lg bg-card overflow-hidden",
-				isFocused && "ring-2 ring-ring ring-offset-2 ring-offset-background",
-			)}
-		>
+		<div className={cn("rounded-lg px-2 -mx-2", isFocused && "bg-accent/40")}>
 			{/* Header - clickable to collapse */}
-			<button
-				type="button"
-				onClick={onToggle}
-				className={cn(
-					"w-full text-left p-4 border-b border-border",
-					"hover:bg-accent/30 transition-colors cursor-pointer",
-				)}
-			>
-				<div className="flex items-start justify-between gap-2">
-					<div className="flex-1 min-w-0">
-						<div className="flex items-center gap-2 mb-1">
-							<span className="font-medium text-foreground">{senderName}</span>
+			<div className="flex items-start gap-3 py-3">
+				<Avatar
+					name={threadMessage.fromName ?? undefined}
+					email={threadMessage.fromEmail ?? undefined}
+					size="md"
+				/>
+				<button
+					type="button"
+					onClick={onToggle}
+					className="flex-1 min-w-0 text-left hover:bg-accent/20 -my-2 py-2 px-1 -mx-1 rounded transition-colors"
+				>
+					<div className="flex items-start justify-between gap-2">
+						<div className="flex-1 min-w-0">
+							<div className="flex items-center gap-2 mb-0.5">
+								<span className="font-medium text-foreground">
+									{senderName}
+								</span>
+								<button
+									type="button"
+									onClick={(e) => {
+										e.stopPropagation();
+										onToggleStar();
+									}}
+									disabled={isStarPending}
+									className={cn(
+										"shrink-0 p-0.5 rounded transition-colors",
+										isStarred
+											? "text-yellow-500"
+											: "text-muted-foreground hover:text-yellow-500",
+										isStarPending && "opacity-50",
+									)}
+								>
+									<Star className={cn("size-4", isStarred && "fill-current")} />
+								</button>
+							</div>
+							{messageData && (
+								<AddressList label="To" addresses={messageData.envelope.to} />
+							)}
 						</div>
-						{messageData && (
-							<AddressList label="To" addresses={messageData.envelope.to} />
-						)}
+						<div className="flex items-center gap-2 shrink-0">
+							<span className="text-xs text-muted-foreground">{date}</span>
+							<ChevronDown className="size-4 text-muted-foreground" />
+						</div>
 					</div>
-					<div className="flex items-center gap-2 shrink-0">
-						<span className="text-xs text-muted-foreground">{date}</span>
-						<ChevronDown className="size-4 text-muted-foreground" />
-					</div>
+				</button>
+				<div className="shrink-0">
+					<MessageActionMenu
+						messageId={threadMessage.messageId}
+						threadId={threadMessage.threadId}
+						mailboxId={threadMessage.mailboxId}
+						isRead={threadMessage.isRead}
+					/>
 				</div>
-			</button>
+			</div>
 
 			{/* Body */}
-			<div className="p-4">
+			<div className="pl-13 mt-2">
 				{isLoading ? (
 					<div className="animate-pulse space-y-2">
 						<div className="h-4 bg-muted rounded w-full" />
@@ -133,6 +197,8 @@ export const MessageCard = ({
 	isExpanded,
 	isFocused,
 	onToggle,
+	onToggleStar,
+	isStarPending,
 }: MessageCardProps) => {
 	const { data: messageData, isLoading } = useQuery({
 		...messageOperationsDescribeMessageOptions({
@@ -147,6 +213,8 @@ export const MessageCard = ({
 				threadMessage={threadMessage}
 				isFocused={isFocused}
 				onToggle={onToggle}
+				onToggleStar={onToggleStar}
+				isStarPending={isStarPending}
 			/>
 		);
 	}
@@ -158,6 +226,8 @@ export const MessageCard = ({
 			isLoading={isLoading}
 			isFocused={isFocused}
 			onToggle={onToggle}
+			onToggleStar={onToggleStar}
+			isStarPending={isStarPending}
 		/>
 	);
 };

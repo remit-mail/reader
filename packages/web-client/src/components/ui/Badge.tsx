@@ -11,7 +11,10 @@ const formatCount = (count: number, max = 999): string => {
 	return String(count);
 };
 
-const formatTooltip = (count: number, totalCount?: number): string | undefined => {
+const formatTooltip = (
+	count: number,
+	totalCount?: number,
+): string | undefined => {
 	if (totalCount === undefined) return undefined;
 	return `${count} unread / ${totalCount} total`;
 };
