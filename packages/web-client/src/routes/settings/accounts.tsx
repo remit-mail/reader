@@ -1,6 +1,7 @@
 import {
 	accountDetailOperationsDeleteAccountMutation,
 	configOperationsGetConfigOptions,
+	configOperationsGetConfigQueryKey,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import {
 	useMutation,
@@ -33,7 +34,7 @@ function AccountsSettings() {
 		...accountDetailOperationsDeleteAccountMutation(),
 		onSuccess: () => {
 			queryClient.invalidateQueries({
-				queryKey: ["configOperationsGetConfig"],
+				queryKey: configOperationsGetConfigQueryKey(),
 			});
 			toast.success("Account deleted");
 			setDeletingAccountId(null);

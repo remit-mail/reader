@@ -11,6 +11,7 @@ import {
 	deserializeEncryptedPayload,
 } from "@remit/secrets-service";
 import { env } from "expect-env";
+import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeFromAccount } from "../connection-scope.js";
 import type { EmptyTrashEvent } from "../events.js";
 
@@ -46,6 +47,10 @@ export const handleEmptyTrash = async (
 	const account = await accountService.get(accountId);
 	if (!account) {
 		throw new Error(`Account ${accountId} not found`);
+	}
+
+	if (isAccountDeleted(account, log)) {
+		return;
 	}
 
 	const password = await secrets.decrypt(

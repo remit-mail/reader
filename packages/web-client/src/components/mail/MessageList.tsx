@@ -17,6 +17,9 @@ interface MessageListProps {
 	searchQuery?: string;
 	onDeleteMessages?: (messageIds: string[]) => void;
 	isDeleting?: boolean;
+	onLoadMore?: () => void;
+	hasMore?: boolean;
+	isLoadingMore?: boolean;
 }
 
 const ESTIMATED_ITEM_HEIGHT = 72;
@@ -60,6 +63,9 @@ export const MessageList = ({
 	searchQuery,
 	onDeleteMessages,
 	isDeleting = false,
+	onLoadMore,
+	hasMore = false,
+	isLoadingMore = false,
 }: MessageListProps) => {
 	const parentRef = useRef<HTMLDivElement>(null);
 	const navigate = useNavigate();
@@ -146,6 +152,30 @@ export const MessageList = ({
 		}
 	}, [threads, selectedIds, clearSelection]);
 
+	// Load more when scrolling near the bottom
+	useEffect(() => {
+		const scrollElement = parentRef.current;
+		if (!scrollElement || !hasMore || !onLoadMore) return;
+
+		const handleScroll = () => {
+			if (isLoadingMore) return;
+
+			const { scrollTop, scrollHeight, clientHeight } = scrollElement;
+			// Trigger when within 200px of the bottom
+			const nearBottom = scrollTop + clientHeight >= scrollHeight - 200;
+
+			if (nearBottom) {
+				onLoadMore();
+			}
+		};
+
+		scrollElement.addEventListener("scroll", handleScroll, { passive: true });
+		// Also check immediately in case we're already at the bottom
+		handleScroll();
+
+		return () => scrollElement.removeEventListener("scroll", handleScroll);
+	}, [hasMore, isLoadingMore, onLoadMore]);
+
 	// Keyboard navigation
 	useKeyboardNavigation({
 		enabled: !isLoading && threads.length > 0,
@@ -222,6 +252,11 @@ export const MessageList = ({
 						);
 					})}
 				</div>
+				{isLoadingMore && (
+					<div className="flex justify-center py-4">
+						<div className="h-5 w-5 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+					</div>
+				)}
 			</div>
 		</div>
 	);

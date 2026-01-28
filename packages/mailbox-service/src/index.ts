@@ -21,6 +21,8 @@ export {
 export {
 	createConnection,
 	createConnectionFromAccount,
+	createManagedConnectionFactory,
+	type ManagedConnectionFactory,
 } from "./connection-factory.js";
 // Connection testing
 export {

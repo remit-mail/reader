@@ -14,7 +14,7 @@ export const formatResponse = (
 		body = body.body as Record<string, unknown>;
 	}
 
-	logger.info({ statusCode, body }, "response");
+	logger.info({ statusCode }, "response");
 
 	return {
 		statusCode: statusCode,
