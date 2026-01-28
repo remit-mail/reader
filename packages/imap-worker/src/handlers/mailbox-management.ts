@@ -43,7 +43,7 @@ const handleCreate = async (
 ): Promise<void> => {
 	const { accountId, mailboxId, path, subscribe } = event;
 
-	log.info({ accountId, mailboxId, path }, "Creating mailbox on IMAP");
+	log.info({ event: event.type, accountId, mailboxId, path }, "Handling event");
 
 	const account = await accountService.get(accountId);
 	if (!account) {
@@ -103,8 +103,8 @@ const handleRename = async (
 	const { accountId, mailboxId, oldPath, newPath } = event;
 
 	log.info(
-		{ accountId, mailboxId, oldPath, newPath },
-		"Renaming mailbox on IMAP",
+		{ event: event.type, accountId, mailboxId, oldPath, newPath },
+		"Handling event",
 	);
 
 	const account = await accountService.get(accountId);
@@ -168,7 +168,7 @@ const handleDelete = async (
 ): Promise<void> => {
 	const { accountId, mailboxId, path } = event;
 
-	log.info({ accountId, mailboxId, path }, "Deleting mailbox on IMAP");
+	log.info({ event: event.type, accountId, mailboxId, path }, "Handling event");
 
 	const account = await accountService.get(accountId);
 	if (!account) {

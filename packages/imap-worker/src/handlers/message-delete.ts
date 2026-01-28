@@ -52,8 +52,8 @@ export const handleMessageDelete = async (
 	} = event;
 
 	log.info(
-		{ accountId, messageId, mailboxPath, operation },
-		"Processing message delete on IMAP",
+		{ event: event.type, accountId, messageId, mailboxPath, operation },
+		"Handling event",
 	);
 
 	const account = await accountService.get(accountId);

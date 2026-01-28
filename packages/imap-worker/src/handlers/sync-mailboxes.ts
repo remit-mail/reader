@@ -44,7 +44,7 @@ export const syncMailboxes = async (
 	log: Logger,
 ): Promise<void> => {
 	const { accountId } = event;
-	log.info({ accountId }, "Syncing mailboxes");
+	log.info({ event: event.type, accountId }, "Handling event");
 
 	const account = await accountService.get(accountId);
 	if (!account) {

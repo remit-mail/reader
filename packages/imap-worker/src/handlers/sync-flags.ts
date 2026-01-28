@@ -45,8 +45,13 @@ export const syncFlags = async (
 	const { accountId, mailboxId, operations } = event;
 
 	log.info(
-		{ accountId, mailboxId, operationCount: operations.length },
-		"Syncing message flags to IMAP",
+		{
+			event: event.type,
+			accountId,
+			mailboxId,
+			operationCount: operations.length,
+		},
+		"Handling event",
 	);
 
 	if (operations.length === 0) {

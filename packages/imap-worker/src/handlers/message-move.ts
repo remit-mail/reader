@@ -52,12 +52,13 @@ export const handleMessageMove = async (
 
 	log.info(
 		{
+			event: event.type,
 			accountId,
 			messageId,
 			from: sourceMailboxPath,
 			to: destinationMailboxPath,
 		},
-		"Moving message on IMAP",
+		"Handling event",
 	);
 
 	const account = await accountService.get(accountId);

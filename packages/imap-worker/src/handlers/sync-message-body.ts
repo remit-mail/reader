@@ -16,6 +16,7 @@ import { createStorageService } from "@remit/storage-service";
 import { env } from "expect-env";
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeFromAccount } from "../connection-scope.js";
+import { emitEvent } from "../emit.js";
 import type { SyncMessageBodyEvent } from "../events.js";
 
 const client = getClient();
@@ -46,8 +47,13 @@ export const syncMessageBody = async (
 	const { accountId, mailboxId, messageIds } = event;
 
 	log.info(
-		{ accountId, mailboxId, messageCount: messageIds.length },
-		"Syncing message bodies",
+		{
+			event: event.type,
+			accountId,
+			mailboxId,
+			messageCount: messageIds.length,
+		},
+		"Handling event",
 	);
 
 	const account = await accountService.get(accountId);
@@ -74,7 +80,7 @@ export const syncMessageBody = async (
 		log,
 	);
 
-	await bodySyncService
+	const result = await bodySyncService
 		.syncBodies(
 			messageIds,
 			accountId,
@@ -83,4 +89,20 @@ export const syncMessageBody = async (
 			scope.getConnection,
 		)
 		.finally(() => scope.disconnect());
+
+	// Re-enqueue failed messages for retry
+	if (result.failedMessageIds.length > 0) {
+		log.info(
+			{ failedCount: result.failedMessageIds.length },
+			"Re-enqueueing failed body syncs",
+		);
+
+		const retryEvent: Omit<SyncMessageBodyEvent, "eventId" | "timestamp"> = {
+			type: "SYNC_MESSAGE_BODY",
+			accountId,
+			mailboxId,
+			messageIds: result.failedMessageIds,
+		};
+		await emitEvent(retryEvent);
+	}
 };

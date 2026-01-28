@@ -42,7 +42,10 @@ export const handleEmptyTrash = async (
 ): Promise<void> => {
 	const { accountId, trashMailboxId, trashMailboxPath } = event;
 
-	log.info({ accountId, trashMailboxPath }, "Emptying trash on IMAP");
+	log.info(
+		{ event: event.type, accountId, trashMailboxPath },
+		"Handling event",
+	);
 
 	const account = await accountService.get(accountId);
 	if (!account) {
