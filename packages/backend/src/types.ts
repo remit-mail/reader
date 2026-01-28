@@ -6,18 +6,22 @@ type MatchPrefix<
 > = S extends `${Prefix}${infer _}` ? S : never;
 
 export type OperationIds =
+	| "ConfigOperations_getConfig"
 	| "MailboxOperations_listMailboxes"
 	| "MailboxOperations_createMailbox"
 	| "MailboxDetailOperations_getMailbox"
 	| "MailboxDetailOperations_renameMailbox"
 	| "MailboxDetailOperations_deleteMailbox"
 	| "SyncOperations_triggerSync"
+	| "ThreadDetailOperations_listThreadMessages"
 	| "ThreadOperations_listThreads"
 	| "ThreadOperations_searchThreads"
 	| "MessageOperations_describeMessage"
 	| "MessageOperations_updateMessageFlags"
 	| "MessageBulkOperations_deleteMessages"
 	| "MessageBulkOperations_moveMessages";
+
+export type ConfigOperationIds = MatchPrefix<"ConfigOperations_", OperationIds>;
 
 export type MailboxOperationIds = MatchPrefix<
 	"MailboxOperations_",
@@ -30,6 +34,11 @@ export type MailboxDetailOperationIds = MatchPrefix<
 >;
 
 export type SyncOperationIds = MatchPrefix<"SyncOperations_", OperationIds>;
+
+export type ThreadDetailOperationIds = MatchPrefix<
+	"ThreadDetailOperations_",
+	OperationIds
+>;
 
 export type ThreadOperationIds = MatchPrefix<"ThreadOperations_", OperationIds>;
 

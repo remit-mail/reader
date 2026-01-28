@@ -22,11 +22,25 @@ export const handleError = async (
 		}
 
 		if (error.name === "ElectroError") {
-			logger.error(
-				{ error: error.message, stack: error.stack },
-				"ElectroError",
-			);
-			return formatResponse({ message: error.message }, 400);
+			// DynamoDB client/infrastructure errors should be 500
+			// These contain "aws-error" in the message or reference URL
+			const isInfrastructureError =
+				error.message.includes("aws-error") ||
+				error.message.includes("DynamoDB client");
+
+			const statusCode = isInfrastructureError ? 500 : 400;
+			const logMessage = isInfrastructureError
+				? "DynamoDB infrastructure error"
+				: "ElectroError";
+
+			logger.error({ error: error.message, stack: error.stack }, logMessage);
+
+			// Don't expose internal details for infrastructure errors
+			const responseMessage = isInfrastructureError
+				? "Database temporarily unavailable"
+				: error.message;
+
+			return formatResponse({ message: responseMessage }, statusCode);
 		}
 
 		logger.error(
