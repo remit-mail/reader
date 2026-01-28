@@ -1,5 +1,7 @@
+import { threadOperationsListThreadsQueryKey } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapMailboxResponse } from "@remit/api-http-client/types.gen.ts";
-import { Link } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
+import { Link, useNavigate } from "@tanstack/react-router";
 import type { LucideIcon } from "lucide-react";
 import {
 	AlertTriangle,
@@ -41,11 +43,33 @@ const getMailboxIcon = (fullPath: string): LucideIcon => {
 export const MailboxItem = ({ mailbox, isSelected }: MailboxItemProps) => {
 	const displayName = getMailboxDisplayName(mailbox.fullPath);
 	const Icon = getMailboxIcon(mailbox.fullPath);
+	const queryClient = useQueryClient();
+	const navigate = useNavigate();
+
+	const handleClick = (e: React.MouseEvent) => {
+		// Invalidate the threads query to force a fresh fetch
+		const queryKey = threadOperationsListThreadsQueryKey({
+			path: { mailboxId: mailbox.mailboxId },
+			query: { order: "desc" },
+		});
+		queryClient.invalidateQueries({ queryKey });
+
+		// If already on this mailbox, prevent default Link navigation and manually navigate
+		// This ensures the query refetches even when clicking on the current mailbox
+		if (isSelected) {
+			e.preventDefault();
+			navigate({
+				to: "/mail/$mailboxId",
+				params: { mailboxId: mailbox.mailboxId },
+			});
+		}
+	};
 
 	return (
 		<Link
 			to="/mail/$mailboxId"
 			params={{ mailboxId: mailbox.mailboxId }}
+			onClick={handleClick}
 			className={cn(
 				"flex items-center gap-2 px-3 py-1.5 text-sm rounded-md transition-colors",
 				"hover:bg-accent",
