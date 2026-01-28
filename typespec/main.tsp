@@ -32,6 +32,18 @@ namespace RemitImap;
 @server("https://api.remit.example.com", "Remit API Server")
 namespace RemitApi {
   // ============================================
+  // Configuration Operations
+  // ============================================
+
+  @route("/config")
+  namespace ConfigOperations {
+    @doc("Get the current user's configuration including accounts and addresses")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    op getConfig(): ConfigDescriptionResponse;
+  }
+
+  // ============================================
   // Account Mailbox Operations
   // ============================================
 
@@ -78,6 +90,19 @@ namespace RemitApi {
   }
 
   // ============================================
+  // Trash Operations
+  // ============================================
+
+  @route("/accounts/{accountId}/trash")
+  namespace TrashOperations {
+    @doc("Permanently delete all messages in the Trash mailbox")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    @route("/empty")
+    op emptyTrash(@path accountId: UUID): EmptyTrashResponse;
+  }
+
+  // ============================================
   // Sync Operations
   // ============================================
 
@@ -91,6 +116,19 @@ namespace RemitApi {
   // ============================================
   // Thread Operations
   // ============================================
+
+  @route("/threads/{threadId}/messages")
+  namespace ThreadDetailOperations {
+    @doc("Get all messages in a thread")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    op listThreadMessages(
+      @path threadId: UUID,
+
+      @query(#{ explode: true })
+      order?: SortOrder,
+    ): ResultList<ThreadMessageResponse>;
+  }
 
   @route("/mailboxes/{mailboxId}/threads")
   namespace ThreadOperations {
@@ -165,16 +203,31 @@ namespace RemitApi {
 
   @route("/messages")
   namespace MessageBulkOperations {
+    @doc("Update flags on multiple messages")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    @route("/flags")
+    op updateFlags(
+      @body input: BulkUpdateFlagsInput,
+    ): MessageBulkOperationResult;
+
+    @doc("Delete messages (move to Trash or permanent delete)")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/delete")
     op deleteMessages(
-      @body input: BulkMessageInput,
+      @body input: DeleteMessagesInput,
     ): MessageBulkOperationResult;
 
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/move")
     op moveMessages(@body input: MoveMessagesInput): MessageBulkOperationResult;
+
+    @doc("Copy messages to a destination mailbox")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    @route("/copy")
+    op copyMessages(@body input: CopyMessagesInput): MessageBulkOperationResult;
   }
 }
