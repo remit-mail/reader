@@ -79,15 +79,29 @@ export class MessageSyncService {
 		const lastSyncUid = mailbox.lastSyncUid || 0;
 		const highWaterMarkUid = mailbox.highWaterMarkUid || 0;
 
-		const { box, uids } = await this.fetchUidsToSync(
+		const { box, unseenCount, uids } = await this.fetchUidsToSync(
 			mailboxPath,
 			lastSyncUid,
 			highWaterMarkUid,
 		);
 
 		if (uids.length === 0) {
+			// Still update counts even if no new messages to sync
+			await this.mailboxService.update(mailboxId, {
+				lastMessageSyncAt: Date.now(),
+				uidValidity: box.uidvalidity,
+				messageCount: box.messageCount,
+				unseenCount,
+			});
+
 			this.log.info(
-				{ mailboxId, mailboxPath, total: 0 },
+				{
+					mailboxId,
+					mailboxPath,
+					total: 0,
+					messageCount: box.messageCount,
+					unseenCount,
+				},
 				"No new messages to sync",
 			);
 			return {
@@ -131,6 +145,8 @@ export class MessageSyncService {
 			highWaterMarkUid: newHighWaterMark,
 			lastMessageSyncAt: Date.now(),
 			uidValidity: box.uidvalidity,
+			messageCount: box.messageCount,
+			unseenCount,
 		});
 
 		const remainingCount = uids.length - batchUids.length;
@@ -171,13 +187,17 @@ export class MessageSyncService {
 		lastSyncUid: number,
 		highWaterMarkUid: number,
 	): Promise<{
-		box: { uidvalidity: number; uidnext: number };
+		box: { uidvalidity: number; uidnext: number; messageCount: number };
+		unseenCount: number;
 		uids: number[];
 	}> {
 		const connection = this.createConnection();
 		try {
 			await connection.connect();
 			const box = await connection.openBox(mailboxPath);
+
+			// Get mailbox status including unseen count
+			const status = await connection.getMailboxStatus(mailboxPath);
 
 			const allUids = await connection.search(["ALL"]);
 
@@ -195,7 +215,15 @@ export class MessageSyncService {
 			// Sort descending (newest first)
 			uidsToSync.sort((a, b) => b - a);
 
-			return { box, uids: uidsToSync };
+			return {
+				box: {
+					uidvalidity: box.uidvalidity,
+					uidnext: box.uidnext,
+					messageCount: status.messages,
+				},
+				unseenCount: status.unseen,
+				uids: uidsToSync,
+			};
 		} finally {
 			await connection.disconnect();
 		}

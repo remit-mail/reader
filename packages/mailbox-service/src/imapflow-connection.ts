@@ -13,6 +13,7 @@ import type {
 	ImapBoxStatus,
 	ImapConnectionConfig,
 	ImapConnectionState,
+	ImapMailboxStatus,
 	ImapMessage,
 	ImapNamespaces,
 } from "./types.js";
@@ -858,6 +859,40 @@ export class ImapFlowConnection {
 			return result;
 		}
 		return result ? uids.length : 0;
+	};
+
+	/**
+	 * Get mailbox status without opening it.
+	 * Uses IMAP STATUS command to get message counts including unseen.
+	 *
+	 * @param mailboxPath - Full path to the mailbox
+	 * @returns Mailbox status including unseen count
+	 */
+	getMailboxStatus = async (
+		mailboxPath: string,
+	): Promise<ImapMailboxStatus> => {
+		this.ensureConnected();
+		const { client } = this;
+
+		if (!client) {
+			throw new Error("Not connected to IMAP server");
+		}
+
+		const status = await client.status(mailboxPath, {
+			messages: true,
+			recent: true,
+			unseen: true,
+			uidNext: true,
+			uidValidity: true,
+		});
+
+		return {
+			messages: status.messages ?? 0,
+			recent: status.recent ?? 0,
+			unseen: status.unseen ?? 0,
+			uidNext: status.uidNext ?? 0,
+			uidValidity: Number(status.uidValidity ?? 0),
+		};
 	};
 
 	/**

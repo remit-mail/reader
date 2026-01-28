@@ -101,10 +101,10 @@ export const formatRelativeTime = (date: Date | string | number): string => {
 
 /**
  * Format email date intelligently based on age.
- * - Today: "2:30 PM"
- * - This week: "Mon 2:30 PM"
- * - This year: "Jan 15"
- * - Older: "Jan 15, 2023"
+ * - Today: "10:42" (time only)
+ * - Yesterday: "Yesterday"
+ * - This week: "Tuesday" (day name)
+ * - Older: "Jan 17" (or "Jan 17, 2023" if different year)
  */
 export const formatEmailDate = (date: Date | string | number): string => {
 	const d =
@@ -114,18 +114,25 @@ export const formatEmailDate = (date: Date | string | number): string => {
 	const now = new Date();
 
 	const isToday = d.toDateString() === now.toDateString();
-	const isThisWeek = now.getTime() - d.getTime() < 7 * 24 * 60 * 60 * 1000;
+
+	const yesterday = new Date(now);
+	yesterday.setDate(yesterday.getDate() - 1);
+	const isYesterday = d.toDateString() === yesterday.toDateString();
+
+	const sixDaysAgo = new Date(now);
+	sixDaysAgo.setDate(sixDaysAgo.getDate() - 6);
+	const isThisWeek = d >= sixDaysAgo && d < now;
+
 	const isThisYear = d.getFullYear() === now.getFullYear();
 
 	if (isToday) {
 		return formatDate(d, { hour: "numeric", minute: "numeric" });
 	}
+	if (isYesterday) {
+		return "Yesterday";
+	}
 	if (isThisWeek) {
-		return formatDate(d, {
-			weekday: "short",
-			hour: "numeric",
-			minute: "numeric",
-		});
+		return formatDate(d, { weekday: "long" });
 	}
 	if (isThisYear) {
 		return formatDate(d, { month: "short", day: "numeric" });
