@@ -42,6 +42,25 @@ const getMailboxPriority = (fullPath: string): number => {
 const isSystemMailbox = (fullPath: string): boolean =>
 	getMailboxPriority(fullPath) < SYSTEM_MAILBOX_ORDER.length;
 
+const getDisplayName = (fullPath: string): string => {
+	const parts = fullPath.split("/");
+	return parts[parts.length - 1] || fullPath;
+};
+
+const startsWithDigit = (str: string): boolean => /^\d/.test(str);
+
+const compareLabelNames = (a: string, b: string): number => {
+	const aStartsWithDigit = startsWithDigit(a);
+	const bStartsWithDigit = startsWithDigit(b);
+
+	// Digits come first
+	if (aStartsWithDigit && !bStartsWithDigit) return -1;
+	if (!aStartsWithDigit && bStartsWithDigit) return 1;
+
+	// Both start with digit or both don't - use case-insensitive locale compare
+	return a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });
+};
+
 const sortMailboxes = (
 	mailboxes: RemitImapMailboxResponse[],
 ): {
@@ -62,13 +81,18 @@ const sortMailboxes = (
 	system.sort(
 		(a, b) => getMailboxPriority(a.fullPath) - getMailboxPriority(b.fullPath),
 	);
-	labels.sort((a, b) => a.fullPath.localeCompare(b.fullPath));
+	labels.sort((a, b) =>
+		compareLabelNames(getDisplayName(a.fullPath), getDisplayName(b.fullPath)),
+	);
 
 	return { system, labels };
 };
 
+const MAX_VISIBLE_LABELS = 13;
+
 const AccountSection = ({ account }: { account: RemitImapAccountResponse }) => {
 	const [expanded, setExpanded] = useState(true);
+	const [labelsExpanded, setLabelsExpanded] = useState(false);
 	const params = useParams({ strict: false });
 	const selectedMailboxId = params.mailboxId as string | undefined;
 
@@ -125,13 +149,37 @@ const AccountSection = ({ account }: { account: RemitImapAccountResponse }) => {
 										Labels
 									</div>
 									<div className="space-y-0.5">
-										{labels.map((mailbox) => (
+										{(labelsExpanded
+											? labels
+											: labels.slice(0, MAX_VISIBLE_LABELS)
+										).map((mailbox) => (
 											<MailboxItem
 												key={mailbox.mailboxId}
 												mailbox={mailbox}
 												isSelected={selectedMailboxId === mailbox.mailboxId}
 											/>
 										))}
+										{labels.length > MAX_VISIBLE_LABELS && (
+											<button
+												type="button"
+												onClick={() => setLabelsExpanded(!labelsExpanded)}
+												className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors"
+											>
+												{labelsExpanded ? (
+													<>
+														<ChevronDown className="size-4 shrink-0" />
+														<span>Less</span>
+													</>
+												) : (
+													<>
+														<ChevronRight className="size-4 shrink-0" />
+														<span>
+															More ({labels.length - MAX_VISIBLE_LABELS})
+														</span>
+													</>
+												)}
+											</button>
+										)}
 									</div>
 								</>
 							)}

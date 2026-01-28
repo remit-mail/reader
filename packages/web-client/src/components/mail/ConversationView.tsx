@@ -1,8 +1,11 @@
 import { threadDetailOperationsListThreadMessagesOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import { useQuery } from "@tanstack/react-query";
+import { Forward, Reply, ReplyAll } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
+import { useMarkAsRead } from "@/hooks/useMarkAsRead";
+import { useToggleStar } from "@/hooks/useToggleStar";
 import { MessageCard } from "./MessageCard";
 
 interface ConversationViewProps {
@@ -15,18 +18,51 @@ const LoadingSkeleton = () => (
 		<div className="h-6 bg-muted rounded w-3/4 mb-6" />
 		<div className="space-y-4">
 			{Array.from({ length: 2 }).map((_, i) => (
-				<div key={i} className="border rounded-lg p-4">
-					<div className="flex items-center justify-between mb-2">
-						<div className="h-4 bg-muted rounded w-32" />
-						<div className="h-3 bg-muted rounded w-24" />
-					</div>
-					<div className="h-3 bg-muted rounded w-48 mb-3" />
-					<div className="space-y-2">
-						<div className="h-3 bg-muted rounded w-full" />
-						<div className="h-3 bg-muted rounded w-3/4" />
+				<div key={i} className="flex gap-3 py-3">
+					<div className="size-10 bg-muted rounded-full shrink-0" />
+					<div className="flex-1">
+						<div className="h-4 bg-muted rounded w-32 mb-2" />
+						<div className="h-3 bg-muted rounded w-48" />
 					</div>
 				</div>
 			))}
+		</div>
+	</div>
+);
+
+interface ActionBarProps {
+	onReply: () => void;
+	onReplyAll: () => void;
+	onForward: () => void;
+}
+
+const ActionBar = ({ onReply, onReplyAll, onForward }: ActionBarProps) => (
+	<div className="sticky bottom-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-t border-border px-4 py-3">
+		<div className="flex items-center gap-2">
+			<button
+				type="button"
+				onClick={onReply}
+				className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-full border border-border hover:bg-accent transition-colors"
+			>
+				<Reply className="size-4" />
+				Reply
+			</button>
+			<button
+				type="button"
+				onClick={onReplyAll}
+				className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-full border border-border hover:bg-accent transition-colors"
+			>
+				<ReplyAll className="size-4" />
+				Reply all
+			</button>
+			<button
+				type="button"
+				onClick={onForward}
+				className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-full border border-border hover:bg-accent transition-colors"
+			>
+				<Forward className="size-4" />
+				Forward
+			</button>
 		</div>
 	</div>
 );
@@ -119,6 +155,41 @@ export const ConversationView = ({
 		],
 	});
 
+	// Mark messages as read when expanded
+	const mailboxId = messages[0]?.mailboxId ?? "";
+	useMarkAsRead({
+		messages,
+		expandedIds,
+		threadId,
+		mailboxId,
+	});
+
+	// Star toggle functionality
+	const {
+		toggleStar,
+		isPending: isStarPending,
+		pendingMessageId,
+	} = useToggleStar({
+		threadId,
+		mailboxId,
+	});
+
+	// Action handlers (placeholder for now - will be implemented with compose feature)
+	const handleReply = useCallback(() => {
+		// TODO: Implement reply
+		console.log("Reply clicked");
+	}, []);
+
+	const handleReplyAll = useCallback(() => {
+		// TODO: Implement reply all
+		console.log("Reply all clicked");
+	}, []);
+
+	const handleForward = useCallback(() => {
+		// TODO: Implement forward
+		console.log("Forward clicked");
+	}, []);
+
 	if (isLoading) {
 		return <LoadingSkeleton />;
 	}
@@ -145,26 +216,39 @@ export const ConversationView = ({
 			</header>
 
 			{/* Messages list */}
-			<div
-				ref={scrollContainerRef}
-				className="flex-1 overflow-y-auto p-4 space-y-3"
-			>
-				{messages.map((message, index) => (
-					<div
-						key={message.threadMessageId}
-						ref={(el) => {
-							if (el) messageRefs.current.set(message.threadMessageId, el);
-						}}
-					>
-						<MessageCard
-							threadMessage={message}
-							isExpanded={expandedIds.has(message.threadMessageId)}
-							isFocused={index === focusedIndex}
-							onToggle={() => toggleExpanded(message.threadMessageId)}
-						/>
-					</div>
-				))}
+			<div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
+				<div className="px-4 py-2">
+					{messages.map((message, index) => (
+						<div
+							key={message.threadMessageId}
+							ref={(el) => {
+								if (el) messageRefs.current.set(message.threadMessageId, el);
+							}}
+						>
+							{index > 0 && <div className="border-t border-border/50 my-1" />}
+							<MessageCard
+								threadMessage={message}
+								isExpanded={expandedIds.has(message.threadMessageId)}
+								isFocused={index === focusedIndex}
+								onToggle={() => toggleExpanded(message.threadMessageId)}
+								onToggleStar={() =>
+									toggleStar(message.messageId, message.hasStars)
+								}
+								isStarPending={
+									isStarPending && pendingMessageId === message.messageId
+								}
+							/>
+						</div>
+					))}
+				</div>
 			</div>
+
+			{/* Action bar */}
+			<ActionBar
+				onReply={handleReply}
+				onReplyAll={handleReplyAll}
+				onForward={handleForward}
+			/>
 		</article>
 	);
 };
