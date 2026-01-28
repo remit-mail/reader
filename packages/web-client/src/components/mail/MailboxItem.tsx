@@ -78,7 +78,9 @@ export const MailboxItem = ({ mailbox, isSelected }: MailboxItemProps) => {
 		>
 			<Icon className="size-4 shrink-0" />
 			<span className="flex-1 truncate">{displayName}</span>
-			{mailbox.unseenCount > 0 && <Badge count={mailbox.unseenCount} />}
+			{mailbox.unseenCount > 0 && (
+				<Badge count={mailbox.unseenCount} totalCount={mailbox.messageCount} />
+			)}
 		</Link>
 	);
 };
