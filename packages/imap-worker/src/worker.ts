@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import cluster from "node:cluster";
 import { inspect } from "node:util";
 import {
 	DeleteMessageCommand,
@@ -18,126 +19,180 @@ const queueUrls = [
 	...new Set(
 		[
 			defaultQueueUrl,
+			// FIFO queues for sync operations
 			process.env.SQS_QUEUE_URL_MAILBOXES,
 			process.env.SQS_QUEUE_URL_MESSAGES,
 			process.env.SQS_QUEUE_URL_BODY,
+			process.env.SQS_QUEUE_URL_FLAGS,
+			// Standard queues for management operations
+			process.env.SQS_QUEUE_URL_MAILBOX_MGMT,
+			process.env.SQS_QUEUE_URL_MESSAGE_MGMT,
 		].filter((url): url is string => Boolean(url)),
 	),
 ];
 
-// SQS ReceiveMessage API max is 10 per call
-// Lambda achieves higher throughput via concurrent invocations
-// For local dev, we poll continuously and process in parallel
-const maxConcurrency = Number(process.env.WORKER_MAX_CONCURRENCY) || 10;
-const maxMessages = 10; // SQS API limit
+if (cluster.isPrimary) {
+	// Primary process: fork a worker for each queue
+	const log = createLogger();
+	log.info({ queueUrls, workerCount: queueUrls.length }, "Primary started");
 
-const sqs = new SQSClient({
-	endpoint: defaultQueueUrl.startsWith("http://localhost")
-		? new URL(defaultQueueUrl).origin
-		: undefined,
-});
-const log = createLogger();
+	// Track which queue each worker handles for restart
+	const workerQueues = new Map<number, string>();
 
-let isShuttingDown = false;
+	// Fork a worker for each queue
+	for (const queueUrl of queueUrls) {
+		const worker = cluster.fork({ WORKER_QUEUE_URL: queueUrl });
+		workerQueues.set(worker.id, queueUrl);
+		const queueName = new URL(queueUrl).pathname.split("/").pop();
+		log.info({ workerId: worker.id, queueName }, "Forked worker for queue");
+	}
 
-process.on("SIGINT", () => {
-	log.info("Received SIGINT, shutting down gracefully...");
-	isShuttingDown = true;
-});
+	// Restart workers that crash
+	cluster.on("exit", (worker, code, signal) => {
+		const queueUrl = workerQueues.get(worker.id);
+		const queueName = queueUrl
+			? new URL(queueUrl).pathname.split("/").pop()
+			: "unknown";
 
-process.on("SIGTERM", () => {
-	log.info("Received SIGTERM, shutting down gracefully...");
-	isShuttingDown = true;
-});
+		if (signal) {
+			log.info({ workerId: worker.id, queueName, signal }, "Worker killed");
+		} else if (code !== 0) {
+			log.error(
+				{ workerId: worker.id, queueName, code },
+				"Worker crashed, restarting...",
+			);
+			workerQueues.delete(worker.id);
 
-process.on("unhandledRejection", (reason, promise) => {
-	console.error("Unhandled Rejection at:", promise, "reason:", reason);
-});
+			if (queueUrl) {
+				// Restart after a brief delay to avoid rapid restart loops
+				setTimeout(() => {
+					const newWorker = cluster.fork({ WORKER_QUEUE_URL: queueUrl });
+					workerQueues.set(newWorker.id, queueUrl);
+					log.info(
+						{ workerId: newWorker.id, queueName },
+						"Restarted worker for queue",
+					);
+				}, 1000);
+			}
+		} else {
+			log.info({ workerId: worker.id, queueName }, "Worker exited cleanly");
+			workerQueues.delete(worker.id);
+		}
+	});
 
-process.on("uncaughtException", (err) => {
-	console.error("Uncaught Exception:", err);
-	process.exit(1);
-});
+	// Graceful shutdown: signal all workers
+	const shutdown = () => {
+		log.info("Primary received shutdown signal, stopping workers...");
+		for (const worker of Object.values(cluster.workers ?? {})) {
+			worker?.process.kill("SIGTERM");
+		}
+	};
 
-const processMessage = async (
-	queueUrl: string,
-	messageBody: string,
-	receiptHandle: string,
-): Promise<void> => {
-	const event = JSON.parse(messageBody) as ImapEvent;
-	log.info({ event }, "Processing event from queue");
-
-	await processEvent(event, log);
-
-	await sqs.send(
-		new DeleteMessageCommand({
-			QueueUrl: queueUrl,
-			ReceiptHandle: receiptHandle,
-		}),
-	);
-
-	log.info(
-		{ eventId: event.eventId },
-		"Event processed and deleted from queue",
-	);
-};
-
-const pollQueue = async (queueUrl: string): Promise<void> => {
+	process.on("SIGINT", shutdown);
+	process.on("SIGTERM", shutdown);
+} else {
+	// Worker process: poll a single queue
+	const queueUrl = env.WORKER_QUEUE_URL;
 	const queueName = new URL(queueUrl).pathname.split("/").pop();
-	log.info(
-		{ queueUrl, queueName, maxConcurrency, maxMessages },
-		"Polling queue...",
-	);
+	const log = createLogger().child({ queue: queueName });
 
-	let consecutiveEmptyPolls = 0;
+	const maxConcurrency = Number(process.env.WORKER_MAX_CONCURRENCY) || 10;
+	const maxMessages = 10; // SQS API limit
 
-	while (!isShuttingDown) {
-		// Use short polling when we just processed messages (likely more waiting)
-		// Use long polling after empty polls to reduce API calls
-		const waitTime = consecutiveEmptyPolls > 0 ? 20 : 0;
+	const sqs = new SQSClient({
+		endpoint: queueUrl.startsWith("http://localhost")
+			? new URL(queueUrl).origin
+			: undefined,
+	});
 
-		const response = await sqs.send(
-			new ReceiveMessageCommand({
+	let isShuttingDown = false;
+
+	process.on("SIGINT", () => {
+		log.info("Worker received SIGINT, shutting down...");
+		isShuttingDown = true;
+	});
+
+	process.on("SIGTERM", () => {
+		log.info("Worker received SIGTERM, shutting down...");
+		isShuttingDown = true;
+	});
+
+	process.on("unhandledRejection", (reason, promise) => {
+		console.error("Unhandled Rejection at:", promise, "reason:", reason);
+	});
+
+	process.on("uncaughtException", (err) => {
+		console.error("Uncaught Exception:", err);
+		process.exit(1);
+	});
+
+	const processMessage = async (
+		messageBody: string,
+		receiptHandle: string,
+	): Promise<void> => {
+		const event = JSON.parse(messageBody) as ImapEvent;
+		log.info({ event }, "Processing event");
+
+		await processEvent(event, log);
+
+		await sqs.send(
+			new DeleteMessageCommand({
 				QueueUrl: queueUrl,
-				MaxNumberOfMessages: maxMessages,
-				WaitTimeSeconds: waitTime,
-				VisibilityTimeout: 300,
+				ReceiptHandle: receiptHandle,
 			}),
 		);
 
-		if (!response.Messages || response.Messages.length === 0) {
-			consecutiveEmptyPolls++;
-			continue;
-		}
+		log.info({ eventId: event.eventId }, "Event processed and deleted");
+	};
 
-		consecutiveEmptyPolls = 0;
+	const pollQueue = async (): Promise<void> => {
+		log.info({ maxConcurrency, maxMessages }, "Worker started, polling...");
 
-		const validMessages = response.Messages.flatMap((m) =>
-			m.Body && m.ReceiptHandle
-				? [
-						{
-							body: m.Body,
-							receiptHandle: m.ReceiptHandle,
-							messageId: m.MessageId,
-						},
-					]
-				: [],
-		);
+		let consecutiveEmptyPolls = 0;
 
-		if (validMessages.length === 0) {
-			continue;
-		}
+		while (!isShuttingDown) {
+			// Use short polling when we just processed messages (likely more waiting)
+			// Use long polling after empty polls to reduce API calls
+			const waitTime = consecutiveEmptyPolls > 0 ? 20 : 0;
 
-		log.info(
-			{ queueName, count: validMessages.length },
-			"Processing messages in parallel",
-		);
+			const response = await sqs.send(
+				new ReceiveMessageCommand({
+					QueueUrl: queueUrl,
+					MaxNumberOfMessages: maxMessages,
+					WaitTimeSeconds: waitTime,
+					VisibilityTimeout: 300,
+				}),
+			);
 
-		await pMap(
-			validMessages,
-			(message) =>
-				processMessage(queueUrl, message.body, message.receiptHandle).catch(
-					(error) => {
+			if (!response.Messages || response.Messages.length === 0) {
+				consecutiveEmptyPolls++;
+				continue;
+			}
+
+			consecutiveEmptyPolls = 0;
+
+			const validMessages = response.Messages.flatMap((m) =>
+				m.Body && m.ReceiptHandle
+					? [
+							{
+								body: m.Body,
+								receiptHandle: m.ReceiptHandle,
+								messageId: m.MessageId,
+							},
+						]
+					: [],
+			);
+
+			if (validMessages.length === 0) {
+				continue;
+			}
+
+			log.info({ count: validMessages.length }, "Processing messages");
+
+			await pMap(
+				validMessages,
+				(message) =>
+					processMessage(message.body, message.receiptHandle).catch((error) => {
 						console.error(inspect(error));
 						log.error(
 							{
@@ -147,20 +202,18 @@ const pollQueue = async (queueUrl: string): Promise<void> => {
 							},
 							"Failed to process message",
 						);
-					},
-				),
-			{ concurrency: maxConcurrency },
-		);
-	}
+					}),
+				{ concurrency: maxConcurrency },
+			);
+		}
 
-	log.info({ queueName }, "Queue polling stopped");
-};
+		log.info("Worker polling stopped");
+	};
 
-log.info({ queueUrls }, "Worker started, polling queues...");
-
-Promise.all(queueUrls.map((url) => pollQueue(url)))
-	.then(() => process.exit(0))
-	.catch((error) => {
-		console.error("Worker error:", error);
-		process.exit(1);
-	});
+	pollQueue()
+		.then(() => process.exit(0))
+		.catch((error) => {
+			console.error("Worker error:", error);
+			process.exit(1);
+		});
+}

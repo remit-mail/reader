@@ -3,6 +3,7 @@ import {
 	AddressService,
 	EnvelopeService,
 	getClient,
+	MailboxLockService,
 	MailboxService,
 	MessageService,
 	ThreadMessageService,
@@ -55,14 +56,22 @@ const threadMessageService = new ThreadMessageService({
 	client,
 	table: env.DYNAMODB_TABLE_NAME,
 });
+const mailboxLockService = new MailboxLockService({
+	client,
+	table: env.DYNAMODB_TABLE_NAME,
+});
 
 export const syncMessages = async (
 	event: SyncMessagesEvent,
 	log: Logger,
 ): Promise<void> => {
 	log.info(
-		{ accountId: event.accountId, mailboxId: event.mailboxId },
-		"Syncing messages batch",
+		{
+			event: event.type,
+			accountId: event.accountId,
+			mailboxId: event.mailboxId,
+		},
+		"Handling event",
 	);
 
 	const account = await accountService.get(event.accountId);
@@ -74,90 +83,113 @@ export const syncMessages = async (
 		return;
 	}
 
-	const password = await secrets.decrypt(
-		deserializeEncryptedPayload(JSON.parse(account.passwordHash)),
-	);
+	// Acquire lock before starting sync operation
+	const { executed } = await mailboxLockService.withMailboxLock(
+		event.mailboxId,
+		"SYNC_MESSAGES",
+		event.accountId,
+		async () => {
+			const password = await secrets.decrypt(
+				deserializeEncryptedPayload(JSON.parse(account.passwordHash)),
+			);
 
-	// Create a managed connection factory that caches and reuses the connection
-	const connectionFactory = createManagedConnectionFactory({
-		user: account.username,
-		password,
-		host: account.imapHost,
-		port: account.imapPort,
-		tls: account.imapTls,
-	});
+			// Create a managed connection factory that caches and reuses the connection
+			const connectionFactory = createManagedConnectionFactory({
+				user: account.username,
+				password,
+				host: account.imapHost,
+				port: account.imapPort,
+				tls: account.imapTls,
+			});
 
-	// Get the mailbox - it must exist (should have been created by mailbox sync)
-	const mailbox = await mailboxService.get(event.mailboxId);
-	const mailboxId = mailbox.mailboxId;
+			// Get the mailbox - it must exist (should have been created by mailbox sync)
+			const mailbox = await mailboxService.get(event.mailboxId);
+			const mailboxId = mailbox.mailboxId;
 
-	const syncService = new MessageSyncService(
-		connectionFactory,
-		mailboxService,
-		messageService,
-		envelopeService,
-		addressService,
-		threadMessageService,
-		log,
-	);
+			const syncService = new MessageSyncService(
+				connectionFactory,
+				mailboxService,
+				messageService,
+				envelopeService,
+				addressService,
+				threadMessageService,
+				log,
+			);
 
-	// Connect once, reuse for the entire sync operation
-	const connection = connectionFactory.getConnection();
-	await connection.connect();
+			// Connect once, reuse for the entire sync operation
+			const connection = connectionFactory.getConnection();
+			await connection.connect();
 
-	const result = await syncService
-		.syncMessages(mailboxId, account.accountConfigId, MESSAGE_BATCH_SIZE)
-		.finally(() => connectionFactory.close());
-	log.info(
-		{
-			syncedCount: result.syncedCount,
-			hasMore: result.hasMore,
-			remainingCount: result.remainingCount,
+			const result = await syncService
+				.syncMessages(mailboxId, account.accountConfigId, MESSAGE_BATCH_SIZE)
+				.finally(() => connectionFactory.close());
+			log.info(
+				{
+					syncedCount: result.syncedCount,
+					hasMore: result.hasMore,
+					remainingCount: result.remainingCount,
+				},
+				"Message sync batch complete",
+			);
+
+			// Emit body sync events for the messages we just synced
+			if (result.syncedMessageIds.length > 0) {
+				// Create batches
+				const batches: string[][] = [];
+				for (
+					let i = 0;
+					i < result.syncedMessageIds.length;
+					i += BODY_BATCH_SIZE
+				) {
+					batches.push(result.syncedMessageIds.slice(i, i + BODY_BATCH_SIZE));
+				}
+
+				log.info(
+					{ count: result.syncedMessageIds.length, batches: batches.length },
+					"Emitting SYNC_MESSAGE_BODY events",
+				);
+
+				// Emit events in parallel with concurrency limit
+				await pMap(
+					batches,
+					(batch) => {
+						const bodyEvent: Omit<
+							SyncMessageBodyEvent,
+							"eventId" | "timestamp"
+						> = {
+							type: "SYNC_MESSAGE_BODY",
+							accountId: event.accountId,
+							mailboxId,
+							messageIds: batch,
+						};
+						return emitEvent(bodyEvent);
+					},
+					{ concurrency: EVENT_EMIT_CONCURRENCY },
+				);
+			}
+
+			// If there are more messages to sync, emit another SYNC_MESSAGES event
+			if (result.hasMore) {
+				log.info(
+					{ remainingCount: result.remainingCount },
+					"Emitting SYNC_MESSAGES event for next batch",
+				);
+
+				const nextSyncEvent: Omit<SyncMessagesEvent, "eventId" | "timestamp"> =
+					{
+						type: "SYNC_MESSAGES",
+						accountId: event.accountId,
+						mailboxId,
+					};
+				await emitEvent(nextSyncEvent);
+			}
 		},
-		"Message sync batch complete",
 	);
 
-	// Emit body sync events for the messages we just synced
-	if (result.syncedMessageIds.length > 0) {
-		// Create batches
-		const batches: string[][] = [];
-		for (let i = 0; i < result.syncedMessageIds.length; i += BODY_BATCH_SIZE) {
-			batches.push(result.syncedMessageIds.slice(i, i + BODY_BATCH_SIZE));
-		}
-
+	if (!executed) {
 		log.info(
-			{ count: result.syncedMessageIds.length, batches: batches.length },
-			"Emitting SYNC_MESSAGE_BODY events",
+			{ mailboxId: event.mailboxId },
+			"Sync already in progress, skipping",
 		);
-
-		// Emit events in parallel with concurrency limit
-		await pMap(
-			batches,
-			(batch) => {
-				const bodyEvent: Omit<SyncMessageBodyEvent, "eventId" | "timestamp"> = {
-					type: "SYNC_MESSAGE_BODY",
-					accountId: event.accountId,
-					mailboxId,
-					messageIds: batch,
-				};
-				return emitEvent(bodyEvent);
-			},
-			{ concurrency: EVENT_EMIT_CONCURRENCY },
-		);
-	}
-
-	// If there are more messages to sync, emit another SYNC_MESSAGES event
-	if (result.hasMore) {
-		log.info(
-			{ remainingCount: result.remainingCount },
-			"Emitting SYNC_MESSAGES event for next batch",
-		);
-
-		const nextSyncEvent: Omit<SyncMessagesEvent, "eventId" | "timestamp"> = {
-			type: "SYNC_MESSAGES",
-			accountId: event.accountId,
-			mailboxId,
-		};
-		await emitEvent(nextSyncEvent);
 	}
 };
