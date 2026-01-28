@@ -36,6 +36,7 @@ export interface SyncBodiesResult {
 	syncedMessageIds: string[];
 	skippedCount: number;
 	failedCount: number;
+	failedMessageIds: string[];
 }
 
 export interface FetchBodyResult {
@@ -83,17 +84,25 @@ export class BodySyncService {
 					accountConfigId,
 					mailboxPath,
 					getConnection,
-				),
+				).catch((error): { status: "failed"; messageId: string } => {
+					this.log.error?.(
+						{ messageId, error: (error as Error).message },
+						"Failed to sync body",
+					);
+					return { status: "failed", messageId };
+				}),
 			{ concurrency: BODY_SYNC_CONCURRENCY },
 		);
 
 		const synced = results.filter((r) => r.status === "synced");
 		const skipped = results.filter((r) => r.status === "skipped");
+		const failed = results.filter((r) => r.status === "failed");
 
 		this.log.info(
 			{
 				synced: synced.length,
 				skipped: skipped.length,
+				failed: failed.length,
 				total: messageIds.length,
 			},
 			"Body sync complete",
@@ -103,7 +112,8 @@ export class BodySyncService {
 			syncedCount: synced.length,
 			syncedMessageIds: synced.map((r) => r.messageId),
 			skippedCount: skipped.length,
-			failedCount: 0,
+			failedCount: failed.length,
+			failedMessageIds: failed.map((r) => r.messageId),
 		};
 	}
 
