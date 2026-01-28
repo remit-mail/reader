@@ -54,13 +54,49 @@ export class ImapFlowConnection {
 	}
 
 	/**
-	 * Connect to the IMAP server
+	 * Connect to the IMAP server with retry logic.
+	 *
+	 * Retries up to 3 times with exponential backoff (1s, 2s, 4s) on connection errors.
+	 * Authentication errors are not retried.
 	 */
 	connect = async (): Promise<void> => {
 		if (this.client) {
 			throw new Error("Already connected");
 		}
 
+		const maxRetries = 3;
+		const baseDelayMs = 1000;
+
+		for (let attempt = 1; attempt <= maxRetries; attempt++) {
+			try {
+				await this.attemptConnect();
+				return;
+			} catch (error) {
+				// Don't retry authentication errors
+				const isAuthError =
+					error instanceof Error &&
+					(error.message.includes("Invalid credentials") ||
+						error.message.includes("Authentication failed") ||
+						error.message.includes("AUTHENTICATIONFAILED"));
+
+				if (isAuthError || attempt === maxRetries) {
+					throw error;
+				}
+
+				// Exponential backoff: 1s, 2s, 4s
+				const delay = baseDelayMs * 2 ** (attempt - 1);
+				await this.sleep(delay);
+
+				// Reset state for retry
+				this.cleanup();
+			}
+		}
+	};
+
+	/**
+	 * Single connection attempt
+	 */
+	private attemptConnect = async (): Promise<void> => {
 		this._state = "connecting";
 
 		// Determine TLS options
@@ -105,6 +141,24 @@ export class ImapFlowConnection {
 		await this.client.connect();
 		this._state = "authenticated";
 	};
+
+	/**
+	 * Cleanup client state for retry
+	 */
+	private cleanup = (): void => {
+		if (this.client) {
+			this.client.close();
+			this.client = null;
+		}
+		this._state = "disconnected";
+		this.currentMailbox = null;
+	};
+
+	/**
+	 * Sleep for a specified duration
+	 */
+	private sleep = (ms: number): Promise<void> =>
+		new Promise((resolve) => setTimeout(resolve, ms));
 
 	/**
 	 * Disconnect from the IMAP server
@@ -386,7 +440,7 @@ export class ImapFlowConnection {
 		// ImapFlow fetch with native envelope support + References header
 		const uidRange = uids.join(",");
 
-		for await (const msg of client.fetch(
+		const fetchIterator = client.fetch(
 			uidRange,
 			{
 				uid: true,
@@ -397,7 +451,16 @@ export class ImapFlowConnection {
 				headers: ["references"],
 			},
 			{ uid: true },
-		)) {
+		);
+
+		// Connection may have been lost - fetch returns an async iterable
+		if (!fetchIterator) {
+			throw new Error(
+				`IMAP connection lost while fetching messages: ${uidRange}`,
+			);
+		}
+
+		for await (const msg of fetchIterator) {
 			// Convert internalDate to Date object
 			let internalDate: Date;
 			if (msg.internalDate instanceof Date) {
@@ -447,12 +510,19 @@ export class ImapFlowConnection {
 			throw new Error("No mailbox selected");
 		}
 
-		const { content } = await client.download(String(uid), undefined, {
+		const result = await client.download(String(uid), undefined, {
 			uid: true,
 		});
 
+		// Connection may have been lost during download
+		if (!result || !result.content) {
+			throw new Error(
+				`IMAP connection lost while downloading message UID ${uid}`,
+			);
+		}
+
 		const chunks: Buffer[] = [];
-		for await (const chunk of content) {
+		for await (const chunk of result.content) {
 			chunks.push(chunk);
 		}
 
