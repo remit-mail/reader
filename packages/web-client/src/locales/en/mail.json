@@ -1,4 +1,20 @@
 {
+  "sidebar": {
+    "inbox": "Inbox",
+    "sent": "Sent",
+    "drafts": "Drafts",
+    "trash": "Trash",
+    "archive": "Archive",
+    "spam": "Spam",
+    "noAccounts": "No accounts configured",
+    "noMailboxes": "No mailboxes"
+  },
+  "emptyState": {
+    "selectMailbox": "Select a mailbox to view messages",
+    "selectMessage": "Select a message to read",
+    "noMessages": "No messages in this mailbox",
+    "messageNotFound": "Message not found"
+  },
   "inbox": {
     "title": "Inbox",
     "empty": "No messages in your inbox",

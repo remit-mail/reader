@@ -71,6 +71,17 @@ export interface ImapBoxStatus {
 }
 
 /**
+ * IMAP mailbox status from STATUS command
+ */
+export interface ImapMailboxStatus {
+	messages: number;
+	recent: number;
+	unseen: number;
+	uidNext: number;
+	uidValidity: number;
+}
+
+/**
  * Flattened mailbox info for processing
  */
 export interface FlatMailboxInfo {
@@ -218,4 +229,12 @@ export interface IImapConnection {
 	 * @returns Number of messages deleted
 	 */
 	deleteMessages(uids: number[]): Promise<number>;
+	/**
+	 * Get mailbox status without opening it.
+	 * Uses IMAP STATUS command to get message counts.
+	 *
+	 * @param mailboxPath - Full path to the mailbox
+	 * @returns Mailbox status including unseen count
+	 */
+	getMailboxStatus(mailboxPath: string): Promise<ImapMailboxStatus>;
 }

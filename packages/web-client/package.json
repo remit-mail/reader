@@ -10,6 +10,7 @@
     "test:typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@remit/api-http-client": "file:../../build/remit-client",
     "@tailwindcss/vite": "^4",
     "@tanstack/react-query": "^5",
     "@tanstack/react-query-devtools": "^5",
@@ -22,6 +23,7 @@
     "i18next": "^24",
     "i18next-browser-languagedetector": "^8",
     "i18next-http-backend": "^3",
+    "lucide-react": "^0.468",
     "react": "^19",
     "react-dom": "^19",
     "react-i18next": "^15",
@@ -30,5 +32,11 @@
     "typescript": "*",
     "vite": "^6",
     "zod": "^3"
+  },
+  "dependencies": {
+    "@tanstack/react-virtual": "^3.13.18",
+    "@types/dompurify": "^3.0.5",
+    "dompurify": "^3.3.1",
+    "sonner": "^2.0.7"
   }
 }
