@@ -5,7 +5,8 @@ import type {
 } from "@remit/api-http-client/types.gen.ts";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
-import { useMemo } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
+import { useMemo, useState } from "react";
 import { MailboxItem } from "./MailboxItem";
 
 interface MailSidebarProps {
@@ -67,6 +68,7 @@ const sortMailboxes = (
 };
 
 const AccountSection = ({ account }: { account: RemitImapAccountResponse }) => {
+	const [expanded, setExpanded] = useState(true);
 	const params = useParams({ strict: false });
 	const selectedMailboxId = params.mailboxId as string | undefined;
 
@@ -83,36 +85,32 @@ const AccountSection = ({ account }: { account: RemitImapAccountResponse }) => {
 
 	return (
 		<div className="mb-4">
-			<div className="px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-				{account.email}
-			</div>
-			{isLoading ? (
-				<div className="px-3 py-2 text-sm text-muted-foreground">
-					Loading...
-				</div>
-			) : system.length === 0 && labels.length === 0 ? (
-				<div className="px-3 py-2 text-sm text-muted-foreground">
-					No mailboxes
-				</div>
-			) : (
+			<button
+				type="button"
+				onClick={() => setExpanded(!expanded)}
+				className="w-full flex items-center gap-1 px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
+			>
+				{expanded ? (
+					<ChevronDown className="h-3 w-3 shrink-0" />
+				) : (
+					<ChevronRight className="h-3 w-3 shrink-0" />
+				)}
+				<span className="truncate">{account.email}</span>
+			</button>
+			{expanded && (
 				<>
-					<div className="space-y-0.5">
-						{system.map((mailbox) => (
-							<MailboxItem
-								key={mailbox.mailboxId}
-								mailbox={mailbox}
-								isSelected={selectedMailboxId === mailbox.mailboxId}
-							/>
-						))}
-					</div>
-					{labels.length > 0 && (
+					{isLoading ? (
+						<div className="px-3 py-2 text-sm text-muted-foreground">
+							Loading...
+						</div>
+					) : system.length === 0 && labels.length === 0 ? (
+						<div className="px-3 py-2 text-sm text-muted-foreground">
+							No mailboxes
+						</div>
+					) : (
 						<>
-							<div className="my-2 mx-3 border-t border-border" />
-							<div className="px-3 py-1 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-								Labels
-							</div>
 							<div className="space-y-0.5">
-								{labels.map((mailbox) => (
+								{system.map((mailbox) => (
 									<MailboxItem
 										key={mailbox.mailboxId}
 										mailbox={mailbox}
@@ -120,6 +118,23 @@ const AccountSection = ({ account }: { account: RemitImapAccountResponse }) => {
 									/>
 								))}
 							</div>
+							{labels.length > 0 && (
+								<>
+									<div className="my-2 mx-3 border-t border-border" />
+									<div className="px-3 py-1 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+										Labels
+									</div>
+									<div className="space-y-0.5">
+										{labels.map((mailbox) => (
+											<MailboxItem
+												key={mailbox.mailboxId}
+												mailbox={mailbox}
+												isSelected={selectedMailboxId === mailbox.mailboxId}
+											/>
+										))}
+									</div>
+								</>
+							)}
 						</>
 					)}
 				</>
@@ -129,7 +144,7 @@ const AccountSection = ({ account }: { account: RemitImapAccountResponse }) => {
 };
 
 export const MailSidebar = ({ accounts }: MailSidebarProps) => (
-	<nav className="py-2" aria-label="Mailboxes">
+	<nav className="h-full overflow-y-auto py-2" aria-label="Mailboxes">
 		{accounts.length === 0 ? (
 			<div className="px-3 py-4 text-sm text-muted-foreground text-center">
 				No accounts configured

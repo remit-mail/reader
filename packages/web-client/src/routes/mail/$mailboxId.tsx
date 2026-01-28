@@ -18,6 +18,11 @@ import { useCallback } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { Panel } from "@/components/layout/Panel";
+import {
+	ResizableHandle,
+	ResizablePanel,
+	ResizablePanelGroup,
+} from "@/components/layout/Resizable";
 import { ConversationView } from "@/components/mail/ConversationView";
 import { MessageList } from "@/components/mail/MessageList";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -184,39 +189,44 @@ function MailboxView() {
 	});
 
 	return (
-		<>
-			<Panel className="w-[360px] shrink-0">
-				<MessageList
-					mailboxId={mailboxId}
-					threads={threads}
-					selectedMessageId={selectedMessageId}
-					isLoading={isLoading}
-					searchQuery={searchQuery}
-					onDeleteMessages={handleDeleteMessages}
-					isDeleting={deleteMutation.isPending}
-					onLoadMore={fetchNextPage}
-					hasMore={hasNextPage}
-					isLoadingMore={isFetchingNextPage}
-				/>
-			</Panel>
-			<Panel withBorder={false} className="flex-1">
-				{selectedThread ? (
-					<ConversationView
-						threadId={selectedThread.threadId}
-						subject={selectedThread.subject}
+		<ResizablePanelGroup direction="horizontal" className="h-full">
+			<ResizablePanel defaultSize={35} minSize={10}>
+				<Panel className="h-full">
+					<MessageList
+						mailboxId={mailboxId}
+						threads={threads}
+						selectedMessageId={selectedMessageId}
+						isLoading={isLoading}
+						searchQuery={searchQuery}
+						onDeleteMessages={handleDeleteMessages}
+						isDeleting={deleteMutation.isPending}
+						onLoadMore={fetchNextPage}
+						hasMore={hasNextPage}
+						isLoadingMore={isFetchingNextPage}
 					/>
-				) : (
-					<div className="flex h-full items-center justify-center">
-						<EmptyState
-							message={
-								searchQuery
-									? "No messages match your search"
-									: "Select a message to read"
-							}
+				</Panel>
+			</ResizablePanel>
+			<ResizableHandle />
+			<ResizablePanel defaultSize={65} minSize={20}>
+				<Panel withBorder={false} className="h-full">
+					{selectedThread ? (
+						<ConversationView
+							threadId={selectedThread.threadId}
+							subject={selectedThread.subject}
 						/>
-					</div>
-				)}
-			</Panel>
-		</>
+					) : (
+						<div className="flex h-full items-center justify-center">
+							<EmptyState
+								message={
+									searchQuery
+										? "No messages match your search"
+										: "Select a message to read"
+								}
+							/>
+						</div>
+					)}
+				</Panel>
+			</ResizablePanel>
+		</ResizablePanelGroup>
 	);
 }

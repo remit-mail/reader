@@ -11,6 +11,11 @@ import { createContext, useCallback, useContext, useState } from "react";
 import { z } from "zod";
 import { Header } from "@/components/layout/Header";
 import { Panel } from "@/components/layout/Panel";
+import {
+	ResizableHandle,
+	ResizablePanel,
+	ResizablePanelGroup,
+} from "@/components/layout/Resizable";
 import { MailSidebar } from "@/components/mail/MailSidebar";
 import { KeyboardShortcutsModal } from "@/components/ui/KeyboardShortcutsModal";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
@@ -95,12 +100,17 @@ function MailLayout() {
 						onSearchChange={handleSearchChange}
 						onSearchClear={handleSearchClear}
 					/>
-					<div className="flex flex-1 overflow-hidden">
-						<Panel className="w-[220px] shrink-0">
-							<MailSidebar accounts={accounts} />
-						</Panel>
-						<Outlet />
-					</div>
+					<ResizablePanelGroup direction="horizontal" className="flex-1">
+						<ResizablePanel defaultSize={15} minSize={10}>
+							<Panel className="h-full">
+								<MailSidebar accounts={accounts} />
+							</Panel>
+						</ResizablePanel>
+						<ResizableHandle />
+						<ResizablePanel defaultSize={85} minSize={30}>
+							<Outlet />
+						</ResizablePanel>
+					</ResizablePanelGroup>
 				</div>
 			)}
 			<KeyboardShortcutsModal

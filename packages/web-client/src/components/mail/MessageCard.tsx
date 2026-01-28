@@ -7,6 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { formatDatePreset } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { AddressList } from "./AddressDisplay";
 import { MessageBody } from "./MessageBody";
 
 interface MessageCardProps {
@@ -98,12 +99,7 @@ const ExpandedCard = ({
 							<span className="font-medium text-foreground">{senderName}</span>
 						</div>
 						{messageData && (
-							<div className="text-sm text-muted-foreground">
-								To:{" "}
-								{messageData.envelope.to
-									.map((addr) => addr.displayName || addr.normalizedEmail)
-									.join(", ")}
-							</div>
+							<AddressList label="To" addresses={messageData.envelope.to} />
 						)}
 					</div>
 					<div className="flex items-center gap-2 shrink-0">
