@@ -20,31 +20,21 @@ const SkipLink = () => {
 	);
 };
 
-const LoadingSkeleton = () => {
-	const { t } = useTranslation();
-
-	return (
-		<output
-			aria-live="polite"
-			className="flex items-center justify-center h-full"
-		>
-			<span className="text-muted-foreground">{t("app.loading")}</span>
-		</output>
-	);
-};
+const LoadingSkeleton = () => (
+	<div className="flex h-screen items-center justify-center bg-background">
+		<span className="text-muted-foreground">Loading...</span>
+	</div>
+);
 
 function RootLayout() {
 	return (
 		<>
 			<SkipLink />
-
-			<div className="flex h-screen">
-				<main id="main-content" className="flex-1 overflow-auto">
-					<Suspense fallback={<LoadingSkeleton />}>
-						<Outlet />
-					</Suspense>
-				</main>
-			</div>
+			<main id="main-content" className="h-screen overflow-hidden">
+				<Suspense fallback={<LoadingSkeleton />}>
+					<Outlet />
+				</Suspense>
+			</main>
 		</>
 	);
 }
