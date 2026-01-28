@@ -192,11 +192,9 @@ export const AccountFormPanel = ({
 			return;
 		}
 
-		const body = {
+		const baseBody = {
 			email: values.email,
 			username: values.username || undefined,
-			// Only send password if creating new account or if password was modified
-			password: !isEditing || passwordModified ? values.password : undefined,
 			imapHost: values.imapHost,
 			imapPort: Number(values.imapPort),
 			imapTls: values.imapTls,
@@ -214,8 +212,18 @@ export const AccountFormPanel = ({
 		};
 
 		if (isEditing && account) {
+			const body = {
+				...baseBody,
+				// Only send password if it was modified
+				password: passwordModified ? values.password : undefined,
+			};
 			updateMutation.mutate({ path: { accountId: account.accountId }, body });
 		} else {
+			// Password is validated above for new accounts
+			const body = {
+				...baseBody,
+				password: values.password as string,
+			};
 			createMutation.mutate({ body });
 		}
 	});
@@ -308,7 +316,7 @@ export const AccountFormPanel = ({
 								})}
 								type="password"
 								className="w-full px-3 py-2 border rounded-md bg-background"
-								onFocus={(e) => {
+								onFocus={() => {
 									// Clear placeholder when user focuses the field
 									if (isEditing && !passwordModified) {
 										form.setValue("password", "");
