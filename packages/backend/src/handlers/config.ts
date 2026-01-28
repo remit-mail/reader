@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 import type {
 	AccountConfigItem,
 	AccountItem,
@@ -8,9 +10,41 @@ import type {
 	ConfigDescriptionResponse,
 } from "@remit/api-openapi-types";
 import type { APIGatewayProxyEvent } from "aws-lambda";
+import { env } from "expect-env";
 import type { Context } from "openapi-backend";
+import { logger } from "../logger.js";
 import { getClient } from "../service/dynamodb.js";
 import type { ConfigOperationIds, OperationHandler } from "../types.js";
+
+/**
+ * Trigger a mailbox sync for an account by sending SQS message
+ */
+const triggerAccountSync = async (accountId: string): Promise<void> => {
+	const queueUrl = env.SQS_QUEUE_URL;
+	const endpoint = queueUrl.startsWith("http://localhost")
+		? new URL(queueUrl).origin
+		: undefined;
+	const sqs = new SQSClient({ endpoint });
+
+	const event = {
+		type: "SYNC_MAILBOXES",
+		eventId: randomUUID(),
+		timestamp: Date.now(),
+		accountId,
+	};
+
+	await sqs.send(
+		new SendMessageCommand({
+			QueueUrl: queueUrl,
+			MessageBody: JSON.stringify(event),
+		}),
+	);
+
+	logger.info(
+		{ accountId, eventId: event.eventId },
+		"Sync triggered on config load",
+	);
+};
 
 const toAccountConfigResponse = (
 	config: AccountConfigItem,
@@ -88,6 +122,13 @@ export const ConfigOperations: Record<
 		// Filter out deleted accounts (tombstone pattern)
 		const activeAccounts = description.account.filter(
 			(acc) => acc.deletedAt === undefined,
+		);
+
+		// Trigger sync for all active accounts (fire and forget)
+		Promise.all(
+			activeAccounts.map((acc) => triggerAccountSync(acc.accountId)),
+		).catch((err) =>
+			logger.error({ err }, "Failed to trigger syncs on config load"),
 		);
 
 		return {

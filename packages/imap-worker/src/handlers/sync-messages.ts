@@ -9,7 +9,7 @@ import {
 } from "@remit/remit-electrodb-service";
 import type { Logger } from "@remit/remit-logger-lambda";
 import {
-	createConnection,
+	createManagedConnectionFactory,
 	MessageSyncService,
 } from "@remit/mailbox-service";
 import {
@@ -19,11 +19,13 @@ import {
 } from "@remit/secrets-service";
 import { env } from "expect-env";
 import pMap from "p-map";
+import { isAccountDeleted } from "../account-check.js";
 import { emitEvent } from "../emit.js";
 import type { SyncMessageBodyEvent, SyncMessagesEvent } from "../events.js";
 
 const BODY_BATCH_SIZE = 25;
 const EVENT_EMIT_CONCURRENCY = 10;
+const MESSAGE_BATCH_SIZE = 200;
 
 const client = getClient();
 const dataKeyProvider = createKmsDataKeyProvider(env.KMS_KEY_ID);
@@ -68,19 +70,22 @@ export const syncMessages = async (
 		throw new Error(`Account ${event.accountId} not found`);
 	}
 
+	if (isAccountDeleted(account, log)) {
+		return;
+	}
+
 	const password = await secrets.decrypt(
 		deserializeEncryptedPayload(JSON.parse(account.passwordHash)),
 	);
 
-	// Create a connection factory that returns fresh connections
-	const connectionFactory = () =>
-		createConnection({
-			user: account.username,
-			password,
-			host: account.imapHost,
-			port: account.imapPort,
-			tls: account.imapTls,
-		});
+	// Create a managed connection factory that caches and reuses the connection
+	const connectionFactory = createManagedConnectionFactory({
+		user: account.username,
+		password,
+		host: account.imapHost,
+		port: account.imapPort,
+		tls: account.imapTls,
+	});
 
 	// Get the mailbox - it must exist (should have been created by mailbox sync)
 	const mailbox = await mailboxService.get(event.mailboxId);
@@ -96,10 +101,13 @@ export const syncMessages = async (
 		log,
 	);
 
-	const result = await syncService.syncMessages(
-		mailboxId,
-		account.accountConfigId,
-	);
+	// Connect once, reuse for the entire sync operation
+	const connection = connectionFactory.getConnection();
+	await connection.connect();
+
+	const result = await syncService
+		.syncMessages(mailboxId, account.accountConfigId, MESSAGE_BATCH_SIZE)
+		.finally(() => connectionFactory.close());
 	log.info(
 		{
 			syncedCount: result.syncedCount,

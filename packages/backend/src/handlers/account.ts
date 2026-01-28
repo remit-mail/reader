@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 import type { AccountItem } from "@remit/remit-electrodb-service";
 import { ConnectionState } from "@remit/domain-enums";
 import {
@@ -17,13 +19,45 @@ import {
 	serializeEncryptedPayload,
 } from "@remit/secrets-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
+import { env } from "expect-env";
 import type { Context } from "openapi-backend";
+import { logger } from "../logger.js";
 import { getClient } from "../service/dynamodb.js";
 import type {
 	AccountDetailOperationIds,
 	AccountOperationIds,
 	OperationHandler,
 } from "../types.js";
+
+/**
+ * Trigger a mailbox sync for an account by sending SQS message
+ */
+const triggerAccountSync = async (accountId: string): Promise<void> => {
+	const queueUrl = env.SQS_QUEUE_URL;
+	const endpoint = queueUrl.startsWith("http://localhost")
+		? new URL(queueUrl).origin
+		: undefined;
+	const sqs = new SQSClient({ endpoint });
+
+	const event = {
+		type: "SYNC_MAILBOXES",
+		eventId: randomUUID(),
+		timestamp: Date.now(),
+		accountId,
+	};
+
+	await sqs.send(
+		new SendMessageCommand({
+			QueueUrl: queueUrl,
+			MessageBody: JSON.stringify(event),
+		}),
+	);
+
+	logger.info(
+		{ accountId, eventId: event.eventId },
+		"Sync triggered for new account",
+	);
+};
 
 /**
  * Extract accountConfigId from JWT claims in API Gateway event.
@@ -113,6 +147,9 @@ export const AccountOperations: Record<
 			isActive: true,
 			connectionState: ConnectionState.NotAuthenticated,
 		});
+
+		// Trigger initial mailbox sync for the new account
+		await triggerAccountSync(newAccount.accountId);
 
 		return toAccountResponse(newAccount);
 	},

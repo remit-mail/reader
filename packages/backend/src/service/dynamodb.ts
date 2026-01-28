@@ -11,7 +11,10 @@ import {
 	ThreadMessageService,
 } from "@remit/remit-electrodb-service";
 import {
+	BodySyncService,
+	createConnection,
 	FlagQueueService,
+	type IImapConnection,
 	MailboxQueueService,
 	MessageMoveService,
 } from "@remit/mailbox-service";
@@ -19,6 +22,7 @@ import {
 	createCachedDataKeyProvider,
 	createKmsDataKeyProvider,
 	createSecretsService,
+	deserializeEncryptedPayload,
 	FAKE_KMS_KEY_ID,
 	type SecretsService,
 } from "@remit/secrets-service";
@@ -53,6 +57,11 @@ const getDocumentClient = (): DynamoDBDocumentClient => {
 	return DynamoDBDocumentClient.from(ddbClient);
 };
 
+export interface ConnectionScope {
+	getConnection: () => Promise<IImapConnection>;
+	disconnect: () => Promise<void>;
+}
+
 export interface RemitClient {
 	// ElectroDB services (reads)
 	accountConfig: AccountConfigService;
@@ -70,10 +79,16 @@ export interface RemitClient {
 	// Secrets service (KMS encryption)
 	secrets: SecretsService;
 
+	// Body sync service (on-demand IMAP body fetch)
+	bodySync: BodySyncService;
+
 	// Queue services (writes with IMAP sync)
 	flagQueue: FlagQueueService;
 	mailboxQueue: MailboxQueueService;
 	messageMove: MessageMoveService;
+
+	// Helper to create IMAP connection scope from accountId
+	createConnectionScope: (accountId: string) => Promise<ConnectionScope>;
 }
 
 let client: RemitClient | null = null;
@@ -108,6 +123,55 @@ export const getClient = (): RemitClient => {
 		);
 		const secretsService = createSecretsService(dataKeyProvider);
 
+		// Body sync service for on-demand IMAP body fetch
+		const bodySyncService = new BodySyncService(
+			messageService,
+			storageService,
+			threadMessageService,
+			logger,
+		);
+
+		// Helper to create connection scope from accountId
+		const createConnectionScopeHelper = async (
+			accountId: string,
+		): Promise<ConnectionScope> => {
+			const account = await accountService.get(accountId);
+			const password = await secretsService.decrypt(
+				deserializeEncryptedPayload(JSON.parse(account.passwordHash)),
+			);
+
+			let connection: IImapConnection | null = null;
+			let connectPromise: Promise<IImapConnection> | null = null;
+
+			const getConnection = async (): Promise<IImapConnection> => {
+				if (connectPromise) {
+					return connectPromise;
+				}
+
+				const conn = createConnection({
+					user: account.username,
+					password,
+					host: account.imapHost,
+					port: account.imapPort,
+					tls: account.imapTls,
+				});
+				connection = conn;
+				connectPromise = conn.connect().then(() => conn);
+
+				return connectPromise;
+			};
+
+			const disconnect = async (): Promise<void> => {
+				if (connection) {
+					await connection.disconnect();
+					connection = null;
+					connectPromise = null;
+				}
+			};
+
+			return { getConnection, disconnect };
+		};
+
 		client = {
 			// ElectroDB services (reads)
 			accountConfig: accountConfigService,
@@ -124,6 +188,9 @@ export const getClient = (): RemitClient => {
 
 			// Secrets service (KMS encryption)
 			secrets: secretsService,
+
+			// Body sync service (on-demand IMAP body fetch)
+			bodySync: bodySyncService,
 
 			// Queue services (writes with IMAP sync)
 			flagQueue: new FlagQueueService({
@@ -146,6 +213,9 @@ export const getClient = (): RemitClient => {
 				sqsQueueUrl,
 				logger,
 			}),
+
+			// Helper to create IMAP connection scope from accountId
+			createConnectionScope: createConnectionScopeHelper,
 		};
 	}
 
