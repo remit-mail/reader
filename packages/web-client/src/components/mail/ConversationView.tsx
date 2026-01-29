@@ -1,7 +1,7 @@
 import { threadDetailOperationsListThreadMessagesOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import { useQuery } from "@tanstack/react-query";
 import { Forward, Reply, ReplyAll } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { useMarkAsRead } from "@/hooks/useMarkAsRead";
@@ -10,6 +10,7 @@ import { MessageCard } from "./MessageCard";
 
 interface ConversationViewProps {
 	threadId: string;
+	mailboxId: string;
 	subject?: string;
 }
 
@@ -69,16 +70,20 @@ const ActionBar = ({ onReply, onReplyAll, onForward }: ActionBarProps) => (
 
 export const ConversationView = ({
 	threadId,
+	mailboxId,
 	subject,
 }: ConversationViewProps) => {
 	const { data: messagesResponse, isLoading } = useQuery({
 		...threadDetailOperationsListThreadMessagesOptions({
 			path: { threadId },
-			query: { order: "desc" },
+			query: { order: "desc", mailboxId },
 		}),
 	});
 
-	const messages = messagesResponse?.items ?? [];
+	const messages = useMemo(
+		() => messagesResponse?.items ?? [],
+		[messagesResponse?.items],
+	);
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
 	const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
@@ -156,7 +161,6 @@ export const ConversationView = ({
 	});
 
 	// Mark messages as read when expanded
-	const mailboxId = messages[0]?.mailboxId ?? "";
 	useMarkAsRead({
 		messages,
 		expandedIds,

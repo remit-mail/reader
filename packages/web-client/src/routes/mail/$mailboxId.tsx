@@ -212,6 +212,7 @@ function MailboxView() {
 					{selectedThread ? (
 						<ConversationView
 							threadId={selectedThread.threadId}
+							mailboxId={mailboxId}
 							subject={selectedThread.subject}
 						/>
 					) : (
