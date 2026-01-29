@@ -24,7 +24,7 @@ import { isAccountDeleted } from "../account-check.js";
 import { emitEvent } from "../emit.js";
 import type { SyncMessageBodyEvent, SyncMessagesEvent } from "../events.js";
 
-const BODY_BATCH_SIZE = 25;
+const BODY_BATCH_SIZE = 50;
 const EVENT_EMIT_CONCURRENCY = 10;
 const MESSAGE_BATCH_SIZE = 200;
 

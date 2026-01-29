@@ -2,6 +2,7 @@ import type { Logger } from "@remit/remit-logger-lambda";
 import type { ImapEvent } from "./events.js";
 import { handleEmptyTrash } from "./handlers/empty-trash.js";
 import { processMailboxManagement } from "./handlers/mailbox-management.js";
+import { handleMessageCopy } from "./handlers/message-copy.js";
 import { handleMessageDelete } from "./handlers/message-delete.js";
 import { handleMessageMove } from "./handlers/message-move.js";
 import { syncFlags } from "./handlers/sync-flags.js";
@@ -30,6 +31,8 @@ export const processEvent = async (
 			return handleMessageDelete(event, log);
 		case "MESSAGE_MOVE":
 			return handleMessageMove(event, log);
+		case "MESSAGE_COPY":
+			return handleMessageCopy(event, log);
 		case "EMPTY_TRASH":
 			return handleEmptyTrash(event, log);
 		default:
