@@ -1,7 +1,10 @@
-import { messageBulkOperationsUpdateFlagsMutation } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import {
+	messageOperationsUpdateMessageFlagsMutation,
+	threadDetailOperationsListThreadMessagesQueryKey,
+	threadOperationsListThreadsQueryKey,
+} from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { threadKeys } from "./queries/keys";
 
 interface UseToggleStarOptions {
 	threadId: string;
@@ -15,14 +18,19 @@ export const useToggleStar = ({
 	const queryClient = useQueryClient();
 
 	const { mutate, isPending, variables } = useMutation({
-		...messageBulkOperationsUpdateFlagsMutation(),
+		...messageOperationsUpdateMessageFlagsMutation(),
 		onSuccess: (_data, variables) => {
+			// Invalidate thread messages query using generated key
 			queryClient.invalidateQueries({
-				queryKey: threadKeys.messages(threadId),
+				queryKey: threadDetailOperationsListThreadMessagesQueryKey({
+					path: { threadId },
+				}),
 			});
+			// Invalidate thread list query using generated key
 			queryClient.invalidateQueries({
-				queryKey: threadKeys.list(mailboxId, {}),
-				exact: false,
+				queryKey: threadOperationsListThreadsQueryKey({
+					path: { mailboxId },
+				}),
 			});
 			const action = variables.body.isStarred ? "starred" : "unstarred";
 			toast.success(`Message ${action}`);
@@ -35,8 +43,8 @@ export const useToggleStar = ({
 
 	const toggleStar = (messageId: string, currentlyStarred: boolean) => {
 		mutate({
+			path: { messageId },
 			body: {
-				messageIds: [messageId],
 				isStarred: !currentlyStarred,
 			},
 		});
@@ -45,6 +53,6 @@ export const useToggleStar = ({
 	return {
 		toggleStar,
 		isPending,
-		pendingMessageId: isPending ? variables?.body.messageIds[0] : undefined,
+		pendingMessageId: isPending ? variables?.path.messageId : undefined,
 	};
 };

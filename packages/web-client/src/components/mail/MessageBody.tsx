@@ -1,12 +1,23 @@
 import { useMemo, useState } from "react";
-import { createEmailSanitizer } from "@/lib/email-sanitizer";
+import { type ColorMode, createEmailSanitizer } from "@/lib/email-sanitizer";
 
 interface MessageBodyProps {
 	html?: string;
 	text?: string;
+	/**
+	 * Color mode for email content.
+	 * - 'light': No color processing
+	 * - 'dark': Adapt colors for dark backgrounds
+	 * - 'auto': Use prefers-color-scheme (default)
+	 */
+	colorMode?: ColorMode;
 }
 
-export const MessageBody = ({ html, text }: MessageBodyProps) => {
+export const MessageBody = ({
+	html,
+	text,
+	colorMode = "auto",
+}: MessageBodyProps) => {
 	const [allowImages, setAllowImages] = useState(false);
 
 	const sanitizedHtml = useMemo(() => {
@@ -14,10 +25,11 @@ export const MessageBody = ({ html, text }: MessageBodyProps) => {
 
 		const sanitize = createEmailSanitizer({
 			allowExternalImages: allowImages,
+			colorMode,
 		});
 
 		return sanitize(html);
-	}, [html, allowImages]);
+	}, [html, allowImages, colorMode]);
 
 	// Count blocked images for UI feedback
 	const blockedImageCount = useMemo(() => {

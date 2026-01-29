@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test:typecheck": "tsc --noEmit"
+    "test:typecheck": "tsc --noEmit",
+    "test:run": "node --import tsx --test 'src/**/*.test.ts'",
+    "test": "npm run test:typecheck && npm run test:run"
   },
   "devDependencies": {
     "@remit/api-http-client": "file:../../build/remit-client",

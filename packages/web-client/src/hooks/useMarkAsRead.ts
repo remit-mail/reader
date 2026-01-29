@@ -1,8 +1,11 @@
-import { messageBulkOperationsUpdateFlagsMutation } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import {
+	messageBulkOperationsUpdateFlagsMutation,
+	threadDetailOperationsListThreadMessagesQueryKey,
+	threadOperationsListThreadsQueryKey,
+} from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef } from "react";
-import { threadKeys } from "./queries/keys";
 
 interface UseMarkAsReadOptions {
 	messages: RemitImapThreadMessageResponse[];
@@ -11,7 +14,7 @@ interface UseMarkAsReadOptions {
 	mailboxId: string;
 }
 
-const READ_DELAY_MS = 30_000;
+const READ_DELAY_MS = 10_000;
 
 export const useMarkAsRead = ({
 	messages,
@@ -23,28 +26,50 @@ export const useMarkAsRead = ({
 	const timersRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
 	const markedAsReadRef = useRef<Set<string>>(new Set());
 
+	// Track in-flight requests to prevent duplicate calls
+	const pendingRef = useRef<Set<string>>(new Set());
+
 	const { mutate: markAsRead } = useMutation({
 		...messageBulkOperationsUpdateFlagsMutation(),
-		onSuccess: () => {
+		onSuccess: (_data, variables) => {
+			// Mark as successfully processed
+			const messageIds = variables.body.messageIds ?? [];
+			for (const id of messageIds) {
+				markedAsReadRef.current.add(id);
+				pendingRef.current.delete(id);
+			}
+			// Invalidate thread messages query using generated key
 			queryClient.invalidateQueries({
-				queryKey: threadKeys.messages(threadId),
+				queryKey: threadDetailOperationsListThreadMessagesQueryKey({
+					path: { threadId },
+				}),
 			});
+			// Invalidate thread list query using generated key
 			queryClient.invalidateQueries({
-				queryKey: threadKeys.list(mailboxId, {}),
-				exact: false,
+				queryKey: threadOperationsListThreadsQueryKey({
+					path: { mailboxId },
+				}),
 			});
+		},
+		onError: (_error, variables) => {
+			// Remove from pending so it can be retried
+			const messageIds = variables.body.messageIds ?? [];
+			for (const id of messageIds) {
+				pendingRef.current.delete(id);
+			}
 		},
 	});
 
 	const markMessagesRead = useCallback(
 		(messageIds: string[]) => {
 			const idsToMark = messageIds.filter(
-				(id) => !markedAsReadRef.current.has(id),
+				(id) => !markedAsReadRef.current.has(id) && !pendingRef.current.has(id),
 			);
 			if (idsToMark.length === 0) return;
 
+			// Mark as pending (in-flight)
 			for (const id of idsToMark) {
-				markedAsReadRef.current.add(id);
+				pendingRef.current.add(id);
 			}
 
 			markAsRead({
@@ -79,7 +104,7 @@ export const useMarkAsRead = ({
 		}
 	}, [unreadMessages, expandedIds, markMessagesRead]);
 
-	// Set up 30-second timers for expanded unread messages
+	// Set up timers for expanded unread messages
 	useEffect(() => {
 		const currentTimers = timersRef.current;
 
