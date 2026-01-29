@@ -90,11 +90,12 @@ export const syncMessageBody = async (
 		)
 		.finally(() => scope.disconnect());
 
-	// Re-enqueue failed messages for retry
+	// Re-enqueue failed messages for retry with jittered delay to avoid thundering herd
 	if (result.failedMessageIds.length > 0) {
+		const retryDelaySeconds = 20 + Math.floor(Math.random() * 21); // 20-40 seconds
 		log.info(
-			{ failedCount: result.failedMessageIds.length },
-			"Re-enqueueing failed body syncs",
+			{ failedCount: result.failedMessageIds.length, retryDelaySeconds },
+			"Re-enqueueing failed body syncs with delay",
 		);
 
 		const retryEvent: Omit<SyncMessageBodyEvent, "eventId" | "timestamp"> = {
@@ -103,6 +104,6 @@ export const syncMessageBody = async (
 			mailboxId,
 			messageIds: result.failedMessageIds,
 		};
-		await emitEvent(retryEvent);
+		await emitEvent(retryEvent, { delaySeconds: retryDelaySeconds });
 	}
 };

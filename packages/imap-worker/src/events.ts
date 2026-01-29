@@ -91,10 +91,25 @@ export interface EmptyTrashEvent extends BaseEvent {
 	trashMailboxPath: string;
 }
 
+/**
+ * Event for copying a message to another mailbox.
+ */
+export interface MessageCopyEvent extends BaseEvent {
+	type: "MESSAGE_COPY";
+	sourceMessageId: string;
+	newMessageId: string;
+	sourceMailboxId: string;
+	sourceMailboxPath: string;
+	destinationMailboxId: string;
+	destinationMailboxPath: string;
+	uid: number;
+}
+
 export type MessageManagementEvent =
 	| MessageDeleteEvent
 	| MessageMoveEvent
-	| EmptyTrashEvent;
+	| EmptyTrashEvent
+	| MessageCopyEvent;
 
 export type ImapEvent =
 	| SyncMailboxesEvent

@@ -29,6 +29,7 @@ const queueUrlMap: Record<ImapEvent["type"], string> = {
 	MAILBOX_DELETE: process.env.SQS_QUEUE_URL_MAILBOX_MGMT ?? defaultQueueUrl,
 	MESSAGE_DELETE: process.env.SQS_QUEUE_URL_MESSAGE_MGMT ?? defaultQueueUrl,
 	MESSAGE_MOVE: process.env.SQS_QUEUE_URL_MESSAGE_MGMT ?? defaultQueueUrl,
+	MESSAGE_COPY: process.env.SQS_QUEUE_URL_MESSAGE_MGMT ?? defaultQueueUrl,
 	EMPTY_TRASH: process.env.SQS_QUEUE_URL_MESSAGE_MGMT ?? defaultQueueUrl,
 };
 
@@ -85,7 +86,23 @@ const getDeduplicationId = (event: EventInput): string | undefined => {
  */
 const isFifoQueue = (queueUrl: string): boolean => queueUrl.endsWith(".fifo");
 
-export const emitEvent = async (event: EventInput) => {
+/**
+ * Check if running against local ElasticMQ (doesn't support DelaySeconds on FIFO)
+ */
+const isLocalQueue = defaultQueueUrl.startsWith("http://localhost");
+
+export interface EmitEventOptions {
+	/**
+	 * Delay delivery of the message by this many seconds (0-900).
+	 * Useful for retry backoff to avoid overwhelming IMAP servers.
+	 */
+	delaySeconds?: number;
+}
+
+export const emitEvent = async (
+	event: EventInput,
+	options?: EmitEventOptions,
+) => {
 	const fullEvent: ImapEvent = {
 		...event,
 		eventId: randomUUID(),
@@ -95,10 +112,15 @@ export const emitEvent = async (event: EventInput) => {
 	const queueUrl = queueUrlMap[event.type];
 	const useFifo = isFifoQueue(queueUrl) && fifoEventTypes.has(event.type);
 
+	// ElasticMQ FIFO queues don't support per-message DelaySeconds
+	const useDelay = options?.delaySeconds && !isLocalQueue;
+
 	await sqs.send(
 		new SendMessageCommand({
 			QueueUrl: queueUrl,
 			MessageBody: JSON.stringify(fullEvent),
+			// Delay delivery for retry backoff (skip for local ElasticMQ)
+			...(useDelay && { DelaySeconds: options.delaySeconds }),
 			// FIFO queue parameters - only set if queue is FIFO
 			...(useFifo && {
 				MessageGroupId: event.accountId,
