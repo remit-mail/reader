@@ -1,7 +1,11 @@
 import type { OperationHandler, OperationIds } from "../types.js";
 import { AccountDetailOperations, AccountOperations } from "./account.js";
 import { ConfigOperations } from "./config.js";
-import { MailboxDetailOperations, MailboxOperations } from "./mailbox.js";
+import {
+	MailboxDetailOperations,
+	MailboxOperations,
+	TrashOperations,
+} from "./mailbox.js";
 import { MessageBulkOperations, MessageOperations } from "./message.js";
 import { SyncOperations } from "./sync.js";
 import { ThreadDetailOperations, ThreadOperations } from "./thread.js";
@@ -13,6 +17,7 @@ export const handlers: Record<OperationIds, OperationHandler<any>> = {
 	...AccountDetailOperations,
 	...MailboxOperations,
 	...MailboxDetailOperations,
+	...TrashOperations,
 	...SyncOperations,
 	...ThreadDetailOperations,
 	...ThreadOperations,
