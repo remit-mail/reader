@@ -126,7 +126,10 @@ export class FlagQueueService {
 	}
 
 	/**
-	 * Update ThreadMessage.isRead using the byMessageId index.
+	 * Update ThreadMessage.isRead for ALL ThreadMessages matching this messageId.
+	 *
+	 * A message can exist in multiple mailboxes (e.g., inbox and archive), so we
+	 * must update all instances to keep the isRead status consistent.
 	 *
 	 * Provides composite attributes (sentDate, mailboxId) required by ElectroDB
 	 * to update the GSI/LSI keys when isRead changes.
@@ -137,9 +140,9 @@ export class FlagQueueService {
 		messageId: string,
 		isRead: boolean,
 	): Promise<void> => {
-		const threadMessage =
-			await this.threadMessageService.findByMessageId(messageId);
-		if (!threadMessage) {
+		const threadMessages =
+			await this.threadMessageService.findAllByMessageId(messageId);
+		if (threadMessages.length === 0) {
 			this.log.info(
 				{ messageId },
 				"ThreadMessage not found for messageId - skipping isRead update",
@@ -147,35 +150,99 @@ export class FlagQueueService {
 			return;
 		}
 
-		try {
-			await this.threadMessageService.update(
-				threadMessage.accountConfigId,
-				threadMessage.threadMessageId,
-				{ isRead },
-				{
-					composites: {
-						sentDate: threadMessage.sentDate,
-						mailboxId: threadMessage.mailboxId,
-						isRead,
-						isDeleted: threadMessage.isDeleted,
-						hasStars: threadMessage.hasStars,
-						hasAttachment: threadMessage.hasAttachment,
+		for (const threadMessage of threadMessages) {
+			try {
+				await this.threadMessageService.update(
+					threadMessage.accountConfigId,
+					threadMessage.threadMessageId,
+					{ isRead },
+					{
+						composites: {
+							sentDate: threadMessage.sentDate,
+							mailboxId: threadMessage.mailboxId,
+							isRead,
+							isDeleted: threadMessage.isDeleted,
+							hasStars: threadMessage.hasStars,
+							hasAttachment: threadMessage.hasAttachment,
+						},
 					},
-				},
-			);
-			this.log.info(
-				{ messageId, threadMessageId: threadMessage.threadMessageId, isRead },
-				"Updated ThreadMessage.isRead",
-			);
-		} catch (err) {
-			if (err instanceof NotFoundError) {
-				this.log.info(
-					{ messageId, threadMessageId: threadMessage.threadMessageId },
-					"ThreadMessage deleted during update - skipping isRead update",
 				);
-				return;
+				this.log.info(
+					{ messageId, threadMessageId: threadMessage.threadMessageId, isRead },
+					"Updated ThreadMessage.isRead",
+				);
+			} catch (err) {
+				if (err instanceof NotFoundError) {
+					this.log.info(
+						{ messageId, threadMessageId: threadMessage.threadMessageId },
+						"ThreadMessage deleted during update - skipping isRead update",
+					);
+					continue;
+				}
+				throw err;
 			}
-			throw err;
+		}
+	};
+
+	/**
+	 * Update ThreadMessage.hasStars and star color for ALL ThreadMessages matching this messageId.
+	 *
+	 * A message can exist in multiple mailboxes (e.g., inbox and archive), so we
+	 * must update all instances to keep the star status consistent.
+	 *
+	 * Handles race condition where ThreadMessage may be deleted between find and update.
+	 */
+	private updateThreadMessageStars = async (
+		messageId: string,
+		updates: { hasStars?: boolean; star?: StarColorValue },
+	): Promise<void> => {
+		if (Object.keys(updates).length === 0) return;
+
+		const threadMessages =
+			await this.threadMessageService.findAllByMessageId(messageId);
+		if (threadMessages.length === 0) {
+			this.log.info(
+				{ messageId },
+				"ThreadMessage not found for messageId - skipping star update",
+			);
+			return;
+		}
+
+		for (const threadMessage of threadMessages) {
+			try {
+				await this.threadMessageService.update(
+					threadMessage.accountConfigId,
+					threadMessage.threadMessageId,
+					updates,
+					{
+						composites: {
+							sentDate: threadMessage.sentDate,
+							mailboxId: threadMessage.mailboxId,
+							isRead: threadMessage.isRead,
+							isDeleted: threadMessage.isDeleted,
+							hasStars: updates.hasStars ?? threadMessage.hasStars,
+							hasAttachment: threadMessage.hasAttachment,
+						},
+					},
+				);
+				this.log.info(
+					{
+						messageId,
+						threadMessageId: threadMessage.threadMessageId,
+						updates,
+					},
+					"Updated ThreadMessage stars",
+				);
+			} catch (err) {
+				if (err instanceof NotFoundError) {
+					this.log.info(
+						{ messageId, threadMessageId: threadMessage.threadMessageId },
+						"ThreadMessage deleted during update - skipping star update",
+					);
+					continue;
+				}
+				throw err;
+			}
 		}
 	};
 
@@ -330,9 +397,6 @@ export class FlagQueueService {
 
 		// Handle isStarred -> \Flagged flag and ThreadMessage.hasStars/star
 		if (input.isStarred !== undefined || input.starColor !== undefined) {
-			const threadMessage =
-				await this.threadMessageService.findByMessageId(messageId);
-
 			if (input.isStarred !== undefined) {
 				if (input.isStarred) {
 					await this.messageFlagService.addFlag(
@@ -357,34 +421,15 @@ export class FlagQueueService {
 				}
 			}
 
-			// Update ThreadMessage hasStars and star color
-			if (threadMessage) {
-				const updates: { hasStars?: boolean; star?: StarColorValue } = {};
-				if (input.isStarred !== undefined) {
-					updates.hasStars = input.isStarred;
-				}
-				if (input.starColor !== undefined) {
-					updates.star = input.starColor;
-				}
-
-				if (Object.keys(updates).length > 0) {
-					await this.threadMessageService.update(
-						threadMessage.accountConfigId,
-						threadMessage.threadMessageId,
-						updates,
-						{
-							composites: {
-								sentDate: threadMessage.sentDate,
-								mailboxId: threadMessage.mailboxId,
-								isRead: threadMessage.isRead,
-								isDeleted: threadMessage.isDeleted,
-								hasStars: updates.hasStars ?? threadMessage.hasStars,
-								hasAttachment: threadMessage.hasAttachment,
-							},
-						},
-					);
-				}
+			// Update ThreadMessage hasStars and star color for ALL instances
+			const starUpdates: { hasStars?: boolean; star?: StarColorValue } = {};
+			if (input.isStarred !== undefined) {
+				starUpdates.hasStars = input.isStarred;
 			}
+			if (input.starColor !== undefined) {
+				starUpdates.star = input.starColor;
+			}
+			await this.updateThreadMessageStars(messageId, starUpdates);
 		}
 
 		// Enqueue IMAP sync if there are flag operations
