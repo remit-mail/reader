@@ -153,7 +153,7 @@ namespace RemitApi {
 
   @route("/threads/{threadId}/messages")
   namespace ThreadDetailOperations {
-    @doc("Get all messages in a thread")
+    @doc("Get all messages in a thread. Optionally filter by mailboxId to deduplicate when messages exist in multiple mailboxes.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
     op listThreadMessages(
@@ -161,6 +161,10 @@ namespace RemitApi {
 
       @query(#{ explode: true })
       order?: SortOrder,
+
+      @doc("Filter messages to only those in this mailbox (useful for deduplication)")
+      @query(#{ explode: true })
+      mailboxId?: UUID,
     ): ResultList<ThreadMessageResponse>;
   }
 

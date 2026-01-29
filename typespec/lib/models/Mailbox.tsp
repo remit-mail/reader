@@ -78,6 +78,11 @@ model Mailbox {
   @minValue(1)
   uidNext: int64;
 
+  @doc("Highest modification sequence number (CONDSTORE). Used to detect mailbox changes efficiently.")
+  @visibility(Lifecycle.Read)
+  @minValue(0)
+  highestModseq: int64;
+
   @doc("Total message count in mailbox")
   @visibility(Lifecycle.Read)
   @minValue(0)
