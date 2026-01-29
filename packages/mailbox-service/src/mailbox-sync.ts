@@ -9,9 +9,11 @@ import {
 	type CreateMailboxInput,
 	type MailboxItem,
 	MailboxService,
+	MailboxSpecialUseService,
 } from "@remit/remit-electrodb-service";
-import { NamespaceType } from "@remit/domain-enums";
-import { isNoSelect } from "./attribute-mapper.js";
+import { MailboxSpecialUse, NamespaceType } from "@remit/domain-enums";
+import pMap from "p-map";
+import { isNoSelect, parseImapAttributes } from "./attribute-mapper.js";
 import type {
 	FlatMailboxInfo,
 	IImapConnection,
@@ -21,6 +23,28 @@ import type {
 
 // Type for namespace type values
 type NamespaceTypeValue = (typeof NamespaceType)[keyof typeof NamespaceType];
+type MailboxSpecialUseValue =
+	(typeof MailboxSpecialUse)[keyof typeof MailboxSpecialUse];
+
+/**
+ * Map common folder names to their expected special-use designation.
+ * Used to detect duplicate folders (e.g., "Trash" vs "[Gmail]/Trash").
+ */
+const FOLDER_NAME_TO_SPECIAL_USE: Record<string, MailboxSpecialUseValue> = {
+	trash: MailboxSpecialUse.Trash,
+	"deleted items": MailboxSpecialUse.Trash,
+	deleted: MailboxSpecialUse.Trash,
+	bin: MailboxSpecialUse.Trash,
+	drafts: MailboxSpecialUse.Drafts,
+	draft: MailboxSpecialUse.Drafts,
+	sent: MailboxSpecialUse.Sent,
+	"sent items": MailboxSpecialUse.Sent,
+	"sent mail": MailboxSpecialUse.Sent,
+	junk: MailboxSpecialUse.Junk,
+	spam: MailboxSpecialUse.Junk,
+	archive: MailboxSpecialUse.Archive,
+	archives: MailboxSpecialUse.Archive,
+};
 
 /**
  * Configuration for MailboxSyncService
@@ -42,9 +66,14 @@ export interface SyncAccountInfo {
  */
 export class MailboxSyncService {
 	private mailboxService: MailboxService;
+	private specialUseService: MailboxSpecialUseService;
 
 	constructor(config: MailboxSyncConfig) {
 		this.mailboxService = new MailboxService({
+			client: config.client,
+			table: config.table,
+		});
+		this.specialUseService = new MailboxSpecialUseService({
 			client: config.client,
 			table: config.table,
 		});
@@ -79,43 +108,72 @@ export class MailboxSyncService {
 			namespaces,
 		);
 
+		// Build a map of special-use designations claimed by mailboxes with IMAP attributes
+		// This helps us identify and skip duplicate folders (e.g., "Trash" vs "[Gmail]/Trash")
+		const claimedSpecialUse = this.buildSpecialUseMap(remoteMailboxes);
+
 		// Track which paths we've seen from remote
 		const seenPaths = new Set<string>();
 
-		// Process each remote mailbox
-		for (const mailboxInfo of remoteMailboxes) {
-			// Skip non-selectable mailboxes (container folders that can't hold messages)
-			if (isNoSelect(mailboxInfo.attributes)) {
-				// Mark as seen so we don't try to delete again in cleanup loop
-				seenPaths.add(mailboxInfo.fullPath);
-				// If this mailbox exists in DB, delete it
-				const existing = existingByPath.get(mailboxInfo.fullPath);
-				if (existing) {
-					await this.mailboxService.delete(existing.mailboxId);
-					console.info(
-						`Deleted non-selectable mailbox: ${existing.mailboxId} (${existing.fullPath})`,
-					);
-					result.deleted++;
+		// Process each remote mailbox (concurrency 3 for IMAP pipelining)
+		await pMap(
+			remoteMailboxes,
+			async (mailboxInfo) => {
+				// Skip non-selectable mailboxes (container folders that can't hold messages)
+				if (isNoSelect(mailboxInfo.attributes)) {
+					// Mark as seen so we don't try to delete again in cleanup loop
+					seenPaths.add(mailboxInfo.fullPath);
+					// If this mailbox exists in DB, delete it
+					const existing = existingByPath.get(mailboxInfo.fullPath);
+					if (existing) {
+						await this.mailboxService.delete(existing.mailboxId);
+						console.info(
+							`Deleted non-selectable mailbox: ${existing.mailboxId} (${existing.fullPath})`,
+						);
+						result.deleted++;
+					}
+					return;
 				}
-				continue;
-			}
 
-			seenPaths.add(mailboxInfo.fullPath);
-			const existing = existingByPath.get(mailboxInfo.fullPath);
+				// Skip duplicate special-use folders (e.g., "Trash" when "[Gmail]/Trash" exists)
+				if (this.isDuplicateSpecialUse(mailboxInfo, claimedSpecialUse)) {
+					seenPaths.add(mailboxInfo.fullPath);
+					const existing = existingByPath.get(mailboxInfo.fullPath);
+					if (existing) {
+						await this.specialUseService.deleteByMailboxId(existing.mailboxId);
+						await this.mailboxService.delete(existing.mailboxId);
+						console.info(
+							`Deleted duplicate special-use mailbox: ${existing.mailboxId} (${existing.fullPath})`,
+						);
+						result.deleted++;
+					}
+					return;
+				}
 
-			if (existing) {
-				await this.updateMailbox(existing, mailboxInfo, connection);
-				result.updated++;
-			} else {
-				await this.createMailbox(
-					account.accountId,
-					mailboxInfo,
-					namespaces,
-					connection,
-				);
-				result.created++;
-			}
-		}
+				seenPaths.add(mailboxInfo.fullPath);
+				const existing = existingByPath.get(mailboxInfo.fullPath);
+
+				if (existing) {
+					const updated = await this.updateMailbox(
+						existing,
+						mailboxInfo,
+						connection,
+					);
+					if (updated) {
+						result.updated++;
+					}
+				} else {
+					await this.createMailbox(
+						account.accountId,
+						mailboxInfo,
+						namespaces,
+						connection,
+					);
+					result.created++;
+				}
+			},
+			{ concurrency: 3 },
+		);
 
 		// Handle deleted mailboxes (exist in DB but not on server)
 		for (const existing of existingMailboxes) {
@@ -259,6 +317,7 @@ export class MailboxSyncService {
 			fullPath: mailboxInfo.fullPath,
 			uidValidity: status.uidValidity,
 			uidNext: status.uidNext,
+			highestModseq: status.highestModseq,
 			messageCount: status.messages,
 			unseenCount: status.unseen,
 			deletedCount: 0,
@@ -269,40 +328,190 @@ export class MailboxSyncService {
 			// parentMailboxId would need to be resolved from parentPath
 		};
 
-		// TODO: Store attributes and special-use entries in separate entities
-		// For now, we only create the Mailbox entity
-
 		const mailbox = await this.mailboxService.create(input);
 
-		console.info(
-			`Created mailbox: ${mailbox.mailboxId} (${mailboxInfo.fullPath})`,
-		);
+		// Parse and store special-use attributes (RFC 6154)
+		const parsed = parseImapAttributes(mailboxInfo.attributes);
+		if (parsed.specialUse.length > 0) {
+			await this.specialUseService.createMany(
+				mailbox.mailboxId,
+				parsed.specialUse,
+			);
+			console.info(
+				`Created mailbox: ${mailbox.mailboxId} (${mailboxInfo.fullPath}) [special-use: ${parsed.specialUse.join(", ")}]`,
+			);
+		} else {
+			console.info(
+				`Created mailbox: ${mailbox.mailboxId} (${mailboxInfo.fullPath})`,
+			);
+		}
 
 		return mailbox;
 	};
 
 	/**
-	 * Update an existing mailbox with fresh data
+	 * Update an existing mailbox with fresh data.
+	 * Skips DB write if nothing has changed.
+	 *
+	 * @returns The updated mailbox, or null if skipped due to no changes
 	 */
 	private updateMailbox = async (
 		existing: MailboxItem,
 		mailboxInfo: FlatMailboxInfo,
 		connection: IImapConnection,
-	): Promise<MailboxItem> => {
-		console.info(
-			`Updating mailbox: ${existing.mailboxId} (${mailboxInfo.fullPath})`,
-		);
-
+	): Promise<MailboxItem | null> => {
 		// Fetch mailbox status using STATUS command (doesn't require SELECT/EXAMINE)
 		const status = await connection.getMailboxStatus(mailboxInfo.fullPath);
+
+		// Check if anything actually changed
+		const hasChanges =
+			existing.uidNext !== status.uidNext ||
+			existing.uidValidity !== status.uidValidity ||
+			existing.messageCount !== status.messages ||
+			existing.unseenCount !== status.unseen ||
+			(status.highestModseq > 0 &&
+				existing.highestModseq !== status.highestModseq);
+
+		// Sync special-use attributes (handles migration of existing mailboxes)
+		await this.syncSpecialUseAttributes(existing.mailboxId, mailboxInfo);
+
+		if (!hasChanges) {
+			return null;
+		}
+
+		// Debug: log what changed
+		const changes: string[] = [];
+		if (existing.uidNext !== status.uidNext)
+			changes.push(`uidNext: ${existing.uidNext} -> ${status.uidNext}`);
+		if (existing.uidValidity !== status.uidValidity)
+			changes.push(
+				`uidValidity: ${existing.uidValidity} -> ${status.uidValidity}`,
+			);
+		if (existing.messageCount !== status.messages)
+			changes.push(
+				`messageCount: ${existing.messageCount} -> ${status.messages}`,
+			);
+		if (existing.unseenCount !== status.unseen)
+			changes.push(`unseenCount: ${existing.unseenCount} -> ${status.unseen}`);
+		if (
+			status.highestModseq > 0 &&
+			existing.highestModseq !== status.highestModseq
+		)
+			changes.push(
+				`highestModseq: ${existing.highestModseq} -> ${status.highestModseq}`,
+			);
+
+		console.info(
+			`Updating mailbox: ${existing.mailboxId} (${mailboxInfo.fullPath}) [${changes.join(", ")}]`,
+		);
 
 		// Update mailbox with fresh status
 		return this.mailboxService.update(existing.mailboxId, {
 			hierarchyDelimiter: mailboxInfo.delimiter,
 			uidValidity: status.uidValidity,
 			uidNext: status.uidNext,
+			highestModseq: status.highestModseq,
 			messageCount: status.messages,
 			unseenCount: status.unseen,
 		});
+	};
+
+	/**
+	 * Sync special-use attributes for a mailbox.
+	 * Creates entries if they don't exist, updates if changed.
+	 */
+	private syncSpecialUseAttributes = async (
+		mailboxId: string,
+		mailboxInfo: FlatMailboxInfo,
+	): Promise<void> => {
+		const parsed = parseImapAttributes(mailboxInfo.attributes);
+		const existingEntries =
+			await this.specialUseService.listByMailboxId(mailboxId);
+
+		const existingSpecialUses = new Set(
+			existingEntries.map((e) => e.specialUse),
+		);
+		const newSpecialUses = new Set(parsed.specialUse);
+
+		// Check if sets are equal
+		const areEqual =
+			existingSpecialUses.size === newSpecialUses.size &&
+			[...existingSpecialUses].every((use) => newSpecialUses.has(use));
+
+		if (areEqual) return;
+
+		// Delete and recreate (simpler than diff)
+		if (existingEntries.length > 0) {
+			await this.specialUseService.deleteByMailboxId(mailboxId);
+		}
+
+		if (parsed.specialUse.length > 0) {
+			await this.specialUseService.createMany(mailboxId, parsed.specialUse);
+			console.info(
+				`Synced special-use for ${mailboxInfo.fullPath}: ${parsed.specialUse.join(", ")}`,
+			);
+		}
+	};
+
+	/**
+	 * Build a map of special-use designations to mailbox paths.
+	 * Only includes mailboxes that have the IMAP special-use attribute.
+	 */
+	private buildSpecialUseMap = (
+		mailboxes: FlatMailboxInfo[],
+	): Map<MailboxSpecialUseValue, string> => {
+		const map = new Map<MailboxSpecialUseValue, string>();
+
+		for (const mailbox of mailboxes) {
+			const parsed = parseImapAttributes(mailbox.attributes);
+			for (const specialUse of parsed.specialUse) {
+				// First mailbox with this special-use wins (usually the canonical one)
+				if (!map.has(specialUse)) {
+					map.set(specialUse, mailbox.fullPath);
+				}
+			}
+		}
+
+		return map;
+	};
+
+	/**
+	 * Check if a mailbox is a duplicate special-use folder.
+	 * A folder is considered duplicate if:
+	 * 1. Its name matches a common special-use folder name (e.g., "Trash")
+	 * 2. It does NOT have the IMAP special-use attribute
+	 * 3. Another folder already claimed that special-use designation
+	 */
+	private isDuplicateSpecialUse = (
+		mailbox: FlatMailboxInfo,
+		claimedSpecialUse: Map<MailboxSpecialUseValue, string>,
+	): boolean => {
+		// Get the folder name (last segment of path)
+		const folderName = mailbox.fullPath.split(mailbox.delimiter).pop() ?? "";
+		const normalizedName = folderName.toLowerCase();
+
+		// Check if this folder name maps to a special-use designation
+		const expectedSpecialUse = FOLDER_NAME_TO_SPECIAL_USE[normalizedName];
+		if (!expectedSpecialUse) {
+			return false; // Not a special-use folder name
+		}
+
+		// Check if this mailbox has the special-use attribute
+		const parsed = parseImapAttributes(mailbox.attributes);
+		if (parsed.specialUse.includes(expectedSpecialUse)) {
+			return false; // This IS the canonical folder
+		}
+
+		// Check if another folder already claimed this special-use
+		const claimedPath = claimedSpecialUse.get(expectedSpecialUse);
+		if (!claimedPath) {
+			return false; // No other folder has this special-use
+		}
+
+		// This is a duplicate - another folder has the attribute
+		console.info(
+			`Skipping duplicate folder "${mailbox.fullPath}" - "${claimedPath}" has \\${expectedSpecialUse} attribute`,
+		);
+		return true;
 	};
 }
