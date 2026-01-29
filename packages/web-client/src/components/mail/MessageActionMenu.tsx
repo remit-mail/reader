@@ -1,6 +1,8 @@
 import {
 	messageBulkOperationsDeleteMessagesMutation,
 	messageBulkOperationsUpdateFlagsMutation,
+	threadDetailOperationsListThreadMessagesQueryKey,
+	threadOperationsListThreadsQueryKey,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { MailOpen, MoreVertical, Trash2 } from "lucide-react";
@@ -10,7 +12,6 @@ import {
 	DropdownMenuItem,
 	DropdownMenuSeparator,
 } from "@/components/ui/DropdownMenu";
-import { threadKeys } from "@/hooks/queries/keys";
 
 interface MessageActionMenuProps {
 	messageId: string;
@@ -28,12 +29,17 @@ export const MessageActionMenu = ({
 	const queryClient = useQueryClient();
 
 	const invalidateQueries = () => {
+		// Invalidate thread messages query using generated key
 		queryClient.invalidateQueries({
-			queryKey: threadKeys.messages(threadId),
+			queryKey: threadDetailOperationsListThreadMessagesQueryKey({
+				path: { threadId },
+			}),
 		});
+		// Invalidate thread list query using generated key
 		queryClient.invalidateQueries({
-			queryKey: threadKeys.list(mailboxId, {}),
-			exact: false,
+			queryKey: threadOperationsListThreadsQueryKey({
+				path: { mailboxId },
+			}),
 		});
 	};
 
