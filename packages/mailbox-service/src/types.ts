@@ -79,6 +79,8 @@ export interface ImapMailboxStatus {
 	unseen: number;
 	uidNext: number;
 	uidValidity: number;
+	/** Highest modification sequence (CONDSTORE). 0 if server doesn't support CONDSTORE. */
+	highestModseq: number;
 }
 
 /**

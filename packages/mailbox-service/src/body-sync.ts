@@ -5,11 +5,8 @@ import type {
 } from "@remit/remit-electrodb-service";
 import type { StorageService } from "@remit/storage-service";
 import { simpleParser } from "mailparser";
-import pMap from "p-map";
 import { extractSnippetFromEmail } from "./snippet.js";
 import type { IImapConnection } from "./types.js";
-
-const BODY_SYNC_CONCURRENCY = 15;
 
 // Debug log to file (Ink overwrites console)
 const debugLog = (msg: string, data?: unknown) => {
@@ -62,6 +59,10 @@ export class BodySyncService {
 	/**
 	 * Sync message bodies for a batch of messages.
 	 *
+	 * Fail-fast on connection errors: if the IMAP connection is lost,
+	 * immediately stop processing and return all remaining messages as failed
+	 * so they can be requeued for later retry.
+	 *
 	 * @param messageIds - The message IDs to sync bodies for
 	 * @param accountId - The account ID (for storage path)
 	 * @param accountConfigId - The account config ID (for thread updates)
@@ -75,28 +76,69 @@ export class BodySyncService {
 		mailboxPath: string,
 		getConnection: ConnectionGetter,
 	): Promise<SyncBodiesResult> {
-		const results = await pMap(
-			messageIds,
-			(messageId) =>
-				this.fetchAndStoreBody(
+		// Track results and processed indices for fail-fast behavior
+		type ResultItem =
+			| { status: "synced"; messageId: string }
+			| { status: "skipped" }
+			| { status: "failed"; messageId: string };
+
+		const results: ResultItem[] = [];
+		const processedIndices = new Set<number>();
+		let connectionLost = false;
+
+		// Process bodies sequentially (concurrency 1) to enable fail-fast
+		// on connection errors. Higher concurrency would require connection pooling.
+		for (let i = 0; i < messageIds.length && !connectionLost; i++) {
+			const messageId = messageIds[i];
+			processedIndices.add(i);
+
+			try {
+				const result = await this.fetchAndStoreBody(
 					messageId,
 					accountId,
 					accountConfigId,
 					mailboxPath,
 					getConnection,
-				).catch((error): { status: "failed"; messageId: string } => {
-					this.log.error?.(
-						{ messageId, error: (error as Error).message },
-						"Failed to sync body",
-					);
-					return { status: "failed", messageId };
-				}),
-			{ concurrency: BODY_SYNC_CONCURRENCY },
-		);
+				);
+				results.push(result);
+			} catch (error) {
+				const errorMessage = (error as Error).message;
+				this.log.error?.(
+					{ messageId, error: errorMessage },
+					"Failed to sync body",
+				);
+				results.push({ status: "failed", messageId });
 
-		const synced = results.filter((r) => r.status === "synced");
+				// Fail-fast on connection lost errors
+				if (errorMessage.includes("connection lost")) {
+					connectionLost = true;
+					this.log.info?.(
+						{
+							processedCount: i + 1,
+							remainingCount: messageIds.length - i - 1,
+						},
+						"Connection lost, aborting batch",
+					);
+				}
+			}
+		}
+
+		// Add all unprocessed messages as failed (for requeueing)
+		for (let i = 0; i < messageIds.length; i++) {
+			if (!processedIndices.has(i)) {
+				results.push({ status: "failed", messageId: messageIds[i] });
+			}
+		}
+
+		const synced = results.filter(
+			(r): r is { status: "synced"; messageId: string } =>
+				r.status === "synced",
+		);
 		const skipped = results.filter((r) => r.status === "skipped");
-		const failed = results.filter((r) => r.status === "failed");
+		const failed = results.filter(
+			(r): r is { status: "failed"; messageId: string } =>
+				r.status === "failed",
+		);
 
 		this.log.info(
 			{
@@ -104,6 +146,7 @@ export class BodySyncService {
 				skipped: skipped.length,
 				failed: failed.length,
 				total: messageIds.length,
+				aborted: connectionLost,
 			},
 			"Body sync complete",
 		);

@@ -10,6 +10,7 @@ import type {
 	MessageService,
 	ThreadMessageService,
 } from "@remit/remit-electrodb-service";
+import { base36uuid } from "@remit/remit-electrodb-service";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 
 /**
@@ -52,10 +53,25 @@ interface EmptyTrashEvent {
 	trashMailboxPath: string;
 }
 
+interface MessageCopyEvent {
+	type: "MESSAGE_COPY";
+	eventId: string;
+	timestamp: number;
+	accountId: string;
+	sourceMessageId: string;
+	newMessageId: string;
+	sourceMailboxId: string;
+	sourceMailboxPath: string;
+	destinationMailboxId: string;
+	destinationMailboxPath: string;
+	uid: number;
+}
+
 type MessageMoveQueueEvent =
 	| MessageDeleteEvent
 	| MessageMoveEvent
-	| EmptyTrashEvent;
+	| EmptyTrashEvent
+	| MessageCopyEvent;
 
 /**
  * Logger interface
@@ -391,6 +407,127 @@ export class MessageMoveService {
 		for (const messageId of messageIds) {
 			await this.moveMessage(messageId, destinationMailboxId, accountId);
 		}
+	};
+
+	/**
+	 * Copy a message to another mailbox.
+	 * Creates a new message record locally and enqueues IMAP COPY.
+	 *
+	 * @param messageId - Message to copy
+	 * @param destinationMailboxId - Destination mailbox ID
+	 * @param accountId - Account ID
+	 * @returns The new message ID for the copy
+	 */
+	copyMessage = async (
+		messageId: string,
+		destinationMailboxId: string,
+		accountId: string,
+	): Promise<string> => {
+		const sourceMessage = await this.messageService.get(messageId);
+		const sourceMailbox = await this.mailboxService.get(
+			sourceMessage.mailboxId,
+		);
+		const destinationMailbox =
+			await this.mailboxService.get(destinationMailboxId);
+
+		// Generate new ID for the copy
+		const newMessageId = base36uuid();
+
+		// Create local copy with moving status (uid=0 until IMAP confirms)
+		await this.messageService.create({
+			messageId: newMessageId,
+			mailboxId: destinationMailboxId,
+			uid: 0, // Will be updated by worker after IMAP COPY
+			sequenceNumber: 0, // Will be updated by worker
+			rfc822Size: sourceMessage.rfc822Size,
+			internalDate: sourceMessage.internalDate,
+			messageIdHeader: sourceMessage.messageIdHeader,
+			envelopeId: sourceMessage.envelopeId, // Share envelope with source
+			rootBodyPartId: sourceMessage.rootBodyPartId, // Share body parts with source
+			status: MessageStatus.moving,
+			syncStatus: MessageSyncStatus.pending,
+			bodyStorageKey: sourceMessage.bodyStorageKey,
+		});
+
+		// Copy ThreadMessage entry
+		const sourceThreadMessage =
+			await this.threadMessageService.getByMessageId(messageId);
+
+		await this.threadMessageService.create({
+			accountConfigId: sourceThreadMessage.accountConfigId,
+			threadId: sourceThreadMessage.threadId,
+			messageId: newMessageId,
+			mailboxId: destinationMailboxId,
+			uid: 0, // Will be updated by worker
+			messageIdHeader: sourceThreadMessage.messageIdHeader,
+			inReplyTo: sourceThreadMessage.inReplyTo,
+			referenceOrder: sourceThreadMessage.referenceOrder,
+			fromEmail: sourceThreadMessage.fromEmail,
+			fromName: sourceThreadMessage.fromName,
+			subject: sourceThreadMessage.subject,
+			internalDate: sourceThreadMessage.internalDate,
+			sentDate: sourceThreadMessage.sentDate,
+			isRead: sourceThreadMessage.isRead,
+			hasAttachment: sourceThreadMessage.hasAttachment,
+			star: sourceThreadMessage.star,
+			hasStars: sourceThreadMessage.hasStars,
+			isDeleted: false,
+			snippet: sourceThreadMessage.snippet,
+		});
+
+		this.log.info(
+			{
+				sourceMessageId: messageId,
+				newMessageId,
+				from: sourceMailbox.fullPath,
+				to: destinationMailbox.fullPath,
+			},
+			"Created message copy (local)",
+		);
+
+		// Enqueue IMAP sync
+		const event: MessageCopyEvent = {
+			type: "MESSAGE_COPY",
+			eventId: randomUUID(),
+			timestamp: Date.now(),
+			accountId,
+			sourceMessageId: messageId,
+			newMessageId,
+			sourceMailboxId: sourceMailbox.mailboxId,
+			sourceMailboxPath: sourceMailbox.fullPath,
+			destinationMailboxId,
+			destinationMailboxPath: destinationMailbox.fullPath,
+			uid: sourceMessage.uid,
+		};
+
+		await this.enqueueEvent(event);
+
+		return newMessageId;
+	};
+
+	/**
+	 * Copy multiple messages to another mailbox.
+	 *
+	 * @param messageIds - Messages to copy
+	 * @param destinationMailboxId - Destination mailbox ID
+	 * @param accountId - Account ID
+	 * @returns Array of new message IDs for the copies
+	 */
+	copyMessages = async (
+		messageIds: string[],
+		destinationMailboxId: string,
+		accountId: string,
+	): Promise<string[]> => {
+		const newMessageIds: string[] = [];
+		for (const messageId of messageIds) {
+			const newId = await this.copyMessage(
+				messageId,
+				destinationMailboxId,
+				accountId,
+			);
+			newMessageIds.push(newId);
+		}
+		return newMessageIds;
 	};
 
 	/**
