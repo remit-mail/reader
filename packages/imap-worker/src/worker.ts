@@ -96,7 +96,19 @@ if (cluster.isPrimary) {
 	const queueName = new URL(queueUrl).pathname.split("/").pop();
 	const log = createLogger().child({ queue: queueName });
 
-	const maxConcurrency = Number(process.env.WORKER_MAX_CONCURRENCY) || 10;
+	// Per-queue concurrency: WORKER_MAX_CONCURRENCY_<QUEUE_SUFFIX> (e.g., WORKER_MAX_CONCURRENCY_BODY)
+	// Falls back to global WORKER_MAX_CONCURRENCY, then default of 10
+	const queueSuffix = queueName
+		?.replace("remit-", "")
+		.replace(".fifo", "")
+		.toUpperCase();
+	const perQueueConcurrency = queueSuffix
+		? Number(process.env[`WORKER_MAX_CONCURRENCY_${queueSuffix}`])
+		: NaN;
+	const globalConcurrency = Number(process.env.WORKER_MAX_CONCURRENCY) || 10;
+	const maxConcurrency = Number.isNaN(perQueueConcurrency)
+		? globalConcurrency
+		: perQueueConcurrency;
 	const maxMessages = 10; // SQS API limit
 
 	const sqs = new SQSClient({
