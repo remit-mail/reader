@@ -157,9 +157,45 @@ export const MessageBulkOperations: Record<
 	MessageBulkOperationIds,
 	OperationHandler<MessageBulkOperationIds>
 > = {
-	MessageBulkOperations_deleteMessages: async (context) => {
-		const { messageIds } = context.request.requestBody as {
+	MessageBulkOperations_updateFlags: async (context) => {
+		const { messageIds, isRead, isStarred, starColor } = context.request
+			.requestBody as {
 			messageIds: string[];
+			isRead?: boolean;
+			isStarred?: boolean;
+			starColor?: string;
+		};
+
+		if (messageIds.length === 0) {
+			return { successCount: 0, failureCount: 0 };
+		}
+
+		const client = getClient();
+
+		// Resolve accountId from first message -> mailbox
+		const message = await client.message.get(messageIds[0]);
+		const mailbox = await client.mailbox.get(message.mailboxId);
+
+		// FlagQueueService handles: MessageFlag + ThreadMessage updates + SQS events
+		// Process each message individually (same pattern as moveMessages)
+		for (const messageId of messageIds) {
+			await client.flagQueue.updateFlags(messageId, mailbox.accountId, {
+				isRead,
+				isStarred,
+				starColor: starColor as StarColorValue | undefined,
+			});
+		}
+
+		return {
+			successCount: messageIds.length,
+			failureCount: 0,
+		};
+	},
+
+	MessageBulkOperations_deleteMessages: async (context) => {
+		const { messageIds, permanent } = context.request.requestBody as {
+			messageIds: string[];
+			permanent?: boolean;
 		};
 
 		if (messageIds.length === 0) {
@@ -173,7 +209,9 @@ export const MessageBulkOperations: Record<
 		const mailbox = await client.mailbox.get(message.mailboxId);
 
 		// MessageMoveService handles: Message + ThreadMessage updates + SQS events
-		await client.messageMove.deleteMessages(messageIds, mailbox.accountId);
+		await client.messageMove.deleteMessages(messageIds, mailbox.accountId, {
+			permanent,
+		});
 
 		return {
 			successCount: messageIds.length,
@@ -203,6 +241,39 @@ export const MessageBulkOperations: Record<
 
 		// MessageMoveService handles: Message + ThreadMessage updates + SQS events
 		await client.messageMove.moveMessages(
+			messageIds,
+			destinationMailboxId,
+			mailbox.accountId,
+		);
+
+		return {
+			successCount: messageIds.length,
+			failureCount: 0,
+		};
+	},
+
+	MessageBulkOperations_copyMessages: async (context) => {
+		const { messageIds, destinationMailboxId } = context.request
+			.requestBody as {
+			messageIds: string[];
+			destinationMailboxId: string;
+		};
+
+		if (messageIds.length === 0) {
+			return { successCount: 0, failureCount: 0 };
+		}
+
+		const client = getClient();
+
+		// Verify destination mailbox exists
+		await client.mailbox.get(destinationMailboxId);
+
+		// Resolve accountId from first message -> mailbox
+		const message = await client.message.get(messageIds[0]);
+		const mailbox = await client.mailbox.get(message.mailboxId);
+
+		// MessageMoveService handles: Message copies + ThreadMessage creation + SQS events
+		await client.messageMove.copyMessages(
 			messageIds,
 			destinationMailboxId,
 			mailbox.accountId,

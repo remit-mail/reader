@@ -5,6 +5,7 @@ import type {
 	MailboxDetailOperationIds,
 	MailboxOperationIds,
 	OperationHandler,
+	TrashOperationIds,
 } from "../types.js";
 
 const toMailboxResponse = (mailbox: MailboxItem): MailboxResponse => ({
@@ -109,5 +110,35 @@ export const MailboxDetailOperations: Record<
 
 		await getClient().mailboxQueue.deleteMailbox(mailboxId, mailbox.accountId);
 		return { statusCode: 204 };
+	},
+};
+
+export const TrashOperations: Record<
+	TrashOperationIds,
+	OperationHandler<TrashOperationIds>
+> = {
+	TrashOperations_emptyTrash: async (context) => {
+		const { accountId } = context.request.params as { accountId: string };
+
+		const client = getClient();
+
+		// Get trash mailbox to count messages before emptying
+		const trashMailbox =
+			await client.mailboxSpecialUse.findTrashMailbox(accountId);
+
+		if (!trashMailbox) {
+			return { deletedCount: 0 };
+		}
+
+		// Get count of messages in trash before emptying
+		const messages = await client.message.listAllByMailbox(
+			trashMailbox.mailboxId,
+		);
+		const deletedCount = messages.length;
+
+		// MessageMoveService handles: Message status updates + SQS event
+		await client.messageMove.emptyTrash(accountId);
+
+		return { deletedCount };
 	},
 };

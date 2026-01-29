@@ -115,12 +115,14 @@ export const ThreadDetailOperations: Record<
 > = {
 	ThreadDetailOperations_listThreadMessages: async (context) => {
 		const { threadId } = context.request.params as { threadId: string };
-		const { order } = context.request.query as {
+		const { order, mailboxId } = context.request.query as {
 			order?: "asc" | "desc";
+			mailboxId?: string;
 		};
 
 		const result = await getClient().threadMessage.listByThread(threadId, {
 			order: order ?? "desc",
+			mailboxId,
 		});
 
 		return {

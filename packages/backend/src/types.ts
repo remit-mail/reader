@@ -23,7 +23,10 @@ export type OperationIds =
 	| "MessageOperations_describeMessage"
 	| "MessageOperations_updateMessageFlags"
 	| "MessageBulkOperations_deleteMessages"
-	| "MessageBulkOperations_moveMessages";
+	| "MessageBulkOperations_moveMessages"
+	| "MessageBulkOperations_updateFlags"
+	| "MessageBulkOperations_copyMessages"
+	| "TrashOperations_emptyTrash";
 
 export type ConfigOperationIds = MatchPrefix<"ConfigOperations_", OperationIds>;
 
@@ -65,6 +68,8 @@ export type MessageBulkOperationIds = MatchPrefix<
 	"MessageBulkOperations_",
 	OperationIds
 >;
+
+export type TrashOperationIds = MatchPrefix<"TrashOperations_", OperationIds>;
 
 // biome-ignore lint/suspicious/noExplicitAny: Handler responses vary by operation
 export type OperationHandler<_T extends OperationIds = OperationIds> = (
