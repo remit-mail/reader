@@ -61,16 +61,72 @@ const compareLabelNames = (a: string, b: string): number => {
 	return a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });
 };
 
+/**
+ * Map folder names to their canonical special-use type.
+ * Multiple names can map to the same type (e.g., "sent", "sent mail", "sent items" all map to "sent").
+ */
+const SPECIAL_USE_ALIASES: Record<string, string> = {
+	trash: "trash",
+	bin: "trash",
+	deleted: "trash",
+	"deleted items": "trash",
+	drafts: "drafts",
+	draft: "drafts",
+	sent: "sent",
+	"sent mail": "sent",
+	"sent items": "sent",
+	junk: "junk",
+	spam: "junk",
+	archive: "archive",
+	archives: "archive",
+	all: "all",
+	"all mail": "all",
+};
+
+/**
+ * Filter out duplicate special-use folders.
+ * E.g., if both "[Gmail]/Trash" and "Trash" exist, keep only "[Gmail]/Trash".
+ */
+const filterDuplicateSpecialUse = (
+	mailboxes: RemitImapMailboxResponse[],
+): RemitImapMailboxResponse[] => {
+	// Find which special-use types exist with a prefix (like [Gmail]/)
+	const prefixedSpecialUse = new Set<string>();
+	for (const mailbox of mailboxes) {
+		const name = getDisplayName(mailbox.fullPath).toLowerCase();
+		const specialUseType = SPECIAL_USE_ALIASES[name];
+		// Check if this is a prefixed version (path has multiple segments)
+		if (mailbox.fullPath.includes("/") && specialUseType) {
+			prefixedSpecialUse.add(specialUseType);
+		}
+	}
+
+	// Filter out non-prefixed duplicates
+	return mailboxes.filter((mailbox) => {
+		const name = getDisplayName(mailbox.fullPath).toLowerCase();
+		const specialUseType = SPECIAL_USE_ALIASES[name];
+		// Keep if not a special-use name
+		if (!specialUseType) return true;
+		// Keep if this is the prefixed version
+		if (mailbox.fullPath.includes("/")) return true;
+		// Filter out if a prefixed version exists for this type
+		return !prefixedSpecialUse.has(specialUseType);
+	});
+};
+
 const sortMailboxes = (
 	mailboxes: RemitImapMailboxResponse[],
 ): {
 	system: RemitImapMailboxResponse[];
 	labels: RemitImapMailboxResponse[];
 } => {
+	// First filter out duplicate special-use folders
+	const filtered = filterDuplicateSpecialUse(mailboxes);
+
 	const system: RemitImapMailboxResponse[] = [];
 	const labels: RemitImapMailboxResponse[] = [];
 
-	for (const mailbox of mailboxes) {
+	for (const mailbox of filtered) {
 		if (isSystemMailbox(mailbox.fullPath)) {
 			system.push(mailbox);
 		} else {
