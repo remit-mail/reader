@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
@@ -27,46 +27,51 @@ const loadEnvFile = (envPath: string) => {
 loadEnvFile(resolve(__dirname, "../../../.e2e.env"));
 
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
-import { Mailbox } from "@remit/electrodb-entities";
 import {
 	AccountConfigService,
 	AccountService,
 	AddressService,
-	base36uuid,
 	base36uuidv5,
 	CreateFailedConflictError,
 	EnvelopeService,
-	MailboxSpecialUseService,
+	MailboxService,
 	MessageService,
 	REMIT_NAMESPACE,
 	ThreadMessageService,
 } from "@remit/remit-electrodb-service";
-import { MailboxSpecialUse } from "@remit/domain-enums";
+import {
+	createConnectionFromAccount,
+	createManagedConnectionFactory,
+	MailboxSyncService,
+	MessageSyncService,
+} from "@remit/mailbox-service";
 import {
 	createKmsDataKeyProvider,
 	createSecretsService,
 	serializeEncryptedPayload,
 } from "@remit/secrets-service";
-import { Entity } from "electrodb";
 
-const E2E_EMAIL = "vmail@mailfuzz.local";
-const E2E_IMAP_PASSWORD = "testpass123";
+const MAILFUZZ_HOST = process.env.MAILFUZZ_HOST ?? "localhost";
+const MAILFUZZ_PORT = Number(process.env.MAILFUZZ_PORT ?? "1143");
+const MAILFUZZ_USER = process.env.MAILFUZZ_USER ?? "testuser";
+const MAILFUZZ_PASSWORD = process.env.MAILFUZZ_PASSWORD ?? "testpass";
 
-export const E2E_USER_ID = base36uuidv5(`e2e:${E2E_EMAIL}`, REMIT_NAMESPACE);
+const E2E_EMAIL = `${MAILFUZZ_USER}@mailfuzz.local`;
+
+export const E2E_USER_ID = base36uuidv5(
+	`e2e:sync:${E2E_EMAIL}`,
+	REMIT_NAMESPACE,
+);
 export const E2E_ACCOUNT_CONFIG_ID = base36uuidv5(
-	`e2e:config:${E2E_EMAIL}`,
+	`e2e:sync:config:${E2E_EMAIL}`,
 	REMIT_NAMESPACE,
 );
 export const E2E_ACCOUNT_ID = base36uuidv5(
-	`e2e:account:${E2E_EMAIL}`,
+	`e2e:sync:account:${E2E_EMAIL}`,
 	REMIT_NAMESPACE,
 );
 
-const INBOX_ID = base36uuidv5(`e2e:mailbox:INBOX`, REMIT_NAMESPACE);
-const SENT_ID = base36uuidv5(`e2e:mailbox:Sent`, REMIT_NAMESPACE);
-const TRASH_ID = base36uuidv5(`e2e:mailbox:Trash`, REMIT_NAMESPACE);
-
-const NOW = Date.now();
+const MESSAGE_BATCH_SIZE = 200;
 
 const createConfig = () => {
 	const port = process.env.DYNAMODB_PORT ?? "5435";
@@ -90,7 +95,7 @@ const seedAccount = async (config: ReturnType<typeof createConfig>) => {
 	const dataKeyProvider = createKmsDataKeyProvider(kmsKeyId);
 	const secretsService = createSecretsService(dataKeyProvider);
 
-	const encryptedPayload = await secretsService.encrypt(E2E_IMAP_PASSWORD);
+	const encryptedPayload = await secretsService.encrypt(MAILFUZZ_PASSWORD);
 	const passwordHash = JSON.stringify(
 		serializeEncryptedPayload(encryptedPayload),
 	);
@@ -99,7 +104,7 @@ const seedAccount = async (config: ReturnType<typeof createConfig>) => {
 		await accountConfigService.create({
 			accountConfigId: E2E_ACCOUNT_CONFIG_ID,
 			userId: E2E_USER_ID,
-			name: `E2E Test Account`,
+			name: "E2E Sync Test Account",
 		});
 	} catch (err) {
 		if (!(err instanceof CreateFailedConflictError)) throw err;
@@ -109,11 +114,11 @@ const seedAccount = async (config: ReturnType<typeof createConfig>) => {
 		await accountService.create({
 			accountId: E2E_ACCOUNT_ID,
 			accountConfigId: E2E_ACCOUNT_CONFIG_ID,
-			username: "vmail",
+			username: MAILFUZZ_USER,
 			email: E2E_EMAIL,
 			passwordHash,
-			imapHost: "localhost",
-			imapPort: 1143,
+			imapHost: MAILFUZZ_HOST,
+			imapPort: MAILFUZZ_PORT,
 			imapTls: false,
 			imapStartTls: false,
 			isActive: true,
@@ -124,267 +129,98 @@ const seedAccount = async (config: ReturnType<typeof createConfig>) => {
 	}
 };
 
-const seedMailboxes = async (config: ReturnType<typeof createConfig>) => {
-	const { client, table } = config;
-	const mailboxEntity = new Entity(Mailbox, { client, table });
-	const specialUseService = new MailboxSpecialUseService(config);
+const syncMailboxes = async (config: ReturnType<typeof createConfig>) => {
+	const mailboxSyncService = new MailboxSyncService(config);
 
-	const mailboxes = [
+	const connection = createConnectionFromAccount(
 		{
-			mailboxId: INBOX_ID,
-			fullPath: "INBOX",
-			messageCount: 5,
-			unseenCount: 2,
+			username: MAILFUZZ_USER,
+			imapHost: MAILFUZZ_HOST,
+			imapPort: MAILFUZZ_PORT,
+			imapTls: false,
 		},
-		{
-			mailboxId: SENT_ID,
-			fullPath: "Sent",
-			messageCount: 0,
-			unseenCount: 0,
-			specialUse: MailboxSpecialUse.Sent,
-		},
-		{
-			mailboxId: TRASH_ID,
-			fullPath: "Trash",
-			messageCount: 0,
-			unseenCount: 0,
-			specialUse: MailboxSpecialUse.Trash,
-		},
-	];
+		MAILFUZZ_PASSWORD,
+	);
 
-	for (const mb of mailboxes) {
-		await mailboxEntity
-			.put({
-				mailboxId: mb.mailboxId,
-				accountId: E2E_ACCOUNT_ID,
-				namespaceType: "personal",
-				namespacePrefix: "",
-				hierarchyDelimiter: "/",
-				fullPath: mb.fullPath,
-				uidValidity: 1,
-				uidNext: mb.messageCount + 1,
-				highestModseq: 1,
-				messageCount: mb.messageCount,
-				unseenCount: mb.unseenCount,
-				deletedCount: 0,
-				totalSize: 0,
-				lastSyncUid: mb.messageCount,
-				highWaterMarkUid: mb.messageCount,
-				lastMessageSyncAt: NOW,
-			})
-			.go();
+	await connection.connect();
 
-		if (mb.specialUse) {
-			try {
-				await specialUseService.create(mb.mailboxId, mb.specialUse);
-			} catch {
-				// ignore duplicate
-			}
-		}
-	}
+	const result = await mailboxSyncService
+		.syncMailboxes({ accountId: E2E_ACCOUNT_ID }, connection)
+		.finally(() => connection.disconnect());
+
+	console.log(
+		`  Mailbox sync: created=${result.created}, updated=${result.updated}, deleted=${result.deleted}`,
+	);
+
+	return result;
 };
 
-interface TestMessage {
-	messageIdHeader: string;
-	uid: number;
-	subject: string;
-	fromEmail: string;
-	fromName: string;
-	bodyText: string;
-	sentDate: number;
-	isRead: boolean;
-}
-
-const TEST_MESSAGES: TestMessage[] = [
-	{
-		messageIdHeader: "<e2e-msg-1@test.local>",
-		uid: 1,
-		subject: "Welcome to Remit",
-		fromEmail: "onboarding@remit.dev",
-		fromName: "Remit Onboarding",
-		bodyText:
-			"Welcome to Remit! This is your first email in the test account. We hope you enjoy using our email client.",
-		sentDate: NOW - 5 * 86_400_000,
-		isRead: true,
-	},
-	{
-		messageIdHeader: "<e2e-msg-2@test.local>",
-		uid: 2,
-		subject: "Meeting tomorrow at 10am",
-		fromEmail: "alice@example.com",
-		fromName: "Alice Johnson",
-		bodyText:
-			"Hi, just a reminder that we have a meeting scheduled for tomorrow at 10am. Please make sure to prepare the agenda items.",
-		sentDate: NOW - 3 * 86_400_000,
-		isRead: true,
-	},
-	{
-		messageIdHeader: "<e2e-msg-3@test.local>",
-		uid: 3,
-		subject: "Project update: Q1 results",
-		fromEmail: "bob@example.com",
-		fromName: "Bob Smith",
-		bodyText:
-			"Here are the Q1 results for the project. Overall performance has been strong with a 15% increase in key metrics.",
-		sentDate: NOW - 2 * 86_400_000,
-		isRead: true,
-	},
-	{
-		messageIdHeader: "<e2e-msg-4@test.local>",
-		uid: 4,
-		subject: "Invoice #1234 attached",
-		fromEmail: "billing@acme.com",
-		fromName: "ACME Billing",
-		bodyText:
-			"Please find attached your invoice #1234 for the services rendered in February. Payment is due within 30 days.",
-		sentDate: NOW - 86_400_000,
-		isRead: false,
-	},
-	{
-		messageIdHeader: "<e2e-msg-5@test.local>",
-		uid: 5,
-		subject: "Weekend plans?",
-		fromEmail: "charlie@example.com",
-		fromName: "Charlie Brown",
-		bodyText:
-			"Hey! Do you have any plans for this weekend? I was thinking we could go hiking or catch a movie.",
-		sentDate: NOW - 3_600_000,
-		isRead: false,
-	},
-];
-
-const storeMessageBody = (
-	accountId: string,
-	messageId: string,
-	bodyText: string,
-): string => {
-	const storagePath = process.env.STORAGE_LOCAL_PATH ?? ".remit/e2e-storage";
-	const basePath = resolve(process.cwd(), "../../", storagePath);
-	const storageKey = `accounts/${accountId}/messages/${messageId}/body.eml`;
-	const fullPath = resolve(basePath, storageKey);
-
-	const emlContent = [
-		"MIME-Version: 1.0",
-		"Content-Type: text/plain; charset=utf-8",
-		"Content-Transfer-Encoding: 7bit",
-		"",
-		bodyText,
-	].join("\r\n");
-
-	mkdirSync(dirname(fullPath), { recursive: true });
-	writeFileSync(fullPath, emlContent);
-
-	return `file://${fullPath}`;
-};
-
-const seedMessages = async (config: ReturnType<typeof createConfig>) => {
+const syncMessages = async (config: ReturnType<typeof createConfig>) => {
+	const mailboxService = new MailboxService(config);
 	const messageService = new MessageService(config);
 	const envelopeService = new EnvelopeService(config);
 	const addressService = new AddressService(config);
 	const threadMessageService = new ThreadMessageService(config);
 
-	for (const msg of TEST_MESSAGES) {
-		const messageId = MessageService.generateId(
-			E2E_ACCOUNT_CONFIG_ID,
-			msg.messageIdHeader,
-		);
-		const envelopeId = EnvelopeService.generateId(messageId);
-		const threadId = ThreadMessageService.deriveThreadId(
-			E2E_ACCOUNT_CONFIG_ID,
-			msg.messageIdHeader,
-		);
-		const envelopeAddressId = base36uuidv5(
-			`addr:${messageId}:from:0`,
-			REMIT_NAMESPACE,
-		);
+	const connectionFactory = createManagedConnectionFactory({
+		user: MAILFUZZ_USER,
+		password: MAILFUZZ_PASSWORD,
+		host: MAILFUZZ_HOST,
+		port: MAILFUZZ_PORT,
+		tls: false,
+	});
 
-		const bodyStorageKey = storeMessageBody(
-			E2E_ACCOUNT_ID,
-			messageId,
-			msg.bodyText,
-		);
+	const syncService = new MessageSyncService(
+		connectionFactory,
+		mailboxService,
+		messageService,
+		envelopeService,
+		addressService,
+		threadMessageService,
+	);
 
-		try {
-			await messageService.create({
-				messageId,
-				mailboxId: INBOX_ID,
-				uid: msg.uid,
-				sequenceNumber: msg.uid,
-				rfc822Size: msg.bodyText.length + 200,
-				internalDate: msg.sentDate,
-				messageIdHeader: msg.messageIdHeader,
-				envelopeId,
-				rootBodyPartId: base36uuid(),
-				bodyStorageKey,
-			});
-		} catch (err) {
-			if (!(err instanceof CreateFailedConflictError)) throw err;
-		}
+	const conn = connectionFactory.getConnection();
+	await conn.connect();
 
-		try {
-			await envelopeService.createEnvelope({
-				envelopeId,
-				messageId,
-				dateValue: msg.sentDate,
-				dateRaw: new Date(msg.sentDate).toUTCString(),
-				subject: msg.subject,
-				messageIdValue: msg.messageIdHeader,
-			});
-		} catch (err) {
-			if (!(err instanceof CreateFailedConflictError)) throw err;
-		}
+	const mailboxes = await mailboxService.listByAccount(E2E_ACCOUNT_ID);
+	const inbox = mailboxes.items.find(
+		(m) => m.fullPath.toUpperCase() === "INBOX",
+	);
 
-		try {
-			await addressService.createEnvelopeAddress({
-				envelopeAddressId,
-				messageId,
-				addressId: base36uuidv5(`address:${msg.fromEmail}`, REMIT_NAMESPACE),
-				normalizedEmail: msg.fromEmail,
-				addressRole: "from",
-				addressOrder: 0,
-				displayName: msg.fromName,
-			});
-		} catch (err) {
-			if (!(err instanceof CreateFailedConflictError)) throw err;
-		}
-
-		try {
-			await threadMessageService.create({
-				threadId,
-				messageId,
-				accountConfigId: E2E_ACCOUNT_CONFIG_ID,
-				mailboxId: INBOX_ID,
-				uid: msg.uid,
-				referenceOrder: 0,
-				fromEmail: msg.fromEmail,
-				fromName: msg.fromName,
-				subject: msg.subject,
-				internalDate: msg.sentDate,
-				sentDate: msg.sentDate,
-				isRead: msg.isRead,
-				hasAttachment: false,
-				hasStars: false,
-				isDeleted: false,
-				snippet: msg.bodyText.slice(0, 100),
-			});
-		} catch (err) {
-			if (!(err instanceof CreateFailedConflictError)) throw err;
-		}
+	if (!inbox) {
+		await connectionFactory.close();
+		console.log("  No INBOX found, skipping message sync");
+		return;
 	}
+
+	let hasMore = true;
+	let totalSynced = 0;
+
+	while (hasMore) {
+		const result = await syncService.syncMessages(
+			inbox.mailboxId,
+			E2E_ACCOUNT_CONFIG_ID,
+			MESSAGE_BATCH_SIZE,
+		);
+		totalSynced += result.syncedCount;
+		hasMore = result.hasMore;
+	}
+
+	await connectionFactory.close();
+	console.log(`  Message sync: synced ${totalSynced} messages from INBOX`);
 };
 
 const globalSetup = async () => {
-	console.log("E2E Global Setup: seeding test data...");
+	console.log("E2E Global Setup: creating account and syncing via IMAP...");
 	const config = createConfig();
 
 	await seedAccount(config);
-	await seedMailboxes(config);
-	await seedMessages(config);
-
 	console.log(`  AccountConfigId: ${E2E_ACCOUNT_CONFIG_ID}`);
 	console.log(`  AccountId: ${E2E_ACCOUNT_ID}`);
-	console.log(`  INBOX mailboxId: ${INBOX_ID}`);
-	console.log(`  Seeded ${TEST_MESSAGES.length} messages`);
+
+	await syncMailboxes(config);
+	await syncMessages(config);
+
 	console.log("E2E Global Setup: done");
 };
 

@@ -10,9 +10,10 @@
     "test:typecheck": "test -f src/routeTree.gen.ts || vite build > /dev/null 2>&1; tsc --noEmit",
     "test:run": "node --import tsx --test 'src/**/*.test.ts'",
     "test": "npm run test:typecheck && npm run test:run",
-    "test:e2e": "npx playwright test",
-    "test:e2e:ui": "npx playwright test --ui",
-    "test:e2e:debug": "npx playwright test --debug",
+    "test:smoke": "npx playwright test --config playwright.smoke.config.ts",
+    "test:smoke:ui": "npx playwright test --config playwright.smoke.config.ts --ui",
+    "test:e2e": "npx playwright test --config playwright.e2e.config.ts",
+    "test:e2e:ui": "npx playwright test --config playwright.e2e.config.ts --ui",
     "playwright:install": "npx playwright install chromium"
   },
   "devDependencies": {
@@ -21,6 +22,7 @@
     "@remit/electrodb-entities": "*",
     "@remit/remit-electrodb-service": "*",
     "@remit/domain-enums": "*",
+    "@remit/mailbox-service": "*",
     "@remit/secrets-service": "*",
     "@aws-sdk/client-dynamodb": "*",
     "@aws-sdk/lib-dynamodb": "*",
