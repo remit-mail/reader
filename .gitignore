@@ -67,3 +67,6 @@ build
 .tmux/
 .DS_Store
 packages/remit-web-client/src/routeTree.gen.ts
+test-results/
+playwright-report/
+.e2e-account-id

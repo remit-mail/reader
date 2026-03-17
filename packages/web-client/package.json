@@ -9,9 +9,13 @@
     "preview": "vite preview",
     "test:typecheck": "test -f src/routeTree.gen.ts || vite build > /dev/null 2>&1; tsc --noEmit",
     "test:run": "node --import tsx --test 'src/**/*.test.ts'",
-    "test": "npm run test:typecheck && npm run test:run"
+    "test": "npm run test:typecheck && npm run test:run",
+    "test:e2e": "npx playwright test",
+    "test:e2e:ui": "npx playwright test --ui",
+    "test:e2e:debug": "npx playwright test --debug"
   },
   "devDependencies": {
+    "@playwright/test": "^1",
     "@remit/api-http-client": "file:../../build/remit-client",
     "@tailwindcss/vite": "^4",
     "@hookform/resolvers": "*",
