@@ -5,11 +5,9 @@ test.describe("Mailbox navigation", () => {
 		await page.goto("/mail");
 		await page.waitForLoadState("networkidle");
 
-		// The sidebar has aria-label="Mailboxes" on the nav element
 		const sidebar = page.getByRole("navigation", { name: "Mailboxes" });
 		await expect(sidebar).toBeVisible();
 
-		// INBOX should appear in the sidebar as a link
 		const inbox = sidebar.getByRole("link", { name: /inbox/i });
 		await expect(inbox).toBeVisible();
 	});
@@ -24,11 +22,11 @@ test.describe("Mailbox navigation", () => {
 		const inbox = sidebar.getByRole("link", { name: /inbox/i });
 		await inbox.click();
 
-		// URL should contain a mailbox ID segment after /mail/
 		await page.waitForURL(/\/mail\/[a-z0-9]+/);
 
-		// Wait for message list to load (loading skeleton should disappear)
-		await expect(page.getByText("Loading...")).toBeHidden({ timeout: 10_000 });
+		// Wait for message list to load - thread items should appear
+		const messageLink = page.locator("a[href*='selectedMessageId']").first();
+		await expect(messageLink).toBeVisible({ timeout: 10_000 });
 	});
 
 	test("navigating between mailboxes changes the URL", async ({ page }) => {
@@ -37,30 +35,21 @@ test.describe("Mailbox navigation", () => {
 
 		const sidebar = page.getByRole("navigation", { name: "Mailboxes" });
 
-		// Click INBOX
 		const inbox = sidebar.getByRole("link", { name: /inbox/i });
 		await inbox.click();
 		await page.waitForURL(/\/mail\/[a-z0-9]+/);
 		const inboxUrl = page.url();
 
-		// Look for another mailbox (Sent, Trash, Drafts, etc.)
-		const otherMailbox = sidebar
-			.getByRole("link")
-			.filter({ hasNot: page.getByText(/inbox/i) })
-			.first();
-		const otherMailboxVisible = await otherMailbox.isVisible();
+		// Click Sent mailbox
+		const sentLink = sidebar.getByRole("link", { name: /sent/i });
+		await expect(sentLink).toBeVisible();
+		await sentLink.click();
+		await page.waitForURL(/\/mail\/[a-z0-9]+/);
+		const sentUrl = page.url();
 
-		if (otherMailboxVisible) {
-			await otherMailbox.click();
-			await page.waitForURL(/\/mail\/[a-z0-9]+/);
-			const otherUrl = page.url();
+		expect(sentUrl).not.toBe(inboxUrl);
 
-			// URLs should be different mailbox IDs
-			expect(otherUrl).not.toBe(inboxUrl);
-
-			// Go back should return to INBOX
-			await page.goBack();
-			await expect(page).toHaveURL(inboxUrl);
-		}
+		await page.goBack();
+		await expect(page).toHaveURL(inboxUrl);
 	});
 });
