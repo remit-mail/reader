@@ -9,18 +9,18 @@ test.describe("Thread viewing", () => {
 		const inbox = sidebar.getByRole("link", { name: /inbox/i });
 		await inbox.click();
 		await page.waitForURL(/\/mail\/[a-z0-9]+/);
-		await expect(page.getByText("Loading...")).toBeHidden({ timeout: 10_000 });
+		await expect(
+			page.locator("a[href*='selectedMessageId']").first(),
+		).toBeVisible({ timeout: 10_000 });
 	});
 
 	test("thread with multiple messages shows message count in header", async ({
 		page,
 	}) => {
-		// Look for a message list item that shows a count indicator
-		// MessageListItem displays "(N)" next to subject when messageCount > 1
-		// Try to find a threaded message by looking for the (N) pattern
-		const threadedItem = page.locator("a[href*='/mail/']").filter({
-			hasText: /\(\d+\)/,
-		});
+		// Look for a threaded message by the (N) count pattern in the list
+		const threadedItem = page
+			.locator("a[href*='selectedMessageId']")
+			.filter({ hasText: /\(\d+\)/ });
 
 		const hasThread = (await threadedItem.count()) > 0;
 
@@ -28,26 +28,22 @@ test.describe("Thread viewing", () => {
 			await threadedItem.first().click();
 			await page.waitForURL(/selectedMessageId=/);
 
-			// ConversationView header shows "N messages" count
 			const article = page.getByRole("article");
 			await expect(article).toBeVisible({ timeout: 10_000 });
 
-			// The header paragraph shows message count like "3 messages"
 			const messageCountText = article.getByText(/\d+ messages?/);
 			await expect(messageCountText).toBeVisible();
 		}
 	});
 
 	test("conversation view displays thread subject", async ({ page }) => {
-		// Click the first message
-		const messageLink = page.locator("a[href*='/mail/']").first();
+		const messageLink = page.locator("a[href*='selectedMessageId']").first();
 		await messageLink.click();
 		await page.waitForURL(/selectedMessageId=/);
 
 		const article = page.getByRole("article");
 		await expect(article).toBeVisible({ timeout: 10_000 });
 
-		// The h1 heading should contain the thread subject
 		const heading = article.getByRole("heading", { level: 1 });
 		await expect(heading).toBeVisible();
 
@@ -59,18 +55,21 @@ test.describe("Thread viewing", () => {
 	test("conversation view shows reply and forward buttons", async ({
 		page,
 	}) => {
-		// Click the first message
-		const messageLink = page.locator("a[href*='/mail/']").first();
+		const messageLink = page.locator("a[href*='selectedMessageId']").first();
 		await messageLink.click();
 		await page.waitForURL(/selectedMessageId=/);
 
 		const article = page.getByRole("article");
 		await expect(article).toBeVisible({ timeout: 10_000 });
 
-		// ActionBar renders Reply, Reply all, and Forward buttons
-		const replyButton = page.getByRole("button", { name: "Reply" });
-		const replyAllButton = page.getByRole("button", { name: "Reply all" });
-		const forwardButton = page.getByRole("button", { name: "Forward" });
+		const replyButton = article.getByRole("button", {
+			name: "Reply",
+			exact: true,
+		});
+		const replyAllButton = article.getByRole("button", {
+			name: "Reply all",
+		});
+		const forwardButton = article.getByRole("button", { name: "Forward" });
 
 		await expect(replyButton).toBeVisible();
 		await expect(replyAllButton).toBeVisible();
