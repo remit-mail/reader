@@ -4,7 +4,7 @@ import {
 	ItalicPlugin,
 } from "@platejs/basic-nodes/react";
 import { insertLink } from "@platejs/link";
-import { Bold, Italic, Link, Quote } from "lucide-react";
+import { Bold, Italic, Link, Quote, Redo2, Undo2 } from "lucide-react";
 import { useEditorRef, useEditorSelector } from "platejs/react";
 
 const ToolbarButton = ({
@@ -51,6 +51,15 @@ export const PlateToolbar = () => {
 		return entry ? entry[0].type === BlockquotePlugin.key : false;
 	}, []);
 
+	const canUndo = useEditorSelector(
+		(editor) => editor.history.undos.length > 0,
+		[],
+	);
+	const canRedo = useEditorSelector(
+		(editor) => editor.history.redos.length > 0,
+		[],
+	);
+
 	return (
 		<div className="flex items-center gap-0.5 px-3 py-1 border-b border-border">
 			<ToolbarButton
@@ -80,6 +89,21 @@ export const PlateToolbar = () => {
 				title="Blockquote"
 			>
 				<Quote className="size-4" />
+			</ToolbarButton>
+			<div className="mx-1.5 h-4 w-px bg-border" />
+			<ToolbarButton
+				isActive={false}
+				onClick={() => editor.undo()}
+				title="Undo (Ctrl+Z)"
+			>
+				<Undo2 className={`size-4 ${!canUndo ? "opacity-40" : ""}`} />
+			</ToolbarButton>
+			<ToolbarButton
+				isActive={false}
+				onClick={() => editor.redo()}
+				title="Redo (Ctrl+Y)"
+			>
+				<Redo2 className={`size-4 ${!canRedo ? "opacity-40" : ""}`} />
 			</ToolbarButton>
 		</div>
 	);

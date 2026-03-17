@@ -10,7 +10,14 @@ import type {
 } from "@remit/api-http-client/types.gen.ts";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import type { Value } from "platejs";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+	lazy,
+	Suspense,
+	useCallback,
+	useEffect,
+	useMemo,
+	useState,
+} from "react";
 import { toast } from "sonner";
 import { useSaveDraft } from "../../hooks/useSaveDraft";
 import { useSignature } from "../../hooks/useSignature.js";
@@ -21,7 +28,18 @@ import {
 import type { AddressEntry } from "./AddressField";
 import { AddressField } from "./AddressField";
 import { ComposeActionBar } from "./ComposeActionBar";
-import { ComposeBody } from "./ComposeBody";
+
+const LazyComposeBody = lazy(() =>
+	import("./ComposeBody.js").then((m) => ({ default: m.ComposeBody })),
+);
+
+const ComposeBodyFallback = () => (
+	<div className="min-h-[120px] px-3 py-2">
+		<div className="h-8 mb-2 rounded bg-muted animate-pulse" />
+		<div className="min-h-[80px] rounded bg-muted/50 animate-pulse" />
+	</div>
+);
+
 import type { ComposeMode } from "./ComposeProvider";
 import { useCompose } from "./ComposeProvider";
 import { FromSelector } from "./FromSelector";
@@ -221,6 +239,8 @@ export const ComposeForm = ({
 		[sourceMessage],
 	);
 
+	const quotedHtml = sourceMessage?.bodyHtml;
+
 	const senderName =
 		sourceMessage?.envelope.from[0]?.displayName ??
 		sourceMessage?.envelope.from[0]?.normalizedEmail;
@@ -413,15 +433,21 @@ export const ComposeForm = ({
 			</div>
 
 			<div className="flex-1 overflow-auto">
-				<ComposeBody
-					value={body}
-					onChange={setBody}
-					onSubmit={handleSend}
-					autoFocus={mode === "new"}
-				/>
-				{quotedText && (
+				<Suspense fallback={<ComposeBodyFallback />}>
+					<LazyComposeBody
+						value={body}
+						onChange={setBody}
+						onSubmit={handleSend}
+						autoFocus={mode === "new"}
+					/>
+				</Suspense>
+				{(quotedText || quotedHtml) && (
 					<div className="px-3 pb-2">
-						<QuotedText text={quotedText} senderName={senderName} />
+						<QuotedText
+							text={quotedText}
+							html={quotedHtml}
+							senderName={senderName}
+						/>
 					</div>
 				)}
 			</div>
