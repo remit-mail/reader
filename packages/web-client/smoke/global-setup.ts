@@ -116,11 +116,22 @@ const seedAccount = async (config: ReturnType<typeof createConfig>) => {
 			imapPort: 1143,
 			imapTls: false,
 			imapStartTls: false,
+			smtpHost: "localhost",
+			smtpPort: 2525,
+			smtpTls: false,
+			smtpStartTls: false,
 			isActive: true,
 			connectionState: "not_authenticated",
 		});
 	} catch (err) {
 		if (!(err instanceof CreateFailedConflictError)) throw err;
+		// Update SMTP fields on existing account (may have been created without them)
+		await accountService.update(E2E_ACCOUNT_ID, {
+			smtpHost: "localhost",
+			smtpPort: 2525,
+			smtpTls: false,
+			smtpStartTls: false,
+		});
 	}
 };
 

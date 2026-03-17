@@ -212,6 +212,9 @@ model DescribeMessageResponse {
   @doc("Body structure")
   bodyParts: BodyPartResponse[];
 
+  @doc("Message references (In-Reply-To and References headers)")
+  references: MessageReferenceResponse[];
+
   @doc("Plain text body content")
   bodyText?: string;
 

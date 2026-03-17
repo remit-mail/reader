@@ -239,4 +239,21 @@ export interface IImapConnection {
 	 * @returns Mailbox status including unseen count
 	 */
 	getMailboxStatus(mailboxPath: string): Promise<ImapMailboxStatus>;
+	/**
+	 * Append a message to a mailbox via IMAP APPEND command.
+	 *
+	 * @param mailbox - Full path of the target mailbox
+	 * @param message - RFC 822 message content
+	 * @param flags - Optional flags to set on the message
+	 * @returns Object with destination path, uidValidity, and uid of the appended message
+	 */
+	append(
+		mailbox: string,
+		message: string | Buffer,
+		flags?: string[],
+	): Promise<{
+		destination: string;
+		uidValidity: number;
+		uid: number;
+	}>;
 }

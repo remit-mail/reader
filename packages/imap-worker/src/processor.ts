@@ -1,5 +1,6 @@
 import type { Logger } from "@remit/remit-logger-lambda";
 import type { ImapEvent } from "./events.js";
+import { handleAppendSentMessage } from "./handlers/append-sent-message.js";
 import { handleEmptyTrash } from "./handlers/empty-trash.js";
 import { processMailboxManagement } from "./handlers/mailbox-management.js";
 import { handleMessageCopy } from "./handlers/message-copy.js";
@@ -35,6 +36,8 @@ export const processEvent = async (
 			return handleMessageCopy(event, log);
 		case "EMPTY_TRASH":
 			return handleEmptyTrash(event, log);
+		case "APPEND_SENT_MESSAGE":
+			return handleAppendSentMessage(event, log);
 		default:
 			throw new Error(`Unknown event type: ${(event as ImapEvent).type}`);
 	}

@@ -217,6 +217,72 @@ namespace RemitApi {
   }
 
   // ============================================
+  // Outbox Operations
+  // ============================================
+
+  @route("/outbox")
+  namespace OutboxOperations {
+    @doc("Create a new outbox message (draft or send immediately)")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    op createOutboxMessage(
+      @body input: CreateOutboxMessageInput,
+    ): OutboxMessageResponse;
+
+    @doc("List outbox messages for the current account")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    op listOutboxMessages(
+      @query(#{ explode: true })
+      @continuationToken
+      continuationToken?: string,
+    ): ResultList<OutboxMessageResponse>;
+  }
+
+  @route("/outbox/{outboxMessageId}")
+  namespace OutboxDetailOperations {
+    @doc("Get an outbox message by ID")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    op getOutboxMessage(@path outboxMessageId: UUID): OutboxMessageResponse;
+
+    @doc("Update a draft outbox message")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @patch(#{ implicitOptionality: true })
+    op updateOutboxMessage(
+      @path outboxMessageId: UUID,
+      @body input: UpdateOutboxMessageInput,
+    ): OutboxMessageResponse;
+
+    @doc("Delete a draft or failed outbox message")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @delete
+    op deleteOutboxMessage(@path outboxMessageId: UUID): void;
+
+    @doc("Queue a draft message for sending")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    @route("/send")
+    op sendOutboxMessage(@path outboxMessageId: UUID): OutboxMessageResponse;
+  }
+
+  // ============================================
+  // Address Search Operations
+  // ============================================
+
+  @route("/addresses")
+  namespace AddressOperations {
+    @doc("Search addresses for autocomplete")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    @route("/search")
+    op searchAddresses(
+      @query(#{ explode: true }) q: string,
+      @query(#{ explode: true }) limit?: int32,
+    ): ResultList<AddressResponse>;
+  }
+
+  // ============================================
   // Message Operations
   // ============================================
 
