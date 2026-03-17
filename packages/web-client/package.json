@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test:typecheck": "tsc --noEmit",
+    "test:typecheck": "test -f src/routeTree.gen.ts || vite build > /dev/null 2>&1; tsc --noEmit",
     "test:run": "node --import tsx --test 'src/**/*.test.ts'",
     "test": "npm run test:typecheck && npm run test:run"
   },

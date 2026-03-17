@@ -56,6 +56,7 @@ export const MailboxOperations: Record<
 				fullPath,
 				uidValidity: 0,
 				uidNext: 1,
+				highestModseq: 0,
 				messageCount: 0,
 				unseenCount: 0,
 				deletedCount: 0,
