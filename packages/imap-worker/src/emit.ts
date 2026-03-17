@@ -32,6 +32,8 @@ const queueUrlMap: Record<ImapEvent["type"], string> = {
 	MESSAGE_MOVE: process.env.SQS_QUEUE_URL_MESSAGE_MGMT ?? defaultQueueUrl,
 	MESSAGE_COPY: process.env.SQS_QUEUE_URL_MESSAGE_MGMT ?? defaultQueueUrl,
 	EMPTY_TRASH: process.env.SQS_QUEUE_URL_MESSAGE_MGMT ?? defaultQueueUrl,
+	APPEND_SENT_MESSAGE:
+		process.env.SQS_QUEUE_URL_MESSAGE_MGMT ?? defaultQueueUrl,
 };
 
 /**

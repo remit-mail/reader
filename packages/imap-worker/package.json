@@ -20,9 +20,12 @@
 		"@remit/mailbox-service": "*",
 		"@remit/secrets-service": "*",
 		"@remit/storage-service": "*",
+		"@remit/domain-enums": "*",
 		"@types/aws-lambda": "*",
+		"@types/nodemailer": "*",
 		"esbuild": "*",
 		"expect-env": "*",
+		"nodemailer": "*",
 		"p-map": "*"
 	}
 }

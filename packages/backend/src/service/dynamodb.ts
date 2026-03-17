@@ -3,11 +3,13 @@ import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import {
 	AccountConfigService,
 	AccountService,
+	AddressService,
 	EnvelopeService,
 	MailboxService,
 	MailboxSpecialUseService,
 	MessageFlagService,
 	MessageService,
+	OutboxMessageService,
 	ThreadMessageService,
 } from "@remit/remit-electrodb-service";
 import {
@@ -17,6 +19,7 @@ import {
 	type IImapConnection,
 	MailboxQueueService,
 	MessageMoveService,
+	OutboxQueueService,
 } from "@remit/mailbox-service";
 import {
 	createCachedDataKeyProvider,
@@ -66,10 +69,12 @@ export interface RemitClient {
 	// ElectroDB services (reads)
 	accountConfig: AccountConfigService;
 	account: AccountService;
+	address: AddressService;
 	mailbox: MailboxService;
 	mailboxSpecialUse: MailboxSpecialUseService;
 	message: MessageService;
 	messageFlag: MessageFlagService;
+	outboxMessage: OutboxMessageService;
 	threadMessage: ThreadMessageService;
 	envelope: EnvelopeService;
 
@@ -86,6 +91,7 @@ export interface RemitClient {
 	flagQueue: FlagQueueService;
 	mailboxQueue: MailboxQueueService;
 	messageMove: MessageMoveService;
+	outboxQueue: OutboxQueueService;
 
 	// Helper to create IMAP connection scope from accountId
 	createConnectionScope: (accountId: string) => Promise<ConnectionScope>;
@@ -109,9 +115,12 @@ export const getClient = (): RemitClient => {
 		const messageFlagService = new MessageFlagService(config);
 		const threadMessageService = new ThreadMessageService(config);
 		const envelopeService = new EnvelopeService(config);
+		const addressService = new AddressService(config);
+		const outboxMessageService = new OutboxMessageService(config);
 
 		// Queue services (SQS_QUEUE_URL required for write operations)
 		const sqsQueueUrl = env.SQS_QUEUE_URL;
+		const sqsSmtpQueueUrl = process.env.SQS_QUEUE_URL_SMTP ?? sqsQueueUrl;
 
 		// Storage service - auto-selects filesystem or S3 based on env vars
 		const storageService = createStorageService();
@@ -176,10 +185,12 @@ export const getClient = (): RemitClient => {
 			// ElectroDB services (reads)
 			accountConfig: accountConfigService,
 			account: accountService,
+			address: addressService,
 			mailbox: mailboxService,
 			mailboxSpecialUse: mailboxSpecialUseService,
 			message: messageService,
 			messageFlag: messageFlagService,
+			outboxMessage: outboxMessageService,
 			threadMessage: threadMessageService,
 			envelope: envelopeService,
 
@@ -211,6 +222,12 @@ export const getClient = (): RemitClient => {
 				mailboxSpecialUseService,
 				threadMessageService,
 				sqsQueueUrl,
+				logger,
+			}),
+			outboxQueue: new OutboxQueueService({
+				outboxMessageService,
+				accountService,
+				sqsSmtpQueueUrl,
 				logger,
 			}),
 

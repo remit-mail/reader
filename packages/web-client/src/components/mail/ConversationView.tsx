@@ -1,7 +1,13 @@
-import { threadDetailOperationsListThreadMessagesOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import {
+	configOperationsGetConfigOptions,
+	messageOperationsDescribeMessageOptions,
+	threadDetailOperationsListThreadMessagesOptions,
+} from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import { useQuery } from "@tanstack/react-query";
 import { Forward, Reply, ReplyAll } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ComposeMode } from "@/components/compose/ComposeProvider";
+import { InlineCompose } from "@/components/compose/InlineCompose";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { useMarkAsRead } from "@/hooks/useMarkAsRead";
@@ -35,15 +41,22 @@ interface ActionBarProps {
 	onReply: () => void;
 	onReplyAll: () => void;
 	onForward: () => void;
+	disabled?: boolean;
 }
 
-const ActionBar = ({ onReply, onReplyAll, onForward }: ActionBarProps) => (
+const ActionBar = ({
+	onReply,
+	onReplyAll,
+	onForward,
+	disabled,
+}: ActionBarProps) => (
 	<div className="sticky bottom-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-t border-border px-4 py-3">
 		<div className="flex items-center gap-2">
 			<button
 				type="button"
 				onClick={onReply}
-				className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-full border border-border hover:bg-accent transition-colors"
+				disabled={disabled}
+				className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-full border border-border hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
 			>
 				<Reply className="size-4" />
 				Reply
@@ -51,7 +64,8 @@ const ActionBar = ({ onReply, onReplyAll, onForward }: ActionBarProps) => (
 			<button
 				type="button"
 				onClick={onReplyAll}
-				className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-full border border-border hover:bg-accent transition-colors"
+				disabled={disabled}
+				className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-full border border-border hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
 			>
 				<ReplyAll className="size-4" />
 				Reply all
@@ -59,11 +73,17 @@ const ActionBar = ({ onReply, onReplyAll, onForward }: ActionBarProps) => (
 			<button
 				type="button"
 				onClick={onForward}
-				className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-full border border-border hover:bg-accent transition-colors"
+				disabled={disabled}
+				className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-full border border-border hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
 			>
 				<Forward className="size-4" />
 				Forward
 			</button>
+			{disabled && (
+				<span className="text-xs text-muted-foreground ml-2">
+					Configure SMTP to send mail
+				</span>
+			)}
 		</div>
 	</div>
 );
@@ -147,19 +167,6 @@ export const ConversationView = ({
 		}
 	}, [messages, focusedIndex, toggleExpanded]);
 
-	// Register keyboard shortcuts
-	useKeyboardNavigation({
-		enabled: !isLoading && messages.length > 0,
-		bindings: [
-			{ key: "j", handler: focusNext, preventDefault: true },
-			{ key: "ArrowDown", handler: focusNext, preventDefault: true },
-			{ key: "k", handler: focusPrevious, preventDefault: true },
-			{ key: "ArrowUp", handler: focusPrevious, preventDefault: true },
-			{ key: "Enter", handler: toggleFocusedMessage, preventDefault: true },
-			{ key: "o", handler: toggleFocusedMessage, preventDefault: true },
-		],
-	});
-
 	// Mark messages as read when expanded
 	useMarkAsRead({
 		messages,
@@ -178,21 +185,61 @@ export const ConversationView = ({
 		mailboxId,
 	});
 
-	// Action handlers (placeholder for now - will be implemented with compose feature)
+	// Compose state for inline reply/forward
+	const [composeMode, setComposeMode] = useState<ComposeMode | null>(null);
+
+	const { data: config } = useQuery(configOperationsGetConfigOptions());
+	const activeAccount = config?.accounts?.[0];
+	const smtpConfigured = !!activeAccount?.smtpHost;
+
+	const lastMessage = messages[0];
+	const { data: lastMessageData } = useQuery({
+		...messageOperationsDescribeMessageOptions({
+			path: { messageId: lastMessage?.messageId ?? "" },
+		}),
+		enabled: !!lastMessage && composeMode !== null,
+	});
+
 	const handleReply = useCallback(() => {
-		// TODO: Implement reply
-		console.log("Reply clicked");
+		setComposeMode("reply");
 	}, []);
 
 	const handleReplyAll = useCallback(() => {
-		// TODO: Implement reply all
-		console.log("Reply all clicked");
+		setComposeMode("reply_all");
 	}, []);
 
 	const handleForward = useCallback(() => {
-		// TODO: Implement forward
-		console.log("Forward clicked");
+		setComposeMode("forward");
 	}, []);
+
+	const handleCloseCompose = useCallback(() => {
+		setComposeMode(null);
+	}, []);
+
+	// Register keyboard shortcuts
+	useKeyboardNavigation({
+		enabled: !isLoading && messages.length > 0 && composeMode === null,
+		bindings: [
+			{ key: "j", handler: focusNext, preventDefault: true },
+			{ key: "ArrowDown", handler: focusNext, preventDefault: true },
+			{ key: "k", handler: focusPrevious, preventDefault: true },
+			{ key: "ArrowUp", handler: focusPrevious, preventDefault: true },
+			{ key: "Enter", handler: toggleFocusedMessage, preventDefault: true },
+			{ key: "o", handler: toggleFocusedMessage, preventDefault: true },
+			...(smtpConfigured
+				? [
+						{ key: "r", handler: handleReply, preventDefault: true },
+						{
+							key: "R",
+							handler: handleReplyAll,
+							noModifiers: false,
+							preventDefault: true,
+						},
+						{ key: "f", handler: handleForward, preventDefault: true },
+					]
+				: []),
+		],
+	});
 
 	if (isLoading) {
 		return <LoadingSkeleton />;
@@ -247,12 +294,22 @@ export const ConversationView = ({
 				</div>
 			</div>
 
-			{/* Action bar */}
-			<ActionBar
-				onReply={handleReply}
-				onReplyAll={handleReplyAll}
-				onForward={handleForward}
-			/>
+			{/* Inline compose or action bar */}
+			{composeMode !== null ? (
+				<InlineCompose
+					mode={composeMode}
+					account={activeAccount}
+					sourceMessage={lastMessageData}
+					onClose={handleCloseCompose}
+				/>
+			) : (
+				<ActionBar
+					onReply={handleReply}
+					onReplyAll={handleReplyAll}
+					onForward={handleForward}
+					disabled={!smtpConfigured}
+				/>
+			)}
 		</article>
 	);
 };

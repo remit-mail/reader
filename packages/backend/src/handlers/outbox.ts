@@ -1,0 +1,198 @@
+import type { OutboxMessageItem } from "@remit/remit-electrodb-service";
+import type {
+	CreateOutboxMessageInput,
+	OutboxMessageResponse,
+	UpdateOutboxMessageInput,
+} from "@remit/api-openapi-types";
+import type { APIGatewayProxyEvent } from "aws-lambda";
+import type { Context } from "openapi-backend";
+import { getClient } from "../service/dynamodb.js";
+import type {
+	OperationHandler,
+	OutboxDetailOperationIds,
+	OutboxOperationIds,
+} from "../types.js";
+
+const getAccountConfigIdFromEvent = (event: APIGatewayProxyEvent): string => {
+	const claims = event.requestContext?.authorizer?.claims;
+	if (claims?.["custom:accountConfigId"]) {
+		return claims["custom:accountConfigId"] as string;
+	}
+
+	const localAccountConfigId = process.env.LOCAL_ACCOUNT_CONFIG_ID;
+	if (localAccountConfigId) {
+		return localAccountConfigId;
+	}
+
+	throw new Error(
+		"Missing accountConfigId: not found in JWT claims or LOCAL_ACCOUNT_CONFIG_ID env var",
+	);
+};
+
+const toOutboxMessageResponse = (
+	item: OutboxMessageItem,
+): OutboxMessageResponse => ({
+	outboxMessageId: item.outboxMessageId,
+	accountId: item.accountId,
+	fromAddress: item.fromAddress,
+	fromName: item.fromName,
+	toAddresses: item.toAddresses,
+	ccAddresses: item.ccAddresses,
+	bccAddresses: item.bccAddresses,
+	subject: item.subject,
+	textBody: item.textBody,
+	htmlBody: item.htmlBody,
+	inReplyTo: item.inReplyTo,
+	references: item.references,
+	status: item.status,
+	lastError: item.lastError,
+	sentAt: item.sentAt,
+	createdAt: item.createdAt,
+	updatedAt: item.updatedAt,
+});
+
+export const OutboxOperations: Record<
+	OutboxOperationIds,
+	OperationHandler<OutboxOperationIds>
+> = {
+	OutboxOperations_createOutboxMessage: async (
+		_context: Context,
+		...args: unknown[]
+	): Promise<OutboxMessageResponse> => {
+		const event = args[0] as APIGatewayProxyEvent;
+		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const input = JSON.parse(event.body ?? "{}") as CreateOutboxMessageInput;
+
+		const client = getClient();
+
+		const account = await client.account.get(input.accountId);
+		if (account.accountConfigId !== accountConfigId) {
+			throw new Error("Account not found");
+		}
+
+		const fromAddress = account.email;
+
+		if (input.sendImmediately) {
+			const outbox = await client.outboxQueue.createAndSend({
+				accountId: input.accountId,
+				accountConfigId,
+				fromAddress,
+
+				toAddresses: input.toAddresses,
+				ccAddresses: input.ccAddresses,
+				bccAddresses: input.bccAddresses,
+				subject: input.subject,
+				textBody: input.textBody,
+				htmlBody: input.htmlBody,
+				inReplyTo: input.inReplyTo,
+				references: input.references,
+			});
+			return toOutboxMessageResponse(outbox);
+		}
+
+		const outbox = await client.outboxQueue.createDraft({
+			accountId: input.accountId,
+			accountConfigId,
+			fromAddress,
+
+			toAddresses: input.toAddresses,
+			ccAddresses: input.ccAddresses,
+			bccAddresses: input.bccAddresses,
+			subject: input.subject,
+			textBody: input.textBody,
+			htmlBody: input.htmlBody,
+			inReplyTo: input.inReplyTo,
+			references: input.references,
+		});
+		return toOutboxMessageResponse(outbox);
+	},
+
+	OutboxOperations_listOutboxMessages: async (
+		context: Context,
+		...args: unknown[]
+	) => {
+		const event = args[0] as APIGatewayProxyEvent;
+		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const { continuationToken } = context.request.query as {
+			continuationToken?: string;
+		};
+
+		const client = getClient();
+
+		const accounts = await client.account.list(accountConfigId);
+		if (accounts.items.length === 0) {
+			return { items: [], continuationToken: null };
+		}
+
+		const accountId = accounts.items[0].accountId;
+		const result = await client.outboxMessage.listByAccount(accountId, {
+			continuationToken,
+		});
+
+		return {
+			items: result.items.map(toOutboxMessageResponse),
+			continuationToken: result.continuationToken,
+		};
+	},
+};
+
+export const OutboxDetailOperations: Record<
+	OutboxDetailOperationIds,
+	OperationHandler<OutboxDetailOperationIds>
+> = {
+	OutboxDetailOperations_getOutboxMessage: async (
+		context: Context,
+	): Promise<OutboxMessageResponse> => {
+		const { outboxMessageId } = context.request.params as {
+			outboxMessageId: string;
+		};
+
+		const client = getClient();
+		const outbox = await client.outboxMessage.get(outboxMessageId);
+		return toOutboxMessageResponse(outbox);
+	},
+
+	OutboxDetailOperations_updateOutboxMessage: async (
+		context: Context,
+	): Promise<OutboxMessageResponse> => {
+		const { outboxMessageId } = context.request.params as {
+			outboxMessageId: string;
+		};
+		const input = context.request.requestBody as UpdateOutboxMessageInput;
+
+		const client = getClient();
+		const updated = await client.outboxQueue.updateDraft(outboxMessageId, {
+			toAddresses: input.toAddresses,
+			ccAddresses: input.ccAddresses,
+			bccAddresses: input.bccAddresses,
+			subject: input.subject,
+			textBody: input.textBody,
+			htmlBody: input.htmlBody,
+			inReplyTo: input.inReplyTo,
+			references: input.references,
+		});
+		return toOutboxMessageResponse(updated);
+	},
+
+	OutboxDetailOperations_deleteOutboxMessage: async (context: Context) => {
+		const { outboxMessageId } = context.request.params as {
+			outboxMessageId: string;
+		};
+
+		const client = getClient();
+		await client.outboxQueue.deleteDraft(outboxMessageId);
+		return { statusCode: 204 };
+	},
+
+	OutboxDetailOperations_sendOutboxMessage: async (
+		context: Context,
+	): Promise<OutboxMessageResponse> => {
+		const { outboxMessageId } = context.request.params as {
+			outboxMessageId: string;
+		};
+
+		const client = getClient();
+		const sent = await client.outboxQueue.send(outboxMessageId);
+		return toOutboxMessageResponse(sent);
+	},
+};

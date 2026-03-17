@@ -105,6 +105,14 @@ export interface MessageCopyEvent extends BaseEvent {
 	uid: number;
 }
 
+/**
+ * Event for appending a sent message to the Sent mailbox via IMAP APPEND.
+ */
+export interface AppendSentMessageEvent extends BaseEvent {
+	type: "APPEND_SENT_MESSAGE";
+	outboxMessageId: string;
+}
+
 export type MessageManagementEvent =
 	| MessageDeleteEvent
 	| MessageMoveEvent
@@ -117,4 +125,5 @@ export type ImapEvent =
 	| SyncMessageBodyEvent
 	| SyncFlagsEvent
 	| MailboxManagementEvent
-	| MessageManagementEvent;
+	| MessageManagementEvent
+	| AppendSentMessageEvent;

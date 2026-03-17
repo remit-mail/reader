@@ -17,6 +17,8 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
+import { useCompose } from "@/components/compose/ComposeProvider";
+import { FullCompose } from "@/components/compose/FullCompose";
 import { Panel } from "@/components/layout/Panel";
 import {
 	ResizableHandle,
@@ -169,6 +171,13 @@ function MailboxView() {
 
 	const selectedThread = threads.find((t) => t.messageId === selectedMessageId);
 
+	// Compose
+	const { state: composeState, openCompose, closeCompose } = useCompose();
+
+	const handleNewCompose = useCallback(() => {
+		openCompose({ mode: "new" });
+	}, [openCompose]);
+
 	// "u" to go back (deselect current thread)
 	const goBack = useCallback(() => {
 		if (selectedMessageId) {
@@ -181,11 +190,21 @@ function MailboxView() {
 	}, [selectedMessageId, mailboxId, navigate]);
 
 	useKeyboardNavigation({
-		enabled: !!selectedMessageId,
+		enabled: !!selectedMessageId && !composeState.isOpen,
 		bindings: [
 			{ key: "u", handler: goBack, preventDefault: true },
 			{ key: "Escape", handler: goBack, preventDefault: true },
 		],
+	});
+
+	useKeyboardNavigation({
+		enabled: !composeState.isOpen,
+		bindings: [{ key: "c", handler: handleNewCompose, preventDefault: true }],
+	});
+
+	useKeyboardNavigation({
+		enabled: composeState.isOpen,
+		bindings: [{ key: "Escape", handler: closeCompose, preventDefault: true }],
 	});
 
 	return (
@@ -209,7 +228,9 @@ function MailboxView() {
 			<ResizableHandle />
 			<ResizablePanel defaultSize={65} minSize={20}>
 				<Panel withBorder={false} className="h-full">
-					{selectedThread ? (
+					{composeState.isOpen && !selectedThread ? (
+						<FullCompose />
+					) : selectedThread ? (
 						<ConversationView
 							threadId={selectedThread.threadId}
 							mailboxId={mailboxId}

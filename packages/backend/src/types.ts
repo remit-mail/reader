@@ -26,7 +26,14 @@ export type OperationIds =
 	| "MessageBulkOperations_moveMessages"
 	| "MessageBulkOperations_updateFlags"
 	| "MessageBulkOperations_copyMessages"
-	| "TrashOperations_emptyTrash";
+	| "TrashOperations_emptyTrash"
+	| "OutboxOperations_createOutboxMessage"
+	| "OutboxOperations_listOutboxMessages"
+	| "OutboxDetailOperations_getOutboxMessage"
+	| "OutboxDetailOperations_updateOutboxMessage"
+	| "OutboxDetailOperations_deleteOutboxMessage"
+	| "OutboxDetailOperations_sendOutboxMessage"
+	| "AddressOperations_searchAddresses";
 
 export type ConfigOperationIds = MatchPrefix<"ConfigOperations_", OperationIds>;
 
@@ -70,6 +77,18 @@ export type MessageBulkOperationIds = MatchPrefix<
 >;
 
 export type TrashOperationIds = MatchPrefix<"TrashOperations_", OperationIds>;
+
+export type OutboxOperationIds = MatchPrefix<"OutboxOperations_", OperationIds>;
+
+export type OutboxDetailOperationIds = MatchPrefix<
+	"OutboxDetailOperations_",
+	OperationIds
+>;
+
+export type AddressOperationIds = MatchPrefix<
+	"AddressOperations_",
+	OperationIds
+>;
 
 // biome-ignore lint/suspicious/noExplicitAny: Handler responses vary by operation
 export type OperationHandler<_T extends OperationIds = OperationIds> = (
