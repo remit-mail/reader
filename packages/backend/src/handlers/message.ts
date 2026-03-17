@@ -114,11 +114,18 @@ export const MessageOperations: Record<
 			bodyHtml = result.html ?? undefined;
 		}
 
+		const references = description.messageReference.map((ref) => ({
+			messageIdValue: ref.messageIdValue,
+			referenceType: ref.referenceType,
+			referenceOrder: ref.referenceOrder,
+		}));
+
 		return {
 			message: messageSummary,
 			envelope: envelopeResponse,
 			flags,
 			bodyParts,
+			references,
 			bodyText,
 			bodyHtml,
 		};

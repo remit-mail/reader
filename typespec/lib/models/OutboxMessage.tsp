@@ -127,3 +127,96 @@ model OutboxMessage {
   @updatedAt
   updatedAt: int64;
 }
+
+// ============================================
+// API Response Model
+// ============================================
+
+@doc("Outbox message response")
+model OutboxMessageResponse
+  is PickProperties<
+    OutboxMessage,
+
+      | "outboxMessageId"
+      | "accountId"
+      | "fromAddress"
+      | "fromName"
+      | "toAddresses"
+      | "ccAddresses"
+      | "bccAddresses"
+      | "subject"
+      | "textBody"
+      | "htmlBody"
+      | "inReplyTo"
+      | "references"
+      | "status"
+      | "lastError"
+      | "sentAt"
+      | "createdAt"
+      | "updatedAt"
+  >;
+
+// ============================================
+// API Input Models
+// ============================================
+
+@doc("Input for creating an outbox message")
+model CreateOutboxMessageInput {
+  @doc("Account to send from")
+  accountId: UUID;
+
+  @doc("Recipient addresses (To)")
+  @minItems(1)
+  toAddresses: string[];
+
+  @doc("CC recipient addresses")
+  ccAddresses?: string[];
+
+  @doc("BCC recipient addresses")
+  bccAddresses?: string[];
+
+  @doc("Subject line")
+  subject?: string;
+
+  @doc("Plain text body")
+  textBody?: string;
+
+  @doc("HTML body")
+  htmlBody?: string;
+
+  @doc("For replies: parent message's Message-ID")
+  inReplyTo?: string;
+
+  @doc("For replies: full References chain from parent")
+  references?: string[];
+
+  @doc("Whether to send immediately or save as draft")
+  sendImmediately?: boolean;
+}
+
+@doc("Input for updating a draft outbox message")
+model UpdateOutboxMessageInput {
+  @doc("Recipient addresses (To)")
+  toAddresses?: string[];
+
+  @doc("CC recipient addresses")
+  ccAddresses?: string[];
+
+  @doc("BCC recipient addresses")
+  bccAddresses?: string[];
+
+  @doc("Subject line")
+  subject?: string;
+
+  @doc("Plain text body")
+  textBody?: string;
+
+  @doc("HTML body")
+  htmlBody?: string;
+
+  @doc("For replies: parent message's Message-ID")
+  inReplyTo?: string;
+
+  @doc("For replies: full References chain from parent")
+  references?: string[];
+}

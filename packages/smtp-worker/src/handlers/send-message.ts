@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 import {
 	AccountService,
 	getClient,
@@ -29,6 +31,34 @@ const outboxService = new OutboxMessageService({
 	client,
 	table: env.DYNAMODB_TABLE_NAME,
 });
+
+const imapQueueUrl = env.SQS_QUEUE_URL_IMAP;
+const isLocalQueue = imapQueueUrl.startsWith("http://localhost");
+
+const imapSqs = new SQSClient({
+	endpoint: isLocalQueue ? new URL(imapQueueUrl).origin : undefined,
+});
+
+const emitAppendSentMessage = async (
+	accountId: string,
+	outboxMessageId: string,
+): Promise<void> => {
+	const event = {
+		type: "APPEND_SENT_MESSAGE" as const,
+		accountId,
+		outboxMessageId,
+		eventId: randomUUID(),
+		timestamp: Date.now(),
+	};
+
+	await imapSqs.send(
+		new SendMessageCommand({
+			QueueUrl: imapQueueUrl,
+			MessageBody: JSON.stringify(event),
+			MessageGroupId: accountId,
+		}),
+	);
+};
 
 export const handleSendMessage = async (
 	event: SendMessageEvent,
@@ -94,6 +124,15 @@ export const handleSendMessage = async (
 		log.info(
 			{ outboxMessageId, smtpMessageId: result.messageId },
 			"Message sent successfully",
+		);
+
+		await emitAppendSentMessage(accountId, outboxMessageId).catch(
+			(error: unknown) => {
+				log.warn(
+					{ outboxMessageId, error: String(error) },
+					"Failed to enqueue APPEND_SENT_MESSAGE (best-effort)",
+				);
+			},
 		);
 		return;
 	}

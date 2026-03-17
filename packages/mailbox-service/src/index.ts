@@ -88,6 +88,13 @@ export {
 	type SyncMessagesResult,
 } from "./message-sync.js";
 export {
+	type CreateDraftInput,
+	type OutboxQueueConfig,
+	type OutboxQueueLogger,
+	OutboxQueueService,
+	type UpdateDraftInput,
+} from "./outbox-queue.js";
+export {
 	extractSnippetFromEmail,
 	generateSnippet,
 	normalizeSubject,
