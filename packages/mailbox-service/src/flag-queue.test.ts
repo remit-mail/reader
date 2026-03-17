@@ -59,6 +59,10 @@ const createMockThreadMessageService = () => {
 		findByMessageId: mock.fn(async (messageId: string) => {
 			return threadMessages.get(messageId) ?? null;
 		}),
+		findAllByMessageId: mock.fn(async (messageId: string) => {
+			const tm = threadMessages.get(messageId);
+			return tm ? [tm] : [];
+		}),
 		update: mock.fn(
 			async (
 				_accountConfigId: string,
