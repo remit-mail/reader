@@ -1,27 +1,17 @@
 import { randomUUID } from "node:crypto";
-import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
+import { SendMessageCommand } from "@aws-sdk/client-sqs";
 import { env } from "expect-env";
 import { logger } from "../logger.js";
 import { getClient } from "../service/dynamodb.js";
+import { sqsClient } from "../service/sqs.js";
 import type { OperationHandler, SyncOperationIds } from "../types.js";
 
-/**
- * SYNC_MAILBOXES event structure (matches remit-imap-worker/events.ts)
- */
 interface SyncMailboxesEvent {
 	type: "SYNC_MAILBOXES";
 	eventId: string;
 	timestamp: number;
 	accountId: string;
 }
-
-const getSqsClient = (): SQSClient => {
-	const queueUrl = env.SQS_QUEUE_URL;
-	const endpoint = queueUrl.startsWith("http://localhost")
-		? new URL(queueUrl).origin
-		: undefined;
-	return new SQSClient({ endpoint });
-};
 
 export const SyncOperations: Record<
 	SyncOperationIds,
@@ -41,8 +31,7 @@ export const SyncOperations: Record<
 			accountId: account.accountId,
 		};
 
-		const sqs = getSqsClient();
-		await sqs.send(
+		await sqsClient.send(
 			new SendMessageCommand({
 				QueueUrl: env.SQS_QUEUE_URL,
 				MessageBody: JSON.stringify(event),

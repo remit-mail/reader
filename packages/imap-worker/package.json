@@ -15,6 +15,7 @@
 	},
 	"devDependencies": {
 		"@aws-sdk/client-sqs": "*",
+		"@aws-sdk/core": "*",
 		"@remit/logger-lambda": "*",
 		"@remit/mailbox-service": "*",
 		"@remit/secrets-service": "*",
