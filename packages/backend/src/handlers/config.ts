@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
+import { SendMessageCommand } from "@aws-sdk/client-sqs";
 import type {
 	AccountConfigItem,
 	AccountItem,
@@ -14,18 +14,10 @@ import { env } from "expect-env";
 import type { Context } from "openapi-backend";
 import { logger } from "../logger.js";
 import { getClient } from "../service/dynamodb.js";
+import { sqsClient } from "../service/sqs.js";
 import type { ConfigOperationIds, OperationHandler } from "../types.js";
 
-/**
- * Trigger a mailbox sync for an account by sending SQS message
- */
 const triggerAccountSync = async (accountId: string): Promise<void> => {
-	const queueUrl = env.SQS_QUEUE_URL;
-	const endpoint = queueUrl.startsWith("http://localhost")
-		? new URL(queueUrl).origin
-		: undefined;
-	const sqs = new SQSClient({ endpoint });
-
 	const event = {
 		type: "SYNC_MAILBOXES",
 		eventId: randomUUID(),
@@ -33,9 +25,9 @@ const triggerAccountSync = async (accountId: string): Promise<void> => {
 		accountId,
 	};
 
-	await sqs.send(
+	await sqsClient.send(
 		new SendMessageCommand({
-			QueueUrl: queueUrl,
+			QueueUrl: env.SQS_QUEUE_URL,
 			MessageBody: JSON.stringify(event),
 		}),
 	);

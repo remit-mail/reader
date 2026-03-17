@@ -1,7 +1,14 @@
+import { type ChildProcess, spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import {
+	CreateQueueCommand,
+	SendMessageCommand,
+	SQSClient,
+} from "@aws-sdk/client-sqs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -30,21 +37,12 @@ import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import {
 	AccountConfigService,
 	AccountService,
-	AddressService,
 	base36uuidv5,
 	CreateFailedConflictError,
-	EnvelopeService,
 	MailboxService,
 	MessageService,
 	REMIT_NAMESPACE,
-	ThreadMessageService,
 } from "@remit/remit-electrodb-service";
-import {
-	createConnectionFromAccount,
-	createManagedConnectionFactory,
-	MailboxSyncService,
-	MessageSyncService,
-} from "@remit/mailbox-service";
 import {
 	createKmsDataKeyProvider,
 	createSecretsService,
@@ -70,8 +68,6 @@ export const E2E_ACCOUNT_ID = base36uuidv5(
 	`e2e:sync:account:${E2E_EMAIL}`,
 	REMIT_NAMESPACE,
 );
-
-const MESSAGE_BATCH_SIZE = 200;
 
 const createConfig = () => {
 	const port = process.env.DYNAMODB_PORT ?? "5435";
@@ -129,97 +125,177 @@ const seedAccount = async (config: ReturnType<typeof createConfig>) => {
 	}
 };
 
-const syncMailboxes = async (config: ReturnType<typeof createConfig>) => {
-	const mailboxSyncService = new MailboxSyncService(config);
+const spawnWorker = (): ChildProcess => {
+	const projectRoot = resolve(__dirname, "../../..");
+	const workerPath = resolve(
+		projectRoot,
+		"packages/remit-imap-worker/src/worker.ts",
+	);
 
-	const connection = createConnectionFromAccount(
+	const worker = spawn(
+		"node",
+		["--env-file=.e2e.env", "--import", "tsx", workerPath],
 		{
-			username: MAILFUZZ_USER,
-			imapHost: MAILFUZZ_HOST,
-			imapPort: MAILFUZZ_PORT,
-			imapTls: false,
+			cwd: projectRoot,
+			stdio: "pipe",
+			env: {
+				...process.env,
+				MAILFUZZ_HOST,
+				MAILFUZZ_PORT: String(MAILFUZZ_PORT),
+				MAILFUZZ_USER,
+				MAILFUZZ_PASSWORD,
+			},
 		},
-		MAILFUZZ_PASSWORD,
 	);
 
-	await connection.connect();
-
-	const result = await mailboxSyncService
-		.syncMailboxes({ accountId: E2E_ACCOUNT_ID }, connection)
-		.finally(() => connection.disconnect());
-
-	console.log(
-		`  Mailbox sync: created=${result.created}, updated=${result.updated}, deleted=${result.deleted}`,
-	);
-
-	return result;
-};
-
-const syncMessages = async (config: ReturnType<typeof createConfig>) => {
-	const mailboxService = new MailboxService(config);
-	const messageService = new MessageService(config);
-	const envelopeService = new EnvelopeService(config);
-	const addressService = new AddressService(config);
-	const threadMessageService = new ThreadMessageService(config);
-
-	const connectionFactory = createManagedConnectionFactory({
-		user: MAILFUZZ_USER,
-		password: MAILFUZZ_PASSWORD,
-		host: MAILFUZZ_HOST,
-		port: MAILFUZZ_PORT,
-		tls: false,
+	worker.stdout?.on("data", (data: Buffer) => {
+		process.stdout.write(`[imap-worker] ${data.toString()}`);
 	});
 
-	const syncService = new MessageSyncService(
-		connectionFactory,
-		mailboxService,
-		messageService,
-		envelopeService,
-		addressService,
-		threadMessageService,
+	worker.stderr?.on("data", (data: Buffer) => {
+		process.stderr.write(`[imap-worker] ${data.toString()}`);
+	});
+
+	return worker;
+};
+
+const createSqsClient = () => {
+	const configuredUrl = process.env.SQS_QUEUE_URL ?? "";
+	const endpoint = new URL(configuredUrl).origin;
+
+	return new SQSClient({
+		endpoint,
+		region: "local",
+		credentials: { accessKeyId: "local", secretAccessKey: "local" },
+	});
+};
+
+const triggerSync = async (accountId: string) => {
+	const sqs = createSqsClient();
+
+	const createResult = await sqs.send(
+		new CreateQueueCommand({ QueueName: "remit-e2e" }),
+	);
+	const queueUrl = createResult.QueueUrl;
+	if (!queueUrl) throw new Error("CreateQueue did not return a QueueUrl");
+
+	const event = {
+		type: "SYNC_MAILBOXES",
+		eventId: randomUUID(),
+		timestamp: Date.now(),
+		accountId,
+	};
+
+	await sqs.send(
+		new SendMessageCommand({
+			QueueUrl: queueUrl,
+			MessageBody: JSON.stringify(event),
+		}),
 	);
 
-	const conn = connectionFactory.getConnection();
-	await conn.connect();
-
-	const mailboxes = await mailboxService.listByAccount(E2E_ACCOUNT_ID);
-	const inbox = mailboxes.items.find(
-		(m) => m.fullPath.toUpperCase() === "INBOX",
+	console.log(
+		`  Sync triggered via SQS: eventId=${event.eventId} queue=${queueUrl}`,
 	);
+};
 
-	if (!inbox) {
-		await connectionFactory.close();
-		console.log("  No INBOX found, skipping message sync");
-		return;
+const waitForMailboxes = async (
+	config: ReturnType<typeof createConfig>,
+	accountId: string,
+	timeout = 60000,
+) => {
+	const mailboxService = new MailboxService(config);
+	const start = Date.now();
+	while (Date.now() - start < timeout) {
+		const result = await mailboxService.listByAccount(accountId);
+		if (result.items.length > 0) return result.items;
+		await new Promise((r) => setTimeout(r, 1000));
+	}
+	throw new Error("Timeout waiting for mailbox sync");
+};
+
+const waitForMessages = async (
+	config: ReturnType<typeof createConfig>,
+	mailboxId: string,
+	timeout = 60000,
+) => {
+	const messageService = new MessageService(config);
+	const start = Date.now();
+	while (Date.now() - start < timeout) {
+		const result = await messageService.listByMailbox(mailboxId);
+		if (result.items.length > 0) return result.items;
+		await new Promise((r) => setTimeout(r, 1000));
+	}
+	throw new Error("Timeout waiting for message sync");
+};
+
+// Store worker process for teardown
+declare global {
+	var __e2eWorkerProcess: ChildProcess | undefined;
+}
+
+const ensureQueuesExist = async () => {
+	const sqs = createSqsClient();
+
+	const standardQueues = [
+		"remit-e2e",
+		"remit-e2e-mailbox-mgmt",
+		"remit-e2e-message-mgmt",
+	];
+	const fifoQueues = [
+		"remit-e2e-mailboxes.fifo",
+		"remit-e2e-messages.fifo",
+		"remit-e2e-body.fifo",
+		"remit-e2e-flags.fifo",
+	];
+
+	for (const queueName of standardQueues) {
+		await sqs.send(new CreateQueueCommand({ QueueName: queueName }));
 	}
 
-	let hasMore = true;
-	let totalSynced = 0;
-
-	while (hasMore) {
-		const result = await syncService.syncMessages(
-			inbox.mailboxId,
-			E2E_ACCOUNT_CONFIG_ID,
-			MESSAGE_BATCH_SIZE,
+	for (const queueName of fifoQueues) {
+		await sqs.send(
+			new CreateQueueCommand({
+				QueueName: queueName,
+				Attributes: { FifoQueue: "true" },
+			}),
 		);
-		totalSynced += result.syncedCount;
-		hasMore = result.hasMore;
 	}
 
-	await connectionFactory.close();
-	console.log(`  Message sync: synced ${totalSynced} messages from INBOX`);
+	console.log(
+		`  Ensured ${standardQueues.length + fifoQueues.length} SQS queues exist`,
+	);
 };
 
 const globalSetup = async () => {
-	console.log("E2E Global Setup: creating account and syncing via IMAP...");
+	console.log("E2E Global Setup: creating account and syncing via SQS...");
 	const config = createConfig();
 
 	await seedAccount(config);
 	console.log(`  AccountConfigId: ${E2E_ACCOUNT_CONFIG_ID}`);
 	console.log(`  AccountId: ${E2E_ACCOUNT_ID}`);
 
-	await syncMailboxes(config);
-	await syncMessages(config);
+	await ensureQueuesExist();
+
+	const worker = spawnWorker();
+	globalThis.__e2eWorkerProcess = worker;
+
+	// Give the worker a moment to start polling
+	await new Promise((r) => setTimeout(r, 2000));
+
+	await triggerSync(E2E_ACCOUNT_ID);
+
+	const mailboxes = await waitForMailboxes(config, E2E_ACCOUNT_ID);
+	console.log(`  Mailbox sync complete: ${mailboxes.length} mailboxes`);
+
+	const inbox = mailboxes.find((m) => m.fullPath.toUpperCase() === "INBOX");
+	if (inbox) {
+		const messages = await waitForMessages(config, inbox.mailboxId);
+		console.log(
+			`  Message sync complete: ${messages.length} messages in INBOX`,
+		);
+	} else {
+		console.log("  No INBOX found, skipping message wait");
+	}
 
 	console.log("E2E Global Setup: done");
 };

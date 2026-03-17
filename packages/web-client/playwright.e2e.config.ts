@@ -9,6 +9,7 @@ export default defineConfig({
 	reporter: process.env.CI ? "github" : "html",
 	timeout: 60_000,
 	globalSetup: "./e2e/global-setup.ts",
+	globalTeardown: "./e2e/global-teardown.ts",
 	use: {
 		baseURL: "http://localhost:5173",
 		trace: "retain-on-failure",
@@ -32,7 +33,19 @@ export default defineConfig({
 				SERVER_PORT: "5433",
 				KMS_KEY_ID: "FAKE_KMS_KEY_ID",
 				FAKE_KMS_DATAKEY: "8AD6A6C8-B5E2-488F-B017-96B662DC01AC",
-				SQS_QUEUE_URL: "http://localhost:9324/000000000000/remit-e2e-noop",
+				SQS_QUEUE_URL: "http://localhost:9325/000000000000/remit-e2e",
+				SQS_QUEUE_URL_MAILBOXES:
+					"http://localhost:9325/000000000000/remit-e2e-mailboxes.fifo",
+				SQS_QUEUE_URL_MESSAGES:
+					"http://localhost:9325/000000000000/remit-e2e-messages.fifo",
+				SQS_QUEUE_URL_BODY:
+					"http://localhost:9325/000000000000/remit-e2e-body.fifo",
+				SQS_QUEUE_URL_FLAGS:
+					"http://localhost:9325/000000000000/remit-e2e-flags.fifo",
+				SQS_QUEUE_URL_MAILBOX_MGMT:
+					"http://localhost:9325/000000000000/remit-e2e-mailbox-mgmt",
+				SQS_QUEUE_URL_MESSAGE_MGMT:
+					"http://localhost:9325/000000000000/remit-e2e-message-mgmt",
 				STORAGE_LOCAL_PATH: ".remit/e2e-storage",
 				LOCAL_ACCOUNT_CONFIG_ID: "5be2vjpnoscpy591tt9iopmuz",
 				NODE_ENV: "test",

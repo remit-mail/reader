@@ -6,6 +6,7 @@ import {
 	ReceiveMessageCommand,
 	SQSClient,
 } from "@aws-sdk/client-sqs";
+import { AwsQueryProtocol } from "@aws-sdk/core/protocols";
 import { createLogger } from "@remit/remit-logger-lambda";
 import { env } from "expect-env";
 import pMap from "p-map";
@@ -111,10 +112,10 @@ if (cluster.isPrimary) {
 		: perQueueConcurrency;
 	const maxMessages = 10; // SQS API limit
 
+	const isLocal = queueUrl.startsWith("http://localhost");
 	const sqs = new SQSClient({
-		endpoint: queueUrl.startsWith("http://localhost")
-			? new URL(queueUrl).origin
-			: undefined,
+		endpoint: isLocal ? new URL(queueUrl).origin : undefined,
+		...(isLocal && { protocol: AwsQueryProtocol }),
 	});
 
 	let isShuttingDown = false;
