@@ -3,10 +3,12 @@ import { expect, test } from "./fixtures/account-setup.js";
 test.describe("Compose flow", () => {
 	test.beforeEach(async ({ page }) => {
 		await page.goto("/mail");
-		await page.waitForLoadState("networkidle");
 
 		const sidebar = page.getByRole("navigation", { name: "Mailboxes" });
+		await expect(sidebar).toBeVisible({ timeout: 15_000 });
+
 		const inbox = sidebar.getByRole("link", { name: /inbox/i });
+		await expect(inbox).toBeVisible({ timeout: 10_000 });
 		await inbox.click();
 		await page.waitForURL(/\/mail\/[a-z0-9]+/);
 
@@ -53,7 +55,11 @@ test.describe("Compose flow", () => {
 		await replyButton.click();
 
 		const sendButton = article.getByRole("button", { name: "Send" });
-		await expect(sendButton).toBeVisible({ timeout: 5_000 });
+		await expect(sendButton).toBeVisible({ timeout: 10_000 });
+
+		await expect(
+			article.locator('[contenteditable="true"]').first(),
+		).toBeVisible({ timeout: 10_000 });
 
 		const subjectInput = article.locator('input[placeholder="Subject"]');
 		const subjectValue = await subjectInput.inputValue();
@@ -76,7 +82,11 @@ test.describe("Compose flow", () => {
 		await replyAllButton.click();
 
 		const sendButton = article.getByRole("button", { name: "Send" });
-		await expect(sendButton).toBeVisible({ timeout: 5_000 });
+		await expect(sendButton).toBeVisible({ timeout: 10_000 });
+
+		await expect(
+			article.locator('[contenteditable="true"]').first(),
+		).toBeVisible({ timeout: 10_000 });
 	});
 
 	test("clicking Forward opens compose with Fwd: subject", async ({ page }) => {
@@ -91,7 +101,11 @@ test.describe("Compose flow", () => {
 		await forwardButton.click();
 
 		const sendButton = article.getByRole("button", { name: "Send" });
-		await expect(sendButton).toBeVisible({ timeout: 5_000 });
+		await expect(sendButton).toBeVisible({ timeout: 10_000 });
+
+		await expect(
+			article.locator('[contenteditable="true"]').first(),
+		).toBeVisible({ timeout: 10_000 });
 
 		const subjectInput = article.locator('input[placeholder="Subject"]');
 		const subjectValue = await subjectInput.inputValue();
@@ -115,7 +129,11 @@ test.describe("Compose flow", () => {
 		await replyButton.click();
 
 		const sendButton = article.getByRole("button", { name: "Send" });
-		await expect(sendButton).toBeVisible({ timeout: 5_000 });
+		await expect(sendButton).toBeVisible({ timeout: 10_000 });
+
+		await expect(
+			article.locator('[contenteditable="true"]').first(),
+		).toBeVisible({ timeout: 10_000 });
 
 		const discardButton = page.getByRole("button", { name: "Discard" });
 		await discardButton.click();
