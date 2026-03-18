@@ -18,14 +18,12 @@ export const InlineCompose = ({
 	sourceMessage,
 	onClose,
 }: InlineComposeProps) => (
-	<div className="border-t border-border bg-background">
-		<div className="max-h-[400px] overflow-auto">
-			<ComposeForm
-				mode={mode}
-				account={account}
-				sourceMessage={sourceMessage}
-				onClose={onClose}
-			/>
-		</div>
+	<div className="border-t border-border bg-background max-h-[400px] flex flex-col">
+		<ComposeForm
+			mode={mode}
+			account={account}
+			sourceMessage={sourceMessage}
+			onClose={onClose}
+		/>
 	</div>
 );

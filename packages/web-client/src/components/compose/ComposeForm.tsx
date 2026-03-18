@@ -1,4 +1,6 @@
 import {
+	outboxDetailOperationsDeleteOutboxMessageMutation,
+	outboxDetailOperationsGetOutboxMessageOptions,
 	outboxDetailOperationsSendOutboxMessageMutation,
 	outboxOperationsCreateOutboxMessageMutation,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
@@ -6,14 +8,22 @@ import type {
 	RemitImapAccountResponse,
 	RemitImapDescribeMessageResponse,
 } from "@remit/api-http-client/types.gen.ts";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import type { Value } from "platejs";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { useSaveDraft } from "../../hooks/useSaveDraft";
+import { useSignature } from "../../hooks/useSignature.js";
+import {
+	plateValueToHtml,
+	plateValueToText,
+} from "../../lib/plate-serializer.js";
 import type { AddressEntry } from "./AddressField";
 import { AddressField } from "./AddressField";
 import { ComposeActionBar } from "./ComposeActionBar";
 import { ComposeBody } from "./ComposeBody";
 import type { ComposeMode } from "./ComposeProvider";
+import { useCompose } from "./ComposeProvider";
 import { FromSelector } from "./FromSelector";
 import { QuotedText } from "./QuotedText";
 import { SubjectField } from "./SubjectField";
@@ -25,6 +35,21 @@ interface ComposeFormProps {
 	onClose: () => void;
 	onAccountChange?: (account: RemitImapAccountResponse) => void;
 }
+
+const EMPTY_PARAGRAPH: Value = [{ type: "p", children: [{ text: "" }] }];
+
+const SIGNATURE_SEPARATOR: Value = [
+	{ type: "p", children: [{ text: "" }] },
+	{ type: "p", children: [{ text: "-- " }] },
+];
+
+const buildInitialBody = (signaturePlainText: string): Value => {
+	if (!signaturePlainText) return EMPTY_PARAGRAPH;
+	return [
+		...SIGNATURE_SEPARATOR,
+		{ type: "p", children: [{ text: signaturePlainText }] },
+	];
+};
 
 const buildReplySubject = (subject?: string): string => {
 	if (!subject) return "Re: ";
@@ -98,6 +123,19 @@ const getReferences = (
 	};
 };
 
+const isFormEmpty = (
+	toAddresses: AddressEntry[],
+	ccAddresses: AddressEntry[],
+	bccAddresses: AddressEntry[],
+	subject: string,
+	body: Value,
+): boolean =>
+	toAddresses.length === 0 &&
+	ccAddresses.length === 0 &&
+	bccAddresses.length === 0 &&
+	subject.trim() === "" &&
+	plateValueToText(body).trim() === "";
+
 export const ComposeForm = ({
 	mode,
 	account,
@@ -105,16 +143,62 @@ export const ComposeForm = ({
 	onClose,
 	onAccountChange,
 }: ComposeFormProps) => {
+	const { state, setOutboxMessageId } = useCompose();
+	const { outboxMessageId } = state;
+
 	const [toAddresses, setToAddresses] = useState<AddressEntry[]>([]);
 	const [ccAddresses, setCcAddresses] = useState<AddressEntry[]>([]);
 	const [bccAddresses, setBccAddresses] = useState<AddressEntry[]>([]);
 	const [subject, setSubject] = useState("");
-	const [body, setBody] = useState("");
 	const [showCc, setShowCc] = useState(false);
 	const [showBcc, setShowBcc] = useState(false);
 	const [selectedAccountId, setSelectedAccountId] = useState(
 		account?.accountId,
 	);
+	const [draftLoaded, setDraftLoaded] = useState(false);
+
+	const { signature } = useSignature(selectedAccountId);
+	const [body, setBody] = useState<Value>(() =>
+		buildInitialBody(signature.plainText),
+	);
+
+	const { data: draftData } = useQuery({
+		...outboxDetailOperationsGetOutboxMessageOptions({
+			path: { outboxMessageId: outboxMessageId ?? "" },
+		}),
+		enabled: !!outboxMessageId && !draftLoaded,
+	});
+
+	useEffect(() => {
+		if (!draftData || draftLoaded) return;
+
+		setToAddresses(
+			draftData.toAddresses.map((email) => ({ email, displayName: undefined })),
+		);
+		if (draftData.ccAddresses && draftData.ccAddresses.length > 0) {
+			setCcAddresses(
+				draftData.ccAddresses.map((email) => ({
+					email,
+					displayName: undefined,
+				})),
+			);
+			setShowCc(true);
+		}
+		if (draftData.bccAddresses && draftData.bccAddresses.length > 0) {
+			setBccAddresses(
+				draftData.bccAddresses.map((email) => ({
+					email,
+					displayName: undefined,
+				})),
+			);
+			setShowBcc(true);
+		}
+		if (draftData.subject) setSubject(draftData.subject);
+		if (draftData.textBody)
+			setBody([{ type: "p", children: [{ text: draftData.textBody }] }]);
+		setSelectedAccountId(draftData.accountId);
+		setDraftLoaded(true);
+	}, [draftData, draftLoaded]);
 
 	useEffect(() => {
 		if (!sourceMessage) return;
@@ -141,6 +225,11 @@ export const ComposeForm = ({
 		sourceMessage?.envelope.from[0]?.displayName ??
 		sourceMessage?.envelope.from[0]?.normalizedEmail;
 
+	const { saveStatus, saveDraft, cancelAutoSave } = useSaveDraft({
+		outboxMessageId,
+		onDraftCreated: setOutboxMessageId,
+	});
+
 	const createMutation = useMutation(
 		outboxOperationsCreateOutboxMessageMutation(),
 	);
@@ -149,16 +238,63 @@ export const ComposeForm = ({
 		outboxDetailOperationsSendOutboxMessageMutation(),
 	);
 
+	const deleteMutation = useMutation(
+		outboxDetailOperationsDeleteOutboxMessageMutation(),
+	);
+
 	const isSending = createMutation.isPending || sendMutation.isPending;
 	const canSend = toAddresses.length > 0 && !!selectedAccountId;
 
+	useEffect(() => {
+		if (!selectedAccountId) return;
+		if (isFormEmpty(toAddresses, ccAddresses, bccAddresses, subject, body))
+			return;
+
+		const textBody = plateValueToText(body);
+		const htmlBody = plateValueToHtml(body);
+
+		saveDraft({
+			accountId: selectedAccountId,
+			toAddresses: toAddresses.map((a) => a.email),
+			ccAddresses:
+				ccAddresses.length > 0 ? ccAddresses.map((a) => a.email) : undefined,
+			bccAddresses:
+				bccAddresses.length > 0 ? bccAddresses.map((a) => a.email) : undefined,
+			subject: subject || undefined,
+			textBody: textBody || undefined,
+			htmlBody: htmlBody || undefined,
+		});
+	}, [
+		selectedAccountId,
+		toAddresses,
+		ccAddresses,
+		bccAddresses,
+		subject,
+		body,
+		saveDraft,
+	]);
+
 	const handleSend = useCallback(async () => {
 		if (!selectedAccountId || toAddresses.length === 0) return;
+
+		cancelAutoSave();
 
 		const replyData =
 			sourceMessage && (mode === "reply" || mode === "reply_all")
 				? getReferences(sourceMessage)
 				: {};
+
+		if (outboxMessageId) {
+			await sendMutation.mutateAsync({
+				path: { outboxMessageId },
+			});
+			toast.success("Message sent");
+			onClose();
+			return;
+		}
+
+		const textBody = plateValueToText(body);
+		const htmlBody = plateValueToHtml(body);
 
 		const outboxMessage = await createMutation.mutateAsync({
 			body: {
@@ -171,7 +307,8 @@ export const ComposeForm = ({
 						? bccAddresses.map((a) => a.email)
 						: undefined,
 				subject: subject || undefined,
-				textBody: body || undefined,
+				textBody: textBody || undefined,
+				htmlBody: htmlBody || undefined,
 				sendImmediately: true,
 				...replyData,
 			},
@@ -192,10 +329,22 @@ export const ComposeForm = ({
 		body,
 		mode,
 		sourceMessage,
+		outboxMessageId,
 		createMutation,
 		sendMutation,
+		cancelAutoSave,
 		onClose,
 	]);
+
+	const handleDiscard = useCallback(() => {
+		cancelAutoSave();
+		if (outboxMessageId) {
+			deleteMutation.mutate({
+				path: { outboxMessageId },
+			});
+		}
+		onClose();
+	}, [cancelAutoSave, outboxMessageId, deleteMutation, onClose]);
 
 	const handleAccountChange = useCallback(
 		(acct: RemitImapAccountResponse) => {
@@ -279,9 +428,10 @@ export const ComposeForm = ({
 
 			<ComposeActionBar
 				onSend={handleSend}
-				onDiscard={onClose}
+				onDiscard={handleDiscard}
 				isSending={isSending}
 				canSend={canSend}
+				saveStatus={saveStatus}
 			/>
 		</div>
 	);

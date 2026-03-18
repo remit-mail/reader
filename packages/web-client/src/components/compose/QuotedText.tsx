@@ -7,22 +7,15 @@ interface QuotedTextProps {
 	date?: string;
 }
 
-const prefixLines = (text: string): string =>
-	text
-		.split("\n")
-		.map((line) => `> ${line}`)
-		.join("\n");
-
 export const QuotedText = ({ text, senderName, date }: QuotedTextProps) => {
 	const [isExpanded, setIsExpanded] = useState(false);
 
 	if (!text) return null;
 
 	const attribution = [senderName, date].filter(Boolean).join(" on ");
-	const quotedContent = prefixLines(text);
 
 	return (
-		<div className="border-l-2 border-muted-foreground/30 pl-3 mt-2">
+		<div className="mt-2 px-3 pb-2">
 			<button
 				type="button"
 				onClick={() => setIsExpanded(!isExpanded)}
@@ -36,9 +29,13 @@ export const QuotedText = ({ text, senderName, date }: QuotedTextProps) => {
 				{attribution ? `${attribution} wrote:` : "Show quoted text"}
 			</button>
 			{isExpanded && (
-				<pre className="mt-2 text-xs text-muted-foreground whitespace-pre-wrap font-mono">
-					{quotedContent}
-				</pre>
+				<blockquote className="mt-2 pl-3 border-l-2 border-muted-foreground/30 text-sm text-muted-foreground">
+					{text.split("\n").map((line, i) => (
+						<p key={i} className="min-h-[1.2em]">
+							{line}
+						</p>
+					))}
+				</blockquote>
 			)}
 		</div>
 	);
