@@ -118,7 +118,7 @@ test.describe("Compose flow", () => {
 		await expect(sendButton).toBeVisible({ timeout: 5_000 });
 
 		const discardButton = page.getByRole("button", { name: "Discard" });
-		await discardButton.dispatchEvent("click");
+		await discardButton.click();
 
 		await expect(
 			page.getByRole("button", { name: "Reply", exact: true }),

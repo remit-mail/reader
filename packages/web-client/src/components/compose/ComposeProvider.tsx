@@ -19,12 +19,14 @@ export interface ComposeState {
 	sourceMessage?: RemitImapDescribeMessageResponse;
 	threadId?: string;
 	mailboxId?: string;
+	outboxMessageId?: string;
 }
 
 interface ComposeContextValue {
 	state: ComposeState;
 	openCompose: (params: Omit<ComposeState, "isOpen">) => void;
 	closeCompose: () => void;
+	setOutboxMessageId: (id: string) => void;
 }
 
 const ComposeContext = createContext<ComposeContextValue | undefined>(
@@ -51,9 +53,13 @@ export const ComposeProvider = ({
 		setState(INITIAL_STATE);
 	}, []);
 
+	const setOutboxMessageId = useCallback((id: string) => {
+		setState((prev) => ({ ...prev, outboxMessageId: id }));
+	}, []);
+
 	const value = useMemo(
-		() => ({ state, openCompose, closeCompose }),
-		[state, openCompose, closeCompose],
+		() => ({ state, openCompose, closeCompose, setOutboxMessageId }),
+		[state, openCompose, closeCompose, setOutboxMessageId],
 	);
 
 	return (

@@ -1,19 +1,22 @@
-import { mailboxOperationsListMailboxesOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import {
+	mailboxOperationsListMailboxesOptions,
+	outboxOperationsListOutboxMessagesOptions,
+} from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type {
 	RemitImapAccountResponse,
 	RemitImapMailboxResponse,
 } from "@remit/api-http-client/types.gen.ts";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, File } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useCompose } from "../compose/ComposeProvider";
 import { MailboxItem } from "./MailboxItem";
 
 interface MailSidebarProps {
 	accounts: RemitImapAccountResponse[];
 }
 
-// Standard mailbox order (case-insensitive matching)
 const SYSTEM_MAILBOX_ORDER = [
 	"inbox",
 	"starred",
@@ -36,7 +39,7 @@ const getMailboxPriority = (fullPath: string): number => {
 			return i;
 		}
 	}
-	return SYSTEM_MAILBOX_ORDER.length; // Custom mailboxes come last
+	return SYSTEM_MAILBOX_ORDER.length;
 };
 
 const isSystemMailbox = (fullPath: string): boolean =>
@@ -53,18 +56,12 @@ const compareLabelNames = (a: string, b: string): number => {
 	const aStartsWithDigit = startsWithDigit(a);
 	const bStartsWithDigit = startsWithDigit(b);
 
-	// Digits come first
 	if (aStartsWithDigit && !bStartsWithDigit) return -1;
 	if (!aStartsWithDigit && bStartsWithDigit) return 1;
 
-	// Both start with digit or both don't - use case-insensitive locale compare
 	return a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });
 };
 
-/**
- * Map folder names to their canonical special-use type.
- * Multiple names can map to the same type (e.g., "sent", "sent mail", "sent items" all map to "sent").
- */
 const SPECIAL_USE_ALIASES: Record<string, string> = {
 	trash: "trash",
 	bin: "trash",
@@ -83,33 +80,23 @@ const SPECIAL_USE_ALIASES: Record<string, string> = {
 	"all mail": "all",
 };
 
-/**
- * Filter out duplicate special-use folders.
- * E.g., if both "[Gmail]/Trash" and "Trash" exist, keep only "[Gmail]/Trash".
- */
 const filterDuplicateSpecialUse = (
 	mailboxes: RemitImapMailboxResponse[],
 ): RemitImapMailboxResponse[] => {
-	// Find which special-use types exist with a prefix (like [Gmail]/)
 	const prefixedSpecialUse = new Set<string>();
 	for (const mailbox of mailboxes) {
 		const name = getDisplayName(mailbox.fullPath).toLowerCase();
 		const specialUseType = SPECIAL_USE_ALIASES[name];
-		// Check if this is a prefixed version (path has multiple segments)
 		if (mailbox.fullPath.includes("/") && specialUseType) {
 			prefixedSpecialUse.add(specialUseType);
 		}
 	}
 
-	// Filter out non-prefixed duplicates
 	return mailboxes.filter((mailbox) => {
 		const name = getDisplayName(mailbox.fullPath).toLowerCase();
 		const specialUseType = SPECIAL_USE_ALIASES[name];
-		// Keep if not a special-use name
 		if (!specialUseType) return true;
-		// Keep if this is the prefixed version
 		if (mailbox.fullPath.includes("/")) return true;
-		// Filter out if a prefixed version exists for this type
 		return !prefixedSpecialUse.has(specialUseType);
 	});
 };
@@ -120,7 +107,6 @@ const sortMailboxes = (
 	system: RemitImapMailboxResponse[];
 	labels: RemitImapMailboxResponse[];
 } => {
-	// First filter out duplicate special-use folders
 	const filtered = filterDuplicateSpecialUse(mailboxes);
 
 	const system: RemitImapMailboxResponse[] = [];
@@ -145,6 +131,63 @@ const sortMailboxes = (
 };
 
 const MAX_VISIBLE_LABELS = 13;
+
+const DraftsList = () => {
+	const [expanded, setExpanded] = useState(true);
+	const { openCompose } = useCompose();
+
+	const { data: outboxResponse } = useQuery(
+		outboxOperationsListOutboxMessagesOptions(),
+	);
+
+	const drafts = useMemo(
+		() =>
+			(outboxResponse?.items ?? []).filter((item) => item.status === "draft"),
+		[outboxResponse?.items],
+	);
+
+	if (drafts.length === 0) return null;
+
+	return (
+		<div className="mb-2">
+			<button
+				type="button"
+				onClick={() => setExpanded(!expanded)}
+				className="w-full flex items-center gap-1 px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
+			>
+				{expanded ? (
+					<ChevronDown className="h-3 w-3 shrink-0" />
+				) : (
+					<ChevronRight className="h-3 w-3 shrink-0" />
+				)}
+				<span>Drafts</span>
+				<span className="ml-auto text-xs font-normal bg-muted px-1.5 py-0.5 rounded-full">
+					{drafts.length}
+				</span>
+			</button>
+			{expanded && (
+				<div className="space-y-0.5">
+					{drafts.map((draft) => (
+						<button
+							key={draft.outboxMessageId}
+							type="button"
+							onClick={() =>
+								openCompose({
+									mode: "new",
+									outboxMessageId: draft.outboxMessageId,
+								})
+							}
+							className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-foreground hover:bg-accent rounded-md transition-colors"
+						>
+							<File className="size-4 shrink-0 text-muted-foreground" />
+							<span className="truncate">{draft.subject || "No subject"}</span>
+						</button>
+					))}
+				</div>
+			)}
+		</div>
+	);
+};
 
 const AccountSection = ({ account }: { account: RemitImapAccountResponse }) => {
 	const [expanded, setExpanded] = useState(true);
@@ -249,6 +292,7 @@ const AccountSection = ({ account }: { account: RemitImapAccountResponse }) => {
 
 export const MailSidebar = ({ accounts }: MailSidebarProps) => (
 	<nav className="h-full overflow-y-auto py-2" aria-label="Mailboxes">
+		<DraftsList />
 		{accounts.length === 0 ? (
 			<div className="px-3 py-4 text-sm text-muted-foreground text-center">
 				No accounts configured

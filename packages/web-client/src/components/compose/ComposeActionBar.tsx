@@ -1,32 +1,55 @@
 import { Loader2, Send, Trash2 } from "lucide-react";
+import type { SaveStatus } from "../../hooks/useSaveDraft";
 
 interface ComposeActionBarProps {
 	onSend: () => void;
 	onDiscard: () => void;
 	isSending: boolean;
 	canSend: boolean;
+	saveStatus?: SaveStatus;
 }
+
+const SaveStatusIndicator = ({ status }: { status: SaveStatus }) => {
+	if (status === "saving") {
+		return (
+			<span className="text-xs text-muted-foreground animate-pulse">
+				Saving...
+			</span>
+		);
+	}
+	if (status === "saved") {
+		return <span className="text-xs text-muted-foreground">Draft saved</span>;
+	}
+	if (status === "error") {
+		return <span className="text-xs text-destructive">Save failed</span>;
+	}
+	return null;
+};
 
 export const ComposeActionBar = ({
 	onSend,
 	onDiscard,
 	isSending,
 	canSend,
+	saveStatus = "idle",
 }: ComposeActionBarProps) => (
 	<div className="flex items-center justify-between px-3 py-2 border-t border-border">
-		<button
-			type="button"
-			onClick={onSend}
-			disabled={isSending || !canSend}
-			className="inline-flex items-center gap-2 px-4 py-1.5 text-sm font-medium rounded-full bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
-		>
-			{isSending ? (
-				<Loader2 className="size-4 animate-spin" />
-			) : (
-				<Send className="size-4" />
-			)}
-			Send
-		</button>
+		<div className="flex items-center gap-3">
+			<button
+				type="button"
+				onClick={onSend}
+				disabled={isSending || !canSend}
+				className="inline-flex items-center gap-2 px-4 py-1.5 text-sm font-medium rounded-full bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+			>
+				{isSending ? (
+					<Loader2 className="size-4 animate-spin" />
+				) : (
+					<Send className="size-4" />
+				)}
+				Send
+			</button>
+			<SaveStatusIndicator status={saveStatus} />
+		</div>
 		<button
 			type="button"
 			onClick={onDiscard}

@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useRef } from "react";
+import type { Value } from "platejs";
+import { Plate } from "platejs/react";
+import { PlateEditorContent, usePlateComposeEditor } from "./PlateEditor.js";
+import { PlateToolbar } from "./PlateToolbar.js";
 
 interface ComposeBodyProps {
-	value: string;
-	onChange: (value: string) => void;
+	value: Value;
+	onChange: (value: Value) => void;
 	onSubmit?: () => void;
 	autoFocus?: boolean;
 }
@@ -13,43 +16,21 @@ export const ComposeBody = ({
 	onSubmit,
 	autoFocus,
 }: ComposeBodyProps) => {
-	const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-	const adjustHeight = useCallback(() => {
-		const textarea = textareaRef.current;
-		if (!textarea) return;
-		textarea.style.height = "auto";
-		textarea.style.height = `${Math.max(textarea.scrollHeight, 120)}px`;
-	}, []);
-
-	useEffect(() => {
-		adjustHeight();
-	}, [value, adjustHeight]);
-
-	useEffect(() => {
-		if (autoFocus) {
-			textareaRef.current?.focus();
-		}
-	}, [autoFocus]);
-
-	const handleKeyDown = useCallback(
-		(e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-			if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && onSubmit) {
-				e.preventDefault();
-				onSubmit();
-			}
-		},
-		[onSubmit],
-	);
+	const editor = usePlateComposeEditor(value);
 
 	return (
-		<textarea
-			ref={textareaRef}
-			value={value}
-			onChange={(e) => onChange(e.target.value)}
-			onKeyDown={handleKeyDown}
-			className="w-full px-3 py-2 bg-background text-sm resize-none outline-none min-h-[120px]"
-			placeholder="Write your message..."
-		/>
+		<Plate
+			editor={editor}
+			onValueChange={({ value: v }) => {
+				onChange(v);
+			}}
+		>
+			<PlateToolbar />
+			<PlateEditorContent
+				editor={editor}
+				onSubmit={onSubmit}
+				autoFocus={autoFocus}
+			/>
+		</Plate>
 	);
 };
