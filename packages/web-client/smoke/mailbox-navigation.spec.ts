@@ -3,23 +3,24 @@ import { expect, test } from "./fixtures/account-setup.js";
 test.describe("Mailbox navigation", () => {
 	test("displays mailbox sidebar with INBOX", async ({ page }) => {
 		await page.goto("/mail");
-		await page.waitForLoadState("networkidle");
 
 		const sidebar = page.getByRole("navigation", { name: "Mailboxes" });
-		await expect(sidebar).toBeVisible();
+		await expect(sidebar).toBeVisible({ timeout: 15_000 });
 
 		const inbox = sidebar.getByRole("link", { name: /inbox/i });
-		await expect(inbox).toBeVisible();
+		await expect(inbox).toBeVisible({ timeout: 10_000 });
 	});
 
 	test("clicking a mailbox loads its messages and updates URL", async ({
 		page,
 	}) => {
 		await page.goto("/mail");
-		await page.waitForLoadState("networkidle");
 
 		const sidebar = page.getByRole("navigation", { name: "Mailboxes" });
+		await expect(sidebar).toBeVisible({ timeout: 15_000 });
+
 		const inbox = sidebar.getByRole("link", { name: /inbox/i });
+		await expect(inbox).toBeVisible({ timeout: 10_000 });
 		await inbox.click();
 
 		await page.waitForURL(/\/mail\/[a-z0-9]+/);
@@ -31,9 +32,9 @@ test.describe("Mailbox navigation", () => {
 
 	test("navigating between mailboxes changes the URL", async ({ page }) => {
 		await page.goto("/mail");
-		await page.waitForLoadState("networkidle");
 
 		const sidebar = page.getByRole("navigation", { name: "Mailboxes" });
+		await expect(sidebar).toBeVisible({ timeout: 15_000 });
 
 		const inbox = sidebar.getByRole("link", { name: /inbox/i });
 		await inbox.click();
