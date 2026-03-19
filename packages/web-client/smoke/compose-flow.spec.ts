@@ -135,15 +135,9 @@ test.describe("Compose flow", () => {
 			article.locator('[contenteditable="true"]').first(),
 		).toBeVisible({ timeout: 10_000 });
 
-		// Dismiss any toast notifications that may overlap the discard button
-		const toast = page.locator("[data-sonner-toast]");
-		if ((await toast.count()) > 0) {
-			await toast.first().click();
-			await expect(toast.first()).toBeHidden({ timeout: 5_000 });
-		}
-
+		// Use force click to bypass toast notifications that may overlap
 		const discardButton = page.getByRole("button", { name: "Discard" });
-		await discardButton.click();
+		await discardButton.click({ force: true });
 
 		await expect(
 			page.getByRole("button", { name: "Reply", exact: true }),
