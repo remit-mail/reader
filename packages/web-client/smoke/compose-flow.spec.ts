@@ -135,9 +135,15 @@ test.describe("Compose flow", () => {
 			article.locator('[contenteditable="true"]').first(),
 		).toBeVisible({ timeout: 10_000 });
 
-		// Use force click to bypass toast notifications that may overlap
+		// Remove toast notifications that may overlap the discard button
+		await page.evaluate(() => {
+			for (const el of document.querySelectorAll("[data-sonner-toast]")) {
+				el.remove();
+			}
+		});
+
 		const discardButton = page.getByRole("button", { name: "Discard" });
-		await discardButton.click({ force: true });
+		await discardButton.click();
 
 		// Wait for compose form to close (Send button disappears)
 		await expect(sendButton).toBeHidden({ timeout: 10_000 });
