@@ -139,11 +139,12 @@ test.describe("Compose flow", () => {
 		const discardButton = page.getByRole("button", { name: "Discard" });
 		await discardButton.click({ force: true });
 
+		// Wait for compose form to close (Send button disappears)
+		await expect(sendButton).toBeHidden({ timeout: 10_000 });
+
+		// Action bar with Reply should reappear
 		await expect(
-			page.getByRole("button", { name: "Reply", exact: true }),
-		).toBeVisible({
-			timeout: 10_000,
-		});
-		await expect(sendButton).toBeHidden();
+			article.getByRole("button", { name: "Reply", exact: true }),
+		).toBeVisible({ timeout: 10_000 });
 	});
 });
