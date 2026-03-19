@@ -135,9 +135,11 @@ test.describe("Compose flow", () => {
 			article.locator('[contenteditable="true"]').first(),
 		).toBeVisible({ timeout: 10_000 });
 
-		// Remove toast notifications that may overlap the discard button
+		// Remove overlapping elements (toasts and TanStack devtools)
 		await page.evaluate(() => {
-			for (const el of document.querySelectorAll("[data-sonner-toast]")) {
+			for (const el of document.querySelectorAll(
+				"[data-sonner-toast], .tsqd-parent-container",
+			)) {
 				el.remove();
 			}
 		});
