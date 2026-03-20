@@ -3,21 +3,22 @@ import { expect, test } from "./fixtures/account-setup.js";
 test.describe("Sync flow e2e", () => {
 	test("mailboxes appear after sync", async ({ page }) => {
 		await page.goto("/mail");
-		await page.waitForLoadState("networkidle");
 
 		const sidebar = page.getByRole("navigation", { name: "Mailboxes" });
-		await expect(sidebar).toBeVisible();
+		await expect(sidebar).toBeVisible({ timeout: 15_000 });
 
 		const inbox = sidebar.getByRole("link", { name: /inbox/i });
-		await expect(inbox).toBeVisible();
+		await expect(inbox).toBeVisible({ timeout: 10_000 });
 	});
 
 	test("messages appear in INBOX", async ({ page }) => {
 		await page.goto("/mail");
-		await page.waitForLoadState("networkidle");
 
 		const sidebar = page.getByRole("navigation", { name: "Mailboxes" });
+		await expect(sidebar).toBeVisible({ timeout: 15_000 });
+
 		const inbox = sidebar.getByRole("link", { name: /inbox/i });
+		await expect(inbox).toBeVisible({ timeout: 10_000 });
 		await inbox.click();
 
 		await page.waitForURL(/\/mail\/[a-z0-9]+/);
@@ -32,10 +33,12 @@ test.describe("Sync flow e2e", () => {
 
 	test("message content is readable", async ({ page }) => {
 		await page.goto("/mail");
-		await page.waitForLoadState("networkidle");
 
 		const sidebar = page.getByRole("navigation", { name: "Mailboxes" });
+		await expect(sidebar).toBeVisible({ timeout: 15_000 });
+
 		const inbox = sidebar.getByRole("link", { name: /inbox/i });
+		await expect(inbox).toBeVisible({ timeout: 10_000 });
 		await inbox.click();
 		await page.waitForURL(/\/mail\/[a-z0-9]+/);
 
