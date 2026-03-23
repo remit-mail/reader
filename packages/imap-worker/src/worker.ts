@@ -60,21 +60,9 @@ if (cluster.isPrimary) {
 		} else if (code !== 0) {
 			log.error(
 				{ workerId: worker.id, queueName, code },
-				"Worker crashed, restarting...",
+				"Worker crashed, exiting primary",
 			);
-			workerQueues.delete(worker.id);
-
-			if (queueUrl) {
-				// Restart after a brief delay to avoid rapid restart loops
-				setTimeout(() => {
-					const newWorker = cluster.fork({ WORKER_QUEUE_URL: queueUrl });
-					workerQueues.set(newWorker.id, queueUrl);
-					log.info(
-						{ workerId: newWorker.id, queueName },
-						"Restarted worker for queue",
-					);
-				}, 1000);
-			}
+			process.exit(1);
 		} else {
 			log.info({ workerId: worker.id, queueName }, "Worker exited cleanly");
 			workerQueues.delete(worker.id);
