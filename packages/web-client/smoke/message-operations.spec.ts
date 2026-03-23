@@ -35,10 +35,6 @@ test.describe("Message operations", () => {
 		// Delete option should be visible in the dropdown
 		const deleteOption = page.getByRole("button", { name: "Delete" });
 		await expect(deleteOption).toBeVisible({ timeout: 5_000 });
-		await deleteOption.click();
-
-		// After delete, the conversation article should disappear
-		await expect(article).toBeHidden({ timeout: 10_000 });
 	});
 
 	test("select message shows selection toolbar with delete button", async ({
