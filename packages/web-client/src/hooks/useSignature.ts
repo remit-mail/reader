@@ -1,31 +1,52 @@
-import { useCallback, useState } from "react";
+import {
+	accountDetailOperationsUpdateAccountMutation,
+	configOperationsGetConfigOptions,
+	configOperationsGetConfigQueryKey,
+} from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useMemo } from "react";
 
-interface SignatureData {
+export interface SignatureData {
 	html: string;
 	plainText: string;
 }
 
 const EMPTY_SIGNATURE: SignatureData = { html: "", plainText: "" };
 
-const getStorageKey = (accountId: string) => `remit:signature:${accountId}`;
-
 export const useSignature = (accountId?: string) => {
-	const [signature, setSignatureState] = useState<SignatureData>(() => {
-		if (!accountId) return EMPTY_SIGNATURE;
-		const stored = localStorage.getItem(getStorageKey(accountId));
-		if (!stored) return EMPTY_SIGNATURE;
-		return JSON.parse(stored) as SignatureData;
+	const queryClient = useQueryClient();
+
+	const { data: config } = useQuery(configOperationsGetConfigOptions());
+
+	const signature = useMemo<SignatureData>(() => {
+		if (!accountId || !config) return EMPTY_SIGNATURE;
+		const account = config.accounts.find((a) => a.accountId === accountId);
+		if (!account) return EMPTY_SIGNATURE;
+		return {
+			html: account.signatureHtml ?? "",
+			plainText: account.signaturePlainText ?? "",
+		};
+	}, [accountId, config]);
+
+	const mutation = useMutation({
+		...accountDetailOperationsUpdateAccountMutation(),
+		onSuccess: () => {
+			queryClient.invalidateQueries({
+				queryKey: configOperationsGetConfigQueryKey(),
+			});
+		},
 	});
 
 	const setSignature = useCallback(
 		(html: string, plainText: string) => {
 			if (!accountId) return;
-			const data = { html, plainText };
-			localStorage.setItem(getStorageKey(accountId), JSON.stringify(data));
-			setSignatureState(data);
+			mutation.mutate({
+				path: { accountId },
+				body: { signatureHtml: html, signaturePlainText: plainText },
+			});
 		},
-		[accountId],
+		[accountId, mutation],
 	);
 
-	return { signature, setSignature };
+	return { signature, setSignature, isSaving: mutation.isPending };
 };

@@ -6,7 +6,6 @@ import {
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { MailOpen, MoreVertical, Trash2 } from "lucide-react";
-import { toast } from "sonner";
 import {
 	DropdownMenu,
 	DropdownMenuItem,
@@ -47,10 +46,6 @@ export const MessageActionMenu = ({
 		...messageBulkOperationsUpdateFlagsMutation(),
 		onSuccess: () => {
 			invalidateQueries();
-			toast.success(isRead ? "Marked as unread" : "Marked as read");
-		},
-		onError: () => {
-			toast.error("Failed to update message");
 		},
 	});
 
@@ -58,10 +53,6 @@ export const MessageActionMenu = ({
 		...messageBulkOperationsDeleteMessagesMutation(),
 		onSuccess: () => {
 			invalidateQueries();
-			toast.success("Message deleted");
-		},
-		onError: () => {
-			toast.error("Failed to delete message");
 		},
 	});
 

@@ -8,10 +8,10 @@ import {
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, Loader2, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
-import { toast } from "sonner";
 import { z } from "zod";
+import { useSignature } from "../../hooks/useSignature";
 import { cn } from "../../lib/utils";
 import { SlidePanel } from "../ui/SlidePanel";
 
@@ -119,11 +119,7 @@ export const AccountFormPanel = ({
 			queryClient.invalidateQueries({
 				queryKey: configOperationsGetConfigQueryKey(),
 			});
-			toast.success("Account created successfully");
 			onClose();
-		},
-		onError: () => {
-			toast.error("Failed to create account");
 		},
 	});
 
@@ -133,11 +129,7 @@ export const AccountFormPanel = ({
 			queryClient.invalidateQueries({
 				queryKey: configOperationsGetConfigQueryKey(),
 			});
-			toast.success("Account updated successfully");
 			onClose();
-		},
-		onError: () => {
-			toast.error("Failed to update account");
 		},
 	});
 
@@ -229,6 +221,23 @@ export const AccountFormPanel = ({
 	});
 
 	const isSaving = createMutation.isPending || updateMutation.isPending;
+
+	const {
+		signature,
+		setSignature,
+		isSaving: isSignatureSaving,
+	} = useSignature(account?.accountId);
+	const [signatureText, setSignatureText] = useState(signature.plainText);
+
+	useEffect(() => {
+		setSignatureText(signature.plainText);
+	}, [signature.plainText]);
+
+	const handleSignatureBlur = useCallback(() => {
+		if (signatureText !== signature.plainText) {
+			setSignature(signatureText, signatureText);
+		}
+	}, [signatureText, signature.plainText, setSignature]);
 
 	const handleSecurityChange = (type: "tls" | "starttls" | "none") => {
 		const currentPort = form.getValues("imapPort");
@@ -600,6 +609,34 @@ export const AccountFormPanel = ({
 						)}
 					</div>
 				</section>
+
+				{isEditing && (
+					<section>
+						<h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+							Signature
+						</h3>
+						<div className="space-y-3">
+							<div>
+								<label className="text-sm font-medium mb-1.5 block">
+									Email Signature
+								</label>
+								<textarea
+									value={signatureText}
+									onChange={(e) => setSignatureText(e.target.value)}
+									onBlur={handleSignatureBlur}
+									rows={5}
+									className="w-full px-3 py-2 border rounded-md bg-background resize-y"
+									placeholder="Enter your email signature..."
+								/>
+								<p className="text-xs text-muted-foreground mt-1">
+									{isSignatureSaving
+										? "Saving signature..."
+										: "This signature will be appended to new emails."}
+								</p>
+							</div>
+						</div>
+					</section>
+				)}
 			</form>
 		</SlidePanel>
 	);

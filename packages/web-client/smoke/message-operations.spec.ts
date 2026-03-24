@@ -37,9 +37,8 @@ test.describe("Message operations", () => {
 		await expect(deleteOption).toBeVisible({ timeout: 5_000 });
 		await deleteOption.click();
 
-		// A toast notification should appear (success or error depending on SQS availability)
-		const toast = page.getByText(/deleted|failed/i);
-		await expect(toast).toBeVisible({ timeout: 5_000 });
+		// After delete, the conversation article should disappear
+		await expect(article).toBeHidden({ timeout: 10_000 });
 	});
 
 	test("select message shows selection toolbar with delete button", async ({

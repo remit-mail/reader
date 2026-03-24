@@ -5,10 +5,19 @@ import {
 import type {
 	RemitImapAccountResponse,
 	RemitImapMailboxResponse,
+	RemitImapOutboxMessageStatus,
 } from "@remit/api-http-client/types.gen.ts";
 import { useQuery } from "@tanstack/react-query";
-import { useParams } from "@tanstack/react-router";
-import { ChevronDown, ChevronRight, File } from "lucide-react";
+import { Link, useParams } from "@tanstack/react-router";
+import {
+	AlertCircle,
+	ChevronDown,
+	ChevronRight,
+	Clock,
+	File,
+	Loader2,
+	Send,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 import { useCompose } from "../compose/ComposeProvider";
 import { MailboxItem } from "./MailboxItem";
@@ -189,6 +198,73 @@ const DraftsList = () => {
 	);
 };
 
+const STATUS_ICON: Record<
+	Exclude<RemitImapOutboxMessageStatus, "draft">,
+	typeof Send
+> = {
+	queued: Clock,
+	sending: Loader2,
+	sent: Send,
+	failed: AlertCircle,
+};
+
+const OutboxList = () => {
+	const [expanded, setExpanded] = useState(true);
+
+	const { data: outboxResponse } = useQuery(
+		outboxOperationsListOutboxMessagesOptions(),
+	);
+
+	const outboxMessages = useMemo(
+		() =>
+			(outboxResponse?.items ?? []).filter((item) => item.status !== "draft"),
+		[outboxResponse?.items],
+	);
+
+	if (outboxMessages.length === 0) return null;
+
+	return (
+		<div className="mb-2">
+			<button
+				type="button"
+				onClick={() => setExpanded(!expanded)}
+				className="w-full flex items-center gap-1 px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
+			>
+				{expanded ? (
+					<ChevronDown className="h-3 w-3 shrink-0" />
+				) : (
+					<ChevronRight className="h-3 w-3 shrink-0" />
+				)}
+				<span>Outbox</span>
+				<span className="ml-auto text-xs font-normal bg-muted px-1.5 py-0.5 rounded-full">
+					{outboxMessages.length}
+				</span>
+			</button>
+			{expanded && (
+				<div className="space-y-0.5">
+					{outboxMessages.map((msg) => {
+						const status = msg.status as Exclude<
+							RemitImapOutboxMessageStatus,
+							"draft"
+						>;
+						const Icon = STATUS_ICON[status] ?? Send;
+						return (
+							<Link
+								key={msg.outboxMessageId}
+								to="/mail/outbox"
+								className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-foreground hover:bg-accent rounded-md transition-colors"
+							>
+								<Icon className="size-4 shrink-0 text-muted-foreground" />
+								<span className="truncate">{msg.subject || "No subject"}</span>
+							</Link>
+						);
+					})}
+				</div>
+			)}
+		</div>
+	);
+};
+
 const AccountSection = ({ account }: { account: RemitImapAccountResponse }) => {
 	const [expanded, setExpanded] = useState(true);
 	const [labelsExpanded, setLabelsExpanded] = useState(false);
@@ -293,6 +369,7 @@ const AccountSection = ({ account }: { account: RemitImapAccountResponse }) => {
 export const MailSidebar = ({ accounts }: MailSidebarProps) => (
 	<nav className="h-full overflow-y-auto py-2" aria-label="Mailboxes">
 		<DraftsList />
+		<OutboxList />
 		{accounts.length === 0 ? (
 			<div className="px-3 py-4 text-sm text-muted-foreground text-center">
 				No accounts configured
