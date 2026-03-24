@@ -1,6 +1,7 @@
 import { configOperationsGetConfigOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
 import { useQuery } from "@tanstack/react-query";
+import { useEffect } from "react";
 
 interface FromSelectorProps {
 	selectedAccountId?: string;
@@ -13,6 +14,13 @@ export const FromSelector = ({
 }: FromSelectorProps) => {
 	const { data: config } = useQuery(configOperationsGetConfigOptions());
 	const accounts = config?.accounts ?? [];
+
+	// Auto-select the only account when none is selected
+	useEffect(() => {
+		if (!selectedAccountId && accounts.length === 1 && accounts[0]) {
+			onSelect(accounts[0]);
+		}
+	}, [selectedAccountId, accounts, onSelect]);
 
 	if (accounts.length <= 1) {
 		const account = accounts[0];

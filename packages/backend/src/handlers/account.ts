@@ -85,6 +85,8 @@ const toAccountResponse = (account: AccountItem): AccountResponse => ({
 	smtpTls: account.smtpTls,
 	smtpStartTls: account.smtpStartTls,
 	smtpUsername: account.smtpUsername,
+	signaturePlainText: account.signaturePlainText,
+	signatureHtml: account.signatureHtml,
 	isActive: account.isActive,
 	connectionState: account.connectionState,
 	lastConnectedAt: account.lastConnectedAt,
@@ -278,6 +280,8 @@ export const AccountDetailOperations: Record<
 			"smtpStartTls",
 			"smtpUsername",
 			"isActive",
+			"signaturePlainText",
+			"signatureHtml",
 		] as const;
 
 		for (const field of fields) {

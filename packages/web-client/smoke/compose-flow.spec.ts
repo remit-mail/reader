@@ -135,11 +135,9 @@ test.describe("Compose flow", () => {
 			article.locator('[contenteditable="true"]').first(),
 		).toBeVisible({ timeout: 10_000 });
 
-		// Remove overlapping elements (toasts and TanStack devtools)
+		// Remove overlapping elements (TanStack devtools)
 		await page.evaluate(() => {
-			for (const el of document.querySelectorAll(
-				"[data-sonner-toast], .tsqd-parent-container",
-			)) {
+			for (const el of document.querySelectorAll(".tsqd-parent-container")) {
 				el.remove();
 			}
 		});
