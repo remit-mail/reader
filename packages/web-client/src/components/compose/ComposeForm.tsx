@@ -18,7 +18,6 @@ import {
 	useMemo,
 	useState,
 } from "react";
-import { toast } from "sonner";
 import { useSaveDraft } from "../../hooks/useSaveDraft";
 import { useSignature } from "../../hooks/useSignature.js";
 import {
@@ -161,7 +160,7 @@ export const ComposeForm = ({
 	onClose,
 	onAccountChange,
 }: ComposeFormProps) => {
-	const { state, setOutboxMessageId } = useCompose();
+	const { state, setOutboxMessageId, startSendPolling } = useCompose();
 	const { outboxMessageId } = state;
 
 	const [toAddresses, setToAddresses] = useState<AddressEntry[]>([]);
@@ -304,41 +303,39 @@ export const ComposeForm = ({
 				? getReferences(sourceMessage)
 				: {};
 
-		if (outboxMessageId) {
-			await sendMutation.mutateAsync({
-				path: { outboxMessageId },
+		let messageId = outboxMessageId;
+
+		if (!messageId) {
+			const textBody = plateValueToText(body);
+			const htmlBody = plateValueToHtml(body);
+
+			const outboxMessage = await createMutation.mutateAsync({
+				body: {
+					accountId: selectedAccountId,
+					toAddresses: toAddresses.map((a) => a.email),
+					ccAddresses:
+						ccAddresses.length > 0
+							? ccAddresses.map((a) => a.email)
+							: undefined,
+					bccAddresses:
+						bccAddresses.length > 0
+							? bccAddresses.map((a) => a.email)
+							: undefined,
+					subject: subject || undefined,
+					textBody: textBody || undefined,
+					htmlBody: htmlBody || undefined,
+					sendImmediately: true,
+					...replyData,
+				},
 			});
-			toast.success("Message sent");
-			onClose();
-			return;
+			messageId = outboxMessage.outboxMessageId;
 		}
 
-		const textBody = plateValueToText(body);
-		const htmlBody = plateValueToHtml(body);
-
-		const outboxMessage = await createMutation.mutateAsync({
-			body: {
-				accountId: selectedAccountId,
-				toAddresses: toAddresses.map((a) => a.email),
-				ccAddresses:
-					ccAddresses.length > 0 ? ccAddresses.map((a) => a.email) : undefined,
-				bccAddresses:
-					bccAddresses.length > 0
-						? bccAddresses.map((a) => a.email)
-						: undefined,
-				subject: subject || undefined,
-				textBody: textBody || undefined,
-				htmlBody: htmlBody || undefined,
-				sendImmediately: true,
-				...replyData,
-			},
-		});
-
 		await sendMutation.mutateAsync({
-			path: { outboxMessageId: outboxMessage.outboxMessageId },
+			path: { outboxMessageId: messageId },
 		});
 
-		toast.success("Message sent");
+		startSendPolling(messageId);
 		onClose();
 	}, [
 		selectedAccountId,
@@ -353,6 +350,7 @@ export const ComposeForm = ({
 		createMutation,
 		sendMutation,
 		cancelAutoSave,
+		startSendPolling,
 		onClose,
 	]);
 

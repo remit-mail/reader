@@ -211,6 +211,18 @@ model Account {
   @updatedAt
   updatedAt: int64;
 
+  // ============================================
+  // Signature Settings
+  // ============================================
+
+  @doc("Plain text email signature")
+  @visibility(Lifecycle.Read)
+  signaturePlainText?: string;
+
+  @doc("HTML email signature")
+  @visibility(Lifecycle.Read)
+  signatureHtml?: string;
+
   @doc("Timestamp when account was marked for deletion (tombstone)")
   @visibility(Lifecycle.Read)
   deletedAt?: int64;
@@ -259,6 +271,8 @@ model AccountResponse
       | "lastConnectedAt"
       | "lastSyncAt"
       | "lastError"
+      | "signaturePlainText"
+      | "signatureHtml"
       | "createdAt"
       | "updatedAt"
   >;
@@ -391,6 +405,12 @@ model UpdateAccountInput {
 
   @doc("Enable/disable account")
   isActive?: boolean;
+
+  @doc("Plain text email signature")
+  signaturePlainText?: string;
+
+  @doc("HTML email signature")
+  signatureHtml?: string;
 }
 
 @doc("Input for testing connection without saving")

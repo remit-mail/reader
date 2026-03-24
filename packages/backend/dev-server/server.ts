@@ -93,7 +93,7 @@ app.all(/(.*)/, async (req: Request, res: Response) => {
 
 const port = env.SERVER_PORT;
 
-app.listen(port, () => {
+app.listen(Number(port), "0.0.0.0", () => {
 	console.log(`Remit Backend running on http://localhost:${port}`);
 	console.log(
 		`OpenAPI documentation available at http://localhost:${port}/api-docs`,

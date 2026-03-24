@@ -15,7 +15,6 @@ import {
 } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
-import { toast } from "sonner";
 import { z } from "zod";
 import { useCompose } from "@/components/compose/ComposeProvider";
 import { FullCompose } from "@/components/compose/FullCompose";
@@ -142,16 +141,9 @@ function MailboxView() {
 			return { previousData };
 		},
 		onError: (_err, _variables, context) => {
-			// Rollback on error
 			if (context?.previousData) {
 				queryClient.setQueryData(queryKey, context.previousData);
 			}
-			toast.error("Failed to delete messages");
-		},
-		onSuccess: (data) => {
-			toast.success(
-				`${data.successCount} ${data.successCount === 1 ? "message" : "messages"} deleted`,
-			);
 		},
 		onSettled: () => {
 			// Always refetch after error or success

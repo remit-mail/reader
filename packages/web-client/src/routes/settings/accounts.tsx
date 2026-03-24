@@ -11,7 +11,6 @@ import {
 import { createFileRoute } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 import { useState } from "react";
-import { toast } from "sonner";
 import { AccountCard } from "@/components/settings/AccountCard";
 import { AccountFormPanel } from "@/components/settings/AccountFormPanel";
 import { SlidePanel } from "@/components/ui/SlidePanel";
@@ -36,11 +35,7 @@ function AccountsSettings() {
 			queryClient.invalidateQueries({
 				queryKey: configOperationsGetConfigQueryKey(),
 			});
-			toast.success("Account deleted");
 			setDeletingAccountId(null);
-		},
-		onError: () => {
-			toast.error("Failed to delete account");
 		},
 	});
 
