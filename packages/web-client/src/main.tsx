@@ -3,10 +3,16 @@ import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { AuthShell } from "./auth/AuthShell";
+import { configureAmplify } from "./auth/amplify-config";
+import { installAuthInterceptor } from "./auth/auth-interceptor";
 import { createAppRouter } from "./router";
 import "./lib/i18n";
 import "./index.css";
 import "./lib/client"; // Initialize client with error interceptor
+
+configureAmplify();
+installAuthInterceptor();
 
 const queryClient = new QueryClient({
 	defaultOptions: {
@@ -28,7 +34,9 @@ if (!rootElement) {
 createRoot(rootElement).render(
 	<StrictMode>
 		<QueryClientProvider client={queryClient}>
-			<RouterProvider router={router} />
+			<AuthShell>
+				<RouterProvider router={router} />
+			</AuthShell>
 			<ReactQueryDevtools initialIsOpen={false} />
 		</QueryClientProvider>
 	</StrictMode>,
