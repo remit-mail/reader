@@ -1,6 +1,4 @@
-// Load OpenAPI spec - in production this would be bundled
-// For now, we read from the build directory
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { APIGatewayProxyEvent, Context } from "aws-lambda";
@@ -19,23 +17,16 @@ import { postResponseHandler } from "./response.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const loadOpenAPISpec = (): Document => {
-	// Try multiple paths - dev vs bundled
-	const paths = [
-		join(__dirname, "../../../build/remit-openapi3/openapi.json"),
-		join(__dirname, "../../build/remit-openapi3/openapi.json"),
-		join(__dirname, "../openapi.json"),
-	];
-
-	for (const path of paths) {
-		try {
-			const content = readFileSync(path, "utf-8");
-			return JSON.parse(content);
-		} catch {
-			// Try next path
-		}
+	// Bundled Lambda: infra's NodeJSArmFunction copies openapi.json into the
+	// bundle root next to the entrypoint via its `extraFiles` prop.
+	const bundledPath = join(__dirname, "openapi.json");
+	if (existsSync(bundledPath)) {
+		return JSON.parse(readFileSync(bundledPath, "utf-8"));
 	}
 
-	throw new Error("Could not load OpenAPI spec");
+	// Dev (tsx / dev-server): read straight from the repo build tree.
+	const devPath = join(__dirname, "../../../build/remit-openapi3/openapi.json");
+	return JSON.parse(readFileSync(devPath, "utf-8"));
 };
 
 const OpenAPISpec = loadOpenAPISpec();
