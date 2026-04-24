@@ -21,6 +21,7 @@ import {
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { env } from "expect-env";
 import type { Context } from "openapi-backend";
+import { getAccountConfigIdFromEvent } from "../auth.js";
 import { logger } from "../logger.js";
 import { getClient } from "../service/dynamodb.js";
 import { sqsClient } from "../service/sqs.js";
@@ -48,26 +49,6 @@ const triggerAccountSync = async (accountId: string): Promise<void> => {
 	logger.info(
 		{ accountId, eventId: event.eventId },
 		"Sync triggered for new account",
-	);
-};
-
-/**
- * Extract accountConfigId from JWT claims in API Gateway event.
- * Falls back to environment variable for local development.
- */
-const getAccountConfigIdFromEvent = (event: APIGatewayProxyEvent): string => {
-	const claims = event.requestContext?.authorizer?.claims;
-	if (claims?.["custom:accountConfigId"]) {
-		return claims["custom:accountConfigId"] as string;
-	}
-
-	const localAccountConfigId = process.env.LOCAL_ACCOUNT_CONFIG_ID;
-	if (localAccountConfigId) {
-		return localAccountConfigId;
-	}
-
-	throw new Error(
-		"Missing accountConfigId: not found in JWT claims or LOCAL_ACCOUNT_CONFIG_ID env var",
 	);
 };
 
