@@ -690,14 +690,23 @@ export class MessageMoveService {
 
 	/**
 	 * Enqueue a message move/delete event to SQS.
+	 *
+	 * FIFO queues require MessageGroupId; standard queues reject it. We detect
+	 * FIFO queues by the `.fifo` suffix and group by accountId so events for
+	 * different accounts can be processed in parallel.
 	 */
 	private enqueueEvent = async (
 		event: MessageMoveQueueEvent,
 	): Promise<void> => {
+		const useFifo = this.queueUrl.endsWith(".fifo");
 		await this.sqs.send(
 			new SendMessageCommand({
 				QueueUrl: this.queueUrl,
 				MessageBody: JSON.stringify(event),
+				...(useFifo && {
+					MessageGroupId: event.accountId,
+					MessageDeduplicationId: event.eventId,
+				}),
 			}),
 		);
 
@@ -710,6 +719,9 @@ export class MessageMoveService {
 	/**
 	 * Enqueue multiple events to SQS using batch send.
 	 * SQS batch limit is 10 messages, so we chunk if needed.
+	 *
+	 * FIFO queues require MessageGroupId on each batch entry; standard queues
+	 * reject it. We detect FIFO queues by the `.fifo` suffix.
 	 */
 	private enqueueEventsBatch = async (
 		events: MessageMoveQueueEvent[],
@@ -717,6 +729,7 @@ export class MessageMoveService {
 		if (events.length === 0) return;
 
 		const SQS_BATCH_SIZE = 10;
+		const useFifo = this.queueUrl.endsWith(".fifo");
 
 		for (let i = 0; i < events.length; i += SQS_BATCH_SIZE) {
 			const batch = events.slice(i, i + SQS_BATCH_SIZE);
@@ -726,6 +739,10 @@ export class MessageMoveService {
 					Entries: batch.map((event, idx) => ({
 						Id: `${i + idx}`,
 						MessageBody: JSON.stringify(event),
+						...(useFifo && {
+							MessageGroupId: event.accountId,
+							MessageDeduplicationId: event.eventId,
+						}),
 					})),
 				}),
 			);
