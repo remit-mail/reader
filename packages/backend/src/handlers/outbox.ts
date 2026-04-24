@@ -6,28 +6,13 @@ import type {
 } from "@remit/api-openapi-types";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
+import { getAccountConfigIdFromEvent } from "../auth.js";
 import { getClient } from "../service/dynamodb.js";
 import type {
 	OperationHandler,
 	OutboxDetailOperationIds,
 	OutboxOperationIds,
 } from "../types.js";
-
-const getAccountConfigIdFromEvent = (event: APIGatewayProxyEvent): string => {
-	const claims = event.requestContext?.authorizer?.claims;
-	if (claims?.["custom:accountConfigId"]) {
-		return claims["custom:accountConfigId"] as string;
-	}
-
-	const localAccountConfigId = process.env.LOCAL_ACCOUNT_CONFIG_ID;
-	if (localAccountConfigId) {
-		return localAccountConfigId;
-	}
-
-	throw new Error(
-		"Missing accountConfigId: not found in JWT claims or LOCAL_ACCOUNT_CONFIG_ID env var",
-	);
-};
 
 const toOutboxMessageResponse = (
 	item: OutboxMessageItem,
