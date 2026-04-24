@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import type { APIGatewayProxyEvent } from "aws-lambda";
-import { deriveAccountConfigId, getAccountConfigIdFromEvent } from "./auth.js";
+import {
+	deriveAccountConfigId,
+	getAccountConfigIdFromEvent,
+	getSubFromEvent,
+} from "./auth.js";
 
 const makeEvent = (claims?: Record<string, unknown>): APIGatewayProxyEvent => {
 	const authorizer = claims ? { claims } : undefined;
@@ -92,5 +96,38 @@ describe("getAccountConfigIdFromEvent", () => {
 			getAccountConfigIdFromEvent(makeEvent({ sub: "" })),
 			"pinned-config-id",
 		);
+	});
+});
+
+describe("getSubFromEvent", () => {
+	const originalCognitoSub = process.env.LOCAL_COGNITO_SUB;
+
+	beforeEach(() => {
+		delete process.env.LOCAL_COGNITO_SUB;
+	});
+
+	afterEach(() => {
+		if (originalCognitoSub === undefined) {
+			delete process.env.LOCAL_COGNITO_SUB;
+		} else {
+			process.env.LOCAL_COGNITO_SUB = originalCognitoSub;
+		}
+	});
+
+	it("returns the Cognito sub from JWT claims", () => {
+		assert.equal(getSubFromEvent(makeEvent({ sub: "user-42" })), "user-42");
+	});
+
+	it("falls back to LOCAL_COGNITO_SUB when no claim is present", () => {
+		process.env.LOCAL_COGNITO_SUB = "local-sub";
+		assert.equal(getSubFromEvent(makeEvent()), "local-sub");
+	});
+
+	it("returns undefined when neither source is available", () => {
+		assert.equal(getSubFromEvent(makeEvent()), undefined);
+	});
+
+	it("returns undefined for an empty string sub claim with no env fallback", () => {
+		assert.equal(getSubFromEvent(makeEvent({ sub: "" })), undefined);
 	});
 });

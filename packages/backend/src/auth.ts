@@ -17,6 +17,22 @@ const getSubFromClaims = (event: APIGatewayProxyEvent): string | undefined => {
 };
 
 /**
+ * Return the Cognito `sub` for the current request, preferring the JWT claim
+ * and falling back to `LOCAL_COGNITO_SUB` for local development. Returns
+ * `undefined` when neither is available (e.g. seeded fixtures that only set
+ * `LOCAL_ACCOUNT_CONFIG_ID`).
+ */
+export const getSubFromEvent = (
+	event: APIGatewayProxyEvent,
+): string | undefined => {
+	const sub = getSubFromClaims(event);
+	if (sub) return sub;
+	const localSub = process.env.LOCAL_COGNITO_SUB;
+	if (localSub && localSub.length > 0) return localSub;
+	return undefined;
+};
+
+/**
  * Extract the caller's accountConfigId from an API Gateway event.
  *
  * Production: reads the Cognito `sub` claim (verified by the API Gateway
