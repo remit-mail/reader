@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { SendMessageCommand } from "@aws-sdk/client-sqs";
-import type {
-	AccountConfigItem,
-	AccountItem,
+import {
+	type AccountConfigItem,
+	type AccountItem,
+	NotFoundError,
 } from "@remit/remit-electrodb-service";
 import type {
 	AccountConfigResponse,
@@ -12,7 +13,7 @@ import type {
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { env } from "expect-env";
 import type { Context } from "openapi-backend";
-import { getAccountConfigIdFromEvent } from "../auth.js";
+import { getAccountConfigIdFromEvent, getSubFromEvent } from "../auth.js";
 import { logger } from "../logger.js";
 import { getClient } from "../service/dynamodb.js";
 import { sqsClient } from "../service/sqs.js";
@@ -49,6 +50,30 @@ const toAccountConfigResponse = (
 	updatedAt: config.updatedAt,
 });
 
+/**
+ * Returned by GET /config when no AccountConfig row exists yet for this user.
+ * GET must never mutate state, so instead of creating a row we synthesize a
+ * stable, empty shape the frontend can render as a "no accounts yet" state.
+ * The POST account-creation flow will materialize the real row when the user
+ * adds their first account.
+ */
+const emptyConfigResponse = (
+	accountConfigId: string,
+	event: APIGatewayProxyEvent,
+): ConfigDescriptionResponse => {
+	const now = Date.now();
+	const userId = getSubFromEvent(event) ?? accountConfigId;
+	return {
+		accountConfig: {
+			accountConfigId,
+			userId,
+			createdAt: now,
+			updatedAt: now,
+		},
+		accounts: [],
+	};
+};
+
 const toAccountResponse = (account: AccountItem): AccountResponse => ({
 	accountId: account.accountId,
 	accountConfigId: account.accountConfigId,
@@ -82,12 +107,20 @@ export const ConfigOperations: Record<
 	): Promise<ConfigDescriptionResponse> => {
 		const event = args[0] as APIGatewayProxyEvent;
 		const accountConfigId = getAccountConfigIdFromEvent(event);
-		const description =
-			await getClient().accountConfig.describe(accountConfigId);
+		const description = await getClient()
+			.accountConfig.describe(accountConfigId)
+			.catch((err) => {
+				if (err instanceof NotFoundError) return undefined;
+				throw err;
+			});
+
+		if (!description || description.accountConfig.length === 0) {
+			return emptyConfigResponse(accountConfigId, event);
+		}
 
 		const accountConfig = description.accountConfig[0];
 		if (!accountConfig) {
-			throw new Error(`AccountConfig not found: ${accountConfigId}`);
+			return emptyConfigResponse(accountConfigId, event);
 		}
 
 		// Filter out deleted accounts (tombstone pattern)
