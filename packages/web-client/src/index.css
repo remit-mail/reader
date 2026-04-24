@@ -120,6 +120,7 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  overflow-y: auto;
   padding: 2rem 1rem;
   background-image:
     radial-gradient(at 20% 0%, color-mix(in hsl, var(--color-primary) 8%, transparent) 0px, transparent 50%),
