@@ -25,6 +25,8 @@ const mailSearchSchema = z.object({
 	q: z.string().optional(),
 });
 
+type MailSearch = z.infer<typeof mailSearchSchema>;
+
 interface MailContextValue {
 	accounts: RemitImapAccountResponse[];
 	searchQuery: string;
@@ -70,7 +72,7 @@ function MailLayout() {
 		(query: string) => {
 			navigate({
 				to: ".",
-				search: (prev) => ({ ...prev, q: query || undefined }),
+				search: (prev: MailSearch) => ({ ...prev, q: query || undefined }),
 				replace: true,
 			});
 		},
@@ -80,7 +82,7 @@ function MailLayout() {
 	const handleSearchClear = useCallback(() => {
 		navigate({
 			to: ".",
-			search: (prev) => ({ ...prev, q: undefined }),
+			search: (prev: MailSearch) => ({ ...prev, q: undefined }),
 			replace: true,
 		});
 	}, [navigate]);
