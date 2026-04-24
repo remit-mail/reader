@@ -98,16 +98,21 @@ const createMockThreadMessageService = () => {
 	};
 };
 
+interface CapturedSqsInput {
+	QueueUrl: string;
+	MessageBody: string;
+	MessageGroupId?: string;
+	MessageDeduplicationId?: string;
+}
+
 const createMockSQSClient = () => {
-	const sentMessages: Array<{ QueueUrl: string; MessageBody: string }> = [];
+	const sentMessages: CapturedSqsInput[] = [];
 
 	return {
-		send: mock.fn(
-			async (command: { input: { QueueUrl: string; MessageBody: string } }) => {
-				sentMessages.push(command.input);
-				return { MessageId: "test-message-id" };
-			},
-		),
+		send: mock.fn(async (command: { input: CapturedSqsInput }) => {
+			sentMessages.push(command.input);
+			return { MessageId: "test-message-id" };
+		}),
 		_sentMessages: sentMessages,
 	};
 };
@@ -378,5 +383,40 @@ describe("FlagQueueService.updateFlags", () => {
 			threadMessageService.update as unknown as ReturnType<typeof mock.fn>
 		).mock.calls;
 		assert.strictEqual(updateCalls.length, 0);
+	});
+});
+
+describe("FlagQueueService SQS FIFO handling", () => {
+	const messageId = "test-message-id";
+	const accountId = "test-account-id";
+
+	it("sets MessageGroupId=accountId for FIFO queue URLs", async () => {
+		const { service, mockSQS } = createTestConfig({
+			sqsQueueUrl:
+				"https://sqs.eu-west-1.amazonaws.com/123456789012/remit-dev-flags.fifo",
+		});
+
+		await service.updateFlags(messageId, accountId, { isRead: true });
+
+		assert.strictEqual(mockSQS._sentMessages.length, 1);
+		const sent = mockSQS._sentMessages[0];
+		if (!sent) throw new Error("expected sent message");
+		assert.strictEqual(sent.MessageGroupId, accountId);
+		assert.strictEqual(typeof sent.MessageDeduplicationId, "string");
+	});
+
+	it("omits FIFO params for standard queue URLs", async () => {
+		const { service, mockSQS } = createTestConfig({
+			sqsQueueUrl:
+				"https://sqs.eu-west-1.amazonaws.com/123456789012/remit-dev-flags",
+		});
+
+		await service.updateFlags(messageId, accountId, { isRead: true });
+
+		assert.strictEqual(mockSQS._sentMessages.length, 1);
+		const sent = mockSQS._sentMessages[0];
+		if (!sent) throw new Error("expected sent message");
+		assert.strictEqual(sent.MessageGroupId, undefined);
+		assert.strictEqual(sent.MessageDeduplicationId, undefined);
 	});
 });

@@ -253,10 +253,15 @@ export class OutboxQueueService {
 			outboxMessageId,
 		};
 
+		const useFifo = this.queueUrl.endsWith(".fifo");
 		await this.sqs.send(
 			new SendMessageCommand({
 				QueueUrl: this.queueUrl,
 				MessageBody: JSON.stringify(event),
+				...(useFifo && {
+					MessageGroupId: accountId,
+					MessageDeduplicationId: event.eventId,
+				}),
 			}),
 		);
 

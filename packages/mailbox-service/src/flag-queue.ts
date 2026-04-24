@@ -457,6 +457,10 @@ export class FlagQueueService {
 
 	/**
 	 * Enqueue a SYNC_FLAGS event to SQS.
+	 *
+	 * FIFO queues require MessageGroupId; standard queues reject it. We detect
+	 * FIFO queues by the `.fifo` suffix and group by accountId so independent
+	 * accounts can be processed concurrently while preserving per-account order.
 	 */
 	private enqueueSync = async (
 		accountId: string,
@@ -472,10 +476,15 @@ export class FlagQueueService {
 			operations,
 		};
 
+		const useFifo = this.queueUrl.endsWith(".fifo");
 		await this.sqs.send(
 			new SendMessageCommand({
 				QueueUrl: this.queueUrl,
 				MessageBody: JSON.stringify(event),
+				...(useFifo && {
+					MessageGroupId: accountId,
+					MessageDeduplicationId: event.eventId,
+				}),
 			}),
 		);
 

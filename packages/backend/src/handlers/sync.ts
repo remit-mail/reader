@@ -1,17 +1,9 @@
-import { randomUUID } from "node:crypto";
-import { SendMessageCommand } from "@aws-sdk/client-sqs";
 import { env } from "expect-env";
 import { logger } from "../logger.js";
 import { getClient } from "../service/dynamodb.js";
 import { sqsClient } from "../service/sqs.js";
+import { triggerAccountSync } from "../service/trigger-sync.js";
 import type { OperationHandler, SyncOperationIds } from "../types.js";
-
-interface SyncMailboxesEvent {
-	type: "SYNC_MAILBOXES";
-	eventId: string;
-	timestamp: number;
-	accountId: string;
-}
 
 export const SyncOperations: Record<
 	SyncOperationIds,
@@ -23,23 +15,14 @@ export const SyncOperations: Record<
 		// Verify account exists
 		const account = await getClient().account.get(accountId);
 
-		// Enqueue SYNC_MAILBOXES event
-		const event: SyncMailboxesEvent = {
-			type: "SYNC_MAILBOXES",
-			eventId: randomUUID(),
-			timestamp: Date.now(),
+		const { eventId } = await triggerAccountSync({
+			sqsClient,
+			queueUrl: env.SQS_QUEUE_URL,
 			accountId: account.accountId,
-		};
-
-		await sqsClient.send(
-			new SendMessageCommand({
-				QueueUrl: env.SQS_QUEUE_URL,
-				MessageBody: JSON.stringify(event),
-			}),
-		);
+		});
 
 		logger.info(
-			{ accountId: account.accountId, eventId: event.eventId },
+			{ accountId: account.accountId, eventId },
 			"Sync triggered - enqueued SYNC_MAILBOXES event",
 		);
 

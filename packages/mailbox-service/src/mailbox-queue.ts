@@ -241,14 +241,23 @@ export class MailboxQueueService {
 
 	/**
 	 * Enqueue a mailbox management event to SQS.
+	 *
+	 * FIFO queues require MessageGroupId; standard queues reject it. We detect
+	 * FIFO queues by the `.fifo` suffix on the queue URL and scope ordering to
+	 * the account so events for different accounts can be processed in parallel.
 	 */
 	private enqueueEvent = async (
 		event: MailboxManagementEvent,
 	): Promise<void> => {
+		const useFifo = this.queueUrl.endsWith(".fifo");
 		await this.sqs.send(
 			new SendMessageCommand({
 				QueueUrl: this.queueUrl,
 				MessageBody: JSON.stringify(event),
+				...(useFifo && {
+					MessageGroupId: event.accountId,
+					MessageDeduplicationId: `${event.type}:${event.mailboxId}:${event.eventId}`,
+				}),
 			}),
 		);
 
