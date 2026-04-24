@@ -12,28 +12,33 @@ import type {
 
 type EventInput = Omit<ImapEvent, "eventId" | "timestamp">;
 
-const defaultQueueUrl = env.SQS_QUEUE_URL;
-const isLocal = defaultQueueUrl.startsWith("http://localhost");
+const mailboxesQueueUrl = env.SQS_QUEUE_URL_MAILBOXES;
+const messagesQueueUrl = env.SQS_QUEUE_URL_MESSAGES;
+const bodyQueueUrl = env.SQS_QUEUE_URL_BODY;
+const flagsQueueUrl = env.SQS_QUEUE_URL_FLAGS;
+const mailboxMgmtQueueUrl = env.SQS_QUEUE_URL_MAILBOX_MGMT;
+const messageMgmtQueueUrl = env.SQS_QUEUE_URL_MESSAGE_MGMT;
+
+const isLocal = mailboxesQueueUrl.startsWith("http://localhost");
 
 const sqs = new SQSClient({
-	endpoint: isLocal ? new URL(defaultQueueUrl).origin : undefined,
+	endpoint: isLocal ? new URL(mailboxesQueueUrl).origin : undefined,
 	...(isLocal && { protocol: AwsQueryProtocol }),
 });
 
 const queueUrlMap: Record<ImapEvent["type"], string> = {
-	SYNC_MAILBOXES: process.env.SQS_QUEUE_URL_MAILBOXES ?? defaultQueueUrl,
-	SYNC_MESSAGES: process.env.SQS_QUEUE_URL_MESSAGES ?? defaultQueueUrl,
-	SYNC_MESSAGE_BODY: process.env.SQS_QUEUE_URL_BODY ?? defaultQueueUrl,
-	SYNC_FLAGS: process.env.SQS_QUEUE_URL_FLAGS ?? defaultQueueUrl,
-	MAILBOX_CREATE: process.env.SQS_QUEUE_URL_MAILBOX_MGMT ?? defaultQueueUrl,
-	MAILBOX_RENAME: process.env.SQS_QUEUE_URL_MAILBOX_MGMT ?? defaultQueueUrl,
-	MAILBOX_DELETE: process.env.SQS_QUEUE_URL_MAILBOX_MGMT ?? defaultQueueUrl,
-	MESSAGE_DELETE: process.env.SQS_QUEUE_URL_MESSAGE_MGMT ?? defaultQueueUrl,
-	MESSAGE_MOVE: process.env.SQS_QUEUE_URL_MESSAGE_MGMT ?? defaultQueueUrl,
-	MESSAGE_COPY: process.env.SQS_QUEUE_URL_MESSAGE_MGMT ?? defaultQueueUrl,
-	EMPTY_TRASH: process.env.SQS_QUEUE_URL_MESSAGE_MGMT ?? defaultQueueUrl,
-	APPEND_SENT_MESSAGE:
-		process.env.SQS_QUEUE_URL_MESSAGE_MGMT ?? defaultQueueUrl,
+	SYNC_MAILBOXES: mailboxesQueueUrl,
+	SYNC_MESSAGES: messagesQueueUrl,
+	SYNC_MESSAGE_BODY: bodyQueueUrl,
+	SYNC_FLAGS: flagsQueueUrl,
+	MAILBOX_CREATE: mailboxMgmtQueueUrl,
+	MAILBOX_RENAME: mailboxMgmtQueueUrl,
+	MAILBOX_DELETE: mailboxMgmtQueueUrl,
+	MESSAGE_DELETE: messageMgmtQueueUrl,
+	MESSAGE_MOVE: messageMgmtQueueUrl,
+	MESSAGE_COPY: messageMgmtQueueUrl,
+	EMPTY_TRASH: messageMgmtQueueUrl,
+	APPEND_SENT_MESSAGE: messageMgmtQueueUrl,
 };
 
 /**
@@ -89,11 +94,6 @@ const getDeduplicationId = (event: EventInput): string | undefined => {
  */
 const isFifoQueue = (queueUrl: string): boolean => queueUrl.endsWith(".fifo");
 
-/**
- * Check if running against local ElasticMQ (doesn't support DelaySeconds on FIFO)
- */
-const isLocalQueue = defaultQueueUrl.startsWith("http://localhost");
-
 export interface EmitEventOptions {
 	/**
 	 * Delay delivery of the message by this many seconds (0-900).
@@ -116,7 +116,7 @@ export const emitEvent = async (
 	const useFifo = isFifoQueue(queueUrl) && fifoEventTypes.has(event.type);
 
 	// ElasticMQ FIFO queues don't support per-message DelaySeconds
-	const useDelay = options?.delaySeconds && !isLocalQueue;
+	const useDelay = options?.delaySeconds && !isLocal;
 
 	await sqs.send(
 		new SendMessageCommand({
