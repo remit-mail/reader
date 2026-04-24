@@ -8,6 +8,8 @@
 	"main": "src/index.ts",
 	"scripts": {
 		"test:typecheck": "tsc --noEmit",
+		"test:run": "node --import tsx --test 'src/**/*.test.ts'",
+		"test": "npm run test:typecheck && npm run test:run",
 		"bundle": "esbuild 'src/index.ts' --sourcemap --bundle --platform=node --outfile=dist/index.js",
 		"dev": "node --env-file .env.test --watch --import tsx dev-server/server.ts",
 		"dev:remote": "node --env-file ../../.env.dev --watch --import tsx dev-server/server.ts"

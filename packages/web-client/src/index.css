@@ -23,8 +23,13 @@
   --radius: 0.5rem;
 }
 
+/* Tailwind v4 @theme cannot be nested inside @media. Override the CSS
+   custom properties directly on :root inside a media query so dark mode
+   only applies when the OS actually requests it. Without this, the
+   minified Tailwind build flattens the @media + @theme combo and the
+   dark palette leaks into the light-preference viewer. */
 @media (prefers-color-scheme: dark) {
-  @theme {
+  :root {
     --color-background: hsl(222.2 84% 4.9%);
     --color-foreground: hsl(210 40% 98%);
     --color-card: hsl(222.2 84% 4.9%);
