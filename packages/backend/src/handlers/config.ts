@@ -12,6 +12,7 @@ import type {
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { env } from "expect-env";
 import type { Context } from "openapi-backend";
+import { getAccountConfigIdFromEvent } from "../auth.js";
 import { logger } from "../logger.js";
 import { getClient } from "../service/dynamodb.js";
 import { sqsClient } from "../service/sqs.js";
@@ -70,28 +71,6 @@ const toAccountResponse = (account: AccountItem): AccountResponse => ({
 	createdAt: account.createdAt,
 	updatedAt: account.updatedAt,
 });
-
-/**
- * Extract accountConfigId from JWT claims in API Gateway event.
- * Falls back to environment variable for local development.
- */
-const getAccountConfigIdFromEvent = (event: APIGatewayProxyEvent): string => {
-	// In production, get from Cognito JWT claims
-	const claims = event.requestContext?.authorizer?.claims;
-	if (claims?.["custom:accountConfigId"]) {
-		return claims["custom:accountConfigId"] as string;
-	}
-
-	// For local development, use environment variable
-	const localAccountConfigId = process.env.LOCAL_ACCOUNT_CONFIG_ID;
-	if (localAccountConfigId) {
-		return localAccountConfigId;
-	}
-
-	throw new Error(
-		"Missing accountConfigId: not found in JWT claims or LOCAL_ACCOUNT_CONFIG_ID env var",
-	);
-};
 
 export const ConfigOperations: Record<
 	ConfigOperationIds,
