@@ -35,6 +35,8 @@ const mailboxSearchSchema = z.object({
 	q: z.string().optional(),
 });
 
+type MailboxSearch = z.infer<typeof mailboxSearchSchema>;
+
 export const Route = createFileRoute("/mail/$mailboxId")({
 	component: MailboxView,
 	validateSearch: mailboxSearchSchema,
@@ -134,7 +136,10 @@ function MailboxView() {
 				navigate({
 					to: "/mail/$mailboxId",
 					params: { mailboxId },
-					search: (prev) => ({ ...prev, selectedMessageId: undefined }),
+					search: (prev: MailboxSearch) => ({
+						...prev,
+						selectedMessageId: undefined,
+					}),
 				});
 			}
 
@@ -176,7 +181,10 @@ function MailboxView() {
 			navigate({
 				to: "/mail/$mailboxId",
 				params: { mailboxId },
-				search: (prev) => ({ ...prev, selectedMessageId: undefined }),
+				search: (prev: MailboxSearch) => ({
+					...prev,
+					selectedMessageId: undefined,
+				}),
 			});
 		}
 	}, [selectedMessageId, mailboxId, navigate]);

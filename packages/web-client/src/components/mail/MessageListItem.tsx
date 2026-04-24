@@ -5,6 +5,11 @@ import type { MouseEvent } from "react";
 import { formatEmailDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
+interface MailboxLinkSearch {
+	selectedMessageId?: string;
+	q?: string;
+}
+
 interface MessageListItemProps {
 	thread: RemitImapThreadMessageResponse;
 	mailboxId: string;
@@ -44,7 +49,10 @@ export const MessageListItem = ({
 		<Link
 			to="/mail/$mailboxId"
 			params={{ mailboxId }}
-			search={(prev) => ({ ...prev, selectedMessageId: thread.messageId })}
+			search={(prev: MailboxLinkSearch) => ({
+				...prev,
+				selectedMessageId: thread.messageId,
+			})}
 			className={cn(
 				"group block px-3 py-2.5 border-b border-border transition-colors",
 				"hover:bg-accent/50",
