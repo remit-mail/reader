@@ -4,7 +4,6 @@ import {
 	Heading,
 	Text,
 	ThemeProvider,
-	useTheme,
 	View,
 } from "@aws-amplify/ui-react";
 import "@aws-amplify/ui-react/styles.css";
@@ -18,6 +17,17 @@ interface AuthShellProps {
 const REMIT_FONT =
 	'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
 
+const BRAND = "hsl(222.2 47.4% 11.2%)";
+const BRAND_HOVER = "hsl(222.2 47.4% 20%)";
+const BRAND_FOCUS = "hsl(222.2 47.4% 14%)";
+const BRAND_ACTIVE = "hsl(222.2 47.4% 8%)";
+const PAGE_BG = "hsl(210 40% 96.1%)";
+const CARD_BG = "hsl(0 0% 100%)";
+const CARD_FG = "hsl(222.2 84% 4.9%)";
+const MUTED_FG = "hsl(215.4 16.3% 46.9%)";
+const BORDER = "hsl(214.3 31.8% 91.4%)";
+const WHITE = "hsl(210 40% 98%)";
+
 const remitTheme = createTheme({
 	name: "remit",
 	tokens: {
@@ -27,25 +37,30 @@ const remitTheme = createTheme({
 					10: { value: "hsl(222.2 47.4% 96%)" },
 					20: { value: "hsl(222.2 47.4% 88%)" },
 					40: { value: "hsl(222.2 47.4% 40%)" },
-					60: { value: "hsl(222.2 47.4% 20%)" },
-					80: { value: "hsl(222.2 47.4% 14%)" },
-					90: { value: "hsl(222.2 47.4% 11.2%)" },
-					100: { value: "hsl(222.2 47.4% 8%)" },
+					60: { value: BRAND_HOVER },
+					80: { value: BRAND_FOCUS },
+					90: { value: BRAND },
+					100: { value: BRAND_ACTIVE },
 				},
 			},
 			background: {
-				primary: { value: "hsl(0 0% 100%)" },
-				secondary: { value: "hsl(210 40% 96.1%)" },
+				primary: { value: CARD_BG },
+				secondary: { value: PAGE_BG },
 			},
 			font: {
-				primary: { value: "hsl(222.2 84% 4.9%)" },
-				secondary: { value: "hsl(215.4 16.3% 46.9%)" },
-				interactive: { value: "hsl(222.2 47.4% 11.2%)" },
+				primary: { value: CARD_FG },
+				secondary: { value: MUTED_FG },
+				tertiary: { value: MUTED_FG },
+				interactive: { value: BRAND },
+				inverse: { value: WHITE },
+				hover: { value: BRAND_HOVER },
+				focus: { value: BRAND },
+				active: { value: BRAND_ACTIVE },
 			},
 			border: {
-				primary: { value: "hsl(214.3 31.8% 91.4%)" },
-				secondary: { value: "hsl(214.3 31.8% 91.4%)" },
-				focus: { value: "hsl(222.2 47.4% 11.2%)" },
+				primary: { value: BORDER },
+				secondary: { value: BORDER },
+				focus: { value: BRAND },
 			},
 		},
 		fonts: {
@@ -55,96 +70,154 @@ const remitTheme = createTheme({
 			},
 		},
 		radii: {
-			small: { value: "0.25rem" },
+			small: { value: "0.375rem" },
 			medium: { value: "0.5rem" },
 			large: { value: "0.75rem" },
 		},
 		components: {
 			authenticator: {
 				router: {
-					borderColor: { value: "hsl(214.3 31.8% 91.4%)" },
+					borderColor: { value: BORDER },
+					borderWidth: { value: "1px" },
 					boxShadow: {
 						value:
-							"0 1px 3px 0 rgb(0 0 0 / 0.06), 0 1px 2px 0 rgb(0 0 0 / 0.04)",
+							"0 10px 30px -10px rgb(15 23 42 / 0.18), 0 4px 12px -6px rgb(15 23 42 / 0.1)",
 					},
-					backgroundColor: { value: "hsl(0 0% 100%)" },
+					backgroundColor: { value: CARD_BG },
 				},
 				form: {
-					padding: { value: "1.5rem" },
+					padding: { value: "1.75rem" },
+				},
+				orContainer: {
+					color: { value: MUTED_FG },
 				},
 			},
 			button: {
+				color: { value: CARD_FG },
 				primary: {
-					backgroundColor: { value: "hsl(222.2 47.4% 11.2%)" },
-					color: { value: "hsl(210 40% 98%)" },
+					backgroundColor: { value: BRAND },
+					color: { value: WHITE },
 					_hover: {
-						backgroundColor: { value: "hsl(222.2 47.4% 20%)" },
-						color: { value: "hsl(210 40% 98%)" },
+						backgroundColor: { value: BRAND_HOVER },
+						color: { value: WHITE },
 					},
 					_focus: {
-						backgroundColor: { value: "hsl(222.2 47.4% 14%)" },
-						color: { value: "hsl(210 40% 98%)" },
+						backgroundColor: { value: BRAND_FOCUS },
+						color: { value: WHITE },
 					},
 					_active: {
-						backgroundColor: { value: "hsl(222.2 47.4% 8%)" },
-						color: { value: "hsl(210 40% 98%)" },
+						backgroundColor: { value: BRAND_ACTIVE },
+						color: { value: WHITE },
+					},
+				},
+				link: {
+					color: { value: BRAND },
+					_hover: {
+						color: { value: BRAND_HOVER },
+						backgroundColor: { value: "transparent" },
+					},
+					_focus: {
+						color: { value: BRAND_FOCUS },
+						backgroundColor: { value: "transparent" },
+					},
+					_active: {
+						color: { value: BRAND_ACTIVE },
+						backgroundColor: { value: "transparent" },
 					},
 				},
 			},
 			fieldcontrol: {
-				borderColor: { value: "hsl(214.3 31.8% 91.4%)" },
+				color: { value: CARD_FG },
+				borderColor: { value: BORDER },
 				_focus: {
-					borderColor: { value: "hsl(222.2 47.4% 11.2%)" },
-					boxShadow: { value: "0 0 0 1px hsl(222.2 47.4% 11.2%)" },
+					borderColor: { value: BRAND },
+					boxShadow: { value: `0 0 0 2px ${BRAND}` },
+				},
+			},
+			field: {
+				label: {
+					color: { value: CARD_FG },
 				},
 			},
 			tabs: {
+				borderColor: { value: BORDER },
 				item: {
+					color: { value: MUTED_FG },
+					backgroundColor: { value: "transparent" },
 					_active: {
-						color: { value: "hsl(222.2 47.4% 11.2%)" },
-						borderColor: { value: "hsl(222.2 47.4% 11.2%)" },
+						color: { value: BRAND },
+						borderColor: { value: BRAND },
+						backgroundColor: { value: "transparent" },
 					},
 					_hover: {
-						color: { value: "hsl(222.2 47.4% 20%)" },
+						color: { value: BRAND_HOVER },
+					},
+					_focus: {
+						color: { value: BRAND },
 					},
 				},
+			},
+			heading: {
+				color: { value: CARD_FG },
+			},
+			text: {
+				color: { value: CARD_FG },
 			},
 		},
 	},
 });
 
-const AuthHeader = () => {
-	const { tokens } = useTheme();
+const EnvelopeMark = () => (
+	<svg
+		width="36"
+		height="36"
+		viewBox="0 0 24 24"
+		fill="none"
+		stroke={BRAND}
+		strokeWidth="1.75"
+		strokeLinecap="round"
+		strokeLinejoin="round"
+		aria-hidden="true"
+	>
+		<rect x="3" y="5" width="18" height="14" rx="2" />
+		<path d="M3 7l9 6 9-6" />
+	</svg>
+);
 
-	return (
+const AuthHeader = () => (
+	<View textAlign="center" padding="0 0 1.5rem 0">
 		<View
-			textAlign="center"
-			padding={`${tokens.space.xl} 0 ${tokens.space.medium} 0`}
+			padding="0 0 0.75rem 0"
+			style={{
+				display: "flex",
+				justifyContent: "center",
+				alignItems: "center",
+			}}
 		>
-			<Heading level={1} fontWeight="600" fontSize="2rem" color="font.primary">
-				Remit
-			</Heading>
-			<Text color="font.secondary" fontSize="0.875rem" marginTop="0.25rem">
-				Email as a service
-			</Text>
+			<EnvelopeMark />
 		</View>
-	);
-};
-
-const AuthFooter = () => {
-	const { tokens } = useTheme();
-
-	return (
-		<View
-			textAlign="center"
-			padding={`${tokens.space.medium} 0 ${tokens.space.xl} 0`}
+		<Heading
+			level={1}
+			fontWeight="600"
+			fontSize="1.75rem"
+			color={CARD_FG}
+			style={{ letterSpacing: "-0.01em" }}
 		>
-			<Text color="font.secondary" fontSize="0.75rem">
-				Secure sign-in powered by AWS Cognito
-			</Text>
-		</View>
-	);
-};
+			Remit
+		</Heading>
+		<Text color={MUTED_FG} fontSize="0.875rem" marginTop="0.25rem">
+			Email as a service
+		</Text>
+	</View>
+);
+
+const AuthFooter = () => (
+	<View textAlign="center" padding="1.25rem 0 0 0">
+		<Text color={MUTED_FG} fontSize="0.75rem">
+			Secure sign-in powered by AWS Cognito
+		</Text>
+	</View>
+);
 
 const LocalDevBanner = () => (
 	<div
@@ -171,8 +244,8 @@ export const AuthShell = ({ children }: AuthShellProps) => {
 
 	return (
 		<ThemeProvider theme={remitTheme}>
-			<div className="min-h-screen w-full flex flex-col items-center justify-center bg-background px-4 py-8">
-				<div className="w-full max-w-md">
+			<div data-auth-page className="auth-page">
+				<div className="auth-page-inner">
 					<Authenticator
 						hideSignUp={false}
 						components={{

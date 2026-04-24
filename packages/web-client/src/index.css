@@ -62,3 +62,63 @@ body {
 .overflow-y-auto::-webkit-scrollbar {
   display: none; /* Chrome, Safari, Opera */
 }
+
+/* ------------------------------------------------------------------ */
+/* Auth page                                                          */
+/* Isolated from system dark mode: always light theme. Amplify tokens */
+/* and <h1>/<p>/<label> inheritance would otherwise leak slate-950    */
+/* text onto a white card when prefers-color-scheme is dark.           */
+/* ------------------------------------------------------------------ */
+.auth-page {
+  color-scheme: light;
+  background-color: hsl(210 40% 96.1%);
+  color: hsl(222.2 84% 4.9%);
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1rem;
+  background-image:
+    radial-gradient(at 20% 0%, hsl(222.2 47.4% 96%) 0px, transparent 50%),
+    radial-gradient(at 80% 100%, hsl(222.2 47.4% 96%) 0px, transparent 50%);
+}
+
+.auth-page-inner {
+  width: 100%;
+  max-width: 26rem;
+}
+
+/* Force-reset any inherited text color inside the card so Amplify
+   tokens (rendered as var(--amplify-colors-font-primary), etc.) are
+   not overridden by the app-wide body color when the Authenticator
+   sits under an element that inherited slate-50. */
+.auth-page [data-amplify-authenticator] {
+  color: hsl(222.2 84% 4.9%);
+}
+
+.auth-page [data-amplify-authenticator] [data-amplify-router] {
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+
+/* Active tab indicator — Amplify's default active tab uses borderColor
+   on the item but the bottom border is on the tabs container; force a
+   visible 2px bottom accent on the active tab. */
+.auth-page [data-amplify-authenticator] [role="tab"][data-state="active"],
+.auth-page [data-amplify-authenticator] [role="tab"][aria-selected="true"] {
+  border-bottom: 2px solid hsl(222.2 47.4% 11.2%);
+  color: hsl(222.2 47.4% 11.2%);
+  font-weight: 600;
+}
+
+.auth-page [data-amplify-authenticator] [role="tab"] {
+  color: hsl(215.4 16.3% 46.9%);
+  font-weight: 500;
+  transition: color 150ms ease, border-color 150ms ease;
+}
+
+.auth-page [data-amplify-authenticator] [role="tab"]:hover {
+  color: hsl(222.2 47.4% 20%);
+}
