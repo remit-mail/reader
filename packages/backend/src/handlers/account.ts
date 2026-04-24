@@ -1,5 +1,4 @@
-import { randomUUID } from "node:crypto";
-import { SendMessageCommand } from "@aws-sdk/client-sqs";
+import { inspect } from "node:util";
 import type { AccountItem } from "@remit/remit-electrodb-service";
 import { ConnectionState } from "@remit/domain-enums";
 import {
@@ -25,6 +24,7 @@ import { getAccountConfigIdFromEvent } from "../auth.js";
 import { logger } from "../logger.js";
 import { getClient } from "../service/dynamodb.js";
 import { sqsClient } from "../service/sqs.js";
+import { triggerAccountSync } from "../service/trigger-sync.js";
 import type {
 	AccountDetailOperationIds,
 	AccountOperationIds,
@@ -32,25 +32,23 @@ import type {
 } from "../types.js";
 import { ensureAccountConfig } from "./ensure-account-config.js";
 
-const triggerAccountSync = async (accountId: string): Promise<void> => {
-	const event = {
-		type: "SYNC_MAILBOXES",
-		eventId: randomUUID(),
-		timestamp: Date.now(),
+const triggerAccountSyncSafe = async (accountId: string): Promise<void> => {
+	const queueUrl = env.SQS_QUEUE_URL;
+	const { eventId } = await triggerAccountSync({
+		sqsClient,
+		queueUrl,
 		accountId,
-	};
+	}).catch((error: unknown) => {
+		logger.error(
+			{ accountId, error: inspect(error) },
+			"Failed to enqueue SYNC_MAILBOXES for new account (best-effort)",
+		);
+		return { eventId: undefined };
+	});
 
-	await sqsClient.send(
-		new SendMessageCommand({
-			QueueUrl: env.SQS_QUEUE_URL,
-			MessageBody: JSON.stringify(event),
-		}),
-	);
-
-	logger.info(
-		{ accountId, eventId: event.eventId },
-		"Sync triggered for new account",
-	);
+	if (eventId !== undefined) {
+		logger.info({ accountId, eventId }, "Sync triggered for new account");
+	}
 };
 
 const toAccountResponse = (account: AccountItem): AccountResponse => ({
@@ -124,7 +122,7 @@ export const AccountOperations: Record<
 			connectionState: ConnectionState.NotAuthenticated,
 		});
 
-		await triggerAccountSync(newAccount.accountId);
+		await triggerAccountSyncSafe(newAccount.accountId);
 
 		return toAccountResponse(newAccount);
 	},

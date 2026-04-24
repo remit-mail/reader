@@ -1,5 +1,3 @@
-import { randomUUID } from "node:crypto";
-import { SendMessageCommand } from "@aws-sdk/client-sqs";
 import {
 	type AccountConfigItem,
 	type AccountItem,
@@ -17,27 +15,18 @@ import { getAccountConfigIdFromEvent, getSubFromEvent } from "../auth.js";
 import { logger } from "../logger.js";
 import { getClient } from "../service/dynamodb.js";
 import { sqsClient } from "../service/sqs.js";
+import { triggerAccountSync } from "../service/trigger-sync.js";
 import type { ConfigOperationIds, OperationHandler } from "../types.js";
 
-const triggerAccountSync = async (accountId: string): Promise<void> => {
-	const event = {
-		type: "SYNC_MAILBOXES",
-		eventId: randomUUID(),
-		timestamp: Date.now(),
+const triggerAccountSyncForConfig = async (
+	accountId: string,
+): Promise<void> => {
+	const { eventId } = await triggerAccountSync({
+		sqsClient,
+		queueUrl: env.SQS_QUEUE_URL,
 		accountId,
-	};
-
-	await sqsClient.send(
-		new SendMessageCommand({
-			QueueUrl: env.SQS_QUEUE_URL,
-			MessageBody: JSON.stringify(event),
-		}),
-	);
-
-	logger.info(
-		{ accountId, eventId: event.eventId },
-		"Sync triggered on config load",
-	);
+	});
+	logger.info({ accountId, eventId }, "Sync triggered on config load");
 };
 
 const toAccountConfigResponse = (
@@ -130,7 +119,7 @@ export const ConfigOperations: Record<
 
 		// Trigger sync for all active accounts (fire and forget)
 		Promise.all(
-			activeAccounts.map((acc) => triggerAccountSync(acc.accountId)),
+			activeAccounts.map((acc) => triggerAccountSyncForConfig(acc.accountId)),
 		).catch((err) =>
 			logger.error({ err }, "Failed to trigger syncs on config load"),
 		);
