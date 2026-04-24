@@ -30,6 +30,7 @@ import type {
 	AccountOperationIds,
 	OperationHandler,
 } from "../types.js";
+import { ensureAccountConfig } from "./ensure-account-config.js";
 
 const triggerAccountSync = async (accountId: string): Promise<void> => {
 	const event = {
@@ -89,15 +90,15 @@ export const AccountOperations: Record<
 		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const input = JSON.parse(event.body ?? "{}") as CreateAccountInput;
 
-		const { account, secrets } = getClient();
+		const { account, accountConfig, secrets } = getClient();
 
-		// Encrypt password using KMS
+		await ensureAccountConfig(accountConfig, accountConfigId);
+
 		const passwordPayload = await secrets.encrypt(input.password);
 		const passwordHash = JSON.stringify(
 			serializeEncryptedPayload(passwordPayload),
 		);
 
-		// Encrypt SMTP password if provided
 		let smtpPasswordHash: string | undefined;
 		if (input.smtpPassword) {
 			const smtpPayload = await secrets.encrypt(input.smtpPassword);
@@ -123,7 +124,6 @@ export const AccountOperations: Record<
 			connectionState: ConnectionState.NotAuthenticated,
 		});
 
-		// Trigger initial mailbox sync for the new account
 		await triggerAccountSync(newAccount.accountId);
 
 		return toAccountResponse(newAccount);
