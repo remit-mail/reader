@@ -1,6 +1,7 @@
 import type { APIGatewayProxyResult } from "aws-lambda";
 import type { Context as OpenAPIContext } from "openapi-backend";
 import { logger } from "./logger.js";
+import { getRequestOrigin, resolveAllowedOrigin } from "./request-context.js";
 
 export const formatResponse = (
 	body: Record<string, unknown>,
@@ -16,11 +17,24 @@ export const formatResponse = (
 
 	logger.info({ statusCode }, "response");
 
+	const allowOrigin = resolveAllowedOrigin(getRequestOrigin());
+
+	const corsHeaders: Record<string, string> = {
+		"Access-Control-Allow-Origin": allowOrigin,
+		"Access-Control-Allow-Headers": "Authorization,Content-Type",
+		"Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+		Vary: "Origin",
+	};
+
+	if (allowOrigin !== "*") {
+		corsHeaders["Access-Control-Allow-Credentials"] = "true";
+	}
+
 	return {
 		statusCode: statusCode,
 		headers: {
 			"Content-Type": "application/json",
-			"Access-Control-Allow-Origin": "*",
+			...corsHeaders,
 		},
 		body: JSON.stringify(body),
 	};

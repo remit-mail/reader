@@ -12,7 +12,8 @@ import { handleError } from "./error.js";
 import { handlers } from "./handlers/index.js";
 import { logger, withRequest } from "./logger.js";
 import { normalizeRequest } from "./request.js";
-import { postResponseHandler } from "./response.js";
+import { runWithRequestContext } from "./request-context.js";
+import { formatResponse, postResponseHandler } from "./response.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -69,14 +70,7 @@ api.register("notImplemented", async (c: OpenAPIContext) => {
 	const { status, mock } = api.mockResponseForOperation(
 		c.operation.operationId as string,
 	);
-	return {
-		statusCode: status,
-		headers: {
-			"Content-Type": "application/json",
-			"Access-Control-Allow-Origin": "*",
-		},
-		body: JSON.stringify(mock),
-	};
+	return formatResponse(mock as Record<string, unknown>, status);
 });
 
 api.register(handlers);
@@ -84,6 +78,18 @@ api.register(handlers);
 api.init();
 
 export { api, OpenAPISpec };
+
+const readOriginHeader = (
+	headers: APIGatewayProxyEvent["headers"],
+): string | undefined => {
+	if (!headers) return undefined;
+	for (const [key, value] of Object.entries(headers)) {
+		if (key.toLowerCase() === "origin" && typeof value === "string") {
+			return value;
+		}
+	}
+	return undefined;
+};
 
 export const handler = async (
 	event: APIGatewayProxyEvent,
@@ -96,7 +102,11 @@ export const handler = async (
 		"Request received",
 	);
 
-	return api
-		.handleRequest(normalizeRequest(event), event, context)
-		.catch(handleError);
+	const origin = readOriginHeader(event.headers);
+
+	return runWithRequestContext({ origin }, () =>
+		api
+			.handleRequest(normalizeRequest(event), event, context)
+			.catch(handleError),
+	);
 };
