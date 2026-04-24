@@ -4,6 +4,7 @@ import {
 	Heading,
 	Text,
 	ThemeProvider,
+	useAuthenticator,
 	View,
 } from "@aws-amplify/ui-react";
 import "@aws-amplify/ui-react/styles.css";
@@ -232,14 +233,11 @@ const LocalDevBanner = () => (
 	</div>
 );
 
-export const AuthShell = ({ children }: AuthShellProps) => {
-	if (!isCognitoConfigured()) {
-		return (
-			<>
-				<LocalDevBanner />
-				<div className="pt-10 h-screen">{children}</div>
-			</>
-		);
+const SignInGate = ({ children }: { children: ReactNode }) => {
+	const { authStatus } = useAuthenticator((ctx) => [ctx.authStatus]);
+
+	if (authStatus === "authenticated") {
+		return <>{children}</>;
 	}
 
 	return (
@@ -252,11 +250,26 @@ export const AuthShell = ({ children }: AuthShellProps) => {
 							Header: AuthHeader,
 							Footer: AuthFooter,
 						}}
-					>
-						{({ user }) => (user ? <>{children}</> : <></>)}
-					</Authenticator>
+					/>
 				</div>
 			</div>
 		</ThemeProvider>
+	);
+};
+
+export const AuthShell = ({ children }: AuthShellProps) => {
+	if (!isCognitoConfigured()) {
+		return (
+			<>
+				<LocalDevBanner />
+				<div className="pt-10 h-screen">{children}</div>
+			</>
+		);
+	}
+
+	return (
+		<Authenticator.Provider>
+			<SignInGate>{children}</SignInGate>
+		</Authenticator.Provider>
 	);
 };

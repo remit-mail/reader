@@ -9,14 +9,16 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 });
 
 const SkipLink = () => {
-	const { t } = useTranslation();
+	// Provide a string fallback so Suspense doesn't render the raw i18n key
+	// while the common namespace is still loading over HTTP.
+	const { t } = useTranslation("common", { useSuspense: false });
 
 	return (
 		<a
 			href="#main-content"
 			className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:p-4 focus:bg-background focus:text-foreground focus:rounded-md"
 		>
-			{t("accessibility.skipToContent")}
+			{t("accessibility.skipToContent", "Skip to main content")}
 		</a>
 	);
 };
