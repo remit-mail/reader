@@ -71,9 +71,9 @@ export const SearchBar = ({
 			<input
 				ref={inputRef}
 				id="mail-search"
-				name="mail-search"
+				name="q"
 				type="search"
-				aria-label={placeholder}
+				aria-label="Search mail"
 				value={value}
 				onChange={(e) => onChange(e.target.value)}
 				onKeyDown={handleKeyDown}
