@@ -45,13 +45,18 @@ npm run cli -- -t SYNC_MESSAGE_BODY -a <accountId> -m <mailboxId> --messageIds i
 
 ## Environment Variables
 
-| Variable              | Required | Description                                |
-| --------------------- | -------- | ------------------------------------------ |
-| `DYNAMODB_TABLE_NAME` | Yes      | Name of the DynamoDB table for Remit data  |
-| `SQS_QUEUE_URL`       | Yes      | URL of the SQS queue for follow-up events  |
-| `S3_BUCKET`           | Yes      | S3 bucket for storing raw message content  |
-| `NODE_ENV`            | No       | Set to `development` for local execution   |
-| `LOG_LEVEL`           | No       | Logging level (default: `info`)            |
+| Variable                      | Required | Description                                              |
+| ----------------------------- | -------- | -------------------------------------------------------- |
+| `DYNAMODB_TABLE_NAME`         | Yes      | Name of the DynamoDB table for Remit data                |
+| `SQS_QUEUE_URL_MAILBOXES`     | Yes      | FIFO queue URL for `SYNC_MAILBOXES` events               |
+| `SQS_QUEUE_URL_MESSAGES`      | Yes      | FIFO queue URL for `SYNC_MESSAGES` events                |
+| `SQS_QUEUE_URL_BODY`          | Yes      | FIFO queue URL for `SYNC_MESSAGE_BODY` events            |
+| `SQS_QUEUE_URL_FLAGS`         | Yes      | FIFO queue URL for `SYNC_FLAGS` events                   |
+| `SQS_QUEUE_URL_MAILBOX_MGMT`  | Yes      | Standard queue URL for mailbox management events         |
+| `SQS_QUEUE_URL_MESSAGE_MGMT`  | Yes      | Standard queue URL for message management events         |
+| `S3_BUCKET`                   | Yes      | S3 bucket for storing raw message content                |
+| `NODE_ENV`                    | No       | Set to `development` for local execution                 |
+| `LOG_LEVEL`                   | No       | Logging level (default: `info`)                          |
 
 ## Event Types
 

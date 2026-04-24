@@ -159,25 +159,21 @@ const spawnWorker = (): ChildProcess => {
 	return worker;
 };
 
-const createSqsClient = () => {
-	const configuredUrl = process.env.SQS_QUEUE_URL ?? "";
-	const endpoint = new URL(configuredUrl).origin;
+const SQS_ENDPOINT = "http://localhost:9325";
 
+const createSqsClient = () => {
 	return new SQSClient({
-		endpoint,
+		endpoint: SQS_ENDPOINT,
 		region: "local",
 		credentials: { accessKeyId: "local", secretAccessKey: "local" },
 	});
 };
 
 const triggerSync = async (accountId: string) => {
-	const sqs = createSqsClient();
+	const queueUrl = process.env.SQS_QUEUE_URL_MAILBOXES;
+	if (!queueUrl) throw new Error("SQS_QUEUE_URL_MAILBOXES is not set");
 
-	const createResult = await sqs.send(
-		new CreateQueueCommand({ QueueName: "remit-e2e" }),
-	);
-	const queueUrl = createResult.QueueUrl;
-	if (!queueUrl) throw new Error("CreateQueue did not return a QueueUrl");
+	const sqs = createSqsClient();
 
 	const event = {
 		type: "SYNC_MAILBOXES",
@@ -190,6 +186,8 @@ const triggerSync = async (accountId: string) => {
 		new SendMessageCommand({
 			QueueUrl: queueUrl,
 			MessageBody: JSON.stringify(event),
+			MessageGroupId: accountId,
+			MessageDeduplicationId: `SYNC_MAILBOXES:${accountId}:${event.eventId}`,
 		}),
 	);
 

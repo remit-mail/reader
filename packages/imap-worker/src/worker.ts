@@ -13,23 +13,19 @@ import pMap from "p-map";
 import type { ImapEvent } from "./events.js";
 import { processEvent } from "./processor.js";
 
-const defaultQueueUrl = env.SQS_QUEUE_URL;
-
-// Collect all unique queue URLs to poll
+// Collect all unique queue URLs to poll. Every queue URL is required; missing
+// env vars crash at init via expect-env instead of silently dropping queues.
 const queueUrls = [
-	...new Set(
-		[
-			defaultQueueUrl,
-			// FIFO queues for sync operations
-			process.env.SQS_QUEUE_URL_MAILBOXES,
-			process.env.SQS_QUEUE_URL_MESSAGES,
-			process.env.SQS_QUEUE_URL_BODY,
-			process.env.SQS_QUEUE_URL_FLAGS,
-			// Standard queues for management operations
-			process.env.SQS_QUEUE_URL_MAILBOX_MGMT,
-			process.env.SQS_QUEUE_URL_MESSAGE_MGMT,
-		].filter((url): url is string => Boolean(url)),
-	),
+	...new Set([
+		// FIFO queues for sync operations
+		env.SQS_QUEUE_URL_MAILBOXES,
+		env.SQS_QUEUE_URL_MESSAGES,
+		env.SQS_QUEUE_URL_BODY,
+		env.SQS_QUEUE_URL_FLAGS,
+		// Standard queues for management operations
+		env.SQS_QUEUE_URL_MAILBOX_MGMT,
+		env.SQS_QUEUE_URL_MESSAGE_MGMT,
+	]),
 ];
 
 if (cluster.isPrimary) {
