@@ -18,16 +18,15 @@ interface AuthShellProps {
 const REMIT_FONT =
 	'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
 
-const BRAND = "hsl(222.2 47.4% 11.2%)";
-const BRAND_HOVER = "hsl(222.2 47.4% 20%)";
-const BRAND_FOCUS = "hsl(222.2 47.4% 14%)";
-const BRAND_ACTIVE = "hsl(222.2 47.4% 8%)";
-const PAGE_BG = "hsl(210 40% 96.1%)";
-const CARD_BG = "hsl(0 0% 100%)";
-const CARD_FG = "hsl(222.2 84% 4.9%)";
-const MUTED_FG = "hsl(215.4 16.3% 46.9%)";
-const BORDER = "hsl(214.3 31.8% 91.4%)";
-const WHITE = "hsl(210 40% 98%)";
+const cssVar = (name: string): string => `var(${name})`;
+
+const BRAND = cssVar("--color-primary");
+const BRAND_FG = cssVar("--color-primary-foreground");
+const CARD_BG = cssVar("--color-card");
+const CARD_FG = cssVar("--color-card-foreground");
+const PAGE_BG = cssVar("--color-muted");
+const MUTED_FG = cssVar("--color-muted-foreground");
+const BORDER = cssVar("--color-border");
 
 const remitTheme = createTheme({
 	name: "remit",
@@ -35,13 +34,13 @@ const remitTheme = createTheme({
 		colors: {
 			brand: {
 				primary: {
-					10: { value: "hsl(222.2 47.4% 96%)" },
-					20: { value: "hsl(222.2 47.4% 88%)" },
-					40: { value: "hsl(222.2 47.4% 40%)" },
-					60: { value: BRAND_HOVER },
-					80: { value: BRAND_FOCUS },
+					10: { value: cssVar("--color-accent") },
+					20: { value: cssVar("--color-accent") },
+					40: { value: BRAND },
+					60: { value: BRAND },
+					80: { value: BRAND },
 					90: { value: BRAND },
-					100: { value: BRAND_ACTIVE },
+					100: { value: BRAND },
 				},
 			},
 			background: {
@@ -53,10 +52,10 @@ const remitTheme = createTheme({
 				secondary: { value: MUTED_FG },
 				tertiary: { value: MUTED_FG },
 				interactive: { value: BRAND },
-				inverse: { value: WHITE },
-				hover: { value: BRAND_HOVER },
+				inverse: { value: BRAND_FG },
+				hover: { value: BRAND },
 				focus: { value: BRAND },
-				active: { value: BRAND_ACTIVE },
+				active: { value: BRAND },
 			},
 			border: {
 				primary: { value: BORDER },
@@ -97,32 +96,32 @@ const remitTheme = createTheme({
 				color: { value: CARD_FG },
 				primary: {
 					backgroundColor: { value: BRAND },
-					color: { value: WHITE },
+					color: { value: BRAND_FG },
 					_hover: {
-						backgroundColor: { value: BRAND_HOVER },
-						color: { value: WHITE },
+						backgroundColor: { value: BRAND },
+						color: { value: BRAND_FG },
 					},
 					_focus: {
-						backgroundColor: { value: BRAND_FOCUS },
-						color: { value: WHITE },
+						backgroundColor: { value: BRAND },
+						color: { value: BRAND_FG },
 					},
 					_active: {
-						backgroundColor: { value: BRAND_ACTIVE },
-						color: { value: WHITE },
+						backgroundColor: { value: BRAND },
+						color: { value: BRAND_FG },
 					},
 				},
 				link: {
 					color: { value: BRAND },
 					_hover: {
-						color: { value: BRAND_HOVER },
+						color: { value: BRAND },
 						backgroundColor: { value: "transparent" },
 					},
 					_focus: {
-						color: { value: BRAND_FOCUS },
+						color: { value: BRAND },
 						backgroundColor: { value: "transparent" },
 					},
 					_active: {
-						color: { value: BRAND_ACTIVE },
+						color: { value: BRAND },
 						backgroundColor: { value: "transparent" },
 					},
 				},
@@ -151,7 +150,7 @@ const remitTheme = createTheme({
 						backgroundColor: { value: "transparent" },
 					},
 					_hover: {
-						color: { value: BRAND_HOVER },
+						color: { value: BRAND },
 					},
 					_focus: {
 						color: { value: BRAND },
@@ -174,11 +173,12 @@ const EnvelopeMark = () => (
 		height="36"
 		viewBox="0 0 24 24"
 		fill="none"
-		stroke={BRAND}
+		stroke="currentColor"
 		strokeWidth="1.75"
 		strokeLinecap="round"
 		strokeLinejoin="round"
 		aria-hidden="true"
+		style={{ color: BRAND }}
 	>
 		<rect x="3" y="5" width="18" height="14" rx="2" />
 		<path d="M3 7l9 6 9-6" />

@@ -1,55 +1,92 @@
 @import "tailwindcss";
 
-@theme {
-  --color-background: hsl(0 0% 100%);
-  --color-foreground: hsl(222.2 84% 4.9%);
-  --color-card: hsl(0 0% 100%);
-  --color-card-foreground: hsl(222.2 84% 4.9%);
-  --color-popover: hsl(0 0% 100%);
-  --color-popover-foreground: hsl(222.2 84% 4.9%);
-  --color-primary: hsl(222.2 47.4% 11.2%);
-  --color-primary-foreground: hsl(210 40% 98%);
-  --color-secondary: hsl(210 40% 96.1%);
-  --color-secondary-foreground: hsl(222.2 47.4% 11.2%);
-  --color-muted: hsl(210 40% 96.1%);
-  --color-muted-foreground: hsl(215.4 16.3% 46.9%);
-  --color-accent: hsl(210 40% 96.1%);
-  --color-accent-foreground: hsl(222.2 47.4% 11.2%);
-  --color-destructive: hsl(0 84.2% 60.2%);
-  --color-destructive-foreground: hsl(210 40% 98%);
-  --color-border: hsl(214.3 31.8% 91.4%);
-  --color-input: hsl(214.3 31.8% 91.4%);
-  --color-ring: hsl(222.2 84% 4.9%);
+/* Tailwind v4 dark variant: apply dark: utilities when any ancestor has
+   the .dark class. A boot script in index.html + src/lib/theme.ts
+   toggles this class on <html> based on prefers-color-scheme. */
+@custom-variant dark (&:is(.dark *));
+
+/* @theme inline aliases Tailwind color utilities (bg-background, etc.)
+   to semantic CSS variables that are declared below on :root and .dark.
+   Using `inline` here tells Tailwind to reference the var() at runtime
+   rather than substituting a static value. The :root / .dark blocks
+   must come AFTER @theme inline — when they come first, Tailwind's
+   theme resolver can hoist them into @layer theme and the dark scope
+   is lost, producing a single flattened :root palette that defaults to
+   the last-declared values regardless of OS preference. */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius: var(--radius);
+}
+
+:root {
+  --background: hsl(0 0% 100%);
+  --foreground: hsl(222.2 84% 4.9%);
+  --card: hsl(0 0% 100%);
+  --card-foreground: hsl(222.2 84% 4.9%);
+  --popover: hsl(0 0% 100%);
+  --popover-foreground: hsl(222.2 84% 4.9%);
+  --primary: hsl(222.2 47.4% 11.2%);
+  --primary-foreground: hsl(210 40% 98%);
+  --secondary: hsl(210 40% 96.1%);
+  --secondary-foreground: hsl(222.2 47.4% 11.2%);
+  --muted: hsl(210 40% 96.1%);
+  --muted-foreground: hsl(215.4 16.3% 46.9%);
+  --accent: hsl(210 40% 96.1%);
+  --accent-foreground: hsl(222.2 47.4% 11.2%);
+  --destructive: hsl(0 84.2% 60.2%);
+  --destructive-foreground: hsl(210 40% 98%);
+  --border: hsl(214.3 31.8% 91.4%);
+  --input: hsl(214.3 31.8% 91.4%);
+  --ring: hsl(222.2 84% 4.9%);
   --radius: 0.5rem;
 }
 
-/* Tailwind v4 @theme cannot be nested inside @media. Override the CSS
-   custom properties directly on :root inside a media query so dark mode
-   only applies when the OS actually requests it. Without this, the
-   minified Tailwind build flattens the @media + @theme combo and the
-   dark palette leaks into the light-preference viewer. */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-background: hsl(222.2 84% 4.9%);
-    --color-foreground: hsl(210 40% 98%);
-    --color-card: hsl(222.2 84% 4.9%);
-    --color-card-foreground: hsl(210 40% 98%);
-    --color-popover: hsl(222.2 84% 4.9%);
-    --color-popover-foreground: hsl(210 40% 98%);
-    --color-primary: hsl(210 40% 98%);
-    --color-primary-foreground: hsl(222.2 47.4% 11.2%);
-    --color-secondary: hsl(217.2 32.6% 17.5%);
-    --color-secondary-foreground: hsl(210 40% 98%);
-    --color-muted: hsl(217.2 32.6% 17.5%);
-    --color-muted-foreground: hsl(215 20.2% 65.1%);
-    --color-accent: hsl(217.2 32.6% 17.5%);
-    --color-accent-foreground: hsl(210 40% 98%);
-    --color-destructive: hsl(0 62.8% 30.6%);
-    --color-destructive-foreground: hsl(210 40% 98%);
-    --color-border: hsl(217.2 32.6% 17.5%);
-    --color-input: hsl(217.2 32.6% 17.5%);
-    --color-ring: hsl(212.7 26.8% 83.9%);
-  }
+.dark {
+  --background: hsl(222.2 84% 4.9%);
+  --foreground: hsl(210 40% 98%);
+  --card: hsl(222.2 84% 4.9%);
+  --card-foreground: hsl(210 40% 98%);
+  --popover: hsl(222.2 84% 4.9%);
+  --popover-foreground: hsl(210 40% 98%);
+  --primary: hsl(210 40% 98%);
+  --primary-foreground: hsl(222.2 47.4% 11.2%);
+  --secondary: hsl(217.2 32.6% 17.5%);
+  --secondary-foreground: hsl(210 40% 98%);
+  --muted: hsl(217.2 32.6% 17.5%);
+  --muted-foreground: hsl(215 20.2% 65.1%);
+  --accent: hsl(217.2 32.6% 17.5%);
+  --accent-foreground: hsl(210 40% 98%);
+  --destructive: hsl(0 62.8% 30.6%);
+  --destructive-foreground: hsl(210 40% 98%);
+  --border: hsl(217.2 32.6% 17.5%);
+  --input: hsl(217.2 32.6% 17.5%);
+  --ring: hsl(212.7 26.8% 83.9%);
+}
+
+html {
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
 }
 
 body {
@@ -70,14 +107,13 @@ body {
 
 /* ------------------------------------------------------------------ */
 /* Auth page                                                          */
-/* Isolated from system dark mode: always light theme. Amplify tokens */
-/* and <h1>/<p>/<label> inheritance would otherwise leak slate-950    */
-/* text onto a white card when prefers-color-scheme is dark.           */
+/* Follows the active app theme — Amplify tokens in AuthShell.tsx     */
+/* resolve to the Remit semantic vars, so light and dark both render  */
+/* correctly without hardcoding color-scheme.                         */
 /* ------------------------------------------------------------------ */
 .auth-page {
-  color-scheme: light;
-  background-color: hsl(210 40% 96.1%);
-  color: hsl(222.2 84% 4.9%);
+  background-color: var(--color-muted);
+  color: var(--color-foreground);
   min-height: 100vh;
   width: 100%;
   display: flex;
@@ -86,8 +122,8 @@ body {
   justify-content: center;
   padding: 2rem 1rem;
   background-image:
-    radial-gradient(at 20% 0%, hsl(222.2 47.4% 96%) 0px, transparent 50%),
-    radial-gradient(at 80% 100%, hsl(222.2 47.4% 96%) 0px, transparent 50%);
+    radial-gradient(at 20% 0%, color-mix(in hsl, var(--color-primary) 8%, transparent) 0px, transparent 50%),
+    radial-gradient(at 80% 100%, color-mix(in hsl, var(--color-primary) 8%, transparent) 0px, transparent 50%);
 }
 
 .auth-page-inner {
@@ -95,35 +131,7 @@ body {
   max-width: 26rem;
 }
 
-/* Force-reset any inherited text color inside the card so Amplify
-   tokens (rendered as var(--amplify-colors-font-primary), etc.) are
-   not overridden by the app-wide body color when the Authenticator
-   sits under an element that inherited slate-50. */
-.auth-page [data-amplify-authenticator] {
-  color: hsl(222.2 84% 4.9%);
-}
-
 .auth-page [data-amplify-authenticator] [data-amplify-router] {
   border-radius: 0.75rem;
   overflow: hidden;
-}
-
-/* Active tab indicator — Amplify's default active tab uses borderColor
-   on the item but the bottom border is on the tabs container; force a
-   visible 2px bottom accent on the active tab. */
-.auth-page [data-amplify-authenticator] [role="tab"][data-state="active"],
-.auth-page [data-amplify-authenticator] [role="tab"][aria-selected="true"] {
-  border-bottom: 2px solid hsl(222.2 47.4% 11.2%);
-  color: hsl(222.2 47.4% 11.2%);
-  font-weight: 600;
-}
-
-.auth-page [data-amplify-authenticator] [role="tab"] {
-  color: hsl(215.4 16.3% 46.9%);
-  font-weight: 500;
-  transition: color 150ms ease, border-color 150ms ease;
-}
-
-.auth-page [data-amplify-authenticator] [role="tab"]:hover {
-  color: hsl(222.2 47.4% 20%);
 }
