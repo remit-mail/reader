@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
+import { AwsQueryProtocol } from "@aws-sdk/core/protocols";
 import {
 	AccountService,
 	getClient,
@@ -32,11 +33,14 @@ const outboxService = new OutboxMessageService({
 	table: env.DYNAMODB_TABLE_NAME,
 });
 
-const imapQueueUrl = env.SQS_QUEUE_URL_IMAP;
-const isLocalQueue = imapQueueUrl.startsWith("http://localhost");
+// APPEND_SENT_MESSAGE is processed by the IMAP worker via the
+// message-management queue (see remit-imap-worker/src/emit.ts).
+const messageMgmtQueueUrl = env.SQS_QUEUE_URL_MESSAGE_MGMT;
+const isLocalQueue = messageMgmtQueueUrl.startsWith("http://localhost");
 
-const imapSqs = new SQSClient({
-	endpoint: isLocalQueue ? new URL(imapQueueUrl).origin : undefined,
+const messageMgmtSqs = new SQSClient({
+	endpoint: isLocalQueue ? new URL(messageMgmtQueueUrl).origin : undefined,
+	...(isLocalQueue && { protocol: AwsQueryProtocol }),
 });
 
 const emitAppendSentMessage = async (
@@ -51,11 +55,10 @@ const emitAppendSentMessage = async (
 		timestamp: Date.now(),
 	};
 
-	await imapSqs.send(
+	await messageMgmtSqs.send(
 		new SendMessageCommand({
-			QueueUrl: imapQueueUrl,
+			QueueUrl: messageMgmtQueueUrl,
 			MessageBody: JSON.stringify(event),
-			MessageGroupId: accountId,
 		}),
 	);
 };
