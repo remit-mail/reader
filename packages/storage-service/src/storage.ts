@@ -14,6 +14,13 @@ export interface StorageReference {
 	storageLocation: string;
 	storageKey: string;
 	sizeBytes: number;
+	/**
+	 * SHA-256 (hex) of the logical, pre-compression content.
+	 * Identifies the content regardless of how it is stored on the backend,
+	 * and is used by `buildDeduplicatedKey` for content-addressable storage.
+	 * Note: this is NOT the checksum S3 validates against the received bytes —
+	 * S3's own transport-level checksum is handled by the SDK on PUT.
+	 */
 	checksumSha256: string;
 	contentEncoding: ContentEncodingValue;
 }

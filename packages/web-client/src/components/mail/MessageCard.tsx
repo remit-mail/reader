@@ -6,6 +6,7 @@ import type {
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, Paperclip, Star } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { formatDatePreset } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { AddressList } from "./AddressDisplay";
@@ -147,6 +148,9 @@ const ExpandedCard = ({
 	threadMessage,
 	messageData,
 	isLoading,
+	isError,
+	error,
+	onRetry,
 	isFocused,
 	onToggle,
 	onToggleStar,
@@ -155,6 +159,9 @@ const ExpandedCard = ({
 	threadMessage: RemitImapThreadMessageResponse;
 	messageData?: RemitImapDescribeMessageResponse;
 	isLoading: boolean;
+	isError: boolean;
+	error: unknown;
+	onRetry: () => void;
 	isFocused?: boolean;
 	onToggle: () => void;
 	onToggleStar: () => void;
@@ -230,6 +237,13 @@ const ExpandedCard = ({
 						<div className="h-4 bg-muted rounded w-3/4" />
 						<div className="h-4 bg-muted rounded w-1/2" />
 					</div>
+				) : isError ? (
+					<ErrorState
+						variant="inline"
+						title="Couldn't load this message"
+						error={error}
+						onRetry={onRetry}
+					/>
 				) : (
 					<MessageBody
 						html={messageData?.bodyHtml}
@@ -249,7 +263,13 @@ export const MessageCard = ({
 	onToggleStar,
 	isStarPending,
 }: MessageCardProps) => {
-	const { data: messageData, isLoading } = useQuery({
+	const {
+		data: messageData,
+		isLoading,
+		isError,
+		error,
+		refetch,
+	} = useQuery({
 		...messageOperationsDescribeMessageOptions({
 			path: { messageId: threadMessage.messageId },
 		}),
@@ -273,6 +293,9 @@ export const MessageCard = ({
 			threadMessage={threadMessage}
 			messageData={messageData}
 			isLoading={isLoading}
+			isError={isError}
+			error={error}
+			onRetry={() => refetch()}
 			isFocused={isFocused}
 			onToggle={onToggle}
 			onToggleStar={onToggleStar}

@@ -19,6 +19,7 @@ import {
 	Send,
 } from "lucide-react";
 import { useMemo, useState } from "react";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { useCompose } from "../compose/ComposeProvider";
 import { MailboxItem } from "./MailboxItem";
 
@@ -271,7 +272,13 @@ const AccountSection = ({ account }: { account: RemitImapAccountResponse }) => {
 	const params = useParams({ strict: false });
 	const selectedMailboxId = params.mailboxId as string | undefined;
 
-	const { data: mailboxesResponse, isLoading } = useQuery(
+	const {
+		data: mailboxesResponse,
+		isLoading,
+		isError,
+		error,
+		refetch,
+	} = useQuery(
 		mailboxOperationsListMailboxesOptions({
 			path: { accountId: account.accountId },
 		}),
@@ -301,6 +308,15 @@ const AccountSection = ({ account }: { account: RemitImapAccountResponse }) => {
 					{isLoading ? (
 						<div className="px-3 py-2 text-sm text-muted-foreground">
 							Loading...
+						</div>
+					) : isError ? (
+						<div className="px-3 py-2">
+							<ErrorState
+								variant="inline"
+								title="Couldn't load mailboxes"
+								error={error}
+								onRetry={() => refetch()}
+							/>
 						</div>
 					) : system.length === 0 && labels.length === 0 ? (
 						<div className="px-3 py-2 text-sm text-muted-foreground">

@@ -5,6 +5,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { MessageBody } from "./MessageBody";
 import { MessageHeader } from "./MessageHeader";
 
@@ -34,9 +35,15 @@ const LoadingSkeleton = () => (
 export const MessageDetail = ({ messageId, snippet }: MessageDetailProps) => {
 	const queryClient = useQueryClient();
 
-	const { data: messageData, isLoading } = useQuery({
+	const {
+		data: messageData,
+		isLoading,
+		isError,
+		error,
+		refetch,
+	} = useQuery({
 		...messageOperationsDescribeMessageOptions({
-			path: { messageId: messageId! },
+			path: { messageId: messageId ?? "" },
 		}),
 		enabled: !!messageId,
 	});
@@ -73,6 +80,18 @@ export const MessageDetail = ({ messageId, snippet }: MessageDetailProps) => {
 
 	if (isLoading) {
 		return <LoadingSkeleton />;
+	}
+
+	if (isError) {
+		return (
+			<div className="flex h-full items-center justify-center">
+				<ErrorState
+					title="Couldn't load this message"
+					error={error}
+					onRetry={() => refetch()}
+				/>
+			</div>
+		);
 	}
 
 	if (!messageData) {
