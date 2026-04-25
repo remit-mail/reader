@@ -65,6 +65,9 @@ function MailboxView() {
 	const {
 		data: threadsData,
 		isLoading,
+		isError,
+		error,
+		refetch,
 		fetchNextPage,
 		hasNextPage,
 		isFetchingNextPage,
@@ -216,6 +219,9 @@ function MailboxView() {
 						threads={threads}
 						selectedMessageId={selectedMessageId}
 						isLoading={isLoading}
+						isError={isError}
+						error={error}
+						onRetry={() => refetch()}
 						searchQuery={searchQuery}
 						onDeleteMessages={handleDeleteMessages}
 						isDeleting={deleteMutation.isPending}

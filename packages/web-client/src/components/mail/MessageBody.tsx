@@ -31,14 +31,17 @@ export const MessageBody = ({
 		return sanitize(html);
 	}, [html, allowImages, colorMode]);
 
-	// Count blocked images for UI feedback
 	const blockedImageCount = useMemo(() => {
 		if (!sanitizedHtml || allowImages) return 0;
 		return (sanitizedHtml.match(/data-blocked-src/g) || []).length;
 	}, [sanitizedHtml, allowImages]);
 
 	if (!html && !text) {
-		return <p className="text-muted-foreground text-sm italic">No content</p>;
+		return (
+			<p className="text-muted-foreground text-sm italic">
+				This message has no body content.
+			</p>
+		);
 	}
 
 	return (

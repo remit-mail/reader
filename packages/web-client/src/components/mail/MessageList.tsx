@@ -4,6 +4,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { Search } from "lucide-react";
 import { useCallback, useEffect, useRef } from "react";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { useSelection } from "@/hooks/useSelection";
 import { MessageListItem } from "./MessageListItem";
@@ -14,6 +15,9 @@ interface MessageListProps {
 	threads: RemitImapThreadMessageResponse[];
 	selectedMessageId?: string;
 	isLoading: boolean;
+	isError?: boolean;
+	error?: unknown;
+	onRetry?: () => void;
 	searchQuery?: string;
 	onDeleteMessages?: (messageIds: string[]) => void;
 	isDeleting?: boolean;
@@ -60,6 +64,9 @@ export const MessageList = ({
 	threads,
 	selectedMessageId,
 	isLoading,
+	isError = false,
+	error,
+	onRetry,
 	searchQuery,
 	onDeleteMessages,
 	isDeleting = false,
@@ -190,6 +197,18 @@ export const MessageList = ({
 
 	if (isLoading) {
 		return <LoadingSkeleton />;
+	}
+
+	if (isError) {
+		return (
+			<div className="flex h-full items-center justify-center p-4">
+				<ErrorState
+					title="Couldn't load messages"
+					error={error}
+					onRetry={onRetry}
+				/>
+			</div>
+		);
 	}
 
 	const isSearching = !!searchQuery?.trim();

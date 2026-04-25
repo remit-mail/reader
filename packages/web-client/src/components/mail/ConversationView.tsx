@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ComposeMode } from "@/components/compose/ComposeProvider";
 import { InlineCompose } from "@/components/compose/InlineCompose";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { useMarkAsRead } from "@/hooks/useMarkAsRead";
 import { useToggleStar } from "@/hooks/useToggleStar";
@@ -93,7 +94,13 @@ export const ConversationView = ({
 	mailboxId,
 	subject,
 }: ConversationViewProps) => {
-	const { data: messagesResponse, isLoading } = useQuery({
+	const {
+		data: messagesResponse,
+		isLoading,
+		isError,
+		error,
+		refetch,
+	} = useQuery({
 		...threadDetailOperationsListThreadMessagesOptions({
 			path: { threadId },
 			query: { order: "desc", mailboxId },
@@ -243,6 +250,18 @@ export const ConversationView = ({
 
 	if (isLoading) {
 		return <LoadingSkeleton />;
+	}
+
+	if (isError) {
+		return (
+			<div className="flex h-full items-center justify-center">
+				<ErrorState
+					title="Couldn't load this conversation"
+					error={error}
+					onRetry={() => refetch()}
+				/>
+			</div>
+		);
 	}
 
 	if (messages.length === 0) {
