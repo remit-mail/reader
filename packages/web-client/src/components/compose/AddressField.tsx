@@ -2,6 +2,7 @@ import { addressOperationsSearchAddressesOptions } from "@remit/api-http-client/
 import type { RemitImapAddressResponse } from "@remit/api-http-client/types.gen.ts";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { cn } from "@/lib/utils";
 import { AddressTag } from "./AddressTag";
 
@@ -225,15 +226,4 @@ export const AddressField = ({
 			)}
 		</div>
 	);
-};
-
-const useDebouncedValue = (value: string, delay: number): string => {
-	const [debouncedValue, setDebouncedValue] = useState(value);
-
-	useEffect(() => {
-		const timer = setTimeout(() => setDebouncedValue(value), delay);
-		return () => clearTimeout(timer);
-	}, [value, delay]);
-
-	return debouncedValue;
 };

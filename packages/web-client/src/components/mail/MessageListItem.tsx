@@ -1,7 +1,9 @@
+import { messageOperationsDescribeMessageOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
+import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Check, Paperclip } from "lucide-react";
-import type { MouseEvent } from "react";
+import { type MouseEvent, memo, useCallback } from "react";
 import { formatEmailDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -24,7 +26,7 @@ const truncateSnippet = (snippet: string, maxLength = 60): string => {
 	return `${snippet.slice(0, maxLength).trimEnd()}...`;
 };
 
-export const MessageListItem = ({
+const MessageListItemComponent = ({
 	thread,
 	mailboxId,
 	isSelected,
@@ -32,6 +34,7 @@ export const MessageListItem = ({
 	onToggleCheck,
 	messageCount,
 }: MessageListItemProps) => {
+	const queryClient = useQueryClient();
 	const participants = thread.fromName || thread.fromEmail || "Unknown";
 	const date = formatEmailDate(thread.sentDate);
 	const subject = thread.subject || "(No subject)";
@@ -45,6 +48,18 @@ export const MessageListItem = ({
 		onToggleCheck(thread.messageId);
 	};
 
+	// Intent-based prefetch: by the time the user clicks, the body is in
+	// React Query's cache and the detail pane renders without a spinner.
+	// Fires only on hover/focus (not on every paint), and React Query
+	// dedupes concurrent requests for the same key automatically.
+	const prefetchMessage = useCallback(() => {
+		queryClient.prefetchQuery(
+			messageOperationsDescribeMessageOptions({
+				path: { messageId: thread.messageId },
+			}),
+		);
+	}, [queryClient, thread.messageId]);
+
 	return (
 		<Link
 			to="/mail/$mailboxId"
@@ -53,6 +68,8 @@ export const MessageListItem = ({
 				...prev,
 				selectedMessageId: thread.messageId,
 			})}
+			onMouseEnter={prefetchMessage}
+			onFocus={prefetchMessage}
 			className={cn(
 				// Bump vertical padding on mobile to comfortably exceed the 48dp
 				// touch-target floor. Desktop keeps the tighter density.
@@ -124,3 +141,10 @@ export const MessageListItem = ({
 		</Link>
 	);
 };
+
+// Wrapped in React.memo so virtualized rows don't re-render on every parent
+// state change. The `search` callback prop on Link is inline, but it gets a
+// stable reference because the parent itself is stable across re-renders
+// (mailboxId is a string from route params). React.memo with default shallow
+// equality is appropriate here since props are primitives + stable callback.
+export const MessageListItem = memo(MessageListItemComponent);

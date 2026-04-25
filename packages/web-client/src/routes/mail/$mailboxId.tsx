@@ -9,6 +9,7 @@ import {
 } from "@remit/api-http-client/sdk.gen.ts";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import {
+	keepPreviousData,
 	useInfiniteQuery,
 	useMutation,
 	useQueryClient,
@@ -121,6 +122,7 @@ function MailboxView() {
 		initialPageParam: undefined as string | undefined,
 		getNextPageParam: (lastPage) => lastPage.continuationToken,
 		enabled: hasSearchQuery ? searchQuery.trim().length > 0 : true,
+		placeholderData: keepPreviousData,
 	});
 
 	// Delete mutation with optimistic updates
@@ -302,12 +304,16 @@ function MailboxView() {
 
 	// Desktop: unchanged two-pane resizable layout.
 	return (
-		<ResizablePanelGroup direction="horizontal" className="h-full">
-			<ResizablePanel defaultSize={35} minSize={10}>
+		<ResizablePanelGroup
+			direction="horizontal"
+			className="h-full"
+			autoSaveId="remit-mailbox-pane"
+		>
+			<ResizablePanel id="message-list" order={1} defaultSize={35} minSize={10}>
 				<Panel className="h-full">{messageList}</Panel>
 			</ResizablePanel>
 			<ResizableHandle />
-			<ResizablePanel defaultSize={65} minSize={20}>
+			<ResizablePanel id="detail" order={2} defaultSize={65} minSize={20}>
 				<Panel withBorder={false} className="h-full">
 					{detailPane}
 				</Panel>
