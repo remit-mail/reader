@@ -5,31 +5,7 @@ import {
 import type { RemitImapMailboxResponse } from "@remit/api-http-client/types.gen.ts";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { EmptyState } from "@/components/ui/EmptyState";
-
-const SYSTEM_MAILBOX_ORDER = [
-	"inbox",
-	"starred",
-	"flagged",
-	"sent",
-	"drafts",
-	"draft",
-	"all",
-	"archive",
-	"spam",
-	"junk",
-	"trash",
-	"deleted",
-] as const;
-
-const getMailboxPriority = (fullPath: string): number => {
-	const name = fullPath.toLowerCase();
-	for (let i = 0; i < SYSTEM_MAILBOX_ORDER.length; i++) {
-		if (name.includes(SYSTEM_MAILBOX_ORDER[i])) {
-			return i;
-		}
-	}
-	return SYSTEM_MAILBOX_ORDER.length;
-};
+import { getMailboxPriority } from "@/lib/mailbox-order";
 
 const pickPreferredMailbox = (
 	mailboxes: RemitImapMailboxResponse[],

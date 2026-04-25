@@ -20,45 +20,17 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { ErrorState } from "@/components/ui/ErrorState";
+import {
+	getMailboxDisplayName as getDisplayName,
+	getMailboxPriority,
+	isSystemMailbox,
+} from "@/lib/mailbox-order";
 import { useCompose } from "../compose/ComposeProvider";
 import { MailboxItem } from "./MailboxItem";
 
 interface MailSidebarProps {
 	accounts: RemitImapAccountResponse[];
 }
-
-const SYSTEM_MAILBOX_ORDER = [
-	"inbox",
-	"starred",
-	"flagged",
-	"sent",
-	"drafts",
-	"draft",
-	"all",
-	"archive",
-	"spam",
-	"junk",
-	"trash",
-	"deleted",
-] as const;
-
-const getMailboxPriority = (fullPath: string): number => {
-	const name = fullPath.toLowerCase();
-	for (let i = 0; i < SYSTEM_MAILBOX_ORDER.length; i++) {
-		if (name.includes(SYSTEM_MAILBOX_ORDER[i])) {
-			return i;
-		}
-	}
-	return SYSTEM_MAILBOX_ORDER.length;
-};
-
-const isSystemMailbox = (fullPath: string): boolean =>
-	getMailboxPriority(fullPath) < SYSTEM_MAILBOX_ORDER.length;
-
-const getDisplayName = (fullPath: string): string => {
-	const parts = fullPath.split("/");
-	return parts[parts.length - 1] || fullPath;
-};
 
 const startsWithDigit = (str: string): boolean => /^\d/.test(str);
 
