@@ -5,6 +5,14 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Remit</title>
+    <!--
+      Hint the browser to start the TLS handshake to API Gateway in parallel
+      with the JS bundle download. Saves ~150-300ms before the first /config
+      request fires. Hardcoded to the prod API origin; in local dev this
+      preconnect is harmless (it's just a hint and the dev API is proxied
+      through the Vite server).
+    -->
+    <link rel="preconnect" href="https://cr0f00ych7.execute-api.eu-west-1.amazonaws.com" crossorigin />
     <script>
       (function () {
         try {

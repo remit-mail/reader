@@ -7,7 +7,13 @@ import {
 	useNavigate,
 	useSearch,
 } from "@tanstack/react-router";
-import { createContext, useCallback, useContext, useState } from "react";
+import {
+	createContext,
+	useCallback,
+	useContext,
+	useEffect,
+	useState,
+} from "react";
 import { z } from "zod";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { ComposeFab } from "@/components/layout/ComposeFab";
@@ -21,6 +27,7 @@ import {
 } from "@/components/layout/Resizable";
 import { MailSidebar } from "@/components/mail/MailSidebar";
 import { KeyboardShortcutsModal } from "@/components/ui/KeyboardShortcutsModal";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import "@/lib/client";
@@ -57,9 +64,18 @@ function MailLayout() {
 	const [showShortcuts, setShowShortcuts] = useState(false);
 	const [drawerOpen, setDrawerOpen] = useState(false);
 
-	const { data: config, isLoading } = useQuery(
-		configOperationsGetConfigOptions(),
-	);
+	// Local input state — keeps the SearchBar responsive while we debounce
+	// the URL write below. Without this, every keystroke would trigger a
+	// route-state mutation and an in-flight search request.
+	const [searchInput, setSearchInput] = useState(searchQuery);
+	const debouncedSearchInput = useDebouncedValue(searchInput, 200);
+
+	const { data: config, isLoading } = useQuery({
+		...configOperationsGetConfigOptions(),
+		// Config only changes when accounts are added/edited/removed; those
+		// mutations explicitly invalidate this query.
+		staleTime: Infinity,
+	});
 
 	// Global keyboard shortcut for help
 	useKeyboardNavigation({
@@ -74,18 +90,35 @@ function MailLayout() {
 		],
 	});
 
-	const handleSearchChange = useCallback(
-		(query: string) => {
-			navigate({
-				to: ".",
-				search: (prev: MailSearch) => ({ ...prev, q: query || undefined }),
-				replace: true,
-			});
-		},
-		[navigate],
-	);
+	// Push debounced input to the URL. Skips the initial render where the
+	// debounced value already matches the URL, and skips identical updates
+	// to avoid infinite loops with the URL → state sync below.
+	useEffect(() => {
+		if (debouncedSearchInput === searchQuery) return;
+		navigate({
+			to: ".",
+			search: (prev: MailSearch) => ({
+				...prev,
+				q: debouncedSearchInput || undefined,
+			}),
+			replace: true,
+		});
+	}, [debouncedSearchInput, searchQuery, navigate]);
+
+	// External URL changes (e.g. router back/forward, or programmatic clears
+	// like the Escape-to-clear path on SearchBar's onClear) should refresh
+	// the local input. Only sync when they diverge to avoid clobbering
+	// in-flight typing.
+	useEffect(() => {
+		setSearchInput((prev) => (prev === searchQuery ? prev : searchQuery));
+	}, [searchQuery]);
+
+	const handleSearchChange = useCallback((query: string) => {
+		setSearchInput(query);
+	}, []);
 
 	const handleSearchClear = useCallback(() => {
+		setSearchInput("");
 		navigate({
 			to: ".",
 			search: (prev: MailSearch) => ({ ...prev, q: undefined }),
@@ -104,7 +137,7 @@ function MailLayout() {
 			) : (
 				<div className="flex flex-col h-full bg-background">
 					<Header
-						searchQuery={searchQuery}
+						searchQuery={searchInput}
 						onSearchChange={handleSearchChange}
 						onSearchClear={handleSearchClear}
 						onMenuClick={() => setDrawerOpen(true)}
@@ -118,14 +151,28 @@ function MailLayout() {
 					 */}
 					<div className="flex-1 min-h-0">
 						{isDesktop ? (
-							<ResizablePanelGroup direction="horizontal" className="h-full">
-								<ResizablePanel defaultSize={15} minSize={10}>
+							<ResizablePanelGroup
+								direction="horizontal"
+								className="h-full"
+								autoSaveId="remit-mail-shell"
+							>
+								<ResizablePanel
+									id="sidebar"
+									order={1}
+									defaultSize={15}
+									minSize={10}
+								>
 									<Panel className="h-full">
 										<MailSidebar accounts={accounts} />
 									</Panel>
 								</ResizablePanel>
 								<ResizableHandle />
-								<ResizablePanel defaultSize={85} minSize={30}>
+								<ResizablePanel
+									id="content"
+									order={2}
+									defaultSize={85}
+									minSize={30}
+								>
 									<Outlet />
 								</ResizablePanel>
 							</ResizablePanelGroup>

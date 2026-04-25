@@ -12,7 +12,10 @@ export const FromSelector = ({
 	selectedAccountId,
 	onSelect,
 }: FromSelectorProps) => {
-	const { data: config } = useQuery(configOperationsGetConfigOptions());
+	const { data: config } = useQuery({
+		...configOperationsGetConfigOptions(),
+		staleTime: Infinity,
+	});
 	const accounts = config?.accounts ?? [];
 
 	// Auto-select the only account when none is selected
