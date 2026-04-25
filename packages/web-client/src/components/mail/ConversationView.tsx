@@ -316,7 +316,7 @@ export const ConversationView = ({
 	const messageCount = messages.length;
 
 	const messagesList = (
-		<div className="px-4 py-2">
+		<div className="px-2 py-2 md:px-4">
 			{messages.map((message, index) => (
 				<div
 					key={message.threadMessageId}

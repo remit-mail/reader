@@ -239,8 +239,8 @@ const ExpandedCard = ({
 				</div>
 			</div>
 
-			{/* Body - offset to align with content after unread indicator + avatar */}
-			<div className="pl-14 mt-2">
+			{/* Body - aligned with avatar column on md+; flush on mobile so content uses full width */}
+			<div className="pl-0 md:pl-14 mt-2">
 				{isLoading ? (
 					<div className="animate-pulse space-y-2">
 						<div className="h-4 bg-muted rounded w-full" />
