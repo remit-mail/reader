@@ -362,14 +362,15 @@ export const ConversationView = ({
 		</header>
 	);
 
-	// Mobile: a single scroll surface for header + messages (no nested
-	// overflow, header scrolls away with the content). Action bar lives
-	// in the bottom nav via ThreadActionsContext. The inline compose,
-	// when open, sticks to the bottom of the scroll surface.
+	// Mobile: a single scroll surface for messages only. The subject
+	// header is intentionally omitted — the user just clicked a row that
+	// showed the subject, the bottom nav owns Back/Reply/Forward, and an
+	// in-pane subject would read as a persistent top bar (the global
+	// Header is already hidden by `setHideHeader` above). The inline
+	// compose, when open, sticks to the bottom of the scroll surface.
 	if (!isDesktop) {
 		return (
 			<article className="h-full overflow-y-auto">
-				{header}
 				{messagesList}
 				{composeMode !== null && (
 					<InlineCompose
