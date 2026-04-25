@@ -1,5 +1,8 @@
 import type { ThreadMessageItem } from "@remit/remit-electrodb-service";
 import type { ThreadMessageResponse } from "@remit/api-openapi-types";
+import type { APIGatewayProxyEvent } from "aws-lambda";
+import type { Context } from "openapi-backend";
+import { getAccountConfigIdFromEvent } from "../auth.js";
 import { getClient } from "../service/dynamodb.js";
 import type {
 	OperationHandler,
@@ -59,19 +62,20 @@ export const ThreadOperations: Record<
 	ThreadOperationIds,
 	OperationHandler<ThreadOperationIds>
 > = {
-	ThreadOperations_listThreads: async (context) => {
+	ThreadOperations_listThreads: async (
+		context: Context,
+		...args: unknown[]
+	) => {
+		const event = args[0] as APIGatewayProxyEvent;
+		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const { mailboxId } = context.request.params as { mailboxId: string };
 		const { continuationToken, order } = context.request.query as {
 			continuationToken?: string;
 			order?: "asc" | "desc";
 		};
 
-		// We need to get the accountConfigId from the mailbox
-		const mailbox = await getClient().mailbox.get(mailboxId);
-		const account = await getClient().account.get(mailbox.accountId);
-
 		const result = await getClient().threadMessage.listByMailbox(
-			account.accountConfigId,
+			accountConfigId,
 			mailboxId,
 			{
 				order: order ?? "desc",
@@ -87,7 +91,12 @@ export const ThreadOperations: Record<
 		};
 	},
 
-	ThreadOperations_searchThreads: async (context) => {
+	ThreadOperations_searchThreads: async (
+		context: Context,
+		...args: unknown[]
+	) => {
+		const event = args[0] as APIGatewayProxyEvent;
+		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const { mailboxId } = context.request.params as { mailboxId: string };
 		const {
 			continuationToken,
@@ -109,12 +118,8 @@ export const ThreadOperations: Record<
 			attachments?: boolean;
 		};
 
-		// We need to get the accountConfigId from the mailbox
-		const mailbox = await getClient().mailbox.get(mailboxId);
-		const account = await getClient().account.get(mailbox.accountId);
-
 		const result = await getClient().threadMessage.searchByMailbox(
-			account.accountConfigId,
+			accountConfigId,
 			mailboxId,
 			{
 				query,
