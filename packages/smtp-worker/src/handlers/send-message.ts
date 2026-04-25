@@ -10,15 +10,11 @@ import type { Logger } from "@remit/logger-lambda";
 import {
 	createKmsDataKeyProvider,
 	createSecretsService,
-	deserializeEncryptedPayload,
 } from "@remit/secrets-service";
-import {
-	buildMailMessage,
-	type SmtpConfig,
-	sendMail,
-} from "@remit/smtp-service";
+import { buildMailMessage, sendMail } from "@remit/smtp-service";
 import { env } from "expect-env";
 import type { SendMessageEvent } from "../events.js";
+import { resolveSmtpConfig } from "./resolve-smtp-config.js";
 
 const client = getClient();
 const dataKeyProvider = createKmsDataKeyProvider(env.KMS_KEY_ID);
@@ -81,37 +77,24 @@ export const handleSendMessage = async (
 	// 2. Mark as sending
 	await outboxService.updateStatus(outboxMessageId, "sending");
 
-	// 3. Get account and validate SMTP configuration
+	// 3. Resolve SMTP config from the account, reusing IMAP credentials
+	// when no dedicated SMTP password is stored (issue #163).
 	const account = await accountService.get(accountId);
-	if (!account.smtpHost || !account.smtpPort || !account.smtpPasswordHash) {
+	const resolved = await resolveSmtpConfig(account, secrets);
+	if (!resolved.ok) {
 		await outboxService.update(outboxMessageId, {
 			status: "failed",
-			lastError: "SMTP not configured for this account",
+			lastError: resolved.reason,
 		});
-		log.error({ accountId }, "SMTP not configured");
+		log.error({ accountId, reason: resolved.reason }, "SMTP not configured");
 		return;
 	}
+	const smtpConfig = resolved.config;
 
-	// 4. Decrypt SMTP credentials
-	const smtpPassword = await secrets.decrypt(
-		deserializeEncryptedPayload(JSON.parse(account.smtpPasswordHash)),
-	);
-
-	// 5. Build SMTP config
-	const smtpConfig: SmtpConfig = {
-		host: account.smtpHost,
-		port: account.smtpPort,
-		secure: account.smtpTls ?? false,
-		auth: {
-			user: account.smtpUsername ?? account.username,
-			pass: smtpPassword,
-		},
-	};
-
-	// 6. Build message (attachments not yet supported)
+	// 4. Build message (attachments not yet supported)
 	const message = buildMailMessage(outbox);
 
-	// 7. Send
+	// 5. Send
 	log.info(
 		{ outboxMessageId, to: outbox.toAddresses, subject: outbox.subject },
 		"Sending message via SMTP",
