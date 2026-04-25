@@ -71,9 +71,13 @@ export const syncMailboxes = async (
 
 	await connection.connect();
 
+	await accountService.markAuthenticated(accountId);
+
 	const result = await mailboxSyncService
 		.syncMailboxes({ accountId }, connection)
 		.finally(() => connection.disconnect());
+
+	await accountService.update(accountId, { lastSyncAt: Date.now() });
 
 	log.info({ result }, "Mailbox sync complete");
 
