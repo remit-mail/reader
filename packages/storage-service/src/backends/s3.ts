@@ -31,7 +31,7 @@ export const createS3StorageService = (
 		params: StoreParams,
 	): Promise<StorageReference> => {
 		const { key, content, contentType, compress = true } = params;
-		const checksumSha256 = computeChecksum(content);
+		const contentChecksumSha256 = computeChecksum(content);
 		const contentEncoding = compress
 			? ContentEncoding.Gzip
 			: ContentEncoding.None;
@@ -44,7 +44,6 @@ export const createS3StorageService = (
 				Body: body,
 				ContentType: contentType,
 				ContentEncoding: compress ? "gzip" : undefined,
-				ChecksumSHA256: Buffer.from(checksumSha256, "hex").toString("base64"),
 			}),
 		);
 
@@ -54,7 +53,7 @@ export const createS3StorageService = (
 			storageLocation: bucketName,
 			storageKey: key,
 			sizeBytes: body.length,
-			checksumSha256,
+			checksumSha256: contentChecksumSha256,
 			contentEncoding,
 		};
 	};
