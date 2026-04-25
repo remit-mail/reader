@@ -3,21 +3,32 @@ import {
 	configOperationsGetConfigOptions,
 	configOperationsGetConfigQueryKey,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
-import {
-	useMutation,
-	useQueryClient,
-	useSuspenseQuery,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 import { useState } from "react";
 import { AccountCard } from "@/components/settings/AccountCard";
 import { AccountFormPanel } from "@/components/settings/AccountFormPanel";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { SlidePanel } from "@/components/ui/SlidePanel";
 
 export const Route = createFileRoute("/settings/accounts")({
 	component: AccountsSettings,
 });
+
+const LoadingSkeleton = () => (
+	<div className="space-y-4" aria-busy="true" aria-label="Loading accounts">
+		{Array.from({ length: 2 }).map((_, i) => (
+			<div
+				key={i}
+				className="rounded-lg border border-border p-4 animate-pulse"
+			>
+				<div className="h-4 bg-muted rounded w-1/3 mb-3" />
+				<div className="h-3 bg-muted rounded w-2/3" />
+			</div>
+		))}
+	</div>
+);
 
 function AccountsSettings() {
 	const [showForm, setShowForm] = useState(false);
@@ -27,7 +38,13 @@ function AccountsSettings() {
 	);
 	const queryClient = useQueryClient();
 
-	const { data: config } = useSuspenseQuery(configOperationsGetConfigOptions());
+	const {
+		data: config,
+		isPending,
+		isError,
+		error,
+		refetch,
+	} = useQuery(configOperationsGetConfigOptions());
 
 	const deleteMutation = useMutation({
 		...accountDetailOperationsDeleteAccountMutation(),
@@ -39,11 +56,11 @@ function AccountsSettings() {
 		},
 	});
 
-	const accountToDelete = config.accounts.find(
+	const accountToDelete = config?.accounts.find(
 		(a) => a.accountId === deletingAccountId,
 	);
 
-	const accountToEdit = config.accounts.find(
+	const accountToEdit = config?.accounts.find(
 		(a) => a.accountId === editingAccountId,
 	);
 
@@ -59,14 +76,25 @@ function AccountsSettings() {
 				<button
 					type="button"
 					onClick={() => setShowForm(true)}
-					className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
+					disabled={isError || isPending}
+					className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
 				>
 					<Plus className="size-4" />
 					Add Account
 				</button>
 			</div>
 
-			{config.accounts.length === 0 ? (
+			{isPending ? (
+				<LoadingSkeleton />
+			) : isError ? (
+				<ErrorState
+					title="Couldn't load accounts"
+					error={error}
+					onRetry={() => {
+						refetch();
+					}}
+				/>
+			) : config.accounts.length === 0 ? (
 				<div className="text-center py-12 border border-dashed rounded-lg">
 					<p className="text-muted-foreground mb-4">No accounts configured</p>
 					<button
