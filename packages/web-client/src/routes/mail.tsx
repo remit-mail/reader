@@ -19,6 +19,7 @@ import { BottomNav } from "@/components/layout/BottomNav";
 import { ComposeFab } from "@/components/layout/ComposeFab";
 import { Drawer } from "@/components/layout/Drawer";
 import { Header } from "@/components/layout/Header";
+import { HideHeaderProvider } from "@/components/layout/HideHeaderContext";
 import { Panel } from "@/components/layout/Panel";
 import {
 	ResizableHandle,
@@ -132,88 +133,90 @@ function MailLayout() {
 	return (
 		<MailContext.Provider value={{ accounts, searchQuery }}>
 			<ThreadActionsProvider>
-				{isLoading ? (
-					<div className="flex h-full items-center justify-center bg-background">
-						<span className="text-muted-foreground">Loading...</span>
-					</div>
-				) : (
-					<div className="flex flex-col h-full bg-background">
-						<Header
-							searchQuery={searchInput}
-							onSearchChange={handleSearchChange}
-							onSearchClear={handleSearchClear}
-							onMenuClick={() => setDrawerOpen(true)}
-						/>
-						{/*
-						 * Desktop: resizable sidebar + outlet via ResizablePanelGroup.
-						 * Mobile (< md): outlet only — the sidebar lives in the Drawer.
-						 * We branch with `isDesktop` (matchMedia) instead of CSS hide,
-						 * because react-resizable-panels does not handle `display:none`
-						 * on its panels.
-						 */}
-						<div className="flex-1 min-h-0">
-							{isDesktop ? (
-								<ResizablePanelGroup
-									direction="horizontal"
-									className="h-full"
-									autoSaveId="remit-mail-shell"
-								>
-									<ResizablePanel
-										id="sidebar"
-										order={1}
-										defaultSize={15}
-										minSize={10}
+				<HideHeaderProvider>
+					{isLoading ? (
+						<div className="flex h-full items-center justify-center bg-background">
+							<span className="text-muted-foreground">Loading...</span>
+						</div>
+					) : (
+						<div className="flex flex-col h-full bg-background">
+							<Header
+								searchQuery={searchInput}
+								onSearchChange={handleSearchChange}
+								onSearchClear={handleSearchClear}
+								onMenuClick={() => setDrawerOpen(true)}
+							/>
+							{/*
+							 * Desktop: resizable sidebar + outlet via ResizablePanelGroup.
+							 * Mobile (< md): outlet only — the sidebar lives in the Drawer.
+							 * We branch with `isDesktop` (matchMedia) instead of CSS hide,
+							 * because react-resizable-panels does not handle `display:none`
+							 * on its panels.
+							 */}
+							<div className="flex-1 min-h-0">
+								{isDesktop ? (
+									<ResizablePanelGroup
+										direction="horizontal"
+										className="h-full"
+										autoSaveId="remit-mail-shell"
 									>
-										<Panel className="h-full">
-											<MailSidebar accounts={accounts} />
-										</Panel>
-									</ResizablePanel>
-									<ResizableHandle />
-									<ResizablePanel
-										id="content"
-										order={2}
-										defaultSize={85}
-										minSize={30}
+										<ResizablePanel
+											id="sidebar"
+											order={1}
+											defaultSize={15}
+											minSize={10}
+										>
+											<Panel className="h-full">
+												<MailSidebar accounts={accounts} />
+											</Panel>
+										</ResizablePanel>
+										<ResizableHandle />
+										<ResizablePanel
+											id="content"
+											order={2}
+											defaultSize={85}
+											minSize={30}
+										>
+											<Outlet />
+										</ResizablePanel>
+									</ResizablePanelGroup>
+								) : (
+									<div
+										className="h-full"
+										style={{
+											// Reserve space for the bottom nav + iOS safe area.
+											paddingBottom:
+												"calc(3.5rem + env(safe-area-inset-bottom, 0))",
+										}}
 									>
 										<Outlet />
-									</ResizablePanel>
-								</ResizablePanelGroup>
-							) : (
-								<div
-									className="h-full"
-									style={{
-										// Reserve space for the bottom nav + iOS safe area.
-										paddingBottom:
-											"calc(3.5rem + env(safe-area-inset-bottom, 0))",
-									}}
-								>
-									<Outlet />
-								</div>
-							)}
-						</div>
-						{/* Mobile drawer holds the sidebar */}
-						<Drawer
-							isOpen={drawerOpen}
-							onClose={() => setDrawerOpen(false)}
-							ariaLabel="Mailboxes and accounts"
-						>
-							<MailSidebar accounts={accounts} />
-						</Drawer>
-						{/* Bottom nav (mobile only). Context-aware: shows global tabs
+									</div>
+								)}
+							</div>
+							{/* Mobile drawer holds the sidebar */}
+							<Drawer
+								isOpen={drawerOpen}
+								onClose={() => setDrawerOpen(false)}
+								ariaLabel="Mailboxes and accounts"
+							>
+								<MailSidebar accounts={accounts} />
+							</Drawer>
+							{/* Bottom nav (mobile only). Context-aware: shows global tabs
 						    by default, swaps to thread actions (Back, Reply, Forward)
 						    while reading a conversation. */}
-						<BottomNav />
-						{/* Mobile compose FAB. The compose form itself takes over the
+							<BottomNav />
+							{/* Mobile compose FAB. The compose form itself takes over the
 						    detail pane in `routes/mail/$mailboxId.tsx`, which on
 						    mobile is the entire screen — so compose effectively goes
 						    full-screen with no extra plumbing. */}
-						<ComposeFab />
-					</div>
-				)}
-				<KeyboardShortcutsModal
-					isOpen={showShortcuts}
-					onClose={() => setShowShortcuts(false)}
-				/>
+							<ComposeFab />
+						</div>
+					)}
+					<KeyboardShortcutsModal
+						isOpen={showShortcuts}
+						onClose={() => setShowShortcuts(false)}
+					/>
+				</HideHeaderProvider>
 			</ThreadActionsProvider>
 		</MailContext.Provider>
 	);

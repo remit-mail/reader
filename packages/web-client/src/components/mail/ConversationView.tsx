@@ -8,6 +8,7 @@ import { Forward, Reply, ReplyAll } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ComposeMode } from "@/components/compose/ComposeProvider";
 import { InlineCompose } from "@/components/compose/InlineCompose";
+import { useSetHideHeader } from "@/components/layout/HideHeaderContext";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
@@ -105,6 +106,7 @@ export const ConversationView = ({
 }: ConversationViewProps) => {
 	const isDesktop = useIsDesktop();
 	const setThreadActions = useSetThreadActions();
+	const setHideHeader = useSetHideHeader();
 	const {
 		data: messagesResponse,
 		isLoading,
@@ -262,6 +264,17 @@ export const ConversationView = ({
 		handleForward,
 		setThreadActions,
 	]);
+
+	// Hide the top Header while this thread view owns the mobile screen.
+	// The bottom nav already shows context-aware Back / Reply / Forward
+	// (see the effect above), so the header would only consume vertical
+	// space. Same gate as `setThreadActions` — desktop and inline-compose
+	// keep the header visible.
+	useEffect(() => {
+		if (isDesktop || !onBack || inlineComposeOpen) return;
+		setHideHeader(true);
+		return () => setHideHeader(false);
+	}, [isDesktop, onBack, inlineComposeOpen, setHideHeader]);
 
 	// Register keyboard shortcuts
 	useKeyboardNavigation({
