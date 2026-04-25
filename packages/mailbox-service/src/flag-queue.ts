@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 import {
+	type MailboxService,
 	type MessageFlagService,
 	type MessageService,
 	NotFoundError,
@@ -72,6 +73,7 @@ export interface FlagQueueConfig {
 	messageFlagService: MessageFlagService;
 	messageService: MessageService;
 	threadMessageService: ThreadMessageService;
+	mailboxService: MailboxService;
 	sqsQueueUrl: string;
 	sqsEndpoint?: string;
 	logger?: FlagQueueLogger;
@@ -92,6 +94,7 @@ export class FlagQueueService {
 	private messageFlagService: MessageFlagService;
 	private messageService: MessageService;
 	private threadMessageService: ThreadMessageService;
+	private mailboxService: MailboxService;
 	private sqs: SQSClient;
 	private queueUrl: string;
 	private log: FlagQueueLogger;
@@ -101,12 +104,14 @@ export class FlagQueueService {
 			messageFlagService,
 			messageService,
 			threadMessageService,
+			mailboxService,
 			sqsQueueUrl,
 			sqsEndpoint,
 		} = config;
 		this.messageFlagService = messageFlagService;
 		this.messageService = messageService;
 		this.threadMessageService = threadMessageService;
+		this.mailboxService = mailboxService;
 		this.queueUrl = sqsQueueUrl;
 		this.log = config.logger ?? noopLogger;
 
@@ -247,20 +252,53 @@ export class FlagQueueService {
 	};
 
 	/**
+	 * Adjust the parent mailbox `unseenCount` to reflect a flip of the
+	 * `\Seen` flag.
+	 *
+	 * Decrements when going unread -> read, increments when going read ->
+	 * unread, and is a no-op when state is unchanged. The adjustment is
+	 * delegated to `MailboxService.adjustUnseenCount`, which uses an atomic
+	 * DDB `ADD` plus a conditional check to stay race-safe and clamp at zero.
+	 * The IMAP sync path remains the periodic safety net that recomputes the
+	 * count from scratch, so any drift is self-healing.
+	 */
+	private adjustUnseenForReadFlip = async (
+		mailboxId: string,
+		wasRead: boolean,
+		isRead: boolean,
+	): Promise<void> => {
+		if (wasRead === isRead) return;
+		const delta = isRead ? -1 : 1;
+		await this.mailboxService.adjustUnseenCount(mailboxId, delta);
+		this.log.info(
+			{ mailboxId, delta, wasRead, isRead },
+			"Adjusted mailbox unseenCount",
+		);
+	};
+
+	/**
 	 * Mark a message as read (add \Seen flag).
-	 * Updates MessageFlag, ThreadMessage.isRead, and enqueues IMAP sync.
+	 * Updates MessageFlag, ThreadMessage.isRead, mailbox unseenCount, and
+	 * enqueues IMAP sync.
 	 *
 	 * @param messageId - The message to mark as read
 	 * @param accountId - The account ID for the IMAP sync event
 	 */
 	markAsRead = async (messageId: string, accountId: string): Promise<void> => {
 		const message = await this.messageService.get(messageId);
+		const wasRead = await this.messageFlagService.hasFlag(
+			messageId,
+			MessageSystemFlag.Seen,
+		);
 
 		// Update MessageFlag
 		await this.messageFlagService.addFlag(messageId, MessageSystemFlag.Seen);
 
 		// Update ThreadMessage.isRead (denormalized)
 		await this.updateThreadMessageIsRead(messageId, true);
+
+		// Adjust parent mailbox unseenCount (atomic, clamped at 0)
+		await this.adjustUnseenForReadFlip(message.mailboxId, wasRead, true);
 
 		this.log.info({ messageId }, "Marked message as read (local)");
 
@@ -276,7 +314,8 @@ export class FlagQueueService {
 
 	/**
 	 * Mark a message as unread (remove \Seen flag).
-	 * Updates MessageFlag, ThreadMessage.isRead, and enqueues IMAP sync.
+	 * Updates MessageFlag, ThreadMessage.isRead, mailbox unseenCount, and
+	 * enqueues IMAP sync.
 	 *
 	 * @param messageId - The message to mark as unread
 	 * @param accountId - The account ID for the IMAP sync event
@@ -286,12 +325,19 @@ export class FlagQueueService {
 		accountId: string,
 	): Promise<void> => {
 		const message = await this.messageService.get(messageId);
+		const wasRead = await this.messageFlagService.hasFlag(
+			messageId,
+			MessageSystemFlag.Seen,
+		);
 
 		// Update MessageFlag
 		await this.messageFlagService.removeFlag(messageId, MessageSystemFlag.Seen);
 
 		// Update ThreadMessage.isRead (denormalized)
 		await this.updateThreadMessageIsRead(messageId, false);
+
+		// Adjust parent mailbox unseenCount (atomic, clamped at 0)
+		await this.adjustUnseenForReadFlip(message.mailboxId, wasRead, false);
 
 		this.log.info({ messageId }, "Marked message as unread (local)");
 
@@ -371,6 +417,10 @@ export class FlagQueueService {
 
 		// Handle isRead -> \Seen flag
 		if (input.isRead !== undefined) {
+			const wasRead = await this.messageFlagService.hasFlag(
+				messageId,
+				MessageSystemFlag.Seen,
+			);
 			if (input.isRead) {
 				await this.messageFlagService.addFlag(
 					messageId,
@@ -393,6 +443,11 @@ export class FlagQueueService {
 				});
 			}
 			await this.updateThreadMessageIsRead(messageId, input.isRead);
+			await this.adjustUnseenForReadFlip(
+				message.mailboxId,
+				wasRead,
+				input.isRead,
+			);
 		}
 
 		// Handle isStarred -> \Flagged flag and ThreadMessage.hasStars/star
