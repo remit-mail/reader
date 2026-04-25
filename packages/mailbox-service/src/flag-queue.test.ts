@@ -1,6 +1,7 @@
 import assert from "node:assert";
 import { describe, it, mock } from "node:test";
 import type {
+	MailboxService,
 	MessageFlagService,
 	MessageService,
 	ThreadMessageService,
@@ -36,6 +37,28 @@ const createMockMessageService = (mailboxId: string) => {
 			uid: 1,
 		})),
 	} as unknown as MessageService;
+};
+
+const createMockMailboxService = (initialUnseenCount = 5) => {
+	const counts = new Map<string, number>();
+
+	return {
+		adjustUnseenCount: mock.fn(async (mailboxId: string, delta: number) => {
+			const current = counts.get(mailboxId) ?? initialUnseenCount;
+			const next = Math.max(0, current + delta);
+			counts.set(mailboxId, next);
+		}),
+		_counts: counts,
+		_setUnseenCount: (mailboxId: string, count: number) => {
+			counts.set(mailboxId, count);
+		},
+		_getUnseenCount: (mailboxId: string) =>
+			counts.get(mailboxId) ?? initialUnseenCount,
+	} as unknown as MailboxService & {
+		_counts: Map<string, number>;
+		_setUnseenCount: (mailboxId: string, count: number) => void;
+		_getUnseenCount: (mailboxId: string) => number;
+	};
 };
 
 const createMockThreadMessageService = () => {
@@ -125,6 +148,7 @@ const createTestConfig = (overrides: Partial<FlagQueueConfig> = {}) => {
 		messageFlagService: createMockMessageFlagService(),
 		messageService: createMockMessageService(mailboxId),
 		threadMessageService: createMockThreadMessageService(),
+		mailboxService: createMockMailboxService(),
 		sqsQueueUrl: "http://localhost:4566/test-queue",
 		_mockSQS: mockSQS,
 		...overrides,
@@ -418,5 +442,158 @@ describe("FlagQueueService SQS FIFO handling", () => {
 		if (!sent) throw new Error("expected sent message");
 		assert.strictEqual(sent.MessageGroupId, undefined);
 		assert.strictEqual(sent.MessageDeduplicationId, undefined);
+	});
+});
+
+describe("FlagQueueService.updateFlags unseenCount adjustment", () => {
+	const messageId = "test-message-id";
+	const accountId = "test-account-id";
+	const mailboxId = "test-mailbox-id";
+
+	it("decrements mailbox.unseenCount when flipping unread -> read", async () => {
+		const mailboxService = createMockMailboxService();
+		mailboxService._setUnseenCount(mailboxId, 5);
+		const { service } = createTestConfig({ mailboxService });
+
+		await service.updateFlags(messageId, accountId, { isRead: true });
+
+		const adjustCalls = (
+			mailboxService.adjustUnseenCount as unknown as ReturnType<typeof mock.fn>
+		).mock.calls;
+		assert.strictEqual(adjustCalls.length, 1);
+		assert.strictEqual(adjustCalls[0].arguments[0], mailboxId);
+		assert.strictEqual(adjustCalls[0].arguments[1], -1);
+		assert.strictEqual(mailboxService._getUnseenCount(mailboxId), 4);
+	});
+
+	it("increments mailbox.unseenCount when flipping read -> unread", async () => {
+		const mailboxService = createMockMailboxService();
+		mailboxService._setUnseenCount(mailboxId, 5);
+		const { service, config } = createTestConfig({ mailboxService });
+
+		// Pre-set the Seen flag so wasRead is true
+		const flagService = config.messageFlagService as ReturnType<
+			typeof createMockMessageFlagService
+		>;
+		flagService._flags.set(messageId, new Set([MessageSystemFlag.Seen]));
+
+		await service.updateFlags(messageId, accountId, { isRead: false });
+
+		const adjustCalls = (
+			mailboxService.adjustUnseenCount as unknown as ReturnType<typeof mock.fn>
+		).mock.calls;
+		assert.strictEqual(adjustCalls.length, 1);
+		assert.strictEqual(adjustCalls[0].arguments[0], mailboxId);
+		assert.strictEqual(adjustCalls[0].arguments[1], 1);
+		assert.strictEqual(mailboxService._getUnseenCount(mailboxId), 6);
+	});
+
+	it("does not adjust when isRead is unchanged (already read -> read)", async () => {
+		const mailboxService = createMockMailboxService();
+		mailboxService._setUnseenCount(mailboxId, 5);
+		const { service, config } = createTestConfig({ mailboxService });
+
+		// Pre-set the Seen flag so wasRead is true
+		const flagService = config.messageFlagService as ReturnType<
+			typeof createMockMessageFlagService
+		>;
+		flagService._flags.set(messageId, new Set([MessageSystemFlag.Seen]));
+
+		await service.updateFlags(messageId, accountId, { isRead: true });
+
+		const adjustCalls = (
+			mailboxService.adjustUnseenCount as unknown as ReturnType<typeof mock.fn>
+		).mock.calls;
+		assert.strictEqual(adjustCalls.length, 0);
+		assert.strictEqual(mailboxService._getUnseenCount(mailboxId), 5);
+	});
+
+	it("does not adjust when isRead is not in the input", async () => {
+		const mailboxService = createMockMailboxService();
+		mailboxService._setUnseenCount(mailboxId, 5);
+		const { service } = createTestConfig({ mailboxService });
+
+		await service.updateFlags(messageId, accountId, { isStarred: true });
+
+		const adjustCalls = (
+			mailboxService.adjustUnseenCount as unknown as ReturnType<typeof mock.fn>
+		).mock.calls;
+		assert.strictEqual(adjustCalls.length, 0);
+	});
+
+	it("does not drop unseenCount below 0 on repeated decrements", async () => {
+		const mailboxService = createMockMailboxService();
+		mailboxService._setUnseenCount(mailboxId, 1);
+		const { service, config } = createTestConfig({ mailboxService });
+
+		// First decrement: 1 -> 0
+		await service.updateFlags(messageId, accountId, { isRead: true });
+		assert.strictEqual(mailboxService._getUnseenCount(mailboxId), 0);
+
+		// Reset Seen flag so wasRead becomes false again
+		const flagService = config.messageFlagService as ReturnType<
+			typeof createMockMessageFlagService
+		>;
+		flagService._flags.set(messageId, new Set());
+
+		// Second decrement: would go to -1, but mailboxService.adjustUnseenCount clamps to 0
+		await service.updateFlags(messageId, accountId, { isRead: true });
+		assert.strictEqual(mailboxService._getUnseenCount(mailboxId), 0);
+	});
+});
+
+describe("FlagQueueService.markAsRead/markAsUnread unseenCount adjustment", () => {
+	const messageId = "test-message-id";
+	const accountId = "test-account-id";
+	const mailboxId = "test-mailbox-id";
+
+	it("markAsRead decrements unseenCount when message was unread", async () => {
+		const mailboxService = createMockMailboxService();
+		mailboxService._setUnseenCount(mailboxId, 3);
+		const { service } = createTestConfig({ mailboxService });
+
+		await service.markAsRead(messageId, accountId);
+
+		assert.strictEqual(mailboxService._getUnseenCount(mailboxId), 2);
+	});
+
+	it("markAsRead does not decrement when message was already read", async () => {
+		const mailboxService = createMockMailboxService();
+		mailboxService._setUnseenCount(mailboxId, 3);
+		const { service, config } = createTestConfig({ mailboxService });
+
+		const flagService = config.messageFlagService as ReturnType<
+			typeof createMockMessageFlagService
+		>;
+		flagService._flags.set(messageId, new Set([MessageSystemFlag.Seen]));
+
+		await service.markAsRead(messageId, accountId);
+
+		assert.strictEqual(mailboxService._getUnseenCount(mailboxId), 3);
+	});
+
+	it("markAsUnread increments unseenCount when message was read", async () => {
+		const mailboxService = createMockMailboxService();
+		mailboxService._setUnseenCount(mailboxId, 3);
+		const { service, config } = createTestConfig({ mailboxService });
+
+		const flagService = config.messageFlagService as ReturnType<
+			typeof createMockMessageFlagService
+		>;
+		flagService._flags.set(messageId, new Set([MessageSystemFlag.Seen]));
+
+		await service.markAsUnread(messageId, accountId);
+
+		assert.strictEqual(mailboxService._getUnseenCount(mailboxId), 4);
+	});
+
+	it("markAsUnread does not increment when message was already unread", async () => {
+		const mailboxService = createMockMailboxService();
+		mailboxService._setUnseenCount(mailboxId, 3);
+		const { service } = createTestConfig({ mailboxService });
+
+		await service.markAsUnread(messageId, accountId);
+
+		assert.strictEqual(mailboxService._getUnseenCount(mailboxId), 3);
 	});
 });
