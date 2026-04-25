@@ -1,4 +1,3 @@
-import { appendFileSync } from "node:fs";
 import type {
 	MessageService,
 	ThreadMessageService,
@@ -7,16 +6,6 @@ import type { StorageService } from "@remit/storage-service";
 import { simpleParser } from "mailparser";
 import { extractSnippetFromEmail } from "./snippet.js";
 import type { IImapConnection } from "./types.js";
-
-// Debug log to file (Ink overwrites console)
-const debugLog = (msg: string, data?: unknown) => {
-	const line = `[${new Date().toISOString()}] ${msg} ${data ? JSON.stringify(data) : ""}\n`;
-	try {
-		appendFileSync("/tmp/body-sync-debug.log", line);
-	} catch {
-		// ignore
-	}
-};
 
 export interface BodySyncLogger {
 	info(obj: Record<string, unknown>, msg: string): void;
@@ -182,12 +171,6 @@ export class BodySyncService {
 	): Promise<FetchBodyResult> {
 		const message = await this.messageService.get(messageId);
 
-		debugLog("fetchAndGetBody", {
-			messageId,
-			hasBodyStorageKey: !!message.bodyStorageKey,
-			bodyStorageKey: message.bodyStorageKey,
-		});
-
 		let body: Buffer;
 		let needsStore = false;
 
@@ -222,7 +205,6 @@ export class BodySyncService {
 				content: body,
 			});
 
-			debugLog("Storing body", { messageId, uri: ref.uri });
 			await this.messageService.update(messageId, {
 				bodyStorageKey: ref.uri,
 			});
@@ -230,11 +212,6 @@ export class BodySyncService {
 
 			// Update snippets for thread entities
 			await this.updateSnippets(messageId, accountConfigId, body);
-		} else {
-			debugLog("Retrieved from storage", {
-				messageId,
-				bodyStorageKey: message.bodyStorageKey,
-			});
 		}
 
 		// Parse and return content
