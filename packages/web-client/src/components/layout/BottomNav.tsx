@@ -19,13 +19,21 @@ const items = [
 
 /**
  * Bottom navigation bar shown only on mobile (`< md`). Three primary
- * destinations matching the Material 3 navigation-bar pattern. Hidden when
- * `hidden` is true (e.g. while a thread or compose surface is full-screen).
+ * destinations matching the Material 3 navigation-bar pattern.
+ *
+ * Auto-hides when reading a thread (`?selectedMessageId=…` in the URL),
+ * so the conversation's sticky action bar (Reply / Reply all / Forward)
+ * doesn't fight for the bottom of the screen. Pass `hidden={true}` to
+ * force-hide for callers that have other reasons to suppress it.
  */
 export const BottomNav = ({ hidden = false }: BottomNavProps) => {
 	const location = useLocation();
+	const search = location.search as Record<string, unknown> | undefined;
+	const isReadingThread =
+		typeof search?.selectedMessageId === "string" &&
+		search.selectedMessageId.length > 0;
 
-	if (hidden) return null;
+	if (hidden || isReadingThread) return null;
 
 	return (
 		<nav
