@@ -18,6 +18,23 @@ import { SlidePanel } from "../ui/SlidePanel";
 // Placeholder shown when editing - indicates password exists but isn't shown
 const PASSWORD_PLACEHOLDER = "••••••••••";
 
+/**
+ * Derive the initial state of the "use different SMTP credentials" checkbox
+ * from a persisted account. Returns true when the account stores an SMTP
+ * username distinct from the IMAP username (i.e. the user previously opted
+ * in to separate SMTP credentials).
+ *
+ * The API response intentionally omits the SMTP password, so `smtpUsername`
+ * is the only available signal.
+ */
+export const deriveUseDifferentSmtpCreds = (
+	account: Pick<RemitImapAccountResponse, "username" | "smtpUsername">,
+): boolean => {
+	const smtpUsername = account.smtpUsername?.trim();
+	if (!smtpUsername) return false;
+	return smtpUsername !== account.username;
+};
+
 const accountFormSchema = z.object({
 	email: z.string().email().min(1, "Email is required"),
 	username: z.string().optional(),
@@ -75,6 +92,7 @@ export const AccountFormPanel = ({
 	// Populate form when editing an existing account
 	useEffect(() => {
 		if (account) {
+			const useDifferentSmtpCreds = deriveUseDifferentSmtpCreds(account);
 			form.reset({
 				email: account.email,
 				username: account.username || "",
@@ -87,7 +105,9 @@ export const AccountFormPanel = ({
 				smtpPort: account.smtpPort || 587,
 				smtpTls: account.smtpTls || false,
 				smtpStartTls: account.smtpStartTls || true,
-				useDifferentSmtpCreds: false,
+				smtpUsername: useDifferentSmtpCreds ? account.smtpUsername || "" : "",
+				smtpPassword: "",
+				useDifferentSmtpCreds,
 			});
 			setPasswordModified(false);
 		} else {
@@ -196,10 +216,10 @@ export const AccountFormPanel = ({
 			smtpTls: values.smtpTls,
 			smtpStartTls: values.smtpStartTls,
 			smtpUsername: values.useDifferentSmtpCreds
-				? values.smtpUsername
+				? values.smtpUsername || undefined
 				: undefined,
 			smtpPassword: values.useDifferentSmtpCreds
-				? values.smtpPassword
+				? values.smtpPassword || undefined
 				: undefined,
 		};
 
