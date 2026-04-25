@@ -23,9 +23,18 @@ export const MessageBody = ({
 	const sanitizedHtml = useMemo(() => {
 		if (!html) return null;
 
+		// Loading remote images is the user's signal that they trust this
+		// sender. Once trusted, also let the email's author-defined
+		// background colors through (so brand emails like bol.com aren't
+		// shredded by our dark-mode color overrides). Until trusted we
+		// keep the conservative behaviour to avoid the "disco" effect of
+		// random colored blocks on a dark theme.
+		const effectiveColorMode: ColorMode = allowImages ? "light" : colorMode;
+
 		const sanitize = createEmailSanitizer({
 			allowExternalImages: allowImages,
-			colorMode,
+			allowAuthorBackgrounds: allowImages,
+			colorMode: effectiveColorMode,
 		});
 
 		return sanitize(html);
