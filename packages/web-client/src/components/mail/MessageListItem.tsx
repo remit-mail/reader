@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Check, Paperclip } from "lucide-react";
 import { type MouseEvent, memo, useCallback } from "react";
+import { Avatar } from "@/components/ui/Avatar";
 import { formatEmailDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -79,70 +80,83 @@ const MessageListItemComponent = ({
 				isChecked && "bg-primary/10",
 			)}
 		>
-			{/* Row 1: Checkbox/Unread dot + Participants + Date */}
-			<div className="flex items-center gap-2 mb-1">
-				{/* Checkbox - desktop only (shows on hover or when checked). */}
-				{/* Mobile lacks hover and we don't ship long-press in v1, so the
-				    checkbox would just take up space without a way to surface it. */}
-				<button
-					type="button"
-					onClick={handleCheckboxClick}
-					className={cn(
-						"hidden sm:flex w-4 h-4 rounded border shrink-0 items-center justify-center transition-all",
-						isChecked
-							? "bg-primary border-primary text-primary-foreground"
-							: "border-muted-foreground/40 opacity-0 group-hover:opacity-100",
-						isChecked && "opacity-100",
-					)}
-					aria-label={isChecked ? "Deselect message" : "Select message"}
-				>
-					{isChecked && <Check className="size-3" />}
-				</button>
-				{/* Unread indicator - on desktop hides when checkbox is visible;
-				    on mobile it always shows because the checkbox is hidden. */}
-				<span
-					className={cn(
-						"w-2 h-2 rounded-full shrink-0 transition-opacity",
-						"sm:-ml-3 sm:group-hover:opacity-0",
-						!thread.isRead ? "bg-blue-500" : "bg-transparent",
-						isChecked && "opacity-0",
-					)}
-				/>
-				<span className="text-sm truncate flex-1 text-foreground">
-					{participants}
-				</span>
-				<span
-					data-testid="thread-time"
-					className="text-xs text-muted-foreground shrink-0"
-				>
-					{date}
-				</span>
-			</div>
-
-			{/* Row 2: Subject + Message count + Attachment icon */}
-			<div className="flex items-center gap-2 pl-4 mb-1">
-				<span
-					className={cn(
-						"text-sm truncate flex-1",
-						!thread.isRead ? "text-foreground" : "text-muted-foreground",
-					)}
-				>
-					{displaySubject}
-				</span>
-				{thread.hasAttachment && (
-					<Paperclip
-						className="size-3.5 shrink-0 text-muted-foreground"
-						aria-label="Has attachments"
+			<div className="flex items-start gap-3">
+				{/* Leading column: avatar by default, checkbox on hover (desktop)
+				    or while selected. The slot is a fixed 40px so the rest of the
+				    row never reflows when state changes. */}
+				<div className="relative size-10 shrink-0">
+					<Avatar
+						name={thread.fromName ?? undefined}
+						email={thread.fromEmail ?? undefined}
+						size={40}
+						className={cn(
+							"absolute inset-0",
+							"sm:group-hover:opacity-0 transition-opacity",
+							isChecked && "opacity-0",
+						)}
 					/>
-				)}
-			</div>
-
-			{/* Row 3: Snippet preview */}
-			{snippet && (
-				<div className="text-xs text-muted-foreground pl-4 line-clamp-1">
-					{snippet}
+					<button
+						type="button"
+						onClick={handleCheckboxClick}
+						className={cn(
+							"hidden sm:flex absolute inset-0 size-10 rounded-full border items-center justify-center transition-opacity",
+							isChecked
+								? "bg-primary border-primary text-primary-foreground opacity-100"
+								: "border-muted-foreground/40 opacity-0 group-hover:opacity-100 bg-background",
+						)}
+						aria-label={isChecked ? "Deselect message" : "Select message"}
+					>
+						{isChecked && <Check className="size-4" />}
+					</button>
 				</div>
-			)}
+
+				<div className="flex-1 min-w-0">
+					{/* Row 1: Unread dot + Participants + Date */}
+					<div className="flex items-center gap-2 mb-1">
+						<span
+							className={cn(
+								"w-2 h-2 rounded-full shrink-0 transition-opacity",
+								!thread.isRead ? "bg-blue-500" : "bg-transparent",
+								isChecked && "opacity-0",
+							)}
+						/>
+						<span className="text-sm truncate flex-1 text-foreground">
+							{participants}
+						</span>
+						<span
+							data-testid="thread-time"
+							className="text-xs text-muted-foreground shrink-0"
+						>
+							{date}
+						</span>
+					</div>
+
+					{/* Row 2: Subject + Attachment icon */}
+					<div className="flex items-center gap-2 pl-4 mb-1">
+						<span
+							className={cn(
+								"text-sm truncate flex-1",
+								!thread.isRead ? "text-foreground" : "text-muted-foreground",
+							)}
+						>
+							{displaySubject}
+						</span>
+						{thread.hasAttachment && (
+							<Paperclip
+								className="size-3.5 shrink-0 text-muted-foreground"
+								aria-label="Has attachments"
+							/>
+						)}
+					</div>
+
+					{/* Row 3: Snippet preview */}
+					{snippet && (
+						<div className="text-xs text-muted-foreground pl-4 line-clamp-1">
+							{snippet}
+						</div>
+					)}
+				</div>
+			</div>
 		</Link>
 	);
 };

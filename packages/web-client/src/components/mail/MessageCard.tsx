@@ -107,7 +107,7 @@ const CollapsedCard = ({
 			<Avatar
 				name={threadMessage.fromName ?? undefined}
 				email={threadMessage.fromEmail ?? undefined}
-				size="md"
+				size={40}
 			/>
 			<div className="flex-1 min-w-0">
 				<div className="flex items-start justify-between gap-2">
@@ -187,7 +187,7 @@ const ExpandedCard = ({
 				<Avatar
 					name={threadMessage.fromName ?? undefined}
 					email={threadMessage.fromEmail ?? undefined}
-					size="md"
+					size={40}
 				/>
 				<button
 					type="button"

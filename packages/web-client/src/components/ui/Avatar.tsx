@@ -1,83 +1,32 @@
 import { cn } from "@/lib/utils";
+import { computeColorClass, computeInitials } from "./avatar-utils.js";
 
 interface AvatarProps {
 	name?: string;
 	email?: string;
-	size?: "sm" | "md" | "lg";
+	size?: number;
 	className?: string;
 }
 
-const getInitials = (name?: string, email?: string): string => {
-	if (name) {
-		const parts = name.trim().split(/\s+/);
-		if (parts.length >= 2) {
-			return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-		}
-		return name.slice(0, 2).toUpperCase();
-	}
-	if (email) {
-		const localPart = email.split("@")[0];
-		return localPart.slice(0, 2).toUpperCase();
-	}
-	return "??";
-};
-
-// Generate a consistent color based on the email/name
-const getAvatarColor = (name?: string, email?: string): string => {
-	const str = email || name || "";
-	let hash = 0;
-	for (let i = 0; i < str.length; i++) {
-		hash = str.charCodeAt(i) + ((hash << 5) - hash);
-	}
-
-	// Use a set of nice colors that work well on dark backgrounds
-	const colors = [
-		"bg-red-600",
-		"bg-orange-600",
-		"bg-amber-600",
-		"bg-yellow-600",
-		"bg-lime-600",
-		"bg-green-600",
-		"bg-emerald-600",
-		"bg-teal-600",
-		"bg-cyan-600",
-		"bg-sky-600",
-		"bg-blue-600",
-		"bg-indigo-600",
-		"bg-violet-600",
-		"bg-purple-600",
-		"bg-fuchsia-600",
-		"bg-pink-600",
-		"bg-rose-600",
-	];
-
-	return colors[Math.abs(hash) % colors.length];
-};
-
-const sizeClasses = {
-	sm: "size-8 text-xs",
-	md: "size-10 text-sm",
-	lg: "size-12 text-base",
-};
-
-export const Avatar = ({
-	name,
-	email,
-	size = "md",
-	className,
-}: AvatarProps) => {
-	const initials = getInitials(name, email);
-	const colorClass = getAvatarColor(name, email);
+export const Avatar = ({ name, email, size = 40, className }: AvatarProps) => {
+	const initials = computeInitials(name, email);
+	const colorClass = computeColorClass(name, email);
+	const label = name?.trim() || email?.trim() || "Unknown sender";
+	// Scale the font with the circle: ~40% of diameter renders well at 40px
+	// and degrades gracefully on larger or smaller sizes.
+	const fontSize = Math.round(size * 0.4);
 
 	return (
 		<div
+			role="img"
+			aria-label={`Avatar for ${label}`}
+			title={label}
+			style={{ width: size, height: size, fontSize }}
 			className={cn(
-				"shrink-0 rounded-full flex items-center justify-center font-medium text-white",
+				"shrink-0 rounded-full flex items-center justify-center font-medium text-white select-none",
 				colorClass,
-				sizeClasses[size],
 				className,
 			)}
-			title={name || email}
 		>
 			{initials}
 		</div>
