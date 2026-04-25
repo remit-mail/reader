@@ -16,6 +16,7 @@ export {
 	type ConnectionGetter,
 	type FetchBodyResult,
 	type SyncBodiesResult,
+	toParsedBody,
 } from "./body-sync.js";
 // Connection factory
 export {

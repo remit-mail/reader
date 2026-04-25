@@ -48,6 +48,29 @@ export interface StoreDeduplicatedParams {
 	contentType?: string;
 }
 
+/** Metadata for a single attachment in a parsed message body. No binary content. */
+export interface ParsedAttachmentMeta {
+	filename: string | null;
+	contentType: string;
+	contentDisposition: string | null;
+	contentId: string | null;
+	size: number;
+}
+
+/** Pre-parsed message body cached as parsed.json.gz to skip mailparser on warm reads */
+export interface ParsedBody {
+	text: string | null;
+	html: string | null;
+	attachments: ParsedAttachmentMeta[];
+}
+
+/** Parameters for storing a pre-parsed message body */
+export interface StoreParsedBodyParams {
+	accountId: string;
+	messageId: string;
+	parsed: ParsedBody;
+}
+
 export interface StorageService {
 	/** Store a message body (raw RFC822 content) */
 	storeMessageBody(params: StoreMessageBodyParams): Promise<StorageReference>;
@@ -57,6 +80,15 @@ export interface StorageService {
 
 	/** Store deduplicated content (content-addressable, for attachments) */
 	storeDeduplicated(params: StoreDeduplicatedParams): Promise<StorageReference>;
+
+	/** Store a pre-parsed message body as gzipped JSON (parsed-body cache) */
+	storeParsedBody(params: StoreParsedBodyParams): Promise<StorageReference>;
+
+	/** Retrieve a pre-parsed message body by account/message id; returns null on NoSuchKey */
+	retrieveParsedBody(
+		accountId: string,
+		messageId: string,
+	): Promise<ParsedBody | null>;
 
 	/** Retrieve content by URI */
 	retrieve(uri: string): Promise<Buffer>;
@@ -74,6 +106,11 @@ export const buildMessageBodyKey = (
 	messageId: string,
 ): string => `accounts/${accountId}/messages/${messageId}/body.eml`;
 
+export const buildParsedBodyKey = (
+	accountId: string,
+	messageId: string,
+): string => `accounts/${accountId}/messages/${messageId}/parsed.json.gz`;
+
 export const buildBodyPartKey = (
 	accountId: string,
 	messageId: string,
@@ -88,6 +125,15 @@ export const buildDeduplicatedKey = (
 
 export const computeChecksum = (content: Buffer): string =>
 	createHash("sha256").update(content).digest("hex");
+
+export const isStorageNotFoundError = (error: unknown): boolean => {
+	if (typeof error !== "object" || error === null) return false;
+	const obj = error as Record<string, unknown>;
+	if (obj.name === "NoSuchKey") return true;
+	if (obj.Code === "NoSuchKey") return true;
+	if (obj.code === "ENOENT") return true;
+	return false;
+};
 
 export const createStorageService = (): StorageService => {
 	const bucketName = process.env.S3_BUCKET_NAME;
@@ -147,13 +193,35 @@ export const createMockStorageService = (): StorageService => {
 		);
 	};
 
+	const storeParsedBody: StorageService["storeParsedBody"] = async (params) => {
+		const { accountId, messageId, parsed } = params;
+		const content = Buffer.from(JSON.stringify(parsed), "utf8");
+		return storeInternal(buildParsedBodyKey(accountId, messageId), content);
+	};
+
+	const retrieveParsedBody: StorageService["retrieveParsedBody"] = async (
+		accountId,
+		messageId,
+	) => {
+		const uri = `mock://${buildParsedBodyKey(accountId, messageId)}`;
+		const content = storage.get(uri);
+		if (!content) return null;
+		return JSON.parse(content.toString("utf8")) as ParsedBody;
+	};
+
 	return {
 		storeMessageBody,
 		storeBodyPart,
 		storeDeduplicated,
+		storeParsedBody,
+		retrieveParsedBody,
 		retrieve: async (uri) => {
 			const content = storage.get(uri);
-			if (!content) throw new Error(`Not found: ${uri}`);
+			if (!content) {
+				throw Object.assign(new Error(`Not found: ${uri}`), {
+					name: "NoSuchKey",
+				});
+			}
 			return content;
 		},
 		exists: async (uri) => storage.has(uri),

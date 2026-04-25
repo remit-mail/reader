@@ -7,12 +7,18 @@ import {
 	type S3Client,
 } from "@aws-sdk/client-s3";
 import { ContentEncoding, StorageType } from "@remit/domain-enums";
-import type { StorageReference, StorageService } from "../storage.js";
+import type {
+	ParsedBody,
+	StorageReference,
+	StorageService,
+} from "../storage.js";
 import {
 	buildBodyPartKey,
 	buildDeduplicatedKey,
 	buildMessageBodyKey,
+	buildParsedBodyKey,
 	computeChecksum,
+	isStorageNotFoundError,
 } from "../storage.js";
 import { parseStorageUri } from "../uri.js";
 
@@ -86,6 +92,41 @@ export const createS3StorageService = (
 		});
 	};
 
+	const storeParsedBody: StorageService["storeParsedBody"] = (params) => {
+		const { accountId, messageId, parsed } = params;
+		const content = Buffer.from(JSON.stringify(parsed), "utf8");
+		return storeInternal({
+			key: buildParsedBodyKey(accountId, messageId),
+			content,
+			contentType: "application/json",
+		});
+	};
+
+	const retrieveParsedBody: StorageService["retrieveParsedBody"] = async (
+		accountId,
+		messageId,
+	) => {
+		const key = buildParsedBodyKey(accountId, messageId);
+
+		const response = await client
+			.send(new GetObjectCommand({ Bucket: bucketName, Key: key }))
+			.catch((error: unknown) => {
+				if (isStorageNotFoundError(error)) return null;
+				throw error;
+			});
+
+		if (!response) return null;
+		if (!response.Body) {
+			throw new Error(`Empty response body for parsed body: ${key}`);
+		}
+
+		const body = await response.Body.transformToByteArray();
+		const buffer = Buffer.from(body);
+		const decoded =
+			response.ContentEncoding === "gzip" ? gunzipSync(buffer) : buffer;
+		return JSON.parse(decoded.toString("utf8")) as ParsedBody;
+	};
+
 	const retrieve = async (uri: string): Promise<Buffer> => {
 		const { storageKey } = parseStorageUri(uri);
 
@@ -139,6 +180,8 @@ export const createS3StorageService = (
 		storeMessageBody,
 		storeBodyPart,
 		storeDeduplicated,
+		storeParsedBody,
+		retrieveParsedBody,
 		retrieve,
 		exists,
 		delete: del,
