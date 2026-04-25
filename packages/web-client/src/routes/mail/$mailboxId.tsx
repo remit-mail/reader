@@ -14,6 +14,7 @@ import {
 	useQueryClient,
 } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { ArrowLeft } from "lucide-react";
 import { useCallback } from "react";
 import { z } from "zod";
 import { useCompose } from "@/components/compose/ComposeProvider";
@@ -28,6 +29,7 @@ import { ConversationView } from "@/components/mail/ConversationView";
 import { MessageList } from "@/components/mail/MessageList";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
+import { useIsDesktop } from "@/hooks/useMediaQuery";
 
 // Search schema includes q from parent route for proper inheritance
 const mailboxSearchSchema = z.object({
@@ -42,11 +44,34 @@ export const Route = createFileRoute("/mail/$mailboxId")({
 	validateSearch: mailboxSearchSchema,
 });
 
+interface MobileBackHeaderProps {
+	onBack: () => void;
+}
+
+/**
+ * Sticky top bar on mobile thread view. Just a back affordance — the
+ * conversation's own header below carries the subject + message count.
+ */
+const MobileBackHeader = ({ onBack }: MobileBackHeaderProps) => (
+	<header className="md:hidden flex items-center gap-2 px-2 h-12 border-b border-border bg-background shrink-0">
+		<button
+			type="button"
+			onClick={onBack}
+			className="p-2 rounded-md hover:bg-accent transition-colors min-h-11 min-w-11 inline-flex items-center justify-center -ml-1"
+			aria-label="Back to mailbox"
+		>
+			<ArrowLeft className="size-5" />
+		</button>
+		<span className="text-sm text-muted-foreground">Back to messages</span>
+	</header>
+);
+
 function MailboxView() {
 	const { mailboxId } = Route.useParams();
 	const { selectedMessageId, q: searchQuery = "" } = Route.useSearch();
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
+	const isDesktop = useIsDesktop();
 
 	// Use search API when there's a query, otherwise list API
 	const hasSearchQuery = searchQuery.trim().length > 0;
@@ -210,49 +235,70 @@ function MailboxView() {
 		bindings: [{ key: "Escape", handler: closeCompose, preventDefault: true }],
 	});
 
+	const messageList = (
+		<MessageList
+			mailboxId={mailboxId}
+			threads={threads}
+			selectedMessageId={selectedMessageId}
+			isLoading={isLoading}
+			isError={isError}
+			error={error}
+			onRetry={() => refetch()}
+			searchQuery={searchQuery}
+			onDeleteMessages={handleDeleteMessages}
+			isDeleting={deleteMutation.isPending}
+			onLoadMore={fetchNextPage}
+			hasMore={hasNextPage}
+			isLoadingMore={isFetchingNextPage}
+		/>
+	);
+
+	const detailPane =
+		composeState.isOpen && !selectedThread ? (
+			<FullCompose />
+		) : selectedThread ? (
+			<ConversationView
+				threadId={selectedThread.threadId}
+				mailboxId={mailboxId}
+				subject={selectedThread.subject}
+			/>
+		) : (
+			<div className="flex h-full items-center justify-center">
+				<EmptyState
+					message={
+						searchQuery
+							? "No messages match your search"
+							: "Select a message to read"
+					}
+				/>
+			</div>
+		);
+
+	// Mobile: single-pane view that swaps based on `selectedMessageId`.
+	// Compose-without-selection takes over the full screen too.
+	if (!isDesktop) {
+		const showCompose = composeState.isOpen && !selectedThread;
+		if (selectedThread || showCompose) {
+			return (
+				<div className="h-full flex flex-col">
+					{selectedThread ? <MobileBackHeader onBack={goBack} /> : null}
+					<div className="flex-1 min-h-0">{detailPane}</div>
+				</div>
+			);
+		}
+		return <div className="h-full">{messageList}</div>;
+	}
+
+	// Desktop: unchanged two-pane resizable layout.
 	return (
 		<ResizablePanelGroup direction="horizontal" className="h-full">
 			<ResizablePanel defaultSize={35} minSize={10}>
-				<Panel className="h-full">
-					<MessageList
-						mailboxId={mailboxId}
-						threads={threads}
-						selectedMessageId={selectedMessageId}
-						isLoading={isLoading}
-						isError={isError}
-						error={error}
-						onRetry={() => refetch()}
-						searchQuery={searchQuery}
-						onDeleteMessages={handleDeleteMessages}
-						isDeleting={deleteMutation.isPending}
-						onLoadMore={fetchNextPage}
-						hasMore={hasNextPage}
-						isLoadingMore={isFetchingNextPage}
-					/>
-				</Panel>
+				<Panel className="h-full">{messageList}</Panel>
 			</ResizablePanel>
 			<ResizableHandle />
 			<ResizablePanel defaultSize={65} minSize={20}>
 				<Panel withBorder={false} className="h-full">
-					{composeState.isOpen && !selectedThread ? (
-						<FullCompose />
-					) : selectedThread ? (
-						<ConversationView
-							threadId={selectedThread.threadId}
-							mailboxId={mailboxId}
-							subject={selectedThread.subject}
-						/>
-					) : (
-						<div className="flex h-full items-center justify-center">
-							<EmptyState
-								message={
-									searchQuery
-										? "No messages match your search"
-										: "Select a message to read"
-								}
-							/>
-						</div>
-					)}
+					{detailPane}
 				</Panel>
 			</ResizablePanel>
 		</ResizablePanelGroup>

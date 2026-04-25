@@ -54,7 +54,9 @@ export const MessageListItem = ({
 				selectedMessageId: thread.messageId,
 			})}
 			className={cn(
-				"group block px-3 py-2.5 border-b border-border transition-colors",
+				// Bump vertical padding on mobile to comfortably exceed the 48dp
+				// touch-target floor. Desktop keeps the tighter density.
+				"group block px-3 py-3 sm:py-2.5 border-b border-border transition-colors",
 				"hover:bg-accent/50",
 				isSelected && "bg-accent",
 				isChecked && "bg-primary/10",
@@ -62,12 +64,14 @@ export const MessageListItem = ({
 		>
 			{/* Row 1: Checkbox/Unread dot + Participants + Date */}
 			<div className="flex items-center gap-2 mb-1">
-				{/* Checkbox - shows on hover or when checked, replaces unread dot */}
+				{/* Checkbox - desktop only (shows on hover or when checked). */}
+				{/* Mobile lacks hover and we don't ship long-press in v1, so the
+				    checkbox would just take up space without a way to surface it. */}
 				<button
 					type="button"
 					onClick={handleCheckboxClick}
 					className={cn(
-						"w-4 h-4 rounded border shrink-0 flex items-center justify-center transition-all",
+						"hidden sm:flex w-4 h-4 rounded border shrink-0 items-center justify-center transition-all",
 						isChecked
 							? "bg-primary border-primary text-primary-foreground"
 							: "border-muted-foreground/40 opacity-0 group-hover:opacity-100",
@@ -77,12 +81,13 @@ export const MessageListItem = ({
 				>
 					{isChecked && <Check className="size-3" />}
 				</button>
-				{/* Unread indicator - hidden when checkbox is visible */}
+				{/* Unread indicator - on desktop hides when checkbox is visible;
+				    on mobile it always shows because the checkbox is hidden. */}
 				<span
 					className={cn(
-						"w-2 h-2 rounded-full shrink-0 -ml-3 transition-opacity",
+						"w-2 h-2 rounded-full shrink-0 transition-opacity",
+						"sm:-ml-3 sm:group-hover:opacity-0",
 						!thread.isRead ? "bg-blue-500" : "bg-transparent",
-						"group-hover:opacity-0",
 						isChecked && "opacity-0",
 					)}
 				/>
