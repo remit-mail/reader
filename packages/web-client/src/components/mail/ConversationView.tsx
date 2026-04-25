@@ -186,12 +186,20 @@ export const ConversationView = ({
 		}
 	}, [messages, focusedIndex, toggleExpanded]);
 
-	// Mark messages as read when expanded
+	const { data: config } = useQuery({
+		...configOperationsGetConfigOptions(),
+		staleTime: Infinity,
+	});
+	const activeAccount = config?.accounts?.[0];
+	const smtpConfigured = !!activeAccount?.smtpHost;
+
+	// Mark messages as read immediately when expanded.
 	useMarkAsRead({
 		messages,
 		expandedIds,
 		threadId,
 		mailboxId,
+		accountId: activeAccount?.accountId,
 	});
 
 	// Star toggle functionality
@@ -206,13 +214,6 @@ export const ConversationView = ({
 
 	// Compose state for inline reply/forward
 	const [composeMode, setComposeMode] = useState<ComposeMode | null>(null);
-
-	const { data: config } = useQuery({
-		...configOperationsGetConfigOptions(),
-		staleTime: Infinity,
-	});
-	const activeAccount = config?.accounts?.[0];
-	const smtpConfigured = !!activeAccount?.smtpHost;
 
 	const lastMessage = messages[0];
 	const { data: lastMessageData } = useQuery({

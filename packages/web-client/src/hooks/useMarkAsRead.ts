@@ -1,4 +1,5 @@
 import {
+	mailboxOperationsListMailboxesQueryKey,
 	messageBulkOperationsUpdateFlagsMutation,
 	threadDetailOperationsListThreadMessagesQueryKey,
 	threadOperationsListThreadsQueryKey,
@@ -13,6 +14,7 @@ interface UseMarkAsReadOptions {
 	expandedIds: Set<string>;
 	threadId: string;
 	mailboxId: string;
+	accountId?: string;
 }
 
 interface ThreadMessagesData {
@@ -43,8 +45,6 @@ interface MarkAsReadContext {
 	previousThreadsList: SnapshotEntry<ThreadsListData>[];
 }
 
-const READ_DELAY_MS = 10_000;
-
 const setReadOnItems = (
 	items: RemitImapThreadMessageResponse[],
 	messageIds: Set<string>,
@@ -54,14 +54,37 @@ const setReadOnItems = (
 		messageIds.has(item.messageId) ? { ...item, isRead } : item,
 	);
 
+/**
+ * Pure helper: pick the message IDs that should be marked as read.
+ *
+ * A message is eligible when it is currently unread, currently expanded,
+ * and has not already been marked (or is mid-flight) during this thread
+ * view. Extracted so the policy can be exercised without rendering React.
+ */
+export const selectMessagesToMarkRead = (
+	messages: RemitImapThreadMessageResponse[],
+	expandedIds: Set<string>,
+	alreadyMarked: Set<string>,
+	pending: Set<string>,
+): string[] =>
+	messages
+		.filter(
+			(m) =>
+				!m.isRead &&
+				expandedIds.has(m.threadMessageId) &&
+				!alreadyMarked.has(m.messageId) &&
+				!pending.has(m.messageId),
+		)
+		.map((m) => m.messageId);
+
 export const useMarkAsRead = ({
 	messages,
 	expandedIds,
 	threadId,
 	mailboxId,
+	accountId,
 }: UseMarkAsReadOptions) => {
 	const queryClient = useQueryClient();
-	const timersRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
 	const markedAsReadRef = useRef<Set<string>>(new Set());
 	const pendingRef = useRef<Set<string>>(new Set());
 
@@ -71,7 +94,6 @@ export const useMarkAsRead = ({
 			const messageIds = new Set(variables.body.messageIds ?? []);
 			const isRead = variables.body.isRead ?? true;
 
-			// Use partial-key prefixes — see useToggleStar.ts for rationale.
 			const threadMessagesPrefix =
 				threadDetailOperationsListThreadMessagesQueryKey({
 					path: { threadId },
@@ -174,6 +196,15 @@ export const useMarkAsRead = ({
 			queryClient.invalidateQueries({ queryKey: context.threadMessagesPrefix });
 			queryClient.invalidateQueries({ queryKey: context.threadsListPrefix });
 			queryClient.invalidateQueries({ queryKey: context.threadsSearchPrefix });
+			// Refresh the sidebar mailbox list so the unread badge picks up the
+			// next backend `unseenCount` (which is owned by IMAP sync).
+			if (accountId) {
+				queryClient.invalidateQueries({
+					queryKey: mailboxOperationsListMailboxesQueryKey({
+						path: { accountId },
+					}),
+				});
+			}
 		},
 	});
 
@@ -198,61 +229,27 @@ export const useMarkAsRead = ({
 		[markAsRead],
 	);
 
-	const unreadMessages = useMemo(
-		() => messages.filter((m) => !m.isRead),
-		[messages],
+	const eligibleIds = useMemo(
+		() =>
+			selectMessagesToMarkRead(
+				messages,
+				expandedIds,
+				markedAsReadRef.current,
+				pendingRef.current,
+			),
+		[messages, expandedIds],
 	);
 
+	// Mark as read immediately when a message is expanded — match Gmail
+	// behaviour. The previous implementation used a 10s delay plus an
+	// "all expanded" gate that meant most reads silently never fired.
 	useEffect(() => {
-		if (unreadMessages.length === 0) return;
-
-		const allExpanded = unreadMessages.every((m) =>
-			expandedIds.has(m.threadMessageId),
-		);
-
-		if (allExpanded) {
-			const unreadMessageIds = unreadMessages
-				.map((m) => m.messageId)
-				.filter((id) => !markedAsReadRef.current.has(id));
-
-			if (unreadMessageIds.length > 0) {
-				markMessagesRead(unreadMessageIds);
-			}
-		}
-	}, [unreadMessages, expandedIds, markMessagesRead]);
-
-	useEffect(() => {
-		const currentTimers = timersRef.current;
-
-		for (const message of unreadMessages) {
-			const isExpanded = expandedIds.has(message.threadMessageId);
-			const hasTimer = currentTimers.has(message.messageId);
-			const alreadyMarked = markedAsReadRef.current.has(message.messageId);
-
-			if (isExpanded && !hasTimer && !alreadyMarked) {
-				const timer = setTimeout(() => {
-					markMessagesRead([message.messageId]);
-					currentTimers.delete(message.messageId);
-				}, READ_DELAY_MS);
-				currentTimers.set(message.messageId, timer);
-			} else if (!isExpanded && hasTimer) {
-				clearTimeout(currentTimers.get(message.messageId));
-				currentTimers.delete(message.messageId);
-			}
-		}
-
-		return () => {
-			for (const timer of currentTimers.values()) {
-				clearTimeout(timer);
-			}
-		};
-	}, [unreadMessages, expandedIds, markMessagesRead]);
+		if (eligibleIds.length === 0) return;
+		markMessagesRead(eligibleIds);
+	}, [eligibleIds, markMessagesRead]);
 
 	useEffect(() => {
 		markedAsReadRef.current.clear();
-		for (const timer of timersRef.current.values()) {
-			clearTimeout(timer);
-		}
-		timersRef.current.clear();
+		pendingRef.current.clear();
 	}, [threadId]);
 };
