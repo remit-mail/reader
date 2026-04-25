@@ -128,7 +128,12 @@ const CollapsedCard = ({
 					</div>
 					<div className="shrink-0 text-right">
 						<div className="flex items-center gap-1">
-							<span className="text-xs text-muted-foreground">{date}</span>
+							<span
+								data-testid="message-date"
+								className="text-xs text-muted-foreground"
+							>
+								{date}
+							</span>
 							<ChevronRight className="size-4 text-muted-foreground" />
 						</div>
 						<MessageIndicators
@@ -207,7 +212,12 @@ const ExpandedCard = ({
 						</div>
 						<div className="shrink-0 text-right">
 							<div className="flex items-center gap-1">
-								<span className="text-xs text-muted-foreground">{date}</span>
+								<span
+									data-testid="message-date"
+									className="text-xs text-muted-foreground"
+								>
+									{date}
+								</span>
 								<ChevronDown className="size-4 text-muted-foreground" />
 							</div>
 							<MessageIndicators
