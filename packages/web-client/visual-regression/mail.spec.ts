@@ -5,6 +5,9 @@ import { expect, test } from "./fixtures/account-setup";
  *   - `/mail` empty state (no mailbox selected)
  *   - `/mail/<inboxId>` mailbox list
  *   - `/mail/<inboxId>?selectedMessageId=<msg>` thread open
+ *
+ * Time/date strings (relative-formatted "Yesterday", "8:01 AM" etc) are
+ * masked so the suite isn't flaky against wall-clock-based seed data.
  */
 test.describe("visual: mail", () => {
 	test("empty mail route", async ({ page }) => {
@@ -19,13 +22,17 @@ test.describe("visual: mail", () => {
 		await page.waitForLoadState("networkidle");
 		// Give virtualizer a moment to settle.
 		await page.waitForTimeout(500);
-		await expect(page).toHaveScreenshot("mail-mailbox-list.png");
+		await expect(page).toHaveScreenshot("mail-mailbox-list.png", {
+			mask: [page.getByTestId("thread-time")],
+		});
 	});
 
 	test("thread open", async ({ page, inboxId, sampleMessageId }) => {
 		await page.goto(`/mail/${inboxId}?selectedMessageId=${sampleMessageId}`);
 		await page.waitForLoadState("networkidle");
 		await page.waitForTimeout(500);
-		await expect(page).toHaveScreenshot("mail-thread-open.png");
+		await expect(page).toHaveScreenshot("mail-thread-open.png", {
+			mask: [page.getByTestId("thread-time"), page.getByTestId("message-date")],
+		});
 	});
 });
