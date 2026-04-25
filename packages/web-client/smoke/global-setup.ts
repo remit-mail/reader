@@ -48,23 +48,25 @@ import {
 	serializeEncryptedPayload,
 } from "@remit/secrets-service";
 import { Entity } from "electrodb";
+import {
+	E2E_ACCOUNT_CONFIG_ID,
+	E2E_ACCOUNT_ID,
+	E2E_EMAIL,
+	E2E_IMAP_PASSWORD,
+	E2E_USER_ID,
+	INBOX_ID,
+	SENT_ID,
+	TRASH_ID,
+} from "./seed-constants";
 
-const E2E_EMAIL = "vmail@mailfuzz.local";
-const E2E_IMAP_PASSWORD = "testpass123";
-
-export const E2E_USER_ID = base36uuidv5(`e2e:${E2E_EMAIL}`, REMIT_NAMESPACE);
-export const E2E_ACCOUNT_CONFIG_ID = base36uuidv5(
-	`e2e:config:${E2E_EMAIL}`,
-	REMIT_NAMESPACE,
-);
-export const E2E_ACCOUNT_ID = base36uuidv5(
-	`e2e:account:${E2E_EMAIL}`,
-	REMIT_NAMESPACE,
-);
-
-const INBOX_ID = base36uuidv5(`e2e:mailbox:INBOX`, REMIT_NAMESPACE);
-const SENT_ID = base36uuidv5(`e2e:mailbox:Sent`, REMIT_NAMESPACE);
-const TRASH_ID = base36uuidv5(`e2e:mailbox:Trash`, REMIT_NAMESPACE);
+export {
+	E2E_ACCOUNT_CONFIG_ID,
+	E2E_ACCOUNT_ID,
+	E2E_USER_ID,
+	INBOX_ID,
+	SAMPLE_MESSAGE_ID,
+	SAMPLE_MESSAGE_ID_HEADER,
+} from "./seed-constants";
 
 const NOW = Date.now();
 

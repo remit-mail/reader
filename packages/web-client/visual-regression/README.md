@@ -27,6 +27,11 @@ Compares against the baselines in the orphan branch. Fails on diffs greater than
 After an intentional visual change:
 
 ```sh
+# 0. (Optional) Reset local DDB + storage so the seeder produces a
+#    clean state. CI always runs against a fresh DynamoDB; locally
+#    stale rows from prior runs can leak into baselines.
+npm run ddb:test:reset
+
 # 1. Re-capture every spec into the local cache.
 npm run test:visual:update -w packages/remit-web-client
 
@@ -39,6 +44,10 @@ npm run test:visual:publish -w packages/remit-web-client
 ```
 
 `:publish` is a separate explicit step on purpose — re-running `:update` locally will never silently overwrite the baselines on the remote.
+
+`ddb:test:reset` deletes the `remit-test` DynamoDB table on the local stack
+(`localhost:5435`), recreates it from `dynamodb/table.schema.json`, and wipes
+`.remit/e2e-storage` so the next seeder run starts clean.
 
 ## Coverage
 
