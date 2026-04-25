@@ -32,13 +32,30 @@ SNAPSHOT_TARGET="${CACHE_DIR}/${SNAPSHOT_REL}"
 # back to whatever `origin` resolves to in the consuming repo.
 REMOTE_URL="${VISUAL_BASELINES_REMOTE:-$(git -C "${REPO_ROOT}" remote get-url origin)}"
 
+# In GitHub Actions the checked-out repo's `.git/config` carries an
+# `extraheader` with a short-lived token that authenticates against
+# `github.com`. Fresh `git clone`s do NOT inherit that — so weave the
+# token into the URL when one is available. Locally, GITHUB_TOKEN is
+# usually empty and we just clone over the user's git credential
+# helper.
+if [[ -n "${GITHUB_TOKEN:-}" && "${REMOTE_URL}" =~ ^https://github\.com/ ]]; then
+	REMOTE_URL="${REMOTE_URL/https:\/\//https://x-access-token:${GITHUB_TOKEN}@}"
+fi
+
 log() {
 	printf '[visual-baselines] %s\n' "$*" >&2
 }
 
+# Strip the embedded `x-access-token:...@` from a URL before logging
+# so the token never appears in CI output.
+redact_url() {
+	local url="$1"
+	echo "${url//x-access-token:*@/x-access-token:***@}"
+}
+
 ensure_cache() {
 	if [[ ! -d "${CACHE_DIR}/.git" ]]; then
-		log "cloning ${BRANCH} from ${REMOTE_URL} into ${CACHE_DIR}"
+		log "cloning ${BRANCH} from $(redact_url "${REMOTE_URL}") into ${CACHE_DIR}"
 		rm -rf "${CACHE_DIR}"
 		git clone --depth=1 --branch "${BRANCH}" --single-branch \
 			"${REMOTE_URL}" "${CACHE_DIR}"
@@ -49,7 +66,7 @@ ensure_cache() {
 	local current_url
 	current_url="$(git -C "${CACHE_DIR}" remote get-url origin || true)"
 	if [[ "${current_url}" != "${REMOTE_URL}" ]]; then
-		log "updating cache remote: ${current_url} -> ${REMOTE_URL}"
+		log "updating cache remote: $(redact_url "${current_url}") -> $(redact_url "${REMOTE_URL}")"
 		git -C "${CACHE_DIR}" remote set-url origin "${REMOTE_URL}"
 	fi
 }
@@ -152,7 +169,7 @@ cmd_status() {
 		exit 0
 	fi
 	log "cache: ${CACHE_DIR}"
-	log "remote: $(git -C "${CACHE_DIR}" remote get-url origin)"
+	log "remote: $(redact_url "$(git -C "${CACHE_DIR}" remote get-url origin)")"
 	log "head:   $(git -C "${CACHE_DIR}" rev-parse HEAD)"
 	log "branch: $(git -C "${CACHE_DIR}" rev-parse --abbrev-ref HEAD)"
 	log "diff vs origin/${BRANCH}:"

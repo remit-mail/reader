@@ -1,5 +1,15 @@
 import { defineConfig, devices } from "@playwright/test";
 
+// Ports the visual suite owns. Default to the smoke harness defaults
+// (5173 / 5433) so a fresh checkout works with no env tweaking. Local
+// dev with another Vite running on 5173 should override these — for
+// example `VISUAL_VITE_PORT=5176 VISUAL_BACKEND_PORT=5436 npm run …`.
+const VITE_PORT = Number.parseInt(process.env.VISUAL_VITE_PORT ?? "5173", 10);
+const BACKEND_PORT = Number.parseInt(
+	process.env.VISUAL_BACKEND_PORT ?? "5433",
+	10,
+);
+
 /**
  * Visual regression suite. Captures screenshots of the key Remit routes
  * at three viewports — phone (iPhone-13: 390×844), tablet (iPad-mini:
@@ -37,7 +47,7 @@ export default defineConfig({
 	timeout: 30_000,
 	globalSetup: "./smoke/global-setup.ts",
 	use: {
-		baseURL: "http://localhost:5173",
+		baseURL: `http://localhost:${VITE_PORT}`,
 		trace: "retain-on-failure",
 		screenshot: "only-on-failure",
 	},
@@ -84,16 +94,19 @@ export default defineConfig({
 			},
 		},
 	],
+	// `reuseExistingServer: false` everywhere — reusing a Vite from
+	// another worktree silently captures the wrong codebase. Stop
+	// other dev servers on ports 5173/5433 before running this suite.
 	webServer: [
 		{
 			command:
 				"node --env-file=../../.e2e.env --import tsx ../../packages/remit-backend/dev-server/server.ts",
-			port: 5433,
-			reuseExistingServer: !process.env.CI,
+			port: BACKEND_PORT,
+			reuseExistingServer: false,
 			env: {
 				DYNAMODB_PORT: "5435",
 				DYNAMODB_TABLE_NAME: "remit-test",
-				SERVER_PORT: "5433",
+				SERVER_PORT: String(BACKEND_PORT),
 				KMS_KEY_ID: "FAKE_KMS_KEY_ID",
 				FAKE_KMS_DATAKEY: "8AD6A6C8-B5E2-488F-B017-96B662DC01AC",
 				SQS_QUEUE_URL: "http://localhost:9324/000000000000/remit-e2e-noop",
@@ -108,9 +121,12 @@ export default defineConfig({
 			stderr: "pipe",
 		},
 		{
-			command: "npx vite --port 5173",
-			port: 5173,
-			reuseExistingServer: !process.env.CI,
+			command: `npx vite --port ${VITE_PORT}`,
+			port: VITE_PORT,
+			reuseExistingServer: false,
+			env: {
+				VITE_PROXY_BACKEND_PORT: String(BACKEND_PORT),
+			},
 			stdout: "pipe",
 			stderr: "pipe",
 		},
