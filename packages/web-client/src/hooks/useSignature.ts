@@ -16,7 +16,10 @@ const EMPTY_SIGNATURE: SignatureData = { html: "", plainText: "" };
 export const useSignature = (accountId?: string) => {
 	const queryClient = useQueryClient();
 
-	const { data: config } = useQuery(configOperationsGetConfigOptions());
+	const { data: config } = useQuery({
+		...configOperationsGetConfigOptions(),
+		staleTime: Infinity,
+	});
 
 	const signature = useMemo<SignatureData>(() => {
 		if (!accountId || !config) return EMPTY_SIGNATURE;

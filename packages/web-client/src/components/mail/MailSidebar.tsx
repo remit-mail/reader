@@ -278,11 +278,15 @@ const AccountSection = ({ account }: { account: RemitImapAccountResponse }) => {
 		isError,
 		error,
 		refetch,
-	} = useQuery(
-		mailboxOperationsListMailboxesOptions({
+	} = useQuery({
+		...mailboxOperationsListMailboxesOptions({
 			path: { accountId: account.accountId },
 		}),
-	);
+		// Mailboxes change rarely (only on add/rename/delete). Cache forever
+		// and rely on explicit invalidation from those mutations. Avoids the
+		// 30s background refetch that flashes the sidebar.
+		staleTime: Infinity,
+	});
 
 	const { system, labels } = useMemo(
 		() => sortMailboxes(mailboxesResponse?.items ?? []),

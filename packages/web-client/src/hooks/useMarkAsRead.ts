@@ -5,7 +5,7 @@ import {
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 interface UseMarkAsReadOptions {
 	messages: RemitImapThreadMessageResponse[];
@@ -14,7 +14,40 @@ interface UseMarkAsReadOptions {
 	mailboxId: string;
 }
 
+interface ThreadMessagesData {
+	items: RemitImapThreadMessageResponse[];
+	[key: string]: unknown;
+}
+
+interface ThreadsListPage {
+	items: RemitImapThreadMessageResponse[];
+	[key: string]: unknown;
+}
+
+interface ThreadsListData {
+	pages: ThreadsListPage[];
+	pageParams: Array<string | undefined>;
+}
+
+interface MarkAsReadContext {
+	threadMessagesKey: ReturnType<
+		typeof threadDetailOperationsListThreadMessagesQueryKey
+	>;
+	threadsListKey: ReturnType<typeof threadOperationsListThreadsQueryKey>;
+	previousThreadMessages?: ThreadMessagesData;
+	previousThreadsList?: ThreadsListData;
+}
+
 const READ_DELAY_MS = 10_000;
+
+const setReadOnItems = (
+	items: RemitImapThreadMessageResponse[],
+	messageIds: Set<string>,
+	isRead: boolean,
+): RemitImapThreadMessageResponse[] =>
+	items.map((item) =>
+		messageIds.has(item.messageId) ? { ...item, isRead } : item,
+	);
 
 export const useMarkAsRead = ({
 	messages,
@@ -25,38 +58,90 @@ export const useMarkAsRead = ({
 	const queryClient = useQueryClient();
 	const timersRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
 	const markedAsReadRef = useRef<Set<string>>(new Set());
-
-	// Track in-flight requests to prevent duplicate calls
 	const pendingRef = useRef<Set<string>>(new Set());
 
 	const { mutate: markAsRead } = useMutation({
 		...messageBulkOperationsUpdateFlagsMutation(),
+		onMutate: async (variables): Promise<MarkAsReadContext> => {
+			const messageIds = new Set(variables.body.messageIds ?? []);
+			const isRead = variables.body.isRead ?? true;
+
+			const threadMessagesKey =
+				threadDetailOperationsListThreadMessagesQueryKey({
+					path: { threadId },
+				});
+			const threadsListKey = threadOperationsListThreadsQueryKey({
+				path: { mailboxId },
+			});
+
+			await Promise.all([
+				queryClient.cancelQueries({ queryKey: threadMessagesKey }),
+				queryClient.cancelQueries({ queryKey: threadsListKey }),
+			]);
+
+			const previousThreadMessages =
+				queryClient.getQueryData<ThreadMessagesData>(threadMessagesKey);
+			const previousThreadsList =
+				queryClient.getQueryData<ThreadsListData>(threadsListKey);
+
+			if (previousThreadMessages) {
+				queryClient.setQueryData<ThreadMessagesData>(threadMessagesKey, {
+					...previousThreadMessages,
+					items: setReadOnItems(
+						previousThreadMessages.items,
+						messageIds,
+						isRead,
+					),
+				});
+			}
+
+			if (previousThreadsList) {
+				queryClient.setQueryData<ThreadsListData>(threadsListKey, {
+					...previousThreadsList,
+					pages: previousThreadsList.pages.map((page) => ({
+						...page,
+						items: setReadOnItems(page.items, messageIds, isRead),
+					})),
+				});
+			}
+
+			return {
+				threadMessagesKey,
+				threadsListKey,
+				previousThreadMessages,
+				previousThreadsList,
+			};
+		},
 		onSuccess: (_data, variables) => {
-			// Mark as successfully processed
 			const messageIds = variables.body.messageIds ?? [];
 			for (const id of messageIds) {
 				markedAsReadRef.current.add(id);
 				pendingRef.current.delete(id);
 			}
-			// Invalidate thread messages query using generated key
-			queryClient.invalidateQueries({
-				queryKey: threadDetailOperationsListThreadMessagesQueryKey({
-					path: { threadId },
-				}),
-			});
-			// Invalidate thread list query using generated key
-			queryClient.invalidateQueries({
-				queryKey: threadOperationsListThreadsQueryKey({
-					path: { mailboxId },
-				}),
-			});
 		},
-		onError: (_error, variables) => {
-			// Remove from pending so it can be retried
+		onError: (_error, variables, context) => {
 			const messageIds = variables.body.messageIds ?? [];
 			for (const id of messageIds) {
 				pendingRef.current.delete(id);
 			}
+			if (!context) return;
+			if (context.previousThreadMessages) {
+				queryClient.setQueryData(
+					context.threadMessagesKey,
+					context.previousThreadMessages,
+				);
+			}
+			if (context.previousThreadsList) {
+				queryClient.setQueryData(
+					context.threadsListKey,
+					context.previousThreadsList,
+				);
+			}
+		},
+		onSettled: (_data, _err, _vars, context) => {
+			if (!context) return;
+			queryClient.invalidateQueries({ queryKey: context.threadMessagesKey });
+			queryClient.invalidateQueries({ queryKey: context.threadsListKey });
 		},
 	});
 
@@ -67,7 +152,6 @@ export const useMarkAsRead = ({
 			);
 			if (idsToMark.length === 0) return;
 
-			// Mark as pending (in-flight)
 			for (const id of idsToMark) {
 				pendingRef.current.add(id);
 			}
@@ -82,10 +166,11 @@ export const useMarkAsRead = ({
 		[markAsRead],
 	);
 
-	// Get unread messages
-	const unreadMessages = messages.filter((m) => !m.isRead);
+	const unreadMessages = useMemo(
+		() => messages.filter((m) => !m.isRead),
+		[messages],
+	);
 
-	// Check if all unread messages are expanded
 	useEffect(() => {
 		if (unreadMessages.length === 0) return;
 
@@ -104,7 +189,6 @@ export const useMarkAsRead = ({
 		}
 	}, [unreadMessages, expandedIds, markMessagesRead]);
 
-	// Set up timers for expanded unread messages
 	useEffect(() => {
 		const currentTimers = timersRef.current;
 
@@ -132,7 +216,6 @@ export const useMarkAsRead = ({
 		};
 	}, [unreadMessages, expandedIds, markMessagesRead]);
 
-	// Reset marked messages when thread changes
 	useEffect(() => {
 		markedAsReadRef.current.clear();
 		for (const timer of timersRef.current.values()) {

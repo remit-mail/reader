@@ -195,7 +195,10 @@ export const ConversationView = ({
 	// Compose state for inline reply/forward
 	const [composeMode, setComposeMode] = useState<ComposeMode | null>(null);
 
-	const { data: config } = useQuery(configOperationsGetConfigOptions());
+	const { data: config } = useQuery({
+		...configOperationsGetConfigOptions(),
+		staleTime: Infinity,
+	});
 	const activeAccount = config?.accounts?.[0];
 	const smtpConfigured = !!activeAccount?.smtpHost;
 
