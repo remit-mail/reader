@@ -19,7 +19,6 @@ import { cn } from "@/lib/utils";
 
 const navItems = [
 	{ path: "/settings/accounts", label: "Accounts", icon: Users },
-	{ path: "/settings/general", label: "General", icon: SettingsIcon },
 ];
 
 export const Route = createFileRoute("/settings")({
