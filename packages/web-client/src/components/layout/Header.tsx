@@ -1,5 +1,5 @@
 import { Link, useLocation } from "@tanstack/react-router";
-import { Mail, Menu, Settings } from "lucide-react";
+import { Mail, Menu, Search, Settings, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "../../lib/utils";
 import { SearchBar } from "./SearchBar";
@@ -8,19 +8,28 @@ interface HeaderProps {
 	searchQuery: string;
 	onSearchChange: (query: string) => void;
 	onSearchClear: () => void;
+	/**
+	 * Optional handler for the menu (hamburger) button. When provided, the
+	 * button calls this instead of opening the in-Header dropdown — used on
+	 * mobile to open a full-screen drawer hosted by the parent layout.
+	 */
+	onMenuClick?: () => void;
 }
 
 export const Header = ({
 	searchQuery,
 	onSearchChange,
 	onSearchClear,
+	onMenuClick,
 }: HeaderProps) => {
 	const [menuOpen, setMenuOpen] = useState(false);
+	const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
 	const menuRef = useRef<HTMLDivElement>(null);
 	const location = useLocation();
 
-	// Close menu on click outside
+	// Close dropdown on click outside (only used when no external onMenuClick)
 	useEffect(() => {
+		if (onMenuClick) return;
 		const handleClickOutside = (event: MouseEvent) => {
 			if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
 				setMenuOpen(false);
@@ -28,32 +37,41 @@ export const Header = ({
 		};
 		document.addEventListener("mousedown", handleClickOutside);
 		return () => document.removeEventListener("mousedown", handleClickOutside);
-	}, []);
+	}, [onMenuClick]);
 
-	// Close menu on navigation
+	// Close menu / mobile search on navigation
 	useEffect(() => {
 		setMenuOpen(false);
+		setMobileSearchOpen(false);
 	}, [location.pathname]);
 
+	const handleMenuButton = () => {
+		if (onMenuClick) {
+			onMenuClick();
+			return;
+		}
+		setMenuOpen((prev) => !prev);
+	};
+
 	return (
-		<header className="flex items-center gap-4 px-4 h-12 border-b border-border bg-background shrink-0">
-			{/* Left: App branding with menu */}
+		<header className="flex items-center gap-2 sm:gap-4 px-2 sm:px-4 h-12 border-b border-border bg-background shrink-0">
+			{/* Left: Branding + hamburger */}
 			<div className="relative" ref={menuRef}>
 				<div className="flex items-center gap-2 shrink-0">
 					<button
 						type="button"
-						onClick={() => setMenuOpen(!menuOpen)}
-						className="p-1.5 rounded-md hover:bg-accent transition-colors"
+						onClick={handleMenuButton}
+						className="p-2 rounded-md hover:bg-accent transition-colors min-h-11 min-w-11 inline-flex items-center justify-center"
 						aria-label="Menu"
-						aria-expanded={menuOpen}
+						aria-expanded={onMenuClick ? undefined : menuOpen}
 					>
 						<Menu className="size-5" />
 					</button>
 					<span className="font-semibold text-foreground">Remit</span>
 				</div>
 
-				{/* Dropdown menu */}
-				{menuOpen && (
+				{/* Desktop dropdown menu (only when no external onMenuClick) */}
+				{!onMenuClick && menuOpen && (
 					<div className="absolute top-full left-0 mt-1 w-48 bg-background border border-border rounded-md shadow-lg z-50">
 						<nav className="py-1">
 							<Link
@@ -82,8 +100,8 @@ export const Header = ({
 				)}
 			</div>
 
-			{/* Center: Search bar */}
-			<div className="flex-1 max-w-xl mx-auto">
+			{/* Center: Search bar (inline ≥ sm, expanding overlay < sm) */}
+			<div className="flex-1 max-w-xl mx-auto hidden sm:block">
 				<SearchBar
 					value={searchQuery}
 					onChange={onSearchChange}
@@ -91,11 +109,45 @@ export const Header = ({
 				/>
 			</div>
 
-			{/* Right: Settings */}
-			<div className="flex items-center gap-2 shrink-0">
+			{/* Mobile: search-icon toggle */}
+			<div className="flex-1 sm:hidden">
+				{mobileSearchOpen ? (
+					<div className="flex items-center gap-1">
+						<div className="flex-1">
+							<SearchBar
+								value={searchQuery}
+								onChange={onSearchChange}
+								onClear={onSearchClear}
+							/>
+						</div>
+						<button
+							type="button"
+							onClick={() => setMobileSearchOpen(false)}
+							className="p-2 rounded-md hover:bg-accent transition-colors min-h-11 min-w-11 inline-flex items-center justify-center"
+							aria-label="Close search"
+						>
+							<X className="size-5" />
+						</button>
+					</div>
+				) : (
+					<div className="flex justify-end">
+						<button
+							type="button"
+							onClick={() => setMobileSearchOpen(true)}
+							className="p-2 rounded-md hover:bg-accent transition-colors min-h-11 min-w-11 inline-flex items-center justify-center"
+							aria-label="Search"
+						>
+							<Search className="size-5" />
+						</button>
+					</div>
+				)}
+			</div>
+
+			{/* Right: Settings (hidden on mobile — bottom nav covers this) */}
+			<div className="hidden md:flex items-center gap-2 shrink-0">
 				<Link
 					to="/settings/accounts"
-					className="p-1.5 rounded-md hover:bg-accent transition-colors"
+					className="p-2 rounded-md hover:bg-accent transition-colors min-h-11 min-w-11 inline-flex items-center justify-center"
 					aria-label="Settings"
 				>
 					<Settings className="size-5" />

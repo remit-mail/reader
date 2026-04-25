@@ -9,6 +9,8 @@ import {
 } from "@tanstack/react-router";
 import { createContext, useCallback, useContext, useState } from "react";
 import { z } from "zod";
+import { BottomNav } from "@/components/layout/BottomNav";
+import { Drawer } from "@/components/layout/Drawer";
 import { Header } from "@/components/layout/Header";
 import { Panel } from "@/components/layout/Panel";
 import {
@@ -19,6 +21,7 @@ import {
 import { MailSidebar } from "@/components/mail/MailSidebar";
 import { KeyboardShortcutsModal } from "@/components/ui/KeyboardShortcutsModal";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
+import { useIsDesktop } from "@/hooks/useMediaQuery";
 import "@/lib/client";
 
 const mailSearchSchema = z.object({
@@ -49,7 +52,9 @@ export const Route = createFileRoute("/mail")({
 function MailLayout() {
 	const { q: searchQuery = "" } = useSearch({ from: "/mail" });
 	const navigate = useNavigate();
+	const isDesktop = useIsDesktop();
 	const [showShortcuts, setShowShortcuts] = useState(false);
+	const [drawerOpen, setDrawerOpen] = useState(false);
 
 	const { data: config, isLoading } = useQuery(
 		configOperationsGetConfigOptions(),
@@ -101,18 +106,52 @@ function MailLayout() {
 						searchQuery={searchQuery}
 						onSearchChange={handleSearchChange}
 						onSearchClear={handleSearchClear}
+						onMenuClick={() => setDrawerOpen(true)}
 					/>
-					<ResizablePanelGroup direction="horizontal" className="flex-1">
-						<ResizablePanel defaultSize={15} minSize={10}>
-							<Panel className="h-full">
-								<MailSidebar accounts={accounts} />
-							</Panel>
-						</ResizablePanel>
-						<ResizableHandle />
-						<ResizablePanel defaultSize={85} minSize={30}>
-							<Outlet />
-						</ResizablePanel>
-					</ResizablePanelGroup>
+					{/*
+					 * Desktop: resizable sidebar + outlet via ResizablePanelGroup.
+					 * Mobile (< md): outlet only — the sidebar lives in the Drawer.
+					 * We branch with `isDesktop` (matchMedia) instead of CSS hide,
+					 * because react-resizable-panels does not handle `display:none`
+					 * on its panels.
+					 */}
+					<div className="flex-1 min-h-0">
+						{isDesktop ? (
+							<ResizablePanelGroup direction="horizontal" className="h-full">
+								<ResizablePanel defaultSize={15} minSize={10}>
+									<Panel className="h-full">
+										<MailSidebar accounts={accounts} />
+									</Panel>
+								</ResizablePanel>
+								<ResizableHandle />
+								<ResizablePanel defaultSize={85} minSize={30}>
+									<Outlet />
+								</ResizablePanel>
+							</ResizablePanelGroup>
+						) : (
+							<div
+								className="h-full"
+								style={{
+									// Reserve space for the bottom nav + iOS safe area.
+									paddingBottom:
+										"calc(3.5rem + env(safe-area-inset-bottom, 0))",
+								}}
+							>
+								<Outlet />
+							</div>
+						)}
+					</div>
+					{/* Mobile drawer holds the sidebar */}
+					<Drawer
+						isOpen={drawerOpen}
+						onClose={() => setDrawerOpen(false)}
+						ariaLabel="Mailboxes and accounts"
+					>
+						<MailSidebar accounts={accounts} />
+					</Drawer>
+					{/* Bottom nav (mobile only). PR-B will hide this when a
+					    thread is full-screen by routing-aware logic. */}
+					<BottomNav />
 				</div>
 			)}
 			<KeyboardShortcutsModal

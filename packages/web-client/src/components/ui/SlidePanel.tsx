@@ -34,7 +34,7 @@ export const SlidePanel = ({
 		{/* Slide-in panel */}
 		<div
 			className={cn(
-				"fixed top-0 right-0 h-full w-[400px] bg-background border-l border-border shadow-xl z-50",
+				"fixed top-0 right-0 h-full w-full sm:w-[400px] sm:max-w-[90vw] bg-background border-l border-border shadow-xl z-50",
 				"transform transition-transform duration-200 ease-out",
 				isOpen ? "translate-x-0" : "translate-x-full",
 			)}
