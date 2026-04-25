@@ -15,7 +15,6 @@ import {
 	useQueryClient,
 } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft } from "lucide-react";
 import { useCallback } from "react";
 import { z } from "zod";
 import { useCompose } from "@/components/compose/ComposeProvider";
@@ -44,28 +43,6 @@ export const Route = createFileRoute("/mail/$mailboxId")({
 	component: MailboxView,
 	validateSearch: mailboxSearchSchema,
 });
-
-interface MobileBackHeaderProps {
-	onBack: () => void;
-}
-
-/**
- * Sticky top bar on mobile thread view. Just a back affordance — the
- * conversation's own header below carries the subject + message count.
- */
-const MobileBackHeader = ({ onBack }: MobileBackHeaderProps) => (
-	<header className="md:hidden flex items-center gap-2 px-2 h-12 border-b border-border bg-background shrink-0">
-		<button
-			type="button"
-			onClick={onBack}
-			className="p-2 rounded-md hover:bg-accent transition-colors min-h-11 min-w-11 inline-flex items-center justify-center -ml-1"
-			aria-label="Back to mailbox"
-		>
-			<ArrowLeft className="size-5" />
-		</button>
-		<span className="text-sm text-muted-foreground">Back to messages</span>
-	</header>
-);
 
 function MailboxView() {
 	const { mailboxId } = Route.useParams();
@@ -279,21 +256,20 @@ function MailboxView() {
 	// Mobile: single-pane view that swaps based on `selectedMessageId` and
 	// compose state. The compose surface, when open without a selected
 	// thread, takes over the whole pane (which on mobile IS the whole
-	// screen) — no extra overlay plumbing required.
+	// screen) — no extra overlay plumbing required. The thread view
+	// flows naturally; the parent route owns the scroll surface, and
+	// back/reply/forward affordances live in the BottomNav via
+	// ThreadActionsContext.
 	if (!isDesktop) {
 		const showCompose = composeState.isOpen && !selectedThread;
 		if (selectedThread) {
 			return (
-				<div className="h-full flex flex-col">
-					<MobileBackHeader onBack={goBack} />
-					<div className="flex-1 min-h-0">
-						<ConversationView
-							threadId={selectedThread.threadId}
-							mailboxId={mailboxId}
-							subject={selectedThread.subject}
-						/>
-					</div>
-				</div>
+				<ConversationView
+					threadId={selectedThread.threadId}
+					mailboxId={mailboxId}
+					subject={selectedThread.subject}
+					onBack={goBack}
+				/>
 			);
 		}
 		if (showCompose) {

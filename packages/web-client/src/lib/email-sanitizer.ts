@@ -5,6 +5,17 @@ export type ColorMode = "light" | "dark" | "auto";
 export interface SanitizeOptions {
 	allowExternalImages?: boolean;
 	/**
+	 * Allow the email author's own background colors and `bgcolor`
+	 * attributes through unchanged. Emails often paint full-bleed
+	 * branded backgrounds (e.g. bol.com) that are unreadable when our
+	 * dark-mode overrides repaint them; once the user has trusted the
+	 * sender (e.g. by loading remote images) we should respect their
+	 * design. Defaults to `false` to avoid the "disco" effect on
+	 * untrusted mail.
+	 * @default false
+	 */
+	allowAuthorBackgrounds?: boolean;
+	/**
 	 * Color mode for email content adaptation.
 	 * - 'light': No color processing (email designed for light backgrounds)
 	 * - 'dark': Process colors to work on dark backgrounds
@@ -508,8 +519,10 @@ export const createEmailSanitizer = (options: SanitizeOptions = {}) => {
 			node.setAttribute("style", style);
 		}
 
-		// Handle bgcolor attribute (legacy HTML)
+		// Handle bgcolor attribute (legacy HTML). Skip when the caller has
+		// trusted the author's backgrounds (e.g. images loaded).
 		if (
+			!options.allowAuthorBackgrounds &&
 			(colorMode === "dark" || colorMode === "auto") &&
 			node.hasAttribute("bgcolor")
 		) {

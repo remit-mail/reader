@@ -12,13 +12,21 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { useMarkAsRead } from "@/hooks/useMarkAsRead";
+import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { useToggleStar } from "@/hooks/useToggleStar";
 import { MessageCard } from "./MessageCard";
+import { useSetThreadActions } from "./ThreadActionsContext";
 
 interface ConversationViewProps {
 	threadId: string;
 	mailboxId: string;
 	subject?: string;
+	/**
+	 * Mobile callers pass `onBack` so the conversation can publish it
+	 * into the bottom-nav action bar (replacing the global tabs while
+	 * the user is reading a thread). Desktop callers omit it.
+	 */
+	onBack?: () => void;
 }
 
 const LoadingSkeleton = () => (
@@ -93,7 +101,10 @@ export const ConversationView = ({
 	threadId,
 	mailboxId,
 	subject,
+	onBack,
 }: ConversationViewProps) => {
+	const isDesktop = useIsDesktop();
+	const setThreadActions = useSetThreadActions();
 	const {
 		data: messagesResponse,
 		isLoading,
@@ -111,7 +122,6 @@ export const ConversationView = ({
 		() => messagesResponse?.items ?? [],
 		[messagesResponse?.items],
 	);
-	const scrollContainerRef = useRef<HTMLDivElement>(null);
 	const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
 	// Track which messages are expanded
@@ -226,6 +236,33 @@ export const ConversationView = ({
 		setComposeMode(null);
 	}, []);
 
+	// Publish thread actions to the mobile bottom-nav while this view is
+	// mounted on mobile. The bottom nav swaps from global tabs to these
+	// actions until the user navigates back. Skip while the inline
+	// compose is open (it has its own controls) or on desktop (the
+	// in-pane ActionBar covers it).
+	const inlineComposeOpen = composeMode !== null;
+	useEffect(() => {
+		if (isDesktop || !onBack || inlineComposeOpen) return;
+		setThreadActions({
+			onBack,
+			onReply: smtpConfigured ? handleReply : undefined,
+			onReplyAll: smtpConfigured ? handleReplyAll : undefined,
+			onForward: smtpConfigured ? handleForward : undefined,
+			disabled: !smtpConfigured,
+		});
+		return () => setThreadActions(null);
+	}, [
+		isDesktop,
+		onBack,
+		inlineComposeOpen,
+		smtpConfigured,
+		handleReply,
+		handleReplyAll,
+		handleForward,
+		setThreadActions,
+	]);
+
 	// Register keyboard shortcuts
 	useKeyboardNavigation({
 		enabled: !isLoading && messages.length > 0 && composeMode === null,
@@ -278,45 +315,65 @@ export const ConversationView = ({
 	const displaySubject = subject || messages[0]?.subject || "(No subject)";
 	const messageCount = messages.length;
 
+	const messagesList = (
+		<div className="px-4 py-2">
+			{messages.map((message, index) => (
+				<div
+					key={message.threadMessageId}
+					ref={(el) => {
+						if (el) messageRefs.current.set(message.threadMessageId, el);
+					}}
+				>
+					{index > 0 && <div className="border-t border-border/50 my-1" />}
+					<MessageCard
+						threadMessage={message}
+						isExpanded={expandedIds.has(message.threadMessageId)}
+						isFocused={index === focusedIndex}
+						onToggle={() => toggleExpanded(message.threadMessageId)}
+						onToggleStar={() => toggleStar(message.messageId, message.hasStars)}
+						isStarPending={
+							isStarPending && pendingMessageId === message.messageId
+						}
+					/>
+				</div>
+			))}
+		</div>
+	);
+
+	const header = (
+		<header className="border-b border-border p-4">
+			<h1 className="text-xl font-semibold">{displaySubject}</h1>
+			<p className="text-sm text-muted-foreground mt-1">
+				{messageCount} {messageCount === 1 ? "message" : "messages"}
+			</p>
+		</header>
+	);
+
+	// Mobile: a single scroll surface for header + messages (no nested
+	// overflow, header scrolls away with the content). Action bar lives
+	// in the bottom nav via ThreadActionsContext. The inline compose,
+	// when open, sticks to the bottom of the scroll surface.
+	if (!isDesktop) {
+		return (
+			<article className="h-full overflow-y-auto">
+				{header}
+				{messagesList}
+				{composeMode !== null && (
+					<InlineCompose
+						mode={composeMode}
+						account={activeAccount}
+						sourceMessage={lastMessageData}
+						onClose={handleCloseCompose}
+					/>
+				)}
+			</article>
+		);
+	}
+
 	return (
 		<article className="h-full flex flex-col">
-			{/* Thread header */}
-			<header className="border-b border-border p-4 shrink-0">
-				<h1 className="text-xl font-semibold">{displaySubject}</h1>
-				<p className="text-sm text-muted-foreground mt-1">
-					{messageCount} {messageCount === 1 ? "message" : "messages"}
-				</p>
-			</header>
-
-			{/* Messages list */}
-			<div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
-				<div className="px-4 py-2">
-					{messages.map((message, index) => (
-						<div
-							key={message.threadMessageId}
-							ref={(el) => {
-								if (el) messageRefs.current.set(message.threadMessageId, el);
-							}}
-						>
-							{index > 0 && <div className="border-t border-border/50 my-1" />}
-							<MessageCard
-								threadMessage={message}
-								isExpanded={expandedIds.has(message.threadMessageId)}
-								isFocused={index === focusedIndex}
-								onToggle={() => toggleExpanded(message.threadMessageId)}
-								onToggleStar={() =>
-									toggleStar(message.messageId, message.hasStars)
-								}
-								isStarPending={
-									isStarPending && pendingMessageId === message.messageId
-								}
-							/>
-						</div>
-					))}
-				</div>
-			</div>
-
-			{/* Inline compose or action bar */}
+			{header}
+			<div className="flex-1 overflow-y-auto">{messagesList}</div>
 			{composeMode !== null ? (
 				<InlineCompose
 					mode={composeMode}
