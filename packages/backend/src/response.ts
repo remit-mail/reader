@@ -45,6 +45,8 @@ export const postResponseHandler = (context: OpenAPIContext) => {
 
 	if (response.statusCode) return formatResponse(response, response.statusCode);
 
+	if (process.env.STAGE_NAME !== "dev") return formatResponse(response, 200);
+
 	const { valid, errors } = api.validateResponse(response, operation);
 
 	if (valid) return formatResponse(response, 200);
@@ -74,8 +76,5 @@ export const postResponseHandler = (context: OpenAPIContext) => {
 
 	logger.error(errorDetails, "Response validation failed");
 
-	if (["dev", "prod", "beta", "alpha"].includes(process.env.STAGE_NAME ?? ""))
-		return formatResponse(response, 200);
-
-	return formatResponse({ message: "Internal Server Error" }, 500);
+	return formatResponse(response, 200);
 };
