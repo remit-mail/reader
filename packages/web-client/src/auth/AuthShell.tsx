@@ -223,13 +223,14 @@ const AuthFooter = () => (
 const LocalDevBanner = () => (
 	<div
 		role="alert"
-		className="fixed top-0 left-0 right-0 z-50 bg-yellow-900/90 text-yellow-50 border-b border-yellow-700 px-4 py-2 text-sm"
+		className="fixed top-0 left-0 right-0 z-50 bg-yellow-900/90 text-yellow-50 border-b border-yellow-700 px-3 sm:px-4 text-xs sm:text-sm flex items-center gap-2 h-7 sm:h-10 overflow-hidden"
 	>
-		<strong className="font-semibold">Cognito not configured</strong>
-		<span className="ml-2">
-			— local dev mode. Set VITE_COGNITO_USER_POOL_ID and VITE_COGNITO_CLIENT_ID
-			in .env.local to enable sign-in.
+		<strong className="font-semibold shrink-0">Local dev</strong>
+		<span className="truncate hidden sm:inline">
+			— Cognito not configured. Set VITE_COGNITO_USER_POOL_ID and
+			VITE_COGNITO_CLIENT_ID in .env.local to enable sign-in.
 		</span>
+		<span className="truncate sm:hidden">— no Cognito; signed out</span>
 	</div>
 );
 
@@ -262,7 +263,7 @@ export const AuthShell = ({ children }: AuthShellProps) => {
 		return (
 			<>
 				<LocalDevBanner />
-				<div className="pt-10 h-screen">{children}</div>
+				<div className="pt-7 sm:pt-10 h-screen">{children}</div>
 			</>
 		);
 	}
