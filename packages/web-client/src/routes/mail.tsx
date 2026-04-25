@@ -10,6 +10,7 @@ import {
 import { createContext, useCallback, useContext, useState } from "react";
 import { z } from "zod";
 import { BottomNav } from "@/components/layout/BottomNav";
+import { ComposeFab } from "@/components/layout/ComposeFab";
 import { Drawer } from "@/components/layout/Drawer";
 import { Header } from "@/components/layout/Header";
 import { Panel } from "@/components/layout/Panel";
@@ -149,9 +150,14 @@ function MailLayout() {
 					>
 						<MailSidebar accounts={accounts} />
 					</Drawer>
-					{/* Bottom nav (mobile only). PR-B will hide this when a
-					    thread is full-screen by routing-aware logic. */}
+					{/* Bottom nav (mobile only). Auto-hides while reading a
+					    thread (the action bar covers that workflow). */}
 					<BottomNav />
+					{/* Mobile compose FAB. The compose form itself takes over the
+					    detail pane in `routes/mail/$mailboxId.tsx`, which on
+					    mobile is the entire screen — so compose effectively goes
+					    full-screen with no extra plumbing. */}
+					<ComposeFab />
 				</div>
 			)}
 			<KeyboardShortcutsModal
