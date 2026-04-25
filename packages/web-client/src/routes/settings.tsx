@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { BottomNav } from "@/components/layout/BottomNav";
+import { ComposeFab } from "@/components/layout/ComposeFab";
 import { Drawer } from "@/components/layout/Drawer";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { cn } from "@/lib/utils";
@@ -171,6 +172,10 @@ function SettingsLayout() {
 
 			{/* Bottom nav (mobile only) */}
 			<BottomNav />
+			{/* Mobile compose FAB. Tapping it from settings opens compose
+			    state and navigates to `/mail`, which redirects to the
+			    preferred mailbox where compose can mount. */}
+			<ComposeFab />
 		</div>
 	);
 }
