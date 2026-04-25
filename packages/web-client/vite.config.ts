@@ -23,7 +23,7 @@ export default defineConfig({
 		allowedHosts: ["sandbox"],
 		proxy: {
 			"/api": {
-				target: "http://localhost:5433",
+				target: `http://localhost:${process.env.VITE_PROXY_BACKEND_PORT ?? "5433"}`,
 				changeOrigin: true,
 				rewrite: (path) => path.replace(/^\/api/, ""),
 			},

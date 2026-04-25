@@ -20,7 +20,7 @@
     "test:visual:status": "bash scripts/visual-baselines.sh status",
     "test:visual": "npm run test:visual:fetch && npx playwright test --config playwright.visual.config.ts",
     "test:visual:ui": "npm run test:visual:fetch && npx playwright test --config playwright.visual.config.ts --ui",
-    "test:visual:update": "npm run test:visual:fetch && npx playwright test --config playwright.visual.config.ts --update-snapshots && echo '\\nBaselines updated locally. Run: npm run test:visual:publish -w packages/web-client'",
+    "test:visual:update": "npm run test:visual:fetch && npx playwright test --config playwright.visual.config.ts --update-snapshots=all && echo '\\nBaselines updated locally. Run: npm run test:visual:publish -w packages/web-client'",
     "playwright:install": "npx playwright install chromium"
   },
   "devDependencies": {
