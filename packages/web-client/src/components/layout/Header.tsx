@@ -2,6 +2,7 @@ import { Link, useLocation } from "@tanstack/react-router";
 import { Mail, Menu, Search, Settings, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "../../lib/utils";
+import { useHideHeader } from "./HideHeaderContext";
 import { SearchBar } from "./SearchBar";
 
 interface HeaderProps {
@@ -26,6 +27,7 @@ export const Header = ({
 	const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
 	const menuRef = useRef<HTMLDivElement>(null);
 	const location = useLocation();
+	const hidden = useHideHeader();
 
 	// Close dropdown on click outside (only used when no external onMenuClick)
 	useEffect(() => {
@@ -54,7 +56,12 @@ export const Header = ({
 	};
 
 	return (
-		<header className="flex items-center gap-2 sm:gap-4 px-2 sm:px-4 h-12 border-b border-border bg-background shrink-0">
+		<header
+			className={cn(
+				"items-center gap-2 sm:gap-4 px-2 sm:px-4 h-12 border-b border-border bg-background shrink-0 md:flex",
+				hidden ? "hidden" : "flex",
+			)}
+		>
 			{/* Left: Branding + hamburger */}
 			<div className="relative" ref={menuRef}>
 				<div className="flex items-center gap-2 shrink-0">
