@@ -2,6 +2,7 @@ import {
 	messageBulkOperationsUpdateFlagsMutation,
 	threadDetailOperationsListThreadMessagesQueryKey,
 	threadOperationsListThreadsQueryKey,
+	threadOperationsSearchThreadsQueryKey,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -29,13 +30,17 @@ interface ThreadsListData {
 	pageParams: Array<string | undefined>;
 }
 
+interface SnapshotEntry<T> {
+	queryKey: readonly unknown[];
+	data: T;
+}
+
 interface MarkAsReadContext {
-	threadMessagesKey: ReturnType<
-		typeof threadDetailOperationsListThreadMessagesQueryKey
-	>;
-	threadsListKey: ReturnType<typeof threadOperationsListThreadsQueryKey>;
-	previousThreadMessages?: ThreadMessagesData;
-	previousThreadsList?: ThreadsListData;
+	threadMessagesPrefix: readonly unknown[];
+	threadsListPrefix: readonly unknown[];
+	threadsSearchPrefix: readonly unknown[];
+	previousThreadMessages: SnapshotEntry<ThreadMessagesData>[];
+	previousThreadsList: SnapshotEntry<ThreadsListData>[];
 }
 
 const READ_DELAY_MS = 10_000;
@@ -66,48 +71,80 @@ export const useMarkAsRead = ({
 			const messageIds = new Set(variables.body.messageIds ?? []);
 			const isRead = variables.body.isRead ?? true;
 
-			const threadMessagesKey =
+			// Use partial-key prefixes — see useToggleStar.ts for rationale.
+			const threadMessagesPrefix =
 				threadDetailOperationsListThreadMessagesQueryKey({
 					path: { threadId },
 				});
-			const threadsListKey = threadOperationsListThreadsQueryKey({
+			const threadsListPrefix = threadOperationsListThreadsQueryKey({
+				path: { mailboxId },
+			});
+			const threadsSearchPrefix = threadOperationsSearchThreadsQueryKey({
 				path: { mailboxId },
 			});
 
 			await Promise.all([
-				queryClient.cancelQueries({ queryKey: threadMessagesKey }),
-				queryClient.cancelQueries({ queryKey: threadsListKey }),
+				queryClient.cancelQueries({ queryKey: threadMessagesPrefix }),
+				queryClient.cancelQueries({ queryKey: threadsListPrefix }),
+				queryClient.cancelQueries({ queryKey: threadsSearchPrefix }),
 			]);
 
-			const previousThreadMessages =
-				queryClient.getQueryData<ThreadMessagesData>(threadMessagesKey);
-			const previousThreadsList =
-				queryClient.getQueryData<ThreadsListData>(threadsListKey);
+			const previousThreadMessages = queryClient
+				.getQueriesData<ThreadMessagesData>({ queryKey: threadMessagesPrefix })
+				.filter(
+					(entry): entry is [readonly unknown[], ThreadMessagesData] =>
+						entry[1] !== undefined,
+				)
+				.map(([queryKey, data]) => ({ queryKey, data }));
 
-			if (previousThreadMessages) {
-				queryClient.setQueryData<ThreadMessagesData>(threadMessagesKey, {
-					...previousThreadMessages,
-					items: setReadOnItems(
-						previousThreadMessages.items,
-						messageIds,
-						isRead,
-					),
-				});
-			}
+			const previousThreadsList = queryClient
+				.getQueriesData<ThreadsListData>({ queryKey: threadsListPrefix })
+				.concat(
+					queryClient.getQueriesData<ThreadsListData>({
+						queryKey: threadsSearchPrefix,
+					}),
+				)
+				.filter(
+					(entry): entry is [readonly unknown[], ThreadsListData] =>
+						entry[1] !== undefined,
+				)
+				.map(([queryKey, data]) => ({ queryKey, data }));
 
-			if (previousThreadsList) {
-				queryClient.setQueryData<ThreadsListData>(threadsListKey, {
-					...previousThreadsList,
-					pages: previousThreadsList.pages.map((page) => ({
+			queryClient.setQueriesData<ThreadMessagesData>(
+				{ queryKey: threadMessagesPrefix },
+				(old) => {
+					if (!old) return old;
+					return {
+						...old,
+						items: setReadOnItems(old.items, messageIds, isRead),
+					};
+				},
+			);
+
+			const patchListData = (old: ThreadsListData | undefined) => {
+				if (!old) return old;
+				return {
+					...old,
+					pages: old.pages.map((page) => ({
 						...page,
 						items: setReadOnItems(page.items, messageIds, isRead),
 					})),
-				});
-			}
+				};
+			};
+
+			queryClient.setQueriesData<ThreadsListData>(
+				{ queryKey: threadsListPrefix },
+				patchListData,
+			);
+			queryClient.setQueriesData<ThreadsListData>(
+				{ queryKey: threadsSearchPrefix },
+				patchListData,
+			);
 
 			return {
-				threadMessagesKey,
-				threadsListKey,
+				threadMessagesPrefix,
+				threadsListPrefix,
+				threadsSearchPrefix,
 				previousThreadMessages,
 				previousThreadsList,
 			};
@@ -125,23 +162,18 @@ export const useMarkAsRead = ({
 				pendingRef.current.delete(id);
 			}
 			if (!context) return;
-			if (context.previousThreadMessages) {
-				queryClient.setQueryData(
-					context.threadMessagesKey,
-					context.previousThreadMessages,
-				);
+			for (const entry of context.previousThreadMessages) {
+				queryClient.setQueryData(entry.queryKey, entry.data);
 			}
-			if (context.previousThreadsList) {
-				queryClient.setQueryData(
-					context.threadsListKey,
-					context.previousThreadsList,
-				);
+			for (const entry of context.previousThreadsList) {
+				queryClient.setQueryData(entry.queryKey, entry.data);
 			}
 		},
 		onSettled: (_data, _err, _vars, context) => {
 			if (!context) return;
-			queryClient.invalidateQueries({ queryKey: context.threadMessagesKey });
-			queryClient.invalidateQueries({ queryKey: context.threadsListKey });
+			queryClient.invalidateQueries({ queryKey: context.threadMessagesPrefix });
+			queryClient.invalidateQueries({ queryKey: context.threadsListPrefix });
+			queryClient.invalidateQueries({ queryKey: context.threadsSearchPrefix });
 		},
 	});
 
