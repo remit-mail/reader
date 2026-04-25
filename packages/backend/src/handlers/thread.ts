@@ -7,6 +7,32 @@ import type {
 	ThreadOperationIds,
 } from "../types.js";
 
+const DEFAULT_THREADS_PAGE_SIZE = 50;
+
+// Project to fields used by ListThreadsResponse — keep in sync with handler mapping.
+// Includes ThreadMessage table key fields (accountConfigId, threadMessageId) and
+// the lsi2 index components (mailboxId, sentDate) so ElectroDB can materialize
+// entities and pagination cursors from projected reads.
+const THREAD_LIST_ATTRIBUTES: ReadonlyArray<keyof ThreadMessageItem> = [
+	"threadMessageId",
+	"threadId",
+	"messageId",
+	"accountConfigId",
+	"mailboxId",
+	"fromEmail",
+	"fromName",
+	"subject",
+	"sentDate",
+	"isRead",
+	"hasAttachment",
+	"star",
+	"hasStars",
+	"isDeleted",
+	"snippet",
+	"createdAt",
+	"updatedAt",
+];
+
 const toThreadMessageResponse = (
 	item: ThreadMessageItem,
 ): ThreadMessageResponse => ({
@@ -50,6 +76,8 @@ export const ThreadOperations: Record<
 			{
 				order: order ?? "desc",
 				continuationToken,
+				limit: DEFAULT_THREADS_PAGE_SIZE,
+				attributes: [...THREAD_LIST_ATTRIBUTES],
 			},
 		);
 
