@@ -5,6 +5,7 @@ import {
 import type { RemitImapMailboxResponse } from "@remit/api-http-client/types.gen.ts";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { sortAccountsByCreatedAt } from "@/lib/account-order";
 import { getMailboxPriority } from "@/lib/mailbox-order";
 
 const pickPreferredMailbox = (
@@ -21,7 +22,7 @@ export const Route = createFileRoute("/mail/")({
 		const config = await queryClient.ensureQueryData(
 			configOperationsGetConfigOptions(),
 		);
-		const accounts = config.accounts ?? [];
+		const accounts = sortAccountsByCreatedAt(config.accounts ?? []);
 		for (const account of accounts) {
 			const mailboxes = await queryClient.ensureQueryData(
 				mailboxOperationsListMailboxesOptions({
