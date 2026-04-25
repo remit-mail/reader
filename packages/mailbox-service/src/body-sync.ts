@@ -1,11 +1,24 @@
+import { inspect } from "node:util";
 import type {
 	MessageService,
 	ThreadMessageService,
 } from "@remit/remit-electrodb-service";
-import type { StorageService } from "@remit/storage-service";
-import { simpleParser } from "mailparser";
+import type { ParsedBody, StorageService } from "@remit/storage-service";
+import { type ParsedMail, simpleParser } from "mailparser";
 import { extractSnippetFromEmail } from "./snippet.js";
 import type { IImapConnection } from "./types.js";
+
+export const toParsedBody = (parsed: ParsedMail): ParsedBody => ({
+	text: parsed.text ?? null,
+	html: typeof parsed.html === "string" ? parsed.html : null,
+	attachments: (parsed.attachments ?? []).map((a) => ({
+		filename: a.filename ?? null,
+		contentType: a.contentType,
+		contentDisposition: a.contentDisposition ?? null,
+		contentId: a.contentId ?? null,
+		size: a.size,
+	})),
+});
 
 export interface BodySyncLogger {
 	info(obj: Record<string, unknown>, msg: string): void;
@@ -198,6 +211,8 @@ export class BodySyncService {
 			body = await this.fetchFromImap(message.uid, mailboxPath, getConnection);
 		}
 
+		let parsed: ParsedMail;
+
 		if (needsStore) {
 			const ref = await this.storageService.storeMessageBody({
 				accountId,
@@ -210,12 +225,14 @@ export class BodySyncService {
 			});
 			this.log.info?.({ messageId, storageKey: ref.uri }, "Body stored");
 
-			// Update snippets for thread entities
-			await this.updateSnippets(messageId, accountConfigId, body);
+			// Update snippets for thread entities — also returns the parsed
+			// mail so we don't pay mailparser twice.
+			parsed = await this.updateSnippets(messageId, accountConfigId, body);
+			await this.storeParsedBodyCache(accountId, messageId, parsed);
+		} else {
+			parsed = await simpleParser(body);
 		}
 
-		// Parse and return content
-		const parsed = await simpleParser(body);
 		return {
 			text: parsed.text ?? null,
 			html: typeof parsed.html === "string" ? parsed.html : null,
@@ -262,19 +279,49 @@ export class BodySyncService {
 		this.log.info({ messageId, storageKey: ref.uri }, "Body stored");
 
 		// Extract snippet and update thread entities
-		await this.updateSnippets(messageId, accountConfigId, body);
+		const parsed = await this.updateSnippets(messageId, accountConfigId, body);
+
+		// Write the parsed-body cache alongside the raw .eml so subsequent
+		// describeMessage reads can skip mailparser entirely.
+		await this.storeParsedBodyCache(accountId, messageId, parsed);
 
 		return { status: "synced", messageId };
 	}
 
 	/**
+	 * Persist the pre-parsed body cache. A failure here MUST NOT fail the
+	 * surrounding body-sync: the raw .eml is still useful and the read path
+	 * can fall back to mailparser. Errors are logged via util.inspect.
+	 */
+	private async storeParsedBodyCache(
+		accountId: string,
+		messageId: string,
+		parsed: ParsedMail,
+	): Promise<void> {
+		const parsedBody = toParsedBody(parsed);
+		await this.storageService
+			.storeParsedBody({ accountId, messageId, parsed: parsedBody })
+			.then(() => {
+				this.log.debug?.({ messageId }, "Parsed body cache stored");
+			})
+			.catch((err: unknown) => {
+				this.log.error?.(
+					{ messageId, error: inspect(err) },
+					"Failed to store parsed body cache (non-fatal)",
+				);
+			});
+	}
+
+	/**
 	 * Extract snippet from message body and update ThreadMessage.
+	 * Returns the parsed mail so callers can reuse it (e.g., to write the
+	 * parsed-body cache) without paying for mailparser twice.
 	 */
 	private async updateSnippets(
 		messageId: string,
 		accountConfigId: string,
 		body: Buffer,
-	): Promise<void> {
+	): Promise<ParsedMail> {
 		// Parse the email body
 		const parsed = await simpleParser(body);
 
@@ -286,7 +333,7 @@ export class BodySyncService {
 		);
 
 		if (!snippet) {
-			return;
+			return parsed;
 		}
 
 		// Get the message to find its messageIdHeader
@@ -296,7 +343,7 @@ export class BodySyncService {
 				{ messageId },
 				"No messageIdHeader, skipping snippet update",
 			);
-			return;
+			return parsed;
 		}
 
 		// Get the ThreadMessage by messageId (efficient GSI lookup)
@@ -314,5 +361,7 @@ export class BodySyncService {
 			{ messageId, snippetLength: snippet.length },
 			"Snippet updated",
 		);
+
+		return parsed;
 	}
 }

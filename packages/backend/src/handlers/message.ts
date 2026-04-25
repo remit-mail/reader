@@ -1,3 +1,4 @@
+import { inspect } from "node:util";
 import { StarColor } from "@remit/domain-enums";
 import type {
 	BodyPartResponse,
@@ -5,6 +6,11 @@ import type {
 	EnvelopeResponse,
 	MessageSummaryResponse,
 } from "@remit/api-openapi-types";
+import {
+	isStorageNotFoundError as isStorageNotFoundErrorFromService,
+	parseStorageUri,
+	type StorageService,
+} from "@remit/storage-service";
 import { simpleParser } from "mailparser";
 import { getClient } from "../service/dynamodb.js";
 import type {
@@ -15,13 +21,93 @@ import type {
 
 type StarColorValue = (typeof StarColor)[keyof typeof StarColor];
 
-export const isStorageNotFoundError = (error: unknown): boolean => {
-	if (typeof error !== "object" || error === null) return false;
-	const obj = error as Record<string, unknown>;
-	if (obj.name === "NoSuchKey") return true;
-	if (obj.Code === "NoSuchKey") return true;
-	if (obj.code === "ENOENT") return true;
-	return false;
+export const isStorageNotFoundError = (error: unknown): boolean =>
+	isStorageNotFoundErrorFromService(error);
+
+/**
+ * Extract the accountId segment from a bodyStorageKey URI such as
+ * `s3://bucket/accounts/{accountId}/messages/{messageId}/body.eml`.
+ * Returns null when the URI shape doesn't match — caller falls back to
+ * the slow path without writing a parsed-body cache.
+ */
+export const extractAccountIdFromBodyKey = (uri: string): string | null => {
+	const parsed = parseStorageUri(uri);
+	const match = parsed.storageKey.match(/^accounts\/([^/]+)\/messages\//);
+	return match ? match[1] : null;
+};
+
+export interface BodyContent {
+	bodyText: string | undefined;
+	bodyHtml: string | undefined;
+}
+
+/**
+ * Fetch parsed body content for a message from storage with parsed-body caching.
+ *
+ * Tries the parsed.json.gz cache first (fast path). On miss, retrieves the raw
+ * .eml, runs mailparser, then writes parsed.json.gz opportunistically so the
+ * next read is fast. Cache-write failures are logged and swallowed — they must
+ * never fail the user's read.
+ *
+ * Returns null when the body is not in storage at all (caller should fall
+ * back to fetching from IMAP).
+ */
+export const fetchBodyFromStorage = async (
+	storage: StorageService,
+	messageId: string,
+	bodyStorageKey: string,
+): Promise<BodyContent | null> => {
+	const accountId = extractAccountIdFromBodyKey(bodyStorageKey);
+
+	if (accountId) {
+		const cached = await storage.retrieveParsedBody(accountId, messageId);
+		if (cached) {
+			return {
+				bodyText: cached.text ?? undefined,
+				bodyHtml: cached.html ?? undefined,
+			};
+		}
+	}
+
+	const rawBody = await storage
+		.retrieve(bodyStorageKey)
+		.catch((error: unknown) => {
+			if (isStorageNotFoundError(error)) return undefined;
+			throw error;
+		});
+
+	if (!rawBody) return null;
+
+	const parsed = await simpleParser(rawBody);
+	const bodyText = parsed.text ?? undefined;
+	const bodyHtml = typeof parsed.html === "string" ? parsed.html : undefined;
+
+	if (accountId) {
+		await storage
+			.storeParsedBody({
+				accountId,
+				messageId,
+				parsed: {
+					text: parsed.text ?? null,
+					html: typeof parsed.html === "string" ? parsed.html : null,
+					attachments: (parsed.attachments ?? []).map((a) => ({
+						filename: a.filename ?? null,
+						contentType: a.contentType,
+						contentDisposition: a.contentDisposition ?? null,
+						contentId: a.contentId ?? null,
+						size: a.size,
+					})),
+				},
+			})
+			.catch((err: unknown) => {
+				console.error(
+					`[describeMessage] parsed-body cache write failed for ${messageId}:`,
+					inspect(err),
+				);
+			});
+	}
+
+	return { bodyText, bodyHtml };
 };
 
 export const MessageOperations: Record<
@@ -83,32 +169,30 @@ export const MessageOperations: Record<
 
 		const flags = description.messageFlag.map((f) => f.flagName);
 
-		// Fetch body content from storage if available
+		// Fetch body content from storage if available.
+		//
+		// Fast path: parsed.json.gz cache hit -> 1 S3 GET, gunzip, JSON.parse.
+		// Slow path: cache miss -> retrieve raw .eml, run mailparser, then
+		// opportunistically write parsed.json.gz so subsequent reads are fast.
 		let bodyText: string | undefined;
 		let bodyHtml: string | undefined;
 
 		const client = getClient();
-		let bodyFetched = false;
 
-		if (message.bodyStorageKey) {
-			const rawBody = await client.storage
-				.retrieve(message.bodyStorageKey)
-				.catch((error: unknown) => {
-					if (isStorageNotFoundError(error)) return undefined;
-					throw error;
-				});
+		const fromStorage = message.bodyStorageKey
+			? await fetchBodyFromStorage(
+					client.storage,
+					messageId,
+					message.bodyStorageKey,
+				)
+			: null;
 
-			if (rawBody) {
-				const parsed = await simpleParser(rawBody);
-
-				bodyText = parsed.text ?? undefined;
-				bodyHtml = typeof parsed.html === "string" ? parsed.html : undefined;
-				bodyFetched = true;
-			}
-		}
-
-		// If body not available from storage, fetch on-demand from IMAP
-		if (!bodyFetched) {
+		if (fromStorage) {
+			bodyText = fromStorage.bodyText;
+			bodyHtml = fromStorage.bodyHtml;
+		} else {
+			// Fall back to on-demand IMAP fetch. fetchAndGetBody now writes
+			// parsed.json.gz alongside the raw .eml on its own.
 			const mailbox = await client.mailbox.get(message.mailboxId);
 			const account = await client.account.get(mailbox.accountId);
 			const scope = await client.createConnectionScope(mailbox.accountId);
