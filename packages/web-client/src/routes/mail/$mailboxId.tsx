@@ -274,17 +274,28 @@ function MailboxView() {
 			</div>
 		);
 
-	// Mobile: single-pane view that swaps based on `selectedMessageId`.
-	// Compose-without-selection takes over the full screen too.
+	// Mobile: single-pane view that swaps based on `selectedMessageId` and
+	// compose state. The compose surface, when open without a selected
+	// thread, takes over the whole pane (which on mobile IS the whole
+	// screen) — no extra overlay plumbing required.
 	if (!isDesktop) {
 		const showCompose = composeState.isOpen && !selectedThread;
-		if (selectedThread || showCompose) {
+		if (selectedThread) {
 			return (
 				<div className="h-full flex flex-col">
-					{selectedThread ? <MobileBackHeader onBack={goBack} /> : null}
-					<div className="flex-1 min-h-0">{detailPane}</div>
+					<MobileBackHeader onBack={goBack} />
+					<div className="flex-1 min-h-0">
+						<ConversationView
+							threadId={selectedThread.threadId}
+							mailboxId={mailboxId}
+							subject={selectedThread.subject}
+						/>
+					</div>
 				</div>
 			);
+		}
+		if (showCompose) {
+			return <div className="h-full">{detailPane}</div>;
 		}
 		return <div className="h-full">{messageList}</div>;
 	}
