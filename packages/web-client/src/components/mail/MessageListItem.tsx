@@ -111,7 +111,12 @@ const MessageListItemComponent = ({
 				<span className="text-sm truncate flex-1 text-foreground">
 					{participants}
 				</span>
-				<span className="text-xs text-muted-foreground shrink-0">{date}</span>
+				<span
+					data-testid="thread-time"
+					className="text-xs text-muted-foreground shrink-0"
+				>
+					{date}
+				</span>
 			</div>
 
 			{/* Row 2: Subject + Message count + Attachment icon */}
