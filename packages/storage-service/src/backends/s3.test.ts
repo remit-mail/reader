@@ -56,7 +56,11 @@ const createFakeS3Client = (): {
 			const input = command.input as unknown as Record<string, unknown>;
 			const key = String(input.Key);
 			const entry = stored.get(key);
-			if (!entry) throw new Error(`not found: ${key}`);
+			if (!entry) {
+				throw Object.assign(new Error(`not found: ${key}`), {
+					name: "NoSuchKey",
+				});
+			}
 			return {
 				Body: {
 					transformToByteArray: async () => new Uint8Array(entry.body),
@@ -136,5 +140,69 @@ describe("createS3StorageService", () => {
 
 		const retrieved = await storage.retrieve(ref.uri);
 		assert.deepStrictEqual(retrieved, content);
+	});
+
+	test("storeParsedBody writes gzipped JSON without ChecksumSHA256", async () => {
+		const { client, commands, stored } = createFakeS3Client();
+		const storage = createS3StorageService(client, "bucket");
+		const parsed = {
+			text: "hi",
+			html: "<p>hi</p>",
+			attachments: [
+				{
+					filename: "a.txt",
+					contentType: "text/plain",
+					contentDisposition: "attachment",
+					contentId: null,
+					size: 12,
+				},
+			],
+		};
+
+		const ref = await storage.storeParsedBody({
+			accountId: "acc-x",
+			messageId: "msg-x",
+			parsed,
+		});
+
+		assert.strictEqual(commands.length, 1);
+		const put = commands[0];
+		assert.strictEqual(put.input.ChecksumSHA256, undefined);
+		assert.strictEqual(put.input.ContentEncoding, "gzip");
+		assert.strictEqual(put.input.ContentType, "application/json");
+		assert.strictEqual(
+			put.input.Key,
+			"accounts/acc-x/messages/msg-x/parsed.json.gz",
+		);
+
+		const entry = stored.get("accounts/acc-x/messages/msg-x/parsed.json.gz");
+		assert.ok(entry, "parsed body should be stored");
+		assert.deepStrictEqual(
+			JSON.parse(gunzipSync(entry.body).toString("utf8")),
+			parsed,
+		);
+		assert.strictEqual(ref.storageType, StorageType.S3);
+	});
+
+	test("retrieveParsedBody returns parsed JSON on hit and null on miss", async () => {
+		const { client } = createFakeS3Client();
+		const storage = createS3StorageService(client, "bucket");
+		const parsed = {
+			text: "hello",
+			html: null,
+			attachments: [],
+		};
+
+		await storage.storeParsedBody({
+			accountId: "acc-r",
+			messageId: "msg-r",
+			parsed,
+		});
+
+		const hit = await storage.retrieveParsedBody("acc-r", "msg-r");
+		assert.deepStrictEqual(hit, parsed);
+
+		const miss = await storage.retrieveParsedBody("acc-r", "nope");
+		assert.strictEqual(miss, null);
 	});
 });

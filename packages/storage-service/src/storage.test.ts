@@ -10,8 +10,10 @@ import {
 	buildBodyPartKey,
 	buildDeduplicatedKey,
 	buildMessageBodyKey,
+	buildParsedBodyKey,
 	computeChecksum,
 	createMockStorageService,
+	isStorageNotFoundError,
 } from "./storage.js";
 import { buildStorageUri, parseStorageUri } from "./uri.js";
 
@@ -70,10 +72,48 @@ describe("path builders", () => {
 		assert.strictEqual(key, "accounts/acc123/dedup/ab/abcdef1234567890");
 	});
 
+	test("buildParsedBodyKey formats correctly", () => {
+		const key = buildParsedBodyKey("acc123", "msg456");
+		assert.strictEqual(key, "accounts/acc123/messages/msg456/parsed.json.gz");
+	});
+
 	test("computeChecksum returns SHA-256 hex", () => {
 		const content = Buffer.from("test content");
 		const expected = createHash("sha256").update(content).digest("hex");
 		assert.strictEqual(computeChecksum(content), expected);
+	});
+});
+
+describe("isStorageNotFoundError", () => {
+	test("matches S3 NoSuchKey via name", () => {
+		assert.equal(
+			isStorageNotFoundError(
+				Object.assign(new Error("missing"), { name: "NoSuchKey" }),
+			),
+			true,
+		);
+	});
+
+	test("matches S3 NoSuchKey via Code", () => {
+		assert.equal(
+			isStorageNotFoundError({ Code: "NoSuchKey", message: "missing" }),
+			true,
+		);
+	});
+
+	test("matches filesystem ENOENT", () => {
+		assert.equal(
+			isStorageNotFoundError(
+				Object.assign(new Error("nope"), { code: "ENOENT" }),
+			),
+			true,
+		);
+	});
+
+	test("does not match generic errors", () => {
+		assert.equal(isStorageNotFoundError(new Error("boom")), false);
+		assert.equal(isStorageNotFoundError(null), false);
+		assert.equal(isStorageNotFoundError("oops"), false);
 	});
 });
 
@@ -163,6 +203,43 @@ describe("createMockStorageService", () => {
 
 		await storage.delete(ref.uri);
 		assert.strictEqual(await storage.exists(ref.uri), false);
+	});
+
+	test("storeParsedBody / retrieveParsedBody round-trip", async () => {
+		const storage = createMockStorageService();
+		const parsed = {
+			text: "hello",
+			html: "<p>hello</p>",
+			attachments: [
+				{
+					filename: "a.pdf",
+					contentType: "application/pdf",
+					contentDisposition: "attachment",
+					contentId: null,
+					size: 1234,
+				},
+			],
+		};
+
+		const ref = await storage.storeParsedBody({
+			accountId: "acc123",
+			messageId: "msg456",
+			parsed,
+		});
+
+		assert.strictEqual(
+			ref.storageKey,
+			"accounts/acc123/messages/msg456/parsed.json.gz",
+		);
+
+		const retrieved = await storage.retrieveParsedBody("acc123", "msg456");
+		assert.deepStrictEqual(retrieved, parsed);
+	});
+
+	test("retrieveParsedBody returns null on miss", async () => {
+		const storage = createMockStorageService();
+		const result = await storage.retrieveParsedBody("acc123", "nope");
+		assert.strictEqual(result, null);
 	});
 });
 
@@ -258,6 +335,35 @@ describe("createFilesystemStorageService", () => {
 
 		await storage.delete(ref.uri);
 		assert.strictEqual(await storage.exists(ref.uri), false);
+	});
+
+	test("storeParsedBody / retrieveParsedBody round-trip with gzip", async () => {
+		const storage = createFilesystemStorageService(testBasePath);
+		const parsed = {
+			text: "hello fs",
+			html: "<p>hello fs</p>",
+			attachments: [],
+		};
+
+		const ref = await storage.storeParsedBody({
+			accountId: "acc123",
+			messageId: "msg-parsed",
+			parsed,
+		});
+
+		assert.strictEqual(
+			ref.storageKey,
+			"accounts/acc123/messages/msg-parsed/parsed.json.gz",
+		);
+
+		const retrieved = await storage.retrieveParsedBody("acc123", "msg-parsed");
+		assert.deepStrictEqual(retrieved, parsed);
+	});
+
+	test("retrieveParsedBody returns null on miss (ENOENT)", async () => {
+		const storage = createFilesystemStorageService(testBasePath);
+		const result = await storage.retrieveParsedBody("acc123", "missing");
+		assert.strictEqual(result, null);
 	});
 
 	test("cleanup test directory", async () => {

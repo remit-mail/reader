@@ -2,12 +2,18 @@ import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { ContentEncoding, StorageType } from "@remit/domain-enums";
-import type { StorageReference, StorageService } from "../storage.js";
+import type {
+	ParsedBody,
+	StorageReference,
+	StorageService,
+} from "../storage.js";
 import {
 	buildBodyPartKey,
 	buildDeduplicatedKey,
 	buildMessageBodyKey,
+	buildParsedBodyKey,
 	computeChecksum,
+	isStorageNotFoundError,
 } from "../storage.js";
 
 interface StoreParams {
@@ -69,6 +75,34 @@ export const createFilesystemStorageService = (
 		});
 	};
 
+	const storeParsedBody: StorageService["storeParsedBody"] = (params) => {
+		const { accountId, messageId, parsed } = params;
+		const content = Buffer.from(JSON.stringify(parsed), "utf8");
+		return storeInternal({
+			key: buildParsedBodyKey(accountId, messageId),
+			content,
+		});
+	};
+
+	const retrieveParsedBody: StorageService["retrieveParsedBody"] = async (
+		accountId,
+		messageId,
+	) => {
+		const key = buildParsedBodyKey(accountId, messageId);
+		const fullPath = join(basePath, key);
+
+		const buffer = await readFile(fullPath).catch((error: unknown) => {
+			if (isStorageNotFoundError(error)) return null;
+			throw error;
+		});
+
+		if (!buffer) return null;
+
+		const decoded =
+			buffer[0] === 0x1f && buffer[1] === 0x8b ? gunzipSync(buffer) : buffer;
+		return JSON.parse(decoded.toString("utf8")) as ParsedBody;
+	};
+
 	// Resolve path from URI, handling both absolute and relative paths
 	// Note: URIs like file://.remit/storage/... parse incorrectly - '.remit' becomes hostname
 	// We reconstruct the original path by combining hostname + pathname
@@ -115,6 +149,8 @@ export const createFilesystemStorageService = (
 		storeMessageBody,
 		storeBodyPart,
 		storeDeduplicated,
+		storeParsedBody,
+		retrieveParsedBody,
 		retrieve,
 		exists,
 		delete: del,
