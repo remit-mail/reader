@@ -1,5 +1,14 @@
 import { Link, useLocation } from "@tanstack/react-router";
-import { Inbox, Send, Settings } from "lucide-react";
+import {
+	ArrowLeft,
+	Forward,
+	Inbox,
+	Reply,
+	ReplyAll,
+	Send,
+	Settings,
+} from "lucide-react";
+import { useThreadActions } from "@/components/mail/ThreadActionsContext";
 import { cn } from "@/lib/utils";
 
 interface BottomNavProps {
@@ -17,30 +26,108 @@ const items = [
 	},
 ] as const;
 
+const navBarClass =
+	"md:hidden fixed bottom-0 inset-x-0 z-40 bg-background border-t border-border h-14 flex items-stretch";
+const navBarStyle = { paddingBottom: "env(safe-area-inset-bottom, 0)" };
+
+interface ThreadActionBarProps {
+	onBack: () => void;
+	onReply?: () => void;
+	onReplyAll?: () => void;
+	onForward?: () => void;
+	disabled?: boolean;
+}
+
+const navButtonClass =
+	"flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors text-xs font-medium min-h-11 text-muted-foreground hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-muted-foreground";
+
+const ThreadActionBar = ({
+	onBack,
+	onReply,
+	onReplyAll,
+	onForward,
+	disabled,
+}: ThreadActionBarProps) => (
+	<nav aria-label="Thread actions" className={navBarClass} style={navBarStyle}>
+		<button
+			type="button"
+			onClick={onBack}
+			className={cn(navButtonClass, "text-foreground")}
+			aria-label="Back to messages"
+		>
+			<ArrowLeft className="size-5" />
+			<span>Back</span>
+		</button>
+		{onReply && (
+			<button
+				type="button"
+				onClick={onReply}
+				disabled={disabled}
+				className={navButtonClass}
+				aria-label="Reply"
+			>
+				<Reply className="size-5" />
+				<span>Reply</span>
+			</button>
+		)}
+		{onReplyAll && (
+			<button
+				type="button"
+				onClick={onReplyAll}
+				disabled={disabled}
+				className={navButtonClass}
+				aria-label="Reply all"
+			>
+				<ReplyAll className="size-5" />
+				<span>Reply all</span>
+			</button>
+		)}
+		{onForward && (
+			<button
+				type="button"
+				onClick={onForward}
+				disabled={disabled}
+				className={navButtonClass}
+				aria-label="Forward"
+			>
+				<Forward className="size-5" />
+				<span>Forward</span>
+			</button>
+		)}
+	</nav>
+);
+
 /**
- * Bottom navigation bar shown only on mobile (`< md`). Three primary
- * destinations matching the Material 3 navigation-bar pattern.
+ * Bottom navigation bar shown only on mobile (`< md`). Context-aware:
+ *   - Default: three primary destinations (Mail / Outbox / Settings),
+ *     matching Material 3's navigation-bar pattern.
+ *   - While reading a thread (a `ThreadActions` is published into
+ *     `ThreadActionsContext`): swaps to thread-level actions (Back,
+ *     Reply, Reply all, Forward).
  *
- * Auto-hides when reading a thread (`?selectedMessageId=…` in the URL),
- * so the conversation's sticky action bar (Reply / Reply all / Forward)
- * doesn't fight for the bottom of the screen. Pass `hidden={true}` to
- * force-hide for callers that have other reasons to suppress it.
+ * Pass `hidden={true}` to force-hide for callers that have other
+ * reasons to suppress it.
  */
 export const BottomNav = ({ hidden = false }: BottomNavProps) => {
 	const location = useLocation();
-	const search = location.search as Record<string, unknown> | undefined;
-	const isReadingThread =
-		typeof search?.selectedMessageId === "string" &&
-		search.selectedMessageId.length > 0;
+	const threadActions = useThreadActions();
 
-	if (hidden || isReadingThread) return null;
+	if (hidden) return null;
+
+	if (threadActions) {
+		return (
+			<ThreadActionBar
+				onBack={threadActions.onBack}
+				onReply={threadActions.onReply}
+				onReplyAll={threadActions.onReplyAll}
+				onForward={threadActions.onForward}
+				disabled={threadActions.disabled}
+			/>
+		);
+	}
 
 	return (
-		<nav
-			aria-label="Primary"
-			className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-background border-t border-border h-14 flex items-stretch"
-			style={{ paddingBottom: "env(safe-area-inset-bottom, 0)" }}
-		>
+		<nav aria-label="Primary" className={navBarClass} style={navBarStyle}>
 			{items.map(({ to, label, icon: Icon, match }) => {
 				const active = match.test(location.pathname);
 				return (
