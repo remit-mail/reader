@@ -118,9 +118,13 @@ const DraftsList = () => {
 	const [expanded, setExpanded] = useState(true);
 	const { openCompose } = useCompose();
 
-	const { data: outboxResponse } = useQuery(
-		outboxOperationsListOutboxMessagesOptions(),
-	);
+	const {
+		data: outboxResponse,
+		isLoading,
+		isError,
+		error,
+		refetch,
+	} = useQuery(outboxOperationsListOutboxMessagesOptions());
 
 	const drafts = useMemo(
 		() =>
@@ -128,7 +132,20 @@ const DraftsList = () => {
 		[outboxResponse?.items],
 	);
 
-	if (drafts.length === 0) return null;
+	if (isError) {
+		return (
+			<div className="mb-2 px-3 py-2">
+				<ErrorState
+					variant="inline"
+					title="Couldn't load drafts"
+					error={error}
+					onRetry={() => refetch()}
+				/>
+			</div>
+		);
+	}
+
+	if (isLoading || drafts.length === 0) return null;
 
 	return (
 		<div className="mb-2">
@@ -184,9 +201,13 @@ const STATUS_ICON: Record<
 const OutboxList = () => {
 	const [expanded, setExpanded] = useState(true);
 
-	const { data: outboxResponse } = useQuery(
-		outboxOperationsListOutboxMessagesOptions(),
-	);
+	const {
+		data: outboxResponse,
+		isLoading,
+		isError,
+		error,
+		refetch,
+	} = useQuery(outboxOperationsListOutboxMessagesOptions());
 
 	const outboxMessages = useMemo(
 		() =>
@@ -194,7 +215,20 @@ const OutboxList = () => {
 		[outboxResponse?.items],
 	);
 
-	if (outboxMessages.length === 0) return null;
+	if (isError) {
+		return (
+			<div className="mb-2 px-3 py-2">
+				<ErrorState
+					variant="inline"
+					title="Couldn't load outbox"
+					error={error}
+					onRetry={() => refetch()}
+				/>
+			</div>
+		);
+	}
+
+	if (isLoading || outboxMessages.length === 0) return null;
 
 	return (
 		<div className="mb-2">
