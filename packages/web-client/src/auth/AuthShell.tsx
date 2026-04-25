@@ -204,10 +204,10 @@ const AuthHeader = () => (
 			color={CARD_FG}
 			style={{ letterSpacing: "-0.01em" }}
 		>
-			Remit
+			remit,
 		</Heading>
 		<Text color={MUTED_FG} fontSize="0.875rem" marginTop="0.25rem">
-			Email as a service
+			your email client in the cloud.
 		</Text>
 	</View>
 );
