@@ -1,58 +1,65 @@
 # Visual Regression
 
-Playwright `toHaveScreenshot()` baselines for the Remit web client at
-three viewports: phone (390×844), tablet (768×1024), desktop (1440×900).
+Playwright `toHaveScreenshot()` baselines for the Remit web client at three viewports: phone (390×844), tablet (768×1024), desktop (1440×900).
+
+## Where baselines live
+
+Baselines are **not** committed on `main`. They live on the orphan `visual-baselines` branch to keep binary churn out of `main` PR diffs.
+
+When you run any `test:visual*` script, the wrapper:
+
+1. Shallow-clones / fast-forwards `origin/visual-baselines` into `<repo-root>/.visual-baselines/`.
+2. Symlinks `visual-regression/__screenshots__` into that cache.
+3. Hands off to Playwright as normal.
+
+Both the cache directory and the symlink are gitignored.
 
 ## Run the suite
 
-```bash
+```sh
 npm run test:visual -w packages/remit-web-client
 ```
 
-Reads baselines from `__screenshots__/` and fails on diffs greater than
-1% of pixels (configured via `maxDiffPixelRatio` in
-`playwright.visual.config.ts`).
+Compares against the baselines in the orphan branch. Fails on diffs greater than 1% of pixels (configured via `maxDiffPixelRatio` in `playwright.visual.config.ts`).
 
 ## Update baselines
 
 After an intentional visual change:
 
-```bash
+```sh
+# 1. Re-capture every spec into the local cache.
 npm run test:visual:update -w packages/remit-web-client
+
+# 2. Inspect the diff.
+npm run test:visual:status -w packages/remit-web-client
+# (or just `git -C .visual-baselines diff` for the gory detail)
+
+# 3. Push the new PNGs to the orphan branch.
+npm run test:visual:publish -w packages/remit-web-client
 ```
 
-Inspect the diff, commit the new PNGs.
+`:publish` is a separate explicit step on purpose — re-running `:update` locally will never silently overwrite the baselines on the remote.
 
 ## Coverage
 
 | Spec | Routes |
 |---|---|
-| `signin.spec.ts` | `/signin` (Cognito-not-configured banner state) |
-| `mail.spec.ts` | `/mail` (no mailbox), `/mail/<id>` (list), `/mail/<id>?selectedMessageId=<id>` (thread open) |
+| `signin.spec.ts` | `/` (sign-in or empty state) |
+| `mail.spec.ts` | `/mail`, `/mail/<id>`, `/mail/<id>?selectedMessageId=<id>` |
 | `outbox.spec.ts` | `/mail/outbox` |
 | `settings.spec.ts` | `/settings/accounts` |
 | `compose.spec.ts` | `/mail/<id>` with compose surface open |
 
-Each spec runs across all three projects defined in the config (`phone`,
-`tablet`, `desktop`), so one assertion produces three baselines.
+Each spec runs across all three projects (`phone`, `tablet`, `desktop`), so one assertion produces three baselines.
 
-## Bootstrapping baselines (first run)
+## CI
 
-The repo ships **without** committed baselines — they have to be
-captured against the same backend snapshot the suite expects. The first
-run is bootstrap:
+The `visual-tests` job in `.github/workflows/ci.yml` runs the suite on every PR. On failure it uploads the diff PNGs as a workflow artifact named `visual-test-report`.
 
-```bash
-# from repo root, with backend deps installed
-npm run test:visual:update -w packages/remit-web-client
-git add packages/remit-web-client/visual-regression/__screenshots__
-git commit -m "chore(web-client): seed visual-regression baselines"
-```
+## Troubleshooting
 
-CI will use those committed PNGs going forward.
-
-## CI wiring (follow-up)
-
-Adding a new GitHub-Actions job that runs `npm run test:visual` is
-documented in the parent PR description. Defer until the baselines have
-been seeded and stabilized over a few PRs.
+| Symptom | Fix |
+|---|---|
+| `__screenshots__` exists but is not a symlink | Delete the directory and re-run `npm run test:visual:fetch`. The script refuses to clobber a real directory to avoid eating local baselines. |
+| `fatal: Remote branch visual-baselines not found` | Re-create the orphan branch: see `git log` for prior commit on `visual-baselines` and re-push. |
+| Baselines drift between local + CI | Make sure both run on the same Playwright + Chromium version. Locking is via `package-lock.json` and `npx playwright install chromium --with-deps`. |

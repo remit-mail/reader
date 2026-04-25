@@ -4,16 +4,22 @@ import { defineConfig, devices } from "@playwright/test";
  * Visual regression suite. Captures screenshots of the key Remit routes
  * at three viewports — phone (iPhone-13: 390×844), tablet (iPad-mini:
  * 768×1024), and desktop (1440×900) — and compares them against
- * baselines committed under `visual-regression/__screenshots__/`.
+ * baselines that live on the `visual-baselines` orphan branch.
+ *
+ * `visual-regression/__screenshots__` is a symlink into
+ * `<repo-root>/.visual-baselines/...` populated by
+ * `scripts/visual-baselines.sh fetch`. The npm scripts wire this up
+ * automatically — see `package.json` and `visual-regression/README.md`.
  *
  * Reuses the smoke harness's web-server config so the same dev-server
  * + backend stack is started automatically.
  *
- * To regenerate baselines after an intended visual change:
- *   npm run test:visual:update -w packages/remit-web-client
- *
- * To run the suite:
+ * Run the suite (fetches baselines first):
  *   npm run test:visual -w packages/remit-web-client
+ *
+ * Regenerate baselines locally after an intended visual change:
+ *   npm run test:visual:update  -w packages/remit-web-client
+ *   npm run test:visual:publish -w packages/remit-web-client
  */
 export default defineConfig({
 	testDir: "./visual-regression",
