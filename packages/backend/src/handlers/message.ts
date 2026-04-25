@@ -11,7 +11,10 @@ import {
 	parseStorageUri,
 	type StorageService,
 } from "@remit/storage-service";
+import type { APIGatewayProxyEvent } from "aws-lambda";
 import { simpleParser } from "mailparser";
+import type { Context } from "openapi-backend";
+import { getAccountConfigIdFromEvent } from "../auth.js";
 import { getClient } from "../service/dynamodb.js";
 import type {
 	MessageBulkOperationIds,
@@ -114,7 +117,12 @@ export const MessageOperations: Record<
 	MessageOperationIds,
 	OperationHandler<MessageOperationIds>
 > = {
-	MessageOperations_describeMessage: async (context) => {
+	MessageOperations_describeMessage: async (
+		context: Context,
+		...args: unknown[]
+	) => {
+		const event = args[0] as APIGatewayProxyEvent;
+		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const { messageId } = context.request.params as { messageId: string };
 		const description = await getClient().message.describe(messageId);
 
@@ -193,15 +201,16 @@ export const MessageOperations: Record<
 		} else {
 			// Fall back to on-demand IMAP fetch. fetchAndGetBody now writes
 			// parsed.json.gz alongside the raw .eml on its own.
+			// accountConfigId comes from the JWT; mailbox.get is kept because
+			// fullPath + accountId are needed for the IMAP connection.
 			const mailbox = await client.mailbox.get(message.mailboxId);
-			const account = await client.account.get(mailbox.accountId);
 			const scope = await client.createConnectionScope(mailbox.accountId);
 
 			const result = await client.bodySync
 				.fetchAndGetBody(
 					messageId,
 					mailbox.accountId,
-					account.accountConfigId,
+					accountConfigId,
 					mailbox.fullPath,
 					scope.getConnection,
 				)
