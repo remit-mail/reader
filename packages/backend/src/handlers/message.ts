@@ -15,6 +15,15 @@ import type {
 
 type StarColorValue = (typeof StarColor)[keyof typeof StarColor];
 
+export const isStorageNotFoundError = (error: unknown): boolean => {
+	if (typeof error !== "object" || error === null) return false;
+	const obj = error as Record<string, unknown>;
+	if (obj.name === "NoSuchKey") return true;
+	if (obj.Code === "NoSuchKey") return true;
+	if (obj.code === "ENOENT") return true;
+	return false;
+};
+
 export const MessageOperations: Record<
 	MessageOperationIds,
 	OperationHandler<MessageOperationIds>
@@ -82,10 +91,14 @@ export const MessageOperations: Record<
 		let bodyFetched = false;
 
 		if (message.bodyStorageKey) {
-			const exists = await client.storage.exists(message.bodyStorageKey);
+			const rawBody = await client.storage
+				.retrieve(message.bodyStorageKey)
+				.catch((error: unknown) => {
+					if (isStorageNotFoundError(error)) return undefined;
+					throw error;
+				});
 
-			if (exists) {
-				const rawBody = await client.storage.retrieve(message.bodyStorageKey);
+			if (rawBody) {
 				const parsed = await simpleParser(rawBody);
 
 				bodyText = parsed.text ?? undefined;
