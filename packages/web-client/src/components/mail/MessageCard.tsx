@@ -282,6 +282,8 @@ const ExpandedCard = ({
 					<MessageBody
 						html={messageData?.bodyHtml}
 						text={messageData?.bodyText || threadMessage.snippet}
+						messageId={threadMessage.messageId}
+						fromAddressId={messageData?.envelope.from[0]?.addressId}
 						isTrusted={
 							messageData?.envelope.from[0]?.flags?.trusted?.value === true
 						}

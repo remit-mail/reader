@@ -120,6 +120,8 @@ export const MessageDetail = ({ messageId, snippet }: MessageDetailProps) => {
 			<MessageBody
 				html={messageData.bodyHtml}
 				text={messageData.bodyText || snippet}
+				messageId={messageId}
+				fromAddressId={fromAddress?.addressId}
 				isTrusted={isTrusted}
 			/>
 		</article>

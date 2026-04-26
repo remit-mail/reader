@@ -1,4 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
+import { formatErrorDetail } from "@/components/ui/error-banners";
+import { useToggleTrusted } from "@/hooks/useToggleTrusted";
 import { type ColorMode, createEmailSanitizer } from "@/lib/email-sanitizer";
 
 interface MessageBodyProps {
@@ -17,6 +20,17 @@ interface MessageBodyProps {
 	 * The "Load images" bar is suppressed entirely for trusted senders.
 	 */
 	isTrusted?: boolean;
+	/**
+	 * The current message id. Required by `useToggleTrusted` so the optimistic
+	 * cache patch can target the right `describeMessage` query.
+	 */
+	messageId?: string;
+	/**
+	 * The From-address `addressId`. When omitted (e.g. the envelope has no
+	 * parseable From) the "Always trust" button is hidden — same disabled-
+	 * state philosophy as `MessageActionMenu`.
+	 */
+	fromAddressId?: string;
 }
 
 export const MessageBody = ({
@@ -24,9 +38,27 @@ export const MessageBody = ({
 	text,
 	colorMode = "auto",
 	isTrusted = false,
+	messageId,
+	fromAddressId,
 }: MessageBodyProps) => {
 	const [allowImagesOnce, setAllowImagesOnce] = useState(false);
 	const allowImages = isTrusted || allowImagesOnce;
+	const { pushError } = useErrorBanners();
+	const {
+		toggleTrusted,
+		isPending: isTrustPending,
+		error: trustError,
+		reset: resetTrustError,
+	} = useToggleTrusted({ messageId: messageId ?? "" });
+
+	useEffect(() => {
+		if (!trustError) return;
+		pushError({
+			title: "Couldn't trust sender",
+			detail: formatErrorDetail(trustError),
+		});
+		resetTrustError();
+	}, [trustError, pushError, resetTrustError]);
 
 	const sanitizedHtml = useMemo(() => {
 		if (!html) return null;
@@ -61,6 +93,13 @@ export const MessageBody = ({
 		);
 	}
 
+	const canAlwaysTrust = Boolean(fromAddressId && messageId);
+	const handleAlwaysTrust = () => {
+		if (!fromAddressId) return;
+		setAllowImagesOnce(true);
+		toggleTrusted(fromAddressId, false);
+	};
+
 	return (
 		<div className="message-body">
 			{blockedImageCount > 0 && (
@@ -69,13 +108,25 @@ export const MessageBody = ({
 						{blockedImageCount} image{blockedImageCount > 1 ? "s" : ""} blocked
 						for privacy
 					</span>
-					<button
-						type="button"
-						onClick={() => setAllowImagesOnce(true)}
-						className="text-primary hover:underline"
-					>
-						Load images
-					</button>
+					<div className="flex items-center gap-3">
+						<button
+							type="button"
+							onClick={() => setAllowImagesOnce(true)}
+							className="text-primary hover:underline"
+						>
+							Load once
+						</button>
+						{canAlwaysTrust && (
+							<button
+								type="button"
+								onClick={handleAlwaysTrust}
+								disabled={isTrustPending}
+								className="text-primary hover:underline disabled:opacity-50"
+							>
+								Always trust
+							</button>
+						)}
+					</div>
 				</div>
 			)}
 
