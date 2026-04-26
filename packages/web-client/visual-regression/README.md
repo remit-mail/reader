@@ -61,6 +61,14 @@ npm run test:visual:publish -w packages/remit-web-client
 
 Each spec runs across all three projects (`phone`, `tablet`, `desktop`), so one assertion produces three baselines.
 
+### Phone-only assertions
+
+Some assertions only make sense on a single viewport and use `test.skip()` on the others. They still run in all three project lanes (the skip is decided per-test from `testInfo.project.name`), but the snapshot is only stored under one project directory.
+
+| Snapshot | Why phone-only |
+|---|---|
+| `mail.spec.ts/phone/mail-thread-mobile-no-header.png` | Asserts the top 120px of the mobile thread view stays clear of the global Header. The `useSetHideHeader(true)` gate in `ConversationView` only fires when `isDesktop=false && has onBack && no inline-compose` — `useIsDesktop()` returns true at ≥768px so tablet/desktop never see the gated state. The clip concentrates a re-appearing 48px header into ~40% of the assertion area, which trips the per-test `maxDiffPixelRatio: 0.04` (vs. the suite's 0.05) — the full-page `mail-thread-open.png` baseline lets a 48px header through because it's only ~5.7% of a full 390×844 canvas. See issue #173. |
+
 ## CI
 
 The `visual-tests` job in `.github/workflows/ci.yml` runs the suite on every PR. On failure it uploads the diff PNGs as a workflow artifact named `visual-test-report`.
