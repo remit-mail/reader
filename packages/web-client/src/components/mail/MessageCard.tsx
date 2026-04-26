@@ -4,7 +4,13 @@ import type {
 	RemitImapThreadMessageResponse,
 } from "@remit/api-http-client/types.gen.ts";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, Paperclip, Star } from "lucide-react";
+import {
+	BadgeCheck,
+	ChevronDown,
+	ChevronRight,
+	Paperclip,
+	Star,
+} from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { formatDatePreset } from "@/lib/format";
@@ -12,6 +18,14 @@ import { cn } from "@/lib/utils";
 import { AddressList } from "./AddressDisplay";
 import { MessageActionMenu } from "./MessageActionMenu";
 import { MessageBody } from "./MessageBody";
+
+const TrustedSenderBadge = () => (
+	<BadgeCheck
+		className="inline-block size-4 ml-1 -mt-0.5 text-green-600 dark:text-green-500 align-middle"
+		aria-label="Trusted sender"
+		data-testid="trusted-sender-badge"
+	/>
+);
 
 /**
  * Unread indicator dot - occupies a fixed column width
@@ -178,6 +192,8 @@ const ExpandedCard = ({
 	const isStarred = threadMessage.hasStars;
 	const isUnread = !threadMessage.isRead;
 	const hasAttachment = threadMessage.hasAttachment;
+	const isTrusted =
+		messageData?.envelope.from[0]?.flags?.trusted?.value === true;
 
 	return (
 		<div className={cn("rounded-lg px-2 -mx-2", isFocused && "bg-accent/40")}>
@@ -205,6 +221,7 @@ const ExpandedCard = ({
 								)}
 							>
 								{senderName}
+								{isTrusted && <TrustedSenderBadge />}
 							</span>
 							{messageData && (
 								<AddressList label="To" addresses={messageData.envelope.to} />
@@ -235,6 +252,10 @@ const ExpandedCard = ({
 						threadId={threadMessage.threadId}
 						mailboxId={threadMessage.mailboxId}
 						isRead={threadMessage.isRead}
+						fromAddressId={messageData?.envelope.from[0]?.addressId}
+						isTrusted={
+							messageData?.envelope.from[0]?.flags?.trusted?.value === true
+						}
 					/>
 				</div>
 			</div>
@@ -261,6 +282,9 @@ const ExpandedCard = ({
 					<MessageBody
 						html={messageData?.bodyHtml}
 						text={messageData?.bodyText || threadMessage.snippet}
+						isTrusted={
+							messageData?.envelope.from[0]?.flags?.trusted?.value === true
+						}
 					/>
 				)}
 			</div>

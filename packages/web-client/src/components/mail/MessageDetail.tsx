@@ -102,12 +102,16 @@ export const MessageDetail = ({ messageId, snippet }: MessageDetailProps) => {
 		);
 	}
 
+	const fromAddress = messageData.envelope.from[0];
+	const isTrusted = fromAddress?.flags?.trusted?.value === true;
+
 	return (
 		<article>
 			<MessageHeader envelope={messageData.envelope} />
 			<MessageBody
 				html={messageData.bodyHtml}
 				text={messageData.bodyText || snippet}
+				isTrusted={isTrusted}
 			/>
 		</article>
 	);
