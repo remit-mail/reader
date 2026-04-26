@@ -239,8 +239,11 @@ const ExpandedCard = ({
 				</div>
 			</div>
 
-			{/* Body - aligned with avatar column on md+; flush on mobile so content uses full width */}
-			<div className="pl-0 md:pl-14 mt-2">
+			{/* Body - flush left so the message uses the full pane width on
+			    every viewport. The avatar column is already implied by the
+			    header above; an extra avatar-width indent here just wastes
+			    horizontal space on desktop (#179). */}
+			<div className="mt-2">
 				{isLoading ? (
 					<div className="animate-pulse space-y-2">
 						<div className="h-4 bg-muted rounded w-full" />
