@@ -1,5 +1,4 @@
 import {
-	messageBulkOperationsDeleteMessagesMutation,
 	threadOperationsListThreadsQueryKey,
 	threadOperationsSearchThreadsQueryKey,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
@@ -7,13 +6,7 @@ import {
 	threadOperationsListThreads,
 	threadOperationsSearchThreads,
 } from "@remit/api-http-client/sdk.gen.ts";
-import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
-import {
-	keepPreviousData,
-	useInfiniteQuery,
-	useMutation,
-	useQueryClient,
-} from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { z } from "zod";
@@ -28,6 +21,7 @@ import {
 import { ConversationView } from "@/components/mail/ConversationView";
 import { MessageList } from "@/components/mail/MessageList";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { useDeleteMessages } from "@/hooks/useDeleteMessages";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 
@@ -48,7 +42,6 @@ function MailboxView() {
 	const { mailboxId } = Route.useParams();
 	const { selectedMessageId, q: searchQuery = "" } = Route.useSearch();
 	const navigate = useNavigate();
-	const queryClient = useQueryClient();
 	const isDesktop = useIsDesktop();
 
 	// Use search API when there's a query, otherwise list API
@@ -102,73 +95,27 @@ function MailboxView() {
 		placeholderData: keepPreviousData,
 	});
 
-	// Delete mutation with optimistic updates
-	const deleteMutation = useMutation({
-		...messageBulkOperationsDeleteMessagesMutation(),
-		onMutate: async (variables) => {
-			const messageIds = new Set(variables.body.messageIds);
-
-			// Cancel any outgoing refetches
-			await queryClient.cancelQueries({ queryKey });
-
-			// Snapshot the previous value
-			const previousData = queryClient.getQueryData(queryKey);
-
-			// Optimistically update to remove deleted messages from all pages
-			queryClient.setQueryData(
-				queryKey,
-				(
-					old:
-						| {
-								pages: Array<{ items: RemitImapThreadMessageResponse[] }>;
-								pageParams: Array<string | undefined>;
-						  }
-						| undefined,
-				) => {
-					if (!old) return old;
-					return {
-						...old,
-						pages: old.pages.map((page) => ({
-							...page,
-							items: page.items.filter(
-								(item) => !messageIds.has(item.messageId),
-							),
-						})),
-					};
-				},
-			);
-
-			// Clear selection if currently selected message is being deleted
-			if (selectedMessageId && messageIds.has(selectedMessageId)) {
-				navigate({
-					to: "/mail/$mailboxId",
-					params: { mailboxId },
-					search: (prev: MailboxSearch) => ({
-						...prev,
-						selectedMessageId: undefined,
-					}),
-				});
-			}
-
-			return { previousData };
+	const handleDeselectIfRemoved = useCallback(
+		(removedIds: string[]) => {
+			if (!selectedMessageId) return;
+			if (!removedIds.includes(selectedMessageId)) return;
+			navigate({
+				to: "/mail/$mailboxId",
+				params: { mailboxId },
+				search: (prev: MailboxSearch) => ({
+					...prev,
+					selectedMessageId: undefined,
+				}),
+			});
 		},
-		onError: (_err, _variables, context) => {
-			if (context?.previousData) {
-				queryClient.setQueryData(queryKey, context.previousData);
-			}
-		},
-		onSettled: () => {
-			// Always refetch after error or success
-			queryClient.invalidateQueries({ queryKey });
-		},
-	});
-
-	const handleDeleteMessages = useCallback(
-		(messageIds: string[]) => {
-			deleteMutation.mutate({ body: { messageIds } });
-		},
-		[deleteMutation],
+		[selectedMessageId, mailboxId, navigate],
 	);
+
+	const { deleteMessages: handleDeleteMessages, isPending: isDeleting } =
+		useDeleteMessages({
+			mailboxId,
+			onAfterOptimisticRemove: handleDeselectIfRemoved,
+		});
 
 	// Flatten threads from all pages
 	const threads = threadsData?.pages.flatMap((page) => page.items) ?? [];
@@ -225,7 +172,7 @@ function MailboxView() {
 			onRetry={() => refetch()}
 			searchQuery={searchQuery}
 			onDeleteMessages={handleDeleteMessages}
-			isDeleting={deleteMutation.isPending}
+			isDeleting={isDeleting}
 			onLoadMore={fetchNextPage}
 			hasMore={hasNextPage}
 			isLoadingMore={isFetchingNextPage}

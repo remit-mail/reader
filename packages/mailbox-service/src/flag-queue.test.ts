@@ -213,6 +213,92 @@ describe("FlagQueueService.updateFlags", () => {
 		assert.strictEqual(removeFlagCalls[0].arguments[1], MessageSystemFlag.Seen);
 	});
 
+	it("passes CURRENT isRead value (not new) to ThreadMessage update composites", async () => {
+		// Regression: ElectroDB's `patch().set().composite()` uses composites
+		// for the conditional check on the existing item AND to recompute the
+		// new sort keys. The CURRENT value goes in `composites`; the NEW value
+		// goes in `set`. Passing the new value in composites causes the patch
+		// to fail with NotFoundError (which flag-queue swallows) and the
+		// isRead update is silently dropped.
+		const { service, config } = createTestConfig();
+
+		const threadMessageService = config.threadMessageService as ReturnType<
+			typeof createMockThreadMessageService
+		>;
+		threadMessageService._addThreadMessage(messageId, {
+			accountConfigId: "test-account-config",
+			threadMessageId: "test-thread-message-id",
+			mailboxId: "test-mailbox-id",
+			sentDate: 1700000000000,
+			isRead: false,
+			isDeleted: false,
+			hasStars: false,
+			hasAttachment: false,
+		});
+
+		await service.updateFlags(messageId, accountId, { isRead: true });
+
+		const updateCalls = (
+			threadMessageService.update as unknown as ReturnType<typeof mock.fn>
+		).mock.calls;
+		assert.strictEqual(updateCalls.length, 1);
+
+		const setArg = updateCalls[0].arguments[2] as { isRead?: boolean };
+		assert.strictEqual(setArg.isRead, true, "set() must carry the NEW isRead");
+
+		const optionsArg = updateCalls[0].arguments[3] as {
+			composites?: { isRead?: boolean };
+		};
+		assert.strictEqual(
+			optionsArg?.composites?.isRead,
+			false,
+			"composites.isRead must be the CURRENT value (false), not the new value",
+		);
+	});
+
+	it("passes CURRENT hasStars value (not new) to ThreadMessage update composites", async () => {
+		// Regression: same root cause as the isRead test above, applied to the
+		// star-update path.
+		const { service, config } = createTestConfig();
+
+		const threadMessageService = config.threadMessageService as ReturnType<
+			typeof createMockThreadMessageService
+		>;
+		threadMessageService._addThreadMessage(messageId, {
+			accountConfigId: "test-account-config",
+			threadMessageId: "test-thread-message-id",
+			mailboxId: "test-mailbox-id",
+			sentDate: 1700000000000,
+			isRead: false,
+			isDeleted: false,
+			hasStars: false,
+			hasAttachment: false,
+		});
+
+		await service.updateFlags(messageId, accountId, { isStarred: true });
+
+		const updateCalls = (
+			threadMessageService.update as unknown as ReturnType<typeof mock.fn>
+		).mock.calls;
+		assert.strictEqual(updateCalls.length, 1);
+
+		const setArg = updateCalls[0].arguments[2] as { hasStars?: boolean };
+		assert.strictEqual(
+			setArg.hasStars,
+			true,
+			"set() must carry the NEW hasStars",
+		);
+
+		const optionsArg = updateCalls[0].arguments[3] as {
+			composites?: { hasStars?: boolean };
+		};
+		assert.strictEqual(
+			optionsArg?.composites?.hasStars,
+			false,
+			"composites.hasStars must be the CURRENT value (false), not the new value",
+		);
+	});
+
 	it("marks message as starred when isStarred is true", async () => {
 		const { service, config, mockSQS } = createTestConfig();
 
