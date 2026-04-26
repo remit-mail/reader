@@ -2,6 +2,7 @@ import {
 	AccountService,
 	getClient,
 	MessageService,
+	type ThreadMessageItem,
 	ThreadMessageService,
 } from "@remit/remit-electrodb-service";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
@@ -15,6 +16,46 @@ import { env } from "expect-env";
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeFromAccount } from "../connection-scope.js";
 import type { MessageMoveEvent } from "../events.js";
+
+/**
+ * Build the `set` and `composites` payload for the ThreadMessage update on a
+ * MESSAGE_MOVE.
+ *
+ * The CURRENT row state goes in `composites`; the NEW values go in `set`.
+ * ElectroDB uses `composites` to run the conditional check on the existing row
+ * AND to compute the previous sort-key values needed to recompute the new ones.
+ * Passing the NEW values in `composites` makes the conditional check fail with
+ * ConditionalCheckFailedException, which ElectroDB wraps as NotFoundError, and
+ * the caller silently drops the update. Same root cause as PR #186 fixed for
+ * `flag-queue.ts`.
+ */
+export const buildThreadMessageMoveUpdate = (
+	threadMessage: Pick<
+		ThreadMessageItem,
+		| "sentDate"
+		| "mailboxId"
+		| "isRead"
+		| "isDeleted"
+		| "hasStars"
+		| "hasAttachment"
+	>,
+	newUid: number,
+	destinationMailboxId: string,
+) => ({
+	set: {
+		uid: newUid,
+		mailboxId: destinationMailboxId,
+		isDeleted: false,
+	},
+	composites: {
+		sentDate: threadMessage.sentDate,
+		mailboxId: threadMessage.mailboxId,
+		isRead: threadMessage.isRead,
+		isDeleted: threadMessage.isDeleted,
+		hasStars: threadMessage.hasStars,
+		hasAttachment: threadMessage.hasAttachment,
+	},
+});
 
 const client = getClient();
 const dataKeyProvider = createKmsDataKeyProvider(env.KMS_KEY_ID);
@@ -99,20 +140,16 @@ export const handleMessageMove = async (
 				const threadMessage =
 					await threadMessageService.findByMessageId(messageId);
 				if (threadMessage) {
+					const args = buildThreadMessageMoveUpdate(
+						threadMessage,
+						newUid,
+						destinationMailboxId,
+					);
 					await threadMessageService.update(
 						threadMessage.accountConfigId,
 						threadMessage.threadMessageId,
-						{ uid: newUid, mailboxId: destinationMailboxId, isDeleted: false },
-						{
-							composites: {
-								sentDate: threadMessage.sentDate,
-								mailboxId: destinationMailboxId,
-								isRead: threadMessage.isRead,
-								isDeleted: false,
-								hasStars: threadMessage.hasStars,
-								hasAttachment: threadMessage.hasAttachment,
-							},
-						},
+						args.set,
+						{ composites: args.composites },
 					);
 				}
 
