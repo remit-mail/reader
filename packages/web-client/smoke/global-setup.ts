@@ -347,11 +347,31 @@ const seedMessages = async (config: ReturnType<typeof createConfig>) => {
 			if (!(err instanceof CreateFailedConflictError)) throw err;
 		}
 
+		const fromAddressId = base36uuidv5(
+			`address:${msg.fromEmail}`,
+			REMIT_NAMESPACE,
+		);
+		const [fromLocal, fromDomain] = msg.fromEmail.split("@");
+
+		try {
+			await addressService.createAddress({
+				addressId: fromAddressId,
+				accountConfigId: E2E_ACCOUNT_CONFIG_ID,
+				displayName: msg.fromName,
+				localPart: fromLocal,
+				domain: fromDomain,
+				normalizedEmail: msg.fromEmail.toLowerCase(),
+				normalizedCompound: `${msg.fromName.toLowerCase()} ${msg.fromEmail.toLowerCase()}`,
+			});
+		} catch (err) {
+			if (!(err instanceof CreateFailedConflictError)) throw err;
+		}
+
 		try {
 			await addressService.createEnvelopeAddress({
 				envelopeAddressId,
 				messageId,
-				addressId: base36uuidv5(`address:${msg.fromEmail}`, REMIT_NAMESPACE),
+				addressId: fromAddressId,
 				normalizedEmail: msg.fromEmail,
 				addressRole: "from",
 				addressOrder: 0,

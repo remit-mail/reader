@@ -1,6 +1,6 @@
 import type { OperationHandler, OperationIds } from "../types.js";
 import { AccountDetailOperations, AccountOperations } from "./account.js";
-import { AddressOperations } from "./address.js";
+import { AddressDetailOperations, AddressOperations } from "./address.js";
 import { ConfigOperations } from "./config.js";
 import {
 	MailboxDetailOperations,
@@ -28,4 +28,5 @@ export const handlers: Record<OperationIds, OperationHandler<any>> = {
 	...OutboxOperations,
 	...OutboxDetailOperations,
 	...AddressOperations,
+	...AddressDetailOperations,
 };
