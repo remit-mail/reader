@@ -18,6 +18,7 @@ const toMailboxResponse = (mailbox: MailboxItem): MailboxResponse => ({
 	messageCount: mailbox.messageCount,
 	unseenCount: mailbox.unseenCount,
 	deletedCount: mailbox.deletedCount,
+	specialUse: mailbox.specialUse ? Array.from(mailbox.specialUse) : undefined,
 	createdAt: mailbox.createdAt,
 	updatedAt: mailbox.updatedAt,
 });

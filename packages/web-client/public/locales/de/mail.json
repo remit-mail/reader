@@ -1,1 +1,13 @@
-{}
+{
+  "sidebar": {
+    "inbox": "Posteingang",
+    "sent": "Gesendet",
+    "drafts": "Entwürfe",
+    "trash": "Papierkorb",
+    "archive": "Archiv",
+    "spam": "Spam",
+    "junk": "Spam",
+    "flagged": "Markiert",
+    "all": "Alle E-Mails"
+  }
+}

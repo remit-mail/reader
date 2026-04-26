@@ -14,7 +14,13 @@ import {
 	Star,
 	Trash2,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Badge } from "@/components/ui/Badge";
+import {
+	getMailboxDisplayLabel,
+	getMailboxKind,
+	shouldShowUnreadBadge,
+} from "@/lib/mailbox-order";
 import { cn } from "@/lib/utils";
 
 interface MailboxItemProps {
@@ -22,27 +28,39 @@ interface MailboxItemProps {
 	isSelected: boolean;
 }
 
-const getMailboxDisplayName = (fullPath: string): string => {
-	const parts = fullPath.split("/");
-	return parts[parts.length - 1] || fullPath;
+const ICON_BY_KIND: Record<string, LucideIcon> = {
+	inbox: Inbox,
+	sent: Send,
+	drafts: File,
+	trash: Trash2,
+	junk: AlertTriangle,
+	archive: Archive,
+	flagged: Star,
+	all: Mail,
 };
 
-const getMailboxIcon = (fullPath: string): LucideIcon => {
-	const name = fullPath.toLowerCase();
-	if (name.includes("inbox")) return Inbox;
-	if (name.includes("sent")) return Send;
-	if (name.includes("draft")) return File;
-	if (name.includes("trash") || name.includes("deleted")) return Trash2;
-	if (name.includes("spam") || name.includes("junk")) return AlertTriangle;
-	if (name.includes("archive")) return Archive;
-	if (name.includes("starred") || name.includes("flagged")) return Star;
-	if (name.includes("all")) return Mail;
+const getMailboxIcon = (
+	fullPath: string,
+	specialUse: readonly string[] | undefined,
+): LucideIcon => {
+	const kind = getMailboxKind(fullPath, specialUse);
+	if (kind && ICON_BY_KIND[kind]) return ICON_BY_KIND[kind];
 	return Folder;
 };
 
 export const MailboxItem = ({ mailbox, isSelected }: MailboxItemProps) => {
-	const displayName = getMailboxDisplayName(mailbox.fullPath);
-	const Icon = getMailboxIcon(mailbox.fullPath);
+	const { t } = useTranslation("mail", { useSuspense: false });
+	const translator = (key: string, fallback: string): string =>
+		t(key, { defaultValue: fallback });
+	const displayName = getMailboxDisplayLabel(
+		mailbox.fullPath,
+		mailbox.specialUse,
+		translator,
+	);
+	const Icon = getMailboxIcon(mailbox.fullPath, mailbox.specialUse);
+	const showBadge =
+		shouldShowUnreadBadge(mailbox.fullPath, mailbox.specialUse) &&
+		mailbox.unseenCount > 0;
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 
@@ -75,10 +93,12 @@ export const MailboxItem = ({ mailbox, isSelected }: MailboxItemProps) => {
 				"hover:bg-accent",
 				isSelected && "bg-accent font-medium",
 			)}
+			aria-label={displayName}
+			title={mailbox.fullPath}
 		>
 			<Icon className="size-4 shrink-0" />
 			<span className="flex-1 truncate">{displayName}</span>
-			{mailbox.unseenCount > 0 && (
+			{showBadge && (
 				<Badge count={mailbox.unseenCount} totalCount={mailbox.messageCount} />
 			)}
 		</Link>

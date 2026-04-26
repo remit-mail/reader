@@ -127,6 +127,10 @@ model Mailbox {
   @visibility(Lifecycle.Read)
   oldPath?: String512;
 
+  @doc("Denormalized list of IMAP SPECIAL-USE designations (RFC 6154). Populated from the same `\\Sent`, `\\Drafts`, etc. attributes the server reports during LIST. Stored on the row to avoid an N+1 join when listing mailboxes.")
+  @visibility(Lifecycle.Read)
+  specialUse?: MailboxSpecialUse[];
+
   @visibility(Lifecycle.Read)
   @createdAt
   createdAt: int64;
@@ -264,6 +268,7 @@ model MailboxResponse
       | "messageCount"
       | "unseenCount"
       | "deletedCount"
+      | "specialUse"
       | "createdAt"
       | "updatedAt"
   >;
