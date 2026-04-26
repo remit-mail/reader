@@ -200,6 +200,7 @@ const seedMailboxes = async (config: ReturnType<typeof createConfig>) => {
 				lastSyncUid: mb.messageCount,
 				highWaterMarkUid: mb.messageCount,
 				lastMessageSyncAt: NOW,
+				specialUse: mb.specialUse ? [mb.specialUse] : undefined,
 			})
 			.go();
 

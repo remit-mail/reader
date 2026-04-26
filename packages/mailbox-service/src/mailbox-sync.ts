@@ -27,6 +27,24 @@ type MailboxSpecialUseValue =
 	(typeof MailboxSpecialUse)[keyof typeof MailboxSpecialUse];
 
 /**
+ * Compare two unordered special-use lists/sets for equality. Treats `undefined`
+ * and an empty array as equivalent (a mailbox with no flags).
+ */
+const areSpecialUseSetsEqual = (
+	a: readonly MailboxSpecialUseValue[] | undefined,
+	b: readonly MailboxSpecialUseValue[] | undefined,
+): boolean => {
+	const aArr = a ?? [];
+	const bArr = b ?? [];
+	if (aArr.length !== bArr.length) return false;
+	const aSet = new Set<string>(aArr);
+	for (const value of bArr) {
+		if (!aSet.has(value)) return false;
+	}
+	return true;
+};
+
+/**
  * Map common folder names to their expected special-use designation.
  * Used to detect duplicate folders (e.g., "Trash" vs "[Gmail]/Trash").
  */
@@ -108,8 +126,11 @@ export class MailboxSyncService {
 			namespaces,
 		);
 
-		// Build a map of special-use designations claimed by mailboxes with IMAP attributes
-		// This helps us identify and skip duplicate folders (e.g., "Trash" vs "[Gmail]/Trash")
+		// Build a map of special-use designations claimed by mailboxes with IMAP attributes.
+		// Used to:
+		//  1. Skip duplicate folders (e.g., "Trash" vs "[Gmail]/Trash") at sync time.
+		//  2. Skip duplicate localized folders (e.g., "Sent" vs "Verzonden items") when one
+		//     of them carries the IMAP \Sent flag — issue #194.
 		const claimedSpecialUse = this.buildSpecialUseMap(remoteMailboxes);
 
 		// Track which paths we've seen from remote
@@ -309,6 +330,11 @@ export class MailboxSyncService {
 		// This gets us message counts including unseen without opening the mailbox
 		const status = await connection.getMailboxStatus(mailboxInfo.fullPath);
 
+		// Parse special-use attributes (RFC 6154) up front so the row stores a
+		// denormalized copy. Frontends list mailboxes by account; threading a join
+		// through MailboxSpecialUseEntry per row would be O(N) extra round-trips.
+		const parsed = parseImapAttributes(mailboxInfo.attributes);
+
 		const input: CreateMailboxInput = {
 			accountId,
 			namespaceType: mailboxInfo.namespaceType,
@@ -325,13 +351,16 @@ export class MailboxSyncService {
 			lastSyncUid: 0,
 			highWaterMarkUid: 0,
 			lastMessageSyncAt: 0,
+			specialUse: parsed.specialUse.length > 0 ? parsed.specialUse : undefined,
 			// parentMailboxId would need to be resolved from parentPath
 		};
 
 		const mailbox = await this.mailboxService.create(input);
 
-		// Parse and store special-use attributes (RFC 6154)
-		const parsed = parseImapAttributes(mailboxInfo.attributes);
+		// Keep the MailboxSpecialUseEntry table in sync — other services (e.g.
+		// MessageMoveService.findTrashMailbox) still query by entry. Denormalized
+		// copy on Mailbox is the read-side optimization, the entries remain the
+		// authoritative join source for cross-mailbox lookups.
 		if (parsed.specialUse.length > 0) {
 			await this.specialUseService.createMany(
 				mailbox.mailboxId,
@@ -363,6 +392,12 @@ export class MailboxSyncService {
 		// Fetch mailbox status using STATUS command (doesn't require SELECT/EXAMINE)
 		const status = await connection.getMailboxStatus(mailboxInfo.fullPath);
 
+		const parsed = parseImapAttributes(mailboxInfo.attributes);
+		const specialUseChanged = !areSpecialUseSetsEqual(
+			existing.specialUse,
+			parsed.specialUse,
+		);
+
 		// Check if anything actually changed
 		const hasChanges =
 			existing.uidNext !== status.uidNext ||
@@ -370,7 +405,8 @@ export class MailboxSyncService {
 			existing.messageCount !== status.messages ||
 			existing.unseenCount !== status.unseen ||
 			(status.highestModseq > 0 &&
-				existing.highestModseq !== status.highestModseq);
+				existing.highestModseq !== status.highestModseq) ||
+			specialUseChanged;
 
 		// Sync special-use attributes (handles migration of existing mailboxes)
 		await this.syncSpecialUseAttributes(existing.mailboxId, mailboxInfo);
@@ -400,12 +436,17 @@ export class MailboxSyncService {
 			changes.push(
 				`highestModseq: ${existing.highestModseq} -> ${status.highestModseq}`,
 			);
+		if (specialUseChanged)
+			changes.push(
+				`specialUse: [${(existing.specialUse ?? []).join(",")}] -> [${parsed.specialUse.join(",")}]`,
+			);
 
 		console.info(
 			`Updating mailbox: ${existing.mailboxId} (${mailboxInfo.fullPath}) [${changes.join(", ")}]`,
 		);
 
-		// Update mailbox with fresh status
+		// Update mailbox with fresh status. ElectroDB rejects empty sets, so we
+		// pass undefined when no flags are present rather than [].
 		return this.mailboxService.update(existing.mailboxId, {
 			hierarchyDelimiter: mailboxInfo.delimiter,
 			uidValidity: status.uidValidity,
@@ -413,6 +454,7 @@ export class MailboxSyncService {
 			highestModseq: status.highestModseq,
 			messageCount: status.messages,
 			unseenCount: status.unseen,
+			specialUse: parsed.specialUse.length > 0 ? parsed.specialUse : undefined,
 		});
 	};
 

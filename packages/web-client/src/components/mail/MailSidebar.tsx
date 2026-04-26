@@ -48,7 +48,7 @@ const sortMailboxes = (
 	const labels: RemitImapMailboxResponse[] = [];
 
 	for (const mailbox of filtered) {
-		if (isSystemMailbox(mailbox.fullPath)) {
+		if (isSystemMailbox(mailbox.fullPath, mailbox.specialUse)) {
 			system.push(mailbox);
 		} else {
 			labels.push(mailbox);
@@ -56,7 +56,9 @@ const sortMailboxes = (
 	}
 
 	system.sort(
-		(a, b) => getMailboxPriority(a.fullPath) - getMailboxPriority(b.fullPath),
+		(a, b) =>
+			getMailboxPriority(a.fullPath, a.specialUse) -
+			getMailboxPriority(b.fullPath, b.specialUse),
 	);
 	labels.sort((a, b) =>
 		compareLabelNames(getDisplayName(a.fullPath), getDisplayName(b.fullPath)),
