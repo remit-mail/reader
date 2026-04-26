@@ -282,6 +282,17 @@ namespace RemitApi {
     ): ResultList<AddressResponse>;
   }
 
+  @route("/addresses/{addressId}")
+  namespace AddressDetailOperations {
+    @doc("Update an address (currently: per-sender flags). Pass `flags: { <name>: null }` to remove a flag. Other flags are untouched.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @patch(#{ implicitOptionality: true })
+    op updateAddress(
+      @path addressId: UUID,
+      @body input: UpdateAddressInput,
+    ): AddressResponse;
+  }
+
   // ============================================
   // Message Operations
   // ============================================

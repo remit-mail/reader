@@ -138,15 +138,30 @@ export const MessageOperations: Record<
 			messageIdHeader: message.messageIdHeader,
 		};
 
+		// Batch-fetch the resolved Address rows so each EnvelopeAddressResponse can
+		// carry the sender-level `flags` map. Without this the From-line UI would
+		// need a second round-trip to render trust state on every message open.
+		const uniqueAddressIds = Array.from(
+			new Set(description.envelopeAddress.map((a) => a.addressId)),
+		);
+		const addresses = uniqueAddressIds.length
+			? await getClient().address.getAddress(uniqueAddressIds)
+			: [];
+		const flagsByAddressId = new Map(
+			addresses.map((a) => [a.addressId, a.flags]),
+		);
+
 		const groupedAddresses = description.envelopeAddress.reduce(
 			(acc, addr) => {
 				const role = addr.addressRole;
 				if (!acc[role]) acc[role] = [];
 				acc[role].push({
+					addressId: addr.addressId,
 					displayName: addr.displayName,
 					normalizedEmail: addr.normalizedEmail,
 					addressRole: addr.addressRole,
 					addressOrder: addr.addressOrder,
+					flags: flagsByAddressId.get(addr.addressId),
 				});
 				return acc;
 			},

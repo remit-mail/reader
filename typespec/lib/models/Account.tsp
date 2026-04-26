@@ -288,6 +288,7 @@ model AddressResponse
       | "localPart"
       | "domain"
       | "normalizedEmail"
+      | "flags"
       | "createdAt"
       | "updatedAt"
   >;

@@ -5,6 +5,75 @@ import "../scalars/string.tsp";
 
 namespace RemitImap;
 
+// ============================================
+// Sender-level Flags (RFC 019 / EDD #174)
+// ============================================
+//
+// Per-sender preferences stored as a sparse map on Address. Adding a flag is
+// a TypeSpec change — forces deliberate UI consideration before a flag goes
+// live. Stored as a DDB Map so per-flag updates are atomic across devices.
+
+@doc("Common metadata for sender-level flags")
+model AddressFlagBase {
+  @doc("Timestamp when the flag was set")
+  setAt: int64;
+
+  @doc("Device/session/user identifier that set the flag (audit trail)")
+  setBy?: string;
+
+  @doc("Optional auto-revoke timestamp")
+  expiresAt?: int64;
+
+  @doc("Free-text user note")
+  reason?: string;
+}
+
+@doc("Sender is trusted: auto-load images, allow author backgrounds")
+model TrustedFlag extends AddressFlagBase {
+  value: boolean;
+}
+
+@doc("Sender is blocked: never load images, even on explicit click")
+model BlockedFlag extends AddressFlagBase {
+  value: boolean;
+}
+
+@doc("Sender is muted: do not notify on new mail")
+model MutedFlag extends AddressFlagBase {
+  value: boolean;
+}
+
+@doc("Sender is VIP: priority surface and push escalation")
+model VipFlag extends AddressFlagBase {
+  value: boolean;
+}
+
+@doc("Category override for auto-classification")
+model CategoryFlag extends AddressFlagBase {
+  value: "newsletter" | "transactional" | "personal" | "promotional";
+}
+
+@doc("Auto-archive: skip inbox, file directly")
+model AutoArchiveFlag extends AddressFlagBase {
+  value: boolean;
+}
+
+@doc("User has unsubscribed; auto-mark-read until sender stops")
+model UnsubscribedFlag extends AddressFlagBase {
+  value: boolean;
+}
+
+@doc("Sender-level flags map. Absent keys mean absent flags (sparse).")
+model AddressFlags {
+  trusted?: TrustedFlag;
+  blocked?: BlockedFlag;
+  muted?: MutedFlag;
+  vip?: VipFlag;
+  category?: CategoryFlag;
+  autoArchive?: AutoArchiveFlag;
+  unsubscribed?: UnsubscribedFlag;
+}
+
 @doc("Normalized email address per RFC 2822 Section 3.4.1. Addresses are deduplicated across messages within an account config.")
 @entity("address", "remit")
 @index(
@@ -54,6 +123,10 @@ model Address {
   @doc("Compound field for autocomplete: lowercase displayName + normalizedEmail")
   @visibility(Lifecycle.Read)
   normalizedCompound: string;
+
+  @doc("Sender-level flags (trust/block/mute/etc). Absent when no flags set.")
+  @visibility(Lifecycle.Read)
+  flags?: AddressFlags;
 
   @visibility(Lifecycle.Read)
   @createdAt
@@ -125,9 +198,44 @@ model EnvelopeAddress {
 // API Response Models
 // ============================================
 
-@doc("Envelope address information")
-model EnvelopeAddressResponse
-  is PickProperties<
-    EnvelopeAddress,
-    "displayName" | "normalizedEmail" | "addressRole" | "addressOrder"
-  >;
+@doc("Envelope address information. Includes the resolved Address `addressId` and per-sender `flags` so the UI can render trust state without a second fetch.")
+model EnvelopeAddressResponse {
+  @doc("Resolved Address identifier (stable per accountConfig + normalized email)")
+  addressId: UUID;
+
+  @doc("Display name as it appeared in this specific message's envelope")
+  displayName?: string;
+
+  @doc("Lowercase full email address")
+  normalizedEmail: string;
+
+  @doc("Role of this address in the envelope")
+  addressRole: AddressRole;
+
+  @doc("Order for multiple addresses in same role (0-indexed)")
+  addressOrder: int32;
+
+  @doc("Sender-level flags resolved from the linked Address")
+  flags?: AddressFlags;
+}
+
+// ============================================
+// API Input Models
+// ============================================
+
+@doc("Patch payload for a single AddressFlags entry. Pass `null` for a flag key to remove that flag while leaving the others untouched.")
+model UpdateAddressFlagsInput {
+  trusted?: TrustedFlag | null;
+  blocked?: BlockedFlag | null;
+  muted?: MutedFlag | null;
+  vip?: VipFlag | null;
+  category?: CategoryFlag | null;
+  autoArchive?: AutoArchiveFlag | null;
+  unsubscribed?: UnsubscribedFlag | null;
+}
+
+@doc("Input for updating an Address (currently flag updates only)")
+model UpdateAddressInput {
+  @doc("Per-flag merge update; omitted flags are untouched, `null` removes the flag")
+  flags?: UpdateAddressFlagsInput;
+}

@@ -33,7 +33,8 @@ export type OperationIds =
 	| "OutboxDetailOperations_updateOutboxMessage"
 	| "OutboxDetailOperations_deleteOutboxMessage"
 	| "OutboxDetailOperations_sendOutboxMessage"
-	| "AddressOperations_searchAddresses";
+	| "AddressOperations_searchAddresses"
+	| "AddressDetailOperations_updateAddress";
 
 export type ConfigOperationIds = MatchPrefix<"ConfigOperations_", OperationIds>;
 
@@ -87,6 +88,11 @@ export type OutboxDetailOperationIds = MatchPrefix<
 
 export type AddressOperationIds = MatchPrefix<
 	"AddressOperations_",
+	OperationIds
+>;
+
+export type AddressDetailOperationIds = MatchPrefix<
+	"AddressDetailOperations_",
 	OperationIds
 >;
 

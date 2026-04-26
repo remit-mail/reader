@@ -11,24 +11,32 @@ interface MessageBodyProps {
 	 * - 'auto': Use prefers-color-scheme (default)
 	 */
 	colorMode?: ColorMode;
+	/**
+	 * Whether the From-address has the `trusted` flag set. Trusted senders
+	 * auto-load images and get the more permissive color/background mode.
+	 * The "Load images" bar is suppressed entirely for trusted senders.
+	 */
+	isTrusted?: boolean;
 }
 
 export const MessageBody = ({
 	html,
 	text,
 	colorMode = "auto",
+	isTrusted = false,
 }: MessageBodyProps) => {
-	const [allowImages, setAllowImages] = useState(false);
+	const [allowImagesOnce, setAllowImagesOnce] = useState(false);
+	const allowImages = isTrusted || allowImagesOnce;
 
 	const sanitizedHtml = useMemo(() => {
 		if (!html) return null;
 
 		// Loading remote images is the user's signal that they trust this
-		// sender. Once trusted, also let the email's author-defined
-		// background colors through (so brand emails like bol.com aren't
-		// shredded by our dark-mode color overrides). Until trusted we
-		// keep the conservative behaviour to avoid the "disco" effect of
-		// random colored blocks on a dark theme.
+		// sender. Once trusted (per-sender flag or per-render click), also
+		// let the email's author-defined background colors through (so
+		// brand emails like bol.com aren't shredded by our dark-mode color
+		// overrides). Until trusted we keep the conservative behaviour to
+		// avoid the "disco" effect of random colored blocks on a dark theme.
 		const effectiveColorMode: ColorMode = allowImages ? "light" : colorMode;
 
 		const sanitize = createEmailSanitizer({
@@ -63,7 +71,7 @@ export const MessageBody = ({
 					</span>
 					<button
 						type="button"
-						onClick={() => setAllowImages(true)}
+						onClick={() => setAllowImagesOnce(true)}
 						className="text-primary hover:underline"
 					>
 						Load images
