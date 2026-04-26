@@ -1,1 +1,13 @@
-{}
+{
+  "sidebar": {
+    "inbox": "Postvak IN",
+    "sent": "Verzonden",
+    "drafts": "Concepten",
+    "trash": "Prullenbak",
+    "archive": "Archief",
+    "spam": "Ongewenst",
+    "junk": "Ongewenst",
+    "flagged": "Met ster",
+    "all": "Alle berichten"
+  }
+}

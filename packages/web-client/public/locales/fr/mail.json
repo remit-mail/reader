@@ -1,1 +1,13 @@
-{}
+{
+  "sidebar": {
+    "inbox": "Boîte de réception",
+    "sent": "Envoyés",
+    "drafts": "Brouillons",
+    "trash": "Corbeille",
+    "archive": "Archives",
+    "spam": "Indésirables",
+    "junk": "Indésirables",
+    "flagged": "Suivis",
+    "all": "Tous les messages"
+  }
+}

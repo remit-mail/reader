@@ -6,6 +6,9 @@
     "trash": "Trash",
     "archive": "Archive",
     "spam": "Spam",
+    "junk": "Spam",
+    "flagged": "Starred",
+    "all": "All Mail",
     "noAccounts": "No accounts configured",
     "noMailboxes": "No mailboxes"
   },
