@@ -6,6 +6,7 @@ import {
 import { Suspense } from "react";
 import { useTranslation } from "react-i18next";
 import { ComposeProvider } from "@/components/compose/ComposeProvider";
+import { ErrorBannerProvider } from "@/components/ui/ErrorBannerProvider";
 import { ErrorState } from "@/components/ui/ErrorState";
 import type { RouterContext } from "@/router";
 
@@ -43,13 +44,15 @@ const LoadingSkeleton = () => (
 
 function RootLayout() {
 	return (
-		<ComposeProvider>
-			<SkipLink />
-			<main id="main-content" className="h-screen overflow-hidden">
-				<Suspense fallback={<LoadingSkeleton />}>
-					<Outlet />
-				</Suspense>
-			</main>
-		</ComposeProvider>
+		<ErrorBannerProvider>
+			<ComposeProvider>
+				<SkipLink />
+				<main id="main-content" className="h-screen overflow-hidden">
+					<Suspense fallback={<LoadingSkeleton />}>
+						<Outlet />
+					</Suspense>
+				</main>
+			</ComposeProvider>
+		</ErrorBannerProvider>
 	);
 }

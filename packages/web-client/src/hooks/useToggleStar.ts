@@ -6,6 +6,8 @@ import {
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
+import { formatErrorDetail } from "@/components/ui/error-banners";
 
 interface UseToggleStarOptions {
 	threadId: string;
@@ -54,6 +56,7 @@ export const useToggleStar = ({
 	mailboxId,
 }: UseToggleStarOptions) => {
 	const queryClient = useQueryClient();
+	const { pushError } = useErrorBanners();
 
 	const { mutate, isPending, variables } = useMutation({
 		...messageOperationsUpdateMessageFlagsMutation(),
@@ -142,14 +145,22 @@ export const useToggleStar = ({
 				previousThreadsList,
 			};
 		},
-		onError: (_err, _vars, context) => {
-			if (!context) return;
-			for (const entry of context.previousThreadMessages) {
-				queryClient.setQueryData(entry.queryKey, entry.data);
+		onError: (err, vars, context) => {
+			if (context) {
+				for (const entry of context.previousThreadMessages) {
+					queryClient.setQueryData(entry.queryKey, entry.data);
+				}
+				for (const entry of context.previousThreadsList) {
+					queryClient.setQueryData(entry.queryKey, entry.data);
+				}
 			}
-			for (const entry of context.previousThreadsList) {
-				queryClient.setQueryData(entry.queryKey, entry.data);
-			}
+			const nextStarred = vars.body.isStarred ?? false;
+			pushError({
+				title: nextStarred
+					? "Couldn't star message"
+					: "Couldn't unstar message",
+				detail: formatErrorDetail(err),
+			});
 		},
 		onSettled: (_data, _err, _vars, context) => {
 			if (!context) return;

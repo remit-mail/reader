@@ -2,7 +2,9 @@ import {
 	messageBulkOperationsUpdateFlagsMutation,
 	threadDetailOperationsListThreadMessagesQueryKey,
 	threadOperationsListThreadsQueryKey,
+	threadOperationsSearchThreadsQueryKey,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import {
@@ -18,9 +20,39 @@ import {
 	DropdownMenuItem,
 	DropdownMenuSeparator,
 } from "@/components/ui/DropdownMenu";
+import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { ErrorState } from "@/components/ui/ErrorState";
+import { formatErrorDetail } from "@/components/ui/error-banners";
 import { useDeleteMessages } from "@/hooks/useDeleteMessages";
 import { useToggleTrusted } from "@/hooks/useToggleTrusted";
+
+interface ThreadMessagesData {
+	items: RemitImapThreadMessageResponse[];
+	[key: string]: unknown;
+}
+
+interface ThreadsListPage {
+	items: RemitImapThreadMessageResponse[];
+	[key: string]: unknown;
+}
+
+interface ThreadsListData {
+	pages: ThreadsListPage[];
+	pageParams: Array<string | undefined>;
+}
+
+interface SnapshotEntry<T> {
+	queryKey: readonly unknown[];
+	data: T;
+}
+
+interface MarkUnreadContext {
+	threadMessagesPrefix: readonly unknown[];
+	threadsListPrefix: readonly unknown[];
+	threadsSearchPrefix: readonly unknown[];
+	previousThreadMessages: SnapshotEntry<ThreadMessagesData>[];
+	previousThreadsList: SnapshotEntry<ThreadsListData>[];
+}
 
 interface MessageActionMenuProps {
 	messageId: string;
@@ -49,22 +81,125 @@ export const MessageActionMenu = ({
 }: MessageActionMenuProps) => {
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
+	const { pushError } = useErrorBanners();
 	const { selectedMessageId } = useSearch({ strict: false }) as {
 		selectedMessageId?: string;
 	};
 
 	const { mutate: updateFlags, isPending: isUpdatingFlags } = useMutation({
 		...messageBulkOperationsUpdateFlagsMutation(),
-		onSuccess: () => {
-			queryClient.invalidateQueries({
-				queryKey: threadDetailOperationsListThreadMessagesQueryKey({
+		onMutate: async (variables): Promise<MarkUnreadContext> => {
+			const isReadNext = variables.body.isRead ?? true;
+			const targetIds = new Set(variables.body.messageIds ?? []);
+
+			const threadMessagesPrefix =
+				threadDetailOperationsListThreadMessagesQueryKey({
 					path: { threadId },
-				}),
+				});
+			const threadsListPrefix = threadOperationsListThreadsQueryKey({
+				path: { mailboxId },
 			});
+			const threadsSearchPrefix = threadOperationsSearchThreadsQueryKey({
+				path: { mailboxId },
+			});
+
+			await Promise.all([
+				queryClient.cancelQueries({ queryKey: threadMessagesPrefix }),
+				queryClient.cancelQueries({ queryKey: threadsListPrefix }),
+				queryClient.cancelQueries({ queryKey: threadsSearchPrefix }),
+			]);
+
+			const previousThreadMessages = queryClient
+				.getQueriesData<ThreadMessagesData>({ queryKey: threadMessagesPrefix })
+				.filter(
+					(entry): entry is [readonly unknown[], ThreadMessagesData] =>
+						entry[1] !== undefined,
+				)
+				.map(([queryKey, data]) => ({ queryKey, data }));
+
+			const previousThreadsList = queryClient
+				.getQueriesData<ThreadsListData>({ queryKey: threadsListPrefix })
+				.concat(
+					queryClient.getQueriesData<ThreadsListData>({
+						queryKey: threadsSearchPrefix,
+					}),
+				)
+				.filter(
+					(entry): entry is [readonly unknown[], ThreadsListData] =>
+						entry[1] !== undefined,
+				)
+				.map(([queryKey, data]) => ({ queryKey, data }));
+
+			queryClient.setQueriesData<ThreadMessagesData>(
+				{ queryKey: threadMessagesPrefix },
+				(old) => {
+					if (!old) return old;
+					return {
+						...old,
+						items: old.items.map((item) =>
+							targetIds.has(item.messageId)
+								? { ...item, isRead: isReadNext }
+								: item,
+						),
+					};
+				},
+			);
+
+			const patchListData = (old: ThreadsListData | undefined) => {
+				if (!old) return old;
+				return {
+					...old,
+					pages: old.pages.map((page) => ({
+						...page,
+						items: page.items.map((item) =>
+							targetIds.has(item.messageId)
+								? { ...item, isRead: isReadNext }
+								: item,
+						),
+					})),
+				};
+			};
+
+			queryClient.setQueriesData<ThreadsListData>(
+				{ queryKey: threadsListPrefix },
+				patchListData,
+			);
+			queryClient.setQueriesData<ThreadsListData>(
+				{ queryKey: threadsSearchPrefix },
+				patchListData,
+			);
+
+			return {
+				threadMessagesPrefix,
+				threadsListPrefix,
+				threadsSearchPrefix,
+				previousThreadMessages,
+				previousThreadsList,
+			};
+		},
+		onError: (err, variables, context) => {
+			if (context) {
+				for (const entry of context.previousThreadMessages) {
+					queryClient.setQueryData(entry.queryKey, entry.data);
+				}
+				for (const entry of context.previousThreadsList) {
+					queryClient.setQueryData(entry.queryKey, entry.data);
+				}
+			}
+			const isReadNext = variables.body.isRead ?? true;
+			pushError({
+				title: isReadNext ? "Couldn't mark as read" : "Couldn't mark as unread",
+				detail: formatErrorDetail(err),
+			});
+		},
+		onSettled: (_data, _err, _vars, context) => {
+			if (!context) return;
 			queryClient.invalidateQueries({
-				queryKey: threadOperationsListThreadsQueryKey({
-					path: { mailboxId },
-				}),
+				queryKey: context.threadMessagesPrefix,
+			});
+			queryClient.invalidateQueries({ queryKey: context.threadsListPrefix });
+			queryClient.invalidateQueries({
+				queryKey: context.threadsSearchPrefix,
 			});
 		},
 	});

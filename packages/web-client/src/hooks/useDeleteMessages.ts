@@ -8,6 +8,8 @@ import {
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
+import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
+import { formatErrorDetail } from "@/components/ui/error-banners";
 
 interface UseDeleteMessagesOptions {
 	mailboxId: string;
@@ -69,6 +71,7 @@ export const useDeleteMessages = ({
 	onAfterOptimisticRemove,
 }: UseDeleteMessagesOptions) => {
 	const queryClient = useQueryClient();
+	const { pushError } = useErrorBanners();
 
 	const { mutate, isPending } = useMutation({
 		...messageBulkOperationsDeleteMessagesMutation(),
@@ -161,14 +164,23 @@ export const useDeleteMessages = ({
 				previousThreadsList,
 			};
 		},
-		onError: (_err, _vars, context) => {
-			if (!context) return;
-			for (const entry of context.previousThreadMessages) {
-				queryClient.setQueryData(entry.queryKey, entry.data);
+		onError: (err, vars, context) => {
+			if (context) {
+				for (const entry of context.previousThreadMessages) {
+					queryClient.setQueryData(entry.queryKey, entry.data);
+				}
+				for (const entry of context.previousThreadsList) {
+					queryClient.setQueryData(entry.queryKey, entry.data);
+				}
 			}
-			for (const entry of context.previousThreadsList) {
-				queryClient.setQueryData(entry.queryKey, entry.data);
-			}
+			const count = vars.body.messageIds?.length ?? 0;
+			pushError({
+				title:
+					count > 1
+						? `Couldn't delete ${count} messages`
+						: "Couldn't delete this message",
+				detail: formatErrorDetail(err),
+			});
 		},
 		onSettled: (_data, _err, _vars, context) => {
 			if (!context) return;
