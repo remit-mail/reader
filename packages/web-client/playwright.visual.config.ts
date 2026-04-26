@@ -10,6 +10,23 @@ const BACKEND_PORT = Number.parseInt(
 	10,
 );
 
+// Fixed clock for the visual-regression seeder. The seeder
+// (`smoke/global-setup.ts`) reads `REMIT_FAKE_NOW` (epoch ms) and uses
+// it for every seeded `sentDate` / `internalDate`, which freezes the
+// relative-time labels ("Yesterday", "8:01 AM", …) so baselines stay
+// byte-stable across runs.
+//
+// Hardcoded literal (do not call `Date.UTC()` here — the literal stays
+// visible in diffs):
+//   1774008000000 === Date.UTC(2026, 3, 1, 10, 0, 0) === 2026-04-01T10:00:00Z
+const REMIT_FAKE_NOW = "1774008000000";
+
+// Export to the Playwright runner's environment so `globalSetup`
+// (which runs in this same process) sees it. We also pass it on the
+// `webServer` env below so any backend code reading the same flag
+// agrees on the timestamp.
+process.env.REMIT_FAKE_NOW ??= REMIT_FAKE_NOW;
+
 /**
  * Visual regression suite. Captures screenshots of the key Remit routes
  * at three viewports — phone (iPhone-13: 390×844), tablet (iPad-mini:
@@ -53,13 +70,16 @@ export default defineConfig({
 	},
 	expect: {
 		toHaveScreenshot: {
-			// Tolerate small drift from font rendering and from the seeded
-			// `NOW = Date.now()` re-computing on each global-setup run
-			// (which shifts relative-time labels like "Yesterday" /
-			// "8:01 AM"). Real layout regressions are usually 10%+ of
-			// pixels, so 5% catches them while absorbing the noise.
-			// TODO: drop to 1% once the seeder uses a fixed clock — see
-			// `visual-regression/README.md` for follow-up.
+			// The seeder runs against a fixed clock (REMIT_FAKE_NOW, set
+			// on the webServer env below) so timestamp-driven labels are
+			// byte-stable. The residual noise is font-metric drift
+			// between local-capture Chromium (macOS / Ubuntu desktop) and
+			// CI-assert Chromium (Ubuntu runner): on the same string the
+			// wrap-point shifts by a pixel or two, which cascades into
+			// every text row below it. The fixed-clock fix above is the
+			// substantive change in this PR; threshold stays at 5%
+			// (matching the previous gate) until baselines can be
+			// captured on CI itself — see `visual-regression/README.md`.
 			maxDiffPixelRatio: 0.05,
 			animations: "disabled",
 		},
@@ -116,6 +136,7 @@ export default defineConfig({
 				AWS_REGION: "not-a-region",
 				AWS_ACCESS_KEY_ID: "local",
 				AWS_SECRET_ACCESS_KEY: "local",
+				REMIT_FAKE_NOW,
 			},
 			stdout: "pipe",
 			stderr: "pipe",

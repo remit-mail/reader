@@ -20,7 +20,9 @@ Both the cache directory and the symlink are gitignored.
 npm run test:visual -w packages/remit-web-client
 ```
 
-Compares against the baselines in the orphan branch. Fails on diffs greater than 5% of pixels (configured via `maxDiffPixelRatio` in `playwright.visual.config.ts`). The threshold absorbs noise from relative-time labels — see "Known noise sources" below.
+Compares against the baselines in the orphan branch. Fails on diffs greater than 4% of pixels (configured via `maxDiffPixelRatio` in `playwright.visual.config.ts`). Real layout regressions move 5%+ of pixels, so 4% catches them while absorbing the font-metric drift between local-capture and CI-assert Chromium runs — text wrap-points shift a pixel or two on the same string, which cascades into every line below it and burns ~3% of the canvas on busy mailbox-list snapshots. Time/date labels no longer contribute noise (see "Fixed clock" below).
+
+To drop the threshold further the baselines would need to be captured on CI itself rather than locally, so capture-Chromium and assert-Chromium share the same font rasterizer. That is out of scope for the fixed-clock change.
 
 ## Update baselines
 
@@ -67,25 +69,26 @@ Some assertions only make sense on a single viewport and use `test.skip()` on th
 
 | Snapshot | Why phone-only |
 |---|---|
-| `mail.spec.ts/phone/mail-thread-mobile-no-header.png` | Asserts the top 120px of the mobile thread view stays clear of the global Header. The `useSetHideHeader(true)` gate in `ConversationView` only fires when `isDesktop=false && has onBack && no inline-compose` — `useIsDesktop()` returns true at ≥768px so tablet/desktop never see the gated state. The clip concentrates a re-appearing 48px header into ~40% of the assertion area, which trips the per-test `maxDiffPixelRatio: 0.04` (vs. the suite's 0.05) — the full-page `mail-thread-open.png` baseline lets a 48px header through because it's only ~5.7% of a full 390×844 canvas. See issue #173. |
+| `mail.spec.ts/phone/mail-thread-mobile-no-header.png` | Asserts the top 120px of the mobile thread view stays clear of the global Header. The `useSetHideHeader(true)` gate in `ConversationView` only fires when `isDesktop=false && has onBack && no inline-compose` — `useIsDesktop()` returns true at ≥768px so tablet/desktop never see the gated state. The clip concentrates a re-appearing 48px header into ~40% of the assertion area, well above the suite's 4% threshold. See issue #173. |
 
 ## CI
 
 The `visual-tests` job in `.github/workflows/ci.yml` runs the suite on every PR. On failure it uploads the diff PNGs as a workflow artifact named `visual-test-report`.
 
-## Known noise sources
+## Fixed clock — `REMIT_FAKE_NOW`
 
-The seeded test data in `smoke/global-setup.ts` uses `NOW = Date.now()` and offsets messages by relative day boundaries (`NOW - N * 86_400_000`). Each global-setup run produces fresh `sentDate`s, which feed the relative-time formatter ("Yesterday", "Thursday", "8:01 AM"). Two consequences:
+The seeder in `smoke/global-setup.ts` reads `REMIT_FAKE_NOW` (epoch ms) and uses it as the wall-clock anchor for every seeded `sentDate` / `internalDate`. With the clock pinned, the relative-time formatter ("Yesterday", "Thursday", "8:01 AM") produces byte-stable output, so baselines no longer need per-cell mask rectangles or a relaxed threshold.
 
-1. The visible time/date labels drift between captures.
-2. Messages near a day boundary can flip between two relative formats.
+`playwright.visual.config.ts` sets `REMIT_FAKE_NOW=1774008000000` (= `2026-04-01T10:00:00Z`) at config-load time, before Playwright spawns the dev/backend servers and before `globalSetup` runs. The literal ms value is hardcoded so it stays visible in diffs.
 
-We cope with this in two layers:
+Override locally if you ever need a different anchor (for example to chase a relative-time edge case in another timezone):
 
-- **Masks**: `MessageListItem` and `MessageCard` carry `data-testid="thread-time"` / `data-testid="message-date"` markers that the visual specs cover with Playwright `mask` rectangles.
-- **Threshold**: `maxDiffPixelRatio` is set to `0.05` so any residual drift around the masked edges does not trip the suite. Real layout regressions move 10%+ of pixels.
+```sh
+REMIT_FAKE_NOW=$(date -u -d '2026-04-01T10:00:00Z' +%s%3N) \
+  npm run test:visual -w packages/remit-web-client
+```
 
-A future fix is to make the seeder use a fixed clock (or accept a `REMIT_FAKE_NOW` env var) so baselines become byte-stable. Once that lands the threshold can drop back to `0.01`.
+Falls back to `Date.now()` when unset, so e2e and smoke runs (which want fresh timestamps) are unaffected.
 
 ## Local-dev gotcha — Vite reuse
 

@@ -68,7 +68,23 @@ export {
 	SAMPLE_MESSAGE_ID_HEADER,
 } from "./seed-constants";
 
-const NOW = Date.now();
+// Fixed-clock support: when REMIT_FAKE_NOW is set (epoch ms), use it for
+// all sentDate / internalDate / lastMessageSyncAt seeds so the visual
+// regression suite produces byte-stable timestamps. Falls back to
+// Date.now() so other paths (e2e, smoke) stay on wall-clock time.
+const parseFakeNow = (): number => {
+	const raw = process.env.REMIT_FAKE_NOW;
+	if (raw === undefined || raw === "") return Date.now();
+	const parsed = Number.parseInt(raw, 10);
+	if (!Number.isFinite(parsed) || String(parsed) !== raw.trim()) {
+		throw new Error(
+			`REMIT_FAKE_NOW must be an integer epoch-ms value, got: ${raw}`,
+		);
+	}
+	return parsed;
+};
+
+const NOW = parseFakeNow();
 
 const createConfig = () => {
 	const port = process.env.DYNAMODB_PORT ?? "5435";
