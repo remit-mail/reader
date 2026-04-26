@@ -8,6 +8,8 @@ import {
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
+import { formatErrorDetail } from "@/components/ui/error-banners";
 
 interface UseMarkAsReadOptions {
 	messages: RemitImapThreadMessageResponse[];
@@ -85,6 +87,7 @@ export const useMarkAsRead = ({
 	accountId,
 }: UseMarkAsReadOptions) => {
 	const queryClient = useQueryClient();
+	const { pushError } = useErrorBanners();
 	const markedAsReadRef = useRef<Set<string>>(new Set());
 	const pendingRef = useRef<Set<string>>(new Set());
 
@@ -178,18 +181,24 @@ export const useMarkAsRead = ({
 				pendingRef.current.delete(id);
 			}
 		},
-		onError: (_error, variables, context) => {
+		onError: (error, variables, context) => {
 			const messageIds = variables.body.messageIds ?? [];
 			for (const id of messageIds) {
 				pendingRef.current.delete(id);
 			}
-			if (!context) return;
-			for (const entry of context.previousThreadMessages) {
-				queryClient.setQueryData(entry.queryKey, entry.data);
+			if (context) {
+				for (const entry of context.previousThreadMessages) {
+					queryClient.setQueryData(entry.queryKey, entry.data);
+				}
+				for (const entry of context.previousThreadsList) {
+					queryClient.setQueryData(entry.queryKey, entry.data);
+				}
 			}
-			for (const entry of context.previousThreadsList) {
-				queryClient.setQueryData(entry.queryKey, entry.data);
-			}
+			const isRead = variables.body.isRead ?? true;
+			pushError({
+				title: isRead ? "Couldn't mark as read" : "Couldn't mark as unread",
+				detail: formatErrorDetail(error),
+			});
 		},
 		onSettled: (_data, _err, _vars, context) => {
 			if (!context) return;

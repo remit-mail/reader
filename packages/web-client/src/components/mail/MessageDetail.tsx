@@ -5,7 +5,9 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { ErrorState } from "@/components/ui/ErrorState";
+import { formatErrorDetail } from "@/components/ui/error-banners";
 import { MessageBody } from "./MessageBody";
 import { MessageHeader } from "./MessageHeader";
 
@@ -34,6 +36,7 @@ const LoadingSkeleton = () => (
 
 export const MessageDetail = ({ messageId, snippet }: MessageDetailProps) => {
 	const queryClient = useQueryClient();
+	const { pushError } = useErrorBanners();
 
 	const {
 		data: messageData,
@@ -57,6 +60,12 @@ export const MessageDetail = ({ messageId, snippet }: MessageDetailProps) => {
 					typeof query.queryKey[0] === "object" &&
 					"_id" in query.queryKey[0] &&
 					query.queryKey[0]._id === "threadOperationsListThreads",
+			});
+		},
+		onError: (error) => {
+			pushError({
+				title: "Couldn't mark message as read",
+				detail: formatErrorDetail(error),
 			});
 		},
 	});
