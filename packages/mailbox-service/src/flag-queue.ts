@@ -136,8 +136,12 @@ export class FlagQueueService {
 	 * A message can exist in multiple mailboxes (e.g., inbox and archive), so we
 	 * must update all instances to keep the isRead status consistent.
 	 *
-	 * Provides composite attributes (sentDate, mailboxId) required by ElectroDB
-	 * to update the GSI/LSI keys when isRead changes.
+	 * The `composites` map carries the CURRENT values of every attribute that
+	 * participates in a sort key. ElectroDB uses them for the conditional check
+	 * on the existing row and combines them with `set()` to recompute the new
+	 * sort keys. Passing the NEW `isRead` value here would make the conditional
+	 * check fail (existing row still has the old value) and the patch would be
+	 * misreported as NotFoundError, silently dropping the update.
 	 *
 	 * Handles race condition where ThreadMessage may be deleted between find and update.
 	 */
@@ -165,7 +169,7 @@ export class FlagQueueService {
 						composites: {
 							sentDate: threadMessage.sentDate,
 							mailboxId: threadMessage.mailboxId,
-							isRead,
+							isRead: threadMessage.isRead,
 							isDeleted: threadMessage.isDeleted,
 							hasStars: threadMessage.hasStars,
 							hasAttachment: threadMessage.hasAttachment,
@@ -225,7 +229,7 @@ export class FlagQueueService {
 							mailboxId: threadMessage.mailboxId,
 							isRead: threadMessage.isRead,
 							isDeleted: threadMessage.isDeleted,
-							hasStars: updates.hasStars ?? threadMessage.hasStars,
+							hasStars: threadMessage.hasStars,
 							hasAttachment: threadMessage.hasAttachment,
 						},
 					},
