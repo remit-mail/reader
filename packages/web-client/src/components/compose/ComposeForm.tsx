@@ -24,6 +24,8 @@ import {
 	plateValueToHtml,
 	plateValueToText,
 } from "../../lib/plate-serializer.js";
+import { useErrorBanners } from "../ui/ErrorBannerProvider.js";
+import { formatErrorDetail } from "../ui/error-banners.js";
 import type { AddressEntry } from "./AddressField";
 import { AddressField } from "./AddressField";
 import { ComposeActionBar } from "./ComposeActionBar";
@@ -161,6 +163,7 @@ export const ComposeForm = ({
 	onAccountChange,
 }: ComposeFormProps) => {
 	const { state, setOutboxMessageId, startSendPolling } = useCompose();
+	const { pushError } = useErrorBanners();
 	const { outboxMessageId } = state;
 
 	const [toAddresses, setToAddresses] = useState<AddressEntry[]>([]);
@@ -304,36 +307,59 @@ export const ComposeForm = ({
 				: {};
 
 		let messageId = outboxMessageId;
+		let createdThisAttempt = false;
 
 		if (!messageId) {
 			const textBody = plateValueToText(body);
 			const htmlBody = plateValueToHtml(body);
 
-			const outboxMessage = await createMutation.mutateAsync({
-				body: {
-					accountId: selectedAccountId,
-					toAddresses: toAddresses.map((a) => a.email),
-					ccAddresses:
-						ccAddresses.length > 0
-							? ccAddresses.map((a) => a.email)
-							: undefined,
-					bccAddresses:
-						bccAddresses.length > 0
-							? bccAddresses.map((a) => a.email)
-							: undefined,
-					subject: subject || undefined,
-					textBody: textBody || undefined,
-					htmlBody: htmlBody || undefined,
-					sendImmediately: true,
-					...replyData,
-				},
-			});
-			messageId = outboxMessage.outboxMessageId;
+			try {
+				const outboxMessage = await createMutation.mutateAsync({
+					body: {
+						accountId: selectedAccountId,
+						toAddresses: toAddresses.map((a) => a.email),
+						ccAddresses:
+							ccAddresses.length > 0
+								? ccAddresses.map((a) => a.email)
+								: undefined,
+						bccAddresses:
+							bccAddresses.length > 0
+								? bccAddresses.map((a) => a.email)
+								: undefined,
+						subject: subject || undefined,
+						textBody: textBody || undefined,
+						htmlBody: htmlBody || undefined,
+						sendImmediately: true,
+						...replyData,
+					},
+				});
+				messageId = outboxMessage.outboxMessageId;
+				createdThisAttempt = true;
+				setOutboxMessageId(messageId);
+			} catch (error) {
+				pushError({
+					title: "Couldn't send message",
+					detail: formatErrorDetail(error) ?? "Saving the draft failed.",
+				});
+				return;
+			}
 		}
 
-		await sendMutation.mutateAsync({
-			path: { outboxMessageId: messageId },
-		});
+		try {
+			await sendMutation.mutateAsync({
+				path: { outboxMessageId: messageId },
+			});
+		} catch (error) {
+			pushError({
+				title: "Couldn't send message",
+				detail:
+					formatErrorDetail(error) ??
+					(createdThisAttempt
+						? "The draft was saved but the send request failed. Try again from the Outbox."
+						: "The send request failed. Try again."),
+			});
+			return;
+		}
 
 		startSendPolling(messageId);
 		onClose();
@@ -351,6 +377,8 @@ export const ComposeForm = ({
 		sendMutation,
 		cancelAutoSave,
 		startSendPolling,
+		setOutboxMessageId,
+		pushError,
 		onClose,
 	]);
 
