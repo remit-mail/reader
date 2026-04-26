@@ -5,22 +5,14 @@ import {
 import type {
 	RemitImapAccountResponse,
 	RemitImapMailboxResponse,
-	RemitImapOutboxMessageStatus,
 } from "@remit/api-http-client/types.gen.ts";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useParams } from "@tanstack/react-router";
-import {
-	AlertCircle,
-	ChevronDown,
-	ChevronRight,
-	Clock,
-	File,
-	Loader2,
-	Send,
-} from "lucide-react";
+import { Link, useLocation, useParams } from "@tanstack/react-router";
+import { ChevronDown, ChevronRight, File, Send } from "lucide-react";
 import { useMemo, useState } from "react";
 import { ErrorState } from "@/components/ui/ErrorState";
 import {
+	filterDuplicateSpecialUse,
 	getMailboxDisplayName as getDisplayName,
 	getMailboxPriority,
 	isSystemMailbox,
@@ -42,45 +34,6 @@ const compareLabelNames = (a: string, b: string): number => {
 	if (!aStartsWithDigit && bStartsWithDigit) return 1;
 
 	return a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });
-};
-
-const SPECIAL_USE_ALIASES: Record<string, string> = {
-	trash: "trash",
-	bin: "trash",
-	deleted: "trash",
-	"deleted items": "trash",
-	drafts: "drafts",
-	draft: "drafts",
-	sent: "sent",
-	"sent mail": "sent",
-	"sent items": "sent",
-	junk: "junk",
-	spam: "junk",
-	archive: "archive",
-	archives: "archive",
-	all: "all",
-	"all mail": "all",
-};
-
-const filterDuplicateSpecialUse = (
-	mailboxes: RemitImapMailboxResponse[],
-): RemitImapMailboxResponse[] => {
-	const prefixedSpecialUse = new Set<string>();
-	for (const mailbox of mailboxes) {
-		const name = getDisplayName(mailbox.fullPath).toLowerCase();
-		const specialUseType = SPECIAL_USE_ALIASES[name];
-		if (mailbox.fullPath.includes("/") && specialUseType) {
-			prefixedSpecialUse.add(specialUseType);
-		}
-	}
-
-	return mailboxes.filter((mailbox) => {
-		const name = getDisplayName(mailbox.fullPath).toLowerCase();
-		const specialUseType = SPECIAL_USE_ALIASES[name];
-		if (!specialUseType) return true;
-		if (mailbox.fullPath.includes("/")) return true;
-		return !prefixedSpecialUse.has(specialUseType);
-	});
 };
 
 const sortMailboxes = (
@@ -188,87 +141,36 @@ const DraftsList = () => {
 	);
 };
 
-const STATUS_ICON: Record<
-	Exclude<RemitImapOutboxMessageStatus, "draft">,
-	typeof Send
-> = {
-	queued: Clock,
-	sending: Loader2,
-	sent: Send,
-	failed: AlertCircle,
-};
+const OutboxLink = () => {
+	const location = useLocation();
+	const isSelected = location.pathname.startsWith("/mail/outbox");
 
-const OutboxList = () => {
-	const [expanded, setExpanded] = useState(true);
+	const { data: outboxResponse } = useQuery(
+		outboxOperationsListOutboxMessagesOptions(),
+	);
 
-	const {
-		data: outboxResponse,
-		isLoading,
-		isError,
-		error,
-		refetch,
-	} = useQuery(outboxOperationsListOutboxMessagesOptions());
-
-	const outboxMessages = useMemo(
+	const pendingCount = useMemo(
 		() =>
-			(outboxResponse?.items ?? []).filter((item) => item.status !== "draft"),
+			(outboxResponse?.items ?? []).filter((item) => item.status !== "draft")
+				.length,
 		[outboxResponse?.items],
 	);
 
-	if (isError) {
-		return (
-			<div className="mb-2 px-3 py-2">
-				<ErrorState
-					variant="inline"
-					title="Couldn't load outbox"
-					error={error}
-					onRetry={() => refetch()}
-				/>
-			</div>
-		);
-	}
-
-	if (isLoading || outboxMessages.length === 0) return null;
-
 	return (
-		<div className="mb-2">
-			<button
-				type="button"
-				onClick={() => setExpanded(!expanded)}
-				className="w-full flex items-center gap-1 px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
-			>
-				{expanded ? (
-					<ChevronDown className="h-3 w-3 shrink-0" />
-				) : (
-					<ChevronRight className="h-3 w-3 shrink-0" />
-				)}
-				<span>Outbox</span>
-				<span className="ml-auto text-xs font-normal bg-muted px-1.5 py-0.5 rounded-full">
-					{outboxMessages.length}
+		<Link
+			to="/mail/outbox"
+			className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-md transition-colors hover:bg-accent ${
+				isSelected ? "bg-accent font-medium" : ""
+			}`}
+		>
+			<Send className="size-4 shrink-0" />
+			<span className="flex-1 truncate">Outbox</span>
+			{pendingCount > 0 && (
+				<span className="text-xs font-normal bg-muted px-1.5 py-0.5 rounded-full">
+					{pendingCount}
 				</span>
-			</button>
-			{expanded && (
-				<div className="space-y-0.5">
-					{outboxMessages.map((msg) => {
-						const status = msg.status as Exclude<
-							RemitImapOutboxMessageStatus,
-							"draft"
-						>;
-						const Icon = STATUS_ICON[status] ?? Send;
-						return (
-							<Link
-								key={msg.outboxMessageId}
-								to="/mail/outbox"
-								className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-foreground hover:bg-accent rounded-md transition-colors"
-							>
-								<Icon className="size-4 shrink-0 text-muted-foreground" />
-								<span className="truncate">{msg.subject || "No subject"}</span>
-							</Link>
-						);
-					})}
-				</div>
 			)}
-		</div>
+		</Link>
 	);
 };
 
@@ -342,6 +244,7 @@ const AccountSection = ({ account }: { account: RemitImapAccountResponse }) => {
 										isSelected={selectedMailboxId === mailbox.mailboxId}
 									/>
 								))}
+								<OutboxLink />
 							</div>
 							{labels.length > 0 && (
 								<>
@@ -395,7 +298,6 @@ const AccountSection = ({ account }: { account: RemitImapAccountResponse }) => {
 export const MailSidebar = ({ accounts }: MailSidebarProps) => (
 	<nav className="h-full overflow-y-auto py-2" aria-label="Mailboxes">
 		<DraftsList />
-		<OutboxList />
 		{accounts.length === 0 ? (
 			<div className="px-3 py-4 text-sm text-muted-foreground text-center">
 				No accounts configured

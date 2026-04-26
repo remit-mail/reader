@@ -1,11 +1,14 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
 import {
+	filterDuplicateSpecialUse,
 	getMailboxDisplayName,
 	getMailboxPriority,
 	isSystemMailbox,
 	NON_SYSTEM_PRIORITY,
 } from "./mailbox-order.js";
+
+const mb = (id: string, fullPath: string) => ({ mailboxId: id, fullPath });
 
 describe("getMailboxPriority", () => {
 	test("INBOX has the highest priority", () => {
@@ -91,6 +94,69 @@ describe("getMailboxDisplayName", () => {
 		assert.strictEqual(
 			getMailboxDisplayName("Folders/Work/Reports"),
 			"Reports",
+		);
+	});
+});
+
+describe("filterDuplicateSpecialUse", () => {
+	test("collapses Sent + Sent Messages into a single canonical Sent (issue #178)", () => {
+		const result = filterDuplicateSpecialUse([
+			mb("a", "INBOX"),
+			mb("b", "Sent"),
+			mb("c", "Sent Messages"),
+		]);
+		assert.deepStrictEqual(
+			result.map((m) => m.fullPath),
+			["INBOX", "Sent"],
+		);
+	});
+
+	test("keeps Sent Messages when Sent is absent", () => {
+		const result = filterDuplicateSpecialUse([
+			mb("a", "INBOX"),
+			mb("c", "Sent Messages"),
+		]);
+		assert.deepStrictEqual(
+			result.map((m) => m.fullPath),
+			["INBOX", "Sent Messages"],
+		);
+	});
+
+	test("when [Gmail]/Sent Mail exists, drops top-level Sent in favour of it", () => {
+		// Gmail-namespaced sent folder is the canonical one for Gmail accounts;
+		// the auto-created top-level alias gets pruned.
+		const result = filterDuplicateSpecialUse([
+			mb("a", "INBOX"),
+			mb("b", "Sent"),
+			mb("c", "[Gmail]/Sent Mail"),
+		]);
+		assert.deepStrictEqual(
+			result.map((m) => m.fullPath),
+			["INBOX", "[Gmail]/Sent Mail"],
+		);
+	});
+
+	test("preserves custom labels untouched", () => {
+		const result = filterDuplicateSpecialUse([
+			mb("a", "INBOX"),
+			mb("b", "Sent"),
+			mb("c", "Receipts"),
+			mb("d", "Project X"),
+		]);
+		assert.deepStrictEqual(
+			result.map((m) => m.fullPath),
+			["INBOX", "Sent", "Receipts", "Project X"],
+		);
+	});
+
+	test("collapses Trash and Bin to canonical Trash", () => {
+		const result = filterDuplicateSpecialUse([
+			mb("a", "Trash"),
+			mb("b", "Bin"),
+		]);
+		assert.deepStrictEqual(
+			result.map((m) => m.fullPath),
+			["Trash"],
 		);
 	});
 });

@@ -37,6 +37,8 @@ import {
 	base36uuidv5,
 	CreateFailedConflictError,
 	MailboxService,
+	NotFoundError,
+	type OutboxMessageItem,
 	OutboxMessageService,
 	REMIT_NAMESPACE,
 } from "@remit/remit-electrodb-service";
@@ -379,11 +381,19 @@ describe(
 			});
 
 			// 1. SMTP worker picks up SEND_MESSAGE, sends via mokapi, marks sent.
-			const sentOutbox = await waitFor(
-				async () => {
-					const current = await outboxMessageService.get(
-						outbox.outboxMessageId,
-					);
+			//    Per issue #178 the outbox row is deleted after the IMAP APPEND
+			//    completes, so the row may already be gone by the time we poll.
+			//    Treat NotFoundError as success (delete implies prior status=sent).
+			type SentOutbox = OutboxMessageItem | { status: "deleted" };
+			const sentOutbox = await waitFor<SentOutbox>(
+				async (): Promise<SentOutbox | null> => {
+					const current = await outboxMessageService
+						.get(outbox.outboxMessageId)
+						.catch((err: unknown) => {
+							if (err instanceof NotFoundError) return null;
+							throw err;
+						});
+					if (!current) return { status: "deleted" } as const;
 					if (current.status === "sent") return current;
 					if (current.status === "failed") {
 						throw new Error(
@@ -394,9 +404,13 @@ describe(
 				},
 				{ timeoutMs: 30_000, label: "outbox status to be sent" },
 			);
-			assert.equal(sentOutbox.status, "sent");
-			assert.ok(sentOutbox.smtpMessageId, "smtpMessageId should be populated");
-			assert.ok(sentOutbox.sentAt, "sentAt should be populated");
+			if (sentOutbox.status === "sent") {
+				assert.ok(
+					sentOutbox.smtpMessageId,
+					"smtpMessageId should be populated",
+				);
+				assert.ok(sentOutbox.sentAt, "sentAt should be populated");
+			}
 
 			// 2. APPEND_SENT_MESSAGE flows to message-mgmt queue, IMAP worker
 			//    appends to mailfuzz Sent folder. We assert the message lands

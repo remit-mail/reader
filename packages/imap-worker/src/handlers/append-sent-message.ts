@@ -154,4 +154,12 @@ export const handleAppendSentMessage = async (
 			);
 		})
 		.finally(() => scope.disconnect());
+
+	// The message now lives in the IMAP Sent folder. Drop the outbox row so
+	// the user does not see it twice in the UI (Outbox + Sent). Issue #178.
+	await outboxMessageService.delete(outboxMessageId);
+	log.info(
+		{ outboxMessageId },
+		"Deleted outbox row after successful APPEND to Sent",
+	);
 };
