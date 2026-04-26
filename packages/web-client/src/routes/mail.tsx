@@ -28,6 +28,7 @@ import {
 } from "@/components/layout/Resizable";
 import { MailSidebar } from "@/components/mail/MailSidebar";
 import { ThreadActionsProvider } from "@/components/mail/ThreadActionsContext";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { KeyboardShortcutsModal } from "@/components/ui/KeyboardShortcutsModal";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
@@ -72,7 +73,13 @@ function MailLayout() {
 	const [searchInput, setSearchInput] = useState(searchQuery);
 	const debouncedSearchInput = useDebouncedValue(searchInput, 200);
 
-	const { data: config, isLoading } = useQuery({
+	const {
+		data: config,
+		isLoading,
+		isError: isConfigError,
+		error: configError,
+		refetch: refetchConfig,
+	} = useQuery({
 		...configOperationsGetConfigOptions(),
 		// Config only changes when accounts are added/edited/removed; those
 		// mutations explicitly invalidate this query.
@@ -134,7 +141,17 @@ function MailLayout() {
 		<MailContext.Provider value={{ accounts, searchQuery }}>
 			<ThreadActionsProvider>
 				<HideHeaderProvider>
-					{isLoading ? (
+					{isConfigError ? (
+						<div className="flex h-full items-center justify-center bg-background p-4">
+							<ErrorState
+								title="Couldn't load your account"
+								error={configError}
+								onRetry={() => {
+									refetchConfig();
+								}}
+							/>
+						</div>
+					) : isLoading ? (
 						<div className="flex h-full items-center justify-center bg-background">
 							<span className="text-muted-foreground">Loading...</span>
 						</div>

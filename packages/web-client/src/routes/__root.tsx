@@ -1,11 +1,23 @@
-import { createRootRouteWithContext, Outlet } from "@tanstack/react-router";
+import {
+	createRootRouteWithContext,
+	type ErrorComponentProps,
+	Outlet,
+} from "@tanstack/react-router";
 import { Suspense } from "react";
 import { useTranslation } from "react-i18next";
 import { ComposeProvider } from "@/components/compose/ComposeProvider";
+import { ErrorState } from "@/components/ui/ErrorState";
 import type { RouterContext } from "@/router";
+
+const RootErrorComponent = ({ error, reset }: ErrorComponentProps) => (
+	<div className="flex h-screen items-center justify-center bg-background p-4">
+		<ErrorState title="Something went wrong" error={error} onRetry={reset} />
+	</div>
+);
 
 export const Route = createRootRouteWithContext<RouterContext>()({
 	component: RootLayout,
+	errorComponent: RootErrorComponent,
 });
 
 const SkipLink = () => {

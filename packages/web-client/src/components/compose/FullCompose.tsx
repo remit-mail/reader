@@ -1,4 +1,7 @@
+import { configOperationsGetConfigOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, X } from "lucide-react";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { ComposeForm } from "./ComposeForm";
 import { useCompose } from "./ComposeProvider";
@@ -14,39 +17,67 @@ export const FullCompose = () => {
 	const { state, closeCompose } = useCompose();
 	const isDesktop = useIsDesktop();
 
+	const {
+		isError: isConfigError,
+		error: configError,
+		refetch: refetchConfig,
+	} = useQuery({
+		...configOperationsGetConfigOptions(),
+		staleTime: Infinity,
+	});
+
 	if (!state.isOpen) return null;
 
 	const title = MODE_LABELS[state.mode] ?? "New Message";
 
-	return (
-		<div className="h-full flex flex-col bg-background">
-			<header className="flex items-center justify-between gap-2 px-2 sm:px-4 h-12 sm:h-auto sm:py-3 border-b border-border shrink-0">
-				<div className="flex items-center gap-2 min-w-0">
-					{!isDesktop && (
-						<button
-							type="button"
-							onClick={closeCompose}
-							className="p-2 rounded-md hover:bg-accent transition-colors min-h-11 min-w-11 inline-flex items-center justify-center -ml-1"
-							aria-label="Discard and go back"
-						>
-							<ArrowLeft className="size-5" />
-						</button>
-					)}
-					<h2 className="text-base sm:text-lg font-semibold truncate">
-						{title}
-					</h2>
-				</div>
-				{isDesktop && (
+	const header = (
+		<header className="flex items-center justify-between gap-2 px-2 sm:px-4 h-12 sm:h-auto sm:py-3 border-b border-border shrink-0">
+			<div className="flex items-center gap-2 min-w-0">
+				{!isDesktop && (
 					<button
 						type="button"
 						onClick={closeCompose}
-						className="p-2 rounded-md hover:bg-accent transition-colors min-h-11 min-w-11 inline-flex items-center justify-center"
-						aria-label="Close"
+						className="p-2 rounded-md hover:bg-accent transition-colors min-h-11 min-w-11 inline-flex items-center justify-center -ml-1"
+						aria-label="Discard and go back"
 					>
-						<X className="size-5" />
+						<ArrowLeft className="size-5" />
 					</button>
 				)}
-			</header>
+				<h2 className="text-base sm:text-lg font-semibold truncate">{title}</h2>
+			</div>
+			{isDesktop && (
+				<button
+					type="button"
+					onClick={closeCompose}
+					className="p-2 rounded-md hover:bg-accent transition-colors min-h-11 min-w-11 inline-flex items-center justify-center"
+					aria-label="Close"
+				>
+					<X className="size-5" />
+				</button>
+			)}
+		</header>
+	);
+
+	if (isConfigError) {
+		return (
+			<div className="h-full flex flex-col bg-background">
+				{header}
+				<div className="flex-1 flex items-center justify-center p-4">
+					<ErrorState
+						title="Couldn't load compose"
+						error={configError}
+						onRetry={() => {
+							refetchConfig();
+						}}
+					/>
+				</div>
+			</div>
+		);
+	}
+
+	return (
+		<div className="h-full flex flex-col bg-background">
+			{header}
 			<div className="flex-1 overflow-hidden">
 				<ComposeForm
 					mode={state.mode}

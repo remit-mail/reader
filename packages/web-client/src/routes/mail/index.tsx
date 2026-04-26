@@ -3,10 +3,25 @@ import {
 	mailboxOperationsListMailboxesOptions,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapMailboxResponse } from "@remit/api-http-client/types.gen.ts";
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import {
+	createFileRoute,
+	type ErrorComponentProps,
+	redirect,
+} from "@tanstack/react-router";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { sortAccountsByCreatedAt } from "@/lib/account-order";
 import { getMailboxPriority } from "@/lib/mailbox-order";
+
+const MailIndexError = ({ error, reset }: ErrorComponentProps) => (
+	<div className="flex h-full items-center justify-center bg-background p-4">
+		<ErrorState
+			title="Couldn't load your mailboxes"
+			error={error}
+			onRetry={reset}
+		/>
+	</div>
+);
 
 const pickPreferredMailbox = (
 	mailboxes: RemitImapMailboxResponse[],
@@ -41,6 +56,7 @@ export const Route = createFileRoute("/mail/")({
 		return null;
 	},
 	component: MailIndex,
+	errorComponent: MailIndexError,
 });
 
 function MailIndex() {
