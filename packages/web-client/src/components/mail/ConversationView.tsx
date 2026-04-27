@@ -4,11 +4,10 @@ import {
 	threadDetailOperationsListThreadMessagesOptions,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import { useQuery } from "@tanstack/react-query";
-import { Forward, Reply, ReplyAll } from "lucide-react";
+import { ArrowLeft, Forward, Reply, ReplyAll } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ComposeMode } from "@/components/compose/ComposeProvider";
 import { InlineCompose } from "@/components/compose/InlineCompose";
-import { useSetHideHeader } from "@/components/layout/HideHeaderContext";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
@@ -16,16 +15,16 @@ import { useMarkAsRead } from "@/hooks/useMarkAsRead";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { useToggleStar } from "@/hooks/useToggleStar";
 import { MessageCard } from "./MessageCard";
-import { useSetThreadActions } from "./ThreadActionsContext";
 
 interface ConversationViewProps {
 	threadId: string;
 	mailboxId: string;
 	subject?: string;
 	/**
-	 * Mobile callers pass `onBack` so the conversation can publish it
-	 * into the bottom-nav action bar (replacing the global tabs while
-	 * the user is reading a thread). Desktop callers omit it.
+	 * Mobile callers pass `onBack` so the action bar at the bottom of
+	 * the conversation can render a Back button alongside Reply / Reply
+	 * all / Forward. Desktop callers omit it — the message list is
+	 * always visible in the resizable side pane.
 	 */
 	onBack?: () => void;
 }
@@ -52,6 +51,12 @@ interface ActionBarProps {
 	onReplyAll: () => void;
 	onForward: () => void;
 	disabled?: boolean;
+	/**
+	 * When provided, renders a leading Back chip (mobile callers pass
+	 * this to dismiss the thread back to the message list). Desktop
+	 * omits it — the message list is always visible in a side pane.
+	 */
+	onBack?: () => void;
 }
 
 const ActionBar = ({
@@ -59,9 +64,24 @@ const ActionBar = ({
 	onReplyAll,
 	onForward,
 	disabled,
+	onBack,
 }: ActionBarProps) => (
-	<div className="sticky bottom-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-t border-border px-4 py-3">
-		<div className="flex items-center gap-2">
+	<div
+		className="sticky bottom-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-t border-border px-4 py-3"
+		style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom, 0))" }}
+	>
+		<div className="flex items-center gap-2 flex-wrap">
+			{onBack && (
+				<button
+					type="button"
+					onClick={onBack}
+					className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-full border border-border hover:bg-accent transition-colors"
+					aria-label="Back to messages"
+				>
+					<ArrowLeft className="size-4" />
+					Back
+				</button>
+			)}
 			<button
 				type="button"
 				onClick={onReply}
@@ -105,8 +125,6 @@ export const ConversationView = ({
 	onBack,
 }: ConversationViewProps) => {
 	const isDesktop = useIsDesktop();
-	const setThreadActions = useSetThreadActions();
-	const setHideHeader = useSetHideHeader();
 	const {
 		data: messagesResponse,
 		isLoading,
@@ -239,44 +257,6 @@ export const ConversationView = ({
 		setComposeMode(null);
 	}, []);
 
-	// Publish thread actions to the mobile bottom-nav while this view is
-	// mounted on mobile. The bottom nav swaps from global tabs to these
-	// actions until the user navigates back. Skip while the inline
-	// compose is open (it has its own controls) or on desktop (the
-	// in-pane ActionBar covers it).
-	const inlineComposeOpen = composeMode !== null;
-	useEffect(() => {
-		if (isDesktop || !onBack || inlineComposeOpen) return;
-		setThreadActions({
-			onBack,
-			onReply: smtpConfigured ? handleReply : undefined,
-			onReplyAll: smtpConfigured ? handleReplyAll : undefined,
-			onForward: smtpConfigured ? handleForward : undefined,
-			disabled: !smtpConfigured,
-		});
-		return () => setThreadActions(null);
-	}, [
-		isDesktop,
-		onBack,
-		inlineComposeOpen,
-		smtpConfigured,
-		handleReply,
-		handleReplyAll,
-		handleForward,
-		setThreadActions,
-	]);
-
-	// Hide the top Header while this thread view owns the mobile screen.
-	// The bottom nav already shows context-aware Back / Reply / Forward
-	// (see the effect above), so the header would only consume vertical
-	// space. Same gate as `setThreadActions` — desktop and inline-compose
-	// keep the header visible.
-	useEffect(() => {
-		if (isDesktop || !onBack || inlineComposeOpen) return;
-		setHideHeader(true);
-		return () => setHideHeader(false);
-	}, [isDesktop, onBack, inlineComposeOpen, setHideHeader]);
-
 	// Register keyboard shortcuts
 	useKeyboardNavigation({
 		enabled: !isLoading && messages.length > 0 && composeMode === null,
@@ -363,22 +343,30 @@ export const ConversationView = ({
 		</header>
 	);
 
-	// Mobile: a single scroll surface for messages only. The subject
-	// header is intentionally omitted — the user just clicked a row that
-	// showed the subject, the bottom nav owns Back/Reply/Forward, and an
-	// in-pane subject would read as a persistent top bar (the global
-	// Header is already hidden by `setHideHeader` above). The inline
-	// compose, when open, sticks to the bottom of the scroll surface.
+	// Mobile: a single scroll surface for messages, with the in-pane
+	// ActionBar at the bottom. The subject header is intentionally
+	// omitted — the user just clicked a row that showed the subject,
+	// and the global top bar already shows the inbox name. When inline
+	// compose opens it replaces the ActionBar and sticks to the bottom
+	// of the scroll surface.
 	if (!isDesktop) {
 		return (
-			<article className="h-full overflow-y-auto">
-				{messagesList}
-				{composeMode !== null && (
+			<article className="h-full flex flex-col">
+				<div className="flex-1 overflow-y-auto">{messagesList}</div>
+				{composeMode !== null ? (
 					<InlineCompose
 						mode={composeMode}
 						account={activeAccount}
 						sourceMessage={lastMessageData}
 						onClose={handleCloseCompose}
+					/>
+				) : (
+					<ActionBar
+						onBack={onBack}
+						onReply={handleReply}
+						onReplyAll={handleReplyAll}
+						onForward={handleForward}
+						disabled={!smtpConfigured}
 					/>
 				)}
 			</article>

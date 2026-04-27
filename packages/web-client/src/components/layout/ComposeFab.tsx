@@ -24,9 +24,8 @@ const isOnPrimaryMobileRoute = (pathname: string): boolean =>
 /**
  * Floating Action Button for composing a new message. Mobile-only.
  *
- * Layout follows Material 3: 56×56 surface, 16px from the right edge,
- * sits above the bottom nav (which is 56px tall + safe-area). Hidden
- * when any of:
+ * Layout follows Material 3: 56×56 surface, 16px from the right and
+ * bottom edges (plus the iOS safe-area inset). Hidden when any of:
  *   - Viewport is `≥ md` (desktop has compose in the sidebar / etc.).
  *   - The compose surface is already open.
  *   - The user is reading a thread (`?selectedMessageId=…`) — the
@@ -77,9 +76,8 @@ export const ComposeFab = () => {
 			aria-label="Compose new message"
 			className="md:hidden fixed right-4 z-30 h-14 w-14 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:opacity-90 active:scale-95 transition-all"
 			style={{
-				// Sit just above the BottomNav (h-14 = 56px) plus its safe-area
-				// padding, with a 16px breathing room.
-				bottom: "calc(3.5rem + env(safe-area-inset-bottom, 0) + 1rem)",
+				// 16px breathing room above the iOS home-indicator inset.
+				bottom: "calc(env(safe-area-inset-bottom, 0) + 1rem)",
 			}}
 		>
 			<Pencil className="size-6" />
