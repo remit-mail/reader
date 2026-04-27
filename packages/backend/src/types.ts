@@ -17,6 +17,7 @@ export type OperationIds =
 	| "MailboxDetailOperations_renameMailbox"
 	| "MailboxDetailOperations_deleteMailbox"
 	| "SyncOperations_triggerSync"
+	| "SemanticSearchOperations_semanticSearch"
 	| "ThreadDetailOperations_listThreadMessages"
 	| "ThreadOperations_listThreads"
 	| "ThreadOperations_searchThreads"
@@ -66,6 +67,11 @@ export type ThreadDetailOperationIds = MatchPrefix<
 >;
 
 export type ThreadOperationIds = MatchPrefix<"ThreadOperations_", OperationIds>;
+
+export type SemanticSearchOperationIds = MatchPrefix<
+	"SemanticSearchOperations_",
+	OperationIds
+>;
 
 export type MessageOperationIds = MatchPrefix<
 	"MessageOperations_",

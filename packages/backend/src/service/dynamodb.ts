@@ -13,6 +13,7 @@ import {
 	ThreadMessageService,
 } from "@remit/remit-electrodb-service";
 import {
+	type BodySyncSearchIndexer,
 	BodySyncService,
 	createConnection,
 	FlagQueueService,
@@ -20,7 +21,17 @@ import {
 	MailboxQueueService,
 	MessageMoveService,
 	OutboxQueueService,
+	type SearchIndexInput,
 } from "@remit/mailbox-service";
+import {
+	BedrockEmbeddingService,
+	createDeterministicEmbeddingService,
+	createMemoryVectorStore,
+	createS3VectorsBackend,
+	createSearchService,
+	type SearchService,
+	type VectorStoreService,
+} from "@remit/search-service";
 import {
 	createCachedDataKeyProvider,
 	createKmsDataKeyProvider,
@@ -38,6 +49,93 @@ import { logger } from "../logger.js";
 
 const isLocalEnv =
 	process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test";
+
+const buildVectorStore = (): VectorStoreService => {
+	const bucket = process.env.S3_VECTORS_BUCKET_NAME;
+	const indexName = process.env.S3_VECTORS_INDEX_NAME;
+	if (bucket && indexName) {
+		return createS3VectorsBackend({
+			vectorBucketName: bucket,
+			indexName,
+			region: process.env.AWS_REGION,
+		});
+	}
+	return createMemoryVectorStore();
+};
+
+const buildSearchService = (): SearchService => {
+	const store = buildVectorStore();
+	const useBedrock = process.env.SEARCH_EMBEDDING_PROVIDER === "bedrock";
+	const embedder = useBedrock
+		? new BedrockEmbeddingService({
+				region: process.env.AWS_REGION,
+				modelId: process.env.SEARCH_EMBEDDING_MODEL_ID,
+			})
+		: createDeterministicEmbeddingService();
+	return createSearchService({ store, embedder });
+};
+
+const buildBodySyncIndexer = (
+	searchService: SearchService,
+	threadMessageService: ThreadMessageService,
+): BodySyncSearchIndexer => ({
+	indexMessage: async (input: SearchIndexInput): Promise<void> => {
+		const tm = await threadMessageService.getByMessageId(input.messageId);
+		const parsed = input.parsed;
+		const fromAddr = parsed.from?.value?.[0];
+		const from = {
+			name: fromAddr?.name ?? null,
+			email: fromAddr?.address ?? "",
+		};
+		const toAddrs = (parsed.to ? toArray(parsed.to) : []).flatMap(
+			(addr) => addr.value,
+		);
+		const ccAddrs = (parsed.cc ? toArray(parsed.cc) : []).flatMap(
+			(addr) => addr.value,
+		);
+		const bccAddrs = (parsed.bcc ? toArray(parsed.bcc) : []).flatMap(
+			(addr) => addr.value,
+		);
+		const mapAddr = (a: { name?: string; address?: string }) => ({
+			name: a.name ?? null,
+			email: a.address ?? "",
+		});
+		const attachments = (parsed.attachments ?? []).map((a) => ({
+			filename: a.filename ?? null,
+			contentType: a.contentType,
+			size: a.size,
+		}));
+
+		await searchService.index({
+			envelope: {
+				from,
+				to: toAddrs.map(mapAddr),
+				cc: ccAddrs.map(mapAddr),
+				bcc: bccAddrs.map(mapAddr),
+				subject: parsed.subject ?? "",
+				attachments,
+			},
+			parsedBody: {
+				text: parsed.text ?? null,
+				html: typeof parsed.html === "string" ? parsed.html : null,
+			},
+			metadata: {
+				messageId: input.messageId,
+				threadId: tm.threadId,
+				accountConfigId: input.accountConfigId,
+				mailboxIds: [tm.mailboxId],
+				sentDate: tm.sentDate,
+				isRead: tm.isRead,
+				hasAttachment: tm.hasAttachment,
+				hasStars: tm.hasStars,
+				fromEmail: tm.fromEmail ?? from.email,
+			},
+		});
+	},
+});
+
+const toArray = <T>(value: T | T[]): T[] =>
+	Array.isArray(value) ? value : [value];
 
 const getDocumentClient = (): DynamoDBDocumentClient => {
 	if (isLocalEnv) {
@@ -80,6 +178,9 @@ export interface RemitClient {
 
 	// Storage service
 	storage: StorageService;
+
+	// Search service (semantic vector search)
+	search: SearchService;
 
 	// Secrets service (KMS encryption)
 	secrets: SecretsService;
@@ -125,6 +226,11 @@ export const getClient = (): RemitClient => {
 		// Storage service - auto-selects filesystem or S3 based on env vars
 		const storageService = createStorageService();
 
+		// Search service - composes embedder + vector store. The vector store
+		// switches to S3 Vectors only when the bucket/index env vars are set;
+		// otherwise the in-memory store is used (suitable for local dev / tests).
+		const searchService = buildSearchService();
+
 		// Secrets service - uses KMS in production, fake provider in dev
 		const kmsKeyId = process.env.KMS_KEY_ID ?? FAKE_KMS_KEY_ID;
 		const dataKeyProvider = createCachedDataKeyProvider(
@@ -132,12 +238,19 @@ export const getClient = (): RemitClient => {
 		);
 		const secretsService = createSecretsService(dataKeyProvider);
 
-		// Body sync service for on-demand IMAP body fetch
+		// Body sync service for on-demand IMAP body fetch.
+		// Indexing is gated by SEARCH_INDEXING_ENABLED so we can disable in
+		// environments where Bedrock / S3 Vectors are not provisioned yet.
+		const indexingEnabled = process.env.SEARCH_INDEXING_ENABLED === "true";
+		const bodySyncIndexer = indexingEnabled
+			? buildBodySyncIndexer(searchService, threadMessageService)
+			: undefined;
 		const bodySyncService = new BodySyncService(
 			messageService,
 			storageService,
 			threadMessageService,
 			logger,
+			bodySyncIndexer,
 		);
 
 		// Helper to create connection scope from accountId
@@ -196,6 +309,9 @@ export const getClient = (): RemitClient => {
 
 			// Storage service
 			storage: storageService,
+
+			// Search service (semantic vector search)
+			search: searchService,
 
 			// Secrets service (KMS encryption)
 			secrets: secretsService,
