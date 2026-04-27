@@ -11,7 +11,7 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import type { RouterContext } from "@/router";
 
 const RootErrorComponent = ({ error, reset }: ErrorComponentProps) => (
-	<div className="flex h-screen items-center justify-center bg-background p-4">
+	<div className="flex h-dvh items-center justify-center bg-background p-4">
 		<ErrorState title="Something went wrong" error={error} onRetry={reset} />
 	</div>
 );
@@ -37,7 +37,7 @@ const SkipLink = () => {
 };
 
 const LoadingSkeleton = () => (
-	<div className="flex h-screen items-center justify-center bg-background">
+	<div className="flex h-dvh items-center justify-center bg-background">
 		<span className="text-muted-foreground">Loading...</span>
 	</div>
 );
@@ -47,7 +47,7 @@ function RootLayout() {
 		<ErrorBannerProvider>
 			<ComposeProvider>
 				<SkipLink />
-				<main id="main-content" className="h-screen overflow-hidden">
+				<main id="main-content" className="h-dvh overflow-hidden">
 					<Suspense fallback={<LoadingSkeleton />}>
 						<Outlet />
 					</Suspense>
