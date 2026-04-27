@@ -4,16 +4,23 @@ import {
 	configOperationsGetConfigQueryKey,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { z } from "zod";
 import { AccountCard } from "@/components/settings/AccountCard";
 import { AccountFormPanel } from "@/components/settings/AccountFormPanel";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { SlidePanel } from "@/components/ui/SlidePanel";
 
+const accountsSearchSchema = z.object({
+	editAccountId: z.string().optional(),
+	focusSmtp: z.boolean().optional(),
+});
+
 export const Route = createFileRoute("/settings/accounts")({
 	component: AccountsSettings,
+	validateSearch: accountsSearchSchema,
 });
 
 const LoadingSkeleton = () => (
@@ -31,8 +38,12 @@ const LoadingSkeleton = () => (
 );
 
 function AccountsSettings() {
+	const search = Route.useSearch();
+	const navigate = useNavigate({ from: Route.fullPath });
+
 	const [showForm, setShowForm] = useState(false);
 	const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
+	const [focusSmtp, setFocusSmtp] = useState(false);
 	const [deletingAccountId, setDeletingAccountId] = useState<string | null>(
 		null,
 	);
@@ -45,6 +56,16 @@ function AccountsSettings() {
 		error,
 		refetch,
 	} = useQuery(configOperationsGetConfigOptions());
+
+	useEffect(() => {
+		if (!search.editAccountId) return;
+		setEditingAccountId(search.editAccountId);
+		setFocusSmtp(!!search.focusSmtp);
+		navigate({
+			search: { editAccountId: undefined, focusSmtp: undefined },
+			replace: true,
+		});
+	}, [search.editAccountId, search.focusSmtp, navigate]);
 
 	const deleteMutation = useMutation({
 		...accountDetailOperationsDeleteAccountMutation(),
@@ -63,6 +84,12 @@ function AccountsSettings() {
 	const accountToEdit = config?.accounts.find(
 		(a) => a.accountId === editingAccountId,
 	);
+
+	const handleClosePanel = () => {
+		setShowForm(false);
+		setEditingAccountId(null);
+		setFocusSmtp(false);
+	};
 
 	return (
 		<div className="max-w-2xl">
@@ -111,7 +138,10 @@ function AccountsSettings() {
 						<AccountCard
 							key={account.accountId}
 							account={account}
-							onEdit={() => setEditingAccountId(account.accountId)}
+							onEdit={(options) => {
+								setEditingAccountId(account.accountId);
+								setFocusSmtp(!!options?.focusSmtp);
+							}}
 							onDelete={() => setDeletingAccountId(account.accountId)}
 						/>
 					))}
@@ -122,10 +152,8 @@ function AccountsSettings() {
 			<AccountFormPanel
 				isOpen={showForm || !!editingAccountId}
 				account={accountToEdit}
-				onClose={() => {
-					setShowForm(false);
-					setEditingAccountId(null);
-				}}
+				focusSmtp={focusSmtp}
+				onClose={handleClosePanel}
 			/>
 
 			{/* Delete Confirmation Panel */}

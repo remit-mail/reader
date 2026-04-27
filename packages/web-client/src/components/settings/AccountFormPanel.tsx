@@ -8,12 +8,16 @@ import {
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, Loader2, X } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { useSignature } from "../../hooks/useSignature";
 import { cn } from "../../lib/utils";
 import { SlidePanel } from "../ui/SlidePanel";
+import {
+	computeSmtpAutoFill,
+	deriveSmtpHostFromImap,
+} from "./account-form-helpers.js";
 
 // Placeholder shown when editing - indicates password exists but isn't shown
 const PASSWORD_PLACEHOLDER = "••••••••••";
@@ -58,18 +62,22 @@ interface AccountFormPanelProps {
 	isOpen: boolean;
 	onClose: () => void;
 	account?: RemitImapAccountResponse;
+	focusSmtp?: boolean;
 }
 
 export const AccountFormPanel = ({
 	isOpen,
 	onClose,
 	account,
+	focusSmtp,
 }: AccountFormPanelProps) => {
 	const queryClient = useQueryClient();
 	const isEditing = !!account;
 
 	// Track if user has modified the password field
 	const [passwordModified, setPasswordModified] = useState(false);
+
+	const smtpSectionRef = useRef<HTMLElement | null>(null);
 
 	const form = useForm<AccountFormData>({
 		resolver: zodResolver(accountFormSchema),
@@ -204,6 +212,29 @@ export const AccountFormPanel = ({
 			return;
 		}
 
+		// Safety net: when the user filled IMAP but left SMTP blank,
+		// derive sensible SMTP defaults from the IMAP host so the account
+		// can actually send mail. Only fills blanks — never overrides
+		// values the user typed. See issue #196.
+		const autoFill = computeSmtpAutoFill({
+			imapHost: values.imapHost,
+			smtpHost: values.smtpHost,
+			smtpPort: values.smtpPort,
+			smtpTls: values.smtpTls,
+			smtpStartTls: values.smtpStartTls,
+		});
+		if (autoFill) {
+			form.setValue("smtpHost", autoFill.smtpHost);
+			form.setValue("smtpPort", autoFill.smtpPort);
+			form.setValue("smtpTls", autoFill.smtpTls);
+			form.setValue("smtpStartTls", autoFill.smtpStartTls);
+		}
+
+		const effectiveSmtpHost = autoFill?.smtpHost ?? values.smtpHost;
+		const effectiveSmtpPort = autoFill?.smtpPort ?? values.smtpPort;
+		const effectiveSmtpTls = autoFill?.smtpTls ?? values.smtpTls;
+		const effectiveSmtpStartTls = autoFill?.smtpStartTls ?? values.smtpStartTls;
+
 		const baseBody = {
 			email: values.email,
 			username: values.username || undefined,
@@ -211,10 +242,10 @@ export const AccountFormPanel = ({
 			imapPort: Number(values.imapPort),
 			imapTls: values.imapTls,
 			imapStartTls: values.imapStartTls,
-			smtpHost: values.smtpHost || undefined,
-			smtpPort: values.smtpPort ? Number(values.smtpPort) : undefined,
-			smtpTls: values.smtpTls,
-			smtpStartTls: values.smtpStartTls,
+			smtpHost: effectiveSmtpHost || undefined,
+			smtpPort: effectiveSmtpPort ? Number(effectiveSmtpPort) : undefined,
+			smtpTls: effectiveSmtpTls,
+			smtpStartTls: effectiveSmtpStartTls,
 			smtpUsername: values.useDifferentSmtpCreds
 				? values.smtpUsername || undefined
 				: undefined,
@@ -252,6 +283,16 @@ export const AccountFormPanel = ({
 	useEffect(() => {
 		setSignatureText(signature.plainText);
 	}, [signature.plainText]);
+
+	useEffect(() => {
+		if (!isOpen || !focusSmtp) return;
+		const el = smtpSectionRef.current;
+		if (!el) return;
+		const id = window.setTimeout(() => {
+			el.scrollIntoView({ behavior: "smooth", block: "start" });
+		}, 250);
+		return () => window.clearTimeout(id);
+	}, [isOpen, focusSmtp]);
 
 	const handleSignatureBlur = useCallback(() => {
 		if (signatureText !== signature.plainText) {
@@ -300,8 +341,7 @@ export const AccountFormPanel = ({
 
 	const handlePrefillFromImap = () => {
 		const imapHost = form.getValues("imapHost");
-		const smtpHost = imapHost.replace(/^imap\./i, "smtp.");
-		form.setValue("smtpHost", smtpHost);
+		form.setValue("smtpHost", deriveSmtpHostFromImap(imapHost));
 		form.setValue("smtpTls", false);
 		form.setValue("smtpStartTls", true);
 		form.setValue("smtpPort", 587);
@@ -494,7 +534,7 @@ export const AccountFormPanel = ({
 				</section>
 
 				{/* SMTP Settings */}
-				<section>
+				<section ref={smtpSectionRef} data-testid="smtp-section">
 					<div className="flex items-center justify-between mb-3">
 						<h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
 							Outgoing Mail (SMTP)
