@@ -21,7 +21,10 @@ import {
 import { ConversationView } from "@/components/mail/ConversationView";
 import { MessageList } from "@/components/mail/MessageList";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { useDeleteMessages } from "@/hooks/useDeleteMessages";
+import {
+	dropDeletedThreads,
+	useDeleteMessages,
+} from "@/hooks/useDeleteMessages";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 
@@ -117,8 +120,12 @@ function MailboxView() {
 			onAfterOptimisticRemove: handleDeselectIfRemoved,
 		});
 
-	// Flatten threads from all pages
-	const threads = threadsData?.pages.flatMap((page) => page.items) ?? [];
+	// Flatten threads from all pages. Belt-and-braces filter against #212:
+	// the backend already excludes soft-deleted rows, this protects the UI
+	// against regressions and eventual-consistency windows.
+	const threads = dropDeletedThreads(
+		threadsData?.pages.flatMap((page) => page.items) ?? [],
+	);
 
 	const selectedThread = threads.find((t) => t.messageId === selectedMessageId);
 

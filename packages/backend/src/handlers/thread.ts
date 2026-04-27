@@ -36,6 +36,53 @@ const THREAD_LIST_ATTRIBUTES: ReadonlyArray<keyof ThreadMessageItem> = [
 	"updatedAt",
 ];
 
+/**
+ * Build the `listByMailbox` options for the thread list handler.
+ *
+ * Exposed as a pure helper so the `excludeDeleted: true` default — which is
+ * the entire point of the #212 fix on the handler side — is testable without
+ * standing up DynamoDB. The defaults must stay opt-out from the user (a
+ * future Trash / All-Mail view can flip the flag) and opt-in at the
+ * service layer.
+ */
+export const buildListThreadsOptions = (query: {
+	continuationToken?: string;
+	order?: "asc" | "desc";
+}) => ({
+	order: query.order ?? ("desc" as const),
+	continuationToken: query.continuationToken,
+	limit: DEFAULT_THREADS_PAGE_SIZE,
+	attributes: [...THREAD_LIST_ATTRIBUTES],
+	excludeDeleted: true,
+});
+
+/**
+ * Build the `searchByMailbox` options for the thread search handler.
+ * Same #212 default as `buildListThreadsOptions`.
+ */
+export const buildSearchThreadsOptions = (query: {
+	continuationToken?: string;
+	order?: "asc" | "desc";
+}) => ({
+	order: query.order ?? ("desc" as const),
+	continuationToken: query.continuationToken,
+	excludeDeleted: true,
+});
+
+/**
+ * Build the `listByThread` options for the thread-messages handler. Same
+ * #212 default as the listing handlers — a soft-deleted message inside a
+ * conversation should not surface in the conversation pane either.
+ */
+export const buildListThreadMessagesOptions = (query: {
+	order?: "asc" | "desc";
+	mailboxId?: string;
+}) => ({
+	order: query.order ?? ("desc" as const),
+	mailboxId: query.mailboxId,
+	excludeDeleted: true,
+});
+
 const toThreadMessageResponse = (
 	item: ThreadMessageItem,
 ): ThreadMessageResponse => ({
@@ -77,12 +124,7 @@ export const ThreadOperations: Record<
 		const result = await getClient().threadMessage.listByMailbox(
 			accountConfigId,
 			mailboxId,
-			{
-				order: order ?? "desc",
-				continuationToken,
-				limit: DEFAULT_THREADS_PAGE_SIZE,
-				attributes: [...THREAD_LIST_ATTRIBUTES],
-			},
+			buildListThreadsOptions({ continuationToken, order }),
 		);
 
 		return {
@@ -129,10 +171,7 @@ export const ThreadOperations: Record<
 				starred,
 				attachments,
 			},
-			{
-				order: order ?? "desc",
-				continuationToken,
-			},
+			buildSearchThreadsOptions({ continuationToken, order }),
 		);
 
 		return {
@@ -153,10 +192,10 @@ export const ThreadDetailOperations: Record<
 			mailboxId?: string;
 		};
 
-		const result = await getClient().threadMessage.listByThread(threadId, {
-			order: order ?? "desc",
-			mailboxId,
-		});
+		const result = await getClient().threadMessage.listByThread(
+			threadId,
+			buildListThreadMessagesOptions({ order, mailboxId }),
+		);
 
 		return {
 			items: result.items.map(toThreadMessageResponse).filter(Boolean),

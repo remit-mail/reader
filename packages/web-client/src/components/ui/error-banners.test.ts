@@ -6,6 +6,7 @@ import {
 	dismissBanner,
 	type ErrorBannerEntry,
 	formatErrorDetail,
+	isMessageNotFoundError,
 } from "./error-banners.js";
 
 const make = (
@@ -138,5 +139,38 @@ describe("formatErrorDetail", () => {
 	test("returns undefined when nothing matches", () => {
 		assert.equal(formatErrorDetail(42), undefined);
 		assert.equal(formatErrorDetail({}), undefined);
+	});
+});
+
+describe("isMessageNotFoundError (#212)", () => {
+	// Regression: clicking a stale inbox row used to hit `describeMessage`
+	// and surface the raw "Message not found: <id>" string. The frontend now
+	// detects that error shape and shows a "deleted" empty state.
+
+	test("matches the backend's NotFoundError JSON body", () => {
+		assert.equal(
+			isMessageNotFoundError({
+				message: "Message not found: alice-msg-aaaaaaa",
+			}),
+			true,
+		);
+	});
+
+	test("matches an Error instance with the same message", () => {
+		assert.equal(
+			isMessageNotFoundError(new Error("Message not found: bob-msg-aaaaaaa")),
+			true,
+		);
+	});
+
+	test("does not match unrelated errors", () => {
+		assert.equal(
+			isMessageNotFoundError({ message: "Mailbox not found: x" }),
+			false,
+		);
+		assert.equal(isMessageNotFoundError(new Error("boom")), false);
+		assert.equal(isMessageNotFoundError(null), false);
+		assert.equal(isMessageNotFoundError(undefined), false);
+		assert.equal(isMessageNotFoundError({}), false);
 	});
 });
