@@ -8,6 +8,22 @@ import { type ParsedMail, simpleParser } from "mailparser";
 import { extractSnippetFromEmail } from "./snippet.js";
 import type { IImapConnection } from "./types.js";
 
+/**
+ * Minimal interface body-sync needs to forward an indexed message to the
+ * search service. Decoupled from `@remit/search-service` so the mailbox
+ * package does not pull in vector / Bedrock SDK dependencies.
+ */
+export interface SearchIndexInput {
+	accountId: string;
+	accountConfigId: string;
+	messageId: string;
+	parsed: ParsedMail;
+}
+
+export interface BodySyncSearchIndexer {
+	indexMessage(input: SearchIndexInput): Promise<void>;
+}
+
 export const toParsedBody = (parsed: ParsedMail): ParsedBody => ({
 	text: parsed.text ?? null,
 	html: typeof parsed.html === "string" ? parsed.html : null,
@@ -48,14 +64,17 @@ export type ConnectionGetter = () => Promise<IImapConnection>;
 
 export class BodySyncService {
 	private log: BodySyncLogger;
+	private searchIndexer: BodySyncSearchIndexer | undefined;
 
 	constructor(
 		private messageService: MessageService,
 		private storageService: StorageService,
 		private threadMessageService: ThreadMessageService,
 		logger?: BodySyncLogger,
+		searchIndexer?: BodySyncSearchIndexer,
 	) {
 		this.log = logger ?? noopLogger;
+		this.searchIndexer = searchIndexer;
 	}
 
 	/**
@@ -285,7 +304,38 @@ export class BodySyncService {
 		// describeMessage reads can skip mailparser entirely.
 		await this.storeParsedBodyCache(accountId, messageId, parsed);
 
+		// Index for semantic search. Failure here MUST NOT fail body sync —
+		// search is an eventually-consistent enhancement, not critical path.
+		await this.indexForSearch({
+			accountId,
+			accountConfigId,
+			messageId,
+			parsed,
+		});
+
 		return { status: "synced", messageId };
+	}
+
+	/**
+	 * Forward the parsed message to the search indexer if one is configured.
+	 * Indexing failure logs a warning but does not throw.
+	 */
+	private async indexForSearch(input: SearchIndexInput): Promise<void> {
+		if (!this.searchIndexer) return;
+		await this.searchIndexer
+			.indexMessage(input)
+			.then(() => {
+				this.log.debug?.(
+					{ messageId: input.messageId },
+					"Indexed message for search",
+				);
+			})
+			.catch((err: unknown) => {
+				this.log.error?.(
+					{ messageId: input.messageId, error: inspect(err) },
+					"Failed to index message for search (non-fatal)",
+				);
+			});
 	}
 
 	/**
