@@ -30,6 +30,7 @@ import type {
 	AccountOperationIds,
 	OperationHandler,
 } from "../types.js";
+import { assertAccountOwnership } from "./account-ownership.js";
 import { ensureAccountConfig } from "./ensure-account-config.js";
 
 const triggerAccountSyncSafe = async (accountId: string): Promise<void> => {
@@ -142,11 +143,8 @@ export const AccountOperations: Record<
 		let smtpPassword = input.smtpPassword;
 
 		if (!imapPassword && input.accountId) {
-			// No password provided - use stored password from account
 			const existingAccount = await account.get(input.accountId);
-			if (existingAccount.accountConfigId !== accountConfigId) {
-				throw new Error("Account not found");
-			}
+			assertAccountOwnership(existingAccount, accountConfigId, "read");
 
 			const payload = deserializeEncryptedPayload(
 				JSON.parse(existingAccount.passwordHash),
@@ -225,13 +223,9 @@ export const AccountDetailOperations: Record<
 
 		const { account, secrets } = getClient();
 
-		// Verify ownership
 		const existing = await account.get(accountId);
-		if (existing.accountConfigId !== accountConfigId) {
-			throw new Error("Account not found");
-		}
+		assertAccountOwnership(existing, accountConfigId, "act");
 
-		// Build update object
 		const updates: Record<string, unknown> = {};
 
 		// Handle password updates
@@ -283,13 +277,9 @@ export const AccountDetailOperations: Record<
 
 		const { account } = getClient();
 
-		// Verify ownership
 		const existing = await account.get(accountId);
-		if (existing.accountConfigId !== accountConfigId) {
-			throw new Error("Account not found");
-		}
+		assertAccountOwnership(existing, accountConfigId, "act");
 
-		// Tombstone: mark as deleted
 		const deletedAt = Date.now();
 		await account.update(accountId, {
 			deletedAt,

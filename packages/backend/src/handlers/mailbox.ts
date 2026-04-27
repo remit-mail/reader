@@ -1,5 +1,7 @@
 import type { MailboxItem } from "@remit/remit-electrodb-service";
 import type { MailboxResponse } from "@remit/api-openapi-types";
+import type { APIGatewayProxyEvent } from "aws-lambda";
+import { getAccountConfigIdFromEvent } from "../auth.js";
 import { getClient } from "../service/dynamodb.js";
 import type {
 	MailboxDetailOperationIds,
@@ -7,6 +9,7 @@ import type {
 	OperationHandler,
 	TrashOperationIds,
 } from "../types.js";
+import { assertAccountOwnership } from "./account-ownership.js";
 
 const toMailboxResponse = (mailbox: MailboxItem): MailboxResponse => ({
 	mailboxId: mailbox.mailboxId,
@@ -27,12 +30,19 @@ export const MailboxOperations: Record<
 	MailboxOperationIds,
 	OperationHandler<MailboxOperationIds>
 > = {
-	MailboxOperations_listMailboxes: async (context) => {
+	MailboxOperations_listMailboxes: async (context, ...args: unknown[]) => {
+		const event = args[0] as APIGatewayProxyEvent;
+		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const { accountId } = context.request.params as { accountId: string };
 		const { continuationToken } = context.request.query as {
 			continuationToken?: string;
 		};
-		const result = await getClient().mailbox.listByAccount(accountId, {
+
+		const client = getClient();
+		const account = await client.account.get(accountId);
+		assertAccountOwnership(account, accountConfigId, "read");
+
+		const result = await client.mailbox.listByAccount(accountId, {
 			continuationToken,
 		});
 		return {
@@ -41,14 +51,20 @@ export const MailboxOperations: Record<
 		};
 	},
 
-	MailboxOperations_createMailbox: async (context) => {
+	MailboxOperations_createMailbox: async (context, ...args: unknown[]) => {
+		const event = args[0] as APIGatewayProxyEvent;
+		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const { accountId } = context.request.params as { accountId: string };
 		const { namespaceType, fullPath } = context.request.requestBody as {
 			namespaceType: string;
 			fullPath: string;
 		};
 
-		const mailbox = await getClient().mailboxQueue.createMailbox(
+		const client = getClient();
+		const account = await client.account.get(accountId);
+		assertAccountOwnership(account, accountConfigId, "act");
+
+		const mailbox = await client.mailboxQueue.createMailbox(
 			{
 				accountId,
 				namespaceType: namespaceType as "personal" | "other_users" | "shared",
@@ -67,7 +83,7 @@ export const MailboxOperations: Record<
 				lastMessageSyncAt: 0,
 			},
 			accountId,
-			true, // subscribe
+			true,
 		);
 
 		return toMailboxResponse(mailbox);
@@ -78,39 +94,67 @@ export const MailboxDetailOperations: Record<
 	MailboxDetailOperationIds,
 	OperationHandler<MailboxDetailOperationIds>
 > = {
-	MailboxDetailOperations_getMailbox: async (context) => {
-		const { mailboxId } = context.request.params as { mailboxId: string };
-		const mailbox = await getClient().mailbox.get(mailboxId);
+	MailboxDetailOperations_getMailbox: async (context, ...args: unknown[]) => {
+		const event = args[0] as APIGatewayProxyEvent;
+		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const { accountId, mailboxId } = context.request.params as {
+			accountId: string;
+			mailboxId: string;
+		};
+
+		const client = getClient();
+		const account = await client.account.get(accountId);
+		assertAccountOwnership(account, accountConfigId, "read");
+
+		const mailbox = await client.mailbox.get(mailboxId);
 		return toMailboxResponse(mailbox);
 	},
 
-	MailboxDetailOperations_renameMailbox: async (context) => {
-		const { mailboxId } = context.request.params as { mailboxId: string };
+	MailboxDetailOperations_renameMailbox: async (
+		context,
+		...args: unknown[]
+	) => {
+		const event = args[0] as APIGatewayProxyEvent;
+		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const { accountId, mailboxId } = context.request.params as {
+			accountId: string;
+			mailboxId: string;
+		};
 		const { fullPath } = context.request.requestBody as { fullPath?: string };
 
+		const client = getClient();
+		const account = await client.account.get(accountId);
+		assertAccountOwnership(account, accountConfigId, "act");
+
 		if (!fullPath) {
-			const mailbox = await getClient().mailbox.get(mailboxId);
+			const mailbox = await client.mailbox.get(mailboxId);
 			return toMailboxResponse(mailbox);
 		}
 
-		// Get mailbox to resolve accountId
-		const existingMailbox = await getClient().mailbox.get(mailboxId);
-
-		const mailbox = await getClient().mailboxQueue.renameMailbox(
+		const mailbox = await client.mailboxQueue.renameMailbox(
 			mailboxId,
 			fullPath,
-			existingMailbox.accountId,
+			accountId,
 		);
 		return toMailboxResponse(mailbox);
 	},
 
-	MailboxDetailOperations_deleteMailbox: async (context) => {
-		const { mailboxId } = context.request.params as { mailboxId: string };
+	MailboxDetailOperations_deleteMailbox: async (
+		context,
+		...args: unknown[]
+	) => {
+		const event = args[0] as APIGatewayProxyEvent;
+		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const { accountId, mailboxId } = context.request.params as {
+			accountId: string;
+			mailboxId: string;
+		};
 
-		// Get mailbox to resolve accountId
-		const mailbox = await getClient().mailbox.get(mailboxId);
+		const client = getClient();
+		const account = await client.account.get(accountId);
+		assertAccountOwnership(account, accountConfigId, "act");
 
-		await getClient().mailboxQueue.deleteMailbox(mailboxId, mailbox.accountId);
+		await client.mailboxQueue.deleteMailbox(mailboxId, accountId);
 		return { statusCode: 204 };
 	},
 };
@@ -119,12 +163,16 @@ export const TrashOperations: Record<
 	TrashOperationIds,
 	OperationHandler<TrashOperationIds>
 > = {
-	TrashOperations_emptyTrash: async (context) => {
+	TrashOperations_emptyTrash: async (context, ...args: unknown[]) => {
+		const event = args[0] as APIGatewayProxyEvent;
+		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const { accountId } = context.request.params as { accountId: string };
 
 		const client = getClient();
 
-		// Get trash mailbox to count messages before emptying
+		const account = await client.account.get(accountId);
+		assertAccountOwnership(account, accountConfigId, "act");
+
 		const trashMailbox =
 			await client.mailboxSpecialUse.findTrashMailbox(accountId);
 
