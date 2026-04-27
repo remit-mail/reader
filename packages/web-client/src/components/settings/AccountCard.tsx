@@ -1,10 +1,11 @@
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
-import { Check, Mail, Pencil, Trash2, X } from "lucide-react";
+import { AlertTriangle, Check, Mail, Pencil, Trash2, X } from "lucide-react";
 import { cn } from "../../lib/utils";
+import { accountIsMissingSmtp } from "./account-form-helpers.js";
 
 interface AccountCardProps {
 	account: RemitImapAccountResponse;
-	onEdit: () => void;
+	onEdit: (options?: { focusSmtp?: boolean }) => void;
 	onDelete: () => void;
 }
 
@@ -15,6 +16,7 @@ export const AccountCard = ({
 }: AccountCardProps) => {
 	const isConnected = account.connectionState === "authenticated";
 	const hasError = account.lastError !== undefined;
+	const missingSmtp = accountIsMissingSmtp(account);
 
 	return (
 		<div className="border border-border rounded-lg p-4">
@@ -61,10 +63,33 @@ export const AccountCard = ({
 				</p>
 			)}
 
+			{missingSmtp && (
+				<button
+					type="button"
+					onClick={() => onEdit({ focusSmtp: true })}
+					data-testid="account-card-smtp-warning"
+					className="mt-3 w-full flex items-start gap-2 rounded-md border border-amber-500/50 bg-amber-500/10 dark:bg-amber-500/20 px-3 py-2 text-left hover:bg-amber-500/20 dark:hover:bg-amber-500/30 transition-colors"
+				>
+					<AlertTriangle
+						className="size-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400"
+						aria-hidden="true"
+					/>
+					<div className="flex-1 min-w-0">
+						<p className="text-sm font-medium text-amber-700 dark:text-amber-300">
+							Can't send mail — configure SMTP
+						</p>
+						<p className="text-xs text-muted-foreground mt-0.5">
+							Outgoing mail isn't set up for this account. Click to add SMTP
+							settings.
+						</p>
+					</div>
+				</button>
+			)}
+
 			<div className="flex justify-end gap-2 mt-4">
 				<button
 					type="button"
-					onClick={onEdit}
+					onClick={() => onEdit()}
 					className="flex items-center gap-1 px-3 py-1.5 text-sm border rounded-md hover:bg-accent"
 				>
 					<Pencil className="size-3" />

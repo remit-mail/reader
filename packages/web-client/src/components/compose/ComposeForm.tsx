@@ -1,4 +1,5 @@
 import {
+	configOperationsGetConfigOptions,
 	outboxDetailOperationsDeleteOutboxMessageMutation,
 	outboxDetailOperationsGetOutboxMessageOptions,
 	outboxDetailOperationsSendOutboxMessageMutation,
@@ -24,11 +25,13 @@ import {
 	plateValueToHtml,
 	plateValueToText,
 } from "../../lib/plate-serializer.js";
+import { accountIsMissingSmtp } from "../settings/account-form-helpers.js";
 import { useErrorBanners } from "../ui/ErrorBannerProvider.js";
 import { formatErrorDetail } from "../ui/error-banners.js";
 import type { AddressEntry } from "./AddressField";
 import { AddressField } from "./AddressField";
 import { ComposeActionBar } from "./ComposeActionBar";
+import { ComposeSmtpMissingBanner } from "./ComposeSmtpMissingBanner";
 
 const LazyComposeBody = lazy(() =>
 	import("./ComposeBody.js").then((m) => ({ default: m.ComposeBody })),
@@ -264,8 +267,23 @@ export const ComposeForm = ({
 		outboxDetailOperationsDeleteOutboxMessageMutation(),
 	);
 
+	const { data: config } = useQuery({
+		...configOperationsGetConfigOptions(),
+		staleTime: Infinity,
+	});
+
+	const selectedAccount = config?.accounts.find(
+		(a) => a.accountId === selectedAccountId,
+	);
+	const selectedAccountMissingSmtp = selectedAccount
+		? accountIsMissingSmtp(selectedAccount)
+		: false;
+
 	const isSending = createMutation.isPending || sendMutation.isPending;
-	const canSend = toAddresses.length > 0 && !!selectedAccountId;
+	const canSend =
+		toAddresses.length > 0 &&
+		!!selectedAccountId &&
+		!selectedAccountMissingSmtp;
 
 	useEffect(() => {
 		if (!selectedAccountId) return;
@@ -402,6 +420,9 @@ export const ComposeForm = ({
 
 	return (
 		<div className="flex flex-col h-full">
+			{selectedAccount && selectedAccountMissingSmtp && (
+				<ComposeSmtpMissingBanner accountId={selectedAccount.accountId} />
+			)}
 			<div className="space-y-1 px-3 py-2 border-b border-border">
 				<FromSelector
 					selectedAccountId={selectedAccountId}
@@ -484,6 +505,9 @@ export const ComposeForm = ({
 				isSending={isSending}
 				canSend={canSend}
 				saveStatus={saveStatus}
+				disabledReason={
+					selectedAccountMissingSmtp ? "SMTP not configured" : undefined
+				}
 			/>
 		</div>
 	);
