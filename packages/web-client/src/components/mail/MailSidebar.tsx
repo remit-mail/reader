@@ -17,6 +17,7 @@ import {
 	getMailboxPriority,
 	isSystemMailbox,
 } from "@/lib/mailbox-order";
+import { isOutboxListRow } from "@/lib/outbox-status";
 import { useCompose } from "../compose/ComposeProvider";
 import { MailboxItem } from "./MailboxItem";
 
@@ -153,8 +154,9 @@ const OutboxLink = () => {
 
 	const pendingCount = useMemo(
 		() =>
-			(outboxResponse?.items ?? []).filter((item) => item.status !== "draft")
-				.length,
+			(outboxResponse?.items ?? []).filter((item) =>
+				isOutboxListRow(item.status),
+			).length,
 		[outboxResponse?.items],
 	);
 
