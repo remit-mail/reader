@@ -67,7 +67,8 @@ export const ComposeProvider = ({
 		enabled: !!pollingMessageId,
 		refetchInterval: (query) => {
 			const status = query.state.data?.status;
-			if (status === "sent" || status === "failed") return false;
+			if (status === "sent" || status === "failed" || status === "blocked")
+				return false;
 			if (Date.now() - startedAtRef.current > MAX_POLL_DURATION_MS)
 				return false;
 			return POLL_INTERVAL_MS;
@@ -77,14 +78,12 @@ export const ComposeProvider = ({
 	useEffect(() => {
 		if (!polledMessage || !pollingMessageId) return;
 
-		if (polledMessage.status === "sent") {
-			setPollingMessageId(undefined);
-			queryClient.invalidateQueries({
-				queryKey: outboxOperationsListOutboxMessagesQueryKey(),
-			});
-		}
+		const terminal =
+			polledMessage.status === "sent" ||
+			polledMessage.status === "failed" ||
+			polledMessage.status === "blocked";
 
-		if (polledMessage.status === "failed") {
+		if (terminal) {
 			setPollingMessageId(undefined);
 			queryClient.invalidateQueries({
 				queryKey: outboxOperationsListOutboxMessagesQueryKey(),
