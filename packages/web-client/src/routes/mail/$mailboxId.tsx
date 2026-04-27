@@ -204,9 +204,8 @@ function MailboxView() {
 	// compose state. The compose surface, when open without a selected
 	// thread, takes over the whole pane (which on mobile IS the whole
 	// screen) — no extra overlay plumbing required. The thread view
-	// flows naturally; the parent route owns the scroll surface, and
-	// back/reply/forward affordances live in the BottomNav via
-	// ThreadActionsContext.
+	// flows naturally; back/reply/forward affordances live in the
+	// `ConversationView` action bar (mobile branch).
 	if (!isDesktop) {
 		const showCompose = composeState.isOpen && !selectedThread;
 		if (selectedThread) {

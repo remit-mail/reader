@@ -12,7 +12,6 @@ import {
 	Users,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { BottomNav } from "@/components/layout/BottomNav";
 import { ComposeFab } from "@/components/layout/ComposeFab";
 import { Drawer } from "@/components/layout/Drawer";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
@@ -149,14 +148,7 @@ function SettingsLayout() {
 				) : null}
 
 				{/* Settings content area */}
-				<main
-					className="flex-1 overflow-auto p-4 sm:p-6"
-					style={{
-						paddingBottom: isDesktop
-							? undefined
-							: "calc(3.5rem + env(safe-area-inset-bottom, 0))",
-					}}
-				>
+				<main className="flex-1 overflow-auto p-4 sm:p-6">
 					<Outlet />
 				</main>
 			</div>
@@ -170,8 +162,6 @@ function SettingsLayout() {
 				<SettingsNav pathname={location.pathname} />
 			</Drawer>
 
-			{/* Bottom nav (mobile only) */}
-			<BottomNav />
 			{/* Mobile compose FAB. Tapping it from settings opens compose
 			    state and navigates to `/mail`, which redirects to the
 			    preferred mailbox where compose can mount. */}

@@ -2,7 +2,6 @@ import { Link, useLocation } from "@tanstack/react-router";
 import { Mail, Menu, Search, Settings, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "../../lib/utils";
-import { useHideHeader } from "./HideHeaderContext";
 import { SearchBar } from "./SearchBar";
 
 interface HeaderProps {
@@ -15,6 +14,14 @@ interface HeaderProps {
 	 * mobile to open a full-screen drawer hosted by the parent layout.
 	 */
 	onMenuClick?: () => void;
+	/**
+	 * Mobile-only label shown next to the hamburger in place of the static
+	 * "Remit" branding. Pass the current inbox/folder name so the top bar
+	 * acts as orientation. Falls back to "Remit" when omitted or null
+	 * (e.g. mid-redirect with no selected mailbox). Desktop always shows
+	 * "Remit".
+	 */
+	mobileTitle?: string | null;
 }
 
 export const Header = ({
@@ -22,12 +29,12 @@ export const Header = ({
 	onSearchChange,
 	onSearchClear,
 	onMenuClick,
+	mobileTitle,
 }: HeaderProps) => {
 	const [menuOpen, setMenuOpen] = useState(false);
 	const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
 	const menuRef = useRef<HTMLDivElement>(null);
 	const location = useLocation();
-	const hidden = useHideHeader();
 
 	// Close dropdown on click outside (only used when no external onMenuClick)
 	useEffect(() => {
@@ -56,12 +63,7 @@ export const Header = ({
 	};
 
 	return (
-		<header
-			className={cn(
-				"items-center gap-2 sm:gap-4 px-2 sm:px-4 h-12 border-b border-border bg-background shrink-0 md:flex",
-				hidden ? "hidden" : "flex",
-			)}
-		>
+		<header className="flex items-center gap-2 sm:gap-4 px-2 sm:px-4 h-12 border-b border-border bg-background shrink-0">
 			{/* Left: Branding + hamburger */}
 			<div className="relative" ref={menuRef}>
 				<div className="flex items-center gap-2 shrink-0">
@@ -74,7 +76,16 @@ export const Header = ({
 					>
 						<Menu className="size-5" />
 					</button>
-					<span className="font-semibold text-foreground">Remit</span>
+					{/* Mobile (<md): show the current inbox name when known so the
+					    top bar reads as orientation. Falls back to "Remit" when
+					    no inbox is resolved (e.g. /mail mid-redirect) and on
+					    desktop, where branding is preferred. */}
+					<span className="font-semibold text-foreground md:hidden truncate max-w-[55vw]">
+						{mobileTitle ?? "Remit"}
+					</span>
+					<span className="font-semibold text-foreground hidden md:inline">
+						Remit
+					</span>
 				</div>
 
 				{/* Desktop dropdown menu (only when no external onMenuClick) */}
@@ -150,8 +161,9 @@ export const Header = ({
 				)}
 			</div>
 
-			{/* Right: Settings (hidden on mobile — bottom nav covers this) */}
-			<div className="hidden md:flex items-center gap-2 shrink-0">
+			{/* Right: Settings (visible on every viewport now that the
+			    mobile bottom nav has been removed). */}
+			<div className="flex items-center gap-2 shrink-0">
 				<Link
 					to="/settings/accounts"
 					className="p-2 rounded-md hover:bg-accent transition-colors min-h-11 min-w-11 inline-flex items-center justify-center"

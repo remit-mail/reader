@@ -26,6 +26,11 @@ import { cn } from "@/lib/utils";
 interface MailboxItemProps {
 	mailbox: RemitImapMailboxResponse;
 	isSelected: boolean;
+	/**
+	 * Optional click hook fired after the navigation/invalidate logic.
+	 * The mobile drawer uses this to auto-collapse on inbox pick (#199).
+	 */
+	onSelect?: () => void;
 }
 
 const ICON_BY_KIND: Record<string, LucideIcon> = {
@@ -48,7 +53,11 @@ const getMailboxIcon = (
 	return Folder;
 };
 
-export const MailboxItem = ({ mailbox, isSelected }: MailboxItemProps) => {
+export const MailboxItem = ({
+	mailbox,
+	isSelected,
+	onSelect,
+}: MailboxItemProps) => {
 	const { t } = useTranslation("mail", { useSuspense: false });
 	const translator = (key: string, fallback: string): string =>
 		t(key, { defaultValue: fallback });
@@ -81,6 +90,7 @@ export const MailboxItem = ({ mailbox, isSelected }: MailboxItemProps) => {
 				params: { mailboxId: mailbox.mailboxId },
 			});
 		}
+		onSelect?.();
 	};
 
 	return (
