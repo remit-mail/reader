@@ -1,4 +1,8 @@
-import type { OutboxMessageItem } from "@remit/remit-electrodb-service";
+import {
+	ForbiddenError,
+	NotFoundError,
+	type OutboxMessageItem,
+} from "@remit/remit-electrodb-service";
 import type {
 	CreateOutboxMessageInput,
 	OutboxMessageResponse,
@@ -35,6 +39,31 @@ const toOutboxMessageResponse = (
 	createdAt: item.createdAt,
 	updatedAt: item.updatedAt,
 });
+
+/**
+ * Cross-tenant ownership guard for outbox messages.
+ *
+ * `mode: "read"` throws NotFoundError on mismatch (404) so we don't leak the
+ * existence of another tenant's resource on a GET. `mode: "act"` throws
+ * ForbiddenError on mismatch (403) for action verbs (PATCH/POST/DELETE) where
+ * the caller has already named the resource and the API contract says we
+ * explicitly deny rather than feign 404.
+ */
+export const assertOutboxOwnership = (
+	message: Pick<OutboxMessageItem, "outboxMessageId" | "accountConfigId">,
+	callerAccountConfigId: string,
+	mode: "read" | "act",
+): void => {
+	if (message.accountConfigId === callerAccountConfigId) return;
+	if (mode === "read") {
+		throw new NotFoundError(
+			`OutboxMessage not found: ${message.outboxMessageId}`,
+		);
+	}
+	throw new ForbiddenError(
+		`OutboxMessage ${message.outboxMessageId} not in account config`,
+	);
+};
 
 export const OutboxOperations: Record<
 	OutboxOperationIds,
@@ -127,25 +156,35 @@ export const OutboxDetailOperations: Record<
 > = {
 	OutboxDetailOperations_getOutboxMessage: async (
 		context: Context,
+		...args: unknown[]
 	): Promise<OutboxMessageResponse> => {
+		const event = args[0] as APIGatewayProxyEvent;
+		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const { outboxMessageId } = context.request.params as {
 			outboxMessageId: string;
 		};
 
 		const client = getClient();
 		const outbox = await client.outboxMessage.get(outboxMessageId);
+		assertOutboxOwnership(outbox, accountConfigId, "read");
 		return toOutboxMessageResponse(outbox);
 	},
 
 	OutboxDetailOperations_updateOutboxMessage: async (
 		context: Context,
+		...args: unknown[]
 	): Promise<OutboxMessageResponse> => {
+		const event = args[0] as APIGatewayProxyEvent;
+		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const { outboxMessageId } = context.request.params as {
 			outboxMessageId: string;
 		};
 		const input = context.request.requestBody as UpdateOutboxMessageInput;
 
 		const client = getClient();
+		const existing = await client.outboxMessage.get(outboxMessageId);
+		assertOutboxOwnership(existing, accountConfigId, "act");
+
 		const updated = await client.outboxQueue.updateDraft(outboxMessageId, {
 			toAddresses: input.toAddresses,
 			ccAddresses: input.ccAddresses,
@@ -159,24 +198,38 @@ export const OutboxDetailOperations: Record<
 		return toOutboxMessageResponse(updated);
 	},
 
-	OutboxDetailOperations_deleteOutboxMessage: async (context: Context) => {
+	OutboxDetailOperations_deleteOutboxMessage: async (
+		context: Context,
+		...args: unknown[]
+	) => {
+		const event = args[0] as APIGatewayProxyEvent;
+		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const { outboxMessageId } = context.request.params as {
 			outboxMessageId: string;
 		};
 
 		const client = getClient();
+		const existing = await client.outboxMessage.get(outboxMessageId);
+		assertOutboxOwnership(existing, accountConfigId, "act");
+
 		await client.outboxQueue.deleteDraft(outboxMessageId);
 		return { statusCode: 204 };
 	},
 
 	OutboxDetailOperations_sendOutboxMessage: async (
 		context: Context,
+		...args: unknown[]
 	): Promise<OutboxMessageResponse> => {
+		const event = args[0] as APIGatewayProxyEvent;
+		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const { outboxMessageId } = context.request.params as {
 			outboxMessageId: string;
 		};
 
 		const client = getClient();
+		const existing = await client.outboxMessage.get(outboxMessageId);
+		assertOutboxOwnership(existing, accountConfigId, "act");
+
 		const sent = await client.outboxQueue.send(outboxMessageId);
 		return toOutboxMessageResponse(sent);
 	},
