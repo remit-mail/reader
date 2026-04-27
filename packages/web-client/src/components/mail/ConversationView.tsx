@@ -70,47 +70,54 @@ const ActionBar = ({
 		className="sticky bottom-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-t border-border px-4 py-3"
 		style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom, 0))" }}
 	>
-		<div className="flex items-center gap-2 flex-wrap">
+		{/* Narrow viewports (<640px) drop the text labels so all four
+		    actions stay on one row — without this Forward orphans onto
+		    a second row at phone widths. The lucide icons + aria-labels
+		    keep the controls accessible. */}
+		<div className="flex items-center gap-2">
 			{onBack && (
 				<button
 					type="button"
 					onClick={onBack}
-					className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-full border border-border hover:bg-accent transition-colors"
+					className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 text-sm font-medium rounded-full border border-border hover:bg-accent transition-colors"
 					aria-label="Back to messages"
 				>
 					<ArrowLeft className="size-4" />
-					Back
+					<span className="hidden sm:inline">Back</span>
 				</button>
 			)}
 			<button
 				type="button"
 				onClick={onReply}
 				disabled={disabled}
-				className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-full border border-border hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+				aria-label="Reply"
+				className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 text-sm font-medium rounded-full border border-border hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
 			>
 				<Reply className="size-4" />
-				Reply
+				<span className="hidden sm:inline">Reply</span>
 			</button>
 			<button
 				type="button"
 				onClick={onReplyAll}
 				disabled={disabled}
-				className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-full border border-border hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+				aria-label="Reply all"
+				className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 text-sm font-medium rounded-full border border-border hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
 			>
 				<ReplyAll className="size-4" />
-				Reply all
+				<span className="hidden sm:inline">Reply all</span>
 			</button>
 			<button
 				type="button"
 				onClick={onForward}
 				disabled={disabled}
-				className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-full border border-border hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+				aria-label="Forward"
+				className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 text-sm font-medium rounded-full border border-border hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
 			>
 				<Forward className="size-4" />
-				Forward
+				<span className="hidden sm:inline">Forward</span>
 			</button>
 			{disabled && (
-				<span className="text-xs text-muted-foreground ml-2">
+				<span className="text-xs text-muted-foreground ml-2 hidden sm:inline">
 					Configure SMTP to send mail
 				</span>
 			)}

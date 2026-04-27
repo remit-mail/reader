@@ -263,7 +263,7 @@ export const AuthShell = ({ children }: AuthShellProps) => {
 		return (
 			<>
 				<LocalDevBanner />
-				<div className="pt-7 sm:pt-10 h-screen">{children}</div>
+				<div className="pt-7 sm:pt-10 h-dvh">{children}</div>
 			</>
 		);
 	}

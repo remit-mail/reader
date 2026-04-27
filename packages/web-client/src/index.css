@@ -114,7 +114,7 @@ body {
 .auth-page {
   background-color: var(--color-muted);
   color: var(--color-foreground);
-  min-height: 100vh;
+  min-height: 100dvh;
   width: 100%;
   display: flex;
   flex-direction: column;
