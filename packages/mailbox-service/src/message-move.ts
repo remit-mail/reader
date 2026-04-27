@@ -291,8 +291,12 @@ export class MessageMoveService {
 				syncStatus: MessageSyncStatus.pending,
 			});
 
-			// Update ThreadMessage
-			await this.updateThreadMessageDeleted(messageId, true);
+			// Delete ThreadMessage rows up-front (one row per mailbox copy).
+			// The IMAP worker also deletes them once the IMAP DELETE succeeds —
+			// doing it eagerly here closes the visibility window where the inbox
+			// list shows a row whose backing Message is being deleted, leading
+			// to "Message not found: <id>" on click. See issue #212.
+			await this.deleteThreadMessagesForMessage(messageId);
 
 			events.push({
 				type: "MESSAGE_DELETE",
@@ -648,6 +652,30 @@ export class MessageMoveService {
 				isDeleted,
 			},
 			"Updated ThreadMessage for move",
+		);
+	};
+
+	/**
+	 * Delete every ThreadMessage row that points at this messageId.
+	 *
+	 * A single Message can have multiple ThreadMessage rows — one per mailbox
+	 * the message exists in (e.g. INBOX + a label/folder copy). Deleting them
+	 * up-front in the permanent-delete optimistic step prevents stale rows from
+	 * leaking into mailbox listings while IMAP catches up. See issue #212.
+	 */
+	private deleteThreadMessagesForMessage = async (
+		messageId: string,
+	): Promise<void> => {
+		const rows = await this.threadMessageService.findAllByMessageId(messageId);
+		for (const row of rows) {
+			await this.threadMessageService.delete(
+				row.accountConfigId,
+				row.threadMessageId,
+			);
+		}
+		this.log.info(
+			{ messageId, deletedRows: rows.length },
+			"Deleted ThreadMessage rows for permanent-delete",
 		);
 	};
 

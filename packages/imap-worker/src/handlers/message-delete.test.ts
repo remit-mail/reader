@@ -1,7 +1,10 @@
 import assert from "node:assert";
-import { describe, it } from "node:test";
+import { describe, it, mock } from "node:test";
 import type { ThreadMessageItem } from "@remit/remit-electrodb-service";
-import { buildThreadMessageTrashUpdate } from "./message-delete.js";
+import {
+	buildThreadMessageTrashUpdate,
+	deleteAllThreadMessagesForMessage,
+} from "./message-delete.js";
 
 const sourceMailboxId = "source-mailbox-id-aaaaaaaaa";
 const trashMailboxId = "trash-mailbox-id-aaaaaaaaa";
@@ -103,5 +106,69 @@ describe("buildThreadMessageTrashUpdate", () => {
 			hasStars: tm.hasStars,
 			hasAttachment: tm.hasAttachment,
 		});
+	});
+});
+
+describe("deleteAllThreadMessagesForMessage (#212)", () => {
+	// Regression for the multi-mailbox cleanup gap in #212. A single Message
+	// can have ThreadMessage rows in multiple mailboxes (e.g. INBOX + a label
+	// folder copy). The pre-fix code used `findByMessageId` (single row) and
+	// left orphan rows behind that then leaked into other mailbox listings.
+
+	const baseRow = (
+		threadMessageId: string,
+		mailboxId: string,
+	): Pick<
+		ThreadMessageItem,
+		"accountConfigId" | "threadMessageId" | "mailboxId"
+	> => ({
+		accountConfigId: "alice-config-aaaaaaaaaa",
+		threadMessageId,
+		mailboxId,
+	});
+
+	it("deletes every ThreadMessage row returned by findAllByMessageId", async () => {
+		const rows = [
+			baseRow("alice-tm-1-aaaaaaaaaa", "alice-inbox-aaaaaaaaa"),
+			baseRow("alice-tm-2-aaaaaaaaaa", "alice-label-aaaaaaaaa"),
+		];
+
+		const findAllByMessageId = mock.fn(async () => rows);
+		const deleteRow = mock.fn(async () => undefined);
+
+		const count = await deleteAllThreadMessagesForMessage(
+			{
+				findAllByMessageId,
+				delete: deleteRow,
+			} as unknown as Parameters<typeof deleteAllThreadMessagesForMessage>[0],
+			"alice-msg-multi-aaaaaaaa",
+		);
+
+		assert.equal(count, 2);
+		assert.equal(deleteRow.mock.calls.length, 2);
+		assert.deepEqual(deleteRow.mock.calls[0].arguments, [
+			"alice-config-aaaaaaaaaa",
+			"alice-tm-1-aaaaaaaaaa",
+		]);
+		assert.deepEqual(deleteRow.mock.calls[1].arguments, [
+			"alice-config-aaaaaaaaaa",
+			"alice-tm-2-aaaaaaaaaa",
+		]);
+	});
+
+	it("returns zero when no ThreadMessage rows exist", async () => {
+		const findAllByMessageId = mock.fn(async () => []);
+		const deleteRow = mock.fn(async () => undefined);
+
+		const count = await deleteAllThreadMessagesForMessage(
+			{
+				findAllByMessageId,
+				delete: deleteRow,
+			} as unknown as Parameters<typeof deleteAllThreadMessagesForMessage>[0],
+			"alice-msg-missing-aaaaaa",
+		);
+
+		assert.equal(count, 0);
+		assert.equal(deleteRow.mock.calls.length, 0);
 	});
 });
