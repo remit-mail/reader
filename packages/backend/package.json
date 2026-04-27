@@ -21,6 +21,7 @@
 		"@remit/domain-enums": "*",
 		"@remit/mailbox-service": "*",
 		"@remit/api-openapi-types": "*",
+		"@remit/search-service": "*",
 		"@remit/storage-service": "*",
 		"mailparser": "*",
 		"@types/aws-lambda": "*",

@@ -217,6 +217,52 @@ namespace RemitApi {
   }
 
   // ============================================
+  // Semantic Search Operations
+  // ============================================
+
+  @route("/search/semantic")
+  namespace SemanticSearchOperations {
+    @doc("Run a semantic vector search across the caller's indexed messages.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    op semanticSearch(
+      @doc("Free-form natural-language query")
+      @query(#{ explode: true })
+      query: string,
+
+      @doc("Restrict results to a single mailbox")
+      @query(#{ explode: true })
+      mailboxId?: UUID,
+
+      @doc("Lower bound on sentDate (epoch seconds, inclusive)")
+      @query(#{ explode: true })
+      sentDateFrom?: int64,
+
+      @doc("Upper bound on sentDate (epoch seconds, inclusive)")
+      @query(#{ explode: true })
+      sentDateTo?: int64,
+
+      @doc("Restrict to messages with or without attachments")
+      @query(#{ explode: true })
+      hasAttachment?: boolean,
+
+      @doc("Restrict to starred or unstarred messages")
+      @query(#{ explode: true })
+      hasStars?: boolean,
+
+      @doc("Restrict to read or unread messages")
+      @query(#{ explode: true })
+      isRead?: boolean,
+
+      @doc("Maximum number of results to return")
+      @query(#{ explode: true })
+      limit?: int32,
+    ): {
+      items: SemanticSearchResult[];
+    };
+  }
+
+  // ============================================
   // Outbox Operations
   // ============================================
 
