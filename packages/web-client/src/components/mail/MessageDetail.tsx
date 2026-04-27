@@ -7,7 +7,10 @@ import { useEffect } from "react";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { ErrorState } from "@/components/ui/ErrorState";
-import { formatErrorDetail } from "@/components/ui/error-banners";
+import {
+	formatErrorDetail,
+	isMessageNotFoundError,
+} from "@/components/ui/error-banners";
 import { MessageBody } from "./MessageBody";
 import { MessageHeader } from "./MessageHeader";
 
@@ -92,6 +95,13 @@ export const MessageDetail = ({ messageId, snippet }: MessageDetailProps) => {
 	}
 
 	if (isError) {
+		if (isMessageNotFoundError(error)) {
+			return (
+				<div className="flex h-full items-center justify-center">
+					<EmptyState message="This message has been deleted" />
+				</div>
+			);
+		}
 		return (
 			<div className="flex h-full items-center justify-center">
 				<ErrorState

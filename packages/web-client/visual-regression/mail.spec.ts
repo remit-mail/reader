@@ -62,4 +62,39 @@ test.describe("visual: mail", () => {
 			clip: { x: 0, y: 0, width: 390, height: 120 },
 		});
 	});
+
+	/**
+	 * Regression for #212 — clicking a stale row used to surface the raw
+	 * `Message not found: <id>` string instead of a graceful empty state.
+	 *
+	 * Visiting an inbox URL with `selectedMessageId` pointing at a message
+	 * that was never seeded simulates the post-permanent-delete state: the
+	 * thread row is gone (excluded by the new `excludeDeleted: true`
+	 * default) but the URL still references the now-vanished message ID.
+	 *
+	 * Desktop two-pane layout: the right pane must show the empty
+	 * "Select a message to read" state — never the raw error string.
+	 *
+	 * The non-existent ID is a deterministic placeholder, so the test is
+	 * reproducible across runs and across machines.
+	 */
+	test("deleted message URL falls back to empty state", async ({
+		page,
+		inboxId,
+	}, testInfo) => {
+		test.skip(
+			testInfo.project.name === "phone",
+			"Mobile collapses to single-pane; the empty state is the desktop two-pane behavior covered here",
+		);
+		const deletedMessageId = "alice-deleted-aaaaaaaaaaaaaaa";
+		await page.goto(`/mail/${inboxId}?selectedMessageId=${deletedMessageId}`);
+		await page.waitForLoadState("networkidle");
+		await page.waitForTimeout(500);
+
+		// Belt: the raw "Message not found" error string from the backend
+		// must NOT surface to the user — that's the literal #212 bug.
+		await expect(page.getByText(/Message not found:/i)).toHaveCount(0);
+
+		await expect(page).toHaveScreenshot("mail-deleted-message-empty.png");
+	});
 });

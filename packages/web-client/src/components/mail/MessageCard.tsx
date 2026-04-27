@@ -12,7 +12,9 @@ import {
 	Star,
 } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
+import { isMessageNotFoundError } from "@/components/ui/error-banners";
 import { formatDatePreset } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { AddressList } from "./AddressDisplay";
@@ -271,6 +273,8 @@ const ExpandedCard = ({
 						<div className="h-4 bg-muted rounded w-3/4" />
 						<div className="h-4 bg-muted rounded w-1/2" />
 					</div>
+				) : isError && isMessageNotFoundError(error) ? (
+					<EmptyState message="This message has been deleted" />
 				) : isError ? (
 					<ErrorState
 						variant="inline"

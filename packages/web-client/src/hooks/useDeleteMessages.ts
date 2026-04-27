@@ -64,6 +64,19 @@ export const removeMessagesFromItems = (
 ): RemitImapThreadMessageResponse[] =>
 	items.filter((item) => !messageIds.has(item.messageId));
 
+/**
+ * Pure helper: drop soft-deleted rows from a flattened thread list.
+ *
+ * Belt-and-braces guard against #212. The backend already excludes
+ * `isDeleted: true` rows from the inbox listing, but if a regression slips
+ * back in (or an eventual-consistency window briefly returns a soft-deleted
+ * row) the UI must not show it.
+ */
+export const dropDeletedThreads = (
+	items: RemitImapThreadMessageResponse[],
+): RemitImapThreadMessageResponse[] =>
+	items.filter((item) => item.isDeleted !== true);
+
 export const useDeleteMessages = ({
 	mailboxId,
 	threadId,

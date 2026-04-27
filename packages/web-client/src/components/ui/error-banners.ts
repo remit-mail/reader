@@ -31,6 +31,26 @@ export const formatErrorDetail = (error: unknown): string | undefined => {
 	return undefined;
 };
 
+/**
+ * Detect a "describeMessage hit a deleted/missing row" error.
+ *
+ * Soft-deleted ThreadMessage rows used to leak into the inbox list (#212);
+ * clicking one fired `describeMessage` against an already-hard-deleted
+ * Message and the backend's `NotFoundError` ("Message not found: <id>")
+ * surfaced verbatim. We now filter those rows server-side, but the UI still
+ * needs a graceful empty state when the cache is mid-refresh or the row
+ * was just deleted in another tab.
+ *
+ * The backend serializes 404s as `{ message: "Message not found: <id>" }`
+ * (see `packages/remit-backend/src/error.ts`). The hey-api fetch client
+ * throws the parsed JSON body as the error, so we match by message prefix.
+ */
+export const isMessageNotFoundError = (error: unknown): boolean => {
+	const detail = formatErrorDetail(error);
+	if (!detail) return false;
+	return detail.startsWith("Message not found");
+};
+
 const sameInput = (
 	entry: ErrorBannerEntry,
 	input: PushErrorInput,

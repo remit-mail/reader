@@ -1,7 +1,10 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
-import { removeMessagesFromItems } from "./useDeleteMessages.js";
+import {
+	dropDeletedThreads,
+	removeMessagesFromItems,
+} from "./useDeleteMessages.js";
 
 const make = (
 	overrides: Partial<RemitImapThreadMessageResponse> & {
@@ -57,6 +60,44 @@ describe("removeMessagesFromItems", () => {
 
 	test("returns an empty array for empty input", () => {
 		const got = removeMessagesFromItems([], new Set(["m1"]));
+		assert.deepStrictEqual(got, []);
+	});
+});
+
+describe("dropDeletedThreads (#212)", () => {
+	// Belt-and-braces UI filter for issue #212. If the backend regresses and
+	// returns a soft-deleted row, the inbox list must still hide it. The
+	// dedicated helper makes the regression cheap to test without rendering
+	// React.
+
+	test("drops items with isDeleted=true and keeps the rest", () => {
+		const items = [
+			make({ messageId: "m1", threadMessageId: "tm1", isDeleted: false }),
+			make({ messageId: "m2", threadMessageId: "tm2", isDeleted: true }),
+			make({ messageId: "m3", threadMessageId: "tm3" }),
+		];
+		const got = dropDeletedThreads(items);
+		assert.deepStrictEqual(
+			got.map((i) => i.messageId),
+			["m1", "m3"],
+		);
+	});
+
+	test("returns the input unchanged when nothing is deleted", () => {
+		const items = [
+			make({ messageId: "m1", threadMessageId: "tm1" }),
+			make({ messageId: "m2", threadMessageId: "tm2", isDeleted: false }),
+		];
+		const got = dropDeletedThreads(items);
+		assert.equal(got.length, 2);
+	});
+
+	test("returns an empty array when every row is deleted", () => {
+		const items = [
+			make({ messageId: "m1", threadMessageId: "tm1", isDeleted: true }),
+			make({ messageId: "m2", threadMessageId: "tm2", isDeleted: true }),
+		];
+		const got = dropDeletedThreads(items);
 		assert.deepStrictEqual(got, []);
 	});
 });

@@ -18,6 +18,29 @@ import { createConnectionScopeFromAccount } from "../connection-scope.js";
 import type { MessageDeleteEvent } from "../events.js";
 
 /**
+ * Delete every ThreadMessage row that points at this messageId.
+ *
+ * A single Message can have multiple ThreadMessage rows — one per mailbox
+ * the message exists in (e.g. INBOX + a label/folder copy). Permanent-delete
+ * cleanup must remove ALL of them; using `findByMessageId` (single row) leaves
+ * orphan rows in other mailboxes that then leak into their listings. See
+ * issue #212.
+ */
+export const deleteAllThreadMessagesForMessage = async (
+	threadMessageService: Pick<
+		ThreadMessageService,
+		"findAllByMessageId" | "delete"
+	>,
+	messageId: string,
+): Promise<number> => {
+	const rows = await threadMessageService.findAllByMessageId(messageId);
+	for (const row of rows) {
+		await threadMessageService.delete(row.accountConfigId, row.threadMessageId);
+	}
+	return rows.length;
+};
+
+/**
  * Build the `set` and `composites` payload for the ThreadMessage update on a
  * MESSAGE_DELETE move-to-trash.
  *
@@ -164,20 +187,22 @@ export const handleMessageDelete = async (
 				// Permanent delete
 				await connection.deleteMessages([uid]);
 
+				// Delete ThreadMessage rows BEFORE the Message row to collapse the
+				// visibility window where the inbox lists a row whose backing
+				// Message has already been deleted (see issue #212). Multi-mailbox
+				// copies are handled by the helper.
+				const threadMessagesDeleted = await deleteAllThreadMessagesForMessage(
+					threadMessageService,
+					messageId,
+				);
+
 				// Delete local Message entity
 				await messageService.delete(messageId);
 
-				// Delete ThreadMessage entity (cleanup)
-				const threadMessage =
-					await threadMessageService.findByMessageId(messageId);
-				if (threadMessage) {
-					await threadMessageService.delete(
-						threadMessage.accountConfigId,
-						threadMessage.threadMessageId,
-					);
-				}
-
-				log.info({ messageId }, "Message permanently deleted");
+				log.info(
+					{ messageId, threadMessagesDeleted },
+					"Message permanently deleted",
+				);
 			}
 		})
 		.catch(async (error: unknown) => {
@@ -193,16 +218,13 @@ export const handleMessageDelete = async (
 					{ messageId, uid },
 					"Message not found on IMAP, cleaning up local",
 				);
-				// Clean up local entities
+				// Clean up local entities. Multi-mailbox copies are handled by the
+				// helper so we don't leave orphan rows (see issue #212).
 				await messageService.delete(messageId);
-				const threadMessage =
-					await threadMessageService.findByMessageId(messageId);
-				if (threadMessage) {
-					await threadMessageService.delete(
-						threadMessage.accountConfigId,
-						threadMessage.threadMessageId,
-					);
-				}
+				await deleteAllThreadMessagesForMessage(
+					threadMessageService,
+					messageId,
+				);
 				return;
 			}
 
