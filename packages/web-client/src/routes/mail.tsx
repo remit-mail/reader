@@ -31,6 +31,7 @@ import { useCurrentMailboxName } from "@/hooks/useCurrentMailboxName";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
+import { useStaleAccountSync } from "@/hooks/useStaleAccountSync";
 import "@/lib/client";
 
 const mailSearchSchema = z.object({
@@ -135,6 +136,11 @@ function MailLayout() {
 
 	const accounts = config?.accounts ?? [];
 	const mobileTitle = useCurrentMailboxName({ accounts });
+
+	// Auto-trigger a mailbox-list sync for any account whose lastSyncAt is
+	// older than 15 minutes (or unset). Fires once per accountId per session
+	// — re-mounts of MailLayout will not retrigger. See #205.
+	useStaleAccountSync(accounts);
 
 	const handleMailboxSelect = useCallback(() => {
 		// Auto-collapse the mobile drawer after the user picks an inbox

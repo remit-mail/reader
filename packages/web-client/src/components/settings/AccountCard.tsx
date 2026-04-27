@@ -1,6 +1,17 @@
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
-import { AlertTriangle, Check, Mail, Pencil, Trash2, X } from "lucide-react";
+import {
+	AlertTriangle,
+	Check,
+	Mail,
+	Pencil,
+	RefreshCw,
+	Trash2,
+	X,
+} from "lucide-react";
+import { useEffect, useState } from "react";
+import { useTriggerSync } from "../../hooks/useTriggerSync";
 import { cn } from "../../lib/utils";
+import { ErrorState } from "../ui/ErrorState";
 import { accountIsMissingSmtp } from "./account-form-helpers.js";
 
 interface AccountCardProps {
@@ -8,6 +19,8 @@ interface AccountCardProps {
 	onEdit: (options?: { focusSmtp?: boolean }) => void;
 	onDelete: () => void;
 }
+
+const REFRESH_LOCKOUT_MS = 3000;
 
 export const AccountCard = ({
 	account,
@@ -17,6 +30,26 @@ export const AccountCard = ({
 	const isConnected = account.connectionState === "authenticated";
 	const hasError = account.lastError !== undefined;
 	const missingSmtp = accountIsMissingSmtp(account);
+	const { trigger, isPending, error, reset } = useTriggerSync(
+		account.accountId,
+	);
+	// Local cooldown so accidental double-clicks don't fire two SQS sends
+	// while the (very fast) trigger ack is in flight.
+	const [cooldown, setCooldown] = useState(false);
+
+	useEffect(() => {
+		if (!cooldown) return;
+		const timer = setTimeout(() => setCooldown(false), REFRESH_LOCKOUT_MS);
+		return () => clearTimeout(timer);
+	}, [cooldown]);
+
+	const handleRefresh = () => {
+		if (cooldown || isPending) return;
+		setCooldown(true);
+		trigger();
+	};
+
+	const refreshDisabled = cooldown || isPending;
 
 	return (
 		<div className="border border-border rounded-lg p-4">
@@ -86,7 +119,34 @@ export const AccountCard = ({
 				</button>
 			)}
 
+			{error && (
+				<div className="mt-3">
+					<ErrorState
+						variant="inline"
+						title="Couldn't refresh mailboxes"
+						error={error}
+						onRetry={() => {
+							reset();
+							handleRefresh();
+						}}
+					/>
+				</div>
+			)}
+
 			<div className="flex justify-end gap-2 mt-4">
+				<button
+					type="button"
+					onClick={handleRefresh}
+					disabled={refreshDisabled}
+					aria-label={`Refresh mailboxes for ${account.email}`}
+					className="flex items-center gap-1 px-3 py-1.5 text-sm border rounded-md hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed"
+				>
+					<RefreshCw
+						className={cn("size-3", isPending && "animate-spin")}
+						aria-hidden="true"
+					/>
+					Refresh mailboxes
+				</button>
 				<button
 					type="button"
 					onClick={() => onEdit()}
