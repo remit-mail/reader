@@ -11,10 +11,10 @@ import {
 	createKmsDataKeyProvider,
 	createSecretsService,
 } from "@remit/secrets-service";
-import { buildMailMessage, sendMail } from "@remit/smtp-service";
+import { sendMail } from "@remit/smtp-service";
 import { env } from "expect-env";
 import type { SendMessageEvent } from "../events.js";
-import { resolveSmtpConfig } from "./resolve-smtp-config.js";
+import { sendMessage } from "./send-message-core.js";
 
 const client = getClient();
 const dataKeyProvider = createKmsDataKeyProvider(env.KMS_KEY_ID);
@@ -59,96 +59,17 @@ const emitAppendSentMessage = async (
 	);
 };
 
-export const handleSendMessage = async (
+export const handleSendMessage = (
 	event: SendMessageEvent,
 	log: Logger,
-): Promise<void> => {
-	const { outboxMessageId, accountId } = event;
-
-	log.info({ outboxMessageId, accountId }, "Processing send message event");
-
-	// 1. Get outbox message
-	const outbox = await outboxService.get(outboxMessageId);
-	if (outbox.status === "sent") {
-		log.info({ outboxMessageId }, "Message already sent, skipping");
-		return;
-	}
-
-	// 2. Mark as sending
-	await outboxService.updateStatus(outboxMessageId, "sending");
-
-	// 3. Resolve SMTP config from the account, reusing IMAP credentials
-	// when no dedicated SMTP password is stored (issue #163).
-	const account = await accountService.get(accountId);
-	const resolved = await resolveSmtpConfig(account, secrets);
-	if (!resolved.ok) {
-		await outboxService.update(outboxMessageId, {
-			status: "failed",
-			lastError: resolved.reason,
-		});
-		log.error({ accountId, reason: resolved.reason }, "SMTP not configured");
-		return;
-	}
-	const smtpConfig = resolved.config;
-
-	// 4. Build message (attachments not yet supported)
-	const message = buildMailMessage(outbox);
-
-	// 5. Send
-	log.info(
-		{ outboxMessageId, to: outbox.toAddresses, subject: outbox.subject },
-		"Sending message via SMTP",
-	);
-	const result = await sendMail(smtpConfig, message);
-
-	if (result.success) {
-		await outboxService.update(outboxMessageId, {
-			status: "sent",
-			sentAt: Date.now(),
-			smtpMessageId: result.messageId,
-		});
-		log.info(
-			{ outboxMessageId, smtpMessageId: result.messageId },
-			"Message sent successfully",
-		);
-
-		await emitAppendSentMessage(accountId, outboxMessageId).catch(
-			(error: unknown) => {
-				log.warn(
-					{ outboxMessageId, error: String(error) },
-					"Failed to enqueue APPEND_SENT_MESSAGE (best-effort)",
-				);
-			},
-		);
-		return;
-	}
-
-	if (result.isTransient) {
-		log.warn(
-			{
-				outboxMessageId,
-				smtpCode: result.smtpCode,
-				error: result.error?.message,
-			},
-			"Transient failure, will retry",
-		);
-		// Revert to queued so SQS retry picks it up
-		await outboxService.updateStatus(outboxMessageId, "queued");
-		throw new Error(`SMTP transient error: ${result.error?.message}`);
-	}
-
-	// Permanent failure - mark as failed, don't throw (no retry)
-	await outboxService.update(outboxMessageId, {
-		status: "failed",
-		lastError: result.error?.message,
-		lastSmtpCode: result.smtpCode,
+): Promise<void> =>
+	sendMessage(event, log, {
+		getOutbox: (id) => outboxService.get(id),
+		getAccount: (id) => accountService.get(id),
+		updateOutbox: (id, patch) => outboxService.update(id, patch),
+		updateOutboxStatus: (id, status) => outboxService.updateStatus(id, status),
+		markOutboxSent: (id, fields) => outboxService.markSent(id, fields),
+		secrets,
+		send: sendMail,
+		emitAppendSentMessage,
 	});
-	log.error(
-		{
-			outboxMessageId,
-			smtpCode: result.smtpCode,
-			error: result.error?.message,
-		},
-		"Permanent failure",
-	);
-};

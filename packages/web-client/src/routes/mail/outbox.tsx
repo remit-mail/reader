@@ -12,6 +12,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
 	AlertCircle,
+	AlertTriangle,
 	ArrowLeft,
 	CheckCircle,
 	Clock,
@@ -31,6 +32,7 @@ import {
 import { MessageBody } from "@/components/mail/MessageBody";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
+import { isOutboxListRow, isUnsendableStatus } from "@/lib/outbox-status";
 import { cn } from "@/lib/utils";
 
 const outboxSearchSchema = z.object({
@@ -67,6 +69,11 @@ const STATUS_CONFIG: Record<
 		icon: AlertCircle,
 		label: "Failed",
 		className: "text-red-600 dark:text-red-400",
+	},
+	blocked: {
+		icon: AlertTriangle,
+		label: "Blocked",
+		className: "text-orange-600 dark:text-orange-400",
 	},
 };
 
@@ -146,7 +153,13 @@ const OutboxMessageRow = ({
 	if (!config) return null;
 
 	const StatusIcon = config.icon;
-	const isFailed = message.status === "failed";
+	const showError = isUnsendableStatus(message.status);
+	const rowTint = (() => {
+		if (isSelected) return null;
+		if (status === "failed") return "bg-red-50/50 dark:bg-red-950/20";
+		if (status === "blocked") return "bg-orange-50/50 dark:bg-orange-950/20";
+		return null;
+	})();
 
 	return (
 		<button
@@ -155,7 +168,7 @@ const OutboxMessageRow = ({
 			className={cn(
 				"w-full text-left flex items-start gap-3 px-4 py-3 border-b border-border hover:bg-accent/50 transition-colors",
 				isSelected && "bg-accent",
-				isFailed && !isSelected && "bg-red-50/50 dark:bg-red-950/20",
+				rowTint,
 			)}
 		>
 			<div className={cn("mt-0.5 shrink-0", config.className)}>
@@ -182,7 +195,7 @@ const OutboxMessageRow = ({
 					<span className={cn("text-xs font-medium", config.className)}>
 						{config.label}
 					</span>
-					{isFailed && message.lastError && (
+					{showError && message.lastError && (
 						<span className="text-xs text-muted-foreground truncate">
 							— {message.lastError}
 						</span>
@@ -195,21 +208,23 @@ const OutboxMessageRow = ({
 				onKeyDown={(e) => e.stopPropagation()}
 				role="presentation"
 			>
-				{isFailed && (
+				{showError && (
 					<>
-						<button
-							type="button"
-							onClick={() =>
-								retryMutation.mutate({
-									path: { outboxMessageId: message.outboxMessageId },
-								})
-							}
-							disabled={retryMutation.isPending}
-							className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-							title="Retry sending"
-						>
-							<RotateCcw className="size-3.5" />
-						</button>
+						{status === "failed" && (
+							<button
+								type="button"
+								onClick={() =>
+									retryMutation.mutate({
+										path: { outboxMessageId: message.outboxMessageId },
+									})
+								}
+								disabled={retryMutation.isPending}
+								className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+								title="Retry sending"
+							>
+								<RotateCcw className="size-3.5" />
+							</button>
+						)}
 						<button
 							type="button"
 							onClick={() =>
@@ -314,7 +329,7 @@ const OutboxMessageDetail = ({ message, onBack }: OutboxMessageDetailProps) => {
 							<span className={cn("text-xs font-medium", config.className)}>
 								{config.label}
 							</span>
-							{message.lastError && (
+							{isUnsendableStatus(message.status) && message.lastError && (
 								<span className="text-xs text-muted-foreground">
 									— {message.lastError}
 								</span>
@@ -339,8 +354,13 @@ function OutboxView() {
 		outboxOperationsListOutboxMessagesOptions(),
 	);
 
-	const messages = (outboxResponse?.items ?? []).filter(
-		(item) => item.status !== "draft",
+	// Outbox surfaces in-flight + actionable rows only. `draft` lives in the
+	// Drafts view; `sent` rows are deleted by the IMAP append handler once
+	// the message lands in Sent (issue #178), but we filter defensively so a
+	// successfully-sent row never lingers in the Outbox list even if APPEND
+	// has not completed yet (issue #193).
+	const messages = (outboxResponse?.items ?? []).filter((item) =>
+		isOutboxListRow(item.status),
 	);
 
 	const selected = messages.find(

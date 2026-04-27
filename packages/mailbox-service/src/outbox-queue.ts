@@ -170,7 +170,8 @@ export class OutboxQueueService {
 		const existing = await this.outboxMessageService.get(outboxMessageId);
 		if (
 			existing.status !== OutboxMessageStatus.draft &&
-			existing.status !== OutboxMessageStatus.failed
+			existing.status !== OutboxMessageStatus.failed &&
+			existing.status !== OutboxMessageStatus.blocked
 		) {
 			throw new Error(
 				`Cannot send outbox message with status: ${existing.status}`,
@@ -229,7 +230,8 @@ export class OutboxQueueService {
 		const existing = await this.outboxMessageService.get(outboxMessageId);
 		if (
 			existing.status !== OutboxMessageStatus.draft &&
-			existing.status !== OutboxMessageStatus.failed
+			existing.status !== OutboxMessageStatus.failed &&
+			existing.status !== OutboxMessageStatus.blocked
 		) {
 			throw new Error(
 				`Cannot delete outbox message with status: ${existing.status}`,
