@@ -23,6 +23,12 @@ import { MailboxItem } from "./MailboxItem";
 
 interface MailSidebarProps {
 	accounts: RemitImapAccountResponse[];
+	/**
+	 * Fires after the user clicks an inbox / outbox / draft entry. The
+	 * mobile drawer wires this to `setDrawerOpen(false)` so the sidebar
+	 * auto-collapses on selection (#199). Desktop callers omit it.
+	 */
+	onMailboxSelect?: () => void;
 }
 
 const startsWithDigit = (str: string): boolean => /^\d/.test(str);
@@ -70,7 +76,11 @@ const sortMailboxes = (
 
 const MAX_VISIBLE_LABELS = 13;
 
-const DraftsList = () => {
+interface SelectableProps {
+	onSelect?: () => void;
+}
+
+const DraftsList = ({ onSelect }: SelectableProps) => {
 	const [expanded, setExpanded] = useState(true);
 	const { openCompose } = useCompose();
 
@@ -126,12 +136,13 @@ const DraftsList = () => {
 						<button
 							key={draft.outboxMessageId}
 							type="button"
-							onClick={() =>
+							onClick={() => {
 								openCompose({
 									mode: "new",
 									outboxMessageId: draft.outboxMessageId,
-								})
-							}
+								});
+								onSelect?.();
+							}}
 							className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-foreground hover:bg-accent rounded-md transition-colors"
 						>
 							<File className="size-4 shrink-0 text-muted-foreground" />
@@ -144,7 +155,7 @@ const DraftsList = () => {
 	);
 };
 
-const OutboxLink = () => {
+const OutboxLink = ({ onSelect }: SelectableProps) => {
 	const location = useLocation();
 	const isSelected = location.pathname.startsWith("/mail/outbox");
 
@@ -163,6 +174,7 @@ const OutboxLink = () => {
 	return (
 		<Link
 			to="/mail/outbox"
+			onClick={() => onSelect?.()}
 			className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-md transition-colors hover:bg-accent ${
 				isSelected ? "bg-accent font-medium" : ""
 			}`}
@@ -178,7 +190,10 @@ const OutboxLink = () => {
 	);
 };
 
-const AccountSection = ({ account }: { account: RemitImapAccountResponse }) => {
+const AccountSection = ({
+	account,
+	onSelect,
+}: { account: RemitImapAccountResponse } & SelectableProps) => {
 	const [expanded, setExpanded] = useState(true);
 	const [labelsExpanded, setLabelsExpanded] = useState(false);
 	const params = useParams({ strict: false });
@@ -246,9 +261,10 @@ const AccountSection = ({ account }: { account: RemitImapAccountResponse }) => {
 										key={mailbox.mailboxId}
 										mailbox={mailbox}
 										isSelected={selectedMailboxId === mailbox.mailboxId}
+										onSelect={onSelect}
 									/>
 								))}
-								<OutboxLink />
+								<OutboxLink onSelect={onSelect} />
 							</div>
 							{labels.length > 0 && (
 								<>
@@ -265,6 +281,7 @@ const AccountSection = ({ account }: { account: RemitImapAccountResponse }) => {
 												key={mailbox.mailboxId}
 												mailbox={mailbox}
 												isSelected={selectedMailboxId === mailbox.mailboxId}
+												onSelect={onSelect}
 											/>
 										))}
 										{labels.length > MAX_VISIBLE_LABELS && (
@@ -299,16 +316,23 @@ const AccountSection = ({ account }: { account: RemitImapAccountResponse }) => {
 	);
 };
 
-export const MailSidebar = ({ accounts }: MailSidebarProps) => (
+export const MailSidebar = ({
+	accounts,
+	onMailboxSelect,
+}: MailSidebarProps) => (
 	<nav className="h-full overflow-y-auto py-2" aria-label="Mailboxes">
-		<DraftsList />
+		<DraftsList onSelect={onMailboxSelect} />
 		{accounts.length === 0 ? (
 			<div className="px-3 py-4 text-sm text-muted-foreground text-center">
 				No accounts configured
 			</div>
 		) : (
 			accounts.map((account) => (
-				<AccountSection key={account.accountId} account={account} />
+				<AccountSection
+					key={account.accountId}
+					account={account}
+					onSelect={onMailboxSelect}
+				/>
 			))
 		)}
 	</nav>
