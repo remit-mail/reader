@@ -81,7 +81,9 @@ export const OutboxOperations: Record<
 
 		const account = await client.account.get(input.accountId);
 		if (account.accountConfigId !== accountConfigId) {
-			throw new Error("Account not found");
+			throw new ForbiddenError(
+				`Account ${input.accountId} not in account config`,
+			);
 		}
 
 		const fromAddress = account.email;
