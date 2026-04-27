@@ -91,7 +91,7 @@ function SettingsLayout() {
 	};
 
 	return (
-		<div className="h-screen flex flex-col bg-background">
+		<div className="h-dvh flex flex-col bg-background">
 			{/* Header with hamburger */}
 			<header className="flex items-center gap-2 sm:gap-4 px-2 sm:px-4 h-12 border-b border-border bg-background shrink-0">
 				<div className="relative" ref={menuRef}>

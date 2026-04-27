@@ -12,7 +12,7 @@ export const ThreePanelLayout = ({
 	list,
 	detail,
 }: ThreePanelLayoutProps) => (
-	<div className="flex h-screen bg-background">
+	<div className="flex h-dvh bg-background">
 		<Panel className="w-[220px] shrink-0">{sidebar}</Panel>
 		<Panel className="w-[360px] shrink-0">{list}</Panel>
 		<Panel withBorder={false} className="flex-1">

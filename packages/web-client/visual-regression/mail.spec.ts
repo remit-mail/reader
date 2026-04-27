@@ -64,6 +64,48 @@ test.describe("visual: mail", () => {
 	});
 
 	/**
+	 * Phone-only baseline guarding the mobile thread action bar at
+	 * narrow widths (iPhone-13 = 390×844). Two regressions in #218:
+	 *
+	 *   1. Forward used to orphan onto a second row at <640px because
+	 *      [Back][Reply][Reply all][Forward] with text labels exceeded
+	 *      the available width. Labels now collapse to icon-only below
+	 *      the `sm:` breakpoint so all four sit on a single row.
+	 *   2. Empty space below the action bar appeared when scrolling
+	 *      because layout used `100vh` (initial viewport, URL bar
+	 *      visible) — Android Chromium collapses the URL bar on scroll
+	 *      and the page becomes "too tall". Swap to `100dvh` /
+	 *      `h-dvh` keeps the layout sized to the dynamic viewport.
+	 *
+	 * Clipped to the bottom 200px band so the action bar dominates
+	 * the assertion area. Tablet/desktop have a different layout
+	 * (text labels visible, sticky bottom in the right pane only).
+	 */
+	test("mobile thread action bar fits one row", async ({
+		page,
+		inboxId,
+		sampleMessageId,
+	}, testInfo) => {
+		test.skip(
+			testInfo.project.name !== "phone",
+			"Action-bar wrap is phone-specific; tablet/desktop have room for text labels",
+		);
+		await page.goto(`/mail/${inboxId}?selectedMessageId=${sampleMessageId}`);
+		await page.waitForLoadState("networkidle");
+		await page.waitForTimeout(500);
+		const viewport = page.viewportSize();
+		if (!viewport) throw new Error("viewport unavailable");
+		await expect(page).toHaveScreenshot("mail-thread-mobile-action-bar.png", {
+			clip: {
+				x: 0,
+				y: viewport.height - 200,
+				width: viewport.width,
+				height: 200,
+			},
+		});
+	});
+
+	/**
 	 * Regression for #212 — clicking a stale row used to surface the raw
 	 * `Message not found: <id>` string instead of a graceful empty state.
 	 *
