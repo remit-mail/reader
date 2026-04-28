@@ -8,7 +8,6 @@ import {
 } from "aws-jwt-verify";
 
 const USER_POOL_ID = process.env.COGNITO_USER_POOL_ID ?? "";
-const CLIENT_ID = process.env.COGNITO_CLIENT_ID || null;
 
 let verifier: ReturnType<typeof CognitoJwtVerifier.create> | null = null;
 
@@ -17,7 +16,6 @@ const getVerifier = () => {
 		verifier = CognitoJwtVerifier.create({
 			userPoolId: USER_POOL_ID,
 			tokenUse: "id",
-			clientId: CLIENT_ID,
 		});
 	}
 	return verifier;
