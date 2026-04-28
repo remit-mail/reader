@@ -28,5 +28,8 @@ import "./MessageStatus.tsp";
 import "./MessageSyncStatus.tsp";
 import "./OutboxMessageStatus.tsp";
 
+// Account Enums
+import "./AccountConfigState.tsp";
+
 // API Enums
 import "./SortOrder.tsp";

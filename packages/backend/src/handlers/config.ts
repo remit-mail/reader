@@ -35,6 +35,8 @@ const toAccountConfigResponse = (
 	accountConfigId: config.accountConfigId,
 	userId: config.userId,
 	name: config.name,
+	state: ((config as unknown as { state?: string }).state ??
+		"active") as AccountConfigResponse["state"],
 	createdAt: config.createdAt,
 	updatedAt: config.updatedAt,
 });
@@ -56,6 +58,7 @@ const emptyConfigResponse = (
 		accountConfig: {
 			accountConfigId,
 			userId,
+			state: "active",
 			createdAt: now,
 			updatedAt: now,
 		},
