@@ -24,7 +24,6 @@ const sqs = new SQSClient({
 	...(isLocal && { protocol: AwsQueryProtocol }),
 });
 
-const BUCKET_NAME = env.S3_BUCKET_NAME;
 const BATCH_SIZE = 1_000;
 const MIN_REMAINING_MS = 30_000;
 
@@ -33,6 +32,7 @@ export const handleDeleteAccountObjects = async (
 	log: Logger,
 	getRemainingTimeMs?: () => number,
 ): Promise<void> => {
+	const BUCKET_NAME = env.S3_BUCKET_NAME;
 	const { accountConfigId, continuationToken } = event;
 	const prefix = `accounts/${accountConfigId}/`;
 
