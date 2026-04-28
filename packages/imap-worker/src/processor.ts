@@ -1,6 +1,7 @@
 import type { Logger } from "@remit/logger-lambda";
-import type { ImapEvent } from "./events.js";
+import type { WorkerEvent } from "./events.js";
 import { handleAppendSentMessage } from "./handlers/append-sent-message.js";
+import { handleDeleteAccountObjects } from "./handlers/delete-account-objects.js";
 import { handleEmptyTrash } from "./handlers/empty-trash.js";
 import { processMailboxManagement } from "./handlers/mailbox-management.js";
 import { handleMessageCopy } from "./handlers/message-copy.js";
@@ -12,7 +13,7 @@ import { syncMessageBody } from "./handlers/sync-message-body.js";
 import { syncMessages } from "./handlers/sync-messages.js";
 
 export const processEvent = async (
-	event: ImapEvent,
+	event: WorkerEvent,
 	log: Logger,
 ): Promise<void> => {
 	switch (event.type) {
@@ -38,7 +39,9 @@ export const processEvent = async (
 			return handleEmptyTrash(event, log);
 		case "APPEND_SENT_MESSAGE":
 			return handleAppendSentMessage(event, log);
+		case "DELETE_ACCOUNT_OBJECTS":
+			return handleDeleteAccountObjects(event, log);
 		default:
-			throw new Error(`Unknown event type: ${(event as ImapEvent).type}`);
+			throw new Error(`Unknown event type: ${(event as WorkerEvent).type}`);
 	}
 };

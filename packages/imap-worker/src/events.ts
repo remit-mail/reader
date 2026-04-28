@@ -113,6 +113,15 @@ export interface AppendSentMessageEvent extends BaseEvent {
 	outboxMessageId: string;
 }
 
+export interface DeleteAccountObjectsEvent {
+	type: "DELETE_ACCOUNT_OBJECTS";
+	accountConfigId: string;
+	continuationToken?: string;
+}
+
+/** Union of all event types the worker can process (including non-IMAP ones). */
+export type WorkerEvent = ImapEvent | DeleteAccountObjectsEvent;
+
 export type MessageManagementEvent =
 	| MessageDeleteEvent
 	| MessageMoveEvent

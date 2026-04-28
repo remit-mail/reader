@@ -5,7 +5,7 @@ import type {
 	SQSEvent,
 	SQSHandler,
 } from "aws-lambda";
-import type { ImapEvent } from "./events.js";
+import type { WorkerEvent } from "./events.js";
 import { processEvent } from "./processor.js";
 
 export const handler: SQSHandler = async (
@@ -17,9 +17,12 @@ export const handler: SQSHandler = async (
 
 	for (const record of event.Records) {
 		try {
-			const imapEvent: ImapEvent = JSON.parse(record.body);
+			const imapEvent: WorkerEvent = JSON.parse(record.body);
 			log.info(
-				{ eventType: imapEvent.type, eventId: imapEvent.eventId },
+				{
+					eventType: imapEvent.type,
+					eventId: "eventId" in imapEvent ? imapEvent.eventId : undefined,
+				},
 				"Processing event",
 			);
 
