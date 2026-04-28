@@ -44,7 +44,6 @@ const makeThreadMessage = (messageId: string) => ({
 	messageIdHeader: `<${messageId}@test>`,
 	inReplyTo: null,
 	referenceOrder: 0,
-	fromEmail: "sender@example.com",
 	fromName: "Sender",
 	subject: "Test subject",
 	internalDate: Date.now(),
@@ -145,7 +144,6 @@ describe("search-index-worker handler", () => {
 					isRead: false,
 					hasAttachment: false,
 					hasStars: false,
-					fromEmail: "test@example.com",
 				},
 			},
 		]);
@@ -225,7 +223,6 @@ describe("search-index-worker handler", () => {
 					isRead: false,
 					hasAttachment: false,
 					hasStars: false,
-					fromEmail: "test@example.com",
 				},
 			},
 		]);
