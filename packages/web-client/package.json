@@ -71,6 +71,8 @@
   "dependencies": {
     "@formkit/auto-animate": "^0.9.0",
     "@tanstack/react-virtual": "^3.13.18",
-    "react-resizable-panels": "^2.1.7"
+    "prop-types": "^15.8.1",
+    "react-resizable-panels": "^2.1.7",
+    "react-swipeable-list": "^1.10.0"
   }
 }
