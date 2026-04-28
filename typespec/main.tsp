@@ -32,6 +32,31 @@ namespace RemitImap;
 @server("https://api.remit.example.com", "Remit API Server")
 namespace RemitApi {
   // ============================================
+  // User Self-Service Operations
+  // ============================================
+
+  @route("/me")
+  namespace MeOperations {
+    @doc("Request full erasure of the current user's account and all associated data")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @delete
+    op deleteMe(): DeleteAccountConfigResponse;
+  }
+
+  // ============================================
+  // Admin Operations
+  // ============================================
+
+  @route("/admin/accountConfigs/{accountConfigId}")
+  namespace AdminAccountConfigOperations {
+    @doc("Finalize deletion of an account config after cascading cleanup is complete")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    @route("/finalize-delete")
+    op adminFinalizeDelete(@path accountConfigId: UUID): void;
+  }
+
+  // ============================================
   // Configuration Operations
   // ============================================
 
