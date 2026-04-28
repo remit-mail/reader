@@ -146,7 +146,6 @@ const processOneUpsert = async (
 			isRead: threadMessage.isRead,
 			hasAttachment: threadMessage.hasAttachment,
 			hasStars: threadMessage.hasStars,
-			fromEmail: threadMessage.fromEmail ?? "",
 		},
 	});
 
