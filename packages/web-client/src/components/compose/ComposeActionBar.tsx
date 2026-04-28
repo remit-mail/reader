@@ -45,7 +45,7 @@ export const ComposeActionBar = ({
 				aria-label={
 					!canSend && disabledReason ? `Send (${disabledReason})` : undefined
 				}
-				className="inline-flex items-center gap-2 px-4 py-1.5 max-sm:min-h-11 text-sm font-medium rounded-full bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+				className="inline-flex items-center gap-2 px-4 py-1.5 min-h-11 text-sm font-medium rounded-full bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
 			>
 				{isSending ? (
 					<Loader2 className="size-4 animate-spin" />
@@ -60,7 +60,7 @@ export const ComposeActionBar = ({
 			type="button"
 			onClick={onDiscard}
 			disabled={isSending}
-			className="p-2 max-sm:min-h-11 max-sm:min-w-11 inline-flex items-center justify-center text-muted-foreground hover:text-destructive transition-colors rounded"
+			className="p-2 min-h-11 min-w-11 inline-flex items-center justify-center text-muted-foreground hover:text-destructive transition-colors rounded"
 			aria-label="Discard"
 		>
 			<Trash2 className="size-4" />
