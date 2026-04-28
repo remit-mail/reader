@@ -85,6 +85,7 @@ const MessageListItemComponent = ({
 				...prev,
 				selectedMessageId: thread.messageId,
 			})}
+			data-message-row
 			onMouseEnter={prefetchMessage}
 			onFocus={prefetchMessage}
 			{...(!isDesktop && longPressHandlers.handlers)}
