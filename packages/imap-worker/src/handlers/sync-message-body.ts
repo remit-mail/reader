@@ -1,3 +1,5 @@
+import { SQSClient } from "@aws-sdk/client-sqs";
+import { AwsQueryProtocol } from "@aws-sdk/core/protocols";
 import {
 	AccountService,
 	getClient,
@@ -7,6 +9,10 @@ import {
 } from "@remit/remit-electrodb-service";
 import type { Logger } from "@remit/remit-logger-lambda";
 import { BodySyncService } from "@remit/mailbox-service";
+import {
+	enqueueSearchIndexEvents,
+	type IndexEvent,
+} from "@remit/search-index-worker";
 import {
 	createKmsDataKeyProvider,
 	createSecretsService,
@@ -39,6 +45,15 @@ const threadMessageService = new ThreadMessageService({
 	client,
 	table: env.DYNAMODB_TABLE_NAME,
 });
+
+const searchIndexQueueUrl = process.env.SQS_QUEUE_URL_SEARCH_INDEX;
+const isLocalSqs = searchIndexQueueUrl?.startsWith("http://localhost");
+const searchIndexSqs = searchIndexQueueUrl
+	? new SQSClient({
+			endpoint: isLocalSqs ? new URL(searchIndexQueueUrl).origin : undefined,
+			...(isLocalSqs && { protocol: AwsQueryProtocol }),
+		})
+	: undefined;
 
 export const syncMessageBody = async (
 	event: SyncMessageBodyEvent,
@@ -89,6 +104,31 @@ export const syncMessageBody = async (
 			scope.getConnection,
 		)
 		.finally(() => scope.disconnect());
+
+	// Enqueue search index upsert events for successfully synced messages (best-effort).
+	if (
+		result.syncedMessageIds.length > 0 &&
+		searchIndexSqs &&
+		searchIndexQueueUrl
+	) {
+		const events: IndexEvent[] = result.syncedMessageIds.map((messageId) => ({
+			type: "upsert" as const,
+			messageId,
+			accountId,
+			accountConfigId: account.accountConfigId,
+			mailboxIds: [mailboxId],
+		}));
+		await enqueueSearchIndexEvents(
+			searchIndexSqs,
+			searchIndexQueueUrl,
+			events,
+		).catch((error: unknown) => {
+			log.warn(
+				{ error: (error as Error).message },
+				"Failed to enqueue search index events (best-effort)",
+			);
+		});
+	}
 
 	// Re-enqueue failed messages for retry with jittered delay to avoid thundering herd
 	if (result.failedMessageIds.length > 0) {

@@ -3,12 +3,25 @@
 	"version": "1.0.0",
 	"type": "module",
 	"main": "dist/index.js",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		}
+	},
 	"scripts": {
 		"test:typecheck": "tsc --noEmit",
 		"test:run": "node --env-file=../../.test.env --test 'src/**/*.test.ts'",
 		"test": "npm run test:typecheck && npm run test:run"
 	},
 	"devDependencies": {
+		"@aws-sdk/client-dynamodb": "*",
+		"@aws-sdk/client-sqs": "*",
+		"@aws-sdk/lib-dynamodb": "*",
+		"@remit/remit-electrodb-service": "*",
+		"@remit/remit-logger-lambda": "*",
+		"@remit/search-service": "*",
+		"@remit/storage-service": "*",
 		"@types/aws-lambda": "*"
 	}
 }

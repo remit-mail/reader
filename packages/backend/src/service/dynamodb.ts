@@ -13,7 +13,6 @@ import {
 	ThreadMessageService,
 } from "@remit/remit-electrodb-service";
 import {
-	type BodySyncSearchIndexer,
 	BodySyncService,
 	createConnection,
 	FlagQueueService,
@@ -21,7 +20,6 @@ import {
 	MailboxQueueService,
 	MessageMoveService,
 	OutboxQueueService,
-	type SearchIndexInput,
 } from "@remit/mailbox-service";
 import {
 	BedrockEmbeddingService,
@@ -74,67 +72,6 @@ const buildSearchService = (): SearchService => {
 		: createDeterministicEmbeddingService();
 	return createSearchService({ store, embedder });
 };
-
-const buildBodySyncIndexer = (
-	searchService: SearchService,
-	threadMessageService: ThreadMessageService,
-): BodySyncSearchIndexer => ({
-	indexMessage: async (input: SearchIndexInput): Promise<void> => {
-		const tm = await threadMessageService.getByMessageId(input.messageId);
-		const parsed = input.parsed;
-		const fromAddr = parsed.from?.value?.[0];
-		const from = {
-			name: fromAddr?.name ?? null,
-			email: fromAddr?.address ?? "",
-		};
-		const toAddrs = (parsed.to ? toArray(parsed.to) : []).flatMap(
-			(addr) => addr.value,
-		);
-		const ccAddrs = (parsed.cc ? toArray(parsed.cc) : []).flatMap(
-			(addr) => addr.value,
-		);
-		const bccAddrs = (parsed.bcc ? toArray(parsed.bcc) : []).flatMap(
-			(addr) => addr.value,
-		);
-		const mapAddr = (a: { name?: string; address?: string }) => ({
-			name: a.name ?? null,
-			email: a.address ?? "",
-		});
-		const attachments = (parsed.attachments ?? []).map((a) => ({
-			filename: a.filename ?? null,
-			contentType: a.contentType,
-			size: a.size,
-		}));
-
-		await searchService.index({
-			envelope: {
-				from,
-				to: toAddrs.map(mapAddr),
-				cc: ccAddrs.map(mapAddr),
-				bcc: bccAddrs.map(mapAddr),
-				subject: parsed.subject ?? "",
-				attachments,
-			},
-			parsedBody: {
-				text: parsed.text ?? null,
-				html: typeof parsed.html === "string" ? parsed.html : null,
-			},
-			metadata: {
-				messageId: input.messageId,
-				threadId: tm.threadId,
-				accountConfigId: input.accountConfigId,
-				mailboxIds: [tm.mailboxId],
-				sentDate: tm.sentDate,
-				isRead: tm.isRead,
-				hasAttachment: tm.hasAttachment,
-				hasStars: tm.hasStars,
-			},
-		});
-	},
-});
-
-const toArray = <T>(value: T | T[]): T[] =>
-	Array.isArray(value) ? value : [value];
 
 const getDocumentClient = (): DynamoDBDocumentClient => {
 	if (isLocalEnv) {
@@ -238,18 +175,11 @@ export const getClient = (): RemitClient => {
 		const secretsService = createSecretsService(dataKeyProvider);
 
 		// Body sync service for on-demand IMAP body fetch.
-		// Indexing is gated by SEARCH_INDEXING_ENABLED so we can disable in
-		// environments where Bedrock / S3 Vectors are not provisioned yet.
-		const indexingEnabled = process.env.SEARCH_INDEXING_ENABLED === "true";
-		const bodySyncIndexer = indexingEnabled
-			? buildBodySyncIndexer(searchService, threadMessageService)
-			: undefined;
 		const bodySyncService = new BodySyncService(
 			messageService,
 			storageService,
 			threadMessageService,
 			logger,
-			bodySyncIndexer,
 		);
 
 		// Helper to create connection scope from accountId

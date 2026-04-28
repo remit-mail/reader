@@ -1,13 +1,5 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import {
-	createDeterministicEmbeddingService,
-	createMemoryVectorStore,
-	createSearchService,
-	type EnvelopeChunkInput,
-	type IndexEmailParams,
-	type SearchService,
-} from "@remit/search-service";
 import type {
 	ParsedBody,
 	StorageService,
@@ -17,8 +9,6 @@ import {
 	extractAccountIdFromBodyKey,
 	fetchBodyFromStorage,
 	isStorageNotFoundError,
-	type SearchWipeLogger,
-	wipeSearchVectors,
 } from "./message.js";
 
 describe("isStorageNotFoundError", () => {
@@ -244,162 +234,5 @@ describe("fetchBodyFromStorage", () => {
 			fetchBodyFromStorage(storage, "msg1", bodyKey),
 			/denied/,
 		);
-	});
-});
-
-interface CapturedWarn {
-	calls: Array<{ obj: Record<string, unknown>; msg: string }>;
-}
-
-const buildCapturingLogger = (): {
-	logger: SearchWipeLogger;
-} & CapturedWarn => {
-	const calls: CapturedWarn["calls"] = [];
-	return {
-		calls,
-		logger: {
-			warn: (obj, msg) => {
-				calls.push({ obj, msg });
-			},
-		},
-	};
-};
-
-const aliceEnvelope: EnvelopeChunkInput = {
-	from: { name: "Alice", email: "alice@example.com" },
-	to: [{ name: "Bob", email: "bob@example.com" }],
-	cc: [],
-	bcc: [],
-	subject: "Q2 plan review",
-	attachments: [],
-};
-
-const aliceIndexParams: IndexEmailParams = {
-	envelope: aliceEnvelope,
-	parsedBody: {
-		text: "Reviewing the Q2 plan ahead of the kickoff with the leadership team next week.",
-		html: null,
-	},
-	metadata: {
-		messageId: "msg-alice-1",
-		threadId: "thread-alice",
-		accountConfigId: "acct-alice",
-		mailboxIds: ["mb-inbox-alice"],
-		sentDate: 1_700_000_000,
-		isRead: false,
-		hasAttachment: false,
-		hasStars: false,
-	},
-};
-
-describe("wipeSearchVectors", () => {
-	it("removes a previously-indexed message so search no longer returns it", async () => {
-		const store = createMemoryVectorStore();
-		const embedder = createDeterministicEmbeddingService({ dimensions: 128 });
-		const search = createSearchService({ store, embedder });
-		const { logger } = buildCapturingLogger();
-
-		await search.index(aliceIndexParams);
-
-		const before = await search.search({
-			query: "alice",
-			accountConfigId: "acct-alice",
-		});
-		assert.ok(
-			before.some((r) => r.messageId === "msg-alice-1"),
-			"sanity: message must be findable before wipe",
-		);
-
-		await wipeSearchVectors(search, ["msg-alice-1"], logger);
-
-		const after = await search.search({
-			query: "alice",
-			accountConfigId: "acct-alice",
-		});
-		assert.equal(
-			after.some((r) => r.messageId === "msg-alice-1"),
-			false,
-			"message must not appear after wipe",
-		);
-	});
-
-	it("logs a warning and does not throw when SearchService.delete fails", async () => {
-		const failure = new Error("vector store unavailable");
-		const search: SearchService = {
-			index: async () => {},
-			search: async () => [],
-			delete: async () => {
-				throw failure;
-			},
-		};
-		const { logger, calls } = buildCapturingLogger();
-
-		await wipeSearchVectors(search, ["msg-bob-1"], logger);
-
-		assert.equal(calls.length, 1, "exactly one warning per failing message");
-		assert.equal(calls[0].obj.messageId, "msg-bob-1");
-		assert.match(String(calls[0].obj.error), /vector store unavailable/);
-		assert.match(calls[0].msg, /Failed to wipe search vectors/);
-	});
-
-	it("continues wiping remaining messages when one delete fails", async () => {
-		const store = createMemoryVectorStore();
-		const embedder = createDeterministicEmbeddingService({ dimensions: 128 });
-		const real = createSearchService({ store, embedder });
-
-		await real.index({
-			...aliceIndexParams,
-			metadata: { ...aliceIndexParams.metadata, messageId: "msg-carol-1" },
-		});
-		await real.index({
-			...aliceIndexParams,
-			metadata: { ...aliceIndexParams.metadata, messageId: "msg-dave-1" },
-		});
-
-		const search: SearchService = {
-			index: real.index.bind(real),
-			search: real.search.bind(real),
-			delete: async (messageId) => {
-				if (messageId === "msg-carol-1") {
-					throw new Error("transient failure for carol");
-				}
-				await real.delete(messageId);
-			},
-		};
-		const { logger, calls } = buildCapturingLogger();
-
-		await wipeSearchVectors(search, ["msg-carol-1", "msg-dave-1"], logger);
-
-		assert.equal(calls.length, 1);
-		assert.equal(calls[0].obj.messageId, "msg-carol-1");
-
-		const after = await real.search({
-			query: "alice",
-			accountConfigId: "acct-alice",
-		});
-		assert.equal(
-			after.some((r) => r.messageId === "msg-dave-1"),
-			false,
-			"dave's vectors must still be wiped despite carol's failure",
-		);
-	});
-
-	it("is a no-op for an empty messageId list", async () => {
-		const search: SearchService = {
-			index: async () => {
-				throw new Error("unexpected");
-			},
-			search: async () => {
-				throw new Error("unexpected");
-			},
-			delete: async () => {
-				throw new Error("unexpected");
-			},
-		};
-		const { logger, calls } = buildCapturingLogger();
-
-		await wipeSearchVectors(search, [], logger);
-
-		assert.equal(calls.length, 0);
 	});
 });

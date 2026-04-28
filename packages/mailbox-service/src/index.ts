@@ -12,11 +12,9 @@ export {
 } from "./attribute-mapper.js";
 export {
 	type BodySyncLogger,
-	type BodySyncSearchIndexer,
 	BodySyncService,
 	type ConnectionGetter,
 	type FetchBodyResult,
-	type SearchIndexInput,
 	type SyncBodiesResult,
 	toParsedBody,
 } from "./body-sync.js";

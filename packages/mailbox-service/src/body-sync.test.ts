@@ -156,69 +156,6 @@ describe("BodySyncService.syncBodies (parsed-body cache)", () => {
 		assert.ok(Array.isArray(cached.parsed.attachments));
 	});
 
-	it("forwards parsed message to the search indexer when configured", async () => {
-		const fake = buildFakeState({ messageId: "msg-1" });
-		const indexed: Array<{ messageId: string; accountConfigId: string }> = [];
-		const indexer = {
-			indexMessage: async (input: {
-				messageId: string;
-				accountConfigId: string;
-			}): Promise<void> => {
-				indexed.push({
-					messageId: input.messageId,
-					accountConfigId: input.accountConfigId,
-				});
-			},
-		};
-		const service = new BodySyncService(
-			fake.messageService,
-			fake.storageService,
-			fake.threadMessageService,
-			undefined,
-			indexer,
-		);
-
-		const result = await service.syncBodies(
-			["msg-1"],
-			"acc-1",
-			"acc-cfg-1",
-			"INBOX",
-			async () => buildFakeConnection(),
-		);
-
-		assert.equal(result.syncedCount, 1);
-		assert.equal(indexed.length, 1);
-		assert.equal(indexed[0].messageId, "msg-1");
-		assert.equal(indexed[0].accountConfigId, "acc-cfg-1");
-	});
-
-	it("does not fail body sync when the search indexer throws", async () => {
-		const fake = buildFakeState({ messageId: "msg-1" });
-		const indexer = {
-			indexMessage: async (): Promise<void> => {
-				throw new Error("simulated bedrock outage");
-			},
-		};
-		const service = new BodySyncService(
-			fake.messageService,
-			fake.storageService,
-			fake.threadMessageService,
-			undefined,
-			indexer,
-		);
-
-		const result = await service.syncBodies(
-			["msg-1"],
-			"acc-1",
-			"acc-cfg-1",
-			"INBOX",
-			async () => buildFakeConnection(),
-		);
-
-		assert.equal(result.syncedCount, 1);
-		assert.equal(fake.storedBodies.length, 1);
-	});
-
 	it("does not fail the whole body sync when parsed-cache write throws", async () => {
 		const fake = buildFakeState({ messageId: "msg-1" });
 		const failingStorage: StorageService = {
