@@ -18,6 +18,7 @@
 		"@aws-sdk/core": "*",
 		"@remit/logger-lambda": "*",
 		"@remit/mailbox-service": "*",
+		"@remit/search-index-worker": "*",
 		"@remit/secrets-service": "*",
 		"@remit/storage-service": "*",
 		"@remit/domain-enums": "*",

@@ -1,4 +1,5 @@
 import { inspect } from "node:util";
+import { SQSClient } from "@aws-sdk/client-sqs";
 import { StarColor } from "@remit/domain-enums";
 import type {
 	BodyPartResponse,
@@ -6,7 +7,10 @@ import type {
 	EnvelopeResponse,
 	MessageSummaryResponse,
 } from "@remit/api-openapi-types";
-import type { SearchService } from "@remit/search-service";
+import {
+	enqueueSearchIndexEvents,
+	type IndexEvent,
+} from "@remit/search-index-worker";
 import {
 	isStorageNotFoundError as isStorageNotFoundErrorFromService,
 	parseStorageUri,
@@ -24,15 +28,16 @@ import type {
 	OperationHandler,
 } from "../types.js";
 
-/**
- * Minimal logger surface required by `wipeSearchVectors`. Pino's `Logger`
- * satisfies this; tests pass a tiny stub.
- */
-export interface SearchWipeLogger {
-	warn(obj: Record<string, unknown>, msg: string): void;
-}
-
 type StarColorValue = (typeof StarColor)[keyof typeof StarColor];
+
+let _searchSqs: SQSClient | undefined;
+const getSearchIndexSqs = (): SQSClient => {
+	if (!_searchSqs) _searchSqs = new SQSClient({});
+	return _searchSqs;
+};
+
+const getSearchIndexQueueUrl = (): string | undefined =>
+	process.env.SQS_QUEUE_URL_SEARCH_INDEX;
 
 export const isStorageNotFoundError = (error: unknown): boolean =>
 	isStorageNotFoundErrorFromService(error);
@@ -121,32 +126,6 @@ export const fetchBodyFromStorage = async (
 	}
 
 	return { bodyText, bodyHtml };
-};
-
-/**
- * Wipe search-index vectors for a set of messages that have just been deleted.
- *
- * Best-effort: failures are logged as warnings and never propagated to the
- * caller. The user-facing delete already succeeded against DynamoDB and IMAP;
- * we don't fail the request because the vector index couldn't be cleaned.
- *
- * Issue #214 will replace this inline call with an SQS enqueue once the
- * async indexing pipeline lands. `SearchService.delete` is idempotent and
- * keyed by messageId, so the migration is safe.
- */
-export const wipeSearchVectors = async (
-	search: SearchService,
-	messageIds: readonly string[],
-	log: SearchWipeLogger,
-): Promise<void> => {
-	for (const messageId of messageIds) {
-		await search.delete(messageId).catch((error: unknown) => {
-			log.warn(
-				{ messageId, error: inspect(error) },
-				"Failed to wipe search vectors for deleted message (best-effort)",
-			);
-		});
-	}
 };
 
 export const MessageOperations: Record<
@@ -269,6 +248,30 @@ export const MessageOperations: Record<
 
 			bodyText = result.text ?? undefined;
 			bodyHtml = result.html ?? undefined;
+
+			// Body fetched from IMAP and stored — enqueue search index upsert (best-effort).
+			const searchQueueUrl = getSearchIndexQueueUrl();
+			if (searchQueueUrl) {
+				const upsertEvents: IndexEvent[] = [
+					{
+						type: "upsert" as const,
+						messageId,
+						accountId: mailbox.accountId,
+						accountConfigId,
+						mailboxIds: [message.mailboxId],
+					},
+				];
+				await enqueueSearchIndexEvents(
+					getSearchIndexSqs(),
+					searchQueueUrl,
+					upsertEvents,
+				).catch((err: unknown) => {
+					logger.warn(
+						{ error: inspect(err), messageId },
+						"Failed to enqueue search index upsert (best-effort)",
+					);
+				});
+			}
 		}
 
 		const references = description.messageReference.map((ref) => ({
@@ -377,12 +380,25 @@ export const MessageBulkOperations: Record<
 			permanent,
 		});
 
-		// Bridge for #215: wipe vectors from the search index AFTER the DDB
-		// delete succeeds. Doing it the other way round would risk wiping
-		// vectors for a message whose delete then failed mid-flight.
-		// Best-effort — see `wipeSearchVectors`. #214 will replace this
-		// inline call with an SQS enqueue.
-		await wipeSearchVectors(client.search, messageIds, logger);
+		// Enqueue delete events for the async search index worker (best-effort).
+		// #214: replaced inline wipeSearchVectors with SQS enqueue.
+		const searchQueueUrl = getSearchIndexQueueUrl();
+		if (searchQueueUrl) {
+			const events: IndexEvent[] = messageIds.map((id) => ({
+				type: "delete" as const,
+				messageId: id,
+			}));
+			await enqueueSearchIndexEvents(
+				getSearchIndexSqs(),
+				searchQueueUrl,
+				events,
+			).catch((error: unknown) => {
+				logger.warn(
+					{ error: inspect(error) },
+					"Failed to enqueue search index delete events (best-effort)",
+				);
+			});
+		}
 
 		return {
 			successCount: messageIds.length,
