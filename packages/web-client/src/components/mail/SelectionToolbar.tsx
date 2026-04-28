@@ -22,7 +22,7 @@ export const SelectionToolbar = ({
 				<button
 					type="button"
 					onClick={onClearSelection}
-					className="p-1 rounded hover:bg-accent transition-colors"
+					className="max-sm:min-h-11 max-sm:min-w-11 inline-flex items-center justify-center rounded hover:bg-accent transition-colors"
 					aria-label="Clear selection"
 				>
 					<X className="size-4 text-muted-foreground" />
@@ -32,20 +32,22 @@ export const SelectionToolbar = ({
 					selected
 				</span>
 			</div>
-			<div className="flex items-center gap-2">
+			<div className="flex items-center gap-1">
 				<button
 					type="button"
 					onClick={onDelete}
 					disabled={isDeleting}
 					className={cn(
-						"flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors",
+						"max-sm:min-h-11 max-sm:min-w-11 inline-flex items-center justify-center gap-1.5 px-3 rounded text-sm font-medium transition-colors",
 						"bg-destructive text-destructive-foreground hover:bg-destructive/90",
 						"disabled:opacity-50 disabled:cursor-not-allowed",
 					)}
 					aria-label="Delete selected messages"
 				>
 					<Trash2 className="size-4" />
-					<span>{isDeleting ? "Deleting..." : "Delete"}</span>
+					<span className="hidden sm:inline">
+						{isDeleting ? "Deleting..." : "Delete"}
+					</span>
 				</button>
 			</div>
 		</div>
