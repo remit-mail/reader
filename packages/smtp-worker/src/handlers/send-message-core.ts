@@ -54,6 +54,15 @@ export const sendMessage = async (
 	// Resolve SMTP config before flipping to `sending` so a blocked-config send
 	// does not transient-flicker through "Sending..." in the UI (issue #192).
 	const account = await deps.getAccount(accountId);
+
+	// Tombstone fence: drop events for deleted accounts (#228)
+	if (account.deletedAt) {
+		log.info(
+			{ accountId, deletedAt: account.deletedAt },
+			"Account deleted, dropping send event",
+		);
+		return;
+	}
 	const resolved = await resolveSmtpConfig(account, deps.secrets);
 	if (!resolved.ok) {
 		// `blocked` is distinct from `failed`: no auto-retry — the user has to

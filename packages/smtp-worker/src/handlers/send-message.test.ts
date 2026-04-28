@@ -254,4 +254,22 @@ describe("sendMessage handler", () => {
 		assert.equal(recorded.updates.length, 0);
 		assert.equal(recorded.statuses.length, 0);
 	});
+
+	it("drops event when account is deleted (tombstone fence)", async () => {
+		const { deps, recorded } = buildDeps({
+			account: buildAccount({
+				smtpHost: "smtp.example.com",
+				smtpPort: 587,
+				deletedAt: Date.now(),
+			}),
+		});
+
+		await sendMessage(event, silentLogger, deps);
+
+		assert.equal(recorded.sendCalls, 0, "must not send");
+		assert.equal(recorded.marked.length, 0, "must not mark as sent");
+		assert.equal(recorded.updates.length, 0, "must not update outbox");
+		assert.equal(recorded.statuses.length, 0, "must not change status");
+		assert.equal(recorded.appendCalls.length, 0, "must not enqueue append");
+	});
 });
