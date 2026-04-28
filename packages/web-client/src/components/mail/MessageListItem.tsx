@@ -5,6 +5,7 @@ import { Link } from "@tanstack/react-router";
 import { Check, Paperclip } from "lucide-react";
 import { type MouseEvent, memo, useCallback } from "react";
 import { Avatar } from "@/components/ui/Avatar";
+import { useLongPress } from "@/hooks/useLongPress";
 import { formatEmailDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -20,6 +21,12 @@ interface MessageListItemProps {
 	isChecked: boolean;
 	onToggleCheck: (id: string) => void;
 	messageCount?: number;
+	/** When true, the checkbox is always visible (e.g. mobile multi-select mode). */
+	isMultiSelectMode?: boolean;
+	/** Called on long press (mobile only). */
+	onLongPress?: () => void;
+	/** Whether the current viewport is desktop size. */
+	isDesktop?: boolean;
 }
 
 const truncateSnippet = (snippet: string, maxLength = 60): string => {
@@ -34,6 +41,9 @@ const MessageListItemComponent = ({
 	isChecked,
 	onToggleCheck,
 	messageCount,
+	isMultiSelectMode = false,
+	onLongPress,
+	isDesktop = true,
 }: MessageListItemProps) => {
 	const queryClient = useQueryClient();
 	const participants = thread.fromName || thread.fromEmail || "Unknown";
@@ -48,6 +58,12 @@ const MessageListItemComponent = ({
 		e.stopPropagation();
 		onToggleCheck(thread.messageId);
 	};
+
+	// Wire up long press for mobile
+	const longPressHandlers = useLongPress({
+		onLongPress: () => onLongPress?.(),
+		delayMs: 500,
+	});
 
 	// Intent-based prefetch: by the time the user clicks, the body is in
 	// React Query's cache and the detail pane renders without a spinner.
@@ -71,6 +87,7 @@ const MessageListItemComponent = ({
 			})}
 			onMouseEnter={prefetchMessage}
 			onFocus={prefetchMessage}
+			{...(!isDesktop && longPressHandlers.handlers)}
 			className={cn(
 				// Bump vertical padding on mobile to comfortably exceed the 48dp
 				// touch-target floor. Desktop keeps the tighter density.
@@ -92,18 +109,20 @@ const MessageListItemComponent = ({
 						className={cn(
 							"absolute inset-0",
 							"sm:group-hover:opacity-0 transition-opacity",
-							isChecked && "opacity-0",
+							(isChecked || isMultiSelectMode) && "opacity-0",
 						)}
 					/>
 					<button
 						type="button"
 						onClick={handleCheckboxClick}
 						className={cn(
-							"absolute inset-0 size-10 rounded-full border items-center justify-center transition-opacity max-sm:min-h-11 max-sm:min-w-11",
-							"hidden sm:flex",
+							"absolute inset-0 size-10 rounded-full border items-center justify-center transition-opacity min-h-11 min-w-11",
+							isMultiSelectMode ? "flex" : "hidden sm:flex",
 							isChecked
 								? "bg-primary border-primary text-primary-foreground opacity-100"
-								: "border-muted-foreground/40 opacity-0 group-hover:opacity-100 bg-background",
+								: isMultiSelectMode
+									? "border-muted-foreground/40 opacity-100 bg-background"
+									: "border-muted-foreground/40 opacity-0 group-hover:opacity-100 bg-background",
 						)}
 						aria-label={isChecked ? "Deselect message" : "Select message"}
 					>

@@ -79,7 +79,7 @@ const ActionBar = ({
 				<button
 					type="button"
 					onClick={onBack}
-					className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 max-sm:min-h-11 text-sm font-medium rounded-full border border-border hover:bg-accent transition-colors"
+					className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 min-h-11 text-sm font-medium rounded-full border border-border hover:bg-accent transition-colors"
 					aria-label="Back to messages"
 				>
 					<ArrowLeft className="size-4" />
@@ -91,7 +91,7 @@ const ActionBar = ({
 				onClick={onReply}
 				disabled={disabled}
 				aria-label="Reply"
-				className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 max-sm:min-h-11 text-sm font-medium rounded-full border border-border hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+				className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 min-h-11 text-sm font-medium rounded-full border border-border hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
 			>
 				<Reply className="size-4" />
 				<span className="hidden sm:inline">Reply</span>
@@ -101,7 +101,7 @@ const ActionBar = ({
 				onClick={onReplyAll}
 				disabled={disabled}
 				aria-label="Reply all"
-				className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 max-sm:min-h-11 text-sm font-medium rounded-full border border-border hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+				className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 min-h-11 text-sm font-medium rounded-full border border-border hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
 			>
 				<ReplyAll className="size-4" />
 				<span className="hidden sm:inline">Reply all</span>
@@ -111,7 +111,7 @@ const ActionBar = ({
 				onClick={onForward}
 				disabled={disabled}
 				aria-label="Forward"
-				className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 max-sm:min-h-11 text-sm font-medium rounded-full border border-border hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+				className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 min-h-11 text-sm font-medium rounded-full border border-border hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
 			>
 				<Forward className="size-4" />
 				<span className="hidden sm:inline">Forward</span>

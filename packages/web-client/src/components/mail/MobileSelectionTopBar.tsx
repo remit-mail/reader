@@ -1,31 +1,32 @@
 import { MailOpen, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-interface SelectionToolbarProps {
+interface MobileSelectionTopBarProps {
 	selectedCount: number;
+	onCancel: () => void;
 	onDelete: () => void;
-	onClearSelection: () => void;
 	onMarkAsRead?: () => void;
-	isDeleting?: boolean;
+	selectedIds: string[];
 }
 
-export const SelectionToolbar = ({
+/**
+ * Mobile-specific top bar shown during multi-select mode.
+ * All buttons have 44px minimum touch targets.
+ */
+export const MobileSelectionTopBar = ({
 	selectedCount,
+	onCancel,
 	onDelete,
-	onClearSelection,
 	onMarkAsRead,
-	isDeleting = false,
-}: SelectionToolbarProps) => {
-	if (selectedCount === 0) return null;
-
+}: MobileSelectionTopBarProps) => {
 	return (
 		<div className="sticky top-0 z-10 flex items-center justify-between px-3 py-2 bg-muted/50 border-b border-border">
 			<div className="flex items-center gap-3">
 				<button
 					type="button"
-					onClick={onClearSelection}
+					onClick={onCancel}
 					className="min-h-11 min-w-11 inline-flex items-center justify-center rounded hover:bg-accent transition-colors"
-					aria-label="Clear selection"
+					aria-label="Cancel selection"
 				>
 					<X className="size-4 text-muted-foreground" />
 				</button>
@@ -39,8 +40,7 @@ export const SelectionToolbar = ({
 					<button
 						type="button"
 						onClick={onMarkAsRead}
-						disabled={isDeleting}
-						className="min-h-11 min-w-11 inline-flex items-center justify-center rounded text-sm font-medium transition-colors hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed"
+						className="min-h-11 min-w-11 inline-flex items-center justify-center rounded text-sm font-medium transition-colors hover:bg-accent"
 						aria-label="Mark as read"
 					>
 						<MailOpen className="size-4" />
@@ -49,18 +49,13 @@ export const SelectionToolbar = ({
 				<button
 					type="button"
 					onClick={onDelete}
-					disabled={isDeleting}
 					className={cn(
-						"min-h-11 min-w-11 inline-flex items-center justify-center gap-1.5 px-3 rounded text-sm font-medium transition-colors",
-						"bg-destructive text-destructive-foreground hover:bg-destructive/90",
-						"disabled:opacity-50 disabled:cursor-not-allowed",
+						"min-h-11 min-w-11 inline-flex items-center justify-center rounded text-sm font-medium transition-colors hover:bg-accent",
+						"text-destructive",
 					)}
 					aria-label="Delete selected messages"
 				>
 					<Trash2 className="size-4" />
-					<span className="hidden sm:inline">
-						{isDeleting ? "Deleting..." : "Delete"}
-					</span>
 				</button>
 			</div>
 		</div>
