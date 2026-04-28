@@ -1,11 +1,9 @@
+import { CognitoJwtVerifier } from "aws-jwt-verify";
 import type {
 	APIGatewayAuthorizerResult,
 	APIGatewayTokenAuthorizerEvent,
 	APIGatewayTokenAuthorizerHandler,
 } from "aws-lambda";
-import {
-	CognitoJwtVerifier,
-} from "aws-jwt-verify";
 
 const USER_POOL_ID = process.env.COGNITO_USER_POOL_ID ?? "";
 
