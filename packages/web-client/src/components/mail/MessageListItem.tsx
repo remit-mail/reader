@@ -99,7 +99,8 @@ const MessageListItemComponent = ({
 						type="button"
 						onClick={handleCheckboxClick}
 						className={cn(
-							"hidden sm:flex absolute inset-0 size-10 rounded-full border items-center justify-center transition-opacity",
+							"absolute inset-0 size-10 rounded-full border items-center justify-center transition-opacity max-sm:min-h-11 max-sm:min-w-11",
+							"hidden sm:flex",
 							isChecked
 								? "bg-primary border-primary text-primary-foreground opacity-100"
 								: "border-muted-foreground/40 opacity-0 group-hover:opacity-100 bg-background",
