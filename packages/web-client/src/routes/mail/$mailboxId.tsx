@@ -20,6 +20,7 @@ import {
 } from "@/components/layout/Resizable";
 import { ConversationView } from "@/components/mail/ConversationView";
 import { MessageList } from "@/components/mail/MessageList";
+import { PullToRefresh } from "@/components/mail/PullToRefresh";
 import { EmptyState } from "@/components/ui/EmptyState";
 import {
 	dropDeletedThreads,
@@ -27,6 +28,7 @@ import {
 } from "@/hooks/useDeleteMessages";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
+import { useMailContext } from "@/routes/mail";
 
 // Search schema includes q from parent route for proper inheritance
 const mailboxSearchSchema = z.object({
@@ -46,6 +48,7 @@ function MailboxView() {
 	const { selectedMessageId, q: searchQuery = "" } = Route.useSearch();
 	const navigate = useNavigate();
 	const isDesktop = useIsDesktop();
+	const { accounts } = useMailContext();
 
 	// Use search API when there's a query, otherwise list API
 	const hasSearchQuery = searchQuery.trim().length > 0;
@@ -227,6 +230,14 @@ function MailboxView() {
 		}
 		if (showCompose) {
 			return <div className="h-full">{detailPane}</div>;
+		}
+		const accountId = accounts[0]?.accountId;
+		if (accountId) {
+			return (
+				<div className="h-full">
+					<PullToRefresh accountId={accountId}>{messageList}</PullToRefresh>
+				</div>
+			);
 		}
 		return <div className="h-full">{messageList}</div>;
 	}
