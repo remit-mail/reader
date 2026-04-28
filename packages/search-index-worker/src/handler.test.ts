@@ -65,10 +65,22 @@ const mockThreadMessageService = {
 		threadMessages.get(messageId) ?? null,
 } as Services["threadMessageService"];
 
+const accounts = new Map<string, { accountId: string; deletedAt?: number }>();
+
+const mockAccountService = {
+	get: async (accountId: string) => {
+		const account = accounts.get(accountId);
+		if (!account) throw new Error(`Account not found: ${accountId}`);
+		return account;
+	},
+} as Services["accountService"];
+
 const createTestServices = (
 	storageService: StorageService,
 	searchService: SearchService,
+	accountService?: Services["accountService"],
 ): Services => ({
+	accountService: accountService ?? mockAccountService,
 	threadMessageService: mockThreadMessageService,
 	storageService,
 	searchService,
@@ -87,6 +99,7 @@ const noopLogger = {
 
 describe("search-index-worker handler", () => {
 	test("upsert event indexes message", async () => {
+		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID });
 		const store = createMemoryVectorStore();
 		const embedder = createDeterministicEmbeddingService();
 		const searchService = createSearchService({ embedder, store });
@@ -163,6 +176,7 @@ describe("search-index-worker handler", () => {
 	});
 
 	test("upsert for deleted message (not in DDB) is silently dropped", async () => {
+		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID });
 		const store = createMemoryVectorStore();
 		const embedder = createDeterministicEmbeddingService();
 		const searchService = createSearchService({ embedder, store });
@@ -190,6 +204,7 @@ describe("search-index-worker handler", () => {
 	});
 
 	test("mixed batch (upsert + delete) processes both correctly", async () => {
+		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID });
 		const store = createMemoryVectorStore();
 		const embedder = createDeterministicEmbeddingService();
 		const searchService = createSearchService({ embedder, store });
@@ -266,6 +281,7 @@ describe("search-index-worker handler", () => {
 	});
 
 	test("partial failure returns only failed events in batchItemFailures", async () => {
+		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID });
 		const store = createMemoryVectorStore();
 		const embedder = createDeterministicEmbeddingService();
 		const searchService = createSearchService({ embedder, store });
@@ -344,5 +360,99 @@ describe("search-index-worker handler", () => {
 
 		assert.equal(result.batchItemFailures.length, 1);
 		assert.equal(result.batchItemFailures[0].itemIdentifier, "sqs-bad");
+	});
+
+	test("upsert is dropped when account is deleted (tombstone fence)", async () => {
+		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID, deletedAt: Date.now() });
+		const store = createMemoryVectorStore();
+		const embedder = createDeterministicEmbeddingService();
+		const searchService = createSearchService({ embedder, store });
+		const storageService = createMockStorageService();
+
+		threadMessages.set(MESSAGE_ID, makeThreadMessage(MESSAGE_ID));
+		await storageService.storeParsedBody({
+			accountId: ACCOUNT_ID,
+			messageId: MESSAGE_ID,
+			parsed: {
+				text: "This should not be indexed",
+				html: null,
+				attachments: [],
+			},
+		});
+
+		const services = createTestServices(storageService, searchService);
+		const event: IndexEvent = {
+			type: "upsert",
+			messageId: MESSAGE_ID,
+			accountId: ACCOUNT_ID,
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			mailboxIds: MAILBOX_IDS,
+		};
+
+		const result = await processBatch(
+			[makeRecord(event)],
+			services,
+			noopLogger,
+		);
+
+		assert.equal(
+			result.batchItemFailures.length,
+			0,
+			"should not report failure",
+		);
+		assert.equal(
+			store.size(),
+			0,
+			"should not index anything for deleted account",
+		);
+
+		threadMessages.clear();
+		accounts.clear();
+	});
+
+	test("delete event still processes when account is deleted", async () => {
+		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID, deletedAt: Date.now() });
+		const store = createMemoryVectorStore();
+		const embedder = createDeterministicEmbeddingService();
+		const searchService = createSearchService({ embedder, store });
+		const storageService = createMockStorageService();
+
+		// Pre-populate a vector to delete
+		await store.upsert([
+			{
+				chunkId: `${MESSAGE_ID}::subject`,
+				vector: new Array(64).fill(0.1),
+				metadata: {
+					messageId: MESSAGE_ID,
+					threadId: THREAD_ID,
+					accountConfigId: ACCOUNT_CONFIG_ID,
+					mailboxIds: MAILBOX_IDS,
+					chunkType: "subject",
+					sentDate: Date.now(),
+					isRead: false,
+					hasAttachment: false,
+					hasStars: false,
+				},
+			},
+		]);
+		assert.equal(store.size(), 1);
+
+		const services = createTestServices(storageService, searchService);
+		const event: IndexEvent = { type: "delete", messageId: MESSAGE_ID };
+
+		const result = await processBatch(
+			[makeRecord(event)],
+			services,
+			noopLogger,
+		);
+
+		assert.equal(result.batchItemFailures.length, 0);
+		assert.equal(
+			store.size(),
+			0,
+			"delete events should still process for deleted accounts",
+		);
+
+		accounts.clear();
 	});
 });
