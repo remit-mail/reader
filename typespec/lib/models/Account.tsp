@@ -1,7 +1,11 @@
 import "typespec-electrodb-emitter";
+import "@typespec/http";
 
 import "../enums/ConnectionState.tsp";
+import "../enums/AccountConfigState.tsp";
 import "../scalars/string.tsp";
+
+using TypeSpec.Http;
 
 namespace RemitImap;
 
@@ -54,6 +58,18 @@ model AccountConfig {
   @doc("Display name for this configuration")
   @visibility(Lifecycle.Read)
   name?: string;
+
+  @doc("Lifecycle state of this account configuration")
+  @visibility(Lifecycle.Read)
+  state: AccountConfigState = AccountConfigState.Active;
+
+  @doc("Timestamp when deletion was requested (tombstone)")
+  @visibility(Lifecycle.Read)
+  deletedAt?: int64;
+
+  @doc("Timestamp when cascading cleanup started (idempotency fence)")
+  @visibility(Lifecycle.Read)
+  cascadeStartedAt?: int64;
 
   @visibility(Lifecycle.Read)
   @createdAt
@@ -245,7 +261,15 @@ model SyncTriggerResponse {
 model AccountConfigResponse
   is PickProperties<
     AccountConfig,
-    "accountConfigId" | "userId" | "name" | "createdAt" | "updatedAt"
+
+      | "accountConfigId"
+      | "userId"
+      | "name"
+      | "state"
+      | "deletedAt"
+      | "cascadeStartedAt"
+      | "createdAt"
+      | "updatedAt"
   >;
 
 @doc("Account response (excluding sensitive fields)")
@@ -477,6 +501,14 @@ model TestConnectionResponse {
 
   @doc("SMTP error message if failed")
   smtpError?: string;
+}
+
+@doc("Response for DELETE /me (account erasure request)")
+model DeleteAccountConfigResponse {
+  @statusCode statusCode: 202;
+
+  @doc("Human-readable confirmation message")
+  message: string;
 }
 
 @doc("Delete account response (tombstone)")
