@@ -1,13 +1,16 @@
+import { useAutoAnimate } from "@formkit/auto-animate/react";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import { useNavigate } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Search } from "lucide-react";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
+import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { useSelection } from "@/hooks/useSelection";
 import { MessageListItem } from "./MessageListItem";
+import { MobileSelectionTopBar } from "./MobileSelectionTopBar";
 import { SelectionToolbar } from "./SelectionToolbar";
 
 interface MessageListProps {
@@ -20,6 +23,7 @@ interface MessageListProps {
 	onRetry?: () => void;
 	searchQuery?: string;
 	onDeleteMessages?: (messageIds: string[]) => void;
+	onMarkAsRead?: (messageIds: string[]) => void;
 	isDeleting?: boolean;
 	onLoadMore?: () => void;
 	hasMore?: boolean;
@@ -69,13 +73,17 @@ export const MessageList = ({
 	onRetry,
 	searchQuery,
 	onDeleteMessages,
+	onMarkAsRead,
 	isDeleting = false,
 	onLoadMore,
 	hasMore = false,
 	isLoadingMore = false,
 }: MessageListProps) => {
 	const parentRef = useRef<HTMLDivElement>(null);
+	const [listRef] = useAutoAnimate<HTMLDivElement>({ duration: 150 });
 	const navigate = useNavigate();
+	const isDesktop = useIsDesktop();
+	const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
 
 	// Selection state
 	const {
@@ -84,8 +92,16 @@ export const MessageList = ({
 		hasSelection,
 		isSelected: isChecked,
 		toggle: toggleCheck,
+		select,
 		clearSelection,
 	} = useSelection();
+
+	// Auto-exit multi-select when selection becomes empty
+	useEffect(() => {
+		if (isMultiSelectMode && selectedCount === 0) {
+			setIsMultiSelectMode(false);
+		}
+	}, [isMultiSelectMode, selectedCount]);
 
 	const virtualizer = useVirtualizer({
 		count: threads.length,
@@ -102,6 +118,15 @@ export const MessageList = ({
 	// Navigation handlers
 	const selectByIndex = useCallback(
 		(index: number) => {
+			// In multi-select mode, toggle selection instead of navigating
+			if (isMultiSelectMode) {
+				if (index >= 0 && index < threads.length) {
+					const thread = threads[index];
+					toggleCheck(thread.messageId);
+				}
+				return;
+			}
+
 			if (index >= 0 && index < threads.length) {
 				const thread = threads[index];
 				navigate({
@@ -111,7 +136,7 @@ export const MessageList = ({
 				});
 			}
 		},
-		[threads, mailboxId, navigate],
+		[threads, mailboxId, navigate, isMultiSelectMode, toggleCheck],
 	);
 
 	const selectNext = useCallback(() => {
@@ -140,6 +165,30 @@ export const MessageList = ({
 			onDeleteMessages(Array.from(selectedIds));
 		}
 	}, [onDeleteMessages, selectedCount, selectedIds]);
+
+	// Handle mark as read
+	const handleMarkAsRead = useCallback(() => {
+		if (onMarkAsRead && selectedCount > 0) {
+			onMarkAsRead(Array.from(selectedIds));
+		}
+	}, [onMarkAsRead, selectedCount, selectedIds]);
+
+	// Mobile: Enter multi-select mode on long press
+	const handleLongPress = useCallback(
+		(messageId: string) => {
+			if (!isDesktop) {
+				setIsMultiSelectMode(true);
+				select(messageId);
+			}
+		},
+		[isDesktop, select],
+	);
+
+	// Cancel multi-select mode
+	const handleCancelMultiSelect = useCallback(() => {
+		setIsMultiSelectMode(false);
+		clearSelection();
+	}, [clearSelection]);
 
 	// Scroll selected item into view when it changes
 	useEffect(() => {
@@ -234,12 +283,22 @@ export const MessageList = ({
 
 	return (
 		<div className="flex flex-col h-full">
-			{hasSelection && (
+			{hasSelection && isDesktop && (
 				<SelectionToolbar
 					selectedCount={selectedCount}
 					onDelete={handleDelete}
 					onClearSelection={clearSelection}
+					onMarkAsRead={onMarkAsRead ? handleMarkAsRead : undefined}
 					isDeleting={isDeleting}
+				/>
+			)}
+			{isMultiSelectMode && !isDesktop && (
+				<MobileSelectionTopBar
+					selectedCount={selectedCount}
+					onCancel={handleCancelMultiSelect}
+					onDelete={handleDelete}
+					onMarkAsRead={onMarkAsRead ? handleMarkAsRead : undefined}
+					selectedIds={Array.from(selectedIds)}
 				/>
 			)}
 			{isSearching && searchQuery && (
@@ -247,6 +306,7 @@ export const MessageList = ({
 			)}
 			<div ref={parentRef} className="flex-1 overflow-y-auto" tabIndex={0}>
 				<div
+					ref={listRef}
 					className="relative w-full"
 					style={{ height: `${virtualizer.getTotalSize()}px` }}
 				>
@@ -266,6 +326,9 @@ export const MessageList = ({
 									isSelected={selectedMessageId === thread.messageId}
 									isChecked={isChecked(thread.messageId)}
 									onToggleCheck={toggleCheck}
+									isMultiSelectMode={isMultiSelectMode}
+									onLongPress={() => handleLongPress(thread.messageId)}
+									isDesktop={isDesktop}
 								/>
 							</div>
 						);

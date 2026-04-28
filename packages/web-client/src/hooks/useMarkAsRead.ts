@@ -262,3 +262,57 @@ export const useMarkAsRead = ({
 		pendingRef.current.clear();
 	}, [threadId]);
 };
+
+/**
+ * Standalone hook that exposes a `toggleReadFor` function to mark a set of
+ * messages as read or unread. Designed for multi-select mark-read (PR 1)
+ * and swipe-to-read (PR 2) use cases that operate outside a thread view.
+ */
+export const useToggleReadFor = (options: {
+	mailboxId: string;
+	accountId?: string;
+}) => {
+	const { mailboxId, accountId } = options;
+	const queryClient = useQueryClient();
+	const { pushError } = useErrorBanners();
+
+	const { mutate, isPending } = useMutation({
+		...messageBulkOperationsUpdateFlagsMutation(),
+		onError: (error, variables) => {
+			const isRead = variables.body.isRead ?? true;
+			pushError({
+				title: isRead ? "Couldn't mark as read" : "Couldn't mark as unread",
+				detail: formatErrorDetail(error),
+			});
+		},
+		onSettled: () => {
+			queryClient.invalidateQueries({
+				queryKey: threadOperationsListThreadsQueryKey({
+					path: { mailboxId },
+				}),
+			});
+			queryClient.invalidateQueries({
+				queryKey: threadOperationsSearchThreadsQueryKey({
+					path: { mailboxId },
+				}),
+			});
+			if (accountId) {
+				queryClient.invalidateQueries({
+					queryKey: mailboxOperationsListMailboxesQueryKey({
+						path: { accountId },
+					}),
+				});
+			}
+		},
+	});
+
+	const toggleReadFor = useCallback(
+		(messageIds: string[], isRead: boolean) => {
+			if (messageIds.length === 0) return;
+			mutate({ body: { messageIds, isRead } });
+		},
+		[mutate],
+	);
+
+	return { toggleReadFor, isPending };
+};
