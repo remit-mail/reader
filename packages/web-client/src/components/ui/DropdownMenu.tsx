@@ -47,7 +47,7 @@ export const DropdownMenu = ({
 					setIsOpen(!isOpen);
 				}}
 				className={cn(
-					"p-1.5 rounded-md transition-colors",
+					"p-1.5 max-sm:min-h-11 max-sm:min-w-11 inline-flex items-center justify-center rounded-md transition-colors",
 					"hover:bg-accent text-muted-foreground hover:text-foreground",
 				)}
 			>
