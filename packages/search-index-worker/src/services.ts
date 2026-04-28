@@ -1,6 +1,9 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
-import { ThreadMessageService } from "@remit/remit-electrodb-service";
+import {
+	AccountService,
+	ThreadMessageService,
+} from "@remit/remit-electrodb-service";
 import {
 	BedrockEmbeddingService,
 	createS3VectorsBackend,
@@ -13,6 +16,7 @@ import {
 } from "@remit/storage-service";
 
 export interface Services {
+	accountService: AccountService;
 	threadMessageService: ThreadMessageService;
 	storageService: StorageService;
 	searchService: SearchService;
@@ -30,6 +34,10 @@ export const getServices = (): Services => {
 	if (!vectorBucketArn) throw new Error("S3_VECTORS_BUCKET_ARN is required");
 
 	const ddbClient = DynamoDBDocumentClient.from(new DynamoDBClient({}));
+	const accountService = new AccountService({
+		client: ddbClient,
+		table: tableName,
+	});
 	const threadMessageService = new ThreadMessageService({
 		client: ddbClient,
 		table: tableName,
@@ -51,7 +59,12 @@ export const getServices = (): Services => {
 	});
 	const searchService = createSearchService({ embedder, store });
 
-	cached = { threadMessageService, storageService, searchService };
+	cached = {
+		accountService,
+		threadMessageService,
+		storageService,
+		searchService,
+	};
 	return cached;
 };
 

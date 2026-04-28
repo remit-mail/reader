@@ -99,7 +99,28 @@ const processOneUpsert = async (
 	log: Logger,
 ): Promise<void> => {
 	const { messageId, accountId, accountConfigId, mailboxIds } = event;
-	const { threadMessageService, storageService, searchService } = services;
+	const {
+		accountService,
+		threadMessageService,
+		storageService,
+		searchService,
+	} = services;
+
+	// Tombstone fence: skip indexing for deleted accounts (#228)
+	try {
+		const account = await accountService.get(accountId);
+		if (account.deletedAt) {
+			log.info(
+				{ accountId, messageId, deletedAt: account.deletedAt },
+				"Account deleted, skipping upsert",
+			);
+			return;
+		}
+	} catch {
+		// Account not found — likely already purged, skip indexing
+		log.info({ accountId, messageId }, "Account not found, skipping upsert");
+		return;
+	}
 
 	const threadMessage = await threadMessageService.findByMessageId(messageId);
 	if (!threadMessage) {
