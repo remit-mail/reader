@@ -10,7 +10,7 @@ import { AwsQueryProtocol } from "@aws-sdk/core/protocols";
 import { createLogger } from "@remit/remit-logger-lambda";
 import { env } from "expect-env";
 import pMap from "p-map";
-import type { ImapEvent } from "./events.js";
+import type { WorkerEvent } from "./events.js";
 import { processEvent } from "./processor.js";
 
 // Collect all unique queue URLs to poll. Every queue URL is required; missing
@@ -127,7 +127,7 @@ if (cluster.isPrimary) {
 		messageBody: string,
 		receiptHandle: string,
 	): Promise<void> => {
-		const event = JSON.parse(messageBody) as ImapEvent;
+		const event = JSON.parse(messageBody) as WorkerEvent;
 		log.info({ event }, "Processing event");
 
 		await processEvent(event, log);
@@ -139,7 +139,10 @@ if (cluster.isPrimary) {
 			}),
 		);
 
-		log.info({ eventId: event.eventId }, "Event processed and deleted");
+		log.info(
+			{ eventId: "eventId" in event ? event.eventId : undefined },
+			"Event processed and deleted",
+		);
 	};
 
 	const pollQueue = async (): Promise<void> => {

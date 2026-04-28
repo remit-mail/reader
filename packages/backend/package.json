@@ -25,17 +25,20 @@
 		"@remit/search-index-worker": "*",
 		"@remit/search-service": "*",
 		"@remit/storage-service": "*",
-		"mailparser": "*",
 		"@types/aws-lambda": "*",
 		"@types/express": "^5.0.3",
 		"@types/swagger-ui-express": "^4.1.8",
-		"esbuild": "*",
 		"electrodb": "*",
+		"esbuild": "*",
 		"expect-env": "*",
 		"express": "^5.1.0",
+		"mailparser": "*",
 		"openapi-backend": "*",
 		"pino": "*",
 		"swagger-ui-express": "^5.0.1",
 		"tsx": "*"
+	},
+	"dependencies": {
+		"jose": "^6.2.3"
 	}
 }
