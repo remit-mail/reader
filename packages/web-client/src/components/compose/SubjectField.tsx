@@ -14,6 +14,7 @@ export const SubjectField = ({ value, onChange }: SubjectFieldProps) => (
 			onChange={(e) => onChange(e.target.value)}
 			className="flex-1 px-2 py-1.5 border rounded-md bg-background text-sm"
 			placeholder="Subject"
+			data-subject-field
 		/>
 	</div>
 );
