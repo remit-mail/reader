@@ -16,7 +16,6 @@ export interface ChunkMetadata {
 	isRead: boolean;
 	hasAttachment: boolean;
 	hasStars: boolean;
-	fromEmail: string;
 	fileTypes?: string[];
 }
 

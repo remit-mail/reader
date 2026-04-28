@@ -14,7 +14,6 @@ const baseMetadata: IndexEmailParams["metadata"] = {
 	isRead: false,
 	hasAttachment: false,
 	hasStars: false,
-	fromEmail: "alice@example.com",
 };
 
 const aliceEnvelope: EnvelopeChunkInput = {
@@ -67,7 +66,6 @@ const indexBoth = async (svc: DefaultSearchService): Promise<void> => {
 			...baseMetadata,
 			messageId: "msg-bob",
 			threadId: "thread-b",
-			fromEmail: "bob@example.com",
 			hasAttachment: true,
 		},
 	});
