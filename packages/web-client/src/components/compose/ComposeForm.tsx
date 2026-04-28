@@ -44,6 +44,8 @@ const ComposeBodyFallback = () => (
 	</div>
 );
 
+import { useIsDesktop } from "../../hooks/useMediaQuery.js";
+import { useVisualViewport } from "../../hooks/useVisualViewport.js";
 import type { ComposeMode } from "./ComposeProvider";
 import { useCompose } from "./ComposeProvider";
 import { FromSelector } from "./FromSelector";
@@ -157,6 +159,132 @@ const isFormEmpty = (
 	bccAddresses.length === 0 &&
 	subject.trim() === "" &&
 	plateValueToText(body).trim() === "";
+
+// ---------------------------------------------------------------------------
+// ComposeHeader — collapsed on mobile when the software keyboard is open
+// ---------------------------------------------------------------------------
+
+interface ComposeHeaderProps {
+	selectedAccountId?: string;
+	onAccountChange: (account: RemitImapAccountResponse) => void;
+	toAddresses: AddressEntry[];
+	setToAddresses: (v: AddressEntry[]) => void;
+	ccAddresses: AddressEntry[];
+	setCcAddresses: (v: AddressEntry[]) => void;
+	bccAddresses: AddressEntry[];
+	setBccAddresses: (v: AddressEntry[]) => void;
+	showCc: boolean;
+	setShowCc: (v: boolean) => void;
+	showBcc: boolean;
+	setShowBcc: (v: boolean) => void;
+	subject: string;
+	setSubject: (v: string) => void;
+}
+
+const ComposeHeader = ({
+	selectedAccountId,
+	onAccountChange,
+	toAddresses,
+	setToAddresses,
+	ccAddresses,
+	setCcAddresses,
+	bccAddresses,
+	setBccAddresses,
+	showCc,
+	setShowCc,
+	showBcc,
+	setShowBcc,
+	subject,
+	setSubject,
+}: ComposeHeaderProps) => {
+	const isDesktop = useIsDesktop();
+	const { isKeyboardOpen } = useVisualViewport();
+	const collapsed = !isDesktop && isKeyboardOpen;
+
+	if (collapsed) {
+		// Compact single-line summary when the keyboard eats vertical space
+		const chips: string[] = [];
+		if (toAddresses.length > 0)
+			chips.push(
+				`To: ${toAddresses.map((a) => a.displayName ?? a.email).join(", ")}`,
+			);
+		if (ccAddresses.length > 0) chips.push(`Cc: ${ccAddresses.length}`);
+		if (bccAddresses.length > 0) chips.push(`Bcc: ${bccAddresses.length}`);
+		if (subject) chips.push(subject);
+
+		return (
+			<div
+				className="flex items-center gap-2 px-3 py-1.5 border-b border-border overflow-hidden"
+				data-testid="compose-header-collapsed"
+			>
+				<span className="truncate text-xs text-muted-foreground">
+					{chips.length > 0 ? chips.join(" · ") : "…"}
+				</span>
+				<span className="shrink-0 inline-flex items-center justify-center rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+					…
+				</span>
+			</div>
+		);
+	}
+
+	return (
+		<div className="space-y-1 px-3 py-2 border-b border-border">
+			<FromSelector
+				selectedAccountId={selectedAccountId}
+				onSelect={onAccountChange}
+			/>
+			<AddressField
+				label="To"
+				addresses={toAddresses}
+				onChange={setToAddresses}
+				placeholder="Recipients"
+			/>
+			{showCc ? (
+				<AddressField
+					label="Cc"
+					addresses={ccAddresses}
+					onChange={setCcAddresses}
+				/>
+			) : (
+				<div className="flex gap-2 pl-14">
+					<button
+						type="button"
+						onClick={() => setShowCc(true)}
+						className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+					>
+						Cc
+					</button>
+					<button
+						type="button"
+						onClick={() => setShowBcc(true)}
+						className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+					>
+						Bcc
+					</button>
+				</div>
+			)}
+			{showCc && !showBcc && (
+				<div className="pl-14">
+					<button
+						type="button"
+						onClick={() => setShowBcc(true)}
+						className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+					>
+						Bcc
+					</button>
+				</div>
+			)}
+			{showBcc && (
+				<AddressField
+					label="Bcc"
+					addresses={bccAddresses}
+					onChange={setBccAddresses}
+				/>
+			)}
+			<SubjectField value={subject} onChange={setSubject} />
+		</div>
+	);
+};
 
 export const ComposeForm = ({
 	mode,
@@ -423,61 +551,22 @@ export const ComposeForm = ({
 			{selectedAccount && selectedAccountMissingSmtp && (
 				<ComposeSmtpMissingBanner accountId={selectedAccount.accountId} />
 			)}
-			<div className="space-y-1 px-3 py-2 border-b border-border">
-				<FromSelector
-					selectedAccountId={selectedAccountId}
-					onSelect={handleAccountChange}
-				/>
-				<AddressField
-					label="To"
-					addresses={toAddresses}
-					onChange={setToAddresses}
-					placeholder="Recipients"
-				/>
-				{showCc ? (
-					<AddressField
-						label="Cc"
-						addresses={ccAddresses}
-						onChange={setCcAddresses}
-					/>
-				) : (
-					<div className="flex gap-2 pl-14">
-						<button
-							type="button"
-							onClick={() => setShowCc(true)}
-							className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-						>
-							Cc
-						</button>
-						<button
-							type="button"
-							onClick={() => setShowBcc(true)}
-							className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-						>
-							Bcc
-						</button>
-					</div>
-				)}
-				{showCc && !showBcc && (
-					<div className="pl-14">
-						<button
-							type="button"
-							onClick={() => setShowBcc(true)}
-							className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-						>
-							Bcc
-						</button>
-					</div>
-				)}
-				{showBcc && (
-					<AddressField
-						label="Bcc"
-						addresses={bccAddresses}
-						onChange={setBccAddresses}
-					/>
-				)}
-				<SubjectField value={subject} onChange={setSubject} />
-			</div>
+			<ComposeHeader
+				selectedAccountId={selectedAccountId}
+				onAccountChange={handleAccountChange}
+				toAddresses={toAddresses}
+				setToAddresses={setToAddresses}
+				ccAddresses={ccAddresses}
+				setCcAddresses={setCcAddresses}
+				bccAddresses={bccAddresses}
+				setBccAddresses={setBccAddresses}
+				showCc={showCc}
+				setShowCc={setShowCc}
+				showBcc={showBcc}
+				setShowBcc={setShowBcc}
+				subject={subject}
+				setSubject={setSubject}
+			/>
 
 			<div className="flex-1 overflow-auto">
 				<Suspense fallback={<ComposeBodyFallback />}>
