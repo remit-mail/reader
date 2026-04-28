@@ -7,11 +7,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
+import { useToggleReadFor } from "@/hooks/useMarkAsRead";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { useSelection } from "@/hooks/useSelection";
-import { MessageListItem } from "./MessageListItem";
 import { MobileSelectionTopBar } from "./MobileSelectionTopBar";
 import { SelectionToolbar } from "./SelectionToolbar";
+import { SwipeableMessageRow } from "./SwipeableMessageRow";
 
 interface MessageListProps {
 	mailboxId: string;
@@ -84,6 +85,9 @@ export const MessageList = ({
 	const navigate = useNavigate();
 	const isDesktop = useIsDesktop();
 	const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
+
+	// Swipe-to-read toggle hook
+	const { toggleReadFor } = useToggleReadFor({ mailboxId });
 
 	// Selection state
 	const {
@@ -172,6 +176,22 @@ export const MessageList = ({
 			onMarkAsRead(Array.from(selectedIds));
 		}
 	}, [onMarkAsRead, selectedCount, selectedIds]);
+
+	// Swipe-to-delete single message
+	const handleSwipeDelete = useCallback(
+		(messageId: string) => {
+			onDeleteMessages?.([messageId]);
+		},
+		[onDeleteMessages],
+	);
+
+	// Swipe-to-toggle-read single message
+	const handleSwipeToggleRead = useCallback(
+		(messageId: string, currentIsRead: boolean) => {
+			toggleReadFor([messageId], !currentIsRead);
+		},
+		[toggleReadFor],
+	);
 
 	// Mobile: Enter multi-select mode on long press
 	const handleLongPress = useCallback(
@@ -320,7 +340,7 @@ export const MessageList = ({
 								className="absolute left-0 top-0 w-full"
 								style={{ transform: `translateY(${virtualRow.start}px)` }}
 							>
-								<MessageListItem
+								<SwipeableMessageRow
 									thread={thread}
 									mailboxId={mailboxId}
 									isSelected={selectedMessageId === thread.messageId}
@@ -329,6 +349,8 @@ export const MessageList = ({
 									isMultiSelectMode={isMultiSelectMode}
 									onLongPress={() => handleLongPress(thread.messageId)}
 									isDesktop={isDesktop}
+									onDelete={handleSwipeDelete}
+									onToggleRead={handleSwipeToggleRead}
 								/>
 							</div>
 						);
