@@ -60,7 +60,6 @@ const toMetadata = (raw: unknown): ChunkMetadata => {
 		typeof obj.isRead !== "boolean" ||
 		typeof obj.hasAttachment !== "boolean" ||
 		typeof obj.hasStars !== "boolean" ||
-		typeof obj.fromEmail !== "string" ||
 		!isStringArray(obj.mailboxIds)
 	) {
 		throw new Error(`S3 Vectors metadata is malformed: ${JSON.stringify(obj)}`);
@@ -79,7 +78,6 @@ const toMetadata = (raw: unknown): ChunkMetadata => {
 		isRead: obj.isRead,
 		hasAttachment: obj.hasAttachment,
 		hasStars: obj.hasStars,
-		fromEmail: obj.fromEmail,
 		fileTypes,
 	};
 };
