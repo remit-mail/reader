@@ -1,10 +1,11 @@
 import { configOperationsGetConfigOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, X } from "lucide-react";
+import { X } from "lucide-react";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { ComposeForm } from "./ComposeForm";
 import { useCompose } from "./ComposeProvider";
+import { MobileComposeSheet } from "./MobileComposeSheet";
 
 const MODE_LABELS: Record<string, string> = {
 	reply: "Reply",
@@ -16,6 +17,8 @@ const MODE_LABELS: Record<string, string> = {
 export const FullCompose = () => {
 	const { state, closeCompose } = useCompose();
 	const isDesktop = useIsDesktop();
+
+	if (!isDesktop) return <MobileComposeSheet />;
 
 	const {
 		isError: isConfigError,
@@ -31,30 +34,18 @@ export const FullCompose = () => {
 	const title = MODE_LABELS[state.mode] ?? "New Message";
 
 	const header = (
-		<header className="flex items-center justify-between gap-2 px-2 sm:px-4 h-12 sm:h-auto sm:py-3 border-b border-border shrink-0">
+		<header className="flex items-center justify-between gap-2 px-4 py-3 border-b border-border shrink-0">
 			<div className="flex items-center gap-2 min-w-0">
-				{!isDesktop && (
-					<button
-						type="button"
-						onClick={closeCompose}
-						className="p-2 rounded-md hover:bg-accent transition-colors min-h-11 min-w-11 inline-flex items-center justify-center -ml-1"
-						aria-label="Discard and go back"
-					>
-						<ArrowLeft className="size-5" />
-					</button>
-				)}
-				<h2 className="text-base sm:text-lg font-semibold truncate">{title}</h2>
+				<h2 className="text-lg font-semibold truncate">{title}</h2>
 			</div>
-			{isDesktop && (
-				<button
-					type="button"
-					onClick={closeCompose}
-					className="p-2 rounded-md hover:bg-accent transition-colors min-h-11 min-w-11 inline-flex items-center justify-center"
-					aria-label="Close"
-				>
-					<X className="size-5" />
-				</button>
-			)}
+			<button
+				type="button"
+				onClick={closeCompose}
+				className="p-2 rounded-md hover:bg-accent transition-colors min-h-11 min-w-11 inline-flex items-center justify-center"
+				aria-label="Close"
+			>
+				<X className="size-5" />
+			</button>
 		</header>
 	);
 
