@@ -289,7 +289,6 @@ const aliceIndexParams: IndexEmailParams = {
 		isRead: false,
 		hasAttachment: false,
 		hasStars: false,
-		fromEmail: "alice@example.com",
 	},
 };
 

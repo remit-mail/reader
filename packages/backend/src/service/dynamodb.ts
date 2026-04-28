@@ -128,7 +128,6 @@ const buildBodySyncIndexer = (
 				isRead: tm.isRead,
 				hasAttachment: tm.hasAttachment,
 				hasStars: tm.hasStars,
-				fromEmail: tm.fromEmail ?? from.email,
 			},
 		});
 	},

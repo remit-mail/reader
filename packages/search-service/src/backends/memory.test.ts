@@ -15,7 +15,6 @@ const buildMetadata = (
 	isRead: false,
 	hasAttachment: false,
 	hasStars: false,
-	fromEmail: "alice@example.com",
 	...overrides,
 });
 
