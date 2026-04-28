@@ -39,7 +39,6 @@
 		"tsx": "*"
 	},
 	"dependencies": {
-		"aws-jwt-verify": "^5.1.1",
 		"jose": "^6.2.3"
 	}
 }
