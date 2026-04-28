@@ -1,7 +1,3 @@
-/**
- * Search index worker Lambda handler stub.
- * The actual implementation will be added in a separate PR.
- */
-export const handler = async (): Promise<void> => {
-	throw new Error("Not implemented — search-index-worker stub");
-};
+export { enqueueSearchIndexEvents } from "./enqueue.js";
+export type { DeleteEvent, IndexEvent, UpsertEvent } from "./events.js";
+export { handler } from "./handler.js";
