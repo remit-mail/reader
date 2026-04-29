@@ -92,7 +92,7 @@ const MessageListItemComponent = ({
 			className={cn(
 				// Bump vertical padding on mobile to comfortably exceed the 48dp
 				// touch-target floor. Desktop keeps the tighter density.
-				"group block px-3 py-3 sm:py-2.5 border-b border-border transition-colors",
+				"group block w-full px-3 py-3 sm:py-2.5 transition-colors",
 				"hover:bg-accent/50",
 				isSelected && "bg-accent",
 				isChecked && "bg-primary/10",

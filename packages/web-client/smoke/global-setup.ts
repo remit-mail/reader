@@ -281,6 +281,16 @@ const TEST_MESSAGES: TestMessage[] = [
 		sentDate: NOW - 3_600_000,
 		isRead: false,
 	},
+	{
+		messageIdHeader: "<e2e-msg-6@test.local>",
+		uid: 6,
+		subject: "Re: hi",
+		fromEmail: "vincent@example.com",
+		fromName: "Vincent Regter",
+		bodyText: "Sure, sounds good!",
+		sentDate: NOW - 1_800_000,
+		isRead: true,
+	},
 ];
 
 const storeMessageBody = (
