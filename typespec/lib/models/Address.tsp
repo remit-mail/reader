@@ -48,6 +48,11 @@ model VipFlag extends AddressFlagBase {
   value: boolean;
 }
 
+@doc("Sender is wellknown: engagement counters crossed the promotion threshold")
+model WellknownFlag extends AddressFlagBase {
+  value: boolean;
+}
+
 @doc("Category override for auto-classification")
 model CategoryFlag extends AddressFlagBase {
   value: "newsletter" | "transactional" | "personal" | "promotional";
@@ -69,6 +74,7 @@ model AddressFlags {
   blocked?: BlockedFlag;
   muted?: MutedFlag;
   vip?: VipFlag;
+  wellknown?: WellknownFlag;
   category?: CategoryFlag;
   autoArchive?: AutoArchiveFlag;
   unsubscribed?: UnsubscribedFlag;
@@ -127,6 +133,30 @@ model Address {
   @doc("Sender-level flags (trust/block/mute/etc). Absent when no flags set.")
   @visibility(Lifecycle.Read)
   flags?: AddressFlags;
+
+  @doc("Number of inbound messages received from this address. Absent means zero.")
+  @visibility(Lifecycle.Read)
+  inboundCount?: int32;
+
+  @doc("Number of outbound messages sent to this address. Absent means zero.")
+  @visibility(Lifecycle.Read)
+  outboundCount?: int32;
+
+  @doc("Number of user replies to messages from this address. Absent means zero.")
+  @visibility(Lifecycle.Read)
+  replyCount?: int32;
+
+  @doc("Timestamp (ms epoch) of the last inbound message from this address")
+  @visibility(Lifecycle.Read)
+  lastInboundAt?: int64;
+
+  @doc("Timestamp (ms epoch) of the last outbound message to this address")
+  @visibility(Lifecycle.Read)
+  lastOutboundAt?: int64;
+
+  @doc("Timestamp (ms epoch) of the last user reply to a message from this address")
+  @visibility(Lifecycle.Read)
+  lastReplyAt?: int64;
 
   @visibility(Lifecycle.Read)
   @createdAt
@@ -229,6 +259,7 @@ model UpdateAddressFlagsInput {
   blocked?: BlockedFlag | null;
   muted?: MutedFlag | null;
   vip?: VipFlag | null;
+  wellknown?: WellknownFlag | null;
   category?: CategoryFlag | null;
   autoArchive?: AutoArchiveFlag | null;
   unsubscribed?: UnsubscribedFlag | null;
