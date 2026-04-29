@@ -193,6 +193,7 @@ export const MessageOperations: Record<
 			cc: groupedAddresses.cc ?? [],
 			bcc: groupedAddresses.bcc ?? [],
 			replyTo: groupedAddresses.reply_to ?? [],
+			category: message.category,
 		};
 
 		const bodyParts: BodyPartResponse[] = description.bodyPart.map((part) => ({
