@@ -337,7 +337,7 @@ export const MessageList = ({
 								key={virtualRow.key}
 								data-index={virtualRow.index}
 								ref={virtualizer.measureElement}
-								className="absolute left-0 top-0 w-full"
+								className="absolute left-0 top-0 w-full border-b border-border"
 								style={{ transform: `translateY(${virtualRow.start}px)` }}
 							>
 								<SwipeableMessageRow
