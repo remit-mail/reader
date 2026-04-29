@@ -37,7 +37,7 @@ export const AdminAccountConfigOperations: Record<
 			throw new ForbiddenError("Only admins can finalize account deletion");
 		}
 
-		const queueUrl = env.SQS_ACCOUNT_FINALIZE_QUEUE_URL;
+		const queueUrl = env.SQS_QUEUE_URL_ACCOUNT_FINALIZE;
 
 		await sqsClient.send(
 			new SendMessageCommand({

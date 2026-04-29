@@ -42,7 +42,7 @@ export const MeOperations: Record<
 			throw err;
 		}
 
-		const queueUrl = env.SQS_ACCOUNT_FANOUT_QUEUE_URL;
+		const queueUrl = env.SQS_QUEUE_URL_ACCOUNT_FANOUT;
 
 		await sqsClient.send(
 			new SendMessageCommand({
