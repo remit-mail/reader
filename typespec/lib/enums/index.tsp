@@ -27,6 +27,7 @@ import "./StarColor.tsp";
 import "./MessageStatus.tsp";
 import "./MessageSyncStatus.tsp";
 import "./OutboxMessageStatus.tsp";
+import "./MessageCategory.tsp";
 
 // Account Enums
 import "./AccountConfigState.tsp";

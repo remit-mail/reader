@@ -1,5 +1,6 @@
 import "typespec-electrodb-emitter";
 
+import "../enums/MessageCategory.tsp";
 import "../enums/MessageFlag.tsp";
 import "../enums/MessageStatus.tsp";
 import "../enums/MessageSyncStatus.tsp";
@@ -97,6 +98,10 @@ model Message {
   @doc("Original UID before move (for debugging/audit)")
   @visibility(Lifecycle.Read)
   originalUid?: int64;
+
+  @doc("Header-derived category. Absent for messages synced before this rolled out.")
+  @visibility(Lifecycle.Read)
+  category?: MessageCategory;
 
   @visibility(Lifecycle.Read)
   @createdAt
@@ -196,6 +201,9 @@ model EnvelopeResponse {
 
   @doc("Reply-To addresses")
   replyTo: EnvelopeAddressResponse[];
+
+  @doc("Header-derived category for the message. Absent for messages synced before classification rolled out.")
+  category?: MessageCategory;
 }
 
 @doc("Complete message description including all related data")
