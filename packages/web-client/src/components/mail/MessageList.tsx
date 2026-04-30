@@ -2,7 +2,7 @@ import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/type
 import { useNavigate } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Search } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
@@ -24,10 +24,18 @@ interface MessageListProps {
 	searchQuery?: string;
 	onDeleteMessages?: (messageIds: string[]) => void;
 	onMarkAsRead?: (messageIds: string[]) => void;
+	onMoveMessages?: (messageIds: string[], destinationMailboxId: string) => void;
 	isDeleting?: boolean;
+	isMoving?: boolean;
 	onLoadMore?: () => void;
 	hasMore?: boolean;
 	isLoadingMore?: boolean;
+	/**
+	 * Owning account for the current mailbox view. Required for the Move
+	 * action — when missing or when the selection spans multiple accounts
+	 * the toolbar disables Move and surfaces an inline hint.
+	 */
+	accountId?: string;
 }
 
 const ESTIMATED_ITEM_HEIGHT = 72;
@@ -74,10 +82,13 @@ export const MessageList = ({
 	searchQuery,
 	onDeleteMessages,
 	onMarkAsRead,
+	onMoveMessages,
 	isDeleting = false,
+	isMoving = false,
 	onLoadMore,
 	hasMore = false,
 	isLoadingMore = false,
+	accountId,
 }: MessageListProps) => {
 	const parentRef = useRef<HTMLDivElement>(null);
 	const navigate = useNavigate();
@@ -174,6 +185,39 @@ export const MessageList = ({
 			onMarkAsRead(Array.from(selectedIds));
 		}
 	}, [onMarkAsRead, selectedCount, selectedIds]);
+
+	// Handle move
+	const handleMoveSelected = useCallback(
+		(destinationMailboxId: string) => {
+			if (!onMoveMessages || selectedCount === 0) return;
+			onMoveMessages(Array.from(selectedIds), destinationMailboxId);
+			clearSelection();
+		},
+		[onMoveMessages, selectedCount, selectedIds, clearSelection],
+	);
+
+	// Cross-account guard: every selected thread row must belong to the
+	// same account as the current mailbox. The list is already scoped to
+	// one mailbox so in practice this is always single-account, but we
+	// detect drift defensively (e.g. a future global selection mode) and
+	// disable Move with an inline hint rather than silently aggregating.
+	//
+	// `MessageList` re-renders on every virtualizer scroll tick. Memoize
+	// the guard so we only walk the selected slice when selection or
+	// thread identity actually changes.
+	const moveDisabledHint = useMemo(() => {
+		if (selectedCount === 0) return undefined;
+		const selectedAccountConfigIds = new Set<string>();
+		for (const thread of threads) {
+			if (selectedIds.has(thread.messageId)) {
+				selectedAccountConfigIds.add(thread.accountConfigId);
+			}
+		}
+		if (selectedAccountConfigIds.size > 1) {
+			return "Move only works within one account — clear selection or pick messages from a single account";
+		}
+		return undefined;
+	}, [selectedCount, selectedIds, threads]);
 
 	// Swipe-to-delete single message
 	const handleSwipeDelete = useCallback(
@@ -307,7 +351,12 @@ export const MessageList = ({
 					onDelete={handleDelete}
 					onClearSelection={clearSelection}
 					onMarkAsRead={onMarkAsRead ? handleMarkAsRead : undefined}
+					onMove={onMoveMessages ? handleMoveSelected : undefined}
 					isDeleting={isDeleting}
+					isMoving={isMoving}
+					accountId={accountId}
+					currentMailboxId={mailboxId}
+					moveDisabledHint={moveDisabledHint}
 				/>
 			)}
 			{isMultiSelectMode && !isDesktop && (
@@ -316,7 +365,11 @@ export const MessageList = ({
 					onCancel={handleCancelMultiSelect}
 					onDelete={handleDelete}
 					onMarkAsRead={onMarkAsRead ? handleMarkAsRead : undefined}
-					selectedIds={Array.from(selectedIds)}
+					onMove={onMoveMessages ? handleMoveSelected : undefined}
+					isBusy={isDeleting || isMoving}
+					accountId={accountId}
+					currentMailboxId={mailboxId}
+					moveDisabledHint={moveDisabledHint}
 				/>
 			)}
 			{isSearching && searchQuery && (
