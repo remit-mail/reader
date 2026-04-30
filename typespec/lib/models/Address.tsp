@@ -270,3 +270,40 @@ model UpdateAddressInput {
   @doc("Per-flag merge update; omitted flags are untouched, `null` removes the flag")
   flags?: UpdateAddressFlagsInput;
 }
+
+// ============================================
+// VIP Suggestion Models (issue #234)
+// ============================================
+
+@doc("A reciprocal-engagement candidate for VIP promotion. The user opts in via `PATCH /addresses/{addressId}` with `flags.vip = { value: true, ... }`.")
+model VipSuggestionEntry {
+  @doc("Resolved Address identifier")
+  addressId: UUID;
+
+  @doc("Personal name phrase, when known")
+  displayName?: string;
+
+  @doc("Lowercase full email address")
+  normalizedEmail: string;
+
+  @doc("Number of inbound messages received from this address")
+  inboundCount: int32;
+
+  @doc("Number of outbound messages sent to this address")
+  outboundCount: int32;
+
+  @doc("Number of user replies to messages from this address")
+  replyCount: int32;
+
+  @doc("Timestamp (ms epoch) of the last user reply to a message from this address")
+  lastReplyAt?: int64;
+
+  @doc("Timestamp (ms epoch) of the last inbound message from this address")
+  lastInboundAt?: int64;
+}
+
+@doc("Response for `GET /me/vip-suggestions` — wellknown senders the user has not yet promoted to VIP, ranked by reciprocal engagement.")
+model VipSuggestionsResponse {
+  @doc("Up to 10 ranked suggestions; empty when there are no eligible senders yet.")
+  suggestions: VipSuggestionEntry[];
+}

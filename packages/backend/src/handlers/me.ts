@@ -1,5 +1,8 @@
 import { SendMessageCommand } from "@aws-sdk/client-sqs";
-import type { DeleteAccountConfigResponse } from "@remit/api-openapi-types";
+import type {
+	DeleteAccountConfigResponse,
+	VipSuggestionsResponse,
+} from "@remit/api-openapi-types";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { env } from "expect-env";
 import type { Context } from "openapi-backend";
@@ -8,11 +11,24 @@ import { logger } from "../logger.js";
 import { getClient } from "../service/dynamodb.js";
 import { sqsClient } from "../service/sqs.js";
 import type { MeOperationIds, OperationHandler } from "../types.js";
+import { toVipSuggestionEntry } from "./vip-suggestions.js";
 
 export const MeOperations: Record<
 	MeOperationIds,
 	OperationHandler<MeOperationIds>
 > = {
+	MeOperations_listVipSuggestions: async (
+		_context: Context,
+		...args: unknown[]
+	): Promise<VipSuggestionsResponse> => {
+		const event = args[0] as APIGatewayProxyEvent;
+		const accountConfigId = getAccountConfigIdFromEvent(event);
+
+		const { address } = getClient();
+		const items = await address.listSuggestedVips({ accountConfigId });
+
+		return { suggestions: items.map(toVipSuggestionEntry) };
+	},
 	MeOperations_deleteMe: async (
 		_context: Context,
 		...args: unknown[]
