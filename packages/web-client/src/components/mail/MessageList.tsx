@@ -1,4 +1,3 @@
-import { useAutoAnimate } from "@formkit/auto-animate/react";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import { useNavigate } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -81,7 +80,6 @@ export const MessageList = ({
 	isLoadingMore = false,
 }: MessageListProps) => {
 	const parentRef = useRef<HTMLDivElement>(null);
-	const [listRef] = useAutoAnimate<HTMLDivElement>({ duration: 150 });
 	const navigate = useNavigate();
 	const isDesktop = useIsDesktop();
 	const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
@@ -326,7 +324,6 @@ export const MessageList = ({
 			)}
 			<div ref={parentRef} className="flex-1 overflow-y-auto" tabIndex={0}>
 				<div
-					ref={listRef}
 					className="relative w-full"
 					style={{ height: `${virtualizer.getTotalSize()}px` }}
 				>
@@ -347,7 +344,7 @@ export const MessageList = ({
 									isChecked={isChecked(thread.messageId)}
 									onToggleCheck={toggleCheck}
 									isMultiSelectMode={isMultiSelectMode}
-									onLongPress={() => handleLongPress(thread.messageId)}
+									onLongPress={handleLongPress}
 									isDesktop={isDesktop}
 									onDelete={handleSwipeDelete}
 									onToggleRead={handleSwipeToggleRead}
