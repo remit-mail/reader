@@ -7,6 +7,7 @@ type MatchPrefix<
 
 export type OperationIds =
 	| "MeOperations_deleteMe"
+	| "MeOperations_listVipSuggestions"
 	| "AdminAccountConfigOperations_adminFinalizeDelete"
 	| "ConfigOperations_getConfig"
 	| "AccountOperations_createAccount"
