@@ -1,6 +1,6 @@
 import { inspect } from "node:util";
 import { SQSClient } from "@aws-sdk/client-sqs";
-import { StarColor } from "@remit/domain-enums";
+import { SenderTrust, StarColor } from "@remit/domain-enums";
 import type {
 	BodyPartResponse,
 	EnvelopeAddressResponse,
@@ -20,6 +20,7 @@ import type { APIGatewayProxyEvent } from "aws-lambda";
 import { simpleParser } from "mailparser";
 import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent } from "../auth.js";
+import { deriveSenderTrust } from "../derive/senderTrust.js";
 import { logger } from "../logger.js";
 import { getClient } from "../service/dynamodb.js";
 import type {
@@ -183,6 +184,14 @@ export const MessageOperations: Record<
 			{} as Record<string, EnvelopeAddressResponse[]>,
 		);
 
+		const fromAddress = groupedAddresses.from?.[0];
+		const fromFlags = fromAddress
+			? flagsByAddressId.get(fromAddress.addressId)
+			: undefined;
+		const senderTrust = fromAddress
+			? deriveSenderTrust(fromFlags)
+			: SenderTrust.Unknown;
+
 		const envelopeResponse: EnvelopeResponse = {
 			messageId: envelope?.messageId ?? messageId,
 			date: envelope?.dateValue ?? message.internalDate,
@@ -194,6 +203,7 @@ export const MessageOperations: Record<
 			bcc: groupedAddresses.bcc ?? [],
 			replyTo: groupedAddresses.reply_to ?? [],
 			category: message.category,
+			senderTrust,
 		};
 
 		const bodyParts: BodyPartResponse[] = description.bodyPart.map((part) => ({

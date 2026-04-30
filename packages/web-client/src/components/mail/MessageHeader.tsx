@@ -1,6 +1,8 @@
 import type { RemitImapEnvelopeResponse } from "@remit/api-http-client/types.gen.ts";
 import { formatDatePreset } from "@/lib/format";
 import { AddressList } from "./AddressDisplay";
+import { CategoryBadge } from "./CategoryBadge";
+import { SenderTrustIndicator } from "./SenderTrustIndicator";
 
 interface MessageHeaderProps {
 	envelope: RemitImapEnvelopeResponse;
@@ -18,9 +20,13 @@ export const MessageHeader = ({ envelope, actions }: MessageHeaderProps) => {
 	return (
 		<div className="border-b border-border p-4">
 			<div className="flex items-start justify-between gap-2 mb-3">
-				<h1 className="text-xl font-semibold">
-					{envelope.subject || "(No subject)"}
-				</h1>
+				<div className="flex items-center gap-2 min-w-0 flex-1">
+					<h1 className="text-xl font-semibold truncate">
+						{envelope.subject || "(No subject)"}
+					</h1>
+					<CategoryBadge category={envelope.category} size="md" />
+					<SenderTrustIndicator senderTrust={envelope.senderTrust} size="md" />
+				</div>
 				{actions && <div className="shrink-0">{actions}</div>}
 			</div>
 			<div className="space-y-1">
