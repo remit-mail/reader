@@ -87,6 +87,14 @@ interface MessageCardProps {
 	onToggle: () => void;
 	onToggleStar: () => void;
 	isStarPending?: boolean;
+	/**
+	 * Owning account for the thread's mailbox. Forwarded to
+	 * `MessageActionMenu` so the per-message Move trigger can scope its
+	 * folder picker to the right account. Optional because the resolver
+	 * is async — when omitted the Move trigger is hidden until the lookup
+	 * completes.
+	 */
+	accountId?: string;
 }
 
 const CollapsedCard = ({
@@ -176,6 +184,7 @@ const ExpandedCard = ({
 	onToggle,
 	onToggleStar,
 	isStarPending,
+	accountId,
 }: {
 	threadMessage: RemitImapThreadMessageResponse;
 	messageData?: RemitImapDescribeMessageResponse;
@@ -187,6 +196,7 @@ const ExpandedCard = ({
 	onToggle: () => void;
 	onToggleStar: () => void;
 	isStarPending?: boolean;
+	accountId?: string;
 }) => {
 	const senderName =
 		threadMessage.fromName || threadMessage.fromEmail || "Unknown";
@@ -254,6 +264,7 @@ const ExpandedCard = ({
 						threadId={threadMessage.threadId}
 						mailboxId={threadMessage.mailboxId}
 						isRead={threadMessage.isRead}
+						accountId={accountId}
 						fromAddressId={messageData?.envelope.from[0]?.addressId}
 						isTrusted={
 							messageData?.envelope.from[0]?.flags?.trusted?.value === true
@@ -305,6 +316,7 @@ export const MessageCard = ({
 	onToggle,
 	onToggleStar,
 	isStarPending,
+	accountId,
 }: MessageCardProps) => {
 	const {
 		data: messageData,
@@ -343,6 +355,7 @@ export const MessageCard = ({
 			onToggle={onToggle}
 			onToggleStar={onToggleStar}
 			isStarPending={isStarPending}
+			accountId={accountId}
 		/>
 	);
 };

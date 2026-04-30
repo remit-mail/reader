@@ -336,3 +336,166 @@ describe("MessageMoveService.deleteMessages permanent-delete (#212)", () => {
 		);
 	});
 });
+
+describe("MessageMoveService.moveMessage / moveMessages (#236)", () => {
+	const projectMailboxId = "alice-project-aaaaaaaaaa";
+
+	it("flips ThreadMessage.mailboxId to the destination and enqueues an SQS move event", async () => {
+		const messageId = "alice-msg-move-aaaaaaaa";
+		const threadMessageId = "alice-tm-move-aaaaaaaaa";
+
+		const ctx = createTestService({
+			messages: [{ messageId, mailboxId: inboxId, uid: 11 }],
+			mailboxes: [
+				{ mailboxId: inboxId, fullPath: "INBOX" },
+				{ mailboxId: projectMailboxId, fullPath: "Projects/Alpha" },
+			],
+			trash: { mailboxId: trashId, fullPath: "Trash" },
+			threadMessageRows: [
+				{
+					accountConfigId: aliceAccountConfigId,
+					threadMessageId,
+					messageId,
+					mailboxId: inboxId,
+					sentDate: 1700000000000,
+					isRead: false,
+					isDeleted: false,
+					hasStars: false,
+					hasAttachment: false,
+				},
+			],
+		});
+
+		await ctx.service.moveMessage(messageId, projectMailboxId, aliceAccountId);
+
+		const row = ctx.threadMessageService._rows.get(threadMessageId);
+		assert.ok(row, "row must still exist after move");
+		assert.equal(
+			row.mailboxId,
+			projectMailboxId,
+			"mailboxId must reflect the destination optimistically",
+		);
+		assert.equal(
+			row.isDeleted,
+			false,
+			"moving to a non-Trash folder must NOT flip isDeleted",
+		);
+
+		const sentEvents = ctx.mockSqs._sent as Array<{ MessageBody: string }>;
+		assert.equal(
+			sentEvents.length,
+			1,
+			"exactly one SQS event must be enqueued",
+		);
+		const event = JSON.parse(sentEvents[0].MessageBody);
+		assert.equal(event.type, "MESSAGE_MOVE");
+		assert.equal(event.sourceMailboxId, inboxId);
+		assert.equal(event.destinationMailboxId, projectMailboxId);
+		assert.equal(event.accountId, aliceAccountId);
+	});
+
+	it("clears isDeleted when moving FROM Trash to a regular folder", async () => {
+		// Restoring a trashed message via Move to INBOX must drop the
+		// `isDeleted: true` flag so the destination's listing shows it. This
+		// mirrors the restore path but reaches it through the user-facing Move
+		// action — same outcome on the ThreadMessage row.
+		const messageId = "alice-msg-restore-aaaaaa";
+		const threadMessageId = "alice-tm-restore-aaaaaa";
+
+		const ctx = createTestService({
+			messages: [{ messageId, mailboxId: trashId, uid: 99 }],
+			mailboxes: [
+				{ mailboxId: inboxId, fullPath: "INBOX" },
+				{ mailboxId: trashId, fullPath: "Trash" },
+			],
+			trash: { mailboxId: trashId, fullPath: "Trash" },
+			threadMessageRows: [
+				{
+					accountConfigId: aliceAccountConfigId,
+					threadMessageId,
+					messageId,
+					mailboxId: trashId,
+					sentDate: 1700000000000,
+					isRead: true,
+					isDeleted: true,
+					hasStars: false,
+					hasAttachment: false,
+				},
+			],
+		});
+
+		await ctx.service.moveMessage(messageId, inboxId, aliceAccountId);
+
+		const row = ctx.threadMessageService._rows.get(threadMessageId);
+		assert.ok(row);
+		assert.equal(row.mailboxId, inboxId);
+		assert.equal(
+			row.isDeleted,
+			false,
+			"moving out of Trash must reset isDeleted so the row reappears",
+		);
+	});
+
+	it("processes every selected id when bulk-moving and emits one event per message", async () => {
+		const m1 = "alice-msg-bulk-1-aaaaaaa";
+		const m2 = "alice-msg-bulk-2-aaaaaaa";
+		const tm1 = "alice-tm-bulk-1-aaaaaaa";
+		const tm2 = "alice-tm-bulk-2-aaaaaaa";
+
+		const ctx = createTestService({
+			messages: [
+				{ messageId: m1, mailboxId: inboxId, uid: 1 },
+				{ messageId: m2, mailboxId: inboxId, uid: 2 },
+			],
+			mailboxes: [
+				{ mailboxId: inboxId, fullPath: "INBOX" },
+				{ mailboxId: projectMailboxId, fullPath: "Projects/Alpha" },
+			],
+			trash: { mailboxId: trashId, fullPath: "Trash" },
+			threadMessageRows: [
+				{
+					accountConfigId: aliceAccountConfigId,
+					threadMessageId: tm1,
+					messageId: m1,
+					mailboxId: inboxId,
+					sentDate: 1700000000000,
+					isRead: false,
+					isDeleted: false,
+					hasStars: false,
+					hasAttachment: false,
+				},
+				{
+					accountConfigId: aliceAccountConfigId,
+					threadMessageId: tm2,
+					messageId: m2,
+					mailboxId: inboxId,
+					sentDate: 1700000000001,
+					isRead: false,
+					isDeleted: false,
+					hasStars: false,
+					hasAttachment: false,
+				},
+			],
+		});
+
+		await ctx.service.moveMessages([m1, m2], projectMailboxId, aliceAccountId);
+
+		assert.equal(
+			ctx.threadMessageService._rows.get(tm1)?.mailboxId,
+			projectMailboxId,
+		);
+		assert.equal(
+			ctx.threadMessageService._rows.get(tm2)?.mailboxId,
+			projectMailboxId,
+		);
+
+		const sentEvents = ctx.mockSqs._sent as Array<{ MessageBody: string }>;
+		assert.equal(
+			sentEvents.length,
+			2,
+			"one MESSAGE_MOVE event must be enqueued per moved message",
+		);
+		const types = sentEvents.map((e) => JSON.parse(e.MessageBody).type).sort();
+		assert.deepStrictEqual(types, ["MESSAGE_MOVE", "MESSAGE_MOVE"]);
+	});
+});
