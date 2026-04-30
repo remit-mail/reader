@@ -9,12 +9,34 @@ interface SenderTrustIndicatorProps {
 	className?: string;
 }
 
+export type SenderTrustVariant = "vip" | "unknown-pill" | "hidden";
+
+/**
+ * Decide which visual to render for a given trust level + size.
+ *
+ *  - `vip`          → sparkles icon (every size).
+ *  - `unknown-pill` → "new sender" pill, only at `size="md"` (open-message header).
+ *                     Hidden at `size="sm"` (inbox row): post-rollout, most
+ *                     senders start as `unknown`, so painting a "new" pill on
+ *                     every row would be noisy and defeat the purpose of the
+ *                     signal.
+ *  - `hidden`       → render nothing. Includes `wellknown` at every size and
+ *                     `unknown` at `size="sm"`.
+ *
+ * Pulled out of the React component so the decision is testable without a
+ * DOM renderer.
+ */
+export const selectSenderTrustVariant = (
+	senderTrust: RemitImapSenderTrust,
+	size: "sm" | "md",
+): SenderTrustVariant => {
+	if (senderTrust === "vip") return "vip";
+	if (senderTrust === "unknown" && size === "md") return "unknown-pill";
+	return "hidden";
+};
+
 /**
  * Inline indicator for the sender's trust gradient.
- *
- *  - `unknown`   — small "new sender" pill, low-emphasis muted text.
- *  - `vip`       — sparkles icon next to the From name.
- *  - `wellknown` — no chrome (the absence of an unknown badge IS the signal).
  *
  * Per EDD #232: trust is a UI hint, not a security boundary. Keep visuals
  * subtle. The `trusted` flag (image rendering) stays orthogonal — handled
@@ -25,7 +47,9 @@ export const SenderTrustIndicator = ({
 	size = "sm",
 	className,
 }: SenderTrustIndicatorProps) => {
-	if (senderTrust === "vip") {
+	const variant = selectSenderTrustVariant(senderTrust, size);
+
+	if (variant === "vip") {
 		return (
 			<Sparkles
 				className={cn(
@@ -40,13 +64,12 @@ export const SenderTrustIndicator = ({
 		);
 	}
 
-	if (senderTrust === "unknown") {
+	if (variant === "unknown-pill") {
 		return (
 			<span
 				className={cn(
 					"inline-flex items-center rounded border border-dashed border-muted-foreground/40 font-medium uppercase tracking-wide text-muted-foreground/80 shrink-0",
-					size === "sm" && "px-1.5 py-0 text-[10px] leading-4",
-					size === "md" && "px-2 py-0.5 text-xs",
+					"px-2 py-0.5 text-xs",
 					className,
 				)}
 				title="First message from this sender"

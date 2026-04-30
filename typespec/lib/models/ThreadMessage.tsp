@@ -1,5 +1,7 @@
 import "typespec-electrodb-emitter";
 
+import "../enums/MessageCategory.tsp";
+import "../enums/SenderTrust.tsp";
 import "../enums/StarColor.tsp";
 import "../scalars/string.tsp";
 
@@ -191,9 +193,9 @@ model ThreadMessage {
 // API Response Models
 // ============================================
 
-@doc("Thread message item returned by list/search operations")
-model ThreadMessageResponse
-  is PickProperties<
+@doc("Thread message item returned by list/search operations. `category` and `senderTrust` are attached at read time via batch-fetch so the inbox row can render badges without a per-row round trip.")
+model ThreadMessageResponse {
+  ...PickProperties<
     ThreadMessage,
 
       | "threadMessageId"
@@ -214,3 +216,10 @@ model ThreadMessageResponse
       | "createdAt"
       | "updatedAt"
   >;
+
+  @doc("Header-derived category for the message (from the underlying Message). Absent for messages synced before classification rolled out — clients should treat this as `personal`.")
+  category?: MessageCategory;
+
+  @doc("Trust level for the From address, derived from AddressFlags at read time. Defaults to `unknown` when no Address row resolves.")
+  senderTrust: SenderTrust;
+}
