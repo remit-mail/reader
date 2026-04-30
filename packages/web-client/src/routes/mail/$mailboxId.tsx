@@ -27,7 +27,9 @@ import {
 	useDeleteMessages,
 } from "@/hooks/useDeleteMessages";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
+import { useMailboxAccount } from "@/hooks/useMailboxAccount";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
+import { useMoveMessages } from "@/hooks/useMoveMessages";
 import { useMailContext } from "@/routes/mail";
 
 // Search schema includes q from parent route for proper inheritance
@@ -123,6 +125,15 @@ function MailboxView() {
 			onAfterOptimisticRemove: handleDeselectIfRemoved,
 		});
 
+	const { accountId: mailboxAccountId } = useMailboxAccount(mailboxId);
+
+	const { moveMessages: handleMoveMessages, isPending: isMoving } =
+		useMoveMessages({
+			mailboxId,
+			accountId: mailboxAccountId,
+			onAfterOptimisticRemove: handleDeselectIfRemoved,
+		});
+
 	// Flatten threads from all pages. Belt-and-braces filter against #212:
 	// the backend already excludes soft-deleted rows, this protects the UI
 	// against regressions and eventual-consistency windows.
@@ -182,10 +193,13 @@ function MailboxView() {
 			onRetry={() => refetch()}
 			searchQuery={searchQuery}
 			onDeleteMessages={handleDeleteMessages}
+			onMoveMessages={handleMoveMessages}
 			isDeleting={isDeleting}
+			isMoving={isMoving}
 			onLoadMore={fetchNextPage}
 			hasMore={hasNextPage}
 			isLoadingMore={isFetchingNextPage}
+			accountId={mailboxAccountId}
 		/>
 	);
 

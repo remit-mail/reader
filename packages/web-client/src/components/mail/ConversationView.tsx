@@ -11,6 +11,7 @@ import { InlineCompose } from "@/components/compose/InlineCompose";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
+import { useMailboxAccount } from "@/hooks/useMailboxAccount";
 import { useMarkAsRead } from "@/hooks/useMarkAsRead";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { useToggleStar } from "@/hooks/useToggleStar";
@@ -132,6 +133,7 @@ export const ConversationView = ({
 	onBack,
 }: ConversationViewProps) => {
 	const isDesktop = useIsDesktop();
+	const { accountId: mailboxAccountId } = useMailboxAccount(mailboxId);
 	const {
 		data: messagesResponse,
 		isLoading,
@@ -335,6 +337,7 @@ export const ConversationView = ({
 						isStarPending={
 							isStarPending && pendingMessageId === message.messageId
 						}
+						accountId={mailboxAccountId}
 					/>
 				</div>
 			))}

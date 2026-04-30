@@ -24,7 +24,9 @@ import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { formatErrorDetail } from "@/components/ui/error-banners";
 import { useDeleteMessages } from "@/hooks/useDeleteMessages";
+import { useMoveMessages } from "@/hooks/useMoveMessages";
 import { useToggleTrusted } from "@/hooks/useToggleTrusted";
+import { MoveToTrigger } from "./MoveToTrigger";
 
 interface ThreadMessagesData {
 	items: RemitImapThreadMessageResponse[];
@@ -60,6 +62,14 @@ interface MessageActionMenuProps {
 	mailboxId: string;
 	isRead: boolean;
 	/**
+	 * Account that owns this message's mailbox. When provided the
+	 * Move-to-folder trigger is rendered next to the overflow; when
+	 * omitted (e.g. the surrounding view hasn't resolved the account
+	 * yet) the trigger is hidden so we never present a picker scoped to
+	 * the wrong account.
+	 */
+	accountId?: string;
+	/**
 	 * The From-address `addressId` for the message. When omitted (e.g. the
 	 * envelope has no parseable From) the "Trusted sender" toggle is
 	 * disabled with an explanatory tooltip.
@@ -76,6 +86,7 @@ export const MessageActionMenu = ({
 	threadId,
 	mailboxId,
 	isRead,
+	accountId,
 	fromAddressId,
 	isTrusted = false,
 }: MessageActionMenuProps) => {
@@ -230,6 +241,13 @@ export const MessageActionMenu = ({
 		onAfterOptimisticRemove: handleAfterOptimisticRemove,
 	});
 
+	const { moveMessages, isPending: isMoving } = useMoveMessages({
+		mailboxId,
+		threadId,
+		accountId,
+		onAfterOptimisticRemove: handleAfterOptimisticRemove,
+	});
+
 	const {
 		toggleTrusted,
 		isPending: isUpdatingTrusted,
@@ -255,42 +273,64 @@ export const MessageActionMenu = ({
 		toggleTrusted(fromAddressId, isTrusted);
 	};
 
-	const isDisabled = isUpdatingFlags || isDeleting || isUpdatingTrusted;
+	const isDisabled =
+		isUpdatingFlags || isDeleting || isMoving || isUpdatingTrusted;
 	const trustedItemDisabled = isDisabled || !fromAddressId;
+
+	const handleMove = useCallback(
+		(destinationMailboxId: string) => {
+			moveMessages([messageId], destinationMailboxId);
+		},
+		[moveMessages, messageId],
+	);
 	const trustedItemTitle = !fromAddressId
 		? "Sender has no parseable address"
 		: undefined;
 
 	return (
 		<div className="flex flex-col items-end gap-1">
-			<DropdownMenu trigger={<MoreVertical className="size-4" />}>
-				<DropdownMenuItem
-					onClick={handleToggleTrusted}
-					disabled={trustedItemDisabled}
-				>
-					{isTrusted ? (
-						<BadgeCheck className="size-4 text-green-600 dark:text-green-500" />
-					) : (
-						<Check className="size-4 opacity-0" />
-					)}
-					<span title={trustedItemTitle}>Trusted sender</span>
-				</DropdownMenuItem>
-				{isRead && (
-					<DropdownMenuItem onClick={handleMarkAsUnread} disabled={isDisabled}>
-						<MailOpen className="size-4" />
-						Mark as unread
-					</DropdownMenuItem>
+			<div className="flex items-center gap-1">
+				{accountId && (
+					<MoveToTrigger
+						accountId={accountId}
+						currentMailboxId={mailboxId}
+						onMove={handleMove}
+						disabled={isDisabled}
+						label="Move this message"
+					/>
 				)}
-				<DropdownMenuSeparator />
-				<DropdownMenuItem
-					onClick={handleDelete}
-					disabled={isDisabled}
-					destructive
-				>
-					<Trash2 className="size-4" />
-					Delete
-				</DropdownMenuItem>
-			</DropdownMenu>
+				<DropdownMenu trigger={<MoreVertical className="size-4" />}>
+					<DropdownMenuItem
+						onClick={handleToggleTrusted}
+						disabled={trustedItemDisabled}
+					>
+						{isTrusted ? (
+							<BadgeCheck className="size-4 text-green-600 dark:text-green-500" />
+						) : (
+							<Check className="size-4 opacity-0" />
+						)}
+						<span title={trustedItemTitle}>Trusted sender</span>
+					</DropdownMenuItem>
+					{isRead && (
+						<DropdownMenuItem
+							onClick={handleMarkAsUnread}
+							disabled={isDisabled}
+						>
+							<MailOpen className="size-4" />
+							Mark as unread
+						</DropdownMenuItem>
+					)}
+					<DropdownMenuSeparator />
+					<DropdownMenuItem
+						onClick={handleDelete}
+						disabled={isDisabled}
+						destructive
+					>
+						<Trash2 className="size-4" />
+						Delete
+					</DropdownMenuItem>
+				</DropdownMenu>
+			</div>
 			{trustedError && (
 				<div className="w-64">
 					<ErrorState
