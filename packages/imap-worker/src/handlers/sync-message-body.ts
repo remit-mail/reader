@@ -2,6 +2,7 @@ import { SQSClient } from "@aws-sdk/client-sqs";
 import { AwsQueryProtocol } from "@aws-sdk/core/protocols";
 import {
 	AccountService,
+	AddressService,
 	getClient,
 	MailboxService,
 	MessageService,
@@ -42,6 +43,10 @@ const messageService = new MessageService({
 	table: env.DYNAMODB_TABLE_NAME,
 });
 const threadMessageService = new ThreadMessageService({
+	client,
+	table: env.DYNAMODB_TABLE_NAME,
+});
+const addressService = new AddressService({
 	client,
 	table: env.DYNAMODB_TABLE_NAME,
 });
@@ -92,6 +97,7 @@ export const syncMessageBody = async (
 		messageService,
 		storage,
 		threadMessageService,
+		addressService,
 		log,
 	);
 

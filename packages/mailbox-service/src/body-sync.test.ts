@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type {
-	MessageService,
-	ThreadMessageService,
+import {
+	AddressService,
+	type MessageService,
+	type ThreadMessageService,
+	type UpdateMessageInput,
 } from "@remit/remit-electrodb-service";
+import { MessageCategory } from "@remit/domain-enums";
 import type {
 	StorageReference,
 	StorageService,
@@ -26,15 +29,32 @@ const A_RAW_EML = Buffer.from(
 	].join("\r\n"),
 );
 
+const NEWSLETTER_EML = Buffer.from(
+	[
+		"From: news@news.example.com",
+		"To: bob@example.com",
+		"Subject: weekly digest",
+		"Message-ID: <news-1@news.example.com>",
+		"List-Id: <weekly.news.example.com>",
+		"List-Unsubscribe: <https://news.example.com/u>",
+		"Content-Type: text/plain",
+		"",
+		"weekly digest body",
+		"",
+	].join("\r\n"),
+);
+
 interface FakeStateOptions {
 	messageId: string;
 	hasBodyStorageKey?: boolean;
+	rawEml?: Buffer;
 }
 
 const buildFakeState = (opts: FakeStateOptions) => {
 	const storedBodies: StoreMessageBodyParams[] = [];
 	const storedParsed: StoreParsedBodyParams[] = [];
-	const updatedKeys: Array<{ messageId: string; bodyStorageKey?: string }> = [];
+	const updatedKeys: Array<{ messageId: string } & UpdateMessageInput> = [];
+	const inboundIncrements: Array<{ addressId: string; now: number }> = [];
 
 	const message = {
 		messageId: opts.messageId,
@@ -51,10 +71,7 @@ const buildFakeState = (opts: FakeStateOptions) => {
 			assert.equal(id, opts.messageId);
 			return message;
 		},
-		update: async (
-			id: string,
-			input: { bodyStorageKey?: string },
-		): Promise<unknown> => {
+		update: async (id: string, input: UpdateMessageInput): Promise<unknown> => {
 			updatedKeys.push({ messageId: id, ...input });
 			if (input.bodyStorageKey) {
 				message.bodyStorageKey = input.bodyStorageKey;
@@ -62,6 +79,12 @@ const buildFakeState = (opts: FakeStateOptions) => {
 			return message;
 		},
 	} as unknown as MessageService;
+
+	const addressService = {
+		incrementInboundCount: async (addressId: string, now: number) => {
+			inboundIncrements.push({ addressId, now });
+		},
+	} as unknown as AddressService;
 
 	const threadMessageService = {
 		getByMessageId: async () => ({
@@ -103,7 +126,7 @@ const buildFakeState = (opts: FakeStateOptions) => {
 			};
 		},
 		retrieveParsedBody: async () => null,
-		retrieve: async () => A_RAW_EML,
+		retrieve: async () => opts.rawEml ?? A_RAW_EML,
 		exists: async () => true,
 		delete: async () => {},
 	};
@@ -112,16 +135,18 @@ const buildFakeState = (opts: FakeStateOptions) => {
 		messageService,
 		threadMessageService,
 		storageService,
+		addressService,
 		storedBodies,
 		storedParsed,
 		updatedKeys,
+		inboundIncrements,
 	};
 };
 
-const buildFakeConnection = (): IImapConnection => {
+const buildFakeConnection = (rawEml?: Buffer): IImapConnection => {
 	return {
 		openBox: async () => ({}),
-		fetchMessageBody: async () => A_RAW_EML,
+		fetchMessageBody: async () => rawEml ?? A_RAW_EML,
 		// Other interface methods are unused in these tests; cast to avoid
 		// implementing the entire IMAP surface.
 	} as unknown as IImapConnection;
@@ -134,6 +159,7 @@ describe("BodySyncService.syncBodies (parsed-body cache)", () => {
 			fake.messageService,
 			fake.storageService,
 			fake.threadMessageService,
+			fake.addressService,
 		);
 
 		const result = await service.syncBodies(
@@ -168,6 +194,7 @@ describe("BodySyncService.syncBodies (parsed-body cache)", () => {
 			fake.messageService,
 			failingStorage,
 			fake.threadMessageService,
+			fake.addressService,
 		);
 
 		const result = await service.syncBodies(
@@ -180,5 +207,69 @@ describe("BodySyncService.syncBodies (parsed-body cache)", () => {
 
 		assert.equal(result.syncedCount, 1);
 		assert.equal(fake.storedBodies.length, 1);
+	});
+});
+
+describe("BodySyncService.syncBodies (classification + counters)", () => {
+	it("persists Message.category and increments inbound counter on the From Address", async () => {
+		const fake = buildFakeState({ messageId: "msg-1" });
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			fake.addressService,
+		);
+
+		const before = Date.now();
+		await service.syncBodies(
+			["msg-1"],
+			"acc-1",
+			"acc-cfg-1",
+			"INBOX",
+			async () => buildFakeConnection(),
+		);
+		const after = Date.now();
+
+		const categoryUpdate = fake.updatedKeys.find(
+			(u) => u.category !== undefined,
+		);
+		assert.ok(categoryUpdate, "expected a Message.category update");
+		assert.equal(categoryUpdate.category, MessageCategory.personal);
+
+		assert.equal(fake.inboundIncrements.length, 1);
+		const expectedAddressId = AddressService.generateAddressId(
+			"acc-cfg-1",
+			"a@example.com",
+		);
+		assert.equal(fake.inboundIncrements[0].addressId, expectedAddressId);
+		assert.ok(fake.inboundIncrements[0].now >= before);
+		assert.ok(fake.inboundIncrements[0].now <= after);
+	});
+
+	it("classifies a List-Id + List-Unsubscribe message as newsletter", async () => {
+		const fake = buildFakeState({
+			messageId: "msg-2",
+			rawEml: NEWSLETTER_EML,
+		});
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			fake.addressService,
+		);
+
+		await service.syncBodies(
+			["msg-2"],
+			"acc-1",
+			"acc-cfg-1",
+			"INBOX",
+			async () => buildFakeConnection(NEWSLETTER_EML),
+		);
+
+		const categoryUpdate = fake.updatedKeys.find(
+			(u) => u.category !== undefined,
+		);
+		assert.ok(categoryUpdate, "expected a Message.category update");
+		assert.equal(categoryUpdate.category, MessageCategory.newsletter);
 	});
 });

@@ -14,6 +14,7 @@ export {
 	type BodySyncLogger,
 	BodySyncService,
 	type ConnectionGetter,
+	extractPrimaryFromEmail,
 	type FetchBodyResult,
 	type SyncBodiesResult,
 	toParsedBody,
@@ -46,6 +47,9 @@ export {
 	type FlagSyncResult,
 	FlagSyncService,
 } from "./flag-sync.js";
+export { classifyByHeaders } from "./heuristics/classifyByHeaders.js";
+export { SOCIAL_DOMAINS } from "./heuristics/socialDomains.js";
+export { TRANSACTIONAL_DOMAINS } from "./heuristics/transactionalDomains.js";
 // IMAP connection (ImapFlow-based)
 export {
 	createImapFlowConnectionFromAccount,
