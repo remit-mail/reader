@@ -77,6 +77,7 @@ describe("patchDescribeMessage", () => {
 				cc: [],
 				bcc: [],
 				replyTo: [],
+				senderTrust: "unknown",
 			},
 			flags: [],
 			bodyParts: [],

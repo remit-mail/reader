@@ -4,6 +4,7 @@ import "../enums/MessageCategory.tsp";
 import "../enums/MessageFlag.tsp";
 import "../enums/MessageStatus.tsp";
 import "../enums/MessageSyncStatus.tsp";
+import "../enums/SenderTrust.tsp";
 import "../enums/StarColor.tsp";
 import "../scalars/string.tsp";
 
@@ -204,6 +205,9 @@ model EnvelopeResponse {
 
   @doc("Header-derived category for the message. Absent for messages synced before classification rolled out.")
   category?: MessageCategory;
+
+  @doc("Trust level for the From address, derived from AddressFlags at read time.")
+  senderTrust: SenderTrust;
 }
 
 @doc("Complete message description including all related data")
