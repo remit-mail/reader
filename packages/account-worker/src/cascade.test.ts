@@ -37,6 +37,7 @@ describe("cascade entity coverage snapshot", () => {
 			"message-flag": ["MessageFlag"],
 			"outbox-message": ["OutboxMessage"],
 			"thread-message": ["ThreadMessage"],
+			"wellknown-rule": [],
 		};
 
 		const allEntityTypes = Object.values(entityTypesByFile).flat().sort();
