@@ -23,8 +23,8 @@ interface MessageListItemProps {
 	messageCount?: number;
 	/** When true, the checkbox is always visible (e.g. mobile multi-select mode). */
 	isMultiSelectMode?: boolean;
-	/** Called on long press (mobile only). */
-	onLongPress?: () => void;
+	/** Called on long press (mobile only). Receives the row's messageId. */
+	onLongPress?: (messageId: string) => void;
 	/** Whether the current viewport is desktop size. */
 	isDesktop?: boolean;
 }
@@ -59,9 +59,13 @@ const MessageListItemComponent = ({
 		onToggleCheck(thread.messageId);
 	};
 
-	// Wire up long press for mobile
+	const messageId = thread.messageId;
+	const handleLongPress = useCallback(() => {
+		onLongPress?.(messageId);
+	}, [onLongPress, messageId]);
+
 	const longPressHandlers = useLongPress({
-		onLongPress: () => onLongPress?.(),
+		onLongPress: handleLongPress,
 		delayMs: 500,
 	});
 

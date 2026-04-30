@@ -5,7 +5,6 @@ import {
 	LeadingActions,
 	Type as ListType,
 	SwipeAction,
-	SwipeableList,
 	SwipeableListItem,
 	TrailingActions,
 } from "react-swipeable-list";
@@ -19,11 +18,13 @@ interface SwipeableMessageRowProps {
 	isChecked: boolean;
 	onToggleCheck: (id: string) => void;
 	isMultiSelectMode: boolean;
-	onLongPress: () => void;
+	onLongPress: (messageId: string) => void;
 	isDesktop: boolean;
 	onDelete: (messageId: string) => void;
 	onToggleRead: (messageId: string, currentIsRead: boolean) => void;
 }
+
+const SWIPE_THRESHOLD = 0.3;
 
 export const SwipeableMessageRow = ({
 	thread,
@@ -37,7 +38,16 @@ export const SwipeableMessageRow = ({
 	onDelete,
 	onToggleRead,
 }: SwipeableMessageRowProps) => {
-	// On desktop or in multi-select mode, disable swipe
+	const handleDelete = useCallback(() => {
+		navigator.vibrate?.(10);
+		onDelete(thread.messageId);
+	}, [onDelete, thread.messageId]);
+
+	const handleToggleRead = useCallback(() => {
+		navigator.vibrate?.(10);
+		onToggleRead(thread.messageId, thread.isRead);
+	}, [onToggleRead, thread.messageId, thread.isRead]);
+
 	if (isDesktop || isMultiSelectMode) {
 		return (
 			<MessageListItem
@@ -53,17 +63,7 @@ export const SwipeableMessageRow = ({
 		);
 	}
 
-	const handleDelete = useCallback(() => {
-		navigator.vibrate?.(10);
-		onDelete(thread.messageId);
-	}, [onDelete, thread.messageId]);
-
-	const handleToggleRead = useCallback(() => {
-		navigator.vibrate?.(10);
-		onToggleRead(thread.messageId, thread.isRead);
-	}, [onToggleRead, thread.messageId, thread.isRead]);
-
-	const leadingActions = () => (
+	const leadingActions = (
 		<LeadingActions>
 			<SwipeAction onClick={handleToggleRead}>
 				<div className="flex items-center justify-center h-full bg-blue-500 px-6">
@@ -77,7 +77,7 @@ export const SwipeableMessageRow = ({
 		</LeadingActions>
 	);
 
-	const trailingActions = () => (
+	const trailingActions = (
 		<TrailingActions>
 			<SwipeAction onClick={handleDelete} destructive>
 				<div className="flex items-center justify-center h-full bg-red-500 px-6">
@@ -88,22 +88,22 @@ export const SwipeableMessageRow = ({
 	);
 
 	return (
-		<SwipeableList type={ListType.IOS} threshold={0.3}>
-			<SwipeableListItem
-				leadingActions={leadingActions()}
-				trailingActions={trailingActions()}
-			>
-				<MessageListItem
-					thread={thread}
-					mailboxId={mailboxId}
-					isSelected={isSelected}
-					isChecked={isChecked}
-					onToggleCheck={onToggleCheck}
-					isMultiSelectMode={isMultiSelectMode}
-					onLongPress={onLongPress}
-					isDesktop={isDesktop}
-				/>
-			</SwipeableListItem>
-		</SwipeableList>
+		<SwipeableListItem
+			listType={ListType.IOS}
+			threshold={SWIPE_THRESHOLD}
+			leadingActions={leadingActions}
+			trailingActions={trailingActions}
+		>
+			<MessageListItem
+				thread={thread}
+				mailboxId={mailboxId}
+				isSelected={isSelected}
+				isChecked={isChecked}
+				onToggleCheck={onToggleCheck}
+				isMultiSelectMode={isMultiSelectMode}
+				onLongPress={onLongPress}
+				isDesktop={isDesktop}
+			/>
+		</SwipeableListItem>
 	);
 };
