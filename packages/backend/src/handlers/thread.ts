@@ -1,8 +1,8 @@
 import type { ThreadMessageItem } from "@remit/remit-electrodb-service";
-import type { ThreadMessageResponse } from "@remit/api-openapi-types";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent } from "../auth.js";
+import { enrichThreadRows } from "../derive/enrichThreadRows.js";
 import { getClient } from "../service/dynamodb.js";
 import type {
 	OperationHandler,
@@ -15,7 +15,9 @@ const DEFAULT_THREADS_PAGE_SIZE = 50;
 // Project to fields used by ListThreadsResponse — keep in sync with handler mapping.
 // Includes ThreadMessage table key fields (accountConfigId, threadMessageId) and
 // the lsi2 index components (mailboxId, sentDate) so ElectroDB can materialize
-// entities and pagination cursors from projected reads.
+// entities and pagination cursors from projected reads. accountConfigId +
+// fromEmail are required at read time to derive the From Address row for
+// senderTrust enrichment (see enrichThreadRows).
 const THREAD_LIST_ATTRIBUTES: ReadonlyArray<keyof ThreadMessageItem> = [
 	"threadMessageId",
 	"threadId",
@@ -83,28 +85,6 @@ export const buildListThreadMessagesOptions = (query: {
 	excludeDeleted: true,
 });
 
-const toThreadMessageResponse = (
-	item: ThreadMessageItem,
-): ThreadMessageResponse => ({
-	threadMessageId: item.threadMessageId,
-	threadId: item.threadId,
-	messageId: item.messageId,
-	accountConfigId: item.accountConfigId,
-	mailboxId: item.mailboxId,
-	fromEmail: item.fromEmail,
-	fromName: item.fromName,
-	subject: item.subject,
-	sentDate: item.sentDate,
-	isRead: item.isRead,
-	hasAttachment: item.hasAttachment,
-	star: item.star,
-	hasStars: item.hasStars,
-	isDeleted: item.isDeleted,
-	snippet: item.snippet,
-	createdAt: item.createdAt,
-	updatedAt: item.updatedAt,
-});
-
 export const ThreadOperations: Record<
 	ThreadOperationIds,
 	OperationHandler<ThreadOperationIds>
@@ -121,14 +101,17 @@ export const ThreadOperations: Record<
 			order?: "asc" | "desc";
 		};
 
-		const result = await getClient().threadMessage.listByMailbox(
+		const client = getClient();
+		const result = await client.threadMessage.listByMailbox(
 			accountConfigId,
 			mailboxId,
 			buildListThreadsOptions({ continuationToken, order }),
 		);
 
+		const items = await enrichThreadRows(result.items, client);
+
 		return {
-			items: result.items.map(toThreadMessageResponse).filter(Boolean),
+			items,
 			continuationToken: result.continuationToken,
 		};
 	},
@@ -160,7 +143,8 @@ export const ThreadOperations: Record<
 			attachments?: boolean;
 		};
 
-		const result = await getClient().threadMessage.searchByMailbox(
+		const client = getClient();
+		const result = await client.threadMessage.searchByMailbox(
 			accountConfigId,
 			mailboxId,
 			{
@@ -174,8 +158,10 @@ export const ThreadOperations: Record<
 			buildSearchThreadsOptions({ continuationToken, order }),
 		);
 
+		const items = await enrichThreadRows(result.items, client);
+
 		return {
-			items: result.items.map(toThreadMessageResponse).filter(Boolean),
+			items,
 			continuationToken: result.continuationToken,
 		};
 	},
@@ -192,13 +178,16 @@ export const ThreadDetailOperations: Record<
 			mailboxId?: string;
 		};
 
-		const result = await getClient().threadMessage.listByThread(
+		const client = getClient();
+		const result = await client.threadMessage.listByThread(
 			threadId,
 			buildListThreadMessagesOptions({ order, mailboxId }),
 		);
 
+		const items = await enrichThreadRows(result.items, client);
+
 		return {
-			items: result.items.map(toThreadMessageResponse).filter(Boolean),
+			items,
 			continuationToken: result.continuationToken,
 		};
 	},

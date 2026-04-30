@@ -8,6 +8,8 @@ import { Avatar } from "@/components/ui/Avatar";
 import { useLongPress } from "@/hooks/useLongPress";
 import { formatEmailDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { CategoryBadge } from "./CategoryBadge";
+import { SenderTrustIndicator } from "./SenderTrustIndicator";
 
 interface MailboxLinkSearch {
 	selectedMessageId?: string;
@@ -136,7 +138,7 @@ const MessageListItemComponent = ({
 				</div>
 
 				<div className="flex-1 min-w-0">
-					{/* Row 1: Unread dot + Participants + Date */}
+					{/* Row 1: Unread dot + Participants + SenderTrust + Date */}
 					<div className="flex items-center gap-2 mb-1">
 						<span
 							className={cn(
@@ -145,9 +147,10 @@ const MessageListItemComponent = ({
 								isChecked && "opacity-0",
 							)}
 						/>
-						<span className="text-sm truncate flex-1 text-foreground">
+						<span className="text-sm truncate flex-1 min-w-0 text-foreground">
 							{participants}
 						</span>
+						<SenderTrustIndicator senderTrust={thread.senderTrust} size="sm" />
 						<span
 							data-testid="thread-time"
 							className="text-xs text-muted-foreground shrink-0"
@@ -156,16 +159,17 @@ const MessageListItemComponent = ({
 						</span>
 					</div>
 
-					{/* Row 2: Subject + Attachment icon */}
+					{/* Row 2: Subject + Category + Attachment icon */}
 					<div className="flex items-center gap-2 pl-4 mb-1">
 						<span
 							className={cn(
-								"text-sm truncate flex-1",
+								"text-sm truncate flex-1 min-w-0",
 								!thread.isRead ? "text-foreground" : "text-muted-foreground",
 							)}
 						>
 							{displaySubject}
 						</span>
+						<CategoryBadge category={thread.category} size="sm" />
 						{thread.hasAttachment && (
 							<Paperclip
 								className="size-3.5 shrink-0 text-muted-foreground"
