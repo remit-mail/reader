@@ -41,6 +41,12 @@ namespace RemitApi {
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @delete
     op deleteMe(): DeleteAccountConfigResponse;
+
+    @doc("List wellknown senders the user has not yet promoted to VIP. Ranked by `replyCount + inboundCount` desc with `lastInboundAt` desc as the tie-breaker. Capped at 10.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    @route("/vip-suggestions")
+    op listVipSuggestions(): VipSuggestionsResponse;
   }
 
   // ============================================

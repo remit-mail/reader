@@ -3,7 +3,11 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import { ForbiddenError } from "@remit/remit-electrodb-service";
+import {
+	type AddressItem,
+	ForbiddenError,
+} from "@remit/remit-electrodb-service";
+import { toVipSuggestionEntry } from "./vip-suggestions.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -140,5 +144,59 @@ describe("handler env var names match infra contract", () => {
 		const source = readHandlerSource("./admin.ts");
 		const refs = findEnvReferences(source, "SQS_");
 		assert.deepEqual(refs, ["SQS_QUEUE_URL_ACCOUNT_FINALIZE"]);
+	});
+});
+
+// ── GET /me/vip-suggestions response shape ───────────────────────────
+
+describe("toVipSuggestionEntry", () => {
+	const baseAddress: AddressItem = {
+		addressId: "addr-1",
+		accountConfigId: "ac-1",
+		displayName: "Alice",
+		localPart: "alice",
+		domain: "example.com",
+		normalizedEmail: "alice@example.com",
+		normalizedCompound: "alice alice@example.com",
+		createdAt: 1_000,
+		updatedAt: 2_000,
+	} as AddressItem;
+
+	it("maps full Address fields onto the response entry", () => {
+		const item: AddressItem = {
+			...baseAddress,
+			inboundCount: 12,
+			outboundCount: 4,
+			replyCount: 2,
+			lastInboundAt: 1_700_000_001_000,
+			lastReplyAt: 1_700_000_002_000,
+		} as AddressItem;
+		const entry = toVipSuggestionEntry(item);
+		assert.equal(entry.addressId, "addr-1");
+		assert.equal(entry.displayName, "Alice");
+		assert.equal(entry.normalizedEmail, "alice@example.com");
+		assert.equal(entry.inboundCount, 12);
+		assert.equal(entry.outboundCount, 4);
+		assert.equal(entry.replyCount, 2);
+		assert.equal(entry.lastInboundAt, 1_700_000_001_000);
+		assert.equal(entry.lastReplyAt, 1_700_000_002_000);
+	});
+
+	it("defaults absent counters to zero", () => {
+		const entry = toVipSuggestionEntry(baseAddress);
+		assert.equal(entry.inboundCount, 0);
+		assert.equal(entry.outboundCount, 0);
+		assert.equal(entry.replyCount, 0);
+	});
+
+	it("preserves undefined display name and timestamps", () => {
+		const item: AddressItem = {
+			...baseAddress,
+			displayName: undefined,
+		} as AddressItem;
+		const entry = toVipSuggestionEntry(item);
+		assert.equal(entry.displayName, undefined);
+		assert.equal(entry.lastInboundAt, undefined);
+		assert.equal(entry.lastReplyAt, undefined);
 	});
 });

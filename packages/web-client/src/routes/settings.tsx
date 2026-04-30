@@ -9,6 +9,7 @@ import {
 	Mail,
 	Menu,
 	Settings as SettingsIcon,
+	Star,
 	Users,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -19,7 +20,12 @@ import { cn } from "@/lib/utils";
 
 const navItems = [
 	{ path: "/settings/accounts", label: "Accounts", icon: Users },
-];
+	{
+		path: "/settings/suggested-vips",
+		label: "Suggested VIPs",
+		icon: Star,
+	},
+] as const;
 
 export const Route = createFileRoute("/settings")({
 	component: SettingsLayout,
