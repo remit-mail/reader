@@ -1,12 +1,22 @@
 import { inspect } from "node:util";
-import type {
-	MessageService,
-	ThreadMessageService,
+import {
+	AddressService,
+	type MessageService,
+	type ThreadMessageService,
 } from "@remit/remit-electrodb-service";
 import type { ParsedBody, StorageService } from "@remit/storage-service";
 import { type ParsedMail, simpleParser } from "mailparser";
+import { classifyByHeaders } from "./heuristics/classifyByHeaders.js";
 import { extractSnippetFromEmail } from "./snippet.js";
 import type { IImapConnection } from "./types.js";
+
+export const extractPrimaryFromEmail = (parsed: ParsedMail): string | null => {
+	const from = parsed.from;
+	if (!from || !from.value || from.value.length === 0) return null;
+	const address = from.value[0]?.address;
+	if (!address) return null;
+	return address.toLowerCase();
+};
 
 export const toParsedBody = (parsed: ParsedMail): ParsedBody => ({
 	text: parsed.text ?? null,
@@ -53,6 +63,7 @@ export class BodySyncService {
 		private messageService: MessageService,
 		private storageService: StorageService,
 		private threadMessageService: ThreadMessageService,
+		private addressService: AddressService,
 		logger?: BodySyncLogger,
 	) {
 		this.log = logger ?? noopLogger;
@@ -281,11 +292,39 @@ export class BodySyncService {
 		// Extract snippet and update thread entities
 		const parsed = await this.updateSnippets(messageId, accountConfigId, body);
 
+		// Header-based classification + From-Address engagement counters.
+		// Counters drift under at-least-once SQS — accepted residual per EDD #232.
+		await this.classifyAndCount(messageId, accountConfigId, parsed);
+
 		// Write the parsed-body cache alongside the raw .eml so subsequent
 		// describeMessage reads can skip mailparser entirely.
 		await this.storeParsedBodyCache(accountId, messageId, parsed);
 
 		return { status: "synced", messageId };
+	}
+
+	private async classifyAndCount(
+		messageId: string,
+		accountConfigId: string,
+		parsed: ParsedMail,
+	): Promise<void> {
+		const category = classifyByHeaders(parsed);
+		await this.messageService.update(messageId, { category });
+
+		const fromEmail = extractPrimaryFromEmail(parsed);
+		if (!fromEmail) {
+			this.log.debug?.(
+				{ messageId },
+				"No From address; skipping inbound counter",
+			);
+			return;
+		}
+
+		const addressId = AddressService.generateAddressId(
+			accountConfigId,
+			fromEmail,
+		);
+		await this.addressService.incrementInboundCount(addressId, Date.now());
 	}
 
 	/**

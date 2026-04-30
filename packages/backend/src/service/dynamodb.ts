@@ -179,6 +179,7 @@ export const getClient = (): RemitClient => {
 			messageService,
 			storageService,
 			threadMessageService,
+			addressService,
 			logger,
 		);
 

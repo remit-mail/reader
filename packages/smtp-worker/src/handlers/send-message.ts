@@ -3,7 +3,10 @@ import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 import { AwsQueryProtocol } from "@aws-sdk/core/protocols";
 import {
 	AccountService,
+	AddressService,
+	EnvelopeService,
 	getClient,
+	MessageService,
 	OutboxMessageService,
 } from "@remit/remit-electrodb-service";
 import type { Logger } from "@remit/logger-lambda";
@@ -25,6 +28,18 @@ const accountService = new AccountService({
 	table: env.DYNAMODB_TABLE_NAME,
 });
 const outboxService = new OutboxMessageService({
+	client,
+	table: env.DYNAMODB_TABLE_NAME,
+});
+const addressService = new AddressService({
+	client,
+	table: env.DYNAMODB_TABLE_NAME,
+});
+const messageService = new MessageService({
+	client,
+	table: env.DYNAMODB_TABLE_NAME,
+});
+const envelopeService = new EnvelopeService({
 	client,
 	table: env.DYNAMODB_TABLE_NAME,
 });
@@ -59,6 +74,33 @@ const emitAppendSentMessage = async (
 	);
 };
 
+const findMessageByHeader = async (
+	accountConfigId: string,
+	messageIdHeader: string,
+) => {
+	const messageId = MessageService.generateId(accountConfigId, messageIdHeader);
+	return messageService.get(messageId).catch((error: unknown) => {
+		if ((error as { name?: string })?.name === "NotFoundError") return null;
+		throw error;
+	});
+};
+
+const getEnvelopeFromEmail = async (
+	messageId: string,
+): Promise<string | null> => {
+	const data = await envelopeService
+		.getMessageData(messageId)
+		.catch((error: unknown) => {
+			if ((error as { name?: string })?.name === "NotFoundError") return null;
+			throw error;
+		});
+	if (!data) return null;
+	const fromEntry = data.envelopeAddress.find(
+		(addr) => addr.addressRole === "from",
+	);
+	return fromEntry?.normalizedEmail ?? null;
+};
+
 export const handleSendMessage = (
 	event: SendMessageEvent,
 	log: Logger,
@@ -72,4 +114,13 @@ export const handleSendMessage = (
 		secrets,
 		send: sendMail,
 		emitAppendSentMessage,
+		engagement: {
+			resolveAddressId: AddressService.generateAddressId,
+			incrementOutboundCount: (addressId, now) =>
+				addressService.incrementOutboundCount(addressId, now),
+			incrementReplyCount: (addressId, now) =>
+				addressService.incrementReplyCount(addressId, now),
+			findMessageByHeader,
+			getEnvelopeFromEmail,
+		},
 	});

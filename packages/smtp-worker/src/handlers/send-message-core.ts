@@ -1,5 +1,6 @@
 import type {
 	AccountItem,
+	MessageItem,
 	OutboxMessageItem,
 	UpdateOutboxMessageInput,
 } from "@remit/remit-electrodb-service";
@@ -11,7 +12,19 @@ import {
 	type sendMail,
 } from "@remit/smtp-service";
 import type { SendMessageEvent } from "../events.js";
+import { writeEngagementCounters } from "./engagement-counters.js";
 import { resolveSmtpConfig } from "./resolve-smtp-config.js";
+
+export interface EngagementCounterDeps {
+	resolveAddressId: (accountConfigId: string, email: string) => string;
+	incrementOutboundCount: (addressId: string, now: number) => Promise<void>;
+	incrementReplyCount: (addressId: string, now: number) => Promise<void>;
+	findMessageByHeader: (
+		accountConfigId: string,
+		messageIdHeader: string,
+	) => Promise<MessageItem | null>;
+	getEnvelopeFromEmail: (messageId: string) => Promise<string | null>;
+}
 
 export interface SendMessageDeps {
 	getOutbox: (id: string) => Promise<OutboxMessageItem>;
@@ -34,6 +47,7 @@ export interface SendMessageDeps {
 		accountId: string,
 		outboxMessageId: string,
 	) => Promise<void>;
+	engagement: EngagementCounterDeps;
 }
 
 export const sendMessage = async (
@@ -94,6 +108,15 @@ export const sendMessage = async (
 		log.info(
 			{ outboxMessageId, smtpMessageId: result.messageId },
 			"Message sent successfully",
+		);
+
+		await writeEngagementCounters(outbox, deps.engagement, log).catch(
+			(error: unknown) => {
+				log.warn(
+					{ outboxMessageId, error: String(error) },
+					"Failed to write engagement counters (best-effort)",
+				);
+			},
 		);
 
 		await deps

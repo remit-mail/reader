@@ -70,6 +70,8 @@ interface Recorded {
 	marked: Array<{ id: string; sentAt: number; smtpMessageId?: string }>;
 	appendCalls: Array<{ accountId: string; outboxMessageId: string }>;
 	sendCalls: number;
+	outboundIncrements: Array<{ addressId: string; now: number }>;
+	replyIncrements: Array<{ addressId: string; now: number }>;
 }
 
 const buildDeps = (
@@ -86,6 +88,8 @@ const buildDeps = (
 		marked: [],
 		appendCalls: [],
 		sendCalls: 0,
+		outboundIncrements: [],
+		replyIncrements: [],
 	};
 	const outbox = options.outbox ?? buildOutbox();
 	const account = options.account ?? buildAccount();
@@ -124,6 +128,18 @@ const buildDeps = (
 		emitAppendSentMessage: async (accountId, outboxMessageId) => {
 			recorded.appendCalls.push({ accountId, outboxMessageId });
 			if (options.appendThrows) throw options.appendThrows;
+		},
+		engagement: {
+			resolveAddressId: (accountConfigId, email) =>
+				`addr-${accountConfigId}-${email}`,
+			incrementOutboundCount: async (addressId, now) => {
+				recorded.outboundIncrements.push({ addressId, now });
+			},
+			incrementReplyCount: async (addressId, now) => {
+				recorded.replyIncrements.push({ addressId, now });
+			},
+			findMessageByHeader: async () => null,
+			getEnvelopeFromEmail: async () => null,
 		},
 	};
 	return { deps, recorded };
@@ -271,5 +287,120 @@ describe("sendMessage handler", () => {
 		assert.equal(recorded.updates.length, 0, "must not update outbox");
 		assert.equal(recorded.statuses.length, 0, "must not change status");
 		assert.equal(recorded.appendCalls.length, 0, "must not enqueue append");
+	});
+
+	it("increments outboundCount once per unique recipient on successful send", async () => {
+		const { deps, recorded } = buildDeps({
+			outbox: buildOutbox({
+				toAddresses: ["bob@example.com", "BOB@example.com"],
+				ccAddresses: ["carol@example.com"],
+				bccAddresses: ["dave@example.com"],
+			}),
+			account: buildAccount({ smtpHost: "smtp.example.com", smtpPort: 587 }),
+		});
+
+		await sendMessage(event, silentLogger, deps);
+
+		assert.equal(recorded.marked.length, 1, "send must succeed");
+		const incrementedAddressIds = recorded.outboundIncrements
+			.map((i) => i.addressId)
+			.sort();
+		assert.deepEqual(incrementedAddressIds, [
+			"addr-cfg-1-bob@example.com",
+			"addr-cfg-1-carol@example.com",
+			"addr-cfg-1-dave@example.com",
+		]);
+		assert.equal(recorded.replyIncrements.length, 0);
+	});
+
+	it("does not increment counters when send fails", async () => {
+		const { deps, recorded } = buildDeps({
+			account: buildAccount({ smtpHost: "smtp.example.com", smtpPort: 587 }),
+			sendResult: {
+				success: false,
+				error: new Error("auth failed") as Error & { responseCode?: number },
+				smtpCode: 535,
+				isTransient: false,
+			},
+		});
+
+		await sendMessage(event, silentLogger, deps);
+
+		assert.equal(recorded.outboundIncrements.length, 0);
+		assert.equal(recorded.replyIncrements.length, 0);
+	});
+
+	it("increments replyCount when In-Reply-To resolves to a recipient", async () => {
+		const { deps, recorded } = buildDeps({
+			outbox: buildOutbox({
+				toAddresses: ["bob@example.com"],
+				inReplyTo: "parent-msg@example.com",
+			}),
+			account: buildAccount({ smtpHost: "smtp.example.com", smtpPort: 587 }),
+		});
+		deps.engagement.findMessageByHeader = async () =>
+			({ messageId: "msg-parent" }) as unknown as never;
+		deps.engagement.getEnvelopeFromEmail = async () => "bob@example.com";
+
+		await sendMessage(event, silentLogger, deps);
+
+		assert.equal(recorded.replyIncrements.length, 1);
+		assert.equal(
+			recorded.replyIncrements[0].addressId,
+			"addr-cfg-1-bob@example.com",
+		);
+	});
+
+	it("does NOT increment replyCount when resolved sender is not a recipient", async () => {
+		const { deps, recorded } = buildDeps({
+			outbox: buildOutbox({
+				toAddresses: ["bob@example.com"],
+				inReplyTo: "parent-msg@example.com",
+			}),
+			account: buildAccount({ smtpHost: "smtp.example.com", smtpPort: 587 }),
+		});
+		deps.engagement.findMessageByHeader = async () =>
+			({ messageId: "msg-parent" }) as unknown as never;
+		deps.engagement.getEnvelopeFromEmail = async () => "stranger@example.com";
+
+		await sendMessage(event, silentLogger, deps);
+
+		assert.equal(recorded.replyIncrements.length, 0);
+	});
+
+	it("collapses duplicate replyCount increments via the resolved Address", async () => {
+		const { deps, recorded } = buildDeps({
+			outbox: buildOutbox({
+				toAddresses: ["bob@example.com"],
+				inReplyTo: "parent-msg@example.com",
+				references: ["root-msg@example.com", "parent-msg@example.com"],
+			}),
+			account: buildAccount({ smtpHost: "smtp.example.com", smtpPort: 587 }),
+		});
+		deps.engagement.findMessageByHeader = async () =>
+			({ messageId: "msg-parent" }) as unknown as never;
+		deps.engagement.getEnvelopeFromEmail = async () => "bob@example.com";
+
+		await sendMessage(event, silentLogger, deps);
+
+		assert.equal(
+			recorded.replyIncrements.length,
+			1,
+			"replyCount must increment once per resolved Address",
+		);
+	});
+
+	it("does not fail the send when engagement counters throw", async () => {
+		const { deps, recorded } = buildDeps({
+			account: buildAccount({ smtpHost: "smtp.example.com", smtpPort: 587 }),
+		});
+		deps.engagement.incrementOutboundCount = async () => {
+			throw new Error("simulated DDB outage");
+		};
+
+		await sendMessage(event, silentLogger, deps);
+
+		assert.equal(recorded.marked.length, 1, "send must still be marked sent");
+		assert.equal(recorded.appendCalls.length, 1, "append must still emit");
 	});
 });
