@@ -165,8 +165,8 @@ model BodyPartParameter {
 // ============================================
 
 @doc("Body part information")
-model BodyPartResponse {
-  ...PickProperties<
+model BodyPartResponse
+  is PickProperties<
     BodyPart,
 
       | "bodyPartId"
@@ -177,13 +177,3 @@ model BodyPartResponse {
       | "sizeOctets"
       | "isMultipart"
   >;
-
-  @doc("IMAP section path (e.g., '1', '1.2', '2.1.3'). Optional during the rollout in #224 PR 1; will be required after backfill in a later PR.")
-  partPath?: string;
-
-  @doc("Content-ID header value. Used by the client to rewrite `cid:` references in HTML bodies to the part's `contentUrl`.")
-  contentId?: string;
-
-  @doc("CloudFront-hosted URL for fetching this body part's bytes. Optional during rollout in #224 PR 1; will be required after CloudFront content delivery is enabled in a later PR.")
-  contentUrl?: string;
-}
