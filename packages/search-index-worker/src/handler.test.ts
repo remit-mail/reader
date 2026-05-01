@@ -107,6 +107,7 @@ describe("search-index-worker handler", () => {
 
 		threadMessages.set(MESSAGE_ID, makeThreadMessage(MESSAGE_ID));
 		await storageService.storeParsedBody({
+			accountConfigId: ACCOUNT_CONFIG_ID,
 			accountId: ACCOUNT_ID,
 			messageId: MESSAGE_ID,
 			parsed: {
@@ -215,6 +216,7 @@ describe("search-index-worker handler", () => {
 
 		threadMessages.set(upsertMsgId, makeThreadMessage(upsertMsgId));
 		await storageService.storeParsedBody({
+			accountConfigId: ACCOUNT_CONFIG_ID,
 			accountId: ACCOUNT_ID,
 			messageId: upsertMsgId,
 			parsed: {
@@ -292,6 +294,7 @@ describe("search-index-worker handler", () => {
 
 		threadMessages.set(goodMsgId, makeThreadMessage(goodMsgId));
 		await storageService.storeParsedBody({
+			accountConfigId: ACCOUNT_CONFIG_ID,
 			accountId: ACCOUNT_ID,
 			messageId: goodMsgId,
 			parsed: {
@@ -317,11 +320,15 @@ describe("search-index-worker handler", () => {
 
 		const failingStorageService: StorageService = {
 			...storageService,
-			retrieveParsedBody: async (accountId, messageId) => {
+			retrieveParsedBody: async (accountConfigId, accountId, messageId) => {
 				if (messageId === badMsgId) {
 					throw new Error("Simulated S3 failure");
 				}
-				return storageService.retrieveParsedBody(accountId, messageId);
+				return storageService.retrieveParsedBody(
+					accountConfigId,
+					accountId,
+					messageId,
+				);
 			},
 		};
 
@@ -371,6 +378,7 @@ describe("search-index-worker handler", () => {
 
 		threadMessages.set(MESSAGE_ID, makeThreadMessage(MESSAGE_ID));
 		await storageService.storeParsedBody({
+			accountConfigId: ACCOUNT_CONFIG_ID,
 			accountId: ACCOUNT_ID,
 			messageId: MESSAGE_ID,
 			parsed: {

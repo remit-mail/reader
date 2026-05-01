@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
+import { base36uuidv5, REMIT_NAMESPACE } from "@remit/remit-electrodb-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
+import { deriveAccountConfigId as edgeDeriveAccountConfigId } from "../../../infra/constructs/cloudfront/remit-content-delivery/lambda-edge/handler.js";
 import {
 	deriveAccountConfigId,
 	getAccountConfigIdFromEvent,
@@ -31,6 +33,45 @@ describe("deriveAccountConfigId", () => {
 		assert.equal(typeof id, "string");
 		assert.ok(id.length > 0);
 		assert.match(id, /^[0-9a-z]+$/);
+	});
+});
+
+// Byte-identity contract: the backend's accountConfigId derivation
+// (`deriveAccountConfigId` in this file → `base36uuidv5` in
+// `@remit/remit-electrodb-service`) and the Lambda@Edge's inline derivation
+// (`infra/constructs/.../lambda-edge/handler.ts`) must produce identical
+// output for the same Cognito `sub`. The literals (namespace UUID, prefix
+// string, base36 alphabet) are duplicated in the Lambda@Edge bundle because
+// it cannot import the workspace package — this test catches drift if
+// either side ever changes the inputs. Canonical placeholders alice / bob /
+// carol per `feedback_no_real_names`.
+describe("deriveAccountConfigId byte-identity backend ↔ Lambda@Edge", () => {
+	const subs = [
+		"00000000-0000-0000-0000-aaaaaaaaaaaa", // alice
+		"00000000-0000-0000-0000-bbbbbbbbbbbb", // bob
+		"00000000-0000-0000-0000-cccccccccccc", // carol
+	];
+
+	for (const sub of subs) {
+		it(`backend and Lambda@Edge derive byte-identical accountConfigId for ${sub}`, () => {
+			const backend = deriveAccountConfigId(sub);
+			const edge = edgeDeriveAccountConfigId(sub);
+			assert.equal(
+				edge,
+				backend,
+				`drift between backend and Lambda@Edge derivation for sub ${sub}`,
+			);
+		});
+	}
+
+	it("backend's deriveAccountConfigId is a thin wrapper around base36uuidv5(`account:${sub}`, REMIT_NAMESPACE)", () => {
+		// Anchors the contract on the backend side: if `auth.ts` ever changes
+		// the prefix string or namespace, the Lambda@Edge byte-identity tests
+		// above would diverge — but only if Lambda@Edge stays correct. This
+		// extra check pins the backend to the documented derivation.
+		const sub = "00000000-0000-0000-0000-aaaaaaaaaaaa";
+		const expected = base36uuidv5(`account:${sub}`, REMIT_NAMESPACE);
+		assert.equal(deriveAccountConfigId(sub), expected);
 	});
 });
 

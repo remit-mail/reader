@@ -226,6 +226,7 @@ export class BodySyncService {
 
 		if (needsStore) {
 			const ref = await this.storageService.storeMessageBody({
+				accountConfigId,
 				accountId,
 				messageId,
 				content: body,
@@ -239,7 +240,12 @@ export class BodySyncService {
 			// Update snippets for thread entities — also returns the parsed
 			// mail so we don't pay mailparser twice.
 			parsed = await this.updateSnippets(messageId, accountConfigId, body);
-			await this.storeParsedBodyCache(accountId, messageId, parsed);
+			await this.storeParsedBodyCache(
+				accountConfigId,
+				accountId,
+				messageId,
+				parsed,
+			);
 		} else {
 			parsed = await simpleParser(body);
 		}
@@ -281,6 +287,7 @@ export class BodySyncService {
 
 		const body = await connection.fetchMessageBody(message.uid);
 		const ref = await this.storageService.storeMessageBody({
+			accountConfigId,
 			accountId,
 			messageId,
 			content: body,
@@ -298,7 +305,12 @@ export class BodySyncService {
 
 		// Write the parsed-body cache alongside the raw .eml so subsequent
 		// describeMessage reads can skip mailparser entirely.
-		await this.storeParsedBodyCache(accountId, messageId, parsed);
+		await this.storeParsedBodyCache(
+			accountConfigId,
+			accountId,
+			messageId,
+			parsed,
+		);
 
 		return { status: "synced", messageId };
 	}
@@ -333,13 +345,19 @@ export class BodySyncService {
 	 * can fall back to mailparser. Errors are logged via util.inspect.
 	 */
 	private async storeParsedBodyCache(
+		accountConfigId: string,
 		accountId: string,
 		messageId: string,
 		parsed: ParsedMail,
 	): Promise<void> {
 		const parsedBody = toParsedBody(parsed);
 		await this.storageService
-			.storeParsedBody({ accountId, messageId, parsed: parsedBody })
+			.storeParsedBody({
+				accountConfigId,
+				accountId,
+				messageId,
+				parsed: parsedBody,
+			})
 			.then(() => {
 				this.log.debug?.({ messageId }, "Parsed body cache stored");
 			})

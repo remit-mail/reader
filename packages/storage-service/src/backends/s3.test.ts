@@ -80,12 +80,13 @@ const createFakeS3Client = (): {
 };
 
 describe("createS3StorageService", () => {
-	test("storeMessageBody sends gzipped body without a client-supplied ChecksumSHA256", async () => {
+	test("storeMessageBody sends gzipped body keyed under accounts/{configId}/{accountId}/...", async () => {
 		const { client, commands, stored } = createFakeS3Client();
 		const storage = createS3StorageService(client, "bucket");
 		const content = Buffer.from("Hello, world! This is a message body.");
 
 		const ref = await storage.storeMessageBody({
+			accountConfigId: "cfg1",
 			accountId: "acc123",
 			messageId: "msg456",
 			content,
@@ -97,7 +98,7 @@ describe("createS3StorageService", () => {
 		assert.strictEqual(put.input.ChecksumSHA256, undefined);
 		assert.strictEqual(put.input.ContentEncoding, "gzip");
 
-		const entry = stored.get("accounts/acc123/messages/msg456/body.eml");
+		const entry = stored.get("accounts/cfg1/acc123/messages/msg456/body.eml");
 		assert.ok(entry, "object should be stored");
 		assert.deepStrictEqual(gunzipSync(entry.body), content);
 
@@ -114,11 +115,12 @@ describe("createS3StorageService", () => {
 		const hash = computeChecksum(content);
 
 		const ref = await storage.storeDeduplicated({
+			accountConfigId: "cfg1",
 			accountId: "acc123",
 			content,
 		});
 
-		const expectedKey = `accounts/acc123/dedup/${hash.slice(0, 2)}/${hash}`;
+		const expectedKey = `accounts/cfg1/acc123/dedup/${hash.slice(0, 2)}/${hash}`;
 		assert.strictEqual(ref.storageKey, expectedKey);
 		assert.strictEqual(ref.checksumSha256, hash);
 
@@ -133,6 +135,7 @@ describe("createS3StorageService", () => {
 		const content = Buffer.from("round trip payload");
 
 		const ref = await storage.storeMessageBody({
+			accountConfigId: "cfg1",
 			accountId: "acc123",
 			messageId: "msg789",
 			content,
@@ -142,7 +145,7 @@ describe("createS3StorageService", () => {
 		assert.deepStrictEqual(retrieved, content);
 	});
 
-	test("storeParsedBody writes gzipped JSON without ChecksumSHA256", async () => {
+	test("storeParsedBody writes gzipped JSON keyed under accounts/{configId}/{accountId}/...", async () => {
 		const { client, commands, stored } = createFakeS3Client();
 		const storage = createS3StorageService(client, "bucket");
 		const parsed = {
@@ -160,6 +163,7 @@ describe("createS3StorageService", () => {
 		};
 
 		const ref = await storage.storeParsedBody({
+			accountConfigId: "cfg-x",
 			accountId: "acc-x",
 			messageId: "msg-x",
 			parsed,
@@ -172,10 +176,12 @@ describe("createS3StorageService", () => {
 		assert.strictEqual(put.input.ContentType, "application/json");
 		assert.strictEqual(
 			put.input.Key,
-			"accounts/acc-x/messages/msg-x/parsed.json.gz",
+			"accounts/cfg-x/acc-x/messages/msg-x/parsed.json.gz",
 		);
 
-		const entry = stored.get("accounts/acc-x/messages/msg-x/parsed.json.gz");
+		const entry = stored.get(
+			"accounts/cfg-x/acc-x/messages/msg-x/parsed.json.gz",
+		);
 		assert.ok(entry, "parsed body should be stored");
 		assert.deepStrictEqual(
 			JSON.parse(gunzipSync(entry.body).toString("utf8")),
@@ -194,15 +200,16 @@ describe("createS3StorageService", () => {
 		};
 
 		await storage.storeParsedBody({
+			accountConfigId: "cfg-r",
 			accountId: "acc-r",
 			messageId: "msg-r",
 			parsed,
 		});
 
-		const hit = await storage.retrieveParsedBody("acc-r", "msg-r");
+		const hit = await storage.retrieveParsedBody("cfg-r", "acc-r", "msg-r");
 		assert.deepStrictEqual(hit, parsed);
 
-		const miss = await storage.retrieveParsedBody("acc-r", "nope");
+		const miss = await storage.retrieveParsedBody("cfg-r", "acc-r", "nope");
 		assert.strictEqual(miss, null);
 	});
 });

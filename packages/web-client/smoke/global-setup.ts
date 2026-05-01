@@ -294,13 +294,14 @@ const TEST_MESSAGES: TestMessage[] = [
 ];
 
 const storeMessageBody = (
+	accountConfigId: string,
 	accountId: string,
 	messageId: string,
 	bodyText: string,
 ): string => {
 	const storagePath = process.env.STORAGE_LOCAL_PATH ?? ".remit/e2e-storage";
 	const basePath = resolve(process.cwd(), "../../", storagePath);
-	const storageKey = `accounts/${accountId}/messages/${messageId}/body.eml`;
+	const storageKey = `accounts/${accountConfigId}/${accountId}/messages/${messageId}/body.eml`;
 	const fullPath = resolve(basePath, storageKey);
 
 	const emlContent = [
@@ -339,6 +340,7 @@ const seedMessages = async (config: ReturnType<typeof createConfig>) => {
 		);
 
 		const bodyStorageKey = storeMessageBody(
+			E2E_ACCOUNT_CONFIG_ID,
 			E2E_ACCOUNT_ID,
 			messageId,
 			msg.bodyText,

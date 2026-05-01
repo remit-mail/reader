@@ -56,31 +56,42 @@ describe("buildStorageUri", () => {
 });
 
 describe("path builders", () => {
-	test("buildMessageBodyKey formats correctly", () => {
-		const key = buildMessageBodyKey("acc123", "msg456");
-		assert.strictEqual(key, "accounts/acc123/messages/msg456/body.eml");
+	test("buildMessageBodyKey nests accountId under accountConfigId for tenant-scoped CloudFront caching", () => {
+		const key = buildMessageBodyKey("cfg1", "acc123", "msg456");
+		assert.strictEqual(key, "accounts/cfg1/acc123/messages/msg456/body.eml");
 	});
 
-	test("buildBodyPartKey formats correctly", () => {
-		const key = buildBodyPartKey("acc123", "msg456", "1.2");
-		assert.strictEqual(key, "accounts/acc123/messages/msg456/parts/1.2");
+	test("buildBodyPartKey nests accountId under accountConfigId", () => {
+		const key = buildBodyPartKey("cfg1", "acc123", "msg456", "1.2");
+		assert.strictEqual(key, "accounts/cfg1/acc123/messages/msg456/parts/1.2");
 	});
 
-	test("buildDeduplicatedKey formats correctly", () => {
+	test("buildDeduplicatedKey nests accountId under accountConfigId", () => {
 		const hash = "abcdef1234567890";
-		const key = buildDeduplicatedKey("acc123", hash);
-		assert.strictEqual(key, "accounts/acc123/dedup/ab/abcdef1234567890");
+		const key = buildDeduplicatedKey("cfg1", "acc123", hash);
+		assert.strictEqual(key, "accounts/cfg1/acc123/dedup/ab/abcdef1234567890");
 	});
 
-	test("buildParsedBodyKey formats correctly", () => {
-		const key = buildParsedBodyKey("acc123", "msg456");
-		assert.strictEqual(key, "accounts/acc123/messages/msg456/parsed.json.gz");
+	test("buildParsedBodyKey nests accountId under accountConfigId", () => {
+		const key = buildParsedBodyKey("cfg1", "acc123", "msg456");
+		assert.strictEqual(
+			key,
+			"accounts/cfg1/acc123/messages/msg456/parsed.json.gz",
+		);
 	});
 
 	test("computeChecksum returns SHA-256 hex", () => {
 		const content = Buffer.from("test content");
 		const expected = createHash("sha256").update(content).digest("hex");
 		assert.strictEqual(computeChecksum(content), expected);
+	});
+
+	test("path order is accountConfigId before accountId so /content/accounts/{configId}/* matches at the edge", () => {
+		const key = buildMessageBodyKey("CFG", "ACC", "MSG");
+		const segments = key.split("/");
+		assert.strictEqual(segments[0], "accounts");
+		assert.strictEqual(segments[1], "CFG");
+		assert.strictEqual(segments[2], "ACC");
 	});
 });
 
@@ -118,11 +129,12 @@ describe("isStorageNotFoundError", () => {
 });
 
 describe("createMockStorageService", () => {
-	test("storeMessageBody stores and retrieves content", async () => {
+	test("storeMessageBody stores and retrieves content with nested accountConfigId/accountId path", async () => {
 		const storage = createMockStorageService();
 		const content = Buffer.from("Hello, world!");
 
 		const ref = await storage.storeMessageBody({
+			accountConfigId: "cfg1",
 			accountId: "acc123",
 			messageId: "msg456",
 			content,
@@ -130,7 +142,7 @@ describe("createMockStorageService", () => {
 
 		assert.strictEqual(
 			ref.storageKey,
-			"accounts/acc123/messages/msg456/body.eml",
+			"accounts/cfg1/acc123/messages/msg456/body.eml",
 		);
 		assert.strictEqual(ref.sizeBytes, content.length);
 		assert.strictEqual(ref.contentEncoding, ContentEncoding.None);
@@ -144,6 +156,7 @@ describe("createMockStorageService", () => {
 		const content = Buffer.from("attachment content");
 
 		const ref = await storage.storeBodyPart({
+			accountConfigId: "cfg1",
 			accountId: "acc123",
 			messageId: "msg456",
 			partPath: "1.2",
@@ -152,7 +165,7 @@ describe("createMockStorageService", () => {
 
 		assert.strictEqual(
 			ref.storageKey,
-			"accounts/acc123/messages/msg456/parts/1.2",
+			"accounts/cfg1/acc123/messages/msg456/parts/1.2",
 		);
 
 		const retrieved = await storage.retrieve(ref.uri);
@@ -165,13 +178,14 @@ describe("createMockStorageService", () => {
 		const hash = computeChecksum(content);
 
 		const ref = await storage.storeDeduplicated({
+			accountConfigId: "cfg1",
 			accountId: "acc123",
 			content,
 		});
 
 		assert.strictEqual(
 			ref.storageKey,
-			`accounts/acc123/dedup/${hash.slice(0, 2)}/${hash}`,
+			`accounts/cfg1/acc123/dedup/${hash.slice(0, 2)}/${hash}`,
 		);
 		assert.strictEqual(ref.checksumSha256, hash);
 	});
@@ -181,6 +195,7 @@ describe("createMockStorageService", () => {
 		const content = Buffer.from("test");
 
 		const ref = await storage.storeMessageBody({
+			accountConfigId: "cfg1",
 			accountId: "acc123",
 			messageId: "msg456",
 			content,
@@ -195,6 +210,7 @@ describe("createMockStorageService", () => {
 		const content = Buffer.from("to delete");
 
 		const ref = await storage.storeMessageBody({
+			accountConfigId: "cfg1",
 			accountId: "acc123",
 			messageId: "msg456",
 			content,
@@ -222,6 +238,7 @@ describe("createMockStorageService", () => {
 		};
 
 		const ref = await storage.storeParsedBody({
+			accountConfigId: "cfg1",
 			accountId: "acc123",
 			messageId: "msg456",
 			parsed,
@@ -229,16 +246,20 @@ describe("createMockStorageService", () => {
 
 		assert.strictEqual(
 			ref.storageKey,
-			"accounts/acc123/messages/msg456/parsed.json.gz",
+			"accounts/cfg1/acc123/messages/msg456/parsed.json.gz",
 		);
 
-		const retrieved = await storage.retrieveParsedBody("acc123", "msg456");
+		const retrieved = await storage.retrieveParsedBody(
+			"cfg1",
+			"acc123",
+			"msg456",
+		);
 		assert.deepStrictEqual(retrieved, parsed);
 	});
 
 	test("retrieveParsedBody returns null on miss", async () => {
 		const storage = createMockStorageService();
-		const result = await storage.retrieveParsedBody("acc123", "nope");
+		const result = await storage.retrieveParsedBody("cfg1", "acc123", "nope");
 		assert.strictEqual(result, null);
 	});
 });
@@ -251,6 +272,7 @@ describe("createFilesystemStorageService", () => {
 		const content = Buffer.from("Filesystem test content");
 
 		const ref = await storage.storeMessageBody({
+			accountConfigId: "cfg1",
 			accountId: "acc123",
 			messageId: "msg456",
 			content,
@@ -260,7 +282,7 @@ describe("createFilesystemStorageService", () => {
 		assert.strictEqual(ref.storageLocation, testBasePath);
 		assert.strictEqual(
 			ref.storageKey,
-			"accounts/acc123/messages/msg456/body.eml",
+			"accounts/cfg1/acc123/messages/msg456/body.eml",
 		);
 		assert.ok(ref.uri.startsWith("file://"));
 
@@ -273,6 +295,7 @@ describe("createFilesystemStorageService", () => {
 		const content = Buffer.from("attachment content");
 
 		const ref = await storage.storeBodyPart({
+			accountConfigId: "cfg1",
 			accountId: "acc123",
 			messageId: "msg456",
 			partPath: "1.2",
@@ -281,7 +304,7 @@ describe("createFilesystemStorageService", () => {
 
 		assert.strictEqual(
 			ref.storageKey,
-			"accounts/acc123/messages/msg456/parts/1.2",
+			"accounts/cfg1/acc123/messages/msg456/parts/1.2",
 		);
 
 		const retrieved = await storage.retrieve(ref.uri);
@@ -294,13 +317,14 @@ describe("createFilesystemStorageService", () => {
 		const hash = computeChecksum(content);
 
 		const ref = await storage.storeDeduplicated({
+			accountConfigId: "cfg1",
 			accountId: "acc123",
 			content,
 		});
 
 		assert.strictEqual(
 			ref.storageKey,
-			`accounts/acc123/dedup/${hash.slice(0, 2)}/${hash}`,
+			`accounts/cfg1/acc123/dedup/${hash.slice(0, 2)}/${hash}`,
 		);
 		assert.strictEqual(ref.checksumSha256, hash);
 
@@ -313,6 +337,7 @@ describe("createFilesystemStorageService", () => {
 		const content = Buffer.from("exists test");
 
 		const ref = await storage.storeMessageBody({
+			accountConfigId: "cfg1",
 			accountId: "acc123",
 			messageId: "msg789",
 			content,
@@ -327,6 +352,7 @@ describe("createFilesystemStorageService", () => {
 		const content = Buffer.from("to be deleted");
 
 		const ref = await storage.storeMessageBody({
+			accountConfigId: "cfg1",
 			accountId: "acc123",
 			messageId: "msg-delete",
 			content,
@@ -346,6 +372,7 @@ describe("createFilesystemStorageService", () => {
 		};
 
 		const ref = await storage.storeParsedBody({
+			accountConfigId: "cfg1",
 			accountId: "acc123",
 			messageId: "msg-parsed",
 			parsed,
@@ -353,16 +380,24 @@ describe("createFilesystemStorageService", () => {
 
 		assert.strictEqual(
 			ref.storageKey,
-			"accounts/acc123/messages/msg-parsed/parsed.json.gz",
+			"accounts/cfg1/acc123/messages/msg-parsed/parsed.json.gz",
 		);
 
-		const retrieved = await storage.retrieveParsedBody("acc123", "msg-parsed");
+		const retrieved = await storage.retrieveParsedBody(
+			"cfg1",
+			"acc123",
+			"msg-parsed",
+		);
 		assert.deepStrictEqual(retrieved, parsed);
 	});
 
 	test("retrieveParsedBody returns null on miss (ENOENT)", async () => {
 		const storage = createFilesystemStorageService(testBasePath);
-		const result = await storage.retrieveParsedBody("acc123", "missing");
+		const result = await storage.retrieveParsedBody(
+			"cfg1",
+			"acc123",
+			"missing",
+		);
 		assert.strictEqual(result, null);
 	});
 

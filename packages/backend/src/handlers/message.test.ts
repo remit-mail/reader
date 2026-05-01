@@ -6,7 +6,7 @@ import type {
 	StoreParsedBodyParams,
 } from "@remit/storage-service";
 import {
-	extractAccountIdFromBodyKey,
+	extractAccountIdsFromBodyKey,
 	fetchBodyFromStorage,
 	isStorageNotFoundError,
 } from "./message.js";
@@ -43,19 +43,28 @@ describe("isStorageNotFoundError", () => {
 	});
 });
 
-describe("extractAccountIdFromBodyKey", () => {
-	it("extracts accountId from an s3:// URI", () => {
-		assert.equal(
-			extractAccountIdFromBodyKey(
-				"s3://remit-storage-dev/accounts/acc-abc/messages/msg-1/body.eml",
+describe("extractAccountIdsFromBodyKey", () => {
+	it("extracts accountConfigId + accountId from a /accounts/{cfg}/{acc}/... s3 URI", () => {
+		assert.deepEqual(
+			extractAccountIdsFromBodyKey(
+				"s3://remit-storage-dev/accounts/cfg-1/acc-abc/messages/msg-1/body.eml",
 			),
-			"acc-abc",
+			{ accountConfigId: "cfg-1", accountId: "acc-abc" },
 		);
 	});
 
 	it("returns null when the URI shape doesn't match", () => {
 		assert.equal(
-			extractAccountIdFromBodyKey("s3://bucket/some/other/path.bin"),
+			extractAccountIdsFromBodyKey("s3://bucket/some/other/path.bin"),
+			null,
+		);
+	});
+
+	it("returns null when only one segment is present (legacy path)", () => {
+		assert.equal(
+			extractAccountIdsFromBodyKey(
+				"s3://bucket/accounts/legacy-acc/messages/m1/body.eml",
+			),
 			null,
 		);
 	});
@@ -114,7 +123,7 @@ const createFakeStorage = (opts: FakeStorageOptions): FakeStorage => {
 				uri: `mock://parsed/${params.messageId}`,
 				storageType: "s3",
 				storageLocation: "mock",
-				storageKey: `accounts/${params.accountId}/messages/${params.messageId}/parsed.json.gz`,
+				storageKey: `accounts/${params.accountConfigId}/${params.accountId}/messages/${params.messageId}/parsed.json.gz`,
 				sizeBytes: 0,
 				checksumSha256: "x",
 				contentEncoding: "gzip",
@@ -142,7 +151,8 @@ const createFakeStorage = (opts: FakeStorageOptions): FakeStorage => {
 };
 
 describe("fetchBodyFromStorage", () => {
-	const bodyKey = "s3://remit-storage-dev/accounts/acc1/messages/msg1/body.eml";
+	const bodyKey =
+		"s3://remit-storage-dev/accounts/cfg1/acc1/messages/msg1/body.eml";
 
 	it("returns cached parsed body and skips raw retrieve + parse", async () => {
 		const cached: ParsedBody = {
@@ -175,6 +185,7 @@ describe("fetchBodyFromStorage", () => {
 		assert.equal(calls.retrieveParsedBody, 1);
 		assert.equal(calls.retrieve, 1);
 		assert.equal(calls.storeParsedBody, 1);
+		assert.equal(stored[0].accountConfigId, "cfg1");
 		assert.equal(stored[0].accountId, "acc1");
 		assert.equal(stored[0].messageId, "msg1");
 		assert.equal(typeof stored[0].parsed.text, "string");

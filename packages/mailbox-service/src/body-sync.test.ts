@@ -62,7 +62,7 @@ const buildFakeState = (opts: FakeStateOptions) => {
 		uid: 42,
 		messageIdHeader: "<abc@example.com>",
 		bodyStorageKey: opts.hasBodyStorageKey
-			? "s3://bucket/accounts/acc-1/messages/msg-1/body.eml"
+			? "s3://bucket/accounts/acc-cfg-1/acc-1/messages/msg-1/body.eml"
 			: undefined,
 	};
 
@@ -98,10 +98,10 @@ const buildFakeState = (opts: FakeStateOptions) => {
 		storeMessageBody: async (params): Promise<StorageReference> => {
 			storedBodies.push(params);
 			return {
-				uri: `s3://bucket/accounts/${params.accountId}/messages/${params.messageId}/body.eml`,
+				uri: `s3://bucket/accounts/${params.accountConfigId}/${params.accountId}/messages/${params.messageId}/body.eml`,
 				storageType: "s3",
 				storageLocation: "bucket",
-				storageKey: `accounts/${params.accountId}/messages/${params.messageId}/body.eml`,
+				storageKey: `accounts/${params.accountConfigId}/${params.accountId}/messages/${params.messageId}/body.eml`,
 				sizeBytes: params.content.length,
 				checksumSha256: "x",
 				contentEncoding: "gzip",
@@ -116,10 +116,10 @@ const buildFakeState = (opts: FakeStateOptions) => {
 		storeParsedBody: async (params): Promise<StorageReference> => {
 			storedParsed.push(params);
 			return {
-				uri: `s3://bucket/accounts/${params.accountId}/messages/${params.messageId}/parsed.json.gz`,
+				uri: `s3://bucket/accounts/${params.accountConfigId}/${params.accountId}/messages/${params.messageId}/parsed.json.gz`,
 				storageType: "s3",
 				storageLocation: "bucket",
-				storageKey: `accounts/${params.accountId}/messages/${params.messageId}/parsed.json.gz`,
+				storageKey: `accounts/${params.accountConfigId}/${params.accountId}/messages/${params.messageId}/parsed.json.gz`,
 				sizeBytes: 0,
 				checksumSha256: "x",
 				contentEncoding: "gzip",
@@ -175,6 +175,7 @@ describe("BodySyncService.syncBodies (parsed-body cache)", () => {
 		assert.equal(fake.storedParsed.length, 1);
 
 		const cached = fake.storedParsed[0];
+		assert.equal(cached.accountConfigId, "acc-cfg-1");
 		assert.equal(cached.accountId, "acc-1");
 		assert.equal(cached.messageId, "msg-1");
 		assert.equal(typeof cached.parsed.text, "string");
