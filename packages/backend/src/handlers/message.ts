@@ -44,15 +44,21 @@ export const isStorageNotFoundError = (error: unknown): boolean =>
 	isStorageNotFoundErrorFromService(error);
 
 /**
- * Extract the accountId segment from a bodyStorageKey URI such as
- * `s3://bucket/accounts/{accountId}/messages/{messageId}/body.eml`.
- * Returns null when the URI shape doesn't match — caller falls back to
- * the slow path without writing a parsed-body cache.
+ * Extract the accountConfigId + accountId segments from a bodyStorageKey URI
+ * such as
+ * `s3://bucket/accounts/{accountConfigId}/{accountId}/messages/{messageId}/body.eml`.
+ * Returns null when the URI shape doesn't match — caller falls back to the
+ * slow path without writing a parsed-body cache.
  */
-export const extractAccountIdFromBodyKey = (uri: string): string | null => {
+export const extractAccountIdsFromBodyKey = (
+	uri: string,
+): { accountConfigId: string; accountId: string } | null => {
 	const parsed = parseStorageUri(uri);
-	const match = parsed.storageKey.match(/^accounts\/([^/]+)\/messages\//);
-	return match ? match[1] : null;
+	const match = parsed.storageKey.match(
+		/^accounts\/([^/]+)\/([^/]+)\/messages\//,
+	);
+	if (!match) return null;
+	return { accountConfigId: match[1], accountId: match[2] };
 };
 
 export interface BodyContent {
@@ -76,10 +82,14 @@ export const fetchBodyFromStorage = async (
 	messageId: string,
 	bodyStorageKey: string,
 ): Promise<BodyContent | null> => {
-	const accountId = extractAccountIdFromBodyKey(bodyStorageKey);
+	const ids = extractAccountIdsFromBodyKey(bodyStorageKey);
 
-	if (accountId) {
-		const cached = await storage.retrieveParsedBody(accountId, messageId);
+	if (ids) {
+		const cached = await storage.retrieveParsedBody(
+			ids.accountConfigId,
+			ids.accountId,
+			messageId,
+		);
 		if (cached) {
 			return {
 				bodyText: cached.text ?? undefined,
@@ -101,10 +111,11 @@ export const fetchBodyFromStorage = async (
 	const bodyText = parsed.text ?? undefined;
 	const bodyHtml = typeof parsed.html === "string" ? parsed.html : undefined;
 
-	if (accountId) {
+	if (ids) {
 		await storage
 			.storeParsedBody({
-				accountId,
+				accountConfigId: ids.accountConfigId,
+				accountId: ids.accountId,
 				messageId,
 				parsed: {
 					text: parsed.text ?? null,

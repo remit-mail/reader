@@ -65,48 +65,56 @@ export const createS3StorageService = (
 	};
 
 	const storeMessageBody: StorageService["storeMessageBody"] = (params) => {
-		const { accountId, messageId, content } = params;
+		const { accountConfigId, accountId, messageId, content } = params;
 		return storeInternal({
-			key: buildMessageBodyKey(accountId, messageId),
+			key: buildMessageBodyKey(accountConfigId, accountId, messageId),
 			content,
 			contentType: "message/rfc822",
 		});
 	};
 
 	const storeBodyPart: StorageService["storeBodyPart"] = (params) => {
-		const { accountId, messageId, partPath, content, contentType } = params;
+		const {
+			accountConfigId,
+			accountId,
+			messageId,
+			partPath,
+			content,
+			contentType,
+		} = params;
 		return storeInternal({
-			key: buildBodyPartKey(accountId, messageId, partPath),
+			key: buildBodyPartKey(accountConfigId, accountId, messageId, partPath),
 			content,
 			contentType,
 		});
 	};
 
 	const storeDeduplicated: StorageService["storeDeduplicated"] = (params) => {
-		const { accountId, content, contentType } = params;
+		const { accountConfigId, accountId, content, contentType } = params;
 		const checksumSha256 = computeChecksum(content);
 		return storeInternal({
-			key: buildDeduplicatedKey(accountId, checksumSha256),
+			key: buildDeduplicatedKey(accountConfigId, accountId, checksumSha256),
 			content,
 			contentType,
 		});
 	};
 
 	const storeParsedBody: StorageService["storeParsedBody"] = (params) => {
-		const { accountId, messageId, parsed } = params;
+		const { accountConfigId, accountId, messageId, parsed } = params;
 		const content = Buffer.from(JSON.stringify(parsed), "utf8");
 		return storeInternal({
-			key: buildParsedBodyKey(accountId, messageId),
+			key: buildParsedBodyKey(accountConfigId, accountId, messageId),
 			content,
 			contentType: "application/json",
 		});
 	};
 
 	const retrieveParsedBody: StorageService["retrieveParsedBody"] = async (
+		accountConfigId,
 		accountId,
 		messageId,
 	) => {
-		const key = buildParsedBodyKey(accountId, messageId);
+		const key = buildParsedBodyKey(accountConfigId, accountId, messageId);
 
 		const response = await client
 			.send(new GetObjectCommand({ Bucket: bucketName, Key: key }))

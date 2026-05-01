@@ -27,6 +27,7 @@ export interface StorageReference {
 
 /** Parameters for storing a message body (raw RFC822 content) */
 export interface StoreMessageBodyParams {
+	accountConfigId: string;
 	accountId: string;
 	messageId: string;
 	content: Buffer;
@@ -34,6 +35,7 @@ export interface StoreMessageBodyParams {
 
 /** Parameters for storing a body part (attachment, inline content) */
 export interface StoreBodyPartParams {
+	accountConfigId: string;
 	accountId: string;
 	messageId: string;
 	partPath: string;
@@ -43,6 +45,7 @@ export interface StoreBodyPartParams {
 
 /** Parameters for storing deduplicated content (attachments shared across messages) */
 export interface StoreDeduplicatedParams {
+	accountConfigId: string;
 	accountId: string;
 	content: Buffer;
 	contentType?: string;
@@ -66,6 +69,7 @@ export interface ParsedBody {
 
 /** Parameters for storing a pre-parsed message body */
 export interface StoreParsedBodyParams {
+	accountConfigId: string;
 	accountId: string;
 	messageId: string;
 	parsed: ParsedBody;
@@ -86,6 +90,7 @@ export interface StorageService {
 
 	/** Retrieve a pre-parsed message body by account/message id; returns null on NoSuchKey */
 	retrieveParsedBody(
+		accountConfigId: string,
 		accountId: string,
 		messageId: string,
 	): Promise<ParsedBody | null>;
@@ -100,28 +105,39 @@ export interface StorageService {
 	delete(uri: string): Promise<void>;
 }
 
-// Path builders - centralized path formatting per RFC 011
+// Path builders - centralized path formatting per RFC 011 + #224.
+// The outer segment is `accountConfigId` (Cognito-derived tenant scope) so
+// the Lambda@Edge can verify cross-tenant isolation at the URL prefix without
+// loading any DynamoDB record. The inner `accountId` distinguishes between
+// multiple IMAP-account records owned by the same tenant.
 export const buildMessageBodyKey = (
+	accountConfigId: string,
 	accountId: string,
 	messageId: string,
-): string => `accounts/${accountId}/messages/${messageId}/body.eml`;
+): string =>
+	`accounts/${accountConfigId}/${accountId}/messages/${messageId}/body.eml`;
 
 export const buildParsedBodyKey = (
+	accountConfigId: string,
 	accountId: string,
 	messageId: string,
-): string => `accounts/${accountId}/messages/${messageId}/parsed.json.gz`;
+): string =>
+	`accounts/${accountConfigId}/${accountId}/messages/${messageId}/parsed.json.gz`;
 
 export const buildBodyPartKey = (
+	accountConfigId: string,
 	accountId: string,
 	messageId: string,
 	partPath: string,
-): string => `accounts/${accountId}/messages/${messageId}/parts/${partPath}`;
+): string =>
+	`accounts/${accountConfigId}/${accountId}/messages/${messageId}/parts/${partPath}`;
 
 export const buildDeduplicatedKey = (
+	accountConfigId: string,
 	accountId: string,
 	checksumSha256: string,
 ): string =>
-	`accounts/${accountId}/dedup/${checksumSha256.slice(0, 2)}/${checksumSha256}`;
+	`accounts/${accountConfigId}/${accountId}/dedup/${checksumSha256.slice(0, 2)}/${checksumSha256}`;
 
 export const computeChecksum = (content: Buffer): string =>
 	createHash("sha256").update(content).digest("hex");
@@ -170,14 +186,17 @@ export const createMockStorageService = (): StorageService => {
 	const storeMessageBody: StorageService["storeMessageBody"] = async (
 		params,
 	) => {
-		const { accountId, messageId, content } = params;
-		return storeInternal(buildMessageBodyKey(accountId, messageId), content);
+		const { accountConfigId, accountId, messageId, content } = params;
+		return storeInternal(
+			buildMessageBodyKey(accountConfigId, accountId, messageId),
+			content,
+		);
 	};
 
 	const storeBodyPart: StorageService["storeBodyPart"] = async (params) => {
-		const { accountId, messageId, partPath, content } = params;
+		const { accountConfigId, accountId, messageId, partPath, content } = params;
 		return storeInternal(
-			buildBodyPartKey(accountId, messageId, partPath),
+			buildBodyPartKey(accountConfigId, accountId, messageId, partPath),
 			content,
 		);
 	};
@@ -185,25 +204,29 @@ export const createMockStorageService = (): StorageService => {
 	const storeDeduplicated: StorageService["storeDeduplicated"] = async (
 		params,
 	) => {
-		const { accountId, content } = params;
+		const { accountConfigId, accountId, content } = params;
 		const checksumSha256 = computeChecksum(content);
 		return storeInternal(
-			buildDeduplicatedKey(accountId, checksumSha256),
+			buildDeduplicatedKey(accountConfigId, accountId, checksumSha256),
 			content,
 		);
 	};
 
 	const storeParsedBody: StorageService["storeParsedBody"] = async (params) => {
-		const { accountId, messageId, parsed } = params;
+		const { accountConfigId, accountId, messageId, parsed } = params;
 		const content = Buffer.from(JSON.stringify(parsed), "utf8");
-		return storeInternal(buildParsedBodyKey(accountId, messageId), content);
+		return storeInternal(
+			buildParsedBodyKey(accountConfigId, accountId, messageId),
+			content,
+		);
 	};
 
 	const retrieveParsedBody: StorageService["retrieveParsedBody"] = async (
+		accountConfigId,
 		accountId,
 		messageId,
 	) => {
-		const uri = `mock://${buildParsedBodyKey(accountId, messageId)}`;
+		const uri = `mock://${buildParsedBodyKey(accountConfigId, accountId, messageId)}`;
 		const content = storage.get(uri);
 		if (!content) return null;
 		return JSON.parse(content.toString("utf8")) as ParsedBody;

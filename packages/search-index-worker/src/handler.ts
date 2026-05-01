@@ -132,6 +132,7 @@ const processOneUpsert = async (
 	}
 
 	const parsedBody = await storageService.retrieveParsedBody(
+		accountConfigId,
 		accountId,
 		messageId,
 	);
