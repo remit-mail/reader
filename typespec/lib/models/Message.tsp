@@ -232,6 +232,9 @@ model DescribeMessageResponse {
 
   @doc("HTML body content (sanitize before rendering)")
   bodyHtml?: string;
+
+  @doc("CloudFront-hosted URL for fetching the parsed message body. Optional during rollout in #224 PR 1; will be required after CloudFront content delivery is enabled in a later PR. When set, clients should fetch this URL instead of inlining `bodyText` / `bodyHtml`.")
+  contentUrl?: string;
 }
 
 // ============================================
