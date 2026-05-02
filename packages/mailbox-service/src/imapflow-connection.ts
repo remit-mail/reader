@@ -446,6 +446,7 @@ export class ImapFlowConnection {
 				uid: true,
 				flags: true,
 				envelope: true,
+				bodyStructure: true,
 				internalDate: true,
 				size: true,
 				headers: ["references"],
@@ -486,6 +487,7 @@ export class ImapFlowConnection {
 				size: msg.size ?? 0,
 				envelope: this.convertEnvelope(msg.envelope),
 				references,
+				bodyStructure: msg.bodyStructure,
 			});
 		}
 

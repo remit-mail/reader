@@ -1,16 +1,22 @@
 import {
 	AddressService,
-	base36uuidv5,
+	type BodyPartUpsertInput,
+	deriveBodyPartId,
 	EnvelopeService,
 	type MailboxService,
 	MessageService,
-	REMIT_NAMESPACE,
 	ThreadMessageService,
 } from "@remit/remit-electrodb-service";
 import { AddressRole } from "@remit/domain-enums";
 import pMap from "p-map";
 import type { ManagedConnectionFactory } from "./connection-factory.js";
-import type { ImapAddress, ImapEnvelope, ImapMessage } from "./types.js";
+import { ROOT_PART_PATH, walkMimeStructure } from "./mime-walker.js";
+import type {
+	ImapAddress,
+	ImapBodyStructure,
+	ImapEnvelope,
+	ImapMessage,
+} from "./types.js";
 
 const MESSAGE_SAVE_CONCURRENCY = 10;
 const ADDRESS_SAVE_CONCURRENCY = 10;
@@ -251,10 +257,7 @@ export class MessageSyncService {
 			fromHost: envelope.from?.[0]?.host,
 		});
 		const envelopeId = EnvelopeService.generateId(messageId);
-		const rootBodyPartId = base36uuidv5(
-			`bodypart:${messageId}:root`,
-			REMIT_NAMESPACE,
-		);
+		const rootBodyPartId = deriveBodyPartId(messageId, ROOT_PART_PATH);
 		const sentDate = new Date(envelope.date).getTime();
 
 		// Prepare all address save operations
@@ -269,6 +272,8 @@ export class MessageSyncService {
 			{ addresses: envelope.cc, role: AddressRole.Cc },
 			{ addresses: envelope.bcc, role: AddressRole.Bcc },
 		];
+
+		const bodyParts = buildBodyPartUpserts(msg.bodyStructure);
 
 		// Run all entity saves in parallel with concurrency limit
 		const saveOps: Array<() => Promise<void>> = [
@@ -299,6 +304,13 @@ export class MessageSyncService {
 					envelopeId,
 					rootBodyPartId,
 				});
+			},
+			// Save BodyPart + BodyPartParameter rows for the MIME tree.
+			// IMAP returns BODYSTRUCTURE in the same FETCH that returns the
+			// envelope, so this is "free" — no extra round-trip.
+			async () => {
+				if (bodyParts.length === 0) return;
+				await this.envelopeService.upsertBodyParts(messageId, bodyParts);
 			},
 			// Create Thread and ThreadMessage
 			async () => {
@@ -492,3 +504,42 @@ export class MessageSyncService {
 			});
 	}
 }
+
+/**
+ * Translate the IMAP BODYSTRUCTURE for a single message into a list of
+ * `BodyPartUpsertInput`s ready for `EnvelopeService.upsertBodyParts`.
+ * Returns an empty list when the server didn't return BODYSTRUCTURE
+ * (some unusual messages, or older test fixtures).
+ */
+const buildBodyPartUpserts = (
+	bodyStructure: ImapBodyStructure | undefined,
+): BodyPartUpsertInput[] => {
+	if (!bodyStructure) return [];
+	return walkMimeStructure(bodyStructure).map((part) => ({
+		partPath: part.partPath,
+		parentPartPath: part.parentPartPath,
+		mediaType: part.mediaType,
+		mediaSubtype: part.mediaSubtype,
+		transferEncoding: part.transferEncoding,
+		sizeOctets: part.sizeOctets,
+		isMultipart: part.isMultipart,
+		parameters: part.parameters,
+		...(part.contentId !== undefined ? { contentId: part.contentId } : {}),
+		...(part.contentDescription !== undefined
+			? { contentDescription: part.contentDescription }
+			: {}),
+		...(part.lineCount !== undefined ? { lineCount: part.lineCount } : {}),
+		...(part.md5Hash !== undefined ? { md5Hash: part.md5Hash } : {}),
+		...(part.disposition !== undefined
+			? { disposition: part.disposition }
+			: {}),
+		...(part.dispositionFilename !== undefined
+			? { dispositionFilename: part.dispositionFilename }
+			: {}),
+		...(part.language !== undefined ? { language: part.language } : {}),
+		...(part.location !== undefined ? { location: part.location } : {}),
+		...(part.multipartSubtype !== undefined
+			? { multipartSubtype: part.multipartSubtype }
+			: {}),
+	}));
+};
