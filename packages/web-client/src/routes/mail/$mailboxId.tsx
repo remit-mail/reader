@@ -30,6 +30,7 @@ import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { useMailboxAccount } from "@/hooks/useMailboxAccount";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { useMoveMessages } from "@/hooks/useMoveMessages";
+import { normalizeSearchQuery } from "@/lib/search-query";
 import { useMailContext } from "@/routes/mail";
 
 // Search schema includes q from parent route for proper inheritance
@@ -52,14 +53,20 @@ function MailboxView() {
 	const isDesktop = useIsDesktop();
 	const { accounts } = useMailContext();
 
-	// Use search API when there's a query, otherwise list API
-	const hasSearchQuery = searchQuery.trim().length > 0;
+	// Use search API when there's a query, otherwise list API. The query is
+	// normalized (trim + locale-aware lowercase) before it leaves the client
+	// so equivalent searches collide on the same React Query cache entry and
+	// the backend comparison is case-insensitive. The display value
+	// (`searchQuery`) keeps the user's original casing in the input + the
+	// "results for X" header.
+	const normalizedSearchQuery = normalizeSearchQuery(searchQuery);
+	const hasSearchQuery = normalizedSearchQuery.length > 0;
 
 	// Query key for cache management
 	const queryKey = hasSearchQuery
 		? threadOperationsSearchThreadsQueryKey({
 				path: { mailboxId },
-				query: { order: "desc", query: searchQuery.trim() },
+				query: { order: "desc", query: normalizedSearchQuery },
 			})
 		: threadOperationsListThreadsQueryKey({
 				path: { mailboxId },
@@ -83,7 +90,7 @@ function MailboxView() {
 					path: { mailboxId },
 					query: {
 						order: "desc",
-						query: searchQuery.trim(),
+						query: normalizedSearchQuery,
 						continuationToken: pageParam,
 					},
 					throwOnError: true,
@@ -99,7 +106,7 @@ function MailboxView() {
 		},
 		initialPageParam: undefined as string | undefined,
 		getNextPageParam: (lastPage) => lastPage.continuationToken,
-		enabled: hasSearchQuery ? searchQuery.trim().length > 0 : true,
+		enabled: hasSearchQuery ? normalizedSearchQuery.length > 0 : true,
 		placeholderData: keepPreviousData,
 	});
 
