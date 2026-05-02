@@ -43,15 +43,34 @@ const EXCLUDED_SPECIAL_USE: ReadonlySet<string> = new Set([
 	normalizeSpecialUseFlag(MailboxSpecialUse.Sent as RemitImapMailboxSpecialUse),
 ]);
 
+// Outbox has no IMAP special-use flag (RFC 6154 doesn't define one), so we
+// fall back to a hand-curated list of localized names. KISS: covers the
+// languages we expect to encounter; extend as needed. Stored lowercased and
+// trimmed; comparisons normalize the input the same way.
+const OUTBOX_LOCALE_NAMES: ReadonlySet<string> = new Set([
+	"outbox",
+	"postvak uit",
+	"boîte d'envoi",
+	"postausgang",
+	"buzón de salida",
+	"posta in uscita",
+	"送信トレイ",
+	"送件匣",
+	"发件箱",
+	"skrzynka nadawcza",
+]);
+
 const EXCLUDED_NAME_ALIASES: ReadonlySet<string> = new Set([
 	"drafts",
 	"draft",
-	"outbox",
 	"sent",
 	"sent mail",
 	"sent items",
 	"sent messages",
 ]);
+
+const normalizeLeafName = (fullPath: string): string =>
+	getMailboxDisplayName(fullPath).trim().toLowerCase();
 
 const isExcludedDestination = (mailbox: RemitImapMailboxResponse): boolean => {
 	if (mailbox.specialUse) {
@@ -59,8 +78,9 @@ const isExcludedDestination = (mailbox: RemitImapMailboxResponse): boolean => {
 			if (EXCLUDED_SPECIAL_USE.has(flag)) return true;
 		}
 	}
-	const leaf = getMailboxDisplayName(mailbox.fullPath).toLowerCase();
-	return EXCLUDED_NAME_ALIASES.has(leaf);
+	const leaf = normalizeLeafName(mailbox.fullPath);
+	if (EXCLUDED_NAME_ALIASES.has(leaf)) return true;
+	return OUTBOX_LOCALE_NAMES.has(leaf);
 };
 
 /**
