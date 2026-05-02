@@ -165,8 +165,8 @@ model BodyPartParameter {
 // ============================================
 
 @doc("Body part information")
-model BodyPartResponse
-  is PickProperties<
+model BodyPartResponse {
+  ...PickProperties<
     BodyPart,
 
       | "bodyPartId"
@@ -176,4 +176,9 @@ model BodyPartResponse
       | "dispositionFilename"
       | "sizeOctets"
       | "isMultipart"
+      | "contentId"
   >;
+
+  @doc("CloudFront-fronted URL for fetching this body part. Cookie-authenticated via Cognito id_token. Path: /content/accounts/{accountConfigId}/{accountId}/messages/{messageId}/parts/{partPath}.")
+  contentUrl: string;
+}

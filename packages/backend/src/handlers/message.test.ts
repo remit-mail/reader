@@ -6,6 +6,8 @@ import type {
 	StoreParsedBodyParams,
 } from "@remit/storage-service";
 import {
+	type BodyPartLike,
+	buildBodyPartResponses,
 	extractAccountIdsFromBodyKey,
 	fetchBodyFromStorage,
 	isStorageNotFoundError,
@@ -149,6 +151,88 @@ const createFakeStorage = (opts: FakeStorageOptions): FakeStorage => {
 
 	return { storage, calls, stored };
 };
+
+describe("buildBodyPartResponses", () => {
+	const PARTS: BodyPartLike[] = [
+		{
+			bodyPartId: "bp-1",
+			mediaType: "TEXT",
+			mediaSubtype: "HTML",
+			sizeOctets: 100,
+			isMultipart: false,
+			partPath: "1",
+		},
+		{
+			bodyPartId: "bp-2",
+			mediaType: "IMAGE",
+			mediaSubtype: "PNG",
+			sizeOctets: 2048,
+			isMultipart: false,
+			contentId: "<inline-1@example.com>",
+			disposition: "inline",
+			dispositionFilename: "logo.png",
+			partPath: "1.2",
+		},
+	];
+
+	it("emits contentUrl pointing at /content/accounts/{cfg}/{acc}/messages/{msg}/parts/{partPath}", () => {
+		const responses = buildBodyPartResponses(PARTS, {
+			contentDeliveryDomain: "https://cdn.test",
+			accountConfigId: "cfg-alice",
+			accountId: "acc-alice",
+			messageId: "msg-1",
+		});
+
+		assert.equal(responses.length, 2);
+		assert.equal(
+			responses[0].contentUrl,
+			"https://cdn.test/content/accounts/cfg-alice/acc-alice/messages/msg-1/parts/1",
+		);
+		assert.equal(
+			responses[1].contentUrl,
+			"https://cdn.test/content/accounts/cfg-alice/acc-alice/messages/msg-1/parts/1.2",
+		);
+	});
+
+	it("forwards contentId so the client can resolve cid:CONTENT_ID inline references", () => {
+		const responses = buildBodyPartResponses(PARTS, {
+			contentDeliveryDomain: "https://cdn.test",
+			accountConfigId: "cfg",
+			accountId: "acc",
+			messageId: "m",
+		});
+
+		assert.equal(responses[0].contentId, undefined);
+		assert.equal(responses[1].contentId, "<inline-1@example.com>");
+	});
+
+	it("returns an empty contentUrl when no CloudFront domain is configured (local dev)", () => {
+		const responses = buildBodyPartResponses(PARTS, {
+			contentDeliveryDomain: undefined,
+			accountConfigId: "cfg",
+			accountId: "acc",
+			messageId: "m",
+		});
+		assert.equal(responses[0].contentUrl, "");
+		assert.equal(responses[1].contentUrl, "");
+	});
+
+	it("preserves all existing BodyPartResponse fields verbatim", () => {
+		const responses = buildBodyPartResponses(PARTS, {
+			contentDeliveryDomain: "https://cdn.test",
+			accountConfigId: "cfg",
+			accountId: "acc",
+			messageId: "m",
+		});
+		assert.equal(responses[1].bodyPartId, "bp-2");
+		assert.equal(responses[1].mediaType, "IMAGE");
+		assert.equal(responses[1].mediaSubtype, "PNG");
+		assert.equal(responses[1].sizeOctets, 2048);
+		assert.equal(responses[1].disposition, "inline");
+		assert.equal(responses[1].dispositionFilename, "logo.png");
+		assert.equal(responses[1].isMultipart, false);
+	});
+});
 
 describe("fetchBodyFromStorage", () => {
 	const bodyKey =

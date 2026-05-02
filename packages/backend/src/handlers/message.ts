@@ -20,6 +20,10 @@ import type { APIGatewayProxyEvent } from "aws-lambda";
 import { simpleParser } from "mailparser";
 import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent } from "../auth.js";
+import {
+	buildContentUrl,
+	getContentDeliveryDomain,
+} from "../derive/contentUrl.js";
 import { deriveSenderTrust } from "../derive/senderTrust.js";
 import { logger } from "../logger.js";
 import { getClient } from "../service/dynamodb.js";
@@ -65,6 +69,58 @@ export interface BodyContent {
 	bodyText: string | undefined;
 	bodyHtml: string | undefined;
 }
+
+/**
+ * Map a list of stored `BodyPart` rows to API `BodyPartResponse` objects,
+ * populating `contentUrl` from the CloudFront distribution domain. Pure
+ * function so the URL-construction contract can be pinned in tests without
+ * standing up the full handler. When `contentDeliveryDomain` is undefined
+ * (e.g. local dev with no CloudFront stack), `contentUrl` is set to the
+ * empty string — TypeSpec marks the field required, but emitting an empty
+ * value keeps OpenAPI validation happy and lets the client gracefully fall
+ * back to its existing API-fetched render path.
+ */
+export interface BodyPartLike {
+	bodyPartId: string;
+	mediaType: string;
+	mediaSubtype: string;
+	sizeOctets: number;
+	disposition?: string;
+	dispositionFilename?: string;
+	isMultipart: boolean;
+	contentId?: string;
+	partPath: string;
+}
+
+export const buildBodyPartResponses = (
+	parts: readonly BodyPartLike[],
+	context: {
+		contentDeliveryDomain: string | undefined;
+		accountConfigId: string;
+		accountId: string;
+		messageId: string;
+	},
+): BodyPartResponse[] => {
+	return parts.map((part) => ({
+		bodyPartId: part.bodyPartId,
+		mediaType: part.mediaType as BodyPartResponse["mediaType"],
+		mediaSubtype: part.mediaSubtype,
+		sizeOctets: part.sizeOctets,
+		disposition: part.disposition as BodyPartResponse["disposition"],
+		dispositionFilename: part.dispositionFilename,
+		isMultipart: part.isMultipart,
+		contentId: part.contentId,
+		contentUrl: context.contentDeliveryDomain
+			? buildContentUrl({
+					domain: context.contentDeliveryDomain,
+					accountConfigId: context.accountConfigId,
+					accountId: context.accountId,
+					messageId: context.messageId,
+					partPath: part.partPath,
+				})
+			: "",
+	}));
+};
 
 /**
  * Fetch parsed body content for a message from storage with parsed-body caching.
@@ -217,16 +273,6 @@ export const MessageOperations: Record<
 			senderTrust,
 		};
 
-		const bodyParts: BodyPartResponse[] = description.bodyPart.map((part) => ({
-			bodyPartId: part.bodyPartId,
-			mediaType: part.mediaType,
-			mediaSubtype: part.mediaSubtype,
-			sizeOctets: part.sizeOctets,
-			disposition: part.disposition,
-			dispositionFilename: part.dispositionFilename,
-			isMultipart: part.isMultipart,
-		}));
-
 		const flags = description.messageFlag.map((f) => f.flagName);
 
 		// Fetch body content from storage if available.
@@ -238,6 +284,30 @@ export const MessageOperations: Record<
 		let bodyHtml: string | undefined;
 
 		const client = getClient();
+
+		// `accountId` is needed twice: once to build per-part `contentUrl`
+		// values for the BodyPartResponse list (#224 PR 2), and once on the
+		// IMAP-fallback path. Resolve it from the bodyStorageKey when the
+		// body has already been synced (free — the URI encodes both ids), or
+		// fall back to a single Mailbox.get() lookup. Avoids a redundant
+		// query on the fast path.
+		const idsFromKey = message.bodyStorageKey
+			? extractAccountIdsFromBodyKey(message.bodyStorageKey)
+			: null;
+		let accountId = idsFromKey?.accountId;
+		let mailboxFullPath: string | undefined;
+		if (!accountId) {
+			const mailbox = await client.mailbox.get(message.mailboxId);
+			accountId = mailbox.accountId;
+			mailboxFullPath = mailbox.fullPath;
+		}
+
+		const bodyParts = buildBodyPartResponses(description.bodyPart, {
+			contentDeliveryDomain: getContentDeliveryDomain(),
+			accountConfigId,
+			accountId,
+			messageId,
+		});
 
 		const fromStorage = message.bodyStorageKey
 			? await fetchBodyFromStorage(
@@ -253,17 +323,22 @@ export const MessageOperations: Record<
 		} else {
 			// Fall back to on-demand IMAP fetch. fetchAndGetBody now writes
 			// parsed.json.gz alongside the raw .eml on its own.
-			// accountConfigId comes from the JWT; mailbox.get is kept because
-			// fullPath + accountId are needed for the IMAP connection.
-			const mailbox = await client.mailbox.get(message.mailboxId);
-			const scope = await client.createConnectionScope(mailbox.accountId);
+			// accountConfigId comes from the JWT; mailbox.fullPath was
+			// resolved above only when bodyStorageKey was missing — re-fetch
+			// it here in the (rare) case bodyStorageKey was present but the
+			// retrieve failed and storage returned null.
+			if (!mailboxFullPath) {
+				const mailbox = await client.mailbox.get(message.mailboxId);
+				mailboxFullPath = mailbox.fullPath;
+			}
+			const scope = await client.createConnectionScope(accountId);
 
 			const result = await client.bodySync
 				.fetchAndGetBody(
 					messageId,
-					mailbox.accountId,
+					accountId,
 					accountConfigId,
-					mailbox.fullPath,
+					mailboxFullPath,
 					scope.getConnection,
 				)
 				.finally(() => scope.disconnect());
@@ -278,7 +353,7 @@ export const MessageOperations: Record<
 					{
 						type: "upsert" as const,
 						messageId,
-						accountId: mailbox.accountId,
+						accountId,
 						accountConfigId,
 						mailboxIds: [message.mailboxId],
 					},
