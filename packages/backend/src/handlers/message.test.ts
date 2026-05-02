@@ -208,15 +208,18 @@ describe("buildBodyPartResponses", () => {
 		assert.equal(responses[1].contentId, "<inline-1@example.com>");
 	});
 
-	it("returns an empty contentUrl when no CloudFront domain is configured (local dev)", () => {
+	it("emits a syntactically valid absolute URL for every part so the .url() zod check on BodyPartResponse.contentUrl passes (#299)", () => {
 		const responses = buildBodyPartResponses(PARTS, {
-			contentDeliveryDomain: undefined,
+			contentDeliveryDomain: "https://abc.cloudfront.net",
 			accountConfigId: "cfg",
 			accountId: "acc",
 			messageId: "m",
 		});
-		assert.equal(responses[0].contentUrl, "");
-		assert.equal(responses[1].contentUrl, "");
+		for (const response of responses) {
+			const parsed = new URL(response.contentUrl);
+			assert.equal(parsed.protocol, "https:");
+			assert.equal(parsed.host, "abc.cloudfront.net");
+		}
 	});
 
 	it("preserves all existing BodyPartResponse fields verbatim", () => {
@@ -249,7 +252,7 @@ describe("buildBodyPartResponses", () => {
 		assert.throws(
 			() =>
 				buildBodyPartResponses(bad, {
-					contentDeliveryDomain: undefined,
+					contentDeliveryDomain: "cdn.example.com",
 					accountConfigId: "cfg",
 					accountId: "acc",
 					messageId: "m",
@@ -273,7 +276,7 @@ describe("buildBodyPartResponses", () => {
 		assert.throws(
 			() =>
 				buildBodyPartResponses(bad, {
-					contentDeliveryDomain: undefined,
+					contentDeliveryDomain: "cdn.example.com",
 					accountConfigId: "cfg",
 					accountId: "acc",
 					messageId: "m",

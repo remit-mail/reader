@@ -79,11 +79,10 @@ export interface BodyContent {
  * Map a list of stored `BodyPart` rows to API `BodyPartResponse` objects,
  * populating `contentUrl` from the CloudFront distribution domain. Pure
  * function so the URL-construction contract can be pinned in tests without
- * standing up the full handler. When `contentDeliveryDomain` is undefined
- * (e.g. local dev with no CloudFront stack), `contentUrl` is set to the
- * empty string — TypeSpec marks the field required, but emitting an empty
- * value keeps OpenAPI validation happy and lets the client gracefully fall
- * back to its existing API-fetched render path.
+ * standing up the full handler. The contract requires every `contentUrl`
+ * to be a real URL (#299) — `getContentDeliveryDomain` throws when the
+ * Lambda env is missing the domain, and this function expects a non-empty
+ * string from the caller.
  */
 export interface BodyPartLike {
 	bodyPartId: string;
@@ -142,7 +141,7 @@ const assertDisposition = (
 export const buildBodyPartResponses = (
 	parts: readonly BodyPartLike[],
 	context: {
-		contentDeliveryDomain: string | undefined;
+		contentDeliveryDomain: string;
 		accountConfigId: string;
 		accountId: string;
 		messageId: string;
@@ -157,15 +156,13 @@ export const buildBodyPartResponses = (
 		dispositionFilename: part.dispositionFilename,
 		isMultipart: part.isMultipart,
 		contentId: part.contentId,
-		contentUrl: context.contentDeliveryDomain
-			? buildContentUrl({
-					domain: context.contentDeliveryDomain,
-					accountConfigId: context.accountConfigId,
-					accountId: context.accountId,
-					messageId: context.messageId,
-					partPath: part.partPath,
-				})
-			: "",
+		contentUrl: buildContentUrl({
+			domain: context.contentDeliveryDomain,
+			accountConfigId: context.accountConfigId,
+			accountId: context.accountId,
+			messageId: context.messageId,
+			partPath: part.partPath,
+		}),
 	}));
 };
 
