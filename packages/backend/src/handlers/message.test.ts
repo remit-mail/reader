@@ -10,6 +10,8 @@ import {
 	buildBodyPartResponses,
 	extractAccountIdsFromBodyKey,
 	fetchBodyFromStorage,
+	isContentDisposition,
+	isMediaType,
 	isStorageNotFoundError,
 } from "./message.js";
 
@@ -231,6 +233,99 @@ describe("buildBodyPartResponses", () => {
 		assert.equal(responses[1].disposition, "inline");
 		assert.equal(responses[1].dispositionFilename, "logo.png");
 		assert.equal(responses[1].isMultipart, false);
+	});
+
+	it("throws on a mediaType outside the MediaType enum", () => {
+		const bad: BodyPartLike[] = [
+			{
+				bodyPartId: "bp-bad",
+				mediaType: "BOGUS",
+				mediaSubtype: "PLAIN",
+				sizeOctets: 0,
+				isMultipart: false,
+				partPath: "1",
+			},
+		];
+		assert.throws(
+			() =>
+				buildBodyPartResponses(bad, {
+					contentDeliveryDomain: undefined,
+					accountConfigId: "cfg",
+					accountId: "acc",
+					messageId: "m",
+				}),
+			/Invalid mediaType "BOGUS" on BodyPart bp-bad/,
+		);
+	});
+
+	it("throws on a disposition outside the ContentDisposition enum", () => {
+		const bad: BodyPartLike[] = [
+			{
+				bodyPartId: "bp-bad",
+				mediaType: "TEXT",
+				mediaSubtype: "PLAIN",
+				sizeOctets: 0,
+				isMultipart: false,
+				partPath: "1",
+				disposition: "weirdo",
+			},
+		];
+		assert.throws(
+			() =>
+				buildBodyPartResponses(bad, {
+					contentDeliveryDomain: undefined,
+					accountConfigId: "cfg",
+					accountId: "acc",
+					messageId: "m",
+				}),
+			/Invalid disposition "weirdo" on BodyPart bp-bad/,
+		);
+	});
+});
+
+describe("isMediaType", () => {
+	it("accepts every value declared in the MediaType enum", () => {
+		for (const value of [
+			"TEXT",
+			"IMAGE",
+			"AUDIO",
+			"VIDEO",
+			"APPLICATION",
+			"MULTIPART",
+			"MESSAGE",
+		]) {
+			assert.equal(isMediaType(value), true, `expected ${value} to be valid`);
+		}
+	});
+
+	it("rejects unknown strings, non-strings, and casing variants", () => {
+		assert.equal(isMediaType("text"), false);
+		assert.equal(isMediaType("BOGUS"), false);
+		assert.equal(isMediaType(""), false);
+		assert.equal(isMediaType(undefined), false);
+		assert.equal(isMediaType(null), false);
+		assert.equal(isMediaType(42), false);
+	});
+});
+
+describe("isContentDisposition", () => {
+	it("accepts every value declared in the ContentDisposition enum", () => {
+		for (const value of ["inline", "attachment"]) {
+			assert.equal(
+				isContentDisposition(value),
+				true,
+				`expected ${value} to be valid`,
+			);
+		}
+	});
+
+	it("rejects unknown strings, casing variants, and non-strings", () => {
+		assert.equal(isContentDisposition("Inline"), false);
+		assert.equal(isContentDisposition("weirdo"), false);
+		assert.equal(isContentDisposition(""), false);
+		assert.equal(isContentDisposition(undefined), false);
+		assert.equal(isContentDisposition(null), false);
+		assert.equal(isContentDisposition(0), false);
 	});
 });
 
