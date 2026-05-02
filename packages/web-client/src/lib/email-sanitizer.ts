@@ -1,6 +1,9 @@
 import DOMPurify from "dompurify";
+import type { CidResolver } from "./cid-resolver";
 
 export type ColorMode = "light" | "dark" | "auto";
+export type { CidResolver } from "./cid-resolver";
+export { buildCidResolver } from "./cid-resolver";
 
 export interface SanitizeOptions {
 	allowExternalImages?: boolean;
@@ -23,6 +26,15 @@ export interface SanitizeOptions {
 	 * @default 'auto'
 	 */
 	colorMode?: ColorMode;
+	/**
+	 * Resolve a `cid:CONTENT_ID` reference to a fetchable URL. The renderer
+	 * looks up the body part with a matching `contentId` and returns its
+	 * CloudFront `contentUrl` (#224 PR 2). When the resolver returns
+	 * `undefined`, the original `cid:` URL is left in place so the failure
+	 * is visible (broken image icon) — never silently substitute a blocked-
+	 * placeholder, that would mask a real backend mismatch.
+	 */
+	resolveCid?: CidResolver;
 }
 
 const FORBIDDEN_TAGS = [
@@ -469,7 +481,18 @@ export const createEmailSanitizer = (options: SanitizeOptions = {}) => {
 			}
 
 			if (src.startsWith("cid:")) {
-				// Content-ID reference - will be resolved separately
+				// `cid:` references inline body parts. Look up the matching
+				// body part by Content-ID and rewrite to the CloudFront
+				// `contentUrl` (#224 PR 2). The Content-ID in the URL may
+				// or may not be wrapped in angle brackets — strip them so
+				// the comparison is consistent across mail clients.
+				const raw = src.slice(4);
+				const stripped = raw.replace(/^<|>$/g, "");
+				const resolved = options.resolveCid?.(stripped);
+				if (resolved) {
+					node.setAttribute("src", resolved);
+					node.classList.add("inline-content");
+				}
 				return;
 			}
 
