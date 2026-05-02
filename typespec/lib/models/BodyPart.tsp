@@ -179,6 +179,6 @@ model BodyPartResponse {
       | "contentId"
   >;
 
-  @doc("CloudFront-fronted URL for fetching this body part. Cookie-authenticated via Cognito id_token. Path: /content/accounts/{accountConfigId}/{accountId}/messages/{messageId}/parts/{partPath}.")
-  contentUrl: string;
+  @doc("CloudFront-fronted URL for fetching this body part. Cookie-authenticated via Cognito id_token. Path: /content/accounts/{accountConfigId}/{accountId}/messages/{messageId}/parts/{partPath}. Required: handlers must throw rather than emit a placeholder when CONTENT_DELIVERY_DOMAIN is unset.")
+  contentUrl: url;
 }
