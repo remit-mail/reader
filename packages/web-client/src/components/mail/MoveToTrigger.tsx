@@ -151,6 +151,7 @@ export const MoveToTrigger = ({
 			mailboxes={mailboxes}
 			currentMailboxId={currentMailboxId}
 			onSelect={handleSelect}
+			onCancel={() => setIsOpen(false)}
 			autoFocus={!isDesktop}
 		/>
 	);
