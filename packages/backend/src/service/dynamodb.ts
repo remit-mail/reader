@@ -180,6 +180,7 @@ export const getClient = (): RemitClient => {
 			storageService,
 			threadMessageService,
 			addressService,
+			envelopeService,
 			logger,
 		);
 

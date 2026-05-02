@@ -113,6 +113,30 @@ export interface ImapEnvelope {
 	messageId: string;
 }
 
+/**
+ * Subset of imapflow's `MessageStructureObject` we depend on. Restated
+ * here so non-imapflow code (and tests) can build fixtures without pulling
+ * the imapflow types in.
+ */
+export interface ImapBodyStructure {
+	/** Dot-numbered MIME path; absent on the root node. */
+	part?: string;
+	/** Full Content-Type, e.g. "text/plain" or "multipart/mixed". */
+	type: string;
+	parameters?: Record<string, string>;
+	id?: string;
+	description?: string;
+	encoding?: string;
+	size?: number;
+	lineCount?: number;
+	md5?: string;
+	disposition?: string;
+	dispositionParameters?: Record<string, string>;
+	language?: string[];
+	location?: string;
+	childNodes?: ImapBodyStructure[];
+}
+
 export interface ImapMessage {
 	uid: number;
 	seq: number;
@@ -125,6 +149,8 @@ export interface ImapMessage {
 	 * Contains Message-IDs of ancestor messages, with the first being the thread root.
 	 */
 	references?: string[];
+	/** Parsed BODYSTRUCTURE tree (RFC 9051 Section 7.5.2). */
+	bodyStructure?: ImapBodyStructure;
 }
 
 /**

@@ -3,6 +3,7 @@ import { AwsQueryProtocol } from "@aws-sdk/core/protocols";
 import {
 	AccountService,
 	AddressService,
+	EnvelopeService,
 	getClient,
 	MailboxService,
 	MessageService,
@@ -47,6 +48,10 @@ const threadMessageService = new ThreadMessageService({
 	table: env.DYNAMODB_TABLE_NAME,
 });
 const addressService = new AddressService({
+	client,
+	table: env.DYNAMODB_TABLE_NAME,
+});
+const envelopeService = new EnvelopeService({
 	client,
 	table: env.DYNAMODB_TABLE_NAME,
 });
@@ -98,6 +103,7 @@ export const syncMessageBody = async (
 		storage,
 		threadMessageService,
 		addressService,
+		envelopeService,
 		log,
 	);
 

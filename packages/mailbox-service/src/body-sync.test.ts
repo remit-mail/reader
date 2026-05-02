@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
 	AddressService,
+	type BodyPartItem,
+	type EnvelopeService,
 	type MessageService,
 	type ThreadMessageService,
 	type UpdateMessageInput,
@@ -10,6 +12,7 @@ import { MessageCategory } from "@remit/domain-enums";
 import type {
 	StorageReference,
 	StorageService,
+	StoreBodyPartParams,
 	StoreMessageBodyParams,
 	StoreParsedBodyParams,
 } from "@remit/storage-service";
@@ -48,11 +51,13 @@ interface FakeStateOptions {
 	messageId: string;
 	hasBodyStorageKey?: boolean;
 	rawEml?: Buffer;
+	bodyParts?: BodyPartItem[];
 }
 
 const buildFakeState = (opts: FakeStateOptions) => {
 	const storedBodies: StoreMessageBodyParams[] = [];
 	const storedParsed: StoreParsedBodyParams[] = [];
+	const storedBodyParts: StoreBodyPartParams[] = [];
 	const updatedKeys: Array<{ messageId: string } & UpdateMessageInput> = [];
 	const inboundIncrements: Array<{ addressId: string; now: number }> = [];
 
@@ -107,8 +112,17 @@ const buildFakeState = (opts: FakeStateOptions) => {
 				contentEncoding: "gzip",
 			};
 		},
-		storeBodyPart: async () => {
-			throw new Error("not used");
+		storeBodyPart: async (params): Promise<StorageReference> => {
+			storedBodyParts.push(params);
+			return {
+				uri: `s3://bucket/accounts/${params.accountConfigId}/${params.accountId}/messages/${params.messageId}/parts/${params.partPath}`,
+				storageType: "s3",
+				storageLocation: "bucket",
+				storageKey: `accounts/${params.accountConfigId}/${params.accountId}/messages/${params.messageId}/parts/${params.partPath}`,
+				sizeBytes: params.content.length,
+				checksumSha256: "x",
+				contentEncoding: "none",
+			};
 		},
 		storeDeduplicated: async () => {
 			throw new Error("not used");
@@ -131,13 +145,22 @@ const buildFakeState = (opts: FakeStateOptions) => {
 		delete: async () => {},
 	};
 
+	const envelopeService = {
+		listBodyParts: async (id: string): Promise<BodyPartItem[]> => {
+			assert.equal(id, opts.messageId);
+			return opts.bodyParts ?? [];
+		},
+	} as unknown as EnvelopeService;
+
 	return {
 		messageService,
 		threadMessageService,
 		storageService,
 		addressService,
+		envelopeService,
 		storedBodies,
 		storedParsed,
+		storedBodyParts,
 		updatedKeys,
 		inboundIncrements,
 	};
@@ -160,6 +183,7 @@ describe("BodySyncService.syncBodies (parsed-body cache)", () => {
 			fake.storageService,
 			fake.threadMessageService,
 			fake.addressService,
+			fake.envelopeService,
 		);
 
 		const result = await service.syncBodies(
@@ -196,6 +220,7 @@ describe("BodySyncService.syncBodies (parsed-body cache)", () => {
 			failingStorage,
 			fake.threadMessageService,
 			fake.addressService,
+			fake.envelopeService,
 		);
 
 		const result = await service.syncBodies(
@@ -219,6 +244,7 @@ describe("BodySyncService.syncBodies (classification + counters)", () => {
 			fake.storageService,
 			fake.threadMessageService,
 			fake.addressService,
+			fake.envelopeService,
 		);
 
 		const before = Date.now();
@@ -257,6 +283,7 @@ describe("BodySyncService.syncBodies (classification + counters)", () => {
 			fake.storageService,
 			fake.threadMessageService,
 			fake.addressService,
+			fake.envelopeService,
 		);
 
 		await service.syncBodies(
@@ -272,5 +299,189 @@ describe("BodySyncService.syncBodies (classification + counters)", () => {
 		);
 		assert.ok(categoryUpdate, "expected a Message.category update");
 		assert.equal(categoryUpdate.category, MessageCategory.newsletter);
+	});
+});
+
+describe("BodySyncService.syncBodies (per-part S3 storage)", () => {
+	// multipart/mixed with html + a downloadable PDF attachment. The PDF
+	// must end up at a per-part S3 key so the SPA can serve it via
+	// CloudFront (BodyPartResponse.contentUrl). Inline image cases work
+	// even without this PR because mailparser folds `cid:` images into
+	// `data:` URIs by default — non-image attachments don't get that
+	// treatment, which is the actual P0 surface.
+	const ATTACHMENT_EML = ((): Buffer => {
+		const pdfBytes = Buffer.from("%PDF-1.4\n");
+		const pdfB64 = pdfBytes.toString("base64");
+		return Buffer.from(
+			[
+				"From: alice@example.com",
+				"To: bob@example.com",
+				"Subject: with attachment",
+				"Message-ID: <attach-1@example.com>",
+				'Content-Type: multipart/mixed; boundary="mix"',
+				"MIME-Version: 1.0",
+				"",
+				"--mix",
+				"Content-Type: text/html; charset=utf-8",
+				"Content-Transfer-Encoding: 7bit",
+				"",
+				"<html><body>resume attached</body></html>",
+				"--mix",
+				"Content-Type: application/pdf; name=alice-resume.pdf",
+				"Content-Transfer-Encoding: base64",
+				"Content-Disposition: attachment; filename=alice-resume.pdf",
+				"",
+				pdfB64,
+				"--mix--",
+				"",
+			].join("\r\n"),
+		);
+	})();
+
+	const attachmentBodyParts: BodyPartItem[] = [
+		{
+			bodyPartId: "bp-root",
+			messageId: "msg-attach",
+			partPath: "0",
+			mediaType: "MULTIPART",
+			mediaSubtype: "mixed",
+			transferEncoding: "7BIT",
+			sizeOctets: 0,
+			isMultipart: true,
+			multipartSubtype: "mixed",
+			createdAt: 0,
+			updatedAt: 0,
+		} as BodyPartItem,
+		{
+			bodyPartId: "bp-html",
+			messageId: "msg-attach",
+			parentBodyPartId: "bp-root",
+			partPath: "1",
+			mediaType: "TEXT",
+			mediaSubtype: "html",
+			transferEncoding: "7BIT",
+			sizeOctets: 40,
+			isMultipart: false,
+			createdAt: 0,
+			updatedAt: 0,
+		} as BodyPartItem,
+		{
+			bodyPartId: "bp-pdf",
+			messageId: "msg-attach",
+			parentBodyPartId: "bp-root",
+			partPath: "2",
+			mediaType: "APPLICATION",
+			mediaSubtype: "pdf",
+			transferEncoding: "BASE64",
+			sizeOctets: 9,
+			isMultipart: false,
+			disposition: "attachment",
+			dispositionFilename: "alice-resume.pdf",
+			createdAt: 0,
+			updatedAt: 0,
+		} as BodyPartItem,
+	];
+
+	it("writes one S3 object per non-multipart leaf at accounts/{accountConfigId}/{accountId}/messages/{messageId}/parts/{partPath}", async () => {
+		const fake = buildFakeState({
+			messageId: "msg-attach",
+			rawEml: ATTACHMENT_EML,
+			bodyParts: attachmentBodyParts,
+		});
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			fake.addressService,
+			fake.envelopeService,
+		);
+
+		await service.syncBodies(
+			["msg-attach"],
+			"acc-1",
+			"acc-cfg-1",
+			"INBOX",
+			async () => buildFakeConnection(ATTACHMENT_EML),
+		);
+
+		assert.equal(fake.storedBodyParts.length, 2);
+		const byPath = new Map(fake.storedBodyParts.map((p) => [p.partPath, p]));
+
+		const html = byPath.get("1");
+		assert.ok(html, "html leaf at partPath=1 written");
+		assert.equal(html.accountConfigId, "acc-cfg-1");
+		assert.equal(html.accountId, "acc-1");
+		assert.equal(html.messageId, "msg-attach");
+		assert.equal(html.contentType, "text/html");
+		assert.match(html.content.toString("utf8"), /resume attached/);
+
+		const pdf = byPath.get("2");
+		assert.ok(pdf, "pdf leaf at partPath=2 written");
+		assert.equal(pdf.contentType, "application/pdf");
+		// Decoded PDF bytes from mailparser, not base64 text.
+		assert.equal(pdf.content.toString("utf8"), "%PDF-1.4\n");
+	});
+
+	it("does nothing when there are no BodyPart rows (legacy pre-#133 messages)", async () => {
+		const fake = buildFakeState({ messageId: "msg-legacy" });
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			fake.addressService,
+			fake.envelopeService,
+		);
+
+		await service.syncBodies(
+			["msg-legacy"],
+			"acc-1",
+			"acc-cfg-1",
+			"INBOX",
+			async () => buildFakeConnection(),
+		);
+
+		assert.equal(fake.storedBodyParts.length, 0);
+	});
+
+	it("crashes the body-sync when a leaf has no matching parsed content (no silent 404 risk)", async () => {
+		const orphanBodyParts: BodyPartItem[] = [
+			{
+				bodyPartId: "bp-orphan",
+				messageId: "msg-orphan",
+				partPath: "5",
+				mediaType: "IMAGE",
+				mediaSubtype: "png",
+				transferEncoding: "BASE64",
+				sizeOctets: 1,
+				isMultipart: false,
+				contentId: "missing-cid@example.com",
+				createdAt: 0,
+				updatedAt: 0,
+			} as BodyPartItem,
+		];
+
+		const fake = buildFakeState({
+			messageId: "msg-orphan",
+			bodyParts: orphanBodyParts,
+		});
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			fake.addressService,
+			fake.envelopeService,
+		);
+
+		const result = await service.syncBodies(
+			["msg-orphan"],
+			"acc-1",
+			"acc-cfg-1",
+			"INBOX",
+			async () => buildFakeConnection(),
+		);
+
+		assert.equal(result.failedCount, 1);
+		assert.equal(result.failedMessageIds[0], "msg-orphan");
+		assert.equal(fake.storedBodyParts.length, 0);
 	});
 });

@@ -1,14 +1,19 @@
 import { inspect } from "node:util";
 import {
 	AddressService,
+	type EnvelopeService,
 	type MessageService,
 	type ThreadMessageService,
 } from "@remit/remit-electrodb-service";
 import type { ParsedBody, StorageService } from "@remit/storage-service";
 import { type ParsedMail, simpleParser } from "mailparser";
+import pMap from "p-map";
+import { mapBodyPartsToContent } from "./body-part-mapper.js";
 import { classifyByHeaders } from "./heuristics/classifyByHeaders.js";
 import { extractSnippetFromEmail } from "./snippet.js";
 import type { IImapConnection } from "./types.js";
+
+const BODY_PART_STORE_CONCURRENCY = 4;
 
 export const extractPrimaryFromEmail = (parsed: ParsedMail): string | null => {
 	const from = parsed.from;
@@ -64,6 +69,7 @@ export class BodySyncService {
 		private storageService: StorageService,
 		private threadMessageService: ThreadMessageService,
 		private addressService: AddressService,
+		private envelopeService: EnvelopeService,
 		logger?: BodySyncLogger,
 	) {
 		this.log = logger ?? noopLogger;
@@ -246,6 +252,12 @@ export class BodySyncService {
 				messageId,
 				parsed,
 			);
+			await this.storeBodyPartContents(
+				accountConfigId,
+				accountId,
+				messageId,
+				parsed,
+			);
 		} else {
 			parsed = await simpleParser(body);
 		}
@@ -312,6 +324,18 @@ export class BodySyncService {
 			parsed,
 		);
 
+		// Per-part S3 objects so `BodyPartResponse.contentUrl` (#298) actually
+		// resolves on the SPA. Each non-multipart leaf gets its own
+		// `accounts/{accountConfigId}/{accountId}/messages/{messageId}/parts/{partPath}`
+		// object. Failures crash the body-sync — broken inline images would
+		// otherwise be invisible to operators.
+		await this.storeBodyPartContents(
+			accountConfigId,
+			accountId,
+			messageId,
+			parsed,
+		);
+
 		return { status: "synced", messageId };
 	}
 
@@ -337,6 +361,59 @@ export class BodySyncService {
 			fromEmail,
 		);
 		await this.addressService.incrementInboundCount(addressId, Date.now());
+	}
+
+	/**
+	 * Persist one S3 object per non-multipart leaf so the SPA can resolve
+	 * `BodyPartResponse.contentUrl` (#298). Keys follow the layout
+	 * `accounts/{accountConfigId}/{accountId}/messages/{messageId}/parts/{partPath}`
+	 * so they line up with the URL shape `derive/contentUrl.ts` emits.
+	 *
+	 * The mapper throws if any leaf can't be resolved against `parsed`; we
+	 * propagate that — silent skips would mean the SPA hits a 404 on a
+	 * `cid:`-rewritten image and the user sees a broken icon.
+	 *
+	 * If `listBodyParts` returns an empty list (e.g. a legacy message synced
+	 * before #133 populated BodyPart rows), this is a no-op — `bodyParts: []`
+	 * upstream means the cid-resolver doesn't fire, so no 404 risk.
+	 */
+	private async storeBodyPartContents(
+		accountConfigId: string,
+		accountId: string,
+		messageId: string,
+		parsed: ParsedMail,
+	): Promise<void> {
+		const bodyParts = await this.envelopeService.listBodyParts(messageId);
+		if (bodyParts.length === 0) {
+			this.log.debug?.(
+				{ messageId },
+				"No BodyPart rows; skipping per-part storage",
+			);
+			return;
+		}
+
+		const mapped = mapBodyPartsToContent(bodyParts, parsed);
+		if (mapped.length === 0) return;
+
+		await pMap(
+			mapped,
+			async (entry) => {
+				await this.storageService.storeBodyPart({
+					accountConfigId,
+					accountId,
+					messageId,
+					partPath: entry.partPath,
+					content: entry.content,
+					contentType: entry.contentType,
+				});
+			},
+			{ concurrency: BODY_PART_STORE_CONCURRENCY },
+		);
+
+		this.log.info?.(
+			{ messageId, partCount: mapped.length },
+			"Body parts stored",
+		);
 	}
 
 	/**
