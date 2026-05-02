@@ -122,6 +122,69 @@ describe("buildMoveTargets — excluded destinations (#236)", () => {
 	});
 });
 
+describe("buildMoveTargets — Outbox locale exclusion (#290)", () => {
+	// Outbox has no IMAP special-use flag, so we recognize it by name across
+	// the locales the curated list covers. Drafts/Sent are flag-driven, so we
+	// don't try to localize those here.
+	const localizedOutboxNames: readonly string[] = [
+		"Outbox",
+		"Postvak UIT",
+		"Boîte d'envoi",
+		"Postausgang",
+		"Buzón de salida",
+		"Posta in uscita",
+		"送信トレイ",
+		"送件匣",
+		"发件箱",
+		"Skrzynka nadawcza",
+	];
+
+	for (const name of localizedOutboxNames) {
+		test(`drops localized Outbox "${name}"`, () => {
+			const result = buildMoveTargets([
+				make({ mailboxId: "inbox", fullPath: "INBOX" }),
+				make({ mailboxId: "outbox", fullPath: name }),
+			]);
+			const ids = result.map((mailbox) => mailbox.mailboxId);
+			assert.deepStrictEqual(ids, ["inbox"]);
+		});
+	}
+
+	test("matches Outbox locale names case-insensitively", () => {
+		const result = buildMoveTargets([
+			make({ mailboxId: "inbox", fullPath: "INBOX" }),
+			make({ mailboxId: "m1", fullPath: "POSTVAK UIT" }),
+			make({ mailboxId: "m2", fullPath: "postausgang" }),
+			make({ mailboxId: "m3", fullPath: "BOÎTE D'ENVOI" }),
+		]);
+		const ids = result.map((mailbox) => mailbox.mailboxId);
+		assert.deepStrictEqual(ids, ["inbox"]);
+	});
+
+	test("matches Outbox locale names with surrounding whitespace", () => {
+		const result = buildMoveTargets([
+			make({ mailboxId: "inbox", fullPath: "INBOX" }),
+			make({ mailboxId: "m1", fullPath: "  Outbox  " }),
+			make({ mailboxId: "m2", fullPath: " Postvak UIT " }),
+		]);
+		const ids = result.map((mailbox) => mailbox.mailboxId);
+		assert.deepStrictEqual(ids, ["inbox"]);
+	});
+
+	test("does not over-match unrelated mailbox names", () => {
+		const result = buildMoveTargets([
+			make({ mailboxId: "inbox", fullPath: "INBOX" }),
+			make({ mailboxId: "trash", fullPath: "Trash" }),
+			make({ mailboxId: "custom", fullPath: "Custom Folder" }),
+			// Substring of a locale name must not trigger the filter — only
+			// the exact normalized leaf matches.
+			make({ mailboxId: "outboxy", fullPath: "Outbox Archive" }),
+		]);
+		const ids = result.map((mailbox) => mailbox.mailboxId).sort();
+		assert.deepStrictEqual(ids, ["custom", "inbox", "outboxy", "trash"]);
+	});
+});
+
 describe("filterMoveTargetsByQuery — always-on filter (#236)", () => {
 	test("matches against full path and leaf name, case-insensitive", () => {
 		const targets = [
