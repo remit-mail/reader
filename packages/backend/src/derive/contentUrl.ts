@@ -36,15 +36,19 @@ export const buildContentUrl = (input: BuildContentUrlInput): string => {
  * wires `CONTENT_DELIVERY_DOMAIN` onto the API Lambda from the
  * ContentDelivery stack's published SSM parameter (`/{stage}/Remit/frontendUrl`).
  *
- * Returns `undefined` when the env var is missing — the handler falls back
- * to omitting the URL (or surfaces an empty string) so local dev without
- * the CloudFront stack still works for everything except CDN-served body
- * parts. The TypeSpec contract makes the field required, so callers must
- * decide how to handle the missing-domain case before populating the
- * response.
+ * Throws when the env var is missing or empty. `BodyPartResponse.contentUrl`
+ * is required + URL-formatted in the API contract, so silently emitting a
+ * placeholder string would ship a contract lie to clients. Failing loud here
+ * surfaces the missing wire-up as a 500 the deploy team can act on (#299).
+ * Production synth hard-codes a syntactically-valid placeholder URL via
+ * `infra/bin/infra.ts` so this only fires when the env is actually unset.
  */
-export const getContentDeliveryDomain = (): string | undefined => {
+export const getContentDeliveryDomain = (): string => {
 	const value = process.env.CONTENT_DELIVERY_DOMAIN;
-	if (!value || value.length === 0) return undefined;
+	if (!value || value.length === 0) {
+		throw new Error(
+			"CONTENT_DELIVERY_DOMAIN is not set; BodyPartResponse.contentUrl cannot be built. Wire the CloudFront distribution domain via the API Lambda env (see infra/bin/infra.ts).",
+		);
+	}
 	return value;
 };

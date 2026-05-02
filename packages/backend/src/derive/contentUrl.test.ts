@@ -90,13 +90,19 @@ describe("getContentDeliveryDomain", () => {
 		else process.env.CONTENT_DELIVERY_DOMAIN = ORIGINAL;
 	});
 
-	it("returns undefined when CONTENT_DELIVERY_DOMAIN is unset", () => {
-		assert.equal(getContentDeliveryDomain(), undefined);
+	it("throws when CONTENT_DELIVERY_DOMAIN is unset (fail loud over silent placeholder, #299)", () => {
+		assert.throws(
+			() => getContentDeliveryDomain(),
+			/CONTENT_DELIVERY_DOMAIN is not set/,
+		);
 	});
 
-	it("returns undefined when CONTENT_DELIVERY_DOMAIN is empty", () => {
+	it("throws when CONTENT_DELIVERY_DOMAIN is empty", () => {
 		process.env.CONTENT_DELIVERY_DOMAIN = "";
-		assert.equal(getContentDeliveryDomain(), undefined);
+		assert.throws(
+			() => getContentDeliveryDomain(),
+			/CONTENT_DELIVERY_DOMAIN is not set/,
+		);
 	});
 
 	it("returns the env var value when set", () => {
