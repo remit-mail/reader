@@ -1,6 +1,11 @@
 import { inspect } from "node:util";
 import { SQSClient } from "@aws-sdk/client-sqs";
-import { SenderTrust, StarColor } from "@remit/domain-enums";
+import {
+	ContentDisposition,
+	MediaType,
+	SenderTrust,
+	StarColor,
+} from "@remit/domain-enums";
 import type {
 	BodyPartResponse,
 	EnvelopeAddressResponse,
@@ -92,6 +97,48 @@ export interface BodyPartLike {
 	partPath: string;
 }
 
+const MEDIA_TYPE_VALUES: ReadonlySet<string> = new Set(
+	Object.values(MediaType),
+);
+const CONTENT_DISPOSITION_VALUES: ReadonlySet<string> = new Set(
+	Object.values(ContentDisposition),
+);
+
+export const isMediaType = (
+	value: unknown,
+): value is BodyPartResponse["mediaType"] =>
+	typeof value === "string" && MEDIA_TYPE_VALUES.has(value);
+
+export const isContentDisposition = (
+	value: unknown,
+): value is NonNullable<BodyPartResponse["disposition"]> =>
+	typeof value === "string" && CONTENT_DISPOSITION_VALUES.has(value);
+
+const assertMediaType = (
+	value: string,
+	bodyPartId: string,
+): BodyPartResponse["mediaType"] => {
+	if (!isMediaType(value)) {
+		throw new Error(
+			`Invalid mediaType "${value}" on BodyPart ${bodyPartId}; expected one of ${[...MEDIA_TYPE_VALUES].join(", ")}`,
+		);
+	}
+	return value;
+};
+
+const assertDisposition = (
+	value: string | undefined,
+	bodyPartId: string,
+): BodyPartResponse["disposition"] => {
+	if (value === undefined) return undefined;
+	if (!isContentDisposition(value)) {
+		throw new Error(
+			`Invalid disposition "${value}" on BodyPart ${bodyPartId}; expected one of ${[...CONTENT_DISPOSITION_VALUES].join(", ")}`,
+		);
+	}
+	return value;
+};
+
 export const buildBodyPartResponses = (
 	parts: readonly BodyPartLike[],
 	context: {
@@ -103,10 +150,10 @@ export const buildBodyPartResponses = (
 ): BodyPartResponse[] => {
 	return parts.map((part) => ({
 		bodyPartId: part.bodyPartId,
-		mediaType: part.mediaType as BodyPartResponse["mediaType"],
+		mediaType: assertMediaType(part.mediaType, part.bodyPartId),
 		mediaSubtype: part.mediaSubtype,
 		sizeOctets: part.sizeOctets,
-		disposition: part.disposition as BodyPartResponse["disposition"],
+		disposition: assertDisposition(part.disposition, part.bodyPartId),
 		dispositionFilename: part.dispositionFilename,
 		isMultipart: part.isMultipart,
 		contentId: part.contentId,
