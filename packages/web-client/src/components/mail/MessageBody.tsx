@@ -2,11 +2,38 @@ import { useEffect, useMemo, useState } from "react";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { formatErrorDetail } from "@/components/ui/error-banners";
 import { useToggleTrusted } from "@/hooks/useToggleTrusted";
-import { type ColorMode, createEmailSanitizer } from "@/lib/email-sanitizer";
+import {
+	buildCidResolver,
+	type CidResolver,
+	type ColorMode,
+	createEmailSanitizer,
+} from "@/lib/email-sanitizer";
+
+/**
+ * Subset of the OpenAPI `BodyPartResponse` consumed by this component for
+ * inline-image / attachment URL resolution. Pinning a structural subset
+ * avoids a hard import on the generated types so this file compiles before
+ * `make` runs in fresh checkouts; tests assert the shape against the
+ * real generated type via `satisfies`.
+ */
+export interface MessageBodyPart {
+	bodyPartId: string;
+	contentId?: string;
+	contentUrl: string;
+	disposition?: string;
+	dispositionFilename?: string;
+}
 
 interface MessageBodyProps {
 	html?: string;
 	text?: string;
+	/**
+	 * Body parts from `describeMessage`. Used to resolve `cid:CONTENT_ID`
+	 * references in the HTML body to CloudFront `contentUrl` values
+	 * (#224 PR 2). Optional so callers that render local-only / outbox
+	 * drafts can omit it without breaking the render.
+	 */
+	bodyParts?: readonly MessageBodyPart[];
 	/**
 	 * Color mode for email content.
 	 * - 'light': No color processing
@@ -36,6 +63,7 @@ interface MessageBodyProps {
 export const MessageBody = ({
 	html,
 	text,
+	bodyParts,
 	colorMode = "auto",
 	isTrusted = false,
 	messageId,
@@ -60,6 +88,11 @@ export const MessageBody = ({
 		resetTrustError();
 	}, [trustError, pushError, resetTrustError]);
 
+	const resolveCid: CidResolver = useMemo(
+		() => buildCidResolver(bodyParts ?? []),
+		[bodyParts],
+	);
+
 	const sanitizedHtml = useMemo(() => {
 		if (!html) return null;
 
@@ -75,10 +108,11 @@ export const MessageBody = ({
 			allowExternalImages: allowImages,
 			allowAuthorBackgrounds: allowImages,
 			colorMode: effectiveColorMode,
+			resolveCid,
 		});
 
 		return sanitize(html);
-	}, [html, allowImages, colorMode]);
+	}, [html, allowImages, colorMode, resolveCid]);
 
 	const blockedImageCount = useMemo(() => {
 		if (!sanitizedHtml || allowImages) return 0;

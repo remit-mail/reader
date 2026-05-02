@@ -1,5 +1,6 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
+import { buildCidResolver } from "./cid-resolver";
 
 /**
  * Test the color parsing and detection logic.
@@ -185,5 +186,60 @@ describe("alpha detection", () => {
 
 	test("undefined alpha is not low", () => {
 		assert.ok(!hasLowAlpha({ r: 255, g: 255, b: 255 }));
+	});
+});
+
+describe("buildCidResolver (#224 PR 2)", () => {
+	const PARTS = [
+		{
+			contentId: "<inline-1@example.com>",
+			contentUrl:
+				"https://cdn.test/content/accounts/cfg/acc/messages/m/parts/1",
+		},
+		{
+			contentId: "inline-2@example.com",
+			contentUrl:
+				"https://cdn.test/content/accounts/cfg/acc/messages/m/parts/2",
+		},
+		{ contentUrl: "https://cdn.test/no-cid/parts/3" },
+		{
+			contentId: "<inline-blank>",
+			contentUrl: "",
+		},
+	];
+
+	test("looks up the URL by Content-ID, stripping angle brackets on both sides", () => {
+		const resolve = buildCidResolver(PARTS);
+		assert.equal(
+			resolve("inline-1@example.com"),
+			"https://cdn.test/content/accounts/cfg/acc/messages/m/parts/1",
+		);
+		assert.equal(
+			resolve("<inline-1@example.com>"),
+			"https://cdn.test/content/accounts/cfg/acc/messages/m/parts/1",
+		);
+	});
+
+	test("matches Content-IDs that came in without angle brackets", () => {
+		const resolve = buildCidResolver(PARTS);
+		assert.equal(
+			resolve("inline-2@example.com"),
+			"https://cdn.test/content/accounts/cfg/acc/messages/m/parts/2",
+		);
+	});
+
+	test("returns undefined when no body part has a matching Content-ID — fail-loud, do not silently substitute", () => {
+		const resolve = buildCidResolver(PARTS);
+		assert.equal(resolve("missing@example.com"), undefined);
+	});
+
+	test("skips parts without a contentId or with an empty contentUrl", () => {
+		const resolve = buildCidResolver(PARTS);
+		assert.equal(resolve("inline-blank"), undefined);
+	});
+
+	test("empty body-part list returns a resolver that always returns undefined", () => {
+		const resolve = buildCidResolver([]);
+		assert.equal(resolve("anything"), undefined);
 	});
 });
