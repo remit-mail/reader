@@ -16,7 +16,6 @@ import { MessageHeader } from "./MessageHeader";
 
 interface MessageDetailProps {
 	messageId?: string;
-	snippet?: string;
 }
 
 const LoadingSkeleton = () => (
@@ -37,7 +36,7 @@ const LoadingSkeleton = () => (
 	</div>
 );
 
-export const MessageDetail = ({ messageId, snippet }: MessageDetailProps) => {
+export const MessageDetail = ({ messageId }: MessageDetailProps) => {
 	const queryClient = useQueryClient();
 	const { pushError } = useErrorBanners();
 
@@ -128,8 +127,6 @@ export const MessageDetail = ({ messageId, snippet }: MessageDetailProps) => {
 		<article>
 			<MessageHeader envelope={messageData.envelope} />
 			<MessageBody
-				html={messageData.bodyHtml}
-				text={messageData.bodyText || snippet}
 				bodyParts={messageData.bodyParts}
 				messageId={messageId}
 				fromAddressId={fromAddress?.addressId}

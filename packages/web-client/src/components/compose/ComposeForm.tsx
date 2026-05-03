@@ -11,14 +11,8 @@ import type {
 } from "@remit/api-http-client/types.gen.ts";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import type { Value } from "platejs";
-import {
-	lazy,
-	Suspense,
-	useCallback,
-	useEffect,
-	useMemo,
-	useState,
-} from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { useMessageBodyContent } from "../../hooks/useMessageBodyContent";
 import { useSaveDraft } from "../../hooks/useSaveDraft";
 import { useSignature } from "../../hooks/useSignature.js";
 import {
@@ -85,13 +79,6 @@ const buildForwardSubject = (subject?: string): string => {
 	if (!subject) return "Fwd: ";
 	if (/^fwd?:\s/i.test(subject)) return subject;
 	return `Fwd: ${subject}`;
-};
-
-const extractTextForQuote = (
-	msg?: RemitImapDescribeMessageResponse,
-): string => {
-	if (!msg) return "";
-	return msg.bodyText ?? "";
 };
 
 const getReplyAddresses = (
@@ -367,12 +354,20 @@ export const ComposeForm = ({
 		}
 	}, [mode, sourceMessage, account?.email]);
 
-	const quotedText = useMemo(
-		() => extractTextForQuote(sourceMessage),
-		[sourceMessage],
-	);
+	// Quoted reply/forward content lives at the per-part `contentUrl` since
+	// #224 PR 3 — fetch it via the same hook MessageBody uses, and degrade
+	// to an empty quote when nothing renderable exists (the user can still
+	// attribute the reply manually).
+	const isQuoting =
+		mode === "reply" || mode === "reply_all" || mode === "forward";
+	const { data: sourceBody } = useMessageBodyContent({
+		messageId: sourceMessage?.message.messageId,
+		bodyParts: sourceMessage?.bodyParts,
+		enabled: isQuoting && !!sourceMessage,
+	});
 
-	const quotedHtml = sourceMessage?.bodyHtml;
+	const quotedText = sourceBody?.kind === "text" ? sourceBody.body : "";
+	const quotedHtml = sourceBody?.kind === "html" ? sourceBody.body : undefined;
 
 	const senderName =
 		sourceMessage?.envelope.from[0]?.displayName ??
