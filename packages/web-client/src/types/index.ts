@@ -25,8 +25,6 @@ export interface Message {
 	cc: EmailAddress[];
 	bcc: EmailAddress[];
 	snippet: string;
-	bodyText?: string;
-	bodyHtml?: string;
 	isRead: boolean;
 	isStarred: boolean;
 	hasAttachments: boolean;

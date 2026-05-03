@@ -19,10 +19,8 @@ import {
 import {
 	isStorageNotFoundError as isStorageNotFoundErrorFromService,
 	parseStorageUri,
-	type StorageService,
 } from "@remit/storage-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
-import { simpleParser } from "mailparser";
 import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent } from "../auth.js";
 import {
@@ -69,11 +67,6 @@ export const extractAccountIdsFromBodyKey = (
 	if (!match) return null;
 	return { accountConfigId: match[1], accountId: match[2] };
 };
-
-export interface BodyContent {
-	bodyText: string | undefined;
-	bodyHtml: string | undefined;
-}
 
 /**
  * Map a list of stored `BodyPart` rows to API `BodyPartResponse` objects,
@@ -166,80 +159,6 @@ export const buildBodyPartResponses = (
 	}));
 };
 
-/**
- * Fetch parsed body content for a message from storage with parsed-body caching.
- *
- * Tries the parsed.json.gz cache first (fast path). On miss, retrieves the raw
- * .eml, runs mailparser, then writes parsed.json.gz opportunistically so the
- * next read is fast. Cache-write failures are logged and swallowed — they must
- * never fail the user's read.
- *
- * Returns null when the body is not in storage at all (caller should fall
- * back to fetching from IMAP).
- */
-export const fetchBodyFromStorage = async (
-	storage: StorageService,
-	messageId: string,
-	bodyStorageKey: string,
-): Promise<BodyContent | null> => {
-	const ids = extractAccountIdsFromBodyKey(bodyStorageKey);
-
-	if (ids) {
-		const cached = await storage.retrieveParsedBody(
-			ids.accountConfigId,
-			ids.accountId,
-			messageId,
-		);
-		if (cached) {
-			return {
-				bodyText: cached.text ?? undefined,
-				bodyHtml: cached.html ?? undefined,
-			};
-		}
-	}
-
-	const rawBody = await storage
-		.retrieve(bodyStorageKey)
-		.catch((error: unknown) => {
-			if (isStorageNotFoundError(error)) return undefined;
-			throw error;
-		});
-
-	if (!rawBody) return null;
-
-	const parsed = await simpleParser(rawBody);
-	const bodyText = parsed.text ?? undefined;
-	const bodyHtml = typeof parsed.html === "string" ? parsed.html : undefined;
-
-	if (ids) {
-		await storage
-			.storeParsedBody({
-				accountConfigId: ids.accountConfigId,
-				accountId: ids.accountId,
-				messageId,
-				parsed: {
-					text: parsed.text ?? null,
-					html: typeof parsed.html === "string" ? parsed.html : null,
-					attachments: (parsed.attachments ?? []).map((a) => ({
-						filename: a.filename ?? null,
-						contentType: a.contentType,
-						contentDisposition: a.contentDisposition ?? null,
-						contentId: a.contentId ?? null,
-						size: a.size,
-					})),
-				},
-			})
-			.catch((err: unknown) => {
-				console.error(
-					`[describeMessage] parsed-body cache write failed for ${messageId}:`,
-					inspect(err),
-				);
-			});
-	}
-
-	return { bodyText, bodyHtml };
-};
-
 export const MessageOperations: Record<
 	MessageOperationIds,
 	OperationHandler<MessageOperationIds>
@@ -319,22 +238,13 @@ export const MessageOperations: Record<
 
 		const flags = description.messageFlag.map((f) => f.flagName);
 
-		// Fetch body content from storage if available.
-		//
-		// Fast path: parsed.json.gz cache hit -> 1 S3 GET, gunzip, JSON.parse.
-		// Slow path: cache miss -> retrieve raw .eml, run mailparser, then
-		// opportunistically write parsed.json.gz so subsequent reads are fast.
-		let bodyText: string | undefined;
-		let bodyHtml: string | undefined;
-
 		const client = getClient();
 
-		// `accountId` is needed twice: once to build per-part `contentUrl`
-		// values for the BodyPartResponse list (#224 PR 2), and once on the
-		// IMAP-fallback path. Resolve it from the bodyStorageKey when the
-		// body has already been synced (free — the URI encodes both ids), or
-		// fall back to a single Mailbox.get() lookup. Avoids a redundant
-		// query on the fast path.
+		// `accountId` is needed to build per-part `contentUrl` values for the
+		// BodyPartResponse list and on the IMAP-backfill path. Resolve it from
+		// the bodyStorageKey when the body has already been synced (free — the
+		// URI encodes both ids), or fall back to a single Mailbox.get() lookup
+		// to avoid a redundant query on the fast path.
 		const idsFromKey = message.bodyStorageKey
 			? extractAccountIdsFromBodyKey(message.bodyStorageKey)
 			: null;
@@ -346,38 +256,23 @@ export const MessageOperations: Record<
 			mailboxFullPath = mailbox.fullPath;
 		}
 
-		const bodyParts = buildBodyPartResponses(description.bodyPart, {
-			contentDeliveryDomain: getContentDeliveryDomain(),
-			accountConfigId,
-			accountId,
-			messageId,
-		});
-
-		const fromStorage = message.bodyStorageKey
-			? await fetchBodyFromStorage(
-					client.storage,
-					messageId,
-					message.bodyStorageKey,
-				)
-			: null;
-
-		if (fromStorage) {
-			bodyText = fromStorage.bodyText;
-			bodyHtml = fromStorage.bodyHtml;
-		} else {
-			// Fall back to on-demand IMAP fetch. fetchAndGetBody now writes
-			// parsed.json.gz alongside the raw .eml on its own.
-			// accountConfigId comes from the JWT; mailbox.fullPath was
-			// resolved above only when bodyStorageKey was missing — re-fetch
-			// it here in the (rare) case bodyStorageKey was present but the
-			// retrieve failed and storage returned null.
+		// Trigger an IMAP backfill when the body has never been stored. The
+		// fetcher writes the raw .eml + parsed.json.gz cache + per-part rows
+		// as a side-effect; the SPA then renders body content via each
+		// BodyPartResponse.contentUrl (CloudFront-fronted, JWT-authorized at
+		// the edge). The handler no longer returns body text/html — that
+		// payload moved to per-part fetches once content delivery cut over
+		// (#224 PR 3/3). When bodyStorageKey is already set we skip IMAP
+		// entirely; the worker has already populated parts.
+		let bodyPartRows = description.bodyPart;
+		if (!message.bodyStorageKey) {
 			if (!mailboxFullPath) {
 				const mailbox = await client.mailbox.get(message.mailboxId);
 				mailboxFullPath = mailbox.fullPath;
 			}
 			const scope = await client.createConnectionScope(accountId);
 
-			const result = await client.bodySync
+			await client.bodySync
 				.fetchAndGetBody(
 					messageId,
 					accountId,
@@ -387,10 +282,14 @@ export const MessageOperations: Record<
 				)
 				.finally(() => scope.disconnect());
 
-			bodyText = result.text ?? undefined;
-			bodyHtml = result.html ?? undefined;
+			// Body just landed via IMAP — re-read so the response includes the
+			// parts the worker just wrote. Without this the first describe of a
+			// never-synced message would return an empty bodyParts array.
+			const refreshed = await client.message.describe(messageId);
+			bodyPartRows = refreshed.bodyPart;
 
-			// Body fetched from IMAP and stored — enqueue search index upsert (best-effort).
+			// Best-effort: enqueue a search index upsert so the new content
+			// becomes searchable.
 			const searchQueueUrl = getSearchIndexQueueUrl();
 			if (searchQueueUrl) {
 				const upsertEvents: IndexEvent[] = [
@@ -415,6 +314,13 @@ export const MessageOperations: Record<
 			}
 		}
 
+		const bodyParts = buildBodyPartResponses(bodyPartRows, {
+			contentDeliveryDomain: getContentDeliveryDomain(),
+			accountConfigId,
+			accountId,
+			messageId,
+		});
+
 		const references = description.messageReference.map((ref) => ({
 			messageIdValue: ref.messageIdValue,
 			referenceType: ref.referenceType,
@@ -427,8 +333,6 @@ export const MessageOperations: Record<
 			flags,
 			bodyParts,
 			references,
-			bodyText,
-			bodyHtml,
 		};
 	},
 

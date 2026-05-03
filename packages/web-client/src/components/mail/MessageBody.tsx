@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { formatErrorDetail } from "@/components/ui/error-banners";
+import { useMessageBodyContent } from "@/hooks/useMessageBodyContent";
 import { useToggleTrusted } from "@/hooks/useToggleTrusted";
 import {
 	buildCidResolver,
@@ -11,29 +13,36 @@ import {
 
 /**
  * Subset of the OpenAPI `BodyPartResponse` consumed by this component for
- * inline-image / attachment URL resolution. Pinning a structural subset
- * avoids a hard import on the generated types so this file compiles before
- * `make` runs in fresh checkouts; tests assert the shape against the
- * real generated type via `satisfies`.
+ * inline-image / attachment URL resolution and the body fetcher. Pinning a
+ * structural subset avoids a hard import on the generated types so this file
+ * compiles before `make` runs in fresh checkouts.
  */
 export interface MessageBodyPart {
 	bodyPartId: string;
+	mediaType: string;
+	mediaSubtype: string;
 	contentId?: string;
 	contentUrl: string;
 	disposition?: string;
 	dispositionFilename?: string;
+	isMultipart: boolean;
 }
 
 interface MessageBodyProps {
-	html?: string;
-	text?: string;
 	/**
-	 * Body parts from `describeMessage`. Used to resolve `cid:CONTENT_ID`
-	 * references in the HTML body to CloudFront `contentUrl` values
-	 * (#224 PR 2). Optional so callers that render local-only / outbox
-	 * drafts can omit it without breaking the render.
+	 * Body parts from `describeMessage`. The component picks the first
+	 * `text/html` part (fallback `text/plain`) and fetches its `contentUrl`
+	 * from CloudFront. `cid:CONTENT_ID` references in HTML resolve to other
+	 * parts' `contentUrl` via the same list (#224 PR 3).
 	 */
 	bodyParts?: readonly MessageBodyPart[];
+	/**
+	 * Local-render fallback for callers that don't have BodyParts (Outbox
+	 * drafts, Compose preview). When `bodyParts` is provided, these are
+	 * ignored — the component fetches via CloudFront instead.
+	 */
+	html?: string;
+	text?: string;
 	/**
 	 * Color mode for email content.
 	 * - 'light': No color processing
@@ -48,22 +57,36 @@ interface MessageBodyProps {
 	 */
 	isTrusted?: boolean;
 	/**
-	 * The current message id. Required by `useToggleTrusted` so the optimistic
-	 * cache patch can target the right `describeMessage` query.
+	 * The current message id. Required for the body-content query cache key
+	 * and by `useToggleTrusted` for the optimistic cache patch.
 	 */
 	messageId?: string;
 	/**
 	 * The From-address `addressId`. When omitted (e.g. the envelope has no
-	 * parseable From) the "Always trust" button is hidden — same disabled-
-	 * state philosophy as `MessageActionMenu`.
+	 * parseable From) the "Always trust" button is hidden.
 	 */
 	fromAddressId?: string;
 }
 
+const LoadingSkeleton = () => (
+	<div className="animate-pulse space-y-2" aria-label="Loading message body">
+		<div className="h-4 bg-muted rounded w-full" />
+		<div className="h-4 bg-muted rounded w-11/12" />
+		<div className="h-4 bg-muted rounded w-3/4" />
+		<div className="h-4 bg-muted rounded w-5/6" />
+	</div>
+);
+
+const EmptyBody = () => (
+	<p className="text-muted-foreground text-sm italic">
+		This message has no body content.
+	</p>
+);
+
 export const MessageBody = ({
+	bodyParts,
 	html,
 	text,
-	bodyParts,
 	colorMode = "auto",
 	isTrusted = false,
 	messageId,
@@ -79,6 +102,20 @@ export const MessageBody = ({
 		reset: resetTrustError,
 	} = useToggleTrusted({ messageId: messageId ?? "" });
 
+	const hasParts = !!bodyParts && bodyParts.length > 0;
+	const {
+		picked,
+		data: fetched,
+		isLoading: isBodyLoading,
+		isError: isBodyError,
+		error: bodyError,
+		refetch: refetchBody,
+	} = useMessageBodyContent({
+		messageId,
+		bodyParts,
+		enabled: hasParts,
+	});
+
 	useEffect(() => {
 		if (!trustError) return;
 		pushError({
@@ -93,15 +130,18 @@ export const MessageBody = ({
 		[bodyParts],
 	);
 
+	const renderedHtml =
+		hasParts && fetched?.kind === "html" ? fetched.body : html;
+	const renderedText =
+		hasParts && fetched?.kind === "text" ? fetched.body : text;
+
 	const sanitizedHtml = useMemo(() => {
-		if (!html) return null;
+		if (!renderedHtml) return null;
 
 		// Loading remote images is the user's signal that they trust this
-		// sender. Once trusted (per-sender flag or per-render click), also
-		// let the email's author-defined background colors through (so
-		// brand emails like bol.com aren't shredded by our dark-mode color
-		// overrides). Until trusted we keep the conservative behaviour to
-		// avoid the "disco" effect of random colored blocks on a dark theme.
+		// sender. Once trusted, also let the email's author-defined
+		// background colors through so brand emails aren't shredded by the
+		// dark-mode color overrides.
 		const effectiveColorMode: ColorMode = allowImages ? "light" : colorMode;
 
 		const sanitize = createEmailSanitizer({
@@ -111,19 +151,46 @@ export const MessageBody = ({
 			resolveCid,
 		});
 
-		return sanitize(html);
-	}, [html, allowImages, colorMode, resolveCid]);
+		return sanitize(renderedHtml);
+	}, [renderedHtml, allowImages, colorMode, resolveCid]);
 
 	const blockedImageCount = useMemo(() => {
 		if (!sanitizedHtml || allowImages) return 0;
 		return (sanitizedHtml.match(/data-blocked-src/g) || []).length;
 	}, [sanitizedHtml, allowImages]);
 
-	if (!html && !text) {
+	if (hasParts) {
+		if (isBodyLoading) {
+			return (
+				<div className="message-body">
+					<LoadingSkeleton />
+				</div>
+			);
+		}
+		if (isBodyError) {
+			return (
+				<div className="message-body">
+					<ErrorState
+						variant="inline"
+						title="Couldn't load message body"
+						error={bodyError}
+						onRetry={() => refetchBody()}
+					/>
+				</div>
+			);
+		}
+		if (!picked) {
+			return (
+				<div className="message-body">
+					<EmptyBody />
+				</div>
+			);
+		}
+	} else if (!html && !text) {
 		return (
-			<p className="text-muted-foreground text-sm italic">
-				This message has no body content.
-			</p>
+			<div className="message-body">
+				<EmptyBody />
+			</div>
 		);
 	}
 
@@ -170,10 +237,12 @@ export const MessageBody = ({
 					// biome-ignore lint/security/noDangerouslySetInnerHtml: HTML is sanitized by DOMPurify
 					dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
 				/>
-			) : (
+			) : renderedText ? (
 				<pre className="email-text whitespace-pre-wrap text-sm leading-relaxed">
-					{text}
+					{renderedText}
 				</pre>
+			) : (
+				<EmptyBody />
 			)}
 		</div>
 	);

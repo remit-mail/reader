@@ -1,5 +1,7 @@
 #!/usr/bin/env node --import tsx
 
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import type { APIGatewayProxyResult } from "aws-lambda";
 import { env } from "expect-env";
 import express, {
@@ -9,6 +11,7 @@ import express, {
 } from "express";
 import * as swaggerUi from "swagger-ui-express";
 import { handler, OpenAPISpec } from "../src/index.js";
+import { resolveContentPath } from "./content-path.js";
 import { createLambdaContext, createLambdaEvent } from "./lambda-helpers.js";
 
 const app = express();
@@ -51,6 +54,38 @@ if (localSpec.servers) {
 }
 
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(localSpec));
+
+// Local stand-in for the CloudFront `/content/*` behavior. In production the
+// Lambda@Edge JWT verifier guards these requests and CloudFront serves them
+// from the storage S3 bucket via OAC. Locally we stream the bytes from the
+// filesystem-backed storage location keyed by URL path. No JWT check — this
+// server only runs against an isolated dev/e2e DynamoDB + storage tree.
+//
+// `LOCAL_CONTENT_STORAGE_BASE` lets the e2e/smoke fixture point this server at
+// the same absolute filesystem root it seeded under (repo-relative), since
+// the fixture writes from the repo root while the dev-server's cwd is the
+// playwright workspace.
+const STORAGE_LOCAL_PATH = process.env.STORAGE_LOCAL_PATH ?? ".remit/storage";
+const STORAGE_BASE = resolve(
+	process.env.LOCAL_CONTENT_STORAGE_BASE ?? process.cwd(),
+	STORAGE_LOCAL_PATH,
+);
+
+app.get(/^\/content\/.+$/, async (req: Request, res: Response) => {
+	const storageKey = req.path.replace(/^\/content\//, "");
+	const fullPath = resolveContentPath(STORAGE_BASE, storageKey);
+	if (fullPath === null) {
+		res.status(400).send("invalid path");
+		return;
+	}
+	const buffer = await readFile(fullPath).catch(() => null);
+	if (!buffer) {
+		res.status(404).send("not found");
+		return;
+	}
+	res.setHeader("content-type", "application/octet-stream");
+	res.send(buffer);
+});
 
 app.all(/(.*)/, async (req: Request, res: Response) => {
 	const event = createLambdaEvent(req);
