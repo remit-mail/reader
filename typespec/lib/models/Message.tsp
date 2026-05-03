@@ -210,7 +210,7 @@ model EnvelopeResponse {
   senderTrust: SenderTrust;
 }
 
-@doc("Complete message description including all related data")
+@doc("Complete message description including all related data. Body content is delivered via the per-part `BodyPartResponse.contentUrl` (CloudFront, JWT-authorized at the edge); the legacy `bodyText`/`bodyHtml` fields were removed once content delivery cut over end-to-end (#224).")
 model DescribeMessageResponse {
   @doc("Core message metadata")
   message: MessageSummaryResponse;
@@ -221,17 +221,11 @@ model DescribeMessageResponse {
   @doc("Message flags")
   flags: string[];
 
-  @doc("Body structure")
+  @doc("Body structure. Each part exposes `contentUrl` for fetching its bytes.")
   bodyParts: BodyPartResponse[];
 
   @doc("Message references (In-Reply-To and References headers)")
   references: MessageReferenceResponse[];
-
-  @doc("Plain text body content")
-  bodyText?: string;
-
-  @doc("HTML body content (sanitize before rendering)")
-  bodyHtml?: string;
 }
 
 // ============================================

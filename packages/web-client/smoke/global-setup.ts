@@ -315,6 +315,15 @@ const storeMessageBody = (
 	mkdirSync(dirname(fullPath), { recursive: true });
 	writeFileSync(fullPath, emlContent);
 
+	// Also write the per-part bytes that the SPA fetches via /content/*
+	// (#224 PR 3). The dev-server's local content route reads from this
+	// path and the SPA fetches the bytes the same way it would from
+	// CloudFront in dev/prod.
+	const partKey = `accounts/${accountConfigId}/${accountId}/messages/${messageId}/parts/1`;
+	const partPath = resolve(basePath, partKey);
+	mkdirSync(dirname(partPath), { recursive: true });
+	writeFileSync(partPath, bodyText);
+
 	return `file://${fullPath}`;
 };
 
@@ -432,6 +441,23 @@ const seedMessages = async (config: ReturnType<typeof createConfig>) => {
 		} catch (err) {
 			if (!(err instanceof CreateFailedConflictError)) throw err;
 		}
+
+		// describeMessage now returns body content via per-part `contentUrl`
+		// (#224 PR 3) — the SPA fetches each part directly from CloudFront.
+		// Upsert a single text/plain BodyPart row pointing at the .eml we
+		// just wrote so the smoke fixtures render the same body content.
+		await envelopeService.upsertBodyParts(messageId, [
+			{
+				partPath: "1",
+				parentPartPath: null,
+				mediaType: "TEXT",
+				mediaSubtype: "PLAIN",
+				transferEncoding: "7BIT",
+				sizeOctets: msg.bodyText.length,
+				isMultipart: false,
+				parameters: [{ parameterName: "CHARSET", parameterValue: "utf-8" }],
+			},
+		]);
 	}
 };
 

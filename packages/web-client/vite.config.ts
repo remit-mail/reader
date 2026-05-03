@@ -27,6 +27,14 @@ export default defineConfig({
 				changeOrigin: true,
 				rewrite: (path) => path.replace(/^\/api/, ""),
 			},
+			// Forward CloudFront-style content requests to the dev-server's
+			// local stand-in. In production this path is served by CloudFront
+			// + Lambda@Edge; in dev/smoke/e2e the dev-server reads from the
+			// filesystem-backed storage tree.
+			"/content": {
+				target: `http://localhost:${process.env.VITE_PROXY_BACKEND_PORT ?? "5433"}`,
+				changeOrigin: true,
+			},
 		},
 	},
 });

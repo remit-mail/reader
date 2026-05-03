@@ -47,6 +47,7 @@ export default defineConfig({
 				SQS_QUEUE_URL_MESSAGE_MGMT:
 					"http://localhost:9325/000000000000/remit-e2e-message-mgmt",
 				STORAGE_LOCAL_PATH: ".remit/e2e-storage",
+				LOCAL_CONTENT_STORAGE_BASE: "../../",
 				LOCAL_ACCOUNT_CONFIG_ID: "5be2vjpnoscpy591tt9iopmuz",
 				NODE_ENV: "test",
 				AWS_REGION: "not-a-region",

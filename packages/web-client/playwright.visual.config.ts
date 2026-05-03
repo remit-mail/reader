@@ -131,6 +131,7 @@ export default defineConfig({
 				FAKE_KMS_DATAKEY: "8AD6A6C8-B5E2-488F-B017-96B662DC01AC",
 				SQS_QUEUE_URL: "http://localhost:9324/000000000000/remit-e2e-noop",
 				STORAGE_LOCAL_PATH: ".remit/e2e-storage",
+				LOCAL_CONTENT_STORAGE_BASE: "../../",
 				LOCAL_ACCOUNT_CONFIG_ID: "5kkksa64jz6z9jfjuxbu7pckd",
 				NODE_ENV: "test",
 				AWS_REGION: "not-a-region",
