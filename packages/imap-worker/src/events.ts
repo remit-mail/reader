@@ -119,8 +119,26 @@ export interface DeleteAccountObjectsEvent {
 	continuationToken?: string;
 }
 
+/**
+ * Sent by the account-deletion fanout worker once per accountId under a
+ * deleted AccountConfig. The actual stop semantics already happen via the
+ * account-tombstone fence (`isActive=false` + `deletedAt`) flipped by the
+ * deletion API: any in-flight or future event for the account is dropped
+ * by `isAccountDeleted`. This event exists as an explicit signal in the
+ * cascade contract — when the imap-worker grows real per-account drain or
+ * connection-teardown semantics it hangs off this hook.
+ */
+export interface ImapWorkerStopEvent {
+	type: "IMAP_WORKER_STOP";
+	accountConfigId: string;
+	accountId: string;
+}
+
 /** Union of all event types the worker can process (including non-IMAP ones). */
-export type WorkerEvent = ImapEvent | DeleteAccountObjectsEvent;
+export type WorkerEvent =
+	| ImapEvent
+	| DeleteAccountObjectsEvent
+	| ImapWorkerStopEvent;
 
 export type MessageManagementEvent =
 	| MessageDeleteEvent

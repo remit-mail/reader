@@ -19,6 +19,7 @@
 		"@remit/logger-lambda": "*",
 		"@remit/search-index-worker": "*",
 		"@types/aws-lambda": "*",
+		"aws-sdk-client-mock": "*",
 		"electrodb": "*",
 		"esbuild": "*",
 		"expect-env": "*",
