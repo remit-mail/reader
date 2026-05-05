@@ -1,6 +1,7 @@
 import { Link, useLocation } from "@tanstack/react-router";
 import { Mail, Menu, Search, Settings, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { SignOutMenuItem } from "../../auth/SignOutMenuItem";
 import { cn } from "../../lib/utils";
 import { SearchBar } from "./SearchBar";
 
@@ -113,6 +114,7 @@ export const Header = ({
 								<Settings className="size-4" />
 								Settings
 							</Link>
+							<SignOutMenuItem variant="dropdown" showEmail />
 						</nav>
 					</div>
 				)}
