@@ -56,10 +56,14 @@ export default defineConfig({
 	// `signin.spec.ts-snapshots/`, which the symlink can't redirect.
 	snapshotPathTemplate:
 		"{testDir}/__screenshots__/{testFileName}/{projectName}/{arg}{ext}",
-	fullyParallel: false,
+	// Visual specs are read-only screenshots against a seeded backend
+	// (no mutations) — safe to run in parallel. Backend + Vite share one
+	// process per Playwright run, so workers contend on the same
+	// 4-vCPU runner; 4 workers matches available cores.
+	fullyParallel: true,
 	forbidOnly: !!process.env.CI,
 	retries: process.env.CI ? 1 : 0,
-	workers: 1,
+	workers: process.env.CI ? 4 : 1,
 	reporter: process.env.CI ? "github" : "html",
 	timeout: 30_000,
 	globalSetup: "./smoke/global-setup.ts",
