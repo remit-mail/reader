@@ -13,6 +13,7 @@ import {
 	Users,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { SignOutMenuItem } from "@/auth/SignOutMenuItem";
 import { ComposeFab } from "@/components/layout/ComposeFab";
 import { Drawer } from "@/components/layout/Drawer";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
@@ -139,6 +140,7 @@ function SettingsLayout() {
 									<SettingsIcon className="size-4" />
 									Settings
 								</Link>
+								<SignOutMenuItem variant="dropdown" showEmail />
 							</nav>
 						</div>
 					)}
@@ -166,6 +168,9 @@ function SettingsLayout() {
 				ariaLabel="Settings navigation"
 			>
 				<SettingsNav pathname={location.pathname} />
+				<div className="px-4 pb-4">
+					<SignOutMenuItem variant="drawer" showEmail />
+				</div>
 			</Drawer>
 
 			{/* Mobile compose FAB. Tapping it from settings opens compose
