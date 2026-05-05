@@ -5,7 +5,7 @@
 	"main": "dist/index.js",
 	"scripts": {
 		"bundle": "node build.mjs",
-		"test:typecheck": "tsc --noEmit",
+		"test:typecheck": "tsgo --noEmit",
 		"test:run": "node --env-file=../../.test.env --test 'src/**/*.test.ts'",
 		"test": "npm run test:typecheck && npm run test:run"
 	},
