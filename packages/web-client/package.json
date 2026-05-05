@@ -8,7 +8,7 @@
     "generate:routes": "node scripts/generate-routes.mjs",
     "build": "npm run generate:routes && tsc -b && vite build",
     "preview": "vite preview",
-    "test:typecheck": "npm run generate:routes && tsc --noEmit",
+    "test:typecheck": "npm run generate:routes && tsgo --noEmit",
     "test:run": "node --import tsx --import ./test-support/register.mjs --test 'src/**/*.test.ts'",
     "test": "npm run test:typecheck && npm run test:run",
     "test:smoke": "npx playwright test --config playwright.smoke.config.ts",
