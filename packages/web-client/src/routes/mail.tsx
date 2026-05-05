@@ -15,6 +15,7 @@ import {
 	useState,
 } from "react";
 import { z } from "zod";
+import { SignOutMenuItem } from "@/auth/SignOutMenuItem";
 import { ComposeFab } from "@/components/layout/ComposeFab";
 import { Drawer } from "@/components/layout/Drawer";
 import { Header } from "@/components/layout/Header";
@@ -224,6 +225,9 @@ function MailLayout() {
 							accounts={accounts}
 							onMailboxSelect={handleMailboxSelect}
 						/>
+						<div className="px-4 pb-4">
+							<SignOutMenuItem variant="drawer" showEmail />
+						</div>
 					</Drawer>
 					{/* Mobile compose FAB. The compose form itself takes over the
 					    detail pane in `routes/mail/$mailboxId.tsx`, which on
