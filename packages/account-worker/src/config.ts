@@ -23,10 +23,19 @@ const serviceConfig = { client: ddbClient, table: tableName };
 export const cognitoClient = new CognitoIdentityProviderClient({});
 export const sqsClient = new SQSClient({});
 
-export const userPoolId = env.COGNITO_USER_POOL_ID;
-export const searchIndexQueueUrl = env.SQS_QUEUE_URL_SEARCH_INDEX;
-export const imapWorkerQueueUrl = env.SQS_QUEUE_URL_IMAP_WORKER;
-export const accountFinalizeQueueUrl = env.SQS_QUEUE_URL_ACCOUNT_FINALIZE;
+// Cognito + SQS env vars are lazy-evaluated. The fanout worker needs them
+// at handler time; the finalize worker imports `cascadeServices` from this
+// module but talks to neither Cognito nor SQS, so its Lambda doesn't carry
+// the env vars. Eager evaluation here would crash finalize at module load
+// (`COGNITO_USER_POOL_ID is not set`) — getters defer the read to the
+// fanout-only call sites.
+export const getUserPoolId = (): string => env.COGNITO_USER_POOL_ID;
+export const getSearchIndexQueueUrl = (): string =>
+	env.SQS_QUEUE_URL_SEARCH_INDEX;
+export const getImapWorkerQueueUrl = (): string =>
+	env.SQS_QUEUE_URL_IMAP_WORKER;
+export const getAccountFinalizeQueueUrl = (): string =>
+	env.SQS_QUEUE_URL_ACCOUNT_FINALIZE;
 
 const graceSecondsRaw = process.env.ACCOUNT_DELETION_GRACE_SECONDS;
 export const graceSeconds = graceSecondsRaw

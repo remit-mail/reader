@@ -15,13 +15,13 @@ import type {
 import type { CascadeServices } from "../cascade.js";
 import { enumerateCascadeEntities } from "../cascade.js";
 import {
-	accountFinalizeQueueUrl,
 	cascadeServices,
 	cognitoClient,
-	imapWorkerQueueUrl,
-	searchIndexQueueUrl,
+	getAccountFinalizeQueueUrl,
+	getImapWorkerQueueUrl,
+	getSearchIndexQueueUrl,
+	getUserPoolId,
 	sqsClient,
-	userPoolId,
 } from "../config.js";
 import type { AccountFanoutEvent, AccountFinalizeEvent } from "../events.js";
 
@@ -133,10 +133,10 @@ const defaultDeps = (): ProcessAccountFanoutDeps => ({
 	services: cascadeServices,
 	sqs: sqsClient,
 	cognito: cognitoClient,
-	userPoolId,
-	searchIndexQueueUrl,
-	imapWorkerQueueUrl,
-	accountFinalizeQueueUrl,
+	userPoolId: getUserPoolId(),
+	searchIndexQueueUrl: getSearchIndexQueueUrl(),
+	imapWorkerQueueUrl: getImapWorkerQueueUrl(),
+	accountFinalizeQueueUrl: getAccountFinalizeQueueUrl(),
 });
 
 export const handler: SQSHandler = async (
