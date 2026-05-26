@@ -136,7 +136,9 @@ const getMailboxUids = async (mailbox: string): Promise<number[]> => {
 
 describe(
 	"ImapFlowConnection integration tests",
-	{ skip: !process.env.RUN_INTEG_TESTS },
+	{
+		skip: !process.env.RUN_INTEG_TESTS,
+	},
 	() => {
 		describe("moveMessages", () => {
 			test("moves a message to another mailbox", async () => {

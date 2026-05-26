@@ -71,6 +71,9 @@ test-results/
 playwright-report/
 .e2e-account-id
 
+# TypeScript build info files
+**/*.tsbuildinfo
+
 # Visual regression baselines live on the `visual-baselines` orphan
 # branch. The cache and the symlink it backs are gitignored so they
 # never end up on `main`.
