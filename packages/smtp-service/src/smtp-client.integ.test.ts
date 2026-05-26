@@ -55,7 +55,9 @@ const createTestMessage = (
 
 describe(
 	"SMTP client integration tests",
-	{ skip: !process.env.RUN_INTEG_TESTS },
+	{
+		skip: !process.env.RUN_INTEG_TESTS,
+	},
 	() => {
 		describe("sendMail", () => {
 			test("sends a simple text message", async () => {

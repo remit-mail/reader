@@ -255,7 +255,9 @@ const waitFor = async <T>(
 
 describe(
 	"Outbox roundtrip (compose -> SMTP -> IMAP append)",
-	{ skip: !process.env.RUN_E2E_TESTS },
+	{
+		skip: !process.env.RUN_E2E_TESTS,
+	},
 	() => {
 		const config = createDdbConfig();
 		let imapWorker: SpawnedWorker | null = null;

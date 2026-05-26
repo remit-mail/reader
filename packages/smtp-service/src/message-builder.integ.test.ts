@@ -56,7 +56,9 @@ const createMockOutboxMessage = (
 
 describe(
 	"Message builder integration tests",
-	{ skip: !process.env.RUN_INTEG_TESTS },
+	{
+		skip: !process.env.RUN_INTEG_TESTS,
+	},
 	() => {
 		describe("buildMailMessage + sendMail", () => {
 			test("builds and sends a simple text message", async () => {

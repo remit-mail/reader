@@ -7,7 +7,9 @@ import {
 
 describe(
 	"Mailbox listing (Dovecot)",
-	{ skip: !process.env.RUN_E2E_TESTS },
+	{
+		skip: !process.env.RUN_E2E_TESTS,
+	},
 	() => {
 		test("lists mailboxes and INBOX exists", async () => {
 			await withMailfuzzConnection(async (connection) => {
@@ -35,7 +37,9 @@ describe(
 
 describe(
 	"Message fetch (Dovecot)",
-	{ skip: !process.env.RUN_E2E_TESTS },
+	{
+		skip: !process.env.RUN_E2E_TESTS,
+	},
 	() => {
 		test("fetches messages with ENVELOPE data", async () => {
 			await withMailfuzzConnection(async (connection) => {
@@ -95,7 +99,9 @@ describe(
 
 describe(
 	"Message bodies (Dovecot)",
-	{ skip: !process.env.RUN_E2E_TESTS },
+	{
+		skip: !process.env.RUN_E2E_TESTS,
+	},
 	() => {
 		test("fetches message body with text content", async () => {
 			await withMailfuzzConnection(async (connection) => {
@@ -115,7 +121,9 @@ describe(
 
 describe(
 	"Flag operations (Dovecot)",
-	{ skip: !process.env.RUN_E2E_TESTS },
+	{
+		skip: !process.env.RUN_E2E_TESTS,
+	},
 	() => {
 		let targetUid: number;
 
@@ -179,7 +187,9 @@ describe(
 
 describe(
 	"Message operations (Dovecot)",
-	{ skip: !process.env.RUN_E2E_TESTS },
+	{
+		skip: !process.env.RUN_E2E_TESTS,
+	},
 	() => {
 		const testFolder = `TestCopy_${Date.now()}`;
 
