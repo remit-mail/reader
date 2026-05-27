@@ -1,5 +1,6 @@
 import {
 	DeleteVectorsCommand,
+	ListVectorsCommand,
 	PutVectorsCommand,
 	QueryVectorsCommand,
 	S3VectorsClient,
@@ -34,7 +35,12 @@ const toDocument = (value: unknown): DocumentType => {
 
 const PUT_BATCH_SIZE = 100;
 const DELETE_BATCH_SIZE = 100;
-const QUERY_LIST_BATCH_SIZE = 500;
+// AWS S3 Vectors ListVectors caps maxResults at 500 per page.
+const LIST_PAGE_SIZE = 500;
+// Safety bound: stop pagination after this many pages to prevent runaway
+// loops on a malformed response. 50 pages * 500 = 25,000 vectors per
+// messageId — far above any realistic chunk count for a single message.
+const MAX_LIST_PAGES = 50;
 
 export interface S3VectorsBackendConfig {
 	client?: S3VectorsClient;
@@ -195,22 +201,37 @@ export class S3VectorsBackend implements VectorStoreService {
 	private findChunkKeysForMessage = async (
 		messageId: string,
 	): Promise<string[]> => {
-		const probe = new Array<number>(1).fill(0);
-		const cmd = new QueryVectorsCommand({
-			vectorBucketName: this.vectorBucketName,
-			indexName: this.indexName,
-			topK: QUERY_LIST_BATCH_SIZE,
-			queryVector: { float32: probe },
-			filter: { messageId } as DocumentType,
-			returnMetadata: false,
-			returnDistance: false,
-		});
-		const response = await this.client.send(cmd);
+		// QueryVectors caps topK at 100 and returns no nextToken — it's a
+		// similarity-search API, not a listing API. ListVectors is the right
+		// surface here: it paginates natively and we don't need ranking.
+		// ListVectors has no server-side metadata filter, so we filter
+		// client-side on the key prefix. chunkIds are always
+		// `${messageId}::${suffix}` (see chunker.ts), so we never need to
+		// fetch metadata.
+		const keyPrefix = `${messageId}::`;
 		const keys: string[] = [];
-		for (const v of response.vectors ?? []) {
-			if (typeof v.key === "string") keys.push(v.key);
+		let nextToken: string | undefined;
+		for (let page = 0; page < MAX_LIST_PAGES; page++) {
+			const cmd = new ListVectorsCommand({
+				vectorBucketName: this.vectorBucketName,
+				indexName: this.indexName,
+				maxResults: LIST_PAGE_SIZE,
+				nextToken,
+				returnData: false,
+				returnMetadata: false,
+			});
+			const response = await this.client.send(cmd);
+			for (const v of response.vectors ?? []) {
+				if (typeof v.key === "string" && v.key.startsWith(keyPrefix)) {
+					keys.push(v.key);
+				}
+			}
+			nextToken = response.nextToken;
+			if (!nextToken) return keys;
 		}
-		return keys;
+		throw new Error(
+			`findChunkKeysForMessage: exceeded MAX_LIST_PAGES (${MAX_LIST_PAGES}) for messageId=${messageId}`,
+		);
 	};
 }
 

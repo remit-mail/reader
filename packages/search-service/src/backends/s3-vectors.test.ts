@@ -1,0 +1,200 @@
+import assert from "node:assert/strict";
+import { afterEach, beforeEach, describe, it } from "node:test";
+import {
+	DeleteVectorsCommand,
+	ListVectorsCommand,
+	QueryVectorsCommand,
+	S3VectorsClient,
+} from "@aws-sdk/client-s3vectors";
+import { type AwsClientStub, mockClient } from "aws-sdk-client-mock";
+import { S3VectorsBackend } from "./s3-vectors.js";
+
+const VECTOR_BUCKET = "test-vector-bucket";
+const INDEX_NAME = "test-index";
+const MESSAGE_ID = "msg-abc";
+
+const buildBackend = () =>
+	new S3VectorsBackend({
+		client: new S3VectorsClient({ region: "us-east-1" }),
+		vectorBucketName: VECTOR_BUCKET,
+		indexName: INDEX_NAME,
+	});
+
+const keysForMessage = (messageId: string, suffixes: string[]) =>
+	suffixes.map((s) => ({ key: `${messageId}::${s}` }));
+
+describe("S3VectorsBackend.findChunkKeysForMessage (via delete)", () => {
+	let s3vMock: AwsClientStub<S3VectorsClient>;
+
+	beforeEach(() => {
+		s3vMock = mockClient(S3VectorsClient);
+	});
+
+	afterEach(() => {
+		s3vMock.restore();
+	});
+
+	it("returns keys directly from a single-page ListVectors response", async () => {
+		s3vMock.on(ListVectorsCommand).resolves({
+			vectors: keysForMessage(MESSAGE_ID, ["body-0", "subject", "sender"]),
+			nextToken: undefined,
+		});
+		const deleted: string[][] = [];
+		s3vMock.on(DeleteVectorsCommand).callsFake((input) => {
+			deleted.push((input.keys ?? []) as string[]);
+			return {};
+		});
+
+		await buildBackend().delete({ messageId: MESSAGE_ID });
+
+		const listCalls = s3vMock.commandCalls(ListVectorsCommand);
+		assert.equal(
+			listCalls.length,
+			1,
+			"should issue exactly one ListVectors call",
+		);
+		assert.deepEqual(deleted.flat().sort(), [
+			`${MESSAGE_ID}::body-0`,
+			`${MESSAGE_ID}::sender`,
+			`${MESSAGE_ID}::subject`,
+		]);
+	});
+
+	it("paginates over nextToken and returns the union of pages", async () => {
+		s3vMock
+			.on(ListVectorsCommand)
+			.resolvesOnce({
+				vectors: keysForMessage(MESSAGE_ID, ["body-0", "body-1"]),
+				nextToken: "tok-1",
+			})
+			.resolvesOnce({
+				vectors: keysForMessage(MESSAGE_ID, ["body-2", "entities"]),
+				nextToken: "tok-2",
+			})
+			.resolvesOnce({
+				vectors: keysForMessage(MESSAGE_ID, ["subject"]),
+				nextToken: undefined,
+			});
+		const deleted: string[][] = [];
+		s3vMock.on(DeleteVectorsCommand).callsFake((input) => {
+			deleted.push((input.keys ?? []) as string[]);
+			return {};
+		});
+
+		await buildBackend().delete({ messageId: MESSAGE_ID });
+
+		const listCalls = s3vMock.commandCalls(ListVectorsCommand);
+		assert.equal(listCalls.length, 3, "should paginate across three pages");
+		assert.equal(listCalls[0].args[0].input.nextToken, undefined);
+		assert.equal(listCalls[1].args[0].input.nextToken, "tok-1");
+		assert.equal(listCalls[2].args[0].input.nextToken, "tok-2");
+		assert.deepEqual(deleted.flat().sort(), [
+			`${MESSAGE_ID}::body-0`,
+			`${MESSAGE_ID}::body-1`,
+			`${MESSAGE_ID}::body-2`,
+			`${MESSAGE_ID}::entities`,
+			`${MESSAGE_ID}::subject`,
+		]);
+	});
+
+	it("filters out vectors belonging to other messages by key prefix", async () => {
+		s3vMock.on(ListVectorsCommand).resolves({
+			vectors: [
+				{ key: `${MESSAGE_ID}::body-0` },
+				{ key: "msg-other::body-0" },
+				{ key: `${MESSAGE_ID}::subject` },
+				{ key: "msg-other::subject" },
+			],
+			nextToken: undefined,
+		});
+		const deleted: string[][] = [];
+		s3vMock.on(DeleteVectorsCommand).callsFake((input) => {
+			deleted.push((input.keys ?? []) as string[]);
+			return {};
+		});
+
+		await buildBackend().delete({ messageId: MESSAGE_ID });
+
+		assert.deepEqual(deleted.flat().sort(), [
+			`${MESSAGE_ID}::body-0`,
+			`${MESSAGE_ID}::subject`,
+		]);
+	});
+
+	it("skips DeleteVectors entirely when no keys match", async () => {
+		s3vMock.on(ListVectorsCommand).resolves({
+			vectors: [{ key: "msg-other::body-0" }],
+			nextToken: undefined,
+		});
+		s3vMock.on(DeleteVectorsCommand).resolves({});
+
+		await buildBackend().delete({ messageId: MESSAGE_ID });
+
+		assert.equal(
+			s3vMock.commandCalls(DeleteVectorsCommand).length,
+			0,
+			"should not call DeleteVectors when there are no matching keys",
+		);
+	});
+
+	it("throws when pagination exceeds the safety bound", async () => {
+		// Always return a nextToken so pagination never terminates naturally.
+		s3vMock.on(ListVectorsCommand).callsFake(() => ({
+			vectors: [{ key: `${MESSAGE_ID}::body-0` }],
+			nextToken: "never-ends",
+		}));
+		s3vMock.on(DeleteVectorsCommand).resolves({});
+
+		await assert.rejects(
+			buildBackend().delete({ messageId: MESSAGE_ID }),
+			/exceeded MAX_LIST_PAGES/,
+		);
+	});
+
+	it("never sends a QueryVectors call from findChunkKeysForMessage (regression guard for topK > 100)", async () => {
+		s3vMock.on(ListVectorsCommand).resolves({
+			vectors: keysForMessage(MESSAGE_ID, ["body-0"]),
+			nextToken: undefined,
+		});
+		s3vMock.on(DeleteVectorsCommand).resolves({});
+
+		await buildBackend().delete({ messageId: MESSAGE_ID });
+
+		const queryCalls = s3vMock.commandCalls(QueryVectorsCommand);
+		assert.equal(
+			queryCalls.length,
+			0,
+			"findChunkKeysForMessage must use ListVectors, not QueryVectors (topK is capped at 100)",
+		);
+	});
+});
+
+describe("S3VectorsBackend.query topK guard", () => {
+	let s3vMock: AwsClientStub<S3VectorsClient>;
+
+	beforeEach(() => {
+		s3vMock = mockClient(S3VectorsClient);
+	});
+
+	afterEach(() => {
+		s3vMock.restore();
+	});
+
+	it("forwards topK to QueryVectorsCommand (caller is responsible for staying within the AWS 1..100 limit)", async () => {
+		s3vMock.on(QueryVectorsCommand).resolves({
+			vectors: [],
+			distanceMetric: "cosine",
+		});
+
+		await buildBackend().query({ vector: [0.1, 0.2, 0.3], topK: 100 });
+
+		const calls = s3vMock.commandCalls(QueryVectorsCommand);
+		assert.equal(calls.length, 1);
+		const topK = calls[0].args[0].input.topK;
+		assert.equal(topK, 100, "topK should be passed through unchanged");
+		assert.ok(
+			topK !== undefined && topK >= 1 && topK <= 100,
+			`topK must be within AWS S3 Vectors 1..100 range, got ${topK}`,
+		);
+	});
+});
