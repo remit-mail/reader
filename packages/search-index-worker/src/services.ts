@@ -30,8 +30,11 @@ export const getServices = (): Services => {
 	const tableName = process.env.DYNAMODB_TABLE_NAME;
 	if (!tableName) throw new Error("DYNAMODB_TABLE_NAME is required");
 
-	const vectorBucketArn = process.env.S3_VECTORS_BUCKET_ARN;
-	if (!vectorBucketArn) throw new Error("S3_VECTORS_BUCKET_ARN is required");
+	const vectorBucketName = process.env.S3_VECTORS_BUCKET_NAME;
+	if (!vectorBucketName) throw new Error("S3_VECTORS_BUCKET_NAME is required");
+
+	const indexName = process.env.S3_VECTORS_INDEX_NAME;
+	if (!indexName) throw new Error("S3_VECTORS_INDEX_NAME is required");
 
 	const ddbClient = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 	const accountService = new AccountService({
@@ -44,13 +47,6 @@ export const getServices = (): Services => {
 	});
 
 	const storageService = createStorageService();
-
-	const vectorBucketName = vectorBucketArn.split("/")[0].split(":").pop();
-	if (!vectorBucketName)
-		throw new Error("Cannot parse bucket name from S3_VECTORS_BUCKET_ARN");
-	const indexName = vectorBucketArn.includes("/")
-		? vectorBucketArn.split("/").slice(1).join("/")
-		: "messages";
 
 	const embedder = new BedrockEmbeddingService();
 	const store = createS3VectorsBackend({
