@@ -2,6 +2,7 @@ import {
 	BedrockRuntimeClient,
 	InvokeModelCommand,
 } from "@aws-sdk/client-bedrock-runtime";
+import pLimit from "p-limit";
 
 export interface EmbeddingService {
 	embed(texts: string[]): Promise<number[][]>;
@@ -13,10 +14,12 @@ export interface BedrockEmbeddingConfig {
 	region?: string;
 	modelId?: string;
 	dimensions?: number;
+	concurrency?: number;
 }
 
 const DEFAULT_MODEL_ID = "amazon.titan-embed-text-v2:0";
 const DEFAULT_DIMENSIONS = 1024;
+const DEFAULT_CONCURRENCY = 6;
 
 const isNumberArray = (value: unknown): value is number[] =>
 	Array.isArray(value) && value.every((n) => typeof n === "number");
@@ -39,34 +42,35 @@ export class BedrockEmbeddingService implements EmbeddingService {
 	private client: BedrockRuntimeClient;
 	private modelId: string;
 	readonly dimensions: number;
+	private limit: ReturnType<typeof pLimit>;
 
 	constructor(config: BedrockEmbeddingConfig = {}) {
 		this.client =
 			config.client ?? new BedrockRuntimeClient({ region: config.region });
 		this.modelId = config.modelId ?? DEFAULT_MODEL_ID;
 		this.dimensions = config.dimensions ?? DEFAULT_DIMENSIONS;
+		this.limit = pLimit(config.concurrency ?? DEFAULT_CONCURRENCY);
 	}
 
-	embed = async (texts: string[]): Promise<number[][]> => {
-		const results: number[][] = [];
-		for (const text of texts) {
-			const cmd = new InvokeModelCommand({
-				modelId: this.modelId,
-				contentType: "application/json",
-				accept: "application/json",
-				body: JSON.stringify({
-					inputText: text,
-					dimensions: this.dimensions,
-					normalize: true,
-				}),
-			});
-			const response = await this.client.send(cmd);
-			if (!response.body) {
-				throw new Error("Bedrock InvokeModel returned empty body");
-			}
-			results.push(parseTitanResponse(response.body));
+	embed = async (texts: string[]): Promise<number[][]> =>
+		Promise.all(texts.map((text) => this.limit(() => this.embedOne(text))));
+
+	private embedOne = async (text: string): Promise<number[]> => {
+		const cmd = new InvokeModelCommand({
+			modelId: this.modelId,
+			contentType: "application/json",
+			accept: "application/json",
+			body: JSON.stringify({
+				inputText: text,
+				dimensions: this.dimensions,
+				normalize: true,
+			}),
+		});
+		const response = await this.client.send(cmd);
+		if (!response.body) {
+			throw new Error("Bedrock InvokeModel returned empty body");
 		}
-		return results;
+		return parseTitanResponse(response.body);
 	};
 }
 
