@@ -17,7 +17,7 @@
 		"@remit/smtp-service": "*",
 		"@remit/storage-service": "*",
 		"@types/aws-lambda": "*",
-		"esbuild": "*",
+		"esbuild": "^0.27.7",
 		"expect-env": "*",
 		"p-map": "*"
 	}
