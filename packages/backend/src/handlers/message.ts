@@ -35,6 +35,7 @@ import type {
 	MessageOperationIds,
 	OperationHandler,
 } from "../types.js";
+import { assertAccountOwnership } from "./account-ownership.js";
 
 type StarColorValue = (typeof StarColor)[keyof typeof StarColor];
 
@@ -49,6 +50,15 @@ const getSearchIndexQueueUrl = (): string | undefined =>
 
 export const isStorageNotFoundError = (error: unknown): boolean =>
 	isStorageNotFoundErrorFromService(error);
+
+/**
+ * Decode the raw `.eml` bytes into a string for inspection. RFC822/MIME
+ * sources are 7-bit/8-bit ASCII-compatible (non-ASCII bytes are encoded via
+ * quoted-printable / base64 inside the body), so `latin1` round-trips every
+ * byte 1:1 without loss or replacement characters — unlike `utf8`, which would
+ * mangle raw 8-bit bytes. Headers and structure stay byte-accurate.
+ */
+export const decodeRawEml = (body: Buffer): string => body.toString("latin1");
 
 /**
  * Extract the accountConfigId + accountId segments from a bodyStorageKey URI
@@ -334,6 +344,77 @@ export const MessageOperations: Record<
 			bodyParts,
 			references,
 		};
+	},
+
+	MessageOperations_getRawMessage: async (
+		context: Context,
+		...args: unknown[]
+	) => {
+		const event = args[0] as APIGatewayProxyEvent;
+		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const { messageId } = context.request.params as { messageId: string };
+		const client = getClient();
+
+		// Resolve the message row. `message.get` throws NotFoundError (→ 404)
+		// when the id is unknown, matching describeMessage's not-found behavior.
+		const message = await client.message.get(messageId);
+
+		// Resolve accountId. When the body is already stored the bodyStorageKey
+		// encodes both ids for free; otherwise fall back to a Mailbox lookup —
+		// same resolution describeMessage uses.
+		const idsFromKey = message.bodyStorageKey
+			? extractAccountIdsFromBodyKey(message.bodyStorageKey)
+			: null;
+		let accountId = idsFromKey?.accountId;
+		let mailboxFullPath: string | undefined;
+		if (!accountId) {
+			const mailbox = await client.mailbox.get(message.mailboxId);
+			accountId = mailbox.accountId;
+			mailboxFullPath = mailbox.fullPath;
+		}
+
+		// Cross-tenant ownership guard. Returning raw RFC822 bytes is sensitive,
+		// so run the same unit-tested check mailbox/account handlers use BEFORE
+		// any backfill or storage read — covering both the stored-body fast path
+		// and the IMAP-backfill path with one consistent rule. `read` mode throws
+		// NotFoundError (→ 404) on mismatch and never leaks the owner's
+		// accountConfigId.
+		const account = await client.account.get(accountId);
+		assertAccountOwnership(account, accountConfigId, "read");
+
+		// Backfill from IMAP when the body has never been stored, reusing the
+		// exact path describeMessage uses. fetchAndGetBody writes the raw .eml +
+		// parsed cache + per-part rows and sets message.bodyStorageKey as a
+		// side-effect; we then re-read the row to pick up the freshly written key.
+		if (!message.bodyStorageKey) {
+			if (!mailboxFullPath) {
+				const mailbox = await client.mailbox.get(message.mailboxId);
+				mailboxFullPath = mailbox.fullPath;
+			}
+			const scope = await client.createConnectionScope(accountId);
+			await client.bodySync
+				.fetchAndGetBody(
+					messageId,
+					accountId,
+					accountConfigId,
+					mailboxFullPath,
+					scope.getConnection,
+				)
+				.finally(() => scope.disconnect());
+		}
+
+		// Re-read so we have the bodyStorageKey the backfill just wrote (or the
+		// key that was already present), then pull the raw bytes from storage.
+		const stored = await client.message.get(messageId);
+		if (!stored.bodyStorageKey) {
+			throw new Error(
+				`Raw source unavailable for message ${messageId}: no bodyStorageKey after backfill`,
+			);
+		}
+
+		const body = await client.storage.retrieve(stored.bodyStorageKey);
+
+		return { raw: decodeRawEml(body) };
 	},
 
 	MessageOperations_updateMessageFlags: async (context) => {

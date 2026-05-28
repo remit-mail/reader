@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { NotFoundError } from "@remit/remit-electrodb-service";
+import { assertAccountOwnership } from "./account-ownership.js";
 import {
 	type BodyPartLike,
 	buildBodyPartResponses,
+	decodeRawEml,
 	extractAccountIdsFromBodyKey,
 	isContentDisposition,
 	isMediaType,
@@ -243,5 +246,79 @@ describe("isContentDisposition", () => {
 		assert.equal(isContentDisposition(undefined), false);
 		assert.equal(isContentDisposition(null), false);
 		assert.equal(isContentDisposition(0), false);
+	});
+});
+
+describe("decodeRawEml", () => {
+	it("returns the headers and body of an ASCII .eml verbatim", () => {
+		const eml = [
+			"From: alice@example.com",
+			"To: bob@example.com",
+			"Subject: Hello",
+			"",
+			"Body line one.",
+			"Body line two.",
+			"",
+		].join("\r\n");
+		assert.equal(decodeRawEml(Buffer.from(eml, "ascii")), eml);
+	});
+
+	it("round-trips every raw 8-bit byte 1:1 (latin1), unlike utf8 which mangles them", () => {
+		// A raw .eml can carry 8-bit bytes (e.g. an unencoded ISO-8859-1
+		// header or a CTE: 8bit body). latin1 maps each byte to a codepoint
+		// reversibly; utf8 would emit replacement chars and break the source.
+		const bytes = Buffer.from([0x53, 0xe9, 0x62, 0x61, 0x73, 0x74, 0x69]); // "Sébasti" in latin1
+		const decoded = decodeRawEml(bytes);
+		assert.equal(decoded.length, bytes.length);
+		assert.equal(Buffer.from(decoded, "latin1").equals(bytes), true);
+		assert.notEqual(decoded, bytes.toString("utf8"));
+	});
+
+	it("preserves CRLF line endings used by RFC822", () => {
+		const eml = "Header: value\r\n\r\nbody\r\n";
+		const decoded = decodeRawEml(Buffer.from(eml, "latin1"));
+		assert.ok(decoded.includes("\r\n\r\n"));
+		assert.equal(decoded, eml);
+	});
+
+	it("returns an empty string for an empty buffer", () => {
+		assert.equal(decodeRawEml(Buffer.alloc(0)), "");
+	});
+});
+
+describe("getRawMessage ownership guard", () => {
+	// The raw-source handler gates on the shared assertAccountOwnership guard in
+	// `read` mode before returning any bytes (on both the stored-body fast path
+	// and the IMAP-backfill path). These pin the contract for the raw endpoint;
+	// the guard's full matrix lives in account.test.ts.
+	const OWNER = "owner-account-config-id";
+	const OTHER = "other-account-config-id";
+	const ACCOUNT_ID = "account-1";
+
+	it("passes for the owning tenant (read mode)", () => {
+		assert.doesNotThrow(() =>
+			assertAccountOwnership(
+				{ accountId: ACCOUNT_ID, accountConfigId: OWNER },
+				OWNER,
+				"read",
+			),
+		);
+	});
+
+	it("rejects a cross-tenant raw read as 404 without leaking the owner's accountConfigId", () => {
+		assert.throws(
+			() =>
+				assertAccountOwnership(
+					{ accountId: ACCOUNT_ID, accountConfigId: OWNER },
+					OTHER,
+					"read",
+				),
+			(err: unknown) => {
+				assert.ok(err instanceof NotFoundError);
+				assert.equal(err.statusCode, 404);
+				assert.doesNotMatch(err.message, new RegExp(OWNER));
+				return true;
+			},
+		);
 	});
 });

@@ -228,6 +228,12 @@ model DescribeMessageResponse {
   references: MessageReferenceResponse[];
 }
 
+@doc("Raw RFC822/MIME source of a message (headers and body), decoded as a string for inspection.")
+model RawMessageResponse {
+  @doc("The complete RFC822/MIME source of the message, headers included.")
+  raw: string;
+}
+
 // ============================================
 // API Input Models
 // ============================================

@@ -10,6 +10,7 @@ import { useNavigate, useSearch } from "@tanstack/react-router";
 import {
 	BadgeCheck,
 	Check,
+	Code,
 	MailOpen,
 	MoreVertical,
 	Trash2,
@@ -79,6 +80,16 @@ interface MessageActionMenuProps {
 	 * Whether the From-address is currently flagged as trusted.
 	 */
 	isTrusted?: boolean;
+	/**
+	 * Whether the body area is currently showing the raw RFC822/MIME source
+	 * instead of the rendered body. Controls the label/icon of the toggle.
+	 */
+	showRaw?: boolean;
+	/**
+	 * Toggle between the rendered body and the raw source. Owned by the
+	 * parent card so the body area and this menu stay in sync.
+	 */
+	onToggleRaw?: () => void;
 }
 
 export const MessageActionMenu = ({
@@ -89,6 +100,8 @@ export const MessageActionMenu = ({
 	accountId,
 	fromAddressId,
 	isTrusted = false,
+	showRaw = false,
+	onToggleRaw,
 }: MessageActionMenuProps) => {
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
@@ -318,6 +331,12 @@ export const MessageActionMenu = ({
 						>
 							<MailOpen className="size-4" />
 							Mark as unread
+						</DropdownMenuItem>
+					)}
+					{onToggleRaw && (
+						<DropdownMenuItem onClick={onToggleRaw}>
+							<Code className="size-4" />
+							{showRaw ? "Show formatted" : "Show raw email"}
 						</DropdownMenuItem>
 					)}
 					<DropdownMenuSeparator />

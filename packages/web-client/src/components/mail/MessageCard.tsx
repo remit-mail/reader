@@ -11,6 +11,7 @@ import {
 	Paperclip,
 	Star,
 } from "lucide-react";
+import { useState } from "react";
 import { Avatar } from "@/components/ui/Avatar";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -20,6 +21,7 @@ import { cn } from "@/lib/utils";
 import { AddressList } from "./AddressDisplay";
 import { MessageActionMenu } from "./MessageActionMenu";
 import { MessageBody } from "./MessageBody";
+import { RawMessageView } from "./RawMessageView";
 
 const TrustedSenderBadge = () => (
 	<BadgeCheck
@@ -185,6 +187,8 @@ const ExpandedCard = ({
 	onToggleStar,
 	isStarPending,
 	accountId,
+	showRaw,
+	onToggleRaw,
 }: {
 	threadMessage: RemitImapThreadMessageResponse;
 	messageData?: RemitImapDescribeMessageResponse;
@@ -197,6 +201,8 @@ const ExpandedCard = ({
 	onToggleStar: () => void;
 	isStarPending?: boolean;
 	accountId?: string;
+	showRaw: boolean;
+	onToggleRaw: () => void;
 }) => {
 	const senderName =
 		threadMessage.fromName || threadMessage.fromEmail || "Unknown";
@@ -269,6 +275,8 @@ const ExpandedCard = ({
 						isTrusted={
 							messageData?.envelope.from[0]?.flags?.trusted?.value === true
 						}
+						showRaw={showRaw}
+						onToggleRaw={onToggleRaw}
 					/>
 				</div>
 			</div>
@@ -293,6 +301,8 @@ const ExpandedCard = ({
 						error={error}
 						onRetry={onRetry}
 					/>
+				) : showRaw ? (
+					<RawMessageView messageId={threadMessage.messageId} />
 				) : (
 					<MessageBody
 						bodyParts={messageData?.bodyParts}
@@ -317,6 +327,7 @@ export const MessageCard = ({
 	isStarPending,
 	accountId,
 }: MessageCardProps) => {
+	const [showRaw, setShowRaw] = useState(false);
 	const {
 		data: messageData,
 		isLoading,
@@ -355,6 +366,8 @@ export const MessageCard = ({
 			onToggleStar={onToggleStar}
 			isStarPending={isStarPending}
 			accountId={accountId}
+			showRaw={showRaw}
+			onToggleRaw={() => setShowRaw((prev) => !prev)}
 		/>
 	);
 };
