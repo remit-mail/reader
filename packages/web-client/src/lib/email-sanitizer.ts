@@ -1,9 +1,11 @@
 import DOMPurify from "dompurify";
 import type { CidResolver } from "./cid-resolver";
+import { generateLayoutClampCSS } from "./email-layout-clamp";
 
 export type ColorMode = "light" | "dark" | "auto";
 export type { CidResolver } from "./cid-resolver";
 export { buildCidResolver } from "./cid-resolver";
+export { generateLayoutClampCSS } from "./email-layout-clamp";
 
 export interface SanitizeOptions {
 	allowExternalImages?: boolean;
@@ -581,13 +583,19 @@ export const createEmailSanitizer = (options: SanitizeOptions = {}) => {
 	return (html: string): string => {
 		const sanitized = purify.sanitize(html, config);
 
+		// Layout clamp always applies — it keeps wide author markup (fixed-width
+		// tables, oversized images, long URLs) from breaking out of the column
+		// and unlocking horizontal page scroll on mobile. Independent of color
+		// mode because it touches layout only.
+		const layoutCss = generateLayoutClampCSS();
+
 		// Inject dark mode override styles for auto/dark modes
 		if (colorMode === "auto" || colorMode === "dark") {
 			const darkModeCSS = generateDarkModeOverrideCSS();
-			return `<style>${darkModeCSS}</style>${sanitized}`;
+			return `<style>${layoutCss}${darkModeCSS}</style>${sanitized}`;
 		}
 
-		return sanitized;
+		return `<style>${layoutCss}</style>${sanitized}`;
 	};
 };
 
