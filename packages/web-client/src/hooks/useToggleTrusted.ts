@@ -85,7 +85,7 @@ export const useToggleTrusted = ({ messageId }: UseToggleTrustedOptions) => {
 		onMutate: async (vars): Promise<ToggleTrustedContext> => {
 			const addressId = vars.path.addressId;
 			const trustedPatch = vars.body.flags?.trusted;
-			const nextTrusted = trustedPatch !== null && trustedPatch !== undefined;
+			const nextTrusted = trustedPatch?.value === true;
 
 			const describePrefix = messageOperationsDescribeMessageQueryKey({
 				path: { messageId },
@@ -127,11 +127,19 @@ export const useToggleTrusted = ({ messageId }: UseToggleTrustedOptions) => {
 
 	const toggleTrusted = (addressId: string, currentlyTrusted: boolean) => {
 		const next = !currentlyTrusted;
+		// Always send a TrustedFlag object (value: true|false). The schema
+		// nominally accepts `trusted: null` to remove the flag, but our
+		// openapi-backend validator doesn't honour `nullable: true` on a
+		// schema wrapped in `allOf: [$ref]` (which is how TypeSpec emits
+		// `TrustedFlag | null` for OAS 3.0), so the server rejected untrust
+		// requests as invalid. `{ value: false }` reads as "not trusted"
+		// everywhere (every check is `flags?.trusted?.value === true`) and
+		// also leaves an audit timestamp on the flag.
 		mutate({
 			path: { addressId },
 			body: {
 				flags: {
-					trusted: next ? buildTrustedFlag(true) : null,
+					trusted: buildTrustedFlag(next),
 				},
 			},
 		});
