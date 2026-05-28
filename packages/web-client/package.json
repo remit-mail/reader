@@ -50,12 +50,12 @@
     "@vitejs/plugin-react": "^4",
     "aws-amplify": "^6",
     "clsx": "^2",
-    "dompurify": "*",
+    "dompurify": "^3.4.7",
     "electrodb": "*",
     "expect-env": "*",
     "i18next": "^24",
     "i18next-browser-languagedetector": "^8",
-    "i18next-http-backend": "^3",
+    "i18next-http-backend": "^3.0.6",
     "lucide-react": "^0.468",
     "platejs": "*",
     "react": "^19",
@@ -65,7 +65,7 @@
     "tailwind-merge": "^2",
     "tailwindcss": "^4",
     "typescript": "*",
-    "vite": "^6",
+    "vite": "^6.4.2",
     "zod": "^3"
   },
   "dependencies": {

@@ -25,9 +25,9 @@
 		"@remit/storage-service": "*",
 		"@types/aws-lambda": "*",
 		"@types/nodemailer": "*",
-		"esbuild": "*",
+		"esbuild": "^0.27.7",
 		"expect-env": "*",
-		"nodemailer": "*",
+		"nodemailer": "^7.0.13",
 		"p-map": "*"
 	},
 	"dependencies": {
