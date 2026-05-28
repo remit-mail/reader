@@ -1,191 +1,133 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
 import { buildCidResolver } from "./cid-resolver";
+import {
+	detectAuthorBackground,
+	sanitizeInlineStyle,
+	sanitizeStyleElementCss,
+} from "./email-sanitizer";
 
 /**
- * Test the color parsing and detection logic.
+ * Author CSS survives — the email body is rendered as a light-mode island
+ * (see `MessageBody.tsx`'s `color-scheme: light` wrapper), so the sanitizer
+ * must NOT rewrite color/background declarations or wrap author styles in a
+ * `prefers-color-scheme` media query. These tests pin that contract; if any
+ * dark-mode rewriting sneaks back in, newsletter designs go back to looking
+ * broken in dark mode (#375).
  *
- * Note: DOMPurify requires a DOM (browser or JSDOM), so we test the
- * color utility functions separately by duplicating them here.
- * The full sanitizer is tested in the browser.
+ * DOMPurify needs a DOM at module-load, so the bgcolor/attribute side of the
+ * sanitizer is verified by the lack of any code that touches it (see
+ * `email-sanitizer.ts`). The pure string transforms below cover the
+ * inline-style and `<style>`-block paths.
  */
 
-interface RGB {
-	r: number;
-	g: number;
-	b: number;
-	a?: number;
-}
-
-const parseColor = (color: string): RGB | null => {
-	const trimmed = color.trim().toLowerCase();
-
-	const namedColors: Record<string, RGB> = {
-		white: { r: 255, g: 255, b: 255 },
-		black: { r: 0, g: 0, b: 0 },
-		transparent: { r: 0, g: 0, b: 0, a: 0 },
-	};
-
-	if (namedColors[trimmed]) {
-		return namedColors[trimmed];
-	}
-
-	const hexMatch = trimmed.match(/^#([0-9a-f]{3,8})$/);
-	if (hexMatch) {
-		const hex = hexMatch[1];
-		if (hex.length === 3) {
-			return {
-				r: Number.parseInt(hex[0] + hex[0], 16),
-				g: Number.parseInt(hex[1] + hex[1], 16),
-				b: Number.parseInt(hex[2] + hex[2], 16),
-			};
-		}
-		if (hex.length === 6) {
-			return {
-				r: Number.parseInt(hex.slice(0, 2), 16),
-				g: Number.parseInt(hex.slice(2, 4), 16),
-				b: Number.parseInt(hex.slice(4, 6), 16),
-			};
-		}
-		if (hex.length === 8) {
-			return {
-				r: Number.parseInt(hex.slice(0, 2), 16),
-				g: Number.parseInt(hex.slice(2, 4), 16),
-				b: Number.parseInt(hex.slice(4, 6), 16),
-				a: Number.parseInt(hex.slice(6, 8), 16) / 255,
-			};
-		}
-	}
-
-	const rgbMatch = trimmed.match(
-		/^rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+))?\s*\)$/,
-	);
-	if (rgbMatch) {
-		return {
-			r: Number.parseInt(rgbMatch[1], 10),
-			g: Number.parseInt(rgbMatch[2], 10),
-			b: Number.parseInt(rgbMatch[3], 10),
-			a: rgbMatch[4] ? Number.parseFloat(rgbMatch[4]) : undefined,
-		};
-	}
-
-	return null;
-};
-
-const getLuminance = (rgb: RGB): number => {
-	const [rs, gs, bs] = [rgb.r / 255, rgb.g / 255, rgb.b / 255].map((c) =>
-		c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4,
-	);
-	return 0.2126 * rs + 0.7152 * gs + 0.0722 * bs;
-};
-
-const isLightColor = (rgb: RGB): boolean => getLuminance(rgb) > 0.85;
-const isDarkColor = (rgb: RGB): boolean => getLuminance(rgb) < 0.15;
-const hasLowAlpha = (rgb: RGB): boolean => rgb.a !== undefined && rgb.a < 0.5;
-
-describe("color parsing", () => {
-	test("parses named color: white", () => {
-		const result = parseColor("white");
-		assert.deepEqual(result, { r: 255, g: 255, b: 255 });
+describe("sanitizeInlineStyle — author colors survive (#375)", () => {
+	test("white background passes through unchanged", () => {
+		const result = sanitizeInlineStyle("background:#fff;color:#000");
+		assert.ok(
+			result.includes("background:#fff"),
+			"author light background must survive — it is the whole point of #375",
+		);
+		assert.ok(
+			result.includes("color:#000"),
+			"author dark text must survive — no more `color: inherit` rewrite",
+		);
 	});
 
-	test("parses named color: black", () => {
-		const result = parseColor("black");
-		assert.deepEqual(result, { r: 0, g: 0, b: 0 });
+	test("named-color background (white) is not stripped", () => {
+		const result = sanitizeInlineStyle("background: white; color: black");
+		assert.ok(result.includes("background: white"));
+		assert.ok(result.includes("color: black"));
 	});
 
-	test("parses 3-digit hex", () => {
-		const result = parseColor("#fff");
-		assert.deepEqual(result, { r: 255, g: 255, b: 255 });
+	test("rgb() backgrounds are not transformed to transparent", () => {
+		const result = sanitizeInlineStyle(
+			"background-color: rgb(255, 255, 255); color: rgb(0, 0, 0)",
+		);
+		assert.ok(result.includes("rgb(255, 255, 255)"));
+		assert.ok(result.includes("rgb(0, 0, 0)"));
 	});
 
-	test("parses 6-digit hex", () => {
-		const result = parseColor("#336699");
-		assert.deepEqual(result, { r: 51, g: 102, b: 153 });
+	test("border colors are not rewritten to currentColor", () => {
+		const result = sanitizeInlineStyle("border: 1px solid #eee");
+		assert.ok(result.includes("#eee"));
+		assert.ok(!result.includes("currentColor"));
 	});
 
-	test("parses 8-digit hex with alpha", () => {
-		const result = parseColor("#ffffff80");
-		assert.ok(result);
-		assert.equal(result.r, 255);
-		assert.equal(result.g, 255);
-		assert.equal(result.b, 255);
-		assert.ok(result.a !== undefined && result.a > 0.49 && result.a < 0.51);
+	test("url() background images are neutered — privacy / read-tracker vector", () => {
+		const result = sanitizeInlineStyle(
+			"background: url(https://tracker.example/pixel.gif)",
+		);
+		assert.ok(!result.includes("tracker.example"));
+		assert.ok(result.includes("none"));
 	});
 
-	test("parses rgb()", () => {
-		const result = parseColor("rgb(255, 128, 0)");
-		assert.ok(result);
-		assert.equal(result.r, 255);
-		assert.equal(result.g, 128);
-		assert.equal(result.b, 0);
-		assert.equal(result.a, undefined);
+	test("expression() is stripped — legacy IE XSS vector", () => {
+		const result = sanitizeInlineStyle("width: expression(alert(1))");
+		assert.ok(!result.includes("expression"));
+		assert.ok(!result.includes("alert"));
 	});
 
-	test("parses rgba()", () => {
-		const result = parseColor("rgba(255, 255, 255, 0.5)");
-		assert.deepEqual(result, { r: 255, g: 255, b: 255, a: 0.5 });
-	});
-
-	test("returns null for invalid color", () => {
-		const result = parseColor("not-a-color");
-		assert.equal(result, null);
-	});
-
-	test("handles whitespace", () => {
-		const result = parseColor("  #fff  ");
-		assert.deepEqual(result, { r: 255, g: 255, b: 255 });
-	});
-
-	test("case insensitive", () => {
-		const result = parseColor("#FFF");
-		assert.deepEqual(result, { r: 255, g: 255, b: 255 });
+	test("-moz-binding is stripped — legacy Firefox XSS vector", () => {
+		const result = sanitizeInlineStyle("-moz-binding: url(evil.xml)");
+		assert.ok(!result.includes("-moz-binding"));
+		assert.ok(!result.includes("evil.xml"));
 	});
 });
 
-describe("luminance detection", () => {
-	test("white is a light color", () => {
-		const white = { r: 255, g: 255, b: 255 };
-		assert.ok(isLightColor(white));
-		assert.ok(!isDarkColor(white));
+describe("sanitizeStyleElementCss — author <style> blocks survive (#375)", () => {
+	test("author body { background: white; color: black } is NOT wrapped in @media (prefers-color-scheme: light)", () => {
+		const css = "body { background: white; color: black; }";
+		const result = sanitizeStyleElementCss(css);
+		assert.ok(
+			!result.includes("@media"),
+			"author CSS must not be hidden behind a media query — that was the bug",
+		);
+		assert.ok(!result.includes("prefers-color-scheme"));
+		assert.ok(
+			result.includes("background: white"),
+			"author background survives in <style>",
+		);
+		assert.ok(
+			result.includes("color: black"),
+			"author color survives in <style>",
+		);
 	});
 
-	test("black is a dark color", () => {
-		const black = { r: 0, g: 0, b: 0 };
-		assert.ok(isDarkColor(black));
-		assert.ok(!isLightColor(black));
+	test("author CSS pass-through preserves the whole declaration block", () => {
+		const css = `
+			.brand { background:#0066cc; color:#fff; padding:12px; }
+			.muted { color:#666; }
+		`;
+		const result = sanitizeStyleElementCss(css);
+		assert.ok(result.includes(".brand"));
+		assert.ok(result.includes("#0066cc"));
+		assert.ok(result.includes(".muted"));
+		assert.ok(result.includes("#666"));
 	});
 
-	test("#f0f0f0 is a light color", () => {
-		const color = { r: 240, g: 240, b: 240 };
-		assert.ok(isLightColor(color));
+	test("@import is neutered — remote stylesheet pulls leak the read event", () => {
+		const css = "@import url('https://tracker.example/style.css');";
+		const result = sanitizeStyleElementCss(css);
+		assert.ok(!result.includes("tracker.example"));
+		assert.ok(result.includes("@import blocked"));
 	});
 
-	test("#333333 is a dark color", () => {
-		const color = { r: 51, g: 51, b: 51 };
-		assert.ok(isDarkColor(color));
+	test("url() inside CSS is neutered — same read-tracker vector", () => {
+		const css =
+			".hero { background-image: url(https://tracker.example/pixel.gif); }";
+		const result = sanitizeStyleElementCss(css);
+		assert.ok(!result.includes("tracker.example"));
 	});
 
-	test("mid-gray is neither light nor dark", () => {
-		const gray = { r: 128, g: 128, b: 128 };
-		assert.ok(!isLightColor(gray));
-		assert.ok(!isDarkColor(gray));
-	});
-});
-
-describe("alpha detection", () => {
-	test("detects low alpha", () => {
-		assert.ok(hasLowAlpha({ r: 255, g: 255, b: 255, a: 0.3 }));
-		assert.ok(hasLowAlpha({ r: 255, g: 255, b: 255, a: 0.0 }));
-	});
-
-	test("high alpha is not low", () => {
-		assert.ok(!hasLowAlpha({ r: 255, g: 255, b: 255, a: 0.8 }));
-		assert.ok(!hasLowAlpha({ r: 255, g: 255, b: 255, a: 1.0 }));
-	});
-
-	test("undefined alpha is not low", () => {
-		assert.ok(!hasLowAlpha({ r: 255, g: 255, b: 255 }));
+	test("expression() and -moz-binding are stripped from <style> too", () => {
+		const css =
+			".x { width: expression(alert(1)); -moz-binding: url(evil.xml); }";
+		const result = sanitizeStyleElementCss(css);
+		assert.ok(!result.includes("expression"));
+		assert.ok(!result.includes("alert"));
+		assert.ok(!result.includes("-moz-binding"));
+		assert.ok(!result.includes("evil.xml"));
 	});
 });
 
@@ -241,5 +183,62 @@ describe("buildCidResolver (#224 PR 2)", () => {
 	test("empty body-part list returns a resolver that always returns undefined", () => {
 		const resolve = buildCidResolver([]);
 		assert.equal(resolve("anything"), undefined);
+	});
+});
+
+describe("detectAuthorBackground — designed-vs-plain mail discriminator (#375)", () => {
+	test("inline style with background-color triggers (newsletter pattern)", () => {
+		assert.equal(
+			detectAuthorBackground(
+				'<body style="background-color:#ffffff;color:#000">x</body>',
+			),
+			true,
+		);
+	});
+
+	test("legacy bgcolor attribute triggers", () => {
+		assert.equal(
+			detectAuthorBackground(
+				'<table bgcolor="#ffffff"><tr><td>x</td></tr></table>',
+			),
+			true,
+		);
+	});
+
+	test("<style> block containing a background rule triggers", () => {
+		assert.equal(
+			detectAuthorBackground(
+				"<style>body { background: white; }</style><p>x</p>",
+			),
+			true,
+		);
+	});
+
+	test("plain mail with no author styling does NOT trigger — inherits app theme", () => {
+		assert.equal(detectAuthorBackground("<p>hello</p>"), false);
+	});
+
+	test("author text colour alone does NOT trigger — only backgrounds do", () => {
+		assert.equal(
+			detectAuthorBackground(
+				'<p style="color:#666">just a text color, no bg</p>',
+			),
+			false,
+		);
+	});
+
+	test("inline style with shorthand `background:` (no -color) still triggers", () => {
+		assert.equal(
+			detectAuthorBackground('<div style="background:#eee">x</div>'),
+			true,
+		);
+	});
+
+	test("case-insensitive on the attribute and on background keyword", () => {
+		assert.equal(
+			detectAuthorBackground('<div STYLE="BACKGROUND:#eee">x</div>'),
+			true,
+		);
+		assert.equal(detectAuthorBackground('<td BGCOLOR="#fff">x</td>'), true);
 	});
 });
