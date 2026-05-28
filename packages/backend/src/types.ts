@@ -25,6 +25,7 @@ export type OperationIds =
 	| "ThreadOperations_listThreads"
 	| "ThreadOperations_searchThreads"
 	| "MessageOperations_describeMessage"
+	| "MessageOperations_getRawMessage"
 	| "MessageOperations_updateMessageFlags"
 	| "MessageBulkOperations_deleteMessages"
 	| "MessageBulkOperations_moveMessages"

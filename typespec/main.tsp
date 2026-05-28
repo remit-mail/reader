@@ -380,6 +380,12 @@ namespace RemitApi {
     @get
     op describeMessage(@path messageId: UUID): DescribeMessageResponse;
 
+    @doc("Get the raw RFC822/MIME source of a message (headers and body) for inspection.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    @route("/raw")
+    op getRawMessage(@path messageId: UUID): RawMessageResponse;
+
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @patch(#{ implicitOptionality: true })
     @route("/flags")
