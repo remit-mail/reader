@@ -12,6 +12,7 @@ import {
 	useCallback,
 	useContext,
 	useEffect,
+	useRef,
 	useState,
 } from "react";
 import { z } from "zod";
@@ -72,6 +73,11 @@ function MailLayout() {
 	// route-state mutation and an in-flight search request.
 	const [searchInput, setSearchInput] = useState(searchQuery);
 	const debouncedSearchInput = useDebouncedValue(searchInput, 200);
+	// Set by handlers that mutate the URL themselves; suppresses the next
+	// URL→input sync so it doesn't race with React's render of the new
+	// local state and restore the previous searchQuery before the route
+	// state catches up (the X-button-clear flicker).
+	const skipNextUrlSyncRef = useRef(false);
 
 	const {
 		data: config,
@@ -104,6 +110,7 @@ function MailLayout() {
 	// to avoid infinite loops with the URL → state sync below.
 	useEffect(() => {
 		if (debouncedSearchInput === searchQuery) return;
+		skipNextUrlSyncRef.current = true;
 		navigate({
 			to: ".",
 			search: (prev: MailSearch) => ({
@@ -114,11 +121,15 @@ function MailLayout() {
 		});
 	}, [debouncedSearchInput, searchQuery, navigate]);
 
-	// External URL changes (e.g. router back/forward, or programmatic clears
-	// like the Escape-to-clear path on SearchBar's onClear) should refresh
-	// the local input. Only sync when they diverge to avoid clobbering
-	// in-flight typing.
+	// External URL changes (e.g. router back/forward, or sidebar nav clearing
+	// q) should refresh the local input. Local-origin URL writes flip the
+	// skip ref above so this effect doesn't clobber a just-cleared input with
+	// the stale `searchQuery` before the route state propagates.
 	useEffect(() => {
+		if (skipNextUrlSyncRef.current) {
+			skipNextUrlSyncRef.current = false;
+			return;
+		}
 		setSearchInput((prev) => (prev === searchQuery ? prev : searchQuery));
 	}, [searchQuery]);
 
@@ -127,6 +138,7 @@ function MailLayout() {
 	}, []);
 
 	const handleSearchClear = useCallback(() => {
+		skipNextUrlSyncRef.current = true;
 		setSearchInput("");
 		navigate({
 			to: ".",
