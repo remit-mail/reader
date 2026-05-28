@@ -232,11 +232,18 @@ export const MessageBody = ({
 			)}
 
 			{sanitizedHtml ? (
-				<div
-					className="email-content prose prose-sm max-w-none dark:prose-invert"
-					// biome-ignore lint/security/noDangerouslySetInnerHtml: HTML is sanitized by DOMPurify
-					dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
-				/>
+				// Safety net: `overflow-x: hidden` on the wrapper ensures that
+				// even if author markup or future sanitizer changes let some
+				// content escape the clamp injected by `email-sanitizer.ts`,
+				// horizontal page scroll stays disabled on mobile (#374).
+				// `max-width: 100%` keeps the wrapper itself inside its column.
+				<div className="max-w-full overflow-x-hidden">
+					<div
+						className="email-content prose prose-sm max-w-none dark:prose-invert"
+						// biome-ignore lint/security/noDangerouslySetInnerHtml: HTML is sanitized by DOMPurify
+						dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
+					/>
+				</div>
 			) : renderedText ? (
 				<pre className="email-text whitespace-pre-wrap text-sm leading-relaxed">
 					{renderedText}
