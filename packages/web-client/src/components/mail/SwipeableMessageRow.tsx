@@ -9,6 +9,7 @@ import {
 	TrailingActions,
 } from "react-swipeable-list";
 import "react-swipeable-list/dist/styles.css";
+import type { SelectionModifiers } from "@/hooks/useSelection";
 import { MessageListItem } from "./MessageListItem";
 
 interface SwipeableMessageRowProps {
@@ -17,6 +18,7 @@ interface SwipeableMessageRowProps {
 	isSelected: boolean;
 	isChecked: boolean;
 	onToggleCheck: (id: string) => void;
+	onRowSelect: (messageId: string, modifiers: SelectionModifiers) => boolean;
 	isMultiSelectMode: boolean;
 	onLongPress: (messageId: string) => void;
 	isDesktop: boolean;
@@ -32,6 +34,7 @@ export const SwipeableMessageRow = ({
 	isSelected,
 	isChecked,
 	onToggleCheck,
+	onRowSelect,
 	isMultiSelectMode,
 	onLongPress,
 	isDesktop,
@@ -56,6 +59,7 @@ export const SwipeableMessageRow = ({
 				isSelected={isSelected}
 				isChecked={isChecked}
 				onToggleCheck={onToggleCheck}
+				onRowSelect={onRowSelect}
 				isMultiSelectMode={isMultiSelectMode}
 				onLongPress={onLongPress}
 				isDesktop={isDesktop}
@@ -100,6 +104,7 @@ export const SwipeableMessageRow = ({
 				isSelected={isSelected}
 				isChecked={isChecked}
 				onToggleCheck={onToggleCheck}
+				onRowSelect={onRowSelect}
 				isMultiSelectMode={isMultiSelectMode}
 				onLongPress={onLongPress}
 				isDesktop={isDesktop}
