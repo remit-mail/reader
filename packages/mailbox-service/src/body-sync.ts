@@ -59,6 +59,17 @@ export interface FetchBodyResult {
 	storedAt: string;
 }
 
+export interface StoreBodyPartFailure {
+	partPath: string;
+	reason: string;
+}
+
+export interface StoreBodyPartContentsResult {
+	stored: number;
+	skipped: number;
+	failures: StoreBodyPartFailure[];
+}
+
 export type ConnectionGetter = () => Promise<IImapConnection>;
 
 export class BodySyncService {
@@ -327,14 +338,25 @@ export class BodySyncService {
 		// Per-part S3 objects so `BodyPartResponse.contentUrl` (#298) actually
 		// resolves on the SPA. Each non-multipart leaf gets its own
 		// `accounts/{accountConfigId}/{accountId}/messages/{messageId}/parts/{partPath}`
-		// object. Failures crash the body-sync — broken inline images would
-		// otherwise be invisible to operators.
-		await this.storeBodyPartContents(
+		// object. Unresolved leaves are logged and skipped — the message still
+		// renders; only the affected attachment download / inline image 404s.
+		const partsResult = await this.storeBodyPartContents(
 			accountConfigId,
 			accountId,
 			messageId,
 			parsed,
 		);
+		if (partsResult.skipped > 0) {
+			this.log.info(
+				{
+					messageId,
+					stored: partsResult.stored,
+					skipped: partsResult.skipped,
+					failures: partsResult.failures,
+				},
+				"Body-part storage completed with skipped leaves",
+			);
+		}
 
 		return { status: "synced", messageId };
 	}
@@ -369,31 +391,76 @@ export class BodySyncService {
 	 * `accounts/{accountConfigId}/{accountId}/messages/{messageId}/parts/{partPath}`
 	 * so they line up with the URL shape `derive/contentUrl.ts` emits.
 	 *
-	 * The mapper throws if any leaf can't be resolved against `parsed`; we
-	 * propagate that — silent skips would mean the SPA hits a 404 on a
-	 * `cid:`-rewritten image and the user sees a broken icon.
+	 * Unresolved leaves are logged and skipped — not thrown. The original
+	 * fail-loud aborted the entire body-sync (and left the message stuck on
+	 * the next retry because the `bodyStorageKey` guard short-circuits the
+	 * caller). The new contract: a missing attachment leaf produces a 404 on
+	 * the download button only — far cheaper than a message that refuses to
+	 * render at all. Inline `cid:` leaves still get logged at error level so
+	 * operators can spot broken images.
 	 *
 	 * If `listBodyParts` returns an empty list (e.g. a legacy message synced
-	 * before #133 populated BodyPart rows), this is a no-op — `bodyParts: []`
-	 * upstream means the cid-resolver doesn't fire, so no 404 risk.
+	 * before #133 populated BodyPart rows), this is a no-op.
 	 */
 	private async storeBodyPartContents(
 		accountConfigId: string,
 		accountId: string,
 		messageId: string,
 		parsed: ParsedMail,
-	): Promise<void> {
+	): Promise<StoreBodyPartContentsResult> {
+		const empty: StoreBodyPartContentsResult = {
+			stored: 0,
+			skipped: 0,
+			failures: [],
+		};
 		const bodyParts = await this.envelopeService.listBodyParts(messageId);
 		if (bodyParts.length === 0) {
 			this.log.debug?.(
 				{ messageId },
 				"No BodyPart rows; skipping per-part storage",
 			);
-			return;
+			return empty;
 		}
 
-		const mapped = mapBodyPartsToContent(bodyParts, parsed);
-		if (mapped.length === 0) return;
+		const { mapped, unresolved } = mapBodyPartsToContent(bodyParts, parsed);
+
+		for (const u of unresolved) {
+			// Inline leaves (cid:-referenced images, nested HTML) get an error
+			// log so the broken-image case is still visible to operators. The
+			// HTML render path falls back to `?` icons; the page itself still
+			// loads, which is the whole point of softening the throw.
+			if (u.disposition === "inline" || u.contentId) {
+				this.log.error?.(
+					{
+						messageId,
+						partPath: u.partPath,
+						contentType: u.contentType,
+						contentId: u.contentId,
+						filename: u.dispositionFilename,
+					},
+					"Unresolved inline body part; the message will render with a broken reference",
+				);
+			} else {
+				this.log.info(
+					{
+						messageId,
+						partPath: u.partPath,
+						contentType: u.contentType,
+						filename: u.dispositionFilename,
+					},
+					"Skipping unresolved attachment body part; download will 404",
+				);
+			}
+		}
+
+		const failures: StoreBodyPartFailure[] = unresolved.map((u) => ({
+			partPath: u.partPath,
+			reason: u.reason,
+		}));
+
+		if (mapped.length === 0) {
+			return { stored: 0, skipped: unresolved.length, failures };
+		}
 
 		await pMap(
 			mapped,
@@ -410,10 +477,16 @@ export class BodySyncService {
 			{ concurrency: BODY_PART_STORE_CONCURRENCY },
 		);
 
-		this.log.info?.(
-			{ messageId, partCount: mapped.length },
+		this.log.info(
+			{
+				messageId,
+				partCount: mapped.length,
+				skippedCount: unresolved.length,
+			},
 			"Body parts stored",
 		);
+
+		return { stored: mapped.length, skipped: unresolved.length, failures };
 	}
 
 	/**

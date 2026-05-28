@@ -443,17 +443,63 @@ describe("BodySyncService.syncBodies (per-part S3 storage)", () => {
 		assert.equal(fake.storedBodyParts.length, 0);
 	});
 
-	it("crashes the body-sync when a leaf has no matching parsed content (no silent 404 risk)", async () => {
-		const orphanBodyParts: BodyPartItem[] = [
+	it("logs+skips an unresolvable leaf instead of failing the whole body-sync", async () => {
+		// One mappable PDF leaf + one orphan inline-image leaf. The mapper
+		// can't resolve the orphan, but the message itself should still be
+		// "synced" — and the storage call should fire for the mappable PDF.
+		const mixedBodyParts: BodyPartItem[] = [
+			{
+				bodyPartId: "bp-root",
+				messageId: "msg-mixed",
+				partPath: "0",
+				mediaType: "MULTIPART",
+				mediaSubtype: "mixed",
+				transferEncoding: "7BIT",
+				sizeOctets: 0,
+				isMultipart: true,
+				multipartSubtype: "mixed",
+				createdAt: 0,
+				updatedAt: 0,
+			} as BodyPartItem,
+			{
+				bodyPartId: "bp-html",
+				messageId: "msg-mixed",
+				parentBodyPartId: "bp-root",
+				partPath: "1",
+				mediaType: "TEXT",
+				mediaSubtype: "html",
+				transferEncoding: "7BIT",
+				sizeOctets: 40,
+				isMultipart: false,
+				createdAt: 0,
+				updatedAt: 0,
+			} as BodyPartItem,
+			{
+				bodyPartId: "bp-pdf",
+				messageId: "msg-mixed",
+				parentBodyPartId: "bp-root",
+				partPath: "2",
+				mediaType: "APPLICATION",
+				mediaSubtype: "pdf",
+				transferEncoding: "BASE64",
+				sizeOctets: 9,
+				isMultipart: false,
+				disposition: "attachment",
+				dispositionFilename: "alice-resume.pdf",
+				createdAt: 0,
+				updatedAt: 0,
+			} as BodyPartItem,
 			{
 				bodyPartId: "bp-orphan",
-				messageId: "msg-orphan",
-				partPath: "5",
+				messageId: "msg-mixed",
+				parentBodyPartId: "bp-root",
+				partPath: "3",
 				mediaType: "IMAGE",
 				mediaSubtype: "png",
 				transferEncoding: "BASE64",
 				sizeOctets: 1,
 				isMultipart: false,
+				disposition: "inline",
 				contentId: "missing-cid@example.com",
 				createdAt: 0,
 				updatedAt: 0,
@@ -461,8 +507,9 @@ describe("BodySyncService.syncBodies (per-part S3 storage)", () => {
 		];
 
 		const fake = buildFakeState({
-			messageId: "msg-orphan",
-			bodyParts: orphanBodyParts,
+			messageId: "msg-mixed",
+			rawEml: ATTACHMENT_EML,
+			bodyParts: mixedBodyParts,
 		});
 		const service = new BodySyncService(
 			fake.messageService,
@@ -473,15 +520,106 @@ describe("BodySyncService.syncBodies (per-part S3 storage)", () => {
 		);
 
 		const result = await service.syncBodies(
-			["msg-orphan"],
+			["msg-mixed"],
 			"acc-1",
 			"acc-cfg-1",
 			"INBOX",
-			async () => buildFakeConnection(),
+			async () => buildFakeConnection(ATTACHMENT_EML),
 		);
 
-		assert.equal(result.failedCount, 1);
-		assert.equal(result.failedMessageIds[0], "msg-orphan");
-		assert.equal(fake.storedBodyParts.length, 0);
+		// Message is "synced" — we do NOT fail the whole body-sync over
+		// one missing inline image.
+		assert.equal(result.syncedCount, 1);
+		assert.equal(result.failedCount, 0);
+		// Both mappable leaves (html + pdf) actually written to S3.
+		assert.equal(fake.storedBodyParts.length, 2);
+		const paths = fake.storedBodyParts.map((p) => p.partPath).sort();
+		assert.deepEqual(paths, ["1", "2"]);
+	});
+
+	// The new application/octet-stream tolerance: BodyPart row was
+	// `application/octet-stream` (IMAP BODYSTRUCTURE) but mailparser sniffed
+	// `application/pdf` from the filename. The whole-message body-sync used
+	// to throw here — now it succeeds and stores the PDF bytes under the
+	// octet-stream contentType the row dictates.
+	it("stores an octet-stream-labelled attachment when mailparser refines it to application/pdf (Odido bug)", async () => {
+		const octetBodyParts: BodyPartItem[] = [
+			{
+				bodyPartId: "bp-root",
+				messageId: "msg-odido",
+				partPath: "0",
+				mediaType: "MULTIPART",
+				mediaSubtype: "mixed",
+				transferEncoding: "7BIT",
+				sizeOctets: 0,
+				isMultipart: true,
+				multipartSubtype: "mixed",
+				createdAt: 0,
+				updatedAt: 0,
+			} as BodyPartItem,
+			{
+				bodyPartId: "bp-html",
+				messageId: "msg-odido",
+				parentBodyPartId: "bp-root",
+				partPath: "1",
+				mediaType: "TEXT",
+				mediaSubtype: "html",
+				transferEncoding: "7BIT",
+				sizeOctets: 40,
+				isMultipart: false,
+				createdAt: 0,
+				updatedAt: 0,
+			} as BodyPartItem,
+			{
+				bodyPartId: "bp-octet",
+				messageId: "msg-odido",
+				parentBodyPartId: "bp-root",
+				partPath: "2",
+				// The bug: IMAP labels the PDF as octet-stream.
+				mediaType: "APPLICATION",
+				mediaSubtype: "octet-stream",
+				transferEncoding: "BASE64",
+				sizeOctets: 9,
+				isMultipart: false,
+				disposition: "attachment",
+				dispositionFilename: "alice-resume.pdf",
+				createdAt: 0,
+				updatedAt: 0,
+			} as BodyPartItem,
+		];
+
+		const fake = buildFakeState({
+			messageId: "msg-odido",
+			rawEml: ATTACHMENT_EML,
+			bodyParts: octetBodyParts,
+		});
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			fake.addressService,
+			fake.envelopeService,
+		);
+
+		const result = await service.syncBodies(
+			["msg-odido"],
+			"acc-1",
+			"acc-cfg-1",
+			"INBOX",
+			async () => buildFakeConnection(ATTACHMENT_EML),
+		);
+
+		assert.equal(result.syncedCount, 1);
+		assert.equal(fake.storedBodyParts.length, 2);
+		const byPath = new Map(fake.storedBodyParts.map((p) => [p.partPath, p]));
+		const pdf = byPath.get("2");
+		assert.ok(pdf, "octet-stream-labelled PDF leaf written");
+		// The contentType comes from the BodyPart row, so the resulting
+		// S3 object is stored as application/octet-stream — that's what
+		// the SPA's contentUrl resolves to and matches the BodyPart entity
+		// the API returns.
+		assert.equal(pdf.contentType, "application/octet-stream");
+		// Bytes are the decoded PDF from mailparser, not base64 text.
+		assert.equal(pdf.content.toString("utf8"), "%PDF-1.4\n");
 	});
 });

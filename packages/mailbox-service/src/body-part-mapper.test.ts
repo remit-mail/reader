@@ -13,6 +13,7 @@ type LeafInput = Pick<
 	| "mediaSubtype"
 	| "contentId"
 	| "dispositionFilename"
+	| "disposition"
 >;
 
 const buildAttachment = (overrides: Partial<Attachment>): Attachment =>
@@ -49,6 +50,7 @@ describe("mapBodyPartsToContent", () => {
 				mediaSubtype: "alternative",
 				contentId: undefined,
 				dispositionFilename: undefined,
+				disposition: undefined,
 			},
 			{
 				partPath: "1",
@@ -57,6 +59,7 @@ describe("mapBodyPartsToContent", () => {
 				mediaSubtype: "plain",
 				contentId: undefined,
 				dispositionFilename: undefined,
+				disposition: undefined,
 			},
 			{
 				partPath: "2",
@@ -65,6 +68,7 @@ describe("mapBodyPartsToContent", () => {
 				mediaSubtype: "html",
 				contentId: undefined,
 				dispositionFilename: undefined,
+				disposition: undefined,
 			},
 		];
 
@@ -73,15 +77,16 @@ describe("mapBodyPartsToContent", () => {
 			html: "<p>hello bob</p>",
 		});
 
-		const result = mapBodyPartsToContent(parts, parsed);
+		const { mapped, unresolved } = mapBodyPartsToContent(parts, parsed);
 
-		assert.equal(result.length, 2);
-		assert.equal(result[0].partPath, "1");
-		assert.equal(result[0].contentType, "text/plain");
-		assert.equal(result[0].content.toString("utf8"), "hello alice");
-		assert.equal(result[1].partPath, "2");
-		assert.equal(result[1].contentType, "text/html");
-		assert.equal(result[1].content.toString("utf8"), "<p>hello bob</p>");
+		assert.equal(unresolved.length, 0);
+		assert.equal(mapped.length, 2);
+		assert.equal(mapped[0].partPath, "1");
+		assert.equal(mapped[0].contentType, "text/plain");
+		assert.equal(mapped[0].content.toString("utf8"), "hello alice");
+		assert.equal(mapped[1].partPath, "2");
+		assert.equal(mapped[1].contentType, "text/html");
+		assert.equal(mapped[1].content.toString("utf8"), "<p>hello bob</p>");
 	});
 
 	it("matches inline image leaves to attachments by Content-ID (case + angle-insensitive)", () => {
@@ -93,6 +98,7 @@ describe("mapBodyPartsToContent", () => {
 				mediaSubtype: "html",
 				contentId: undefined,
 				dispositionFilename: undefined,
+				disposition: undefined,
 			},
 			{
 				partPath: "2",
@@ -101,6 +107,7 @@ describe("mapBodyPartsToContent", () => {
 				mediaSubtype: "png",
 				contentId: "<bob-avatar@example.com>",
 				dispositionFilename: "bob-avatar.png",
+				disposition: "inline",
 			},
 		];
 
@@ -117,10 +124,11 @@ describe("mapBodyPartsToContent", () => {
 			],
 		});
 
-		const result = mapBodyPartsToContent(parts, parsed);
+		const { mapped, unresolved } = mapBodyPartsToContent(parts, parsed);
 
-		assert.equal(result.length, 2);
-		const img = result.find((r) => r.partPath === "2");
+		assert.equal(unresolved.length, 0);
+		assert.equal(mapped.length, 2);
+		const img = mapped.find((r) => r.partPath === "2");
 		assert.ok(img);
 		assert.equal(img.contentType, "image/png");
 		assert.deepEqual(img.content, pngBytes);
@@ -135,6 +143,7 @@ describe("mapBodyPartsToContent", () => {
 				mediaSubtype: "pdf",
 				contentId: undefined,
 				dispositionFilename: "alice-resume.pdf",
+				disposition: "attachment",
 			},
 		];
 
@@ -149,9 +158,10 @@ describe("mapBodyPartsToContent", () => {
 			],
 		});
 
-		const [only] = mapBodyPartsToContent(parts, parsed);
-		assert.equal(only.partPath, "1");
-		assert.deepEqual(only.content, pdfBytes);
+		const { mapped } = mapBodyPartsToContent(parts, parsed);
+		assert.equal(mapped.length, 1);
+		assert.equal(mapped[0].partPath, "1");
+		assert.deepEqual(mapped[0].content, pdfBytes);
 	});
 
 	it("does not double-consume the same attachment when two leaves share contentType+filename", () => {
@@ -163,6 +173,7 @@ describe("mapBodyPartsToContent", () => {
 				mediaSubtype: "pdf",
 				contentId: undefined,
 				dispositionFilename: undefined,
+				disposition: "attachment",
 			},
 			{
 				partPath: "2",
@@ -171,6 +182,7 @@ describe("mapBodyPartsToContent", () => {
 				mediaSubtype: "pdf",
 				contentId: undefined,
 				dispositionFilename: undefined,
+				disposition: "attachment",
 			},
 		];
 
@@ -183,12 +195,12 @@ describe("mapBodyPartsToContent", () => {
 			],
 		});
 
-		const result = mapBodyPartsToContent(parts, parsed);
-		assert.deepEqual(result[0].content, a);
-		assert.deepEqual(result[1].content, b);
+		const { mapped } = mapBodyPartsToContent(parts, parsed);
+		assert.deepEqual(mapped[0].content, a);
+		assert.deepEqual(mapped[1].content, b);
 	});
 
-	it("throws (does not silently skip) when a leaf has no matching parsed content", () => {
+	it("returns the leaf in `unresolved` (no throw) when no parsed content matches", () => {
 		const parts: LeafInput[] = [
 			{
 				partPath: "5",
@@ -197,15 +209,21 @@ describe("mapBodyPartsToContent", () => {
 				mediaSubtype: "png",
 				contentId: "<missing@example.com>",
 				dispositionFilename: undefined,
+				disposition: "inline",
 			},
 		];
 
 		const parsed = buildParsed({});
 
-		assert.throws(
-			() => mapBodyPartsToContent(parts, parsed),
+		const { mapped, unresolved } = mapBodyPartsToContent(parts, parsed);
+		assert.equal(mapped.length, 0);
+		assert.equal(unresolved.length, 1);
+		assert.equal(unresolved[0].partPath, "5");
+		assert.match(
+			unresolved[0].reason,
 			/no parsed-mail content for partPath="5"/,
 		);
+		assert.equal(unresolved[0].disposition, "inline");
 	});
 
 	it("skips multipart container rows entirely (no bytes of their own)", () => {
@@ -217,10 +235,177 @@ describe("mapBodyPartsToContent", () => {
 				mediaSubtype: "mixed",
 				contentId: undefined,
 				dispositionFilename: undefined,
+				disposition: undefined,
 			},
 		];
 		const parsed = buildParsed({});
-		const result = mapBodyPartsToContent(parts, parsed);
-		assert.deepEqual(result, []);
+		const { mapped, unresolved } = mapBodyPartsToContent(parts, parsed);
+		assert.deepEqual(mapped, []);
+		assert.deepEqual(unresolved, []);
+	});
+
+	// The bug from production: IMAP BODYSTRUCTURE labelled the attachment
+	// `application/octet-stream` but mailparser sniffed `application/pdf`
+	// from the filename. Old strict-equality check threw; new code accepts
+	// it because the filename matches.
+	it("matches an application/octet-stream row to application/pdf when the filename matches (Odido bug)", () => {
+		const parts: LeafInput[] = [
+			{
+				partPath: "2",
+				isMultipart: false,
+				mediaType: "APPLICATION",
+				mediaSubtype: "octet-stream",
+				contentId: undefined,
+				dispositionFilename: "Jouw_Odido_Contract_28052026_00001.pdf",
+				disposition: "attachment",
+			},
+		];
+
+		const pdfBytes = Buffer.from("%PDF-1.4\nOdido");
+		const parsed = buildParsed({
+			attachments: [
+				buildAttachment({
+					content: pdfBytes,
+					contentType: "application/pdf",
+					filename: "Jouw_Odido_Contract_28052026_00001.pdf",
+				}),
+			],
+		});
+
+		const { mapped, unresolved } = mapBodyPartsToContent(parts, parsed);
+		assert.equal(unresolved.length, 0);
+		assert.equal(mapped.length, 1);
+		assert.equal(mapped[0].partPath, "2");
+		assert.equal(mapped[0].contentType, "application/octet-stream");
+		assert.deepEqual(mapped[0].content, pdfBytes);
+	});
+
+	it("matches filename case-insensitively when types disagree", () => {
+		const parts: LeafInput[] = [
+			{
+				partPath: "2",
+				isMultipart: false,
+				mediaType: "APPLICATION",
+				mediaSubtype: "octet-stream",
+				contentId: undefined,
+				dispositionFilename: "Factuur-GVR8590037.PDF",
+				disposition: "attachment",
+			},
+		];
+		const pdfBytes = Buffer.from("%PDF-1.4\nINV");
+		const parsed = buildParsed({
+			attachments: [
+				buildAttachment({
+					content: pdfBytes,
+					contentType: "application/pdf",
+					filename: "factuur-gvr8590037.pdf",
+				}),
+			],
+		});
+
+		const { mapped, unresolved } = mapBodyPartsToContent(parts, parsed);
+		assert.equal(unresolved.length, 0);
+		assert.equal(mapped.length, 1);
+		assert.deepEqual(mapped[0].content, pdfBytes);
+	});
+
+	it("octet-stream + no filename accepts a non-text attachment as last resort", () => {
+		const parts: LeafInput[] = [
+			{
+				partPath: "2",
+				isMultipart: false,
+				mediaType: "APPLICATION",
+				mediaSubtype: "octet-stream",
+				contentId: undefined,
+				dispositionFilename: undefined,
+				disposition: "attachment",
+			},
+		];
+		const blob = Buffer.from([0xff, 0xd8, 0xff, 0xe0]);
+		const parsed = buildParsed({
+			attachments: [
+				buildAttachment({
+					content: blob,
+					contentType: "image/jpeg",
+				}),
+			],
+		});
+
+		const { mapped, unresolved } = mapBodyPartsToContent(parts, parsed);
+		assert.equal(unresolved.length, 0);
+		assert.equal(mapped.length, 1);
+		assert.deepEqual(mapped[0].content, blob);
+	});
+
+	// The corresponding negative case: don't false-positive an octet-stream
+	// row onto a text/html attachment — that would re-route inline HTML
+	// into an attachment slot.
+	it("octet-stream + no filename does NOT match a text/html attachment", () => {
+		const parts: LeafInput[] = [
+			{
+				partPath: "2",
+				isMultipart: false,
+				mediaType: "APPLICATION",
+				mediaSubtype: "octet-stream",
+				contentId: undefined,
+				dispositionFilename: undefined,
+				disposition: "attachment",
+			},
+		];
+		const htmlBytes = Buffer.from("<p>nope</p>");
+		const parsed = buildParsed({
+			attachments: [
+				buildAttachment({
+					content: htmlBytes,
+					contentType: "text/html",
+				}),
+			],
+		});
+
+		const { mapped, unresolved } = mapBodyPartsToContent(parts, parsed);
+		assert.equal(mapped.length, 0);
+		assert.equal(unresolved.length, 1);
+		assert.equal(unresolved[0].partPath, "2");
+	});
+
+	// We must not route a PDF attachment into a `text/html` slot via the
+	// new relaxed paths. text/html keeps the strict-type contract.
+	it("text/html row still requires content-type match — does NOT accept a PDF by filename", () => {
+		const parts: LeafInput[] = [
+			{
+				partPath: "1",
+				isMultipart: false,
+				mediaType: "TEXT",
+				mediaSubtype: "html",
+				contentId: undefined,
+				dispositionFilename: "report.pdf",
+				disposition: "attachment",
+			},
+		];
+
+		const parsed = buildParsed({
+			// No parsed.html; only a PDF attachment with the same filename.
+			attachments: [
+				buildAttachment({
+					content: Buffer.from("%PDF-1.4"),
+					contentType: "application/pdf",
+					filename: "report.pdf",
+				}),
+			],
+		});
+
+		const { mapped, unresolved } = mapBodyPartsToContent(parts, parsed);
+		// The text/html → parsed.html slot wasn't filled (parsed.html is
+		// false); the row matches no attachment because the relaxed
+		// filename-fallback is only triggered when the strict-type path is
+		// not text/html. Actually our impl does match by filename for any
+		// type — the safer contract here is that text/html should never
+		// pick up a PDF. So we expect unresolved.
+		//
+		// In the current impl, the filename-equality fallback would match
+		// the PDF. That's the bug this assertion guards. We must keep this
+		// path strict-only for text/html.
+		assert.equal(mapped.length, 0);
+		assert.equal(unresolved.length, 1);
 	});
 });
