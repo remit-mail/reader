@@ -6,6 +6,7 @@ import { Check, Paperclip } from "lucide-react";
 import { type MouseEvent, memo, useCallback } from "react";
 import { Avatar } from "@/components/ui/Avatar";
 import { useLongPress } from "@/hooks/useLongPress";
+import type { SelectionModifiers } from "@/hooks/useSelection";
 import { formatEmailDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { CategoryBadge } from "./CategoryBadge";
@@ -22,6 +23,12 @@ interface MessageListItemProps {
 	isSelected: boolean;
 	isChecked: boolean;
 	onToggleCheck: (id: string) => void;
+	/**
+	 * Desktop mouse selection. Called from the row's onClick with the click
+	 * modifiers. Returns true when selection consumed the click (the row should
+	 * not navigate); false for a plain click (navigation proceeds).
+	 */
+	onRowSelect: (messageId: string, modifiers: SelectionModifiers) => boolean;
 	messageCount?: number;
 	/** When true, the checkbox is always visible (e.g. mobile multi-select mode). */
 	isMultiSelectMode?: boolean;
@@ -42,6 +49,7 @@ const MessageListItemComponent = ({
 	isSelected,
 	isChecked,
 	onToggleCheck,
+	onRowSelect,
 	messageCount,
 	isMultiSelectMode = false,
 	onLongPress,
@@ -62,6 +70,26 @@ const MessageListItemComponent = ({
 	};
 
 	const messageId = thread.messageId;
+
+	// Desktop mouse selection semantics. Plain click falls through to the Link's
+	// navigation; shift / cmd / ctrl click is routed to selection and the
+	// navigation is suppressed. On mobile this is a no-op so taps still open.
+	const handleRowClick = useCallback(
+		(e: MouseEvent) => {
+			if (!isDesktop) return;
+			const handled = onRowSelect(messageId, {
+				shiftKey: e.shiftKey,
+				metaKey: e.metaKey,
+				ctrlKey: e.ctrlKey,
+			});
+			if (handled) {
+				e.preventDefault();
+				e.stopPropagation();
+			}
+		},
+		[isDesktop, onRowSelect, messageId],
+	);
+
 	const handleLongPress = useCallback(() => {
 		onLongPress?.(messageId);
 	}, [onLongPress, messageId]);
@@ -92,6 +120,7 @@ const MessageListItemComponent = ({
 				selectedMessageId: thread.messageId,
 			})}
 			data-message-row
+			onClick={handleRowClick}
 			onMouseEnter={prefetchMessage}
 			onFocus={prefetchMessage}
 			{...(!isDesktop && longPressHandlers.handlers)}

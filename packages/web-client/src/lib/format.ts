@@ -173,3 +173,10 @@ export const formatList = (
 		type,
 	}).format(items);
 };
+
+/**
+ * Confirmation title for the move-to-Trash delete flow. Reflects that delete
+ * moves messages to Trash (not a permanent delete) and pluralizes on count.
+ */
+export const formatDeleteToTrashTitle = (count: number): string =>
+	count === 1 ? "Move 1 message to Trash?" : `Move ${count} messages to Trash?`;

@@ -3,12 +3,18 @@ import { useNavigate } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { useToggleReadFor } from "@/hooks/useMarkAsRead";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
-import { useSelection } from "@/hooks/useSelection";
+import {
+	nextFocusId,
+	type SelectionModifiers,
+	useSelection,
+} from "@/hooks/useSelection";
+import { formatDeleteToTrashTitle } from "@/lib/format";
 import { MobileSelectionTopBar } from "./MobileSelectionTopBar";
 import { SelectionToolbar } from "./SelectionToolbar";
 import { SwipeableMessageRow } from "./SwipeableMessageRow";
@@ -107,7 +113,17 @@ export const MessageList = ({
 		toggle: toggleCheck,
 		select,
 		clearSelection,
+		selectRange,
+		setAnchor,
+		selectAll,
 	} = useSelection();
+
+	// Ids queued for deletion, awaiting confirmation. `null` means the dialog
+	// is closed. Snapshotted at request time so a selection change behind the
+	// dialog can't retarget the delete.
+	const [pendingDeleteIds, setPendingDeleteIds] = useState<string[] | null>(
+		null,
+	);
 
 	// Auto-exit multi-select when selection becomes empty
 	useEffect(() => {
@@ -172,12 +188,153 @@ export const MessageList = ({
 		}
 	}, [selectedMessageId, toggleCheck]);
 
-	// Handle delete
-	const handleDelete = useCallback(() => {
-		if (onDeleteMessages && selectedCount > 0) {
-			onDeleteMessages(Array.from(selectedIds));
+	// Desktop mouse selection semantics (Apple Mail / Gmail model). Called by a
+	// row's onClick with the click modifiers. Returns true when selection
+	// handled the click (caller should preventDefault and skip navigation);
+	// false for a plain click (caller lets the Link navigate).
+	const orderedIds = useMemo(() => threads.map((t) => t.messageId), [threads]);
+	const handleRowSelect = useCallback(
+		(messageId: string, modifiers: SelectionModifiers): boolean => {
+			if (modifiers.shiftKey) {
+				selectRange(orderedIds, messageId);
+				return true;
+			}
+			if (modifiers.metaKey || modifiers.ctrlKey) {
+				// Toggle membership and re-anchor on the clicked row.
+				toggleCheck(messageId);
+				return true;
+			}
+			// Plain click: collapse any multi-selection and let navigation proceed.
+			// The clicked row becomes the next anchor for a subsequent shift-click,
+			// but is NOT added to the checkbox set (no toolbar on a plain open).
+			clearSelection();
+			setAnchor(messageId);
+			return false;
+		},
+		[orderedIds, selectRange, toggleCheck, clearSelection, setAnchor],
+	);
+
+	// Open the delete confirmation for an explicit set of ids. All delete
+	// entry points (toolbar Trash2, Delete/Backspace key) funnel through here
+	// so the move-to-Trash confirmation is consistent.
+	const requestDelete = useCallback(
+		(ids: string[]) => {
+			if (!onDeleteMessages || ids.length === 0) return;
+			setPendingDeleteIds(ids);
+		},
+		[onDeleteMessages],
+	);
+
+	// Keyboard shift-arrow range extend: move focus one row in `direction` and
+	// extend the selection range from the existing anchor to the new focus —
+	// the keyboard equivalent of shift-click. The anchor stays fixed across
+	// consecutive shift-arrows (selectRange seeds it only when unset), so
+	// moving back toward the anchor shrinks the range.
+	const extendRange = useCallback(
+		(direction: -1 | 1) => {
+			const target = nextFocusId(orderedIds, selectedMessageId, direction);
+			if (target === undefined) return;
+			selectRange(orderedIds, target);
+			navigate({
+				to: "/mail/$mailboxId",
+				params: { mailboxId },
+				search: (prev) => ({ ...prev, selectedMessageId: target }),
+				replace: true,
+			});
+		},
+		[orderedIds, selectedMessageId, selectRange, navigate, mailboxId],
+	);
+
+	const extendRangeUp = useCallback(() => extendRange(-1), [extendRange]);
+	const extendRangeDown = useCallback(() => extendRange(1), [extendRange]);
+
+	// Cmd/Ctrl+A: select every currently loaded row.
+	const handleSelectAll = useCallback(() => {
+		if (orderedIds.length > 0) {
+			selectAll(orderedIds);
 		}
-	}, [onDeleteMessages, selectedCount, selectedIds]);
+	}, [orderedIds, selectAll]);
+
+	// Delete / Backspace: confirm-delete the selection, or the focused row when
+	// nothing is selected.
+	const handleDeleteKey = useCallback(() => {
+		if (selectedCount > 0) {
+			requestDelete(Array.from(selectedIds));
+		} else if (selectedMessageId) {
+			requestDelete([selectedMessageId]);
+		}
+	}, [selectedCount, selectedIds, selectedMessageId, requestDelete]);
+
+	// Enter: open the focused message.
+	const handleOpenFocused = useCallback(() => {
+		if (!selectedMessageId) return;
+		navigate({
+			to: "/mail/$mailboxId",
+			params: { mailboxId },
+			search: (prev) => ({ ...prev, selectedMessageId }),
+		});
+	}, [selectedMessageId, navigate, mailboxId]);
+
+	// Toolbar Trash2: confirm-delete the current selection.
+	const handleDelete = useCallback(() => {
+		if (selectedCount > 0) {
+			requestDelete(Array.from(selectedIds));
+		}
+	}, [requestDelete, selectedCount, selectedIds]);
+
+	// Confirm handler: run the actual bulk delete, then clear selection and
+	// move focus to a sensible neighbor (the row after the first deleted one).
+	const handleConfirmDelete = useCallback(() => {
+		if (!pendingDeleteIds || pendingDeleteIds.length === 0) {
+			setPendingDeleteIds(null);
+			return;
+		}
+		const deletedSet = new Set(pendingDeleteIds);
+		const firstDeletedIndex = threads.findIndex((t) =>
+			deletedSet.has(t.messageId),
+		);
+		// Next surviving row at or after the first deleted row, else the one
+		// before it. Computed against the pre-delete order.
+		let nextFocus: string | undefined;
+		for (let i = firstDeletedIndex + 1; i < threads.length; i++) {
+			if (!deletedSet.has(threads[i].messageId)) {
+				nextFocus = threads[i].messageId;
+				break;
+			}
+		}
+		if (nextFocus === undefined) {
+			for (let i = firstDeletedIndex - 1; i >= 0; i--) {
+				if (!deletedSet.has(threads[i].messageId)) {
+					nextFocus = threads[i].messageId;
+					break;
+				}
+			}
+		}
+
+		onDeleteMessages?.(pendingDeleteIds);
+		clearSelection();
+		setPendingDeleteIds(null);
+
+		if (nextFocus !== undefined) {
+			navigate({
+				to: "/mail/$mailboxId",
+				params: { mailboxId },
+				search: (prev) => ({ ...prev, selectedMessageId: nextFocus }),
+				replace: true,
+			});
+		}
+	}, [
+		pendingDeleteIds,
+		threads,
+		onDeleteMessages,
+		clearSelection,
+		navigate,
+		mailboxId,
+	]);
+
+	const handleCancelDelete = useCallback(() => {
+		setPendingDeleteIds(null);
+	}, []);
 
 	// Handle mark as read
 	const handleMarkAsRead = useCallback(() => {
@@ -294,15 +451,76 @@ export const MessageList = ({
 		return () => scrollElement.removeEventListener("scroll", handleScroll);
 	}, [hasMore, isLoadingMore, onLoadMore]);
 
-	// Keyboard navigation
+	// Keyboard navigation. The dialog owns the keyboard while open, so list
+	// shortcuts pause to avoid double-handling (e.g. a second Delete press).
 	useKeyboardNavigation({
-		enabled: !isLoading && threads.length > 0,
+		enabled: !isLoading && threads.length > 0 && pendingDeleteIds === null,
 		bindings: [
+			// Focus movement (plain). requireShift:false so Shift+Arrow falls
+			// through to the range-extend bindings below instead of also moving
+			// focus without selecting.
 			{ key: "j", handler: selectNext, preventDefault: true },
-			{ key: "ArrowDown", handler: selectNext, preventDefault: true },
+			{
+				key: "ArrowDown",
+				handler: selectNext,
+				preventDefault: true,
+				requireShift: false,
+			},
 			{ key: "k", handler: selectPrevious, preventDefault: true },
-			{ key: "ArrowUp", handler: selectPrevious, preventDefault: true },
+			{
+				key: "ArrowUp",
+				handler: selectPrevious,
+				preventDefault: true,
+				requireShift: false,
+			},
+			// Shift+Arrow: extend the selection range.
+			{
+				key: "ArrowDown",
+				handler: extendRangeDown,
+				preventDefault: true,
+				requireShift: true,
+			},
+			{
+				key: "ArrowUp",
+				handler: extendRangeUp,
+				preventDefault: true,
+				requireShift: true,
+			},
+			// Toggle focused row (x or Space) and re-anchor.
 			{ key: "x", handler: toggleFocusedSelection, preventDefault: true },
+			{ key: " ", handler: toggleFocusedSelection, preventDefault: true },
+			// Cmd/Ctrl+A select all loaded rows.
+			{
+				key: "a",
+				handler: handleSelectAll,
+				preventDefault: true,
+				requireMeta: true,
+			},
+			// Enter opens the focused message.
+			{ key: "Enter", handler: handleOpenFocused, preventDefault: true },
+			// Delete / Backspace: confirm-delete selection or focused row.
+			{ key: "Delete", handler: handleDeleteKey, preventDefault: true },
+			{ key: "Backspace", handler: handleDeleteKey, preventDefault: true },
+		],
+	});
+
+	// Esc-to-clear-selection on the capture phase, enabled only when a
+	// selection exists. Capture + stopPropagation makes a single Esc clear the
+	// selection and consume the keypress, so the route-level Esc (go back) does
+	// NOT also fire. With no selection this listener is disabled and Esc falls
+	// through to the route as before. The ConfirmDialog (when open) registers
+	// its own capture-phase Esc and pauses these list shortcuts, so its cancel
+	// still wins first.
+	useKeyboardNavigation({
+		enabled: hasSelection && pendingDeleteIds === null,
+		capture: true,
+		bindings: [
+			{
+				key: "Escape",
+				handler: clearSelection,
+				preventDefault: true,
+				stopPropagation: true,
+			},
 		],
 	});
 
@@ -396,6 +614,7 @@ export const MessageList = ({
 									isSelected={selectedMessageId === thread.messageId}
 									isChecked={isChecked(thread.messageId)}
 									onToggleCheck={toggleCheck}
+									onRowSelect={handleRowSelect}
 									isMultiSelectMode={isMultiSelectMode}
 									onLongPress={handleLongPress}
 									isDesktop={isDesktop}
@@ -412,6 +631,16 @@ export const MessageList = ({
 					</div>
 				)}
 			</div>
+			<ConfirmDialog
+				isOpen={pendingDeleteIds !== null}
+				title={formatDeleteToTrashTitle(pendingDeleteIds?.length ?? 0)}
+				description="You can restore them from Trash later."
+				confirmLabel="Move to Trash"
+				destructive
+				isBusy={isDeleting}
+				onConfirm={handleConfirmDelete}
+				onCancel={handleCancelDelete}
+			/>
 		</div>
 	);
 };
