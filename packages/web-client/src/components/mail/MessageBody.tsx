@@ -9,7 +9,7 @@ import {
 	type CidResolver,
 	createEmailSanitizer,
 } from "@/lib/email-sanitizer";
-import { cn } from "@/lib/utils";
+import { IsolatedEmailFrame } from "./IsolatedEmailFrame";
 
 /**
  * Subset of the OpenAPI `BodyPartResponse` consumed by this component for
@@ -139,7 +139,6 @@ export const MessageBody = ({
 	}, [renderedHtml, allowImages, resolveCid]);
 
 	const sanitizedHtml = sanitized?.html ?? null;
-	const hasAuthorBackground = sanitized?.hasAuthorBackground ?? false;
 
 	const blockedImageCount = useMemo(() => {
 		if (!sanitizedHtml || allowImages) return 0;
@@ -219,33 +218,14 @@ export const MessageBody = ({
 			)}
 
 			{sanitizedHtml ? (
-				// Safety net: `overflow-x: hidden` on the wrapper ensures that
-				// even if author markup or future sanitizer changes let some
-				// content escape the clamp injected by `email-sanitizer.ts`,
-				// horizontal page scroll stays disabled on mobile (#374).
-				// `max-width: 100%` keeps the wrapper itself inside its column.
-				<div className="max-w-full overflow-x-hidden">
-					{/*
-					 * Two render modes (#375):
-					 * - Author-styled mail (has a background somewhere) →
-					 *   `colorScheme: light`, no `dark:prose-invert`. The
-					 *   email is its own light-mode island so newsletter
-					 *   colours and backgrounds survive verbatim, the way
-					 *   Apple Mail and Gmail web do it.
-					 * - Plain mail (no author background) → inherit the app
-					 *   theme via `dark:prose-invert` so a bare `<p>hello</p>`
-					 *   blends with dark chrome instead of becoming a bright
-					 *   slab.
-					 */}
-					<div
-						className={cn(
-							"email-content prose prose-sm max-w-none",
-							!hasAuthorBackground && "dark:prose-invert",
-						)}
-						style={hasAuthorBackground ? { colorScheme: "light" } : undefined}
-						// biome-ignore lint/security/noDangerouslySetInnerHtml: HTML is sanitized by DOMPurify
-						dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
-					/>
+				// Email HTML renders inside a sandboxed iframe so its own CSS
+				// and any (already-DOMPurify'd) markup cannot bleed into the
+				// app chrome. The frame sizes itself to its content via
+				// ResizeObserver; the sandbox omits `allow-scripts` so even a
+				// hypothetical sanitizer escape can't execute. `max-w-full`
+				// keeps the host inside its column.
+				<div className="max-w-full">
+					<IsolatedEmailFrame html={sanitizedHtml} />
 				</div>
 			) : renderedText ? (
 				<pre className="email-text whitespace-pre-wrap text-sm leading-relaxed">
