@@ -15,6 +15,9 @@
 		"test:run": "node --env-file=../../.test.env --import tsx --test 'src/**/*.test.ts'",
 		"test": "npm run test:typecheck && npm run test:run"
 	},
+	"dependencies": {
+		"p-limit": "^6.2.0"
+	},
 	"devDependencies": {
 		"@aws-sdk/client-bedrock-runtime": "*",
 		"@aws-sdk/client-s3vectors": "*",
