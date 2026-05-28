@@ -7,9 +7,9 @@ import { useToggleTrusted } from "@/hooks/useToggleTrusted";
 import {
 	buildCidResolver,
 	type CidResolver,
-	type ColorMode,
 	createEmailSanitizer,
 } from "@/lib/email-sanitizer";
+import { cn } from "@/lib/utils";
 
 /**
  * Subset of the OpenAPI `BodyPartResponse` consumed by this component for
@@ -44,16 +44,9 @@ interface MessageBodyProps {
 	html?: string;
 	text?: string;
 	/**
-	 * Color mode for email content.
-	 * - 'light': No color processing
-	 * - 'dark': Adapt colors for dark backgrounds
-	 * - 'auto': Use prefers-color-scheme (default)
-	 */
-	colorMode?: ColorMode;
-	/**
 	 * Whether the From-address has the `trusted` flag set. Trusted senders
-	 * auto-load images and get the more permissive color/background mode.
-	 * The "Load images" bar is suppressed entirely for trusted senders.
+	 * auto-load images. The "Load images" bar is suppressed entirely for
+	 * trusted senders.
 	 */
 	isTrusted?: boolean;
 	/**
@@ -87,7 +80,6 @@ export const MessageBody = ({
 	bodyParts,
 	html,
 	text,
-	colorMode = "auto",
 	isTrusted = false,
 	messageId,
 	fromAddressId,
@@ -135,24 +127,19 @@ export const MessageBody = ({
 	const renderedText =
 		hasParts && fetched?.kind === "text" ? fetched.body : text;
 
-	const sanitizedHtml = useMemo(() => {
+	const sanitized = useMemo(() => {
 		if (!renderedHtml) return null;
-
-		// Loading remote images is the user's signal that they trust this
-		// sender. Once trusted, also let the email's author-defined
-		// background colors through so brand emails aren't shredded by the
-		// dark-mode color overrides.
-		const effectiveColorMode: ColorMode = allowImages ? "light" : colorMode;
 
 		const sanitize = createEmailSanitizer({
 			allowExternalImages: allowImages,
-			allowAuthorBackgrounds: allowImages,
-			colorMode: effectiveColorMode,
 			resolveCid,
 		});
 
 		return sanitize(renderedHtml);
-	}, [renderedHtml, allowImages, colorMode, resolveCid]);
+	}, [renderedHtml, allowImages, resolveCid]);
+
+	const sanitizedHtml = sanitized?.html ?? null;
+	const hasAuthorBackground = sanitized?.hasAuthorBackground ?? false;
 
 	const blockedImageCount = useMemo(() => {
 		if (!sanitizedHtml || allowImages) return 0;
@@ -238,8 +225,24 @@ export const MessageBody = ({
 				// horizontal page scroll stays disabled on mobile (#374).
 				// `max-width: 100%` keeps the wrapper itself inside its column.
 				<div className="max-w-full overflow-x-hidden">
+					{/*
+					 * Two render modes (#375):
+					 * - Author-styled mail (has a background somewhere) →
+					 *   `colorScheme: light`, no `dark:prose-invert`. The
+					 *   email is its own light-mode island so newsletter
+					 *   colours and backgrounds survive verbatim, the way
+					 *   Apple Mail and Gmail web do it.
+					 * - Plain mail (no author background) → inherit the app
+					 *   theme via `dark:prose-invert` so a bare `<p>hello</p>`
+					 *   blends with dark chrome instead of becoming a bright
+					 *   slab.
+					 */}
 					<div
-						className="email-content prose prose-sm max-w-none dark:prose-invert"
+						className={cn(
+							"email-content prose prose-sm max-w-none",
+							!hasAuthorBackground && "dark:prose-invert",
+						)}
+						style={hasAuthorBackground ? { colorScheme: "light" } : undefined}
 						// biome-ignore lint/security/noDangerouslySetInnerHtml: HTML is sanitized by DOMPurify
 						dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
 					/>
