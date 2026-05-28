@@ -72,7 +72,7 @@ export const SearchBar = ({
 				ref={inputRef}
 				id="mail-search"
 				name="q"
-				type="search"
+				type="text"
 				aria-label="Search mail"
 				value={value}
 				onChange={(e) => onChange(e.target.value)}
