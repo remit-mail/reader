@@ -174,6 +174,9 @@ const OutboxLink = ({ onSelect }: SelectableProps) => {
 	return (
 		<Link
 			to="/mail/outbox"
+			// Outbox has no search query; start clean so a stale ?q= from the
+			// mailbox view doesn't leak across the sidebar navigation.
+			search={{}}
 			onClick={() => onSelect?.()}
 			className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-md transition-colors hover:bg-accent ${
 				isSelected ? "bg-accent font-medium" : ""
