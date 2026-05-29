@@ -1,0 +1,8 @@
+/* remit-ui owns the @import "tailwindcss" + @theme tokens; pulling its
+   token sheet in here gives Storybook the full design system. */
+@import "@remit/ui/tokens.css";
+
+/* Tailwind v4 content scanning: point at the source it must inspect for
+   utility class usage (auto-detection misses linked workspace packages). */
+@source "../../remit-ui/src/**/*.{ts,tsx}";
+@source "../src/**/*.{ts,tsx}";

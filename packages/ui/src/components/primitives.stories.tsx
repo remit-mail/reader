@@ -1,0 +1,111 @@
+import type { Meta, StoryObj } from "@storybook/react";
+import { Mail, Search } from "lucide-react";
+import { Avatar } from "./avatar.js";
+import { Badge } from "./badge.js";
+import { Button } from "./button.js";
+import { Card, CardBody, CardHeader, CardTitle } from "./card.js";
+import { Input } from "./input.js";
+import { ListItem } from "./list-item.js";
+
+const meta: Meta = {
+	title: "Primitives",
+};
+export default meta;
+
+type Story = StoryObj;
+
+export const Buttons: Story = {
+	render: () => (
+		<div className="flex flex-wrap items-center gap-3 p-8">
+			<Button variant="primary">Primary</Button>
+			<Button variant="secondary">Secondary</Button>
+			<Button variant="ghost">Ghost</Button>
+			<Button variant="danger">Danger</Button>
+			<Button variant="primary" size="sm" icon={<Mail className="size-3.5" />}>
+				Compose
+			</Button>
+			<Button variant="primary" disabled>
+				Disabled
+			</Button>
+		</div>
+	),
+};
+
+export const Badges: Story = {
+	render: () => (
+		<div className="flex flex-wrap items-center gap-3 p-8">
+			<Badge tone="neutral">newsletter</Badge>
+			<Badge tone="accent">personal</Badge>
+			<Badge tone="positive" dot>
+				Known sender
+			</Badge>
+			<Badge tone="warning">social</Badge>
+			<Badge tone="danger">spam</Badge>
+		</div>
+	),
+};
+
+export const Avatars: Story = {
+	render: () => (
+		<div className="flex items-center gap-4 p-8">
+			<Avatar name="Alice Tan" size="sm" />
+			<Avatar name="Priya Natarajan" size="md" />
+			<Avatar name="Marcus Webb" size="lg" />
+			<Avatar name="Remit CI" email="ci@remit.example" size="md" />
+		</div>
+	),
+};
+
+export const Inputs: Story = {
+	render: () => (
+		<div className="max-w-sm space-y-3 p-8">
+			<Input placeholder="Plain input" />
+			<Input icon={<Search className="size-4" />} placeholder="Search mail" />
+		</div>
+	),
+};
+
+export const Cards: Story = {
+	render: () => (
+		<div className="max-w-md p-8">
+			<Card raised>
+				<CardHeader>
+					<CardTitle>Card title</CardTitle>
+				</CardHeader>
+				<CardBody>
+					Hairline border, minimal shadow. Surfaces and text are fully
+					token-driven so this flips cleanly between light and dark.
+				</CardBody>
+			</Card>
+		</div>
+	),
+};
+
+export const ListItems: Story = {
+	render: () => (
+		<div className="max-w-md divide-y divide-line p-8">
+			<ListItem
+				unread
+				leading={<Avatar name="Priya Natarajan" size="md" />}
+				trailing="08:52"
+			>
+				<div className="text-sm font-semibold text-fg">Priya Natarajan</div>
+				<div className="text-sm text-fg">Q3 roadmap review</div>
+				<p className="line-clamp-1 text-xs text-fg-subtle">
+					Sharing the agenda ahead of Thursday…
+				</p>
+			</ListItem>
+			<ListItem
+				active
+				leading={<Avatar name="Marcus Webb" size="md" />}
+				trailing="Wed"
+			>
+				<div className="text-sm font-medium text-fg-muted">Marcus Webb</div>
+				<div className="text-sm text-fg-muted">Re: Reading pane density</div>
+				<p className="line-clamp-1 text-xs text-fg-subtle">
+					Strong +1 on tightening the rows…
+				</p>
+			</ListItem>
+		</div>
+	),
+};

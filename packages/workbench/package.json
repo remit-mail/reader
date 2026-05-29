@@ -1,0 +1,33 @@
+{
+	"name": "@remit/workbench",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"msw:init": "msw init public --no-save",
+		"storybook": "storybook dev -p 6007 --no-open",
+		"build-storybook": "storybook build",
+		"test:typecheck": "tsgo --noEmit"
+	},
+	"dependencies": {
+		"@remit/ui": "*",
+		"@tanstack/react-router": "^1",
+		"lucide-react": "^0.468"
+	},
+	"devDependencies": {
+		"@remit/api-openapi-types": "*",
+		"@storybook/react-vite": "^9",
+		"@tailwindcss/vite": "^4",
+		"@types/react": "^19",
+		"@types/react-dom": "^19",
+		"@vitejs/plugin-react": "^4",
+		"msw": "^2",
+		"msw-storybook-addon": "^2",
+		"react": "^19",
+		"react-dom": "^19",
+		"storybook": "^9",
+		"tailwindcss": "^4",
+		"typescript": "*",
+		"vite": "^6.4.2"
+	}
+}
