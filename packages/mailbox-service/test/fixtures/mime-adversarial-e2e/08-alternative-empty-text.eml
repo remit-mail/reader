@@ -1,0 +1,18 @@
+From: alice@example.com
+To: bob@example.com
+Subject: Adversarial fixture 08 alternative with empty text/plain
+Date: Fri, 29 May 2026 09:00:00 +0000
+Message-Id: <adv-08-empty-text-alt@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="=_adv08_="
+
+--=_adv08_=
+Content-Type: text/plain; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+
+--=_adv08_=
+Content-Type: text/html; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+
+<html><body><p>Hi bob,</p><p>The text/plain sibling of this multipart/alternative is intentionally empty. The HTML part must still render.</p><p>-- alice</p></body></html>
+--=_adv08_=--

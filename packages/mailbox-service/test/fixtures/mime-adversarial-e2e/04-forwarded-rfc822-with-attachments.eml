@@ -1,0 +1,42 @@
+From: alice@example.com
+To: bob@example.com
+Subject: Adversarial fixture 04 forwarded rfc822 with inner attachment
+Date: Fri, 29 May 2026 09:00:00 +0000
+Message-Id: <adv-04-forwarded@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="=_adv04_outer_="
+
+--=_adv04_outer_=
+Content-Type: text/plain; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+
+Hi bob,
+
+Forwarding the message below for your records. Note the original carries its own attachment.
+
+-- alice
+--=_adv04_outer_=
+Content-Type: message/rfc822
+Content-Disposition: attachment; filename="forwarded.eml"
+
+From: carol@example.com
+To: alice@example.com
+Subject: Original message with attachment for fixture 04
+Date: Thu, 28 May 2026 12:00:00 +0000
+Message-Id: <adv-04-inner@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="=_adv04_inner_="
+
+--=_adv04_inner_=
+Content-Type: text/plain; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+
+Original message body before forwarding.
+--=_adv04_inner_=
+Content-Type: application/pdf; name="original.pdf"
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="original.pdf"
+
+JVBERi0xLjQKJWFkdiAwNCBpbm5lciBwZGYKJUVPRgo=
+--=_adv04_inner_=--
+--=_adv04_outer_=--
