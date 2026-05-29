@@ -1,0 +1,10 @@
+{
+  "pairs": [
+    {
+      "partPath": "1.1.1.1.1",
+      "contentType": "text/plain",
+      "contentSha256": "4b6a9602966807e33af23de0d6f227ea17c802c4883ca54c8479a59af5bb1d6a",
+      "contentLength": 30
+    }
+  ]
+}

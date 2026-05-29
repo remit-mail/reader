@@ -1,0 +1,22 @@
+{
+  "pairs": [
+    {
+      "partPath": "1",
+      "contentType": "text/plain",
+      "contentSha256": "3e69e89d5b45b9e73ee4e9523c80e8e41b6e7f347cce8538844d2b14500549dc",
+      "contentLength": 46
+    },
+    {
+      "partPath": "2",
+      "contentType": "application/pdf",
+      "contentSha256": "0d05c2ebe744a02a1c40e1e56b030f9be4259489924df20bf3f6fbab476f2a1c",
+      "contentLength": 24
+    },
+    {
+      "partPath": "3",
+      "contentType": "application/pdf",
+      "contentSha256": "48ca00b9647ec2babe7d09dbef1ff41f2135a3a03f7e28605eb0c810380b74ab",
+      "contentLength": 24
+    }
+  ]
+}

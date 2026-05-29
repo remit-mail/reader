@@ -1,0 +1,20 @@
+From: alice@example.org
+To: bob@example.org
+Subject: Base64 binary jpeg fixture 12
+Date: Thu, 28 May 2026 09:00:00 +0000
+Message-Id: <fixture-12@example.org>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="=_boundary_12_="
+
+--=_boundary_12_=
+Content-Type: text/plain; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+
+Photo attached.
+--=_boundary_12_=
+Content-Type: image/jpeg; name="photo.jpg"
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="photo.jpg"
+
+/9j/4AAQSkZJRmZpeHR1cmUxMg==
+--=_boundary_12_=--

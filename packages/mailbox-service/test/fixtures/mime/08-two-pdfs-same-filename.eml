@@ -1,0 +1,26 @@
+From: alice@example.org
+To: bob@example.org
+Subject: Two PDFs same filename fixture 08
+Date: Thu, 28 May 2026 09:00:00 +0000
+Message-Id: <fixture-08@example.org>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="=_boundary_08_="
+
+--=_boundary_08_=
+Content-Type: text/plain; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+
+Two invoices attached, both named invoice.pdf.
+--=_boundary_08_=
+Content-Type: application/pdf; name="invoice.pdf"
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="invoice.pdf"
+
+JVBERi0xLjQKaW52b2ljZSBBCiVFT0YK
+--=_boundary_08_=
+Content-Type: application/pdf; name="invoice.pdf"
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="invoice.pdf"
+
+JVBERi0xLjQKaW52b2ljZSBCCiVFT0YK
+--=_boundary_08_=--

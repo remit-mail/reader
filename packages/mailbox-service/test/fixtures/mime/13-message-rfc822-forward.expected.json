@@ -1,0 +1,16 @@
+{
+  "pairs": [
+    {
+      "partPath": "1",
+      "contentType": "text/plain",
+      "contentSha256": "2f45158866c85f8fccc88d7d2f96cf29efb6bfa86091a46a3db2f346202ce1a7",
+      "contentLength": 29
+    },
+    {
+      "partPath": "2",
+      "contentType": "message/rfc822",
+      "contentSha256": "73adfff6626c2ce287ce6b21e9860e3ad0a18ca068d36759674931bcc7a3d2a6",
+      "contentLength": 305
+    }
+  ]
+}
