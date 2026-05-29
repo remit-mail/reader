@@ -1,16 +1,14 @@
 /**
  * One-shot baseline generator for the body-part-mapper fixture corpus.
  *
- * Reads every `.eml` + `.bodyparts.json` pair in this directory, runs the
- * CURRENT `mapBodyPartsToContent`, and writes the result to `.expected.json`.
- * Preserves any pre-existing `_fixmes` array on each expected file so the
- * checklist for PR B survives regenerations.
+ * Reads every `.eml` + `.bodyparts.json` pair in this directory, runs
+ * `mapBodyPartsToContent`, and writes the result to `.expected.json`.
  *
  * Usage: `npx tsx packages/remit-mailbox-service/test/fixtures/mime/_generate-baselines.ts`
  *
- * Not part of the test suite — invoked manually by the author of PR A and
- * (later) by PR B when it updates the baselines to reflect the redesigned
- * mapper's output. Kept here so the regeneration step is reproducible.
+ * Not part of the test suite — invoked manually when fixtures change or the
+ * mapper output legitimately moves. Kept here so the regeneration step is
+ * reproducible.
  */
 
 import { createHash } from "node:crypto";

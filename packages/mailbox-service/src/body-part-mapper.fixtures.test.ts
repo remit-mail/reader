@@ -25,12 +25,10 @@
  *     behaviour — when PR B rewrites the mapper, only the mapper's output is
  *     in scope.
  *
- * Baseline-against-current-mapper rule (PR A): the `.expected.json` records
- * what the CURRENT mapper produces, even where that output is buggy. Leaves
- * the current mapper cannot pair are recorded with `"skipped": true,
- * "contentSha256": null, "contentLength": 0` so PR B has an explicit checklist
- * (see also the per-fixture `_fixmes` array). PR B will then update these
- * baselines as it ships the redesigned, total-pairing mapper.
+ * Baselines: each `.expected.json` records the pairing the (now total)
+ * mapper produces. Every non-multipart leaf has a pair — `contentSha256` and
+ * `contentLength` are always concrete; there are no `skipped` markers.
+ * Regenerate via `npx tsx test/fixtures/mime/_generate-baselines.ts`.
  */
 
 import assert from "node:assert/strict";
