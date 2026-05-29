@@ -1,0 +1,21 @@
+From: alice@example.org
+To: bob@example.org
+Subject: Mixed html + octet-stream PDF fixture 05 (Odido bug)
+Date: Thu, 28 May 2026 09:00:00 +0000
+Message-Id: <fixture-05@example.org>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="=_boundary_05_="
+
+--=_boundary_05_=
+Content-Type: text/html; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+
+<html><body><p>Your contract PDF is attached.</p></body></html>
+--=_boundary_05_=
+Content-Type: application/octet-stream; name="contract.pdf"
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="contract.pdf"
+
+JVBERi0xLjQKJWZha2UgcGRmIGZvciBmaXh0dXJlIDA1IG9jdGV0LXN0cmVhbQol
+RU9GCg==
+--=_boundary_05_=--

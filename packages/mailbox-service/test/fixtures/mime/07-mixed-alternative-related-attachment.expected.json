@@ -1,0 +1,38 @@
+{
+  "pairs": [
+    {
+      "partPath": "1.1",
+      "contentType": "text/plain",
+      "contentSha256": "73d2f53c47d2e0800ecf20fc755eaa66fe07fe966b5f39b99eaa71457c6f003d",
+      "contentLength": 70
+    },
+    {
+      "partPath": "1.2",
+      "contentType": "text/html",
+      "contentSha256": "1ec6301aa1799989189e5af46096890d8901d5a6cc6c0242b229a1be6dab9598",
+      "contentLength": 188
+    },
+    {
+      "partPath": "2.1",
+      "contentType": "text/html",
+      "contentSha256": null,
+      "contentLength": 0,
+      "skipped": true
+    },
+    {
+      "partPath": "2.2",
+      "contentType": "image/png",
+      "contentSha256": "2d5748c3ed720a90b433f5840b2dc9f3ca82187f93c71b6f132bb6048a816f06",
+      "contentLength": 25
+    },
+    {
+      "partPath": "3",
+      "contentType": "application/pdf",
+      "contentSha256": "636032d95796536ee2cbbe0db1b5bab0be628fdde66dc5ca9ebfb8c566055f26",
+      "contentLength": 36
+    }
+  ],
+  "_fixmes": [
+    "partPath=2.1 (second text/html leaf, inside multipart/related) is currently unresolved. PR B should pair every leaf — subsequent text/html leaves get a zero-byte Buffer per the architect's `parsed.html`-first-leaf contract — so this entry should become contentSha256=<sha256 of empty buffer>, contentLength=0, skipped=false."
+  ]
+}

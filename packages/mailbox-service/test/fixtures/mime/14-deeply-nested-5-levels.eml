@@ -1,0 +1,34 @@
+From: alice@example.org
+To: bob@example.org
+Subject: Deeply nested 5 levels fixture 14
+Date: Thu, 28 May 2026 09:00:00 +0000
+Message-Id: <fixture-14@example.org>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="=_lvl1_14_="
+
+--=_lvl1_14_=
+Content-Type: multipart/mixed; boundary="=_lvl2_14_="
+
+--=_lvl2_14_=
+Content-Type: multipart/mixed; boundary="=_lvl3_14_="
+
+--=_lvl3_14_=
+Content-Type: multipart/mixed; boundary="=_lvl4_14_="
+
+--=_lvl4_14_=
+Content-Type: multipart/mixed; boundary="=_lvl5_14_="
+
+--=_lvl5_14_=
+Content-Type: text/plain; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+
+Bottom of the five-level nest.
+--=_lvl5_14_=--
+
+--=_lvl4_14_=--
+
+--=_lvl3_14_=--
+
+--=_lvl2_14_=--
+
+--=_lvl1_14_=--

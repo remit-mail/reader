@@ -1,0 +1,47 @@
+From: alice@example.org
+To: bob@example.org
+Subject: Mixed/alternative/related/attachment fixture 07
+Date: Thu, 28 May 2026 09:00:00 +0000
+Message-Id: <fixture-07@example.org>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="=_outer_07_="
+
+--=_outer_07_=
+Content-Type: multipart/alternative; boundary="=_alt_07_="
+
+--=_alt_07_=
+Content-Type: text/plain; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+
+Plain alternative for fixture 07.
+--=_alt_07_=
+Content-Type: text/html; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+
+<html><body><p>Html alternative for fixture 07.</p></body></html>
+--=_alt_07_=--
+
+--=_outer_07_=
+Content-Type: multipart/related; boundary="=_rel_07_="; type="text/html"
+
+--=_rel_07_=
+Content-Type: text/html; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+
+<html><body><p>Related html: <img src="cid:hero@example.org"></p></body></html>
+--=_rel_07_=
+Content-Type: image/png; name="hero.png"
+Content-Transfer-Encoding: base64
+Content-Disposition: inline; filename="hero.png"
+Content-ID: <hero@example.org>
+
+iVBORw0KGgpmaXh0dXJlMDdpbm5lcnBuZw==
+--=_rel_07_=--
+
+--=_outer_07_=
+Content-Type: application/pdf; name="report.pdf"
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="report.pdf"
+
+JVBERi0xLjQKZml4dHVyZSAwNyBhdHRhY2htZW50CiVFT0YK
+--=_outer_07_=--

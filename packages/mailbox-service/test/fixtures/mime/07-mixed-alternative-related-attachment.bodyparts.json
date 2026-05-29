@@ -1,0 +1,55 @@
+[
+  {
+    "partPath": "0",
+    "isMultipart": true,
+    "mediaType": "MULTIPART",
+    "mediaSubtype": "mixed"
+  },
+  {
+    "partPath": "1",
+    "isMultipart": true,
+    "mediaType": "MULTIPART",
+    "mediaSubtype": "alternative"
+  },
+  {
+    "partPath": "1.1",
+    "isMultipart": false,
+    "mediaType": "TEXT",
+    "mediaSubtype": "plain"
+  },
+  {
+    "partPath": "1.2",
+    "isMultipart": false,
+    "mediaType": "TEXT",
+    "mediaSubtype": "html"
+  },
+  {
+    "partPath": "2",
+    "isMultipart": true,
+    "mediaType": "MULTIPART",
+    "mediaSubtype": "related"
+  },
+  {
+    "partPath": "2.1",
+    "isMultipart": false,
+    "mediaType": "TEXT",
+    "mediaSubtype": "html"
+  },
+  {
+    "partPath": "2.2",
+    "isMultipart": false,
+    "mediaType": "IMAGE",
+    "mediaSubtype": "png",
+    "contentId": "hero@example.org",
+    "dispositionFilename": "hero.png",
+    "disposition": "inline"
+  },
+  {
+    "partPath": "3",
+    "isMultipart": false,
+    "mediaType": "APPLICATION",
+    "mediaSubtype": "pdf",
+    "dispositionFilename": "report.pdf",
+    "disposition": "attachment"
+  }
+]

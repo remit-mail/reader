@@ -1,0 +1,19 @@
+From: alice@example.org
+To: bob@example.org
+Subject: Alternative text+html fixture 03
+Date: Thu, 28 May 2026 09:00:00 +0000
+Message-Id: <fixture-03@example.org>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="=_boundary_03_="
+
+--=_boundary_03_=
+Content-Type: text/plain; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+
+Hello bob, plain text body.
+--=_boundary_03_=
+Content-Type: text/html; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+
+<html><body><p>Hello bob, html body.</p></body></html>
+--=_boundary_03_=--

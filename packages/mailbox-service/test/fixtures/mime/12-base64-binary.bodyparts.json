@@ -1,0 +1,22 @@
+[
+  {
+    "partPath": "0",
+    "isMultipart": true,
+    "mediaType": "MULTIPART",
+    "mediaSubtype": "mixed"
+  },
+  {
+    "partPath": "1",
+    "isMultipart": false,
+    "mediaType": "TEXT",
+    "mediaSubtype": "plain"
+  },
+  {
+    "partPath": "2",
+    "isMultipart": false,
+    "mediaType": "IMAGE",
+    "mediaSubtype": "jpeg",
+    "dispositionFilename": "photo.jpg",
+    "disposition": "attachment"
+  }
+]

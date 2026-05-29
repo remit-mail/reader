@@ -1,0 +1,38 @@
+[
+  {
+    "partPath": "0",
+    "isMultipart": true,
+    "mediaType": "MULTIPART",
+    "mediaSubtype": "mixed"
+  },
+  {
+    "partPath": "1",
+    "isMultipart": true,
+    "mediaType": "MULTIPART",
+    "mediaSubtype": "mixed"
+  },
+  {
+    "partPath": "1.1",
+    "isMultipart": true,
+    "mediaType": "MULTIPART",
+    "mediaSubtype": "mixed"
+  },
+  {
+    "partPath": "1.1.1",
+    "isMultipart": true,
+    "mediaType": "MULTIPART",
+    "mediaSubtype": "mixed"
+  },
+  {
+    "partPath": "1.1.1.1",
+    "isMultipart": true,
+    "mediaType": "MULTIPART",
+    "mediaSubtype": "mixed"
+  },
+  {
+    "partPath": "1.1.1.1.1",
+    "isMultipart": false,
+    "mediaType": "TEXT",
+    "mediaSubtype": "plain"
+  }
+]

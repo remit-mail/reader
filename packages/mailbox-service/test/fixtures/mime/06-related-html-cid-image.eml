@@ -1,0 +1,21 @@
+From: alice@example.org
+To: bob@example.org
+Subject: Related html + cid image fixture 06
+Date: Thu, 28 May 2026 09:00:00 +0000
+Message-Id: <fixture-06@example.org>
+MIME-Version: 1.0
+Content-Type: multipart/related; boundary="=_boundary_06_="; type="text/html"
+
+--=_boundary_06_=
+Content-Type: text/html; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+
+<html><body><p>Inline image: <img src="cid:logo@example.org"></p></body></html>
+--=_boundary_06_=
+Content-Type: image/png; name="logo.png"
+Content-Transfer-Encoding: base64
+Content-Disposition: inline; filename="logo.png"
+Content-ID: <logo@example.org>
+
+iVBORw0KGgpmaXh0dXJlMDZwbmdieXRlcw==
+--=_boundary_06_=--

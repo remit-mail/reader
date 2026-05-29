@@ -1,0 +1,10 @@
+From: alice@example.org
+To: bob@example.org
+Subject: Quoted-printable fixture 11
+Date: Thu, 28 May 2026 09:00:00 +0000
+Message-Id: <fixture-11@example.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+Caf=C3=A9 r=C3=A9union: hello bob! =E2=80=94 alice

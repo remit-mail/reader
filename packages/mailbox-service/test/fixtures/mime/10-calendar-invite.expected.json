@@ -1,0 +1,16 @@
+{
+  "pairs": [
+    {
+      "partPath": "1",
+      "contentType": "text/html",
+      "contentSha256": "c42f526dfc9035c9fa9afa4185c12900f57667d3dbcf02c29393f2745da33c8b",
+      "contentLength": 57
+    },
+    {
+      "partPath": "2",
+      "contentType": "text/calendar",
+      "contentSha256": "73e7b9931e4fc42e7a835219212b822797e9e593af3a4a7143d0cba00c6c19e6",
+      "contentLength": 309
+    }
+  ]
+}

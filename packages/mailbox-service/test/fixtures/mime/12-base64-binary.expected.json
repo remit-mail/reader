@@ -1,0 +1,16 @@
+{
+  "pairs": [
+    {
+      "partPath": "1",
+      "contentType": "text/plain",
+      "contentSha256": "4ac0cf36cab465e1536842bffdccde687fdf161754077c715280ff5c1038c4a6",
+      "contentLength": 15
+    },
+    {
+      "partPath": "2",
+      "contentType": "image/jpeg",
+      "contentSha256": "2cdd8c64ba22f9a5954d3d82433e72398d74d464cca016a17cde50da60204242",
+      "contentLength": 19
+    }
+  ]
+}
