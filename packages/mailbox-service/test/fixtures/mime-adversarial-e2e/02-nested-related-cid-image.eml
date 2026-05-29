@@ -1,0 +1,31 @@
+From: alice@example.com
+To: bob@example.com
+Subject: Adversarial fixture 02 nested related html + cid image
+Date: Fri, 29 May 2026 09:00:00 +0000
+Message-Id: <adv-02-nested-related@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="=_adv02_outer_="
+
+--=_adv02_outer_=
+Content-Type: multipart/related; boundary="=_adv02_inner_="; type="text/html"
+
+--=_adv02_inner_=
+Content-Type: text/html; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+
+<html><body><p>Hi bob,</p><p>Inline logo: <img src="cid:logo@example.com" alt="logo"></p><p>-- alice</p></body></html>
+--=_adv02_inner_=
+Content-Type: image/png; name="logo.png"
+Content-Transfer-Encoding: base64
+Content-Disposition: inline; filename="logo.png"
+Content-ID: <logo@example.com>
+
+iVBORw0KGgpmaXh0dXJlMDJjaWRpbWFnZWJ5dGVz
+--=_adv02_inner_=--
+--=_adv02_outer_=
+Content-Type: application/pdf; name="invoice.pdf"
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="invoice.pdf"
+
+JVBERi0xLjQKJWFkdiAwMiBmaXh0dXJlIGludm9pY2UKJUVPRgo=
+--=_adv02_outer_=--

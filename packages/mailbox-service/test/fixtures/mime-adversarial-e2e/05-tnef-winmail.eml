@@ -1,0 +1,25 @@
+X-Remit-Fixture-Note: Synthetic TNEF stub for fixture 05. mailparser surfaces this as an application/ms-tnef attachment with filename "winmail.dat" — which is the #402 contract. The trailing BODYSTRUCTURE round-trip via imapflow is skipped for this shape (see EXPECTATIONS in adversarial-mime.e2e.test.ts). TODO(#402): replace with a real-world winmail.dat capture once we have one to ship.
+From: alice@example.com
+To: bob@example.com
+Subject: Adversarial fixture 05 Outlook TNEF winmail.dat
+Date: Fri, 29 May 2026 09:00:00 +0000
+Message-Id: <adv-05-tnef@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="=_adv05_="
+
+--=_adv05_=
+Content-Type: text/plain; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+
+Hi bob,
+
+This message carries the Microsoft TNEF (winmail.dat) shape that some Outlook senders still produce. Remit should list the attachment without crashing the body sync.
+
+-- alice
+--=_adv05_=
+Content-Type: application/ms-tnef; name="winmail.dat"
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="winmail.dat"
+
+eJ8+IgEAAAABAAAACAAAAAAAAAA=
+--=_adv05_=--

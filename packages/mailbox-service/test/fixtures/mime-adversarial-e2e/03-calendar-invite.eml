@@ -1,0 +1,33 @@
+From: alice@example.com
+To: bob@example.com
+Subject: Adversarial fixture 03 calendar invite + html
+Date: Fri, 29 May 2026 09:00:00 +0000
+Message-Id: <adv-03-calendar@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="=_adv03_="
+
+--=_adv03_=
+Content-Type: text/html; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+
+<html><body><p>Hi bob,</p><p>Meeting invite for our sync on Monday is attached.</p><p>-- alice</p></body></html>
+--=_adv03_=
+Content-Type: text/calendar; method=REQUEST; charset=us-ascii; name="invite.ics"
+Content-Transfer-Encoding: 7bit
+Content-Disposition: attachment; filename="invite.ics"
+
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Remit//Adversarial Fixture 03//EN
+METHOD:REQUEST
+BEGIN:VEVENT
+UID:adv-03-event@example.com
+DTSTAMP:20260529T090000Z
+DTSTART:20260601T140000Z
+DTEND:20260601T150000Z
+SUMMARY:Adversarial fixture 03 sync
+ORGANIZER:mailto:alice@example.com
+ATTENDEE:mailto:bob@example.com
+END:VEVENT
+END:VCALENDAR
+--=_adv03_=--
