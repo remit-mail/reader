@@ -1,0 +1,43 @@
+diff --git a/node_modules/@kattebak/typespec-zod-emitter/dist/emitter.js b/node_modules/@kattebak/typespec-zod-emitter/dist/emitter.js
+index 45c133e..6d5e0a5 100644
+--- a/node_modules/@kattebak/typespec-zod-emitter/dist/emitter.js
++++ b/node_modules/@kattebak/typespec-zod-emitter/dist/emitter.js
+@@ -307,12 +307,8 @@ function generateTypeSchema(type, modelNameMap) {
+             return "z.unknown()";
+     }
+ }
+-function generateScalarSchema(scalar) {
+-    let baseScalar = scalar;
+-    while (baseScalar.baseScalar) {
+-        baseScalar = baseScalar.baseScalar;
+-    }
+-    switch (baseScalar.name) {
++function scalarSchemaFor(name) {
++    switch (name) {
+         case "string":
+             return "z.string()";
+         case "int32":
+@@ -345,8 +341,22 @@ function generateScalarSchema(scalar) {
+         case "bytes":
+             return "z.instanceof(Uint8Array)";
+         default:
+-            return "z.unknown()";
++            return undefined;
++    }
++}
++function generateScalarSchema(scalar) {
++    // Walk from the current scalar UP the inheritance chain, returning the
++    // first known mapping. This matches refined scalars (e.g. `url`, which
++    // extends `string`) before they get walked past to their primitive root.
++    let current = scalar;
++    while (current) {
++        const mapped = scalarSchemaFor(current.name);
++        if (mapped) {
++            return mapped;
++        }
++        current = current.baseScalar;
+     }
++    return "z.unknown()";
+ }
+ function generateModelTypeSchema(model, modelNameMap) {
+     if (model.name === "Array" && model.indexer?.value) {
