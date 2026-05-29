@@ -9,7 +9,8 @@
     "partPath": "1",
     "isMultipart": false,
     "mediaType": "TEXT",
-    "mediaSubtype": "plain"
+    "mediaSubtype": "plain",
+    "sizeOctets": 0
   },
   {
     "partPath": "2",

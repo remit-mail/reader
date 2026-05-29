@@ -3,8 +3,8 @@
     {
       "partPath": "1",
       "contentType": "text/plain",
-      "contentSha256": "040908be2135877a2ec6205fb2817472e2dc0d2a5f7a3b0a65a8a8ffd69c00ae",
-      "contentLength": 62
+      "contentSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contentLength": 0
     },
     {
       "partPath": "2",
@@ -12,8 +12,5 @@
       "contentSha256": "7bdf108bcc691f01bec50cf4d094ed4e5d0fa0b2a542aeecc4e3018759ddb557",
       "contentLength": 95
     }
-  ],
-  "_fixmes": [
-    "partPath=1 (empty text/plain leaf) currently receives mailparser's aggregated `parsed.text`, which contains the HTML-stripped text of the sibling text/html part (62 bytes) instead of the empty bytes of the actual leaf. PR B's structural pairing must give this leaf a zero-byte Buffer — partId for empty parts isn't exposed by mailparser, so PR B should treat any text/plain leaf whose declared sizeOctets is 0 (or which has no matching partId) as empty."
   ]
 }

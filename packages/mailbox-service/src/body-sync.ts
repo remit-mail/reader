@@ -38,6 +38,7 @@ export const toParsedBody = (parsed: ParsedMail): ParsedBody => ({
 export interface BodySyncLogger {
 	info(obj: Record<string, unknown>, msg: string): void;
 	debug?(obj: Record<string, unknown>, msg: string): void;
+	warn?(obj: Record<string, unknown>, msg: string): void;
 	error?(obj: Record<string, unknown>, msg: string): void;
 }
 
@@ -59,15 +60,8 @@ export interface FetchBodyResult {
 	storedAt: string;
 }
 
-export interface StoreBodyPartFailure {
-	partPath: string;
-	reason: string;
-}
-
 export interface StoreBodyPartContentsResult {
 	stored: number;
-	skipped: number;
-	failures: StoreBodyPartFailure[];
 }
 
 export type ConnectionGetter = () => Promise<IImapConnection>;
@@ -338,25 +332,15 @@ export class BodySyncService {
 		// Per-part S3 objects so `BodyPartResponse.contentUrl` (#298) actually
 		// resolves on the SPA. Each non-multipart leaf gets its own
 		// `accounts/{accountConfigId}/{accountId}/messages/{messageId}/parts/{partPath}`
-		// object. Unresolved leaves are logged and skipped — the message still
-		// renders; only the affected attachment download / inline image 404s.
-		const partsResult = await this.storeBodyPartContents(
+		// object. The mapper is total (#395 PR B) — every leaf gets a pair,
+		// possibly with a zero-byte content — so the call site doesn't need to
+		// soft-fail or summarise skipped leaves.
+		await this.storeBodyPartContents(
 			accountConfigId,
 			accountId,
 			messageId,
 			parsed,
 		);
-		if (partsResult.skipped > 0) {
-			this.log.info(
-				{
-					messageId,
-					stored: partsResult.stored,
-					skipped: partsResult.skipped,
-					failures: partsResult.failures,
-				},
-				"Body-part storage completed with skipped leaves",
-			);
-		}
 
 		return { status: "synced", messageId };
 	}
@@ -391,13 +375,11 @@ export class BodySyncService {
 	 * `accounts/{accountConfigId}/{accountId}/messages/{messageId}/parts/{partPath}`
 	 * so they line up with the URL shape `derive/contentUrl.ts` emits.
 	 *
-	 * Unresolved leaves are logged and skipped — not thrown. The original
-	 * fail-loud aborted the entire body-sync (and left the message stuck on
-	 * the next retry because the `bodyStorageKey` guard short-circuits the
-	 * caller). The new contract: a missing attachment leaf produces a 404 on
-	 * the download button only — far cheaper than a message that refuses to
-	 * render at all. Inline `cid:` leaves still get logged at error level so
-	 * operators can spot broken images.
+	 * The mapper is total (#395 PR B): every leaf gets a `BodyPartContentPair`,
+	 * possibly with a zero-byte content for leaves that have no source bytes
+	 * (genuinely empty parts, or pathological inputs the positional fallback
+	 * couldn't pair). No try/catch is needed; the only failure surface here is
+	 * an S3 write itself, which `pMap` surfaces directly.
 	 *
 	 * If `listBodyParts` returns an empty list (e.g. a legacy message synced
 	 * before #133 populated BodyPart rows), this is a no-op.
@@ -408,62 +390,33 @@ export class BodySyncService {
 		messageId: string,
 		parsed: ParsedMail,
 	): Promise<StoreBodyPartContentsResult> {
-		const empty: StoreBodyPartContentsResult = {
-			stored: 0,
-			skipped: 0,
-			failures: [],
-		};
 		const bodyParts = await this.envelopeService.listBodyParts(messageId);
 		if (bodyParts.length === 0) {
 			this.log.debug?.(
 				{ messageId },
 				"No BodyPart rows; skipping per-part storage",
 			);
-			return empty;
+			return { stored: 0 };
 		}
 
-		const { mapped, unresolved } = mapBodyPartsToContent(bodyParts, parsed);
+		const log = this.log;
+		const pairs = mapBodyPartsToContent(bodyParts, parsed, {
+			messageId,
+			logger: log.warn
+				? {
+						warn: (obj, msg) => {
+							log.warn?.(obj, msg);
+						},
+					}
+				: undefined,
+		});
 
-		for (const u of unresolved) {
-			// Inline leaves (cid:-referenced images, nested HTML) get an error
-			// log so the broken-image case is still visible to operators. The
-			// HTML render path falls back to `?` icons; the page itself still
-			// loads, which is the whole point of softening the throw.
-			if (u.disposition === "inline" || u.contentId) {
-				this.log.error?.(
-					{
-						messageId,
-						partPath: u.partPath,
-						contentType: u.contentType,
-						contentId: u.contentId,
-						filename: u.dispositionFilename,
-					},
-					"Unresolved inline body part; the message will render with a broken reference",
-				);
-			} else {
-				this.log.info(
-					{
-						messageId,
-						partPath: u.partPath,
-						contentType: u.contentType,
-						filename: u.dispositionFilename,
-					},
-					"Skipping unresolved attachment body part; download will 404",
-				);
-			}
-		}
-
-		const failures: StoreBodyPartFailure[] = unresolved.map((u) => ({
-			partPath: u.partPath,
-			reason: u.reason,
-		}));
-
-		if (mapped.length === 0) {
-			return { stored: 0, skipped: unresolved.length, failures };
+		if (pairs.length === 0) {
+			return { stored: 0 };
 		}
 
 		await pMap(
-			mapped,
+			pairs,
 			async (entry) => {
 				await this.storageService.storeBodyPart({
 					accountConfigId,
@@ -477,16 +430,9 @@ export class BodySyncService {
 			{ concurrency: BODY_PART_STORE_CONCURRENCY },
 		);
 
-		this.log.info(
-			{
-				messageId,
-				partCount: mapped.length,
-				skippedCount: unresolved.length,
-			},
-			"Body parts stored",
-		);
+		this.log.info({ messageId, partCount: pairs.length }, "Body parts stored");
 
-		return { stored: mapped.length, skipped: unresolved.length, failures };
+		return { stored: pairs.length };
 	}
 
 	/**
