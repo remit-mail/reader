@@ -1,0 +1,20 @@
+From: alice@example.org
+To: bob@example.org
+Subject: Attachment no filename fixture 09
+Date: Thu, 28 May 2026 09:00:00 +0000
+Message-Id: <fixture-09@example.org>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="=_boundary_09_="
+
+--=_boundary_09_=
+Content-Type: text/plain; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+
+Anonymous blob attached, no Content-Disposition filename.
+--=_boundary_09_=
+Content-Type: application/octet-stream
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment
+
+Zml4dHVyZSAwOSBiaW5hcnkgYmxvYg==
+--=_boundary_09_=--

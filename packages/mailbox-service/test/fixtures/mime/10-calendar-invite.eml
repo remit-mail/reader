@@ -1,0 +1,33 @@
+From: alice@example.org
+To: bob@example.org
+Subject: Calendar invite fixture 10
+Date: Thu, 28 May 2026 09:00:00 +0000
+Message-Id: <fixture-10@example.org>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="=_boundary_10_="
+
+--=_boundary_10_=
+Content-Type: text/html; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+
+<html><body><p>Meeting invite attached.</p></body></html>
+--=_boundary_10_=
+Content-Type: text/calendar; method=REQUEST; charset=us-ascii; name="invite.ics"
+Content-Transfer-Encoding: 7bit
+Content-Disposition: attachment; filename="invite.ics"
+
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Remit//Fixture 10//EN
+METHOD:REQUEST
+BEGIN:VEVENT
+UID:fixture-10-event@example.org
+DTSTAMP:20260528T090000Z
+DTSTART:20260601T140000Z
+DTEND:20260601T150000Z
+SUMMARY:Fixture 10 sync
+ORGANIZER:mailto:alice@example.org
+ATTENDEE:mailto:bob@example.org
+END:VEVENT
+END:VCALENDAR
+--=_boundary_10_=--

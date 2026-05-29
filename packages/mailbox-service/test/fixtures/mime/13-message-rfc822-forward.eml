@@ -1,0 +1,28 @@
+From: alice@example.org
+To: bob@example.org
+Subject: Forwarded message fixture 13
+Date: Thu, 28 May 2026 09:00:00 +0000
+Message-Id: <fixture-13@example.org>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="=_boundary_13_="
+
+--=_boundary_13_=
+Content-Type: text/plain; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+
+Forwarding the message below.
+--=_boundary_13_=
+Content-Type: message/rfc822
+Content-Disposition: attachment; filename="forwarded.eml"
+
+From: carol@example.org
+To: alice@example.org
+Subject: Original forwarded fixture 13
+Date: Wed, 27 May 2026 12:00:00 +0000
+Message-Id: <fixture-13-inner@example.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+
+Original message body that ends up forwarded.
+--=_boundary_13_=--
