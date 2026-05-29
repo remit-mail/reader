@@ -20,15 +20,20 @@
  *      `sizeOctets === 0`); subsequent text/plain leaves get empty.
  *   2. text/html → first leaf gets `parsed.html` (empty Buffer if
  *      `sizeOctets === 0`); subsequent text/html leaves get empty.
- *   3. Non-text leaves try, in order:
+ *   3. Non-text leaves with `sizeOctets === 0` short-circuit to an empty
+ *      Buffer without consuming an attachment — symmetric with the text
+ *      path, so the positional fallback can't hand a zero-sized leaf real
+ *      bytes that belong to another leaf.
+ *   4. Remaining non-text leaves try, in order:
  *      a. `attachment.partId === bodyPart.partPath`
  *      b. contentId match (case + angle-insensitive)
  *      c. dispositionFilename match (case-insensitive)
  *      d. content-type compatibility class: exact → binary-family
  *         (any non-text/*) → text-family
  *      e. positional fallback: next unconsumed attachment in declaration
- *         order.
- *   4. Anything still unpaired → zero-byte Buffer + structured `warn` log.
+ *         order. Logs at `debug` so operators can see "we guessed"
+ *         pairings without spamming higher levels.
+ *   5. Anything still unpaired → zero-byte Buffer + structured `warn` log.
  *
  * The mapper assumes well-formed input — malformed MIME is rejected
  * upstream in `mime-walker.ts`. If a leaf truly has no source bytes
@@ -71,6 +76,7 @@ export type MapperInput = Pick<
 
 export interface MapperLogger {
 	warn(obj: Record<string, unknown>, msg: string): void;
+	debug?(obj: Record<string, unknown>, msg: string): void;
 }
 
 export interface MapperContext {
@@ -208,8 +214,17 @@ const pairNonTextLeaf = (
 	part: MapperInput,
 	attachments: readonly Attachment[],
 	consumed: Set<number>,
+	context: MapperContext,
 ): { content: Buffer; paired: true } | { paired: false } => {
 	const contentType = buildContentType(part);
+
+	// Symmetry with the text-leaf path: a leaf whose BODYSTRUCTURE-declared
+	// size is zero has no bytes to find, so do not consume a residual
+	// attachment for it (the positional fallback would otherwise hand it
+	// real bytes belonging to another leaf — see PR D, review note b).
+	if (part.sizeOctets === 0) {
+		return { content: EMPTY_BUFFER, paired: true };
+	}
 
 	const byPartId = findByPartId(attachments, consumed, part.partPath);
 	if (byPartId !== null) {
@@ -246,7 +261,23 @@ const pairNonTextLeaf = (
 	const positional = findPositional(attachments, consumed);
 	if (positional !== null) {
 		consumed.add(positional);
-		return { content: attachments[positional].content, paired: true };
+		const chosen = attachments[positional];
+		// Audit log so operators can see "we guessed" pairings when a
+		// well-formed message takes the structural-fallback path. Helps
+		// triage cases where mailparser and BODYSTRUCTURE disagree more
+		// than the earlier matchers can handle.
+		context.logger?.debug?.(
+			{
+				messageId: context.messageId,
+				partPath: part.partPath,
+				leafContentType: contentType,
+				chosenAttachmentPartId: chosen.partId ?? null,
+				chosenAttachmentContentType: chosen.contentType ?? null,
+				chosenAttachmentFilename: chosen.filename ?? null,
+			},
+			"body-part-mapper: positional fallback paired leaf with next residual attachment",
+		);
+		return { content: chosen.content, paired: true };
 	}
 
 	return { paired: false };
@@ -302,7 +333,7 @@ export const mapBodyPartsToContent = (
 			continue;
 		}
 
-		const result = pairNonTextLeaf(part, attachments, consumed);
+		const result = pairNonTextLeaf(part, attachments, consumed, context);
 		if (result.paired) {
 			pairs.push({
 				partPath: part.partPath,

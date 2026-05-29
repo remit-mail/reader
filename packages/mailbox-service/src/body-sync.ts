@@ -402,13 +402,17 @@ export class BodySyncService {
 		const log = this.log;
 		const pairs = mapBodyPartsToContent(bodyParts, parsed, {
 			messageId,
-			logger: log.warn
-				? {
-						warn: (obj, msg) => {
-							log.warn?.(obj, msg);
-						},
-					}
-				: undefined,
+			logger:
+				log.warn || log.debug
+					? {
+							warn: (obj, msg) => {
+								log.warn?.(obj, msg);
+							},
+							debug: (obj, msg) => {
+								log.debug?.(obj, msg);
+							},
+						}
+					: undefined,
 		});
 
 		if (pairs.length === 0) {
