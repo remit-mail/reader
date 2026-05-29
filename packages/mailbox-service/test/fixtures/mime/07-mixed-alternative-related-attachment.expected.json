@@ -15,9 +15,8 @@
     {
       "partPath": "2.1",
       "contentType": "text/html",
-      "contentSha256": null,
-      "contentLength": 0,
-      "skipped": true
+      "contentSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contentLength": 0
     },
     {
       "partPath": "2.2",
@@ -31,8 +30,5 @@
       "contentSha256": "636032d95796536ee2cbbe0db1b5bab0be628fdde66dc5ca9ebfb8c566055f26",
       "contentLength": 36
     }
-  ],
-  "_fixmes": [
-    "partPath=2.1 (second text/html leaf, inside multipart/related) is currently unresolved. PR B should pair every leaf — subsequent text/html leaves get a zero-byte Buffer per the architect's `parsed.html`-first-leaf contract — so this entry should become contentSha256=<sha256 of empty buffer>, contentLength=0, skipped=false."
   ]
 }
