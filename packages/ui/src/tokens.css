@@ -1,0 +1,165 @@
+@import "tailwindcss";
+
+/* Self-hosted variable fonts (no CDN). Swap the active UI font in ONE
+   line below: change --font-ui to one of the three @theme aliases. */
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/hanken-grotesk";
+@import "@fontsource-variable/inter";
+
+/* Tailwind v4 dark variant: dark: utilities apply when any ancestor
+   carries the .dark class. The workbench theme decorator toggles
+   .dark on a wrapper; an app would toggle it on <html>. */
+@custom-variant dark (&:is(.dark *));
+
+/* @theme inline aliases Tailwind utilities (bg-surface, text-fg, etc.)
+   to the semantic CSS variables declared on :root / .dark below. The
+   :root / .dark blocks MUST come after this @theme block — otherwise
+   Tailwind hoists them and the dark scope collapses. */
+@theme inline {
+	/* font candidates — A/B by repointing --font-ui */
+	--font-geist: "Geist Variable", system-ui, sans-serif;
+	--font-hanken: "Hanken Grotesk Variable", system-ui, sans-serif;
+	--font-inter: "Inter Variable", system-ui, sans-serif;
+
+	/* the single active-font token — change this one line to swap */
+	--font-ui: var(--font-geist);
+	--font-sans: var(--font-ui);
+
+	/* surfaces & text */
+	--color-canvas: var(--canvas);
+	--color-surface: var(--surface);
+	--color-surface-raised: var(--surface-raised);
+	--color-surface-sunken: var(--surface-sunken);
+	--color-fg: var(--fg);
+	--color-fg-muted: var(--fg-muted);
+	--color-fg-subtle: var(--fg-subtle);
+
+	/* lines */
+	--color-line: var(--line);
+	--color-line-strong: var(--line-strong);
+
+	/* brand accent */
+	--color-accent: var(--accent);
+	--color-accent-hover: var(--accent-hover);
+	--color-accent-fg: var(--accent-fg);
+	--color-accent-soft: var(--accent-soft);
+
+	/* status */
+	--color-positive: var(--positive);
+	--color-warning: var(--warning);
+	--color-danger: var(--danger);
+	--color-danger-soft: var(--danger-soft);
+
+	/* focus ring */
+	--color-ring: var(--ring);
+
+	/* radii */
+	--radius-xs: 4px;
+	--radius-sm: 6px;
+	--radius-md: 9px;
+	--radius-lg: 13px;
+	--radius-xl: 18px;
+
+	/* type scale (1.20 minor third off 14px base) */
+	--text-2xs: 0.6875rem;
+	--text-xs: 0.75rem;
+	--text-sm: 0.8125rem;
+	--text-base: 0.875rem;
+	--text-md: 0.9375rem;
+	--text-lg: 1.0625rem;
+	--text-xl: 1.3125rem;
+	--text-2xl: 1.625rem;
+
+	/* spacing rhythm leans on Tailwind defaults; density is "calm" */
+}
+
+/* ---------- LIGHT ---------- */
+:root {
+	/* warm-neutral paper, not pure white */
+	--canvas: oklch(0.985 0.002 250);
+	--surface: oklch(1 0 0);
+	--surface-raised: oklch(1 0 0);
+	--surface-sunken: oklch(0.965 0.003 250);
+
+	--fg: oklch(0.21 0.015 264);
+	--fg-muted: oklch(0.5 0.012 264);
+	--fg-subtle: oklch(0.62 0.01 264);
+
+	--line: oklch(0.92 0.004 264);
+	--line-strong: oklch(0.86 0.006 264);
+
+	/* restrained indigo */
+	--accent: oklch(0.54 0.16 268);
+	--accent-hover: oklch(0.48 0.17 268);
+	--accent-fg: oklch(0.99 0 0);
+	--accent-soft: oklch(0.95 0.03 268);
+
+	--positive: oklch(0.62 0.14 155);
+	--warning: oklch(0.74 0.15 75);
+	--danger: oklch(0.58 0.2 25);
+	--danger-soft: oklch(0.95 0.04 25);
+
+	--ring: oklch(0.54 0.16 268);
+}
+
+/* ---------- DARK ---------- */
+.dark {
+	--canvas: oklch(0.17 0.012 264);
+	--surface: oklch(0.205 0.013 264);
+	--surface-raised: oklch(0.235 0.014 264);
+	--surface-sunken: oklch(0.155 0.011 264);
+
+	--fg: oklch(0.96 0.004 264);
+	--fg-muted: oklch(0.72 0.012 264);
+	--fg-subtle: oklch(0.58 0.012 264);
+
+	--line: oklch(0.28 0.012 264);
+	--line-strong: oklch(0.36 0.014 264);
+
+	--accent: oklch(0.7 0.15 268);
+	--accent-hover: oklch(0.76 0.15 268);
+	--accent-fg: oklch(0.16 0.02 268);
+	--accent-soft: oklch(0.3 0.06 268);
+
+	--positive: oklch(0.7 0.14 155);
+	--warning: oklch(0.78 0.14 75);
+	--danger: oklch(0.68 0.18 25);
+	--danger-soft: oklch(0.32 0.08 25);
+
+	--ring: oklch(0.7 0.15 268);
+}
+
+html {
+	color-scheme: light;
+}
+
+html.dark,
+.dark {
+	color-scheme: dark;
+}
+
+body {
+	margin: 0;
+	background-color: var(--color-canvas);
+	color: var(--color-fg);
+	font-family: var(--font-ui);
+	-webkit-font-smoothing: antialiased;
+	text-rendering: optimizeLegibility;
+}
+
+/* thin, unobtrusive scrollbars — calm density */
+* {
+	scrollbar-width: thin;
+	scrollbar-color: var(--color-line-strong) transparent;
+}
+*::-webkit-scrollbar {
+	width: 8px;
+	height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+	background-color: var(--color-line-strong);
+	border-radius: 9999px;
+}
+*::-webkit-scrollbar-track {
+	background: transparent;
+}
