@@ -1,0 +1,15 @@
+From: alice@example.com
+To: bob@example.com
+Subject: =?UTF-8?B?Q2Fmw6kgZmHDp2FkZSAtIGFkdmVyc2FyaWFsIGZpeHR1cmUgMDY=?=
+Date: Fri, 29 May 2026 09:00:00 +0000
+Message-Id: <adv-06-8bit@example.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+Hallo bob,
+
+De café op de hoek heeft een prachtige façade. We’ll meet there — ben je vrij?
+
+Groetjes,
+alice

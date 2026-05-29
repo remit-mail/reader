@@ -1,0 +1,21 @@
+From: alice@example.com
+To: bob@example.com
+Subject: Adversarial fixture 01 octet-stream PDF (Odido shape, #394)
+Date: Fri, 29 May 2026 09:00:00 +0000
+Message-Id: <adv-01-octet-stream-pdf@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="=_adv01_="
+
+--=_adv01_=
+Content-Type: text/html; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+
+<html><body><p>Your contract PDF is attached.</p></body></html>
+--=_adv01_=
+Content-Type: application/octet-stream; name="contract.pdf"
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="contract.pdf"
+
+JVBERi0xLjQKJWZha2UgcGRmIGZvciBhZHZlcnNhcmlhbCBmaXh0dXJlIDAxIG9j
+dGV0LXN0cmVhbQolRU9GCg==
+--=_adv01_=--
