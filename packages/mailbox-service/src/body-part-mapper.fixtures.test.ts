@@ -52,19 +52,17 @@ type MapperInput = Pick<
 	| "contentId"
 	| "dispositionFilename"
 	| "disposition"
->;
+> & { sizeOctets?: number };
 
 interface ExpectedPair {
 	partPath: string;
 	contentType: string;
-	contentSha256: string | null;
+	contentSha256: string;
 	contentLength: number;
-	skipped?: boolean;
 }
 
 interface ExpectedFile {
 	pairs: ExpectedPair[];
-	_fixmes?: string[];
 }
 
 const __filename = fileURLToPath(import.meta.url);
@@ -87,6 +85,7 @@ interface RawBodyPart {
 	contentId?: string | null;
 	dispositionFilename?: string | null;
 	disposition?: "inline" | "attachment" | null;
+	sizeOctets?: number | null;
 }
 
 const nullToUndef = <T>(v: T | null | undefined): T | undefined =>
@@ -104,6 +103,7 @@ const loadBodyParts = (basename: string): MapperInput[] => {
 		contentId: nullToUndef(p.contentId),
 		dispositionFilename: nullToUndef(p.dispositionFilename),
 		disposition: nullToUndef(p.disposition),
+		sizeOctets: nullToUndef(p.sizeOctets),
 	})) as MapperInput[];
 };
 
@@ -125,37 +125,33 @@ describe("mapBodyPartsToContent fixture corpus", () => {
 			const bodyParts = loadBodyParts(basename);
 			const expected = loadExpected(basename);
 
-			const { mapped, unresolved } = mapBodyPartsToContent(bodyParts, parsed);
+			const pairs = mapBodyPartsToContent(bodyParts, parsed);
 
-			// Build an actual-pair lookup keyed by partPath. Unresolved leaves
-			// surface as `skipped: true` entries with null sha256 so the
-			// baseline can encode "current mapper can't pair this".
+			// Build an actual-pair lookup keyed by partPath.
 			const actualByPath = new Map<
 				string,
 				{
 					contentType: string;
-					contentSha256: string | null;
+					contentSha256: string;
 					contentLength: number;
-					skipped: boolean;
 				}
 			>();
 
-			for (const m of mapped) {
-				actualByPath.set(m.partPath, {
-					contentType: m.contentType,
-					contentSha256: sha256(m.content),
-					contentLength: m.content.length,
-					skipped: false,
+			for (const p of pairs) {
+				actualByPath.set(p.partPath, {
+					contentType: p.contentType,
+					contentSha256: sha256(p.content),
+					contentLength: p.content.length,
 				});
 			}
-			for (const u of unresolved) {
-				actualByPath.set(u.partPath, {
-					contentType: u.contentType,
-					contentSha256: null,
-					contentLength: 0,
-					skipped: true,
-				});
-			}
+
+			// Totality: one pair per non-multipart leaf.
+			const leafCount = bodyParts.filter((bp) => !bp.isMultipart).length;
+			assert.equal(
+				pairs.length,
+				leafCount,
+				`mapper must be total for ${basename}: pairs=${pairs.length} leaves=${leafCount}`,
+			);
 
 			// Every expected pair must be present and match exactly.
 			for (const exp of expected.pairs) {
@@ -168,11 +164,6 @@ describe("mapBodyPartsToContent fixture corpus", () => {
 					actual.contentType,
 					exp.contentType,
 					`contentType mismatch for ${basename} partPath=${exp.partPath}`,
-				);
-				assert.equal(
-					actual.skipped,
-					exp.skipped === true,
-					`skipped mismatch for ${basename} partPath=${exp.partPath}`,
 				);
 				assert.equal(
 					actual.contentLength,

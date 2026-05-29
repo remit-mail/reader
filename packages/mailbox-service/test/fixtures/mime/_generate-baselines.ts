@@ -30,7 +30,7 @@ type MapperInput = Pick<
 	| "contentId"
 	| "dispositionFilename"
 	| "disposition"
->;
+> & { sizeOctets?: number };
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -41,9 +41,8 @@ const sha256 = (buf: Buffer): string =>
 interface ExpectedPair {
 	partPath: string;
 	contentType: string;
-	contentSha256: string | null;
+	contentSha256: string;
 	contentLength: number;
-	skipped?: boolean;
 }
 
 const main = async (): Promise<void> => {
@@ -72,6 +71,7 @@ const main = async (): Promise<void> => {
 			contentId?: string | null;
 			dispositionFilename?: string | null;
 			disposition?: "inline" | "attachment" | null;
+			sizeOctets?: number | null;
 		}>;
 		const bodyParts = rawParts.map((p) => ({
 			partPath: p.partPath,
@@ -82,53 +82,21 @@ const main = async (): Promise<void> => {
 			dispositionFilename:
 				p.dispositionFilename == null ? undefined : p.dispositionFilename,
 			disposition: p.disposition == null ? undefined : p.disposition,
+			sizeOctets: p.sizeOctets == null ? undefined : p.sizeOctets,
 		})) as MapperInput[];
 
-		const { mapped, unresolved } = mapBodyPartsToContent(bodyParts, parsed);
+		const result = mapBodyPartsToContent(bodyParts, parsed);
 
-		const pairs: ExpectedPair[] = [];
-		for (const m of mapped) {
-			pairs.push({
-				partPath: m.partPath,
-				contentType: m.contentType,
-				contentSha256: sha256(m.content),
-				contentLength: m.content.length,
-			});
-		}
-		for (const u of unresolved) {
-			pairs.push({
-				partPath: u.partPath,
-				contentType: u.contentType,
-				contentSha256: null,
-				contentLength: 0,
-				skipped: true,
-			});
-		}
+		const pairs: ExpectedPair[] = result.map((m) => ({
+			partPath: m.partPath,
+			contentType: m.contentType,
+			contentSha256: sha256(m.content),
+			contentLength: m.content.length,
+		}));
 		pairs.sort((a, b) => a.partPath.localeCompare(b.partPath));
 
-		let fixmes: string[] | undefined;
-		if (existsSync(expectedPath)) {
-			try {
-				const prev = JSON.parse(readFileSync(expectedPath, "utf8")) as {
-					_fixmes?: string[];
-				};
-				if (Array.isArray(prev._fixmes) && prev._fixmes.length > 0) {
-					fixmes = prev._fixmes;
-				}
-			} catch {
-				// ignore — we'll overwrite.
-			}
-		}
-
-		const out: { pairs: ExpectedPair[]; _fixmes?: string[] } = { pairs };
-		if (fixmes) out._fixmes = fixmes;
-
-		writeFileSync(expectedPath, `${JSON.stringify(out, null, 2)}\n`);
-		console.log(
-			`wrote ${basename}.expected.json (${mapped.length} mapped, ${unresolved.length} unresolved${
-				fixmes ? `, ${fixmes.length} fixmes` : ""
-			})`,
-		);
+		writeFileSync(expectedPath, `${JSON.stringify({ pairs }, null, 2)}\n`);
+		console.log(`wrote ${basename}.expected.json (${pairs.length} pairs)`);
 	}
 };
 

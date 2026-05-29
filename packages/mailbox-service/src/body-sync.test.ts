@@ -443,10 +443,11 @@ describe("BodySyncService.syncBodies (per-part S3 storage)", () => {
 		assert.equal(fake.storedBodyParts.length, 0);
 	});
 
-	it("logs+skips an unresolvable leaf instead of failing the whole body-sync", async () => {
+	it("pairs every leaf — orphan inline-image leaf gets a zero-byte object, body-sync still succeeds", async () => {
 		// One mappable PDF leaf + one orphan inline-image leaf. The mapper
-		// can't resolve the orphan, but the message itself should still be
-		// "synced" — and the storage call should fire for the mappable PDF.
+		// is total (#395 PR B): the orphan still gets a pair, with a
+		// zero-byte buffer when no source bytes are available. The S3 write
+		// still fires so the URL shape resolves (to a zero-byte object).
 		const mixedBodyParts: BodyPartItem[] = [
 			{
 				bodyPartId: "bp-root",
@@ -531,10 +532,15 @@ describe("BodySyncService.syncBodies (per-part S3 storage)", () => {
 		// one missing inline image.
 		assert.equal(result.syncedCount, 1);
 		assert.equal(result.failedCount, 0);
-		// Both mappable leaves (html + pdf) actually written to S3.
-		assert.equal(fake.storedBodyParts.length, 2);
+		// All three non-multipart leaves (html, pdf, orphan png) get S3
+		// objects — totality means the orphan PNG lands as a zero-byte
+		// object alongside the real ones.
+		assert.equal(fake.storedBodyParts.length, 3);
 		const paths = fake.storedBodyParts.map((p) => p.partPath).sort();
-		assert.deepEqual(paths, ["1", "2"]);
+		assert.deepEqual(paths, ["1", "2", "3"]);
+		const orphan = fake.storedBodyParts.find((p) => p.partPath === "3");
+		assert.ok(orphan, "orphan inline-image leaf written");
+		assert.equal(orphan.content.length, 0);
 	});
 
 	// The new application/octet-stream tolerance: BodyPart row was
