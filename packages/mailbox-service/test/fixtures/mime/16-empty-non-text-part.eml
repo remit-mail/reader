@@ -1,0 +1,24 @@
+From: alice@example.org
+To: bob@example.org
+Subject: Empty non-text part fixture 16
+Date: Thu, 29 May 2026 09:00:00 +0000
+Message-Id: <fixture-16@example.org>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="=_boundary_16_="
+
+--=_boundary_16_=
+Content-Type: text/html; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+
+<html><body><p>HTML body alongside an empty octet-stream part and one real PDF.</p></body></html>
+--=_boundary_16_=
+Content-Type: application/octet-stream
+Content-Transfer-Encoding: 7bit
+
+--=_boundary_16_=
+Content-Type: application/pdf; name=real.pdf
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename=real.pdf
+
+JVBERi0xLjQK
+--=_boundary_16_=--

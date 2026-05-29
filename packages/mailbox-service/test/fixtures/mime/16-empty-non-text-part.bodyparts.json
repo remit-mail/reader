@@ -1,0 +1,30 @@
+[
+  {
+    "partPath": "0",
+    "isMultipart": true,
+    "mediaType": "MULTIPART",
+    "mediaSubtype": "mixed"
+  },
+  {
+    "partPath": "1",
+    "isMultipart": false,
+    "mediaType": "TEXT",
+    "mediaSubtype": "html"
+  },
+  {
+    "partPath": "2",
+    "isMultipart": false,
+    "mediaType": "APPLICATION",
+    "mediaSubtype": "octet-stream",
+    "sizeOctets": 0
+  },
+  {
+    "partPath": "3",
+    "isMultipart": false,
+    "mediaType": "APPLICATION",
+    "mediaSubtype": "pdf",
+    "disposition": "attachment",
+    "dispositionFilename": "real.pdf",
+    "sizeOctets": 9
+  }
+]
