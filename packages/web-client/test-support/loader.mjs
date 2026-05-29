@@ -5,6 +5,12 @@ const stubsDir = pathToFileURL(`${import.meta.dirname}/stubs/`).href;
 const packageStubs = new Map([
 	["aws-amplify", `${stubsDir}aws-amplify.mjs`],
 	["aws-amplify/auth", `${stubsDir}aws-amplify-auth.mjs`],
+	// `@aws-amplify/ui-react` transitively imports `aws-amplify/auth` symbols
+	// (deleteUser, updatePassword, …) that our `aws-amplify/auth` test stub
+	// doesn't export — loading it in Node tests crashes at module init.
+	// Stub the package so tests that import a component using
+	// `useAuthenticator` can still be loaded.
+	["@aws-amplify/ui-react", `${stubsDir}aws-amplify-ui-react.mjs`],
 	["@remit/api-http-client/client.gen.ts", `${stubsDir}remit-client.mjs`],
 ]);
 

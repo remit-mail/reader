@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
-import { ErrorState } from "@/components/ui/ErrorState";
 import { formatErrorDetail } from "@/components/ui/error-banners";
 import { useMessageBodyContent } from "@/hooks/useMessageBodyContent";
 import { useToggleTrusted } from "@/hooks/useToggleTrusted";
@@ -10,6 +9,7 @@ import {
 	createEmailSanitizer,
 } from "@/lib/email-sanitizer";
 import { IsolatedEmailFrame } from "./IsolatedEmailFrame";
+import { MessageBodyErrorBanner } from "./MessageBodyErrorBanner";
 
 /**
  * Subset of the OpenAPI `BodyPartResponse` consumed by this component for
@@ -156,9 +156,7 @@ export const MessageBody = ({
 		if (isBodyError) {
 			return (
 				<div className="message-body">
-					<ErrorState
-						variant="inline"
-						title="Couldn't load message body"
+					<MessageBodyErrorBanner
 						error={bodyError}
 						onRetry={() => refetchBody()}
 					/>
