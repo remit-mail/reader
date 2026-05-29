@@ -14,6 +14,88 @@ export interface MessageBodyContent {
 }
 
 /**
+ * Discriminated reason for a body-fetch failure. The SPA uses this to render
+ * a diagnostic banner instead of a generic "Failed to load (403 Forbidden)"
+ * string (issue #401 / postmortem #394).
+ *
+ * - `auth`  — Lambda@Edge denied the request (missing/invalid/expired token,
+ *             cross-tenant). The edge sets `x-remit-403-reason` on the deny
+ *             response; the user needs to sign in again.
+ * - `body-missing` — CloudFront returned a 403/404 with no edge reason header,
+ *             which means the request passed the JWT check and S3 had no
+ *             object at that key. The S3 bucket policy (OAC) only grants
+ *             `s3:GetObject`, so a missing key surfaces as 403 instead of 404
+ *             — both shapes are normalised to `body-missing` here.
+ * - `content-type-mismatch` — server returned text/html for a plain-text part
+ *             (defensive guard against a misconfigured edge or bucket-policy
+ *             bypass smuggling HTML into the renderer).
+ * - `spa-shell-leak` — CloudFront 403/404 fallback rewrote the response into
+ *             the SPA shell HTML. The infra fix (#310) prevents this; this
+ *             guard catches a regression.
+ * - `generic` — any other non-2xx, or a fetch-level failure (e.g. offline).
+ */
+export type BodyFetchReason =
+	| "auth"
+	| "body-missing"
+	| "content-type-mismatch"
+	| "spa-shell-leak"
+	| "generic";
+
+/**
+ * Error thrown by `fetchBodyContent`. Carries a discriminated `reason` so the
+ * UI can render a specific banner (see MessageBody). Also exposes the HTTP
+ * `status` (when applicable) for log breadcrumbs / debugging.
+ */
+export class BodyFetchError extends Error {
+	readonly reason: BodyFetchReason;
+	readonly status?: number;
+
+	constructor(reason: BodyFetchReason, message: string, status?: number) {
+		super(message);
+		this.name = "BodyFetchError";
+		this.reason = reason;
+		this.status = status;
+	}
+}
+
+/**
+ * The header set by the Lambda@Edge JWT verifier on its deny responses. When
+ * present on a 401/403 the failure was an edge-level auth denial; when absent
+ * on a 403/404 the failure originated from the S3 origin (object missing).
+ * See `infra/constructs/cloudfront/remit-content-delivery/lambda-edge/jwt.ts`.
+ */
+const REASON_HEADER = "x-remit-403-reason";
+
+/**
+ * Classify a fetch response into a `BodyFetchReason`. Pure so the
+ * discrimination can be unit-tested without mocking the network.
+ *
+ * - 401 → always `auth` (Lambda@Edge denies missing/invalid tokens with 401).
+ * - 403 with `x-remit-403-reason` → `auth` (Lambda@Edge tenant-mismatch etc).
+ * - 403/404 without the reason header → `body-missing` (S3 origin response).
+ * - Anything else → `generic`.
+ *
+ * Known corner case: CloudFront itself can emit a bare 403 for WAF block,
+ * geo-restriction, or signed-URL/cookie failures (none of which we use
+ * today, but a future WAF attachment would change that). Those bare-403s
+ * also lack `x-remit-403-reason` and therefore classify as `body-missing` —
+ * misleading copy, but the user-facing fix is the same in practice
+ * (contact support / check status). If WAF is ever added on `/content/*`,
+ * revisit and either set a distinct header on the WAF deny or branch on
+ * the `X-Amz-Cf-Id` / `Server: CloudFront` headers.
+ */
+export const classifyBodyFetchFailure = (
+	status: number,
+	reasonHeader: string | null,
+): BodyFetchReason => {
+	const edgeReason = reasonHeader?.trim() ?? "";
+	if (status === 401) return "auth";
+	if (status === 403) return edgeReason.length > 0 ? "auth" : "body-missing";
+	if (status === 404) return "body-missing";
+	return "generic";
+};
+
+/**
  * Defensive guard against the CloudFront-rewrites-403/404-to-/index.html
  * edge case. The infra fix (#310 review) already scopes the SPA-fallback
  * rewrite to the default behaviour only, so `/content/*` 403/404 responses
@@ -78,19 +160,25 @@ export const fetchBodyContent = async (
 	}
 	const response = await fetch(url, { headers });
 	if (!response.ok) {
-		throw new Error(
+		const edgeReason = response.headers.get(REASON_HEADER);
+		const reason = classifyBodyFetchFailure(response.status, edgeReason);
+		throw new BodyFetchError(
+			reason,
 			`Failed to load message body (${response.status} ${response.statusText})`,
+			response.status,
 		);
 	}
 	const contentType = response.headers.get("content-type");
 	if (isContentTypeMismatch(expected, contentType)) {
-		throw new Error(
+		throw new BodyFetchError(
+			"content-type-mismatch",
 			`Refusing to render message body — expected ${expected}, got Content-Type ${contentType}`,
 		);
 	}
 	const body = await response.text();
 	if (isSpaShellResponse(body, contentType)) {
-		throw new Error(
+		throw new BodyFetchError(
+			"spa-shell-leak",
 			"Refusing to render message body — response looks like the SPA shell (CloudFront 403/404 fallback leaked through to /content/*)",
 		);
 	}
