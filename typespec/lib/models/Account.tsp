@@ -5,6 +5,7 @@ import "../enums/ConnectionState.tsp";
 import "../enums/AccountConfigState.tsp";
 import "../enums/SyncPhase.tsp";
 import "../scalars/string.tsp";
+import "./Address.tsp";
 
 using TypeSpec.Http;
 
@@ -261,6 +262,10 @@ model Account {
   @doc("Timestamp when account was marked for deletion (tombstone)")
   @visibility(Lifecycle.Read)
   deletedAt?: int64;
+
+  @doc("Account-level mute flag. When set, all mailboxes of this account are hidden from unified/brief views (sync is unaffected). Use the existing PATCH endpoint to set or clear; pass `null` to remove.")
+  @visibility(Lifecycle.Read, Lifecycle.Update)
+  muted?: MutedFlag;
 }
 
 // ============================================
@@ -358,6 +363,7 @@ model AccountResponse
       | "mailboxCountSynced"
       | "signaturePlainText"
       | "signatureHtml"
+      | "muted"
       | "createdAt"
       | "updatedAt"
   >;
@@ -497,6 +503,9 @@ model UpdateAccountInput {
 
   @doc("HTML email signature")
   signatureHtml?: string;
+
+  @doc("Account-level mute flag. Pass a MutedFlag object to mute; pass `null` to clear the mute.")
+  muted?: MutedFlag | null;
 }
 
 @doc("Input for testing connection without saving")

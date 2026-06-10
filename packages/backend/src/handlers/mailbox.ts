@@ -1,5 +1,11 @@
-import type { MailboxItem } from "@remit/remit-electrodb-service";
-import type { MailboxResponse } from "@remit/api-openapi-types";
+import type {
+	MailboxItem,
+	UpdateMailboxInput,
+} from "@remit/remit-electrodb-service";
+import type {
+	MailboxResponse,
+	RenameMailboxInput,
+} from "@remit/api-openapi-types";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { getAccountConfigIdFromEvent } from "../auth.js";
 import { getClient } from "../service/dynamodb.js";
@@ -10,6 +16,101 @@ import type {
 	TrashOperationIds,
 } from "../types.js";
 import { assertAccountOwnership } from "./account-ownership.js";
+
+/**
+ * Derive the mute-flag DDB changes from a PATCH body.
+ *
+ * Returns `{ updates, remove }` where:
+ *   - `updates` contains the new muted value (when setting)
+ *   - `remove` contains `["muted"]` when the flag should be deleted
+ *
+ * When `muted` is absent from the body the operation is a no-op (both
+ * collections are empty). This mirrors the UpdateAddressFlagsInput semantics:
+ * `null` → remove, object → set, absent → no-op.
+ */
+export const buildMailboxMuteChanges = (
+	body: RenameMailboxInput,
+): { updates: UpdateMailboxInput; remove: "muted"[] } => {
+	const remove: "muted"[] = [];
+
+	if (!Object.prototype.hasOwnProperty.call(body, "muted")) {
+		return { updates: {}, remove };
+	}
+
+	if (body.muted === null) {
+		remove.push("muted");
+		return { updates: {}, remove };
+	}
+
+	if (body.muted !== undefined) {
+		return {
+			updates: { muted: body.muted as UpdateMailboxInput["muted"] },
+			remove,
+		};
+	}
+
+	return { updates: {}, remove };
+};
+
+/**
+ * Minimal client surface needed to apply a mailbox PATCH. Structurally
+ * satisfied by RemitClient; narrowed so tests can stub it.
+ */
+export interface MailboxPatchClient {
+	mailbox: {
+		get(mailboxId: string): Promise<MailboxItem>;
+		update(
+			mailboxId: string,
+			input: UpdateMailboxInput,
+			remove?: (keyof UpdateMailboxInput)[],
+		): Promise<MailboxItem>;
+	};
+	mailboxQueue: {
+		renameMailbox(
+			mailboxId: string,
+			newPath: string,
+			accountId: string,
+		): Promise<MailboxItem>;
+	};
+}
+
+/**
+ * Apply a mailbox PATCH body: mute changes first (direct DDB write, no IMAP
+ * machinery), then rename — which triggers the IMAP rename machinery
+ * (syncStatus/oldPath + MAILBOX_RENAME event) — only when `fullPath` is
+ * present. A mute-only PATCH therefore never calls
+ * `mailboxQueue.renameMailbox`.
+ */
+export const applyMailboxPatch = async (
+	client: MailboxPatchClient,
+	mailboxId: string,
+	accountId: string,
+	body: RenameMailboxInput,
+): Promise<MailboxItem> => {
+	const { fullPath } = body;
+
+	// --- Mute flag update (direct DDB, no IMAP machinery) ---
+	// Delegated to buildMailboxMuteChanges which follows the same null→remove
+	// semantics as UpdateAddressFlagsInput. Applied before (and independent of)
+	// any rename so a mute-only PATCH never touches syncStatus/oldPath.
+	const { updates: muteUpdates, remove: muteRemove } =
+		buildMailboxMuteChanges(body);
+	if (Object.keys(muteUpdates).length > 0 || muteRemove.length > 0) {
+		await client.mailbox.update(
+			mailboxId,
+			muteUpdates,
+			muteRemove.length > 0 ? muteRemove : undefined,
+		);
+	}
+
+	// --- Rename (IMAP machinery) ---
+	// Only triggered when fullPath is present.
+	if (!fullPath) {
+		return client.mailbox.get(mailboxId);
+	}
+
+	return client.mailboxQueue.renameMailbox(mailboxId, fullPath, accountId);
+};
 
 const toMailboxResponse = (mailbox: MailboxItem): MailboxResponse => ({
 	mailboxId: mailbox.mailboxId,
@@ -25,6 +126,7 @@ const toMailboxResponse = (mailbox: MailboxItem): MailboxResponse => ({
 	lastSyncUid: mailbox.lastSyncUid,
 	highWaterMarkUid: mailbox.highWaterMarkUid,
 	lastMessageSyncAt: mailbox.lastMessageSyncAt,
+	muted: mailbox.muted,
 	createdAt: mailbox.createdAt,
 	updatedAt: mailbox.updatedAt,
 });
@@ -123,22 +225,13 @@ export const MailboxDetailOperations: Record<
 			accountId: string;
 			mailboxId: string;
 		};
-		const { fullPath } = context.request.requestBody as { fullPath?: string };
+		const body = context.request.requestBody as RenameMailboxInput;
 
 		const client = getClient();
 		const account = await client.account.get(accountId);
 		assertAccountOwnership(account, accountConfigId, "act");
 
-		if (!fullPath) {
-			const mailbox = await client.mailbox.get(mailboxId);
-			return toMailboxResponse(mailbox);
-		}
-
-		const mailbox = await client.mailboxQueue.renameMailbox(
-			mailboxId,
-			fullPath,
-			accountId,
-		);
+		const mailbox = await applyMailboxPatch(client, mailboxId, accountId, body);
 		return toMailboxResponse(mailbox);
 	},
 
