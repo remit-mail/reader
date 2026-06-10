@@ -255,4 +255,62 @@ describe("walkMimeStructure", () => {
 		assert.equal(rec.transferEncoding, "7BIT");
 		assert.equal(rec.sizeOctets, 0);
 	});
+
+	// Regression test for the DynamoDB "multiple operations on one item" flake.
+	// When imapflow returns a message/rfc822 attachment, it may attach the inner
+	// message body as a childNode with part="" (no path). The old code gave every
+	// such node ROOT_PART_PATH ("0"), colliding with the outer root. The fix
+	// assigns a synthetic path "<parentPath>.<siblingIndex>" to keep keys unique.
+	it("assigns unique partPaths to message/rfc822 inner-body nodes that have no part field", () => {
+		const rfc822: MimeNode = {
+			type: "multipart/mixed",
+			// root has no part
+			childNodes: [
+				{
+					type: "text/plain",
+					part: "1",
+					encoding: "7bit",
+					size: 20,
+				},
+				{
+					type: "message/rfc822",
+					part: "2",
+					size: 300,
+					// imapflow surfaces the inner body as a child with no part
+					childNodes: [
+						{
+							type: "text/plain",
+							// no part — this was the bug
+							encoding: "7bit",
+							size: 50,
+						},
+					],
+				},
+			],
+		};
+
+		const records = walkMimeStructure(rfc822);
+		const paths = records.map((r) => r.partPath);
+
+		// All four paths must be unique.
+		assert.equal(
+			new Set(paths).size,
+			records.length,
+			`Duplicate partPaths detected: ${paths.join(", ")}`,
+		);
+
+		// Root gets the canonical ROOT_PART_PATH.
+		assert.equal(paths[0], ROOT_PART_PATH);
+
+		// The inner body without a part field gets a synthetic path, not "0".
+		const innerBody = records.find(
+			(r) => r.mediaSubtype === "plain" && r.partPath !== "1",
+		);
+		assert.ok(innerBody, "inner text/plain should be in the records");
+		assert.notEqual(
+			innerBody.partPath,
+			ROOT_PART_PATH,
+			`inner body should not reuse ROOT_PART_PATH but got ${innerBody.partPath}`,
+		);
+	});
 });
