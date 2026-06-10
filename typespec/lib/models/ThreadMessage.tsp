@@ -226,4 +226,7 @@ model ThreadMessageResponse {
 
   @doc("Structured sender-authenticity signal derived from DKIM headers at classification time (from the underlying Message). Absent for messages classified before this field was introduced — absence means no signal.")
   authenticity?: MessageAuthenticity;
+
+  @doc("Account identifier attached at read time via a mailboxId→accountId map. Present on rows returned by `GET /threads`; absent on rows from per-mailbox endpoints (clients can resolve from the mailbox cache).")
+  accountId?: UUID;
 }
