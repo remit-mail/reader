@@ -14,6 +14,7 @@ import { OutboxDetailOperations, OutboxOperations } from "./outbox.js";
 import { SemanticSearchOperations } from "./search.js";
 import { SyncOperations } from "./sync.js";
 import { ThreadDetailOperations, ThreadOperations } from "./thread.js";
+import { UnifiedThreadOperations } from "./unified-threads.js";
 
 // biome-ignore lint/suspicious/noExplicitAny: Types are narrowed downstream
 export const handlers: Record<OperationIds, OperationHandler<any>> = {
@@ -27,6 +28,7 @@ export const handlers: Record<OperationIds, OperationHandler<any>> = {
 	...TrashOperations,
 	...SyncOperations,
 	...ThreadDetailOperations,
+	...UnifiedThreadOperations,
 	...ThreadOperations,
 	...MessageOperations,
 	...MessageBulkOperations,

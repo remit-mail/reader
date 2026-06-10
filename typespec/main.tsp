@@ -205,6 +205,32 @@ namespace RemitApi {
     ): ResultList<ThreadMessageResponse>;
   }
 
+  @route("/threads")
+  namespace UnifiedThreadOperations {
+    @doc("""
+      List threads across all non-muted accounts of the caller, ordered by sentDate desc. Each row carries an attached `accountId` (derived from a mailboxId→accountId map at read time) plus the usual `senderTrust`/`category` enrichment. Served by the `byDate` LSI1 (pk = the caller's account config), so the caller can never see another account config's threads.
+      
+      INBOX scope: results are filtered to each account's top-level INBOX, matched by exact path `fullPath === "INBOX"` (RFC 6154 defines no Inbox special-use). By design this excludes namespaced sub-paths like `INBOX/Receipts` and non-English server primaries — the unified inbox is each account's primary INBOX, not its sub-folders. Soft-deleted rows are also excluded.
+      
+      Mute exclusion: muted accounts and muted mailboxes are excluded. The inbox/mute filter set is rebuilt per page from live state, so muting/unmuting a mailbox mid-pagination takes effect on the next page (never retroactively).
+      
+      Pagination: pass the returned `continuationToken` to fetch the next page; keep paging until it is absent. The INBOX/deleted filter is applied after the index read with a bounded read window per request, so a page may return FEWER than `limit` rows while still carrying a `continuationToken` — treat the presence of the token (not a full page) as the "more results" signal. No rows are skipped or duplicated across pages.
+      """)
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    op listAllThreads(
+      @query(#{ explode: true })
+      @continuationToken
+      continuationToken?: string,
+
+      @query(#{ explode: true })
+      order?: SortOrder,
+
+      @query(#{ explode: true })
+      limit?: int32,
+    ): ResultList<ThreadMessageResponse>;
+  }
+
   @route("/mailboxes/{mailboxId}/threads")
   namespace ThreadOperations {
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
