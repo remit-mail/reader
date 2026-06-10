@@ -49,6 +49,12 @@ interface FixtureExpectation {
 	attachments: AttachmentExpectation[];
 	/** Optional substring that must appear in parsed.text or parsed.html. */
 	bodyContains?: string;
+	/**
+	 * Skip the BODYSTRUCTURE re-fetch for this fixture.
+	 * Set when the fixture shape is synthetic and doesn't produce a meaningful
+	 * BODYSTRUCTURE response (e.g. bare TNEF blob — see fixture 05 and #408).
+	 */
+	skipBodyStructure?: true;
 }
 
 /**
@@ -93,11 +99,12 @@ const EXPECTATIONS: Record<string, FixtureExpectation> = {
 		bodyRenders: true,
 		attachments: [{ filename: "winmail.dat" }],
 		bodyContains: "TNEF",
-		// TODO(#402): replace the synthetic TNEF payload with a real-world
-		// winmail.dat capture. The minimal magic-byte stub here is enough
-		// for mailparser to surface the attachment (which is the #402
-		// contract); a real capture would let downstream TNEF decoders
-		// extract the inner attachments too.
+		// skipBodyStructure: The TNEF fixture uses a synthetic magic-byte stub
+		// rather than a real-world winmail.dat capture, so the BODYSTRUCTURE
+		// returned by Dovecot for this fixture is not meaningful. The re-fetch
+		// is skipped here to avoid asserting on a shape that will change once
+		// the fixture is replaced with a real capture. See #408.
+		skipBodyStructure: true,
 	},
 	"06-8bit-non-ascii.eml": {
 		subjectIncludes: "Café façade",
@@ -198,6 +205,26 @@ describe(
 						`fetchMessageBody should return bytes for ${name}`,
 					);
 
+					// BODYSTRUCTURE re-fetch: exercises the IMAP mapper path at the
+					// integration boundary (the exact regression class from #394).
+					// Skipped for fixtures with synthetic shapes that don't produce
+					// meaningful BODYSTRUCTURE (see skipBodyStructure flag + #408).
+					// The guard in fetchMessages skips rows with undefined uid/internalDate
+					// so back-to-back FETCH is safe on Dovecot (see imapflow-connection.ts).
+					if (!expectation.skipBodyStructure) {
+						const refetched = await connection.fetchMessages([
+							appendResult.uid,
+						]);
+						assert.ok(
+							refetched.length > 0,
+							`BODYSTRUCTURE re-fetch should return a message for ${name}`,
+						);
+						assert.ok(
+							refetched[0]?.bodyStructure != null,
+							`BODYSTRUCTURE should be present for ${name}`,
+						);
+					}
+
 					const parsed = await simpleParser(rfc822);
 
 					// Subject round-trips (proves we fetched the right message and
@@ -254,16 +281,6 @@ describe(
 							);
 						}
 					}
-
-					// Note: a follow-up `connection.fetchMessages([uid])` to assert
-					// BODYSTRUCTURE round-trips would be redundant — the
-					// raw-body fetch above already exercises the IMAP transport,
-					// and back-to-back FETCH on the same UID was observed to
-					// flake (imapflow occasionally yields a row with undefined
-					// uid/internalDate). The mailparser assertions above are
-					// what #402 actually asks for ("body renders", "attachments
-					// listable"). Existing BODYSTRUCTURE coverage lives in
-					// `imapflow-connection.e2e.test.ts`.
 				});
 			});
 		}
