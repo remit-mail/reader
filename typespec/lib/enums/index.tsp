@@ -32,6 +32,7 @@ import "./SenderTrust.tsp";
 
 // Account Enums
 import "./AccountConfigState.tsp";
+import "./SyncPhase.tsp";
 
 // API Enums
 import "./SortOrder.tsp";

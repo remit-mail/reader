@@ -142,6 +142,12 @@ namespace RemitApi {
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     op triggerSync(@path accountId: UUID): SyncTriggerResponse;
+
+    @doc("Get the current sync status for an account, including per-mailbox progress computed from watermarks. Read-only — does not write or contend with the mailbox sync lock (RFC 023).")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    @route("/status")
+    op getSyncStatus(@path accountId: UUID): AccountSyncStatusResponse;
   }
 
   // ============================================
