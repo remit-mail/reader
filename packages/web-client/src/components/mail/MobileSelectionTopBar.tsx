@@ -46,16 +46,16 @@ export const MobileSelectionTopBar = ({
 }: MobileSelectionTopBarProps) => {
 	const canShowMove = !!onMove && !!accountId && !!currentMailboxId;
 	return (
-		<div className="sticky top-0 z-10 flex flex-col gap-1 px-3 py-2 bg-muted/50 border-b border-border">
+		<div className="sticky top-0 z-10 flex flex-col gap-1 px-3 py-2 bg-surface-sunken/50 border-b border-line">
 			<div className="flex items-center justify-between">
 				<div className="flex items-center gap-3">
 					<button
 						type="button"
 						onClick={onCancel}
-						className="min-h-11 min-w-11 inline-flex items-center justify-center rounded hover:bg-accent transition-colors"
+						className="min-h-11 min-w-11 inline-flex items-center justify-center rounded hover:bg-surface-raised transition-colors"
 						aria-label="Cancel selection"
 					>
-						<X className="size-4 text-muted-foreground" />
+						<X className="size-4 text-fg-muted" />
 					</button>
 					<span className="text-sm font-medium">
 						{selectedCount} {selectedCount === 1 ? "message" : "messages"}{" "}
@@ -68,7 +68,7 @@ export const MobileSelectionTopBar = ({
 							type="button"
 							onClick={onMarkAsRead}
 							disabled={isBusy}
-							className="min-h-11 min-w-11 inline-flex items-center justify-center rounded text-sm font-medium transition-colors hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed"
+							className="min-h-11 min-w-11 inline-flex items-center justify-center rounded text-sm font-medium transition-colors hover:bg-surface-raised disabled:opacity-50 disabled:cursor-not-allowed"
 							aria-label="Mark as read"
 						>
 							<MailOpen className="size-4" />
@@ -89,8 +89,8 @@ export const MobileSelectionTopBar = ({
 						onClick={onDelete}
 						disabled={isBusy}
 						className={cn(
-							"min-h-11 min-w-11 inline-flex items-center justify-center rounded text-sm font-medium transition-colors hover:bg-accent",
-							"text-destructive",
+							"min-h-11 min-w-11 inline-flex items-center justify-center rounded text-sm font-medium transition-colors hover:bg-surface-raised",
+							"text-danger",
 							"disabled:opacity-50 disabled:cursor-not-allowed",
 						)}
 						aria-label="Delete selected messages"
@@ -100,11 +100,7 @@ export const MobileSelectionTopBar = ({
 				</div>
 			</div>
 			{moveDisabledHint && (
-				<p
-					className="text-xs text-muted-foreground"
-					role="status"
-					aria-live="polite"
-				>
+				<p className="text-xs text-fg-muted" role="status" aria-live="polite">
 					{moveDisabledHint}
 				</p>
 			)}

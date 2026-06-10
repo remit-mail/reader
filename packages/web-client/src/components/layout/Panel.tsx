@@ -15,7 +15,7 @@ export const Panel = ({
 	<div
 		className={cn(
 			"h-full overflow-hidden",
-			withBorder && "border-r border-border",
+			withBorder && "border-r border-line",
 			className,
 		)}
 	>

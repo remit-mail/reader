@@ -27,8 +27,8 @@ const ToolbarButton = ({
 		title={title}
 		className={`p-1.5 rounded transition-colors ${
 			isActive
-				? "text-foreground bg-accent"
-				: "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+				? "text-fg bg-accent-2-soft"
+				: "text-fg-muted hover:text-fg hover:bg-surface-raised"
 		}`}
 	>
 		{children}
@@ -61,7 +61,7 @@ export const PlateToolbar = () => {
 	);
 
 	return (
-		<div className="flex items-center gap-0.5 px-3 py-1 border-b border-border">
+		<div className="flex items-center gap-0.5 px-3 py-1 border-b border-line">
 			<ToolbarButton
 				isActive={isBoldActive}
 				onClick={() => editor.tf.toggleMark(BoldPlugin.key)}
@@ -90,7 +90,7 @@ export const PlateToolbar = () => {
 			>
 				<Quote className="size-4" />
 			</ToolbarButton>
-			<div className="mx-1.5 h-4 w-px bg-border" />
+			<div className="mx-1.5 h-4 w-px bg-line" />
 			<ToolbarButton
 				isActive={false}
 				onClick={() => editor.undo()}

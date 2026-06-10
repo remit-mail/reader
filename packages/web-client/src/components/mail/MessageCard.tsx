@@ -3,6 +3,7 @@ import type {
 	RemitImapDescribeMessageResponse,
 	RemitImapThreadMessageResponse,
 } from "@remit/api-http-client/types.gen.ts";
+import { Avatar } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import {
 	BadgeCheck,
@@ -12,7 +13,6 @@ import {
 	Star,
 } from "lucide-react";
 import { useState } from "react";
-import { Avatar } from "@/components/ui/Avatar";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { isMessageNotFoundError } from "@/components/ui/error-banners";
@@ -66,16 +66,14 @@ const MessageIndicators = ({
 			disabled={isStarPending}
 			className={cn(
 				"p-0.5 rounded transition-colors",
-				isStarred
-					? "text-yellow-500"
-					: "text-muted-foreground/50 hover:text-yellow-500",
+				isStarred ? "text-warning" : "text-fg-subtle hover:text-warning",
 				isStarPending && "opacity-50",
 			)}
 		>
 			<Star className={cn("size-3.5", isStarred && "fill-current")} />
 		</button>
 		{hasAttachment && (
-			<span className="text-muted-foreground/50 p-0.5">
+			<span className="text-fg-subtle p-0.5">
 				<Paperclip className="size-3.5" />
 			</span>
 		)}
@@ -124,16 +122,16 @@ const CollapsedCard = ({
 		<div
 			className={cn(
 				"group flex items-start gap-2 py-3 px-2 -mx-2 rounded-lg",
-				"hover:bg-accent/30 transition-colors cursor-pointer",
-				isFocused && "bg-accent/40",
+				"hover:bg-surface-raised transition-colors cursor-pointer",
+				isFocused && "bg-accent-2-soft",
 			)}
 			onClick={onToggle}
 		>
 			<UnreadIndicator isUnread={isUnread} />
 			<Avatar
-				name={threadMessage.fromName ?? undefined}
+				name={threadMessage.fromName ?? threadMessage.fromEmail ?? "?"}
 				email={threadMessage.fromEmail ?? undefined}
-				size={40}
+				size="md"
 			/>
 			<div className="flex-1 min-w-0">
 				<div className="flex items-start justify-between gap-2">
@@ -141,13 +139,13 @@ const CollapsedCard = ({
 						<span
 							className={cn(
 								"text-sm truncate block",
-								isUnread ? "font-semibold text-foreground" : "text-foreground",
+								isUnread ? "font-semibold text-fg" : "text-fg",
 							)}
 						>
 							{senderName}
 						</span>
 						{snippet && (
-							<div className="text-sm text-muted-foreground truncate mt-0.5">
+							<div className="text-sm text-fg-muted truncate mt-0.5">
 								{snippet}
 							</div>
 						)}
@@ -156,11 +154,11 @@ const CollapsedCard = ({
 						<div className="flex items-center gap-1">
 							<span
 								data-testid="message-date"
-								className="text-xs text-muted-foreground"
+								className="text-xs text-fg-muted"
 							>
 								{date}
 							</span>
-							<ChevronRight className="size-4 text-muted-foreground" />
+							<ChevronRight className="size-4 text-fg-muted" />
 						</div>
 						<MessageIndicators
 							isStarred={isStarred}
@@ -214,28 +212,28 @@ const ExpandedCard = ({
 		messageData?.envelope.from[0]?.flags?.trusted?.value === true;
 
 	return (
-		<div className={cn("rounded-lg px-2 -mx-2", isFocused && "bg-accent/40")}>
+		<div
+			className={cn("rounded-lg px-2 -mx-2", isFocused && "bg-accent-2-soft")}
+		>
 			{/* Header - clickable to collapse */}
 			<div className="flex items-start gap-2 py-3">
 				<UnreadIndicator isUnread={isUnread} />
 				<Avatar
-					name={threadMessage.fromName ?? undefined}
+					name={threadMessage.fromName ?? threadMessage.fromEmail ?? "?"}
 					email={threadMessage.fromEmail ?? undefined}
-					size={40}
+					size="md"
 				/>
 				<button
 					type="button"
 					onClick={onToggle}
-					className="flex-1 min-w-0 text-left hover:bg-accent/20 -my-2 py-2 px-1 -mx-1 rounded transition-colors"
+					className="flex-1 min-w-0 text-left hover:bg-surface-raised -my-2 py-2 px-1 -mx-1 rounded transition-colors"
 				>
 					<div className="flex items-start justify-between gap-2">
 						<div className="flex-1 min-w-0">
 							<span
 								className={cn(
 									"block mb-0.5",
-									isUnread
-										? "font-semibold text-foreground"
-										: "text-foreground",
+									isUnread ? "font-semibold text-fg" : "text-fg",
 								)}
 							>
 								{senderName}
@@ -249,11 +247,11 @@ const ExpandedCard = ({
 							<div className="flex items-center gap-1">
 								<span
 									data-testid="message-date"
-									className="text-xs text-muted-foreground"
+									className="text-xs text-fg-muted"
 								>
 									{date}
 								</span>
-								<ChevronDown className="size-4 text-muted-foreground" />
+								<ChevronDown className="size-4 text-fg-muted" />
 							</div>
 							<MessageIndicators
 								isStarred={isStarred}
@@ -288,9 +286,9 @@ const ExpandedCard = ({
 			<div className="mt-2">
 				{isLoading ? (
 					<div className="animate-pulse space-y-2">
-						<div className="h-4 bg-muted rounded w-full" />
-						<div className="h-4 bg-muted rounded w-3/4" />
-						<div className="h-4 bg-muted rounded w-1/2" />
+						<div className="h-4 bg-surface-sunken rounded w-full" />
+						<div className="h-4 bg-surface-sunken rounded w-3/4" />
+						<div className="h-4 bg-surface-sunken rounded w-1/2" />
 					</div>
 				) : isError && isMessageNotFoundError(error) ? (
 					<EmptyState message="This message has been deleted" />

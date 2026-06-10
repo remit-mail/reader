@@ -18,7 +18,7 @@ export const MessageHeader = ({ envelope, actions }: MessageHeaderProps) => {
 	const date = formatDatePreset(envelope.date, "full");
 
 	return (
-		<div className="border-b border-border p-4">
+		<div className="border-b border-line p-4">
 			<div className="flex items-start justify-between gap-2 mb-3">
 				<div className="flex items-center gap-2 min-w-0 flex-1">
 					<h1 className="text-xl font-semibold truncate">
@@ -36,8 +36,8 @@ export const MessageHeader = ({ envelope, actions }: MessageHeaderProps) => {
 					<AddressList label="Cc" addresses={envelope.cc} />
 				)}
 				<div className="flex gap-2 text-sm">
-					<span className="text-muted-foreground shrink-0 w-12">Date:</span>
-					<span className="text-foreground">{date}</span>
+					<span className="text-fg-muted shrink-0 w-12">Date:</span>
+					<span className="text-fg">{date}</span>
 				</div>
 			</div>
 		</div>

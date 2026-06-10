@@ -78,7 +78,7 @@ export const PlateEditorContent = ({
 
 	return (
 		<PlateContent
-			className="w-full px-3 py-2 bg-background text-sm outline-none min-h-[120px] [&_blockquote]:pl-3 [&_blockquote]:border-l-2 [&_blockquote]:border-muted-foreground/30 [&_blockquote]:text-muted-foreground [&_a]:text-primary [&_a]:underline"
+			className="w-full px-3 py-2 bg-canvas text-sm outline-none min-h-[120px] [&_blockquote]:pl-3 [&_blockquote]:border-l-2 [&_blockquote]:border-fg-subtle/30 [&_blockquote]:text-fg-muted [&_a]:text-accent [&_a]:underline"
 			placeholder="Write your message..."
 			onKeyDown={handleKeyDown}
 		/>

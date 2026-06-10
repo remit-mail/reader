@@ -20,18 +20,18 @@ interface MessageDetailProps {
 
 const LoadingSkeleton = () => (
 	<div className="animate-pulse">
-		<div className="border-b border-border p-4">
-			<div className="h-6 bg-muted rounded w-3/4 mb-3" />
+		<div className="border-b border-line p-4">
+			<div className="h-6 bg-surface-sunken rounded w-3/4 mb-3" />
 			<div className="space-y-2">
-				<div className="h-4 bg-muted rounded w-48" />
-				<div className="h-4 bg-muted rounded w-64" />
-				<div className="h-4 bg-muted rounded w-40" />
+				<div className="h-4 bg-surface-sunken rounded w-48" />
+				<div className="h-4 bg-surface-sunken rounded w-64" />
+				<div className="h-4 bg-surface-sunken rounded w-40" />
 			</div>
 		</div>
 		<div className="p-4 space-y-2">
-			<div className="h-4 bg-muted rounded w-full" />
-			<div className="h-4 bg-muted rounded w-full" />
-			<div className="h-4 bg-muted rounded w-3/4" />
+			<div className="h-4 bg-surface-sunken rounded w-full" />
+			<div className="h-4 bg-surface-sunken rounded w-full" />
+			<div className="h-4 bg-surface-sunken rounded w-3/4" />
 		</div>
 	</div>
 );

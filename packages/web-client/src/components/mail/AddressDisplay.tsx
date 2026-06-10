@@ -28,8 +28,8 @@ export const AddressDisplay = ({
 	if (address.displayName) {
 		return (
 			<span>
-				<span className="text-foreground">{address.displayName}</span>
-				<span className="text-muted-foreground">
+				<span className="text-fg">{address.displayName}</span>
+				<span className="text-fg-muted">
 					{" "}
 					&lt;{address.normalizedEmail}&gt;
 				</span>
@@ -38,7 +38,7 @@ export const AddressDisplay = ({
 		);
 	}
 	return (
-		<span className="text-foreground">
+		<span className="text-fg">
 			{address.normalizedEmail}
 			{badge}
 		</span>
@@ -74,7 +74,7 @@ export const AddressList = ({
 
 	return (
 		<div className="flex gap-2 text-sm">
-			<span className="text-muted-foreground shrink-0 w-12">{label}:</span>
+			<span className="text-fg-muted shrink-0 w-12">{label}:</span>
 			<div className="flex-1 min-w-0">
 				{expanded ? (
 					<div className="flex flex-wrap gap-1">
@@ -103,7 +103,7 @@ export const AddressList = ({
 						e.stopPropagation();
 						setExpanded(!expanded);
 					}}
-					className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+					className="shrink-0 text-fg-muted hover:text-fg transition-colors"
 					aria-label={expanded ? "Collapse" : "Expand"}
 				>
 					{expanded ? (

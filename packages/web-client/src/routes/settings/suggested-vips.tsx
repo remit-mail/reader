@@ -19,14 +19,14 @@ const LoadingSkeleton = () => (
 		{Array.from({ length: 3 }).map((_, i) => (
 			<li
 				key={i}
-				className="rounded-lg border border-border p-4 animate-pulse flex items-center gap-3"
+				className="rounded-lg border border-line p-4 animate-pulse flex items-center gap-3"
 			>
-				<div className="size-10 rounded-full bg-muted" />
+				<div className="size-10 rounded-full bg-surface-sunken" />
 				<div className="flex-1 min-w-0 space-y-2">
-					<div className="h-4 bg-muted rounded w-1/3" />
-					<div className="h-3 bg-muted rounded w-2/3" />
+					<div className="h-4 bg-surface-sunken rounded w-1/3" />
+					<div className="h-3 bg-surface-sunken rounded w-2/3" />
 				</div>
-				<div className="h-9 w-28 bg-muted rounded-md" />
+				<div className="h-9 w-28 bg-surface-sunken rounded-md" />
 			</li>
 		))}
 	</ul>
@@ -50,7 +50,7 @@ function SuggestedVipsSettings() {
 		<div className="max-w-2xl">
 			<div className="mb-6">
 				<h1 className="text-xl font-semibold">Suggested VIPs</h1>
-				<p className="text-sm text-muted-foreground">
+				<p className="text-sm text-fg-muted">
 					People you exchange mail with most. Promote them to VIPs to surface
 					their mail and unlock push escalation.
 				</p>
@@ -82,7 +82,7 @@ function SuggestedVipsSettings() {
 					className="text-center py-12 border border-dashed rounded-lg"
 					data-testid="suggested-vips-empty"
 				>
-					<p className="text-muted-foreground">
+					<p className="text-fg-muted">
 						No suggestions yet. As you reply to senders, they'll show up here.
 					</p>
 				</div>

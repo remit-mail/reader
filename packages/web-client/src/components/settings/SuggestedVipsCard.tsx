@@ -1,6 +1,6 @@
 import type { RemitImapVipSuggestionEntry } from "@remit/api-http-client/types.gen.ts";
+import { Avatar } from "@remit/ui";
 import { Star } from "lucide-react";
-import { Avatar } from "../ui/Avatar";
 import { formatVipSuggestionStats } from "./vip-suggestion-stats.js";
 
 interface SuggestedVipsCardProps {
@@ -20,24 +20,25 @@ export const SuggestedVipsCard = ({
 
 	return (
 		<li
-			className="flex items-center gap-3 rounded-lg border border-border p-3 sm:p-4"
+			className="flex items-center gap-3 rounded-sm border border-line p-3 sm:p-4"
 			data-testid="suggested-vip-row"
 		>
-			<Avatar name={displayName} email={normalizedEmail} size={40} />
+			<Avatar
+				name={displayName ?? normalizedEmail}
+				email={normalizedEmail}
+				size="md"
+			/>
 			<div className="flex-1 min-w-0">
 				<p className="font-medium truncate" title={label}>
 					{label}
 				</p>
 				{displayName && displayName.trim().length > 0 ? (
-					<p
-						className="text-sm text-muted-foreground truncate"
-						title={normalizedEmail}
-					>
+					<p className="text-sm text-fg-muted truncate" title={normalizedEmail}>
 						{normalizedEmail}
 					</p>
 				) : null}
 				{stats.length > 0 ? (
-					<p className="text-xs text-muted-foreground mt-1">{stats}</p>
+					<p className="text-xs text-fg-muted mt-1">{stats}</p>
 				) : null}
 			</div>
 			<button
@@ -45,7 +46,7 @@ export const SuggestedVipsCard = ({
 				onClick={onAdd}
 				disabled={disabled}
 				aria-label={`Add ${label} to VIPs`}
-				className="shrink-0 inline-flex items-center gap-1 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed"
+				className="shrink-0 inline-flex items-center gap-1 rounded-md border border-line bg-canvas px-3 py-2 text-sm font-medium hover:bg-surface-raised disabled:opacity-50 disabled:cursor-not-allowed"
 			>
 				<Star className="size-4" aria-hidden="true" />
 				Add to VIPs

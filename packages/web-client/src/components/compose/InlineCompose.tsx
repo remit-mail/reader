@@ -18,7 +18,7 @@ export const InlineCompose = ({
 	sourceMessage,
 	onClose,
 }: InlineComposeProps) => (
-	<div className="border-t border-border bg-background max-h-[400px] flex flex-col">
+	<div className="border-t border-line bg-canvas max-h-[400px] flex flex-col">
 		<ComposeForm
 			mode={mode}
 			account={account}

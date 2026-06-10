@@ -32,14 +32,14 @@ interface ConversationViewProps {
 
 const LoadingSkeleton = () => (
 	<div className="animate-pulse p-4">
-		<div className="h-6 bg-muted rounded w-3/4 mb-6" />
+		<div className="h-6 bg-surface-sunken rounded w-3/4 mb-5" />
 		<div className="space-y-4">
 			{Array.from({ length: 2 }).map((_, i) => (
 				<div key={i} className="flex gap-3 py-3">
-					<div className="size-10 bg-muted rounded-full shrink-0" />
+					<div className="size-10 bg-surface-sunken rounded-full shrink-0" />
 					<div className="flex-1">
-						<div className="h-4 bg-muted rounded w-32 mb-2" />
-						<div className="h-3 bg-muted rounded w-48" />
+						<div className="h-4 bg-surface-sunken rounded w-32 mb-2" />
+						<div className="h-3 bg-surface-sunken rounded w-48" />
 					</div>
 				</div>
 			))}
@@ -68,7 +68,7 @@ const ActionBar = ({
 	onBack,
 }: ActionBarProps) => (
 	<div
-		className="sticky bottom-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-t border-border px-4 py-3"
+		className="sticky bottom-0 bg-canvas/95 backdrop-blur supports-[backdrop-filter]:bg-canvas/80 border-t border-line px-4 py-3"
 		style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom, 0))" }}
 	>
 		{/* Narrow viewports (<640px) drop the text labels so all four
@@ -80,7 +80,7 @@ const ActionBar = ({
 				<button
 					type="button"
 					onClick={onBack}
-					className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 min-h-11 text-sm font-medium rounded-full border border-border hover:bg-accent transition-colors"
+					className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 min-h-11 text-sm font-medium rounded-full border border-line hover:bg-surface-raised transition-colors"
 					aria-label="Back to messages"
 				>
 					<ArrowLeft className="size-4" />
@@ -92,7 +92,7 @@ const ActionBar = ({
 				onClick={onReply}
 				disabled={disabled}
 				aria-label="Reply"
-				className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 min-h-11 text-sm font-medium rounded-full border border-border hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+				className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 min-h-11 text-sm font-medium rounded-full border border-line hover:bg-surface-raised transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
 			>
 				<Reply className="size-4" />
 				<span className="hidden sm:inline">Reply</span>
@@ -102,7 +102,7 @@ const ActionBar = ({
 				onClick={onReplyAll}
 				disabled={disabled}
 				aria-label="Reply all"
-				className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 min-h-11 text-sm font-medium rounded-full border border-border hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+				className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 min-h-11 text-sm font-medium rounded-full border border-line hover:bg-surface-raised transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
 			>
 				<ReplyAll className="size-4" />
 				<span className="hidden sm:inline">Reply all</span>
@@ -112,13 +112,13 @@ const ActionBar = ({
 				onClick={onForward}
 				disabled={disabled}
 				aria-label="Forward"
-				className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 min-h-11 text-sm font-medium rounded-full border border-border hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+				className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 min-h-11 text-sm font-medium rounded-full border border-line hover:bg-surface-raised transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
 			>
 				<Forward className="size-4" />
 				<span className="hidden sm:inline">Forward</span>
 			</button>
 			{disabled && (
-				<span className="text-xs text-muted-foreground ml-2 hidden sm:inline">
+				<span className="text-xs text-fg-muted ml-2 hidden sm:inline">
 					Configure SMTP to send mail
 				</span>
 			)}
@@ -327,7 +327,7 @@ export const ConversationView = ({
 						if (el) messageRefs.current.set(message.threadMessageId, el);
 					}}
 				>
-					{index > 0 && <div className="border-t border-border/50 my-1" />}
+					{index > 0 && <div className="border-t border-line my-1" />}
 					<MessageCard
 						threadMessage={message}
 						isExpanded={expandedIds.has(message.threadMessageId)}
@@ -345,9 +345,9 @@ export const ConversationView = ({
 	);
 
 	const header = (
-		<header className="border-b border-border p-4">
+		<header className="border-b border-line p-4">
 			<h1 className="text-xl font-semibold">{displaySubject}</h1>
-			<p className="text-sm text-muted-foreground mt-1">
+			<p className="text-sm text-fg-muted mt-1">
 				{messageCount} {messageCount === 1 ? "message" : "messages"}
 			</p>
 		</header>

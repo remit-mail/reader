@@ -33,21 +33,21 @@ export const ErrorState = ({
 		return (
 			<div
 				role="alert"
-				className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm"
+				className="flex items-start gap-2 rounded-md border border-danger/40 bg-danger-soft px-3 py-2 text-sm"
 			>
 				<AlertCircle
-					className="size-4 shrink-0 text-destructive mt-0.5"
+					className="size-4 shrink-0 text-danger mt-0.5"
 					aria-hidden="true"
 				/>
 				<div className="flex-1 min-w-0">
-					<p className="font-medium text-destructive">{title}</p>
-					<p className="text-muted-foreground mt-0.5 break-words">{message}</p>
+					<p className="font-medium text-danger">{title}</p>
+					<p className="text-fg-muted mt-0.5 break-words">{message}</p>
 				</div>
 				{onRetry && (
 					<button
 						type="button"
 						onClick={onRetry}
-						className="shrink-0 text-sm font-medium text-primary hover:underline"
+						className="shrink-0 text-sm font-medium text-accent hover:underline"
 					>
 						Retry
 					</button>
@@ -61,18 +61,16 @@ export const ErrorState = ({
 			role="alert"
 			className="flex flex-col items-center justify-center gap-3 p-8 text-center"
 		>
-			<AlertCircle className="size-8 text-destructive" aria-hidden="true" />
+			<AlertCircle className="size-8 text-danger" aria-hidden="true" />
 			<div>
-				<p className="font-medium text-destructive">{title}</p>
-				<p className="text-sm text-muted-foreground mt-1 break-words">
-					{message}
-				</p>
+				<p className="font-medium text-danger">{title}</p>
+				<p className="text-sm text-fg-muted mt-1 break-words">{message}</p>
 			</div>
 			{onRetry && (
 				<button
 					type="button"
 					onClick={onRetry}
-					className="inline-flex items-center rounded-md border border-border bg-background px-4 py-2 text-sm font-medium hover:bg-accent transition-colors"
+					className="inline-flex items-center rounded-md border border-line bg-canvas px-4 py-2 text-sm font-medium hover:bg-surface-raised transition-colors"
 				>
 					Retry
 				</button>

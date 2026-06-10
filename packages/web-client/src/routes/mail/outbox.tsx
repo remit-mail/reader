@@ -166,8 +166,8 @@ const OutboxMessageRow = ({
 			type="button"
 			onClick={onSelect}
 			className={cn(
-				"w-full text-left flex items-start gap-3 px-4 py-3 border-b border-border hover:bg-accent/50 transition-colors",
-				isSelected && "bg-accent",
+				"w-full text-left flex items-start gap-3 px-4 py-3 border-b border-line hover:bg-surface-raised transition-colors",
+				isSelected && "bg-accent-2-soft",
 				rowTint,
 			)}
 		>
@@ -184,7 +184,7 @@ const OutboxMessageRow = ({
 					<span className="text-sm font-medium truncate">
 						{formatRecipients(message)}
 					</span>
-					<span className="text-xs text-muted-foreground shrink-0">
+					<span className="text-xs text-fg-muted shrink-0">
 						{formatDate(message.sentAt ?? message.updatedAt)}
 					</span>
 				</div>
@@ -196,7 +196,7 @@ const OutboxMessageRow = ({
 						{config.label}
 					</span>
 					{showError && message.lastError && (
-						<span className="text-xs text-muted-foreground truncate">
+						<span className="text-xs text-fg-muted truncate">
 							— {message.lastError}
 						</span>
 					)}
@@ -219,7 +219,7 @@ const OutboxMessageRow = ({
 									})
 								}
 								disabled={retryMutation.isPending}
-								className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+								className="p-1.5 rounded-md text-fg-muted hover:text-fg hover:bg-surface-raised transition-colors"
 								title="Retry sending"
 							>
 								<RotateCcw className="size-3.5" />
@@ -233,7 +233,7 @@ const OutboxMessageRow = ({
 									outboxMessageId: message.outboxMessageId,
 								})
 							}
-							className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+							className="p-1.5 rounded-md text-fg-muted hover:text-fg hover:bg-surface-raised transition-colors"
 							title="Edit as draft"
 						>
 							<Send className="size-3.5" />
@@ -246,7 +246,7 @@ const OutboxMessageRow = ({
 								})
 							}
 							disabled={deleteMutation.isPending}
-							className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-accent transition-colors"
+							className="p-1.5 rounded-md text-fg-muted hover:text-danger hover:bg-surface-raised transition-colors"
 							title="Delete message"
 						>
 							<Trash2 className="size-3.5" />
@@ -275,13 +275,13 @@ const OutboxMessageDetail = ({ message, onBack }: OutboxMessageDetailProps) => {
 		: formatDateFull(message.updatedAt);
 
 	return (
-		<div className="h-full overflow-y-auto bg-background">
-			<div className="border-b border-border p-4">
+		<div className="h-full overflow-y-auto bg-canvas">
+			<div className="border-b border-line p-4">
 				{onBack && (
 					<button
 						type="button"
 						onClick={onBack}
-						className="mb-3 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+						className="mb-3 inline-flex items-center gap-1 text-sm text-fg-muted hover:text-fg"
 					>
 						<ArrowLeft className="size-4" />
 						<span>Back</span>
@@ -292,30 +292,28 @@ const OutboxMessageDetail = ({ message, onBack }: OutboxMessageDetailProps) => {
 				</h1>
 				<div className="space-y-1 text-sm">
 					<div className="flex gap-2">
-						<span className="text-muted-foreground shrink-0 w-12">From:</span>
-						<span className="text-foreground">
+						<span className="text-fg-muted shrink-0 w-12">From:</span>
+						<span className="text-fg">
 							{message.fromName
 								? `${message.fromName} <${message.fromAddress}>`
 								: message.fromAddress}
 						</span>
 					</div>
 					<div className="flex gap-2">
-						<span className="text-muted-foreground shrink-0 w-12">To:</span>
-						<span className="text-foreground">
+						<span className="text-fg-muted shrink-0 w-12">To:</span>
+						<span className="text-fg">
 							{(message.toAddresses ?? []).join(", ")}
 						</span>
 					</div>
 					{message.ccAddresses && message.ccAddresses.length > 0 && (
 						<div className="flex gap-2">
-							<span className="text-muted-foreground shrink-0 w-12">Cc:</span>
-							<span className="text-foreground">
-								{message.ccAddresses.join(", ")}
-							</span>
+							<span className="text-fg-muted shrink-0 w-12">Cc:</span>
+							<span className="text-fg">{message.ccAddresses.join(", ")}</span>
 						</div>
 					)}
 					<div className="flex gap-2">
-						<span className="text-muted-foreground shrink-0 w-12">Date:</span>
-						<span className="text-foreground">{sentLabel}</span>
+						<span className="text-fg-muted shrink-0 w-12">Date:</span>
+						<span className="text-fg">{sentLabel}</span>
 					</div>
 					{config && (
 						<div className="flex items-center gap-2 pt-2">
@@ -330,7 +328,7 @@ const OutboxMessageDetail = ({ message, onBack }: OutboxMessageDetailProps) => {
 								{config.label}
 							</span>
 							{isUnsendableStatus(message.status) && message.lastError && (
-								<span className="text-xs text-muted-foreground">
+								<span className="text-xs text-fg-muted">
 									— {message.lastError}
 								</span>
 							)}
@@ -379,17 +377,17 @@ function OutboxView() {
 
 	if (isLoading) {
 		return (
-			<div className="flex h-full items-center justify-center bg-background">
-				<span className="text-muted-foreground">Loading...</span>
+			<div className="flex h-full items-center justify-center bg-canvas">
+				<span className="text-fg-muted">Loading...</span>
 			</div>
 		);
 	}
 
 	const list = (
-		<div className="h-full flex flex-col bg-background">
-			<div className="px-4 py-3 border-b border-border">
+		<div className="h-full flex flex-col bg-canvas">
+			<div className="px-4 py-3 border-b border-line">
 				<h2 className="text-lg font-semibold">Outbox</h2>
-				<p className="text-sm text-muted-foreground">
+				<p className="text-sm text-fg-muted">
 					{messages.length} {messages.length === 1 ? "message" : "messages"}
 				</p>
 			</div>

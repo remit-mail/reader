@@ -63,15 +63,15 @@ interface MessageBodyProps {
 
 const LoadingSkeleton = () => (
 	<div className="animate-pulse space-y-2" aria-label="Loading message body">
-		<div className="h-4 bg-muted rounded w-full" />
-		<div className="h-4 bg-muted rounded w-11/12" />
-		<div className="h-4 bg-muted rounded w-3/4" />
-		<div className="h-4 bg-muted rounded w-5/6" />
+		<div className="h-4 bg-surface-sunken rounded w-full" />
+		<div className="h-4 bg-surface-sunken rounded w-11/12" />
+		<div className="h-4 bg-surface-sunken rounded w-3/4" />
+		<div className="h-4 bg-surface-sunken rounded w-5/6" />
 	</div>
 );
 
 const EmptyBody = () => (
-	<p className="text-muted-foreground text-sm italic">
+	<p className="text-fg-muted text-sm italic">
 		This message has no body content.
 	</p>
 );
@@ -188,8 +188,8 @@ export const MessageBody = ({
 	return (
 		<div className="message-body">
 			{blockedImageCount > 0 && (
-				<div className="mb-3 flex items-center justify-between rounded-md bg-muted/50 px-3 py-2 text-sm">
-					<span className="text-muted-foreground">
+				<div className="mb-3 flex items-center justify-between rounded-md bg-surface-sunken/50 px-3 py-2 text-sm">
+					<span className="text-fg-muted">
 						{blockedImageCount} image{blockedImageCount > 1 ? "s" : ""} blocked
 						for privacy
 					</span>
@@ -197,7 +197,7 @@ export const MessageBody = ({
 						<button
 							type="button"
 							onClick={() => setAllowImagesOnce(true)}
-							className="text-primary hover:underline"
+							className="text-accent hover:underline"
 						>
 							Load once
 						</button>
@@ -206,7 +206,7 @@ export const MessageBody = ({
 								type="button"
 								onClick={handleAlwaysTrust}
 								disabled={isTrustPending}
-								className="text-primary hover:underline disabled:opacity-50"
+								className="text-accent hover:underline disabled:opacity-50"
 							>
 								Always trust
 							</button>

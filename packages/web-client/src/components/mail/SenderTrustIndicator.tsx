@@ -68,7 +68,7 @@ export const SenderTrustIndicator = ({
 		return (
 			<span
 				className={cn(
-					"inline-flex items-center rounded border border-dashed border-muted-foreground/40 font-medium uppercase tracking-wide text-muted-foreground/80 shrink-0",
+					"inline-flex items-center rounded border border-dashed border-fg-subtle/40 font-medium uppercase tracking-wide text-fg-muted/80 shrink-0",
 					"px-2 py-0.5 text-xs",
 					className,
 				)}

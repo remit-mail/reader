@@ -74,7 +74,7 @@ export const ComposeFab = () => {
 			type="button"
 			onClick={handleClick}
 			aria-label="Compose new message"
-			className="md:hidden fixed right-4 z-30 h-14 w-14 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:opacity-90 active:scale-95 transition-all"
+			className="md:hidden fixed right-4 z-30 h-14 w-14 rounded-full bg-accent text-accent-fg shadow-lg flex items-center justify-center hover:opacity-90 active:scale-95 transition-all"
 			style={{
 				// 16px breathing room above the iOS home-indicator inset.
 				bottom: "calc(env(safe-area-inset-bottom, 0) + 1rem)",
