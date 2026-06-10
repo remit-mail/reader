@@ -462,6 +462,15 @@ export class ImapFlowConnection {
 		}
 
 		for await (const msg of fetchIterator) {
+			// imapflow occasionally yields a row with undefined uid or internalDate
+			// on back-to-back FETCH calls (e.g. after a body-fetch on the same UID).
+			// Skipping the row is safe: the caller asked for a specific UID set and
+			// will simply not see that entry rather than the whole call crashing.
+			// See #408 for the investigation.
+			if (msg.uid == null || msg.internalDate == null) {
+				continue;
+			}
+
 			// Convert internalDate to Date object
 			let internalDate: Date;
 			if (msg.internalDate instanceof Date) {
