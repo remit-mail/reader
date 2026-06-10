@@ -6,6 +6,7 @@ import "../enums/MailboxSyncStatus.tsp";
 import "../enums/MessageFlag.tsp";
 import "../enums/NamespaceType.tsp";
 import "../scalars/string.tsp";
+import "./Address.tsp";
 
 namespace RemitImap;
 
@@ -135,6 +136,10 @@ model Mailbox {
   @visibility(Lifecycle.Read)
   specialUse?: MailboxSpecialUse[];
 
+  @doc("Mailbox-level mute flag. When set, this mailbox is hidden from unified/brief views (sync is unaffected). Use the existing PATCH endpoint to set or clear; pass `null` to remove.")
+  @visibility(Lifecycle.Read, Lifecycle.Update)
+  muted?: MutedFlag;
+
   @visibility(Lifecycle.Read)
   @createdAt
   createdAt: int64;
@@ -251,8 +256,14 @@ model MailboxFlag {
 @doc("Input for creating a new mailbox")
 model CreateMailboxInput is Create<Mailbox>;
 
-@doc("Input for renaming a mailbox")
-model RenameMailboxInput is Update<Mailbox>;
+@doc("Input for updating a mailbox. Rename (IMAP sync) is triggered only when `fullPath` is provided. The `muted` flag can be updated independently without triggering IMAP machinery; pass `null` to clear the flag.")
+model RenameMailboxInput {
+  @doc("New full path (triggers IMAP rename when present)")
+  fullPath?: String512;
+
+  @doc("Mute flag. Pass a MutedFlag object to mute; pass `null` to clear the mute.")
+  muted?: MutedFlag | null;
+}
 
 // ============================================
 // API Response Models
@@ -276,6 +287,7 @@ model MailboxResponse
       | "lastSyncUid"
       | "highWaterMarkUid"
       | "lastMessageSyncAt"
+      | "muted"
       | "createdAt"
       | "updatedAt"
   >;
