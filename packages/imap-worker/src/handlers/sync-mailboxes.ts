@@ -1,8 +1,10 @@
 import {
+	type AccountItem,
 	AccountService,
 	getClient,
 	MailboxService,
 } from "@remit/remit-electrodb-service";
+import { SyncPhase } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import {
 	createConnectionFromAccount,
@@ -55,6 +57,26 @@ export const syncMailboxes = async (
 		return;
 	}
 
+	try {
+		await syncMailboxesForAccount(account, log);
+	} catch (err) {
+		// Record the terminal error phase before crashing (let-it-crash:
+		// record state, then rethrow so the event is retried/DLQ'd).
+		const message = err instanceof Error ? err.message : String(err);
+		await accountService.update(accountId, {
+			syncPhase: SyncPhase.error,
+			lastError: message,
+		});
+		throw err;
+	}
+};
+
+const syncMailboxesForAccount = async (
+	account: AccountItem,
+	log: Logger,
+): Promise<void> => {
+	const { accountId } = account;
+
 	const password = await secrets.decrypt(
 		deserializeEncryptedPayload(JSON.parse(account.passwordHash)),
 	);
@@ -72,6 +94,11 @@ export const syncMailboxes = async (
 	await connection.connect();
 
 	await accountService.markAuthenticated(accountId);
+
+	// Phase transition: discovering mailboxes
+	await accountService.update(accountId, {
+		syncPhase: SyncPhase.discovering_mailboxes,
+	});
 
 	const result = await mailboxSyncService
 		.syncMailboxes({ accountId }, connection)
@@ -98,6 +125,12 @@ export const syncMailboxes = async (
 
 	if (mailboxes.length === 0) {
 		log.info({ accountId }, "No mailboxes to sync messages for");
+		// If there are no mailboxes to sync, mark as complete
+		await accountService.update(accountId, {
+			syncPhase: SyncPhase.complete,
+			mailboxCountTotal: allMailboxes.length,
+			mailboxCountSynced: allMailboxes.length,
+		});
 		return;
 	}
 
@@ -105,6 +138,21 @@ export const syncMailboxes = async (
 		{ accountId, count: mailboxes.length },
 		"Emitting SYNC_MESSAGES events",
 	);
+
+	// Phase transition. Completion events only fire for the enqueued
+	// (cooldown-filtered) set, so pre-credit the skipped mailboxes into
+	// mailboxCountSynced — otherwise synced can never reach total.
+	// If INBOX itself was skipped, go straight to syncing_others.
+	const inboxEnqueued = mailboxes.some(
+		(m) => m.fullPath.toUpperCase() === "INBOX",
+	);
+	await accountService.update(accountId, {
+		syncPhase: inboxEnqueued
+			? SyncPhase.syncing_inbox
+			: SyncPhase.syncing_others,
+		mailboxCountTotal: allMailboxes.length,
+		mailboxCountSynced: skipped,
+	});
 
 	// Emit events in parallel with concurrency limit
 	// INBOX is first in the sorted list, so it gets priority

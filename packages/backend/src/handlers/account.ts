@@ -73,6 +73,9 @@ const toAccountResponse = (account: AccountItem): AccountResponse => ({
 	lastConnectedAt: account.lastConnectedAt,
 	lastSyncAt: account.lastSyncAt,
 	lastError: account.lastError,
+	syncPhase: account.syncPhase,
+	mailboxCountTotal: account.mailboxCountTotal,
+	mailboxCountSynced: account.mailboxCountSynced,
 	createdAt: account.createdAt,
 	updatedAt: account.updatedAt,
 });

@@ -3,6 +3,7 @@ import "@typespec/http";
 
 import "../enums/ConnectionState.tsp";
 import "../enums/AccountConfigState.tsp";
+import "../enums/SyncPhase.tsp";
 import "../scalars/string.tsp";
 
 using TypeSpec.Http;
@@ -219,6 +220,24 @@ model Account {
   @visibility(Lifecycle.Read)
   lastError?: string;
 
+  // ============================================
+  // Sync Progress
+  // ============================================
+
+  @doc("Current phase of the initial account sync lifecycle")
+  @visibility(Lifecycle.Read)
+  syncPhase?: SyncPhase;
+
+  @doc("Total number of mailboxes discovered during sync")
+  @visibility(Lifecycle.Read)
+  @minValue(0)
+  mailboxCountTotal?: int32;
+
+  @doc("Number of mailboxes whose initial message sync has completed")
+  @visibility(Lifecycle.Read)
+  @minValue(0)
+  mailboxCountSynced?: int32;
+
   @visibility(Lifecycle.Read)
   @createdAt
   createdAt: int64;
@@ -255,6 +274,45 @@ model SyncTriggerResponse {
 
   @doc("Message about sync status")
   message: string;
+}
+
+@doc("Per-mailbox progress entry in the sync-status response")
+model MailboxSyncProgress {
+  @doc("Mailbox identifier")
+  mailboxId: UUID;
+
+  @doc("Full IMAP path (e.g. INBOX, Sent)")
+  fullPath: string;
+
+  @doc("Sync phase for this mailbox: pending (never synced), syncing (in-progress), or complete")
+  phase: string;
+
+  @doc("Total messages in mailbox (refreshed each batch)")
+  messagesTotal: int32;
+
+  @doc("Approximate number of messages synced. Computed as highWaterMarkUid − lastSyncUid (UID-range approximation; UIDs are sparse so this may undercount). Clamped to messagesTotal.")
+  messagesSynced: int32;
+
+  @doc("Timestamp of the last successful message sync for this mailbox")
+  lastSyncedAt?: int64;
+}
+
+@doc("Aggregate sync-status response for an account")
+model AccountSyncStatusResponse {
+  @doc("Account identifier")
+  accountId: UUID;
+
+  @doc("Current sync phase for the account")
+  syncPhase?: SyncPhase;
+
+  @doc("Total number of mailboxes discovered")
+  mailboxCountTotal?: int32;
+
+  @doc("Number of mailboxes whose initial message sync has completed")
+  mailboxCountSynced?: int32;
+
+  @doc("Per-mailbox sync progress")
+  mailboxes: MailboxSyncProgress[];
 }
 
 @doc("Account configuration response")
@@ -295,6 +353,9 @@ model AccountResponse
       | "lastConnectedAt"
       | "lastSyncAt"
       | "lastError"
+      | "syncPhase"
+      | "mailboxCountTotal"
+      | "mailboxCountSynced"
       | "signaturePlainText"
       | "signatureHtml"
       | "createdAt"
