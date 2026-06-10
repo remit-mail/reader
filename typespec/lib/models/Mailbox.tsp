@@ -115,6 +115,10 @@ model Mailbox {
   @visibility(Lifecycle.Read)
   lastMessageSyncAt: int64;
 
+  @doc("Timestamp set when a message sync drained this mailbox (no more messages to fetch). A sync is complete when this is >= lastMessageSyncAt; a later batch write moves lastMessageSyncAt past it, flipping the mailbox back to syncing.")
+  @visibility(Lifecycle.Read)
+  initialSyncCompletedAt?: int64;
+
   @doc("Reference to parent mailbox for hierarchy (null for root)")
   @visibility(Lifecycle.Read)
   parentMailboxId?: string;
@@ -269,6 +273,9 @@ model MailboxResponse
       | "unseenCount"
       | "deletedCount"
       | "specialUse"
+      | "lastSyncUid"
+      | "highWaterMarkUid"
+      | "lastMessageSyncAt"
       | "createdAt"
       | "updatedAt"
   >;

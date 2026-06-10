@@ -20,6 +20,7 @@ export type OperationIds =
 	| "MailboxDetailOperations_renameMailbox"
 	| "MailboxDetailOperations_deleteMailbox"
 	| "SyncOperations_triggerSync"
+	| "SyncOperations_getSyncStatus"
 	| "SemanticSearchOperations_semanticSearch"
 	| "ThreadDetailOperations_listThreadMessages"
 	| "ThreadOperations_listThreads"
