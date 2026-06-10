@@ -11,7 +11,8 @@ export interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
 
 const tones: Record<Tone, string> = {
 	neutral: "bg-surface-sunken text-fg-muted",
-	accent: "bg-accent-soft text-accent",
+	// informational chips ride the cyan secondary accent
+	accent: "bg-accent-2-soft text-accent-2",
 	positive: "bg-surface-sunken text-positive",
 	warning: "bg-surface-sunken text-warning",
 	danger: "bg-danger-soft text-danger",
@@ -19,7 +20,7 @@ const tones: Record<Tone, string> = {
 
 const dotColors: Record<Tone, string> = {
 	neutral: "bg-fg-subtle",
-	accent: "bg-accent",
+	accent: "bg-accent-2",
 	positive: "bg-positive",
 	warning: "bg-warning",
 	danger: "bg-danger",

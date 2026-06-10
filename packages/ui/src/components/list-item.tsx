@@ -21,7 +21,7 @@ export function ListItem({
 		<div
 			className={cn(
 				"group relative flex cursor-pointer items-start gap-3 px-4 py-3 transition-colors",
-				active ? "bg-accent-soft" : "hover:bg-surface-sunken",
+				active ? "bg-accent-2-soft" : "hover:bg-surface-sunken",
 				className,
 			)}
 			{...props}
