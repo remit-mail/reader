@@ -26,12 +26,9 @@ export const Route = createFileRoute("/settings/accounts")({
 const LoadingSkeleton = () => (
 	<div className="space-y-4" aria-busy="true" aria-label="Loading accounts">
 		{Array.from({ length: 2 }).map((_, i) => (
-			<div
-				key={i}
-				className="rounded-lg border border-border p-4 animate-pulse"
-			>
-				<div className="h-4 bg-muted rounded w-1/3 mb-3" />
-				<div className="h-3 bg-muted rounded w-2/3" />
+			<div key={i} className="rounded-lg border border-line p-4 animate-pulse">
+				<div className="h-4 bg-surface-sunken rounded w-1/3 mb-3" />
+				<div className="h-3 bg-surface-sunken rounded w-2/3" />
 			</div>
 		))}
 	</div>
@@ -96,15 +93,13 @@ function AccountsSettings() {
 			<div className="flex items-center justify-between mb-6">
 				<div>
 					<h1 className="text-xl font-semibold">Accounts</h1>
-					<p className="text-sm text-muted-foreground">
-						Manage your email accounts
-					</p>
+					<p className="text-sm text-fg-muted">Manage your email accounts</p>
 				</div>
 				<button
 					type="button"
 					onClick={() => setShowForm(true)}
 					disabled={isError || isPending}
-					className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+					className="flex items-center gap-2 px-4 py-2 bg-accent text-accent-fg rounded-md hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed"
 				>
 					<Plus className="size-4" />
 					Add Account
@@ -123,11 +118,11 @@ function AccountsSettings() {
 				/>
 			) : config.accounts.length === 0 ? (
 				<div className="text-center py-12 border border-dashed rounded-lg">
-					<p className="text-muted-foreground mb-4">No accounts configured</p>
+					<p className="text-fg-muted mb-4">No accounts configured</p>
 					<button
 						type="button"
 						onClick={() => setShowForm(true)}
-						className="text-primary hover:underline"
+						className="text-accent hover:underline"
 					>
 						Add your first account
 					</button>
@@ -166,7 +161,7 @@ function AccountsSettings() {
 						<button
 							type="button"
 							onClick={() => setDeletingAccountId(null)}
-							className="px-4 py-2 border rounded-md hover:bg-accent"
+							className="px-4 py-2 border rounded-md hover:bg-surface-raised"
 						>
 							Cancel
 						</button>
@@ -190,11 +185,9 @@ function AccountsSettings() {
 				<div className="text-center">
 					<p className="text-lg font-medium mb-2">Are you sure?</p>
 					{accountToDelete && (
-						<p className="text-muted-foreground mb-4">
-							{accountToDelete.email}
-						</p>
+						<p className="text-fg-muted mb-4">{accountToDelete.email}</p>
 					)}
-					<div className="text-left text-sm text-muted-foreground space-y-1 mt-4">
+					<div className="text-left text-sm text-fg-muted space-y-1 mt-4">
 						<p>This will:</p>
 						<ul className="list-disc list-inside space-y-1">
 							<li>Remove the account from your settings</li>

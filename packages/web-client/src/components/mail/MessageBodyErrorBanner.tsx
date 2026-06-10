@@ -32,7 +32,7 @@ const SignInAgainButton = () => {
 		<button
 			type="button"
 			onClick={() => signOut()}
-			className="text-sm font-medium text-primary hover:underline"
+			className="text-sm font-medium text-accent hover:underline"
 		>
 			Sign in again
 		</button>
@@ -73,15 +73,15 @@ export const MessageBodyErrorBanner = ({
 			role="alert"
 			data-testid="message-body-error-banner"
 			data-reason={reason}
-			className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm"
+			className="flex items-start gap-2 rounded-md border border-danger/40 bg-danger-soft px-3 py-2 text-sm"
 		>
 			<AlertCircle
-				className="size-4 shrink-0 text-destructive mt-0.5"
+				className="size-4 shrink-0 text-danger mt-0.5"
 				aria-hidden="true"
 			/>
 			<div className="flex-1 min-w-0">
-				<p className="font-medium text-destructive">{title}</p>
-				<p className="text-muted-foreground mt-0.5 break-words">{detail}</p>
+				<p className="font-medium text-danger">{title}</p>
+				<p className="text-fg-muted mt-1 break-words">{detail}</p>
 			</div>
 			<div className="flex shrink-0 items-center gap-3">
 				{showSignIn && <SignInAgainButton />}
@@ -89,7 +89,7 @@ export const MessageBodyErrorBanner = ({
 					<button
 						type="button"
 						onClick={onRetry}
-						className="text-sm font-medium text-primary hover:underline"
+						className="text-sm font-medium text-accent hover:underline"
 					>
 						Retry
 					</button>
@@ -98,7 +98,7 @@ export const MessageBodyErrorBanner = ({
 					type="button"
 					onClick={() => setDismissed(true)}
 					aria-label="Dismiss message body error"
-					className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+					className="rounded-md p-1 text-fg-muted hover:bg-surface-raised hover:text-fg transition-colors"
 				>
 					<X className="size-4" aria-hidden="true" />
 				</button>

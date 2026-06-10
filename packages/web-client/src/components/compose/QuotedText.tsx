@@ -54,7 +54,7 @@ export const QuotedText = ({
 			<button
 				type="button"
 				onClick={() => setIsExpanded(!isExpanded)}
-				className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+				className="flex items-center gap-1 text-xs text-fg-muted hover:text-fg transition-colors"
 			>
 				{isExpanded ? (
 					<ChevronDown className="size-3" />
@@ -64,7 +64,7 @@ export const QuotedText = ({
 				{attribution ? `${attribution} wrote:` : "Show quoted text"}
 			</button>
 			{isExpanded && (
-				<blockquote className="mt-2 pl-3 border-l-2 border-muted-foreground/30 text-sm text-muted-foreground [&_a]:text-primary [&_a]:underline [&_blockquote]:pl-3 [&_blockquote]:border-l-2 [&_blockquote]:border-muted-foreground/30">
+				<blockquote className="mt-2 pl-3 border-l-2 border-fg-subtle/30 text-sm text-fg-muted [&_a]:text-accent [&_a]:underline [&_blockquote]:pl-3 [&_blockquote]:border-l-2 [&_blockquote]:border-fg-subtle/30">
 					{sanitizedHtml ? (
 						<div dangerouslySetInnerHTML={{ __html: sanitizedHtml }} />
 					) : (

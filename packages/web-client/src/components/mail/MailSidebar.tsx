@@ -118,7 +118,7 @@ const DraftsList = ({ onSelect }: SelectableProps) => {
 			<button
 				type="button"
 				onClick={() => setExpanded(!expanded)}
-				className="w-full flex items-center gap-1 px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
+				className="w-full flex items-center gap-1 px-3 py-2 text-xs font-semibold text-fg-muted uppercase tracking-wider hover:text-fg transition-colors"
 			>
 				{expanded ? (
 					<ChevronDown className="h-3 w-3 shrink-0" />
@@ -126,7 +126,7 @@ const DraftsList = ({ onSelect }: SelectableProps) => {
 					<ChevronRight className="h-3 w-3 shrink-0" />
 				)}
 				<span>Drafts</span>
-				<span className="ml-auto text-xs font-normal bg-muted px-1.5 py-0.5 rounded-full">
+				<span className="ml-auto text-xs font-normal bg-surface-sunken px-1.5 py-0.5 rounded-full">
 					{drafts.length}
 				</span>
 			</button>
@@ -143,9 +143,9 @@ const DraftsList = ({ onSelect }: SelectableProps) => {
 								});
 								onSelect?.();
 							}}
-							className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-foreground hover:bg-accent rounded-md transition-colors"
+							className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-fg hover:bg-surface-raised rounded-md transition-colors"
 						>
-							<File className="size-4 shrink-0 text-muted-foreground" />
+							<File className="size-4 shrink-0 text-fg-muted" />
 							<span className="truncate">{draft.subject || "No subject"}</span>
 						</button>
 					))}
@@ -178,14 +178,14 @@ const OutboxLink = ({ onSelect }: SelectableProps) => {
 			// mailbox view doesn't leak across the sidebar navigation.
 			search={{}}
 			onClick={() => onSelect?.()}
-			className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-md transition-colors hover:bg-accent ${
-				isSelected ? "bg-accent font-medium" : ""
+			className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-md transition-colors hover:bg-surface-raised ${
+				isSelected ? "bg-accent-2-soft font-medium" : ""
 			}`}
 		>
 			<Send className="size-4 shrink-0" />
 			<span className="flex-1 truncate">Outbox</span>
 			{pendingCount > 0 && (
-				<span className="text-xs font-normal bg-muted px-1.5 py-0.5 rounded-full">
+				<span className="text-xs font-normal bg-surface-sunken px-1.5 py-0.5 rounded-full">
 					{pendingCount}
 				</span>
 			)}
@@ -228,7 +228,7 @@ const AccountSection = ({
 			<button
 				type="button"
 				onClick={() => setExpanded(!expanded)}
-				className="w-full flex items-center gap-1 px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
+				className="w-full flex items-center gap-1 px-3 py-2 text-xs font-semibold text-fg-muted uppercase tracking-wider hover:text-fg transition-colors"
 			>
 				{expanded ? (
 					<ChevronDown className="h-3 w-3 shrink-0" />
@@ -240,9 +240,7 @@ const AccountSection = ({
 			{expanded && (
 				<>
 					{isLoading ? (
-						<div className="px-3 py-2 text-sm text-muted-foreground">
-							Loading...
-						</div>
+						<div className="px-3 py-2 text-sm text-fg-muted">Loading...</div>
 					) : isError ? (
 						<div className="px-3 py-2">
 							<ErrorState
@@ -253,9 +251,7 @@ const AccountSection = ({
 							/>
 						</div>
 					) : system.length === 0 && labels.length === 0 ? (
-						<div className="px-3 py-2 text-sm text-muted-foreground">
-							No mailboxes
-						</div>
+						<div className="px-3 py-2 text-sm text-fg-muted">No mailboxes</div>
 					) : (
 						<>
 							<div className="space-y-0.5">
@@ -271,8 +267,8 @@ const AccountSection = ({
 							</div>
 							{labels.length > 0 && (
 								<>
-									<div className="my-2 mx-3 border-t border-border" />
-									<div className="px-3 py-1 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+									<div className="my-2 mx-3 border-t border-line" />
+									<div className="px-3 py-1 text-xs font-semibold text-fg-muted uppercase tracking-wider">
 										Labels
 									</div>
 									<div className="space-y-0.5">
@@ -291,7 +287,7 @@ const AccountSection = ({
 											<button
 												type="button"
 												onClick={() => setLabelsExpanded(!labelsExpanded)}
-												className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors"
+												className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-raised rounded-md transition-colors"
 											>
 												{labelsExpanded ? (
 													<>
@@ -326,7 +322,7 @@ export const MailSidebar = ({
 	<nav className="h-full overflow-y-auto py-2" aria-label="Mailboxes">
 		<DraftsList onSelect={onMailboxSelect} />
 		{accounts.length === 0 ? (
-			<div className="px-3 py-4 text-sm text-muted-foreground text-center">
+			<div className="px-3 py-4 text-sm text-fg-muted text-center">
 				No accounts configured
 			</div>
 		) : (

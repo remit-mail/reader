@@ -15,10 +15,10 @@ interface RawMessageViewProps {
 
 const LoadingSkeleton = () => (
 	<div className="animate-pulse space-y-2" aria-label="Loading raw email">
-		<div className="h-4 bg-muted rounded w-full" />
-		<div className="h-4 bg-muted rounded w-11/12" />
-		<div className="h-4 bg-muted rounded w-5/6" />
-		<div className="h-4 bg-muted rounded w-3/4" />
+		<div className="h-4 bg-surface-sunken rounded w-full" />
+		<div className="h-4 bg-surface-sunken rounded w-11/12" />
+		<div className="h-4 bg-surface-sunken rounded w-5/6" />
+		<div className="h-4 bg-surface-sunken rounded w-3/4" />
 	</div>
 );
 
@@ -62,7 +62,7 @@ export const RawMessageView = ({
 	if (raw === "") {
 		return (
 			<div className="message-body">
-				<p className="text-muted-foreground text-sm italic">
+				<p className="text-fg-muted text-sm italic">
 					No raw source available for this message.
 				</p>
 			</div>
@@ -71,7 +71,7 @@ export const RawMessageView = ({
 
 	return (
 		<div className="message-body">
-			<pre className="email-text whitespace-pre-wrap break-words text-sm leading-relaxed bg-muted rounded-md p-3 max-h-[32rem] overflow-auto">
+			<pre className="email-text whitespace-pre-wrap break-words text-sm leading-relaxed bg-surface-sunken rounded-md p-3 max-h-[32rem] overflow-auto">
 				{raw}
 			</pre>
 		</div>

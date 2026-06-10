@@ -14,7 +14,7 @@ import { sortAccountsByCreatedAt } from "@/lib/account-order";
 import { getMailboxPriority } from "@/lib/mailbox-order";
 
 const MailIndexError = ({ error, reset }: ErrorComponentProps) => (
-	<div className="flex h-full items-center justify-center bg-background p-4">
+	<div className="flex h-full items-center justify-center bg-canvas p-4">
 		<ErrorState
 			title="Couldn't load your mailboxes"
 			error={error}
@@ -61,7 +61,7 @@ export const Route = createFileRoute("/mail/")({
 
 function MailIndex() {
 	return (
-		<div className="flex flex-1 items-center justify-center bg-background">
+		<div className="flex flex-1 items-center justify-center bg-canvas">
 			<EmptyState message="Select a mailbox to view messages" />
 		</div>
 	);

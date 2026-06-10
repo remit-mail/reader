@@ -160,10 +160,10 @@ export const MoveToMailboxPicker = ({
 
 	return (
 		<div className="flex flex-col">
-			<div className="px-3 pt-3 pb-2 border-b border-border">
+			<div className="px-3 pt-3 pb-2 border-b border-line">
 				<div className="relative">
 					<Search
-						className="absolute left-2 top-1/2 -translate-y-1/2 size-4 text-muted-foreground"
+						className="absolute left-2 top-1/2 -translate-y-1/2 size-4 text-fg-muted"
 						aria-hidden="true"
 					/>
 					<input
@@ -176,7 +176,7 @@ export const MoveToMailboxPicker = ({
 						aria-label="Filter folders"
 						className={cn(
 							"w-full pl-8 pr-3 py-2 min-h-11 text-sm rounded-md",
-							"bg-background border border-border",
+							"bg-canvas border border-line",
 							"focus:outline-none focus:ring-2 focus:ring-ring",
 						)}
 					/>
@@ -189,10 +189,7 @@ export const MoveToMailboxPicker = ({
 				onKeyDown={handleListKeyDown}
 			>
 				{filtered.length === 0 ? (
-					<li
-						className="px-3 py-3 text-sm text-muted-foreground"
-						aria-live="polite"
-					>
+					<li className="px-3 py-3 text-sm text-fg-muted" aria-live="polite">
 						No folders match "{query}"
 					</li>
 				) : (
@@ -231,13 +228,14 @@ export const MoveToMailboxPicker = ({
 									}
 									className={cn(
 										ROW_BASE,
-										"hover:bg-accent",
-										isCurrent && "opacity-60 cursor-not-allowed bg-muted/40",
+										"hover:bg-surface-raised",
+										isCurrent &&
+											"opacity-60 cursor-not-allowed bg-surface-sunken/40",
 									)}
 								>
 									<span className="truncate flex-1">{label}</span>
 									{isCurrent && (
-										<span className="text-xs text-muted-foreground shrink-0">
+										<span className="text-xs text-fg-muted shrink-0">
 											current
 										</span>
 									)}

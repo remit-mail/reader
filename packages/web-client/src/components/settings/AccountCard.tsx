@@ -52,15 +52,15 @@ export const AccountCard = ({
 	const refreshDisabled = cooldown || isPending;
 
 	return (
-		<div className="border border-border rounded-lg p-4">
+		<div className="border border-line rounded-lg p-4">
 			<div className="flex items-start justify-between">
 				<div className="flex items-center gap-3">
-					<div className="p-2 rounded-full bg-accent">
+					<div className="p-2 rounded-full bg-accent-soft">
 						<Mail className="size-5" />
 					</div>
 					<div>
 						<h3 className="font-medium">{account.email}</h3>
-						<p className="text-sm text-muted-foreground">
+						<p className="text-sm text-fg-muted">
 							{account.imapHost}:{account.imapPort}{" "}
 							{account.imapTls ? "(TLS)" : "(STARTTLS)"}
 						</p>
@@ -74,7 +74,7 @@ export const AccountCard = ({
 							? "text-green-600"
 							: hasError
 								? "text-red-600"
-								: "text-muted-foreground",
+								: "text-fg-muted",
 					)}
 				>
 					{isConnected ? (
@@ -91,7 +91,7 @@ export const AccountCard = ({
 			)}
 
 			{account.lastSyncAt && (
-				<p className="mt-2 text-xs text-muted-foreground">
+				<p className="mt-2 text-xs text-fg-muted">
 					Last sync: {new Date(account.lastSyncAt).toLocaleString()}
 				</p>
 			)}
@@ -111,7 +111,7 @@ export const AccountCard = ({
 						<p className="text-sm font-medium text-amber-700 dark:text-amber-300">
 							Can't send mail — configure SMTP
 						</p>
-						<p className="text-xs text-muted-foreground mt-0.5">
+						<p className="text-xs text-fg-muted mt-0.5">
 							Outgoing mail isn't set up for this account. Click to add SMTP
 							settings.
 						</p>
@@ -139,7 +139,7 @@ export const AccountCard = ({
 					onClick={handleRefresh}
 					disabled={refreshDisabled}
 					aria-label={`Refresh mailboxes for ${account.email}`}
-					className="flex items-center gap-1 px-3 py-1.5 text-sm border rounded-md hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed"
+					className="flex items-center gap-1 px-3 py-1.5 text-sm border rounded-md hover:bg-surface-raised disabled:opacity-50 disabled:cursor-not-allowed"
 				>
 					<RefreshCw
 						className={cn("size-3", isPending && "animate-spin")}
@@ -150,7 +150,7 @@ export const AccountCard = ({
 				<button
 					type="button"
 					onClick={() => onEdit()}
-					className="flex items-center gap-1 px-3 py-1.5 text-sm border rounded-md hover:bg-accent"
+					className="flex items-center gap-1 px-3 py-1.5 text-sm border rounded-md hover:bg-surface-raised"
 				>
 					<Pencil className="size-3" />
 					Edit

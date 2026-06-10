@@ -72,7 +72,7 @@ export const ConfirmDialog = ({
 			onClick={onCancel}
 		>
 			{/* Backdrop */}
-			<div className="absolute inset-0 bg-background/80 backdrop-blur-sm" />
+			<div className="absolute inset-0 bg-canvas/80 backdrop-blur-sm" />
 
 			{/* Dialog */}
 			<div
@@ -81,14 +81,14 @@ export const ConfirmDialog = ({
 				aria-label={title}
 				className={cn(
 					"relative z-10 w-full max-w-sm",
-					"bg-card border border-border rounded-lg shadow-lg",
+					"bg-surface border border-line rounded-sm shadow-lg",
 					"p-6",
 				)}
 				onClick={(e) => e.stopPropagation()}
 			>
 				<h2 className="text-lg font-semibold">{title}</h2>
 				{description && (
-					<p className="mt-2 text-sm text-muted-foreground">{description}</p>
+					<p className="mt-2 text-sm text-fg-muted">{description}</p>
 				)}
 
 				<div className="mt-6 flex items-center justify-end gap-2">
@@ -98,7 +98,7 @@ export const ConfirmDialog = ({
 						onClick={onCancel}
 						className={cn(
 							"min-h-11 inline-flex items-center justify-center px-4 rounded text-sm font-medium transition-colors",
-							"border border-border hover:bg-accent",
+							"border border-line hover:bg-surface-raised",
 						)}
 					>
 						{cancelLabel}
@@ -110,8 +110,8 @@ export const ConfirmDialog = ({
 						className={cn(
 							"min-h-11 inline-flex items-center justify-center px-4 rounded text-sm font-medium transition-colors",
 							destructive
-								? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
-								: "bg-primary text-primary-foreground hover:bg-primary/90",
+								? "bg-danger text-canvas hover:bg-danger/90"
+								: "bg-accent text-accent-fg hover:bg-accent-hover",
 							"disabled:opacity-50 disabled:cursor-not-allowed",
 						)}
 					>

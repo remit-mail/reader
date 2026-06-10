@@ -33,8 +33,8 @@ const LazyComposeBody = lazy(() =>
 
 const ComposeBodyFallback = () => (
 	<div className="min-h-[120px] px-3 py-2">
-		<div className="h-8 mb-2 rounded bg-muted animate-pulse" />
-		<div className="min-h-[80px] rounded bg-muted/50 animate-pulse" />
+		<div className="h-8 mb-2 rounded bg-surface-sunken animate-pulse" />
+		<div className="min-h-[80px] rounded bg-surface-sunken/50 animate-pulse" />
 	</div>
 );
 
@@ -201,13 +201,13 @@ const ComposeHeader = ({
 
 		return (
 			<div
-				className="flex items-center gap-2 px-3 py-1.5 border-b border-border overflow-hidden"
+				className="flex items-center gap-2 px-3 py-1.5 border-b border-line overflow-hidden"
 				data-testid="compose-header-collapsed"
 			>
-				<span className="truncate text-xs text-muted-foreground">
+				<span className="truncate text-xs text-fg-muted">
 					{chips.length > 0 ? chips.join(" · ") : "…"}
 				</span>
-				<span className="shrink-0 inline-flex items-center justify-center rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+				<span className="shrink-0 inline-flex items-center justify-center rounded bg-surface-sunken px-1.5 py-0.5 text-[10px] text-fg-muted">
 					…
 				</span>
 			</div>
@@ -215,7 +215,7 @@ const ComposeHeader = ({
 	}
 
 	return (
-		<div className="space-y-1 px-3 py-2 border-b border-border">
+		<div className="space-y-1 px-3 py-2 border-b border-line">
 			<FromSelector
 				selectedAccountId={selectedAccountId}
 				onSelect={onAccountChange}
@@ -237,14 +237,14 @@ const ComposeHeader = ({
 					<button
 						type="button"
 						onClick={() => setShowCc(true)}
-						className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+						className="text-xs text-fg-muted hover:text-fg transition-colors"
 					>
 						Cc
 					</button>
 					<button
 						type="button"
 						onClick={() => setShowBcc(true)}
-						className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+						className="text-xs text-fg-muted hover:text-fg transition-colors"
 					>
 						Bcc
 					</button>
@@ -255,7 +255,7 @@ const ComposeHeader = ({
 					<button
 						type="button"
 						onClick={() => setShowBcc(true)}
-						className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+						className="text-xs text-fg-muted hover:text-fg transition-colors"
 					>
 						Bcc
 					</button>

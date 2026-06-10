@@ -50,13 +50,13 @@ const OVERSCAN_COUNT = 5;
 const LoadingSkeleton = () => (
 	<div className="space-y-0">
 		{Array.from({ length: 8 }).map((_, i) => (
-			<div key={i} className="px-3 py-2 border-b border-border animate-pulse">
+			<div key={i} className="px-3 py-2 border-b border-line animate-pulse">
 				<div className="flex items-center justify-between mb-2">
-					<div className="h-4 bg-muted rounded w-32" />
-					<div className="h-3 bg-muted rounded w-16" />
+					<div className="h-4 bg-surface-sunken rounded w-32" />
+					<div className="h-3 bg-surface-sunken rounded w-16" />
 				</div>
-				<div className="h-4 bg-muted rounded w-48 mb-2" />
-				<div className="h-3 bg-muted rounded w-full" />
+				<div className="h-4 bg-surface-sunken rounded w-48 mb-2" />
+				<div className="h-3 bg-surface-sunken rounded w-full" />
 			</div>
 		))}
 	</div>
@@ -69,9 +69,9 @@ const SearchResultsHeader = ({
 	query: string;
 	count: number;
 }) => (
-	<div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/30">
-		<Search className="size-4 text-muted-foreground" />
-		<span className="text-sm text-muted-foreground">
+	<div className="flex items-center gap-2 px-3 py-2 border-b border-line bg-surface-sunken/30">
+		<Search className="size-4 text-fg-muted" />
+		<span className="text-sm text-fg-muted">
 			{count} {count === 1 ? "result" : "results"} for "{query}"
 		</span>
 	</div>
@@ -605,7 +605,7 @@ export const MessageList = ({
 								key={virtualRow.key}
 								data-index={virtualRow.index}
 								ref={virtualizer.measureElement}
-								className="absolute left-0 top-0 w-full border-b border-border"
+								className="absolute left-0 top-0 w-full border-b border-line"
 								style={{ transform: `translateY(${virtualRow.start}px)` }}
 							>
 								<SwipeableMessageRow
@@ -627,7 +627,7 @@ export const MessageList = ({
 				</div>
 				{isLoadingMore && (
 					<div className="flex justify-center py-4">
-						<div className="h-5 w-5 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+						<div className="h-5 w-5 animate-spin rounded-full border-2 border-fg-muted border-t-transparent" />
 					</div>
 				)}
 			</div>

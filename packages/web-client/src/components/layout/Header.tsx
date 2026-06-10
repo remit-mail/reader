@@ -64,14 +64,14 @@ export const Header = ({
 	};
 
 	return (
-		<header className="flex items-center gap-2 sm:gap-4 px-2 sm:px-4 h-12 border-b border-border bg-background shrink-0">
+		<header className="flex items-center gap-2 sm:gap-4 px-2 sm:px-4 h-12 border-b border-line bg-canvas shrink-0">
 			{/* Left: Branding + hamburger */}
 			<div className="relative" ref={menuRef}>
 				<div className="flex items-center gap-2 shrink-0">
 					<button
 						type="button"
 						onClick={handleMenuButton}
-						className="p-2 rounded-md hover:bg-accent transition-colors min-h-11 min-w-11 inline-flex items-center justify-center"
+						className="p-2 rounded-md hover:bg-surface-raised transition-colors min-h-11 min-w-11 inline-flex items-center justify-center"
 						aria-label="Menu"
 						aria-expanded={onMenuClick ? undefined : menuOpen}
 					>
@@ -81,34 +81,33 @@ export const Header = ({
 					    top bar reads as orientation. Falls back to "Remit" when
 					    no inbox is resolved (e.g. /mail mid-redirect) and on
 					    desktop, where branding is preferred. */}
-					<span className="font-semibold text-foreground md:hidden truncate max-w-[55vw]">
+					<span className="font-semibold text-fg md:hidden truncate max-w-[55vw]">
 						{mobileTitle ?? "Remit"}
 					</span>
-					<span className="font-semibold text-foreground hidden md:inline">
-						Remit
-					</span>
+					<span className="font-semibold text-fg hidden md:inline">Remit</span>
 				</div>
 
 				{/* Desktop dropdown menu (only when no external onMenuClick) */}
 				{!onMenuClick && menuOpen && (
-					<div className="absolute top-full left-0 mt-1 w-48 bg-background border border-border rounded-md shadow-lg z-50">
+					<div className="absolute top-full left-0 mt-1 w-48 bg-canvas border border-line rounded-md shadow-lg z-50">
 						<nav className="py-1">
 							<Link
 								to="/mail"
 								className={cn(
-									"flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent",
-									location.pathname.startsWith("/mail") && "bg-accent",
+									"flex items-center gap-2 px-3 py-2 text-sm hover:bg-surface-raised",
+									location.pathname.startsWith("/mail") && "bg-accent-2-soft",
 								)}
 							>
 								<Mail className="size-4" />
 								Mail
 							</Link>
-							<div className="border-t border-border my-1" />
+							<div className="border-t border-line my-1" />
 							<Link
 								to="/settings/accounts"
 								className={cn(
-									"flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent",
-									location.pathname.startsWith("/settings") && "bg-accent",
+									"flex items-center gap-2 px-3 py-2 text-sm hover:bg-surface-raised",
+									location.pathname.startsWith("/settings") &&
+										"bg-accent-2-soft",
 								)}
 							>
 								<Settings className="size-4" />
@@ -143,7 +142,7 @@ export const Header = ({
 						<button
 							type="button"
 							onClick={() => setMobileSearchOpen(false)}
-							className="p-2 rounded-md hover:bg-accent transition-colors min-h-11 min-w-11 inline-flex items-center justify-center"
+							className="p-2 rounded-md hover:bg-surface-raised transition-colors min-h-11 min-w-11 inline-flex items-center justify-center"
 							aria-label="Close search"
 						>
 							<X className="size-5" />
@@ -154,7 +153,7 @@ export const Header = ({
 						<button
 							type="button"
 							onClick={() => setMobileSearchOpen(true)}
-							className="p-2 rounded-md hover:bg-accent transition-colors min-h-11 min-w-11 inline-flex items-center justify-center"
+							className="p-2 rounded-md hover:bg-surface-raised transition-colors min-h-11 min-w-11 inline-flex items-center justify-center"
 							aria-label="Search"
 						>
 							<Search className="size-5" />
@@ -168,7 +167,7 @@ export const Header = ({
 			<div className="flex items-center gap-2 shrink-0">
 				<Link
 					to="/settings/accounts"
-					className="p-2 rounded-md hover:bg-accent transition-colors min-h-11 min-w-11 inline-flex items-center justify-center"
+					className="p-2 rounded-md hover:bg-surface-raised transition-colors min-h-11 min-w-11 inline-flex items-center justify-center"
 					aria-label="Settings"
 				>
 					<Settings className="size-5" />

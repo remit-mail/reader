@@ -30,7 +30,7 @@ export const FromSelector = ({
 		if (!account) return null;
 		return (
 			<div className="flex items-start gap-2">
-				<label className="text-sm text-muted-foreground shrink-0 w-12 pt-1.5">
+				<label className="text-sm text-fg-muted shrink-0 w-12 pt-1.5">
 					From:
 				</label>
 				<div className="text-sm py-1.5">{account.email}</div>
@@ -40,7 +40,7 @@ export const FromSelector = ({
 
 	return (
 		<div className="flex items-start gap-2">
-			<label className="text-sm text-muted-foreground shrink-0 w-12 pt-1.5">
+			<label className="text-sm text-fg-muted shrink-0 w-12 pt-1.5">
 				From:
 			</label>
 			<select
@@ -49,7 +49,7 @@ export const FromSelector = ({
 					const account = accounts.find((a) => a.accountId === e.target.value);
 					if (account) onSelect(account);
 				}}
-				className="flex-1 px-2 py-1.5 border rounded-md bg-background text-sm"
+				className="flex-1 px-2 py-1.5 border rounded-md bg-canvas text-sm"
 			>
 				{accounts.map((account) => (
 					<option key={account.accountId} value={account.accountId}>

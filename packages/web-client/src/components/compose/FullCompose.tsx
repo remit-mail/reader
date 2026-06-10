@@ -34,14 +34,14 @@ export const FullCompose = () => {
 	const title = MODE_LABELS[state.mode] ?? "New Message";
 
 	const header = (
-		<header className="flex items-center justify-between gap-2 px-4 py-3 border-b border-border shrink-0">
+		<header className="flex items-center justify-between gap-2 px-4 py-3 border-b border-line shrink-0">
 			<div className="flex items-center gap-2 min-w-0">
 				<h2 className="text-lg font-semibold truncate">{title}</h2>
 			</div>
 			<button
 				type="button"
 				onClick={closeCompose}
-				className="p-2 rounded-md hover:bg-accent transition-colors min-h-11 min-w-11 inline-flex items-center justify-center"
+				className="p-2 rounded-md hover:bg-surface-raised transition-colors min-h-11 min-w-11 inline-flex items-center justify-center"
 				aria-label="Close"
 			>
 				<X className="size-5" />
@@ -51,7 +51,7 @@ export const FullCompose = () => {
 
 	if (isConfigError) {
 		return (
-			<div className="h-full flex flex-col bg-background">
+			<div className="h-full flex flex-col bg-canvas">
 				{header}
 				<div className="flex-1 flex items-center justify-center p-4">
 					<ErrorState
@@ -67,7 +67,7 @@ export const FullCompose = () => {
 	}
 
 	return (
-		<div className="h-full flex flex-col bg-background">
+		<div className="h-full flex flex-col bg-canvas">
 			{header}
 			<div className="flex-1 overflow-hidden">
 				<ComposeForm
