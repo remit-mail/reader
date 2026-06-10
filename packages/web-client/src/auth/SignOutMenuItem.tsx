@@ -19,7 +19,12 @@ const userEmail = (
 	return user.signInDetails?.loginId ?? user.username ?? null;
 };
 
-export const SignOutMenuItem = ({
+/**
+ * The hook-using inner component. Mounted only when Cognito is configured
+ * (see the wrapper below), so `useAuthenticator` always runs inside the
+ * `Authenticator.Provider` that `AuthShell` mounts in the configured path.
+ */
+const SignOutMenuItemInner = ({
 	variant = "dropdown",
 	showEmail = false,
 	className,
@@ -30,7 +35,7 @@ export const SignOutMenuItem = ({
 		ctx.user,
 	]);
 
-	if (!isSignOutVisible({ configured: isCognitoConfigured(), authStatus })) {
+	if (!isSignOutVisible({ configured: true, authStatus })) {
 		return null;
 	}
 
@@ -64,4 +69,22 @@ export const SignOutMenuItem = ({
 			</button>
 		</>
 	);
+};
+
+/**
+ * Sign-out affordance. Safe to mount anywhere — including the desktop
+ * sidebar footer (#422), which renders outside any conditional gate.
+ *
+ * When Cognito is not configured (local dev / e2e / visual harness),
+ * `AuthShell` does NOT mount `Authenticator.Provider`, so calling
+ * `useAuthenticator` would throw. We therefore gate the hook-using inner
+ * component on `isCognitoConfigured()` — an env-derived value that is
+ * constant for the lifetime of the app, so this branch never changes
+ * between renders and the Rules of Hooks are upheld.
+ */
+export const SignOutMenuItem = (props: SignOutMenuItemProps) => {
+	if (!isCognitoConfigured()) {
+		return null;
+	}
+	return <SignOutMenuItemInner {...props} />;
 };

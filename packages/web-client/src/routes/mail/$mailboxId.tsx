@@ -6,22 +6,24 @@ import {
 	threadOperationsListThreads,
 	threadOperationsSearchThreads,
 } from "@remit/api-http-client/sdk.gen.ts";
+import {
+	ResizableHandle,
+	ResizablePanel,
+	ResizablePanelGroup,
+} from "@remit/ui";
 import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { z } from "zod";
 import { useCompose } from "@/components/compose/ComposeProvider";
 import { FullCompose } from "@/components/compose/FullCompose";
-import { Panel } from "@/components/layout/Panel";
-import {
-	ResizableHandle,
-	ResizablePanel,
-	ResizablePanelGroup,
-} from "@/components/layout/Resizable";
 import { ConversationView } from "@/components/mail/ConversationView";
+import { IntelligencePane } from "@/components/mail/IntelligencePane";
 import { MessageList } from "@/components/mail/MessageList";
+import { MessageToolbar } from "@/components/mail/MessageToolbar";
 import { PullToRefresh } from "@/components/mail/PullToRefresh";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { useCurrentMailboxName } from "@/hooks/useCurrentMailboxName";
 import {
 	dropDeletedThreads,
 	useDeleteMessages,
@@ -30,8 +32,8 @@ import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { useMailboxAccount } from "@/hooks/useMailboxAccount";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { useMoveMessages } from "@/hooks/useMoveMessages";
+import { useMailContext } from "@/lib/mail-context";
 import { normalizeSearchQuery } from "@/lib/search-query";
-import { useMailContext } from "@/routes/mail";
 
 // Search schema includes q from parent route for proper inheritance
 const mailboxSearchSchema = z.object({
@@ -51,7 +53,14 @@ function MailboxView() {
 	const { selectedMessageId, q: searchQuery = "" } = Route.useSearch();
 	const navigate = useNavigate();
 	const isDesktop = useIsDesktop();
-	const { accounts } = useMailContext();
+	const {
+		accounts,
+		searchInput,
+		onSearchChange,
+		onSearchClear,
+		intelligenceOpen,
+		onToggleIntelligence,
+	} = useMailContext();
 
 	// Use search API when there's a query, otherwise list API. The query is
 	// normalized (trim + locale-aware lowercase) before it leaves the client
@@ -133,6 +142,7 @@ function MailboxView() {
 		});
 
 	const { accountId: mailboxAccountId } = useMailboxAccount(mailboxId);
+	const mailboxName = useCurrentMailboxName({ accounts });
 
 	const { moveMessages: handleMoveMessages, isPending: isMoving } =
 		useMoveMessages({
@@ -263,22 +273,80 @@ function MailboxView() {
 		return <div className="h-full">{messageList}</div>;
 	}
 
-	// Desktop: unchanged two-pane resizable layout.
+	// Desktop: panes 2–4 of the AppShell model (#422) — message list,
+	// reading pane (its datum row is the message toolbar) and the
+	// intelligence sidebar (collapsed by default, toggled from the toolbar).
+	// Nested resizable group: the nav↔content boundary is owned by the
+	// parent layout; the boundaries here carry the same hairline handles, so
+	// the user sees one continuous set of drag handles between all four panes.
+	const hasThread = Boolean(selectedThread);
+	const listTitle = mailboxName ?? "Inbox";
+	// Pane 4 only renders when intelligence is toggled on AND a thread is open
+	// (it's contextual to the open message — matches the remit-ui AppShell
+	// reference, which gates on `intelligenceOpen && thread`). The toolbar's
+	// info toggle is likewise hidden until a thread is selected, so it never
+	// opens an empty rail.
+	const showIntelligence = intelligenceOpen && hasThread;
 	return (
-		<ResizablePanelGroup
-			direction="horizontal"
-			className="h-full"
-			autoSaveId="remit-mailbox-pane"
-		>
-			<ResizablePanel id="message-list" order={1} defaultSize={35} minSize={10}>
-				<Panel className="h-full">{messageList}</Panel>
+		<ResizablePanelGroup direction="horizontal">
+			<ResizablePanel
+				id="message-list"
+				order={1}
+				defaultSize={showIntelligence ? 30 : 33}
+				minSize={20}
+				maxSize={48}
+				className="min-w-0"
+			>
+				<section className="flex h-full w-full flex-col bg-surface">
+					{/* List datum bar (40px, the shared `--spacing-pane-header`):
+					    the list's context — mailbox title — lives on the datum,
+					    its bottom hairline on the same y as the message toolbar and
+					    intelligence rail header so one continuous grid line runs
+					    across panes 2–4 (no staircase). Search moved to the message
+					    toolbar but still filters this list. Row redesign is #423. */}
+					<header className="flex h-pane-header shrink-0 items-center gap-2 border-b border-line px-row-inset">
+						<h1 className="truncate text-sm font-semibold text-fg">
+							{listTitle}
+						</h1>
+					</header>
+					<div className="min-h-0 flex-1 overflow-hidden">{messageList}</div>
+				</section>
 			</ResizablePanel>
 			<ResizableHandle />
-			<ResizablePanel id="detail" order={2} defaultSize={65} minSize={20}>
-				<Panel withBorder={false} className="h-full">
-					{detailPane}
-				</Panel>
+			<ResizablePanel id="reading" order={2} minSize={24} className="min-w-0">
+				{/* Pane wrapper is a <section>, not an <article>: the message
+				    content (ConversationView) already renders the sole `article`
+				    role. A second nested article breaks `getByRole("article")` in
+				    the smoke suite (strict-mode "resolved to 2 elements"). */}
+				<section className="flex h-full w-full min-w-0 flex-col bg-canvas">
+					<MessageToolbar
+						hasThread={hasThread}
+						onCompose={handleNewCompose}
+						intelligenceOpen={showIntelligence}
+						showIntelligenceToggle={hasThread}
+						onToggleIntelligence={onToggleIntelligence}
+						searchValue={searchInput}
+						onSearchChange={onSearchChange}
+						onSearchClear={onSearchClear}
+					/>
+					<div className="min-h-0 flex-1 overflow-hidden">{detailPane}</div>
+				</section>
 			</ResizablePanel>
+			{showIntelligence && (
+				<>
+					<ResizableHandle />
+					<ResizablePanel
+						id="intelligence"
+						order={3}
+						defaultSize={21}
+						minSize={15}
+						maxSize={32}
+						className="min-w-0"
+					>
+						<IntelligencePane onClose={onToggleIntelligence} />
+					</ResizablePanel>
+				</>
+			)}
 		</ResizablePanelGroup>
 	);
 }
