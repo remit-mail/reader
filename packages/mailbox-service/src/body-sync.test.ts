@@ -300,6 +300,80 @@ describe("BodySyncService.syncBodies (classification + counters)", () => {
 		assert.ok(categoryUpdate, "expected a Message.category update");
 		assert.equal(categoryUpdate.category, MessageCategory.newsletter);
 	});
+
+	it("persists authenticity when a DKIM-Signature is present", async () => {
+		const dkimEml = Buffer.from(
+			[
+				"From: alice@personal.example.com",
+				"To: bob@example.com",
+				"Subject: forwarded",
+				"Message-ID: <dkim-1@example.com>",
+				"DKIM-Signature: v=1; a=rsa-sha256; d=relay.example.net; s=sel; b=xxx",
+				"Content-Type: text/plain",
+				"",
+				"body text",
+				"",
+			].join("\r\n"),
+		);
+		const fake = buildFakeState({ messageId: "msg-dkim", rawEml: dkimEml });
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			fake.addressService,
+			fake.envelopeService,
+		);
+
+		await service.syncBodies(
+			["msg-dkim"],
+			"acc-1",
+			"acc-cfg-1",
+			"INBOX",
+			async () => buildFakeConnection(dkimEml),
+		);
+
+		const authenticityUpdate = fake.updatedKeys.find(
+			(u) => u.authenticity !== undefined,
+		);
+		assert.ok(authenticityUpdate, "expected an authenticity update");
+		assert.equal(
+			authenticityUpdate.authenticity?.fromDomain,
+			"personal.example.com",
+		);
+		assert.equal(
+			authenticityUpdate.authenticity?.dkimDomain,
+			"relay.example.net",
+		);
+		assert.equal(authenticityUpdate.authenticity?.dkimMismatch, true);
+	});
+
+	it("does not persist authenticity when no DKIM-Signature header is present", async () => {
+		const fake = buildFakeState({ messageId: "msg-nodkim" });
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			fake.addressService,
+			fake.envelopeService,
+		);
+
+		await service.syncBodies(
+			["msg-nodkim"],
+			"acc-1",
+			"acc-cfg-1",
+			"INBOX",
+			async () => buildFakeConnection(),
+		);
+
+		const authenticityUpdate = fake.updatedKeys.find(
+			(u) => "authenticity" in u && u.authenticity !== undefined,
+		);
+		assert.equal(
+			authenticityUpdate,
+			undefined,
+			"should not persist authenticity when no DKIM headers",
+		);
+	});
 });
 
 describe("BodySyncService.syncBodies (per-part S3 storage)", () => {

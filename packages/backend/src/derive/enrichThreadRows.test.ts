@@ -321,4 +321,53 @@ describe("enrichThreadRows", () => {
 		assert.equal(enriched[0].senderTrust, "unknown");
 		assert.equal(enriched[0].category, "automated");
 	});
+
+	it("attaches authenticity from Message when present", async () => {
+		const rows = [
+			buildRow({
+				threadMessageId: "tm-1",
+				messageId: "msg-1",
+				fromEmail: "alice@example.com",
+			}),
+		];
+
+		const client = buildClient({
+			messages: [
+				buildMessage("msg-1", {
+					authenticity: {
+						fromDomain: "example.com",
+						dkimDomain: "relay.net",
+						dkimMismatch: true,
+					},
+				}),
+			],
+			addresses: [],
+		});
+
+		const enriched = await enrichThreadRows(rows, client);
+
+		assert.ok(enriched[0].authenticity, "expected authenticity on response");
+		assert.equal(enriched[0].authenticity?.fromDomain, "example.com");
+		assert.equal(enriched[0].authenticity?.dkimDomain, "relay.net");
+		assert.equal(enriched[0].authenticity?.dkimMismatch, true);
+	});
+
+	it("omits authenticity from response when Message row has none (pre-rollout)", async () => {
+		const rows = [
+			buildRow({
+				threadMessageId: "tm-1",
+				messageId: "msg-1",
+				fromEmail: "alice@example.com",
+			}),
+		];
+
+		const client = buildClient({
+			messages: [buildMessage("msg-1")],
+			addresses: [],
+		});
+
+		const enriched = await enrichThreadRows(rows, client);
+
+		assert.equal(enriched[0].authenticity, undefined);
+	});
 });

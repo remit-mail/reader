@@ -192,6 +192,7 @@ export const MessageOperations: Record<
 			rfc822Size: message.rfc822Size,
 			internalDate: message.internalDate,
 			messageIdHeader: message.messageIdHeader,
+			authenticity: message.authenticity,
 		};
 
 		// Batch-fetch the resolved Address rows so each EnvelopeAddressResponse can
