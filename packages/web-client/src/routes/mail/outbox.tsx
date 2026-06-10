@@ -8,6 +8,11 @@ import type {
 	RemitImapOutboxMessageResponse,
 	RemitImapOutboxMessageStatus,
 } from "@remit/api-http-client/types.gen.ts";
+import {
+	ResizableHandle,
+	ResizablePanel,
+	ResizablePanelGroup,
+} from "@remit/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
@@ -23,12 +28,6 @@ import {
 } from "lucide-react";
 import { z } from "zod";
 import { useCompose } from "@/components/compose/ComposeProvider";
-import { Panel } from "@/components/layout/Panel";
-import {
-	ResizableHandle,
-	ResizablePanel,
-	ResizablePanelGroup,
-} from "@/components/layout/Resizable";
 import { MessageBody } from "@/components/mail/MessageBody";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
@@ -385,12 +384,15 @@ function OutboxView() {
 
 	const list = (
 		<div className="h-full flex flex-col bg-canvas">
-			<div className="px-4 py-3 border-b border-line">
-				<h2 className="text-lg font-semibold">Outbox</h2>
-				<p className="text-sm text-fg-muted">
+			{/* List datum bar (40px, the shared `--spacing-pane-header`): keeps
+			    the bottom hairline on the same y as the mailbox view so the grid
+			    line stays continuous across nav → outbox (no staircase, #422). */}
+			<header className="flex h-pane-header shrink-0 items-center justify-between gap-2 border-b border-line px-row-inset">
+				<h1 className="truncate text-sm font-semibold text-fg">Outbox</h1>
+				<span className="shrink-0 text-2xs text-fg-subtle">
 					{messages.length} {messages.length === 1 ? "message" : "messages"}
-				</p>
-			</div>
+				</span>
+			</header>
 			<div className="flex-1 overflow-y-auto">
 				{messages.length === 0 ? (
 					<div className="flex h-full items-center justify-center">
@@ -426,24 +428,34 @@ function OutboxView() {
 	}
 
 	return (
-		<ResizablePanelGroup
-			direction="horizontal"
-			className="h-full"
-			autoSaveId="remit-outbox-pane"
-		>
-			<ResizablePanel id="outbox-list" order={1} defaultSize={35} minSize={10}>
-				<Panel className="h-full">{list}</Panel>
+		<ResizablePanelGroup direction="horizontal" className="h-full">
+			<ResizablePanel
+				id="outbox-list"
+				order={1}
+				defaultSize={35}
+				minSize={20}
+				maxSize={48}
+				className="min-w-0"
+			>
+				<div className="h-full overflow-hidden border-r border-line">
+					{list}
+				</div>
 			</ResizablePanel>
 			<ResizableHandle />
 			<ResizablePanel
 				id="outbox-detail"
 				order={2}
 				defaultSize={65}
-				minSize={20}
+				minSize={24}
+				className="min-w-0"
 			>
-				<Panel withBorder={false} className="h-full">
-					{detail}
-				</Panel>
+				<section className="flex h-full w-full min-w-0 flex-col bg-canvas">
+					{/* Detail datum bar (40px): outbox has no message-action toolbar,
+					    but the datum bar must be present so its bottom hairline lines
+					    up with the list pane's, keeping the grid continuous (#422). */}
+					<header className="flex h-pane-header shrink-0 items-center border-b border-line px-3" />
+					<div className="min-h-0 flex-1 overflow-hidden">{detail}</div>
+				</section>
 			</ResizablePanel>
 		</ResizablePanelGroup>
 	);

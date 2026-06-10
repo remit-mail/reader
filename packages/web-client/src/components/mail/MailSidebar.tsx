@@ -8,8 +8,17 @@ import type {
 } from "@remit/api-http-client/types.gen.ts";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useParams } from "@tanstack/react-router";
-import { ChevronDown, ChevronRight, File, Send } from "lucide-react";
+import {
+	BellOff,
+	ChevronDown,
+	ChevronRight,
+	File,
+	Send,
+	Settings,
+	Sparkles,
+} from "lucide-react";
 import { useMemo, useState } from "react";
+import { SignOutMenuItem } from "@/auth/SignOutMenuItem";
 import { ErrorState } from "@/components/ui/ErrorState";
 import {
 	filterDuplicateSpecialUse,
@@ -18,6 +27,7 @@ import {
 	isSystemMailbox,
 } from "@/lib/mailbox-order";
 import { isOutboxListRow } from "@/lib/outbox-status";
+import { cn } from "@/lib/utils";
 import { useCompose } from "../compose/ComposeProvider";
 import { MailboxItem } from "./MailboxItem";
 
@@ -29,6 +39,13 @@ interface MailSidebarProps {
 	 * auto-collapses on selection (#199). Desktop callers omit it.
 	 */
 	onMailboxSelect?: () => void;
+	/**
+	 * Drawer (mobile) variant renders the nav body only, leaving the host
+	 * drawer to supply its own footer. Desktop renders the full
+	 * Apple-Mail-style sidebar: nav body that fills, plus a Settings +
+	 * sign-out footer pinned to the bottom (#422).
+	 */
+	variant?: "desktop" | "drawer";
 }
 
 const startsWithDigit = (str: string): boolean => /^\d/.test(str);
@@ -201,6 +218,10 @@ const AccountSection = ({
 	const [labelsExpanded, setLabelsExpanded] = useState(false);
 	const params = useParams({ strict: false });
 	const selectedMailboxId = params.mailboxId as string | undefined;
+	// Account-level mute (#433): the whole account is excluded from unified
+	// views but keeps syncing. Render dimmed with a mute glyph (#422). The
+	// brief issue wires the actual exclusion; this is presentation only.
+	const accountMuted = Boolean(account.muted);
 
 	const {
 		data: mailboxesResponse,
@@ -224,7 +245,7 @@ const AccountSection = ({
 	);
 
 	return (
-		<div className="mb-4">
+		<div className={cn("mb-4", accountMuted && "opacity-55")}>
 			<button
 				type="button"
 				onClick={() => setExpanded(!expanded)}
@@ -236,6 +257,12 @@ const AccountSection = ({
 					<ChevronRight className="h-3 w-3 shrink-0" />
 				)}
 				<span className="truncate">{account.email}</span>
+				{accountMuted && (
+					<BellOff
+						className="size-3 shrink-0 text-fg-subtle"
+						aria-label="Muted account"
+					/>
+				)}
 			</button>
 			{expanded && (
 				<>
@@ -315,24 +342,96 @@ const AccountSection = ({
 	);
 };
 
+/**
+ * Unified "Daily brief" entry — the first nav item per the 4-pane model
+ * (#422). Until the brief issue lands it routes to the existing unified
+ * mailbox view (`/mail`), which resolves to the user's primary inbox.
+ */
+const DailyBriefLink = ({ onSelect }: SelectableProps) => {
+	const location = useLocation();
+	// Active only on the bare unified entry, not on a specific mailbox.
+	const isSelected =
+		location.pathname === "/mail" || location.pathname === "/mail/";
+
+	return (
+		<Link
+			to="/mail"
+			search={{}}
+			onClick={() => onSelect?.()}
+			className={cn(
+				"flex items-center gap-2 px-3 py-1.5 mb-2 text-sm rounded-md transition-colors hover:bg-surface-raised",
+				isSelected
+					? "bg-accent-2-soft font-medium text-accent-2"
+					: "text-fg-muted",
+			)}
+		>
+			<Sparkles className="size-4 shrink-0" />
+			<span className="flex-1 truncate">Daily brief</span>
+		</Link>
+	);
+};
+
+/**
+ * Pane 1 of the 4-pane shell: the navigation sidebar. Apple-Mail-style —
+ * no toolbar, nav content starts at the top of the pane; the pane's
+ * full-height right hairline anchors the datum line of the panes beside
+ * it (#422). "Daily brief" first, then accounts with their mailboxes,
+ * Settings + sign-out in the footer. No compose button squats here —
+ * compose lives as the ✎ icon in the message toolbar.
+ */
 export const MailSidebar = ({
 	accounts,
 	onMailboxSelect,
-}: MailSidebarProps) => (
-	<nav className="h-full overflow-y-auto py-2" aria-label="Mailboxes">
-		<DraftsList onSelect={onMailboxSelect} />
-		{accounts.length === 0 ? (
-			<div className="px-3 py-4 text-sm text-fg-muted text-center">
-				No accounts configured
+	variant = "desktop",
+}: MailSidebarProps) => {
+	const location = useLocation();
+	const settingsSelected = location.pathname.startsWith("/settings");
+
+	const navBody = (
+		<nav className="flex-1 overflow-y-auto py-2" aria-label="Mailboxes">
+			<DailyBriefLink onSelect={onMailboxSelect} />
+			<DraftsList onSelect={onMailboxSelect} />
+			{accounts.length === 0 ? (
+				<div className="px-3 py-4 text-sm text-fg-muted text-center">
+					No accounts configured
+				</div>
+			) : (
+				accounts.map((account) => (
+					<AccountSection
+						key={account.accountId}
+						account={account}
+						onSelect={onMailboxSelect}
+					/>
+				))
+			)}
+		</nav>
+	);
+
+	// Drawer (mobile) hosts its own footer (sign-out) — render the nav body
+	// only so the existing drawer plumbing is untouched.
+	if (variant === "drawer") {
+		return navBody;
+	}
+
+	return (
+		<aside className="flex h-full w-full flex-col bg-surface-sunken">
+			{navBody}
+			<div className="border-t border-line px-2 py-2">
+				<Link
+					to="/settings/accounts"
+					onClick={() => onMailboxSelect?.()}
+					className={cn(
+						"flex w-full items-center gap-2 rounded-md px-2 py-1 text-sm transition-colors",
+						settingsSelected
+							? "bg-accent-2-soft font-medium text-accent-2"
+							: "text-fg-muted hover:bg-surface hover:text-fg",
+					)}
+				>
+					<Settings className="size-4 shrink-0" />
+					<span className="flex-1 truncate text-left">Settings</span>
+				</Link>
+				<SignOutMenuItem variant="drawer" showEmail />
 			</div>
-		) : (
-			accounts.map((account) => (
-				<AccountSection
-					key={account.accountId}
-					account={account}
-					onSelect={onMailboxSelect}
-				/>
-			))
-		)}
-	</nav>
-);
+		</aside>
+	);
+};

@@ -61,7 +61,7 @@ export const Route = createFileRoute("/mail/")({
 
 function MailIndex() {
 	return (
-		<div className="flex flex-1 items-center justify-center bg-canvas">
+		<div className="flex h-full items-center justify-center bg-canvas">
 			<EmptyState message="Select a mailbox to view messages" />
 		</div>
 	);

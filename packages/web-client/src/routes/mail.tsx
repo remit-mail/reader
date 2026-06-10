@@ -1,5 +1,9 @@
 import { configOperationsGetConfigOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
-import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
+import {
+	ResizableHandle,
+	ResizablePanel,
+	ResizablePanelGroup,
+} from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import {
 	createFileRoute,
@@ -7,25 +11,13 @@ import {
 	useNavigate,
 	useSearch,
 } from "@tanstack/react-router";
-import {
-	createContext,
-	useCallback,
-	useContext,
-	useEffect,
-	useRef,
-	useState,
-} from "react";
+import { Menu, Search, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { SignOutMenuItem } from "@/auth/SignOutMenuItem";
 import { ComposeFab } from "@/components/layout/ComposeFab";
 import { Drawer } from "@/components/layout/Drawer";
-import { Header } from "@/components/layout/Header";
-import { Panel } from "@/components/layout/Panel";
-import {
-	ResizableHandle,
-	ResizablePanel,
-	ResizablePanelGroup,
-} from "@/components/layout/Resizable";
+import { SearchBar } from "@/components/layout/SearchBar";
 import { MailSidebar } from "@/components/mail/MailSidebar";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { KeyboardShortcutsModal } from "@/components/ui/KeyboardShortcutsModal";
@@ -34,27 +26,20 @@ import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { useStaleAccountSync } from "@/hooks/useStaleAccountSync";
+import { MailContext } from "@/lib/mail-context";
 import "@/lib/client";
+
+// `MailContext` / `useMailContext` live in `@/lib/mail-context` so the provider
+// here and the child-route consumers resolve to a single module instance — see
+// that file for why the alias-vs-relative route-tree import split otherwise
+// breaks context.
+export { useMailContext } from "@/lib/mail-context";
 
 const mailSearchSchema = z.object({
 	q: z.string().optional(),
 });
 
 type MailSearch = z.infer<typeof mailSearchSchema>;
-
-interface MailContextValue {
-	accounts: RemitImapAccountResponse[];
-	searchQuery: string;
-}
-
-const MailContext = createContext<MailContextValue | null>(null);
-
-export const useMailContext = (): MailContextValue => {
-	const context = useContext(MailContext);
-	// Return default values if context not yet available (e.g., during loading)
-	// This can happen when TanStack Router renders child routes before parent finishes
-	return context ?? { accounts: [], searchQuery: "" };
-};
 
 export const Route = createFileRoute("/mail")({
 	component: MailLayout,
@@ -67,8 +52,15 @@ function MailLayout() {
 	const isDesktop = useIsDesktop();
 	const [showShortcuts, setShowShortcuts] = useState(false);
 	const [drawerOpen, setDrawerOpen] = useState(false);
+	// Mobile-only: the top bar's search toggle expands an inline SearchBar
+	// (same affordance the retired Header carried, preserved so mobile search
+	// doesn't regress — the 4-pane desktop layout puts search in the toolbar).
+	const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+	// Pane 4 ships collapsed by default; the message-toolbar info icon toggles
+	// it. State lives here so it survives thread navigation within /mail.
+	const [intelligenceOpen, setIntelligenceOpen] = useState(false);
 
-	// Local input state — keeps the SearchBar responsive while we debounce
+	// Local input state — keeps the search field responsive while we debounce
 	// the URL write below. Without this, every keystroke would trigger a
 	// route-state mutation and an in-flight search request.
 	const [searchInput, setSearchInput] = useState(searchQuery);
@@ -147,6 +139,10 @@ function MailLayout() {
 		});
 	}, [navigate]);
 
+	const handleToggleIntelligence = useCallback(() => {
+		setIntelligenceOpen((open) => !open);
+	}, []);
+
 	const accounts = config?.accounts ?? [];
 	const mobileTitle = useCurrentMailboxName({ accounts });
 
@@ -163,7 +159,17 @@ function MailLayout() {
 	}, []);
 
 	return (
-		<MailContext.Provider value={{ accounts, searchQuery }}>
+		<MailContext.Provider
+			value={{
+				accounts,
+				searchQuery,
+				searchInput,
+				onSearchChange: handleSearchChange,
+				onSearchClear: handleSearchClear,
+				intelligenceOpen,
+				onToggleIntelligence: handleToggleIntelligence,
+			}}
+		>
 			{isConfigError ? (
 				<div className="flex h-full items-center justify-center bg-canvas p-4">
 					<ErrorState
@@ -179,54 +185,104 @@ function MailLayout() {
 					<span className="text-fg-muted">Loading...</span>
 				</div>
 			) : (
-				<div className="flex flex-col h-full bg-canvas">
-					<Header
-						searchQuery={searchInput}
-						onSearchChange={handleSearchChange}
-						onSearchClear={handleSearchClear}
-						onMenuClick={() => setDrawerOpen(true)}
-						mobileTitle={mobileTitle}
-					/>
+				<div className="flex h-full flex-col bg-canvas">
 					{/*
-					 * Desktop: resizable sidebar + outlet via ResizablePanelGroup.
-					 * Mobile (< md): outlet only — the sidebar lives in the Drawer.
+					 * Desktop: the 4-pane AppShell model (#422). Pane 1 is the nav
+					 * sidebar (no toolbar — nav starts at the top, its full-height
+					 * right hairline anchors the datum); panes 2–4 (list, reading,
+					 * intelligence) are composed by the child route via the Outlet,
+					 * which renders its own nested resizable group. The nav↔content
+					 * boundary is a hairline drag handle.
+					 *
+					 * Mobile (< md): a slim top bar with a hamburger that opens the
+					 * sidebar drawer; the Outlet is the single full-screen pane.
+					 *
 					 * We branch with `isDesktop` (matchMedia) instead of CSS hide,
 					 * because react-resizable-panels does not handle `display:none`
 					 * on its panels.
+					 *
+					 * TODO(#422 follow-up): persist pane sizes via `autoSaveId` →
+					 * user preferences (design marks this future work).
 					 */}
-					<div className="flex-1 min-h-0">
-						{isDesktop ? (
-							<ResizablePanelGroup
-								direction="horizontal"
-								className="h-full"
-								autoSaveId="remit-mail-shell"
-							>
+					{isDesktop ? (
+						<div className="min-h-0 flex-1">
+							<ResizablePanelGroup direction="horizontal">
 								<ResizablePanel
-									id="sidebar"
+									id="nav"
 									order={1}
-									defaultSize={15}
-									minSize={10}
+									defaultSize={17}
+									minSize={12}
+									maxSize={24}
+									className="min-w-0"
 								>
-									<Panel className="h-full">
-										<MailSidebar accounts={accounts} />
-									</Panel>
+									<MailSidebar accounts={accounts} />
 								</ResizablePanel>
 								<ResizableHandle />
 								<ResizablePanel
 									id="content"
 									order={2}
-									defaultSize={85}
-									minSize={30}
+									minSize={40}
+									className="min-w-0"
 								>
 									<Outlet />
 								</ResizablePanel>
 							</ResizablePanelGroup>
-						) : (
-							<div className="h-full">
+						</div>
+					) : (
+						<>
+							{/* Mobile top bar: hamburger + current mailbox name + a
+							    search toggle. The 4-pane desktop layout moves search and
+							    compose into the message toolbar; on mobile, compose stays
+							    on the FAB and search expands inline here (the same
+							    affordance the retired Header carried). */}
+							<header className="flex h-12 shrink-0 items-center gap-2 border-b border-line bg-canvas px-2">
+								<button
+									type="button"
+									onClick={() => setDrawerOpen(true)}
+									className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md p-2 transition-colors hover:bg-surface-raised"
+									aria-label="Menu"
+								>
+									<Menu className="size-5" />
+								</button>
+								{mobileSearchOpen ? (
+									<div className="flex flex-1 items-center gap-1">
+										<div className="flex-1">
+											<SearchBar
+												value={searchInput}
+												onChange={handleSearchChange}
+												onClear={handleSearchClear}
+											/>
+										</div>
+										<button
+											type="button"
+											onClick={() => setMobileSearchOpen(false)}
+											className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md p-2 transition-colors hover:bg-surface-raised"
+											aria-label="Close search"
+										>
+											<X className="size-5" />
+										</button>
+									</div>
+								) : (
+									<>
+										<span className="flex-1 truncate font-semibold text-fg">
+											{mobileTitle ?? "Remit"}
+										</span>
+										<button
+											type="button"
+											onClick={() => setMobileSearchOpen(true)}
+											className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md p-2 transition-colors hover:bg-surface-raised"
+											aria-label="Search"
+										>
+											<Search className="size-5" />
+										</button>
+									</>
+								)}
+							</header>
+							<div className="min-h-0 flex-1">
 								<Outlet />
 							</div>
-						)}
-					</div>
+						</>
+					)}
 					{/* Mobile drawer holds the sidebar */}
 					<Drawer
 						isOpen={drawerOpen}
@@ -236,6 +292,7 @@ function MailLayout() {
 						<MailSidebar
 							accounts={accounts}
 							onMailboxSelect={handleMailboxSelect}
+							variant="drawer"
 						/>
 						<div className="px-4 pb-4">
 							<SignOutMenuItem variant="drawer" showEmail />
