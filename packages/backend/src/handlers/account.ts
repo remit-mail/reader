@@ -76,6 +76,7 @@ const toAccountResponse = (account: AccountItem): AccountResponse => ({
 	syncPhase: account.syncPhase,
 	mailboxCountTotal: account.mailboxCountTotal,
 	mailboxCountSynced: account.mailboxCountSynced,
+	muted: account.muted,
 	createdAt: account.createdAt,
 	updatedAt: account.updatedAt,
 });
@@ -266,7 +267,23 @@ export const AccountDetailOperations: Record<
 			}
 		}
 
-		const updated = await account.update(accountId, updates);
+		// Handle muted flag: explicit null removes the flag, object sets it.
+		// Mirrors UpdateAddressFlagsInput semantics: null → remove, object → set.
+		// The client is responsible for populating setAt (same pattern as address flags).
+		const remove: "muted"[] = [];
+		if (Object.prototype.hasOwnProperty.call(input, "muted")) {
+			if (input.muted === null) {
+				remove.push("muted");
+			} else if (input.muted !== undefined) {
+				updates.muted = input.muted;
+			}
+		}
+
+		const updated = await account.update(
+			accountId,
+			updates,
+			remove.length > 0 ? remove : undefined,
+		);
 		return toAccountResponse(updated);
 	},
 
