@@ -23,6 +23,7 @@ export type OperationIds =
 	| "SyncOperations_getSyncStatus"
 	| "SemanticSearchOperations_semanticSearch"
 	| "ThreadDetailOperations_listThreadMessages"
+	| "UnifiedThreadOperations_listAllThreads"
 	| "ThreadOperations_listThreads"
 	| "ThreadOperations_searchThreads"
 	| "MessageOperations_describeMessage"
@@ -75,6 +76,11 @@ export type SyncOperationIds = MatchPrefix<"SyncOperations_", OperationIds>;
 
 export type ThreadDetailOperationIds = MatchPrefix<
 	"ThreadDetailOperations_",
+	OperationIds
+>;
+
+export type UnifiedThreadOperationIds = MatchPrefix<
+	"UnifiedThreadOperations_",
 	OperationIds
 >;
 

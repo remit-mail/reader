@@ -33,6 +33,7 @@
 		"express": "^5.1.0",
 		"mailparser": "^3.9.8",
 		"openapi-backend": "*",
+		"p-map": "*",
 		"pino": "*",
 		"swagger-ui-express": "^5.0.1",
 		"tsx": "*"
