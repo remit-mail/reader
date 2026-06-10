@@ -15,14 +15,19 @@ const sizes = {
 };
 
 // Deterministic calm hue from a string — no random per-render flicker.
+// Muted pastels of the retro palette: green, cyan, slate-teal, slate,
+// mauve, sage. No warm coral — danger stays the only warm color in the UI.
 const palette = [
-	"oklch(0.7 0.12 268)",
-	"oklch(0.7 0.12 200)",
-	"oklch(0.7 0.12 155)",
-	"oklch(0.74 0.12 75)",
-	"oklch(0.7 0.14 25)",
-	"oklch(0.7 0.12 330)",
+	"oklch(0.6 0.08 150)",
+	"oklch(0.6 0.08 185)",
+	"oklch(0.6 0.08 215)",
+	"oklch(0.6 0.07 250)",
+	"oklch(0.6 0.07 310)",
+	"oklch(0.62 0.07 110)",
 ];
+
+// Cream text reads on every palette entry in both themes; never pure white.
+const avatarFg = "oklch(0.97 0.012 90)";
 
 function initials(name: string): string {
 	const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -42,11 +47,11 @@ export function Avatar({ name, email, size = "md", className }: AvatarProps) {
 	return (
 		<span
 			className={cn(
-				"inline-flex shrink-0 items-center justify-center rounded-full font-semibold text-white select-none",
+				"inline-flex shrink-0 items-center justify-center rounded-full font-semibold select-none",
 				sizes[size],
 				className,
 			)}
-			style={{ backgroundColor: bg }}
+			style={{ backgroundColor: bg, color: avatarFg }}
 			aria-hidden
 		>
 			{initials(name)}

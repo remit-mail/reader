@@ -1,11 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { Mail, Search } from "lucide-react";
+import { Lock, Mail, Search } from "lucide-react";
 import { Avatar } from "./avatar.js";
 import { Badge } from "./badge.js";
 import { Button } from "./button.js";
 import { Card, CardBody, CardHeader, CardTitle } from "./card.js";
 import { Input } from "./input.js";
 import { ListItem } from "./list-item.js";
+import { Select } from "./select.js";
 
 const meta: Meta = {
 	title: "Primitives",
@@ -61,6 +62,23 @@ export const Inputs: Story = {
 		<div className="max-w-sm space-y-3 p-8">
 			<Input placeholder="Plain input" />
 			<Input icon={<Search className="size-4" />} placeholder="Search mail" />
+		</div>
+	),
+};
+
+export const Selects: Story = {
+	render: () => (
+		<div className="max-w-sm space-y-3 p-8">
+			<Select defaultValue="tls">
+				<option value="tls">TLS/SSL</option>
+				<option value="starttls">STARTTLS</option>
+				<option value="none">None (insecure)</option>
+			</Select>
+			<Select icon={<Lock className="size-4" />} defaultValue="starttls">
+				<option value="tls">TLS/SSL</option>
+				<option value="starttls">STARTTLS</option>
+				<option value="none">None (insecure)</option>
+			</Select>
 		</div>
 	),
 };

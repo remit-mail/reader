@@ -38,11 +38,15 @@
 	--color-line: var(--line);
 	--color-line-strong: var(--line-strong);
 
-	/* brand accent */
+	/* brand accent (phosphor green): primary actions, links, unread */
 	--color-accent: var(--accent);
 	--color-accent-hover: var(--accent-hover);
 	--color-accent-fg: var(--accent-fg);
 	--color-accent-soft: var(--accent-soft);
+
+	/* secondary accent (cyan): selection states & informational chips */
+	--color-accent-2: var(--accent-2);
+	--color-accent-2-soft: var(--accent-2-soft);
 
 	/* status */
 	--color-positive: var(--positive);
@@ -53,12 +57,29 @@
 	/* focus ring */
 	--color-ring: var(--ring);
 
-	/* radii */
-	--radius-xs: 4px;
-	--radius-sm: 6px;
-	--radius-md: 9px;
-	--radius-lg: 13px;
-	--radius-xl: 18px;
+	/* radii — slight rounding only: hairline borders + subtle radius */
+	--radius-xs: 2px;
+	--radius-sm: 3px;
+	--radius-md: 5px;
+	--radius-lg: 7px;
+	--radius-xl: 10px;
+
+	/* vertical rhythm: 4px base unit, modular 1:2:3:5 scale.
+	   Allowed vertical spacing steps: 4 / 8 / 12 / 20px (32px = 8 units
+	   as the one outlier for big section breaks). In Tailwind terms:
+	   py-1 / py-2 / py-3 / py-5 (py-8). Row heights land on the 4px
+	   grid: compact row 32px, pane header 40px. */
+
+	/* shared pane-header datum: every pane's first header row (mail list,
+	   reading pane, intelligence, settings nav/content/help) is exactly
+	   this tall so one continuous hairline runs across all panes.
+	   40px = 10 grid units. */
+	--spacing-pane-header: 2.5rem;
+
+	/* shared horizontal inset for dense list rows (mail list, brief,
+	   senders table): content is inset (12px = 3 units), hover/active
+	   highlight bleeds to the full pane width. */
+	--spacing-row-inset: 0.75rem;
 
 	/* type scale (1.20 minor third off 14px base) */
 	--text-2xs: 0.6875rem;
@@ -73,60 +94,85 @@
 	/* spacing rhythm leans on Tailwind defaults; density is "calm" */
 }
 
-/* ---------- LIGHT ---------- */
+/* ------------------------------------------------------------------ */
+/* "Hipster modern retro" (2026), balanced for tired eyes.            */
+/* Solarized-inspired tinted neutrals with deliberately better text   */
+/* contrast than actual Solarized: warm cream paper in light, deep    */
+/* slate-teal in dark, cream-on-teal text pairing, phosphor-green     */
+/* accent, cyan secondary for selection/info. Danger stays the ONLY   */
+/* warm color in the UI so phishing banners are the loudest thing on  */
+/* screen. No pure white, no pure black anywhere.                     */
+/* ------------------------------------------------------------------ */
+
+/* ---------- LIGHT: warm paper ---------- */
 :root {
-	/* warm-neutral paper, not pure white */
-	--canvas: oklch(0.985 0.002 250);
-	--surface: oklch(1 0 0);
-	--surface-raised: oklch(1 0 0);
-	--surface-sunken: oklch(0.965 0.003 250);
+	/* warm cream, base3 direction but less yellow */
+	--canvas: oklch(0.96 0.015 90);
+	--surface: oklch(0.975 0.012 90);
+	--surface-raised: oklch(0.985 0.009 90);
+	--surface-sunken: oklch(0.935 0.018 90);
 
-	--fg: oklch(0.21 0.015 264);
-	--fg-muted: oklch(0.5 0.012 264);
-	--fg-subtle: oklch(0.62 0.01 264);
+	/* cool dark ink, never black (~12:1 on canvas) */
+	--fg: oklch(0.3 0.025 235);
+	--fg-muted: oklch(0.45 0.022 235);
+	--fg-subtle: oklch(0.55 0.02 235);
 
-	--line: oklch(0.92 0.004 264);
-	--line-strong: oklch(0.86 0.006 264);
+	/* warm-tinted hairlines */
+	--line: oklch(0.89 0.015 90);
+	--line-strong: oklch(0.82 0.018 90);
 
-	/* restrained indigo */
-	--accent: oklch(0.54 0.16 268);
-	--accent-hover: oklch(0.48 0.17 268);
-	--accent-fg: oklch(0.99 0 0);
-	--accent-soft: oklch(0.95 0.03 268);
+	/* desaturated-neon phosphor green, darkened for cream */
+	--accent: oklch(0.55 0.14 150);
+	--accent-hover: oklch(0.49 0.14 150);
+	--accent-fg: oklch(0.975 0.012 90);
+	--accent-soft: oklch(0.91 0.05 150);
 
-	--positive: oklch(0.62 0.14 155);
-	--warning: oklch(0.74 0.15 75);
-	--danger: oklch(0.58 0.2 25);
-	--danger-soft: oklch(0.95 0.04 25);
+	/* slightly saturated cyan: selection & informational chips */
+	--accent-2: oklch(0.55 0.1 205);
+	--accent-2-soft: oklch(0.91 0.045 205);
 
-	--ring: oklch(0.54 0.16 268);
+	/* positive converges toward the green family */
+	--positive: oklch(0.55 0.12 155);
+	/* muted amber, used sparingly */
+	--warning: oklch(0.65 0.13 80);
+	/* muted coral — the only warm color in the UI */
+	--danger: oklch(0.56 0.16 25);
+	--danger-soft: oklch(0.93 0.04 25);
+
+	--ring: oklch(0.55 0.14 150);
 }
 
-/* ---------- DARK ---------- */
+/* ---------- DARK: deep slate-teal, lifted off black ---------- */
 .dark {
-	--canvas: oklch(0.17 0.012 264);
-	--surface: oklch(0.205 0.013 264);
-	--surface-raised: oklch(0.235 0.014 264);
-	--surface-sunken: oklch(0.155 0.011 264);
+	/* base03 direction */
+	--canvas: oklch(0.22 0.025 220);
+	--surface: oklch(0.25 0.025 220);
+	--surface-raised: oklch(0.28 0.025 220);
+	--surface-sunken: oklch(0.19 0.025 220);
 
-	--fg: oklch(0.96 0.004 264);
-	--fg-muted: oklch(0.72 0.012 264);
-	--fg-subtle: oklch(0.58 0.012 264);
+	/* warm off-white: cream text on teal slate (~12:1 on canvas) */
+	--fg: oklch(0.88 0.02 90);
+	--fg-muted: oklch(0.72 0.02 95);
+	--fg-subtle: oklch(0.58 0.022 110);
 
-	--line: oklch(0.28 0.012 264);
-	--line-strong: oklch(0.36 0.014 264);
+	--line: oklch(0.3 0.025 220);
+	--line-strong: oklch(0.38 0.025 220);
 
-	--accent: oklch(0.7 0.15 268);
-	--accent-hover: oklch(0.76 0.15 268);
-	--accent-fg: oklch(0.16 0.02 268);
-	--accent-soft: oklch(0.3 0.06 268);
+	/* phosphor green, brighter on slate */
+	--accent: oklch(0.78 0.16 150);
+	--accent-hover: oklch(0.83 0.15 150);
+	--accent-fg: oklch(0.2 0.04 150);
+	--accent-soft: oklch(0.32 0.06 150);
 
-	--positive: oklch(0.7 0.14 155);
-	--warning: oklch(0.78 0.14 75);
-	--danger: oklch(0.68 0.18 25);
-	--danger-soft: oklch(0.32 0.08 25);
+	--accent-2: oklch(0.75 0.1 200);
+	--accent-2-soft: oklch(0.32 0.05 205);
 
-	--ring: oklch(0.7 0.15 268);
+	--positive: oklch(0.74 0.13 155);
+	--warning: oklch(0.75 0.12 80);
+	--danger: oklch(0.68 0.15 25);
+	--danger-soft: oklch(0.32 0.07 25);
+
+	--ring: oklch(0.78 0.16 150);
 }
 
 html {
