@@ -11,11 +11,9 @@
 	},
 	"dependencies": {
 		"@remit/ui": "*",
-		"@tanstack/react-router": "^1",
 		"lucide-react": "^0.468"
 	},
 	"devDependencies": {
-		"@remit/api-openapi-types": "*",
 		"@storybook/react-vite": "^9",
 		"@tailwindcss/vite": "^4",
 		"@types/react": "^19",
