@@ -31,7 +31,6 @@
 		"esbuild": "^0.27.7",
 		"expect-env": "*",
 		"express": "^5.1.0",
-		"mailparser": "^3.9.8",
 		"openapi-backend": "*",
 		"p-map": "*",
 		"pino": "*",
@@ -39,6 +38,7 @@
 		"tsx": "*"
 	},
 	"dependencies": {
-		"jose": "^6.2.3"
+		"jose": "^6.2.3",
+		"mailparser": "^3.9.8"
 	}
 }

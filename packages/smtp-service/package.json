@@ -13,7 +13,9 @@
 		
 		"@remit/domain-enums": "*",
 		"@types/node": "*",
-		"@types/nodemailer": "*",
+		"@types/nodemailer": "*"
+	},
+	"dependencies": {
 		"nodemailer": "^8.0.5"
 	}
 }
