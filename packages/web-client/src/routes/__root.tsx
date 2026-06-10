@@ -11,7 +11,7 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import type { RouterContext } from "@/router";
 
 const RootErrorComponent = ({ error, reset }: ErrorComponentProps) => (
-	<div className="flex h-dvh items-center justify-center bg-background p-4">
+	<div className="flex h-dvh items-center justify-center bg-canvas p-4">
 		<ErrorState title="Something went wrong" error={error} onRetry={reset} />
 	</div>
 );
@@ -29,7 +29,7 @@ const SkipLink = () => {
 	return (
 		<a
 			href="#main-content"
-			className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:p-4 focus:bg-background focus:text-foreground focus:rounded-md"
+			className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:p-4 focus:bg-canvas focus:text-fg focus:rounded-md"
 		>
 			{t("accessibility.skipToContent", "Skip to main content")}
 		</a>
@@ -37,8 +37,8 @@ const SkipLink = () => {
 };
 
 const LoadingSkeleton = () => (
-	<div className="flex h-dvh items-center justify-center bg-background">
-		<span className="text-muted-foreground">Loading...</span>
+	<div className="flex h-dvh items-center justify-center bg-canvas">
+		<span className="text-fg-muted">Loading...</span>
 	</div>
 );
 

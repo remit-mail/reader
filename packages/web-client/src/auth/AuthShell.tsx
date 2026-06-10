@@ -20,13 +20,19 @@ const REMIT_FONT =
 
 const cssVar = (name: string): string => `var(${name})`;
 
-const BRAND = cssVar("--color-primary");
-const BRAND_FG = cssVar("--color-primary-foreground");
-const CARD_BG = cssVar("--color-card");
-const CARD_FG = cssVar("--color-card-foreground");
-const PAGE_BG = cssVar("--color-muted");
-const MUTED_FG = cssVar("--color-muted-foreground");
-const BORDER = cssVar("--color-border");
+/* remit-ui semantic vars (tokens.css declares these on :root / .dark).
+   We reference the raw vars — not the Tailwind `--color-*` aliases —
+   because the `@theme inline` block inlines those into utilities rather
+   than guaranteeing them as custom properties. */
+const BRAND = cssVar("--accent");
+const BRAND_HOVER = cssVar("--accent-hover");
+const BRAND_SOFT = cssVar("--accent-soft");
+const BRAND_FG = cssVar("--accent-fg");
+const CARD_BG = cssVar("--surface");
+const CARD_FG = cssVar("--fg");
+const PAGE_BG = cssVar("--surface-sunken");
+const MUTED_FG = cssVar("--fg-muted");
+const BORDER = cssVar("--line");
 
 const remitTheme = createTheme({
 	name: "remit",
@@ -34,8 +40,8 @@ const remitTheme = createTheme({
 		colors: {
 			brand: {
 				primary: {
-					10: { value: cssVar("--color-accent") },
-					20: { value: cssVar("--color-accent") },
+					10: { value: BRAND_SOFT },
+					20: { value: BRAND_SOFT },
 					40: { value: BRAND },
 					60: { value: BRAND },
 					80: { value: BRAND },
@@ -70,9 +76,14 @@ const remitTheme = createTheme({
 			},
 		},
 		radii: {
-			small: { value: "0.375rem" },
-			medium: { value: "0.5rem" },
-			large: { value: "0.75rem" },
+			/* Literal values from the remit-ui radius scale (2/3/5/7/10px).
+			   Tailwind's `@theme inline` only emits theme variables that are
+			   referenced from compiled CSS — var(--radius-*) lookups from
+			   this JS theme object are invisible to its scanner, so they
+			   would resolve to nothing at runtime. */
+			small: { value: "3px" },
+			medium: { value: "5px" },
+			large: { value: "7px" },
 		},
 		components: {
 			authenticator: {
@@ -98,7 +109,7 @@ const remitTheme = createTheme({
 					backgroundColor: { value: BRAND },
 					color: { value: BRAND_FG },
 					_hover: {
-						backgroundColor: { value: BRAND },
+						backgroundColor: { value: BRAND_HOVER },
 						color: { value: BRAND_FG },
 					},
 					_focus: {

@@ -11,12 +11,12 @@ export const AddressTag = ({
 	displayName,
 	onRemove,
 }: AddressTagProps) => (
-	<span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-accent text-sm max-w-[200px]">
+	<span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-accent-2-soft text-sm max-w-[200px]">
 		<span className="truncate">{displayName || email}</span>
 		<button
 			type="button"
 			onClick={onRemove}
-			className="shrink-0 p-0.5 rounded-full hover:bg-muted-foreground/20 transition-colors"
+			className="shrink-0 p-0.5 rounded-full hover:bg-fg-muted/20 transition-colors"
 			aria-label={`Remove ${email}`}
 		>
 			<X className="size-3" />

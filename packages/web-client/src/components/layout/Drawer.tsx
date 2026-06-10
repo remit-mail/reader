@@ -83,16 +83,16 @@ export const Drawer = ({
 			<div
 				ref={drawerRef}
 				className={cn(
-					"absolute top-0 bottom-0 bg-background border-border shadow-xl flex flex-col",
+					"absolute top-0 bottom-0 bg-canvas border-line shadow-xl flex flex-col",
 					widthClassName,
 					sideClasses,
 				)}
 			>
-				<div className="flex items-center justify-end h-12 px-2 border-b border-border shrink-0">
+				<div className="flex items-center justify-end h-12 px-2 border-b border-line shrink-0">
 					<button
 						type="button"
 						onClick={onClose}
-						className="p-2 rounded-md hover:bg-accent transition-colors min-h-11 min-w-11 inline-flex items-center justify-center"
+						className="p-2 rounded-md hover:bg-surface-raised transition-colors min-h-11 min-w-11 inline-flex items-center justify-center"
 						aria-label="Close menu"
 					>
 						<X className="size-5" />

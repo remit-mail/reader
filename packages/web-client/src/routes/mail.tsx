@@ -165,7 +165,7 @@ function MailLayout() {
 	return (
 		<MailContext.Provider value={{ accounts, searchQuery }}>
 			{isConfigError ? (
-				<div className="flex h-full items-center justify-center bg-background p-4">
+				<div className="flex h-full items-center justify-center bg-canvas p-4">
 					<ErrorState
 						title="Couldn't load your account"
 						error={configError}
@@ -175,11 +175,11 @@ function MailLayout() {
 					/>
 				</div>
 			) : isLoading ? (
-				<div className="flex h-full items-center justify-center bg-background">
-					<span className="text-muted-foreground">Loading...</span>
+				<div className="flex h-full items-center justify-center bg-canvas">
+					<span className="text-fg-muted">Loading...</span>
 				</div>
 			) : (
-				<div className="flex flex-col h-full bg-background">
+				<div className="flex flex-col h-full bg-canvas">
 					<Header
 						searchQuery={searchInput}
 						onSearchChange={handleSearchChange}

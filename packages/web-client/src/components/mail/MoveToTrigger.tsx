@@ -36,12 +36,12 @@ const TRIGGER_BASE =
 
 const ICON_TRIGGER = cn(
 	TRIGGER_BASE,
-	"min-h-11 min-w-11 rounded hover:bg-accent",
+	"min-h-11 min-w-11 rounded hover:bg-surface-raised",
 );
 
 const COMPACT_TRIGGER = cn(
 	TRIGGER_BASE,
-	"min-h-11 gap-1.5 px-3 rounded text-sm font-medium hover:bg-accent",
+	"min-h-11 gap-1.5 px-3 rounded text-sm font-medium hover:bg-surface-raised",
 );
 
 export const MoveToTrigger = ({
@@ -134,9 +134,7 @@ export const MoveToTrigger = ({
 	);
 
 	const pickerBody = isLoading ? (
-		<div className="px-3 py-6 text-sm text-muted-foreground">
-			Loading folders…
-		</div>
+		<div className="px-3 py-5 text-sm text-fg-muted">Loading folders…</div>
 	) : isError ? (
 		<div className="p-3">
 			<ErrorState
@@ -164,12 +162,12 @@ export const MoveToTrigger = ({
 					<Drawer.Portal>
 						<Drawer.Overlay className="fixed inset-0 z-40 bg-black/40" />
 						<Drawer.Content
-							className="fixed inset-x-0 bottom-0 z-50 flex flex-col bg-background rounded-t-2xl"
+							className="fixed inset-x-0 bottom-0 z-50 flex flex-col bg-canvas rounded-t-lg"
 							style={{ maxHeight: "85dvh" }}
 							id={popoverId}
 						>
-							<Drawer.Handle className="mx-auto mt-2 mb-1 h-1.5 w-12 rounded-full bg-muted-foreground/30" />
-							<Drawer.Title className="px-4 py-2 text-base font-semibold border-b border-border">
+							<Drawer.Handle className="mx-auto mt-2 mb-1 h-1.5 w-12 rounded-full bg-fg-subtle/30" />
+							<Drawer.Title className="px-4 py-2 text-base font-semibold border-b border-line">
 								Move to folder
 							</Drawer.Title>
 							<div className="flex-1 overflow-hidden">{pickerBody}</div>
@@ -188,7 +186,7 @@ export const MoveToTrigger = ({
 					id={popoverId}
 					className={cn(
 						"absolute right-0 mt-1 z-50 w-72 max-h-96 flex flex-col",
-						"bg-popover border border-border rounded-md shadow-lg",
+						"bg-surface border border-line rounded-md shadow-lg",
 					)}
 				>
 					{pickerBody}

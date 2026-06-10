@@ -25,6 +25,7 @@
   },
   "devDependencies": {
     "@aws-amplify/ui-react": "^6",
+    "@remit/ui": "*",
     "@aws-sdk/client-dynamodb": "*",
     "@aws-sdk/client-sqs": "*",
     "@aws-sdk/lib-dynamodb": "*",

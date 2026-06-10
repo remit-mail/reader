@@ -39,7 +39,7 @@ const ShortcutKey = ({ children }: { children: React.ReactNode }) => (
 	<kbd
 		className={cn(
 			"px-2 py-1 text-xs font-mono",
-			"bg-muted border border-border rounded",
+			"bg-surface-sunken border border-line rounded",
 			"min-w-[24px] text-center inline-block",
 		)}
 	>
@@ -77,13 +77,13 @@ export const KeyboardShortcutsModal = ({
 			onKeyDown={(e) => e.key === "Escape" && onClose()}
 		>
 			{/* Backdrop */}
-			<div className="absolute inset-0 bg-background/80 backdrop-blur-sm" />
+			<div className="absolute inset-0 bg-canvas/80 backdrop-blur-sm" />
 
 			{/* Modal */}
 			<div
 				className={cn(
 					"relative z-10 w-full max-w-md",
-					"bg-card border border-border rounded-lg shadow-lg",
+					"bg-surface border border-line rounded-lg shadow-lg",
 					"p-6",
 				)}
 				onClick={(e) => e.stopPropagation()}
@@ -94,7 +94,7 @@ export const KeyboardShortcutsModal = ({
 					<button
 						type="button"
 						onClick={onClose}
-						className="p-1 text-muted-foreground hover:text-foreground transition-colors"
+						className="p-1 text-fg-muted hover:text-fg transition-colors"
 					>
 						<X className="size-5" />
 					</button>
@@ -104,7 +104,7 @@ export const KeyboardShortcutsModal = ({
 				<div className="space-y-6">
 					{SHORTCUT_SECTIONS.map((section) => (
 						<div key={section.title}>
-							<h3 className="text-sm font-medium text-muted-foreground mb-3">
+							<h3 className="text-sm font-medium text-fg-muted mb-3">
 								{section.title}
 							</h3>
 							<div className="space-y-2">
@@ -118,9 +118,7 @@ export const KeyboardShortcutsModal = ({
 											{shortcut.keys.map((key, index) => (
 												<span key={key} className="flex items-center gap-1">
 													{index > 0 && (
-														<span className="text-xs text-muted-foreground">
-															/
-														</span>
+														<span className="text-xs text-fg-muted">/</span>
 													)}
 													<ShortcutKey>{key}</ShortcutKey>
 												</span>
@@ -134,8 +132,8 @@ export const KeyboardShortcutsModal = ({
 				</div>
 
 				{/* Footer */}
-				<div className="mt-6 pt-4 border-t border-border">
-					<p className="text-xs text-muted-foreground text-center">
+				<div className="mt-6 pt-4 border-t border-line">
+					<p className="text-xs text-fg-muted text-center">
 						Press <ShortcutKey>Esc</ShortcutKey> to close
 					</p>
 				</div>

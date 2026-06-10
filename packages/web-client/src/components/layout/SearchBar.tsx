@@ -67,7 +67,7 @@ export const SearchBar = ({
 
 	return (
 		<div className="relative w-full">
-			<Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
+			<Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-fg-muted pointer-events-none" />
 			<input
 				ref={inputRef}
 				id="mail-search"
@@ -80,9 +80,9 @@ export const SearchBar = ({
 				placeholder={placeholder}
 				className={cn(
 					"w-full pl-9 pr-9 py-1.5 text-sm rounded-md",
-					"bg-muted/50 border border-transparent",
-					"focus:bg-background focus:border-border focus:outline-none focus:ring-2 focus:ring-ring",
-					"placeholder:text-muted-foreground",
+					"bg-surface-sunken/50 border border-transparent",
+					"focus:bg-canvas focus:border-line focus:outline-none focus:ring-2 focus:ring-ring",
+					"placeholder:text-fg-muted",
 					"transition-colors",
 				)}
 			/>
@@ -90,10 +90,10 @@ export const SearchBar = ({
 				<button
 					type="button"
 					onClick={handleClear}
-					className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-accent transition-colors"
+					className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-surface-raised transition-colors"
 					aria-label="Clear search"
 				>
-					<X className="size-4 text-muted-foreground" />
+					<X className="size-4 text-fg-muted" />
 				</button>
 			)}
 		</div>

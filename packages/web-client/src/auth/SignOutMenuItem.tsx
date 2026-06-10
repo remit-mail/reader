@@ -38,21 +38,21 @@ export const SignOutMenuItem = ({
 
 	const baseClass =
 		variant === "drawer"
-			? "flex items-center gap-2 px-3 py-2 rounded-md text-sm w-full text-left text-muted-foreground hover:bg-accent/50 hover:text-foreground min-h-11"
-			: "flex items-center gap-2 px-3 py-2 text-sm w-full text-left hover:bg-accent";
+			? "flex items-center gap-2 px-3 py-2 rounded-md text-sm w-full text-left text-fg-muted hover:bg-surface-raised hover:text-fg min-h-11"
+			: "flex items-center gap-2 px-3 py-2 text-sm w-full text-left hover:bg-surface-raised";
 
 	return (
 		<>
 			{email ? (
 				<div
-					className="px-3 py-2 text-xs text-muted-foreground truncate"
+					className="px-3 py-2 text-xs text-fg-muted truncate"
 					title={email}
 					data-testid="sign-out-email"
 				>
 					{email}
 				</div>
 			) : null}
-			<div className="border-t border-border my-1" />
+			<div className="border-t border-line my-1" />
 			<button
 				type="button"
 				onClick={() => signOut()}

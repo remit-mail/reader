@@ -173,11 +173,11 @@ export const AddressField = ({
 	return (
 		<div className="relative">
 			<div className="flex items-start gap-2">
-				<label className="text-sm text-muted-foreground shrink-0 w-12 pt-1.5">
+				<label className="text-sm text-fg-muted shrink-0 w-12 pt-1.5">
 					{label}:
 				</label>
 				<div
-					className="flex-1 flex flex-wrap items-center gap-1 min-h-[36px] px-2 py-1 border rounded-md bg-background cursor-text"
+					className="flex-1 flex flex-wrap items-center gap-1 min-h-[36px] px-2 py-1 border rounded-md bg-canvas cursor-text"
 					onClick={() => inputRef.current?.focus()}
 				>
 					{addresses.map((addr, i) => (
@@ -204,14 +204,14 @@ export const AddressField = ({
 			{isOpen && filteredSuggestions.length > 0 && (
 				<ul
 					ref={listRef}
-					className="absolute left-12 right-0 mt-1 bg-popover border rounded-md shadow-lg z-50 max-h-[200px] overflow-auto"
+					className="absolute left-12 right-0 mt-1 bg-surface border border-line rounded-md shadow-lg z-50 max-h-[200px] overflow-auto"
 				>
 					{filteredSuggestions.map((suggestion, index) => (
 						<li
 							key={suggestion.addressId}
 							className={cn(
 								"px-3 py-2 text-sm cursor-pointer transition-colors",
-								index === highlightedIndex && "bg-accent",
+								index === highlightedIndex && "bg-accent-2-soft",
 							)}
 							onMouseDown={(e) => {
 								e.preventDefault();

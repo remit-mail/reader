@@ -48,7 +48,7 @@ export const DropdownMenu = ({
 				}}
 				className={cn(
 					"p-1.5 min-h-11 min-w-11 inline-flex items-center justify-center rounded-md transition-colors",
-					"hover:bg-accent text-muted-foreground hover:text-foreground",
+					"hover:bg-surface-raised text-fg-muted hover:text-fg",
 				)}
 			>
 				{trigger}
@@ -57,7 +57,7 @@ export const DropdownMenu = ({
 				<div
 					className={cn(
 						"absolute z-50 mt-1 min-w-[180px] py-1",
-						"bg-popover border border-border rounded-md shadow-lg",
+						"bg-surface border border-line rounded-md shadow-lg",
 						align === "right" ? "right-0" : "left-0",
 					)}
 				>
@@ -92,8 +92,8 @@ export const DropdownMenuItem = ({
 			"w-full px-3 py-2 text-left text-sm transition-colors",
 			"flex items-center gap-2",
 			disabled && "opacity-50 cursor-not-allowed",
-			!disabled && "hover:bg-accent",
-			destructive && "text-destructive hover:text-destructive",
+			!disabled && "hover:bg-surface-raised",
+			destructive && "text-danger hover:text-danger",
 		)}
 	>
 		{children}
@@ -101,5 +101,5 @@ export const DropdownMenuItem = ({
 );
 
 export const DropdownMenuSeparator = () => (
-	<div className="my-1 h-px bg-border" />
+	<div className="my-1 h-px bg-line" />
 );

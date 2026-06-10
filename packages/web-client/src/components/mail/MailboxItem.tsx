@@ -15,7 +15,6 @@ import {
 	Trash2,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { Badge } from "@/components/ui/Badge";
 import {
 	getMailboxDisplayLabel,
 	getMailboxKind,
@@ -110,8 +109,8 @@ export const MailboxItem = ({
 			onClick={handleClick}
 			className={cn(
 				"flex items-center gap-2 px-3 py-1.5 text-sm rounded-md transition-colors",
-				"hover:bg-accent",
-				isSelected && "bg-accent font-medium",
+				"hover:bg-surface-raised",
+				isSelected && "bg-accent-2-soft text-fg font-medium",
 			)}
 			aria-label={displayName}
 			title={mailbox.fullPath}
@@ -119,7 +118,12 @@ export const MailboxItem = ({
 			<Icon className="size-4 shrink-0" />
 			<span className="flex-1 truncate">{displayName}</span>
 			{showBadge && (
-				<Badge count={mailbox.unseenCount} totalCount={mailbox.messageCount} />
+				<span
+					className="inline-flex items-center justify-center rounded-full bg-accent-2-soft text-accent-2 font-medium px-1.5 py-0 text-2xs min-w-5"
+					title={`${mailbox.unseenCount} unread / ${mailbox.messageCount} total`}
+				>
+					{mailbox.unseenCount > 999 ? "999+" : String(mailbox.unseenCount)}
+				</span>
 			)}
 		</Link>
 	);

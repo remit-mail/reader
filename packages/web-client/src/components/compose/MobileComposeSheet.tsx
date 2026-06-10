@@ -87,12 +87,12 @@ export const MobileComposeSheet = () => {
 			<Drawer.Portal>
 				<Drawer.Overlay className="fixed inset-0 z-40 bg-black/40" />
 				<Drawer.Content
-					className="fixed inset-x-0 bottom-0 z-50 flex flex-col bg-background rounded-t-2xl"
+					className="fixed inset-x-0 bottom-0 z-50 flex flex-col bg-canvas rounded-t-lg"
 					style={{ height: "95dvh" }}
 				>
-					<Drawer.Handle className="mx-auto mt-2 mb-1 h-1.5 w-12 rounded-full bg-muted-foreground/30" />
+					<Drawer.Handle className="mx-auto mt-2 mb-1 h-1.5 w-12 rounded-full bg-fg-muted/30" />
 
-					<Drawer.Title className="px-4 py-2 text-base font-semibold border-b border-border">
+					<Drawer.Title className="px-4 py-2 text-base font-semibold border-b border-line">
 						{title}
 					</Drawer.Title>
 
@@ -122,9 +122,9 @@ export const MobileComposeSheet = () => {
 			{/* Confirmation dialog when dismissing dirty draft */}
 			{showConfirm && (
 				<div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50">
-					<div className="mx-4 w-full max-w-sm rounded-xl bg-background p-6 shadow-xl">
+					<div className="mx-4 w-full max-w-sm rounded-xl bg-canvas p-6 shadow-xl">
 						<h3 className="text-lg font-semibold">Discard draft?</h3>
-						<p className="mt-2 text-sm text-muted-foreground">
+						<p className="mt-2 text-sm text-fg-muted">
 							Your message has unsaved content. Are you sure you want to discard
 							it?
 						</p>
@@ -132,14 +132,14 @@ export const MobileComposeSheet = () => {
 							<button
 								type="button"
 								onClick={handleCancelDiscard}
-								className="rounded-md px-4 py-2 text-sm font-medium hover:bg-accent transition-colors"
+								className="rounded-md px-4 py-2 text-sm font-medium hover:bg-surface-raised transition-colors"
 							>
 								Keep editing
 							</button>
 							<button
 								type="button"
 								onClick={handleConfirmDiscard}
-								className="rounded-md bg-destructive px-4 py-2 text-sm font-medium text-destructive-foreground hover:bg-destructive/90 transition-colors"
+								className="rounded-md bg-danger px-4 py-2 text-sm font-medium text-canvas hover:bg-danger/90 transition-colors"
 							>
 								Discard
 							</button>

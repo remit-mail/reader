@@ -1,10 +1,10 @@
 import { messageOperationsDescribeMessageOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
+import { Avatar } from "@remit/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Check, Paperclip } from "lucide-react";
 import { type MouseEvent, memo, useCallback } from "react";
-import { Avatar } from "@/components/ui/Avatar";
 import { useLongPress } from "@/hooks/useLongPress";
 import type { SelectionModifiers } from "@/hooks/useSelection";
 import { formatEmailDate } from "@/lib/format";
@@ -128,9 +128,9 @@ const MessageListItemComponent = ({
 				// Bump vertical padding on mobile to comfortably exceed the 48dp
 				// touch-target floor. Desktop keeps the tighter density.
 				"group block w-full px-3 py-3 sm:py-2.5 transition-colors",
-				"hover:bg-accent/50",
-				isSelected && "bg-accent",
-				isChecked && "bg-primary/10",
+				"hover:bg-surface-raised",
+				isSelected && "bg-accent-2-soft",
+				isChecked && "bg-accent-soft",
 			)}
 		>
 			<div className="flex items-start gap-3">
@@ -139,9 +139,9 @@ const MessageListItemComponent = ({
 				    row never reflows when state changes. */}
 				<div className="relative size-10 shrink-0">
 					<Avatar
-						name={thread.fromName ?? undefined}
+						name={thread.fromName ?? thread.fromEmail ?? "?"}
 						email={thread.fromEmail ?? undefined}
-						size={40}
+						size="md"
 						className={cn(
 							"absolute inset-0",
 							"sm:group-hover:opacity-0 transition-opacity",
@@ -155,10 +155,10 @@ const MessageListItemComponent = ({
 							"absolute inset-0 size-10 rounded-full border items-center justify-center transition-opacity min-h-11 min-w-11",
 							isMultiSelectMode ? "flex" : "hidden sm:flex",
 							isChecked
-								? "bg-primary border-primary text-primary-foreground opacity-100"
+								? "bg-accent border-accent text-accent-fg opacity-100"
 								: isMultiSelectMode
-									? "border-muted-foreground/40 opacity-100 bg-background"
-									: "border-muted-foreground/40 opacity-0 group-hover:opacity-100 bg-background",
+									? "border-fg-subtle/40 opacity-100 bg-canvas"
+									: "border-fg-subtle/40 opacity-0 group-hover:opacity-100 bg-canvas",
 						)}
 						aria-label={isChecked ? "Deselect message" : "Select message"}
 					>
@@ -176,13 +176,13 @@ const MessageListItemComponent = ({
 								isChecked && "opacity-0",
 							)}
 						/>
-						<span className="text-sm truncate flex-1 min-w-0 text-foreground">
+						<span className="text-sm truncate flex-1 min-w-0 text-fg">
 							{participants}
 						</span>
 						<SenderTrustIndicator senderTrust={thread.senderTrust} size="sm" />
 						<span
 							data-testid="thread-time"
-							className="text-xs text-muted-foreground shrink-0"
+							className="text-xs text-fg-muted shrink-0"
 						>
 							{date}
 						</span>
@@ -193,7 +193,7 @@ const MessageListItemComponent = ({
 						<span
 							className={cn(
 								"text-sm truncate flex-1 min-w-0",
-								!thread.isRead ? "text-foreground" : "text-muted-foreground",
+								!thread.isRead ? "text-fg" : "text-fg-muted",
 							)}
 						>
 							{displaySubject}
@@ -201,7 +201,7 @@ const MessageListItemComponent = ({
 						<CategoryBadge category={thread.category} size="sm" />
 						{thread.hasAttachment && (
 							<Paperclip
-								className="size-3.5 shrink-0 text-muted-foreground"
+								className="size-3.5 shrink-0 text-fg-muted"
 								aria-label="Has attachments"
 							/>
 						)}
@@ -209,7 +209,7 @@ const MessageListItemComponent = ({
 
 					{/* Row 3: Snippet preview */}
 					{snippet && (
-						<div className="text-xs text-muted-foreground pl-4 line-clamp-1">
+						<div className="text-xs text-fg-muted pl-4 line-clamp-1">
 							{snippet}
 						</div>
 					)}
