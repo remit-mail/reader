@@ -113,6 +113,9 @@ export const enrichThreadRows = async (
 	const categoryByMessageId = new Map(
 		messages.map((m) => [m.messageId, m.category]),
 	);
+	const authenticityByMessageId = new Map(
+		messages.map((m) => [m.messageId, m.authenticity]),
+	);
 	const trustByAddressId = new Map(
 		addresses.map((a) => [a.addressId, deriveSenderTrust(a.flags)]),
 	);
@@ -120,12 +123,16 @@ export const enrichThreadRows = async (
 	return rows.map((row) => {
 		const base = toResponse(row);
 		const category = categoryByMessageId.get(row.messageId);
+		const authenticity = authenticityByMessageId.get(row.messageId);
 		const addressId = plan.addressIdByRow.get(row.threadMessageId);
 		const senderTrust = addressId
 			? (trustByAddressId.get(addressId) ?? SenderTrust.Unknown)
 			: SenderTrust.Unknown;
-		return category
-			? { ...base, category, senderTrust }
-			: { ...base, senderTrust };
+		return {
+			...base,
+			...(category !== undefined ? { category } : {}),
+			...(authenticity !== undefined ? { authenticity } : {}),
+			senderTrust,
+		};
 	});
 };
