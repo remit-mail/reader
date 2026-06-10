@@ -257,20 +257,43 @@ const toRecord = (
  * "1.2", "2.1.3"). Throws on an unrecognized MIME top-level type, an
  * unknown transfer encoding, or an unknown Content-Disposition so callers
  * can fail loudly instead of silently dropping parts.
+ *
+ * **Part-path uniqueness**: some IMAP servers (and the `message/rfc822`
+ * inner-body convention) return child nodes with an empty `part` field.
+ * Assigning ROOT_PART_PATH to every such node would produce duplicate keys
+ * and cause a DynamoDB "multiple operations on one item" error in
+ * `upsertBodyParts`. Non-root nodes without a `part` therefore receive a
+ * synthetic path `<parentPath>.<siblingIndex>` that is stable across
+ * repeated syncs of the same message.
  */
 export const walkMimeStructure = (root: MimeNode): BodyPartRecord[] => {
 	const out: BodyPartRecord[] = [];
 
-	const visit = (node: MimeNode, parentPath: string | null) => {
-		const partPath =
-			node.part && node.part.length > 0 ? node.part : ROOT_PART_PATH;
+	const visit = (
+		node: MimeNode,
+		parentPath: string | null,
+		siblingIndex: number,
+	) => {
+		let partPath: string;
+		if (node.part && node.part.length > 0) {
+			partPath = node.part;
+		} else if (parentPath === null) {
+			// True root of the BODYSTRUCTURE tree.
+			partPath = ROOT_PART_PATH;
+		} else {
+			// Non-root node without an IMAP part path — synthesise one so
+			// the DynamoDB keys remain unique. This happens most commonly
+			// for the body of a message/rfc822 attachment, whose inner
+			// structure imapflow attaches as a childNode with part="".
+			partPath = `${parentPath}.${siblingIndex}`;
+		}
 		out.push(toRecord(node, partPath, parentPath));
 		const children = node.childNodes ?? [];
-		for (const child of children) {
-			visit(child, partPath);
+		for (let i = 0; i < children.length; i++) {
+			visit(children[i]!, partPath, i + 1);
 		}
 	};
 
-	visit(root, null);
+	visit(root, null, 0);
 	return out;
 };
