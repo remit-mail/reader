@@ -9,7 +9,10 @@ import type { ParsedBody, StorageService } from "@remit/storage-service";
 import { type ParsedMail, simpleParser } from "mailparser";
 import pMap from "p-map";
 import { mapBodyPartsToContent } from "./body-part-mapper.js";
-import { classifyByHeaders } from "./heuristics/classifyByHeaders.js";
+import {
+	classifyByHeaders,
+	extractAuthenticity,
+} from "./heuristics/classifyByHeaders.js";
 import { extractSnippetFromEmail } from "./snippet.js";
 import type { IImapConnection } from "./types.js";
 
@@ -351,7 +354,11 @@ export class BodySyncService {
 		parsed: ParsedMail,
 	): Promise<void> {
 		const category = classifyByHeaders(parsed);
-		await this.messageService.update(messageId, { category });
+		const authenticity = extractAuthenticity(parsed);
+		await this.messageService.update(messageId, {
+			category,
+			...(authenticity !== null ? { authenticity } : {}),
+		});
 
 		const fromEmail = extractPrimaryFromEmail(parsed);
 		if (!fromEmail) {

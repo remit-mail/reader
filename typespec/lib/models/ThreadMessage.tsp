@@ -4,6 +4,7 @@ import "../enums/MessageCategory.tsp";
 import "../enums/SenderTrust.tsp";
 import "../enums/StarColor.tsp";
 import "../scalars/string.tsp";
+import "./Message.tsp";
 
 namespace RemitImap;
 
@@ -222,4 +223,7 @@ model ThreadMessageResponse {
 
   @doc("Trust level for the From address, derived from AddressFlags at read time. Defaults to `unknown` when no Address row resolves.")
   senderTrust: SenderTrust;
+
+  @doc("Structured sender-authenticity signal derived from DKIM headers at classification time (from the underlying Message). Absent for messages classified before this field was introduced — absence means no signal.")
+  authenticity?: MessageAuthenticity;
 }

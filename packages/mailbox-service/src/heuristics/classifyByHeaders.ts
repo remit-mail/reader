@@ -12,6 +12,23 @@ import { TRANSACTIONAL_DOMAINS } from "./transactionalDomains.js";
 type Category = (typeof MessageCategory)[keyof typeof MessageCategory];
 
 /**
+ * Structured sender-authenticity signal extracted from DKIM headers.
+ * Persisted alongside `category` during body-sync so the intelligence
+ * sidebar (#425) can render phishing verdicts without re-parsing.
+ *
+ * Present only when a DKIM-Signature header exists; absent otherwise
+ * (absence means "no signal" — no comparison was possible).
+ */
+export interface MessageAuthenticity {
+	/** Domain of the From header address */
+	fromDomain: string;
+	/** DKIM signing domain (d=) that was compared, when a signature is present */
+	dkimDomain?: string;
+	/** True when none of the DKIM signing domains aligns with the From domain */
+	dkimMismatch: boolean;
+}
+
+/**
  * Header-only classification. Pure function. First match wins. Falls through
  * to `personal` so misclassification stays in the safest bucket.
  *
@@ -47,7 +64,7 @@ export const classifyByHeaders = (parsed: ParsedMail): Category => {
 	if (hasListUnsubscribe && hasListId) return MessageCategory.newsletter;
 	if (hasListUnsubscribe) return MessageCategory.marketing;
 
-	if (fromDomain && dkimMismatchesFrom(headers, lines, fromDomain)) {
+	if (fromDomain && dkimMismatchResult(headers, lines, fromDomain).mismatch) {
 		return MessageCategory.automated;
 	}
 
@@ -56,6 +73,42 @@ export const classifyByHeaders = (parsed: ParsedMail): Category => {
 	}
 
 	return MessageCategory.personal;
+};
+
+/**
+ * Extract the structured authenticity signal from parsed headers.
+ *
+ * Returns a `MessageAuthenticity` when at least one DKIM-Signature header
+ * is present (a comparison was possible). Returns `null` when there are no
+ * DKIM-Signature headers so callers can omit the field entirely — absence
+ * means "no signal", not "mismatch: false".
+ *
+ * The alignment rule exactly mirrors the category heuristic (rule 7) so the
+ * structured `dkimMismatch` boolean and the `automated` category can never
+ * disagree.
+ */
+export const extractAuthenticity = (
+	parsed: ParsedMail,
+): MessageAuthenticity | null => {
+	const headers = parsed.headers;
+	const lines = parsed.headerLines;
+	const fromDomain = getFromDomain(parsed);
+
+	if (!fromDomain) return null;
+
+	const dkimDomains = extractDkimDomains(headers, lines);
+	if (dkimDomains.length === 0) return null;
+
+	const result = dkimMismatchResult(headers, lines, fromDomain);
+
+	// Pick the reported domain: first mismatching one on mismatch, first domain otherwise.
+	const reportedDomain = result.mismatchingDomain ?? dkimDomains[0];
+
+	return {
+		fromDomain,
+		dkimDomain: reportedDomain,
+		dkimMismatch: result.mismatch,
+	};
 };
 
 const matchesAutoSubmitted = (headers: Headers): boolean => {
@@ -104,23 +157,39 @@ const domainMatches = (
 	return false;
 };
 
-const dkimMismatchesFrom = (
+/**
+ * Check whether DKIM signing domain(s) align with the From domain and
+ * return a structured result so both the category heuristic and the
+ * authenticity extractor share the exact same alignment logic.
+ *
+ * Alignment: signing domain equals From domain, or one is a subdomain of
+ * the other (parent/child). Any single aligned domain is enough to consider
+ * the message non-mismatching — a legitimate re-mailer signing under a
+ * subdomain is not suspicious.
+ *
+ * On mismatch the first non-aligned domain is reported so the UI can show
+ * "signed by relay.example.net, claims example.com".
+ */
+const dkimMismatchResult = (
 	headers: Headers,
 	lines: HeaderLines,
 	fromDomain: string,
-): boolean => {
+): { mismatch: boolean; mismatchingDomain: string | null } => {
 	const dkimDomains = extractDkimDomains(headers, lines);
-	if (dkimDomains.length === 0) return false;
+	if (dkimDomains.length === 0)
+		return { mismatch: false, mismatchingDomain: null };
+	let firstMismatching: string | null = null;
 	for (const d of dkimDomains) {
 		if (
 			d === fromDomain ||
 			fromDomain.endsWith(`.${d}`) ||
 			d.endsWith(`.${fromDomain}`)
 		) {
-			return false;
+			return { mismatch: false, mismatchingDomain: null };
 		}
+		if (!firstMismatching) firstMismatching = d;
 	}
-	return true;
+	return { mismatch: true, mismatchingDomain: firstMismatching };
 };
 
 const extractDkimDomains = (headers: Headers, lines: HeaderLines): string[] => {

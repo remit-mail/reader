@@ -10,6 +10,18 @@ import "../scalars/string.tsp";
 
 namespace RemitImap;
 
+@doc("Structured sender-authenticity signal, derived from headers at classification time. Absent for messages classified before this field was introduced — clients should treat absence as no-signal.")
+model MessageAuthenticity {
+  @doc("Domain of the From header address")
+  fromDomain: string;
+
+  @doc("DKIM signing domain (d=) that was compared, when a signature is present")
+  dkimDomain?: string;
+
+  @doc("True when DKIM signing domain(s) are present and none aligns with the From domain")
+  dkimMismatch: boolean;
+}
+
 @doc("Core message entity. The combination of Mailbox.uidValidity + Message.uid uniquely identifies a message forever per RFC 9051 Section 2.3.1.1.")
 @entity("message", "remit")
 // Used for atomical operations: batch get/put/delete
@@ -104,6 +116,10 @@ model Message {
   @visibility(Lifecycle.Read)
   category?: MessageCategory;
 
+  @doc("Structured sender-authenticity signal derived from DKIM headers at classification time. Absent for messages classified before this field was introduced — absence means no signal.")
+  @visibility(Lifecycle.Read)
+  authenticity?: MessageAuthenticity;
+
   @visibility(Lifecycle.Read)
   @createdAt
   createdAt: int64;
@@ -172,6 +188,7 @@ model MessageSummaryResponse
       | "rfc822Size"
       | "internalDate"
       | "messageIdHeader"
+      | "authenticity"
   >;
 
 @doc("Message envelope (header metadata)")
