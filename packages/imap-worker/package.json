@@ -27,7 +27,7 @@
 		"@types/nodemailer": "*",
 		"esbuild": "^0.27.7",
 		"expect-env": "*",
-		"nodemailer": "^7.0.13",
+		"nodemailer": "^8.0.5",
 		"p-map": "*"
 	},
 	"dependencies": {
