@@ -12,7 +12,7 @@ enum SemanticSearchChunkType {
   entities,
 }
 
-@doc("A single semantic-search hit. Refers to a message by id; the client resolves full message details separately.")
+@doc("A single semantic-search hit. Display fields (fromName, subject, sentDate) are denormalized at index time and present for messages indexed after this feature was deployed. Older entries may omit them; clients should render a fallback when absent.")
 model SemanticSearchResult {
   @doc("Matched message id")
   messageId: UUID;
@@ -28,4 +28,13 @@ model SemanticSearchResult {
 
   @doc("All mailbox ids the matched message currently lives in")
   mailboxIds: UUID[];
+
+  @doc("Display name of the sender (From header). Present for messages indexed after display-field enrichment was deployed.")
+  fromName?: string;
+
+  @doc("Message subject. Present for messages indexed after display-field enrichment was deployed.")
+  subject?: string;
+
+  @doc("Sent date as Unix epoch seconds. Present for messages indexed after display-field enrichment was deployed.")
+  sentDate?: int64;
 }

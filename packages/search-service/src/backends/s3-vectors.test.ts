@@ -198,3 +198,112 @@ describe("S3VectorsBackend.query topK guard", () => {
 		);
 	});
 });
+
+describe("S3VectorsBackend.query metadata backward-compat (no reindex)", () => {
+	let s3vMock: AwsClientStub<S3VectorsClient>;
+
+	beforeEach(() => {
+		s3vMock = mockClient(S3VectorsClient);
+	});
+
+	afterEach(() => {
+		s3vMock.restore();
+	});
+
+	// Legacy metadata shape: indexed before display-field enrichment, so it
+	// omits fromName and subject. The strict toMetadata() parser must accept
+	// this without throwing so pre-enrichment vectors keep working with no
+	// bulk reindex required.
+	const legacyMetadata = {
+		messageId: MESSAGE_ID,
+		threadId: "thread-1",
+		accountConfigId: "acct-1",
+		mailboxIds: ["mb-inbox"],
+		chunkType: "subject",
+		sentDate: 1_700_000_000,
+		isRead: false,
+		hasAttachment: false,
+		hasStars: false,
+	};
+
+	it("parses legacy metadata that omits fromName/subject without throwing", async () => {
+		s3vMock.on(QueryVectorsCommand).resolves({
+			vectors: [
+				{
+					key: `${MESSAGE_ID}::subject`,
+					distance: 0.1,
+					metadata: legacyMetadata,
+				},
+			],
+			distanceMetric: "cosine",
+		});
+
+		const matches = await buildBackend().query({
+			vector: [0.1, 0.2, 0.3],
+			topK: 10,
+		});
+
+		assert.equal(matches.length, 1);
+		const meta = matches[0].metadata;
+		// Display fields simply absent — not blank strings, not an error.
+		assert.equal(meta.fromName, undefined);
+		assert.equal(meta.subject, undefined);
+		// Pre-existing fields still parse.
+		assert.equal(meta.messageId, MESSAGE_ID);
+		assert.equal(meta.sentDate, 1_700_000_000);
+	});
+
+	it("parses metadata with fromName: null (sender has no display name)", async () => {
+		s3vMock.on(QueryVectorsCommand).resolves({
+			vectors: [
+				{
+					key: `${MESSAGE_ID}::subject`,
+					distance: 0.1,
+					metadata: {
+						...legacyMetadata,
+						fromName: null,
+						subject: "Q1 invoice review",
+					},
+				},
+			],
+			distanceMetric: "cosine",
+		});
+
+		const matches = await buildBackend().query({
+			vector: [0.1, 0.2, 0.3],
+			topK: 10,
+		});
+
+		assert.equal(matches.length, 1);
+		const meta = matches[0].metadata;
+		assert.equal(meta.fromName, null);
+		assert.equal(meta.subject, "Q1 invoice review");
+	});
+
+	it("parses enriched metadata with fromName and subject present", async () => {
+		s3vMock.on(QueryVectorsCommand).resolves({
+			vectors: [
+				{
+					key: `${MESSAGE_ID}::subject`,
+					distance: 0.1,
+					metadata: {
+						...legacyMetadata,
+						fromName: "Alice",
+						subject: "Q1 invoice review",
+					},
+				},
+			],
+			distanceMetric: "cosine",
+		});
+
+		const matches = await buildBackend().query({
+			vector: [0.1, 0.2, 0.3],
+			topK: 10,
+		});
+
+		assert.equal(matches.length, 1);
+		const meta = matches[0].metadata;
+		assert.equal(meta.fromName, "Alice");
+		assert.equal(meta.subject, "Q1 invoice review");
+	});
+});

@@ -17,6 +17,10 @@ export interface ChunkMetadata {
 	hasAttachment: boolean;
 	hasStars: boolean;
 	fileTypes?: string[];
+	/** Display name of the sender. Stored at index time; absent for pre-enrichment vectors. */
+	fromName?: string | null;
+	/** Message subject. Stored at index time; absent for pre-enrichment vectors. */
+	subject?: string;
 }
 
 export interface Chunk {
@@ -101,4 +105,10 @@ export interface SearchResult {
 	score: number;
 	matchedChunkType: ChunkType;
 	mailboxIds: string[];
+	/** Sender display name, populated for messages indexed after display-field enrichment. */
+	fromName?: string | null;
+	/** Message subject, populated for messages indexed after display-field enrichment. */
+	subject?: string;
+	/** Sent date as Unix epoch seconds, always populated. */
+	sentDate: number;
 }

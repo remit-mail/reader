@@ -8,13 +8,24 @@ import type { OperationHandler, SemanticSearchOperationIds } from "../types.js";
 
 const DEFAULT_LIMIT = 25;
 
-const toResponse = (item: SearchResult): SemanticSearchResult => ({
-	messageId: item.messageId,
-	threadId: item.threadId,
-	score: item.score,
-	matchedChunkType: item.matchedChunkType,
-	mailboxIds: item.mailboxIds,
-});
+const toResponse = (item: SearchResult): SemanticSearchResult => {
+	const result: SemanticSearchResult = {
+		messageId: item.messageId,
+		threadId: item.threadId,
+		score: item.score,
+		matchedChunkType: item.matchedChunkType,
+		mailboxIds: item.mailboxIds,
+		sentDate: item.sentDate,
+	};
+	// fromName is null for messages with no sender name; exclude undefined (absent from old vectors)
+	if (item.fromName !== undefined) {
+		result.fromName = item.fromName ?? undefined;
+	}
+	if (item.subject !== undefined) {
+		result.subject = item.subject;
+	}
+	return result;
+};
 
 export const SemanticSearchOperations: Record<
 	SemanticSearchOperationIds,
