@@ -12,11 +12,12 @@ namespace RemitImap;
     sk: [MailboxLock.eventName],
   }
 )
-// Part of mailbox collection for account deletion cleanup
+// Account-cleanup index: list all locks for an account (e.g., on account deletion).
+// Not part of the "mailbox" collection — pk is accountId, not mailboxId, so it
+// cannot satisfy the mailbox collection's pk: [mailboxId] requirement.
 @index(
   "byAccountId",
   {
-    collection: "mailbox",
     index: "gsi1",
     pk: [MailboxLock.accountId],
     sk: [MailboxLock.mailboxId, MailboxLock.eventName],
