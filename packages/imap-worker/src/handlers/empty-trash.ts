@@ -56,6 +56,11 @@ export const handleEmptyTrash = async (
 		return;
 	}
 
+	if (!account.passwordHash) {
+		throw new Error(
+			`Account ${account.accountId}: passwordHash missing — only password accounts are supported by the IMAP worker`,
+		);
+	}
 	const password = await secrets.decrypt(
 		deserializeEncryptedPayload(JSON.parse(account.passwordHash)),
 	);

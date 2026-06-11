@@ -3,6 +3,7 @@ import {
 	type AccountItem,
 	NotFoundError,
 } from "@remit/remit-electrodb-service";
+import { AccountAuthType } from "@remit/domain-enums";
 import type {
 	AccountConfigResponse,
 	AccountResponse,
@@ -66,11 +67,14 @@ const emptyConfigResponse = (
 	};
 };
 
+// SECURITY: passwordHash, oauthRefreshTokenHash, and smtpPasswordHash are
+// intentionally omitted — never expose token material in API responses.
 const toAccountResponse = (account: AccountItem): AccountResponse => ({
 	accountId: account.accountId,
 	accountConfigId: account.accountConfigId,
 	username: account.username,
 	email: account.email,
+	authType: account.authType ?? AccountAuthType.Password,
 	imapHost: account.imapHost,
 	imapPort: account.imapPort,
 	imapTls: account.imapTls,

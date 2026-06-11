@@ -1,6 +1,5 @@
 import { inspect } from "node:util";
-import type { AccountItem } from "@remit/remit-electrodb-service";
-import { ConnectionState } from "@remit/domain-enums";
+import { AccountAuthType, ConnectionState } from "@remit/domain-enums";
 import {
 	testImapConnection,
 	testSmtpConnection,
@@ -52,34 +51,12 @@ const triggerAccountSyncSafe = async (accountId: string): Promise<void> => {
 	}
 };
 
-const toAccountResponse = (account: AccountItem): AccountResponse => ({
-	accountId: account.accountId,
-	accountConfigId: account.accountConfigId,
-	username: account.username,
-	email: account.email,
-	imapHost: account.imapHost,
-	imapPort: account.imapPort,
-	imapTls: account.imapTls,
-	imapStartTls: account.imapStartTls,
-	smtpHost: account.smtpHost,
-	smtpPort: account.smtpPort,
-	smtpTls: account.smtpTls,
-	smtpStartTls: account.smtpStartTls,
-	smtpUsername: account.smtpUsername,
-	signaturePlainText: account.signaturePlainText,
-	signatureHtml: account.signatureHtml,
-	isActive: account.isActive,
-	connectionState: account.connectionState,
-	lastConnectedAt: account.lastConnectedAt,
-	lastSyncAt: account.lastSyncAt,
-	lastError: account.lastError,
-	syncPhase: account.syncPhase,
-	mailboxCountTotal: account.mailboxCountTotal,
-	mailboxCountSynced: account.mailboxCountSynced,
-	muted: account.muted,
-	createdAt: account.createdAt,
-	updatedAt: account.updatedAt,
-});
+import {
+	assertNotOAuthCreate,
+	assertPasswordProvided,
+	toAccountResponse,
+} from "./account-guards.js";
+export { assertNotOAuthCreate, assertPasswordProvided, toAccountResponse };
 
 export const AccountOperations: Record<
 	AccountOperationIds,
@@ -93,11 +70,18 @@ export const AccountOperations: Record<
 		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const input = JSON.parse(event.body ?? "{}") as CreateAccountInput;
 
+		// OAuth accounts must be created via the dedicated connect flow
+		assertNotOAuthCreate(input.authType);
+
+		// Password accounts require a non-empty password
+		assertPasswordProvided(input.authType, input.password);
+
 		const { account, accountConfig, secrets } = getClient();
 
 		await ensureAccountConfig(accountConfig, accountConfigId);
 
-		const passwordPayload = await secrets.encrypt(input.password);
+		// biome-ignore lint/style/noNonNullAssertion: guard above ensures password is set for password-auth accounts
+		const passwordPayload = await secrets.encrypt(input.password!);
 		const passwordHash = JSON.stringify(
 			serializeEncryptedPayload(passwordPayload),
 		);
@@ -112,6 +96,7 @@ export const AccountOperations: Record<
 			accountConfigId,
 			email: input.email,
 			username: input.username ?? input.email,
+			authType: AccountAuthType.Password,
 			passwordHash,
 			imapHost: input.imapHost,
 			imapPort: input.imapPort,
@@ -150,6 +135,13 @@ export const AccountOperations: Record<
 			const existingAccount = await account.get(input.accountId);
 			assertAccountOwnership(existingAccount, accountConfigId, "read");
 
+			if (!existingAccount.passwordHash) {
+				return {
+					imapSuccess: false,
+					imapError: "Password required",
+					smtpSuccess: undefined,
+				};
+			}
 			const payload = deserializeEncryptedPayload(
 				JSON.parse(existingAccount.passwordHash),
 			);
