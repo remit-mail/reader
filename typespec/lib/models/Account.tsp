@@ -395,6 +395,11 @@ model AddressResponse
       | "domain"
       | "normalizedEmail"
       | "flags"
+      | "inboundCount"
+      | "outboundCount"
+      | "replyCount"
+      | "lastInboundAt"
+      | "lastReplyAt"
       | "createdAt"
       | "updatedAt"
   >;
