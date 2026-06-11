@@ -18,6 +18,7 @@
 		"@aws-sdk/core": "*",
 		"@remit/domain-enums": "*",
 		"@remit/logger-lambda": "*",
+		"@remit/mail-oauth-service": "*",
 		"@remit/mailbox-service": "*",
 		"@remit/search-index-worker": "*",
 		"@remit/secrets-service": "*",

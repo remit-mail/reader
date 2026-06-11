@@ -10,12 +10,13 @@ import type { Logger } from "@remit/logger-lambda";
 import {
 	createKmsDataKeyProvider,
 	createSecretsService,
-	deserializeEncryptedPayload,
 } from "@remit/secrets-service";
 import { env } from "expect-env";
 import { isAccountDeleted } from "../account-check.js";
-import { createConnectionScopeFromAccount } from "../connection-scope.js";
+import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import type { MessageMoveEvent } from "../events.js";
+import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
+import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 
 /**
  * Build the `set` and `composites` payload for the ThreadMessage update on a
@@ -111,110 +112,112 @@ export const handleMessageMove = async (
 		return;
 	}
 
-	if (!account.passwordHash) {
-		throw new Error(
-			`Account ${account.accountId}: passwordHash missing — only password accounts are supported by the IMAP worker`,
-		);
-	}
-	const password = await secrets.decrypt(
-		deserializeEncryptedPayload(JSON.parse(account.passwordHash)),
+	await withOAuthLifecycle(
+		buildLifecycleDeps(secrets, accountService),
+		account,
+		log,
+		async (credentials) => {
+			const scope = createConnectionScopeWithCredentials(account, credentials);
+
+			await scope
+				.getConnection()
+				.then(async (connection) => {
+					// Open source mailbox (not read-only)
+					await connection.openBox(sourceMailboxPath, false);
+
+					// Execute IMAP MOVE
+					const result = await connection.moveMessages(
+						[uid],
+						destinationMailboxPath,
+					);
+
+					// Get new UID from COPYUID response
+					const newUid = result.uidMap.get(uid);
+
+					if (newUid) {
+						// Update message with new UID
+						await messageService.updateUid(
+							messageId,
+							newUid,
+							destinationMailboxId,
+						);
+
+						// Update ThreadMessage UID and mailboxId
+						const threadMessage =
+							await threadMessageService.findByMessageId(messageId);
+						if (threadMessage) {
+							const args = buildThreadMessageMoveUpdate(
+								threadMessage,
+								newUid,
+								destinationMailboxId,
+							);
+							await threadMessageService.update(
+								threadMessage.accountConfigId,
+								threadMessage.threadMessageId,
+								args.set,
+								{ composites: args.composites },
+							);
+						}
+
+						log.info(
+							{
+								messageId,
+								oldUid: uid,
+								newUid,
+								destination: destinationMailboxPath,
+							},
+							"Message moved successfully",
+						);
+					} else {
+						// Message may have been deleted on server
+						log.error(
+							{ messageId, uid },
+							"Message not found in COPYUID response - may have been deleted",
+						);
+						await messageService.update(messageId, {
+							syncStatus: MessageSyncStatus.failed,
+						});
+					}
+				})
+				.catch(async (error: unknown) => {
+					const errorMessage =
+						error instanceof Error ? error.message : String(error);
+
+					// Handle TRYCREATE - destination doesn't exist
+					if (errorMessage.includes("TRYCREATE")) {
+						log.info(
+							{ destinationMailboxPath },
+							"Destination mailbox doesn't exist, creating",
+						);
+						const connection = await scope.getConnection();
+						await connection.createMailbox(destinationMailboxPath);
+						// Re-throw to let the event be retried
+						throw error;
+					}
+
+					// Handle message not found on IMAP - already moved/deleted (idempotent)
+					if (
+						errorMessage.includes("not found") ||
+						errorMessage.includes("NONEXISTENT")
+					) {
+						log.info(
+							{ messageId, uid },
+							"Message not found on IMAP, updating local state as synced",
+						);
+						await messageService.update(messageId, {
+							status: MessageStatus.active,
+							syncStatus: MessageSyncStatus.synced,
+						});
+						return;
+					}
+
+					// Mark as failed for other errors
+					await messageService.update(messageId, {
+						syncStatus: MessageSyncStatus.failed,
+					});
+					throw error;
+				})
+				.finally(() => scope.disconnect());
+		},
 	);
-
-	const scope = createConnectionScopeFromAccount(account, password);
-
-	await scope
-		.getConnection()
-		.then(async (connection) => {
-			// Open source mailbox (not read-only)
-			await connection.openBox(sourceMailboxPath, false);
-
-			// Execute IMAP MOVE
-			const result = await connection.moveMessages(
-				[uid],
-				destinationMailboxPath,
-			);
-
-			// Get new UID from COPYUID response
-			const newUid = result.uidMap.get(uid);
-
-			if (newUid) {
-				// Update message with new UID
-				await messageService.updateUid(messageId, newUid, destinationMailboxId);
-
-				// Update ThreadMessage UID and mailboxId
-				const threadMessage =
-					await threadMessageService.findByMessageId(messageId);
-				if (threadMessage) {
-					const args = buildThreadMessageMoveUpdate(
-						threadMessage,
-						newUid,
-						destinationMailboxId,
-					);
-					await threadMessageService.update(
-						threadMessage.accountConfigId,
-						threadMessage.threadMessageId,
-						args.set,
-						{ composites: args.composites },
-					);
-				}
-
-				log.info(
-					{
-						messageId,
-						oldUid: uid,
-						newUid,
-						destination: destinationMailboxPath,
-					},
-					"Message moved successfully",
-				);
-			} else {
-				// Message may have been deleted on server
-				log.error(
-					{ messageId, uid },
-					"Message not found in COPYUID response - may have been deleted",
-				);
-				await messageService.update(messageId, {
-					syncStatus: MessageSyncStatus.failed,
-				});
-			}
-		})
-		.catch(async (error: unknown) => {
-			const errorMessage =
-				error instanceof Error ? error.message : String(error);
-
-			// Handle TRYCREATE - destination doesn't exist
-			if (errorMessage.includes("TRYCREATE")) {
-				log.info(
-					{ destinationMailboxPath },
-					"Destination mailbox doesn't exist, creating",
-				);
-				const connection = await scope.getConnection();
-				await connection.createMailbox(destinationMailboxPath);
-				// Re-throw to let the event be retried
-				throw error;
-			}
-
-			// Handle message not found on IMAP - already moved/deleted (idempotent)
-			if (
-				errorMessage.includes("not found") ||
-				errorMessage.includes("NONEXISTENT")
-			) {
-				log.info(
-					{ messageId, uid },
-					"Message not found on IMAP, updating local state as synced",
-				);
-				await messageService.update(messageId, {
-					status: MessageStatus.active,
-					syncStatus: MessageSyncStatus.synced,
-				});
-				return;
-			}
-
-			// Mark as failed for other errors
-			await messageService.update(messageId, {
-				syncStatus: MessageSyncStatus.failed,
-			});
-			throw error;
-		})
-		.finally(() => scope.disconnect());
 };

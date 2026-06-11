@@ -7,8 +7,10 @@
 
 import {
 	createConnection,
+	createConnectionWithCredentials,
 	type IImapConnection,
 	type ImapConnectionConfig,
+	type MailCredentials,
 } from "@remit/mailbox-service";
 
 export interface ConnectionScope {
@@ -87,4 +89,43 @@ export const createConnectionScopeFromAccount = (
 		port: account.imapPort,
 		tls: account.imapTls,
 	});
+};
+
+/**
+ * Create a connection scope from account data and a MailCredentials union.
+ * Use this for all handlers that support both password and OAuth accounts.
+ */
+export const createConnectionScopeWithCredentials = (
+	account: {
+		username: string;
+		imapHost: string;
+		imapPort: number;
+		imapTls: boolean;
+	},
+	credentials: MailCredentials,
+): ConnectionScope => {
+	let connection: IImapConnection | null = null;
+	let connectPromise: Promise<IImapConnection> | null = null;
+
+	const getConnection = async (): Promise<IImapConnection> => {
+		if (connectPromise) {
+			return connectPromise;
+		}
+
+		const conn = createConnectionWithCredentials(account, credentials);
+		connection = conn;
+		connectPromise = conn.connect().then(() => conn);
+
+		return connectPromise;
+	};
+
+	const disconnect = async (): Promise<void> => {
+		if (connection) {
+			await connection.disconnect();
+			connection = null;
+			connectPromise = null;
+		}
+	};
+
+	return { getConnection, disconnect };
 };

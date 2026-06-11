@@ -31,6 +31,22 @@ export class SmtpConnectionError extends Error {
 	}
 }
 
+/** Password-based SMTP auth (AUTH PLAIN/LOGIN) */
+export interface SmtpAuthPassword {
+	type?: undefined;
+	user: string;
+	pass: string;
+}
+
+/** OAuth2 SMTP auth (XOAUTH2 / OAUTHBEARER) */
+export interface SmtpAuthOAuth2 {
+	type: "OAUTH2";
+	user: string;
+	accessToken: string;
+}
+
+export type SmtpAuth = SmtpAuthPassword | SmtpAuthOAuth2;
+
 export interface SmtpConfig {
 	host: string;
 	port: number;

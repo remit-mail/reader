@@ -23,6 +23,7 @@
 		"@aws-sdk/lib-dynamodb": "*",
 		"@remit/electrodb-entities": "*",
 		"@remit/domain-enums": "*",
+		"@remit/mail-oauth-service": "*",
 		"@remit/secrets-service": "*",
 		"@remit/storage-service": "*",
 		"@types/mailparser": "*",
