@@ -44,7 +44,6 @@ namespace RemitImap;
     sk: [ThreadMessage.isRead, ThreadMessage.sentDate],
   }
 )
-// LSI1: List messages by date (account-wide)
 @index(
   "byDate",
   {
@@ -53,7 +52,6 @@ namespace RemitImap;
     sk: [ThreadMessage.sentDate],
   }
 )
-// LSI2: List messages by mailbox, ordered by date (for thread grouping in app)
 @index(
   "byMailboxId",
   {
@@ -62,7 +60,6 @@ namespace RemitImap;
     sk: [ThreadMessage.mailboxId, ThreadMessage.sentDate],
   }
 )
-// LSI3: Filter/count messages with attachments
 @index(
   "byAttachment",
   {
@@ -71,7 +68,6 @@ namespace RemitImap;
     sk: [ThreadMessage.hasAttachment, ThreadMessage.sentDate],
   }
 )
-// LSI4: Filter/count starred messages
 @index(
   "byStarred",
   {
@@ -80,7 +76,6 @@ namespace RemitImap;
     sk: [ThreadMessage.hasStars, ThreadMessage.sentDate],
   }
 )
-// LSI5: Filter/count unread status within mailbox
 @index(
   "byMailboxAndReadStatus",
   {
