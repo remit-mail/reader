@@ -6,6 +6,7 @@ import {
 	configOperationsGetConfigQueryKey,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
+import { Button, Input } from "@remit/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, Loader2, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -354,28 +355,24 @@ export const AccountFormPanel = ({
 			title={isEditing ? "Edit Account" : "Add Account"}
 			footer={
 				<>
-					<button
-						type="button"
-						onClick={onClose}
-						className="px-4 py-2 border rounded-md hover:bg-surface-raised"
-					>
+					<Button type="button" variant="secondary" onClick={onClose}>
 						Cancel
-					</button>
-					<button
+					</Button>
+					<Button
 						type="submit"
 						form="account-form"
+						variant="primary"
 						disabled={isSaving}
-						className="px-4 py-2 bg-accent text-accent-fg rounded-md hover:bg-accent-hover disabled:opacity-50"
 					>
 						{isSaving ? "Saving..." : "Save Account"}
-					</button>
+					</Button>
 				</>
 			}
 		>
 			<form id="account-form" onSubmit={handleSubmit} className="space-y-6">
 				{/* Account Information Section */}
 				<section>
-					<h3 className="text-xs font-semibold text-fg-muted uppercase tracking-wider mb-3">
+					<h3 className="text-2xs font-semibold text-fg-subtle uppercase tracking-wider mb-3">
 						Account Information
 					</h3>
 					<div className="space-y-3">
@@ -383,13 +380,12 @@ export const AccountFormPanel = ({
 							<label className="text-sm font-medium mb-1.5 block">
 								Email Address
 							</label>
-							<input
+							<Input
 								{...form.register("email")}
-								className="w-full px-3 py-2 border rounded-md bg-canvas"
 								placeholder="alice@example.com"
 							/>
 							{form.formState.errors.email && (
-								<p className="text-sm text-red-600 mt-1">
+								<p className="text-sm text-danger mt-1">
 									{form.formState.errors.email.message}
 								</p>
 							)}
@@ -398,9 +394,8 @@ export const AccountFormPanel = ({
 							<label className="text-sm font-medium mb-1.5 block">
 								Username
 							</label>
-							<input
+							<Input
 								{...form.register("username")}
-								className="w-full px-3 py-2 border rounded-md bg-canvas"
 								placeholder="Same as email if empty"
 							/>
 						</div>
@@ -408,12 +403,11 @@ export const AccountFormPanel = ({
 							<label className="text-sm font-medium mb-1.5 block">
 								Password
 							</label>
-							<input
+							<Input
 								{...form.register("password", {
 									onChange: () => setPasswordModified(true),
 								})}
 								type="password"
-								className="w-full px-3 py-2 border rounded-md bg-canvas"
 								onFocus={() => {
 									// Clear placeholder when user focuses the field
 									if (isEditing && !passwordModified) {
@@ -424,7 +418,7 @@ export const AccountFormPanel = ({
 								placeholder={isEditing ? "Leave empty to keep current" : ""}
 							/>
 							{form.formState.errors.password && (
-								<p className="text-sm text-red-600 mt-1">
+								<p className="text-sm text-danger mt-1">
 									{form.formState.errors.password.message}
 								</p>
 							)}
@@ -434,19 +428,18 @@ export const AccountFormPanel = ({
 
 				{/* IMAP Settings */}
 				<section>
-					<h3 className="text-xs font-semibold text-fg-muted uppercase tracking-wider mb-3">
+					<h3 className="text-2xs font-semibold text-fg-subtle uppercase tracking-wider mb-3">
 						Incoming Mail (IMAP)
 					</h3>
 					<div className="space-y-3">
 						<div>
 							<label className="text-sm font-medium mb-1.5 block">Server</label>
-							<input
+							<Input
 								{...form.register("imapHost")}
-								className="w-full px-3 py-2 border rounded-md bg-canvas"
 								placeholder="imap.example.com"
 							/>
 							{form.formState.errors.imapHost && (
-								<p className="text-sm text-red-600 mt-1">
+								<p className="text-sm text-danger mt-1">
 									{form.formState.errors.imapHost.message}
 								</p>
 							)}
@@ -454,11 +447,7 @@ export const AccountFormPanel = ({
 						<div className="grid grid-cols-2 gap-3">
 							<div>
 								<label className="text-sm font-medium mb-1.5 block">Port</label>
-								<input
-									{...form.register("imapPort")}
-									type="number"
-									className="w-full px-3 py-2 border rounded-md bg-canvas"
-								/>
+								<Input {...form.register("imapPort")} type="number" />
 							</div>
 							<div>
 								<label className="text-sm font-medium mb-1.5 block">
@@ -496,28 +485,27 @@ export const AccountFormPanel = ({
 								</div>
 							</div>
 						</div>
-						<button
+						<Button
 							type="button"
+							variant="secondary"
 							onClick={handleTestImap}
 							disabled={testMutation.isPending}
-							className="w-full py-2 border rounded-md hover:bg-surface-raised flex items-center justify-center gap-2"
-						>
-							{testMutation.isPending ? (
-								<>
+							className="w-full"
+							icon={
+								testMutation.isPending ? (
 									<Loader2 className="size-4 animate-spin" />
-									Testing...
-								</>
-							) : (
-								"Test IMAP Connection"
-							)}
-						</button>
+								) : undefined
+							}
+						>
+							{testMutation.isPending ? "Testing..." : "Test IMAP Connection"}
+						</Button>
 						{testMutation.data && (
 							<div
 								className={cn(
 									"p-2 rounded-md text-sm",
 									testMutation.data.imapSuccess
-										? "bg-green-50 text-green-700"
-										: "bg-red-50 text-red-700",
+										? "bg-positive/10 text-positive"
+										: "bg-danger-soft text-danger",
 								)}
 							>
 								{testMutation.data.imapSuccess ? (
@@ -536,7 +524,7 @@ export const AccountFormPanel = ({
 				{/* SMTP Settings */}
 				<section ref={smtpSectionRef} data-testid="smtp-section">
 					<div className="flex items-center justify-between mb-3">
-						<h3 className="text-xs font-semibold text-fg-muted uppercase tracking-wider">
+						<h3 className="text-2xs font-semibold text-fg-subtle uppercase tracking-wider">
 							Outgoing Mail (SMTP)
 						</h3>
 						<button
@@ -551,20 +539,15 @@ export const AccountFormPanel = ({
 					<div className="space-y-3">
 						<div>
 							<label className="text-sm font-medium mb-1.5 block">Server</label>
-							<input
+							<Input
 								{...form.register("smtpHost")}
-								className="w-full px-3 py-2 border rounded-md bg-canvas"
 								placeholder="smtp.example.com"
 							/>
 						</div>
 						<div className="grid grid-cols-2 gap-3">
 							<div>
 								<label className="text-sm font-medium mb-1.5 block">Port</label>
-								<input
-									{...form.register("smtpPort")}
-									type="number"
-									className="w-full px-3 py-2 border rounded-md bg-canvas"
-								/>
+								<Input {...form.register("smtpPort")} type="number" />
 							</div>
 							<div>
 								<label className="text-sm font-medium mb-1.5 block">
@@ -616,45 +599,37 @@ export const AccountFormPanel = ({
 									<label className="text-sm font-medium mb-1.5 block">
 										SMTP Username
 									</label>
-									<input
-										{...form.register("smtpUsername")}
-										className="w-full px-3 py-2 border rounded-md bg-canvas"
-									/>
+									<Input {...form.register("smtpUsername")} />
 								</div>
 								<div>
 									<label className="text-sm font-medium mb-1.5 block">
 										SMTP Password
 									</label>
-									<input
-										{...form.register("smtpPassword")}
-										type="password"
-										className="w-full px-3 py-2 border rounded-md bg-canvas"
-									/>
+									<Input {...form.register("smtpPassword")} type="password" />
 								</div>
 							</>
 						)}
-						<button
+						<Button
 							type="button"
+							variant="secondary"
 							onClick={handleTestSmtp}
 							disabled={testMutation.isPending || !form.watch("smtpHost")}
-							className="w-full py-2 border rounded-md hover:bg-surface-raised flex items-center justify-center gap-2 disabled:opacity-50"
-						>
-							{testMutation.isPending ? (
-								<>
+							className="w-full"
+							icon={
+								testMutation.isPending ? (
 									<Loader2 className="size-4 animate-spin" />
-									Testing...
-								</>
-							) : (
-								"Test SMTP Connection"
-							)}
-						</button>
+								) : undefined
+							}
+						>
+							{testMutation.isPending ? "Testing..." : "Test SMTP Connection"}
+						</Button>
 						{testMutation.data?.smtpSuccess !== undefined && (
 							<div
 								className={cn(
 									"p-2 rounded-md text-sm",
 									testMutation.data.smtpSuccess
-										? "bg-green-50 text-green-700"
-										: "bg-red-50 text-red-700",
+										? "bg-positive/10 text-positive"
+										: "bg-danger-soft text-danger",
 								)}
 							>
 								{testMutation.data.smtpSuccess ? (
@@ -672,7 +647,7 @@ export const AccountFormPanel = ({
 
 				{isEditing && (
 					<section>
-						<h3 className="text-xs font-semibold text-fg-muted uppercase tracking-wider mb-3">
+						<h3 className="text-2xs font-semibold text-fg-subtle uppercase tracking-wider mb-3">
 							Signature
 						</h3>
 						<div className="space-y-3">
@@ -685,7 +660,7 @@ export const AccountFormPanel = ({
 									onChange={(e) => setSignatureText(e.target.value)}
 									onBlur={handleSignatureBlur}
 									rows={5}
-									className="w-full px-3 py-2 border rounded-md bg-canvas resize-y"
+									className="w-full px-3 py-2 border border-line rounded-md bg-surface-sunken text-sm text-fg placeholder:text-fg-subtle focus-within:border-line-strong focus-within:ring-2 focus-within:ring-ring/30 transition-colors resize-y outline-none"
 									placeholder="Enter your email signature..."
 								/>
 								<p className="text-xs text-fg-muted mt-1">
