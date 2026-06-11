@@ -265,7 +265,12 @@ export const MessageBody = ({
 				// UI sans-serif + theme-aware colors injected; colorScheme:
 				// "normal" so the injected CSS drives everything.
 				framed ? (
-					<div className="overflow-hidden rounded-sm border border-line bg-surface-sunken max-w-2xl">
+					// Hug the email's natural width so a wide fixed-width
+					// newsletter exceeds the reading column and its iframe
+					// width drives the pane's horizontal scroll. No
+					// `overflow-hidden`: clipping here would hide wide content
+					// instead of surfacing the pane-level scrollbar (#528).
+					<div className="w-fit rounded-sm border border-line bg-surface-sunken">
 						<IsolatedEmailFrame html={sanitizedHtml} isPlain={false} />
 					</div>
 				) : (
