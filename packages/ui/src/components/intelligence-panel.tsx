@@ -31,8 +31,14 @@ export interface SenderIntel {
 	trust: SenderTrustLevel;
 	/** Human label, e.g. "Jan 2025" or "today". */
 	firstSeenLabel: string;
-	inboundCount: number;
-	replyCount: number;
+	/**
+	 * Engagement counters. Optional: when the API does not expose them, omit
+	 * both and the engagement clause is suppressed rather than rendering a
+	 * misleading "0 received · you've never replied" next to an earned trust
+	 * badge. Render the clause only when `inboundCount` is provided.
+	 */
+	inboundCount?: number;
+	replyCount?: number;
 }
 
 export interface AuthenticityIntel {
@@ -80,10 +86,32 @@ export interface IntelligenceData {
 	similar: SimilarMessageIntel[];
 }
 
+export interface IntelligenceQuickActions {
+	onToggleVip?: () => void;
+	onToggleMute?: () => void;
+	/** Block navigates through a confirm dialog — the callback fires post-confirm. */
+	onToggleBlock?: () => void;
+	onToggleUnsubscribe?: () => void;
+	onToggleAutoArchive?: () => void;
+	onReclassify?: () => void;
+}
+
+/**
+ * Async state for the similar-messages section. The host computes these from
+ * the semantic-search query so the panel can show a skeleton while in flight
+ * and "similarity search unavailable" on failure (the rest of the sidebar
+ * still renders). Defaults to "ready" when omitted.
+ */
+export type SimilarState = "loading" | "error" | "ready";
+
 export interface IntelligencePanelProps {
 	data: IntelligenceData;
 	onClose?: () => void;
 	onShowSimilar?: () => void;
+	/** Quick-action callbacks. When omitted the buttons are visual-only. */
+	actions?: IntelligenceQuickActions;
+	/** Loading/error state for the similar-messages section. */
+	similarState?: SimilarState;
 	/** Layout overrides (e.g. when hosted inside a resizable panel). */
 	className?: string;
 }
@@ -120,10 +148,15 @@ function Section({
 
 function SenderCard({ sender }: { sender: SenderIntel }) {
 	const trust = trustLabel[sender.trust];
+	// Engagement clause renders only when counters are present. When the API
+	// does not expose inboundCount/replyCount we show first-seen alone rather
+	// than a misleading "0 received · you've never replied".
 	const engagement =
-		sender.replyCount > 0
-			? `${sender.inboundCount} received · you replied ${sender.replyCount}×`
-			: `${sender.inboundCount} received · you've never replied`;
+		sender.inboundCount == null
+			? null
+			: (sender.replyCount ?? 0) > 0
+				? `${sender.inboundCount} received · you replied ${sender.replyCount}×`
+				: `${sender.inboundCount} received · you've never replied`;
 	return (
 		<div>
 			<div className="flex items-center gap-3">
@@ -141,7 +174,8 @@ function SenderCard({ sender }: { sender: SenderIntel }) {
 				</Badge>
 			</div>
 			<p className="mt-2 text-xs text-fg-muted">
-				First seen {sender.firstSeenLabel} · {engagement}
+				First seen {sender.firstSeenLabel}
+				{engagement ? ` · ${engagement}` : ""}
 			</p>
 		</div>
 	);
@@ -204,15 +238,18 @@ function QuickAction({
 	label,
 	active,
 	danger,
+	onClick,
 }: {
 	icon: ReactNode;
 	label: string;
 	active?: boolean;
 	danger?: boolean;
+	onClick?: () => void;
 }) {
 	return (
 		<button
 			type="button"
+			onClick={onClick}
 			className={cn(
 				"flex items-center gap-2 rounded-md border px-2 py-1 text-xs transition-colors",
 				active
@@ -240,6 +277,8 @@ export function IntelligencePanel({
 	data,
 	onClose,
 	onShowSimilar,
+	actions,
+	similarState = "ready",
 	className,
 }: IntelligencePanelProps) {
 	const { sender, authenticity, category, flags = {}, similar } = data;
@@ -285,6 +324,7 @@ export function IntelligencePanel({
 					<button
 						type="button"
 						className="ml-auto text-2xs text-accent hover:underline"
+						onClick={actions?.onReclassify}
 					>
 						reclassify
 					</button>
@@ -297,58 +337,78 @@ export function IntelligencePanel({
 						icon={<Star className="size-3.5" />}
 						label="VIP"
 						active={flags.vip}
+						onClick={actions?.onToggleVip}
 					/>
 					<QuickAction
 						icon={<BellOff className="size-3.5" />}
 						label="Mute"
 						active={flags.muted}
+						onClick={actions?.onToggleMute}
 					/>
 					<QuickAction
 						icon={<Ban className="size-3.5" />}
 						label="Block"
 						active={flags.blocked}
 						danger
+						onClick={actions?.onToggleBlock}
 					/>
 					<QuickAction
 						icon={<MailX className="size-3.5" />}
 						label="Unsubscribe"
 						active={flags.unsubscribed}
+						onClick={actions?.onToggleUnsubscribe}
 					/>
 					<QuickAction
 						icon={<Archive className="size-3.5" />}
 						label="Auto-archive"
 						active={flags.autoArchive}
+						onClick={actions?.onToggleAutoArchive}
 					/>
 				</div>
 			</Section>
 
-			{similar.length > 0 && (
+			{(similarState !== "ready" || similar.length > 0) && (
 				<Section label="Similar messages">
-					<ul className="-mx-1 space-y-1">
-						{similar.map((s) => (
-							<li key={s.id}>
-								<button
-									type="button"
-									className="w-full rounded-md px-1 py-1 text-left hover:bg-surface-sunken"
-								>
-									<div className="flex items-baseline justify-between gap-2">
-										<span className="truncate text-xs font-medium text-fg">
-											{s.fromName}
+					{similarState === "loading" ? (
+						<div className="animate-pulse space-y-2">
+							{Array.from({ length: 3 }).map((_, i) => (
+								<div key={i} className="space-y-1">
+									<div className="h-3 w-3/4 rounded bg-surface-sunken" />
+									<div className="h-2.5 w-1/2 rounded bg-surface-sunken" />
+								</div>
+							))}
+						</div>
+					) : similarState === "error" ? (
+						<p className="text-xs text-fg-subtle">
+							Similarity search unavailable
+						</p>
+					) : (
+						<ul className="-mx-1 space-y-1">
+							{similar.map((s) => (
+								<li key={s.id}>
+									<button
+										type="button"
+										className="w-full rounded-md px-1 py-1 text-left hover:bg-surface-sunken"
+									>
+										<div className="flex items-baseline justify-between gap-2">
+											<span className="truncate text-xs font-medium text-fg">
+												{s.fromName}
+											</span>
+											<span className="shrink-0 text-2xs text-fg-subtle tabular-nums">
+												{s.timeLabel}
+											</span>
+										</div>
+										<div className="truncate text-xs text-fg-muted">
+											{s.subject}
+										</div>
+										<span className="mt-1 inline-block rounded-full bg-surface-sunken px-1.5 py-px text-2xs text-fg-subtle">
+											{matchTone[s.matched]}
 										</span>
-										<span className="shrink-0 text-2xs text-fg-subtle tabular-nums">
-											{s.timeLabel}
-										</span>
-									</div>
-									<div className="truncate text-xs text-fg-muted">
-										{s.subject}
-									</div>
-									<span className="mt-1 inline-block rounded-full bg-surface-sunken px-1.5 py-px text-2xs text-fg-subtle">
-										{matchTone[s.matched]}
-									</span>
-								</button>
-							</li>
-						))}
-					</ul>
+									</button>
+								</li>
+							))}
+						</ul>
+					)}
 				</Section>
 			)}
 

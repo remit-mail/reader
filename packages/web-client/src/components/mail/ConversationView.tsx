@@ -3,8 +3,9 @@ import {
 	messageOperationsDescribeMessageOptions,
 	threadDetailOperationsListThreadMessagesOptions,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import type { RemitImapMessageAuthenticity } from "@remit/api-http-client/types.gen.ts";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Forward, Reply, ReplyAll } from "lucide-react";
+import { ArrowLeft, Forward, Reply, ReplyAll, ShieldAlert } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ComposeMode } from "@/components/compose/ComposeProvider";
 import { InlineCompose } from "@/components/compose/InlineCompose";
@@ -21,6 +22,17 @@ interface ConversationViewProps {
 	threadId: string;
 	mailboxId: string;
 	subject?: string;
+	/**
+	 * Authenticity signal from the thread row (DKIM mismatch). When present
+	 * and `dkimMismatch` is true, a danger banner renders above the message
+	 * body with a "Why?" link that opens the intelligence sidebar.
+	 */
+	authenticity?: RemitImapMessageAuthenticity;
+	/**
+	 * Callback for the "Why?" link in the authenticity banner — opens /
+	 * focuses the intelligence sidebar.
+	 */
+	onOpenIntelligence?: () => void;
 	/**
 	 * Mobile callers pass `onBack` so the action bar at the bottom of
 	 * the conversation can render a Back button alongside Reply / Reply
@@ -140,10 +152,52 @@ const ActionBar = ({
 	</div>
 );
 
+/**
+ * Danger banner rendered above the thread body when DKIM mismatch is detected.
+ * Design spec (03-reading-and-intelligence.md): "a danger banner renders above
+ * the body: 'This message claims to be a company but was sent from a personal
+ * mailbox.' with a 'Why?' link that opens/highlights this section."
+ */
+function AuthenticityBanner({
+	authenticity,
+	onOpenIntelligence,
+}: {
+	authenticity: RemitImapMessageAuthenticity;
+	onOpenIntelligence?: () => void;
+}) {
+	if (!authenticity.dkimMismatch) return null;
+
+	return (
+		<div className="flex items-start gap-2 rounded-none border-b border-danger/20 bg-danger-soft px-5 py-2.5 text-sm">
+			<ShieldAlert className="mt-0.5 size-4 shrink-0 text-danger" />
+			<p className="flex-1 leading-snug text-fg">
+				This message claims to be from{" "}
+				<span className="font-semibold">{authenticity.fromDomain}</span> but was
+				sent
+				{authenticity.dkimDomain
+					? ` via ${authenticity.dkimDomain}`
+					: " from a different domain"}
+				.
+			</p>
+			{onOpenIntelligence && (
+				<button
+					type="button"
+					onClick={onOpenIntelligence}
+					className="shrink-0 text-2xs font-medium text-danger hover:underline"
+				>
+					Why?
+				</button>
+			)}
+		</div>
+	);
+}
+
 export const ConversationView = ({
 	threadId,
 	mailboxId,
 	subject,
+	authenticity,
+	onOpenIntelligence,
 	onBack,
 	composeRequest,
 	onComposeClose,
@@ -396,6 +450,13 @@ export const ConversationView = ({
 	if (!isDesktop) {
 		return (
 			<article className="h-full flex flex-col">
+				{/* The phishing warning is just as important on mobile. There is no
+				    intelligence sidebar on mobile (the 4-pane layout is desktop-only),
+				    so the banner renders without a "Why?" link — the warning text
+				    stands on its own. */}
+				{authenticity?.dkimMismatch && (
+					<AuthenticityBanner authenticity={authenticity} />
+				)}
 				<div className="flex-1 overflow-y-auto">{messagesList}</div>
 				{composeMode !== null ? (
 					<InlineCompose
@@ -420,6 +481,12 @@ export const ConversationView = ({
 	return (
 		<article className="h-full flex flex-col">
 			{header}
+			{authenticity?.dkimMismatch && (
+				<AuthenticityBanner
+					authenticity={authenticity}
+					onOpenIntelligence={onOpenIntelligence}
+				/>
+			)}
 			<div className="flex-1 overflow-y-auto">{messagesList}</div>
 			{composeMode !== null ? (
 				<InlineCompose
