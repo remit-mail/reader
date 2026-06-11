@@ -274,6 +274,9 @@ export class MessageSyncService {
 		];
 
 		const bodyParts = buildBodyPartUpserts(msg.bodyStructure);
+		const hasAttachment = bodyParts.some(
+			(p) => !p.isMultipart && p.disposition === "attachment",
+		);
 
 		// Run all entity saves in parallel with concurrency limit
 		const saveOps: Array<() => Promise<void>> = [
@@ -324,6 +327,7 @@ export class MessageSyncService {
 					envelope,
 					msg.flags,
 					msg.references,
+					hasAttachment,
 				);
 			},
 		];
@@ -433,6 +437,7 @@ export class MessageSyncService {
 		envelope: ImapEnvelope,
 		flags: string[],
 		references?: string[],
+		hasAttachment = false,
 	): Promise<void> {
 		// Determine the thread root Message-ID
 		let rootMessageIdHeader: string;
@@ -490,7 +495,7 @@ export class MessageSyncService {
 				sentDate,
 				isRead,
 				isDeleted: false,
-				hasAttachment: false,
+				hasAttachment,
 				hasStars: false,
 			})
 			.catch((error: unknown) => {
