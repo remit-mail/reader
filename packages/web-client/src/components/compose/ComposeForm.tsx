@@ -207,7 +207,7 @@ const ComposeHeader = ({
 				<span className="truncate text-xs text-fg-muted">
 					{chips.length > 0 ? chips.join(" · ") : "…"}
 				</span>
-				<span className="shrink-0 inline-flex items-center justify-center rounded bg-surface-sunken px-1.5 py-0.5 text-[10px] text-fg-muted">
+				<span className="shrink-0 inline-flex items-center justify-center rounded bg-surface-sunken px-1.5 py-0.5 text-2xs text-fg-muted">
 					…
 				</span>
 			</div>

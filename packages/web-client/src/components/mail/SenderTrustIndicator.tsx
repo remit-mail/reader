@@ -53,7 +53,7 @@ export const SenderTrustIndicator = ({
 		return (
 			<Sparkles
 				className={cn(
-					"text-amber-500 dark:text-amber-400 shrink-0",
+					"text-warning shrink-0",
 					size === "sm" && "size-3.5",
 					size === "md" && "size-4",
 					className,
