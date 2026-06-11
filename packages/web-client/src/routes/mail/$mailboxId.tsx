@@ -18,7 +18,7 @@ import {
 	useQueryClient,
 } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import type { ComposeMode } from "@/components/compose/ComposeProvider";
 import { useCompose } from "@/components/compose/ComposeProvider";
@@ -170,6 +170,25 @@ function MailboxView() {
 	);
 
 	const selectedThread = threads.find((t) => t.messageId === selectedMessageId);
+
+	// Auto-open intelligence pane when the selected thread has a DKIM mismatch.
+	// Track the last message id we auto-opened for so we don't re-trigger on
+	// subsequent renders of the same message (e.g. optimistic cache patches).
+	const autoOpenedForRef = useRef<string | null>(null);
+	useEffect(() => {
+		const id = selectedThread?.messageId ?? null;
+		if (!id) return;
+		if (autoOpenedForRef.current === id) return;
+		if (selectedThread?.authenticity?.dkimMismatch) {
+			autoOpenedForRef.current = id;
+			if (!intelligenceOpen) onToggleIntelligence();
+		}
+	}, [
+		selectedThread?.messageId,
+		selectedThread?.authenticity?.dkimMismatch,
+		intelligenceOpen,
+		onToggleIntelligence,
+	]);
 
 	// Datum unread count: prefer the mailbox's authoritative server-side
 	// unseenCount over a count derived from the loaded infinite-query pages,
@@ -337,6 +356,12 @@ function MailboxView() {
 				threadId={selectedThread.threadId}
 				mailboxId={mailboxId}
 				subject={selectedThread.subject}
+				authenticity={selectedThread.authenticity}
+				onOpenIntelligence={
+					selectedThread.authenticity?.dkimMismatch
+						? onToggleIntelligence
+						: undefined
+				}
 				composeRequest={toolbarComposeRequest}
 				onComposeClose={handleClearComposeRequest}
 			/>
@@ -495,7 +520,10 @@ function MailboxView() {
 						maxSize={32}
 						className="min-w-0"
 					>
-						<IntelligencePane onClose={onToggleIntelligence} />
+						<IntelligencePane
+							onClose={onToggleIntelligence}
+							thread={selectedThread}
+						/>
 					</ResizablePanel>
 				</>
 			)}

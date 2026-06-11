@@ -33,11 +33,13 @@ export {
 	type IntelligenceData,
 	IntelligencePanel,
 	type IntelligencePanelProps,
+	type IntelligenceQuickActions,
 	type MatchedChunk,
 	type SenderFlagsIntel,
 	type SenderIntel,
 	type SenderTrustLevel,
 	type SimilarMessageIntel,
+	type SimilarState,
 } from "./components/intelligence-panel.js";
 export { Kbd, type KbdProps } from "./components/kbd.js";
 export { ListItem, type ListItemProps } from "./components/list-item.js";
