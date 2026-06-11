@@ -43,6 +43,18 @@ interface MessageListProps {
 	 * the toolbar disables Move and surfaces an inline hint.
 	 */
 	accountId?: string;
+	/**
+	 * Triage-layer context bridge (#429). The roving focus cursor and the
+	 * multi-selection live here; the parent route's global keyboard dispatcher
+	 * needs them to target the action verbs (reply/archive/star/…) at the
+	 * focused row, or the selection when one exists. Called whenever either
+	 * changes. `focusedMessageId` is the keyboard cursor (distinct from the
+	 * open/selected thread in the URL); `selectedIds` is the checkbox set.
+	 */
+	onTriageContextChange?: (context: {
+		focusedMessageId: string | undefined;
+		selectedIds: string[];
+	}) => void;
 }
 
 const COMFORTABLE_ITEM_HEIGHT = 72;
@@ -108,11 +120,21 @@ export const MessageList = ({
 	hasMore = false,
 	isLoadingMore = false,
 	accountId,
+	onTriageContextChange,
 }: MessageListProps) => {
 	const parentRef = useRef<HTMLDivElement>(null);
 	const navigate = useNavigate();
 	const isDesktop = useIsDesktop();
 	const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
+
+	// Roving focus cursor (#429): the keyboard "where am I" pointer, distinct
+	// from the open thread (`selectedMessageId` in the URL). j/k move this
+	// cursor without opening; Enter opens the focused row → sets selected. It
+	// seeds from the open thread so opening a message also focuses its row, and
+	// click-to-open keeps working unchanged (the route still navigates).
+	const [focusedMessageId, setFocusedMessageId] = useState<string | undefined>(
+		selectedMessageId,
+	);
 
 	// Density toggle: comfortable (default) or compact (mutt mode).
 	// Persisted to localStorage so the choice survives reloads.
@@ -168,54 +190,53 @@ export const MessageList = ({
 		overscan: OVERSCAN_COUNT,
 	});
 
-	// Find current index
+	// Index of the open thread (for scroll-into-view of the reading pane target).
 	const currentIndex = selectedMessageId
 		? threads.findIndex((t) => t.messageId === selectedMessageId)
 		: -1;
 
-	// Navigation handlers
-	const selectByIndex = useCallback(
+	// Index of the roving focus cursor — what j/k move.
+	const focusIndex = focusedMessageId
+		? threads.findIndex((t) => t.messageId === focusedMessageId)
+		: -1;
+
+	// Move the focus cursor by index. In multi-select mode (mobile) j/k still
+	// toggle selection rather than moving a cursor, preserving prior behavior.
+	const moveFocusToIndex = useCallback(
 		(index: number) => {
-			// In multi-select mode, toggle selection instead of navigating
+			if (index < 0 || index >= threads.length) return;
+			const thread = threads[index];
 			if (isMultiSelectMode) {
-				if (index >= 0 && index < threads.length) {
-					const thread = threads[index];
-					toggleCheck(thread.messageId);
-				}
+				toggleCheck(thread.messageId);
 				return;
 			}
-
-			if (index >= 0 && index < threads.length) {
-				const thread = threads[index];
-				navigate({
-					to: "/mail/$mailboxId",
-					params: { mailboxId },
-					search: { selectedMessageId: thread.messageId },
-				});
-			}
+			setFocusedMessageId(thread.messageId);
 		},
-		[threads, mailboxId, navigate, isMultiSelectMode, toggleCheck],
+		[threads, isMultiSelectMode, toggleCheck],
 	);
 
-	const selectNext = useCallback(() => {
+	// j / ArrowDown: move focus to the next row (no open). Starts at the top
+	// when nothing is focused yet.
+	const focusNext = useCallback(() => {
 		if (threads.length === 0) return;
 		const nextIndex =
-			currentIndex < 0 ? 0 : Math.min(currentIndex + 1, threads.length - 1);
-		selectByIndex(nextIndex);
-	}, [threads.length, currentIndex, selectByIndex]);
+			focusIndex < 0 ? 0 : Math.min(focusIndex + 1, threads.length - 1);
+		moveFocusToIndex(nextIndex);
+	}, [threads.length, focusIndex, moveFocusToIndex]);
 
-	const selectPrevious = useCallback(() => {
+	// k / ArrowUp: move focus to the previous row.
+	const focusPrevious = useCallback(() => {
 		if (threads.length === 0) return;
-		const prevIndex = currentIndex <= 0 ? 0 : currentIndex - 1;
-		selectByIndex(prevIndex);
-	}, [threads.length, currentIndex, selectByIndex]);
+		const prevIndex = focusIndex <= 0 ? 0 : focusIndex - 1;
+		moveFocusToIndex(prevIndex);
+	}, [threads.length, focusIndex, moveFocusToIndex]);
 
-	// Toggle selection on focused item with x key
+	// Toggle selection on the focused row with x.
 	const toggleFocusedSelection = useCallback(() => {
-		if (selectedMessageId) {
-			toggleCheck(selectedMessageId);
+		if (focusedMessageId) {
+			toggleCheck(focusedMessageId);
 		}
-	}, [selectedMessageId, toggleCheck]);
+	}, [focusedMessageId, toggleCheck]);
 
 	// Desktop mouse selection semantics (Apple Mail / Gmail model). Called by a
 	// row's onClick with the click modifiers. Returns true when selection
@@ -261,17 +282,15 @@ export const MessageList = ({
 	// moving back toward the anchor shrinks the range.
 	const extendRange = useCallback(
 		(direction: -1 | 1) => {
-			const target = nextFocusId(orderedIds, selectedMessageId, direction);
+			const target = nextFocusId(orderedIds, focusedMessageId, direction);
 			if (target === undefined) return;
 			selectRange(orderedIds, target);
-			navigate({
-				to: "/mail/$mailboxId",
-				params: { mailboxId },
-				search: (prev) => ({ ...prev, selectedMessageId: target }),
-				replace: true,
-			});
+			// Shift+arrow moves the focus cursor (not the open thread) and grows
+			// the selection from the anchor — the keyboard equivalent of
+			// shift-click.
+			setFocusedMessageId(target);
 		},
-		[orderedIds, selectedMessageId, selectRange, navigate, mailboxId],
+		[orderedIds, focusedMessageId, selectRange],
 	);
 
 	const extendRangeUp = useCallback(() => extendRange(-1), [extendRange]);
@@ -289,20 +308,21 @@ export const MessageList = ({
 	const handleDeleteKey = useCallback(() => {
 		if (selectedCount > 0) {
 			requestDelete(Array.from(selectedIds));
-		} else if (selectedMessageId) {
-			requestDelete([selectedMessageId]);
+		} else if (focusedMessageId) {
+			requestDelete([focusedMessageId]);
 		}
-	}, [selectedCount, selectedIds, selectedMessageId, requestDelete]);
+	}, [selectedCount, selectedIds, focusedMessageId, requestDelete]);
 
-	// Enter: open the focused message.
+	// Enter: open the focused row in the reading pane (sets selected/URL). This
+	// is the focus→open transition of the 2-state model.
 	const handleOpenFocused = useCallback(() => {
-		if (!selectedMessageId) return;
+		if (!focusedMessageId) return;
 		navigate({
 			to: "/mail/$mailboxId",
 			params: { mailboxId },
-			search: (prev) => ({ ...prev, selectedMessageId }),
+			search: (prev) => ({ ...prev, selectedMessageId: focusedMessageId }),
 		});
-	}, [selectedMessageId, navigate, mailboxId]);
+	}, [focusedMessageId, navigate, mailboxId]);
 
 	// Toolbar Trash2: confirm-delete the current selection.
 	const handleDelete = useCallback(() => {
@@ -438,12 +458,42 @@ export const MessageList = ({
 		clearSelection();
 	}, [clearSelection]);
 
-	// Scroll selected item into view when it changes
+	// Scroll the roving focus cursor into view as it moves (j/k). Falls back to
+	// the open thread when nothing is focused yet.
 	useEffect(() => {
-		if (currentIndex >= 0) {
-			virtualizer.scrollToIndex(currentIndex, { align: "auto" });
+		const target = focusIndex >= 0 ? focusIndex : currentIndex;
+		if (target >= 0) {
+			virtualizer.scrollToIndex(target, { align: "auto" });
 		}
-	}, [currentIndex, virtualizer]);
+	}, [focusIndex, currentIndex, virtualizer]);
+
+	// Opening a thread (click or Enter, anywhere) seeds the focus cursor onto it
+	// so subsequent j/k continue from the open row — focus and open stay in
+	// sync on open while remaining independent during scanning.
+	useEffect(() => {
+		if (selectedMessageId) {
+			setFocusedMessageId(selectedMessageId);
+		}
+	}, [selectedMessageId]);
+
+	// Keep the focus cursor valid as the thread list changes (after delete /
+	// move / refetch). If the focused row vanished, snap to the nearest
+	// surviving row so j/k never dead-ends.
+	useEffect(() => {
+		if (!focusedMessageId) return;
+		if (threads.some((t) => t.messageId === focusedMessageId)) return;
+		setFocusedMessageId(threads[0]?.messageId);
+	}, [threads, focusedMessageId]);
+
+	// Bridge the roving cursor + selection up to the route's global keyboard
+	// dispatcher (#429) so the action verbs can target the focused row, or the
+	// selection when one exists.
+	useEffect(() => {
+		onTriageContextChange?.({
+			focusedMessageId,
+			selectedIds: Array.from(selectedIds),
+		});
+	}, [focusedMessageId, selectedIds, onTriageContextChange]);
 
 	// Clear selection when threads change (e.g., after delete)
 	useEffect(() => {
@@ -487,18 +537,19 @@ export const MessageList = ({
 		bindings: [
 			// Focus movement (plain). requireShift:false so Shift+Arrow falls
 			// through to the range-extend bindings below instead of also moving
-			// focus without selecting.
-			{ key: "j", handler: selectNext, preventDefault: true },
+			// focus without selecting. j/k move the roving cursor WITHOUT opening
+			// the thread (#429) — only Enter / click open.
+			{ key: "j", handler: focusNext, preventDefault: true },
 			{
 				key: "ArrowDown",
-				handler: selectNext,
+				handler: focusNext,
 				preventDefault: true,
 				requireShift: false,
 			},
-			{ key: "k", handler: selectPrevious, preventDefault: true },
+			{ key: "k", handler: focusPrevious, preventDefault: true },
 			{
 				key: "ArrowUp",
-				handler: selectPrevious,
+				handler: focusPrevious,
 				preventDefault: true,
 				requireShift: false,
 			},
@@ -643,6 +694,7 @@ export const MessageList = ({
 									thread={thread}
 									mailboxId={mailboxId}
 									isSelected={selectedMessageId === thread.messageId}
+									isFocused={focusedMessageId === thread.messageId}
 									isChecked={isChecked(thread.messageId)}
 									onToggleCheck={toggleCheck}
 									onRowSelect={handleRowSelect}

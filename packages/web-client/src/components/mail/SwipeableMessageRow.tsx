@@ -17,6 +17,8 @@ interface SwipeableMessageRowProps {
 	thread: RemitImapThreadMessageResponse;
 	mailboxId: string;
 	isSelected: boolean;
+	/** Roving keyboard focus cursor — renders the left accent rail (#429). */
+	isFocused?: boolean;
 	isChecked: boolean;
 	onToggleCheck: (id: string) => void;
 	onRowSelect: (messageId: string, modifiers: SelectionModifiers) => boolean;
@@ -34,6 +36,7 @@ export const SwipeableMessageRow = ({
 	thread,
 	mailboxId,
 	isSelected,
+	isFocused,
 	isChecked,
 	onToggleCheck,
 	onRowSelect,
@@ -60,6 +63,7 @@ export const SwipeableMessageRow = ({
 				thread={thread}
 				mailboxId={mailboxId}
 				isSelected={isSelected}
+				isFocused={isFocused}
 				isChecked={isChecked}
 				onToggleCheck={onToggleCheck}
 				onRowSelect={onRowSelect}
@@ -106,6 +110,7 @@ export const SwipeableMessageRow = ({
 				thread={thread}
 				mailboxId={mailboxId}
 				isSelected={isSelected}
+				isFocused={isFocused}
 				isChecked={isChecked}
 				onToggleCheck={onToggleCheck}
 				onRowSelect={onRowSelect}
