@@ -1,5 +1,6 @@
 import type { OperationHandler, OperationIds } from "../types.js";
 import { AccountDetailOperations, AccountOperations } from "./account.js";
+import { MicrosoftOAuthOperations } from "./account-oauth.js";
 import { AddressDetailOperations, AddressOperations } from "./address.js";
 import { AdminAccountConfigOperations } from "./admin.js";
 import { ConfigOperations } from "./config.js";
@@ -23,6 +24,7 @@ export const handlers: Record<OperationIds, OperationHandler<any>> = {
 	...ConfigOperations,
 	...AccountOperations,
 	...AccountDetailOperations,
+	...MicrosoftOAuthOperations,
 	...MailboxOperations,
 	...MailboxDetailOperations,
 	...TrashOperations,

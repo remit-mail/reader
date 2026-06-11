@@ -29,10 +29,19 @@ import type {
 	AccountOperationIds,
 	OperationHandler,
 } from "../types.js";
+import {
+	assertNotOAuthCreate,
+	assertPasswordProvided,
+	toAccountResponse,
+} from "./account-guards.js";
 import { assertAccountOwnership } from "./account-ownership.js";
 import { ensureAccountConfig } from "./ensure-account-config.js";
 
-const triggerAccountSyncSafe = async (accountId: string): Promise<void> => {
+export { assertNotOAuthCreate, assertPasswordProvided, toAccountResponse };
+
+export const triggerAccountSyncSafe = async (
+	accountId: string,
+): Promise<void> => {
 	const queueUrl = env.SQS_QUEUE_URL;
 	const { eventId } = await triggerAccountSync({
 		sqsClient,
@@ -50,13 +59,6 @@ const triggerAccountSyncSafe = async (accountId: string): Promise<void> => {
 		logger.info({ accountId, eventId }, "Sync triggered for new account");
 	}
 };
-
-import {
-	assertNotOAuthCreate,
-	assertPasswordProvided,
-	toAccountResponse,
-} from "./account-guards.js";
-export { assertNotOAuthCreate, assertPasswordProvided, toAccountResponse };
 
 export const AccountOperations: Record<
 	AccountOperationIds,

@@ -8,18 +8,21 @@
 	"main": "src/index.ts",
 	"scripts": {
 		"test:typecheck": "tsgo --noEmit",
-		"test:run": "node --import tsx --test 'src/**/*.test.ts' 'dev-server/**/*.test.ts'",
+		"test:run": "node --env-file .env.test --import tsx --test 'src/**/*.test.ts' 'dev-server/**/*.test.ts'",
 		"test": "npm run test:typecheck && npm run test:run",
 		"bundle": "esbuild 'src/index.ts' --sourcemap --bundle --platform=node --outfile=dist/index.js",
 		"dev": "node --env-file .env.test --watch --import tsx dev-server/server.ts",
 		"dev:remote": "node --env-file ../../.env.dev --watch --import tsx dev-server/server.ts"
 	},
 	"devDependencies": {
+		"@aws-sdk/client-secrets-manager": "*",
 		"@aws-sdk/client-sqs": "*",
 		"@aws-sdk/core": "*",
 		"@remit/electrodb-entities": "*",
 		"@remit/domain-enums": "*",
+		"@remit/mail-oauth-service": "*",
 		"@remit/mailbox-service": "*",
+		"@remit/secrets-service": "*",
 		"@remit/api-openapi-types": "*",
 		"@remit/search-index-worker": "*",
 		"@remit/search-service": "*",
