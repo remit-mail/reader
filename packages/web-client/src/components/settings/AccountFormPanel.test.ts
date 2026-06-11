@@ -1,6 +1,9 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
-import { deriveUseDifferentSmtpCreds } from "./AccountFormPanel.tsx";
+import {
+	deriveUseDifferentSmtpCreds,
+	isOAuthMicrosoftAccount,
+} from "./AccountFormPanel.tsx";
 
 describe("deriveUseDifferentSmtpCreds", () => {
 	test("returns true when smtpUsername differs from username", () => {
@@ -49,5 +52,21 @@ describe("deriveUseDifferentSmtpCreds", () => {
 			smtpUsername: "  alice@example.com  ",
 		});
 		assert.strictEqual(result, false);
+	});
+});
+
+describe("isOAuthMicrosoftAccount", () => {
+	test("returns true for oauthMicrosoft authType", () => {
+		assert.strictEqual(
+			isOAuthMicrosoftAccount({ authType: "oauthMicrosoft" }),
+			true,
+		);
+	});
+
+	test("returns false for password authType", () => {
+		assert.strictEqual(
+			isOAuthMicrosoftAccount({ authType: "password" }),
+			false,
+		);
 	});
 });

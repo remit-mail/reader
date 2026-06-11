@@ -41,9 +41,11 @@ test.describe("Onboarding wizard", () => {
 
 		// IMAP tile is active (selected)
 		await expect(page.getByText("IMAP / SMTP")).toBeVisible();
-		// Gmail and Outlook are disabled "soon" tiles
+		// Gmail tile is visible; Outlook/Microsoft tile is now an active connector
 		await expect(page.getByText("Gmail")).toBeVisible();
-		await expect(page.getByText("Outlook")).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: /outlook \/ microsoft 365/i }),
+		).toBeVisible();
 	});
 
 	test("advances from connector picker to address entry", async ({ page }) => {

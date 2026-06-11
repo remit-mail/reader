@@ -2,6 +2,7 @@
  * OnboardingWizard — full 7-step onboarding flow.
  *
  * Steps: Welcome → Connector → Address → Servers → Credentials → Test → Sync
+ *        Microsoft path: Connector → MicrosoftEmail → redirect
  *
  * Entry points:
  *  - First-run (zero accounts): full-screen wizard via /onboarding route
@@ -11,6 +12,7 @@
  *  - POST /accounts — CREATE. Exists.
  *  - POST /accounts/test-connection — Exists.
  *  - GET /accounts/{accountId}/sync/status — Exists (#431 syncPhase).
+ *  - POST /accounts/oauth/microsoft/start — Exists (#473).
  *  - GET /autodiscovery?email=… — NOT YET IMPLEMENTED (TypeSpec-first, future).
  *    Client-side autodiscovery (provider table + Mozilla autoconfig) used instead.
  */
@@ -20,6 +22,7 @@ import {
 	accountOperationsTestConnectionMutation,
 	configOperationsGetConfigOptions,
 	configOperationsGetConfigQueryKey,
+	microsoftOAuthOperationsMicrosoftOAuthStartMutation,
 	syncOperationsGetSyncStatusOptions,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import {
@@ -52,6 +55,7 @@ import { computeSmtpAutoFill } from "../settings/account-form-helpers.js";
 type WizardStep =
 	| "welcome"
 	| "connector"
+	| "microsoft-email"
 	| "address"
 	| "servers"
 	| "credentials"
@@ -71,6 +75,7 @@ const STEP_LABELS = [
 const STEP_INDEX: Record<WizardStep, number> = {
 	welcome: 0,
 	connector: 0,
+	"microsoft-email": 0,
 	address: 1,
 	servers: 2,
 	credentials: 3,
@@ -211,32 +216,45 @@ function StepWelcome({ onStart }: { onStart: () => void }) {
 	);
 }
 
+type ConnectorChoice = "imap" | "microsoft";
+
 function StepConnector({
 	onContinue,
+	onMicrosoft,
 	onBack,
 	showBack,
 }: {
 	onContinue: () => void;
+	onMicrosoft: () => void;
 	onBack: () => void;
 	showBack: boolean;
 }) {
-	// IMAP is the only active connector; advance immediately on Continue
+	const [selected, setSelected] = useState<ConnectorChoice>("imap");
+
 	// Keyboard: Enter advances, Esc goes back
 	useEffect(() => {
 		const handler = (e: KeyboardEvent) => {
-			if (e.key === "Enter") onContinue();
+			if (e.key === "Enter") {
+				if (selected === "microsoft") onMicrosoft();
+				else onContinue();
+			}
 			if (e.key === "Escape") onBack();
 		};
 		window.addEventListener("keydown", handler);
 		return () => window.removeEventListener("keydown", handler);
-	}, [onContinue, onBack]);
+	}, [onContinue, onMicrosoft, onBack, selected]);
+
+	const handleContinue = () => {
+		if (selected === "microsoft") onMicrosoft();
+		else onContinue();
+	};
 
 	return (
 		<WizardShell
 			steps={STEP_LABELS}
 			activeStep={STEP_INDEX.connector}
 			title="How does this account connect?"
-			subtitle="IMAP works with any provider today. OAuth connectors are on the way."
+			subtitle="Choose a sign-in method. IMAP works with any provider."
 			footer={
 				<>
 					{showBack ? (
@@ -246,8 +264,10 @@ function StepConnector({
 					) : (
 						<span />
 					)}
-					<Button variant="primary" onClick={onContinue}>
-						Continue with IMAP
+					<Button variant="primary" onClick={handleContinue}>
+						{selected === "microsoft"
+							? "Continue with Microsoft"
+							: "Continue with IMAP"}
 					</Button>
 				</>
 			}
@@ -257,7 +277,8 @@ function StepConnector({
 					name="IMAP / SMTP"
 					description="Any mail provider — Fastmail, iCloud, your own server."
 					icon={<Server className="size-5" />}
-					selected
+					selected={selected === "imap"}
+					onSelect={() => setSelected("imap")}
 				/>
 				<ConnectorTile
 					name="Gmail"
@@ -266,11 +287,108 @@ function StepConnector({
 					comingSoon
 				/>
 				<ConnectorTile
-					name="Outlook"
-					description="Sign in with Microsoft 365."
+					name="Outlook / Microsoft 365"
+					description="Sign in with Microsoft. Works with Outlook.com and work accounts."
 					icon={<Inbox className="size-5" />}
-					comingSoon
+					selected={selected === "microsoft"}
+					onSelect={() => setSelected("microsoft")}
 				/>
+			</div>
+		</WizardShell>
+	);
+}
+
+function StepMicrosoftEmail({
+	onBack,
+	onRedirecting,
+}: {
+	onBack: () => void;
+	onRedirecting: () => void;
+}) {
+	const [email, setEmail] = useState("");
+	const [error, setError] = useState<string | null>(null);
+
+	const startMutation = useMutation({
+		...microsoftOAuthOperationsMicrosoftOAuthStartMutation(),
+		onSuccess: (data) => {
+			onRedirecting();
+			window.location.assign(data.authorizationUrl);
+		},
+		onError: (err) => {
+			setError(err instanceof Error ? err.message : "Failed to start sign-in");
+		},
+	});
+
+	const handleSubmit = () => {
+		setError(null);
+		startMutation.mutate({
+			body: { email: email.trim() || undefined },
+		});
+	};
+
+	// Keyboard: Enter submits, Esc goes back
+	useEffect(() => {
+		const handler = (e: KeyboardEvent) => {
+			if (e.key === "Enter" && !startMutation.isPending) handleSubmit();
+			if (e.key === "Escape") onBack();
+		};
+		window.addEventListener("keydown", handler);
+		return () => window.removeEventListener("keydown", handler);
+		// handleSubmit identity changes — intentional dep exclusion here
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [onBack, startMutation.isPending]);
+
+	return (
+		<WizardShell
+			steps={STEP_LABELS}
+			activeStep={STEP_INDEX.connector}
+			title="Sign in with Microsoft"
+			subtitle="You'll be redirected to Microsoft to sign in securely."
+			footer={
+				<>
+					<Button variant="ghost" onClick={onBack}>
+						Back
+					</Button>
+					<Button
+						variant="primary"
+						onClick={handleSubmit}
+						disabled={startMutation.isPending}
+						icon={
+							startMutation.isPending ? (
+								<Loader2 className="size-4 animate-spin" />
+							) : undefined
+						}
+					>
+						{startMutation.isPending
+							? "Redirecting…"
+							: "Sign in with Microsoft"}
+					</Button>
+				</>
+			}
+		>
+			<div className="space-y-3">
+				<div>
+					<span className="mb-1 block text-xs font-medium text-fg-muted">
+						Email address (optional)
+					</span>
+					<Input
+						icon={<AtSign className="size-4" />}
+						placeholder="you@outlook.com"
+						value={email}
+						onChange={(e) => setEmail(e.target.value)}
+						type="email"
+						autoComplete="email"
+					/>
+					<p className="mt-1.5 text-2xs text-fg-subtle">
+						Pre-fills the Microsoft sign-in form. Leave blank to choose on the
+						Microsoft page.
+					</p>
+				</div>
+				{error && (
+					<div className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">
+						{error}
+					</div>
+				)}
 			</div>
 		</WizardShell>
 	);
@@ -1161,8 +1279,12 @@ export function OnboardingWizard({
 	// Welcome → Connector
 	const handleWelcomeStart = useCallback(() => setStep("connector"), []);
 
-	// Connector → Address (or cancel)
+	// Connector → Address (IMAP path) or microsoft-email (Microsoft path), or cancel
 	const handleConnectorContinue = useCallback(() => setStep("address"), []);
+	const handleConnectorMicrosoft = useCallback(
+		() => setStep("microsoft-email"),
+		[],
+	);
 	const handleConnectorBack = useCallback(() => {
 		if (skipWelcome) {
 			onCancel?.();
@@ -1242,8 +1364,19 @@ export function OnboardingWizard({
 			return (
 				<StepConnector
 					onContinue={handleConnectorContinue}
+					onMicrosoft={handleConnectorMicrosoft}
 					onBack={handleConnectorBack}
 					showBack={!skipWelcome}
+				/>
+			);
+
+		case "microsoft-email":
+			return (
+				<StepMicrosoftEmail
+					onBack={() => setStep("connector")}
+					onRedirecting={() => {
+						// Full-page redirect is happening — nothing else to do
+					}}
 				/>
 			);
 

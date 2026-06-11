@@ -20,6 +20,17 @@ import {
 	deriveSmtpHostFromImap,
 } from "./account-form-helpers.js";
 
+/**
+ * True when the account authenticates via Microsoft OAuth — not a
+ * password-based IMAP account. Used to hide irrelevant credential /
+ * server fields and show a read-only summary instead.
+ *
+ * Exported for unit tests.
+ */
+export const isOAuthMicrosoftAccount = (
+	account: Pick<RemitImapAccountResponse, "authType">,
+): boolean => account.authType === "oauthMicrosoft";
+
 // Placeholder shown when editing - indicates password exists but isn't shown
 const PASSWORD_PLACEHOLDER = "••••••••••";
 
@@ -347,6 +358,78 @@ export const AccountFormPanel = ({
 		form.setValue("smtpStartTls", true);
 		form.setValue("smtpPort", 587);
 	};
+
+	const isOAuthAccount = account ? isOAuthMicrosoftAccount(account) : false;
+
+	// OAuth Microsoft accounts: show a read-only summary panel instead of
+	// the credential / server configuration form.
+	if (isOAuthAccount && isEditing) {
+		return (
+			<SlidePanel
+				isOpen={isOpen}
+				onClose={onClose}
+				title="Edit Account"
+				footer={
+					<Button type="button" variant="secondary" onClick={onClose}>
+						Close
+					</Button>
+				}
+			>
+				<div className="space-y-6">
+					<section>
+						<h3 className="text-2xs font-semibold text-fg-subtle uppercase tracking-wider mb-3">
+							Microsoft 365 Account
+						</h3>
+						<div className="space-y-3">
+							<div className="rounded-md border border-line bg-surface-sunken px-3 py-2.5 text-sm text-fg-muted">
+								<span className="block text-2xs font-medium uppercase tracking-wider text-fg-subtle mb-1">
+									Email
+								</span>
+								<span className="text-fg">{account?.email}</span>
+							</div>
+							<div className="rounded-md border border-line bg-surface-sunken px-3 py-2.5 text-sm text-fg-muted">
+								<span className="block text-2xs font-medium uppercase tracking-wider text-fg-subtle mb-1">
+									Authentication
+								</span>
+								<span className="text-fg">Microsoft OAuth (XOAUTH2)</span>
+							</div>
+							<p className="text-xs text-fg-muted">
+								Server settings are managed automatically for Microsoft 365
+								accounts. To update credentials, use the Reconnect button.
+							</p>
+						</div>
+					</section>
+					{isEditing && (
+						<section>
+							<h3 className="text-2xs font-semibold text-fg-subtle uppercase tracking-wider mb-3">
+								Signature
+							</h3>
+							<div className="space-y-3">
+								<div>
+									<label className="text-sm font-medium mb-1.5 block">
+										Email Signature
+									</label>
+									<textarea
+										value={signatureText}
+										onChange={(e) => setSignatureText(e.target.value)}
+										onBlur={handleSignatureBlur}
+										rows={5}
+										className="w-full px-3 py-2 border border-line rounded-md bg-surface-sunken text-sm text-fg placeholder:text-fg-subtle focus-within:border-line-strong focus-within:ring-2 focus-within:ring-ring/30 transition-colors resize-y outline-none"
+										placeholder="Enter your email signature..."
+									/>
+									<p className="text-xs text-fg-muted mt-1">
+										{isSignatureSaving
+											? "Saving signature..."
+											: "This signature will be appended to new emails."}
+									</p>
+								</div>
+							</div>
+						</section>
+					)}
+				</div>
+			</SlidePanel>
+		);
+	}
 
 	return (
 		<SlidePanel
