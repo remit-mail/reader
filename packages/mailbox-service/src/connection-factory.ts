@@ -20,7 +20,7 @@ export const createConnection = (
 };
 
 /**
- * Create an IMAP connection from account data
+ * Create an IMAP connection from account data using password credentials.
  */
 export const createConnectionFromAccount = (
 	account: {

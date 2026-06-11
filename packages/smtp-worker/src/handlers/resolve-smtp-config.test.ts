@@ -81,8 +81,11 @@ describe("resolveSmtpConfig", () => {
 		);
 		assert.equal(result.config.host, "smtp.example.com");
 		assert.equal(result.config.port, 587);
-		assert.equal(result.config.auth.user, "alice@example.com");
-		assert.equal(result.config.auth.pass, "dek-imap");
+		assert.equal(result.config.user, "alice@example.com");
+		assert.equal(result.config.credentials.kind, "password");
+		if (result.config.credentials.kind === "password") {
+			assert.equal(result.config.credentials.password, "dek-imap");
+		}
 	});
 
 	it("uses smtpPasswordHash when present, not the IMAP passwordHash", async () => {
@@ -107,8 +110,11 @@ describe("resolveSmtpConfig", () => {
 		if (!result.ok) return;
 		assert.equal(calls.length, 1);
 		assert.equal(calls[0].encryptedDek.toString(), "dek-smtp");
-		assert.equal(result.config.auth.user, "alice-smtp@example.com");
-		assert.equal(result.config.auth.pass, "dek-smtp");
+		assert.equal(result.config.user, "alice-smtp@example.com");
+		assert.equal(result.config.credentials.kind, "password");
+		if (result.config.credentials.kind === "password") {
+			assert.equal(result.config.credentials.password, "dek-smtp");
+		}
 	});
 
 	it("uses smtpTls flag for the secure setting", async () => {

@@ -69,7 +69,7 @@ export const createConnectionScope = (
 };
 
 /**
- * Create a connection scope from account credentials.
+ * Create a connection scope from account credentials using a password.
  */
 export const createConnectionScopeFromAccount = (
 	account: {
@@ -82,7 +82,7 @@ export const createConnectionScopeFromAccount = (
 ): ConnectionScope => {
 	return createConnectionScope({
 		user: account.username,
-		password,
+		credentials: { kind: "password", password },
 		host: account.imapHost,
 		port: account.imapPort,
 		tls: account.imapTls,

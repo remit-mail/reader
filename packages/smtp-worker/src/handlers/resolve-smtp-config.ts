@@ -49,10 +49,8 @@ export const resolveSmtpConfig = async (
 			host: account.smtpHost,
 			port: account.smtpPort,
 			secure: account.smtpTls ?? false,
-			auth: {
-				user: account.smtpUsername ?? account.username,
-				pass: smtpPassword,
-			},
+			user: account.smtpUsername ?? account.username,
+			credentials: { kind: "password", password: smtpPassword },
 		},
 	};
 };

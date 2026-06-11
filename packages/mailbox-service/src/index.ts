@@ -114,4 +114,7 @@ export type {
 	ImapNamespace,
 	ImapNamespaces,
 	MailboxSyncResult,
+	MailConnectionErrorKind,
+	MailCredentials,
 } from "./types.js";
+export { MailConnectionError } from "./types.js";
