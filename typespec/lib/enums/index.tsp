@@ -31,6 +31,7 @@ import "./MessageCategory.tsp";
 import "./SenderTrust.tsp";
 
 // Account Enums
+import "./AccountAuthType.tsp";
 import "./AccountConfigState.tsp";
 import "./SyncPhase.tsp";
 

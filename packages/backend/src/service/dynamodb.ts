@@ -189,6 +189,11 @@ export const getClient = (): RemitClient => {
 			accountId: string,
 		): Promise<ConnectionScope> => {
 			const account = await accountService.get(accountId);
+			if (!account.passwordHash) {
+				throw new Error(
+					`Account ${accountId} has no passwordHash — OAuth accounts cannot use this connection path`,
+				);
+			}
 			const password = await secretsService.decrypt(
 				deserializeEncryptedPayload(JSON.parse(account.passwordHash)),
 			);

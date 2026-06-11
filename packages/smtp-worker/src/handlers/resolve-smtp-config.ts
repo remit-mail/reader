@@ -39,6 +39,11 @@ export const resolveSmtpConfig = async (
 	}
 
 	const passwordHash = account.smtpPasswordHash ?? account.passwordHash;
+	if (!passwordHash) {
+		throw new Error(
+			`Account ${account.accountId}: no smtpPasswordHash or passwordHash — only password accounts are supported by the SMTP worker`,
+		);
+	}
 	const smtpPassword = await secrets.decrypt(
 		deserializeEncryptedPayload(JSON.parse(passwordHash)),
 	);
