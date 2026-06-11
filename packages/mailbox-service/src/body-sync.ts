@@ -514,11 +514,24 @@ export class BodySyncService {
 		const threadMessage =
 			await this.threadMessageService.getByMessageId(messageId);
 
-		// Update ThreadMessage snippet
+		// Update ThreadMessage snippet.
+		// Pass the full composite set so that if a future key-attribute addition
+		// touches lsi3/lsi4/lsi5/gsi2 sort keys, the index rows remain consistent.
+		// The threadMessage was fetched just above, so the values are already in scope.
 		await this.threadMessageService.update(
 			accountConfigId,
 			threadMessage.threadMessageId,
 			{ snippet },
+			{
+				composites: {
+					sentDate: threadMessage.sentDate,
+					mailboxId: threadMessage.mailboxId,
+					isRead: threadMessage.isRead,
+					isDeleted: threadMessage.isDeleted,
+					hasStars: threadMessage.hasStars,
+					hasAttachment: threadMessage.hasAttachment,
+				},
+			},
 		);
 
 		this.log.debug?.(
