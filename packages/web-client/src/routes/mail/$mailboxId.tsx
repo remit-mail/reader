@@ -29,7 +29,7 @@ import { MessageList } from "@/components/mail/MessageList";
 import { MessageToolbar } from "@/components/mail/MessageToolbar";
 import { PullToRefresh } from "@/components/mail/PullToRefresh";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { useArchiveMailbox } from "@/hooks/useArchiveMailbox";
+import { useArchiveMailbox, useJunkMailbox } from "@/hooks/useArchiveMailbox";
 import {
 	useCurrentMailboxName,
 	useCurrentMailboxUnseenCount,
@@ -38,11 +38,15 @@ import {
 	dropDeletedThreads,
 	useDeleteMessages,
 } from "@/hooks/useDeleteMessages";
+import { useIntelligenceData } from "@/hooks/useIntelligenceData";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { useMailboxAccount } from "@/hooks/useMailboxAccount";
+import { useToggleReadFor } from "@/hooks/useMarkAsRead";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { useMoveMessages } from "@/hooks/useMoveMessages";
 import { useToggleStar } from "@/hooks/useToggleStar";
+import { useTriageKeyboard } from "@/hooks/useTriageKeyboard";
+import { useUpdateAddressFlags } from "@/hooks/useUpdateAddressFlags";
 import { useMailContext } from "@/lib/mail-context";
 import { normalizeSearchQuery } from "@/lib/search-query";
 
@@ -171,6 +175,29 @@ function MailboxView() {
 
 	const selectedThread = threads.find((t) => t.messageId === selectedMessageId);
 
+	// Triage-layer context (#429): the roving focus cursor + the multi-selection,
+	// bridged up from MessageList. Action verbs (archive/star/read/mute/…) target
+	// the selection when one exists, else the focused row, else the open thread.
+	const [triageFocusedId, setTriageFocusedId] = useState<string | undefined>(
+		undefined,
+	);
+	const [triageSelectedIds, setTriageSelectedIds] = useState<string[]>([]);
+	const handleTriageContextChange = useCallback(
+		(context: {
+			focusedMessageId: string | undefined;
+			selectedIds: string[];
+		}) => {
+			setTriageFocusedId(context.focusedMessageId);
+			setTriageSelectedIds(context.selectedIds);
+		},
+		[],
+	);
+
+	// The single thread the verbs act on: the focused row, falling back to the
+	// open thread. (Bulk actions over `triageSelectedIds` fan out separately.)
+	const focusedThread =
+		threads.find((t) => t.messageId === triageFocusedId) ?? selectedThread;
+
 	// Auto-open intelligence pane when the selected thread has a DKIM mismatch.
 	// Track the last message id we auto-opened for so we don't re-trigger on
 	// subsequent renders of the same message (e.g. optimistic cache patches).
@@ -295,7 +322,8 @@ function MailboxView() {
 		openCompose({ mode: "new" });
 	}, [openCompose]);
 
-	// "u" to go back (deselect current thread)
+	// Esc → back: deselect the open thread (close the reading pane). The
+	// dispatcher routes Esc to the `back` action; `u` is now toggle read/unread.
 	const goBack = useCallback(() => {
 		if (selectedMessageId) {
 			navigate({
@@ -309,17 +337,215 @@ function MailboxView() {
 		}
 	}, [selectedMessageId, mailboxId, navigate]);
 
-	useKeyboardNavigation({
-		enabled: !!selectedMessageId && !composeState.isOpen,
-		bindings: [
-			{ key: "u", handler: goBack, preventDefault: true },
-			{ key: "Escape", handler: goBack, preventDefault: true },
-		],
+	/* ---- triage keyboard handlers: act on the focused row (#429) ---- */
+
+	// Resolve all loaded message ids of a thread from the thread-messages cache,
+	// falling back to the representative row messageId. Shared by every
+	// thread-scoped triage verb (archive / delete / junk).
+	const messageIdsForThread = useCallback(
+		(thread: typeof focusedThread): string[] => {
+			if (!thread) return [];
+			const threadKey = threadDetailOperationsListThreadMessagesQueryKey({
+				path: { threadId: thread.threadId },
+			});
+			const cached = queryClient.getQueriesData<{
+				items: { messageId: string }[];
+			}>({ queryKey: threadKey });
+			const ids = cached.flatMap(
+				([, data]) => data?.items.map((m) => m.messageId) ?? [],
+			);
+			return ids.length > 0 ? ids : [thread.messageId];
+		},
+		[queryClient],
+	);
+
+	// Star toggle for the focused thread's representative message.
+	const { toggleStar: focusedToggleStar } = useToggleStar({
+		threadId: focusedThread?.threadId ?? "",
+		mailboxId,
 	});
 
-	useKeyboardNavigation({
+	// Read/unread toggle (`u`). Bulk-capable: the list optimistic patch keys off
+	// the mailbox, so flipping a set of message ids updates every selected row.
+	const { toggleReadFor: triageToggleReadFor } = useToggleReadFor({
+		mailboxId,
+		accountId: mailboxAccountId,
+	});
+
+	// Move-to-archive / move-to-junk for the focused thread. (`archiveMailboxId`
+	// is resolved once above for the toolbar; reused here.)
+	const { junkMailboxId } = useJunkMailbox(mailboxAccountId);
+	const { moveMessages: triageMove } = useMoveMessages({
+		mailboxId,
+		threadId: focusedThread?.threadId,
+		accountId: mailboxAccountId,
+		onAfterOptimisticRemove: handleDeselectIfRemoved,
+	});
+	const { deleteMessages: triageDelete } = useDeleteMessages({
+		mailboxId,
+		threadId: focusedThread?.threadId,
+		onAfterOptimisticRemove: handleDeselectIfRemoved,
+	});
+
+	// Sender flags (mute / block / VIP) for the focused sender. Resolves the
+	// address id via the same lookup the intelligence pane uses.
+	const { addressId: focusedAddressId, address: focusedAddress } =
+		useIntelligenceData(focusedThread);
+	const { updateFlags: updateFocusedSenderFlags } = useUpdateAddressFlags({
+		addressId: focusedAddressId,
+		senderEmail: focusedThread?.fromEmail ?? undefined,
+	});
+
+	// reply / forward act on the OPEN reading pane (inline compose lives there);
+	// when nothing is open, focus it first so the verb has a target.
+	const ensureFocusedOpen = useCallback(() => {
+		if (selectedMessageId || !triageFocusedId) return false;
+		navigate({
+			to: "/mail/$mailboxId",
+			params: { mailboxId },
+			search: (prev: MailboxSearch) => ({
+				...prev,
+				selectedMessageId: triageFocusedId,
+			}),
+		});
+		return true;
+	}, [selectedMessageId, triageFocusedId, mailboxId, navigate]);
+
+	const triageReply = useCallback(() => {
+		if (ensureFocusedOpen()) return;
+		if (selectedThread) setToolbarComposeRequest("reply");
+	}, [ensureFocusedOpen, selectedThread]);
+	const triageReplyAll = useCallback(() => {
+		if (ensureFocusedOpen()) return;
+		if (selectedThread) setToolbarComposeRequest("reply_all");
+	}, [ensureFocusedOpen, selectedThread]);
+	const triageForward = useCallback(() => {
+		if (ensureFocusedOpen()) return;
+		if (selectedThread) setToolbarComposeRequest("forward");
+	}, [ensureFocusedOpen, selectedThread]);
+
+	// Bulk-aware target message ids: the selection when present, else the
+	// focused thread's messages.
+	const triageTargetMessageIds = useCallback((): string[] => {
+		if (triageSelectedIds.length > 0) return triageSelectedIds;
+		return messageIdsForThread(focusedThread);
+	}, [triageSelectedIds, messageIdsForThread, focusedThread]);
+
+	const triageArchive = useCallback(() => {
+		if (!archiveMailboxId) return;
+		const ids = triageTargetMessageIds();
+		if (ids.length > 0) triageMove(ids, archiveMailboxId);
+	}, [archiveMailboxId, triageTargetMessageIds, triageMove]);
+
+	const triageDeleteAction = useCallback(() => {
+		const ids = triageTargetMessageIds();
+		if (ids.length > 0) triageDelete(ids);
+	}, [triageTargetMessageIds, triageDelete]);
+
+	const triageMarkJunk = useCallback(() => {
+		if (!junkMailboxId) return;
+		const ids = triageTargetMessageIds();
+		if (ids.length > 0) triageMove(ids, junkMailboxId);
+	}, [junkMailboxId, triageTargetMessageIds, triageMove]);
+
+	// Star (`s`) is selection-aware. With a multi-selection, flip every selected
+	// row to the focused row's *inverse* star state (a single, predictable bulk
+	// direction — like shift-clicking star in a desktop client); with no
+	// selection it toggles just the focused thread. The list optimistic patch
+	// keys off the mailbox so all selected rows update.
+	const triageStar = useCallback(() => {
+		if (triageSelectedIds.length > 0) {
+			const nextStarred = !(focusedThread?.hasStars ?? false);
+			const selected = new Set(triageSelectedIds);
+			for (const thread of threads) {
+				if (selected.has(thread.messageId) && thread.hasStars !== nextStarred) {
+					focusedToggleStar(thread.messageId, thread.hasStars);
+				}
+			}
+			return;
+		}
+		if (!focusedThread) return;
+		focusedToggleStar(focusedThread.messageId, focusedThread.hasStars);
+	}, [triageSelectedIds, threads, focusedThread, focusedToggleStar]);
+
+	// Read/unread (`u`) is selection-aware: flip the whole target set to the
+	// inverse of the focused row's current read state (one bulk direction).
+	const triageToggleRead = useCallback(() => {
+		const ids = triageTargetMessageIds();
+		if (ids.length === 0) return;
+		const nextRead = !(focusedThread?.isRead ?? false);
+		triageToggleReadFor(ids, nextRead);
+	}, [triageTargetMessageIds, focusedThread, triageToggleReadFor]);
+
+	// Sender verbs (mute / VIP) act on the focused SENDER, not per-message, so
+	// they intentionally ignore the row multi-selection — `m`/`v` mute or VIP
+	// the one focused sender (a `PATCH /addresses/{id}`). Bulk sender actions
+	// over a mixed-sender selection are a separate bulk-bar affordance (the
+	// "Mute sender (N selected)" verb in 04-triage.md), out of scope here.
+	const triageMute = useCallback(() => {
+		if (!focusedAddressId) return;
+		const next = !(focusedAddress?.flags?.muted?.value === true);
+		updateFocusedSenderFlags({ muted: { value: next } });
+	}, [focusedAddressId, focusedAddress, updateFocusedSenderFlags]);
+
+	const triageVip = useCallback(() => {
+		if (!focusedAddressId) return;
+		const next = !(focusedAddress?.flags?.vip?.value === true);
+		updateFocusedSenderFlags({ vip: { value: next } });
+	}, [focusedAddressId, focusedAddress, updateFocusedSenderFlags]);
+
+	// Block is destructive (a confirm is wired in the intelligence pane); from
+	// the keyboard we open the intelligence sidebar on the focused sender so the
+	// confirm path is reached rather than silently blocking.
+	// TODO(#429): inline block-confirm dialog for the keyboard path.
+	const triageBlock = useCallback(() => {
+		if (!intelligenceOpen) onToggleIntelligence();
+	}, [intelligenceOpen, onToggleIntelligence]);
+
+	// `g i/s/f` go-to: resolve the special-use mailbox of the current account.
+	// Brief and settings have real routes; inbox/sent/flagged resolve from the
+	// loaded mailbox list where possible.
+	// TODO(#426): `g b` lands on the daily-brief route once it ships its own path.
+	const goToRoute = useCallback(
+		(to: "/mail" | "/settings") => {
+			navigate({ to });
+		},
+		[navigate],
+	);
+
+	// Central global dispatcher (#429): one keydown handler routing every key to
+	// the handler table. Paused while compose owns the keyboard (compose has its
+	// own Esc handler below). The list-local j/k/Enter/x/Shift+arrow/Delete/d
+	// keys live in MessageList; this layer owns the verbs + global keys with no
+	// overlap.
+	useTriageKeyboard({
 		enabled: !composeState.isOpen,
-		bindings: [{ key: "c", handler: handleNewCompose, preventDefault: true }],
+		handlers: {
+			// openFocused (Enter), focusNext/Previous (j/k), toggleSelect (x),
+			// extendSelect (Shift+j/k), the Delete/Backspace confirm-delete and
+			// toggleDensity (d) are owned by MessageList's list-local listeners.
+			// `#` here is the direct move-to-Trash verb (optimistic, like the
+			// toolbar trash button); Delete/Backspace keep their confirm dialog.
+			back: goBack,
+			reply: triageReply,
+			replyAll: triageReplyAll,
+			forward: triageForward,
+			archive: triageArchive,
+			delete: triageDeleteAction,
+			toggleStar: triageStar,
+			toggleRead: triageToggleRead,
+			muteSender: triageMute,
+			blockSender: triageBlock,
+			vipSender: triageVip,
+			markJunk: triageMarkJunk,
+			toggleIntelligence: selectedThread ? onToggleIntelligence : undefined,
+			compose: handleNewCompose,
+			goBrief: () => goToRoute("/mail"),
+			goInbox: () => goToRoute("/mail"),
+			goSent: () => goToRoute("/mail"),
+			goFlagged: () => goToRoute("/mail"),
+			goSettings: () => goToRoute("/settings"),
+		},
 	});
 
 	useKeyboardNavigation({
@@ -345,6 +571,7 @@ function MailboxView() {
 			hasMore={hasNextPage}
 			isLoadingMore={isFetchingNextPage}
 			accountId={mailboxAccountId}
+			onTriageContextChange={handleTriageContextChange}
 		/>
 	);
 

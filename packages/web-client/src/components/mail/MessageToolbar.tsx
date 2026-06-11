@@ -11,6 +11,7 @@ import {
 	Trash2,
 } from "lucide-react";
 import { SearchBar } from "@/components/layout/SearchBar";
+import { tooltipForAction } from "@/lib/keymap";
 import { MoveToTrigger } from "./MoveToTrigger";
 
 /**
@@ -91,7 +92,7 @@ export const MessageToolbar = ({
 			size="sm"
 			disabled={!hasThread}
 			icon={<Reply className="size-4" />}
-			title="Reply (r)"
+			title={`Reply ${tooltipForAction("reply")}`}
 			aria-label="Reply"
 			onClick={onReply}
 		/>
@@ -100,7 +101,7 @@ export const MessageToolbar = ({
 			size="sm"
 			disabled={!hasThread}
 			icon={<ReplyAll className="size-4" />}
-			title="Reply all (a)"
+			title={`Reply all ${tooltipForAction("replyAll")}`}
 			aria-label="Reply all"
 			onClick={onReplyAll}
 		/>
@@ -109,7 +110,7 @@ export const MessageToolbar = ({
 			size="sm"
 			disabled={!hasThread}
 			icon={<Forward className="size-4" />}
-			title="Forward (f)"
+			title={`Forward ${tooltipForAction("forward")}`}
 			aria-label="Forward"
 			onClick={onForward}
 		/>
@@ -119,7 +120,11 @@ export const MessageToolbar = ({
 			size="sm"
 			disabled={!hasThread || !canArchive}
 			icon={<Archive className="size-4" />}
-			title={canArchive ? "Archive (e)" : "No archive mailbox for this account"}
+			title={
+				canArchive
+					? `Archive ${tooltipForAction("archive")}`
+					: "No archive mailbox for this account"
+			}
 			aria-label="Archive"
 			onClick={onArchive}
 		/>
@@ -128,7 +133,7 @@ export const MessageToolbar = ({
 			size="sm"
 			disabled={!hasThread}
 			icon={<Trash2 className="size-4" />}
-			title="Delete (#)"
+			title={`Delete ${tooltipForAction("delete")}`}
 			// "Move to Trash" (no "Delete" substring) so this always-present
 			// toolbar button's accessible name doesn't collide with the
 			// message-action menu's bare "Delete" item. Playwright's getByRole
@@ -165,7 +170,7 @@ export const MessageToolbar = ({
 					className={`size-4${isStarred ? " fill-warning text-warning" : ""}`}
 				/>
 			}
-			title="Flag (s)"
+			title={`Flag ${tooltipForAction("toggleStar")}`}
 			aria-label="Flag"
 			onClick={onToggleStar}
 		/>
@@ -186,7 +191,7 @@ export const MessageToolbar = ({
 			variant="ghost"
 			size="sm"
 			icon={<SquarePen className="size-4" />}
-			title="Compose (c)"
+			title={`Compose ${tooltipForAction("compose")}`}
 			aria-label="Compose"
 			onClick={onCompose}
 		/>

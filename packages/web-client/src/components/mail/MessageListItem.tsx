@@ -28,6 +28,12 @@ interface MessageListItemProps {
 	thread: RemitImapThreadMessageResponse;
 	mailboxId: string;
 	isSelected: boolean;
+	/**
+	 * Roving keyboard focus cursor (#429). Distinct from `isSelected` (the open
+	 * thread): a focused-but-not-open row shows the left accent rail; the open
+	 * row shows the full highlight. Both can be true (the open row stays focused).
+	 */
+	isFocused?: boolean;
 	isChecked: boolean;
 	onToggleCheck: (id: string) => void;
 	/**
@@ -83,6 +89,7 @@ const MessageListItemComponent = ({
 	thread,
 	mailboxId,
 	isSelected,
+	isFocused = false,
 	isChecked,
 	onToggleCheck,
 	onRowSelect,
@@ -157,7 +164,7 @@ const MessageListItemComponent = ({
 				onFocus={prefetchMessage}
 				{...(!isDesktop && longPressHandlers.handlers)}
 				className={cn(
-					compactRowClass({ active: isSelected }),
+					compactRowClass({ active: isSelected, focused: isFocused }),
 					isChecked && "bg-accent-soft",
 					!isDesktop && "min-h-11",
 				)}
@@ -185,7 +192,7 @@ const MessageListItemComponent = ({
 			{...(!isDesktop && longPressHandlers.handlers)}
 			className={cn(
 				"group",
-				comfortableRowClass({ active: isSelected }),
+				comfortableRowClass({ active: isSelected, focused: isFocused }),
 				isChecked && "bg-accent-soft",
 				!isDesktop && "min-h-11",
 			)}
