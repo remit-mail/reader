@@ -328,6 +328,8 @@ describe("mail-oauth-service", () => {
 			access_token: "access-from-code",
 			expires_in: 3600,
 			refresh_token: "refresh-from-code",
+			id_token:
+				"header.eyJwcmVmZXJyZWRfdXNlcm5hbWUiOiJhbGljZUBvdXRsb29rLmNvbSJ9.sig",
 		});
 
 		const svc = createMailOAuthService(makeConfig());
@@ -338,6 +340,10 @@ describe("mail-oauth-service", () => {
 
 		assert.equal(result.accessToken, "access-from-code");
 		assert.equal(result.refreshToken, "refresh-from-code");
+		assert.equal(
+			result.idToken,
+			"header.eyJwcmVmZXJyZWRfdXNlcm5hbWUiOiJhbGljZUBvdXRsb29rLmNvbSJ9.sig",
+		);
 	});
 
 	// 8b. exchangeCode error mapping

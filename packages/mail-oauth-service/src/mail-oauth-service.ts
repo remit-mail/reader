@@ -49,6 +49,7 @@ interface RawTokenResponse {
 	access_token: string;
 	expires_in: number;
 	refresh_token?: string;
+	id_token?: string;
 	error?: string;
 	error_codes?: number[];
 	error_description?: string;
@@ -70,6 +71,7 @@ function parseTokenResponse(
 		accessToken: raw.access_token,
 		expiresAt: Math.floor(Date.now() / 1000) + raw.expires_in,
 		...(raw.refresh_token ? { refreshToken: raw.refresh_token } : {}),
+		...(raw.id_token ? { idToken: raw.id_token } : {}),
 	};
 }
 

@@ -15,6 +15,9 @@ export interface TokenSet {
 	expiresAt: number;
 	/** Present when provider rotated the refresh token — caller MUST persist */
 	refreshToken?: string;
+	/** Present when the provider returns an OpenID Connect ID token (e.g. Microsoft
+	 *  when openid+email scopes are requested). Contains user identity claims. */
+	idToken?: string;
 }
 
 export type RefreshError =

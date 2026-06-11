@@ -168,6 +168,45 @@ namespace RemitApi {
     op testConnection(@body input: TestConnectionInput): TestConnectionResponse;
   }
 
+  // ============================================
+  // Microsoft OAuth Operations
+  // ============================================
+
+  model MicrosoftOAuthStartRequest {
+    @doc("Optional email hint for the Microsoft login page")
+    email?: string;
+  }
+
+  model MicrosoftOAuthStartResponse {
+    @doc("The Microsoft authorization URL to redirect the user to")
+    authorizationUrl: string;
+  }
+
+  @route("/accounts/oauth/microsoft")
+  namespace MicrosoftOAuthOperations {
+    @doc("Start Microsoft OAuth2 authorization flow")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    @route("/start")
+    op microsoftOAuthStart(
+      @body input: MicrosoftOAuthStartRequest,
+    ): MicrosoftOAuthStartResponse;
+
+    @doc("Microsoft OAuth2 callback endpoint — receives the authorization code from Microsoft and exchanges it for tokens. This endpoint is intentionally unauthenticated: the browser is redirected here by Microsoft after the user grants consent, before any Cognito session is available. CSRF is prevented by an HMAC-signed state parameter.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @useAuth(NoAuth)
+    @get
+    @route("/callback")
+    op microsoftOAuthCallback(
+      @query code?: string,
+      @query state?: string,
+      @query error?: string,
+    ): {
+      @statusCode statusCode: 302;
+      @header Location: string;
+    };
+  }
+
   @route("/accounts/{accountId}")
   namespace AccountDetailOperations {
     @doc("Update an existing account")
