@@ -37,7 +37,7 @@ interface MoveToMailboxPickerProps {
 }
 
 const ROW_BASE =
-	"w-full text-left px-3 py-2.5 min-h-11 flex items-center gap-2 transition-colors text-sm rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background";
+	"w-full text-left px-3 py-2.5 min-h-11 flex items-center gap-2 transition-colors text-sm rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-canvas";
 
 export const MoveToMailboxPicker = ({
 	mailboxes,

@@ -78,11 +78,11 @@ export const SwipeableMessageRow = ({
 	const leadingActions = (
 		<LeadingActions>
 			<SwipeAction onClick={handleToggleRead}>
-				<div className="flex items-center justify-center h-full bg-blue-500 px-6">
+				<div className="flex items-center justify-center h-full bg-accent-2 px-6">
 					{thread.isRead ? (
-						<MailOpen className="size-6 text-white" />
+						<MailOpen className="size-6 text-accent-fg" />
 					) : (
-						<Mail className="size-6 text-white" />
+						<Mail className="size-6 text-accent-fg" />
 					)}
 				</div>
 			</SwipeAction>
@@ -92,8 +92,8 @@ export const SwipeableMessageRow = ({
 	const trailingActions = (
 		<TrailingActions>
 			<SwipeAction onClick={handleDelete} destructive>
-				<div className="flex items-center justify-center h-full bg-red-500 px-6">
-					<Trash2 className="size-6 text-white" />
+				<div className="flex items-center justify-center h-full bg-danger px-6">
+					<Trash2 className="size-6 text-canvas" />
 				</div>
 			</SwipeAction>
 		</TrailingActions>

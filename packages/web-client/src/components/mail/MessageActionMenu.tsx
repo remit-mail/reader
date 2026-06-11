@@ -318,7 +318,7 @@ export const MessageActionMenu = ({
 						disabled={trustedItemDisabled}
 					>
 						{isTrusted ? (
-							<BadgeCheck className="size-4 text-green-600 dark:text-green-500" />
+							<BadgeCheck className="size-4 text-positive" />
 						) : (
 							<Check className="size-4 opacity-0" />
 						)}

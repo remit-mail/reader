@@ -29,7 +29,7 @@ export const CategoryBadge = ({
 		<span
 			className={cn(
 				"inline-flex items-center rounded border border-line bg-surface-sunken/50 font-medium uppercase tracking-wide text-fg-muted shrink-0",
-				size === "sm" && "px-1.5 py-0 text-[10px] leading-4",
+				size === "sm" && "px-1.5 py-0 text-2xs leading-4",
 				size === "md" && "px-2 py-0.5 text-xs",
 				className,
 			)}

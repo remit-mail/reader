@@ -19,7 +19,7 @@ export const AddressDisplay = ({
 }: AddressDisplayProps) => {
 	const badge = showTrustedBadge ? (
 		<BadgeCheck
-			className="inline-block size-4 ml-1 -mt-0.5 text-green-600 dark:text-green-500"
+			className="inline-block size-4 ml-1 -mt-0.5 text-positive"
 			aria-label="Trusted sender"
 			data-testid="trusted-sender-badge"
 		/>

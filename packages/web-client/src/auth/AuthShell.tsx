@@ -234,7 +234,7 @@ const AuthFooter = () => (
 const LocalDevBanner = () => (
 	<div
 		role="alert"
-		className="fixed top-0 left-0 right-0 z-50 bg-yellow-900/90 text-yellow-50 border-b border-yellow-700 px-3 sm:px-4 text-xs sm:text-sm flex items-center gap-2 h-7 sm:h-10 overflow-hidden"
+		className="fixed top-0 left-0 right-0 z-50 bg-warning/15 text-warning border-b border-warning/40 px-3 sm:px-4 text-xs sm:text-sm flex items-center gap-2 h-7 sm:h-10 overflow-hidden"
 	>
 		<strong className="font-semibold shrink-0">Local dev</strong>
 		<span className="truncate hidden sm:inline">

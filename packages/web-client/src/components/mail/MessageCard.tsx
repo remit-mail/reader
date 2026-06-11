@@ -25,7 +25,7 @@ import { RawMessageView } from "./RawMessageView";
 
 const TrustedSenderBadge = () => (
 	<BadgeCheck
-		className="inline-block size-4 ml-1 -mt-0.5 text-green-600 dark:text-green-500 align-middle"
+		className="inline-block size-4 ml-1 -mt-0.5 text-positive align-middle"
 		aria-label="Trusted sender"
 		data-testid="trusted-sender-badge"
 	/>

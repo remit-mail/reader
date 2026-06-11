@@ -52,27 +52,27 @@ const STATUS_CONFIG: Record<
 	queued: {
 		icon: Clock,
 		label: "Queued",
-		className: "text-yellow-600 dark:text-yellow-400",
+		className: "text-warning",
 	},
 	sending: {
 		icon: Loader2,
 		label: "Sending…",
-		className: "text-blue-600 dark:text-blue-400",
+		className: "text-accent-2",
 	},
 	sent: {
 		icon: CheckCircle,
 		label: "Sent",
-		className: "text-green-600 dark:text-green-400",
+		className: "text-positive",
 	},
 	failed: {
 		icon: AlertCircle,
 		label: "Failed",
-		className: "text-red-600 dark:text-red-400",
+		className: "text-danger",
 	},
 	blocked: {
 		icon: AlertTriangle,
 		label: "Blocked",
-		className: "text-orange-600 dark:text-orange-400",
+		className: "text-warning",
 	},
 };
 
@@ -155,8 +155,8 @@ const OutboxMessageRow = ({
 	const showError = isUnsendableStatus(message.status);
 	const rowTint = (() => {
 		if (isSelected) return null;
-		if (status === "failed") return "bg-red-50/50 dark:bg-red-950/20";
-		if (status === "blocked") return "bg-orange-50/50 dark:bg-orange-950/20";
+		if (status === "failed") return "bg-danger-soft";
+		if (status === "blocked") return "bg-warning/10";
 		return null;
 	})();
 
