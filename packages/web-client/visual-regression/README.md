@@ -20,13 +20,33 @@ Both the cache directory and the symlink are gitignored.
 npm run test:visual -w packages/remit-web-client
 ```
 
-Compares against the baselines in the orphan branch. Fails on diffs greater than 4% of pixels (configured via `maxDiffPixelRatio` in `playwright.visual.config.ts`). Real layout regressions move 5%+ of pixels, so 4% catches them while absorbing the font-metric drift between local-capture and CI-assert Chromium runs — text wrap-points shift a pixel or two on the same string, which cascades into every line below it and burns ~3% of the canvas on busy mailbox-list snapshots. Time/date labels no longer contribute noise (see "Fixed clock" below).
+Compares against the baselines in the orphan branch. Fails on diffs greater than 5% of pixels (configured via `maxDiffPixelRatio` in `playwright.visual.config.ts`).
 
-To drop the threshold further the baselines would need to be captured on CI itself rather than locally, so capture-Chromium and assert-Chromium share the same font rasterizer. That is out of scope for the fixed-clock change.
+The 5% gate is a hold-over from when baselines were captured locally: text wrap-points shift a pixel or two between local-capture and CI-assert Chromium on the same string, cascading into every line below and burning a few percent of the canvas on busy mailbox-list snapshots. Time/date labels no longer contribute noise (see "Fixed clock" below).
 
-## Update baselines
+Now that baselines are captured **in CI** (issue #465 — see "Update baselines" below), capture- and assert-Chromium share one rasterizer and that drift is gone, so the threshold should be tightened to ~1% as a follow-up once CI-captured baselines have landed on `main`. 5% is too loose to catch some layout regressions; tightening is tracked in the config comment and issue #465.
 
-After an intentional visual change:
+## Update baselines (capture in CI — issue #465)
+
+Baselines are captured **in CI**, not from a local/agent Chromium. A local
+rasterizer renders the phone viewport ~0.06 differently from the CI runner, so
+locally-captured baselines false-fail the CI visual assert on phone screenshots.
+The canonical landing path is the `Visual Baselines` workflow_dispatch job
+(`.github/workflows/visual-baselines.yml`), which captures on the same runner
+that asserts:
+
+```sh
+# Trigger against the PR's head branch (or head SHA), then re-run playwright.
+gh workflow run visual-baselines.yml -f ref=<pr-head-branch-or-sha>
+```
+
+Full step-by-step landing dance: **[doc/runbooks/visual-baselines.md](../../../doc/runbooks/visual-baselines.md)**.
+
+### Local capture — preview only, do NOT publish
+
+The local scripts are still useful to *preview* a baseline diff in a worktree,
+but their output must **not** become the baseline of record — that reintroduces
+the cross-env drift the CI workflow exists to remove.
 
 ```sh
 # 0. (Optional) Reset local DDB + storage so the seeder produces a
@@ -34,18 +54,16 @@ After an intentional visual change:
 #    stale rows from prior runs can leak into baselines.
 npm run ddb:test:reset
 
-# 1. Re-capture every spec into the local cache.
+# 1. Re-capture every spec into the local cache (preview).
 npm run test:visual:update -w packages/remit-web-client
 
 # 2. Inspect the diff.
 npm run test:visual:status -w packages/remit-web-client
 # (or just `git -C .visual-baselines diff` for the gory detail)
-
-# 3. Push the new PNGs to the orphan branch.
-npm run test:visual:publish -w packages/remit-web-client
 ```
 
-`:publish` is a separate explicit step on purpose — re-running `:update` locally will never silently overwrite the baselines on the remote.
+`test:visual:publish` still exists (the CI workflow uses it on the runner) but
+should not be run locally for a landing — use the workflow above instead.
 
 `ddb:test:reset` deletes the `remit-test` DynamoDB table on the local stack
 (`localhost:5435`), recreates it from `dynamodb/table.schema.json`, and wipes
@@ -73,7 +91,13 @@ Some assertions only make sense on a single viewport and use `test.skip()` on th
 
 ## CI
 
-The `visual-tests` job in `.github/workflows/ci.yml` runs the suite on every PR. On failure it uploads the diff PNGs as a workflow artifact named `visual-test-report`.
+The `playwright-tests` job in `.github/workflows/ci.yml` runs the visual suite
+(after the smoke step) on every PR. On failure it uploads the diff PNGs as a
+workflow artifact named `playwright-test-reports`.
+
+Baselines are (re)captured by the separate `Visual Baselines` workflow_dispatch
+job (`.github/workflows/visual-baselines.yml`) — see "Update baselines" above and
+[doc/runbooks/visual-baselines.md](../../../doc/runbooks/visual-baselines.md).
 
 ## Fixed clock — `REMIT_FAKE_NOW`
 

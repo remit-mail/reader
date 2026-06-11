@@ -76,14 +76,25 @@ export default defineConfig({
 		toHaveScreenshot: {
 			// The seeder runs against a fixed clock (REMIT_FAKE_NOW, set
 			// on the webServer env below) so timestamp-driven labels are
-			// byte-stable. The residual noise is font-metric drift
-			// between local-capture Chromium (macOS / Ubuntu desktop) and
-			// CI-assert Chromium (Ubuntu runner): on the same string the
-			// wrap-point shifts by a pixel or two, which cascades into
-			// every text row below it. The fixed-clock fix above is the
-			// substantive change in this PR; threshold stays at 5%
-			// (matching the previous gate) until baselines can be
-			// captured on CI itself — see `visual-regression/README.md`.
+			// byte-stable. The residual noise is font-metric drift between
+			// local-capture Chromium and CI-assert Chromium: on the same
+			// string the wrap-point shifts by a pixel or two, which cascades
+			// into every text row below it.
+			//
+			// Baselines are now captured ON CI by the `Visual Baselines`
+			// workflow_dispatch job (.github/workflows/visual-baselines.yml),
+			// so once a PR's baselines are (re)captured there, capture- and
+			// assert-Chromium share one runner image + font rasterizer and the
+			// cross-env drift disappears. At that point this threshold should
+			// be tightened to ~0.01 (1%) — strict enough to catch real layout
+			// regressions (removing the ~44px Header bar moves far more than 1%
+			// of the frame) yet absorbing single-pixel antialiasing on retries.
+			//
+			// It is held at 5% in THIS change because the orphan-branch
+			// baselines are still the older local-captured set; tightening
+			// before the first CI capture would false-fail the assert. Tighten
+			// in the immediate follow-up once CI-captured baselines have
+			// landed for main — see issue #465 and `visual-regression/README.md`.
 			maxDiffPixelRatio: 0.05,
 			animations: "disabled",
 		},
