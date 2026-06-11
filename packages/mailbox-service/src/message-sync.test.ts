@@ -191,3 +191,150 @@ describe("MessageSyncService.syncMessages — BodyPart persistence", () => {
 		assert.equal(fake.upsertCalls.length, 0);
 	});
 });
+
+// ---------------------------------------------------------------------------
+// hasAttachment derivation
+// ---------------------------------------------------------------------------
+
+const buildFakeServicesWithCreateCapture = () => {
+	const createCalls: Array<Record<string, unknown>> = [];
+
+	const mailboxService = {
+		get: async () => ({
+			fullPath: "INBOX",
+			lastSyncUid: 0,
+			highWaterMarkUid: 0,
+			messageCount: 0,
+		}),
+		update: async () => undefined,
+	} as unknown as import("@remit/remit-electrodb-service").MailboxService;
+
+	const messageService = {
+		upsert: async () => undefined,
+	} as unknown as import("@remit/remit-electrodb-service").MessageService;
+
+	const envelopeService = {
+		upsertEnvelope: async () => undefined,
+		upsertBodyParts: async () => undefined,
+	} as unknown as import("@remit/remit-electrodb-service").EnvelopeService;
+
+	const addressService = {
+		upsertAddress: async () => undefined,
+		upsertEnvelopeAddress: async () => undefined,
+	} as unknown as import("@remit/remit-electrodb-service").AddressService;
+
+	const threadMessageService = {
+		create: async (input: Record<string, unknown>) => {
+			createCalls.push(input);
+			return {};
+		},
+	} as unknown as import("@remit/remit-electrodb-service").ThreadMessageService;
+
+	return {
+		mailboxService,
+		messageService,
+		envelopeService,
+		addressService,
+		threadMessageService,
+		createCalls,
+	};
+};
+
+const withAttachmentMessage: ImapMessage = {
+	...aliceMessage,
+	uid: 43,
+	bodyStructure: {
+		type: "multipart/mixed",
+		parameters: { boundary: "mix" },
+		childNodes: [
+			{
+				part: "1",
+				type: "text/plain",
+				parameters: { charset: "utf-8" },
+				encoding: "7bit",
+				size: 50,
+			},
+			{
+				part: "2",
+				type: "application/pdf",
+				encoding: "base64",
+				size: 20480,
+				disposition: "attachment",
+				dispositionParameters: { filename: "report.pdf" },
+			},
+		],
+	},
+};
+
+const inlineImageMessage: ImapMessage = {
+	...aliceMessage,
+	uid: 44,
+	bodyStructure: {
+		type: "multipart/related",
+		parameters: { boundary: "rel" },
+		childNodes: [
+			{
+				part: "1",
+				type: "text/html",
+				parameters: { charset: "utf-8" },
+				encoding: "quoted-printable",
+				size: 300,
+			},
+			{
+				part: "2",
+				type: "image/png",
+				encoding: "base64",
+				size: 8192,
+				// inline — should NOT count as an attachment
+				disposition: "inline",
+				id: "logo@cid",
+			},
+		],
+	},
+};
+
+describe("MessageSyncService.syncMessages — hasAttachment derivation", () => {
+	const buildService = (msgs: ImapMessage[]) => {
+		const fake = buildFakeServicesWithCreateCapture();
+		const factory = buildConnectionFactory(msgs);
+		const service = new MessageSyncService(
+			factory,
+			fake.mailboxService,
+			fake.messageService,
+			fake.envelopeService,
+			fake.addressService,
+			fake.threadMessageService,
+		);
+		return { service, fake };
+	};
+
+	it("sets hasAttachment: false for a text-only message", async () => {
+		const { service, fake } = buildService([aliceMessage]);
+		await service.syncMessages("mbx-1", "acc-1", 50);
+		assert.equal(fake.createCalls.length, 1);
+		assert.equal(fake.createCalls[0]!.hasAttachment, false);
+	});
+
+	it("sets hasAttachment: true when a non-inline part has disposition=attachment", async () => {
+		const { service, fake } = buildService([withAttachmentMessage]);
+		await service.syncMessages("mbx-1", "acc-1", 50);
+		assert.equal(fake.createCalls.length, 1);
+		assert.equal(fake.createCalls[0]!.hasAttachment, true);
+	});
+
+	it("sets hasAttachment: false when the only non-text part is inline (CID image)", async () => {
+		const { service, fake } = buildService([inlineImageMessage]);
+		await service.syncMessages("mbx-1", "acc-1", 50);
+		assert.equal(fake.createCalls.length, 1);
+		assert.equal(fake.createCalls[0]!.hasAttachment, false);
+	});
+
+	it("sets hasAttachment: false when BODYSTRUCTURE is absent", async () => {
+		const { service, fake } = buildService([
+			{ ...aliceMessage, uid: 45, bodyStructure: undefined },
+		]);
+		await service.syncMessages("mbx-1", "acc-1", 50);
+		assert.equal(fake.createCalls.length, 1);
+		assert.equal(fake.createCalls[0]!.hasAttachment, false);
+	});
+});
