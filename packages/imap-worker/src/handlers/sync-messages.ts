@@ -11,20 +11,24 @@ import {
 } from "@remit/remit-electrodb-service";
 import { SyncPhase } from "@remit/domain-enums";
 import type { Logger } from "@remit/remit-logger-lambda";
+import { RefreshTokenError } from "@remit/mail-oauth-service";
 import {
 	createManagedConnectionFactory,
+	MailConnectionError,
+	type MailCredentials,
 	MessageSyncService,
 } from "@remit/mailbox-service";
 import {
 	createKmsDataKeyProvider,
 	createSecretsService,
-	deserializeEncryptedPayload,
 } from "@remit/secrets-service";
 import { env } from "expect-env";
 import pMap from "p-map";
 import { isAccountDeleted } from "../account-check.js";
 import { emitEvent } from "../emit.js";
 import type { SyncMessageBodyEvent, SyncMessagesEvent } from "../events.js";
+import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
+import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 
 const BODY_BATCH_SIZE = 50;
 const EVENT_EMIT_CONCURRENCY = 10;
@@ -85,33 +89,50 @@ export const syncMessages = async (
 		return;
 	}
 
-	// Acquire lock before starting sync operation
-	const { executed } = await mailboxLockService.withMailboxLock(
-		event.mailboxId,
-		"SYNC_MESSAGES",
-		event.accountId,
-		async () => {
-			try {
-				await syncMailboxMessages(event, account, log);
-			} catch (err) {
-				// Record the terminal error phase before crashing (let-it-crash:
-				// record state, then rethrow so the event is retried/DLQ'd).
-				const message = err instanceof Error ? err.message : String(err);
-				await accountService.update(event.accountId, {
-					syncPhase: SyncPhase.error,
-					lastError: message,
-				});
-				throw err;
+	// withOAuthLifecycle owns the reauth/ACK contract (skip-if-reauth, resolve
+	// credentials, flip on terminal auth failure, rethrow transient). The
+	// mailbox lock and the actual sync run inside the wrapper callback.
+	await withOAuthLifecycle(
+		buildLifecycleDeps(secrets, accountService),
+		account,
+		log,
+		async (credentials) => {
+			// Acquire lock before starting sync operation
+			const { executed } = await mailboxLockService.withMailboxLock(
+				event.mailboxId,
+				"SYNC_MESSAGES",
+				event.accountId,
+				async () => {
+					try {
+						await syncMailboxMessages(event, account, credentials, log);
+					} catch (err) {
+						// Auth failures are handled by the wrapper — rethrow untouched.
+						if (
+							err instanceof RefreshTokenError ||
+							(err instanceof MailConnectionError && err.kind === "auth")
+						) {
+							throw err;
+						}
+						// Record the terminal error phase before crashing (let-it-crash:
+						// record state, then rethrow so the event is retried/DLQ'd).
+						const message = err instanceof Error ? err.message : String(err);
+						await accountService.update(event.accountId, {
+							syncPhase: SyncPhase.error,
+							lastError: message,
+						});
+						throw err;
+					}
+				},
+			);
+
+			if (!executed) {
+				log.info(
+					{ mailboxId: event.mailboxId },
+					"Sync already in progress, skipping",
+				);
 			}
 		},
 	);
-
-	if (!executed) {
-		log.info(
-			{ mailboxId: event.mailboxId },
-			"Sync already in progress, skipping",
-		);
-	}
 };
 
 /**
@@ -120,21 +141,13 @@ export const syncMessages = async (
 const syncMailboxMessages = async (
 	event: SyncMessagesEvent,
 	account: AccountItem,
+	credentials: MailCredentials,
 	log: Logger,
 ): Promise<void> => {
-	if (!account.passwordHash) {
-		throw new Error(
-			`Account ${account.accountId}: passwordHash missing — only password accounts are supported by the IMAP worker`,
-		);
-	}
-	const password = await secrets.decrypt(
-		deserializeEncryptedPayload(JSON.parse(account.passwordHash)),
-	);
-
 	// Create a managed connection factory that caches and reuses the connection
 	const connectionFactory = createManagedConnectionFactory({
 		user: account.username,
-		credentials: { kind: "password", password },
+		credentials,
 		host: account.imapHost,
 		port: account.imapPort,
 		tls: account.imapTls,

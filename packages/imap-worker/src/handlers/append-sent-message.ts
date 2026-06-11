@@ -11,13 +11,14 @@ import type { Logger } from "@remit/remit-logger-lambda";
 import {
 	createKmsDataKeyProvider,
 	createSecretsService,
-	deserializeEncryptedPayload,
 } from "@remit/secrets-service";
 import { env } from "expect-env";
 import nodemailer from "nodemailer";
 import { isAccountDeleted } from "../account-check.js";
-import { createConnectionScopeFromAccount } from "../connection-scope.js";
+import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import type { AppendSentMessageEvent } from "../events.js";
+import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
+import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 
 const client = getClient();
 const dataKeyProvider = createKmsDataKeyProvider(env.KMS_KEY_ID);
@@ -128,43 +129,43 @@ export const handleAppendSentMessage = async (
 		return;
 	}
 
-	if (!account.passwordHash) {
-		throw new Error(
-			`Account ${account.accountId}: passwordHash missing — only password accounts are supported by the IMAP worker`,
-		);
-	}
-	const password = await secrets.decrypt(
-		deserializeEncryptedPayload(JSON.parse(account.passwordHash)),
-	);
+	await withOAuthLifecycle(
+		buildLifecycleDeps(secrets, accountService),
+		account,
+		log,
+		async (credentials) => {
+			const scope = createConnectionScopeWithCredentials(account, credentials);
 
-	const scope = createConnectionScopeFromAccount(account, password);
+			await scope
+				.getConnection()
+				.then(async (connection) => {
+					const rawMessage = await buildRawMessage(outbox);
 
-	await scope
-		.getConnection()
-		.then(async (connection) => {
-			const rawMessage = await buildRawMessage(outbox);
+					const result = await connection.append(
+						sentMailbox.fullPath,
+						rawMessage,
+						["\\Seen"],
+					);
 
-			const result = await connection.append(sentMailbox.fullPath, rawMessage, [
-				"\\Seen",
-			]);
+					log.info(
+						{
+							outboxMessageId,
+							sentMailbox: sentMailbox.fullPath,
+							uid: result.uid,
+							uidValidity: result.uidValidity,
+						},
+						"Appended sent message to Sent mailbox",
+					);
+				})
+				.finally(() => scope.disconnect());
 
+			// The message now lives in the IMAP Sent folder. Drop the outbox row so
+			// the user does not see it twice in the UI (Outbox + Sent). Issue #178.
+			await outboxMessageService.delete(outboxMessageId);
 			log.info(
-				{
-					outboxMessageId,
-					sentMailbox: sentMailbox.fullPath,
-					uid: result.uid,
-					uidValidity: result.uidValidity,
-				},
-				"Appended sent message to Sent mailbox",
+				{ outboxMessageId },
+				"Deleted outbox row after successful APPEND to Sent",
 			);
-		})
-		.finally(() => scope.disconnect());
-
-	// The message now lives in the IMAP Sent folder. Drop the outbox row so
-	// the user does not see it twice in the UI (Outbox + Sent). Issue #178.
-	await outboxMessageService.delete(outboxMessageId);
-	log.info(
-		{ outboxMessageId },
-		"Deleted outbox row after successful APPEND to Sent",
+		},
 	);
 };

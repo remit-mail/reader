@@ -10,12 +10,13 @@ import { FlagSyncService } from "@remit/mailbox-service";
 import {
 	createKmsDataKeyProvider,
 	createSecretsService,
-	deserializeEncryptedPayload,
 } from "@remit/secrets-service";
 import { env } from "expect-env";
 import { isAccountDeleted } from "../account-check.js";
-import { createConnectionScopeFromAccount } from "../connection-scope.js";
+import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import type { SyncFlagsEvent } from "../events.js";
+import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
+import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 
 const client = getClient();
 const dataKeyProvider = createKmsDataKeyProvider(env.KMS_KEY_ID);
@@ -68,45 +69,43 @@ export const syncFlags = async (
 		return;
 	}
 
-	if (!account.passwordHash) {
-		throw new Error(
-			`Account ${account.accountId}: passwordHash missing — only password accounts are supported by the IMAP worker`,
-		);
-	}
-	const password = await secrets.decrypt(
-		deserializeEncryptedPayload(JSON.parse(account.passwordHash)),
-	);
-
-	const scope = createConnectionScopeFromAccount(account, password);
-	const mailbox = await mailboxService.get(mailboxId);
-
-	const flagSyncService = new FlagSyncService(
-		messageFlagService,
-		messageService,
+	await withOAuthLifecycle(
+		buildLifecycleDeps(secrets, accountService),
+		account,
 		log,
-	);
+		async (credentials) => {
+			const scope = createConnectionScopeWithCredentials(account, credentials);
+			const mailbox = await mailboxService.get(mailboxId);
 
-	// Open mailbox for write operations (readOnly = false)
-	const connection = await scope.getConnection();
-	await connection.openBox(mailbox.fullPath, false);
-
-	await flagSyncService
-		.syncToImap(operations, () => Promise.resolve(connection))
-		.then((result) => {
-			log.info(
-				{
-					accountId,
-					mailboxId,
-					successCount: result.successCount,
-					failedCount: result.failedCount,
-					errors: result.errors,
-				},
-				"Flag sync completed",
+			const flagSyncService = new FlagSyncService(
+				messageFlagService,
+				messageService,
+				log,
 			);
 
-			if (result.failedCount > 0) {
-				log.error({ errors: result.errors }, "Some flag operations failed");
-			}
-		})
-		.finally(() => scope.disconnect());
+			// Open mailbox for write operations (readOnly = false)
+			const connection = await scope.getConnection();
+			await connection.openBox(mailbox.fullPath, false);
+
+			await flagSyncService
+				.syncToImap(operations, () => Promise.resolve(connection))
+				.then((result) => {
+					log.info(
+						{
+							accountId,
+							mailboxId,
+							successCount: result.successCount,
+							failedCount: result.failedCount,
+							errors: result.errors,
+						},
+						"Flag sync completed",
+					);
+
+					if (result.failedCount > 0) {
+						log.error({ errors: result.errors }, "Some flag operations failed");
+					}
+				})
+				.finally(() => scope.disconnect());
+		},
+	);
 };

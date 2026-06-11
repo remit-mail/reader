@@ -10,12 +10,13 @@ import type { Logger } from "@remit/remit-logger-lambda";
 import {
 	createKmsDataKeyProvider,
 	createSecretsService,
-	deserializeEncryptedPayload,
 } from "@remit/secrets-service";
 import { env } from "expect-env";
 import { isAccountDeleted } from "../account-check.js";
-import { createConnectionScopeFromAccount } from "../connection-scope.js";
+import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import type { MessageDeleteEvent } from "../events.js";
+import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
+import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 
 /**
  * Delete every ThreadMessage row that points at this messageId.
@@ -129,127 +130,126 @@ export const handleMessageDelete = async (
 		return;
 	}
 
-	if (!account.passwordHash) {
-		throw new Error(
-			`Account ${account.accountId}: passwordHash missing — only password accounts are supported by the IMAP worker`,
-		);
-	}
-	const password = await secrets.decrypt(
-		deserializeEncryptedPayload(JSON.parse(account.passwordHash)),
-	);
+	await withOAuthLifecycle(
+		buildLifecycleDeps(secrets, accountService),
+		account,
+		log,
+		async (credentials) => {
+			const scope = createConnectionScopeWithCredentials(account, credentials);
 
-	const scope = createConnectionScopeFromAccount(account, password);
+			await scope
+				.getConnection()
+				.then(async (connection) => {
+					await connection.openBox(mailboxPath, false);
 
-	await scope
-		.getConnection()
-		.then(async (connection) => {
-			await connection.openBox(mailboxPath, false);
-
-			if (operation === "move_to_trash" && destinationMailboxPath) {
-				// Move to Trash
-				const result = await connection.moveMessages(
-					[uid],
-					destinationMailboxPath,
-				);
-				const newUid = result.uidMap.get(uid);
-
-				if (newUid && destinationMailboxId) {
-					// Update message with new UID in Trash
-					await messageService.updateUid(
-						messageId,
-						newUid,
-						destinationMailboxId,
-					);
-
-					// Update ThreadMessage with new UID and isDeleted = true
-					const threadMessage =
-						await threadMessageService.findByMessageId(messageId);
-					if (threadMessage) {
-						const args = buildThreadMessageTrashUpdate(
-							threadMessage,
-							newUid,
-							destinationMailboxId,
+					if (operation === "move_to_trash" && destinationMailboxPath) {
+						// Move to Trash
+						const result = await connection.moveMessages(
+							[uid],
+							destinationMailboxPath,
 						);
-						await threadMessageService.update(
-							threadMessage.accountConfigId,
-							threadMessage.threadMessageId,
-							args.set,
-							{ composites: args.composites },
+						const newUid = result.uidMap.get(uid);
+
+						if (newUid && destinationMailboxId) {
+							// Update message with new UID in Trash
+							await messageService.updateUid(
+								messageId,
+								newUid,
+								destinationMailboxId,
+							);
+
+							// Update ThreadMessage with new UID and isDeleted = true
+							const threadMessage =
+								await threadMessageService.findByMessageId(messageId);
+							if (threadMessage) {
+								const args = buildThreadMessageTrashUpdate(
+									threadMessage,
+									newUid,
+									destinationMailboxId,
+								);
+								await threadMessageService.update(
+									threadMessage.accountConfigId,
+									threadMessage.threadMessageId,
+									args.set,
+									{ composites: args.composites },
+								);
+							}
+
+							log.info({ messageId, newUid }, "Message moved to trash");
+						} else {
+							log.error(
+								{ messageId, uid },
+								"Failed to get new UID after move to trash",
+							);
+							await messageService.update(messageId, {
+								syncStatus: MessageSyncStatus.failed,
+							});
+						}
+					} else {
+						// Permanent delete
+						await connection.deleteMessages([uid]);
+
+						// Delete ThreadMessage rows BEFORE the Message row to collapse the
+						// visibility window where the inbox lists a row whose backing
+						// Message has already been deleted (see issue #212). Multi-mailbox
+						// copies are handled by the helper.
+						const threadMessagesDeleted =
+							await deleteAllThreadMessagesForMessage(
+								threadMessageService,
+								messageId,
+							);
+
+						// Delete local Message entity
+						await messageService.delete(messageId);
+
+						log.info(
+							{ messageId, threadMessagesDeleted },
+							"Message permanently deleted",
 						);
 					}
+				})
+				.catch(async (error: unknown) => {
+					const errorMessage =
+						error instanceof Error ? error.message : String(error);
 
-					log.info({ messageId, newUid }, "Message moved to trash");
-				} else {
-					log.error(
-						{ messageId, uid },
-						"Failed to get new UID after move to trash",
-					);
+					// Message not found on IMAP - already deleted (idempotent)
+					if (
+						errorMessage.includes("not found") ||
+						errorMessage.includes("NONEXISTENT")
+					) {
+						log.info(
+							{ messageId, uid },
+							"Message not found on IMAP, cleaning up local",
+						);
+						// Clean up local entities. Multi-mailbox copies are handled by the
+						// helper so we don't leave orphan rows (see issue #212).
+						await messageService.delete(messageId);
+						await deleteAllThreadMessagesForMessage(
+							threadMessageService,
+							messageId,
+						);
+						return;
+					}
+
+					// TRYCREATE - Trash doesn't exist
+					if (errorMessage.includes("TRYCREATE") && destinationMailboxPath) {
+						log.info(
+							{ destinationMailboxPath },
+							"Trash mailbox doesn't exist, creating",
+						);
+						const connection = await scope.getConnection();
+						await connection.createMailbox(destinationMailboxPath);
+						// Re-throw to let the event be retried
+						throw error;
+					}
+
+					// Mark as failed for other errors
 					await messageService.update(messageId, {
 						syncStatus: MessageSyncStatus.failed,
 					});
-				}
-			} else {
-				// Permanent delete
-				await connection.deleteMessages([uid]);
-
-				// Delete ThreadMessage rows BEFORE the Message row to collapse the
-				// visibility window where the inbox lists a row whose backing
-				// Message has already been deleted (see issue #212). Multi-mailbox
-				// copies are handled by the helper.
-				const threadMessagesDeleted = await deleteAllThreadMessagesForMessage(
-					threadMessageService,
-					messageId,
-				);
-
-				// Delete local Message entity
-				await messageService.delete(messageId);
-
-				log.info(
-					{ messageId, threadMessagesDeleted },
-					"Message permanently deleted",
-				);
-			}
-		})
-		.catch(async (error: unknown) => {
-			const errorMessage =
-				error instanceof Error ? error.message : String(error);
-
-			// Message not found on IMAP - already deleted (idempotent)
-			if (
-				errorMessage.includes("not found") ||
-				errorMessage.includes("NONEXISTENT")
-			) {
-				log.info(
-					{ messageId, uid },
-					"Message not found on IMAP, cleaning up local",
-				);
-				// Clean up local entities. Multi-mailbox copies are handled by the
-				// helper so we don't leave orphan rows (see issue #212).
-				await messageService.delete(messageId);
-				await deleteAllThreadMessagesForMessage(
-					threadMessageService,
-					messageId,
-				);
-				return;
-			}
-
-			// TRYCREATE - Trash doesn't exist
-			if (errorMessage.includes("TRYCREATE") && destinationMailboxPath) {
-				log.info(
-					{ destinationMailboxPath },
-					"Trash mailbox doesn't exist, creating",
-				);
-				const connection = await scope.getConnection();
-				await connection.createMailbox(destinationMailboxPath);
-				// Re-throw to let the event be retried
-				throw error;
-			}
-
-			// Mark as failed for other errors
-			await messageService.update(messageId, {
-				syncStatus: MessageSyncStatus.failed,
-			});
-			throw error;
-		})
-		.finally(() => scope.disconnect());
+					throw error;
+				})
+				.finally(() => scope.disconnect());
+		},
+	);
 };

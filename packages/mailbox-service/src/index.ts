@@ -5,6 +5,11 @@
  */
 
 export {
+	type AccountCredentialsDeps,
+	encryptRefreshToken,
+	resolveConnectionCredentials,
+} from "./account-credentials.js";
+export {
 	hasChildren,
 	isNoSelect,
 	type ParsedAttributes,
@@ -23,6 +28,7 @@ export {
 export {
 	createConnection,
 	createConnectionFromAccount,
+	createConnectionWithCredentials,
 	createManagedConnectionFactory,
 	type ManagedConnectionFactory,
 } from "./connection-factory.js";
@@ -53,6 +59,7 @@ export { TRANSACTIONAL_DOMAINS } from "./heuristics/transactionalDomains.js";
 // IMAP connection (ImapFlow-based)
 export {
 	createImapFlowConnectionFromAccount,
+	createImapFlowConnectionWithCredentials,
 	ImapFlowConnection,
 } from "./imapflow-connection.js";
 export {

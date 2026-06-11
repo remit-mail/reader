@@ -1,6 +1,16 @@
 import { inspect } from "node:util";
+import type {
+	AccountItem,
+	AccountService,
+} from "@remit/remit-electrodb-service";
 import { AccountAuthType, ConnectionState } from "@remit/domain-enums";
 import {
+	createMailOAuthService,
+	microsoftProviderConfig,
+	RefreshTokenError,
+} from "@remit/mail-oauth-service";
+import {
+	resolveConnectionCredentials,
 	testImapConnection,
 	testSmtpConnection,
 } from "@remit/mailbox-service";
@@ -14,6 +24,7 @@ import type {
 } from "@remit/api-openapi-types";
 import {
 	deserializeEncryptedPayload,
+	type SecretsService,
 	serializeEncryptedPayload,
 } from "@remit/secrets-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
@@ -58,6 +69,103 @@ export const triggerAccountSyncSafe = async (
 	if (eventId !== undefined) {
 		logger.info({ accountId, eventId }, "Sync triggered for new account");
 	}
+};
+
+/**
+ * Test connectivity for an OAuth (Microsoft) account.
+ *
+ * Mints an access token from the stored refresh token via
+ * resolveConnectionCredentials (the single authType branch), then runs the
+ * IMAP — and, when configured, SMTP — connection tests with those credentials.
+ *
+ * A revoked / expired refresh token surfaces as RefreshTokenError; the
+ * reauth-required case is mapped to the distinct `reauth_required` error code
+ * so the UI can route the user into the OAuth re-auth flow.
+ *
+ * MSOAUTH_* env vars are only present in deployed Lambdas; fall back to "".
+ */
+const testOAuthConnection = async (
+	existingAccount: AccountItem,
+	account: AccountService,
+	secrets: SecretsService,
+): Promise<TestConnectionResponse> => {
+	if (!existingAccount.oauthRefreshTokenHash) {
+		return {
+			imapSuccess: false,
+			imapError: "oauth_not_configured",
+			smtpSuccess: undefined,
+		};
+	}
+
+	const tokenService = createMailOAuthService(
+		microsoftProviderConfig({
+			clientId: process.env.MSOAUTH_CLIENT_ID ?? "",
+			clientSecret: process.env.MSOAUTH_CLIENT_SECRET ?? "",
+			overrides: process.env.MSOAUTH_TOKEN_ENDPOINT
+				? { tokenEndpoint: process.env.MSOAUTH_TOKEN_ENDPOINT }
+				: undefined,
+		}),
+	);
+
+	let credentials: Awaited<ReturnType<typeof resolveConnectionCredentials>>;
+	try {
+		credentials = await resolveConnectionCredentials(existingAccount, {
+			secrets,
+			tokenService,
+			persistRotatedToken: async (id, encryptedHash, updatedAt) => {
+				await account.update(id, {
+					oauthRefreshTokenHash: encryptedHash,
+					oauthTokenUpdatedAt: updatedAt,
+				});
+			},
+		});
+	} catch (err) {
+		if (
+			err instanceof RefreshTokenError &&
+			err.error.kind === "reauth-required"
+		) {
+			return {
+				imapSuccess: false,
+				imapError: "reauth_required",
+				smtpSuccess: undefined,
+			};
+		}
+		throw err;
+	}
+
+	const result: TestConnectionResponse = {
+		imapSuccess: false,
+		smtpSuccess: undefined,
+	};
+
+	const imapResult = await testImapConnection({
+		host: existingAccount.imapHost,
+		port: existingAccount.imapPort,
+		secure: existingAccount.imapTls,
+		user: existingAccount.username,
+		credentials,
+	});
+	result.imapSuccess = imapResult.success;
+	if (!imapResult.success) {
+		result.imapError = imapResult.error;
+	}
+
+	// OAuth accounts share the same access token for IMAP and SMTP.
+	if (existingAccount.smtpHost) {
+		const smtpResult = await testSmtpConnection({
+			host: existingAccount.smtpHost,
+			port: existingAccount.smtpPort ?? 587,
+			secure: existingAccount.smtpTls ?? false,
+			user: existingAccount.smtpUsername ?? existingAccount.username,
+			credentials,
+		});
+		result.smtpSuccess = smtpResult.success;
+		if (!smtpResult.success) {
+			result.smtpError = smtpResult.error;
+		}
+	}
+
+	return result;
 };
 
 export const AccountOperations: Record<
@@ -137,17 +245,17 @@ export const AccountOperations: Record<
 			const existingAccount = await account.get(input.accountId);
 			assertAccountOwnership(existingAccount, accountConfigId, "read");
 
-			if (!existingAccount.passwordHash) {
-				return {
-					imapSuccess: false,
-					imapError: "Password required",
-					smtpSuccess: undefined,
-				};
+			const authType = existingAccount.authType ?? "password";
+			if (authType === "oauthMicrosoft") {
+				return testOAuthConnection(existingAccount, account, secrets);
 			}
-			const payload = deserializeEncryptedPayload(
-				JSON.parse(existingAccount.passwordHash),
-			);
-			imapPassword = await secrets.decrypt(payload);
+
+			if (existingAccount.passwordHash) {
+				const payload = deserializeEncryptedPayload(
+					JSON.parse(existingAccount.passwordHash),
+				);
+				imapPassword = await secrets.decrypt(payload);
+			}
 
 			// Also get SMTP password if needed and available
 			if (!smtpPassword && existingAccount.smtpPasswordHash) {

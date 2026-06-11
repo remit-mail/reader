@@ -18,3 +18,24 @@ export const isAccountDeleted = (
 	}
 	return false;
 };
+
+/**
+ * Check if an account requires re-authentication (e.g. OAuth token revoked).
+ * Returns true if the account should be skipped until the user re-auths.
+ */
+export const isAccountReauthRequired = (
+	account: AccountItem,
+	log: Logger,
+): boolean => {
+	if (account.connectionState === "reauth_required") {
+		log.info(
+			{
+				accountId: account.accountId,
+				connectionState: account.connectionState,
+			},
+			"Skipping account: reauth required",
+		);
+		return true;
+	}
+	return false;
+};

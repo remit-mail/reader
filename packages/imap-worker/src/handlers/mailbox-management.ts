@@ -9,17 +9,18 @@ import { MailboxManagementService } from "@remit/mailbox-service";
 import {
 	createKmsDataKeyProvider,
 	createSecretsService,
-	deserializeEncryptedPayload,
 } from "@remit/secrets-service";
 import { env } from "expect-env";
 import { isAccountDeleted } from "../account-check.js";
-import { createConnectionScopeFromAccount } from "../connection-scope.js";
+import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import type {
 	MailboxCreateEvent,
 	MailboxDeleteEvent,
 	MailboxManagementEvent,
 	MailboxRenameEvent,
 } from "../events.js";
+import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
+import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 
 const client = getClient();
 const dataKeyProvider = createKmsDataKeyProvider(env.KMS_KEY_ID);
@@ -54,48 +55,52 @@ const handleCreate = async (
 		return;
 	}
 
-	if (!account.passwordHash) {
-		throw new Error(
-			`Account ${account.accountId}: passwordHash missing — only password accounts are supported by the IMAP worker`,
-		);
-	}
-	const password = await secrets.decrypt(
-		deserializeEncryptedPayload(JSON.parse(account.passwordHash)),
+	await withOAuthLifecycle(
+		buildLifecycleDeps(secrets, accountService),
+		account,
+		log,
+		async (credentials) => {
+			const scope = createConnectionScopeWithCredentials(account, credentials);
+			const managementService = new MailboxManagementService(
+				mailboxService,
+				log,
+			);
+
+			await managementService
+				.syncCreate(mailboxId, path, scope.getConnection, subscribe)
+				.then((result) => {
+					if (result.success) {
+						log.info({ accountId, mailboxId, path }, "Mailbox created on IMAP");
+					} else {
+						log.error(
+							{ accountId, mailboxId, path, error: result.error },
+							"Failed to create mailbox on IMAP",
+						);
+					}
+				})
+				.catch(async (error) => {
+					// Check if mailbox already exists (idempotent)
+					if (
+						error instanceof Error &&
+						error.message.includes("already exists")
+					) {
+						log.info(
+							{ accountId, mailboxId, path },
+							"Mailbox already exists, marking as synced",
+						);
+						await mailboxService.update(mailboxId, {
+							syncStatus: MailboxSyncStatus.synced,
+						});
+					} else {
+						await mailboxService.update(mailboxId, {
+							syncStatus: MailboxSyncStatus.failed,
+						});
+						throw error;
+					}
+				})
+				.finally(() => scope.disconnect());
+		},
 	);
-
-	const scope = createConnectionScopeFromAccount(account, password);
-	const managementService = new MailboxManagementService(mailboxService, log);
-
-	await managementService
-		.syncCreate(mailboxId, path, scope.getConnection, subscribe)
-		.then((result) => {
-			if (result.success) {
-				log.info({ accountId, mailboxId, path }, "Mailbox created on IMAP");
-			} else {
-				log.error(
-					{ accountId, mailboxId, path, error: result.error },
-					"Failed to create mailbox on IMAP",
-				);
-			}
-		})
-		.catch(async (error) => {
-			// Check if mailbox already exists (idempotent)
-			if (error instanceof Error && error.message.includes("already exists")) {
-				log.info(
-					{ accountId, mailboxId, path },
-					"Mailbox already exists, marking as synced",
-				);
-				await mailboxService.update(mailboxId, {
-					syncStatus: MailboxSyncStatus.synced,
-				});
-			} else {
-				await mailboxService.update(mailboxId, {
-					syncStatus: MailboxSyncStatus.failed,
-				});
-				throw error;
-			}
-		})
-		.finally(() => scope.disconnect());
 };
 
 /**
@@ -121,52 +126,53 @@ const handleRename = async (
 		return;
 	}
 
-	if (!account.passwordHash) {
-		throw new Error(
-			`Account ${account.accountId}: passwordHash missing — only password accounts are supported by the IMAP worker`,
-		);
-	}
-	const password = await secrets.decrypt(
-		deserializeEncryptedPayload(JSON.parse(account.passwordHash)),
+	await withOAuthLifecycle(
+		buildLifecycleDeps(secrets, accountService),
+		account,
+		log,
+		async (credentials) => {
+			const scope = createConnectionScopeWithCredentials(account, credentials);
+			const managementService = new MailboxManagementService(
+				mailboxService,
+				log,
+			);
+
+			await managementService
+				.syncRename(mailboxId, oldPath, newPath, scope.getConnection)
+				.then((result) => {
+					if (result.success) {
+						log.info(
+							{ accountId, mailboxId, oldPath, newPath },
+							"Mailbox renamed on IMAP",
+						);
+					} else {
+						log.error(
+							{ accountId, mailboxId, oldPath, newPath, error: result.error },
+							"Failed to rename mailbox on IMAP",
+						);
+					}
+				})
+				.catch(async (error) => {
+					// If source not found, delete local mailbox
+					if (error instanceof Error && error.message.includes("not found")) {
+						log.info(
+							{ accountId, mailboxId, oldPath },
+							"Source mailbox not found, deleting local",
+						);
+						await mailboxService.delete(mailboxId);
+					} else {
+						// Rollback local rename by restoring old path
+						await mailboxService.update(mailboxId, {
+							fullPath: oldPath,
+							oldPath: undefined,
+							syncStatus: MailboxSyncStatus.failed,
+						});
+						throw error;
+					}
+				})
+				.finally(() => scope.disconnect());
+		},
 	);
-
-	const scope = createConnectionScopeFromAccount(account, password);
-	const managementService = new MailboxManagementService(mailboxService, log);
-
-	await managementService
-		.syncRename(mailboxId, oldPath, newPath, scope.getConnection)
-		.then((result) => {
-			if (result.success) {
-				log.info(
-					{ accountId, mailboxId, oldPath, newPath },
-					"Mailbox renamed on IMAP",
-				);
-			} else {
-				log.error(
-					{ accountId, mailboxId, oldPath, newPath, error: result.error },
-					"Failed to rename mailbox on IMAP",
-				);
-			}
-		})
-		.catch(async (error) => {
-			// If source not found, delete local mailbox
-			if (error instanceof Error && error.message.includes("not found")) {
-				log.info(
-					{ accountId, mailboxId, oldPath },
-					"Source mailbox not found, deleting local",
-				);
-				await mailboxService.delete(mailboxId);
-			} else {
-				// Rollback local rename by restoring old path
-				await mailboxService.update(mailboxId, {
-					fullPath: oldPath,
-					oldPath: undefined,
-					syncStatus: MailboxSyncStatus.failed,
-				});
-				throw error;
-			}
-		})
-		.finally(() => scope.disconnect());
 };
 
 /**
@@ -189,60 +195,61 @@ const handleDelete = async (
 		return;
 	}
 
-	if (!account.passwordHash) {
-		throw new Error(
-			`Account ${account.accountId}: passwordHash missing — only password accounts are supported by the IMAP worker`,
-		);
-	}
-	const password = await secrets.decrypt(
-		deserializeEncryptedPayload(JSON.parse(account.passwordHash)),
+	await withOAuthLifecycle(
+		buildLifecycleDeps(secrets, accountService),
+		account,
+		log,
+		async (credentials) => {
+			const scope = createConnectionScopeWithCredentials(account, credentials);
+			const managementService = new MailboxManagementService(
+				mailboxService,
+				log,
+			);
+
+			await managementService
+				.syncDelete(mailboxId, path, scope.getConnection)
+				.then((result) => {
+					if (result.success) {
+						log.info({ accountId, mailboxId, path }, "Mailbox deleted on IMAP");
+					} else {
+						log.error(
+							{ accountId, mailboxId, path, error: result.error },
+							"Failed to delete mailbox on IMAP",
+						);
+					}
+				})
+				.catch(async (error) => {
+					// If mailbox not found, it's already deleted (idempotent)
+					if (error instanceof Error && error.message.includes("not found")) {
+						log.info(
+							{ accountId, mailboxId, path },
+							"Mailbox not found on IMAP, deleting local",
+						);
+						await mailboxService.delete(mailboxId);
+					} else if (
+						error instanceof Error &&
+						error.message.includes("Cannot delete INBOX")
+					) {
+						// Restore the mailbox
+						await mailboxService.update(mailboxId, {
+							syncStatus: MailboxSyncStatus.synced,
+						});
+						log.error(
+							{ accountId, mailboxId, path },
+							"Cannot delete INBOX, restoring mailbox",
+						);
+						// Don't rethrow - this is an expected error
+					} else {
+						// Restore the mailbox on other errors
+						await mailboxService.update(mailboxId, {
+							syncStatus: MailboxSyncStatus.failed,
+						});
+						throw error;
+					}
+				})
+				.finally(() => scope.disconnect());
+		},
 	);
-
-	const scope = createConnectionScopeFromAccount(account, password);
-	const managementService = new MailboxManagementService(mailboxService, log);
-
-	await managementService
-		.syncDelete(mailboxId, path, scope.getConnection)
-		.then((result) => {
-			if (result.success) {
-				log.info({ accountId, mailboxId, path }, "Mailbox deleted on IMAP");
-			} else {
-				log.error(
-					{ accountId, mailboxId, path, error: result.error },
-					"Failed to delete mailbox on IMAP",
-				);
-			}
-		})
-		.catch(async (error) => {
-			// If mailbox not found, it's already deleted (idempotent)
-			if (error instanceof Error && error.message.includes("not found")) {
-				log.info(
-					{ accountId, mailboxId, path },
-					"Mailbox not found on IMAP, deleting local",
-				);
-				await mailboxService.delete(mailboxId);
-			} else if (
-				error instanceof Error &&
-				error.message.includes("Cannot delete INBOX")
-			) {
-				// Restore the mailbox
-				await mailboxService.update(mailboxId, {
-					syncStatus: MailboxSyncStatus.synced,
-				});
-				log.error(
-					{ accountId, mailboxId, path },
-					"Cannot delete INBOX, restoring mailbox",
-				);
-				// Don't rethrow - this is an expected error
-			} else {
-				// Restore the mailbox on other errors
-				await mailboxService.update(mailboxId, {
-					syncStatus: MailboxSyncStatus.failed,
-				});
-				throw error;
-			}
-		})
-		.finally(() => scope.disconnect());
 };
 
 /**

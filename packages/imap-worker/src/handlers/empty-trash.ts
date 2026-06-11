@@ -8,12 +8,13 @@ import type { Logger } from "@remit/remit-logger-lambda";
 import {
 	createKmsDataKeyProvider,
 	createSecretsService,
-	deserializeEncryptedPayload,
 } from "@remit/secrets-service";
 import { env } from "expect-env";
 import { isAccountDeleted } from "../account-check.js";
-import { createConnectionScopeFromAccount } from "../connection-scope.js";
+import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import type { EmptyTrashEvent } from "../events.js";
+import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
+import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 
 const client = getClient();
 const dataKeyProvider = createKmsDataKeyProvider(env.KMS_KEY_ID);
@@ -56,55 +57,56 @@ export const handleEmptyTrash = async (
 		return;
 	}
 
-	if (!account.passwordHash) {
-		throw new Error(
-			`Account ${account.accountId}: passwordHash missing — only password accounts are supported by the IMAP worker`,
-		);
-	}
-	const password = await secrets.decrypt(
-		deserializeEncryptedPayload(JSON.parse(account.passwordHash)),
-	);
+	await withOAuthLifecycle(
+		buildLifecycleDeps(secrets, accountService),
+		account,
+		log,
+		async (credentials) => {
+			const scope = createConnectionScopeWithCredentials(account, credentials);
 
-	const scope = createConnectionScopeFromAccount(account, password);
+			await scope
+				.getConnection()
+				.then(async (connection) => {
+					await connection.openBox(trashMailboxPath, false);
 
-	await scope
-		.getConnection()
-		.then(async (connection) => {
-			await connection.openBox(trashMailboxPath, false);
+					// Search for all messages in Trash
+					const uids = await connection.search(["ALL"]);
 
-			// Search for all messages in Trash
-			const uids = await connection.search(["ALL"]);
+					if (uids.length > 0) {
+						// Delete all messages on IMAP
+						await connection.deleteMessages(uids);
+						log.info(
+							{ count: uids.length },
+							"Deleted messages from IMAP trash",
+						);
+					}
 
-			if (uids.length > 0) {
-				// Delete all messages on IMAP
-				await connection.deleteMessages(uids);
-				log.info({ count: uids.length }, "Deleted messages from IMAP trash");
-			}
+					// Delete all local messages in trash
+					const localMessages =
+						await messageService.listAllByMailbox(trashMailboxId);
 
-			// Delete all local messages in trash
-			const localMessages =
-				await messageService.listAllByMailbox(trashMailboxId);
+					for (const message of localMessages) {
+						// Delete the Message entity
+						await messageService.delete(message.messageId);
 
-			for (const message of localMessages) {
-				// Delete the Message entity
-				await messageService.delete(message.messageId);
+						// Delete the ThreadMessage entity
+						const threadMessage = await threadMessageService.findByMessageId(
+							message.messageId,
+						);
+						if (threadMessage) {
+							await threadMessageService.delete(
+								threadMessage.accountConfigId,
+								threadMessage.threadMessageId,
+							);
+						}
+					}
 
-				// Delete the ThreadMessage entity
-				const threadMessage = await threadMessageService.findByMessageId(
-					message.messageId,
-				);
-				if (threadMessage) {
-					await threadMessageService.delete(
-						threadMessage.accountConfigId,
-						threadMessage.threadMessageId,
+					log.info(
+						{ accountId, deletedCount: localMessages.length },
+						"Trash emptied successfully",
 					);
-				}
-			}
-
-			log.info(
-				{ accountId, deletedCount: localMessages.length },
-				"Trash emptied successfully",
-			);
-		})
-		.finally(() => scope.disconnect());
+				})
+				.finally(() => scope.disconnect());
+		},
+	);
 };

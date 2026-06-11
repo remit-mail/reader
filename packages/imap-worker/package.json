@@ -19,6 +19,7 @@
 		"@remit/remit-electrodb-service": "*",
 		"@remit/domain-enums": "*",
 		"@remit/remit-logger-lambda": "*",
+		"@remit/mail-oauth-service": "*",
 		"@remit/mailbox-service": "*",
 		"@remit/search-index-worker": "*",
 		"@remit/secrets-service": "*",
