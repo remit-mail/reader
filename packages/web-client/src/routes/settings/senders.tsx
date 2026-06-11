@@ -406,6 +406,7 @@ function SendersSettings() {
 			helpOpen={helpOpen}
 			onToggleHelp={() => setHelpOpen((v) => !v)}
 			onSelect={handleSelectNav}
+			onBackToMail={() => void navigate({ to: "/mail" })}
 		>
 			<div className="flex min-h-0 flex-1">
 				{/* Rule groups left pane */}

@@ -39,6 +39,7 @@ function AdvancedSettings() {
 			helpOpen={helpOpen}
 			onToggleHelp={() => setHelpOpen((v) => !v)}
 			onSelect={handleSelectNav}
+			onBackToMail={() => void navigate({ to: "/mail" })}
 		>
 			<p className="text-sm text-fg-muted">
 				Advanced options — notification rules, data export, and raw sync

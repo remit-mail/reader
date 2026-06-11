@@ -37,6 +37,8 @@ export interface SettingsShellProps {
 	flush?: boolean;
 	onSelect?: (id: string) => void;
 	onToggleHelp?: () => void;
+	/** Navigate back to the mail area (the "Back to mail" header button). */
+	onBackToMail?: () => void;
 }
 
 export function SettingsShell({
@@ -50,6 +52,7 @@ export function SettingsShell({
 	flush,
 	onSelect,
 	onToggleHelp,
+	onBackToMail,
 }: SettingsShellProps) {
 	const showHelp = Boolean(help) && helpOpen;
 	return (
@@ -59,6 +62,7 @@ export function SettingsShell({
 				<div className="flex h-pane-header shrink-0 items-center border-b border-line px-2">
 					<button
 						type="button"
+						onClick={onBackToMail}
 						className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm text-fg-muted hover:bg-surface hover:text-fg"
 					>
 						<ChevronLeft className="size-4 text-fg-subtle" />
