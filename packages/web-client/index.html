@@ -12,12 +12,22 @@
       through the Vite server).
     -->
     <link rel="preconnect" href="https://cr0f00ych7.execute-api.eu-west-1.amazonaws.com" crossorigin />
+    <!--
+      Pre-paint theme to avoid a flash-of-wrong-theme on reload. Mirrors
+      theme-preference.ts: a stored "remit.theme" of "light"/"dark" wins;
+      "system" (or no key) follows prefers-color-scheme. Keep this in sync
+      with src/lib/theme-preference.ts (STORAGE_KEY / resolution logic).
+    -->
     <script>
       (function () {
         try {
-          if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
-            document.documentElement.classList.add("dark");
-          }
+          var pref = localStorage.getItem("remit.theme");
+          var isDark =
+            pref === "dark" ||
+            (pref !== "light" &&
+              window.matchMedia &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          document.documentElement.classList.toggle("dark", isDark);
         } catch (_) {}
       })();
     </script>

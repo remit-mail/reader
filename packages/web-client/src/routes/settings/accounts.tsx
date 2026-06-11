@@ -3,15 +3,23 @@ import {
 	configOperationsGetConfigOptions,
 	configOperationsGetConfigQueryKey,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
+import {
+	AccountHealthCard,
+	Badge,
+	Button,
+	SettingsShell,
+} from "@remit/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { z } from "zod";
-import { AccountCard } from "@/components/settings/AccountCard";
 import { AccountFormPanel } from "@/components/settings/AccountFormPanel";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { SlidePanel } from "@/components/ui/SlidePanel";
+import { formatRelativeTime } from "@/lib/format";
+import { SETTINGS_ID_TO_PATH, SETTINGS_NAV_ITEMS } from "@/routes/settings";
 
 const accountsSearchSchema = z.object({
 	editAccountId: z.string().optional(),
@@ -23,20 +31,95 @@ export const Route = createFileRoute("/settings/accounts")({
 	validateSearch: accountsSearchSchema,
 });
 
+/* ------------------------------------------------------------------ */
+/* Helpers                                                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The account API has no display-label field yet (backend gap). Derive a
+ * friendly primary label from the email's local part so AccountHealthCard
+ * doesn't print the same address twice (label primary, email secondary).
+ * Falls back to the full email if the local part is empty.
+ */
+function deriveLabel(email: string): string {
+	const local = email.split("@")[0] ?? "";
+	if (!local) return email;
+	return local
+		.split(/[._-]+/)
+		.filter(Boolean)
+		.map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+		.join(" ");
+}
+
+function deriveSyncLabel(account: RemitImapAccountResponse): string {
+	if (account.lastSyncAt) {
+		return `synced ${formatRelativeTime(account.lastSyncAt)}`;
+	}
+	return "never synced";
+}
+
+function deriveState(
+	account: RemitImapAccountResponse,
+): "healthy" | "error" | "muted" {
+	if (account.muted?.value) return "muted";
+	if (account.lastError) return "error";
+	if (account.connectionState === "authenticated") return "healthy";
+	return "error";
+}
+
+/* ------------------------------------------------------------------ */
+/* Help rail copy — matches Storybook accountsHelp exactly            */
+/* ------------------------------------------------------------------ */
+
+const accountsHelp = (
+	<div className="space-y-3">
+		<p>
+			<strong className="text-fg">Sync health</strong> shows the IMAP connection
+			state and the last successful sync per account.
+		</p>
+		<p>
+			<strong className="text-fg">Error</strong> means the last connection
+			attempt failed — the raw server response is shown on the card. Reconnect
+			re-runs the connection test from the add-account wizard.
+		</p>
+		<p>
+			<strong className="text-fg">Muted</strong> accounts keep syncing but stay
+			out of the daily brief and unified counts.
+		</p>
+	</div>
+);
+
+/* ------------------------------------------------------------------ */
+/* Loading skeleton                                                   */
+/* ------------------------------------------------------------------ */
+
 const LoadingSkeleton = () => (
-	<div className="space-y-4" aria-busy="true" aria-label="Loading accounts">
+	<div className="space-y-3" aria-busy="true" aria-label="Loading accounts">
 		{Array.from({ length: 2 }).map((_, i) => (
-			<div key={i} className="rounded-lg border border-line p-4 animate-pulse">
-				<div className="h-4 bg-surface-sunken rounded w-1/3 mb-3" />
-				<div className="h-3 bg-surface-sunken rounded w-2/3" />
+			<div
+				key={i}
+				className="rounded-sm border border-line bg-surface animate-pulse p-4"
+			>
+				<div className="flex items-center gap-3">
+					<div className="size-10 rounded-full bg-surface-sunken" />
+					<div className="flex-1 space-y-2">
+						<div className="h-4 bg-surface-sunken rounded w-1/3" />
+						<div className="h-3 bg-surface-sunken rounded w-2/3" />
+					</div>
+				</div>
 			</div>
 		))}
 	</div>
 );
 
+/* ------------------------------------------------------------------ */
+/* Page component                                                     */
+/* ------------------------------------------------------------------ */
+
 function AccountsSettings() {
 	const search = Route.useSearch();
 	const navigate = useNavigate({ from: Route.fullPath });
+	const [helpOpen, setHelpOpen] = useState(true);
 
 	const [showForm, setShowForm] = useState(false);
 	const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
@@ -88,22 +171,37 @@ function AccountsSettings() {
 		setFocusSmtp(false);
 	};
 
+	const handleSelectNav = (id: string) => {
+		const path = SETTINGS_ID_TO_PATH[id];
+		if (path) void navigate({ to: path });
+	};
+
 	return (
-		<div className="max-w-2xl">
-			<div className="flex items-center justify-between mb-6">
-				<div>
-					<h1 className="text-xl font-semibold">Accounts</h1>
-					<p className="text-sm text-fg-muted">Manage your email accounts</p>
-				</div>
-				<button
-					type="button"
-					onClick={() => setShowForm(true)}
+		<SettingsShell
+			items={SETTINGS_NAV_ITEMS}
+			activeId="accounts"
+			title="Accounts"
+			description="Every account keeps syncing — muted ones just stay out of unified views."
+			help={accountsHelp}
+			helpOpen={helpOpen}
+			onToggleHelp={() => setHelpOpen((v) => !v)}
+			onSelect={handleSelectNav}
+		>
+			<div className="flex items-center justify-between">
+				<Badge tone="neutral">
+					{isPending || isError
+						? "accounts"
+						: `${config.accounts.length} ${config.accounts.length === 1 ? "account" : "accounts"}`}
+				</Badge>
+				<Button
+					variant="primary"
+					size="sm"
+					icon={<Plus className="size-3.5" />}
 					disabled={isError || isPending}
-					className="flex items-center gap-2 px-4 py-2 bg-accent text-accent-fg rounded-md hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed"
+					onClick={() => setShowForm(true)}
 				>
-					<Plus className="size-4" />
-					Add Account
-				</button>
+					Add account
+				</Button>
 			</div>
 
 			{isPending ? (
@@ -117,27 +215,49 @@ function AccountsSettings() {
 					}}
 				/>
 			) : config.accounts.length === 0 ? (
-				<div className="text-center py-12 border border-dashed rounded-lg">
-					<p className="text-fg-muted mb-4">No accounts configured</p>
+				<div
+					className="py-12 text-sm text-fg-muted"
+					data-testid="accounts-empty"
+				>
+					<p className="mb-2">No accounts configured.</p>
 					<button
 						type="button"
 						onClick={() => setShowForm(true)}
-						className="text-accent hover:underline"
+						className="text-accent-2 hover:underline"
 					>
 						Add your first account
 					</button>
 				</div>
 			) : (
-				<div className="space-y-4">
+				<div className="space-y-3">
 					{config.accounts.map((account) => (
-						<AccountCard
+						<AccountHealthCard
 							key={account.accountId}
-							account={account}
-							onEdit={(options) => {
-								setEditingAccountId(account.accountId);
-								setFocusSmtp(!!options?.focusSmtp);
-							}}
-							onDelete={() => setDeletingAccountId(account.accountId)}
+							label={deriveLabel(account.email)}
+							email={account.email}
+							connector="IMAP"
+							syncLabel={deriveSyncLabel(account)}
+							state={deriveState(account)}
+							errorDetail={account.lastError}
+							trailing={
+								deriveState(account) === "error" ? (
+									<Button
+										variant="secondary"
+										size="sm"
+										onClick={() => setEditingAccountId(account.accountId)}
+									>
+										Reconnect
+									</Button>
+								) : (
+									<Button
+										variant="ghost"
+										size="sm"
+										onClick={() => setEditingAccountId(account.accountId)}
+									>
+										Manage
+									</Button>
+								)
+							}
 						/>
 					))}
 				</div>
@@ -175,7 +295,7 @@ function AccountsSettings() {
 								}
 							}}
 							disabled={deleteMutation.isPending}
-							className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+							className="px-4 py-2 bg-danger text-canvas rounded-md hover:bg-danger/90 disabled:opacity-50"
 						>
 							{deleteMutation.isPending ? "Deleting..." : "Delete Account"}
 						</button>
@@ -197,6 +317,6 @@ function AccountsSettings() {
 					</div>
 				</div>
 			</SlidePanel>
-		</div>
+		</SettingsShell>
 	);
 }
