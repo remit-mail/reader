@@ -457,7 +457,7 @@ export const ConversationView = ({
 				{authenticity?.dkimMismatch && (
 					<AuthenticityBanner authenticity={authenticity} />
 				)}
-				<div className="flex-1 overflow-y-auto">{messagesList}</div>
+				<div className="flex-1 overflow-auto">{messagesList}</div>
 				{composeMode !== null ? (
 					<InlineCompose
 						mode={composeMode}
@@ -487,7 +487,7 @@ export const ConversationView = ({
 					onOpenIntelligence={onOpenIntelligence}
 				/>
 			)}
-			<div className="flex-1 overflow-y-auto">{messagesList}</div>
+			<div className="flex-1 overflow-auto">{messagesList}</div>
 			{composeMode !== null ? (
 				<InlineCompose
 					mode={composeMode}
