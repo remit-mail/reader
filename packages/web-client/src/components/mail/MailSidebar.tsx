@@ -135,7 +135,7 @@ const DraftsList = ({ onSelect }: SelectableProps) => {
 			<button
 				type="button"
 				onClick={() => setExpanded(!expanded)}
-				className="w-full flex items-center gap-1 px-3 py-2 text-xs font-semibold text-fg-muted uppercase tracking-wider hover:text-fg transition-colors"
+				className="w-full flex items-center gap-1 px-2 py-1 text-2xs font-semibold text-fg-subtle uppercase tracking-wider hover:text-fg transition-colors"
 			>
 				{expanded ? (
 					<ChevronDown className="h-3 w-3 shrink-0" />
@@ -143,7 +143,7 @@ const DraftsList = ({ onSelect }: SelectableProps) => {
 					<ChevronRight className="h-3 w-3 shrink-0" />
 				)}
 				<span>Drafts</span>
-				<span className="ml-auto text-xs font-normal bg-surface-sunken px-1.5 py-0.5 rounded-full">
+				<span className="ml-auto text-2xs font-normal bg-surface-sunken px-1.5 py-0.5 rounded-full">
 					{drafts.length}
 				</span>
 			</button>
@@ -249,7 +249,7 @@ const AccountSection = ({
 			<button
 				type="button"
 				onClick={() => setExpanded(!expanded)}
-				className="w-full flex items-center gap-1 px-3 py-2 text-xs font-semibold text-fg-muted uppercase tracking-wider hover:text-fg transition-colors"
+				className="w-full flex items-center gap-1 px-2 py-1 text-2xs font-semibold text-fg-subtle uppercase tracking-wider hover:text-fg transition-colors"
 			>
 				{expanded ? (
 					<ChevronDown className="h-3 w-3 shrink-0" />
@@ -295,7 +295,7 @@ const AccountSection = ({
 							{labels.length > 0 && (
 								<>
 									<div className="my-2 mx-3 border-t border-line" />
-									<div className="px-3 py-1 text-xs font-semibold text-fg-muted uppercase tracking-wider">
+									<div className="px-2 py-1 text-2xs font-semibold text-fg-subtle uppercase tracking-wider">
 										Labels
 									</div>
 									<div className="space-y-0.5">
