@@ -34,6 +34,55 @@ export interface SanitizedEmail {
 }
 
 /**
+ * CSS values that represent "no background" — finding `background[-color]:`
+ * set to one of these in a `<style>` block does NOT constitute an author
+ * background. Values are matched case-insensitively.
+ */
+const NO_BACKGROUND_VALUES = /^(none|transparent|inherit|initial|unset)\s*$/i;
+
+/**
+ * Extract all `<style>…</style>` block contents from the raw HTML string.
+ */
+const extractStyleBlocks = (html: string): string[] => {
+	const blocks: string[] = [];
+	const re = /<style[^>]*>([\s\S]*?)<\/style>/gi;
+	let match: RegExpExecArray | null;
+	while ((match = re.exec(html)) !== null) {
+		blocks.push(match[1]);
+	}
+	return blocks;
+};
+
+/**
+ * Return true if the CSS text contains a `background` or `background-color`
+ * declaration with a value that is not one of the "no-op" keywords
+ * (`none`, `transparent`, `inherit`, `initial`, `unset`). A light
+ * declaration scan — no full CSS parser needed.
+ *
+ * Note: this intentionally matches any selector (including class selectors
+ * like `.foo { background: red }`). Determining whether a given rule is
+ * "applied" to any element requires DOM access and a full cascade, which is
+ * beyond the scope of a pre-sanitization heuristic. The main fixes this
+ * closes are reset stylesheets (`background: none / transparent`) and
+ * `background: inherit` resets that were spuriously triggering the framed
+ * treatment (#483). A class rule with a real color value is treated as an
+ * author background on the conservative side.
+ */
+const styleBlockHasBackground = (css: string): boolean => {
+	// Match `background:` or `background-color:` followed by its value
+	// (everything up to the next `;`, `}`, or end of string).
+	const re = /background(?:-color)?\s*:\s*([^;}\n]+)/gi;
+	let match: RegExpExecArray | null;
+	while ((match = re.exec(css)) !== null) {
+		const value = match[1].trim();
+		if (!NO_BACKGROUND_VALUES.test(value)) {
+			return true;
+		}
+	}
+	return false;
+};
+
+/**
  * Detect whether the input HTML contains an author-specified background.
  * Runs over the raw HTML string before sanitization — a real CSS parser is
  * overkill here because the false-positive surface is "the literal word
@@ -41,7 +90,10 @@ export interface SanitizedEmail {
  * exactly the content we'd parse anyway. Match on:
  *   - any `style="…background…"` (or `style='…'`)
  *   - any `bgcolor=` attribute
- *   - any `<style>…background…</style>` block
+ *   - any `<style>` block that contains a `background[-color]:` declaration
+ *     with a non-trivial value (not `none`, `transparent`, `inherit`,
+ *     `initial`, or `unset`) — tightened from the bare substring match that
+ *     was over-matching reset stylesheets and `background: none` rules (#483)
  *
  * Author *text* colour alone (no background) does not trigger — that's the
  * point: a plain `<p style="color:#666">…</p>` mail still blends with the
@@ -50,8 +102,9 @@ export interface SanitizedEmail {
 export const detectAuthorBackground = (html: string): boolean => {
 	if (/\bstyle\s*=\s*["'][^"']*background/i.test(html)) return true;
 	if (/\bbgcolor\s*=/i.test(html)) return true;
-	if (/<style[^>]*>[\s\S]*?background[\s\S]*?<\/style>/i.test(html))
-		return true;
+	for (const block of extractStyleBlocks(html)) {
+		if (styleBlockHasBackground(block)) return true;
+	}
 	return false;
 };
 
