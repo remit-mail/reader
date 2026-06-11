@@ -25,6 +25,11 @@ export const toAddressResponse = (item: AddressItem): AddressResponse => ({
 	domain: item.domain,
 	normalizedEmail: item.normalizedEmail,
 	flags: item.flags,
+	inboundCount: item.inboundCount,
+	outboundCount: item.outboundCount,
+	replyCount: item.replyCount,
+	lastInboundAt: item.lastInboundAt,
+	lastReplyAt: item.lastReplyAt,
 	createdAt: item.createdAt,
 	updatedAt: item.updatedAt,
 });

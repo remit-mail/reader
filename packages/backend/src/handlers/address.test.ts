@@ -1,13 +1,68 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import type { AddressItem } from "@remit/remit-electrodb-service";
 import type { UpdateAddressInput } from "@remit/api-openapi-types";
-import { buildFlagsPatch } from "./address.js";
+import { buildFlagsPatch, toAddressResponse } from "./address.js";
 
 const trustedNow = {
 	value: true,
 	setAt: 1_700_000_000_000,
 	setBy: "device-a",
 };
+
+const baseAddress: AddressItem = {
+	addressId: "addr-1",
+	accountConfigId: "cfg-1",
+	displayName: "Alice",
+	localPart: "alice",
+	domain: "example.com",
+	normalizedEmail: "alice@example.com",
+	normalizedCompound: "alice alice@example.com",
+	flags: undefined,
+	inboundCount: undefined,
+	outboundCount: undefined,
+	replyCount: undefined,
+	lastInboundAt: undefined,
+	lastOutboundAt: undefined,
+	lastReplyAt: undefined,
+	createdAt: 1_700_000_000_000,
+	updatedAt: 1_700_000_001_000,
+};
+
+describe("toAddressResponse", () => {
+	it("maps core fields", () => {
+		const result = toAddressResponse(baseAddress);
+		assert.equal(result.addressId, "addr-1");
+		assert.equal(result.accountConfigId, "cfg-1");
+		assert.equal(result.normalizedEmail, "alice@example.com");
+	});
+
+	it("passes through undefined engagement counters as-is", () => {
+		const result = toAddressResponse(baseAddress);
+		assert.equal(result.inboundCount, undefined);
+		assert.equal(result.outboundCount, undefined);
+		assert.equal(result.replyCount, undefined);
+		assert.equal(result.lastInboundAt, undefined);
+		assert.equal(result.lastReplyAt, undefined);
+	});
+
+	it("maps engagement counters and timestamps when present", () => {
+		const item: AddressItem = {
+			...baseAddress,
+			inboundCount: 34,
+			outboundCount: 5,
+			replyCount: 12,
+			lastInboundAt: 1_700_000_002_000,
+			lastReplyAt: 1_700_000_003_000,
+		};
+		const result = toAddressResponse(item);
+		assert.equal(result.inboundCount, 34);
+		assert.equal(result.outboundCount, 5);
+		assert.equal(result.replyCount, 12);
+		assert.equal(result.lastInboundAt, 1_700_000_002_000);
+		assert.equal(result.lastReplyAt, 1_700_000_003_000);
+	});
+});
 
 describe("buildFlagsPatch", () => {
 	it("returns an empty patch for undefined input", () => {
