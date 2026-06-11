@@ -6,9 +6,14 @@
 
 import {
 	createImapFlowConnectionFromAccount,
+	createImapFlowConnectionWithCredentials,
 	ImapFlowConnection,
 } from "./imapflow-connection.js";
-import type { IImapConnection, ImapConnectionConfig } from "./types.js";
+import type {
+	IImapConnection,
+	ImapConnectionConfig,
+	MailCredentials,
+} from "./types.js";
 
 /**
  * Create an IMAP connection
@@ -32,6 +37,22 @@ export const createConnectionFromAccount = (
 	password: string,
 ): IImapConnection => {
 	return createImapFlowConnectionFromAccount(account, password);
+};
+
+/**
+ * Create an IMAP connection from account data using a MailCredentials union.
+ * Use this instead of createConnectionFromAccount for OAuth accounts.
+ */
+export const createConnectionWithCredentials = (
+	account: {
+		imapHost: string;
+		imapPort: number;
+		imapTls: boolean;
+		username: string;
+	},
+	credentials: MailCredentials,
+): IImapConnection => {
+	return createImapFlowConnectionWithCredentials(account, credentials);
 };
 
 /**

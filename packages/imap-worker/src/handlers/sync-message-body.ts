@@ -18,14 +18,15 @@ import {
 import {
 	createKmsDataKeyProvider,
 	createSecretsService,
-	deserializeEncryptedPayload,
 } from "@remit/secrets-service";
 import { createStorageService } from "@remit/storage-service";
 import { env } from "expect-env";
 import { isAccountDeleted } from "../account-check.js";
-import { createConnectionScopeFromAccount } from "../connection-scope.js";
+import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import { emitEvent } from "../emit.js";
 import type { SyncMessageBodyEvent } from "../events.js";
+import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
+import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 
 const client = getClient();
 const dataKeyProvider = createKmsDataKeyProvider(env.KMS_KEY_ID);
@@ -90,77 +91,78 @@ export const syncMessageBody = async (
 		return;
 	}
 
-	if (!account.passwordHash) {
-		throw new Error(
-			`Account ${account.accountId}: passwordHash missing — only password accounts are supported by the IMAP worker`,
-		);
-	}
-	const password = await secrets.decrypt(
-		deserializeEncryptedPayload(JSON.parse(account.passwordHash)),
-	);
-
-	const scope = createConnectionScopeFromAccount(account, password);
-	const mailbox = await mailboxService.get(mailboxId);
-	const storage = createStorageService();
-
-	const bodySyncService = new BodySyncService(
-		messageService,
-		storage,
-		threadMessageService,
-		addressService,
-		envelopeService,
+	await withOAuthLifecycle(
+		buildLifecycleDeps(secrets, accountService),
+		account,
 		log,
-	);
+		async (credentials) => {
+			const scope = createConnectionScopeWithCredentials(account, credentials);
+			const mailbox = await mailboxService.get(mailboxId);
+			const storage = createStorageService();
 
-	const result = await bodySyncService
-		.syncBodies(
-			messageIds,
-			accountId,
-			account.accountConfigId,
-			mailbox.fullPath,
-			scope.getConnection,
-		)
-		.finally(() => scope.disconnect());
-
-	// Enqueue search index upsert events for successfully synced messages (best-effort).
-	if (
-		result.syncedMessageIds.length > 0 &&
-		searchIndexSqs &&
-		searchIndexQueueUrl
-	) {
-		const events: IndexEvent[] = result.syncedMessageIds.map((messageId) => ({
-			type: "upsert" as const,
-			messageId,
-			accountId,
-			accountConfigId: account.accountConfigId,
-			mailboxIds: [mailboxId],
-		}));
-		await enqueueSearchIndexEvents(
-			searchIndexSqs,
-			searchIndexQueueUrl,
-			events,
-		).catch((error: unknown) => {
-			log.warn(
-				{ error: (error as Error).message },
-				"Failed to enqueue search index events (best-effort)",
+			const bodySyncService = new BodySyncService(
+				messageService,
+				storage,
+				threadMessageService,
+				addressService,
+				envelopeService,
+				log,
 			);
-		});
-	}
 
-	// Re-enqueue failed messages for retry with jittered delay to avoid thundering herd
-	if (result.failedMessageIds.length > 0) {
-		const retryDelaySeconds = 20 + Math.floor(Math.random() * 21); // 20-40 seconds
-		log.info(
-			{ failedCount: result.failedMessageIds.length, retryDelaySeconds },
-			"Re-enqueueing failed body syncs with delay",
-		);
+			const result = await bodySyncService
+				.syncBodies(
+					messageIds,
+					accountId,
+					account.accountConfigId,
+					mailbox.fullPath,
+					scope.getConnection,
+				)
+				.finally(() => scope.disconnect());
 
-		const retryEvent: Omit<SyncMessageBodyEvent, "eventId" | "timestamp"> = {
-			type: "SYNC_MESSAGE_BODY",
-			accountId,
-			mailboxId,
-			messageIds: result.failedMessageIds,
-		};
-		await emitEvent(retryEvent, { delaySeconds: retryDelaySeconds });
-	}
+			// Enqueue search index upsert events for successfully synced messages (best-effort).
+			if (
+				result.syncedMessageIds.length > 0 &&
+				searchIndexSqs &&
+				searchIndexQueueUrl
+			) {
+				const events: IndexEvent[] = result.syncedMessageIds.map(
+					(messageId) => ({
+						type: "upsert" as const,
+						messageId,
+						accountId,
+						accountConfigId: account.accountConfigId,
+						mailboxIds: [mailboxId],
+					}),
+				);
+				await enqueueSearchIndexEvents(
+					searchIndexSqs,
+					searchIndexQueueUrl,
+					events,
+				).catch((error: unknown) => {
+					log.warn(
+						{ error: (error as Error).message },
+						"Failed to enqueue search index events (best-effort)",
+					);
+				});
+			}
+
+			// Re-enqueue failed messages for retry with jittered delay to avoid thundering herd
+			if (result.failedMessageIds.length > 0) {
+				const retryDelaySeconds = 20 + Math.floor(Math.random() * 21); // 20-40 seconds
+				log.info(
+					{ failedCount: result.failedMessageIds.length, retryDelaySeconds },
+					"Re-enqueueing failed body syncs with delay",
+				);
+
+				const retryEvent: Omit<SyncMessageBodyEvent, "eventId" | "timestamp"> =
+					{
+						type: "SYNC_MESSAGE_BODY",
+						accountId,
+						mailboxId,
+						messageIds: result.failedMessageIds,
+					};
+				await emitEvent(retryEvent, { delaySeconds: retryDelaySeconds });
+			}
+		},
+	);
 };

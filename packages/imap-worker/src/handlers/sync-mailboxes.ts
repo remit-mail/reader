@@ -6,20 +6,24 @@ import {
 } from "@remit/remit-electrodb-service";
 import { SyncPhase } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
+import { RefreshTokenError } from "@remit/mail-oauth-service";
 import {
-	createConnectionFromAccount,
+	createConnectionWithCredentials,
 	MailboxSyncService,
+	MailConnectionError,
+	type MailCredentials,
 } from "@remit/mailbox-service";
 import {
 	createKmsDataKeyProvider,
 	createSecretsService,
-	deserializeEncryptedPayload,
 } from "@remit/secrets-service";
 import { env } from "expect-env";
 import pMap from "p-map";
 import { isAccountDeleted } from "../account-check.js";
 import { emitEvent } from "../emit.js";
 import type { SyncMailboxesEvent, SyncMessagesEvent } from "../events.js";
+import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
+import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 
 const EVENT_EMIT_CONCURRENCY = 20;
 const SYNC_COOLDOWN_MS = 30_000; // 30 seconds
@@ -57,43 +61,55 @@ export const syncMailboxes = async (
 		return;
 	}
 
-	try {
-		await syncMailboxesForAccount(account, log);
-	} catch (err) {
-		// Record the terminal error phase before crashing (let-it-crash:
-		// record state, then rethrow so the event is retried/DLQ'd).
-		const message = err instanceof Error ? err.message : String(err);
-		await accountService.update(accountId, {
-			syncPhase: SyncPhase.error,
-			lastError: message,
-		});
-		throw err;
-	}
+	// withOAuthLifecycle owns the reauth/ACK contract (skip-if-reauth, flip on
+	// terminal auth failure, rethrow transient). The inner try/catch only
+	// records the terminal non-auth error phase before letting the wrapper
+	// rethrow for SQS retry/DLQ.
+	await withOAuthLifecycle(
+		buildLifecycleDeps(secrets, accountService),
+		account,
+		log,
+		async (credentials) => {
+			try {
+				await syncMailboxesForAccount(account, credentials, log);
+			} catch (err) {
+				// Auth failures are handled by the wrapper — rethrow untouched so it
+				// flips the account to reauth_required rather than recording an error
+				// phase.
+				if (
+					err instanceof RefreshTokenError ||
+					(err instanceof MailConnectionError && err.kind === "auth")
+				) {
+					throw err;
+				}
+				// Record the terminal error phase before crashing (let-it-crash:
+				// record state, then rethrow so the event is retried/DLQ'd).
+				const message = err instanceof Error ? err.message : String(err);
+				await accountService.update(accountId, {
+					syncPhase: SyncPhase.error,
+					lastError: message,
+				});
+				throw err;
+			}
+		},
+	);
 };
 
 const syncMailboxesForAccount = async (
 	account: AccountItem,
+	credentials: MailCredentials,
 	log: Logger,
 ): Promise<void> => {
 	const { accountId } = account;
 
-	if (!account.passwordHash) {
-		throw new Error(
-			`Account ${account.accountId}: passwordHash missing — only password accounts are supported by the IMAP worker`,
-		);
-	}
-	const password = await secrets.decrypt(
-		deserializeEncryptedPayload(JSON.parse(account.passwordHash)),
-	);
-
-	const connection = createConnectionFromAccount(
+	const connection = createConnectionWithCredentials(
 		{
 			username: account.username,
 			imapHost: account.imapHost,
 			imapPort: account.imapPort,
 			imapTls: account.imapTls,
 		},
-		password,
+		credentials,
 	);
 
 	await connection.connect();

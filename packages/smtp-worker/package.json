@@ -12,7 +12,10 @@
 	"devDependencies": {
 		"@aws-sdk/client-sqs": "*",
 		"@aws-sdk/core": "*",
+		"@remit/domain-enums": "*",
 		"@remit/logger-lambda": "*",
+		"@remit/mail-oauth-service": "*",
+		"@remit/mailbox-service": "*",
 		"@remit/secrets-service": "*",
 		"@remit/smtp-service": "*",
 		"@remit/storage-service": "*",

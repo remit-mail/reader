@@ -9,7 +9,16 @@ import {
 	MessageService,
 	OutboxMessageService,
 } from "@remit/remit-electrodb-service";
+import { ConnectionState } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
+import {
+	createMailOAuthService,
+	microsoftProviderConfig,
+} from "@remit/mail-oauth-service";
+import {
+	type AccountCredentialsDeps,
+	resolveConnectionCredentials,
+} from "@remit/mailbox-service";
 import {
 	createKmsDataKeyProvider,
 	createSecretsService,
@@ -22,6 +31,23 @@ import { sendMessage } from "./send-message-core.js";
 const client = getClient();
 const dataKeyProvider = createKmsDataKeyProvider(env.KMS_KEY_ID);
 const secrets = createSecretsService(dataKeyProvider);
+
+// Lazy OAuth service (only instantiated when an OAuth account sends mail)
+let _tokenService: ReturnType<typeof createMailOAuthService> | undefined;
+const getTokenService = () => {
+	if (!_tokenService) {
+		_tokenService = createMailOAuthService(
+			microsoftProviderConfig({
+				clientId: process.env.MSOAUTH_CLIENT_ID ?? "",
+				clientSecret: process.env.MSOAUTH_CLIENT_SECRET ?? "",
+				overrides: process.env.MSOAUTH_TOKEN_ENDPOINT
+					? { tokenEndpoint: process.env.MSOAUTH_TOKEN_ENDPOINT }
+					: undefined,
+			}),
+		);
+	}
+	return _tokenService;
+};
 
 const accountService = new AccountService({
 	client,
@@ -101,17 +127,43 @@ const getEnvelopeFromEmail = async (
 	return fromEntry?.normalizedEmail ?? null;
 };
 
+/**
+ * Build AccountCredentialsDeps for the SMTP send path.
+ * Uses resolveConnectionCredentials — the single authType branch in the codebase.
+ * Rotation is persisted via accountService.update so the next IMAP sync picks
+ * up the new token without needing a separate refresh.
+ */
+const buildCredentialDeps = (): AccountCredentialsDeps => ({
+	secrets,
+	tokenService: getTokenService(),
+	persistRotatedToken: async (accountId, encryptedHash, updatedAt) => {
+		await accountService.update(accountId, {
+			oauthRefreshTokenHash: encryptedHash,
+			oauthTokenUpdatedAt: updatedAt,
+		});
+	},
+});
+
 export const handleSendMessage = (
 	event: SendMessageEvent,
 	log: Logger,
-): Promise<void> =>
-	sendMessage(event, log, {
+): Promise<void> => {
+	const credentialDeps = buildCredentialDeps();
+	return sendMessage(event, log, {
 		getOutbox: (id) => outboxService.get(id),
 		getAccount: (id) => accountService.get(id),
 		updateOutbox: (id, patch) => outboxService.update(id, patch),
 		updateOutboxStatus: (id, status) => outboxService.updateStatus(id, status),
 		markOutboxSent: (id, fields) => outboxService.markSent(id, fields),
 		secrets,
+		resolveCredentials: (account) =>
+			resolveConnectionCredentials(account, credentialDeps),
+		updateConnectionState: async (id, state) => {
+			await accountService.update(id, {
+				connectionState:
+					state as (typeof ConnectionState)[keyof typeof ConnectionState],
+			});
+		},
 		send: sendMail,
 		emitAppendSentMessage,
 		engagement: {
@@ -124,3 +176,4 @@ export const handleSendMessage = (
 			getEnvelopeFromEmail,
 		},
 	});
+};

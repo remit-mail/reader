@@ -144,4 +144,72 @@ describe("resolveSmtpConfig", () => {
 		if (!result.ok) return;
 		assert.equal(result.config.secure, false);
 	});
+
+	describe("OAuth accounts — pre-resolved accessToken credential", () => {
+		// OAuth accounts: the caller (send-message-core) already resolved
+		// credentials via resolveConnectionCredentials (the single authType branch).
+		// resolveSmtpConfig receives the access token as SmtpCredentials.
+
+		it("builds OAUTH2 SmtpConfig from pre-resolved accessToken credential", async () => {
+			const account = buildAccount({
+				authType: "oauthMicrosoft",
+				smtpHost: "smtp.office365.com",
+				smtpPort: 587,
+			});
+
+			const result = await resolveSmtpConfig(account, stubSecrets([]), {
+				kind: "accessToken",
+				accessToken: "my-access-token",
+			});
+
+			assert.equal(result.ok, true);
+			if (!result.ok) return;
+			assert.equal(result.config.credentials.kind, "accessToken");
+			if (result.config.credentials.kind === "accessToken") {
+				assert.equal(result.config.credentials.accessToken, "my-access-token");
+			}
+			assert.equal(result.config.user, "alice@example.com");
+			assert.equal(result.config.host, "smtp.office365.com");
+			assert.equal(result.config.port, 587);
+		});
+
+		it("ignores the password credential and uses the SMTP-specific hash (issue #163)", async () => {
+			// The upstream resolver returns the IMAP password as a password
+			// credential. For SMTP we must honour the account's distinct
+			// smtpPasswordHash rather than the IMAP password — so the credential
+			// argument is ignored and the stored SMTP hash is decrypted.
+			const calls: EncryptedPayload[] = [];
+			const smtpPasswordHash = JSON.stringify(
+				serializeEncryptedPayload({
+					encryptedDek: Buffer.from("dek-smtp"),
+					encryptedData: Buffer.from("data-smtp"),
+					iv: Buffer.from("iv-smtp"),
+					authTag: Buffer.from("tag-smtp"),
+				}),
+			);
+			const account = buildAccount({
+				smtpHost: "smtp.example.com",
+				smtpPort: 587,
+				smtpPasswordHash,
+			});
+
+			const result = await resolveSmtpConfig(account, stubSecrets(calls), {
+				kind: "password",
+				password: "imap-password-should-be-ignored",
+			});
+
+			assert.equal(result.ok, true);
+			if (!result.ok) return;
+			assert.equal(calls.length, 1, "must decrypt the SMTP-specific hash");
+			assert.equal(calls[0].encryptedDek.toString(), "dek-smtp");
+			assert.equal(result.config.credentials.kind, "password");
+			if (result.config.credentials.kind === "password") {
+				assert.equal(
+					result.config.credentials.password,
+					"dek-smtp",
+					"must use the decrypted SMTP password, not the IMAP credential",
+				);
+			}
+		});
+	});
 });

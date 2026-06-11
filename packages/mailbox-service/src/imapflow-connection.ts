@@ -1053,6 +1053,27 @@ export const createImapFlowConnectionFromAccount = (
 };
 
 /**
+ * Create an ImapFlow connection using a credentials union (password or OAuth access token).
+ */
+export const createImapFlowConnectionWithCredentials = (
+	account: {
+		imapHost: string;
+		imapPort: number;
+		imapTls: boolean;
+		username: string;
+	},
+	credentials: import("./types.js").MailCredentials,
+): ImapFlowConnection => {
+	return new ImapFlowConnection({
+		host: account.imapHost,
+		port: account.imapPort,
+		tls: account.imapTls,
+		user: account.username,
+		credentials,
+	});
+};
+
+/**
  * Build the imapflow auth object from mail credentials.
  *
  * IMPORTANT: never include access-token values in error messages.

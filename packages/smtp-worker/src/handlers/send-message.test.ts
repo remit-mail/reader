@@ -5,11 +5,16 @@ import type {
 	OutboxMessageItem,
 	UpdateOutboxMessageInput,
 } from "@remit/remit-electrodb-service";
+import { AccountAuthType } from "@remit/domain-enums";
+import { RefreshTokenError } from "@remit/mail-oauth-service";
 import {
 	type EncryptedPayload,
 	serializeEncryptedPayload,
 } from "@remit/secrets-service";
-import type { SendResult } from "@remit/smtp-service";
+import {
+	type SendResult,
+	SmtpConnectionError,
+} from "@remit/smtp-service";
 import type { SendMessageEvent } from "../events.js";
 import { type SendMessageDeps, sendMessage } from "./send-message-core.js";
 
@@ -70,6 +75,8 @@ interface Recorded {
 	marked: Array<{ id: string; sentAt: number; smtpMessageId?: string }>;
 	appendCalls: Array<{ accountId: string; outboxMessageId: string }>;
 	sendCalls: number;
+	resolveCalls: number;
+	connectionStateUpdates: Array<{ accountId: string; state: string }>;
 	outboundIncrements: Array<{ addressId: string; now: number }>;
 	replyIncrements: Array<{ addressId: string; now: number }>;
 }
@@ -80,6 +87,8 @@ const buildDeps = (
 		account?: AccountItem;
 		sendResult?: SendResult;
 		appendThrows?: Error;
+		resolveCredentials?: SendMessageDeps["resolveCredentials"];
+		send?: SendMessageDeps["send"];
 	} = {},
 ): { deps: SendMessageDeps; recorded: Recorded } => {
 	const recorded: Recorded = {
@@ -88,6 +97,8 @@ const buildDeps = (
 		marked: [],
 		appendCalls: [],
 		sendCalls: 0,
+		resolveCalls: 0,
+		connectionStateUpdates: [],
 		outboundIncrements: [],
 		replyIncrements: [],
 	};
@@ -115,16 +126,34 @@ const buildDeps = (
 			decrypt: async (payload: EncryptedPayload): Promise<string> =>
 				payload.encryptedDek.toString(),
 		},
-		send: async () => {
-			recorded.sendCalls += 1;
-			return (
-				options.sendResult ?? {
-					success: true,
-					messageId: "smtp-mid-1",
-					isTransient: false,
-				}
-			);
+		// Stub credential resolver: returns a password credential from the account's
+		// encrypted passwordHash (mirroring what resolveConnectionCredentials does in prod).
+		resolveCredentials:
+			options.resolveCredentials ??
+			(async (_account) => {
+				recorded.resolveCalls += 1;
+				return {
+					kind: "password" as const,
+					password: _account.passwordHash
+						? "resolved-password"
+						: "no-password-configured",
+				};
+			}),
+		updateConnectionState: async (accountId, state) => {
+			recorded.connectionStateUpdates.push({ accountId, state });
 		},
+		send:
+			options.send ??
+			(async () => {
+				recorded.sendCalls += 1;
+				return (
+					options.sendResult ?? {
+						success: true,
+						messageId: "smtp-mid-1",
+						isTransient: false,
+					}
+				);
+			}),
 		emitAppendSentMessage: async (accountId, outboxMessageId) => {
 			recorded.appendCalls.push({ accountId, outboxMessageId });
 			if (options.appendThrows) throw options.appendThrows;
@@ -402,5 +431,158 @@ describe("sendMessage handler", () => {
 
 		assert.equal(recorded.marked.length, 1, "send must still be marked sent");
 		assert.equal(recorded.appendCalls.length, 1, "append must still emit");
+	});
+});
+
+describe("sendMessage OAuth reauth/ACK contract", () => {
+	it("skips send when account is reauth_required", async () => {
+		const { deps, recorded } = buildDeps({
+			account: buildAccount({
+				smtpHost: "smtp.example.com",
+				smtpPort: 587,
+				connectionState: "reauth_required",
+			}),
+		});
+
+		await sendMessage(event, silentLogger, deps);
+
+		assert.equal(recorded.resolveCalls, 0, "must not resolve credentials");
+		assert.equal(recorded.sendCalls, 0, "must not send");
+		assert.equal(
+			recorded.connectionStateUpdates.length,
+			0,
+			"must not flip connectionState",
+		);
+		assert.equal(recorded.updates.length, 0, "must not update outbox");
+		assert.equal(recorded.statuses.length, 0, "must not change status");
+	});
+
+	it("on RefreshTokenError reauth-required during credential resolution: flips to reauth_required and ACKs", async () => {
+		const { deps, recorded } = buildDeps({
+			account: buildAccount({ smtpHost: "smtp.example.com", smtpPort: 587 }),
+			resolveCredentials: async () => {
+				throw new RefreshTokenError({
+					kind: "reauth-required",
+					code: "invalid_grant",
+				});
+			},
+		});
+
+		await sendMessage(event, silentLogger, deps);
+
+		assert.equal(recorded.sendCalls, 0, "must not send");
+		assert.equal(recorded.connectionStateUpdates.length, 1);
+		assert.deepEqual(recorded.connectionStateUpdates[0], {
+			accountId: "acc-1",
+			state: "reauth_required",
+		});
+	});
+
+	it("on transient credential error: rethrows", async () => {
+		const { deps, recorded } = buildDeps({
+			account: buildAccount({ smtpHost: "smtp.example.com", smtpPort: 587 }),
+			resolveCredentials: async () => {
+				throw new RefreshTokenError({ kind: "transient", code: "503" });
+			},
+		});
+
+		await assert.rejects(
+			() => sendMessage(event, silentLogger, deps),
+			/transient/,
+		);
+		assert.equal(
+			recorded.connectionStateUpdates.length,
+			0,
+			"must not flip connectionState",
+		);
+	});
+
+	it("on SmtpConnectionError auth during credential resolution for OAuth account: flips to reauth_required and ACKs", async () => {
+		const { deps, recorded } = buildDeps({
+			account: buildAccount({
+				smtpHost: "smtp.example.com",
+				smtpPort: 587,
+				authType: AccountAuthType.OauthMicrosoft,
+			}),
+			resolveCredentials: async () => {
+				throw new SmtpConnectionError("auth", "535 authentication failed");
+			},
+		});
+
+		await sendMessage(event, silentLogger, deps);
+
+		assert.equal(recorded.sendCalls, 0, "must not send");
+		assert.equal(recorded.connectionStateUpdates.length, 1);
+		assert.deepEqual(recorded.connectionStateUpdates[0], {
+			accountId: "acc-1",
+			state: "reauth_required",
+		});
+	});
+
+	it("on SmtpConnectionError auth during credential resolution for password account: rethrows (no state flip)", async () => {
+		const { deps, recorded } = buildDeps({
+			account: buildAccount({
+				smtpHost: "smtp.example.com",
+				smtpPort: 587,
+				authType: AccountAuthType.Password,
+			}),
+			resolveCredentials: async () => {
+				throw new SmtpConnectionError("auth", "535 authentication failed");
+			},
+		});
+
+		await assert.rejects(
+			() => sendMessage(event, silentLogger, deps),
+			/535 authentication failed/,
+		);
+		assert.equal(
+			recorded.connectionStateUpdates.length,
+			0,
+			"must not flip connectionState for password account",
+		);
+	});
+
+	it("on SmtpConnectionError auth during send for OAuth account: flips to reauth_required and ACKs", async () => {
+		const { deps, recorded } = buildDeps({
+			account: buildAccount({
+				smtpHost: "smtp.example.com",
+				smtpPort: 587,
+				authType: AccountAuthType.OauthMicrosoft,
+			}),
+			send: async () => {
+				throw new SmtpConnectionError("auth", "535 authentication failed");
+			},
+		});
+
+		await sendMessage(event, silentLogger, deps);
+
+		assert.equal(recorded.connectionStateUpdates.length, 1);
+		assert.deepEqual(recorded.connectionStateUpdates[0], {
+			accountId: "acc-1",
+			state: "reauth_required",
+		});
+	});
+
+	it("on SmtpConnectionError auth during send for password account: rethrows (no state flip)", async () => {
+		const { deps, recorded } = buildDeps({
+			account: buildAccount({
+				smtpHost: "smtp.example.com",
+				smtpPort: 587,
+				authType: AccountAuthType.Password,
+			}),
+			send: async () => {
+				throw new SmtpConnectionError("auth", "535 authentication failed");
+			},
+		});
+
+		await assert.rejects(
+			() => sendMessage(event, silentLogger, deps),
+			/535 authentication failed/,
+		);
+		assert.equal(
+			recorded.connectionStateUpdates.length,
+			0,
+			"must not flip connectionState for password account",
+		);
 	});
 });
