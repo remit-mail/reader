@@ -21,10 +21,8 @@ const MOKAPI_SMTP_CONFIG: SmtpConfig = {
 	host: "localhost",
 	port: 2525,
 	secure: false,
-	auth: {
-		user: "alice@mokapi.io",
-		pass: "alice123",
-	},
+	user: "alice@mokapi.io",
+	credentials: { kind: "password", password: "alice123" },
 	tls: {
 		rejectUnauthorized: false, // Accept mokapi's self-signed cert
 	},
@@ -193,10 +191,8 @@ describe(
 					host: "localhost",
 					port: 9999, // Non-existent port
 					secure: false,
-					auth: {
-						user: "alice@mokapi.io",
-						pass: "alice123",
-					},
+					user: "alice@mokapi.io",
+					credentials: { kind: "password", password: "alice123" },
 					connectionTimeout: 1000, // Short timeout for tests
 				};
 
@@ -218,10 +214,8 @@ describe(
 					host: "localhost",
 					port: 2525,
 					secure: false,
-					auth: {
-						user: "alice@mokapi.io",
-						pass: "wrong-password",
-					},
+					user: "alice@mokapi.io",
+					credentials: { kind: "password", password: "wrong-password" },
 					tls: {
 						rejectUnauthorized: false,
 					},

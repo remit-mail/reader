@@ -203,7 +203,7 @@ export const getClient = (): RemitClient => {
 
 				const conn = createConnection({
 					user: account.username,
-					password,
+					credentials: { kind: "password", password },
 					host: account.imapHost,
 					port: account.imapPort,
 					tls: account.imapTls,

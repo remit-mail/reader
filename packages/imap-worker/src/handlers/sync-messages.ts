@@ -129,7 +129,7 @@ const syncMailboxMessages = async (
 	// Create a managed connection factory that caches and reuses the connection
 	const connectionFactory = createManagedConnectionFactory({
 		user: account.username,
-		password,
+		credentials: { kind: "password", password },
 		host: account.imapHost,
 		port: account.imapPort,
 		tls: account.imapTls,

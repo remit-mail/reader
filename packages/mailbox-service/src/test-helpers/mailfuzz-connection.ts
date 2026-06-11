@@ -4,7 +4,10 @@ export const MAILFUZZ_CONFIG = {
 	host: process.env.MAILFUZZ_HOST ?? "localhost",
 	port: Number(process.env.MAILFUZZ_PORT ?? 1143),
 	user: process.env.MAILFUZZ_USER ?? "vmail",
-	password: process.env.MAILFUZZ_PASSWORD ?? "testpass123",
+	credentials: {
+		kind: "password" as const,
+		password: process.env.MAILFUZZ_PASSWORD ?? "testpass123",
+	},
 	tls: false,
 };
 

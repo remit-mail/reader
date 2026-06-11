@@ -16,7 +16,9 @@ import type {
 	ImapMailboxStatus,
 	ImapMessage,
 	ImapNamespaces,
+	MailCredentials,
 } from "./types.js";
+import { MailConnectionError } from "./types.js";
 
 /**
  * ImapFlow-based IMAP connection
@@ -72,17 +74,20 @@ export class ImapFlowConnection {
 				await this.attemptConnect();
 				return;
 			} catch (error) {
-				// Don't retry authentication errors
-				const isAuthError =
-					error instanceof Error &&
-					(error.message.includes("Invalid credentials") ||
-						error.message.includes("Authentication failed") ||
-						error.message.includes("AUTHENTICATIONFAILED"));
+				const classified = classifyImapError(error);
 
-				if (isAuthError || attempt === maxRetries) {
-					throw error;
+				// Auth errors won't fix themselves on retry — throw immediately.
+				if (classified?.kind === "auth") {
+					throw classified;
 				}
 
+				// Final attempt exhausted: throw the classified error if we have
+				// one (network failures), otherwise let the raw error bubble.
+				if (attempt === maxRetries) {
+					throw classified ?? error;
+				}
+
+				// Network and unknown errors fall through to retry-with-backoff.
 				// Exponential backoff: 1s, 2s, 4s
 				const delay = baseDelayMs * 2 ** (attempt - 1);
 				await this.sleep(delay);
@@ -112,15 +117,14 @@ export class ImapFlowConnection {
 					}
 				: undefined;
 
+		const auth = buildImapAuth(this.config.user, this.config.credentials);
+
 		this.client = new ImapFlow({
 			host: this.config.host,
 			port: this.config.port,
 			secure: this.config.tls,
 			servername: this.config.tlsOptions?.servername,
-			auth: {
-				user: this.config.user,
-				pass: this.config.password,
-			},
+			auth,
 			tls: tlsOptions,
 			// Disable auto IDLE to work around servers that don't handle IDLE correctly
 			// This is equivalent to node-imap's forceNoop: true
@@ -1028,7 +1032,7 @@ export class ImapFlowConnection {
 }
 
 /**
- * Create an ImapFlow connection from account data
+ * Create an ImapFlow connection from account data using password credentials.
  */
 export const createImapFlowConnectionFromAccount = (
 	account: {
@@ -1044,6 +1048,70 @@ export const createImapFlowConnectionFromAccount = (
 		port: account.imapPort,
 		tls: account.imapTls,
 		user: account.username,
-		password,
+		credentials: { kind: "password", password },
 	});
+};
+
+/**
+ * Build the imapflow auth object from mail credentials.
+ *
+ * IMPORTANT: never include access-token values in error messages.
+ */
+const buildImapAuth = (
+	user: string,
+	credentials: MailCredentials,
+): { user: string; pass: string } | { user: string; accessToken: string } => {
+	if (credentials.kind === "password") {
+		return { user, pass: credentials.password };
+	}
+	if (credentials.kind === "accessToken") {
+		return { user, accessToken: credentials.accessToken };
+	}
+	// Exhaustiveness check — fails to compile if a new credential kind is added
+	// without handling it here.
+	const _exhaustive: never = credentials;
+	throw new Error(`Unknown credential kind: ${JSON.stringify(_exhaustive)}`);
+};
+
+/**
+ * Classify a raw IMAP error into a MailConnectionError, or return null if
+ * the error is not recognisable (let it bubble as-is).
+ *
+ * IMPORTANT: never include access-token values in error messages.
+ */
+const classifyImapError = (error: unknown): MailConnectionError | null => {
+	if (!(error instanceof Error)) {
+		return null;
+	}
+
+	const msg = error.message;
+	const code = (error as NodeJS.ErrnoException).code ?? "";
+
+	// Authentication failures
+	if (
+		msg.includes("Invalid credentials") ||
+		msg.includes("Authentication failed") ||
+		msg.includes("AUTHENTICATIONFAILED") ||
+		msg.includes("AUTHENTICATE") ||
+		(error as { authenticationFailed?: boolean }).authenticationFailed === true
+	) {
+		return new MailConnectionError("auth", "IMAP authentication failed");
+	}
+
+	// Network-level failures — NEVER include the original message as it may
+	// echo back tokens in some server implementations
+	if (
+		code === "ECONNREFUSED" ||
+		code === "ETIMEDOUT" ||
+		code === "ENOTFOUND" ||
+		code === "ECONNRESET" ||
+		code === "EHOSTUNREACH"
+	) {
+		return new MailConnectionError(
+			"network",
+			`IMAP connection failed: ${code}`,
+		);
+	}
+
+	return null;
 };
