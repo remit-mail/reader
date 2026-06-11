@@ -138,6 +138,61 @@ describe("search-index-worker handler", () => {
 		threadMessages.clear();
 	});
 
+	test("upsert stores fromName and subject in vector metadata for display-field enrichment", async () => {
+		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID });
+		const store = createMemoryVectorStore();
+		const embedder = createDeterministicEmbeddingService();
+		const searchService = createSearchService({ embedder, store });
+		const storageService = createMockStorageService();
+
+		const tm = makeThreadMessage(MESSAGE_ID);
+		threadMessages.set(MESSAGE_ID, tm);
+		await storageService.storeParsedBody({
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			accountId: ACCOUNT_ID,
+			messageId: MESSAGE_ID,
+			parsed: {
+				text: "Display-field enrichment test content",
+				html: null,
+				attachments: [],
+			},
+		});
+
+		const services = createTestServices(storageService, searchService);
+		await processBatch(
+			[
+				makeRecord({
+					type: "upsert",
+					messageId: MESSAGE_ID,
+					accountId: ACCOUNT_ID,
+					accountConfigId: ACCOUNT_CONFIG_ID,
+					mailboxIds: MAILBOX_IDS,
+				}),
+			],
+			services,
+			noopLogger,
+		);
+
+		const vectors = await store.query({
+			vector: new Array(64).fill(0.1),
+			topK: 100,
+			filter: { accountConfigId: ACCOUNT_CONFIG_ID },
+		});
+		assert.ok(vectors.length > 0, "Should have indexed vectors");
+		// All vectors for this message should carry the display fields
+		const forMessage = vectors.filter(
+			(v) => v.metadata.messageId === MESSAGE_ID,
+		);
+		assert.ok(forMessage.length > 0);
+		for (const v of forMessage) {
+			assert.strictEqual(v.metadata.fromName, tm.fromName ?? null);
+			assert.strictEqual(v.metadata.subject, tm.subject ?? "");
+		}
+
+		threadMessages.clear();
+		accounts.clear();
+	});
+
 	test("delete event calls SearchService.delete", async () => {
 		const store = createMemoryVectorStore();
 		const embedder = createDeterministicEmbeddingService();
