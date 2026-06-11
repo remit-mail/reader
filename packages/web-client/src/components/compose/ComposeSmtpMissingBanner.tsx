@@ -20,14 +20,14 @@ export const ComposeSmtpMissingBanner = ({
 		<div
 			role="alert"
 			data-testid="compose-smtp-missing-banner"
-			className="flex items-start gap-3 border-b border-amber-500/50 bg-amber-500/10 dark:bg-amber-500/20 px-3 py-2"
+			className="flex items-start gap-3 border-b border-warning/50 bg-warning/10 px-3 py-2"
 		>
 			<AlertTriangle
-				className="size-5 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400"
+				className="size-5 shrink-0 mt-0.5 text-warning"
 				aria-hidden="true"
 			/>
 			<div className="flex-1 min-w-0">
-				<p className="text-sm font-medium text-amber-700 dark:text-amber-300">
+				<p className="text-sm font-medium text-warning">
 					This account can't send mail until SMTP is configured.
 				</p>
 				<button
@@ -38,7 +38,7 @@ export const ComposeSmtpMissingBanner = ({
 							search: { editAccountId: accountId, focusSmtp: true },
 						});
 					}}
-					className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-300 hover:underline"
+					className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-warning hover:underline"
 				>
 					Configure SMTP
 					<ArrowRight className="size-3" aria-hidden="true" />

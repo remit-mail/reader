@@ -20,14 +20,14 @@ const SEVERITY_STYLES: Record<
 		title: "text-danger",
 	},
 	warning: {
-		container: "border-amber-500/50 bg-amber-500/10 dark:bg-amber-500/20",
-		icon: "text-amber-600 dark:text-amber-400",
-		title: "text-amber-700 dark:text-amber-300",
+		container: "border-warning/50 bg-warning/10",
+		icon: "text-warning",
+		title: "text-warning",
 	},
 	info: {
-		container: "border-sky-500/50 bg-sky-500/10 dark:bg-sky-500/20",
-		icon: "text-sky-600 dark:text-sky-400",
-		title: "text-sky-700 dark:text-sky-300",
+		container: "border-accent-2/50 bg-accent-2-soft",
+		icon: "text-accent-2",
+		title: "text-accent-2",
 	},
 };
 
