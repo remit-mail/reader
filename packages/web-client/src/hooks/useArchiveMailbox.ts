@@ -53,3 +53,41 @@ export const useArchiveMailbox = (
 
 	return { archiveMailboxId, isLoading };
 };
+
+const JUNK_NAMES = new Set(["junk", "spam", "bulk mail"]);
+
+/**
+ * Returns the Junk/Spam mailbox candidate for an account, used by the triage
+ * `!` (mark junk) key (#429). The message-flags API has no `$Junk` keyword
+ * field, so "mark junk" is realized as a move to the Junk mailbox — the
+ * closest existing surface (mirrors archive). Prefers the SPECIAL-USE `\Junk`
+ * flag, then name-matching. `undefined` while loading or if absent.
+ */
+export const useJunkMailbox = (
+	accountId: string | undefined,
+): { junkMailboxId: string | undefined; isLoading: boolean } => {
+	const { data: mailboxesResponse, isLoading } = useQuery({
+		...mailboxOperationsListMailboxesOptions({
+			path: { accountId: accountId ?? "" },
+		}),
+		staleTime: Infinity,
+		enabled: !!accountId,
+	});
+
+	const junkMailboxId = useMemo(() => {
+		const mailboxes = mailboxesResponse?.items ?? [];
+		if (mailboxes.length === 0) return undefined;
+
+		const byFlag = mailboxes.find((m) =>
+			m.specialUse?.some((f) => stripLeadingBackslash(f) === "Junk"),
+		);
+		if (byFlag) return byFlag.mailboxId;
+
+		const byName = mailboxes.find((m) =>
+			JUNK_NAMES.has(getMailboxDisplayName(m.fullPath).toLowerCase()),
+		);
+		return byName?.mailboxId;
+	}, [mailboxesResponse]);
+
+	return { junkMailboxId, isLoading };
+};
