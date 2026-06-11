@@ -89,15 +89,11 @@ namespace RemitImap;
     sk: [ThreadMessage.mailboxId, ThreadMessage.isRead, ThreadMessage.sentDate],
   }
 )
-// LSI6: Filter deleted messages (for trash view)
-@index(
-  "byDeletedStatus",
-  {
-    index: "lsi6",
-    pk: [ThreadMessage.accountConfigId],
-    sk: [ThreadMessage.isDeleted, ThreadMessage.sentDate],
-  }
-)
+// NOTE: A "byDeletedStatus" LSI6 was removed here (see #516) — it was never
+// provisioned (the table only has lsi1–lsi5) and DynamoDB's 5-LSI hard limit
+// means it can never be added as an LSI. If a trash-view access pattern is
+// needed in the future, implement it as a GSI (e.g. gsi3), which can be
+// added to a live table without a destructive replacement.
 model ThreadMessage {
   @doc("Primary identifier")
   @visibility(Lifecycle.Read)
