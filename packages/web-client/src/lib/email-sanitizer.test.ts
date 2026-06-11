@@ -242,3 +242,121 @@ describe("detectAuthorBackground — designed-vs-plain mail discriminator (#375)
 		assert.equal(detectAuthorBackground('<td BGCOLOR="#fff">x</td>'), true);
 	});
 });
+
+describe("detectAuthorBackground — <style> block over-match hardening (#483)", () => {
+	test("(a) reset stylesheet with `background: none` does NOT trigger — no framing for resets", () => {
+		// Over-matched before #483: the bare substring `background` fired even on
+		// `background: none`, causing plain personal mail to be misclassified as
+		// framed and rendered unreadably in dark mode.
+		assert.equal(
+			detectAuthorBackground(
+				"<style>* { margin: 0; padding: 0; background: none; }</style><p>hi</p>",
+			),
+			false,
+		);
+	});
+
+	test("(a) `background-color: transparent` in a reset block does NOT trigger", () => {
+		assert.equal(
+			detectAuthorBackground(
+				"<style>body { background-color: transparent; color: #333; }</style><p>hi</p>",
+			),
+			false,
+		);
+	});
+
+	test("(a) `background: inherit` does NOT trigger", () => {
+		assert.equal(
+			detectAuthorBackground(
+				"<style>p { background: inherit; }</style><p>hi</p>",
+			),
+			false,
+		);
+	});
+
+	test("(a) `background: initial` does NOT trigger", () => {
+		assert.equal(
+			detectAuthorBackground(
+				"<style>div { background: initial; }</style><div>hi</div>",
+			),
+			false,
+		);
+	});
+
+	test("(a) `background: unset` does NOT trigger", () => {
+		assert.equal(
+			detectAuthorBackground(
+				"<style>div { background: unset; }</style><div>hi</div>",
+			),
+			false,
+		);
+	});
+
+	test("(b) unused class `.foo { background: red }` DOES trigger — conservative: real color value is treated as author background regardless of selector", () => {
+		// Determining whether a CSS class is actually applied to any element
+		// requires DOM access and a full cascade. A light pre-sanitization scan
+		// cannot make that distinction, so a class rule with a real color is
+		// treated as an author background on the conservative side. The main
+		// wins from #483 are reset/no-op values, not unused-class detection.
+		assert.equal(
+			detectAuthorBackground(
+				"<style>.foo { background: red; }</style><p>hi</p>",
+			),
+			true,
+		);
+	});
+
+	test("(c) genuine `body { background: #fff }` DOES trigger — framed treatment", () => {
+		assert.equal(
+			detectAuthorBackground(
+				"<style>body { background: #fff; color: #000; }</style><p>designed mail</p>",
+			),
+			true,
+		);
+	});
+
+	test("(c) `background-color: #ffffff` (explicit -color property) triggers", () => {
+		assert.equal(
+			detectAuthorBackground(
+				"<style>html { background-color: #ffffff; }</style><p>x</p>",
+			),
+			true,
+		);
+	});
+
+	test("(c) `background: rgb(255,255,255)` triggers — real value, not a keyword", () => {
+		assert.equal(
+			detectAuthorBackground(
+				"<style>body { background: rgb(255,255,255); }</style><p>x</p>",
+			),
+			true,
+		);
+	});
+
+	test("style block with only text-color rules does NOT trigger", () => {
+		assert.equal(
+			detectAuthorBackground(
+				"<style>.brand { color: #0066cc; font-weight: bold; }</style><p>hi</p>",
+			),
+			false,
+		);
+	});
+
+	test("multiple <style> blocks: first has reset, second has real background — DOES trigger", () => {
+		const html = [
+			"<style>* { background: none; }</style>",
+			"<style>body { background: #f0f0f0; }</style>",
+			"<p>x</p>",
+		].join("");
+		assert.equal(detectAuthorBackground(html), true);
+	});
+
+	test("multiple <style> blocks: both reset values — does NOT trigger", () => {
+		const html = [
+			"<style>* { background: none; }</style>",
+			"<style>p { background: transparent; }</style>",
+			"<p>x</p>",
+		].join("");
+		assert.equal(detectAuthorBackground(html), false);
+	});
+});
