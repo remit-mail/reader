@@ -22,7 +22,7 @@ const MOKAPI_CONFIG = {
 	host: "localhost",
 	port: 143,
 	user: "alice@mokapi.io",
-	password: "alice123",
+	credentials: { kind: "password" as const, password: "alice123" },
 	tls: false,
 };
 

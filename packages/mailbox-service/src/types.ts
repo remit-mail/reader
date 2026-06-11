@@ -3,13 +3,46 @@
  */
 
 /**
+ * Discriminated union of mail authentication credentials.
+ *
+ * Exactly one credential kind can be present at a time — the union makes
+ * "both password and accessToken simultaneously" unrepresentable.
+ */
+export type MailCredentials =
+	| { kind: "password"; password: string }
+	| { kind: "accessToken"; accessToken: string };
+
+/**
+ * Classification of mail connection errors.
+ */
+export type MailConnectionErrorKind = "auth" | "network";
+
+/**
+ * Typed error for IMAP/SMTP connection failures.
+ *
+ * `kind: "auth"` — authentication rejected (bad credentials / token expired).
+ * `kind: "network"` — transport-level failure (ECONNREFUSED, ETIMEDOUT, etc.).
+ *
+ * IMPORTANT: access tokens must NEVER appear in error messages or causes.
+ */
+export class MailConnectionError extends Error {
+	readonly kind: MailConnectionErrorKind;
+
+	constructor(kind: MailConnectionErrorKind, message: string, cause?: unknown) {
+		super(message, { cause });
+		this.name = "MailConnectionError";
+		this.kind = kind;
+	}
+}
+
+/**
  * IMAP connection configuration
  */
 export interface ImapConnectionConfig {
 	host: string;
 	port: number;
 	user: string;
-	password: string;
+	credentials: MailCredentials;
 	tls: boolean;
 	tlsOptions?: {
 		rejectUnauthorized?: boolean;

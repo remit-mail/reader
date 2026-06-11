@@ -182,7 +182,8 @@ export const AccountOperations: Record<
 			host: input.imapHost,
 			port: input.imapPort,
 			secure: input.imapTls,
-			auth: { user: input.username, pass: imapPassword },
+			user: input.username,
+			credentials: { kind: "password", password: imapPassword },
 		});
 
 		result.imapSuccess = imapResult.success;
@@ -196,9 +197,10 @@ export const AccountOperations: Record<
 				host: input.smtpHost,
 				port: input.smtpPort ?? 587,
 				secure: input.smtpTls ?? false,
-				auth: {
-					user: input.smtpUsername ?? input.username,
-					pass: smtpPassword ?? imapPassword,
+				user: input.smtpUsername ?? input.username,
+				credentials: {
+					kind: "password",
+					password: smtpPassword ?? imapPassword,
 				},
 			});
 

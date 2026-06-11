@@ -23,10 +23,8 @@ const MOKAPI_SMTP_CONFIG: SmtpConfig = {
 	host: "localhost",
 	port: 2525,
 	secure: false,
-	auth: {
-		user: "alice@mokapi.io",
-		pass: "alice123",
-	},
+	user: "alice@mokapi.io",
+	credentials: { kind: "password", password: "alice123" },
 	tls: {
 		rejectUnauthorized: false, // Accept mokapi's self-signed cert
 	},
