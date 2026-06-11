@@ -1,17 +1,27 @@
+/**
+ * /mail — Daily Brief (unified inbox landing view).
+ *
+ * The default landing route that answers "what needs my attention today?"
+ * across all non-muted accounts. Replaces the previous redirect-to-first-
+ * mailbox behaviour with the three-section brief defined in
+ * doc/design/flows/02-daily-brief.md and the Flows/DailyBrief stories.
+ */
 import {
-	configOperationsGetConfigOptions,
-	mailboxOperationsListMailboxesOptions,
-} from "@remit/api-http-client/@tanstack/react-query.gen.ts";
-import type { RemitImapMailboxResponse } from "@remit/api-http-client/types.gen.ts";
+	ResizableHandle,
+	ResizablePanel,
+	ResizablePanelGroup,
+} from "@remit/ui";
 import {
 	createFileRoute,
 	type ErrorComponentProps,
-	redirect,
 } from "@tanstack/react-router";
+import { z } from "zod";
+import { DailyBrief } from "@/components/mail/DailyBrief";
+import { MessageToolbar } from "@/components/mail/MessageToolbar";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
-import { sortAccountsByCreatedAt } from "@/lib/account-order";
-import { getMailboxPriority } from "@/lib/mailbox-order";
+import { useIsDesktop } from "@/hooks/useMediaQuery";
+import { useMailContext } from "@/lib/mail-context";
 
 const MailIndexError = ({ error, reset }: ErrorComponentProps) => (
 	<div className="flex h-full items-center justify-center bg-canvas p-4">
@@ -23,46 +33,75 @@ const MailIndexError = ({ error, reset }: ErrorComponentProps) => (
 	</div>
 );
 
-const pickPreferredMailbox = (
-	mailboxes: RemitImapMailboxResponse[],
-): RemitImapMailboxResponse | undefined => {
-	if (mailboxes.length === 0) return undefined;
-	return [...mailboxes].sort(
-		(a, b) => getMailboxPriority(a.fullPath) - getMailboxPriority(b.fullPath),
-	)[0];
-};
+const briefSearchSchema = z.object({
+	selectedMessageId: z.string().optional(),
+});
 
 export const Route = createFileRoute("/mail/")({
-	loader: async ({ context: { queryClient } }) => {
-		const config = await queryClient.ensureQueryData(
-			configOperationsGetConfigOptions(),
-		);
-		const accounts = sortAccountsByCreatedAt(config.accounts ?? []);
-		for (const account of accounts) {
-			const mailboxes = await queryClient.ensureQueryData(
-				mailboxOperationsListMailboxesOptions({
-					path: { accountId: account.accountId },
-				}),
-			);
-			const preferred = pickPreferredMailbox(mailboxes.items ?? []);
-			if (preferred) {
-				throw redirect({
-					to: "/mail/$mailboxId",
-					params: { mailboxId: preferred.mailboxId },
-					replace: true,
-				});
-			}
-		}
-		return null;
-	},
 	component: MailIndex,
+	validateSearch: briefSearchSchema,
 	errorComponent: MailIndexError,
 });
 
 function MailIndex() {
+	const { selectedMessageId } = Route.useSearch();
+	const {
+		accounts,
+		intelligenceOpen,
+		onToggleIntelligence,
+		searchInput,
+		onSearchChange,
+		onSearchClear,
+	} = useMailContext();
+	const isDesktop = useIsDesktop();
+
+	const showIntelligence = intelligenceOpen && Boolean(selectedMessageId);
+
+	if (!isDesktop) {
+		return (
+			<div className="h-full">
+				<DailyBrief accounts={accounts} selectedMessageId={selectedMessageId} />
+			</div>
+		);
+	}
+
+	// Desktop: brief is pane 2 (list), reading pane 3 is empty (threads are
+	// opened in /mail/$mailboxId via BriefRow links).
 	return (
-		<div className="flex h-full items-center justify-center bg-canvas">
-			<EmptyState message="Select a mailbox to view messages" />
-		</div>
+		<ResizablePanelGroup direction="horizontal">
+			<ResizablePanel
+				id="brief-list"
+				order={1}
+				defaultSize={showIntelligence ? 30 : 33}
+				minSize={20}
+				maxSize={48}
+				className="min-w-0"
+			>
+				<DailyBrief accounts={accounts} selectedMessageId={selectedMessageId} />
+			</ResizablePanel>
+			<ResizableHandle />
+			<ResizablePanel
+				id="brief-reading"
+				order={2}
+				minSize={24}
+				className="min-w-0"
+			>
+				<section className="flex h-full w-full min-w-0 flex-col bg-canvas">
+					<MessageToolbar
+						hasThread={false}
+						onCompose={() => undefined}
+						intelligenceOpen={false}
+						showIntelligenceToggle={false}
+						onToggleIntelligence={onToggleIntelligence}
+						searchValue={searchInput}
+						onSearchChange={onSearchChange}
+						onSearchClear={onSearchClear}
+					/>
+					<div className="min-h-0 flex-1 overflow-hidden flex items-center justify-center">
+						<EmptyState message="Select a thread to read" />
+					</div>
+				</section>
+			</ResizablePanel>
+		</ResizablePanelGroup>
 	);
 }
