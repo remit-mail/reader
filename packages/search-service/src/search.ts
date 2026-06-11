@@ -109,6 +109,13 @@ export class DefaultSearchService implements SearchService {
 			score: m.score,
 			matchedChunkType: m.metadata.chunkType,
 			mailboxIds: m.metadata.mailboxIds,
+			sentDate: m.metadata.sentDate,
+			...(m.metadata.fromName !== undefined
+				? { fromName: m.metadata.fromName }
+				: {}),
+			...(m.metadata.subject !== undefined
+				? { subject: m.metadata.subject }
+				: {}),
 		}));
 	};
 

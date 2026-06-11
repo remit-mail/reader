@@ -26,13 +26,23 @@ const buildFakeSearch = (
 	return { service, captured };
 };
 
-const toResponse = (item: SearchResult): SemanticSearchResult => ({
-	messageId: item.messageId,
-	threadId: item.threadId,
-	score: item.score,
-	matchedChunkType: item.matchedChunkType,
-	mailboxIds: item.mailboxIds,
-});
+const toResponse = (item: SearchResult): SemanticSearchResult => {
+	const result: SemanticSearchResult = {
+		messageId: item.messageId,
+		threadId: item.threadId,
+		score: item.score,
+		matchedChunkType: item.matchedChunkType,
+		mailboxIds: item.mailboxIds,
+		sentDate: item.sentDate,
+	};
+	if (item.fromName !== undefined) {
+		result.fromName = item.fromName ?? undefined;
+	}
+	if (item.subject !== undefined) {
+		result.subject = item.subject;
+	}
+	return result;
+};
 
 describe("SemanticSearch handler response mapping", () => {
 	it("maps SearchResult into SemanticSearchResult preserving all fields", () => {
@@ -42,6 +52,7 @@ describe("SemanticSearch handler response mapping", () => {
 			score: 0.87,
 			matchedChunkType: "sender",
 			mailboxIds: ["mb-inbox", "mb-archive"],
+			sentDate: 1_700_000_000,
 		};
 		const out = toResponse(item);
 		assert.equal(out.messageId, "msg-alice");
@@ -49,6 +60,55 @@ describe("SemanticSearch handler response mapping", () => {
 		assert.equal(out.score, 0.87);
 		assert.equal(out.matchedChunkType, "sender");
 		assert.deepEqual(out.mailboxIds, ["mb-inbox", "mb-archive"]);
+		assert.equal(out.sentDate, 1_700_000_000);
+	});
+
+	it("includes fromName and subject when present in SearchResult", () => {
+		const item: SearchResult = {
+			messageId: "msg-bob",
+			threadId: "thread-b",
+			score: 0.72,
+			matchedChunkType: "body",
+			mailboxIds: ["mb-inbox"],
+			sentDate: 1_700_001_000,
+			fromName: "Bob Smith",
+			subject: "Weekly sync",
+		};
+		const out = toResponse(item);
+		assert.equal(out.fromName, "Bob Smith");
+		assert.equal(out.subject, "Weekly sync");
+		assert.equal(out.sentDate, 1_700_001_000);
+	});
+
+	it("omits fromName when it is null (sender has no display name)", () => {
+		const item: SearchResult = {
+			messageId: "msg-carol",
+			threadId: "thread-c",
+			score: 0.6,
+			matchedChunkType: "sender",
+			mailboxIds: ["mb-inbox"],
+			sentDate: 1_700_002_000,
+			fromName: null,
+			subject: "No-name sender",
+		};
+		const out = toResponse(item);
+		assert.equal(out.fromName, undefined);
+		assert.equal(out.subject, "No-name sender");
+	});
+
+	it("omits fromName and subject when absent (pre-enrichment vectors)", () => {
+		const item: SearchResult = {
+			messageId: "msg-legacy",
+			threadId: "thread-legacy",
+			score: 0.5,
+			matchedChunkType: "body",
+			mailboxIds: ["mb-archive"],
+			sentDate: 1_600_000_000,
+		};
+		const out = toResponse(item);
+		assert.equal(out.fromName, undefined);
+		assert.equal(out.subject, undefined);
+		assert.equal(out.sentDate, 1_600_000_000);
 	});
 });
 
@@ -61,6 +121,7 @@ describe("SemanticSearch handler search invocation", () => {
 				score: 0.5,
 				matchedChunkType: "body",
 				mailboxIds: ["mb-inbox"],
+				sentDate: 1_700_000_000,
 			},
 		]);
 

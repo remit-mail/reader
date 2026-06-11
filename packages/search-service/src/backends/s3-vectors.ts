@@ -74,6 +74,15 @@ const toMetadata = (raw: unknown): ChunkMetadata => {
 		obj.fileTypes !== undefined && isStringArray(obj.fileTypes)
 			? obj.fileTypes
 			: undefined;
+	// fromName and subject are optional display fields added after initial
+	// deployment. Pre-enrichment vectors will not have them; treat as absent.
+	const fromName =
+		obj.fromName === null
+			? null
+			: typeof obj.fromName === "string"
+				? obj.fromName
+				: undefined;
+	const subject = typeof obj.subject === "string" ? obj.subject : undefined;
 	return {
 		messageId: obj.messageId,
 		threadId: obj.threadId,
@@ -85,6 +94,8 @@ const toMetadata = (raw: unknown): ChunkMetadata => {
 		hasAttachment: obj.hasAttachment,
 		hasStars: obj.hasStars,
 		fileTypes,
+		...(fromName !== undefined ? { fromName } : {}),
+		...(subject !== undefined ? { subject } : {}),
 	};
 };
 

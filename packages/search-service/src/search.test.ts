@@ -54,7 +54,13 @@ const indexBoth = async (svc: DefaultSearchService): Promise<void> => {
 			text: "I have reviewed the Q1 numbers in the spreadsheet and the team exceeded the renewal target by fourteen percent across the portfolio.",
 			html: null,
 		},
-		metadata: { ...baseMetadata, messageId: "msg-alice", threadId: "thread-a" },
+		metadata: {
+			...baseMetadata,
+			messageId: "msg-alice",
+			threadId: "thread-a",
+			fromName: "Alice",
+			subject: "Q1 invoice review",
+		},
 	});
 	await svc.index({
 		envelope: bobEnvelope,
@@ -67,6 +73,8 @@ const indexBoth = async (svc: DefaultSearchService): Promise<void> => {
 			messageId: "msg-bob",
 			threadId: "thread-b",
 			hasAttachment: true,
+			fromName: "Bob",
+			subject: "Project kickoff next week",
 		},
 	});
 };
@@ -159,5 +167,49 @@ describe("DefaultSearchService", () => {
 		});
 		assert.ok(results.length > 0);
 		assert.ok(results.every((r) => r.messageId === "msg-other-account"));
+	});
+
+	it("returns fromName, subject, and sentDate in search results", async () => {
+		const { service } = buildService();
+		await indexBoth(service);
+
+		const results = await service.search({
+			query: "alice invoice",
+			accountConfigId: "acct-1",
+		});
+		assert.ok(results.length > 0);
+		const alice = results.find((r) => r.messageId === "msg-alice");
+		assert.ok(alice, "msg-alice should be in results");
+		assert.strictEqual(alice.fromName, "Alice");
+		assert.strictEqual(alice.subject, "Q1 invoice review");
+		assert.strictEqual(alice.sentDate, 1_700_000_000);
+	});
+
+	it("omits fromName and subject when not stored in metadata (pre-enrichment vectors)", async () => {
+		const { service } = buildService();
+		// Index without display fields to simulate pre-enrichment vectors
+		await service.index({
+			envelope: aliceEnvelope,
+			parsedBody: {
+				text: "Pre-enrichment message content with enough substance to index",
+				html: null,
+			},
+			metadata: {
+				...baseMetadata,
+				messageId: "msg-legacy",
+				threadId: "thread-legacy",
+			},
+		});
+
+		const results = await service.search({
+			query: "pre-enrichment message",
+			accountConfigId: "acct-1",
+		});
+		const legacy = results.find((r) => r.messageId === "msg-legacy");
+		assert.ok(legacy, "msg-legacy should be in results");
+		assert.strictEqual(legacy.sentDate, 1_700_000_000);
+		// fromName and subject should be absent for pre-enrichment vectors
+		assert.strictEqual(legacy.fromName, undefined);
+		assert.strictEqual(legacy.subject, undefined);
 	});
 });
