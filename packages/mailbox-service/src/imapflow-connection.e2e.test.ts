@@ -83,14 +83,22 @@ describe(
 
 		test("fetched message count matches status", async () => {
 			await withMailfuzzConnection(async (connection) => {
-				const status = await connection.getMailboxStatus("INBOX");
-				await connection.openBox("INBOX", true);
+				// Use the SELECT response (boxStatus.messages.total) rather than a
+				// separate STATUS command so both counts derive from the same
+				// opened-mailbox exchange, narrowing the window between the count
+				// snapshot and the SEARCH. NOTE: this is still two round-trips, so
+				// it is only race-free in practice because --test-concurrency=1 on
+				// test:e2e stops the other e2e file (adversarial-mime) from
+				// APPENDing to the shared INBOX in parallel. The durable fix is
+				// per-test mailbox isolation rather than a shared INBOX — see #508.
+				// Refs #501.
+				const boxStatus = await connection.openBox("INBOX", true);
 				const uids = await connection.search(["ALL"]);
 
 				assert.equal(
 					uids.length,
-					status.messages,
-					"Search ALL count should match status messages count",
+					boxStatus.messages.total,
+					"Search ALL count should match SELECT messages count",
 				);
 			});
 		});
@@ -123,6 +131,13 @@ describe(
 	"Flag operations (Dovecot)",
 	{
 		skip: !process.env.RUN_E2E_TESTS,
+		// Defensive only: node:test already runs subtests within a describe
+		// sequentially by default, so these three flag tests (which all mutate
+		// uids[0] of INBOX) never raced each other. The real source of flag-state
+		// flakiness was the *other* e2e file mutating INBOX in parallel — that is
+		// fixed by --test-concurrency=1 on the test:e2e script. concurrency: 1
+		// here just pins the intended sequential behaviour against future changes.
+		concurrency: 1,
 	},
 	() => {
 		let targetUid: number;
