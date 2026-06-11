@@ -14,6 +14,8 @@ export type OperationIds =
 	| "AccountOperations_testConnection"
 	| "AccountDetailOperations_updateAccount"
 	| "AccountDetailOperations_deleteAccount"
+	| "MicrosoftOAuthOperations_microsoftOAuthStart"
+	| "MicrosoftOAuthOperations_microsoftOAuthCallback"
 	| "MailboxOperations_listMailboxes"
 	| "MailboxOperations_createMailbox"
 	| "MailboxDetailOperations_getMailbox"
@@ -117,6 +119,11 @@ export type AddressOperationIds = MatchPrefix<
 
 export type AddressDetailOperationIds = MatchPrefix<
 	"AddressDetailOperations_",
+	OperationIds
+>;
+
+export type MicrosoftOAuthOperationIds = MatchPrefix<
+	"MicrosoftOAuthOperations_",
 	OperationIds
 >;
 
