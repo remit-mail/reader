@@ -1,4 +1,5 @@
 import {
+	threadDetailOperationsListThreadMessagesQueryKey,
 	threadOperationsListThreadsQueryKey,
 	threadOperationsSearchThreadsQueryKey,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
@@ -11,10 +12,15 @@ import {
 	ResizablePanel,
 	ResizablePanelGroup,
 } from "@remit/ui";
-import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
+import {
+	keepPreviousData,
+	useInfiniteQuery,
+	useQueryClient,
+} from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { z } from "zod";
+import type { ComposeMode } from "@/components/compose/ComposeProvider";
 import { useCompose } from "@/components/compose/ComposeProvider";
 import { FullCompose } from "@/components/compose/FullCompose";
 import { ConversationView } from "@/components/mail/ConversationView";
@@ -23,6 +29,7 @@ import { MessageList } from "@/components/mail/MessageList";
 import { MessageToolbar } from "@/components/mail/MessageToolbar";
 import { PullToRefresh } from "@/components/mail/PullToRefresh";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { useArchiveMailbox } from "@/hooks/useArchiveMailbox";
 import { useCurrentMailboxName } from "@/hooks/useCurrentMailboxName";
 import {
 	dropDeletedThreads,
@@ -32,6 +39,7 @@ import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { useMailboxAccount } from "@/hooks/useMailboxAccount";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { useMoveMessages } from "@/hooks/useMoveMessages";
+import { useToggleStar } from "@/hooks/useToggleStar";
 import { useMailContext } from "@/lib/mail-context";
 import { normalizeSearchQuery } from "@/lib/search-query";
 
@@ -160,6 +168,95 @@ function MailboxView() {
 
 	const selectedThread = threads.find((t) => t.messageId === selectedMessageId);
 
+	/* ---- toolbar wire-up: actions for the selected thread ---- */
+
+	// Delete all messages in the open thread via the toolbar.
+	const queryClient = useQueryClient();
+	const { deleteMessages: toolbarDelete } = useDeleteMessages({
+		mailboxId,
+		threadId: selectedThread?.threadId,
+		onAfterOptimisticRemove: handleDeselectIfRemoved,
+	});
+
+	// Move messages in the open thread (toolbar "Move to mailbox" button).
+	const { moveMessages: toolbarMove } = useMoveMessages({
+		mailboxId,
+		threadId: selectedThread?.threadId,
+		accountId: mailboxAccountId,
+		onAfterOptimisticRemove: handleDeselectIfRemoved,
+	});
+
+	// Archive = move all thread messages to the archive mailbox.
+	const { archiveMailboxId } = useArchiveMailbox(mailboxAccountId);
+	const handleToolbarArchive = useCallback(() => {
+		if (!selectedThread || !archiveMailboxId) return;
+		// The thread message list is already loaded in the query cache; extract
+		// all message ids from the cache so we can pass them to moveMessages.
+		const threadKey = threadDetailOperationsListThreadMessagesQueryKey({
+			path: { threadId: selectedThread.threadId },
+		});
+		const cached = queryClient.getQueriesData<{
+			items: { messageId: string }[];
+		}>({ queryKey: threadKey });
+		const messageIds = cached.flatMap(
+			([, data]) => data?.items.map((m) => m.messageId) ?? [],
+		);
+		if (messageIds.length > 0) {
+			toolbarMove(messageIds, archiveMailboxId);
+		} else {
+			// Fallback: move just the representative message from the list row.
+			toolbarMove([selectedThread.messageId], archiveMailboxId);
+		}
+	}, [selectedThread, archiveMailboxId, queryClient, toolbarMove]);
+
+	// Delete all messages in the thread via toolbar trash button.
+	const handleToolbarDelete = useCallback(() => {
+		if (!selectedThread) return;
+		const threadKey = threadDetailOperationsListThreadMessagesQueryKey({
+			path: { threadId: selectedThread.threadId },
+		});
+		const cached = queryClient.getQueriesData<{
+			items: { messageId: string }[];
+		}>({ queryKey: threadKey });
+		const messageIds = cached.flatMap(
+			([, data]) => data?.items.map((m) => m.messageId) ?? [],
+		);
+		if (messageIds.length > 0) {
+			toolbarDelete(messageIds);
+		} else {
+			toolbarDelete([selectedThread.messageId]);
+		}
+	}, [selectedThread, queryClient, toolbarDelete]);
+
+	// Star toggle for the representative (most-recent) message in the thread.
+	const { toggleStar: toolbarToggleStar } = useToggleStar({
+		threadId: selectedThread?.threadId ?? "",
+		mailboxId,
+	});
+
+	const handleToolbarStar = useCallback(() => {
+		if (!selectedThread) return;
+		toolbarToggleStar(selectedThread.messageId, selectedThread.hasStars);
+	}, [selectedThread, toolbarToggleStar]);
+
+	// Inline compose request from the toolbar — lifted up from ConversationView
+	// so the top toolbar can trigger the inline compose inside the conversation.
+	const [toolbarComposeRequest, setToolbarComposeRequest] =
+		useState<ComposeMode | null>(null);
+
+	const handleToolbarReply = useCallback(() => {
+		setToolbarComposeRequest("reply");
+	}, []);
+	const handleToolbarReplyAll = useCallback(() => {
+		setToolbarComposeRequest("reply_all");
+	}, []);
+	const handleToolbarForward = useCallback(() => {
+		setToolbarComposeRequest("forward");
+	}, []);
+	const handleClearComposeRequest = useCallback(() => {
+		setToolbarComposeRequest(null);
+	}, []);
+
 	// Compose
 	const { state: composeState, openCompose, closeCompose } = useCompose();
 
@@ -228,6 +325,8 @@ function MailboxView() {
 				threadId={selectedThread.threadId}
 				mailboxId={mailboxId}
 				subject={selectedThread.subject}
+				composeRequest={toolbarComposeRequest}
+				onComposeClose={handleClearComposeRequest}
 			/>
 		) : (
 			<div className="flex h-full items-center justify-center">
@@ -328,6 +427,42 @@ function MailboxView() {
 						searchValue={searchInput}
 						onSearchChange={onSearchChange}
 						onSearchClear={onSearchClear}
+						onReply={hasThread ? handleToolbarReply : undefined}
+						onReplyAll={hasThread ? handleToolbarReplyAll : undefined}
+						onForward={hasThread ? handleToolbarForward : undefined}
+						onArchive={
+							hasThread && archiveMailboxId ? handleToolbarArchive : undefined
+						}
+						canArchive={Boolean(archiveMailboxId)}
+						onDelete={hasThread ? handleToolbarDelete : undefined}
+						onToggleStar={hasThread ? handleToolbarStar : undefined}
+						isStarred={selectedThread?.hasStars}
+						moveContext={
+							hasThread && mailboxAccountId
+								? {
+										accountId: mailboxAccountId,
+										currentMailboxId: mailboxId,
+										onMove: (destMailboxId) => {
+											if (!selectedThread) return;
+											const threadKey =
+												threadDetailOperationsListThreadMessagesQueryKey({
+													path: { threadId: selectedThread.threadId },
+												});
+											const cached = queryClient.getQueriesData<{
+												items: { messageId: string }[];
+											}>({ queryKey: threadKey });
+											const messageIds = cached.flatMap(
+												([, data]) => data?.items.map((m) => m.messageId) ?? [],
+											);
+											if (messageIds.length > 0) {
+												toolbarMove(messageIds, destMailboxId);
+											} else {
+												toolbarMove([selectedThread.messageId], destMailboxId);
+											}
+										},
+									}
+								: undefined
+						}
 					/>
 					<div className="min-h-0 flex-1 overflow-hidden">{detailPane}</div>
 				</section>

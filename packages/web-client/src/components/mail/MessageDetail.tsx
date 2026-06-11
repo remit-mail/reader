@@ -131,6 +131,7 @@ export const MessageDetail = ({ messageId }: MessageDetailProps) => {
 				messageId={messageId}
 				fromAddressId={fromAddress?.addressId}
 				isTrusted={isTrusted}
+				category={messageData.envelope.category}
 			/>
 		</article>
 	);

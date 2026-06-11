@@ -32,17 +32,6 @@ const TrustedSenderBadge = () => (
 );
 
 /**
- * Unread indicator dot - occupies a fixed column width
- */
-const UnreadIndicator = ({ isUnread }: { isUnread: boolean }) => (
-	<div className="w-2 shrink-0 flex items-center justify-center pt-1">
-		{isUnread && (
-			<div className="size-2 rounded-full bg-blue-500" aria-label="Unread" />
-		)}
-	</div>
-);
-
-/**
  * Indicators column showing star and attachment icons below the date
  */
 const MessageIndicators = ({
@@ -118,58 +107,71 @@ const CollapsedCard = ({
 	const isUnread = !threadMessage.isRead;
 	const hasAttachment = threadMessage.hasAttachment;
 
+	// Design reference: AppShell CollapsedMessage — full-width border divider,
+	// px-5 py-2, ChevronRight left, avatar, fixed-width sender, snippet,
+	// date right-aligned. Matches the approved Storybook mock exactly.
 	return (
-		<div
-			className={cn(
-				"group flex items-start gap-2 py-3 px-2 -mx-2 rounded-lg",
-				"hover:bg-surface-raised transition-colors cursor-pointer",
-				isFocused && "bg-accent-2-soft",
-			)}
+		<button
+			type="button"
 			onClick={onToggle}
+			className={cn(
+				"group flex w-full items-center gap-3 border-b border-line px-5 py-2 text-left",
+				"hover:bg-surface-sunken transition-colors",
+				isFocused && "bg-surface-sunken ring-1 ring-inset ring-accent/30",
+			)}
 		>
-			<UnreadIndicator isUnread={isUnread} />
-			<Avatar
-				name={threadMessage.fromName ?? threadMessage.fromEmail ?? "?"}
-				email={threadMessage.fromEmail ?? undefined}
-				size="md"
-			/>
-			<div className="flex-1 min-w-0">
-				<div className="flex items-start justify-between gap-2">
-					<div className="flex-1 min-w-0">
-						<span
-							className={cn(
-								"text-sm truncate block",
-								isUnread ? "font-semibold text-fg" : "text-fg",
-							)}
-						>
-							{senderName}
-						</span>
-						{snippet && (
-							<div className="text-sm text-fg-muted truncate mt-0.5">
-								{snippet}
-							</div>
-						)}
-					</div>
-					<div className="shrink-0 text-right">
-						<div className="flex items-center gap-1">
-							<span
-								data-testid="message-date"
-								className="text-xs text-fg-muted"
-							>
-								{date}
-							</span>
-							<ChevronRight className="size-4 text-fg-muted" />
-						</div>
-						<MessageIndicators
-							isStarred={isStarred}
-							hasAttachment={hasAttachment}
-							onToggleStar={onToggleStar}
-							isStarPending={isStarPending}
-						/>
-					</div>
-				</div>
+			<ChevronRight className="size-3.5 shrink-0 text-fg-subtle" />
+			{/* Unread dot overlays the avatar column */}
+			<div className="relative shrink-0">
+				<Avatar
+					name={threadMessage.fromName ?? threadMessage.fromEmail ?? "?"}
+					email={threadMessage.fromEmail ?? undefined}
+					size="sm"
+				/>
+				{isUnread && (
+					<span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-accent border border-canvas" />
+				)}
 			</div>
-		</div>
+			<span
+				className={cn(
+					"w-36 shrink-0 truncate text-sm",
+					isUnread ? "font-semibold text-fg" : "font-medium text-fg-muted",
+				)}
+			>
+				{senderName}
+			</span>
+			<span className="min-w-0 flex-1 truncate text-xs text-fg-subtle">
+				{snippet}
+			</span>
+			{hasAttachment && (
+				<Paperclip className="size-3 shrink-0 text-fg-subtle" />
+			)}
+			{/* Star button — stops click propagation so it doesn't expand the card */}
+			<button
+				type="button"
+				onClick={(e) => {
+					e.stopPropagation();
+					onToggleStar();
+				}}
+				disabled={isStarPending}
+				aria-label={isStarred ? "Remove star" : "Add star"}
+				className={cn(
+					"shrink-0 p-0.5 rounded transition-colors",
+					isStarred
+						? "text-warning"
+						: "text-fg-subtle hover:text-warning opacity-0 group-hover:opacity-100 focus:opacity-100",
+					isStarPending && "opacity-50",
+				)}
+			>
+				<Star className={cn("size-3", isStarred && "fill-current")} />
+			</button>
+			<span
+				data-testid="message-date"
+				className="shrink-0 text-2xs text-fg-subtle tabular-nums"
+			>
+				{date}
+			</span>
+		</button>
 	);
 };
 
@@ -211,57 +213,72 @@ const ExpandedCard = ({
 	const isTrusted =
 		messageData?.envelope.from[0]?.flags?.trusted?.value === true;
 
+	// Design reference: AppShell ExpandedMessage — px-5 py-3, no own
+	// background (inherits bg-canvas from article). Keyboard-focus indicator
+	// (`isFocused`) adds a subtle inset ring without changing the surface.
 	return (
 		<div
-			className={cn("rounded-lg px-2 -mx-2", isFocused && "bg-accent-2-soft")}
+			className={cn(
+				"px-5 py-3",
+				isFocused && "ring-1 ring-inset ring-accent/30",
+			)}
 		>
-			{/* Header - clickable to collapse */}
-			<div className="flex items-start gap-2 py-3">
-				<UnreadIndicator isUnread={isUnread} />
+			{/* Header row: avatar · sender/to block · date · collapse chevron · action menu */}
+			<div className="flex items-start gap-3">
 				<Avatar
 					name={threadMessage.fromName ?? threadMessage.fromEmail ?? "?"}
 					email={threadMessage.fromEmail ?? undefined}
 					size="md"
 				/>
-				<button
-					type="button"
-					onClick={onToggle}
-					className="flex-1 min-w-0 text-left hover:bg-surface-raised -my-2 py-2 px-1 -mx-1 rounded transition-colors"
-				>
-					<div className="flex items-start justify-between gap-2">
-						<div className="flex-1 min-w-0">
+				<div className="min-w-0 flex-1">
+					{/* Clickable area collapses the card */}
+					<button type="button" onClick={onToggle} className="w-full text-left">
+						<div className="flex items-baseline justify-between gap-2">
 							<span
 								className={cn(
-									"block mb-0.5",
-									isUnread ? "font-semibold text-fg" : "text-fg",
+									"text-sm",
+									isUnread ? "font-semibold text-fg" : "font-medium text-fg",
 								)}
 							>
 								{senderName}
 								{isTrusted && <TrustedSenderBadge />}
 							</span>
-							{messageData && (
-								<AddressList label="To" addresses={messageData.envelope.to} />
-							)}
-						</div>
-						<div className="shrink-0 text-right">
-							<div className="flex items-center gap-1">
+							<div className="flex items-center gap-1 shrink-0">
 								<span
 									data-testid="message-date"
-									className="text-xs text-fg-muted"
+									className="text-2xs text-fg-subtle"
 								>
 									{date}
 								</span>
-								<ChevronDown className="size-4 text-fg-muted" />
+								<ChevronDown className="size-3.5 shrink-0 text-fg-subtle" />
 							</div>
-							<MessageIndicators
-								isStarred={isStarred}
-								hasAttachment={hasAttachment}
-								onToggleStar={onToggleStar}
-								isStarPending={isStarPending}
-							/>
 						</div>
+						{messageData && (
+							<div className="text-xs text-fg-subtle">
+								<AddressList label="To" addresses={messageData.envelope.to} />
+							</div>
+						)}
+						{!messageData && (
+							<div className="text-xs text-fg-subtle">
+								{threadMessage.fromEmail}
+							</div>
+						)}
+					</button>
+					<div className="flex items-center gap-1 mt-0.5">
+						<MessageIndicators
+							isStarred={isStarred}
+							hasAttachment={hasAttachment}
+							onToggleStar={onToggleStar}
+							isStarPending={isStarPending}
+						/>
+						{isUnread && (
+							<span
+								className="size-1.5 rounded-full bg-accent"
+								aria-label="Unread"
+							/>
+						)}
 					</div>
-				</button>
+				</div>
 				<div className="shrink-0">
 					<MessageActionMenu
 						messageId={threadMessage.messageId}
@@ -279,11 +296,8 @@ const ExpandedCard = ({
 				</div>
 			</div>
 
-			{/* Body - flush left so the message uses the full pane width on
-			    every viewport. The avatar column is already implied by the
-			    header above; an extra avatar-width indent here just wastes
-			    horizontal space on desktop (#179). */}
-			<div className="mt-2">
+			{/* Body: mt-3 matches the AppShell ExpandedMessage spacing. */}
+			<div className="mt-3">
 				{isLoading ? (
 					<div className="animate-pulse space-y-2">
 						<div className="h-4 bg-surface-sunken rounded w-full" />
@@ -309,6 +323,7 @@ const ExpandedCard = ({
 						isTrusted={
 							messageData?.envelope.from[0]?.flags?.trusted?.value === true
 						}
+						category={threadMessage.category}
 					/>
 				)}
 			</div>
