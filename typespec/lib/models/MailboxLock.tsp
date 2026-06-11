@@ -23,7 +23,6 @@ namespace RemitImap;
     sk: [MailboxLock.mailboxId, MailboxLock.eventName],
   }
 )
-// List all locks sorted by acquiredAt for monitoring
 @index(
   "allLocks",
   {

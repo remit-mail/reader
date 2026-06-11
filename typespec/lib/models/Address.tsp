@@ -89,7 +89,6 @@ model AddressFlags {
     sk: [],
   }
 )
-// Part of accountConfig collection for address book queries
 @index(
   "byAccountConfigId",
   {
