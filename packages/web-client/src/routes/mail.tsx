@@ -8,6 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
 	createFileRoute,
 	Outlet,
+	redirect,
 	useNavigate,
 	useSearch,
 } from "@tanstack/react-router";
@@ -42,6 +43,18 @@ const mailSearchSchema = z.object({
 type MailSearch = z.infer<typeof mailSearchSchema>;
 
 export const Route = createFileRoute("/mail")({
+	// First-run guard lives on the /mail parent (not the index loader) so it
+	// survives regardless of what the child route renders — index redirect,
+	// daily brief (#426/#484), etc. A zero-account user is sent to the
+	// onboarding wizard before any mail UI mounts.
+	beforeLoad: async ({ context: { queryClient } }) => {
+		const config = await queryClient.ensureQueryData(
+			configOperationsGetConfigOptions(),
+		);
+		if (!config.accounts || config.accounts.length === 0) {
+			throw redirect({ to: "/onboarding", replace: true });
+		}
+	},
 	component: MailLayout,
 	validateSearch: mailSearchSchema,
 });
