@@ -11,6 +11,7 @@ import type {
 	IntelligenceData,
 	MatchedChunk,
 	SenderFlagsIntel,
+	SenderIntel,
 	SimilarMessageIntel,
 } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
@@ -27,6 +28,32 @@ function formatFirstSeenLabel(createdAtMs: number): string {
 	const now = new Date();
 	if (d.toDateString() === now.toDateString()) return "today";
 	return formatDate(d, { month: "short", year: "numeric" });
+}
+
+/**
+ * Build sender intel from the thread message and address lookup.
+ *
+ * Engagement counters (`inboundCount`/`replyCount`) are passed through
+ * as-is from the address response. When absent (`undefined`) they remain
+ * `undefined` so the `SenderCard` engagement clause is suppressed rather
+ * than rendering a misleading "0 received" next to an earned trust badge.
+ */
+export function buildSenderIntel(
+	thread: RemitImapThreadMessageResponse,
+	address: RemitImapAddressResponse | undefined,
+): SenderIntel {
+	return {
+		name: thread.fromName ?? thread.fromEmail ?? "Unknown",
+		email: thread.fromEmail ?? "",
+		trust: thread.senderTrust,
+		firstSeenLabel: address
+			? formatFirstSeenLabel(address.createdAt)
+			: "unknown",
+		// Pass counters through as-is. undefined stays undefined so the panel
+		// suppresses the engagement clause when data is absent.
+		inboundCount: address?.inboundCount,
+		replyCount: address?.replyCount,
+	};
 }
 
 /**
@@ -174,20 +201,7 @@ export function useIntelligenceData(
 				matched: r.matchedChunkType as MatchedChunk,
 			}));
 
-		const sender = {
-			name: thread.fromName ?? thread.fromEmail ?? "Unknown",
-			email: thread.fromEmail ?? "",
-			trust: thread.senderTrust,
-			firstSeenLabel: address
-				? formatFirstSeenLabel(address.createdAt)
-				: "unknown",
-			// Engagement counters (inboundCount/replyCount) are not yet exposed
-			// on the address response — the Address entity has them but the API
-			// response model omits them (tracked in a backend follow-up). Leave
-			// them undefined so the panel suppresses the engagement clause
-			// rather than printing a misleading "0 received · you've never
-			// replied" next to an earned trust badge.
-		};
+		const sender = buildSenderIntel(thread, address);
 
 		const authenticity = buildAuthenticityIntel(thread, similar.length);
 
