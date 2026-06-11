@@ -30,7 +30,10 @@ import { MessageToolbar } from "@/components/mail/MessageToolbar";
 import { PullToRefresh } from "@/components/mail/PullToRefresh";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useArchiveMailbox } from "@/hooks/useArchiveMailbox";
-import { useCurrentMailboxName } from "@/hooks/useCurrentMailboxName";
+import {
+	useCurrentMailboxName,
+	useCurrentMailboxUnseenCount,
+} from "@/hooks/useCurrentMailboxName";
 import {
 	dropDeletedThreads,
 	useDeleteMessages,
@@ -167,6 +170,15 @@ function MailboxView() {
 	);
 
 	const selectedThread = threads.find((t) => t.messageId === selectedMessageId);
+
+	// Datum unread count: prefer the mailbox's authoritative server-side
+	// unseenCount over a count derived from the loaded infinite-query pages,
+	// which undercounts on multi-page mailboxes and creeps as the user scrolls.
+	// Fall back to the loaded-page count only when the mailbox isn't resolvable
+	// yet (e.g. mailbox query still warming).
+	const mailboxUnseenCount = useCurrentMailboxUnseenCount({ accounts });
+	const unreadCount =
+		mailboxUnseenCount ?? threads.filter((t) => !t.isRead).length;
 
 	/* ---- toolbar wire-up: actions for the selected thread ---- */
 
@@ -398,15 +410,20 @@ function MailboxView() {
 			>
 				<section className="flex h-full w-full flex-col bg-surface">
 					{/* List datum bar (40px, the shared `--spacing-pane-header`):
-					    the list's context — mailbox title — lives on the datum,
-					    its bottom hairline on the same y as the message toolbar and
-					    intelligence rail header so one continuous grid line runs
-					    across panes 2–4 (no staircase). Search moved to the message
-					    toolbar but still filters this list. Row redesign is #423. */}
-					<header className="flex h-pane-header shrink-0 items-center gap-2 border-b border-line px-row-inset">
+					    the list's context — mailbox title + unread count — lives on
+					    the datum, its bottom hairline on the same y as the message
+					    toolbar and intelligence rail header so one continuous grid
+					    line runs across panes 2–4 (no staircase). Search moved to
+					    the message toolbar but still filters this list. */}
+					<header className="flex h-pane-header shrink-0 items-center justify-between gap-2 border-b border-line px-row-inset">
 						<h1 className="truncate text-sm font-semibold text-fg">
 							{listTitle}
 						</h1>
+						{unreadCount > 0 && (
+							<span className="shrink-0 text-2xs text-fg-subtle tabular-nums">
+								{unreadCount} unread
+							</span>
+						)}
 					</header>
 					<div className="min-h-0 flex-1 overflow-hidden">{messageList}</div>
 				</section>

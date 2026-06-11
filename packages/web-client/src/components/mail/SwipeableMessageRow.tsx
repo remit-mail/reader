@@ -1,4 +1,5 @@
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
+import type { Density } from "@remit/ui";
 import { Mail, MailOpen, Trash2 } from "lucide-react";
 import { useCallback } from "react";
 import {
@@ -24,6 +25,7 @@ interface SwipeableMessageRowProps {
 	isDesktop: boolean;
 	onDelete: (messageId: string) => void;
 	onToggleRead: (messageId: string, currentIsRead: boolean) => void;
+	density?: Density;
 }
 
 const SWIPE_THRESHOLD = 0.3;
@@ -40,6 +42,7 @@ export const SwipeableMessageRow = ({
 	isDesktop,
 	onDelete,
 	onToggleRead,
+	density,
 }: SwipeableMessageRowProps) => {
 	const handleDelete = useCallback(() => {
 		navigator.vibrate?.(10);
@@ -63,6 +66,7 @@ export const SwipeableMessageRow = ({
 				isMultiSelectMode={isMultiSelectMode}
 				onLongPress={onLongPress}
 				isDesktop={isDesktop}
+				density={density}
 			/>
 		);
 	}
@@ -108,6 +112,7 @@ export const SwipeableMessageRow = ({
 				isMultiSelectMode={isMultiSelectMode}
 				onLongPress={onLongPress}
 				isDesktop={isDesktop}
+				density={density}
 			/>
 		</SwipeableListItem>
 	);
