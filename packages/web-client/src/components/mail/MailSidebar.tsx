@@ -12,7 +12,6 @@ import {
 	BellOff,
 	ChevronDown,
 	ChevronRight,
-	File,
 	Send,
 	Settings,
 	Sparkles,
@@ -28,7 +27,6 @@ import {
 } from "@/lib/mailbox-order";
 import { isOutboxListRow } from "@/lib/outbox-status";
 import { cn } from "@/lib/utils";
-import { useCompose } from "../compose/ComposeProvider";
 import { MailboxItem } from "./MailboxItem";
 
 interface MailSidebarProps {
@@ -96,81 +94,6 @@ const MAX_VISIBLE_LABELS = 13;
 interface SelectableProps {
 	onSelect?: () => void;
 }
-
-const DraftsList = ({ onSelect }: SelectableProps) => {
-	const [expanded, setExpanded] = useState(true);
-	const { openCompose } = useCompose();
-
-	const {
-		data: outboxResponse,
-		isLoading,
-		isError,
-		error,
-		refetch,
-	} = useQuery(outboxOperationsListOutboxMessagesOptions());
-
-	const drafts = useMemo(
-		() =>
-			(outboxResponse?.items ?? []).filter((item) => item.status === "draft"),
-		[outboxResponse?.items],
-	);
-
-	if (isError) {
-		return (
-			<div className="mb-2 px-3 py-2">
-				<ErrorState
-					variant="inline"
-					title="Couldn't load drafts"
-					error={error}
-					onRetry={() => refetch()}
-				/>
-			</div>
-		);
-	}
-
-	if (isLoading || drafts.length === 0) return null;
-
-	return (
-		<div className="mb-2">
-			<button
-				type="button"
-				onClick={() => setExpanded(!expanded)}
-				className="w-full flex items-center gap-1 px-2 py-1 text-2xs font-semibold text-fg-subtle uppercase tracking-wider hover:text-fg transition-colors"
-			>
-				{expanded ? (
-					<ChevronDown className="h-3 w-3 shrink-0" />
-				) : (
-					<ChevronRight className="h-3 w-3 shrink-0" />
-				)}
-				<span>Drafts</span>
-				<span className="ml-auto text-2xs font-normal bg-surface-sunken px-1.5 py-0.5 rounded-full">
-					{drafts.length}
-				</span>
-			</button>
-			{expanded && (
-				<div className="space-y-0.5">
-					{drafts.map((draft) => (
-						<button
-							key={draft.outboxMessageId}
-							type="button"
-							onClick={() => {
-								openCompose({
-									mode: "new",
-									outboxMessageId: draft.outboxMessageId,
-								});
-								onSelect?.();
-							}}
-							className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-fg hover:bg-surface-raised rounded-md transition-colors"
-						>
-							<File className="size-4 shrink-0 text-fg-muted" />
-							<span className="truncate">{draft.subject || "No subject"}</span>
-						</button>
-					))}
-				</div>
-			)}
-		</div>
-	);
-};
 
 const OutboxLink = ({ onSelect }: SelectableProps) => {
 	const location = useLocation();
@@ -390,7 +313,6 @@ export const MailSidebar = ({
 	const navBody = (
 		<nav className="flex-1 overflow-y-auto py-2" aria-label="Mailboxes">
 			<DailyBriefLink onSelect={onMailboxSelect} />
-			<DraftsList onSelect={onMailboxSelect} />
 			{accounts.length === 0 ? (
 				<div className="px-3 py-4 text-sm text-fg-muted text-center">
 					No accounts configured

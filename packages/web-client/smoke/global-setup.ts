@@ -38,6 +38,7 @@ import {
 	EnvelopeService,
 	MailboxSpecialUseService,
 	MessageService,
+	OutboxMessageService,
 	REMIT_NAMESPACE,
 	ThreadMessageService,
 } from "@remit/remit-electrodb-service";
@@ -49,6 +50,8 @@ import {
 } from "@remit/secrets-service";
 import { Entity } from "electrodb";
 import {
+	DRAFTS_ID,
+	DRAFTS_IMAP_MESSAGE_ID_HEADER,
 	E2E_ACCOUNT_CONFIG_ID,
 	E2E_ACCOUNT_ID,
 	E2E_EMAIL,
@@ -178,6 +181,15 @@ const seedMailboxes = async (config: ReturnType<typeof createConfig>) => {
 			messageCount: 0,
 			unseenCount: 0,
 			specialUse: MailboxSpecialUse.Trash,
+		},
+		{
+			// IMAP \Drafts mailbox — holds the seeded "On the server" draft for
+			// the Drafts-view smoke (#505). One unseen so the section has data.
+			mailboxId: DRAFTS_ID,
+			fullPath: "Drafts",
+			messageCount: 1,
+			unseenCount: 0,
+			specialUse: MailboxSpecialUse.Drafts,
 		},
 	];
 
@@ -461,6 +473,136 @@ const seedMessages = async (config: ReturnType<typeof createConfig>) => {
 	}
 };
 
+/**
+ * Seed the two Drafts data sources for the segmented Drafts-view smoke (#505):
+ *
+ *  - One IMAP \Drafts message (thread row) in the DRAFTS_ID mailbox → renders
+ *    in the "On the server" section.
+ *  - One Remit outbox row with status "draft" for this account → renders in the
+ *    "Not yet sent (Remit)" section.
+ *
+ * Together they prove both labeled sections render with real data.
+ */
+const seedDrafts = async (config: ReturnType<typeof createConfig>) => {
+	const messageService = new MessageService(config);
+	const envelopeService = new EnvelopeService(config);
+	const threadMessageService = new ThreadMessageService(config);
+	const outboxMessageService = new OutboxMessageService(config);
+
+	// --- IMAP \Drafts message (the "On the server" section) ---
+	const imapDraft = {
+		messageIdHeader: DRAFTS_IMAP_MESSAGE_ID_HEADER,
+		uid: 1,
+		subject: "Server draft reply",
+		fromEmail: E2E_EMAIL,
+		fromName: "Me",
+		bodyText: "This draft was saved on the IMAP server.",
+		sentDate: NOW - 7_200_000,
+	};
+
+	const messageId = MessageService.generateId(
+		E2E_ACCOUNT_CONFIG_ID,
+		imapDraft.messageIdHeader,
+	);
+	const envelopeId = EnvelopeService.generateId(messageId);
+	const threadId = ThreadMessageService.deriveThreadId(
+		E2E_ACCOUNT_CONFIG_ID,
+		imapDraft.messageIdHeader,
+	);
+
+	const bodyStorageKey = storeMessageBody(
+		E2E_ACCOUNT_CONFIG_ID,
+		E2E_ACCOUNT_ID,
+		messageId,
+		imapDraft.bodyText,
+	);
+
+	try {
+		await messageService.create({
+			messageId,
+			mailboxId: DRAFTS_ID,
+			uid: imapDraft.uid,
+			sequenceNumber: imapDraft.uid,
+			rfc822Size: imapDraft.bodyText.length + 200,
+			internalDate: imapDraft.sentDate,
+			messageIdHeader: imapDraft.messageIdHeader,
+			envelopeId,
+			rootBodyPartId: base36uuid(),
+			bodyStorageKey,
+		});
+	} catch (err) {
+		if (!(err instanceof CreateFailedConflictError)) throw err;
+	}
+
+	try {
+		await envelopeService.createEnvelope({
+			envelopeId,
+			messageId,
+			dateValue: imapDraft.sentDate,
+			dateRaw: new Date(imapDraft.sentDate).toUTCString(),
+			subject: imapDraft.subject,
+			messageIdValue: imapDraft.messageIdHeader,
+		});
+	} catch (err) {
+		if (!(err instanceof CreateFailedConflictError)) throw err;
+	}
+
+	try {
+		await threadMessageService.create({
+			threadId,
+			messageId,
+			accountConfigId: E2E_ACCOUNT_CONFIG_ID,
+			mailboxId: DRAFTS_ID,
+			uid: imapDraft.uid,
+			referenceOrder: 0,
+			fromEmail: imapDraft.fromEmail,
+			fromName: imapDraft.fromName,
+			subject: imapDraft.subject,
+			internalDate: imapDraft.sentDate,
+			sentDate: imapDraft.sentDate,
+			isRead: true,
+			hasAttachment: false,
+			hasStars: false,
+			isDeleted: false,
+			snippet: imapDraft.bodyText.slice(0, 100),
+		});
+	} catch (err) {
+		if (!(err instanceof CreateFailedConflictError)) throw err;
+	}
+
+	await envelopeService.upsertBodyParts(messageId, [
+		{
+			partPath: "1",
+			parentPartPath: null,
+			mediaType: "TEXT",
+			mediaSubtype: "PLAIN",
+			transferEncoding: "7BIT",
+			sizeOctets: imapDraft.bodyText.length,
+			isMultipart: false,
+			parameters: [{ parameterName: "CHARSET", parameterValue: "utf-8" }],
+		},
+	]);
+
+	// --- Remit outbox draft (the "Not yet sent (Remit)" section) ---
+	// The seeder reruns across test runs, so only create the draft if the
+	// account has none yet (the outbox row id is random, can't dedup by id).
+	const existingDrafts =
+		await outboxMessageService.listByAccount(E2E_ACCOUNT_ID);
+	const hasDraft = existingDrafts.items.some((m) => m.status === "draft");
+	if (!hasDraft) {
+		await outboxMessageService.create({
+			accountId: E2E_ACCOUNT_ID,
+			accountConfigId: E2E_ACCOUNT_CONFIG_ID,
+			fromAddress: E2E_EMAIL,
+			toAddresses: ["alice@example.com"],
+			subject: "Unsent Remit draft",
+			textBody: "This draft lives only in Remit's outbox, not yet on IMAP.",
+			messageIdValue: `${Date.now()}@remit.local`,
+			status: "draft",
+		});
+	}
+};
+
 const globalSetup = async () => {
 	console.log("E2E Global Setup: seeding test data...");
 	const config = createConfig();
@@ -468,11 +610,13 @@ const globalSetup = async () => {
 	await seedAccount(config);
 	await seedMailboxes(config);
 	await seedMessages(config);
+	await seedDrafts(config);
 
 	console.log(`  AccountConfigId: ${E2E_ACCOUNT_CONFIG_ID}`);
 	console.log(`  AccountId: ${E2E_ACCOUNT_ID}`);
 	console.log(`  INBOX mailboxId: ${INBOX_ID}`);
-	console.log(`  Seeded ${TEST_MESSAGES.length} messages`);
+	console.log(`  Drafts mailboxId: ${DRAFTS_ID}`);
+	console.log(`  Seeded ${TEST_MESSAGES.length} messages + 1 IMAP draft`);
 	console.log("E2E Global Setup: done");
 };
 

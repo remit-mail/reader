@@ -28,6 +28,11 @@ export const E2E_ACCOUNT_ID = base36uuidv5(
 export const INBOX_ID = base36uuidv5("e2e:mailbox:INBOX", REMIT_NAMESPACE);
 export const SENT_ID = base36uuidv5("e2e:mailbox:Sent", REMIT_NAMESPACE);
 export const TRASH_ID = base36uuidv5("e2e:mailbox:Trash", REMIT_NAMESPACE);
+export const DRAFTS_ID = base36uuidv5("e2e:mailbox:Drafts", REMIT_NAMESPACE);
+
+// Header of the single IMAP \Drafts message seeded for the Drafts-view smoke
+// (#505). Lives in the DRAFTS_ID mailbox so the "On the server" section renders.
+export const DRAFTS_IMAP_MESSAGE_ID_HEADER = "<e2e-imap-draft-1@test.local>";
 
 export const SAMPLE_MESSAGE_ID_HEADER = "<e2e-msg-3@test.local>";
 export const SAMPLE_MESSAGE_ID = MessageService.generateId(
