@@ -1,16 +1,23 @@
 import { messageOperationsDescribeMessageOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
-import { Avatar } from "@remit/ui";
+import {
+	Avatar,
+	ComfortableRowTextContent,
+	CompactRowBody,
+	comfortableRowClass,
+	compactRowClass,
+	type Density,
+	type SenderTrustLevel,
+	type ThreadRowData,
+} from "@remit/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Check, Paperclip } from "lucide-react";
+import { Check } from "lucide-react";
 import { type MouseEvent, memo, useCallback } from "react";
 import { useLongPress } from "@/hooks/useLongPress";
 import type { SelectionModifiers } from "@/hooks/useSelection";
 import { formatEmailDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { CategoryBadge } from "./CategoryBadge";
-import { SenderTrustIndicator } from "./SenderTrustIndicator";
 
 interface MailboxLinkSearch {
 	selectedMessageId?: string;
@@ -36,11 +43,40 @@ interface MessageListItemProps {
 	onLongPress?: (messageId: string) => void;
 	/** Whether the current viewport is desktop size. */
 	isDesktop?: boolean;
+	/** Row density — comfortable (default) or compact (mutt mode). */
+	density?: Density;
 }
 
-const truncateSnippet = (snippet: string, maxLength = 60): string => {
-	if (snippet.length <= maxLength) return snippet;
-	return `${snippet.slice(0, maxLength).trimEnd()}...`;
+/**
+ * Map a RemitImapThreadMessageResponse to the ThreadRowData shape used by
+ * remit-ui row body components.
+ */
+const toThreadRowData = (
+	thread: RemitImapThreadMessageResponse,
+	messageCount: number | undefined,
+): ThreadRowData => {
+	// Use the backend's authoritative DKIM-alignment verdict rather than
+	// re-deriving it in the view: dkimMismatch already accounts for the
+	// multi-signature / alignment semantics a single string compare misses.
+	const suspicious = thread.authenticity?.dkimMismatch === true;
+
+	return {
+		id: thread.messageId,
+		accountId: thread.accountConfigId,
+		fromName: thread.fromName ?? thread.fromEmail ?? "Unknown",
+		fromEmail: thread.fromEmail ?? "",
+		subject: thread.subject ?? "(No subject)",
+		snippet: thread.snippet ?? "",
+		timeLabel: formatEmailDate(thread.sentDate),
+		isRead: thread.isRead,
+		hasAttachment: thread.hasAttachment,
+		starred:
+			thread.star != null && thread.star !== "none" && thread.hasStars === true,
+		trust: thread.senderTrust as SenderTrustLevel,
+		category: thread.category,
+		messageCount,
+		suspicious,
+	};
 };
 
 const MessageListItemComponent = ({
@@ -54,22 +90,17 @@ const MessageListItemComponent = ({
 	isMultiSelectMode = false,
 	onLongPress,
 	isDesktop = true,
+	density = "comfortable",
 }: MessageListItemProps) => {
 	const queryClient = useQueryClient();
-	const participants = thread.fromName || thread.fromEmail || "Unknown";
-	const date = formatEmailDate(thread.sentDate);
-	const subject = thread.subject || "(No subject)";
-	const displaySubject =
-		messageCount && messageCount > 1 ? `${subject} (${messageCount})` : subject;
-	const snippet = thread.snippet ? truncateSnippet(thread.snippet) : "";
+	const messageId = thread.messageId;
+	const rowData = toThreadRowData(thread, messageCount);
 
 	const handleCheckboxClick = (e: MouseEvent) => {
 		e.preventDefault();
 		e.stopPropagation();
 		onToggleCheck(thread.messageId);
 	};
-
-	const messageId = thread.messageId;
 
 	// Desktop mouse selection semantics. Plain click falls through to the Link's
 	// navigation; shift / cmd / ctrl click is routed to selection and the
@@ -101,8 +132,6 @@ const MessageListItemComponent = ({
 
 	// Intent-based prefetch: by the time the user clicks, the body is in
 	// React Query's cache and the detail pane renders without a spinner.
-	// Fires only on hover/focus (not on every paint), and React Query
-	// dedupes concurrent requests for the same key automatically.
 	const prefetchMessage = useCallback(() => {
 		queryClient.prefetchQuery(
 			messageOperationsDescribeMessageOptions({
@@ -111,6 +140,36 @@ const MessageListItemComponent = ({
 		);
 	}, [queryClient, thread.messageId]);
 
+	const unread = !thread.isRead;
+
+	if (density === "compact") {
+		return (
+			<Link
+				to="/mail/$mailboxId"
+				params={{ mailboxId }}
+				search={(prev: MailboxLinkSearch) => ({
+					...prev,
+					selectedMessageId: thread.messageId,
+				})}
+				data-message-row
+				onClick={handleRowClick}
+				onMouseEnter={prefetchMessage}
+				onFocus={prefetchMessage}
+				{...(!isDesktop && longPressHandlers.handlers)}
+				className={cn(
+					compactRowClass({ active: isSelected }),
+					isChecked && "bg-accent-soft",
+					!isDesktop && "min-h-11",
+				)}
+			>
+				<CompactRowBody thread={rowData} />
+			</Link>
+		);
+	}
+
+	// Comfortable density: avatar/checkbox leading slot + text content.
+	// The slot is a fixed 36px so the row never reflows when state changes.
+	// Unread dot is positioned absolute (left-1.5, vertically centered).
 	return (
 		<Link
 			to="/mail/$mailboxId"
@@ -125,96 +184,51 @@ const MessageListItemComponent = ({
 			onFocus={prefetchMessage}
 			{...(!isDesktop && longPressHandlers.handlers)}
 			className={cn(
-				// Bump vertical padding on mobile to comfortably exceed the 48dp
-				// touch-target floor. Desktop keeps the tighter density.
-				"group block w-full px-3 py-3 sm:py-2.5 transition-colors",
-				"hover:bg-surface-raised",
-				isSelected && "bg-accent-2-soft",
+				"group",
+				comfortableRowClass({ active: isSelected }),
 				isChecked && "bg-accent-soft",
+				!isDesktop && "min-h-11",
 			)}
 		>
-			<div className="flex items-start gap-3">
-				{/* Leading column: avatar by default, checkbox on hover (desktop)
-				    or while selected. The slot is a fixed 40px so the rest of the
-				    row never reflows when state changes. */}
-				<div className="relative size-10 shrink-0">
-					<Avatar
-						name={thread.fromName ?? thread.fromEmail ?? "?"}
-						email={thread.fromEmail ?? undefined}
-						size="md"
-						className={cn(
-							"absolute inset-0",
-							"sm:group-hover:opacity-0 transition-opacity",
-							(isChecked || isMultiSelectMode) && "opacity-0",
-						)}
-					/>
-					<button
-						type="button"
-						onClick={handleCheckboxClick}
-						className={cn(
-							"absolute inset-0 size-10 rounded-full border items-center justify-center transition-opacity min-h-11 min-w-11",
-							isMultiSelectMode ? "flex" : "hidden sm:flex",
-							isChecked
-								? "bg-accent border-accent text-accent-fg opacity-100"
-								: isMultiSelectMode
-									? "border-fg-subtle/40 opacity-100 bg-canvas"
-									: "border-fg-subtle/40 opacity-0 group-hover:opacity-100 bg-canvas",
-						)}
-						aria-label={isChecked ? "Deselect message" : "Select message"}
-					>
-						{isChecked && <Check className="size-4" />}
-					</button>
-				</div>
+			{/* Absolute unread dot — 6px gutter from the left pane hairline */}
+			{unread && (
+				<span className="absolute left-1.5 top-1/2 size-1.5 -translate-y-1/2 rounded-full bg-accent" />
+			)}
 
-				<div className="flex-1 min-w-0">
-					{/* Row 1: Unread dot + Participants + SenderTrust + Date */}
-					<div className="flex items-center gap-2 mb-1">
-						<span
-							className={cn(
-								"w-2 h-2 rounded-full shrink-0 transition-opacity",
-								!thread.isRead ? "bg-blue-500" : "bg-transparent",
-								isChecked && "opacity-0",
-							)}
-						/>
-						<span className="text-sm truncate flex-1 min-w-0 text-fg">
-							{participants}
-						</span>
-						<SenderTrustIndicator senderTrust={thread.senderTrust} size="sm" />
-						<span
-							data-testid="thread-time"
-							className="text-xs text-fg-muted shrink-0"
-						>
-							{date}
-						</span>
-					</div>
-
-					{/* Row 2: Subject + Category + Attachment icon */}
-					<div className="flex items-center gap-2 pl-4 mb-1">
-						<span
-							className={cn(
-								"text-sm truncate flex-1 min-w-0",
-								!thread.isRead ? "text-fg" : "text-fg-muted",
-							)}
-						>
-							{displaySubject}
-						</span>
-						<CategoryBadge category={thread.category} size="sm" />
-						{thread.hasAttachment && (
-							<Paperclip
-								className="size-3.5 shrink-0 text-fg-muted"
-								aria-label="Has attachments"
-							/>
-						)}
-					</div>
-
-					{/* Row 3: Snippet preview */}
-					{snippet && (
-						<div className="text-xs text-fg-muted pl-4 line-clamp-1">
-							{snippet}
-						</div>
+			{/* Leading slot: avatar by default, checkbox on hover (desktop) or
+			    while checked / in multi-select mode. Fixed 28px slot (size-7,
+			    matching Avatar size="sm" in remit-ui ComfortableRow). */}
+			<div className="relative size-7 shrink-0">
+				<Avatar
+					name={thread.fromName ?? thread.fromEmail ?? "?"}
+					email={thread.fromEmail ?? undefined}
+					size="sm"
+					className={cn(
+						"absolute inset-0",
+						"sm:group-hover:opacity-0 transition-opacity",
+						(isChecked || isMultiSelectMode) && "opacity-0",
 					)}
-				</div>
+				/>
+				<button
+					type="button"
+					onClick={handleCheckboxClick}
+					className={cn(
+						"absolute inset-0 size-7 rounded-full border items-center justify-center transition-opacity",
+						isMultiSelectMode ? "flex" : "hidden sm:flex",
+						isChecked
+							? "bg-accent border-accent text-accent-fg opacity-100"
+							: isMultiSelectMode
+								? "border-fg-subtle/40 opacity-100 bg-canvas"
+								: "border-fg-subtle/40 opacity-0 group-hover:opacity-100 bg-canvas",
+					)}
+					aria-label={isChecked ? "Deselect message" : "Select message"}
+				>
+					{isChecked && <Check className="size-3" />}
+				</button>
 			</div>
+
+			{/* Text/glyph content block */}
+			<ComfortableRowTextContent thread={rowData} />
 		</Link>
 	);
 };
