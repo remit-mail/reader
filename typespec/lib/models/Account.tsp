@@ -1,6 +1,7 @@
 import "typespec-electrodb-emitter";
 import "@typespec/http";
 
+import "../enums/AccountAuthType.tsp";
 import "../enums/ConnectionState.tsp";
 import "../enums/AccountConfigState.tsp";
 import "../enums/SyncPhase.tsp";
@@ -138,10 +139,23 @@ model Account {
   @visibility(Lifecycle.Read)
   email: string;
 
-  @doc("Hashed password for authentication")
+  @doc("Authentication mechanism used by this account")
+  @visibility(Lifecycle.Read)
+  authType: AccountAuthType = AccountAuthType.Password;
+
+  @doc("Hashed password for authentication (password accounts only)")
   @visibility(Lifecycle.Read)
   @secret
-  passwordHash: string;
+  passwordHash?: string;
+
+  @doc("Encrypted OAuth refresh token (oauthMicrosoft accounts only) — same SerializedEncryptedPayload JSON format as passwordHash")
+  @visibility(Lifecycle.Read)
+  @secret
+  oauthRefreshTokenHash?: string;
+
+  @doc("Epoch seconds of last successful OAuth token refresh")
+  @visibility(Lifecycle.Read)
+  oauthTokenUpdatedAt?: int64;
 
   // ============================================
   // IMAP Server Connection Settings
@@ -344,6 +358,7 @@ model AccountResponse
       | "accountConfigId"
       | "username"
       | "email"
+      | "authType"
       | "imapHost"
       | "imapPort"
       | "imapTls"
@@ -409,10 +424,12 @@ model CreateAccountInput {
   @doc("IMAP login username (defaults to email if not provided)")
   username?: string;
 
-  @doc("Account password (will be encrypted)")
-  @minLength(1)
+  @doc("Authentication mechanism for this account. Defaults to `password`. Pass `oauthMicrosoft` only via the OAuth connect flow (POST /accounts/oauth/microsoft/start).")
+  authType?: AccountAuthType;
+
+  @doc("Account password (will be encrypted). Required for password accounts; omit for OAuth accounts.")
   @secret
-  password: string;
+  password?: string;
 
   @doc("IMAP server hostname")
   @minLength(1)
@@ -508,6 +525,8 @@ model UpdateAccountInput {
   muted?: MutedFlag | null;
 }
 
+// TODO(#471): OAuth accounts will omit password here; the worker will fetch the
+//             access token from the refresh token stored in oauthRefreshTokenHash.
 @doc("Input for testing connection without saving")
 model TestConnectionInput {
   @doc("Account ID (optional, used to retrieve stored password if password is empty)")

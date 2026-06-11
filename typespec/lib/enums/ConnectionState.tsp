@@ -13,4 +13,7 @@ enum ConnectionState {
 
   @doc("Connection being terminated")
   Logout: "logout",
+
+  @doc("OAuth token expired or revoked — user must re-authenticate via the OAuth connect flow")
+  ReauthRequired: "reauth_required",
 }
