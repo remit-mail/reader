@@ -15,6 +15,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { z } from "zod";
+import { OnboardingWizard } from "@/components/onboarding/OnboardingWizard";
 import { AccountFormPanel } from "@/components/settings/AccountFormPanel";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { SlidePanel } from "@/components/ui/SlidePanel";
@@ -122,6 +123,7 @@ function AccountsSettings() {
 	const [helpOpen, setHelpOpen] = useState(true);
 
 	const [showForm, setShowForm] = useState(false);
+	const [showAddWizard, setShowAddWizard] = useState(false);
 	const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
 	const [focusSmtp, setFocusSmtp] = useState(false);
 	const [deletingAccountId, setDeletingAccountId] = useState<string | null>(
@@ -167,6 +169,7 @@ function AccountsSettings() {
 
 	const handleClosePanel = () => {
 		setShowForm(false);
+		setShowAddWizard(false);
 		setEditingAccountId(null);
 		setFocusSmtp(false);
 	};
@@ -198,7 +201,7 @@ function AccountsSettings() {
 					size="sm"
 					icon={<Plus className="size-3.5" />}
 					disabled={isError || isPending}
-					onClick={() => setShowForm(true)}
+					onClick={() => setShowAddWizard(true)}
 				>
 					Add account
 				</Button>
@@ -222,7 +225,7 @@ function AccountsSettings() {
 					<p className="mb-2">No accounts configured.</p>
 					<button
 						type="button"
-						onClick={() => setShowForm(true)}
+						onClick={() => setShowAddWizard(true)}
 						className="text-accent-2 hover:underline"
 					>
 						Add your first account
@@ -260,6 +263,22 @@ function AccountsSettings() {
 							}
 						/>
 					))}
+				</div>
+			)}
+
+			{/* Add account wizard — steps 2–7 in a full-screen overlay */}
+			{showAddWizard && (
+				<div className="fixed inset-0 z-40 overflow-auto bg-canvas">
+					<OnboardingWizard
+						skipWelcome
+						onComplete={() => {
+							setShowAddWizard(false);
+							queryClient.invalidateQueries({
+								queryKey: configOperationsGetConfigQueryKey(),
+							});
+						}}
+						onCancel={() => setShowAddWizard(false)}
+					/>
 				</div>
 			)}
 
