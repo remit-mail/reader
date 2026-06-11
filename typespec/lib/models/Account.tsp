@@ -21,7 +21,6 @@ namespace RemitImap;
     sk: [],
   }
 )
-// List all configs for a user
 @index(
   "byUserId",
   {
@@ -30,7 +29,6 @@ namespace RemitImap;
     sk: [AccountConfig.accountConfigId],
   }
 )
-// Collection to retrieve config with all accounts and addresses
 @index(
   "byAccountConfigId",
   {
@@ -40,7 +38,6 @@ namespace RemitImap;
     sk: [],
   }
 )
-// List all account configs (scan-like query for all records)
 @index(
   "allAccountConfigs",
   {
@@ -92,7 +89,6 @@ model AccountConfig {
     sk: [],
   }
 )
-// List all accounts for account config, part of accountConfig collection
 @index(
   "byAccountConfigId",
   {
@@ -102,7 +98,6 @@ model AccountConfig {
     sk: [Account.accountId],
   }
 )
-// Collection to retrieve account with all mailboxes
 @index(
   "byAccountId",
   {
@@ -112,7 +107,6 @@ model AccountConfig {
     sk: [],
   }
 )
-// List all accounts (scan-like query for all records)
 @index(
   "allAccounts",
   {

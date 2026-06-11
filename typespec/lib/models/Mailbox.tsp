@@ -12,7 +12,6 @@ namespace RemitImap;
 
 @doc("Represents an IMAP mailbox (folder). Contains IMAP-specific identifiers for message synchronization.")
 @entity("mailbox", "remit")
-// Used for atomical operations: batch get/put/delete
 @index(
   "Mailbox",
   {
@@ -20,7 +19,6 @@ namespace RemitImap;
     sk: [],
   }
 )
-// List all mailboxes for account
 @index(
   "byAccountId",
   {
@@ -30,8 +28,6 @@ namespace RemitImap;
     sk: [],
   }
 )
-// Collection to retrieve all
-// Mailbox data
 @index(
   "byMailboxId",
   {

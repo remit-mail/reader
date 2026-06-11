@@ -24,7 +24,6 @@ model MessageAuthenticity {
 
 @doc("Core message entity. The combination of Mailbox.uidValidity + Message.uid uniquely identifies a message forever per RFC 9051 Section 2.3.1.1.")
 @entity("message", "remit")
-// Used for atomical operations: batch get/put/delete
 @index(
   "Message",
   {
@@ -32,7 +31,6 @@ model MessageAuthenticity {
     sk: [],
   }
 )
-// List all messages for mailbox
 @index(
   "byMailboxId",
   {
@@ -42,7 +40,6 @@ model MessageAuthenticity {
     sk: [Message.uid],
   }
 )
-// Collection to retrieve message with related data
 @index(
   "byMessageId",
   {
