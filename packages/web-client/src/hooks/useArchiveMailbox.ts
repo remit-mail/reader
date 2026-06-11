@@ -54,6 +54,50 @@ export const useArchiveMailbox = (
 	return { archiveMailboxId, isLoading };
 };
 
+const DRAFTS_NAMES = new Set(["drafts", "draft"]);
+
+/**
+ * Returns true when `mailboxId` is the account's IMAP `\Drafts` mailbox.
+ *
+ * Detection strategy (mirrors useArchiveMailbox / useJunkMailbox):
+ *  1. IMAP SPECIAL-USE `\Drafts` flag — server truth wins.
+ *  2. Name-only fallback: "drafts", "draft".
+ *
+ * Used by the mailbox route to decide whether to render the segmented
+ * Drafts view (Remit drafts + IMAP \Drafts) in place of the flat message
+ * list (issue #505).
+ */
+export const useDraftsMailbox = (
+	accountId: string | undefined,
+): { draftsMailboxId: string | undefined; isLoading: boolean } => {
+	const { data: mailboxesResponse, isLoading } = useQuery({
+		...mailboxOperationsListMailboxesOptions({
+			path: { accountId: accountId ?? "" },
+		}),
+		staleTime: Infinity,
+		enabled: !!accountId,
+	});
+
+	const draftsMailboxId = useMemo(() => {
+		const mailboxes = mailboxesResponse?.items ?? [];
+		if (mailboxes.length === 0) return undefined;
+
+		// 1. Prefer a mailbox with the SPECIAL-USE \Drafts flag.
+		const byFlag = mailboxes.find((m) =>
+			m.specialUse?.some((f) => stripLeadingBackslash(f) === "Drafts"),
+		);
+		if (byFlag) return byFlag.mailboxId;
+
+		// 2. Fall back to name-matching.
+		const byName = mailboxes.find((m) =>
+			DRAFTS_NAMES.has(getMailboxDisplayName(m.fullPath).toLowerCase()),
+		);
+		return byName?.mailboxId;
+	}, [mailboxesResponse]);
+
+	return { draftsMailboxId, isLoading };
+};
+
 const JUNK_NAMES = new Set(["junk", "spam", "bulk mail"]);
 
 /**

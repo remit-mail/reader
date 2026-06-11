@@ -24,12 +24,17 @@ import type { ComposeMode } from "@/components/compose/ComposeProvider";
 import { useCompose } from "@/components/compose/ComposeProvider";
 import { FullCompose } from "@/components/compose/FullCompose";
 import { ConversationView } from "@/components/mail/ConversationView";
+import { DraftsView } from "@/components/mail/DraftsView";
 import { IntelligencePane } from "@/components/mail/IntelligencePane";
 import { MessageList } from "@/components/mail/MessageList";
 import { MessageToolbar } from "@/components/mail/MessageToolbar";
 import { PullToRefresh } from "@/components/mail/PullToRefresh";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { useArchiveMailbox, useJunkMailbox } from "@/hooks/useArchiveMailbox";
+import {
+	useArchiveMailbox,
+	useDraftsMailbox,
+	useJunkMailbox,
+} from "@/hooks/useArchiveMailbox";
 import {
 	useCurrentMailboxName,
 	useCurrentMailboxUnseenCount,
@@ -243,6 +248,13 @@ function MailboxView() {
 		accountId: mailboxAccountId,
 		onAfterOptimisticRemove: handleDeselectIfRemoved,
 	});
+
+	// Detect whether the open mailbox is the account's IMAP \Drafts special-use
+	// folder. When true, we render the segmented DraftsView (Remit drafts +
+	// IMAP \Drafts) in place of the flat MessageList (issue #505).
+	const { draftsMailboxId } = useDraftsMailbox(mailboxAccountId);
+	const isDraftsMailbox =
+		draftsMailboxId !== undefined && draftsMailboxId === mailboxId;
 
 	// Archive = move all thread messages to the archive mailbox.
 	const { archiveMailboxId } = useArchiveMailbox(mailboxAccountId);
@@ -553,27 +565,41 @@ function MailboxView() {
 		bindings: [{ key: "Escape", handler: closeCompose, preventDefault: true }],
 	});
 
-	const messageList = (
-		<MessageList
-			mailboxId={mailboxId}
-			threads={threads}
-			selectedMessageId={selectedMessageId}
-			isLoading={isLoading}
-			isError={isError}
-			error={error}
-			onRetry={() => refetch()}
-			searchQuery={searchQuery}
-			onDeleteMessages={handleDeleteMessages}
-			onMoveMessages={handleMoveMessages}
-			isDeleting={isDeleting}
-			isMoving={isMoving}
-			onLoadMore={fetchNextPage}
-			hasMore={hasNextPage}
-			isLoadingMore={isFetchingNextPage}
-			accountId={mailboxAccountId}
-			onTriageContextChange={handleTriageContextChange}
-		/>
-	);
+	// When the open mailbox is the account's \Drafts special-use folder, render
+	// the segmented DraftsView. Otherwise render the flat MessageList as usual.
+	// The IMAP threads are already loaded by the infinite query above — pass them
+	// directly to avoid a second fetch (issue #505).
+	const messageList =
+		isDraftsMailbox && mailboxAccountId ? (
+			<DraftsView
+				mailboxId={mailboxId}
+				accountId={mailboxAccountId}
+				selectedMessageId={selectedMessageId}
+				imapThreads={threads}
+				title={mailboxName ?? "Drafts"}
+				unreadCount={mailboxUnseenCount ?? undefined}
+			/>
+		) : (
+			<MessageList
+				mailboxId={mailboxId}
+				threads={threads}
+				selectedMessageId={selectedMessageId}
+				isLoading={isLoading}
+				isError={isError}
+				error={error}
+				onRetry={() => refetch()}
+				searchQuery={searchQuery}
+				onDeleteMessages={handleDeleteMessages}
+				onMoveMessages={handleMoveMessages}
+				isDeleting={isDeleting}
+				isMoving={isMoving}
+				onLoadMore={fetchNextPage}
+				hasMore={hasNextPage}
+				isLoadingMore={isFetchingNextPage}
+				accountId={mailboxAccountId}
+				onTriageContextChange={handleTriageContextChange}
+			/>
+		);
 
 	const detailPane =
 		composeState.isOpen && !selectedThread ? (
@@ -660,25 +686,34 @@ function MailboxView() {
 				maxSize={48}
 				className="min-w-0"
 			>
-				<section className="flex h-full w-full flex-col bg-surface">
-					{/* List datum bar (40px, the shared `--spacing-pane-header`):
-					    the list's context — mailbox title + unread count — lives on
-					    the datum, its bottom hairline on the same y as the message
-					    toolbar and intelligence rail header so one continuous grid
-					    line runs across panes 2–4 (no staircase). Search moved to
-					    the message toolbar but still filters this list. */}
-					<header className="flex h-pane-header shrink-0 items-center justify-between gap-2 border-b border-line px-row-inset">
-						<h1 className="truncate text-sm font-semibold text-fg">
-							{listTitle}
-						</h1>
-						{unreadCount > 0 && (
-							<span className="shrink-0 text-2xs text-fg-subtle tabular-nums">
-								{unreadCount} unread
-							</span>
-						)}
-					</header>
-					<div className="min-h-0 flex-1 overflow-hidden">{messageList}</div>
-				</section>
+				{/* DraftsView renders its own datum header (self-chrome), like
+				    DailyBrief on the /mail index — render it directly in the panel
+				    rather than nesting it inside the wrapping <section>+header,
+				    which would stack two identical datum bars (#505). The flat
+				    MessageList renders no chrome and relies on this outer header. */}
+				{isDraftsMailbox && mailboxAccountId ? (
+					messageList
+				) : (
+					<section className="flex h-full w-full flex-col bg-surface">
+						{/* List datum bar (40px, the shared `--spacing-pane-header`):
+						    the list's context — mailbox title + unread count — lives on
+						    the datum, its bottom hairline on the same y as the message
+						    toolbar and intelligence rail header so one continuous grid
+						    line runs across panes 2–4 (no staircase). Search moved to
+						    the message toolbar but still filters this list. */}
+						<header className="flex h-pane-header shrink-0 items-center justify-between gap-2 border-b border-line px-row-inset">
+							<h1 className="truncate text-sm font-semibold text-fg">
+								{listTitle}
+							</h1>
+							{unreadCount > 0 && (
+								<span className="shrink-0 text-2xs text-fg-subtle tabular-nums">
+									{unreadCount} unread
+								</span>
+							)}
+						</header>
+						<div className="min-h-0 flex-1 overflow-hidden">{messageList}</div>
+					</section>
+				)}
 			</ResizablePanel>
 			<ResizableHandle />
 			<ResizablePanel id="reading" order={2} minSize={24} className="min-w-0">
