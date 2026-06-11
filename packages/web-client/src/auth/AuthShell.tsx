@@ -7,7 +7,6 @@ import {
 	useAuthenticator,
 	View,
 } from "@aws-amplify/ui-react";
-import "@aws-amplify/ui-react/styles.css";
 import type { ReactNode } from "react";
 import { isCognitoConfigured } from "./amplify-config";
 

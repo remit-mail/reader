@@ -299,6 +299,7 @@ function AccountsSettings() {
 			helpOpen={helpOpen}
 			onToggleHelp={() => setHelpOpen((v) => !v)}
 			onSelect={handleSelectNav}
+			onBackToMail={() => void navigate({ to: "/mail" })}
 		>
 			{/* OAuth success banner */}
 			{successMessage && (
