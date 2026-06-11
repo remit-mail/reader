@@ -1,0 +1,28 @@
+diff --git a/node_modules/@kattebak/typespec-openapi-types-emitter/dist/emitter.js b/node_modules/@kattebak/typespec-openapi-types-emitter/dist/emitter.js
+index dd5cf8f..1c7ecaa 100644
+--- a/node_modules/@kattebak/typespec-openapi-types-emitter/dist/emitter.js
++++ b/node_modules/@kattebak/typespec-openapi-types-emitter/dist/emitter.js
+@@ -404,7 +404,7 @@ function generateTypeScriptDefinitions(collected, program) {
+         const modelDoc = getDoc(program, model);
+         lines.push(...formatJsDoc(modelDoc, "    "));
+         lines.push(`    export interface ${name} {`);
+-        for (const [propName, prop] of model.properties) {
++        for (const [propName, prop] of getAllModelProperties(model)) {
+             const optional = prop.optional ? "?" : "";
+             const propType = getPropertyType(prop.type, collected);
+             const docComment = getDoc(program, prop);
+@@ -593,6 +593,14 @@ function generateTypeScriptDefinitions(collected, program) {
+     lines.push("");
+     return lines.join("\n");
+ }
++function getAllModelProperties(model) {
++    const props = new Map();
++    if (model.baseModel) {
++        for (const [n, p] of getAllModelProperties(model.baseModel)) props.set(n, p);
++    }
++    for (const [n, p] of model.properties) props.set(n, p);
++    return props;
++}
+ function getPropertyType(type, collected) {
+     switch (type.kind) {
+         case "Scalar":
