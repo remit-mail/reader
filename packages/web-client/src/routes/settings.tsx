@@ -1,183 +1,47 @@
-import {
-	createFileRoute,
-	Link,
-	Outlet,
-	useLocation,
-} from "@tanstack/react-router";
-import {
-	ArrowLeft,
-	Mail,
-	Menu,
-	Settings as SettingsIcon,
-	Star,
-	Users,
-} from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-import { SignOutMenuItem } from "@/auth/SignOutMenuItem";
-import { ComposeFab } from "@/components/layout/ComposeFab";
-import { Drawer } from "@/components/layout/Drawer";
-import { useIsDesktop } from "@/hooks/useMediaQuery";
-import { cn } from "@/lib/utils";
+/**
+ * Settings layout route — a pass-through Outlet. Each child page
+ * (`/settings/accounts`, `/settings/senders`, …) renders its own
+ * full-viewport `SettingsShell` from @remit/ui, exactly as the
+ * approved Storybook stories do. This route only provides the route
+ * boundary; no layout chrome lives here.
+ *
+ * Shared nav items and helpers are exported so every child page imports
+ * them from this file, keeping a single source of truth for nav shape.
+ */
+import type { SettingsNavItem } from "@remit/ui";
+import { createFileRoute, Outlet } from "@tanstack/react-router";
+import { Inbox, Palette, Users, Wrench } from "lucide-react";
 
-const navItems = [
-	{ path: "/settings/accounts", label: "Accounts", icon: Users },
+/* ------------------------------------------------------------------ */
+/* Nav items — single source of truth shared by all settings pages    */
+/* ------------------------------------------------------------------ */
+
+export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
+	{ id: "accounts", label: "Accounts", icon: <Inbox className="size-4" /> },
 	{
-		path: "/settings/suggested-vips",
-		label: "Suggested VIPs",
-		icon: Star,
+		id: "senders",
+		label: "Senders & Rules",
+		icon: <Users className="size-4" />,
 	},
-] as const;
+	{
+		id: "appearance",
+		label: "Appearance",
+		icon: <Palette className="size-4" />,
+	},
+	{ id: "advanced", label: "Advanced", icon: <Wrench className="size-4" /> },
+];
+
+export const SETTINGS_ID_TO_PATH: Record<string, string> = {
+	accounts: "/settings/accounts",
+	senders: "/settings/senders",
+	appearance: "/settings/appearance",
+	advanced: "/settings/advanced",
+};
+
+/* ------------------------------------------------------------------ */
+/* Route — pass-through                                               */
+/* ------------------------------------------------------------------ */
 
 export const Route = createFileRoute("/settings")({
-	component: SettingsLayout,
+	component: () => <Outlet />,
 });
-
-const SettingsNav = ({ pathname }: { pathname: string }) => (
-	<nav className="space-y-1 p-4">
-		<Link
-			to="/mail"
-			className="flex items-center gap-2 px-3 py-2 mb-4 rounded-md text-sm text-fg-muted hover:bg-surface-raised hover:text-fg min-h-11"
-		>
-			<ArrowLeft className="size-4" />
-			Back to Inbox
-		</Link>
-
-		<h2 className="text-xs font-semibold text-fg-muted uppercase mb-4 px-3">
-			Settings
-		</h2>
-		<div className="space-y-1">
-			{navItems.map(({ path, label, icon: Icon }) => (
-				<Link
-					key={path}
-					to={path}
-					className={cn(
-						"flex items-center gap-2 px-3 py-2 rounded-md text-sm min-h-11",
-						pathname === path
-							? "bg-accent-2-soft text-fg"
-							: "text-fg-muted hover:bg-surface-raised",
-					)}
-				>
-					<Icon className="size-4" />
-					{label}
-				</Link>
-			))}
-		</div>
-	</nav>
-);
-
-function SettingsLayout() {
-	const [menuOpen, setMenuOpen] = useState(false);
-	const [drawerOpen, setDrawerOpen] = useState(false);
-	const menuRef = useRef<HTMLDivElement>(null);
-	const location = useLocation();
-	const isDesktop = useIsDesktop();
-
-	// Close desktop dropdown on click outside
-	useEffect(() => {
-		const handleClickOutside = (event: MouseEvent) => {
-			if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-				setMenuOpen(false);
-			}
-		};
-		document.addEventListener("mousedown", handleClickOutside);
-		return () => document.removeEventListener("mousedown", handleClickOutside);
-	}, []);
-
-	// Close menu / drawer on navigation
-	useEffect(() => {
-		setMenuOpen(false);
-		setDrawerOpen(false);
-	}, [location.pathname]);
-
-	const handleHamburger = () => {
-		if (isDesktop) {
-			setMenuOpen((prev) => !prev);
-			return;
-		}
-		setDrawerOpen(true);
-	};
-
-	return (
-		<div className="h-dvh flex flex-col bg-canvas">
-			{/* Header with hamburger */}
-			<header className="flex items-center gap-2 sm:gap-4 px-2 sm:px-4 h-12 border-b border-line bg-canvas shrink-0">
-				<div className="relative" ref={menuRef}>
-					<div className="flex items-center gap-2 shrink-0">
-						<button
-							type="button"
-							onClick={handleHamburger}
-							className="p-2 rounded-md hover:bg-surface-raised transition-colors min-h-11 min-w-11 inline-flex items-center justify-center"
-							aria-label="Menu"
-							aria-expanded={isDesktop ? menuOpen : undefined}
-						>
-							<Menu className="size-5" />
-						</button>
-						<span className="font-semibold text-fg">Remit</span>
-					</div>
-
-					{/* Desktop dropdown menu */}
-					{isDesktop && menuOpen && (
-						<div className="absolute top-full left-0 mt-1 w-48 bg-canvas border border-line rounded-md shadow-lg z-50">
-							<nav className="py-1">
-								<Link
-									to="/mail"
-									className={cn(
-										"flex items-center gap-2 px-3 py-2 text-sm hover:bg-surface-raised",
-										location.pathname.startsWith("/mail") && "bg-accent-2-soft",
-									)}
-								>
-									<Mail className="size-4" />
-									Mail
-								</Link>
-								<div className="border-t border-line my-1" />
-								<Link
-									to="/settings/accounts"
-									className={cn(
-										"flex items-center gap-2 px-3 py-2 text-sm hover:bg-surface-raised",
-										location.pathname.startsWith("/settings") &&
-											"bg-accent-2-soft",
-									)}
-								>
-									<SettingsIcon className="size-4" />
-									Settings
-								</Link>
-								<SignOutMenuItem variant="dropdown" showEmail />
-							</nav>
-						</div>
-					)}
-				</div>
-			</header>
-
-			<div className="flex flex-1 overflow-hidden">
-				{/* Desktop: persistent settings nav aside */}
-				{isDesktop ? (
-					<aside className="w-48 border-r border-line shrink-0">
-						<SettingsNav pathname={location.pathname} />
-					</aside>
-				) : null}
-
-				{/* Settings content area */}
-				<main className="flex-1 overflow-auto p-4 sm:p-6">
-					<Outlet />
-				</main>
-			</div>
-
-			{/* Mobile drawer hosts the settings sub-nav */}
-			<Drawer
-				isOpen={drawerOpen}
-				onClose={() => setDrawerOpen(false)}
-				ariaLabel="Settings navigation"
-			>
-				<SettingsNav pathname={location.pathname} />
-				<div className="px-4 pb-4">
-					<SignOutMenuItem variant="drawer" showEmail />
-				</div>
-			</Drawer>
-
-			{/* Mobile compose FAB. Tapping it from settings opens compose
-			    state and navigates to `/mail`, which redirects to the
-			    preferred mailbox where compose can mount. */}
-			<ComposeFab />
-		</div>
-	);
-}
