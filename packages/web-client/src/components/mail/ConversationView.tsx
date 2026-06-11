@@ -28,6 +28,20 @@ interface ConversationViewProps {
 	 * always visible in the resizable side pane.
 	 */
 	onBack?: () => void;
+	/**
+	 * When set, immediately opens the inline compose in this mode. The
+	 * parent (e.g. the reading-pane toolbar) sets this to wire the
+	 * top-bar reply/reply-all/forward buttons into the inline compose
+	 * that lives inside the conversation. Reset by calling
+	 * `onComposeClose` after the compose opens.
+	 */
+	composeRequest?: ComposeMode | null;
+	/**
+	 * Called once the conversation has acted on `composeRequest` (or
+	 * whenever the inline compose is dismissed). The caller should reset
+	 * `composeRequest` to `null`.
+	 */
+	onComposeClose?: () => void;
 }
 
 const LoadingSkeleton = () => (
@@ -131,6 +145,8 @@ export const ConversationView = ({
 	mailboxId,
 	subject,
 	onBack,
+	composeRequest,
+	onComposeClose,
 }: ConversationViewProps) => {
 	const isDesktop = useIsDesktop();
 	const { accountId: mailboxAccountId } = useMailboxAccount(mailboxId);
@@ -239,8 +255,19 @@ export const ConversationView = ({
 		mailboxId,
 	});
 
-	// Compose state for inline reply/forward
+	// Compose state for inline reply/forward.
+	// Controlled via the `composeRequest` prop (toolbar wire-up) or
+	// locally via the bottom ActionBar buttons.
 	const [composeMode, setComposeMode] = useState<ComposeMode | null>(null);
+
+	// When the toolbar passes a composeRequest, open the inline compose.
+	useEffect(() => {
+		if (composeRequest && composeRequest !== "new") {
+			setComposeMode(composeRequest);
+			// Notify the parent that the request has been consumed.
+			onComposeClose?.();
+		}
+	}, [composeRequest, onComposeClose]);
 
 	const lastMessage = messages[0];
 	const { data: lastMessageData } = useQuery({
@@ -264,7 +291,8 @@ export const ConversationView = ({
 
 	const handleCloseCompose = useCallback(() => {
 		setComposeMode(null);
-	}, []);
+		onComposeClose?.();
+	}, [onComposeClose]);
 
 	// Register keyboard shortcuts
 	useKeyboardNavigation({
@@ -318,8 +346,10 @@ export const ConversationView = ({
 	const displaySubject = subject || messages[0]?.subject || "(No subject)";
 	const messageCount = messages.length;
 
+	// Message list wrapper — no extra x-padding; each MessageCard handles
+	// its own px-5 inset (matches the AppShell ReadingPane geometry).
 	const messagesList = (
-		<div className="px-2 py-2 md:px-4">
+		<div>
 			{messages.map((message, index) => (
 				<div
 					key={message.threadMessageId}
@@ -327,7 +357,6 @@ export const ConversationView = ({
 						if (el) messageRefs.current.set(message.threadMessageId, el);
 					}}
 				>
-					{index > 0 && <div className="border-t border-line my-1" />}
 					<MessageCard
 						threadMessage={message}
 						isExpanded={expandedIds.has(message.threadMessageId)}
@@ -344,10 +373,15 @@ export const ConversationView = ({
 		</div>
 	);
 
+	// Subject block: matches the AppShell ReadingPane reference exactly —
+	// px-5 pt-5 pb-3, text-lg leading-snug, 2xs count. Subject scrolls
+	// with the thread body; no subject in the toolbar chrome.
 	const header = (
-		<header className="border-b border-line p-4">
-			<h1 className="text-xl font-semibold">{displaySubject}</h1>
-			<p className="text-sm text-fg-muted mt-1">
+		<header className="border-b border-line px-5 pt-5 pb-3">
+			<h1 className="max-w-2xl text-lg font-semibold leading-snug text-fg">
+				{displaySubject}
+			</h1>
+			<p className="mt-1 text-2xs text-fg-subtle">
 				{messageCount} {messageCount === 1 ? "message" : "messages"}
 			</p>
 		</header>

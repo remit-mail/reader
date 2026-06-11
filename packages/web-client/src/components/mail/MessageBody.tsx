@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { formatErrorDetail } from "@/components/ui/error-banners";
+import { useIsDark } from "@/hooks/useIsDark";
 import { useMessageBodyContent } from "@/hooks/useMessageBodyContent";
 import { useToggleTrusted } from "@/hooks/useToggleTrusted";
+import {
+	classifyEmailRenderTreatment,
+	type EmailRenderCategory,
+} from "@/lib/email-render-treatment";
 import {
 	buildCidResolver,
 	type CidResolver,
@@ -59,6 +64,12 @@ interface MessageBodyProps {
 	 * parseable From) the "Always trust" button is hidden.
 	 */
 	fromAddressId?: string;
+	/**
+	 * Message category (personal/newsletter/marketing/…). Together with
+	 * `hasAuthorBackground` this determines whether to apply the framed
+	 * newsletter treatment or the plain-email normalization CSS.
+	 */
+	category?: EmailRenderCategory;
 }
 
 const LoadingSkeleton = () => (
@@ -83,10 +94,12 @@ export const MessageBody = ({
 	isTrusted = false,
 	messageId,
 	fromAddressId,
+	category,
 }: MessageBodyProps) => {
 	const [allowImagesOnce, setAllowImagesOnce] = useState(false);
 	const allowImages = isTrusted || allowImagesOnce;
 	const { pushError } = useErrorBanners();
+	const isDark = useIsDark();
 	const {
 		toggleTrusted,
 		isPending: isTrustPending,
@@ -139,6 +152,27 @@ export const MessageBody = ({
 	}, [renderedHtml, allowImages, resolveCid]);
 
 	const sanitizedHtml = sanitized?.html ?? null;
+
+	/**
+	 * Classify the email for rendering treatment:
+	 *
+	 * - `framed`: designed HTML mail (newsletter/marketing category OR
+	 *   author-specified background). Rendered inside a left-anchored
+	 *   hairline frame on `surface-sunken`, kept in light-mode (own colors
+	 *   preserved, never dark-inverted).
+	 *
+	 * - `isPlain`: no author background, not newsletter/marketing. UI
+	 *   sans-serif + theme-aware colors injected so black-text-on-dark
+	 *   is fixed. `colorScheme` set to "normal" so the injected CSS drives
+	 *   everything.
+	 *
+	 * Everything else is an in-between case; the framed treatment is the
+	 * safe-to-show option and is the default when unsure.
+	 */
+	const { framed, isPlain } = classifyEmailRenderTreatment(
+		category,
+		sanitized?.hasAuthorBackground ?? false,
+	);
 
 	const blockedImageCount = useMemo(() => {
 		if (!sanitizedHtml || allowImages) return 0;
@@ -220,11 +254,29 @@ export const MessageBody = ({
 				// and any (already-DOMPurify'd) markup cannot bleed into the
 				// app chrome. The frame sizes itself to its content via
 				// ResizeObserver; the sandbox omits `allow-scripts` so even a
-				// hypothetical sanitizer escape can't execute. `max-w-full`
-				// keeps the host inside its column.
-				<div className="max-w-full">
-					<IsolatedEmailFrame html={sanitizedHtml} />
-				</div>
+				// hypothetical sanitizer escape can't execute.
+				//
+				// Designed / framed treatment (newsletter/marketing or author
+				// background detected): left-anchored hairline frame on
+				// `surface-sunken`, colorScheme:"light" so the email's own
+				// colors survive dark mode (never inverted).
+				//
+				// Plain treatment (no author background, not newsletter):
+				// UI sans-serif + theme-aware colors injected; colorScheme:
+				// "normal" so the injected CSS drives everything.
+				framed ? (
+					<div className="overflow-hidden rounded-sm border border-line bg-surface-sunken max-w-2xl">
+						<IsolatedEmailFrame html={sanitizedHtml} isPlain={false} />
+					</div>
+				) : (
+					<div className="max-w-2xl">
+						<IsolatedEmailFrame
+							html={sanitizedHtml}
+							isPlain={isPlain}
+							isDark={isDark}
+						/>
+					</div>
+				)
 			) : renderedText ? (
 				<pre className="email-text whitespace-pre-wrap text-sm leading-relaxed">
 					{renderedText}

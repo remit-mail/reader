@@ -1,8 +1,22 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { generatePlainEmailBaseCSS } from "@/lib/email-plain-base";
 
 interface IsolatedEmailFrameProps {
 	html: string;
 	className?: string;
+	/**
+	 * When true, the email has no author-specified background and is not a
+	 * newsletter/marketing category. Plain emails receive the UI font-stack
+	 * and theme-aware colors so they're readable in dark mode (no black text
+	 * on dark chrome). Designed emails are left untouched (their own colors
+	 * are preserved inside the light-mode frame).
+	 */
+	isPlain?: boolean;
+	/**
+	 * Whether the app is currently in dark mode. Only used when `isPlain`
+	 * is true — changes the injected base CSS to match the current theme.
+	 */
+	isDark?: boolean;
 }
 
 // Cap matches the worst real-world email we've encountered (a long
@@ -21,9 +35,25 @@ const SANDBOX = "allow-same-origin allow-popups allow-popups-to-escape-sandbox";
 export const IsolatedEmailFrame = ({
 	html,
 	className,
+	isPlain = false,
+	isDark = false,
 }: IsolatedEmailFrameProps) => {
 	const ref = useRef<HTMLIFrameElement>(null);
 	const [height, setHeight] = useState(0);
+
+	// Build the full srcdoc including injected CSS. Re-computed when html,
+	// isPlain, or isDark changes — when dark mode is toggled the iframe
+	// reloads with the correct base colors (a reload is acceptable; it's
+	// instant for in-memory content).
+	//
+	// The layout-clamp CSS is NOT injected here: `html` is the sanitizer's
+	// output, which already prefixes its own `<style>${layoutCss}</style>`
+	// block (see email-sanitizer.ts). We only prepend the plain-email base
+	// CSS, and only for the plain case.
+	const srcDoc = useMemo(() => {
+		const baseCss = isPlain ? generatePlainEmailBaseCSS(isDark) : "";
+		return baseCss ? `<style>${baseCss}</style>${html}` : html;
+	}, [html, isPlain, isDark]);
 
 	useEffect(() => {
 		const iframe = ref.current;
@@ -61,14 +91,19 @@ export const IsolatedEmailFrame = ({
 			ref={ref}
 			title="Email content"
 			sandbox={SANDBOX}
-			srcDoc={html}
+			srcDoc={srcDoc}
 			className={className}
 			style={{
 				width: "100%",
 				border: "none",
 				display: "block",
 				height: height === 0 ? "1px" : `${height}px`,
-				colorScheme: "light",
+				// Designed emails (framed newsletters) pin to light-mode so the
+				// author's colors survive dark mode. Plain emails use "normal" so
+				// the injected base CSS (which already resolves theme colors) takes
+				// full effect and the system doesn't layer another color-scheme
+				// adjustment on top.
+				colorScheme: isPlain ? "normal" : "light",
 			}}
 		/>
 	);
