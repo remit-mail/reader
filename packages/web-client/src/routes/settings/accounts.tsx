@@ -2,6 +2,7 @@ import {
 	accountDetailOperationsDeleteAccountMutation,
 	configOperationsGetConfigOptions,
 	configOperationsGetConfigQueryKey,
+	microsoftOAuthOperationsMicrosoftOAuthStartMutation,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
 import {
@@ -12,7 +13,7 @@ import {
 } from "@remit/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { Plus } from "lucide-react";
+import { Loader2, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { z } from "zod";
 import { OnboardingWizard } from "@/components/onboarding/OnboardingWizard";
@@ -25,6 +26,10 @@ import { SETTINGS_ID_TO_PATH, SETTINGS_NAV_ITEMS } from "@/routes/settings";
 const accountsSearchSchema = z.object({
 	editAccountId: z.string().optional(),
 	focusSmtp: z.boolean().optional(),
+	/** Set by the backend redirect after a successful OAuth callback */
+	connected: z.string().optional(),
+	/** Set by the backend redirect when the OAuth flow fails */
+	oauthError: z.string().optional(),
 });
 
 export const Route = createFileRoute("/settings/accounts")({
@@ -35,6 +40,36 @@ export const Route = createFileRoute("/settings/accounts")({
 /* ------------------------------------------------------------------ */
 /* Helpers                                                            */
 /* ------------------------------------------------------------------ */
+
+/**
+ * Map an OAuth error code from the `?oauthError` query param to a
+ * human-readable message shown to the user.
+ *
+ * Exported for unit tests.
+ */
+export function mapOauthError(code: string): string {
+	const lower = code.toLowerCase();
+
+	if (lower === "access_denied") {
+		return "You cancelled the sign-in.";
+	}
+
+	if (
+		lower === "consent_required" ||
+		lower.includes("admin_consent") ||
+		lower.includes("interaction_required")
+	) {
+		return "Your organisation's admin needs to approve Remit. Ask your IT admin to grant the required permissions.";
+	}
+
+	// IMAP disabled hint — the backend surfaces this when XOAUTH2 login
+	// fails because IMAP is not enabled in the Microsoft 365 tenant settings.
+	if (lower.includes("imap_disabled") || lower.includes("imap disabled")) {
+		return "IMAP is disabled for this account. Ask your admin to enable IMAP access in the Microsoft 365 admin centre.";
+	}
+
+	return `Sign-in failed: ${code}. Please try again.`;
+}
 
 /**
  * The account API has no display-label field yet (backend gap). Derive a
@@ -66,6 +101,11 @@ function deriveState(
 	if (account.lastError) return "error";
 	if (account.connectionState === "authenticated") return "healthy";
 	return "error";
+}
+
+/** True when the account needs re-authentication via the OAuth flow. */
+function needsReauth(account: RemitImapAccountResponse): boolean {
+	return account.connectionState === "reauth_required";
 }
 
 /* ------------------------------------------------------------------ */
@@ -129,6 +169,17 @@ function AccountsSettings() {
 	const [deletingAccountId, setDeletingAccountId] = useState<string | null>(
 		null,
 	);
+	/** Success message shown after a successful OAuth callback */
+	const [successMessage, setSuccessMessage] = useState<string | null>(null);
+	/** Error message shown when the OAuth flow returned an error */
+	const [oauthErrorMessage, setOauthErrorMessage] = useState<string | null>(
+		null,
+	);
+	/** Which account is currently being reconnected via OAuth */
+	const [reconnectingAccountId, setReconnectingAccountId] = useState<
+		string | null
+	>(null);
+
 	const queryClient = useQueryClient();
 
 	const {
@@ -139,15 +190,74 @@ function AccountsSettings() {
 		refetch,
 	} = useQuery(configOperationsGetConfigOptions());
 
+	// Handle ?editAccountId deep-link
 	useEffect(() => {
 		if (!search.editAccountId) return;
 		setEditingAccountId(search.editAccountId);
 		setFocusSmtp(!!search.focusSmtp);
 		navigate({
-			search: { editAccountId: undefined, focusSmtp: undefined },
+			search: {
+				editAccountId: undefined,
+				focusSmtp: undefined,
+				connected: search.connected,
+				oauthError: search.oauthError,
+			},
 			replace: true,
 		});
-	}, [search.editAccountId, search.focusSmtp, navigate]);
+	}, [
+		search.editAccountId,
+		search.focusSmtp,
+		navigate,
+		search.connected,
+		search.oauthError,
+	]);
+
+	// Handle ?connected — show success, select the account, clear param
+	useEffect(() => {
+		if (!search.connected) return;
+		setSuccessMessage("Account connected successfully.");
+		setEditingAccountId(search.connected);
+		queryClient.invalidateQueries({
+			queryKey: configOperationsGetConfigQueryKey(),
+		});
+		navigate({
+			search: {
+				connected: undefined,
+				oauthError: undefined,
+				editAccountId: undefined,
+				focusSmtp: undefined,
+			},
+			replace: true,
+		});
+	}, [search.connected, navigate, queryClient]);
+
+	// Handle ?oauthError — show human-readable error, clear param
+	useEffect(() => {
+		if (!search.oauthError) return;
+		setOauthErrorMessage(mapOauthError(search.oauthError));
+		navigate({
+			search: {
+				oauthError: undefined,
+				connected: undefined,
+				editAccountId: undefined,
+				focusSmtp: undefined,
+			},
+			replace: true,
+		});
+	}, [search.oauthError, navigate]);
+
+	const reconnectMutation = useMutation({
+		...microsoftOAuthOperationsMicrosoftOAuthStartMutation(),
+		onSuccess: (data) => {
+			window.location.assign(data.authorizationUrl);
+		},
+		onError: (err) => {
+			setOauthErrorMessage(
+				err instanceof Error ? err.message : "Failed to start reconnect",
+			);
+			setReconnectingAccountId(null);
+		},
+	});
 
 	const deleteMutation = useMutation({
 		...accountDetailOperationsDeleteAccountMutation(),
@@ -190,6 +300,44 @@ function AccountsSettings() {
 			onToggleHelp={() => setHelpOpen((v) => !v)}
 			onSelect={handleSelectNav}
 		>
+			{/* OAuth success banner */}
+			{successMessage && (
+				<div
+					className="rounded-md bg-positive/10 px-3 py-2 text-sm text-positive"
+					data-testid="oauth-success-banner"
+					role="status"
+				>
+					{successMessage}
+					<button
+						type="button"
+						aria-label="Dismiss"
+						className="float-right text-positive/60 hover:text-positive"
+						onClick={() => setSuccessMessage(null)}
+					>
+						✕
+					</button>
+				</div>
+			)}
+
+			{/* OAuth error banner */}
+			{oauthErrorMessage && (
+				<div
+					className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger"
+					data-testid="oauth-error-banner"
+					role="alert"
+				>
+					{oauthErrorMessage}
+					<button
+						type="button"
+						aria-label="Dismiss"
+						className="float-right text-danger/60 hover:text-danger"
+						onClick={() => setOauthErrorMessage(null)}
+					>
+						✕
+					</button>
+				</div>
+			)}
+
 			<div className="flex items-center justify-between">
 				<Badge tone="neutral">
 					{isPending || isError
@@ -233,36 +381,66 @@ function AccountsSettings() {
 				</div>
 			) : (
 				<div className="space-y-3">
-					{config.accounts.map((account) => (
-						<AccountHealthCard
-							key={account.accountId}
-							label={deriveLabel(account.email)}
-							email={account.email}
-							connector="IMAP"
-							syncLabel={deriveSyncLabel(account)}
-							state={deriveState(account)}
-							errorDetail={account.lastError}
-							trailing={
-								deriveState(account) === "error" ? (
-									<Button
-										variant="secondary"
-										size="sm"
-										onClick={() => setEditingAccountId(account.accountId)}
-									>
-										Reconnect
-									</Button>
-								) : (
-									<Button
-										variant="ghost"
-										size="sm"
-										onClick={() => setEditingAccountId(account.accountId)}
-									>
-										Manage
-									</Button>
-								)
-							}
-						/>
-					))}
+					{config.accounts.map((account) => {
+						const isReauth = needsReauth(account);
+						const isOAuthAccount = account.authType === "oauthMicrosoft";
+						const isReconnecting =
+							reconnectingAccountId === account.accountId &&
+							reconnectMutation.isPending;
+
+						const trailingButton =
+							isReauth && isOAuthAccount ? (
+								<Button
+									variant="secondary"
+									size="sm"
+									disabled={isReconnecting}
+									icon={
+										isReconnecting ? (
+											<Loader2 className="size-3.5 animate-spin" />
+										) : undefined
+									}
+									onClick={() => {
+										setReconnectingAccountId(account.accountId);
+										reconnectMutation.mutate({
+											body: { email: account.email },
+										});
+									}}
+								>
+									{isReconnecting ? "Redirecting…" : "Reconnect"}
+								</Button>
+							) : deriveState(account) === "error" ? (
+								<Button
+									variant="secondary"
+									size="sm"
+									onClick={() => setEditingAccountId(account.accountId)}
+								>
+									Reconnect
+								</Button>
+							) : (
+								<Button
+									variant="ghost"
+									size="sm"
+									onClick={() => setEditingAccountId(account.accountId)}
+								>
+									Manage
+								</Button>
+							);
+
+						return (
+							<AccountHealthCard
+								key={account.accountId}
+								label={deriveLabel(account.email)}
+								email={account.email}
+								connector={isOAuthAccount ? "Microsoft 365" : "IMAP"}
+								syncLabel={deriveSyncLabel(account)}
+								state={deriveState(account)}
+								errorDetail={
+									isReauth ? "Re-authentication required" : account.lastError
+								}
+								trailing={trailingButton}
+							/>
+						);
+					})}
 				</div>
 			)}
 
