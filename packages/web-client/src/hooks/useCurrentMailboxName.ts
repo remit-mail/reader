@@ -50,3 +50,41 @@ export const useCurrentMailboxName = ({
 
 	return null;
 };
+
+/**
+ * Resolves the authoritative unread (unseen) total for the current mailbox
+ * from the mailbox query — the same warm-cache `mailboxOperationsListMailboxes`
+ * data the sidebar and `useCurrentMailboxName` already read.
+ *
+ * Returns `mailbox.unseenCount` (the true server-side total), not a count
+ * derived from the loaded infinite-query pages, which would undercount on any
+ * mailbox larger than one page and creep upward as the user scrolls. Returns
+ * `null` when the mailbox isn't resolvable yet (loading, or no `mailboxId`),
+ * letting callers fall back to a loaded-derived count.
+ */
+export const useCurrentMailboxUnseenCount = ({
+	accounts,
+}: UseCurrentMailboxNameOptions): number | null => {
+	const params = useParams({ strict: false });
+	const mailboxId = (params as { mailboxId?: string }).mailboxId;
+
+	const queries = useQueries({
+		queries: accounts.map((account) => ({
+			...mailboxOperationsListMailboxesOptions({
+				path: { accountId: account.accountId },
+			}),
+			staleTime: Infinity,
+		})),
+	});
+
+	if (!mailboxId) return null;
+
+	for (const query of queries) {
+		const items = query.data?.items;
+		if (!items) continue;
+		const match = items.find((mailbox) => mailbox.mailboxId === mailboxId);
+		if (match) return match.unseenCount;
+	}
+
+	return null;
+};

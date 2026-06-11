@@ -1,4 +1,5 @@
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
+import type { Density } from "@remit/ui";
 import { useNavigate } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Search } from "lucide-react";
@@ -44,8 +45,20 @@ interface MessageListProps {
 	accountId?: string;
 }
 
-const ESTIMATED_ITEM_HEIGHT = 72;
+const COMFORTABLE_ITEM_HEIGHT = 72;
+const COMPACT_ITEM_HEIGHT = 32;
 const OVERSCAN_COUNT = 5;
+const DENSITY_STORAGE_KEY = "remit:list-density";
+
+const readStoredDensity = (): Density => {
+	try {
+		const stored = localStorage.getItem(DENSITY_STORAGE_KEY);
+		if (stored === "compact" || stored === "comfortable") return stored;
+	} catch {
+		// localStorage unavailable (SSR, privacy mode) — fall through
+	}
+	return "comfortable";
+};
 
 const LoadingSkeleton = () => (
 	<div className="space-y-0">
@@ -101,6 +114,21 @@ export const MessageList = ({
 	const isDesktop = useIsDesktop();
 	const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
 
+	// Density toggle: comfortable (default) or compact (mutt mode).
+	// Persisted to localStorage so the choice survives reloads.
+	const [density, setDensity] = useState<Density>(readStoredDensity);
+	const toggleDensity = useCallback(() => {
+		setDensity((prev) => {
+			const next: Density = prev === "comfortable" ? "compact" : "comfortable";
+			try {
+				localStorage.setItem(DENSITY_STORAGE_KEY, next);
+			} catch {
+				// ignore
+			}
+			return next;
+		});
+	}, []);
+
 	// Swipe-to-read toggle hook
 	const { toggleReadFor } = useToggleReadFor({ mailboxId });
 
@@ -135,7 +163,8 @@ export const MessageList = ({
 	const virtualizer = useVirtualizer({
 		count: threads.length,
 		getScrollElement: () => parentRef.current,
-		estimateSize: () => ESTIMATED_ITEM_HEIGHT,
+		estimateSize: () =>
+			density === "compact" ? COMPACT_ITEM_HEIGHT : COMFORTABLE_ITEM_HEIGHT,
 		overscan: OVERSCAN_COUNT,
 	});
 
@@ -501,6 +530,8 @@ export const MessageList = ({
 			// Delete / Backspace: confirm-delete selection or focused row.
 			{ key: "Delete", handler: handleDeleteKey, preventDefault: true },
 			{ key: "Backspace", handler: handleDeleteKey, preventDefault: true },
+			// d: toggle density (comfortable / compact).
+			{ key: "d", handler: toggleDensity, preventDefault: true },
 		],
 	});
 
@@ -620,6 +651,7 @@ export const MessageList = ({
 									isDesktop={isDesktop}
 									onDelete={handleSwipeDelete}
 									onToggleRead={handleSwipeToggleRead}
+									density={density}
 								/>
 							</div>
 						);
