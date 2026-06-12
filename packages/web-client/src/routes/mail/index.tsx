@@ -52,6 +52,7 @@ function MailIndex() {
 		searchInput,
 		onSearchChange,
 		onSearchClear,
+		onSearchClearQuery,
 	} = useMailContext();
 	const isDesktop = useIsDesktop();
 
@@ -96,6 +97,7 @@ function MailIndex() {
 						searchValue={searchInput}
 						onSearchChange={onSearchChange}
 						onSearchClear={onSearchClear}
+						onSearchClearQuery={onSearchClearQuery}
 					/>
 					<div className="min-h-0 flex-1 overflow-hidden flex items-center justify-center">
 						<EmptyState message="Select a thread to read" />
