@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import {
 	DeleteVectorsCommand,
 	ListVectorsCommand,
+	PutVectorsCommand,
 	QueryVectorsCommand,
 	S3VectorsClient,
 } from "@aws-sdk/client-s3vectors";
@@ -166,6 +167,112 @@ describe("S3VectorsBackend.findChunkKeysForMessage (via delete)", () => {
 			0,
 			"findChunkKeysForMessage must use ListVectors, not QueryVectors (topK is capped at 100)",
 		);
+	});
+});
+
+describe("S3VectorsBackend.deleteKeys", () => {
+	let s3vMock: AwsClientStub<S3VectorsClient>;
+
+	beforeEach(() => {
+		s3vMock = mockClient(S3VectorsClient);
+	});
+
+	afterEach(() => {
+		s3vMock.restore();
+	});
+
+	it("calls DeleteVectorsCommand with exactly those keys and no ListVectorsCommand", async () => {
+		const deleted: string[][] = [];
+		s3vMock.on(DeleteVectorsCommand).callsFake((input) => {
+			deleted.push((input.keys ?? []) as string[]);
+			return {};
+		});
+
+		const keys = [`${MESSAGE_ID}::subject`, `${MESSAGE_ID}::body-0`];
+		await buildBackend().deleteKeys(keys);
+
+		assert.equal(
+			s3vMock.commandCalls(ListVectorsCommand).length,
+			0,
+			"deleteKeys must not issue any ListVectors call",
+		);
+		assert.deepEqual(deleted.flat().sort(), [...keys].sort());
+	});
+
+	it("batches 600 keys into 2 DeleteVectorsCommand calls at batch size 500", async () => {
+		const deleted: string[][] = [];
+		s3vMock.on(DeleteVectorsCommand).callsFake((input) => {
+			deleted.push((input.keys ?? []) as string[]);
+			return {};
+		});
+
+		const keys = Array.from(
+			{ length: 600 },
+			(_, i) => `${MESSAGE_ID}::chunk-${i}`,
+		);
+		await buildBackend().deleteKeys(keys);
+
+		assert.equal(
+			s3vMock.commandCalls(DeleteVectorsCommand).length,
+			2,
+			"600 keys should be split into 2 batches of 500 and 100",
+		);
+		assert.equal(deleted[0].length, 500);
+		assert.equal(deleted[1].length, 100);
+	});
+
+	it("does nothing when keys array is empty", async () => {
+		s3vMock.on(DeleteVectorsCommand).resolves({});
+
+		await buildBackend().deleteKeys([]);
+
+		assert.equal(s3vMock.commandCalls(DeleteVectorsCommand).length, 0);
+	});
+});
+
+describe("S3VectorsBackend PUT batch size", () => {
+	let s3vMock: AwsClientStub<S3VectorsClient>;
+
+	beforeEach(() => {
+		s3vMock = mockClient(S3VectorsClient);
+	});
+
+	afterEach(() => {
+		s3vMock.restore();
+	});
+
+	it("batches 600 vectors into 2 PutVectorsCommand calls at batch size 500", async () => {
+		const batches: number[] = [];
+		s3vMock.on(PutVectorsCommand).callsFake((input) => {
+			batches.push((input.vectors ?? []).length);
+			return {};
+		});
+
+		const vectors = Array.from({ length: 600 }, (_, i) => ({
+			chunkId: `${MESSAGE_ID}::chunk-${i}`,
+			vector: [0.1, 0.2, 0.3],
+			metadata: {
+				messageId: MESSAGE_ID,
+				threadId: "thread-1",
+				accountConfigId: "acct-1",
+				mailboxIds: ["mb-inbox"],
+				chunkType: "body" as const,
+				sentDate: 1_700_000_000,
+				isRead: false,
+				hasAttachment: false,
+				hasStars: false,
+			},
+		}));
+
+		await buildBackend().upsert(vectors);
+
+		assert.equal(
+			s3vMock.commandCalls(PutVectorsCommand).length,
+			2,
+			"600 vectors should be split into 2 batches of 500 and 100",
+		);
+		assert.equal(batches[0], 500);
+		assert.equal(batches[1], 100);
 	});
 });
 

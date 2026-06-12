@@ -15,6 +15,8 @@ export interface SearchService {
 	index(params: IndexEmailParams): Promise<void>;
 	search(params: SearchParams): Promise<SearchResult[]>;
 	delete(messageId: string): Promise<void>;
+	deleteKeys(keys: string[]): Promise<void>;
+	getChunkKeys(params: IndexEmailParams): string[];
 }
 
 const DEFAULT_TOP_K = 50;
@@ -121,6 +123,20 @@ export class DefaultSearchService implements SearchService {
 
 	delete = async (messageId: string): Promise<void> => {
 		await this.store.delete({ messageId });
+	};
+
+	deleteKeys = async (keys: string[]): Promise<void> => {
+		await this.store.deleteKeys(keys);
+	};
+
+	getChunkKeys = (params: IndexEmailParams): string[] => {
+		const { envelope, parsedBody, metadata } = params;
+		const chunks = this.chunker.chunk({
+			envelope,
+			parsedBody,
+			messageId: metadata.messageId,
+		});
+		return chunks.map((c) => c.chunkId);
 	};
 }
 
