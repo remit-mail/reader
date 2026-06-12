@@ -23,7 +23,12 @@ import {
 	getUserPoolId,
 	sqsClient,
 } from "../config.js";
-import type { AccountFanoutEvent, AccountFinalizeEvent } from "../events.js";
+import type {
+	AccountDeleteEvent,
+	AccountFanoutEvent,
+	AccountFinalizeEvent,
+} from "../events.js";
+import { processAccountDataPurge } from "./account-purge.js";
 
 export interface ProcessAccountFanoutDeps {
 	services: CascadeServices;
@@ -46,6 +51,24 @@ export const processAccountFanout = async (
 	event: AccountFanoutEvent,
 	log: Logger,
 	deps: ProcessAccountFanoutDeps = defaultDeps(),
+): Promise<void> => {
+	if (event.type === "AccountDataPurge") {
+		await processAccountDataPurge(event, log, {
+			services: deps.services,
+			sqs: deps.sqs,
+			searchIndexQueueUrl: deps.searchIndexQueueUrl,
+			accountFinalizeQueueUrl: deps.accountFinalizeQueueUrl,
+		});
+		return;
+	}
+
+	await processAccountDelete(event, log, deps);
+};
+
+const processAccountDelete = async (
+	event: AccountDeleteEvent,
+	log: Logger,
+	deps: ProcessAccountFanoutDeps,
 ): Promise<void> => {
 	const { accountConfigId } = event;
 	const { services, sqs, cognito } = deps;
