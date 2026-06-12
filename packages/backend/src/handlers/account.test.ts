@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { describe, it } from "node:test";
+import { fileURLToPath } from "node:url";
 import type { AccountItem } from "@remit/remit-electrodb-service";
 import { ForbiddenError, NotFoundError } from "@remit/remit-electrodb-service";
 import { AccountAuthType } from "@remit/domain-enums";
@@ -9,6 +12,8 @@ import {
 	toAccountResponse,
 } from "./account-guards.js";
 import { assertAccountOwnership } from "./account-ownership.js";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const OWNER = "owner-account-config-id";
 const OTHER = "other-account-config-id";
@@ -231,5 +236,31 @@ describe("assertPasswordProvided", () => {
 
 	it("does not throw when authType is omitted and password is provided", () => {
 		assert.doesNotThrow(() => assertPasswordProvided(undefined, "s3cret"));
+	});
+});
+
+// ── deleteAccount per-account purge trigger ──────────────────────────
+//
+// deleteAccount soft-marks the account row, then emits an AccountDataPurge
+// event to the account-fanout queue so the worker purges this one account's
+// data (mailboxes, messages, S3, vectors) while keeping the AccountConfig and
+// any sibling accounts. Source-contract guards mirror me.ts: the handler must
+// read the exact env var name the infra injects and emit the exact event shape
+// the worker dispatches on.
+
+describe("deleteAccount emits AccountDataPurge fanout event", () => {
+	const source = readFileSync(resolve(__dirname, "./account.ts"), "utf-8");
+
+	it("reads SQS_QUEUE_URL_ACCOUNT_FANOUT for the purge enqueue", () => {
+		assert.match(source, /env\.SQS_QUEUE_URL_ACCOUNT_FANOUT/);
+	});
+
+	it("emits an AccountDataPurge event carrying accountId and accountConfigId", () => {
+		assert.match(source, /type:\s*"AccountDataPurge"/);
+		const block = source.slice(
+			source.indexOf("AccountDetailOperations_deleteAccount"),
+		);
+		assert.match(block, /SendMessageCommand/);
+		assert.match(block, /accountId,\s*\n\s*accountConfigId,/);
 	});
 });
