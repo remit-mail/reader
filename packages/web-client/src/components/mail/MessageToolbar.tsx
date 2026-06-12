@@ -55,6 +55,12 @@ export interface MessageToolbarProps {
 	canArchive?: boolean;
 	/** Delete all messages in the open thread. */
 	onDelete?: () => void;
+	/**
+	 * Override the enabled state of the delete button. Defaults to `hasThread`.
+	 * Pass `true` when a non-thread item (e.g. a Remit draft) is active so the
+	 * trash icon is enabled without enabling the other thread-scoped actions.
+	 */
+	canDelete?: boolean;
 	/** Toggle the star on the most-recent message in the thread. */
 	onToggleStar?: () => void;
 	/** Whether the most-recent message is starred. */
@@ -86,6 +92,7 @@ export const MessageToolbar = ({
 	onArchive,
 	canArchive = true,
 	onDelete,
+	canDelete,
 	onToggleStar,
 	isStarred,
 	moveContext,
@@ -135,7 +142,7 @@ export const MessageToolbar = ({
 		<Button
 			variant="ghost"
 			size="sm"
-			disabled={!hasThread}
+			disabled={!(canDelete ?? hasThread)}
 			icon={<Trash2 className="size-4" />}
 			title={`Delete ${tooltipForAction("delete")}`}
 			// "Move to Trash" (no "Delete" substring) so this always-present
