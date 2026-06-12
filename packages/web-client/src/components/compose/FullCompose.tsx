@@ -71,6 +71,7 @@ export const FullCompose = () => {
 			{header}
 			<div className="flex-1 overflow-hidden">
 				<ComposeForm
+					key={state.outboxMessageId ?? "new"}
 					mode={state.mode}
 					account={state.account}
 					sourceMessage={state.sourceMessage}
