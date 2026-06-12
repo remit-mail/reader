@@ -406,10 +406,15 @@ function StepAddress({
 	const [email, setEmail] = useState(initialEmail);
 	const [discovering, setDiscovering] = useState(false);
 	const [statusMsg, setStatusMsg] = useState("");
+	const [error, setError] = useState<string | null>(null);
 
 	const handleSubmit = useCallback(async () => {
 		const trimmed = email.trim();
-		if (!trimmed || !trimmed.includes("@")) return;
+		if (!trimmed.includes("@") || !trimmed.includes(".")) {
+			setError("Enter a valid email address.");
+			return;
+		}
+		setError(null);
 
 		setDiscovering(true);
 		setStatusMsg(getDiscoveryStatusMessage(trimmed));
@@ -433,8 +438,6 @@ function StepAddress({
 		return () => window.removeEventListener("keydown", handler);
 	}, [handleSubmit, discovering, onBack]);
 
-	const isValid = email.trim().includes("@") && email.trim().includes(".");
-
 	return (
 		<WizardShell
 			steps={STEP_LABELS}
@@ -448,7 +451,7 @@ function StepAddress({
 					</Button>
 					<Button
 						variant="primary"
-						disabled={!isValid || discovering}
+						disabled={discovering}
 						onClick={() => void handleSubmit()}
 					>
 						Continue
@@ -462,7 +465,10 @@ function StepAddress({
 					icon={<AtSign className="size-4" />}
 					placeholder="you@example.com"
 					value={email}
-					onChange={(e) => setEmail(e.target.value)}
+					onChange={(e) => {
+						setEmail(e.target.value);
+						setError(null);
+					}}
 					type="email"
 					autoComplete="email"
 				/>
@@ -470,6 +476,11 @@ function StepAddress({
 					<div className="mt-3 flex items-center gap-2 text-xs text-fg-muted">
 						<Loader2 className="size-3.5 animate-spin text-accent" />
 						{statusMsg}
+					</div>
+				)}
+				{error && !discovering && (
+					<div className="mt-3 rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">
+						{error}
 					</div>
 				)}
 			</div>
@@ -496,6 +507,7 @@ function StepServers({
 }) {
 	const [imap, setImap] = useState<ServerConfig>(imapConfig);
 	const [smtp, setSmtp] = useState<ServerConfig>(smtpConfig);
+	const [error, setError] = useState<string | null>(null);
 
 	// Propagate changes upward immediately
 	useEffect(() => {
@@ -504,15 +516,24 @@ function StepServers({
 
 	const isValid = imap.host.trim() !== "" && smtp.host.trim() !== "";
 
+	const handleContinue = useCallback(() => {
+		if (!isValid) {
+			setError("Enter both the IMAP and SMTP host.");
+			return;
+		}
+		setError(null);
+		onContinue();
+	}, [isValid, onContinue]);
+
 	// Keyboard: Enter advances, Esc goes back
 	useEffect(() => {
 		const handler = (e: KeyboardEvent) => {
-			if (e.key === "Enter" && isValid) onContinue();
+			if (e.key === "Enter") handleContinue();
 			if (e.key === "Escape") onBack();
 		};
 		window.addEventListener("keydown", handler);
 		return () => window.removeEventListener("keydown", handler);
-	}, [isValid, onContinue, onBack]);
+	}, [handleContinue, onBack]);
 
 	const domain = email.split("@")[1] ?? "your domain";
 	const subtitle = discovered
@@ -530,13 +551,18 @@ function StepServers({
 					<Button variant="ghost" onClick={onBack}>
 						Back
 					</Button>
-					<Button variant="primary" disabled={!isValid} onClick={onContinue}>
+					<Button variant="primary" onClick={handleContinue}>
 						Continue
 					</Button>
 				</>
 			}
 		>
 			<div className="space-y-5">
+				{error && (
+					<div className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">
+						{error}
+					</div>
+				)}
 				<fieldset>
 					<legend className="flex items-center gap-2 text-sm font-semibold text-fg">
 						IMAP — incoming
@@ -547,9 +573,10 @@ function StepServers({
 							<FieldLabel>Host</FieldLabel>
 							<Input
 								value={imap.host}
-								onChange={(e) =>
-									setImap((s) => ({ ...s, host: e.target.value }))
-								}
+								onChange={(e) => {
+									setImap((s) => ({ ...s, host: e.target.value }));
+									setError(null);
+								}}
 								placeholder="imap.example.com"
 							/>
 						</div>
@@ -584,9 +611,10 @@ function StepServers({
 							<FieldLabel>Host</FieldLabel>
 							<Input
 								value={smtp.host}
-								onChange={(e) =>
-									setSmtp((s) => ({ ...s, host: e.target.value }))
-								}
+								onChange={(e) => {
+									setSmtp((s) => ({ ...s, host: e.target.value }));
+									setError(null);
+								}}
 								placeholder="smtp.example.com"
 							/>
 						</div>
@@ -633,6 +661,7 @@ function StepCredentials({
 }) {
 	const [localUsername, setLocalUsername] = useState(username || email);
 	const [localPassword, setLocalPassword] = useState(password);
+	const [error, setError] = useState<string | null>(null);
 
 	const domain = email.split("@")[1] ?? "";
 	const appPasswordUrl = getAppPasswordUrl(email);
@@ -642,15 +671,24 @@ function StepCredentials({
 		onChange(localUsername, localPassword);
 	}, [localUsername, localPassword, onChange]);
 
+	const handleContinue = useCallback(() => {
+		if (!isValid) {
+			setError("Enter your username and password.");
+			return;
+		}
+		setError(null);
+		onContinue();
+	}, [isValid, onContinue]);
+
 	// Keyboard: Enter advances, Esc goes back
 	useEffect(() => {
 		const handler = (e: KeyboardEvent) => {
-			if (e.key === "Enter" && isValid) onContinue();
+			if (e.key === "Enter") handleContinue();
 			if (e.key === "Escape") onBack();
 		};
 		window.addEventListener("keydown", handler);
 		return () => window.removeEventListener("keydown", handler);
-	}, [isValid, onContinue, onBack]);
+	}, [handleContinue, onBack]);
 
 	return (
 		<WizardShell
@@ -663,18 +701,26 @@ function StepCredentials({
 					<Button variant="ghost" onClick={onBack}>
 						Back
 					</Button>
-					<Button variant="primary" disabled={!isValid} onClick={onContinue}>
+					<Button variant="primary" onClick={handleContinue}>
 						Test connection
 					</Button>
 				</>
 			}
 		>
 			<div className="space-y-3">
+				{error && (
+					<div className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">
+						{error}
+					</div>
+				)}
 				<div>
 					<FieldLabel>Username</FieldLabel>
 					<Input
 						value={localUsername}
-						onChange={(e) => setLocalUsername(e.target.value)}
+						onChange={(e) => {
+							setLocalUsername(e.target.value);
+							setError(null);
+						}}
 						autoComplete="username"
 					/>
 				</div>
@@ -683,7 +729,10 @@ function StepCredentials({
 					<Input
 						type="password"
 						value={localPassword}
-						onChange={(e) => setLocalPassword(e.target.value)}
+						onChange={(e) => {
+							setLocalPassword(e.target.value);
+							setError(null);
+						}}
 						autoComplete="current-password"
 					/>
 				</div>
@@ -1052,7 +1101,6 @@ function StepSync({
 	const inboxTotal = inboxMailbox?.messagesTotal ?? 0;
 	const inboxSynced = inboxMailbox?.messagesSynced ?? 0;
 	const inboxProgress = inboxTotal > 0 ? inboxSynced / inboxTotal : 0;
-	const hasInboxMessages = inboxSynced > 0;
 
 	// Determine check states based on syncPhase
 	const syncPhase = syncStatus?.syncPhase;
@@ -1144,7 +1192,6 @@ function StepSync({
 					</span>
 					<Button
 						variant="primary"
-						disabled={!hasInboxMessages || !accountId}
 						onClick={() => accountId && onGoToInbox(accountId)}
 					>
 						Go to inbox
