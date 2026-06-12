@@ -13,7 +13,7 @@ import {
 } from "@remit/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { Loader2, Plus } from "lucide-react";
+import { Loader2, Plus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { z } from "zod";
 import { OnboardingWizard } from "@/components/onboarding/OnboardingWizard";
@@ -389,7 +389,7 @@ function AccountsSettings() {
 							reconnectingAccountId === account.accountId &&
 							reconnectMutation.isPending;
 
-						const trailingButton =
+						const actionButton =
 							isReauth && isOAuthAccount ? (
 								<Button
 									variant="secondary"
@@ -426,6 +426,19 @@ function AccountsSettings() {
 									Manage
 								</Button>
 							);
+
+						const trailingButton = (
+							<div className="flex items-center gap-2">
+								{actionButton}
+								<Button
+									variant="ghost"
+									size="sm"
+									icon={<Trash2 className="size-3.5" />}
+									onClick={() => setDeletingAccountId(account.accountId)}
+									aria-label="Delete account"
+								/>
+							</div>
+						);
 
 						return (
 							<AccountHealthCard
