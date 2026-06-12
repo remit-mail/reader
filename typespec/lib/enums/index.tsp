@@ -35,5 +35,8 @@ import "./AccountAuthType.tsp";
 import "./AccountConfigState.tsp";
 import "./SyncPhase.tsp";
 
+// Authentication Enums
+import "./AuthResultVerdict.tsp";
+
 // API Enums
 import "./SortOrder.tsp";
