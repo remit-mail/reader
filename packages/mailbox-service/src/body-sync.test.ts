@@ -301,14 +301,60 @@ describe("BodySyncService.syncBodies (classification + counters)", () => {
 		assert.equal(categoryUpdate.category, MessageCategory.newsletter);
 	});
 
-	it("persists authenticity when a DKIM-Signature is present", async () => {
+	it("persists authenticity with dkimMismatch=false when DKIM d= aligns with From domain", async () => {
+		// (a) Aligned DKIM: sender signs with their own domain — not suspicious.
+		const alignedEml = Buffer.from(
+			[
+				"From: alice@example.com",
+				"To: bob@example.com",
+				"Subject: hello",
+				"Message-ID: <aligned-1@example.com>",
+				"DKIM-Signature: v=1; a=rsa-sha256; d=example.com; s=sel; b=xxx",
+				"Content-Type: text/plain",
+				"",
+				"body text",
+				"",
+			].join("\r\n"),
+		);
+		const fake = buildFakeState({
+			messageId: "msg-aligned",
+			rawEml: alignedEml,
+		});
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			fake.addressService,
+			fake.envelopeService,
+		);
+
+		await service.syncBodies(
+			["msg-aligned"],
+			"acc-1",
+			"acc-cfg-1",
+			"INBOX",
+			async () => buildFakeConnection(alignedEml),
+		);
+
+		const authenticityUpdate = fake.updatedKeys.find(
+			(u) => u.authenticity !== undefined,
+		);
+		assert.ok(authenticityUpdate, "expected an authenticity update");
+		assert.equal(authenticityUpdate.authenticity?.fromDomain, "example.com");
+		assert.equal(authenticityUpdate.authenticity?.dkimDomain, "example.com");
+		assert.equal(authenticityUpdate.authenticity?.dkimMismatch, false);
+	});
+
+	it("persists authenticity with dkimMismatch=true when DKIM d= is unrelated to From domain", async () => {
+		// (b) Misaligned DKIM: From claims substack.com but signed by an unrelated relay —
+		// the relay domain (mg.example.net) shares no ancestor with substack.com.
 		const dkimEml = Buffer.from(
 			[
-				"From: alice@personal.example.com",
+				"From: alice@substack.com",
 				"To: bob@example.com",
-				"Subject: forwarded",
-				"Message-ID: <dkim-1@example.com>",
-				"DKIM-Signature: v=1; a=rsa-sha256; d=relay.example.net; s=sel; b=xxx",
+				"Subject: newsletter",
+				"Message-ID: <dkim-1@substack.com>",
+				"DKIM-Signature: v=1; a=rsa-sha256; d=mg.example.net; s=sel; b=xxx",
 				"Content-Type: text/plain",
 				"",
 				"body text",
@@ -336,14 +382,8 @@ describe("BodySyncService.syncBodies (classification + counters)", () => {
 			(u) => u.authenticity !== undefined,
 		);
 		assert.ok(authenticityUpdate, "expected an authenticity update");
-		assert.equal(
-			authenticityUpdate.authenticity?.fromDomain,
-			"personal.example.com",
-		);
-		assert.equal(
-			authenticityUpdate.authenticity?.dkimDomain,
-			"relay.example.net",
-		);
+		assert.equal(authenticityUpdate.authenticity?.fromDomain, "substack.com");
+		assert.equal(authenticityUpdate.authenticity?.dkimDomain, "mg.example.net");
 		assert.equal(authenticityUpdate.authenticity?.dkimMismatch, true);
 	});
 
