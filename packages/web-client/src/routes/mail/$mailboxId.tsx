@@ -1,4 +1,6 @@
 import {
+	outboxDetailOperationsDeleteOutboxMessageMutation,
+	outboxOperationsListOutboxMessagesQueryKey,
 	threadDetailOperationsListThreadMessagesQueryKey,
 	threadOperationsListThreadsQueryKey,
 	threadOperationsSearchThreadsQueryKey,
@@ -15,6 +17,7 @@ import {
 import {
 	keepPreviousData,
 	useInfiniteQuery,
+	useMutation,
 	useQueryClient,
 } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
@@ -343,6 +346,28 @@ function MailboxView() {
 	const handleNewCompose = useCallback(() => {
 		openCompose({ mode: "new" });
 	}, [openCompose]);
+
+	// Delete a Remit draft from the toolbar trash button. Only active when the
+	// Drafts mailbox is open and a Remit draft (outboxMessageId) is loaded in
+	// compose — the ComposeActionBar discard button covers the same action from
+	// within the compose panel (#536).
+	const deleteOutboxMutation = useMutation(
+		outboxDetailOperationsDeleteOutboxMessageMutation(),
+	);
+	const handleToolbarDiscardDraft = useCallback(() => {
+		const outboxMessageId = composeState.outboxMessageId;
+		if (!outboxMessageId) return;
+		deleteOutboxMutation.mutate({ path: { outboxMessageId } });
+		queryClient.invalidateQueries({
+			queryKey: outboxOperationsListOutboxMessagesQueryKey(),
+		});
+		closeCompose();
+	}, [
+		composeState.outboxMessageId,
+		deleteOutboxMutation,
+		queryClient,
+		closeCompose,
+	]);
 
 	// Esc → back: deselect the open thread (close the reading pane). The
 	// dispatcher routes Esc to the `back` action; `u` is now toggle read/unread.
@@ -679,6 +704,13 @@ function MailboxView() {
 	// parent layout; the boundaries here carry the same hairline handles, so
 	// the user sees one continuous set of drag handles between all four panes.
 	const hasThread = Boolean(selectedThread);
+	// A Remit draft is "active" when the Drafts mailbox is open and compose is
+	// showing an outbox message with no IMAP thread selected (#536).
+	const hasRemitDraftOpen =
+		isDraftsMailbox &&
+		composeState.isOpen &&
+		!!composeState.outboxMessageId &&
+		!selectedThread;
 	const listTitle = mailboxName ?? "Inbox";
 	// Pane 4 only renders when intelligence is toggled on AND a thread is open
 	// (it's contextual to the open message — matches the remit-ui AppShell
@@ -749,7 +781,14 @@ function MailboxView() {
 							hasThread && archiveMailboxId ? handleToolbarArchive : undefined
 						}
 						canArchive={Boolean(archiveMailboxId)}
-						onDelete={hasThread ? handleToolbarDelete : undefined}
+						canDelete={hasThread || hasRemitDraftOpen}
+						onDelete={
+							hasThread
+								? handleToolbarDelete
+								: hasRemitDraftOpen
+									? handleToolbarDiscardDraft
+									: undefined
+						}
 						onToggleStar={hasThread ? handleToolbarStar : undefined}
 						isStarred={selectedThread?.hasStars}
 						moveContext={
