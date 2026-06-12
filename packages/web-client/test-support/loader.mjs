@@ -19,6 +19,8 @@ const amplifyConfigStubUrl = `${stubsDir}amplify-config.mjs`;
 const isAuthSourceUrl = (url) => url.includes("/remit-web-client/src/auth/");
 const isInterceptorSource = (url) =>
 	url.includes("/remit-web-client/src/auth/auth-interceptor.ts");
+const isAppInfoSource = (url) =>
+	url.includes("/remit-web-client/src/lib/app-info.");
 
 export const resolve = async (specifier, context, nextResolve) => {
 	const stub = packageStubs.get(specifier);
@@ -42,7 +44,6 @@ export const resolve = async (specifier, context, nextResolve) => {
 export const load = async (url, context, nextLoad) => {
 	const result = await nextLoad(url, context);
 	if (result.format !== "module") return result;
-	if (!isAuthSourceUrl(url)) return result;
 	if (
 		typeof result.source !== "string" &&
 		!(result.source instanceof Uint8Array)
@@ -53,9 +54,24 @@ export const load = async (url, context, nextLoad) => {
 		typeof result.source === "string"
 			? result.source
 			: new TextDecoder().decode(result.source);
-	const transformed = raw.replaceAll(
-		"import.meta.env",
-		"(globalThis.__VITE_ENV__ ?? {})",
-	);
+
+	let transformed = raw;
+
+	if (isAuthSourceUrl(url)) {
+		transformed = transformed.replaceAll(
+			"import.meta.env",
+			"(globalThis.__VITE_ENV__ ?? {})",
+		);
+	}
+
+	if (isAppInfoSource(url)) {
+		// Replace Vite define constants with test-time fallbacks so the module
+		// can be imported in Node test runs (outside a Vite build context).
+		transformed = transformed
+			.replaceAll("__APP_SHA__", '"dev"')
+			.replaceAll("__APP_BUILD_TIME__", '"1970-01-01T00:00:00.000Z"');
+	}
+
+	if (transformed === raw) return result;
 	return { ...result, source: transformed };
 };

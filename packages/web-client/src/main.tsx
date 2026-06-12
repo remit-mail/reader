@@ -6,12 +6,14 @@ import { createRoot } from "react-dom/client";
 import { AuthShell } from "./auth/AuthShell";
 import { configureAmplify } from "./auth/amplify-config";
 import { installAuthInterceptor } from "./auth/auth-interceptor";
+import { install as installConsoleErrorCatcher } from "./lib/console-errors";
 import { installThemeSync } from "./lib/theme";
 import { createAppRouter } from "./router";
 import "./lib/i18n";
 import "./index.css";
 import "./lib/client"; // Initialize client with error interceptor
 
+installConsoleErrorCatcher();
 installThemeSync();
 configureAmplify();
 installAuthInterceptor();
