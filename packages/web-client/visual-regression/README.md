@@ -74,6 +74,7 @@ should not be run locally for a landing — use the workflow above instead.
 | Spec | Routes |
 |---|---|
 | `signin.spec.ts` | `/` (sign-in or empty state) |
+| `onboarding.spec.ts` | `/onboarding` (wizard welcome step) |
 | `mail.spec.ts` | `/mail`, `/mail/<id>`, `/mail/<id>?selectedMessageId=<id>` |
 | `outbox.spec.ts` | `/mail/outbox` |
 | `settings.spec.ts` | `/settings/accounts` |
