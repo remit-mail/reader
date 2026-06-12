@@ -22,11 +22,6 @@ import {
 } from "@/lib/mailbox-order";
 import { cn } from "@/lib/utils";
 
-interface MailboxLinkSearch {
-	selectedMessageId?: string;
-	q?: string;
-}
-
 interface MailboxItemProps {
 	mailbox: RemitImapMailboxResponse;
 	isSelected: boolean;
@@ -92,9 +87,9 @@ export const MailboxItem = ({
 			navigate({
 				to: "/mail/$mailboxId",
 				params: { mailboxId: mailbox.mailboxId },
-				// Drop any active search query when picking a mailbox in the
-				// sidebar — the search box is per-view, not a persistent filter.
-				search: (prev: MailboxLinkSearch) => ({ ...prev, q: undefined }),
+				// Drop search query and selected message when picking a mailbox —
+				// selection from another mailbox is meaningless here.
+				search: { q: undefined, selectedMessageId: undefined },
 			});
 		}
 		onSelect?.();
@@ -104,8 +99,9 @@ export const MailboxItem = ({
 		<Link
 			to="/mail/$mailboxId"
 			params={{ mailboxId: mailbox.mailboxId }}
-			// Drop any active search query when picking a mailbox in the sidebar.
-			search={(prev: MailboxLinkSearch) => ({ ...prev, q: undefined })}
+			// Drop search query and selected message when picking a mailbox in the
+			// sidebar — selection from a prior mailbox must not bleed across.
+			search={{ q: undefined, selectedMessageId: undefined }}
 			onClick={handleClick}
 			className={cn(
 				"flex items-center gap-2 px-3 py-1.5 text-sm rounded-md transition-colors",

@@ -78,6 +78,7 @@ function MailboxView() {
 		searchInput,
 		onSearchChange,
 		onSearchClear,
+		onSearchClearQuery,
 		intelligenceOpen,
 		onToggleIntelligence,
 	} = useMailContext();
@@ -178,7 +179,16 @@ function MailboxView() {
 		threadsData?.pages.flatMap((page) => page.items) ?? [],
 	);
 
-	const selectedThread = threads.find((t) => t.messageId === selectedMessageId);
+	// While a search is active, suppress the reading pane and compose window:
+	// search view is results-only (Apple Mail behaviour, issues #539 / #540).
+	// Use the live searchInput (pre-debounce) from context so the pane
+	// clears immediately as the user starts typing, not after the 200ms URL
+	// debounce. `hasSearchQuery` (URL-based) guards the API; this guards the UI.
+	const isSearchActive = searchInput.trim().length > 0;
+	const selectedThread =
+		isSearchActive || !selectedMessageId
+			? undefined
+			: threads.find((t) => t.messageId === selectedMessageId);
 
 	// Triage-layer context (#429): the roving focus cursor + the multi-selection,
 	// bridged up from MessageList. Action verbs (archive/star/read/mute/…) target
@@ -731,6 +741,7 @@ function MailboxView() {
 						searchValue={searchInput}
 						onSearchChange={onSearchChange}
 						onSearchClear={onSearchClear}
+						onSearchClearQuery={onSearchClearQuery}
 						onReply={hasThread ? handleToolbarReply : undefined}
 						onReplyAll={hasThread ? handleToolbarReplyAll : undefined}
 						onForward={hasThread ? handleToolbarForward : undefined}
