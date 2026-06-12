@@ -6,11 +6,15 @@ import {
 	EnvelopeService,
 	getClient,
 	MailboxService,
+	MailboxSpecialUseService,
 	MessageService,
 	ThreadMessageService,
 } from "@remit/remit-electrodb-service";
 import type { Logger } from "@remit/logger-lambda";
-import { BodySyncService } from "@remit/mailbox-service";
+import {
+	BodySyncService,
+	MessageMoveService,
+} from "@remit/mailbox-service";
 import {
 	enqueueSearchIndexEvents,
 	type IndexEvent,
@@ -40,6 +44,10 @@ const mailboxService = new MailboxService({
 	client,
 	table: env.DYNAMODB_TABLE_NAME,
 });
+const mailboxSpecialUseService = new MailboxSpecialUseService({
+	client,
+	table: env.DYNAMODB_TABLE_NAME,
+});
 const messageService = new MessageService({
 	client,
 	table: env.DYNAMODB_TABLE_NAME,
@@ -56,6 +64,17 @@ const envelopeService = new EnvelopeService({
 	client,
 	table: env.DYNAMODB_TABLE_NAME,
 });
+
+const messageMgmtQueueUrl = process.env.SQS_QUEUE_URL_MESSAGE_MGMT;
+const messageMoveService = messageMgmtQueueUrl
+	? new MessageMoveService({
+			messageService,
+			mailboxService,
+			mailboxSpecialUseService,
+			threadMessageService,
+			sqsQueueUrl: messageMgmtQueueUrl,
+		})
+	: undefined;
 
 const searchIndexQueueUrl = process.env.SQS_QUEUE_URL_SEARCH_INDEX;
 const isLocalSqs = searchIndexQueueUrl?.startsWith("http://localhost");
@@ -100,6 +119,10 @@ export const syncMessageBody = async (
 			const mailbox = await mailboxService.get(mailboxId);
 			const storage = createStorageService();
 
+			const rescueConfig = messageMoveService
+				? { mailboxSpecialUseService, messageMoveService }
+				: undefined;
+
 			const bodySyncService = new BodySyncService(
 				messageService,
 				storage,
@@ -107,6 +130,7 @@ export const syncMessageBody = async (
 				addressService,
 				envelopeService,
 				log,
+				rescueConfig,
 			);
 
 			const result = await bodySyncService

@@ -1,4 +1,4 @@
-import { MessageCategory } from "@remit/domain-enums";
+import { AuthResultVerdict, MessageCategory } from "@remit/domain-enums";
 import type {
 	Attachment,
 	HeaderLines,
@@ -10,6 +10,20 @@ import { SOCIAL_DOMAINS } from "./socialDomains.js";
 import { TRANSACTIONAL_DOMAINS } from "./transactionalDomains.js";
 
 type Category = (typeof MessageCategory)[keyof typeof MessageCategory];
+type AuthVerdictValue =
+	(typeof AuthResultVerdict)[keyof typeof AuthResultVerdict];
+
+export interface MessageAuthResult {
+	dmarc?: AuthVerdictValue;
+	spf?: AuthVerdictValue;
+	dkim?: AuthVerdictValue;
+}
+
+export interface MessageProviderSpam {
+	classified: boolean;
+	score?: string;
+	source?: string;
+}
 
 /**
  * Structured sender-authenticity signal extracted from DKIM headers.
@@ -110,6 +124,97 @@ export const extractAuthenticity = (
 		dkimMismatch: result.mismatch,
 	};
 };
+
+const extractVerdict = (
+	text: string,
+	mechanism: string,
+): AuthVerdictValue | undefined => {
+	const match = text.match(new RegExp(`${mechanism}=(\\w+)`, "i"));
+	if (!match) return undefined;
+	const raw = match[1].toLowerCase();
+	const map: Record<string, AuthVerdictValue> = {
+		pass: AuthResultVerdict.Pass,
+		fail: AuthResultVerdict.Fail,
+		none: AuthResultVerdict.None,
+		neutral: AuthResultVerdict.Neutral,
+		softfail: AuthResultVerdict.Softfail,
+	};
+	return map[raw];
+};
+
+/**
+ * Extract provider authentication-results verdict from the Authentication-Results header.
+ * Returns null when the header is absent.
+ */
+export const extractAuthResult = (
+	parsed: ParsedMail,
+): MessageAuthResult | null => {
+	const line = parsed.headerLines.find(
+		(l) => l.key.toLowerCase() === "authentication-results",
+	);
+	if (!line) return null;
+
+	const text = stripHeaderName(line.line);
+	const dmarc = extractVerdict(text, "dmarc");
+	const spf = extractVerdict(text, "spf");
+	const dkim = extractVerdict(text, "dkim");
+
+	return { dmarc, spf, dkim };
+};
+
+/**
+ * Extract provider spam-filter signal from X-SpamExperts-Class, X-Spam-Status,
+ * or X-HalOne-Spam-Probability headers. Returns null when none are present.
+ */
+export const extractProviderSpam = (
+	parsed: ParsedMail,
+): MessageProviderSpam | null => {
+	const lines = parsed.headerLines;
+
+	const spamExperts = lines.find(
+		(l) => l.key.toLowerCase() === "x-spamexperts-class",
+	);
+	if (spamExperts) {
+		const value = stripHeaderName(spamExperts.line).trim().toLowerCase();
+		return {
+			classified: value === "spam",
+			source: "x-spamexperts-class",
+		};
+	}
+
+	const spamStatus = lines.find((l) => l.key.toLowerCase() === "x-spam-status");
+	if (spamStatus) {
+		const text = stripHeaderName(spamStatus.line).trim();
+		const classified = text.toLowerCase().startsWith("yes");
+		const scoreMatch = text.match(/score=([\d.+-]+)/i);
+		return {
+			classified,
+			score: scoreMatch ? scoreMatch[1] : undefined,
+			source: "x-spam-status",
+		};
+	}
+
+	const halOne = lines.find(
+		(l) => l.key.toLowerCase() === "x-halone-spam-probability",
+	);
+	if (halOne) {
+		const value = stripHeaderName(halOne.line).trim();
+		return {
+			classified: parseFloat(value) > 0.5,
+			score: value,
+			source: "x-halone-spam-probability",
+		};
+	}
+
+	return null;
+};
+
+/**
+ * Returns true when a List-Unsubscribe header is present, indicating a
+ * bulk/mailing-list sender.
+ */
+export const extractHasListUnsubscribe = (parsed: ParsedMail): boolean =>
+	parsed.headerLines.some((l) => l.key.toLowerCase() === "list-unsubscribe");
 
 const matchesAutoSubmitted = (headers: Headers): boolean => {
 	const value = readStringHeader(headers, "auto-submitted");

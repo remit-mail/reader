@@ -1,5 +1,6 @@
 import "typespec-electrodb-emitter";
 
+import "../enums/AuthResultVerdict.tsp";
 import "../enums/MessageCategory.tsp";
 import "../enums/MessageFlag.tsp";
 import "../enums/MessageStatus.tsp";
@@ -20,6 +21,30 @@ model MessageAuthenticity {
 
   @doc("True when DKIM signing domain(s) are present and none aligns with the From domain")
   dkimMismatch: boolean;
+}
+
+@doc("Provider authentication-results verdict, parsed from the Authentication-Results header at body-sync time. Absent for messages synced before this field was introduced.")
+model MessageAuthResult {
+  @doc("DMARC verdict (dmarc=)")
+  dmarc?: AuthResultVerdict;
+
+  @doc("SPF verdict (spf=)")
+  spf?: AuthResultVerdict;
+
+  @doc("DKIM verdict (dkim=)")
+  dkim?: AuthResultVerdict;
+}
+
+@doc("Provider spam-filter signal, parsed from X-SpamExperts-Class / X-Spam-Status / X-HalOne-Spam-Probability at body-sync time. Absent for messages synced before this field was introduced.")
+model MessageProviderSpam {
+  @doc("True when the provider's filter classified this message as spam.")
+  classified: boolean;
+
+  @doc("Raw spam score string from the header, when present.")
+  score?: string;
+
+  @doc("Header name the signal was read from, for diagnostics.")
+  source?: string;
 }
 
 @doc("Core message entity. The combination of Mailbox.uidValidity + Message.uid uniquely identifies a message forever per RFC 9051 Section 2.3.1.1.")
@@ -116,6 +141,22 @@ model Message {
   @doc("Structured sender-authenticity signal derived from DKIM headers at classification time. Absent for messages classified before this field was introduced — absence means no signal.")
   @visibility(Lifecycle.Read)
   authenticity?: MessageAuthenticity;
+
+  @doc("Provider authentication-results signal parsed from Authentication-Results header. Absent for messages synced before this field was introduced.")
+  @visibility(Lifecycle.Read)
+  authResult?: MessageAuthResult;
+
+  @doc("Provider spam-filter signal from X-Spam-* / X-SpamExperts-Class headers. Absent for messages synced before this field was introduced.")
+  @visibility(Lifecycle.Read)
+  providerSpam?: MessageProviderSpam;
+
+  @doc("True when a List-Unsubscribe header is present, indicating a bulk/mailing-list sender.")
+  @visibility(Lifecycle.Read)
+  hasListUnsubscribe?: boolean;
+
+  @doc("Set to true when Remit auto-moved this message out of Junk via the rescue heuristic. Guards against re-rescue loops.")
+  @visibility(Lifecycle.Read)
+  movedByRemit?: boolean;
 
   @visibility(Lifecycle.Read)
   @createdAt

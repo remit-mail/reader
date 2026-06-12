@@ -21,6 +21,7 @@ export {
 	type ConnectionGetter,
 	extractPrimaryFromEmail,
 	type FetchBodyResult,
+	type RescueConfig,
 	type SyncBodiesResult,
 	toParsedBody,
 } from "./body-sync.js";
@@ -53,7 +54,17 @@ export {
 	type FlagSyncResult,
 	FlagSyncService,
 } from "./flag-sync.js";
-export { classifyByHeaders } from "./heuristics/classifyByHeaders.js";
+export {
+	classifyByHeaders,
+	extractAuthenticity,
+	extractAuthResult,
+	extractHasListUnsubscribe,
+	extractProviderSpam,
+	type MessageAuthenticity,
+	type MessageAuthResult,
+	type MessageProviderSpam,
+} from "./heuristics/classifyByHeaders.js";
+export { shouldRescueFromJunk } from "./heuristics/rescueFromJunk.js";
 export { SOCIAL_DOMAINS } from "./heuristics/socialDomains.js";
 export { TRANSACTIONAL_DOMAINS } from "./heuristics/transactionalDomains.js";
 // IMAP connection (ImapFlow-based)
