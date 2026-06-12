@@ -21,7 +21,11 @@
  * client-side dedup; if appending Remit drafts into IMAP \Drafts ships in the
  * future the dedup key would be the RFC822 Message-ID header (issue #505).
  */
-import { outboxOperationsListOutboxMessagesOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import {
+	outboxDetailOperationsDeleteOutboxMessageMutation,
+	outboxOperationsListOutboxMessagesOptions,
+	outboxOperationsListOutboxMessagesQueryKey,
+} from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import {
 	Avatar,
@@ -31,9 +35,9 @@ import {
 	type ThreadRowData,
 	type ThreadSection,
 } from "@remit/ui";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { FileText, Inbox } from "lucide-react";
+import { FileText, Inbox, Trash2 } from "lucide-react";
 import { useMemo } from "react";
 import { useCompose } from "@/components/compose/ComposeProvider";
 import { groupDraftSections } from "@/lib/drafts";
@@ -59,9 +63,17 @@ interface RemitDraftRowProps {
 	row: ThreadRowData;
 	isSelected: boolean;
 	onOpen: (outboxMessageId: string) => void;
+	onDelete: (outboxMessageId: string) => void;
+	isDeleting: boolean;
 }
 
-const RemitDraftRow = ({ row, isSelected, onOpen }: RemitDraftRowProps) => (
+const RemitDraftRow = ({
+	row,
+	isSelected,
+	onOpen,
+	onDelete,
+	isDeleting,
+}: RemitDraftRowProps) => (
 	<button
 		type="button"
 		onClick={() => onOpen(row.id)}
@@ -69,6 +81,22 @@ const RemitDraftRow = ({ row, isSelected, onOpen }: RemitDraftRowProps) => (
 	>
 		<FileText className="size-7 shrink-0 text-fg-muted mt-0.5" />
 		<ComfortableRowTextContent thread={row} />
+		<div
+			className="flex items-center gap-1 shrink-0"
+			onClick={(e) => e.stopPropagation()}
+			onKeyDown={(e) => e.stopPropagation()}
+			role="presentation"
+		>
+			<button
+				type="button"
+				onClick={() => onDelete(row.id)}
+				disabled={isDeleting}
+				className="p-1.5 rounded-md text-fg-muted hover:text-danger hover:bg-surface-raised transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+				title="Delete draft"
+			>
+				<Trash2 className="size-3.5" />
+			</button>
+		</div>
 	</button>
 );
 
@@ -126,8 +154,9 @@ export function DraftsView({
 	title,
 	unreadCount,
 }: DraftsViewProps) {
-	const { openCompose } = useCompose();
+	const { openCompose, state: composeState } = useCompose();
 	const navigate = useNavigate();
+	const queryClient = useQueryClient();
 
 	// Fetch the full outbox list — both sources are already fetched by the
 	// client; this is a pure client-side composition (issue #505).
@@ -142,6 +171,19 @@ export function DraftsView({
 			imapThreads,
 		});
 	}, [outboxResponse?.items, accountId, imapThreads]);
+
+	const deleteMutation = useMutation({
+		...outboxDetailOperationsDeleteOutboxMessageMutation(),
+		onSuccess: () => {
+			queryClient.invalidateQueries({
+				queryKey: outboxOperationsListOutboxMessagesQueryKey(),
+			});
+		},
+	});
+
+	const handleRemitDraftDelete = (outboxMessageId: string) => {
+		deleteMutation.mutate({ path: { outboxMessageId } });
+	};
 
 	const handleRemitDraftOpen = (outboxMessageId: string) => {
 		// Clear any open IMAP draft first. The route's detailPane only renders
@@ -206,8 +248,13 @@ export function DraftsView({
 											<RemitDraftRow
 												key={thread.id}
 												row={thread}
-												isSelected={thread.id === selectedMessageId}
+												isSelected={
+													composeState.isOpen &&
+													thread.id === composeState.outboxMessageId
+												}
 												onOpen={handleRemitDraftOpen}
+												onDelete={handleRemitDraftDelete}
+												isDeleting={deleteMutation.isPending}
 											/>
 										);
 									}
