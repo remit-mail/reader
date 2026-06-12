@@ -41,7 +41,13 @@ const mailSearchSchema = z.object({
 	q: z.string().optional(),
 });
 
-type MailSearch = z.infer<typeof mailSearchSchema>;
+// Full merged search shape seen by navigate callbacks at the /mail level.
+// `selectedMessageId` lives in the child route schema but TanStack Router
+// passes the full merged search object to the `search` callback — include
+// it here so navigate calls can clear it without a type error.
+type MailSearch = z.infer<typeof mailSearchSchema> & {
+	selectedMessageId?: string;
+};
 
 export const Route = createFileRoute("/mail")({
 	// First-run guard lives on the /mail parent (not the index loader) so it
@@ -114,6 +120,8 @@ function MailLayout() {
 	// Push debounced input to the URL. Skips the initial render where the
 	// debounced value already matches the URL, and skips identical updates
 	// to avoid infinite loops with the URL → state sync below.
+	// Also clears selectedMessageId so the reading pane does not persist a
+	// stale thread while the user is typing a search (#539 / #540).
 	useEffect(() => {
 		if (debouncedSearchInput === searchQuery) return;
 		skipNextUrlSyncRef.current = true;
@@ -122,6 +130,7 @@ function MailLayout() {
 			search: (prev: MailSearch) => ({
 				...prev,
 				q: debouncedSearchInput || undefined,
+				selectedMessageId: undefined,
 			}),
 			replace: true,
 		});
@@ -144,6 +153,26 @@ function MailLayout() {
 	}, []);
 
 	const handleSearchClear = useCallback(() => {
+		skipNextUrlSyncRef.current = true;
+		setSearchInput("");
+		// Drop both the query and any selected message — clearing search via the
+		// X button should return to the plain list with no thread pre-selected
+		// (#538 / #540).
+		navigate({
+			to: ".",
+			search: (prev: MailSearch) => ({
+				...prev,
+				q: undefined,
+				selectedMessageId: undefined,
+			}),
+			replace: true,
+		});
+	}, [navigate]);
+
+	// Esc inside the search field clears only the query and leaves any open
+	// thread untouched — one keypress, one effect (#489). Distinct from the X
+	// button (handleSearchClear) which also deselects.
+	const handleSearchClearQuery = useCallback(() => {
 		skipNextUrlSyncRef.current = true;
 		setSearchInput("");
 		navigate({
@@ -203,6 +232,7 @@ function MailLayout() {
 				searchInput,
 				onSearchChange: handleSearchChange,
 				onSearchClear: handleSearchClear,
+				onSearchClearQuery: handleSearchClearQuery,
 				intelligenceOpen,
 				onToggleIntelligence: handleToggleIntelligence,
 			}}
@@ -288,6 +318,7 @@ function MailLayout() {
 												value={searchInput}
 												onChange={handleSearchChange}
 												onClear={handleSearchClear}
+												onClearQuery={handleSearchClearQuery}
 											/>
 										</div>
 										<button

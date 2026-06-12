@@ -18,7 +18,10 @@ export interface MailContextValue {
 	/** Live (pre-debounce) search input — the toolbar's search field binds this. */
 	searchInput: string;
 	onSearchChange: (query: string) => void;
+	/** Full clear (X button): drops the query and any selected thread (#538). */
 	onSearchClear: () => void;
+	/** Query-only clear (Esc): drops the query, keeps the thread open (#489). */
+	onSearchClearQuery: () => void;
 	/** Pane 4 (intelligence) visibility. Ships collapsed by default (#422). */
 	intelligenceOpen: boolean;
 	onToggleIntelligence: () => void;
@@ -38,6 +41,7 @@ export const useMailContext = (): MailContextValue => {
 			searchInput: "",
 			onSearchChange: () => {},
 			onSearchClear: () => {},
+			onSearchClearQuery: () => {},
 			intelligenceOpen: false,
 			onToggleIntelligence: () => {},
 		}

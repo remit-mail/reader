@@ -37,7 +37,10 @@ export interface MessageToolbarProps {
 	onToggleIntelligence: () => void;
 	searchValue: string;
 	onSearchChange: (value: string) => void;
+	/** Full clear (X button): drops the query and any selected thread (#538). */
 	onSearchClear: () => void;
+	/** Query-only clear (Esc): drops the query, keeps the thread open (#489). */
+	onSearchClearQuery?: () => void;
 
 	/* ---- wired action callbacks (omit to keep presentational) ---- */
 	onReply?: () => void;
@@ -76,6 +79,7 @@ export const MessageToolbar = ({
 	searchValue,
 	onSearchChange,
 	onSearchClear,
+	onSearchClearQuery,
 	onReply,
 	onReplyAll,
 	onForward,
@@ -183,6 +187,7 @@ export const MessageToolbar = ({
 				value={searchValue}
 				onChange={onSearchChange}
 				onClear={onSearchClear}
+				onClearQuery={onSearchClearQuery}
 				placeholder="Search mail"
 			/>
 		</div>

@@ -6,7 +6,17 @@ import { cn } from "@/lib/utils";
 interface SearchBarProps {
 	value: string;
 	onChange: (value: string) => void;
+	/**
+	 * Full clear (X button): resets the query AND the selected thread so the
+	 * view returns to the plain list with nothing pre-opened (#538).
+	 */
 	onClear: () => void;
+	/**
+	 * Query-only clear (Esc key): resets just the query and leaves any open
+	 * thread untouched — one keypress, one effect (#489). Falls back to
+	 * `onClear` when omitted.
+	 */
+	onClearQuery?: () => void;
 	placeholder?: string;
 }
 
@@ -14,9 +24,11 @@ export const SearchBar = ({
 	value,
 	onChange,
 	onClear,
+	onClearQuery,
 	placeholder = "Search mail...",
 }: SearchBarProps) => {
 	const inputRef = useRef<HTMLInputElement>(null);
+	const clearQuery = onClearQuery ?? onClear;
 
 	const focusSearch = useCallback(() => {
 		inputRef.current?.focus();
@@ -31,13 +43,13 @@ export const SearchBar = ({
 		(event: React.KeyboardEvent<HTMLInputElement>) => {
 			if (event.key === "Escape") {
 				if (value) {
-					onClear();
+					clearQuery();
 				} else {
 					inputRef.current?.blur();
 				}
 			}
 		},
-		[value, onClear],
+		[value, clearQuery],
 	);
 
 	// Global "/" shortcut to focus search
@@ -54,7 +66,7 @@ export const SearchBar = ({
 				document.activeElement === inputRef.current
 			) {
 				if (value) {
-					onClear();
+					clearQuery();
 				} else {
 					inputRef.current?.blur();
 				}
@@ -63,7 +75,7 @@ export const SearchBar = ({
 
 		window.addEventListener("keydown", handleGlobalEscape);
 		return () => window.removeEventListener("keydown", handleGlobalEscape);
-	}, [value, onClear]);
+	}, [value, clearQuery]);
 
 	return (
 		<div className="relative w-full">
