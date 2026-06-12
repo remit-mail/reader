@@ -10,9 +10,10 @@ import {
 	Outlet,
 	redirect,
 	useNavigate,
+	useParams,
 	useSearch,
 } from "@tanstack/react-router";
-import { Menu, Search, X } from "lucide-react";
+import { ArrowLeft, Menu, Search, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { SignOutMenuItem } from "@/auth/SignOutMenuItem";
@@ -159,6 +160,29 @@ function MailLayout() {
 	const accounts = config?.accounts ?? [];
 	const mobileTitle = useCurrentMailboxName({ accounts });
 
+	// Read the current mailbox params and selected message (if any) from the
+	// child route so the mobile top-bar title can act as a back button when a
+	// thread is open. `strict: false` lets the parent layout read child-route
+	// params without coupling to the child route definition.
+	const { mailboxId: mobileMailboxId } = useParams({ strict: false }) as {
+		mailboxId?: string;
+	};
+	const { selectedMessageId: mobileSelectedMessageId } = useSearch({
+		strict: false,
+	}) as { selectedMessageId?: string };
+
+	const handleMobileBackToInbox = useCallback(() => {
+		if (!mobileMailboxId) return;
+		navigate({
+			to: "/mail/$mailboxId",
+			params: { mailboxId: mobileMailboxId },
+			search: (prev: Record<string, unknown>) => ({
+				...prev,
+				selectedMessageId: undefined,
+			}),
+		});
+	}, [mobileMailboxId, navigate]);
+
 	// Auto-trigger a mailbox-list sync for any account whose lastSyncAt is
 	// older than 15 minutes (or unset). Fires once per accountId per session
 	// — re-mounts of MailLayout will not retrigger. See #205.
@@ -275,9 +299,22 @@ function MailLayout() {
 											<X className="size-5" />
 										</button>
 									</div>
+								) : mobileSelectedMessageId ? (
+									<>
+										<button
+											type="button"
+											onClick={handleMobileBackToInbox}
+											className="inline-flex min-h-11 items-center gap-1.5 px-1 text-sm font-medium text-fg transition-colors hover:text-accent"
+											aria-label="Back to inbox"
+										>
+											<ArrowLeft className="size-4 shrink-0" />
+											<span className="truncate">{mobileTitle ?? "Inbox"}</span>
+										</button>
+										<div className="flex-1" />
+									</>
 								) : (
 									<>
-										<span className="flex-1 truncate font-semibold text-fg">
+										<span className="flex-1 truncate text-sm font-semibold text-fg">
 											{mobileTitle ?? "Remit"}
 										</span>
 										<button

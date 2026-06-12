@@ -134,15 +134,20 @@ export const IsolatedEmailFrame = ({
 			srcDoc={srcDoc}
 			className={className}
 			style={{
-				// Initial width 100% so the first measurement reflects the
-				// content's natural width: fluid content reports the container
-				// width (pins there → stable, no horizontal overflow), only
-				// genuinely fixed-width content ends up wider than the pane.
-				// Once measured, pin the explicit content width so the iframe
-				// is exactly as wide as its content and grows no internal
-				// horizontal scrollbar — the wide email instead drives the
-				// pane viewport's horizontal scroll.
-				width: width === 0 ? "100%" : `${width}px`,
+				// Plain emails: pin to measured content width once known, start
+				// at 100% so fluid content is measured at the container width.
+				//
+				// Framed (newsletter) emails: use `max(100%, ${width}px)` so
+				// narrow-max-width newsletters (e.g. Substack's 640px body) fill
+				// the reading pane rather than rendering in a narrow column. For
+				// genuinely wide fixed-layout emails (900px+) the iframe still
+				// grows past the pane width and lets the pane scroll horizontally.
+				width:
+					!isPlain && width > 0
+						? `max(100%, ${width}px)`
+						: width === 0
+							? "100%"
+							: `${width}px`,
 				border: "none",
 				display: "block",
 				height: height === 0 ? "1px" : `${height}px`,
