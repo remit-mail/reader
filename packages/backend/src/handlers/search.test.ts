@@ -18,6 +18,8 @@ const buildFakeSearch = (
 	const service: SearchService = {
 		index: async () => {},
 		delete: async () => {},
+		deleteKeys: async () => {},
+		getChunkKeys: () => [],
 		search: async (params) => {
 			captured.calls.push(params);
 			return results;

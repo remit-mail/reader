@@ -73,7 +73,7 @@ const mockAccountService = {
 		if (!account) throw new Error(`Account not found: ${accountId}`);
 		return account;
 	},
-} as Services["accountService"];
+} as unknown as Services["accountService"];
 
 const createTestServices = (
 	storageService: StorageService,
@@ -422,6 +422,124 @@ describe("search-index-worker handler", () => {
 
 		assert.equal(result.batchItemFailures.length, 1);
 		assert.equal(result.batchItemFailures[0].itemIdentifier, "sqs-bad");
+	});
+
+	test("isNewMessage:true skips deleteKeys entirely", async () => {
+		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID });
+		const store = createMemoryVectorStore();
+		const embedder = createDeterministicEmbeddingService();
+		const baseSearchService = createSearchService({ embedder, store });
+		const storageService = createMockStorageService();
+
+		let deleteKeysCalled = false;
+		const searchService: SearchService = {
+			...baseSearchService,
+			deleteKeys: async (keys) => {
+				deleteKeysCalled = true;
+				return baseSearchService.deleteKeys(keys);
+			},
+		};
+
+		threadMessages.set(MESSAGE_ID, makeThreadMessage(MESSAGE_ID));
+		await storageService.storeParsedBody({
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			accountId: ACCOUNT_ID,
+			messageId: MESSAGE_ID,
+			parsed: {
+				text: "New message content",
+				html: null,
+				attachments: [],
+			},
+		});
+
+		const services = createTestServices(storageService, searchService);
+		const event: IndexEvent = {
+			type: "upsert",
+			messageId: MESSAGE_ID,
+			accountId: ACCOUNT_ID,
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			mailboxIds: MAILBOX_IDS,
+			isNewMessage: true,
+		};
+
+		const result = await processBatch(
+			[makeRecord(event)],
+			services,
+			noopLogger,
+		);
+
+		assert.equal(result.batchItemFailures.length, 0);
+		assert.equal(
+			deleteKeysCalled,
+			false,
+			"deleteKeys must not be called for new messages",
+		);
+		assert.ok(store.size() > 0, "Message should still be indexed");
+
+		threadMessages.clear();
+		accounts.clear();
+	});
+
+	test("isNewMessage absent calls deleteKeys with computed chunk keys", async () => {
+		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID });
+		const store = createMemoryVectorStore();
+		const embedder = createDeterministicEmbeddingService();
+		const baseSearchService = createSearchService({ embedder, store });
+		const storageService = createMockStorageService();
+
+		const capturedKeys: string[][] = [];
+		const searchService: SearchService = {
+			...baseSearchService,
+			deleteKeys: async (keys) => {
+				capturedKeys.push(keys);
+				return baseSearchService.deleteKeys(keys);
+			},
+		};
+
+		threadMessages.set(MESSAGE_ID, makeThreadMessage(MESSAGE_ID));
+		await storageService.storeParsedBody({
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			accountId: ACCOUNT_ID,
+			messageId: MESSAGE_ID,
+			parsed: {
+				text: "Updated message content",
+				html: null,
+				attachments: [],
+			},
+		});
+
+		const services = createTestServices(storageService, searchService);
+		// No isNewMessage field — should trigger deleteKeys
+		const event: IndexEvent = {
+			type: "upsert",
+			messageId: MESSAGE_ID,
+			accountId: ACCOUNT_ID,
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			mailboxIds: MAILBOX_IDS,
+		};
+
+		const result = await processBatch(
+			[makeRecord(event)],
+			services,
+			noopLogger,
+		);
+
+		assert.equal(result.batchItemFailures.length, 0);
+		assert.equal(capturedKeys.length, 1, "deleteKeys should be called once");
+		assert.ok(
+			capturedKeys[0].length > 0,
+			"deleteKeys should receive chunk keys",
+		);
+		// All keys should be prefixed with the messageId (deterministic key format)
+		for (const key of capturedKeys[0]) {
+			assert.ok(
+				key.startsWith(`${MESSAGE_ID}::`),
+				`Key "${key}" should start with messageId prefix`,
+			);
+		}
+
+		threadMessages.clear();
+		accounts.clear();
 	});
 
 	test("upsert is dropped when account is deleted (tombstone fence)", async () => {

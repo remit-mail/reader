@@ -9,6 +9,7 @@ export interface VectorStoreService {
 	upsert(vectors: VectorRecord[]): Promise<void>;
 	query(params: VectorQuery): Promise<VectorMatch[]>;
 	delete(filter: { messageId: string }): Promise<void>;
+	deleteKeys(keys: string[]): Promise<void>;
 }
 
 const cosineSimilarity = (a: number[], b: number[]): number => {
@@ -101,6 +102,12 @@ export class MemoryVectorStore implements VectorStoreService {
 		}
 		for (const id of toDelete) {
 			this.store.delete(id);
+		}
+	};
+
+	deleteKeys = async (keys: string[]): Promise<void> => {
+		for (const key of keys) {
+			this.store.delete(key);
 		}
 	};
 
