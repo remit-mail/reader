@@ -4,7 +4,10 @@ import { withTheme } from "../src/decorators/theme.js";
 import { handlers } from "../src/mocks/handlers.js";
 import "./tailwind.css";
 
-initialize({ onUnhandledRequest: "bypass" });
+initialize({
+	onUnhandledRequest: "bypass",
+	serviceWorker: { url: "./mockServiceWorker.js" },
+});
 
 const preview: Preview = {
 	parameters: {
