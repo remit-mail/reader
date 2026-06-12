@@ -1,38 +1,20 @@
 import { inspect } from "node:util";
 import { CloudFrontClient } from "@aws-sdk/client-cloudfront";
-import {
-	DeleteObjectsCommand,
-	ListObjectsV2Command,
-	S3Client,
-} from "@aws-sdk/client-s3";
-import {
-	Account,
-	AccountConfig,
-	Address,
-	BodyPart,
-	BodyPartContent,
-	BodyPartParameter,
-	BodyPartStorage,
-	Envelope,
-	EnvelopeAddress,
-	Mailbox,
-	MailboxLock,
-	Message,
-	MessageFlag,
-	MessageReference,
-	OutboxMessage,
-	RawMessageStorage,
-	ThreadMessage,
-} from "@remit/electrodb-entities";
+import { S3Client } from "@aws-sdk/client-s3";
 import { NotFoundError } from "@remit/remit-electrodb-service";
 import { createLogger, type Logger } from "@remit/logger-lambda";
 import type { Context, SQSEvent, SQSHandler } from "aws-lambda";
-import { Entity } from "electrodb";
 import {
 	type CascadeEntity,
 	type CascadeServices,
+	enumerateAccountPurgeEntities,
 	enumerateCascadeEntities,
 } from "../cascade.js";
+import {
+	type CascadeS3Client,
+	deleteS3Prefix,
+	runDdbCascadeDelete,
+} from "../cascade-delete.js";
 import {
 	type InvalidationClient,
 	invalidateAccountContent,
@@ -42,7 +24,11 @@ import {
 	ddbClient as defaultDdbClient,
 	tableName as defaultTableName,
 } from "../config.js";
-import type { AccountFinalizeEvent } from "../events.js";
+import type {
+	AccountDataPurgeFinalizeEvent,
+	AccountDeleteFinalizeEvent,
+	AccountFinalizeEvent,
+} from "../events.js";
 
 let _cloudFrontClient: CloudFrontClient | undefined;
 const getCloudFrontClient = (): CloudFrontClient => {
@@ -57,18 +43,10 @@ const getS3Client = (): S3Client => {
 };
 
 /**
- * S3 client surface used by the finalize cascade. Subset of the SDK
- * `S3Client` so tests can swap in an `aws-sdk-client-mock` instance or a
- * hand-rolled fake without pulling in the full client.
+ * S3 client surface used by the finalize cascade. Re-exported alias of the
+ * shared {@link CascadeS3Client} so existing importers keep working.
  */
-export interface FinalizeS3Client {
-	send(command: ListObjectsV2Command): Promise<{
-		Contents?: Array<{ Key?: string }>;
-		IsTruncated?: boolean;
-		NextContinuationToken?: string;
-	}>;
-	send(command: DeleteObjectsCommand): Promise<unknown>;
-}
+export type FinalizeS3Client = CascadeS3Client;
 
 export interface ProcessFinalizeDeps {
 	cloudFrontClient?: InvalidationClient;
@@ -104,7 +82,7 @@ export interface ProcessFinalizeDeps {
  * operator inspects the failure.
  */
 export const processAccountFinalize = async (
-	event: AccountFinalizeEvent,
+	event: AccountDeleteFinalizeEvent,
 	log: Logger,
 	deps: ProcessFinalizeDeps = {},
 ): Promise<void> => {
@@ -197,184 +175,95 @@ export const processAccountFinalize = async (
 	log.info({ accountConfigId }, "AccountConfig deleted; cascade complete");
 };
 
-// ---------- DDB cascade ----------
-
-// DDB `BatchWriteItem` accepts up to 25 requests per call.
-const DDB_BATCH_LIMIT = 25;
-// Bounded retry on `UnprocessedItems` — exponential backoff, jittered.
-const DDB_MAX_RETRIES = 5;
-
-// biome-ignore lint/suspicious/noExplicitAny: ElectroDB's Entity generics
-// are not parameterisable across heterogeneous schemas in a single map; the
-// schemas below are all valid Entity inputs and the wrapping at use-site
-// keeps the rest of the file fully typed.
-const ENTITY_BY_TYPE: Record<string, any> = {
-	Account,
-	AccountConfig,
-	Address,
-	BodyPart,
-	BodyPartContent,
-	BodyPartParameter,
-	BodyPartStorage,
-	Envelope,
-	EnvelopeAddress,
-	Mailbox,
-	MailboxLock,
-	Message,
-	MessageFlag,
-	MessageReference,
-	OutboxMessage,
-	RawMessageStorage,
-	ThreadMessage,
-};
-
-// Children-first delete order. AccountConfig is intentionally absent — it
-// is removed last by the caller, after S3 cleanup, so a mid-cascade replay
-// always re-enters and finishes.
-const DELETE_LEVELS: readonly (readonly string[])[] = [
-	["MessageFlag", "MessageReference"],
-	[
-		"BodyPartParameter",
-		"BodyPartStorage",
-		"BodyPartContent",
-		"RawMessageStorage",
-	],
-	["BodyPart"],
-	["EnvelopeAddress"],
-	["Envelope"],
-	["ThreadMessage"],
-	["Message"],
-	["OutboxMessage"],
-	["Mailbox"],
-	["MailboxLock"],
-	["Address", "Account"],
-];
-
-const sleep = (ms: number): Promise<void> =>
-	new Promise((r) => setTimeout(r, ms));
-
-interface DdbConfig {
-	client: typeof defaultDdbClient;
-	table: string;
-}
-
-const runDdbCascadeDelete = async (
-	entities: CascadeEntity[],
-	config: DdbConfig,
+/**
+ * Destructive phase of the per-account purge. Deletes ONE account's rows
+ * (children → parents), the S3 objects under `accounts/{cfg}/{acct}/`, and
+ * invalidates that account's CloudFront content — keeping the AccountConfig,
+ * its sibling accounts, and the soft-deleted account row intact.
+ *
+ * Runs in the finalize worker so it reuses the S3-delete, CloudFront, and DDB
+ * batch-write grants already on that Lambda — no new infrastructure or IAM.
+ * Vector deletes are handled upstream by the fanout step (search-index queue).
+ *
+ * Idempotency: a redelivery after the account's rows are gone enumerates an
+ * empty plan and re-issues idempotent S3/CloudFront calls. A `NotFoundError`
+ * (account row removed out of band) is the already-purged signal — no-op.
+ */
+export const processAccountDataPurgeFinalize = async (
+	event: AccountDataPurgeFinalizeEvent,
 	log: Logger,
+	deps: ProcessFinalizeDeps = {},
 ): Promise<void> => {
-	const grouped = new Map<string, Record<string, string>[]>();
-	for (const entity of entities) {
-		const list = grouped.get(entity.entityType) ?? [];
-		list.push(entity.key);
-		grouped.set(entity.entityType, list);
-	}
+	const { accountId, accountConfigId } = event;
+	const distributionId =
+		deps.distributionId ?? process.env.CONTENT_DISTRIBUTION_ID ?? "";
+	const cloudFrontClient = deps.cloudFrontClient ?? getCloudFrontClient();
+	const s3Client = deps.s3Client ?? getS3Client();
+	const storageBucket =
+		deps.storageBucket ?? process.env.S3_STORAGE_BUCKET_NAME ?? "";
+	const services = deps.cascadeServices ?? defaultCascadeServices;
+	const ddbClient = deps.ddbClient ?? defaultDdbClient;
+	const tableName = deps.tableName ?? defaultTableName;
 
-	for (const level of DELETE_LEVELS) {
-		for (const entityType of level) {
-			const keys = grouped.get(entityType);
-			if (!keys || keys.length === 0) continue;
-			await deleteEntityBatch(entityType, keys, config, log);
-		}
-	}
-};
-
-const deleteEntityBatch = async (
-	entityType: string,
-	keys: Record<string, string>[],
-	config: DdbConfig,
-	log: Logger,
-): Promise<void> => {
-	const schema = ENTITY_BY_TYPE[entityType];
-	if (!schema) {
-		throw new Error(`Unknown entity type in cascade: ${entityType}`);
-	}
-
-	const entity = new Entity(schema, {
-		client: config.client,
-		table: config.table,
-	}) as unknown as {
-		delete: (keys: Record<string, string>[]) => {
-			go: () => Promise<{ unprocessed: Record<string, string>[] }>;
-		};
-	};
-
-	for (let i = 0; i < keys.length; i += DDB_BATCH_LIMIT) {
-		const chunk = keys.slice(i, i + DDB_BATCH_LIMIT);
-		let pending: Record<string, string>[] = chunk;
-		for (let attempt = 0; attempt <= DDB_MAX_RETRIES; attempt++) {
-			const result = await entity.delete(pending).go();
-			const unprocessed = result.unprocessed ?? [];
-			if (unprocessed.length === 0) break;
-			if (attempt === DDB_MAX_RETRIES) {
-				throw new Error(
-					`BatchWriteItem still has ${unprocessed.length} unprocessed ${entityType} items after ${DDB_MAX_RETRIES} retries`,
-				);
-			}
-			// Exponential backoff with jitter (50ms, 100ms, 200ms, 400ms, 800ms).
-			const backoff = 50 * 2 ** attempt + Math.floor(Math.random() * 50);
-			log.warn(
-				{
-					entityType,
-					unprocessed: unprocessed.length,
-					attempt,
-					backoffMs: backoff,
-				},
-				"BatchWriteItem returned UnprocessedItems; retrying",
-			);
-			await sleep(backoff);
-			pending = unprocessed;
-		}
-	}
-
-	log.info({ entityType, count: keys.length }, "DDB cascade level complete");
-};
-
-// ---------- S3 cascade ----------
-
-// `DeleteObjects` accepts up to 1000 keys per call.
-const S3_DELETE_LIMIT = 1000;
-
-const deleteS3Prefix = async (
-	bucket: string,
-	prefix: string,
-	client: FinalizeS3Client,
-	log: Logger,
-): Promise<void> => {
-	let continuationToken: string | undefined;
-	let totalDeleted = 0;
-
-	while (true) {
-		const listResult = await client.send(
-			new ListObjectsV2Command({
-				Bucket: bucket,
-				Prefix: prefix,
-				MaxKeys: S3_DELETE_LIMIT,
-				ContinuationToken: continuationToken,
-			}),
+	if (!distributionId) {
+		throw new Error(
+			"CONTENT_DISTRIBUTION_ID is not set; cannot invalidate CloudFront cache",
 		);
-		const keys = (listResult.Contents ?? [])
-			.map((o) => o.Key)
-			.filter((k): k is string => typeof k === "string" && k.length > 0);
-
-		if (keys.length > 0) {
-			await client.send(
-				new DeleteObjectsCommand({
-					Bucket: bucket,
-					Delete: {
-						Objects: keys.map((Key) => ({ Key })),
-						Quiet: true,
-					},
-				}),
-			);
-			totalDeleted += keys.length;
-		}
-
-		if (!listResult.IsTruncated) break;
-		continuationToken = listResult.NextContinuationToken;
+	}
+	if (!storageBucket) {
+		throw new Error(
+			"S3_STORAGE_BUCKET_NAME is not set; cannot purge account S3 objects",
+		);
 	}
 
-	log.info({ bucket, prefix, totalDeleted }, "S3 prefix cleanup complete");
+	let entities: CascadeEntity[];
+	try {
+		const plan = await enumerateAccountPurgeEntities(
+			accountConfigId,
+			accountId,
+			services,
+			log,
+		);
+		entities = plan.entities;
+	} catch (error) {
+		if (error instanceof NotFoundError) {
+			log.info(
+				{ accountConfigId, accountId },
+				"Per-account purge already complete (account not found on replay) — no-op",
+			);
+			return;
+		}
+		throw error;
+	}
+
+	// Step 1: CloudFront invalidation for this account's content prefix only.
+	log.info(
+		{ accountConfigId, accountId },
+		"Invalidating CloudFront cache for purged account",
+	);
+	await invalidateAccountContent(
+		`${accountConfigId}/${accountId}`,
+		distributionId,
+		cloudFrontClient,
+	);
+
+	// Step 2: DDB cascade delete (children → parents). The Account row is not
+	// in the plan; it is kept as the purge-in-progress marker.
+	await runDdbCascadeDelete(
+		entities,
+		{ client: ddbClient, table: tableName },
+		log,
+	);
+
+	// Step 3: S3 prefix cleanup scoped to this account only.
+	await deleteS3Prefix(
+		storageBucket,
+		`accounts/${accountConfigId}/${accountId}/`,
+		s3Client,
+		log,
+	);
+
+	log.info({ accountConfigId, accountId }, "Per-account data purge complete");
 };
 
 // ---------- SQS handler ----------
@@ -396,7 +285,11 @@ export const handler: SQSHandler = async (
 				},
 				"Processing account finalize event",
 			);
-			await processAccountFinalize(finalizeEvent, log);
+			if (finalizeEvent.type === "FinalizeAccountDataPurge") {
+				await processAccountDataPurgeFinalize(finalizeEvent, log);
+			} else {
+				await processAccountFinalize(finalizeEvent, log);
+			}
 		} catch (error) {
 			log.error(
 				{ error: inspect(error), messageId: record.messageId },

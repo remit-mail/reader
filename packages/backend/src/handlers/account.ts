@@ -1,4 +1,5 @@
 import { inspect } from "node:util";
+import { SendMessageCommand } from "@aws-sdk/client-sqs";
 import type {
 	AccountItem,
 	AccountService,
@@ -409,6 +410,18 @@ export const AccountDetailOperations: Record<
 			deletedAt,
 			isActive: false,
 		});
+
+		await sqsClient.send(
+			new SendMessageCommand({
+				QueueUrl: env.SQS_QUEUE_URL_ACCOUNT_FANOUT,
+				MessageBody: JSON.stringify({
+					type: "AccountDataPurge",
+					accountId,
+					accountConfigId,
+				}),
+			}),
+		);
+		logger.info({ accountId, accountConfigId }, "Account data purge initiated");
 
 		return {
 			accountId,
