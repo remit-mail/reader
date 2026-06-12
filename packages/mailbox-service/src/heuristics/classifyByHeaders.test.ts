@@ -2,7 +2,13 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { MessageCategory } from "@remit/domain-enums";
 import { simpleParser } from "mailparser";
-import { classifyByHeaders, extractAuthenticity } from "./classifyByHeaders.js";
+import {
+	classifyByHeaders,
+	extractAuthenticity,
+	extractAuthResult,
+	extractHasListUnsubscribe,
+	extractProviderSpam,
+} from "./classifyByHeaders.js";
 
 const buildEml = (lines: string[]): Buffer => Buffer.from(lines.join("\r\n"));
 
@@ -411,5 +417,162 @@ describe("extractAuthenticity", () => {
 		assert.equal(category, MessageCategory.personal);
 		assert.ok(auth, "expected authenticity object");
 		assert.equal(auth.dkimMismatch, false);
+	});
+});
+
+describe("extractAuthResult", () => {
+	it("returns null when Authentication-Results header is absent", async () => {
+		const parsed = await parse([
+			"From: alice@example.com",
+			"To: bob@example.com",
+			"Subject: no auth-results",
+			"",
+			"body",
+		]);
+		assert.equal(extractAuthResult(parsed), null);
+	});
+
+	it("parses dmarc=pass spf=pass dkim=pass", async () => {
+		const parsed = await parse([
+			"From: alice@example.com",
+			"To: bob@example.com",
+			"Subject: auth results",
+			"Authentication-Results: mx.example.com; dmarc=pass; spf=pass; dkim=pass",
+			"",
+			"body",
+		]);
+		const result = extractAuthResult(parsed);
+		assert.ok(result);
+		assert.equal(result.dmarc, "Pass");
+		assert.equal(result.spf, "Pass");
+		assert.equal(result.dkim, "Pass");
+	});
+
+	it("parses dmarc=fail", async () => {
+		const parsed = await parse([
+			"From: alice@example.com",
+			"To: bob@example.com",
+			"Subject: auth results",
+			"Authentication-Results: mx.example.com; dmarc=fail",
+			"",
+			"body",
+		]);
+		const result = extractAuthResult(parsed);
+		assert.ok(result);
+		assert.equal(result.dmarc, "Fail");
+	});
+
+	it("returns undefined for mechanism when absent", async () => {
+		const parsed = await parse([
+			"From: alice@example.com",
+			"To: bob@example.com",
+			"Subject: partial",
+			"Authentication-Results: mx.example.com; spf=softfail",
+			"",
+			"body",
+		]);
+		const result = extractAuthResult(parsed);
+		assert.ok(result);
+		assert.equal(result.spf, "Softfail");
+		assert.equal(result.dmarc, undefined);
+		assert.equal(result.dkim, undefined);
+	});
+});
+
+describe("extractProviderSpam", () => {
+	it("returns null when no spam headers are present", async () => {
+		const parsed = await parse([
+			"From: alice@example.com",
+			"To: bob@example.com",
+			"Subject: clean",
+			"",
+			"body",
+		]);
+		assert.equal(extractProviderSpam(parsed), null);
+	});
+
+	it("parses X-SpamExperts-Class: ham as classified=false", async () => {
+		const parsed = await parse([
+			"From: alice@example.com",
+			"To: bob@example.com",
+			"Subject: spamexperts ham",
+			"X-SpamExperts-Class: ham",
+			"",
+			"body",
+		]);
+		const result = extractProviderSpam(parsed);
+		assert.ok(result);
+		assert.equal(result.classified, false);
+		assert.equal(result.source, "x-spamexperts-class");
+	});
+
+	it("parses X-SpamExperts-Class: spam as classified=true", async () => {
+		const parsed = await parse([
+			"From: alice@example.com",
+			"To: bob@example.com",
+			"Subject: spamexperts spam",
+			"X-SpamExperts-Class: spam",
+			"",
+			"body",
+		]);
+		const result = extractProviderSpam(parsed);
+		assert.ok(result);
+		assert.equal(result.classified, true);
+		assert.equal(result.source, "x-spamexperts-class");
+	});
+
+	it("parses X-Spam-Status: Yes with score", async () => {
+		const parsed = await parse([
+			"From: alice@example.com",
+			"To: bob@example.com",
+			"Subject: spam status",
+			"X-Spam-Status: Yes, score=8.4 required=5.0",
+			"",
+			"body",
+		]);
+		const result = extractProviderSpam(parsed);
+		assert.ok(result);
+		assert.equal(result.classified, true);
+		assert.equal(result.score, "8.4");
+		assert.equal(result.source, "x-spam-status");
+	});
+
+	it("parses X-Spam-Status: No as classified=false", async () => {
+		const parsed = await parse([
+			"From: alice@example.com",
+			"To: bob@example.com",
+			"Subject: not spam",
+			"X-Spam-Status: No, score=1.2",
+			"",
+			"body",
+		]);
+		const result = extractProviderSpam(parsed);
+		assert.ok(result);
+		assert.equal(result.classified, false);
+	});
+});
+
+describe("extractHasListUnsubscribe", () => {
+	it("returns false when no List-Unsubscribe header", async () => {
+		const parsed = await parse([
+			"From: alice@example.com",
+			"To: bob@example.com",
+			"Subject: personal",
+			"",
+			"body",
+		]);
+		assert.equal(extractHasListUnsubscribe(parsed), false);
+	});
+
+	it("returns true when List-Unsubscribe header is present", async () => {
+		const parsed = await parse([
+			"From: newsletter@example.com",
+			"To: bob@example.com",
+			"Subject: our newsletter",
+			"List-Unsubscribe: <https://example.com/unsubscribe>",
+			"",
+			"body",
+		]);
+		assert.equal(extractHasListUnsubscribe(parsed), true);
 	});
 });

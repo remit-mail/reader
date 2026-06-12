@@ -2,9 +2,11 @@ import { inspect } from "node:util";
 import {
 	AddressService,
 	type EnvelopeService,
+	type MailboxSpecialUseService,
 	type MessageService,
 	type ThreadMessageService,
 } from "@remit/remit-electrodb-service";
+import { MailboxSpecialUse, SenderTrust } from "@remit/domain-enums";
 import type { ParsedBody, StorageService } from "@remit/storage-service";
 import { type ParsedMail, simpleParser } from "mailparser";
 import pMap from "p-map";
@@ -12,7 +14,12 @@ import { mapBodyPartsToContent } from "./body-part-mapper.js";
 import {
 	classifyByHeaders,
 	extractAuthenticity,
+	extractAuthResult,
+	extractHasListUnsubscribe,
+	extractProviderSpam,
 } from "./heuristics/classifyByHeaders.js";
+import { shouldRescueFromJunk } from "./heuristics/rescueFromJunk.js";
+import type { MessageMoveService } from "./message-move.js";
 import { extractSnippetFromEmail } from "./snippet.js";
 import type { IImapConnection } from "./types.js";
 
@@ -69,6 +76,11 @@ export interface StoreBodyPartContentsResult {
 
 export type ConnectionGetter = () => Promise<IImapConnection>;
 
+export interface RescueConfig {
+	mailboxSpecialUseService: MailboxSpecialUseService;
+	messageMoveService: MessageMoveService;
+}
+
 export class BodySyncService {
 	private log: BodySyncLogger;
 
@@ -79,6 +91,7 @@ export class BodySyncService {
 		private addressService: AddressService,
 		private envelopeService: EnvelopeService,
 		logger?: BodySyncLogger,
+		private readonly rescueConfig?: RescueConfig,
 	) {
 		this.log = logger ?? noopLogger;
 	}
@@ -323,6 +336,14 @@ export class BodySyncService {
 		// Counters drift under at-least-once SQS — accepted residual per EDD #232.
 		await this.classifyAndCount(messageId, accountConfigId, parsed);
 
+		// Rescue falsely-junked mail if configured and heuristics pass.
+		await this.maybeRescueFromJunk(
+			messageId,
+			accountId,
+			accountConfigId,
+			parsed,
+		);
+
 		// Write the parsed-body cache alongside the raw .eml so subsequent
 		// describeMessage reads can skip mailparser entirely.
 		await this.storeParsedBodyCache(
@@ -355,9 +376,15 @@ export class BodySyncService {
 	): Promise<void> {
 		const category = classifyByHeaders(parsed);
 		const authenticity = extractAuthenticity(parsed);
+		const authResult = extractAuthResult(parsed);
+		const providerSpam = extractProviderSpam(parsed);
+		const hasListUnsubscribe = extractHasListUnsubscribe(parsed);
 		await this.messageService.update(messageId, {
 			category,
 			...(authenticity !== null ? { authenticity } : {}),
+			...(authResult !== null ? { authResult } : {}),
+			...(providerSpam !== null ? { providerSpam } : {}),
+			hasListUnsubscribe,
 		});
 
 		const fromEmail = extractPrimaryFromEmail(parsed);
@@ -374,6 +401,66 @@ export class BodySyncService {
 			fromEmail,
 		);
 		await this.addressService.incrementInboundCount(addressId, Date.now());
+	}
+
+	private async deriveSenderTrust(
+		accountConfigId: string,
+		fromEmail: string,
+	): Promise<(typeof SenderTrust)[keyof typeof SenderTrust]> {
+		try {
+			const addressId = AddressService.generateAddressId(
+				accountConfigId,
+				fromEmail,
+			);
+			const address = await this.addressService.getAddress(addressId);
+			if (address.flags?.vip?.value === true) return SenderTrust.Vip;
+			if (address.flags?.wellknown?.value === true)
+				return SenderTrust.Wellknown;
+		} catch {
+			// Address not found — treat as unknown trust
+		}
+		return SenderTrust.Unknown;
+	}
+
+	private async maybeRescueFromJunk(
+		messageId: string,
+		accountId: string,
+		accountConfigId: string,
+		parsed: ParsedMail,
+	): Promise<void> {
+		if (!this.rescueConfig) return;
+		const { mailboxSpecialUseService, messageMoveService } = this.rescueConfig;
+
+		const message = await this.messageService.get(messageId);
+		const junkMailbox = await mailboxSpecialUseService.findBySpecialUse(
+			accountId,
+			MailboxSpecialUse.Junk,
+		);
+		if (!junkMailbox || message.mailboxId !== junkMailbox.mailboxId) return;
+
+		const fromEmail = extractPrimaryFromEmail(parsed);
+		const senderTrust = fromEmail
+			? await this.deriveSenderTrust(accountConfigId, fromEmail)
+			: SenderTrust.Unknown;
+
+		const rescue = shouldRescueFromJunk(message, senderTrust);
+		if (!rescue) return;
+
+		const inboxMailbox =
+			await mailboxSpecialUseService.findInboxMailbox(accountId);
+		if (!inboxMailbox) return;
+
+		await this.messageService.update(messageId, { movedByRemit: true });
+		await messageMoveService.moveMessage(
+			messageId,
+			inboxMailbox.mailboxId,
+			accountId,
+		);
+
+		this.log.info(
+			{ messageId, accountId, destination: inboxMailbox.fullPath },
+			"Rescued message from Junk",
+		);
 	}
 
 	/**
