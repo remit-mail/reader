@@ -11,7 +11,14 @@ import type {
 } from "@remit/api-http-client/types.gen.ts";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import type { Value } from "platejs";
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import {
+	lazy,
+	Suspense,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { useMessageBodyContent } from "../../hooks/useMessageBodyContent";
 import { useSaveDraft } from "../../hooks/useSaveDraft";
 import { useSignature } from "../../hooks/useSignature.js";
@@ -294,6 +301,25 @@ export const ComposeForm = ({
 		account?.accountId,
 	);
 	const [draftLoaded, setDraftLoaded] = useState(false);
+	const prevOutboxMessageIdRef = useRef<string | undefined>(outboxMessageId);
+
+	// Reset form when the user switches to a different draft (outboxMessageId
+	// changes while compose is already open). Without this, the previous draft's
+	// fields stay visible and the new draft never loads because draftLoaded
+	// remains true from the prior session (#536).
+	useEffect(() => {
+		if (prevOutboxMessageIdRef.current === outboxMessageId) return;
+		prevOutboxMessageIdRef.current = outboxMessageId;
+		if (!outboxMessageId) return;
+		setToAddresses([]);
+		setCcAddresses([]);
+		setBccAddresses([]);
+		setSubject("");
+		setShowCc(false);
+		setShowBcc(false);
+		setBody(EMPTY_PARAGRAPH);
+		setDraftLoaded(false);
+	}, [outboxMessageId]);
 
 	const { signature } = useSignature(selectedAccountId);
 	const [body, setBody] = useState<Value>(() =>
@@ -410,6 +436,11 @@ export const ComposeForm = ({
 
 	useEffect(() => {
 		if (!selectedAccountId) return;
+		// Don't autosave while a draft is still being loaded. The fields are mid-
+		// population when opening an existing draft, or have just been blanked for
+		// a draft switch (#535/#536). Saving now would either write the previous
+		// draft's content to the new outboxMessageId or create a spurious duplicate.
+		if (outboxMessageId && !draftLoaded) return;
 		if (isFormEmpty(toAddresses, ccAddresses, bccAddresses, subject, body))
 			return;
 
@@ -429,6 +460,8 @@ export const ComposeForm = ({
 		});
 	}, [
 		selectedAccountId,
+		outboxMessageId,
+		draftLoaded,
 		toAddresses,
 		ccAddresses,
 		bccAddresses,
