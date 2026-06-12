@@ -4,6 +4,13 @@ import type { MessageItem } from "@remit/remit-electrodb-service";
 import { SenderTrust } from "@remit/domain-enums";
 import { shouldRescueFromJunk } from "./rescueFromJunk.js";
 
+// NOTE: auto-rescuing untrusted newsletters/marketing based on DMARC + list
+// headers is intentionally removed. DMARC-pass only proves the sender controls
+// their domain — not that they are trustworthy. Real spammers authenticate
+// throwaway domains (faddedsms.com is a live example). Rescue now requires an
+// explicit trust signal (Vip or Wellknown). The newsletter path returns once a
+// real engagement/trust signal exists (ref #370).
+
 type SenderTrustValue = (typeof SenderTrust)[keyof typeof SenderTrust];
 
 const baseMessage = (): Partial<MessageItem> => ({
@@ -28,13 +35,41 @@ const withSpamAndDmarc = (overrides: Partial<MessageItem> = {}): MessageItem =>
 	}) as MessageItem;
 
 describe("shouldRescueFromJunk", () => {
-	it("rescues Substack newsletter: dmarc=Pass + provider-spam + hasListUnsubscribe + no dkimMismatch", () => {
+	it("rescues VIP sender with dmarc=Pass + provider-spam", () => {
+		const message = withSpamAndDmarc();
+		assert.equal(shouldRescueFromJunk(message, SenderTrust.Vip), true);
+	});
+
+	it("rescues Wellknown sender with dmarc=Pass + provider-spam", () => {
+		const message = withSpamAndDmarc();
+		assert.equal(shouldRescueFromJunk(message, SenderTrust.Wellknown), true);
+	});
+
+	it("rescues VIP newsletter with dmarc=Pass + provider-spam + hasListUnsubscribe", () => {
 		const message = withSpamAndDmarc({
 			category: "newsletter",
 			hasListUnsubscribe: true,
 			authenticity: { fromDomain: "substack.com", dkimMismatch: false },
 		});
-		assert.equal(shouldRescueFromJunk(message, SenderTrust.Unknown), true);
+		assert.equal(shouldRescueFromJunk(message, SenderTrust.Vip), true);
+	});
+
+	it("does not rescue untrusted newsletter: dmarc=Pass + provider-spam + hasListUnsubscribe (faddedsms-style)", () => {
+		const message = withSpamAndDmarc({
+			category: "newsletter",
+			hasListUnsubscribe: true,
+			authenticity: { fromDomain: "substack.com", dkimMismatch: false },
+		});
+		assert.equal(shouldRescueFromJunk(message, SenderTrust.Unknown), false);
+	});
+
+	it("does not rescue untrusted marketing: dmarc=Pass + providerSpam=true + listUnsub=true (faddedsms.com live case)", () => {
+		const message = withSpamAndDmarc({
+			category: "marketing",
+			hasListUnsubscribe: true,
+			authenticity: { fromDomain: "faddedsms.com", dkimMismatch: false },
+		});
+		assert.equal(shouldRescueFromJunk(message, SenderTrust.Unknown), false);
 	});
 
 	it("does not rescue when provider said ham (classified: false)", () => {
@@ -43,7 +78,7 @@ describe("shouldRescueFromJunk", () => {
 			category: "newsletter",
 			hasListUnsubscribe: true,
 		});
-		assert.equal(shouldRescueFromJunk(message, SenderTrust.Unknown), false);
+		assert.equal(shouldRescueFromJunk(message, SenderTrust.Vip), false);
 	});
 
 	it("does not rescue when providerSpam is absent", () => {
@@ -53,7 +88,7 @@ describe("shouldRescueFromJunk", () => {
 			category: "newsletter",
 			hasListUnsubscribe: true,
 		} as MessageItem;
-		assert.equal(shouldRescueFromJunk(message, SenderTrust.Unknown), false);
+		assert.equal(shouldRescueFromJunk(message, SenderTrust.Vip), false);
 	});
 
 	it("does not rescue when DMARC fails", () => {
@@ -62,7 +97,7 @@ describe("shouldRescueFromJunk", () => {
 			category: "newsletter",
 			hasListUnsubscribe: true,
 		});
-		assert.equal(shouldRescueFromJunk(message, SenderTrust.Unknown), false);
+		assert.equal(shouldRescueFromJunk(message, SenderTrust.Vip), false);
 	});
 
 	it("does not rescue when movedByRemit is already set", () => {
@@ -71,27 +106,13 @@ describe("shouldRescueFromJunk", () => {
 			category: "newsletter",
 			hasListUnsubscribe: true,
 		});
-		assert.equal(shouldRescueFromJunk(message, SenderTrust.Unknown), false);
+		assert.equal(shouldRescueFromJunk(message, SenderTrust.Vip), false);
 	});
 
-	it("rescues VIP sender with dmarc=Pass + provider-spam", () => {
-		const message = withSpamAndDmarc();
-		assert.equal(shouldRescueFromJunk(message, SenderTrust.Vip), true);
-	});
-
-	it("does not rescue marketing with dkimMismatch=true", () => {
+	it("does not rescue Unknown sender even with dkimMismatch=false", () => {
 		const message = withSpamAndDmarc({
 			category: "marketing",
 			hasListUnsubscribe: true,
-			authenticity: { fromDomain: "example.com", dkimMismatch: true },
-		});
-		assert.equal(shouldRescueFromJunk(message, SenderTrust.Unknown), false);
-	});
-
-	it("does not rescue newsletter without hasListUnsubscribe", () => {
-		const message = withSpamAndDmarc({
-			category: "newsletter",
-			hasListUnsubscribe: false,
 			authenticity: { fromDomain: "example.com", dkimMismatch: false },
 		});
 		assert.equal(shouldRescueFromJunk(message, SenderTrust.Unknown), false);
