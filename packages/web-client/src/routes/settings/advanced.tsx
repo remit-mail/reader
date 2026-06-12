@@ -5,6 +5,7 @@
 import { SettingsShell } from "@remit/ui";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { AppVersion } from "@/components/ui/AppVersion";
 import { SETTINGS_ID_TO_PATH, SETTINGS_NAV_ITEMS } from "@/routes/settings";
 
 export const Route = createFileRoute("/settings/advanced")({
@@ -45,6 +46,10 @@ function AdvancedSettings() {
 				Advanced options — notification rules, data export, and raw sync
 				diagnostics — are coming in a future release.
 			</p>
+			<div className="border-t border-line pt-4 mt-4">
+				<p className="text-sm font-medium text-fg mb-1">About</p>
+				<AppVersion />
+			</div>
 		</SettingsShell>
 	);
 }

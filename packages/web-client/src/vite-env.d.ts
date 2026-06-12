@@ -12,3 +12,6 @@ interface ImportMetaEnv {
 interface ImportMeta {
 	readonly env: ImportMetaEnv;
 }
+
+declare const __APP_SHA__: string;
+declare const __APP_BUILD_TIME__: string;
