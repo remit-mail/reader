@@ -1,10 +1,26 @@
+import { execSync } from "node:child_process";
 import path from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
+function resolveGitSha(): string {
+	if (process.env.GITHUB_SHA) return process.env.GITHUB_SHA;
+	try {
+		return execSync("git rev-parse HEAD", { encoding: "utf8" }).trim();
+	} catch {
+		return "dev";
+	}
+}
+
+const APP_SHA = resolveGitSha();
+
 export default defineConfig({
+	define: {
+		__APP_SHA__: JSON.stringify(APP_SHA),
+		__APP_BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+	},
 	plugins: [
 		tanstackRouter({
 			target: "react",

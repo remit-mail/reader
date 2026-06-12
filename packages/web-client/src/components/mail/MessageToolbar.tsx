@@ -11,6 +11,7 @@ import {
 	Trash2,
 } from "lucide-react";
 import { SearchBar } from "@/components/layout/SearchBar";
+import { BugReportButton } from "@/components/ui/BugReportButton";
 import { tooltipForAction } from "@/lib/keymap";
 import { MoveToTrigger } from "./MoveToTrigger";
 
@@ -225,5 +226,6 @@ export const MessageToolbar = ({
 				}
 			/>
 		)}
+		<BugReportButton />
 	</header>
 );
