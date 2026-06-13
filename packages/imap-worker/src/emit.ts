@@ -15,6 +15,16 @@ type EventInput = Omit<ImapEvent, "eventId" | "timestamp">;
 const mailboxesQueueUrl = env.SQS_QUEUE_URL_MAILBOXES;
 const messagesQueueUrl = env.SQS_QUEUE_URL_MESSAGES;
 const bodyQueueUrl = env.SQS_QUEUE_URL_BODY;
+// Body queue v2 cutover (#610). SYNC_MESSAGE_BODY events go to the standard
+// (non-FIFO) v2 queue, dropping the FIFO per-account serialization that was the
+// throughput bottleneck. Reversible: fall back to the FIFO queue URL if v2 is
+// not configured, so unsetting SQS_QUEUE_URL_BODY_V2 reverts routing to FIFO
+// without a code change. isFifoQueue() below keys off the `.fifo` suffix, so the
+// FIFO MessageGroupId/dedup parameters are applied or skipped automatically per
+// destination — no other branch needed.
+// `env` (expect-env) throws on an unset key, which would defeat the fallback,
+// so read the optional v2 URL straight from process.env.
+const bodyV2QueueUrl = process.env.SQS_QUEUE_URL_BODY_V2 ?? bodyQueueUrl;
 const flagsQueueUrl = env.SQS_QUEUE_URL_FLAGS;
 const mailboxMgmtQueueUrl = env.SQS_QUEUE_URL_MAILBOX_MGMT;
 const messageMgmtQueueUrl = env.SQS_QUEUE_URL_MESSAGE_MGMT;
@@ -29,7 +39,7 @@ const sqs = new SQSClient({
 const queueUrlMap: Record<ImapEvent["type"], string> = {
 	SYNC_MAILBOXES: mailboxesQueueUrl,
 	SYNC_MESSAGES: messagesQueueUrl,
-	SYNC_MESSAGE_BODY: bodyQueueUrl,
+	SYNC_MESSAGE_BODY: bodyV2QueueUrl,
 	SYNC_FLAGS: flagsQueueUrl,
 	MAILBOX_CREATE: mailboxMgmtQueueUrl,
 	MAILBOX_RENAME: mailboxMgmtQueueUrl,
