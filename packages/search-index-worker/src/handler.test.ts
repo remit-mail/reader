@@ -5,20 +5,21 @@ import {
 	createMemoryVectorStore,
 	createSearchService,
 	type SearchService,
+	type VectorRecord,
 } from "@remit/search-service";
 import {
 	createMockStorageService,
 	type StorageService,
 } from "@remit/storage-service";
 import type { SQSRecord } from "aws-lambda";
-import type { IndexEvent } from "./events.js";
 import { processBatch } from "./handler.js";
+import type { SearchIndexMessage } from "./search-index-message.js";
 import type { Services } from "./services.js";
 
-const makeRecord = (event: IndexEvent, messageId?: string): SQSRecord =>
+const makeRawRecord = (body: string, messageId?: string): SQSRecord =>
 	({
 		messageId: messageId ?? `sqs-${Math.random().toString(36).slice(2)}`,
-		body: JSON.stringify(event),
+		body,
 		receiptHandle: "receipt",
 		attributes: {} as SQSRecord["attributes"],
 		messageAttributes: {},
@@ -28,23 +29,39 @@ const makeRecord = (event: IndexEvent, messageId?: string): SQSRecord =>
 		awsRegion: "us-east-1",
 	}) as SQSRecord;
 
+const makeRecord = (msg: SearchIndexMessage, messageId?: string): SQSRecord =>
+	makeRawRecord(JSON.stringify(msg), messageId);
+
 const ACCOUNT_ID = "test-account-id";
 const ACCOUNT_CONFIG_ID = "test-account-config-id";
 const THREAD_ID = "test-thread-id";
 const MESSAGE_ID = "test-message-id";
-const MAILBOX_IDS = ["inbox-1"];
+const MAILBOX_ID = "inbox-1";
+
+const makeSearchIndexMessage = (
+	overrides: Partial<SearchIndexMessage> & { messageId: string },
+): SearchIndexMessage => ({
+	eventName: "INSERT",
+	entity: "Message",
+	eventID: "evt-1",
+	eventTimestamp: Date.now(),
+	accountId: ACCOUNT_ID,
+	keys: { pk: `msg#${overrides.messageId}`, sk: `msg#${overrides.messageId}` },
+	...overrides,
+});
 
 const makeThreadMessage = (messageId: string) => ({
 	threadMessageId: `tm-${messageId}`,
 	threadId: THREAD_ID,
 	messageId,
 	accountConfigId: ACCOUNT_CONFIG_ID,
-	mailboxId: MAILBOX_IDS[0],
+	mailboxId: MAILBOX_ID,
 	uid: 1,
 	messageIdHeader: `<${messageId}@test>`,
 	inReplyTo: null,
 	referenceOrder: 0,
 	fromName: "Sender",
+	fromEmail: "sender@test.com",
 	subject: "Test subject",
 	internalDate: Date.now(),
 	sentDate: Date.now(),
@@ -98,7 +115,7 @@ const noopLogger = {
 } as unknown as Parameters<typeof processBatch>[2];
 
 describe("search-index-worker handler", () => {
-	test("upsert event indexes message", async () => {
+	test("INSERT event indexes message", async () => {
 		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID });
 		const store = createMemoryVectorStore();
 		const embedder = createDeterministicEmbeddingService();
@@ -118,27 +135,18 @@ describe("search-index-worker handler", () => {
 		});
 
 		const services = createTestServices(storageService, searchService);
-		const event: IndexEvent = {
-			type: "upsert",
-			messageId: MESSAGE_ID,
-			accountId: ACCOUNT_ID,
-			accountConfigId: ACCOUNT_CONFIG_ID,
-			mailboxIds: MAILBOX_IDS,
-		};
+		const msg = makeSearchIndexMessage({ messageId: MESSAGE_ID });
 
-		const result = await processBatch(
-			[makeRecord(event)],
-			services,
-			noopLogger,
-		);
+		const result = await processBatch([makeRecord(msg)], services, noopLogger);
 
 		assert.equal(result.batchItemFailures.length, 0);
 		assert.ok(store.size() > 0, "Should have indexed vectors");
 
 		threadMessages.clear();
+		accounts.clear();
 	});
 
-	test("upsert stores fromName and subject in vector metadata for display-field enrichment", async () => {
+	test("INSERT stores fromName and subject in vector metadata", async () => {
 		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID });
 		const store = createMemoryVectorStore();
 		const embedder = createDeterministicEmbeddingService();
@@ -160,15 +168,7 @@ describe("search-index-worker handler", () => {
 
 		const services = createTestServices(storageService, searchService);
 		await processBatch(
-			[
-				makeRecord({
-					type: "upsert",
-					messageId: MESSAGE_ID,
-					accountId: ACCOUNT_ID,
-					accountConfigId: ACCOUNT_CONFIG_ID,
-					mailboxIds: MAILBOX_IDS,
-				}),
-			],
+			[makeRecord(makeSearchIndexMessage({ messageId: MESSAGE_ID }))],
 			services,
 			noopLogger,
 		);
@@ -179,7 +179,6 @@ describe("search-index-worker handler", () => {
 			filter: { accountConfigId: ACCOUNT_CONFIG_ID },
 		});
 		assert.ok(vectors.length > 0, "Should have indexed vectors");
-		// All vectors for this message should carry the display fields
 		const forMessage = vectors.filter(
 			(v) => v.metadata.messageId === MESSAGE_ID,
 		);
@@ -193,7 +192,7 @@ describe("search-index-worker handler", () => {
 		accounts.clear();
 	});
 
-	test("delete event calls SearchService.delete", async () => {
+	test("REMOVE event calls SearchService.delete", async () => {
 		const store = createMemoryVectorStore();
 		const embedder = createDeterministicEmbeddingService();
 		const searchService = createSearchService({ embedder, store });
@@ -207,7 +206,7 @@ describe("search-index-worker handler", () => {
 					messageId: MESSAGE_ID,
 					threadId: THREAD_ID,
 					accountConfigId: ACCOUNT_CONFIG_ID,
-					mailboxIds: MAILBOX_IDS,
+					mailboxIds: [MAILBOX_ID],
 					chunkType: "subject",
 					sentDate: Date.now(),
 					isRead: false,
@@ -219,19 +218,18 @@ describe("search-index-worker handler", () => {
 		assert.equal(store.size(), 1);
 
 		const services = createTestServices(storageService, searchService);
-		const event: IndexEvent = { type: "delete", messageId: MESSAGE_ID };
+		const msg = makeSearchIndexMessage({
+			messageId: MESSAGE_ID,
+			eventName: "REMOVE",
+		});
 
-		const result = await processBatch(
-			[makeRecord(event)],
-			services,
-			noopLogger,
-		);
+		const result = await processBatch([makeRecord(msg)], services, noopLogger);
 
 		assert.equal(result.batchItemFailures.length, 0);
 		assert.equal(store.size(), 0, "Vectors should be deleted");
 	});
 
-	test("upsert for deleted message (not in DDB) is silently dropped", async () => {
+	test("INSERT for message not in DDB is silently dropped", async () => {
 		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID });
 		const store = createMemoryVectorStore();
 		const embedder = createDeterministicEmbeddingService();
@@ -241,39 +239,55 @@ describe("search-index-worker handler", () => {
 		threadMessages.clear();
 
 		const services = createTestServices(storageService, searchService);
-		const event: IndexEvent = {
-			type: "upsert",
-			messageId: "nonexistent-message",
-			accountId: ACCOUNT_ID,
-			accountConfigId: ACCOUNT_CONFIG_ID,
-			mailboxIds: MAILBOX_IDS,
-		};
+		const msg = makeSearchIndexMessage({ messageId: "nonexistent-message" });
 
-		const result = await processBatch(
-			[makeRecord(event)],
-			services,
-			noopLogger,
-		);
+		const result = await processBatch([makeRecord(msg)], services, noopLogger);
 
 		assert.equal(result.batchItemFailures.length, 0);
 		assert.equal(store.size(), 0, "No vectors should be stored");
+
+		accounts.clear();
 	});
 
-	test("mixed batch (upsert + delete) processes both correctly", async () => {
+	test("INSERT skipped when account not found", async () => {
+		accounts.clear();
+		const store = createMemoryVectorStore();
+		const embedder = createDeterministicEmbeddingService();
+		const searchService = createSearchService({ embedder, store });
+		const storageService = createMockStorageService();
+
+		threadMessages.set(MESSAGE_ID, makeThreadMessage(MESSAGE_ID));
+
+		const services = createTestServices(storageService, searchService);
+		const msg = makeSearchIndexMessage({ messageId: MESSAGE_ID });
+
+		const result = await processBatch([makeRecord(msg)], services, noopLogger);
+
+		assert.equal(
+			result.batchItemFailures.length,
+			0,
+			"should not report failure",
+		);
+		assert.equal(store.size(), 0, "no vectors should be stored");
+
+		threadMessages.clear();
+	});
+
+	test("mixed batch (INSERT + REMOVE) processes both correctly", async () => {
 		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID });
 		const store = createMemoryVectorStore();
 		const embedder = createDeterministicEmbeddingService();
 		const searchService = createSearchService({ embedder, store });
 		const storageService = createMockStorageService();
 
-		const upsertMsgId = "msg-upsert";
-		const deleteMsgId = "msg-delete";
+		const insertMsgId = "msg-insert";
+		const removeMsgId = "msg-remove";
 
-		threadMessages.set(upsertMsgId, makeThreadMessage(upsertMsgId));
+		threadMessages.set(insertMsgId, makeThreadMessage(insertMsgId));
 		await storageService.storeParsedBody({
 			accountConfigId: ACCOUNT_CONFIG_ID,
 			accountId: ACCOUNT_ID,
-			messageId: upsertMsgId,
+			messageId: insertMsgId,
 			parsed: {
 				text: "Upsert content for search",
 				html: null,
@@ -283,13 +297,13 @@ describe("search-index-worker handler", () => {
 
 		await store.upsert([
 			{
-				chunkId: `${deleteMsgId}::subject`,
+				chunkId: `${removeMsgId}::subject`,
 				vector: new Array(64).fill(0.1),
 				metadata: {
-					messageId: deleteMsgId,
+					messageId: removeMsgId,
 					threadId: THREAD_ID,
 					accountConfigId: ACCOUNT_CONFIG_ID,
-					mailboxIds: MAILBOX_IDS,
+					mailboxIds: [MAILBOX_ID],
 					chunkType: "subject",
 					sentDate: Date.now(),
 					isRead: false,
@@ -303,14 +317,13 @@ describe("search-index-worker handler", () => {
 
 		const result = await processBatch(
 			[
-				makeRecord({
-					type: "upsert",
-					messageId: upsertMsgId,
-					accountId: ACCOUNT_ID,
-					accountConfigId: ACCOUNT_CONFIG_ID,
-					mailboxIds: MAILBOX_IDS,
-				}),
-				makeRecord({ type: "delete", messageId: deleteMsgId }),
+				makeRecord(makeSearchIndexMessage({ messageId: insertMsgId })),
+				makeRecord(
+					makeSearchIndexMessage({
+						messageId: removeMsgId,
+						eventName: "REMOVE",
+					}),
+				),
 			],
 			services,
 			noopLogger,
@@ -324,20 +337,132 @@ describe("search-index-worker handler", () => {
 			filter: { accountConfigId: ACCOUNT_CONFIG_ID },
 		});
 
-		const hasUpserted = remainingVectors.some(
-			(v) => v.metadata.messageId === upsertMsgId,
+		const hasInserted = remainingVectors.some(
+			(v) => v.metadata.messageId === insertMsgId,
 		);
-		const hasDeleted = remainingVectors.some(
-			(v) => v.metadata.messageId === deleteMsgId,
+		const hasRemoved = remainingVectors.some(
+			(v) => v.metadata.messageId === removeMsgId,
 		);
 
-		assert.ok(hasUpserted, "Upserted message should have vectors");
-		assert.ok(!hasDeleted, "Deleted message should have no vectors");
+		assert.ok(hasInserted, "Inserted message should have vectors");
+		assert.ok(!hasRemoved, "Removed message should have no vectors");
 
 		threadMessages.clear();
+		accounts.clear();
 	});
 
-	test("partial failure returns only failed events in batchItemFailures", async () => {
+	test("two INSERT messages for same account produce one upsertVectors call", async () => {
+		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID });
+		const store = createMemoryVectorStore();
+		const embedder = createDeterministicEmbeddingService();
+		const baseSearchService = createSearchService({ embedder, store });
+		const storageService = createMockStorageService();
+
+		const msgId1 = "msg-batch-1";
+		const msgId2 = "msg-batch-2";
+
+		threadMessages.set(msgId1, makeThreadMessage(msgId1));
+		threadMessages.set(msgId2, makeThreadMessage(msgId2));
+		await storageService.storeParsedBody({
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			accountId: ACCOUNT_ID,
+			messageId: msgId1,
+			parsed: { text: "Content one", html: null, attachments: [] },
+		});
+		await storageService.storeParsedBody({
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			accountId: ACCOUNT_ID,
+			messageId: msgId2,
+			parsed: { text: "Content two", html: null, attachments: [] },
+		});
+
+		let upsertVectorsCalls = 0;
+		const trackingSearchService: SearchService = {
+			...baseSearchService,
+			upsertVectors: async (records: VectorRecord[]) => {
+				upsertVectorsCalls++;
+				return baseSearchService.upsertVectors(records);
+			},
+		};
+
+		const services = createTestServices(storageService, trackingSearchService);
+
+		const result = await processBatch(
+			[
+				makeRecord(makeSearchIndexMessage({ messageId: msgId1 })),
+				makeRecord(makeSearchIndexMessage({ messageId: msgId2 })),
+			],
+			services,
+			noopLogger,
+		);
+
+		assert.equal(result.batchItemFailures.length, 0);
+		assert.equal(
+			upsertVectorsCalls,
+			1,
+			"Should batch into a single upsertVectors call",
+		);
+		assert.ok(store.size() > 0, "Vectors should be stored");
+
+		threadMessages.clear();
+		accounts.clear();
+	});
+
+	test("failed upsertVectors marks all records in that account group as failures", async () => {
+		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID });
+		const store = createMemoryVectorStore();
+		const embedder = createDeterministicEmbeddingService();
+		const baseSearchService = createSearchService({ embedder, store });
+		const storageService = createMockStorageService();
+
+		const msgId1 = "msg-fail-1";
+		const msgId2 = "msg-fail-2";
+
+		threadMessages.set(msgId1, makeThreadMessage(msgId1));
+		threadMessages.set(msgId2, makeThreadMessage(msgId2));
+		await storageService.storeParsedBody({
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			accountId: ACCOUNT_ID,
+			messageId: msgId1,
+			parsed: { text: "Content one", html: null, attachments: [] },
+		});
+		await storageService.storeParsedBody({
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			accountId: ACCOUNT_ID,
+			messageId: msgId2,
+			parsed: { text: "Content two", html: null, attachments: [] },
+		});
+
+		const failingSearchService: SearchService = {
+			...baseSearchService,
+			upsertVectors: async (_records: VectorRecord[]) => {
+				throw new Error("Simulated upsertVectors failure");
+			},
+		};
+
+		const services = createTestServices(storageService, failingSearchService);
+
+		const rec1 = makeRecord(
+			makeSearchIndexMessage({ messageId: msgId1 }),
+			"sqs-1",
+		);
+		const rec2 = makeRecord(
+			makeSearchIndexMessage({ messageId: msgId2 }),
+			"sqs-2",
+		);
+
+		const result = await processBatch([rec1, rec2], services, noopLogger);
+
+		assert.equal(result.batchItemFailures.length, 2);
+		const failIds = result.batchItemFailures.map((f) => f.itemIdentifier);
+		assert.ok(failIds.includes("sqs-1"), "sqs-1 should be in failures");
+		assert.ok(failIds.includes("sqs-2"), "sqs-2 should be in failures");
+
+		threadMessages.clear();
+		accounts.clear();
+	});
+
+	test("preparation failure for one record does not abort batch", async () => {
 		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID });
 		const store = createMemoryVectorStore();
 		const embedder = createDeterministicEmbeddingService();
@@ -348,30 +473,13 @@ describe("search-index-worker handler", () => {
 		const badMsgId = "msg-bad";
 
 		threadMessages.set(goodMsgId, makeThreadMessage(goodMsgId));
+		threadMessages.set(badMsgId, makeThreadMessage(badMsgId));
 		await storageService.storeParsedBody({
 			accountConfigId: ACCOUNT_CONFIG_ID,
 			accountId: ACCOUNT_ID,
 			messageId: goodMsgId,
-			parsed: {
-				text: "Good content",
-				html: null,
-				attachments: [],
-			},
+			parsed: { text: "Good content", html: null, attachments: [] },
 		});
-
-		threadMessages.set(badMsgId, makeThreadMessage(badMsgId));
-
-		const failingSearchService: typeof searchService = {
-			...searchService,
-			index: async (params) => {
-				if (params.metadata.messageId === badMsgId) {
-					throw new Error("Simulated indexing failure");
-				}
-				return searchService.index(params);
-			},
-			delete: searchService.delete,
-			search: searchService.search,
-		};
 
 		const failingStorageService: StorageService = {
 			...storageService,
@@ -387,30 +495,14 @@ describe("search-index-worker handler", () => {
 			},
 		};
 
-		const services = createTestServices(
-			failingStorageService,
-			failingSearchService,
-		);
+		const services = createTestServices(failingStorageService, searchService);
 
 		const goodRecord = makeRecord(
-			{
-				type: "upsert",
-				messageId: goodMsgId,
-				accountId: ACCOUNT_ID,
-				accountConfigId: ACCOUNT_CONFIG_ID,
-				mailboxIds: MAILBOX_IDS,
-			},
+			makeSearchIndexMessage({ messageId: goodMsgId }),
 			"sqs-good",
 		);
-
 		const badRecord = makeRecord(
-			{
-				type: "upsert",
-				messageId: badMsgId,
-				accountId: ACCOUNT_ID,
-				accountConfigId: ACCOUNT_CONFIG_ID,
-				mailboxIds: MAILBOX_IDS,
-			},
+			makeSearchIndexMessage({ messageId: badMsgId }),
 			"sqs-bad",
 		);
 
@@ -422,9 +514,148 @@ describe("search-index-worker handler", () => {
 
 		assert.equal(result.batchItemFailures.length, 1);
 		assert.equal(result.batchItemFailures[0].itemIdentifier, "sqs-bad");
+		assert.ok(store.size() > 0, "Good message should still be indexed");
+
+		threadMessages.clear();
+		accounts.clear();
 	});
 
-	test("upsert is dropped when account is deleted (tombstone fence)", async () => {
+	test("two accounts produce separate upsertVectors calls (no cross-account mixing)", async () => {
+		const ACCOUNT_ID_2 = "test-account-id-2";
+		const ACCOUNT_CONFIG_ID_2 = "test-account-config-id-2";
+		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID });
+		accounts.set(ACCOUNT_ID_2, { accountId: ACCOUNT_ID_2 });
+
+		const store = createMemoryVectorStore();
+		const embedder = createDeterministicEmbeddingService();
+		const baseSearchService = createSearchService({ embedder, store });
+		const storageService = createMockStorageService();
+
+		const msgId1 = "msg-acct1";
+		const msgId2 = "msg-acct2";
+
+		const tm1 = makeThreadMessage(msgId1);
+		const tm2 = {
+			...makeThreadMessage(msgId2),
+			accountConfigId: ACCOUNT_CONFIG_ID_2,
+		};
+		threadMessages.set(msgId1, tm1);
+		threadMessages.set(msgId2, tm2);
+
+		await storageService.storeParsedBody({
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			accountId: ACCOUNT_ID,
+			messageId: msgId1,
+			parsed: { text: "Account one content", html: null, attachments: [] },
+		});
+		await storageService.storeParsedBody({
+			accountConfigId: ACCOUNT_CONFIG_ID_2,
+			accountId: ACCOUNT_ID_2,
+			messageId: msgId2,
+			parsed: { text: "Account two content", html: null, attachments: [] },
+		});
+
+		const upsertCallArgs: VectorRecord[][] = [];
+		const trackingSearchService: SearchService = {
+			...baseSearchService,
+			upsertVectors: async (records: VectorRecord[]) => {
+				upsertCallArgs.push(records);
+				return baseSearchService.upsertVectors(records);
+			},
+		};
+
+		const mockAccountService2 = {
+			get: async (accountId: string) => {
+				const account = accounts.get(accountId);
+				if (!account) throw new Error(`Account not found: ${accountId}`);
+				return account;
+			},
+		} as Services["accountService"];
+
+		const services = createTestServices(
+			storageService,
+			trackingSearchService,
+			mockAccountService2,
+		);
+
+		const result = await processBatch(
+			[
+				makeRecord(
+					makeSearchIndexMessage({ messageId: msgId1, accountId: ACCOUNT_ID }),
+				),
+				makeRecord(
+					makeSearchIndexMessage({
+						messageId: msgId2,
+						accountId: ACCOUNT_ID_2,
+					}),
+				),
+			],
+			services,
+			noopLogger,
+		);
+
+		assert.equal(result.batchItemFailures.length, 0);
+		assert.equal(
+			upsertCallArgs.length,
+			2,
+			"Should make separate upsertVectors calls per account",
+		);
+		const acct1Vectors = upsertCallArgs
+			.flat()
+			.filter((v) => v.metadata.accountConfigId === ACCOUNT_CONFIG_ID);
+		const acct2Vectors = upsertCallArgs
+			.flat()
+			.filter((v) => v.metadata.accountConfigId === ACCOUNT_CONFIG_ID_2);
+		assert.ok(acct1Vectors.length > 0, "Account 1 should have vectors");
+		assert.ok(acct2Vectors.length > 0, "Account 2 should have vectors");
+		for (const call of upsertCallArgs) {
+			const configIds = new Set(call.map((v) => v.metadata.accountConfigId));
+			assert.equal(
+				configIds.size,
+				1,
+				"Each upsertVectors call should contain only one account's vectors",
+			);
+		}
+
+		threadMessages.clear();
+		accounts.clear();
+	});
+
+	test("idempotent re-delivery: re-indexing same message replaces vectors", async () => {
+		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID });
+		const store = createMemoryVectorStore();
+		const embedder = createDeterministicEmbeddingService();
+		const searchService = createSearchService({ embedder, store });
+		const storageService = createMockStorageService();
+
+		threadMessages.set(MESSAGE_ID, makeThreadMessage(MESSAGE_ID));
+		await storageService.storeParsedBody({
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			accountId: ACCOUNT_ID,
+			messageId: MESSAGE_ID,
+			parsed: { text: "Original content", html: null, attachments: [] },
+		});
+
+		const services = createTestServices(storageService, searchService);
+		const msg = makeSearchIndexMessage({ messageId: MESSAGE_ID });
+
+		await processBatch([makeRecord(msg)], services, noopLogger);
+		const countAfterFirst = store.size();
+		assert.ok(countAfterFirst > 0, "Should have vectors after first index");
+
+		const result = await processBatch([makeRecord(msg)], services, noopLogger);
+		assert.equal(result.batchItemFailures.length, 0);
+		assert.equal(
+			store.size(),
+			countAfterFirst,
+			"Vector count should be same after re-delivery",
+		);
+
+		threadMessages.clear();
+		accounts.clear();
+	});
+
+	test("INSERT is dropped when account is deleted (tombstone fence)", async () => {
 		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID, deletedAt: Date.now() });
 		const store = createMemoryVectorStore();
 		const embedder = createDeterministicEmbeddingService();
@@ -444,19 +675,9 @@ describe("search-index-worker handler", () => {
 		});
 
 		const services = createTestServices(storageService, searchService);
-		const event: IndexEvent = {
-			type: "upsert",
-			messageId: MESSAGE_ID,
-			accountId: ACCOUNT_ID,
-			accountConfigId: ACCOUNT_CONFIG_ID,
-			mailboxIds: MAILBOX_IDS,
-		};
+		const msg = makeSearchIndexMessage({ messageId: MESSAGE_ID });
 
-		const result = await processBatch(
-			[makeRecord(event)],
-			services,
-			noopLogger,
-		);
+		const result = await processBatch([makeRecord(msg)], services, noopLogger);
 
 		assert.equal(
 			result.batchItemFailures.length,
@@ -473,14 +694,79 @@ describe("search-index-worker handler", () => {
 		accounts.clear();
 	});
 
-	test("delete event still processes when account is deleted", async () => {
-		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID, deletedAt: Date.now() });
+	test("MODIFY event re-indexes the message", async () => {
+		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID });
 		const store = createMemoryVectorStore();
 		const embedder = createDeterministicEmbeddingService();
 		const searchService = createSearchService({ embedder, store });
 		const storageService = createMockStorageService();
 
-		// Pre-populate a vector to delete
+		threadMessages.set(MESSAGE_ID, makeThreadMessage(MESSAGE_ID));
+		await storageService.storeParsedBody({
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			accountId: ACCOUNT_ID,
+			messageId: MESSAGE_ID,
+			parsed: { text: "Modified content", html: null, attachments: [] },
+		});
+
+		const services = createTestServices(storageService, searchService);
+		const msg = makeSearchIndexMessage({
+			messageId: MESSAGE_ID,
+			eventName: "MODIFY",
+		});
+
+		const result = await processBatch([makeRecord(msg)], services, noopLogger);
+
+		assert.equal(result.batchItemFailures.length, 0);
+		assert.ok(store.size() > 0, "MODIFY should re-index vectors");
+
+		threadMessages.clear();
+		accounts.clear();
+	});
+
+	test("legacy IndexEvent upsert still indexes the message", async () => {
+		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID });
+		const store = createMemoryVectorStore();
+		const embedder = createDeterministicEmbeddingService();
+		const searchService = createSearchService({ embedder, store });
+		const storageService = createMockStorageService();
+
+		threadMessages.set(MESSAGE_ID, makeThreadMessage(MESSAGE_ID));
+		await storageService.storeParsedBody({
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			accountId: ACCOUNT_ID,
+			messageId: MESSAGE_ID,
+			parsed: { text: "Legacy upsert content", html: null, attachments: [] },
+		});
+
+		const services = createTestServices(storageService, searchService);
+		const legacyBody = JSON.stringify({
+			type: "upsert",
+			messageId: MESSAGE_ID,
+			accountId: ACCOUNT_ID,
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			mailboxIds: [MAILBOX_ID],
+		});
+
+		const result = await processBatch(
+			[makeRawRecord(legacyBody)],
+			services,
+			noopLogger,
+		);
+
+		assert.equal(result.batchItemFailures.length, 0);
+		assert.ok(store.size() > 0, "legacy upsert should index vectors");
+
+		threadMessages.clear();
+		accounts.clear();
+	});
+
+	test("legacy IndexEvent delete still deletes vectors (#228 purge fence)", async () => {
+		const store = createMemoryVectorStore();
+		const embedder = createDeterministicEmbeddingService();
+		const searchService = createSearchService({ embedder, store });
+		const storageService = createMockStorageService();
+
 		await store.upsert([
 			{
 				chunkId: `${MESSAGE_ID}::subject`,
@@ -489,7 +775,7 @@ describe("search-index-worker handler", () => {
 					messageId: MESSAGE_ID,
 					threadId: THREAD_ID,
 					accountConfigId: ACCOUNT_CONFIG_ID,
-					mailboxIds: MAILBOX_IDS,
+					mailboxIds: [MAILBOX_ID],
 					chunkType: "subject",
 					sentDate: Date.now(),
 					isRead: false,
@@ -501,21 +787,46 @@ describe("search-index-worker handler", () => {
 		assert.equal(store.size(), 1);
 
 		const services = createTestServices(storageService, searchService);
-		const event: IndexEvent = { type: "delete", messageId: MESSAGE_ID };
+		const legacyBody = JSON.stringify({
+			type: "delete",
+			messageId: MESSAGE_ID,
+		});
 
 		const result = await processBatch(
-			[makeRecord(event)],
+			[makeRawRecord(legacyBody)],
 			services,
 			noopLogger,
 		);
 
 		assert.equal(result.batchItemFailures.length, 0);
-		assert.equal(
-			store.size(),
-			0,
-			"delete events should still process for deleted accounts",
-		);
+		assert.equal(store.size(), 0, "legacy delete must remove vectors");
+	});
 
+	test("malformed body dead-letters instead of mis-routing", async () => {
+		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID });
+		const store = createMemoryVectorStore();
+		const embedder = createDeterministicEmbeddingService();
+		const searchService = createSearchService({ embedder, store });
+		const storageService = createMockStorageService();
+
+		threadMessages.set(MESSAGE_ID, makeThreadMessage(MESSAGE_ID));
+
+		const services = createTestServices(storageService, searchService);
+		const garbage = makeRawRecord(
+			JSON.stringify({ foo: "bar", messageId: MESSAGE_ID }),
+			"sqs-garbage",
+		);
+		const notJson = makeRawRecord("not-json-at-all", "sqs-notjson");
+
+		const result = await processBatch([garbage, notJson], services, noopLogger);
+
+		const failIds = result.batchItemFailures.map((f) => f.itemIdentifier);
+		assert.equal(result.batchItemFailures.length, 2);
+		assert.ok(failIds.includes("sqs-garbage"));
+		assert.ok(failIds.includes("sqs-notjson"));
+		assert.equal(store.size(), 0, "no vectors written for malformed bodies");
+
+		threadMessages.clear();
 		accounts.clear();
 	});
 });
