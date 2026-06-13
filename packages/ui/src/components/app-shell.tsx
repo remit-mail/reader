@@ -1,8 +1,11 @@
 import {
+	AlertOctagon,
 	Archive,
 	BellOff,
 	ChevronDown,
 	ChevronRight,
+	FileText,
+	Folder,
 	FolderInput,
 	Forward,
 	Inbox,
@@ -19,6 +22,7 @@ import {
 	Star,
 	Trash2,
 } from "lucide-react";
+import { useState } from "react";
 import { cn } from "../lib/cn.js";
 import { Avatar } from "./avatar.js";
 import { Badge } from "./badge.js";
@@ -43,10 +47,28 @@ import {
 /* visual decision is token-based.                                    */
 /* ------------------------------------------------------------------ */
 
+/**
+ * RFC 6154 / RFC 9051 special-use designations. Mirrors the generated
+ * `MailboxSpecialUse` enum (@remit/domain-enums) by value; replace this local
+ * union with the generated import once that package is wired into the UI build.
+ * Inbox carries no special-use attribute (identified by name per the RFC).
+ */
+export type MailboxSpecialUse =
+	| "\\All"
+	| "\\Archive"
+	| "\\Drafts"
+	| "\\Flagged"
+	| "\\Junk"
+	| "\\Sent"
+	| "\\Trash"
+	| "\\Important";
+
 export interface NavMailbox {
 	id: string;
 	name: string;
 	unseen?: number;
+	/** Denormalized IMAP SPECIAL-USE attributes; empty/absent = custom folder. */
+	specialUse?: MailboxSpecialUse[];
 }
 
 export interface NavAccount {
@@ -65,6 +87,27 @@ export type ThreadCategory =
 	| "automated"
 	| "transactional"
 	| "social";
+
+/** "all" (no category narrowing) plus every content-type category. */
+export type BriefCategoryFilter = ThreadCategory | "all";
+
+/**
+ * Ordered content-type categories for the brief expando. Mirrors the generated
+ * `MessageCategory` enum (@remit/domain-enums); swap this local list for the
+ * generated enum's values once that package is importable from the UI build.
+ */
+export const briefCategories: ReadonlyArray<{
+	id: BriefCategoryFilter;
+	label: string;
+}> = [
+	{ id: "all", label: "All" },
+	{ id: "personal", label: "Personal" },
+	{ id: "newsletter", label: "Newsletters" },
+	{ id: "marketing", label: "Marketing" },
+	{ id: "automated", label: "Automated" },
+	{ id: "transactional", label: "Transactional" },
+	{ id: "social", label: "Social" },
+];
 
 export interface ThreadRowData {
 	id: string;
@@ -138,6 +181,14 @@ export interface AppShellProps {
 	/** Subtle muted affordance, e.g. "+1 muted". */
 	mutedNote?: string;
 	sections: ThreadSection[];
+	/** Brief mode: collapsible section headers + a composable filter chip bar. */
+	briefFilters?: boolean;
+	/**
+	 * Content-type category filter for the brief (a separate axis from the
+	 * in-list chips). Selecting one narrows the brief to that category.
+	 */
+	briefCategory?: BriefCategoryFilter;
+	onSelectBriefCategory?: (category: BriefCategoryFilter) => void;
 	selectedThreadId?: string;
 	thread?: ThreadData;
 	intelligence?: IntelligenceData;
@@ -220,6 +271,141 @@ function NavItem({
 	);
 }
 
+/* System mailboxes render in a fixed, scannable order; everything without a
+   special-use attribute is a custom folder shown under a collapsible header.
+   Inbox has no special-use attribute (matched by name per RFC 6154). */
+const systemOrder: ReadonlyArray<MailboxSpecialUse | "INBOX"> = [
+	"INBOX",
+	"\\Drafts",
+	"\\Sent",
+	"\\Archive",
+	"\\Junk",
+	"\\Trash",
+];
+
+function systemKind(mb: NavMailbox): MailboxSpecialUse | "INBOX" | null {
+	if (mb.specialUse && mb.specialUse.length > 0) return mb.specialUse[0];
+	if (mb.name === "Inbox") return "INBOX";
+	return null;
+}
+
+function systemIcon(kind: MailboxSpecialUse | "INBOX") {
+	if (kind === "INBOX") return <Inbox className="size-4" />;
+	if (kind === "\\Drafts") return <FileText className="size-4" />;
+	if (kind === "\\Sent") return <Send className="size-4" />;
+	if (kind === "\\Archive") return <Archive className="size-4" />;
+	if (kind === "\\Junk") return <AlertOctagon className="size-4" />;
+	if (kind === "\\Trash") return <Trash2 className="size-4" />;
+	return <Folder className="size-4" />;
+}
+
+const FOLDER_COLLAPSE_THRESHOLD = 8;
+
+function AccountNav({
+	account,
+	selectedNavId,
+	onSelectNav,
+}: {
+	account: NavAccount;
+	selectedNavId: string;
+	onSelectNav?: (id: string) => void;
+}) {
+	const [foldersOpen, setFoldersOpen] = useState(true);
+	const [showAllFolders, setShowAllFolders] = useState(false);
+
+	const system = account.mailboxes
+		.filter((mb) => systemKind(mb) !== null)
+		.sort(
+			(a, b) =>
+				systemOrder.indexOf(systemKind(a) as MailboxSpecialUse | "INBOX") -
+				systemOrder.indexOf(systemKind(b) as MailboxSpecialUse | "INBOX"),
+		);
+	const folders = account.mailboxes.filter((mb) => systemKind(mb) === null);
+	const visibleFolders =
+		showAllFolders || folders.length <= FOLDER_COLLAPSE_THRESHOLD
+			? folders
+			: folders.slice(0, FOLDER_COLLAPSE_THRESHOLD);
+	const hiddenCount = folders.length - visibleFolders.length;
+
+	return (
+		<div className="mt-3">
+			<div
+				className={cn(
+					"flex items-center gap-1.5 px-2 pb-1",
+					account.muted && "opacity-55",
+				)}
+			>
+				<span className="truncate text-2xs font-semibold uppercase tracking-wider text-fg-subtle">
+					{account.label}
+				</span>
+				{account.muted && (
+					<>
+						<BellOff className="size-3 shrink-0 text-fg-subtle" />
+						<span className="text-2xs text-fg-subtle">muted</span>
+					</>
+				)}
+			</div>
+
+			{system.map((mb) => (
+				<NavItem
+					key={mb.id}
+					icon={systemIcon(systemKind(mb) as MailboxSpecialUse | "INBOX")}
+					label={mb.name}
+					count={mb.unseen}
+					active={selectedNavId === mb.id}
+					dimmed={account.muted}
+					onClick={() => onSelectNav?.(mb.id)}
+				/>
+			))}
+
+			{folders.length > 0 && (
+				<>
+					<button
+						type="button"
+						onClick={() => setFoldersOpen((open) => !open)}
+						className="mt-1 flex w-full items-center gap-1 px-2 py-1 text-left text-2xs font-semibold uppercase tracking-wider text-fg-subtle transition-colors hover:text-fg"
+					>
+						{foldersOpen ? (
+							<ChevronDown className="size-3 shrink-0" />
+						) : (
+							<ChevronRight className="size-3 shrink-0" />
+						)}
+						<span className="flex-1">Folders</span>
+						<span className="tabular-nums opacity-70">{folders.length}</span>
+					</button>
+					{foldersOpen && (
+						<>
+							{visibleFolders.map((mb) => (
+								<NavItem
+									key={mb.id}
+									icon={<Folder className="size-4" />}
+									label={mb.name}
+									count={mb.unseen}
+									active={selectedNavId === mb.id}
+									dimmed={account.muted}
+									onClick={() => onSelectNav?.(mb.id)}
+								/>
+							))}
+							{(hiddenCount > 0 || showAllFolders) &&
+								folders.length > FOLDER_COLLAPSE_THRESHOLD && (
+									<button
+										type="button"
+										onClick={() => setShowAllFolders((all) => !all)}
+										className="ml-7 flex items-center px-2 py-1 text-2xs font-medium text-accent transition-colors hover:underline"
+									>
+										{showAllFolders
+											? "Show less"
+											: `Show all (${folders.length})`}
+									</button>
+								)}
+						</>
+					)}
+				</>
+			)}
+		</div>
+	);
+}
+
 function NavSidebar({
 	accounts,
 	selectedNavId,
@@ -244,41 +430,12 @@ function NavSidebar({
 				/>
 
 				{accounts.map((account) => (
-					<div key={account.id} className="mt-3">
-						<div
-							className={cn(
-								"flex items-center gap-1.5 px-2 pb-1",
-								account.muted && "opacity-55",
-							)}
-						>
-							<span className="truncate text-2xs font-semibold uppercase tracking-wider text-fg-subtle">
-								{account.label}
-							</span>
-							{account.muted && (
-								<>
-									<BellOff className="size-3 shrink-0 text-fg-subtle" />
-									<span className="text-2xs text-fg-subtle">muted</span>
-								</>
-							)}
-						</div>
-						{account.mailboxes.map((mb) => (
-							<NavItem
-								key={mb.id}
-								icon={
-									mb.name === "Sent" ? (
-										<Send className="size-4" />
-									) : (
-										<Inbox className="size-4" />
-									)
-								}
-								label={mb.name}
-								count={mb.unseen}
-								active={selectedNavId === mb.id}
-								dimmed={account.muted}
-								onClick={() => onSelectNav?.(mb.id)}
-							/>
-						))}
-					</div>
+					<AccountNav
+						key={account.id}
+						account={account}
+						selectedNavId={selectedNavId}
+						onSelectNav={onSelectNav}
+					/>
 				))}
 			</nav>
 
@@ -506,15 +663,235 @@ function ComfortableRow({
 	);
 }
 
+/* Composable brief filters — each is an additive predicate over a thread row.
+   "Today" leans on the fixture convention that same-day rows render a HH:MM
+   timeLabel; replace with a real timestamp field when the API provides one. */
+type BriefFilterId = "unread" | "attachment" | "contacts" | "today";
+
+const briefFilterDefs: ReadonlyArray<{
+	id: BriefFilterId;
+	label: string;
+	match: (t: ThreadRowData) => boolean;
+}> = [
+	{ id: "unread", label: "Unread", match: (t) => !t.isRead },
+	{
+		id: "attachment",
+		label: "Has attachment",
+		match: (t) => !!t.hasAttachment,
+	},
+	{
+		id: "contacts",
+		label: "From contacts",
+		match: (t) => t.trust === "vip" || t.trust === "wellknown",
+	},
+	{
+		id: "today",
+		label: "Today",
+		match: (t) => /^\d{1,2}:\d{2}$/.test(t.timeLabel),
+	},
+];
+
+const LONG_SECTION = 6;
+/* Cap each section's rows; the rest sit behind a bottom "Show all" expander. */
+const SECTION_ROW_CAP = 10;
+
+function BriefSections({
+	sections,
+	briefCategory = "all",
+	selectedThreadId,
+	Row,
+	onSelectThread,
+	onSelectBriefCategory,
+}: {
+	sections: ThreadSection[];
+	briefCategory?: BriefCategoryFilter;
+	selectedThreadId?: string;
+	Row: typeof ComfortableRow;
+	onSelectThread?: (id: string) => void;
+	onSelectBriefCategory?: (category: BriefCategoryFilter) => void;
+}) {
+	const [active, setActive] = useState<ReadonlySet<BriefFilterId>>(new Set());
+	const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
+		() =>
+			new Set(
+				sections
+					.filter((s) => s.threads.length > LONG_SECTION && s.id === "rest")
+					.map((s) => s.id),
+			),
+	);
+	const [expandedSections, setExpandedSections] = useState<ReadonlySet<string>>(
+		new Set(),
+	);
+
+	const toggleFilter = (id: BriefFilterId) => {
+		setActive((prev) => {
+			const next = new Set(prev);
+			if (next.has(id)) next.delete(id);
+			else next.add(id);
+			return next;
+		});
+	};
+	const toggleSection = (id: string) => {
+		setCollapsed((prev) => {
+			const next = new Set(prev);
+			if (next.has(id)) next.delete(id);
+			else next.add(id);
+			return next;
+		});
+	};
+	const toggleShowAll = (id: string) => {
+		setExpandedSections((prev) => {
+			const next = new Set(prev);
+			if (next.has(id)) next.delete(id);
+			else next.add(id);
+			return next;
+		});
+	};
+
+	const predicates = briefFilterDefs.filter((f) => active.has(f.id));
+	const filtered = sections
+		.map((section) => ({
+			...section,
+			threads: section.threads.filter(
+				(t) =>
+					(briefCategory === "all" || t.category === briefCategory) &&
+					predicates.every((f) => f.match(t)),
+			),
+		}))
+		.filter((section) => section.threads.length > 0);
+
+	return (
+		<>
+			{/* category scope — single-select colored pills (same palette as the
+			    inbox category badges); a separate axis from the attribute chips */}
+			<div className="flex items-center gap-1.5 overflow-x-auto border-b border-line px-row-inset py-1.5">
+				{briefCategories.map((cat) => {
+					const selected = briefCategory === cat.id;
+					return (
+						<button
+							key={cat.id}
+							type="button"
+							onClick={() => onSelectBriefCategory?.(cat.id)}
+							className={cn(
+								"shrink-0 rounded-full transition-opacity",
+								selected
+									? "opacity-100 ring-1 ring-accent-2"
+									: "opacity-60 hover:opacity-100",
+							)}
+						>
+							<Badge tone={cat.id === "all" ? "neutral" : categoryTone[cat.id]}>
+								{cat.label}
+							</Badge>
+						</button>
+					);
+				})}
+			</div>
+
+			{/* attribute filters — neutral outline chips, composable/additive */}
+			<div className="flex items-center gap-1.5 overflow-x-auto border-b border-line px-row-inset py-1">
+				{briefFilterDefs.map((f) => {
+					const on = active.has(f.id);
+					return (
+						<button
+							key={f.id}
+							type="button"
+							onClick={() => toggleFilter(f.id)}
+							className={cn(
+								"shrink-0 rounded-full border px-2.5 py-0.5 text-2xs transition-colors",
+								on
+									? "border-accent-2 bg-accent-2-soft font-medium text-accent-2"
+									: "border-line text-fg-muted hover:border-line-strong",
+							)}
+						>
+							{f.label}
+						</button>
+					);
+				})}
+			</div>
+
+			<div className="flex-1 overflow-y-auto">
+				{filtered.map((section) => {
+					const isCollapsed = collapsed.has(section.id);
+					const showAll = expandedSections.has(section.id);
+					const capped = !showAll && section.threads.length > SECTION_ROW_CAP;
+					const visible = capped
+						? section.threads.slice(0, SECTION_ROW_CAP)
+						: section.threads;
+					const hiddenCount = section.threads.length - visible.length;
+					return (
+						<div key={section.id}>
+							{section.label && (
+								<button
+									type="button"
+									onClick={() => toggleSection(section.id)}
+									className="sticky top-0 flex w-full items-baseline gap-1.5 border-b border-line bg-surface-sunken px-row-inset py-1 text-left transition-colors hover:bg-surface"
+								>
+									{isCollapsed ? (
+										<ChevronRight className="size-3 shrink-0 self-center text-fg-subtle" />
+									) : (
+										<ChevronDown className="size-3 shrink-0 self-center text-fg-subtle" />
+									)}
+									<span className="flex-1 text-2xs font-semibold uppercase tracking-wider text-fg-subtle">
+										{section.label}
+									</span>
+									<span className="text-2xs text-fg-subtle tabular-nums">
+										{section.threads.length}
+									</span>
+								</button>
+							)}
+							{!isCollapsed && (
+								<>
+									<div className="divide-y divide-line">
+										{visible.map((thread) => (
+											<Row
+												key={thread.id}
+												thread={thread}
+												active={thread.id === selectedThreadId}
+												onClick={() => onSelectThread?.(thread.id)}
+											/>
+										))}
+									</div>
+									{section.threads.length > SECTION_ROW_CAP && (
+										<button
+											type="button"
+											onClick={() => toggleShowAll(section.id)}
+											className="flex w-full items-center justify-center border-b border-line px-row-inset py-1.5 text-2xs font-medium text-accent transition-colors hover:bg-surface"
+										>
+											{showAll
+												? "Show less"
+												: `Show all (${section.threads.length})`}
+											{!showAll && hiddenCount > 0 && (
+												<ChevronDown className="ml-1 size-3" />
+											)}
+										</button>
+									)}
+								</>
+							)}
+						</div>
+					);
+				})}
+				{filtered.length === 0 && (
+					<div className="px-row-inset py-6 text-center text-2xs text-fg-subtle">
+						No threads match these filters.
+					</div>
+				)}
+			</div>
+		</>
+	);
+}
+
 function MessageListPane({
 	listTitle,
 	listMeta,
 	chips,
 	mutedNote,
 	sections,
+	briefFilters,
+	briefCategory,
 	selectedThreadId,
 	density = "comfortable",
 	onSelectThread,
+	onSelectBriefCategory,
 }: Pick<
 	AppShellProps,
 	| "listTitle"
@@ -522,9 +899,12 @@ function MessageListPane({
 	| "chips"
 	| "mutedNote"
 	| "sections"
+	| "briefFilters"
+	| "briefCategory"
 	| "selectedThreadId"
 	| "density"
 	| "onSelectThread"
+	| "onSelectBriefCategory"
 >) {
 	const Row = density === "compact" ? CompactRow : ComfortableRow;
 	return (
@@ -567,32 +947,43 @@ function MessageListPane({
 				</div>
 			)}
 
-			<div className="flex-1 overflow-y-auto">
-				{sections.map((section) => (
-					<div key={section.id}>
-						{section.label && (
-							<div className="sticky top-0 flex items-baseline justify-between border-b border-line bg-surface-sunken px-row-inset py-1">
-								<span className="text-2xs font-semibold uppercase tracking-wider text-fg-subtle">
-									{section.label}
-								</span>
-								<span className="text-2xs text-fg-subtle tabular-nums">
-									{section.threads.length}
-								</span>
+			{briefFilters ? (
+				<BriefSections
+					sections={sections}
+					briefCategory={briefCategory}
+					selectedThreadId={selectedThreadId}
+					Row={Row}
+					onSelectThread={onSelectThread}
+					onSelectBriefCategory={onSelectBriefCategory}
+				/>
+			) : (
+				<div className="flex-1 overflow-y-auto">
+					{sections.map((section) => (
+						<div key={section.id}>
+							{section.label && (
+								<div className="sticky top-0 flex items-baseline justify-between border-b border-line bg-surface-sunken px-row-inset py-1">
+									<span className="text-2xs font-semibold uppercase tracking-wider text-fg-subtle">
+										{section.label}
+									</span>
+									<span className="text-2xs text-fg-subtle tabular-nums">
+										{section.threads.length}
+									</span>
+								</div>
+							)}
+							<div className="divide-y divide-line">
+								{section.threads.map((thread) => (
+									<Row
+										key={thread.id}
+										thread={thread}
+										active={thread.id === selectedThreadId}
+										onClick={() => onSelectThread?.(thread.id)}
+									/>
+								))}
 							</div>
-						)}
-						<div className="divide-y divide-line">
-							{section.threads.map((thread) => (
-								<Row
-									key={thread.id}
-									thread={thread}
-									active={thread.id === selectedThreadId}
-									onClick={() => onSelectThread?.(thread.id)}
-								/>
-							))}
 						</div>
-					</div>
-				))}
-			</div>
+					))}
+				</div>
+			)}
 
 			<footer className="flex items-center gap-2 border-t border-line px-row-inset py-1 text-2xs text-fg-subtle">
 				<Kbd>j</Kbd>
@@ -850,30 +1241,6 @@ function ReadingPane({
 							<CollapsedMessage key={message.id} message={message} />
 						),
 					)}
-
-					<div className="flex gap-2 border-t border-line px-5 py-3">
-						<Button
-							variant="secondary"
-							size="sm"
-							icon={<Reply className="size-3.5" />}
-						>
-							Reply
-						</Button>
-						<Button
-							variant="secondary"
-							size="sm"
-							icon={<ReplyAll className="size-3.5" />}
-						>
-							Reply all
-						</Button>
-						<Button
-							variant="secondary"
-							size="sm"
-							icon={<Forward className="size-3.5" />}
-						>
-							Forward
-						</Button>
-					</div>
 				</div>
 			)}
 		</article>
@@ -893,6 +1260,9 @@ export function AppShell({
 	chips,
 	mutedNote,
 	sections,
+	briefFilters,
+	briefCategory,
+	onSelectBriefCategory,
 	selectedThreadId,
 	thread,
 	intelligence,
@@ -904,6 +1274,17 @@ export function AppShell({
 }: AppShellProps) {
 	const showIntelligence =
 		Boolean(intelligence) && intelligenceOpen && Boolean(thread);
+	/* Category lives here when uncontrolled so the brief and the nav expando
+	   share one axis; a controlled `briefCategory`/`onSelectBriefCategory` pair
+	   overrides it. */
+	const [internalCategory, setInternalCategory] = useState<BriefCategoryFilter>(
+		briefCategory ?? "all",
+	);
+	const activeCategory = briefCategory ?? internalCategory;
+	const selectCategory = (category: BriefCategoryFilter) => {
+		setInternalCategory(category);
+		onSelectBriefCategory?.(category);
+	};
 	return (
 		<div className="flex h-dvh w-full overflow-hidden bg-canvas font-sans text-fg">
 			{/* Resizable panes: drag handles ARE the hairlines between panes.
@@ -941,9 +1322,12 @@ export function AppShell({
 						chips={chips}
 						mutedNote={mutedNote}
 						sections={sections}
+						briefFilters={briefFilters}
+						briefCategory={activeCategory}
 						selectedThreadId={selectedThreadId}
 						density={density}
 						onSelectThread={onSelectThread}
+						onSelectBriefCategory={selectCategory}
 					/>
 				</ResizablePanel>
 				<ResizableHandle />
