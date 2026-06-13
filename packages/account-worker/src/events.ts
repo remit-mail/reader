@@ -34,6 +34,16 @@ export type AccountDataPurgeFinalizeEvent = {
 	type: "FinalizeAccountDataPurge";
 	accountId: string;
 	accountConfigId: string;
+	/**
+	 * Continuation marker. The destructive finalize step drains the account a
+	 * bounded number of message subtrees per invocation and re-enqueues itself
+	 * until the account holds no more messages. There is no data cursor: each
+	 * chunk re-queries the mailboxes from the front and deleted rows have
+	 * already vanished from the GSI, so the next chunk naturally picks up the
+	 * next slice. `chunk` is a 0-based counter carried only for log correlation
+	 * and is absent on the first (fanout-emitted) event.
+	 */
+	chunk?: number;
 };
 
 export type AccountFinalizeEvent =
