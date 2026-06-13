@@ -16,7 +16,8 @@
 		"test": "npm run test:typecheck && npm run test:run"
 	},
 	"dependencies": {
-		"p-limit": "^6.2.0"
+		"p-limit": "^6.2.0",
+		"zod": "*"
 	},
 	"devDependencies": {
 		"@aws-sdk/client-bedrock-runtime": "*",
