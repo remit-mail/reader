@@ -36,6 +36,6 @@ export const DRAFTS_IMAP_MESSAGE_ID_HEADER = "<e2e-imap-draft-1@test.local>";
 
 export const SAMPLE_MESSAGE_ID_HEADER = "<e2e-msg-3@test.local>";
 export const SAMPLE_MESSAGE_ID = MessageService.generateId(
-	E2E_ACCOUNT_CONFIG_ID,
+	E2E_ACCOUNT_ID,
 	SAMPLE_MESSAGE_ID_HEADER,
 );

@@ -419,6 +419,33 @@ describe("sendMessage handler", () => {
 		);
 	});
 
+	it("resolves a reply target via accountId (account-scoped message identity)", async () => {
+		const { deps, recorded } = buildDeps({
+			outbox: buildOutbox({
+				toAddresses: ["bob@example.com"],
+				inReplyTo: "parent-msg@example.com",
+			}),
+			account: buildAccount({ smtpHost: "smtp.example.com", smtpPort: 587 }),
+		});
+
+		const headerLookups: string[] = [];
+		deps.engagement.findMessageByHeader = async (accountId) => {
+			headerLookups.push(accountId);
+			return { messageId: "msg-parent" } as unknown as never;
+		};
+		deps.engagement.getEnvelopeFromEmail = async () => "bob@example.com";
+
+		await sendMessage(event, silentLogger, deps);
+
+		// Inbound messages are keyed by accountId now, so the reply lookup must
+		// pass the outbox's accountId ("acc-1"), never its accountConfigId ("cfg-1").
+		assert.ok(headerLookups.length > 0);
+		for (const id of headerLookups) {
+			assert.equal(id, "acc-1");
+		}
+		assert.equal(recorded.replyIncrements.length, 1);
+	});
+
 	it("does not fail the send when engagement counters throw", async () => {
 		const { deps, recorded } = buildDeps({
 			account: buildAccount({ smtpHost: "smtp.example.com", smtpPort: 587 }),

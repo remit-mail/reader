@@ -26,7 +26,7 @@ export interface EngagementCounterDeps {
 	incrementOutboundCount: (addressId: string, now: number) => Promise<void>;
 	incrementReplyCount: (addressId: string, now: number) => Promise<void>;
 	findMessageByHeader: (
-		accountConfigId: string,
+		accountId: string,
 		messageIdHeader: string,
 	) => Promise<MessageItem | null>;
 	getEnvelopeFromEmail: (messageId: string) => Promise<string | null>;

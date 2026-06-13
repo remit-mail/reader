@@ -101,10 +101,10 @@ const emitAppendSentMessage = async (
 };
 
 const findMessageByHeader = async (
-	accountConfigId: string,
+	accountId: string,
 	messageIdHeader: string,
 ) => {
-	const messageId = MessageService.generateId(accountConfigId, messageIdHeader);
+	const messageId = MessageService.generateId(accountId, messageIdHeader);
 	return messageService.get(messageId).catch((error: unknown) => {
 		if ((error as { name?: string })?.name === "NotFoundError") return null;
 		throw error;

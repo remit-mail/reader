@@ -81,10 +81,7 @@ const resolveReplyTargets = async (
 	const matched = new Set<string>();
 	for (const header of headerCandidates) {
 		for (const variant of headerVariants(header)) {
-			const message = await deps.findMessageByHeader(
-				outbox.accountConfigId,
-				variant,
-			);
+			const message = await deps.findMessageByHeader(outbox.accountId, variant);
 			if (!message) continue;
 			const fromEmail = await deps.getEnvelopeFromEmail(message.messageId);
 			if (!fromEmail) continue;
