@@ -5,7 +5,6 @@ import {
 } from "@aws-sdk/client-cognito-identity-provider";
 import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
 import { createLogger, type Logger } from "@remit/logger-lambda";
-import { enqueueSearchIndexEvents } from "@remit/search-index-worker";
 import type {
 	Context,
 	SQSBatchResponse,
@@ -19,7 +18,6 @@ import {
 	cognitoClient,
 	getAccountFinalizeQueueUrl,
 	getImapWorkerQueueUrl,
-	getSearchIndexQueueUrl,
 	getUserPoolId,
 	sqsClient,
 } from "../config.js";
@@ -35,7 +33,6 @@ export interface ProcessAccountFanoutDeps {
 	sqs: SQSClient;
 	cognito: CognitoIdentityProviderClient;
 	userPoolId: string;
-	searchIndexQueueUrl: string;
 	imapWorkerQueueUrl: string;
 	accountFinalizeQueueUrl: string;
 }
@@ -56,7 +53,6 @@ export const processAccountFanout = async (
 		await processAccountDataPurge(event, log, {
 			services: deps.services,
 			sqs: deps.sqs,
-			searchIndexQueueUrl: deps.searchIndexQueueUrl,
 			accountFinalizeQueueUrl: deps.accountFinalizeQueueUrl,
 		});
 		return;
@@ -81,16 +77,6 @@ const processAccountDelete = async (
 		accountConfigId,
 		services,
 		log,
-	);
-
-	await enqueueSearchIndexEvents(
-		sqs,
-		deps.searchIndexQueueUrl,
-		messageIds.map((messageId) => ({ type: "delete", messageId })),
-	);
-	log.info(
-		{ accountConfigId, count: messageIds.length },
-		"Enqueued search-index deletes",
 	);
 
 	const accountIds = entities
@@ -157,7 +143,6 @@ const defaultDeps = (): ProcessAccountFanoutDeps => ({
 	sqs: sqsClient,
 	cognito: cognitoClient,
 	userPoolId: getUserPoolId(),
-	searchIndexQueueUrl: getSearchIndexQueueUrl(),
 	imapWorkerQueueUrl: getImapWorkerQueueUrl(),
 	accountFinalizeQueueUrl: getAccountFinalizeQueueUrl(),
 });

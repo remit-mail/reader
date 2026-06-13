@@ -1,5 +1,3 @@
-import { inspect } from "node:util";
-import { SQSClient } from "@aws-sdk/client-sqs";
 import {
 	ContentDisposition,
 	MediaType,
@@ -12,10 +10,6 @@ import type {
 	EnvelopeResponse,
 	MessageSummaryResponse,
 } from "@remit/api-openapi-types";
-import {
-	enqueueSearchIndexEvents,
-	type IndexEvent,
-} from "@remit/search-index-worker";
 import {
 	isStorageNotFoundError as isStorageNotFoundErrorFromService,
 	parseStorageUri,
@@ -38,15 +32,6 @@ import type {
 import { assertAccountOwnership } from "./account-ownership.js";
 
 type StarColorValue = (typeof StarColor)[keyof typeof StarColor];
-
-let _searchSqs: SQSClient | undefined;
-const getSearchIndexSqs = (): SQSClient => {
-	if (!_searchSqs) _searchSqs = new SQSClient({});
-	return _searchSqs;
-};
-
-const getSearchIndexQueueUrl = (): string | undefined =>
-	process.env.SQS_QUEUE_URL_SEARCH_INDEX;
 
 export const isStorageNotFoundError = (error: unknown): boolean =>
 	isStorageNotFoundErrorFromService(error);
@@ -298,31 +283,6 @@ export const MessageOperations: Record<
 			// never-synced message would return an empty bodyParts array.
 			const refreshed = await client.message.describe(messageId);
 			bodyPartRows = refreshed.bodyPart;
-
-			// Best-effort: enqueue a search index upsert so the new content
-			// becomes searchable.
-			const searchQueueUrl = getSearchIndexQueueUrl();
-			if (searchQueueUrl) {
-				const upsertEvents: IndexEvent[] = [
-					{
-						type: "upsert" as const,
-						messageId,
-						accountId,
-						accountConfigId,
-						mailboxIds: [message.mailboxId],
-					},
-				];
-				await enqueueSearchIndexEvents(
-					getSearchIndexSqs(),
-					searchQueueUrl,
-					upsertEvents,
-				).catch((err: unknown) => {
-					logger.warn(
-						{ error: inspect(err), messageId },
-						"Failed to enqueue search index upsert (best-effort)",
-					);
-				});
-			}
 		}
 
 		const bodyParts = buildBodyPartResponses(bodyPartRows, {
@@ -506,26 +466,6 @@ export const MessageBulkOperations: Record<
 		await client.messageMove.deleteMessages(messageIds, mailbox.accountId, {
 			permanent,
 		});
-
-		// Enqueue delete events for the async search index worker (best-effort).
-		// #214: replaced inline wipeSearchVectors with SQS enqueue.
-		const searchQueueUrl = getSearchIndexQueueUrl();
-		if (searchQueueUrl) {
-			const events: IndexEvent[] = messageIds.map((id) => ({
-				type: "delete" as const,
-				messageId: id,
-			}));
-			await enqueueSearchIndexEvents(
-				getSearchIndexSqs(),
-				searchQueueUrl,
-				events,
-			).catch((error: unknown) => {
-				logger.warn(
-					{ error: inspect(error) },
-					"Failed to enqueue search index delete events (best-effort)",
-				);
-			});
-		}
 
 		return {
 			successCount: messageIds.length,
