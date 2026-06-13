@@ -336,14 +336,6 @@ export class BodySyncService {
 		// Counters drift under at-least-once SQS — accepted residual per EDD #232.
 		await this.classifyAndCount(messageId, accountConfigId, parsed);
 
-		// Rescue falsely-junked mail if configured and heuristics pass.
-		await this.maybeRescueFromJunk(
-			messageId,
-			accountId,
-			accountConfigId,
-			parsed,
-		);
-
 		// Write the parsed-body cache alongside the raw .eml so subsequent
 		// describeMessage reads can skip mailparser entirely.
 		await this.storeParsedBodyCache(
@@ -363,6 +355,18 @@ export class BodySyncService {
 			accountConfigId,
 			accountId,
 			messageId,
+			parsed,
+		);
+
+		// Best-effort junk rescue runs LAST, after the critical path (body
+		// store + parsed-body cache + per-part objects) has completed, and is
+		// fully isolated: a throwing or slow rescue must never fail body-sync
+		// or block the search-index enqueue that the synced result drives.
+		// The longer-term home is the DDB-Streams decoupling epic (#571).
+		await this.maybeRescueFromJunk(
+			messageId,
+			accountId,
+			accountConfigId,
 			parsed,
 		);
 
@@ -422,6 +426,13 @@ export class BodySyncService {
 		return SenderTrust.Unknown;
 	}
 
+	/**
+	 * Best-effort rescue of falsely-junked mail. This is an enhancement bolted
+	 * onto the body-sync hot path, NOT part of the critical sync contract, so
+	 * it is the one place where let-it-crash is wrong: any failure here is
+	 * swallowed with a warning so it can never fail body-sync or block the
+	 * search-index enqueue. Runs last, after the body cache is durably stored.
+	 */
 	private async maybeRescueFromJunk(
 		messageId: string,
 		accountId: string,
@@ -431,36 +442,43 @@ export class BodySyncService {
 		if (!this.rescueConfig) return;
 		const { mailboxSpecialUseService, messageMoveService } = this.rescueConfig;
 
-		const message = await this.messageService.get(messageId);
-		const junkMailbox = await mailboxSpecialUseService.findBySpecialUse(
-			accountId,
-			MailboxSpecialUse.Junk,
-		);
-		if (!junkMailbox || message.mailboxId !== junkMailbox.mailboxId) return;
+		try {
+			const message = await this.messageService.get(messageId);
+			const junkMailbox = await mailboxSpecialUseService.findBySpecialUse(
+				accountId,
+				MailboxSpecialUse.Junk,
+			);
+			if (!junkMailbox || message.mailboxId !== junkMailbox.mailboxId) return;
 
-		const fromEmail = extractPrimaryFromEmail(parsed);
-		const senderTrust = fromEmail
-			? await this.deriveSenderTrust(accountConfigId, fromEmail)
-			: SenderTrust.Unknown;
+			const fromEmail = extractPrimaryFromEmail(parsed);
+			const senderTrust = fromEmail
+				? await this.deriveSenderTrust(accountConfigId, fromEmail)
+				: SenderTrust.Unknown;
 
-		const rescue = shouldRescueFromJunk(message, senderTrust);
-		if (!rescue) return;
+			const rescue = shouldRescueFromJunk(message, senderTrust);
+			if (!rescue) return;
 
-		const inboxMailbox =
-			await mailboxSpecialUseService.findInboxMailbox(accountId);
-		if (!inboxMailbox) return;
+			const inboxMailbox =
+				await mailboxSpecialUseService.findInboxMailbox(accountId);
+			if (!inboxMailbox) return;
 
-		await this.messageService.update(messageId, { movedByRemit: true });
-		await messageMoveService.moveMessage(
-			messageId,
-			inboxMailbox.mailboxId,
-			accountId,
-		);
+			await this.messageService.update(messageId, { movedByRemit: true });
+			await messageMoveService.moveMessage(
+				messageId,
+				inboxMailbox.mailboxId,
+				accountId,
+			);
 
-		this.log.info(
-			{ messageId, accountId, destination: inboxMailbox.fullPath },
-			"Rescued message from Junk",
-		);
+			this.log.info(
+				{ messageId, accountId, destination: inboxMailbox.fullPath },
+				"Rescued message from Junk",
+			);
+		} catch (err: unknown) {
+			this.log.warn?.(
+				{ messageId, accountId, error: inspect(err) },
+				"Junk rescue failed (best-effort, non-fatal)",
+			);
+		}
 	}
 
 	/**
