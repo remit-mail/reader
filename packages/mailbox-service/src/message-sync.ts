@@ -37,9 +37,15 @@ const noopLogger: SyncLogger = {
 	info: () => {},
 };
 
+export interface SyncedMessage {
+	messageId: string;
+	uid: number;
+}
+
 export interface SyncMessagesResult {
 	syncedCount: number;
 	syncedMessageIds: string[];
+	syncedMessages: SyncedMessage[];
 	hasMore: boolean;
 	remainingCount: number;
 }
@@ -111,6 +117,7 @@ export class MessageSyncService {
 			return {
 				syncedCount: 0,
 				syncedMessageIds: [],
+				syncedMessages: [],
 				hasMore: false,
 				remainingCount: 0,
 			};
@@ -132,7 +139,10 @@ export class MessageSyncService {
 			(msg) => this.saveMessage(mailboxId, accountConfigId, msg),
 			{ concurrency: MESSAGE_SAVE_CONCURRENCY },
 		);
-		const syncedMessageIds = results.filter((id): id is string => id !== null);
+		const syncedMessages = results.filter(
+			(result): result is SyncedMessage => result !== null,
+		);
+		const syncedMessageIds = syncedMessages.map((m) => m.messageId);
 
 		// Update watermarks
 		const batchMax = Math.max(...batchUids);
@@ -174,6 +184,7 @@ export class MessageSyncService {
 		return {
 			syncedCount: syncedMessageIds.length,
 			syncedMessageIds,
+			syncedMessages,
 			hasMore,
 			remainingCount,
 		};
@@ -241,7 +252,7 @@ export class MessageSyncService {
 		mailboxId: string,
 		accountConfigId: string,
 		msg: ImapMessage,
-	): Promise<string | null> {
+	): Promise<SyncedMessage | null> {
 		if (!msg.envelope) return null;
 
 		// Store envelope to preserve narrowing in closures
@@ -336,7 +347,7 @@ export class MessageSyncService {
 			concurrency: ADDRESS_SAVE_CONCURRENCY,
 		});
 
-		return messageId;
+		return { messageId, uid: msg.uid };
 	}
 
 	private async saveAddresses(

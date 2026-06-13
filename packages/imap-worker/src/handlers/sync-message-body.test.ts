@@ -1,104 +1,157 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
+import type { SyncedMessage } from "@remit/mailbox-service";
 import type { SyncMessageBodyEvent } from "../events.js";
+import { buildRetryEvent, resolveBatch } from "./sync-message-body.js";
+import { BODY_BATCH_SIZE, batchSyncedMessages } from "./sync-messages.js";
 
-describe("SyncMessageBodyEvent", () => {
-	test("event schema validates correctly", () => {
+const baseEvent = {
+	type: "SYNC_MESSAGE_BODY" as const,
+	accountId: "test-account-123",
+	mailboxId: "test-mailbox-456",
+	eventId: "event-789",
+	timestamp: 1700000000000,
+};
+
+describe("resolveBatch — event-shape preference", () => {
+	test("prefers the new messages[] shape and exposes the uid map", () => {
 		const event: SyncMessageBodyEvent = {
-			type: "SYNC_MESSAGE_BODY",
-			accountId: "test-account-123",
-			mailboxId: "test-mailbox-456",
+			...baseEvent,
+			messageIds: ["msg-1", "msg-2"],
+			messages: [
+				{ messageId: "msg-1", uid: 101 },
+				{ messageId: "msg-2", uid: 102 },
+			],
+		};
+
+		const { messageIds, uidByMessageId } = resolveBatch(event);
+
+		assert.deepEqual(messageIds, ["msg-1", "msg-2"]);
+		assert.ok(uidByMessageId);
+		assert.equal(uidByMessageId.get("msg-1"), 101);
+		assert.equal(uidByMessageId.get("msg-2"), 102);
+	});
+
+	test("derives messageIds from messages[] when both disagree", () => {
+		// messages[] is authoritative; a stale messageIds list must not leak in.
+		const event: SyncMessageBodyEvent = {
+			...baseEvent,
+			messageIds: ["stale"],
+			messages: [{ messageId: "msg-1", uid: 101 }],
+		};
+
+		const { messageIds } = resolveBatch(event);
+
+		assert.deepEqual(messageIds, ["msg-1"]);
+	});
+
+	test("falls back to legacy messageIds[] with no uid map", () => {
+		const event: SyncMessageBodyEvent = {
+			...baseEvent,
 			messageIds: ["msg-1", "msg-2", "msg-3"],
-			eventId: "event-789",
-			timestamp: Date.now(),
 		};
 
-		assert.equal(event.type, "SYNC_MESSAGE_BODY");
-		assert.equal(event.accountId, "test-account-123");
-		assert.equal(event.mailboxId, "test-mailbox-456");
-		assert.equal(event.messageIds.length, 3);
-		assert.ok(event.eventId);
-		assert.ok(event.timestamp);
+		const { messageIds, uidByMessageId } = resolveBatch(event);
+
+		assert.deepEqual(messageIds, ["msg-1", "msg-2", "msg-3"]);
+		assert.equal(uidByMessageId, undefined);
 	});
 
-	test("messageIds can be empty array", () => {
+	test("empty messages[] resolves to an empty batch, not the legacy list", () => {
 		const event: SyncMessageBodyEvent = {
-			type: "SYNC_MESSAGE_BODY",
-			accountId: "test-account-123",
-			mailboxId: "test-mailbox-456",
-			messageIds: [],
-			eventId: "event-789",
-			timestamp: Date.now(),
+			...baseEvent,
+			messageIds: ["should-be-ignored"],
+			messages: [],
 		};
 
-		assert.equal(event.messageIds.length, 0);
-	});
+		const { messageIds, uidByMessageId } = resolveBatch(event);
 
-	test("messageIds preserves order", () => {
-		const messageIds = ["z-last", "a-first", "m-middle"];
-		const event: SyncMessageBodyEvent = {
-			type: "SYNC_MESSAGE_BODY",
-			accountId: "test-account-123",
-			mailboxId: "test-mailbox-456",
-			messageIds,
-			eventId: "event-789",
-			timestamp: Date.now(),
-		};
-
-		assert.deepEqual(event.messageIds, ["z-last", "a-first", "m-middle"]);
+		assert.deepEqual(messageIds, []);
+		assert.ok(uidByMessageId);
+		assert.equal(uidByMessageId.size, 0);
 	});
 });
 
-describe("SYNC_MESSAGE_BODY batching", () => {
-	const BODY_BATCH_SIZE = 10;
+describe("buildRetryEvent — partial-failure re-enqueue", () => {
+	const uidMap = new Map<string, number>([
+		["msg-1", 101],
+		["msg-2", 102],
+		["msg-3", 103],
+	]);
 
-	test("creates single batch for less than 10 messages", () => {
-		const messageIds = ["msg-1", "msg-2", "msg-3"];
-		const batches: string[][] = [];
+	test("re-enqueues ONLY the failed ids, never the whole batch", () => {
+		const retry = buildRetryEvent(
+			baseEvent.accountId,
+			baseEvent.mailboxId,
+			["msg-2"],
+			uidMap,
+		);
 
-		for (let i = 0; i < messageIds.length; i += BODY_BATCH_SIZE) {
-			batches.push(messageIds.slice(i, i + BODY_BATCH_SIZE));
-		}
+		assert.deepEqual(retry.messageIds, ["msg-2"]);
+		assert.deepEqual(retry.messages, [{ messageId: "msg-2", uid: 102 }]);
+	});
+
+	test("carries forward uids for each failed id when known", () => {
+		const retry = buildRetryEvent(
+			baseEvent.accountId,
+			baseEvent.mailboxId,
+			["msg-1", "msg-3"],
+			uidMap,
+		);
+
+		assert.deepEqual(retry.messages, [
+			{ messageId: "msg-1", uid: 101 },
+			{ messageId: "msg-3", uid: 103 },
+		]);
+	});
+
+	test("legacy batch (no uid map) re-enqueues ids only", () => {
+		const retry = buildRetryEvent(baseEvent.accountId, baseEvent.mailboxId, [
+			"msg-2",
+		]);
+
+		assert.deepEqual(retry.messageIds, ["msg-2"]);
+		assert.equal(retry.messages, undefined);
+	});
+});
+
+describe("batchSyncedMessages — one batch == one ranged fetch", () => {
+	const makeSynced = (count: number): SyncedMessage[] =>
+		Array.from({ length: count }, (_, i) => ({
+			messageId: `msg-${i}`,
+			uid: i + 1,
+		}));
+
+	test("batch size is raised to 200", () => {
+		assert.equal(BODY_BATCH_SIZE, 200);
+	});
+
+	test("packs up to 200 messages into a single batch", () => {
+		const batches = batchSyncedMessages(makeSynced(200));
 
 		assert.equal(batches.length, 1);
-		assert.deepEqual(batches[0], messageIds);
+		assert.equal(batches[0].length, 200);
 	});
 
-	test("creates multiple batches for more than 10 messages", () => {
-		const messageIds = Array.from({ length: 25 }, (_, i) => `msg-${i}`);
-		const batches: string[][] = [];
-
-		for (let i = 0; i < messageIds.length; i += BODY_BATCH_SIZE) {
-			batches.push(messageIds.slice(i, i + BODY_BATCH_SIZE));
-		}
-
-		assert.equal(batches.length, 3);
-		assert.equal(batches[0].length, 10);
-		assert.equal(batches[1].length, 10);
-		assert.equal(batches[2].length, 5);
-	});
-
-	test("creates exact batches for multiples of 10", () => {
-		const messageIds = Array.from({ length: 20 }, (_, i) => `msg-${i}`);
-		const batches: string[][] = [];
-
-		for (let i = 0; i < messageIds.length; i += BODY_BATCH_SIZE) {
-			batches.push(messageIds.slice(i, i + BODY_BATCH_SIZE));
-		}
+	test("splits 201 messages into 200 + 1", () => {
+		const batches = batchSyncedMessages(makeSynced(201));
 
 		assert.equal(batches.length, 2);
-		assert.equal(batches[0].length, 10);
-		assert.equal(batches[1].length, 10);
+		assert.equal(batches[0].length, 200);
+		assert.equal(batches[1].length, 1);
 	});
 
-	test("handles empty messageIds array", () => {
-		const messageIds: string[] = [];
-		const batches: string[][] = [];
+	test("keeps messageId+uid pairs intact per batch", () => {
+		const batches = batchSyncedMessages(makeSynced(3));
 
-		for (let i = 0; i < messageIds.length; i += BODY_BATCH_SIZE) {
-			batches.push(messageIds.slice(i, i + BODY_BATCH_SIZE));
-		}
+		assert.deepEqual(batches[0], [
+			{ messageId: "msg-0", uid: 1 },
+			{ messageId: "msg-1", uid: 2 },
+			{ messageId: "msg-2", uid: 3 },
+		]);
+	});
 
-		assert.equal(batches.length, 0);
+	test("empty input yields no batches", () => {
+		assert.deepEqual(batchSyncedMessages([]), []);
 	});
 });

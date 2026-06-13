@@ -17,6 +17,7 @@ import {
 	MailConnectionError,
 	type MailCredentials,
 	MessageSyncService,
+	type SyncedMessage,
 } from "@remit/mailbox-service";
 import {
 	createKmsDataKeyProvider,
@@ -30,9 +31,22 @@ import type { SyncMessageBodyEvent, SyncMessagesEvent } from "../events.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 
-const BODY_BATCH_SIZE = 50;
+// One SYNC_MESSAGE_BODY event maps to one ranged UID FETCH on the consumer.
+export const BODY_BATCH_SIZE = 200;
 const EVENT_EMIT_CONCURRENCY = 10;
 const MESSAGE_BATCH_SIZE = 200;
+
+/** Slice synced messages into body-sync batches, each one ranged FETCH. */
+export const batchSyncedMessages = (
+	syncedMessages: SyncedMessage[],
+	batchSize: number = BODY_BATCH_SIZE,
+): SyncedMessage[][] => {
+	const batches: SyncedMessage[][] = [];
+	for (let i = 0; i < syncedMessages.length; i += batchSize) {
+		batches.push(syncedMessages.slice(i, i + batchSize));
+	}
+	return batches;
+};
 
 const client = getClient();
 const dataKeyProvider = createKmsDataKeyProvider(env.KMS_KEY_ID);
@@ -184,20 +198,17 @@ const syncMailboxMessages = async (
 		"Message sync batch complete",
 	);
 
-	// Emit body sync events for the messages we just synced
-	if (result.syncedMessageIds.length > 0) {
-		// Create batches
-		const batches: string[][] = [];
-		for (let i = 0; i < result.syncedMessageIds.length; i += BODY_BATCH_SIZE) {
-			batches.push(result.syncedMessageIds.slice(i, i + BODY_BATCH_SIZE));
-		}
+	// Emit body sync events for the messages we just synced. Each event carries
+	// messageId+uid pairs so the consumer issues one ranged FETCH per batch
+	// without re-resolving UIDs. messageIds stays populated for backward compat.
+	if (result.syncedMessages.length > 0) {
+		const batches = batchSyncedMessages(result.syncedMessages);
 
 		log.info(
-			{ count: result.syncedMessageIds.length, batches: batches.length },
+			{ count: result.syncedMessages.length, batches: batches.length },
 			"Emitting SYNC_MESSAGE_BODY events",
 		);
 
-		// Emit events in parallel with concurrency limit
 		await pMap(
 			batches,
 			(batch) => {
@@ -205,7 +216,8 @@ const syncMailboxMessages = async (
 					type: "SYNC_MESSAGE_BODY",
 					accountId: event.accountId,
 					mailboxId,
-					messageIds: batch,
+					messageIds: batch.map((m) => m.messageId),
+					messages: batch.map((m) => ({ messageId: m.messageId, uid: m.uid })),
 				};
 				return emitEvent(bodyEvent);
 			},

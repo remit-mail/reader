@@ -108,6 +108,7 @@ export {
 export {
 	type ImapConnectionFactory,
 	MessageSyncService,
+	type SyncedMessage,
 	type SyncMessagesResult,
 } from "./message-sync.js";
 export {
