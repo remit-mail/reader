@@ -1,5 +1,6 @@
 import { inspect } from "node:util";
 import { createLogger, type Logger } from "@remit/logger-lambda";
+import type { VectorRecord } from "@remit/search-service";
 import type {
 	Context,
 	SQSBatchResponse,
@@ -7,7 +8,7 @@ import type {
 	SQSHandler,
 	SQSRecord,
 } from "aws-lambda";
-import type { IndexEvent, UpsertEvent } from "./events.js";
+import { type ParsedQueueMessage, parseQueueMessage } from "./parse.js";
 import { getServices, type Services } from "./services.js";
 
 export const handler: SQSHandler = async (
@@ -19,86 +20,96 @@ export const handler: SQSHandler = async (
 	return processBatch(event.Records, services, log);
 };
 
+type AccountGroup = {
+	records: VectorRecord[];
+	sqsMessageIds: string[];
+};
+
 export const processBatch = async (
 	records: SQSRecord[],
 	services: Services,
 	log: Logger,
 ): Promise<SQSBatchResponse> => {
 	const batchItemFailures: { itemIdentifier: string }[] = [];
+	const accountGroups = new Map<string, AccountGroup>();
 
-	const parsed: { record: SQSRecord; event: IndexEvent }[] = [];
 	for (const record of records) {
+		let message: ParsedQueueMessage;
 		try {
-			const event: IndexEvent = JSON.parse(record.body);
-			parsed.push({ record, event });
+			message = parseQueueMessage(record.body);
 		} catch (error) {
 			log.error(
 				{ error: inspect(error), messageId: record.messageId },
-				"Failed to parse event",
+				"Failed to parse message",
 			);
 			batchItemFailures.push({ itemIdentifier: record.messageId });
+			continue;
 		}
-	}
 
-	const deletes = parsed.filter((p) => p.event.type === "delete");
-	const upserts = parsed.filter((p) => p.event.type === "upsert");
+		if (message.kind === "delete") {
+			try {
+				await services.searchService.delete(message.messageId);
+				log.info({ messageId: message.messageId }, "Deleted search vectors");
+			} catch (error) {
+				log.error(
+					{ error: inspect(error), messageId: message.messageId },
+					"Delete failed",
+				);
+				batchItemFailures.push({ itemIdentifier: record.messageId });
+			}
+			continue;
+		}
 
-	for (const { record, event } of deletes) {
 		try {
-			await services.searchService.delete(event.messageId);
-			log.info({ messageId: event.messageId }, "Deleted search vectors");
+			const vectorRecords = await prepareUpsert(
+				message.accountId,
+				message.messageId,
+				services,
+				log,
+			);
+			if (vectorRecords === null) continue;
+			if (vectorRecords.length === 0) continue;
+
+			const group = accountGroups.get(message.accountId) ?? {
+				records: [],
+				sqsMessageIds: [],
+			};
+			group.records.push(...vectorRecords);
+			group.sqsMessageIds.push(record.messageId);
+			accountGroups.set(message.accountId, group);
 		} catch (error) {
 			log.error(
-				{ error: inspect(error), messageId: event.messageId },
-				"Delete failed",
+				{ error: inspect(error), messageId: message.messageId },
+				"Preparation failed",
 			);
 			batchItemFailures.push({ itemIdentifier: record.messageId });
 		}
 	}
 
-	if (upserts.length > 0) {
-		const upsertFailures = await processUpserts(
-			upserts.map((u) => ({
-				sqsMessageId: u.record.messageId,
-				event: u.event as UpsertEvent,
-			})),
-			services,
-			log,
-		);
-		batchItemFailures.push(...upsertFailures);
+	for (const [accountId, group] of accountGroups) {
+		try {
+			await services.searchService.upsertVectors(group.records);
+			log.info(
+				{ accountId, count: group.records.length },
+				"Bulk upsert complete",
+			);
+		} catch (error) {
+			log.error({ error: inspect(error), accountId }, "Bulk upsert failed");
+			for (const sqsMessageId of group.sqsMessageIds) {
+				batchItemFailures.push({ itemIdentifier: sqsMessageId });
+			}
+		}
 	}
 
 	return { batchItemFailures };
 };
 
-const processUpserts = async (
-	items: { sqsMessageId: string; event: UpsertEvent }[],
+const prepareUpsert = async (
+	accountId: string,
+	messageId: string,
 	services: Services,
 	log: Logger,
-): Promise<{ itemIdentifier: string }[]> => {
-	const failures: { itemIdentifier: string }[] = [];
-
-	for (const item of items) {
-		try {
-			await processOneUpsert(item.event, services, log);
-		} catch (error) {
-			log.error(
-				{ error: inspect(error), messageId: item.event.messageId },
-				"Upsert failed",
-			);
-			failures.push({ itemIdentifier: item.sqsMessageId });
-		}
-	}
-
-	return failures;
-};
-
-const processOneUpsert = async (
-	event: UpsertEvent,
-	services: Services,
-	log: Logger,
-): Promise<void> => {
-	const { messageId, accountId, accountConfigId, mailboxIds } = event;
+): Promise<VectorRecord[] | null> => {
 	const {
 		accountService,
 		threadMessageService,
@@ -106,44 +117,39 @@ const processOneUpsert = async (
 		searchService,
 	} = services;
 
-	// Tombstone fence: skip indexing for deleted accounts (#228)
 	try {
 		const account = await accountService.get(accountId);
 		if (account.deletedAt) {
 			log.info(
 				{ accountId, messageId, deletedAt: account.deletedAt },
-				"Account deleted, skipping upsert",
+				"Account deleted, skipping",
 			);
-			return;
+			return null;
 		}
 	} catch {
-		// Account not found — likely already purged, skip indexing
-		log.info({ accountId, messageId }, "Account not found, skipping upsert");
-		return;
+		log.info({ accountId, messageId }, "Account not found, skipping");
+		return null;
 	}
 
 	const threadMessage = await threadMessageService.findByMessageId(messageId);
 	if (!threadMessage) {
-		log.info(
-			{ messageId },
-			"ThreadMessage not found, skipping (likely deleted)",
-		);
-		return;
+		log.info({ messageId }, "ThreadMessage not found, skipping");
+		return null;
 	}
 
 	const parsedBody = await storageService.retrieveParsedBody(
-		accountConfigId,
+		threadMessage.accountConfigId,
 		accountId,
 		messageId,
 	);
 	if (!parsedBody) {
 		log.info({ messageId }, "Parsed body not found in S3, skipping");
-		return;
+		return null;
 	}
 
 	await searchService.delete(messageId);
 
-	await searchService.index({
+	return searchService.prepareVectors({
 		envelope: {
 			from: {
 				name: threadMessage.fromName ?? null,
@@ -162,8 +168,8 @@ const processOneUpsert = async (
 		metadata: {
 			messageId,
 			threadId: threadMessage.threadId,
-			accountConfigId,
-			mailboxIds,
+			accountConfigId: threadMessage.accountConfigId,
+			mailboxIds: [threadMessage.mailboxId],
 			sentDate: threadMessage.sentDate,
 			isRead: threadMessage.isRead,
 			hasAttachment: threadMessage.hasAttachment,
@@ -172,6 +178,4 @@ const processOneUpsert = async (
 			subject: threadMessage.subject ?? "",
 		},
 	});
-
-	log.info({ messageId }, "Indexed message for search");
 };

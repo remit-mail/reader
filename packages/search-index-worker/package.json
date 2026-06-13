@@ -21,6 +21,7 @@
 		"@remit/logger-lambda": "*",
 		"@remit/search-service": "*",
 		"@remit/storage-service": "*",
-		"@types/aws-lambda": "*"
+		"@types/aws-lambda": "*",
+		"zod": "*"
 	}
 }

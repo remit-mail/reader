@@ -13,6 +13,8 @@ import type {
 
 export interface SearchService {
 	index(params: IndexEmailParams): Promise<void>;
+	prepareVectors(params: IndexEmailParams): Promise<VectorRecord[]>;
+	upsertVectors(records: VectorRecord[]): Promise<void>;
 	search(params: SearchParams): Promise<SearchResult[]>;
 	delete(messageId: string): Promise<void>;
 }
@@ -49,13 +51,21 @@ export class DefaultSearchService implements SearchService {
 	}
 
 	index = async (params: IndexEmailParams): Promise<void> => {
+		const records = await this.prepareVectors(params);
+		if (records.length === 0) return;
+		await this.store.upsert(records);
+	};
+
+	prepareVectors = async (
+		params: IndexEmailParams,
+	): Promise<VectorRecord[]> => {
 		const { envelope, parsedBody, metadata } = params;
 		const chunks = this.chunker.chunk({
 			envelope,
 			parsedBody,
 			messageId: metadata.messageId,
 		});
-		if (chunks.length === 0) return;
+		if (chunks.length === 0) return [];
 
 		const vectors = await this.embedder.embed(chunks.map((c) => c.text));
 		if (vectors.length !== chunks.length) {
@@ -66,7 +76,7 @@ export class DefaultSearchService implements SearchService {
 
 		const fileTypes = extractAttachmentFileTypes(envelope.attachments);
 
-		const records: VectorRecord[] = chunks.map((chunk, i) => {
+		return chunks.map((chunk, i) => {
 			const meta: ChunkMetadata = {
 				...metadata,
 				chunkType: chunk.chunkType,
@@ -80,7 +90,9 @@ export class DefaultSearchService implements SearchService {
 				metadata: meta,
 			};
 		});
+	};
 
+	upsertVectors = async (records: VectorRecord[]): Promise<void> => {
 		await this.store.upsert(records);
 	};
 

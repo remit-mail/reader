@@ -3,6 +3,7 @@ import type { IndexEvent } from "./events.js";
 
 const SQS_BATCH_SIZE = 10;
 
+/** @deprecated Use the DynamoDB stream bridge instead. This enqueuer will be removed once the stream bridge is live. */
 export const enqueueSearchIndexEvents = async (
 	sqsClient: SQSClient,
 	queueUrl: string,

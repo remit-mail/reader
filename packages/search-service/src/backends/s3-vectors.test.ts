@@ -3,10 +3,12 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import {
 	DeleteVectorsCommand,
 	ListVectorsCommand,
+	PutVectorsCommand,
 	QueryVectorsCommand,
 	S3VectorsClient,
 } from "@aws-sdk/client-s3vectors";
 import { type AwsClientStub, mockClient } from "aws-sdk-client-mock";
+import type { VectorRecord } from "../types.js";
 import { S3VectorsBackend } from "./s3-vectors.js";
 
 const VECTOR_BUCKET = "test-vector-bucket";
@@ -196,6 +198,49 @@ describe("S3VectorsBackend.query topK guard", () => {
 			topK !== undefined && topK >= 1 && topK <= 100,
 			`topK must be within AWS S3 Vectors 1..100 range, got ${topK}`,
 		);
+	});
+});
+
+describe("S3VectorsBackend.upsert batching", () => {
+	let s3vMock: AwsClientStub<S3VectorsClient>;
+
+	beforeEach(() => {
+		s3vMock = mockClient(S3VectorsClient);
+	});
+
+	afterEach(() => {
+		s3vMock.restore();
+	});
+
+	const buildVectors = (count: number): VectorRecord[] =>
+		Array.from({ length: count }, (_, i) => ({
+			chunkId: `${MESSAGE_ID}::body-${i}`,
+			vector: [0.1, 0.2, 0.3],
+			metadata: {
+				messageId: MESSAGE_ID,
+				threadId: "thread-1",
+				accountConfigId: "acct-1",
+				mailboxIds: ["mb-inbox"],
+				chunkType: "body",
+				sentDate: 1_700_000_000,
+				isRead: false,
+				hasAttachment: false,
+				hasStars: false,
+			},
+		}));
+
+	it("splits a >500-vector group into multiple PutVectors calls under the AWS cap", async () => {
+		s3vMock.on(PutVectorsCommand).resolves({});
+
+		await buildBackend().upsert(buildVectors(250));
+
+		const putCalls = s3vMock.commandCalls(PutVectorsCommand);
+		assert.equal(putCalls.length, 3, "250 vectors should split into 3 calls");
+		const sizes = putCalls.map((c) => (c.args[0].input.vectors ?? []).length);
+		assert.deepEqual(sizes, [100, 100, 50]);
+		for (const size of sizes) {
+			assert.ok(size <= 500, "no call exceeds the AWS 500/call cap");
+		}
 	});
 });
 
