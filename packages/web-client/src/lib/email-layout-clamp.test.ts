@@ -21,9 +21,17 @@ describe("generateLayoutClampCSS (#374)", () => {
 			css.includes(".email-content"),
 			"clamp rules must be scoped to .email-content",
 		);
-		// Quick smoke: no bare `body`/`html` selectors that would bleed out
-		assert.ok(!/(^|\s)body\s*\{/.test(css));
-		assert.ok(!/(^|\s)html\s*\{/.test(css));
+	});
+
+	test("zeros UA default html/body margin so iframe content fills edge-to-edge", () => {
+		assert.ok(
+			/html\s*,\s*body\s*\{[^}]*margin\s*:\s*0/.test(css),
+			"html, body margin must be reset to 0",
+		);
+		assert.ok(
+			/html\s*,\s*body\s*\{[^}]*padding\s*:\s*0/.test(css),
+			"html, body padding must be reset to 0",
+		);
 	});
 
 	test("clamps the .email-content block itself to its parent width", () => {
