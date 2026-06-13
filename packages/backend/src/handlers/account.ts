@@ -42,6 +42,7 @@ import type {
 	OperationHandler,
 } from "../types.js";
 import {
+	assertNoDuplicateMailbox,
 	assertNotOAuthCreate,
 	assertPasswordProvided,
 	toAccountResponse,
@@ -190,6 +191,16 @@ export const AccountOperations: Record<
 		const { account, accountConfig, secrets } = getClient();
 
 		await ensureAccountConfig(accountConfig, accountConfigId);
+
+		// Reject re-onboarding the same mailbox-in-the-same-place. Message
+		// identity is account-scoped (#633), so duplicate onboards are no longer
+		// incidentally deduped — this is the explicit replacement (#635).
+		const existingAccounts =
+			await account.listAllByAccountConfig(accountConfigId);
+		assertNoDuplicateMailbox(existingAccounts, {
+			imapHost: input.imapHost,
+			username: input.username ?? input.email,
+		});
 
 		// biome-ignore lint/style/noNonNullAssertion: guard above ensures password is set for password-auth accounts
 		const passwordPayload = await secrets.encrypt(input.password!);
