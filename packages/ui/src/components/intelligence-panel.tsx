@@ -9,6 +9,7 @@ import {
 	ShieldX,
 	Sparkles,
 	Star,
+	Trash2,
 	X,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -93,6 +94,10 @@ export interface IntelligenceQuickActions {
 	onToggleMute?: () => void;
 	/** Block navigates through a confirm dialog — the callback fires post-confirm. */
 	onToggleBlock?: () => void;
+	/** Single-click: mark this message as junk. */
+	onMarkJunk?: () => void;
+	/** Single-click: mark this message as not junk. */
+	onMarkNotJunk?: () => void;
 	onToggleUnsubscribe?: () => void;
 	onToggleAutoArchive?: () => void;
 	onReclassify?: () => void;
@@ -363,6 +368,16 @@ export function IntelligencePanel({
 						active={flags.blocked}
 						danger
 						onClick={actions?.onToggleBlock}
+					/>
+					<QuickAction
+						icon={<Trash2 className="size-3.5" />}
+						label="Junk"
+						onClick={actions?.onMarkJunk}
+					/>
+					<QuickAction
+						icon={<MailCheck className="size-3.5" />}
+						label="Not junk"
+						onClick={actions?.onMarkNotJunk}
 					/>
 					<QuickAction
 						icon={<MailX className="size-3.5" />}
