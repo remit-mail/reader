@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Readable } from "node:stream";
 import { describe, test } from "node:test";
 import { ContentEncoding, StorageType } from "@remit/domain-enums";
 import { createFilesystemStorageService } from "./backends/filesystem.js";
@@ -285,6 +286,25 @@ describe("createFilesystemStorageService", () => {
 			"accounts/cfg1/acc123/messages/msg456/body.eml",
 		);
 		assert.ok(ref.uri.startsWith("file://"));
+
+		const retrieved = await storage.retrieve(ref.uri);
+		assert.deepStrictEqual(retrieved, content);
+	});
+
+	test("storeMessageBodyStream streams content to disk and round-trips via retrieve", async () => {
+		const storage = createFilesystemStorageService(testBasePath);
+		const content = Buffer.from("streamed filesystem body");
+
+		const ref = await storage.storeMessageBodyStream({
+			accountConfigId: "cfg1",
+			accountId: "acc123",
+			messageId: "msg-stream",
+			content: Readable.from(content),
+		});
+
+		assert.strictEqual(ref.storageType, StorageType.Filesystem);
+		assert.strictEqual(ref.contentEncoding, ContentEncoding.Gzip);
+		assert.strictEqual(ref.checksumSha256, computeChecksum(content));
 
 		const retrieved = await storage.retrieve(ref.uri);
 		assert.deepStrictEqual(retrieved, content);

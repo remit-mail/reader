@@ -1,12 +1,14 @@
 import assert from "node:assert";
+import { Readable } from "node:stream";
 import { describe, test } from "node:test";
 import { gunzipSync } from "node:zlib";
 import {
 	GetObjectCommand,
 	PutObjectCommand,
-	type S3Client,
+	S3Client,
 } from "@aws-sdk/client-s3";
 import { ContentEncoding, StorageType } from "@remit/domain-enums";
+import { mockClient } from "aws-sdk-client-mock";
 import { computeChecksum } from "../storage.js";
 import { createS3StorageService } from "./s3.js";
 
@@ -106,6 +108,46 @@ describe("createS3StorageService", () => {
 		assert.strictEqual(ref.contentEncoding, ContentEncoding.Gzip);
 		assert.strictEqual(ref.checksumSha256, computeChecksum(content));
 		assert.strictEqual(ref.sizeBytes, entry.body.length);
+	});
+
+	test("storeMessageBodyStream streams a gzipped body to S3 with the pre-gzip checksum", async () => {
+		// lib-storage's Upload needs a real S3Client surface (config, request
+		// handler), so mock the client rather than hand-rolling a `send` stub.
+		const s3Mock = mockClient(S3Client);
+		const captured: Buffer[] = [];
+		s3Mock.on(PutObjectCommand).callsFake((input) => {
+			const body = input.Body;
+			captured.push(Buffer.isBuffer(body) ? body : Buffer.from(body));
+			assert.strictEqual(input.ContentEncoding, "gzip");
+			assert.strictEqual(input.ContentType, "message/rfc822");
+			return {};
+		});
+
+		const storage = createS3StorageService(
+			new S3Client({ region: "us-east-1" }),
+			"bucket",
+		);
+		const content = Buffer.from("streamed message body bytes");
+
+		const ref = await storage.storeMessageBodyStream({
+			accountConfigId: "cfg1",
+			accountId: "acc123",
+			messageId: "msg-stream",
+			content: Readable.from(content),
+		});
+
+		// One PutObject, gzipped, decoding back to the original bytes — proves the
+		// stream was uploaded, not silently dropped.
+		assert.strictEqual(captured.length, 1);
+		assert.deepStrictEqual(gunzipSync(captured[0]), content);
+
+		assert.strictEqual(ref.storageType, StorageType.S3);
+		assert.strictEqual(ref.contentEncoding, ContentEncoding.Gzip);
+		// Checksum is over the logical pre-gzip content, matching storeMessageBody.
+		assert.strictEqual(ref.checksumSha256, computeChecksum(content));
+		assert.strictEqual(ref.sizeBytes, captured[0].length);
+
+		s3Mock.restore();
 	});
 
 	test("storeDeduplicated places object at content-hash key based on pre-gzip checksum", async () => {

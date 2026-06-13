@@ -2,6 +2,8 @@
  * Types for the remit-mailbox-service
  */
 
+import type { Readable } from "node:stream";
+
 /**
  * Discriminated union of mail authentication credentials.
  *
@@ -210,6 +212,15 @@ export interface IImapConnection {
 	search(criteria: unknown[]): Promise<number[]>;
 	fetchMessages(uids: number[]): Promise<ImapMessage[]>;
 	fetchMessageBody(uid: number): Promise<Buffer>;
+	/**
+	 * Fetch full message bodies for many UIDs in ONE pipelined ranged UID FETCH.
+	 * Yields `{ uid, source }` per message; `source` is a readable stream the
+	 * caller must consume before requesting the next item. Requires a mailbox to
+	 * be open (one SELECT for the whole batch).
+	 */
+	fetchMessageBodies(
+		uids: number[],
+	): AsyncGenerator<{ uid: number; source: Readable }>;
 	/**
 	 * Add flags to messages by UID.
 	 * Requires mailbox to be open.

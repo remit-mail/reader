@@ -1,4 +1,7 @@
-import { gunzipSync, gzipSync } from "node:zlib";
+import { createHash } from "node:crypto";
+import { PassThrough } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import { createGzip, gunzipSync, gzipSync } from "node:zlib";
 import {
 	DeleteObjectCommand,
 	GetObjectCommand,
@@ -6,6 +9,7 @@ import {
 	PutObjectCommand,
 	type S3Client,
 } from "@aws-sdk/client-s3";
+import { Upload } from "@aws-sdk/lib-storage";
 import { ContentEncoding, StorageType } from "@remit/domain-enums";
 import type {
 	ParsedBody,
@@ -72,6 +76,55 @@ export const createS3StorageService = (
 			contentType: "message/rfc822",
 		});
 	};
+
+	const storeMessageBodyStream: StorageService["storeMessageBodyStream"] =
+		async (params) => {
+			const { accountConfigId, accountId, messageId, content } = params;
+			const key = buildMessageBodyKey(accountConfigId, accountId, messageId);
+
+			// Hash the logical (pre-gzip) bytes as they flow, gzip them, and feed
+			// the gzipped stream to a multipart Upload — the whole body is never
+			// held in memory. `Upload` buffers only one part at a time.
+			const hash = createHash("sha256");
+			const hashTap = new PassThrough();
+			hashTap.on("data", (chunk: Buffer) => hash.update(chunk));
+
+			const gzip = createGzip();
+			const uploadBody = new PassThrough();
+
+			let storedBytes = 0;
+			uploadBody.on("data", (chunk: Buffer) => {
+				storedBytes += chunk.length;
+			});
+
+			const upload = new Upload({
+				client,
+				params: {
+					Bucket: bucketName,
+					Key: key,
+					Body: uploadBody,
+					ContentType: "message/rfc822",
+					ContentEncoding: "gzip",
+				},
+			});
+
+			const pumped = pipeline(content, hashTap, gzip, uploadBody);
+			await Promise.all([upload.done(), pumped]).catch(async (error) => {
+				// Abort the multipart upload so a failed pump doesn't leak parts.
+				await upload.abort().catch(() => {});
+				throw error;
+			});
+
+			return {
+				uri: `s3://${bucketName}/${key}`,
+				storageType: StorageType.S3,
+				storageLocation: bucketName,
+				storageKey: key,
+				sizeBytes: storedBytes,
+				checksumSha256: hash.digest("hex"),
+				contentEncoding: ContentEncoding.Gzip,
+			};
+		};
 
 	const storeBodyPart: StorageService["storeBodyPart"] = (params) => {
 		const {
@@ -186,6 +239,7 @@ export const createS3StorageService = (
 
 	return {
 		storeMessageBody,
+		storeMessageBodyStream,
 		storeBodyPart,
 		storeDeduplicated,
 		storeParsedBody,

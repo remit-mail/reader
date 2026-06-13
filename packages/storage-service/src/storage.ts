@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { Readable } from "node:stream";
 import { S3Client } from "@aws-sdk/client-s3";
 import { ContentEncoding, StorageType } from "@remit/domain-enums";
 import { createFilesystemStorageService } from "./backends/filesystem.js";
@@ -31,6 +32,15 @@ export interface StoreMessageBodyParams {
 	accountId: string;
 	messageId: string;
 	content: Buffer;
+}
+
+/** Parameters for streaming a message body (raw RFC822 content) to storage */
+export interface StoreMessageBodyStreamParams {
+	accountConfigId: string;
+	accountId: string;
+	messageId: string;
+	/** Readable stream of the raw message bytes; streamed to storage, never buffered whole. */
+	content: Readable;
 }
 
 /** Parameters for storing a body part (attachment, inline content) */
@@ -78,6 +88,15 @@ export interface StoreParsedBodyParams {
 export interface StorageService {
 	/** Store a message body (raw RFC822 content) */
 	storeMessageBody(params: StoreMessageBodyParams): Promise<StorageReference>;
+
+	/**
+	 * Store a message body from a readable stream, never buffering the whole
+	 * body. Use this on the sync hot path so a ranged FETCH streams straight to
+	 * storage.
+	 */
+	storeMessageBodyStream(
+		params: StoreMessageBodyStreamParams,
+	): Promise<StorageReference>;
 
 	/** Store a body part (attachment, inline content) */
 	storeBodyPart(params: StoreBodyPartParams): Promise<StorageReference>;
@@ -193,6 +212,19 @@ export const createMockStorageService = (): StorageService => {
 		);
 	};
 
+	const storeMessageBodyStream: StorageService["storeMessageBodyStream"] =
+		async (params) => {
+			const { accountConfigId, accountId, messageId, content } = params;
+			const chunks: Buffer[] = [];
+			for await (const chunk of content) {
+				chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+			}
+			return storeInternal(
+				buildMessageBodyKey(accountConfigId, accountId, messageId),
+				Buffer.concat(chunks),
+			);
+		};
+
 	const storeBodyPart: StorageService["storeBodyPart"] = async (params) => {
 		const { accountConfigId, accountId, messageId, partPath, content } = params;
 		return storeInternal(
@@ -234,6 +266,7 @@ export const createMockStorageService = (): StorageService => {
 
 	return {
 		storeMessageBody,
+		storeMessageBodyStream,
 		storeBodyPart,
 		storeDeduplicated,
 		storeParsedBody,

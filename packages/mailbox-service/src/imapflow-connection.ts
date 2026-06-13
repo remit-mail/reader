@@ -5,6 +5,7 @@
  * Provides the same interface but uses ImapFlow under the hood.
  */
 
+import { Readable } from "node:stream";
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import type {
@@ -275,6 +276,14 @@ export class ImapFlowConnection {
 	): Promise<ImapBoxStatus> => {
 		this.ensureConnected();
 
+		// Idempotency guard: re-selecting the currently-open mailbox is a no-op
+		// SELECT on the wire. `mailbox` exposes the live, already-selected box, so
+		// we can return its status without paying for another round-trip — this is
+		// what lets a batch issue one SELECT and many fetches on the same box.
+		if (this.currentMailbox === mailboxPath && this.client?.mailbox) {
+			return this.toBoxStatus(this.client.mailbox, readOnly);
+		}
+
 		const mailbox = await this.client?.mailboxOpen(mailboxPath, {
 			readOnly,
 		});
@@ -285,7 +294,25 @@ export class ImapFlowConnection {
 
 		this.currentMailbox = mailboxPath;
 
-		// Extract mailbox name from path
+		return this.toBoxStatus(mailbox, readOnly);
+	};
+
+	/**
+	 * Build an ImapBoxStatus from an imapflow MailboxObject.
+	 */
+	private toBoxStatus = (
+		mailbox: {
+			path: string;
+			delimiter: string;
+			flags: Set<string>;
+			permanentFlags?: Set<string>;
+			uidValidity: bigint;
+			uidNext: number;
+			exists: number;
+			readOnly?: boolean;
+		},
+		readOnly: boolean,
+	): ImapBoxStatus => {
 		const pathParts = mailbox.path.split(mailbox.delimiter);
 		const name = pathParts[pathParts.length - 1] || mailbox.path;
 
@@ -543,6 +570,73 @@ export class ImapFlowConnection {
 
 		return Buffer.concat(chunks);
 	};
+
+	/**
+	 * Fetch full message bodies (RFC822 source) for many UIDs in ONE pipelined
+	 * ranged UID FETCH on a single connection — the desktop-client pattern.
+	 *
+	 * Mirrors `fetchMessages`: one comma-joined UID range, one `client.fetch`,
+	 * one SELECT (the caller opens the box once for the whole batch). Yields
+	 * `{ uid, source }` as each message arrives so the caller can stream each
+	 * body straight to storage without buffering the whole batch.
+	 *
+	 * `source` is a readable stream over the message bytes — callers must
+	 * consume it (e.g. pipe to an upload) before requesting the next item.
+	 */
+	async *fetchMessageBodies(
+		uids: number[],
+	): AsyncGenerator<{ uid: number; source: Readable }> {
+		this.ensureConnected();
+		const { client } = this;
+
+		if (!client) {
+			throw new Error("Not connected to IMAP server");
+		}
+
+		if (!this.currentMailbox) {
+			throw new Error("No mailbox selected");
+		}
+
+		if (uids.length === 0) {
+			return;
+		}
+
+		const uidRange = uids.join(",");
+
+		const fetchIterator = client.fetch(
+			uidRange,
+			{ uid: true, source: true },
+			{ uid: true },
+		);
+
+		if (!fetchIterator) {
+			throw new MailConnectionError(
+				"network",
+				`IMAP connection lost while fetching message bodies: ${uidRange}`,
+			);
+		}
+
+		try {
+			for await (const msg of fetchIterator) {
+				// imapflow can yield a row with an undefined uid or no source on
+				// back-to-back FETCH calls; skip it rather than crash the batch — the
+				// caller treats any UID it never sees as failed and re-enqueues it.
+				// See #408.
+				if (msg.uid == null || msg.source == null) {
+					continue;
+				}
+
+				yield { uid: msg.uid, source: Readable.from(msg.source) };
+			}
+		} catch (error) {
+			// A mid-stream socket drop surfaces as imapflow's
+			// `new Error("Connection closed")` with code `EConnectionClosed` — a
+			// string the rest of the code never matches on. Re-throw it as the
+			// typed MailConnectionError so the caller's fail-fast path triggers and
+			// re-enqueues the not-yet-yielded UIDs instead of failing the record.
+			throw classifyImapError(error) ?? error;
+		}
+	}
 
 	/**
 	 * Parse the References header from IMAP headers buffer.
@@ -1126,7 +1220,10 @@ const classifyImapError = (error: unknown): MailConnectionError | null => {
 		code === "ETIMEDOUT" ||
 		code === "ENOTFOUND" ||
 		code === "ECONNRESET" ||
-		code === "EHOSTUNREACH"
+		code === "EHOSTUNREACH" ||
+		// imapflow raises these when the socket is gone mid-command.
+		code === "EConnectionClosed" ||
+		code === "NoConnection"
 	) {
 		return new MailConnectionError(
 			"network",
