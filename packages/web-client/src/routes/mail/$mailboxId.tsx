@@ -73,11 +73,12 @@ export const Route = createFileRoute("/mail/$mailboxId")({
 
 function MailboxView() {
 	const { mailboxId } = Route.useParams();
-	const { selectedMessageId, q: searchQuery = "" } = Route.useSearch();
+	const { selectedMessageId } = Route.useSearch();
 	const navigate = useNavigate();
 	const isDesktop = useIsDesktop();
 	const {
 		accounts,
+		searchQuery,
 		searchInput,
 		onSearchChange,
 		onSearchClear,
@@ -86,12 +87,9 @@ function MailboxView() {
 		onToggleIntelligence,
 	} = useMailContext();
 
-	// Use search API when there's a query, otherwise list API. The query is
-	// normalized (trim + locale-aware lowercase) before it leaves the client
-	// so equivalent searches collide on the same React Query cache entry and
-	// the backend comparison is case-insensitive. The display value
-	// (`searchQuery`) keeps the user's original casing in the input + the
-	// "results for X" header.
+	// `searchQuery` is the debounced local value from context (URL `q` seeds it
+	// once on mount; all updates stay local). Normalized before querying so
+	// equivalent searches share a React Query cache entry.
 	const normalizedSearchQuery = normalizeSearchQuery(searchQuery);
 	const hasSearchQuery = normalizedSearchQuery.length > 0;
 
@@ -185,8 +183,8 @@ function MailboxView() {
 	// While a search is active, suppress the reading pane and compose window:
 	// search view is results-only (Apple Mail behaviour, issues #539 / #540).
 	// Use the live searchInput (pre-debounce) from context so the pane
-	// clears immediately as the user starts typing, not after the 200ms URL
-	// debounce. `hasSearchQuery` (URL-based) guards the API; this guards the UI.
+	// clears immediately as the user starts typing. `hasSearchQuery` guards the
+	// API; this guards the UI.
 	const isSearchActive = searchInput.trim().length > 0;
 	const selectedThread =
 		isSearchActive || !selectedMessageId
