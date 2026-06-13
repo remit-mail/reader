@@ -1,7 +1,6 @@
 import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
 import { NotFoundError } from "@remit/remit-electrodb-service";
 import type { Logger } from "@remit/logger-lambda";
-import { enqueueSearchIndexEvents } from "@remit/search-index-worker";
 import {
 	type CascadeServices,
 	enumerateAccountPurgeEntities,
@@ -10,7 +9,6 @@ import {
 	cascadeServices as defaultCascadeServices,
 	sqsClient as defaultSqsClient,
 	getAccountFinalizeQueueUrl,
-	getSearchIndexQueueUrl,
 } from "../config.js";
 import type {
 	AccountDataPurgeEvent,
@@ -20,7 +18,6 @@ import type {
 export interface ProcessPurgeFanoutDeps {
 	services?: CascadeServices;
 	sqs?: SQSClient;
-	searchIndexQueueUrl?: string;
 	accountFinalizeQueueUrl?: string;
 }
 
@@ -46,8 +43,6 @@ export const processAccountDataPurge = async (
 	const { accountId, accountConfigId } = event;
 	const services = deps.services ?? defaultCascadeServices;
 	const sqs = deps.sqs ?? defaultSqsClient;
-	const searchIndexQueueUrl =
-		deps.searchIndexQueueUrl ?? getSearchIndexQueueUrl();
 	const accountFinalizeQueueUrl =
 		deps.accountFinalizeQueueUrl ?? getAccountFinalizeQueueUrl();
 
@@ -70,16 +65,6 @@ export const processAccountDataPurge = async (
 		}
 		throw error;
 	}
-
-	await enqueueSearchIndexEvents(
-		sqs,
-		searchIndexQueueUrl,
-		messageIds.map((messageId) => ({ type: "delete", messageId })),
-	);
-	log.info(
-		{ accountConfigId, accountId, count: messageIds.length },
-		"Enqueued search-index deletes for purged account",
-	);
 
 	const finalizeEvent: AccountDataPurgeFinalizeEvent = {
 		type: "FinalizeAccountDataPurge",
