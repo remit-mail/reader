@@ -3,6 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
 	briefChips,
 	briefSections,
+	briefSectionsLong,
 	briefUnseen,
 	navAccounts,
 	workId,
@@ -34,6 +35,27 @@ export const Default: Story = {
 			chips={briefChips()}
 			mutedNote="+1 muted"
 			sections={briefSections()}
+		/>
+	),
+};
+
+/**
+ * Brief with collapsible sections and a composable filter chip bar (Unread ·
+ * Has attachment · From contacts · Today). The padded "Everything else" section
+ * starts collapsed; chips stack additively to narrow the visible threads.
+ */
+export const Filtered: Story = {
+	render: () => (
+		<AppShell
+			accounts={navAccounts}
+			selectedNavId="brief"
+			briefUnseen={briefUnseen}
+			listTitle="Daily brief"
+			listMeta={`${briefUnseen} unread`}
+			chips={briefChips()}
+			mutedNote="+1 muted"
+			sections={briefSectionsLong()}
+			briefFilters
 		/>
 	),
 };
