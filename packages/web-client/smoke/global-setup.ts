@@ -347,12 +347,12 @@ const seedMessages = async (config: ReturnType<typeof createConfig>) => {
 
 	for (const msg of TEST_MESSAGES) {
 		const messageId = MessageService.generateId(
-			E2E_ACCOUNT_CONFIG_ID,
+			E2E_ACCOUNT_ID,
 			msg.messageIdHeader,
 		);
 		const envelopeId = EnvelopeService.generateId(messageId);
 		const threadId = ThreadMessageService.deriveThreadId(
-			E2E_ACCOUNT_CONFIG_ID,
+			E2E_ACCOUNT_ID,
 			msg.messageIdHeader,
 		);
 		const envelopeAddressId = base36uuidv5(
@@ -501,12 +501,12 @@ const seedDrafts = async (config: ReturnType<typeof createConfig>) => {
 	};
 
 	const messageId = MessageService.generateId(
-		E2E_ACCOUNT_CONFIG_ID,
+		E2E_ACCOUNT_ID,
 		imapDraft.messageIdHeader,
 	);
 	const envelopeId = EnvelopeService.generateId(messageId);
 	const threadId = ThreadMessageService.deriveThreadId(
-		E2E_ACCOUNT_CONFIG_ID,
+		E2E_ACCOUNT_ID,
 		imapDraft.messageIdHeader,
 	);
 

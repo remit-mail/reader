@@ -42,6 +42,15 @@ export interface SyncedMessage {
 	uid: number;
 }
 
+/**
+ * Per-message save outcome. `owned` is true when the row was created by this
+ * sync or already belongs to the current mailbox; false for a residual
+ * cross-mailbox collision whose stored row points at a different mailbox.
+ */
+interface SaveMessageResult extends SyncedMessage {
+	owned: boolean;
+}
+
 export interface SyncMessagesResult {
 	syncedCount: number;
 	syncedMessageIds: string[];
@@ -76,11 +85,13 @@ export class MessageSyncService {
 	 * should re-enqueue another sync event to continue processing.
 	 *
 	 * @param mailboxId - The database mailbox ID
+	 * @param accountId - The account ID (scopes message/thread identity)
 	 * @param accountConfigId - The account config ID (used for address linking)
 	 * @param batchSize - Number of messages to process per batch
 	 */
 	async syncMessages(
 		mailboxId: string,
+		accountId: string,
 		accountConfigId: string,
 		batchSize = 50,
 	): Promise<SyncMessagesResult> {
@@ -136,15 +147,28 @@ export class MessageSyncService {
 		// Process messages in parallel with concurrency limit
 		const results = await pMap(
 			messages,
-			(msg) => this.saveMessage(mailboxId, accountConfigId, msg),
+			(msg) => this.saveMessage(mailboxId, accountId, accountConfigId, msg),
 			{ concurrency: MESSAGE_SAVE_CONCURRENCY },
 		);
-		const syncedMessages = results.filter(
-			(result): result is SyncedMessage => result !== null,
+		// Body-sync set: only rows created or owned by THIS mailbox. A residual
+		// cross-mailbox collision (same deterministic messageId already owned by a
+		// different mailbox) must not push a foreign-owned messageId into
+		// syncedMessageIds, or body-sync would FETCH against the wrong mailbox's UID.
+		const ownedResults = results.filter(
+			(result): result is SaveMessageResult => result !== null && result.owned,
+		);
+		const syncedMessages: SyncedMessage[] = ownedResults.map(
+			({ messageId, uid }) => ({ messageId, uid }),
 		);
 		const syncedMessageIds = syncedMessages.map((m) => m.messageId);
 
-		// Update watermarks
+		// Watermarks advance over EVERY consumed UID in the batch — independent of
+		// ownership. `fetchUidsToSync` reselects work purely by UID vs watermark
+		// (there is no per-UID processed set), so a foreign-owned UID that did not
+		// advance the watermark would be re-fetched every cycle forever. The same
+		// Message-ID legitimately appears in several of one account's mailboxes
+		// (Gmail All Mail + INBOX/labels), so cross-mailbox conflicts are routine;
+		// excluding them from body-sync is correct, stalling forward sync is not.
 		const batchMax = Math.max(...batchUids);
 		const batchMin = Math.min(...batchUids);
 
@@ -250,15 +274,16 @@ export class MessageSyncService {
 
 	private async saveMessage(
 		mailboxId: string,
+		accountId: string,
 		accountConfigId: string,
 		msg: ImapMessage,
-	): Promise<SyncedMessage | null> {
+	): Promise<SaveMessageResult | null> {
 		if (!msg.envelope) return null;
 
 		// Store envelope to preserve narrowing in closures
 		const envelope = msg.envelope;
 
-		const messageId = MessageService.generateIdFromSource(accountConfigId, {
+		const messageId = MessageService.generateIdFromSource(accountId, {
 			messageId: envelope.messageId,
 			uid: msg.uid,
 			mailboxId,
@@ -289,6 +314,12 @@ export class MessageSyncService {
 			(p) => !p.isMultipart && p.disposition === "attachment",
 		);
 
+		// Ownership of this messageId by the current mailbox: the row was created
+		// by this call, or an existing row already belongs to this mailbox. A
+		// conflict whose stored row points at a different mailbox is foreign-owned
+		// and must not feed this mailbox's watermark / body-sync (#634).
+		let owned = false;
+
 		// Run all entity saves in parallel with concurrency limit
 		const saveOps: Array<() => Promise<void>> = [
 			// Save Envelope
@@ -308,7 +339,7 @@ export class MessageSyncService {
 			}),
 			// Save Message
 			async () => {
-				await this.messageService.upsert({
+				const { item, created } = await this.messageService.upsertWithStatus({
 					messageId,
 					mailboxId,
 					uid: msg.uid,
@@ -318,6 +349,7 @@ export class MessageSyncService {
 					envelopeId,
 					rootBodyPartId,
 				});
+				owned = created || item.mailboxId === mailboxId;
 			},
 			// Save BodyPart + BodyPartParameter rows for the MIME tree.
 			// IMAP returns BODYSTRUCTURE in the same FETCH that returns the
@@ -331,6 +363,7 @@ export class MessageSyncService {
 				await this.createThreadForMessage(
 					messageId,
 					mailboxId,
+					accountId,
 					accountConfigId,
 					msg.uid,
 					msg.internalDate.getTime(),
@@ -347,7 +380,7 @@ export class MessageSyncService {
 			concurrency: ADDRESS_SAVE_CONCURRENCY,
 		});
 
-		return { messageId, uid: msg.uid };
+		return { messageId, uid: msg.uid, owned };
 	}
 
 	private async saveAddresses(
@@ -441,6 +474,7 @@ export class MessageSyncService {
 	private async createThreadForMessage(
 		messageId: string,
 		mailboxId: string,
+		accountId: string,
 		accountConfigId: string,
 		uid: number,
 		internalDate: number,
@@ -470,7 +504,7 @@ export class MessageSyncService {
 
 		// Derive threadId from the root Message-ID (deterministic)
 		const threadId = ThreadMessageService.deriveThreadId(
-			accountConfigId,
+			accountId,
 			rootMessageIdHeader,
 		);
 

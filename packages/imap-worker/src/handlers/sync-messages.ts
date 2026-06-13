@@ -187,7 +187,12 @@ const syncMailboxMessages = async (
 	await connection.connect();
 
 	const result = await syncService
-		.syncMessages(mailboxId, account.accountConfigId, MESSAGE_BATCH_SIZE)
+		.syncMessages(
+			mailboxId,
+			account.accountId,
+			account.accountConfigId,
+			MESSAGE_BATCH_SIZE,
+		)
 		.finally(() => connectionFactory.close());
 	log.info(
 		{

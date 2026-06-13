@@ -34,7 +34,10 @@ const buildFakeServices = () => {
 	} as unknown as MailboxService;
 
 	const messageService = {
-		upsert: async () => undefined,
+		upsertWithStatus: async (input: { mailboxId: string }) => ({
+			item: { mailboxId: input.mailboxId },
+			created: true,
+		}),
 	} as unknown as MessageService;
 
 	const envelopeService = {
@@ -141,7 +144,12 @@ describe("MessageSyncService.syncMessages — BodyPart persistence", () => {
 			fake.threadMessageService,
 		);
 
-		const result = await service.syncMessages("mbx-1", "acc-cfg-1", 50);
+		const result = await service.syncMessages(
+			"mbx-1",
+			"acc-1",
+			"acc-cfg-1",
+			50,
+		);
 
 		assert.equal(result.syncedCount, 1);
 		assert.equal(fake.upsertCalls.length, 1);
@@ -185,7 +193,12 @@ describe("MessageSyncService.syncMessages — BodyPart persistence", () => {
 			fake.threadMessageService,
 		);
 
-		const result = await service.syncMessages("mbx-1", "acc-cfg-1", 50);
+		const result = await service.syncMessages(
+			"mbx-1",
+			"acc-1",
+			"acc-cfg-1",
+			50,
+		);
 
 		assert.equal(result.syncedCount, 1);
 		assert.equal(fake.upsertCalls.length, 0);
@@ -210,7 +223,10 @@ const buildFakeServicesWithCreateCapture = () => {
 	} as unknown as import("@remit/remit-electrodb-service").MailboxService;
 
 	const messageService = {
-		upsert: async () => undefined,
+		upsertWithStatus: async (input: { mailboxId: string }) => ({
+			item: { mailboxId: input.mailboxId },
+			created: true,
+		}),
 	} as unknown as import("@remit/remit-electrodb-service").MessageService;
 
 	const envelopeService = {
@@ -310,21 +326,21 @@ describe("MessageSyncService.syncMessages — hasAttachment derivation", () => {
 
 	it("sets hasAttachment: false for a text-only message", async () => {
 		const { service, fake } = buildService([aliceMessage]);
-		await service.syncMessages("mbx-1", "acc-1", 50);
+		await service.syncMessages("mbx-1", "acc-1", "acc-cfg-1", 50);
 		assert.equal(fake.createCalls.length, 1);
 		assert.equal(fake.createCalls[0]!.hasAttachment, false);
 	});
 
 	it("sets hasAttachment: true when a non-inline part has disposition=attachment", async () => {
 		const { service, fake } = buildService([withAttachmentMessage]);
-		await service.syncMessages("mbx-1", "acc-1", 50);
+		await service.syncMessages("mbx-1", "acc-1", "acc-cfg-1", 50);
 		assert.equal(fake.createCalls.length, 1);
 		assert.equal(fake.createCalls[0]!.hasAttachment, true);
 	});
 
 	it("sets hasAttachment: false when the only non-text part is inline (CID image)", async () => {
 		const { service, fake } = buildService([inlineImageMessage]);
-		await service.syncMessages("mbx-1", "acc-1", 50);
+		await service.syncMessages("mbx-1", "acc-1", "acc-cfg-1", 50);
 		assert.equal(fake.createCalls.length, 1);
 		assert.equal(fake.createCalls[0]!.hasAttachment, false);
 	});
@@ -333,8 +349,292 @@ describe("MessageSyncService.syncMessages — hasAttachment derivation", () => {
 		const { service, fake } = buildService([
 			{ ...aliceMessage, uid: 45, bodyStructure: undefined },
 		]);
-		await service.syncMessages("mbx-1", "acc-1", 50);
+		await service.syncMessages("mbx-1", "acc-1", "acc-cfg-1", 50);
 		assert.equal(fake.createCalls.length, 1);
 		assert.equal(fake.createCalls[0]!.hasAttachment, false);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Watermark advances over all consumed UIDs; body-sync set is owned-only (#634)
+// ---------------------------------------------------------------------------
+
+interface UpsertStatusInput {
+	messageId: string;
+	mailboxId: string;
+	uid: number;
+}
+
+const buildWatermarkHarness = (opts: {
+	lastSyncUid: number;
+	highWaterMarkUid: number;
+	// Decide the upsert outcome per call. created:true is owned; created:false
+	// with a foreign mailboxId is a cross-mailbox conflict — excluded from
+	// body-sync (syncedMessageIds) but it still advances the watermark.
+	resolveUpsert: (input: UpsertStatusInput) => {
+		item: { mailboxId: string };
+		created: boolean;
+	};
+}) => {
+	const updateCalls: Array<Record<string, unknown>> = [];
+	// Mutable watermark state so multi-cycle tests observe progress: each
+	// `update` writes back, and the next `get` (next sync cycle) reads it.
+	const state = {
+		lastSyncUid: opts.lastSyncUid,
+		highWaterMarkUid: opts.highWaterMarkUid,
+	};
+
+	const mailboxService = {
+		get: async () => ({
+			fullPath: "INBOX",
+			lastSyncUid: state.lastSyncUid,
+			highWaterMarkUid: state.highWaterMarkUid,
+			messageCount: 0,
+		}),
+		update: async (_mailboxId: string, patch: Record<string, unknown>) => {
+			updateCalls.push(patch);
+			if (typeof patch.lastSyncUid === "number") {
+				state.lastSyncUid = patch.lastSyncUid;
+			}
+			if (typeof patch.highWaterMarkUid === "number") {
+				state.highWaterMarkUid = patch.highWaterMarkUid;
+			}
+		},
+	} as unknown as import("@remit/remit-electrodb-service").MailboxService;
+
+	const messageService = {
+		upsertWithStatus: async (input: UpsertStatusInput) =>
+			opts.resolveUpsert(input),
+	} as unknown as import("@remit/remit-electrodb-service").MessageService;
+
+	const envelopeService = {
+		upsertEnvelope: async () => undefined,
+		upsertBodyParts: async () => undefined,
+	} as unknown as import("@remit/remit-electrodb-service").EnvelopeService;
+
+	const addressService = {
+		upsertAddress: async () => undefined,
+		upsertEnvelopeAddress: async () => undefined,
+	} as unknown as import("@remit/remit-electrodb-service").AddressService;
+
+	const threadMessageService = {
+		create: async () => ({}),
+	} as unknown as import("@remit/remit-electrodb-service").ThreadMessageService;
+
+	return {
+		mailboxService,
+		messageService,
+		envelopeService,
+		addressService,
+		threadMessageService,
+		updateCalls,
+	};
+};
+
+const messageWithUid = (uid: number, header: string): ImapMessage => ({
+	...aliceMessage,
+	uid,
+	envelope: { ...aliceMessage.envelope!, messageId: header },
+	bodyStructure: undefined,
+});
+
+describe("MessageSyncService.syncMessages — watermark vs body-sync (#634)", () => {
+	it("advances watermarks for created/owned rows", async () => {
+		const harness = buildWatermarkHarness({
+			lastSyncUid: 0,
+			highWaterMarkUid: 0,
+			resolveUpsert: (input) => ({
+				item: { mailboxId: input.mailboxId },
+				created: true,
+			}),
+		});
+		const factory = buildConnectionFactory([
+			messageWithUid(10, "<a@x>"),
+			messageWithUid(20, "<b@x>"),
+		]);
+		const service = new MessageSyncService(
+			factory,
+			harness.mailboxService,
+			harness.messageService,
+			harness.envelopeService,
+			harness.addressService,
+			harness.threadMessageService,
+		);
+
+		const result = await service.syncMessages(
+			"mbx-1",
+			"acc-1",
+			"acc-cfg-1",
+			50,
+		);
+
+		assert.equal(result.syncedCount, 2);
+		const patch = harness.updateCalls.at(-1)!;
+		assert.equal(patch.highWaterMarkUid, 20);
+		assert.equal(patch.lastSyncUid, 10);
+	});
+
+	it("advances the watermark over a foreign-owned conflict but excludes it from body-sync", async () => {
+		// Every upsert resolves to an existing row owned by a DIFFERENT mailbox.
+		const harness = buildWatermarkHarness({
+			lastSyncUid: 0,
+			highWaterMarkUid: 0,
+			resolveUpsert: () => ({
+				item: { mailboxId: "other-mailbox" },
+				created: false,
+			}),
+		});
+		const factory = buildConnectionFactory([
+			messageWithUid(10, "<a@x>"),
+			messageWithUid(20, "<b@x>"),
+		]);
+		const service = new MessageSyncService(
+			factory,
+			harness.mailboxService,
+			harness.messageService,
+			harness.envelopeService,
+			harness.addressService,
+			harness.threadMessageService,
+		);
+
+		const result = await service.syncMessages(
+			"mbx-1",
+			"acc-1",
+			"acc-cfg-1",
+			50,
+		);
+
+		// Foreign-owned rows are excluded from syncedMessageIds (no body-sync)...
+		assert.equal(result.syncedCount, 0);
+		assert.deepEqual(result.syncedMessageIds, []);
+
+		// ...but the watermarks still advance over the consumed UIDs so the batch
+		// is not re-fetched forever (liveness).
+		const patch = harness.updateCalls.at(-1)!;
+		assert.equal(patch.highWaterMarkUid, 20);
+		assert.equal(patch.lastSyncUid, 10);
+	});
+
+	it("advances over all consumed UIDs while body-sync stays owned-only (mixed batch)", async () => {
+		// uid 10 is ours (created), uid 20 is a foreign conflict.
+		const harness = buildWatermarkHarness({
+			lastSyncUid: 0,
+			highWaterMarkUid: 0,
+			resolveUpsert: (input) =>
+				input.uid === 10
+					? { item: { mailboxId: input.mailboxId }, created: true }
+					: { item: { mailboxId: "other-mailbox" }, created: false },
+		});
+		const factory = buildConnectionFactory([
+			messageWithUid(10, "<a@x>"),
+			messageWithUid(20, "<b@x>"),
+		]);
+		const service = new MessageSyncService(
+			factory,
+			harness.mailboxService,
+			harness.messageService,
+			harness.envelopeService,
+			harness.addressService,
+			harness.threadMessageService,
+		);
+
+		const result = await service.syncMessages(
+			"mbx-1",
+			"acc-1",
+			"acc-cfg-1",
+			50,
+		);
+
+		// Only the owned uid 10 enters body-sync...
+		assert.equal(result.syncedCount, 1);
+		assert.equal(result.syncedMessages[0]!.uid, 10);
+		// ...while the watermarks advance over BOTH consumed UIDs.
+		const patch = harness.updateCalls.at(-1)!;
+		assert.equal(patch.highWaterMarkUid, 20);
+		assert.equal(patch.lastSyncUid, 10);
+	});
+
+	it("does not stall forward sync across cycles when the highest UID is foreign-owned", async () => {
+		// The highest UID (20) is a foreign-owned conflict — the common case where
+		// the newest mail lands in Gmail All Mail first, then surfaces in another
+		// synced mailbox. The watermark must clear it so the next cycle's
+		// fetchUidsToSync does not reselect it.
+		const harness = buildWatermarkHarness({
+			lastSyncUid: 0,
+			highWaterMarkUid: 0,
+			resolveUpsert: (input) =>
+				input.uid === 20
+					? { item: { mailboxId: "other-mailbox" }, created: false }
+					: { item: { mailboxId: input.mailboxId }, created: true },
+		});
+
+		const allMsgs = [messageWithUid(10, "<a@x>"), messageWithUid(20, "<b@x>")];
+		const fetchedPerCycle: number[][] = [];
+		const factory = {
+			getConnection: () => ({
+				openBox: async () => ({
+					uidvalidity: 1,
+					uidnext: 21,
+					messageCount: allMsgs.length,
+				}),
+				getMailboxStatus: async () => ({ unseen: 0 }),
+				search: async () => allMsgs.map((m) => m.uid),
+				fetchMessages: async (uids: number[]) => {
+					fetchedPerCycle.push(uids);
+					return allMsgs.filter((m) => uids.includes(m.uid));
+				},
+			}),
+		} as unknown as ManagedConnectionFactory;
+
+		const service = new MessageSyncService(
+			factory,
+			harness.mailboxService,
+			harness.messageService,
+			harness.envelopeService,
+			harness.addressService,
+			harness.threadMessageService,
+		);
+
+		// Cycle 1: both UIDs are fresh; watermark advances to 20.
+		await service.syncMessages("mbx-1", "acc-1", "acc-cfg-1", 50);
+		assert.deepEqual(
+			[...fetchedPerCycle[0]!].sort((a, b) => a - b),
+			[10, 20],
+		);
+
+		// Cycle 2: nothing above the watermark (20) remains — the foreign-owned
+		// UID 20 is NOT re-fetched, so forward sync does not stall.
+		await service.syncMessages("mbx-1", "acc-1", "acc-cfg-1", 50);
+		assert.equal(fetchedPerCycle.length, 1);
+	});
+
+	it("treats a same-mailbox conflict (re-sync) as owned", async () => {
+		const harness = buildWatermarkHarness({
+			lastSyncUid: 0,
+			highWaterMarkUid: 0,
+			// Conflict, but the stored row belongs to THIS mailbox.
+			resolveUpsert: () => ({ item: { mailboxId: "mbx-1" }, created: false }),
+		});
+		const factory = buildConnectionFactory([messageWithUid(15, "<a@x>")]);
+		const service = new MessageSyncService(
+			factory,
+			harness.mailboxService,
+			harness.messageService,
+			harness.envelopeService,
+			harness.addressService,
+			harness.threadMessageService,
+		);
+
+		const result = await service.syncMessages(
+			"mbx-1",
+			"acc-1",
+			"acc-cfg-1",
+			50,
+		);
+
+		assert.equal(result.syncedCount, 1);
+		const patch = harness.updateCalls.at(-1)!;
+		assert.equal(patch.highWaterMarkUid, 15);
+		assert.equal(patch.lastSyncUid, 15);
 	});
 });
