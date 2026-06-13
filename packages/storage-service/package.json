@@ -15,8 +15,12 @@
 		"test:run": "node --env-file=../../.test.env --import tsx --test 'src/**/*.test.ts'",
 		"test": "npm run test:typecheck && npm run test:run"
 	},
-	"devDependencies": {
+	"dependencies": {
 		"@aws-sdk/client-s3": "*",
-		"@remit/domain-enums": "*"
+		"@aws-sdk/lib-storage": "*"
+	},
+	"devDependencies": {
+		"@remit/domain-enums": "*",
+		"aws-sdk-client-mock": "*"
 	}
 }
