@@ -835,6 +835,8 @@ function MailboxView() {
 						<IntelligencePane
 							onClose={onToggleIntelligence}
 							thread={selectedThread}
+							mailboxId={mailboxId}
+							accountId={mailboxAccountId}
 						/>
 					</ResizablePanel>
 				</>

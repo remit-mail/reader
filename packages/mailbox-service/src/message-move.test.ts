@@ -1,6 +1,7 @@
 import assert from "node:assert";
 import { describe, it, mock } from "node:test";
 import type {
+	AddressService,
 	MailboxService,
 	MailboxSpecialUseService,
 	MessageService,
@@ -26,6 +27,7 @@ interface FakeThreadMessageRow {
 	isDeleted: boolean;
 	hasStars: boolean;
 	hasAttachment: boolean;
+	fromEmail?: string;
 }
 
 const aliceAccountConfigId = "alice-config-aaaaaaaaaa";
@@ -87,9 +89,11 @@ const createMockMailboxService = (
 
 const createMockMailboxSpecialUseService = (
 	trash: { mailboxId: string; fullPath: string } | null,
+	junk: { mailboxId: string; fullPath: string } | null = null,
 ) =>
 	({
 		findTrashMailbox: mock.fn(async () => trash),
+		findJunkMailbox: mock.fn(async () => junk),
 	}) as unknown as MailboxSpecialUseService;
 
 const createMockThreadMessageService = (rows: FakeThreadMessageRow[]) => {
@@ -152,16 +156,31 @@ const createMockSqs = () => {
 	};
 };
 
+const createMockAddressService = () => {
+	const promoteWellknownByUser = mock.fn(async () => ({}) as never);
+	const demoteSenderTrust = mock.fn(async () => ({}) as never);
+	return {
+		promoteWellknownByUser,
+		demoteSenderTrust,
+	} as unknown as AddressService & {
+		promoteWellknownByUser: ReturnType<typeof mock.fn>;
+		demoteSenderTrust: ReturnType<typeof mock.fn>;
+	};
+};
+
 const createTestService = (overrides: {
 	messages: Array<{ messageId: string; mailboxId: string; uid: number }>;
 	mailboxes: Array<{ mailboxId: string; fullPath: string }>;
 	trash: { mailboxId: string; fullPath: string } | null;
+	junk?: { mailboxId: string; fullPath: string } | null;
 	threadMessageRows: FakeThreadMessageRow[];
+	addressService?: ReturnType<typeof createMockAddressService>;
 }) => {
 	const messageService = createMockMessageService(overrides.messages);
 	const mailboxService = createMockMailboxService(overrides.mailboxes);
 	const mailboxSpecialUseService = createMockMailboxSpecialUseService(
 		overrides.trash,
+		overrides.junk ?? null,
 	);
 	const threadMessageService = createMockThreadMessageService(
 		overrides.threadMessageRows,
@@ -173,6 +192,7 @@ const createTestService = (overrides: {
 		mailboxService,
 		mailboxSpecialUseService,
 		threadMessageService,
+		addressService: overrides.addressService,
 		sqsQueueUrl: "http://localhost:4566/test-queue",
 	};
 
@@ -497,5 +517,86 @@ describe("MessageMoveService.moveMessage / moveMessages (#236)", () => {
 		);
 		const types = sentEvents.map((e) => JSON.parse(e.MessageBody).type).sort();
 		assert.deepStrictEqual(types, ["MESSAGE_MOVE", "MESSAGE_MOVE"]);
+	});
+});
+
+describe("MessageMoveService.moveMessage Junk trust signal (#594)", () => {
+	const junkId = "alice-junk-aaaaaaaaaaaaa";
+	const threadRow = (messageId: string, mailboxId: string) => ({
+		accountConfigId: aliceAccountConfigId,
+		threadMessageId: `tm-${messageId}`,
+		messageId,
+		mailboxId,
+		sentDate: 1700000000000,
+		isRead: false,
+		isDeleted: false,
+		hasStars: false,
+		hasAttachment: false,
+		fromEmail: "sender@example.com",
+	});
+
+	it("promotes the sender when moving OUT of Junk", async () => {
+		const messageId = "alice-msg-rescue-aaaaaa";
+		const addressService = createMockAddressService();
+		const ctx = createTestService({
+			messages: [{ messageId, mailboxId: junkId, uid: 5 }],
+			mailboxes: [
+				{ mailboxId: inboxId, fullPath: "INBOX" },
+				{ mailboxId: junkId, fullPath: "Junk" },
+			],
+			trash: null,
+			junk: { mailboxId: junkId, fullPath: "Junk" },
+			threadMessageRows: [threadRow(messageId, junkId)],
+			addressService,
+		});
+
+		await ctx.service.moveMessage(messageId, inboxId, aliceAccountId);
+
+		assert.equal(addressService.promoteWellknownByUser.mock.callCount(), 1);
+		assert.equal(addressService.demoteSenderTrust.mock.callCount(), 0);
+	});
+
+	it("demotes the sender when moving INTO Junk", async () => {
+		const messageId = "alice-msg-spam-aaaaaaaa";
+		const addressService = createMockAddressService();
+		const ctx = createTestService({
+			messages: [{ messageId, mailboxId: inboxId, uid: 6 }],
+			mailboxes: [
+				{ mailboxId: inboxId, fullPath: "INBOX" },
+				{ mailboxId: junkId, fullPath: "Junk" },
+			],
+			trash: null,
+			junk: { mailboxId: junkId, fullPath: "Junk" },
+			threadMessageRows: [threadRow(messageId, inboxId)],
+			addressService,
+		});
+
+		await ctx.service.moveMessage(messageId, junkId, aliceAccountId);
+
+		assert.equal(addressService.demoteSenderTrust.mock.callCount(), 1);
+		assert.equal(addressService.promoteWellknownByUser.mock.callCount(), 0);
+	});
+
+	it("leaves trust untouched on a non-Junk move", async () => {
+		const messageId = "alice-msg-plain-aaaaaaa";
+		const projectId = "alice-proj-aaaaaaaaaaaa";
+		const addressService = createMockAddressService();
+		const ctx = createTestService({
+			messages: [{ messageId, mailboxId: inboxId, uid: 7 }],
+			mailboxes: [
+				{ mailboxId: inboxId, fullPath: "INBOX" },
+				{ mailboxId: projectId, fullPath: "Project" },
+				{ mailboxId: junkId, fullPath: "Junk" },
+			],
+			trash: null,
+			junk: { mailboxId: junkId, fullPath: "Junk" },
+			threadMessageRows: [threadRow(messageId, inboxId)],
+			addressService,
+		});
+
+		await ctx.service.moveMessage(messageId, projectId, aliceAccountId);
+
+		assert.equal(addressService.promoteWellknownByUser.mock.callCount(), 0);
+		assert.equal(addressService.demoteSenderTrust.mock.callCount(), 0);
 	});
 });
