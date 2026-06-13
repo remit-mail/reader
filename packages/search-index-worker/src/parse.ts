@@ -1,14 +1,4 @@
-import { z } from "zod";
-
-const searchIndexMessageSchema = z.object({
-	eventName: z.enum(["INSERT", "MODIFY", "REMOVE"]),
-	entity: z.literal("Message"),
-	eventID: z.string(),
-	eventTimestamp: z.number(),
-	accountId: z.string().min(1),
-	keys: z.object({ pk: z.string(), sk: z.string() }),
-	messageId: z.string().min(1),
-});
+import { searchIndexMessageSchema } from "@remit/search-service";
 
 export type ParsedQueueMessage =
 	| { kind: "upsert"; accountId: string; messageId: string }
