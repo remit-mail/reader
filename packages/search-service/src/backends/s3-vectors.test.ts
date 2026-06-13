@@ -139,8 +139,50 @@ describe("S3VectorsBackend.findChunkKeysForMessage (via delete)", () => {
 		);
 	});
 
-	it("throws when pagination exceeds the safety bound", async () => {
+	it("enumerates all keys when chunk listing spans more than the old 50-page limit", async () => {
+		// Simulate 51 pages (each with one key), more than the old MAX_LIST_PAGES=50.
+		// The fix must enumerate all keys without throwing.
+		const PAGE_COUNT = 51;
+		let call = 0;
+		s3vMock.on(ListVectorsCommand).callsFake(() => {
+			const page = call++;
+			const isLast = page === PAGE_COUNT - 1;
+			return {
+				vectors: [{ key: `${MESSAGE_ID}::body-${page}` }],
+				nextToken: isLast ? undefined : `tok-${page}`,
+			};
+		});
+		const deleted: string[][] = [];
+		s3vMock.on(DeleteVectorsCommand).callsFake((input) => {
+			deleted.push((input.keys ?? []) as string[]);
+			return {};
+		});
+
+		await buildBackend().delete({ messageId: MESSAGE_ID });
+
+		const listCalls = s3vMock.commandCalls(ListVectorsCommand);
+		assert.equal(
+			listCalls.length,
+			PAGE_COUNT,
+			`should issue ${PAGE_COUNT} ListVectors calls`,
+		);
+		const allDeleted = deleted.flat().sort();
+		assert.equal(
+			allDeleted.length,
+			PAGE_COUNT,
+			"all keys from all pages must be deleted",
+		);
+		for (let i = 0; i < PAGE_COUNT; i++) {
+			assert.ok(
+				allDeleted.includes(`${MESSAGE_ID}::body-${i}`),
+				`key body-${i} must be deleted`,
+			);
+		}
+	});
+
+	it("throws when pagination exceeds the safety bound (runaway malformed response)", async () => {
 		// Always return a nextToken so pagination never terminates naturally.
+		// This simulates a malformed S3 response; the safety bound must fire loudly.
 		s3vMock.on(ListVectorsCommand).callsFake(() => ({
 			vectors: [{ key: `${MESSAGE_ID}::body-0` }],
 			nextToken: "never-ends",

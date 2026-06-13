@@ -38,9 +38,11 @@ const DELETE_BATCH_SIZE = 100;
 // AWS S3 Vectors ListVectors caps maxResults at 500 per page.
 const LIST_PAGE_SIZE = 500;
 // Safety bound: stop pagination after this many pages to prevent runaway
-// loops on a malformed response. 50 pages * 500 = 25,000 vectors per
-// messageId — far above any realistic chunk count for a single message.
-const MAX_LIST_PAGES = 50;
+// loops on a malformed response (e.g. S3 always returning nextToken).
+// 10,000 pages * 500 = 5,000,000 vectors per messageId — well above any
+// realistic chunk count. The loop errors loudly if this is hit; it never
+// silently truncates a delete.
+const MAX_LIST_PAGES = 10_000;
 
 export interface S3VectorsBackendConfig {
 	client?: S3VectorsClient;
@@ -222,7 +224,13 @@ export class S3VectorsBackend implements VectorStoreService {
 		const keyPrefix = `${messageId}::`;
 		const keys: string[] = [];
 		let nextToken: string | undefined;
-		for (let page = 0; page < MAX_LIST_PAGES; page++) {
+		let page = 0;
+		while (true) {
+			if (page >= MAX_LIST_PAGES) {
+				throw new Error(
+					`findChunkKeysForMessage: exceeded MAX_LIST_PAGES (${MAX_LIST_PAGES}) for messageId=${messageId}`,
+				);
+			}
 			const cmd = new ListVectorsCommand({
 				vectorBucketName: this.vectorBucketName,
 				indexName: this.indexName,
@@ -239,10 +247,8 @@ export class S3VectorsBackend implements VectorStoreService {
 			}
 			nextToken = response.nextToken;
 			if (!nextToken) return keys;
+			page++;
 		}
-		throw new Error(
-			`findChunkKeysForMessage: exceeded MAX_LIST_PAGES (${MAX_LIST_PAGES}) for messageId=${messageId}`,
-		);
 	};
 }
 
