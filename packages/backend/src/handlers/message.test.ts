@@ -1,15 +1,17 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it, mock } from "node:test";
 import { NotFoundError } from "@remit/remit-electrodb-service";
 import { assertAccountOwnership } from "./account-ownership.js";
 import {
 	type BodyPartLike,
+	type BodyPartMaterializer,
 	buildBodyPartResponses,
 	decodeRawEml,
 	extractAccountIdsFromBodyKey,
 	isContentDisposition,
 	isMediaType,
 	isStorageNotFoundError,
+	materializeBodyPartsBestEffort,
 } from "./message.js";
 
 describe("isStorageNotFoundError", () => {
@@ -320,5 +322,76 @@ describe("getRawMessage ownership guard", () => {
 				return true;
 			},
 		);
+	});
+});
+
+describe("materializeBodyPartsBestEffort", () => {
+	const noopLogger = { error: () => {} };
+
+	it("materializes deferred parts for a stored message", async () => {
+		const ensureBodyPartsStored = mock.fn(async () => ({ stored: 2 }));
+		const materializer: BodyPartMaterializer = { ensureBodyPartsStored };
+
+		await materializeBodyPartsBestEffort(materializer, {
+			accountConfigId: "cfg-1",
+			accountId: "acc-1",
+			messageId: "msg-1",
+			bodyStorageKey:
+				"s3://bucket/accounts/cfg-1/acc-1/messages/msg-1/body.eml",
+			logger: noopLogger,
+		});
+
+		assert.equal(ensureBodyPartsStored.mock.calls.length, 1);
+		assert.deepEqual(ensureBodyPartsStored.mock.calls[0].arguments, [
+			"cfg-1",
+			"acc-1",
+			"msg-1",
+			"s3://bucket/accounts/cfg-1/acc-1/messages/msg-1/body.eml",
+		]);
+	});
+
+	it("skips materialization when the body is not yet stored", async () => {
+		const ensureBodyPartsStored = mock.fn(async () => ({ stored: 0 }));
+		const materializer: BodyPartMaterializer = { ensureBodyPartsStored };
+
+		await materializeBodyPartsBestEffort(materializer, {
+			accountConfigId: "cfg-1",
+			accountId: "acc-1",
+			messageId: "msg-1",
+			bodyStorageKey: undefined,
+			logger: noopLogger,
+		});
+
+		assert.equal(ensureBodyPartsStored.mock.calls.length, 0);
+	});
+
+	it("degrades gracefully on a materialization failure — never throws, logs once", async () => {
+		const ensureBodyPartsStored = mock.fn(async () => {
+			throw new Error("transient S3 failure");
+		});
+		const materializer: BodyPartMaterializer = { ensureBodyPartsStored };
+		const errors: Array<Record<string, unknown>> = [];
+		const logger = {
+			error: (obj: Record<string, unknown>) => {
+				errors.push(obj);
+			},
+		};
+
+		// Must resolve, not reject — a hiccup here must never 500 a message open.
+		await assert.doesNotReject(() =>
+			materializeBodyPartsBestEffort(materializer, {
+				accountConfigId: "cfg-1",
+				accountId: "acc-1",
+				messageId: "msg-1",
+				bodyStorageKey:
+					"s3://bucket/accounts/cfg-1/acc-1/messages/msg-1/body.eml",
+				logger,
+			}),
+		);
+
+		assert.equal(ensureBodyPartsStored.mock.calls.length, 1);
+		assert.equal(errors.length, 1, "logged exactly once");
+		assert.equal(errors[0].messageId, "msg-1");
+		assert.equal(errors[0].accountId, "acc-1");
 	});
 });

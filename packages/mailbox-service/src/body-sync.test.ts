@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { Readable } from "node:stream";
-import { describe, it } from "node:test";
+import { after, before, describe, it } from "node:test";
 import {
 	AddressService,
 	type BodyPartItem,
@@ -69,6 +69,11 @@ const buildFakeState = (opts: FakeStateOptions) => {
 	const updatedKeys: Array<{ messageId: string } & UpdateMessageInput> = [];
 	const threadSnippetUpdates: Array<{ threadMessageId: string }> = [];
 	const inboundIncrements: Array<{ addressId: string; now: number }> = [];
+	const counts = {
+		retrieve: 0,
+		bodyPartExists: 0,
+		listBodyParts: 0,
+	};
 
 	const message = {
 		messageId: opts.messageId,
@@ -159,6 +164,16 @@ const buildFakeState = (opts: FakeStateOptions) => {
 				contentEncoding: "none",
 			};
 		},
+		bodyPartExists: async (accountConfigId, accountId, messageId, partPath) => {
+			counts.bodyPartExists++;
+			return storedBodyParts.some(
+				(p) =>
+					p.accountConfigId === accountConfigId &&
+					p.accountId === accountId &&
+					p.messageId === messageId &&
+					p.partPath === partPath,
+			);
+		},
 		storeDeduplicated: async () => {
 			throw new Error("not used");
 		},
@@ -175,13 +190,17 @@ const buildFakeState = (opts: FakeStateOptions) => {
 			};
 		},
 		retrieveParsedBody: async () => null,
-		retrieve: async () => opts.rawEml ?? A_RAW_EML,
+		retrieve: async () => {
+			counts.retrieve++;
+			return opts.rawEml ?? A_RAW_EML;
+		},
 		exists: async () => true,
 		delete: async () => {},
 	};
 
 	const envelopeService = {
 		listBodyParts: async (id: string): Promise<BodyPartItem[]> => {
+			counts.listBodyParts++;
 			assert.equal(id, opts.messageId);
 			return opts.bodyParts ?? [];
 		},
@@ -199,6 +218,7 @@ const buildFakeState = (opts: FakeStateOptions) => {
 		updatedKeys,
 		threadSnippetUpdates,
 		inboundIncrements,
+		counts,
 	};
 };
 
@@ -504,6 +524,21 @@ describe("BodySyncService.syncBodies (classification + counters)", () => {
 });
 
 describe("BodySyncService.syncBodies (per-part S3 storage)", () => {
+	// These cases assert the eager per-part write behavior. Deferral defaults
+	// ON (cost savings), so force it OFF here to exercise the original eager
+	// path; the deferral + lazy-generation behavior has its own block below.
+	const previousDeferEnv = process.env.DEFER_BODY_PARTS;
+	before(() => {
+		process.env.DEFER_BODY_PARTS = "false";
+	});
+	after(() => {
+		if (previousDeferEnv === undefined) {
+			delete process.env.DEFER_BODY_PARTS;
+		} else {
+			process.env.DEFER_BODY_PARTS = previousDeferEnv;
+		}
+	});
+
 	// multipart/mixed with html + a downloadable PDF attachment. The PDF
 	// must end up at a per-part S3 key so the SPA can serve it via
 	// CloudFront (BodyPartResponse.contentUrl). Inline image cases work
@@ -828,6 +863,249 @@ describe("BodySyncService.syncBodies (per-part S3 storage)", () => {
 		assert.equal(pdf.contentType, "application/octet-stream");
 		// Bytes are the decoded PDF from mailparser, not base64 text.
 		assert.equal(pdf.content.toString("utf8"), "%PDF-1.4\n");
+	});
+});
+
+describe("BodySyncService body-part deferral + lazy generation", () => {
+	// multipart/mixed with an html part + a base64 PDF attachment. Same shape
+	// the eager block uses, redeclared here so this block is self-contained.
+	const DEFER_EML = ((): Buffer => {
+		const pdfB64 = Buffer.from("%PDF-1.4\n").toString("base64");
+		return Buffer.from(
+			[
+				"From: alice@example.com",
+				"To: bob@example.com",
+				"Subject: with attachment",
+				"Message-ID: <defer-1@example.com>",
+				'Content-Type: multipart/mixed; boundary="mix"',
+				"MIME-Version: 1.0",
+				"",
+				"--mix",
+				"Content-Type: text/html; charset=utf-8",
+				"Content-Transfer-Encoding: 7bit",
+				"",
+				"<html><body>resume attached</body></html>",
+				"--mix",
+				"Content-Type: application/pdf; name=alice-resume.pdf",
+				"Content-Transfer-Encoding: base64",
+				"Content-Disposition: attachment; filename=alice-resume.pdf",
+				"",
+				pdfB64,
+				"--mix--",
+				"",
+			].join("\r\n"),
+		);
+	})();
+
+	const deferBodyParts: BodyPartItem[] = [
+		{
+			bodyPartId: "bp-root",
+			messageId: "msg-defer",
+			partPath: "0",
+			mediaType: "MULTIPART",
+			mediaSubtype: "mixed",
+			transferEncoding: "7BIT",
+			sizeOctets: 0,
+			isMultipart: true,
+			multipartSubtype: "mixed",
+			createdAt: 0,
+			updatedAt: 0,
+		} as BodyPartItem,
+		{
+			bodyPartId: "bp-html",
+			messageId: "msg-defer",
+			parentBodyPartId: "bp-root",
+			partPath: "1",
+			mediaType: "TEXT",
+			mediaSubtype: "html",
+			transferEncoding: "7BIT",
+			sizeOctets: 40,
+			isMultipart: false,
+			createdAt: 0,
+			updatedAt: 0,
+		} as BodyPartItem,
+		{
+			bodyPartId: "bp-pdf",
+			messageId: "msg-defer",
+			parentBodyPartId: "bp-root",
+			partPath: "2",
+			mediaType: "APPLICATION",
+			mediaSubtype: "pdf",
+			transferEncoding: "BASE64",
+			sizeOctets: 9,
+			isMultipart: false,
+			disposition: "attachment",
+			dispositionFilename: "alice-resume.pdf",
+			createdAt: 0,
+			updatedAt: 0,
+		} as BodyPartItem,
+	];
+
+	const previousDeferEnv = process.env.DEFER_BODY_PARTS;
+	before(() => {
+		process.env.DEFER_BODY_PARTS = "true";
+	});
+	after(() => {
+		if (previousDeferEnv === undefined) {
+			delete process.env.DEFER_BODY_PARTS;
+		} else {
+			process.env.DEFER_BODY_PARTS = previousDeferEnv;
+		}
+	});
+
+	it("deferred sync writes only body.eml + parsed.json.gz (2 storage writes, zero per-part objects)", async () => {
+		const fake = buildFakeState({
+			messageId: "msg-defer",
+			rawEml: DEFER_EML,
+			bodyParts: deferBodyParts,
+		});
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			fake.addressService,
+			fake.envelopeService,
+		);
+
+		await service.syncBodies(
+			["msg-defer"],
+			"acc-1",
+			"acc-cfg-1",
+			"INBOX",
+			async () => buildFakeConnection(DEFER_EML),
+		);
+
+		// Exactly the two durable storage writes per message: the raw .eml and
+		// the parsed-body cache. No per-part PutObjects.
+		assert.equal(fake.storedBodies.length, 1, "one body.eml write");
+		assert.equal(fake.storedParsed.length, 1, "one parsed.json.gz write");
+		assert.equal(
+			fake.storedBodyParts.length,
+			0,
+			"no per-part objects in deferred mode",
+		);
+	});
+
+	it("ensureBodyPartsStored lazily generates the correct part bytes from stored body.eml", async () => {
+		const fake = buildFakeState({
+			messageId: "msg-defer",
+			hasBodyStorageKey: true,
+			rawEml: DEFER_EML,
+			bodyParts: deferBodyParts,
+		});
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			fake.addressService,
+			fake.envelopeService,
+		);
+
+		const result = await service.ensureBodyPartsStored(
+			"acc-cfg-1",
+			"acc-1",
+			"msg-defer",
+			"s3://bucket/accounts/acc-cfg-1/acc-1/messages/msg-defer/body.eml",
+		);
+
+		assert.equal(result.stored, 2);
+		const byPath = new Map(fake.storedBodyParts.map((p) => [p.partPath, p]));
+
+		const html = byPath.get("1");
+		assert.ok(html, "html leaf generated");
+		assert.equal(html.contentType, "text/html");
+		assert.match(html.content.toString("utf8"), /resume attached/);
+
+		const pdf = byPath.get("2");
+		assert.ok(pdf, "pdf leaf generated");
+		assert.equal(pdf.contentType, "application/pdf");
+		assert.equal(pdf.content.toString("utf8"), "%PDF-1.4\n");
+	});
+
+	it("ensureBodyPartsStored is idempotent — a second call writes nothing", async () => {
+		const fake = buildFakeState({
+			messageId: "msg-defer",
+			hasBodyStorageKey: true,
+			rawEml: DEFER_EML,
+			bodyParts: deferBodyParts,
+		});
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			fake.addressService,
+			fake.envelopeService,
+		);
+
+		const key =
+			"s3://bucket/accounts/acc-cfg-1/acc-1/messages/msg-defer/body.eml";
+
+		const first = await service.ensureBodyPartsStored(
+			"acc-cfg-1",
+			"acc-1",
+			"msg-defer",
+			key,
+		);
+		assert.equal(first.stored, 2);
+		// 2 real leaves + the .materialized sentinel.
+		assert.equal(fake.storedBodyParts.length, 3);
+		assert.ok(
+			fake.storedBodyParts.some((p) => p.partPath === ".materialized"),
+			"sentinel written after full materialization",
+		);
+
+		const second = await service.ensureBodyPartsStored(
+			"acc-cfg-1",
+			"acc-1",
+			"msg-defer",
+			key,
+		);
+		assert.equal(second.stored, 0, "no re-writes on second call");
+		assert.equal(
+			fake.storedBodyParts.length,
+			3,
+			"no duplicate per-part objects",
+		);
+	});
+
+	it("warm open with sentinel present does zero GET / parse / per-part HEAD work", async () => {
+		const fake = buildFakeState({
+			messageId: "msg-defer",
+			hasBodyStorageKey: true,
+			rawEml: DEFER_EML,
+			bodyParts: deferBodyParts,
+		});
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			fake.addressService,
+			fake.envelopeService,
+		);
+
+		const key =
+			"s3://bucket/accounts/acc-cfg-1/acc-1/messages/msg-defer/body.eml";
+
+		// Cold open: materializes parts + writes the sentinel.
+		await service.ensureBodyPartsStored("acc-cfg-1", "acc-1", "msg-defer", key);
+
+		// Reset counters so the warm open is measured in isolation.
+		fake.counts.retrieve = 0;
+		fake.counts.bodyPartExists = 0;
+		fake.counts.listBodyParts = 0;
+
+		const warm = await service.ensureBodyPartsStored(
+			"acc-cfg-1",
+			"acc-1",
+			"msg-defer",
+			key,
+		);
+
+		assert.equal(warm.stored, 0);
+		// Exactly one HEAD — the sentinel check — and nothing else.
+		assert.equal(fake.counts.bodyPartExists, 1, "one sentinel HEAD only");
+		assert.equal(fake.counts.retrieve, 0, "no body.eml GET on warm open");
+		assert.equal(fake.counts.listBodyParts, 0, "no MIME walk on warm open");
 	});
 });
 

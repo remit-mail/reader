@@ -101,6 +101,24 @@ export const createFilesystemStorageService = (
 		});
 	};
 
+	const bodyPartExists: StorageService["bodyPartExists"] = (
+		accountConfigId,
+		accountId,
+		messageId,
+		partPath,
+	) => {
+		const key = buildBodyPartKey(
+			accountConfigId,
+			accountId,
+			messageId,
+			partPath,
+		);
+		const fullPath = join(basePath, key);
+		return stat(fullPath)
+			.then(() => true)
+			.catch(() => false);
+	};
+
 	const storeDeduplicated: StorageService["storeDeduplicated"] = (params) => {
 		const { accountConfigId, accountId, content } = params;
 		const checksumSha256 = computeChecksum(content);
@@ -185,6 +203,7 @@ export const createFilesystemStorageService = (
 		storeMessageBody,
 		storeMessageBodyStream,
 		storeBodyPart,
+		bodyPartExists,
 		storeDeduplicated,
 		storeParsedBody,
 		retrieveParsedBody,
