@@ -21,7 +21,10 @@ import { createStorageService } from "@remit/storage-service";
 import { env } from "expect-env";
 import { isAccountDeleted } from "../account-check.js";
 import { isBodySyncEnabled } from "../body-sync-gate.js";
-import { createConnectionScopeWithCredentials } from "../connection-scope.js";
+import {
+	borrowWarmConnection,
+	createConnectionScopeWithCredentials,
+} from "../connection-scope.js";
 import { emitEvent } from "../emit.js";
 import type { SyncMessageBodyEvent, SyncMessageBodyTarget } from "../events.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
@@ -108,12 +111,18 @@ export const buildRetryEvent = (
 	uidByMessageId?: Map<string, number>,
 ): Omit<SyncMessageBodyEvent, "eventId" | "timestamp"> => {
 	const messages = uidByMessageId
-		? failedMessageIds.map(
-				(messageId): SyncMessageBodyTarget => ({
-					messageId,
-					uid: uidByMessageId.get(messageId) ?? 0,
-				}),
-			)
+		? failedMessageIds.map((messageId): SyncMessageBodyTarget => {
+				const uid = uidByMessageId.get(messageId);
+				// A failed id always came from this batch's uid map; a missing uid
+				// is a programmer error, never UID 0 (which would fetch the wrong
+				// message). Fail loud instead of silently retrying a bad uid.
+				if (uid === undefined) {
+					throw new Error(
+						`No uid for failed messageId ${messageId} in retry batch`,
+					);
+				}
+				return { messageId, uid };
+			})
 		: undefined;
 
 	return {
@@ -174,7 +183,13 @@ export const syncMessageBody = async (
 		account,
 		log,
 		async (credentials) => {
-			const scope = createConnectionScopeWithCredentials(account, credentials);
+			// Warm reuse: borrow a live IMAP connection from the module-scoped pool
+			// (keyed by accountId) instead of dialing a fresh one per invocation. A
+			// warm container skips TCP+TLS+LOGIN+SELECT; a dead pooled connection is
+			// liveness-checked and replaced inside borrowWarmConnection.
+			const borrowed = borrowWarmConnection(accountId, () =>
+				createConnectionScopeWithCredentials(account, credentials),
+			);
 			const mailbox = await mailboxService.get(mailboxId);
 			const storage = createStorageService();
 
@@ -192,15 +207,17 @@ export const syncMessageBody = async (
 				rescueConfig,
 			);
 
+			// Return the connection to the pool (no disconnect) so the next
+			// invocation in this container reuses it; the pool owns teardown.
 			const result = await bodySyncService
 				.syncBodies(
 					messageIds,
 					accountId,
 					account.accountConfigId,
 					mailbox.fullPath,
-					scope.getConnection,
+					borrowed.getConnection,
 				)
-				.finally(() => scope.disconnect());
+				.finally(() => borrowed.release());
 
 			// Re-enqueue ONLY the failed messages with a jittered delay (avoid a
 			// thundering herd). A single bad message never forces a re-fetch of the

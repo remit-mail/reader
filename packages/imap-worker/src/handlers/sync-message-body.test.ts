@@ -1,9 +1,32 @@
 import assert from "node:assert";
-import { describe, test } from "node:test";
+import { afterEach, describe, test } from "node:test";
+import { GetParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
+import type { Logger } from "@remit/remit-logger-lambda";
 import type { SyncedMessage } from "@remit/mailbox-service";
+import { mockClient } from "aws-sdk-client-mock";
+import { resetBodySyncGateCache } from "../body-sync-gate.js";
+import { __warmPoolSizeForTest } from "../connection-scope.js";
 import type { SyncMessageBodyEvent } from "../events.js";
-import { buildRetryEvent, resolveBatch } from "./sync-message-body.js";
+import {
+	buildRetryEvent,
+	resolveBatch,
+	syncMessageBody,
+} from "./sync-message-body.js";
 import { BODY_BATCH_SIZE, batchSyncedMessages } from "./sync-messages.js";
+
+const silentLogger = (() => {
+	const noop = () => {};
+	const log = {
+		info: noop,
+		warn: noop,
+		error: noop,
+		debug: noop,
+		fatal: noop,
+		trace: noop,
+		child: () => log,
+	} as unknown as Logger;
+	return log;
+})();
 
 const baseEvent = {
 	type: "SYNC_MESSAGE_BODY" as const,
@@ -112,6 +135,52 @@ describe("buildRetryEvent — partial-failure re-enqueue", () => {
 
 		assert.deepEqual(retry.messageIds, ["msg-2"]);
 		assert.equal(retry.messages, undefined);
+	});
+
+	test("throws if a failed id has no uid in the map (never defaults to 0)", () => {
+		// A wrong UID (0) would silently fetch the wrong message on retry; the
+		// invariant is that every failed id came from this batch's uid map.
+		assert.throws(
+			() =>
+				buildRetryEvent(
+					baseEvent.accountId,
+					baseEvent.mailboxId,
+					["missing"],
+					uidMap,
+				),
+			/No uid for failed messageId missing/,
+		);
+	});
+});
+
+describe("syncMessageBody — pause gate runs before connection reuse", () => {
+	afterEach(() => {
+		mockClient(SSMClient).reset();
+		resetBodySyncGateCache();
+	});
+
+	test("paused: acks-and-skips before borrowing a warm connection", async () => {
+		const accountId = "paused-account-zzz";
+		mockClient(SSMClient)
+			.on(GetParameterCommand)
+			.resolves({ Parameter: { Value: "false" } });
+
+		const event: SyncMessageBodyEvent = {
+			...baseEvent,
+			accountId,
+			messageIds: ["msg-1"],
+			messages: [{ messageId: "msg-1", uid: 101 }],
+		};
+
+		await syncMessageBody(event, silentLogger);
+
+		// Returning at the gate must not touch the warm pool (no account lookup,
+		// no IMAP connection) — proves the gate is first.
+		assert.strictEqual(
+			__warmPoolSizeForTest(accountId),
+			0,
+			"paused handler must not create a warm connection",
+		);
 	});
 });
 
