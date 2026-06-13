@@ -2,9 +2,11 @@ import {
 	Archive,
 	Ban,
 	BellOff,
+	MailCheck,
 	MailX,
 	ShieldAlert,
 	ShieldCheck,
+	ShieldX,
 	Sparkles,
 	Star,
 	X,
@@ -94,6 +96,16 @@ export interface IntelligenceQuickActions {
 	onToggleUnsubscribe?: () => void;
 	onToggleAutoArchive?: () => void;
 	onReclassify?: () => void;
+	/**
+	 * "Not spam": move the message out of Junk and promote the sender to
+	 * Wellknown (issue #594). Wired only when the message is currently in Junk.
+	 */
+	onNotSpam?: () => void;
+	/**
+	 * "Mark spam": move the message into Junk and strip the sender's trust
+	 * (the inverse of "Not spam"). Wired only when the message is not in Junk.
+	 */
+	onMarkSpam?: () => void;
 }
 
 /**
@@ -364,6 +376,21 @@ export function IntelligencePanel({
 						active={flags.autoArchive}
 						onClick={actions?.onToggleAutoArchive}
 					/>
+					{actions?.onNotSpam && (
+						<QuickAction
+							icon={<MailCheck className="size-3.5" />}
+							label="Not spam"
+							onClick={actions.onNotSpam}
+						/>
+					)}
+					{actions?.onMarkSpam && (
+						<QuickAction
+							icon={<ShieldX className="size-3.5" />}
+							label="Mark spam"
+							danger
+							onClick={actions.onMarkSpam}
+						/>
+					)}
 				</div>
 			</Section>
 

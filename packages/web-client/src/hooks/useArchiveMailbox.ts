@@ -98,6 +98,33 @@ export const useDraftsMailbox = (
 	return { draftsMailboxId, isLoading };
 };
 
+/**
+ * Returns the account's INBOX mailbox id — the destination for "Not spam"
+ * (issue #594), which moves a message out of Junk back to the inbox. Matches
+ * the mailbox whose `fullPath` is exactly "INBOX" (case-insensitive), the same
+ * rule the backend `findInboxMailbox` uses. `undefined` while loading or if
+ * absent.
+ */
+export const useInboxMailbox = (
+	accountId: string | undefined,
+): { inboxMailboxId: string | undefined; isLoading: boolean } => {
+	const { data: mailboxesResponse, isLoading } = useQuery({
+		...mailboxOperationsListMailboxesOptions({
+			path: { accountId: accountId ?? "" },
+		}),
+		staleTime: Infinity,
+		enabled: !!accountId,
+	});
+
+	const inboxMailboxId = useMemo(() => {
+		const mailboxes = mailboxesResponse?.items ?? [];
+		const found = mailboxes.find((m) => m.fullPath.toUpperCase() === "INBOX");
+		return found?.mailboxId;
+	}, [mailboxesResponse]);
+
+	return { inboxMailboxId, isLoading };
+};
+
 const JUNK_NAMES = new Set(["junk", "spam", "bulk mail"]);
 
 /**
