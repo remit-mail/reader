@@ -23,7 +23,7 @@ import { isAccountDeleted } from "../account-check.js";
 import { isBodySyncEnabled } from "../body-sync-gate.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import { emitEvent } from "../emit.js";
-import type { SyncMessageBodyEvent } from "../events.js";
+import type { SyncMessageBodyEvent, SyncMessageBodyTarget } from "../events.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 
@@ -73,11 +73,67 @@ const messageMoveService = messageMgmtQueueUrl
 		})
 	: undefined;
 
+/**
+ * The ordered message ids to sync, plus a uid lookup when the event carried the
+ * preferred `messages` shape. The uid map lets the body-sync service skip the
+ * per-message DDB get; legacy events (ids only) leave it undefined and the
+ * service resolves uids itself.
+ */
+export interface ResolvedBatch {
+	messageIds: string[];
+	uidByMessageId?: Map<string, number>;
+}
+
+export const resolveBatch = (event: SyncMessageBodyEvent): ResolvedBatch => {
+	if (event.messages !== undefined) {
+		return {
+			messageIds: event.messages.map((m) => m.messageId),
+			uidByMessageId: new Map(
+				event.messages.map((m): [string, number] => [m.messageId, m.uid]),
+			),
+		};
+	}
+	return { messageIds: event.messageIds };
+};
+
+/**
+ * Build the retry event for the FAILED message ids only. A single bad message
+ * never re-fetches the whole batch. Uids are carried forward when the original
+ * batch knew them so retries keep the one-fetch shape.
+ */
+export const buildRetryEvent = (
+	accountId: string,
+	mailboxId: string,
+	failedMessageIds: string[],
+	uidByMessageId?: Map<string, number>,
+): Omit<SyncMessageBodyEvent, "eventId" | "timestamp"> => {
+	const messages = uidByMessageId
+		? failedMessageIds.map(
+				(messageId): SyncMessageBodyTarget => ({
+					messageId,
+					uid: uidByMessageId.get(messageId) ?? 0,
+				}),
+			)
+		: undefined;
+
+	return {
+		type: "SYNC_MESSAGE_BODY",
+		accountId,
+		mailboxId,
+		messageIds: failedMessageIds,
+		...(messages && { messages }),
+	};
+};
+
 export const syncMessageBody = async (
 	event: SyncMessageBodyEvent,
 	log: Logger,
 ): Promise<void> => {
-	const { accountId, mailboxId, messageIds } = event;
+	const { accountId, mailboxId } = event;
+
+	// Prefer the messageId+uid pairs when present (one ranged FETCH, no
+	// per-message UID lookup); fall back to the legacy id-only list otherwise.
+	const { messageIds, uidByMessageId } = resolveBatch(event);
 
 	log.info(
 		{
@@ -85,10 +141,12 @@ export const syncMessageBody = async (
 			accountId,
 			mailboxId,
 			messageCount: messageIds.length,
+			hasUids: event.messages !== undefined,
 		},
 		"Handling event",
 	);
 
+	// Pause gate stays first: ack-and-skip before touching any account/IMAP state.
 	if (!(await isBodySyncEnabled(bodySyncEnabledParameterName, log))) {
 		log.info(
 			{
@@ -144,21 +202,23 @@ export const syncMessageBody = async (
 				)
 				.finally(() => scope.disconnect());
 
-			// Re-enqueue failed messages for retry with jittered delay to avoid thundering herd
+			// Re-enqueue ONLY the failed messages with a jittered delay (avoid a
+			// thundering herd). A single bad message never forces a re-fetch of the
+			// whole batch. Carry uids forward when known so retries keep the
+			// one-fetch shape.
 			if (result.failedMessageIds.length > 0) {
-				const retryDelaySeconds = 20 + Math.floor(Math.random() * 21); // 20-40 seconds
+				const retryDelaySeconds = 20 + Math.floor(Math.random() * 21);
 				log.info(
 					{ failedCount: result.failedMessageIds.length, retryDelaySeconds },
 					"Re-enqueueing failed body syncs with delay",
 				);
 
-				const retryEvent: Omit<SyncMessageBodyEvent, "eventId" | "timestamp"> =
-					{
-						type: "SYNC_MESSAGE_BODY",
-						accountId,
-						mailboxId,
-						messageIds: result.failedMessageIds,
-					};
+				const retryEvent = buildRetryEvent(
+					accountId,
+					mailboxId,
+					result.failedMessageIds,
+					uidByMessageId,
+				);
 				await emitEvent(retryEvent, { delaySeconds: retryDelaySeconds });
 			}
 		},

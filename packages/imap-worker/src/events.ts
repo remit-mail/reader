@@ -14,10 +14,30 @@ export interface SyncMessagesEvent extends BaseEvent {
 	fullSync?: boolean; // If true, ignore lastSyncUid
 }
 
+/**
+ * A message to body-sync, carrying the UID resolved at envelope-sync time so
+ * the consumer can issue one ranged FETCH without a per-message DDB lookup.
+ */
+export interface SyncMessageBodyTarget {
+	messageId: string;
+	uid: number;
+}
+
 export interface SyncMessageBodyEvent extends BaseEvent {
 	type: "SYNC_MESSAGE_BODY";
 	mailboxId: string;
+	/**
+	 * Message ids to sync. Always present for backward compatibility; the
+	 * consumer falls back to this list (looking up each UID) when `messages`
+	 * is absent.
+	 */
 	messageIds: string[];
+	/**
+	 * Preferred shape: messageId+uid pairs. When present, the consumer skips the
+	 * per-message UID lookup and fetches the whole batch in one ranged FETCH.
+	 * Optional so older in-flight events (ids only) still process.
+	 */
+	messages?: SyncMessageBodyTarget[];
 }
 
 export interface SyncFlagsEvent extends BaseEvent {
