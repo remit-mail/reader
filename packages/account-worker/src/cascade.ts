@@ -1,14 +1,15 @@
-import type {
-	AccountConfigService,
-	AccountService,
-	AddressService,
-	EnvelopeService,
-	MailboxLockService,
-	MailboxService,
-	MessageFlagService,
-	MessageService,
-	OutboxMessageService,
-	ThreadMessageService,
+import {
+	type AccountConfigService,
+	type AccountService,
+	type AddressService,
+	type EnvelopeService,
+	type MailboxLockService,
+	type MailboxService,
+	type MessageFlagService,
+	type MessageService,
+	NotFoundError,
+	type OutboxMessageService,
+	type ThreadMessageService,
 } from "@remit/remit-electrodb-service";
 import type { Logger } from "pino";
 
@@ -34,6 +35,79 @@ export interface CascadeResult {
 	entities: CascadeEntity[];
 	messageIds: string[];
 }
+
+/**
+ * One bounded slice of a per-account purge. `entities` are the rows to delete
+ * this invocation; `drained` is true only once the account holds no more
+ * message subtrees, signalling the finalize worker to do the final
+ * container-level cleanup (mailboxes, thread messages, outbox, locks, S3) and
+ * stop re-enqueuing continuations.
+ */
+export interface AccountPurgeChunk {
+	entities: CascadeEntity[];
+	messageIds: string[];
+	drained: boolean;
+}
+
+const collectMessageChildEntities = (
+	entities: CascadeEntity[],
+	messageData: Awaited<ReturnType<MessageService["describe"]>>,
+): void => {
+	for (const flag of messageData.messageFlag) {
+		entities.push({
+			entityType: "MessageFlag",
+			key: { messageFlagId: flag.messageFlagId },
+		});
+	}
+	for (const envelope of messageData.envelope) {
+		entities.push({
+			entityType: "Envelope",
+			key: { envelopeId: envelope.envelopeId },
+		});
+	}
+	for (const ref of messageData.messageReference) {
+		entities.push({
+			entityType: "MessageReference",
+			key: { messageReferenceId: ref.messageReferenceId },
+		});
+	}
+	for (const addr of messageData.envelopeAddress) {
+		entities.push({
+			entityType: "EnvelopeAddress",
+			key: { envelopeAddressId: addr.envelopeAddressId },
+		});
+	}
+	for (const bp of messageData.bodyPart) {
+		entities.push({
+			entityType: "BodyPart",
+			key: { bodyPartId: bp.bodyPartId },
+		});
+	}
+	for (const bpp of messageData.bodyPartParameter) {
+		entities.push({
+			entityType: "BodyPartParameter",
+			key: { bodyPartParameterId: bpp.bodyPartParameterId },
+		});
+	}
+	for (const rms of messageData.rawMessageStorage) {
+		entities.push({
+			entityType: "RawMessageStorage",
+			key: { rawStorageId: rms.rawStorageId },
+		});
+	}
+	for (const bps of messageData.bodyPartStorage) {
+		entities.push({
+			entityType: "BodyPartStorage",
+			key: { bodyPartStorageId: bps.bodyPartStorageId },
+		});
+	}
+	for (const bpc of messageData.bodyPartContent) {
+		entities.push({
+			entityType: "BodyPartContent",
+			key: { bodyPartContentId: bpc.bodyPartContentId },
+		});
+	}
+};
 
 /**
  * Cheap fanout-side enumeration: just the account's message ids and mailbox
@@ -422,6 +496,174 @@ export const enumerateAccountPurgeEntities = async (
 	);
 
 	return { entities, messageIds };
+};
+
+/**
+ * Bounded, resumable slice of {@link enumerateAccountPurgeEntities}. Enumerates
+ * at most `maxMessages` message subtrees for one account by draining the
+ * mailboxes from the front: deleted message rows vanish from the `byMailboxId`
+ * GSI, so each invocation re-queries and picks up the next slice with no stored
+ * cursor. The bounded per-message `describe()` cost is intentional — it is
+ * capped at `maxMessages` collection reads per invocation, never the whole
+ * account (the unbounded full-account walk is what timed out finalize).
+ *
+ * `drained` is true only when the account has fewer than `maxMessages` messages
+ * left (i.e. this slice cleared the last of them). The finalize worker then
+ * appends the container-level rows (mailboxes, thread messages, outbox, locks)
+ * and finishes; while not drained it deletes only message subtrees and
+ * re-enqueues a continuation.
+ *
+ * Scope discipline matches {@link enumerateAccountPurgeEntities}: only this
+ * account's mailboxes → messages → children are reached.
+ */
+export const enumerateAccountPurgeChunk = async (
+	accountConfigId: string,
+	accountId: string,
+	maxMessages: number,
+	services: Pick<
+		CascadeServices,
+		| "accountService"
+		| "messageService"
+		| "threadMessageService"
+		| "outboxMessageService"
+		| "mailboxLockService"
+	>,
+	log: Logger,
+): Promise<AccountPurgeChunk> => {
+	const {
+		accountService,
+		messageService,
+		threadMessageService,
+		outboxMessageService,
+		mailboxLockService,
+	} = services;
+
+	const entities: CascadeEntity[] = [];
+	const messageIds: string[] = [];
+
+	const accountDescription = await accountService.describe(accountId);
+
+	let budget = maxMessages;
+	let moreMessagesRemain = false;
+
+	for (const mailbox of accountDescription.mailbox) {
+		if (budget <= 0) {
+			// Budget exhausted by an earlier mailbox; this one is unread. Probe a
+			// single key cheaply so we only flag "more remain" when the mailbox
+			// actually holds a message — an empty trailing mailbox must not force
+			// a wasted continuation.
+			const probe = await messageService.listByMailbox(mailbox.mailboxId, {
+				limit: 1,
+			});
+			if (probe.items.length > 0) {
+				moreMessagesRemain = true;
+				break;
+			}
+			continue;
+		}
+
+		// Over-fetch one row past the budget to detect, without a second query,
+		// whether this mailbox still holds messages beyond this slice.
+		const page = await messageService.listByMailbox(mailbox.mailboxId, {
+			limit: budget + 1,
+		});
+
+		const messages = page.items.slice(0, budget);
+		const mailboxHasMore = page.items.length > budget;
+
+		for (const message of messages) {
+			messageIds.push(message.messageId);
+			entities.push({
+				entityType: "Message",
+				key: { messageId: message.messageId },
+			});
+
+			// The byMailboxId GSI (gsi0) and the messageData collection (gsi2) are
+			// independently eventually-consistent. A stale gsi0 row can project a
+			// message a prior chunk already deleted, so `describe()` (gsi2) throws
+			// NotFoundError. That is "this subtree is already gone", not an account
+			// failure: keep the Message primary key for an idempotent re-delete and
+			// move on. Letting it bubble would short-circuit the whole drain.
+			let messageData: Awaited<ReturnType<MessageService["describe"]>>;
+			try {
+				messageData = await messageService.describe(message.messageId);
+			} catch (error) {
+				if (error instanceof NotFoundError) {
+					log.info(
+						{ accountConfigId, accountId, messageId: message.messageId },
+						"Message subtree already gone (stale GSI row) — skipping child enumeration",
+					);
+					continue;
+				}
+				throw error;
+			}
+			collectMessageChildEntities(entities, messageData);
+		}
+
+		budget -= messages.length;
+
+		if (mailboxHasMore) {
+			moreMessagesRemain = true;
+			break;
+		}
+	}
+
+	const drained = !moreMessagesRemain;
+
+	if (drained) {
+		for (const mailbox of accountDescription.mailbox) {
+			entities.push({
+				entityType: "Mailbox",
+				key: { mailboxId: mailbox.mailboxId },
+			});
+
+			let cursor: string | undefined;
+			do {
+				const tmPage = await threadMessageService.listByMailbox(
+					accountConfigId,
+					mailbox.mailboxId,
+					{ continuationToken: cursor },
+				);
+				for (const tm of tmPage.items) {
+					entities.push({
+						entityType: "ThreadMessage",
+						key: { accountConfigId, threadMessageId: tm.threadMessageId },
+					});
+				}
+				cursor = tmPage.continuationToken;
+			} while (cursor);
+		}
+
+		const outboxMessages = await outboxMessageService.listByAccount(accountId);
+		for (const outbox of outboxMessages.items) {
+			entities.push({
+				entityType: "OutboxMessage",
+				key: { outboxMessageId: outbox.outboxMessageId },
+			});
+		}
+
+		const locks = await mailboxLockService.listByAccount(accountId);
+		for (const lock of locks) {
+			entities.push({
+				entityType: "MailboxLock",
+				key: { mailboxId: lock.mailboxId, eventName: lock.eventName },
+			});
+		}
+	}
+
+	log.info(
+		{
+			accountConfigId,
+			accountId,
+			maxMessages,
+			chunkMessageCount: messageIds.length,
+			entityCount: entities.length,
+			drained,
+		},
+		"Per-account purge chunk enumeration complete",
+	);
+
+	return { entities, messageIds, drained };
 };
 
 export const COVERED_ENTITY_TYPES = [
