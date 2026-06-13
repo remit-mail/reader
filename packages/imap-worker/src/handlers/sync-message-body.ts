@@ -20,6 +20,7 @@ import {
 import { createStorageService } from "@remit/storage-service";
 import { env } from "expect-env";
 import { isAccountDeleted } from "../account-check.js";
+import { isBodySyncEnabled } from "../body-sync-gate.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import { emitEvent } from "../emit.js";
 import type { SyncMessageBodyEvent } from "../events.js";
@@ -59,6 +60,8 @@ const envelopeService = new EnvelopeService({
 	table: env.DYNAMODB_TABLE_NAME,
 });
 
+const bodySyncEnabledParameterName = env.BODY_SYNC_ENABLED_PARAMETER_NAME;
+
 const messageMgmtQueueUrl = process.env.SQS_QUEUE_URL_MESSAGE_MGMT;
 const messageMoveService = messageMgmtQueueUrl
 	? new MessageMoveService({
@@ -85,6 +88,19 @@ export const syncMessageBody = async (
 		},
 		"Handling event",
 	);
+
+	if (!(await isBodySyncEnabled(bodySyncEnabledParameterName, log))) {
+		log.info(
+			{
+				event: event.type,
+				accountId,
+				mailboxId,
+				messageCount: messageIds.length,
+			},
+			"Body sync paused via SSM toggle, acking and skipping",
+		);
+		return;
+	}
 
 	const account = await accountService.get(accountId);
 	if (!account) {
