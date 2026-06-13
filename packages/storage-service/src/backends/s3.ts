@@ -142,6 +142,24 @@ export const createS3StorageService = (
 		});
 	};
 
+	const bodyPartExists: StorageService["bodyPartExists"] = (
+		accountConfigId,
+		accountId,
+		messageId,
+		partPath,
+	) => {
+		const key = buildBodyPartKey(
+			accountConfigId,
+			accountId,
+			messageId,
+			partPath,
+		);
+		return client
+			.send(new HeadObjectCommand({ Bucket: bucketName, Key: key }))
+			.then(() => true)
+			.catch(() => false);
+	};
+
 	const storeDeduplicated: StorageService["storeDeduplicated"] = (params) => {
 		const { accountConfigId, accountId, content, contentType } = params;
 		const checksumSha256 = computeChecksum(content);
@@ -241,6 +259,7 @@ export const createS3StorageService = (
 		storeMessageBody,
 		storeMessageBodyStream,
 		storeBodyPart,
+		bodyPartExists,
 		storeDeduplicated,
 		storeParsedBody,
 		retrieveParsedBody,
