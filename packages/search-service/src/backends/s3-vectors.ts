@@ -33,8 +33,8 @@ const toDocument = (value: unknown): DocumentType => {
 	);
 };
 
-const PUT_BATCH_SIZE = 500;
-const DELETE_BATCH_SIZE = 500;
+const PUT_BATCH_SIZE = 100;
+const DELETE_BATCH_SIZE = 100;
 // AWS S3 Vectors ListVectors caps maxResults at 500 per page.
 const LIST_PAGE_SIZE = 500;
 // Safety bound: stop pagination after this many pages to prevent runaway
@@ -198,18 +198,6 @@ export class S3VectorsBackend implements VectorStoreService {
 
 	delete = async (filter: { messageId: string }): Promise<void> => {
 		const keys = await this.findChunkKeysForMessage(filter.messageId);
-		if (keys.length === 0) return;
-		for (const batch of chunkArray(keys, DELETE_BATCH_SIZE)) {
-			const cmd = new DeleteVectorsCommand({
-				vectorBucketName: this.vectorBucketName,
-				indexName: this.indexName,
-				keys: batch,
-			});
-			await this.client.send(cmd);
-		}
-	};
-
-	deleteKeys = async (keys: string[]): Promise<void> => {
 		if (keys.length === 0) return;
 		for (const batch of chunkArray(keys, DELETE_BATCH_SIZE)) {
 			const cmd = new DeleteVectorsCommand({

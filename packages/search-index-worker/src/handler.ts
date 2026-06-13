@@ -141,7 +141,9 @@ const processOneUpsert = async (
 		return;
 	}
 
-	const indexParams = {
+	await searchService.delete(messageId);
+
+	await searchService.index({
 		envelope: {
 			from: {
 				name: threadMessage.fromName ?? null,
@@ -169,16 +171,7 @@ const processOneUpsert = async (
 			fromName: threadMessage.fromName ?? null,
 			subject: threadMessage.subject ?? "",
 		},
-	};
-
-	if (!event.isNewMessage) {
-		const keys = searchService.getChunkKeys(indexParams);
-		if (keys.length > 0) {
-			await searchService.deleteKeys(keys);
-		}
-	}
-
-	await searchService.index(indexParams);
+	});
 
 	log.info({ messageId }, "Indexed message for search");
 };

@@ -120,21 +120,6 @@ describe("MemoryVectorStore", () => {
 		assert.strictEqual(matches[0].chunkId, "c");
 	});
 
-	it("deleteKeys removes only the specified keys", async () => {
-		const store = new MemoryVectorStore();
-		await store.upsert([
-			record("msg-1::subject", [1, 0, 0], { messageId: "msg-1" }),
-			record("msg-1::body-0", [1, 0, 0], { messageId: "msg-1" }),
-			record("msg-2::subject", [1, 0, 0], { messageId: "msg-2" }),
-		]);
-
-		await store.deleteKeys(["msg-1::subject", "msg-1::body-0"]);
-
-		const matches = await store.query({ vector: [1, 0, 0], topK: 5 });
-		assert.strictEqual(matches.length, 1);
-		assert.strictEqual(matches[0].chunkId, "msg-2::subject");
-	});
-
 	it("upsert overwrites an existing record by chunkId", async () => {
 		const store = new MemoryVectorStore();
 		await store.upsert([record("a", [1, 0, 0])]);
