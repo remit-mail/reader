@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useState } from "react";
 import {
 	StepAddress,
 	StepConnector,
@@ -16,6 +17,34 @@ const meta: Meta = {
 export default meta;
 
 type Story = StoryObj;
+
+/**
+ * Click-through walkthrough: drives the real step components by their own
+ * footer buttons. Next/Back advance the shared step index; the final "Go to
+ * inbox" loops back to the start so it isn't a dead end.
+ */
+function OnboardingWalkthrough() {
+	const [index, setIndex] = useState(0);
+	const back = () => setIndex((i) => Math.max(i - 1, 0));
+	const restart = () => setIndex(0);
+
+	const screens = [
+		<StepWelcome onNext={() => setIndex(1)} />,
+		<StepConnector onBack={back} onNext={() => setIndex(2)} />,
+		<StepAddress onBack={back} onNext={() => setIndex(3)} />,
+		<StepServers onBack={back} onNext={() => setIndex(4)} />,
+		<StepCredentials onBack={back} onNext={() => setIndex(5)} />,
+		<StepTest onBack={back} onNext={() => setIndex(6)} />,
+		<StepSync onNext={restart} />,
+	];
+
+	return screens[index];
+}
+
+/** Full click-through: start at Welcome, Next/Back through every step. */
+export const Walkthrough: Story = {
+	render: () => <OnboardingWalkthrough />,
+};
 
 /** First-run welcome — no step rail yet. */
 export const Welcome: Story = {

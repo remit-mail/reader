@@ -16,7 +16,7 @@ import { AtSign, Inbox, Loader2, Mail, Server } from "lucide-react";
  * The same steps are reused by Settings → Accounts → "Add account".
  */
 
-const steps = [
+export const steps = [
 	"Connector",
 	"Address",
 	"Servers",
@@ -24,6 +24,11 @@ const steps = [
 	"Test",
 	"Sync",
 ];
+
+interface StepNav {
+	onBack?: () => void;
+	onNext?: () => void;
+}
 
 function FieldLabel({ children }: { children: string }) {
 	return (
@@ -48,7 +53,7 @@ function SecuritySelect({ defaultValue }: { defaultValue: string }) {
 	);
 }
 
-export function StepWelcome() {
+export function StepWelcome({ onNext }: StepNav = {}) {
 	return (
 		<WizardShell
 			steps={steps}
@@ -61,7 +66,9 @@ export function StepWelcome() {
 					<span className="text-2xs text-fg-subtle">
 						<Kbd>Enter</Kbd> to continue
 					</span>
-					<Button variant="primary">Add your first account</Button>
+					<Button variant="primary" onClick={onNext}>
+						Add your first account
+					</Button>
 				</>
 			}
 		>
@@ -79,7 +86,7 @@ export function StepWelcome() {
 	);
 }
 
-export function StepConnector() {
+export function StepConnector({ onBack, onNext }: StepNav = {}) {
 	return (
 		<WizardShell
 			steps={steps}
@@ -88,8 +95,12 @@ export function StepConnector() {
 			subtitle="IMAP works with any provider today. OAuth connectors are on the way."
 			footer={
 				<>
-					<Button variant="ghost">Back</Button>
-					<Button variant="primary">Continue with IMAP</Button>
+					<Button variant="ghost" onClick={onBack}>
+						Back
+					</Button>
+					<Button variant="primary" onClick={onNext}>
+						Continue with IMAP
+					</Button>
 				</>
 			}
 		>
@@ -117,7 +128,11 @@ export function StepConnector() {
 	);
 }
 
-export function StepAddress({ discovering }: { discovering?: boolean }) {
+export function StepAddress({
+	discovering,
+	onBack,
+	onNext,
+}: { discovering?: boolean } & StepNav) {
 	return (
 		<WizardShell
 			steps={steps}
@@ -126,8 +141,10 @@ export function StepAddress({ discovering }: { discovering?: boolean }) {
 			subtitle="We'll detect the server settings for you."
 			footer={
 				<>
-					<Button variant="ghost">Back</Button>
-					<Button variant="primary" disabled={discovering}>
+					<Button variant="ghost" onClick={onBack}>
+						Back
+					</Button>
+					<Button variant="primary" disabled={discovering} onClick={onNext}>
 						Continue
 					</Button>
 				</>
@@ -151,7 +168,11 @@ export function StepAddress({ discovering }: { discovering?: boolean }) {
 	);
 }
 
-export function StepServers({ detected = true }: { detected?: boolean }) {
+export function StepServers({
+	detected = true,
+	onBack,
+	onNext,
+}: { detected?: boolean } & StepNav) {
 	return (
 		<WizardShell
 			steps={steps}
@@ -164,8 +185,12 @@ export function StepServers({ detected = true }: { detected?: boolean }) {
 			}
 			footer={
 				<>
-					<Button variant="ghost">Back</Button>
-					<Button variant="primary">Continue</Button>
+					<Button variant="ghost" onClick={onBack}>
+						Back
+					</Button>
+					<Button variant="primary" onClick={onNext}>
+						Continue
+					</Button>
 				</>
 			}
 		>
@@ -223,7 +248,7 @@ export function StepServers({ detected = true }: { detected?: boolean }) {
 	);
 }
 
-export function StepCredentials() {
+export function StepCredentials({ onBack, onNext }: StepNav = {}) {
 	return (
 		<WizardShell
 			steps={steps}
@@ -232,8 +257,12 @@ export function StepCredentials() {
 			subtitle="Many providers require an app password instead of your normal one."
 			footer={
 				<>
-					<Button variant="ghost">Back</Button>
-					<Button variant="primary">Test connection</Button>
+					<Button variant="ghost" onClick={onBack}>
+						Back
+					</Button>
+					<Button variant="primary" onClick={onNext}>
+						Test connection
+					</Button>
 				</>
 			}
 		>
@@ -257,7 +286,11 @@ export function StepCredentials() {
 	);
 }
 
-export function StepTest({ failed }: { failed?: boolean }) {
+export function StepTest({
+	failed,
+	onBack,
+	onNext,
+}: { failed?: boolean } & StepNav) {
 	return (
 		<WizardShell
 			steps={steps}
@@ -267,13 +300,17 @@ export function StepTest({ failed }: { failed?: boolean }) {
 			footer={
 				failed ? (
 					<>
-						<Button variant="ghost">Back to credentials</Button>
+						<Button variant="ghost" onClick={onBack}>
+							Back to credentials
+						</Button>
 						<Button variant="primary">Retry</Button>
 					</>
 				) : (
 					<>
 						<span className="text-2xs text-fg-subtle">All good</span>
-						<Button variant="primary">Start syncing</Button>
+						<Button variant="primary" onClick={onNext}>
+							Start syncing
+						</Button>
 					</>
 				)
 			}
@@ -309,7 +346,7 @@ export function StepTest({ failed }: { failed?: boolean }) {
 	);
 }
 
-export function StepSync() {
+export function StepSync({ onNext }: StepNav = {}) {
 	return (
 		<WizardShell
 			steps={steps}
@@ -321,7 +358,9 @@ export function StepSync() {
 					<span className="text-2xs text-fg-subtle">
 						Sync continues in the background
 					</span>
-					<Button variant="primary">Go to inbox</Button>
+					<Button variant="primary" onClick={onNext}>
+						Go to inbox
+					</Button>
 				</>
 			}
 		>
