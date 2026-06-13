@@ -50,6 +50,7 @@ export type {
 	EnvelopeChunkInput,
 	IndexEmailParams,
 	ParsedBodyForChunking,
+	SearchIndexMessage,
 	SearchParams,
 	SearchResult,
 	VectorMatch,
@@ -57,3 +58,4 @@ export type {
 	VectorQueryFilter,
 	VectorRecord,
 } from "./types.js";
+export { searchIndexMessageSchema } from "./types.js";
