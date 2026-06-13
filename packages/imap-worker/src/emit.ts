@@ -77,8 +77,13 @@ const getDeduplicationId = (event: EventInput): string | undefined => {
 
 		case "SYNC_MESSAGE_BODY": {
 			const e = event as Omit<SyncMessageBodyEvent, "eventId" | "timestamp">;
-			// Hash sorted messageIds for smarter deduplication
-			const sortedIds = [...e.messageIds].sort().join(",");
+			// Hash sorted messageIds for smarter deduplication. Use the id set so the
+			// dedup id is stable whether the event carries the new `messages` shape
+			// or the legacy `messageIds` list.
+			const ids = e.messages
+				? e.messages.map((m) => m.messageId)
+				: e.messageIds;
+			const sortedIds = [...ids].sort().join(",");
 			const hash = createHash("sha256").update(sortedIds).digest("hex");
 			return `SYNC_MESSAGE_BODY:${hash.slice(0, 32)}`;
 		}
