@@ -6,6 +6,7 @@ import {
 	type MailboxSpecialUseService,
 	type MessageService,
 	type ThreadMessageService,
+	type UpdateMessageInput,
 } from "@remit/remit-electrodb-service";
 import { MailboxSpecialUse, SenderTrust } from "@remit/domain-enums";
 import type { ParsedBody, StorageService } from "@remit/storage-service";
@@ -278,14 +279,40 @@ export class BodySyncService {
 
 		const body = Buffer.concat(chunks);
 
-		await this.messageService.update(messageId, { bodyStorageKey: ref.uri });
-		this.log.info({ messageId, storageKey: ref.uri }, "Body stored");
-
 		// Snippet + thread update; reuses the parsed mail for the steps below.
+		// This is a ThreadMessage write — a different entity — so it does NOT
+		// trigger the Message-filtered stream bridge and stays separate.
 		const parsed = await this.updateSnippets(messageId, accountConfigId, body);
 
-		// Header classification + From-Address engagement counters.
-		await this.classifyAndCount(messageId, accountConfigId, parsed);
+		// Compute the header classification once. The derived fields are folded
+		// into the single Message update below — they are NOT written here.
+		const classification = this.classifyMessage(parsed);
+
+		// Decide the junk rescue from the in-memory classification before the
+		// write, so its `movedByRemit` flag joins the same UpdateItem. Best-effort
+		// and fully isolated: a failure here can never block the body sync.
+		const rescue = await this.resolveJunkRescue(
+			messageId,
+			accountId,
+			accountConfigId,
+			parsed,
+			classification,
+		);
+
+		// ONE Message UpdateItem per synced message: bodyStorageKey + every
+		// classification/derived field + the rescue flag. Each extra Message
+		// mutation emits a DDB stream record that fans out to a redundant
+		// S3-Vectors upsert, so we collapse them into a single write.
+		const update: UpdateMessageInput = {
+			bodyStorageKey: ref.uri,
+			...classification,
+			...(rescue ? { movedByRemit: true } : {}),
+		};
+		await this.messageService.update(messageId, update);
+		this.log.info({ messageId, storageKey: ref.uri }, "Body stored");
+
+		// From-Address engagement counter (Address entity, not Message).
+		await this.incrementInboundCount(messageId, accountConfigId, parsed);
 
 		await this.storeParsedBodyCache(
 			accountConfigId,
@@ -301,13 +328,17 @@ export class BodySyncService {
 			parsed,
 		);
 
-		// Best-effort junk rescue runs LAST, fully isolated.
-		await this.maybeRescueFromJunk(
-			messageId,
-			accountId,
-			accountConfigId,
-			parsed,
-		);
+		// The actual mailbox move runs LAST, after the body cache is durably
+		// stored. The `movedByRemit` flag was already folded into the update
+		// above; here we only enqueue the IMAP move.
+		if (rescue) {
+			await this.moveRescuedMessage(
+				messageId,
+				accountId,
+				rescue.inboxMailboxId,
+				rescue.destination,
+			);
+		}
 	}
 
 	/**
@@ -411,24 +442,32 @@ export class BodySyncService {
 		return connection.fetchMessageBody(uid);
 	}
 
-	private async classifyAndCount(
-		messageId: string,
-		accountConfigId: string,
-		parsed: ParsedMail,
-	): Promise<void> {
+	/**
+	 * Pure header classification. Returns the subset of the Message update that
+	 * carries the derived fields; the caller folds it into a single UpdateItem
+	 * alongside `bodyStorageKey`. Optional signals are omitted when absent so we
+	 * never overwrite an existing value with `undefined`.
+	 */
+	private classifyMessage(parsed: ParsedMail): UpdateMessageInput {
 		const category = classifyByHeaders(parsed);
 		const authenticity = extractAuthenticity(parsed);
 		const authResult = extractAuthResult(parsed);
 		const providerSpam = extractProviderSpam(parsed);
 		const hasListUnsubscribe = extractHasListUnsubscribe(parsed);
-		await this.messageService.update(messageId, {
+		return {
 			category,
+			hasListUnsubscribe,
 			...(authenticity !== null ? { authenticity } : {}),
 			...(authResult !== null ? { authResult } : {}),
 			...(providerSpam !== null ? { providerSpam } : {}),
-			hasListUnsubscribe,
-		});
+		};
+	}
 
+	private async incrementInboundCount(
+		messageId: string,
+		accountConfigId: string,
+		parsed: ParsedMail,
+	): Promise<void> {
 		const fromEmail = extractPrimaryFromEmail(parsed);
 		if (!fromEmail) {
 			this.log.debug?.(
@@ -465,20 +504,27 @@ export class BodySyncService {
 	}
 
 	/**
-	 * Best-effort rescue of falsely-junked mail. This is an enhancement bolted
-	 * onto the body-sync hot path, NOT part of the critical sync contract, so
-	 * it is the one place where let-it-crash is wrong: any failure here is
-	 * swallowed with a warning so it can never fail body-sync or block the
-	 * search-index enqueue. Runs last, after the body cache is durably stored.
+	 * Decide whether a falsely-junked message should be rescued, BEFORE the
+	 * single Message update — so the `movedByRemit` flag joins that one
+	 * UpdateItem instead of a second mutation that would fan out another
+	 * redundant S3-Vectors upsert.
+	 *
+	 * Best-effort: this is an enhancement bolted onto the body-sync hot path,
+	 * NOT part of the critical sync contract, so it is the one place where
+	 * let-it-crash is wrong. Any failure is swallowed with a warning and treated
+	 * as "no rescue" so it can never fail body-sync or block the search-index
+	 * enqueue. The predicate reads the just-computed classification rather than a
+	 * persisted row, since those fields are not written until the single update.
 	 */
-	private async maybeRescueFromJunk(
+	private async resolveJunkRescue(
 		messageId: string,
 		accountId: string,
 		accountConfigId: string,
 		parsed: ParsedMail,
-	): Promise<void> {
-		if (!this.rescueConfig) return;
-		const { mailboxSpecialUseService, messageMoveService } = this.rescueConfig;
+		classification: UpdateMessageInput,
+	): Promise<{ inboxMailboxId: string; destination: string } | null> {
+		if (!this.rescueConfig) return null;
+		const { mailboxSpecialUseService } = this.rescueConfig;
 
 		try {
 			const message = await this.messageService.get(messageId);
@@ -486,29 +532,58 @@ export class BodySyncService {
 				accountId,
 				MailboxSpecialUse.Junk,
 			);
-			if (!junkMailbox || message.mailboxId !== junkMailbox.mailboxId) return;
+			if (!junkMailbox || message.mailboxId !== junkMailbox.mailboxId) {
+				return null;
+			}
 
 			const fromEmail = extractPrimaryFromEmail(parsed);
 			const senderTrust = fromEmail
 				? await this.deriveSenderTrust(accountConfigId, fromEmail)
 				: SenderTrust.Unknown;
 
-			const rescue = shouldRescueFromJunk(message, senderTrust);
-			if (!rescue) return;
+			// The predicate needs the classification signals (providerSpam,
+			// authResult) that this body-sync pass just derived; the stored row
+			// does not carry them yet, so overlay them onto the fetched message.
+			const candidate = { ...message, ...classification };
+			if (!shouldRescueFromJunk(candidate, senderTrust)) return null;
 
 			const inboxMailbox =
 				await mailboxSpecialUseService.findInboxMailbox(accountId);
-			if (!inboxMailbox) return;
+			if (!inboxMailbox) return null;
 
-			await this.messageService.update(messageId, { movedByRemit: true });
-			await messageMoveService.moveMessage(
+			return {
+				inboxMailboxId: inboxMailbox.mailboxId,
+				destination: inboxMailbox.fullPath,
+			};
+		} catch (err: unknown) {
+			this.log.warn?.(
+				{ messageId, accountId, error: inspect(err) },
+				"Junk rescue failed (best-effort, non-fatal)",
+			);
+			return null;
+		}
+	}
+
+	/**
+	 * Enqueue the IMAP move for a rescued message. Best-effort: a failure here is
+	 * swallowed with a warning so it can never fail body-sync. The `movedByRemit`
+	 * flag was already persisted in the single Message update.
+	 */
+	private async moveRescuedMessage(
+		messageId: string,
+		accountId: string,
+		inboxMailboxId: string,
+		destination: string,
+	): Promise<void> {
+		if (!this.rescueConfig) return;
+		try {
+			await this.rescueConfig.messageMoveService.moveMessage(
 				messageId,
-				inboxMailbox.mailboxId,
+				inboxMailboxId,
 				accountId,
 			);
-
 			this.log.info(
-				{ messageId, accountId, destination: inboxMailbox.fullPath },
+				{ messageId, accountId, destination },
 				"Rescued message from Junk",
 			);
 		} catch (err: unknown) {
