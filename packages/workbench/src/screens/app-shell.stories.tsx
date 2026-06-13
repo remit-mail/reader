@@ -6,6 +6,7 @@ import {
 	briefSections,
 	briefUnseen,
 	navAccounts,
+	navAccountsManyFolders,
 	newsletterIntelligence,
 	newsletterThread,
 	phishIntelligence,
@@ -87,6 +88,16 @@ export const IntelligenceCollapsed: Story = {
  */
 export const CompactDensity: Story = {
 	render: () => <StatefulShell density="compact" />,
+};
+
+/**
+ * Folder nav at scale: the Personal account carries the full system mailbox
+ * set plus a dozen custom folders. System mailboxes (Inbox → Trash) stay
+ * pinned and always visible; custom folders sit under a collapsible "Folders"
+ * header that shows the first 8 with a "Show all" affordance.
+ */
+export const ManyFolders: Story = {
+	render: () => <StatefulShell accounts={navAccountsManyFolders} />,
 };
 
 /**

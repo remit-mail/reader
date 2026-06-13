@@ -49,8 +49,20 @@ export const navAccounts: NavAccount[] = [
 		email: "alice.tan@gmail.example",
 		mailboxes: [
 			{ id: "mbx_personal_inbox", name: "Inbox", unseen: 9 },
-			{ id: "mbx_personal_sent", name: "Sent" },
-			{ id: "mbx_personal_archive", name: "Archive" },
+			{ id: "mbx_personal_drafts", name: "Drafts", specialUse: ["\\Drafts"] },
+			{ id: "mbx_personal_sent", name: "Sent", specialUse: ["\\Sent"] },
+			{
+				id: "mbx_personal_archive",
+				name: "Archive",
+				specialUse: ["\\Archive"],
+			},
+			{
+				id: "mbx_personal_junk",
+				name: "Junk",
+				unseen: 2,
+				specialUse: ["\\Junk"],
+			},
+			{ id: "mbx_personal_trash", name: "Trash", specialUse: ["\\Trash"] },
 		],
 	},
 	{
@@ -59,8 +71,10 @@ export const navAccounts: NavAccount[] = [
 		email: "alice@northwind.example",
 		mailboxes: [
 			{ id: "mbx_work_inbox", name: "Inbox", unseen: 14 },
-			{ id: "mbx_work_sent", name: "Sent" },
-			{ id: "mbx_work_archive", name: "Archive" },
+			{ id: "mbx_work_sent", name: "Sent", specialUse: ["\\Sent"] },
+			{ id: "mbx_work_archive", name: "Archive", specialUse: ["\\Archive"] },
+			{ id: "mbx_work_junk", name: "Junk", specialUse: ["\\Junk"] },
+			{ id: "mbx_work_trash", name: "Trash", specialUse: ["\\Trash"] },
 		],
 	},
 	{
@@ -70,6 +84,63 @@ export const navAccounts: NavAccount[] = [
 		muted: true,
 		mailboxes: [{ id: "mbx_hobby_inbox", name: "Inbox", unseen: 31 }],
 	},
+];
+
+/**
+ * Personal account with a realistic IMAP folder set: the standard system
+ * mailboxes plus a dozen custom folders, to exercise the scaled folder nav
+ * (system block + collapsible "Folders" section with show-all).
+ */
+const customFolderNames = [
+	"Receipts",
+	"Travel",
+	"Projects",
+	"Family",
+	"GitHub",
+	"Newsletters",
+	"Invoices",
+	"Recruiting",
+	"Home",
+	"Taxes",
+	"Photos",
+	"Reading",
+];
+
+const customFolderUnseen: Record<string, number> = {
+	GitHub: 5,
+	Newsletters: 18,
+};
+
+export const navAccountsManyFolders: NavAccount[] = [
+	{
+		id: personalId,
+		label: "Personal",
+		email: "alice.tan@gmail.example",
+		mailboxes: [
+			{ id: "mbx_personal_inbox", name: "Inbox", unseen: 9 },
+			{ id: "mbx_personal_drafts", name: "Drafts", specialUse: ["\\Drafts"] },
+			{ id: "mbx_personal_sent", name: "Sent", specialUse: ["\\Sent"] },
+			{
+				id: "mbx_personal_archive",
+				name: "Archive",
+				specialUse: ["\\Archive"],
+			},
+			{
+				id: "mbx_personal_junk",
+				name: "Junk",
+				unseen: 2,
+				specialUse: ["\\Junk"],
+			},
+			{ id: "mbx_personal_trash", name: "Trash", specialUse: ["\\Trash"] },
+			...customFolderNames.map((name) => ({
+				id: `mbx_personal_${name.toLowerCase()}`,
+				name,
+				unseen: customFolderUnseen[name],
+			})),
+		],
+	},
+	navAccounts[1],
+	navAccounts[2],
 ];
 
 /* ------------------------------------------------------------------ */
@@ -457,6 +528,83 @@ export function briefSections(accountId?: string): ThreadSection[] {
 	if (rest.length > 0)
 		sections.push({ id: "rest", label: "Everything else", threads: rest });
 	return sections;
+}
+
+/* Brief with a deliberately long "Everything else" so collapse + filtering
+   clearly help: pads the rest bucket with varied synthetic rows (mix of
+   read/unread, attachments, contacts, and same-day timeLabels). */
+const fillerSenders = [
+	{ name: "Spotify", email: "no-reply@spotify.example" },
+	{ name: "Duolingo", email: "hello@duolingo.example" },
+	{ name: "Strava", email: "no-reply@strava.example" },
+	{ name: "Medium Daily", email: "noreply@medium.example" },
+	{ name: "Booking.com", email: "noreply@booking.example" },
+];
+
+const fillerSubjects = [
+	"Your weekly summary is ready",
+	"3 new articles you might like",
+	"You unlocked a new badge",
+	"Reminder: review your subscription",
+	"Trip confirmation and check-in details",
+];
+
+const fillerCategories: ThreadRowData["category"][] = [
+	"newsletter",
+	"marketing",
+	"automated",
+	"transactional",
+	"social",
+	"personal",
+];
+
+function makeFiller(
+	prefix: string,
+	count: number,
+	opts: { attention?: boolean },
+): ThreadRowData[] {
+	return Array.from({ length: count }, (_, i) => {
+		const today = i % 3 === 0;
+		return {
+			id: `thr_${prefix}_${i}`,
+			accountId: i % 2 === 0 ? personalId : workId,
+			fromName: fillerSenders[i % fillerSenders.length].name,
+			fromEmail: fillerSenders[i % fillerSenders.length].email,
+			subject: fillerSubjects[i % fillerSubjects.length],
+			snippet:
+				"Auto-generated filler thread to stress the brief list density and the cap / collapse / filter affordances.",
+			timeLabel: today
+				? `0${(i % 9) + 1}:${10 + i}`
+				: i % 4 === 0
+					? "Mon"
+					: "3 Jun",
+			// "Needs attention" rows are unread + from a known contact (that's what
+			// lands a thread there); "Everything else" rows are a mix.
+			isRead: opts.attention ? false : i % 3 !== 0,
+			hasAttachment: i % 4 === 0,
+			trust: opts.attention
+				? i % 2 === 0
+					? "vip"
+					: "wellknown"
+				: i % 5 === 0
+					? "wellknown"
+					: undefined,
+			category: fillerCategories[i % fillerCategories.length],
+		};
+	});
+}
+
+const restFiller = makeFiller("fill", 16, {});
+const attentionFiller = makeFiller("attn", 24, { attention: true });
+
+export function briefSectionsLong(accountId?: string): ThreadSection[] {
+	return briefSections(accountId).map((section) => {
+		if (section.id === "attention")
+			return { ...section, threads: [...section.threads, ...attentionFiller] };
+		if (section.id === "rest")
+			return { ...section, threads: [...section.threads, ...restFiller] };
+		return section;
+	});
 }
 
 export const briefChips = (activeId?: string) => [
