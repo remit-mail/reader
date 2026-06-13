@@ -133,6 +133,7 @@ export const IsolatedEmailFrame = ({
 			sandbox={SANDBOX}
 			srcDoc={srcDoc}
 			className={className}
+			scrolling="no"
 			style={{
 				// Plain emails: pin to measured content width once known, start
 				// at 100% so fluid content is measured at the container width.
@@ -151,6 +152,7 @@ export const IsolatedEmailFrame = ({
 				border: "none",
 				display: "block",
 				height: height === 0 ? "1px" : `${height}px`,
+				overflow: "hidden",
 				// Designed emails (framed newsletters) pin to light-mode so the
 				// author's colors survive dark mode. Plain emails use "normal" so
 				// the injected base CSS (which already resolves theme colors) takes
