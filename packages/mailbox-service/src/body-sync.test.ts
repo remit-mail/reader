@@ -4,11 +4,16 @@ import {
 	AddressService,
 	type BodyPartItem,
 	type EnvelopeService,
+	type MailboxSpecialUseService,
 	type MessageService,
 	type ThreadMessageService,
 	type UpdateMessageInput,
 } from "@remit/remit-electrodb-service";
-import { MessageCategory } from "@remit/domain-enums";
+import {
+	MailboxSpecialUse,
+	MessageCategory,
+	SenderTrust,
+} from "@remit/domain-enums";
 import type {
 	StorageReference,
 	StorageService,
@@ -16,7 +21,8 @@ import type {
 	StoreMessageBodyParams,
 	StoreParsedBodyParams,
 } from "@remit/storage-service";
-import { BodySyncService } from "./body-sync.js";
+import { type BodySyncLogger, BodySyncService } from "./body-sync.js";
+import type { MessageMoveService } from "./message-move.js";
 import type { IImapConnection } from "./types.js";
 
 const A_RAW_EML = Buffer.from(
@@ -52,6 +58,7 @@ interface FakeStateOptions {
 	hasBodyStorageKey?: boolean;
 	rawEml?: Buffer;
 	bodyParts?: BodyPartItem[];
+	messageOverrides?: Record<string, unknown>;
 }
 
 const buildFakeState = (opts: FakeStateOptions) => {
@@ -69,6 +76,7 @@ const buildFakeState = (opts: FakeStateOptions) => {
 		bodyStorageKey: opts.hasBodyStorageKey
 			? "s3://bucket/accounts/acc-cfg-1/acc-1/messages/msg-1/body.eml"
 			: undefined,
+		...opts.messageOverrides,
 	};
 
 	const messageService = {
@@ -741,5 +749,202 @@ describe("BodySyncService.syncBodies (per-part S3 storage)", () => {
 		assert.equal(pdf.contentType, "application/octet-stream");
 		// Bytes are the decoded PDF from mailparser, not base64 text.
 		assert.equal(pdf.content.toString("utf8"), "%PDF-1.4\n");
+	});
+});
+
+describe("BodySyncService.syncBodies (junk rescue isolation)", () => {
+	// Rescue predicate (shouldRescueFromJunk) passes only for a message that
+	// sits in Junk, is not yet movedByRemit, was provider-classified as spam,
+	// passed DMARC, and comes from a trusted (Vip/Wellknown) sender.
+	const rescueableMessageOverrides = {
+		mailboxId: "junk-mbx",
+		movedByRemit: false,
+		providerSpam: { classified: true },
+		authResult: { dmarc: "Pass" },
+	};
+
+	const buildRescueConfig = (opts: {
+		moveCalls: string[];
+		moveImpl?: (messageId: string) => Promise<void>;
+	}) => {
+		const mailboxSpecialUseService = {
+			findBySpecialUse: async (
+				_accountId: string,
+				specialUse: (typeof MailboxSpecialUse)[keyof typeof MailboxSpecialUse],
+			) => {
+				if (specialUse === MailboxSpecialUse.Junk) {
+					return { mailboxId: "junk-mbx", fullPath: "Junk" };
+				}
+				return null;
+			},
+			findInboxMailbox: async () => ({
+				mailboxId: "inbox-mbx",
+				fullPath: "INBOX",
+			}),
+		} as unknown as MailboxSpecialUseService;
+
+		const messageMoveService = {
+			moveMessage:
+				opts.moveImpl ??
+				(async (messageId: string) => {
+					opts.moveCalls.push(messageId);
+				}),
+		} as unknown as MessageMoveService;
+
+		return { mailboxSpecialUseService, messageMoveService };
+	};
+
+	const buildAddressServiceWithTrust = (
+		fake: ReturnType<typeof buildFakeState>,
+		trust: (typeof SenderTrust)[keyof typeof SenderTrust],
+	): AddressService =>
+		({
+			incrementInboundCount: async () => {},
+			getAddress: async () => ({
+				flags: {
+					vip: { value: trust === SenderTrust.Vip },
+					wellknown: { value: trust === SenderTrust.Wellknown },
+				},
+			}),
+		}) as unknown as AddressService;
+
+	const captureLogger = (): {
+		logger: BodySyncLogger;
+		warnings: Array<{ obj: Record<string, unknown>; msg: string }>;
+	} => {
+		const warnings: Array<{ obj: Record<string, unknown>; msg: string }> = [];
+		const logger: BodySyncLogger = {
+			info: () => {},
+			debug: () => {},
+			warn: (obj, msg) => {
+				warnings.push({ obj, msg });
+			},
+			error: () => {},
+		};
+		return { logger, warnings };
+	};
+
+	it("rescues a trusted-sender message out of Junk on the happy path", async () => {
+		const fake = buildFakeState({
+			messageId: "msg-rescue",
+			messageOverrides: rescueableMessageOverrides,
+		});
+		const moveCalls: string[] = [];
+		const addressService = buildAddressServiceWithTrust(fake, SenderTrust.Vip);
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			addressService,
+			fake.envelopeService,
+			undefined,
+			buildRescueConfig({ moveCalls }),
+		);
+
+		const result = await service.syncBodies(
+			["msg-rescue"],
+			"acc-1",
+			"acc-cfg-1",
+			"Junk",
+			async () => buildFakeConnection(),
+		);
+
+		assert.equal(result.syncedCount, 1);
+		assert.deepEqual(moveCalls, ["msg-rescue"]);
+		const movedFlag = fake.updatedKeys.find((u) => u.movedByRemit === true);
+		assert.ok(movedFlag, "expected movedByRemit=true update");
+	});
+
+	it("does NOT fail body-sync when the rescue throws — body cache still stored and message stays synced", async () => {
+		const fake = buildFakeState({
+			messageId: "msg-rescue-throw",
+			messageOverrides: rescueableMessageOverrides,
+		});
+		const addressService = buildAddressServiceWithTrust(fake, SenderTrust.Vip);
+		const { logger, warnings } = captureLogger();
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			addressService,
+			fake.envelopeService,
+			logger,
+			buildRescueConfig({
+				moveCalls: [],
+				moveImpl: async () => {
+					throw new Error("simulated moveMessage outage");
+				},
+			}),
+		);
+
+		const result = await service.syncBodies(
+			["msg-rescue-throw"],
+			"acc-1",
+			"acc-cfg-1",
+			"Junk",
+			async () => buildFakeConnection(),
+		);
+
+		// The message still syncs — so the handler enqueues a search-index
+		// upsert for it (syncedMessageIds drives that enqueue) and the inbox
+		// populates regardless of the rescue blowing up.
+		assert.equal(result.syncedCount, 1);
+		assert.equal(result.failedCount, 0);
+		assert.deepEqual(result.syncedMessageIds, ["msg-rescue-throw"]);
+		// Critical-path side effects completed despite the rescue throwing.
+		assert.equal(fake.storedBodies.length, 1, "body.eml stored");
+		assert.equal(fake.storedParsed.length, 1, "parsed-body cache stored");
+		// The failure was swallowed and logged, not propagated.
+		assert.ok(
+			warnings.some((w) => w.msg.includes("Junk rescue failed")),
+			"expected a best-effort rescue failure warning",
+		);
+	});
+
+	it("runs the rescue AFTER the parsed-body cache is stored", async () => {
+		const order: string[] = [];
+		const fake = buildFakeState({
+			messageId: "msg-order",
+			messageOverrides: rescueableMessageOverrides,
+		});
+		const orderedStorage: StorageService = {
+			...fake.storageService,
+			storeParsedBody: async (params) => {
+				order.push("storeParsedBody");
+				return fake.storageService.storeParsedBody(params);
+			},
+		};
+		const addressService = buildAddressServiceWithTrust(fake, SenderTrust.Vip);
+		const service = new BodySyncService(
+			fake.messageService,
+			orderedStorage,
+			fake.threadMessageService,
+			addressService,
+			fake.envelopeService,
+			undefined,
+			buildRescueConfig({
+				moveCalls: [],
+				moveImpl: async () => {
+					order.push("rescueMove");
+				},
+			}),
+		);
+
+		await service.syncBodies(
+			["msg-order"],
+			"acc-1",
+			"acc-cfg-1",
+			"Junk",
+			async () => buildFakeConnection(),
+		);
+
+		const cacheIdx = order.indexOf("storeParsedBody");
+		const rescueIdx = order.indexOf("rescueMove");
+		assert.ok(cacheIdx >= 0, "parsed-body cache was stored");
+		assert.ok(rescueIdx >= 0, "rescue move ran");
+		assert.ok(
+			cacheIdx < rescueIdx,
+			"parsed-body cache must be stored before the rescue moves the message",
+		);
 	});
 });
