@@ -67,6 +67,7 @@ const buildFakeState = (opts: FakeStateOptions) => {
 	const storedParsed: StoreParsedBodyParams[] = [];
 	const storedBodyParts: StoreBodyPartParams[] = [];
 	const updatedKeys: Array<{ messageId: string } & UpdateMessageInput> = [];
+	const threadSnippetUpdates: Array<{ threadMessageId: string }> = [];
 	const inboundIncrements: Array<{ addressId: string; now: number }> = [];
 
 	const message = {
@@ -105,7 +106,10 @@ const buildFakeState = (opts: FakeStateOptions) => {
 			threadMessageId: "tm-1",
 			messageId: opts.messageId,
 		}),
-		update: async () => ({}),
+		update: async (_accountConfigId: string, threadMessageId: string) => {
+			threadSnippetUpdates.push({ threadMessageId });
+			return {};
+		},
 	} as unknown as ThreadMessageService;
 
 	const storageService: StorageService = {
@@ -193,6 +197,7 @@ const buildFakeState = (opts: FakeStateOptions) => {
 		storedParsed,
 		storedBodyParts,
 		updatedKeys,
+		threadSnippetUpdates,
 		inboundIncrements,
 	};
 };
@@ -1297,5 +1302,160 @@ describe("BodySyncService.syncBodies (pipelined ranged fetch)", () => {
 			[[12]],
 			"only the un-stored UID is fetched",
 		);
+	});
+});
+
+describe("BodySyncService.syncBodies (single consolidated Message write, #607)", () => {
+	// Newsletter with an aligned DKIM signature exercises every derived field:
+	// category, hasListUnsubscribe, and authenticity — all of which must land on
+	// the ONE Message UpdateItem alongside bodyStorageKey.
+	const RICH_EML = Buffer.from(
+		[
+			"From: news@news.example.com",
+			"To: bob@example.com",
+			"Subject: weekly digest",
+			"Message-ID: <rich-1@news.example.com>",
+			"List-Id: <weekly.news.example.com>",
+			"List-Unsubscribe: <https://news.example.com/u>",
+			"DKIM-Signature: v=1; a=rsa-sha256; d=news.example.com; s=sel; b=xxx",
+			"Content-Type: text/plain",
+			"",
+			"weekly digest body",
+			"",
+		].join("\r\n"),
+	);
+
+	it("issues exactly ONE Message UpdateItem per synced message, carrying every derived field", async () => {
+		const fake = buildFakeState({ messageId: "msg-1", rawEml: RICH_EML });
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			fake.addressService,
+			fake.envelopeService,
+		);
+
+		await service.syncBodies(
+			["msg-1"],
+			"acc-1",
+			"acc-cfg-1",
+			"INBOX",
+			async () => buildFakeConnection(RICH_EML),
+		);
+
+		const messageWrites = fake.updatedKeys.filter(
+			(u) => u.messageId === "msg-1",
+		);
+		assert.equal(
+			messageWrites.length,
+			1,
+			"exactly one Message UpdateItem per synced message",
+		);
+
+		const write = messageWrites[0];
+		assert.ok(write.bodyStorageKey, "bodyStorageKey is on the single write");
+		assert.equal(write.category, MessageCategory.newsletter);
+		assert.equal(write.hasListUnsubscribe, true);
+		assert.ok(write.authenticity, "authenticity is on the single write");
+		assert.equal(write.authenticity?.dkimMismatch, false);
+	});
+
+	it("still writes the ThreadMessage snippet (separate entity, not a Message write)", async () => {
+		const fake = buildFakeState({ messageId: "msg-1", rawEml: RICH_EML });
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			fake.addressService,
+			fake.envelopeService,
+		);
+
+		await service.syncBodies(
+			["msg-1"],
+			"acc-1",
+			"acc-cfg-1",
+			"INBOX",
+			async () => buildFakeConnection(RICH_EML),
+		);
+
+		assert.equal(
+			fake.threadSnippetUpdates.length,
+			1,
+			"ThreadMessage snippet write still happens",
+		);
+		assert.equal(fake.threadSnippetUpdates[0].threadMessageId, "tm-1");
+	});
+
+	it("folds the rescue movedByRemit flag into the same single Message write", async () => {
+		// A rescueable Junk message: one Message write must carry BOTH the
+		// classification fields AND movedByRemit, not a second UpdateItem.
+		const fake = buildFakeState({
+			messageId: "msg-rescue",
+			rawEml: RICH_EML,
+			messageOverrides: {
+				mailboxId: "junk-mbx",
+				movedByRemit: false,
+				providerSpam: { classified: true },
+				authResult: { dmarc: "Pass" },
+			},
+		});
+		const addressService = {
+			incrementInboundCount: async () => {},
+			getAddress: async () => ({
+				flags: { vip: { value: true }, wellknown: { value: false } },
+			}),
+		} as unknown as AddressService;
+		const mailboxSpecialUseService = {
+			findBySpecialUse: async (
+				_accountId: string,
+				specialUse: (typeof MailboxSpecialUse)[keyof typeof MailboxSpecialUse],
+			) =>
+				specialUse === MailboxSpecialUse.Junk
+					? { mailboxId: "junk-mbx", fullPath: "Junk" }
+					: null,
+			findInboxMailbox: async () => ({
+				mailboxId: "inbox-mbx",
+				fullPath: "INBOX",
+			}),
+		} as unknown as MailboxSpecialUseService;
+		const moveCalls: string[] = [];
+		const messageMoveService = {
+			moveMessage: async (messageId: string) => {
+				moveCalls.push(messageId);
+			},
+		} as unknown as MessageMoveService;
+
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			addressService,
+			fake.envelopeService,
+			undefined,
+			{ mailboxSpecialUseService, messageMoveService },
+		);
+
+		const result = await service.syncBodies(
+			["msg-rescue"],
+			"acc-1",
+			"acc-cfg-1",
+			"Junk",
+			async () => buildFakeConnection(RICH_EML),
+		);
+
+		assert.equal(result.syncedCount, 1);
+		assert.deepEqual(moveCalls, ["msg-rescue"]);
+
+		const messageWrites = fake.updatedKeys.filter(
+			(u) => u.messageId === "msg-rescue",
+		);
+		assert.equal(
+			messageWrites.length,
+			1,
+			"rescue does NOT add a second Message UpdateItem",
+		);
+		assert.equal(messageWrites[0].movedByRemit, true);
+		assert.ok(messageWrites[0].bodyStorageKey, "bodyStorageKey on same write");
+		assert.equal(messageWrites[0].category, MessageCategory.newsletter);
 	});
 });
