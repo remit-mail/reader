@@ -41,14 +41,6 @@ const mailSearchSchema = z.object({
 	q: z.string().optional(),
 });
 
-// Full merged search shape seen by navigate callbacks at the /mail level.
-// `selectedMessageId` lives in the child route schema but TanStack Router
-// passes the full merged search object to the `search` callback — include
-// it here so navigate calls can clear it without a type error.
-type MailSearch = z.infer<typeof mailSearchSchema> & {
-	selectedMessageId?: string;
-};
-
 export const Route = createFileRoute("/mail")({
 	// First-run guard lives on the /mail parent (not the index loader) so it
 	// survives regardless of what the child route renders — index redirect,
@@ -80,15 +72,34 @@ function MailLayout() {
 	// it. State lives here so it survives thread navigation within /mail.
 	const [intelligenceOpen, setIntelligenceOpen] = useState(false);
 
-	// Local input state — keeps the search field responsive while we debounce
-	// the URL write below. Without this, every keystroke would trigger a
-	// route-state mutation and an in-flight search request.
+	// URL `q` is a load-once seed for the input and a one-directional write
+	// target. The debounced local value is the source of truth and drives the
+	// search API; it is mirrored back to the URL but the URL is never read into
+	// state after mount.
 	const [searchInput, setSearchInput] = useState(searchQuery);
 	const debouncedSearchInput = useDebouncedValue(searchInput, 200);
-	// Always mirrors searchQuery so the push effect can read the current URL
-	// value without listing it as a dependency (avoids spurious re-fires).
+
 	const searchQueryRef = useRef(searchQuery);
 	searchQueryRef.current = searchQuery;
+
+	// Mirror the debounced search into the URL so links are shareable and a
+	// refresh restores the query. One-directional: the URL is never read back
+	// into state, so there is no sync loop.
+	// When a query goes active, also strip selectedMessageId so the reading
+	// pane closes (#539): an open message from the pre-search list is not
+	// meaningful in the search result set.
+	useEffect(() => {
+		if (debouncedSearchInput === searchQueryRef.current) return;
+		navigate({
+			to: ".",
+			search: (prev) => ({
+				...prev,
+				q: debouncedSearchInput || undefined,
+				...(debouncedSearchInput ? { selectedMessageId: undefined } : {}),
+			}),
+			replace: true,
+		});
+	}, [debouncedSearchInput, navigate]);
 
 	const {
 		data: config,
@@ -116,61 +127,20 @@ function MailLayout() {
 		],
 	});
 
-	// Push debounced local input to the URL when it diverges from the current
-	// URL value. Keyed only on debouncedSearchInput so external URL changes
-	// (back/forward, sidebar nav) don't re-trigger this and clobber a clear.
-	// Also clears selectedMessageId so the reading pane does not persist a
-	// stale thread while the user is typing a search (#539 / #540).
-	useEffect(() => {
-		if (debouncedSearchInput === searchQueryRef.current) return;
-		navigate({
-			to: ".",
-			search: (prev: MailSearch) => ({
-				...prev,
-				q: debouncedSearchInput || undefined,
-				selectedMessageId: undefined,
-			}),
-			replace: true,
-		});
-	}, [debouncedSearchInput, navigate]);
-
-	// Sync external URL changes (back/forward, sidebar nav) into local input.
-	// The prev === searchQuery guard prevents clobbering an in-progress clear.
-	useEffect(() => {
-		setSearchInput((prev) => (prev === searchQuery ? prev : searchQuery));
-	}, [searchQuery]);
-
 	const handleSearchChange = useCallback((query: string) => {
 		setSearchInput(query);
 	}, []);
 
+	// Clears the search field; the write effect drops `q` from the URL after
+	// the debounce settles.
 	const handleSearchClear = useCallback(() => {
 		setSearchInput("");
-		// Drop both the query and any selected message — clearing search via the
-		// X button should return to the plain list with no thread pre-selected
-		// (#538 / #540).
-		navigate({
-			to: ".",
-			search: (prev: MailSearch) => ({
-				...prev,
-				q: undefined,
-				selectedMessageId: undefined,
-			}),
-			replace: true,
-		});
-	}, [navigate]);
+	}, []);
 
-	// Esc inside the search field clears only the query and leaves any open
-	// thread untouched — one keypress, one effect (#489). Distinct from the X
-	// button (handleSearchClear) which also deselects.
+	// Esc inside the search field clears only the query (#489).
 	const handleSearchClearQuery = useCallback(() => {
 		setSearchInput("");
-		navigate({
-			to: ".",
-			search: (prev: MailSearch) => ({ ...prev, q: undefined }),
-			replace: true,
-		});
-	}, [navigate]);
+	}, []);
 
 	const handleToggleIntelligence = useCallback(() => {
 		setIntelligenceOpen((open) => !open);
@@ -218,7 +188,9 @@ function MailLayout() {
 		<MailContext.Provider
 			value={{
 				accounts,
-				searchQuery,
+				// Debounced local value is the source of truth for search; it is
+				// mirrored to the URL one-directionally for shareable links.
+				searchQuery: debouncedSearchInput,
 				searchInput,
 				onSearchChange: handleSearchChange,
 				onSearchClear: handleSearchClear,
