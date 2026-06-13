@@ -35,6 +35,18 @@ export interface CascadeResult {
 	messageIds: string[];
 }
 
+/**
+ * Cheap fanout-side enumeration: just the account's message ids and mailbox
+ * ids, with NO per-message `describe()`. The fanout only needs the message ids
+ * (to enqueue search-index vector deletes) and the mailbox set; the destructive
+ * child-entity enumeration stays in the finalize worker
+ * ({@link enumerateAccountPurgeEntities}).
+ */
+export interface AccountPurgeMessageSet {
+	messageIds: string[];
+	mailboxIds: string[];
+}
+
 export const enumerateCascadeEntities = async (
 	accountConfigId: string,
 	services: CascadeServices,
@@ -194,6 +206,58 @@ export const enumerateCascadeEntities = async (
 	);
 
 	return { entities, messageIds };
+};
+
+/**
+ * Fanout-side enumeration for the per-account purge. Returns this account's
+ * message ids and mailbox ids using only collection/GSI queries — one
+ * `account` collection read for the mailbox set, then one paginated
+ * `byMailboxId` GSI scan per mailbox. There is deliberately NO
+ * `messageService.describe()` per message: describing ~8,762 messages one by
+ * one is what timed out the fanout Lambda (the purge gap; a parked record in
+ * remit-dev-account-fanout-dlq). Full child-entity enumeration is the finalize
+ * worker's job — see {@link enumerateAccountPurgeEntities} (#632 makes that
+ * step chunk-resumable).
+ *
+ * Scoped to `accountId`: only this account's mailboxes are read, so a sibling
+ * account's mailboxes and messages never appear.
+ */
+export const enumerateAccountPurgeMessageIds = async (
+	accountId: string,
+	services: Pick<CascadeServices, "accountService" | "messageService">,
+	log: Logger,
+): Promise<AccountPurgeMessageSet> => {
+	const { accountService, messageService } = services;
+	const messageIds: string[] = [];
+	const mailboxIds: string[] = [];
+
+	const accountDescription = await accountService.describe(accountId);
+
+	for (const mailbox of accountDescription.mailbox) {
+		mailboxIds.push(mailbox.mailboxId);
+
+		let cursor: string | undefined;
+		do {
+			const page = await messageService.listByMailbox(mailbox.mailboxId, {
+				continuationToken: cursor,
+			});
+			for (const message of page.items) {
+				messageIds.push(message.messageId);
+			}
+			cursor = page.continuationToken;
+		} while (cursor);
+	}
+
+	log.info(
+		{
+			accountId,
+			mailboxCount: mailboxIds.length,
+			messageCount: messageIds.length,
+		},
+		"Per-account purge fanout enumeration complete",
+	);
+
+	return { messageIds, mailboxIds };
 };
 
 /**

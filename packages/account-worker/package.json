@@ -18,6 +18,7 @@
 		"@remit/electrodb-entities": "*",
 		"@remit/logger-lambda": "*",
 		"@remit/search-index-worker": "*",
+		"@remit/search-service": "*",
 		"@types/aws-lambda": "*",
 		"aws-sdk-client-mock": "*",
 		"electrodb": "*",
