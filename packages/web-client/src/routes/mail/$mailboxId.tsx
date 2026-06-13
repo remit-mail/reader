@@ -56,6 +56,10 @@ import { useToggleStar } from "@/hooks/useToggleStar";
 import { useTriageKeyboard } from "@/hooks/useTriageKeyboard";
 import { useUpdateAddressFlags } from "@/hooks/useUpdateAddressFlags";
 import { useMailContext } from "@/lib/mail-context";
+import {
+	isSearchPending as computeIsSearchPending,
+	resolveSelectedThread,
+} from "@/lib/search-pending";
 import { normalizeSearchQuery } from "@/lib/search-query";
 
 // Search schema includes q from parent route for proper inheritance
@@ -180,16 +184,16 @@ function MailboxView() {
 		threadsData?.pages.flatMap((page) => page.items) ?? [],
 	);
 
-	// While a search is active, suppress the reading pane and compose window:
-	// search view is results-only (Apple Mail behaviour, issues #539 / #540).
-	// Use the live searchInput (pre-debounce) from context so the pane
-	// clears immediately as the user starts typing. `hasSearchQuery` guards the
-	// API; this guards the UI.
-	const isSearchActive = searchInput.trim().length > 0;
-	const selectedThread =
-		isSearchActive || !selectedMessageId
-			? undefined
-			: threads.find((t) => t.messageId === selectedMessageId);
+	// A debounce is pending while the live input differs from the committed
+	// (debounced) query. Keep the reading pane closed during that window so it
+	// clears the instant a new search starts (#539); once the query settles,
+	// honor the selected result so search results can be opened (#623).
+	const isSearchPending = computeIsSearchPending(searchInput, searchQuery);
+	const selectedThread = resolveSelectedThread(
+		threads,
+		selectedMessageId,
+		isSearchPending,
+	);
 
 	// Triage-layer context (#429): the roving focus cursor + the multi-selection,
 	// bridged up from MessageList. Action verbs (archive/star/read/mute/…) target
@@ -653,13 +657,7 @@ function MailboxView() {
 			/>
 		) : (
 			<div className="flex h-full items-center justify-center">
-				<EmptyState
-					message={
-						searchQuery
-							? "No messages match your search"
-							: "Select a message to read"
-					}
-				/>
+				<EmptyState message="Select a message to read" />
 			</div>
 		);
 
