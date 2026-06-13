@@ -17,6 +17,8 @@
  * `DOMPurify()` call at the bottom of `email-sanitizer.ts` (which needs a DOM).
  */
 export const generateLayoutClampCSS = (): string => `
+/* Zero the UA default body margin so iframe content fills edge-to-edge */
+html, body { margin: 0; padding: 0; }
 /* Layout clamp for email content - keeps wide author markup inside the column */
 .email-content {
   max-width: 100%;
