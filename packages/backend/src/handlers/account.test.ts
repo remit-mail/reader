@@ -4,11 +4,17 @@ import { dirname, resolve } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import type { AccountItem } from "@remit/remit-electrodb-service";
-import { ForbiddenError, NotFoundError } from "@remit/remit-electrodb-service";
+import {
+	ConflictError,
+	ForbiddenError,
+	NotFoundError,
+} from "@remit/remit-electrodb-service";
 import { AccountAuthType } from "@remit/domain-enums";
 import {
+	assertNoDuplicateMailbox,
 	assertNotOAuthCreate,
 	assertPasswordProvided,
+	findActiveDuplicateMailbox,
 	toAccountResponse,
 } from "./account-guards.js";
 import { assertAccountOwnership } from "./account-ownership.js";
@@ -262,5 +268,134 @@ describe("deleteAccount emits AccountDataPurge fanout event", () => {
 		);
 		assert.match(block, /SendMessageCommand/);
 		assert.match(block, /accountId,\s*\n\s*accountConfigId,/);
+	});
+});
+
+// ── onboard uniqueness guard (#635) ──────────────────────────────────────────
+//
+// Explicit server-side replacement for the old determinism-as-dedup behavior:
+// reject a second create for the same mailbox-in-the-same-place (host + login),
+// while ignoring soft-deleted accounts so re-onboard after delete still works.
+
+const makeMailbox = (overrides: Partial<AccountItem> = {}): AccountItem =>
+	makeAccountItem({
+		username: "alice@example.com",
+		email: "alice@example.com",
+		imapHost: "imap.example.com",
+		...overrides,
+	});
+
+describe("findActiveDuplicateMailbox", () => {
+	it("returns undefined for a first-time onboard (no existing accounts)", () => {
+		assert.equal(
+			findActiveDuplicateMailbox([], {
+				imapHost: "imap.example.com",
+				username: "alice@example.com",
+			}),
+			undefined,
+		);
+	});
+
+	it("matches an active account with the same host and username", () => {
+		const existing = makeMailbox({ accountId: "dupe" });
+		const found = findActiveDuplicateMailbox([existing], {
+			imapHost: "imap.example.com",
+			username: "alice@example.com",
+		});
+		assert.equal(found?.accountId, "dupe");
+	});
+
+	it("matches case-insensitively on host and username", () => {
+		const existing = makeMailbox({ accountId: "dupe" });
+		const found = findActiveDuplicateMailbox([existing], {
+			imapHost: "IMAP.Example.COM",
+			username: "Alice@Example.com",
+		});
+		assert.equal(found?.accountId, "dupe");
+	});
+
+	it("ignores soft-deleted accounts so re-onboard after delete works", () => {
+		const deleted = makeMailbox({ accountId: "old", deletedAt: 123 });
+		const found = findActiveDuplicateMailbox([deleted], {
+			imapHost: "imap.example.com",
+			username: "alice@example.com",
+		});
+		assert.equal(found, undefined);
+	});
+
+	it("does not match a different username on the same host", () => {
+		const existing = makeMailbox({ accountId: "dupe" });
+		const found = findActiveDuplicateMailbox([existing], {
+			imapHost: "imap.example.com",
+			username: "bob@example.com",
+		});
+		assert.equal(found, undefined);
+	});
+
+	it("does not match the same username on a different host", () => {
+		const existing = makeMailbox({ accountId: "dupe" });
+		const found = findActiveDuplicateMailbox([existing], {
+			imapHost: "imap.other.com",
+			username: "alice@example.com",
+		});
+		assert.equal(found, undefined);
+	});
+});
+
+describe("assertNoDuplicateMailbox", () => {
+	it("does not throw on a first-time onboard", () => {
+		assert.doesNotThrow(() =>
+			assertNoDuplicateMailbox([], {
+				imapHost: "imap.example.com",
+				username: "alice@example.com",
+			}),
+		);
+	});
+
+	it("throws a 409 ConflictError on a second active onboard of the same mailbox", () => {
+		const existing = makeMailbox();
+		assert.throws(
+			() =>
+				assertNoDuplicateMailbox([existing], {
+					imapHost: "imap.example.com",
+					username: "alice@example.com",
+				}),
+			(err: unknown) => {
+				assert.ok(err instanceof ConflictError);
+				assert.equal(err.statusCode, 409);
+				assert.match(err.message, /already exists/);
+				return true;
+			},
+		);
+	});
+
+	it("does not throw when the prior account is soft-deleted (re-onboard)", () => {
+		const deleted = makeMailbox({ deletedAt: 123 });
+		assert.doesNotThrow(() =>
+			assertNoDuplicateMailbox([deleted], {
+				imapHost: "imap.example.com",
+				username: "alice@example.com",
+			}),
+		);
+	});
+
+	it("covers the OAuth natural key (fixed Outlook host + email as username)", () => {
+		const oauth = makeMailbox({
+			authType: AccountAuthType.OauthMicrosoft,
+			username: "user@outlook.com",
+			email: "user@outlook.com",
+			imapHost: "outlook.office365.com",
+		});
+		assert.throws(
+			() =>
+				assertNoDuplicateMailbox([oauth], {
+					imapHost: "outlook.office365.com",
+					username: "user@outlook.com",
+				}),
+			(err: unknown) => {
+				assert.ok(err instanceof ConflictError);
+				return true;
+			},
+		);
 	});
 });

@@ -18,7 +18,10 @@ import { logger } from "../logger.js";
 import { getClient } from "../service/dynamodb.js";
 import type { MicrosoftOAuthOperationIds, OperationHandler } from "../types.js";
 import { triggerAccountSyncSafe } from "./account.js";
+import { findActiveDuplicateMailbox } from "./account-guards.js";
 import { ensureAccountConfig } from "./ensure-account-config.js";
+
+const OUTLOOK_IMAP_HOST = "outlook.office365.com";
 
 // ─── HMAC state signing ──────────────────────────────────────────────────────
 
@@ -340,15 +343,17 @@ export const MicrosoftOAuthOperations: Record<
 		);
 		const oauthTokenUpdatedAt = Date.now();
 
-		// Check if an oauthMicrosoft account with the same email already exists
-		const existingAccounts =
-			await account.listAllByAccountConfig(accountConfigId);
-		const existing = existingAccounts.find(
-			(a) =>
-				a.authType === AccountAuthType.OauthMicrosoft &&
-				a.email === email &&
-				!a.deletedAt,
-		);
+		// Reconnect when an active OAuth account already onboards this mailbox.
+		// Same natural key as the IMAP create guard (#635); the OAuth flow returns
+		// the existing account (token refresh) rather than rejecting, because a
+		// re-auth is the expected, idempotent path for OAuth.
+		const existingAccounts = (
+			await account.listAllByAccountConfig(accountConfigId)
+		).filter((a) => a.authType === AccountAuthType.OauthMicrosoft);
+		const existing = findActiveDuplicateMailbox(existingAccounts, {
+			imapHost: OUTLOOK_IMAP_HOST,
+			username: email,
+		});
 
 		let accountId: string;
 
@@ -377,7 +382,7 @@ export const MicrosoftOAuthOperations: Record<
 				authType: AccountAuthType.OauthMicrosoft,
 				oauthRefreshTokenHash,
 				oauthTokenUpdatedAt,
-				imapHost: "outlook.office365.com",
+				imapHost: OUTLOOK_IMAP_HOST,
 				imapPort: 993,
 				imapTls: true,
 				imapStartTls: false,
