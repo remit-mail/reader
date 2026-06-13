@@ -7,7 +7,9 @@ import {
 import { Sparkles } from "lucide-react";
 import { useCallback, useState } from "react";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { useInboxMailbox, useJunkMailbox } from "@/hooks/useArchiveMailbox";
 import { useIntelligenceData } from "@/hooks/useIntelligenceData";
+import { useMoveMessages } from "@/hooks/useMoveMessages";
 import { useUpdateAddressFlags } from "@/hooks/useUpdateAddressFlags";
 
 export interface IntelligencePaneProps {
@@ -18,6 +20,10 @@ export interface IntelligencePaneProps {
 	 * the empty-state placeholder.
 	 */
 	thread?: RemitImapThreadMessageResponse;
+	/** The mailbox the message list is currently showing — the move source. */
+	mailboxId?: string;
+	/** Account that owns `mailboxId`; resolves the Junk/Inbox move targets. */
+	accountId?: string;
 }
 
 /**
@@ -32,6 +38,31 @@ const CATEGORY_OVERRIDES = [
 	"promotional",
 ] as const;
 type CategoryOverride = (typeof CATEGORY_OVERRIDES)[number];
+
+/**
+ * Decide which spam quick-action to offer for the current message (issue #594).
+ *
+ * The two buttons are symmetric and mutually exclusive:
+ * - In the Junk mailbox → offer **Not spam** (move out, promote sender), but
+ *   only when an Inbox destination is resolved.
+ * - Anywhere else → offer **Mark spam** (move in, demote sender), but only when
+ *   the Junk destination is resolved.
+ *
+ * Returns `"notSpam"`, `"markSpam"`, or `null` (no actionable button — e.g. the
+ * move source isn't known, or the needed target mailbox hasn't loaded). Pure so
+ * the wiring decision can be unit-tested without rendering.
+ */
+export const resolveSpamAction = (input: {
+	mailboxId?: string;
+	junkMailboxId?: string;
+	inboxMailboxId?: string;
+}): "notSpam" | "markSpam" | null => {
+	const { mailboxId, junkMailboxId, inboxMailboxId } = input;
+	if (!mailboxId) return null;
+	const isInJunk = Boolean(junkMailboxId && mailboxId === junkMailboxId);
+	if (isInJunk) return inboxMailboxId ? "notSpam" : null;
+	return junkMailboxId ? "markSpam" : null;
+};
 
 function IntelligenceSkeleton() {
 	return (
@@ -138,12 +169,19 @@ function ReclassifyDialog({
 interface WiredPanelProps {
 	thread: RemitImapThreadMessageResponse;
 	onClose: () => void;
+	mailboxId?: string;
+	accountId?: string;
 }
 
 /**
  * Inner panel that resolves intelligence data and wires quick-action mutations.
  */
-function WiredPanel({ thread, onClose }: WiredPanelProps) {
+function WiredPanel({
+	thread,
+	onClose,
+	mailboxId,
+	accountId,
+}: WiredPanelProps) {
 	const { data, addressId, isSimilarLoading, similarError } =
 		useIntelligenceData(thread);
 	const [confirmBlock, setConfirmBlock] = useState(false);
@@ -154,6 +192,34 @@ function WiredPanel({ thread, onClose }: WiredPanelProps) {
 		addressId,
 		senderEmail,
 	});
+
+	// "Not spam" / "Mark spam" move the message across the Junk boundary; the
+	// backend's moveMessage then promotes (out of Junk) or demotes (into Junk)
+	// the sender's trust (issue #594). Only one button is wired at a time,
+	// depending on whether the message is currently sitting in Junk.
+	const { junkMailboxId } = useJunkMailbox(accountId);
+	const { inboxMailboxId } = useInboxMailbox(accountId);
+	const { moveMessages } = useMoveMessages({
+		mailboxId: mailboxId ?? "",
+		threadId: thread.threadId,
+		accountId,
+	});
+
+	const spamAction = resolveSpamAction({
+		mailboxId,
+		junkMailboxId,
+		inboxMailboxId,
+	});
+
+	const handleNotSpam = useCallback(() => {
+		if (!inboxMailboxId) return;
+		moveMessages([thread.messageId], inboxMailboxId);
+	}, [inboxMailboxId, moveMessages, thread.messageId]);
+
+	const handleMarkSpam = useCallback(() => {
+		if (!junkMailboxId) return;
+		moveMessages([thread.messageId], junkMailboxId);
+	}, [junkMailboxId, moveMessages, thread.messageId]);
 
 	const handleShowSimilar = useCallback(() => {
 		// The similar-messages section scrolls into view automatically when
@@ -211,6 +277,8 @@ function WiredPanel({ thread, onClose }: WiredPanelProps) {
 		onToggleUnsubscribe: addressId ? handleToggleUnsubscribe : undefined,
 		onToggleAutoArchive: addressId ? handleToggleAutoArchive : undefined,
 		onReclassify: addressId ? () => setReclassifyOpen(true) : undefined,
+		onNotSpam: spamAction === "notSpam" ? handleNotSpam : undefined,
+		onMarkSpam: spamAction === "markSpam" ? handleMarkSpam : undefined,
 	};
 
 	if (!data) {
@@ -269,6 +337,8 @@ function WiredPanel({ thread, onClose }: WiredPanelProps) {
 export const IntelligencePane = ({
 	onClose,
 	thread,
+	mailboxId,
+	accountId,
 }: IntelligencePaneProps) => {
 	if (!thread) {
 		return (
@@ -290,5 +360,12 @@ export const IntelligencePane = ({
 		);
 	}
 
-	return <WiredPanel thread={thread} onClose={onClose} />;
+	return (
+		<WiredPanel
+			thread={thread}
+			onClose={onClose}
+			mailboxId={mailboxId}
+			accountId={accountId}
+		/>
+	);
 };
