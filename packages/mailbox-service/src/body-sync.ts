@@ -1,3 +1,4 @@
+import { PassThrough, type Readable } from "node:stream";
 import { inspect } from "node:util";
 import {
 	AddressService,
@@ -21,9 +22,23 @@ import {
 import { shouldRescueFromJunk } from "./heuristics/rescueFromJunk.js";
 import type { MessageMoveService } from "./message-move.js";
 import { extractSnippetFromEmail } from "./snippet.js";
-import type { IImapConnection } from "./types.js";
+import { type IImapConnection, MailConnectionError } from "./types.js";
 
 const BODY_PART_STORE_CONCURRENCY = 4;
+
+/**
+ * A mid-stream socket drop during the ranged body fetch surfaces as a typed
+ * `MailConnectionError` (the connection layer classifies imapflow's
+ * `EConnectionClosed`/`NoConnection`). Detect by type/code, never by message
+ * text — the underlying library strings vary.
+ */
+const isConnectionDrop = (error: unknown): boolean => {
+	if (error instanceof MailConnectionError) {
+		return error.kind === "network";
+	}
+	const code = (error as { code?: string }).code;
+	return code === "EConnectionClosed" || code === "NoConnection";
+};
 
 export const extractPrimaryFromEmail = (parsed: ParsedMail): string | null => {
 	const from = parsed.from;
@@ -116,88 +131,183 @@ export class BodySyncService {
 		mailboxPath: string,
 		getConnection: ConnectionGetter,
 	): Promise<SyncBodiesResult> {
-		// Track results and processed indices for fail-fast behavior
-		type ResultItem =
-			| { status: "synced"; messageId: string }
-			| { status: "skipped" }
-			| { status: "failed"; messageId: string };
+		const syncedMessageIds: string[] = [];
+		let skippedCount = 0;
 
-		const results: ResultItem[] = [];
-		const processedIndices = new Set<number>();
+		// Resolve every message up front so we can issue ONE ranged FETCH for the
+		// whole batch (the desktop-client pattern) instead of a SELECT + download
+		// per message. Messages whose body is already stored are skipped here and
+		// never hit the wire. `pending` maps each UID to its messageId so we can
+		// match FETCH rows back and re-enqueue any UID the server never returns.
+		const pending = new Map<number, string>();
+		for (const messageId of messageIds) {
+			const message = await this.messageService.get(messageId);
+			if (message.bodyStorageKey) {
+				this.log.debug?.({ messageId }, "Body already stored, skipping");
+				skippedCount++;
+				continue;
+			}
+			pending.set(message.uid, messageId);
+		}
+
+		if (pending.size === 0) {
+			return this.buildResult(syncedMessageIds, skippedCount, []);
+		}
+
+		const connection = await getConnection();
+		// Single SELECT for the whole batch. openBox is idempotent, so a warm
+		// connection already on this mailbox skips the SELECT entirely.
+		await connection.openBox(mailboxPath);
+
 		let connectionLost = false;
+		try {
+			for await (const { uid, source } of connection.fetchMessageBodies([
+				...pending.keys(),
+			])) {
+				const messageId = pending.get(uid);
+				if (!messageId) {
+					// A UID we didn't ask for — drain the stream so the connection
+					// stays usable, then ignore it.
+					source.resume();
+					continue;
+				}
+				pending.delete(uid);
 
-		// Process bodies sequentially (concurrency 1) to enable fail-fast
-		// on connection errors. Higher concurrency would require connection pooling.
-		for (let i = 0; i < messageIds.length && !connectionLost; i++) {
-			const messageId = messageIds[i];
-			processedIndices.add(i);
-
-			try {
-				const result = await this.fetchAndStoreBody(
+				await this.storeStreamedBody(
 					messageId,
 					accountId,
 					accountConfigId,
-					mailboxPath,
-					getConnection,
+					source,
 				);
-				results.push(result);
-			} catch (error) {
-				const errorMessage = (error as Error).message;
-				this.log.error?.(
-					{ messageId, error: errorMessage },
-					"Failed to sync body",
-				);
-				results.push({ status: "failed", messageId });
-
-				// Fail-fast on connection lost errors
-				if (errorMessage.includes("connection lost")) {
-					connectionLost = true;
-					this.log.info?.(
-						{
-							processedCount: i + 1,
-							remainingCount: messageIds.length - i - 1,
-						},
-						"Connection lost, aborting batch",
-					);
-				}
+				syncedMessageIds.push(messageId);
 			}
+		} catch (error) {
+			this.log.error?.(
+				{ error: (error as Error).message },
+				"Body fetch stream failed",
+			);
+			// Fail-fast: a dropped connection mid-stream leaves every not-yet-yielded
+			// UID in `pending`; they fall through to failedMessageIds and re-enqueue.
+			// Any other error is a real fault — let it crash.
+			if (!isConnectionDrop(error)) {
+				throw error;
+			}
+			connectionLost = true;
+			this.log.info?.(
+				{ remainingCount: pending.size },
+				"Connection lost, aborting batch",
+			);
 		}
 
-		// Add all unprocessed messages as failed (for requeueing)
-		for (let i = 0; i < messageIds.length; i++) {
-			if (!processedIndices.has(i)) {
-				results.push({ status: "failed", messageId: messageIds[i] });
-			}
-		}
-
-		const synced = results.filter(
-			(r): r is { status: "synced"; messageId: string } =>
-				r.status === "synced",
-		);
-		const skipped = results.filter((r) => r.status === "skipped");
-		const failed = results.filter(
-			(r): r is { status: "failed"; messageId: string } =>
-				r.status === "failed",
-		);
+		// Anything still pending was never yielded (mid-stream drop or a UID the
+		// server silently omitted) — re-enqueue it.
+		const failedMessageIds = [...pending.values()];
 
 		this.log.info(
 			{
-				synced: synced.length,
-				skipped: skipped.length,
-				failed: failed.length,
+				synced: syncedMessageIds.length,
+				skipped: skippedCount,
+				failed: failedMessageIds.length,
 				total: messageIds.length,
 				aborted: connectionLost,
 			},
 			"Body sync complete",
 		);
 
+		return this.buildResult(syncedMessageIds, skippedCount, failedMessageIds);
+	}
+
+	private buildResult(
+		syncedMessageIds: string[],
+		skippedCount: number,
+		failedMessageIds: string[],
+	): SyncBodiesResult {
 		return {
-			syncedCount: synced.length,
-			syncedMessageIds: synced.map((r) => r.messageId),
-			skippedCount: skipped.length,
-			failedCount: failed.length,
-			failedMessageIds: failed.map((r) => r.messageId),
+			syncedCount: syncedMessageIds.length,
+			syncedMessageIds,
+			skippedCount,
+			failedCount: failedMessageIds.length,
+			failedMessageIds,
 		};
+	}
+
+	/**
+	 * Stream one message body straight to storage while teeing the bytes into a
+	 * buffer for the parse-dependent steps (snippet, classification, parsed-body
+	 * cache, per-part objects). The S3 upload never sees a whole-body concat —
+	 * the storage service streams it — but mailparser still needs the full bytes,
+	 * so we collect them in parallel. Later issues move parsing off the hot path.
+	 */
+	private async storeStreamedBody(
+		messageId: string,
+		accountId: string,
+		accountConfigId: string,
+		source: Readable,
+	): Promise<void> {
+		const toStorage = new PassThrough();
+		const chunks: Buffer[] = [];
+
+		// Tee the source: bytes flow to storage as a stream (no whole-body concat
+		// on the upload path) while we also collect them for the parse-dependent
+		// steps below, which still need the full body for mailparser. The store
+		// and the tee are awaited together so neither rejection is orphaned.
+		const tee = new Promise<void>((resolve, reject) => {
+			source.on("data", (chunk: Buffer) => {
+				chunks.push(chunk);
+				toStorage.write(chunk);
+			});
+			source.on("end", () => {
+				toStorage.end();
+				resolve();
+			});
+			source.on("error", (err) => {
+				toStorage.destroy(err);
+				reject(err);
+			});
+		});
+
+		const [ref] = await Promise.all([
+			this.storageService.storeMessageBodyStream({
+				accountConfigId,
+				accountId,
+				messageId,
+				content: toStorage,
+			}),
+			tee,
+		]);
+
+		const body = Buffer.concat(chunks);
+
+		await this.messageService.update(messageId, { bodyStorageKey: ref.uri });
+		this.log.info({ messageId, storageKey: ref.uri }, "Body stored");
+
+		// Snippet + thread update; reuses the parsed mail for the steps below.
+		const parsed = await this.updateSnippets(messageId, accountConfigId, body);
+
+		// Header classification + From-Address engagement counters.
+		await this.classifyAndCount(messageId, accountConfigId, parsed);
+
+		await this.storeParsedBodyCache(
+			accountConfigId,
+			accountId,
+			messageId,
+			parsed,
+		);
+
+		await this.storeBodyPartContents(
+			accountConfigId,
+			accountId,
+			messageId,
+			parsed,
+		);
+
+		// Best-effort junk rescue runs LAST, fully isolated.
+		await this.maybeRescueFromJunk(
+			messageId,
+			accountId,
+			accountConfigId,
+			parsed,
+		);
 	}
 
 	/**
@@ -299,78 +409,6 @@ export class BodySyncService {
 		const connection = await getConnection();
 		await connection.openBox(mailboxPath);
 		return connection.fetchMessageBody(uid);
-	}
-
-	private async fetchAndStoreBody(
-		messageId: string,
-		accountId: string,
-		accountConfigId: string,
-		mailboxPath: string,
-		getConnection: ConnectionGetter,
-	): Promise<{ status: "synced"; messageId: string } | { status: "skipped" }> {
-		const message = await this.messageService.get(messageId);
-
-		if (message.bodyStorageKey) {
-			this.log.debug?.({ messageId }, "Body already stored, skipping");
-			return { status: "skipped" };
-		}
-
-		const connection = await getConnection();
-		await connection.openBox(mailboxPath);
-
-		const body = await connection.fetchMessageBody(message.uid);
-		const ref = await this.storageService.storeMessageBody({
-			accountConfigId,
-			accountId,
-			messageId,
-			content: body,
-		});
-
-		await this.messageService.update(messageId, { bodyStorageKey: ref.uri });
-		this.log.info({ messageId, storageKey: ref.uri }, "Body stored");
-
-		// Extract snippet and update thread entities
-		const parsed = await this.updateSnippets(messageId, accountConfigId, body);
-
-		// Header-based classification + From-Address engagement counters.
-		// Counters drift under at-least-once SQS — accepted residual per EDD #232.
-		await this.classifyAndCount(messageId, accountConfigId, parsed);
-
-		// Write the parsed-body cache alongside the raw .eml so subsequent
-		// describeMessage reads can skip mailparser entirely.
-		await this.storeParsedBodyCache(
-			accountConfigId,
-			accountId,
-			messageId,
-			parsed,
-		);
-
-		// Per-part S3 objects so `BodyPartResponse.contentUrl` (#298) actually
-		// resolves on the SPA. Each non-multipart leaf gets its own
-		// `accounts/{accountConfigId}/{accountId}/messages/{messageId}/parts/{partPath}`
-		// object. The mapper is total (#395 PR B) — every leaf gets a pair,
-		// possibly with a zero-byte content — so the call site doesn't need to
-		// soft-fail or summarise skipped leaves.
-		await this.storeBodyPartContents(
-			accountConfigId,
-			accountId,
-			messageId,
-			parsed,
-		);
-
-		// Best-effort junk rescue runs LAST, after the critical path (body
-		// store + parsed-body cache + per-part objects) has completed, and is
-		// fully isolated: a throwing or slow rescue must never fail body-sync
-		// or block the search-index enqueue that the synced result drives.
-		// The longer-term home is the DDB-Streams decoupling epic (#571).
-		await this.maybeRescueFromJunk(
-			messageId,
-			accountId,
-			accountConfigId,
-			parsed,
-		);
-
-		return { status: "synced", messageId };
 	}
 
 	private async classifyAndCount(

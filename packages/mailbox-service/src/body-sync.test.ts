@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Readable } from "node:stream";
 import { describe, it } from "node:test";
 import {
 	AddressService,
@@ -23,7 +24,7 @@ import type {
 } from "@remit/storage-service";
 import { type BodySyncLogger, BodySyncService } from "./body-sync.js";
 import type { MessageMoveService } from "./message-move.js";
-import type { IImapConnection } from "./types.js";
+import { type IImapConnection, MailConnectionError } from "./types.js";
 
 const A_RAW_EML = Buffer.from(
 	[
@@ -120,6 +121,28 @@ const buildFakeState = (opts: FakeStateOptions) => {
 				contentEncoding: "gzip",
 			};
 		},
+		storeMessageBodyStream: async (params): Promise<StorageReference> => {
+			const chunks: Buffer[] = [];
+			for await (const chunk of params.content) {
+				chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+			}
+			const content = Buffer.concat(chunks);
+			storedBodies.push({
+				accountConfigId: params.accountConfigId,
+				accountId: params.accountId,
+				messageId: params.messageId,
+				content,
+			});
+			return {
+				uri: `s3://bucket/accounts/${params.accountConfigId}/${params.accountId}/messages/${params.messageId}/body.eml`,
+				storageType: "s3",
+				storageLocation: "bucket",
+				storageKey: `accounts/${params.accountConfigId}/${params.accountId}/messages/${params.messageId}/body.eml`,
+				sizeBytes: content.length,
+				checksumSha256: "x",
+				contentEncoding: "gzip",
+			};
+		},
 		storeBodyPart: async (params): Promise<StorageReference> => {
 			storedBodyParts.push(params);
 			return {
@@ -174,10 +197,61 @@ const buildFakeState = (opts: FakeStateOptions) => {
 	};
 };
 
-const buildFakeConnection = (rawEml?: Buffer): IImapConnection => {
+interface FakeConnectionCalls {
+	openBoxCount: number;
+	fetchBatchCount: number;
+	fetchedUidBatches: number[][];
+}
+
+/**
+ * Fake IMAP connection for the pipelined body-fetch path.
+ *
+ * `bodies` maps each UID to its raw .eml. `fetchMessageBodies` yields each as a
+ * fresh stream — and records the UID batch so a test can assert ONE ranged
+ * FETCH per batch. `openBox` is counted so a test can assert ONE SELECT.
+ */
+const buildFakeConnection = (
+	rawEml?: Buffer,
+	opts?: {
+		bodies?: Map<number, Buffer>;
+		dropAfter?: number;
+		dropError?: unknown;
+		calls?: FakeConnectionCalls;
+	},
+): IImapConnection => {
+	const bodies = opts?.bodies ?? new Map([[42, rawEml ?? A_RAW_EML]]);
+	const calls = opts?.calls;
+	// Default to the exact shape `fetchMessageBodies` rethrows after classifying
+	// imapflow's mid-stream `EConnectionClosed` — a typed MailConnectionError.
+	const dropError =
+		opts?.dropError ??
+		new MailConnectionError(
+			"network",
+			"IMAP connection failed: EConnectionClosed",
+		);
+
 	return {
-		openBox: async () => ({}),
+		openBox: async () => {
+			if (calls) calls.openBoxCount++;
+			return {};
+		},
 		fetchMessageBody: async () => rawEml ?? A_RAW_EML,
+		fetchMessageBodies: async function* (uids: number[]) {
+			if (calls) {
+				calls.fetchBatchCount++;
+				calls.fetchedUidBatches.push([...uids]);
+			}
+			let yielded = 0;
+			for (const uid of uids) {
+				if (opts?.dropAfter !== undefined && yielded >= opts.dropAfter) {
+					throw dropError;
+				}
+				const body = bodies.get(uid);
+				if (!body) continue;
+				yield { uid, source: Readable.from(body) };
+				yielded++;
+			}
+		},
 		// Other interface methods are unused in these tests; cast to avoid
 		// implementing the entire IMAP surface.
 	} as unknown as IImapConnection;
@@ -945,6 +1019,283 @@ describe("BodySyncService.syncBodies (junk rescue isolation)", () => {
 		assert.ok(
 			cacheIdx < rescueIdx,
 			"parsed-body cache must be stored before the rescue moves the message",
+		);
+	});
+});
+
+describe("BodySyncService.syncBodies (pipelined ranged fetch)", () => {
+	const rawForUid = (uid: number): Buffer =>
+		Buffer.from(
+			[
+				"From: a@example.com",
+				"To: b@example.com",
+				`Subject: msg ${uid}`,
+				`Message-ID: <${uid}@example.com>`,
+				"Content-Type: text/plain",
+				"",
+				`body ${uid}`,
+				"",
+			].join("\r\n"),
+		);
+
+	// Multi-message fake: each messageId maps to a distinct uid and .eml, so we
+	// can assert the whole batch goes out in ONE ranged FETCH.
+	const buildMultiState = (
+		entries: Array<{ messageId: string; uid: number; alreadyStored?: boolean }>,
+	) => {
+		const storedStreamIds: string[] = [];
+		const messages = new Map(
+			entries.map((e) => [
+				e.messageId,
+				{
+					messageId: e.messageId,
+					mailboxId: "mbx-1",
+					uid: e.uid,
+					messageIdHeader: `<${e.uid}@example.com>`,
+					bodyStorageKey: e.alreadyStored
+						? `s3://bucket/${e.messageId}/body.eml`
+						: (undefined as string | undefined),
+				},
+			]),
+		);
+
+		const messageService = {
+			get: async (id: string) => {
+				const m = messages.get(id);
+				if (!m) throw new Error(`unknown message ${id}`);
+				return m;
+			},
+			update: async (id: string, input: UpdateMessageInput) => {
+				const m = messages.get(id);
+				if (m && input.bodyStorageKey) m.bodyStorageKey = input.bodyStorageKey;
+				return m;
+			},
+		} as unknown as MessageService;
+
+		const storageService = {
+			...buildFakeState({ messageId: entries[0].messageId }).storageService,
+			storeMessageBodyStream: async (params: {
+				accountConfigId: string;
+				accountId: string;
+				messageId: string;
+				content: Readable;
+			}): Promise<StorageReference> => {
+				// Drain the stream — proves the body is consumed as a stream, not a
+				// pre-built whole-body buffer handed to storeMessageBody.
+				for await (const _chunk of params.content) {
+					// consume
+				}
+				storedStreamIds.push(params.messageId);
+				return {
+					uri: `s3://bucket/${params.messageId}/body.eml`,
+					storageType: "s3",
+					storageLocation: "bucket",
+					storageKey: `${params.messageId}/body.eml`,
+					sizeBytes: 1,
+					checksumSha256: "x",
+					contentEncoding: "gzip",
+				};
+			},
+		} as unknown as StorageService;
+
+		const addressService = {
+			incrementInboundCount: async () => {},
+		} as unknown as AddressService;
+		const threadMessageService = {
+			getByMessageId: async (id: string) => ({
+				threadMessageId: `tm-${id}`,
+				messageId: id,
+			}),
+			update: async () => ({}),
+		} as unknown as ThreadMessageService;
+		const envelopeService = {
+			listBodyParts: async () => [],
+		} as unknown as EnvelopeService;
+
+		const bodies = new Map(entries.map((e) => [e.uid, rawForUid(e.uid)]));
+
+		return {
+			messageService,
+			storageService,
+			addressService,
+			threadMessageService,
+			envelopeService,
+			bodies,
+			storedStreamIds,
+		};
+	};
+
+	it("issues ONE SELECT and ONE ranged FETCH for the whole batch", async () => {
+		const entries = [
+			{ messageId: "m-1", uid: 11 },
+			{ messageId: "m-2", uid: 12 },
+			{ messageId: "m-3", uid: 13 },
+		];
+		const fake = buildMultiState(entries);
+		const calls: FakeConnectionCalls = {
+			openBoxCount: 0,
+			fetchBatchCount: 0,
+			fetchedUidBatches: [],
+		};
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			fake.addressService,
+			fake.envelopeService,
+		);
+
+		const result = await service.syncBodies(
+			entries.map((e) => e.messageId),
+			"acc-1",
+			"acc-cfg-1",
+			"INBOX",
+			async () =>
+				buildFakeConnection(undefined, { bodies: fake.bodies, calls }),
+		);
+
+		assert.equal(result.syncedCount, 3);
+		assert.equal(calls.openBoxCount, 1, "exactly one SELECT for the batch");
+		assert.equal(calls.fetchBatchCount, 1, "exactly one ranged FETCH");
+		assert.deepEqual(
+			calls.fetchedUidBatches,
+			[[11, 12, 13]],
+			"all UIDs go out in a single ranged FETCH",
+		);
+		// Bodies were streamed, not buffered+stored via storeMessageBody.
+		assert.deepEqual(fake.storedStreamIds.sort(), ["m-1", "m-2", "m-3"]);
+	});
+
+	it("re-enqueues UIDs not yet yielded when the stream drops mid-batch (typed MailConnectionError)", async () => {
+		const entries = [
+			{ messageId: "m-1", uid: 11 },
+			{ messageId: "m-2", uid: 12 },
+			{ messageId: "m-3", uid: 13 },
+		];
+		const fake = buildMultiState(entries);
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			fake.addressService,
+			fake.envelopeService,
+		);
+
+		const result = await service.syncBodies(
+			entries.map((e) => e.messageId),
+			"acc-1",
+			"acc-cfg-1",
+			"INBOX",
+			// Drop after the first message is yielded, with the exact typed error
+			// `fetchMessageBodies` rethrows on a real disconnect.
+			async () =>
+				buildFakeConnection(undefined, { bodies: fake.bodies, dropAfter: 1 }),
+		);
+
+		assert.equal(result.syncedCount, 1);
+		assert.deepEqual(result.syncedMessageIds, ["m-1"]);
+		// m-2 and m-3 were never yielded — they must come back as failed so the
+		// caller re-enqueues them.
+		assert.equal(result.failedCount, 2);
+		assert.deepEqual(result.failedMessageIds.sort(), ["m-2", "m-3"]);
+	});
+
+	it("fails fast on a raw imapflow EConnectionClosed error (code-based detection)", async () => {
+		const entries = [
+			{ messageId: "m-1", uid: 11 },
+			{ messageId: "m-2", uid: 12 },
+		];
+		const fake = buildMultiState(entries);
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			fake.addressService,
+			fake.envelopeService,
+		);
+
+		// The bare error imapflow throws mid-FETCH — message text does NOT mention
+		// "connection lost"; detection must be by code, not string.
+		const rawDrop = Object.assign(new Error("Connection closed"), {
+			code: "EConnectionClosed",
+		});
+
+		const result = await service.syncBodies(
+			entries.map((e) => e.messageId),
+			"acc-1",
+			"acc-cfg-1",
+			"INBOX",
+			async () =>
+				buildFakeConnection(undefined, {
+					bodies: fake.bodies,
+					dropAfter: 0,
+					dropError: rawDrop,
+				}),
+		);
+
+		assert.equal(result.syncedCount, 0);
+		assert.equal(result.failedCount, 2);
+		assert.deepEqual(result.failedMessageIds.sort(), ["m-1", "m-2"]);
+	});
+
+	it("propagates a non-connection error instead of swallowing it", async () => {
+		const entries = [{ messageId: "m-1", uid: 11 }];
+		const fake = buildMultiState(entries);
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			fake.addressService,
+			fake.envelopeService,
+		);
+
+		await assert.rejects(
+			service.syncBodies(["m-1"], "acc-1", "acc-cfg-1", "INBOX", async () =>
+				buildFakeConnection(undefined, {
+					bodies: fake.bodies,
+					dropAfter: 0,
+					dropError: new Error("kaboom: a real bug"),
+				}),
+			),
+			/kaboom/,
+		);
+	});
+
+	it("skips already-stored bodies and never fetches them", async () => {
+		const entries = [
+			{ messageId: "m-1", uid: 11, alreadyStored: true },
+			{ messageId: "m-2", uid: 12 },
+		];
+		const fake = buildMultiState(entries);
+
+		const calls: FakeConnectionCalls = {
+			openBoxCount: 0,
+			fetchBatchCount: 0,
+			fetchedUidBatches: [],
+		};
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			fake.addressService,
+			fake.envelopeService,
+		);
+
+		const result = await service.syncBodies(
+			entries.map((e) => e.messageId),
+			"acc-1",
+			"acc-cfg-1",
+			"INBOX",
+			async () =>
+				buildFakeConnection(undefined, { bodies: fake.bodies, calls }),
+		);
+
+		assert.equal(result.skippedCount, 1);
+		assert.equal(result.syncedCount, 1);
+		assert.deepEqual(
+			calls.fetchedUidBatches,
+			[[12]],
+			"only the un-stored UID is fetched",
 		);
 	});
 });
