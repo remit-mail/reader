@@ -101,6 +101,19 @@ export interface StorageService {
 	/** Store a body part (attachment, inline content) */
 	storeBodyPart(params: StoreBodyPartParams): Promise<StorageReference>;
 
+	/**
+	 * Check whether a body-part object already exists, keyed exactly as
+	 * `storeBodyPart` writes it. Used by the lazy per-part generation path to
+	 * skip leaves already materialized on a prior read, so regeneration is
+	 * idempotent and re-reads stay cheap.
+	 */
+	bodyPartExists(
+		accountConfigId: string,
+		accountId: string,
+		messageId: string,
+		partPath: string,
+	): Promise<boolean>;
+
 	/** Store deduplicated content (content-addressable, for attachments) */
 	storeDeduplicated(params: StoreDeduplicatedParams): Promise<StorageReference>;
 
@@ -264,10 +277,21 @@ export const createMockStorageService = (): StorageService => {
 		return JSON.parse(content.toString("utf8")) as ParsedBody;
 	};
 
+	const bodyPartExists: StorageService["bodyPartExists"] = async (
+		accountConfigId,
+		accountId,
+		messageId,
+		partPath,
+	) => {
+		const uri = `mock://${buildBodyPartKey(accountConfigId, accountId, messageId, partPath)}`;
+		return storage.has(uri);
+	};
+
 	return {
 		storeMessageBody,
 		storeMessageBodyStream,
 		storeBodyPart,
+		bodyPartExists,
 		storeDeduplicated,
 		storeParsedBody,
 		retrieveParsedBody,

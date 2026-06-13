@@ -28,6 +28,35 @@ import { type IImapConnection, MailConnectionError } from "./types.js";
 const BODY_PART_STORE_CONCURRENCY = 4;
 
 /**
+ * Whether the body-sync hot path defers per-part S3 objects. Each MIME leaf is
+ * its own PutObject, so during bulk sync these per-part writes dominate S3 write
+ * count and cost. With deferral ON a synced message writes only `body.eml` +
+ * `parsed.json.gz` (2 writes); the per-part objects are materialized lazily on
+ * the first `contentUrl` read via {@link BodySyncService.ensureBodyPartsStored}.
+ *
+ * Default ON (cost savings). Set `DEFER_BODY_PARTS=false`/`0`/`off` to restore
+ * the original eager per-part writes — a safe, reversible escape hatch.
+ */
+export const isBodyPartDeferralEnabled = (): boolean => {
+	const raw = process.env.DEFER_BODY_PARTS;
+	if (raw === undefined) return true;
+	const normalized = raw.trim().toLowerCase();
+	return normalized !== "false" && normalized !== "0" && normalized !== "off";
+};
+
+/**
+ * Sentinel object written under a message's parts prefix once lazy
+ * materialization has stored EVERY leaf. The read path checks it first with a
+ * single HEAD and early-returns, skipping the body.eml GET, the MIME re-parse,
+ * and the per-leaf HEADs on every warm re-open.
+ *
+ * Deliberately an S3-only marker (no Message-row flag): a DDB write would
+ * re-fire the redundant vector upsert that #607 removed. A leading dot keeps it
+ * out of any real IMAP section path (those are dot-separated digits).
+ */
+const MATERIALIZED_SENTINEL_PART_PATH = ".materialized";
+
+/**
  * A mid-stream socket drop during the ranged body fetch surfaces as a typed
  * `MailConnectionError` (the connection layer classifies imapflow's
  * `EConnectionClosed`/`NoConnection`). Detect by type/code, never by message
@@ -321,12 +350,18 @@ export class BodySyncService {
 			parsed,
 		);
 
-		await this.storeBodyPartContents(
-			accountConfigId,
-			accountId,
-			messageId,
-			parsed,
-		);
+		// Per-part S3 objects dominate S3 writes during bulk sync. When deferral
+		// is enabled we skip them here; they are materialized lazily on the first
+		// `contentUrl` read (see ensureBodyPartsStored), keeping bulk sync at 2
+		// writes/message (body.eml + parsed.json.gz).
+		if (!isBodyPartDeferralEnabled()) {
+			await this.storeBodyPartContents(
+				accountConfigId,
+				accountId,
+				messageId,
+				parsed,
+			);
+		}
 
 		// The actual mailbox move runs LAST, after the body cache is durably
 		// stored. The `movedByRemit` flag was already folded into the update
@@ -414,12 +449,14 @@ export class BodySyncService {
 				messageId,
 				parsed,
 			);
-			await this.storeBodyPartContents(
-				accountConfigId,
-				accountId,
-				messageId,
-				parsed,
-			);
+			if (!isBodyPartDeferralEnabled()) {
+				await this.storeBodyPartContents(
+					accountConfigId,
+					accountId,
+					messageId,
+					parsed,
+				);
+			}
 		} else {
 			parsed = await simpleParser(body);
 		}
@@ -614,6 +651,7 @@ export class BodySyncService {
 		accountId: string,
 		messageId: string,
 		parsed: ParsedMail,
+		options?: { skipExisting?: boolean },
 	): Promise<StoreBodyPartContentsResult> {
 		const bodyParts = await this.envelopeService.listBodyParts(messageId);
 		if (bodyParts.length === 0) {
@@ -644,9 +682,21 @@ export class BodySyncService {
 			return { stored: 0 };
 		}
 
+		let stored = 0;
 		await pMap(
 			pairs,
 			async (entry) => {
+				if (
+					options?.skipExisting &&
+					(await this.storageService.bodyPartExists(
+						accountConfigId,
+						accountId,
+						messageId,
+						entry.partPath,
+					))
+				) {
+					return;
+				}
 				await this.storageService.storeBodyPart({
 					accountConfigId,
 					accountId,
@@ -655,13 +705,83 @@ export class BodySyncService {
 					content: entry.content,
 					contentType: entry.contentType,
 				});
+				stored++;
 			},
 			{ concurrency: BODY_PART_STORE_CONCURRENCY },
 		);
 
-		this.log.info({ messageId, partCount: pairs.length }, "Body parts stored");
+		this.log.info(
+			{ messageId, partCount: pairs.length, stored },
+			"Body parts stored",
+		);
 
-		return { stored: pairs.length };
+		return { stored };
+	}
+
+	/**
+	 * Lazily materialize the per-part S3 objects for an already-synced message
+	 * whose parts were deferred during bulk sync (DEFER_BODY_PARTS).
+	 *
+	 * Called from the read path (the API `describeMessage` handler) before the
+	 * SPA fetches any `contentUrl`: the part bytes are served directly from S3 by
+	 * CloudFront with no Lambda in the request path, so a missing object would
+	 * surface to the SPA as a hard "body-missing" failure. Generating the parts
+	 * here — re-parsing the stored `body.eml` with the same `mapBodyPartsToContent`
+	 * logic body-sync uses — guarantees every `contentUrl` resolves, while bulk
+	 * sync stays at 2 writes/message.
+	 *
+	 * Idempotent: skips any leaf already on S3, so repeat reads cost only HEAD
+	 * checks, and a re-read after a partial failure fills the gaps. Requires the
+	 * message body to be stored (`bodyStorageKey`); callers gate on that.
+	 *
+	 * Warm-open fast path: a single HEAD on the `.materialized` sentinel
+	 * short-circuits the whole pass — no body.eml GET, no MIME re-parse, no
+	 * per-leaf HEADs. The sentinel is written only after every leaf is confirmed
+	 * stored, so its presence guarantees all `contentUrl`s resolve.
+	 */
+	async ensureBodyPartsStored(
+		accountConfigId: string,
+		accountId: string,
+		messageId: string,
+		bodyStorageKey: string,
+	): Promise<StoreBodyPartContentsResult> {
+		if (
+			await this.storageService.bodyPartExists(
+				accountConfigId,
+				accountId,
+				messageId,
+				MATERIALIZED_SENTINEL_PART_PATH,
+			)
+		) {
+			this.log.debug?.(
+				{ messageId },
+				"Body parts already materialized (sentinel hit); skipping",
+			);
+			return { stored: 0 };
+		}
+
+		const body = await this.storageService.retrieve(bodyStorageKey);
+		const parsed = await simpleParser(body);
+		const result = await this.storeBodyPartContents(
+			accountConfigId,
+			accountId,
+			messageId,
+			parsed,
+			{ skipExisting: true },
+		);
+
+		// Reaching here means storeBodyPartContents resolved — `pMap` rejects on
+		// any single failed write, so every leaf is now durably on S3. Drop the
+		// sentinel so subsequent opens take the HEAD-only fast path above.
+		await this.storageService.storeBodyPart({
+			accountConfigId,
+			accountId,
+			messageId,
+			partPath: MATERIALIZED_SENTINEL_PART_PATH,
+			content: Buffer.alloc(0),
+		});
+
+		return result;
 	}
 
 	/**
