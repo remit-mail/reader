@@ -34,6 +34,7 @@ describe("cascade entity coverage snapshot", () => {
 		// Map model file names to the entity types they contain
 		const entityTypesByFile: Record<string, string[]> = {
 			"account-config": ["AccountConfig"],
+			"account-export-request": [],
 			account: ["Account"],
 			address: ["Address", "EnvelopeAddress"],
 			envelope: [

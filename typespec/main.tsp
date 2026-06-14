@@ -49,6 +49,18 @@ namespace RemitApi {
     @get
     @route("/vip-suggestions")
     op listVipSuggestions(): VipSuggestionsResponse;
+
+    @doc("Request an export of all account data as a ZIP archive of .eml files. Returns immediately with an exportId; check GET /me/export/{exportId} for status and downloadUrl.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    @route("/export")
+    op createExport(): CreateExportResponse;
+
+    @doc("Get the status of a previously requested data export. When state is Ready, downloadUrl holds a 30-day presigned S3 URL.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    @route("/export/{exportId}")
+    op getExport(@path exportId: string): AccountExportRequestResponse;
   }
 
   // ============================================

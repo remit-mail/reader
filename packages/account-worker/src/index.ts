@@ -3,6 +3,7 @@ export type {
 	AccountDataPurgeFinalizeEvent,
 	AccountDeleteEvent,
 	AccountDeleteFinalizeEvent,
+	AccountExportEvent,
 	AccountFanoutEvent,
 	AccountFinalizeEvent,
 } from "./events.js";
