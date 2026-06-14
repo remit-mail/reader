@@ -1,9 +1,9 @@
 import { SendMessageCommand } from "@aws-sdk/client-sqs";
 import { ForbiddenError } from "@remit/remit-electrodb-service";
+import { logger } from "@remit/logger-lambda";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { env } from "expect-env";
 import type { Context } from "openapi-backend";
-import { logger } from "../logger.js";
 import { sqsClient } from "../service/sqs.js";
 import type {
 	AdminAccountConfigOperationIds,
