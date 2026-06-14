@@ -5,6 +5,7 @@ import {
 	SecretsManagerClient,
 } from "@aws-sdk/client-secrets-manager";
 import { AccountAuthType, ConnectionState } from "@remit/domain-enums";
+import { logger } from "@remit/remit-logger-lambda";
 import {
 	createMailOAuthService,
 	microsoftProviderConfig,
@@ -14,7 +15,6 @@ import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent } from "../auth.js";
 import { getMsOAuthConfig } from "../config/msoauth.js";
-import { logger } from "../logger.js";
 import { getClient } from "../service/dynamodb.js";
 import type { MicrosoftOAuthOperationIds, OperationHandler } from "../types.js";
 import { triggerAccountSyncSafe } from "./account.js";

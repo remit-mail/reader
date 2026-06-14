@@ -1,6 +1,6 @@
+import { logger } from "@remit/remit-logger-lambda";
 import type { APIGatewayProxyResult } from "aws-lambda";
 import type { Context as OpenAPIContext } from "openapi-backend";
-import { logger } from "./logger.js";
 import { getRequestOrigin, resolveAllowedOrigin } from "./request-context.js";
 
 export const formatResponse = (

@@ -5,6 +5,7 @@ import type {
 	AccountService,
 } from "@remit/remit-electrodb-service";
 import { AccountAuthType, ConnectionState } from "@remit/domain-enums";
+import { logger } from "@remit/remit-logger-lambda";
 import {
 	createMailOAuthService,
 	microsoftProviderConfig,
@@ -32,7 +33,6 @@ import type { APIGatewayProxyEvent } from "aws-lambda";
 import { env } from "expect-env";
 import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent } from "../auth.js";
-import { logger } from "../logger.js";
 import { getClient } from "../service/dynamodb.js";
 import { sqsClient } from "../service/sqs.js";
 import { triggerAccountSync } from "../service/trigger-sync.js";

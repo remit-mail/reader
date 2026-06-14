@@ -37,7 +37,7 @@
 		"express": "^5.1.0",
 		"openapi-backend": "*",
 		"p-map": "*",
-		"pino": "*",
+		"@remit/remit-logger-lambda": "*",
 		"swagger-ui-express": "^5.0.1",
 		"tsx": "*"
 	},

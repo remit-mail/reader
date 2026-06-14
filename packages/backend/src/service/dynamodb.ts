@@ -12,6 +12,7 @@ import {
 	OutboxMessageService,
 	ThreadMessageService,
 } from "@remit/remit-electrodb-service";
+import { logger } from "@remit/remit-logger-lambda";
 import {
 	BodySyncService,
 	createConnection,
@@ -43,7 +44,6 @@ import {
 	type StorageService,
 } from "@remit/storage-service";
 import { env } from "expect-env";
-import { logger } from "../logger.js";
 
 const isLocalEnv =
 	process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test";

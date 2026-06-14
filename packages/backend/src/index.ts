@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { logger, withTelemetry } from "@remit/remit-logger-lambda";
 import type { APIGatewayProxyEvent, Context } from "aws-lambda";
 import {
 	type Document,
@@ -10,7 +11,6 @@ import {
 } from "openapi-backend";
 import { handleError } from "./error.js";
 import { handlers } from "./handlers/index.js";
-import { logger, withRequest } from "./logger.js";
 import { normalizeRequest } from "./request.js";
 import { runWithRequestContext } from "./request-context.js";
 import { formatResponse, postResponseHandler } from "./response.js";
@@ -91,11 +91,12 @@ const readOriginHeader = (
 	return undefined;
 };
 
-export const handler = async (
-	event: APIGatewayProxyEvent,
-	context: Context,
-) => {
-	withRequest(event, context);
+const rawHandler = async (event: APIGatewayProxyEvent, context: Context) => {
+	logger.setBindings({
+		requestId: context.awsRequestId,
+		path: event.path,
+		method: event.httpMethod,
+	});
 
 	logger.info(
 		{ method: event.httpMethod, path: event.path },
@@ -110,3 +111,5 @@ export const handler = async (
 			.catch(handleError),
 	);
 };
+
+export const handler = withTelemetry(rawHandler);
