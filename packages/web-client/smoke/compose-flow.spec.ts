@@ -24,18 +24,14 @@ test.describe("Compose flow", () => {
 		await messageLink.click();
 		await page.waitForURL(/selectedMessageId=/);
 
-		const article = page.getByRole("article");
-		await expect(article).toBeVisible({ timeout: 10_000 });
+		await expect(page.getByRole("article")).toBeVisible({ timeout: 10_000 });
 
+		// Reply / Reply all / Forward live in the MessageToolbar header, not the article.
 		await expect(
-			article.getByRole("button", { name: "Reply", exact: true }),
+			page.getByRole("button", { name: "Reply", exact: true }),
 		).toBeVisible();
-		await expect(
-			article.getByRole("button", { name: "Reply all" }),
-		).toBeVisible();
-		await expect(
-			article.getByRole("button", { name: "Forward" }),
-		).toBeVisible();
+		await expect(page.getByRole("button", { name: "Reply all" })).toBeVisible();
+		await expect(page.getByRole("button", { name: "Forward" })).toBeVisible();
 	});
 
 	test("clicking Reply opens inline compose with To field populated", async ({
@@ -48,11 +44,8 @@ test.describe("Compose flow", () => {
 		const article = page.getByRole("article");
 		await expect(article).toBeVisible({ timeout: 10_000 });
 
-		const replyButton = article.getByRole("button", {
-			name: "Reply",
-			exact: true,
-		});
-		await replyButton.click();
+		// Reply button lives in the MessageToolbar header, not the article.
+		await page.getByRole("button", { name: "Reply", exact: true }).click();
 
 		const sendButton = article.getByRole("button", { name: "Send" });
 		await expect(sendButton).toBeVisible({ timeout: 10_000 });
@@ -76,10 +69,8 @@ test.describe("Compose flow", () => {
 		const article = page.getByRole("article");
 		await expect(article).toBeVisible({ timeout: 10_000 });
 
-		const replyAllButton = article.getByRole("button", {
-			name: "Reply all",
-		});
-		await replyAllButton.click();
+		// Reply all button lives in the MessageToolbar header, not the article.
+		await page.getByRole("button", { name: "Reply all" }).click();
 
 		const sendButton = article.getByRole("button", { name: "Send" });
 		await expect(sendButton).toBeVisible({ timeout: 10_000 });
@@ -97,8 +88,8 @@ test.describe("Compose flow", () => {
 		const article = page.getByRole("article");
 		await expect(article).toBeVisible({ timeout: 10_000 });
 
-		const forwardButton = article.getByRole("button", { name: "Forward" });
-		await forwardButton.click();
+		// Forward button lives in the MessageToolbar header, not the article.
+		await page.getByRole("button", { name: "Forward" }).click();
 
 		const sendButton = article.getByRole("button", { name: "Send" });
 		await expect(sendButton).toBeVisible({ timeout: 10_000 });
@@ -112,7 +103,7 @@ test.describe("Compose flow", () => {
 		expect(subjectValue).toMatch(/^Fwd:/i);
 	});
 
-	test("discard button closes compose and shows action bar again", async ({
+	test("discard button closes compose and shows reply button again", async ({
 		page,
 	}) => {
 		const messageLink = page.locator("a[href*='selectedMessageId']").first();
@@ -122,11 +113,8 @@ test.describe("Compose flow", () => {
 		const article = page.getByRole("article");
 		await expect(article).toBeVisible({ timeout: 10_000 });
 
-		const replyButton = article.getByRole("button", {
-			name: "Reply",
-			exact: true,
-		});
-		await replyButton.click();
+		// Reply button lives in the MessageToolbar header, not the article.
+		await page.getByRole("button", { name: "Reply", exact: true }).click();
 
 		const sendButton = article.getByRole("button", { name: "Send" });
 		await expect(sendButton).toBeVisible({ timeout: 10_000 });
@@ -148,9 +136,9 @@ test.describe("Compose flow", () => {
 		// Wait for compose form to close (Send button disappears)
 		await expect(sendButton).toBeHidden({ timeout: 10_000 });
 
-		// Action bar with Reply should reappear
+		// Toolbar Reply button remains available after discarding.
 		await expect(
-			article.getByRole("button", { name: "Reply", exact: true }),
+			page.getByRole("button", { name: "Reply", exact: true }),
 		).toBeVisible({ timeout: 10_000 });
 	});
 });

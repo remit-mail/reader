@@ -664,9 +664,10 @@ function MailboxView() {
 	// Mobile: single-pane view that swaps based on `selectedMessageId` and
 	// compose state. The compose surface, when open without a selected
 	// thread, takes over the whole pane (which on mobile IS the whole
-	// screen) — no extra overlay plumbing required. The thread view
-	// flows naturally; back/reply/forward affordances live in the
-	// `ConversationView` action bar (mobile branch).
+	// screen) — no extra overlay plumbing required. The thread view renders a
+	// sticky footer with Back plus reply / reply-all / forward (the touch
+	// affordance for those actions on mobile, since the desktop top toolbar is
+	// not shown here).
 	if (!isDesktop) {
 		const showCompose = composeState.isOpen && !selectedThread;
 		if (selectedThread) {
