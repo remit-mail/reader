@@ -1,24 +1,22 @@
 import { inspect } from "node:util";
-import { createLogger, type Logger } from "@remit/remit-logger-lambda";
+import {
+	createLogger,
+	type Logger,
+	withTelemetry,
+} from "@remit/remit-logger-lambda";
 import type { VectorRecord } from "@remit/search-service";
-import type {
-	Context,
-	SQSBatchResponse,
-	SQSEvent,
-	SQSHandler,
-	SQSRecord,
-} from "aws-lambda";
+import type { SQSBatchResponse, SQSEvent, SQSRecord } from "aws-lambda";
 import { type ParsedQueueMessage, parseQueueMessage } from "./parse.js";
 import { getServices, type Services } from "./services.js";
 
-export const handler: SQSHandler = async (
-	event: SQSEvent,
-	context: Context,
-): Promise<SQSBatchResponse> => {
-	const log = createLogger(context);
-	const services = getServices();
-	return processBatch(event.Records, services, log);
-};
+const log = createLogger();
+
+export const handler = withTelemetry(
+	async (event: SQSEvent): Promise<SQSBatchResponse> => {
+		const services = getServices();
+		return processBatch(event.Records, services, log);
+	},
+);
 
 type AccountGroup = {
 	records: VectorRecord[];
@@ -38,10 +36,10 @@ export const processBatch = async (
 		try {
 			message = parseQueueMessage(record.body);
 		} catch (error) {
-			log.error(
-				{ error: inspect(error), messageId: record.messageId },
-				"Failed to parse message",
-			);
+			log.error("Failed to parse message", {
+				error: inspect(error),
+				messageId: record.messageId,
+			});
 			batchItemFailures.push({ itemIdentifier: record.messageId });
 			continue;
 		}
@@ -49,12 +47,12 @@ export const processBatch = async (
 		if (message.kind === "delete") {
 			try {
 				await services.searchService.delete(message.messageId);
-				log.info({ messageId: message.messageId }, "Deleted search vectors");
+				log.info("Deleted search vectors", { messageId: message.messageId });
 			} catch (error) {
-				log.error(
-					{ error: inspect(error), messageId: message.messageId },
-					"Delete failed",
-				);
+				log.error("Delete failed", {
+					error: inspect(error),
+					messageId: message.messageId,
+				});
 				batchItemFailures.push({ itemIdentifier: record.messageId });
 			}
 			continue;
@@ -78,10 +76,10 @@ export const processBatch = async (
 			group.sqsMessageIds.push(record.messageId);
 			accountGroups.set(message.accountId, group);
 		} catch (error) {
-			log.error(
-				{ error: inspect(error), messageId: message.messageId },
-				"Preparation failed",
-			);
+			log.error("Preparation failed", {
+				error: inspect(error),
+				messageId: message.messageId,
+			});
 			batchItemFailures.push({ itemIdentifier: record.messageId });
 		}
 	}
@@ -89,12 +87,12 @@ export const processBatch = async (
 	for (const [accountId, group] of accountGroups) {
 		try {
 			await services.searchService.upsertVectors(group.records);
-			log.info(
-				{ accountId, count: group.records.length },
-				"Bulk upsert complete",
-			);
+			log.info("Bulk upsert complete", {
+				accountId,
+				count: group.records.length,
+			});
 		} catch (error) {
-			log.error({ error: inspect(error), accountId }, "Bulk upsert failed");
+			log.error("Bulk upsert failed", { error: inspect(error), accountId });
 			for (const sqsMessageId of group.sqsMessageIds) {
 				batchItemFailures.push({ itemIdentifier: sqsMessageId });
 			}
@@ -120,20 +118,21 @@ const prepareUpsert = async (
 	try {
 		const account = await accountService.get(accountId);
 		if (account.deletedAt) {
-			log.info(
-				{ accountId, messageId, deletedAt: account.deletedAt },
-				"Account deleted, skipping",
-			);
+			log.info("Account deleted, skipping", {
+				accountId,
+				messageId,
+				deletedAt: account.deletedAt,
+			});
 			return null;
 		}
 	} catch {
-		log.info({ accountId, messageId }, "Account not found, skipping");
+		log.info("Account not found, skipping", { accountId, messageId });
 		return null;
 	}
 
 	const threadMessage = await threadMessageService.findByMessageId(messageId);
 	if (!threadMessage) {
-		log.info({ messageId }, "ThreadMessage not found, skipping");
+		log.info("ThreadMessage not found, skipping", { messageId });
 		return null;
 	}
 
@@ -143,7 +142,7 @@ const prepareUpsert = async (
 		messageId,
 	);
 	if (!parsedBody) {
-		log.info({ messageId }, "Parsed body not found in S3, skipping");
+		log.info("Parsed body not found in S3, skipping", { messageId });
 		return null;
 	}
 
