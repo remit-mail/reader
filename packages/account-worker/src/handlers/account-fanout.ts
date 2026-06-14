@@ -1,16 +1,14 @@
-import { inspect } from "node:util";
 import {
 	AdminUserGlobalSignOutCommand,
 	type CognitoIdentityProviderClient,
 } from "@aws-sdk/client-cognito-identity-provider";
 import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
-import { createLogger, type Logger } from "@remit/logger-lambda";
-import type {
-	Context,
-	SQSBatchResponse,
-	SQSEvent,
-	SQSHandler,
-} from "aws-lambda";
+import {
+	createLogger,
+	type Logger,
+	withTelemetry,
+} from "@remit/logger-lambda";
+import type { SQSBatchResponse, SQSEvent, SQSHandler } from "aws-lambda";
 import type { CascadeServices } from "../cascade.js";
 import { enumerateCascadeEntities } from "../cascade.js";
 import {
@@ -147,33 +145,33 @@ const defaultDeps = (): ProcessAccountFanoutDeps => ({
 	accountFinalizeQueueUrl: getAccountFinalizeQueueUrl(),
 });
 
-export const handler: SQSHandler = async (
-	event: SQSEvent,
-	context: Context,
-): Promise<SQSBatchResponse> => {
-	const log = createLogger(context);
-	const batchItemFailures: { itemIdentifier: string }[] = [];
+const log = createLogger();
 
-	for (const record of event.Records) {
-		try {
-			const fanoutEvent: AccountFanoutEvent = JSON.parse(record.body);
-			log.info(
-				{
-					eventType: fanoutEvent.type,
-					accountConfigId: fanoutEvent.accountConfigId,
-				},
-				"Processing account fanout event",
-			);
+export const handler: SQSHandler = withTelemetry(
+	async (event: SQSEvent): Promise<SQSBatchResponse> => {
+		const batchItemFailures: { itemIdentifier: string }[] = [];
 
-			await processAccountFanout(fanoutEvent, log);
-		} catch (error) {
-			log.error(
-				{ error: inspect(error), messageId: record.messageId },
-				"Account fanout event processing failed",
-			);
-			batchItemFailures.push({ itemIdentifier: record.messageId });
+		for (const record of event.Records) {
+			try {
+				const fanoutEvent: AccountFanoutEvent = JSON.parse(record.body);
+				log.info(
+					{
+						eventType: fanoutEvent.type,
+						accountConfigId: fanoutEvent.accountConfigId,
+					},
+					"Processing account fanout event",
+				);
+
+				await processAccountFanout(fanoutEvent, log);
+			} catch (error) {
+				log.error(
+					{ error, messageId: record.messageId },
+					"Account fanout event processing failed",
+				);
+				batchItemFailures.push({ itemIdentifier: record.messageId });
+			}
 		}
-	}
 
-	return { batchItemFailures };
-};
+		return { batchItemFailures };
+	},
+);
