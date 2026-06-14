@@ -34,10 +34,9 @@ interface ConversationViewProps {
 	 */
 	onOpenIntelligence?: () => void;
 	/**
-	 * Mobile callers pass `onBack` so the action bar at the bottom of
-	 * the conversation can render a Back button alongside Reply / Reply
-	 * all / Forward. Desktop callers omit it — the message list is
-	 * always visible in the resizable side pane.
+	 * Mobile callers pass `onBack` to render a sticky Back button at the
+	 * bottom of the conversation. Desktop callers omit it — the message
+	 * list is always visible in the resizable side pane.
 	 */
 	onBack?: () => void;
 	/**
@@ -69,85 +68,6 @@ const LoadingSkeleton = () => (
 					</div>
 				</div>
 			))}
-		</div>
-	</div>
-);
-
-interface ActionBarProps {
-	onReply: () => void;
-	onReplyAll: () => void;
-	onForward: () => void;
-	disabled?: boolean;
-	/**
-	 * When provided, renders a leading Back chip (mobile callers pass
-	 * this to dismiss the thread back to the message list). Desktop
-	 * omits it — the message list is always visible in a side pane.
-	 */
-	onBack?: () => void;
-}
-
-const ActionBar = ({
-	onReply,
-	onReplyAll,
-	onForward,
-	disabled,
-	onBack,
-}: ActionBarProps) => (
-	<div
-		className="sticky bottom-0 bg-canvas/95 backdrop-blur supports-[backdrop-filter]:bg-canvas/80 border-t border-line px-4 py-3"
-		style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom, 0))" }}
-	>
-		{/* Narrow viewports (<640px) drop the text labels so all four
-		    actions stay on one row — without this Forward orphans onto
-		    a second row at phone widths. The lucide icons + aria-labels
-		    keep the controls accessible. */}
-		<div className="flex items-center gap-2">
-			{onBack && (
-				<button
-					type="button"
-					onClick={onBack}
-					className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 min-h-11 text-sm font-medium rounded-full border border-line hover:bg-surface-raised transition-colors"
-					aria-label="Back to messages"
-				>
-					<ArrowLeft className="size-4" />
-					<span className="hidden sm:inline">Back</span>
-				</button>
-			)}
-			<button
-				type="button"
-				onClick={onReply}
-				disabled={disabled}
-				aria-label="Reply"
-				className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 min-h-11 text-sm font-medium rounded-full border border-line hover:bg-surface-raised transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-			>
-				<Reply className="size-4" />
-				<span className="hidden sm:inline">Reply</span>
-			</button>
-			<button
-				type="button"
-				onClick={onReplyAll}
-				disabled={disabled}
-				aria-label="Reply all"
-				className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 min-h-11 text-sm font-medium rounded-full border border-line hover:bg-surface-raised transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-			>
-				<ReplyAll className="size-4" />
-				<span className="hidden sm:inline">Reply all</span>
-			</button>
-			<button
-				type="button"
-				onClick={onForward}
-				disabled={disabled}
-				aria-label="Forward"
-				className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 min-h-11 text-sm font-medium rounded-full border border-line hover:bg-surface-raised transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-			>
-				<Forward className="size-4" />
-				<span className="hidden sm:inline">Forward</span>
-			</button>
-			{disabled && (
-				<span className="text-xs text-fg-muted ml-2 hidden sm:inline">
-					Configure SMTP to send mail
-				</span>
-			)}
 		</div>
 	</div>
 );
@@ -191,6 +111,85 @@ function AuthenticityBanner({
 		</div>
 	);
 }
+
+/**
+ * Mobile-only sticky footer. Desktop surfaces reply / reply-all / forward in
+ * the top `MessageToolbar`, but that toolbar is not rendered on mobile, so the
+ * touch reply affordances live here alongside the Back chip. Narrow viewports
+ * drop the text labels so all four controls stay on one row.
+ */
+interface MobileActionBarProps {
+	onBack?: () => void;
+	onReply: () => void;
+	onReplyAll: () => void;
+	onForward: () => void;
+	disabled?: boolean;
+}
+
+const mobileActionChip =
+	"inline-flex items-center gap-2 px-3 sm:px-4 py-2 min-h-11 text-sm font-medium rounded-full border border-line hover:bg-surface-raised transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
+
+const MobileActionBar = ({
+	onBack,
+	onReply,
+	onReplyAll,
+	onForward,
+	disabled,
+}: MobileActionBarProps) => (
+	<div
+		className="sticky bottom-0 bg-canvas/95 backdrop-blur supports-[backdrop-filter]:bg-canvas/80 border-t border-line px-4 py-3"
+		style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom, 0))" }}
+	>
+		<div className="flex items-center gap-2">
+			{onBack && (
+				<button
+					type="button"
+					onClick={onBack}
+					className={mobileActionChip}
+					aria-label="Back to messages"
+				>
+					<ArrowLeft className="size-4" />
+					<span className="hidden sm:inline">Back</span>
+				</button>
+			)}
+			<button
+				type="button"
+				onClick={onReply}
+				disabled={disabled}
+				aria-label="Reply"
+				className={mobileActionChip}
+			>
+				<Reply className="size-4" />
+				<span className="hidden sm:inline">Reply</span>
+			</button>
+			<button
+				type="button"
+				onClick={onReplyAll}
+				disabled={disabled}
+				aria-label="Reply all"
+				className={mobileActionChip}
+			>
+				<ReplyAll className="size-4" />
+				<span className="hidden sm:inline">Reply all</span>
+			</button>
+			<button
+				type="button"
+				onClick={onForward}
+				disabled={disabled}
+				aria-label="Forward"
+				className={mobileActionChip}
+			>
+				<Forward className="size-4" />
+				<span className="hidden sm:inline">Forward</span>
+			</button>
+			{disabled && (
+				<span className="text-xs text-fg-muted ml-2 hidden sm:inline">
+					Configure SMTP to send mail
+				</span>
+			)}
+		</div>
+	</div>
+);
 
 export const ConversationView = ({
 	threadId,
@@ -311,7 +310,7 @@ export const ConversationView = ({
 
 	// Compose state for inline reply/forward.
 	// Controlled via the `composeRequest` prop (toolbar wire-up) or
-	// locally via the bottom ActionBar buttons.
+	// locally via r/a/f keyboard shortcuts.
 	const [composeMode, setComposeMode] = useState<ComposeMode | null>(null);
 
 	// When the toolbar passes a composeRequest, open the inline compose.
@@ -441,12 +440,13 @@ export const ConversationView = ({
 		</header>
 	);
 
-	// Mobile: a single scroll surface for messages, with the in-pane
-	// ActionBar at the bottom. The subject header is intentionally
-	// omitted — the user just clicked a row that showed the subject,
-	// and the global top bar already shows the inbox name. When inline
-	// compose opens it replaces the ActionBar and sticks to the bottom
-	// of the scroll surface.
+	// Mobile: a single scroll surface for messages. The subject header is
+	// intentionally omitted — the user just clicked a row that showed the
+	// subject, and the global top bar already shows the inbox name. The sticky
+	// footer carries Back plus reply / reply-all / forward, the sole touch
+	// affordance for those actions on mobile (the top `MessageToolbar` that
+	// hosts them on desktop is not rendered here). When inline compose opens it
+	// replaces the footer and attaches to the bottom of the scroll surface.
 	if (!isDesktop) {
 		return (
 			<article className="h-full flex flex-col">
@@ -466,7 +466,7 @@ export const ConversationView = ({
 						onClose={handleCloseCompose}
 					/>
 				) : (
-					<ActionBar
+					<MobileActionBar
 						onBack={onBack}
 						onReply={handleReply}
 						onReplyAll={handleReplyAll}
@@ -488,19 +488,12 @@ export const ConversationView = ({
 				/>
 			)}
 			<div className="flex-1 overflow-auto">{messagesList}</div>
-			{composeMode !== null ? (
+			{composeMode !== null && (
 				<InlineCompose
 					mode={composeMode}
 					account={activeAccount}
 					sourceMessage={lastMessageData}
 					onClose={handleCloseCompose}
-				/>
-			) : (
-				<ActionBar
-					onReply={handleReply}
-					onReplyAll={handleReplyAll}
-					onForward={handleForward}
-					disabled={!smtpConfigured}
 				/>
 			)}
 		</article>
