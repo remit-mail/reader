@@ -13,11 +13,9 @@ import {
 	ChevronDown,
 	ChevronRight,
 	Send,
-	Settings,
 	Sparkles,
 } from "lucide-react";
 import { useMemo, useState } from "react";
-import { SignOutMenuItem } from "@/auth/SignOutMenuItem";
 import { ErrorState } from "@/components/ui/ErrorState";
 import {
 	isFolderSectionCollapsed,
@@ -42,10 +40,9 @@ interface MailSidebarProps {
 	 */
 	onMailboxSelect?: () => void;
 	/**
-	 * Drawer (mobile) variant renders the nav body only, leaving the host
-	 * drawer to supply its own footer. Desktop renders the full
-	 * Apple-Mail-style sidebar: nav body that fills, plus a Settings +
-	 * sign-out footer pinned to the bottom (#422).
+	 * Drawer (mobile) variant renders the nav body only. Desktop renders
+	 * the full Apple-Mail-style sidebar: nav body that fills. Account
+	 * identity and sign-out are in the top-right AccountMenu (#649).
 	 */
 	variant?: "desktop" | "drawer";
 }
@@ -331,18 +328,15 @@ const DailyBriefLink = ({ onSelect }: SelectableProps) => {
  * Pane 1 of the 4-pane shell: the navigation sidebar. Apple-Mail-style —
  * no toolbar, nav content starts at the top of the pane; the pane's
  * full-height right hairline anchors the datum line of the panes beside
- * it (#422). "Daily brief" first, then accounts with their mailboxes,
- * Settings + sign-out in the footer. No compose button squats here —
- * compose lives as the ✎ icon in the message toolbar.
+ * it (#422). "Daily brief" first, then accounts with their mailboxes.
+ * Account identity and sign-out live in the top-right AccountMenu (#649).
+ * No compose button squats here — compose lives as the ✎ icon in the message toolbar.
  */
 export const MailSidebar = ({
 	accounts,
 	onMailboxSelect,
 	variant = "desktop",
 }: MailSidebarProps) => {
-	const location = useLocation();
-	const settingsSelected = location.pathname.startsWith("/settings");
-
 	const navBody = (
 		<nav className="flex-1 overflow-y-auto py-2" aria-label="Mailboxes">
 			<DailyBriefLink onSelect={onMailboxSelect} />
@@ -362,8 +356,6 @@ export const MailSidebar = ({
 		</nav>
 	);
 
-	// Drawer (mobile) hosts its own footer (sign-out) — render the nav body
-	// only so the existing drawer plumbing is untouched.
 	if (variant === "drawer") {
 		return navBody;
 	}
@@ -371,22 +363,6 @@ export const MailSidebar = ({
 	return (
 		<aside className="flex h-full w-full flex-col bg-surface-sunken">
 			{navBody}
-			<div className="border-t border-line px-2 py-2">
-				<Link
-					to="/settings/accounts"
-					onClick={() => onMailboxSelect?.()}
-					className={cn(
-						"flex w-full items-center gap-2 rounded-md px-2 py-1 text-sm transition-colors",
-						settingsSelected
-							? "bg-accent-2-soft font-medium text-accent-2"
-							: "text-fg-muted hover:bg-surface hover:text-fg",
-					)}
-				>
-					<Settings className="size-4 shrink-0" />
-					<span className="flex-1 truncate text-left">Settings</span>
-				</Link>
-				<SignOutMenuItem variant="drawer" showEmail />
-			</div>
 		</aside>
 	);
 };
