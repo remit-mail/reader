@@ -170,18 +170,21 @@ export function StepAddress({
 
 export function StepServers({
 	detected = true,
+	preset = false,
 	onBack,
 	onNext,
-}: { detected?: boolean } & StepNav) {
+}: { detected?: boolean; preset?: boolean } & StepNav) {
 	return (
 		<WizardShell
 			steps={steps}
 			activeStep={2}
 			title="Confirm server settings"
 			subtitle={
-				detected
-					? "Found via autodiscovery — adjust anything that looks off."
-					: "We couldn't detect settings for example.com — enter them manually."
+				preset
+					? "Pick your provider to fill in the right settings — or choose Custom to enter them by hand."
+					: detected
+						? "Found via autodiscovery — adjust anything that looks off."
+						: "We couldn't detect settings for example.com — enter them manually."
 			}
 			footer={
 				<>
@@ -195,22 +198,50 @@ export function StepServers({
 			}
 		>
 			<div className="space-y-5">
+				{preset && (
+					<div>
+						<FieldLabel>Provider</FieldLabel>
+						<Select defaultValue="icloud">
+							<option value="">Custom / other</option>
+							<option value="icloud">iCloud</option>
+							<option value="yahoo">Yahoo</option>
+							<option value="aol">AOL</option>
+							<option value="fastmail">Fastmail</option>
+						</Select>
+						<p className="mt-1 text-2xs text-fg-subtle">
+							Server settings are pre-filled for iCloud and locked. Choose
+							Advanced to edit them by hand.
+						</p>
+					</div>
+				)}
 				<fieldset>
 					<legend className="flex items-center gap-2 text-sm font-semibold text-fg">
 						IMAP — incoming
-						{detected && <Badge tone="positive">detected</Badge>}
+						{preset && <Badge tone="neutral">preset</Badge>}
+						{!preset && detected && <Badge tone="positive">detected</Badge>}
 					</legend>
 					<div className="mt-2 grid grid-cols-[1fr_6rem_8rem] gap-2">
 						<div>
 							<FieldLabel>Host</FieldLabel>
 							<Input
-								defaultValue={detected ? "imap.fastmail.example" : ""}
+								readOnly={preset}
+								defaultValue={
+									preset
+										? "imap.mail.me.com"
+										: detected
+											? "imap.fastmail.example"
+											: ""
+								}
 								placeholder="imap.example.com"
 							/>
 						</div>
 						<div>
 							<FieldLabel>Port</FieldLabel>
-							<Input defaultValue={detected ? "993" : ""} placeholder="993" />
+							<Input
+								readOnly={preset}
+								defaultValue={preset ? "993" : detected ? "993" : ""}
+								placeholder="993"
+							/>
 						</div>
 						<div>
 							<FieldLabel>Security</FieldLabel>
@@ -222,19 +253,31 @@ export function StepServers({
 				<fieldset>
 					<legend className="flex items-center gap-2 text-sm font-semibold text-fg">
 						SMTP — outgoing
-						{detected && <Badge tone="positive">detected</Badge>}
+						{preset && <Badge tone="neutral">preset</Badge>}
+						{!preset && detected && <Badge tone="positive">detected</Badge>}
 					</legend>
 					<div className="mt-2 grid grid-cols-[1fr_6rem_8rem] gap-2">
 						<div>
 							<FieldLabel>Host</FieldLabel>
 							<Input
-								defaultValue={detected ? "smtp.fastmail.example" : ""}
+								readOnly={preset}
+								defaultValue={
+									preset
+										? "smtp.mail.me.com"
+										: detected
+											? "smtp.fastmail.example"
+											: ""
+								}
 								placeholder="smtp.example.com"
 							/>
 						</div>
 						<div>
 							<FieldLabel>Port</FieldLabel>
-							<Input defaultValue={detected ? "587" : ""} placeholder="587" />
+							<Input
+								readOnly={preset}
+								defaultValue={preset ? "587" : detected ? "587" : ""}
+								placeholder="587"
+							/>
 						</div>
 						<div>
 							<FieldLabel>Security</FieldLabel>
@@ -243,6 +286,18 @@ export function StepServers({
 						</div>
 					</div>
 				</fieldset>
+				{preset && (
+					<p className="text-2xs text-fg-subtle">
+						iCloud requires an app-specific password, not your Apple ID
+						password.{" "}
+						<a
+							href="https://support.apple.com/en-us/102654"
+							className="text-accent underline"
+						>
+							Get an app password
+						</a>
+					</p>
+				)}
 			</div>
 		</WizardShell>
 	);
