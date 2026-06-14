@@ -1,11 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { fetchAuthSession } from "aws-amplify/auth";
+import { useEffect, useRef } from "react";
 import { isCognitoConfigured } from "@/auth/amplify-config";
 import {
 	type BodyContentKind,
 	pickRenderablePart,
 	type RenderableBodyPart,
 } from "@/lib/message-body-source";
+import { useTelemetry } from "@/lib/telemetry-context";
 import { messageKeys } from "./queries/keys";
 
 export interface MessageBodyContent {
@@ -203,6 +205,9 @@ export const useMessageBodyContent = ({
 	enabled = true,
 }: UseMessageBodyContentOptions) => {
 	const picked = bodyParts ? pickRenderablePart(bodyParts) : null;
+	const telemetry = useTelemetry();
+	const loadStartRef = useRef<number | null>(null);
+
 	const query = useQuery({
 		queryKey: messageId
 			? [...messageKeys.body(messageId), picked?.contentUrl ?? null]
@@ -216,13 +221,31 @@ export const useMessageBodyContent = ({
 		gcTime: 30 * 60 * 1000,
 	});
 
+	const isLoading = query.isLoading && !!picked;
+
+	useEffect(() => {
+		if (isLoading) {
+			loadStartRef.current = performance.now();
+		}
+	}, [isLoading]);
+
+	useEffect(() => {
+		if (query.isSuccess && loadStartRef.current !== null) {
+			telemetry.recordTiming(
+				"message.body.load",
+				Math.round(performance.now() - loadStartRef.current),
+			);
+			loadStartRef.current = null;
+		}
+	}, [query.isSuccess, telemetry]);
+
 	const data: MessageBodyContent | undefined =
 		query.data && picked ? { kind: picked.kind, body: query.data } : undefined;
 
 	return {
 		picked,
 		data,
-		isLoading: query.isLoading && !!picked,
+		isLoading,
 		isError: query.isError,
 		error: query.error,
 		refetch: query.refetch,

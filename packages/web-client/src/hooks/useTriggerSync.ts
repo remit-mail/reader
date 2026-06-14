@@ -3,6 +3,7 @@ import {
 	syncOperationsTriggerSyncMutation,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useTelemetry } from "@/lib/telemetry-context";
 
 interface UseTriggerSyncResult {
 	trigger: () => void;
@@ -33,10 +34,12 @@ export const buildMailboxListKey = (accountId: string) =>
  */
 export const useTriggerSync = (accountId: string): UseTriggerSyncResult => {
 	const queryClient = useQueryClient();
+	const telemetry = useTelemetry();
 
 	const mutation = useMutation({
 		...syncOperationsTriggerSyncMutation(),
 		onSuccess: () => {
+			telemetry.recordEvent("sync.triggered");
 			queryClient.invalidateQueries({
 				queryKey: buildMailboxListKey(accountId),
 			});
