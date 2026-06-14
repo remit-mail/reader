@@ -591,6 +591,12 @@ model TestConnectionResponse {
   smtpError?: string;
 }
 
+@doc("Input for DELETE /me — requires the caller to confirm their email address")
+model DeleteMeInput {
+  @doc("Must match the caller's Cognito email claim (case-insensitive)")
+  confirmEmail: string;
+}
+
 @doc("Response for DELETE /me (account erasure request)")
 model DeleteAccountConfigResponse {
   @statusCode statusCode: 202;

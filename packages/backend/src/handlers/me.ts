@@ -1,6 +1,8 @@
 import { SendMessageCommand } from "@aws-sdk/client-sqs";
+import { BadRequestError } from "@remit/remit-electrodb-service";
 import type {
 	DeleteAccountConfigResponse,
+	DeleteMeInput,
 	VipSuggestionsResponse,
 } from "@remit/api-openapi-types";
 import type { APIGatewayProxyEvent } from "aws-lambda";
@@ -35,6 +37,27 @@ export const MeOperations: Record<
 	): Promise<DeleteAccountConfigResponse> => {
 		const event = args[0] as APIGatewayProxyEvent;
 		const accountConfigId = getAccountConfigIdFromEvent(event);
+
+		const { confirmEmail } = JSON.parse(
+			event.body ?? "{}",
+		) as Partial<DeleteMeInput>;
+		const callerEmail = event.requestContext?.authorizer?.claims?.email as
+			| string
+			| undefined;
+
+		if (typeof confirmEmail !== "string" || confirmEmail.trim() === "") {
+			throw new BadRequestError("confirmEmail is required");
+		}
+
+		if (!callerEmail) {
+			throw new BadRequestError("Account email claim missing from token");
+		}
+
+		if (confirmEmail.toLowerCase() !== callerEmail.toLowerCase()) {
+			throw new BadRequestError(
+				"confirmEmail does not match your account email",
+			);
+		}
 
 		const { accountConfig } = getClient();
 
