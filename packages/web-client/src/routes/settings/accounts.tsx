@@ -18,6 +18,7 @@ import { useEffect, useState } from "react";
 import { z } from "zod";
 import { OnboardingWizard } from "@/components/onboarding/OnboardingWizard";
 import { AccountFormPanel } from "@/components/settings/AccountFormPanel";
+import { DangerZone } from "@/components/settings/DangerZone";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { SlidePanel } from "@/components/ui/SlidePanel";
 import { formatRelativeTime } from "@/lib/format";
@@ -528,6 +529,8 @@ function AccountsSettings() {
 					</div>
 				</div>
 			</SlidePanel>
+
+			<DangerZone />
 		</SettingsShell>
 	);
 }

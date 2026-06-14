@@ -33,6 +33,7 @@ export {
 	type CardProps,
 	CardTitle,
 } from "./components/card.js";
+export { Dialog, type DialogProps } from "./components/dialog.js";
 export { Input, type InputProps } from "./components/input.js";
 export {
 	type AuthenticityIntel,
