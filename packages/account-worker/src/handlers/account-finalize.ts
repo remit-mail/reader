@@ -3,8 +3,12 @@ import { CloudFrontClient } from "@aws-sdk/client-cloudfront";
 import { S3Client } from "@aws-sdk/client-s3";
 import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 import { NotFoundError } from "@remit/remit-electrodb-service";
-import { createLogger, type Logger } from "@remit/logger-lambda";
-import type { Context, SQSEvent, SQSHandler } from "aws-lambda";
+import {
+	createLogger,
+	type Logger,
+	withTelemetry,
+} from "@remit/logger-lambda";
+import type { SQSEvent, SQSHandler } from "aws-lambda";
 import {
 	type CascadeEntity,
 	type CascadeServices,
@@ -346,11 +350,9 @@ export const processAccountDataPurgeFinalize = async (
 
 // ---------- SQS handler ----------
 
-export const handler: SQSHandler = async (
-	event: SQSEvent,
-	context: Context,
-) => {
-	const log = createLogger(context);
+const log = createLogger();
+
+export const handler: SQSHandler = withTelemetry(async (event: SQSEvent) => {
 	const batchItemFailures: { itemIdentifier: string }[] = [];
 
 	for (const record of event.Records) {
@@ -378,6 +380,6 @@ export const handler: SQSHandler = async (
 	}
 
 	return { batchItemFailures };
-};
+});
 
 export const finalizeHandler: SQSHandler = handler;
