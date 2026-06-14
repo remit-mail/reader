@@ -32,6 +32,7 @@ export const processBatch = async (
 ): Promise<SQSBatchResponse> => {
 	const batchItemFailures: { itemIdentifier: string }[] = [];
 	const accountGroups = new Map<string, AccountGroup>();
+	const processingStart = Date.now();
 
 	for (const record of records) {
 		let message: ParsedQueueMessage;
@@ -61,9 +62,6 @@ export const processBatch = async (
 			}
 			continue;
 		}
-
-		const lagMs = Date.now() - message.eventTimestamp;
-		metrics.addMetric("searchIndexLag", MetricUnit.Milliseconds, lagMs);
 
 		try {
 			const vectorRecords = await prepareUpsert(
@@ -112,6 +110,12 @@ export const processBatch = async (
 			}
 		}
 	}
+
+	metrics.addMetric(
+		"searchIndexProcessingDuration",
+		MetricUnit.Milliseconds,
+		Date.now() - processingStart,
+	);
 
 	return { batchItemFailures };
 };
