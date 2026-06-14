@@ -61,20 +61,13 @@ test.describe("Thread viewing", () => {
 		await messageLink.click();
 		await page.waitForURL(/selectedMessageId=/);
 
-		const article = page.getByRole("article");
-		await expect(article).toBeVisible({ timeout: 10_000 });
+		await expect(page.getByRole("article")).toBeVisible({ timeout: 10_000 });
 
-		const replyButton = article.getByRole("button", {
-			name: "Reply",
-			exact: true,
-		});
-		const replyAllButton = article.getByRole("button", {
-			name: "Reply all",
-		});
-		const forwardButton = article.getByRole("button", { name: "Forward" });
-
-		await expect(replyButton).toBeVisible();
-		await expect(replyAllButton).toBeVisible();
-		await expect(forwardButton).toBeVisible();
+		// Reply / Reply all / Forward live in the MessageToolbar header, not the article.
+		await expect(
+			page.getByRole("button", { name: "Reply", exact: true }),
+		).toBeVisible();
+		await expect(page.getByRole("button", { name: "Reply all" })).toBeVisible();
+		await expect(page.getByRole("button", { name: "Forward" })).toBeVisible();
 	});
 });
