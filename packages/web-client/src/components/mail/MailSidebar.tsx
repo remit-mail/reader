@@ -20,6 +20,10 @@ import { useMemo, useState } from "react";
 import { SignOutMenuItem } from "@/auth/SignOutMenuItem";
 import { ErrorState } from "@/components/ui/ErrorState";
 import {
+	isFolderSectionCollapsed,
+	setFolderSectionCollapsed,
+} from "@/lib/folder-section-state";
+import {
 	filterDuplicateSpecialUse,
 	getMailboxDisplayName as getDisplayName,
 	getMailboxPriority,
@@ -139,6 +143,20 @@ const AccountSection = ({
 }: { account: RemitImapAccountResponse } & SelectableProps) => {
 	const [expanded, setExpanded] = useState(true);
 	const [labelsExpanded, setLabelsExpanded] = useState(false);
+	// Custom-folders section collapse persists per account (#643): an account
+	// with many folders shouldn't keep pushing the system block out of view on
+	// every reload. Lazy-init from storage so the first paint matches the
+	// stored choice. Folders open = section not collapsed.
+	const [foldersOpen, setFoldersOpen] = useState(
+		() => !isFolderSectionCollapsed(account.accountId),
+	);
+	const toggleFolders = () => {
+		setFoldersOpen((open) => {
+			const next = !open;
+			setFolderSectionCollapsed(account.accountId, !next);
+			return next;
+		});
+	};
 	const params = useParams({ strict: false });
 	const selectedMailboxId = params.mailboxId as string | undefined;
 	// Account-level mute (#433): the whole account is excluded from unified
@@ -218,43 +236,58 @@ const AccountSection = ({
 							{labels.length > 0 && (
 								<>
 									<div className="my-2 mx-3 border-t border-line" />
-									<div className="px-2 py-1 text-2xs font-semibold text-fg-subtle uppercase tracking-wider">
-										Labels
-									</div>
-									<div className="space-y-0.5">
-										{(labelsExpanded
-											? labels
-											: labels.slice(0, MAX_VISIBLE_LABELS)
-										).map((mailbox) => (
-											<MailboxItem
-												key={mailbox.mailboxId}
-												mailbox={mailbox}
-												isSelected={selectedMailboxId === mailbox.mailboxId}
-												onSelect={onSelect}
-											/>
-										))}
-										{labels.length > MAX_VISIBLE_LABELS && (
-											<button
-												type="button"
-												onClick={() => setLabelsExpanded(!labelsExpanded)}
-												className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-raised rounded-md transition-colors"
-											>
-												{labelsExpanded ? (
-													<>
-														<ChevronDown className="size-4 shrink-0" />
-														<span>Less</span>
-													</>
-												) : (
-													<>
-														<ChevronRight className="size-4 shrink-0" />
-														<span>
-															More ({labels.length - MAX_VISIBLE_LABELS})
-														</span>
-													</>
-												)}
-											</button>
+									<button
+										type="button"
+										onClick={toggleFolders}
+										aria-expanded={foldersOpen}
+										className="w-full flex items-center gap-1 px-2 py-1 text-2xs font-semibold text-fg-subtle uppercase tracking-wider hover:text-fg transition-colors"
+									>
+										{foldersOpen ? (
+											<ChevronDown className="h-3 w-3 shrink-0" />
+										) : (
+											<ChevronRight className="h-3 w-3 shrink-0" />
 										)}
-									</div>
+										<span className="flex-1 text-left">Labels</span>
+										<span className="tabular-nums opacity-70">
+											{labels.length}
+										</span>
+									</button>
+									{foldersOpen && (
+										<div className="space-y-0.5">
+											{(labelsExpanded
+												? labels
+												: labels.slice(0, MAX_VISIBLE_LABELS)
+											).map((mailbox) => (
+												<MailboxItem
+													key={mailbox.mailboxId}
+													mailbox={mailbox}
+													isSelected={selectedMailboxId === mailbox.mailboxId}
+													onSelect={onSelect}
+												/>
+											))}
+											{labels.length > MAX_VISIBLE_LABELS && (
+												<button
+													type="button"
+													onClick={() => setLabelsExpanded(!labelsExpanded)}
+													className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-raised rounded-md transition-colors"
+												>
+													{labelsExpanded ? (
+														<>
+															<ChevronDown className="size-4 shrink-0" />
+															<span>Less</span>
+														</>
+													) : (
+														<>
+															<ChevronRight className="size-4 shrink-0" />
+															<span>
+																More ({labels.length - MAX_VISIBLE_LABELS})
+															</span>
+														</>
+													)}
+												</button>
+											)}
+										</div>
+									)}
 								</>
 							)}
 						</>
