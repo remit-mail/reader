@@ -5,6 +5,7 @@ import {
 	SenderTrust,
 	StarColor,
 } from "@remit/domain-enums";
+import { logger } from "@remit/logger-lambda";
 import type {
 	BodyPartResponse,
 	EnvelopeAddressResponse,
@@ -23,7 +24,6 @@ import {
 	getContentDeliveryDomain,
 } from "../derive/contentUrl.js";
 import { deriveSenderTrust } from "../derive/senderTrust.js";
-import { logger } from "../logger.js";
 import { getClient } from "../service/dynamodb.js";
 import type {
 	MessageBulkOperationIds,

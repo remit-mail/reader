@@ -1,5 +1,6 @@
 import { SendMessageCommand } from "@aws-sdk/client-sqs";
 import { BadRequestError } from "@remit/remit-electrodb-service";
+import { logger } from "@remit/logger-lambda";
 import type {
 	DeleteAccountConfigResponse,
 	DeleteMeInput,
@@ -9,7 +10,6 @@ import type { APIGatewayProxyEvent } from "aws-lambda";
 import { env } from "expect-env";
 import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent } from "../auth.js";
-import { logger } from "../logger.js";
 import { getClient } from "../service/dynamodb.js";
 import { sqsClient } from "../service/sqs.js";
 import type { MeOperationIds, OperationHandler } from "../types.js";

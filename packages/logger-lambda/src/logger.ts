@@ -79,9 +79,11 @@ const createAdapter = (target: PowertoolsLogger): Logger => ({
 	},
 });
 
-export const logger = new PowertoolsLogger({
+const powertoolsLogger = new PowertoolsLogger({
 	serviceName: process.env.POWERTOOLS_SERVICE_NAME ?? "remit",
 });
+
+export const logger: Logger = createAdapter(powertoolsLogger);
 
 export const metrics = new Metrics({
 	namespace: process.env.POWERTOOLS_METRICS_NAMESPACE ?? "Remit",
@@ -89,13 +91,13 @@ export const metrics = new Metrics({
 });
 
 export const createLogger = (_context?: Context): Logger =>
-	createAdapter(logger);
+	createAdapter(powertoolsLogger);
 
 export const withTelemetry = <TEvent, TResult>(
 	handler: (event: TEvent, context: Context) => Promise<TResult>,
 ): ((event: TEvent, context: Context) => Promise<TResult>) => {
 	return async (event: TEvent, context: Context): Promise<TResult> => {
-		logger.addContext(context);
+		powertoolsLogger.addContext(context);
 		logger.info("Lambda invocation started", {
 			functionName: context.functionName,
 		});
@@ -114,7 +116,7 @@ export const withTelemetry = <TEvent, TResult>(
 			return result;
 		} catch (err) {
 			metrics.addMetric("errorCount", MetricUnit.Count, 1);
-			logger.error("Lambda invocation failed", { error: err });
+			logger.error("Lambda invocation failed", { error: String(err) });
 			throw err;
 		} finally {
 			metrics.publishStoredMetrics();

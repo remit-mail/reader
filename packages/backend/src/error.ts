@@ -1,5 +1,5 @@
+import { logger } from "@remit/logger-lambda";
 import type { APIGatewayProxyResult } from "aws-lambda";
-import { logger } from "./logger.js";
 import { formatResponse } from "./response.js";
 
 export const handleError = async (
