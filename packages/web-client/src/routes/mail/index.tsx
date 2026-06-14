@@ -6,16 +6,21 @@
  * mailbox behaviour with the three-section brief defined in
  * doc/design/flows/02-daily-brief.md and the Flows/DailyBrief stories.
  */
+import { unifiedThreadOperationsListAllThreadsOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import {
 	ResizableHandle,
 	ResizablePanel,
 	ResizablePanelGroup,
 } from "@remit/ui";
+import { useQuery } from "@tanstack/react-query";
 import {
 	createFileRoute,
 	type ErrorComponentProps,
+	useNavigate,
 } from "@tanstack/react-router";
+import { useCallback, useMemo } from "react";
 import { z } from "zod";
+import { ConversationView } from "@/components/mail/ConversationView";
 import { DailyBrief } from "@/components/mail/DailyBrief";
 import { MessageToolbar } from "@/components/mail/MessageToolbar";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -33,8 +38,12 @@ const MailIndexError = ({ error, reset }: ErrorComponentProps) => (
 	</div>
 );
 
+// `q` is inherited from the parent /mail route; re-declared here (like the
+// mailbox route) so it survives this route's own search validation and isn't
+// dropped when navigating with a functional search updater.
 const briefSearchSchema = z.object({
 	selectedMessageId: z.string().optional(),
+	q: z.string().optional(),
 });
 
 export const Route = createFileRoute("/mail/")({
@@ -45,6 +54,7 @@ export const Route = createFileRoute("/mail/")({
 
 function MailIndex() {
 	const { selectedMessageId } = Route.useSearch();
+	const navigate = useNavigate();
 	const {
 		accounts,
 		intelligenceOpen,
@@ -58,16 +68,58 @@ function MailIndex() {
 
 	const showIntelligence = intelligenceOpen && Boolean(selectedMessageId);
 
+	// The brief already fetches this; the query cache makes this free.
+	const { data: threadsData } = useQuery({
+		...unifiedThreadOperationsListAllThreadsOptions(),
+		staleTime: 60_000,
+	});
+
+	// Look up threadId + mailboxId for the selected message
+	const selectedThread = useMemo(() => {
+		if (!selectedMessageId) return undefined;
+		return threadsData?.items.find((t) => t.messageId === selectedMessageId);
+	}, [threadsData, selectedMessageId]);
+
+	const handleSelectMessage = useCallback(
+		(id: string) => {
+			navigate({
+				to: "/mail",
+				search: (prev) => ({ ...prev, selectedMessageId: id }),
+			});
+		},
+		[navigate],
+	);
+
+	const handleCloseThread = useCallback(() => {
+		navigate({
+			to: "/mail",
+			search: (prev) => ({ ...prev, selectedMessageId: undefined }),
+		});
+	}, [navigate]);
+
 	if (!isDesktop) {
+		if (selectedThread) {
+			return (
+				<ConversationView
+					threadId={selectedThread.threadId}
+					mailboxId={selectedThread.mailboxId}
+					subject={selectedThread.subject}
+					onBack={handleCloseThread}
+				/>
+			);
+		}
 		return (
 			<div className="h-full">
-				<DailyBrief accounts={accounts} selectedMessageId={selectedMessageId} />
+				<DailyBrief
+					accounts={accounts}
+					selectedMessageId={selectedMessageId}
+					onSelectMessage={handleSelectMessage}
+				/>
 			</div>
 		);
 	}
 
-	// Desktop: brief is pane 2 (list), reading pane 3 is empty (threads are
-	// opened in /mail/$mailboxId via BriefRow links).
+	// Desktop: brief is pane 2 (list), reading pane 3 shows the selected thread.
 	return (
 		<ResizablePanelGroup direction="horizontal">
 			<ResizablePanel
@@ -78,7 +130,11 @@ function MailIndex() {
 				maxSize={48}
 				className="min-w-0"
 			>
-				<DailyBrief accounts={accounts} selectedMessageId={selectedMessageId} />
+				<DailyBrief
+					accounts={accounts}
+					selectedMessageId={selectedMessageId}
+					onSelectMessage={handleSelectMessage}
+				/>
 			</ResizablePanel>
 			<ResizableHandle />
 			<ResizablePanel
@@ -89,7 +145,7 @@ function MailIndex() {
 			>
 				<section className="flex h-full w-full min-w-0 flex-col bg-canvas">
 					<MessageToolbar
-						hasThread={false}
+						hasThread={Boolean(selectedThread)}
 						onCompose={() => undefined}
 						intelligenceOpen={false}
 						showIntelligenceToggle={false}
@@ -99,8 +155,18 @@ function MailIndex() {
 						onSearchClear={onSearchClear}
 						onSearchClearQuery={onSearchClearQuery}
 					/>
-					<div className="min-h-0 flex-1 overflow-hidden flex items-center justify-center">
-						<EmptyState message="Select a thread to read" />
+					<div className="min-h-0 flex-1 overflow-hidden">
+						{selectedThread ? (
+							<ConversationView
+								threadId={selectedThread.threadId}
+								mailboxId={selectedThread.mailboxId}
+								subject={selectedThread.subject}
+							/>
+						) : (
+							<div className="flex h-full items-center justify-center">
+								<EmptyState message="Select a thread to read" />
+							</div>
+						)}
 					</div>
 				</section>
 			</ResizablePanel>

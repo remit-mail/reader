@@ -6,6 +6,11 @@
  * all sections to a single account; selection persists in sessionStorage
  * so it survives route navigation within the session.
  *
+ * The category-pill / attribute-chip / capped-collapsible list body is the
+ * shared `BriefSections` component from remit-ui — this file owns only the
+ * brief-specific wiring: data fetching, account chips, error/loading/empty
+ * states, search filtering, and a navigation-aware row.
+ *
  * Loading: skeleton rows on first paint, patch-in-place on refetch.
  * Error: per-section; the brief still renders other sections.
  * Empty: "You're caught up" message.
@@ -18,6 +23,8 @@ import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.
 import {
 	type AccountChip,
 	Avatar,
+	type BriefCategoryFilter,
+	BriefSections,
 	ComfortableRowTextContent,
 	cn,
 	comfortableRowClass,
@@ -25,7 +32,7 @@ import {
 	type ThreadSection,
 } from "@remit/ui";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { AlertCircle, RefreshCw, Sparkles } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { sortAccountsByCreatedAt } from "@/lib/account-order";
@@ -33,8 +40,10 @@ import {
 	buildBriefChips,
 	countMutedAccounts,
 	groupBriefSections,
+	matchesBriefSearch,
 	toThreadRowData,
 } from "@/lib/brief";
+import { useMailContext } from "@/lib/mail-context";
 
 const CHIP_STORAGE_KEY = "remit:brief-chip";
 
@@ -93,59 +102,51 @@ interface ErrorBannerProps {
 	accountId: string;
 }
 
-const ErrorBanner = ({ accountEmail }: ErrorBannerProps) => (
-	<div className="flex items-center gap-2 px-row-inset py-2 border-b border-line bg-danger-soft/40 text-xs text-danger">
-		<AlertCircle className="size-3.5 shrink-0" />
-		<span className="flex-1 truncate">{accountEmail} can't connect</span>
-		<Link
-			to="/settings/accounts"
-			className="shrink-0 underline text-danger hover:opacity-80"
-		>
-			Reconnect
-		</Link>
-	</div>
-);
-
-// ---------------------------------------------------------------------------
-// Brief row — links to the mailbox where the thread lives
-// ---------------------------------------------------------------------------
-
-interface BriefRowProps {
-	row: ThreadRowData;
-	mailboxId: string;
-	isSelected: boolean;
-}
-
-const BriefRow = ({ row, mailboxId, isSelected }: BriefRowProps) => {
-	const unread = !row.isRead;
+const ErrorBanner = ({ accountEmail }: ErrorBannerProps) => {
+	const navigate = useNavigate();
 	return (
-		<Link
-			to="/mail/$mailboxId"
-			params={{ mailboxId }}
-			search={{ selectedMessageId: row.id }}
-			className={cn("group", comfortableRowClass({ active: isSelected }))}
-		>
-			{unread && (
-				<span className="absolute left-1.5 top-1/2 size-1.5 -translate-y-1/2 rounded-full bg-accent" />
-			)}
-			<Avatar name={row.fromName} email={row.fromEmail} size="sm" />
-			<ComfortableRowTextContent thread={row} />
-		</Link>
+		<div className="flex items-center gap-2 px-row-inset py-2 border-b border-line bg-danger-soft/40 text-xs text-danger">
+			<AlertCircle className="size-3.5 shrink-0" />
+			<span className="flex-1 truncate">{accountEmail} can't connect</span>
+			<button
+				type="button"
+				onClick={() => navigate({ to: "/settings/accounts" })}
+				className="shrink-0 underline text-danger hover:opacity-80"
+			>
+				Reconnect
+			</button>
+		</div>
 	);
 };
 
 // ---------------------------------------------------------------------------
-// Section header
+// Brief row — a navigation-aware row satisfying remit-ui's BriefRowComponent
 // ---------------------------------------------------------------------------
 
-const SectionHeader = ({ label, count }: { label: string; count: number }) => (
-	<div className="sticky top-0 z-10 flex items-baseline justify-between border-b border-line bg-surface-sunken px-row-inset py-1">
-		<span className="text-2xs font-semibold uppercase tracking-wider text-fg-subtle">
-			{label}
-		</span>
-		<span className="text-2xs text-fg-subtle tabular-nums">{count}</span>
-	</div>
-);
+const BriefRow = ({
+	thread,
+	active,
+	onClick,
+}: {
+	thread: ThreadRowData;
+	active?: boolean;
+	onClick?: () => void;
+}) => {
+	const unread = !thread.isRead;
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			className={cn("group w-full", comfortableRowClass({ active }))}
+		>
+			{unread && (
+				<span className="absolute left-1.5 top-1/2 size-1.5 -translate-y-1/2 rounded-full bg-accent" />
+			)}
+			<Avatar name={thread.fromName} email={thread.fromEmail} size="sm" />
+			<ComfortableRowTextContent thread={thread} />
+		</button>
+	);
+};
 
 // ---------------------------------------------------------------------------
 // Account chips row
@@ -157,36 +158,40 @@ interface ChipsRowProps {
 	onChipClick: (id: string) => void;
 }
 
-const ChipsRow = ({ chips, mutedNote, onChipClick }: ChipsRowProps) => (
-	<div className="flex items-center gap-1.5 overflow-x-auto border-b border-line px-row-inset py-1 shrink-0">
-		{chips.map((chip) => (
-			<button
-				key={chip.id}
-				type="button"
-				onClick={() => onChipClick(chip.id)}
-				className={cn(
-					"flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-0.5 text-2xs transition-colors",
-					chip.active
-						? "border-accent-2 bg-accent-2-soft font-medium text-accent-2"
-						: "border-line text-fg-muted hover:border-line-strong",
-				)}
-			>
-				{chip.label}
-				{chip.count != null && chip.count > 0 && (
-					<span className="tabular-nums opacity-70">{chip.count}</span>
-				)}
-			</button>
-		))}
-		{mutedNote && (
-			<Link
-				to="/settings/accounts"
-				className="ml-auto shrink-0 text-2xs text-fg-subtle hover:text-fg"
-			>
-				{mutedNote}
-			</Link>
-		)}
-	</div>
-);
+const ChipsRow = ({ chips, mutedNote, onChipClick }: ChipsRowProps) => {
+	const navigate = useNavigate();
+	return (
+		<div className="flex items-center gap-1.5 overflow-x-auto border-b border-line px-row-inset py-1 shrink-0">
+			{chips.map((chip) => (
+				<button
+					key={chip.id}
+					type="button"
+					onClick={() => onChipClick(chip.id)}
+					className={cn(
+						"flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-0.5 text-2xs transition-colors",
+						chip.active
+							? "border-accent-2 bg-accent-2-soft font-medium text-accent-2"
+							: "border-line text-fg-muted hover:border-line-strong",
+					)}
+				>
+					{chip.label}
+					{chip.count != null && chip.count > 0 && (
+						<span className="tabular-nums opacity-70">{chip.count}</span>
+					)}
+				</button>
+			))}
+			{mutedNote && (
+				<button
+					type="button"
+					onClick={() => navigate({ to: "/settings/accounts" })}
+					className="ml-auto shrink-0 text-2xs text-fg-subtle hover:text-fg"
+				>
+					{mutedNote}
+				</button>
+			)}
+		</div>
+	);
+};
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -195,15 +200,16 @@ const ChipsRow = ({ chips, mutedNote, onChipClick }: ChipsRowProps) => (
 interface DailyBriefProps {
 	accounts: RemitImapAccountResponse[];
 	selectedMessageId?: string;
+	onSelectMessage?: (id: string) => void;
 }
 
-/**
- * Builds a map from messageId → mailboxId from all loaded mailboxes.
- * We don't have it on the thread row directly, so we fall back to the
- * mailboxId from the `RemitImapThreadMessageResponse` (which does carry
- * `mailboxId`).
- */
-export function DailyBrief({ accounts, selectedMessageId }: DailyBriefProps) {
+export function DailyBrief({
+	accounts,
+	selectedMessageId,
+	onSelectMessage,
+}: DailyBriefProps) {
+	const { searchQuery } = useMailContext();
+
 	const nonMuted = useMemo(
 		() => sortAccountsByCreatedAt(accounts.filter((a) => !a.muted?.value)),
 		[accounts],
@@ -213,6 +219,8 @@ export function DailyBrief({ accounts, selectedMessageId }: DailyBriefProps) {
 	const [activeChipId, setActiveChipId] = useState<string | undefined>(
 		readStoredChip,
 	);
+	const [briefCategory, setBriefCategory] =
+		useState<BriefCategoryFilter>("all");
 
 	const handleChipClick = useCallback((id: string) => {
 		const next = id === "all" ? undefined : id;
@@ -261,7 +269,11 @@ export function DailyBrief({ accounts, selectedMessageId }: DailyBriefProps) {
 		return nonMuted.filter((_, i) => mailboxQueries[i]?.isError);
 	}, [nonMuted, mailboxQueries]);
 
-	// Convert API rows to ThreadRowData, filtering by selected chip
+	const sq = searchQuery.trim().toLowerCase();
+
+	// Convert API rows to ThreadRowData, narrowing by the account chip and the
+	// free-text search. Category / attribute / cap filtering lives in
+	// BriefSections, which receives these grouped sections.
 	const filteredRows = useMemo<ThreadRowData[]>(() => {
 		const raw = threadsData?.items ?? [];
 		return raw
@@ -269,8 +281,9 @@ export function DailyBrief({ accounts, selectedMessageId }: DailyBriefProps) {
 				(t) =>
 					!activeChipId || (t.accountId ?? t.accountConfigId) === activeChipId,
 			)
-			.map(toThreadRowData);
-	}, [threadsData, activeChipId]);
+			.map(toThreadRowData)
+			.filter((t) => !sq || matchesBriefSearch(t, sq));
+	}, [threadsData, activeChipId, sq]);
 
 	const sections = useMemo<ThreadSection[]>(
 		() => groupBriefSections(filteredRows),
@@ -288,15 +301,6 @@ export function DailyBrief({ accounts, selectedMessageId }: DailyBriefProps) {
 	);
 
 	const mutedNote = mutedCount > 0 ? `+${mutedCount} muted` : undefined;
-
-	// Build a messageId → mailboxId lookup from the raw thread data
-	const mailboxByMessageId = useMemo<Map<string, string>>(() => {
-		const map = new Map<string, string>();
-		for (const t of threadsData?.items ?? []) {
-			map.set(t.messageId, t.mailboxId);
-		}
-		return map;
-	}, [threadsData]);
 
 	return (
 		<section className="flex h-full w-full flex-col bg-surface">
@@ -341,56 +345,39 @@ export function DailyBrief({ accounts, selectedMessageId }: DailyBriefProps) {
 			))}
 
 			{/* Main scrollable body */}
-			<div className="flex-1 overflow-y-auto">
-				{isLoading ? (
-					<>
-						<SectionSkeleton />
-						<SectionSkeleton />
-					</>
-				) : isError ? (
-					<div className="flex flex-col items-center justify-center h-full gap-3 text-sm text-fg-muted">
-						<AlertCircle className="size-8 text-danger" />
-						<p>Couldn't load your messages</p>
-						<button
-							type="button"
-							onClick={() => refetch()}
-							className="text-accent underline text-xs"
-						>
-							Try again
-						</button>
-					</div>
-				) : sections.length === 0 ? (
-					<div className="flex flex-col items-center justify-center h-full gap-2 text-center px-4">
-						<Sparkles className="size-8 text-fg-subtle" />
-						<p className="text-sm font-medium text-fg">You're caught up</p>
-						<p className="text-xs text-fg-subtle">Nothing needs attention.</p>
-					</div>
-				) : (
-					sections.map((section) => (
-						<div key={section.id}>
-							{section.label && (
-								<SectionHeader
-									label={section.label}
-									count={section.threads.length}
-								/>
-							)}
-							<div className="divide-y divide-line">
-								{section.threads.map((thread) => {
-									const mailboxId = mailboxByMessageId.get(thread.id) ?? "";
-									return (
-										<BriefRow
-											key={thread.id}
-											row={thread}
-											mailboxId={mailboxId}
-											isSelected={thread.id === selectedMessageId}
-										/>
-									);
-								})}
-							</div>
-						</div>
-					))
-				)}
-			</div>
+			{isLoading ? (
+				<div className="flex-1 overflow-y-auto">
+					<SectionSkeleton />
+					<SectionSkeleton />
+				</div>
+			) : isError ? (
+				<div className="flex flex-1 flex-col items-center justify-center gap-3 text-sm text-fg-muted">
+					<AlertCircle className="size-8 text-danger" />
+					<p>Couldn't load your messages</p>
+					<button
+						type="button"
+						onClick={() => refetch()}
+						className="text-accent underline text-xs"
+					>
+						Try again
+					</button>
+				</div>
+			) : sections.length === 0 && !sq ? (
+				<div className="flex flex-1 flex-col items-center justify-center gap-2 text-center px-4">
+					<Sparkles className="size-8 text-fg-subtle" />
+					<p className="text-sm font-medium text-fg">You're caught up</p>
+					<p className="text-xs text-fg-subtle">Nothing needs attention.</p>
+				</div>
+			) : (
+				<BriefSections
+					sections={sections}
+					briefCategory={briefCategory}
+					selectedThreadId={selectedMessageId}
+					Row={BriefRow}
+					onSelectThread={onSelectMessage}
+					onSelectBriefCategory={setBriefCategory}
+				/>
+			)}
 		</section>
 	);
 }

@@ -117,6 +117,8 @@ export interface ThreadRowData {
 	subject: string;
 	snippet: string;
 	timeLabel: string;
+	/** Unix epoch ms — used by the "Today" brief filter; absent in fixture rows. */
+	sentDate?: number;
 	isRead?: boolean;
 	hasAttachment?: boolean;
 	starred?: boolean;
@@ -663,10 +665,18 @@ function ComfortableRow({
 	);
 }
 
-/* Composable brief filters — each is an additive predicate over a thread row.
-   "Today" leans on the fixture convention that same-day rows render a HH:MM
-   timeLabel; replace with a real timestamp field when the API provides one. */
+/* Composable brief filters — each is an additive predicate over a thread row. */
 type BriefFilterId = "unread" | "attachment" | "contacts" | "today";
+
+/* "Today" prefers the real `sentDate` timestamp; it falls back to the fixture
+   convention that same-day rows render a HH:MM timeLabel (fixtures carry no
+   sentDate). */
+function isTodayRow(t: ThreadRowData): boolean {
+	if (t.sentDate != null) {
+		return new Date(t.sentDate).toDateString() === new Date().toDateString();
+	}
+	return /^\d{1,2}:\d{2}$/.test(t.timeLabel);
+}
 
 const briefFilterDefs: ReadonlyArray<{
 	id: BriefFilterId;
@@ -684,32 +694,46 @@ const briefFilterDefs: ReadonlyArray<{
 		label: "From contacts",
 		match: (t) => t.trust === "vip" || t.trust === "wellknown",
 	},
-	{
-		id: "today",
-		label: "Today",
-		match: (t) => /^\d{1,2}:\d{2}$/.test(t.timeLabel),
-	},
+	{ id: "today", label: "Today", match: isTodayRow },
 ];
 
 const LONG_SECTION = 6;
 /* Cap each section's rows; the rest sit behind a bottom "Show all" expander. */
 const SECTION_ROW_CAP = 10;
 
-function BriefSections({
+/** A row renderer the brief drives — Comfortable/Compact rows or a consumer's
+ *  own (e.g. the web client's navigation-aware row) all satisfy this shape. */
+export type BriefRowComponent = (props: {
+	thread: ThreadRowData;
+	active?: boolean;
+	onClick?: () => void;
+}) => React.ReactNode;
+
+export interface BriefSectionsProps {
+	sections: ThreadSection[];
+	briefCategory?: BriefCategoryFilter;
+	selectedThreadId?: string;
+	Row: BriefRowComponent;
+	onSelectThread?: (id: string) => void;
+	onSelectBriefCategory?: (category: BriefCategoryFilter) => void;
+}
+
+/**
+ * The daily-brief list body: category pills (single-select) + attribute chips
+ * (additive) + collapsible, capped attention sections. Owns its own filter and
+ * collapse state; the category axis is controlled via
+ * `briefCategory`/`onSelectBriefCategory`. Consumers pre-filter `sections`
+ * (e.g. by search) and pass a `Row` renderer; the web client reuses this so the
+ * real brief and the Storybook prototype stay in lockstep.
+ */
+export function BriefSections({
 	sections,
 	briefCategory = "all",
 	selectedThreadId,
 	Row,
 	onSelectThread,
 	onSelectBriefCategory,
-}: {
-	sections: ThreadSection[];
-	briefCategory?: BriefCategoryFilter;
-	selectedThreadId?: string;
-	Row: typeof ComfortableRow;
-	onSelectThread?: (id: string) => void;
-	onSelectBriefCategory?: (category: BriefCategoryFilter) => void;
-}) {
+}: BriefSectionsProps) {
 	const [active, setActive] = useState<ReadonlySet<BriefFilterId>>(new Set());
 	const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
 		() =>
