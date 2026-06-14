@@ -11,11 +11,16 @@
 		}
 	},
 	"scripts": {
-		"test:typecheck": "tsgo --noEmit"
+		"test:typecheck": "tsgo --noEmit",
+		"test": "vitest run",
+		"build": "npm run test:typecheck"
+	},
+	"dependencies": {
+		"@aws-lambda-powertools/logger": "^2",
+		"@aws-lambda-powertools/metrics": "^2"
 	},
 	"devDependencies": {
 		"@types/aws-lambda": "*",
-		"pino": "*",
-		"pino-pretty": "*"
+		"vitest": "*"
 	}
 }

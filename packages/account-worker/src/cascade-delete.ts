@@ -18,8 +18,8 @@ import {
 	RawMessageStorage,
 	ThreadMessage,
 } from "@remit/electrodb-entities";
+import type { Logger } from "@remit/logger-lambda";
 import { Entity } from "electrodb";
-import type { Logger } from "pino";
 import type { CascadeEntity } from "./cascade.js";
 import type { ddbClient as defaultDdbClient } from "./config.js";
 
