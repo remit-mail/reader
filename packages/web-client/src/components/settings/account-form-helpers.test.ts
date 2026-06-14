@@ -2,8 +2,10 @@ import assert from "node:assert";
 import { describe, test } from "node:test";
 import {
 	accountIsMissingSmtp,
+	appendAppPasswordHint,
 	computeSmtpAutoFill,
 	deriveSmtpHostFromImap,
+	isAuthError,
 } from "./account-form-helpers.js";
 
 describe("deriveSmtpHostFromImap", () => {
@@ -126,5 +128,53 @@ describe("accountIsMissingSmtp", () => {
 
 	test("false when smtpHost is set", () => {
 		assert.equal(accountIsMissingSmtp({ smtpHost: "smtp.example.com" }), false);
+	});
+});
+
+describe("isAuthError", () => {
+	for (const msg of [
+		"AUTHENTICATIONFAILED",
+		"535 5.7.8 Bad credentials",
+		"Invalid login",
+		"bad credential",
+	]) {
+		test(`true for "${msg}"`, () => {
+			assert.equal(isAuthError(msg), true);
+		});
+	}
+
+	test("false for a network error", () => {
+		assert.equal(isAuthError("connect ETIMEDOUT 1.2.3.4:993"), false);
+	});
+
+	test("false for undefined", () => {
+		assert.equal(isAuthError(undefined), false);
+	});
+});
+
+describe("appendAppPasswordHint", () => {
+	const hint = "iCloud requires an app-specific password.";
+
+	test("appends the hint to an auth error", () => {
+		const result = appendAppPasswordHint("Invalid login", hint);
+		assert.equal(result, `Invalid login — ${hint}`);
+	});
+
+	test("leaves a non-auth error untouched", () => {
+		assert.equal(
+			appendAppPasswordHint("connect ETIMEDOUT", hint),
+			"connect ETIMEDOUT",
+		);
+	});
+
+	test("returns the message unchanged when there is no hint", () => {
+		assert.equal(
+			appendAppPasswordHint("Invalid login", undefined),
+			"Invalid login",
+		);
+	});
+
+	test("returns undefined when there is no message", () => {
+		assert.equal(appendAppPasswordHint(undefined, hint), undefined);
 	});
 });

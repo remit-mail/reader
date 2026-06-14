@@ -71,6 +71,15 @@ export const ServerManualFallback: Story = {
 	render: () => <StepServers detected={false} />,
 };
 
+/**
+ * Provider preset selected (iCloud): host/port pre-filled and locked, with a
+ * note explaining the lock and an app-password hint under the form. Advanced
+ * unlocks the fields for manual editing.
+ */
+export const ServerProviderPreset: Story = {
+	render: () => <StepServers preset />,
+};
+
 /** Credentials with app-password guidance. */
 export const Credentials: Story = {
 	render: () => <StepCredentials />,
