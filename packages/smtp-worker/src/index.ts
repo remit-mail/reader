@@ -1,38 +1,33 @@
 import { inspect } from "node:util";
-import { createLogger } from "@remit/logger-lambda";
-import type {
-	Context,
-	SQSBatchResponse,
-	SQSEvent,
-	SQSHandler,
-} from "aws-lambda";
+import { createLogger, withTelemetry } from "@remit/logger-lambda";
+import type { SQSBatchResponse, SQSEvent } from "aws-lambda";
 import type { SmtpEvent } from "./events.js";
 import { processEvent } from "./processor.js";
 
-export const handler: SQSHandler = async (
-	event: SQSEvent,
-	context: Context,
-): Promise<SQSBatchResponse> => {
-	const log = createLogger(context);
-	const batchItemFailures: { itemIdentifier: string }[] = [];
+const log = createLogger();
 
-	for (const record of event.Records) {
-		try {
-			const smtpEvent: SmtpEvent = JSON.parse(record.body);
-			log.info(
-				{ eventType: smtpEvent.type, eventId: smtpEvent.eventId },
-				"Processing SMTP event",
-			);
+export const handler = withTelemetry(
+	async (event: SQSEvent): Promise<SQSBatchResponse> => {
+		const batchItemFailures: { itemIdentifier: string }[] = [];
 
-			await processEvent(smtpEvent, log);
-		} catch (error) {
-			log.error(
-				{ error: inspect(error), messageId: record.messageId },
-				"SMTP event processing failed",
-			);
-			batchItemFailures.push({ itemIdentifier: record.messageId });
+		for (const record of event.Records) {
+			try {
+				const smtpEvent: SmtpEvent = JSON.parse(record.body);
+				log.info("Processing SMTP event", {
+					eventType: smtpEvent.type,
+					eventId: smtpEvent.eventId,
+				});
+
+				await processEvent(smtpEvent, log);
+			} catch (error) {
+				log.error("SMTP event processing failed", {
+					error: inspect(error),
+					messageId: record.messageId,
+				});
+				batchItemFailures.push({ itemIdentifier: record.messageId });
+			}
 		}
-	}
 
-	return { batchItemFailures };
-};
+		return { batchItemFailures };
+	},
+);

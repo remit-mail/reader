@@ -38,11 +38,11 @@ process.on("SIGTERM", () => {
 });
 
 process.on("unhandledRejection", (reason, promise) => {
-	console.error("Unhandled Rejection at:", promise, "reason:", reason);
+	log.error("Unhandled rejection", { reason, promise: String(promise) });
 });
 
 process.on("uncaughtException", (err) => {
-	console.error("Uncaught Exception:", err);
+	log.error("Uncaught exception", { error: err });
 	process.exit(1);
 });
 
@@ -51,7 +51,7 @@ const processMessage = async (
 	receiptHandle: string,
 ): Promise<void> => {
 	const event = JSON.parse(messageBody) as SmtpEvent;
-	log.info({ event }, "Processing event");
+	log.info("Processing event", { event });
 
 	await processEvent(event, log);
 
@@ -62,11 +62,11 @@ const processMessage = async (
 		}),
 	);
 
-	log.info({ eventId: event.eventId }, "Event processed and deleted");
+	log.info("Event processed and deleted", { eventId: event.eventId });
 };
 
 const pollQueue = async (): Promise<void> => {
-	log.info({ maxConcurrency, maxMessages }, "Worker started, polling...");
+	log.info("Worker started, polling...", { maxConcurrency, maxMessages });
 
 	let consecutiveEmptyPolls = 0;
 
@@ -105,21 +105,16 @@ const pollQueue = async (): Promise<void> => {
 			continue;
 		}
 
-		log.info({ count: validMessages.length }, "Processing messages");
+		log.info("Processing messages", { count: validMessages.length });
 
 		await pMap(
 			validMessages,
 			(message) =>
 				processMessage(message.body, message.receiptHandle).catch((error) => {
-					console.error(inspect(error));
-					log.error(
-						{
-							error,
-							stack: (error as Error).stack,
-							messageId: message.messageId,
-						},
-						"Failed to process message",
-					);
+					log.error("Failed to process message", {
+						error: inspect(error),
+						messageId: message.messageId,
+					});
 				}),
 			{ concurrency: maxConcurrency },
 		);
@@ -131,6 +126,6 @@ const pollQueue = async (): Promise<void> => {
 pollQueue()
 	.then(() => process.exit(0))
 	.catch((error) => {
-		console.error("Worker error:", error);
+		log.error("Worker error", { error });
 		process.exit(1);
 	});
