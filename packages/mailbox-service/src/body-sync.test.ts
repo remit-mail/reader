@@ -190,12 +190,20 @@ const buildFakeState = (opts: FakeStateOptions) => {
 			};
 		},
 		retrieveParsedBody: async () => null,
+		retrieveMessageBody: async () => null,
+		retrieveMessageBodyStream: async () => null,
 		retrieve: async () => {
 			counts.retrieve++;
 			return opts.rawEml ?? A_RAW_EML;
 		},
 		exists: async () => true,
 		delete: async () => {},
+		storeExportArchiveStream: async () => {
+			throw new Error("not used");
+		},
+		getPresignedDownloadUrl: async () => {
+			throw new Error("not supported");
+		},
 	};
 
 	const envelopeService = {

@@ -8,6 +8,8 @@ type MatchPrefix<
 export type OperationIds =
 	| "MeOperations_deleteMe"
 	| "MeOperations_listVipSuggestions"
+	| "MeOperations_createExport"
+	| "MeOperations_getExport"
 	| "AdminAccountConfigOperations_adminFinalizeDelete"
 	| "ConfigOperations_getConfig"
 	| "AccountOperations_createAccount"

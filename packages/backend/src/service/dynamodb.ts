@@ -2,6 +2,7 @@ import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import {
 	AccountConfigService,
+	AccountExportRequestService,
 	AccountService,
 	AddressService,
 	EnvelopeService,
@@ -111,6 +112,7 @@ export interface RemitClient {
 	outboxMessage: OutboxMessageService;
 	threadMessage: ThreadMessageService;
 	envelope: EnvelopeService;
+	accountExportRequest: AccountExportRequestService;
 
 	// Storage service
 	storage: StorageService;
@@ -154,6 +156,7 @@ export const getClient = (): RemitClient => {
 		const envelopeService = new EnvelopeService(config);
 		const addressService = new AddressService(config);
 		const outboxMessageService = new OutboxMessageService(config);
+		const accountExportRequestService = new AccountExportRequestService(config);
 
 		// Queue services (SQS_QUEUE_URL required for write operations)
 		const sqsQueueUrl = env.SQS_QUEUE_URL;
@@ -242,6 +245,7 @@ export const getClient = (): RemitClient => {
 			outboxMessage: outboxMessageService,
 			threadMessage: threadMessageService,
 			envelope: envelopeService,
+			accountExportRequest: accountExportRequestService,
 
 			// Storage service
 			storage: storageService,

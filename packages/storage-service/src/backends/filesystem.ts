@@ -2,9 +2,9 @@ import { createHash } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { PassThrough } from "node:stream";
+import { PassThrough, Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { createGzip, gunzipSync, gzipSync } from "node:zlib";
+import { createGunzip, createGzip, gunzipSync, gzipSync } from "node:zlib";
 import { ContentEncoding, StorageType } from "@remit/domain-enums";
 import type {
 	ParsedBody,
@@ -14,6 +14,7 @@ import type {
 import {
 	buildBodyPartKey,
 	buildDeduplicatedKey,
+	buildExportArchiveKey,
 	buildMessageBodyKey,
 	buildParsedBodyKey,
 	computeChecksum,
@@ -207,8 +208,54 @@ export const createFilesystemStorageService = (
 		storeDeduplicated,
 		storeParsedBody,
 		retrieveParsedBody,
+		retrieveMessageBody: async (accountConfigId, accountId, messageId) => {
+			const key = buildMessageBodyKey(accountConfigId, accountId, messageId);
+			const fullPath = join(basePath, key);
+			const buffer = await readFile(fullPath).catch((error: unknown) => {
+				if (isStorageNotFoundError(error)) return null;
+				throw error;
+			});
+			if (!buffer) return null;
+			if (buffer[0] === 0x1f && buffer[1] === 0x8b) {
+				return gunzipSync(buffer);
+			}
+			return buffer;
+		},
+		retrieveMessageBodyStream: async (
+			accountConfigId,
+			accountId,
+			messageId,
+		) => {
+			const key = buildMessageBodyKey(accountConfigId, accountId, messageId);
+			const fullPath = join(basePath, key);
+			const buffer = await readFile(fullPath).catch((error: unknown) => {
+				if (isStorageNotFoundError(error)) return null;
+				throw error;
+			});
+			if (!buffer) return null;
+			if (buffer[0] === 0x1f && buffer[1] === 0x8b) {
+				return Readable.from(buffer).pipe(createGunzip());
+			}
+			return Readable.from(buffer);
+		},
 		retrieve,
 		exists,
 		delete: del,
+		storeExportArchiveStream: async (
+			accountConfigId,
+			exportRequestId,
+			body,
+		) => {
+			const key = buildExportArchiveKey(accountConfigId, exportRequestId);
+			const fullPath = join(basePath, key);
+			await mkdir(dirname(fullPath), { recursive: true });
+			await pipeline(body, createWriteStream(fullPath));
+			return key;
+		},
+		getPresignedDownloadUrl: (_key: string, _expiresInSeconds: number) => {
+			throw new Error(
+				"getPresignedDownloadUrl is not supported on the filesystem backend",
+			);
+		},
 	};
 };

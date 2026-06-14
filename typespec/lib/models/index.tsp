@@ -24,3 +24,6 @@ import "./OutboxMessage.tsp";
 
 // Semantic Search
 import "./SemanticSearch.tsp";
+
+// Export
+import "./AccountExportRequest.tsp";
