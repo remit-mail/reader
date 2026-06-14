@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { Readable } from "node:stream";
+import { Readable } from "node:stream";
 import { S3Client } from "@aws-sdk/client-s3";
 import { ContentEncoding, StorageType } from "@remit/domain-enums";
 import { createFilesystemStorageService } from "./backends/filesystem.js";
@@ -127,6 +127,24 @@ export interface StorageService {
 		messageId: string,
 	): Promise<ParsedBody | null>;
 
+	/** Retrieve a raw message body (RFC822 .eml) by account/message id; returns null on NoSuchKey */
+	retrieveMessageBody(
+		accountConfigId: string,
+		accountId: string,
+		messageId: string,
+	): Promise<Buffer | null>;
+
+	/**
+	 * Retrieve a raw message body as a readable stream of decompressed .eml
+	 * bytes; returns null on NoSuchKey. Use on the export path so a whole
+	 * mailbox is never buffered in memory.
+	 */
+	retrieveMessageBodyStream(
+		accountConfigId: string,
+		accountId: string,
+		messageId: string,
+	): Promise<Readable | null>;
+
 	/** Retrieve content by URI */
 	retrieve(uri: string): Promise<Buffer>;
 
@@ -135,6 +153,28 @@ export interface StorageService {
 
 	/** Delete content by URI */
 	delete(uri: string): Promise<void>;
+
+	/**
+	 * Stream a finished export archive (already-compressed ZIP) to the export
+	 * key for the given config + request, uncompressed at rest. The body is
+	 * streamed via a multipart upload and never buffered whole. Returns the raw
+	 * storage key, which `getPresignedDownloadUrl` can then sign.
+	 */
+	storeExportArchiveStream(
+		accountConfigId: string,
+		exportRequestId: string,
+		body: Readable,
+	): Promise<string>;
+
+	/**
+	 * Generate a presigned URL that grants temporary GET access to a raw S3 key.
+	 * Use for export archives — the key must already exist in the bucket.
+	 * Not supported on filesystem backends; throws if called there.
+	 */
+	getPresignedDownloadUrl(
+		key: string,
+		expiresInSeconds: number,
+	): Promise<string>;
 }
 
 // Path builders - centralized path formatting per RFC 011 + #224.
@@ -173,6 +213,11 @@ export const buildDeduplicatedKey = (
 
 export const computeChecksum = (content: Buffer): string =>
 	createHash("sha256").update(content).digest("hex");
+
+export const buildExportArchiveKey = (
+	accountConfigId: string,
+	exportRequestId: string,
+): string => `exports/${accountConfigId}/${exportRequestId}/export.zip`;
 
 export const isStorageNotFoundError = (error: unknown): boolean => {
 	if (typeof error !== "object" || error === null) return false;
@@ -277,6 +322,23 @@ export const createMockStorageService = (): StorageService => {
 		return JSON.parse(content.toString("utf8")) as ParsedBody;
 	};
 
+	const retrieveMessageBody: StorageService["retrieveMessageBody"] = async (
+		accountConfigId,
+		accountId,
+		messageId,
+	) => {
+		const uri = `mock://${buildMessageBodyKey(accountConfigId, accountId, messageId)}`;
+		return storage.get(uri) ?? null;
+	};
+
+	const retrieveMessageBodyStream: StorageService["retrieveMessageBodyStream"] =
+		async (accountConfigId, accountId, messageId) => {
+			const uri = `mock://${buildMessageBodyKey(accountConfigId, accountId, messageId)}`;
+			const content = storage.get(uri);
+			if (!content) return null;
+			return Readable.from(content);
+		};
+
 	const bodyPartExists: StorageService["bodyPartExists"] = async (
 		accountConfigId,
 		accountId,
@@ -295,6 +357,8 @@ export const createMockStorageService = (): StorageService => {
 		storeDeduplicated,
 		storeParsedBody,
 		retrieveParsedBody,
+		retrieveMessageBody,
+		retrieveMessageBodyStream,
 		retrieve: async (uri) => {
 			const content = storage.get(uri);
 			if (!content) {
@@ -308,5 +372,20 @@ export const createMockStorageService = (): StorageService => {
 		delete: async (uri) => {
 			storage.delete(uri);
 		},
+		storeExportArchiveStream: async (
+			accountConfigId,
+			exportRequestId,
+			body,
+		) => {
+			const key = buildExportArchiveKey(accountConfigId, exportRequestId);
+			const chunks: Buffer[] = [];
+			for await (const chunk of body) {
+				chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+			}
+			storage.set(`mock://${key}`, Buffer.concat(chunks));
+			return key;
+		},
+		getPresignedDownloadUrl: async (key: string, _expiresInSeconds: number) =>
+			`mock://presigned/${key}`,
 	};
 };

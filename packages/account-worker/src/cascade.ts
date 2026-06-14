@@ -1,5 +1,6 @@
 import {
 	type AccountConfigService,
+	type AccountExportRequestService,
 	type AccountService,
 	type AddressService,
 	type EnvelopeService,
@@ -29,6 +30,7 @@ export interface CascadeServices {
 	outboxMessageService: OutboxMessageService;
 	threadMessageService: ThreadMessageService;
 	mailboxLockService: MailboxLockService;
+	accountExportRequestService: AccountExportRequestService;
 }
 
 export interface CascadeResult {

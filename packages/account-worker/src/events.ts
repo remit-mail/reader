@@ -15,7 +15,16 @@ export type AccountDataPurgeEvent = {
 	accountConfigId: string;
 };
 
-export type AccountFanoutEvent = AccountDeleteEvent | AccountDataPurgeEvent;
+export type AccountExportEvent = {
+	type: "AccountExport";
+	accountConfigId: string;
+	accountExportRequestId: string;
+};
+
+export type AccountFanoutEvent =
+	| AccountDeleteEvent
+	| AccountDataPurgeEvent
+	| AccountExportEvent;
 
 export type AccountDeleteFinalizeEvent = {
 	type: "FinalizeAccountDelete";

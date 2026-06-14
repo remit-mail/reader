@@ -34,6 +34,7 @@ import "./SenderTrust.tsp";
 import "./AccountAuthType.tsp";
 import "./AccountConfigState.tsp";
 import "./SyncPhase.tsp";
+import "./AccountExportState.tsp";
 
 // Authentication Enums
 import "./AuthResultVerdict.tsp";

@@ -2,6 +2,7 @@ import { CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-
 import { SQSClient } from "@aws-sdk/client-sqs";
 import {
 	AccountConfigService,
+	AccountExportRequestService,
 	AccountService,
 	AddressService,
 	EnvelopeService,
@@ -13,6 +14,10 @@ import {
 	OutboxMessageService,
 	ThreadMessageService,
 } from "@remit/remit-electrodb-service";
+import {
+	createStorageService,
+	type StorageService,
+} from "@remit/storage-service";
 import { env } from "expect-env";
 import type { CascadeServices } from "./cascade.js";
 
@@ -53,6 +58,15 @@ export const cascadeServices: CascadeServices = {
 	outboxMessageService: new OutboxMessageService(serviceConfig),
 	threadMessageService: new ThreadMessageService(serviceConfig),
 	mailboxLockService: new MailboxLockService(serviceConfig),
+	accountExportRequestService: new AccountExportRequestService(serviceConfig),
 };
 
 export const accountConfigService = cascadeServices.accountConfigService;
+
+let storageService: StorageService | null = null;
+export const getStorageService = (): StorageService => {
+	if (!storageService) {
+		storageService = createStorageService();
+	}
+	return storageService;
+};

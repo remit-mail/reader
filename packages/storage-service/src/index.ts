@@ -3,6 +3,7 @@ export { createS3StorageService } from "./backends/s3.js";
 export {
 	buildBodyPartKey,
 	buildDeduplicatedKey,
+	buildExportArchiveKey,
 	buildMessageBodyKey,
 	buildParsedBodyKey,
 	type ContentEncodingValue,

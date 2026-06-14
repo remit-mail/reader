@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { PassThrough } from "node:stream";
+import { PassThrough, type Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { createGzip, gunzipSync, gzipSync } from "node:zlib";
+import { createGunzip, createGzip, gunzipSync, gzipSync } from "node:zlib";
 import {
 	DeleteObjectCommand,
 	GetObjectCommand,
@@ -10,6 +10,7 @@ import {
 	type S3Client,
 } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { ContentEncoding, StorageType } from "@remit/domain-enums";
 import type {
 	ParsedBody,
@@ -19,6 +20,7 @@ import type {
 import {
 	buildBodyPartKey,
 	buildDeduplicatedKey,
+	buildExportArchiveKey,
 	buildMessageBodyKey,
 	buildParsedBodyKey,
 	computeChecksum,
@@ -230,6 +232,53 @@ export const createS3StorageService = (
 		return buffer;
 	};
 
+	const retrieveMessageBody: StorageService["retrieveMessageBody"] = async (
+		accountConfigId,
+		accountId,
+		messageId,
+	) => {
+		const key = buildMessageBodyKey(accountConfigId, accountId, messageId);
+
+		const response = await client
+			.send(new GetObjectCommand({ Bucket: bucketName, Key: key }))
+			.catch((error: unknown) => {
+				if (isStorageNotFoundError(error)) return null;
+				throw error;
+			});
+
+		if (!response) return null;
+		if (!response.Body) {
+			throw new Error(`Empty response body for message body: ${key}`);
+		}
+
+		const body = await response.Body.transformToByteArray();
+		const buffer = Buffer.from(body);
+		return response.ContentEncoding === "gzip" ? gunzipSync(buffer) : buffer;
+	};
+
+	const retrieveMessageBodyStream: StorageService["retrieveMessageBodyStream"] =
+		async (accountConfigId, accountId, messageId) => {
+			const key = buildMessageBodyKey(accountConfigId, accountId, messageId);
+
+			const response = await client
+				.send(new GetObjectCommand({ Bucket: bucketName, Key: key }))
+				.catch((error: unknown) => {
+					if (isStorageNotFoundError(error)) return null;
+					throw error;
+				});
+
+			if (!response) return null;
+			if (!response.Body) {
+				throw new Error(`Empty response body for message body: ${key}`);
+			}
+
+			const source = response.Body as Readable;
+			if (response.ContentEncoding === "gzip") {
+				return source.pipe(createGunzip());
+			}
+			return source;
+		};
+
 	const exists = async (uri: string): Promise<boolean> => {
 		const { storageKey } = parseStorageUri(uri);
 
@@ -255,6 +304,38 @@ export const createS3StorageService = (
 		);
 	};
 
+	const storeExportArchiveStream = async (
+		accountConfigId: string,
+		exportRequestId: string,
+		body: Readable,
+	): Promise<string> => {
+		const key = buildExportArchiveKey(accountConfigId, exportRequestId);
+		const upload = new Upload({
+			client,
+			params: {
+				Bucket: bucketName,
+				Key: key,
+				Body: body,
+				ContentType: "application/zip",
+			},
+		});
+		await upload.done().catch(async (error) => {
+			await upload.abort().catch(() => {});
+			throw error;
+		});
+		return key;
+	};
+
+	const getPresignedDownloadUrl = (
+		key: string,
+		expiresInSeconds: number,
+	): Promise<string> =>
+		getSignedUrl(
+			client,
+			new GetObjectCommand({ Bucket: bucketName, Key: key }),
+			{ expiresIn: expiresInSeconds },
+		);
+
 	return {
 		storeMessageBody,
 		storeMessageBodyStream,
@@ -263,8 +344,12 @@ export const createS3StorageService = (
 		storeDeduplicated,
 		storeParsedBody,
 		retrieveParsedBody,
+		retrieveMessageBody,
+		retrieveMessageBodyStream,
 		retrieve,
 		exists,
 		delete: del,
+		storeExportArchiveStream,
+		getPresignedDownloadUrl,
 	};
 };

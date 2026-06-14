@@ -24,6 +24,7 @@ import type {
 	AccountFanoutEvent,
 	AccountFinalizeEvent,
 } from "../events.js";
+import { processAccountExport } from "./account-export.js";
 import { processAccountDataPurge } from "./account-purge.js";
 
 export interface ProcessAccountFanoutDeps {
@@ -53,6 +54,11 @@ export const processAccountFanout = async (
 			sqs: deps.sqs,
 			accountFinalizeQueueUrl: deps.accountFinalizeQueueUrl,
 		});
+		return;
+	}
+
+	if (event.type === "AccountExport") {
+		await processAccountExport(event, log);
 		return;
 	}
 
