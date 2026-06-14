@@ -1,7 +1,12 @@
 import { searchIndexMessageSchema } from "@remit/search-service";
 
 export type ParsedQueueMessage =
-	| { kind: "upsert"; accountId: string; messageId: string }
+	| {
+			kind: "upsert";
+			accountId: string;
+			messageId: string;
+			eventTimestamp: number;
+	  }
 	| { kind: "delete"; messageId: string };
 
 export const parseQueueMessage = (body: string): ParsedQueueMessage => {
@@ -14,5 +19,6 @@ export const parseQueueMessage = (body: string): ParsedQueueMessage => {
 		kind: "upsert",
 		accountId: parsed.accountId,
 		messageId: parsed.messageId,
+		eventTimestamp: parsed.eventTimestamp,
 	};
 };
