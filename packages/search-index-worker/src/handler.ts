@@ -2,6 +2,8 @@ import { inspect } from "node:util";
 import {
 	createLogger,
 	type Logger,
+	MetricUnit,
+	metrics,
 	withTelemetry,
 } from "@remit/logger-lambda";
 import type { VectorRecord } from "@remit/search-service";
@@ -48,15 +50,20 @@ export const processBatch = async (
 			try {
 				await services.searchService.delete(message.messageId);
 				log.info("Deleted search vectors", { messageId: message.messageId });
+				metrics.addMetric("searchIndexProcessed", MetricUnit.Count, 1);
 			} catch (error) {
 				log.error("Delete failed", {
 					error: inspect(error),
 					messageId: message.messageId,
 				});
+				metrics.addMetric("searchIndexFailures", MetricUnit.Count, 1);
 				batchItemFailures.push({ itemIdentifier: record.messageId });
 			}
 			continue;
 		}
+
+		const lagMs = Date.now() - message.eventTimestamp;
+		metrics.addMetric("searchIndexLag", MetricUnit.Milliseconds, lagMs);
 
 		try {
 			const vectorRecords = await prepareUpsert(
@@ -80,6 +87,7 @@ export const processBatch = async (
 				error: inspect(error),
 				messageId: message.messageId,
 			});
+			metrics.addMetric("searchIndexFailures", MetricUnit.Count, 1);
 			batchItemFailures.push({ itemIdentifier: record.messageId });
 		}
 	}
@@ -91,8 +99,14 @@ export const processBatch = async (
 				accountId,
 				count: group.records.length,
 			});
+			metrics.addMetric(
+				"searchIndexProcessed",
+				MetricUnit.Count,
+				group.records.length,
+			);
 		} catch (error) {
 			log.error("Bulk upsert failed", { error: inspect(error), accountId });
+			metrics.addMetric("searchIndexFailures", MetricUnit.Count, 1);
 			for (const sqsMessageId of group.sqsMessageIds) {
 				batchItemFailures.push({ itemIdentifier: sqsMessageId });
 			}

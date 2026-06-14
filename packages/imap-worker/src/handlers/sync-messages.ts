@@ -11,6 +11,7 @@ import {
 } from "@remit/remit-electrodb-service";
 import { SyncPhase } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
+import { MetricUnit, metrics } from "@remit/logger-lambda";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
 import {
 	createManagedConnectionFactory,
@@ -202,6 +203,14 @@ const syncMailboxMessages = async (
 		},
 		"Message sync batch complete",
 	);
+
+	if (result.syncedCount > 0) {
+		metrics.addMetric(
+			"imapMessagesSynced",
+			MetricUnit.Count,
+			result.syncedCount,
+		);
+	}
 
 	// Emit body sync events for the messages we just synced. Each event carries
 	// messageId+uid pairs so the consumer issues one ranged FETCH per batch

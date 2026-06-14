@@ -1,4 +1,9 @@
-import { createLogger, withTelemetry } from "@remit/logger-lambda";
+import {
+	createLogger,
+	MetricUnit,
+	metrics,
+	withTelemetry,
+} from "@remit/logger-lambda";
 import type { SQSBatchResponse, SQSEvent, SQSHandler } from "aws-lambda";
 import type { WorkerEvent } from "./events.js";
 import { processEvent } from "./processor.js";
@@ -20,12 +25,34 @@ export const handler: SQSHandler = withTelemetry(
 					"Processing event",
 				);
 
+				const opStart = Date.now();
 				await processEvent(imapEvent, log);
+				const opDuration = Date.now() - opStart;
+
+				metrics.addDimension("operation", imapEvent.type);
+				metrics.addMetric(
+					"imapOperationLatency",
+					MetricUnit.Milliseconds,
+					opDuration,
+				);
+				metrics.clearDimensions();
 			} catch (error) {
+				const imapEvent = (() => {
+					try {
+						return JSON.parse(record.body) as WorkerEvent;
+					} catch {
+						return null;
+					}
+				})();
 				log.error(
 					{ error, messageId: record.messageId },
 					"Event processing failed",
 				);
+				if (imapEvent) {
+					metrics.addDimension("operation", imapEvent.type);
+				}
+				metrics.addMetric("imapOperationFailures", MetricUnit.Count, 1);
+				metrics.clearDimensions();
 				batchItemFailures.push({ itemIdentifier: record.messageId });
 			}
 		}
