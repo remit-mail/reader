@@ -16,7 +16,7 @@ import {
 import { ArrowLeft, Menu, Search, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
-import { SignOutMenuItem } from "@/auth/SignOutMenuItem";
+import { AccountMenu } from "@/auth/AccountMenu";
 import { ComposeFab } from "@/components/layout/ComposeFab";
 import { Drawer } from "@/components/layout/Drawer";
 import { SearchBar } from "@/components/layout/SearchBar";
@@ -304,6 +304,7 @@ function MailLayout() {
 											<span className="truncate">{mobileTitle ?? "Inbox"}</span>
 										</button>
 										<div className="flex-1" />
+										<AccountMenu />
 									</>
 								) : (
 									<>
@@ -318,6 +319,7 @@ function MailLayout() {
 										>
 											<Search className="size-5" />
 										</button>
+										<AccountMenu />
 									</>
 								)}
 							</header>
@@ -337,9 +339,6 @@ function MailLayout() {
 							onMailboxSelect={handleMailboxSelect}
 							variant="drawer"
 						/>
-						<div className="px-4 pb-4">
-							<SignOutMenuItem variant="drawer" showEmail />
-						</div>
 					</Drawer>
 					{/* Mobile compose FAB. The compose form itself takes over the
 					    detail pane in `routes/mail/$mailboxId.tsx`, which on

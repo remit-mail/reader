@@ -10,6 +10,7 @@ import {
 	Star,
 	Trash2,
 } from "lucide-react";
+import { AccountMenu } from "@/auth/AccountMenu";
 import { SearchBar } from "@/components/layout/SearchBar";
 import { BugReportButton } from "@/components/ui/BugReportButton";
 import { tooltipForAction } from "@/lib/keymap";
@@ -227,5 +228,6 @@ export const MessageToolbar = ({
 			/>
 		)}
 		<BugReportButton />
+		<AccountMenu />
 	</header>
 );
