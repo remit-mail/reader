@@ -11,7 +11,7 @@ import {
 	type OutboxMessageService,
 	type ThreadMessageService,
 } from "@remit/remit-electrodb-service";
-import type { Logger } from "pino";
+import type { Logger } from "@remit/logger-lambda";
 
 export interface CascadeEntity {
 	entityType: string;

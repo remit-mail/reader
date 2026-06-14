@@ -1,127 +1,123 @@
+import { Logger as PowertoolsLogger } from "@aws-lambda-powertools/logger";
+import { Metrics, MetricUnit } from "@aws-lambda-powertools/metrics";
 import type { Context } from "aws-lambda";
-import pino from "pino";
 
-const isDevelopment = process.env.NODE_ENV === "development";
-const logLevel = process.env.LOG_LEVEL ?? "info";
+type LogBindings = Record<string, unknown>;
 
-const serializeError = (err: Error): Record<string, unknown> => {
-	const serialized: Record<string, unknown> = {
-		name: err.name,
-		message: err.message,
-		stack: err.stack,
-	};
+type PowertoolsLevel =
+	| "trace"
+	| "debug"
+	| "info"
+	| "warn"
+	| "error"
+	| "critical";
 
-	// Capture all enumerable properties (code, errno, syscall, custom props, etc.)
-	for (const key of Object.keys(err)) {
-		if (!(key in serialized)) {
-			const value = (err as unknown as Record<string, unknown>)[key];
-			serialized[key] = value instanceof Error ? serializeError(value) : value;
+const isBindings = (value: unknown): value is LogBindings =>
+	typeof value === "object" && value !== null;
+
+const emit = (
+	target: PowertoolsLogger,
+	level: PowertoolsLevel,
+	first: LogBindings | string,
+	second?: LogBindings | string,
+): void => {
+	if (typeof first !== "string") {
+		const message = typeof second === "string" ? second : "";
+		target[level](message, first);
+		return;
+	}
+	if (second === undefined) {
+		target[level](first);
+		return;
+	}
+	if (typeof second === "string") {
+		target[level](first, second);
+		return;
+	}
+	target[level](first, second);
+};
+
+export interface Logger {
+	trace(obj: LogBindings, msg?: string): void;
+	trace(msg: string, obj?: LogBindings): void;
+	debug(obj: LogBindings, msg?: string): void;
+	debug(msg: string, obj?: LogBindings): void;
+	info(obj: LogBindings, msg?: string): void;
+	info(msg: string, obj?: LogBindings): void;
+	warn(obj: LogBindings, msg?: string): void;
+	warn(msg: string, obj?: LogBindings): void;
+	error(obj: LogBindings, msg?: string): void;
+	error(msg: string, obj?: LogBindings): void;
+	fatal(obj: LogBindings, msg?: string): void;
+	fatal(msg: string, obj?: LogBindings): void;
+	child(bindings: LogBindings): Logger;
+	setBindings(bindings: LogBindings): void;
+}
+
+const createAdapter = (target: PowertoolsLogger): Logger => ({
+	trace: (first: LogBindings | string, second?: LogBindings | string): void =>
+		emit(target, "trace", first, second),
+	debug: (first: LogBindings | string, second?: LogBindings | string): void =>
+		emit(target, "debug", first, second),
+	info: (first: LogBindings | string, second?: LogBindings | string): void =>
+		emit(target, "info", first, second),
+	warn: (first: LogBindings | string, second?: LogBindings | string): void =>
+		emit(target, "warn", first, second),
+	error: (first: LogBindings | string, second?: LogBindings | string): void =>
+		emit(target, "error", first, second),
+	fatal: (first: LogBindings | string, second?: LogBindings | string): void =>
+		emit(target, "critical", first, second),
+	child: (bindings: LogBindings): Logger => {
+		const childLogger = target.createChild();
+		if (isBindings(bindings)) {
+			childLogger.appendPersistentKeys(bindings);
 		}
-	}
+		return createAdapter(childLogger);
+	},
+	setBindings: (bindings: LogBindings): void => {
+		target.appendPersistentKeys(bindings);
+	},
+});
 
-	// Handle cause separately since it's not enumerable
-	if (err.cause) {
-		serialized.cause =
-			err.cause instanceof Error ? serializeError(err.cause) : err.cause;
-	}
+export const logger = new PowertoolsLogger({
+	serviceName: process.env.POWERTOOLS_SERVICE_NAME ?? "remit",
+});
 
-	return serialized;
-};
+export const metrics = new Metrics({
+	namespace: process.env.POWERTOOLS_METRICS_NAMESPACE ?? "Remit",
+	serviceName: process.env.POWERTOOLS_SERVICE_NAME ?? "remit",
+});
 
-const serializeValue = (value: unknown): unknown => {
-	if (value instanceof Error) {
-		return serializeError(value);
-	}
-	if (Array.isArray(value)) {
-		return value.map(serializeValue);
-	}
-	if (value && typeof value === "object") {
-		return Object.fromEntries(
-			Object.entries(value).map(([k, v]) => [k, serializeValue(v)]),
-		);
-	}
-	return value;
-};
+export const createLogger = (_context?: Context): Logger =>
+	createAdapter(logger);
 
-export type Logger = pino.Logger;
-
-/**
- * Simple console-based logger for local development.
- * Matches the pino.Logger interface for the methods we use.
- */
-const createConsoleLogger = (
-	bindings: Record<string, unknown> = {},
-): Logger => {
-	const levels = ["trace", "debug", "info", "warn", "error", "fatal"] as const;
-	const currentLevelIndex = levels.indexOf(logLevel as (typeof levels)[number]);
-
-	const shouldLog = (level: (typeof levels)[number]) => {
-		return levels.indexOf(level) >= currentLevelIndex;
-	};
-
-	const formatMessage = (
-		level: string,
-		objOrMsg?: Record<string, unknown> | string,
-		msg?: string,
-	) => {
-		const timestamp = new Date().toISOString();
-		const prefix = `[${timestamp}] ${level.toUpperCase()}`;
-
-		if (typeof objOrMsg === "string") {
-			return Object.keys(bindings).length > 0
-				? `${prefix} ${objOrMsg} ${JSON.stringify(bindings)}`
-				: `${prefix} ${objOrMsg}`;
-		}
-
-		const combined = serializeValue({ ...bindings, ...objOrMsg });
-		const context =
-			Object.keys(combined as object).length > 0
-				? ` ${JSON.stringify(combined)}`
-				: "";
-		return msg ? `${prefix} ${msg}${context}` : `${prefix}${context}`;
-	};
-
-	const createLogMethod = (level: (typeof levels)[number]) => {
-		return (objOrMsg?: Record<string, unknown> | string, msg?: string) => {
-			if (!shouldLog(level)) return;
-			const output = formatMessage(level, objOrMsg, msg);
-			console.log(output);
-		};
-	};
-
-	const logger = {
-		trace: createLogMethod("trace"),
-		debug: createLogMethod("debug"),
-		info: createLogMethod("info"),
-		warn: createLogMethod("warn"),
-		error: createLogMethod("error"),
-		fatal: createLogMethod("fatal"),
-		child: (childBindings: Record<string, unknown>) =>
-			createConsoleLogger({ ...bindings, ...childBindings }),
-		level: logLevel,
-	};
-
-	return logger as unknown as Logger;
-};
-
-export const createLogger = (context?: Context): Logger => {
-	if (isDevelopment) {
-		const bindings = context
-			? { requestId: context.awsRequestId, functionName: context.functionName }
-			: {};
-		return createConsoleLogger(bindings);
-	}
-
-	const logger = pino({
-		level: logLevel,
-	});
-
-	if (context) {
-		return logger.child({
-			requestId: context.awsRequestId,
+export const withTelemetry = <TEvent, TResult>(
+	handler: (event: TEvent, context: Context) => Promise<TResult>,
+): ((event: TEvent, context: Context) => Promise<TResult>) => {
+	return async (event: TEvent, context: Context): Promise<TResult> => {
+		logger.addContext(context);
+		logger.info("Lambda invocation started", {
 			functionName: context.functionName,
 		});
-	}
 
-	return logger;
+		metrics.captureColdStartMetric();
+
+		const start = Date.now();
+
+		try {
+			const result = await handler(event, context);
+			const duration = Date.now() - start;
+
+			metrics.addMetric("invocationCount", MetricUnit.Count, 1);
+			metrics.addMetric("invocationLatency", MetricUnit.Milliseconds, duration);
+
+			return result;
+		} catch (err) {
+			metrics.addMetric("errorCount", MetricUnit.Count, 1);
+			logger.error("Lambda invocation failed", { error: err });
+			throw err;
+		} finally {
+			metrics.publishStoredMetrics();
+		}
+	};
 };
