@@ -40,7 +40,9 @@ namespace RemitApi {
     @doc("Request full erasure of the current user's account and all associated data")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @delete
-    op deleteMe(): DeleteAccountConfigResponse;
+    op deleteMe(
+      @body body: DeleteMeInput,
+    ): DeleteAccountConfigResponse | ValidationError;
 
     @doc("List wellknown senders the user has not yet promoted to VIP. Ranked by `replyCount + inboundCount` desc with `lastInboundAt` desc as the tie-breaker. Capped at 10.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
