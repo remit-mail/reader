@@ -7,6 +7,8 @@ import { AuthShell } from "./auth/AuthShell";
 import { configureAmplify } from "./auth/amplify-config";
 import { installAuthInterceptor } from "./auth/auth-interceptor";
 import { install as installConsoleErrorCatcher } from "./lib/console-errors";
+import { initRum } from "./lib/rum-adapter";
+import { TelemetryContext } from "./lib/telemetry-context";
 import { installThemeSync } from "./lib/theme";
 import { createAppRouter } from "./router";
 import "./lib/i18n";
@@ -17,6 +19,8 @@ installConsoleErrorCatcher();
 installThemeSync();
 configureAmplify();
 installAuthInterceptor();
+
+const telemetry = initRum();
 
 const queryClient = new QueryClient({
 	defaultOptions: {
@@ -37,11 +41,13 @@ if (!rootElement) {
 
 createRoot(rootElement).render(
 	<StrictMode>
-		<QueryClientProvider client={queryClient}>
-			<AuthShell>
-				<RouterProvider router={router} />
-			</AuthShell>
-			<ReactQueryDevtools initialIsOpen={false} />
-		</QueryClientProvider>
+		<TelemetryContext.Provider value={telemetry}>
+			<QueryClientProvider client={queryClient}>
+				<AuthShell>
+					<RouterProvider router={router} />
+				</AuthShell>
+				<ReactQueryDevtools initialIsOpen={false} />
+			</QueryClientProvider>
+		</TelemetryContext.Provider>
 	</StrictMode>,
 );
