@@ -3,6 +3,7 @@ import {
 	Badge,
 	Button,
 	cn,
+	Dialog,
 	Input,
 	Kbd,
 	SenderFlagRow,
@@ -331,7 +332,13 @@ function DangerZone({ onDelete }: { onDelete: () => void }) {
 	);
 }
 
-function DeleteRemitDialog({ onClose }: { onClose: () => void }) {
+function DeleteRemitDialog({
+	open,
+	onClose,
+}: {
+	open: boolean;
+	onClose: () => void;
+}) {
 	const [confirmEmail, setConfirmEmail] = useState("");
 	const [mismatch, setMismatch] = useState(false);
 
@@ -341,106 +348,100 @@ function DeleteRemitDialog({ onClose }: { onClose: () => void }) {
 			return;
 		}
 		setMismatch(false);
-		// prototype: a real flow would call the offboarding endpoint here.
 		onClose();
 	};
 
 	return (
-		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-			<div className="w-full max-w-lg overflow-hidden rounded-md border border-line bg-surface shadow-xl">
-				<header className="flex items-center gap-2 border-b border-line px-5 py-3">
-					<AlertTriangle className="size-4 text-danger" />
-					<h2 className="flex-1 text-sm font-semibold text-fg">
-						Delete your Remit account
-					</h2>
-					<Button
-						variant="ghost"
-						size="sm"
-						icon={<X className="size-3.5" />}
-						onClick={onClose}
-						aria-label="Cancel"
-					/>
-				</header>
+		<Dialog open={open} onClose={onClose} title="Delete your Remit account">
+			<header className="flex items-center gap-2 border-b border-line px-5 py-3">
+				<AlertTriangle className="size-4 shrink-0 text-danger" />
+				<span className="flex-1 text-sm font-semibold text-fg">
+					Delete your Remit account
+				</span>
+				<Button
+					variant="ghost"
+					size="sm"
+					icon={<X className="size-3.5" />}
+					onClick={onClose}
+					aria-label="Cancel"
+				/>
+			</header>
 
-				<div className="space-y-4 px-5 py-4 text-sm text-fg-muted">
-					<p>This permanently erases everything Remit holds for you:</p>
-					<ul className="space-y-1.5 text-xs">
-						<li className="flex gap-2">
-							<span className="text-danger">•</span>
-							All connected accounts disconnected and their access tokens
-							revoked.
-						</li>
-						<li className="flex gap-2">
-							<span className="text-danger">•</span>
-							Synced mail cache and search index.
-						</li>
-						<li className="flex gap-2">
-							<span className="text-danger">•</span>
-							AI history and insights.
-						</li>
-						<li className="flex gap-2">
-							<span className="text-danger">•</span>
-							Preferences and rules.
-						</li>
-					</ul>
+			<div className="space-y-4 px-5 py-4 text-sm text-fg-muted">
+				<p>This permanently erases everything Remit holds for you:</p>
+				<ul className="space-y-1.5 text-xs">
+					<li className="flex gap-2">
+						<span className="text-danger">•</span>
+						All connected accounts disconnected and their access tokens revoked.
+					</li>
+					<li className="flex gap-2">
+						<span className="text-danger">•</span>
+						Synced mail cache and search index.
+					</li>
+					<li className="flex gap-2">
+						<span className="text-danger">•</span>
+						AI history and insights.
+					</li>
+					<li className="flex gap-2">
+						<span className="text-danger">•</span>
+						Preferences and rules.
+					</li>
+				</ul>
 
-					<div className="rounded-sm border border-line bg-surface-sunken px-3 py-2 text-xs">
-						<strong className="text-fg">
-							Your mail at Gmail / IMAP is not deleted.
-						</strong>{" "}
-						This only removes Remit's copy and its access — the mail stays in
-						your provider mailboxes.
-					</div>
-
-					<a
-						href="#export"
-						className="inline-flex items-center gap-1.5 text-xs font-medium text-accent hover:underline"
-					>
-						<Download className="size-3.5" />
-						Export my data first
-					</a>
-
-					<div>
-						<label
-							htmlFor="confirm-remit-email"
-							className="mb-1 block text-xs font-medium text-fg"
-						>
-							Type{" "}
-							<span className="font-mono text-fg-muted">
-								{REMIT_ACCOUNT_EMAIL}
-							</span>{" "}
-							to confirm
-						</label>
-						<Input
-							id="confirm-remit-email"
-							placeholder={REMIT_ACCOUNT_EMAIL}
-							value={confirmEmail}
-							onChange={(e) => {
-								setConfirmEmail(e.target.value);
-								if (mismatch) setMismatch(false);
-							}}
-						/>
-						{mismatch && (
-							<p className="mt-1.5 text-xs text-danger">
-								That doesn't match {REMIT_ACCOUNT_EMAIL}. Type your Remit
-								account email exactly to confirm.
-							</p>
-						)}
-					</div>
+				<div className="rounded-sm border border-line bg-surface-sunken px-3 py-2 text-xs">
+					<strong className="text-fg">
+						Your mail at Gmail / IMAP is not deleted.
+					</strong>{" "}
+					This only removes Remit's copy and its access — the mail stays in your
+					provider mailboxes.
 				</div>
 
-				<footer className="flex items-center justify-end gap-2 border-t border-line px-5 py-3">
-					<Button variant="secondary" size="sm" onClick={onClose}>
-						Cancel
-					</Button>
-					{/* UX tenet: stays pressable; mismatch is explained on click, not
-					    hidden behind a disabled button. */}
-					<Button variant="danger" size="sm" onClick={handleDelete}>
-						Delete everything
-					</Button>
-				</footer>
+				<button
+					type="button"
+					className="inline-flex items-center gap-1.5 text-xs font-medium text-accent hover:underline"
+				>
+					<Download className="size-3.5" />
+					Export my data first
+				</button>
+
+				<div>
+					<label
+						htmlFor="confirm-remit-email"
+						className="mb-1 block text-xs font-medium text-fg"
+					>
+						Type{" "}
+						<span className="font-mono text-fg-muted">
+							{REMIT_ACCOUNT_EMAIL}
+						</span>{" "}
+						to confirm
+					</label>
+					<Input
+						id="confirm-remit-email"
+						placeholder={REMIT_ACCOUNT_EMAIL}
+						value={confirmEmail}
+						onChange={(e) => {
+							setConfirmEmail(e.target.value);
+							if (mismatch) setMismatch(false);
+						}}
+					/>
+					{mismatch && (
+						<p className="mt-1.5 text-xs text-danger" role="alert">
+							That doesn't match {REMIT_ACCOUNT_EMAIL}. Type your Remit account
+							email exactly to confirm.
+						</p>
+					)}
+				</div>
 			</div>
-		</div>
+
+			<footer className="flex items-center justify-end gap-2 border-t border-line px-5 py-3">
+				<Button variant="secondary" size="sm" onClick={onClose}>
+					Cancel
+				</Button>
+				<Button variant="danger" size="sm" onClick={handleDelete}>
+					Delete everything
+				</Button>
+			</footer>
+		</Dialog>
 	);
 }
 
@@ -495,7 +496,7 @@ function DangerZonePage({ dialogOpen = false }: { dialogOpen?: boolean }) {
 			</div>
 
 			<DangerZone onDelete={() => setOpen(true)} />
-			{open && <DeleteRemitDialog onClose={() => setOpen(false)} />}
+			<DeleteRemitDialog open={open} onClose={() => setOpen(false)} />
 		</SettingsShell>
 	);
 }
