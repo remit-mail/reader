@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import cluster from "node:cluster";
-import { inspect } from "node:util";
 import {
 	DeleteMessageCommand,
 	ReceiveMessageCommand,
@@ -114,15 +113,6 @@ if (cluster.isPrimary) {
 		isShuttingDown = true;
 	});
 
-	process.on("unhandledRejection", (reason, promise) => {
-		console.error("Unhandled Rejection at:", promise, "reason:", reason);
-	});
-
-	process.on("uncaughtException", (err) => {
-		console.error("Uncaught Exception:", err);
-		process.exit(1);
-	});
-
 	const processMessage = async (
 		messageBody: string,
 		receiptHandle: string,
@@ -193,7 +183,6 @@ if (cluster.isPrimary) {
 				validMessages,
 				(message) =>
 					processMessage(message.body, message.receiptHandle).catch((error) => {
-						console.error(inspect(error));
 						log.error(
 							{
 								error,
@@ -213,7 +202,7 @@ if (cluster.isPrimary) {
 	pollQueue()
 		.then(() => process.exit(0))
 		.catch((error) => {
-			console.error("Worker error:", error);
+			log.error({ error }, "Worker error");
 			process.exit(1);
 		});
 }
