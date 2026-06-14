@@ -60,6 +60,38 @@ export const computeSmtpAutoFill = (
 };
 
 /**
+ * `true` when a connection-test error message reads as an authentication
+ * failure rather than a network/configuration problem. Mirrors the
+ * keyword detection in the onboarding wizard so both surfaces agree on
+ * what counts as "wrong credentials".
+ */
+export const isAuthError = (message: string | undefined): boolean => {
+	const m = message?.toLowerCase() ?? "";
+	return (
+		m.includes("auth") ||
+		m.includes("login") ||
+		m.includes("535") ||
+		m.includes("credential")
+	);
+};
+
+/**
+ * Append the per-provider app-password hint to an auth-failure error.
+ * Preset providers reject the normal account password, which surfaces as
+ * "wrong password"; the hint tells the user they need an app password.
+ * Returns the original message unchanged when it is not an auth error.
+ */
+export const appendAppPasswordHint = (
+	message: string | undefined,
+	hint: string | undefined,
+): string | undefined => {
+	if (!message) return message;
+	if (!hint) return message;
+	if (!isAuthError(message)) return message;
+	return `${message} — ${hint}`;
+};
+
+/**
  * `true` when an account row should display the "Can't send mail —
  * configure SMTP" warning. We treat both `undefined` and a blank string
  * as missing so accounts created before SMTP existed surface the same

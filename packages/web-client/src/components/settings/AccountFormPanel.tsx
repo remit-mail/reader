@@ -6,16 +6,22 @@ import {
 	configOperationsGetConfigQueryKey,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
-import { Button, Input } from "@remit/ui";
+import { Button, Input, Select } from "@remit/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, Loader2, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { useSignature } from "../../hooks/useSignature";
+import {
+	getPresetById,
+	PROVIDER_PRESETS,
+	type ProviderPreset,
+} from "../../lib/provider-presets.js";
 import { cn } from "../../lib/utils";
 import { SlidePanel } from "../ui/SlidePanel";
 import {
+	appendAppPasswordHint,
 	computeSmtpAutoFill,
 	deriveSmtpHostFromImap,
 } from "./account-form-helpers.js";
@@ -88,6 +94,14 @@ export const AccountFormPanel = ({
 
 	// Track if user has modified the password field
 	const [passwordModified, setPasswordModified] = useState(false);
+
+	// Selected provider preset (empty string = "Custom / other", manual entry)
+	const [presetId, setPresetId] = useState("");
+	// When a preset is selected its server fields are read-only until the
+	// user opts into manual editing via the Advanced toggle.
+	const [advancedOpen, setAdvancedOpen] = useState(false);
+	const selectedPreset: ProviderPreset | undefined = getPresetById(presetId);
+	const serversLocked = !!selectedPreset && !advancedOpen;
 
 	const smtpSectionRef = useRef<HTMLElement | null>(null);
 
@@ -359,6 +373,37 @@ export const AccountFormPanel = ({
 		form.setValue("smtpPort", 587);
 	};
 
+	const handlePresetChange = (id: string) => {
+		setPresetId(id);
+		setAdvancedOpen(false);
+		const preset = getPresetById(id);
+		if (!preset) return;
+
+		form.setValue("imapHost", preset.imap.host);
+		form.setValue("imapPort", preset.imap.port);
+		form.setValue("imapTls", preset.imap.security === "tls");
+		form.setValue("imapStartTls", preset.imap.security === "starttls");
+
+		form.setValue("smtpHost", preset.smtp.host);
+		form.setValue("smtpPort", preset.smtp.port);
+		form.setValue("smtpTls", preset.smtp.security === "tls");
+		form.setValue("smtpStartTls", preset.smtp.security === "starttls");
+
+		const email = form.getValues("email").trim();
+		const username = form.getValues("username")?.trim();
+		if (email && !username) form.setValue("username", email);
+	};
+
+	const presetHint = selectedPreset?.passwordHelp.text;
+	const imapError = appendAppPasswordHint(
+		testMutation.data?.imapError,
+		presetHint,
+	);
+	const smtpError = appendAppPasswordHint(
+		testMutation.data?.smtpError,
+		presetHint,
+	);
+
 	const isOAuthAccount = account ? isOAuthMicrosoftAccount(account) : false;
 
 	// OAuth Microsoft accounts: show a read-only summary panel instead of
@@ -461,6 +506,26 @@ export const AccountFormPanel = ({
 					<div className="space-y-3">
 						<div>
 							<label className="text-sm font-medium mb-1.5 block">
+								Provider
+							</label>
+							<Select
+								value={presetId}
+								onChange={(e) => handlePresetChange(e.target.value)}
+							>
+								<option value="">Custom / other</option>
+								{PROVIDER_PRESETS.map((preset) => (
+									<option key={preset.id} value={preset.id}>
+										{preset.label}
+									</option>
+								))}
+							</Select>
+							<p className="text-xs text-fg-muted mt-1">
+								Pick your email provider to fill in server settings
+								automatically, or choose Custom to enter them by hand.
+							</p>
+						</div>
+						<div>
+							<label className="text-sm font-medium mb-1.5 block">
 								Email Address
 							</label>
 							<Input
@@ -505,20 +570,51 @@ export const AccountFormPanel = ({
 									{form.formState.errors.password.message}
 								</p>
 							)}
+							{selectedPreset && (
+								<p className="text-xs text-fg-muted mt-1">
+									{selectedPreset.passwordHelp.text}{" "}
+									<a
+										href={selectedPreset.passwordHelp.url}
+										target="_blank"
+										rel="noopener noreferrer"
+										className="text-accent hover:underline"
+									>
+										Get an app password
+									</a>
+								</p>
+							)}
 						</div>
 					</div>
 				</section>
 
 				{/* IMAP Settings */}
 				<section>
-					<h3 className="text-2xs font-semibold text-fg-subtle uppercase tracking-wider mb-3">
-						Incoming Mail (IMAP)
-					</h3>
+					<div className="flex items-center justify-between mb-3">
+						<h3 className="text-2xs font-semibold text-fg-subtle uppercase tracking-wider">
+							Incoming Mail (IMAP)
+						</h3>
+						{selectedPreset && (
+							<button
+								type="button"
+								onClick={() => setAdvancedOpen((v) => !v)}
+								className="text-xs text-fg-muted hover:text-fg transition-colors"
+							>
+								{advancedOpen ? "Use preset settings" : "Advanced"}
+							</button>
+						)}
+					</div>
+					{serversLocked && (
+						<p className="text-xs text-fg-muted mb-3">
+							Server settings are pre-filled for {selectedPreset?.label} and
+							locked. Choose Advanced to edit them by hand.
+						</p>
+					)}
 					<div className="space-y-3">
 						<div>
 							<label className="text-sm font-medium mb-1.5 block">Server</label>
 							<Input
 								{...form.register("imapHost")}
+								readOnly={serversLocked}
 								placeholder="imap.example.com"
 							/>
 							{form.formState.errors.imapHost && (
@@ -530,7 +626,11 @@ export const AccountFormPanel = ({
 						<div className="grid grid-cols-2 gap-3">
 							<div>
 								<label className="text-sm font-medium mb-1.5 block">Port</label>
-								<Input {...form.register("imapPort")} type="number" />
+								<Input
+									{...form.register("imapPort")}
+									readOnly={serversLocked}
+									type="number"
+								/>
 							</div>
 							<div>
 								<label className="text-sm font-medium mb-1.5 block">
@@ -540,6 +640,7 @@ export const AccountFormPanel = ({
 									<label className="flex items-center gap-2 text-sm">
 										<input
 											type="radio"
+											disabled={serversLocked}
 											checked={form.watch("imapTls")}
 											onChange={() => handleSecurityChange("tls")}
 										/>
@@ -548,6 +649,7 @@ export const AccountFormPanel = ({
 									<label className="flex items-center gap-2 text-sm">
 										<input
 											type="radio"
+											disabled={serversLocked}
 											checked={
 												!form.watch("imapTls") && form.watch("imapStartTls")
 											}
@@ -558,6 +660,7 @@ export const AccountFormPanel = ({
 									<label className="flex items-center gap-2 text-sm">
 										<input
 											type="radio"
+											disabled={serversLocked}
 											checked={
 												!form.watch("imapTls") && !form.watch("imapStartTls")
 											}
@@ -596,9 +699,7 @@ export const AccountFormPanel = ({
 								) : (
 									<X className="inline size-4 mr-1" />
 								)}
-								{testMutation.data.imapSuccess
-									? "IMAP Connected"
-									: testMutation.data.imapError}
+								{testMutation.data.imapSuccess ? "IMAP Connected" : imapError}
 							</div>
 						)}
 					</div>
@@ -610,27 +711,34 @@ export const AccountFormPanel = ({
 						<h3 className="text-2xs font-semibold text-fg-subtle uppercase tracking-wider">
 							Outgoing Mail (SMTP)
 						</h3>
-						<button
-							type="button"
-							onClick={handlePrefillFromImap}
-							disabled={!form.watch("imapHost")}
-							className="text-xs text-fg-muted hover:text-fg transition-colors disabled:opacity-50"
-						>
-							Pre-fill from IMAP
-						</button>
+						{!serversLocked && (
+							<button
+								type="button"
+								onClick={handlePrefillFromImap}
+								disabled={!form.watch("imapHost")}
+								className="text-xs text-fg-muted hover:text-fg transition-colors disabled:opacity-50"
+							>
+								Pre-fill from IMAP
+							</button>
+						)}
 					</div>
 					<div className="space-y-3">
 						<div>
 							<label className="text-sm font-medium mb-1.5 block">Server</label>
 							<Input
 								{...form.register("smtpHost")}
+								readOnly={serversLocked}
 								placeholder="smtp.example.com"
 							/>
 						</div>
 						<div className="grid grid-cols-2 gap-3">
 							<div>
 								<label className="text-sm font-medium mb-1.5 block">Port</label>
-								<Input {...form.register("smtpPort")} type="number" />
+								<Input
+									{...form.register("smtpPort")}
+									readOnly={serversLocked}
+									type="number"
+								/>
 							</div>
 							<div>
 								<label className="text-sm font-medium mb-1.5 block">
@@ -640,6 +748,7 @@ export const AccountFormPanel = ({
 									<label className="flex items-center gap-2 text-sm">
 										<input
 											type="radio"
+											disabled={serversLocked}
 											checked={form.watch("smtpTls") === true}
 											onChange={() => handleSmtpSecurityChange("tls")}
 										/>
@@ -648,6 +757,7 @@ export const AccountFormPanel = ({
 									<label className="flex items-center gap-2 text-sm">
 										<input
 											type="radio"
+											disabled={serversLocked}
 											checked={
 												!form.watch("smtpTls") &&
 												form.watch("smtpStartTls") === true
@@ -659,6 +769,7 @@ export const AccountFormPanel = ({
 									<label className="flex items-center gap-2 text-sm">
 										<input
 											type="radio"
+											disabled={serversLocked}
 											checked={
 												!form.watch("smtpTls") && !form.watch("smtpStartTls")
 											}
@@ -720,9 +831,7 @@ export const AccountFormPanel = ({
 								) : (
 									<X className="inline size-4 mr-1" />
 								)}
-								{testMutation.data.smtpSuccess
-									? "SMTP Connected"
-									: testMutation.data.smtpError}
+								{testMutation.data.smtpSuccess ? "SMTP Connected" : smtpError}
 							</div>
 						)}
 					</div>
