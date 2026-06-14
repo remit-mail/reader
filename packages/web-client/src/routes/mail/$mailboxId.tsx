@@ -61,6 +61,7 @@ import {
 	resolveSelectedThread,
 } from "@/lib/search-pending";
 import { normalizeSearchQuery } from "@/lib/search-query";
+import { useTelemetry } from "@/lib/telemetry-context";
 
 // Search schema includes q from parent route for proper inheritance
 const mailboxSearchSchema = z.object({
@@ -80,6 +81,7 @@ function MailboxView() {
 	const { selectedMessageId } = Route.useSearch();
 	const navigate = useNavigate();
 	const isDesktop = useIsDesktop();
+	const telemetry = useTelemetry();
 	const {
 		accounts,
 		searchQuery,
@@ -561,6 +563,26 @@ function MailboxView() {
 		},
 		[navigate],
 	);
+
+	// Coarse mailbox category: any one of the recognised special-use types, or
+	// "custom" for user-created folders. Derived from already-resolved ids so it
+	// is available by the time this effect fires.
+	const mailboxType = isDraftsMailbox
+		? "drafts"
+		: archiveMailboxId === mailboxId
+			? "archive"
+			: junkMailboxId === mailboxId
+				? "junk"
+				: "inbox";
+
+	const prevNormalizedSearchRef = useRef("");
+	useEffect(() => {
+		const prev = prevNormalizedSearchRef.current;
+		prevNormalizedSearchRef.current = normalizedSearchQuery;
+		if (normalizedSearchQuery.length > 0 && prev.length === 0) {
+			telemetry.recordEvent("search.submitted", { mailboxType });
+		}
+	}, [normalizedSearchQuery, mailboxType, telemetry]);
 
 	// Central global dispatcher (#429): one keydown handler routing every key to
 	// the handler table. Paused while compose owns the keyboard (compose has its

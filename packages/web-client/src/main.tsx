@@ -32,7 +32,8 @@ const queryClient = new QueryClient({
 	},
 });
 
-const router = createAppRouter(queryClient);
+const router = createAppRouter(queryClient, telemetry);
+telemetry.recordPageView(window.location.pathname);
 
 const rootElement = document.getElementById("root");
 if (!rootElement) {
