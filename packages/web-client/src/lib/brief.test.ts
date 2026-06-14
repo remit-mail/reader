@@ -6,6 +6,7 @@ import {
 	buildBriefChips,
 	countMutedAccounts,
 	groupBriefSections,
+	matchesBriefSearch,
 } from "./brief.js";
 
 function row(
@@ -144,6 +145,36 @@ function account(
 		...overrides,
 	} as RemitImapAccountResponse;
 }
+
+describe("matchesBriefSearch", () => {
+	const r = row({
+		id: "1",
+		fromName: "Alice Tan",
+		fromEmail: "alice@example.com",
+		subject: "Q3 roadmap",
+		snippet: "See the attached deck",
+	});
+
+	test("matches on fromName (case-insensitive)", () => {
+		assert.strictEqual(matchesBriefSearch(r, "alice"), true);
+	});
+
+	test("matches on fromEmail", () => {
+		assert.strictEqual(matchesBriefSearch(r, "alice@example"), true);
+	});
+
+	test("matches on subject", () => {
+		assert.strictEqual(matchesBriefSearch(r, "roadmap"), true);
+	});
+
+	test("matches on snippet", () => {
+		assert.strictEqual(matchesBriefSearch(r, "deck"), true);
+	});
+
+	test("returns false when query matches nothing", () => {
+		assert.strictEqual(matchesBriefSearch(r, "zyxwvuts"), false);
+	});
+});
 
 describe("buildBriefChips / countMutedAccounts — muted is an object flag", () => {
 	// `muted` is RemitImapMutedFlag = { value: boolean, ... }, NOT a boolean.

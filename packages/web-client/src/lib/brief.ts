@@ -43,6 +43,7 @@ export function toThreadRowData(
 		subject: thread.subject ?? "(No subject)",
 		snippet: thread.snippet ?? "",
 		timeLabel: formatEmailDate(thread.sentDate),
+		sentDate: thread.sentDate,
 		isRead: thread.isRead,
 		hasAttachment: thread.hasAttachment,
 		starred:
@@ -138,4 +139,17 @@ export function countMutedAccounts(
 	accounts: RemitImapAccountResponse[],
 ): number {
 	return accounts.filter((a) => a.muted?.value).length;
+}
+
+/**
+ * Returns true when `t` matches the free-text `query` (lower-cased).
+ * Checked against fromName, fromEmail, subject, and snippet.
+ */
+export function matchesBriefSearch(t: ThreadRowData, query: string): boolean {
+	return (
+		t.fromName.toLowerCase().includes(query) ||
+		t.fromEmail.toLowerCase().includes(query) ||
+		t.subject.toLowerCase().includes(query) ||
+		t.snippet.toLowerCase().includes(query)
+	);
 }
