@@ -12,6 +12,7 @@ const packageStubs = new Map([
 	// `useAuthenticator` can still be loaded.
 	["@aws-amplify/ui-react", `${stubsDir}aws-amplify-ui-react.mjs`],
 	["@remit/api-http-client/client.gen.ts", `${stubsDir}remit-client.mjs`],
+	["aws-rum-web", `${stubsDir}aws-rum-web.mjs`],
 ]);
 
 const amplifyConfigStubUrl = `${stubsDir}amplify-config.mjs`;
@@ -21,6 +22,8 @@ const isInterceptorSource = (url) =>
 	url.includes("/remit-web-client/src/auth/auth-interceptor.ts");
 const isAppInfoSource = (url) =>
 	url.includes("/remit-web-client/src/lib/app-info.");
+const isRumAdapterSource = (url) =>
+	url.includes("/remit-web-client/src/lib/rum-adapter.");
 
 export const resolve = async (specifier, context, nextResolve) => {
 	const stub = packageStubs.get(specifier);
@@ -57,7 +60,7 @@ export const load = async (url, context, nextLoad) => {
 
 	let transformed = raw;
 
-	if (isAuthSourceUrl(url)) {
+	if (isAuthSourceUrl(url) || isRumAdapterSource(url)) {
 		transformed = transformed.replaceAll(
 			"import.meta.env",
 			"(globalThis.__VITE_ENV__ ?? {})",

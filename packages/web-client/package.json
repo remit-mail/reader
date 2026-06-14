@@ -69,6 +69,7 @@
     "zod": "^3"
   },
   "dependencies": {
+    "aws-rum-web": "^3",
     "@tanstack/react-virtual": "^3.13.18",
     "prop-types": "^15.8.1",
     "react-resizable-panels": "^2.1.9",
