@@ -7,13 +7,14 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import {
 	createFileRoute,
+	Link,
 	Outlet,
 	redirect,
 	useNavigate,
 	useParams,
 	useSearch,
 } from "@tanstack/react-router";
-import { ArrowLeft, Menu, Search, X } from "lucide-react";
+import { ArrowLeft, Menu, Search, Settings, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { AccountMenu } from "@/auth/AccountMenu";
@@ -21,6 +22,7 @@ import { ComposeFab } from "@/components/layout/ComposeFab";
 import { Drawer } from "@/components/layout/Drawer";
 import { SearchBar } from "@/components/layout/SearchBar";
 import { MailSidebar } from "@/components/mail/MailSidebar";
+import { BugReportButton } from "@/components/ui/BugReportButton";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { KeyboardShortcutsModal } from "@/components/ui/KeyboardShortcutsModal";
 import { useCurrentMailboxName } from "@/hooks/useCurrentMailboxName";
@@ -334,11 +336,29 @@ function MailLayout() {
 						onClose={() => setDrawerOpen(false)}
 						ariaLabel="Mailboxes and accounts"
 					>
-						<MailSidebar
-							accounts={accounts}
-							onMailboxSelect={handleMailboxSelect}
-							variant="drawer"
-						/>
+						<div className="flex h-full flex-col">
+							<div className="flex-1 overflow-y-auto">
+								<MailSidebar
+									accounts={accounts}
+									onMailboxSelect={handleMailboxSelect}
+									variant="drawer"
+								/>
+							</div>
+							{/* Settings and bug-report live in the top-right AccountMenu on
+							    desktop; the mobile message toolbar that hosts them isn't
+							    rendered, so the drawer footer keeps both reachable (#685). */}
+							<div className="border-t border-line px-2 py-2">
+								<Link
+									to="/settings/accounts"
+									onClick={() => setDrawerOpen(false)}
+									className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-sm text-fg-muted transition-colors hover:bg-surface hover:text-fg"
+								>
+									<Settings className="size-4 shrink-0" />
+									<span className="flex-1 truncate text-left">Settings</span>
+								</Link>
+								<BugReportButton variant="drawer" />
+							</div>
+						</div>
 					</Drawer>
 					{/* Mobile compose FAB. The compose form itself takes over the
 					    detail pane in `routes/mail/$mailboxId.tsx`, which on

@@ -27,5 +27,13 @@ export const useMediaQuery = (query: string): boolean => {
 	return matches;
 };
 
-/** Tailwind `md:` and up. */
-export const useIsDesktop = (): boolean => useMediaQuery("(min-width: 768px)");
+/**
+ * True at desktop widths (Tailwind `lg:` and up, ≥1024px). Below this the app
+ * renders the single-pane mobile layout: tablet portrait (768px) and phones
+ * both fall under here, so they get the stacked list → reading flow with
+ * drawer chrome instead of the cramped three-pane desktop grid (#682).
+ *
+ * The CSS-gated mobile chrome (Drawer, ComposeFab) uses `lg:hidden` to match
+ * this boundary — keep them in sync if the breakpoint changes.
+ */
+export const useIsDesktop = (): boolean => useMediaQuery("(min-width: 1024px)");
