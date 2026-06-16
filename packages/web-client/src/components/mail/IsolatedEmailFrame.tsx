@@ -30,12 +30,31 @@ const MAX_HEIGHT_PX = 50_000;
 // scrollbar rather than allocate unbounded width.
 const MAX_WIDTH_PX = 10_000;
 
-// Zero the user-agent default 8px body margin so content + margins don't
-// push the document's scroll size past the iframe box (which would leave a
-// phantom, unscrollable scrollbar). Margin-only — never touches the
-// email's own colors or typography. The plain branch already zeroes this
-// in its injected base CSS; this covers the framed branch.
-const MARGIN_RESET_CSS = "<style>html,body{margin:0}</style>";
+// Detects whether a (sanitized) email opts into dark rendering — either via a
+// `prefers-color-scheme: dark` media query or an explicit `color-scheme: dark`
+// declaration. Whitespace inside the value is tolerated. When present we honor
+// the author's intent instead of forcing white.
+const DARK_OPT_IN_RE =
+	/prefers-color-scheme\s*:\s*dark|color-scheme\s*:\s*[^;}"']*\bdark\b/i;
+
+/**
+ * Base CSS for the framed (designed / newsletter) branch, mirroring K-9 Mail's
+ * strategy: authored HTML renders on a WHITE canvas under a light color-scheme
+ * unless the email opts into dark, in which case we leave its own background
+ * alone and advertise both schemes.
+ *
+ * No `!important` — this is a *default* canvas, not an override. An email that
+ * paints its own `body` background (branded / dark designs) still wins. Without
+ * it, a newsletter authored as dark-text-on-white shows that dark text against
+ * the dark reading pane (the iframe canvas is transparent) and is unreadable.
+ *
+ * Margin reset is folded in: zero the UA 8px body margin so content + margins
+ * don't push the scroll size past the iframe box.
+ */
+const generateFramedEmailBaseCSS = (optsIntoDark: boolean): string =>
+	optsIntoDark
+		? "html,body{margin:0;color-scheme:dark light}"
+		: "html,body{margin:0;background-color:#ffffff;color-scheme:light}";
 
 /**
  * Pin an iframe axis to its content's scroll size: take the larger of the
@@ -75,12 +94,18 @@ export const IsolatedEmailFrame = ({
 	//
 	// The layout-clamp CSS is NOT injected here: `html` is the sanitizer's
 	// output, which already prefixes its own `<style>${layoutCss}</style>`
-	// block (see email-sanitizer.ts). We only prepend the plain-email base
-	// CSS, and only for the plain case.
+	// block (see email-sanitizer.ts). The plain branch prepends the
+	// plain-email base CSS; the framed branch prepends a white-canvas base
+	// (or a dark-aware one when the email opts into dark) so designed
+	// newsletters don't show dark author text against the dark pane.
 	const srcDoc = useMemo(() => {
-		const baseCss = isPlain ? generatePlainEmailBaseCSS(isDark) : "";
-		if (baseCss) return `<style>${baseCss}</style>${html}`;
-		return `${MARGIN_RESET_CSS}${html}`;
+		if (isPlain) {
+			const baseCss = generatePlainEmailBaseCSS(isDark);
+			return `<style>${baseCss}</style>${html}`;
+		}
+		const optsIntoDark = DARK_OPT_IN_RE.test(html);
+		const baseCss = generateFramedEmailBaseCSS(optsIntoDark);
+		return `<style>${baseCss}</style>${html}`;
 	}, [html, isPlain, isDark]);
 
 	useEffect(() => {
@@ -153,12 +178,13 @@ export const IsolatedEmailFrame = ({
 				display: "block",
 				height: height === 0 ? "1px" : `${height}px`,
 				overflow: "hidden",
-				// Designed emails (framed newsletters) pin to light-mode so the
-				// author's colors survive dark mode. Plain emails use "normal" so
-				// the injected base CSS (which already resolves theme colors) takes
-				// full effect and the system doesn't layer another color-scheme
-				// adjustment on top.
-				colorScheme: isPlain ? "normal" : "light",
+				// Both branches carry their own `color-scheme` in the injected
+				// base CSS — plain resolves theme colors; framed emails default
+				// to light (white canvas) and switch to `dark light` only when the
+				// email opts into dark. So the iframe element uses "normal" and
+				// lets the in-document rule decide, rather than pinning a scheme
+				// here that would fight a dark opt-in.
+				colorScheme: "normal",
 			}}
 		/>
 	);
