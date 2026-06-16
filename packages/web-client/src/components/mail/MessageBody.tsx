@@ -257,9 +257,10 @@ export const MessageBody = ({
 				// hypothetical sanitizer escape can't execute.
 				//
 				// Designed / framed treatment (newsletter/marketing or author
-				// background detected): left-anchored hairline frame on
-				// `surface-sunken`, colorScheme:"light" so the email's own
-				// colors survive dark mode (never inverted).
+				// background detected): hairline frame on a white canvas so the
+				// email's own colors stay readable; designed emails render on
+				// white (light color-scheme) unless they opt into dark, and are
+				// never inverted.
 				//
 				// Plain treatment (no author background, not newsletter):
 				// UI sans-serif + theme-aware colors injected; colorScheme:
@@ -273,7 +274,7 @@ export const MessageBody = ({
 					// overflow drives the pane's single horizontal scrollbar
 					// (#528 / #542). No `overflow-hidden`: clipping here would
 					// hide wide content instead of surfacing that scrollbar.
-					<div className="w-full rounded-sm border border-line bg-surface-sunken">
+					<div className="w-full rounded-sm border border-line bg-white">
 						<IsolatedEmailFrame html={sanitizedHtml} isPlain={false} />
 					</div>
 				) : (
