@@ -739,7 +739,11 @@ export function BriefSections({
 		() =>
 			new Set(
 				sections
-					.filter((s) => s.threads.length > LONG_SECTION && s.id === "rest")
+					.filter(
+						(s) =>
+							s.id === "bulk" ||
+							(s.threads.length > LONG_SECTION && s.id === "rest"),
+					)
 					.map((s) => s.id),
 			),
 	);
