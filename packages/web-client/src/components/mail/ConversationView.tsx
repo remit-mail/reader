@@ -5,7 +5,14 @@ import {
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapMessageAuthenticity } from "@remit/api-http-client/types.gen.ts";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Forward, Reply, ReplyAll, ShieldAlert } from "lucide-react";
+import {
+	ArrowLeft,
+	Forward,
+	Info,
+	Reply,
+	ReplyAll,
+	ShieldAlert,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ComposeMode } from "@/components/compose/ComposeProvider";
 import { InlineCompose } from "@/components/compose/InlineCompose";
@@ -16,6 +23,7 @@ import { useMailboxAccount } from "@/hooks/useMailboxAccount";
 import { useMarkAsRead } from "@/hooks/useMarkAsRead";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { useToggleStar } from "@/hooks/useToggleStar";
+import { cn } from "@/lib/utils";
 import { MessageCard } from "./MessageCard";
 
 interface ConversationViewProps {
@@ -124,6 +132,11 @@ interface MobileActionBarProps {
 	onReplyAll: () => void;
 	onForward: () => void;
 	disabled?: boolean;
+	/**
+	 * Opens the message-details (info) drawer. The desktop info pane has no room
+	 * on mobile, so this chip is the touch entry point into it (#687).
+	 */
+	onInfo?: () => void;
 }
 
 const mobileActionChip =
@@ -135,6 +148,7 @@ const MobileActionBar = ({
 	onReplyAll,
 	onForward,
 	disabled,
+	onInfo,
 }: MobileActionBarProps) => (
 	<div
 		className="sticky bottom-0 bg-canvas/95 backdrop-blur supports-[backdrop-filter]:bg-canvas/80 border-t border-line px-4 py-3"
@@ -186,6 +200,17 @@ const MobileActionBar = ({
 				<span className="text-xs text-fg-muted ml-2 hidden sm:inline">
 					Configure SMTP to send mail
 				</span>
+			)}
+			{onInfo && (
+				<button
+					type="button"
+					onClick={onInfo}
+					aria-label="Message details"
+					className={cn(mobileActionChip, "ml-auto")}
+				>
+					<Info className="size-4" />
+					<span className="hidden sm:inline">Details</span>
+				</button>
 			)}
 		</div>
 	</div>
@@ -450,12 +475,13 @@ export const ConversationView = ({
 	if (!isDesktop) {
 		return (
 			<article className="h-full flex flex-col">
-				{/* The phishing warning is just as important on mobile. There is no
-				    intelligence sidebar on mobile (the 4-pane layout is desktop-only),
-				    so the banner renders without a "Why?" link — the warning text
-				    stands on its own. */}
+				{/* The phishing warning is just as important on mobile. The "Why?"
+				    link opens the info drawer that hosts the intelligence pane (#687). */}
 				{authenticity?.dkimMismatch && (
-					<AuthenticityBanner authenticity={authenticity} />
+					<AuthenticityBanner
+						authenticity={authenticity}
+						onOpenIntelligence={onOpenIntelligence}
+					/>
 				)}
 				<div className="flex-1 overflow-auto">{messagesList}</div>
 				{composeMode !== null ? (
@@ -472,6 +498,7 @@ export const ConversationView = ({
 						onReplyAll={handleReplyAll}
 						onForward={handleForward}
 						disabled={!smtpConfigured}
+						onInfo={onOpenIntelligence}
 					/>
 				)}
 			</article>

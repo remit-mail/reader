@@ -67,7 +67,7 @@ export const Drawer = ({
 
 	return (
 		<div
-			className="fixed inset-0 z-50 md:hidden"
+			className="fixed inset-0 z-50 lg:hidden"
 			role="dialog"
 			aria-modal="true"
 			aria-label={ariaLabel}
