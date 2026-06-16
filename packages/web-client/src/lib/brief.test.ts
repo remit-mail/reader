@@ -125,6 +125,83 @@ describe("groupBriefSections", () => {
 			"Everything else",
 		]);
 	});
+
+	test("newsletter goes to bulk, not everything-else", () => {
+		const r = row({ id: "1", isRead: false, category: "newsletter" });
+		const sections = groupBriefSections([r]);
+		assert.strictEqual(sections.length, 1);
+		assert.strictEqual(sections[0].id, "bulk");
+		assert.strictEqual(sections[0].label, "Bulk");
+	});
+
+	test("marketing, automated and social all demote to bulk", () => {
+		const rows: ThreadRowData[] = [
+			row({ id: "1", category: "marketing" }),
+			row({ id: "2", category: "automated" }),
+			row({ id: "3", category: "social" }),
+		];
+		const sections = groupBriefSections(rows);
+		assert.strictEqual(sections.length, 1);
+		assert.strictEqual(sections[0].id, "bulk");
+		assert.strictEqual(sections[0].threads.length, 3);
+	});
+
+	test("personal and transactional stay in everything-else", () => {
+		const rows: ThreadRowData[] = [
+			row({ id: "1", category: "personal" }),
+			row({ id: "2", category: "transactional" }),
+		];
+		const sections = groupBriefSections(rows);
+		assert.strictEqual(sections.length, 1);
+		assert.strictEqual(sections[0].id, "rest");
+		assert.strictEqual(sections[0].threads.length, 2);
+	});
+
+	test("missing category is treated as personal, not bulk", () => {
+		const r = row({ id: "1", isRead: false });
+		const sections = groupBriefSections([r]);
+		assert.strictEqual(sections[0].id, "rest");
+	});
+
+	test("bulk sinks below everything-else; full order", () => {
+		const rows: ThreadRowData[] = [
+			row({ id: "a", isRead: false, trust: "vip" }),
+			row({ id: "b", starred: true, isRead: true }),
+			row({ id: "c", category: "personal" }),
+			row({ id: "d", category: "newsletter" }),
+		];
+		const sections = groupBriefSections(rows);
+		assert.deepStrictEqual(
+			sections.map((s) => s.id),
+			["attention", "flagged", "rest", "bulk"],
+		);
+	});
+
+	test("unread vip newsletter still surfaces in needs-attention", () => {
+		// Trust beats category: an unread message from a trusted sender is never
+		// buried in bulk, even if its category reads as a newsletter.
+		const r = row({
+			id: "1",
+			isRead: false,
+			trust: "vip",
+			category: "newsletter",
+		});
+		const sections = groupBriefSections([r]);
+		assert.strictEqual(sections.length, 1);
+		assert.strictEqual(sections[0].id, "attention");
+	});
+
+	test("starred newsletter goes to flagged, not bulk", () => {
+		const r = row({
+			id: "1",
+			isRead: true,
+			starred: true,
+			category: "newsletter",
+		});
+		const sections = groupBriefSections([r]);
+		assert.strictEqual(sections.length, 1);
+		assert.strictEqual(sections[0].id, "flagged");
+	});
 });
 
 function account(
