@@ -505,6 +505,15 @@ const unified = allThreads.filter((t) => t.accountId !== hobbyId);
 /* Daily-brief grouping: attention sections                           */
 /* ------------------------------------------------------------------ */
 
+/* Categories demoted to the bottom "Bulk" section — mirrors
+   groupBriefSections in the web client so the prototype stays in lockstep. */
+const bulkCategories: ReadonlySet<string> = new Set([
+	"newsletter",
+	"marketing",
+	"automated",
+	"social",
+]);
+
 export function briefSections(accountId?: string): ThreadSection[] {
 	const pool = accountId
 		? unified.filter((t) => t.accountId === accountId)
@@ -513,8 +522,14 @@ export function briefSections(accountId?: string): ThreadSection[] {
 		(t) => !t.isRead && (t.trust === "vip" || t.trust === "wellknown"),
 	);
 	const flagged = pool.filter((t) => t.starred && !attention.includes(t));
-	const rest = pool.filter(
+	const leftover = pool.filter(
 		(t) => !attention.includes(t) && !flagged.includes(t),
+	);
+	const rest = leftover.filter(
+		(t) => t.category == null || !bulkCategories.has(t.category),
+	);
+	const bulk = leftover.filter(
+		(t) => t.category != null && bulkCategories.has(t.category),
 	);
 	const sections: ThreadSection[] = [];
 	if (attention.length > 0)
@@ -527,6 +542,8 @@ export function briefSections(accountId?: string): ThreadSection[] {
 		sections.push({ id: "flagged", label: "Flagged", threads: flagged });
 	if (rest.length > 0)
 		sections.push({ id: "rest", label: "Everything else", threads: rest });
+	if (bulk.length > 0)
+		sections.push({ id: "bulk", label: "Bulk", threads: bulk });
 	return sections;
 }
 
