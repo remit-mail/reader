@@ -26,6 +26,7 @@ import { z } from "zod";
 import type { ComposeMode } from "@/components/compose/ComposeProvider";
 import { useCompose } from "@/components/compose/ComposeProvider";
 import { FullCompose } from "@/components/compose/FullCompose";
+import { Drawer } from "@/components/layout/Drawer";
 import { ConversationView } from "@/components/mail/ConversationView";
 import { DraftsView } from "@/components/mail/DraftsView";
 import { IntelligencePane } from "@/components/mail/IntelligencePane";
@@ -694,12 +695,30 @@ function MailboxView() {
 		const showCompose = composeState.isOpen && !selectedThread;
 		if (selectedThread) {
 			return (
-				<ConversationView
-					threadId={selectedThread.threadId}
-					mailboxId={mailboxId}
-					subject={selectedThread.subject}
-					onBack={goBack}
-				/>
+				<>
+					<ConversationView
+						threadId={selectedThread.threadId}
+						mailboxId={mailboxId}
+						subject={selectedThread.subject}
+						authenticity={selectedThread.authenticity}
+						onBack={goBack}
+						onOpenIntelligence={onToggleIntelligence}
+					/>
+					{/* The info panel is a desktop side pane; on mobile there is no
+					    room for it, so it opens as a right-side drawer toggled from
+					    the conversation action bar (#687). */}
+					<Drawer
+						isOpen={intelligenceOpen}
+						onClose={onToggleIntelligence}
+						ariaLabel="Message details"
+						side="right"
+					>
+						<IntelligencePane
+							onClose={onToggleIntelligence}
+							thread={selectedThread}
+						/>
+					</Drawer>
+				</>
 			);
 		}
 		if (showCompose) {

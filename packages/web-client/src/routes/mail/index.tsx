@@ -20,8 +20,10 @@ import {
 } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
 import { z } from "zod";
+import { Drawer } from "@/components/layout/Drawer";
 import { ConversationView } from "@/components/mail/ConversationView";
 import { DailyBrief } from "@/components/mail/DailyBrief";
+import { IntelligencePane } from "@/components/mail/IntelligencePane";
 import { MessageToolbar } from "@/components/mail/MessageToolbar";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -100,12 +102,29 @@ function MailIndex() {
 	if (!isDesktop) {
 		if (selectedThread) {
 			return (
-				<ConversationView
-					threadId={selectedThread.threadId}
-					mailboxId={selectedThread.mailboxId}
-					subject={selectedThread.subject}
-					onBack={handleCloseThread}
-				/>
+				<>
+					<ConversationView
+						threadId={selectedThread.threadId}
+						mailboxId={selectedThread.mailboxId}
+						subject={selectedThread.subject}
+						authenticity={selectedThread.authenticity}
+						onBack={handleCloseThread}
+						onOpenIntelligence={onToggleIntelligence}
+					/>
+					{/* Info panel as a right-side drawer — same affordance as the
+					    mailbox view so message details stay reachable on mobile (#687). */}
+					<Drawer
+						isOpen={intelligenceOpen}
+						onClose={onToggleIntelligence}
+						ariaLabel="Message details"
+						side="right"
+					>
+						<IntelligencePane
+							onClose={onToggleIntelligence}
+							thread={selectedThread}
+						/>
+					</Drawer>
+				</>
 			);
 		}
 		return (
