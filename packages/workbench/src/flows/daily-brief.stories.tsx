@@ -5,6 +5,7 @@ import {
 	briefSections,
 	briefSectionsLong,
 	briefUnseen,
+	categoryDrivenBriefSections,
 	navAccounts,
 	workId,
 } from "../fixtures/workspace.js";
@@ -72,6 +73,31 @@ export const WorkOnly: Story = {
 			chips={briefChips(workId)}
 			mutedNote="+1 muted"
 			sections={briefSections(workId)}
+		/>
+	),
+};
+
+/**
+ * Category-driven routing: all four sections in display order.
+ *
+ *  - Needs attention: cold first-contact personal email (unread, trust
+ *    unknown) + unread transactional receipt
+ *  - Flagged: one starred item
+ *  - Daily brief: a newsletter from a wellknown sender — trust doesn't
+ *    override the digest bucket; category wins
+ *  - Everything else: a read automated notification
+ */
+export const CategoryDriven: Story = {
+	render: () => (
+		<AppShell
+			accounts={navAccounts}
+			selectedNavId="brief"
+			briefUnseen={3}
+			listTitle="Daily brief"
+			listMeta="3 unread"
+			chips={briefChips()}
+			mutedNote="+1 muted"
+			sections={categoryDrivenBriefSections()}
 		/>
 	),
 };

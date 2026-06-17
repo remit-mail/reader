@@ -32,64 +32,148 @@ describe("groupBriefSections", () => {
 		assert.deepStrictEqual(sections, []);
 	});
 
-	test("puts unread vip into needs-attention", () => {
-		const r = row({ id: "1", isRead: false, trust: "vip" });
+	// --- Needs attention ---
+
+	test("unread personal (trust unknown) goes to needs-attention", () => {
+		const r = row({ id: "1", isRead: false, category: "personal" });
 		const sections = groupBriefSections([r]);
 		assert.strictEqual(sections.length, 1);
 		assert.strictEqual(sections[0].id, "attention");
-		assert.strictEqual(sections[0].threads.length, 1);
 	});
 
-	test("puts unread wellknown into needs-attention", () => {
+	test("unread missing-category is treated as personal → needs-attention", () => {
+		const r = row({ id: "1", isRead: false });
+		const sections = groupBriefSections([r]);
+		assert.strictEqual(sections.length, 1);
+		assert.strictEqual(sections[0].id, "attention");
+	});
+
+	test("unread transactional goes to needs-attention", () => {
+		const r = row({ id: "1", isRead: false, category: "transactional" });
+		const sections = groupBriefSections([r]);
+		assert.strictEqual(sections[0].id, "attention");
+	});
+
+	test("unread vip goes to needs-attention regardless of category", () => {
+		// vip trust overrides — even automated mail from a VIP is surfaced
+		const r = row({ id: "1", isRead: false, trust: "vip" });
+		const sections = groupBriefSections([r]);
+		assert.strictEqual(sections[0].id, "attention");
+	});
+
+	test("unread wellknown goes to needs-attention", () => {
 		const r = row({ id: "1", isRead: false, trust: "wellknown" });
 		const sections = groupBriefSections([r]);
 		assert.strictEqual(sections[0].id, "attention");
 	});
 
-	test("read vip does NOT go into attention (goes to rest)", () => {
-		const r = row({ id: "1", isRead: true, trust: "vip" });
+	// --- Daily brief (newsletter/marketing/social) ---
+
+	test("newsletter goes to daily brief, not everything-else", () => {
+		const r = row({ id: "1", isRead: false, category: "newsletter" });
 		const sections = groupBriefSections([r]);
 		assert.strictEqual(sections.length, 1);
-		assert.strictEqual(sections[0].id, "rest");
+		assert.strictEqual(sections[0].id, "brief");
+		assert.strictEqual(sections[0].label, "Daily brief");
 	});
 
-	test("starred non-vip row goes to flagged", () => {
+	test("marketing goes to daily brief", () => {
+		const r = row({ id: "1", category: "marketing" });
+		const sections = groupBriefSections([r]);
+		assert.strictEqual(sections[0].id, "brief");
+	});
+
+	test("social goes to daily brief", () => {
+		const r = row({ id: "1", category: "social" });
+		const sections = groupBriefSections([r]);
+		assert.strictEqual(sections[0].id, "brief");
+	});
+
+	test("trusted newsletter (wellknown) still goes to daily brief — category wins over trust", () => {
+		// The key new behaviour: wellknown volume-promoted newsletter senders no
+		// longer surface in "Needs attention". The digest check runs before trust.
+		const r = row({
+			id: "1",
+			isRead: false,
+			trust: "wellknown",
+			category: "newsletter",
+		});
+		const sections = groupBriefSections([r]);
+		assert.strictEqual(sections.length, 1);
+		assert.strictEqual(sections[0].id, "brief");
+	});
+
+	// --- Flagged (starred wins everything) ---
+
+	test("starred newsletter goes to flagged, not daily brief", () => {
+		const r = row({
+			id: "1",
+			isRead: true,
+			starred: true,
+			category: "newsletter",
+		});
+		const sections = groupBriefSections([r]);
+		assert.strictEqual(sections.length, 1);
+		assert.strictEqual(sections[0].id, "flagged");
+	});
+
+	test("starred personal (trust unknown, read) goes to flagged", () => {
 		const r = row({ id: "1", starred: true, isRead: true, trust: "unknown" });
 		const sections = groupBriefSections([r]);
 		assert.strictEqual(sections.length, 1);
 		assert.strictEqual(sections[0].id, "flagged");
 	});
 
-	test("starred vip row goes to attention, not flagged", () => {
+	test("starred unread vip goes to flagged (starred beats trust)", () => {
+		// Starred is the highest-priority bucket — even a VIP unread message
+		// lands in Flagged if the user starred it.
 		const r = row({ id: "1", starred: true, isRead: false, trust: "vip" });
 		const sections = groupBriefSections([r]);
 		assert.strictEqual(sections.length, 1);
-		assert.strictEqual(sections[0].id, "attention");
+		assert.strictEqual(sections[0].id, "flagged");
 	});
 
-	test("plain unread unknown goes to rest", () => {
-		const r = row({ id: "1", isRead: false, trust: "unknown" });
+	// --- Everything else ---
+
+	test("read personal goes to everything-else", () => {
+		const r = row({ id: "1", isRead: true, category: "personal" });
+		const sections = groupBriefSections([r]);
+		assert.strictEqual(sections[0].id, "rest");
+	});
+
+	test("automated goes to everything-else", () => {
+		// automated is not a digest category and not personal/transactional
+		const r = row({ id: "1", isRead: false, category: "automated" });
 		const sections = groupBriefSections([r]);
 		assert.strictEqual(sections.length, 1);
 		assert.strictEqual(sections[0].id, "rest");
 	});
 
-	test("three-section split: attention, flagged, rest", () => {
-		const attn = row({ id: "a", isRead: false, trust: "vip" });
-		const flag = row({ id: "b", starred: true, isRead: true });
-		const plain = row({ id: "c", isRead: false });
-		const sections = groupBriefSections([attn, flag, plain]);
-		assert.strictEqual(sections.length, 3);
+	test("read vip goes to everything-else (not attention)", () => {
+		const r = row({ id: "1", isRead: true, trust: "vip" });
+		const sections = groupBriefSections([r]);
+		assert.strictEqual(sections[0].id, "rest");
+	});
+
+	// --- Section order and multi-row splits ---
+
+	test("display order is: attention, flagged, brief, rest", () => {
+		const rows: ThreadRowData[] = [
+			row({ id: "a", isRead: false, trust: "vip" }),
+			row({ id: "b", starred: true, isRead: true }),
+			row({ id: "c", category: "newsletter" }),
+			row({ id: "d", isRead: true }),
+		];
+		const sections = groupBriefSections(rows);
 		assert.deepStrictEqual(
 			sections.map((s) => s.id),
-			["attention", "flagged", "rest"],
+			["attention", "flagged", "brief", "rest"],
 		);
 	});
 
 	test("sections with no rows are omitted", () => {
 		const flag = row({ id: "b", starred: true, isRead: true });
 		const sections = groupBriefSections([flag]);
-		// Only flagged; attention and rest are absent.
 		assert.deepStrictEqual(
 			sections.map((s) => s.id),
 			["flagged"],
@@ -103,6 +187,8 @@ describe("groupBriefSections", () => {
 			row({ id: "3", isRead: true }),
 			row({ id: "4", isRead: false }),
 			row({ id: "5", isRead: false, trust: "wellknown", starred: true }),
+			row({ id: "6", category: "newsletter" }),
+			row({ id: "7", isRead: false, category: "marketing" }),
 		];
 		const sections = groupBriefSections(rows);
 		const allIds = sections.flatMap((s) => s.threads.map((t) => t.id));
@@ -115,92 +201,40 @@ describe("groupBriefSections", () => {
 		const rows: ThreadRowData[] = [
 			row({ id: "a", isRead: false, trust: "vip" }),
 			row({ id: "b", starred: true, isRead: true }),
-			row({ id: "c", isRead: true }),
+			row({ id: "c", category: "newsletter" }),
+			row({ id: "d", isRead: true }),
 		];
 		const sections = groupBriefSections(rows);
 		const labels = sections.map((s) => s.label);
 		assert.deepStrictEqual(labels, [
 			"Needs attention",
 			"Flagged",
+			"Daily brief",
 			"Everything else",
 		]);
 	});
 
-	test("newsletter goes to bulk, not everything-else", () => {
-		const r = row({ id: "1", isRead: false, category: "newsletter" });
-		const sections = groupBriefSections([r]);
-		assert.strictEqual(sections.length, 1);
-		assert.strictEqual(sections[0].id, "bulk");
-		assert.strictEqual(sections[0].label, "Bulk");
-	});
-
-	test("marketing, automated and social all demote to bulk", () => {
+	test("three digest categories all land in daily brief", () => {
 		const rows: ThreadRowData[] = [
-			row({ id: "1", category: "marketing" }),
-			row({ id: "2", category: "automated" }),
+			row({ id: "1", category: "newsletter" }),
+			row({ id: "2", category: "marketing" }),
 			row({ id: "3", category: "social" }),
 		];
 		const sections = groupBriefSections(rows);
 		assert.strictEqual(sections.length, 1);
-		assert.strictEqual(sections[0].id, "bulk");
+		assert.strictEqual(sections[0].id, "brief");
 		assert.strictEqual(sections[0].threads.length, 3);
 	});
 
-	test("personal and transactional stay in everything-else", () => {
+	test("personal and transactional both reach attention when unread", () => {
 		const rows: ThreadRowData[] = [
-			row({ id: "1", category: "personal" }),
-			row({ id: "2", category: "transactional" }),
+			row({ id: "1", isRead: false, category: "personal" }),
+			row({ id: "2", isRead: false, category: "transactional" }),
 		];
 		const sections = groupBriefSections(rows);
-		assert.strictEqual(sections.length, 1);
-		assert.strictEqual(sections[0].id, "rest");
-		assert.strictEqual(sections[0].threads.length, 2);
-	});
-
-	test("missing category is treated as personal, not bulk", () => {
-		const r = row({ id: "1", isRead: false });
-		const sections = groupBriefSections([r]);
-		assert.strictEqual(sections[0].id, "rest");
-	});
-
-	test("bulk sinks below everything-else; full order", () => {
-		const rows: ThreadRowData[] = [
-			row({ id: "a", isRead: false, trust: "vip" }),
-			row({ id: "b", starred: true, isRead: true }),
-			row({ id: "c", category: "personal" }),
-			row({ id: "d", category: "newsletter" }),
-		];
-		const sections = groupBriefSections(rows);
-		assert.deepStrictEqual(
-			sections.map((s) => s.id),
-			["attention", "flagged", "rest", "bulk"],
-		);
-	});
-
-	test("unread vip newsletter still surfaces in needs-attention", () => {
-		// Trust beats category: an unread message from a trusted sender is never
-		// buried in bulk, even if its category reads as a newsletter.
-		const r = row({
-			id: "1",
-			isRead: false,
-			trust: "vip",
-			category: "newsletter",
-		});
-		const sections = groupBriefSections([r]);
 		assert.strictEqual(sections.length, 1);
 		assert.strictEqual(sections[0].id, "attention");
-	});
-
-	test("starred newsletter goes to flagged, not bulk", () => {
-		const r = row({
-			id: "1",
-			isRead: true,
-			starred: true,
-			category: "newsletter",
-		});
-		const sections = groupBriefSections([r]);
-		assert.strictEqual(sections.length, 1);
-		assert.strictEqual(sections[0].id, "flagged");
+		assert.strictEqual(sections[0].threads.length, 2);
 	});
 });
 

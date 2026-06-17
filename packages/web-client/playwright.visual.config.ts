@@ -66,7 +66,7 @@ export default defineConfig({
 	workers: process.env.CI ? 4 : 1,
 	reporter: process.env.CI ? "github" : "html",
 	timeout: 30_000,
-	globalSetup: "./smoke/global-setup.ts",
+	globalSetup: "./visual-regression/global-setup.ts",
 	use: {
 		baseURL: `http://localhost:${VITE_PORT}`,
 		trace: "retain-on-failure",
