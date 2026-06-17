@@ -22,6 +22,7 @@ import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { useMailboxAccount } from "@/hooks/useMailboxAccount";
 import { useMarkAsRead } from "@/hooks/useMarkAsRead";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
+import { useSwipeNavigation } from "@/hooks/useSwipeNavigation";
 import { useToggleStar } from "@/hooks/useToggleStar";
 import { cn } from "@/lib/utils";
 import { MessageCard } from "./MessageCard";
@@ -67,6 +68,17 @@ interface ConversationViewProps {
 	 * `composeRequest` to `null`.
 	 */
 	onComposeClose?: () => void;
+	/**
+	 * Mobile only: swipe-left handler to open the next message in the list the
+	 * thread was opened from. Omitted at the end of the list so the gesture
+	 * no-ops gracefully.
+	 */
+	onSwipeNext?: () => void;
+	/**
+	 * Mobile only: swipe-right handler to open the previous message in the list.
+	 * Omitted at the start of the list.
+	 */
+	onSwipePrevious?: () => void;
 }
 
 const LoadingSkeleton = () => (
@@ -232,8 +244,14 @@ export const ConversationView = ({
 	onBack,
 	composeRequest,
 	onComposeClose,
+	onSwipeNext,
+	onSwipePrevious,
 }: ConversationViewProps) => {
 	const isDesktop = useIsDesktop();
+	const { handlers: swipeHandlers } = useSwipeNavigation({
+		onSwipeLeft: onSwipeNext,
+		onSwipeRight: onSwipePrevious,
+	});
 	const { accountId: mailboxAccountId } = useMailboxAccount(mailboxId);
 	const {
 		data: messagesResponse,
@@ -499,7 +517,17 @@ export const ConversationView = ({
 						onOpenIntelligence={onOpenIntelligence}
 					/>
 				)}
-				<div className="flex-1 overflow-auto">{messagesList}</div>
+				{/* Horizontal swipe pages between messages in the source list
+				    (swipe left → next, right → previous). `touch-action: pan-y`
+				    keeps native vertical scrolling; the hook only acts on gestures
+				    that travel mostly sideways, so it never hijacks the scroll. */}
+				<div
+					className="flex-1 overflow-auto"
+					style={{ touchAction: "pan-y" }}
+					{...swipeHandlers}
+				>
+					{messagesList}
+				</div>
 				{composeMode !== null ? (
 					<InlineCompose
 						mode={composeMode}
