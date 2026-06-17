@@ -56,6 +56,7 @@ import { useMoveMessages } from "@/hooks/useMoveMessages";
 import { useToggleStar } from "@/hooks/useToggleStar";
 import { useTriageKeyboard } from "@/hooks/useTriageKeyboard";
 import { useUpdateAddressFlags } from "@/hooks/useUpdateAddressFlags";
+import { adjacentMessageId } from "@/lib/adjacent-message";
 import { useMailContext } from "@/lib/mail-context";
 import {
 	isSearchPending as computeIsSearchPending,
@@ -695,6 +696,26 @@ function MailboxView() {
 	if (!isDesktop) {
 		const showCompose = composeState.isOpen && !selectedThread;
 		if (selectedThread) {
+			const orderedMessageIds = threads.map((t) => t.messageId);
+			const nextMessageId = adjacentMessageId(
+				orderedMessageIds,
+				selectedMessageId,
+				"next",
+			);
+			const previousMessageId = adjacentMessageId(
+				orderedMessageIds,
+				selectedMessageId,
+				"previous",
+			);
+			const openMessage = (messageId: string) =>
+				navigate({
+					to: "/mail/$mailboxId",
+					params: { mailboxId },
+					search: (prev: MailboxSearch) => ({
+						...prev,
+						selectedMessageId: messageId,
+					}),
+				});
 			return (
 				<>
 					<ConversationView
@@ -705,6 +726,14 @@ function MailboxView() {
 						authenticity={selectedThread.authenticity}
 						onBack={goBack}
 						onOpenIntelligence={onToggleIntelligence}
+						onSwipeNext={
+							nextMessageId ? () => openMessage(nextMessageId) : undefined
+						}
+						onSwipePrevious={
+							previousMessageId
+								? () => openMessage(previousMessageId)
+								: undefined
+						}
 					/>
 					{/* The info panel is a desktop side pane; on mobile there is no
 					    room for it, so it opens as a right-side drawer toggled from
