@@ -669,6 +669,7 @@ function MailboxView() {
 				threadId={selectedThread.threadId}
 				mailboxId={mailboxId}
 				subject={selectedThread.subject}
+				selectedMessageId={selectedThread.messageId}
 				authenticity={selectedThread.authenticity}
 				onOpenIntelligence={
 					selectedThread.authenticity?.dkimMismatch
@@ -700,6 +701,7 @@ function MailboxView() {
 						threadId={selectedThread.threadId}
 						mailboxId={mailboxId}
 						subject={selectedThread.subject}
+						selectedMessageId={selectedThread.messageId}
 						authenticity={selectedThread.authenticity}
 						onBack={goBack}
 						onOpenIntelligence={onToggleIntelligence}
