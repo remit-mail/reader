@@ -130,4 +130,36 @@ describe("selectMessagesToMarkRead", () => {
 		);
 		assert.deepStrictEqual(got, ["m1"]);
 	});
+
+	test("marks an older selected message when newest is already read (#683)", () => {
+		// Regression: ConversationView opens with order:"desc" so messages[0] is
+		// the newest. When the user clicks a thread row whose representative
+		// message is an older unread message (not the newest), only that older
+		// message must be marked. The newest is already read and must be skipped.
+		const messages = [
+			// Newest — already read (messages[0] in desc order)
+			make({
+				messageId: "m-newest",
+				threadMessageId: "tm-newest",
+				isRead: true,
+			}),
+			// Older — unread, the one the user clicked in the thread list
+			make({
+				messageId: "m-older",
+				threadMessageId: "tm-older",
+				isRead: false,
+			}),
+		];
+		// ConversationView now expands both messages[0] AND the selected message.
+		// Here the selected message is the older one, so both are expanded.
+		const expanded = new Set(["tm-newest", "tm-older"]);
+		const got = selectMessagesToMarkRead(
+			messages,
+			expanded,
+			new Set(),
+			new Set(),
+		);
+		// Only the unread older message should be marked — the newest is already read.
+		assert.deepStrictEqual(got, ["m-older"]);
+	});
 });

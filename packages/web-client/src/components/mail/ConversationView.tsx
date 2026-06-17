@@ -31,6 +31,12 @@ interface ConversationViewProps {
 	mailboxId: string;
 	subject?: string;
 	/**
+	 * The messageId of the row the user clicked in the thread list. When
+	 * provided, this message is expanded on open (in addition to the newest
+	 * message) so that viewing an older unread message marks it as read.
+	 */
+	selectedMessageId?: string;
+	/**
 	 * Authenticity signal from the thread row (DKIM mismatch). When present
 	 * and `dkimMismatch` is true, a danger banner renders above the message
 	 * body with a "Why?" link that opens the intelligence sidebar.
@@ -220,6 +226,7 @@ export const ConversationView = ({
 	threadId,
 	mailboxId,
 	subject,
+	selectedMessageId,
 	authenticity,
 	onOpenIntelligence,
 	onBack,
@@ -253,14 +260,23 @@ export const ConversationView = ({
 	const [currentThreadId, setCurrentThreadId] = useState<string | null>(null);
 	const [focusedIndex, setFocusedIndex] = useState(0);
 
-	// Reset and expand first message when thread changes or messages load
+	// Reset and expand first message when thread changes or messages load.
+	// Also expand the selected message (the row the user clicked in the list)
+	// so that an older unread message is visible and gets marked as read.
 	useEffect(() => {
 		if (messages.length > 0 && threadId !== currentThreadId) {
 			setCurrentThreadId(threadId);
-			setExpandedIds(new Set([messages[0].threadMessageId]));
+			const initialExpanded = new Set([messages[0].threadMessageId]);
+			if (selectedMessageId) {
+				const selected = messages.find(
+					(m) => m.messageId === selectedMessageId,
+				);
+				if (selected) initialExpanded.add(selected.threadMessageId);
+			}
+			setExpandedIds(initialExpanded);
 			setFocusedIndex(0);
 		}
-	}, [threadId, messages, currentThreadId]);
+	}, [threadId, messages, currentThreadId, selectedMessageId]);
 
 	const toggleExpanded = useCallback((threadMessageId: string) => {
 		setExpandedIds((prev) => {
