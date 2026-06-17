@@ -734,10 +734,45 @@ function MailboxView() {
 								? () => openMessage(previousMessageId)
 								: undefined
 						}
+						mobileIntelligenceOpen={intelligenceOpen}
+						onMobileArchive={
+							archiveMailboxId ? handleToolbarArchive : undefined
+						}
+						canMobileArchive={Boolean(archiveMailboxId)}
+						onMobileDelete={handleToolbarDelete}
+						onMobileToggleStar={handleToolbarStar}
+						isMobileStarred={selectedThread.hasStars}
+						onMobileToggleRead={triageToggleRead}
+						isMobileRead={selectedThread.isRead}
+						mobileMoveContext={
+							mailboxAccountId
+								? {
+										accountId: mailboxAccountId,
+										currentMailboxId: mailboxId,
+										onMove: (destMailboxId) => {
+											const threadKey =
+												threadDetailOperationsListThreadMessagesQueryKey({
+													path: { threadId: selectedThread.threadId },
+												});
+											const cached = queryClient.getQueriesData<{
+												items: { messageId: string }[];
+											}>({ queryKey: threadKey });
+											const messageIds = cached.flatMap(
+												([, data]) => data?.items.map((m) => m.messageId) ?? [],
+											);
+											if (messageIds.length > 0) {
+												toolbarMove(messageIds, destMailboxId);
+											} else {
+												toolbarMove([selectedThread.messageId], destMailboxId);
+											}
+										},
+									}
+								: undefined
+						}
 					/>
 					{/* The info panel is a desktop side pane; on mobile there is no
 					    room for it, so it opens as a right-side drawer toggled from
-					    the conversation action bar (#687). */}
+					    the conversation top bar (#687). */}
 					<Drawer
 						isOpen={intelligenceOpen}
 						onClose={onToggleIntelligence}
