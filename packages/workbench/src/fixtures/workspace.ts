@@ -505,32 +505,55 @@ const unified = allThreads.filter((t) => t.accountId !== hobbyId);
 /* Daily-brief grouping: attention sections                           */
 /* ------------------------------------------------------------------ */
 
-/* Categories demoted to the bottom "Bulk" section — mirrors
-   groupBriefSections in the web client so the prototype stays in lockstep. */
-const bulkCategories: ReadonlySet<string> = new Set([
+/**
+ * Category-driven brief grouping — mirrors groupBriefSections in the web
+ * client so the Storybook prototype stays in lockstep with production logic.
+ *
+ * Precedence (first match wins):
+ *   starred                                          → Flagged
+ *   category ∈ {newsletter, marketing, social}       → Daily brief
+ *   !isRead AND (category ∈ {personal, transactional}
+ *                OR trust ∈ {vip, wellknown})         → Needs attention
+ *   otherwise                                         → Everything else
+ */
+const briefCategories: ReadonlySet<string> = new Set([
 	"newsletter",
 	"marketing",
-	"automated",
 	"social",
+]);
+
+const attentionCategories: ReadonlySet<string> = new Set([
+	"personal",
+	"transactional",
 ]);
 
 export function briefSections(accountId?: string): ThreadSection[] {
 	const pool = accountId
 		? unified.filter((t) => t.accountId === accountId)
 		: unified;
-	const attention = pool.filter(
-		(t) => !t.isRead && (t.trust === "vip" || t.trust === "wellknown"),
-	);
-	const flagged = pool.filter((t) => t.starred && !attention.includes(t));
-	const leftover = pool.filter(
-		(t) => !attention.includes(t) && !flagged.includes(t),
-	);
-	const rest = leftover.filter(
-		(t) => t.category == null || !bulkCategories.has(t.category),
-	);
-	const bulk = leftover.filter(
-		(t) => t.category != null && bulkCategories.has(t.category),
-	);
+
+	const attention: typeof pool = [];
+	const flagged: typeof pool = [];
+	const brief: typeof pool = [];
+	const rest: typeof pool = [];
+
+	for (const t of pool) {
+		if (t.starred) {
+			flagged.push(t);
+		} else if (t.category != null && briefCategories.has(t.category)) {
+			brief.push(t);
+		} else if (
+			!t.isRead &&
+			(attentionCategories.has(t.category ?? "personal") ||
+				t.trust === "vip" ||
+				t.trust === "wellknown")
+		) {
+			attention.push(t);
+		} else {
+			rest.push(t);
+		}
+	}
+
 	const sections: ThreadSection[] = [];
 	if (attention.length > 0)
 		sections.push({
@@ -540,10 +563,10 @@ export function briefSections(accountId?: string): ThreadSection[] {
 		});
 	if (flagged.length > 0)
 		sections.push({ id: "flagged", label: "Flagged", threads: flagged });
+	if (brief.length > 0)
+		sections.push({ id: "brief", label: "Daily brief", threads: brief });
 	if (rest.length > 0)
 		sections.push({ id: "rest", label: "Everything else", threads: rest });
-	if (bulk.length > 0)
-		sections.push({ id: "bulk", label: "Bulk", threads: bulk });
 	return sections;
 }
 
@@ -622,6 +645,121 @@ export function briefSectionsLong(accountId?: string): ThreadSection[] {
 			return { ...section, threads: [...section.threads, ...restFiller] };
 		return section;
 	});
+}
+
+/**
+ * Four-section fixture for the category-driven brief story. Exercises every
+ * routing rule in one view:
+ *
+ *  - Needs attention: cold first-contact personal (trust unknown, unread) +
+ *    transactional receipt (unread)
+ *  - Flagged: a starred item
+ *  - Daily brief: a wellknown-trust newsletter (proving trust doesn't
+ *    override the digest bucket) + an automated notification
+ *  - Everything else: a read automated notification
+ */
+export function categoryDrivenBriefSections(): ThreadSection[] {
+	const coldPersonal: ThreadRowData = {
+		id: "demo_cold",
+		accountId: personalId,
+		fromName: "Eva Lindqvist",
+		fromEmail: "eva@vendor-analytics.example",
+		subject: "Following up: analytics pilot proposal",
+		snippet:
+			"Hi, circling back on the pilot proposal I sent over. Happy to adjust scope — would 20 minutes this week work?",
+		timeLabel: "09:15",
+		isRead: false,
+		hasAttachment: false,
+		starred: false,
+		trust: undefined,
+		category: "personal",
+	};
+
+	const transactionalReceipt: ThreadRowData = {
+		id: "demo_receipt",
+		accountId: workId,
+		fromName: "Linear",
+		fromEmail: "billing@linear.example",
+		subject: "Your receipt from Linear — June 2026",
+		snippet: "Receipt #LIN-20260617 · $80.00 charged to Visa •••• 4242.",
+		timeLabel: "08:00",
+		isRead: false,
+		hasAttachment: false,
+		starred: false,
+		category: "transactional",
+	};
+
+	const starredItem: ThreadRowData = {
+		id: "demo_starred",
+		accountId: workId,
+		fromName: "Dana Okafor",
+		fromEmail: "dana@northwind.example",
+		subject: "Offsite logistics — rooms and dinner confirmed",
+		snippet:
+			"Final headcount is 14. I've held rooms at the Conservatorium through Friday.",
+		timeLabel: "Mon",
+		isRead: true,
+		hasAttachment: false,
+		starred: true,
+		trust: "wellknown",
+		category: "personal",
+	};
+
+	const trustedNewsletter: ThreadRowData = {
+		id: "demo_newsletter",
+		accountId: personalId,
+		fromName: "The Pragmatic Engineer",
+		fromEmail: "newsletter@pragmaticengineer.example",
+		subject: "Platform teams that scale",
+		snippet:
+			"How three companies structured their platform org, the build-vs-buy line for internal tooling, and a reader Q&A.",
+		timeLabel: "07:00",
+		isRead: false,
+		hasAttachment: false,
+		starred: false,
+		// Marked wellknown — proving that a newsletter from a trusted sender
+		// still lands in the digest, not in "Needs attention".
+		trust: "wellknown",
+		category: "newsletter",
+	};
+
+	const automatedNotification: ThreadRowData = {
+		id: "demo_automated",
+		accountId: workId,
+		fromName: "Northwind Statuspage",
+		fromEmail: "alerts@status.northwind.example",
+		subject: "[resolved] Elevated IMAP sync latency eu-west-1",
+		snippet:
+			"The incident affecting IMAP sync latency in eu-west-1 has been resolved. Duration: 23 minutes.",
+		timeLabel: "06:30",
+		isRead: true,
+		hasAttachment: false,
+		starred: false,
+		category: "automated",
+	};
+
+	return [
+		{
+			id: "attention",
+			label: "Needs attention",
+			threads: [coldPersonal, transactionalReceipt],
+		},
+		{
+			id: "flagged",
+			label: "Flagged",
+			threads: [starredItem],
+		},
+		{
+			id: "brief",
+			label: "Daily brief",
+			threads: [trustedNewsletter],
+		},
+		{
+			id: "rest",
+			label: "Everything else",
+			threads: [automatedNotification],
+		},
+	];
 }
 
 export const briefChips = (activeId?: string) => [

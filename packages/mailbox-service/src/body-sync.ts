@@ -3,6 +3,7 @@ import { inspect } from "node:util";
 import {
 	AddressService,
 	type EnvelopeService,
+	isBulkSender,
 	type MailboxSpecialUseService,
 	type MessageService,
 	type ThreadMessageService,
@@ -341,7 +342,12 @@ export class BodySyncService {
 		this.log.info({ messageId, storageKey: ref.uri }, "Body stored");
 
 		// From-Address engagement counter (Address entity, not Message).
-		await this.incrementInboundCount(messageId, accountConfigId, parsed);
+		await this.incrementInboundCount(
+			messageId,
+			accountConfigId,
+			parsed,
+			classification,
+		);
 
 		await this.storeParsedBodyCache(
 			accountConfigId,
@@ -504,6 +510,7 @@ export class BodySyncService {
 		messageId: string,
 		accountConfigId: string,
 		parsed: ParsedMail,
+		classification: UpdateMessageInput,
 	): Promise<void> {
 		const fromEmail = extractPrimaryFromEmail(parsed);
 		if (!fromEmail) {
@@ -518,7 +525,15 @@ export class BodySyncService {
 			accountConfigId,
 			fromEmail,
 		);
-		await this.addressService.incrementInboundCount(addressId, Date.now());
+		const bulk = isBulkSender(
+			classification.category,
+			classification.hasListUnsubscribe ?? false,
+		);
+		await this.addressService.incrementInboundCount(
+			addressId,
+			Date.now(),
+			bulk,
+		);
 	}
 
 	private async deriveSenderTrust(
