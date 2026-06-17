@@ -26,6 +26,7 @@ import { useSwipeNavigation } from "@/hooks/useSwipeNavigation";
 import { useToggleStar } from "@/hooks/useToggleStar";
 import { cn } from "@/lib/utils";
 import { MessageCard } from "./MessageCard";
+import { MobileConversationTopBar } from "./MobileConversationTopBar";
 
 interface ConversationViewProps {
 	threadId: string;
@@ -79,6 +80,31 @@ interface ConversationViewProps {
 	 * Omitted at the start of the list.
 	 */
 	onSwipePrevious?: () => void;
+
+	/* ---- Mobile management actions (rendered in MobileConversationTopBar) ---- */
+
+	/** Archive all messages in the thread. */
+	onMobileArchive?: () => void;
+	/** Whether an archive mailbox exists. When false the Archive button still renders but its title explains. */
+	canMobileArchive?: boolean;
+	/** Delete all messages in the thread. */
+	onMobileDelete?: () => void;
+	/** Toggle star on the thread's representative (most-recent) message. */
+	onMobileToggleStar?: () => void;
+	/** Whether the representative message is starred. */
+	isMobileStarred?: boolean;
+	/** Toggle read/unread state of the thread's messages. */
+	onMobileToggleRead?: () => void;
+	/** Whether the representative message is currently read. */
+	isMobileRead?: boolean;
+	/** Move-to-mailbox context for the mobile overflow menu. */
+	mobileMoveContext?: {
+		accountId: string;
+		currentMailboxId: string;
+		onMove: (destinationMailboxId: string) => void;
+	};
+	/** Whether the intelligence drawer is currently open (drives the ⓘ button pressed state). */
+	mobileIntelligenceOpen?: boolean;
 }
 
 const LoadingSkeleton = () => (
@@ -246,6 +272,15 @@ export const ConversationView = ({
 	onComposeClose,
 	onSwipeNext,
 	onSwipePrevious,
+	onMobileArchive,
+	canMobileArchive,
+	onMobileDelete,
+	onMobileToggleStar,
+	isMobileStarred,
+	onMobileToggleRead,
+	isMobileRead,
+	mobileMoveContext,
+	mobileIntelligenceOpen,
 }: ConversationViewProps) => {
 	const isDesktop = useIsDesktop();
 	const { handlers: swipeHandlers } = useSwipeNavigation({
@@ -501,14 +536,36 @@ export const ConversationView = ({
 
 	// Mobile: a single scroll surface for messages. The subject header is
 	// intentionally omitted — the user just clicked a row that showed the
-	// subject, and the global top bar already shows the inbox name. The sticky
-	// footer carries Back plus reply / reply-all / forward, the sole touch
-	// affordance for those actions on mobile (the top `MessageToolbar` that
-	// hosts them on desktop is not rendered here). When inline compose opens it
-	// replaces the footer and attaches to the bottom of the scroll surface.
+	// subject, and the global top bar already shows the inbox name. A top bar
+	// carries management actions (star, archive, delete, ⋮ overflow, info).
+	// The sticky footer carries Back plus reply / reply-all / forward.
+	// When inline compose opens it replaces the footer.
 	if (!isDesktop) {
+		const hasMobileActions =
+			onMobileArchive !== undefined ||
+			onMobileDelete !== undefined ||
+			onMobileToggleStar !== undefined ||
+			onMobileToggleRead !== undefined ||
+			mobileMoveContext !== undefined ||
+			onOpenIntelligence !== undefined;
+
 		return (
 			<article className="h-full flex flex-col">
+				{hasMobileActions && (
+					<MobileConversationTopBar
+						hasThread
+						onArchive={onMobileArchive}
+						canArchive={canMobileArchive}
+						onDelete={onMobileDelete}
+						onToggleStar={onMobileToggleStar}
+						isStarred={isMobileStarred}
+						onToggleRead={onMobileToggleRead}
+						isRead={isMobileRead}
+						moveContext={mobileMoveContext}
+						onOpenIntelligence={onOpenIntelligence}
+						intelligenceOpen={mobileIntelligenceOpen}
+					/>
+				)}
 				{/* The phishing warning is just as important on mobile. The "Why?"
 				    link opens the info drawer that hosts the intelligence pane (#687). */}
 				{authenticity?.dkimMismatch && (
