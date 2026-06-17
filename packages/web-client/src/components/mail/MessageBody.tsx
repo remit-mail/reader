@@ -158,8 +158,10 @@ export const MessageBody = ({
 	 *
 	 * - `framed`: designed HTML mail (newsletter/marketing category OR
 	 *   author-specified background). Rendered inside a left-anchored
-	 *   hairline frame on `surface-sunken`, kept in light-mode (own colors
-	 *   preserved, never dark-inverted).
+	 *   hairline frame on `surface-sunken`. Light theme keeps the author's
+	 *   own colors on a white canvas; dark theme darkens it via CSS
+	 *   smart-invert (images / links preserved) unless it opts into its own
+	 *   dark design.
 	 *
 	 * - `isPlain`: no author background, not newsletter/marketing. UI
 	 *   sans-serif + theme-aware colors injected so black-text-on-dark
@@ -257,10 +259,12 @@ export const MessageBody = ({
 				// hypothetical sanitizer escape can't execute.
 				//
 				// Designed / framed treatment (newsletter/marketing or author
-				// background detected): hairline frame on a white canvas so the
-				// email's own colors stay readable; designed emails render on
-				// white (light color-scheme) unless they opt into dark, and are
-				// never inverted.
+				// background detected): hairline frame on surface-sunken. In the
+				// light app theme the email renders as authored on a white canvas.
+				// In the dark theme it's darkened via CSS smart-invert (images and
+				// link/accent colors preserved) so it blends into the dark pane —
+				// unless the email opts into its own dark design, which is left
+				// untouched.
 				//
 				// Plain treatment (no author background, not newsletter):
 				// UI sans-serif + theme-aware colors injected; colorScheme:
@@ -274,8 +278,12 @@ export const MessageBody = ({
 					// overflow drives the pane's single horizontal scrollbar
 					// (#528 / #542). No `overflow-hidden`: clipping here would
 					// hide wide content instead of surfacing that scrollbar.
-					<div className="w-full rounded-sm border border-line bg-white">
-						<IsolatedEmailFrame html={sanitizedHtml} isPlain={false} />
+					<div className="w-full rounded-sm border border-line bg-surface-sunken">
+						<IsolatedEmailFrame
+							html={sanitizedHtml}
+							isPlain={false}
+							isDark={isDark}
+						/>
 					</div>
 				) : (
 					<div className="max-w-2xl">
