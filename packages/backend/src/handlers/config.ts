@@ -1,4 +1,5 @@
 import { inspect } from "node:util";
+import type { SQSClient } from "@aws-sdk/client-sqs";
 import {
 	type AccountConfigItem,
 	type AccountItem,
@@ -20,15 +21,75 @@ import { sqsClient } from "../service/sqs.js";
 import { triggerAccountSync } from "../service/trigger-sync.js";
 import type { ConfigOperationIds, OperationHandler } from "../types.js";
 
-const triggerAccountSyncForConfig = async (
-	accountId: string,
+type StructuredLog = (fields: Record<string, unknown>, message: string) => void;
+
+interface ConfigSyncTriggerDeps {
+	sqsClient: SQSClient;
+	queueUrl: string;
+	logger: { info: StructuredLog; error: StructuredLog };
+}
+
+const defaultConfigSyncTriggerDeps = (): ConfigSyncTriggerDeps => ({
+	sqsClient,
+	queueUrl: env.SQS_QUEUE_URL,
+	logger,
+});
+
+/**
+ * Fire-and-forget sync trigger for the accounts surfaced by GET /config.
+ *
+ * GET /config is a READ: its response is already computed and does not depend
+ * on the trigger succeeding. A failure here (the SQS queue unreachable in
+ * smoke/e2e, an IAM/SQS misconfig in prod) must therefore never reach the read
+ * response — but it also silently stops ALL sync, so it has to be loud and
+ * alertable rather than swallowed.
+ *
+ * This helper is fully self-contained: it catches every per-account rejection
+ * internally and resolves to void, so the caller can `void`-fire it with no
+ * chance of an unhandled rejection escaping. The dev/Lambda runtime shares one
+ * event loop, so an escaped rejection lands on whatever request is active when
+ * the deferred SQS retry finally fails — which is how a `/config` enqueue
+ * failure ended up 500-ing unrelated reads like `/outbox` and `/threads`.
+ *
+ * Each failure is logged as a distinct structured error carrying the SDK error
+ * name/code on dedicated fields plus a stable `alert: "sync_trigger_failed"`
+ * discriminator a CloudWatch metric filter / alarm can key off.
+ */
+export const triggerConfigLoadSyncs = async (
+	accountConfigId: string,
+	accountIds: ReadonlyArray<string>,
+	deps: ConfigSyncTriggerDeps = defaultConfigSyncTriggerDeps(),
 ): Promise<void> => {
-	const { eventId } = await triggerAccountSync({
-		sqsClient,
-		queueUrl: env.SQS_QUEUE_URL,
-		accountId,
-	});
-	logger.info({ accountId, eventId }, "Sync triggered on config load");
+	await Promise.all(
+		accountIds.map(async (accountId) => {
+			try {
+				const { eventId } = await triggerAccountSync({
+					sqsClient: deps.sqsClient,
+					queueUrl: deps.queueUrl,
+					accountId,
+				});
+				deps.logger.info(
+					{ accountId, eventId },
+					"Sync triggered on config load",
+				);
+			} catch (err) {
+				deps.logger.error(
+					{
+						alert: "sync_trigger_failed",
+						source: "config_load",
+						accountId,
+						accountConfigId,
+						errorName: (err as { name?: string })?.name,
+						errorCode:
+							(err as { Code?: string })?.Code ??
+							(err as { code?: string })?.code,
+						error: inspect(err),
+					},
+					"Failed to trigger account sync on config load",
+				);
+			}
+		}),
+	);
 };
 
 const toAccountConfigResponse = (
@@ -128,35 +189,14 @@ export const ConfigOperations: Record<
 			(acc) => acc.deletedAt === undefined,
 		);
 
-		// Trigger sync for all active accounts. The read response below does not
-		// depend on the trigger succeeding, so we don't await it — but a failure
-		// here (SQS/IAM misconfig) silently stops ALL sync, so it must be loud and
-		// alertable rather than a bare swallowed log. Each rejection is surfaced as
-		// a distinct structured error carrying the SDK error name/code on dedicated
-		// fields plus a stable `alert` discriminator a CloudWatch metric filter /
-		// alarm can key off.
-		void Promise.allSettled(
-			activeAccounts.map((acc) => triggerAccountSyncForConfig(acc.accountId)),
-		).then((settled) => {
-			for (const [index, result] of settled.entries()) {
-				if (result.status === "fulfilled") continue;
-				const err = result.reason;
-				logger.error(
-					{
-						alert: "sync_trigger_failed",
-						source: "config_load",
-						accountId: activeAccounts[index]?.accountId,
-						accountConfigId,
-						errorName: (err as { name?: string })?.name,
-						errorCode:
-							(err as { Code?: string; code?: string })?.Code ??
-							(err as { code?: string })?.code,
-						error: inspect(err),
-					},
-					"Failed to trigger account sync on config load",
-				);
-			}
-		});
+		// Fire-and-forget: a failed sync enqueue must never fail this read.
+		// triggerConfigLoadSyncs swallows nothing — it logs each failure loudly
+		// with an alertable structured field — but it also never rejects, so the
+		// `void` here cannot leak an unhandled rejection into a later request.
+		void triggerConfigLoadSyncs(
+			accountConfigId,
+			activeAccounts.map((acc) => acc.accountId),
+		);
 
 		return {
 			accountConfig: toAccountConfigResponse(accountConfig),
