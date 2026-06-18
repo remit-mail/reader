@@ -225,7 +225,25 @@ export function FilterSheet({
 	const defaultCategory = categories[0];
 	const isDefault =
 		defaultCategory !== undefined && selectedCategory === defaultCategory.id;
-	const hasActive = !isDefault || activeFilters.size > 0;
+
+	const defaultSource = sources?.[0];
+	const activeSource = sources?.find((s) => s.active);
+	const isDefaultSource =
+		defaultSource === undefined || activeSource?.id === defaultSource.id;
+
+	const hasActive =
+		!isDefault ||
+		activeFilters.size > 0 ||
+		(!isDefaultSource && !!activeSource);
+
+	const clearSource = useCallback(() => {
+		if (defaultSource) onSelectSource?.(defaultSource.id);
+	}, [defaultSource, onSelectSource]);
+
+	const clearAll = useCallback(() => {
+		onClear();
+		clearSource();
+	}, [onClear, clearSource]);
 
 	const dragging = drag !== null;
 	const offset = drag ?? (open ? 0 : -sheetHeight);
@@ -256,6 +274,11 @@ export function FilterSheet({
 			>
 				{hasActive ? (
 					<>
+						{!isDefaultSource && activeSource && (
+							<span className="inline-flex items-center rounded-full border border-accent-2 bg-accent-2-soft px-2 py-0.5 text-2xs font-medium text-accent-2">
+								{activeSource.label}
+							</span>
+						)}
 						{!isDefault && activeCategory && (
 							<Badge tone={activeCategory.tone ?? "neutral"}>
 								{activeCategory.label}
@@ -277,7 +300,7 @@ export function FilterSheet({
 							onPointerDown={(e) => e.stopPropagation()}
 							onClick={(e) => {
 								e.stopPropagation();
-								onClear();
+								clearAll();
 							}}
 							className="flex size-8 items-center justify-center text-fg-subtle hover:text-fg-muted"
 						>
@@ -347,6 +370,20 @@ export function FilterSheet({
 								<span className="ml-auto shrink-0 text-2xs text-fg-subtle">
 									{sourcesNote}
 								</span>
+							)}
+							{!isDefaultSource && (
+								<button
+									type="button"
+									aria-label="Clear source"
+									onClick={clearSource}
+									className={cn(
+										"flex min-h-9 items-center gap-1 px-1 text-2xs text-fg-subtle hover:text-fg-muted",
+										sourcesNote ? "" : "ml-auto",
+									)}
+								>
+									<Close className="size-3" />
+									Clear
+								</button>
 							)}
 						</div>
 					)}
