@@ -861,12 +861,12 @@ export function BriefSections({
 							<button
 								type="button"
 								onClick={() => toggleSection(section.id)}
-								className="sticky top-0 flex w-full items-baseline gap-1.5 border-b border-line bg-surface-sunken px-row-inset py-1 text-left transition-colors hover:bg-surface"
+								className="sticky top-0 flex h-section-row w-full items-center gap-1.5 border-b border-line bg-surface-sunken px-row-inset text-left transition-colors hover:bg-surface"
 							>
 								{isCollapsed ? (
-									<ChevronRight className="size-3 shrink-0 self-center text-fg-subtle" />
+									<ChevronRight className="size-3 shrink-0 text-fg-subtle" />
 								) : (
-									<ChevronDown className="size-3 shrink-0 self-center text-fg-subtle" />
+									<ChevronDown className="size-3 shrink-0 text-fg-subtle" />
 								)}
 								<span className="flex-1 text-2xs font-semibold uppercase tracking-wider text-fg-subtle">
 									{section.label}
@@ -1106,7 +1106,7 @@ function MessageListPane({
 					{sections.map((section) => (
 						<div key={section.id}>
 							{section.label && (
-								<div className="sticky top-0 flex items-baseline justify-between border-b border-line bg-surface-sunken px-row-inset py-1">
+								<div className="sticky top-0 flex h-section-row items-center justify-between border-b border-line bg-surface-sunken px-row-inset">
 									<span className="text-2xs font-semibold uppercase tracking-wider text-fg-subtle">
 										{section.label}
 									</span>
@@ -1153,7 +1153,7 @@ function CollapsedMessage({ message }: { message: ThreadMessageData }) {
 	return (
 		<button
 			type="button"
-			className="flex w-full items-center gap-3 border-b border-line px-5 py-2 text-left hover:bg-surface-sunken"
+			className="flex h-section-row w-full items-center gap-3 border-b border-line px-5 text-left hover:bg-surface-sunken"
 		>
 			<ChevronRight className="size-3.5 shrink-0 text-fg-subtle" />
 			<Avatar name={message.fromName} email={message.fromEmail} size="sm" />

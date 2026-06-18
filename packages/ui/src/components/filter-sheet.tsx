@@ -270,7 +270,7 @@ export function FilterSheet({
 				onPointerUp={finishDrag}
 				onPointerCancel={finishDrag}
 				onKeyDown={keyToggle}
-				className="z-30 flex w-full shrink-0 cursor-pointer touch-none flex-wrap items-center gap-1.5 border-b border-line bg-surface-sunken px-row-inset py-2 text-left"
+				className="z-30 flex h-section-row w-full shrink-0 cursor-pointer touch-none items-center gap-1.5 border-b border-line bg-surface-sunken px-row-inset text-left overflow-x-hidden"
 			>
 				{hasActive ? (
 					<>

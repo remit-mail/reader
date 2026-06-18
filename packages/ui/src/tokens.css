@@ -68,13 +68,19 @@
 	   Allowed vertical spacing steps: 4 / 8 / 12 / 20px (32px = 8 units
 	   as the one outlier for big section breaks). In Tailwind terms:
 	   py-1 / py-2 / py-3 / py-5 (py-8). Row heights land on the 4px
-	   grid: compact row 32px, pane header 40px. */
+	   grid: compact row 32px, pane header 40px, section/expando row 48px,
+	   comfortable message row 72px (section:message = 2:3). */
 
 	/* shared pane-header datum: every pane's first header row (mail list,
 	   reading pane, intelligence, settings nav/content/help) is exactly
 	   this tall so one continuous hairline runs across all panes.
 	   40px = 10 grid units. */
 	--spacing-pane-header: 2.5rem;
+
+	/* section-row: the fixed height for section headers and expandos in
+	   the inbox list. 48px = 2/3 of the 72px comfortable message row,
+	   establishing the 2:3 rhythm. 12 grid units. */
+	--spacing-section-row: 3rem;
 
 	/* shared horizontal inset for dense list rows (mail list, brief,
 	   senders table): content is inset (12px = 3 units), hover/active
