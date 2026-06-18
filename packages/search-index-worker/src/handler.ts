@@ -1,4 +1,5 @@
 import { inspect } from "node:util";
+import { NotFoundError } from "@remit/remit-electrodb-service";
 import {
 	createLogger,
 	type Logger,
@@ -143,9 +144,15 @@ const prepareUpsert = async (
 			});
 			return null;
 		}
-	} catch {
-		log.info("Account not found, skipping", { accountId, messageId });
-		return null;
+	} catch (error) {
+		// Only a genuine missing account is skippable. AccessDenied, throttling,
+		// and network errors must surface so the record retries (and reaches the
+		// DLQ) instead of being silently dropped as if it were a 404.
+		if (error instanceof NotFoundError) {
+			log.info("Account not found, skipping", { accountId, messageId });
+			return null;
+		}
+		throw error;
 	}
 
 	const threadMessage = await threadMessageService.findByMessageId(messageId);

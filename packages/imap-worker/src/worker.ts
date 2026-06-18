@@ -10,6 +10,8 @@ import { createLogger } from "@remit/remit-logger-lambda";
 import { env } from "expect-env";
 import pMap from "p-map";
 import type { WorkerEvent } from "./events.js";
+import { handleMessageFailure } from "./message-failure.js";
+import { installCrashHandlers } from "./process-handlers.js";
 import { processEvent } from "./processor.js";
 
 // Collect all unique queue URLs to poll. Every queue URL is required; missing
@@ -103,6 +105,8 @@ if (cluster.isPrimary) {
 
 	let isShuttingDown = false;
 
+	installCrashHandlers(log);
+
 	process.on("SIGINT", () => {
 		log.info("Worker received SIGINT, shutting down...");
 		isShuttingDown = true;
@@ -151,6 +155,9 @@ if (cluster.isPrimary) {
 					MaxNumberOfMessages: maxMessages,
 					WaitTimeSeconds: waitTime,
 					VisibilityTimeout: 300,
+					// Surfaces delivery attempt count so poison messages are logged
+					// loudly before SQS dead-letters them (see message-failure.ts).
+					MessageSystemAttributeNames: ["ApproximateReceiveCount"],
 				}),
 			);
 
@@ -168,6 +175,9 @@ if (cluster.isPrimary) {
 								body: m.Body,
 								receiptHandle: m.ReceiptHandle,
 								messageId: m.MessageId,
+								receiveCount: Number(
+									m.Attributes?.ApproximateReceiveCount ?? "1",
+								),
 							},
 						]
 					: [],
@@ -179,19 +189,16 @@ if (cluster.isPrimary) {
 
 			log.info({ count: validMessages.length }, "Processing messages");
 
+			// A failed message is NOT deleted: its visibility timeout lapses, SQS
+			// redelivers it, and after maxReceiveCount attempts SQS moves it to the
+			// configured DLQ automatically. handleMessageFailure only logs (loudly
+			// once retries are exhausted) — see message-failure.ts.
 			await pMap(
 				validMessages,
 				(message) =>
-					processMessage(message.body, message.receiptHandle).catch((error) => {
-						log.error(
-							{
-								error,
-								stack: (error as Error).stack,
-								messageId: message.messageId,
-							},
-							"Failed to process message",
-						);
-					}),
+					processMessage(message.body, message.receiptHandle).catch((error) =>
+						handleMessageFailure(message, error, log),
+					),
 				{ concurrency: maxConcurrency },
 			);
 		}

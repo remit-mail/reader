@@ -1,5 +1,6 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
+import { NotFoundError } from "@remit/remit-electrodb-service";
 import {
 	createDeterministicEmbeddingService,
 	createMemoryVectorStore,
@@ -87,7 +88,7 @@ const accounts = new Map<string, { accountId: string; deletedAt?: number }>();
 const mockAccountService = {
 	get: async (accountId: string) => {
 		const account = accounts.get(accountId);
-		if (!account) throw new Error(`Account not found: ${accountId}`);
+		if (!account) throw new NotFoundError(`Account not found: ${accountId}`);
 		return account;
 	},
 } as Services["accountService"];
@@ -567,7 +568,8 @@ describe("search-index-worker handler", () => {
 		const mockAccountService2 = {
 			get: async (accountId: string) => {
 				const account = accounts.get(accountId);
-				if (!account) throw new Error(`Account not found: ${accountId}`);
+				if (!account)
+					throw new NotFoundError(`Account not found: ${accountId}`);
 				return account;
 			},
 		} as Services["accountService"];
@@ -750,5 +752,73 @@ describe("search-index-worker handler", () => {
 
 		threadMessages.clear();
 		accounts.clear();
+	});
+
+	test("non-NotFoundError from accountService.get is reported as failure (retried)", async () => {
+		const store = createMemoryVectorStore();
+		const embedder = createDeterministicEmbeddingService();
+		const searchService = createSearchService({ embedder, store });
+		const storageService = createMockStorageService();
+
+		threadMessages.set(MESSAGE_ID, makeThreadMessage(MESSAGE_ID));
+
+		const throwingAccountService = {
+			get: async (
+				_accountId: string,
+			): Promise<{ accountId: string; deletedAt?: number }> => {
+				throw new Error("AccessDenied: throttled");
+			},
+		} as Services["accountService"];
+
+		const services = createTestServices(
+			storageService,
+			searchService,
+			throwingAccountService,
+		);
+		const msg = makeSearchIndexMessage({ messageId: MESSAGE_ID });
+
+		const result = await processBatch(
+			[makeRecord(msg, "sqs-throttle")],
+			services,
+			noopLogger,
+		);
+
+		assert.equal(
+			result.batchItemFailures.length,
+			1,
+			"transient account error must be retried, not swallowed",
+		);
+		assert.equal(result.batchItemFailures[0].itemIdentifier, "sqs-throttle");
+		assert.equal(store.size(), 0, "no vectors written on failure");
+
+		threadMessages.clear();
+	});
+
+	test("NotFoundError from accountService.get skips without failure", async () => {
+		accounts.clear();
+		const store = createMemoryVectorStore();
+		const embedder = createDeterministicEmbeddingService();
+		const searchService = createSearchService({ embedder, store });
+		const storageService = createMockStorageService();
+
+		threadMessages.set(MESSAGE_ID, makeThreadMessage(MESSAGE_ID));
+
+		const services = createTestServices(storageService, searchService);
+		const msg = makeSearchIndexMessage({ messageId: MESSAGE_ID });
+
+		const result = await processBatch(
+			[makeRecord(msg, "sqs-notfound")],
+			services,
+			noopLogger,
+		);
+
+		assert.equal(
+			result.batchItemFailures.length,
+			0,
+			"genuine missing account is skipped, not failed",
+		);
+		assert.equal(store.size(), 0, "no vectors written for missing account");
+
+		threadMessages.clear();
 	});
 });
