@@ -13,7 +13,7 @@ import {
 	Link,
 	Outlet,
 	useNavigate,
-	useParams,
+	useRouterState,
 	useSearch,
 } from "@tanstack/react-router";
 import { ArrowLeft, Menu, Search, Settings, X } from "lucide-react";
@@ -167,11 +167,23 @@ function MailLayout() {
 
 	// Read the current mailbox params and selected message (if any) from the
 	// child route so the mobile top-bar title can act as a back button when a
-	// thread is open. `strict: false` lets the parent layout read child-route
-	// params without coupling to the child route definition.
-	const { mailboxId: mobileMailboxId } = useParams({ strict: false }) as {
-		mailboxId?: string;
-	};
+	// thread is open.
+	//
+	// `useParams({ strict: false })` resolves against the *nearest* route match
+	// in the React component tree — which for this parent layout is /mail (no
+	// path params). The child's $mailboxId param never appears there, so
+	// mobileMailboxId would always be undefined and the navigate guard would
+	// short-circuit every tap. Use `useRouterState` instead: it exposes all
+	// currently matched routes, letting us find the one that carries mailboxId.
+	const mobileMailboxId = useRouterState({
+		select: (s) => {
+			const match = s.matches.find(
+				(m): m is typeof m & { params: { mailboxId: string } } =>
+					"mailboxId" in m.params,
+			);
+			return match?.params.mailboxId;
+		},
+	});
 	const { selectedMessageId: mobileSelectedMessageId } = useSearch({
 		strict: false,
 	}) as { selectedMessageId?: string };
