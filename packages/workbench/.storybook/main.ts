@@ -16,8 +16,22 @@ const config: StorybookConfig = {
 	core: { disableTelemetry: true },
 	async viteFinal(config) {
 		const { default: tailwindcss } = await import("@tailwindcss/vite");
+		const { fileURLToPath, URL } = await import("node:url");
 		config.plugins = config.plugins ?? [];
 		config.plugins.push(tailwindcss());
+		// In a git worktree the shared node_modules symlinks resolve @remit/*
+		// packages back to the main checkout. Override here so Storybook picks
+		// up the worktree's own source (needed for design-token / component changes).
+		config.resolve = config.resolve ?? {};
+		config.resolve.alias = {
+			...(config.resolve.alias ?? {}),
+			"@remit/ui/tokens.css": fileURLToPath(
+				new URL("../../remit-ui/src/tokens.css", import.meta.url),
+			),
+			"@remit/ui": fileURLToPath(
+				new URL("../../remit-ui/src/index.ts", import.meta.url),
+			),
+		};
 		return config;
 	},
 };
