@@ -24,6 +24,7 @@ import { emitEvent } from "../emit.js";
 import type { SyncMailboxesEvent, SyncMessagesEvent } from "../events.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
+import { orderMailboxesForSync } from "./mailbox-sync-order.js";
 
 const EVENT_EMIT_CONCURRENCY = 20;
 const SYNC_COOLDOWN_MS = 30_000; // 30 seconds
@@ -195,10 +196,14 @@ type MailboxSortEntry = {
 	mailboxId: string;
 	fullPath: string;
 	lastMessageSyncAt: number;
+	specialUse?: readonly string[];
 };
 
 /**
- * Collect all mailboxes for an account, sorted with INBOX first, then alphabetically by path.
+ * Collect all mailboxes for an account, ordered for sync fan-out by
+ * special-use: INBOX first, then Sent/Drafts, then normal folders, with
+ * Junk/Spam and Trash last (issue #567). Real mail dispatches ahead of bulk
+ * folders so a fresh account fills its inbox before its spam.
  */
 const collectAllMailboxes = async (
 	accountId: string,
@@ -217,20 +222,12 @@ const collectAllMailboxes = async (
 				mailboxId: mailbox.mailboxId,
 				fullPath: mailbox.fullPath,
 				lastMessageSyncAt: mailbox.lastMessageSyncAt,
+				specialUse: mailbox.specialUse,
 			});
 		}
 
 		continuationToken = result.continuationToken ?? undefined;
 	} while (continuationToken);
 
-	// Sort: INBOX first, then alphabetically by fullPath
-	return mailboxes.sort((a, b) => {
-		const aIsInbox = a.fullPath.toUpperCase() === "INBOX";
-		const bIsInbox = b.fullPath.toUpperCase() === "INBOX";
-
-		if (aIsInbox && !bIsInbox) return -1;
-		if (!aIsInbox && bIsInbox) return 1;
-
-		return a.fullPath.localeCompare(b.fullPath);
-	});
+	return orderMailboxesForSync(mailboxes);
 };
