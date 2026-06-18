@@ -4,6 +4,7 @@ import {
 	FilterSheet,
 	type FilterSheetCategory,
 	type FilterSheetFilter,
+	type FilterSheetSource,
 } from "./filter-sheet.js";
 
 const CATEGORIES: FilterSheetCategory[] = [
@@ -20,6 +21,12 @@ const FILTERS: FilterSheetFilter[] = [
 	{ id: "attachment", label: "Has attachment" },
 	{ id: "contacts", label: "From contacts" },
 	{ id: "today", label: "Today" },
+];
+
+const SOURCES: FilterSheetSource[] = [
+	{ id: "all", label: "All", active: true },
+	{ id: "work", label: "work@acme.com", count: 12 },
+	{ id: "personal", label: "me@home.net", count: 3 },
 ];
 
 const meta: Meta<typeof FilterSheet> = {
@@ -49,25 +56,34 @@ function ControlledShell({
 	initialCategory = "all",
 	initialFilters = new Set<string>(),
 	initialExpanded = true,
+	withSources = true,
 }: {
 	initialCategory?: string;
 	initialFilters?: Set<string>;
 	initialExpanded?: boolean;
+	withSources?: boolean;
 }) {
 	const [category, setCategory] = useState(initialCategory);
 	const [activeFilters, setActiveFilters] =
 		useState<Set<string>>(initialFilters);
 	const [expanded, setExpanded] = useState(initialExpanded);
+	const [source, setSource] = useState("all");
+
+	const sources = withSources
+		? SOURCES.map((s) => ({ ...s, active: s.id === source }))
+		: undefined;
 
 	return (
 		<div className="h-[600px] w-[390px]">
 			<FilterSheet
 				categories={CATEGORIES}
 				filters={FILTERS}
+				sources={sources}
 				selectedCategory={category}
 				activeFilters={activeFilters}
 				expanded={expanded}
 				onSelectCategory={setCategory}
+				onSelectSource={setSource}
 				onToggleFilter={(id) =>
 					setActiveFilters((prev) => {
 						const next = new Set(prev);

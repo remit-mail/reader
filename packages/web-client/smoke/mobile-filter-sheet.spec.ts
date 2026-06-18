@@ -3,9 +3,9 @@ import { expect, test } from "./fixtures/account-setup.js";
 /**
  * Mobile regression suite for the collapsible filter sheet in the daily brief.
  *
- * The FilterSheet wraps the message list on mobile (<1024px). It starts
- * collapsed; the summary bar taps to expand/collapse the category and
- * attribute filter drawers.
+ * The FilterSheet wraps the message list on mobile (<1024px). It opens by
+ * default so the source/account, category and attribute filters are visible on
+ * load; the summary bar taps to collapse and re-expand the drawer.
  */
 
 const MOBILE_VIEWPORT = { width: 390, height: 844 };
@@ -16,29 +16,39 @@ test.describe("Mobile filter sheet", () => {
 	test.beforeEach(async ({ page }) => {
 		await page.goto("/mail");
 
-		const summaryBar = page.getByRole("button", { name: "Expand filters" });
+		const summaryBar = page.getByRole("button", { name: "Collapse filters" });
 		await expect(summaryBar).toBeVisible({ timeout: 15_000 });
 	});
 
-	test("sheet is collapsed by default — summary bar visible, filter pills hidden", async ({
+	test("sheet is open by default — category and attribute pills visible on load", async ({
 		page,
 	}) => {
-		const summaryBar = page.getByRole("button", { name: "Expand filters" });
+		const summaryBar = page.getByRole("button", { name: "Collapse filters" });
 		await expect(summaryBar).toBeVisible();
-		await expect(summaryBar).toHaveAttribute("aria-expanded", "false");
+		await expect(summaryBar).toHaveAttribute("aria-expanded", "true");
 
 		const heading = page.getByRole("heading", { name: /daily brief/i });
 		await expect(heading).toBeVisible();
 
-		const personalButton = page.getByRole("button", { name: "Personal" });
-		await expect(personalButton).not.toBeInViewport();
+		await expect(page.getByRole("button", { name: "Personal" })).toBeInViewport(
+			{ timeout: 3_000 },
+		);
+		await expect(page.getByRole("button", { name: "Unread" })).toBeInViewport();
 	});
 
-	test("tapping summary bar expands sheet and shows category and attribute pills", async ({
+	test("collapsing then re-expanding the summary bar shows the category and attribute pills", async ({
 		page,
 	}) => {
-		const summaryBar = page.getByRole("button", { name: "Expand filters" });
-		await summaryBar.click();
+		await page.getByRole("button", { name: "Collapse filters" }).click();
+
+		const expandBar = page.getByRole("button", { name: "Expand filters" });
+		await expect(expandBar).toBeVisible({ timeout: 3_000 });
+		await expect(expandBar).toHaveAttribute("aria-expanded", "false");
+		await expect(
+			page.getByRole("button", { name: "Personal" }),
+		).not.toBeInViewport();
+
+		await expandBar.click();
 
 		const collapseBar = page.getByRole("button", { name: "Collapse filters" });
 		await expect(collapseBar).toBeVisible({ timeout: 3_000 });
@@ -61,11 +71,6 @@ test.describe("Mobile filter sheet", () => {
 	test("selecting a category and toggling an attribute filter reflects in the collapsed summary", async ({
 		page,
 	}) => {
-		await page.getByRole("button", { name: "Expand filters" }).click();
-		await expect(
-			page.getByRole("button", { name: "Collapse filters" }),
-		).toBeVisible({ timeout: 3_000 });
-
 		await page.getByRole("button", { name: "Newsletters" }).click();
 		await page.getByRole("button", { name: "Unread" }).click();
 
@@ -86,10 +91,6 @@ test.describe("Mobile filter sheet", () => {
 	test("Clear filters resets state — summary returns to neutral and clear button disappears", async ({
 		page,
 	}) => {
-		await page.getByRole("button", { name: "Expand filters" }).click();
-		await expect(
-			page.getByRole("button", { name: "Collapse filters" }),
-		).toBeVisible({ timeout: 3_000 });
 		await page.getByRole("button", { name: "Unread" }).click();
 
 		await page.getByRole("button", { name: "Collapse filters" }).click();
@@ -111,10 +112,9 @@ test.describe("Mobile filter sheet", () => {
 		).toBeHidden();
 	});
 
-	test("tapping the summary bar again collapses the expanded sheet", async ({
+	test("tapping the summary bar collapses the default-open sheet", async ({
 		page,
 	}) => {
-		await page.getByRole("button", { name: "Expand filters" }).click();
 		const collapseBar = page.getByRole("button", { name: "Collapse filters" });
 		await expect(collapseBar).toBeVisible({ timeout: 3_000 });
 
@@ -136,7 +136,6 @@ test.describe("Mobile filter sheet", () => {
 	test("expanded filter pill rows wrap rather than scroll — the last pill of each row stays in the viewport", async ({
 		page,
 	}) => {
-		await page.getByRole("button", { name: "Expand filters" }).click();
 		await expect(
 			page.getByRole("button", { name: "Collapse filters" }),
 		).toBeVisible({ timeout: 3_000 });
