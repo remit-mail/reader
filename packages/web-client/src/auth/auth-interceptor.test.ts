@@ -23,6 +23,13 @@ declare global {
 
 let cacheBust = 1000;
 
+const FAR_FUTURE_EXP = Math.floor(Date.now() / 1000) + 3600;
+
+const idToken = (value: string, exp: number = FAR_FUTURE_EXP) => ({
+	toString: () => value,
+	payload: { exp },
+});
+
 const loadInterceptor = async (
 	configured: boolean,
 	authMocks: Partial<AmplifyAuthMocks>,
@@ -66,7 +73,7 @@ describe("installAuthInterceptor", () => {
 	test("attaches Bearer idToken header when session has tokens", async () => {
 		const mod = await loadInterceptor(true, {
 			session: {
-				tokens: { idToken: { toString: () => "ID-TOKEN-123" } },
+				tokens: { idToken: idToken("ID-TOKEN-123") },
 			},
 		});
 		mod.installAuthInterceptor();
@@ -104,7 +111,7 @@ describe("installAuthInterceptor", () => {
 	test("preserves caller-supplied headers when adding Authorization", async () => {
 		const mod = await loadInterceptor(true, {
 			session: {
-				tokens: { idToken: { toString: () => "TOK" } },
+				tokens: { idToken: idToken("TOK") },
 			},
 		});
 		mod.installAuthInterceptor();
@@ -130,5 +137,51 @@ describe("installAuthInterceptor", () => {
 		assert.ok(fn);
 		const req = new Request("https://api.example.com/thing");
 		await assert.rejects(() => fn(req), /session fetch failed/);
+	});
+
+	test("reuses cached token across requests without re-fetching the session", async () => {
+		const mod = await loadInterceptor(true, {
+			session: { tokens: { idToken: idToken("CACHED") } },
+		});
+		mod.installAuthInterceptor();
+		const fn = globalThis.__REMIT_CLIENT_MOCKS__?.requestFns[0];
+		assert.ok(fn);
+
+		const first = await fn(new Request("https://api.example.com/a"));
+		const second = await fn(new Request("https://api.example.com/b"));
+
+		assert.equal(first.headers.get("Authorization"), "Bearer CACHED");
+		assert.equal(second.headers.get("Authorization"), "Bearer CACHED");
+		assert.equal(globalThis.__AMPLIFY_AUTH_MOCKS__?.fetchCalls, 1);
+	});
+
+	test("re-fetches the session when the cached token is near expiry", async () => {
+		const almostExpired = Math.floor(Date.now() / 1000) + 5;
+		const mod = await loadInterceptor(true, {
+			session: { tokens: { idToken: idToken("STALE", almostExpired) } },
+		});
+		mod.installAuthInterceptor();
+		const fn = globalThis.__REMIT_CLIENT_MOCKS__?.requestFns[0];
+		assert.ok(fn);
+
+		await fn(new Request("https://api.example.com/a"));
+		await fn(new Request("https://api.example.com/b"));
+
+		assert.equal(globalThis.__AMPLIFY_AUTH_MOCKS__?.fetchCalls, 2);
+	});
+
+	test("resetTokenCache forces the next request to re-fetch the session", async () => {
+		const mod = await loadInterceptor(true, {
+			session: { tokens: { idToken: idToken("CACHED") } },
+		});
+		mod.installAuthInterceptor();
+		const fn = globalThis.__REMIT_CLIENT_MOCKS__?.requestFns[0];
+		assert.ok(fn);
+
+		await fn(new Request("https://api.example.com/a"));
+		mod.resetTokenCache();
+		await fn(new Request("https://api.example.com/b"));
+
+		assert.equal(globalThis.__AMPLIFY_AUTH_MOCKS__?.fetchCalls, 2);
 	});
 });
