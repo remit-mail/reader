@@ -244,7 +244,7 @@ const AccountSection = ({
 										) : (
 											<ChevronRight className="h-3 w-3 shrink-0" />
 										)}
-										<span className="flex-1 text-left">Labels</span>
+										<span className="flex-1 text-left">Folders</span>
 										<span className="tabular-nums opacity-70">
 											{labels.length}
 										</span>
