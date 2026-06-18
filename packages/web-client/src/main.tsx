@@ -47,7 +47,9 @@ createRoot(rootElement).render(
 				<AuthShell>
 					<RouterProvider router={router} />
 				</AuthShell>
-				<ReactQueryDevtools initialIsOpen={false} />
+				{!import.meta.env.PROD && !import.meta.env.VITE_DISABLE_DEVTOOLS && (
+					<ReactQueryDevtools initialIsOpen={false} />
+				)}
 			</QueryClientProvider>
 		</TelemetryContext.Provider>
 	</StrictMode>,
