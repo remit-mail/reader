@@ -512,9 +512,11 @@ const unified = allThreads.filter((t) => t.accountId !== hobbyId);
  * Precedence (first match wins):
  *   starred                                          → Flagged
  *   category ∈ {newsletter, marketing, social}       → Daily brief
- *   !isRead AND (category ∈ {personal, transactional}
- *                OR trust ∈ {vip, wellknown})         → Needs attention
+ *   category ∈ {personal, transactional}
+ *     OR trust ∈ {vip, wellknown}                    → Needs attention
  *   otherwise                                         → Everything else
+ *
+ * Read state is not a routing signal — category drives the split.
  */
 const briefCategories: ReadonlySet<string> = new Set([
 	"newsletter",
@@ -543,10 +545,9 @@ export function briefSections(accountId?: string): ThreadSection[] {
 		} else if (t.category != null && briefCategories.has(t.category)) {
 			brief.push(t);
 		} else if (
-			!t.isRead &&
-			(attentionCategories.has(t.category ?? "personal") ||
-				t.trust === "vip" ||
-				t.trust === "wellknown")
+			attentionCategories.has(t.category ?? "personal") ||
+			t.trust === "vip" ||
+			t.trust === "wellknown"
 		) {
 			attention.push(t);
 		} else {
@@ -648,19 +649,22 @@ export function briefSectionsLong(accountId?: string): ThreadSection[] {
 }
 
 /**
- * Four-section fixture for the category-driven brief story. Exercises every
- * routing rule in one view:
+ * Four-section fixture for the category-driven brief story. The point it makes:
+ * read state is not a routing signal — category and trust decide placement.
  *
- *  - Needs attention: cold first-contact personal (trust unknown, unread) +
- *    transactional receipt (unread)
+ *  - Needs attention: a READ personal email + a READ transactional invoice —
+ *    both already opened, both still surfaced because category drives routing
  *  - Flagged: a starred item
- *  - Daily brief: a wellknown-trust newsletter (proving trust doesn't
- *    override the digest bucket) + an automated notification
- *  - Everything else: a read automated notification
+ *  - Daily brief: a wellknown-trust newsletter (trust doesn't override the
+ *    digest bucket; category wins)
+ *  - Everything else: an automated notification (not personal/transactional,
+ *    so it stays out of the way)
  */
 export function categoryDrivenBriefSections(): ThreadSection[] {
-	const coldPersonal: ThreadRowData = {
-		id: "demo_cold",
+	// READ personal email — lands in Needs attention because category=personal,
+	// even though isRead=true.
+	const readPersonal: ThreadRowData = {
+		id: "demo_read_personal",
 		accountId: personalId,
 		fromName: "Eva Lindqvist",
 		fromEmail: "eva@vendor-analytics.example",
@@ -668,22 +672,24 @@ export function categoryDrivenBriefSections(): ThreadSection[] {
 		snippet:
 			"Hi, circling back on the pilot proposal I sent over. Happy to adjust scope — would 20 minutes this week work?",
 		timeLabel: "09:15",
-		isRead: false,
+		isRead: true,
 		hasAttachment: false,
 		starred: false,
 		trust: undefined,
 		category: "personal",
 	};
 
-	const transactionalReceipt: ThreadRowData = {
-		id: "demo_receipt",
+	// READ transactional invoice — lands in Needs attention because
+	// category=transactional, even though isRead=true.
+	const readTransactional: ThreadRowData = {
+		id: "demo_read_transactional",
 		accountId: workId,
 		fromName: "Linear",
 		fromEmail: "billing@linear.example",
 		subject: "Your receipt from Linear — June 2026",
 		snippet: "Receipt #LIN-20260617 · $80.00 charged to Visa •••• 4242.",
 		timeLabel: "08:00",
-		isRead: false,
+		isRead: true,
 		hasAttachment: false,
 		starred: false,
 		category: "transactional",
@@ -717,12 +723,14 @@ export function categoryDrivenBriefSections(): ThreadSection[] {
 		isRead: false,
 		hasAttachment: false,
 		starred: false,
-		// Marked wellknown — proving that a newsletter from a trusted sender
-		// still lands in the digest, not in "Needs attention".
+		// Marked wellknown — a newsletter from a trusted sender still lands in
+		// the digest, not "Needs attention". Category wins over trust.
 		trust: "wellknown",
 		category: "newsletter",
 	};
 
+	// Automated notification — not personal/transactional, so it stays in
+	// Everything else regardless of read state.
 	const automatedNotification: ThreadRowData = {
 		id: "demo_automated",
 		accountId: workId,
@@ -732,7 +740,7 @@ export function categoryDrivenBriefSections(): ThreadSection[] {
 		snippet:
 			"The incident affecting IMAP sync latency in eu-west-1 has been resolved. Duration: 23 minutes.",
 		timeLabel: "06:30",
-		isRead: true,
+		isRead: false,
 		hasAttachment: false,
 		starred: false,
 		category: "automated",
@@ -742,7 +750,7 @@ export function categoryDrivenBriefSections(): ThreadSection[] {
 		{
 			id: "attention",
 			label: "Needs attention",
-			threads: [coldPersonal, transactionalReceipt],
+			threads: [readPersonal, readTransactional],
 		},
 		{
 			id: "flagged",
