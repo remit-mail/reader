@@ -149,51 +149,6 @@ const BriefRow = ({
 };
 
 // ---------------------------------------------------------------------------
-// Account chips row
-// ---------------------------------------------------------------------------
-
-interface ChipsRowProps {
-	chips: AccountChip[];
-	mutedNote: string | undefined;
-	onChipClick: (id: string) => void;
-}
-
-const ChipsRow = ({ chips, mutedNote, onChipClick }: ChipsRowProps) => {
-	const navigate = useNavigate();
-	return (
-		<div className="flex items-center gap-1.5 overflow-x-auto border-b border-line px-row-inset py-1 shrink-0">
-			{chips.map((chip) => (
-				<button
-					key={chip.id}
-					type="button"
-					onClick={() => onChipClick(chip.id)}
-					className={cn(
-						"flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-0.5 text-2xs transition-colors",
-						chip.active
-							? "border-accent-2 bg-accent-2-soft font-medium text-accent-2"
-							: "border-line text-fg-muted hover:border-line-strong",
-					)}
-				>
-					{chip.label}
-					{chip.count != null && chip.count > 0 && (
-						<span className="tabular-nums opacity-70">{chip.count}</span>
-					)}
-				</button>
-			))}
-			{mutedNote && (
-				<button
-					type="button"
-					onClick={() => navigate({ to: "/settings/accounts" })}
-					className="ml-auto shrink-0 text-2xs text-fg-subtle hover:text-fg"
-				>
-					{mutedNote}
-				</button>
-			)}
-		</div>
-	);
-};
-
-// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -326,15 +281,6 @@ export function DailyBrief({
 				</div>
 			</header>
 
-			{/* Account chips — only when there are multiple non-muted accounts */}
-			{chips.length > 1 && (
-				<ChipsRow
-					chips={chips}
-					mutedNote={mutedNote}
-					onChipClick={handleChipClick}
-				/>
-			)}
-
 			{/* Per-account error banners */}
 			{failedAccounts.map((account) => (
 				<ErrorBanner
@@ -373,9 +319,12 @@ export function DailyBrief({
 					sections={sections}
 					briefCategory={briefCategory}
 					selectedThreadId={selectedMessageId}
+					accountChips={chips}
+					mutedNote={mutedNote}
 					Row={BriefRow}
 					onSelectThread={onSelectMessage}
 					onSelectBriefCategory={setBriefCategory}
+					onSelectAccountChip={handleChipClick}
 				/>
 			)}
 		</section>
