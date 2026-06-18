@@ -107,10 +107,19 @@ export function useUpdateAddressFlags({
 
 	const updateFlags = useCallback(
 		(flags: RemitImapUpdateAddressFlagsInput) => {
-			if (!addressId) return;
+			if (!addressId) {
+				// The sender's address record hasn't resolved yet (the lookup is in
+				// flight or failed). Surface feedback rather than silently swallowing
+				// the tap — a quick action must never look active but do nothing.
+				pushError({
+					title: "Sender details still loading",
+					detail: "Try again in a moment.",
+				});
+				return;
+			}
 			mutate({ path: { addressId }, body: { flags } });
 		},
-		[addressId, mutate],
+		[addressId, mutate, pushError],
 	);
 
 	return { updateFlags, isPending };
