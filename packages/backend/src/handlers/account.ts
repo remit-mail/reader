@@ -56,13 +56,27 @@ export const triggerAccountSyncSafe = async (
 	accountId: string,
 ): Promise<void> => {
 	const queueUrl = env.SQS_QUEUE_URL;
+	// Best-effort: account creation must still return 200 even if the sync
+	// enqueue fails. But a failure here (SQS/IAM misconfig) silently stops sync
+	// for the brand-new account, so it must be loud and alertable — a distinct
+	// structured error with the SDK error name/code and a stable `alert`
+	// discriminator a CloudWatch metric filter / alarm can key off.
 	const { eventId } = await triggerAccountSync({
 		sqsClient,
 		queueUrl,
 		accountId,
 	}).catch((error: unknown) => {
 		logger.error(
-			{ accountId, error: inspect(error) },
+			{
+				alert: "sync_trigger_failed",
+				source: "account_create",
+				accountId,
+				errorName: (error as { name?: string })?.name,
+				errorCode:
+					(error as { Code?: string })?.Code ??
+					(error as { code?: string })?.code,
+				error: inspect(error),
+			},
 			"Failed to enqueue SYNC_MAILBOXES for new account (best-effort)",
 		);
 		return { eventId: undefined };
