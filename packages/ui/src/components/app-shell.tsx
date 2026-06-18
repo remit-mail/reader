@@ -22,11 +22,16 @@ import {
 	Star,
 	Trash2,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { cn } from "../lib/cn.js";
 import { Avatar } from "./avatar.js";
 import { Badge } from "./badge.js";
 import { Button } from "./button.js";
+import {
+	FilterSheet,
+	type FilterSheetCategory,
+	type FilterSheetFilter,
+} from "./filter-sheet.js";
 import { Input } from "./input.js";
 import {
 	type IntelligenceData,
@@ -39,6 +44,24 @@ import {
 	ResizablePanel,
 	ResizablePanelGroup,
 } from "./resizable.js";
+
+/** True at ≥1024px (Tailwind `lg:`). Matches the mobile-chrome boundary used
+ *  throughout the app — keep in sync with the CSS `lg:hidden` gates. */
+function useIsDesktop(): boolean {
+	const [matches, setMatches] = useState(() => {
+		if (typeof window === "undefined" || !window.matchMedia) return false;
+		return window.matchMedia("(min-width: 1024px)").matches;
+	});
+	useEffect(() => {
+		if (typeof window === "undefined" || !window.matchMedia) return;
+		const mql = window.matchMedia("(min-width: 1024px)");
+		const handler = (e: MediaQueryListEvent) => setMatches(e.matches);
+		setMatches(mql.matches);
+		mql.addEventListener("change", handler);
+		return () => mql.removeEventListener("change", handler);
+	}, []);
+	return matches;
+}
 
 /* ------------------------------------------------------------------ */
 /* The 4-pane desktop shell:                                          */
@@ -735,6 +758,7 @@ export function BriefSections({
 	onSelectBriefCategory,
 }: BriefSectionsProps) {
 	const [active, setActive] = useState<ReadonlySet<BriefFilterId>>(new Set());
+	const [sheetExpanded, setSheetExpanded] = useState(false);
 	const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
 		() =>
 			new Set(
@@ -776,6 +800,8 @@ export function BriefSections({
 		});
 	};
 
+	const isDesktop = useIsDesktop();
+
 	const predicates = briefFilterDefs.filter((f) => active.has(f.id));
 	const filtered = sections
 		.map((section) => ({
@@ -787,6 +813,112 @@ export function BriefSections({
 			),
 		}))
 		.filter((section) => section.threads.length > 0);
+
+	const sheetCategories: FilterSheetCategory[] = briefCategories.map((cat) => ({
+		id: cat.id,
+		label: cat.label,
+		tone: cat.id === "all" ? "neutral" : categoryTone[cat.id],
+	}));
+
+	const sheetFilters: FilterSheetFilter[] = briefFilterDefs.map((f) => ({
+		id: f.id,
+		label: f.label,
+	}));
+
+	const clearFilters = () => {
+		onSelectBriefCategory?.("all");
+		setActive(new Set());
+	};
+
+	const listBody = (
+		<>
+			{filtered.map((section) => {
+				const isCollapsed = collapsed.has(section.id);
+				const showAll = expandedSections.has(section.id);
+				const capped = !showAll && section.threads.length > SECTION_ROW_CAP;
+				const visible = capped
+					? section.threads.slice(0, SECTION_ROW_CAP)
+					: section.threads;
+				const hiddenCount = section.threads.length - visible.length;
+				return (
+					<div key={section.id}>
+						{section.label && (
+							<button
+								type="button"
+								onClick={() => toggleSection(section.id)}
+								className="sticky top-0 flex w-full items-baseline gap-1.5 border-b border-line bg-surface-sunken px-row-inset py-1 text-left transition-colors hover:bg-surface"
+							>
+								{isCollapsed ? (
+									<ChevronRight className="size-3 shrink-0 self-center text-fg-subtle" />
+								) : (
+									<ChevronDown className="size-3 shrink-0 self-center text-fg-subtle" />
+								)}
+								<span className="flex-1 text-2xs font-semibold uppercase tracking-wider text-fg-subtle">
+									{section.label}
+								</span>
+								<span className="text-2xs text-fg-subtle tabular-nums">
+									{section.threads.length}
+								</span>
+							</button>
+						)}
+						{!isCollapsed && (
+							<>
+								<div className="divide-y divide-line">
+									{visible.map((thread) => (
+										<Row
+											key={thread.id}
+											thread={thread}
+											active={thread.id === selectedThreadId}
+											onClick={() => onSelectThread?.(thread.id)}
+										/>
+									))}
+								</div>
+								{section.threads.length > SECTION_ROW_CAP && (
+									<button
+										type="button"
+										onClick={() => toggleShowAll(section.id)}
+										className="flex w-full items-center justify-center border-b border-line px-row-inset py-1.5 text-2xs font-medium text-accent transition-colors hover:bg-surface"
+									>
+										{showAll
+											? "Show less"
+											: `Show all (${section.threads.length})`}
+										{!showAll && hiddenCount > 0 && (
+											<ChevronDown className="ml-1 size-3" />
+										)}
+									</button>
+								)}
+							</>
+						)}
+					</div>
+				);
+			})}
+			{filtered.length === 0 && (
+				<div className="px-row-inset py-6 text-center text-2xs text-fg-subtle">
+					No threads match these filters.
+				</div>
+			)}
+		</>
+	);
+
+	if (!isDesktop) {
+		return (
+			<FilterSheet
+				categories={sheetCategories}
+				filters={sheetFilters}
+				selectedCategory={briefCategory}
+				activeFilters={active}
+				expanded={sheetExpanded}
+				onExpandedChange={setSheetExpanded}
+				onSelectCategory={(id) =>
+					onSelectBriefCategory?.(id as BriefCategoryFilter)
+				}
+				onToggleFilter={(id) => toggleFilter(id as BriefFilterId)}
+				onClear={clearFilters}
+			>
+				{listBody}
+			</FilterSheet>
+		);
+	}
 
 	return (
 		<>
@@ -837,73 +969,7 @@ export function BriefSections({
 				})}
 			</div>
 
-			<div className="flex-1 overflow-y-auto">
-				{filtered.map((section) => {
-					const isCollapsed = collapsed.has(section.id);
-					const showAll = expandedSections.has(section.id);
-					const capped = !showAll && section.threads.length > SECTION_ROW_CAP;
-					const visible = capped
-						? section.threads.slice(0, SECTION_ROW_CAP)
-						: section.threads;
-					const hiddenCount = section.threads.length - visible.length;
-					return (
-						<div key={section.id}>
-							{section.label && (
-								<button
-									type="button"
-									onClick={() => toggleSection(section.id)}
-									className="sticky top-0 flex w-full items-baseline gap-1.5 border-b border-line bg-surface-sunken px-row-inset py-1 text-left transition-colors hover:bg-surface"
-								>
-									{isCollapsed ? (
-										<ChevronRight className="size-3 shrink-0 self-center text-fg-subtle" />
-									) : (
-										<ChevronDown className="size-3 shrink-0 self-center text-fg-subtle" />
-									)}
-									<span className="flex-1 text-2xs font-semibold uppercase tracking-wider text-fg-subtle">
-										{section.label}
-									</span>
-									<span className="text-2xs text-fg-subtle tabular-nums">
-										{section.threads.length}
-									</span>
-								</button>
-							)}
-							{!isCollapsed && (
-								<>
-									<div className="divide-y divide-line">
-										{visible.map((thread) => (
-											<Row
-												key={thread.id}
-												thread={thread}
-												active={thread.id === selectedThreadId}
-												onClick={() => onSelectThread?.(thread.id)}
-											/>
-										))}
-									</div>
-									{section.threads.length > SECTION_ROW_CAP && (
-										<button
-											type="button"
-											onClick={() => toggleShowAll(section.id)}
-											className="flex w-full items-center justify-center border-b border-line px-row-inset py-1.5 text-2xs font-medium text-accent transition-colors hover:bg-surface"
-										>
-											{showAll
-												? "Show less"
-												: `Show all (${section.threads.length})`}
-											{!showAll && hiddenCount > 0 && (
-												<ChevronDown className="ml-1 size-3" />
-											)}
-										</button>
-									)}
-								</>
-							)}
-						</div>
-					);
-				})}
-				{filtered.length === 0 && (
-					<div className="px-row-inset py-6 text-center text-2xs text-fg-subtle">
-						No threads match these filters.
-					</div>
-				)}
-			</div>
+			<div className="flex-1 overflow-y-auto">{listBody}</div>
 		</>
 	);
 }
