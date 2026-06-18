@@ -39,6 +39,7 @@ export {
 	type FilterSheetCategory,
 	type FilterSheetFilter,
 	type FilterSheetProps,
+	type FilterSheetSource,
 } from "./components/filter-sheet.js";
 export { Input, type InputProps } from "./components/input.js";
 export {

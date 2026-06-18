@@ -736,9 +736,14 @@ export interface BriefSectionsProps {
 	sections: ThreadSection[];
 	briefCategory?: BriefCategoryFilter;
 	selectedThreadId?: string;
+	/** Source/account pills, scoping the brief to one account (single-select). */
+	accountChips?: AccountChip[];
+	/** Note rendered alongside the source pills (e.g. "+2 muted"). */
+	mutedNote?: string;
 	Row: BriefRowComponent;
 	onSelectThread?: (id: string) => void;
 	onSelectBriefCategory?: (category: BriefCategoryFilter) => void;
+	onSelectAccountChip?: (id: string) => void;
 }
 
 /**
@@ -753,12 +758,15 @@ export function BriefSections({
 	sections,
 	briefCategory = "all",
 	selectedThreadId,
+	accountChips,
+	mutedNote,
 	Row,
 	onSelectThread,
 	onSelectBriefCategory,
+	onSelectAccountChip,
 }: BriefSectionsProps) {
 	const [active, setActive] = useState<ReadonlySet<BriefFilterId>>(new Set());
-	const [sheetExpanded, setSheetExpanded] = useState(false);
+	const [sheetExpanded, setSheetExpanded] = useState(true);
 	const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
 		() =>
 			new Set(
@@ -823,6 +831,13 @@ export function BriefSections({
 	const sheetFilters: FilterSheetFilter[] = briefFilterDefs.map((f) => ({
 		id: f.id,
 		label: f.label,
+	}));
+
+	const sheetSources = accountChips?.map((chip) => ({
+		id: chip.id,
+		label: chip.label,
+		count: chip.count,
+		active: chip.active,
 	}));
 
 	const clearFilters = () => {
@@ -905,6 +920,8 @@ export function BriefSections({
 			<FilterSheet
 				categories={sheetCategories}
 				filters={sheetFilters}
+				sources={sheetSources}
+				sourcesNote={mutedNote}
 				selectedCategory={briefCategory}
 				activeFilters={active}
 				expanded={sheetExpanded}
@@ -912,6 +929,7 @@ export function BriefSections({
 				onSelectCategory={(id) =>
 					onSelectBriefCategory?.(id as BriefCategoryFilter)
 				}
+				onSelectSource={(id) => onSelectAccountChip?.(id)}
 				onToggleFilter={(id) => toggleFilter(id as BriefFilterId)}
 				onClear={clearFilters}
 			>
@@ -922,6 +940,36 @@ export function BriefSections({
 
 	return (
 		<>
+			{/* source scope — single-select account pills (the brief spans
+			    accounts; this narrows it to one) */}
+			{sheetSources && sheetSources.length > 1 && (
+				<div className="flex items-center gap-1.5 overflow-x-auto border-b border-line px-row-inset py-1">
+					{sheetSources.map((source) => (
+						<button
+							key={source.id}
+							type="button"
+							onClick={() => onSelectAccountChip?.(source.id)}
+							className={cn(
+								"flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-0.5 text-2xs transition-colors",
+								source.active
+									? "border-accent-2 bg-accent-2-soft font-medium text-accent-2"
+									: "border-line text-fg-muted hover:border-line-strong",
+							)}
+						>
+							{source.label}
+							{source.count != null && source.count > 0 && (
+								<span className="tabular-nums opacity-70">{source.count}</span>
+							)}
+						</button>
+					))}
+					{mutedNote && (
+						<span className="ml-auto shrink-0 text-2xs text-fg-subtle">
+							{mutedNote}
+						</span>
+					)}
+				</div>
+			)}
+
 			{/* category scope — single-select colored pills (same palette as the
 			    inbox category badges); a separate axis from the attribute chips */}
 			<div className="flex items-center gap-1.5 overflow-x-auto border-b border-line px-row-inset py-1.5">
@@ -1013,8 +1061,9 @@ function MessageListPane({
 				)}
 			</header>
 
-			{/* secondary row only when account chips exist (the brief) */}
-			{chips && chips.length > 0 && (
+			{/* secondary row only for non-brief lists; the brief's account chips
+			    live inside BriefSections (the filter drawer on mobile) */}
+			{!briefFilters && chips && chips.length > 0 && (
 				<div className="flex items-center gap-1.5 overflow-x-auto border-b border-line px-row-inset py-1">
 					{chips.map((chip) => (
 						<button
@@ -1046,6 +1095,8 @@ function MessageListPane({
 					sections={sections}
 					briefCategory={briefCategory}
 					selectedThreadId={selectedThreadId}
+					accountChips={chips}
+					mutedNote={mutedNote}
 					Row={Row}
 					onSelectThread={onSelectThread}
 					onSelectBriefCategory={onSelectBriefCategory}

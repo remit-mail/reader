@@ -20,11 +20,25 @@ export interface FilterSheetFilter {
 	label: string;
 }
 
+export interface FilterSheetSource {
+	id: string;
+	label: string;
+	count?: number;
+	active?: boolean;
+}
+
 export interface FilterSheetProps {
 	/** Available category options. The first one is treated as "all" (clears category). */
 	categories: FilterSheetCategory[];
 	/** Available attribute filters for multi-toggle. */
 	filters: FilterSheetFilter[];
+	/**
+	 * Source/account pills. Single-select scoping the brief to one account.
+	 * Omitted (or a single entry) hides the source row.
+	 */
+	sources?: FilterSheetSource[];
+	/** Note rendered alongside the source pills (e.g. "+2 muted"). */
+	sourcesNote?: string;
 	/** Currently selected category id. */
 	selectedCategory: string;
 	/** Currently active filter ids. */
@@ -36,6 +50,8 @@ export interface FilterSheetProps {
 	expanded?: boolean;
 	/** Called when the user selects a category. */
 	onSelectCategory: (id: string) => void;
+	/** Called when the user selects a source/account pill. */
+	onSelectSource?: (id: string) => void;
 	/** Called when the user toggles a filter on or off. */
 	onToggleFilter: (id: string) => void;
 	/** Called when the user clears all selections back to defaults. */
@@ -91,10 +107,13 @@ function Close({ className }: { className?: string }) {
 export function FilterSheet({
 	categories,
 	filters,
+	sources,
+	sourcesNote,
 	selectedCategory,
 	activeFilters,
 	expanded: expandedProp,
 	onSelectCategory,
+	onSelectSource,
 	onToggleFilter,
 	onClear,
 	onExpandedChange,
@@ -302,6 +321,36 @@ export function FilterSheet({
 						transition: sheetTransition,
 					}}
 				>
+					{sources && sources.length > 1 && (
+						<div className="flex flex-wrap items-center gap-1.5 border-b border-line px-row-inset pb-3 pt-3">
+							{sources.map((source) => (
+								<button
+									key={source.id}
+									type="button"
+									onClick={() => onSelectSource?.(source.id)}
+									className={cn(
+										"flex min-h-9 items-center gap-1 rounded-full border px-3.5 text-2xs transition-colors",
+										source.active
+											? "border-accent-2 bg-accent-2-soft font-medium text-accent-2"
+											: "border-line text-fg-muted hover:border-line-strong",
+									)}
+								>
+									{source.label}
+									{source.count != null && source.count > 0 && (
+										<span className="tabular-nums opacity-70">
+											{source.count}
+										</span>
+									)}
+								</button>
+							))}
+							{sourcesNote && (
+								<span className="ml-auto shrink-0 text-2xs text-fg-subtle">
+									{sourcesNote}
+								</span>
+							)}
+						</div>
+					)}
+
 					<div className="flex flex-wrap gap-2 px-row-inset pb-1 pt-3">
 						{categories.map((cat) => {
 							const selected = selectedCategory === cat.id;
