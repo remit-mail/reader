@@ -64,6 +64,12 @@ export {
 	type MessageAuthResult,
 	type MessageProviderSpam,
 } from "./heuristics/classifyByHeaders.js";
+export {
+	classifyPlacement,
+	type FolderPlacement,
+	type PlacementAction,
+	type PlacementVerdict,
+} from "./heuristics/classifyPlacement.js";
 export { shouldRescueFromJunk } from "./heuristics/rescueFromJunk.js";
 export { SOCIAL_DOMAINS } from "./heuristics/socialDomains.js";
 export { TRANSACTIONAL_DOMAINS } from "./heuristics/transactionalDomains.js";
