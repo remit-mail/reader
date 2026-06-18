@@ -69,6 +69,26 @@ test.describe("Mobile conversation view", () => {
 		).toBeVisible({ timeout: 10_000 });
 	});
 
+	// Regression for #735: the "← Inbox" top-bar button was silently broken
+	// because `useParams({ strict: false })` in the parent /mail layout always
+	// returned {} (no mailboxId) — the navigate guard short-circuited every tap.
+	test("← Inbox top-bar link navigates back to the message list (#735)", async ({
+		page,
+	}) => {
+		// The parent layout renders "← <mailbox name>" (aria-label "Back to inbox")
+		// in the mobile header when a message is open.
+		const inboxLink = page.getByRole("button", { name: /back to inbox/i });
+		await expect(inboxLink).toBeVisible();
+		await inboxLink.click();
+
+		// selectedMessageId must be gone from the URL after navigation
+		await page.waitForURL(/\/mail\/[a-z0-9]+(?!\?.*selectedMessageId)/);
+		// The message list rows must reappear
+		await expect(
+			page.locator("a[href*='selectedMessageId']").first(),
+		).toBeVisible({ timeout: 10_000 });
+	});
+
 	test("management top bar has archive, delete, and star buttons", async ({
 		page,
 	}) => {
