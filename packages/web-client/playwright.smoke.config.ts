@@ -48,6 +48,9 @@ export default defineConfig({
 			command: "npx vite --port 5173",
 			port: 5173,
 			reuseExistingServer: !process.env.CI,
+			env: {
+				VITE_DISABLE_DEVTOOLS: "1",
+			},
 			stdout: "pipe",
 			stderr: "pipe",
 		},

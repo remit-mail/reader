@@ -10,6 +10,7 @@ interface ImportMetaEnv {
 	readonly VITE_RUM_APP_MONITOR_ID?: string;
 	readonly VITE_RUM_IDENTITY_POOL_ID?: string;
 	readonly VITE_AWS_REGION?: string;
+	readonly VITE_DISABLE_DEVTOOLS?: string;
 }
 
 interface ImportMeta {
