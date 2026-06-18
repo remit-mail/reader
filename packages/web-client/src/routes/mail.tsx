@@ -1,4 +1,7 @@
-import { configOperationsGetConfigOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import {
+	configOperationsGetConfigOptions,
+	unifiedThreadOperationsListAllThreadsOptions,
+} from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import {
 	ResizableHandle,
 	ResizablePanel,
@@ -9,7 +12,6 @@ import {
 	createFileRoute,
 	Link,
 	Outlet,
-	redirect,
 	useNavigate,
 	useParams,
 	useSearch,
@@ -18,6 +20,7 @@ import { ArrowLeft, Menu, Search, Settings, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { AccountMenu } from "@/auth/AccountMenu";
+import { AppShellSkeleton } from "@/components/layout/AppShellSkeleton";
 import { ComposeFab } from "@/components/layout/ComposeFab";
 import { Drawer } from "@/components/layout/Drawer";
 import { SearchBar } from "@/components/layout/SearchBar";
@@ -44,17 +47,17 @@ const mailSearchSchema = z.object({
 });
 
 export const Route = createFileRoute("/mail")({
-	// First-run guard lives on the /mail parent (not the index loader) so it
-	// survives regardless of what the child route renders — index redirect,
-	// daily brief (#426/#484), etc. A zero-account user is sent to the
-	// onboarding wizard before any mail UI mounts.
-	beforeLoad: async ({ context: { queryClient } }) => {
-		const config = await queryClient.ensureQueryData(
-			configOperationsGetConfigOptions(),
-		);
-		if (!config.accounts || config.accounts.length === 0) {
-			throw redirect({ to: "/onboarding", replace: true });
-		}
+	// Kick off config and the cross-account thread list together, without
+	// awaiting either — the route paints its skeleton shell immediately and the
+	// queries resolve in parallel rather than serialized behind config. The
+	// zero-account onboarding redirect moved into the component (see
+	// MailLayout), so a cold load no longer blocks first paint on the network.
+	loader: ({ context: { queryClient } }) => {
+		void queryClient.prefetchQuery(configOperationsGetConfigOptions());
+		void queryClient.prefetchQuery({
+			...unifiedThreadOperationsListAllThreadsOptions(),
+			staleTime: 60_000,
+		});
 	},
 	component: MailLayout,
 	validateSearch: mailSearchSchema,
@@ -115,6 +118,17 @@ function MailLayout() {
 		// mutations explicitly invalidate this query.
 		staleTime: Infinity,
 	});
+
+	// First-run guard: a zero-account user goes to the onboarding wizard. This
+	// lives here (not a blocking beforeLoad) so a cold load paints the skeleton
+	// shell immediately; the redirect fires once config arrives. It guards the
+	// /mail parent so it holds for every child route — index redirect, daily
+	// brief (#426/#484), etc.
+	const hasNoAccounts = Boolean(config && (config.accounts?.length ?? 0) === 0);
+	useEffect(() => {
+		if (!hasNoAccounts) return;
+		navigate({ to: "/onboarding", replace: true });
+	}, [hasNoAccounts, navigate]);
 
 	// Global keyboard shortcut for help
 	useKeyboardNavigation({
@@ -211,10 +225,8 @@ function MailLayout() {
 						}}
 					/>
 				</div>
-			) : isLoading ? (
-				<div className="flex h-full items-center justify-center bg-canvas">
-					<span className="text-fg-muted">Loading...</span>
-				</div>
+			) : isLoading || hasNoAccounts ? (
+				<AppShellSkeleton />
 			) : (
 				<div className="flex h-full flex-col bg-canvas">
 					{/*

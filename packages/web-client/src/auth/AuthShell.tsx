@@ -8,6 +8,7 @@ import {
 	View,
 } from "@aws-amplify/ui-react";
 import type { ReactNode } from "react";
+import { AppShellSkeleton } from "@/components/layout/AppShellSkeleton";
 import { isCognitoConfigured } from "./amplify-config";
 
 interface AuthShellProps {
@@ -249,6 +250,13 @@ const SignInGate = ({ children }: { children: ReactNode }) => {
 
 	if (authStatus === "authenticated") {
 		return <>{children}</>;
+	}
+
+	// While Amplify hydrates a stored session, render the app-shell skeleton
+	// instead of flashing the sign-in form (or a blank screen) — most returning
+	// users resolve to `authenticated` and never see the form.
+	if (authStatus === "configuring") {
+		return <AppShellSkeleton />;
 	}
 
 	return (
