@@ -32,6 +32,13 @@ const MAX_HEIGHT_PX = 50_000;
 // scrollbar rather than allocate unbounded width.
 const MAX_WIDTH_PX = 10_000;
 
+// Pin the iframe's layout viewport to its own width so author `width=device-
+// width` assumptions resolve to the frame, and a wide fixed-layout email lays
+// out against the frame instead of a desktop-default 980px viewport that would
+// zoom the whole document out on a phone (#727).
+const VIEWPORT_META =
+	'<meta name="viewport" content="width=device-width, initial-scale=1">';
+
 // Detects whether a (sanitized) email opts into dark rendering — either via a
 // `prefers-color-scheme: dark` media query or an explicit `color-scheme: dark`
 // declaration. Whitespace inside the value is tolerated. When present we honor
@@ -121,11 +128,11 @@ export const IsolatedEmailFrame = ({
 	const srcDoc = useMemo(() => {
 		if (isPlain) {
 			const baseCss = generatePlainEmailBaseCSS(isDark);
-			return `<style>${baseCss}</style>${html}`;
+			return `${VIEWPORT_META}<style>${baseCss}</style>${html}`;
 		}
 		const optsIntoDark = DARK_OPT_IN_RE.test(html);
 		const baseCss = generateFramedEmailBaseCSS(isDark, optsIntoDark);
-		return `<style>${baseCss}</style>${html}`;
+		return `${VIEWPORT_META}<style>${baseCss}</style>${html}`;
 	}, [html, isPlain, isDark]);
 
 	useEffect(() => {
