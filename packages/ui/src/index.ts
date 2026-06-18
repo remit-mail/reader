@@ -34,6 +34,12 @@ export {
 	CardTitle,
 } from "./components/card.js";
 export { Dialog, type DialogProps } from "./components/dialog.js";
+export {
+	FilterSheet,
+	type FilterSheetCategory,
+	type FilterSheetFilter,
+	type FilterSheetProps,
+} from "./components/filter-sheet.js";
 export { Input, type InputProps } from "./components/input.js";
 export {
 	type AuthenticityIntel,
