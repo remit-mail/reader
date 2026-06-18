@@ -270,13 +270,16 @@ function WiredPanel({
 		[updateFlags],
 	);
 
+	// Per-sender flag toggles are always wired. They stay active even before the
+	// address record resolves: `updateFlags` surfaces feedback when `addressId`
+	// is missing rather than letting the button look active but do nothing.
 	const actions: IntelligenceQuickActions = {
-		onToggleVip: addressId ? handleToggleVip : undefined,
-		onToggleMute: addressId ? handleToggleMute : undefined,
-		onToggleBlock: addressId ? handleToggleBlock : undefined,
-		onToggleUnsubscribe: addressId ? handleToggleUnsubscribe : undefined,
-		onToggleAutoArchive: addressId ? handleToggleAutoArchive : undefined,
-		onReclassify: addressId ? () => setReclassifyOpen(true) : undefined,
+		onToggleVip: handleToggleVip,
+		onToggleMute: handleToggleMute,
+		onToggleBlock: handleToggleBlock,
+		onToggleUnsubscribe: handleToggleUnsubscribe,
+		onToggleAutoArchive: handleToggleAutoArchive,
+		onReclassify: () => setReclassifyOpen(true),
 		onNotSpam: spamAction === "notSpam" ? handleNotSpam : undefined,
 		onMarkSpam: spamAction === "markSpam" ? handleMarkSpam : undefined,
 	};
