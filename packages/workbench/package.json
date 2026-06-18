@@ -10,6 +10,7 @@
 		"test:typecheck": "tsgo --noEmit"
 	},
 	"dependencies": {
+		"@aws-amplify/ui-react": "^6",
 		"@remit/ui": "*",
 		"lucide-react": "^0.468"
 	},
