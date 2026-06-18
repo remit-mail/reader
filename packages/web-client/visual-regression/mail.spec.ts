@@ -58,6 +58,15 @@ test.describe("visual: mail", () => {
 		await page.goto(`/mail/${inboxId}?selectedMessageId=${sampleMessageId}`);
 		await page.waitForLoadState("networkidle");
 		await page.waitForTimeout(500);
+		// The MobileConversationTopBar (#696) mounts asynchronously once the
+		// thread resolves. Wait for its delete button — passed unconditionally
+		// by the route (unlike Archive, which is gated on an archive mailbox) —
+		// so the clipped band is captured in the settled action-bar state.
+		// Otherwise capture and assert race the pre-mount sender card against
+		// the mounted action bar and never agree.
+		await expect(
+			page.getByRole("button", { name: "Move to Trash" }),
+		).toBeVisible();
 		await expect(page).toHaveScreenshot("mail-thread-mobile-top-chrome.png", {
 			clip: { x: 0, y: 0, width: 390, height: 120 },
 		});
