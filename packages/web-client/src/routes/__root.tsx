@@ -6,6 +6,7 @@ import {
 import { Suspense } from "react";
 import { useTranslation } from "react-i18next";
 import { ComposeProvider } from "@/components/compose/ComposeProvider";
+import { AppShellSkeleton } from "@/components/layout/AppShellSkeleton";
 import { ErrorBannerProvider } from "@/components/ui/ErrorBannerProvider";
 import { ErrorState } from "@/components/ui/ErrorState";
 import type { RouterContext } from "@/router";
@@ -36,19 +37,13 @@ const SkipLink = () => {
 	);
 };
 
-const LoadingSkeleton = () => (
-	<div className="flex h-dvh items-center justify-center bg-canvas">
-		<span className="text-fg-muted">Loading...</span>
-	</div>
-);
-
 function RootLayout() {
 	return (
 		<ErrorBannerProvider>
 			<ComposeProvider>
 				<SkipLink />
 				<main id="main-content" className="h-dvh overflow-hidden">
-					<Suspense fallback={<LoadingSkeleton />}>
+					<Suspense fallback={<AppShellSkeleton />}>
 						<Outlet />
 					</Suspense>
 				</main>
