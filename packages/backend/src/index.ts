@@ -35,6 +35,13 @@ const OpenAPISpec = loadOpenAPISpec();
 const api = new OpenAPIBackend({
 	definition: OpenAPISpec,
 	quick: true,
+	// Coerce query/path params to their schema types. API Gateway delivers every
+	// query param as a string; handlers cast them to number/boolean (e.g. `limit`,
+	// `hasAttachment`) and forward them downstream. Without coercion a string
+	// `limit` reaches ElectroDB's `.go({ limit })` and DynamoDB rejects the
+	// numeric Limit field ("STRING_VALUE cannot be converted to Integer"), 500ing
+	// /addresses/search and /search/semantic.
+	coerceTypes: true,
 });
 
 api.register("postResponseHandler", postResponseHandler);
