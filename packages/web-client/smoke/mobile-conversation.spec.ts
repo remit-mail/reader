@@ -92,10 +92,7 @@ test.describe("Mobile conversation view", () => {
 		});
 		await expect(detailsButton).toBeVisible();
 
-		// Open the drawer. The button sits at the bottom-right of the action
-		// bar where the dev-only TanStack Query devtools toggle overlaps it and
-		// swallows pointer events, so dispatch the click straight to the button.
-		await detailsButton.dispatchEvent("click");
+		await detailsButton.click();
 
 		// The Drawer renders as a dialog with aria-label "Message details"
 		const drawer = page.getByRole("dialog", { name: /message details/i });
