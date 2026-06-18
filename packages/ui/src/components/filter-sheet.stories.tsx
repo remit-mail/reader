@@ -56,21 +56,28 @@ function ControlledShell({
 	initialCategory = "all",
 	initialFilters = new Set<string>(),
 	initialExpanded = true,
+	initialSource = "all",
 	withSources = true,
+	singleAccount = false,
+	sourcesNote,
 }: {
 	initialCategory?: string;
 	initialFilters?: Set<string>;
 	initialExpanded?: boolean;
+	initialSource?: string;
 	withSources?: boolean;
+	singleAccount?: boolean;
+	sourcesNote?: string;
 }) {
 	const [category, setCategory] = useState(initialCategory);
 	const [activeFilters, setActiveFilters] =
 		useState<Set<string>>(initialFilters);
 	const [expanded, setExpanded] = useState(initialExpanded);
-	const [source, setSource] = useState("all");
+	const [source, setSource] = useState(initialSource);
 
+	const sourcePool = singleAccount ? SOURCES.slice(0, 1) : SOURCES;
 	const sources = withSources
-		? SOURCES.map((s) => ({ ...s, active: s.id === source }))
+		? sourcePool.map((s) => ({ ...s, active: s.id === source }))
 		: undefined;
 
 	return (
@@ -79,6 +86,7 @@ function ControlledShell({
 				categories={CATEGORIES}
 				filters={FILTERS}
 				sources={sources}
+				sourcesNote={sourcesNote}
 				selectedCategory={category}
 				activeFilters={activeFilters}
 				expanded={expanded}
@@ -120,4 +128,18 @@ export const CollapsedWithActiveFilters: Story = {
 
 export const CollapsedEmpty: Story = {
 	render: () => <ControlledShell initialExpanded={false} />,
+};
+
+export const ExpandedSourceSelected: Story = {
+	render: () => <ControlledShell initialSource="work" sourcesNote="+2 muted" />,
+};
+
+export const CollapsedWithSourceSelected: Story = {
+	render: () => (
+		<ControlledShell initialExpanded={false} initialSource="work" />
+	),
+};
+
+export const SingleAccount: Story = {
+	render: () => <ControlledShell singleAccount />,
 };
