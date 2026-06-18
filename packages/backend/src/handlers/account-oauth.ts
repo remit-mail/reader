@@ -247,7 +247,18 @@ export const MicrosoftOAuthOperations: Record<
 		try {
 			credentials = await getMsOAuthCredentials();
 		} catch (err: unknown) {
-			logger.error({ error: inspect(err) }, "Failed to load MS OAuth config");
+			logger.error(
+				{
+					alert: "oauth_callback_failed",
+					reason: "config_error",
+					errorName: (err as { name?: string })?.name,
+					errorCode:
+						(err as { Code?: string })?.Code ??
+						(err as { code?: string })?.code,
+					error: inspect(err),
+				},
+				"MS OAuth callback: failed to load OAuth config",
+			);
 			return redirect(`${webOrigin}/settings/accounts?oauthError=config_error`);
 		}
 
@@ -255,7 +266,19 @@ export const MicrosoftOAuthOperations: Record<
 		let statePayload: OAuthState;
 		try {
 			statePayload = await verifyState(state, credentials.clientSecret);
-		} catch {
+		} catch (err: unknown) {
+			// A bad/expired/forged state is a security-relevant signal (CSRF
+			// attempt, clock skew, or a stale callback) — must not be swallowed
+			// silently. Warn so it's observable; still redirect the user cleanly.
+			logger.warn(
+				{
+					alert: "oauth_callback_failed",
+					reason: "invalid_state",
+					errorName: (err as { name?: string })?.name,
+					error: inspect(err),
+				},
+				"MS OAuth callback: state verification failed",
+			);
 			return redirect(
 				`${webOrigin}/settings/accounts?oauthError=invalid_state`,
 			);
@@ -317,8 +340,20 @@ export const MicrosoftOAuthOperations: Record<
 				(claims.preferred_username as string | undefined) ??
 				(claims.email as string | undefined) ??
 				(claims.upn as string | undefined);
-		} catch {
-			// Not a JWT or missing claims — will be caught by the check below
+		} catch (err: unknown) {
+			// Not a JWT or missing claims. The empty-email check below turns this
+			// into a user-facing missing_email redirect, but log here so the
+			// parse failure itself is observable (e.g. an unexpected token shape).
+			logger.warn(
+				{
+					alert: "oauth_callback_failed",
+					reason: "jwt_parse_failed",
+					accountConfigId,
+					errorName: (err as { name?: string })?.name,
+					error: inspect(err),
+				},
+				"MS OAuth callback: failed to parse identity token claims",
+			);
 		}
 
 		if (!email) {
