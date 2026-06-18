@@ -80,12 +80,13 @@ export const WorkOnly: Story = {
 /**
  * Category-driven routing: all four sections in display order.
  *
- *  - Needs attention: cold first-contact personal email (unread, trust
- *    unknown) + unread transactional receipt
+ *  - Needs attention: a READ personal email + a READ transactional invoice —
+ *    read state is not a routing signal; category drives placement
  *  - Flagged: one starred item
  *  - Daily brief: a newsletter from a wellknown sender — trust doesn't
  *    override the digest bucket; category wins
- *  - Everything else: a read automated notification
+ *  - Everything else: an automated notification — not personal/transactional,
+ *    so it stays out of the way
  */
 export const CategoryDriven: Story = {
 	render: () => (
