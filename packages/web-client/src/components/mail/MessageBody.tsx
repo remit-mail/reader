@@ -13,6 +13,7 @@ import {
 	type CidResolver,
 	createEmailSanitizer,
 } from "@/lib/email-sanitizer";
+import { cn } from "@/lib/utils";
 import { IsolatedEmailFrame } from "./IsolatedEmailFrame";
 import { MessageBodyErrorBanner } from "./MessageBodyErrorBanner";
 
@@ -70,6 +71,13 @@ interface MessageBodyProps {
 	 * newsletter treatment or the plain-email normalization CSS.
 	 */
 	category?: EmailRenderCategory;
+	/**
+	 * Extra classes for the `.message-body` wrapper. The single-message
+	 * reading view (`MessageDetail`) passes `px-4` here so the body shares
+	 * the header's horizontal inset (#729). `MessageCard` provides its own
+	 * `px-5` inset via the surrounding card and leaves this unset.
+	 */
+	className?: string;
 }
 
 const LoadingSkeleton = () => (
@@ -95,6 +103,7 @@ export const MessageBody = ({
 	messageId,
 	fromAddressId,
 	category,
+	className,
 }: MessageBodyProps) => {
 	const [allowImagesOnce, setAllowImagesOnce] = useState(false);
 	const allowImages = isTrusted || allowImagesOnce;
@@ -184,14 +193,14 @@ export const MessageBody = ({
 	if (hasParts) {
 		if (isBodyLoading) {
 			return (
-				<div className="message-body">
+				<div className={cn("message-body", className)}>
 					<LoadingSkeleton />
 				</div>
 			);
 		}
 		if (isBodyError) {
 			return (
-				<div className="message-body">
+				<div className={cn("message-body", className)}>
 					<MessageBodyErrorBanner
 						error={bodyError}
 						onRetry={() => refetchBody()}
@@ -201,14 +210,14 @@ export const MessageBody = ({
 		}
 		if (!picked) {
 			return (
-				<div className="message-body">
+				<div className={cn("message-body", className)}>
 					<EmptyBody />
 				</div>
 			);
 		}
 	} else if (!html && !text) {
 		return (
-			<div className="message-body">
+			<div className={cn("message-body", className)}>
 				<EmptyBody />
 			</div>
 		);
@@ -222,7 +231,7 @@ export const MessageBody = ({
 	};
 
 	return (
-		<div className="message-body">
+		<div className={cn("message-body", className)}>
 			{blockedImageCount > 0 && (
 				<div className="mb-3 flex items-center justify-between rounded-md bg-surface-sunken/50 px-3 py-2 text-sm">
 					<span className="text-fg-muted">
@@ -274,11 +283,13 @@ export const MessageBody = ({
 					// (Substack & co.) fills the reading column instead of
 					// collapsing to its min-content width inside a `w-fit`
 					// box (#541). A genuinely fixed-width email still reports a
-					// wider content size, the iframe pins to it, and the
-					// overflow drives the pane's single horizontal scrollbar
-					// (#528 / #542). No `overflow-hidden`: clipping here would
-					// hide wide content instead of surfacing that scrollbar.
-					<div className="w-full rounded-sm border border-line bg-surface-sunken">
+					// wider content size and the iframe pins to it; `max-w-full`
+					// + `overflow-x-auto` keep that overflow scrolling INSIDE
+					// this bordered box instead of dragging the page (and the
+					// app chrome) past the viewport on mobile (#727 / #528 /
+					// #542). No `overflow-hidden`: clipping would hide wide
+					// content instead of surfacing the in-frame scrollbar.
+					<div className="w-full max-w-full overflow-x-auto rounded-sm border border-line bg-surface-sunken">
 						<IsolatedEmailFrame
 							html={sanitizedHtml}
 							isPlain={false}

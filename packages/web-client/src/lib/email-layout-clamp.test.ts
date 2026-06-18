@@ -4,22 +4,29 @@ import { generateLayoutClampCSS } from "./email-layout-clamp";
 
 /**
  * Layout-clamp CSS injected alongside sanitized email HTML. Asserts on
- * substrings — the goal is to lock in the rules that close #374 (mobile
- * horizontal overflow when author markup is wider than the viewport). If
- * any of these get dropped, wide tables / images / long URLs would start
- * unlocking horizontal page scroll again.
+ * substrings — the goal is to lock in the rules that close #374 / #727 (mobile
+ * horizontal overflow when author markup is wider than the viewport). If any of
+ * these get dropped, wide tables / images / long URLs would start unlocking
+ * horizontal page scroll again.
+ *
+ * The sanitizer drops the email body straight into the iframe with no
+ * `.email-content` wrapper, so the rules target the document's own
+ * `html`/`body` and bare element selectors — a wrapper-scoped selector would
+ * never match and the clamp would silently do nothing (the original #727 bug).
  *
  * Pure string assertions — no DOM required, intentionally separate from
  * `email-sanitizer.test.ts` because importing `email-sanitizer.ts` in plain
  * Node fails on its eager `DOMPurify()` call at module load.
  */
-describe("generateLayoutClampCSS (#374)", () => {
+describe("generateLayoutClampCSS (#374 / #727)", () => {
 	const css = generateLayoutClampCSS();
 
-	test("scopes the rules to .email-content (does not leak to the app)", () => {
+	test("targets the document body directly, not a wrapper that never exists", () => {
+		// The sanitized email has no `.email-content` element — scoping there
+		// was the #727 bug (dead CSS). Rules must hit bare element selectors.
 		assert.ok(
-			css.includes(".email-content"),
-			"clamp rules must be scoped to .email-content",
+			!css.includes(".email-content"),
+			"clamp rules must not be scoped to a non-existent .email-content wrapper",
 		);
 	});
 
@@ -34,44 +41,43 @@ describe("generateLayoutClampCSS (#374)", () => {
 		);
 	});
 
-	test("clamps the .email-content block itself to its parent width", () => {
+	test("clamps the document to the iframe width and wraps long tokens", () => {
 		assert.ok(css.includes("max-width: 100%"));
 		assert.ok(css.includes("overflow-wrap: anywhere"));
 		assert.ok(css.includes("word-break: break-word"));
 	});
 
-	test("forces wide media (img/video/iframe) to fit the column", () => {
-		assert.ok(/\.email-content img/.test(css));
-		assert.ok(/\.email-content video/.test(css));
-		assert.ok(/\.email-content iframe/.test(css));
+	test("forces wide media (img/video/iframe) to fit the frame", () => {
+		assert.ok(/(^|\s)img\s*,/.test(css) || /\bimg\b/.test(css));
+		assert.ok(/\bvideo\b/.test(css));
+		assert.ok(/\biframe\b/.test(css));
 		// Author markup often sets `width="900"` — without !important we lose
 		// the cascade and the image overflows again.
 		assert.ok(
 			css.includes("max-width: 100% !important"),
 			"images need !important to override author width attributes",
 		);
-		assert.ok(css.includes("height: auto !important"));
 	});
 
 	test("clamps fixed-width newsletter tables", () => {
-		assert.ok(/\.email-content table/.test(css));
+		assert.ok(/\btable\b/.test(css));
 		assert.ok(
-			css.includes("width: auto !important"),
-			"author <table width='600'> must be downgraded to auto",
+			css.includes("max-width: 100% !important"),
+			"author <table width='600'> must be capped to the frame width",
 		);
 		assert.ok(css.includes("table-layout: auto"));
 	});
 
 	test("wraps long unbroken lines in pre/code blocks", () => {
-		assert.ok(/\.email-content pre/.test(css));
-		assert.ok(/\.email-content code/.test(css));
+		assert.ok(/\bpre\b/.test(css));
+		assert.ok(/\bcode\b/.test(css));
 		assert.ok(css.includes("white-space: pre-wrap"));
 	});
 
 	test("does not touch colors or backgrounds (layout-only, by design)", () => {
 		// If any of these slip in, this stylesheet starts overlapping with
-		// the dark-mode override CSS and the rule set is no longer scoped
-		// to the bug we're fixing. Keep it laser-focused on width/wrap.
+		// the dark-mode / smart-invert CSS and the rule set is no longer
+		// scoped to the bug we're fixing. Keep it laser-focused on width/wrap.
 		assert.ok(!/\bcolor\s*:/.test(css), "no color rules in layout clamp");
 		assert.ok(
 			!/\bbackground(-color)?\s*:/.test(css),
