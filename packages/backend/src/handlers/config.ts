@@ -1,3 +1,4 @@
+import { inspect } from "node:util";
 import {
 	type AccountConfigItem,
 	type AccountItem,
@@ -127,12 +128,35 @@ export const ConfigOperations: Record<
 			(acc) => acc.deletedAt === undefined,
 		);
 
-		// Trigger sync for all active accounts (fire and forget)
-		Promise.all(
+		// Trigger sync for all active accounts. The read response below does not
+		// depend on the trigger succeeding, so we don't await it — but a failure
+		// here (SQS/IAM misconfig) silently stops ALL sync, so it must be loud and
+		// alertable rather than a bare swallowed log. Each rejection is surfaced as
+		// a distinct structured error carrying the SDK error name/code on dedicated
+		// fields plus a stable `alert` discriminator a CloudWatch metric filter /
+		// alarm can key off.
+		void Promise.allSettled(
 			activeAccounts.map((acc) => triggerAccountSyncForConfig(acc.accountId)),
-		).catch((err) =>
-			logger.error({ err }, "Failed to trigger syncs on config load"),
-		);
+		).then((settled) => {
+			for (const [index, result] of settled.entries()) {
+				if (result.status === "fulfilled") continue;
+				const err = result.reason;
+				logger.error(
+					{
+						alert: "sync_trigger_failed",
+						source: "config_load",
+						accountId: activeAccounts[index]?.accountId,
+						accountConfigId,
+						errorName: (err as { name?: string })?.name,
+						errorCode:
+							(err as { Code?: string; code?: string })?.Code ??
+							(err as { code?: string })?.code,
+						error: inspect(err),
+					},
+					"Failed to trigger account sync on config load",
+				);
+			}
+		});
 
 		return {
 			accountConfig: toAccountConfigResponse(accountConfig),

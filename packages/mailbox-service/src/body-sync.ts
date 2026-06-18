@@ -6,11 +6,16 @@ import {
 	isBulkSender,
 	type MailboxSpecialUseService,
 	type MessageService,
+	NotFoundError,
 	type ThreadMessageService,
 	type UpdateMessageInput,
 } from "@remit/remit-electrodb-service";
 import { MailboxSpecialUse, SenderTrust } from "@remit/domain-enums";
-import type { ParsedBody, StorageService } from "@remit/storage-service";
+import {
+	isStorageNotFoundError,
+	type ParsedBody,
+	type StorageService,
+} from "@remit/storage-service";
 import { type ParsedMail, simpleParser } from "mailparser";
 import pMap from "p-map";
 import { mapBodyPartsToContent } from "./body-part-mapper.js";
@@ -202,14 +207,34 @@ export class BodySyncService {
 					source.resume();
 					continue;
 				}
+				try {
+					await this.storeStreamedBody(
+						messageId,
+						accountId,
+						accountConfigId,
+						source,
+					);
+				} catch (error) {
+					// A per-message store failure (e.g. the parsed-body S3 write) is a
+					// real fault, but it must not silently mark the message synced —
+					// that would leave parsedBody null and the message unindexed. Leave
+					// the UID in `pending` so it lands in failedMessageIds and the SQS
+					// batch requeues just this message. A dropped connection is handled
+					// by the outer catch (fail-fast on the whole remaining batch).
+					if (isConnectionDrop(error)) throw error;
+					this.log.error?.(
+						{
+							messageId,
+							errorName: (error as { name?: string }).name,
+							error: (error as Error).message,
+						},
+						"Body store failed for message; leaving for requeue",
+					);
+					// Drain the stream so the connection stays usable for the next UID.
+					source.resume();
+					continue;
+				}
 				pending.delete(uid);
-
-				await this.storeStreamedBody(
-					messageId,
-					accountId,
-					accountConfigId,
-					source,
-				);
 				syncedMessageIds.push(messageId);
 			}
 		} catch (error) {
@@ -413,10 +438,26 @@ export class BodySyncService {
 			try {
 				body = await this.storageService.retrieve(message.bodyStorageKey);
 			} catch (err) {
-				// Storage file missing (e.g., different environment), re-fetch from IMAP
+				// Only a genuinely-missing object (NoSuchKey) is a safe IMAP
+				// fallback — that's the cross-environment / never-stored case.
+				// A permission/infra error (AccessDenied, throttle) must NOT be
+				// masked as a missing object: let it crash so it's observable.
+				if (!isStorageNotFoundError(err)) {
+					this.log.error?.(
+						{
+							messageId,
+							storageKey: message.bodyStorageKey,
+							errorName: (err as { name?: string }).name,
+							errorCode: (err as { Code?: string }).Code,
+							error: inspect(err),
+						},
+						"Body storage retrieval failed (non-NoSuchKey); not falling back to IMAP",
+					);
+					throw err;
+				}
 				this.log.debug?.(
 					{ messageId, error: (err as Error).message },
-					"Storage retrieval failed, falling back to IMAP",
+					"Body object missing (NoSuchKey), falling back to IMAP",
 				);
 				needsStore = true;
 				body = await this.fetchFromImap(
@@ -549,8 +590,11 @@ export class BodySyncService {
 			if (address.flags?.vip?.value === true) return SenderTrust.Vip;
 			if (address.flags?.wellknown?.value === true)
 				return SenderTrust.Wellknown;
-		} catch {
-			// Address not found — treat as unknown trust
+		} catch (err) {
+			// A genuinely-absent address means "unknown trust". Any other failure
+			// (AccessDenied, throttle, infra) must NOT be silently downgraded to
+			// Unknown — let it crash so the rescue decision isn't made on bad data.
+			if (!(err instanceof NotFoundError)) throw err;
 		}
 		return SenderTrust.Unknown;
 	}
@@ -800,9 +844,12 @@ export class BodySyncService {
 	}
 
 	/**
-	 * Persist the pre-parsed body cache. A failure here MUST NOT fail the
-	 * surrounding body-sync: the raw .eml is still useful and the read path
-	 * can fall back to mailparser. Errors are logged via util.inspect.
+	 * Persist the pre-parsed body cache. A failure here MUST fail the
+	 * surrounding body-sync: the parsed-body object is what the search-index
+	 * pipeline reads, so swallowing a write failure leaves the message marked
+	 * synced while `parsedBody` is null and it never gets indexed — a silent
+	 * search gap. Propagate so the message lands in failedMessageIds and the
+	 * SQS batch requeues it.
 	 */
 	private async storeParsedBodyCache(
 		accountConfigId: string,
@@ -811,22 +858,26 @@ export class BodySyncService {
 		parsed: ParsedMail,
 	): Promise<void> {
 		const parsedBody = toParsedBody(parsed);
-		await this.storageService
-			.storeParsedBody({
+		try {
+			await this.storageService.storeParsedBody({
 				accountConfigId,
 				accountId,
 				messageId,
 				parsed: parsedBody,
-			})
-			.then(() => {
-				this.log.debug?.({ messageId }, "Parsed body cache stored");
-			})
-			.catch((err: unknown) => {
-				this.log.error?.(
-					{ messageId, error: inspect(err) },
-					"Failed to store parsed body cache (non-fatal)",
-				);
 			});
+			this.log.debug?.({ messageId }, "Parsed body cache stored");
+		} catch (err: unknown) {
+			this.log.error?.(
+				{
+					messageId,
+					errorName: (err as { name?: string }).name,
+					errorCode: (err as { Code?: string }).Code,
+					error: inspect(err),
+				},
+				"Failed to store parsed body cache; failing sync to requeue",
+			);
+			throw err;
+		}
 	}
 
 	/**

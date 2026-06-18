@@ -6,7 +6,10 @@ import {
 	MessageService,
 } from "@remit/remit-electrodb-service";
 import type { Logger } from "@remit/remit-logger-lambda";
-import { FlagSyncService } from "@remit/mailbox-service";
+import {
+	type FlagSyncResult,
+	FlagSyncService,
+} from "@remit/mailbox-service";
 import {
 	createKmsDataKeyProvider,
 	createSecretsService,
@@ -38,6 +41,22 @@ const messageFlagService = new MessageFlagService({
 	client,
 	table: env.DYNAMODB_TABLE_NAME,
 });
+
+/**
+ * Throw when any flag operation failed. Returning normally on a partial
+ * failure lets SQS delete the message, silently dropping the failed flag
+ * change and leaving DynamoDB and IMAP permanently divergent. Throwing keeps
+ * the message on the queue so it is retried.
+ */
+export const assertFlagSyncComplete = (
+	result: FlagSyncResult,
+	mailboxId: string,
+): void => {
+	if (result.failedCount === 0) return;
+	throw new Error(
+		`Flag sync had ${result.failedCount} failed operation(s) for mailbox ${mailboxId}`,
+	);
+};
 
 export const syncFlags = async (
 	event: SyncFlagsEvent,
@@ -102,8 +121,14 @@ export const syncFlags = async (
 					);
 
 					if (result.failedCount > 0) {
-						log.error({ errors: result.errors }, "Some flag operations failed");
+						log.error(
+							{ accountId, mailboxId, errors: result.errors },
+							"Some flag operations failed; throwing to retry via SQS",
+						);
 					}
+					// Throws on partial failure so SQS retries instead of deleting the
+					// message and silently dropping the failed flag change.
+					assertFlagSyncComplete(result, mailboxId);
 				})
 				.finally(() => scope.disconnect());
 		},

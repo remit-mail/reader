@@ -7,6 +7,7 @@ import {
 	type EnvelopeService,
 	type MailboxSpecialUseService,
 	type MessageService,
+	NotFoundError,
 	type ThreadMessageService,
 	type UpdateMessageInput,
 } from "@remit/remit-electrodb-service";
@@ -322,7 +323,11 @@ describe("BodySyncService.syncBodies (parsed-body cache)", () => {
 		assert.ok(Array.isArray(cached.parsed.attachments));
 	});
 
-	it("does not fail the whole body sync when parsed-cache write throws", async () => {
+	it("does NOT report synced when the parsed-cache write throws; requeues the message", async () => {
+		// A parsed-body write failure used to be swallowed, leaving the message
+		// marked synced while parsedBody was null — a silent search-index gap.
+		// Now it must fail the message so it lands in failedMessageIds and the
+		// SQS batch requeues it.
 		const fake = buildFakeState({ messageId: "msg-1" });
 		const failingStorage: StorageService = {
 			...fake.storageService,
@@ -346,8 +351,59 @@ describe("BodySyncService.syncBodies (parsed-body cache)", () => {
 			async () => buildFakeConnection(),
 		);
 
-		assert.equal(result.syncedCount, 1);
+		assert.equal(result.syncedCount, 0);
+		assert.deepEqual(result.syncedMessageIds, []);
+		assert.equal(result.failedCount, 1);
+		assert.deepEqual(result.failedMessageIds, ["msg-1"]);
 		assert.equal(fake.storedBodies.length, 1);
+	});
+
+	it("keeps earlier messages synced when a later message's parsed-cache write throws", async () => {
+		// Per-message failure must not abort the whole batch: messages stored
+		// before the failure stay synced; only the failing one requeues.
+		const fakeOk = buildFakeState({ messageId: "msg-ok" });
+		const fakeBad = buildFakeState({ messageId: "msg-bad" });
+		const bodies = new Map<number, Buffer>([
+			[101, A_RAW_EML],
+			[102, A_RAW_EML],
+		]);
+		const messageService = {
+			get: async (id: string) => ({
+				messageId: id,
+				mailboxId: "mbx-1",
+				uid: id === "msg-ok" ? 101 : 102,
+				messageIdHeader: "<abc@example.com>",
+				bodyStorageKey: undefined,
+			}),
+			update: async () => ({}),
+		} as unknown as MessageService;
+		const failingForBad: StorageService = {
+			...fakeOk.storageService,
+			storeParsedBody: async (params) => {
+				if (params.messageId === "msg-bad") {
+					throw new Error("simulated S3 outage for msg-bad");
+				}
+				return fakeOk.storageService.storeParsedBody(params);
+			},
+		};
+		const service = new BodySyncService(
+			messageService,
+			failingForBad,
+			fakeBad.threadMessageService,
+			fakeBad.addressService,
+			fakeBad.envelopeService,
+		);
+
+		const result = await service.syncBodies(
+			["msg-ok", "msg-bad"],
+			"acc-1",
+			"acc-cfg-1",
+			"INBOX",
+			async () => buildFakeConnection(undefined, { bodies }),
+		);
+
+		assert.deepEqual(result.syncedMessageIds, ["msg-ok"]);
+		assert.deepEqual(result.failedMessageIds, ["msg-bad"]);
 	});
 });
 
@@ -1743,5 +1799,216 @@ describe("BodySyncService.syncBodies (single consolidated Message write, #607)",
 		assert.equal(messageWrites[0].movedByRemit, true);
 		assert.ok(messageWrites[0].bodyStorageKey, "bodyStorageKey on same write");
 		assert.equal(messageWrites[0].category, MessageCategory.newsletter);
+	});
+});
+
+describe("BodySyncService.fetchAndGetBody (storage retrieval error handling)", () => {
+	const namedError = (name: string): Error =>
+		Object.assign(new Error(name), { name });
+
+	it("falls back to IMAP when the stored object is missing (NoSuchKey)", async () => {
+		const fake = buildFakeState({
+			messageId: "msg-missing",
+			hasBodyStorageKey: true,
+		});
+		const storage: StorageService = {
+			...fake.storageService,
+			retrieve: async () => {
+				throw namedError("NoSuchKey");
+			},
+		};
+		const service = new BodySyncService(
+			fake.messageService,
+			storage,
+			fake.threadMessageService,
+			fake.addressService,
+			fake.envelopeService,
+		);
+
+		const result = await service.fetchAndGetBody(
+			"msg-missing",
+			"acc-1",
+			"acc-cfg-1",
+			"INBOX",
+			async () => buildFakeConnection(),
+		);
+
+		// IMAP fallback produced the body and re-stored it.
+		assert.ok(result.text?.includes("hello world body"));
+		assert.equal(fake.storedBodies.length, 1);
+	});
+
+	it("does NOT fall back to IMAP on a non-NoSuchKey error (AccessDenied); rejects", async () => {
+		const fake = buildFakeState({
+			messageId: "msg-denied",
+			hasBodyStorageKey: true,
+		});
+		const storage: StorageService = {
+			...fake.storageService,
+			retrieve: async () => {
+				throw namedError("AccessDenied");
+			},
+		};
+		const service = new BodySyncService(
+			fake.messageService,
+			storage,
+			fake.threadMessageService,
+			fake.addressService,
+			fake.envelopeService,
+		);
+
+		await assert.rejects(
+			() =>
+				service.fetchAndGetBody(
+					"msg-denied",
+					"acc-1",
+					"acc-cfg-1",
+					"INBOX",
+					async () => buildFakeConnection(),
+				),
+			/AccessDenied/,
+		);
+		// No IMAP re-store happened — the permission error was surfaced, not masked.
+		assert.equal(fake.storedBodies.length, 0);
+	});
+});
+
+describe("BodySyncService.deriveSenderTrust (error propagation via rescue)", () => {
+	// deriveSenderTrust is private; exercise it through the rescue path, which
+	// calls it from resolveJunkRescue. A missing Address must degrade to "no
+	// rescue" with no warning; any other failure (AccessDenied/throttle) must
+	// propagate so the rescue's own catch logs it (observable) rather than being
+	// silently downgraded to SenderTrust.Unknown.
+	const rescueableMessageOverrides = {
+		mailboxId: "junk-mbx",
+		movedByRemit: false,
+		providerSpam: { classified: true },
+		authResult: { dmarc: "Pass" },
+	};
+
+	const buildRescueConfig = () => {
+		const mailboxSpecialUseService = {
+			findBySpecialUse: async (
+				_accountId: string,
+				specialUse: (typeof MailboxSpecialUse)[keyof typeof MailboxSpecialUse],
+			) =>
+				specialUse === MailboxSpecialUse.Junk
+					? { mailboxId: "junk-mbx", fullPath: "Junk" }
+					: null,
+			findInboxMailbox: async () => ({
+				mailboxId: "inbox-mbx",
+				fullPath: "INBOX",
+			}),
+		} as unknown as MailboxSpecialUseService;
+		const messageMoveService = {
+			moveMessage: async () => {},
+		} as unknown as MessageMoveService;
+		return { mailboxSpecialUseService, messageMoveService };
+	};
+
+	const captureWarnings = () => {
+		const warnings: Array<{ obj: Record<string, unknown>; msg: string }> = [];
+		const logger: BodySyncLogger = {
+			info: () => {},
+			debug: () => {},
+			warn: (obj, msg) => warnings.push({ obj, msg }),
+			error: () => {},
+		};
+		return { logger, warnings };
+	};
+
+	const RESCUE_EML = Buffer.from(
+		[
+			"From: vip@example.com",
+			"To: me@example.com",
+			"Subject: hi",
+			"Message-ID: <vip-1@example.com>",
+			"Content-Type: text/plain",
+			"",
+			"body",
+			"",
+		].join("\r\n"),
+	);
+
+	it("treats a missing Address (NotFoundError) as Unknown trust: no rescue, no warning", async () => {
+		const fake = buildFakeState({
+			messageId: "msg-nf",
+			rawEml: RESCUE_EML,
+			messageOverrides: rescueableMessageOverrides,
+		});
+		const addressService = {
+			incrementInboundCount: async () => {},
+			getAddress: async () => {
+				throw new NotFoundError("Address not found: x");
+			},
+		} as unknown as AddressService;
+		const { logger, warnings } = captureWarnings();
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			addressService,
+			fake.envelopeService,
+			logger,
+			buildRescueConfig(),
+		);
+
+		const result = await service.syncBodies(
+			["msg-nf"],
+			"acc-1",
+			"acc-cfg-1",
+			"Junk",
+			async () => buildFakeConnection(RESCUE_EML),
+		);
+
+		// Unknown trust ⇒ predicate fails ⇒ no rescue, and the absence is NOT a
+		// rescue failure, so no warning is emitted.
+		assert.equal(result.syncedCount, 1);
+		assert.ok(
+			!warnings.some((w) => w.msg.includes("Junk rescue failed")),
+			"a missing Address must not be logged as a rescue failure",
+		);
+	});
+
+	it("propagates a non-NotFound error (AccessDenied) so the rescue logs it (observable)", async () => {
+		const fake = buildFakeState({
+			messageId: "msg-denied-trust",
+			rawEml: RESCUE_EML,
+			messageOverrides: rescueableMessageOverrides,
+		});
+		const addressService = {
+			incrementInboundCount: async () => {},
+			getAddress: async () => {
+				throw Object.assign(new Error("AccessDenied"), {
+					name: "AccessDenied",
+				});
+			},
+		} as unknown as AddressService;
+		const { logger, warnings } = captureWarnings();
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			addressService,
+			fake.envelopeService,
+			logger,
+			buildRescueConfig(),
+		);
+
+		const result = await service.syncBodies(
+			["msg-denied-trust"],
+			"acc-1",
+			"acc-cfg-1",
+			"Junk",
+			async () => buildFakeConnection(RESCUE_EML),
+		);
+
+		// Body sync still succeeds (rescue is isolated), but the AccessDenied is
+		// now surfaced as a rescue-failure warning instead of silently becoming
+		// SenderTrust.Unknown.
+		assert.equal(result.syncedCount, 1);
+		const warned = warnings.find((w) => w.msg.includes("Junk rescue failed"));
+		assert.ok(warned, "expected a rescue-failure warning for AccessDenied");
+		assert.match(String(warned?.obj.error), /AccessDenied/);
 	});
 });
