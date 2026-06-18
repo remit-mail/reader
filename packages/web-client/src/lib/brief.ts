@@ -4,24 +4,27 @@
  * Pure function: takes a flat list of thread message rows and returns the
  * brief's attention sections in display order:
  *
- *  1. Needs attention — unread personal/transactional mail, or unread mail
- *                       from a vip/wellknown sender (regardless of category)
+ *  1. Needs attention — personal/transactional mail, or mail from a vip/wellknown
+ *                       sender, regardless of read state
  *  2. Flagged         — starred mail, regardless of read state or category
  *  3. Daily brief     — newsletters, marketing, and social mail, grouped
  *                       into a digest section so it never drowns out personal
  *                       mail in the main scroll
- *  4. Everything else — remaining read/unread mail not captured above
+ *  4. Everything else — remaining mail not captured above
  *
  * Per-message routing follows first-match-wins precedence:
  *   starred                                          → Flagged
  *   category ∈ {newsletter, marketing, social}       → Daily brief
- *   !isRead AND (category ∈ {personal, transactional}
- *                OR trust ∈ {vip, wellknown})         → Needs attention
+ *   category ∈ {personal, transactional}
+ *     OR trust ∈ {vip, wellknown}                    → Needs attention
  *   otherwise                                         → Everything else
  *
  * The category split runs BEFORE the trust check, so a newsletter from a
  * wellknown sender lands in the digest rather than "Needs attention". Starred
  * always wins, so a user-starred newsletter is always surfaced in Flagged.
+ *
+ * Read state is intentionally not a routing signal: in a high-volume mailbox,
+ * read≠handled and unread≠important. Unread is a user-selectable filter chip.
  *
  * Missing category is treated as `personal` (the classifier's own fallback).
  * Muted senders (filtered by the caller) and empty sections are excluded.
@@ -116,12 +119,11 @@ export function groupBriefSections(rows: ThreadRowData[]): ThreadSection[] {
 			continue;
 		}
 
-		// 3. Unread personal/transactional, or unread from a trusted sender
+		// 3. Personal/transactional category, or a trusted sender — regardless of read state
 		if (
-			!row.isRead &&
-			(ATTENTION_CATEGORIES.has(row.category ?? MessageCategory.personal) ||
-				row.trust === "vip" ||
-				row.trust === "wellknown")
+			ATTENTION_CATEGORIES.has(row.category ?? MessageCategory.personal) ||
+			row.trust === "vip" ||
+			row.trust === "wellknown"
 		) {
 			attention.push(row);
 			continue;

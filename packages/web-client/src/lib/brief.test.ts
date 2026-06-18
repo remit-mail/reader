@@ -41,8 +41,22 @@ describe("groupBriefSections", () => {
 		assert.strictEqual(sections[0].id, "attention");
 	});
 
+	test("read personal goes to needs-attention (read state is not a routing signal)", () => {
+		const r = row({ id: "1", isRead: true, category: "personal" });
+		const sections = groupBriefSections([r]);
+		assert.strictEqual(sections.length, 1);
+		assert.strictEqual(sections[0].id, "attention");
+	});
+
 	test("unread missing-category is treated as personal → needs-attention", () => {
 		const r = row({ id: "1", isRead: false });
+		const sections = groupBriefSections([r]);
+		assert.strictEqual(sections.length, 1);
+		assert.strictEqual(sections[0].id, "attention");
+	});
+
+	test("read missing-category is treated as personal → needs-attention", () => {
+		const r = row({ id: "1", isRead: true });
 		const sections = groupBriefSections([r]);
 		assert.strictEqual(sections.length, 1);
 		assert.strictEqual(sections[0].id, "attention");
@@ -54,9 +68,21 @@ describe("groupBriefSections", () => {
 		assert.strictEqual(sections[0].id, "attention");
 	});
 
+	test("read transactional goes to needs-attention (read state is not a routing signal)", () => {
+		const r = row({ id: "1", isRead: true, category: "transactional" });
+		const sections = groupBriefSections([r]);
+		assert.strictEqual(sections[0].id, "attention");
+	});
+
 	test("unread vip goes to needs-attention regardless of category", () => {
 		// vip trust overrides — even automated mail from a VIP is surfaced
 		const r = row({ id: "1", isRead: false, trust: "vip" });
+		const sections = groupBriefSections([r]);
+		assert.strictEqual(sections[0].id, "attention");
+	});
+
+	test("read vip goes to needs-attention (trust overrides read state)", () => {
+		const r = row({ id: "1", isRead: true, trust: "vip" });
 		const sections = groupBriefSections([r]);
 		assert.strictEqual(sections[0].id, "attention");
 	});
@@ -135,13 +161,7 @@ describe("groupBriefSections", () => {
 
 	// --- Everything else ---
 
-	test("read personal goes to everything-else", () => {
-		const r = row({ id: "1", isRead: true, category: "personal" });
-		const sections = groupBriefSections([r]);
-		assert.strictEqual(sections[0].id, "rest");
-	});
-
-	test("automated goes to everything-else", () => {
+	test("automated goes to everything-else (unread)", () => {
 		// automated is not a digest category and not personal/transactional
 		const r = row({ id: "1", isRead: false, category: "automated" });
 		const sections = groupBriefSections([r]);
@@ -149,9 +169,10 @@ describe("groupBriefSections", () => {
 		assert.strictEqual(sections[0].id, "rest");
 	});
 
-	test("read vip goes to everything-else (not attention)", () => {
-		const r = row({ id: "1", isRead: true, trust: "vip" });
+	test("automated goes to everything-else (read)", () => {
+		const r = row({ id: "1", isRead: true, category: "automated" });
 		const sections = groupBriefSections([r]);
+		assert.strictEqual(sections.length, 1);
 		assert.strictEqual(sections[0].id, "rest");
 	});
 
@@ -160,9 +181,9 @@ describe("groupBriefSections", () => {
 	test("display order is: attention, flagged, brief, rest", () => {
 		const rows: ThreadRowData[] = [
 			row({ id: "a", isRead: false, trust: "vip" }),
-			row({ id: "b", starred: true, isRead: true }),
+			row({ id: "b", starred: true, isRead: true, category: "automated" }),
 			row({ id: "c", category: "newsletter" }),
-			row({ id: "d", isRead: true }),
+			row({ id: "d", isRead: true, category: "automated" }),
 		];
 		const sections = groupBriefSections(rows);
 		assert.deepStrictEqual(
@@ -183,9 +204,9 @@ describe("groupBriefSections", () => {
 	test("each row appears in exactly one section", () => {
 		const rows: ThreadRowData[] = [
 			row({ id: "1", isRead: false, trust: "vip" }),
-			row({ id: "2", starred: true, isRead: true }),
-			row({ id: "3", isRead: true }),
-			row({ id: "4", isRead: false }),
+			row({ id: "2", starred: true, isRead: true, category: "automated" }),
+			row({ id: "3", isRead: true, category: "automated" }),
+			row({ id: "4", isRead: false, category: "personal" }),
 			row({ id: "5", isRead: false, trust: "wellknown", starred: true }),
 			row({ id: "6", category: "newsletter" }),
 			row({ id: "7", isRead: false, category: "marketing" }),
@@ -200,9 +221,9 @@ describe("groupBriefSections", () => {
 	test("section labels match spec", () => {
 		const rows: ThreadRowData[] = [
 			row({ id: "a", isRead: false, trust: "vip" }),
-			row({ id: "b", starred: true, isRead: true }),
+			row({ id: "b", starred: true, isRead: true, category: "automated" }),
 			row({ id: "c", category: "newsletter" }),
-			row({ id: "d", isRead: true }),
+			row({ id: "d", isRead: true, category: "automated" }),
 		];
 		const sections = groupBriefSections(rows);
 		const labels = sections.map((s) => s.label);
@@ -226,15 +247,17 @@ describe("groupBriefSections", () => {
 		assert.strictEqual(sections[0].threads.length, 3);
 	});
 
-	test("personal and transactional both reach attention when unread", () => {
+	test("personal and transactional both reach attention regardless of read state", () => {
 		const rows: ThreadRowData[] = [
 			row({ id: "1", isRead: false, category: "personal" }),
 			row({ id: "2", isRead: false, category: "transactional" }),
+			row({ id: "3", isRead: true, category: "personal" }),
+			row({ id: "4", isRead: true, category: "transactional" }),
 		];
 		const sections = groupBriefSections(rows);
 		assert.strictEqual(sections.length, 1);
 		assert.strictEqual(sections[0].id, "attention");
-		assert.strictEqual(sections[0].threads.length, 2);
+		assert.strictEqual(sections[0].threads.length, 4);
 	});
 });
 
