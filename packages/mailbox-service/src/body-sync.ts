@@ -10,7 +10,12 @@ import {
 	type ThreadMessageService,
 	type UpdateMessageInput,
 } from "@remit/remit-electrodb-service";
-import { MailboxSpecialUse, SenderTrust } from "@remit/domain-enums";
+import {
+	MailboxSpecialUse,
+	PlacementAction,
+	PlacementConfidence,
+	SenderTrust,
+} from "@remit/domain-enums";
 import {
 	isStorageNotFoundError,
 	type ParsedBody,
@@ -35,6 +40,22 @@ import { extractSnippetFromEmail } from "./snippet.js";
 import { type IImapConnection, MailConnectionError } from "./types.js";
 
 const BODY_PART_STORE_CONCURRENCY = 4;
+
+type MessagePlacementVerdict = NonNullable<
+	UpdateMessageInput["placementVerdict"]
+>;
+
+/**
+ * Outcome of {@link BodySyncService.resolvePlacement}: the audit `verdict` to
+ * persist on the Message (present whenever Remit decided to act, i.e. action
+ * != leave — in dry-run and live alike), and the IMAP `move` to enqueue
+ * (present only for a live, confident verdict). The two are independent: a
+ * dry-run confident verdict carries a `verdict` but no `move`.
+ */
+interface PlacementOutcome {
+	verdict?: MessagePlacementVerdict;
+	move?: { destinationMailboxId: string; destinationPath: string };
+}
 
 /**
  * Whether the body-sync hot path defers per-part S3 objects. Each MIME leaf is
@@ -354,10 +375,12 @@ export class BodySyncService {
 		const classification = this.classifyMessage(parsed);
 
 		// Decide the placement move from the in-memory classification before the
-		// write, so its `movedByRemit` flag joins the same UpdateItem. Best-effort
-		// and fully isolated: a failure here can never block the body sync. When
-		// the dark-ship flag is off the verdict is logged but no move is returned.
-		const placement = await this.resolvePlacement(
+		// write, so its `movedByRemit` flag and audit verdict join the same
+		// UpdateItem. Best-effort and fully isolated: a failure here can never
+		// block the body sync. The verdict is recorded whenever Remit decided to
+		// act (action != leave), in dry-run and live alike; the move is enqueued
+		// only for a live, confident verdict.
+		const resolved = await this.resolvePlacement(
 			messageId,
 			accountId,
 			accountConfigId,
@@ -366,14 +389,16 @@ export class BodySyncService {
 		);
 
 		// ONE Message UpdateItem per synced message: bodyStorageKey + every
-		// classification/derived field + the move flag. Each extra Message
-		// mutation emits a DDB stream record that fans out to a redundant
-		// S3-Vectors upsert, so we collapse them into a single write. The flag is
-		// folded in only when a move WILL be enqueued (never in dry-run).
+		// classification/derived field + the move flag + the audit verdict. Each
+		// extra Message mutation emits a DDB stream record that fans out to a
+		// redundant S3-Vectors upsert, so we collapse them into a single write.
+		// The flag is folded in only when a move WILL be enqueued (never in
+		// dry-run); the verdict is folded in whenever Remit decided to act.
 		const update: UpdateMessageInput = {
 			bodyStorageKey: ref.uri,
 			...classification,
-			...(placement ? { movedByRemit: true } : {}),
+			...(resolved.move ? { movedByRemit: true } : {}),
+			...(resolved.verdict ? { placementVerdict: resolved.verdict } : {}),
 		};
 		await this.messageService.update(messageId, update);
 		this.log.info({ messageId, storageKey: ref.uri }, "Body stored");
@@ -408,14 +433,14 @@ export class BodySyncService {
 
 		// The actual mailbox move runs LAST, after the body cache is durably
 		// stored. The `movedByRemit` flag was already folded into the update
-		// above; here we only enqueue the IMAP move. `placement` is null in
+		// above; here we only enqueue the IMAP move. `resolved.move` is absent in
 		// dry-run, so this is a no-op until the dark-ship flag is flipped on.
-		if (placement) {
+		if (resolved.move) {
 			await this.enqueuePlacementMove(
 				messageId,
 				accountId,
-				placement.destinationMailboxId,
-				placement.destinationPath,
+				resolved.move.destinationMailboxId,
+				resolved.move.destinationPath,
 			);
 		}
 	}
@@ -613,20 +638,24 @@ export class BodySyncService {
 	}
 
 	/**
-	 * Resolve the placement move for a message, BEFORE the single Message update —
-	 * so the `movedByRemit` flag joins that one UpdateItem instead of a second
-	 * mutation that would fan out another redundant S3-Vectors upsert. Drives both
-	 * directions (junk → inbox rescue, inbox → junk demote) off the pure
-	 * {@link classifyPlacement} verdict.
+	 * Resolve the placement decision for a message, BEFORE the single Message
+	 * update — so both the `movedByRemit` flag and the audit verdict join that
+	 * one UpdateItem instead of a second mutation that would fan out another
+	 * redundant S3-Vectors upsert. Drives both directions (junk → inbox rescue,
+	 * inbox → junk demote) off the pure {@link classifyPlacement} verdict.
+	 *
+	 * Returns a {@link PlacementOutcome}: a `verdict` to persist whenever Remit
+	 * decided to act (action != leave) — in dry-run and live, confident and
+	 * unsure — so the dark-ship distribution is queryable on the message; and a
+	 * `move` to enqueue only for a live, confident verdict.
 	 *
 	 * Always logs a structured verdict line for confident, actionable verdicts so
-	 * the real distribution is observable on a live mailbox. When the dark-ship
-	 * flag is off (`dryRun`) it returns null after logging — no move, no flag.
+	 * the real distribution is observable on a live mailbox.
 	 *
 	 * Best-effort: this is an enhancement bolted onto the body-sync hot path, NOT
 	 * part of the critical sync contract, so it is the one place where
 	 * let-it-crash is wrong. Any failure is swallowed with a warning and treated
-	 * as "no move" so it can never fail body-sync or block the search-index
+	 * as "no outcome" so it can never fail body-sync or block the search-index
 	 * enqueue. The verdict reads the just-computed classification rather than a
 	 * persisted row, since those fields are not written until the single update.
 	 */
@@ -636,8 +665,8 @@ export class BodySyncService {
 		accountConfigId: string,
 		parsed: ParsedMail,
 		classification: UpdateMessageInput,
-	): Promise<{ destinationMailboxId: string; destinationPath: string } | null> {
-		if (!this.placementConfig) return null;
+	): Promise<PlacementOutcome> {
+		if (!this.placementConfig) return {};
 		const { mailboxSpecialUseService, dryRun } = this.placementConfig;
 
 		try {
@@ -667,13 +696,38 @@ export class BodySyncService {
 			const candidate = { ...message, ...classification };
 			const verdict = classifyPlacement(candidate, placement, senderTrust);
 
-			if (verdict.confidence !== "confident" || verdict.action === "leave") {
-				return null;
+			// A `leave` verdict carries no audit record and no move.
+			if (verdict.action === "leave") {
+				return {};
+			}
+
+			// Audit verdict — recorded for every actionable verdict (both
+			// confidences, dry-run and live), so the dark-ship distribution is
+			// queryable on the message. Independent of whether a move is enqueued.
+			const audit: MessagePlacementVerdict = {
+				action:
+					verdict.action === "move-to-inbox"
+						? PlacementAction.MoveToInbox
+						: PlacementAction.MoveToJunk,
+				confidence:
+					verdict.confidence === "confident"
+						? PlacementConfidence.Confident
+						: PlacementConfidence.Unsure,
+				fromPlacement: placement,
+				reasons: verdict.reasons,
+				dryRun,
+				decidedAt: Date.now(),
+			};
+
+			// Only a confident verdict moves mail. An unsure verdict is recorded
+			// but never enqueues a move.
+			if (verdict.confidence !== "confident") {
+				return { verdict: audit };
 			}
 
 			const target =
 				verdict.action === "move-to-inbox" ? inboxMailbox : junkMailbox;
-			if (!target) return null;
+			if (!target) return { verdict: audit };
 
 			// Structured verdict line — emitted in both dry-run and live so the
 			// real verdict distribution is observable on the dev mailbox.
@@ -691,18 +745,23 @@ export class BodySyncService {
 				"Placement verdict",
 			);
 
-			if (dryRun) return null;
+			// Dark-ship gate: in dry-run the verdict is recorded but no move is
+			// enqueued and `movedByRemit` stays unset.
+			if (dryRun) return { verdict: audit };
 
 			return {
-				destinationMailboxId: target.mailboxId,
-				destinationPath: target.fullPath,
+				verdict: audit,
+				move: {
+					destinationMailboxId: target.mailboxId,
+					destinationPath: target.fullPath,
+				},
 			};
 		} catch (err: unknown) {
 			this.log.warn?.(
 				{ messageId, accountId, error: inspect(err) },
 				"Placement move failed (best-effort, non-fatal)",
 			);
-			return null;
+			return {};
 		}
 	}
 
