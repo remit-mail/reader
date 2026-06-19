@@ -14,6 +14,8 @@ import {
 import {
 	MailboxSpecialUse,
 	MessageCategory,
+	PlacementAction,
+	PlacementConfidence,
 	SenderTrust,
 } from "@remit/domain-enums";
 import type {
@@ -1622,6 +1624,211 @@ describe("BodySyncService.syncBodies (junk rescue isolation)", () => {
 		assert.ok(
 			Array.isArray(verdictLog.obj.reasons),
 			"verdict log carries reasons",
+		);
+	});
+
+	it("persists the placementVerdict audit record on a confident LIVE move (dryRun:false)", async () => {
+		const fake = buildFakeState({
+			messageId: "msg-audit-live",
+			rawEml: DEMOTE_EML,
+			messageOverrides: { mailboxId: "inbox-mbx", movedByRemit: false },
+		});
+		const moveCalls: string[] = [];
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			untrustedAddressService,
+			fake.envelopeService,
+			undefined,
+			buildPlacementConfig({ moveCalls }),
+		);
+
+		const result = await service.syncBodies(
+			["msg-audit-live"],
+			"acc-1",
+			"acc-cfg-1",
+			"INBOX",
+			async () => buildFakeConnection(DEMOTE_EML),
+		);
+
+		assert.equal(result.syncedCount, 1);
+
+		// Exactly one Message update for this message — the audit verdict and the
+		// move flag ride the SAME UpdateItem, not a second write.
+		const updates = fake.updatedKeys.filter(
+			(u) => u.messageId === "msg-audit-live",
+		);
+		assert.equal(updates.length, 1, "exactly one Message update");
+
+		const update = updates[0];
+		assert.ok(update?.placementVerdict, "placementVerdict folded into update");
+		assert.equal(update?.movedByRemit, true, "movedByRemit set on a live move");
+		assert.equal(update?.placementVerdict?.action, PlacementAction.MoveToJunk);
+		assert.equal(
+			update?.placementVerdict?.confidence,
+			PlacementConfidence.Confident,
+		);
+		assert.equal(update?.placementVerdict?.fromPlacement, "inbox");
+		assert.equal(update?.placementVerdict?.dryRun, false);
+		assert.deepEqual(update?.placementVerdict?.reasons, [
+			"dkim-mismatch",
+			"dmarc=fail",
+			"sender=untrusted",
+		]);
+		assert.equal(typeof update?.placementVerdict?.decidedAt, "number");
+		assert.deepEqual(moveCalls, ["msg-audit-live->junk-mbx"]);
+	});
+
+	it("persists the placementVerdict on a DRY-RUN would-move (dryRun:true, no movedByRemit)", async () => {
+		const fake = buildFakeState({
+			messageId: "msg-audit-dry",
+			rawEml: DEMOTE_EML,
+			messageOverrides: { mailboxId: "inbox-mbx", movedByRemit: false },
+		});
+		const moveCalls: string[] = [];
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			untrustedAddressService,
+			fake.envelopeService,
+			undefined,
+			buildPlacementConfig({ moveCalls, dryRun: true }),
+		);
+
+		const result = await service.syncBodies(
+			["msg-audit-dry"],
+			"acc-1",
+			"acc-cfg-1",
+			"INBOX",
+			async () => buildFakeConnection(DEMOTE_EML),
+		);
+
+		assert.equal(result.syncedCount, 1);
+		assert.deepEqual(moveCalls, [], "dry-run enqueues no move");
+
+		const updates = fake.updatedKeys.filter(
+			(u) => u.messageId === "msg-audit-dry",
+		);
+		assert.equal(updates.length, 1, "exactly one Message update");
+
+		const update = updates[0];
+		assert.ok(
+			update?.placementVerdict,
+			"would-move verdict is recorded even in dry-run",
+		);
+		assert.equal(update?.placementVerdict?.dryRun, true);
+		assert.equal(update?.placementVerdict?.action, PlacementAction.MoveToJunk);
+		assert.equal(
+			update?.placementVerdict?.confidence,
+			PlacementConfidence.Confident,
+		);
+		assert.equal(
+			update?.movedByRemit,
+			undefined,
+			"dry-run sets no movedByRemit flag",
+		);
+	});
+
+	it("records NO placementVerdict for an unsure (deferred) verdict — left in place, no move, no flag", async () => {
+		// dkimMismatch but DMARC=pass: classifyPlacement returns an unsure `leave`
+		// verdict, so nothing is recorded on the message.
+		const dmarcPassEml = Buffer.from(
+			[
+				"From: ceo@yourbank.com",
+				"To: victim@example.com",
+				"Subject: newsletter",
+				"Message-ID: <maybe-2@yourbank.com>",
+				"Authentication-Results: mx.example.com; dmarc=pass",
+				"X-Spam-Status: No, score=0.0",
+				"DKIM-Signature: v=1; a=rsa-sha256; d=mailer.net; s=sel; b=xxx",
+				"Content-Type: text/plain",
+				"",
+				"body",
+				"",
+			].join("\r\n"),
+		);
+		const fake = buildFakeState({
+			messageId: "msg-audit-unsure",
+			rawEml: dmarcPassEml,
+			messageOverrides: { mailboxId: "inbox-mbx", movedByRemit: false },
+		});
+		const moveCalls: string[] = [];
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			untrustedAddressService,
+			fake.envelopeService,
+			undefined,
+			buildPlacementConfig({ moveCalls }),
+		);
+
+		const result = await service.syncBodies(
+			["msg-audit-unsure"],
+			"acc-1",
+			"acc-cfg-1",
+			"INBOX",
+			async () => buildFakeConnection(dmarcPassEml),
+		);
+
+		assert.equal(result.syncedCount, 1);
+		assert.deepEqual(moveCalls, [], "no move for an unsure verdict");
+
+		const updates = fake.updatedKeys.filter(
+			(u) => u.messageId === "msg-audit-unsure",
+		);
+		assert.equal(updates.length, 1, "exactly one Message update");
+		assert.equal(
+			updates[0]?.placementVerdict,
+			undefined,
+			"no audit record for an unsure leave",
+		);
+		assert.equal(
+			updates[0]?.movedByRemit,
+			undefined,
+			"no movedByRemit flag for an unsure leave",
+		);
+	});
+
+	it("records NO placementVerdict for a confident `leave` verdict (already moved by Remit)", async () => {
+		// movedByRemit=true short-circuits classifyPlacement to a confident `leave`.
+		const fake = buildFakeState({
+			messageId: "msg-audit-leave",
+			rawEml: DEMOTE_EML,
+			messageOverrides: { mailboxId: "inbox-mbx", movedByRemit: true },
+		});
+		const moveCalls: string[] = [];
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			untrustedAddressService,
+			fake.envelopeService,
+			undefined,
+			buildPlacementConfig({ moveCalls }),
+		);
+
+		const result = await service.syncBodies(
+			["msg-audit-leave"],
+			"acc-1",
+			"acc-cfg-1",
+			"INBOX",
+			async () => buildFakeConnection(DEMOTE_EML),
+		);
+
+		assert.equal(result.syncedCount, 1);
+		assert.deepEqual(moveCalls, [], "a leave verdict moves nothing");
+
+		const updates = fake.updatedKeys.filter(
+			(u) => u.messageId === "msg-audit-leave",
+		);
+		assert.equal(updates.length, 1, "exactly one Message update");
+		assert.equal(
+			updates[0]?.placementVerdict,
+			undefined,
+			"no audit record for a leave verdict",
 		);
 	});
 });
