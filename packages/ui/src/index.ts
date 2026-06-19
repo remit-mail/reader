@@ -27,6 +27,7 @@ export {
 	type ThreadRowData,
 	type ThreadSection,
 } from "./components/app-shell.js";
+export { AuthCard, type AuthCardProps } from "./components/auth-card.js";
 export { AuthFooter, type AuthFooterProps } from "./components/auth-footer.js";
 export { AuthHero, type AuthHeroProps } from "./components/auth-hero.js";
 export { Avatar, type AvatarProps } from "./components/avatar.js";
@@ -45,6 +46,17 @@ export {
 	type CardProps,
 	CardTitle,
 } from "./components/card.js";
+export {
+	ComposeActionBar,
+	type ComposeActionBarProps,
+	type ComposeSaveStatus,
+} from "./components/compose-action-bar.js";
+export {
+	ComposeFormShell,
+	type ComposeFormShellProps,
+	type ComposeMode,
+	composeModeLabels,
+} from "./components/compose-form-shell.js";
 export {
 	DangerZoneSection,
 	type DangerZoneSectionProps,
@@ -88,6 +100,7 @@ export {
 	MailActionToolbar,
 	type MailActionToolbarProps,
 } from "./components/mail-action-toolbar.js";
+export { OutboxRow, type OutboxRowProps } from "./components/outbox-row.js";
 export {
 	type OutboxStatus,
 	OutboxStatusBadge,
@@ -106,6 +119,12 @@ export {
 	ResizablePanel,
 	ResizablePanelGroup,
 } from "./components/resizable.js";
+export {
+	type RowAction,
+	RowActions,
+	type RowActionsProps,
+	type RowDestructiveAction,
+} from "./components/row-actions.js";
 export {
 	SecuritySelect,
 	type SecuritySelectProps,

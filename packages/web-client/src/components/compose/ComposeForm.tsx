@@ -9,6 +9,7 @@ import type {
 	RemitImapAccountResponse,
 	RemitImapDescribeMessageResponse,
 } from "@remit/api-http-client/types.gen.ts";
+import { ComposeActionBar, ComposeFormShell } from "@remit/ui";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import type { Value } from "platejs";
 import {
@@ -34,7 +35,6 @@ import {
 } from "../ui/error-banners.js";
 import type { AddressEntry } from "./AddressField";
 import { AddressField } from "./AddressField";
-import { ComposeActionBar } from "./ComposeActionBar";
 import { ComposeSmtpMissingBanner } from "./ComposeSmtpMissingBanner";
 
 const LazyComposeBody = lazy(() =>
@@ -602,57 +602,66 @@ export const ComposeForm = ({
 	);
 
 	return (
-		<div className="flex flex-col h-full">
-			{selectedAccount && selectedAccountMissingSmtp && (
-				<ComposeSmtpMissingBanner accountId={selectedAccount.accountId} />
-			)}
-			<ComposeHeader
-				selectedAccountId={selectedAccountId}
-				onAccountChange={handleAccountChange}
-				toAddresses={toAddresses}
-				setToAddresses={setToAddresses}
-				ccAddresses={ccAddresses}
-				setCcAddresses={setCcAddresses}
-				bccAddresses={bccAddresses}
-				setBccAddresses={setBccAddresses}
-				showCc={showCc}
-				setShowCc={setShowCc}
-				showBcc={showBcc}
-				setShowBcc={setShowBcc}
-				subject={subject}
-				setSubject={setSubject}
-			/>
-
-			<div className="flex-1 overflow-auto">
-				<Suspense fallback={<ComposeBodyFallback />}>
-					<LazyComposeBody
-						value={body}
-						onChange={setBody}
-						onSubmit={handleSend}
-						autoFocus={mode === "new"}
+		<ComposeFormShell
+			banner={
+				selectedAccount && selectedAccountMissingSmtp ? (
+					<ComposeSmtpMissingBanner accountId={selectedAccount.accountId} />
+				) : undefined
+			}
+			header={
+				<ComposeHeader
+					selectedAccountId={selectedAccountId}
+					onAccountChange={handleAccountChange}
+					toAddresses={toAddresses}
+					setToAddresses={setToAddresses}
+					ccAddresses={ccAddresses}
+					setCcAddresses={setCcAddresses}
+					bccAddresses={bccAddresses}
+					setBccAddresses={setBccAddresses}
+					showCc={showCc}
+					setShowCc={setShowCc}
+					showBcc={showBcc}
+					setShowBcc={setShowBcc}
+					subject={subject}
+					setSubject={setSubject}
+				/>
+			}
+			quoted={
+				quotedText || quotedHtml ? (
+					<QuotedText
+						text={quotedText}
+						html={quotedHtml}
+						senderName={senderName}
 					/>
-				</Suspense>
-				{(quotedText || quotedHtml) && (
-					<div className="px-3 pb-2">
-						<QuotedText
-							text={quotedText}
-							html={quotedHtml}
-							senderName={senderName}
-						/>
-					</div>
-				)}
-			</div>
-
-			<ComposeActionBar
-				onSend={handleSend}
-				onDiscard={handleDiscard}
-				isSending={isSending}
-				canSend={canSend}
-				saveStatus={saveStatus}
-				disabledReason={
-					selectedAccountMissingSmtp ? "SMTP not configured" : undefined
-				}
-			/>
-		</div>
+				) : undefined
+			}
+			actionBar={
+				<ComposeActionBar
+					onSend={handleSend}
+					onDiscard={handleDiscard}
+					sending={isSending}
+					canSend={canSend}
+					saveStatus={saveStatus}
+					unavailableReason={
+						selectedAccountMissingSmtp ? "SMTP not configured" : undefined
+					}
+					onUnavailable={(reason) =>
+						pushError({
+							title: "Can't send yet",
+							detail: reason,
+						})
+					}
+				/>
+			}
+		>
+			<Suspense fallback={<ComposeBodyFallback />}>
+				<LazyComposeBody
+					value={body}
+					onChange={setBody}
+					onSubmit={handleSend}
+					autoFocus={mode === "new"}
+				/>
+			</Suspense>
+		</ComposeFormShell>
 	);
 };

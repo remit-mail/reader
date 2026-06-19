@@ -10,11 +10,13 @@ import {
 	Badge,
 	Banner,
 	Button,
+	type RowAction,
+	RowActions,
 	SettingsShell,
 } from "@remit/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { Loader2, Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { z } from "zod";
 import { OnboardingWizard } from "@/components/onboarding/OnboardingWizard";
@@ -375,56 +377,42 @@ function AccountsSettings() {
 							reconnectingAccountId === account.accountId &&
 							reconnectMutation.isPending;
 
-						const actionButton =
-							isReauth && isOAuthAccount ? (
-								<Button
-									variant="secondary"
-									size="sm"
-									aria-busy={isReconnecting}
-									icon={
-										isReconnecting ? (
-											<Loader2 className="size-3.5 animate-spin" />
-										) : undefined
+						const primaryAction: RowAction =
+							isReauth && isOAuthAccount
+								? {
+										label: "Reconnect",
+										variant: "secondary",
+										busy: isReconnecting,
+										busyLabel: "Redirecting…",
+										onClick: () => {
+											setReconnectingAccountId(account.accountId);
+											reconnectMutation.mutate({
+												body: { email: account.email },
+											});
+										},
 									}
-									onClick={() => {
-										if (isReconnecting) return;
-										setReconnectingAccountId(account.accountId);
-										reconnectMutation.mutate({
-											body: { email: account.email },
-										});
-									}}
-								>
-									{isReconnecting ? "Redirecting…" : "Reconnect"}
-								</Button>
-							) : deriveState(account) === "error" ? (
-								<Button
-									variant="secondary"
-									size="sm"
-									onClick={() => setEditingAccountId(account.accountId)}
-								>
-									Reconnect
-								</Button>
-							) : (
-								<Button
-									variant="ghost"
-									size="sm"
-									onClick={() => setEditingAccountId(account.accountId)}
-								>
-									Manage
-								</Button>
-							);
+								: deriveState(account) === "error"
+									? {
+											label: "Reconnect",
+											variant: "secondary",
+											onClick: () => setEditingAccountId(account.accountId),
+										}
+									: {
+											label: "Manage",
+											variant: "ghost",
+											onClick: () => setEditingAccountId(account.accountId),
+										};
 
 						const trailingButton = (
-							<div className="flex items-center gap-2">
-								{actionButton}
-								<Button
-									variant="ghost"
-									size="sm"
-									icon={<Trash2 className="size-3.5" />}
-									onClick={() => setDeletingAccountId(account.accountId)}
-									aria-label="Delete account"
-								/>
-							</div>
+							<RowActions
+								actions={[primaryAction]}
+								destructive={{
+									label: "Delete account",
+									iconOnly: true,
+									icon: <Trash2 className="size-3.5" />,
+									onClick: () => setDeletingAccountId(account.accountId),
+								}}
+							/>
 						);
 
 						return (
