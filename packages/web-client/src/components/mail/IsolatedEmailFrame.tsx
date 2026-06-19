@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { generatePlainEmailBaseCSS } from "@/lib/email-plain-base";
 
 interface IsolatedEmailFrameProps {
@@ -113,6 +114,14 @@ export const IsolatedEmailFrame = ({
 	const [height, setHeight] = useState(0);
 	const [width, setWidth] = useState(0);
 
+	// On phones we never pin the iframe wider than its container: a fixed-width
+	// newsletter (e.g. 600px) would otherwise overflow the ~390px viewport and
+	// unlock horizontal PAGE scroll. Forcing the iframe to 100% lets the
+	// layout-clamp CSS reflow the email into the phone width instead. Wider
+	// (desktop) viewports keep the content-width pin so multi-column newsletters
+	// still render at their native width (#727).
+	const isNarrow = useMediaQuery("(max-width: 640px)");
+
 	// Build the full srcdoc including injected CSS. Re-computed when html,
 	// isPlain, or isDark changes — when dark mode is toggled the iframe
 	// reloads with the correct base colors (a reload is acceptable; it's
@@ -187,6 +196,12 @@ export const IsolatedEmailFrame = ({
 			className={className}
 			scrolling="no"
 			style={{
+				// On a phone (`isNarrow`) the iframe is always 100% of its
+				// container so the layout-clamp CSS reflows a wide fixed-width
+				// newsletter into the viewport instead of overflowing the page
+				// (#727). The content-width pin below applies only on wider
+				// (desktop) viewports.
+				//
 				// Plain emails: pin to measured content width once known, start
 				// at 100% so fluid content is measured at the container width.
 				//
@@ -195,8 +210,9 @@ export const IsolatedEmailFrame = ({
 				// the reading pane rather than rendering in a narrow column. For
 				// genuinely wide fixed-layout emails (900px+) the iframe still
 				// grows past the pane width and lets the pane scroll horizontally.
-				width:
-					!isPlain && width > 0
+				width: isNarrow
+					? "100%"
+					: !isPlain && width > 0
 						? `max(100%, ${width}px)`
 						: width === 0
 							? "100%"
