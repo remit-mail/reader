@@ -4,8 +4,10 @@ import { Avatar } from "./avatar.js";
 import { Badge } from "./badge.js";
 import { Button } from "./button.js";
 import { Card, CardBody, CardHeader, CardTitle } from "./card.js";
+import { FieldLabel } from "./field-label.js";
 import { Input } from "./input.js";
 import { ListItem } from "./list-item.js";
+import { SecuritySelect } from "./security-select.js";
 import { Select } from "./select.js";
 
 const meta: Meta = {
@@ -62,6 +64,31 @@ export const Inputs: Story = {
 		<div className="max-w-sm space-y-3 p-8">
 			<Input placeholder="Plain input" />
 			<Input icon={<Search className="size-4" />} placeholder="Search mail" />
+		</div>
+	),
+};
+
+export const LabeledFields: Story = {
+	render: () => (
+		<div className="max-w-sm space-y-3 p-8">
+			<div>
+				<FieldLabel htmlFor="host">Host</FieldLabel>
+				<Input id="host" placeholder="imap.example.com" />
+			</div>
+			<div>
+				<FieldLabel htmlFor="security">Security</FieldLabel>
+				<SecuritySelect id="security" defaultValue="tls" />
+			</div>
+		</div>
+	),
+};
+
+export const SecuritySelects: Story = {
+	render: () => (
+		<div className="max-w-sm space-y-3 p-8">
+			<SecuritySelect defaultValue="tls" />
+			<SecuritySelect defaultValue="starttls" />
+			<SecuritySelect defaultValue="none" />
 		</div>
 	),
 };

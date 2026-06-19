@@ -1,10 +1,11 @@
 import { Check } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { cn } from "../lib/cn.js";
 import { Badge, type BadgeProps } from "./badge.js";
 import { Card } from "./card.js";
+import { FieldLabel } from "./field-label.js";
 import { Input } from "./input.js";
-import { Select } from "./select.js";
+import { SecuritySelect, type ServerSecurity } from "./security-select.js";
 
 /* ------------------------------------------------------------------ */
 /* WizardShell: centered card + step rail used by onboarding and the  */
@@ -178,8 +179,6 @@ export function ConnectorTile({
 /* onboarding flow and the settings add-account form.                  */
 /* ------------------------------------------------------------------ */
 
-export type ServerSecurity = "tls" | "starttls" | "none";
-
 export interface ServerFieldsProps {
 	/** "IMAP — incoming" / "SMTP — outgoing". */
 	legend: string;
@@ -197,14 +196,6 @@ export interface ServerFieldsProps {
 	portPlaceholder?: string;
 }
 
-function FieldLabel({ children }: { children: string }) {
-	return (
-		<span className="mb-1 block text-xs font-medium text-fg-muted">
-			{children}
-		</span>
-	);
-}
-
 export function ServerFields({
 	legend,
 	badge,
@@ -218,6 +209,9 @@ export function ServerFields({
 	hostPlaceholder,
 	portPlaceholder,
 }: ServerFieldsProps) {
+	const hostId = useId();
+	const portId = useId();
+	const securityId = useId();
 	return (
 		<fieldset>
 			<legend className="flex items-center gap-2 text-sm font-semibold text-fg">
@@ -226,9 +220,10 @@ export function ServerFields({
 			</legend>
 			<div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-[1fr_6rem_8rem] sm:gap-2">
 				<div>
-					<FieldLabel>Host</FieldLabel>
+					<FieldLabel htmlFor={hostId}>Host</FieldLabel>
 					{onHostChange ? (
 						<Input
+							id={hostId}
 							readOnly={readOnly}
 							value={host}
 							onChange={(e) => onHostChange(e.target.value)}
@@ -236,6 +231,7 @@ export function ServerFields({
 						/>
 					) : (
 						<Input
+							id={hostId}
 							readOnly={readOnly}
 							defaultValue={host}
 							placeholder={hostPlaceholder}
@@ -243,9 +239,10 @@ export function ServerFields({
 					)}
 				</div>
 				<div>
-					<FieldLabel>Port</FieldLabel>
+					<FieldLabel htmlFor={portId}>Port</FieldLabel>
 					{onPortChange ? (
 						<Input
+							id={portId}
 							readOnly={readOnly}
 							value={port}
 							onChange={(e) => onPortChange(e.target.value)}
@@ -253,6 +250,7 @@ export function ServerFields({
 						/>
 					) : (
 						<Input
+							id={portId}
 							readOnly={readOnly}
 							defaultValue={port}
 							placeholder={portPlaceholder}
@@ -260,24 +258,15 @@ export function ServerFields({
 					)}
 				</div>
 				<div>
-					<FieldLabel>Security</FieldLabel>
+					<FieldLabel htmlFor={securityId}>Security</FieldLabel>
 					{onSecurityChange ? (
-						<Select
+						<SecuritySelect
+							id={securityId}
 							value={security}
-							onChange={(e) =>
-								onSecurityChange(e.target.value as ServerSecurity)
-							}
-						>
-							<option value="tls">TLS/SSL</option>
-							<option value="starttls">STARTTLS</option>
-							<option value="none">None (insecure)</option>
-						</Select>
+							onValueChange={onSecurityChange}
+						/>
 					) : (
-						<Select defaultValue={security}>
-							<option value="tls">TLS/SSL</option>
-							<option value="starttls">STARTTLS</option>
-							<option value="none">None (insecure)</option>
-						</Select>
+						<SecuritySelect id={securityId} defaultValue={security} />
 					)}
 				</div>
 			</div>
