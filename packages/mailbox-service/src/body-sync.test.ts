@@ -1189,7 +1189,6 @@ describe("BodySyncService.syncBodies (junk rescue isolation)", () => {
 	const buildRescueConfig = (opts: {
 		moveCalls: string[];
 		moveImpl?: (messageId: string) => Promise<void>;
-		dryRun?: boolean;
 	}) => {
 		const mailboxSpecialUseService = {
 			findBySpecialUse: async (
@@ -1218,7 +1217,6 @@ describe("BodySyncService.syncBodies (junk rescue isolation)", () => {
 		return {
 			mailboxSpecialUseService,
 			messageMoveService,
-			dryRun: opts.dryRun ?? false,
 		};
 	};
 
@@ -1403,7 +1401,6 @@ describe("BodySyncService.syncBodies (junk rescue isolation)", () => {
 
 	const buildPlacementConfig = (opts: {
 		moveCalls: string[];
-		dryRun?: boolean;
 		junkMailboxId?: string;
 		inboxMailboxId?: string;
 	}) => {
@@ -1432,7 +1429,6 @@ describe("BodySyncService.syncBodies (junk rescue isolation)", () => {
 		return {
 			mailboxSpecialUseService,
 			messageMoveService,
-			dryRun: opts.dryRun ?? false,
 		};
 	};
 
@@ -1446,7 +1442,7 @@ describe("BodySyncService.syncBodies (junk rescue isolation)", () => {
 		},
 	} as unknown as AddressService;
 
-	it("demotes an untrusted inbox phish (dkimMismatch + dmarc=Fail) into Junk when the flag is enabled", async () => {
+	it("demotes an untrusted inbox phish (dkimMismatch + dmarc=Fail) into Junk", async () => {
 		const fake = buildFakeState({
 			messageId: "msg-demote",
 			rawEml: DEMOTE_EML,
@@ -1578,55 +1574,6 @@ describe("BodySyncService.syncBodies (junk rescue isolation)", () => {
 		);
 	});
 
-	it("DRY-RUN (flag off): a would-move verdict logs but moves nothing and sets no flag", async () => {
-		const fake = buildFakeState({
-			messageId: "msg-dry",
-			rawEml: DEMOTE_EML,
-			messageOverrides: { mailboxId: "inbox-mbx", movedByRemit: false },
-		});
-		const moveCalls: string[] = [];
-		const { logger, infos } = captureLogger();
-		const service = new BodySyncService(
-			fake.messageService,
-			fake.storageService,
-			fake.threadMessageService,
-			untrustedAddressService,
-			fake.envelopeService,
-			logger,
-			buildPlacementConfig({ moveCalls, dryRun: true }),
-		);
-
-		const result = await service.syncBodies(
-			["msg-dry"],
-			"acc-1",
-			"acc-cfg-1",
-			"INBOX",
-			async () => buildFakeConnection(DEMOTE_EML),
-		);
-
-		assert.equal(result.syncedCount, 1);
-		assert.deepEqual(moveCalls, [], "dry-run enqueues no move");
-		assert.equal(
-			fake.updatedKeys.find((u) => u.movedByRemit === true),
-			undefined,
-			"dry-run sets no movedByRemit flag",
-		);
-
-		// The structured verdict line is still emitted so the distribution is
-		// observable on a live mailbox before the flag is flipped on.
-		const verdictLog = infos.find((l) => l.msg === "Placement verdict");
-		assert.ok(verdictLog, "expected a structured verdict log line in dry-run");
-		assert.equal(verdictLog.obj.action, "move-to-junk");
-		assert.equal(verdictLog.obj.confidence, "confident");
-		assert.equal(verdictLog.obj.placement, "inbox");
-		assert.equal(verdictLog.obj.dryRun, true);
-		assert.equal(verdictLog.obj.destinationMailboxId, "junk-mbx");
-		assert.ok(
-			Array.isArray(verdictLog.obj.reasons),
-			"verdict log carries reasons",
-		);
-	});
-
 	it("persists the placementVerdict audit record on a confident LIVE move (dryRun:false)", async () => {
 		const fake = buildFakeState({
 			messageId: "msg-audit-live",
@@ -1678,57 +1625,6 @@ describe("BodySyncService.syncBodies (junk rescue isolation)", () => {
 		]);
 		assert.equal(typeof update?.placementVerdict?.decidedAt, "number");
 		assert.deepEqual(moveCalls, ["msg-audit-live->junk-mbx"]);
-	});
-
-	it("persists the placementVerdict on a DRY-RUN would-move (dryRun:true, no movedByRemit)", async () => {
-		const fake = buildFakeState({
-			messageId: "msg-audit-dry",
-			rawEml: DEMOTE_EML,
-			messageOverrides: { mailboxId: "inbox-mbx", movedByRemit: false },
-		});
-		const moveCalls: string[] = [];
-		const service = new BodySyncService(
-			fake.messageService,
-			fake.storageService,
-			fake.threadMessageService,
-			untrustedAddressService,
-			fake.envelopeService,
-			undefined,
-			buildPlacementConfig({ moveCalls, dryRun: true }),
-		);
-
-		const result = await service.syncBodies(
-			["msg-audit-dry"],
-			"acc-1",
-			"acc-cfg-1",
-			"INBOX",
-			async () => buildFakeConnection(DEMOTE_EML),
-		);
-
-		assert.equal(result.syncedCount, 1);
-		assert.deepEqual(moveCalls, [], "dry-run enqueues no move");
-
-		const updates = fake.updatedKeys.filter(
-			(u) => u.messageId === "msg-audit-dry",
-		);
-		assert.equal(updates.length, 1, "exactly one Message update");
-
-		const update = updates[0];
-		assert.ok(
-			update?.placementVerdict,
-			"would-move verdict is recorded even in dry-run",
-		);
-		assert.equal(update?.placementVerdict?.dryRun, true);
-		assert.equal(update?.placementVerdict?.action, PlacementAction.MoveToJunk);
-		assert.equal(
-			update?.placementVerdict?.confidence,
-			PlacementConfidence.Confident,
-		);
-		assert.equal(
-			update?.movedByRemit,
-			undefined,
-			"dry-run sets no movedByRemit flag",
-		);
 	});
 
 	it("records NO placementVerdict for an unsure (deferred) verdict — left in place, no move, no flag", async () => {
@@ -2237,7 +2133,7 @@ describe("BodySyncService.syncBodies (single consolidated Message write, #607)",
 			addressService,
 			fake.envelopeService,
 			undefined,
-			{ mailboxSpecialUseService, messageMoveService, dryRun: false },
+			{ mailboxSpecialUseService, messageMoveService },
 		);
 
 		const result = await service.syncBodies(
@@ -2366,7 +2262,7 @@ describe("BodySyncService.deriveSenderTrust (error propagation via rescue)", () 
 		const messageMoveService = {
 			moveMessage: async () => {},
 		} as unknown as MessageMoveService;
-		return { mailboxSpecialUseService, messageMoveService, dryRun: false };
+		return { mailboxSpecialUseService, messageMoveService };
 	};
 
 	const captureWarnings = () => {
