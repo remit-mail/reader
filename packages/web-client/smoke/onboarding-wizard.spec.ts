@@ -120,6 +120,43 @@ test.describe("Onboarding wizard", () => {
 		).toBeVisible({ timeout: 5_000 });
 	});
 
+	test("provider preset locks server settings, Advanced unlocks them", async ({
+		page,
+	}) => {
+		await page.goto("/onboarding");
+		await expect(
+			page.getByRole("heading", { name: /welcome to remit/i }),
+		).toBeVisible({ timeout: 10_000 });
+
+		await page.getByRole("button", { name: /add your first account/i }).click();
+		await page.getByRole("button", { name: /continue with imap/i }).click();
+		await expect(
+			page.getByRole("heading", { name: /what's the email address/i }),
+		).toBeVisible({ timeout: 5_000 });
+
+		// A known provider domain resolves from the curated table instantly.
+		await page.locator('input[type="email"]').fill("alice@fastmail.com");
+		await page.getByRole("button", { name: /^continue$/i }).click();
+
+		await expect(
+			page.getByRole("heading", { name: /confirm server settings/i }),
+		).toBeVisible({ timeout: 10_000 });
+
+		const provider = page.locator("#provider-select");
+		await expect(provider).toHaveValue("fastmail");
+
+		// Locked: the IMAP host (first textbox) is pre-filled, read-only, and
+		// carries the "preset" badge.
+		await expect(page.getByText("preset").first()).toBeVisible();
+		const imapHostInput = page.getByRole("textbox").first();
+		await expect(imapHostInput).toHaveValue("imap.fastmail.com");
+		await expect(imapHostInput).toHaveAttribute("readonly", "");
+
+		// Advanced unlocks the same fields for hand editing.
+		await page.getByRole("button", { name: /^advanced$/i }).click();
+		await expect(imapHostInput).not.toHaveAttribute("readonly", "");
+	});
+
 	test("/mail with seeded account stays in mail (no wizard)", async ({
 		page,
 	}) => {

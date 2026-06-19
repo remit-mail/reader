@@ -33,6 +33,7 @@ import {
 	FieldLabel,
 	Input,
 	Kbd,
+	Select,
 	ServerFields,
 	securityToApi,
 	WizardShell,
@@ -48,6 +49,11 @@ import {
 	getDiscoveryStatusMessage,
 	type SecurityMode,
 } from "../../lib/autodiscovery.js";
+import {
+	getPresetById,
+	PROVIDER_PRESETS,
+	presetIdForEmail,
+} from "../../lib/provider-presets.js";
 import { computeSmtpAutoFill } from "../settings/account-form-helpers.js";
 
 /* ------------------------------------------------------------------ */
@@ -474,7 +480,33 @@ function StepServers({
 }) {
 	const [imap, setImap] = useState<ServerConfig>(imapConfig);
 	const [smtp, setSmtp] = useState<ServerConfig>(smtpConfig);
+	const [providerId, setProviderId] = useState<string>(() =>
+		presetIdForEmail(email),
+	);
+	const [advanced, setAdvanced] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+
+	const preset = getPresetById(providerId);
+	// A recognised provider locks the fields until the user chooses Advanced.
+	const locked = preset !== undefined && !advanced;
+
+	const applyPreset = useCallback((id: string) => {
+		setProviderId(id);
+		setAdvanced(false);
+		setError(null);
+		const next = getPresetById(id);
+		if (!next) return;
+		setImap({
+			host: next.imap.host,
+			port: next.imap.port,
+			security: next.imap.security,
+		});
+		setSmtp({
+			host: next.smtp.host,
+			port: next.smtp.port,
+			security: next.smtp.security,
+		});
+	}, []);
 
 	// Propagate changes upward immediately
 	useEffect(() => {
@@ -503,9 +535,19 @@ function StepServers({
 	}, [handleContinue, onBack]);
 
 	const domain = email.split("@")[1] ?? "your domain";
-	const subtitle = discovered
-		? "Found via autodiscovery — adjust anything that looks off."
-		: `We couldn't detect settings for ${domain} — enter them manually.`;
+	const subtitle = preset
+		? "Pick your provider to fill in the right settings — or choose Custom to enter them by hand."
+		: discovered
+			? "Found via autodiscovery — adjust anything that looks off."
+			: `We couldn't detect settings for ${domain} — enter them manually.`;
+
+	const badge = locked
+		? ({ label: "preset", tone: "neutral" } as const)
+		: !preset && discovered
+			? ({ label: "detected", tone: "positive" } as const)
+			: undefined;
+
+	const appPasswordUrl = preset?.passwordHelp.url ?? getAppPasswordUrl(email);
 
 	return (
 		<WizardShell
@@ -530,11 +572,44 @@ function StepServers({
 						{error}
 					</div>
 				)}
+				<div>
+					<FieldLabel htmlFor="provider-select">Provider</FieldLabel>
+					<Select
+						id="provider-select"
+						value={providerId}
+						onChange={(e) => applyPreset(e.target.value)}
+					>
+						<option value="">Custom / other</option>
+						{PROVIDER_PRESETS.map((p) => (
+							<option key={p.id} value={p.id}>
+								{p.label}
+							</option>
+						))}
+					</Select>
+					{preset && (
+						<p className="mt-1 text-2xs text-fg-subtle">
+							{locked ? (
+								<>
+									Server settings are pre-filled for {preset.label} and locked.{" "}
+									<button
+										type="button"
+										className="text-accent underline"
+										onClick={() => setAdvanced(true)}
+									>
+										Advanced
+									</button>{" "}
+									lets you edit them by hand.
+								</>
+							) : (
+								<>Editing {preset.label}'s settings by hand.</>
+							)}
+						</p>
+					)}
+				</div>
 				<ServerFields
 					legend="IMAP — incoming"
-					badge={
-						discovered ? { label: "detected", tone: "positive" } : undefined
-					}
+					badge={badge}
+					readOnly={locked}
 					host={imap.host}
 					port={String(imap.port)}
 					security={imap.security}
@@ -549,9 +624,8 @@ function StepServers({
 				/>
 				<ServerFields
 					legend="SMTP — outgoing"
-					badge={
-						discovered ? { label: "detected", tone: "positive" } : undefined
-					}
+					badge={badge}
+					readOnly={locked}
 					host={smtp.host}
 					port={String(smtp.port)}
 					security={smtp.security}
@@ -564,6 +638,21 @@ function StepServers({
 					onPortChange={(v) => setSmtp((s) => ({ ...s, port: Number(v) }))}
 					onSecurityChange={(v) => setSmtp((s) => ({ ...s, security: v }))}
 				/>
+				{preset && (
+					<p className="text-2xs text-fg-subtle">
+						{preset.passwordHelp.text}{" "}
+						{appPasswordUrl && (
+							<a
+								href={appPasswordUrl}
+								target="_blank"
+								rel="noopener noreferrer"
+								className="text-accent underline"
+							>
+								Get an app password
+							</a>
+						)}
+					</p>
+				)}
 			</div>
 		</WizardShell>
 	);

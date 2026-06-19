@@ -4,6 +4,7 @@ import {
 	getPresetById,
 	PROVIDER_PRESETS,
 	type ProviderPreset,
+	presetIdForEmail,
 } from "./provider-presets.js";
 
 interface ExpectedSettings {
@@ -72,5 +73,24 @@ describe("provider presets", () => {
 
 	it("returns undefined for an unknown id", () => {
 		assert.equal(getPresetById("custom"), undefined);
+	});
+
+	describe("presetIdForEmail", () => {
+		it("pre-selects a preset for a known provider domain", () => {
+			assert.equal(presetIdForEmail("alice@icloud.com"), "icloud");
+			assert.equal(presetIdForEmail("bob@me.com"), "icloud");
+			assert.equal(presetIdForEmail("carol@yahoo.com"), "yahoo");
+			assert.equal(presetIdForEmail("dave@aol.com"), "aol");
+			assert.equal(presetIdForEmail("erin@fastmail.com"), "fastmail");
+		});
+
+		it("is case-insensitive on the domain", () => {
+			assert.equal(presetIdForEmail("Alice@iCloud.com"), "icloud");
+		});
+
+		it("returns Custom for unknown or malformed addresses", () => {
+			assert.equal(presetIdForEmail("self@example.com"), "");
+			assert.equal(presetIdForEmail("not-an-email"), "");
+		});
 	});
 });
