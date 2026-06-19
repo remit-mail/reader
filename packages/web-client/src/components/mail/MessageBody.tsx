@@ -76,6 +76,17 @@ interface MessageBodyProps {
 	 * `px-5` inset via the surrounding card and leaves this unset.
 	 */
 	className?: string;
+	/**
+	 * Treatment for the framed (newsletter/marketing) email box:
+	 *
+	 * - `"reading"` (default) — the standalone reading view (`MessageDetail`):
+	 *   a hairline-bordered card on `surface-sunken`, set off from the page.
+	 * - `"inline"` — the mobile inline-expanded card (`MessageCard`): the email
+	 *   already sits inside a card, so the extra border/background reads as a
+	 *   box-in-a-box. Drop the border and tinted background, keep the internal
+	 *   padding so the body still aligns with the header gutter (#763).
+	 */
+	framedVariant?: "reading" | "inline";
 }
 
 const LoadingSkeleton = () => (
@@ -102,6 +113,7 @@ export const MessageBody = ({
 	fromAddressId,
 	category,
 	className,
+	framedVariant = "reading",
 }: MessageBodyProps) => {
 	const [allowImagesOnce, setAllowImagesOnce] = useState(false);
 	const allowImages = isTrusted || allowImagesOnce;
@@ -276,7 +288,20 @@ export const MessageBody = ({
 					// app chrome) past the viewport on mobile (#727 / #528 /
 					// #542). No `overflow-hidden`: clipping would hide wide
 					// content instead of surfacing the in-frame scrollbar.
-					<div className="w-full max-w-full overflow-x-auto rounded-sm border border-line bg-surface-sunken">
+					// `p-3` gives the content breathing room inside the box so an
+					// email whose own HTML has no padding isn't pinned flush to the
+					// edge — a tighter gutter than the header on the mobile inline
+					// card, where MessageBody gets no wrapper inset (#763). The
+					// "inline" variant (mobile expanded card) drops the border and
+					// tinted background so the email doesn't read as a box-in-a-box
+					// inside the surrounding card; "reading" keeps the hairline card.
+					<div
+						className={cn(
+							"w-full max-w-full overflow-x-auto p-3",
+							framedVariant === "reading" &&
+								"rounded-sm border border-line bg-surface-sunken",
+						)}
+					>
 						<IsolatedEmailFrame
 							html={sanitizedHtml}
 							isPlain={false}
