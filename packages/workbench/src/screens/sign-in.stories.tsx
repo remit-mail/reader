@@ -4,8 +4,10 @@
  * Uses the exact class names and data-* attributes that @aws-amplify/ui-react
  * renders, so our auth.css overrides can be verified without a live Cognito
  * user pool. The story is scoped under [data-auth-page] which is the same
- * anchor used in AuthShell.tsx.
+ * anchor used in AuthShell.tsx. The branded hero, footer, and dev banner are
+ * the real @remit/ui components the live shell composes.
  */
+import { AuthFooter, AuthHero, Banner } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 const meta: Meta = {
@@ -15,80 +17,6 @@ const meta: Meta = {
 export default meta;
 
 type Story = StoryObj;
-
-function EnvelopeMark() {
-	return (
-		<svg
-			width="36"
-			height="36"
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			strokeWidth="1.75"
-			strokeLinecap="round"
-			strokeLinejoin="round"
-			aria-hidden="true"
-			style={{ color: "var(--accent)" }}
-		>
-			<rect x="3" y="5" width="18" height="14" rx="2" />
-			<path d="M3 7l9 6 9-6" />
-		</svg>
-	);
-}
-
-function AuthHeader() {
-	return (
-		<div style={{ textAlign: "center", padding: "0 0 1.5rem 0" }}>
-			<div
-				style={{
-					padding: "0 0 0.75rem 0",
-					display: "flex",
-					justifyContent: "center",
-					alignItems: "center",
-				}}
-			>
-				<EnvelopeMark />
-			</div>
-			<h1
-				style={{
-					fontWeight: 600,
-					fontSize: "1.75rem",
-					color: "var(--fg)",
-					letterSpacing: "-0.01em",
-					margin: 0,
-				}}
-			>
-				remit,
-			</h1>
-			<p
-				style={{
-					color: "var(--fg-muted)",
-					fontSize: "0.875rem",
-					marginTop: "0.25rem",
-					marginBottom: 0,
-				}}
-			>
-				your email client in the cloud.
-			</p>
-		</div>
-	);
-}
-
-function AuthFooter() {
-	return (
-		<div style={{ textAlign: "center", padding: "1.25rem 0 0 0" }}>
-			<p
-				style={{
-					color: "var(--fg-muted)",
-					fontSize: "0.75rem",
-					margin: 0,
-				}}
-			>
-				Secure sign-in powered by AWS Cognito
-			</p>
-		</div>
-	);
-}
 
 /** Static mock of the Amplify Authenticator DOM structure. */
 function MockAuthenticator({
@@ -214,7 +142,7 @@ function SignInPage({
 	return (
 		<div data-auth-page className="auth-page">
 			<div className="auth-page-inner">
-				<AuthHeader />
+				<AuthHero />
 				<MockAuthenticator activeTab={activeTab} />
 			</div>
 		</div>
@@ -263,4 +191,28 @@ export const SignInLight: Story = {
 	name: "Sign In — light",
 	parameters: { theme: "light" },
 	render: () => <SignInPage />,
+};
+
+/**
+ * Local-dev banner — shown when Cognito is not configured. Pinned to the top
+ * of the viewport above the app, warning tone.
+ */
+export const LocalDevBanner: Story = {
+	name: "Local dev banner",
+	parameters: { theme: "dark" },
+	render: () => (
+		<Banner
+			tone="warning"
+			className="h-7 sm:h-10 overflow-hidden border-x-0 border-t-0"
+		>
+			<span className="flex items-center gap-2">
+				<strong className="font-semibold shrink-0">Local dev</strong>
+				<span className="truncate hidden sm:inline">
+					— Cognito not configured. Set VITE_COGNITO_USER_POOL_ID and
+					VITE_COGNITO_CLIENT_ID in .env.local to enable sign-in.
+				</span>
+				<span className="truncate sm:hidden">— no Cognito; signed out</span>
+			</span>
+		</Banner>
+	),
 };

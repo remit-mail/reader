@@ -23,8 +23,15 @@ export {
 	type ThreadRowData,
 	type ThreadSection,
 } from "./components/app-shell.js";
+export { AuthFooter, type AuthFooterProps } from "./components/auth-footer.js";
+export { AuthHero, type AuthHeroProps } from "./components/auth-hero.js";
 export { Avatar, type AvatarProps } from "./components/avatar.js";
 export { Badge, type BadgeProps } from "./components/badge.js";
+export {
+	Banner,
+	type BannerProps,
+	type BannerTone,
+} from "./components/banner.js";
 export { Button, type ButtonProps } from "./components/button.js";
 export {
 	Card,
