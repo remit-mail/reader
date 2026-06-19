@@ -16,6 +16,7 @@ import type {
 } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
+import { isFatalServerError } from "@/lib/error-classifier";
 import { formatDate } from "@/lib/format";
 
 /**
@@ -135,6 +136,19 @@ export interface UseIntelligenceDataResult {
 	isSimilarLoading: boolean;
 	/** Non-null when the similar-messages fetch failed. */
 	similarError: unknown;
+	/**
+	 * True when the similar-messages failure is a fatal first-party 5xx. The
+	 * global escalation overlay handles it; the panel must NOT degrade it to the
+	 * benign grey "Similarity search unavailable" label. A soft (non-fatal)
+	 * error or an empty result keeps the panel quiet.
+	 */
+	similarErrorIsFatal: boolean;
+	/**
+	 * True when the address lookup failed with a fatal first-party 5xx. The panel
+	 * must not silently render the sender's flags (VIP/muted/blocked) as absent —
+	 * that misrepresents the sender's real state. Escalation covers it.
+	 */
+	addressErrorIsFatal: boolean;
 	/** Address id for the sender — needed for PATCH /addresses/{id} mutations. */
 	addressId: string | undefined;
 	/**
@@ -161,7 +175,7 @@ export function useIntelligenceData(
 	const subject = thread?.subject ?? "";
 
 	// --- Address lookup: flags + first-seen timestamp ---
-	const { data: addressSearchResult } = useQuery({
+	const { data: addressSearchResult, error: addressError } = useQuery({
 		...addressOperationsSearchAddressesOptions({
 			query: { q: senderEmail ?? "", limit: 1 },
 		}),
@@ -183,7 +197,9 @@ export function useIntelligenceData(
 		}),
 		enabled: Boolean(thread && semanticQuery.length > 3),
 		staleTime: 60_000,
-		// Failure is acceptable — the sidebar degrades gracefully
+		// A non-fatal failure (e.g. 404, no index yet) is acceptable — the sidebar
+		// degrades gracefully. A 5xx is NOT acceptable: it escalates globally and
+		// the panel must not present it as a benign "unavailable" state.
 		retry: 1,
 	});
 
@@ -221,6 +237,8 @@ export function useIntelligenceData(
 		data,
 		isSimilarLoading,
 		similarError,
+		similarErrorIsFatal: isFatalServerError(similarError),
+		addressErrorIsFatal: isFatalServerError(addressError),
 		addressId: address?.addressId,
 		address,
 	};

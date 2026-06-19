@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { resolveSpamAction } from "./IntelligencePane";
+import { resolveSimilarState, resolveSpamAction } from "./IntelligencePane";
 
 const junkId = "junk-mailbox";
 const inboxId = "inbox-mailbox";
@@ -73,5 +73,51 @@ describe("resolveSpamAction (#594)", () => {
 			inboxMailboxId: inboxId,
 		});
 		assert.notEqual(inJunk, elsewhere);
+	});
+});
+
+describe("resolveSimilarState — fail-fast on similar-messages search", () => {
+	test("a fatal 5xx does NOT show the grey label — it escalates instead (ready)", () => {
+		assert.equal(
+			resolveSimilarState({
+				similarError: new Error("500"),
+				similarErrorIsFatal: true,
+				isSimilarLoading: false,
+			}),
+			"ready",
+		);
+	});
+
+	test("a soft (non-fatal) error keeps the muted error state", () => {
+		assert.equal(
+			resolveSimilarState({
+				similarError: new Error("404"),
+				similarErrorIsFatal: false,
+				isSimilarLoading: false,
+			}),
+			"error",
+		);
+	});
+
+	test("an empty result (no error) is a soft ready state", () => {
+		assert.equal(
+			resolveSimilarState({
+				similarError: null,
+				similarErrorIsFatal: false,
+				isSimilarLoading: false,
+			}),
+			"ready",
+		);
+	});
+
+	test("loading wins when there is no error", () => {
+		assert.equal(
+			resolveSimilarState({
+				similarError: null,
+				similarErrorIsFatal: false,
+				isSimilarLoading: true,
+			}),
+			"loading",
+		);
 	});
 });
