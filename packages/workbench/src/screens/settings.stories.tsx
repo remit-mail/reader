@@ -1,10 +1,10 @@
 import {
 	AccountHealthCard,
 	Badge,
+	Banner,
 	Button,
 	DangerZoneSection,
 	Dialog,
-	InlineBanner,
 	Input,
 	Kbd,
 	SegmentedControl,
@@ -340,9 +340,9 @@ export const AccountsOauthSuccess: Story = {
 	name: "Accounts — OAuth success",
 	render: () => (
 		<AccountsShell count={3}>
-			<InlineBanner tone="positive" onDismiss={() => {}}>
+			<Banner tone="success" variant="soft" onDismiss={() => {}}>
 				Account connected successfully.
-			</InlineBanner>
+			</Banner>
 			{accountCards}
 		</AccountsShell>
 	),
@@ -353,10 +353,10 @@ export const AccountsOauthError: Story = {
 	name: "Accounts — OAuth error",
 	render: () => (
 		<AccountsShell count={3}>
-			<InlineBanner tone="danger" onDismiss={() => {}}>
+			<Banner tone="danger" variant="soft" onDismiss={() => {}}>
 				Your organisation's admin needs to approve Remit. Ask your IT admin to
 				grant the required permissions.
-			</InlineBanner>
+			</Banner>
 			{accountCards}
 		</AccountsShell>
 	),

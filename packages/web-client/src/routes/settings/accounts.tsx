@@ -8,8 +8,8 @@ import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.
 import {
 	AccountHealthCard,
 	Badge,
+	Banner,
 	Button,
-	InlineBanner,
 	SettingsShell,
 } from "@remit/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -304,23 +304,25 @@ function AccountsSettings() {
 			onBackToMail={() => void navigate({ to: "/mail" })}
 		>
 			{successMessage && (
-				<InlineBanner
-					tone="positive"
+				<Banner
+					tone="success"
+					variant="soft"
 					data-testid="oauth-success-banner"
 					onDismiss={() => setSuccessMessage(null)}
 				>
 					{successMessage}
-				</InlineBanner>
+				</Banner>
 			)}
 
 			{oauthErrorMessage && (
-				<InlineBanner
+				<Banner
 					tone="danger"
+					variant="soft"
 					data-testid="oauth-error-banner"
 					onDismiss={() => setOauthErrorMessage(null)}
 				>
 					{oauthErrorMessage}
-				</InlineBanner>
+				</Banner>
 			)}
 
 			<div className="flex items-center justify-between">
