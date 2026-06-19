@@ -309,12 +309,11 @@ export const MessageBody = ({
 						/>
 					</div>
 				) : (
-					// `max-w-2xl` caps the reading column on desktop; it can't exceed
-					// the parent width, so the box itself stays within the viewport.
-					// `overflow-x-auto` traps a fixed-width email — whose iframe pins
-					// to its own wider content size — INSIDE this box on a phone, so
+					// `lg:max-w-2xl` caps the reading column on desktop; `max-w-full`
+					// keeps the box within the viewport on mobile. `overflow-x-auto`
+					// traps any residual wide content INSIDE this box on a phone, so
 					// the overflow scrolls here and never drags the page (#727).
-					<div className="max-w-2xl overflow-x-auto">
+					<div className="max-w-full overflow-x-auto lg:max-w-2xl">
 						<IsolatedEmailFrame
 							html={sanitizedHtml}
 							isPlain={isPlain}
