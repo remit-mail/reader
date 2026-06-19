@@ -3,8 +3,6 @@ import { syncOperationsTriggerSync } from "@remit/api-http-client/sdk.gen.ts";
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
-import { isFatalServerError } from "@/lib/error-classifier";
-import { reportFatalError } from "@/lib/fatal-error";
 
 /**
  * Mailboxes are considered stale 15 minutes after the last successful sync.
@@ -53,6 +51,26 @@ export const __peekStaleAccountSyncGuard = (): ReadonlySet<string> =>
 	triggeredAccountIds;
 
 /**
+ * Handle a failed background mailbox-sync trigger. This is a best-effort,
+ * direct SDK probe (the global React Query `retry`/escalation does not apply),
+ * so a single failure — even a 5xx — is one unlucky trigger on mount, not proof
+ * the backend is down. It must NEVER escalate to the full-screen fatal overlay
+ * (the over-fire #745 introduced). We drop the per-account guard so a later
+ * remount can retry, then log and move on. The explicit, surfaced path stays
+ * the "Refresh mailboxes" button in Settings.
+ */
+export const handleBackgroundSyncFailure = (
+	accountId: string,
+	error: unknown,
+): void => {
+	triggeredAccountIds.delete(accountId);
+	console.warn("[remit] background mailbox sync failed", {
+		accountId,
+		error,
+	});
+};
+
+/**
  * Auto-trigger a background mailbox-list sync for every stale account
  * the first time MailLayout mounts in a session. Fire-and-forget: does
  * not block render, and silently logs failures (this is a best-effort
@@ -94,20 +112,7 @@ export const useStaleAccountSync = (
 					});
 				})
 				.catch((err: unknown) => {
-					// Drop the guard for this account so a later remount can retry.
-					triggeredAccountIds.delete(accountId);
-					// A fatal first-party 5xx must surface, not hide behind a
-					// console.warn — our backend is broken. Escalate it.
-					if (isFatalServerError(err)) {
-						reportFatalError(err);
-						return;
-					}
-					// A non-fatal failure (e.g. account temporarily unreachable) is
-					// expected for a best-effort background probe — log and move on.
-					console.warn("[remit] background mailbox sync failed", {
-						accountId,
-						error: err,
-					});
+					handleBackgroundSyncFailure(accountId, err);
 				});
 		}
 	}, [stableKey, queryClient]);

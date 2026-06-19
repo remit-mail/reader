@@ -28,7 +28,10 @@ import {
 } from "../../lib/plate-serializer.js";
 import { accountIsMissingSmtp } from "../settings/account-form-helpers.js";
 import { useErrorBanners } from "../ui/ErrorBannerProvider.js";
-import { formatErrorDetail } from "../ui/error-banners.js";
+import {
+	buildMutationErrorBanner,
+	formatErrorDetail,
+} from "../ui/error-banners.js";
 import type { AddressEntry } from "./AddressField";
 import { AddressField } from "./AddressField";
 import { ComposeActionBar } from "./ComposeActionBar";
@@ -424,9 +427,21 @@ export const ComposeForm = ({
 		outboxDetailOperationsSendOutboxMessageMutation(),
 	);
 
-	const deleteMutation = useMutation(
-		outboxDetailOperationsDeleteOutboxMessageMutation(),
-	);
+	const deleteMutation = useMutation({
+		...outboxDetailOperationsDeleteOutboxMessageMutation(),
+		onError: (error) => {
+			// Discard closes the dialog optimistically. A soft 4xx (409/404 the
+			// draft is already gone) must not pass silently as success — surface a
+			// banner. A fatal 5xx still escalates through MutationCache.onError.
+			pushError(
+				buildMutationErrorBanner(
+					"Couldn't discard draft",
+					"The draft wasn't discarded.",
+					error,
+				),
+			);
+		},
+	});
 
 	const { data: config } = useQuery({
 		...configOperationsGetConfigOptions(),
