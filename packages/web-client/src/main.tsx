@@ -13,7 +13,10 @@ import { configureAmplify } from "./auth/amplify-config";
 import { installAuthInterceptor } from "./auth/auth-interceptor";
 import { install as installConsoleErrorCatcher } from "./lib/console-errors";
 import { setFatalErrorTelemetry } from "./lib/fatal-error";
-import { handleQueryError } from "./lib/query-error-handler";
+import {
+	handleQueryCacheError,
+	handleQueryError,
+} from "./lib/query-error-handler";
 import { initRum } from "./lib/rum-adapter";
 import { TelemetryContext } from "./lib/telemetry-context";
 import { installThemeSync } from "./lib/theme";
@@ -31,12 +34,14 @@ const telemetry = initRum();
 // Plug the live telemetry adapter into the single fatal-error seam.
 setFatalErrorTelemetry(telemetry);
 
-// Every query and mutation error flows through the global classifier: fatal
-// first-party 5xx (or an unreachable backend) escalates to the full-screen red
-// overlay; expected 4xx / aborts are left to the calling surface. This is the
-// v5 equivalent of `defaultOptions.queries.onError` / `.mutations.onError`.
+// Every query and mutation error flows through the global classifier: a genuine
+// first-party 5xx escalates to the full-screen red overlay; expected 4xx /
+// aborts / connectivity blips are left to the calling surface (and React Query's
+// reconnect/retry). Queries only escalate when the 5xx breaks the *initial*
+// load — a stale background refetch keeps the rendered screen. This is the v5
+// equivalent of `defaultOptions.queries.onError` / `.mutations.onError`.
 const queryClient = new QueryClient({
-	queryCache: new QueryCache({ onError: handleQueryError }),
+	queryCache: new QueryCache({ onError: handleQueryCacheError }),
 	mutationCache: new MutationCache({ onError: handleQueryError }),
 	defaultOptions: {
 		queries: {
