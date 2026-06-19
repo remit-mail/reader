@@ -24,6 +24,13 @@ export interface FireAndForgetContext {
 	 * accountConfigId, …) so a failure is traceable without a stack dive.
 	 */
 	ids?: Record<string, unknown>;
+	/**
+	 * Alertable discriminator on the structured error line, the field CloudWatch
+	 * metric filters key on. Defaults to `"sync_trigger_failed"` for the original
+	 * sync-kick sites; a different fire-and-forget surface (e.g. a flag enqueue)
+	 * must pass its own so it is not mis-attributed to the sync-trigger alarm.
+	 */
+	alert?: string;
 	logger?: FireAndForgetLogger;
 }
 
@@ -39,8 +46,9 @@ export interface FireAndForgetContext {
  *
  * This helper is the single containment point: it awaits the work inside a
  * try/catch, logs every rejection LOUDLY with the alertable structured fields
- * (`alert: "sync_trigger_failed"`, `source`, the SDK error name/code, the caller
- * ids), and ALWAYS resolves to void. Callers `void fireAndForget(...)` with no
+ * (`alert` — defaulting to `"sync_trigger_failed"`, `source`, the SDK error
+ * name/code, the caller ids), and ALWAYS resolves to void. Callers `void
+ * fireAndForget(...)` with no
  * chance of an unhandled rejection escaping. Routing all fire-and-forget sites
  * through here keeps the containment from regressing one handler at a time.
  *
@@ -58,7 +66,7 @@ export const fireAndForget = async (
 		const log = context.logger ?? logger;
 		log.error(
 			{
-				alert: "sync_trigger_failed",
+				alert: context.alert ?? "sync_trigger_failed",
 				source: context.source,
 				...context.ids,
 				errorName: (error as { name?: string })?.name,
