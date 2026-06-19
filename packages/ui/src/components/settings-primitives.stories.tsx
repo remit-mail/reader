@@ -2,7 +2,6 @@ import type { Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
 import { Button } from "./button.js";
 import { DangerZoneSection } from "./danger-zone-section.js";
-import { InlineBanner } from "./inline-banner.js";
 import { SegmentedControl } from "./segmented-control.js";
 import { SenderGroupSwitch } from "./sender-group-switch.js";
 
@@ -62,22 +61,6 @@ export const SenderGroupSwitchRail: Story = {
 			</div>
 		);
 	},
-};
-
-export const Banners: Story = {
-	render: () => (
-		<div className="flex max-w-md flex-col gap-3 p-8">
-			<InlineBanner tone="positive" onDismiss={() => {}}>
-				Account connected successfully.
-			</InlineBanner>
-			<InlineBanner tone="danger" onDismiss={() => {}}>
-				Sign-in failed: access_denied. Please try again.
-			</InlineBanner>
-			<InlineBanner tone="neutral">
-				Preferences are stored locally.
-			</InlineBanner>
-		</div>
-	),
 };
 
 export const DangerZone: Story = {
