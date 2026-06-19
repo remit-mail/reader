@@ -59,3 +59,23 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
 export function getPresetById(id: string): ProviderPreset | undefined {
 	return PROVIDER_PRESETS.find((preset) => preset.id === id);
 }
+
+const DOMAIN_TO_PRESET: Record<string, string> = {
+	"icloud.com": "icloud",
+	"me.com": "icloud",
+	"mac.com": "icloud",
+	"yahoo.com": "yahoo",
+	"yahoo.co.uk": "yahoo",
+	"ymail.com": "yahoo",
+	"aol.com": "aol",
+	"fastmail.com": "fastmail",
+	"fastmail.fm": "fastmail",
+};
+
+/** Pre-select a provider preset from a known email domain; "" for Custom. */
+export function presetIdForEmail(email: string): string {
+	const atIdx = email.indexOf("@");
+	if (atIdx === -1) return "";
+	const domain = email.slice(atIdx + 1).toLowerCase();
+	return DOMAIN_TO_PRESET[domain] ?? "";
+}
