@@ -28,6 +28,7 @@ import {
 	ComfortableRowTextContent,
 	cn,
 	comfortableRowClass,
+	KeyboardHintBar,
 	type ThreadRowData,
 	type ThreadSection,
 } from "@remit/ui";
@@ -35,6 +36,7 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { AlertCircle, RefreshCw, Sparkles } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
+import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { sortAccountsByCreatedAt } from "@/lib/account-order";
 import {
 	buildBriefChips,
@@ -165,6 +167,7 @@ export function DailyBrief({
 	onSelectMessage,
 }: DailyBriefProps) {
 	const { searchQuery } = useMailContext();
+	const isDesktop = useIsDesktop();
 
 	const nonMuted = useMemo(
 		() => sortAccountsByCreatedAt(accounts.filter((a) => !a.muted?.value)),
@@ -337,6 +340,7 @@ export function DailyBrief({
 					onSelectAccountChip={handleChipClick}
 				/>
 			)}
+			{isDesktop && <KeyboardHintBar />}
 		</section>
 	);
 }

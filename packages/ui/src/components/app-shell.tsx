@@ -6,13 +6,9 @@ import {
 	ChevronRight,
 	FileText,
 	Folder,
-	FolderInput,
-	Forward,
 	Inbox,
 	Info,
 	Paperclip,
-	Reply,
-	ReplyAll,
 	Search,
 	Send,
 	Settings,
@@ -38,7 +34,9 @@ import {
 	IntelligencePanel,
 	type SenderTrustLevel,
 } from "./intelligence-panel.js";
-import { Kbd } from "./kbd.js";
+import { KeyboardHintBar } from "./keyboard-hint-bar.js";
+import { MailActionToolbar } from "./mail-action-toolbar.js";
+import { ReadingPaneEmpty } from "./reading-pane-empty.js";
 import {
 	ResizableHandle,
 	ResizablePanel,
@@ -915,110 +913,31 @@ export function BriefSections({
 		</>
 	);
 
-	if (!isDesktop) {
-		return (
-			<FilterSheet
-				categories={sheetCategories}
-				filters={sheetFilters}
-				sources={sheetSources}
-				sourcesNote={mutedNote}
-				selectedCategory={briefCategory}
-				activeFilters={active}
-				expanded={sheetExpanded}
-				onExpandedChange={setSheetExpanded}
-				onSelectCategory={(id) =>
-					onSelectBriefCategory?.(id as BriefCategoryFilter)
-				}
-				onSelectSource={(id) => onSelectAccountChip?.(id)}
-				onToggleFilter={(id) => toggleFilter(id as BriefFilterId)}
-				onClear={clearFilters}
-			>
-				{listBody}
-			</FilterSheet>
-		);
-	}
-
+	// One source of truth for both breakpoints: the touch drag-snap sheet on
+	// mobile, the click-to-expand popover on desktop. The desktop brief used to
+	// render three permanently-expanded pill rows above the list with two
+	// redundant "All" pills (#783); the FilterSheet renders a single Filters
+	// control and one category scope.
 	return (
-		<>
-			{/* source scope — single-select account pills (the brief spans
-			    accounts; this narrows it to one) */}
-			{sheetSources && sheetSources.length > 1 && (
-				<div className="flex items-center gap-1.5 overflow-x-auto border-b border-line px-row-inset py-1">
-					{sheetSources.map((source) => (
-						<button
-							key={source.id}
-							type="button"
-							onClick={() => onSelectAccountChip?.(source.id)}
-							className={cn(
-								"flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-0.5 text-2xs transition-colors",
-								source.active
-									? "border-accent-2 bg-accent-2-soft font-medium text-accent-2"
-									: "border-line text-fg-muted hover:border-line-strong",
-							)}
-						>
-							{source.label}
-							{source.count != null && source.count > 0 && (
-								<span className="tabular-nums opacity-70">{source.count}</span>
-							)}
-						</button>
-					))}
-					{mutedNote && (
-						<span className="ml-auto shrink-0 text-2xs text-fg-subtle">
-							{mutedNote}
-						</span>
-					)}
-				</div>
-			)}
-
-			{/* category scope — single-select colored pills (same palette as the
-			    inbox category badges); a separate axis from the attribute chips */}
-			<div className="flex items-center gap-1.5 overflow-x-auto border-b border-line px-row-inset py-1.5">
-				{briefCategories.map((cat) => {
-					const selected = briefCategory === cat.id;
-					return (
-						<button
-							key={cat.id}
-							type="button"
-							onClick={() => onSelectBriefCategory?.(cat.id)}
-							className={cn(
-								"shrink-0 rounded-full transition-opacity",
-								selected
-									? "opacity-100 ring-1 ring-accent-2"
-									: "opacity-60 hover:opacity-100",
-							)}
-						>
-							<Badge tone={cat.id === "all" ? "neutral" : categoryTone[cat.id]}>
-								{cat.label}
-							</Badge>
-						</button>
-					);
-				})}
-			</div>
-
-			{/* attribute filters — neutral outline chips, composable/additive */}
-			<div className="flex items-center gap-1.5 overflow-x-auto border-b border-line px-row-inset py-1">
-				{briefFilterDefs.map((f) => {
-					const on = active.has(f.id);
-					return (
-						<button
-							key={f.id}
-							type="button"
-							onClick={() => toggleFilter(f.id)}
-							className={cn(
-								"shrink-0 rounded-full border px-2.5 py-0.5 text-2xs transition-colors",
-								on
-									? "border-accent-2 bg-accent-2-soft font-medium text-accent-2"
-									: "border-line text-fg-muted hover:border-line-strong",
-							)}
-						>
-							{f.label}
-						</button>
-					);
-				})}
-			</div>
-
-			<div className="flex-1 overflow-y-auto">{listBody}</div>
-		</>
+		<FilterSheet
+			variant={isDesktop ? "popover" : "sheet"}
+			categories={sheetCategories}
+			filters={sheetFilters}
+			sources={sheetSources}
+			sourcesNote={mutedNote}
+			selectedCategory={briefCategory}
+			activeFilters={active}
+			expanded={isDesktop ? undefined : sheetExpanded}
+			onExpandedChange={isDesktop ? undefined : setSheetExpanded}
+			onSelectCategory={(id) =>
+				onSelectBriefCategory?.(id as BriefCategoryFilter)
+			}
+			onSelectSource={(id) => onSelectAccountChip?.(id)}
+			onToggleFilter={(id) => toggleFilter(id as BriefFilterId)}
+			onClear={clearFilters}
+		>
+			{listBody}
+		</FilterSheet>
 	);
 }
 
@@ -1130,17 +1049,7 @@ function MessageListPane({
 				</div>
 			)}
 
-			<footer className="flex items-center gap-2 border-t border-line px-row-inset py-1 text-2xs text-fg-subtle">
-				<Kbd>j</Kbd>
-				<Kbd>k</Kbd>
-				<span>navigate</span>
-				<Kbd>e</Kbd>
-				<span>archive</span>
-				<Kbd>m</Kbd>
-				<span>mute</span>
-				<Kbd>?</Kbd>
-				<span>all shortcuts</span>
-			</footer>
+			<KeyboardHintBar />
 		</section>
 	);
 }
@@ -1230,9 +1139,10 @@ function ExpandedMessage({
 
 /**
  * Message action toolbar on the pane-header datum: the reading pane's
- * verbs (reply/reply-all/forward, archive/delete/move/flag) plus
- * compose, Apple Mail-style above the message area. Ghost icon
- * buttons, tooltips carry shortcuts; actions dim when nothing is open.
+ * verbs (reply/reply-all/forward, archive/delete/move/flag) plus search and
+ * compose, Apple Mail-style above the message area. Built on the shared
+ * `MailActionToolbar` so the buttons stay pressable with no thread open and
+ * explain inline rather than greying out (the never-disable tenet).
  */
 function MessageToolbar({
 	hasThread,
@@ -1245,66 +1155,13 @@ function MessageToolbar({
 	onToggleIntelligence?: () => void;
 	showIntelligenceToggle?: boolean;
 }) {
+	const [hint, setHint] = useState<string | null>(null);
 	return (
-		<header className="flex h-pane-header shrink-0 items-center gap-1 border-b border-line bg-surface px-3">
-			<Button
-				variant="ghost"
-				size="sm"
-				disabled={!hasThread}
-				icon={<Reply className="size-4" />}
-				title="Reply (r)"
-				aria-label="Reply"
-			/>
-			<Button
-				variant="ghost"
-				size="sm"
-				disabled={!hasThread}
-				icon={<ReplyAll className="size-4" />}
-				title="Reply all (a)"
-				aria-label="Reply all"
-			/>
-			<Button
-				variant="ghost"
-				size="sm"
-				disabled={!hasThread}
-				icon={<Forward className="size-4" />}
-				title="Forward (f)"
-				aria-label="Forward"
-			/>
-			<span className="mx-1 h-4 w-px bg-line" aria-hidden />
-			<Button
-				variant="ghost"
-				size="sm"
-				disabled={!hasThread}
-				icon={<Archive className="size-4" />}
-				title="Archive (e)"
-				aria-label="Archive"
-			/>
-			<Button
-				variant="ghost"
-				size="sm"
-				disabled={!hasThread}
-				icon={<Trash2 className="size-4" />}
-				title="Delete (#)"
-				aria-label="Delete"
-			/>
-			<Button
-				variant="ghost"
-				size="sm"
-				disabled={!hasThread}
-				icon={<FolderInput className="size-4" />}
-				title="Move to mailbox"
-				aria-label="Move to mailbox"
-			/>
-			<Button
-				variant="ghost"
-				size="sm"
-				disabled={!hasThread}
-				icon={<Star className="size-4" />}
-				title="Flag (s)"
-				aria-label="Flag"
-			/>
-			<div className="flex-1" />
+		<MailActionToolbar
+			hasThread={hasThread}
+			onUnavailable={() => setHint("Open a message first")}
+			unavailableHint={hint}
+		>
 			{/* Apple Mail geometry: search sits top-right over the message
 			    area but still filters the current list / brief */}
 			<Input
@@ -1329,7 +1186,7 @@ function MessageToolbar({
 					aria-label="Show intelligence sidebar"
 				/>
 			)}
-		</header>
+		</MailActionToolbar>
 	);
 }
 
@@ -1354,13 +1211,7 @@ function ReadingPane({
 			/>
 
 			{!thread ? (
-				<div className="flex flex-1 flex-col items-center justify-center text-center">
-					<Inbox className="size-10 text-fg-subtle" />
-					<p className="mt-3 text-sm text-fg-muted">Select a thread to read</p>
-					<p className="text-2xs text-fg-subtle">
-						<Kbd>j</Kbd> / <Kbd>k</Kbd> to move, <Kbd>Enter</Kbd> to open
-					</p>
-				</div>
+				<ReadingPaneEmpty />
 			) : (
 				<div className="flex-1 overflow-y-auto">
 					{/* subject lives with the content, Apple Mail-style: once per
