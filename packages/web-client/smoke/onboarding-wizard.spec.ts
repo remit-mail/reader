@@ -48,6 +48,36 @@ test.describe("Onboarding wizard", () => {
 		).toBeVisible();
 	});
 
+	test("Microsoft tile is pressable and reaches the sign-in sub-step", async ({
+		page,
+	}) => {
+		await page.goto("/onboarding");
+		await expect(
+			page.getByRole("heading", { name: /welcome to remit/i }),
+		).toBeVisible({ timeout: 10_000 });
+
+		await page.getByRole("button", { name: /add your first account/i }).click();
+		await expect(
+			page.getByRole("heading", { name: /how does this account connect/i }),
+		).toBeVisible({ timeout: 5_000 });
+
+		// Selecting the Outlook/Microsoft tile flips the CTA to Microsoft.
+		await page
+			.getByRole("button", { name: /outlook \/ microsoft 365/i })
+			.click();
+		await expect(
+			page.getByRole("button", { name: /continue with microsoft/i }),
+		).toBeVisible({ timeout: 5_000 });
+
+		// Continue routes to the "Sign in with Microsoft" sub-step.
+		await page
+			.getByRole("button", { name: /continue with microsoft/i })
+			.click();
+		await expect(
+			page.getByRole("heading", { name: /sign in with microsoft/i }),
+		).toBeVisible({ timeout: 5_000 });
+	});
+
 	test("advances from connector picker to address entry", async ({ page }) => {
 		await page.goto("/onboarding");
 		await expect(

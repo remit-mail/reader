@@ -1,11 +1,11 @@
 import {
-	Badge,
 	Button,
 	CheckRow,
 	ConnectorTile,
 	Input,
 	Kbd,
 	Select,
+	ServerFields,
 	WizardShell,
 } from "@remit/ui";
 import { AtSign, Inbox, Loader2, Mail, Server } from "lucide-react";
@@ -38,18 +38,19 @@ function FieldLabel({ children }: { children: string }) {
 	);
 }
 
-/**
- * Connection security as one decision per server. The choice maps to the
- * two booleans on the Account API: tls=true (TLS/SSL), startTls=true
- * (STARTTLS), both false (None).
- */
-function SecuritySelect({ defaultValue }: { defaultValue: string }) {
+function ErrorBanner({ children }: { children: string }) {
 	return (
-		<Select defaultValue={defaultValue}>
-			<option value="tls">TLS/SSL</option>
-			<option value="starttls">STARTTLS</option>
-			<option value="none">None (insecure)</option>
-		</Select>
+		<div className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">
+			{children}
+		</div>
+	);
+}
+
+function RawError({ children }: { children: string }) {
+	return (
+		<code className="block rounded bg-surface-sunken px-2.5 py-2 text-2xs text-fg-muted">
+			{children}
+		</code>
 	);
 }
 
@@ -86,20 +87,25 @@ export function StepWelcome({ onNext }: StepNav = {}) {
 	);
 }
 
-export function StepConnector({ onBack, onNext }: StepNav = {}) {
+export function StepConnector({
+	selected = "imap",
+	onBack,
+	onNext,
+}: { selected?: "imap" | "microsoft" } & StepNav) {
+	const microsoft = selected === "microsoft";
 	return (
 		<WizardShell
 			steps={steps}
 			activeStep={0}
 			title="How does this account connect?"
-			subtitle="IMAP works with any provider today. OAuth connectors are on the way."
+			subtitle="Choose a sign-in method. IMAP works with any provider."
 			footer={
 				<>
 					<Button variant="ghost" onClick={onBack}>
 						Back
 					</Button>
 					<Button variant="primary" onClick={onNext}>
-						Continue with IMAP
+						{microsoft ? "Continue with Microsoft" : "Continue with IMAP"}
 					</Button>
 				</>
 			}
@@ -109,7 +115,8 @@ export function StepConnector({ onBack, onNext }: StepNav = {}) {
 					name="IMAP / SMTP"
 					description="Any mail provider — Fastmail, iCloud, your own server."
 					icon={<Server className="size-5" />}
-					selected
+					selected={!microsoft}
+					onSelect={() => {}}
 				/>
 				<ConnectorTile
 					name="Gmail"
@@ -118,11 +125,47 @@ export function StepConnector({ onBack, onNext }: StepNav = {}) {
 					comingSoon
 				/>
 				<ConnectorTile
-					name="Outlook"
-					description="Sign in with Microsoft 365."
+					name="Outlook / Microsoft 365"
+					description="Sign in with Microsoft. Works with Outlook.com and work accounts."
 					icon={<Inbox className="size-5" />}
-					comingSoon
+					selected={microsoft}
+					onSelect={() => {}}
 				/>
+			</div>
+		</WizardShell>
+	);
+}
+
+export function StepMicrosoftEmail({ onBack, onNext }: StepNav = {}) {
+	return (
+		<WizardShell
+			steps={steps}
+			activeStep={0}
+			title="Sign in with Microsoft"
+			subtitle="You'll be redirected to Microsoft to sign in securely."
+			footer={
+				<>
+					<Button variant="ghost" onClick={onBack}>
+						Back
+					</Button>
+					<Button variant="primary" onClick={onNext}>
+						Sign in with Microsoft
+					</Button>
+				</>
+			}
+		>
+			<div className="space-y-3">
+				<div>
+					<FieldLabel>Email address (optional)</FieldLabel>
+					<Input
+						icon={<AtSign className="size-4" />}
+						placeholder="you@outlook.com"
+					/>
+					<p className="mt-1.5 text-2xs text-fg-subtle">
+						Pre-fills the Microsoft sign-in form. Leave blank to choose on the
+						Microsoft page.
+					</p>
+				</div>
 			</div>
 		</WizardShell>
 	);
@@ -130,9 +173,10 @@ export function StepConnector({ onBack, onNext }: StepNav = {}) {
 
 export function StepAddress({
 	discovering,
+	error,
 	onBack,
 	onNext,
-}: { discovering?: boolean } & StepNav) {
+}: { discovering?: boolean; error?: string } & StepNav) {
 	return (
 		<WizardShell
 			steps={steps}
@@ -155,12 +199,19 @@ export function StepAddress({
 				<Input
 					icon={<AtSign className="size-4" />}
 					placeholder="you@example.com"
-					defaultValue={discovering ? "alice@fastmail.example" : ""}
+					defaultValue={
+						error ? "alice@" : discovering ? "alice@fastmail.example" : ""
+					}
 				/>
 				{discovering && (
 					<div className="mt-3 flex items-center gap-2 text-xs text-fg-muted">
 						<Loader2 className="size-3.5 animate-spin text-accent" />
 						Looking up settings for fastmail.example…
+					</div>
+				)}
+				{error && !discovering && (
+					<div className="mt-3">
+						<ErrorBanner>{error}</ErrorBanner>
 					</div>
 				)}
 			</div>
@@ -171,9 +222,11 @@ export function StepAddress({
 export function StepServers({
 	detected = true,
 	preset = false,
+	error,
 	onBack,
 	onNext,
-}: { detected?: boolean; preset?: boolean } & StepNav) {
+}: { detected?: boolean; preset?: boolean; error?: string } & StepNav) {
+	const detectedBadge = !preset && detected;
 	return (
 		<WizardShell
 			steps={steps}
@@ -198,6 +251,7 @@ export function StepServers({
 			}
 		>
 			<div className="space-y-5">
+				{error && <ErrorBanner>{error}</ErrorBanner>}
 				{preset && (
 					<div>
 						<FieldLabel>Provider</FieldLabel>
@@ -214,78 +268,50 @@ export function StepServers({
 						</p>
 					</div>
 				)}
-				<fieldset>
-					<legend className="flex items-center gap-2 text-sm font-semibold text-fg">
-						IMAP — incoming
-						{preset && <Badge tone="neutral">preset</Badge>}
-						{!preset && detected && <Badge tone="positive">detected</Badge>}
-					</legend>
-					<div className="mt-2 grid grid-cols-[1fr_6rem_8rem] gap-2">
-						<div>
-							<FieldLabel>Host</FieldLabel>
-							<Input
-								readOnly={preset}
-								defaultValue={
-									preset
-										? "imap.mail.me.com"
-										: detected
-											? "imap.fastmail.example"
-											: ""
-								}
-								placeholder="imap.example.com"
-							/>
-						</div>
-						<div>
-							<FieldLabel>Port</FieldLabel>
-							<Input
-								readOnly={preset}
-								defaultValue={preset ? "993" : detected ? "993" : ""}
-								placeholder="993"
-							/>
-						</div>
-						<div>
-							<FieldLabel>Security</FieldLabel>
-							{/* maps to imapTls / imapStartTls on the Account API */}
-							<SecuritySelect defaultValue="tls" />
-						</div>
-					</div>
-				</fieldset>
-				<fieldset>
-					<legend className="flex items-center gap-2 text-sm font-semibold text-fg">
-						SMTP — outgoing
-						{preset && <Badge tone="neutral">preset</Badge>}
-						{!preset && detected && <Badge tone="positive">detected</Badge>}
-					</legend>
-					<div className="mt-2 grid grid-cols-[1fr_6rem_8rem] gap-2">
-						<div>
-							<FieldLabel>Host</FieldLabel>
-							<Input
-								readOnly={preset}
-								defaultValue={
-									preset
-										? "smtp.mail.me.com"
-										: detected
-											? "smtp.fastmail.example"
-											: ""
-								}
-								placeholder="smtp.example.com"
-							/>
-						</div>
-						<div>
-							<FieldLabel>Port</FieldLabel>
-							<Input
-								readOnly={preset}
-								defaultValue={preset ? "587" : detected ? "587" : ""}
-								placeholder="587"
-							/>
-						</div>
-						<div>
-							<FieldLabel>Security</FieldLabel>
-							{/* maps to smtpTls / smtpStartTls on the Account API */}
-							<SecuritySelect defaultValue="starttls" />
-						</div>
-					</div>
-				</fieldset>
+				<ServerFields
+					legend="IMAP — incoming"
+					badge={
+						preset
+							? { label: "preset", tone: "neutral" }
+							: detectedBadge
+								? { label: "detected", tone: "positive" }
+								: undefined
+					}
+					readOnly={preset}
+					host={
+						preset
+							? "imap.mail.me.com"
+							: detected
+								? "imap.fastmail.example"
+								: ""
+					}
+					port={preset || detected ? "993" : ""}
+					security="tls"
+					hostPlaceholder="imap.example.com"
+					portPlaceholder="993"
+				/>
+				<ServerFields
+					legend="SMTP — outgoing"
+					badge={
+						preset
+							? { label: "preset", tone: "neutral" }
+							: detectedBadge
+								? { label: "detected", tone: "positive" }
+								: undefined
+					}
+					readOnly={preset}
+					host={
+						preset
+							? "smtp.mail.me.com"
+							: detected
+								? "smtp.fastmail.example"
+								: ""
+					}
+					port={preset || detected ? "587" : ""}
+					security="starttls"
+					hostPlaceholder="smtp.example.com"
+					portPlaceholder="587"
+				/>
 				{preset && (
 					<p className="text-2xs text-fg-subtle">
 						iCloud requires an app-specific password, not your Apple ID
@@ -341,42 +367,61 @@ export function StepCredentials({ onBack, onNext }: StepNav = {}) {
 	);
 }
 
+type TestMode = "success" | "auth-failure" | "network-failure";
+
 export function StepTest({
+	mode,
 	failed,
 	onBack,
 	onNext,
-}: { failed?: boolean } & StepNav) {
+}: { mode?: TestMode; failed?: boolean } & StepNav) {
+	// `failed` is kept for back-compat with the auth-failure story.
+	const phase: TestMode = mode ?? (failed ? "auth-failure" : "success");
+	const networkFailure = phase === "network-failure";
+
+	const footer =
+		phase === "auth-failure" ? (
+			<>
+				<Button variant="ghost" onClick={onBack}>
+					Back to credentials
+				</Button>
+				<Button variant="primary">Retry</Button>
+			</>
+		) : networkFailure ? (
+			<>
+				<Button variant="ghost" onClick={onBack}>
+					Back to servers
+				</Button>
+				<Button variant="primary">Retry</Button>
+			</>
+		) : (
+			<>
+				<span className="text-2xs text-fg-subtle">Connection verified</span>
+				<Button variant="primary" onClick={onNext}>
+					Start syncing
+				</Button>
+			</>
+		);
+
 	return (
 		<WizardShell
 			steps={steps}
 			activeStep={4}
 			title="Testing the connection"
-			subtitle="Two quick checks against your servers."
-			footer={
-				failed ? (
-					<>
-						<Button variant="ghost" onClick={onBack}>
-							Back to credentials
-						</Button>
-						<Button variant="primary">Retry</Button>
-					</>
-				) : (
-					<>
-						<span className="text-2xs text-fg-subtle">All good</span>
-						<Button variant="primary" onClick={onNext}>
-							Start syncing
-						</Button>
-					</>
-				)
-			}
+			subtitle="Checking alice@fastmail.example"
+			footer={footer}
 		>
 			<div className="divide-y divide-line">
 				<CheckRow
 					label="IMAP — imap.fastmail.example:993"
-					detail="Connected, TLS verified, 7 mailboxes visible"
-					state="ok"
+					detail={
+						networkFailure
+							? "Couldn't reach the server."
+							: "Connected, TLS verified, 7 mailboxes visible"
+					}
+					state={networkFailure ? "failed" : "ok"}
 				/>
-				{failed ? (
+				{phase === "auth-failure" ? (
 					<>
 						<CheckRow
 							label="SMTP — smtp.fastmail.example:587"
@@ -384,9 +429,23 @@ export function StepTest({
 							state="failed"
 						/>
 						<div className="py-3">
-							<code className="block rounded bg-surface-sunken px-2.5 py-2 text-2xs text-fg-muted">
-								535 5.7.8 Authentication credentials invalid
-							</code>
+							<p className="mb-2 text-xs text-fg-muted">
+								Check your password — many providers require an app password.
+							</p>
+							<RawError>535 5.7.8 Authentication credentials invalid</RawError>
+						</div>
+					</>
+				) : networkFailure ? (
+					<>
+						<CheckRow
+							label="SMTP — smtp.fastmail.example:587"
+							detail="Couldn't reach the server."
+							state="failed"
+						/>
+						<div className="py-3">
+							<RawError>
+								ECONNREFUSED imap.fastmail.example:993 — connection refused
+							</RawError>
 						</div>
 					</>
 				) : (
@@ -401,7 +460,33 @@ export function StepTest({
 	);
 }
 
-export function StepSync({ onNext }: StepNav = {}) {
+export function StepSync({
+	mode = "progress",
+	onNext,
+}: { mode?: "progress" | "create-error" | "stalled" } & StepNav) {
+	if (mode === "create-error") {
+		return (
+			<WizardShell
+				steps={steps}
+				activeStep={5}
+				title="Couldn't create account"
+				subtitle="Something went wrong saving your account."
+				footer={
+					<>
+						<span />
+						<Button variant="primary">Retry</Button>
+					</>
+				}
+			>
+				<RawError>
+					500 Internal Server Error — failed to persist account
+				</RawError>
+			</WizardShell>
+		);
+	}
+
+	const stalled = mode === "stalled";
+
 	return (
 		<WizardShell
 			steps={steps}
@@ -435,12 +520,12 @@ export function StepSync({ onNext }: StepNav = {}) {
 					<CheckRow
 						label="Mailboxes discovered"
 						detail="7 mailboxes found"
-						state="ok"
+						state={stalled ? "failed" : "ok"}
 					/>
 					<CheckRow
 						label="INBOX"
-						detail="Syncing newest first…"
-						state="running"
+						detail={stalled ? "Stalled" : "Syncing newest first…"}
+						state={stalled ? "failed" : "running"}
 					/>
 					<CheckRow
 						label="Archive, Sent, Drafts…"
@@ -448,6 +533,17 @@ export function StepSync({ onNext }: StepNav = {}) {
 						state="pending"
 					/>
 				</div>
+				{stalled && (
+					<div className="mt-2 space-y-2">
+						<p className="text-xs text-danger">
+							Sync stalled. The account is still active —{" "}
+							<button type="button" className="underline">
+								retry
+							</button>
+						</p>
+						<RawError>IMAP connection dropped mid-sync (timeout)</RawError>
+					</div>
+				)}
 			</div>
 		</WizardShell>
 	);

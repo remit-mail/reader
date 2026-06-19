@@ -26,13 +26,12 @@ import {
 	syncOperationsGetSyncStatusOptions,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import {
-	Badge,
 	Button,
 	CheckRow,
 	ConnectorTile,
 	Input,
 	Kbd,
-	Select,
+	ServerFields,
 	WizardShell,
 } from "@remit/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -138,25 +137,6 @@ function FieldLabel({ children }: { children: string }) {
 		<span className="mb-1 block text-xs font-medium text-fg-muted">
 			{children}
 		</span>
-	);
-}
-
-function SecuritySelect({
-	value,
-	onChange,
-}: {
-	value: SecurityMode;
-	onChange: (v: SecurityMode) => void;
-}) {
-	return (
-		<Select
-			value={value}
-			onChange={(e) => onChange(e.target.value as SecurityMode)}
-		>
-			<option value="tls">TLS/SSL</option>
-			<option value="starttls">STARTTLS</option>
-			<option value="none">None (insecure)</option>
-		</Select>
 	);
 }
 
@@ -563,82 +543,40 @@ function StepServers({
 						{error}
 					</div>
 				)}
-				<fieldset>
-					<legend className="flex items-center gap-2 text-sm font-semibold text-fg">
-						IMAP — incoming
-						{discovered && <Badge tone="positive">detected</Badge>}
-					</legend>
-					<div className="mt-2 grid grid-cols-[1fr_6rem_8rem] gap-2">
-						<div>
-							<FieldLabel>Host</FieldLabel>
-							<Input
-								value={imap.host}
-								onChange={(e) => {
-									setImap((s) => ({ ...s, host: e.target.value }));
-									setError(null);
-								}}
-								placeholder="imap.example.com"
-							/>
-						</div>
-						<div>
-							<FieldLabel>Port</FieldLabel>
-							<Input
-								type="number"
-								value={String(imap.port)}
-								onChange={(e) =>
-									setImap((s) => ({ ...s, port: Number(e.target.value) }))
-								}
-								placeholder="993"
-							/>
-						</div>
-						<div>
-							<FieldLabel>Security</FieldLabel>
-							{/* maps to imapTls / imapStartTls on the Account API */}
-							<SecuritySelect
-								value={imap.security}
-								onChange={(v) => setImap((s) => ({ ...s, security: v }))}
-							/>
-						</div>
-					</div>
-				</fieldset>
-				<fieldset>
-					<legend className="flex items-center gap-2 text-sm font-semibold text-fg">
-						SMTP — outgoing
-						{discovered && <Badge tone="positive">detected</Badge>}
-					</legend>
-					<div className="mt-2 grid grid-cols-[1fr_6rem_8rem] gap-2">
-						<div>
-							<FieldLabel>Host</FieldLabel>
-							<Input
-								value={smtp.host}
-								onChange={(e) => {
-									setSmtp((s) => ({ ...s, host: e.target.value }));
-									setError(null);
-								}}
-								placeholder="smtp.example.com"
-							/>
-						</div>
-						<div>
-							<FieldLabel>Port</FieldLabel>
-							<Input
-								type="number"
-								value={String(smtp.port)}
-								onChange={(e) =>
-									setSmtp((s) => ({ ...s, port: Number(e.target.value) }))
-								}
-								placeholder="587"
-							/>
-						</div>
-						<div>
-							<FieldLabel>Security</FieldLabel>
-							{/* maps to smtpTls / smtpStartTls on the Account API */}
-							<SecuritySelect
-								value={smtp.security}
-								onChange={(v) => setSmtp((s) => ({ ...s, security: v }))}
-							/>
-						</div>
-					</div>
-				</fieldset>
+				<ServerFields
+					legend="IMAP — incoming"
+					badge={
+						discovered ? { label: "detected", tone: "positive" } : undefined
+					}
+					host={imap.host}
+					port={String(imap.port)}
+					security={imap.security}
+					hostPlaceholder="imap.example.com"
+					portPlaceholder="993"
+					onHostChange={(v) => {
+						setImap((s) => ({ ...s, host: v }));
+						setError(null);
+					}}
+					onPortChange={(v) => setImap((s) => ({ ...s, port: Number(v) }))}
+					onSecurityChange={(v) => setImap((s) => ({ ...s, security: v }))}
+				/>
+				<ServerFields
+					legend="SMTP — outgoing"
+					badge={
+						discovered ? { label: "detected", tone: "positive" } : undefined
+					}
+					host={smtp.host}
+					port={String(smtp.port)}
+					security={smtp.security}
+					hostPlaceholder="smtp.example.com"
+					portPlaceholder="587"
+					onHostChange={(v) => {
+						setSmtp((s) => ({ ...s, host: v }));
+						setError(null);
+					}}
+					onPortChange={(v) => setSmtp((s) => ({ ...s, port: Number(v) }))}
+					onSecurityChange={(v) => setSmtp((s) => ({ ...s, security: v }))}
+				/>
 			</div>
 		</WizardShell>
 	);
