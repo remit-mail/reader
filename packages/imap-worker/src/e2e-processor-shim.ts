@@ -7,12 +7,26 @@ import {
 } from "@aws-sdk/client-sqs";
 import { AwsQueryProtocol } from "@aws-sdk/core/protocols";
 import { createLogger } from "@remit/logger-lambda";
+import type { Context, SQSBatchResponse, SQSEvent } from "aws-lambda";
 import { env } from "expect-env";
-import pMap from "p-map";
-import type { WorkerEvent } from "./events.js";
-import { handleMessageFailure } from "./message-failure.js";
-import { installCrashHandlers } from "./process-handlers.js";
-import { processEvent } from "./processor.js";
+import { handler } from "./index.js";
+
+/**
+ * E2E-only queue drainer.
+ *
+ * Production binds the Lambda `handler` (`src/index.ts`) to each queue via an
+ * SQS event-source mapping. The e2e/CI stack runs on ElasticMQ, which has no
+ * event-source mapping, so this process supplies that missing piece: it
+ * long-polls each queue, wraps every received batch in an `SQSEvent`, and
+ * invokes the exact production `handler`. It then honours the returned
+ * `batchItemFailures` the way the SQS service would — deleting the messages
+ * that succeeded and leaving the failures un-deleted so their visibility
+ * timeout lapses and SQS redelivers them. No processing or failure logic lives
+ * here; the prod handler owns all of it.
+ *
+ * This is a test harness, not production code. If it crashes the e2e suite
+ * fails loudly, which is the desired signal — there is no crash net.
+ */
 
 // Collect all unique queue URLs to poll. Every queue URL is required; missing
 // env vars crash at init via expect-env instead of silently dropping queues.
@@ -82,19 +96,6 @@ if (cluster.isPrimary) {
 	const queueName = new URL(queueUrl).pathname.split("/").pop();
 	const log = createLogger().child({ queue: queueName });
 
-	// Per-queue concurrency: WORKER_MAX_CONCURRENCY_<QUEUE_SUFFIX> (e.g., WORKER_MAX_CONCURRENCY_BODY)
-	// Falls back to global WORKER_MAX_CONCURRENCY, then default of 10
-	const queueSuffix = queueName
-		?.replace("remit-", "")
-		.replace(".fifo", "")
-		.toUpperCase();
-	const perQueueConcurrency = queueSuffix
-		? Number(process.env[`WORKER_MAX_CONCURRENCY_${queueSuffix}`])
-		: NaN;
-	const globalConcurrency = Number(process.env.WORKER_MAX_CONCURRENCY) || 10;
-	const maxConcurrency = Number.isNaN(perQueueConcurrency)
-		? globalConcurrency
-		: perQueueConcurrency;
 	const maxMessages = 10; // SQS API limit
 
 	const isLocal = queueUrl.startsWith("http://localhost");
@@ -104,8 +105,6 @@ if (cluster.isPrimary) {
 	});
 
 	let isShuttingDown = false;
-
-	installCrashHandlers(log);
 
 	process.on("SIGINT", () => {
 		log.info("Worker received SIGINT, shutting down...");
@@ -117,30 +116,14 @@ if (cluster.isPrimary) {
 		isShuttingDown = true;
 	});
 
-	const processMessage = async (
-		messageBody: string,
-		receiptHandle: string,
-	): Promise<void> => {
-		const event = JSON.parse(messageBody) as WorkerEvent;
-		log.info({ event }, "Processing event");
-
-		await processEvent(event, log);
-
-		await sqs.send(
-			new DeleteMessageCommand({
-				QueueUrl: queueUrl,
-				ReceiptHandle: receiptHandle,
-			}),
-		);
-
-		log.info(
-			{ eventId: "eventId" in event ? event.eventId : undefined },
-			"Event processed and deleted",
-		);
-	};
+	// Minimal Lambda Context: `withTelemetry` only reads `functionName` and adds
+	// it to the logger; the prod handler never touches the rest.
+	const lambdaContext = {
+		functionName: `e2e-imap-worker-${queueName}`,
+	} as Context;
 
 	const pollQueue = async (): Promise<void> => {
-		log.info({ maxConcurrency, maxMessages }, "Worker started, polling...");
+		log.info({ maxMessages }, "Worker started, polling...");
 
 		let consecutiveEmptyPolls = 0;
 
@@ -155,8 +138,6 @@ if (cluster.isPrimary) {
 					MaxNumberOfMessages: maxMessages,
 					WaitTimeSeconds: waitTime,
 					VisibilityTimeout: 300,
-					// Surfaces delivery attempt count so poison messages are logged
-					// loudly before SQS dead-letters them (see message-failure.ts).
 					MessageSystemAttributeNames: ["ApproximateReceiveCount"],
 				}),
 			);
@@ -168,38 +149,72 @@ if (cluster.isPrimary) {
 
 			consecutiveEmptyPolls = 0;
 
-			const validMessages = response.Messages.flatMap((m) =>
-				m.Body && m.ReceiptHandle
+			const messages = response.Messages.flatMap((m) =>
+				m.Body && m.ReceiptHandle && m.MessageId
 					? [
 							{
-								body: m.Body,
-								receiptHandle: m.ReceiptHandle,
 								messageId: m.MessageId,
-								receiveCount: Number(
-									m.Attributes?.ApproximateReceiveCount ?? "1",
-								),
+								receiptHandle: m.ReceiptHandle,
+								body: m.Body,
+								receiveCount: m.Attributes?.ApproximateReceiveCount ?? "1",
 							},
 						]
 					: [],
 			);
 
-			if (validMessages.length === 0) {
+			if (messages.length === 0) {
 				continue;
 			}
 
-			log.info({ count: validMessages.length }, "Processing messages");
+			log.info({ count: messages.length }, "Invoking handler for batch");
 
-			// A failed message is NOT deleted: its visibility timeout lapses, SQS
-			// redelivers it, and after maxReceiveCount attempts SQS moves it to the
-			// configured DLQ automatically. handleMessageFailure only logs (loudly
-			// once retries are exhausted) — see message-failure.ts.
-			await pMap(
-				validMessages,
-				(message) =>
-					processMessage(message.body, message.receiptHandle).catch((error) =>
-						handleMessageFailure(message, error, log),
-					),
-				{ concurrency: maxConcurrency },
+			const event: SQSEvent = {
+				Records: messages.map((m) => ({
+					messageId: m.messageId,
+					receiptHandle: m.receiptHandle,
+					body: m.body,
+					attributes: {
+						ApproximateReceiveCount: m.receiveCount,
+						SentTimestamp: "0",
+						SenderId: "e2e",
+						ApproximateFirstReceiveTimestamp: "0",
+					},
+					messageAttributes: {},
+					md5OfBody: "",
+					eventSource: "aws:sqs",
+					eventSourceARN: queueUrl,
+					awsRegion: "local",
+				})),
+			};
+
+			const result = (await handler(
+				event,
+				lambdaContext,
+				() => {},
+			)) as SQSBatchResponse | void;
+
+			const failedIds = new Set(
+				(result?.batchItemFailures ?? []).map((f) => f.itemIdentifier),
+			);
+
+			// Mirror SQS partial-batch-failure semantics: delete the messages the
+			// handler reported as succeeded; leave failures un-deleted so their
+			// visibility timeout lapses and SQS redelivers them (and eventually
+			// dead-letters once maxReceiveCount is hit).
+			const succeeded = messages.filter((m) => !failedIds.has(m.messageId));
+
+			for (const message of succeeded) {
+				await sqs.send(
+					new DeleteMessageCommand({
+						QueueUrl: queueUrl,
+						ReceiptHandle: message.receiptHandle,
+					}),
+				);
+			}
+
+			log.info(
+				{ deleted: succeeded.length, leftForRedelivery: failedIds.size },
+				"Batch processed",
 			);
 		}
 
