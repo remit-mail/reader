@@ -140,4 +140,45 @@ describe("triggerConfigLoadSyncs", () => {
 			"AWS.SimpleQueueService.NonExistentQueue",
 		);
 	});
+
+	// The actual smoke-storm failure mode: GET /config void-fires this trigger
+	// (it does not await it), the SQS queue is unreachable, and a concurrent read
+	// is in flight on the same event loop. The escaped rejection used to land on
+	// that read and 500 it. Assert nothing leaks even when fired exactly that way.
+	it("void-fired with an unreachable queue leaks NO unhandled rejection onto a concurrent read", async () => {
+		const leaked: unknown[] = [];
+		const onUnhandled = (reason: unknown): void => {
+			leaked.push(reason);
+		};
+		process.on("unhandledRejection", onUnhandled);
+
+		const econnrefused = Object.assign(new Error(""), {
+			name: "AggregateError",
+			code: "ECONNREFUSED",
+		});
+		const { logger } = createLoggerSpy();
+
+		let readResolved = false;
+		try {
+			// Fire-and-forget exactly as the getConfig handler does.
+			void triggerConfigLoadSyncs("config-1", ["acc-a", "acc-b"], {
+				sqsClient: failingSqsClient(econnrefused),
+				queueUrl: QUEUE_URL,
+				logger,
+			});
+
+			// A concurrent "read" sharing the event loop, like /mailboxes or /outbox.
+			await new Promise((resolve) => setImmediate(resolve)).then(() => {
+				readResolved = true;
+			});
+			// Drain remaining microtasks so any escaped rejection would surface.
+			await new Promise((resolve) => setImmediate(resolve));
+			await new Promise((resolve) => setImmediate(resolve));
+		} finally {
+			process.off("unhandledRejection", onUnhandled);
+		}
+
+		assert.equal(readResolved, true);
+		assert.equal(leaked.length, 0);
+	});
 });

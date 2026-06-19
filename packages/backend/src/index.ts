@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { inspect } from "node:util";
 import { logger, withTelemetry } from "@remit/logger-lambda";
 import type { APIGatewayProxyEvent, Context } from "aws-lambda";
 import {
@@ -16,6 +17,40 @@ import { runWithRequestContext } from "./request-context.js";
 import { formatResponse, postResponseHandler } from "./response.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Last-resort net for a leaked background rejection.
+ *
+ * Every fire-and-forget side effect is meant to be contained at its source (see
+ * service/fire-and-forget.ts), so reaching here is a bug — an uncontained
+ * `void promise` somewhere. The API process (dev-server / warm Lambda container)
+ * shares one event loop across requests, so without this handler such a leak
+ * would surface as a spurious 500 on whatever request was in flight. We log it
+ * LOUDLY with a distinct alert so it is observable, and deliberately do NOT exit
+ * — a stray background rejection must never take the API down or fail a request.
+ * (The worker process intentionally has no such net: there each message is its
+ * own invocation and a rejection should crash it.)
+ */
+const unhandledRejectionRegistered = Symbol.for(
+	"remit.backend.unhandledRejectionNet",
+);
+const globalProcess = process as unknown as Record<symbol, boolean>;
+if (!globalProcess[unhandledRejectionRegistered]) {
+	globalProcess[unhandledRejectionRegistered] = true;
+	process.on("unhandledRejection", (reason: unknown) => {
+		logger.error(
+			{
+				alert: "unhandled_rejection",
+				errorName: (reason as { name?: string })?.name,
+				errorCode:
+					(reason as { Code?: string })?.Code ??
+					(reason as { code?: string })?.code,
+				error: inspect(reason),
+			},
+			"Unhandled promise rejection leaked into the API event loop (contained, request not failed)",
+		);
+	});
+}
 
 const loadOpenAPISpec = (): Document => {
 	// Bundled Lambda: infra's NodeJSArmFunction copies openapi.json into the
