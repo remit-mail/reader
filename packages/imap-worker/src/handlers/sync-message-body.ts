@@ -193,17 +193,13 @@ export const syncMessageBody = async (
 			const mailbox = await mailboxService.get(mailboxId);
 			const storage = createStorageService();
 
-			// Dark-ship gate (#744): the placement engine computes + logs verdicts
-			// always, but only enqueues real IMAP moves when this flag is "true".
-			// Default OFF so a deploy ships the verdict logging dark; flip the env
-			// var on to let confident verdicts move mail.
-			const placementMoveEnabled =
-				process.env.PLACEMENT_MOVE_ENABLED === "true";
+			// A confident, actionable placement verdict moves mail directly on
+			// body-sync. Safety lives in the verdict itself (only confident,
+			// INBOX/Junk-only) and the movedByRemit loop guard.
 			const placementConfig = messageMoveService
 				? {
 						mailboxSpecialUseService,
 						messageMoveService,
-						dryRun: !placementMoveEnabled,
 					}
 				: undefined;
 
