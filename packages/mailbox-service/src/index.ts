@@ -21,7 +21,7 @@ export {
 	type ConnectionGetter,
 	extractPrimaryFromEmail,
 	type FetchBodyResult,
-	type RescueConfig,
+	type PlacementConfig,
 	type SyncBodiesResult,
 	toParsedBody,
 } from "./body-sync.js";
@@ -70,7 +70,6 @@ export {
 	type PlacementAction,
 	type PlacementVerdict,
 } from "./heuristics/classifyPlacement.js";
-export { shouldRescueFromJunk } from "./heuristics/rescueFromJunk.js";
 export { SOCIAL_DOMAINS } from "./heuristics/socialDomains.js";
 export { TRANSACTIONAL_DOMAINS } from "./heuristics/transactionalDomains.js";
 // IMAP connection (ImapFlow-based)
