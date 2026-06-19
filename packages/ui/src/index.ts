@@ -40,6 +40,10 @@ export {
 	type CardProps,
 	CardTitle,
 } from "./components/card.js";
+export {
+	DangerZoneSection,
+	type DangerZoneSectionProps,
+} from "./components/danger-zone-section.js";
 export { Dialog, type DialogProps } from "./components/dialog.js";
 export {
 	FilterSheet,
@@ -48,6 +52,10 @@ export {
 	type FilterSheetProps,
 	type FilterSheetSource,
 } from "./components/filter-sheet.js";
+export {
+	InlineBanner,
+	type InlineBannerProps,
+} from "./components/inline-banner.js";
 export { Input, type InputProps } from "./components/input.js";
 export {
 	type AuthenticityIntel,
@@ -72,7 +80,17 @@ export {
 	ResizablePanel,
 	ResizablePanelGroup,
 } from "./components/resizable.js";
+export {
+	SegmentedControl,
+	type SegmentedControlProps,
+	type SegmentedOption,
+} from "./components/segmented-control.js";
 export { Select, type SelectProps } from "./components/select.js";
+export {
+	type SenderGroupOption,
+	SenderGroupSwitch,
+	type SenderGroupSwitchProps,
+} from "./components/sender-group-switch.js";
 export {
 	AccountHealthCard,
 	type AccountHealthCardProps,

@@ -6,7 +6,7 @@
  * getThemePreference) so the same preference that boots from theme.ts
  * is the one the picker shows and changes.
  */
-import { SettingsShell } from "@remit/ui";
+import { SegmentedControl, SettingsShell } from "@remit/ui";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import {
@@ -101,24 +101,16 @@ function AppearanceSettings() {
 				{/* Density */}
 				<div className="space-y-2">
 					<p className="text-sm font-medium text-fg">Density</p>
-					<div className="flex gap-3">
-						{(["comfortable", "compact"] as Density[]).map((d) => (
-							<label
-								key={d}
-								className="flex cursor-pointer items-center gap-2 text-sm"
-							>
-								<input
-									type="radio"
-									name="density"
-									value={d}
-									checked={density === d}
-									onChange={() => handleDensity(d)}
-									className="accent-accent-2"
-								/>
-								{d.charAt(0).toUpperCase() + d.slice(1)}
-							</label>
-						))}
-					</div>
+					<SegmentedControl
+						name="density"
+						aria-label="Density"
+						value={density}
+						onChange={handleDensity}
+						options={[
+							{ value: "comfortable", label: "Comfortable" },
+							{ value: "compact", label: "Compact" },
+						]}
+					/>
 					<p className="text-xs text-fg-subtle">
 						Controls the spacing of message rows in the mail list.
 					</p>
@@ -127,30 +119,17 @@ function AppearanceSettings() {
 				{/* Theme */}
 				<div className="space-y-2">
 					<p className="text-sm font-medium text-fg">Theme</p>
-					<div className="flex gap-3">
-						{(
-							[
-								{ value: "system", label: "System" },
-								{ value: "light", label: "Light" },
-								{ value: "dark", label: "Dark" },
-							] as { value: ThemePreference; label: string }[]
-						).map(({ value, label }) => (
-							<label
-								key={value}
-								className="flex cursor-pointer items-center gap-2 text-sm"
-							>
-								<input
-									type="radio"
-									name="theme"
-									value={value}
-									checked={theme === value}
-									onChange={() => handleTheme(value)}
-									className="accent-accent-2"
-								/>
-								{label}
-							</label>
-						))}
-					</div>
+					<SegmentedControl
+						name="theme"
+						aria-label="Theme"
+						value={theme}
+						onChange={handleTheme}
+						options={[
+							{ value: "system", label: "System" },
+							{ value: "light", label: "Light" },
+							{ value: "dark", label: "Dark" },
+						]}
+					/>
 					<p className="text-xs text-fg-subtle">
 						Applies immediately. System default follows your OS preference.
 					</p>
