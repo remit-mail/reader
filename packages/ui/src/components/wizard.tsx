@@ -1,7 +1,10 @@
 import { Check } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { cn } from "../lib/cn.js";
+import { Badge, type BadgeProps } from "./badge.js";
 import { Card } from "./card.js";
+import { Input } from "./input.js";
+import { Select } from "./select.js";
 
 /* ------------------------------------------------------------------ */
 /* WizardShell: centered card + step rail used by onboarding and the  */
@@ -106,11 +109,15 @@ export interface ConnectorTileProps {
 	name: string;
 	description: string;
 	icon: ReactNode;
-	/** "coming soon" connectors render disabled with a badge. */
+	/** "coming soon" connectors render muted with a badge — still pressable. */
 	comingSoon?: boolean;
 	selected?: boolean;
 	onSelect?: () => void;
 }
+
+// Per the never-disable tenet a "soon" tile stays pressable: with no handler it
+// surfaces a one-line explainer instead of going dead.
+const COMING_SOON_HINT = "Coming soon — use IMAP for now.";
 
 export function ConnectorTile({
 	name,
@@ -120,32 +127,161 @@ export function ConnectorTile({
 	selected,
 	onSelect,
 }: ConnectorTileProps) {
+	const [showHint, setShowHint] = useState(false);
+
+	const handleClick = () => {
+		if (onSelect) {
+			onSelect();
+			return;
+		}
+		if (comingSoon) setShowHint(true);
+	};
+
 	return (
-		<button
-			type="button"
-			disabled={comingSoon}
-			onClick={onSelect}
-			className={cn(
-				"flex flex-col items-start gap-2 rounded-sm border p-3 text-left transition-colors",
-				selected
-					? "border-accent-2 bg-accent-2-soft"
-					: "border-line bg-surface hover:border-line-strong",
-				comingSoon && "cursor-not-allowed opacity-55 hover:border-line",
-			)}
-		>
-			<span className={cn("text-fg-muted", selected && "text-accent-2")}>
-				{icon}
-			</span>
-			<span className="flex items-center gap-2">
-				<span className="text-sm font-semibold text-fg">{name}</span>
-				{comingSoon && (
-					<span className="rounded-full bg-surface-sunken px-1.5 py-0.5 text-2xs text-fg-subtle">
-						soon
-					</span>
+		<div className="flex flex-col gap-1.5">
+			<button
+				type="button"
+				onClick={handleClick}
+				aria-disabled={comingSoon || undefined}
+				className={cn(
+					"flex flex-col items-start gap-2 rounded-sm border p-3 text-left transition-colors",
+					selected
+						? "border-accent-2 bg-accent-2-soft"
+						: "border-line bg-surface hover:border-line-strong",
+					comingSoon && "opacity-55",
 				)}
-			</span>
-			<span className="text-xs text-fg-subtle">{description}</span>
-		</button>
+			>
+				<span className={cn("text-fg-muted", selected && "text-accent-2")}>
+					{icon}
+				</span>
+				<span className="flex items-center gap-2">
+					<span className="text-sm font-semibold text-fg">{name}</span>
+					{comingSoon && (
+						<span className="rounded-full bg-surface-sunken px-1.5 py-0.5 text-2xs text-fg-subtle">
+							soon
+						</span>
+					)}
+				</span>
+				<span className="text-xs text-fg-subtle">{description}</span>
+			</button>
+			{showHint && (
+				<p className="text-2xs text-fg-subtle">{COMING_SOON_HINT}</p>
+			)}
+		</div>
+	);
+}
+
+/* ------------------------------------------------------------------ */
+/* Server settings field group: host / port / security for one        */
+/* protocol (IMAP or SMTP). Responsive — stacks to one column on phone */
+/* so the Security select is never clipped — and shared by the         */
+/* onboarding flow and the settings add-account form.                  */
+/* ------------------------------------------------------------------ */
+
+export type ServerSecurity = "tls" | "starttls" | "none";
+
+export interface ServerFieldsProps {
+	/** "IMAP — incoming" / "SMTP — outgoing". */
+	legend: string;
+	/** Optional badge after the legend ("detected" / "preset"). */
+	badge?: { label: string; tone: BadgeProps["tone"] };
+	host: string;
+	port: string;
+	security: ServerSecurity;
+	/** Locked presets render read-only and omit change handlers. */
+	readOnly?: boolean;
+	onHostChange?: (value: string) => void;
+	onPortChange?: (value: string) => void;
+	onSecurityChange?: (value: ServerSecurity) => void;
+	hostPlaceholder?: string;
+	portPlaceholder?: string;
+}
+
+function FieldLabel({ children }: { children: string }) {
+	return (
+		<span className="mb-1 block text-xs font-medium text-fg-muted">
+			{children}
+		</span>
+	);
+}
+
+export function ServerFields({
+	legend,
+	badge,
+	host,
+	port,
+	security,
+	readOnly,
+	onHostChange,
+	onPortChange,
+	onSecurityChange,
+	hostPlaceholder,
+	portPlaceholder,
+}: ServerFieldsProps) {
+	return (
+		<fieldset>
+			<legend className="flex items-center gap-2 text-sm font-semibold text-fg">
+				{legend}
+				{badge && <Badge tone={badge.tone}>{badge.label}</Badge>}
+			</legend>
+			<div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-[1fr_6rem_8rem] sm:gap-2">
+				<div>
+					<FieldLabel>Host</FieldLabel>
+					{onHostChange ? (
+						<Input
+							readOnly={readOnly}
+							value={host}
+							onChange={(e) => onHostChange(e.target.value)}
+							placeholder={hostPlaceholder}
+						/>
+					) : (
+						<Input
+							readOnly={readOnly}
+							defaultValue={host}
+							placeholder={hostPlaceholder}
+						/>
+					)}
+				</div>
+				<div>
+					<FieldLabel>Port</FieldLabel>
+					{onPortChange ? (
+						<Input
+							readOnly={readOnly}
+							value={port}
+							onChange={(e) => onPortChange(e.target.value)}
+							placeholder={portPlaceholder}
+						/>
+					) : (
+						<Input
+							readOnly={readOnly}
+							defaultValue={port}
+							placeholder={portPlaceholder}
+						/>
+					)}
+				</div>
+				<div>
+					<FieldLabel>Security</FieldLabel>
+					{onSecurityChange ? (
+						<Select
+							value={security}
+							onChange={(e) =>
+								onSecurityChange(e.target.value as ServerSecurity)
+							}
+						>
+							<option value="tls">TLS/SSL</option>
+							<option value="starttls">STARTTLS</option>
+							<option value="none">None (insecure)</option>
+						</Select>
+					) : (
+						<Select defaultValue={security}>
+							<option value="tls">TLS/SSL</option>
+							<option value="starttls">STARTTLS</option>
+							<option value="none">None (insecure)</option>
+						</Select>
+					)}
+				</div>
+			</div>
+		</fieldset>
 	);
 }
 
