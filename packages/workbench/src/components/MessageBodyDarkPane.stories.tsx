@@ -37,28 +37,62 @@ const generateFramedEmailBaseCSS = (
 
 const SANDBOX = "allow-same-origin allow-popups allow-popups-to-escape-sandbox";
 
+// Mirror of generateLayoutClampCSS (email-layout-clamp.ts): clamps wide author
+// markup — fixed-width tables/cells, oversized media — to the frame width and
+// wraps long tokens, so a `<table width="600">` newsletter can't push the body
+// past a narrow viewport (#727).
+const LAYOUT_CLAMP_CSS = `
+html, body { margin: 0; padding: 0; max-width: 100%; }
+body { overflow-wrap: anywhere; word-break: break-word; }
+img, video, iframe, svg, canvas { max-width: 100% !important; height: auto; }
+table { max-width: 100% !important; table-layout: auto; }
+td, th { max-width: 100% !important; }
+* { min-width: 0; }
+pre, code { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+`;
+
 interface FramedEmailProps {
 	html: string;
 	/** Whether the app is in dark mode — drives the smart-invert decision. */
 	isDark: boolean;
+	/**
+	 * Simulated narrow viewport in px. Mirrors a phone where a fixed-width email
+	 * would overflow the page; the `overflow-x-auto` wrapper must trap that
+	 * overflow inside the box instead (#727). Omit for the full reading column.
+	 */
+	frameWidth?: number;
+	/**
+	 * Pixel width the real iframe pins itself to from its content `scrollWidth`.
+	 * Mirrors `IsolatedEmailFrame`'s `max(100%, ${width}px)`: a fixed-width email
+	 * grows the iframe past a narrow wrapper, so the wrapper scrolls. Omit for a
+	 * fluid email that just fills the wrapper.
+	 */
+	contentWidth?: number;
 }
 
-/** The framed branch of MessageBody after the dark-pane fix: a hairline card on
- *  surface-sunken + an isolated iframe whose srcDoc carries the theme-aware
- *  framed base CSS (white canvas in light, smart-invert in dark). */
-function FramedEmail({ html, isDark }: FramedEmailProps) {
+/** The framed branch of MessageBody after the dark-pane + overflow fix: a
+ *  hairline card on surface-sunken whose wrapper is `overflow-x-auto` (so a
+ *  wide email scrolls INSIDE the box, never the page) + an isolated iframe
+ *  whose srcDoc carries the layout-clamp CSS and the theme-aware framed base
+ *  CSS, and which pins to its content width via `max(100%, ${contentWidth}px)`. */
+function FramedEmail({
+	html,
+	isDark,
+	frameWidth,
+	contentWidth,
+}: FramedEmailProps) {
 	const optsIntoDark = DARK_OPT_IN_RE.test(html);
 	const baseCss = generateFramedEmailBaseCSS(isDark, optsIntoDark);
-	const srcDoc = `<style>${baseCss}</style>${html}`;
-	return (
-		<div className="w-full rounded-sm border border-line bg-surface-sunken">
+	const srcDoc = `<style>${LAYOUT_CLAMP_CSS}${baseCss}</style>${html}`;
+	const card = (
+		<div className="max-w-full overflow-x-auto rounded-sm border border-line bg-surface-sunken">
 			<iframe
 				title="Email content"
 				sandbox={SANDBOX}
 				srcDoc={srcDoc}
 				scrolling="no"
 				style={{
-					width: "100%",
+					width: contentWidth ? `max(100%, ${contentWidth}px)` : "100%",
 					border: "none",
 					display: "block",
 					height: 640,
@@ -68,6 +102,8 @@ function FramedEmail({ html, isDark }: FramedEmailProps) {
 			/>
 		</div>
 	);
+	if (!frameWidth) return card;
+	return <div style={{ width: frameWidth, maxWidth: "100%" }}>{card}</div>;
 }
 
 // Light code-block / screenshot fixture: a light-grey rounded rect with a few
@@ -124,6 +160,33 @@ const DARK_OPT_IN_HTML = `
 </div>
 `;
 
+// Node-Weekly-style FIXED-WIDTH newsletter: a `<table width="600">` with a
+// `<td width="600">` carrying the width — the exact markup that overflowed a
+// ~360px phone (#727). With the clamp CSS the table/cell collapse to the frame;
+// but `contentWidth` below also pins the iframe to 600px to exercise the
+// belt-and-braces case where the email genuinely wants to be wider than the
+// frame, so the `overflow-x-auto` wrapper must scroll INSIDE the box.
+const WIDE_FIXED_WIDTH_HTML = `
+<table width="600" cellpadding="0" cellspacing="0" style="margin:0 auto;border-collapse:collapse;">
+	<tr>
+		<td width="600" style="width:600px;min-width:600px;background:#83cd29;padding:24px;font-family:Helvetica,Arial,sans-serif;color:#ffffff;">
+			<h1 style="margin:0;font-size:26px;">Node Weekly</h1>
+			<p style="margin:4px 0 0;font-size:14px;">Issue 540 — June 18, 2026</p>
+		</td>
+	</tr>
+	<tr>
+		<td width="600" style="width:600px;padding:24px;font-family:Georgia,serif;color:#1a1a1a;">
+			<h2 style="font-size:18px;color:#111;">Node.js 24 hits LTS</h2>
+			<p>The release line is now Active LTS. The permission model graduated
+			from experimental, and the built-in test runner picked up snapshot
+			testing — all without a single dependency.</p>
+			<p style="word-break:normal;">https://nodejs.example/blog/release/v24.0.0-this-is-a-deliberately-very-long-unbroken-url-to-prove-wrapping</p>
+			<p><a href="https://example.com/issue/540" style="color:#43853d;">Read the full issue &rarr;</a></p>
+		</td>
+	</tr>
+</table>
+`;
+
 const meta: Meta<FramedEmailProps> = {
 	title: "Components/MessageBody Dark Pane",
 	component: FramedEmail,
@@ -159,4 +222,26 @@ export const NewsletterOnLightPane: Story = {
 export const DarkOptInNewsletter: Story = {
 	args: { html: DARK_OPT_IN_HTML, isDark: true },
 	parameters: { theme: "dark" },
+};
+
+/** #727: a 600px fixed-width `<table>/<td>` newsletter in a simulated ~360px
+ *  phone frame. The iframe pins to its 600px content, but the `overflow-x-auto`
+ *  card traps that overflow — it scrolls INSIDE the box and never drags the
+ *  page past the viewport. The long unbroken URL wraps instead of widening. */
+export const WideEmailContainedOnMobile: Story = {
+	args: {
+		html: WIDE_FIXED_WIDTH_HTML,
+		isDark: false,
+		frameWidth: 360,
+		contentWidth: 600,
+	},
+	parameters: { theme: "light", layout: "padded" },
+};
+
+/** The same 600px newsletter on a full-width reading column: the clamp CSS lets
+ *  the table/cell collapse to fit, so it reads naturally with no horizontal
+ *  scroll where there's room. */
+export const WideEmailOnFullColumn: Story = {
+	args: { html: WIDE_FIXED_WIDTH_HTML, isDark: false },
+	parameters: { theme: "light", layout: "padded" },
 };

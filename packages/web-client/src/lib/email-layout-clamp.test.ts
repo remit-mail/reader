@@ -68,6 +68,27 @@ describe("generateLayoutClampCSS (#374 / #727)", () => {
 		assert.ok(css.includes("table-layout: auto"));
 	});
 
+	test("clamps fixed-width table cells (the real width carriers in newsletters)", () => {
+		// Newsletters pin widths on `<td width="600">`, not just the table.
+		assert.ok(
+			/\btd\s*,\s*th\b/.test(css),
+			"td, th must be capped to the frame",
+		);
+		assert.ok(
+			/td\s*,\s*th\s*\{[^}]*max-width:\s*100%\s*!important/.test(css),
+			"cell widths need !important to override author width attributes",
+		);
+	});
+
+	test("zeros min-width so children can shrink below their intrinsic width", () => {
+		// `max-width` alone can't override an inline `min-width`; flex/grid/table
+		// children won't collapse without this.
+		assert.ok(
+			/\*\s*\{[^}]*min-width:\s*0/.test(css),
+			"a universal min-width:0 must let wide children shrink to the clamp",
+		);
+	});
+
 	test("wraps long unbroken lines in pre/code blocks", () => {
 		assert.ok(/\bpre\b/.test(css));
 		assert.ok(/\bcode\b/.test(css));

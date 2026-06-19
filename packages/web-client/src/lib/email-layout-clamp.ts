@@ -45,6 +45,16 @@ table {
   max-width: 100% !important;
   table-layout: auto;
 }
+/* Cells carry the fixed widths in real newsletters (\`<td width="600">\`);
+   cap them too or the table can't actually shrink. */
+td, th {
+  max-width: 100% !important;
+}
+/* \`max-width\` alone can't beat an inline \`min-width\`; zeroing the min lets
+   flex / grid / table children actually collapse to the clamped width. */
+* {
+  min-width: 0;
+}
 /* Long unbroken strings (URLs, tokens) wrap instead of forcing a wide line. */
 pre, code {
   white-space: pre-wrap;
