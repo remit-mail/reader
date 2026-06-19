@@ -1,13 +1,73 @@
+import type { SQSClient } from "@aws-sdk/client-sqs";
 import { logger } from "@remit/logger-lambda";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { env } from "expect-env";
 import { getAccountConfigIdFromEvent } from "../auth.js";
 import { getClient } from "../service/dynamodb.js";
+import {
+	type FireAndForgetLogger,
+	fireAndForget,
+} from "../service/fire-and-forget.js";
 import { sqsClient } from "../service/sqs.js";
 import { triggerAccountSync } from "../service/trigger-sync.js";
 import type { OperationHandler, SyncOperationIds } from "../types.js";
 import { assertAccountOwnership } from "./account-ownership.js";
 import { computeMessagesSynced, deriveMailboxPhase } from "./sync-progress.js";
+
+interface SyncTriggerDeps {
+	sqsClient: SQSClient;
+	queueUrl: string;
+	logger: FireAndForgetLogger & {
+		info: (fields: Record<string, unknown>, message: string) => void;
+	};
+}
+
+const defaultSyncTriggerDeps = (): SyncTriggerDeps => ({
+	sqsClient,
+	queueUrl: env.SQS_QUEUE_URL,
+	logger,
+});
+
+/**
+ * Fire-and-forget enqueue for the POST /sync kick.
+ *
+ * POST /sync is a best-effort nudge: the web client polls it to wake a sync and
+ * acts on no enqueue result in the response. So the enqueue must never fail —
+ * nor leak onto — this request or any concurrent read when the queue is
+ * unreachable. Previously this handler `await`ed the SQS send directly; with the
+ * queue down (smoke/e2e, or an SQS outage in prod) the awaited rejection escaped
+ * the handler's promise and landed on whatever read was in flight on the shared
+ * event loop, 500-ing unrelated `/mailboxes`, `/threads` and `/outbox` reads.
+ *
+ * Routing it through fireAndForget catches the rejection at the source, logs it
+ * loudly with the alertable structured fields, and resolves to void. A genuine
+ * account-lookup / ownership failure still propagates and 500s as normal.
+ */
+export const triggerSyncSafe = async (
+	accountId: string,
+	accountConfigId: string,
+	deps: SyncTriggerDeps = defaultSyncTriggerDeps(),
+): Promise<void> => {
+	await fireAndForget(
+		async () => {
+			const { eventId } = await triggerAccountSync({
+				sqsClient: deps.sqsClient,
+				queueUrl: deps.queueUrl,
+				accountId,
+			});
+			deps.logger.info(
+				{ accountId, eventId },
+				"Sync triggered - enqueued SYNC_MAILBOXES event",
+			);
+		},
+		{
+			source: "trigger_sync",
+			message: "Failed to enqueue SYNC_MAILBOXES on POST /sync (best-effort)",
+			ids: { accountId, accountConfigId },
+			logger: deps.logger,
+		},
+	);
+};
 
 export const SyncOperations: Record<
 	SyncOperationIds,
@@ -21,16 +81,7 @@ export const SyncOperations: Record<
 		const account = await getClient().account.get(accountId);
 		assertAccountOwnership(account, accountConfigId, "act");
 
-		const { eventId } = await triggerAccountSync({
-			sqsClient,
-			queueUrl: env.SQS_QUEUE_URL,
-			accountId: account.accountId,
-		});
-
-		logger.info(
-			{ accountId: account.accountId, eventId },
-			"Sync triggered - enqueued SYNC_MAILBOXES event",
-		);
+		void triggerSyncSafe(account.accountId, accountConfigId);
 
 		return {
 			triggered: true,
