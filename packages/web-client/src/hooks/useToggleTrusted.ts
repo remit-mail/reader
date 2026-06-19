@@ -9,6 +9,8 @@ import type {
 	RemitImapTrustedFlag,
 } from "@remit/api-http-client/types.gen.ts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
+import { buildMutationErrorBanner } from "@/components/ui/error-banners";
 
 interface UseToggleTrustedOptions {
 	messageId: string;
@@ -74,11 +76,13 @@ export const patchDescribeMessage = (
  * update + rollback pattern from `useToggleStar`: we patch every cached
  * `describeMessage` response that mentions this address so the UI flips
  * instantly, then roll back on error per the project's "never hide failure"
- * rule (no toast — the caller is expected to surface the mutation error
- * through the existing ErrorState path).
+ * rule. The failure is surfaced reliably here in `onError` (banner + rollback),
+ * not via a fragile consumer effect; a fatal 5xx additionally escalates through
+ * the global MutationCache.onError sink.
  */
 export const useToggleTrusted = ({ messageId }: UseToggleTrustedOptions) => {
 	const queryClient = useQueryClient();
+	const { pushError } = useErrorBanners();
 
 	const { mutate, isPending, error, reset } = useMutation({
 		...addressDetailOperationsUpdateAddressMutation(),
@@ -113,11 +117,19 @@ export const useToggleTrusted = ({ messageId }: UseToggleTrustedOptions) => {
 
 			return { describePrefix, previous };
 		},
-		onError: (_err, _vars, context) => {
-			if (!context) return;
-			for (const entry of context.previous) {
-				queryClient.setQueryData(entry.queryKey, entry.data);
+		onError: (err, _vars, context) => {
+			if (context) {
+				for (const entry of context.previous) {
+					queryClient.setQueryData(entry.queryKey, entry.data);
+				}
 			}
+			pushError(
+				buildMutationErrorBanner(
+					"Couldn't trust sender",
+					"The change wasn't saved.",
+					err,
+				),
+			);
 		},
 		onSettled: (_data, _err, _vars, context) => {
 			if (!context) return;

@@ -43,6 +43,7 @@ import {
 	matchesBriefSearch,
 	toThreadRowData,
 } from "@/lib/brief";
+import { isFatalServerError } from "@/lib/error-classifier";
 import { useMailContext } from "@/lib/mail-context";
 
 const CHIP_STORAGE_KEY = "remit:brief-chip";
@@ -219,9 +220,18 @@ export function DailyBrief({
 		return map;
 	}, [nonMuted, mailboxQueries]);
 
-	// Stale account detection: accounts with a mailbox query error
+	// Per-account connection failures: accounts whose mailbox list failed for a
+	// reason that is genuinely the account's (e.g. IMAP down, auth expired) — a
+	// 4xx. A first-party 5xx is OUR API breaking, not the account being
+	// unreachable, so it must NOT render the misleading "can't connect /
+	// Reconnect" banner; the global escalation overlay (QueryCache.onError)
+	// handles it instead.
 	const failedAccounts = useMemo<RemitImapAccountResponse[]>(() => {
-		return nonMuted.filter((_, i) => mailboxQueries[i]?.isError);
+		return nonMuted.filter((_, i) => {
+			const query = mailboxQueries[i];
+			if (!query?.isError) return false;
+			return !isFatalServerError(query.error);
+		});
 	}, [nonMuted, mailboxQueries]);
 
 	const sq = searchQuery.trim().toLowerCase();

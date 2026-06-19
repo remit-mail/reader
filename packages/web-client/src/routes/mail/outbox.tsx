@@ -30,6 +30,8 @@ import { z } from "zod";
 import { useCompose } from "@/components/compose/ComposeProvider";
 import { MessageBody } from "@/components/mail/MessageBody";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
+import { buildMutationErrorBanner } from "@/components/ui/error-banners";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { isOutboxListRow, isUnsendableStatus } from "@/lib/outbox-status";
 import { cn } from "@/lib/utils";
@@ -122,6 +124,7 @@ const OutboxMessageRow = ({
 }: OutboxMessageRowProps) => {
 	const queryClient = useQueryClient();
 	const { openCompose } = useCompose();
+	const { pushError } = useErrorBanners();
 
 	const invalidateOutbox = () => {
 		queryClient.invalidateQueries({
@@ -134,12 +137,32 @@ const OutboxMessageRow = ({
 		onSuccess: () => {
 			invalidateOutbox();
 		},
+		onError: (error) => {
+			// A failed retry must not look successful — surface it. A fatal 5xx
+			// also escalates through the global MutationCache.onError sink.
+			pushError(
+				buildMutationErrorBanner(
+					"Couldn't resend message",
+					"The message wasn't sent.",
+					error,
+				),
+			);
+		},
 	});
 
 	const deleteMutation = useMutation({
 		...outboxDetailOperationsDeleteOutboxMessageMutation(),
 		onSuccess: () => {
 			invalidateOutbox();
+		},
+		onError: (error) => {
+			pushError(
+				buildMutationErrorBanner(
+					"Couldn't delete message",
+					"The message wasn't deleted.",
+					error,
+				),
+			);
 		},
 	});
 

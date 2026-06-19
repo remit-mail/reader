@@ -399,10 +399,22 @@ export const ComposeForm = ({
 		sourceMessage?.envelope.from[0]?.displayName ??
 		sourceMessage?.envelope.from[0]?.normalizedEmail;
 
-	const { saveStatus, saveDraft, cancelAutoSave } = useSaveDraft({
+	const { saveStatus, saveError, saveDraft, cancelAutoSave } = useSaveDraft({
 		outboxMessageId,
 		onDraftCreated: setOutboxMessageId,
 	});
+
+	// Auto-save runs on a debounce, so a failure has no inline call site to
+	// surface it. Push the real error detail to a banner instead of leaving only
+	// the muted "Save failed" status dot. A fatal 5xx also hits the global
+	// escalation overlay via MutationCache.onError.
+	useEffect(() => {
+		if (!saveError) return;
+		pushError({
+			title: "Couldn't save draft",
+			detail: formatErrorDetail(saveError) ?? "Saving the draft failed.",
+		});
+	}, [saveError, pushError]);
 
 	const createMutation = useMutation(
 		outboxOperationsCreateOutboxMessageMutation(),

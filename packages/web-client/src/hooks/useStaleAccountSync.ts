@@ -3,6 +3,8 @@ import { syncOperationsTriggerSync } from "@remit/api-http-client/sdk.gen.ts";
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
+import { isFatalServerError } from "@/lib/error-classifier";
+import { reportFatalError } from "@/lib/fatal-error";
 
 /**
  * Mailboxes are considered stale 15 minutes after the last successful sync.
@@ -80,7 +82,10 @@ export const useStaleAccountSync = (
 
 		for (const accountId of fresh) {
 			triggeredAccountIds.add(accountId);
-			syncOperationsTriggerSync({ path: { accountId } })
+			// `throwOnError: true` so a server failure rejects instead of silently
+			// resolving with `{ error }` (the default), which would let a 500 look
+			// like a successful sync and invalidate queries anyway.
+			syncOperationsTriggerSync({ path: { accountId }, throwOnError: true })
 				.then(() => {
 					queryClient.invalidateQueries({
 						queryKey: mailboxOperationsListMailboxesQueryKey({
@@ -89,10 +94,16 @@ export const useStaleAccountSync = (
 					});
 				})
 				.catch((err: unknown) => {
-					// Fire-and-forget: this is a background staleness probe, the
-					// user has no way to react to a failure here. Drop the guard
-					// for this account so a later remount can retry.
+					// Drop the guard for this account so a later remount can retry.
 					triggeredAccountIds.delete(accountId);
+					// A fatal first-party 5xx must surface, not hide behind a
+					// console.warn — our backend is broken. Escalate it.
+					if (isFatalServerError(err)) {
+						reportFatalError(err);
+						return;
+					}
+					// A non-fatal failure (e.g. account temporarily unreachable) is
+					// expected for a best-effort background probe — log and move on.
 					console.warn("[remit] background mailbox sync failed", {
 						accountId,
 						error: err,

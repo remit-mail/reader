@@ -16,6 +16,22 @@ export interface PushErrorInput {
 
 const MAX_BANNERS = 5;
 
+/**
+ * Build the banner input for a mutation failure: the error's own message when
+ * it has one, otherwise a human fallback. Shared by the previously-silent
+ * mutation `onError` handlers (signature save, outbox retry/delete, draft
+ * discard) so they surface a real detail instead of nothing. A fatal 5xx is
+ * additionally escalated globally; this only governs the soft banner copy.
+ */
+export const buildMutationErrorBanner = (
+	title: string,
+	fallback: string,
+	error: unknown,
+): PushErrorInput => ({
+	title,
+	detail: formatErrorDetail(error) ?? fallback,
+});
+
 export const formatErrorDetail = (error: unknown): string | undefined => {
 	if (error === undefined || error === null) return undefined;
 	if (error instanceof Error) return error.message || undefined;

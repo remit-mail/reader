@@ -1,6 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
-import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
-import { formatErrorDetail } from "@/components/ui/error-banners";
+import { useMemo, useState } from "react";
 import { useIsDark } from "@/hooks/useIsDark";
 import { useMessageBodyContent } from "@/hooks/useMessageBodyContent";
 import { useToggleTrusted } from "@/hooks/useToggleTrusted";
@@ -107,14 +105,12 @@ export const MessageBody = ({
 }: MessageBodyProps) => {
 	const [allowImagesOnce, setAllowImagesOnce] = useState(false);
 	const allowImages = isTrusted || allowImagesOnce;
-	const { pushError } = useErrorBanners();
 	const isDark = useIsDark();
-	const {
-		toggleTrusted,
-		isPending: isTrustPending,
-		error: trustError,
-		reset: resetTrustError,
-	} = useToggleTrusted({ messageId: messageId ?? "" });
+	// `useToggleTrusted` surfaces its own failure (banner + rollback) and a fatal
+	// 5xx escalates globally — no consumer-side error effect needed here.
+	const { toggleTrusted, isPending: isTrustPending } = useToggleTrusted({
+		messageId: messageId ?? "",
+	});
 
 	const hasParts = !!bodyParts && bodyParts.length > 0;
 	const {
@@ -129,15 +125,6 @@ export const MessageBody = ({
 		bodyParts,
 		enabled: hasParts,
 	});
-
-	useEffect(() => {
-		if (!trustError) return;
-		pushError({
-			title: "Couldn't trust sender",
-			detail: formatErrorDetail(trustError),
-		});
-		resetTrustError();
-	}, [trustError, pushError, resetTrustError]);
 
 	const resolveCid: CidResolver = useMemo(
 		() => buildCidResolver(bodyParts ?? []),

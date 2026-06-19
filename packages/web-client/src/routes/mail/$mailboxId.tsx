@@ -34,6 +34,8 @@ import { MessageList } from "@/components/mail/MessageList";
 import { MessageToolbar } from "@/components/mail/MessageToolbar";
 import { PullToRefresh } from "@/components/mail/PullToRefresh";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
+import { buildMutationErrorBanner } from "@/components/ui/error-banners";
 import {
 	useArchiveMailbox,
 	useDraftsMailbox,
@@ -254,6 +256,7 @@ function MailboxView() {
 
 	// Delete all messages in the open thread via the toolbar.
 	const queryClient = useQueryClient();
+	const { pushError } = useErrorBanners();
 	const { deleteMessages: toolbarDelete } = useDeleteMessages({
 		mailboxId,
 		threadId: selectedThread?.threadId,
@@ -357,9 +360,20 @@ function MailboxView() {
 	// Drafts mailbox is open and a Remit draft (outboxMessageId) is loaded in
 	// compose — the ComposeActionBar discard button covers the same action from
 	// within the compose panel (#536).
-	const deleteOutboxMutation = useMutation(
-		outboxDetailOperationsDeleteOutboxMessageMutation(),
-	);
+	const deleteOutboxMutation = useMutation({
+		...outboxDetailOperationsDeleteOutboxMessageMutation(),
+		onError: (error) => {
+			// The discard optimistically closes compose; a failed delete must not
+			// pass silently. A fatal 5xx also escalates globally.
+			pushError(
+				buildMutationErrorBanner(
+					"Couldn't discard draft",
+					"The draft wasn't deleted.",
+					error,
+				),
+			);
+		},
+	});
 	const handleToolbarDiscardDraft = useCallback(() => {
 		const outboxMessageId = composeState.outboxMessageId;
 		if (!outboxMessageId) return;
