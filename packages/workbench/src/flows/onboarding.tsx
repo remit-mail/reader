@@ -1,7 +1,9 @@
 import {
+	AppPasswordHint,
 	Button,
 	CheckRow,
 	ConnectorTile,
+	FieldLabel,
 	Input,
 	Kbd,
 	Select,
@@ -28,14 +30,6 @@ export const steps = [
 interface StepNav {
 	onBack?: () => void;
 	onNext?: () => void;
-}
-
-function FieldLabel({ children }: { children: string }) {
-	return (
-		<span className="mb-1 block text-xs font-medium text-fg-muted">
-			{children}
-		</span>
-	);
 }
 
 function ErrorBanner({ children }: { children: string }) {
@@ -156,8 +150,9 @@ export function StepMicrosoftEmail({ onBack, onNext }: StepNav = {}) {
 		>
 			<div className="space-y-3">
 				<div>
-					<FieldLabel>Email address (optional)</FieldLabel>
+					<FieldLabel htmlFor="ms-email">Email address (optional)</FieldLabel>
 					<Input
+						id="ms-email"
 						icon={<AtSign className="size-4" />}
 						placeholder="you@outlook.com"
 					/>
@@ -195,8 +190,9 @@ export function StepAddress({
 			}
 		>
 			<div>
-				<FieldLabel>Email address</FieldLabel>
+				<FieldLabel htmlFor="address-email">Email address</FieldLabel>
 				<Input
+					id="address-email"
 					icon={<AtSign className="size-4" />}
 					placeholder="you@example.com"
 					defaultValue={
@@ -254,8 +250,8 @@ export function StepServers({
 				{error && <ErrorBanner>{error}</ErrorBanner>}
 				{preset && (
 					<div>
-						<FieldLabel>Provider</FieldLabel>
-						<Select defaultValue="icloud">
+						<FieldLabel htmlFor="provider-select">Provider</FieldLabel>
+						<Select id="provider-select" defaultValue="icloud">
 							<option value="">Custom / other</option>
 							<option value="icloud">iCloud</option>
 							<option value="yahoo">Yahoo</option>
@@ -349,19 +345,23 @@ export function StepCredentials({ onBack, onNext }: StepNav = {}) {
 		>
 			<div className="space-y-3">
 				<div>
-					<FieldLabel>Username</FieldLabel>
-					<Input defaultValue="alice@fastmail.example" />
+					<FieldLabel htmlFor="credentials-username">Username</FieldLabel>
+					<Input
+						id="credentials-username"
+						defaultValue="alice@fastmail.example"
+					/>
 				</div>
 				<div>
-					<FieldLabel>Password or app password</FieldLabel>
-					<Input type="password" defaultValue="••••••••••••" />
+					<FieldLabel htmlFor="credentials-password">
+						Password or app password
+					</FieldLabel>
+					<Input
+						id="credentials-password"
+						type="password"
+						defaultValue="••••••••••••"
+					/>
 				</div>
-				<p className="text-2xs text-fg-subtle">
-					Stored encrypted, used only to connect to your mail server.{" "}
-					<a href="#app-passwords" className="text-accent underline">
-						How to create an app password
-					</a>
-				</p>
+				<AppPasswordHint url="#app-passwords" />
 			</div>
 		</WizardShell>
 	);

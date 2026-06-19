@@ -26,12 +26,15 @@ import {
 	syncOperationsGetSyncStatusOptions,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import {
+	AppPasswordHint,
 	Button,
 	CheckRow,
 	ConnectorTile,
+	FieldLabel,
 	Input,
 	Kbd,
 	ServerFields,
+	securityToApi,
 	WizardShell,
 } from "@remit/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -131,24 +134,6 @@ interface TestResult {
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
 /* ------------------------------------------------------------------ */
-
-function FieldLabel({ children }: { children: string }) {
-	return (
-		<span className="mb-1 block text-xs font-medium text-fg-muted">
-			{children}
-		</span>
-	);
-}
-
-function securityToApi(security: SecurityMode): {
-	tls: boolean;
-	startTls: boolean;
-} {
-	return {
-		tls: security === "tls",
-		startTls: security === "starttls",
-	};
-}
 
 /* ------------------------------------------------------------------ */
 /* Individual step components                                         */
@@ -348,10 +333,11 @@ function StepMicrosoftEmail({
 		>
 			<div className="space-y-3">
 				<div>
-					<span className="mb-1 block text-xs font-medium text-fg-muted">
+					<FieldLabel htmlFor="microsoft-email">
 						Email address (optional)
-					</span>
+					</FieldLabel>
 					<Input
+						id="microsoft-email"
 						icon={<AtSign className="size-4" />}
 						placeholder="you@outlook.com"
 						value={email}
@@ -440,8 +426,9 @@ function StepAddress({
 			}
 		>
 			<div>
-				<FieldLabel>Email address</FieldLabel>
+				<FieldLabel htmlFor="onboarding-email">Email address</FieldLabel>
 				<Input
+					id="onboarding-email"
 					icon={<AtSign className="size-4" />}
 					placeholder="you@example.com"
 					value={email}
@@ -652,8 +639,9 @@ function StepCredentials({
 					</div>
 				)}
 				<div>
-					<FieldLabel>Username</FieldLabel>
+					<FieldLabel htmlFor="credentials-username">Username</FieldLabel>
 					<Input
+						id="credentials-username"
 						value={localUsername}
 						onChange={(e) => {
 							setLocalUsername(e.target.value);
@@ -663,8 +651,11 @@ function StepCredentials({
 					/>
 				</div>
 				<div>
-					<FieldLabel>Password or app password</FieldLabel>
+					<FieldLabel htmlFor="credentials-password">
+						Password or app password
+					</FieldLabel>
 					<Input
+						id="credentials-password"
 						type="password"
 						value={localPassword}
 						onChange={(e) => {
@@ -674,23 +665,7 @@ function StepCredentials({
 						autoComplete="current-password"
 					/>
 				</div>
-				<p className="text-2xs text-fg-subtle">
-					Stored encrypted, used only to connect to your mail server.{" "}
-					{appPasswordUrl ? (
-						<a
-							href={appPasswordUrl}
-							target="_blank"
-							rel="noopener noreferrer"
-							className="text-accent underline"
-						>
-							How to create an app password
-						</a>
-					) : (
-						<span>
-							Check your provider's help for app password instructions.
-						</span>
-					)}
-				</p>
+				<AppPasswordHint url={appPasswordUrl} />
 			</div>
 		</WizardShell>
 	);

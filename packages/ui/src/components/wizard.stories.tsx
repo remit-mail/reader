@@ -1,7 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { AtSign, Inbox, Server } from "lucide-react";
 import { useState } from "react";
-import { ConnectorTile, ServerFields, type ServerSecurity } from "./wizard.js";
+import type { ServerSecurity } from "./security-select.js";
+import { ConnectorTile, ServerFields } from "./wizard.js";
 
 const meta: Meta = {
 	title: "Components/Wizard",
