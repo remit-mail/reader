@@ -536,16 +536,43 @@ export class FlagQueueService {
 		};
 
 		const useFifo = this.queueUrl.endsWith(".fifo");
-		await this.sqs.send(
-			new SendMessageCommand({
-				QueueUrl: this.queueUrl,
-				MessageBody: JSON.stringify(event),
-				...(useFifo && {
-					MessageGroupId: accountId,
-					MessageDeduplicationId: event.eventId,
+
+		// The local flag state (MessageFlag + ThreadMessage rows) is already
+		// durably written by the time we get here; this enqueue only propagates the
+		// change to IMAP, which is best-effort. A queue-down failure must therefore
+		// NOT reject updateFlags — an awaited rejection here escapes the handler's
+		// promise and, on the shared API event loop, lands on whatever read is in
+		// flight, 500-ing unrelated /mailboxes, /threads and /outbox reads. Catch it
+		// at the source, log loudly with an alertable field, and resolve. The local
+		// state is correct; the worker reconciles IMAP on the next sync.
+		try {
+			await this.sqs.send(
+				new SendMessageCommand({
+					QueueUrl: this.queueUrl,
+					MessageBody: JSON.stringify(event),
+					...(useFifo && {
+						MessageGroupId: accountId,
+						MessageDeduplicationId: event.eventId,
+					}),
 				}),
-			}),
-		);
+			);
+		} catch (error: unknown) {
+			this.log.error(
+				{
+					alert: "flag_sync_enqueue_failed",
+					eventId: event.eventId,
+					accountId,
+					mailboxId,
+					operations,
+					errorName: (error as { name?: string })?.name,
+					errorCode:
+						(error as { Code?: string })?.Code ??
+						(error as { code?: string })?.code,
+				},
+				"Failed to enqueue SYNC_FLAGS event (local flag state persisted, best-effort IMAP sync deferred)",
+			);
+			return;
+		}
 
 		this.log.info(
 			{ eventId: event.eventId, accountId, mailboxId, operations },

@@ -683,3 +683,93 @@ describe("FlagQueueService.markAsRead/markAsUnread unseenCount adjustment", () =
 		assert.strictEqual(mailboxService._getUnseenCount(mailboxId), 3);
 	});
 });
+
+describe("FlagQueueService enqueue failure containment", () => {
+	const messageId = "test-message-id";
+	const accountId = "test-account-id";
+
+	// A deferred ECONNREFUSED, the way a real socket error settles after the AWS
+	// SDK's connect attempt — not an inline throw a synchronous guard would catch.
+	const deferredFailingSQS = () => ({
+		send: mock.fn(
+			() =>
+				new Promise((_resolve, reject) => {
+					setImmediate(() =>
+						reject(
+							Object.assign(new Error(""), {
+								name: "AggregateError",
+								code: "ECONNREFUSED",
+							}),
+						),
+					);
+				}),
+		),
+	});
+
+	const createLoggerSpy = () => {
+		const errors: { fields: Record<string, unknown>; msg: string }[] = [];
+		return {
+			logger: {
+				info: () => {},
+				error: (fields: Record<string, unknown>, msg: string) => {
+					errors.push({ fields, msg });
+				},
+			},
+			errors,
+		};
+	};
+
+	it("does NOT reject updateFlags when the SYNC_FLAGS enqueue fails (queue down)", async () => {
+		const { logger } = createLoggerSpy();
+		const { service } = createTestConfig({ logger });
+		// @ts-expect-error - swap in a deferred-failing SQS for the down-queue case
+		service.sqs = deferredFailingSQS();
+
+		await assert.doesNotReject(
+			service.updateFlags(messageId, accountId, { isRead: true }),
+		);
+	});
+
+	it("does NOT leak an unhandled rejection onto a concurrent read when the enqueue fails", async () => {
+		const leaked: unknown[] = [];
+		const onUnhandled = (reason: unknown): void => {
+			leaked.push(reason);
+		};
+		process.on("unhandledRejection", onUnhandled);
+
+		const { logger } = createLoggerSpy();
+		const { service } = createTestConfig({ logger });
+		// @ts-expect-error - swap in a deferred-failing SQS for the down-queue case
+		service.sqs = deferredFailingSQS();
+
+		let readResolved = false;
+		try {
+			void service.updateFlags(messageId, accountId, { isStarred: true });
+			await new Promise((resolve) => setImmediate(resolve)).then(() => {
+				readResolved = true;
+			});
+			await new Promise((resolve) => setImmediate(resolve));
+			await new Promise((resolve) => setImmediate(resolve));
+		} finally {
+			process.off("unhandledRejection", onUnhandled);
+		}
+
+		assert.strictEqual(readResolved, true);
+		assert.strictEqual(leaked.length, 0);
+	});
+
+	it("logs the enqueue failure loudly with an alertable field", async () => {
+		const { logger, errors } = createLoggerSpy();
+		const { service } = createTestConfig({ logger });
+		// @ts-expect-error - swap in a deferred-failing SQS for the down-queue case
+		service.sqs = deferredFailingSQS();
+
+		await service.updateFlags(messageId, accountId, { isRead: true });
+
+		const alerted = errors.find(
+			(e) => e.fields.alert === "flag_sync_enqueue_failed",
+		);
+		assert.ok(alerted, "expected an alertable flag_sync_enqueue_failed log");
+		assert.strictEqual(alerted.fields.errorCode, "ECONNREFUSED");
+	});
+});
