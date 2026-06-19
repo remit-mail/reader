@@ -7,19 +7,50 @@ import { Button, Dialog, Input } from "@remit/ui";
 import { useMutation } from "@tanstack/react-query";
 import { AlertTriangle, Download, X } from "lucide-react";
 import { useState } from "react";
+import { isCognitoConfigured } from "@/auth/amplify-config";
 
 interface DeleteAccountDialogProps {
 	open: boolean;
 	onClose: () => void;
 }
 
-export function DeleteAccountDialog({
-	open,
-	onClose,
-}: DeleteAccountDialogProps) {
+/**
+ * Inner component that pulls the account identity and `signOut` from the
+ * Amplify Authenticator context. Mounted only when Cognito is configured
+ * (see the wrapper below), so `useAuthenticator` always runs inside the
+ * `Authenticator.Provider` that `AuthShell` mounts in the configured path.
+ *
+ * When Cognito is NOT configured (local dev / e2e / visual harness),
+ * `AuthShell` does not mount `Authenticator.Provider`, and calling
+ * `useAuthenticator` would throw `USE_AUTHENTICATOR_ERROR`, crashing the
+ * whole settings/accounts route. The wrapper therefore gates this inner
+ * component on `isCognitoConfigured()`.
+ */
+function DeleteAccountDialogInner({ open, onClose }: DeleteAccountDialogProps) {
 	const { user, signOut } = useAuthenticator((ctx) => [ctx.user, ctx.signOut]);
 	const accountEmail = user?.signInDetails?.loginId ?? user?.username ?? "";
 
+	return (
+		<DeleteAccountDialogView
+			open={open}
+			onClose={onClose}
+			accountEmail={accountEmail}
+			signOut={signOut}
+		/>
+	);
+}
+
+interface DeleteAccountDialogViewProps extends DeleteAccountDialogProps {
+	accountEmail: string;
+	signOut: () => void;
+}
+
+function DeleteAccountDialogView({
+	open,
+	onClose,
+	accountEmail,
+	signOut,
+}: DeleteAccountDialogViewProps) {
 	const [confirmEmail, setConfirmEmail] = useState("");
 	const [mismatch, setMismatch] = useState(false);
 	const [deleted, setDeleted] = useState(false);
@@ -186,4 +217,21 @@ export function DeleteAccountDialog({
 			)}
 		</Dialog>
 	);
+}
+
+/**
+ * Delete-account dialog. Safe to mount anywhere — `DangerZone` renders it
+ * unconditionally on the settings/accounts route. The hook-using inner
+ * component is gated on `isCognitoConfigured()`; without Cognito (local dev /
+ * e2e / visual harness) there is no signed-in account to delete, so we render
+ * the view with an empty identity and a no-op `signOut`. The env-derived
+ * branch is constant for the app's lifetime, so the Rules of Hooks hold.
+ */
+export function DeleteAccountDialog(props: DeleteAccountDialogProps) {
+	if (!isCognitoConfigured()) {
+		return (
+			<DeleteAccountDialogView {...props} accountEmail="" signOut={() => {}} />
+		);
+	}
+	return <DeleteAccountDialogInner {...props} />;
 }
