@@ -4,7 +4,7 @@ import {
 	ThemeProvider,
 	useAuthenticator,
 } from "@aws-amplify/ui-react";
-import { AuthFooter, AuthHero, Banner } from "@remit/ui";
+import { AuthCard, AuthFooter, AuthHero, Banner } from "@remit/ui";
 import type { ReactNode } from "react";
 import { AppShellSkeleton } from "@/components/layout/AppShellSkeleton";
 import { isCognitoConfigured } from "./amplify-config";
@@ -208,26 +208,25 @@ const SignInGate = ({ children }: { children: ReactNode }) => {
 
 	return (
 		<ThemeProvider theme={remitTheme}>
-			<div data-auth-page className="auth-page">
-				<div className="auth-page-inner">
-					<AuthHero />
-					<Authenticator
-						hideSignUp={false}
-						components={{ Footer: AuthFooter }}
-					/>
-				</div>
-			</div>
+			<AuthCard>
+				<AuthHero />
+				<Authenticator hideSignUp={false} components={{ Footer: AuthFooter }} />
+			</AuthCard>
 		</ThemeProvider>
 	);
 };
 
 export const AuthShell = ({ children }: AuthShellProps) => {
 	if (!isCognitoConfigured()) {
+		// The dev banner is fixed at the top. Pad content below it AND shrink the
+		// inner `main` (hardcoded `h-dvh`) by the banner height — otherwise main's
+		// full 100dvh starts below the 40px padding and overflows, pushing pinned
+		// footers like the compose Send bar 40px below the fold (#788).
 		return (
-			<>
+			<div className="pt-7 sm:pt-10 [&_#main-content]:h-[calc(100dvh-1.75rem)] sm:[&_#main-content]:h-[calc(100dvh-2.5rem)]">
 				<LocalDevBanner />
-				<div className="pt-7 sm:pt-10 h-dvh">{children}</div>
-			</>
+				{children}
+			</div>
 		);
 	}
 

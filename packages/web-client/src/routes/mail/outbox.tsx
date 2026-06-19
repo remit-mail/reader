@@ -9,6 +9,7 @@ import type {
 	RemitImapOutboxMessageStatus,
 } from "@remit/api-http-client/types.gen.ts";
 import {
+	OutboxRow,
 	ResizableHandle,
 	ResizablePanel,
 	ResizablePanelGroup,
@@ -22,9 +23,7 @@ import {
 	CheckCircle,
 	Clock,
 	Loader2,
-	RotateCcw,
 	Send,
-	Trash2,
 } from "lucide-react";
 import { z } from "zod";
 import { useCompose } from "@/components/compose/ComposeProvider";
@@ -170,113 +169,41 @@ const OutboxMessageRow = ({
 		RemitImapOutboxMessageStatus,
 		"draft"
 	>;
-	const config = STATUS_CONFIG[status];
+	if (!STATUS_CONFIG[status]) return null;
 
-	if (!config) return null;
-
-	const StatusIcon = config.icon;
 	const showError = isUnsendableStatus(message.status);
-	const rowTint = (() => {
-		if (isSelected) return null;
-		if (status === "failed") return "bg-danger-soft";
-		if (status === "blocked") return "bg-warning/10";
-		return null;
-	})();
 
 	return (
-		<button
-			type="button"
-			onClick={onSelect}
-			className={cn(
-				"w-full text-left flex items-start gap-3 px-4 py-3 border-b border-line hover:bg-surface-raised transition-colors",
-				isSelected && "bg-accent-2-soft",
-				rowTint,
-			)}
-		>
-			<div className={cn("mt-0.5 shrink-0", config.className)}>
-				<StatusIcon
-					className={cn(
-						"size-4",
-						message.status === "sending" && "animate-spin",
-					)}
-				/>
-			</div>
-			<div className="flex-1 min-w-0">
-				<div className="flex items-center justify-between gap-2">
-					<span className="text-sm font-medium truncate">
-						{formatRecipients(message)}
-					</span>
-					<span className="text-xs text-fg-muted shrink-0">
-						{formatDate(message.sentAt ?? message.updatedAt)}
-					</span>
-				</div>
-				<div className="text-sm truncate">
-					{message.subject || "No subject"}
-				</div>
-				<div className="flex items-center gap-2 mt-1">
-					<span className={cn("text-xs font-medium", config.className)}>
-						{config.label}
-					</span>
-					{showError && message.lastError && (
-						<span className="text-xs text-fg-muted truncate">
-							— {message.lastError}
-						</span>
-					)}
-				</div>
-			</div>
-			<div
-				className="flex items-center gap-1 shrink-0"
-				onClick={(e) => e.stopPropagation()}
-				onKeyDown={(e) => e.stopPropagation()}
-				role="presentation"
-			>
-				{showError && (
-					<>
-						{status === "failed" && (
-							<button
-								type="button"
-								onClick={() =>
-									retryMutation.mutate({
-										path: { outboxMessageId: message.outboxMessageId },
-									})
-								}
-								disabled={retryMutation.isPending}
-								className="p-1.5 rounded-md text-fg-muted hover:text-fg hover:bg-surface-raised transition-colors"
-								title="Retry sending"
-							>
-								<RotateCcw className="size-3.5" />
-							</button>
-						)}
-						<button
-							type="button"
-							onClick={() =>
-								openCompose({
-									mode: "new",
-									outboxMessageId: message.outboxMessageId,
-								})
-							}
-							className="p-1.5 rounded-md text-fg-muted hover:text-fg hover:bg-surface-raised transition-colors"
-							title="Edit as draft"
-						>
-							<Send className="size-3.5" />
-						</button>
-						<button
-							type="button"
-							onClick={() =>
-								deleteMutation.mutate({
-									path: { outboxMessageId: message.outboxMessageId },
-								})
-							}
-							disabled={deleteMutation.isPending}
-							className="p-1.5 rounded-md text-fg-muted hover:text-danger hover:bg-surface-raised transition-colors"
-							title="Delete message"
-						>
-							<Trash2 className="size-3.5" />
-						</button>
-					</>
-				)}
-			</div>
-		</button>
+		<OutboxRow
+			recipients={formatRecipients(message)}
+			subject={message.subject || ""}
+			time={formatDate(message.sentAt ?? message.updatedAt)}
+			status={status}
+			error={showError ? (message.lastError ?? undefined) : undefined}
+			selected={isSelected}
+			onSelect={onSelect}
+			onRetry={
+				status === "failed"
+					? () =>
+							retryMutation.mutate({
+								path: { outboxMessageId: message.outboxMessageId },
+							})
+					: undefined
+			}
+			retrying={retryMutation.isPending}
+			onEdit={() =>
+				openCompose({
+					mode: "new",
+					outboxMessageId: message.outboxMessageId,
+				})
+			}
+			onDelete={() =>
+				deleteMutation.mutate({
+					path: { outboxMessageId: message.outboxMessageId },
+				})
+			}
+			deleting={deleteMutation.isPending}
+		/>
 	);
 };
 
