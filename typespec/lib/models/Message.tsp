@@ -5,6 +5,8 @@ import "../enums/MessageCategory.tsp";
 import "../enums/MessageFlag.tsp";
 import "../enums/MessageStatus.tsp";
 import "../enums/MessageSyncStatus.tsp";
+import "../enums/PlacementAction.tsp";
+import "../enums/PlacementConfidence.tsp";
 import "../enums/SenderTrust.tsp";
 import "../enums/StarColor.tsp";
 import "../scalars/string.tsp";
@@ -45,6 +47,27 @@ model MessageProviderSpam {
 
   @doc("Header name the signal was read from, for diagnostics.")
   source?: string;
+}
+
+@doc("Remit's placement decision for a message, recorded at body-sync time. Present only when Remit decided to act (action != leave); absent when the message was left in place or synced before placement rolled out. Written in dry-run too, so the dark-ship verdict distribution is queryable before moves are enabled.")
+model MessagePlacementVerdict {
+  @doc("The direction Remit decided to move the message.")
+  action: PlacementAction;
+
+  @doc("Confidence of the verdict. Only `Confident` verdicts enqueue an IMAP move (when the dark-ship flag is on).")
+  confidence: PlacementConfidence;
+
+  @doc("The folder the message was in when the verdict was made: inbox | junk | other.")
+  fromPlacement: string;
+
+  @doc("Deterministic signals the verdict was based on, for diagnostics.")
+  reasons: string[];
+
+  @doc("True when the dark-ship flag was off, so the move was computed but not enqueued (would-move only). False when a real IMAP move was enqueued.")
+  dryRun: boolean;
+
+  @doc("Body-sync timestamp the verdict was decided at (epoch millis).")
+  decidedAt: int64;
 }
 
 @doc("Core message entity. The combination of Mailbox.uidValidity + Message.uid uniquely identifies a message forever per RFC 9051 Section 2.3.1.1.")
@@ -157,6 +180,10 @@ model Message {
   @doc("Set to true when Remit auto-moved this message out of Junk via the rescue heuristic. Guards against re-rescue loops.")
   @visibility(Lifecycle.Read)
   movedByRemit?: boolean;
+
+  @doc("Remit's placement verdict, recorded when Remit decided to act (action != leave). Absent means left-in-place or synced before placement rolled out. Recorded in dry-run too, so the dark-ship distribution is queryable.")
+  @visibility(Lifecycle.Read)
+  placementVerdict?: MessagePlacementVerdict;
 
   @visibility(Lifecycle.Read)
   @createdAt
