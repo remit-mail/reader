@@ -129,7 +129,7 @@ const spawnWorker = (): ChildProcess => {
 	const projectRoot = resolve(__dirname, "../../..");
 	const workerPath = resolve(
 		projectRoot,
-		"packages/remit-imap-worker/src/worker.ts",
+		"packages/remit-imap-worker/src/e2e-processor-shim.ts",
 	);
 
 	const worker = spawn(

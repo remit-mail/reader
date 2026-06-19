@@ -296,7 +296,7 @@ describe(
 
 			imapWorker = spawnWorker(
 				"imap-worker",
-				"packages/remit-imap-worker/src/worker.ts",
+				"packages/remit-imap-worker/src/e2e-processor-shim.ts",
 			);
 			// Mokapi presents a self-signed cert for STARTTLS; the production
 			// SmtpConfig has no escape hatch and the handler does not set
@@ -304,7 +304,7 @@ describe(
 			// child process via the standard Node opt-out for the test env.
 			smtpWorker = spawnWorker(
 				"smtp-worker",
-				"packages/remit-smtp-worker/src/worker.ts",
+				"packages/remit-smtp-worker/src/e2e-processor-shim.ts",
 				{ NODE_TLS_REJECT_UNAUTHORIZED: "0" },
 			);
 
