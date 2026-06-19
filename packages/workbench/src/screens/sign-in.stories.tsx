@@ -7,7 +7,7 @@
  * anchor used in AuthShell.tsx. The branded hero, footer, and dev banner are
  * the real @remit/ui components the live shell composes.
  */
-import { AuthFooter, AuthHero, Banner } from "@remit/ui";
+import { AuthCard, AuthFooter, AuthHero, Banner } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 const meta: Meta = {
@@ -140,12 +140,10 @@ function SignInPage({
 	activeTab?: "signin" | "signup";
 }) {
 	return (
-		<div data-auth-page className="auth-page">
-			<div className="auth-page-inner">
-				<AuthHero />
-				<MockAuthenticator activeTab={activeTab} />
-			</div>
-		</div>
+		<AuthCard>
+			<AuthHero />
+			<MockAuthenticator activeTab={activeTab} />
+		</AuthCard>
 	);
 }
 

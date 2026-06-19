@@ -67,9 +67,9 @@ export const FullCompose = () => {
 	}
 
 	return (
-		<div className="h-full flex flex-col bg-canvas">
+		<div className="flex h-full min-h-0 flex-col bg-canvas">
 			{header}
-			<div className="flex-1 overflow-hidden">
+			<div className="min-h-0 flex-1 overflow-hidden">
 				<ComposeForm
 					key={state.outboxMessageId ?? "new"}
 					mode={state.mode}
