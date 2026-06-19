@@ -31,6 +31,7 @@ export {
 	Banner,
 	type BannerProps,
 	type BannerTone,
+	type BannerVariant,
 } from "./components/banner.js";
 export { Button, type ButtonProps } from "./components/button.js";
 export {
@@ -52,10 +53,6 @@ export {
 	type FilterSheetProps,
 	type FilterSheetSource,
 } from "./components/filter-sheet.js";
-export {
-	InlineBanner,
-	type InlineBannerProps,
-} from "./components/inline-banner.js";
 export { Input, type InputProps } from "./components/input.js";
 export {
 	type AuthenticityIntel,

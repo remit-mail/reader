@@ -4,35 +4,9 @@ import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import { Button } from "./button.js";
 import { DangerZoneSection } from "./danger-zone-section.js";
-import { InlineBanner } from "./inline-banner.js";
 import { SegmentedControl } from "./segmented-control.js";
 import { SenderGroupSwitch } from "./sender-group-switch.js";
 import { SettingsShell } from "./settings-screen.js";
-
-describe("InlineBanner (#800)", () => {
-	it("dismiss control is a real button with an accessible label, not a raw glyph", () => {
-		const html = renderToString(
-			createElement(InlineBanner, {
-				tone: "positive",
-				onDismiss: () => undefined,
-				children: "Account connected successfully.",
-			}),
-		);
-		assert.match(html, /role="status"/);
-		assert.match(html, /aria-label="Dismiss"/);
-		assert.doesNotMatch(html, /✕/);
-	});
-
-	it("danger tone reports an alert role", () => {
-		const html = renderToString(
-			createElement(InlineBanner, {
-				tone: "danger",
-				children: "Sign-in failed.",
-			}),
-		);
-		assert.match(html, /role="alert"/);
-	});
-});
 
 describe("SegmentedControl (#802)", () => {
 	it("is a radiogroup with one checked radio and thumb-sized targets", () => {
