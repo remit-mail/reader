@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 import {
 	appendBanner,
 	buildEntry,
+	buildMutationErrorBanner,
 	dismissBanner,
 	type ErrorBannerEntry,
 	formatErrorDetail,
@@ -172,5 +173,35 @@ describe("isMessageNotFoundError (#212)", () => {
 		assert.equal(isMessageNotFoundError(null), false);
 		assert.equal(isMessageNotFoundError(undefined), false);
 		assert.equal(isMessageNotFoundError({}), false);
+	});
+});
+
+describe("buildMutationErrorBanner — previously-silent mutations now surface", () => {
+	test("uses the server error message when present (real detail, not a dot)", () => {
+		const banner = buildMutationErrorBanner(
+			"Couldn't save signature",
+			"The signature wasn't saved.",
+			new Error("Address already in use"),
+		);
+		assert.equal(banner.title, "Couldn't save signature");
+		assert.equal(banner.detail, "Address already in use");
+	});
+
+	test("falls back to a human message when the error carries none", () => {
+		const banner = buildMutationErrorBanner(
+			"Couldn't discard draft",
+			"The draft wasn't deleted.",
+			{},
+		);
+		assert.equal(banner.detail, "The draft wasn't deleted.");
+	});
+
+	test("reads .message off a plain object error body", () => {
+		const banner = buildMutationErrorBanner(
+			"Couldn't resend message",
+			"The message wasn't sent.",
+			{ message: "SMTP relay refused" },
+		);
+		assert.equal(banner.detail, "SMTP relay refused");
 	});
 });

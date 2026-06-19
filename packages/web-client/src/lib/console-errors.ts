@@ -6,6 +6,8 @@
  * Dependency-free and side-effect-free until install() is called.
  */
 
+import { reportFatalError } from "./fatal-error";
+
 const MAX_ENTRIES = 20;
 
 const ring: string[] = [];
@@ -13,6 +15,15 @@ const ring: string[] = [];
 function push(entry: string): void {
 	ring.push(entry);
 	if (ring.length > MAX_ENTRIES) ring.shift();
+}
+
+/**
+ * Record a single line into the recent-errors ring. Exposed so the global
+ * `reportFatalError` seam (lib/fatal-error.ts) can land fatal errors in the
+ * same buffer the bug-report flow reads, without re-implementing the ring.
+ */
+export function recordError(entry: string): void {
+	push(entry);
 }
 
 function formatArgs(args: unknown[]): string {
@@ -40,6 +51,8 @@ export function install(): void {
 		push(
 			`Uncaught ${event.error instanceof Error ? `${event.error.name}: ${event.error.message}` : String(event.message)} (${event.filename}:${event.lineno})`,
 		);
+		// An uncaught exception is, by definition, unhandled — escalate it.
+		reportFatalError(event.error ?? event.message);
 	});
 
 	window.addEventListener(
@@ -51,6 +64,9 @@ export function install(): void {
 					? `${reason.name}: ${reason.message}`
 					: String(reason);
 			push(`Unhandled rejection: ${detail}`);
+			// A rejection that bubbles to the window was never handled by any
+			// caller — route it through the same fatal seam.
+			reportFatalError(reason);
 		},
 	);
 }

@@ -5,6 +5,8 @@ import {
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
+import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
+import { buildMutationErrorBanner } from "@/components/ui/error-banners";
 
 export interface SignatureData {
 	html: string;
@@ -15,6 +17,7 @@ const EMPTY_SIGNATURE: SignatureData = { html: "", plainText: "" };
 
 export const useSignature = (accountId?: string) => {
 	const queryClient = useQueryClient();
+	const { pushError } = useErrorBanners();
 
 	const { data: config } = useQuery({
 		...configOperationsGetConfigOptions(),
@@ -37,6 +40,17 @@ export const useSignature = (accountId?: string) => {
 			queryClient.invalidateQueries({
 				queryKey: configOperationsGetConfigQueryKey(),
 			});
+		},
+		onError: (error) => {
+			// Saving the signature failed silently before — surface it. A fatal
+			// 5xx also escalates through the global MutationCache.onError sink.
+			pushError(
+				buildMutationErrorBanner(
+					"Couldn't save signature",
+					"The signature wasn't saved.",
+					error,
+				),
+			);
 		},
 	});
 

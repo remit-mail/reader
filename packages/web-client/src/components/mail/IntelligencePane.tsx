@@ -64,6 +64,27 @@ export const resolveSpamAction = (input: {
 	return junkMailboxId ? "markSpam" : null;
 };
 
+/**
+ * Decide the "Similar messages" section state from the semantic-search query.
+ *
+ * The fail-fast rule: a fatal first-party 5xx must NEVER degrade to the benign
+ * grey "Similarity search unavailable" label — it escalates to the global red
+ * overlay instead, so this returns `"ready"` for it (the section then renders
+ * nothing rather than a misleading soft state). A soft (non-fatal) failure
+ * keeps the muted `"error"` state; an empty result is `"ready"` (no error).
+ * Pure so the classification can be unit-tested without rendering.
+ */
+export const resolveSimilarState = (input: {
+	similarError: unknown;
+	similarErrorIsFatal: boolean;
+	isSimilarLoading: boolean;
+}): SimilarState => {
+	const { similarError, similarErrorIsFatal, isSimilarLoading } = input;
+	if (similarError && !similarErrorIsFatal) return "error";
+	if (isSimilarLoading) return "loading";
+	return "ready";
+};
+
 function IntelligenceSkeleton() {
 	return (
 		<aside className="flex h-full w-full flex-col bg-surface-sunken">
@@ -182,8 +203,13 @@ function WiredPanel({
 	mailboxId,
 	accountId,
 }: WiredPanelProps) {
-	const { data, addressId, isSimilarLoading, similarError } =
-		useIntelligenceData(thread);
+	const {
+		data,
+		addressId,
+		isSimilarLoading,
+		similarError,
+		similarErrorIsFatal,
+	} = useIntelligenceData(thread);
 	const [confirmBlock, setConfirmBlock] = useState(false);
 	const [reclassifyOpen, setReclassifyOpen] = useState(false);
 	const senderEmail = thread.fromEmail ?? undefined;
@@ -288,11 +314,11 @@ function WiredPanel({
 		return <IntelligenceSkeleton />;
 	}
 
-	const similarState: SimilarState = similarError
-		? "error"
-		: isSimilarLoading
-			? "loading"
-			: "ready";
+	const similarState = resolveSimilarState({
+		similarError,
+		similarErrorIsFatal,
+		isSimilarLoading,
+	});
 
 	return (
 		<>

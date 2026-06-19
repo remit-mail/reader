@@ -30,6 +30,7 @@ export const useSaveDraft = ({
 	onDraftCreated,
 }: UseSaveDraftOptions) => {
 	const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
+	const [saveError, setSaveError] = useState<unknown>(null);
 	const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 	const queryClient = useQueryClient();
 
@@ -43,6 +44,7 @@ export const useSaveDraft = ({
 	const executeSave = useCallback(
 		async (data: DraftData) => {
 			setSaveStatus("saving");
+			setSaveError(null);
 
 			if (outboxMessageId) {
 				const result = await updateMutation.mutateAsync({
@@ -88,7 +90,13 @@ export const useSaveDraft = ({
 		(data: DraftData) => {
 			if (timerRef.current) clearTimeout(timerRef.current);
 			timerRef.current = setTimeout(() => {
-				executeSave(data).catch(() => setSaveStatus("error"));
+				// Keep the real error, not just a vague "error" status — the caller
+				// surfaces its detail in a banner. A fatal 5xx additionally escalates
+				// through the global MutationCache.onError sink.
+				executeSave(data).catch((error: unknown) => {
+					setSaveError(error);
+					setSaveStatus("error");
+				});
 			}, 2000);
 		},
 		[executeSave],
@@ -106,5 +114,5 @@ export const useSaveDraft = ({
 		if (timerRef.current) clearTimeout(timerRef.current);
 	}, []);
 
-	return { saveStatus, saveDraft, saveImmediately, cancelAutoSave };
+	return { saveStatus, saveError, saveDraft, saveImmediately, cancelAutoSave };
 };

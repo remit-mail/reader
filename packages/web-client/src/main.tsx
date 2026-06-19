@@ -1,4 +1,9 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+	MutationCache,
+	QueryCache,
+	QueryClient,
+	QueryClientProvider,
+} from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
@@ -7,6 +12,8 @@ import { AuthShell } from "./auth/AuthShell";
 import { configureAmplify } from "./auth/amplify-config";
 import { installAuthInterceptor } from "./auth/auth-interceptor";
 import { install as installConsoleErrorCatcher } from "./lib/console-errors";
+import { setFatalErrorTelemetry } from "./lib/fatal-error";
+import { handleQueryError } from "./lib/query-error-handler";
 import { initRum } from "./lib/rum-adapter";
 import { TelemetryContext } from "./lib/telemetry-context";
 import { installThemeSync } from "./lib/theme";
@@ -21,8 +28,16 @@ configureAmplify();
 installAuthInterceptor();
 
 const telemetry = initRum();
+// Plug the live telemetry adapter into the single fatal-error seam.
+setFatalErrorTelemetry(telemetry);
 
+// Every query and mutation error flows through the global classifier: fatal
+// first-party 5xx (or an unreachable backend) escalates to the full-screen red
+// overlay; expected 4xx / aborts are left to the calling surface. This is the
+// v5 equivalent of `defaultOptions.queries.onError` / `.mutations.onError`.
 const queryClient = new QueryClient({
+	queryCache: new QueryCache({ onError: handleQueryError }),
+	mutationCache: new MutationCache({ onError: handleQueryError }),
 	defaultOptions: {
 		queries: {
 			staleTime: 30_000,

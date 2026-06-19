@@ -9,13 +9,27 @@ import { ComposeProvider } from "@/components/compose/ComposeProvider";
 import { AppShellSkeleton } from "@/components/layout/AppShellSkeleton";
 import { ErrorBannerProvider } from "@/components/ui/ErrorBannerProvider";
 import { ErrorState } from "@/components/ui/ErrorState";
+import {
+	FatalErrorOverlay,
+	FatalErrorScreen,
+} from "@/components/ui/FatalErrorOverlay";
+import { isFatalServerError } from "@/lib/error-classifier";
+import { reportFatalError } from "@/lib/fatal-error";
 import type { RouterContext } from "@/router";
 
-const RootErrorComponent = ({ error, reset }: ErrorComponentProps) => (
-	<div className="flex h-dvh items-center justify-center bg-canvas p-4">
-		<ErrorState title="Something went wrong" error={error} onRetry={reset} />
-	</div>
-);
+const RootErrorComponent = ({ error, reset }: ErrorComponentProps) => {
+	// A fatal first-party 5xx that bubbled to the route boundary must escalate
+	// to the full-screen red page — never the soft grey "Something went wrong".
+	if (isFatalServerError(error)) {
+		const fatal = reportFatalError(error);
+		return <FatalErrorScreen fatal={fatal} />;
+	}
+	return (
+		<div className="flex h-dvh items-center justify-center bg-canvas p-4">
+			<ErrorState title="Something went wrong" error={error} onRetry={reset} />
+		</div>
+	);
+};
 
 export const Route = createRootRouteWithContext<RouterContext>()({
 	component: RootLayout,
@@ -48,6 +62,7 @@ function RootLayout() {
 					</Suspense>
 				</main>
 			</ComposeProvider>
+			<FatalErrorOverlay />
 		</ErrorBannerProvider>
 	);
 }
