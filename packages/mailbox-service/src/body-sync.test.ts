@@ -407,6 +407,62 @@ describe("BodySyncService.syncBodies (parsed-body cache)", () => {
 		assert.deepEqual(result.syncedMessageIds, ["msg-ok"]);
 		assert.deepEqual(result.failedMessageIds, ["msg-bad"]);
 	});
+
+	it("re-attempts the parsed-cache write on requeue after a first-pass failure", async () => {
+		// Regression: storing bodyStorageKey BEFORE the parsed cache let the
+		// requeued message hit the "already stored, skipping" guard, so the
+		// parsed write that failed on pass 1 was never retried and the body
+		// stayed unindexed. bodyStorageKey must only become durable once the
+		// parsed cache is, so a requeue genuinely re-attempts and then indexes.
+		const fake = buildFakeState({ messageId: "msg-1" });
+		let parsedAttempts = 0;
+		const flakyStorage: StorageService = {
+			...fake.storageService,
+			storeParsedBody: async (params) => {
+				parsedAttempts++;
+				if (parsedAttempts === 1) {
+					throw new Error("simulated S3 outage on first pass");
+				}
+				return fake.storageService.storeParsedBody(params);
+			},
+		};
+		const service = new BodySyncService(
+			fake.messageService,
+			flakyStorage,
+			fake.threadMessageService,
+			fake.addressService,
+			fake.envelopeService,
+		);
+
+		const firstPass = await service.syncBodies(
+			["msg-1"],
+			"acc-1",
+			"acc-cfg-1",
+			"INBOX",
+			async () => buildFakeConnection(),
+		);
+
+		assert.equal(firstPass.syncedCount, 0);
+		assert.deepEqual(firstPass.failedMessageIds, ["msg-1"]);
+		// The parsed cache failed, so nothing was persisted...
+		assert.equal(fake.storedParsed.length, 0);
+
+		const secondPass = await service.syncBodies(
+			["msg-1"],
+			"acc-1",
+			"acc-cfg-1",
+			"INBOX",
+			async () => buildFakeConnection(),
+		);
+
+		// ...and the requeue RE-ATTEMPTS the parsed write rather than skipping,
+		// so the message ends up synced and the parsed body is now stored.
+		assert.equal(secondPass.skippedCount, 0);
+		assert.equal(secondPass.syncedCount, 1);
+		assert.deepEqual(secondPass.syncedMessageIds, ["msg-1"]);
+		assert.equal(parsedAttempts, 2);
+		assert.equal(fake.storedParsed.length, 1);
+	});
 });
 
 describe("BodySyncService.syncBodies (classification + counters)", () => {

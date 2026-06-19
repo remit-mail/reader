@@ -380,29 +380,13 @@ export class BodySyncService {
 			classification,
 		);
 
-		// ONE Message UpdateItem per synced message: bodyStorageKey + every
-		// classification/derived field + the move flag + the audit verdict. Each
-		// extra Message mutation emits a DDB stream record that fans out to a
-		// redundant S3-Vectors upsert, so we collapse them into a single write.
-		// The flag is folded in only when a move WILL be enqueued; the verdict
-		// is folded in whenever Remit decided to act.
-		const update: UpdateMessageInput = {
-			bodyStorageKey: ref.uri,
-			...classification,
-			...(resolved.move ? { movedByRemit: true } : {}),
-			...(resolved.verdict ? { placementVerdict: resolved.verdict } : {}),
-		};
-		await this.messageService.update(messageId, update);
-		this.log.info({ messageId, storageKey: ref.uri }, "Body stored");
-
-		// From-Address engagement counter (Address entity, not Message).
-		await this.incrementInboundCount(
-			messageId,
-			accountConfigId,
-			parsed,
-			classification,
-		);
-
+		// Store the parsed-body cache BEFORE persisting bodyStorageKey. The skip
+		// guard in syncBodies treats a stored bodyStorageKey as "fully synced",
+		// so if we wrote it first and the parsed-cache write then failed, the
+		// requeued retry would skip the message — leaving parsedBody null and the
+		// search-index upsert bodyless forever. A parsed-cache failure here throws
+		// and propagates before bodyStorageKey is written, so the requeued message
+		// genuinely re-attempts the parsed write and gets indexed.
 		await this.storeParsedBodyCache(
 			accountConfigId,
 			accountId,
@@ -422,6 +406,30 @@ export class BodySyncService {
 				parsed,
 			);
 		}
+
+		// ONE Message UpdateItem per synced message: bodyStorageKey + every
+		// classification/derived field + the move flag + the audit verdict. Each
+		// extra Message mutation emits a DDB stream record that fans out to a
+		// redundant S3-Vectors upsert, so we collapse them into a single write.
+		// The flag is folded in only when a move WILL be enqueued; the verdict
+		// is folded in whenever Remit decided to act. Written LAST so bodyStorageKey
+		// — the skip-guard signal — is only durable once the parsed cache is.
+		const update: UpdateMessageInput = {
+			bodyStorageKey: ref.uri,
+			...classification,
+			...(resolved.move ? { movedByRemit: true } : {}),
+			...(resolved.verdict ? { placementVerdict: resolved.verdict } : {}),
+		};
+		await this.messageService.update(messageId, update);
+		this.log.info({ messageId, storageKey: ref.uri }, "Body stored");
+
+		// From-Address engagement counter (Address entity, not Message).
+		await this.incrementInboundCount(
+			messageId,
+			accountConfigId,
+			parsed,
+			classification,
+		);
 
 		// The actual mailbox move runs LAST, after the body cache is durably
 		// stored. The `movedByRemit` flag was already folded into the update
