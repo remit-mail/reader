@@ -1,12 +1,10 @@
 import {
 	Authenticator,
 	createTheme,
-	Heading,
-	Text,
 	ThemeProvider,
 	useAuthenticator,
-	View,
 } from "@aws-amplify/ui-react";
+import { AuthFooter, AuthHero, Banner } from "@remit/ui";
 import type { ReactNode } from "react";
 import { AppShellSkeleton } from "@/components/layout/AppShellSkeleton";
 import { isCognitoConfigured } from "./amplify-config";
@@ -178,71 +176,20 @@ const remitTheme = createTheme({
 	},
 });
 
-const EnvelopeMark = () => (
-	<svg
-		width="36"
-		height="36"
-		viewBox="0 0 24 24"
-		fill="none"
-		stroke="currentColor"
-		strokeWidth="1.75"
-		strokeLinecap="round"
-		strokeLinejoin="round"
-		aria-hidden="true"
-		style={{ color: BRAND }}
-	>
-		<rect x="3" y="5" width="18" height="14" rx="2" />
-		<path d="M3 7l9 6 9-6" />
-	</svg>
-);
-
-const AuthHeader = () => (
-	<View textAlign="center" padding="0 0 1.5rem 0">
-		<View
-			padding="0 0 0.75rem 0"
-			style={{
-				display: "flex",
-				justifyContent: "center",
-				alignItems: "center",
-			}}
-		>
-			<EnvelopeMark />
-		</View>
-		<Heading
-			level={1}
-			fontWeight="600"
-			fontSize="1.75rem"
-			color={CARD_FG}
-			style={{ letterSpacing: "-0.01em" }}
-		>
-			remit,
-		</Heading>
-		<Text color={MUTED_FG} fontSize="0.875rem" marginTop="0.25rem">
-			your email client in the cloud.
-		</Text>
-	</View>
-);
-
-const AuthFooter = () => (
-	<View textAlign="center" padding="1.25rem 0 0 0">
-		<Text color={MUTED_FG} fontSize="0.75rem">
-			Secure sign-in powered by AWS Cognito
-		</Text>
-	</View>
-);
-
 const LocalDevBanner = () => (
-	<div
-		role="alert"
-		className="fixed top-0 left-0 right-0 z-50 bg-warning/15 text-warning border-b border-warning/40 px-3 sm:px-4 text-xs sm:text-sm flex items-center gap-2 h-7 sm:h-10 overflow-hidden"
+	<Banner
+		tone="warning"
+		className="fixed top-0 left-0 right-0 z-50 h-7 sm:h-10 overflow-hidden border-x-0 border-t-0"
 	>
-		<strong className="font-semibold shrink-0">Local dev</strong>
-		<span className="truncate hidden sm:inline">
-			— Cognito not configured. Set VITE_COGNITO_USER_POOL_ID and
-			VITE_COGNITO_CLIENT_ID in .env.local to enable sign-in.
+		<span className="flex items-center gap-2">
+			<strong className="font-semibold shrink-0">Local dev</strong>
+			<span className="truncate hidden sm:inline">
+				— Cognito not configured. Set VITE_COGNITO_USER_POOL_ID and
+				VITE_COGNITO_CLIENT_ID in .env.local to enable sign-in.
+			</span>
+			<span className="truncate sm:hidden">— no Cognito; signed out</span>
 		</span>
-		<span className="truncate sm:hidden">— no Cognito; signed out</span>
-	</div>
+	</Banner>
 );
 
 const SignInGate = ({ children }: { children: ReactNode }) => {
@@ -263,12 +210,10 @@ const SignInGate = ({ children }: { children: ReactNode }) => {
 		<ThemeProvider theme={remitTheme}>
 			<div data-auth-page className="auth-page">
 				<div className="auth-page-inner">
+					<AuthHero />
 					<Authenticator
 						hideSignUp={false}
-						components={{
-							Header: AuthHeader,
-							Footer: AuthFooter,
-						}}
+						components={{ Footer: AuthFooter }}
 					/>
 				</div>
 			</div>
