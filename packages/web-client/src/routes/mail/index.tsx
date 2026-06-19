@@ -8,6 +8,7 @@
  */
 import { unifiedThreadOperationsListAllThreadsOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import {
+	ReadingPaneEmpty,
 	ResizableHandle,
 	ResizablePanel,
 	ResizablePanelGroup,
@@ -25,9 +26,8 @@ import { ConversationView } from "@/components/mail/ConversationView";
 import { DailyBrief } from "@/components/mail/DailyBrief";
 import { IntelligencePane } from "@/components/mail/IntelligencePane";
 import { MessageToolbar } from "@/components/mail/MessageToolbar";
-import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
-import { useIsDesktop } from "@/hooks/useMediaQuery";
+import { useLayoutTier } from "@/hooks/useLayoutTier";
 import { useMailContext } from "@/lib/mail-context";
 
 const MailIndexError = ({ error, reset }: ErrorComponentProps) => (
@@ -66,7 +66,7 @@ function MailIndex() {
 		onSearchClear,
 		onSearchClearQuery,
 	} = useMailContext();
-	const isDesktop = useIsDesktop();
+	const tier = useLayoutTier();
 
 	const showIntelligence = intelligenceOpen && Boolean(selectedMessageId);
 
@@ -99,7 +99,7 @@ function MailIndex() {
 		});
 	}, [navigate]);
 
-	if (!isDesktop) {
+	if (tier === "phone") {
 		if (selectedThread) {
 			return (
 				<>
@@ -138,7 +138,9 @@ function MailIndex() {
 		);
 	}
 
-	// Desktop: brief is pane 2 (list), reading pane 3 shows the selected thread.
+	// Tablet + desktop: brief is the list pane, the reading pane shows the
+	// selected thread (the brief route has no pane 4). At tablet the nav rail is
+	// drawer-backed via the parent layout (#784).
 	return (
 		<ResizablePanelGroup direction="horizontal">
 			<ResizablePanel
@@ -182,9 +184,7 @@ function MailIndex() {
 								subject={selectedThread.subject}
 							/>
 						) : (
-							<div className="flex h-full items-center justify-center">
-								<EmptyState message="Select a thread to read" />
-							</div>
+							<ReadingPaneEmpty />
 						)}
 					</div>
 				</section>

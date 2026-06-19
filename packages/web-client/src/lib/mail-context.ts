@@ -22,9 +22,13 @@ export interface MailContextValue {
 	onSearchClear: () => void;
 	/** Query-only clear (Esc): drops the query, keeps the thread open (#489). */
 	onSearchClearQuery: () => void;
-	/** Pane 4 (intelligence) visibility. Ships collapsed by default (#422). */
+	/** Pane 4 (intelligence) visibility. The shared toggle starts closed; the
+	 *  desktop route opens it by default with the thread, honouring the stored
+	 *  preference (#782). */
 	intelligenceOpen: boolean;
 	onToggleIntelligence: () => void;
+	/** Set the pane open/closed and persist the choice (desktop default-open). */
+	onSetIntelligenceOpen: (open: boolean) => void;
 }
 
 export const MailContext = createContext<MailContextValue | null>(null);
@@ -44,6 +48,7 @@ export const useMailContext = (): MailContextValue => {
 			onSearchClearQuery: () => {},
 			intelligenceOpen: false,
 			onToggleIntelligence: () => {},
+			onSetIntelligenceOpen: () => {},
 		}
 	);
 };

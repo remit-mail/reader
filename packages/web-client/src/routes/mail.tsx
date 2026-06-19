@@ -31,8 +31,9 @@ import { KeyboardShortcutsModal } from "@/components/ui/KeyboardShortcutsModal";
 import { useCurrentMailboxName } from "@/hooks/useCurrentMailboxName";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
-import { useIsDesktop } from "@/hooks/useMediaQuery";
+import { useLayoutTier } from "@/hooks/useLayoutTier";
 import { useStaleAccountSync } from "@/hooks/useStaleAccountSync";
+import { writeIntelligencePref } from "@/lib/intelligence-pref";
 import { MailContext } from "@/lib/mail-context";
 import "@/lib/client";
 
@@ -66,16 +67,26 @@ export const Route = createFileRoute("/mail")({
 function MailLayout() {
 	const { q: searchQuery = "" } = useSearch({ from: "/mail" });
 	const navigate = useNavigate();
-	const isDesktop = useIsDesktop();
+	const tier = useLayoutTier();
+	const isDesktop = tier === "desktop";
+	const isPhone = tier === "phone";
 	const [showShortcuts, setShowShortcuts] = useState(false);
 	const [drawerOpen, setDrawerOpen] = useState(false);
 	// Mobile-only: the top bar's search toggle expands an inline SearchBar
 	// (same affordance the retired Header carried, preserved so mobile search
 	// doesn't regress — the 4-pane desktop layout puts search in the toolbar).
 	const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
-	// Pane 4 ships collapsed by default; the message-toolbar info icon toggles
-	// it. State lives here so it survives thread navigation within /mail.
+	// Pane 4 / the mobile details drawer share this toggle. It starts closed so
+	// the phone never slams a full-screen intelligence drawer over a freshly
+	// opened thread; the DESKTOP route opens it by default with the thread (the
+	// intelligence rail is the product's core value) and honours the persisted
+	// collapse preference there (#782). DKIM-mismatch auto-open still fires on
+	// every tier. Explicit toggles persist the user's choice.
 	const [intelligenceOpen, setIntelligenceOpen] = useState(false);
+	const handleSetIntelligenceOpen = useCallback((open: boolean) => {
+		setIntelligenceOpen(open);
+		writeIntelligencePref(open);
+	}, []);
 
 	// URL `q` is a load-once seed for the input and a one-directional write
 	// target. The debounced local value is the source of truth and drives the
@@ -159,7 +170,11 @@ function MailLayout() {
 	}, []);
 
 	const handleToggleIntelligence = useCallback(() => {
-		setIntelligenceOpen((open) => !open);
+		setIntelligenceOpen((open) => {
+			const next = !open;
+			writeIntelligencePref(next);
+			return next;
+		});
 	}, []);
 
 	const accounts = config?.accounts ?? [];
@@ -225,6 +240,7 @@ function MailLayout() {
 				onSearchClearQuery: handleSearchClearQuery,
 				intelligenceOpen,
 				onToggleIntelligence: handleToggleIntelligence,
+				onSetIntelligenceOpen: handleSetIntelligenceOpen,
 			}}
 		>
 			{isConfigError ? (
@@ -318,7 +334,7 @@ function MailLayout() {
 											<X className="size-5" />
 										</button>
 									</div>
-								) : mobileSelectedMessageId ? (
+								) : isPhone && mobileSelectedMessageId ? (
 									<>
 										<button
 											type="button"

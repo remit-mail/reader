@@ -10,6 +10,8 @@ import {
 	threadOperationsSearchThreads,
 } from "@remit/api-http-client/sdk.gen.ts";
 import {
+	KeyboardHintBar,
+	ReadingPaneEmpty,
 	ResizableHandle,
 	ResizablePanel,
 	ResizablePanelGroup,
@@ -33,7 +35,6 @@ import { IntelligencePane } from "@/components/mail/IntelligencePane";
 import { MessageList } from "@/components/mail/MessageList";
 import { MessageToolbar } from "@/components/mail/MessageToolbar";
 import { PullToRefresh } from "@/components/mail/PullToRefresh";
-import { EmptyState } from "@/components/ui/EmptyState";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { buildMutationErrorBanner } from "@/components/ui/error-banners";
 import {
@@ -51,14 +52,15 @@ import {
 } from "@/hooks/useDeleteMessages";
 import { useIntelligenceData } from "@/hooks/useIntelligenceData";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
+import { useLayoutTier } from "@/hooks/useLayoutTier";
 import { useMailboxAccount } from "@/hooks/useMailboxAccount";
 import { useToggleReadFor } from "@/hooks/useMarkAsRead";
-import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { useMoveMessages } from "@/hooks/useMoveMessages";
 import { useToggleStar } from "@/hooks/useToggleStar";
 import { useTriageKeyboard } from "@/hooks/useTriageKeyboard";
 import { useUpdateAddressFlags } from "@/hooks/useUpdateAddressFlags";
 import { adjacentMessageId } from "@/lib/adjacent-message";
+import { readIntelligencePref } from "@/lib/intelligence-pref";
 import { useMailContext } from "@/lib/mail-context";
 import {
 	isSearchPending as computeIsSearchPending,
@@ -84,7 +86,8 @@ function MailboxView() {
 	const { mailboxId } = Route.useParams();
 	const { selectedMessageId } = Route.useSearch();
 	const navigate = useNavigate();
-	const isDesktop = useIsDesktop();
+	const tier = useLayoutTier();
+	const isDesktop = tier === "desktop";
 	const telemetry = useTelemetry();
 	const {
 		accounts,
@@ -95,6 +98,7 @@ function MailboxView() {
 		onSearchClearQuery,
 		intelligenceOpen,
 		onToggleIntelligence,
+		onSetIntelligenceOpen,
 	} = useMailContext();
 
 	// `searchQuery` is the debounced local value from context (URL `q` seeds it
@@ -241,6 +245,27 @@ function MailboxView() {
 		selectedThread?.authenticity?.dkimMismatch,
 		intelligenceOpen,
 		onToggleIntelligence,
+	]);
+
+	// Desktop default-open (#782): the intelligence rail opens with the first
+	// thread of the session unless the user previously collapsed it (the stored
+	// preference). Applied once per mount so a manual collapse afterwards sticks.
+	// Desktop-only — on phone/tablet the intelligence is a modal drawer the user
+	// opens explicitly, never auto-shown over a freshly opened thread.
+	const appliedDefaultRef = useRef(false);
+	useEffect(() => {
+		if (appliedDefaultRef.current) return;
+		if (!isDesktop) return;
+		if (!selectedThread?.messageId) return;
+		appliedDefaultRef.current = true;
+		if (readIntelligencePref() && !intelligenceOpen) {
+			onSetIntelligenceOpen(true);
+		}
+	}, [
+		isDesktop,
+		selectedThread?.messageId,
+		intelligenceOpen,
+		onSetIntelligenceOpen,
 	]);
 
 	// Datum unread count: prefer the mailbox's authoritative server-side
@@ -695,9 +720,7 @@ function MailboxView() {
 				onComposeClose={handleClearComposeRequest}
 			/>
 		) : (
-			<div className="flex h-full items-center justify-center">
-				<EmptyState message="Select a message to read" />
-			</div>
+			<ReadingPaneEmpty />
 		);
 
 	// Mobile: single-pane view that swaps based on `selectedMessageId` and
@@ -707,7 +730,7 @@ function MailboxView() {
 	// sticky footer with Back plus reply / reply-all / forward (the touch
 	// affordance for those actions on mobile, since the desktop top toolbar is
 	// not shown here).
-	if (!isDesktop) {
+	if (tier === "phone") {
 		const showCompose = composeState.isOpen && !selectedThread;
 		if (selectedThread) {
 			const orderedMessageIds = threads.map((t) => t.messageId);
@@ -815,12 +838,12 @@ function MailboxView() {
 		return <div className="h-full">{messageList}</div>;
 	}
 
-	// Desktop: panes 2–4 of the AppShell model (#422) — message list,
-	// reading pane (its datum row is the message toolbar) and the
-	// intelligence sidebar (collapsed by default, toggled from the toolbar).
-	// Nested resizable group: the nav↔content boundary is owned by the
-	// parent layout; the boundaries here carry the same hairline handles, so
-	// the user sees one continuous set of drag handles between all four panes.
+	// Tablet + desktop: the multi-pane AppShell model (#422) — message list +
+	// reading pane (its datum row is the message toolbar), and on desktop the
+	// intelligence sidebar (pane 4). At tablet width (768–1023) the nav rail is
+	// drawer-backed and pane 4 is dropped, so two panes share the room (#784).
+	// Nested resizable group: the nav↔content boundary is owned by the parent
+	// layout; the boundaries here carry the same hairline handles.
 	const hasThread = Boolean(selectedThread);
 	// A Remit draft is "active" when the Drafts mailbox is open and compose is
 	// showing an outbox message with no IMAP thread selected (#536).
@@ -830,12 +853,12 @@ function MailboxView() {
 		!!composeState.outboxMessageId &&
 		!selectedThread;
 	const listTitle = mailboxName ?? "Inbox";
-	// Pane 4 only renders when intelligence is toggled on AND a thread is open
-	// (it's contextual to the open message — matches the remit-ui AppShell
-	// reference, which gates on `intelligenceOpen && thread`). The toolbar's
-	// info toggle is likewise hidden until a thread is selected, so it never
-	// opens an empty rail.
-	const showIntelligence = intelligenceOpen && hasThread;
+	// Pane 4 is desktop-only (`useIsDesktop` is the pane-4 gate) and only renders
+	// when intelligence is toggled on AND a thread is open — contextual to the
+	// open message, matching the remit-ui AppShell reference. The toolbar's info
+	// toggle is likewise hidden until a thread is selected, so it never opens an
+	// empty rail.
+	const showIntelligence = isDesktop && intelligenceOpen && hasThread;
 	return (
 		<ResizablePanelGroup direction="horizontal">
 			<ResizablePanel
@@ -872,6 +895,11 @@ function MailboxView() {
 							)}
 						</header>
 						<div className="min-h-0 flex-1 overflow-hidden">{messageList}</div>
+						{/* Keyboard-first discoverability: the shortcut hint footer is
+						    visible on desktop so j/k/e/m/? aren't hidden behind the `?`
+						    modal. Desktop-only — a key-hint footer on a touch tablet is
+						    noise (#785). */}
+						{isDesktop && <KeyboardHintBar />}
 					</section>
 				)}
 			</ResizablePanel>
@@ -886,7 +914,7 @@ function MailboxView() {
 						hasThread={hasThread}
 						onCompose={handleNewCompose}
 						intelligenceOpen={showIntelligence}
-						showIntelligenceToggle={hasThread}
+						showIntelligenceToggle={isDesktop && hasThread}
 						onToggleIntelligence={onToggleIntelligence}
 						searchValue={searchInput}
 						onSearchChange={onSearchChange}
