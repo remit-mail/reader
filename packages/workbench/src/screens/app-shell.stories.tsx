@@ -82,6 +82,35 @@ export const IntelligenceCollapsed: Story = {
 };
 
 /**
+ * No thread open: the reading pane shows the empty zero-state (Inbox icon +
+ * j/k/Enter hints) and the action toolbar stays ACTIVE — its buttons are
+ * pressable, not greyed out. Pressing one with nothing open surfaces a one-line
+ * inline "Open a message first" rather than a disabled control (#799).
+ */
+export const NoThreadToolbar: Story = {
+	render: () => (
+		<StatefulShell
+			selectedThreadId={undefined}
+			thread={undefined}
+			intelligence={undefined}
+		/>
+	),
+};
+
+/**
+ * Tablet tier (768–1023): list + reading two-pane, no intelligence rail (pane
+ * 4 is desktop-only). The live route additionally drawer-backs the nav rail at
+ * this width; here the geometry under test is the surviving two reading panes
+ * (#784).
+ */
+export const TabletTwoPane: Story = {
+	parameters: {
+		viewport: { defaultViewport: "tablet" },
+	},
+	render: () => <StatefulShell startOpen={false} />,
+};
+
+/**
  * Mutt-density list: single-line rows, no avatars, status glyphs only.
  * Same data, same keys — only presentation changes. The phishing glyph
  * is the only color in the list.

@@ -71,7 +71,28 @@ export {
 	type SimilarState,
 } from "./components/intelligence-panel.js";
 export { Kbd, type KbdProps } from "./components/kbd.js";
+export {
+	defaultKeyboardHints,
+	type KeyboardHint,
+	KeyboardHintBar,
+	type KeyboardHintBarProps,
+} from "./components/keyboard-hint-bar.js";
 export { ListItem, type ListItemProps } from "./components/list-item.js";
+export {
+	type MailAction,
+	MailActionToolbar,
+	type MailActionToolbarProps,
+} from "./components/mail-action-toolbar.js";
+export {
+	type OutboxStatus,
+	OutboxStatusBadge,
+	type OutboxStatusBadgeProps,
+	outboxStatusConfig,
+} from "./components/outbox-status-badge.js";
+export {
+	ReadingPaneEmpty,
+	type ReadingPaneEmptyProps,
+} from "./components/reading-pane-empty.js";
 export {
 	type PanelGroupProps,
 	type PanelProps,
