@@ -1,4 +1,3 @@
-import { inspect } from "node:util";
 import { SendMessageCommand } from "@aws-sdk/client-sqs";
 import type {
 	AccountItem,
@@ -34,6 +33,7 @@ import { env } from "expect-env";
 import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent } from "../auth.js";
 import { getClient } from "../service/dynamodb.js";
+import { fireAndForget } from "../service/fire-and-forget.js";
 import { sqsClient } from "../service/sqs.js";
 import { triggerAccountSync } from "../service/trigger-sync.js";
 import type {
@@ -57,34 +57,25 @@ export const triggerAccountSyncSafe = async (
 ): Promise<void> => {
 	const queueUrl = env.SQS_QUEUE_URL;
 	// Best-effort: account creation must still return 200 even if the sync
-	// enqueue fails. But a failure here (SQS/IAM misconfig) silently stops sync
-	// for the brand-new account, so it must be loud and alertable — a distinct
-	// structured error with the SDK error name/code and a stable `alert`
-	// discriminator a CloudWatch metric filter / alarm can key off.
-	const { eventId } = await triggerAccountSync({
-		sqsClient,
-		queueUrl,
-		accountId,
-	}).catch((error: unknown) => {
-		logger.error(
-			{
-				alert: "sync_trigger_failed",
-				source: "account_create",
+	// enqueue fails. fireAndForget catches and logs every rejection loudly with
+	// the alertable structured fields and never rejects, so a failure here (SQS
+	// unreachable in smoke/e2e, an IAM/SQS misconfig in prod) cannot leak an
+	// unhandled rejection onto an unrelated in-flight request.
+	await fireAndForget(
+		async () => {
+			const { eventId } = await triggerAccountSync({
+				sqsClient,
+				queueUrl,
 				accountId,
-				errorName: (error as { name?: string })?.name,
-				errorCode:
-					(error as { Code?: string })?.Code ??
-					(error as { code?: string })?.code,
-				error: inspect(error),
-			},
-			"Failed to enqueue SYNC_MAILBOXES for new account (best-effort)",
-		);
-		return { eventId: undefined };
-	});
-
-	if (eventId !== undefined) {
-		logger.info({ accountId, eventId }, "Sync triggered for new account");
-	}
+			});
+			logger.info({ accountId, eventId }, "Sync triggered for new account");
+		},
+		{
+			source: "account_create",
+			message: "Failed to enqueue SYNC_MAILBOXES for new account (best-effort)",
+			ids: { accountId },
+		},
+	);
 };
 
 /**

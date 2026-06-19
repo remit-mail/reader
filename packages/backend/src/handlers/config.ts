@@ -1,4 +1,3 @@
-import { inspect } from "node:util";
 import type { SQSClient } from "@aws-sdk/client-sqs";
 import {
 	type AccountConfigItem,
@@ -17,6 +16,7 @@ import { env } from "expect-env";
 import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent, getSubFromEvent } from "../auth.js";
 import { getClient } from "../service/dynamodb.js";
+import { fireAndForget } from "../service/fire-and-forget.js";
 import { sqsClient } from "../service/sqs.js";
 import { triggerAccountSync } from "../service/trigger-sync.js";
 import type { ConfigOperationIds, OperationHandler } from "../types.js";
@@ -61,34 +61,27 @@ export const triggerConfigLoadSyncs = async (
 	deps: ConfigSyncTriggerDeps = defaultConfigSyncTriggerDeps(),
 ): Promise<void> => {
 	await Promise.all(
-		accountIds.map(async (accountId) => {
-			try {
-				const { eventId } = await triggerAccountSync({
-					sqsClient: deps.sqsClient,
-					queueUrl: deps.queueUrl,
-					accountId,
-				});
-				deps.logger.info(
-					{ accountId, eventId },
-					"Sync triggered on config load",
-				);
-			} catch (err) {
-				deps.logger.error(
-					{
-						alert: "sync_trigger_failed",
-						source: "config_load",
+		accountIds.map((accountId) =>
+			fireAndForget(
+				async () => {
+					const { eventId } = await triggerAccountSync({
+						sqsClient: deps.sqsClient,
+						queueUrl: deps.queueUrl,
 						accountId,
-						accountConfigId,
-						errorName: (err as { name?: string })?.name,
-						errorCode:
-							(err as { Code?: string })?.Code ??
-							(err as { code?: string })?.code,
-						error: inspect(err),
-					},
-					"Failed to trigger account sync on config load",
-				);
-			}
-		}),
+					});
+					deps.logger.info(
+						{ accountId, eventId },
+						"Sync triggered on config load",
+					);
+				},
+				{
+					source: "config_load",
+					message: "Failed to trigger account sync on config load",
+					ids: { accountId, accountConfigId },
+					logger: deps.logger,
+				},
+			),
+		),
 	);
 };
 
