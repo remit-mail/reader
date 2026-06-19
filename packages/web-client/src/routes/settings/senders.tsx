@@ -23,6 +23,7 @@ import {
 	Input,
 	Kbd,
 	SenderFlagRow,
+	SenderGroupSwitch,
 	SettingsShell,
 } from "@remit/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -31,7 +32,6 @@ import { Search, Star, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
-import { cn } from "@/lib/utils";
 import { SETTINGS_ID_TO_PATH, SETTINGS_NAV_ITEMS } from "@/routes/settings";
 
 export const Route = createFileRoute("/settings/senders")({
@@ -173,8 +173,9 @@ function VipGroupPane({
 							variant="ghost"
 							size="sm"
 							icon={<Star className="size-3.5" />}
-							disabled={addMutation.isPending}
-							onClick={() =>
+							aria-busy={addMutation.isPending}
+							onClick={() => {
+								if (addMutation.isPending) return;
 								addMutation.mutate({
 									path: { addressId: s.addressId },
 									body: {
@@ -182,8 +183,8 @@ function VipGroupPane({
 											vip: { value: true, setAt: Date.now(), setBy: "user" },
 										},
 									},
-								})
-							}
+								});
+							}}
 						>
 							Add VIP
 						</Button>
@@ -338,9 +339,10 @@ function SearchGroupPane({
 									variant="ghost"
 									size="sm"
 									icon={<X className="size-3.5" />}
-									disabled={isPendingRemove}
+									aria-busy={isPendingRemove}
 									aria-label={`Remove ${group} flag`}
 									onClick={() => {
+										if (isPendingRemove) return;
 										setRetryId(a.addressId);
 										removeMutation.mutate({
 											path: { addressId: a.addressId },
@@ -408,36 +410,19 @@ function SendersSettings() {
 			onSelect={handleSelectNav}
 			onBackToMail={() => void navigate({ to: "/mail" })}
 		>
-			<div className="flex min-h-0 flex-1">
-				{/* Rule groups left pane */}
-				<aside className="w-44 shrink-0 border-r border-line py-2 pl-3 pr-2">
-					{(["vip", "muted", "blocked"] as SenderGroup[]).map((g) => (
-						<button
-							key={g}
-							type="button"
-							onClick={() => {
-								setGroup(g);
-								setQuery("");
-							}}
-							className={cn(
-								"flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm transition-colors",
-								g === group
-									? "bg-accent-2-soft font-medium text-accent-2"
-									: "text-fg-muted hover:bg-surface-sunken hover:text-fg",
-							)}
-						>
-							<span className="flex-1 truncate">{groupLabels[g]}</span>
-							<span
-								className={cn(
-									"text-2xs tabular-nums",
-									g === group ? "text-accent-2" : "text-fg-subtle",
-								)}
-							>
-								{groupCounts[g] ?? "—"}
-							</span>
-						</button>
-					))}
-				</aside>
+			<div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+				<SenderGroupSwitch<SenderGroup>
+					active={group}
+					onSelect={(g) => {
+						setGroup(g);
+						setQuery("");
+					}}
+					options={(["vip", "muted", "blocked"] as SenderGroup[]).map((g) => ({
+						id: g,
+						label: groupLabels[g],
+						count: groupCounts[g],
+					}))}
+				/>
 
 				{/* Dense filterable sender table */}
 				<div className="flex min-w-0 flex-1 flex-col">

@@ -2,11 +2,14 @@ import {
 	AccountHealthCard,
 	Badge,
 	Button,
-	cn,
+	DangerZoneSection,
 	Dialog,
+	InlineBanner,
 	Input,
 	Kbd,
+	SegmentedControl,
 	SenderFlagRow,
+	SenderGroupSwitch,
 	type SettingsNavItem,
 	SettingsShell,
 } from "@remit/ui";
@@ -15,6 +18,7 @@ import {
 	AlertTriangle,
 	Download,
 	Inbox,
+	Loader2,
 	Palette,
 	Plus,
 	Search,
@@ -22,7 +26,7 @@ import {
 	Wrench,
 	X,
 } from "lucide-react";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import {
 	type SenderGroup,
 	senderGroupLabels,
@@ -54,8 +58,8 @@ const navItems: SettingsNavItem[] = [
 ];
 
 /* ------------------------------------------------------------------ */
-/* Senders & Rules: 2-pane page — rule groups left, dense filterable  */
-/* sender table right. Built to scale to hundreds of rows.            */
+/* Senders & Rules: rule-group switch (rail on desktop, tab strip on   */
+/* mobile) + dense filterable sender table that drops to stacked rows.  */
 /* ------------------------------------------------------------------ */
 
 const groups: SenderGroup[] = ["vip", "muted", "blocked"];
@@ -107,33 +111,16 @@ function SendersPage() {
 			helpOpen={helpOpen}
 			onToggleHelp={() => setHelpOpen((v) => !v)}
 		>
-			<div className="flex min-h-0 flex-1">
-				{/* rule groups */}
-				<aside className="w-44 shrink-0 border-r border-line py-2 pl-3 pr-2">
-					{groups.map((g) => (
-						<button
-							key={g}
-							type="button"
-							onClick={() => setGroup(g)}
-							className={cn(
-								"flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm transition-colors",
-								g === group
-									? "bg-accent-2-soft font-medium text-accent-2"
-									: "text-fg-muted hover:bg-surface-sunken hover:text-fg",
-							)}
-						>
-							<span className="flex-1 truncate">{senderGroupLabels[g]}</span>
-							<span
-								className={cn(
-									"text-2xs tabular-nums",
-									g === group ? "text-accent-2" : "text-fg-subtle",
-								)}
-							>
-								{sendersByGroup(g).length}
-							</span>
-						</button>
-					))}
-				</aside>
+			<div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+				<SenderGroupSwitch
+					active={group}
+					onSelect={setGroup}
+					options={groups.map((g) => ({
+						id: g,
+						label: senderGroupLabels[g],
+						count: sendersByGroup(g).length,
+					}))}
+				/>
 
 				{/* dense, filterable sender table */}
 				<div className="flex min-w-0 flex-1 flex-col">
@@ -190,10 +177,8 @@ function SendersPage() {
 }
 
 /**
- * Senders & Rules as a 2-pane page: rule groups (with counts) on the
- * left, a dense scrollable, filterable sender table on the right —
- * the layout holds at hundreds of VIPs. Contextual help in the right
- * rail, collapsible like the intelligence panel.
+ * Senders & Rules: the group switch is a rail on desktop and a tab strip
+ * below it, so the dense table owns the full width on phone and tablet.
  */
 export const SendersAndRules: Story = {
 	render: () => <SendersPage />,
@@ -221,7 +206,13 @@ const accountsHelp = (
 	</div>
 );
 
-function AccountsPage() {
+function AccountsShell({
+	children,
+	count,
+}: {
+	children: ReactNode;
+	count: number | null;
+}) {
 	const [helpOpen, setHelpOpen] = useState(true);
 	return (
 		<SettingsShell
@@ -234,7 +225,9 @@ function AccountsPage() {
 			onToggleHelp={() => setHelpOpen((v) => !v)}
 		>
 			<div className="flex items-center justify-between">
-				<Badge tone="neutral">3 accounts</Badge>
+				<Badge tone="neutral">
+					{count == null ? "accounts" : `${count} accounts`}
+				</Badge>
 				<Button
 					variant="primary"
 					size="sm"
@@ -243,94 +236,196 @@ function AccountsPage() {
 					Add account
 				</Button>
 			</div>
-			<div className="space-y-3">
-				<AccountHealthCard
-					label="Personal"
-					email="alice.tan@gmail.example"
-					connector="IMAP"
-					syncLabel="synced 2m ago"
-					state="healthy"
-					trailing={
-						<Button variant="ghost" size="sm">
-							Manage
-						</Button>
-					}
-				/>
-				<AccountHealthCard
-					label="Work"
-					email="alice@northwind.example"
-					connector="IMAP"
-					syncLabel="last sync 3h ago"
-					state="error"
-					errorDetail="AUTHENTICATIONFAILED: [ALERT] Application-specific password required"
-					trailing={
-						<Button variant="secondary" size="sm">
-							Reconnect
-						</Button>
-					}
-				/>
-				<AccountHealthCard
-					label="Synthwave Forum"
-					email="alice@synthcollective.example"
-					connector="IMAP"
-					syncLabel="synced 12m ago"
-					state="muted"
-					trailing={
-						<Button variant="ghost" size="sm">
-							Manage
-						</Button>
-					}
-				/>
-			</div>
+			{children}
 		</SettingsShell>
 	);
 }
 
+function ManageButton() {
+	return (
+		<Button variant="ghost" size="sm">
+			Manage
+		</Button>
+	);
+}
+
+const accountCards = (
+	<div className="space-y-3">
+		<AccountHealthCard
+			label="Personal"
+			email="alice.tan@gmail.example"
+			connector="IMAP"
+			syncLabel="synced 2m ago"
+			state="healthy"
+			trailing={<ManageButton />}
+		/>
+		<AccountHealthCard
+			label="Work"
+			email="alice@northwind.example"
+			connector="IMAP"
+			syncLabel="last sync 3h ago"
+			state="error"
+			errorDetail="AUTHENTICATIONFAILED: [ALERT] Application-specific password required"
+			trailing={
+				<Button variant="secondary" size="sm">
+					Reconnect
+				</Button>
+			}
+		/>
+		<AccountHealthCard
+			label="Synthwave Forum"
+			email="alice@synthcollective.example"
+			connector="IMAP"
+			syncLabel="synced 12m ago"
+			state="muted"
+			trailing={<ManageButton />}
+		/>
+	</div>
+);
+
 /**
- * Accounts: left-aligned content column, one card per account with
- * connector, sync health and state. "Add account" reuses the
- * onboarding wizard, steps 2–7.
+ * Accounts: one card per account with connector, sync health and state.
+ * Every card carries Manage; the errored card swaps in Reconnect.
  */
 export const Accounts: Story = {
-	render: () => <AccountsPage />,
+	render: () => <AccountsShell count={3}>{accountCards}</AccountsShell>,
 };
 
-/* ------------------------------------------------------------------ */
-/* Danger zone: full Remit-account offboarding. GitHub-style red       */
-/* section at the bottom of Accounts, with a type-to-confirm dialog.   */
-/* ------------------------------------------------------------------ */
-
-const REMIT_ACCOUNT_EMAIL = "alice.tan@gmail.example";
-
-function DangerZone({ onDelete }: { onDelete: () => void }) {
-	return (
-		<div className="mt-8 rounded-sm border border-danger/50">
-			<div className="flex items-center gap-2 border-b border-danger/30 bg-danger-soft px-row-inset py-2">
-				<AlertTriangle className="size-4 text-danger" />
-				<h2 className="text-sm font-semibold text-danger">Danger zone</h2>
+/** Empty state: no accounts yet, with the first-run call to action. */
+export const AccountsEmpty: Story = {
+	name: "Accounts — empty",
+	render: () => (
+		<AccountsShell count={0}>
+			<div className="py-12 text-sm text-fg-muted">
+				<p className="mb-3">No accounts configured.</p>
+				<Button
+					variant="primary"
+					size="sm"
+					icon={<Plus className="size-3.5" />}
+				>
+					Add your first account
+				</Button>
 			</div>
-			<div className="flex items-center justify-between gap-4 px-row-inset py-3">
-				<div className="min-w-0">
-					<div className="text-sm font-medium text-fg">
-						Delete your Remit account
+		</AccountsShell>
+	),
+};
+
+/** Loading skeleton while the account config request is in flight. */
+export const AccountsLoading: Story = {
+	name: "Accounts — loading",
+	render: () => (
+		<AccountsShell count={null}>
+			<div className="space-y-3" aria-busy="true" aria-label="Loading accounts">
+				{[0, 1].map((i) => (
+					<div
+						key={i}
+						className="animate-pulse rounded-sm border border-line bg-surface p-4"
+					>
+						<div className="flex items-center gap-3">
+							<div className="size-10 rounded-full bg-surface-sunken" />
+							<div className="flex-1 space-y-2">
+								<div className="h-4 w-1/3 rounded bg-surface-sunken" />
+								<div className="h-3 w-2/3 rounded bg-surface-sunken" />
+							</div>
+						</div>
 					</div>
-					<p className="text-xs text-fg-subtle">
-						Disconnects every account and erases Remit's copy of your mail,
-						insights and preferences. Your mail at the providers is untouched.
-					</p>
-				</div>
+				))}
+			</div>
+		</AccountsShell>
+	),
+};
+
+/** OAuth success banner after a Microsoft 365 reconnect returns. */
+export const AccountsOauthSuccess: Story = {
+	name: "Accounts — OAuth success",
+	render: () => (
+		<AccountsShell count={3}>
+			<InlineBanner tone="positive" onDismiss={() => {}}>
+				Account connected successfully.
+			</InlineBanner>
+			{accountCards}
+		</AccountsShell>
+	),
+};
+
+/** OAuth error banner when the provider redirect carried a failure. */
+export const AccountsOauthError: Story = {
+	name: "Accounts — OAuth error",
+	render: () => (
+		<AccountsShell count={3}>
+			<InlineBanner tone="danger" onDismiss={() => {}}>
+				Your organisation's admin needs to approve Remit. Ask your IT admin to
+				grant the required permissions.
+			</InlineBanner>
+			{accountCards}
+		</AccountsShell>
+	),
+};
+
+function DeleteAccountConfirm({ pending = false }: { pending?: boolean }) {
+	return (
+		<Dialog open onClose={() => {}} title="Delete account">
+			<header className="flex items-center gap-2 border-b border-line px-5 py-3">
+				<AlertTriangle className="size-4 shrink-0 text-danger" />
+				<span className="flex-1 text-sm font-semibold text-fg">
+					Delete account
+				</span>
+				<Button
+					variant="ghost"
+					size="sm"
+					icon={<X className="size-3.5" />}
+					aria-label="Cancel"
+				/>
+			</header>
+			<div className="space-y-3 px-5 py-4 text-sm text-fg-muted">
+				<p className="text-center text-lg font-medium text-fg">Are you sure?</p>
+				<p className="text-center">alice@northwind.example</p>
+				<ul className="list-inside list-disc space-y-1">
+					<li>Remove the account from your settings</li>
+					<li>Stop syncing mail for this account</li>
+					<li>Delete all associated data (within 24 hours)</li>
+				</ul>
+			</div>
+			<footer className="flex items-center justify-end gap-2 border-t border-line px-5 py-3">
+				<Button variant="secondary" size="sm">
+					Cancel
+				</Button>
 				<Button
 					variant="danger"
 					size="sm"
-					className="shrink-0"
-					onClick={onDelete}
+					aria-busy={pending}
+					icon={
+						pending ? <Loader2 className="size-3.5 animate-spin" /> : undefined
+					}
 				>
-					Delete your Remit account
+					{pending ? "Deleting…" : "Delete account"}
 				</Button>
-			</div>
-		</div>
+			</footer>
+		</Dialog>
 	);
 }
+
+/**
+ * Per-account delete confirm: spells out what removing one connected
+ * account does. The confirm stays pressable and shows "Deleting…" via
+ * `aria-busy` rather than disabling itself.
+ */
+export const AccountsDeleteConfirm: Story = {
+	name: "Accounts — delete confirm",
+	render: () => (
+		<AccountsShell count={3}>
+			{accountCards}
+			<DeleteAccountConfirm />
+		</AccountsShell>
+	),
+};
+
+/* ------------------------------------------------------------------ */
+/* Danger zone: full Remit-account offboarding. Its own section below   */
+/* a clean accounts list, with a type-to-confirm dialog.                */
+/* ------------------------------------------------------------------ */
+
+const REMIT_ACCOUNT_EMAIL = "alice.tan@gmail.example";
 
 function DeleteRemitDialog({
 	open,
@@ -446,28 +541,9 @@ function DeleteRemitDialog({
 }
 
 function DangerZonePage({ dialogOpen = false }: { dialogOpen?: boolean }) {
-	const [helpOpen, setHelpOpen] = useState(true);
 	const [open, setOpen] = useState(dialogOpen);
 	return (
-		<SettingsShell
-			items={navItems}
-			activeId="accounts"
-			title="Accounts"
-			description="Every account keeps syncing — muted ones just stay out of unified views."
-			help={accountsHelp}
-			helpOpen={helpOpen}
-			onToggleHelp={() => setHelpOpen((v) => !v)}
-		>
-			<div className="flex items-center justify-between">
-				<Badge tone="neutral">3 accounts</Badge>
-				<Button
-					variant="primary"
-					size="sm"
-					icon={<Plus className="size-3.5" />}
-				>
-					Add account
-				</Button>
-			</div>
+		<AccountsShell count={2}>
 			<div className="space-y-3">
 				<AccountHealthCard
 					label="Personal"
@@ -475,11 +551,7 @@ function DangerZonePage({ dialogOpen = false }: { dialogOpen?: boolean }) {
 					connector="IMAP"
 					syncLabel="synced 2m ago"
 					state="healthy"
-					trailing={
-						<Button variant="ghost" size="sm">
-							Manage
-						</Button>
-					}
+					trailing={<ManageButton />}
 				/>
 				<AccountHealthCard
 					label="Work"
@@ -487,23 +559,30 @@ function DangerZonePage({ dialogOpen = false }: { dialogOpen?: boolean }) {
 					connector="IMAP"
 					syncLabel="synced 1h ago"
 					state="healthy"
-					trailing={
-						<Button variant="ghost" size="sm">
-							Manage
+					trailing={<ManageButton />}
+				/>
+			</div>
+
+			<div className="mt-8 border-t border-line pt-6">
+				<DangerZoneSection
+					title="Delete your Remit account"
+					description="Disconnects every account and erases Remit's copy of your mail, insights and preferences. Your mail at the providers is untouched."
+					action={
+						<Button variant="danger" size="sm" onClick={() => setOpen(true)}>
+							Delete your Remit account
 						</Button>
 					}
 				/>
 			</div>
-
-			<DangerZone onDelete={() => setOpen(true)} />
 			<DeleteRemitDialog open={open} onClose={() => setOpen(false)} />
-		</SettingsShell>
+		</AccountsShell>
 	);
 }
 
 /**
- * Danger zone at the bottom of Accounts: a GitHub-style red section for
- * leaving Remit entirely (distinct from deleting one connected account).
+ * Danger zone as its own section below a clean accounts list: a
+ * GitHub-style red block for leaving Remit entirely (distinct from
+ * deleting one connected account).
  */
 export const DangerZone_: Story = {
 	name: "Danger zone",
@@ -519,4 +598,131 @@ export const DangerZone_: Story = {
 export const DangerZoneConfirm: Story = {
 	name: "Danger zone — confirm dialog",
 	render: () => <DangerZonePage dialogOpen />,
+};
+
+/* ------------------------------------------------------------------ */
+/* Appearance: density + theme segmented controls, stored-locally note. */
+/* ------------------------------------------------------------------ */
+
+const appearanceHelp = (
+	<div className="space-y-3">
+		<p>
+			<strong className="text-fg">Density</strong> controls how much information
+			fits on screen. Compact is great on smaller displays; Comfortable gives
+			each item more breathing room.
+		</p>
+		<p>
+			<strong className="text-fg">Theme</strong> switches between light, dark,
+			and system-preference modes instantly. The change takes effect across the
+			whole app immediately.
+		</p>
+		<p className="text-2xs text-fg-subtle">
+			Preferences are stored locally in this browser. Server-side sync is coming
+			soon.
+		</p>
+	</div>
+);
+
+function AppearancePage() {
+	const [helpOpen, setHelpOpen] = useState(true);
+	const [density, setDensity] = useState("comfortable");
+	const [theme, setTheme] = useState("system");
+	return (
+		<SettingsShell
+			items={navItems}
+			activeId="appearance"
+			title="Appearance"
+			description="Display density and colour theme — instant-apply."
+			help={appearanceHelp}
+			helpOpen={helpOpen}
+			onToggleHelp={() => setHelpOpen((v) => !v)}
+		>
+			<div className="space-y-5">
+				<div className="space-y-2">
+					<p className="text-sm font-medium text-fg">Density</p>
+					<SegmentedControl
+						name="density"
+						aria-label="Density"
+						value={density}
+						onChange={setDensity}
+						options={[
+							{ value: "comfortable", label: "Comfortable" },
+							{ value: "compact", label: "Compact" },
+						]}
+					/>
+					<p className="text-xs text-fg-subtle">
+						Controls the spacing of message rows in the mail list.
+					</p>
+				</div>
+
+				<div className="space-y-2">
+					<p className="text-sm font-medium text-fg">Theme</p>
+					<SegmentedControl
+						name="theme"
+						aria-label="Theme"
+						value={theme}
+						onChange={setTheme}
+						options={[
+							{ value: "system", label: "System" },
+							{ value: "light", label: "Light" },
+							{ value: "dark", label: "Dark" },
+						]}
+					/>
+					<p className="text-xs text-fg-subtle">
+						Applies immediately. System default follows your OS preference.
+					</p>
+				</div>
+			</div>
+		</SettingsShell>
+	);
+}
+
+/**
+ * Appearance: density and theme as segmented controls, with the
+ * stored-locally note in the tips rail.
+ */
+export const Appearance: Story = {
+	render: () => <AppearancePage />,
+};
+
+/* ------------------------------------------------------------------ */
+/* Advanced: stub + About / version.                                   */
+/* ------------------------------------------------------------------ */
+
+const advancedHelp = (
+	<div className="space-y-3">
+		<p>
+			<strong className="text-fg">Notification rules</strong>, data export, and
+			per-account diagnostics are coming in a future release.
+		</p>
+	</div>
+);
+
+function AdvancedPage() {
+	const [helpOpen, setHelpOpen] = useState(true);
+	return (
+		<SettingsShell
+			items={navItems}
+			activeId="advanced"
+			title="Advanced"
+			description="Notification rules, export, and diagnostics."
+			help={advancedHelp}
+			helpOpen={helpOpen}
+			onToggleHelp={() => setHelpOpen((v) => !v)}
+		>
+			<p className="text-sm text-fg-muted">
+				Advanced options — notification rules, data export, and raw sync
+				diagnostics — are coming in a future release.
+			</p>
+			<div className="mt-4 border-t border-line pt-4">
+				<p className="mb-1 text-sm font-medium text-fg">About</p>
+				<p className="text-xs text-fg-subtle">Version 1.0.0 · built today</p>
+			</div>
+		</SettingsShell>
+	);
+}
+
+/** Advanced: future-scope stub plus the About / version block. */
+export const Advanced: Story = {
+	render: () => <AdvancedPage />,
 };

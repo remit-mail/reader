@@ -9,6 +9,7 @@ import {
 	AccountHealthCard,
 	Badge,
 	Button,
+	InlineBanner,
 	SettingsShell,
 } from "@remit/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -302,42 +303,24 @@ function AccountsSettings() {
 			onSelect={handleSelectNav}
 			onBackToMail={() => void navigate({ to: "/mail" })}
 		>
-			{/* OAuth success banner */}
 			{successMessage && (
-				<div
-					className="rounded-md bg-positive/10 px-3 py-2 text-sm text-positive"
+				<InlineBanner
+					tone="positive"
 					data-testid="oauth-success-banner"
-					role="status"
+					onDismiss={() => setSuccessMessage(null)}
 				>
 					{successMessage}
-					<button
-						type="button"
-						aria-label="Dismiss"
-						className="float-right text-positive/60 hover:text-positive"
-						onClick={() => setSuccessMessage(null)}
-					>
-						✕
-					</button>
-				</div>
+				</InlineBanner>
 			)}
 
-			{/* OAuth error banner */}
 			{oauthErrorMessage && (
-				<div
-					className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger"
+				<InlineBanner
+					tone="danger"
 					data-testid="oauth-error-banner"
-					role="alert"
+					onDismiss={() => setOauthErrorMessage(null)}
 				>
 					{oauthErrorMessage}
-					<button
-						type="button"
-						aria-label="Dismiss"
-						className="float-right text-danger/60 hover:text-danger"
-						onClick={() => setOauthErrorMessage(null)}
-					>
-						✕
-					</button>
-				</div>
+				</InlineBanner>
 			)}
 
 			<div className="flex items-center justify-between">
@@ -350,7 +333,6 @@ function AccountsSettings() {
 					variant="primary"
 					size="sm"
 					icon={<Plus className="size-3.5" />}
-					disabled={isError || isPending}
 					onClick={() => setShowAddWizard(true)}
 				>
 					Add account
@@ -372,14 +354,15 @@ function AccountsSettings() {
 					className="py-12 text-sm text-fg-muted"
 					data-testid="accounts-empty"
 				>
-					<p className="mb-2">No accounts configured.</p>
-					<button
-						type="button"
+					<p className="mb-3">No accounts configured.</p>
+					<Button
+						variant="primary"
+						size="sm"
+						icon={<Plus className="size-3.5" />}
 						onClick={() => setShowAddWizard(true)}
-						className="text-accent-2 hover:underline"
 					>
 						Add your first account
-					</button>
+					</Button>
 				</div>
 			) : (
 				<div className="space-y-3">
@@ -395,13 +378,14 @@ function AccountsSettings() {
 								<Button
 									variant="secondary"
 									size="sm"
-									disabled={isReconnecting}
+									aria-busy={isReconnecting}
 									icon={
 										isReconnecting ? (
 											<Loader2 className="size-3.5 animate-spin" />
 										) : undefined
 									}
 									onClick={() => {
+										if (isReconnecting) return;
 										setReconnectingAccountId(account.accountId);
 										reconnectMutation.mutate({
 											body: { email: account.email },
@@ -487,30 +471,31 @@ function AccountsSettings() {
 			<SlidePanel
 				isOpen={!!deletingAccountId}
 				onClose={() => setDeletingAccountId(null)}
-				title="Delete Account"
+				title="Delete account"
 				footer={
 					<>
-						<button
-							type="button"
+						<Button
+							variant="secondary"
+							size="sm"
 							onClick={() => setDeletingAccountId(null)}
-							className="px-4 py-2 border rounded-md hover:bg-surface-raised"
 						>
 							Cancel
-						</button>
-						<button
-							type="button"
+						</Button>
+						<Button
+							variant="danger"
+							size="sm"
+							aria-busy={deleteMutation.isPending}
 							onClick={() => {
+								if (deleteMutation.isPending) return;
 								if (deletingAccountId) {
 									deleteMutation.mutate({
 										path: { accountId: deletingAccountId },
 									});
 								}
 							}}
-							disabled={deleteMutation.isPending}
-							className="px-4 py-2 bg-danger text-canvas rounded-md hover:bg-danger/90 disabled:opacity-50"
 						>
-							{deleteMutation.isPending ? "Deleting..." : "Delete Account"}
-						</button>
+							{deleteMutation.isPending ? "Deleting…" : "Delete account"}
+						</Button>
 					</>
 				}
 			>
