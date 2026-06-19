@@ -1,4 +1,8 @@
 export {
+	AppPasswordHint,
+	type AppPasswordHintProps,
+} from "./components/app-password-hint.js";
+export {
 	type AccountChip,
 	AppShell,
 	type AppShellProps,
@@ -46,6 +50,10 @@ export {
 	type DangerZoneSectionProps,
 } from "./components/danger-zone-section.js";
 export { Dialog, type DialogProps } from "./components/dialog.js";
+export {
+	FieldLabel,
+	type FieldLabelProps,
+} from "./components/field-label.js";
 export {
 	FilterSheet,
 	type FilterSheetCategory,
@@ -99,6 +107,12 @@ export {
 	ResizablePanelGroup,
 } from "./components/resizable.js";
 export {
+	SecuritySelect,
+	type SecuritySelectProps,
+	type ServerSecurity,
+	securityToApi,
+} from "./components/security-select.js";
+export {
 	SegmentedControl,
 	type SegmentedControlProps,
 	type SegmentedOption,
@@ -125,7 +139,6 @@ export {
 	type ConnectorTileProps,
 	ServerFields,
 	type ServerFieldsProps,
-	type ServerSecurity,
 	WizardShell,
 	type WizardShellProps,
 } from "./components/wizard.js";

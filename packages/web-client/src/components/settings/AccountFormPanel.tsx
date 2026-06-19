@@ -6,7 +6,7 @@ import {
 	configOperationsGetConfigQueryKey,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
-import { Button, Input, Select } from "@remit/ui";
+import { Button, Input, Select, securityToApi } from "@remit/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, Loader2, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -327,41 +327,26 @@ export const AccountFormPanel = ({
 	}, [signatureText, signature.plainText, setSignature]);
 
 	const handleSecurityChange = (type: "tls" | "starttls" | "none") => {
+		const { tls, startTls } = securityToApi(type);
+		form.setValue("imapTls", tls);
+		form.setValue("imapStartTls", startTls);
+
 		const currentPort = form.getValues("imapPort");
 		const isDefaultPort = currentPort === 993 || currentPort === 143;
-
-		if (type === "tls") {
-			form.setValue("imapTls", true);
-			form.setValue("imapStartTls", false);
-			if (isDefaultPort) form.setValue("imapPort", 993);
-		} else if (type === "starttls") {
-			form.setValue("imapTls", false);
-			form.setValue("imapStartTls", true);
-			if (isDefaultPort) form.setValue("imapPort", 143);
-		} else {
-			form.setValue("imapTls", false);
-			form.setValue("imapStartTls", false);
-			if (isDefaultPort) form.setValue("imapPort", 143);
-		}
+		if (isDefaultPort) form.setValue("imapPort", type === "tls" ? 993 : 143);
 	};
 
 	const handleSmtpSecurityChange = (type: "tls" | "starttls" | "none") => {
+		const { tls, startTls } = securityToApi(type);
+		form.setValue("smtpTls", tls);
+		form.setValue("smtpStartTls", startTls);
+
 		const currentPort = form.getValues("smtpPort");
 		const isDefaultPort =
 			currentPort === 465 || currentPort === 587 || currentPort === 25;
-
-		if (type === "tls") {
-			form.setValue("smtpTls", true);
-			form.setValue("smtpStartTls", false);
-			if (isDefaultPort) form.setValue("smtpPort", 465);
-		} else if (type === "starttls") {
-			form.setValue("smtpTls", false);
-			form.setValue("smtpStartTls", true);
-			if (isDefaultPort) form.setValue("smtpPort", 587);
-		} else {
-			form.setValue("smtpTls", false);
-			form.setValue("smtpStartTls", false);
-			if (isDefaultPort) form.setValue("smtpPort", 25);
+		if (isDefaultPort) {
+			const port = type === "tls" ? 465 : type === "starttls" ? 587 : 25;
+			form.setValue("smtpPort", port);
 		}
 	};
 
@@ -379,15 +364,17 @@ export const AccountFormPanel = ({
 		const preset = getPresetById(id);
 		if (!preset) return;
 
+		const imapSecurity = securityToApi(preset.imap.security);
 		form.setValue("imapHost", preset.imap.host);
 		form.setValue("imapPort", preset.imap.port);
-		form.setValue("imapTls", preset.imap.security === "tls");
-		form.setValue("imapStartTls", preset.imap.security === "starttls");
+		form.setValue("imapTls", imapSecurity.tls);
+		form.setValue("imapStartTls", imapSecurity.startTls);
 
+		const smtpSecurity = securityToApi(preset.smtp.security);
 		form.setValue("smtpHost", preset.smtp.host);
 		form.setValue("smtpPort", preset.smtp.port);
-		form.setValue("smtpTls", preset.smtp.security === "tls");
-		form.setValue("smtpStartTls", preset.smtp.security === "starttls");
+		form.setValue("smtpTls", smtpSecurity.tls);
+		form.setValue("smtpStartTls", smtpSecurity.startTls);
 
 		const email = form.getValues("email").trim();
 		const username = form.getValues("username")?.trim();
