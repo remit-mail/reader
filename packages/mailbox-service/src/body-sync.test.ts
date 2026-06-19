@@ -1187,6 +1187,7 @@ describe("BodySyncService.syncBodies (junk rescue isolation)", () => {
 	const buildRescueConfig = (opts: {
 		moveCalls: string[];
 		moveImpl?: (messageId: string) => Promise<void>;
+		dryRun?: boolean;
 	}) => {
 		const mailboxSpecialUseService = {
 			findBySpecialUse: async (
@@ -1212,7 +1213,11 @@ describe("BodySyncService.syncBodies (junk rescue isolation)", () => {
 				}),
 		} as unknown as MessageMoveService;
 
-		return { mailboxSpecialUseService, messageMoveService };
+		return {
+			mailboxSpecialUseService,
+			messageMoveService,
+			dryRun: opts.dryRun ?? false,
+		};
 	};
 
 	const buildAddressServiceWithTrust = (
@@ -1232,17 +1237,21 @@ describe("BodySyncService.syncBodies (junk rescue isolation)", () => {
 	const captureLogger = (): {
 		logger: BodySyncLogger;
 		warnings: Array<{ obj: Record<string, unknown>; msg: string }>;
+		infos: Array<{ obj: Record<string, unknown>; msg: string }>;
 	} => {
 		const warnings: Array<{ obj: Record<string, unknown>; msg: string }> = [];
+		const infos: Array<{ obj: Record<string, unknown>; msg: string }> = [];
 		const logger: BodySyncLogger = {
-			info: () => {},
+			info: (obj, msg) => {
+				infos.push({ obj, msg });
+			},
 			debug: () => {},
 			warn: (obj, msg) => {
 				warnings.push({ obj, msg });
 			},
 			error: () => {},
 		};
-		return { logger, warnings };
+		return { logger, warnings, infos };
 	};
 
 	it("rescues a trusted-sender message out of Junk on the happy path", async () => {
@@ -1317,8 +1326,8 @@ describe("BodySyncService.syncBodies (junk rescue isolation)", () => {
 		assert.equal(fake.storedParsed.length, 1, "parsed-body cache stored");
 		// The failure was swallowed and logged, not propagated.
 		assert.ok(
-			warnings.some((w) => w.msg.includes("Junk rescue failed")),
-			"expected a best-effort rescue failure warning",
+			warnings.some((w) => w.msg.includes("Placement move failed")),
+			"expected a best-effort placement-move failure warning",
 		);
 	});
 
@@ -1366,6 +1375,253 @@ describe("BodySyncService.syncBodies (junk rescue isolation)", () => {
 		assert.ok(
 			cacheIdx < rescueIdx,
 			"parsed-body cache must be stored before the rescue moves the message",
+		);
+	});
+
+	// A message sitting in INBOX whose DKIM signing domain does not align with
+	// the From domain AND whose provider DMARC verdict is Fail — the confident
+	// demote case (inbox → junk, HIGH bar) from an untrusted sender.
+	const DEMOTE_EML = Buffer.from(
+		[
+			"From: ceo@yourbank.com",
+			"To: victim@example.com",
+			"Subject: urgent wire transfer",
+			"Message-ID: <phish-1@yourbank.com>",
+			"Authentication-Results: mx.example.com; dmarc=fail; spf=fail",
+			// classifyPlacement's first guard needs BOTH providerSpam and authResult
+			// present (the field, not a spam verdict) before it considers a verdict.
+			"X-Spam-Status: No, score=0.0",
+			"DKIM-Signature: v=1; a=rsa-sha256; d=evil-relay.net; s=sel; b=xxx",
+			"Content-Type: text/plain",
+			"",
+			"please wire funds now",
+			"",
+		].join("\r\n"),
+	);
+
+	const buildPlacementConfig = (opts: {
+		moveCalls: string[];
+		dryRun?: boolean;
+		junkMailboxId?: string;
+		inboxMailboxId?: string;
+	}) => {
+		const junkMailboxId = opts.junkMailboxId ?? "junk-mbx";
+		const inboxMailboxId = opts.inboxMailboxId ?? "inbox-mbx";
+		const mailboxSpecialUseService = {
+			findBySpecialUse: async (
+				_accountId: string,
+				specialUse: (typeof MailboxSpecialUse)[keyof typeof MailboxSpecialUse],
+			) =>
+				specialUse === MailboxSpecialUse.Junk
+					? { mailboxId: junkMailboxId, fullPath: "Junk" }
+					: null,
+			findInboxMailbox: async () => ({
+				mailboxId: inboxMailboxId,
+				fullPath: "INBOX",
+			}),
+		} as unknown as MailboxSpecialUseService;
+
+		const messageMoveService = {
+			moveMessage: async (messageId: string, destinationMailboxId: string) => {
+				opts.moveCalls.push(`${messageId}->${destinationMailboxId}`);
+			},
+		} as unknown as MessageMoveService;
+
+		return {
+			mailboxSpecialUseService,
+			messageMoveService,
+			dryRun: opts.dryRun ?? false,
+		};
+	};
+
+	// An untrusted sender: deriveSenderTrust resolves to Unknown via a clean
+	// NotFoundError (a genuinely-absent Address), not by a missing-method throw —
+	// so the placement path runs the real verdict instead of aborting in its catch.
+	const untrustedAddressService = {
+		incrementInboundCount: async () => {},
+		getAddress: async () => {
+			throw new NotFoundError("Address not found");
+		},
+	} as unknown as AddressService;
+
+	it("demotes an untrusted inbox phish (dkimMismatch + dmarc=Fail) into Junk when the flag is enabled", async () => {
+		const fake = buildFakeState({
+			messageId: "msg-demote",
+			rawEml: DEMOTE_EML,
+			messageOverrides: { mailboxId: "inbox-mbx", movedByRemit: false },
+		});
+		const moveCalls: string[] = [];
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			untrustedAddressService,
+			fake.envelopeService,
+			undefined,
+			buildPlacementConfig({ moveCalls }),
+		);
+
+		const result = await service.syncBodies(
+			["msg-demote"],
+			"acc-1",
+			"acc-cfg-1",
+			"INBOX",
+			async () => buildFakeConnection(DEMOTE_EML),
+		);
+
+		assert.equal(result.syncedCount, 1);
+		assert.deepEqual(moveCalls, ["msg-demote->junk-mbx"]);
+		const movedFlag = fake.updatedKeys.find((u) => u.movedByRemit === true);
+		assert.ok(movedFlag, "expected movedByRemit=true update for the demote");
+	});
+
+	it("leaves a DMARC-pass dkim-mismatch inbox message in place (unsure → no move, no flag)", async () => {
+		// dkimMismatch but DMARC did NOT fail — deferred to a later LLM tier, must
+		// never auto-demote.
+		const dmarcPassEml = Buffer.from(
+			[
+				"From: ceo@yourbank.com",
+				"To: victim@example.com",
+				"Subject: newsletter",
+				"Message-ID: <maybe-1@yourbank.com>",
+				"Authentication-Results: mx.example.com; dmarc=pass",
+				"X-Spam-Status: No, score=0.0",
+				"DKIM-Signature: v=1; a=rsa-sha256; d=mailer.net; s=sel; b=xxx",
+				"Content-Type: text/plain",
+				"",
+				"body",
+				"",
+			].join("\r\n"),
+		);
+		const fake = buildFakeState({
+			messageId: "msg-defer",
+			rawEml: dmarcPassEml,
+			messageOverrides: { mailboxId: "inbox-mbx", movedByRemit: false },
+		});
+		const moveCalls: string[] = [];
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			untrustedAddressService,
+			fake.envelopeService,
+			undefined,
+			buildPlacementConfig({ moveCalls }),
+		);
+
+		const result = await service.syncBodies(
+			["msg-defer"],
+			"acc-1",
+			"acc-cfg-1",
+			"INBOX",
+			async () => buildFakeConnection(dmarcPassEml),
+		);
+
+		assert.equal(result.syncedCount, 1);
+		assert.deepEqual(moveCalls, [], "no move for an unsure verdict");
+		assert.equal(
+			fake.updatedKeys.find((u) => u.movedByRemit === true),
+			undefined,
+			"no movedByRemit flag for an unsure verdict",
+		);
+	});
+
+	it("leaves an untrusted junk message in place (anti-spoof guard: rescue needs trust)", async () => {
+		// Provider=spam + dmarc=Pass in Junk, but the sender is untrusted —
+		// classifyPlacement returns unsure, so no rescue fires.
+		const junkSpamEml = Buffer.from(
+			[
+				"From: deals@faddedsms.com",
+				"To: bob@example.com",
+				"Subject: cheap deals",
+				"Message-ID: <spam-1@faddedsms.com>",
+				"Authentication-Results: mx.example.com; dmarc=pass",
+				"X-SpamExperts-Class: Spam",
+				"Content-Type: text/plain",
+				"",
+				"buy now",
+				"",
+			].join("\r\n"),
+		);
+		const fake = buildFakeState({
+			messageId: "msg-untrusted-junk",
+			rawEml: junkSpamEml,
+			messageOverrides: { mailboxId: "junk-mbx", movedByRemit: false },
+		});
+		const moveCalls: string[] = [];
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			untrustedAddressService,
+			fake.envelopeService,
+			undefined,
+			buildPlacementConfig({ moveCalls }),
+		);
+
+		const result = await service.syncBodies(
+			["msg-untrusted-junk"],
+			"acc-1",
+			"acc-cfg-1",
+			"Junk",
+			async () => buildFakeConnection(junkSpamEml),
+		);
+
+		assert.equal(result.syncedCount, 1);
+		assert.deepEqual(moveCalls, [], "untrusted junk is not auto-rescued");
+		assert.equal(
+			fake.updatedKeys.find((u) => u.movedByRemit === true),
+			undefined,
+			"no movedByRemit flag for an untrusted-junk no-op",
+		);
+	});
+
+	it("DRY-RUN (flag off): a would-move verdict logs but moves nothing and sets no flag", async () => {
+		const fake = buildFakeState({
+			messageId: "msg-dry",
+			rawEml: DEMOTE_EML,
+			messageOverrides: { mailboxId: "inbox-mbx", movedByRemit: false },
+		});
+		const moveCalls: string[] = [];
+		const { logger, infos } = captureLogger();
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			untrustedAddressService,
+			fake.envelopeService,
+			logger,
+			buildPlacementConfig({ moveCalls, dryRun: true }),
+		);
+
+		const result = await service.syncBodies(
+			["msg-dry"],
+			"acc-1",
+			"acc-cfg-1",
+			"INBOX",
+			async () => buildFakeConnection(DEMOTE_EML),
+		);
+
+		assert.equal(result.syncedCount, 1);
+		assert.deepEqual(moveCalls, [], "dry-run enqueues no move");
+		assert.equal(
+			fake.updatedKeys.find((u) => u.movedByRemit === true),
+			undefined,
+			"dry-run sets no movedByRemit flag",
+		);
+
+		// The structured verdict line is still emitted so the distribution is
+		// observable on a live mailbox before the flag is flipped on.
+		const verdictLog = infos.find((l) => l.msg === "Placement verdict");
+		assert.ok(verdictLog, "expected a structured verdict log line in dry-run");
+		assert.equal(verdictLog.obj.action, "move-to-junk");
+		assert.equal(verdictLog.obj.confidence, "confident");
+		assert.equal(verdictLog.obj.placement, "inbox");
+		assert.equal(verdictLog.obj.dryRun, true);
+		assert.equal(verdictLog.obj.destinationMailboxId, "junk-mbx");
+		assert.ok(
+			Array.isArray(verdictLog.obj.reasons),
+			"verdict log carries reasons",
 		);
 	});
 });
@@ -1774,7 +2030,7 @@ describe("BodySyncService.syncBodies (single consolidated Message write, #607)",
 			addressService,
 			fake.envelopeService,
 			undefined,
-			{ mailboxSpecialUseService, messageMoveService },
+			{ mailboxSpecialUseService, messageMoveService, dryRun: false },
 		);
 
 		const result = await service.syncBodies(
@@ -1874,10 +2130,10 @@ describe("BodySyncService.fetchAndGetBody (storage retrieval error handling)", (
 });
 
 describe("BodySyncService.deriveSenderTrust (error propagation via rescue)", () => {
-	// deriveSenderTrust is private; exercise it through the rescue path, which
-	// calls it from resolveJunkRescue. A missing Address must degrade to "no
-	// rescue" with no warning; any other failure (AccessDenied/throttle) must
-	// propagate so the rescue's own catch logs it (observable) rather than being
+	// deriveSenderTrust is private; exercise it through the placement path, which
+	// calls it from resolvePlacement. A missing Address must degrade to "no move"
+	// with no warning; any other failure (AccessDenied/throttle) must propagate so
+	// the placement path's own catch logs it (observable) rather than being
 	// silently downgraded to SenderTrust.Unknown.
 	const rescueableMessageOverrides = {
 		mailboxId: "junk-mbx",
@@ -1903,7 +2159,7 @@ describe("BodySyncService.deriveSenderTrust (error propagation via rescue)", () 
 		const messageMoveService = {
 			moveMessage: async () => {},
 		} as unknown as MessageMoveService;
-		return { mailboxSpecialUseService, messageMoveService };
+		return { mailboxSpecialUseService, messageMoveService, dryRun: false };
 	};
 
 	const captureWarnings = () => {
@@ -1961,12 +2217,12 @@ describe("BodySyncService.deriveSenderTrust (error propagation via rescue)", () 
 			async () => buildFakeConnection(RESCUE_EML),
 		);
 
-		// Unknown trust ⇒ predicate fails ⇒ no rescue, and the absence is NOT a
-		// rescue failure, so no warning is emitted.
+		// Unknown trust ⇒ verdict is unsure ⇒ no move, and the absence is NOT a
+		// placement failure, so no warning is emitted.
 		assert.equal(result.syncedCount, 1);
 		assert.ok(
-			!warnings.some((w) => w.msg.includes("Junk rescue failed")),
-			"a missing Address must not be logged as a rescue failure",
+			!warnings.some((w) => w.msg.includes("Placement move failed")),
+			"a missing Address must not be logged as a placement failure",
 		);
 	});
 
@@ -2003,12 +2259,14 @@ describe("BodySyncService.deriveSenderTrust (error propagation via rescue)", () 
 			async () => buildFakeConnection(RESCUE_EML),
 		);
 
-		// Body sync still succeeds (rescue is isolated), but the AccessDenied is
-		// now surfaced as a rescue-failure warning instead of silently becoming
-		// SenderTrust.Unknown.
+		// Body sync still succeeds (the placement path is isolated), but the
+		// AccessDenied is now surfaced as a placement-failure warning instead of
+		// silently becoming SenderTrust.Unknown.
 		assert.equal(result.syncedCount, 1);
-		const warned = warnings.find((w) => w.msg.includes("Junk rescue failed"));
-		assert.ok(warned, "expected a rescue-failure warning for AccessDenied");
+		const warned = warnings.find((w) =>
+			w.msg.includes("Placement move failed"),
+		);
+		assert.ok(warned, "expected a placement-failure warning for AccessDenied");
 		assert.match(String(warned?.obj.error), /AccessDenied/);
 	});
 });

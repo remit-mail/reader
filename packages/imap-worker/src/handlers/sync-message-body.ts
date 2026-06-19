@@ -193,8 +193,18 @@ export const syncMessageBody = async (
 			const mailbox = await mailboxService.get(mailboxId);
 			const storage = createStorageService();
 
-			const rescueConfig = messageMoveService
-				? { mailboxSpecialUseService, messageMoveService }
+			// Dark-ship gate (#744): the placement engine computes + logs verdicts
+			// always, but only enqueues real IMAP moves when this flag is "true".
+			// Default OFF so a deploy ships the verdict logging dark; flip the env
+			// var on to let confident verdicts move mail.
+			const placementMoveEnabled =
+				process.env.PLACEMENT_MOVE_ENABLED === "true";
+			const placementConfig = messageMoveService
+				? {
+						mailboxSpecialUseService,
+						messageMoveService,
+						dryRun: !placementMoveEnabled,
+					}
 				: undefined;
 
 			const bodySyncService = new BodySyncService(
@@ -204,7 +214,7 @@ export const syncMessageBody = async (
 				addressService,
 				envelopeService,
 				log,
-				rescueConfig,
+				placementConfig,
 			);
 
 			// Return the connection to the pool (no disconnect) so the next

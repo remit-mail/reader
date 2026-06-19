@@ -26,7 +26,10 @@ import {
 	extractHasListUnsubscribe,
 	extractProviderSpam,
 } from "./heuristics/classifyByHeaders.js";
-import { shouldRescueFromJunk } from "./heuristics/rescueFromJunk.js";
+import {
+	classifyPlacement,
+	type FolderPlacement,
+} from "./heuristics/classifyPlacement.js";
 import type { MessageMoveService } from "./message-move.js";
 import { extractSnippetFromEmail } from "./snippet.js";
 import { type IImapConnection, MailConnectionError } from "./types.js";
@@ -127,9 +130,16 @@ export interface StoreBodyPartContentsResult {
 
 export type ConnectionGetter = () => Promise<IImapConnection>;
 
-export interface RescueConfig {
+export interface PlacementConfig {
 	mailboxSpecialUseService: MailboxSpecialUseService;
 	messageMoveService: MessageMoveService;
+	/**
+	 * Dark-ship gate. When true (the default until `PLACEMENT_MOVE_ENABLED` is
+	 * flipped on in the worker) a confident verdict is computed and logged but no
+	 * IMAP move is enqueued and `movedByRemit` is never set — so we can inspect
+	 * the real verdict distribution on a live mailbox before letting it move mail.
+	 */
+	dryRun: boolean;
 }
 
 export class BodySyncService {
@@ -142,7 +152,7 @@ export class BodySyncService {
 		private addressService: AddressService,
 		private envelopeService: EnvelopeService,
 		logger?: BodySyncLogger,
-		private readonly rescueConfig?: RescueConfig,
+		private readonly placementConfig?: PlacementConfig,
 	) {
 		this.log = logger ?? noopLogger;
 	}
@@ -343,10 +353,11 @@ export class BodySyncService {
 		// into the single Message update below — they are NOT written here.
 		const classification = this.classifyMessage(parsed);
 
-		// Decide the junk rescue from the in-memory classification before the
+		// Decide the placement move from the in-memory classification before the
 		// write, so its `movedByRemit` flag joins the same UpdateItem. Best-effort
-		// and fully isolated: a failure here can never block the body sync.
-		const rescue = await this.resolveJunkRescue(
+		// and fully isolated: a failure here can never block the body sync. When
+		// the dark-ship flag is off the verdict is logged but no move is returned.
+		const placement = await this.resolvePlacement(
 			messageId,
 			accountId,
 			accountConfigId,
@@ -355,13 +366,14 @@ export class BodySyncService {
 		);
 
 		// ONE Message UpdateItem per synced message: bodyStorageKey + every
-		// classification/derived field + the rescue flag. Each extra Message
+		// classification/derived field + the move flag. Each extra Message
 		// mutation emits a DDB stream record that fans out to a redundant
-		// S3-Vectors upsert, so we collapse them into a single write.
+		// S3-Vectors upsert, so we collapse them into a single write. The flag is
+		// folded in only when a move WILL be enqueued (never in dry-run).
 		const update: UpdateMessageInput = {
 			bodyStorageKey: ref.uri,
 			...classification,
-			...(rescue ? { movedByRemit: true } : {}),
+			...(placement ? { movedByRemit: true } : {}),
 		};
 		await this.messageService.update(messageId, update);
 		this.log.info({ messageId, storageKey: ref.uri }, "Body stored");
@@ -396,13 +408,14 @@ export class BodySyncService {
 
 		// The actual mailbox move runs LAST, after the body cache is durably
 		// stored. The `movedByRemit` flag was already folded into the update
-		// above; here we only enqueue the IMAP move.
-		if (rescue) {
-			await this.moveRescuedMessage(
+		// above; here we only enqueue the IMAP move. `placement` is null in
+		// dry-run, so this is a no-op until the dark-ship flag is flipped on.
+		if (placement) {
+			await this.enqueuePlacementMove(
 				messageId,
 				accountId,
-				rescue.inboxMailboxId,
-				rescue.destination,
+				placement.destinationMailboxId,
+				placement.destinationPath,
 			);
 		}
 	}
@@ -600,27 +613,32 @@ export class BodySyncService {
 	}
 
 	/**
-	 * Decide whether a falsely-junked message should be rescued, BEFORE the
-	 * single Message update — so the `movedByRemit` flag joins that one
-	 * UpdateItem instead of a second mutation that would fan out another
-	 * redundant S3-Vectors upsert.
+	 * Resolve the placement move for a message, BEFORE the single Message update —
+	 * so the `movedByRemit` flag joins that one UpdateItem instead of a second
+	 * mutation that would fan out another redundant S3-Vectors upsert. Drives both
+	 * directions (junk → inbox rescue, inbox → junk demote) off the pure
+	 * {@link classifyPlacement} verdict.
 	 *
-	 * Best-effort: this is an enhancement bolted onto the body-sync hot path,
-	 * NOT part of the critical sync contract, so it is the one place where
+	 * Always logs a structured verdict line for confident, actionable verdicts so
+	 * the real distribution is observable on a live mailbox. When the dark-ship
+	 * flag is off (`dryRun`) it returns null after logging — no move, no flag.
+	 *
+	 * Best-effort: this is an enhancement bolted onto the body-sync hot path, NOT
+	 * part of the critical sync contract, so it is the one place where
 	 * let-it-crash is wrong. Any failure is swallowed with a warning and treated
-	 * as "no rescue" so it can never fail body-sync or block the search-index
-	 * enqueue. The predicate reads the just-computed classification rather than a
+	 * as "no move" so it can never fail body-sync or block the search-index
+	 * enqueue. The verdict reads the just-computed classification rather than a
 	 * persisted row, since those fields are not written until the single update.
 	 */
-	private async resolveJunkRescue(
+	private async resolvePlacement(
 		messageId: string,
 		accountId: string,
 		accountConfigId: string,
 		parsed: ParsedMail,
 		classification: UpdateMessageInput,
-	): Promise<{ inboxMailboxId: string; destination: string } | null> {
-		if (!this.rescueConfig) return null;
-		const { mailboxSpecialUseService } = this.rescueConfig;
+	): Promise<{ destinationMailboxId: string; destinationPath: string } | null> {
+		if (!this.placementConfig) return null;
+		const { mailboxSpecialUseService, dryRun } = this.placementConfig;
 
 		try {
 			const message = await this.messageService.get(messageId);
@@ -628,64 +646,92 @@ export class BodySyncService {
 				accountId,
 				MailboxSpecialUse.Junk,
 			);
-			if (!junkMailbox || message.mailboxId !== junkMailbox.mailboxId) {
-				return null;
-			}
+			const inboxMailbox =
+				await mailboxSpecialUseService.findInboxMailbox(accountId);
+
+			const placement: FolderPlacement =
+				junkMailbox && message.mailboxId === junkMailbox.mailboxId
+					? "junk"
+					: inboxMailbox && message.mailboxId === inboxMailbox.mailboxId
+						? "inbox"
+						: "other";
 
 			const fromEmail = extractPrimaryFromEmail(parsed);
 			const senderTrust = fromEmail
 				? await this.deriveSenderTrust(accountConfigId, fromEmail)
 				: SenderTrust.Unknown;
 
-			// The predicate needs the classification signals (providerSpam,
-			// authResult) that this body-sync pass just derived; the stored row
-			// does not carry them yet, so overlay them onto the fetched message.
+			// The verdict needs the classification signals (providerSpam,
+			// authResult, authenticity) that this body-sync pass just derived; the
+			// stored row does not carry them yet, so overlay them onto the message.
 			const candidate = { ...message, ...classification };
-			if (!shouldRescueFromJunk(candidate, senderTrust)) return null;
+			const verdict = classifyPlacement(candidate, placement, senderTrust);
 
-			const inboxMailbox =
-				await mailboxSpecialUseService.findInboxMailbox(accountId);
-			if (!inboxMailbox) return null;
+			if (verdict.confidence !== "confident" || verdict.action === "leave") {
+				return null;
+			}
+
+			const target =
+				verdict.action === "move-to-inbox" ? inboxMailbox : junkMailbox;
+			if (!target) return null;
+
+			// Structured verdict line — emitted in both dry-run and live so the
+			// real verdict distribution is observable on the dev mailbox.
+			this.log.info(
+				{
+					messageId,
+					accountId,
+					placement,
+					action: verdict.action,
+					confidence: verdict.confidence,
+					reasons: verdict.reasons,
+					destinationMailboxId: target.mailboxId,
+					dryRun,
+				},
+				"Placement verdict",
+			);
+
+			if (dryRun) return null;
 
 			return {
-				inboxMailboxId: inboxMailbox.mailboxId,
-				destination: inboxMailbox.fullPath,
+				destinationMailboxId: target.mailboxId,
+				destinationPath: target.fullPath,
 			};
 		} catch (err: unknown) {
 			this.log.warn?.(
 				{ messageId, accountId, error: inspect(err) },
-				"Junk rescue failed (best-effort, non-fatal)",
+				"Placement move failed (best-effort, non-fatal)",
 			);
 			return null;
 		}
 	}
 
 	/**
-	 * Enqueue the IMAP move for a rescued message. Best-effort: a failure here is
+	 * Enqueue the IMAP move for a placed message. Best-effort: a failure here is
 	 * swallowed with a warning so it can never fail body-sync. The `movedByRemit`
 	 * flag was already persisted in the single Message update.
 	 */
-	private async moveRescuedMessage(
+	private async enqueuePlacementMove(
 		messageId: string,
 		accountId: string,
-		inboxMailboxId: string,
-		destination: string,
+		destinationMailboxId: string,
+		destinationPath: string,
 	): Promise<void> {
-		if (!this.rescueConfig) return;
+		if (!this.placementConfig) return;
 		try {
-			await this.rescueConfig.messageMoveService.moveMessage(
+			await this.placementConfig.messageMoveService.moveMessage(
 				messageId,
-				inboxMailboxId,
+				destinationMailboxId,
 				accountId,
 			);
 			this.log.info(
-				{ messageId, accountId, destination },
-				"Rescued message from Junk",
+				{ messageId, accountId, destination: destinationPath },
+				"Moved message by placement verdict",
 			);
 		} catch (err: unknown) {
 			this.log.warn?.(
 				{ messageId, accountId, error: inspect(err) },
-				"Junk rescue failed (best-effort, non-fatal)",
+				"Placement move failed (best-effort, non-fatal)",
 			);
 		}
 	}
