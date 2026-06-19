@@ -48,7 +48,16 @@ describe("isFatalServerError", () => {
 		assert.equal(isFatalServerError(abort), false);
 	});
 
-	it("is true for a transport/network failure with no HTTP status (backend unreachable)", () => {
-		assert.equal(isFatalServerError(new TypeError("Failed to fetch")), true);
+	it("is NOT fatal for a statusless transport/network failure (offline blip, not a proven 5xx)", () => {
+		// Headline regression: a `TypeError: Failed to fetch` from a wifi drop,
+		// tab wake, captive portal, or background refetch must never take over the
+		// screen behind a reload-only overlay. No HTTP status ⇒ not a proven
+		// first-party 5xx ⇒ soft; React Query's reconnect/retry recovers it.
+		assert.equal(isFatalServerError(new TypeError("Failed to fetch")), false);
+		assert.equal(isFatalServerError(new Error("network down")), false);
+	});
+
+	it("is NOT fatal for a statusless auth failure (handled by Amplify/redirect, never the overlay)", () => {
+		assert.equal(isFatalServerError(new Error("No current user")), false);
 	});
 });

@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
-import { describe, test } from "node:test";
+import { afterEach, describe, test } from "node:test";
+import { ApiError } from "../lib/api.js";
+import { __resetFatalError, subscribeFatalError } from "../lib/fatal-error.js";
 import {
+	__peekStaleAccountSyncGuard,
+	__resetStaleAccountSyncGuard,
+	handleBackgroundSyncFailure,
 	STALENESS_THRESHOLD_MS,
 	selectStaleAccountIds,
 } from "./useStaleAccountSync.js";
@@ -87,5 +92,52 @@ describe("selectStaleAccountIds", () => {
 			NOW,
 		);
 		assert.deepEqual(ids, []);
+	});
+});
+
+describe("handleBackgroundSyncFailure", () => {
+	afterEach(() => {
+		__resetFatalError();
+		__resetStaleAccountSyncGuard();
+		console.warn = originalWarn;
+	});
+
+	const originalWarn = console.warn;
+	const silenceWarn = () => {
+		console.warn = () => undefined;
+	};
+
+	test("a background-sync 5xx does NOT escalate to the fatal overlay", () => {
+		silenceWarn();
+		let escalated = false;
+		subscribeFatalError(() => {
+			escalated = true;
+		});
+
+		handleBackgroundSyncFailure("a-1", new ApiError("boom", 503));
+
+		// Best-effort background probe: a single 5xx must stay soft, never take
+		// over the screen behind the reload-only overlay (#745 over-fire).
+		assert.equal(escalated, false);
+	});
+
+	test("a network blip on the background probe does NOT escalate", () => {
+		silenceWarn();
+		let escalated = false;
+		subscribeFatalError(() => {
+			escalated = true;
+		});
+
+		handleBackgroundSyncFailure("a-1", new TypeError("Failed to fetch"));
+
+		assert.equal(escalated, false);
+	});
+
+	test("drops the per-account guard so a later remount can retry", () => {
+		silenceWarn();
+		__peekStaleAccountSyncGuard(); // touch to ensure import is used
+		handleBackgroundSyncFailure("a-1", new ApiError("boom", 503));
+
+		assert.equal(__peekStaleAccountSyncGuard().has("a-1"), false);
 	});
 });

@@ -11,7 +11,7 @@ import { afterEach, describe, it } from "node:test";
 import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
 import { ApiError } from "./api";
 import { __resetFatalError, subscribeFatalError } from "./fatal-error";
-import { handleQueryError } from "./query-error-handler";
+import { handleQueryCacheError, handleQueryError } from "./query-error-handler";
 
 afterEach(() => {
 	__resetFatalError();
@@ -19,7 +19,7 @@ afterEach(() => {
 
 const makeClient = () =>
 	new QueryClient({
-		queryCache: new QueryCache({ onError: handleQueryError }),
+		queryCache: new QueryCache({ onError: handleQueryCacheError }),
 		mutationCache: new MutationCache({ onError: handleQueryError }),
 		defaultOptions: { queries: { retry: false } },
 	});
@@ -69,6 +69,25 @@ describe("global query/mutation escalation", () => {
 				queryKey: ["missing"],
 				queryFn: async () => {
 					throw new ApiError("not found", 404);
+				},
+			})
+			.catch(() => {});
+
+		assert.equal(escalated, false);
+	});
+
+	it("a statusless `Failed to fetch` (offline blip) from a query does NOT escalate", async () => {
+		let escalated = false;
+		subscribeFatalError(() => {
+			escalated = true;
+		});
+		const client = makeClient();
+
+		await client
+			.fetchQuery({
+				queryKey: ["offline"],
+				queryFn: async () => {
+					throw new TypeError("Failed to fetch");
 				},
 			})
 			.catch(() => {});
