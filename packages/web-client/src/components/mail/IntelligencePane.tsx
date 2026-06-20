@@ -28,14 +28,16 @@ export interface IntelligencePaneProps {
 
 /**
  * Category-override values accepted by the `AddressFlags.category` override
- * (PATCH /addresses/{id}). Narrower than `MessageCategory` — the override is a
- * user-set classification hint, not the full header-derived taxonomy.
+ * (PATCH /addresses/{id}). Matches `MessageCategory` — the full taxonomy the
+ * user can assign as a sender-level override.
  */
 const CATEGORY_OVERRIDES = [
 	"personal",
 	"newsletter",
+	"marketing",
+	"automated",
 	"transactional",
-	"promotional",
+	"social",
 ] as const;
 type CategoryOverride = (typeof CATEGORY_OVERRIDES)[number];
 
