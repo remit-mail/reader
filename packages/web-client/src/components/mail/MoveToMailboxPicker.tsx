@@ -160,27 +160,22 @@ export const MoveToMailboxPicker = ({
 
 	return (
 		<div className="flex flex-col">
-			<div className="px-3 pt-3 pb-2 border-b border-line">
-				<div className="relative">
-					<Search
-						className="absolute left-2 top-1/2 -translate-y-1/2 size-4 text-fg-muted"
-						aria-hidden="true"
-					/>
-					<input
-						ref={inputRef}
-						type="search"
-						value={query}
-						onChange={(event) => setQuery(event.target.value)}
-						onKeyDown={handleInputKeyDown}
-						placeholder="Filter folders"
-						aria-label="Filter folders"
-						className={cn(
-							"w-full pl-8 pr-3 py-2 min-h-11 text-sm rounded-md",
-							"bg-canvas border border-line",
-							"focus:outline-none focus:ring-2 focus:ring-ring",
-						)}
-					/>
-				</div>
+			<div className="flex items-center gap-2 border-b border-line px-3 py-2">
+				<Search className="size-4 shrink-0 text-fg-subtle" aria-hidden="true" />
+				<input
+					ref={inputRef}
+					type="search"
+					value={query}
+					onChange={(event) => setQuery(event.target.value)}
+					onKeyDown={handleInputKeyDown}
+					placeholder={t("move_picker_placeholder", {
+						defaultValue: "Move to…",
+					})}
+					aria-label={t("move_picker_filter_label", {
+						defaultValue: "Filter folders",
+					})}
+					className="min-w-0 flex-1 bg-transparent text-sm text-fg outline-none placeholder:text-fg-subtle"
+				/>
 			</div>
 			<ul
 				className="flex-1 overflow-y-auto py-1"
