@@ -26,6 +26,40 @@ describe("SegmentedControl (#802)", () => {
 		assert.equal((html.match(/type="radio"/g) ?? []).length, 2);
 		assert.match(html, /checked[^>]*value="compact"/);
 	});
+
+	it("active thumb uses filled card shadow (#848)", () => {
+		const html = renderToString(
+			createElement(SegmentedControl, {
+				name: "theme",
+				value: "system",
+				onChange: () => undefined,
+				options: [
+					{ value: "system", label: "System" },
+					{ value: "light", label: "Light" },
+					{ value: "dark", label: "Dark" },
+				],
+			}),
+		);
+		// shadow (not shadow-sm) on the active thumb
+		assert.match(html, /bg-surface[^"]*\bshadow\b/);
+	});
+
+	it("renders dividers between inactive segments (#848)", () => {
+		// active = system (index 0): light→dark boundary gets a divider
+		const html = renderToString(
+			createElement(SegmentedControl, {
+				name: "theme",
+				value: "system",
+				onChange: () => undefined,
+				options: [
+					{ value: "system", label: "System" },
+					{ value: "light", label: "Light" },
+					{ value: "dark", label: "Dark" },
+				],
+			}),
+		);
+		assert.match(html, /after:bg-line/);
+	});
 });
 
 describe("SenderGroupSwitch (#790)", () => {
