@@ -166,9 +166,9 @@ export const manifest: ParityRow[] = [
 		viewports: ["phone", "tablet", "desktop"],
 		live: {
 			route: "/onboarding",
-			// Servers-detected requires autodiscovery to complete (async network call).
-			// Live capture shows the address step with gmail.com filled; full
-			// servers-detected state requires dev-stage capture (real network).
+			// gmail.com is in the static provider table — discovery is instant, no
+			// network call needed. Continue on the address step transitions immediately
+			// to the servers step with the "detected" badge shown.
 			steps: [
 				{
 					action: "click",
@@ -180,6 +180,8 @@ export const manifest: ParityRow[] = [
 					selector: "input[type='email']",
 					value: "user@gmail.com",
 				},
+				{ action: "click", selector: "button:has-text('Continue')" },
+				{ action: "wait", selector: "h1:has-text('Confirm server settings')" },
 			],
 		},
 		story: { id: "flows-onboarding--server-confirm" },
@@ -201,6 +203,8 @@ export const manifest: ParityRow[] = [
 					selector: "input[type='email']",
 					value: "user@gmail.com",
 				},
+				{ action: "click", selector: "button:has-text('Continue')" },
+				{ action: "wait", selector: "h1:has-text('Confirm server settings')" },
 			],
 		},
 		story: { id: "flows-onboarding--server-confirm-phone" },
@@ -211,6 +215,8 @@ export const manifest: ParityRow[] = [
 		viewports: ["phone", "tablet", "desktop"],
 		live: {
 			route: "/onboarding",
+			// icloud.com is in the static provider table — discovery is instant.
+			// The servers step renders with the iCloud preset selected and fields locked.
 			steps: [
 				{
 					action: "click",
@@ -222,6 +228,8 @@ export const manifest: ParityRow[] = [
 					selector: "input[type='email']",
 					value: "user@icloud.com",
 				},
+				{ action: "click", selector: "button:has-text('Continue')" },
+				{ action: "wait", selector: "h1:has-text('Confirm server settings')" },
 			],
 		},
 		story: { id: "flows-onboarding--server-provider-preset" },
@@ -232,6 +240,9 @@ export const manifest: ParityRow[] = [
 		viewports: ["phone", "tablet", "desktop"],
 		live: {
 			route: "/onboarding",
+			// custom.example is not in the provider table; discovery falls back to
+			// heuristics after the 1.5 s network timeout. The servers step shows
+			// heuristic-filled hosts without a "detected" badge and Custom selected.
 			steps: [
 				{
 					action: "click",
@@ -243,6 +254,8 @@ export const manifest: ParityRow[] = [
 					selector: "input[type='email']",
 					value: "user@custom.example",
 				},
+				{ action: "click", selector: "button:has-text('Continue')" },
+				{ action: "wait", selector: "h1:has-text('Confirm server settings')" },
 			],
 		},
 		story: { id: "flows-onboarding--server-manual-fallback" },
@@ -251,6 +264,12 @@ export const manifest: ParityRow[] = [
 		surface: "onboarding",
 		state: "servers-validation-error",
 		viewports: ["phone", "tablet", "desktop"],
+		// NOTE: The validation error (blank IMAP/SMTP host) is not reachable via
+		// simple click steps — heuristic discovery pre-fills both hosts for any
+		// domain, so Continue always advances past validation. Reaching this state
+		// would require a "clear" step type (clear pre-filled inputs before
+		// continuing). The live capture currently lands on the credentials step
+		// instead; the story side still shows the correct design. Tracked #855.
 		live: {
 			route: "/onboarding",
 			steps: [
@@ -265,7 +284,7 @@ export const manifest: ParityRow[] = [
 					value: "user@custom.example",
 				},
 				{ action: "click", selector: "button:has-text('Continue')" },
-				{ action: "click", selector: "button:has-text('Continue')" },
+				{ action: "wait", selector: "h1:has-text('Confirm server settings')" },
 			],
 		},
 		story: { id: "flows-onboarding--server-missing-host" },
@@ -274,9 +293,27 @@ export const manifest: ParityRow[] = [
 		surface: "onboarding",
 		state: "credentials",
 		viewports: ["phone", "tablet", "desktop"],
-		// Credentials step requires completing address + servers steps with valid
-		// data — not reachable in a simple navigation; dev-stage capture needed.
-		live: { route: "/onboarding" },
+		// Reachable locally: fastmail.com is in the static provider table (instant
+		// discovery), so address → servers → credentials is a pure click sequence.
+		live: {
+			route: "/onboarding",
+			steps: [
+				{
+					action: "click",
+					selector: "button:has-text('Add your first account')",
+				},
+				{ action: "click", selector: "button:has-text('Continue with IMAP')" },
+				{
+					action: "fill",
+					selector: "input[type='email']",
+					value: "user@fastmail.com",
+				},
+				{ action: "click", selector: "button:has-text('Continue')" },
+				{ action: "wait", selector: "h1:has-text('Confirm server settings')" },
+				{ action: "click", selector: "button:has-text('Continue')" },
+				{ action: "wait", selector: "h1:has-text('Sign in to')" },
+			],
+		},
 		story: { id: "flows-onboarding--credentials" },
 	},
 	{
