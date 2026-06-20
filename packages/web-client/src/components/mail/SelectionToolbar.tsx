@@ -91,7 +91,7 @@ export const SelectionToolbar = ({
 						onMove={onMove}
 						disabled={isBusy}
 						disabledHint={moveDisabledHint}
-						variant="compact"
+						variant="icon-only"
 						label="Move selected messages"
 					/>
 				)}
