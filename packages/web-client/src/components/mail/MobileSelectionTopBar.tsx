@@ -1,4 +1,4 @@
-import { MailOpen, Trash2, X } from "lucide-react";
+import { Loader2, MailOpen, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MoveToTrigger } from "./MoveToTrigger";
 
@@ -9,9 +9,8 @@ interface MobileSelectionTopBarProps {
 	onMarkAsRead?: () => void;
 	onMove?: (destinationMailboxId: string) => void;
 	/**
-	 * True while a delete or move mutation is in flight. Disables the
-	 * action buttons so quick taps can't queue overlapping optimistic
-	 * patches before the previous one settles.
+	 * True while a delete or move mutation is in flight. Action buttons
+	 * no-op while busy — never disabled.
 	 */
 	isBusy?: boolean;
 	/**
@@ -66,10 +65,10 @@ export const MobileSelectionTopBar = ({
 					{onMarkAsRead && (
 						<button
 							type="button"
-							onClick={onMarkAsRead}
-							disabled={isBusy}
-							className="min-h-11 min-w-11 inline-flex items-center justify-center rounded text-sm font-medium transition-colors hover:bg-surface-raised disabled:opacity-50 disabled:cursor-not-allowed"
+							onClick={isBusy ? undefined : onMarkAsRead}
+							className="min-h-11 min-w-11 inline-flex items-center justify-center rounded text-sm font-medium transition-colors hover:bg-surface-raised"
 							aria-label="Mark as read"
+							aria-busy={isBusy}
 						>
 							<MailOpen className="size-4" />
 						</button>
@@ -78,24 +77,26 @@ export const MobileSelectionTopBar = ({
 						<MoveToTrigger
 							accountId={accountId}
 							currentMailboxId={currentMailboxId}
-							onMove={onMove}
-							disabled={isBusy}
+							onMove={isBusy ? () => {} : onMove}
 							disabledHint={moveDisabledHint}
 							label="Move selected messages"
 						/>
 					)}
 					<button
 						type="button"
-						onClick={onDelete}
-						disabled={isBusy}
+						onClick={isBusy ? undefined : onDelete}
 						className={cn(
 							"min-h-11 min-w-11 inline-flex items-center justify-center rounded text-sm font-medium transition-colors hover:bg-surface-raised",
 							"text-danger",
-							"disabled:opacity-50 disabled:cursor-not-allowed",
 						)}
 						aria-label="Delete selected messages"
+						aria-busy={isBusy}
 					>
-						<Trash2 className="size-4" />
+						{isBusy ? (
+							<Loader2 className="size-4 animate-spin" />
+						) : (
+							<Trash2 className="size-4" />
+						)}
 					</button>
 				</div>
 			</div>
