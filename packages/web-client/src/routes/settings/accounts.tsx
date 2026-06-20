@@ -10,20 +10,20 @@ import {
 	Badge,
 	Banner,
 	Button,
+	Dialog,
 	type RowAction,
 	RowActions,
 	SettingsShell,
 } from "@remit/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, Loader2, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { z } from "zod";
 import { OnboardingWizard } from "@/components/onboarding/OnboardingWizard";
 import { AccountFormPanel } from "@/components/settings/AccountFormPanel";
 import { DangerZone } from "@/components/settings/DangerZone";
 import { ErrorState } from "@/components/ui/ErrorState";
-import { SlidePanel } from "@/components/ui/SlidePanel";
 import { formatRelativeTime } from "@/lib/format";
 import { SETTINGS_ID_TO_PATH, SETTINGS_NAV_ITEMS } from "@/routes/settings";
 
@@ -457,53 +457,70 @@ function AccountsSettings() {
 				onClose={handleClosePanel}
 			/>
 
-			{/* Delete Confirmation Panel */}
-			<SlidePanel
-				isOpen={!!deletingAccountId}
+			{/* Delete Confirmation Dialog */}
+			<Dialog
+				open={!!deletingAccountId}
 				onClose={() => setDeletingAccountId(null)}
 				title="Delete account"
-				footer={
-					<>
-						<Button
-							variant="secondary"
-							size="sm"
-							onClick={() => setDeletingAccountId(null)}
-						>
-							Cancel
-						</Button>
-						<Button
-							variant="danger"
-							size="sm"
-							aria-busy={deleteMutation.isPending}
-							onClick={() => {
-								if (deleteMutation.isPending) return;
-								if (deletingAccountId) {
-									deleteMutation.mutate({
-										path: { accountId: deletingAccountId },
-									});
-								}
-							}}
-						>
-							{deleteMutation.isPending ? "Deleting…" : "Delete account"}
-						</Button>
-					</>
-				}
 			>
-				<div className="text-center">
-					<p className="text-lg font-medium mb-2">Are you sure?</p>
+				<header className="flex items-center gap-2 border-b border-line px-5 py-3">
+					<AlertTriangle className="size-4 shrink-0 text-danger" />
+					<span className="flex-1 text-sm font-semibold text-fg">
+						Delete account
+					</span>
+					<Button
+						variant="ghost"
+						size="sm"
+						icon={<X className="size-3.5" />}
+						onClick={() => setDeletingAccountId(null)}
+						aria-label="Cancel"
+					/>
+				</header>
+
+				<div className="space-y-3 px-5 py-4 text-sm text-fg-muted">
+					<p className="text-center text-lg font-medium text-fg">
+						Are you sure?
+					</p>
 					{accountToDelete && (
-						<p className="text-fg-muted mb-4">{accountToDelete.email}</p>
+						<p className="text-center">{accountToDelete.email}</p>
 					)}
-					<div className="text-left text-sm text-fg-muted space-y-1 mt-4">
-						<p>This will:</p>
-						<ul className="list-disc list-inside space-y-1">
-							<li>Remove the account from your settings</li>
-							<li>Stop syncing mail for this account</li>
-							<li>Delete all associated data (within 24 hours)</li>
-						</ul>
-					</div>
+					<ul className="list-inside list-disc space-y-1">
+						<li>Remove the account from your settings</li>
+						<li>Stop syncing mail for this account</li>
+						<li>Delete all associated data (within 24 hours)</li>
+					</ul>
 				</div>
-			</SlidePanel>
+
+				<footer className="flex items-center justify-end gap-2 border-t border-line px-5 py-3">
+					<Button
+						variant="secondary"
+						size="sm"
+						onClick={() => setDeletingAccountId(null)}
+					>
+						Cancel
+					</Button>
+					<Button
+						variant="danger"
+						size="sm"
+						aria-busy={deleteMutation.isPending}
+						icon={
+							deleteMutation.isPending ? (
+								<Loader2 className="size-3.5 animate-spin" />
+							) : undefined
+						}
+						onClick={() => {
+							if (deleteMutation.isPending) return;
+							if (deletingAccountId) {
+								deleteMutation.mutate({
+									path: { accountId: deletingAccountId },
+								});
+							}
+						}}
+					>
+						{deleteMutation.isPending ? "Deleting…" : "Delete account"}
+					</Button>
+				</footer>
+			</Dialog>
 
 			<DangerZone />
 		</SettingsShell>
