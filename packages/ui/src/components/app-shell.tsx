@@ -764,7 +764,7 @@ export function BriefSections({
 	onSelectAccountChip,
 }: BriefSectionsProps) {
 	const [active, setActive] = useState<ReadonlySet<BriefFilterId>>(new Set());
-	const [sheetExpanded, setSheetExpanded] = useState(true);
+	const [sheetExpanded, setSheetExpanded] = useState(false);
 	const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
 		() =>
 			new Set(
