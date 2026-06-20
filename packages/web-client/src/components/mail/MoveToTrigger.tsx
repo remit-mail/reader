@@ -32,7 +32,7 @@ interface MoveToTriggerProps {
 }
 
 const TRIGGER_BASE =
-	"inline-flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
+	"inline-flex items-center justify-center transition-colors";
 
 const ICON_TRIGGER = cn(
 	TRIGGER_BASE,
@@ -116,7 +116,6 @@ export const MoveToTrigger = ({
 				if (isTriggerDisabled) return;
 				setIsOpen((prev) => !prev);
 			}}
-			disabled={isTriggerDisabled}
 			aria-label={triggerLabel}
 			// Mobile opens a vaul Drawer (modal dialog), desktop opens a
 			// non-modal popover whose only content is the listbox of
