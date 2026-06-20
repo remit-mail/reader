@@ -22,7 +22,8 @@
     "test:visual:ui": "npm run test:visual:fetch && npx playwright test --config playwright.visual.config.ts --ui",
     "test:visual:update": "npm run test:visual:fetch && npx playwright test --config playwright.visual.config.ts --update-snapshots=all && echo '\\nBaselines updated locally. Run: npm run test:visual:publish -w packages/remit-web-client'",
     "playwright:install": "npx playwright install chromium",
-    "parity:montage": "node --import tsx visual-regression/parity/montage.ts"
+    "parity:montage": "node --import tsx visual-regression/parity/montage.ts",
+    "parity:capture": "node --import tsx visual-regression/parity/capture-parity.ts"
   },
   "devDependencies": {
     "@aws-amplify/ui-react": "^6",
