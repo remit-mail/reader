@@ -53,6 +53,9 @@ describe("ImapFlowConnection.connect() retry policy", () => {
 					"final error should be a MailConnectionError",
 				);
 				assert.equal(error.kind, "network");
+				// The host:port endpoint must appear in the message so a DNS /
+				// connect failure is self-describing in the logs (issue #835).
+				assert.match(error.message, /localhost:143/);
 				return true;
 			},
 		);
