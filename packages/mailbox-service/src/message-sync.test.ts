@@ -9,7 +9,7 @@ import type {
 	ThreadMessageService,
 } from "@remit/remit-electrodb-service";
 import type { ManagedConnectionFactory } from "./connection-factory.js";
-import { MessageSyncService } from "./message-sync.js";
+import { MessageSyncService, parseHeaderDate } from "./message-sync.js";
 import type { ImapMessage } from "./types.js";
 
 interface UpsertCall {
@@ -636,5 +636,297 @@ describe("MessageSyncService.syncMessages — watermark vs body-sync (#634)", ()
 		const patch = harness.updateCalls.at(-1)!;
 		assert.equal(patch.highWaterMarkUid, 15);
 		assert.equal(patch.lastSyncUid, 15);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// parseHeaderDate — guarding the external Date header (#817)
+// ---------------------------------------------------------------------------
+
+describe("parseHeaderDate", () => {
+	const fallback = 1_700_000_000_000;
+
+	it("parses a valid RFC 2822 date", () => {
+		const out = parseHeaderDate("Tue, 28 Apr 2026 12:00:00 +0000", fallback);
+		assert.equal(out.usedFallback, false);
+		assert.equal(out.value, Date.parse("Tue, 28 Apr 2026 12:00:00 +0000"));
+		assert.ok(Number.isInteger(out.value));
+	});
+
+	it("parses an ISO date", () => {
+		const out = parseHeaderDate("2026-04-28T12:00:00.000Z", fallback);
+		assert.equal(out.usedFallback, false);
+		assert.equal(out.value, Date.parse("2026-04-28T12:00:00.000Z"));
+	});
+
+	it("falls back when the header is undefined", () => {
+		const out = parseHeaderDate(undefined, fallback);
+		assert.equal(out.usedFallback, true);
+		assert.equal(out.value, fallback);
+		assert.ok(Number.isInteger(out.value));
+	});
+
+	it("falls back when the header is an empty string", () => {
+		const out = parseHeaderDate("", fallback);
+		assert.equal(out.usedFallback, true);
+		assert.equal(out.value, fallback);
+	});
+
+	it("falls back on a garbage string", () => {
+		const out = parseHeaderDate("not a date at all", fallback);
+		assert.equal(out.usedFallback, true);
+		assert.equal(out.value, fallback);
+		assert.ok(Number.isInteger(out.value));
+	});
+
+	it("falls back on a non-Latin / odd format", () => {
+		const out = parseHeaderDate("二〇二六年四月二十八日", fallback);
+		assert.equal(out.usedFallback, true);
+		assert.equal(out.value, fallback);
+		assert.ok(Number.isInteger(out.value));
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Bad Date header never poisons the envelope upsert (#817)
+// ---------------------------------------------------------------------------
+
+describe("MessageSyncService.saveMessage — unparseable Date header (#817)", () => {
+	const buildDateCaptureHarness = () => {
+		const envelopeCalls: Array<Record<string, unknown>> = [];
+		const warnings: Array<Record<string, unknown>> = [];
+
+		const mailboxService = {
+			get: async () => ({
+				fullPath: "INBOX",
+				lastSyncUid: 0,
+				highWaterMarkUid: 0,
+				messageCount: 0,
+			}),
+			update: async () => undefined,
+		} as unknown as MailboxService;
+
+		const messageService = {
+			upsertWithStatus: async (input: { mailboxId: string }) => ({
+				item: { mailboxId: input.mailboxId },
+				created: true,
+			}),
+		} as unknown as MessageService;
+
+		const envelopeService = {
+			upsertEnvelope: async (input: Record<string, unknown>) => {
+				envelopeCalls.push(input);
+			},
+			upsertBodyParts: async () => undefined,
+		} as unknown as EnvelopeService;
+
+		const addressService = {
+			upsertAddress: async () => undefined,
+			upsertEnvelopeAddress: async () => undefined,
+		} as unknown as AddressService;
+
+		const threadMessageService = {
+			create: async () => ({}),
+		} as unknown as ThreadMessageService;
+
+		const logger = {
+			info: () => {},
+			warn: (obj: Record<string, unknown>) => {
+				warnings.push(obj);
+			},
+		};
+
+		return {
+			mailboxService,
+			messageService,
+			envelopeService,
+			addressService,
+			threadMessageService,
+			logger,
+			envelopeCalls,
+			warnings,
+		};
+	};
+
+	it("falls back to internalDate and preserves dateRaw on a garbage header", async () => {
+		const harness = buildDateCaptureHarness();
+		const internalDate = new Date("2026-05-01T09:30:00Z");
+		const badMessage: ImapMessage = {
+			...aliceMessage,
+			uid: 99,
+			internalDate,
+			envelope: { ...aliceMessage.envelope!, date: "totally-not-a-date" },
+			bodyStructure: undefined,
+		};
+		const factory = buildConnectionFactory([badMessage]);
+
+		const service = new MessageSyncService(
+			factory,
+			harness.mailboxService,
+			harness.messageService,
+			harness.envelopeService,
+			harness.addressService,
+			harness.threadMessageService,
+			harness.logger,
+		);
+
+		const result = await service.syncMessages(
+			"mbx-1",
+			"acc-1",
+			"acc-cfg-1",
+			50,
+		);
+
+		assert.equal(result.syncedCount, 1);
+		const [envelope] = harness.envelopeCalls;
+		assert.ok(envelope);
+		assert.equal(envelope.dateValue, internalDate.getTime());
+		assert.ok(Number.isInteger(envelope.dateValue));
+		assert.equal(envelope.dateRaw, "totally-not-a-date");
+
+		// The bad header is surfaced at warn level for observability.
+		assert.ok(harness.warnings.some((w) => w.dateRaw === "totally-not-a-date"));
+	});
+
+	it("keeps a valid header date and does not warn", async () => {
+		const harness = buildDateCaptureHarness();
+		const goodMessage: ImapMessage = {
+			...aliceMessage,
+			uid: 100,
+			envelope: {
+				...aliceMessage.envelope!,
+				date: "2026-04-28T12:00:00.000Z",
+			},
+			bodyStructure: undefined,
+		};
+		const factory = buildConnectionFactory([goodMessage]);
+
+		const service = new MessageSyncService(
+			factory,
+			harness.mailboxService,
+			harness.messageService,
+			harness.envelopeService,
+			harness.addressService,
+			harness.threadMessageService,
+			harness.logger,
+		);
+
+		await service.syncMessages("mbx-1", "acc-1", "acc-cfg-1", 50);
+
+		const [envelope] = harness.envelopeCalls;
+		assert.ok(envelope);
+		assert.equal(envelope.dateValue, Date.parse("2026-04-28T12:00:00.000Z"));
+		assert.equal(harness.warnings.length, 0);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// One failing message must not abort the batch or freeze the watermark (#817)
+// ---------------------------------------------------------------------------
+
+describe("MessageSyncService.syncMessages — batch resilience (#817)", () => {
+	it("a single throwing message does not abort the rest of the batch", async () => {
+		// uid 20 throws on save; uids 10 and 30 must still be saved.
+		const harness = buildWatermarkHarness({
+			lastSyncUid: 0,
+			highWaterMarkUid: 0,
+			resolveUpsert: (input) => {
+				if (input.uid === 20) throw new Error("poison");
+				return { item: { mailboxId: input.mailboxId }, created: true };
+			},
+		});
+		const factory = buildConnectionFactory([
+			messageWithUid(10, "<a@x>"),
+			messageWithUid(20, "<b@x>"),
+			messageWithUid(30, "<c@x>"),
+		]);
+		const service = new MessageSyncService(
+			factory,
+			harness.mailboxService,
+			harness.messageService,
+			harness.envelopeService,
+			harness.addressService,
+			harness.threadMessageService,
+		);
+
+		const result = await service.syncMessages(
+			"mbx-1",
+			"acc-1",
+			"acc-cfg-1",
+			50,
+		);
+
+		// The two healthy messages synced despite uid 20 throwing.
+		assert.equal(result.syncedCount, 2);
+		assert.deepEqual(
+			[...result.syncedMessages.map((m) => m.uid)].sort((a, b) => a - b),
+			[10, 30],
+		);
+	});
+
+	it("holds the watermark below a failed UID so it is retried next cycle", async () => {
+		// uid 20 is the highest in the batch and fails; the high watermark must
+		// NOT advance past it, so the next cycle re-fetches it (no silent loss).
+		const harness = buildWatermarkHarness({
+			lastSyncUid: 0,
+			highWaterMarkUid: 0,
+			resolveUpsert: (input) => {
+				if (input.uid === 20) throw new Error("poison");
+				return { item: { mailboxId: input.mailboxId }, created: true };
+			},
+		});
+		const factory = buildConnectionFactory([
+			messageWithUid(10, "<a@x>"),
+			messageWithUid(20, "<b@x>"),
+		]);
+		const service = new MessageSyncService(
+			factory,
+			harness.mailboxService,
+			harness.messageService,
+			harness.envelopeService,
+			harness.addressService,
+			harness.threadMessageService,
+		);
+
+		await service.syncMessages("mbx-1", "acc-1", "acc-cfg-1", 50);
+
+		// Forward watermark stops below the failed uid 20 (top contiguous success
+		// run is empty), so it stays selectable as a "new" UID next cycle.
+		const patch = harness.updateCalls.at(-1)!;
+		assert.equal(patch.highWaterMarkUid, 0);
+	});
+
+	it("advances the watermark over the top contiguous run of successes", async () => {
+		// Only the lowest uid (10) fails; uids 20 and 30 are the top contiguous
+		// success run, so the high watermark advances to 30. Backfill stays put
+		// because the lowest uid failed.
+		const harness = buildWatermarkHarness({
+			lastSyncUid: 0,
+			highWaterMarkUid: 0,
+			resolveUpsert: (input) => {
+				if (input.uid === 10) throw new Error("poison");
+				return { item: { mailboxId: input.mailboxId }, created: true };
+			},
+		});
+		const factory = buildConnectionFactory([
+			messageWithUid(10, "<a@x>"),
+			messageWithUid(20, "<b@x>"),
+			messageWithUid(30, "<c@x>"),
+		]);
+		const service = new MessageSyncService(
+			factory,
+			harness.mailboxService,
+			harness.messageService,
+			harness.envelopeService,
+			harness.addressService,
+			harness.threadMessageService,
+		);
+
+		await service.syncMessages("mbx-1", "acc-1", "acc-cfg-1", 50);
+
+		const patch = harness.updateCalls.at(-1)!;
+		assert.equal(patch.highWaterMarkUid, 30);
+		// Lowest uid failed → backfill watermark must not move past it.
+		assert.equal(patch.lastSyncUid, 0);
 	});
 });
