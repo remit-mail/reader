@@ -967,6 +967,7 @@ function MessageListPane({
 	| "onSelectThread"
 	| "onSelectBriefCategory"
 >) {
+	const isDesktop = useIsDesktop();
 	const Row = density === "compact" ? CompactRow : ComfortableRow;
 	return (
 		<section className="flex h-full w-full flex-col bg-surface">
@@ -1049,7 +1050,7 @@ function MessageListPane({
 				</div>
 			)}
 
-			<KeyboardHintBar />
+			{isDesktop && <KeyboardHintBar />}
 		</section>
 	);
 }
