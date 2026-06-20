@@ -27,6 +27,7 @@ import {
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import {
 	AppPasswordHint,
+	Banner,
 	Button,
 	CheckRow,
 	ConnectorTile,
@@ -356,11 +357,7 @@ function StepMicrosoftEmail({
 						Microsoft page.
 					</p>
 				</div>
-				{error && (
-					<div className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">
-						{error}
-					</div>
-				)}
+				{error && <Banner tone="danger">{error}</Banner>}
 			</div>
 		</WizardShell>
 	);
@@ -452,8 +449,8 @@ function StepAddress({
 					</div>
 				)}
 				{error && !discovering && (
-					<div className="mt-3 rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">
-						{error}
+					<div className="mt-3">
+						<Banner tone="danger">{error}</Banner>
 					</div>
 				)}
 			</div>
@@ -567,11 +564,7 @@ function StepServers({
 			}
 		>
 			<div className="space-y-5">
-				{error && (
-					<div className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">
-						{error}
-					</div>
-				)}
+				{error && <Banner tone="danger">{error}</Banner>}
 				<div>
 					<FieldLabel htmlFor="provider-select">Provider</FieldLabel>
 					<Select
