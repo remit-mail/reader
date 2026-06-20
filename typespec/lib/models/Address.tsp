@@ -1,6 +1,7 @@
 import "typespec-electrodb-emitter";
 
 import "../enums/AddressRole.tsp";
+import "../enums/MessageCategory.tsp";
 import "../scalars/string.tsp";
 
 namespace RemitImap;
@@ -55,7 +56,7 @@ model WellknownFlag extends AddressFlagBase {
 
 @doc("Category override for auto-classification")
 model CategoryFlag extends AddressFlagBase {
-  value: "newsletter" | "transactional" | "personal" | "promotional";
+  value: MessageCategory;
 }
 
 @doc("Auto-archive: skip inbox, file directly")
