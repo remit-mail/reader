@@ -1,5 +1,6 @@
 import {
 	AppPasswordHint,
+	Banner,
 	Button,
 	CheckRow,
 	ConnectorTile,
@@ -30,14 +31,6 @@ export const steps = [
 interface StepNav {
 	onBack?: () => void;
 	onNext?: () => void;
-}
-
-function ErrorBanner({ children }: { children: string }) {
-	return (
-		<div className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">
-			{children}
-		</div>
-	);
 }
 
 function RawError({ children }: { children: string }) {
@@ -207,7 +200,7 @@ export function StepAddress({
 				)}
 				{error && !discovering && (
 					<div className="mt-3">
-						<ErrorBanner>{error}</ErrorBanner>
+						<Banner tone="danger">{error}</Banner>
 					</div>
 				)}
 			</div>
@@ -247,7 +240,7 @@ export function StepServers({
 			}
 		>
 			<div className="space-y-5">
-				{error && <ErrorBanner>{error}</ErrorBanner>}
+				{error && <Banner tone="danger">{error}</Banner>}
 				{preset && (
 					<div>
 						<FieldLabel htmlFor="provider-select">Provider</FieldLabel>
