@@ -76,6 +76,23 @@ export const ConnectorPickerMicrosoft: Story = {
 	render: () => <StepConnector selected="microsoft" />,
 };
 
+/**
+ * Connector picker at phone width — CTA bar (Back / Continue) must be fully
+ * visible without scrolling (#849).
+ */
+export const ConnectorPickerPhone: Story = {
+	parameters: phone390,
+	render: () => <StepConnector />,
+};
+
+/**
+ * Microsoft tile selected at phone width — CTA bar must stay reachable (#849).
+ */
+export const ConnectorPickerMicrosoftPhone: Story = {
+	parameters: phone390,
+	render: () => <StepConnector selected="microsoft" />,
+};
+
 /** Microsoft sign-in sub-step: optional email prefill, then redirect. */
 export const MicrosoftEmail: Story = {
 	render: () => <StepMicrosoftEmail />,
