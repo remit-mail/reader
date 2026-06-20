@@ -78,9 +78,10 @@ export function WizardShell({
 	return (
 		// First-run is a focal moment: the wizard column is horizontally
 		// centered with its top edge anchored ~30% down the viewport
-		// (optical center). The anchor is fixed, content grows downward,
-		// so the card never jumps vertically between steps.
-		<div className="flex min-h-dvh w-full flex-col items-center bg-canvas px-8 pb-8 pt-[30vh] font-sans text-fg">
+		// (optical center) on larger screens. On phone the top padding is
+		// minimal so taller steps (connector picker, servers) don't push the
+		// CTA bar below the fold — the shell scrolls if content overflows.
+		<div className="flex min-h-dvh w-full flex-col items-center overflow-y-auto bg-canvas px-8 pb-8 pt-8 font-sans text-fg sm:pt-[30vh]">
 			{!hideSteps && (
 				<div className="mb-5 w-full max-w-xl">
 					<StepRail steps={steps} activeStep={activeStep} />
