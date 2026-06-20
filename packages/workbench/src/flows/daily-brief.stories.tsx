@@ -149,6 +149,29 @@ export const KeyboardHints: Story = {
 };
 
 /**
+ * Phone width (390 px): the keyboard-hint bar must NOT appear — key hints
+ * are noise on a touch device. The message list fills the full height with
+ * no footer strip at the bottom.
+ */
+export const KeyboardHintsPhone: Story = {
+	parameters: {
+		viewport: { defaultViewport: "mobile1" },
+	},
+	render: () => (
+		<AppShell
+			accounts={navAccounts}
+			selectedNavId="brief"
+			briefUnseen={briefUnseen}
+			listTitle="Daily brief"
+			listMeta={`${briefUnseen} unread`}
+			chips={briefChips()}
+			mutedNote="+1 muted"
+			sections={briefSections()}
+		/>
+	),
+};
+
+/**
  * The `KeyboardHintBar` component in isolation — the same bar the brief
  * (and every other message-list pane) renders at the bottom on desktop.
  * Renders as a full-width footer strip; use inside a height-constrained
