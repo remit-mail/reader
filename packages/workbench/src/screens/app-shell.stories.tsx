@@ -145,3 +145,49 @@ export const NewsletterReading: Story = {
 		/>
 	),
 };
+
+/**
+ * Drafts mailbox (#844): "Drafts" is the active nav item — not "Inbox".
+ * Reading pane is empty: Remit drafts open into compose, not a reading pane.
+ * Design source of truth for the active-nav-item when the Drafts mailbox is open.
+ */
+export const DraftsActive: Story = {
+	render: () => (
+		<StatefulShell
+			startOpen={false}
+			selectedNavId="mbx_personal_drafts"
+			listTitle="Drafts"
+			listMeta={undefined}
+			chips={undefined}
+			mutedNote={undefined}
+			sections={[
+				{
+					id: "drafts",
+					threads: [
+						{
+							id: "draft_1",
+							accountId: "acc_personal",
+							fromName: "Ada Lovelace",
+							fromEmail: "ada@example.com",
+							subject: "Re: Q3 planning",
+							snippet: "Thanks — that works for me…",
+							timeLabel: "Today",
+						},
+						{
+							id: "draft_2",
+							accountId: "acc_personal",
+							fromName: "Team",
+							fromEmail: "team@example.com",
+							subject: "",
+							snippet: "(no subject yet)",
+							timeLabel: "Yesterday",
+						},
+					],
+				},
+			]}
+			selectedThreadId={undefined}
+			thread={undefined}
+			intelligence={undefined}
+		/>
+	),
+};
