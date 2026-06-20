@@ -24,6 +24,11 @@ export interface IntelligencePaneProps {
 	mailboxId?: string;
 	/** Account that owns `mailboxId`; resolves the Junk/Inbox move targets. */
 	accountId?: string;
+	/**
+	 * Hide the panel's own close (X). Set when hosted inside the mobile Drawer,
+	 * whose header already renders a close button — one way back, not two (#874).
+	 */
+	hideCloseButton?: boolean;
 }
 
 /**
@@ -194,6 +199,7 @@ interface WiredPanelProps {
 	onClose: () => void;
 	mailboxId?: string;
 	accountId?: string;
+	hideCloseButton?: boolean;
 }
 
 /**
@@ -204,6 +210,7 @@ function WiredPanel({
 	onClose,
 	mailboxId,
 	accountId,
+	hideCloseButton,
 }: WiredPanelProps) {
 	const {
 		data,
@@ -327,6 +334,7 @@ function WiredPanel({
 			<IntelligencePanel
 				data={data}
 				onClose={onClose}
+				hideCloseButton={hideCloseButton}
 				onShowSimilar={handleShowSimilar}
 				actions={actions}
 				similarState={similarState}
@@ -370,6 +378,7 @@ export const IntelligencePane = ({
 	thread,
 	mailboxId,
 	accountId,
+	hideCloseButton,
 }: IntelligencePaneProps) => {
 	if (!thread) {
 		return (
@@ -397,6 +406,7 @@ export const IntelligencePane = ({
 			onClose={onClose}
 			mailboxId={mailboxId}
 			accountId={accountId}
+			hideCloseButton={hideCloseButton}
 		/>
 	);
 };
