@@ -27,23 +27,30 @@ export function SegmentedControl<T extends string>({
 	size = "md",
 	"aria-label": ariaLabel,
 }: SegmentedControlProps<T>) {
+	const activeIndex = options.findIndex((o) => o.value === value);
 	return (
 		<div
 			role="radiogroup"
 			aria-label={ariaLabel}
 			className="inline-flex rounded-md border border-line bg-surface-sunken p-0.5"
 		>
-			{options.map((option) => {
+			{options.map((option, i) => {
 				const selected = option.value === value;
+				// Show a divider on the right edge when neither this segment nor its
+				// right neighbour is active — keeps the line away from the thumb.
+				const showDivider =
+					!selected && i < options.length - 1 && activeIndex !== i + 1;
 				return (
 					<label
 						key={option.value}
 						className={cn(
-							"flex cursor-pointer items-center justify-center rounded-[5px] font-medium transition-colors",
+							"relative flex cursor-pointer items-center justify-center rounded-[5px] font-medium transition-colors",
 							sizeClass[size],
 							selected
-								? "bg-surface text-fg shadow-sm"
+								? "bg-surface text-fg shadow"
 								: "text-fg-muted hover:text-fg",
+							showDivider &&
+								"after:pointer-events-none after:absolute after:right-0 after:top-1/4 after:h-1/2 after:w-px after:bg-line",
 						)}
 					>
 						<input
