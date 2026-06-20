@@ -300,8 +300,23 @@ export const Accounts: Story = {
 /*   - Tips rail → CircleHelp disclosure in the header               */
 /*                                                                    */
 /* These stories document the live behaviour — the same Accounts page */
-/* rendered at the two sub-desktop breakpoints.                       */
+/* rendered at the two sub-desktop breakpoints. Each breakpoint has a */
+/* "with tips" and a "no tips" variant to document the conditional    */
+/* toggle: the CircleHelp icon must only appear when help is passed.  */
 /* ------------------------------------------------------------------ */
+
+function AccountsShellNoHelp({ children }: { children: ReactNode }) {
+	return (
+		<SettingsShell
+			items={navItems}
+			activeId="accounts"
+			title="Accounts"
+			description="Every account keeps syncing — muted ones just stay out of unified views."
+		>
+			{children}
+		</SettingsShell>
+	);
+}
 
 /**
  * Phone (390px): hamburger opens the nav drawer; the active pane owns
@@ -315,6 +330,22 @@ export const ShellPhone: Story = {
 };
 
 /**
+ * Phone (390px), no tips: no help prop — the CircleHelp toggle must
+ * not appear in the header. Tapping the header area should never open
+ * an empty disclosure.
+ */
+export const ShellPhoneNoTips: Story = {
+	name: "Shell — phone, no tips",
+	parameters: { viewport: { defaultViewport: "mobile1" } },
+	render: () => (
+		<AccountsShellNoHelp>
+			<Badge tone="neutral">3 accounts</Badge>
+			{accountCards}
+		</AccountsShellNoHelp>
+	),
+};
+
+/**
  * Tablet (768px): same collapse mode as phone — hamburger header, no
  * nav rail, no persistent tips rail. The content column is wider.
  */
@@ -322,6 +353,21 @@ export const ShellTablet: Story = {
 	name: "Shell — tablet",
 	parameters: { viewport: { defaultViewport: "ipad" } },
 	render: () => <AccountsShell count={3}>{accountCards}</AccountsShell>,
+};
+
+/**
+ * Tablet (768px), no tips: no help prop — the CircleHelp toggle must
+ * not appear in the header.
+ */
+export const ShellTabletNoTips: Story = {
+	name: "Shell — tablet, no tips",
+	parameters: { viewport: { defaultViewport: "ipad" } },
+	render: () => (
+		<AccountsShellNoHelp>
+			<Badge tone="neutral">3 accounts</Badge>
+			{accountCards}
+		</AccountsShellNoHelp>
+	),
 };
 
 /** Empty state: no accounts yet, with the first-run call to action. */
