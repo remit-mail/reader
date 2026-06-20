@@ -7,7 +7,13 @@
  *
  * Story ids are taken verbatim from Storybook's /index.json
  * (`npm run storybook -w packages/remit-workbench`).
+ *
+ * INBOX_ID is the deterministic seeded inbox mailbox ID used by the
+ * visual/smoke harness (smoke/seed-constants.ts). All `/mail/$mailboxId`
+ * routes use this resolved value at import time.
  */
+
+import { INBOX_ID } from "../../smoke/seed-constants.ts";
 
 export type Surface = "auth" | "onboarding" | "settings" | "mail";
 export type Viewport = "phone" | "tablet" | "desktop";
@@ -38,7 +44,12 @@ export const manifest: ParityRow[] = [
 		surface: "auth",
 		state: "sign-in",
 		viewports: ["phone", "tablet", "desktop"],
-		live: { route: "/sign-in" },
+		// The sign-in overlay is rendered by Amplify's Authenticator when Cognito
+		// is configured (VITE_COGNITO_USER_POOL_ID set). There is no dedicated
+		// /sign-in route — the overlay mounts over /mail. The live capture here
+		// navigates to /mail and will show the app shell in local dev (no Cognito);
+		// a full live capture of this state requires the dev stage.
+		live: { route: "/mail" },
 		story: { id: "screens-signin--sign-in-mobile" },
 	},
 
@@ -61,7 +72,7 @@ export const manifest: ParityRow[] = [
 			steps: [
 				{
 					action: "click",
-					selector: "[data-step='connector'] button[data-next]",
+					selector: "button:has-text('Add your first account')",
 				},
 			],
 		},
@@ -73,7 +84,16 @@ export const manifest: ParityRow[] = [
 		viewports: ["phone", "tablet", "desktop"],
 		live: {
 			route: "/onboarding",
-			steps: [{ action: "click", selector: "[data-connector='microsoft']" }],
+			steps: [
+				{
+					action: "click",
+					selector: "button:has-text('Add your first account')",
+				},
+				{
+					action: "click",
+					selector: "button:has-text('Outlook')",
+				},
+			],
 		},
 		story: { id: "flows-onboarding--connector-picker-microsoft" },
 	},
@@ -84,8 +104,15 @@ export const manifest: ParityRow[] = [
 		live: {
 			route: "/onboarding",
 			steps: [
-				{ action: "click", selector: "[data-connector='microsoft']" },
-				{ action: "click", selector: "button[data-next]" },
+				{
+					action: "click",
+					selector: "button:has-text('Add your first account')",
+				},
+				{ action: "click", selector: "button:has-text('Outlook')" },
+				{
+					action: "click",
+					selector: "button:has-text('Continue with Microsoft')",
+				},
 			],
 		},
 		story: { id: "flows-onboarding--microsoft-email" },
@@ -97,7 +124,11 @@ export const manifest: ParityRow[] = [
 		live: {
 			route: "/onboarding",
 			steps: [
-				{ action: "click", selector: "button[data-next]" },
+				{
+					action: "click",
+					selector: "button:has-text('Add your first account')",
+				},
+				{ action: "click", selector: "button:has-text('Continue with IMAP')" },
 				{
 					action: "fill",
 					selector: "input[type='email']",
@@ -114,13 +145,17 @@ export const manifest: ParityRow[] = [
 		live: {
 			route: "/onboarding",
 			steps: [
-				{ action: "click", selector: "button[data-next]" },
+				{
+					action: "click",
+					selector: "button:has-text('Add your first account')",
+				},
+				{ action: "click", selector: "button:has-text('Continue with IMAP')" },
 				{
 					action: "fill",
 					selector: "input[type='email']",
 					value: "notanemail",
 				},
-				{ action: "click", selector: "button[data-next]" },
+				{ action: "click", selector: "button:has-text('Continue')" },
 			],
 		},
 		story: { id: "flows-onboarding--address-invalid" },
@@ -131,14 +166,20 @@ export const manifest: ParityRow[] = [
 		viewports: ["phone", "tablet", "desktop"],
 		live: {
 			route: "/onboarding",
+			// Servers-detected requires autodiscovery to complete (async network call).
+			// Live capture shows the address step with gmail.com filled; full
+			// servers-detected state requires dev-stage capture (real network).
 			steps: [
-				{ action: "click", selector: "button[data-next]" },
+				{
+					action: "click",
+					selector: "button:has-text('Add your first account')",
+				},
+				{ action: "click", selector: "button:has-text('Continue with IMAP')" },
 				{
 					action: "fill",
 					selector: "input[type='email']",
 					value: "user@gmail.com",
 				},
-				{ action: "click", selector: "button[data-next]" },
 			],
 		},
 		story: { id: "flows-onboarding--server-confirm" },
@@ -150,13 +191,16 @@ export const manifest: ParityRow[] = [
 		live: {
 			route: "/onboarding",
 			steps: [
-				{ action: "click", selector: "button[data-next]" },
+				{
+					action: "click",
+					selector: "button:has-text('Add your first account')",
+				},
+				{ action: "click", selector: "button:has-text('Continue with IMAP')" },
 				{
 					action: "fill",
 					selector: "input[type='email']",
 					value: "user@gmail.com",
 				},
-				{ action: "click", selector: "button[data-next]" },
 			],
 		},
 		story: { id: "flows-onboarding--server-confirm-phone" },
@@ -168,13 +212,16 @@ export const manifest: ParityRow[] = [
 		live: {
 			route: "/onboarding",
 			steps: [
-				{ action: "click", selector: "button[data-next]" },
+				{
+					action: "click",
+					selector: "button:has-text('Add your first account')",
+				},
+				{ action: "click", selector: "button:has-text('Continue with IMAP')" },
 				{
 					action: "fill",
 					selector: "input[type='email']",
 					value: "user@icloud.com",
 				},
-				{ action: "click", selector: "button[data-next]" },
 			],
 		},
 		story: { id: "flows-onboarding--server-provider-preset" },
@@ -186,13 +233,16 @@ export const manifest: ParityRow[] = [
 		live: {
 			route: "/onboarding",
 			steps: [
-				{ action: "click", selector: "button[data-next]" },
+				{
+					action: "click",
+					selector: "button:has-text('Add your first account')",
+				},
+				{ action: "click", selector: "button:has-text('Continue with IMAP')" },
 				{
 					action: "fill",
 					selector: "input[type='email']",
 					value: "user@custom.example",
 				},
-				{ action: "click", selector: "button[data-next]" },
 			],
 		},
 		story: { id: "flows-onboarding--server-manual-fallback" },
@@ -204,14 +254,18 @@ export const manifest: ParityRow[] = [
 		live: {
 			route: "/onboarding",
 			steps: [
-				{ action: "click", selector: "button[data-next]" },
+				{
+					action: "click",
+					selector: "button:has-text('Add your first account')",
+				},
+				{ action: "click", selector: "button:has-text('Continue with IMAP')" },
 				{
 					action: "fill",
 					selector: "input[type='email']",
 					value: "user@custom.example",
 				},
-				{ action: "click", selector: "button[data-next]" },
-				{ action: "click", selector: "button[data-next]" },
+				{ action: "click", selector: "button:has-text('Continue')" },
+				{ action: "click", selector: "button:has-text('Continue')" },
 			],
 		},
 		story: { id: "flows-onboarding--server-missing-host" },
@@ -220,6 +274,8 @@ export const manifest: ParityRow[] = [
 		surface: "onboarding",
 		state: "credentials",
 		viewports: ["phone", "tablet", "desktop"],
+		// Credentials step requires completing address + servers steps with valid
+		// data — not reachable in a simple navigation; dev-stage capture needed.
 		live: { route: "/onboarding" },
 		story: { id: "flows-onboarding--credentials" },
 	},
@@ -227,6 +283,7 @@ export const manifest: ParityRow[] = [
 		surface: "onboarding",
 		state: "test-connection-success",
 		viewports: ["phone", "tablet", "desktop"],
+		// Requires a real IMAP/SMTP connection test — dev-stage only.
 		live: { route: "/onboarding" },
 		story: { id: "flows-onboarding--test-connection-success" },
 	},
@@ -234,6 +291,7 @@ export const manifest: ParityRow[] = [
 		surface: "onboarding",
 		state: "test-connection-auth-failure",
 		viewports: ["phone", "tablet", "desktop"],
+		// Requires a real IMAP/SMTP connection test — dev-stage only.
 		live: { route: "/onboarding" },
 		story: { id: "flows-onboarding--test-connection-failure" },
 	},
@@ -241,6 +299,7 @@ export const manifest: ParityRow[] = [
 		surface: "onboarding",
 		state: "test-connection-network-failure",
 		viewports: ["phone", "tablet", "desktop"],
+		// Requires a real IMAP/SMTP connection test — dev-stage only.
 		live: { route: "/onboarding" },
 		story: { id: "flows-onboarding--test-connection-network-failure" },
 	},
@@ -248,6 +307,7 @@ export const manifest: ParityRow[] = [
 		surface: "onboarding",
 		state: "sync-progress",
 		viewports: ["phone", "tablet", "desktop"],
+		// Requires account creation + sync in progress — dev-stage only.
 		live: { route: "/onboarding" },
 		story: { id: "flows-onboarding--sync-progress" },
 	},
@@ -255,6 +315,7 @@ export const manifest: ParityRow[] = [
 		surface: "onboarding",
 		state: "sync-create-error",
 		viewports: ["phone", "tablet", "desktop"],
+		// Requires a failing account create mutation — dev-stage only.
 		live: { route: "/onboarding" },
 		story: { id: "flows-onboarding--sync-create-error" },
 	},
@@ -262,6 +323,7 @@ export const manifest: ParityRow[] = [
 		surface: "onboarding",
 		state: "sync-stalled",
 		viewports: ["phone", "tablet", "desktop"],
+		// Requires a stalled sync state — dev-stage only.
 		live: { route: "/onboarding" },
 		story: { id: "flows-onboarding--sync-stalled" },
 	},
@@ -315,20 +377,18 @@ export const manifest: ParityRow[] = [
 		surface: "settings",
 		state: "accounts-oauth-success",
 		viewports: ["phone", "tablet", "desktop"],
-		live: {
-			route: "/settings/accounts",
-			steps: [{ action: "wait", selector: "[data-oauth-success]" }],
-		},
+		// OAuth success/error banners are driven by URL params from the OAuth
+		// callback — not reachable via a direct navigation step locally.
+		// Capture at /settings/accounts (will show accounts list).
+		live: { route: "/settings/accounts" },
 		story: { id: "screens-settings--accounts-oauth-success" },
 	},
 	{
 		surface: "settings",
 		state: "accounts-oauth-error",
 		viewports: ["phone", "tablet", "desktop"],
-		live: {
-			route: "/settings/accounts",
-			steps: [{ action: "wait", selector: "[data-oauth-error]" }],
-		},
+		// See accounts-oauth-success comment above.
+		live: { route: "/settings/accounts" },
 		story: { id: "screens-settings--accounts-oauth-error" },
 	},
 	{
@@ -337,7 +397,9 @@ export const manifest: ParityRow[] = [
 		viewports: ["phone", "tablet", "desktop"],
 		live: {
 			route: "/settings/accounts",
-			steps: [{ action: "click", selector: "[data-delete-account]" }],
+			steps: [
+				{ action: "click", selector: "button:has-text('Delete account')" },
+			],
 		},
 		story: { id: "screens-settings--accounts-delete-confirm" },
 	},
@@ -386,7 +448,9 @@ export const manifest: ParityRow[] = [
 		viewports: ["phone", "tablet", "desktop"],
 		live: {
 			route: "/mail",
-			steps: [{ action: "click", selector: "[data-filter-chip]" }],
+			steps: [
+				{ action: "click", selector: "button:has-text('Needs attention')" },
+			],
 		},
 		story: { id: "flows-dailybrief--filtered" },
 	},
@@ -408,14 +472,14 @@ export const manifest: ParityRow[] = [
 		surface: "mail",
 		state: "list-comfortable",
 		viewports: ["phone", "tablet", "desktop"],
-		live: { route: "/mail/$mailboxId" },
+		live: { route: `/mail/${INBOX_ID}` },
 		story: { id: "screens-appshell--default" },
 	},
 	{
 		surface: "mail",
 		state: "list-compact",
 		viewports: ["phone", "tablet", "desktop"],
-		live: { route: "/mail/$mailboxId" },
+		live: { route: `/mail/${INBOX_ID}` },
 		story: { id: "screens-appshell--compact-density" },
 	},
 	{
@@ -430,8 +494,8 @@ export const manifest: ParityRow[] = [
 		state: "reading-pane-thread",
 		viewports: ["phone", "tablet", "desktop"],
 		live: {
-			route: "/mail/$mailboxId",
-			steps: [{ action: "click", selector: "[data-thread-row]" }],
+			route: `/mail/${INBOX_ID}`,
+			steps: [{ action: "click", selector: "a:has-text('Vincent Regter')" }],
 		},
 		story: { id: "screens-appshell--default" },
 	},
@@ -440,8 +504,8 @@ export const manifest: ParityRow[] = [
 		state: "intelligence-pane-default",
 		viewports: ["desktop"],
 		live: {
-			route: "/mail/$mailboxId",
-			steps: [{ action: "click", selector: "[data-thread-row]" }],
+			route: `/mail/${INBOX_ID}`,
+			steps: [{ action: "click", selector: "a:has-text('Vincent Regter')" }],
 		},
 		story: { id: "screens-appshell--default" },
 	},
@@ -450,10 +514,13 @@ export const manifest: ParityRow[] = [
 		state: "intelligence-pane-collapsed",
 		viewports: ["desktop"],
 		live: {
-			route: "/mail/$mailboxId",
+			route: `/mail/${INBOX_ID}`,
 			steps: [
-				{ action: "click", selector: "[data-thread-row]" },
-				{ action: "click", selector: "[data-toggle-intelligence]" },
+				{ action: "click", selector: "a:has-text('Vincent Regter')" },
+				{
+					action: "click",
+					selector: "button[aria-label='Collapse intelligence sidebar']",
+				},
 			],
 		},
 		story: { id: "screens-appshell--intelligence-collapsed" },
@@ -462,11 +529,11 @@ export const manifest: ParityRow[] = [
 		surface: "mail",
 		state: "intelligence-phishing",
 		viewports: ["desktop"],
+		// No seeded phishing message — live capture shows regular thread instead.
+		// Dev-stage capture needed for a real phishing detection state.
 		live: {
-			route: "/mail/$mailboxId",
-			steps: [
-				{ action: "click", selector: "[data-thread-row][data-phishing]" },
-			],
+			route: `/mail/${INBOX_ID}`,
+			steps: [{ action: "click", selector: "a:has-text('Vincent Regter')" }],
 		},
 		story: { id: "screens-appshell--phishing-detected" },
 	},
@@ -475,10 +542,13 @@ export const manifest: ParityRow[] = [
 		state: "intelligence-phone-drawer",
 		viewports: ["phone"],
 		live: {
-			route: "/mail/$mailboxId",
+			route: `/mail/${INBOX_ID}`,
 			steps: [
-				{ action: "click", selector: "[data-thread-row]" },
-				{ action: "click", selector: "[data-open-intelligence]" },
+				{ action: "click", selector: "a:has-text('Vincent Regter')" },
+				{
+					action: "click",
+					selector: "button[aria-label='Show intelligence panel']",
+				},
 			],
 		},
 		story: { id: "screens-mobileconversation--intelligence-open" },
@@ -502,8 +572,8 @@ export const manifest: ParityRow[] = [
 		state: "mobile-thread-chrome",
 		viewports: ["phone"],
 		live: {
-			route: "/mail/$mailboxId",
-			steps: [{ action: "click", selector: "[data-thread-row]" }],
+			route: `/mail/${INBOX_ID}`,
+			steps: [{ action: "click", selector: "a:has-text('Vincent Regter')" }],
 		},
 		story: { id: "screens-mobileconversation--default" },
 	},
@@ -513,7 +583,13 @@ export const manifest: ParityRow[] = [
 		viewports: ["phone", "tablet", "desktop"],
 		live: {
 			route: "/mail",
-			steps: [{ action: "click", selector: "[data-compose-fab]" }],
+			// Desktop uses button[aria-label="Compose"], phone/tablet uses "Compose new message" (FAB).
+			steps: [
+				{
+					action: "click",
+					selector: "button[aria-label*='Compose']:visible",
+				},
+			],
 		},
 		story: { id: "flows-compose--full" },
 	},
@@ -522,10 +598,10 @@ export const manifest: ParityRow[] = [
 		state: "compose-inline-reply",
 		viewports: ["phone", "tablet", "desktop"],
 		live: {
-			route: "/mail/$mailboxId",
+			route: `/mail/${INBOX_ID}`,
 			steps: [
-				{ action: "click", selector: "[data-thread-row]" },
-				{ action: "click", selector: "[data-reply-button]" },
+				{ action: "click", selector: "a:has-text('Vincent Regter')" },
+				{ action: "click", selector: "button[aria-label='Reply']" },
 			],
 		},
 		story: { id: "flows-compose--inline" },
@@ -536,7 +612,12 @@ export const manifest: ParityRow[] = [
 		viewports: ["phone"],
 		live: {
 			route: "/mail",
-			steps: [{ action: "click", selector: "[data-compose-fab]" }],
+			steps: [
+				{
+					action: "click",
+					selector: "button[aria-label*='Compose']:visible",
+				},
+			],
 		},
 		story: { id: "flows-compose--mobile-compose-sheet" },
 	},
@@ -558,14 +639,14 @@ export const manifest: ParityRow[] = [
 		surface: "mail",
 		state: "drafts",
 		viewports: ["phone", "tablet", "desktop"],
-		live: { route: "/mail/$mailboxId" },
+		live: { route: `/mail/${INBOX_ID}` },
 		story: { id: "flows-drafts--segmented" },
 	},
 	{
 		surface: "mail",
 		state: "drafts-empty",
 		viewports: ["phone", "tablet", "desktop"],
-		live: { route: "/mail/$mailboxId" },
+		live: { route: `/mail/${INBOX_ID}` },
 		story: { id: "flows-drafts--empty" },
 	},
 	{
@@ -574,7 +655,15 @@ export const manifest: ParityRow[] = [
 		viewports: ["phone", "tablet", "desktop"],
 		live: {
 			route: "/mail",
-			steps: [{ action: "click", selector: "[data-search-trigger]" }],
+			// Phone/tablet: search is a button that opens an overlay; desktop: direct input.
+			// Combined selector works across all viewports.
+			steps: [
+				{
+					action: "click",
+					selector:
+						"input[aria-label='Search mail'], button[aria-label='Search']",
+				},
+			],
 		},
 		story: { id: "flows-search--results" },
 	},
@@ -583,11 +672,11 @@ export const manifest: ParityRow[] = [
 		state: "selection-desktop",
 		viewports: ["desktop"],
 		live: {
-			route: "/mail/$mailboxId",
+			route: `/mail/${INBOX_ID}`,
 			steps: [
 				{
 					action: "click",
-					selector: "[data-thread-row] [data-select-checkbox]",
+					selector: "button[aria-label='Select message']",
 				},
 			],
 		},
@@ -597,29 +686,22 @@ export const manifest: ParityRow[] = [
 		surface: "mail",
 		state: "selection-mobile",
 		viewports: ["phone"],
-		live: {
-			route: "/mail/$mailboxId",
-			steps: [
-				{
-					action: "click",
-					selector: "[data-thread-row] [data-select-checkbox]",
-				},
-			],
-		},
+		// Mobile selection requires a long-press gesture — not reachable via a simple
+		// click in the local capture harness. Live capture shows the inbox list.
+		// Full live capture of multi-select mode requires dev-stage.
+		live: { route: `/mail/${INBOX_ID}` },
 		story: { id: "flows-mailpickers--selection-mobile" },
 	},
 	{
 		surface: "mail",
 		state: "move-to-mailbox-picker",
-		viewports: ["phone", "tablet", "desktop"],
+		// phone: Select message is hidden — long-press needed; falls back to inbox.
+		viewports: ["tablet", "desktop"],
 		live: {
-			route: "/mail/$mailboxId",
+			route: `/mail/${INBOX_ID}`,
 			steps: [
-				{
-					action: "click",
-					selector: "[data-thread-row] [data-select-checkbox]",
-				},
-				{ action: "click", selector: "[data-move-button]" },
+				{ action: "click", selector: "button[aria-label='Select message']" },
+				{ action: "click", selector: "button[aria-label='Move to mailbox']" },
 			],
 		},
 		story: { id: "flows-mailpickers--move-picker" },
@@ -629,10 +711,10 @@ export const manifest: ParityRow[] = [
 		state: "reclassify-sender-dialog",
 		viewports: ["phone", "tablet", "desktop"],
 		live: {
-			route: "/mail/$mailboxId",
+			route: `/mail/${INBOX_ID}`,
 			steps: [
-				{ action: "click", selector: "[data-thread-row]" },
-				{ action: "click", selector: "[data-reclassify-button]" },
+				{ action: "click", selector: "a:has-text('Vincent Regter')" },
+				{ action: "click", selector: "button:has-text('reclassify')" },
 			],
 		},
 		story: { id: "flows-mailpickers--reclassify-dialog" },

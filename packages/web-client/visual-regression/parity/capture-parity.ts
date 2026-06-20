@@ -71,27 +71,57 @@ const outPath = (
 ): string =>
 	resolve(OUT_ROOT, surface, `${state}__${viewport}__${theme}.${side}.png`);
 
-/** Run a manifest step against the live page. */
+/** Run a manifest step against the live page.
+ *
+ * Returns `false` if the step selector was not found (timed out) so callers
+ * can mark the capture as a "best effort" rather than hard-failing the run.
+ * A 5 s timeout is used for interactive steps so a missing selector doesn't
+ * stall the whole run for 30 s.
+ */
 const runStep = async (
 	page: import("@playwright/test").Page,
 	step: NonNullable<ParityRow["live"]["steps"]>[number],
-): Promise<void> => {
-	if (step.action === "click") {
-		await page.locator(step.selector).click();
-	} else if (step.action === "fill") {
-		await page.locator(step.selector).fill(step.value);
-	} else if (step.action === "wait") {
-		await page.locator(step.selector).waitFor({ state: "visible" });
+): Promise<boolean> => {
+	const STEP_TIMEOUT = 5_000;
+	try {
+		if (step.action === "click") {
+			// Use `force: true` to bypass actionability checks (e.g. a fixed FAB
+			// covered by a local-dev banner with a higher z-index). We still
+			// honour the timeout so a genuinely missing selector fails fast.
+			await page
+				.locator(step.selector)
+				.first()
+				.click({ timeout: STEP_TIMEOUT, force: true });
+		} else if (step.action === "fill") {
+			await page
+				.locator(step.selector)
+				.first()
+				.fill(step.value, { timeout: STEP_TIMEOUT });
+		} else if (step.action === "wait") {
+			await page
+				.locator(step.selector)
+				.first()
+				.waitFor({ state: "visible", timeout: STEP_TIMEOUT });
+		}
+		return true;
+	} catch {
+		return false;
 	}
 };
 
-/** Capture the live side for one row × viewport × theme. */
+/** Capture the live side for one row × viewport × theme.
+ *
+ * Returns `true` when all steps succeeded (clean capture), `false` when one
+ * or more steps were skipped due to a missing selector (best-effort capture —
+ * the screenshot was still taken at the furthest reachable state).
+ */
 const captureLive = async (
 	row: ParityRow,
 	viewport: Viewport,
 	theme: Theme,
-): Promise<void> => {
+): Promise<boolean> => {
 	const browser = await chromium.launch();
+	let stepsFailed = false;
 	try {
 		const context = await browser.newContext({
 			viewport: VIEWPORT_SIZES[viewport],
@@ -109,7 +139,15 @@ const captureLive = async (
 
 		// Run interaction steps to reach the sub-state.
 		for (const step of row.live.steps ?? []) {
-			await runStep(page, step);
+			const ok = await runStep(page, step);
+			if (!ok) {
+				console.warn(
+					`  ⚠ step skipped (selector not found): ${step.action} ${step.selector}`,
+				);
+				stepsFailed = true;
+				// Stop further steps — subsequent steps depend on this one.
+				break;
+			}
 		}
 
 		// Give animations / transitions a moment to settle.
@@ -119,12 +157,16 @@ const captureLive = async (
 		await ensureDir(dirname(dest));
 		const shot = await page.screenshot({ fullPage: false });
 		await writeFile(dest, shot);
-		console.log(`  captured live → ${dest.replace(REPO_ROOT + "/", "")}`);
+		const flag = stepsFailed ? " [FLAGGED: step skipped]" : "";
+		console.log(
+			`  captured live → ${dest.replace(REPO_ROOT + "/", "")}${flag}`,
+		);
 
 		await context.close();
 	} finally {
 		await browser.close();
 	}
+	return !stepsFailed;
 };
 
 /** Capture the story side for one row × viewport × theme. */
@@ -171,6 +213,7 @@ const run = async (): Promise<void> => {
 
 	let totalCaptures = 0;
 	let skipped = 0;
+	let flagged = 0;
 
 	for (const row of manifest) {
 		console.log(`[${row.surface}/${row.state}]`);
@@ -178,8 +221,9 @@ const run = async (): Promise<void> => {
 		for (const viewport of row.viewports) {
 			for (const theme of THEMES) {
 				// Live capture.
-				await captureLive(row, viewport, theme);
+				const liveClean = await captureLive(row, viewport, theme);
 				totalCaptures++;
+				if (!liveClean) flagged++;
 
 				// Story capture — skip when story is null.
 				if (row.story !== null) {
@@ -198,7 +242,7 @@ const run = async (): Promise<void> => {
 
 	console.log();
 	console.log(
-		`Done. ${totalCaptures} screenshots captured, ${skipped} story sides skipped (no story).`,
+		`Done. ${totalCaptures} screenshots captured, ${skipped} story sides skipped (no story), ${flagged} live captures flagged (step selector not found).`,
 	);
 	console.log(`Output: ${OUT_ROOT}`);
 };
