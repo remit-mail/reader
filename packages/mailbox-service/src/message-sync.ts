@@ -22,6 +22,32 @@ const MESSAGE_SAVE_CONCURRENCY = 10;
 const ADDRESS_SAVE_CONCURRENCY = 10;
 
 /**
+ * Parse an external `Date:` header into an epoch-millisecond integer.
+ *
+ * The IMAP envelope `date` is a raw RFC 2822 header copied verbatim from the
+ * message. It can be missing, malformed, or in a format `Date` cannot parse —
+ * `new Date(raw).getTime()` then yields `NaN`. `NaN` is not a valid integer
+ * and ElectroDB rejects it, which previously threw on the envelope upsert and
+ * (because the batch aborted on the first rejection) stalled the whole mailbox.
+ *
+ * When the header is unparseable we fall back to `fallbackMs` — the IMAP
+ * server's own INTERNALDATE receive time, always a valid integer. The raw
+ * header is preserved separately in `dateRaw`, so nothing is lost.
+ */
+export const parseHeaderDate = (
+	raw: string | undefined,
+	fallbackMs: number,
+): { value: number; usedFallback: boolean } => {
+	if (raw !== undefined && raw !== "") {
+		const parsed = new Date(raw).getTime();
+		if (Number.isFinite(parsed)) {
+			return { value: parsed, usedFallback: false };
+		}
+	}
+	return { value: fallbackMs, usedFallback: true };
+};
+
+/**
  * @deprecated Use ManagedConnectionFactory instead
  */
 export type ImapConnectionFactory = () => {
@@ -31,10 +57,12 @@ export type ImapConnectionFactory = () => {
 
 export interface SyncLogger {
 	info(obj: Record<string, unknown>, msg: string): void;
+	warn(obj: Record<string, unknown>, msg: string): void;
 }
 
 const noopLogger: SyncLogger = {
 	info: () => {},
+	warn: () => {},
 };
 
 export interface SyncedMessage {
@@ -50,6 +78,16 @@ export interface SyncedMessage {
 interface SaveMessageResult extends SyncedMessage {
 	owned: boolean;
 }
+
+/**
+ * Wrapper outcome for a single message in the batch. A `failed` outcome means
+ * the save threw (and was caught) — its UID must NOT advance the watermark, so
+ * the message is re-fetched and retried on the next cycle. `null` means the
+ * message carried no envelope and was intentionally skipped (nothing to retry).
+ */
+type BatchOutcome =
+	| { kind: "saved"; uid: number; result: SaveMessageResult | null }
+	| { kind: "failed"; uid: number };
 
 export interface SyncMessagesResult {
 	syncedCount: number;
@@ -144,39 +182,84 @@ export class MessageSyncService {
 		const batchUids = uids.slice(0, batchSize);
 		const messages = await this.fetchMessageBatch(batchUids);
 
-		// Process messages in parallel with concurrency limit
-		const results = await pMap(
+		// Process messages in parallel with concurrency limit. `stopOnError` stays
+		// at its default — but each message is saved through `trySaveMessage`,
+		// which catches its own error and reports a `failed` outcome instead of
+		// rejecting. So one bad message can no longer abort the whole batch (the
+		// poison pill that previously froze the mailbox, #817).
+		const outcomes = await pMap(
 			messages,
-			(msg) => this.saveMessage(mailboxId, accountId, accountConfigId, msg),
+			(msg) => this.trySaveMessage(mailboxId, accountId, accountConfigId, msg),
 			{ concurrency: MESSAGE_SAVE_CONCURRENCY },
 		);
+
 		// Body-sync set: only rows created or owned by THIS mailbox. A residual
 		// cross-mailbox collision (same deterministic messageId already owned by a
 		// different mailbox) must not push a foreign-owned messageId into
 		// syncedMessageIds, or body-sync would FETCH against the wrong mailbox's UID.
-		const ownedResults = results.filter(
-			(result): result is SaveMessageResult => result !== null && result.owned,
+		const ownedResults = outcomes.flatMap((o) =>
+			o.kind === "saved" && o.result !== null && o.result.owned
+				? [o.result]
+				: [],
 		);
 		const syncedMessages: SyncedMessage[] = ownedResults.map(
 			({ messageId, uid }) => ({ messageId, uid }),
 		);
 		const syncedMessageIds = syncedMessages.map((m) => m.messageId);
 
-		// Watermarks advance over EVERY consumed UID in the batch — independent of
-		// ownership. `fetchUidsToSync` reselects work purely by UID vs watermark
-		// (there is no per-UID processed set), so a foreign-owned UID that did not
-		// advance the watermark would be re-fetched every cycle forever. The same
-		// Message-ID legitimately appears in several of one account's mailboxes
-		// (Gmail All Mail + INBOX/labels), so cross-mailbox conflicts are routine;
-		// excluding them from body-sync is correct, stalling forward sync is not.
-		const batchMax = Math.max(...batchUids);
-		const batchMin = Math.min(...batchUids);
+		// UIDs whose save threw. They must stay inside the next cycle's fetch
+		// window, so the watermark may not advance past them (no silent loss).
+		const failedUids = new Set(
+			outcomes.flatMap((o) => (o.kind === "failed" ? [o.uid] : [])),
+		);
+		if (failedUids.size > 0) {
+			this.log.warn(
+				{ mailboxId, mailboxPath, failedUids: [...failedUids] },
+				"Some messages failed to save; holding watermark below them for retry",
+			);
+		}
 
-		const newHighWaterMark = Math.max(highWaterMarkUid, batchMax);
+		// Watermarks advance over every SUCCESSFULLY-consumed UID in the batch,
+		// independent of ownership. `fetchUidsToSync` reselects work purely by UID
+		// vs watermark (there is no per-UID processed set), so a foreign-owned UID
+		// that did not advance the watermark would be re-fetched every cycle
+		// forever. The same Message-ID legitimately appears in several of one
+		// account's mailboxes (Gmail All Mail + INBOX/labels), so cross-mailbox
+		// conflicts are routine; excluding them from body-sync is correct, stalling
+		// forward sync is not.
+		//
+		// Failures are different: the watermark range [batchMin, batchMax] jumps
+		// over any interior UID, so a failed UID inside the range would be lost.
+		// We therefore advance the forward watermark only past the top contiguous
+		// run of successes, and the backfill watermark only past the bottom
+		// contiguous run — clamping at the first failure from each end so every
+		// failed UID stays selectable next cycle.
+		const ascendingUids = [...batchUids].sort((a, b) => a - b);
 
-		// Update lastSyncUid only for backfill UIDs (below current lastSyncUid or fresh sync)
+		// Top contiguous run of successes → the highest UID safe to mark "seen".
+		let forwardMax = highWaterMarkUid;
+		for (let i = ascendingUids.length - 1; i >= 0; i--) {
+			const uid = ascendingUids[i];
+			if (failedUids.has(uid)) break;
+			forwardMax = Math.max(forwardMax, uid);
+		}
+		const newHighWaterMark = forwardMax;
+
+		// Bottom contiguous run of successes → the lowest UID safe to backfill
+		// past. The first (lowest) UID that succeeded defines it; if the very
+		// lowest UID failed there is nothing safe to backfill past.
+		const backfillMin: number | undefined = failedUids.has(ascendingUids[0])
+			? undefined
+			: ascendingUids[0];
+
+		// Update lastSyncUid only for backfill UIDs (below current lastSyncUid or
+		// fresh sync). When the lowest UID failed there is nothing safe to backfill
+		// past, so leave lastSyncUid untouched.
 		const newLastSyncUid =
-			lastSyncUid === 0 || batchMin < lastSyncUid ? batchMin : lastSyncUid;
+			backfillMin !== undefined &&
+			(lastSyncUid === 0 || backfillMin < lastSyncUid)
+				? backfillMin
+				: lastSyncUid;
 
 		await this.mailboxService.update(mailboxId, {
 			lastSyncUid: newLastSyncUid,
@@ -272,6 +355,41 @@ export class MessageSyncService {
 		return await connection.fetchMessages(uids);
 	}
 
+	/**
+	 * Save a single message without ever rejecting. Any error is caught and
+	 * reported as a `failed` outcome so it cannot abort the surrounding `pMap`
+	 * batch — the failed UID is held back from the watermark and retried next
+	 * cycle. This is the guardrail that stops a single unsaveable message from
+	 * permanently freezing the mailbox (#817).
+	 */
+	private async trySaveMessage(
+		mailboxId: string,
+		accountId: string,
+		accountConfigId: string,
+		msg: ImapMessage,
+	): Promise<BatchOutcome> {
+		try {
+			const result = await this.saveMessage(
+				mailboxId,
+				accountId,
+				accountConfigId,
+				msg,
+			);
+			return { kind: "saved", uid: msg.uid, result };
+		} catch (error) {
+			this.log.warn(
+				{
+					mailboxId,
+					uid: msg.uid,
+					messageId: msg.envelope?.messageId,
+					error: error instanceof Error ? error.message : String(error),
+				},
+				"Failed to save message; will retry on next sync",
+			);
+			return { kind: "failed", uid: msg.uid };
+		}
+	}
+
 	private async saveMessage(
 		mailboxId: string,
 		accountId: string,
@@ -294,7 +412,23 @@ export class MessageSyncService {
 		});
 		const envelopeId = EnvelopeService.generateId(messageId);
 		const rootBodyPartId = deriveBodyPartId(messageId, ROOT_PART_PATH);
-		const sentDate = new Date(envelope.date).getTime();
+
+		const internalDateMs = msg.internalDate.getTime();
+		const { value: sentDate, usedFallback: dateFellBack } = parseHeaderDate(
+			envelope.date,
+			internalDateMs,
+		);
+		if (dateFellBack) {
+			this.log.warn(
+				{
+					mailboxId,
+					messageId,
+					uid: msg.uid,
+					dateRaw: envelope.date,
+				},
+				"Unparseable Date header; fell back to IMAP internalDate",
+			);
+		}
 
 		// Prepare all address save operations
 		const addressOps: Array<{
@@ -327,7 +461,7 @@ export class MessageSyncService {
 				await this.envelopeService.upsertEnvelope({
 					envelopeId,
 					messageId,
-					dateValue: new Date(envelope.date).getTime(),
+					dateValue: sentDate,
 					dateRaw: envelope.date,
 					subject: envelope.subject,
 					messageIdValue: envelope.messageId,
