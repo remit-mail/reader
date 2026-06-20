@@ -120,6 +120,19 @@ describe("SettingsShell responsive (#789)", () => {
 			}),
 		);
 
+	const shellNoHelp = () =>
+		renderToString(
+			createElement(SettingsShell, {
+				items: [
+					{ id: "accounts", label: "Accounts" },
+					{ id: "senders", label: "Senders & Rules" },
+				],
+				activeId: "accounts",
+				title: "Accounts",
+				children: createElement("div", null, "pane body"),
+			}),
+		);
+
 	it("hides the nav rail below desktop and shows a menu button to reach it", () => {
 		const html = shell();
 		assert.match(html, /hidden w-60[^"]*lg:flex/);
@@ -135,5 +148,11 @@ describe("SettingsShell responsive (#789)", () => {
 	it("renders the active pane content so it is reachable on every width", () => {
 		assert.match(shell(), /pane body/);
 		assert.match(shell(true), /pane body/);
+	});
+
+	it("omits the tips toggle when no help prop is passed (#872)", () => {
+		const html = shellNoHelp();
+		assert.doesNotMatch(html, /aria-label="Tips"/);
+		assert.doesNotMatch(html, /aria-label="Show tips"/);
 	});
 });
