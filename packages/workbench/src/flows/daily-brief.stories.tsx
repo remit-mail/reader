@@ -1,4 +1,8 @@
-import { AppShell } from "@remit/ui";
+import {
+	AppShell,
+	defaultKeyboardHints,
+	KeyboardHintBar,
+} from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
 	briefChips,
@@ -116,5 +120,45 @@ export const CaughtUp: Story = {
 			mutedNote="+1 muted"
 			sections={[]}
 		/>
+	),
+};
+
+/**
+ * Keyboard-hint bar — the discoverability footer at the bottom of the
+ * message list. Desktop only in the live app (hidden on touch where
+ * key hints are noise). Default hints: j/k navigate · e archive ·
+ * m mute · ? all shortcuts.
+ *
+ * Design source of truth for this state. The bar is always the last
+ * element in the list pane and uses `text-2xs text-fg-subtle` tokens
+ * with `Kbd` chips separated by a top border.
+ */
+export const KeyboardHints: Story = {
+	render: () => (
+		<AppShell
+			accounts={navAccounts}
+			selectedNavId="brief"
+			briefUnseen={briefUnseen}
+			listTitle="Daily brief"
+			listMeta={`${briefUnseen} unread`}
+			chips={briefChips()}
+			mutedNote="+1 muted"
+			sections={briefSections()}
+		/>
+	),
+};
+
+/**
+ * The `KeyboardHintBar` component in isolation — the same bar the brief
+ * (and every other message-list pane) renders at the bottom on desktop.
+ * Renders as a full-width footer strip; use inside a height-constrained
+ * container to see the border and spacing in context.
+ */
+export const KeyboardHintBarStandalone: Story = {
+	render: () => (
+		<div className="flex h-dvh flex-col bg-surface">
+			<div className="flex-1" />
+			<KeyboardHintBar hints={defaultKeyboardHints} />
+		</div>
 	),
 };
