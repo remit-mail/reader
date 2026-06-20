@@ -1,6 +1,10 @@
-import { type OutboxStatus, OutboxStatusBadge } from "@remit/ui";
+import {
+	type OutboxStatus,
+	OutboxStatusBadge,
+	ReadingPaneEmpty,
+} from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Inbox, RotateCcw, Send, Trash2 } from "lucide-react";
+import { RotateCcw, Send, Trash2 } from "lucide-react";
 
 /**
  * Design source for the outbox (#788): the status-tinted message list (queued /
@@ -137,9 +141,8 @@ export const AllStatuses: Story = {
 /** Empty outbox. */
 export const Empty: Story = {
 	render: () => (
-		<div className="flex h-dvh w-full flex-col items-center justify-center bg-surface text-center">
-			<Inbox className="size-10 text-fg-subtle" />
-			<p className="mt-3 text-sm text-fg-muted">No outbox messages</p>
+		<div className="flex h-dvh w-full bg-surface">
+			<ReadingPaneEmpty message="No outbox messages" showHints={false} />
 		</div>
 	),
 };

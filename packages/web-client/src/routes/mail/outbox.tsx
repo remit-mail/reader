@@ -10,6 +10,7 @@ import type {
 } from "@remit/api-http-client/types.gen.ts";
 import {
 	OutboxRow,
+	ReadingPaneEmpty,
 	ResizableHandle,
 	ResizablePanel,
 	ResizablePanelGroup,
@@ -28,7 +29,6 @@ import {
 import { z } from "zod";
 import { useCompose } from "@/components/compose/ComposeProvider";
 import { MessageBody } from "@/components/mail/MessageBody";
-import { EmptyState } from "@/components/ui/EmptyState";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { buildMutationErrorBanner } from "@/components/ui/error-banners";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
@@ -332,6 +332,15 @@ function OutboxView() {
 		);
 	}
 
+	// Empty state: single centered icon + label, no two-column split.
+	if (messages.length === 0) {
+		return (
+			<div className="flex h-full bg-surface">
+				<ReadingPaneEmpty message="No outbox messages" showHints={false} />
+			</div>
+		);
+	}
+
 	const list = (
 		<div className="h-full flex flex-col bg-canvas">
 			{/* List datum bar (40px, the shared `--spacing-pane-header`): keeps
@@ -344,20 +353,14 @@ function OutboxView() {
 				</span>
 			</header>
 			<div className="flex-1 overflow-y-auto">
-				{messages.length === 0 ? (
-					<div className="flex h-full items-center justify-center">
-						<EmptyState message="No outbox messages" />
-					</div>
-				) : (
-					messages.map((message) => (
-						<OutboxMessageRow
-							key={message.outboxMessageId}
-							message={message}
-							isSelected={selectedOutboxMessageId === message.outboxMessageId}
-							onSelect={() => selectMessage(message.outboxMessageId)}
-						/>
-					))
-				)}
+				{messages.map((message) => (
+					<OutboxMessageRow
+						key={message.outboxMessageId}
+						message={message}
+						isSelected={selectedOutboxMessageId === message.outboxMessageId}
+						onSelect={() => selectMessage(message.outboxMessageId)}
+					/>
+				))}
 			</div>
 		</div>
 	);
@@ -368,9 +371,7 @@ function OutboxView() {
 			onBack={!isDesktop ? () => selectMessage(undefined) : undefined}
 		/>
 	) : (
-		<div className="flex h-full items-center justify-center">
-			<EmptyState message="Select a message to read" />
-		</div>
+		<ReadingPaneEmpty message="Select a message to read" showHints={false} />
 	);
 
 	if (!isDesktop) {
