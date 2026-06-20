@@ -19,7 +19,7 @@ import {
 } from "@remit/secrets-service";
 import { env } from "expect-env";
 import pMap from "p-map";
-import { isAccountDeleted } from "../account-check.js";
+import { isAccountDeleted, isUnsyncableHost } from "../account-check.js";
 import { emitEvent } from "../emit.js";
 import type { SyncMailboxesEvent, SyncMessagesEvent } from "../events.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
@@ -59,6 +59,13 @@ export const syncMailboxes = async (
 	}
 
 	if (isAccountDeleted(account, log)) {
+		return;
+	}
+
+	// A reserved/never-resolvable IMAP host (RFC 2606) can never connect, so a
+	// sync attempt would retry and dead-letter forever. Skip cleanly — ack the
+	// event without connecting or throwing.
+	if (isUnsyncableHost(account, log)) {
 		return;
 	}
 

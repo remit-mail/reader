@@ -75,7 +75,10 @@ export class ImapFlowConnection {
 				await this.attemptConnect();
 				return;
 			} catch (error) {
-				const classified = classifyImapError(error);
+				const classified = classifyImapError(
+					error,
+					`${this.config.host}:${this.config.port}`,
+				);
 
 				// Auth errors won't fix themselves on retry — throw immediately.
 				if (classified?.kind === "auth") {
@@ -634,7 +637,10 @@ export class ImapFlowConnection {
 			// string the rest of the code never matches on. Re-throw it as the
 			// typed MailConnectionError so the caller's fail-fast path triggers and
 			// re-enqueues the not-yet-yielded UIDs instead of failing the record.
-			throw classifyImapError(error) ?? error;
+			throw (
+				classifyImapError(error, `${this.config.host}:${this.config.port}`) ??
+				error
+			);
 		}
 	}
 
@@ -1194,7 +1200,10 @@ const buildImapAuth = (
  *
  * IMPORTANT: never include access-token values in error messages.
  */
-const classifyImapError = (error: unknown): MailConnectionError | null => {
+const classifyImapError = (
+	error: unknown,
+	endpoint?: string,
+): MailConnectionError | null => {
 	if (!(error instanceof Error)) {
 		return null;
 	}
@@ -1214,7 +1223,8 @@ const classifyImapError = (error: unknown): MailConnectionError | null => {
 	}
 
 	// Network-level failures — NEVER include the original message as it may
-	// echo back tokens in some server implementations
+	// echo back tokens in some server implementations. The endpoint (host:port)
+	// is safe and makes DNS/connect failures self-describing.
 	if (
 		code === "ECONNREFUSED" ||
 		code === "ETIMEDOUT" ||
@@ -1225,9 +1235,10 @@ const classifyImapError = (error: unknown): MailConnectionError | null => {
 		code === "EConnectionClosed" ||
 		code === "NoConnection"
 	) {
+		const where = endpoint ? ` (${endpoint})` : "";
 		return new MailConnectionError(
 			"network",
-			`IMAP connection failed: ${code}`,
+			`IMAP connection failed: ${code}${where}`,
 		);
 	}
 
