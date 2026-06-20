@@ -13,7 +13,7 @@
  * routes use this resolved value at import time.
  */
 
-import { INBOX_ID } from "../../smoke/seed-constants.ts";
+import { DRAFTS_ID, INBOX_ID } from "../../smoke/seed-constants.ts";
 
 export type Surface = "auth" | "onboarding" | "settings" | "mail";
 export type Viewport = "phone" | "tablet" | "desktop";
@@ -639,14 +639,19 @@ export const manifest: ParityRow[] = [
 		surface: "mail",
 		state: "drafts",
 		viewports: ["phone", "tablet", "desktop"],
-		live: { route: `/mail/${INBOX_ID}` },
-		story: { id: "flows-drafts--segmented" },
+		// Route to the seeded \Drafts mailbox (#844): the sidebar must show "Drafts"
+		// as the active nav item, not "Inbox". INBOX_ID was wrong here previously.
+		live: { route: `/mail/${DRAFTS_ID}` },
+		// DraftsActive story shows the full shell: sidebar with Drafts highlighted +
+		// the list pane. Richer design source of truth than the list-only Flows/Drafts story.
+		story: { id: "screens-appshell--drafts-active" },
 	},
 	{
 		surface: "mail",
 		state: "drafts-empty",
 		viewports: ["phone", "tablet", "desktop"],
-		live: { route: `/mail/${INBOX_ID}` },
+		// Route to the seeded \Drafts mailbox (#844): same active-nav fix.
+		live: { route: `/mail/${DRAFTS_ID}` },
 		story: { id: "flows-drafts--empty" },
 	},
 	{
