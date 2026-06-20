@@ -1,4 +1,4 @@
-import { MailOpen, Trash2, X } from "lucide-react";
+import { Loader2, MailOpen, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MoveToTrigger } from "./MoveToTrigger";
 
@@ -10,9 +10,8 @@ interface SelectionToolbarProps {
 	onMove?: (destinationMailboxId: string) => void;
 	isDeleting?: boolean;
 	/**
-	 * True while a move mutation is in flight. Disables the Move trigger
-	 * (and the destructive Delete button) so the user can't queue
-	 * overlapping optimistic patches before the previous one settles.
+	 * True while a move mutation is in flight. Action buttons no-op while
+	 * busy — never disabled.
 	 */
 	isMoving?: boolean;
 	/**
@@ -76,10 +75,10 @@ export const SelectionToolbar = ({
 				{onMarkAsRead && (
 					<button
 						type="button"
-						onClick={onMarkAsRead}
-						disabled={isBusy}
-						className="min-h-11 min-w-11 inline-flex items-center justify-center rounded text-sm font-medium transition-colors hover:bg-surface-raised disabled:opacity-50 disabled:cursor-not-allowed"
+						onClick={isBusy ? undefined : onMarkAsRead}
+						className="min-h-11 min-w-11 inline-flex items-center justify-center rounded text-sm font-medium transition-colors hover:bg-surface-raised"
 						aria-label="Mark as read"
+						aria-busy={isBusy}
 					>
 						<MailOpen className="size-4" />
 					</button>
@@ -88,8 +87,7 @@ export const SelectionToolbar = ({
 					<MoveToTrigger
 						accountId={accountId}
 						currentMailboxId={currentMailboxId}
-						onMove={onMove}
-						disabled={isBusy}
+						onMove={isBusy ? () => {} : onMove}
 						disabledHint={moveDisabledHint}
 						variant="icon-only"
 						label="Move selected messages"
@@ -97,16 +95,19 @@ export const SelectionToolbar = ({
 				)}
 				<button
 					type="button"
-					onClick={onDelete}
-					disabled={isBusy}
+					onClick={isBusy ? undefined : onDelete}
 					className={cn(
 						"min-h-11 min-w-11 inline-flex items-center justify-center gap-1.5 px-3 rounded text-sm font-medium transition-colors",
 						"bg-danger text-canvas hover:bg-danger/90",
-						"disabled:opacity-50 disabled:cursor-not-allowed",
 					)}
 					aria-label="Delete selected messages"
+					aria-busy={isDeleting}
 				>
-					<Trash2 className="size-4" />
+					{isDeleting ? (
+						<Loader2 className="size-4 animate-spin" />
+					) : (
+						<Trash2 className="size-4" />
+					)}
 					<span className="hidden sm:inline">
 						{isDeleting ? "Deleting..." : "Delete"}
 					</span>
