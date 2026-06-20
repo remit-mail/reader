@@ -126,6 +126,12 @@ export interface IntelligencePanelProps {
 	similarState?: SimilarState;
 	/** Layout overrides (e.g. when hosted inside a resizable panel). */
 	className?: string;
+	/**
+	 * Suppress the panel's own close (X) button. Set when the panel is hosted
+	 * inside a chrome that already provides a close affordance (e.g. the mobile
+	 * Drawer header), so there is exactly one way back (#874).
+	 */
+	hideCloseButton?: boolean;
 }
 
 const trustLabel: Record<
@@ -292,6 +298,7 @@ export function IntelligencePanel({
 	actions,
 	similarState = "ready",
 	className,
+	hideCloseButton = false,
 }: IntelligencePanelProps) {
 	const { sender, authenticity, category, flags = {}, similar } = data;
 	const suspicious = authenticity.verdict === "mismatch";
@@ -308,13 +315,15 @@ export function IntelligencePanel({
 				<span className="text-2xs font-semibold uppercase tracking-wider text-fg-subtle">
 					Intelligence
 				</span>
-				<Button
-					variant="ghost"
-					size="sm"
-					icon={<X className="size-3.5" />}
-					onClick={onClose}
-					aria-label="Collapse intelligence sidebar"
-				/>
+				{!hideCloseButton && (
+					<Button
+						variant="ghost"
+						size="sm"
+						icon={<X className="size-3.5" />}
+						onClick={onClose}
+						aria-label="Collapse intelligence sidebar"
+					/>
+				)}
 			</header>
 
 			<Section label="Sender">

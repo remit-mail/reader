@@ -12,6 +12,7 @@ import {
 	ReplyAll,
 	Star,
 	Trash2,
+	X,
 } from "lucide-react";
 import { useState } from "react";
 import {
@@ -267,9 +268,22 @@ function MobileConversationDemo({
 					className="absolute inset-y-0 right-0 z-50 shadow-xl border-l border-line bg-canvas flex flex-col"
 					style={{ width: "min(80vw, 320px)" }}
 				>
+					{/* Drawer chrome owns the sole close affordance; the panel's own
+					    X is suppressed via hideCloseButton — one way back (#874). */}
+					<div className="flex h-12 shrink-0 items-center justify-end border-b border-line px-2">
+						<button
+							type="button"
+							onClick={() => setIntelligenceOpen(false)}
+							className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-md transition-colors hover:bg-surface-raised"
+							aria-label="Close menu"
+						>
+							<X className="size-5" />
+						</button>
+					</div>
 					<IntelligencePanel
 						data={newsletterIntelligence}
 						onClose={() => setIntelligenceOpen(false)}
+						hideCloseButton
 						className="border-l-0 h-full w-full"
 					/>
 				</div>
@@ -388,9 +402,22 @@ function PhoneIntelligenceDrawerDemo({
 				className="absolute inset-y-0 right-0 z-50 shadow-xl border-l border-line bg-canvas flex flex-col"
 				style={{ width: "min(80vw, 320px)" }}
 			>
+				{/* Drawer chrome owns the sole close affordance; the panel's own X
+				    is suppressed via hideCloseButton — one way back (#874). */}
+				<div className="flex h-12 shrink-0 items-center justify-end border-b border-line px-2">
+					<button
+						type="button"
+						onClick={() => {}}
+						className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-md transition-colors hover:bg-surface-raised"
+						aria-label="Close menu"
+					>
+						<X className="size-5" />
+					</button>
+				</div>
 				<IntelligencePanel
 					data={data}
 					onClose={() => {}}
+					hideCloseButton
 					className="border-l-0 h-full w-full overflow-y-auto"
 					actions={{
 						onToggleVip: () => setFlags((f) => ({ ...f, vip: !f.vip })),
