@@ -291,6 +291,39 @@ export const Accounts: Story = {
 	render: () => <AccountsShell count={3}>{accountCards}</AccountsShell>,
 };
 
+/* ------------------------------------------------------------------ */
+/* Shell breakpoints: phone (390) and tablet (768).                   */
+/*                                                                    */
+/* Below desktop (lg = 1024px) the three-column layout collapses:    */
+/*   - Nav rail → hamburger drawer (closed by default)               */
+/*   - Active pane → full width                                       */
+/*   - Tips rail → CircleHelp disclosure in the header               */
+/*                                                                    */
+/* These stories document the live behaviour — the same Accounts page */
+/* rendered at the two sub-desktop breakpoints.                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Phone (390px): hamburger opens the nav drawer; the active pane owns
+ * the full width. The tips rail is replaced by a CircleHelp icon in
+ * the header that expands an inline disclosure on tap.
+ */
+export const ShellPhone: Story = {
+	name: "Shell — phone",
+	parameters: { viewport: { defaultViewport: "mobile1" } },
+	render: () => <AccountsShell count={3}>{accountCards}</AccountsShell>,
+};
+
+/**
+ * Tablet (768px): same collapse mode as phone — hamburger header, no
+ * nav rail, no persistent tips rail. The content column is wider.
+ */
+export const ShellTablet: Story = {
+	name: "Shell — tablet",
+	parameters: { viewport: { defaultViewport: "ipad" } },
+	render: () => <AccountsShell count={3}>{accountCards}</AccountsShell>,
+};
+
 /** Empty state: no accounts yet, with the first-run call to action. */
 export const AccountsEmpty: Story = {
 	name: "Accounts — empty",

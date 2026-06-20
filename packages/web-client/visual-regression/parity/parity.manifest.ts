@@ -343,14 +343,14 @@ export const manifest: ParityRow[] = [
 		state: "shell-tablet",
 		viewports: ["tablet"],
 		live: { route: "/settings/accounts" },
-		story: null,
+		story: { id: "screens-settings--shell-tablet" },
 	},
 	{
 		surface: "settings",
 		state: "shell-phone",
 		viewports: ["phone"],
 		live: { route: "/settings/accounts" },
-		story: null,
+		story: { id: "screens-settings--shell-phone" },
 	},
 	{
 		surface: "settings",
