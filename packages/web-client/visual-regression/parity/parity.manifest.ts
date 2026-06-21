@@ -121,6 +121,11 @@ export const manifest: ParityRow[] = [
 		surface: "onboarding",
 		state: "address-autodiscovery",
 		viewports: ["phone", "tablet", "desktop"],
+		// The in-progress spinner only shows while discoverSettings runs. An
+		// unknown domain (not in the static provider table) forces a network
+		// lookup on Continue, so the "Looking up settings…" spinner is visible
+		// during the short fetch budget before the heuristic fallback. Fill the
+		// email + click Continue, then wait for the spinner to appear.
 		live: {
 			route: "/onboarding",
 			steps: [
@@ -132,8 +137,10 @@ export const manifest: ParityRow[] = [
 				{
 					action: "fill",
 					selector: "input[type='email']",
-					value: "user@example.com",
+					value: "user@autodiscover.example",
 				},
+				{ action: "click", selector: "button:has-text('Continue')" },
+				{ action: "wait", selector: "text=Looking up settings" },
 			],
 		},
 		story: { id: "flows-onboarding--address-autodiscovery" },
