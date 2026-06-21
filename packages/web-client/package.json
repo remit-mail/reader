@@ -24,6 +24,7 @@
     "playwright:install": "npx playwright install chromium",
     "parity:montage": "node --import tsx visual-regression/parity/montage.ts",
     "parity:capture": "node --import tsx visual-regression/parity/capture-parity.ts",
+    "parity:capture:dev": "PARITY_TARGET=dev node --import tsx visual-regression/parity/capture-parity-dev.ts",
     "parity:report": "node --import tsx visual-regression/parity/report.scaffold.ts"
   },
   "devDependencies": {
