@@ -22,6 +22,24 @@ import type {
 import { MailConnectionError } from "./types.js";
 
 /**
+ * Convert an envelope date into an ISO string, tolerating non-Date values.
+ *
+ * imapflow types `envelope.date` as a Date, but a malformed `Date:` header can
+ * leave it as a string or other value at runtime. Returns "" for absent or
+ * invalid dates so one bad header never poisons the whole fetch batch.
+ */
+export const toIsoDateString = (value: unknown): string => {
+	if (value instanceof Date) {
+		return Number.isNaN(value.getTime()) ? "" : value.toISOString();
+	}
+	if (typeof value === "string" || typeof value === "number") {
+		const date = new Date(value);
+		return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+	}
+	return "";
+};
+
+/**
  * ImapFlow-based IMAP connection
  *
  * Drop-in replacement for ImapConnection using the ImapFlow library.
@@ -717,7 +735,7 @@ export class ImapFlowConnection {
 		};
 
 		return {
-			date: envelope.date?.toISOString() ?? "",
+			date: toIsoDateString(envelope.date),
 			subject: envelope.subject ?? "",
 			from: convertAddresses(envelope.from),
 			sender: convertAddresses(envelope.sender),
