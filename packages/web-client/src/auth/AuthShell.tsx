@@ -176,6 +176,20 @@ const remitTheme = createTheme({
 	},
 });
 
+// Amplify's default placeholders are title-case ("Enter your Username"); the
+// design + app copy convention is lowercase (#883).
+const authFormFields = {
+	signIn: {
+		username: { placeholder: "Enter your username" },
+		password: { placeholder: "Enter your password" },
+	},
+	signUp: {
+		username: { placeholder: "Enter your username" },
+		password: { placeholder: "Enter your password" },
+		confirm_password: { placeholder: "Confirm your password" },
+	},
+};
+
 const LocalDevBanner = () => (
 	<Banner
 		tone="warning"
@@ -210,7 +224,11 @@ const SignInGate = ({ children }: { children: ReactNode }) => {
 		<ThemeProvider theme={remitTheme}>
 			<AuthCard>
 				<AuthHero />
-				<Authenticator hideSignUp={false} components={{ Footer: AuthFooter }} />
+				<Authenticator
+					hideSignUp={false}
+					formFields={authFormFields}
+					components={{ Footer: AuthFooter }}
+				/>
 			</AuthCard>
 		</ThemeProvider>
 	);
