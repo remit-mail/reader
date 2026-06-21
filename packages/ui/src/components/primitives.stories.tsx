@@ -68,6 +68,23 @@ export const Inputs: Story = {
 	),
 };
 
+export const InlineInputs: Story = {
+	render: () => (
+		<div className="max-w-sm space-y-3 p-8">
+			<div className="border-b border-line px-3 py-2">
+				<Input variant="inline" placeholder="Filter folders" />
+			</div>
+			<div className="border-b border-line px-3 py-2">
+				<Input
+					variant="inline"
+					icon={<Search className="size-4" />}
+					placeholder="Move to…"
+				/>
+			</div>
+		</div>
+	),
+};
+
 export const LabeledFields: Story = {
 	render: () => (
 		<div className="max-w-sm space-y-3 p-8">
