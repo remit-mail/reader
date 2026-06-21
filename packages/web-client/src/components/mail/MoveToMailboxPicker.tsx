@@ -1,4 +1,5 @@
 import type { RemitImapMailboxResponse } from "@remit/api-http-client/types.gen.ts";
+import { Input } from "@remit/ui";
 import { Search } from "lucide-react";
 import {
 	type KeyboardEvent as ReactKeyboardEvent,
@@ -160,23 +161,22 @@ export const MoveToMailboxPicker = ({
 
 	return (
 		<div className="flex flex-col">
-			<div className="flex items-center gap-2 border-b border-line px-3 py-2">
-				<Search className="size-4 shrink-0 text-fg-subtle" aria-hidden="true" />
-				<input
-					ref={inputRef}
-					type="search"
-					value={query}
-					onChange={(event) => setQuery(event.target.value)}
-					onKeyDown={handleInputKeyDown}
-					placeholder={t("move_picker_placeholder", {
-						defaultValue: "Move to…",
-					})}
-					aria-label={t("move_picker_filter_label", {
-						defaultValue: "Filter folders",
-					})}
-					className="min-w-0 flex-1 bg-transparent text-sm text-fg outline-none placeholder:text-fg-subtle"
-				/>
-			</div>
+			<Input
+				variant="inline"
+				className="border-b border-line px-3 py-2"
+				icon={<Search className="size-4" aria-hidden="true" />}
+				ref={inputRef}
+				type="search"
+				value={query}
+				onChange={(event) => setQuery(event.target.value)}
+				onKeyDown={handleInputKeyDown}
+				placeholder={t("move_picker_placeholder", {
+					defaultValue: "Move to…",
+				})}
+				aria-label={t("move_picker_filter_label", {
+					defaultValue: "Filter folders",
+				})}
+			/>
 			<ul
 				className="flex-1 overflow-y-auto py-1"
 				role="listbox"
