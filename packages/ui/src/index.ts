@@ -73,7 +73,11 @@ export {
 	type FilterSheetProps,
 	type FilterSheetSource,
 } from "./components/filter-sheet.js";
-export { Input, type InputProps } from "./components/input.js";
+export {
+	Input,
+	type InputProps,
+	type InputVariant,
+} from "./components/input.js";
 export {
 	type AuthenticityIntel,
 	type IntelligenceData,
