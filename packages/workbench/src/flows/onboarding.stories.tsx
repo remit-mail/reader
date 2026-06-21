@@ -108,7 +108,10 @@ export const AddressInvalid: Story = {
 	render: () => <StepAddress error="Enter a valid email address." />,
 };
 
-/** Autodiscovered servers, prefilled and editable ("detected" badges). */
+/**
+ * Autodiscovered servers, prefilled and editable ("detected" badges). The
+ * Provider dropdown sits on top, defaulting to "Custom / other".
+ */
 export const ServerConfirm: Story = {
 	render: () => <StepServers detected />,
 };
@@ -119,7 +122,10 @@ export const ServerConfirmPhone: Story = {
 	render: () => <StepServers detected />,
 };
 
-/** Autodiscovery missed — same step as manual fallback, empty fields. */
+/**
+ * Autodiscovery missed — heuristic fallback pre-fills both hosts (no "detected"
+ * badge), with the Provider dropdown on "Custom / other".
+ */
 export const ServerManualFallback: Story = {
 	render: () => <StepServers detected={false} />,
 };
