@@ -216,6 +216,10 @@ export function StepServers({
 	onNext,
 }: { detected?: boolean; preset?: boolean; error?: string } & StepNav) {
 	const detectedBadge = !preset && detected;
+	// Heuristic fallback pre-fills both hosts (no "detected" badge). The
+	// validation-error story is the one case that shows blank hosts to
+	// demonstrate the missing-host error.
+	const blankHosts = !preset && !detected && error !== undefined;
 	return (
 		<WizardShell
 			steps={steps}
@@ -241,22 +245,22 @@ export function StepServers({
 		>
 			<div className="space-y-5">
 				{error && <Banner tone="danger">{error}</Banner>}
-				{preset && (
-					<div>
-						<FieldLabel htmlFor="provider-select">Provider</FieldLabel>
-						<Select id="provider-select" defaultValue="icloud">
-							<option value="">Custom / other</option>
-							<option value="icloud">iCloud</option>
-							<option value="yahoo">Yahoo</option>
-							<option value="aol">AOL</option>
-							<option value="fastmail">Fastmail</option>
-						</Select>
+				<div>
+					<FieldLabel htmlFor="provider-select">Provider</FieldLabel>
+					<Select id="provider-select" defaultValue={preset ? "icloud" : ""}>
+						<option value="">Custom / other</option>
+						<option value="icloud">iCloud</option>
+						<option value="yahoo">Yahoo</option>
+						<option value="aol">AOL</option>
+						<option value="fastmail">Fastmail</option>
+					</Select>
+					{preset && (
 						<p className="mt-1 text-2xs text-fg-subtle">
-							Server settings are pre-filled for iCloud and locked. Choose
-							Advanced to edit them by hand.
+							Server settings are pre-filled for iCloud and locked. Advanced
+							lets you edit them by hand.
 						</p>
-					</div>
-				)}
+					)}
+				</div>
 				<ServerFields
 					legend="IMAP — incoming"
 					badge={
@@ -268,13 +272,15 @@ export function StepServers({
 					}
 					readOnly={preset}
 					host={
-						preset
-							? "imap.mail.me.com"
-							: detected
-								? "imap.fastmail.example"
-								: ""
+						blankHosts
+							? ""
+							: preset
+								? "imap.mail.me.com"
+								: detected
+									? "imap.fastmail.example"
+									: "imap.example.com"
 					}
-					port={preset || detected ? "993" : ""}
+					port={blankHosts ? "" : "993"}
 					security="tls"
 					hostPlaceholder="imap.example.com"
 					portPlaceholder="993"
@@ -290,13 +296,15 @@ export function StepServers({
 					}
 					readOnly={preset}
 					host={
-						preset
-							? "smtp.mail.me.com"
-							: detected
-								? "smtp.fastmail.example"
-								: ""
+						blankHosts
+							? ""
+							: preset
+								? "smtp.mail.me.com"
+								: detected
+									? "smtp.fastmail.example"
+									: "smtp.example.com"
 					}
-					port={preset || detected ? "587" : ""}
+					port={blankHosts ? "" : "587"}
 					security="starttls"
 					hostPlaceholder="smtp.example.com"
 					portPlaceholder="587"
