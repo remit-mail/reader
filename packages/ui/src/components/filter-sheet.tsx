@@ -499,13 +499,9 @@ export function FilterSheet({
 					tabIndex={-1}
 					onClick={() => setOpen(false)}
 					className={cn(
-						"absolute inset-0 z-10 bg-black/40",
+						"absolute inset-0 z-10",
 						openness > 0 ? "pointer-events-auto" : "pointer-events-none",
 					)}
-					style={{
-						opacity: openness * 0.6,
-						transition: sheetTransition.replace("transform", "opacity"),
-					}}
 				/>
 
 				<div
