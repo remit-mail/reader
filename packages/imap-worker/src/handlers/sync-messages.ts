@@ -7,6 +7,7 @@ import {
 	MailboxLockService,
 	MailboxService,
 	MessageService,
+	NotFoundError,
 	ThreadMessageService,
 } from "@remit/remit-electrodb-service";
 import { SyncPhase } from "@remit/domain-enums";
@@ -94,9 +95,29 @@ export const syncMessages = async (
 		"Handling event",
 	);
 
-	const account = await accountService.get(event.accountId);
-	if (!account) {
-		throw new Error(`Account ${event.accountId} not found`);
+	// A deleted account never has its DDB row purged in lockstep with the queued
+	// SYNC_MESSAGES triggers, so a trigger can outlive its account. The lookup
+	// then raises NotFoundError, which can never succeed on retry — it would
+	// retry to maxReceiveCount and poison the messages DLQ forever (issue #911).
+	// Treat a missing account as terminal: ack the event with a WARN. Genuinely
+	// transient failures (throttle, network) surface as other errors and still
+	// propagate to be retried.
+	let account: AccountItem;
+	try {
+		account = await accountService.get(event.accountId);
+	} catch (err) {
+		if (err instanceof NotFoundError) {
+			log.warn(
+				{
+					accountId: event.accountId,
+					mailboxId: event.mailboxId,
+					eventId: event.eventId,
+				},
+				"Skipping SYNC_MESSAGES: account no longer exists",
+			);
+			return;
+		}
+		throw err;
 	}
 
 	if (isAccountDeleted(account, log)) {
