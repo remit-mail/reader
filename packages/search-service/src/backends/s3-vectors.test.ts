@@ -394,3 +394,114 @@ describe("S3VectorsBackend.query metadata backward-compat (no reindex)", () => {
 		assert.equal(meta.subject, "Q1 invoice review");
 	});
 });
+
+describe("S3VectorsBackend.upsert metadata flattening", () => {
+	let s3vMock: AwsClientStub<S3VectorsClient>;
+
+	beforeEach(() => {
+		s3vMock = mockClient(S3VectorsClient);
+	});
+
+	afterEach(() => {
+		s3vMock.restore();
+	});
+
+	const baseMetadata: VectorRecord["metadata"] = {
+		messageId: MESSAGE_ID,
+		threadId: "thread-1",
+		accountConfigId: "acct-1",
+		mailboxIds: ["mb-inbox"],
+		chunkType: "sender",
+		sentDate: 1_700_000_000,
+		isRead: false,
+		hasAttachment: false,
+		hasStars: false,
+	};
+
+	const upsertedMetadata = async (
+		metadata: VectorRecord["metadata"],
+	): Promise<Record<string, unknown>> => {
+		s3vMock.on(PutVectorsCommand).resolves({});
+		await buildBackend().upsert([
+			{ chunkId: `${MESSAGE_ID}::sender`, vector: [0.1, 0.2, 0.3], metadata },
+		]);
+		const putCalls = s3vMock.commandCalls(PutVectorsCommand);
+		assert.equal(putCalls.length, 1);
+		const sent = putCalls[0].args[0].input.vectors?.[0]?.metadata;
+		assert.ok(sent && typeof sent === "object" && !Array.isArray(sent));
+		return sent as Record<string, unknown>;
+	};
+
+	const assertS3VectorsSafe = (meta: Record<string, unknown>): void => {
+		for (const [key, value] of Object.entries(meta)) {
+			if (Array.isArray(value)) {
+				for (const item of value) {
+					assert.ok(
+						typeof item === "string" ||
+							typeof item === "number" ||
+							typeof item === "boolean",
+						`array element of ${key} must be a scalar, got ${typeof item}`,
+					);
+				}
+				continue;
+			}
+			assert.ok(
+				value === null ||
+					typeof value === "string" ||
+					typeof value === "number" ||
+					typeof value === "boolean",
+				`${key} must be a scalar, got ${typeof value}`,
+			);
+		}
+	};
+
+	it("flattens an object-valued sender to a display string", async () => {
+		// Reproduces the dead-letter case: an older producer wrote `sender` as an
+		// address object, which S3 Vectors rejects as a non-scalar.
+		const metadata = {
+			...baseMetadata,
+			sender: { name: "Alice", email: "alice@example.com" },
+		} as unknown as VectorRecord["metadata"];
+
+		const sent = await upsertedMetadata(metadata);
+
+		assert.equal(sent.sender, "Alice <alice@example.com>");
+		assertS3VectorsSafe(sent);
+	});
+
+	it("flattens an array of address objects to an array of strings", async () => {
+		const metadata = {
+			...baseMetadata,
+			sender: [
+				{ name: "Alice", mailbox: "alice", host: "example.com" },
+				{ mailbox: "bob", host: "example.com" },
+			],
+		} as unknown as VectorRecord["metadata"];
+
+		const sent = await upsertedMetadata(metadata);
+
+		assert.deepEqual(sent.sender, [
+			"Alice <alice@example.com>",
+			"bob@example.com",
+		]);
+		assertS3VectorsSafe(sent);
+	});
+
+	it("keeps clean scalar metadata unchanged and S3-Vectors-safe", async () => {
+		const metadata: VectorRecord["metadata"] = {
+			...baseMetadata,
+			fileTypes: ["pdf", "png"],
+			fromName: null,
+			subject: "Q1 invoice review",
+		};
+
+		const sent = await upsertedMetadata(metadata);
+
+		assert.equal(sent.messageId, MESSAGE_ID);
+		assert.deepEqual(sent.mailboxIds, ["mb-inbox"]);
+		assert.deepEqual(sent.fileTypes, ["pdf", "png"]);
+		assert.equal(sent.fromName, null);
+		assert.equal(sent.subject, "Q1 invoice review");
+		assertS3VectorsSafe(sent);
+	});
+});
