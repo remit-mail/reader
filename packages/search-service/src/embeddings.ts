@@ -21,6 +21,13 @@ const DEFAULT_MODEL_ID = "amazon.titan-embed-text-v2:0";
 const DEFAULT_DIMENSIONS = 1024;
 const DEFAULT_CONCURRENCY = 6;
 
+/**
+ * Titan v2 rejects inputs over its 8192-token limit. Chunk builders already cap
+ * their output, but this is a final backstop so no chunk source can ever push
+ * an over-budget inputText to Bedrock. 6000 chars stays well under 8192 tokens.
+ */
+const MAX_INPUT_CHARS = 6000;
+
 const isNumberArray = (value: unknown): value is number[] =>
 	Array.isArray(value) && value.every((n) => typeof n === "number");
 
@@ -56,12 +63,13 @@ export class BedrockEmbeddingService implements EmbeddingService {
 		Promise.all(texts.map((text) => this.limit(() => this.embedOne(text))));
 
 	private embedOne = async (text: string): Promise<number[]> => {
+		const inputText = text.slice(0, MAX_INPUT_CHARS);
 		const cmd = new InvokeModelCommand({
 			modelId: this.modelId,
 			contentType: "application/json",
 			accept: "application/json",
 			body: JSON.stringify({
-				inputText: text,
+				inputText,
 				dimensions: this.dimensions,
 				normalize: true,
 			}),

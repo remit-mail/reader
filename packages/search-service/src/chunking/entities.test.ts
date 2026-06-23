@@ -61,4 +61,22 @@ describe("buildEntityChunks", () => {
 		const chunks = buildEntityChunks(text, idFor);
 		assert.strictEqual(chunks.length, 0);
 	});
+
+	it("splits a huge Links list into multiple capped chunks", () => {
+		const links = Array.from(
+			{ length: 4000 },
+			(_, i) =>
+				`Visit https://news.example.com/articles/${i}/read-the-full-story`,
+		).join(" ");
+		const chunks = buildEntityChunks(links, idFor);
+
+		assert.ok(chunks.length > 1, "expected the oversized list to split");
+		for (const chunk of chunks) {
+			assert.strictEqual(chunk.chunkType, "entities");
+			assert.ok(
+				chunk.text.length <= 6000,
+				`chunk ${chunk.chunkId} length ${chunk.text.length} exceeds budget`,
+			);
+		}
+	});
 });

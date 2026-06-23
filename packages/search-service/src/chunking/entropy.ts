@@ -71,6 +71,13 @@ const MAX_CHUNK_CHARS = 2000;
 const ENTROPY_THRESHOLD = 3.5;
 const WINDOW_SIZE = 100;
 
+/**
+ * Hard ceiling for any chunk text handed to the embedder. Titan v2
+ * (amazon.titan-embed-text-v2:0) rejects inputs over 8192 tokens; 6000 chars
+ * stays comfortably under that even for dense, low-whitespace text.
+ */
+export const EMBED_CHAR_BUDGET = 6000;
+
 const splitParagraphs = (text: string): string[] => {
 	return text
 		.split(/\n\s*\n/)
@@ -110,17 +117,19 @@ const isHighEntropy = (text: string): boolean => {
 	return maxEntropy >= ENTROPY_THRESHOLD;
 };
 
-const splitOversized = (text: string): string[] => {
-	if (text.length <= MAX_CHUNK_CHARS) return [text];
+export const splitToCharBudget = (text: string, budget: number): string[] => {
+	if (text.length <= budget) return [text];
 	const parts: string[] = [];
 	let cursor = 0;
 	while (cursor < text.length) {
-		const slice = text.slice(cursor, cursor + MAX_CHUNK_CHARS);
-		parts.push(slice);
-		cursor += MAX_CHUNK_CHARS;
+		parts.push(text.slice(cursor, cursor + budget));
+		cursor += budget;
 	}
 	return parts;
 };
+
+const splitOversized = (text: string): string[] =>
+	splitToCharBudget(text, MAX_CHUNK_CHARS);
 
 export const buildBodyChunks = (
 	text: string,

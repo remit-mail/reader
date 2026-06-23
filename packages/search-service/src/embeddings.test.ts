@@ -44,6 +44,27 @@ describe("BedrockEmbeddingService", () => {
 		assert.equal(bedrockMock.commandCalls(InvokeModelCommand).length, total);
 	});
 
+	it("truncates over-budget input before sending it to Bedrock", async () => {
+		const bedrockMock = mockClient(BedrockRuntimeClient);
+		let sentLength = 0;
+		bedrockMock.on(InvokeModelCommand).callsFake((input) => {
+			const body = JSON.parse(input.body as string) as { inputText: string };
+			sentLength = body.inputText.length;
+			return { body: encodeTitanResponse(1024) };
+		});
+
+		const service = new BedrockEmbeddingService({
+			client: new BedrockRuntimeClient({}),
+		});
+
+		await service.embed(["x".repeat(50000)]);
+
+		assert.ok(
+			sentLength <= 6000,
+			`inputText length ${sentLength} exceeds the 6000-char budget`,
+		);
+	});
+
 	it("returns embeddings in the same order as the input texts", async () => {
 		const bedrockMock = mockClient(BedrockRuntimeClient);
 		bedrockMock.on(InvokeModelCommand).callsFake(async (input) => {
