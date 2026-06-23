@@ -2,31 +2,25 @@ export {
 	AppPasswordHint,
 	type AppPasswordHintProps,
 } from "./components/app-password-hint.js";
+export { AppShell } from "./components/app-shell.js";
 export {
 	type AccountChip,
-	AppShell,
 	type AppShellProps,
 	type BriefCategoryFilter,
-	type BriefRowComponent,
-	BriefSections,
-	type BriefSectionsProps,
 	briefCategories,
-	ComfortableRowBody,
-	ComfortableRowTextContent,
-	CompactRowBody,
 	categoryTone,
-	comfortableRowClass,
-	compactRowClass,
 	type Density,
 	type MailboxSpecialUse,
 	type NavAccount,
 	type NavMailbox,
+	type PaneLayout,
+	resolvePaneLayout,
 	type ThreadCategory,
 	type ThreadData,
 	type ThreadMessageData,
 	type ThreadRowData,
 	type ThreadSection,
-} from "./components/app-shell.js";
+} from "./components/app-shell-types.js";
 export { AuthCard, type AuthCardProps } from "./components/auth-card.js";
 export { AuthFooter, type AuthFooterProps } from "./components/auth-footer.js";
 export { AuthHero, type AuthHeroProps } from "./components/auth-hero.js";
@@ -38,6 +32,10 @@ export {
 	type BannerTone,
 	type BannerVariant,
 } from "./components/banner.js";
+export {
+	BriefSections,
+	type BriefSectionsProps,
+} from "./components/brief-sections.js";
 export { Button, type ButtonProps } from "./components/button.js";
 export {
 	Card,
@@ -104,6 +102,25 @@ export {
 	MailActionToolbar,
 	type MailActionToolbarProps,
 } from "./components/mail-action-toolbar.js";
+export { MessageListPane } from "./components/message-list-pane.js";
+export {
+	type ListState,
+	MessageListEmpty,
+	MessageListError,
+	MessageListLoading,
+} from "./components/message-list-state.js";
+export {
+	type BriefRowComponent,
+	ComfortableRow,
+	ComfortableRowBody,
+	ComfortableRowTextContent,
+	CompactRow,
+	CompactRowBody,
+	comfortableRowClass,
+	compactRowClass,
+} from "./components/message-row.js";
+export { MobileMessagePane } from "./components/mobile-message-pane.js";
+export { NavSidebar } from "./components/nav-sidebar.js";
 export { OutboxRow, type OutboxRowProps } from "./components/outbox-row.js";
 export {
 	type OutboxStatus,
@@ -111,6 +128,11 @@ export {
 	type OutboxStatusBadgeProps,
 	outboxStatusConfig,
 } from "./components/outbox-status-badge.js";
+export {
+	CollapsedMessage,
+	ExpandedMessage,
+	ReadingPane,
+} from "./components/reading-pane.js";
 export {
 	ReadingPaneEmpty,
 	type ReadingPaneEmptyProps,
@@ -141,6 +163,7 @@ export {
 	type SegmentedOption,
 } from "./components/segmented-control.js";
 export { Select, type SelectProps } from "./components/select.js";
+export { SelectionTopBar } from "./components/selection-top-bar.js";
 export {
 	type SenderGroupOption,
 	SenderGroupSwitch,
@@ -155,6 +178,12 @@ export {
 	SettingsShell,
 	type SettingsShellProps,
 } from "./components/settings-screen.js";
+export {
+	commitPeek,
+	SwipeableRow,
+	type SwipePeek,
+} from "./components/swipeable-row.js";
+export { TouchListBody } from "./components/touch-list.js";
 export {
 	CheckRow,
 	type CheckRowProps,
