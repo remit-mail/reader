@@ -28,6 +28,11 @@ type AccountGroup = {
 	// PutVectors call, which S3 Vectors rejects ("duplicate keys").
 	records: Map<string, VectorRecord>;
 	sqsMessageIds: string[];
+	// The email messageIds whose chunks are in this group. A bulk-upsert failure
+	// fails the whole group, so we log these to name exactly which messages
+	// dead-lettered — without them a rejection (e.g. an S3 Vectors metadata
+	// ValidationException) is invisible per-message and undiagnosable (#910).
+	messageIds: Set<string>;
 };
 
 export const processBatch = async (
@@ -76,16 +81,23 @@ export const processBatch = async (
 				log,
 			);
 			if (vectorRecords === null) continue;
-			if (vectorRecords.length === 0) continue;
+			if (vectorRecords.length === 0) {
+				log.info("No indexable content, skipping", {
+					messageId: message.messageId,
+				});
+				continue;
+			}
 
 			const group = accountGroups.get(message.accountId) ?? {
 				records: new Map<string, VectorRecord>(),
 				sqsMessageIds: [],
+				messageIds: new Set<string>(),
 			};
 			for (const vectorRecord of vectorRecords) {
 				group.records.set(vectorRecord.chunkId, vectorRecord);
 			}
 			group.sqsMessageIds.push(record.messageId);
+			group.messageIds.add(message.messageId);
 			accountGroups.set(message.accountId, group);
 		} catch (error) {
 			log.error("Preparation failed", {
@@ -111,7 +123,16 @@ export const processBatch = async (
 				records.length,
 			);
 		} catch (error) {
-			log.error("Bulk upsert failed", { error: inspect(error), accountId });
+			// Name every messageId that dead-letters. The bulk upsert fails the
+			// whole account-group, so without these the SDK error alone (which
+			// only names one offending vector key) leaves the other messages in
+			// the group with no diagnostic at all — the silent failure of #910.
+			log.error("Bulk upsert failed", {
+				error: inspect(error),
+				accountId,
+				messageIds: [...group.messageIds],
+				count: records.length,
+			});
 			metrics.addMetric("searchIndexFailures", MetricUnit.Count, 1);
 			for (const sqsMessageId of group.sqsMessageIds) {
 				batchItemFailures.push({ itemIdentifier: sqsMessageId });

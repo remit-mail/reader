@@ -556,6 +556,83 @@ describe("search-index-worker handler", () => {
 		accounts.clear();
 	});
 
+	test("failed upsertVectors logs the messageIds and error (fail loud, #910)", async () => {
+		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID });
+		const store = createMemoryVectorStore();
+		const embedder = createDeterministicEmbeddingService();
+		const baseSearchService = createSearchService({ embedder, store });
+		const storageService = createMockStorageService();
+
+		const msgId1 = "msg-loud-1";
+		const msgId2 = "msg-loud-2";
+		threadMessages.set(msgId1, makeThreadMessage(msgId1));
+		threadMessages.set(msgId2, makeThreadMessage(msgId2));
+		for (const messageId of [msgId1, msgId2]) {
+			await storageService.storeParsedBody({
+				accountConfigId: ACCOUNT_CONFIG_ID,
+				accountId: ACCOUNT_ID,
+				messageId,
+				parsed: {
+					text: "Content for loud logging",
+					html: null,
+					attachments: [],
+				},
+			});
+		}
+
+		const failingSearchService: SearchService = {
+			...baseSearchService,
+			upsertVectors: async (_records: VectorRecord[]) => {
+				throw new Error(
+					"ValidationException: Metadata values must be strings, numbers, booleans, or arrays",
+				);
+			},
+		};
+
+		const errorLogs: { message: string; context: Record<string, unknown> }[] =
+			[];
+		const capturingLogger = {
+			...noopLogger,
+			info: () => {},
+			error: (message: string, context?: Record<string, unknown>) => {
+				errorLogs.push({ message, context: context ?? {} });
+			},
+		} as unknown as Parameters<typeof processBatch>[2];
+
+		const services = createTestServices(storageService, failingSearchService);
+
+		const result = await processBatch(
+			[
+				makeRecord(makeSearchIndexMessage({ messageId: msgId1 }), "sqs-loud-1"),
+				makeRecord(makeSearchIndexMessage({ messageId: msgId2 }), "sqs-loud-2"),
+			],
+			services,
+			capturingLogger,
+		);
+
+		assert.equal(result.batchItemFailures.length, 2);
+
+		const bulkFailure = errorLogs.find(
+			(l) => l.message === "Bulk upsert failed",
+		);
+		assert.ok(bulkFailure, "must log a Bulk upsert failed entry");
+		const loggedMessageIds = bulkFailure.context.messageIds;
+		assert.ok(
+			Array.isArray(loggedMessageIds),
+			"messageIds must be logged so the failure is diagnosable per message",
+		);
+		assert.ok(loggedMessageIds.includes(msgId1));
+		assert.ok(loggedMessageIds.includes(msgId2));
+		assert.match(
+			String(bulkFailure.context.error),
+			/ValidationException/,
+			"the actual upsert error must be logged",
+		);
+
+		threadMessages.clear();
+		accounts.clear();
+	});
+
 	test("preparation failure for one record does not abort batch", async () => {
 		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID });
 		const store = createMemoryVectorStore();
