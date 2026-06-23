@@ -1,4 +1,5 @@
 import type { Chunk } from "../types.js";
+import { EMBED_CHAR_BUDGET, splitToCharBudget } from "./entropy.js";
 
 const EMAIL_RE = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
 const URL_RE = /\bhttps?:\/\/[^\s<>"]+/gi;
@@ -58,11 +59,10 @@ export const buildEntityChunks = (
 	const entities = extractEntities(text);
 	const summary = formatEntities(entities);
 	if (summary.length === 0) return [];
-	return [
-		{
-			chunkId: chunkIdFor("entities"),
-			chunkType: "entities",
-			text: summary,
-		},
-	];
+	const parts = splitToCharBudget(summary, EMBED_CHAR_BUDGET);
+	return parts.map((part, idx) => ({
+		chunkId: chunkIdFor(parts.length === 1 ? "entities" : `entities-${idx}`),
+		chunkType: "entities",
+		text: part,
+	}));
 };
