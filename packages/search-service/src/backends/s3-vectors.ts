@@ -15,22 +15,71 @@ import type {
 } from "../types.js";
 import type { VectorStoreService } from "./memory.js";
 
-const toDocument = (value: unknown): DocumentType => {
-	if (value === null) return null;
-	if (typeof value === "boolean") return value;
-	if (typeof value === "number") return value;
-	if (typeof value === "string") return value;
-	if (Array.isArray(value)) return value.map(toDocument);
+// S3 Vectors rejects any metadata value that is not a string, number,
+// boolean, or array of those. Address-shaped objects (sender/recipients) and
+// any other nested object must be flattened to a scalar before upsert or the
+// PutVectors call dead-letters with a ValidationException.
+type AddressLike = {
+	name?: string | null;
+	email?: string;
+	address?: string;
+	mailbox?: string;
+	host?: string;
+};
+
+const isAddressLike = (value: Record<string, unknown>): value is AddressLike =>
+	typeof value.email === "string" ||
+	typeof value.address === "string" ||
+	(typeof value.mailbox === "string" && typeof value.host === "string");
+
+const formatAddress = (addr: AddressLike): string => {
+	const email =
+		addr.email ??
+		addr.address ??
+		(addr.mailbox && addr.host ? `${addr.mailbox}@${addr.host}` : "");
+	const name = typeof addr.name === "string" ? addr.name.trim() : "";
+	if (name.length > 0) return `${name} <${email}>`;
+	return email;
+};
+
+const isScalar = (value: unknown): value is string | number | boolean =>
+	typeof value === "string" ||
+	typeof value === "number" ||
+	typeof value === "boolean";
+
+// Flatten a single metadata value to an S3-Vectors-safe scalar (or array of
+// scalars). Objects become display strings; arrays of objects become arrays of
+// strings. The result is guaranteed to satisfy the S3 Vectors constraint.
+const flattenMetadataValue = (value: unknown): DocumentType => {
+	if (value === null || value === undefined) return null;
+	if (isScalar(value)) return value;
+	if (Array.isArray(value)) {
+		return value.map((item) => {
+			if (item === null || item === undefined) return "";
+			if (isScalar(item)) return item;
+			if (typeof item === "object" && isAddressLike(item as AddressLike)) {
+				return formatAddress(item as AddressLike);
+			}
+			return JSON.stringify(item);
+		});
+	}
 	if (typeof value === "object") {
-		const out: { [k: string]: DocumentType } = {};
-		for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-			out[k] = toDocument(v);
-		}
-		return out;
+		const obj = value as Record<string, unknown>;
+		if (isAddressLike(obj)) return formatAddress(obj);
+		return JSON.stringify(obj);
 	}
 	throw new Error(
-		`Cannot convert value of type ${typeof value} to DocumentType`,
+		`Cannot convert metadata value of type ${typeof value} to a scalar`,
 	);
+};
+
+const toMetadataDocument = (metadata: ChunkMetadata): DocumentType => {
+	const out: { [k: string]: DocumentType } = {};
+	for (const [k, v] of Object.entries(metadata)) {
+		if (v === undefined) continue;
+		out[k] = flattenMetadataValue(v);
+	}
+	return out;
 };
 
 const PUT_BATCH_SIZE = 100;
@@ -166,7 +215,7 @@ export class S3VectorsBackend implements VectorStoreService {
 				vectors: batch.map((v) => ({
 					key: v.chunkId,
 					data: { float32: v.vector },
-					metadata: toDocument(v.metadata),
+					metadata: toMetadataDocument(v.metadata),
 				})),
 			});
 			await this.client.send(cmd);
