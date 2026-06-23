@@ -446,11 +446,10 @@ describe("S3VectorsBackend.upsert metadata flattening", () => {
 				continue;
 			}
 			assert.ok(
-				value === null ||
-					typeof value === "string" ||
+				typeof value === "string" ||
 					typeof value === "number" ||
 					typeof value === "boolean",
-				`${key} must be a scalar, got ${typeof value}`,
+				`${key} must be a scalar, got ${value === null ? "null" : typeof value}`,
 			);
 		}
 	};
@@ -500,7 +499,22 @@ describe("S3VectorsBackend.upsert metadata flattening", () => {
 		assert.equal(sent.messageId, MESSAGE_ID);
 		assert.deepEqual(sent.mailboxIds, ["mb-inbox"]);
 		assert.deepEqual(sent.fileTypes, ["pdf", "png"]);
-		assert.equal(sent.fromName, null);
+		assert.equal(sent.subject, "Q1 invoice review");
+		assertS3VectorsSafe(sent);
+	});
+
+	it("omits a null-valued key rather than emitting null", async () => {
+		// S3 Vectors rejects null metadata values. A sender with no display name
+		// (fromName: null) must drop the key entirely, not send fromName: null.
+		const metadata: VectorRecord["metadata"] = {
+			...baseMetadata,
+			fromName: null,
+			subject: "Q1 invoice review",
+		};
+
+		const sent = await upsertedMetadata(metadata);
+
+		assert.ok(!("fromName" in sent), "fromName key must be omitted when null");
 		assert.equal(sent.subject, "Q1 invoice review");
 		assertS3VectorsSafe(sent);
 	});
