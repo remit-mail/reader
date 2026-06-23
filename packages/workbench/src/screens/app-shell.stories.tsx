@@ -2,6 +2,7 @@ import { AppShell, type AppShellProps } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 import {
+	allThreads,
 	briefChips,
 	briefSections,
 	briefUnseen,
@@ -14,6 +15,20 @@ import {
 	q3Intelligence,
 	q3Thread,
 } from "../fixtures/workspace.js";
+
+/** A normal mailbox is one flat, unlabeled list of rows (no brief sections). */
+const flatInboxSection = [{ id: "inbox", threads: allThreads }];
+
+/** Inbox-shaped overrides shared by the flat-list stories: the Inbox nav item
+ *  is active, the list is flat (no brief chips / section labels), and the title
+ *  reads "Inbox" with a plain unread count. */
+const inboxBase: Partial<AppShellProps> = {
+	selectedNavId: "mbx_personal_inbox",
+	listTitle: "Inbox",
+	flatList: true,
+	chips: undefined,
+	mutedNote: undefined,
+};
 
 const meta: Meta<typeof AppShell> = {
 	title: "Screens/AppShell",
@@ -98,19 +113,6 @@ export const NoThreadToolbar: Story = {
 };
 
 /**
- * Tablet tier (768–1023): list + reading two-pane, no intelligence rail (pane
- * 4 is desktop-only). The live route additionally drawer-backs the nav rail at
- * this width; here the geometry under test is the surviving two reading panes
- * (#784).
- */
-export const TabletTwoPane: Story = {
-	parameters: {
-		viewport: { defaultViewport: "tablet" },
-	},
-	render: () => <StatefulShell startOpen={false} />,
-};
-
-/**
  * Mutt-density list: single-line rows, no avatars, status glyphs only.
  * Same data, same keys — only presentation changes. The phishing glyph
  * is the only color in the list.
@@ -185,6 +187,117 @@ export const DraftsActive: Story = {
 					],
 				},
 			]}
+			selectedThreadId={undefined}
+			thread={undefined}
+			intelligence={undefined}
+		/>
+	),
+};
+
+/* ------------------------------------------------------------------ */
+/* Flat plain-inbox: a normal mailbox, not the sectioned daily brief. */
+/* The live $mailboxId route renders a flat MessageList — these are    */
+/* the refinable mocks for that surface and its three load states.     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The plain inbox (#5): a normal mailbox is one flat, continuous list of rows —
+ * no brief sections, no account chip bar. "Inbox" is the active nav item, the
+ * datum shows the unread count. This is the surface we iterate list + flows on,
+ * distinct from the sectioned Daily brief (the Default story).
+ *
+ * One responsive surface: drag the Storybook viewport and the shell reflows by
+ * width — list-only below 1024px, list + reading at 1024–1279px, and the
+ * intelligence rail joins at ≥1280px. No per-device variants.
+ */
+export const FlatInbox: Story = {
+	render: () => (
+		<StatefulShell
+			{...inboxBase}
+			listMeta="9 unread"
+			sections={flatInboxSection}
+			selectedThreadId="thr_q3"
+			thread={q3Thread}
+			intelligence={q3Intelligence}
+		/>
+	),
+};
+
+/**
+ * Cold load: the flat list renders the skeleton (eight pulse rows) in place of
+ * the rows, mirroring the live MessageList LoadingSkeleton. The reading pane is
+ * empty until a thread opens. No thread/intelligence — nothing is loaded yet.
+ */
+export const FlatInboxLoading: Story = {
+	render: () => (
+		<StatefulShell
+			{...inboxBase}
+			startOpen={false}
+			listMeta={undefined}
+			sections={flatInboxSection}
+			listState="loading"
+			selectedThreadId={undefined}
+			thread={undefined}
+			intelligence={undefined}
+		/>
+	),
+};
+
+/**
+ * Empty mailbox: a clean folder with nothing in it. Copy mirrors the live
+ * MessageList — "No messages in this mailbox". The reading pane stays empty.
+ */
+export const FlatInboxEmpty: Story = {
+	render: () => (
+		<StatefulShell
+			{...inboxBase}
+			startOpen={false}
+			listMeta={undefined}
+			sections={[]}
+			listState="empty"
+			selectedThreadId={undefined}
+			thread={undefined}
+			intelligence={undefined}
+		/>
+	),
+};
+
+/**
+ * Empty search: a query with no matches. Same empty surface, search variant of
+ * the copy — "No messages match your search" (live MessageList parity).
+ */
+export const FlatInboxEmptySearch: Story = {
+	render: () => (
+		<StatefulShell
+			{...inboxBase}
+			startOpen={false}
+			listMeta={undefined}
+			sections={[]}
+			listState="empty"
+			searchQuery="quarterly report"
+			selectedThreadId={undefined}
+			thread={undefined}
+			intelligence={undefined}
+		/>
+	),
+};
+
+/**
+ * List load failure (ux.md: fail hard + loud). The rows are replaced by a
+ * centered, blocking error that states plainly what failed, offers Retry (a way
+ * back) and "Report a problem" (the failure goes somewhere) — never a toast,
+ * never a list left looking healthy.
+ */
+export const FlatInboxError: Story = {
+	render: () => (
+		<StatefulShell
+			{...inboxBase}
+			startOpen={false}
+			listMeta={undefined}
+			sections={[]}
+			listState="error"
+			onRetry={() => {}}
+			onReportError={() => {}}
 			selectedThreadId={undefined}
 			thread={undefined}
 			intelligence={undefined}
