@@ -77,7 +77,11 @@ const toMetadataDocument = (metadata: ChunkMetadata): DocumentType => {
 	const out: { [k: string]: DocumentType } = {};
 	for (const [k, v] of Object.entries(metadata)) {
 		if (v === undefined) continue;
-		out[k] = flattenMetadataValue(v);
+		const flattened = flattenMetadataValue(v);
+		// S3 Vectors rejects null metadata values. Omit the key entirely (e.g.
+		// fromName for a sender with no display name) rather than emit null.
+		if (flattened === null) continue;
+		out[k] = flattened;
 	}
 	return out;
 };

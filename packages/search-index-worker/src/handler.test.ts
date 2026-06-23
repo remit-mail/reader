@@ -409,6 +409,99 @@ describe("search-index-worker handler", () => {
 		accounts.clear();
 	});
 
+	test("duplicate chunkIds in one batch are deduped (last write wins)", async () => {
+		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID });
+		const store = createMemoryVectorStore();
+		const embedder = createDeterministicEmbeddingService();
+		const baseSearchService = createSearchService({ embedder, store });
+		const storageService = createMockStorageService();
+
+		// An INSERT then a MODIFY for the same messageId land in one batch. Both
+		// emit the same chunkIds; without dedup that builds a PutVectors call with
+		// duplicate keys, which S3 Vectors rejects.
+		await storageService.storeParsedBody({
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			accountId: ACCOUNT_ID,
+			messageId: MESSAGE_ID,
+			parsed: { text: "Dedup content", html: null, attachments: [] },
+		});
+
+		let findCalls = 0;
+		const versioningThreadMessageService = {
+			findByMessageId: async (messageId: string) => {
+				findCalls++;
+				const subject = findCalls === 1 ? "Old subject" : "New subject";
+				return { ...makeThreadMessage(messageId), subject };
+			},
+		} as unknown as Services["threadMessageService"];
+
+		let upsertCallArgs: VectorRecord[] = [];
+		let upsertVectorsCalls = 0;
+		const trackingSearchService: SearchService = {
+			...baseSearchService,
+			upsertVectors: async (records: VectorRecord[]) => {
+				upsertVectorsCalls++;
+				upsertCallArgs = records;
+				return baseSearchService.upsertVectors(records);
+			},
+		};
+
+		const services: Services = {
+			accountService: mockAccountService,
+			threadMessageService: versioningThreadMessageService,
+			storageService,
+			searchService: trackingSearchService,
+		};
+
+		const result = await processBatch(
+			[
+				makeRecord(
+					makeSearchIndexMessage({
+						messageId: MESSAGE_ID,
+						eventName: "INSERT",
+					}),
+					"sqs-insert",
+				),
+				makeRecord(
+					makeSearchIndexMessage({
+						messageId: MESSAGE_ID,
+						eventName: "MODIFY",
+					}),
+					"sqs-modify",
+				),
+			],
+			services,
+			noopLogger,
+		);
+
+		assert.equal(result.batchItemFailures.length, 0);
+		assert.equal(
+			upsertVectorsCalls,
+			1,
+			"one upsert call for the account group",
+		);
+
+		const chunkIds = upsertCallArgs.map((r) => r.chunkId);
+		assert.equal(
+			chunkIds.length,
+			new Set(chunkIds).size,
+			"no duplicate chunkIds in the upsert batch",
+		);
+
+		const subjectChunk = upsertCallArgs.find(
+			(r) => r.metadata.chunkType === "subject",
+		);
+		assert.ok(subjectChunk, "subject chunk should be present");
+		assert.equal(
+			subjectChunk.metadata.subject,
+			"New subject",
+			"later MODIFY should supersede the earlier INSERT",
+		);
+
+		threadMessages.clear();
+		accounts.clear();
+	});
+
 	test("failed upsertVectors marks all records in that account group as failures", async () => {
 		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID });
 		const store = createMemoryVectorStore();

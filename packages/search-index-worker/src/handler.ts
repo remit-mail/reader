@@ -22,7 +22,11 @@ export const handler = withTelemetry(
 );
 
 type AccountGroup = {
-	records: VectorRecord[];
+	// Keyed by chunkId so a later record (e.g. a MODIFY) supersedes an earlier
+	// one (an INSERT) for the same chunk within a batch. Two SQS records for the
+	// same messageId would otherwise emit duplicate vector keys in one
+	// PutVectors call, which S3 Vectors rejects ("duplicate keys").
+	records: Map<string, VectorRecord>;
 	sqsMessageIds: string[];
 };
 
@@ -75,10 +79,12 @@ export const processBatch = async (
 			if (vectorRecords.length === 0) continue;
 
 			const group = accountGroups.get(message.accountId) ?? {
-				records: [],
+				records: new Map<string, VectorRecord>(),
 				sqsMessageIds: [],
 			};
-			group.records.push(...vectorRecords);
+			for (const vectorRecord of vectorRecords) {
+				group.records.set(vectorRecord.chunkId, vectorRecord);
+			}
 			group.sqsMessageIds.push(record.messageId);
 			accountGroups.set(message.accountId, group);
 		} catch (error) {
@@ -92,16 +98,17 @@ export const processBatch = async (
 	}
 
 	for (const [accountId, group] of accountGroups) {
+		const records = [...group.records.values()];
 		try {
-			await services.searchService.upsertVectors(group.records);
+			await services.searchService.upsertVectors(records);
 			log.info("Bulk upsert complete", {
 				accountId,
-				count: group.records.length,
+				count: records.length,
 			});
 			metrics.addMetric(
 				"searchIndexProcessed",
 				MetricUnit.Count,
-				group.records.length,
+				records.length,
 			);
 		} catch (error) {
 			log.error("Bulk upsert failed", { error: inspect(error), accountId });
