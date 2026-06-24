@@ -4,15 +4,9 @@ import {
 	threadDetailOperationsListThreadMessagesOptions,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapMessageAuthenticity } from "@remit/api-http-client/types.gen.ts";
+import { MobileMessagePane } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
-import {
-	ArrowLeft,
-	Forward,
-	Info,
-	Reply,
-	ReplyAll,
-	ShieldAlert,
-} from "lucide-react";
+import { ShieldAlert } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ComposeMode } from "@/components/compose/ComposeProvider";
 import { InlineCompose } from "@/components/compose/InlineCompose";
@@ -24,7 +18,6 @@ import { useMarkAsRead } from "@/hooks/useMarkAsRead";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { useSwipeNavigation } from "@/hooks/useSwipeNavigation";
 import { useToggleStar } from "@/hooks/useToggleStar";
-import { cn } from "@/lib/utils";
 import { MessageCard } from "./MessageCard";
 import { MobileConversationTopBar } from "./MobileConversationTopBar";
 
@@ -163,102 +156,6 @@ function AuthenticityBanner({
 		</div>
 	);
 }
-
-/**
- * Mobile-only sticky footer. Desktop surfaces reply / reply-all / forward in
- * the top `MessageToolbar`, but that toolbar is not rendered on mobile, so the
- * touch reply affordances live here alongside the Back chip. Narrow viewports
- * drop the text labels so all four controls stay on one row.
- */
-interface MobileActionBarProps {
-	onBack?: () => void;
-	onReply: () => void;
-	onReplyAll: () => void;
-	onForward: () => void;
-	disabled?: boolean;
-	/**
-	 * Opens the message-details (info) drawer. The desktop info pane has no room
-	 * on mobile, so this chip is the touch entry point into it (#687).
-	 */
-	onInfo?: () => void;
-}
-
-const mobileActionChip =
-	"inline-flex items-center gap-2 px-3 sm:px-4 py-2 min-h-11 text-sm font-medium rounded-full border border-line hover:bg-surface-raised transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
-
-const MobileActionBar = ({
-	onBack,
-	onReply,
-	onReplyAll,
-	onForward,
-	disabled,
-	onInfo,
-}: MobileActionBarProps) => (
-	<div
-		className="sticky bottom-0 bg-canvas/95 backdrop-blur supports-[backdrop-filter]:bg-canvas/80 border-t border-line px-4 py-3"
-		style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom, 0))" }}
-	>
-		<div className="flex items-center gap-2">
-			{onBack && (
-				<button
-					type="button"
-					onClick={onBack}
-					className={mobileActionChip}
-					aria-label="Back to messages"
-				>
-					<ArrowLeft className="size-4" />
-					<span className="hidden sm:inline">Back</span>
-				</button>
-			)}
-			<button
-				type="button"
-				onClick={onReply}
-				disabled={disabled}
-				aria-label="Reply"
-				className={mobileActionChip}
-			>
-				<Reply className="size-4" />
-				<span className="hidden sm:inline">Reply</span>
-			</button>
-			<button
-				type="button"
-				onClick={onReplyAll}
-				disabled={disabled}
-				aria-label="Reply all"
-				className={mobileActionChip}
-			>
-				<ReplyAll className="size-4" />
-				<span className="hidden sm:inline">Reply all</span>
-			</button>
-			<button
-				type="button"
-				onClick={onForward}
-				disabled={disabled}
-				aria-label="Forward"
-				className={mobileActionChip}
-			>
-				<Forward className="size-4" />
-				<span className="hidden sm:inline">Forward</span>
-			</button>
-			{disabled && (
-				<span className="text-xs text-fg-muted ml-2 hidden sm:inline">
-					Configure SMTP to send mail
-				</span>
-			)}
-			{onInfo && (
-				<button
-					type="button"
-					onClick={onInfo}
-					aria-label="Message details"
-					className={cn(mobileActionChip, "ml-auto")}
-				>
-					<Info className="size-4" />
-					<span className="hidden sm:inline">Details</span>
-				</button>
-			)}
-		</div>
-	</div>
-);
 
 export const ConversationView = ({
 	threadId,
@@ -534,12 +431,11 @@ export const ConversationView = ({
 		</header>
 	);
 
-	// Mobile: a single scroll surface for messages. The subject header is
-	// intentionally omitted — the user just clicked a row that showed the
-	// subject, and the global top bar already shows the inbox name. A top bar
-	// carries management actions (star, archive, delete, ⋮ overflow, info).
-	// The sticky footer carries Back plus reply / reply-all / forward.
-	// When inline compose opens it replaces the footer.
+	// Mobile: kit MobileMessagePane wraps the conversation as a single pane.
+	// The management bar (star / archive / delete / overflow) slots in above
+	// the message area; reply / forward / back live in the kit toolbar below.
+	// When inline compose is open it replaces the bottom toolbar via composeSlot.
+	// Horizontal swipe between messages is wired through touchHandlers (#693).
 	if (!isDesktop) {
 		const hasMobileActions =
 			onMobileArchive !== undefined ||
@@ -549,60 +445,63 @@ export const ConversationView = ({
 			mobileMoveContext !== undefined ||
 			onOpenIntelligence !== undefined;
 
-		return (
-			<article className="h-full flex flex-col">
-				{hasMobileActions && (
-					<MobileConversationTopBar
-						hasThread
-						onArchive={onMobileArchive}
-						canArchive={canMobileArchive}
-						onDelete={onMobileDelete}
-						onToggleStar={onMobileToggleStar}
-						isStarred={isMobileStarred}
-						onToggleRead={onMobileToggleRead}
-						isRead={isMobileRead}
-						moveContext={mobileMoveContext}
-						onOpenIntelligence={onOpenIntelligence}
-						intelligenceOpen={mobileIntelligenceOpen}
-					/>
-				)}
-				{/* The phishing warning is just as important on mobile. The "Why?"
-				    link opens the info drawer that hosts the intelligence pane (#687). */}
+		const managementBar = hasMobileActions ? (
+			<MobileConversationTopBar
+				hasThread
+				onArchive={onMobileArchive}
+				canArchive={canMobileArchive}
+				onDelete={onMobileDelete}
+				onToggleStar={onMobileToggleStar}
+				isStarred={isMobileStarred}
+				onToggleRead={onMobileToggleRead}
+				isRead={isMobileRead}
+				moveContext={mobileMoveContext}
+				onOpenIntelligence={onOpenIntelligence}
+				intelligenceOpen={mobileIntelligenceOpen}
+			/>
+		) : undefined;
+
+		// Authenticity banner + message cards form the scrollable content area.
+		// The phishing warning is just as important on mobile; the "Why?" link
+		// opens the info drawer that hosts the intelligence pane (#687).
+		const scrollContent = (
+			<>
 				{authenticity?.dkimMismatch && (
 					<AuthenticityBanner
 						authenticity={authenticity}
 						onOpenIntelligence={onOpenIntelligence}
 					/>
 				)}
-				{/* Horizontal swipe pages between messages in the source list
-				    (swipe left → next, right → previous). `touch-action: pan-y`
-				    keeps native vertical scrolling; the hook only acts on gestures
-				    that travel mostly sideways, so it never hijacks the scroll. */}
-				<div
-					className="flex-1 overflow-auto"
-					style={{ touchAction: "pan-y" }}
-					{...swipeHandlers}
-				>
-					{messagesList}
-				</div>
-				{composeMode !== null ? (
-					<InlineCompose
-						mode={composeMode}
-						account={activeAccount}
-						sourceMessage={lastMessageData}
-						onClose={handleCloseCompose}
-					/>
-				) : (
-					<MobileActionBar
-						onBack={onBack}
-						onReply={handleReply}
-						onReplyAll={handleReplyAll}
-						onForward={handleForward}
-						disabled={!smtpConfigured}
-						onInfo={onOpenIntelligence}
-					/>
-				)}
-			</article>
+				{messagesList}
+			</>
+		);
+
+		const composeSlot =
+			composeMode !== null ? (
+				<InlineCompose
+					mode={composeMode}
+					account={activeAccount}
+					sourceMessage={lastMessageData}
+					onClose={handleCloseCompose}
+				/>
+			) : undefined;
+
+		return (
+			<MobileMessagePane
+				onBack={onBack ?? (() => undefined)}
+				managementBar={managementBar}
+				onReply={handleReply}
+				onReplyAll={handleReplyAll}
+				onForward={handleForward}
+				canReply={smtpConfigured}
+				replyUnavailableHint="Configure SMTP to send mail"
+				onInfo={onOpenIntelligence}
+				intelligenceOpen={mobileIntelligenceOpen}
+				composeSlot={composeSlot}
+				touchHandlers={swipeHandlers}
+			>
+				{scrollContent}
+			</MobileMessagePane>
 		);
 	}
 
