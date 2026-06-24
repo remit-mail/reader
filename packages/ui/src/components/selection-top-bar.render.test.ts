@@ -6,7 +6,6 @@ import { SelectionTopBar } from "./selection-top-bar.js";
 
 const handlers = {
 	onCancel: () => undefined,
-	onMarkRead: () => undefined,
 	onDelete: () => undefined,
 };
 
@@ -29,12 +28,40 @@ describe("SelectionTopBar", () => {
 		assert.match(text(html), /3 messages selected/);
 	});
 
-	it("renders cancel, mark-read and delete controls", () => {
+	it("renders cancel and delete controls", () => {
 		const html = renderToString(
 			createElement(SelectionTopBar, { ...handlers, count: 2 }),
 		);
 		assert.match(html, /aria-label="Cancel selection"/);
-		assert.match(html, /aria-label="Mark as read"/);
 		assert.match(html, /aria-label="Delete selected messages"/);
+	});
+
+	it("renders mark-read control when onMarkRead is provided", () => {
+		const html = renderToString(
+			createElement(SelectionTopBar, {
+				...handlers,
+				count: 2,
+				onMarkRead: () => undefined,
+			}),
+		);
+		assert.match(html, /aria-label="Mark as read"/);
+	});
+
+	it("omits mark-read control when onMarkRead is absent", () => {
+		const html = renderToString(
+			createElement(SelectionTopBar, { ...handlers, count: 2 }),
+		);
+		assert.doesNotMatch(html, /aria-label="Mark as read"/);
+	});
+
+	it("renders moveDisabledHint when provided", () => {
+		const html = renderToString(
+			createElement(SelectionTopBar, {
+				...handlers,
+				count: 2,
+				moveDisabledHint: "Cross-account moves are not supported",
+			}),
+		);
+		assert.match(html, /Cross-account moves are not supported/);
 	});
 });

@@ -163,7 +163,10 @@ export {
 	type SegmentedOption,
 } from "./components/segmented-control.js";
 export { Select, type SelectProps } from "./components/select.js";
-export { SelectionTopBar } from "./components/selection-top-bar.js";
+export {
+	SelectionTopBar,
+	type SelectionTopBarProps,
+} from "./components/selection-top-bar.js";
 export {
 	type SenderGroupOption,
 	SenderGroupSwitch,

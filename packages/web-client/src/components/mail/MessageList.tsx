@@ -1,5 +1,6 @@
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import type { Density } from "@remit/ui";
+import { SelectionTopBar } from "@remit/ui";
 import { useNavigate } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Search } from "lucide-react";
@@ -16,7 +17,7 @@ import {
 	useSelection,
 } from "@/hooks/useSelection";
 import { formatDeleteToTrashTitle } from "@/lib/format";
-import { MobileSelectionTopBar } from "./MobileSelectionTopBar";
+import { MoveToTrigger } from "./MoveToTrigger";
 import { SelectionToolbar } from "./SelectionToolbar";
 import { SwipeableMessageRow } from "./SwipeableMessageRow";
 
@@ -660,16 +661,24 @@ export const MessageList = ({
 				/>
 			)}
 			{isMultiSelectMode && !isDesktop && (
-				<MobileSelectionTopBar
-					selectedCount={selectedCount}
+				<SelectionTopBar
+					count={selectedCount}
 					onCancel={handleCancelMultiSelect}
 					onDelete={handleDelete}
-					onMarkAsRead={onMarkAsRead ? handleMarkAsRead : undefined}
-					onMove={onMoveMessages ? handleMoveSelected : undefined}
+					onMarkRead={onMarkAsRead ? handleMarkAsRead : undefined}
 					isBusy={isDeleting || isMoving}
-					accountId={accountId}
-					currentMailboxId={mailboxId}
 					moveDisabledHint={moveDisabledHint}
+					moveSlot={
+						onMoveMessages && accountId && mailboxId ? (
+							<MoveToTrigger
+								accountId={accountId}
+								currentMailboxId={mailboxId}
+								onMove={isDeleting || isMoving ? () => {} : handleMoveSelected}
+								disabledHint={moveDisabledHint}
+								label="Move selected messages"
+							/>
+						) : undefined
+					}
 				/>
 			)}
 			{isSearching && searchQuery && (
