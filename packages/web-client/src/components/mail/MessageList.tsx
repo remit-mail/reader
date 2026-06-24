@@ -1,13 +1,15 @@
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
-import type { Density } from "@remit/ui";
-import { SelectionTopBar } from "@remit/ui";
+import {
+	type Density,
+	MessageListPane,
+	SelectionTopBar,
+} from "@remit/ui";
 import { useNavigate } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { EmptyState } from "@/components/ui/EmptyState";
-import { ErrorState } from "@/components/ui/ErrorState";
+import { formatErrorMessage } from "@/components/ui/ErrorState";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { useToggleReadFor } from "@/hooks/useMarkAsRead";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
@@ -16,6 +18,7 @@ import {
 	type SelectionModifiers,
 	useSelection,
 } from "@/hooks/useSelection";
+import { buildBugReportContext, buildGitHubIssueUrl } from "@/lib/bug-report";
 import { formatDeleteToTrashTitle } from "@/lib/format";
 import { MoveToTrigger } from "./MoveToTrigger";
 import { SelectionToolbar } from "./SelectionToolbar";
@@ -45,6 +48,15 @@ interface MessageListProps {
 	 */
 	accountId?: string;
 	/**
+	 * Mailbox display title shown in the list pane header.
+	 * The parent route owns the title; the list pane renders it.
+	 */
+	listTitle: string;
+	/**
+	 * Optional subtitle (e.g. "3 unread") shown alongside the title.
+	 */
+	listMeta?: string;
+	/**
 	 * Triage-layer context bridge (#429). The roving focus cursor and the
 	 * multi-selection live here; the parent route's global keyboard dispatcher
 	 * needs them to target the action verbs (reply/archive/star/…) at the
@@ -73,21 +85,6 @@ const readStoredDensity = (): Density => {
 	return "comfortable";
 };
 
-const LoadingSkeleton = () => (
-	<div className="space-y-0">
-		{Array.from({ length: 8 }).map((_, i) => (
-			<div key={i} className="px-3 py-2 border-b border-line animate-pulse">
-				<div className="flex items-center justify-between mb-2">
-					<div className="h-4 bg-surface-sunken rounded w-32" />
-					<div className="h-3 bg-surface-sunken rounded w-16" />
-				</div>
-				<div className="h-4 bg-surface-sunken rounded w-48 mb-2" />
-				<div className="h-3 bg-surface-sunken rounded w-full" />
-			</div>
-		))}
-	</div>
-);
-
 const SearchResultsHeader = ({
 	query,
 	count,
@@ -98,7 +95,7 @@ const SearchResultsHeader = ({
 	<div className="flex items-center gap-2 px-3 py-2 border-b border-line bg-surface-sunken/30">
 		<Search className="size-4 text-fg-muted" />
 		<span className="text-sm text-fg-muted">
-			{count} {count === 1 ? "result" : "results"} for "{query}"
+			{count} {count === 1 ? "result" : "results"} for &ldquo;{query}&rdquo;
 		</span>
 	</div>
 );
@@ -121,6 +118,8 @@ export const MessageList = ({
 	hasMore = false,
 	isLoadingMore = false,
 	accountId,
+	listTitle,
+	listMeta,
 	onTriageContextChange,
 }: MessageListProps) => {
 	const parentRef = useRef<HTMLDivElement>(null);
@@ -607,80 +606,78 @@ export const MessageList = ({
 		],
 	});
 
-	if (isLoading) {
-		return <LoadingSkeleton />;
-	}
+	// Derive the MessageListPane listState from the loading/error/empty signals.
+	const listState = isLoading
+		? "loading"
+		: isError
+			? "error"
+			: threads.length === 0
+				? "empty"
+				: "ready";
 
-	if (isError) {
-		return (
-			<div className="flex h-full items-center justify-center p-4">
-				<ErrorState
-					title="Couldn't load messages"
-					error={error}
-					onRetry={onRetry}
-				/>
-			</div>
-		);
-	}
+	// Fail-loud (ux.md): surface the real failure under the error headline, and
+	// give it a place to go — the same GitHub-issue path the bug-report button
+	// uses, so the report carries app version, console errors and the URL.
+	const errorMessage = isError ? formatErrorMessage(error) : undefined;
+	const handleReportError = useCallback(() => {
+		const url = buildGitHubIssueUrl(buildBugReportContext());
+		window.open(url, "_blank", "noopener,noreferrer");
+	}, []);
+
+	// Single flat section — the mailbox view doesn't group by date.
+	const sections = [{ id: "inbox", threads: [] }];
+
+	// Desktop selection toolbar replaces the pane header when any rows are selected.
+	const desktopSelectionBar =
+		hasSelection && isDesktop ? (
+			<SelectionToolbar
+				selectedCount={selectedCount}
+				onDelete={handleDelete}
+				onClearSelection={clearSelection}
+				onMarkAsRead={onMarkAsRead ? handleMarkAsRead : undefined}
+				onMove={onMoveMessages ? handleMoveSelected : undefined}
+				isDeleting={isDeleting}
+				isMoving={isMoving}
+				accountId={accountId}
+				currentMailboxId={mailboxId}
+				moveDisabledHint={moveDisabledHint}
+			/>
+		) : undefined;
+
+	// Mobile multi-select bar replaces the pane header during selection mode.
+	const mobileSelectionBar =
+		isMultiSelectMode && !isDesktop ? (
+			<SelectionTopBar
+				count={selectedCount}
+				onCancel={handleCancelMultiSelect}
+				onDelete={handleDelete}
+				onMarkRead={onMarkAsRead ? handleMarkAsRead : undefined}
+				isBusy={isDeleting || isMoving}
+				moveDisabledHint={moveDisabledHint}
+				moveSlot={
+					onMoveMessages && accountId && mailboxId ? (
+						<MoveToTrigger
+							accountId={accountId}
+							currentMailboxId={mailboxId}
+							onMove={isDeleting || isMoving ? () => {} : handleMoveSelected}
+							disabledHint={moveDisabledHint}
+							label="Move selected messages"
+						/>
+					) : undefined
+				}
+			/>
+		) : undefined;
+
+	const activeSelectionBar = desktopSelectionBar ?? mobileSelectionBar;
 
 	const isSearching = !!searchQuery?.trim();
 
-	if (threads.length === 0) {
-		return (
-			<div className="flex flex-col h-full">
-				{isSearching && searchQuery && (
-					<SearchResultsHeader query={searchQuery} count={0} />
-				)}
-				<div className="flex flex-1 items-center justify-center">
-					<EmptyState
-						message={
-							isSearching
-								? "No messages match your search"
-								: "No messages in this mailbox"
-						}
-					/>
-				</div>
-			</div>
-		);
-	}
-
-	return (
-		<div className="flex flex-col h-full">
-			{hasSelection && isDesktop && (
-				<SelectionToolbar
-					selectedCount={selectedCount}
-					onDelete={handleDelete}
-					onClearSelection={clearSelection}
-					onMarkAsRead={onMarkAsRead ? handleMarkAsRead : undefined}
-					onMove={onMoveMessages ? handleMoveSelected : undefined}
-					isDeleting={isDeleting}
-					isMoving={isMoving}
-					accountId={accountId}
-					currentMailboxId={mailboxId}
-					moveDisabledHint={moveDisabledHint}
-				/>
-			)}
-			{isMultiSelectMode && !isDesktop && (
-				<SelectionTopBar
-					count={selectedCount}
-					onCancel={handleCancelMultiSelect}
-					onDelete={handleDelete}
-					onMarkRead={onMarkAsRead ? handleMarkAsRead : undefined}
-					isBusy={isDeleting || isMoving}
-					moveDisabledHint={moveDisabledHint}
-					moveSlot={
-						onMoveMessages && accountId && mailboxId ? (
-							<MoveToTrigger
-								accountId={accountId}
-								currentMailboxId={mailboxId}
-								onMove={isDeleting || isMoving ? () => {} : handleMoveSelected}
-								disabledHint={moveDisabledHint}
-								label="Move selected messages"
-							/>
-						) : undefined
-					}
-				/>
-			)}
+	// The virtualized list body: rows + search header + load-more indicator.
+	// Passed to MessageListPane as `listBody` so the kit provides the chrome
+	// (pane header, loading / empty / error states, keyboard hints) while we
+	// keep the @tanstack/react-virtual row recycling.
+	const virtualBody = (
+		<>
 			{isSearching && searchQuery && (
 				<SearchResultsHeader query={searchQuery} count={threads.length} />
 			)}
@@ -724,6 +721,35 @@ export const MessageList = ({
 					</div>
 				)}
 			</div>
+		</>
+	);
+
+	return (
+		<>
+			<MessageListPane
+				listTitle={listTitle}
+				listMeta={listMeta}
+				sections={sections}
+				flatList
+				listState={listState}
+				searchQuery={isSearching ? searchQuery : undefined}
+				errorMessage={errorMessage}
+				onRetry={onRetry}
+				onReportError={handleReportError}
+				density={density}
+				selectedThreadId={selectedMessageId}
+				onSelectThread={(id) =>
+					navigate({
+						to: "/mail/$mailboxId",
+						params: { mailboxId },
+						search: (prev) => ({ ...prev, selectedMessageId: id }),
+					})
+				}
+				onSelectBriefCategory={() => undefined}
+				isDesktop={isDesktop}
+				selectionBar={activeSelectionBar}
+				listBody={listState === "ready" ? virtualBody : undefined}
+			/>
 			<ConfirmDialog
 				isOpen={pendingDeleteIds !== null}
 				title={formatDeleteToTrashTitle(pendingDeleteIds?.length ?? 0)}
@@ -734,6 +760,6 @@ export const MessageList = ({
 				onConfirm={handleConfirmDelete}
 				onCancel={handleCancelDelete}
 			/>
-		</div>
+		</>
 	);
 };

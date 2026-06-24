@@ -1,6 +1,7 @@
 import type { Decorator, Meta, StoryObj } from "@storybook/react";
 import type { AccountChip, ThreadSection } from "./app-shell-types.js";
 import { MessageListPane } from "./message-list-pane.js";
+import { SelectionTopBar } from "./selection-top-bar.js";
 
 const sections: ThreadSection[] = [
 	{
@@ -97,5 +98,67 @@ export const NarrowTouchList: Story = {
 
 export const Brief: Story = {
 	args: { isDesktop: true, briefFilters: true, sections, chips },
+	decorators: [desktopFrame],
+};
+
+/** Consumer-supplied `listBody` slot — the pane renders the chrome (header,
+ *  keyboard hints) while the caller owns the scrollable rows. This models
+ *  the web-client's virtualized inbox path. */
+export const CustomListBody: Story = {
+	args: {
+		isDesktop: true,
+		flatList: true,
+		listBody: (
+			<div className="flex-1 overflow-y-auto divide-y divide-line">
+				{sections.flatMap((s) =>
+					s.threads.map((t) => (
+						<a
+							key={t.id}
+							href={`?selectedMessageId=${t.id}`}
+							className="flex items-center gap-3 px-4 py-3 hover:bg-surface-sunken"
+						>
+							<span className="font-medium text-sm">{t.fromName}</span>
+							<span className="text-sm text-fg-muted truncate">
+								{t.subject}
+							</span>
+						</a>
+					)),
+				)}
+			</div>
+		),
+	},
+	decorators: [desktopFrame],
+};
+
+/** External `selectionBar` slot — the pane delegates the header to the caller
+ *  when a selection is active. */
+export const ExternalSelectionBar: Story = {
+	args: {
+		isDesktop: true,
+		flatList: true,
+		selectionBar: (
+			<SelectionTopBar
+				count={2}
+				onCancel={() => undefined}
+				onMarkRead={() => undefined}
+				onDelete={() => undefined}
+			/>
+		),
+	},
+	decorators: [desktopFrame],
+};
+
+/** Fail-loud error state — the specific failure detail is surfaced under the
+ *  headline (not a bare "something went wrong"), with a way back (Retry) and a
+ *  place for the failure to go (Report a problem). */
+export const ErrorState: Story = {
+	args: {
+		isDesktop: true,
+		flatList: true,
+		listState: "error",
+		errorMessage: "Request timed out while loading this mailbox.",
+		onRetry: () => undefined,
+		onReportError: () => undefined,
+	},
 	decorators: [desktopFrame],
 };
