@@ -7,7 +7,7 @@ interface ErrorStateProps {
 	variant?: "block" | "inline";
 }
 
-const formatErrorMessage = (error: unknown): string => {
+export const formatErrorMessage = (error: unknown): string => {
 	if (error instanceof Error) return error.message;
 	if (typeof error === "string") return error;
 	if (

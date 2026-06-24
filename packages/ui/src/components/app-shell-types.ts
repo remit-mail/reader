@@ -275,6 +275,12 @@ export interface AppShellProps {
 	listState?: ListState;
 	/** Active search query — switches the empty state to its search variant. */
 	searchQuery?: string;
+	/**
+	 * Specific failure detail for the error state. Surfaced verbatim under the
+	 * generic headline so the failure is readable (ux.md fail-loud), not a bare
+	 * "something went wrong". Omit to fall back to the generic copy.
+	 */
+	errorMessage?: string;
 	/** Retry handler for the error state. */
 	onRetry?: () => void;
 	/** Report handler for the error state (the failure goes somewhere). */
