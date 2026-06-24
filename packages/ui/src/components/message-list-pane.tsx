@@ -1,4 +1,5 @@
 import { Menu } from "lucide-react";
+import type { ReactNode } from "react";
 import { useState } from "react";
 import { cn } from "../lib/cn.js";
 import type { AppShellProps, TouchSeed } from "./app-shell-types.js";
@@ -29,6 +30,7 @@ export function MessageListPane({
 	flatList,
 	listState = "ready",
 	searchQuery,
+	errorMessage,
 	onRetry,
 	onReportError,
 	briefCategory,
@@ -39,6 +41,8 @@ export function MessageListPane({
 	onOpenNav,
 	isDesktop,
 	initialTouchState,
+	selectionBar,
+	listBody,
 }: Pick<
 	AppShellProps,
 	| "listTitle"
@@ -50,6 +54,7 @@ export function MessageListPane({
 	| "flatList"
 	| "listState"
 	| "searchQuery"
+	| "errorMessage"
 	| "onRetry"
 	| "onReportError"
 	| "briefCategory"
@@ -64,6 +69,22 @@ export function MessageListPane({
 	/** Container-derived ≥1024; below it the touch triage chrome takes over. */
 	isDesktop: boolean;
 	initialTouchState?: TouchSeed;
+	/**
+	 * Replaces the pane header when a selection is active. The caller controls
+	 * the selection state and toolbar actions (mark-read, move, delete, cancel).
+	 * When omitted the pane's built-in touch-triage selection bar is used.
+	 */
+	selectionBar?: ReactNode;
+	/**
+	 * Overrides the row-rendering section of the non-brief list — the whole
+	 * scrollable body including virtualization, swipe-triage and any load-more
+	 * indicator. Wins on every width (desktop and touch): the consumer owns the
+	 * rows, so they stay real `<a href>` anchors and keep their own gestures
+	 * instead of the kit substituting the mock `TouchListBody`. Brief paths are
+	 * unaffected. When set, `sections` / `selectedThreadId` / `onSelectThread`
+	 * are still used by the pane chrome; the rows themselves come from this slot.
+	 */
+	listBody?: ReactNode;
 }) {
 	const Row = density === "compact" ? CompactRow : ComfortableRow;
 	const showChipBar = !briefFilters && !flatList && chips && chips.length > 0;
@@ -108,37 +129,43 @@ export function MessageListPane({
 		setTimeout(() => setRefreshing(false), 1400);
 	};
 
-	const inSelection = touchTriage && selectionMode && checkedIds.size > 0;
+	// When the caller supplies a selectionBar slot, it owns selection state.
+	// Fall back to the built-in touch-triage bar only when no external bar is given.
+	const inBuiltinSelection =
+		!selectionBar && touchTriage && selectionMode && checkedIds.size > 0;
 
 	return (
 		<section className="flex h-full w-full flex-col bg-surface">
-			{inSelection ? (
-				<SelectionTopBar
-					count={checkedIds.size}
-					onCancel={cancelSelection}
-					onMarkRead={cancelSelection}
-					onDelete={cancelSelection}
-				/>
-			) : (
-				<header className="flex h-pane-header shrink-0 items-center gap-2 border-b border-line px-row-inset">
-					{onOpenNav && (
-						<Button
-							variant="ghost"
-							size="sm"
-							icon={<Menu className="size-4" />}
-							onClick={onOpenNav}
-							aria-label="Open folders"
-							className="-ml-1 shrink-0"
-						/>
-					)}
-					<h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-fg">
-						{listTitle}
-					</h1>
-					{listMeta && (
-						<span className="shrink-0 text-2xs text-fg-subtle">{listMeta}</span>
-					)}
-				</header>
-			)}
+			{selectionBar ??
+				(inBuiltinSelection ? (
+					<SelectionTopBar
+						count={checkedIds.size}
+						onCancel={cancelSelection}
+						onMarkRead={cancelSelection}
+						onDelete={cancelSelection}
+					/>
+				) : (
+					<header className="flex h-pane-header shrink-0 items-center gap-2 border-b border-line px-row-inset">
+						{onOpenNav && (
+							<Button
+								variant="ghost"
+								size="sm"
+								icon={<Menu className="size-4" />}
+								onClick={onOpenNav}
+								aria-label="Open folders"
+								className="-ml-1 shrink-0"
+							/>
+						)}
+						<h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-fg">
+							{listTitle}
+						</h1>
+						{listMeta && (
+							<span className="shrink-0 text-2xs text-fg-subtle">
+								{listMeta}
+							</span>
+						)}
+					</header>
+				))}
 
 			{/* secondary row only for non-brief, non-flat lists; the brief's account
 			    chips live inside BriefSections (the filter drawer on mobile), and the
@@ -180,7 +207,11 @@ export function MessageListPane({
 			) : listState === "empty" ? (
 				<MessageListEmpty searchQuery={searchQuery} />
 			) : listState === "error" ? (
-				<MessageListError onRetry={onRetry} onReport={onReportError} />
+				<MessageListError
+					message={errorMessage}
+					onRetry={onRetry}
+					onReport={onReportError}
+				/>
 			) : briefFilters ? (
 				<BriefSections
 					sections={sections}
@@ -193,6 +224,12 @@ export function MessageListPane({
 					onSelectThread={onSelectThread}
 					onSelectBriefCategory={onSelectBriefCategory}
 				/>
+			) : listBody != null ? (
+				/* Consumer-provided body wins on every width — it owns the rows
+				   (real <a href> anchors, virtualization, infinite scroll) and its
+				   own swipe-triage. The built-in TouchListBody below is only the
+				   mock fallback for callers that don't supply a body. */
+				<>{listBody}</>
 			) : touchTriage ? (
 				<TouchListBody
 					sections={sections}

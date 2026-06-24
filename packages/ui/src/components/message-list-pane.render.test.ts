@@ -67,4 +67,70 @@ describe("MessageListPane", () => {
 		);
 		assert.doesNotMatch(html, /Pull to refresh/);
 	});
+
+	it("renders the listBody slot instead of built-in rows when provided", () => {
+		const html = renderToString(
+			createElement(MessageListPane, {
+				...baseProps,
+				isDesktop: true,
+				listBody: createElement(
+					"div",
+					{ "data-testid": "custom-body" },
+					"virtualized rows here",
+				),
+			}),
+		);
+		// Custom body is rendered
+		assert.match(html, /virtualized rows here/);
+		// Built-in rows are NOT rendered when listBody is provided
+		assert.doesNotMatch(html, /Q3 planning notes/);
+	});
+
+	it("honors the listBody slot on the touch path so mobile rows stay real anchors", () => {
+		const html = renderToString(
+			createElement(MessageListPane, {
+				...baseProps,
+				isDesktop: false,
+				listState: "ready",
+				listBody: createElement(
+					"a",
+					{ href: "/mail/inbox?selectedMessageId=t1" },
+					"Q3 planning notes",
+				),
+			}),
+		);
+		// The consumer's anchor row is rendered on the mobile/touch path…
+		assert.match(html, /href="\/mail\/inbox\?selectedMessageId=t1"/);
+		// …and the built-in TouchListBody mock fallback is NOT substituted.
+		assert.doesNotMatch(html, /Pull to refresh/);
+	});
+
+	it("surfaces the specific error message and a report path in the error state", () => {
+		const html = renderToString(
+			createElement(MessageListPane, {
+				...baseProps,
+				isDesktop: true,
+				listState: "error",
+				errorMessage: "IMAP connection timed out",
+				onRetry: () => undefined,
+				onReportError: () => undefined,
+			}),
+		);
+		assert.match(html, /IMAP connection timed out/);
+		assert.match(html, /Retry/);
+		assert.match(html, /Report a problem/);
+	});
+
+	it("renders the selectionBar slot instead of the pane header when provided", () => {
+		const html = renderToString(
+			createElement(MessageListPane, {
+				...baseProps,
+				isDesktop: true,
+				selectionBar: createElement("div", null, "2 selected"),
+			}),
+		);
+		assert.match(html, /2 selected/);
+		// The mailbox title header is NOT rendered when selectionBar is provided
+		assert.doesNotMatch(html, /Inbox/);
+	});
 });

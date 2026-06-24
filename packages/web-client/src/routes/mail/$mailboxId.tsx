@@ -10,7 +10,6 @@ import {
 	threadOperationsSearchThreads,
 } from "@remit/api-http-client/sdk.gen.ts";
 import {
-	KeyboardHintBar,
 	ReadingPaneEmpty,
 	ResizableHandle,
 	ResizablePanel,
@@ -665,6 +664,8 @@ function MailboxView() {
 		bindings: [{ key: "Escape", handler: closeCompose, preventDefault: true }],
 	});
 
+	const listTitle = mailboxName ?? "Inbox";
+
 	// When the open mailbox is the account's \Drafts special-use folder, render
 	// the segmented DraftsView. Otherwise render the flat MessageList as usual.
 	// The IMAP threads are already loaded by the infinite query above — pass them
@@ -697,6 +698,8 @@ function MailboxView() {
 				hasMore={hasNextPage}
 				isLoadingMore={isFetchingNextPage}
 				accountId={mailboxAccountId}
+				listTitle={listTitle}
+				listMeta={unreadCount > 0 ? `${unreadCount} unread` : undefined}
 				onTriageContextChange={handleTriageContextChange}
 			/>
 		);
@@ -853,7 +856,6 @@ function MailboxView() {
 		composeState.isOpen &&
 		!!composeState.outboxMessageId &&
 		!selectedThread;
-	const listTitle = mailboxName ?? "Inbox";
 	// Pane 4 is desktop-only (`useIsDesktop` is the pane-4 gate) and only renders
 	// when intelligence is toggled on AND a thread is open — contextual to the
 	// open message, matching the remit-ui AppShell reference. The toolbar's info
@@ -873,36 +875,10 @@ function MailboxView() {
 				{/* DraftsView renders its own datum header (self-chrome), like
 				    DailyBrief on the /mail index — render it directly in the panel
 				    rather than nesting it inside the wrapping <section>+header,
-				    which would stack two identical datum bars (#505). The flat
-				    MessageList renders no chrome and relies on this outer header. */}
-				{isDraftsMailbox && mailboxAccountId ? (
-					messageList
-				) : (
-					<section className="flex h-full w-full flex-col bg-surface">
-						{/* List datum bar (40px, the shared `--spacing-pane-header`):
-						    the list's context — mailbox title + unread count — lives on
-						    the datum, its bottom hairline on the same y as the message
-						    toolbar and intelligence rail header so one continuous grid
-						    line runs across panes 2–4 (no staircase). Search moved to
-						    the message toolbar but still filters this list. */}
-						<header className="flex h-pane-header shrink-0 items-center justify-between gap-2 border-b border-line px-row-inset">
-							<h1 className="truncate text-sm font-semibold text-fg">
-								{listTitle}
-							</h1>
-							{unreadCount > 0 && (
-								<span className="shrink-0 text-2xs text-fg-subtle tabular-nums">
-									{unreadCount} unread
-								</span>
-							)}
-						</header>
-						<div className="min-h-0 flex-1 overflow-hidden">{messageList}</div>
-						{/* Keyboard-first discoverability: the shortcut hint footer is
-						    visible on desktop so j/k/e/m/? aren't hidden behind the `?`
-						    modal. Desktop-only — a key-hint footer on a touch tablet is
-						    noise (#785). */}
-						{isDesktop && <KeyboardHintBar />}
-					</section>
-				)}
+				    which would stack two identical datum bars (#505). MessageList
+				    now uses kit MessageListPane which provides its own chrome
+				    (section, header, keyboard hints). */}
+				{messageList}
 			</ResizablePanel>
 			<ResizableHandle />
 			<ResizablePanel id="reading" order={2} minSize={24} className="min-w-0">
