@@ -172,7 +172,7 @@ describe("AppShell narrow message view: width-gated in-place swap", () => {
 	};
 	// The dedicated message view's back affordance — present only when the
 	// narrow single pane is showing the message view.
-	const messageViewMarker = /aria-label="Back to list"/;
+	const messageViewMarker = /aria-label="Back to messages"/;
 	// The desktop reading-pane toolbar — present only at/above 1024.
 	const readingPaneMarker = /Search mail/;
 

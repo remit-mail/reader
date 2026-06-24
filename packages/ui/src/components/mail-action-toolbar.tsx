@@ -33,6 +33,13 @@ export interface MailActionToolbarProps {
 	/** A one-line inline notice rendered under the toolbar (e.g. "Open a message first"). */
 	unavailableHint?: ReactNode;
 	isStarred?: boolean;
+	/**
+	 * Whether to render the triage cluster (archive / move-to-trash / move /
+	 * flag). Defaults to `true` for the desktop reading-pane toolbar. The mobile
+	 * pane sets it `false` because its management bar already owns triage —
+	 * rendering both would create duplicate accessible names.
+	 */
+	showTriage?: boolean;
 	onReply?: () => void;
 	onReplyAll?: () => void;
 	onForward?: () => void;
@@ -65,6 +72,7 @@ export function MailActionToolbar({
 	onUnavailable,
 	unavailableHint,
 	isStarred,
+	showTriage = true,
 	onReply,
 	onReplyAll,
 	onForward,
@@ -122,45 +130,52 @@ export function MailActionToolbar({
 					aria-label="Forward"
 					onClick={act("forward", onForward)}
 				/>
-				<span className="mx-1 h-4 w-px bg-line" aria-hidden />
-				<Button
-					variant="ghost"
-					size="sm"
-					icon={<Archive className="size-4" />}
-					title={archiveTitle}
-					aria-label="Archive"
-					onClick={act("archive", onArchive)}
-				/>
-				<Button
-					variant="ghost"
-					size="sm"
-					icon={<Trash2 className="size-4" />}
-					title={deleteTitle}
-					aria-label="Move to Trash"
-					onClick={act("delete", onDelete)}
-				/>
-				{moveSlot ?? (
-					<Button
-						variant="ghost"
-						size="sm"
-						icon={<FolderInput className="size-4" />}
-						title="Move to mailbox"
-						aria-label="Move to mailbox"
-						onClick={act("move", onMove)}
-					/>
-				)}
-				<Button
-					variant="ghost"
-					size="sm"
-					icon={
-						<Star
-							className={cn("size-4", isStarred && "fill-warning text-warning")}
+				{showTriage && (
+					<>
+						<span className="mx-1 h-4 w-px bg-line" aria-hidden />
+						<Button
+							variant="ghost"
+							size="sm"
+							icon={<Archive className="size-4" />}
+							title={archiveTitle}
+							aria-label="Archive"
+							onClick={act("archive", onArchive)}
 						/>
-					}
-					title={flagTitle}
-					aria-label="Flag"
-					onClick={act("flag", onToggleStar)}
-				/>
+						<Button
+							variant="ghost"
+							size="sm"
+							icon={<Trash2 className="size-4" />}
+							title={deleteTitle}
+							aria-label="Move to Trash"
+							onClick={act("delete", onDelete)}
+						/>
+						{moveSlot ?? (
+							<Button
+								variant="ghost"
+								size="sm"
+								icon={<FolderInput className="size-4" />}
+								title="Move to mailbox"
+								aria-label="Move to mailbox"
+								onClick={act("move", onMove)}
+							/>
+						)}
+						<Button
+							variant="ghost"
+							size="sm"
+							icon={
+								<Star
+									className={cn(
+										"size-4",
+										isStarred && "fill-warning text-warning",
+									)}
+								/>
+							}
+							title={flagTitle}
+							aria-label="Flag"
+							onClick={act("flag", onToggleStar)}
+						/>
+					</>
+				)}
 				<div className="flex-1" />
 				{children}
 			</header>

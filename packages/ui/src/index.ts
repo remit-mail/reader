@@ -122,7 +122,10 @@ export {
 	comfortableRowClass,
 	compactRowClass,
 } from "./components/message-row.js";
-export { MobileMessagePane } from "./components/mobile-message-pane.js";
+export {
+	MobileMessagePane,
+	type MobileMessagePaneProps,
+} from "./components/mobile-message-pane.js";
 export {
 	NavSidebar,
 	type NavSidebarProps,
