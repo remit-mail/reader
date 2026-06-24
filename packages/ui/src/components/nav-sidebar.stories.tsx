@@ -7,6 +7,7 @@ const accounts: NavAccount[] = [
 		id: "acct-personal",
 		label: "Personal",
 		email: "matthijs@example.com",
+		outboxPending: 2,
 		mailboxes: [
 			{ id: "personal-inbox", name: "Inbox", unseen: 12 },
 			{ id: "personal-sent", name: "Sent", specialUse: ["\\Sent"] },
@@ -20,6 +21,7 @@ const accounts: NavAccount[] = [
 		id: "acct-work",
 		label: "Work",
 		email: "matthijs@work.example",
+		outboxPending: 0,
 		mailboxes: [
 			{ id: "work-inbox", name: "Inbox", unseen: 4 },
 			{ id: "work-sent", name: "Sent", specialUse: ["\\Sent"] },
@@ -77,5 +79,61 @@ export const ManyFolders: Story = {
 	args: {
 		accounts: [manyFoldersAccount],
 		selectedNavId: "arch-inbox",
+	},
+};
+
+export const WithOutbox: Story = {
+	args: { selectedNavId: "outbox" },
+};
+
+export const NoAccounts: Story = {
+	args: { accounts: [], selectedNavId: "brief" },
+};
+
+export const Loading: Story = {
+	args: {
+		accounts: [
+			{
+				id: "acct-personal",
+				label: "Personal",
+				email: "matthijs@example.com",
+				status: "loading",
+				mailboxes: [],
+			},
+		],
+		selectedNavId: "brief",
+	},
+};
+
+export const LoadError: Story = {
+	args: {
+		accounts: [
+			{
+				id: "acct-personal",
+				label: "Personal",
+				email: "matthijs@example.com",
+				status: "error",
+				onRetry: () => undefined,
+				mailboxes: [],
+			},
+		],
+		selectedNavId: "brief",
+	},
+};
+
+/** Each nav row is a real anchor: the linkComponent renders <a href>. */
+export const AsLinks: Story = {
+	args: {
+		selectedNavId: "personal-inbox",
+		linkComponent: ({ navId, className, ariaLabel, title, children }) => (
+			<a
+				href={`#/${navId}`}
+				className={className}
+				aria-label={ariaLabel}
+				title={title}
+			>
+				{children}
+			</a>
+		),
 	},
 };

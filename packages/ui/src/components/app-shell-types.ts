@@ -1,4 +1,11 @@
-import { type RefObject, useEffect, useRef, useState } from "react";
+import {
+	type ReactElement,
+	type ReactNode,
+	type RefObject,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import type {
 	IntelligenceData,
 	SenderTrustLevel,
@@ -95,7 +102,15 @@ export interface NavMailbox {
 	unseen?: number;
 	/** Denormalized IMAP SPECIAL-USE attributes; empty/absent = custom folder. */
 	specialUse?: MailboxSpecialUse[];
+	/**
+	 * Full mailbox path, surfaced as the row's `title` tooltip so a truncated or
+	 * localized leaf name still reveals where it lives. Defaults to `name`.
+	 */
+	fullPath?: string;
 }
+
+/** Per-account mailbox-load status, so the nav can show loading/error inline. */
+export type NavAccountStatus = "loading" | "error" | "ready";
 
 export interface NavAccount {
 	id: string;
@@ -104,7 +119,37 @@ export interface NavAccount {
 	/** Muted: excluded from unified views, still syncing. Rendered dimmed. */
 	muted?: boolean;
 	mailboxes: NavMailbox[];
+	/**
+	 * Number of outbox messages pending send. When provided, an Outbox entry
+	 * appears below the system mailbox list for this account.
+	 */
+	outboxPending?: number;
+	/**
+	 * Mailbox-load status. "ready" (default) renders the mailbox list; "loading"
+	 * shows a placeholder; "error" shows a retry affordance via `onRetry`.
+	 */
+	status?: NavAccountStatus;
+	/** Retry handler for the error state. */
+	onRetry?: () => void;
 }
+
+/**
+ * Renders a navigation entry as a real anchor so middle-click / open-in-new-tab
+ * / deep-linking / screen-reader link semantics all work. The web-client passes
+ * a router `<Link>` builder; when omitted, NavItem falls back to a button with
+ * programmatic `onSelectNav` (used by static stories / the AppShell preview).
+ */
+export interface NavLinkRenderProps {
+	/** The nav id this entry targets ("brief", "outbox", or a mailbox id). */
+	navId: string;
+	className: string;
+	ariaLabel?: string;
+	title?: string;
+	children: ReactNode;
+	onClick?: () => void;
+}
+
+export type NavLinkComponent = (props: NavLinkRenderProps) => ReactElement;
 
 export type ThreadCategory =
 	| "personal"
