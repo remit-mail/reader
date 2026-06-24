@@ -4,6 +4,12 @@ export {
 } from "./components/app-password-hint.js";
 export { AppShell } from "./components/app-shell.js";
 export {
+	type AppShellLayoutContext,
+	AppShellSlotted,
+	type AppShellSlottedProps,
+	useAppShellLayout,
+} from "./components/app-shell-slotted.js";
+export {
 	type AccountChip,
 	type AppShellProps,
 	type BriefCategoryFilter,
