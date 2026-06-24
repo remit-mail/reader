@@ -181,6 +181,7 @@ export {
 export {
 	commitPeek,
 	SwipeableRow,
+	type SwipeableRowOpenProps,
 	type SwipePeek,
 } from "./components/swipeable-row.js";
 export { TouchListBody } from "./components/touch-list.js";
