@@ -352,7 +352,7 @@ describe("search-index-worker handler", () => {
 		accounts.clear();
 	});
 
-	test("two INSERT messages for same account produce one upsertVectors call", async () => {
+	test("two INSERT messages for same account upsert per message (isolated)", async () => {
 		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID });
 		const store = createMemoryVectorStore();
 		const embedder = createDeterministicEmbeddingService();
@@ -377,11 +377,11 @@ describe("search-index-worker handler", () => {
 			parsed: { text: "Content two", html: null, attachments: [] },
 		});
 
-		let upsertVectorsCalls = 0;
+		const upsertCallArgs: VectorRecord[][] = [];
 		const trackingSearchService: SearchService = {
 			...baseSearchService,
 			upsertVectors: async (records: VectorRecord[]) => {
-				upsertVectorsCalls++;
+				upsertCallArgs.push(records);
 				return baseSearchService.upsertVectors(records);
 			},
 		};
@@ -399,26 +399,32 @@ describe("search-index-worker handler", () => {
 
 		assert.equal(result.batchItemFailures.length, 0);
 		assert.equal(
-			upsertVectorsCalls,
-			1,
-			"Should batch into a single upsertVectors call",
+			upsertCallArgs.length,
+			2,
+			"Should upsert once per SQS message",
 		);
+		for (const call of upsertCallArgs) {
+			const messageIds = new Set(call.map((v) => v.metadata.messageId));
+			assert.equal(
+				messageIds.size,
+				1,
+				"Each upsert call should hold a single message's vectors",
+			);
+		}
 		assert.ok(store.size() > 0, "Vectors should be stored");
 
 		threadMessages.clear();
 		accounts.clear();
 	});
 
-	test("duplicate chunkIds in one batch are deduped (last write wins)", async () => {
+	test("duplicate chunkIds within one message are deduped (last write wins)", async () => {
 		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID });
 		const store = createMemoryVectorStore();
 		const embedder = createDeterministicEmbeddingService();
 		const baseSearchService = createSearchService({ embedder, store });
 		const storageService = createMockStorageService();
 
-		// An INSERT then a MODIFY for the same messageId land in one batch. Both
-		// emit the same chunkIds; without dedup that builds a PutVectors call with
-		// duplicate keys, which S3 Vectors rejects.
+		threadMessages.set(MESSAGE_ID, makeThreadMessage(MESSAGE_ID));
 		await storageService.storeParsedBody({
 			accountConfigId: ACCOUNT_CONFIG_ID,
 			accountId: ACCOUNT_ID,
@@ -426,19 +432,25 @@ describe("search-index-worker handler", () => {
 			parsed: { text: "Dedup content", html: null, attachments: [] },
 		});
 
-		let findCalls = 0;
-		const versioningThreadMessageService = {
-			findByMessageId: async (messageId: string) => {
-				findCalls++;
-				const subject = findCalls === 1 ? "Old subject" : "New subject";
-				return { ...makeThreadMessage(messageId), subject };
-			},
-		} as unknown as Services["threadMessageService"];
-
+		let dupedChunkId = "";
 		let upsertCallArgs: VectorRecord[] = [];
 		let upsertVectorsCalls = 0;
+		// prepareVectors normally emits unique chunkIds; wrap it to inject a
+		// duplicate so we prove the handler collapses duplicate keys before the
+		// single PutVectors call (S3 Vectors rejects duplicate keys).
 		const trackingSearchService: SearchService = {
 			...baseSearchService,
+			prepareVectors: async (params) => {
+				const records = await baseSearchService.prepareVectors(params);
+				const first = records[0];
+				assert.ok(first, "expected at least one prepared vector");
+				dupedChunkId = first.chunkId;
+				return [
+					{ ...first, metadata: { ...first.metadata, subject: "Old" } },
+					...records,
+					{ ...first, metadata: { ...first.metadata, subject: "New" } },
+				];
+			},
 			upsertVectors: async (records: VectorRecord[]) => {
 				upsertVectorsCalls++;
 				upsertCallArgs = records;
@@ -446,12 +458,7 @@ describe("search-index-worker handler", () => {
 			},
 		};
 
-		const services: Services = {
-			accountService: mockAccountService,
-			threadMessageService: versioningThreadMessageService,
-			storageService,
-			searchService: trackingSearchService,
-		};
+		const services = createTestServices(storageService, trackingSearchService);
 
 		const result = await processBatch(
 			[
@@ -462,24 +469,13 @@ describe("search-index-worker handler", () => {
 					}),
 					"sqs-insert",
 				),
-				makeRecord(
-					makeSearchIndexMessage({
-						messageId: MESSAGE_ID,
-						eventName: "MODIFY",
-					}),
-					"sqs-modify",
-				),
 			],
 			services,
 			noopLogger,
 		);
 
 		assert.equal(result.batchItemFailures.length, 0);
-		assert.equal(
-			upsertVectorsCalls,
-			1,
-			"one upsert call for the account group",
-		);
+		assert.equal(upsertVectorsCalls, 1, "one upsert call for the message");
 
 		const chunkIds = upsertCallArgs.map((r) => r.chunkId);
 		assert.equal(
@@ -488,29 +484,101 @@ describe("search-index-worker handler", () => {
 			"no duplicate chunkIds in the upsert batch",
 		);
 
-		const subjectChunk = upsertCallArgs.find(
-			(r) => r.metadata.chunkType === "subject",
-		);
-		assert.ok(subjectChunk, "subject chunk should be present");
+		const collapsed = upsertCallArgs.find((r) => r.chunkId === dupedChunkId);
+		assert.ok(collapsed, "the duplicated chunk should be present once");
 		assert.equal(
-			subjectChunk.metadata.subject,
-			"New subject",
-			"later MODIFY should supersede the earlier INSERT",
+			collapsed.metadata.subject,
+			"New",
+			"the later duplicate should supersede the earlier one",
 		);
 
 		threadMessages.clear();
 		accounts.clear();
 	});
 
-	test("failed upsertVectors marks all records in that account group as failures", async () => {
+	test("one rejected message fails alone; its siblings still index (#904)", async () => {
 		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID });
 		const store = createMemoryVectorStore();
 		const embedder = createDeterministicEmbeddingService();
 		const baseSearchService = createSearchService({ embedder, store });
 		const storageService = createMockStorageService();
 
-		const msgId1 = "msg-fail-1";
-		const msgId2 = "msg-fail-2";
+		const goodMsgId = "msg-ok";
+		const badMsgId = "msg-poison";
+
+		threadMessages.set(goodMsgId, makeThreadMessage(goodMsgId));
+		threadMessages.set(badMsgId, makeThreadMessage(badMsgId));
+		await storageService.storeParsedBody({
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			accountId: ACCOUNT_ID,
+			messageId: goodMsgId,
+			parsed: { text: "Good content", html: null, attachments: [] },
+		});
+		await storageService.storeParsedBody({
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			accountId: ACCOUNT_ID,
+			messageId: badMsgId,
+			parsed: { text: "Poison content", html: null, attachments: [] },
+		});
+
+		// S3 Vectors rejects only the poison message's records (a deterministic
+		// per-record ValidationException), not the whole call.
+		const rejectingSearchService: SearchService = {
+			...baseSearchService,
+			upsertVectors: async (records: VectorRecord[]) => {
+				if (records.some((r) => r.metadata.messageId === badMsgId)) {
+					throw new Error(
+						"ValidationException: Metadata values must be strings, numbers, booleans, or arrays",
+					);
+				}
+				return baseSearchService.upsertVectors(records);
+			},
+		};
+
+		const services = createTestServices(storageService, rejectingSearchService);
+
+		const result = await processBatch(
+			[
+				makeRecord(makeSearchIndexMessage({ messageId: goodMsgId }), "sqs-ok"),
+				makeRecord(
+					makeSearchIndexMessage({ messageId: badMsgId }),
+					"sqs-poison",
+				),
+			],
+			services,
+			noopLogger,
+		);
+
+		assert.equal(result.batchItemFailures.length, 1);
+		assert.equal(result.batchItemFailures[0].itemIdentifier, "sqs-poison");
+
+		const indexed = await store.query({
+			vector: new Array(64).fill(0.1),
+			topK: 100,
+			filter: { accountConfigId: ACCOUNT_CONFIG_ID },
+		});
+		assert.ok(
+			indexed.some((v) => v.metadata.messageId === goodMsgId),
+			"the good sibling must still be indexed",
+		);
+		assert.ok(
+			!indexed.some((v) => v.metadata.messageId === badMsgId),
+			"the poison message must not be indexed",
+		);
+
+		threadMessages.clear();
+		accounts.clear();
+	});
+
+	test("transient whole-call error fails every message in the batch (retry)", async () => {
+		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID });
+		const store = createMemoryVectorStore();
+		const embedder = createDeterministicEmbeddingService();
+		const baseSearchService = createSearchService({ embedder, store });
+		const storageService = createMockStorageService();
+
+		const msgId1 = "msg-throttle-1";
+		const msgId2 = "msg-throttle-2";
 
 		threadMessages.set(msgId1, makeThreadMessage(msgId1));
 		threadMessages.set(msgId2, makeThreadMessage(msgId2));
@@ -527,58 +595,56 @@ describe("search-index-worker handler", () => {
 			parsed: { text: "Content two", html: null, attachments: [] },
 		});
 
-		const failingSearchService: SearchService = {
+		// A throttle/5xx rejects every call, so both messages fail and retry.
+		const throttlingSearchService: SearchService = {
 			...baseSearchService,
 			upsertVectors: async (_records: VectorRecord[]) => {
-				throw new Error("Simulated upsertVectors failure");
+				throw new Error("ThrottlingException: rate exceeded");
 			},
 		};
 
-		const services = createTestServices(storageService, failingSearchService);
-
-		const rec1 = makeRecord(
-			makeSearchIndexMessage({ messageId: msgId1 }),
-			"sqs-1",
-		);
-		const rec2 = makeRecord(
-			makeSearchIndexMessage({ messageId: msgId2 }),
-			"sqs-2",
+		const services = createTestServices(
+			storageService,
+			throttlingSearchService,
 		);
 
-		const result = await processBatch([rec1, rec2], services, noopLogger);
+		const result = await processBatch(
+			[
+				makeRecord(makeSearchIndexMessage({ messageId: msgId1 }), "sqs-1"),
+				makeRecord(makeSearchIndexMessage({ messageId: msgId2 }), "sqs-2"),
+			],
+			services,
+			noopLogger,
+		);
 
 		assert.equal(result.batchItemFailures.length, 2);
 		const failIds = result.batchItemFailures.map((f) => f.itemIdentifier);
-		assert.ok(failIds.includes("sqs-1"), "sqs-1 should be in failures");
-		assert.ok(failIds.includes("sqs-2"), "sqs-2 should be in failures");
+		assert.ok(failIds.includes("sqs-1"));
+		assert.ok(failIds.includes("sqs-2"));
 
 		threadMessages.clear();
 		accounts.clear();
 	});
 
-	test("failed upsertVectors logs the messageIds and error (fail loud, #910)", async () => {
+	test("failed upsert logs the messageId and error (fail loud, #913)", async () => {
 		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID });
 		const store = createMemoryVectorStore();
 		const embedder = createDeterministicEmbeddingService();
 		const baseSearchService = createSearchService({ embedder, store });
 		const storageService = createMockStorageService();
 
-		const msgId1 = "msg-loud-1";
-		const msgId2 = "msg-loud-2";
-		threadMessages.set(msgId1, makeThreadMessage(msgId1));
-		threadMessages.set(msgId2, makeThreadMessage(msgId2));
-		for (const messageId of [msgId1, msgId2]) {
-			await storageService.storeParsedBody({
-				accountConfigId: ACCOUNT_CONFIG_ID,
-				accountId: ACCOUNT_ID,
-				messageId,
-				parsed: {
-					text: "Content for loud logging",
-					html: null,
-					attachments: [],
-				},
-			});
-		}
+		const msgId = "msg-loud-1";
+		threadMessages.set(msgId, makeThreadMessage(msgId));
+		await storageService.storeParsedBody({
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			accountId: ACCOUNT_ID,
+			messageId: msgId,
+			parsed: {
+				text: "Content for loud logging",
+				html: null,
+				attachments: [],
+			},
+		});
 
 		const failingSearchService: SearchService = {
 			...baseSearchService,
@@ -602,29 +668,22 @@ describe("search-index-worker handler", () => {
 		const services = createTestServices(storageService, failingSearchService);
 
 		const result = await processBatch(
-			[
-				makeRecord(makeSearchIndexMessage({ messageId: msgId1 }), "sqs-loud-1"),
-				makeRecord(makeSearchIndexMessage({ messageId: msgId2 }), "sqs-loud-2"),
-			],
+			[makeRecord(makeSearchIndexMessage({ messageId: msgId }), "sqs-loud-1")],
 			services,
 			capturingLogger,
 		);
 
-		assert.equal(result.batchItemFailures.length, 2);
+		assert.equal(result.batchItemFailures.length, 1);
 
-		const bulkFailure = errorLogs.find(
-			(l) => l.message === "Bulk upsert failed",
+		const upsertFailure = errorLogs.find((l) => l.message === "Upsert failed");
+		assert.ok(upsertFailure, "must log an Upsert failed entry");
+		assert.equal(
+			upsertFailure.context.messageId,
+			msgId,
+			"the failing messageId must be logged so the dead-letter is diagnosable",
 		);
-		assert.ok(bulkFailure, "must log a Bulk upsert failed entry");
-		const loggedMessageIds = bulkFailure.context.messageIds;
-		assert.ok(
-			Array.isArray(loggedMessageIds),
-			"messageIds must be logged so the failure is diagnosable per message",
-		);
-		assert.ok(loggedMessageIds.includes(msgId1));
-		assert.ok(loggedMessageIds.includes(msgId2));
 		assert.match(
-			String(bulkFailure.context.error),
+			String(upsertFailure.context.error),
 			/ValidationException/,
 			"the actual upsert error must be logged",
 		);

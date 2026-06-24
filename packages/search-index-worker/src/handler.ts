@@ -21,27 +21,12 @@ export const handler = withTelemetry(
 	},
 );
 
-type AccountGroup = {
-	// Keyed by chunkId so a later record (e.g. a MODIFY) supersedes an earlier
-	// one (an INSERT) for the same chunk within a batch. Two SQS records for the
-	// same messageId would otherwise emit duplicate vector keys in one
-	// PutVectors call, which S3 Vectors rejects ("duplicate keys").
-	records: Map<string, VectorRecord>;
-	sqsMessageIds: string[];
-	// The email messageIds whose chunks are in this group. A bulk-upsert failure
-	// fails the whole group, so we log these to name exactly which messages
-	// dead-lettered — without them a rejection (e.g. an S3 Vectors metadata
-	// ValidationException) is invisible per-message and undiagnosable (#910).
-	messageIds: Set<string>;
-};
-
 export const processBatch = async (
 	records: SQSRecord[],
 	services: Services,
 	log: Logger,
 ): Promise<SQSBatchResponse> => {
 	const batchItemFailures: { itemIdentifier: string }[] = [];
-	const accountGroups = new Map<string, AccountGroup>();
 	const processingStart = Date.now();
 
 	for (const record of records) {
@@ -73,6 +58,10 @@ export const processBatch = async (
 			continue;
 		}
 
+		// One SQS message = one email's chunks = one upsert. Isolating the
+		// upsert per message means a record S3 Vectors rejects (e.g. a metadata
+		// ValidationException) dead-letters on its own — its siblings in the
+		// batch still index instead of retrying forever behind a poison record.
 		try {
 			const vectorRecords = await prepareUpsert(
 				message.accountId,
@@ -88,55 +77,36 @@ export const processBatch = async (
 				continue;
 			}
 
-			const group = accountGroups.get(message.accountId) ?? {
-				records: new Map<string, VectorRecord>(),
-				sqsMessageIds: [],
-				messageIds: new Set<string>(),
-			};
+			// Dedup by chunkId within this single message. The same email can
+			// emit a repeated chunkId (deterministic keys); duplicate keys in one
+			// PutVectors call are rejected by S3 Vectors.
+			const deduped = new Map<string, VectorRecord>();
 			for (const vectorRecord of vectorRecords) {
-				group.records.set(vectorRecord.chunkId, vectorRecord);
+				deduped.set(vectorRecord.chunkId, vectorRecord);
 			}
-			group.sqsMessageIds.push(record.messageId);
-			group.messageIds.add(message.messageId);
-			accountGroups.set(message.accountId, group);
-		} catch (error) {
-			log.error("Preparation failed", {
-				error: inspect(error),
-				messageId: message.messageId,
-			});
-			metrics.addMetric("searchIndexFailures", MetricUnit.Count, 1);
-			batchItemFailures.push({ itemIdentifier: record.messageId });
-		}
-	}
+			const upsertRecords = [...deduped.values()];
 
-	for (const [accountId, group] of accountGroups) {
-		const records = [...group.records.values()];
-		try {
-			await services.searchService.upsertVectors(records);
-			log.info("Bulk upsert complete", {
-				accountId,
-				count: records.length,
+			await services.searchService.upsertVectors(upsertRecords);
+			log.info("Upsert complete", {
+				accountId: message.accountId,
+				messageId: message.messageId,
+				count: upsertRecords.length,
 			});
 			metrics.addMetric(
 				"searchIndexProcessed",
 				MetricUnit.Count,
-				records.length,
+				upsertRecords.length,
 			);
 		} catch (error) {
-			// Name every messageId that dead-letters. The bulk upsert fails the
-			// whole account-group, so without these the SDK error alone (which
-			// only names one offending vector key) leaves the other messages in
-			// the group with no diagnostic at all — the silent failure of #910.
-			log.error("Bulk upsert failed", {
+			// Name the messageId so the dead-letter is diagnosable per message
+			// (#910); a transient/whole-call error retries this message alone.
+			log.error("Upsert failed", {
 				error: inspect(error),
-				accountId,
-				messageIds: [...group.messageIds],
-				count: records.length,
+				accountId: message.accountId,
+				messageId: message.messageId,
 			});
 			metrics.addMetric("searchIndexFailures", MetricUnit.Count, 1);
-			for (const sqsMessageId of group.sqsMessageIds) {
-				batchItemFailures.push({ itemIdentifier: sqsMessageId });
-			}
+			batchItemFailures.push({ itemIdentifier: record.messageId });
 		}
 	}
 
