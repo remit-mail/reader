@@ -3,9 +3,13 @@ import {
 	unifiedThreadOperationsListAllThreadsOptions,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import {
+	INTELLIGENCE_MIN_WIDTH,
+	READING_PANE_MIN_WIDTH,
 	ResizableHandle,
 	ResizablePanel,
 	ResizablePanelGroup,
+	resolvePaneLayout,
+	useContainerWidth,
 } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -31,7 +35,6 @@ import { KeyboardShortcutsModal } from "@/components/ui/KeyboardShortcutsModal";
 import { useCurrentMailboxName } from "@/hooks/useCurrentMailboxName";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
-import { useLayoutTier } from "@/hooks/useLayoutTier";
 import { useStaleAccountSync } from "@/hooks/useStaleAccountSync";
 import { writeIntelligencePref } from "@/lib/intelligence-pref";
 import { MailContext } from "@/lib/mail-context";
@@ -67,14 +70,11 @@ export const Route = createFileRoute("/mail")({
 function MailLayout() {
 	const { q: searchQuery = "" } = useSearch({ from: "/mail" });
 	const navigate = useNavigate();
-	const tier = useLayoutTier();
-	const isDesktop = tier === "desktop";
-	const isPhone = tier === "phone";
 	const [showShortcuts, setShowShortcuts] = useState(false);
 	const [drawerOpen, setDrawerOpen] = useState(false);
-	// Mobile-only: the top bar's search toggle expands an inline SearchBar
+	// Narrow layout: the top bar's search toggle expands an inline SearchBar
 	// (same affordance the retired Header carried, preserved so mobile search
-	// doesn't regress — the 4-pane desktop layout puts search in the toolbar).
+	// doesn't regress — the wide desktop layout puts search in the toolbar).
 	const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
 	// Pane 4 / the mobile details drawer share this toggle. It starts closed so
 	// the phone never slams a full-screen intelligence drawer over a freshly
@@ -87,6 +87,26 @@ function MailLayout() {
 		setIntelligenceOpen(open);
 		writeIntelligencePref(open);
 	}, []);
+
+	// Container-width layout: the shell reflows by its OWN width, not the
+	// viewport, so it works correctly with a collapsed sidebar or any embedding.
+	// Thresholds match the kit defaults and are the same constants used by the
+	// kit's AppShell — one rule for the whole app (#900/#901).
+	const [containerRef, containerWidth] = useContainerWidth();
+	const paneLayout = resolvePaneLayout(
+		containerWidth ?? 0,
+		READING_PANE_MIN_WIDTH,
+		INTELLIGENCE_MIN_WIDTH,
+	);
+	// The nav pane and reading pane appear at the same boundary (1024px).
+	const showNavPane = paneLayout.nav;
+	// Below the reading boundary the layout is a single pane (narrow / mobile).
+	// The "back to inbox" affordance in the top bar appears when a message is
+	// open at a narrow width — previously gated on `tier === "phone"` (< 768px),
+	// now gated on container < 1024px to match the kit's container-width model.
+	// Tablet portrait (768–1023px) is now list-only until 1024px (accepted trade-
+	// off documented in PR).
+	const isNarrow = !paneLayout.reading;
 
 	// URL `q` is a load-once seed for the input and a one-directional write
 	// target. The debounced local value is the source of truth and drives the
@@ -181,7 +201,7 @@ function MailLayout() {
 	const mobileTitle = useCurrentMailboxName({ accounts });
 
 	// Read the current mailbox params and selected message (if any) from the
-	// child route so the mobile top-bar title can act as a back button when a
+	// child route so the narrow top-bar title can act as a back button when a
 	// thread is open.
 	//
 	// `useParams({ strict: false })` resolves against the *nearest* route match
@@ -241,176 +261,190 @@ function MailLayout() {
 				intelligenceOpen,
 				onToggleIntelligence: handleToggleIntelligence,
 				onSetIntelligenceOpen: handleSetIntelligenceOpen,
+				// Container-width pane layout for child routes (#900/#901).
+				// One measurement, propagated down — child routes read this instead
+				// of computing their own breakpoints from the viewport.
+				paneLayout,
 			}}
 		>
-			{isConfigError ? (
-				<div className="flex h-full items-center justify-center bg-canvas p-4">
-					<ErrorState
-						title="Couldn't load your account"
-						error={configError}
-						onRetry={() => {
-							refetchConfig();
-						}}
-					/>
-				</div>
-			) : isLoading || hasNoAccounts ? (
-				<AppShellSkeleton />
-			) : (
-				<div className="flex h-full flex-col bg-canvas">
-					{/*
-					 * Desktop: the 4-pane AppShell model (#422). Pane 1 is the nav
-					 * sidebar (no toolbar — nav starts at the top, its full-height
-					 * right hairline anchors the datum); panes 2–4 (list, reading,
-					 * intelligence) are composed by the child route via the Outlet,
-					 * which renders its own nested resizable group. The nav↔content
-					 * boundary is a hairline drag handle.
-					 *
-					 * Mobile (< md): a slim top bar with a hamburger that opens the
-					 * sidebar drawer; the Outlet is the single full-screen pane.
-					 *
-					 * We branch with `isDesktop` (matchMedia) instead of CSS hide,
-					 * because react-resizable-panels does not handle `display:none`
-					 * on its panels.
-					 *
-					 * TODO(#422 follow-up): persist pane sizes via `autoSaveId` →
-					 * user preferences (design marks this future work).
-					 */}
-					{isDesktop ? (
-						<div className="min-h-0 flex-1">
-							<ResizablePanelGroup direction="horizontal">
-								<ResizablePanel
-									id="nav"
-									order={1}
-									defaultSize={17}
-									minSize={12}
-									maxSize={24}
-									className="min-w-0"
-								>
-									<MailSidebarAdapter accounts={accounts} />
-								</ResizablePanel>
-								<ResizableHandle />
-								<ResizablePanel
-									id="content"
-									order={2}
-									minSize={40}
-									className="min-w-0"
-								>
-									<Outlet />
-								</ResizablePanel>
-							</ResizablePanelGroup>
-						</div>
-					) : (
-						<>
-							{/* Mobile top bar: hamburger + current mailbox name + a
-							    search toggle. The 4-pane desktop layout moves search and
-							    compose into the message toolbar; on mobile, compose stays
-							    on the FAB and search expands inline here (the same
-							    affordance the retired Header carried). */}
-							<header className="flex h-12 shrink-0 items-center gap-2 border-b border-line bg-canvas px-2">
-								<button
-									type="button"
-									onClick={() => setDrawerOpen(true)}
-									className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md p-2 transition-colors hover:bg-surface-raised"
-									aria-label="Menu"
-								>
-									<Menu className="size-5" />
-								</button>
-								{mobileSearchOpen ? (
-									<div className="flex flex-1 items-center gap-1">
-										<div className="flex-1">
-											<SearchBar
-												value={searchInput}
-												onChange={handleSearchChange}
-												onClear={handleSearchClear}
-												onClearQuery={handleSearchClearQuery}
-											/>
-										</div>
-										<button
-											type="button"
-											onClick={() => setMobileSearchOpen(false)}
-											className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md p-2 transition-colors hover:bg-surface-raised"
-											aria-label="Close search"
-										>
-											<X className="size-5" />
-										</button>
-									</div>
-								) : isPhone && mobileSelectedMessageId ? (
-									<>
-										<button
-											type="button"
-											onClick={handleMobileBackToInbox}
-											className="inline-flex min-h-11 items-center gap-1.5 px-1 text-sm font-medium text-fg transition-colors hover:text-accent"
-											aria-label="Back to inbox"
-										>
-											<ArrowLeft className="size-4 shrink-0" />
-											<span className="truncate">{mobileTitle ?? "Inbox"}</span>
-										</button>
-										<div className="flex-1" />
-										<AccountMenu />
-									</>
-								) : (
-									<>
-										<span className="flex-1 truncate text-sm font-semibold text-fg">
-											{mobileTitle ?? "Remit"}
-										</span>
-										<button
-											type="button"
-											onClick={() => setMobileSearchOpen(true)}
-											className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md p-2 transition-colors hover:bg-surface-raised"
-											aria-label="Search"
-										>
-											<Search className="size-5" />
-										</button>
-										<AccountMenu />
-									</>
-								)}
-							</header>
+			{/* The container ref wraps the full shell so ResizeObserver measures
+			    the shell's own width, not the viewport. Pre-mount (containerWidth
+			    is null) paneLayout defaults to narrow (all false), matching the
+			    SSR/cold-paint default of list-only. */}
+			<div ref={containerRef} className="flex h-full flex-col">
+				{isConfigError ? (
+					<div className="flex h-full items-center justify-center bg-canvas p-4">
+						<ErrorState
+							title="Couldn't load your account"
+							error={configError}
+							onRetry={() => {
+								refetchConfig();
+							}}
+						/>
+					</div>
+				) : isLoading || hasNoAccounts ? (
+					<AppShellSkeleton />
+				) : (
+					<div className="flex h-full flex-col bg-canvas">
+						{/*
+						 * Wide layout (container ≥ 1024px): the 4-pane AppShell model
+						 * (#422). Pane 1 is the nav sidebar (no toolbar — nav starts at
+						 * the top, its full-height right hairline anchors the datum);
+						 * panes 2–4 (list, reading, intelligence) are composed by the
+						 * child route via the Outlet, which renders its own nested
+						 * resizable group. The nav↔content boundary is a hairline drag
+						 * handle.
+						 *
+						 * Narrow layout (container < 1024px — phone AND tablet portrait):
+						 * a slim top bar with a hamburger that opens the sidebar drawer;
+						 * the Outlet is the single full-screen pane.
+						 *
+						 * We branch on container width instead of CSS hide, because
+						 * react-resizable-panels does not handle `display:none` on its
+						 * panels.
+						 *
+						 * TODO(#422 follow-up): persist pane sizes via `autoSaveId` →
+						 * user preferences (design marks this future work).
+						 */}
+						{showNavPane ? (
 							<div className="min-h-0 flex-1">
-								<Outlet />
+								<ResizablePanelGroup direction="horizontal">
+									<ResizablePanel
+										id="nav"
+										order={1}
+										defaultSize={17}
+										minSize={12}
+										maxSize={24}
+										className="min-w-0"
+									>
+										<MailSidebarAdapter accounts={accounts} />
+									</ResizablePanel>
+									<ResizableHandle />
+									<ResizablePanel
+										id="content"
+										order={2}
+										minSize={40}
+										className="min-w-0"
+									>
+										<Outlet />
+									</ResizablePanel>
+								</ResizablePanelGroup>
 							</div>
-						</>
-					)}
-					{/* Mobile drawer holds the sidebar */}
-					<Drawer
-						isOpen={drawerOpen}
-						onClose={() => setDrawerOpen(false)}
-						ariaLabel="Mailboxes and accounts"
-					>
-						<div className="flex h-full flex-col">
-							<div className="flex-1 overflow-y-auto">
-								<MailSidebarAdapter
-									accounts={accounts}
-									onMailboxSelect={handleMailboxSelect}
-									variant="drawer"
-								/>
+						) : (
+							<>
+								{/* Narrow top bar: hamburger + current mailbox name + a
+								    search toggle. The wide desktop layout moves search and
+								    compose into the message toolbar; on narrow layouts,
+								    compose stays on the FAB and search expands inline here
+								    (the same affordance the retired Header carried). */}
+								<header className="flex h-12 shrink-0 items-center gap-2 border-b border-line bg-canvas px-2">
+									<button
+										type="button"
+										onClick={() => setDrawerOpen(true)}
+										className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md p-2 transition-colors hover:bg-surface-raised"
+										aria-label="Menu"
+									>
+										<Menu className="size-5" />
+									</button>
+									{mobileSearchOpen ? (
+										<div className="flex flex-1 items-center gap-1">
+											<div className="flex-1">
+												<SearchBar
+													value={searchInput}
+													onChange={handleSearchChange}
+													onClear={handleSearchClear}
+													onClearQuery={handleSearchClearQuery}
+												/>
+											</div>
+											<button
+												type="button"
+												onClick={() => setMobileSearchOpen(false)}
+												className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md p-2 transition-colors hover:bg-surface-raised"
+												aria-label="Close search"
+											>
+												<X className="size-5" />
+											</button>
+										</div>
+									) : isNarrow && mobileSelectedMessageId ? (
+										<>
+											<button
+												type="button"
+												onClick={handleMobileBackToInbox}
+												className="inline-flex min-h-11 items-center gap-1.5 px-1 text-sm font-medium text-fg transition-colors hover:text-accent"
+												aria-label="Back to inbox"
+											>
+												<ArrowLeft className="size-4 shrink-0" />
+												<span className="truncate">
+													{mobileTitle ?? "Inbox"}
+												</span>
+											</button>
+											<div className="flex-1" />
+											<AccountMenu />
+										</>
+									) : (
+										<>
+											<span className="flex-1 truncate text-sm font-semibold text-fg">
+												{mobileTitle ?? "Remit"}
+											</span>
+											<button
+												type="button"
+												onClick={() => setMobileSearchOpen(true)}
+												className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md p-2 transition-colors hover:bg-surface-raised"
+												aria-label="Search"
+											>
+												<Search className="size-5" />
+											</button>
+											<AccountMenu />
+										</>
+									)}
+								</header>
+								<div className="min-h-0 flex-1">
+									<Outlet />
+								</div>
+							</>
+						)}
+						{/* Mobile drawer holds the sidebar */}
+						<Drawer
+							isOpen={drawerOpen}
+							onClose={() => setDrawerOpen(false)}
+							ariaLabel="Mailboxes and accounts"
+						>
+							<div className="flex h-full flex-col">
+								<div className="flex-1 overflow-y-auto">
+									<MailSidebarAdapter
+										accounts={accounts}
+										onMailboxSelect={handleMailboxSelect}
+										variant="drawer"
+									/>
+								</div>
+								{/* Settings and bug-report live in the top-right AccountMenu on
+								    desktop; the mobile message toolbar that hosts them isn't
+								    rendered, so the drawer footer keeps both reachable (#685). */}
+								<div className="border-t border-line px-2 py-2">
+									<Link
+										to="/settings/accounts"
+										onClick={() => setDrawerOpen(false)}
+										className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-sm text-fg-muted transition-colors hover:bg-surface hover:text-fg"
+									>
+										<Settings className="size-4 shrink-0" />
+										<span className="flex-1 truncate text-left">Settings</span>
+									</Link>
+									<BugReportButton variant="drawer" />
+								</div>
 							</div>
-							{/* Settings and bug-report live in the top-right AccountMenu on
-							    desktop; the mobile message toolbar that hosts them isn't
-							    rendered, so the drawer footer keeps both reachable (#685). */}
-							<div className="border-t border-line px-2 py-2">
-								<Link
-									to="/settings/accounts"
-									onClick={() => setDrawerOpen(false)}
-									className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-sm text-fg-muted transition-colors hover:bg-surface hover:text-fg"
-								>
-									<Settings className="size-4 shrink-0" />
-									<span className="flex-1 truncate text-left">Settings</span>
-								</Link>
-								<BugReportButton variant="drawer" />
-							</div>
-						</div>
-					</Drawer>
-					{/* Mobile compose FAB. The compose form itself takes over the
-					    detail pane in `routes/mail/$mailboxId.tsx`, which on
-					    mobile is the entire screen — so compose effectively goes
-					    full-screen with no extra plumbing. */}
-					<ComposeFab />
-				</div>
-			)}
-			<KeyboardShortcutsModal
-				isOpen={showShortcuts}
-				onClose={() => setShowShortcuts(false)}
-			/>
+						</Drawer>
+						{/* Narrow-layout compose FAB. The compose form itself takes over
+						    the detail pane in `routes/mail/$mailboxId.tsx`, which on
+						    narrow layouts is the entire screen — so compose effectively
+						    goes full-screen with no extra plumbing. */}
+						<ComposeFab />
+					</div>
+				)}
+				<KeyboardShortcutsModal
+					isOpen={showShortcuts}
+					onClose={() => setShowShortcuts(false)}
+				/>
+			</div>
 		</MailContext.Provider>
 	);
 }
