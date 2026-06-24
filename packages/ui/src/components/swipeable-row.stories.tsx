@@ -55,6 +55,31 @@ export const PeekedLeading: Story = { args: { peek: "leading" } };
 
 export const PeekedTrailing: Story = { args: { peek: "trailing" } };
 
+/**
+ * The open affordance is rendered as a real `<a href>` via `linkComponent`,
+ * so deep-link, middle-click and open-in-new-tab work. Consumers pass their
+ * router's Link; here a plain anchor stands in. Inspect the DOM: the row is an
+ * anchor, not a button.
+ */
+export const AsAnchor: Story = {
+	name: "As anchor (linkComponent)",
+	args: {
+		peek: "none",
+		linkComponent: ({ onOpenClick, children, ...rowProps }) => (
+			<a
+				{...rowProps}
+				href="/mail/inbox?selectedMessageId=thread-1"
+				onClick={(e) => {
+					e.preventDefault();
+					onOpenClick(e);
+				}}
+			>
+				{children}
+			</a>
+		),
+	},
+};
+
 export const Acting: Story = {
 	name: "Acting (interactive)",
 	render: () => {
