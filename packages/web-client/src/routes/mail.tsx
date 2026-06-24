@@ -24,7 +24,7 @@ import { AppShellSkeleton } from "@/components/layout/AppShellSkeleton";
 import { ComposeFab } from "@/components/layout/ComposeFab";
 import { Drawer } from "@/components/layout/Drawer";
 import { SearchBar } from "@/components/layout/SearchBar";
-import { MailSidebar } from "@/components/mail/MailSidebar";
+import { MailSidebarAdapter } from "@/components/mail/MailSidebarAdapter";
 import { BugReportButton } from "@/components/ui/BugReportButton";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { KeyboardShortcutsModal } from "@/components/ui/KeyboardShortcutsModal";
@@ -286,7 +286,7 @@ function MailLayout() {
 									maxSize={24}
 									className="min-w-0"
 								>
-									<MailSidebar accounts={accounts} />
+									<MailSidebarAdapter accounts={accounts} />
 								</ResizablePanel>
 								<ResizableHandle />
 								<ResizablePanel
@@ -378,7 +378,7 @@ function MailLayout() {
 					>
 						<div className="flex h-full flex-col">
 							<div className="flex-1 overflow-y-auto">
-								<MailSidebar
+								<MailSidebarAdapter
 									accounts={accounts}
 									onMailboxSelect={handleMailboxSelect}
 									variant="drawer"
