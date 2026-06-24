@@ -69,3 +69,37 @@ describe("resolvePaneLayout — pane count by width", () => {
 		assert.deepEqual(counts, sorted, "pane count is non-decreasing in width");
 	});
 });
+
+describe("resolvePaneLayout — configurable thresholds (#900/#901)", () => {
+	it("respects a custom reading-pane boundary", () => {
+		assert.equal(
+			resolvePaneLayout(767, 768, 1280).reading,
+			false,
+			"just below custom reading boundary",
+		);
+		assert.equal(
+			resolvePaneLayout(768, 768, 1280).reading,
+			true,
+			"at the custom reading boundary",
+		);
+	});
+
+	it("respects a custom intelligence boundary", () => {
+		assert.equal(
+			resolvePaneLayout(1023, 1024, 1024).intelligence,
+			false,
+			"just below custom intelligence boundary",
+		);
+		assert.equal(
+			resolvePaneLayout(1024, 1024, 1024).intelligence,
+			true,
+			"at the custom intelligence boundary",
+		);
+	});
+
+	it("defaults still match the module constants when no overrides given", () => {
+		const withDefaults = resolvePaneLayout(1024);
+		const withExplicit = resolvePaneLayout(1024, 1024, 1280);
+		assert.deepEqual(withDefaults, withExplicit, "defaults are identical");
+	});
+});

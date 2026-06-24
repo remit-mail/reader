@@ -1,4 +1,5 @@
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
+import type { PaneLayout } from "@remit/ui";
 import { createContext, useContext } from "react";
 
 /**
@@ -29,6 +30,15 @@ export interface MailContextValue {
 	onToggleIntelligence: () => void;
 	/** Set the pane open/closed and persist the choice (desktop default-open). */
 	onSetIntelligenceOpen: (open: boolean) => void;
+	/**
+	 * Container-width pane layout derived from the kit's `resolvePaneLayout`.
+	 * The shell measures its own width once and propagates the result here, so
+	 * child routes share one breakpoint decision instead of each re-measuring.
+	 *   paneLayout.reading  → container ≥ 1024px (reading pane visible)
+	 *   paneLayout.intelligence → container ≥ 1280px (intelligence rail fits)
+	 *   paneLayout.nav      → same as `reading` (nav is a persistent pane at ≥1024)
+	 */
+	paneLayout: PaneLayout;
 }
 
 export const MailContext = createContext<MailContextValue | null>(null);
@@ -49,6 +59,7 @@ export const useMailContext = (): MailContextValue => {
 			intelligenceOpen: false,
 			onToggleIntelligence: () => {},
 			onSetIntelligenceOpen: () => {},
+			paneLayout: { nav: false, reading: false, intelligence: false },
 		}
 	);
 };

@@ -33,18 +33,26 @@ export interface PaneLayout {
 
 /**
  * The single source of truth for the reflow rule:
- *   < 1024 → list alone (phone + tablet PORTRAIT) — no reading pane
- *   1024–1279 → list + reading (tablet landscape / desktop)
- *   ≥ 1280 → + intelligence rail (widest)
+ *   < readingPaneMinWidth → list alone (phone + tablet PORTRAIT) — no reading pane
+ *   readingPaneMinWidth–intelligenceMinWidth → list + reading (tablet landscape / desktop)
+ *   ≥ intelligenceMinWidth → + intelligence rail (widest)
  * The persistent nav pane shares the reading-pane boundary; below it the nav is
  * a slide-over, not a column.
+ *
+ * Both thresholds are configurable so a consumer can pass the desired pixel
+ * values without forking the layout logic. The kit `AppShell` uses the
+ * module-level defaults (1024 / 1280).
  */
-export function resolvePaneLayout(width: number): PaneLayout {
-	const reading = width >= READING_PANE_MIN_WIDTH;
+export function resolvePaneLayout(
+	width: number,
+	readingPaneMinWidth = READING_PANE_MIN_WIDTH,
+	intelligenceMinWidth = INTELLIGENCE_MIN_WIDTH,
+): PaneLayout {
+	const reading = width >= readingPaneMinWidth;
 	return {
 		nav: reading,
 		reading,
-		intelligence: width >= INTELLIGENCE_MIN_WIDTH,
+		intelligence: width >= intelligenceMinWidth,
 	};
 }
 
