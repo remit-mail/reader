@@ -12,6 +12,9 @@ export {
 	type Density,
 	type MailboxSpecialUse,
 	type NavAccount,
+	type NavAccountStatus,
+	type NavLinkComponent,
+	type NavLinkRenderProps,
 	type NavMailbox,
 	type PaneLayout,
 	resolvePaneLayout,
@@ -120,7 +123,10 @@ export {
 	compactRowClass,
 } from "./components/message-row.js";
 export { MobileMessagePane } from "./components/mobile-message-pane.js";
-export { NavSidebar } from "./components/nav-sidebar.js";
+export {
+	NavSidebar,
+	type NavSidebarProps,
+} from "./components/nav-sidebar.js";
 export { OutboxRow, type OutboxRowProps } from "./components/outbox-row.js";
 export {
 	type OutboxStatus,

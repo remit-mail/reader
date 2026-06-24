@@ -19,8 +19,8 @@ interface UseCurrentMailboxNameOptions {
  *   - everything else (e.g. `/mail` mid-redirect) → `null`
  *
  * Reuses the same `mailboxOperationsListMailboxesOptions` queries the
- * `MailSidebar` runs, so on warm cache (the sidebar is always mounted
- * on `/mail/*`) this is a free lookup.
+ * `MailSidebarAdapter` runs, so on warm cache (the sidebar is always
+ * mounted on `/mail/*`) this is a free lookup.
  */
 export const useCurrentMailboxName = ({
 	accounts,
