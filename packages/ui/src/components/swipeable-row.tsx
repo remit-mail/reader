@@ -32,6 +32,28 @@ export function commitPeek(offset: number): SwipePeek {
 	return "none";
 }
 
+/**
+ * Props the row's interactive (open) element must receive — the swipe gesture
+ * handlers, the transform/transition style, the row body, plus an onClick that
+ * suppresses navigation when the row is peeked. A consumer passes `linkComponent`
+ * to render these on a real anchor (e.g. a router Link) so the open affordance is
+ * a true `<a href>` — keeping open-in-new-tab, middle-click, deep-link and a11y
+ * — instead of the default JS-only `<button onOpen>`.
+ */
+export interface SwipeableRowOpenProps {
+	className: string;
+	style: React.CSSProperties;
+	onPointerDown: (e: React.PointerEvent) => void;
+	onPointerMove: (e: React.PointerEvent) => void;
+	onPointerUp: () => void;
+	onPointerCancel: () => void;
+	/** Wire to the anchor's onClick. When the row is peeked it calls
+	 *  preventDefault so a tap closes the peek instead of navigating; otherwise
+	 *  it is a no-op and the anchor's native navigation proceeds. */
+	onOpenClick: (e: { preventDefault: () => void }) => void;
+	children: React.ReactNode;
+}
+
 export function SwipeableRow({
 	thread,
 	selectionMode,
@@ -43,6 +65,7 @@ export function SwipeableRow({
 	onLongPress,
 	onOpen,
 	onAct,
+	linkComponent,
 }: {
 	thread: ThreadRowData;
 	selectionMode: boolean;
@@ -56,6 +79,12 @@ export function SwipeableRow({
 	/** Tapping a revealed action performs it: "leading" = toggle read,
 	 *  "trailing" = delete. */
 	onAct: (side: "leading" | "trailing") => void;
+	/** Render the open affordance as a real anchor (router Link / `<a href>`)
+	 *  instead of the default `<button onOpen>`. Receives the gesture handlers,
+	 *  style, peek-aware onClickCapture and row body to spread onto the anchor.
+	 *  When provided, a plain tap navigates via the anchor's native click (so
+	 *  deep-link/middle-click work); onOpen is not called for the tap. */
+	linkComponent?: (props: SwipeableRowOpenProps) => React.ReactNode;
 }) {
 	const pressTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
 		undefined,
@@ -130,14 +159,56 @@ export function SwipeableRow({
 			return;
 		}
 		// a tap: no axis claimed
-		if (selectionMode) onToggleCheck();
-		else if (peek !== "none") onPeek("none");
-		else onOpen();
+		if (selectionMode) {
+			onToggleCheck();
+			return;
+		}
+		if (peek !== "none") {
+			onPeek("none");
+			return;
+		}
+		// A real anchor handles the open via its native click — don't double-fire.
+		if (linkComponent) return;
+		onOpen();
+	};
+
+	// A tap on a peeked anchor must close the peek, not navigate; suppress the
+	// native click in that case. onPointerUp already snapped it closed.
+	const onOpenClick = (e: { preventDefault: () => void }) => {
+		if (peek !== "none") e.preventDefault();
 	};
 
 	const offset = dragX ?? peekOffset(peek);
 	const revealed: SwipePeek =
 		offset > 0 ? "leading" : offset < 0 ? "trailing" : "none";
+
+	const interactiveClassName = cn(
+		// opaque bg so the row occludes the action behind it until peeked
+		"relative touch-pan-y bg-surface",
+		comfortableRowClass({ active: checked || active }),
+	);
+	const interactiveStyle: React.CSSProperties = {
+		transform: offset !== 0 ? `translateX(${offset}px)` : undefined,
+		transition: dragX === null ? "transform 150ms ease" : "none",
+		minHeight: 44,
+	};
+	const body = selectionMode ? (
+		<>
+			<span
+				className={cn(
+					"inline-flex size-7 shrink-0 items-center justify-center rounded-full border",
+					checked
+						? "border-accent bg-accent text-accent-fg"
+						: "border-line-strong bg-canvas",
+				)}
+			>
+				{checked && <Check className="size-3.5" />}
+			</span>
+			<ComfortableRowTextContent thread={thread} />
+		</>
+	) : (
+		<ComfortableRowBody thread={thread} />
+	);
 
 	return (
 		<div className="relative overflow-hidden">
@@ -166,41 +237,32 @@ export function SwipeableRow({
 				</button>
 			)}
 
-			<button
-				type="button"
-				onPointerDown={onPointerDown}
-				onPointerMove={onPointerMove}
-				onPointerUp={onPointerUp}
-				onPointerCancel={onPointerUp}
-				// opaque bg so the row occludes the action behind it until peeked
-				className={cn(
-					"relative touch-pan-y bg-surface",
-					comfortableRowClass({ active: checked || active }),
-				)}
-				style={{
-					transform: offset !== 0 ? `translateX(${offset}px)` : undefined,
-					transition: dragX === null ? "transform 150ms ease" : "none",
-					minHeight: 44,
-				}}
-			>
-				{selectionMode ? (
-					<>
-						<span
-							className={cn(
-								"inline-flex size-7 shrink-0 items-center justify-center rounded-full border",
-								checked
-									? "border-accent bg-accent text-accent-fg"
-									: "border-line-strong bg-canvas",
-							)}
-						>
-							{checked && <Check className="size-3.5" />}
-						</span>
-						<ComfortableRowTextContent thread={thread} />
-					</>
-				) : (
-					<ComfortableRowBody thread={thread} />
-				)}
-			</button>
+			{/* In selection mode the row is tap-to-toggle, never a navigation link —
+			    keep the button so a checkbox tap can't open a thread. */}
+			{linkComponent && !selectionMode ? (
+				linkComponent({
+					className: interactiveClassName,
+					style: interactiveStyle,
+					onPointerDown,
+					onPointerMove,
+					onPointerUp,
+					onPointerCancel: onPointerUp,
+					onOpenClick,
+					children: body,
+				})
+			) : (
+				<button
+					type="button"
+					onPointerDown={onPointerDown}
+					onPointerMove={onPointerMove}
+					onPointerUp={onPointerUp}
+					onPointerCancel={onPointerUp}
+					className={interactiveClassName}
+					style={interactiveStyle}
+				>
+					{body}
+				</button>
+			)}
 		</div>
 	);
 }

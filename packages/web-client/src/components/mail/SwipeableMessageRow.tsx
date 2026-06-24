@@ -1,17 +1,20 @@
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
-import type { Density } from "@remit/ui";
-import { Mail, MailOpen, Trash2 } from "lucide-react";
-import { useCallback } from "react";
 import {
-	LeadingActions,
-	Type as ListType,
-	SwipeAction,
-	SwipeableListItem,
-	TrailingActions,
-} from "react-swipeable-list";
-import "react-swipeable-list/dist/styles.css";
+	type Density,
+	SwipeableRow,
+	type SwipePeek,
+	type ThreadRowData,
+} from "@remit/ui";
+import { Link } from "@tanstack/react-router";
+import { useCallback, useState } from "react";
 import type { SelectionModifiers } from "@/hooks/useSelection";
+import { formatEmailDate } from "@/lib/format";
 import { MessageListItem } from "./MessageListItem";
+
+interface MailboxLinkSearch {
+	selectedMessageId?: string;
+	q?: string;
+}
 
 interface SwipeableMessageRowProps {
 	thread: RemitImapThreadMessageResponse;
@@ -30,7 +33,27 @@ interface SwipeableMessageRowProps {
 	density?: Density;
 }
 
-const SWIPE_THRESHOLD = 0.3;
+const toThreadRowData = (
+	thread: RemitImapThreadMessageResponse,
+): ThreadRowData => {
+	const suspicious = thread.authenticity?.dkimMismatch === true;
+	return {
+		id: thread.messageId,
+		accountId: thread.accountConfigId,
+		fromName: thread.fromName ?? thread.fromEmail ?? "Unknown",
+		fromEmail: thread.fromEmail ?? "",
+		subject: thread.subject ?? "(No subject)",
+		snippet: thread.snippet ?? "",
+		timeLabel: formatEmailDate(thread.sentDate),
+		isRead: thread.isRead,
+		hasAttachment: thread.hasAttachment,
+		starred:
+			thread.star != null && thread.star !== "none" && thread.hasStars === true,
+		trust: thread.senderTrust,
+		category: thread.category,
+		suspicious,
+	};
+};
 
 export const SwipeableMessageRow = ({
 	thread,
@@ -47,15 +70,28 @@ export const SwipeableMessageRow = ({
 	onToggleRead,
 	density,
 }: SwipeableMessageRowProps) => {
-	const handleDelete = useCallback(() => {
-		navigator.vibrate?.(10);
-		onDelete(thread.messageId);
-	}, [onDelete, thread.messageId]);
+	const [peek, setPeek] = useState<SwipePeek>("none");
 
-	const handleToggleRead = useCallback(() => {
-		navigator.vibrate?.(10);
-		onToggleRead(thread.messageId, thread.isRead);
-	}, [onToggleRead, thread.messageId, thread.isRead]);
+	const handleAct = useCallback(
+		(side: "leading" | "trailing") => {
+			navigator.vibrate?.(10);
+			if (side === "trailing") {
+				onDelete(thread.messageId);
+			} else {
+				onToggleRead(thread.messageId, thread.isRead);
+			}
+			setPeek("none");
+		},
+		[onDelete, onToggleRead, thread.messageId, thread.isRead],
+	);
+
+	const handleLongPress = useCallback(() => {
+		onLongPress(thread.messageId);
+	}, [onLongPress, thread.messageId]);
+
+	const handleToggleCheck = useCallback(() => {
+		onToggleCheck(thread.messageId);
+	}, [onToggleCheck, thread.messageId]);
 
 	if (isDesktop || isMultiSelectMode) {
 		return (
@@ -75,50 +111,33 @@ export const SwipeableMessageRow = ({
 		);
 	}
 
-	const leadingActions = (
-		<LeadingActions>
-			<SwipeAction onClick={handleToggleRead}>
-				<div className="flex items-center justify-center h-full bg-accent-2 px-6">
-					{thread.isRead ? (
-						<MailOpen className="size-6 text-accent-fg" />
-					) : (
-						<Mail className="size-6 text-accent-fg" />
-					)}
-				</div>
-			</SwipeAction>
-		</LeadingActions>
-	);
-
-	const trailingActions = (
-		<TrailingActions>
-			<SwipeAction onClick={handleDelete} destructive>
-				<div className="flex items-center justify-center h-full bg-danger px-6">
-					<Trash2 className="size-6 text-canvas" />
-				</div>
-			</SwipeAction>
-		</TrailingActions>
-	);
-
 	return (
-		<SwipeableListItem
-			listType={ListType.IOS}
-			threshold={SWIPE_THRESHOLD}
-			leadingActions={leadingActions}
-			trailingActions={trailingActions}
-		>
-			<MessageListItem
-				thread={thread}
-				mailboxId={mailboxId}
-				isSelected={isSelected}
-				isFocused={isFocused}
-				isChecked={isChecked}
-				onToggleCheck={onToggleCheck}
-				onRowSelect={onRowSelect}
-				isMultiSelectMode={isMultiSelectMode}
-				onLongPress={onLongPress}
-				isDesktop={isDesktop}
-				density={density}
-			/>
-		</SwipeableListItem>
+		<SwipeableRow
+			thread={toThreadRowData(thread)}
+			selectionMode={false}
+			checked={false}
+			active={isSelected}
+			peek={peek}
+			onPeek={setPeek}
+			onToggleCheck={handleToggleCheck}
+			onLongPress={handleLongPress}
+			onOpen={() => undefined}
+			onAct={handleAct}
+			linkComponent={({ onOpenClick, children, ...rowProps }) => (
+				<Link
+					{...rowProps}
+					to="/mail/$mailboxId"
+					params={{ mailboxId }}
+					search={(prev: MailboxLinkSearch) => ({
+						...prev,
+						selectedMessageId: thread.messageId,
+					})}
+					data-message-row
+					onClick={onOpenClick}
+				>
+					{children}
+				</Link>
+			)}
+		/>
 	);
 };
