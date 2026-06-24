@@ -13,7 +13,7 @@ import {
 
 /**
  * Design source for the bulk-triage and folder-picker surfaces (#788): the
- * desktop `SelectionToolbar`, the `MobileSelectionTopBar` (with the
+ * desktop `SelectionToolbar`, the mobile `SelectionTopBar` (with the
  * cross-account move guard), the move-to-mailbox picker, and the
  * reclassify-sender dialog. Presentational shells mirroring the live wiring.
  */
