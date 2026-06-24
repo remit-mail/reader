@@ -51,7 +51,6 @@ import {
 } from "@/hooks/useDeleteMessages";
 import { useIntelligenceData } from "@/hooks/useIntelligenceData";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
-import { useLayoutTier } from "@/hooks/useLayoutTier";
 import { useMailboxAccount } from "@/hooks/useMailboxAccount";
 import { useToggleReadFor } from "@/hooks/useMarkAsRead";
 import { useMoveMessages } from "@/hooks/useMoveMessages";
@@ -85,8 +84,6 @@ function MailboxView() {
 	const { mailboxId } = Route.useParams();
 	const { selectedMessageId } = Route.useSearch();
 	const navigate = useNavigate();
-	const tier = useLayoutTier();
-	const isDesktop = tier === "desktop";
 	const telemetry = useTelemetry();
 	const {
 		accounts,
@@ -97,6 +94,7 @@ function MailboxView() {
 		onSearchClearQuery,
 		intelligenceOpen,
 		onToggleIntelligence,
+		paneLayout,
 		onSetIntelligenceOpen,
 	} = useMailContext();
 
@@ -246,22 +244,23 @@ function MailboxView() {
 		onToggleIntelligence,
 	]);
 
-	// Desktop default-open (#782): the intelligence rail opens with the first
+	// Wide-layout default-open (#782): the intelligence rail opens with the first
 	// thread of the session unless the user previously collapsed it (the stored
 	// preference). Applied once per mount so a manual collapse afterwards sticks.
-	// Desktop-only — on phone/tablet the intelligence is a modal drawer the user
-	// opens explicitly, never auto-shown over a freshly opened thread.
+	// Wide-layout only (container ≥ 1024px) — on narrow layouts the intelligence
+	// is a modal drawer the user opens explicitly, never auto-shown.
 	const appliedDefaultRef = useRef(false);
+	const showReadingPane = paneLayout.reading;
 	useEffect(() => {
 		if (appliedDefaultRef.current) return;
-		if (!isDesktop) return;
+		if (!showReadingPane) return;
 		if (!selectedThread?.messageId) return;
 		appliedDefaultRef.current = true;
 		if (readIntelligencePref() && !intelligenceOpen) {
 			onSetIntelligenceOpen(true);
 		}
 	}, [
-		isDesktop,
+		showReadingPane,
 		selectedThread?.messageId,
 		intelligenceOpen,
 		onSetIntelligenceOpen,
@@ -726,14 +725,15 @@ function MailboxView() {
 			<ReadingPaneEmpty />
 		);
 
-	// Mobile: single-pane view that swaps based on `selectedMessageId` and
-	// compose state. The compose surface, when open without a selected
-	// thread, takes over the whole pane (which on mobile IS the whole
-	// screen) — no extra overlay plumbing required. The thread view renders a
+	// Narrow layout (container < 1024px): single-pane view that swaps based on
+	// `selectedMessageId` and compose state. This covers both phone (< 768px)
+	// and tablet portrait (768–1023px) — the accepted tradeoff of the kit's
+	// container-width model (#900). The compose surface, when open without a
+	// selected thread, takes over the whole pane. The thread view renders a
 	// sticky footer with Back plus reply / reply-all / forward (the touch
-	// affordance for those actions on mobile, since the desktop top toolbar is
-	// not shown here).
-	if (tier === "phone") {
+	// affordance for those actions on narrow layouts, since the desktop top
+	// toolbar is not shown here).
+	if (!paneLayout.reading) {
 		const showCompose = composeState.isOpen && !selectedThread;
 		if (selectedThread) {
 			const orderedMessageIds = threads.map((t) => t.messageId);
@@ -842,12 +842,10 @@ function MailboxView() {
 		return <div className="h-full">{messageList}</div>;
 	}
 
-	// Tablet + desktop: the multi-pane AppShell model (#422) — message list +
-	// reading pane (its datum row is the message toolbar), and on desktop the
-	// intelligence sidebar (pane 4). At tablet width (768–1023) the nav rail is
-	// drawer-backed and pane 4 is dropped, so two panes share the room (#784).
-	// Nested resizable group: the nav↔content boundary is owned by the parent
-	// layout; the boundaries here carry the same hairline handles.
+	// Wide layout (container ≥ 1024px): multi-pane model — message list +
+	// reading pane (its datum row is the message toolbar), and at ≥ 1280px the
+	// intelligence sidebar (pane 4). The nav↔content boundary is owned by the
+	// parent layout; the boundaries here carry the same hairline handles.
 	const hasThread = Boolean(selectedThread);
 	// A Remit draft is "active" when the Drafts mailbox is open and compose is
 	// showing an outbox message with no IMAP thread selected (#536).
@@ -856,12 +854,12 @@ function MailboxView() {
 		composeState.isOpen &&
 		!!composeState.outboxMessageId &&
 		!selectedThread;
-	// Pane 4 is desktop-only (`useIsDesktop` is the pane-4 gate) and only renders
-	// when intelligence is toggled on AND a thread is open — contextual to the
-	// open message, matching the remit-ui AppShell reference. The toolbar's info
-	// toggle is likewise hidden until a thread is selected, so it never opens an
-	// empty rail.
-	const showIntelligence = isDesktop && intelligenceOpen && hasThread;
+	// The intelligence rail (pane 4) appears when the container is ≥ 1280px
+	// (paneLayout.intelligence) AND the toggle is on AND a thread is open.
+	// The toolbar's info toggle is hidden until a thread is selected, so it
+	// never opens an empty rail.
+	const showIntelligence =
+		paneLayout.intelligence && intelligenceOpen && hasThread;
 	return (
 		<ResizablePanelGroup direction="horizontal">
 			<ResizablePanel
@@ -891,7 +889,7 @@ function MailboxView() {
 						hasThread={hasThread}
 						onCompose={handleNewCompose}
 						intelligenceOpen={showIntelligence}
-						showIntelligenceToggle={isDesktop && hasThread}
+						showIntelligenceToggle={paneLayout.intelligence && hasThread}
 						onToggleIntelligence={onToggleIntelligence}
 						searchValue={searchInput}
 						onSearchChange={onSearchChange}

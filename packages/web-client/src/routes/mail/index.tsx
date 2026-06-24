@@ -27,7 +27,6 @@ import { DailyBrief } from "@/components/mail/DailyBrief";
 import { IntelligencePane } from "@/components/mail/IntelligencePane";
 import { MessageToolbar } from "@/components/mail/MessageToolbar";
 import { ErrorState } from "@/components/ui/ErrorState";
-import { useLayoutTier } from "@/hooks/useLayoutTier";
 import { useMailContext } from "@/lib/mail-context";
 
 const MailIndexError = ({ error, reset }: ErrorComponentProps) => (
@@ -65,8 +64,12 @@ function MailIndex() {
 		onSearchChange,
 		onSearchClear,
 		onSearchClearQuery,
+		paneLayout,
 	} = useMailContext();
-	const tier = useLayoutTier();
+
+	// Pane layout is derived from the parent shell's container-width measurement
+	// via MailContext (#900). The reading pane appears at ≥ 1024px.
+	const showReadingPane = paneLayout.reading;
 
 	const showIntelligence = intelligenceOpen && Boolean(selectedMessageId);
 
@@ -99,7 +102,8 @@ function MailIndex() {
 		});
 	}, [navigate]);
 
-	if (tier === "phone") {
+	// Narrow layout (container < 1024px — phone AND tablet portrait): single pane.
+	if (!showReadingPane) {
 		if (selectedThread) {
 			return (
 				<>
@@ -112,7 +116,8 @@ function MailIndex() {
 						onOpenIntelligence={onToggleIntelligence}
 					/>
 					{/* Info panel as a right-side drawer — same affordance as the
-					    mailbox view so message details stay reachable on mobile (#687). */}
+					    mailbox view so message details stay reachable on narrow
+					    layouts (#687). */}
 					<Drawer
 						isOpen={intelligenceOpen}
 						onClose={onToggleIntelligence}
@@ -139,9 +144,8 @@ function MailIndex() {
 		);
 	}
 
-	// Tablet + desktop: brief is the list pane, the reading pane shows the
-	// selected thread (the brief route has no pane 4). At tablet the nav rail is
-	// drawer-backed via the parent layout (#784).
+	// Wide layout (container ≥ 1024px): brief is the list pane, the reading
+	// pane shows the selected thread (the brief route has no intelligence rail).
 	return (
 		<ResizablePanelGroup direction="horizontal">
 			<ResizablePanel
