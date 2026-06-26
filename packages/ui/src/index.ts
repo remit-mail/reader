@@ -173,6 +173,10 @@ export {
 	outboxStatusConfig,
 } from "./components/outbox-status-badge.js";
 export {
+	QuotedText,
+	type QuotedTextProps,
+} from "./components/quoted-text.js";
+export {
 	CollapsedMessage,
 	ExpandedMessage,
 	ReadingPane,
