@@ -1,7 +1,6 @@
+import { PullToRefresh as KitPullToRefresh } from "@remit/ui";
 import type { ReactElement } from "react";
-import ReactPullToRefresh from "react-simple-pull-to-refresh";
 
-import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { useTriggerSync } from "@/hooks/useTriggerSync";
 
 interface PullToRefreshProps {
@@ -10,19 +9,16 @@ interface PullToRefreshProps {
 }
 
 /**
- * Wraps children with pull-to-refresh on mobile. Triggers a mailbox sync
- * for the active account when pulled down. On desktop, renders children
- * directly (no pull behaviour).
+ * Binds the kit pull-to-refresh gesture to a mailbox sync for the active
+ * account: a pull triggers the sync and the in-flight state suspends the
+ * gesture until it settles.
  */
 export const PullToRefresh = ({ accountId, children }: PullToRefreshProps) => {
-	const isDesktop = useIsDesktop();
-	const { triggerAsync } = useTriggerSync(accountId);
-
-	if (isDesktop) {
-		return <>{children}</>;
-	}
+	const { triggerAsync, isPending } = useTriggerSync(accountId);
 
 	return (
-		<ReactPullToRefresh onRefresh={triggerAsync}>{children}</ReactPullToRefresh>
+		<KitPullToRefresh onRefresh={triggerAsync} isRefreshing={isPending}>
+			{children}
+		</KitPullToRefresh>
 	);
 };
