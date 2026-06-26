@@ -1,3 +1,4 @@
+import { IsolatedEmailFrame } from "@remit/ui";
 import { useMemo, useState } from "react";
 import { useIsDark } from "@/hooks/useIsDark";
 import { useMessageBodyContent } from "@/hooks/useMessageBodyContent";
@@ -12,7 +13,6 @@ import {
 	createEmailSanitizer,
 } from "@/lib/email-sanitizer";
 import { cn } from "@/lib/utils";
-import { IsolatedEmailFrame } from "./IsolatedEmailFrame";
 import { MessageBodyErrorBanner } from "./MessageBodyErrorBanner";
 
 /**
@@ -304,7 +304,7 @@ export const MessageBody = ({
 					>
 						<IsolatedEmailFrame
 							html={sanitizedHtml}
-							isPlain={false}
+							variant="framed"
 							isDark={isDark}
 						/>
 					</div>
@@ -316,7 +316,7 @@ export const MessageBody = ({
 					<div className="max-w-full overflow-x-auto lg:max-w-2xl">
 						<IsolatedEmailFrame
 							html={sanitizedHtml}
-							isPlain={isPlain}
+							variant={isPlain ? "plain" : "framed"}
 							isDark={isDark}
 						/>
 					</div>
