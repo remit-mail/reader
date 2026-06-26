@@ -1,14 +1,13 @@
 import { Search, X } from "lucide-react";
 import { useCallback, useEffect, useRef } from "react";
-import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
-import { cn } from "@/lib/utils";
+import { cn } from "../lib/cn.js";
 
-interface SearchBarProps {
+export interface SearchBarProps {
 	value: string;
 	onChange: (value: string) => void;
 	/**
-	 * Full clear (X button): resets the query AND the selected thread so the
-	 * view returns to the plain list with nothing pre-opened (#538).
+	 * Full clear (X button): the consumer resets the query AND any open thread
+	 * so the view returns to the plain list with nothing pre-opened (#538).
 	 */
 	onClear: () => void;
 	/**
@@ -18,7 +17,21 @@ interface SearchBarProps {
 	 */
 	onClearQuery?: () => void;
 	placeholder?: string;
+	/**
+	 * Bind the global "/" shortcut that focuses the field from anywhere on the
+	 * page. Defaults to true; set false where a page hosts more than one bar.
+	 */
+	globalFocusKey?: boolean;
 }
+
+const isEditableTarget = (target: EventTarget | null): boolean => {
+	if (!(target instanceof HTMLElement)) return false;
+	return (
+		target.tagName === "INPUT" ||
+		target.tagName === "TEXTAREA" ||
+		target.isContentEditable
+	);
+};
 
 export const SearchBar = ({
 	value,
@@ -26,13 +39,10 @@ export const SearchBar = ({
 	onClear,
 	onClearQuery,
 	placeholder = "Search mail...",
+	globalFocusKey = true,
 }: SearchBarProps) => {
 	const inputRef = useRef<HTMLInputElement>(null);
 	const clearQuery = onClearQuery ?? onClear;
-
-	const focusSearch = useCallback(() => {
-		inputRef.current?.focus();
-	}, []);
 
 	const handleClear = useCallback(() => {
 		onClear();
@@ -41,41 +51,29 @@ export const SearchBar = ({
 
 	const handleKeyDown = useCallback(
 		(event: React.KeyboardEvent<HTMLInputElement>) => {
-			if (event.key === "Escape") {
-				if (value) {
-					clearQuery();
-				} else {
-					inputRef.current?.blur();
-				}
+			if (event.key !== "Escape") return;
+			if (value) {
+				clearQuery();
+				return;
 			}
+			inputRef.current?.blur();
 		},
 		[value, clearQuery],
 	);
 
-	// Global "/" shortcut to focus search
-	useKeyboardNavigation({
-		enabled: true,
-		bindings: [{ key: "/", handler: focusSearch, preventDefault: true }],
-	});
-
-	// Clear search on Escape when focused
 	useEffect(() => {
-		const handleGlobalEscape = (event: KeyboardEvent) => {
-			if (
-				event.key === "Escape" &&
-				document.activeElement === inputRef.current
-			) {
-				if (value) {
-					clearQuery();
-				} else {
-					inputRef.current?.blur();
-				}
+		if (!globalFocusKey) return;
+		const handleGlobalSlash = (event: KeyboardEvent) => {
+			if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) {
+				return;
 			}
+			if (isEditableTarget(event.target)) return;
+			event.preventDefault();
+			inputRef.current?.focus();
 		};
-
-		window.addEventListener("keydown", handleGlobalEscape);
-		return () => window.removeEventListener("keydown", handleGlobalEscape);
-	}, [value, clearQuery]);
+		window.addEventListener("keydown", handleGlobalSlash);
+		return () => window.removeEventListener("keydown", handleGlobalSlash);
+	}, [globalFocusKey]);
 
 	return (
 		<div className="relative w-full">
