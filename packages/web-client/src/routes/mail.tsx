@@ -21,6 +21,7 @@ import { SearchBar } from "@/components/layout/SearchBar";
 import { BriefPane } from "@/components/mail/BriefPane";
 import { MailboxPane } from "@/components/mail/MailboxPane";
 import { MailNav } from "@/components/mail/MailNav";
+import { OutboxPane } from "@/components/mail/OutboxPane";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { KeyboardShortcutsModal } from "@/components/ui/KeyboardShortcutsModal";
 import { useCurrentMailboxName } from "@/hooks/useCurrentMailboxName";
@@ -401,17 +402,33 @@ function MailLayout() {
 					)}
 				</MailboxPane>
 			) : onOutboxRoute ? (
-				// Outbox has its own inline layout — render it via <Outlet />.
-				<AppShellSlotted
-					nav={navContent}
-					list={<Outlet />}
-					intelligenceOpen={false}
-					header={mobileHeader}
-					overlay={overlayContent}
-					skeleton={<AppShellSkeleton />}
-					isLoading={isLoading || hasNoAccounts}
-					{...navSlideOver}
-				/>
+				// Outbox — 2-pane layout (list + reading, no intelligence).
+				<OutboxPane>
+					{isSinglePane ? (
+						<AppShellSlotted
+							nav={navContent}
+							list={<OutboxPane.Phone />}
+							intelligenceOpen={false}
+							header={mobileHeader}
+							overlay={overlayContent}
+							skeleton={<AppShellSkeleton />}
+							isLoading={isLoading || hasNoAccounts}
+							{...navSlideOver}
+						/>
+					) : (
+						<AppShellSlotted
+							nav={navContent}
+							list={<OutboxPane.List />}
+							reading={<OutboxPane.Reading />}
+							intelligenceOpen={false}
+							header={mobileHeader}
+							overlay={overlayContent}
+							skeleton={<AppShellSkeleton />}
+							isLoading={isLoading || hasNoAccounts}
+							{...navSlideOver}
+						/>
+					)}
+				</OutboxPane>
 			) : (
 				// Fallback: transitioning or unrecognized route — show skeleton.
 				<AppShellSkeleton />
@@ -421,10 +438,9 @@ function MailLayout() {
 				onClose={() => setShowShortcuts(false)}
 			/>
 			{/* Outlet is required for TanStack Router to activate child routes.
-			    Routes that manage their own rendering (brief, mailbox) return null
-			    from their component. Routes with inline layouts (outbox) render via
-			    the onOutboxRoute branch above which passes <Outlet /> as the list slot. */}
-			{!onOutboxRoute && <Outlet />}
+			    Routes that manage their own rendering (brief, mailbox, outbox) return
+			    null from their component — the parent shell owns the layout. */}
+			<Outlet />
 		</MailContext.Provider>
 	);
 }
