@@ -1,9 +1,21 @@
-import type { RemitImapEnvelopeAddressResponse } from "@remit/api-http-client/types.gen.ts";
 import { BadgeCheck, ChevronDown, ChevronRight } from "lucide-react";
 import { useState } from "react";
 
-interface AddressDisplayProps {
-	address: RemitImapEnvelopeAddressResponse;
+/**
+ * Minimal address shape the display needs. Structurally compatible with the
+ * generated `RemitImapEnvelopeAddressResponse` so call sites can pass envelope
+ * addresses straight through, but the kit owns no app types.
+ */
+export interface EnvelopeAddress {
+	displayName?: string;
+	normalizedEmail: string;
+	flags?: {
+		trusted?: { value: boolean };
+	};
+}
+
+export interface AddressDisplayProps {
+	address: EnvelopeAddress;
 	/**
 	 * When true, render a small "trusted sender" checkmark next to the
 	 * address. Driven by `address.flags?.trusted?.value === true` upstream
@@ -45,9 +57,9 @@ export const AddressDisplay = ({
 	);
 };
 
-interface AddressListProps {
+export interface AddressListProps {
 	label: string;
-	addresses: RemitImapEnvelopeAddressResponse[];
+	addresses: EnvelopeAddress[];
 	/**
 	 * When true, addresses with `flags.trusted.value === true` render a
 	 * green checkmark. Only set this for the From row; trusted-status of
@@ -67,7 +79,7 @@ export const AddressList = ({
 
 	const hasMany = addresses.length > 3;
 
-	const renderAddress = (addr: RemitImapEnvelopeAddressResponse) => {
+	const renderAddress = (addr: EnvelopeAddress) => {
 		const isTrusted = showTrustedBadge && addr.flags?.trusted?.value === true;
 		return <AddressDisplay address={addr} showTrustedBadge={isTrusted} />;
 	};

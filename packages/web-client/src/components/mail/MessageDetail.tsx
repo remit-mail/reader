@@ -2,6 +2,7 @@ import {
 	messageOperationsDescribeMessageOptions,
 	messageOperationsUpdateMessageFlagsMutation,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import { MessageHeader } from "@remit/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -11,8 +12,8 @@ import {
 	formatErrorDetail,
 	isMessageNotFoundError,
 } from "@/components/ui/error-banners";
+import { formatDatePreset } from "@/lib/format";
 import { MessageBody } from "./MessageBody";
-import { MessageHeader } from "./MessageHeader";
 
 interface MessageDetailProps {
 	messageId?: string;
@@ -125,7 +126,15 @@ export const MessageDetail = ({ messageId }: MessageDetailProps) => {
 
 	return (
 		<article>
-			<MessageHeader envelope={messageData.envelope} />
+			<MessageHeader
+				subject={messageData.envelope.subject}
+				from={messageData.envelope.from}
+				to={messageData.envelope.to}
+				cc={messageData.envelope.cc}
+				date={formatDatePreset(messageData.envelope.date, "full")}
+				category={messageData.envelope.category}
+				senderTrust={messageData.envelope.senderTrust}
+			/>
 			<MessageBody
 				bodyParts={messageData.bodyParts}
 				messageId={messageId}
