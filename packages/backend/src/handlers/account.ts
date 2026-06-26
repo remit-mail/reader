@@ -221,6 +221,7 @@ export const AccountOperations: Record<
 
 		const newAccount = await account.create({
 			accountConfigId,
+			displayName: input.displayName,
 			email: input.email,
 			username: input.username ?? input.email,
 			authType: AccountAuthType.Password,

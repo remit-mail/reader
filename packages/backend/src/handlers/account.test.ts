@@ -165,6 +165,18 @@ describe("toAccountResponse — no token material in output", () => {
 		const response = toAccountResponse(rest as AccountItem);
 		assert.equal(response.authType, "password");
 	});
+
+	it("flows displayName through the response", () => {
+		const response = toAccountResponse(
+			makeAccountItem({ displayName: "Alice" }),
+		);
+		assert.equal(response.displayName, "Alice");
+	});
+
+	it("leaves displayName undefined when the account has none", () => {
+		const response = toAccountResponse(makeAccountItem());
+		assert.equal(response.displayName, undefined);
+	});
 });
 
 // ── createAccount OAuth guard ────────────────────────────────────────────────

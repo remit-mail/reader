@@ -59,6 +59,7 @@ export const deriveUseDifferentSmtpCreds = (
 
 const accountFormSchema = z.object({
 	email: z.string().email().min(1, "Email is required"),
+	displayName: z.string().optional(),
 	username: z.string().optional(),
 	password: z.string().optional(),
 	imapHost: z.string().min(1, "IMAP host is required"),
@@ -109,6 +110,7 @@ export const AccountFormPanel = ({
 		resolver: zodResolver(accountFormSchema),
 		defaultValues: {
 			email: "",
+			displayName: "",
 			username: "",
 			password: "",
 			imapHost: "",
@@ -129,6 +131,7 @@ export const AccountFormPanel = ({
 			const useDifferentSmtpCreds = deriveUseDifferentSmtpCreds(account);
 			form.reset({
 				email: account.email,
+				displayName: account.displayName || "",
 				username: account.username || "",
 				password: PASSWORD_PLACEHOLDER, // Show placeholder to indicate password exists
 				imapHost: account.imapHost,
@@ -147,6 +150,7 @@ export const AccountFormPanel = ({
 		} else {
 			form.reset({
 				email: "",
+				displayName: "",
 				username: "",
 				password: "",
 				imapHost: "",
@@ -263,6 +267,7 @@ export const AccountFormPanel = ({
 
 		const baseBody = {
 			email: values.email,
+			displayName: values.displayName?.trim() || undefined,
 			username: values.username || undefined,
 			imapHost: values.imapHost,
 			imapPort: Number(values.imapPort),
@@ -524,6 +529,16 @@ export const AccountFormPanel = ({
 									{form.formState.errors.email.message}
 								</p>
 							)}
+						</div>
+						<div>
+							<label className="text-sm font-medium mb-1.5 block">
+								Display name (optional)
+							</label>
+							<Input {...form.register("displayName")} placeholder="Alice" />
+							<p className="text-xs text-fg-muted mt-1">
+								What to call this account in Remit. Leave blank to use a name
+								derived from the address.
+							</p>
 						</div>
 						<div>
 							<label className="text-sm font-medium mb-1.5 block">
