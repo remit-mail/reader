@@ -1,17 +1,16 @@
-import { Avatar } from "@remit/ui";
+import { Avatar, IsolatedEmailFrame } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { BadgeCheck, ChevronDown, Paperclip, Star } from "lucide-react";
 
 /**
- * Storybook-only inline mirror of the MOBILE inline-expanded card path
- * (`MessageCard.ExpandedCard` → `MessageBody` framed branch) used to reproduce
- * and pin the fix for #763 — "padding around mailbody" on a phone.
+ * The MOBILE inline-expanded card path (`MessageCard.ExpandedCard` →
+ * `MessageBody` framed branch) used to reproduce and pin the fix for #763 —
+ * "padding around mailbody" on a phone.
  *
- * The real components live in `remit-web-client` and import `@/lib/*` aliases
- * that don't resolve in the workbench build, so we copy just the structural
- * layout that drives the bug: the card's `px-5 py-3` wrapper, the header row,
- * and the body holding the framed-email box. Behaviour mirrored exactly —
- * change the card/body class strings here in lockstep with the real components.
+ * The card structure is mirrored from `remit-web-client` (the card's `px-5 py-3`
+ * wrapper, the header row, and the body wrapper), but the email itself renders
+ * through the real kit `IsolatedEmailFrame` — change the card/body class strings
+ * here in lockstep with the real component.
  *
  * The bug: the framed email box has ZERO internal padding, so a newsletter
  * whose own HTML carries no body padding renders its content flush to the box
@@ -20,16 +19,16 @@ import { BadgeCheck, ChevronDown, Paperclip, Star } from "lucide-react";
  * nothing is pinned to the border.
  */
 
-const SANDBOX = "allow-same-origin allow-popups allow-popups-to-escape-sandbox";
-
-const LAYOUT_CLAMP_CSS = `
+// The sanitizer's layout-clamp block, prepended to the fixture exactly as the
+// real pipeline does before handing HTML to IsolatedEmailFrame.
+const LAYOUT_CLAMP_CSS = `<style>
 html, body { margin: 0; padding: 0; max-width: 100%; }
 body { overflow-wrap: anywhere; word-break: break-word; }
 img, video, iframe, svg, canvas { max-width: 100% !important; height: auto; }
 table { max-width: 100% !important; table-layout: auto; }
 td, th { max-width: 100% !important; }
 * { min-width: 0; }
-`;
+</style>`;
 
 // Reporter-style newsletter: a FULL-WIDTH hero image (edge to edge, no author
 // padding around it), a heading, body copy, and a pink call-to-action button —
@@ -75,25 +74,15 @@ const FRAMED_BEFORE =
 	"w-full max-w-full overflow-x-auto rounded-sm border border-line bg-surface-sunken";
 const FRAMED_AFTER = "w-full max-w-full overflow-x-auto p-3";
 
-/** Mirror of MessageBody's framed branch + the IsolatedEmailFrame iframe.
+/** MessageBody's framed branch wrapping the real kit `IsolatedEmailFrame`.
  *  `fixed` toggles the #763 internal padding on the framed box. */
 function FramedBody({ fixed }: CardProps) {
-	const srcDoc = `<meta name="viewport" content="width=device-width, initial-scale=1"><style>${LAYOUT_CLAMP_CSS}html,body{margin:0;background-color:#ffffff;color-scheme:light}</style>${NEWSLETTER_HTML}`;
 	return (
 		<div className={fixed ? FRAMED_AFTER : FRAMED_BEFORE}>
-			<iframe
-				title="Email content"
-				sandbox={SANDBOX}
-				srcDoc={srcDoc}
-				scrolling="no"
-				style={{
-					width: "100%",
-					border: "none",
-					display: "block",
-					height: 420,
-					overflow: "hidden",
-					colorScheme: "normal",
-				}}
+			<IsolatedEmailFrame
+				html={`${LAYOUT_CLAMP_CSS}${NEWSLETTER_HTML}`}
+				variant="framed"
+				isDark={false}
 			/>
 		</div>
 	);
