@@ -1,9 +1,10 @@
-import type { RemitImapSenderTrust } from "@remit/api-http-client/types.gen.ts";
 import { Sparkles } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn } from "../lib/cn.js";
 
-interface SenderTrustIndicatorProps {
-	senderTrust: RemitImapSenderTrust;
+export type SenderTrust = "unknown" | "wellknown" | "vip";
+
+export interface SenderTrustIndicatorProps {
+	senderTrust: SenderTrust;
 	/** Larger size for the open-message header. */
 	size?: "sm" | "md";
 	className?: string;
@@ -27,7 +28,7 @@ export type SenderTrustVariant = "vip" | "unknown-pill" | "hidden";
  * DOM renderer.
  */
 export const selectSenderTrustVariant = (
-	senderTrust: RemitImapSenderTrust,
+	senderTrust: SenderTrust,
 	size: "sm" | "md",
 ): SenderTrustVariant => {
 	if (senderTrust === "vip") return "vip";

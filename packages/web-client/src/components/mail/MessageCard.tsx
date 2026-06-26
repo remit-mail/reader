@@ -3,7 +3,7 @@ import type {
 	RemitImapDescribeMessageResponse,
 	RemitImapThreadMessageResponse,
 } from "@remit/api-http-client/types.gen.ts";
-import { Avatar } from "@remit/ui";
+import { AddressList, Avatar } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import {
 	BadgeCheck,
@@ -18,7 +18,6 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { isMessageNotFoundError } from "@/components/ui/error-banners";
 import { formatDatePreset } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { AddressList } from "./AddressDisplay";
 import { MessageActionMenu } from "./MessageActionMenu";
 import { MessageBody } from "./MessageBody";
 import { RawMessageView } from "./RawMessageView";
