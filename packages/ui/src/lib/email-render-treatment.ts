@@ -12,8 +12,8 @@
  *    background. Receives the UI sans-serif + theme-aware base CSS so
  *    black-text-on-dark is readable.
  *
- * This is the single source of truth for the branch; `MessageBody` consumes it
- * so the decision is unit-testable in isolation (no DOM, no iframe).
+ * This is the single source of truth for the branch; `MessageBodyView` consumes
+ * it so the decision is unit-testable in isolation (no DOM, no iframe).
  */
 
 /**

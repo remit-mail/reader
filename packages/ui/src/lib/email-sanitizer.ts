@@ -1,10 +1,10 @@
 import DOMPurify from "dompurify";
-import type { CidResolver } from "./cid-resolver";
-import { generateLayoutClampCSS } from "./email-layout-clamp";
+import type { CidResolver } from "./cid-resolver.js";
+import { generateLayoutClampCSS } from "./email-layout-clamp.js";
 
-export type { CidResolver } from "./cid-resolver";
-export { buildCidResolver } from "./cid-resolver";
-export { generateLayoutClampCSS } from "./email-layout-clamp";
+export type { CidResolver } from "./cid-resolver.js";
+export { buildCidResolver } from "./cid-resolver.js";
+export { generateLayoutClampCSS } from "./email-layout-clamp.js";
 
 export interface SanitizeOptions {
 	allowExternalImages?: boolean;
@@ -162,7 +162,7 @@ const PLACEHOLDER_IMAGE =
  *   - `-moz-binding: ...` — legacy Firefox CSS-to-XBL escape hatch. XSS.
  *
  * Author colors/backgrounds pass through unchanged — the email body is
- * rendered as a light-mode island (see `MessageBody.tsx`'s
+ * rendered as a light-mode island (see `IsolatedEmailFrame`'s
  * `color-scheme: light`), so author CSS can stand on its own.
  */
 export const sanitizeInlineStyle = (style: string): string => {

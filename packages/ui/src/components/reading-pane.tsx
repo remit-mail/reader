@@ -12,6 +12,7 @@ import { Avatar } from "./avatar.js";
 import { Button } from "./button.js";
 import { Input } from "./input.js";
 import { MailActionToolbar } from "./mail-action-toolbar.js";
+import { MessageBodyView } from "./message-body-view.js";
 import { ReadingPaneEmpty } from "./reading-pane-empty.js";
 
 /* ------------------------------------------------------------------ */
@@ -76,23 +77,17 @@ export function ExpandedMessage({
 				</div>
 			)}
 
-			{message.framed ? (
-				// Designed HTML mail: hairline frame anchored left, the email's
-				// own (light) colors contained inside — never dark-inverted.
-				<div className="mt-3 max-w-2xl overflow-hidden rounded-sm border border-line bg-surface-sunken">
-					<div
-						// biome-ignore lint/security/noDangerouslySetInnerHtml: fixture HTML only, no user input in the workbench
-						dangerouslySetInnerHTML={{ __html: message.bodyHtml }}
-					/>
-				</div>
-			) : (
-				// Plain mail: left-aligned, comfortable measure, whitespace right.
-				<div
-					className="mt-3 max-w-2xl text-md leading-relaxed text-fg [&_a]:text-accent [&_a]:underline [&_code]:rounded [&_code]:bg-surface-sunken [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-sm [&_li]:my-1 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-3 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5"
-					// biome-ignore lint/security/noDangerouslySetInnerHtml: fixture HTML only, no user input in the workbench
-					dangerouslySetInnerHTML={{ __html: message.bodyHtml }}
-				/>
-			)}
+			{/* Render through the real sanitize → classify → sandboxed-iframe
+			    pipeline so Storybook shows exactly what the app renders, not a
+			    divergent inline-HTML mock (#940). `framed` fixtures map to the
+			    newsletter treatment (author colors preserved); the rest render
+			    plain. External images are allowed in the kit reference. */}
+			<MessageBodyView
+				className="mt-3"
+				html={message.bodyHtml}
+				category={message.framed ? "newsletter" : "personal"}
+				allowImages
+			/>
 		</div>
 	);
 }

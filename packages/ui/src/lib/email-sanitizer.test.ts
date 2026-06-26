@@ -1,11 +1,11 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
-import { buildCidResolver } from "./cid-resolver";
+import { buildCidResolver } from "./cid-resolver.js";
 import {
 	detectAuthorBackground,
 	sanitizeInlineStyle,
 	sanitizeStyleElementCss,
-} from "./email-sanitizer";
+} from "./email-sanitizer.js";
 
 /**
  * Author CSS survives — the email body is rendered as a light-mode island
