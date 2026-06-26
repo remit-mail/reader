@@ -2,7 +2,7 @@ import {
 	configOperationsGetConfigOptions,
 	unifiedThreadOperationsListAllThreadsOptions,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
-import { AppShellSlotted } from "@remit/ui";
+import { AppShellSlotted, SearchBar } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import {
 	createFileRoute,
@@ -17,7 +17,6 @@ import { z } from "zod";
 import { AccountMenu } from "@/auth/AccountMenu";
 import { AppShellSkeleton } from "@/components/layout/AppShellSkeleton";
 import { ComposeFab } from "@/components/layout/ComposeFab";
-import { SearchBar } from "@/components/layout/SearchBar";
 import { BriefPane } from "@/components/mail/BriefPane";
 import { MailboxPane } from "@/components/mail/MailboxPane";
 import { MailNav } from "@/components/mail/MailNav";
@@ -262,6 +261,7 @@ function MailLayout() {
 							onChange={handleSearchChange}
 							onClear={handleSearchClear}
 							onClearQuery={handleSearchClearQuery}
+							globalFocusKey={false}
 						/>
 					</div>
 					<button

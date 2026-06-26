@@ -195,6 +195,7 @@ export {
 	type RowActionsProps,
 	type RowDestructiveAction,
 } from "./components/row-actions.js";
+export { SearchBar, type SearchBarProps } from "./components/search-bar.js";
 export {
 	SecuritySelect,
 	type SecuritySelectProps,
