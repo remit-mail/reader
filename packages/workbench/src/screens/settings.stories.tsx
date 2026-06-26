@@ -33,6 +33,7 @@ import {
 	senders,
 	sendersByGroup,
 } from "../fixtures/senders.js";
+import { EditAccountForm } from "./edit-account.js";
 
 const meta: Meta = {
 	title: "Screens/Settings",
@@ -495,6 +496,40 @@ export const AccountsDeleteConfirm: Story = {
 		<AccountsShell count={3}>
 			{accountCards}
 			<DeleteAccountConfirm />
+		</AccountsShell>
+	),
+};
+
+/* ------------------------------------------------------------------ */
+/* Edit account: slide-in panel from "Manage" (RFC 021). Email address  */
+/* is fixed; Display Name is the editable, optional account label.      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Edit account form: the slide-in panel reached from a card's Manage
+ * button. Display Name is the optional, editable label — here pre-filled
+ * with the account's current name.
+ */
+export const AccountEdit: Story = {
+	name: "Accounts — edit",
+	render: () => (
+		<AccountsShell count={3}>
+			{accountCards}
+			<EditAccountForm email="alice@northwind.example" displayName="Work" />
+		</AccountsShell>
+	),
+};
+
+/**
+ * Edit account with no Display Name set: the field is empty and shows its
+ * placeholder, documenting that blank falls back to a derived name.
+ */
+export const AccountEditNoDisplayName: Story = {
+	name: "Accounts — edit, no display name",
+	render: () => (
+		<AccountsShell count={3}>
+			{accountCards}
+			<EditAccountForm email="alice@northwind.example" />
 		</AccountsShell>
 	),
 };
