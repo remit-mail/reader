@@ -1,10 +1,10 @@
 import { addressOperationsSearchAddressesOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapAddressResponse } from "@remit/api-http-client/types.gen.ts";
+import { AddressTag } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { cn } from "@/lib/utils";
-import { AddressTag } from "./AddressTag";
 
 export interface AddressEntry {
 	email: string;

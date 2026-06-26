@@ -5,6 +5,7 @@ export {
 	type AddressListProps,
 	type EnvelopeAddress,
 } from "./components/address-display.js";
+export { AddressTag, type AddressTagProps } from "./components/address-tag.js";
 export {
 	AppPasswordHint,
 	type AppPasswordHintProps,
