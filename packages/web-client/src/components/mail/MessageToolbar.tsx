@@ -1,8 +1,12 @@
-import { Button, type MailAction, MailActionToolbar } from "@remit/ui";
+import {
+	Button,
+	type MailAction,
+	MailActionToolbar,
+	SearchBar,
+} from "@remit/ui";
 import { Info, SquarePen } from "lucide-react";
 import { useState } from "react";
 import { AccountMenu } from "@/auth/AccountMenu";
-import { SearchBar } from "@/components/layout/SearchBar";
 import { BugReportButton } from "@/components/ui/BugReportButton";
 import { tooltipForAction } from "@/lib/keymap";
 import { MoveToTrigger } from "./MoveToTrigger";
