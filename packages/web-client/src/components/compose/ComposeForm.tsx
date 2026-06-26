@@ -9,7 +9,11 @@ import type {
 	RemitImapAccountResponse,
 	RemitImapDescribeMessageResponse,
 } from "@remit/api-http-client/types.gen.ts";
-import { ComposeActionBar, ComposeFormShell } from "@remit/ui";
+import {
+	ComposeActionBar,
+	ComposeFormShell,
+	QuotedText,
+} from "@remit/ui";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import type { Value } from "platejs";
 import {
@@ -53,8 +57,8 @@ import { useVisualViewport } from "../../hooks/useVisualViewport.js";
 import type { ComposeMode } from "./ComposeProvider";
 import { useCompose } from "./ComposeProvider";
 import { FromSelector } from "./FromSelector";
-import { QuotedText } from "./QuotedText";
 import { SubjectField } from "./SubjectField";
+import { sanitizeQuoteHtml } from "./sanitize-quote-html.js";
 
 interface ComposeFormProps {
 	mode: ComposeMode;
@@ -396,7 +400,10 @@ export const ComposeForm = ({
 	});
 
 	const quotedText = sourceBody?.kind === "text" ? sourceBody.body : "";
-	const quotedHtml = sourceBody?.kind === "html" ? sourceBody.body : undefined;
+	const quotedHtml =
+		sourceBody?.kind === "html"
+			? sanitizeQuoteHtml(sourceBody.body)
+			: undefined;
 
 	const senderName =
 		sourceMessage?.envelope.from[0]?.displayName ??
