@@ -182,16 +182,28 @@ export function StepAddress({
 				</>
 			}
 		>
-			<div>
-				<FieldLabel htmlFor="address-email">Email address</FieldLabel>
-				<Input
-					id="address-email"
-					icon={<AtSign className="size-4" />}
-					placeholder="you@example.com"
-					defaultValue={
-						error ? "alice@" : discovering ? "alice@fastmail.example" : ""
-					}
-				/>
+			<div className="space-y-4">
+				<div>
+					<FieldLabel htmlFor="address-email">Email address</FieldLabel>
+					<Input
+						id="address-email"
+						icon={<AtSign className="size-4" />}
+						placeholder="you@example.com"
+						defaultValue={
+							error ? "alice@" : discovering ? "alice@fastmail.example" : ""
+						}
+					/>
+				</div>
+				<div>
+					<FieldLabel htmlFor="address-display-name">
+						Display name (optional)
+					</FieldLabel>
+					<Input id="address-display-name" placeholder="Alice" />
+					<p className="mt-1.5 text-2xs text-fg-subtle">
+						What to call this account in Remit. Leave blank to use a name
+						derived from the address.
+					</p>
+				</div>
 				{discovering && (
 					<div className="mt-3 flex items-center gap-2 text-xs text-fg-muted">
 						<Loader2 className="size-3.5 animate-spin text-accent" />
