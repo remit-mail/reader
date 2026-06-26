@@ -114,7 +114,7 @@ const CollapsedCard = ({
 			type="button"
 			onClick={onToggle}
 			className={cn(
-				"group flex w-full items-center gap-3 border-b border-line px-5 py-2 text-left",
+				"group flex w-full items-center gap-3 border-b border-line px-2 py-2 text-left lg:px-4",
 				"hover:bg-surface-sunken transition-colors",
 				isFocused && "bg-surface-sunken ring-1 ring-inset ring-accent/30",
 			)}
@@ -125,7 +125,7 @@ const CollapsedCard = ({
 				<Avatar
 					name={threadMessage.fromName ?? threadMessage.fromEmail ?? "?"}
 					email={threadMessage.fromEmail ?? undefined}
-					size="sm"
+					size="md"
 				/>
 				{isUnread && (
 					<span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-accent border border-canvas" />
@@ -218,12 +218,14 @@ const ExpandedCard = ({
 	return (
 		<div
 			className={cn(
-				"px-5 py-3",
+				"px-2 py-3 lg:px-4",
 				isFocused && "ring-1 ring-inset ring-accent/30",
 			)}
 		>
-			{/* Header row: avatar · sender/to block · date · collapse chevron · action menu */}
+			{/* Header row: chevron · avatar · sender/to block · date · action menu.
+			    Leading chevron + avatar match CollapsedCard so the rows align. */}
 			<div className="flex items-start gap-3">
+				<ChevronDown className="mt-1 size-3.5 shrink-0 text-fg-subtle" />
 				<Avatar
 					name={threadMessage.fromName ?? threadMessage.fromEmail ?? "?"}
 					email={threadMessage.fromEmail ?? undefined}
@@ -249,7 +251,6 @@ const ExpandedCard = ({
 								>
 									{date}
 								</span>
-								<ChevronDown className="size-3.5 shrink-0 text-fg-subtle" />
 							</div>
 						</div>
 						{messageData && (
