@@ -75,7 +75,7 @@ html, body {
   color: ${t.fg};
   background-color: ${t.surface};
   margin: 0;
-  padding: 8px 0;
+  padding: 0;
 }
 /* Strip author unreadable text colors and element backgrounds, scoped to body
    descendants so the themed html/body surface above survives this reset. */

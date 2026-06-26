@@ -7,7 +7,7 @@ import {
 	generatePlainEmailBaseCSS,
 	VIEWPORT_META,
 } from "./email-frame-css.js";
-import { measureContentAxis } from "./isolated-email-frame.js";
+import { computeFitScale, measureContentAxis } from "./isolated-email-frame.js";
 
 describe("measureContentAxis (content-sizing)", () => {
 	it("takes the larger of body and documentElement scroll size", () => {
@@ -28,6 +28,28 @@ describe("measureContentAxis (content-sizing)", () => {
 	it("returns an exact integer for already-integral content (no spurious +1)", () => {
 		assert.equal(measureContentAxis(672, 0, 10_000), 672);
 		assert.equal(measureContentAxis(0, 0, 10_000), 0);
+	});
+});
+
+describe("computeFitScale (mobile fit-to-width #727)", () => {
+	it("does not scale content that already fits the container", () => {
+		assert.equal(computeFitScale(364, 364), 1);
+		assert.equal(computeFitScale(300, 364), 1);
+	});
+
+	it("downscales a fixed-width newsletter to the container width", () => {
+		// 648px Node-Weekly table into a 364px phone container.
+		assert.equal(computeFitScale(648, 364), 364 / 648);
+	});
+
+	it("floors the scale so a pathologically wide email stays readable", () => {
+		assert.equal(computeFitScale(4000, 364), 0.4);
+	});
+
+	it("never upscales and never divides by an unknown width", () => {
+		assert.equal(computeFitScale(0, 364), 1);
+		assert.equal(computeFitScale(648, 0), 1);
+		assert.equal(computeFitScale(-10, 364), 1);
 	});
 });
 
