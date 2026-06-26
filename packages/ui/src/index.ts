@@ -1,4 +1,11 @@
 export {
+	AddressDisplay,
+	type AddressDisplayProps,
+	AddressList,
+	type AddressListProps,
+	type EnvelopeAddress,
+} from "./components/address-display.js";
+export {
 	AppPasswordHint,
 	type AppPasswordHintProps,
 } from "./components/app-password-hint.js";
@@ -58,6 +65,12 @@ export {
 	type CardProps,
 	CardTitle,
 } from "./components/card.js";
+export {
+	CategoryBadge,
+	type CategoryBadgeProps,
+	getCategoryLabel,
+	type MessageCategory,
+} from "./components/category-badge.js";
 export {
 	ComposeActionBar,
 	type ComposeActionBarProps,
@@ -122,6 +135,10 @@ export {
 	MailActionToolbar,
 	type MailActionToolbarProps,
 } from "./components/mail-action-toolbar.js";
+export {
+	MessageHeader,
+	type MessageHeaderProps,
+} from "./components/message-header.js";
 export { MessageListPane } from "./components/message-list-pane.js";
 export {
 	type ListState,
@@ -198,6 +215,13 @@ export {
 	SenderGroupSwitch,
 	type SenderGroupSwitchProps,
 } from "./components/sender-group-switch.js";
+export {
+	type SenderTrust,
+	SenderTrustIndicator,
+	type SenderTrustIndicatorProps,
+	type SenderTrustVariant,
+	selectSenderTrustVariant,
+} from "./components/sender-trust-indicator.js";
 export {
 	AccountHealthCard,
 	type AccountHealthCardProps,
