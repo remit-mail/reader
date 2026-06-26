@@ -23,10 +23,10 @@ export function CollapsedMessage({ message }: { message: ThreadMessageData }) {
 	return (
 		<button
 			type="button"
-			className="flex h-section-row w-full items-center gap-3 border-b border-line px-5 text-left hover:bg-surface-sunken"
+			className="flex h-section-row w-full items-center gap-3 border-b border-line px-2 text-left hover:bg-surface-sunken lg:px-4"
 		>
 			<ChevronRight className="size-3.5 shrink-0 text-fg-subtle" />
-			<Avatar name={message.fromName} email={message.fromEmail} size="sm" />
+			<Avatar name={message.fromName} email={message.fromEmail} size="md" />
 			<span className="w-36 shrink-0 truncate text-sm font-medium text-fg-muted">
 				{message.fromName}
 			</span>
@@ -48,8 +48,9 @@ export function ExpandedMessage({
 	warning?: string;
 }) {
 	return (
-		<div className="px-5 py-3">
+		<div className="px-2 py-3 lg:px-4">
 			<div className="flex items-start gap-3">
+				<ChevronDown className="mt-1 size-3.5 shrink-0 text-fg-subtle" />
 				<Avatar name={message.fromName} email={message.fromEmail} size="md" />
 				<div className="min-w-0 flex-1">
 					<div className="flex items-baseline justify-between gap-2">
@@ -61,7 +62,6 @@ export function ExpandedMessage({
 					<div className="text-xs text-fg-subtle">{message.fromEmail}</div>
 					<div className="text-xs text-fg-subtle">to {message.toLabel}</div>
 				</div>
-				<ChevronDown className="size-3.5 shrink-0 text-fg-subtle" />
 			</div>
 
 			{warning && (
