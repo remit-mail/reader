@@ -1,6 +1,6 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
-import { generateLayoutClampCSS } from "./email-layout-clamp";
+import { generateLayoutClampCSS } from "./email-layout-clamp.js";
 
 /**
  * Layout-clamp CSS injected alongside sanitized email HTML. Asserts on

@@ -1,17 +1,13 @@
-import { IsolatedEmailFrame } from "@remit/ui";
+import {
+	buildCidResolver,
+	type CidResolver,
+	type EmailRenderCategory,
+	MessageBodyView,
+} from "@remit/ui";
 import { useMemo, useState } from "react";
 import { useIsDark } from "@/hooks/useIsDark";
 import { useMessageBodyContent } from "@/hooks/useMessageBodyContent";
 import { useToggleTrusted } from "@/hooks/useToggleTrusted";
-import {
-	classifyEmailRenderTreatment,
-	type EmailRenderCategory,
-} from "@/lib/email-render-treatment";
-import {
-	buildCidResolver,
-	type CidResolver,
-	createEmailSanitizer,
-} from "@/lib/email-sanitizer";
 import { cn } from "@/lib/utils";
 import { MessageBodyErrorBanner } from "./MessageBodyErrorBanner";
 
@@ -136,47 +132,6 @@ export const MessageBody = ({
 	const renderedText =
 		hasParts && fetched?.kind === "text" ? fetched.body : text;
 
-	const sanitized = useMemo(() => {
-		if (!renderedHtml) return null;
-
-		const sanitize = createEmailSanitizer({
-			allowExternalImages: allowImages,
-			resolveCid,
-		});
-
-		return sanitize(renderedHtml);
-	}, [renderedHtml, allowImages, resolveCid]);
-
-	const sanitizedHtml = sanitized?.html ?? null;
-
-	/**
-	 * Classify the email for rendering treatment:
-	 *
-	 * - `framed`: designed HTML mail (newsletter/marketing category OR
-	 *   author-specified background). Rendered inside a left-anchored
-	 *   hairline frame on `surface-sunken`. Light theme keeps the author's
-	 *   own colors on a white canvas; dark theme darkens it via CSS
-	 *   smart-invert (images / links preserved) unless it opts into its own
-	 *   dark design.
-	 *
-	 * - `isPlain`: no author background, not newsletter/marketing. UI
-	 *   sans-serif + theme-aware colors injected so black-text-on-dark
-	 *   is fixed. `colorScheme` set to "normal" so the injected CSS drives
-	 *   everything.
-	 *
-	 * Everything else is an in-between case; the framed treatment is the
-	 * safe-to-show option and is the default when unsure.
-	 */
-	const { framed, isPlain } = classifyEmailRenderTreatment(
-		category,
-		sanitized?.hasAuthorBackground ?? false,
-	);
-
-	const blockedImageCount = useMemo(() => {
-		if (!sanitizedHtml || allowImages) return 0;
-		return (sanitizedHtml.match(/data-blocked-src/g) || []).length;
-	}, [sanitizedHtml, allowImages]);
-
 	if (hasParts) {
 		if (isBodyLoading) {
 			return (
@@ -217,9 +172,22 @@ export const MessageBody = ({
 		toggleTrusted(fromAddressId, false);
 	};
 
+	// The sanitize → classify → sandboxed-iframe rendering lives in the kit's
+	// `MessageBodyView` (the single source of truth, shared with Storybook's
+	// reading panes — #940). This component keeps the data orchestration:
+	// bodyParts → html/text, the allow-images-once trust state, and the
+	// privacy "images blocked" bar (it touches app trust state, so it stays
+	// here and is injected via `renderBlockedNotice`).
 	return (
-		<div className={cn("message-body", className)}>
-			{blockedImageCount > 0 && (
+		<MessageBodyView
+			className={className}
+			html={renderedHtml}
+			text={renderedText}
+			isDark={isDark}
+			category={category}
+			allowImages={allowImages}
+			resolveCid={resolveCid}
+			renderBlockedNotice={(blockedImageCount) => (
 				<div className="mb-3 flex items-center justify-between rounded-md bg-surface-sunken/50 px-3 py-2 text-sm">
 					<span className="text-fg-muted">
 						{blockedImageCount} image{blockedImageCount > 1 ? "s" : ""} blocked
@@ -246,57 +214,6 @@ export const MessageBody = ({
 					</div>
 				</div>
 			)}
-
-			{sanitizedHtml ? (
-				// Email HTML renders inside a sandboxed iframe so its own CSS
-				// and any (already-DOMPurify'd) markup cannot bleed into the
-				// app chrome. The frame sizes itself to its content via
-				// ResizeObserver; the sandbox omits `allow-scripts` so even a
-				// hypothetical sanitizer escape can't execute.
-				//
-				// Designed / framed treatment (newsletter/marketing or author
-				// background detected): hairline frame on surface-sunken. In the
-				// light app theme the email renders as authored on a white canvas.
-				// In the dark theme it's darkened via CSS smart-invert (images and
-				// link/accent colors preserved) so it blends into the dark pane —
-				// unless the email opts into its own dark design, which is left
-				// untouched.
-				//
-				// Plain treatment (no author background, not newsletter):
-				// UI sans-serif + theme-aware colors injected; colorScheme:
-				// "normal" so the injected CSS drives everything.
-				framed ? (
-					// Full-width wrapper so a fluid newsletter fills the reading column;
-					// max-w-full + overflow-x-auto trap any residual wide content
-					// inside this box rather than dragging the page on mobile. No
-					// border, padding or background — the email renders flush (#727).
-					<div className="w-full max-w-full overflow-x-auto">
-						<IsolatedEmailFrame
-							html={sanitizedHtml}
-							variant="framed"
-							isDark={isDark}
-						/>
-					</div>
-				) : (
-					// `lg:max-w-2xl` caps the reading column on desktop; `max-w-full`
-					// keeps the box within the viewport on mobile. `overflow-x-auto`
-					// traps any residual wide content INSIDE this box on a phone, so
-					// the overflow scrolls here and never drags the page (#727).
-					<div className="max-w-full overflow-x-auto lg:max-w-2xl">
-						<IsolatedEmailFrame
-							html={sanitizedHtml}
-							variant={isPlain ? "plain" : "framed"}
-							isDark={isDark}
-						/>
-					</div>
-				)
-			) : renderedText ? (
-				<pre className="email-text whitespace-pre-wrap text-sm leading-relaxed">
-					{renderedText}
-				</pre>
-			) : (
-				<EmptyBody />
-			)}
-		</div>
+		/>
 	);
 };

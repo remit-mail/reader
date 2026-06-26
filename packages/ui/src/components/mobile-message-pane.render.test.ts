@@ -39,12 +39,16 @@ const intelligence: IntelligenceData = {
 };
 
 describe("MobileMessagePane", () => {
-	it("renders the subject, body and the back button", () => {
+	it("renders the subject, the expanded message header and the back button", () => {
 		const html = renderToString(
 			createElement(MobileMessagePane, { thread, onBack: () => undefined }),
 		);
 		assert.match(html, /Q3 planning notes/);
-		assert.match(html, /Body of the planning message goes here/);
+		// The email body now renders through the kit's sanitize → sandboxed
+		// IsolatedEmailFrame pipeline (#940), which needs a DOM and so emits no
+		// body text under SSR. Assert the expanded message's header instead; the
+		// body rendering is covered by the sanitizer + MessageBodyView tests.
+		assert.match(html, /Alex Rivera/);
 		assert.match(html, /aria-label="Back to messages"/);
 	});
 

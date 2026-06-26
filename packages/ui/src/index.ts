@@ -137,6 +137,11 @@ export {
 	type MailActionToolbarProps,
 } from "./components/mail-action-toolbar.js";
 export {
+	type EmailRenderCategory,
+	MessageBodyView,
+	type MessageBodyViewProps,
+} from "./components/message-body-view.js";
+export {
 	MessageHeader,
 	type MessageHeaderProps,
 } from "./components/message-header.js";
@@ -264,4 +269,22 @@ export {
 	WizardShell,
 	type WizardShellProps,
 } from "./components/wizard.js";
+export {
+	buildCidResolver,
+	type CidResolvableBodyPart,
+	type CidResolver,
+} from "./lib/cid-resolver.js";
 export { cn } from "./lib/cn.js";
+export { generateLayoutClampCSS } from "./lib/email-layout-clamp.js";
+export {
+	classifyEmailRenderTreatment,
+	type EmailRenderTreatment,
+} from "./lib/email-render-treatment.js";
+export {
+	createEmailSanitizer,
+	detectAuthorBackground,
+	type SanitizedEmail,
+	type SanitizeOptions,
+	sanitizeInlineStyle,
+	sanitizeStyleElementCss,
+} from "./lib/email-sanitizer.js";
