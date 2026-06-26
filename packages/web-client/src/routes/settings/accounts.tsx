@@ -76,10 +76,9 @@ export function mapOauthError(code: string): string {
 }
 
 /**
- * The account API has no display-label field yet (backend gap). Derive a
- * friendly primary label from the email's local part so AccountHealthCard
- * doesn't print the same address twice (label primary, email secondary).
- * Falls back to the full email if the local part is empty.
+ * Derive a friendly primary label from the email's local part so
+ * AccountHealthCard doesn't print the same address twice (label primary, email
+ * secondary). Falls back to the full email if the local part is empty.
  */
 function deriveLabel(email: string): string {
 	const local = email.split("@")[0] ?? "";
@@ -89,6 +88,16 @@ function deriveLabel(email: string): string {
 		.filter(Boolean)
 		.map((part) => part.charAt(0).toUpperCase() + part.slice(1))
 		.join(" ");
+}
+
+/**
+ * The user-chosen display name when set, otherwise a label derived from the
+ * email address.
+ */
+function accountLabel(account: RemitImapAccountResponse): string {
+	const name = account.displayName?.trim();
+	if (name) return name;
+	return deriveLabel(account.email);
 }
 
 function deriveSyncLabel(account: RemitImapAccountResponse): string {
@@ -418,7 +427,7 @@ function AccountsSettings() {
 						return (
 							<AccountHealthCard
 								key={account.accountId}
-								label={deriveLabel(account.email)}
+								label={accountLabel(account)}
 								email={account.email}
 								connector={isOAuthAccount ? "Microsoft 365" : "IMAP"}
 								syncLabel={deriveSyncLabel(account)}
