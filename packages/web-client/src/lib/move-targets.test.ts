@@ -4,7 +4,7 @@ import type {
 	RemitImapMailboxResponse,
 	RemitImapMailboxSpecialUse,
 } from "@remit/api-http-client/types.gen.ts";
-import { buildMoveTargets, filterMoveTargetsByQuery } from "./move-targets.js";
+import { buildMoveTargets } from "./move-targets.js";
 
 // The OpenAPI client types special-use values as the RFC 6154 backslashed
 // strings (`'\\Sent'`). At runtime the `MailboxSpecialUse` enum resolves to
@@ -182,44 +182,5 @@ describe("buildMoveTargets — Outbox locale exclusion (#290)", () => {
 		]);
 		const ids = result.map((mailbox) => mailbox.mailboxId).sort();
 		assert.deepStrictEqual(ids, ["custom", "inbox", "outboxy", "trash"]);
-	});
-});
-
-describe("filterMoveTargetsByQuery — always-on filter (#236)", () => {
-	test("matches against full path and leaf name, case-insensitive", () => {
-		const targets = [
-			make({ mailboxId: "m1", fullPath: "INBOX" }),
-			make({ mailboxId: "m2", fullPath: "Project Alpha" }),
-			make({ mailboxId: "m3", fullPath: "Receipts/2025" }),
-		];
-		assert.deepStrictEqual(
-			filterMoveTargetsByQuery(targets, "alpha").map((m) => m.mailboxId),
-			["m2"],
-		);
-		assert.deepStrictEqual(
-			filterMoveTargetsByQuery(targets, "RECEIPTS").map((m) => m.mailboxId),
-			["m3"],
-		);
-		assert.deepStrictEqual(
-			filterMoveTargetsByQuery(targets, "2025").map((m) => m.mailboxId),
-			["m3"],
-		);
-	});
-
-	test("returns the full list when query is blank", () => {
-		const targets = [
-			make({ mailboxId: "m1", fullPath: "INBOX" }),
-			make({ mailboxId: "m2", fullPath: "Spam" }),
-		];
-		assert.equal(filterMoveTargetsByQuery(targets, "").length, 2);
-		assert.equal(filterMoveTargetsByQuery(targets, "   ").length, 2);
-	});
-
-	test("returns empty when nothing matches", () => {
-		const targets = [
-			make({ mailboxId: "m1", fullPath: "INBOX" }),
-			make({ mailboxId: "m2", fullPath: "Receipts" }),
-		];
-		assert.deepStrictEqual(filterMoveTargetsByQuery(targets, "zzz"), []);
 	});
 });

@@ -1,12 +1,25 @@
 import { mailboxOperationsListMailboxesOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import { type MoveMailboxOption, MoveMailboxPicker } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { FolderInput } from "lucide-react";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useId,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
+import { useTranslation } from "react-i18next";
 import { Drawer } from "vaul";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
+import {
+	getMailboxDisplayLabel,
+	getMailboxDisplayName,
+} from "@/lib/mailbox-order";
+import { buildMoveTargets } from "@/lib/move-targets";
 import { cn } from "@/lib/utils";
-import { MoveToMailboxPicker } from "./MoveToMailboxPicker";
 
 interface MoveToTriggerProps {
 	accountId: string;
@@ -58,6 +71,13 @@ export const MoveToTrigger = ({
 	const containerRef = useRef<HTMLDivElement>(null);
 	const triggerLabel = label ?? "Move to folder";
 	const popoverId = useId();
+	const { t } = useTranslation("mail", { useSuspense: false });
+	// `getMailboxDisplayLabel` expects a translator with a positional
+	// `(key, fallback)` shape; i18next's `t` treats the second argument as an
+	// options object — passing it raw breaks fallback behavior. Wrap it the
+	// same way `MailboxItem.tsx` does so picker labels match the sidebar.
+	const translator = (key: string, fallback: string): string =>
+		t(key, { defaultValue: fallback });
 
 	const {
 		data: mailboxesResponse,
@@ -74,7 +94,20 @@ export const MoveToTrigger = ({
 		enabled: isOpen,
 	});
 
-	const mailboxes = mailboxesResponse?.items ?? [];
+	const options = useMemo<MoveMailboxOption[]>(() => {
+		const targets = buildMoveTargets(mailboxesResponse?.items ?? []);
+		return targets.map((mailbox) => ({
+			id: mailbox.mailboxId,
+			label:
+				getMailboxDisplayLabel(
+					mailbox.fullPath,
+					mailbox.specialUse,
+					translator,
+				) || getMailboxDisplayName(mailbox.fullPath),
+			searchValue: mailbox.fullPath,
+			isCurrent: mailbox.mailboxId === currentMailboxId,
+		}));
+	}, [mailboxesResponse?.items, currentMailboxId, translator]);
 
 	const handleSelect = useCallback(
 		(destinationMailboxId: string) => {
@@ -144,12 +177,23 @@ export const MoveToTrigger = ({
 			/>
 		</div>
 	) : (
-		<MoveToMailboxPicker
-			mailboxes={mailboxes}
-			currentMailboxId={currentMailboxId}
+		<MoveMailboxPicker
+			mailboxes={options}
 			onSelect={handleSelect}
 			onCancel={() => setIsOpen(false)}
 			autoFocus={!isDesktop}
+			labels={{
+				searchPlaceholder: t("move_picker_placeholder", {
+					defaultValue: "Move to…",
+				}),
+				searchAriaLabel: t("move_picker_filter_label", {
+					defaultValue: "Filter folders",
+				}),
+				optionLabel: (folderLabel) => `Move to ${folderLabel}`,
+				currentSuffix: "(current folder)",
+				currentTag: "current",
+				emptyMessage: (query) => `No folders match "${query}"`,
+			}}
 		/>
 	);
 
