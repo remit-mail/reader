@@ -9,8 +9,16 @@ import { IsolatedEmailFrame } from "./isolated-email-frame.js";
  * `<style>` block, so these stories prepend the same clamp CSS to each fixture
  * to reproduce the real pipeline. The fixtures are the real failing emails from
  * the #727 patch chain — fixed-width `<table width="600">` newsletters that
- * overflowed a phone — rendered at a phone width (the box must contain them with
- * no horizontal page scroll) and at a desktop reading-column width.
+ * overflowed a phone — rendered at a phone width and at a desktop
+ * reading-column width.
+ *
+ * On a phone (window ≤640px) a fixed-width email whose inline `min-width` beats
+ * the clamp can't reflow; the frame renders it at its natural width and
+ * CSS-scales the whole iframe down so it fits the container WHOLE rather than
+ * being clipped (#727). To see the scale in this Storybook, narrow the browser
+ * window to a phone width — the fit-to-width decision reads the window media
+ * query, not the fixed-width decorator. The `computeFitScale` unit test pins the
+ * scaling policy independently of the viewport.
  */
 
 // Mirror of the sanitizer's `generateLayoutClampCSS` — clamps wide author
@@ -101,19 +109,13 @@ const PLAIN = `${LAYOUT_CLAMP_CSS}
 `;
 
 const PHONE: Decorator = (Story) => (
-	<div
-		className="overflow-x-auto rounded-sm border border-line bg-surface-sunken p-3"
-		style={{ width: 390 }}
-	>
+	<div className="overflow-x-auto" style={{ width: 390 }}>
 		<Story />
 	</div>
 );
 
 const COLUMN: Decorator = (Story) => (
-	<div
-		className="overflow-x-auto rounded-sm border border-line bg-surface-sunken p-3"
-		style={{ width: 720 }}
-	>
+	<div className="overflow-x-auto" style={{ width: 720 }}>
 		<Story />
 	</div>
 );
@@ -121,7 +123,7 @@ const COLUMN: Decorator = (Story) => (
 const meta: Meta<typeof IsolatedEmailFrame> = {
 	title: "Components/IsolatedEmailFrame",
 	component: IsolatedEmailFrame,
-	parameters: { layout: "padded" },
+	parameters: { layout: "fullscreen" },
 	argTypes: {
 		variant: { control: "inline-radio", options: ["plain", "framed"] },
 		isDark: { control: "boolean" },
@@ -131,9 +133,10 @@ export default meta;
 
 type Story = StoryObj<typeof IsolatedEmailFrame>;
 
-/** #727: a 600px fixed-width Node Weekly table at a 390px phone width. The clamp
- *  CSS collapses the table/cell to fit and the long URL wraps, so the email
- *  fits the box with no horizontal page scroll. */
+/** #727: a 600px fixed-width Node Weekly table at a 390px phone width. The inline
+ *  `min-width:600px` on the `<td>` beats the clamp so the table can't collapse;
+ *  the frame scales the whole email down to fit the box WHOLE, with no clipping
+ *  and no horizontal page scroll. */
 export const NodeWeeklyMobile: Story = {
 	args: { html: NODE_WEEKLY, variant: "framed", isDark: false },
 	decorators: [PHONE],
@@ -146,7 +149,7 @@ export const NodeWeeklyDesktop: Story = {
 };
 
 /** Gaslicht.com-style 600px fixed-width marketing mail at phone width: the hero
- *  image and layout clamp to the frame, CTA intact. */
+ *  image and CTA scale down with the frame to fit the phone whole. */
 export const GaslichtMobile: Story = {
 	args: { html: GASLICHT, variant: "framed", isDark: false },
 	decorators: [PHONE],

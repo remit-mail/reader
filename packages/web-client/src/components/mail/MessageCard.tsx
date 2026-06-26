@@ -323,7 +323,6 @@ const ExpandedCard = ({
 							messageData?.envelope.from[0]?.flags?.trusted?.value === true
 						}
 						category={threadMessage.category}
-						framedVariant="inline"
 					/>
 				)}
 			</div>
