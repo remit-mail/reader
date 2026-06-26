@@ -114,21 +114,3 @@ export const buildMoveTargets = (
 		);
 	});
 };
-
-/**
- * Substring filter for the always-on picker search input. Case-insensitive,
- * matches against the leaf display name and the full path so a query like
- * "gmail/" still narrows correctly on Gmail-style nested folders.
- */
-export const filterMoveTargetsByQuery = (
-	targets: readonly RemitImapMailboxResponse[],
-	query: string,
-): RemitImapMailboxResponse[] => {
-	const trimmed = query.trim().toLowerCase();
-	if (!trimmed) return [...targets];
-	return targets.filter((target) => {
-		const fullPath = target.fullPath.toLowerCase();
-		const leaf = getMailboxDisplayName(target.fullPath).toLowerCase();
-		return fullPath.includes(trimmed) || leaf.includes(trimmed);
-	});
-};
