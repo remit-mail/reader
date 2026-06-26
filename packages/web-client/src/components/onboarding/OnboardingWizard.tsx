@@ -104,6 +104,7 @@ interface ServerConfig {
 
 interface WizardState {
 	email: string;
+	displayName: string;
 	imapConfig: ServerConfig;
 	smtpConfig: ServerConfig;
 	username: string;
@@ -365,14 +366,21 @@ function StepMicrosoftEmail({
 
 function StepAddress({
 	initialEmail,
+	initialDisplayName,
 	onContinue,
 	onBack,
 }: {
 	initialEmail: string;
-	onContinue: (email: string, result: DiscoveryResult | null) => void;
+	initialDisplayName: string;
+	onContinue: (
+		email: string,
+		displayName: string,
+		result: DiscoveryResult | null,
+	) => void;
 	onBack: () => void;
 }) {
 	const [email, setEmail] = useState(initialEmail);
+	const [displayName, setDisplayName] = useState(initialDisplayName);
 	const [discovering, setDiscovering] = useState(false);
 	const [statusMsg, setStatusMsg] = useState("");
 	const [error, setError] = useState<string | null>(null);
@@ -391,11 +399,11 @@ function StepAddress({
 			// Short budget — browser autoconfig fetches are CORS-blocked and
 			// fall through to the heuristic; see discoverSettings docs.
 			const result = await discoverSettings(trimmed);
-			onContinue(trimmed, result);
+			onContinue(trimmed, displayName.trim(), result);
 		} finally {
 			setDiscovering(false);
 		}
-	}, [email, onContinue]);
+	}, [email, displayName, onContinue]);
 
 	// Keyboard: Enter submits, Esc goes back
 	useEffect(() => {
@@ -428,20 +436,37 @@ function StepAddress({
 				</>
 			}
 		>
-			<div>
-				<FieldLabel htmlFor="onboarding-email">Email address</FieldLabel>
-				<Input
-					id="onboarding-email"
-					icon={<AtSign className="size-4" />}
-					placeholder="you@example.com"
-					value={email}
-					onChange={(e) => {
-						setEmail(e.target.value);
-						setError(null);
-					}}
-					type="email"
-					autoComplete="email"
-				/>
+			<div className="space-y-4">
+				<div>
+					<FieldLabel htmlFor="onboarding-email">Email address</FieldLabel>
+					<Input
+						id="onboarding-email"
+						icon={<AtSign className="size-4" />}
+						placeholder="you@example.com"
+						value={email}
+						onChange={(e) => {
+							setEmail(e.target.value);
+							setError(null);
+						}}
+						type="email"
+						autoComplete="email"
+					/>
+				</div>
+				<div>
+					<FieldLabel htmlFor="onboarding-display-name">
+						Display name (optional)
+					</FieldLabel>
+					<Input
+						id="onboarding-display-name"
+						placeholder="Alice"
+						value={displayName}
+						onChange={(e) => setDisplayName(e.target.value)}
+					/>
+					<p className="mt-1.5 text-2xs text-fg-subtle">
+						What to call this account in Remit. Leave blank to use a name
+						derived from the address.
+					</p>
+				</div>
 				{discovering && (
 					<div className="mt-3 flex items-center gap-2 text-xs text-fg-muted">
 						<Loader2 className="size-3.5 animate-spin text-accent" />
@@ -987,6 +1012,7 @@ function StepTest({
 
 function StepSync({
 	email,
+	displayName,
 	imapConfig,
 	smtpConfig,
 	username,
@@ -994,6 +1020,7 @@ function StepSync({
 	onGoToInbox,
 }: {
 	email: string;
+	displayName: string;
 	imapConfig: ServerConfig;
 	smtpConfig: ServerConfig;
 	username: string;
@@ -1046,6 +1073,7 @@ function StepSync({
 		createMutation.mutate({
 			body: {
 				email,
+				displayName: displayName || undefined,
 				username: username !== email ? username : undefined,
 				password,
 				imapHost: imapConfig.host,
@@ -1148,6 +1176,7 @@ function StepSync({
 								createMutation.mutate({
 									body: {
 										email,
+										displayName: displayName || undefined,
 										username: username !== email ? username : undefined,
 										password,
 										imapHost: imapConfig.host,
@@ -1309,6 +1338,7 @@ export function OnboardingWizard({
 	);
 	const [state, setState] = useState<WizardState>({
 		email: "",
+		displayName: "",
 		imapConfig: DEFAULT_IMAP,
 		smtpConfig: DEFAULT_SMTP,
 		username: "",
@@ -1337,7 +1367,7 @@ export function OnboardingWizard({
 
 	// Address → Servers
 	const handleAddressContinue = useCallback(
-		(email: string, result: DiscoveryResult | null) => {
+		(email: string, displayName: string, result: DiscoveryResult | null) => {
 			let imap = DEFAULT_IMAP;
 			let smtp = DEFAULT_SMTP;
 			let discovered = false;
@@ -1360,6 +1390,7 @@ export function OnboardingWizard({
 			setState((s) => ({
 				...s,
 				email,
+				displayName,
 				imapConfig: imap,
 				smtpConfig: smtp,
 				discoveryResult: result,
@@ -1426,6 +1457,7 @@ export function OnboardingWizard({
 			return (
 				<StepAddress
 					initialEmail={state.email}
+					initialDisplayName={state.displayName}
 					onContinue={handleAddressContinue}
 					onBack={() => setStep("connector")}
 				/>
@@ -1474,6 +1506,7 @@ export function OnboardingWizard({
 			return (
 				<StepSync
 					email={state.email}
+					displayName={state.displayName}
 					imapConfig={state.imapConfig}
 					smtpConfig={state.smtpConfig}
 					username={state.username}

@@ -124,6 +124,10 @@ model Account {
   @visibility(Lifecycle.Read)
   accountConfigId: UUID;
 
+  @doc("User-chosen display name for this account. Optional; when absent the UI derives a label from the email address.")
+  @visibility(Lifecycle.Read)
+  displayName?: string;
+
   @doc("Login username")
   @visibility(Lifecycle.Read)
   @minLength(1)
@@ -350,6 +354,7 @@ model AccountResponse
 
       | "accountId"
       | "accountConfigId"
+      | "displayName"
       | "username"
       | "email"
       | "authType"
