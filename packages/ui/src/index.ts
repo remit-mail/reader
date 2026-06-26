@@ -162,6 +162,12 @@ export {
 	type MobileMessagePaneProps,
 } from "./components/mobile-message-pane.js";
 export {
+	type MoveMailboxOption,
+	MoveMailboxPicker,
+	type MoveMailboxPickerLabels,
+	type MoveMailboxPickerProps,
+} from "./components/move-mailbox-picker.js";
+export {
 	NavSidebar,
 	type NavSidebarProps,
 } from "./components/nav-sidebar.js";
