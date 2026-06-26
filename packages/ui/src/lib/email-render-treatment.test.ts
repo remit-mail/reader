@@ -1,6 +1,6 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
-import { classifyEmailRenderTreatment } from "./email-render-treatment";
+import { classifyEmailRenderTreatment } from "./email-render-treatment.js";
 
 /**
  * Render-treatment classification (#424). Locks the framed-vs-plain decision
