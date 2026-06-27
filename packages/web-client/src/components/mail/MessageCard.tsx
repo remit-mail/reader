@@ -3,15 +3,14 @@ import type {
 	RemitImapDescribeMessageResponse,
 	RemitImapThreadMessageResponse,
 } from "@remit/api-http-client/types.gen.ts";
-import { AddressList, Avatar } from "@remit/ui";
-import { useQuery } from "@tanstack/react-query";
+import type { ThreadMessageData } from "@remit/ui";
 import {
-	BadgeCheck,
-	ChevronDown,
-	ChevronRight,
-	Paperclip,
-	Star,
-} from "lucide-react";
+	AddressList,
+	CollapsedMessage,
+	ExpandedMessage,
+} from "@remit/ui";
+import { useQuery } from "@tanstack/react-query";
+import { BadgeCheck, Paperclip, Star } from "lucide-react";
 import { useState } from "react";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -31,41 +30,57 @@ const TrustedSenderBadge = () => (
 );
 
 /**
- * Indicators column showing star and attachment icons below the date
+ * Builds the kit's `ThreadMessageData` view shape from an IMAP thread message.
+ * The kit reading rows own the row layout; MessageCard supplies the data and
+ * injects its interactivity through slots — so the row rhythm has one source of
+ * truth and can't drift from Storybook (#945).
  */
-const MessageIndicators = ({
+const toThreadMessageData = (
+	threadMessage: RemitImapThreadMessageResponse,
+	dateLabel: string,
+): ThreadMessageData => ({
+	id: threadMessage.messageId,
+	fromName: threadMessage.fromName ?? threadMessage.fromEmail ?? "?",
+	fromEmail: threadMessage.fromEmail ?? "",
+	toLabel: "",
+	dateLabel,
+	snippet: threadMessage.snippet || "",
+	bodyHtml: "",
+});
+
+const StarButton = ({
 	isStarred,
-	hasAttachment,
 	onToggleStar,
 	isStarPending,
+	hoverReveal,
 }: {
 	isStarred: boolean;
-	hasAttachment: boolean;
 	onToggleStar: () => void;
 	isStarPending?: boolean;
+	hoverReveal?: boolean;
 }) => (
-	<div className="flex items-center justify-end gap-1 mt-0.5">
-		<button
-			type="button"
-			onClick={(e) => {
-				e.stopPropagation();
-				onToggleStar();
-			}}
-			disabled={isStarPending}
-			className={cn(
-				"p-0.5 rounded transition-colors",
-				isStarred ? "text-warning" : "text-fg-subtle hover:text-warning",
-				isStarPending && "opacity-50",
-			)}
-		>
-			<Star className={cn("size-3.5", isStarred && "fill-current")} />
-		</button>
-		{hasAttachment && (
-			<span className="text-fg-subtle p-0.5">
-				<Paperclip className="size-3.5" />
-			</span>
+	<button
+		type="button"
+		onClick={(e) => {
+			e.stopPropagation();
+			onToggleStar();
+		}}
+		disabled={isStarPending}
+		aria-label={isStarred ? "Remove star" : "Add star"}
+		className={cn(
+			"shrink-0 p-0.5 rounded transition-colors",
+			isStarred
+				? "text-warning"
+				: cn(
+						"text-fg-subtle hover:text-warning",
+						hoverReveal &&
+							"opacity-0 group-hover:opacity-100 focus:opacity-100",
+					),
+			isStarPending && "opacity-50",
 		)}
-	</div>
+	>
+		<Star className={cn("size-3.5", isStarred && "fill-current")} />
+	</button>
 );
 
 interface MessageCardProps {
@@ -98,79 +113,35 @@ const CollapsedCard = ({
 	onToggleStar: () => void;
 	isStarPending?: boolean;
 }) => {
-	const senderName =
-		threadMessage.fromName || threadMessage.fromEmail || "Unknown";
 	const date = formatDatePreset(threadMessage.sentDate, "datetime");
-	const snippet = threadMessage.snippet || "";
-	const isStarred = threadMessage.hasStars;
-	const isUnread = !threadMessage.isRead;
-	const hasAttachment = threadMessage.hasAttachment;
+	const message = toThreadMessageData(threadMessage, date);
 
-	// Design reference: AppShell CollapsedMessage — full-width border divider,
-	// px-5 py-2, ChevronRight left, avatar, fixed-width sender, snippet,
-	// date right-aligned. Matches the approved Storybook mock exactly.
 	return (
-		<button
-			type="button"
+		<CollapsedMessage
+			message={message}
 			onClick={onToggle}
-			className={cn(
-				"group flex w-full items-center gap-3 border-b border-line px-2 py-2 text-left lg:px-4",
-				"hover:bg-surface-sunken transition-colors",
-				isFocused && "bg-surface-sunken ring-1 ring-inset ring-accent/30",
-			)}
-		>
-			<ChevronRight className="size-3.5 shrink-0 text-fg-subtle" />
-			{/* Unread dot overlays the avatar column */}
-			<div className="relative shrink-0">
-				<Avatar
-					name={threadMessage.fromName ?? threadMessage.fromEmail ?? "?"}
-					email={threadMessage.fromEmail ?? undefined}
-					size="md"
-				/>
-				{isUnread && (
-					<span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-accent border border-canvas" />
-				)}
-			</div>
-			<span
-				className={cn(
-					"w-36 shrink-0 truncate text-sm",
-					isUnread ? "font-semibold text-fg" : "font-medium text-fg-muted",
-				)}
-			>
-				{senderName}
-			</span>
-			<span className="min-w-0 flex-1 truncate text-xs text-fg-subtle">
-				{snippet}
-			</span>
-			{hasAttachment && (
-				<Paperclip className="size-3 shrink-0 text-fg-subtle" />
-			)}
-			{/* Star button — stops click propagation so it doesn't expand the card */}
-			<button
-				type="button"
-				onClick={(e) => {
-					e.stopPropagation();
-					onToggleStar();
-				}}
-				disabled={isStarPending}
-				aria-label={isStarred ? "Remove star" : "Add star"}
-				className={cn(
-					"shrink-0 p-0.5 rounded transition-colors",
-					isStarred
-						? "text-warning"
-						: "text-fg-subtle hover:text-warning opacity-0 group-hover:opacity-100 focus:opacity-100",
-					isStarPending && "opacity-50",
-				)}
-			>
-				<Star className={cn("size-3", isStarred && "fill-current")} />
-			</button>
-			<span
-				data-testid="message-date"
-				className="shrink-0 text-2xs text-fg-subtle tabular-nums"
-			>
-				{date}
-			</span>
-		</button>
+			isFocused={isFocused}
+			isUnread={!threadMessage.isRead}
+			trailing={
+				<>
+					{threadMessage.hasAttachment && (
+						<Paperclip className="size-3 shrink-0 text-fg-subtle" />
+					)}
+					<StarButton
+						isStarred={threadMessage.hasStars}
+						onToggleStar={onToggleStar}
+						isStarPending={isStarPending}
+						hoverReveal
+					/>
+					<span
+						data-testid="message-date"
+						className="shrink-0 text-2xs text-fg-subtle tabular-nums"
+					>
+						{date}
+					</span>
+				</>
+			}
+		/>
 	);
 };
 
@@ -203,131 +174,100 @@ const ExpandedCard = ({
 	showRaw: boolean;
 	onToggleRaw: () => void;
 }) => {
-	const senderName =
-		threadMessage.fromName || threadMessage.fromEmail || "Unknown";
 	const date = formatDatePreset(threadMessage.sentDate, "long");
-	const isStarred = threadMessage.hasStars;
 	const isUnread = !threadMessage.isRead;
-	const hasAttachment = threadMessage.hasAttachment;
 	const isTrusted =
 		messageData?.envelope.from[0]?.flags?.trusted?.value === true;
+	const message = toThreadMessageData(threadMessage, date);
 
-	// Design reference: AppShell ExpandedMessage — px-5 py-3, no own
-	// background (inherits bg-canvas from article). Keyboard-focus indicator
-	// (`isFocused`) adds a subtle inset ring without changing the surface.
 	return (
-		<div
-			className={cn(
-				"px-2 py-3 lg:px-4",
-				isFocused && "ring-1 ring-inset ring-accent/30",
-			)}
-		>
-			{/* Header row: chevron · avatar · sender/to block · date · action menu.
-			    Leading chevron + avatar match CollapsedCard so the rows align. */}
-			<div className="flex items-start gap-3">
-				<ChevronDown className="mt-1 size-3.5 shrink-0 text-fg-subtle" />
-				<Avatar
-					name={threadMessage.fromName ?? threadMessage.fromEmail ?? "?"}
-					email={threadMessage.fromEmail ?? undefined}
-					size="md"
-				/>
-				<div className="min-w-0 flex-1">
-					{/* Clickable area collapses the card */}
-					<button type="button" onClick={onToggle} className="w-full text-left">
-						<div className="flex items-baseline justify-between gap-2">
-							<span
-								className={cn(
-									"text-sm",
-									isUnread ? "font-semibold text-fg" : "font-medium text-fg",
-								)}
-							>
-								{senderName}
-								{isTrusted && <TrustedSenderBadge />}
-							</span>
-							<div className="flex items-center gap-1 shrink-0">
-								<span
-									data-testid="message-date"
-									className="text-2xs text-fg-subtle"
-								>
-									{date}
-								</span>
-							</div>
-						</div>
-						{messageData && (
-							<div className="text-xs text-fg-subtle">
-								<AddressList label="To" addresses={messageData.envelope.to} />
-							</div>
-						)}
-						{!messageData && (
-							<div className="text-xs text-fg-subtle">
-								{threadMessage.fromEmail}
-							</div>
-						)}
-					</button>
-					<div className="flex items-center gap-1 mt-0.5">
-						<MessageIndicators
-							isStarred={isStarred}
-							hasAttachment={hasAttachment}
+		<ExpandedMessage
+			message={message}
+			isFocused={isFocused}
+			onHeaderClick={onToggle}
+			senderBadge={isTrusted ? <TrustedSenderBadge /> : undefined}
+			trailing={
+				<span data-testid="message-date" className="text-2xs text-fg-subtle">
+					{date}
+				</span>
+			}
+			to={
+				messageData ? (
+					<AddressList label="To" addresses={messageData.envelope.to} />
+				) : null
+			}
+			indicators={
+				<div className="flex items-center gap-1 mt-0.5">
+					<div className="flex items-center justify-end gap-1">
+						<StarButton
+							isStarred={threadMessage.hasStars}
 							onToggleStar={onToggleStar}
 							isStarPending={isStarPending}
 						/>
-						{isUnread && (
-							<span
-								className="size-1.5 rounded-full bg-accent"
-								aria-label="Unread"
-							/>
+						{threadMessage.hasAttachment && (
+							<span className="text-fg-subtle p-0.5">
+								<Paperclip className="size-3.5" />
+							</span>
 						)}
 					</div>
+					{isUnread && (
+						<span
+							className="size-1.5 rounded-full bg-accent"
+							aria-label="Unread"
+						/>
+					)}
 				</div>
-				<div className="shrink-0">
-					<MessageActionMenu
-						messageId={threadMessage.messageId}
-						threadId={threadMessage.threadId}
-						mailboxId={threadMessage.mailboxId}
-						isRead={threadMessage.isRead}
-						accountId={accountId}
-						fromAddressId={messageData?.envelope.from[0]?.addressId}
-						isTrusted={
-							messageData?.envelope.from[0]?.flags?.trusted?.value === true
-						}
-						showRaw={showRaw}
-						onToggleRaw={onToggleRaw}
-					/>
-				</div>
-			</div>
-
-			{/* Body: mt-3 matches the AppShell ExpandedMessage spacing. */}
-			<div className="mt-3">
-				{isLoading ? (
-					<div className="animate-pulse space-y-2">
+			}
+			actionMenu={
+				<MessageActionMenu
+					messageId={threadMessage.messageId}
+					threadId={threadMessage.threadId}
+					mailboxId={threadMessage.mailboxId}
+					isRead={threadMessage.isRead}
+					accountId={accountId}
+					fromAddressId={messageData?.envelope.from[0]?.addressId}
+					isTrusted={isTrusted}
+					showRaw={showRaw}
+					onToggleRaw={onToggleRaw}
+				/>
+			}
+			body={
+				isLoading ? (
+					<div className="mt-3 animate-pulse space-y-2">
 						<div className="h-4 bg-surface-sunken rounded w-full" />
 						<div className="h-4 bg-surface-sunken rounded w-3/4" />
 						<div className="h-4 bg-surface-sunken rounded w-1/2" />
 					</div>
 				) : isError && isMessageNotFoundError(error) ? (
-					<EmptyState message="This message has been deleted" />
+					<div className="mt-3">
+						<EmptyState message="This message has been deleted" />
+					</div>
 				) : isError ? (
-					<ErrorState
-						variant="inline"
-						title="Couldn't load this message"
-						error={error}
-						onRetry={onRetry}
-					/>
+					<div className="mt-3">
+						<ErrorState
+							variant="inline"
+							title="Couldn't load this message"
+							error={error}
+							onRetry={onRetry}
+						/>
+					</div>
 				) : showRaw ? (
-					<RawMessageView messageId={threadMessage.messageId} />
+					<div className="mt-3">
+						<RawMessageView messageId={threadMessage.messageId} />
+					</div>
 				) : (
-					<MessageBody
-						bodyParts={messageData?.bodyParts}
-						messageId={threadMessage.messageId}
-						fromAddressId={messageData?.envelope.from[0]?.addressId}
-						isTrusted={
-							messageData?.envelope.from[0]?.flags?.trusted?.value === true
-						}
-						category={threadMessage.category}
-					/>
-				)}
-			</div>
-		</div>
+					<div className="mt-3">
+						<MessageBody
+							bodyParts={messageData?.bodyParts}
+							messageId={threadMessage.messageId}
+							fromAddressId={messageData?.envelope.from[0]?.addressId}
+							isTrusted={isTrusted}
+							category={threadMessage.category}
+						/>
+					</div>
+				)
+			}
+		/>
 	);
 };
 

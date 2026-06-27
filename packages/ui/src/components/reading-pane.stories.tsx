@@ -1,6 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import type { ThreadData } from "./app-shell-types.js";
-import { ReadingPane } from "./reading-pane.js";
+import { Paperclip, Star } from "lucide-react";
+import type { ThreadData, ThreadMessageData } from "./app-shell-types.js";
+import {
+	CollapsedMessage,
+	ExpandedMessage,
+	ReadingPane,
+} from "./reading-pane.js";
 
 const thread: ThreadData = {
 	subject: "Q3 planning notes",
@@ -84,4 +89,72 @@ export const Empty: Story = { args: { thread: undefined } };
 
 export const WithIntelligenceToggle: Story = {
 	args: { thread, showIntelligenceToggle: true, intelligenceOpen: false },
+};
+
+/* ------------------------------------------------------------------ */
+/* Row primitives — exercise the app-injection slots directly so the   */
+/* kit stays the verified source of truth for the thread-row rhythm.   */
+/* ------------------------------------------------------------------ */
+
+const row: ThreadMessageData = {
+	id: "row-1",
+	fromName: "Jamie Chen",
+	fromEmail: "jamie@example.com",
+	toLabel: "Alex Rivera, you",
+	dateLabel: "Today, 09:11",
+	snippet: "Thanks — I'll circulate the deck this afternoon.",
+	bodyHtml:
+		"<p>Thanks for the summary. I'll circulate the deck this afternoon.</p>",
+};
+
+/** The collapsed row with the app's real trailing cluster (star + paperclip +
+ *  date), an unread dot and a keyboard-focus ring — the slots the live
+ *  MessageCard injects. */
+export const CollapsedRowComposed: StoryObj<typeof CollapsedMessage> = {
+	render: () => (
+		<div className="max-w-3xl border border-line">
+			<CollapsedMessage message={row} isUnread />
+			<CollapsedMessage
+				message={{ ...row, id: "row-2", fromName: "Alex Rivera" }}
+				isFocused
+				trailing={
+					<div className="flex shrink-0 items-center gap-1">
+						<button type="button" className="rounded p-0.5 text-warning">
+							<Star className="size-3 fill-current" />
+						</button>
+						<Paperclip className="size-3 text-fg-subtle" />
+						<span className="text-2xs text-fg-subtle tabular-nums">
+							Today, 08:42
+						</span>
+					</div>
+				}
+			/>
+		</div>
+	),
+};
+
+/** The expanded row with the app's injected slots: a sender badge, an
+ *  indicators row, an action-menu placeholder and a custom recipient line —
+ *  proving the kit composes app interactivity without importing app code. */
+export const ExpandedRowComposed: StoryObj<typeof ExpandedMessage> = {
+	render: () => (
+		<div className="max-w-3xl border border-line">
+			<ExpandedMessage
+				message={row}
+				senderBadge={<span className="ml-1 text-positive text-xs">✓</span>}
+				to={<>to Alex Rivera and 2 others</>}
+				indicators={
+					<div className="mt-0.5 flex items-center gap-1">
+						<Star className="size-3.5 fill-current text-warning" />
+						<Paperclip className="size-3.5 text-fg-subtle" />
+					</div>
+				}
+				actionMenu={
+					<button type="button" className="rounded p-1 text-fg-subtle">
+						⋯
+					</button>
+				}
+			/>
+		</div>
+	),
 };
