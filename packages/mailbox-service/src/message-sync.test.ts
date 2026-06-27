@@ -9,8 +9,12 @@ import type {
 	ThreadMessageService,
 } from "@remit/remit-electrodb-service";
 import type { ManagedConnectionFactory } from "./connection-factory.js";
-import { MessageSyncService, parseHeaderDate } from "./message-sync.js";
-import type { ImapMessage } from "./types.js";
+import {
+	isParseableEmailAddress,
+	MessageSyncService,
+	parseHeaderDate,
+} from "./message-sync.js";
+import type { ImapAddress, ImapMessage } from "./types.js";
 
 interface UpsertCall {
 	messageId: string;
@@ -928,5 +932,135 @@ describe("MessageSyncService.syncMessages — batch resilience (#817)", () => {
 		assert.equal(patch.highWaterMarkUid, 30);
 		// Lowest uid failed → backfill watermark must not move past it.
 		assert.equal(patch.lastSyncUid, 0);
+	});
+});
+
+describe("isParseableEmailAddress", () => {
+	it("accepts a normal address with a real domain", () => {
+		assert.equal(
+			isParseableEmailAddress({ mailbox: "alice", host: "example.com" }),
+			true,
+		);
+	});
+
+	it("rejects the Hostnet missing_mailbox/missing_domain sentinels", () => {
+		assert.equal(
+			isParseableEmailAddress({
+				mailbox: "missing_mailbox",
+				host: "missing_domain",
+			}),
+			false,
+		);
+	});
+
+	it("rejects the sentinel mailbox even with a real host", () => {
+		assert.equal(
+			isParseableEmailAddress({
+				mailbox: "missing_mailbox",
+				host: "example.com",
+			}),
+			false,
+		);
+	});
+
+	it("rejects a host with no dot (no real domain)", () => {
+		assert.equal(
+			isParseableEmailAddress({ mailbox: "alice", host: "localhost" }),
+			false,
+		);
+	});
+
+	it("rejects empty mailbox or host", () => {
+		assert.equal(
+			isParseableEmailAddress({ mailbox: "", host: "x.com" }),
+			false,
+		);
+		assert.equal(isParseableEmailAddress({ mailbox: "a", host: "" }), false);
+	});
+
+	it("rejects an undefined address", () => {
+		assert.equal(isParseableEmailAddress(undefined), false);
+	});
+});
+
+describe("MessageSyncService.syncMessages — unparseable sender handling", () => {
+	const buildSenderHarness = () => {
+		const createCalls: Array<{ fromEmail?: string; fromName?: string }> = [];
+		const addressCalls: Array<{ localPart: string; domain: string }> = [];
+		const fake = buildFakeServices();
+		const threadMessageService = {
+			create: async (input: { fromEmail?: string; fromName?: string }) => {
+				createCalls.push(input);
+				return {};
+			},
+		} as unknown as ThreadMessageService;
+		const addressService = {
+			upsertAddress: async (input: { localPart: string; domain: string }) => {
+				addressCalls.push(input);
+			},
+			upsertEnvelopeAddress: async () => undefined,
+		} as unknown as AddressService;
+		return {
+			...fake,
+			threadMessageService,
+			addressService,
+			createCalls,
+			addressCalls,
+		};
+	};
+
+	const runWith = async (from: ImapAddress[]) => {
+		const harness = buildSenderHarness();
+		const baseEnvelope = aliceMessage.envelope;
+		if (!baseEnvelope) throw new Error("fixture missing envelope");
+		const message: ImapMessage = {
+			...aliceMessage,
+			envelope: { ...baseEnvelope, from },
+		};
+		const factory = buildConnectionFactory([message]);
+		const service = new MessageSyncService(
+			factory,
+			harness.mailboxService,
+			harness.messageService,
+			harness.envelopeService,
+			harness.addressService,
+			harness.threadMessageService,
+		);
+		await service.syncMessages("mbx-1", "acc-1", "acc-cfg-1", 50);
+		return harness;
+	};
+
+	it("omits fromEmail and skips the address record for a Hostnet placeholder, keeping fromName", async () => {
+		const harness = await runWith([
+			{
+				name: "Broken Sender",
+				mailbox: "missing_mailbox",
+				host: "missing_domain",
+			},
+		]);
+
+		assert.equal(harness.createCalls.length, 1);
+		assert.equal(harness.createCalls[0].fromEmail, undefined);
+		assert.equal(harness.createCalls[0].fromName, "Broken Sender");
+
+		const fromAddressSaved = harness.addressCalls.some(
+			(a) => a.localPart === "missing_mailbox",
+		);
+		assert.equal(fromAddressSaved, false);
+	});
+
+	it("persists fromEmail and the address record for a valid sender", async () => {
+		const harness = await runWith([
+			{ name: "Alice", mailbox: "alice", host: "example.com" },
+		]);
+
+		assert.equal(harness.createCalls.length, 1);
+		assert.equal(harness.createCalls[0].fromEmail, "alice@example.com");
+		assert.equal(harness.createCalls[0].fromName, "Alice");
+
+		const fromAddressSaved = harness.addressCalls.some(
+			(a) => a.localPart === "alice" && a.domain === "example.com",
+		);
+		assert.equal(fromAddressSaved, true);
 	});
 });

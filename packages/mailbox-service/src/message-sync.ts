@@ -21,6 +21,31 @@ import type {
 const MESSAGE_SAVE_CONCURRENCY = 10;
 const ADDRESS_SAVE_CONCURRENCY = 10;
 
+// Some IMAP servers (e.g. Hostnet) emit these literal placeholders in the
+// ENVELOPE when they cannot parse a From header, instead of leaving the
+// address parts empty.
+const HOSTNET_MISSING_MAILBOX = "missing_mailbox";
+const HOSTNET_MISSING_DOMAIN = "missing_domain";
+
+/**
+ * A From address is only usable when it looks like a real mailbox: both parts
+ * present, neither is a known "could not parse" sentinel, and the host carries
+ * an actual domain (at least one dot). Detect this structurally so a fabricated
+ * string like `missing_mailbox@missing_domain` is never persisted as a sender.
+ */
+export const isParseableEmailAddress = (
+	address: ImapAddress | undefined,
+): boolean => {
+	if (!address) return false;
+	const mailbox = address.mailbox?.trim();
+	const host = address.host?.trim();
+	if (!mailbox || !host) return false;
+	if (mailbox === HOSTNET_MISSING_MAILBOX || host === HOSTNET_MISSING_DOMAIN) {
+		return false;
+	}
+	return host.includes(".");
+};
+
 /**
  * Parse an external `Date:` header into an epoch-millisecond integer.
  *
@@ -535,7 +560,7 @@ export class MessageSyncService {
 
 		for (let i = 0; i < addresses.length; i++) {
 			const addr = addresses[i];
-			if (!addr.mailbox || !addr.host) continue;
+			if (!isParseableEmailAddress(addr)) continue;
 			addressData.push({
 				localPart: addr.mailbox,
 				domain: addr.host,
@@ -645,11 +670,13 @@ export class MessageSyncService {
 		// Check if message is read based on IMAP flags
 		const isRead = flags.includes("\\Seen");
 
-		// Extract sender info
+		// Extract sender info. When the server could not parse the From address,
+		// omit fromEmail rather than persist a fabricated string — a display name
+		// may still be present and useful, so keep it.
 		const fromAddr = envelope.from?.[0];
-		const fromEmail = fromAddr
-			? `${fromAddr.mailbox}@${fromAddr.host}`.toLowerCase()
-			: "";
+		const fromEmail = isParseableEmailAddress(fromAddr)
+			? `${fromAddr?.mailbox}@${fromAddr?.host}`.toLowerCase()
+			: undefined;
 		const fromName = fromAddr?.name;
 
 		// Calculate reference order (position in the thread chain)
