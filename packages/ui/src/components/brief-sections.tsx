@@ -1,4 +1,3 @@
-import { ChevronDown, ChevronRight } from "lucide-react";
 import { useState } from "react";
 import type {
 	AccountChip,
@@ -7,6 +6,7 @@ import type {
 	ThreadSection,
 } from "./app-shell-types.js";
 import { briefCategories, categoryTone } from "./app-shell-types.js";
+import { BriefSection } from "./brief-section.js";
 import {
 	FilterSheet,
 	type FilterSheetCategory,
@@ -46,10 +46,6 @@ const briefFilterDefs: ReadonlyArray<{
 	{ id: "today", label: "Today", match: isTodayRow },
 ];
 
-const LONG_SECTION = 6;
-/* Cap each section's rows; the rest sit behind a bottom "Show all" expander. */
-const SECTION_ROW_CAP = 10;
-
 export interface BriefSectionsProps {
 	sections: ThreadSection[];
 	briefCategory?: BriefCategoryFilter;
@@ -69,8 +65,8 @@ export interface BriefSectionsProps {
 
 /**
  * The daily-brief list body: category pills (single-select) + attribute chips
- * (additive) + collapsible, capped attention sections. Owns its own filter and
- * collapse state; the category axis is controlled via
+ * (additive) + one capped section per category (see {@link BriefSection}). Owns
+ * its own filter state; the category axis is controlled via
  * `briefCategory`/`onSelectBriefCategory`. Consumers pre-filter `sections`
  * (e.g. by search) and pass a `Row` renderer; the web client reuses this so the
  * real brief and the Storybook prototype stay in lockstep.
@@ -89,40 +85,9 @@ export function BriefSections({
 }: BriefSectionsProps) {
 	const [active, setActive] = useState<ReadonlySet<BriefFilterId>>(new Set());
 	const [sheetExpanded, setSheetExpanded] = useState(false);
-	const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
-		() =>
-			new Set(
-				sections
-					.filter(
-						(s) =>
-							s.id === "bulk" ||
-							(s.threads.length > LONG_SECTION && s.id === "rest"),
-					)
-					.map((s) => s.id),
-			),
-	);
-	const [expandedSections, setExpandedSections] = useState<ReadonlySet<string>>(
-		new Set(),
-	);
 
 	const toggleFilter = (id: BriefFilterId) => {
 		setActive((prev) => {
-			const next = new Set(prev);
-			if (next.has(id)) next.delete(id);
-			else next.add(id);
-			return next;
-		});
-	};
-	const toggleSection = (id: string) => {
-		setCollapsed((prev) => {
-			const next = new Set(prev);
-			if (next.has(id)) next.delete(id);
-			else next.add(id);
-			return next;
-		});
-	};
-	const toggleShowAll = (id: string) => {
-		setExpandedSections((prev) => {
 			const next = new Set(prev);
 			if (next.has(id)) next.delete(id);
 			else next.add(id);
@@ -167,66 +132,15 @@ export function BriefSections({
 
 	const listBody = (
 		<>
-			{filtered.map((section) => {
-				const isCollapsed = collapsed.has(section.id);
-				const showAll = expandedSections.has(section.id);
-				const capped = !showAll && section.threads.length > SECTION_ROW_CAP;
-				const visible = capped
-					? section.threads.slice(0, SECTION_ROW_CAP)
-					: section.threads;
-				const hiddenCount = section.threads.length - visible.length;
-				return (
-					<div key={section.id}>
-						{section.label && (
-							<button
-								type="button"
-								onClick={() => toggleSection(section.id)}
-								className="sticky top-0 flex h-section-row w-full items-center gap-1.5 border-b border-line bg-surface-sunken px-row-inset text-left transition-colors hover:bg-surface"
-							>
-								{isCollapsed ? (
-									<ChevronRight className="size-3 shrink-0 text-fg-subtle" />
-								) : (
-									<ChevronDown className="size-3 shrink-0 text-fg-subtle" />
-								)}
-								<span className="flex-1 text-2xs font-semibold uppercase tracking-wider text-fg-subtle">
-									{section.label}
-								</span>
-								<span className="text-2xs text-fg-subtle tabular-nums">
-									{section.threads.length}
-								</span>
-							</button>
-						)}
-						{!isCollapsed && (
-							<>
-								<div className="divide-y divide-line">
-									{visible.map((thread) => (
-										<Row
-											key={thread.id}
-											thread={thread}
-											active={thread.id === selectedThreadId}
-											onClick={() => onSelectThread?.(thread.id)}
-										/>
-									))}
-								</div>
-								{section.threads.length > SECTION_ROW_CAP && (
-									<button
-										type="button"
-										onClick={() => toggleShowAll(section.id)}
-										className="flex w-full items-center justify-center border-b border-line px-row-inset py-1.5 text-2xs font-medium text-accent transition-colors hover:bg-surface"
-									>
-										{showAll
-											? "Show less"
-											: `Show all (${section.threads.length})`}
-										{!showAll && hiddenCount > 0 && (
-											<ChevronDown className="ml-1 size-3" />
-										)}
-									</button>
-								)}
-							</>
-						)}
-					</div>
-				);
-			})}
+			{filtered.map((section) => (
+				<BriefSection
+					key={section.id}
+					section={section}
+					Row={Row}
+					selectedThreadId={selectedThreadId}
+					onSelectThread={onSelectThread}
+				/>
+			))}
 			{filtered.length === 0 && (
 				<div className="px-row-inset py-6 text-center text-2xs text-fg-subtle">
 					No threads match these filters.

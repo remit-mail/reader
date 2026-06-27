@@ -1,15 +1,47 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import type { ThreadSection } from "./app-shell-types.js";
+import type { ThreadRowData, ThreadSection } from "./app-shell-types.js";
 import { BriefSections } from "./brief-sections.js";
 import { ComfortableRow } from "./message-row.js";
 
+function newsletterRow(i: number): ThreadRowData {
+	return {
+		id: `n${i}`,
+		accountId: "a1",
+		fromName: `Digest ${i}`,
+		fromEmail: `digest${i}@news.example`,
+		subject: `This week, edition ${i}`,
+		snippet: "Stories you might have missed.",
+		timeLabel: "Thu",
+		isRead: true,
+		category: "newsletter",
+	};
+}
+
 const sections: ThreadSection[] = [
 	{
-		id: "attention",
-		label: "Needs attention",
+		id: "flagged",
+		label: "Flagged",
 		threads: [
 			{
-				id: "t1",
+				id: "f1",
+				accountId: "a1",
+				fromName: "Dana Lopez",
+				fromEmail: "dana@example.com",
+				subject: "Offsite logistics",
+				snippet: "Final headcount for the venue.",
+				timeLabel: "Tue",
+				isRead: false,
+				starred: true,
+				category: "personal",
+			},
+		],
+	},
+	{
+		id: "personal",
+		label: "Personal",
+		threads: [
+			{
+				id: "p1",
 				accountId: "a1",
 				fromName: "Priya Nair",
 				fromEmail: "priya@example.com",
@@ -17,10 +49,16 @@ const sections: ThreadSection[] = [
 				snippet: "Can we move it to 2pm? I have a conflict.",
 				timeLabel: "8:15",
 				isRead: false,
-				trust: "vip",
+				category: "personal",
 			},
+		],
+	},
+	{
+		id: "transactional",
+		label: "Transactional",
+		threads: [
 			{
-				id: "t2",
+				id: "x1",
 				accountId: "a1",
 				fromName: "Sam Okafor",
 				fromEmail: "sam@example.com",
@@ -28,38 +66,15 @@ const sections: ThreadSection[] = [
 				snippet: "Attaching the countersigned PDF.",
 				timeLabel: "9:01",
 				isRead: false,
+				hasAttachment: true,
 				category: "transactional",
 			},
 		],
 	},
 	{
-		id: "rest",
-		label: "Everything else",
-		threads: [
-			{
-				id: "t3",
-				accountId: "a1",
-				fromName: "The Weekly Brief",
-				fromEmail: "hello@weekly.example",
-				subject: "This week in product",
-				snippet: "Five stories you might have missed.",
-				timeLabel: "Thu",
-				isRead: true,
-				category: "newsletter",
-			},
-			{
-				id: "t4",
-				accountId: "a1",
-				fromName: "Dana Lopez",
-				fromEmail: "dana@example.com",
-				subject: "Invoice for May",
-				snippet: "Please find the attached invoice.",
-				timeLabel: "Wed",
-				isRead: true,
-				hasAttachment: true,
-				category: "transactional",
-			},
-		],
+		id: "newsletter",
+		label: "Newsletter",
+		threads: Array.from({ length: 14 }, (_, i) => newsletterRow(i + 1)),
 	},
 ];
 

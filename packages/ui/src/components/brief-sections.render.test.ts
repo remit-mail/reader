@@ -8,8 +8,8 @@ import { ComfortableRow } from "./message-row.js";
 
 const sections: ThreadSection[] = [
 	{
-		id: "attention",
-		label: "Needs attention",
+		id: "personal",
+		label: "Personal",
 		threads: [
 			{
 				id: "t1",
@@ -22,6 +22,12 @@ const sections: ThreadSection[] = [
 				isRead: false,
 				category: "personal",
 			},
+		],
+	},
+	{
+		id: "newsletter",
+		label: "Newsletter",
+		threads: [
 			{
 				id: "t2",
 				accountId: "a1",
@@ -53,7 +59,8 @@ function render(briefCategory: BriefCategoryFilter) {
 describe("BriefSections", () => {
 	it("renders section labels and rows", () => {
 		const html = render("all");
-		assert.match(html, /Needs attention/);
+		assert.match(html, /Personal/);
+		assert.match(html, /Newsletter/);
 		assert.match(html, /Priya Nair/);
 		assert.match(html, /Weekly Brief/);
 	});
