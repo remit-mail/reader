@@ -68,6 +68,11 @@ interface MessageListProps {
 		focusedMessageId: string | undefined;
 		selectedIds: string[];
 	}) => void;
+	/**
+	 * Suppress the pane's built-in title header — the shared `MailHeader` above
+	 * the list owns it (the inbox renders inside `MailViewChrome`).
+	 */
+	hideHeader?: boolean;
 }
 
 const COMFORTABLE_ITEM_HEIGHT = 72;
@@ -121,6 +126,7 @@ export const MessageList = ({
 	listTitle,
 	listMeta,
 	onTriageContextChange,
+	hideHeader = false,
 }: MessageListProps) => {
 	const parentRef = useRef<HTMLDivElement>(null);
 	const navigate = useNavigate();
@@ -747,6 +753,7 @@ export const MessageList = ({
 				}
 				onSelectBriefCategory={() => undefined}
 				isDesktop={isDesktop}
+				hideHeader={hideHeader}
 				selectionBar={activeSelectionBar}
 				listBody={listState === "ready" ? virtualBody : undefined}
 			/>

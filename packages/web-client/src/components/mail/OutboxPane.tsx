@@ -43,6 +43,7 @@ import {
 } from "react";
 import { useCompose } from "@/components/compose/ComposeProvider";
 import { MessageBody } from "@/components/mail/MessageBody";
+import { NavMenuButton } from "@/components/mail/NavMenuButton";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { buildMutationErrorBanner } from "@/components/ui/error-banners";
 import { isOutboxListRow, isUnsendableStatus } from "@/lib/outbox-status";
@@ -418,8 +419,11 @@ function OutboxList() {
 			{/* List datum bar (40px, the shared `--spacing-pane-header`): keeps
 			    the bottom hairline on the same y as the mailbox view so the grid
 			    line stays continuous across nav → outbox (no staircase, #422). */}
-			<header className="flex h-pane-header shrink-0 items-center justify-between gap-2 border-b border-line px-row-inset">
-				<h1 className="truncate text-sm font-semibold text-fg">Outbox</h1>
+			<header className="flex h-pane-header shrink-0 items-center gap-2 border-b border-line px-row-inset">
+				<NavMenuButton />
+				<h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-fg">
+					Outbox
+				</h1>
 				<span className="shrink-0 text-2xs text-fg-subtle">
 					{messages.length} {messages.length === 1 ? "message" : "messages"}
 				</span>
@@ -505,8 +509,11 @@ function OutboxPhone() {
 
 	return (
 		<div className="h-full flex flex-col bg-canvas">
-			<header className="flex h-pane-header shrink-0 items-center justify-between gap-2 border-b border-line px-row-inset">
-				<h1 className="truncate text-sm font-semibold text-fg">Outbox</h1>
+			<header className="flex h-pane-header shrink-0 items-center gap-2 border-b border-line px-row-inset">
+				<NavMenuButton />
+				<h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-fg">
+					Outbox
+				</h1>
 				<span className="shrink-0 text-2xs text-fg-subtle">
 					{messages.length} {messages.length === 1 ? "message" : "messages"}
 				</span>

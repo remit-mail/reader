@@ -1,5 +1,6 @@
 import {
 	Archive,
+	ArrowLeft,
 	EllipsisVertical,
 	FolderInput,
 	Info,
@@ -15,6 +16,14 @@ import { MoveToTrigger } from "./MoveToTrigger";
 export interface MobileConversationTopBarProps {
 	/** Whether a thread is open (gates action handlers). */
 	hasThread: boolean;
+	/**
+	 * Navigates back to the message list (drops the open thread from the URL).
+	 * When provided, a left-aligned "← <inboxLabel>" control renders — the
+	 * top-bar back affordance the parent app header used to carry (#735).
+	 */
+	onBackToInbox?: () => void;
+	/** Name of the mailbox shown beside the back arrow (defaults to "Inbox"). */
+	inboxLabel?: string;
 	onArchive?: () => void;
 	/** Whether an archive destination exists. When false the Archive button still renders active but explains on title. */
 	canArchive?: boolean;
@@ -162,6 +171,8 @@ function OverflowMenu({
  */
 export const MobileConversationTopBar = ({
 	hasThread,
+	onBackToInbox,
+	inboxLabel,
 	onArchive,
 	canArchive = true,
 	onDelete,
@@ -173,64 +184,80 @@ export const MobileConversationTopBar = ({
 	onOpenIntelligence,
 	intelligenceOpen,
 }: MobileConversationTopBarProps) => (
-	<div className="flex h-12 shrink-0 items-center justify-end gap-0.5 border-b border-line bg-canvas px-1">
-		<button
-			type="button"
-			onClick={onToggleStar}
-			className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-md transition-colors hover:bg-surface-raised"
-			aria-label={isStarred ? "Remove flag" : "Flag"}
-			title={isStarred ? "Remove flag" : "Flag"}
-		>
-			<Star
-				className={cn("size-5", isStarred ? "fill-warning text-warning" : "")}
-			/>
-		</button>
-
-		<button
-			type="button"
-			onClick={onArchive}
-			className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-md transition-colors hover:bg-surface-raised"
-			aria-label="Archive"
-			title={canArchive ? "Archive" : "No archive mailbox for this account"}
-		>
-			<Archive className="size-5" />
-		</button>
-
-		<button
-			type="button"
-			onClick={onDelete}
-			className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-md transition-colors hover:bg-surface-raised"
-			aria-label="Move to Trash"
-			title="Move to Trash"
-		>
-			<Trash2 className="size-5" />
-		</button>
-
-		<OverflowMenu
-			onToggleRead={onToggleRead}
-			isRead={isRead}
-			hasThread={hasThread}
-			moveContext={moveContext}
-		/>
-
-		{onOpenIntelligence !== undefined && (
+	<div className="flex h-12 shrink-0 items-center justify-between gap-0.5 border-b border-line bg-canvas px-1">
+		{onBackToInbox ? (
 			<button
 				type="button"
-				onClick={onOpenIntelligence}
-				className={cn(
-					"min-h-11 min-w-11 inline-flex items-center justify-center rounded-md transition-colors hover:bg-surface-raised",
-					intelligenceOpen ? "bg-accent-2-soft text-accent-2" : "",
-				)}
-				aria-label={
-					intelligenceOpen
-						? "Hide intelligence panel"
-						: "Show intelligence panel"
-				}
-				aria-pressed={intelligenceOpen}
-				title="Intelligence"
+				onClick={onBackToInbox}
+				className="min-h-11 inline-flex min-w-0 items-center gap-1 rounded-md px-2 text-sm font-medium text-fg transition-colors hover:bg-surface-raised"
+				aria-label="Back to inbox"
+				title="Back to inbox"
 			>
-				<Info className="size-5" />
+				<ArrowLeft className="size-5 shrink-0" />
+				<span className="truncate">{inboxLabel ?? "Inbox"}</span>
 			</button>
+		) : (
+			<div />
 		)}
+		<div className="flex shrink-0 items-center gap-0.5">
+			<button
+				type="button"
+				onClick={onToggleStar}
+				className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-md transition-colors hover:bg-surface-raised"
+				aria-label={isStarred ? "Remove flag" : "Flag"}
+				title={isStarred ? "Remove flag" : "Flag"}
+			>
+				<Star
+					className={cn("size-5", isStarred ? "fill-warning text-warning" : "")}
+				/>
+			</button>
+
+			<button
+				type="button"
+				onClick={onArchive}
+				className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-md transition-colors hover:bg-surface-raised"
+				aria-label="Archive"
+				title={canArchive ? "Archive" : "No archive mailbox for this account"}
+			>
+				<Archive className="size-5" />
+			</button>
+
+			<button
+				type="button"
+				onClick={onDelete}
+				className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-md transition-colors hover:bg-surface-raised"
+				aria-label="Move to Trash"
+				title="Move to Trash"
+			>
+				<Trash2 className="size-5" />
+			</button>
+
+			<OverflowMenu
+				onToggleRead={onToggleRead}
+				isRead={isRead}
+				hasThread={hasThread}
+				moveContext={moveContext}
+			/>
+
+			{onOpenIntelligence !== undefined && (
+				<button
+					type="button"
+					onClick={onOpenIntelligence}
+					className={cn(
+						"min-h-11 min-w-11 inline-flex items-center justify-center rounded-md transition-colors hover:bg-surface-raised",
+						intelligenceOpen ? "bg-accent-2-soft text-accent-2" : "",
+					)}
+					aria-label={
+						intelligenceOpen
+							? "Hide intelligence panel"
+							: "Show intelligence panel"
+					}
+					aria-pressed={intelligenceOpen}
+					title="Intelligence"
+				>
+					<Info className="size-5" />
+				</button>
+			)}
+		</div>
 	</div>
 );
