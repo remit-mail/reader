@@ -469,6 +469,16 @@ export function NavSidebar({
 				onClick={() => onSelectNav?.("brief")}
 			/>
 
+			<NavItem
+				navId="flagged"
+				linkComponent={linkComponent}
+				icon={<Star className="size-4" />}
+				label="Flagged"
+				ariaLabel="Flagged"
+				active={selectedNavId === "flagged"}
+				onClick={() => onSelectNav?.("flagged")}
+			/>
+
 			{accounts.length === 0 ? (
 				<div className="px-2 py-4 text-center text-sm text-fg-muted">
 					No accounts configured

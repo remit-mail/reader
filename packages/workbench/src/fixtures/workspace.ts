@@ -503,6 +503,24 @@ export const allThreads: ThreadRowData[] = rows.map(({ date, ...row }) => ({
 /** Unified threads exclude muted accounts — they keep syncing regardless. */
 const unified = allThreads.filter((t) => t.accountId !== hobbyId);
 
+/**
+ * The Flagged virtual mailbox: every starred thread as one flat, cross-account
+ * list (no category sections). The live FlaggedList derives this by filtering
+ * the unified thread list to `starred`; this curated set spans both the personal
+ * and work accounts so the flat list reads as a believable starred inbox.
+ */
+const flaggedIds = new Set([
+	"thr_dana",
+	"thr_sven",
+	"thr_airbnb",
+	"thr_pragmatic",
+	"thr_github",
+	"thr_strava",
+]);
+export const flaggedThreads: ThreadRowData[] = allThreads
+	.filter((t) => flaggedIds.has(t.id))
+	.map((t) => ({ ...t, starred: true }));
+
 /* ------------------------------------------------------------------ */
 /* Daily-brief grouping: one section per category                      */
 /* ------------------------------------------------------------------ */

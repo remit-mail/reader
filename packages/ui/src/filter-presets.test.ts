@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
 	briefFilterConfig,
 	type FilterAccount,
+	flaggedFilterConfig,
 	inboxFilterConfig,
 } from "./filter-presets.js";
 
@@ -68,5 +69,25 @@ describe("inboxFilterConfig", () => {
 
 	it("never offers an accounts source group", () => {
 		assert.equal(inboxFilterConfig().sources, undefined);
+	});
+});
+
+describe("flaggedFilterConfig", () => {
+	it("offers the same message categories as the brief", () => {
+		assert.deepEqual(
+			flaggedFilterConfig().categories.map((c) => c.id),
+			briefFilterConfig().categories.map((c) => c.id),
+		);
+	});
+
+	it("offers Unread and Has attachment, never the redundant Flagged", () => {
+		assert.deepEqual(
+			flaggedFilterConfig().filters.map((f) => f.id),
+			["unread", "attachment"],
+		);
+	});
+
+	it("never offers an accounts source group", () => {
+		assert.equal(flaggedFilterConfig().sources, undefined);
 	});
 });
