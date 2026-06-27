@@ -1,9 +1,13 @@
 import {
 	AppShell,
+	briefFilterConfig,
 	defaultKeyboardHints,
+	FilterSheet,
 	KeyboardHintBar,
+	MailHeader,
 } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useState } from "react";
 import {
 	briefChips,
 	briefSections,
@@ -168,6 +172,106 @@ export const KeyboardHintsPhone: Story = {
 			sections={briefSections()}
 		/>
 	),
+};
+
+/**
+ * The aggregate brief behind its filter: the MailHeader top row, then the
+ * FilterSheet bar whose caret opens the brief preset — categories +
+ * Unread/Flagged, plus the accounts group (three accounts feed the brief).
+ * Fast account switching is the nav sidebar, so there is no header chip row.
+ */
+function BriefScreen({
+	initialExpanded = false,
+}: {
+	initialExpanded?: boolean;
+}) {
+	const preset = briefFilterConfig(briefChips());
+	const [searchValue, setSearchValue] = useState("");
+	const [searchOpen, setSearchOpen] = useState(false);
+	const [expanded, setExpanded] = useState(initialExpanded);
+	const [category, setCategory] = useState("all");
+	const [activeFilters, setActiveFilters] = useState<Set<string>>(new Set());
+	const [source, setSource] = useState("all");
+	const sources = preset.sources?.map((s) => ({
+		...s,
+		active: s.id === source,
+	}));
+
+	return (
+		<div
+			className="flex h-[760px] flex-col overflow-hidden border border-line bg-canvas"
+			style={{ width: 390 }}
+		>
+			<MailHeader
+				title="Daily brief"
+				unreadCount={briefUnseen}
+				isDesktop={false}
+				onMenuClick={() => undefined}
+				searchValue={searchValue}
+				onSearchChange={setSearchValue}
+				searchOpen={searchOpen}
+				onSearchOpenChange={setSearchOpen}
+			/>
+			<div className="min-h-0 flex-1">
+				<FilterSheet
+					categories={preset.categories}
+					filters={preset.filters}
+					sources={sources}
+					selectedCategory={category}
+					activeFilters={activeFilters}
+					expanded={expanded}
+					onExpandedChange={setExpanded}
+					onSelectCategory={setCategory}
+					onSelectSource={setSource}
+					onToggleFilter={(id) =>
+						setActiveFilters((prev) => {
+							const next = new Set(prev);
+							if (next.has(id)) next.delete(id);
+							else next.add(id);
+							return next;
+						})
+					}
+					onClear={() => {
+						setCategory("all");
+						setActiveFilters(new Set());
+					}}
+				>
+					<ul className="divide-y divide-line">
+						{briefSections().flatMap((section) => [
+							<li
+								key={section.id}
+								className="bg-surface-sunken px-row-inset py-1 text-2xs font-medium uppercase tracking-wide text-fg-subtle"
+							>
+								{section.label}
+							</li>,
+							...section.threads.map((thread) => (
+								<li key={thread.id} className="px-row-inset py-2.5">
+									<div className="text-sm font-medium text-fg">
+										{thread.fromName}
+									</div>
+									<div className="truncate text-xs text-fg-muted">
+										{thread.subject}
+									</div>
+								</li>
+							)),
+						])}
+					</ul>
+				</FilterSheet>
+			</div>
+		</div>
+	);
+}
+
+/** Brief filter collapsed: header + the FilterSheet bar over the brief list. */
+export const WithFilter: Story = {
+	parameters: { layout: "centered" },
+	render: () => <BriefScreen />,
+};
+
+/** Brief filter expanded: categories + Unread/Flagged + the accounts group. */
+export const WithFilterExpanded: Story = {
+	parameters: { layout: "centered" },
+	render: () => <BriefScreen initialExpanded />,
 };
 
 /**

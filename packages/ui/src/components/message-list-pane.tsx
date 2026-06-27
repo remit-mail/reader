@@ -1,7 +1,7 @@
 import { Menu } from "lucide-react";
 import type { ReactNode } from "react";
 import { useState } from "react";
-import { cn } from "../lib/cn.js";
+import { AccountChipRow } from "./account-chip-row.js";
 import type { AppShellProps, TouchSeed } from "./app-shell-types.js";
 import { BriefSections } from "./brief-sections.js";
 import { Button } from "./button.js";
@@ -171,30 +171,7 @@ export function MessageListPane({
 			    chips live inside BriefSections (the filter drawer on mobile), and the
 			    plain flat mailbox carries no chip bar */}
 			{showChipBar && (
-				<div className="flex items-center gap-1.5 overflow-x-auto border-b border-line px-row-inset py-1">
-					{chips.map((chip) => (
-						<button
-							key={chip.id}
-							type="button"
-							className={cn(
-								"flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-0.5 text-2xs transition-colors",
-								chip.active
-									? "border-accent-2 bg-accent-2-soft font-medium text-accent-2"
-									: "border-line text-fg-muted hover:border-line-strong",
-							)}
-						>
-							{chip.label}
-							{chip.count != null && (
-								<span className="tabular-nums opacity-70">{chip.count}</span>
-							)}
-						</button>
-					))}
-					{mutedNote && (
-						<span className="ml-auto shrink-0 text-2xs text-fg-subtle">
-							{mutedNote}
-						</span>
-					)}
-				</div>
+				<AccountChipRow chips={chips ?? []} mutedNote={mutedNote} />
 			)}
 
 			{/* List body. Non-ready states replace the rows entirely (the live
@@ -220,7 +197,6 @@ export function MessageListPane({
 					accountChips={chips}
 					mutedNote={mutedNote}
 					Row={Row}
-					isDesktop={isDesktop}
 					onSelectThread={onSelectThread}
 					onSelectBriefCategory={onSelectBriefCategory}
 				/>
