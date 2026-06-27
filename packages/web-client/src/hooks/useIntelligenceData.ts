@@ -32,6 +32,26 @@ function formatFirstSeenLabel(createdAtMs: number): string {
 }
 
 /**
+ * A sender address we cannot read: empty, missing the `@`, or whose domain
+ * part carries no dot (catches placeholders like `missing_domain` and other
+ * junk). Structural — never a hard-coded literal.
+ */
+export function isSenderAddressUnverifiable(
+	fromEmail: string | undefined,
+): boolean {
+	if (!fromEmail) return true;
+	const [, domain] = fromEmail.split("@");
+	if (!domain) return true;
+	return !domain.includes(".");
+}
+
+const NO_SIGNAL_SUMMARY =
+	"We can't verify the sender of this email, which could mean it's from an insecure source.";
+
+const UNREADABLE_SENDER_SUMMARY =
+	"We couldn't read this sender's address, so we can't confirm who really sent this message.";
+
+/**
  * Build sender intel from the thread message and address lookup.
  *
  * Engagement counters (`inboundCount`/`replyCount`) are passed through
@@ -54,6 +74,7 @@ export function buildSenderIntel(
 		// suppresses the engagement clause when data is absent.
 		inboundCount: address?.inboundCount,
 		replyCount: address?.replyCount,
+		addressUnverified: isSenderAddressUnverifiable(thread.fromEmail),
 	};
 }
 
@@ -81,17 +102,28 @@ function buildSenderFlags(
  * danger panel. Passed in because it is derived from the semantic-search
  * result, not the thread row.
  */
-function buildAuthenticityIntel(
+export function buildAuthenticityIntel(
 	thread: RemitImapThreadMessageResponse,
 	similarCount: number,
 ): AuthenticityIntel {
+	const surfacedSimilar = similarCount > 0 ? similarCount : undefined;
+
+	if (isSenderAddressUnverifiable(thread.fromEmail)) {
+		return {
+			verdict: "mismatch",
+			fromDomain: "",
+			addressUnreadable: true,
+			summary: UNREADABLE_SENDER_SUMMARY,
+			similarCount: surfacedSimilar,
+		};
+	}
+
 	const auth = thread.authenticity;
 	if (!auth) {
-		// No authenticity signal → render as aligned (silent)
 		return {
-			verdict: "aligned",
+			verdict: "caution",
 			fromDomain: thread.fromEmail?.split("@")[1] ?? "",
-			summary: "No DKIM signal available for this message.",
+			summary: NO_SIGNAL_SUMMARY,
 		};
 	}
 	if (!auth.dkimMismatch) {
@@ -100,11 +132,11 @@ function buildAuthenticityIntel(
 			fromDomain: auth.fromDomain,
 			dkimDomain: auth.dkimDomain,
 			summary: auth.dkimDomain
-				? `DKIM signature aligns with ${auth.fromDomain}. Nothing unusual.`
-				: "No DKIM mismatch detected.",
+				? `We verified this message was really sent by ${auth.fromDomain}.`
+				: `Nothing looks unusual about this sender.`,
 		};
 	}
-	// DKIM mismatch — build the phishing summary
+
 	const fromDomain = auth.fromDomain;
 	const dkimDomain = auth.dkimDomain;
 	const claimedBrand =
@@ -112,8 +144,8 @@ function buildAuthenticityIntel(
 			? thread.fromName
 			: undefined;
 	const summary = claimedBrand
-		? `The display name claims "${claimedBrand}", but the message was sent from ${dkimDomain ?? "an unknown domain"} — not ${fromDomain}. Real senders use their own domain.`
-		: `This message was signed by ${dkimDomain ?? "an unknown domain"} but claims to be from ${fromDomain}. The signing domain does not match the sender domain.`;
+		? `The display name claims "${claimedBrand}", but this message was actually sent from ${dkimDomain ?? "another sender"} — not ${fromDomain}. Real senders use their own address.`
+		: `This message claims to be from ${fromDomain}, but it was actually sent from ${dkimDomain ?? "a different sender"}.`;
 	return {
 		verdict: "mismatch",
 		fromDomain,
@@ -122,7 +154,7 @@ function buildAuthenticityIntel(
 		summary,
 		// Surface the lookalike count so the panel renders the "N similar
 		// messages" campaign-reveal button.
-		similarCount: similarCount > 0 ? similarCount : undefined,
+		similarCount: surfacedSimilar,
 	};
 }
 
