@@ -9,6 +9,7 @@ import { useIsDark } from "@/hooks/useIsDark";
 import { useMessageBodyContent } from "@/hooks/useMessageBodyContent";
 import { useToggleTrusted } from "@/hooks/useToggleTrusted";
 import { cn } from "@/lib/utils";
+import { BlockedImagesNotice } from "./BlockedImagesNotice";
 import { MessageBodyErrorBanner } from "./MessageBodyErrorBanner";
 
 /**
@@ -167,7 +168,7 @@ export const MessageBody = ({
 
 	const canAlwaysTrust = Boolean(fromAddressId && messageId);
 	const handleAlwaysTrust = () => {
-		if (!fromAddressId) return;
+		if (!fromAddressId || isTrustPending) return;
 		setAllowImagesOnce(true);
 		toggleTrusted(fromAddressId, false);
 	};
@@ -188,31 +189,13 @@ export const MessageBody = ({
 			allowImages={allowImages}
 			resolveCid={resolveCid}
 			renderBlockedNotice={(blockedImageCount) => (
-				<div className="mb-3 flex items-center justify-between rounded-md bg-surface-sunken/50 px-3 py-2 text-sm">
-					<span className="text-fg-muted">
-						{blockedImageCount} image{blockedImageCount > 1 ? "s" : ""} blocked
-						for privacy
-					</span>
-					<div className="flex items-center gap-3">
-						<button
-							type="button"
-							onClick={() => setAllowImagesOnce(true)}
-							className="text-accent hover:underline"
-						>
-							Load once
-						</button>
-						{canAlwaysTrust && (
-							<button
-								type="button"
-								onClick={handleAlwaysTrust}
-								disabled={isTrustPending}
-								className="text-accent hover:underline disabled:opacity-50"
-							>
-								Always trust
-							</button>
-						)}
-					</div>
-				</div>
+				<BlockedImagesNotice
+					blockedImageCount={blockedImageCount}
+					canAlwaysTrust={canAlwaysTrust}
+					isTrustPending={isTrustPending}
+					onLoadOnce={() => setAllowImagesOnce(true)}
+					onAlwaysTrust={handleAlwaysTrust}
+				/>
 			)}
 		/>
 	);
