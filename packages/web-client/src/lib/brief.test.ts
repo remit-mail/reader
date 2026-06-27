@@ -93,30 +93,32 @@ describe("groupBriefSections", () => {
 		assert.strictEqual(sections[0].id, "personal");
 	});
 
-	// --- Starred wins over category ---
+	// --- Starred is a row marker, not a section (Flagged lives in the nav) ---
 
-	test("starred newsletter goes to flagged, not newsletter", () => {
+	test("a starred newsletter stays in the newsletter section", () => {
 		const r = row({ id: "1", starred: true, category: "newsletter" });
 		const sections = groupBriefSections([r]);
 		assert.strictEqual(sections.length, 1);
-		assert.strictEqual(sections[0].id, "flagged");
+		assert.strictEqual(sections[0].id, "newsletter");
 	});
 
-	test("starred personal goes to flagged", () => {
+	test("a starred personal message stays in the personal section", () => {
 		const r = row({ id: "1", starred: true, category: "personal" });
 		const sections = groupBriefSections([r]);
 		assert.strictEqual(sections.length, 1);
-		assert.strictEqual(sections[0].id, "flagged");
+		assert.strictEqual(sections[0].id, "personal");
 	});
 
-	test("flagged is pinned above the category sections", () => {
+	test("starred mail never produces a flagged section", () => {
 		const rows: ThreadRowData[] = [
 			row({ id: "p", category: "personal" }),
 			row({ id: "f", starred: true, category: "automated" }),
 		];
 		const sections = groupBriefSections(rows);
-		assert.strictEqual(sections[0].id, "flagged");
-		assert.strictEqual(sections[1].id, "personal");
+		assert.deepStrictEqual(
+			sections.map((s) => s.id),
+			["personal", "automated"],
+		);
 	});
 
 	// --- Trust no longer sections ---
@@ -137,7 +139,7 @@ describe("groupBriefSections", () => {
 
 	// --- Section order and omission ---
 
-	test("display order is: flagged, personal, transactional, newsletter, marketing, social, automated", () => {
+	test("display order is: personal, transactional, newsletter, marketing, social, automated", () => {
 		const rows: ThreadRowData[] = [
 			row({ id: "auto", category: "automated" }),
 			row({ id: "social", category: "social" }),
@@ -145,13 +147,12 @@ describe("groupBriefSections", () => {
 			row({ id: "news", category: "newsletter" }),
 			row({ id: "txn", category: "transactional" }),
 			row({ id: "pers", category: "personal" }),
-			row({ id: "flag", starred: true, category: "automated" }),
+			row({ id: "star", starred: true, category: "automated" }),
 		];
 		const sections = groupBriefSections(rows);
 		assert.deepStrictEqual(
 			sections.map((s) => s.id),
 			[
-				"flagged",
 				"personal",
 				"transactional",
 				"newsletter",

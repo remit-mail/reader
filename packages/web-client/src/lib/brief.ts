@@ -4,20 +4,16 @@
  * Pure function: takes a flat list of thread message rows and returns one
  * section per message category, in a fixed display order:
  *
- *  1. Flagged       — starred mail, pinned to the top
- *  2. Personal
- *  3. Transactional
- *  4. Newsletter
- *  5. Marketing
- *  6. Social
- *  7. Automated
+ *  1. Personal
+ *  2. Transactional
+ *  3. Newsletter
+ *  4. Marketing
+ *  5. Social
+ *  6. Automated
  *
- * Per-message routing is first-match-wins, and starring always wins over the
- * category:
- *   starred  → Flagged
- *   else     → the section for the row's category
- *
- * A row with no category counts as `personal` (the classifier's own fallback).
+ * Each row lands in the section for its category; a row with no category counts
+ * as `personal` (the classifier's own fallback). Starred mail is not a section —
+ * the star is a per-row marker, so a starred message stays in its category.
  *
  * Sender trust (vip/wellknown) no longer sections the brief — the signal is
  * still carried on each row (see `toThreadRowData`) for future use, but it does
@@ -97,20 +93,15 @@ const CATEGORY_SECTIONS: ReadonlyArray<{
  * calling this function.
  *
  * @param rows      Flat array of ThreadRowData, sorted newest-first.
- * @returns         Array of ThreadSection in display order (Flagged first, then
- *                  the category sections) — empty sections are omitted.
+ * @returns         Array of ThreadSection in category display order — empty
+ *                  sections are omitted.
  */
 export function groupBriefSections(rows: ThreadRowData[]): ThreadSection[] {
-	const flagged: ThreadRowData[] = [];
 	const byCategory = new Map<string, ThreadRowData[]>(
 		CATEGORY_SECTIONS.map((s) => [s.category, []]),
 	);
 
 	for (const row of rows) {
-		if (row.starred) {
-			flagged.push(row);
-			continue;
-		}
 		const category = row.category ?? MessageCategory.personal;
 		const bucket =
 			byCategory.get(category) ?? byCategory.get(MessageCategory.personal);
@@ -118,8 +109,6 @@ export function groupBriefSections(rows: ThreadRowData[]): ThreadSection[] {
 	}
 
 	const sections: ThreadSection[] = [];
-	if (flagged.length > 0)
-		sections.push({ id: "flagged", label: "Flagged", threads: flagged });
 	for (const section of CATEGORY_SECTIONS) {
 		const threads = byCategory.get(section.category);
 		if (threads && threads.length > 0)
