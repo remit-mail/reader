@@ -3,7 +3,6 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 import {
 	allThreads,
-	briefChips,
 	briefSections,
 	briefUnseen,
 	navAccounts,
@@ -20,14 +19,12 @@ import {
 const flatInboxSection = [{ id: "inbox", threads: allThreads }];
 
 /** Inbox-shaped overrides shared by the flat-list stories: the Inbox nav item
- *  is active, the list is flat (no brief chips / section labels), and the title
- *  reads "Inbox" with a plain unread count. */
+ *  is active, the list is flat (no section labels), and the title reads "Inbox"
+ *  with a plain unread count. */
 const inboxBase: Partial<AppShellProps> = {
 	selectedNavId: "mbx_personal_inbox",
 	listTitle: "Inbox",
 	flatList: true,
-	chips: undefined,
-	mutedNote: undefined,
 };
 
 const meta: Meta<typeof AppShell> = {
@@ -52,8 +49,6 @@ function StatefulShell({
 			briefUnseen={briefUnseen}
 			listTitle="Daily brief"
 			listMeta={`${briefUnseen} unread`}
-			chips={briefChips()}
-			mutedNote="+1 muted"
 			sections={briefSections()}
 			selectedThreadId="thr_q3"
 			thread={q3Thread}
@@ -160,8 +155,6 @@ export const DraftsActive: Story = {
 			selectedNavId="mbx_personal_drafts"
 			listTitle="Drafts"
 			listMeta={undefined}
-			chips={undefined}
-			mutedNote={undefined}
 			sections={[
 				{
 					id: "drafts",
