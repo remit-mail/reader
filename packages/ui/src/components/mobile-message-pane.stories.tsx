@@ -30,7 +30,7 @@ const intelligence: IntelligenceData = {
 	authenticity: {
 		verdict: "aligned",
 		fromDomain: "example.com",
-		summary: "DKIM signature aligns with the sending domain.",
+		summary: "We verified this message was really sent by example.com.",
 	},
 	category: { value: "Personal" },
 	similar: [],

@@ -4,7 +4,10 @@ import type {
 	RemitImapAddressResponse,
 	RemitImapThreadMessageResponse,
 } from "@remit/api-http-client/types.gen.ts";
-import { buildSenderIntel } from "./useIntelligenceData.js";
+import {
+	buildAuthenticityIntel,
+	buildSenderIntel,
+} from "./useIntelligenceData.js";
 
 // Jan 2025 timestamp — far enough in the past to not be "today"
 const JAN_2025_MS = new Date("2025-01-15T12:00:00Z").getTime();
@@ -149,6 +152,118 @@ describe("buildSenderIntel", () => {
 			// Should be something like "Jan 2025", not "unknown" or "today"
 			assert.notEqual(result.firstSeenLabel, "unknown");
 			assert.ok(result.firstSeenLabel.length > 0);
+		});
+	});
+
+	describe("addressUnverified flag", () => {
+		test("false for a normal address", () => {
+			const result = buildSenderIntel(
+				makeThread({ fromEmail: "alice@example.com" }),
+				undefined,
+			);
+			assert.equal(result.addressUnverified, false);
+		});
+
+		test("true when the domain has no dot (placeholder junk)", () => {
+			const result = buildSenderIntel(
+				makeThread({ fromEmail: "missing_mailbox@missing_domain" }),
+				undefined,
+			);
+			assert.equal(result.addressUnverified, true);
+		});
+
+		test("true when the address is missing", () => {
+			const result = buildSenderIntel(
+				makeThread({ fromEmail: undefined }),
+				undefined,
+			);
+			assert.equal(result.addressUnverified, true);
+		});
+	});
+});
+
+describe("buildAuthenticityIntel", () => {
+	test("caution when there is no authenticity signal", () => {
+		const thread = makeThread({ fromEmail: "alice@example.com" });
+		const result = buildAuthenticityIntel(thread, 0);
+		assert.equal(result.verdict, "caution");
+		assert.match(result.summary, /can't verify the sender/);
+	});
+
+	test("aligned when a signal is present and does not mismatch", () => {
+		const thread = makeThread({
+			fromEmail: "alice@example.com",
+			authenticity: {
+				fromDomain: "example.com",
+				dkimDomain: "example.com",
+				dkimMismatch: false,
+			},
+		} as Partial<RemitImapThreadMessageResponse>);
+		const result = buildAuthenticityIntel(thread, 0);
+		assert.equal(result.verdict, "aligned");
+	});
+
+	test("mismatch when the signing domain does not align", () => {
+		const thread = makeThread({
+			fromEmail: "security@your-bank.example",
+			fromName: "Your Bank",
+			authenticity: {
+				fromDomain: "your-bank.example",
+				dkimDomain: "mailer.evil.example",
+				dkimMismatch: true,
+			},
+		} as Partial<RemitImapThreadMessageResponse>);
+		const result = buildAuthenticityIntel(thread, 3);
+		assert.equal(result.verdict, "mismatch");
+		assert.equal(result.addressUnreadable, undefined);
+		assert.equal(result.similarCount, 3);
+	});
+
+	test("no user-facing copy names the verification mechanism", () => {
+		const verdicts = [
+			buildAuthenticityIntel(makeThread(), 0),
+			buildAuthenticityIntel(
+				makeThread({ fromEmail: "x@no-signal.example" }),
+				0,
+			),
+			buildAuthenticityIntel(
+				makeThread({
+					fromEmail: "a@bank.example",
+					authenticity: {
+						fromDomain: "bank.example",
+						dkimDomain: "evil.example",
+						dkimMismatch: true,
+					},
+				} as Partial<RemitImapThreadMessageResponse>),
+				0,
+			),
+		];
+		for (const v of verdicts) {
+			assert.doesNotMatch(v.summary, /DKIM|SPF|DMARC/i);
+		}
+	});
+
+	describe("unparseable sender drives the red tier", () => {
+		test("mismatch + addressUnreadable when the domain has no dot", () => {
+			const thread = makeThread({
+				fromEmail: "missing_mailbox@missing_domain",
+			});
+			const result = buildAuthenticityIntel(thread, 0);
+			assert.equal(result.verdict, "mismatch");
+			assert.equal(result.addressUnreadable, true);
+		});
+
+		test("red tier even when a clean DKIM signal is present", () => {
+			const thread = makeThread({
+				fromEmail: "missing_mailbox@missing_domain",
+				authenticity: {
+					fromDomain: "missing_domain",
+					dkimMismatch: false,
+				},
+			} as Partial<RemitImapThreadMessageResponse>);
+			const result = buildAuthenticityIntel(thread, 0);
+			assert.equal(result.verdict, "mismatch");
+			assert.equal(result.addressUnreadable, true);
 		});
 	});
 });

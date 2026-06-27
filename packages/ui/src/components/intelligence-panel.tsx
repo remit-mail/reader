@@ -6,6 +6,7 @@ import {
 	MailX,
 	ShieldAlert,
 	ShieldCheck,
+	ShieldQuestion,
 	ShieldX,
 	Sparkles,
 	Star,
@@ -41,17 +42,34 @@ export interface SenderIntel {
 	 */
 	inboundCount?: number;
 	replyCount?: number;
+	/**
+	 * True when the sender address is missing or unparseable (no valid domain).
+	 * Drives a red "couldn't verify the address" badge instead of the quiet grey
+	 * "Unknown sender", and forces the authenticity verdict to the red tier.
+	 */
+	addressUnverified?: boolean;
 }
 
 export interface AuthenticityIntel {
-	verdict: "aligned" | "mismatch";
+	/**
+	 * Risk tier. `aligned` (green) — verified sender. `caution` (orange) — no
+	 * verification signal available. `mismatch` (red) — impersonation or an
+	 * unreadable sender address.
+	 */
+	verdict: "aligned" | "caution" | "mismatch";
 	fromDomain: string;
-	/** DKIM signing domain (d=), when known. */
+	/** Signing domain the message was actually sent from, when known. */
 	dkimDomain?: string;
 	/** Brand the display name claims, when it differs from the mailbox. */
 	claimedBrand?: string;
 	/** Plain-language verdict shown to the user. */
 	summary: string;
+	/**
+	 * True when the red tier is driven by an unreadable sender address rather
+	 * than an impersonation mismatch — selects the headline and suppresses the
+	 * domain-comparison line (there is no valid domain to show).
+	 */
+	addressUnreadable?: boolean;
 	/** Count of semantically similar messages (the campaign, not the instance). */
 	similarCount?: number;
 }
@@ -187,9 +205,15 @@ function SenderCard({ sender }: { sender: SenderIntel }) {
 				</div>
 			</div>
 			<div className="mt-2 flex items-center gap-2">
-				<Badge tone={trust.tone} dot>
-					{trust.label}
-				</Badge>
+				{sender.addressUnverified ? (
+					<Badge tone="danger" dot>
+						Address couldn't be verified
+					</Badge>
+				) : (
+					<Badge tone={trust.tone} dot>
+						{trust.label}
+					</Badge>
+				)}
 			</div>
 			<p className="mt-2 text-xs text-fg-muted">
 				First seen {sender.firstSeenLabel}
@@ -214,22 +238,31 @@ function Authenticity({
 			</div>
 		);
 	}
+	if (auth.verdict === "caution") {
+		return (
+			<div className="flex items-start gap-2 rounded-md bg-warning/10 p-3 text-warning">
+				<ShieldQuestion className="mt-0.5 size-4 shrink-0" />
+				<p className="text-xs leading-relaxed">{auth.summary}</p>
+			</div>
+		);
+	}
+	const headline = auth.addressUnreadable
+		? "This sender can't be verified"
+		: "This message may be impersonating someone";
 	return (
 		<div className="rounded-md bg-danger-soft p-3">
 			<div className="flex items-start gap-2">
 				<ShieldAlert className="mt-0.5 size-4 shrink-0 text-danger" />
 				<div className="min-w-0">
-					<p className="text-sm font-semibold text-danger">
-						Likely impersonation
-					</p>
+					<p className="text-sm font-semibold text-danger">{headline}</p>
 					<p className="mt-1 text-xs leading-relaxed text-fg">{auth.summary}</p>
-					{auth.dkimDomain && (
+					{!auth.addressUnreadable && auth.dkimDomain && (
 						<p className="mt-1 text-2xs text-fg-muted">
-							DKIM signature:{" "}
+							Sent from{" "}
 							<code className="rounded bg-surface px-1 py-0.5">
 								{auth.dkimDomain}
-							</code>{" "}
-							≠ claimed{" "}
+							</code>
+							, claims to be{" "}
 							<code className="rounded bg-surface px-1 py-0.5">
 								{auth.fromDomain}
 							</code>
