@@ -492,9 +492,7 @@ export const manifest: ParityRow[] = [
 		viewports: ["phone", "tablet", "desktop"],
 		live: {
 			route: "/mail",
-			steps: [
-				{ action: "click", selector: "button:has-text('Needs attention')" },
-			],
+			steps: [{ action: "click", selector: "[aria-label='Expand filters']" }],
 		},
 		story: { id: "flows-dailybrief--filtered" },
 	},

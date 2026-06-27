@@ -55,6 +55,11 @@ export {
 	type BannerVariant,
 } from "./components/banner.js";
 export {
+	BriefSection,
+	type BriefSectionProps,
+	SECTION_ROW_CAP,
+} from "./components/brief-section.js";
+export {
 	BriefSections,
 	type BriefSectionsProps,
 } from "./components/brief-sections.js";

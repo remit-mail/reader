@@ -8,8 +8,8 @@
  *   2. Marks messages as read by opening them during smoke flows.
  *
  * Both effects make the visual tests non-deterministic: relative timestamps
- * ("Yesterday" vs "Mar 19") change daily, and the read/unread state affects
- * the brief's "Needs attention" section. Resetting the table here ensures the
+ * ("Yesterday" vs "Mar 19") change daily, and the read/unread state affects the
+ * brief's row badges. Resetting the table here ensures the
  * visual tests always start from the same fake-clock, known-read-state data
  * regardless of what smoke left behind.
  */
