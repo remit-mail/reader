@@ -9,6 +9,7 @@ import "./NamespaceType.tsp";
 import "./MailboxAttribute.tsp";
 import "./MailboxSpecialUse.tsp";
 import "./MailboxSyncStatus.tsp";
+import "./MailboxRole.tsp";
 
 // MIME Enums
 import "./MediaType.tsp";

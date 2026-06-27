@@ -1,6 +1,7 @@
 import "typespec-electrodb-emitter";
 
 import "../enums/MailboxAttribute.tsp";
+import "../enums/MailboxRole.tsp";
 import "../enums/MailboxSpecialUse.tsp";
 import "../enums/MailboxSyncStatus.tsp";
 import "../enums/MessageFlag.tsp";
@@ -136,6 +137,14 @@ model Mailbox {
   @visibility(Lifecycle.Read, Lifecycle.Update)
   muted?: MutedFlag;
 
+  @doc("User-chosen sidebar label for this mailbox. Optional; when absent the UI uses the canonical/derived folder label. Use the existing PATCH endpoint to set or clear; pass `null` to remove.")
+  @visibility(Lifecycle.Read, Lifecycle.Update)
+  displayNameOverride?: String256;
+
+  @doc("User-chosen role for this mailbox, overriding the detected special-use role. Optional; when absent the UI uses the detected role. `Custom` marks a folder that is not a system folder. Use the existing PATCH endpoint to set or clear; pass `null` to remove.")
+  @visibility(Lifecycle.Read, Lifecycle.Update)
+  roleOverride?: MailboxRole;
+
   @visibility(Lifecycle.Read)
   @createdAt
   createdAt: int64;
@@ -252,13 +261,19 @@ model MailboxFlag {
 @doc("Input for creating a new mailbox")
 model CreateMailboxInput is Create<Mailbox>;
 
-@doc("Input for updating a mailbox. Rename (IMAP sync) is triggered only when `fullPath` is provided. The `muted` flag can be updated independently without triggering IMAP machinery; pass `null` to clear the flag.")
+@doc("Input for updating a mailbox. Rename (IMAP sync) is triggered only when `fullPath` is provided. The `muted` flag and the `displayNameOverride`/`roleOverride` overrides can be updated independently without triggering IMAP machinery; pass `null` to clear any of them.")
 model RenameMailboxInput {
   @doc("New full path (triggers IMAP rename when present)")
   fullPath?: String512;
 
   @doc("Mute flag. Pass a MutedFlag object to mute; pass `null` to clear the mute.")
   muted?: MutedFlag | null;
+
+  @doc("Sidebar display-name override. Pass a string to set; pass `null` to clear (UI falls back to the canonical/derived label).")
+  displayNameOverride?: String256 | null;
+
+  @doc("Role override. Pass a MailboxRole to set; pass `null` to clear (UI falls back to the detected role).")
+  roleOverride?: MailboxRole | null;
 }
 
 // ============================================
@@ -284,6 +299,8 @@ model MailboxResponse
       | "highWaterMarkUid"
       | "lastMessageSyncAt"
       | "muted"
+      | "displayNameOverride"
+      | "roleOverride"
       | "createdAt"
       | "updatedAt"
   >;

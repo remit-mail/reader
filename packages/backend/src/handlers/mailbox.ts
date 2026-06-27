@@ -18,38 +18,49 @@ import type {
 import { assertAccountOwnership } from "./account-ownership.js";
 
 /**
- * Derive the mute-flag DDB changes from a PATCH body.
- *
- * Returns `{ updates, remove }` where:
- *   - `updates` contains the new muted value (when setting)
- *   - `remove` contains `["muted"]` when the flag should be deleted
- *
- * When `muted` is absent from the body the operation is a no-op (both
- * collections are empty). This mirrors the UpdateAddressFlagsInput semantics:
- * `null` → remove, object → set, absent → no-op.
+ * PATCH body fields that map directly to a DDB attribute with no IMAP
+ * machinery: the mute flag plus the user overrides. Each follows the same
+ * `null` → remove, value → set, absent/undefined → no-op semantics as
+ * UpdateAddressFlagsInput.
  */
-export const buildMailboxMuteChanges = (
+const MAILBOX_OVERRIDE_KEYS = [
+	"muted",
+	"displayNameOverride",
+	"roleOverride",
+] as const satisfies readonly (keyof RenameMailboxInput &
+	keyof UpdateMailboxInput)[];
+
+type MailboxOverrideKey = (typeof MAILBOX_OVERRIDE_KEYS)[number];
+
+/**
+ * Derive the direct DDB changes (mute flag + display-name/role overrides) from
+ * a PATCH body.
+ *
+ * Returns `{ updates, remove }` where `updates` holds the fields to set and
+ * `remove` lists the fields to delete. A field absent from the body (or
+ * present as `undefined`) is a no-op; `null` removes it; any other value sets
+ * it. None of these touch the rename/IMAP machinery.
+ */
+export const buildMailboxOverrideChanges = (
 	body: RenameMailboxInput,
-): { updates: UpdateMailboxInput; remove: "muted"[] } => {
-	const remove: "muted"[] = [];
+): { updates: UpdateMailboxInput; remove: MailboxOverrideKey[] } => {
+	const updates: UpdateMailboxInput = {};
+	const remove: MailboxOverrideKey[] = [];
 
-	if (!Object.prototype.hasOwnProperty.call(body, "muted")) {
-		return { updates: {}, remove };
+	for (const key of MAILBOX_OVERRIDE_KEYS) {
+		if (!Object.prototype.hasOwnProperty.call(body, key)) continue;
+		const value = body[key];
+		if (value === null) {
+			remove.push(key);
+			continue;
+		}
+		if (value === undefined) continue;
+		// key/value originate from the same RenameMailboxInput field; the widened
+		// record write is sound for this fixed key set.
+		(updates as Record<MailboxOverrideKey, unknown>)[key] = value;
 	}
 
-	if (body.muted === null) {
-		remove.push("muted");
-		return { updates: {}, remove };
-	}
-
-	if (body.muted !== undefined) {
-		return {
-			updates: { muted: body.muted as UpdateMailboxInput["muted"] },
-			remove,
-		};
-	}
-
-	return { updates: {}, remove };
+	return { updates, remove };
 };
 
 /**
@@ -89,17 +100,17 @@ export const applyMailboxPatch = async (
 ): Promise<MailboxItem> => {
 	const { fullPath } = body;
 
-	// --- Mute flag update (direct DDB, no IMAP machinery) ---
-	// Delegated to buildMailboxMuteChanges which follows the same null→remove
-	// semantics as UpdateAddressFlagsInput. Applied before (and independent of)
-	// any rename so a mute-only PATCH never touches syncStatus/oldPath.
-	const { updates: muteUpdates, remove: muteRemove } =
-		buildMailboxMuteChanges(body);
-	if (Object.keys(muteUpdates).length > 0 || muteRemove.length > 0) {
+	// --- Direct DDB updates (mute flag + display-name/role overrides) ---
+	// Delegated to buildMailboxOverrideChanges which follows the same
+	// null→remove semantics as UpdateAddressFlagsInput. Applied before (and
+	// independent of) any rename so an override-only PATCH never touches
+	// syncStatus/oldPath.
+	const { updates, remove } = buildMailboxOverrideChanges(body);
+	if (Object.keys(updates).length > 0 || remove.length > 0) {
 		await client.mailbox.update(
 			mailboxId,
-			muteUpdates,
-			muteRemove.length > 0 ? muteRemove : undefined,
+			updates,
+			remove.length > 0 ? remove : undefined,
 		);
 	}
 
@@ -127,6 +138,8 @@ const toMailboxResponse = (mailbox: MailboxItem): MailboxResponse => ({
 	highWaterMarkUid: mailbox.highWaterMarkUid,
 	lastMessageSyncAt: mailbox.lastMessageSyncAt,
 	muted: mailbox.muted,
+	displayNameOverride: mailbox.displayNameOverride,
+	roleOverride: mailbox.roleOverride,
 	createdAt: mailbox.createdAt,
 	updatedAt: mailbox.updatedAt,
 });
