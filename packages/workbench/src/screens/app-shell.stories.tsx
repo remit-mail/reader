@@ -50,6 +50,7 @@ function StatefulShell({
 			listTitle="Daily brief"
 			listMeta={`${briefUnseen} unread`}
 			sections={briefSections()}
+			briefFilters
 			selectedThreadId="thr_q3"
 			thread={q3Thread}
 			intelligence={q3Intelligence}

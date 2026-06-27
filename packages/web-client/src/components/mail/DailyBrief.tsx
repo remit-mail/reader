@@ -1,9 +1,10 @@
 /**
  * DailyBrief — unified cross-account message digest.
  *
- * Renders one section per message category (Flagged, then Personal /
- * Transactional / Newsletter / Marketing / Social / Automated) from the
- * GET /threads endpoint. The brief defaults to the cross-account aggregate;
+ * Renders one section per message category (Personal / Transactional /
+ * Newsletter / Marketing / Social / Automated) from the GET /threads endpoint.
+ * Starred mail is not a section — Flagged is a virtual mailbox in the nav. The
+ * brief defaults to the cross-account aggregate;
  * the shared `MailHeader` + `FilterSheet` expando (via `MailViewChrome`) own
  * the title, unread count, search, and the category / Unread-Flagged / account
  * filters. Account switching also lives in the nav sidebar — the account source
@@ -236,7 +237,7 @@ export function DailyBrief({
 
 	// Convert API rows to ThreadRowData, narrowing by the selected account, the
 	// category, the active attribute filters and the free-text search. Grouping
-	// (starred → Flagged, then per category) runs on the result.
+	// (one section per category) runs on the result.
 	const filteredRows = useMemo<ThreadRowData[]>(() => {
 		const raw = threadsData?.items ?? [];
 		const predicates = Array.from(activeFilters)

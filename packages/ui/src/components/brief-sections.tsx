@@ -83,16 +83,22 @@ export function BriefSections({
 	};
 
 	const predicates = briefFilterDefs.filter((f) => active.has(f.id));
+	const matches = (t: ThreadRowData) =>
+		(briefCategory === "all" || t.category === briefCategory) &&
+		predicates.every((f) => f.match(t));
+
+	// One section per category only earns its keep at the "all" scope. Narrow to
+	// a single category and the headers are redundant: render a plain flat list.
+	const showSections = briefCategory === "all";
+
 	const filtered = sections
 		.map((section) => ({
 			...section,
-			threads: section.threads.filter(
-				(t) =>
-					(briefCategory === "all" || t.category === briefCategory) &&
-					predicates.every((f) => f.match(t)),
-			),
+			threads: section.threads.filter(matches),
 		}))
 		.filter((section) => section.threads.length > 0);
+
+	const flatRows = sections.flatMap((s) => s.threads).filter(matches);
 
 	const sheetCategories: FilterSheetCategory[] = briefCategories.map((cat) => ({
 		id: cat.id,
@@ -110,18 +116,33 @@ export function BriefSections({
 		setActive(new Set());
 	};
 
+	const empty = showSections ? filtered.length === 0 : flatRows.length === 0;
+
 	const listBody = (
 		<>
-			{filtered.map((section) => (
-				<BriefSection
-					key={section.id}
-					section={section}
-					Row={Row}
-					selectedThreadId={selectedThreadId}
-					onSelectThread={onSelectThread}
-				/>
-			))}
-			{filtered.length === 0 && (
+			{showSections ? (
+				filtered.map((section) => (
+					<BriefSection
+						key={section.id}
+						section={section}
+						Row={Row}
+						selectedThreadId={selectedThreadId}
+						onSelectThread={onSelectThread}
+					/>
+				))
+			) : (
+				<div className="divide-y divide-line">
+					{flatRows.map((t) => (
+						<Row
+							key={t.id}
+							thread={t}
+							active={t.id === selectedThreadId}
+							onClick={() => onSelectThread?.(t.id)}
+						/>
+					))}
+				</div>
+			)}
+			{empty && (
 				<div className="px-row-inset py-6 text-center text-2xs text-fg-subtle">
 					No threads match these filters.
 				</div>

@@ -511,12 +511,10 @@ const unified = allThreads.filter((t) => t.accountId !== hobbyId);
  * Category-driven brief grouping — mirrors groupBriefSections in the web
  * client so the Storybook prototype stays in lockstep with production logic.
  *
- * Precedence (first match wins; starred always wins over category):
- *   starred → Flagged (pinned top)
- *   else    → the section for the row's category
- *
- * A row with no category counts as `personal`. Sender trust no longer sections
- * the brief, and read state is not a routing signal.
+ * Each row lands in the section for its category; a row with no category counts
+ * as `personal`. Starred mail is not a section — the star is a per-row marker
+ * (Flagged is a virtual mailbox in the nav). Sender trust no longer sections the
+ * brief, and read state is not a routing signal.
  */
 const categorySections: ReadonlyArray<{
 	id: string;
@@ -536,24 +534,17 @@ export function briefSections(accountId?: string): ThreadSection[] {
 		? unified.filter((t) => t.accountId === accountId)
 		: unified;
 
-	const flagged: typeof pool = [];
 	const byCategory = new Map<string, typeof pool>(
 		categorySections.map((s) => [s.category ?? "personal", []]),
 	);
 
 	for (const t of pool) {
-		if (t.starred) {
-			flagged.push(t);
-			continue;
-		}
 		const category = t.category ?? "personal";
 		const bucket = byCategory.get(category) ?? byCategory.get("personal");
 		bucket?.push(t);
 	}
 
 	const sections: ThreadSection[] = [];
-	if (flagged.length > 0)
-		sections.push({ id: "flagged", label: "Flagged", threads: flagged });
 	for (const section of categorySections) {
 		const threads = byCategory.get(section.category ?? "personal");
 		if (threads && threads.length > 0)
@@ -624,11 +615,11 @@ export function briefSectionsLong(accountId?: string): ThreadSection[] {
 
 /**
  * Category-section fixture for the brief story. The points it makes:
- * read state is not a routing signal, starring wins over category, and sender
- * trust no longer sections the brief.
+ * read state is not a routing signal, a starred item stays in its category
+ * (the star is a row marker, not a section), and sender trust no longer
+ * sections the brief.
  *
- *  - Flagged: a starred item, pinned to the top
- *  - Personal: a READ personal email — still its own section though opened
+ *  - Personal: a starred item + a READ personal email — both in-section
  *  - Transactional: a READ receipt
  *  - Newsletter: a newsletter from a wellknown sender — trust no longer routes
  *  - Automated: a status notification
@@ -720,14 +711,11 @@ export function categoryDrivenBriefSections(): ThreadSection[] {
 
 	return [
 		{
-			id: "flagged",
-			label: "Flagged",
-			threads: [starredItem],
-		},
-		{
 			id: "personal",
 			label: "Personal",
-			threads: [readPersonal],
+			// The starred item stays in its category — the star is a row marker,
+			// not a section (Flagged is a virtual mailbox in the nav).
+			threads: [starredItem, readPersonal],
 		},
 		{
 			id: "transactional",

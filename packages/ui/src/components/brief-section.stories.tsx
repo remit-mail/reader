@@ -61,3 +61,8 @@ export const CollapsedAtCap: Story = {
 export const Expanded: Story = {
 	args: { section: longSection, initialExpanded: true },
 };
+
+/** Section collapsed by its header — only the label + count show, every row hidden. */
+export const SectionCollapsed: Story = {
+	args: { section: longSection, initialCollapsed: true },
+};
