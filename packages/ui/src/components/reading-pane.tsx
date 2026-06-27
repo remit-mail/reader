@@ -6,7 +6,8 @@ import {
 	ShieldAlert,
 	SquarePen,
 } from "lucide-react";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
+import { cn } from "../lib/cn.js";
 import type { ThreadData, ThreadMessageData } from "./app-shell-types.js";
 import { Avatar } from "./avatar.js";
 import { Button } from "./button.js";
@@ -19,49 +20,159 @@ import { ReadingPaneEmpty } from "./reading-pane-empty.js";
 /* Pane 3: threaded reading pane                                      */
 /* ------------------------------------------------------------------ */
 
-export function CollapsedMessage({ message }: { message: ThreadMessageData }) {
+/**
+ * One collapsed thread row. Presentational and prop-driven: the kit owns the
+ * row rhythm (shared `px-2`/`lg:px-4` gutter, leading chevron, `md` avatar,
+ * fixed-width sender, snippet) and the app injects its interactivity via slots
+ * — `onClick` to expand, `isFocused`/`isUnread` for the keyboard ring and
+ * unread dot, and a `trailing` slot for the star/attachment/date cluster. With
+ * no slots it renders the fixture date label so the kit stories stand alone.
+ */
+export function CollapsedMessage({
+	message,
+	onClick,
+	isFocused,
+	isUnread,
+	trailing,
+}: {
+	message: ThreadMessageData;
+	/** Expand handler. Omit for a static (story / SSR) row. */
+	onClick?: () => void;
+	/** Keyboard-focus indicator (inset ring), independent of hover. */
+	isFocused?: boolean;
+	/** Bolds the sender and overlays the unread dot on the avatar. */
+	isUnread?: boolean;
+	/**
+	 * Trailing cluster (star button, attachment icon, date). Replaces the kit's
+	 * default fixture date label so the app can inject its real interactive
+	 * controls without the kit importing app/data code.
+	 */
+	trailing?: ReactNode;
+}) {
 	return (
 		<button
 			type="button"
-			className="flex h-section-row w-full items-center gap-3 border-b border-line px-2 text-left hover:bg-surface-sunken lg:px-4"
+			onClick={onClick}
+			className={cn(
+				"group flex h-section-row w-full items-center gap-3 border-b border-line px-2 text-left transition-colors hover:bg-surface-sunken lg:px-4",
+				isFocused && "bg-surface-sunken ring-1 ring-inset ring-accent/30",
+			)}
 		>
 			<ChevronRight className="size-3.5 shrink-0 text-fg-subtle" />
-			<Avatar name={message.fromName} email={message.fromEmail} size="md" />
-			<span className="w-36 shrink-0 truncate text-sm font-medium text-fg-muted">
+			<div className="relative shrink-0">
+				<Avatar name={message.fromName} email={message.fromEmail} size="md" />
+				{isUnread && (
+					<span className="absolute -top-0.5 -right-0.5 size-2 rounded-full border border-canvas bg-accent" />
+				)}
+			</div>
+			<span
+				className={cn(
+					"w-36 shrink-0 truncate text-sm",
+					isUnread ? "font-semibold text-fg" : "font-medium text-fg-muted",
+				)}
+			>
 				{message.fromName}
 			</span>
 			<span className="min-w-0 flex-1 truncate text-xs text-fg-subtle">
 				{message.snippet}
 			</span>
-			<span className="shrink-0 text-2xs text-fg-subtle tabular-nums">
-				{message.dateLabel}
-			</span>
+			{trailing ?? (
+				<span className="shrink-0 text-2xs text-fg-subtle tabular-nums">
+					{message.dateLabel}
+				</span>
+			)}
 		</button>
 	);
 }
 
+/**
+ * One expanded thread message. Presentational and prop-driven: the kit owns the
+ * header rhythm (leading chevron, `md` avatar, sender block) and the body
+ * spacing; the app injects its interactivity and real data via slots —
+ * `onHeaderClick` to collapse, `isFocused`/`isUnread`, a `senderBadge` after the
+ * name, `trailing` for the date, `to` for the recipient line, `indicators` for
+ * the star/attachment row, `actionMenu` for the kebab, and `body` for the real
+ * message body (loading/error/raw). With no `body` it renders the fixture
+ * `MessageBodyView` so the kit stories stand alone.
+ */
 export function ExpandedMessage({
 	message,
 	warning,
+	onHeaderClick,
+	isFocused,
+	senderBadge,
+	trailing,
+	to,
+	indicators,
+	actionMenu,
+	body,
 }: {
 	message: ThreadMessageData;
 	warning?: string;
+	/** Collapse handler on the sender block. Omit for a static row. */
+	onHeaderClick?: () => void;
+	isFocused?: boolean;
+	/** Rendered after the sender name (e.g. a trusted-sender badge). */
+	senderBadge?: ReactNode;
+	/** Trailing header content (date). Defaults to the fixture date label. */
+	trailing?: ReactNode;
+	/** Recipient line. `undefined` → "to {message.toLabel}"; `null` → hidden. */
+	to?: ReactNode;
+	/** Row under the header (star / attachment / unread dot). */
+	indicators?: ReactNode;
+	/** Per-message action menu (kebab), right-aligned in the header. */
+	actionMenu?: ReactNode;
+	/**
+	 * The message body. Replaces the kit's fixture `MessageBodyView` so the app
+	 * can inject its real data-driven body (loading / error / raw toggle).
+	 */
+	body?: ReactNode;
 }) {
+	const sender = (
+		<>
+			<div className="flex items-baseline justify-between gap-2">
+				<span className="text-sm font-semibold text-fg">
+					{message.fromName}
+					{senderBadge}
+				</span>
+				{trailing ?? (
+					<span className="text-2xs text-fg-subtle">{message.dateLabel}</span>
+				)}
+			</div>
+			<div className="text-xs text-fg-subtle">{message.fromEmail}</div>
+			{to !== null && (
+				<div className="text-xs text-fg-subtle">
+					{to ?? <>to {message.toLabel}</>}
+				</div>
+			)}
+		</>
+	);
+
 	return (
-		<div className="px-2 py-3 lg:px-4">
+		<div
+			className={cn(
+				"px-2 py-3 lg:px-4",
+				isFocused && "ring-1 ring-inset ring-accent/30",
+			)}
+		>
 			<div className="flex items-start gap-3">
 				<ChevronDown className="mt-1 size-3.5 shrink-0 text-fg-subtle" />
 				<Avatar name={message.fromName} email={message.fromEmail} size="md" />
 				<div className="min-w-0 flex-1">
-					<div className="flex items-baseline justify-between gap-2">
-						<span className="text-sm font-semibold text-fg">
-							{message.fromName}
-						</span>
-						<span className="text-2xs text-fg-subtle">{message.dateLabel}</span>
-					</div>
-					<div className="text-xs text-fg-subtle">{message.fromEmail}</div>
-					<div className="text-xs text-fg-subtle">to {message.toLabel}</div>
+					{onHeaderClick ? (
+						<button
+							type="button"
+							onClick={onHeaderClick}
+							className="w-full text-left"
+						>
+							{sender}
+						</button>
+					) : (
+						sender
+					)}
+					{indicators}
 				</div>
+				{actionMenu && <div className="shrink-0">{actionMenu}</div>}
 			</div>
 
 			{warning && (
@@ -77,17 +188,20 @@ export function ExpandedMessage({
 				</div>
 			)}
 
-			{/* Render through the real sanitize → classify → sandboxed-iframe
-			    pipeline so Storybook shows exactly what the app renders, not a
-			    divergent inline-HTML mock (#940). `framed` fixtures map to the
-			    newsletter treatment (author colors preserved); the rest render
-			    plain. External images are allowed in the kit reference. */}
-			<MessageBodyView
-				className="mt-3"
-				html={message.bodyHtml}
-				category={message.framed ? "newsletter" : "personal"}
-				allowImages
-			/>
+			{/* The body is injected by the app (real sanitize → classify →
+			    sandboxed-iframe pipeline via its MessageBody). With no `body`
+			    slot the kit renders MessageBodyView directly so Storybook shows
+			    exactly what the app renders, not a divergent inline-HTML mock
+			    (#940). `framed` fixtures map to the newsletter treatment (author
+			    colors preserved); the rest render plain. */}
+			{body ?? (
+				<MessageBodyView
+					className="mt-3"
+					html={message.bodyHtml}
+					category={message.framed ? "newsletter" : "personal"}
+					allowImages
+				/>
+			)}
 		</div>
 	);
 }
