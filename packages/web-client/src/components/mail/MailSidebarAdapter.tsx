@@ -8,9 +8,9 @@ import type {
 	RemitImapMailboxResponse,
 } from "@remit/api-http-client/types.gen.ts";
 import type {
-	MailboxSpecialUse,
 	NavAccount,
 	NavLinkComponent,
+	NavMailboxRole,
 } from "@remit/ui";
 import { NavSidebar } from "@remit/ui";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -20,6 +20,7 @@ import { useTranslation } from "react-i18next";
 import {
 	filterDuplicateSpecialUse,
 	getMailboxDisplayLabel,
+	getMailboxKind,
 	getMailboxPriority,
 	isSystemMailbox,
 	shouldShowUnreadBadge,
@@ -88,6 +89,28 @@ function sortMailboxes(
 	return { system, labels };
 }
 
+// System roles the kit pins + orders + icons. Mirrors NavMailboxRole. A kind
+// outside this set (e.g. the "important" group) is treated as a custom folder,
+// matching `isSystemMailbox` (which ranks Important as non-system).
+const SYSTEM_ROLES = new Set<string>([
+	"inbox",
+	"flagged",
+	"drafts",
+	"sent",
+	"archive",
+	"all",
+	"junk",
+	"trash",
+]);
+
+function toNavRole(
+	fullPath: string,
+	specialUse: RemitImapMailboxResponse["specialUse"],
+): NavMailboxRole | undefined {
+	const kind = getMailboxKind(fullPath, specialUse);
+	return kind && SYSTEM_ROLES.has(kind) ? (kind as NavMailboxRole) : undefined;
+}
+
 /** Convert an API mailbox to a NavMailbox for the kit, localizing system names. */
 function toNavMailbox(mb: RemitImapMailboxResponse, t: Translator) {
 	const showBadge =
@@ -96,9 +119,7 @@ function toNavMailbox(mb: RemitImapMailboxResponse, t: Translator) {
 		id: mb.mailboxId,
 		name: getMailboxDisplayLabel(mb.fullPath, mb.specialUse, t),
 		unseen: showBadge ? mb.unseenCount : undefined,
-		// The API's specialUse values are RFC 6154 strings ("\\Sent" etc.)
-		// which are the same runtime values as MailboxSpecialUse — just cast.
-		specialUse: mb.specialUse as MailboxSpecialUse[] | undefined,
+		role: toNavRole(mb.fullPath, mb.specialUse),
 		fullPath: mb.fullPath,
 	};
 }
