@@ -1,5 +1,4 @@
 import {
-	Archive,
 	Ban,
 	BellOff,
 	MailCheck,
@@ -95,7 +94,6 @@ export interface SenderFlagsIntel {
 	muted?: boolean;
 	blocked?: boolean;
 	unsubscribed?: boolean;
-	autoArchive?: boolean;
 }
 
 export interface IntelligenceData {
@@ -112,7 +110,6 @@ export interface IntelligenceQuickActions {
 	/** Block navigates through a confirm dialog — the callback fires post-confirm. */
 	onToggleBlock?: () => void;
 	onToggleUnsubscribe?: () => void;
-	onToggleAutoArchive?: () => void;
 	onReclassify?: () => void;
 	/**
 	 * "Not spam": move the message out of Junk and promote the sender to
@@ -411,12 +408,6 @@ export function IntelligencePanel({
 						label="Unsubscribe"
 						active={flags.unsubscribed}
 						onClick={actions?.onToggleUnsubscribe}
-					/>
-					<QuickAction
-						icon={<Archive className="size-3.5" />}
-						label="Auto-archive"
-						active={flags.autoArchive}
-						onClick={actions?.onToggleAutoArchive}
 					/>
 					{actions?.onNotSpam && (
 						<QuickAction

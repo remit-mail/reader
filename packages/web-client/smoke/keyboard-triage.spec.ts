@@ -61,8 +61,13 @@ test.describe("Keyboard triage", () => {
 		await page.keyboard.press("?");
 		const dialog = page.getByRole("dialog", { name: /keyboard shortcuts/i });
 		await expect(dialog).toBeVisible({ timeout: 5_000 });
-		// The overlay renders the real key map (e.g. the Archive binding).
-		await expect(dialog.getByText("Archive", { exact: false })).toBeVisible();
+		// The overlay renders the real key map. The archive verb was removed
+		// (Remit is IMAP-backed — move-to-folder is the equivalent), so it must
+		// no longer list "Archive"; real bindings like Reply still appear.
+		await expect(dialog.getByText("Archive", { exact: false })).toHaveCount(0);
+		await expect(
+			dialog.getByText("Reply", { exact: false }).first(),
+		).toBeVisible();
 
 		await page.keyboard.press("Escape");
 		await expect(dialog).toBeHidden({ timeout: 5_000 });

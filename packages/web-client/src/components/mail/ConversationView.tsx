@@ -4,7 +4,7 @@ import {
 	threadDetailOperationsListThreadMessagesOptions,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapMessageAuthenticity } from "@remit/api-http-client/types.gen.ts";
-import { MobileMessagePane } from "@remit/ui";
+import { MobileReadingPane } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { ShieldAlert } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -19,7 +19,6 @@ import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { useSwipeNavigation } from "@/hooks/useSwipeNavigation";
 import { useToggleStar } from "@/hooks/useToggleStar";
 import { MessageCard } from "./MessageCard";
-import { MobileConversationTopBar } from "./MobileConversationTopBar";
 
 interface ConversationViewProps {
 	threadId: string;
@@ -49,11 +48,6 @@ interface ConversationViewProps {
 	 */
 	onBack?: () => void;
 	/**
-	 * Mobile only: name of the mailbox this thread was opened from, shown beside
-	 * the top-bar "← <inbox>" back control (#735). Defaults to "Inbox".
-	 */
-	inboxName?: string;
-	/**
 	 * When set, immediately opens the inline compose in this mode. The
 	 * parent (e.g. the reading-pane toolbar) sets this to wire the
 	 * top-bar reply/reply-all/forward buttons into the inline compose
@@ -78,29 +72,6 @@ interface ConversationViewProps {
 	 * Omitted at the start of the list.
 	 */
 	onSwipePrevious?: () => void;
-
-	/* ---- Mobile management actions (rendered in MobileConversationTopBar) ---- */
-
-	/** Archive all messages in the thread. */
-	onMobileArchive?: () => void;
-	/** Whether an archive mailbox exists. When false the Archive button still renders but its title explains. */
-	canMobileArchive?: boolean;
-	/** Delete all messages in the thread. */
-	onMobileDelete?: () => void;
-	/** Toggle star on the thread's representative (most-recent) message. */
-	onMobileToggleStar?: () => void;
-	/** Whether the representative message is starred. */
-	isMobileStarred?: boolean;
-	/** Toggle read/unread state of the thread's messages. */
-	onMobileToggleRead?: () => void;
-	/** Whether the representative message is currently read. */
-	isMobileRead?: boolean;
-	/** Move-to-mailbox context for the mobile overflow menu. */
-	mobileMoveContext?: {
-		accountId: string;
-		currentMailboxId: string;
-		onMove: (destinationMailboxId: string) => void;
-	};
 	/** Whether the intelligence drawer is currently open (drives the ⓘ button pressed state). */
 	mobileIntelligenceOpen?: boolean;
 }
@@ -170,19 +141,10 @@ export const ConversationView = ({
 	authenticity,
 	onOpenIntelligence,
 	onBack,
-	inboxName,
 	composeRequest,
 	onComposeClose,
 	onSwipeNext,
 	onSwipePrevious,
-	onMobileArchive,
-	canMobileArchive,
-	onMobileDelete,
-	onMobileToggleStar,
-	isMobileStarred,
-	onMobileToggleRead,
-	isMobileRead,
-	mobileMoveContext,
 	mobileIntelligenceOpen,
 }: ConversationViewProps) => {
 	const isDesktop = useIsDesktop();
@@ -397,8 +359,10 @@ export const ConversationView = ({
 	const messageCount = messages.length;
 
 	// Message list wrapper — no extra x-padding; each MessageCard handles
-	// its own px-5 inset (matches the AppShell ReadingPane geometry).
-	const messagesList = (
+	// its own px-5 inset (matches the AppShell ReadingPane geometry). On mobile
+	// each expanded card owns a per-message action bar; reply verbs are wired
+	// only when SMTP is configured (otherwise the buttons no-op).
+	const renderMessages = (mobile: boolean) => (
 		<div>
 			{messages.map((message, index) => (
 				<div
@@ -417,6 +381,10 @@ export const ConversationView = ({
 							isStarPending && pendingMessageId === message.messageId
 						}
 						accountId={mailboxAccountId}
+						mobile={mobile}
+						onReply={mobile && smtpConfigured ? handleReply : undefined}
+						onReplyAll={mobile && smtpConfigured ? handleReplyAll : undefined}
+						onForward={mobile && smtpConfigured ? handleForward : undefined}
 					/>
 				</div>
 			))}
@@ -437,80 +405,36 @@ export const ConversationView = ({
 		</header>
 	);
 
-	// Mobile: kit MobileMessagePane wraps the conversation as a single pane.
-	// The management bar (star / archive / delete / overflow) slots in above
-	// the message area; reply / forward / back live in the kit toolbar below.
-	// When inline compose is open it replaces the bottom toolbar via composeSlot.
-	// Horizontal swipe between messages is wired through touchHandlers (#693).
+	// Mobile: the kit MobileReadingPane owns the chrome — a top app bar with
+	// back, the email subject and the intelligence toggle (the host owns the
+	// drawer). Each expanded card owns its per-message action bar; there is no
+	// thread-level reply footer. The phishing warning leads the scroll content;
+	// horizontal swipe between messages is wired through touchHandlers (#693).
 	if (!isDesktop) {
-		const hasMobileActions =
-			inboxName !== undefined ||
-			onMobileArchive !== undefined ||
-			onMobileDelete !== undefined ||
-			onMobileToggleStar !== undefined ||
-			onMobileToggleRead !== undefined ||
-			mobileMoveContext !== undefined ||
-			onOpenIntelligence !== undefined;
-
-		const managementBar = hasMobileActions ? (
-			<MobileConversationTopBar
-				hasThread
-				onBackToInbox={inboxName ? onBack : undefined}
-				inboxLabel={inboxName}
-				onArchive={onMobileArchive}
-				canArchive={canMobileArchive}
-				onDelete={onMobileDelete}
-				onToggleStar={onMobileToggleStar}
-				isStarred={isMobileStarred}
-				onToggleRead={onMobileToggleRead}
-				isRead={isMobileRead}
-				moveContext={mobileMoveContext}
-				onOpenIntelligence={onOpenIntelligence}
+		return (
+			<MobileReadingPane
+				thread={{ subject: displaySubject, messages: [] }}
+				onBack={onBack ?? (() => undefined)}
 				intelligenceOpen={mobileIntelligenceOpen}
-			/>
-		) : undefined;
-
-		// Authenticity banner + message cards form the scrollable content area.
-		// The phishing warning is just as important on mobile; the "Why?" link
-		// opens the info drawer that hosts the intelligence pane (#687).
-		const scrollContent = (
-			<>
+				onToggleIntelligence={onOpenIntelligence}
+				touchHandlers={swipeHandlers}
+			>
 				{authenticity?.dkimMismatch && (
 					<AuthenticityBanner
 						authenticity={authenticity}
 						onOpenIntelligence={onOpenIntelligence}
 					/>
 				)}
-				{messagesList}
-			</>
-		);
-
-		const composeSlot =
-			composeMode !== null ? (
-				<InlineCompose
-					mode={composeMode}
-					account={activeAccount}
-					sourceMessage={lastMessageData}
-					onClose={handleCloseCompose}
-				/>
-			) : undefined;
-
-		return (
-			<MobileMessagePane
-				onBack={onBack ?? (() => undefined)}
-				managementBar={managementBar}
-				onReply={handleReply}
-				onReplyAll={handleReplyAll}
-				onForward={handleForward}
-				canReply={smtpConfigured}
-				replyUnavailableHint="Configure SMTP to send mail"
-				onInfo={onOpenIntelligence}
-				intelligenceOpen={mobileIntelligenceOpen}
-				composeSlot={composeSlot}
-				touchHandlers={swipeHandlers}
-			>
-				{scrollContent}
-			</MobileMessagePane>
+				{renderMessages(true)}
+				{composeMode !== null && (
+					<InlineCompose
+						mode={composeMode}
+						account={activeAccount}
+						sourceMessage={lastMessageData}
+						onClose={handleCloseCompose}
+					/>
+				)}
+			</MobileReadingPane>
 		);
 	}
 
@@ -523,7 +447,7 @@ export const ConversationView = ({
 					onOpenIntelligence={onOpenIntelligence}
 				/>
 			)}
-			<div className="flex-1 overflow-auto">{messagesList}</div>
+			<div className="flex-1 overflow-auto">{renderMessages(false)}</div>
 			{composeMode !== null && (
 				<InlineCompose
 					mode={composeMode}

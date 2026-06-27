@@ -10,10 +10,11 @@ describe("MailActionToolbar", () => {
 			createElement(MailActionToolbar, { hasThread: true }),
 		);
 		assert.match(html, /aria-label="Reply"/);
-		assert.match(html, /aria-label="Archive"/);
 		assert.match(html, /aria-label="Move to Trash"/);
 		assert.match(html, /aria-label="Flag"/);
 		assert.match(html, /aria-label="Move to mailbox"/);
+		// No archive verb — Remit is IMAP-backed (move-to-folder is the equivalent).
+		assert.doesNotMatch(html, /aria-label="Archive"/);
 	});
 
 	it("hides the triage cluster when showTriage is false (mobile footer)", () => {

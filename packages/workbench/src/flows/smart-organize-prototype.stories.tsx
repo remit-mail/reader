@@ -84,7 +84,7 @@ function SheetStage({
  * count and a "Swipe up for actions" hint. Drag or tap the teaser to expand
  * to a 1/3-screen sheet with:
  *
- *  - Quick actions row: Delete / Move / Junk / Archive
+ *  - Quick actions row: Delete / Move / Junk
  *  - "Select similar messages" (primary) — briefly shows a selecting flash,
  *    adds all travel/booking rows, then opens the Organize sheet.
  *  - "Something else" (secondary) — opens the suggestions+plain-text sheet.

@@ -47,13 +47,17 @@ test.describe("Mobile conversation view", () => {
 	test("action toolbar is present with reply, reply-all and forward buttons", async ({
 		page,
 	}) => {
-		// The MobileActionBar renders at the bottom of the article on mobile.
-		// These buttons must be visible without a desktop toolbar being present.
+		// On mobile the expanded message owns its per-message action bar (no
+		// desktop toolbar). The reply verbs live on that bar.
 		await expect(
-			page.getByRole("button", { name: "Reply", exact: true }),
+			page.getByRole("button", { name: "Reply", exact: true }).first(),
 		).toBeVisible();
-		await expect(page.getByRole("button", { name: "Reply all" })).toBeVisible();
-		await expect(page.getByRole("button", { name: "Forward" })).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: "Reply all" }).first(),
+		).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: "Forward" }).first(),
+		).toBeVisible();
 	});
 
 	test("back button returns to message list", async ({ page }) => {
@@ -72,12 +76,12 @@ test.describe("Mobile conversation view", () => {
 	// Regression for #735: the "← Inbox" top-bar button was silently broken
 	// because `useParams({ strict: false })` in the parent /mail layout always
 	// returned {} (no mailboxId) — the navigate guard short-circuited every tap.
-	test("← Inbox top-bar link navigates back to the message list (#735)", async ({
+	test("back control navigates from a thread to the message list (#735)", async ({
 		page,
 	}) => {
-		// The parent layout renders "← <mailbox name>" (aria-label "Back to inbox")
-		// in the mobile header when a message is open.
-		const inboxLink = page.getByRole("button", { name: /back to inbox/i });
+		// MobileReadingPane's top app bar renders a plain back arrow
+		// (aria-label "Back to messages") when a message is open.
+		const inboxLink = page.getByRole("button", { name: /back to messages/i });
 		await expect(inboxLink).toBeVisible();
 		await inboxLink.click();
 
@@ -89,30 +93,44 @@ test.describe("Mobile conversation view", () => {
 		).toBeVisible({ timeout: 10_000 });
 	});
 
-	test("management top bar has archive, delete, and star buttons", async ({
+	test("per-message action bar shows star, move, delete and reply verbs (no archive)", async ({
 		page,
 	}) => {
-		// MobileConversationTopBar renders above the article body
-		await expect(page.getByRole("button", { name: "Archive" })).toBeVisible();
+		// The expanded message owns its action bar (MobileMessageBar → kit
+		// MobileMessageActionBar). Archive was removed — Remit is IMAP-backed, so
+		// move-to-folder is the equivalent.
 		await expect(
-			page.getByRole("button", { name: "Move to Trash" }),
+			page.getByRole("button", { name: /flag|remove flag/i }).first(),
 		).toBeVisible();
-		// Star button has a dynamic label depending on state
 		await expect(
-			page.getByRole("button", { name: /flag|remove flag/i }),
+			page.getByRole("button", { name: "Move this message" }).first(),
 		).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: "Move to Trash" }).first(),
+		).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: "Reply", exact: true }).first(),
+		).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: "Reply all" }).first(),
+		).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: "Forward" }).first(),
+		).toBeVisible();
+		await expect(page.getByRole("button", { name: "Archive" })).toHaveCount(0);
 	});
 
-	test("info panel opens and closes via the Details button in the action bar", async ({
+	test("info panel opens and closes via the intelligence toggle in the top bar", async ({
 		page,
 	}) => {
-		// The Details / Message details button in MobileActionBar opens the info drawer
-		const detailsButton = page.getByRole("button", {
-			name: /message details/i,
+		// The intelligence / details toggle lives in the top app bar (next to back
+		// + subject), not the per-message bar. It opens the same info drawer.
+		const infoButton = page.getByRole("button", {
+			name: /show intelligence panel/i,
 		});
-		await expect(detailsButton).toBeVisible();
+		await expect(infoButton).toBeVisible();
 
-		await detailsButton.click();
+		await infoButton.click();
 
 		// The Drawer renders as a dialog with aria-label "Message details"
 		const drawer = page.getByRole("dialog", { name: /message details/i });
@@ -133,32 +151,6 @@ test.describe("Mobile conversation view", () => {
 		await closeButton.click();
 
 		// Drawer should no longer be visible
-		await expect(drawer).toBeHidden({ timeout: 3_000 });
-	});
-
-	test("info panel opens via the intelligence button in the top bar", async ({
-		page,
-	}) => {
-		// MobileConversationTopBar also has an Info / Show intelligence panel button
-		const infoButton = page.getByRole("button", {
-			name: /show intelligence panel/i,
-		});
-		await expect(infoButton).toBeVisible();
-
-		await infoButton.click();
-
-		const drawer = page.getByRole("dialog", { name: /message details/i });
-		await expect(drawer).toBeVisible({ timeout: 5_000 });
-
-		// Dismiss via the drawer's own close control. (The full-screen scrim
-		// shares the "Close menu" label but the drawer panel overlaps its
-		// centre, so clicking the panel-hosted close button is the reliable
-		// affordance.)
-		await drawer
-			.getByRole("button", { name: /close menu/i })
-			.last()
-			.click();
-
 		await expect(drawer).toBeHidden({ timeout: 3_000 });
 	});
 

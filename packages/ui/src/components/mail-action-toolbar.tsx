@@ -1,5 +1,4 @@
 import {
-	Archive,
 	FolderInput,
 	Forward,
 	Reply,
@@ -11,12 +10,12 @@ import type { ReactNode } from "react";
 import { cn } from "../lib/cn.js";
 import { Button } from "./button.js";
 
-/** The verbs the reading-pane toolbar exposes. */
+/** The verbs the reading-pane toolbar exposes. No archive: Remit is IMAP-backed
+ *  and has no archive verb — the IMAP-native equivalent is move-to-folder. */
 export type MailAction =
 	| "reply"
 	| "replyAll"
 	| "forward"
-	| "archive"
 	| "delete"
 	| "move"
 	| "flag";
@@ -34,16 +33,15 @@ export interface MailActionToolbarProps {
 	unavailableHint?: ReactNode;
 	isStarred?: boolean;
 	/**
-	 * Whether to render the triage cluster (archive / move-to-trash / move /
-	 * flag). Defaults to `true` for the desktop reading-pane toolbar. The mobile
-	 * pane sets it `false` because its management bar already owns triage —
-	 * rendering both would create duplicate accessible names.
+	 * Whether to render the triage cluster (move-to-trash / move / flag).
+	 * Defaults to `true` for the desktop reading-pane toolbar. The mobile pane
+	 * sets it `false` because its management bar already owns triage — rendering
+	 * both would create duplicate accessible names.
 	 */
 	showTriage?: boolean;
 	onReply?: () => void;
 	onReplyAll?: () => void;
 	onForward?: () => void;
-	onArchive?: () => void;
 	onDelete?: () => void;
 	onToggleStar?: () => void;
 	/** Replaces the move button with a host-supplied trigger (e.g. the picker popover). */
@@ -52,7 +50,6 @@ export interface MailActionToolbarProps {
 	replyTitle?: string;
 	replyAllTitle?: string;
 	forwardTitle?: string;
-	archiveTitle?: string;
 	deleteTitle?: string;
 	flagTitle?: string;
 	/** Trailing content (search, compose, intelligence toggle, account menu). */
@@ -76,7 +73,6 @@ export function MailActionToolbar({
 	onReply,
 	onReplyAll,
 	onForward,
-	onArchive,
 	onDelete,
 	onToggleStar,
 	moveSlot,
@@ -84,7 +80,6 @@ export function MailActionToolbar({
 	replyTitle = "Reply (r)",
 	replyAllTitle = "Reply all (a)",
 	forwardTitle = "Forward (f)",
-	archiveTitle = "Archive (e)",
 	deleteTitle = "Move to Trash (#)",
 	flagTitle = "Flag (s)",
 	children,
@@ -133,14 +128,6 @@ export function MailActionToolbar({
 				{showTriage && (
 					<>
 						<span className="mx-1 h-4 w-px bg-line" aria-hidden />
-						<Button
-							variant="ghost"
-							size="sm"
-							icon={<Archive className="size-4" />}
-							title={archiveTitle}
-							aria-label="Archive"
-							onClick={act("archive", onArchive)}
-						/>
 						<Button
 							variant="ghost"
 							size="sm"

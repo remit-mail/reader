@@ -105,6 +105,7 @@ export function ExpandedMessage({
 	to,
 	indicators,
 	actionMenu,
+	actionBar,
 	body,
 }: {
 	message: ThreadMessageData;
@@ -122,6 +123,12 @@ export function ExpandedMessage({
 	indicators?: ReactNode;
 	/** Per-message action menu (kebab), right-aligned in the header. */
 	actionMenu?: ReactNode;
+	/**
+	 * Per-message action bar (reply / triage), rendered between the header and the
+	 * body. The narrow-width reading view puts the message's verbs here so they
+	 * belong to this message; collapsed rows pass none.
+	 */
+	actionBar?: ReactNode;
 	/**
 	 * The message body. Replaces the kit's fixture `MessageBodyView` so the app
 	 * can inject its real data-driven body (loading / error / raw toggle).
@@ -188,6 +195,8 @@ export function ExpandedMessage({
 				</div>
 			)}
 
+			{actionBar && <div className="mt-3 -mx-2 lg:-mx-4">{actionBar}</div>}
+
 			{/* The body is injected by the app (real sanitize → classify →
 			    sandboxed-iframe pipeline via its MessageBody). With no `body`
 			    slot the kit renders MessageBodyView directly so Storybook shows
@@ -208,7 +217,7 @@ export function ExpandedMessage({
 
 /**
  * Message action toolbar on the pane-header datum: the reading pane's
- * verbs (reply/reply-all/forward, archive/delete/move/flag) plus search and
+ * verbs (reply/reply-all/forward, delete/move/flag) plus search and
  * compose, Apple Mail-style above the message area. Built on the shared
  * `MailActionToolbar` so the buttons stay pressable with no thread open and
  * explain inline rather than greying out (the never-disable tenet).

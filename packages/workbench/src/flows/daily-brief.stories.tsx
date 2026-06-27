@@ -119,8 +119,8 @@ export const CaughtUp: Story = {
 /**
  * Keyboard-hint bar — the discoverability footer at the bottom of the
  * message list. Desktop only in the live app (hidden on touch where
- * key hints are noise). Default hints: j/k navigate · e archive ·
- * m mute · ? all shortcuts.
+ * key hints are noise). Default hints: j/k navigate · m mute ·
+ * ? all shortcuts.
  *
  * Design source of truth for this state. The bar is always the last
  * element in the list pane and uses `text-2xs text-fg-subtle` tokens

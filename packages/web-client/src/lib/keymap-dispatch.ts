@@ -75,7 +75,6 @@ const PLAIN_BINDINGS: Record<string, PlainBinding> = {
 	r: { action: "reply" },
 	a: { action: "replyAll" },
 	f: { action: "forward" },
-	e: { action: "archive" },
 	"#": { action: "delete" },
 	s: { action: "toggleStar" },
 	m: { action: "muteSender" },
