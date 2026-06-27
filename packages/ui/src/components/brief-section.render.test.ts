@@ -28,12 +28,17 @@ function section(count: number): ThreadSection {
 	};
 }
 
-function render(props: { count: number; initialExpanded?: boolean }): string {
+function render(props: {
+	count: number;
+	initialExpanded?: boolean;
+	initialCollapsed?: boolean;
+}): string {
 	return renderToString(
 		createElement(BriefSection, {
 			section: section(props.count),
 			Row: ComfortableRow,
 			initialExpanded: props.initialExpanded,
+			initialCollapsed: props.initialCollapsed,
 			onSelectThread: () => undefined,
 		}),
 	);
@@ -68,5 +73,26 @@ describe("BriefSection", () => {
 		assert.strictEqual(rowCount(html), 18);
 		assert.match(html, /Show less/);
 		assert.doesNotMatch(html, /Show \d+ more/);
+	});
+
+	it("renders rows by default — sections start expanded", () => {
+		const html = render({ count: 3 });
+		assert.strictEqual(rowCount(html), 3);
+	});
+
+	it("shows only the header and count when initially collapsed", () => {
+		const html = render({ count: 18, initialCollapsed: true });
+		assert.match(html, /Personal/);
+		assert.match(html, />18</);
+		assert.strictEqual(rowCount(html), 0);
+		assert.doesNotMatch(html, /Show \d+ more/);
+		assert.doesNotMatch(html, /Show less/);
+	});
+
+	it("makes the header a button with aria-expanded so it toggles the section", () => {
+		const expandedHtml = render({ count: 3 });
+		assert.match(expandedHtml, /<button[^>]*aria-expanded="true"/);
+		const collapsedHtml = render({ count: 3, initialCollapsed: true });
+		assert.match(collapsedHtml, /<button[^>]*aria-expanded="false"/);
 	});
 });

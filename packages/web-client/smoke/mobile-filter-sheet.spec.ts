@@ -32,7 +32,7 @@ test.describe("Mobile filter sheet", () => {
 		await expect(heading).toBeVisible();
 
 		await expect(
-			page.getByRole("button", { name: "Personal" }),
+			page.getByRole("button", { name: "Personal", exact: true }),
 		).not.toBeInViewport();
 		await expect(
 			page.getByRole("button", { name: "Unread" }),
@@ -48,9 +48,9 @@ test.describe("Mobile filter sheet", () => {
 		await expect(collapseBar).toBeVisible({ timeout: 3_000 });
 		await expect(collapseBar).toHaveAttribute("aria-expanded", "true");
 
-		await expect(page.getByRole("button", { name: "Personal" })).toBeInViewport(
-			{ timeout: 3_000 },
-		);
+		await expect(
+			page.getByRole("button", { name: "Personal", exact: true }),
+		).toBeInViewport({ timeout: 3_000 });
 		await expect(page.getByRole("button", { name: "Unread" })).toBeInViewport({
 			timeout: 3_000,
 		});
@@ -64,7 +64,7 @@ test.describe("Mobile filter sheet", () => {
 		await expect(expandBar).toBeVisible({ timeout: 3_000 });
 		await expect(expandBar).toHaveAttribute("aria-expanded", "false");
 		await expect(
-			page.getByRole("button", { name: "Personal" }),
+			page.getByRole("button", { name: "Personal", exact: true }),
 		).not.toBeInViewport();
 	});
 
@@ -76,7 +76,7 @@ test.describe("Mobile filter sheet", () => {
 			page.getByRole("button", { name: "Collapse filters" }),
 		).toBeVisible({ timeout: 3_000 });
 
-		await page.getByRole("button", { name: "Newsletter" }).click();
+		await page.getByRole("button", { name: "Newsletter", exact: true }).click();
 		await page.getByRole("button", { name: "Unread" }).click();
 
 		await page.getByRole("button", { name: "Collapse filters" }).click();
@@ -129,7 +129,7 @@ test.describe("Mobile filter sheet", () => {
 		await expect(expandBar).toBeVisible({ timeout: 3_000 });
 
 		await expect(
-			page.getByRole("button", { name: "Personal" }),
+			page.getByRole("button", { name: "Personal", exact: true }),
 		).not.toBeInViewport();
 
 		await expandBar.click();
@@ -138,9 +138,9 @@ test.describe("Mobile filter sheet", () => {
 			page.getByRole("button", { name: "Collapse filters" }),
 		).toBeVisible({ timeout: 3_000 });
 
-		await expect(page.getByRole("button", { name: "Personal" })).toBeInViewport(
-			{ timeout: 3_000 },
-		);
+		await expect(
+			page.getByRole("button", { name: "Personal", exact: true }),
+		).toBeInViewport({ timeout: 3_000 });
 	});
 
 	test("expanded filter pill rows wrap rather than scroll — the last pill of each row stays in the viewport", async ({
@@ -155,7 +155,7 @@ test.describe("Mobile filter sheet", () => {
 		// pill off-screen-right. Automated is the last category, Flagged the last
 		// attribute filter.
 		await expect(
-			page.getByRole("button", { name: "Automated" }),
+			page.getByRole("button", { name: "Automated", exact: true }),
 		).toBeInViewport({ timeout: 3_000 });
 		await expect(
 			page.getByRole("button", { name: "Flagged" }),
