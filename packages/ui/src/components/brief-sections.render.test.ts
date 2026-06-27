@@ -49,7 +49,6 @@ function render(briefCategory: BriefCategoryFilter) {
 			sections,
 			Row: ComfortableRow,
 			briefCategory,
-			isDesktop: true,
 			onSelectThread: () => undefined,
 			onSelectBriefCategory: () => undefined,
 		}),

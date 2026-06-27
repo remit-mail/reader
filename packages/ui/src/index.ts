@@ -1,4 +1,8 @@
 export {
+	AccountChipRow,
+	type AccountChipRowProps,
+} from "./components/account-chip-row.js";
+export {
 	AddressDisplay,
 	type AddressDisplayProps,
 	AddressList,
@@ -160,6 +164,10 @@ export {
 	type MailActionToolbarProps,
 } from "./components/mail-action-toolbar.js";
 export {
+	MailHeader,
+	type MailHeaderProps,
+} from "./components/mail-header.js";
+export {
 	type EmailRenderCategory,
 	MessageBodyView,
 	type MessageBodyViewProps,
@@ -292,6 +300,12 @@ export {
 	WizardShell,
 	type WizardShellProps,
 } from "./components/wizard.js";
+export {
+	briefFilterConfig,
+	type FilterAccount,
+	type FilterPreset,
+	inboxFilterConfig,
+} from "./filter-presets.js";
 export {
 	buildCidResolver,
 	type CidResolvableBodyPart,

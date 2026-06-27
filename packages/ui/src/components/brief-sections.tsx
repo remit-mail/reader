@@ -55,9 +55,6 @@ export interface BriefSectionsProps {
 	/** Note rendered alongside the source pills (e.g. "+2 muted"). */
 	mutedNote?: string;
 	Row: BriefRowComponent;
-	/** Optional with a desktop default so the live web-client consumer keeps
-	 *  working untouched until it threads this from its own width. */
-	isDesktop?: boolean;
 	onSelectThread?: (id: string) => void;
 	onSelectBriefCategory?: (category: BriefCategoryFilter) => void;
 	onSelectAccountChip?: (id: string) => void;
@@ -78,7 +75,6 @@ export function BriefSections({
 	accountChips,
 	mutedNote,
 	Row,
-	isDesktop = true,
 	onSelectThread,
 	onSelectBriefCategory,
 	onSelectAccountChip,
@@ -149,22 +145,21 @@ export function BriefSections({
 		</>
 	);
 
-	// One source of truth for both breakpoints: the touch drag-snap sheet on
-	// mobile, the click-to-expand popover on desktop. The desktop brief used to
-	// render three permanently-expanded pill rows above the list with two
-	// redundant "All" pills (#783); the FilterSheet renders a single Filters
-	// control and one category scope.
+	// One source of truth for both breakpoints: a click-to-expand Filters bar
+	// that pushes the list down. The desktop brief used to render three
+	// permanently-expanded pill rows above the list with two redundant "All"
+	// pills (#783); the FilterSheet renders a single Filters control and one
+	// category scope.
 	return (
 		<FilterSheet
-			variant={isDesktop ? "popover" : "sheet"}
 			categories={sheetCategories}
 			filters={sheetFilters}
 			sources={sheetSources}
 			sourcesNote={mutedNote}
 			selectedCategory={briefCategory}
 			activeFilters={active}
-			expanded={isDesktop ? undefined : sheetExpanded}
-			onExpandedChange={isDesktop ? undefined : setSheetExpanded}
+			expanded={sheetExpanded}
+			onExpandedChange={setSheetExpanded}
 			onSelectCategory={(id) =>
 				onSelectBriefCategory?.(id as BriefCategoryFilter)
 			}

@@ -96,7 +96,6 @@ export default meta;
 type Story = StoryObj<typeof BriefSections>;
 
 export const Desktop: Story = {
-	args: { isDesktop: true },
 	render: (args) => (
 		<div className="flex h-screen w-96 flex-col border-r border-line">
 			<BriefSections {...args} />
@@ -105,7 +104,6 @@ export const Desktop: Story = {
 };
 
 export const Mobile: Story = {
-	args: { isDesktop: false },
 	render: (args) => (
 		<div className="flex h-[844px] w-[390px] flex-col border border-line">
 			<BriefSections {...args} />
