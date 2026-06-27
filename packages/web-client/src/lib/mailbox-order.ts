@@ -1,4 +1,5 @@
-import { MailboxSpecialUse } from "@remit/domain-enums";
+import { MailboxRole, MailboxSpecialUse } from "@remit/domain-enums";
+import type { NavMailboxRole } from "@remit/ui";
 
 // At the API boundary the OpenAPI client types special-use values as
 // `'\\Sent' | '\\Drafts' | ...` (literal RFC 6154 strings) while the runtime
@@ -90,6 +91,13 @@ interface MailboxLike {
 	mailboxId: string;
 	fullPath: string;
 	specialUse?: SpecialUseFlags;
+	// Per-folder user overrides (issue #964). `roleOverride` re-roles or demotes a
+	// folder (PascalCase `MailboxRole`, e.g. "Sent"/"Custom"); `displayNameOverride`
+	// renames it. Both absent/null = fall back to detection. Typed loosely (string)
+	// so callers can pass the OpenAPI client's `RemitImapMailboxRole` literal union
+	// without an unsafe cast, mirroring `SpecialUseFlags` above.
+	roleOverride?: string | null;
+	displayNameOverride?: string | null;
 }
 
 // Local map (special-use → grouping key string). The values mirror the IMAP
@@ -202,6 +210,98 @@ export const getMailboxKind = (
 	return SPECIAL_USE_ALIASES[name] ?? null;
 };
 
+// System roles the kit pins, orders, and icons (mirrors `NavMailboxRole`). A
+// detected kind outside this set (e.g. the "important" group) is treated as a
+// custom folder, matching `isSystemMailbox` (which ranks Important non-system).
+const SYSTEM_ROLES = new Set<NavMailboxRole>([
+	"inbox",
+	"flagged",
+	"drafts",
+	"sent",
+	"archive",
+	"all",
+	"junk",
+	"trash",
+]);
+
+const isNavMailboxRole = (kind: string | null): kind is NavMailboxRole =>
+	kind != null && SYSTEM_ROLES.has(kind as NavMailboxRole);
+
+/**
+ * Detected system-folder role for the kit. The detected kind narrowed to the
+ * roles the kit renders (pin/order/icon); a non-system kind or a custom folder
+ * yields null.
+ */
+export const getMailboxRole = (
+	fullPath: string,
+	specialUse?: SpecialUseFlags,
+): NavMailboxRole | null => {
+	const kind = getMailboxKind(fullPath, specialUse);
+	return isNavMailboxRole(kind) ? kind : null;
+};
+
+// API `MailboxRole` (PascalCase) → kit kind string. "Custom" (and any unknown
+// value) maps to null so the folder drops out of the pinned system group. Keyed
+// off the generated enum so the values are never hand-written (#964).
+const ROLE_OVERRIDE_TO_KIND: Record<string, NavMailboxRole | null> = {
+	[MailboxRole.Inbox]: "inbox",
+	[MailboxRole.Flagged]: "flagged",
+	[MailboxRole.Drafts]: "drafts",
+	[MailboxRole.Sent]: "sent",
+	[MailboxRole.Archive]: "archive",
+	[MailboxRole.All]: "all",
+	[MailboxRole.Junk]: "junk",
+	[MailboxRole.Trash]: "trash",
+	[MailboxRole.Custom]: null,
+};
+
+/**
+ * Map an API `MailboxRole` override (PascalCase) to the kit `NavMailboxRole`
+ * kind string. `Custom` → null (folder leaves the pinned system group). Shared
+ * by the adapter's role, label, and dedup resolution (#964).
+ */
+export const roleOverrideToKind = (
+	roleOverride: string,
+): NavMailboxRole | null => ROLE_OVERRIDE_TO_KIND[roleOverride] ?? null;
+
+/**
+ * Effective kind for labelling/badging a row: the override's kind when a
+ * `roleOverride` is set (Custom → null), else the detected kind (broader than a
+ * system role — includes e.g. "important"). Drives the canonical label and the
+ * unread-badge decision.
+ */
+export const getEffectiveKind = (m: MailboxLike): string | null =>
+	m.roleOverride != null
+		? roleOverrideToKind(m.roleOverride)
+		: getMailboxKind(m.fullPath, m.specialUse);
+
+/**
+ * Effective system role for a row: the override's role when set (Custom → null,
+ * demoting a system folder; a system role promoting a custom one), else the
+ * detected role. The kit pins/orders/icons purely off this (#964).
+ */
+export const getEffectiveRole = (m: MailboxLike): NavMailboxRole | null =>
+	m.roleOverride != null
+		? roleOverrideToKind(m.roleOverride)
+		: getMailboxRole(m.fullPath, m.specialUse);
+
+/**
+ * Render-ready label honouring overrides (#964): a trimmed `displayNameOverride`
+ * wins, else the canonical localized label for the EFFECTIVE kind (re-roling to
+ * Sent reads canonical "Sent", not the detected name), else the provider leaf.
+ */
+export const getEffectiveDisplayLabel = (
+	m: MailboxLike,
+	t?: (key: string, fallback: string) => string,
+): string => {
+	const override = m.displayNameOverride?.trim();
+	if (override) return override;
+	const leaf = getMailboxDisplayName(m.fullPath);
+	const kind = getEffectiveKind(m);
+	if (!kind || !t) return leaf;
+	return t(`sidebar.${kind}`, leaf);
+};
+
 /**
  * Render-ready label for a mailbox row. Localized via the supplied translator
  * for system folders (drives the i18n requirement in issue #194: an Outlook
@@ -236,6 +336,14 @@ export const shouldShowUnreadBadge = (
 	return !COUNTLESS_KINDS.has(kind);
 };
 
+// Override-aware badge decision (#964): keys off the EFFECTIVE kind, so a folder
+// re-roled to Sent loses its badge and one demoted to Custom regains it.
+export const shouldShowEffectiveUnreadBadge = (m: MailboxLike): boolean => {
+	const kind = getEffectiveKind(m);
+	if (kind === null) return true;
+	return !COUNTLESS_KINDS.has(kind);
+};
+
 // True when this mailbox should participate in a special-use dedup group.
 // A flagged mailbox always qualifies (server truth). For unflagged ones we only
 // match the leaf name when the path is leaf-eligible (top-level or directly
@@ -243,6 +351,15 @@ export const shouldShowUnreadBadge = (
 // (`[Gmail]/Sent Mail`). A user-label called "Sent" under a non-namespace
 // parent (e.g. `Personal/Sent`) is kept untouched.
 const candidateGroup = <T extends MailboxLike>(m: T): string | null => {
+	// A user override wins over detection (#964): the dedup group follows the
+	// EFFECTIVE role. A folder demoted to Custom (kind null) — or re-roled to the
+	// group-less Inbox — leaves every group, so the remaining detected twin
+	// survives and the demoted one falls through as a normal folder. A promoted
+	// folder joins its new group.
+	if (m.roleOverride != null) {
+		const kind = roleOverrideToKind(m.roleOverride);
+		return kind && kind !== "inbox" ? kind : null;
+	}
 	if (m.specialUse && m.specialUse.length > 0) {
 		for (const flag of m.specialUse) {
 			const group = SPECIAL_USE_GROUP[flag];
