@@ -9,10 +9,10 @@ const accounts: NavAccount[] = [
 		email: "matthijs@example.com",
 		outboxPending: 2,
 		mailboxes: [
-			{ id: "personal-inbox", name: "Inbox", unseen: 12 },
-			{ id: "personal-sent", name: "Sent", specialUse: ["\\Sent"] },
-			{ id: "personal-archive", name: "Archive", specialUse: ["\\Archive"] },
-			{ id: "personal-trash", name: "Trash", specialUse: ["\\Trash"] },
+			{ id: "personal-inbox", name: "Inbox", role: "inbox", unseen: 12 },
+			{ id: "personal-sent", name: "Sent", role: "sent" },
+			{ id: "personal-archive", name: "Archive", role: "archive" },
+			{ id: "personal-trash", name: "Trash", role: "trash" },
 			{ id: "personal-receipts", name: "Receipts", unseen: 3 },
 			{ id: "personal-travel", name: "Travel" },
 		],
@@ -23,9 +23,9 @@ const accounts: NavAccount[] = [
 		email: "matthijs@work.example",
 		outboxPending: 0,
 		mailboxes: [
-			{ id: "work-inbox", name: "Inbox", unseen: 4 },
-			{ id: "work-sent", name: "Sent", specialUse: ["\\Sent"] },
-			{ id: "work-trash", name: "Trash", specialUse: ["\\Trash"] },
+			{ id: "work-inbox", name: "Inbox", role: "inbox", unseen: 4 },
+			{ id: "work-sent", name: "Sent", role: "sent" },
+			{ id: "work-trash", name: "Trash", role: "trash" },
 		],
 	},
 ];
@@ -35,9 +35,9 @@ const manyFoldersAccount: NavAccount = {
 	label: "Archivist",
 	email: "archivist@example.com",
 	mailboxes: [
-		{ id: "arch-inbox", name: "Inbox", unseen: 1 },
-		{ id: "arch-sent", name: "Sent", specialUse: ["\\Sent"] },
-		{ id: "arch-trash", name: "Trash", specialUse: ["\\Trash"] },
+		{ id: "arch-inbox", name: "Inbox", role: "inbox", unseen: 1 },
+		{ id: "arch-sent", name: "Sent", role: "sent" },
+		{ id: "arch-trash", name: "Trash", role: "trash" },
 		{ id: "arch-clients", name: "Clients" },
 		{ id: "arch-invoices", name: "Invoices" },
 		{ id: "arch-projects", name: "Projects" },
@@ -79,6 +79,66 @@ export const ManyFolders: Story = {
 	args: {
 		accounts: [manyFoldersAccount],
 		selectedNavId: "arch-inbox",
+	},
+};
+
+/**
+ * A Hostnet-shaped account: every folder is nested under the "INBOX/" personal
+ * namespace and only Spam carries a SPECIAL-USE flag, yet the adapter resolves
+ * roles + canonical labels so the kit still pins Inbox/Drafts/Sent/Archive/
+ * Spam/Trash and shows the real "Nieuwsbrieven" user folder under Folders.
+ */
+const hostnetAccount: NavAccount = {
+	id: "acct-hostnet",
+	label: "Hostnet",
+	email: "440737+mvhenten@users.noreply.github.com",
+	mailboxes: [
+		{
+			id: "hn-inbox",
+			name: "Inbox",
+			role: "inbox",
+			fullPath: "INBOX",
+			unseen: 8,
+		},
+		{
+			id: "hn-drafts",
+			name: "Drafts",
+			role: "drafts",
+			fullPath: "INBOX/Drafts",
+		},
+		{ id: "hn-sent", name: "Sent", role: "sent", fullPath: "INBOX/Sent" },
+		{
+			id: "hn-archive",
+			name: "Archive",
+			role: "archive",
+			fullPath: "INBOX/Archive",
+		},
+		{
+			id: "hn-spam",
+			name: "Spam",
+			role: "junk",
+			fullPath: "INBOX/Spam",
+			unseen: 3,
+		},
+		{
+			id: "hn-trash",
+			name: "Trash",
+			role: "trash",
+			fullPath: "INBOX/Deleted Messages",
+		},
+		{
+			id: "hn-news",
+			name: "Nieuwsbrieven",
+			fullPath: "INBOX/Nieuwsbrieven",
+			unseen: 2,
+		},
+	],
+};
+
+export const Hostnet: Story = {
+	args: {
+		accounts: [hostnetAccount],
+		selectedNavId: "hn-inbox",
 	},
 };
 
