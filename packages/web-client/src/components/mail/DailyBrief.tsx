@@ -1,13 +1,14 @@
 /**
  * DailyBrief — unified cross-account message digest.
  *
- * Renders the three attention sections (Needs attention / Flagged /
- * Everything else) from the GET /threads endpoint. Account chips filter
- * all sections to a single account; selection persists in sessionStorage
- * so it survives route navigation within the session.
+ * Renders one section per message category (Flagged, then Personal /
+ * Transactional / Newsletter / Marketing / Social / Automated) from the
+ * GET /threads endpoint. Account chips filter all sections to a single
+ * account; selection persists in sessionStorage so it survives route
+ * navigation within the session.
  *
- * The category-pill / attribute-chip / capped-collapsible list body is the
- * shared `BriefSections` component from remit-ui — this file owns only the
+ * The category-pill / attribute-chip / capped list body is the shared
+ * `BriefSections` component from remit-ui — this file owns only the
  * brief-specific wiring: data fetching, account chips, error/loading/empty
  * states, search filtering, and a navigation-aware row.
  *

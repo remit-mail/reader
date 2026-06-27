@@ -1,32 +1,30 @@
 /**
  * Daily brief grouping logic.
  *
- * Pure function: takes a flat list of thread message rows and returns the
- * brief's attention sections in display order:
+ * Pure function: takes a flat list of thread message rows and returns one
+ * section per message category, in a fixed display order:
  *
- *  1. Needs attention — personal/transactional mail, or mail from a vip/wellknown
- *                       sender, regardless of read state
- *  2. Flagged         — starred mail, regardless of read state or category
- *  3. Daily brief     — newsletters, marketing, and social mail, grouped
- *                       into a digest section so it never drowns out personal
- *                       mail in the main scroll
- *  4. Everything else — remaining mail not captured above
+ *  1. Flagged       — starred mail, pinned to the top
+ *  2. Personal
+ *  3. Transactional
+ *  4. Newsletter
+ *  5. Marketing
+ *  6. Social
+ *  7. Automated
  *
- * Per-message routing follows first-match-wins precedence:
- *   starred                                          → Flagged
- *   category ∈ {newsletter, marketing, social}       → Daily brief
- *   category ∈ {personal, transactional}
- *     OR trust ∈ {vip, wellknown}                    → Needs attention
- *   otherwise                                         → Everything else
+ * Per-message routing is first-match-wins, and starring always wins over the
+ * category:
+ *   starred  → Flagged
+ *   else     → the section for the row's category
  *
- * The category split runs BEFORE the trust check, so a newsletter from a
- * wellknown sender lands in the digest rather than "Needs attention". Starred
- * always wins, so a user-starred newsletter is always surfaced in Flagged.
+ * A row with no category counts as `personal` (the classifier's own fallback).
  *
- * Read state is intentionally not a routing signal: in a high-volume mailbox,
- * read≠handled and unread≠important. Unread is a user-selectable filter chip.
+ * Sender trust (vip/wellknown) no longer sections the brief — the signal is
+ * still carried on each row (see `toThreadRowData`) for future use, but it does
+ * not decide where a row lands. Read state is likewise not a routing signal: in
+ * a high-volume mailbox read≠handled and unread≠important; unread is a
+ * user-selectable filter chip instead.
  *
- * Missing category is treated as `personal` (the classifier's own fallback).
  * Muted senders (filtered by the caller) and empty sections are excluded.
  */
 
@@ -38,6 +36,7 @@ import { MessageCategory } from "@remit/domain-enums";
 import type {
 	AccountChip,
 	SenderTrustLevel,
+	ThreadCategory,
 	ThreadRowData,
 	ThreadSection,
 } from "@remit/ui";
@@ -72,81 +71,68 @@ export function toThreadRowData(
 }
 
 /**
- * Categories that belong in the "Daily brief" digest section. These are
- * subscription / bulk-sender categories that the user expects in a digest
- * rather than mixed into personal mail.
+ * Category sections in fixed display order. The `id`/`label` drive the rendered
+ * section; `category` is the row category that routes into it.
  */
-const BRIEF_CATEGORIES: ReadonlySet<string> = new Set([
-	MessageCategory.newsletter,
-	MessageCategory.marketing,
-	MessageCategory.social,
-]);
+const CATEGORY_SECTIONS: ReadonlyArray<{
+	id: string;
+	label: string;
+	category: ThreadCategory;
+}> = [
+	{ id: "personal", label: "Personal", category: MessageCategory.personal },
+	{
+		id: "transactional",
+		label: "Transactional",
+		category: MessageCategory.transactional,
+	},
+	{
+		id: "newsletter",
+		label: "Newsletter",
+		category: MessageCategory.newsletter,
+	},
+	{ id: "marketing", label: "Marketing", category: MessageCategory.marketing },
+	{ id: "social", label: "Social", category: MessageCategory.social },
+	{ id: "automated", label: "Automated", category: MessageCategory.automated },
+];
 
 /**
- * Categories that qualify unread mail for "Needs attention" — personal
- * conversation and transactional mail the user likely needs to act on.
- */
-const ATTENTION_CATEGORIES: ReadonlySet<string> = new Set([
-	MessageCategory.personal,
-	MessageCategory.transactional,
-]);
-
-/**
- * Group a flat list of thread row data into the daily-brief sections. Rows
- * should already be filtered for the selected account chip (if any) before
+ * Group a flat list of thread row data into one section per message category.
+ * Rows should already be filtered for the selected account chip (if any) before
  * calling this function.
  *
  * @param rows      Flat array of ThreadRowData, sorted newest-first.
- * @returns         Array of ThreadSection in display order — empty sections
- *                  are omitted.
+ * @returns         Array of ThreadSection in display order (Flagged first, then
+ *                  the category sections) — empty sections are omitted.
  */
 export function groupBriefSections(rows: ThreadRowData[]): ThreadSection[] {
-	const attention: ThreadRowData[] = [];
 	const flagged: ThreadRowData[] = [];
-	const brief: ThreadRowData[] = [];
-	const rest: ThreadRowData[] = [];
+	const byCategory = new Map<string, ThreadRowData[]>(
+		CATEGORY_SECTIONS.map((s) => [s.category, []]),
+	);
 
 	for (const row of rows) {
-		// 1. Starred → Flagged (highest priority)
 		if (row.starred) {
 			flagged.push(row);
 			continue;
 		}
-
-		// 2. Digest categories → Daily brief (before any trust check)
-		if (row.category != null && BRIEF_CATEGORIES.has(row.category)) {
-			brief.push(row);
-			continue;
-		}
-
-		// 3. Personal/transactional category, or a trusted sender — regardless of read state
-		if (
-			ATTENTION_CATEGORIES.has(row.category ?? MessageCategory.personal) ||
-			row.trust === "vip" ||
-			row.trust === "wellknown"
-		) {
-			attention.push(row);
-			continue;
-		}
-
-		// 4. Everything else
-		rest.push(row);
+		const category = row.category ?? MessageCategory.personal;
+		const bucket =
+			byCategory.get(category) ?? byCategory.get(MessageCategory.personal);
+		bucket?.push(row);
 	}
 
-	// Display order: Needs attention, Flagged, Daily brief, Everything else
 	const sections: ThreadSection[] = [];
-	if (attention.length > 0)
-		sections.push({
-			id: "attention",
-			label: "Needs attention",
-			threads: attention,
-		});
 	if (flagged.length > 0)
 		sections.push({ id: "flagged", label: "Flagged", threads: flagged });
-	if (brief.length > 0)
-		sections.push({ id: "brief", label: "Daily brief", threads: brief });
-	if (rest.length > 0)
-		sections.push({ id: "rest", label: "Everything else", threads: rest });
+	for (const section of CATEGORY_SECTIONS) {
+		const threads = byCategory.get(section.category);
+		if (threads && threads.length > 0)
+			sections.push({
+				id: section.id,
+				label: section.label,
+				threads,
+			});
+	}
 	return sections;
 }
 

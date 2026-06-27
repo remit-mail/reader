@@ -502,77 +502,66 @@ export const allThreads: ThreadRowData[] = rows.map(({ date, ...row }) => ({
 const unified = allThreads.filter((t) => t.accountId !== hobbyId);
 
 /* ------------------------------------------------------------------ */
-/* Daily-brief grouping: attention sections                           */
+/* Daily-brief grouping: one section per category                      */
 /* ------------------------------------------------------------------ */
 
 /**
  * Category-driven brief grouping — mirrors groupBriefSections in the web
  * client so the Storybook prototype stays in lockstep with production logic.
  *
- * Precedence (first match wins):
- *   starred                                          → Flagged
- *   category ∈ {newsletter, marketing, social}       → Daily brief
- *   category ∈ {personal, transactional}
- *     OR trust ∈ {vip, wellknown}                    → Needs attention
- *   otherwise                                         → Everything else
+ * Precedence (first match wins; starred always wins over category):
+ *   starred → Flagged (pinned top)
+ *   else    → the section for the row's category
  *
- * Read state is not a routing signal — category drives the split.
+ * A row with no category counts as `personal`. Sender trust no longer sections
+ * the brief, and read state is not a routing signal.
  */
-const briefCategories: ReadonlySet<string> = new Set([
-	"newsletter",
-	"marketing",
-	"social",
-]);
-
-const attentionCategories: ReadonlySet<string> = new Set([
-	"personal",
-	"transactional",
-]);
+const categorySections: ReadonlyArray<{
+	id: string;
+	label: string;
+	category: ThreadRowData["category"];
+}> = [
+	{ id: "personal", label: "Personal", category: "personal" },
+	{ id: "transactional", label: "Transactional", category: "transactional" },
+	{ id: "newsletter", label: "Newsletter", category: "newsletter" },
+	{ id: "marketing", label: "Marketing", category: "marketing" },
+	{ id: "social", label: "Social", category: "social" },
+	{ id: "automated", label: "Automated", category: "automated" },
+];
 
 export function briefSections(accountId?: string): ThreadSection[] {
 	const pool = accountId
 		? unified.filter((t) => t.accountId === accountId)
 		: unified;
 
-	const attention: typeof pool = [];
 	const flagged: typeof pool = [];
-	const brief: typeof pool = [];
-	const rest: typeof pool = [];
+	const byCategory = new Map<string, typeof pool>(
+		categorySections.map((s) => [s.category ?? "personal", []]),
+	);
 
 	for (const t of pool) {
 		if (t.starred) {
 			flagged.push(t);
-		} else if (t.category != null && briefCategories.has(t.category)) {
-			brief.push(t);
-		} else if (
-			attentionCategories.has(t.category ?? "personal") ||
-			t.trust === "vip" ||
-			t.trust === "wellknown"
-		) {
-			attention.push(t);
-		} else {
-			rest.push(t);
+			continue;
 		}
+		const category = t.category ?? "personal";
+		const bucket = byCategory.get(category) ?? byCategory.get("personal");
+		bucket?.push(t);
 	}
 
 	const sections: ThreadSection[] = [];
-	if (attention.length > 0)
-		sections.push({
-			id: "attention",
-			label: "Needs attention",
-			threads: attention,
-		});
 	if (flagged.length > 0)
 		sections.push({ id: "flagged", label: "Flagged", threads: flagged });
-	if (brief.length > 0)
-		sections.push({ id: "brief", label: "Daily brief", threads: brief });
-	if (rest.length > 0)
-		sections.push({ id: "rest", label: "Everything else", threads: rest });
+	for (const section of categorySections) {
+		const threads = byCategory.get(section.category ?? "personal");
+		if (threads && threads.length > 0)
+			sections.push({ id: section.id, label: section.label, threads });
+	}
 	return sections;
 }
 
-/* Brief with a deliberately long "Everything else" so collapse + filtering
-   clearly help: pads the rest bucket with varied synthetic rows (mix of
+/* Brief with a deliberately long section so the 10 + "Show N more" expander
+   clearly helps: pads a category bucket with varied synthetic rows (mix of
    read/unread, attachments, contacts, and same-day timeLabels). */
 const fillerSenders = [
 	{ name: "Spotify", email: "no-reply@spotify.example" },
@@ -590,19 +579,10 @@ const fillerSubjects = [
 	"Trip confirmation and check-in details",
 ];
 
-const fillerCategories: ThreadRowData["category"][] = [
-	"newsletter",
-	"marketing",
-	"automated",
-	"transactional",
-	"social",
-	"personal",
-];
-
 function makeFiller(
 	prefix: string,
 	count: number,
-	opts: { attention?: boolean },
+	category: ThreadRowData["category"],
 ): ThreadRowData[] {
 	return Array.from({ length: count }, (_, i) => {
 		const today = i % 3 === 0;
@@ -613,55 +593,46 @@ function makeFiller(
 			fromEmail: fillerSenders[i % fillerSenders.length].email,
 			subject: fillerSubjects[i % fillerSubjects.length],
 			snippet:
-				"Auto-generated filler thread to stress the brief list density and the cap / collapse / filter affordances.",
+				"Auto-generated filler thread to stress the brief list density and the cap / expander / filter affordances.",
 			timeLabel: today
 				? `0${(i % 9) + 1}:${10 + i}`
 				: i % 4 === 0
 					? "Mon"
 					: "3 Jun",
-			// "Needs attention" rows are unread + from a known contact (that's what
-			// lands a thread there); "Everything else" rows are a mix.
-			isRead: opts.attention ? false : i % 3 !== 0,
+			isRead: i % 3 !== 0,
 			hasAttachment: i % 4 === 0,
-			trust: opts.attention
-				? i % 2 === 0
-					? "vip"
-					: "wellknown"
-				: i % 5 === 0
-					? "wellknown"
-					: undefined,
-			category: fillerCategories[i % fillerCategories.length],
+			trust: i % 5 === 0 ? "wellknown" : undefined,
+			category,
 		};
 	});
 }
 
-const restFiller = makeFiller("fill", 16, {});
-const attentionFiller = makeFiller("attn", 24, { attention: true });
+const newsletterFiller = makeFiller("fill", 16, "newsletter");
+const personalFiller = makeFiller("attn", 12, "personal");
 
 export function briefSectionsLong(accountId?: string): ThreadSection[] {
 	return briefSections(accountId).map((section) => {
-		if (section.id === "attention")
-			return { ...section, threads: [...section.threads, ...attentionFiller] };
-		if (section.id === "rest")
-			return { ...section, threads: [...section.threads, ...restFiller] };
+		if (section.id === "personal")
+			return { ...section, threads: [...section.threads, ...personalFiller] };
+		if (section.id === "newsletter")
+			return { ...section, threads: [...section.threads, ...newsletterFiller] };
 		return section;
 	});
 }
 
 /**
- * Four-section fixture for the category-driven brief story. The point it makes:
- * read state is not a routing signal — category and trust decide placement.
+ * Category-section fixture for the brief story. The points it makes:
+ * read state is not a routing signal, starring wins over category, and sender
+ * trust no longer sections the brief.
  *
- *  - Needs attention: a READ personal email + a READ transactional invoice —
- *    both already opened, both still surfaced because category drives routing
- *  - Flagged: a starred item
- *  - Daily brief: a wellknown-trust newsletter (trust doesn't override the
- *    digest bucket; category wins)
- *  - Everything else: an automated notification (not personal/transactional,
- *    so it stays out of the way)
+ *  - Flagged: a starred item, pinned to the top
+ *  - Personal: a READ personal email — still its own section though opened
+ *  - Transactional: a READ receipt
+ *  - Newsletter: a newsletter from a wellknown sender — trust no longer routes
+ *  - Automated: a status notification
  */
 export function categoryDrivenBriefSections(): ThreadSection[] {
-	// READ personal email — lands in Needs attention because category=personal,
+	// READ personal email — lands in Personal because category=personal,
 	// even though isRead=true.
 	const readPersonal: ThreadRowData = {
 		id: "demo_read_personal",
@@ -679,7 +650,7 @@ export function categoryDrivenBriefSections(): ThreadSection[] {
 		category: "personal",
 	};
 
-	// READ transactional invoice — lands in Needs attention because
+	// READ transactional invoice — lands in Transactional because
 	// category=transactional, even though isRead=true.
 	const readTransactional: ThreadRowData = {
 		id: "demo_read_transactional",
@@ -723,14 +694,13 @@ export function categoryDrivenBriefSections(): ThreadSection[] {
 		isRead: false,
 		hasAttachment: false,
 		starred: false,
-		// Marked wellknown — a newsletter from a trusted sender still lands in
-		// the digest, not "Needs attention". Category wins over trust.
+		// Marked wellknown — trust no longer sections the brief, so this stays in
+		// the Newsletter section regardless of the trusted sender.
 		trust: "wellknown",
 		category: "newsletter",
 	};
 
-	// Automated notification — not personal/transactional, so it stays in
-	// Everything else regardless of read state.
+	// Automated notification — lands in its own Automated section.
 	const automatedNotification: ThreadRowData = {
 		id: "demo_automated",
 		accountId: workId,
@@ -748,23 +718,28 @@ export function categoryDrivenBriefSections(): ThreadSection[] {
 
 	return [
 		{
-			id: "attention",
-			label: "Needs attention",
-			threads: [readPersonal, readTransactional],
-		},
-		{
 			id: "flagged",
 			label: "Flagged",
 			threads: [starredItem],
 		},
 		{
-			id: "brief",
-			label: "Daily brief",
+			id: "personal",
+			label: "Personal",
+			threads: [readPersonal],
+		},
+		{
+			id: "transactional",
+			label: "Transactional",
+			threads: [readTransactional],
+		},
+		{
+			id: "newsletter",
+			label: "Newsletter",
 			threads: [trustedNewsletter],
 		},
 		{
-			id: "rest",
-			label: "Everything else",
+			id: "automated",
+			label: "Automated",
 			threads: [automatedNotification],
 		},
 	];

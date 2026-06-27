@@ -24,9 +24,9 @@ export default meta;
 type Story = StoryObj<typeof AppShell>;
 
 /**
- * The unified brief across accounts, grouped by attention: VIP/known
- * unread first, then flagged, then everything else. Account chips
- * segment; the muted hobby account is excluded but keeps syncing
+ * The unified brief across accounts, one section per category: Flagged first,
+ * then Personal, Transactional, Newsletter, Marketing, Social, Automated.
+ * Account chips segment; the muted hobby account is excluded but keeps syncing
  * ("+1 muted").
  */
 export const Default: Story = {
@@ -45,9 +45,10 @@ export const Default: Story = {
 };
 
 /**
- * Brief with collapsible sections and a composable filter chip bar (Unread ·
- * Has attachment · From contacts · Today). The padded "Everything else" section
- * starts collapsed; chips stack additively to narrow the visible threads.
+ * Brief with the per-section 10 + "Show N more" expander and a composable filter
+ * chip bar (Unread · Has attachment · From contacts · Today). The padded
+ * Personal and Newsletter sections show their first 10 rows with an expander;
+ * chips stack additively to narrow the visible threads.
  */
 export const Filtered: Story = {
 	render: () => (
@@ -82,15 +83,13 @@ export const WorkOnly: Story = {
 };
 
 /**
- * Category-driven routing: all four sections in display order.
+ * Category sections in display order.
  *
- *  - Needs attention: a READ personal email + a READ transactional invoice —
- *    read state is not a routing signal; category drives placement
- *  - Flagged: one starred item
- *  - Daily brief: a newsletter from a wellknown sender — trust doesn't
- *    override the digest bucket; category wins
- *  - Everything else: an automated notification — not personal/transactional,
- *    so it stays out of the way
+ *  - Flagged: one starred item, pinned top
+ *  - Personal: a READ personal email — read state is not a routing signal
+ *  - Transactional: a READ receipt
+ *  - Newsletter: a newsletter from a wellknown sender — trust no longer routes
+ *  - Automated: a status notification
  */
 export const CategoryDriven: Story = {
 	render: () => (
