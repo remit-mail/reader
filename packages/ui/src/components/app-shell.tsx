@@ -1,3 +1,4 @@
+import { FolderInput } from "lucide-react";
 import { useState } from "react";
 import { AppShellSlotted, useAppShellLayout } from "./app-shell-slotted.js";
 import {
@@ -5,11 +6,42 @@ import {
 	type BriefCategoryFilter,
 	type NarrowView,
 } from "./app-shell-types.js";
+import { Button } from "./button.js";
 import { IntelligencePanel } from "./intelligence-panel.js";
 import { MessageListPane } from "./message-list-pane.js";
-import { MobileMessagePane } from "./mobile-message-pane.js";
+import {
+	type MobileReadingMessageActions,
+	MobileReadingPane,
+} from "./mobile-reading-pane.js";
 import { NavSidebar } from "./nav-sidebar.js";
 import { ReadingPane } from "./reading-pane.js";
+
+const noop = () => undefined;
+
+/**
+ * Preview wiring for the narrow-width reading view: the data-driven shell has no
+ * per-message handlers, so the mock supplies no-op verbs and a folder-picker
+ * slot. The live client passes real handlers in the #960 follow-up.
+ */
+const mobileReadingActions: MobileReadingMessageActions = {
+	onToggleExpand: noop,
+	onReply: noop,
+	onReplyAll: noop,
+	onForward: noop,
+	onToggleStar: noop,
+	onDelete: noop,
+	onToggleRead: noop,
+	moveSlot: () => (
+		<Button
+			variant="ghost"
+			size="sm"
+			icon={<FolderInput className="size-5" />}
+			aria-label="Move to folder"
+			title="Move to folder"
+			className="min-h-11 min-w-11 px-0"
+		/>
+	),
+};
 
 /* ------------------------------------------------------------------ */
 /* Data-driven shell: maps thread/sections/intelligence props into the */
@@ -184,10 +216,11 @@ function AppShellList({
 	   dedicated message view; at/above it the reading pane carries the thread. */
 	if (!showReadingPane && narrowView === "message" && thread) {
 		return (
-			<MobileMessagePane
+			<MobileReadingPane
 				thread={thread}
 				intelligence={intelligence}
 				onBack={onBackToList}
+				actions={mobileReadingActions}
 			/>
 		);
 	}

@@ -35,7 +35,6 @@ describe("KeyboardHintBar (#785)", () => {
 	it("renders the default hint set", () => {
 		const html = renderToString(createElement(KeyboardHintBar) as never);
 		assert.match(html, /navigate/);
-		assert.match(html, /archive/);
 		assert.match(html, /mute/);
 		assert.match(html, /all shortcuts/);
 		assert.match(html, /<kbd[^>]*>j<\/kbd>/);

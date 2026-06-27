@@ -1,6 +1,13 @@
-import { Avatar, IsolatedEmailFrame } from "@remit/ui";
+import {
+	Avatar,
+	Button,
+	IsolatedEmailFrame,
+	MobileMessageActionBar,
+} from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { BadgeCheck, ChevronDown, Paperclip, Star } from "lucide-react";
+import { BadgeCheck, ChevronDown, FolderInput } from "lucide-react";
+
+const noop = () => undefined;
 
 /**
  * The MOBILE inline-expanded card path (`MessageCard.ExpandedCard` →
@@ -88,8 +95,9 @@ function FramedBody({ fixed }: CardProps) {
 	);
 }
 
-/** Mirror of MessageCard.ExpandedCard: `px-5 py-3` wrapper, header row with
- *  avatar + sender/date, then the `mt-3` body holding the framed email. */
+/** Mirror of MessageCard.ExpandedCard on mobile: `px-5 py-3` wrapper, header row
+ *  with avatar + sender/date (no duplicate star/kebab — the per-message bar owns
+ *  the verbs), then the `MobileMessageActionBar`, then the `mt-3` framed body. */
 function ExpandedCard({ fixed }: CardProps) {
 	return (
 		<div className="bg-canvas text-fg">
@@ -108,11 +116,28 @@ function ExpandedCard({ fixed }: CardProps) {
 							</div>
 						</div>
 						<div className="text-xs text-fg-subtle">To you</div>
-						<div className="flex items-center gap-1 mt-0.5">
-							<Star className="size-3.5 text-fg-subtle" />
-							<Paperclip className="size-3.5 text-fg-subtle" />
-						</div>
 					</div>
+				</div>
+				<div className="mt-3 -mx-5">
+					<MobileMessageActionBar
+						hasThread
+						onReply={noop}
+						onReplyAll={noop}
+						onForward={noop}
+						onToggleStar={noop}
+						onDelete={noop}
+						onToggleRead={noop}
+						moveSlot={
+							<Button
+								variant="ghost"
+								size="sm"
+								icon={<FolderInput className="size-5" />}
+								aria-label="Move to folder"
+								title="Move to folder"
+								className="min-h-11 min-w-11 px-0"
+							/>
+						}
+					/>
 				</div>
 				<div className="mt-3">
 					<FramedBody fixed={fixed} />

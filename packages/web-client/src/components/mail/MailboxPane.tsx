@@ -135,7 +135,6 @@ interface MailboxPaneContextValue {
 	isError: boolean;
 	error: unknown;
 	mailboxAccountId: string | undefined;
-	archiveMailboxId: string | undefined;
 	mailboxName: string | null;
 	unreadCount: number;
 	isDraftsMailbox: boolean;
@@ -170,7 +169,6 @@ interface MailboxPaneContextValue {
 	onToolbarReplyAll: () => void;
 	onToolbarForward: () => void;
 	onClearComposeRequest: () => void;
-	onToolbarArchive: () => void;
 	onToolbarDelete: () => void;
 	onToolbarStar: () => void;
 	onToolbarDiscardDraft: () => void;
@@ -181,18 +179,6 @@ interface MailboxPaneContextValue {
 	hasRemitDraftOpen: boolean;
 	// Phone actions
 	onBack: () => void;
-	canMobileArchive: boolean;
-	onMobileArchive?: () => void;
-	onMobileDelete: () => void;
-	onMobileToggleStar: () => void;
-	isMobileStarred: boolean;
-	onMobileToggleRead: () => void;
-	isMobileRead: boolean;
-	mobileMoveContext?: {
-		accountId: string;
-		currentMailboxId: string;
-		onMove: (destMailboxId: string) => void;
-	};
 	nextMessageId: string | undefined;
 	previousMessageId: string | undefined;
 }
@@ -448,12 +434,6 @@ function MailboxPaneProvider({
 		[queryClient],
 	);
 
-	const handleToolbarArchive = useCallback(() => {
-		if (!selectedThread || !archiveMailboxId) return;
-		const messageIds = getThreadMessageIds(selectedThread);
-		toolbarMove(messageIds, archiveMailboxId);
-	}, [selectedThread, archiveMailboxId, getThreadMessageIds, toolbarMove]);
-
 	const handleToolbarDelete = useCallback(() => {
 		if (!selectedThread) return;
 		const messageIds = getThreadMessageIds(selectedThread);
@@ -610,12 +590,6 @@ function MailboxPaneProvider({
 		return messageIdsForFocusedThread(focusedThread);
 	}, [triageSelectedIds, messageIdsForFocusedThread, focusedThread]);
 
-	const triageArchive = useCallback(() => {
-		if (!archiveMailboxId) return;
-		const ids = triageTargetMessageIds();
-		if (ids.length > 0) triageMove(ids, archiveMailboxId);
-	}, [archiveMailboxId, triageTargetMessageIds, triageMove]);
-
 	const triageDeleteAction = useCallback(() => {
 		const ids = triageTargetMessageIds();
 		if (ids.length > 0) triageDelete(ids);
@@ -704,7 +678,6 @@ function MailboxPaneProvider({
 			reply: triageReply,
 			replyAll: triageReplyAll,
 			forward: triageForward,
-			archive: triageArchive,
 			delete: triageDeleteAction,
 			toggleStar: triageStar,
 			toggleRead: triageToggleRead,
@@ -735,14 +708,6 @@ function MailboxPaneProvider({
 		adjacentMessageId(orderedMessageIds, selectedMessageId, "previous") ??
 		undefined;
 
-	const mobileMoveContext = mailboxAccountId
-		? {
-				accountId: mailboxAccountId,
-				currentMailboxId: mailboxId,
-				onMove: handleToolbarMove,
-			}
-		: undefined;
-
 	const ctx: MailboxPaneContextValue = {
 		mailboxId,
 		selectedMessageId,
@@ -752,7 +717,6 @@ function MailboxPaneProvider({
 		isError,
 		error,
 		mailboxAccountId,
-		archiveMailboxId,
 		mailboxName,
 		unreadCount,
 		isDraftsMailbox,
@@ -778,7 +742,6 @@ function MailboxPaneProvider({
 		onToolbarReplyAll: handleToolbarReplyAll,
 		onToolbarForward: handleToolbarForward,
 		onClearComposeRequest: handleClearComposeRequest,
-		onToolbarArchive: handleToolbarArchive,
 		onToolbarDelete: handleToolbarDelete,
 		onToolbarStar: handleToolbarStar,
 		onToolbarDiscardDraft: handleToolbarDiscardDraft,
@@ -788,14 +751,6 @@ function MailboxPaneProvider({
 		closeCompose,
 		hasRemitDraftOpen,
 		onBack: goBack,
-		canMobileArchive: Boolean(archiveMailboxId),
-		onMobileArchive: archiveMailboxId ? handleToolbarArchive : undefined,
-		onMobileDelete: handleToolbarDelete,
-		onMobileToggleStar: handleToolbarStar,
-		isMobileStarred: selectedThread?.hasStars ?? false,
-		onMobileToggleRead: triageToggleRead,
-		isMobileRead: selectedThread?.isRead ?? false,
-		mobileMoveContext,
 		nextMessageId,
 		previousMessageId,
 	};
@@ -919,7 +874,6 @@ function MailboxReading() {
 		mailboxAccountId,
 		selectedThread,
 		hasRemitDraftOpen,
-		archiveMailboxId,
 		showIntelligence,
 		onToggleIntelligence,
 		toolbarComposeRequest,
@@ -927,7 +881,6 @@ function MailboxReading() {
 		onToolbarReplyAll,
 		onToolbarForward,
 		onClearComposeRequest,
-		onToolbarArchive,
 		onToolbarDelete,
 		onToolbarStar,
 		onToolbarDiscardDraft,
@@ -978,8 +931,6 @@ function MailboxReading() {
 				onReply={hasThread ? onToolbarReply : undefined}
 				onReplyAll={hasThread ? onToolbarReplyAll : undefined}
 				onForward={hasThread ? onToolbarForward : undefined}
-				onArchive={hasThread && archiveMailboxId ? onToolbarArchive : undefined}
-				canArchive={Boolean(archiveMailboxId)}
 				canDelete={hasThread || hasRemitDraftOpen}
 				onDelete={
 					hasThread
@@ -1030,19 +981,10 @@ function MailboxIntelligence() {
 function MailboxPhone() {
 	const {
 		mailboxId,
-		mailboxName,
 		selectedThread,
 		intelligenceOpen,
 		onToggleIntelligence,
 		onBack,
-		onMobileArchive,
-		canMobileArchive,
-		onMobileDelete,
-		onMobileToggleStar,
-		isMobileStarred,
-		onMobileToggleRead,
-		isMobileRead,
-		mobileMoveContext,
 		nextMessageId,
 		previousMessageId,
 		composeState,
@@ -1069,7 +1011,6 @@ function MailboxPhone() {
 					selectedMessageId={selectedThread.messageId}
 					authenticity={selectedThread.authenticity}
 					onBack={onBack}
-					inboxName={mailboxName ?? "Inbox"}
 					onOpenIntelligence={onToggleIntelligence}
 					onSwipeNext={
 						nextMessageId ? () => openMessage(nextMessageId) : undefined
@@ -1078,14 +1019,6 @@ function MailboxPhone() {
 						previousMessageId ? () => openMessage(previousMessageId) : undefined
 					}
 					mobileIntelligenceOpen={intelligenceOpen}
-					onMobileArchive={canMobileArchive ? onMobileArchive : undefined}
-					canMobileArchive={canMobileArchive}
-					onMobileDelete={onMobileDelete}
-					onMobileToggleStar={onMobileToggleStar}
-					isMobileStarred={isMobileStarred}
-					onMobileToggleRead={onMobileToggleRead}
-					isMobileRead={isMobileRead}
-					mobileMoveContext={mobileMoveContext}
 				/>
 				<Drawer
 					isOpen={intelligenceOpen}

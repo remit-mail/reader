@@ -242,10 +242,6 @@ const JunkIcon = makeIcon(
 		<path d="M12 10v4M12 17v.01" />
 	</>,
 );
-const ArchiveIcon = makeIcon(
-	<path d="M4 7h16v3H4zM5 10v9a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-9M9 13h6" />,
-);
-
 const HamburgerIcon = makeIcon(
 	<>
 		<path d="M4 6h16M4 12h16M4 18h16" />
@@ -506,7 +502,6 @@ const STANDARD_ACTIONS = [
 	{ id: "delete", label: "Delete", Icon: TrashIcon },
 	{ id: "move", label: "Move", Icon: MoveIcon },
 	{ id: "junk", label: "Junk", Icon: JunkIcon },
-	{ id: "archive", label: "Archive", Icon: ArchiveIcon },
 ] as const;
 
 export function SelectionSheet({

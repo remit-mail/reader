@@ -30,7 +30,6 @@ describe("dispatchKey — plain bindings", () => {
 		["r", "reply"],
 		["a", "replyAll"],
 		["f", "forward"],
-		["e", "archive"],
 		["#", "delete"],
 		["s", "toggleStar"],
 		["m", "muteSender"],

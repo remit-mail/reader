@@ -14,13 +14,13 @@ import { MoveToTrigger } from "./MoveToTrigger";
 /**
  * Message action toolbar on the pane-header datum (40px, the shared
  * `--spacing-pane-header`). The reading pane's verbs — reply / reply-all /
- * forward, then archive / delete / move / flag — Apple-Mail-style ghost
- * icon buttons, then the search field top-right (still filters the current
- * list), compose (✎) and the intelligence toggle (#422).
+ * forward, then delete / move / flag — Apple-Mail-style ghost icon buttons,
+ * then the search field top-right (still filters the current list), compose
+ * (✎) and the intelligence toggle (#422).
  *
- * Buttons are always pressable (never `disabled`): with no thread open, or no
- * archive destination, a press is a no-op that surfaces a one-line inline
- * explanation rather than greying out (`doc/rules/ux.md`).
+ * Buttons are always pressable (never `disabled`): with no thread open a press
+ * is a no-op that surfaces a one-line inline explanation rather than greying
+ * out (`doc/rules/ux.md`).
  */
 export interface MessageToolbarProps {
 	hasThread: boolean;
@@ -44,13 +44,6 @@ export interface MessageToolbarProps {
 	onReply?: () => void;
 	onReplyAll?: () => void;
 	onForward?: () => void;
-	onArchive?: () => void;
-	/**
-	 * Whether an archive destination exists for the current account. When false
-	 * the Archive button stays pressable but no-ops and explains ("No archive
-	 * mailbox for this account") — never disabled.
-	 */
-	canArchive?: boolean;
 	/** Delete all messages in the open thread. */
 	onDelete?: () => void;
 	/**
@@ -89,8 +82,6 @@ export const MessageToolbar = ({
 	onReply,
 	onReplyAll,
 	onForward,
-	onArchive,
-	canArchive = true,
 	onDelete,
 	canDelete,
 	onToggleStar,
@@ -110,19 +101,11 @@ export const MessageToolbar = ({
 			replyTitle={`Reply ${tooltipForAction("reply")}`}
 			replyAllTitle={`Reply all ${tooltipForAction("replyAll")}`}
 			forwardTitle={`Forward ${tooltipForAction("forward")}`}
-			archiveTitle={
-				canArchive
-					? `Archive ${tooltipForAction("archive")}`
-					: "No archive mailbox for this account"
-			}
 			deleteTitle={`Move to Trash ${tooltipForAction("delete")}`}
 			flagTitle={`Flag ${tooltipForAction("toggleStar")}`}
 			onReply={onReply}
 			onReplyAll={onReplyAll}
 			onForward={onForward}
-			onArchive={
-				canArchive ? onArchive : explain("No archive mailbox for this account")
-			}
 			onDelete={canDeleteResolved ? onDelete : explain(OPEN_FIRST)}
 			onToggleStar={onToggleStar}
 			onMove={explain(OPEN_FIRST)}
