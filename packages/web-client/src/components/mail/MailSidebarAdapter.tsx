@@ -7,11 +7,7 @@ import type {
 	RemitImapAccountResponse,
 	RemitImapMailboxResponse,
 } from "@remit/api-http-client/types.gen.ts";
-import type {
-	NavAccount,
-	NavLinkComponent,
-	NavMailboxRole,
-} from "@remit/ui";
+import type { NavAccount, NavLinkComponent } from "@remit/ui";
 import { NavSidebar } from "@remit/ui";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useParams } from "@tanstack/react-router";
@@ -19,11 +15,10 @@ import { useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import {
 	filterDuplicateSpecialUse,
-	getMailboxDisplayLabel,
-	getMailboxKind,
+	getEffectiveDisplayLabel,
+	getEffectiveRole,
 	getMailboxPriority,
-	isSystemMailbox,
-	shouldShowUnreadBadge,
+	shouldShowEffectiveUnreadBadge,
 } from "@/lib/mailbox-order";
 import { isOutboxListRow } from "@/lib/outbox-status";
 
@@ -62,12 +57,16 @@ function sortMailboxes(
 	system: RemitImapMailboxResponse[];
 	labels: RemitImapMailboxResponse[];
 } {
+	// Dedup and the system/folder split both key off the EFFECTIVE role so user
+	// overrides (#964) decide where a folder lands: a demoted folder joins the
+	// alpha-sorted labels, a promoted one is pinned. The kit re-pins/orders system
+	// rows by role itself; the adapter only needs to alpha-order the folders.
 	const filtered = filterDuplicateSpecialUse(mailboxes);
 	const system: RemitImapMailboxResponse[] = [];
 	const labels: RemitImapMailboxResponse[] = [];
 
 	for (const mailbox of filtered) {
-		if (isSystemMailbox(mailbox.fullPath, mailbox.specialUse)) {
+		if (getEffectiveRole(mailbox) != null) {
 			system.push(mailbox);
 		} else {
 			labels.push(mailbox);
@@ -81,45 +80,27 @@ function sortMailboxes(
 	);
 	labels.sort((a, b) =>
 		compareLabelNames(
-			getMailboxDisplayLabel(a.fullPath, a.specialUse, t),
-			getMailboxDisplayLabel(b.fullPath, b.specialUse, t),
+			getEffectiveDisplayLabel(a, t),
+			getEffectiveDisplayLabel(b, t),
 		),
 	);
 
 	return { system, labels };
 }
 
-// System roles the kit pins + orders + icons. Mirrors NavMailboxRole. A kind
-// outside this set (e.g. the "important" group) is treated as a custom folder,
-// matching `isSystemMailbox` (which ranks Important as non-system).
-const SYSTEM_ROLES = new Set<string>([
-	"inbox",
-	"flagged",
-	"drafts",
-	"sent",
-	"archive",
-	"all",
-	"junk",
-	"trash",
-]);
-
-function toNavRole(
-	fullPath: string,
-	specialUse: RemitImapMailboxResponse["specialUse"],
-): NavMailboxRole | undefined {
-	const kind = getMailboxKind(fullPath, specialUse);
-	return kind && SYSTEM_ROLES.has(kind) ? (kind as NavMailboxRole) : undefined;
-}
-
-/** Convert an API mailbox to a NavMailbox for the kit, localizing system names. */
+/**
+ * Convert an API mailbox to a NavMailbox for the kit, applying the override
+ * precedence (#964): effective role drives pinning/order/icon, the effective
+ * label drives the name, and the badge follows the effective kind. A
+ * `roleOverride` of "Custom" yields no role, dropping the row into Folders.
+ */
 function toNavMailbox(mb: RemitImapMailboxResponse, t: Translator) {
-	const showBadge =
-		shouldShowUnreadBadge(mb.fullPath, mb.specialUse) && mb.unseenCount > 0;
+	const showBadge = shouldShowEffectiveUnreadBadge(mb) && mb.unseenCount > 0;
 	return {
 		id: mb.mailboxId,
-		name: getMailboxDisplayLabel(mb.fullPath, mb.specialUse, t),
+		name: getEffectiveDisplayLabel(mb, t),
 		unseen: showBadge ? mb.unseenCount : undefined,
-		role: toNavRole(mb.fullPath, mb.specialUse),
+		role: getEffectiveRole(mb) ?? undefined,
 		fullPath: mb.fullPath,
 	};
 }

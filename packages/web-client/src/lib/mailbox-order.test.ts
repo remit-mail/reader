@@ -1,14 +1,20 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
-import { MailboxSpecialUse } from "@remit/domain-enums";
+import { MailboxRole, MailboxSpecialUse } from "@remit/domain-enums";
 import {
 	filterDuplicateSpecialUse,
+	getEffectiveDisplayLabel,
+	getEffectiveKind,
+	getEffectiveRole,
 	getMailboxDisplayLabel,
 	getMailboxDisplayName,
 	getMailboxKind,
 	getMailboxPriority,
+	getMailboxRole,
 	isSystemMailbox,
 	NON_SYSTEM_PRIORITY,
+	roleOverrideToKind,
+	shouldShowEffectiveUnreadBadge,
 	shouldShowUnreadBadge,
 } from "./mailbox-order.js";
 
@@ -16,6 +22,8 @@ interface TestMailbox {
 	mailboxId: string;
 	fullPath: string;
 	specialUse?: readonly string[];
+	roleOverride?: string | null;
+	displayNameOverride?: string | null;
 }
 
 const mb = (
@@ -433,6 +441,245 @@ describe("priority sorting honors SPECIAL-USE flags (#194)", () => {
 		assert.strictEqual(
 			isSystemMailbox("Прибрана пошта", [MailboxSpecialUse.Trash]),
 			true,
+		);
+	});
+});
+
+// Translator that localizes Sent/Inbox into Dutch; everything else is verbatim.
+const tNl = (key: string, fallback: string) =>
+	key === "sidebar.sent"
+		? "Verzonden"
+		: key === "sidebar.inbox"
+			? "Postvak IN"
+			: fallback;
+
+describe("roleOverrideToKind (#964)", () => {
+	test("maps each PascalCase MailboxRole to its kit kind", () => {
+		assert.strictEqual(roleOverrideToKind(MailboxRole.Inbox), "inbox");
+		assert.strictEqual(roleOverrideToKind(MailboxRole.Drafts), "drafts");
+		assert.strictEqual(roleOverrideToKind(MailboxRole.Sent), "sent");
+		assert.strictEqual(roleOverrideToKind(MailboxRole.Archive), "archive");
+		assert.strictEqual(roleOverrideToKind(MailboxRole.Junk), "junk");
+		assert.strictEqual(roleOverrideToKind(MailboxRole.Trash), "trash");
+		assert.strictEqual(roleOverrideToKind(MailboxRole.All), "all");
+		assert.strictEqual(roleOverrideToKind(MailboxRole.Flagged), "flagged");
+	});
+
+	test("Custom maps to null (drops out of the pinned system group)", () => {
+		assert.strictEqual(roleOverrideToKind(MailboxRole.Custom), null);
+	});
+
+	test("unknown values map to null", () => {
+		assert.strictEqual(roleOverrideToKind("Nonsense"), null);
+	});
+});
+
+describe("getMailboxRole (#964)", () => {
+	test("narrows detection to the kit's system roles", () => {
+		assert.strictEqual(getMailboxRole("Sent"), "sent");
+		assert.strictEqual(getMailboxRole("INBOX"), "inbox");
+	});
+
+	test("a non-system kind (Important) is not a system role", () => {
+		assert.strictEqual(
+			getMailboxRole("Belangrijk", [MailboxSpecialUse.Important]),
+			null,
+		);
+	});
+
+	test("custom folders have no role", () => {
+		assert.strictEqual(getMailboxRole("Nieuwsbrieven"), null);
+	});
+});
+
+describe("getEffectiveRole (#964)", () => {
+	test("falls back to the detected role when no override is set", () => {
+		assert.strictEqual(getEffectiveRole(mb("a", "Sent")), "sent");
+		assert.strictEqual(getEffectiveRole(mb("b", "Nieuwsbrieven")), null);
+	});
+
+	test("a roleOverride replaces the detected role", () => {
+		assert.strictEqual(
+			getEffectiveRole({
+				mailboxId: "a",
+				fullPath: "Sent",
+				roleOverride: MailboxRole.Archive,
+			}),
+			"archive",
+		);
+	});
+
+	test("Custom override demotes a detected system folder to no role", () => {
+		assert.strictEqual(
+			getEffectiveRole({
+				mailboxId: "a",
+				fullPath: "Sent",
+				roleOverride: MailboxRole.Custom,
+			}),
+			null,
+		);
+	});
+
+	test("a custom folder promoted to Sent gains the role", () => {
+		assert.strictEqual(
+			getEffectiveRole({
+				mailboxId: "a",
+				fullPath: "INBOX/Nieuwsbrieven",
+				roleOverride: MailboxRole.Sent,
+			}),
+			"sent",
+		);
+	});
+
+	test("a cleared override (null) falls back to detection", () => {
+		assert.strictEqual(
+			getEffectiveRole({
+				mailboxId: "a",
+				fullPath: "Sent",
+				roleOverride: null,
+			}),
+			"sent",
+		);
+	});
+});
+
+describe("getEffectiveDisplayLabel (#964)", () => {
+	test("displayNameOverride wins over canonical and provider names", () => {
+		assert.strictEqual(
+			getEffectiveDisplayLabel(
+				{
+					mailboxId: "a",
+					fullPath: "Verzonden items",
+					specialUse: [MailboxSpecialUse.Sent],
+					displayNameOverride: "  Outbox archive  ",
+				},
+				tNl,
+			),
+			"Outbox archive",
+		);
+	});
+
+	test("a blank/whitespace displayNameOverride is ignored", () => {
+		assert.strictEqual(
+			getEffectiveDisplayLabel(
+				{
+					mailboxId: "a",
+					fullPath: "Verzonden items",
+					specialUse: [MailboxSpecialUse.Sent],
+					displayNameOverride: "   ",
+				},
+				tNl,
+			),
+			"Verzonden",
+		);
+	});
+
+	test("re-roling reads the canonical label of the NEW role, not the detected one", () => {
+		assert.strictEqual(
+			getEffectiveDisplayLabel(
+				{
+					mailboxId: "a",
+					fullPath: "INBOX/Nieuwsbrieven",
+					roleOverride: MailboxRole.Sent,
+				},
+				tNl,
+			),
+			"Verzonden",
+		);
+	});
+
+	test("Custom override falls back to the provider leaf name", () => {
+		assert.strictEqual(
+			getEffectiveDisplayLabel(
+				{
+					mailboxId: "a",
+					fullPath: "Verzonden items",
+					specialUse: [MailboxSpecialUse.Sent],
+					roleOverride: MailboxRole.Custom,
+				},
+				tNl,
+			),
+			"Verzonden items",
+		);
+	});
+
+	test("no overrides matches the detected canonical label (regression)", () => {
+		assert.strictEqual(
+			getEffectiveDisplayLabel(
+				{
+					mailboxId: "a",
+					fullPath: "Verzonden items",
+					specialUse: [MailboxSpecialUse.Sent],
+				},
+				tNl,
+			),
+			getMailboxDisplayLabel("Verzonden items", [MailboxSpecialUse.Sent], tNl),
+		);
+	});
+});
+
+describe("getEffectiveKind / shouldShowEffectiveUnreadBadge (#964)", () => {
+	test("badge follows the effective kind: re-role to Sent hides it", () => {
+		assert.strictEqual(
+			getEffectiveKind({
+				mailboxId: "a",
+				fullPath: "Receipts",
+				roleOverride: MailboxRole.Sent,
+			}),
+			"sent",
+		);
+		assert.strictEqual(
+			shouldShowEffectiveUnreadBadge({
+				mailboxId: "a",
+				fullPath: "Receipts",
+				roleOverride: MailboxRole.Sent,
+			}),
+			false,
+		);
+	});
+
+	test("demoting Sent to Custom restores the badge", () => {
+		assert.strictEqual(
+			shouldShowEffectiveUnreadBadge({
+				mailboxId: "a",
+				fullPath: "Sent",
+				roleOverride: MailboxRole.Custom,
+			}),
+			true,
+		);
+	});
+
+	test("no override matches the detected badge decision (regression)", () => {
+		assert.strictEqual(
+			shouldShowEffectiveUnreadBadge(mb("a", "Sent")),
+			shouldShowUnreadBadge("Sent"),
+		);
+	});
+});
+
+describe("filterDuplicateSpecialUse with overrides (#964)", () => {
+	test("demoting one of two Sent folders to Custom keeps the other and frees the demoted one", () => {
+		const result = filterDuplicateSpecialUse([
+			mb("a", "INBOX"),
+			{ mailboxId: "b", fullPath: "Sent", roleOverride: MailboxRole.Custom },
+			mb("c", "Sent Messages"),
+		]);
+		// The demoted "Sent" survives as a normal folder AND the detected twin
+		// "Sent Messages" is kept (no longer collapsed against the demoted one).
+		assert.deepStrictEqual(
+			result.map((m) => m.fullPath),
+			["INBOX", "Sent", "Sent Messages"],
+		);
+	});
+
+	test("an override-Custom folder never collapses a detected twin", () => {
+		const result = filterDuplicateSpecialUse([
+			{ mailboxId: "a", fullPath: "Sent", roleOverride: MailboxRole.Custom },
+			mb("b", "Sent Messages"),
+		]);
+		assert.deepStrictEqual(
+			result.map((m) => m.fullPath),
+			["Sent", "Sent Messages"],
 		);
 	});
 });
