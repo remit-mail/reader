@@ -48,21 +48,21 @@ export const navAccounts: NavAccount[] = [
 		label: "Personal",
 		email: "alice.tan@gmail.example",
 		mailboxes: [
-			{ id: "mbx_personal_inbox", name: "Inbox", unseen: 9 },
-			{ id: "mbx_personal_drafts", name: "Drafts", specialUse: ["\\Drafts"] },
-			{ id: "mbx_personal_sent", name: "Sent", specialUse: ["\\Sent"] },
+			{ id: "mbx_personal_inbox", name: "Inbox", role: "inbox", unseen: 9 },
+			{ id: "mbx_personal_drafts", name: "Drafts", role: "drafts" },
+			{ id: "mbx_personal_sent", name: "Sent", role: "sent" },
 			{
 				id: "mbx_personal_archive",
 				name: "Archive",
-				specialUse: ["\\Archive"],
+				role: "archive",
 			},
 			{
 				id: "mbx_personal_junk",
 				name: "Junk",
+				role: "junk",
 				unseen: 2,
-				specialUse: ["\\Junk"],
 			},
-			{ id: "mbx_personal_trash", name: "Trash", specialUse: ["\\Trash"] },
+			{ id: "mbx_personal_trash", name: "Trash", role: "trash" },
 		],
 	},
 	{
@@ -70,11 +70,11 @@ export const navAccounts: NavAccount[] = [
 		label: "Work",
 		email: "alice@northwind.example",
 		mailboxes: [
-			{ id: "mbx_work_inbox", name: "Inbox", unseen: 14 },
-			{ id: "mbx_work_sent", name: "Sent", specialUse: ["\\Sent"] },
-			{ id: "mbx_work_archive", name: "Archive", specialUse: ["\\Archive"] },
-			{ id: "mbx_work_junk", name: "Junk", specialUse: ["\\Junk"] },
-			{ id: "mbx_work_trash", name: "Trash", specialUse: ["\\Trash"] },
+			{ id: "mbx_work_inbox", name: "Inbox", role: "inbox", unseen: 14 },
+			{ id: "mbx_work_sent", name: "Sent", role: "sent" },
+			{ id: "mbx_work_archive", name: "Archive", role: "archive" },
+			{ id: "mbx_work_junk", name: "Junk", role: "junk" },
+			{ id: "mbx_work_trash", name: "Trash", role: "trash" },
 		],
 	},
 	{
@@ -82,7 +82,9 @@ export const navAccounts: NavAccount[] = [
 		label: "Synthwave Forum",
 		email: "alice@synthcollective.example",
 		muted: true,
-		mailboxes: [{ id: "mbx_hobby_inbox", name: "Inbox", unseen: 31 }],
+		mailboxes: [
+			{ id: "mbx_hobby_inbox", name: "Inbox", role: "inbox", unseen: 31 },
+		],
 	},
 ];
 
@@ -117,21 +119,21 @@ export const navAccountsManyFolders: NavAccount[] = [
 		label: "Personal",
 		email: "alice.tan@gmail.example",
 		mailboxes: [
-			{ id: "mbx_personal_inbox", name: "Inbox", unseen: 9 },
-			{ id: "mbx_personal_drafts", name: "Drafts", specialUse: ["\\Drafts"] },
-			{ id: "mbx_personal_sent", name: "Sent", specialUse: ["\\Sent"] },
+			{ id: "mbx_personal_inbox", name: "Inbox", role: "inbox", unseen: 9 },
+			{ id: "mbx_personal_drafts", name: "Drafts", role: "drafts" },
+			{ id: "mbx_personal_sent", name: "Sent", role: "sent" },
 			{
 				id: "mbx_personal_archive",
 				name: "Archive",
-				specialUse: ["\\Archive"],
+				role: "archive",
 			},
 			{
 				id: "mbx_personal_junk",
 				name: "Junk",
+				role: "junk",
 				unseen: 2,
-				specialUse: ["\\Junk"],
 			},
-			{ id: "mbx_personal_trash", name: "Trash", specialUse: ["\\Trash"] },
+			{ id: "mbx_personal_trash", name: "Trash", role: "trash" },
 			...customFolderNames.map((name) => ({
 				id: `mbx_personal_${name.toLowerCase()}`,
 				name,

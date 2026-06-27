@@ -17,9 +17,9 @@ const accounts: NavAccount[] = [
 		label: "Personal",
 		email: "matthijs@example.com",
 		mailboxes: [
-			{ id: "personal-inbox", name: "Inbox", unseen: 12 },
-			{ id: "personal-sent", name: "Sent", specialUse: ["\\Sent"] },
-			{ id: "personal-trash", name: "Trash", specialUse: ["\\Trash"] },
+			{ id: "personal-inbox", name: "Inbox", role: "inbox", unseen: 12 },
+			{ id: "personal-sent", name: "Sent", role: "sent" },
+			{ id: "personal-trash", name: "Trash", role: "trash" },
 			{ id: "personal-travel", name: "Travel", fullPath: "Personal/Travel" },
 		],
 	},
@@ -199,6 +199,85 @@ describe("NavSidebar", () => {
 			}),
 		);
 		assert.match(html, /No mailboxes/);
+	});
+
+	// A Hostnet-shaped account: the adapter has already resolved roles and
+	// localized labels for namespace-nested, mostly-unflagged folders. The kit
+	// must pin Inbox/Drafts/Sent/Archive/Spam/Trash with their role icons and
+	// drop the custom folder into the collapsible Folders section.
+	const hostnet: NavAccount = {
+		id: "acct-hostnet",
+		label: "Hostnet",
+		email: "440737+mvhenten@users.noreply.github.com",
+		mailboxes: [
+			{ id: "hn-inbox", name: "Inbox", role: "inbox", fullPath: "INBOX" },
+			{ id: "hn-spam", name: "Spam", role: "junk", fullPath: "INBOX/Spam" },
+			{ id: "hn-sent", name: "Sent", role: "sent", fullPath: "INBOX/Sent" },
+			{
+				id: "hn-drafts",
+				name: "Drafts",
+				role: "drafts",
+				fullPath: "INBOX/Drafts",
+			},
+			{
+				id: "hn-archive",
+				name: "Archive",
+				role: "archive",
+				fullPath: "INBOX/Archive",
+			},
+			{
+				id: "hn-trash",
+				name: "Trash",
+				role: "trash",
+				fullPath: "INBOX/Deleted Messages",
+			},
+			{
+				id: "hn-news",
+				name: "Nieuwsbrieven",
+				fullPath: "INBOX/Nieuwsbrieven",
+			},
+		],
+	};
+
+	it("pins Hostnet system folders with their role icons", () => {
+		const html = renderToString(
+			createElement(NavSidebar, {
+				accounts: [hostnet],
+				selectedNavId: "hn-inbox",
+				onSelectNav: () => undefined,
+			}),
+		);
+		assert.match(html, /lucide-inbox/);
+		assert.match(html, /lucide-file-text/);
+		assert.match(html, /lucide-send/);
+		assert.match(html, /lucide-archive/);
+		assert.match(html, /lucide-octagon-alert/);
+		assert.match(html, /lucide-trash2/);
+		// The real user folder lands in the collapsible Folders section.
+		assert.match(html, /Nieuwsbrieven/);
+		assert.match(html, /Folders/);
+	});
+
+	it("orders Hostnet system folders canonically and before custom folders", () => {
+		const html = renderToString(
+			createElement(NavSidebar, {
+				accounts: [hostnet],
+				selectedNavId: "hn-inbox",
+				onSelectNav: () => undefined,
+			}),
+		);
+		const order = ["Inbox", "Drafts", "Sent", "Archive", "Spam", "Trash"].map(
+			(name) => html.indexOf(`>${name}<`),
+		);
+		for (const idx of order) assert.ok(idx >= 0);
+		for (let i = 1; i < order.length; i++) {
+			assert.ok(
+				order[i - 1] < order[i],
+				`Expected ${order.join(", ")} to be ascending`,
+			);
+		}
+		// Custom folder renders after every system folder.
+		assert.ok(html.indexOf(">Nieuwsbrieven<") > order[order.length - 1]);
 	});
 });
 

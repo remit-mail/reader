@@ -89,27 +89,28 @@ export function useContainerWidth(
 }
 
 /**
- * RFC 6154 / RFC 9051 special-use designations. Mirrors the generated
- * `MailboxSpecialUse` enum (@remit/domain-enums) by value; replace this local
- * union with the generated import once that package is wired into the UI build.
- * Inbox carries no special-use attribute (identified by name per the RFC).
+ * System-folder role for a sidebar mailbox, resolved by the web-client adapter —
+ * the single detection path (see `mailbox-order.ts`). Absent = a custom user
+ * folder. The kit pins, orders, and icons system folders purely by this role and
+ * never inspects raw IMAP SPECIAL-USE strings itself. "inbox" is included even
+ * though INBOX carries no SPECIAL-USE attribute (it is matched by name).
  */
-export type MailboxSpecialUse =
-	| "\\All"
-	| "\\Archive"
-	| "\\Drafts"
-	| "\\Flagged"
-	| "\\Junk"
-	| "\\Sent"
-	| "\\Trash"
-	| "\\Important";
+export type NavMailboxRole =
+	| "inbox"
+	| "flagged"
+	| "drafts"
+	| "sent"
+	| "archive"
+	| "all"
+	| "junk"
+	| "trash";
 
 export interface NavMailbox {
 	id: string;
 	name: string;
 	unseen?: number;
-	/** Denormalized IMAP SPECIAL-USE attributes; empty/absent = custom folder. */
-	specialUse?: MailboxSpecialUse[];
+	/** System-folder role (adapter-computed). Absent = a custom user folder. */
+	role?: NavMailboxRole;
 	/**
 	 * Full mailbox path, surfaced as the row's `title` tooltip so a truncated or
 	 * localized leaf name still reveals where it lives. Defaults to `name`.

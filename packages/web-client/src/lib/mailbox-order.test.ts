@@ -85,6 +85,24 @@ describe("getMailboxPriority", () => {
 			NON_SYSTEM_PRIORITY,
 		);
 	});
+
+	test("namespace-nested system folders sort canonically (#962)", () => {
+		assert.strictEqual(
+			getMailboxPriority("INBOX/Drafts"),
+			getMailboxPriority("Drafts"),
+		);
+		assert.strictEqual(
+			getMailboxPriority("INBOX/Sent"),
+			getMailboxPriority("Sent"),
+		);
+		assert.ok(
+			getMailboxPriority("INBOX/Drafts") < getMailboxPriority("INBOX/Sent"),
+		);
+		assert.strictEqual(
+			getMailboxPriority("INBOX/Nieuwsbrieven"),
+			NON_SYSTEM_PRIORITY,
+		);
+	});
 });
 
 describe("isSystemMailbox", () => {
@@ -242,6 +260,31 @@ describe("filterDuplicateSpecialUse", () => {
 			["[Mail]/Trash"],
 		);
 	});
+
+	test("collapses Hostnet INBOX/-namespace sent and drafts twins (#962)", () => {
+		// Hostnet nests everything under "INBOX/" and only Spam carries a flag.
+		// The unflagged English/Dutch sent + drafts twins collapse to one each,
+		// while the real "Nieuwsbrieven" user folder survives.
+		const result = filterDuplicateSpecialUse([
+			mb("inbox", "INBOX"),
+			mb("spam", "INBOX/Spam", [MailboxSpecialUse.Junk]),
+			mb("sent", "INBOX/Sent"),
+			mb("sentmsgs", "INBOX/Sent Messages"),
+			mb("drafts", "INBOX/Drafts"),
+			mb("concepten", "INBOX/Concepten"),
+			mb("news", "INBOX/Nieuwsbrieven"),
+		]);
+		assert.deepStrictEqual(
+			result.map((m) => m.fullPath),
+			[
+				"INBOX",
+				"INBOX/Spam",
+				"INBOX/Sent",
+				"INBOX/Drafts",
+				"INBOX/Nieuwsbrieven",
+			],
+		);
+	});
 });
 
 describe("getMailboxKind", () => {
@@ -266,6 +309,41 @@ describe("getMailboxKind", () => {
 		assert.strictEqual(getMailboxKind("Receipts"), null);
 		assert.strictEqual(getMailboxKind("Nieuwsbrieven"), null);
 		assert.strictEqual(getMailboxKind("Personal/Stuff"), null);
+	});
+
+	test("matches the bare enum-name Junk flag (#962)", () => {
+		assert.strictEqual(
+			getMailboxKind("INBOX/Spam", [MailboxSpecialUse.Junk]),
+			"junk",
+		);
+		assert.strictEqual(getMailboxKind("Spam", ["Junk"]), "junk");
+	});
+
+	test("recognizes system roles for folders nested under the INBOX namespace (#962)", () => {
+		assert.strictEqual(getMailboxKind("INBOX/Sent"), "sent");
+		assert.strictEqual(getMailboxKind("INBOX/Drafts"), "drafts");
+		assert.strictEqual(getMailboxKind("INBOX/Archive"), "archive");
+		assert.strictEqual(getMailboxKind("INBOX/Deleted Messages"), "trash");
+		assert.strictEqual(getMailboxKind("INBOX"), "inbox");
+	});
+
+	test("keeps real user subfolders under the namespace as custom (#962)", () => {
+		assert.strictEqual(getMailboxKind("INBOX/Nieuwsbrieven"), null);
+	});
+
+	test("does not promote a system-named folder under a non-namespace parent (#962)", () => {
+		assert.strictEqual(getMailboxKind("Personal/Sent"), null);
+		assert.strictEqual(getMailboxKind("Folders/Drafts"), null);
+		// Deeper than one level under the namespace root is custom too.
+		assert.strictEqual(getMailboxKind("INBOX/Work/Sent"), null);
+	});
+
+	test("preserves existing [Gmail]/Sent Mail behaviour (kind stays null) (#962)", () => {
+		assert.strictEqual(getMailboxKind("[Gmail]/Sent Mail"), null);
+	});
+
+	test("matches a top-level system folder by name", () => {
+		assert.strictEqual(getMailboxKind("Sent"), "sent");
 	});
 });
 

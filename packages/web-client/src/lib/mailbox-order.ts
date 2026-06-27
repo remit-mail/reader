@@ -11,12 +11,12 @@ type SpecialUseFlags = readonly string[];
 const SYSTEM_MAILBOX_ORDER: readonly string[][] = [
 	["inbox"],
 	["starred", "flagged"],
-	["drafts", "draft"],
+	["drafts", "draft", "concepten"],
 	["sent", "sent mail", "sent items", "sent messages"],
 	["archive", "archives"],
 	["all", "all mail"],
 	["spam", "junk"],
-	["trash", "bin", "deleted", "deleted items"],
+	["trash", "bin", "deleted", "deleted items", "deleted messages"],
 ];
 
 export const NON_SYSTEM_PRIORITY = SYSTEM_MAILBOX_ORDER.length;
@@ -24,6 +24,25 @@ export const NON_SYSTEM_PRIORITY = SYSTEM_MAILBOX_ORDER.length;
 export const getMailboxDisplayName = (fullPath: string): string => {
 	const parts = fullPath.split("/");
 	return parts[parts.length - 1] || fullPath;
+};
+
+// IMAP personal-namespace roots. Some providers (Hostnet style) expose a single
+// "INBOX" personal namespace with a "/" delimiter and nest every folder under
+// it: "INBOX/Sent" IS the real Sent folder, not a user subfolder. A folder
+// sitting DIRECTLY under such a root is therefore eligible for leaf-name system
+// matching, exactly like a top-level folder. A folder under any other parent
+// (e.g. "Personal/Sent") is a user folder and must never be promoted.
+const NAMESPACE_ROOTS = new Set(["inbox"]);
+
+// True when `fullPath` may be matched as a system folder by its leaf name:
+// either a top-level folder, or one nested a single level under a namespace
+// root. Folders deeper than that, or under a non-namespace parent, are custom.
+const isLeafSystemEligible = (fullPath: string): boolean => {
+	const segments = fullPath.split("/");
+	if (segments.length === 1) return true;
+	return (
+		segments.length === 2 && NAMESPACE_ROOTS.has(segments[0].toLowerCase())
+	);
 };
 
 // Display order keyed by special-use flag. Used so a Dutch "Verzonden"
@@ -54,7 +73,7 @@ export const getMailboxPriority = (
 		}
 		if (best < NON_SYSTEM_PRIORITY) return best;
 	}
-	if (fullPath.includes("/")) return NON_SYSTEM_PRIORITY;
+	if (!isLeafSystemEligible(fullPath)) return NON_SYSTEM_PRIORITY;
 	const name = getMailboxDisplayName(fullPath).toLowerCase();
 	for (let i = 0; i < SYSTEM_MAILBOX_ORDER.length; i++) {
 		if (SYSTEM_MAILBOX_ORDER[i].includes(name)) return i;
@@ -94,8 +113,12 @@ const SPECIAL_USE_ALIASES: Record<string, string> = {
 	bin: "trash",
 	deleted: "trash",
 	"deleted items": "trash",
+	// Apple/iCloud names its Trash "Deleted Messages".
+	"deleted messages": "trash",
 	drafts: "drafts",
 	draft: "drafts",
+	// Dutch Drafts (e.g. Hostnet's "INBOX/Concepten"), unflagged by the server.
+	concepten: "drafts",
 	sent: "sent",
 	"sent mail": "sent",
 	"sent items": "sent",
@@ -115,8 +138,8 @@ const SPECIAL_USE_ALIASES: Record<string, string> = {
 // always win over name-only matches.
 const SPECIAL_USE_PREFERRED_NAMES: Record<string, string[]> = {
 	sent: ["sent", "sent mail", "sent items", "sent messages"],
-	drafts: ["drafts", "draft"],
-	trash: ["trash", "bin", "deleted", "deleted items"],
+	drafts: ["drafts", "draft", "concepten"],
+	trash: ["trash", "bin", "deleted", "deleted items", "deleted messages"],
 	junk: ["junk", "spam"],
 	archive: ["archive", "archives"],
 	all: ["all mail", "all"],
@@ -175,7 +198,7 @@ export const getMailboxKind = (
 	}
 	const name = getMailboxDisplayName(fullPath).toLowerCase();
 	if (name === "inbox") return "inbox";
-	if (fullPath.includes("/")) return null;
+	if (!isLeafSystemEligible(fullPath)) return null;
 	return SPECIAL_USE_ALIASES[name] ?? null;
 };
 
@@ -214,10 +237,11 @@ export const shouldShowUnreadBadge = (
 };
 
 // True when this mailbox should participate in a special-use dedup group.
-// Top-level English-aliased mailboxes always qualify (issue #178). Nested
-// mailboxes only qualify if they carry an IMAP SPECIAL-USE flag — otherwise
-// `Folders/Sent` (a user-label called "Sent" inside "Folders") would be
-// treated as a Sent folder and clash with the real one.
+// A flagged mailbox always qualifies (server truth). For unflagged ones we only
+// match the leaf name when the path is leaf-eligible (top-level or directly
+// under a personal-namespace root like "INBOX/") or a bracketed namespace
+// (`[Gmail]/Sent Mail`). A user-label called "Sent" under a non-namespace
+// parent (e.g. `Personal/Sent`) is kept untouched.
 const candidateGroup = <T extends MailboxLike>(m: T): string | null => {
 	if (m.specialUse && m.specialUse.length > 0) {
 		for (const flag of m.specialUse) {
@@ -226,20 +250,10 @@ const candidateGroup = <T extends MailboxLike>(m: T): string | null => {
 		}
 	}
 	const name = getMailboxDisplayName(m.fullPath).toLowerCase();
-	if (m.fullPath.includes("/")) {
-		// Nested, no flag: only treat `[Gmail]/Sent Mail`-style auto-aliases
-		// (those whose leaf name maps to a known special-use group) as
-		// candidates — these are typically auto-created by the server alongside
-		// a top-level synonym we want to drop.
-		const aliasGroup = SPECIAL_USE_ALIASES[name];
-		// Defensive: only consider the bracketed-namespace pattern. User
-		// folders named after a system folder (e.g. `Personal/Sent`) are kept.
-		if (aliasGroup && /^\[[^\]]+\]\//.test(m.fullPath)) {
-			return aliasGroup;
-		}
-		return null;
+	if (isLeafSystemEligible(m.fullPath) || isBracketedNamespace(m.fullPath)) {
+		return SPECIAL_USE_ALIASES[name] ?? null;
 	}
-	return SPECIAL_USE_ALIASES[name] ?? null;
+	return null;
 };
 
 /**

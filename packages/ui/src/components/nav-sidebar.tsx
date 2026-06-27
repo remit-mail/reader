@@ -8,8 +8,10 @@ import {
 	FileText,
 	Folder,
 	Inbox,
+	Mails,
 	Send,
 	Sparkles,
+	Star,
 	Trash2,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -17,10 +19,10 @@ import { useState } from "react";
 import { cn } from "../lib/cn.js";
 import type {
 	AppShellProps,
-	MailboxSpecialUse,
 	NavAccount,
 	NavLinkComponent,
 	NavMailbox,
+	NavMailboxRole,
 } from "./app-shell-types.js";
 
 /* ------------------------------------------------------------------ */
@@ -143,33 +145,45 @@ function NavItem({
 	);
 }
 
-/* System mailboxes render in a fixed, scannable order; everything without a
-   special-use attribute is a custom folder shown under a collapsible header.
-   Inbox has no special-use attribute (matched by name per RFC 6154). */
-const systemOrder: ReadonlyArray<MailboxSpecialUse | "INBOX"> = [
-	"INBOX",
-	"\\Drafts",
-	"\\Sent",
-	"\\Archive",
-	"\\Junk",
-	"\\Trash",
-];
+/* System mailboxes render in a fixed, scannable order; a mailbox with no `role`
+   is a custom folder shown under a collapsible header. The role is the single
+   detection result computed by the web-client adapter — the kit never parses
+   raw IMAP SPECIAL-USE strings. Order matches the adapter's canonical priority
+   (Inbox, Flagged, Drafts, Sent, Archive, All, Junk, Trash). */
+const ROLE_ORDER: Record<NavMailboxRole, number> = {
+	inbox: 0,
+	flagged: 1,
+	drafts: 2,
+	sent: 3,
+	archive: 4,
+	all: 5,
+	junk: 6,
+	trash: 7,
+};
 
-function systemKind(mb: NavMailbox): MailboxSpecialUse | "INBOX" | null {
-	if (mb.specialUse && mb.specialUse.length > 0) return mb.specialUse[0];
-	if (mb.name === "Inbox") return "INBOX";
-	return null;
+function roleIcon(role: NavMailboxRole): ReactNode {
+	switch (role) {
+		case "inbox":
+			return <Inbox className="size-4" />;
+		case "flagged":
+			return <Star className="size-4" />;
+		case "drafts":
+			return <FileText className="size-4" />;
+		case "sent":
+			return <Send className="size-4" />;
+		case "archive":
+			return <Archive className="size-4" />;
+		case "all":
+			return <Mails className="size-4" />;
+		case "junk":
+			return <AlertOctagon className="size-4" />;
+		case "trash":
+			return <Trash2 className="size-4" />;
+	}
 }
 
-function systemIcon(kind: MailboxSpecialUse | "INBOX") {
-	if (kind === "INBOX") return <Inbox className="size-4" />;
-	if (kind === "\\Drafts") return <FileText className="size-4" />;
-	if (kind === "\\Sent") return <Send className="size-4" />;
-	if (kind === "\\Archive") return <Archive className="size-4" />;
-	if (kind === "\\Junk") return <AlertOctagon className="size-4" />;
-	if (kind === "\\Trash") return <Trash2 className="size-4" />;
-	return <Folder className="size-4" />;
-}
+const hasRole = (mb: NavMailbox): mb is NavMailbox & { role: NavMailboxRole } =>
+	mb.role != null;
 
 const FOLDER_COLLAPSE_THRESHOLD = 8;
 
@@ -240,13 +254,9 @@ function AccountNav({
 	};
 
 	const system = account.mailboxes
-		.filter((mb) => systemKind(mb) !== null)
-		.sort(
-			(a, b) =>
-				systemOrder.indexOf(systemKind(a) as MailboxSpecialUse | "INBOX") -
-				systemOrder.indexOf(systemKind(b) as MailboxSpecialUse | "INBOX"),
-		);
-	const folders = account.mailboxes.filter((mb) => systemKind(mb) === null);
+		.filter(hasRole)
+		.sort((a, b) => ROLE_ORDER[a.role] - ROLE_ORDER[b.role]);
+	const folders = account.mailboxes.filter((mb) => !hasRole(mb));
 	const visibleFolders =
 		showAllFolders || folders.length <= FOLDER_COLLAPSE_THRESHOLD
 			? folders
@@ -327,9 +337,7 @@ function AccountNav({
 									key={mb.id}
 									navId={mb.id}
 									linkComponent={linkComponent}
-									icon={systemIcon(
-										systemKind(mb) as MailboxSpecialUse | "INBOX",
-									)}
+									icon={roleIcon(mb.role)}
 									label={mb.name}
 									ariaLabel={mb.name}
 									title={mb.fullPath ?? mb.name}
