@@ -41,8 +41,6 @@ export const Default: Story = {
 			briefUnseen={briefUnseen}
 			listTitle="Daily brief"
 			listMeta={`${briefUnseen} unread`}
-			chips={briefChips()}
-			mutedNote="+1 muted"
 			sections={briefSections()}
 		/>
 	),
@@ -62,8 +60,6 @@ export const Filtered: Story = {
 			briefUnseen={briefUnseen}
 			listTitle="Daily brief"
 			listMeta={`${briefUnseen} unread`}
-			chips={briefChips()}
-			mutedNote="+1 muted"
 			sections={briefSectionsLong()}
 			briefFilters
 		/>
@@ -79,8 +75,6 @@ export const WorkOnly: Story = {
 			briefUnseen={briefUnseen}
 			listTitle="Daily brief"
 			listMeta="Work only"
-			chips={briefChips(workId)}
-			mutedNote="+1 muted"
 			sections={briefSections(workId)}
 		/>
 	),
@@ -103,8 +97,6 @@ export const CategoryDriven: Story = {
 			briefUnseen={3}
 			listTitle="Daily brief"
 			listMeta="3 unread"
-			chips={briefChips()}
-			mutedNote="+1 muted"
 			sections={categoryDrivenBriefSections()}
 		/>
 	),
@@ -119,8 +111,6 @@ export const CaughtUp: Story = {
 			briefUnseen={0}
 			listTitle="Daily brief"
 			listMeta="You're caught up"
-			chips={briefChips()}
-			mutedNote="+1 muted"
 			sections={[]}
 		/>
 	),
@@ -144,8 +134,6 @@ export const KeyboardHints: Story = {
 			briefUnseen={briefUnseen}
 			listTitle="Daily brief"
 			listMeta={`${briefUnseen} unread`}
-			chips={briefChips()}
-			mutedNote="+1 muted"
 			sections={briefSections()}
 		/>
 	),
@@ -167,8 +155,6 @@ export const KeyboardHintsPhone: Story = {
 			briefUnseen={briefUnseen}
 			listTitle="Daily brief"
 			listMeta={`${briefUnseen} unread`}
-			chips={briefChips()}
-			mutedNote="+1 muted"
 			sections={briefSections()}
 		/>
 	),

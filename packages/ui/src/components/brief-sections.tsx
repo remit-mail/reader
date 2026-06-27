@@ -1,6 +1,5 @@
 import { useState } from "react";
 import type {
-	AccountChip,
 	BriefCategoryFilter,
 	ThreadRowData,
 	ThreadSection,
@@ -50,14 +49,9 @@ export interface BriefSectionsProps {
 	sections: ThreadSection[];
 	briefCategory?: BriefCategoryFilter;
 	selectedThreadId?: string;
-	/** Source/account pills, scoping the brief to one account (single-select). */
-	accountChips?: AccountChip[];
-	/** Note rendered alongside the source pills (e.g. "+2 muted"). */
-	mutedNote?: string;
 	Row: BriefRowComponent;
 	onSelectThread?: (id: string) => void;
 	onSelectBriefCategory?: (category: BriefCategoryFilter) => void;
-	onSelectAccountChip?: (id: string) => void;
 }
 
 /**
@@ -72,12 +66,9 @@ export function BriefSections({
 	sections,
 	briefCategory = "all",
 	selectedThreadId,
-	accountChips,
-	mutedNote,
 	Row,
 	onSelectThread,
 	onSelectBriefCategory,
-	onSelectAccountChip,
 }: BriefSectionsProps) {
 	const [active, setActive] = useState<ReadonlySet<BriefFilterId>>(new Set());
 	const [sheetExpanded, setSheetExpanded] = useState(false);
@@ -114,13 +105,6 @@ export function BriefSections({
 		label: f.label,
 	}));
 
-	const sheetSources = accountChips?.map((chip) => ({
-		id: chip.id,
-		label: chip.label,
-		count: chip.count,
-		active: chip.active,
-	}));
-
 	const clearFilters = () => {
 		onSelectBriefCategory?.("all");
 		setActive(new Set());
@@ -154,8 +138,6 @@ export function BriefSections({
 		<FilterSheet
 			categories={sheetCategories}
 			filters={sheetFilters}
-			sources={sheetSources}
-			sourcesNote={mutedNote}
 			selectedCategory={briefCategory}
 			activeFilters={active}
 			expanded={sheetExpanded}
@@ -163,7 +145,6 @@ export function BriefSections({
 			onSelectCategory={(id) =>
 				onSelectBriefCategory?.(id as BriefCategoryFilter)
 			}
-			onSelectSource={(id) => onSelectAccountChip?.(id)}
 			onToggleFilter={(id) => toggleFilter(id as BriefFilterId)}
 			onClear={clearFilters}
 		>

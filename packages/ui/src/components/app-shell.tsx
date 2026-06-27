@@ -25,8 +25,6 @@ export function AppShell({
 	briefUnseen,
 	listTitle,
 	listMeta,
-	chips,
-	mutedNote,
 	sections,
 	briefFilters,
 	flatList,
@@ -80,8 +78,6 @@ export function AppShell({
 			onBackToList={() => setNarrowView("list")}
 			listTitle={listTitle}
 			listMeta={listMeta}
-			chips={chips}
-			mutedNote={mutedNote}
 			sections={sections}
 			briefFilters={briefFilters}
 			flatList={flatList}
@@ -144,8 +140,6 @@ function AppShellList({
 	onBackToList,
 	listTitle,
 	listMeta,
-	chips,
-	mutedNote,
 	sections,
 	briefFilters,
 	flatList,
@@ -165,8 +159,6 @@ function AppShellList({
 	| "intelligence"
 	| "listTitle"
 	| "listMeta"
-	| "chips"
-	| "mutedNote"
 	| "sections"
 	| "briefFilters"
 	| "flatList"
@@ -204,8 +196,6 @@ function AppShellList({
 		<MessageListPane
 			listTitle={listTitle}
 			listMeta={listMeta}
-			chips={chips}
-			mutedNote={mutedNote}
 			sections={sections ?? []}
 			briefFilters={briefFilters}
 			flatList={flatList}

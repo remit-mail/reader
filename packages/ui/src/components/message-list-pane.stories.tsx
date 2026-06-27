@@ -1,7 +1,7 @@
 import type { Decorator, Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
 import { inboxFilterConfig } from "../filter-presets.js";
-import type { AccountChip, ThreadSection } from "./app-shell-types.js";
+import type { ThreadSection } from "./app-shell-types.js";
 import { FilterSheet } from "./filter-sheet.js";
 import { MailHeader } from "./mail-header.js";
 import { MessageListPane } from "./message-list-pane.js";
@@ -54,11 +54,6 @@ const sections: ThreadSection[] = [
 	},
 ];
 
-const chips: AccountChip[] = [
-	{ id: "all", label: "All", active: true },
-	{ id: "work", label: "Work", count: 2 },
-];
-
 const meta: Meta<typeof MessageListPane> = {
 	title: "Screens/Kit/MessageListPane",
 	component: MessageListPane,
@@ -101,7 +96,7 @@ export const NarrowTouchList: Story = {
 };
 
 export const Brief: Story = {
-	args: { isDesktop: true, briefFilters: true, sections, chips },
+	args: { isDesktop: true, briefFilters: true, sections },
 	decorators: [desktopFrame],
 };
 
