@@ -27,7 +27,7 @@ import {
 	threadOperationsSearchThreads,
 } from "@remit/api-http-client/sdk.gen.ts";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
-import { ReadingPaneEmpty } from "@remit/ui";
+import { inboxFilterConfig, ReadingPaneEmpty } from "@remit/ui";
 import {
 	keepPreviousData,
 	useInfiniteQuery,
@@ -41,6 +41,7 @@ import {
 	useCallback,
 	useContext,
 	useEffect,
+	useMemo,
 	useRef,
 	useState,
 } from "react";
@@ -87,6 +88,39 @@ import {
 } from "@/lib/search-pending";
 import { normalizeSearchQuery } from "@/lib/search-query";
 import { useTelemetry } from "@/lib/telemetry-context";
+import { MailViewChrome } from "./MailViewChrome";
+
+/* ------------------------------------------------------------------ */
+/* Inbox filter predicates — the inbox preset offers Unread / Flagged /
+   Has attachment (never accounts; an inbox is one account already).    */
+/* ------------------------------------------------------------------ */
+
+const INBOX_FILTER_PREDICATES: Record<
+	string,
+	(t: RemitImapThreadMessageResponse) => boolean
+> = {
+	unread: (t) => !t.isRead,
+	flagged: (t) => t.star != null && t.star !== "none" && t.hasStars === true,
+	attachment: (t) => Boolean(t.hasAttachment),
+};
+
+function applyInboxFilters(
+	threads: RemitImapThreadMessageResponse[],
+	category: string,
+	attributes: ReadonlySet<string>,
+): RemitImapThreadMessageResponse[] {
+	const predicates = Array.from(attributes)
+		.map((id) => INBOX_FILTER_PREDICATES[id])
+		.filter(
+			(p): p is (t: RemitImapThreadMessageResponse) => boolean => p != null,
+		);
+	if (category === "all" && predicates.length === 0) return threads;
+	return threads.filter(
+		(t) =>
+			(category === "all" || t.category === category) &&
+			predicates.every((p) => p(t)),
+	);
+}
 
 /* ------------------------------------------------------------------ */
 /* Context                                                              */
@@ -105,6 +139,15 @@ interface MailboxPaneContextValue {
 	mailboxName: string | null;
 	unreadCount: number;
 	isDraftsMailbox: boolean;
+	// Inbox filter (category + Unread/Flagged/Attachment), applied client-side
+	// over the loaded threads. Owned here so the list, triage and adjacency all
+	// see the same filtered set; the open thread still resolves against the raw
+	// set so a filter never closes the reading pane.
+	filterCategory: string;
+	filterAttributes: ReadonlySet<string>;
+	onSelectFilterCategory: (id: string) => void;
+	onToggleFilterAttribute: (id: string) => void;
+	onClearFilters: () => void;
 	showIntelligence: boolean;
 	intelligenceOpen: boolean;
 	onToggleIntelligence: () => void;
@@ -272,13 +315,40 @@ function MailboxPaneProvider({
 			onAfterOptimisticRemove: handleDeselectIfRemoved,
 		});
 
-	const threads = dropDeletedThreads(
+	const rawThreads = dropDeletedThreads(
 		threadsData?.pages.flatMap((page) => page.items) ?? [],
 	);
 
+	const [filterCategory, setFilterCategory] = useState("all");
+	const [filterAttributes, setFilterAttributes] = useState<ReadonlySet<string>>(
+		new Set(),
+	);
+	const threads = useMemo(
+		() => applyInboxFilters(rawThreads, filterCategory, filterAttributes),
+		[rawThreads, filterCategory, filterAttributes],
+	);
+
+	const onSelectFilterCategory = useCallback((id: string) => {
+		setFilterCategory(id);
+	}, []);
+	const onToggleFilterAttribute = useCallback((id: string) => {
+		setFilterAttributes((prev) => {
+			const next = new Set(prev);
+			if (next.has(id)) next.delete(id);
+			else next.add(id);
+			return next;
+		});
+	}, []);
+	const onClearFilters = useCallback(() => {
+		setFilterCategory("all");
+		setFilterAttributes(new Set());
+	}, []);
+
 	const isSearchPending = computeIsSearchPending(searchInput, searchQuery);
+	// Resolve the open thread against the raw set so an active filter never
+	// empties the reading pane on a message the user explicitly opened.
 	const selectedThread = resolveSelectedThread(
-		threads,
+		rawThreads,
 		selectedMessageId,
 		isSearchPending,
 	);
@@ -337,7 +407,7 @@ function MailboxPaneProvider({
 
 	const mailboxUnseenCount = useCurrentMailboxUnseenCount({ accounts });
 	const unreadCount =
-		mailboxUnseenCount ?? threads.filter((t) => !t.isRead).length;
+		mailboxUnseenCount ?? rawThreads.filter((t) => !t.isRead).length;
 
 	const queryClient = useQueryClient();
 	const { pushError } = useErrorBanners();
@@ -686,6 +756,11 @@ function MailboxPaneProvider({
 		mailboxName,
 		unreadCount,
 		isDraftsMailbox,
+		filterCategory,
+		filterAttributes,
+		onSelectFilterCategory,
+		onToggleFilterAttribute,
+		onClearFilters,
 		showIntelligence,
 		intelligenceOpen,
 		onToggleIntelligence,
@@ -759,12 +834,20 @@ function MailboxList() {
 		isDraftsMailbox,
 		onTriageContextChange,
 		onRetry,
+		filterCategory,
+		filterAttributes,
+		onSelectFilterCategory,
+		onToggleFilterAttribute,
+		onClearFilters,
 	} = useMailboxPane();
 	const { searchQuery, accounts } = useMailContext();
 	const tier = useLayoutTier();
 
 	const listTitle = mailboxName ?? "Inbox";
+	const preset = useMemo(() => inboxFilterConfig(), []);
 
+	// Drafts keep their own dedicated view (and header); they don't carry the
+	// inbox category/attribute filter.
 	if (isDraftsMailbox && mailboxAccountId) {
 		return (
 			<DraftsView
@@ -797,24 +880,33 @@ function MailboxList() {
 			isLoadingMore={isLoadingMore}
 			accountId={mailboxAccountId}
 			listTitle={listTitle}
-			listMeta={unreadCount > 0 ? `${unreadCount} unread` : undefined}
+			hideHeader
 			onTriageContextChange={onTriageContextChange}
 		/>
 	);
 
-	if (tier === "phone") {
-		const accountId = accounts[0]?.accountId;
-		if (accountId) {
-			return (
-				<div className="h-full">
-					<PullToRefresh accountId={accountId}>{messageList}</PullToRefresh>
-				</div>
-			);
-		}
-		return <div className="h-full">{messageList}</div>;
-	}
+	const phoneAccountId = accounts[0]?.accountId;
+	const body =
+		tier === "phone" && phoneAccountId ? (
+			<PullToRefresh accountId={phoneAccountId}>{messageList}</PullToRefresh>
+		) : (
+			messageList
+		);
 
-	return messageList;
+	return (
+		<MailViewChrome
+			title={listTitle}
+			unreadCount={unreadCount}
+			preset={preset}
+			selectedCategory={filterCategory}
+			activeFilters={filterAttributes}
+			onSelectCategory={onSelectFilterCategory}
+			onToggleFilter={onToggleFilterAttribute}
+			onClearFilters={onClearFilters}
+		>
+			{body}
+		</MailViewChrome>
+	);
 }
 
 /**
@@ -938,6 +1030,7 @@ function MailboxIntelligence() {
 function MailboxPhone() {
 	const {
 		mailboxId,
+		mailboxName,
 		selectedThread,
 		intelligenceOpen,
 		onToggleIntelligence,
@@ -976,6 +1069,7 @@ function MailboxPhone() {
 					selectedMessageId={selectedThread.messageId}
 					authenticity={selectedThread.authenticity}
 					onBack={onBack}
+					inboxName={mailboxName ?? "Inbox"}
 					onOpenIntelligence={onToggleIntelligence}
 					onSwipeNext={
 						nextMessageId ? () => openMessage(nextMessageId) : undefined

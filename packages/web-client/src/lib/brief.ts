@@ -28,13 +28,9 @@
  * Muted senders (filtered by the caller) and empty sections are excluded.
  */
 
-import type {
-	RemitImapAccountResponse,
-	RemitImapThreadMessageResponse,
-} from "@remit/api-http-client/types.gen.ts";
+import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import { MessageCategory } from "@remit/domain-enums";
 import type {
-	AccountChip,
 	SenderTrustLevel,
 	ThreadCategory,
 	ThreadRowData,
@@ -134,43 +130,6 @@ export function groupBriefSections(rows: ThreadRowData[]): ThreadSection[] {
 			});
 	}
 	return sections;
-}
-
-/**
- * Build account chip array from accounts list + loaded unseen counts.
- * Muted accounts are excluded from the chip row.
- *
- * @param accounts       All non-muted account configs.
- * @param unseenByAccount  Map from accountId to its unread count.
- * @param activeAccountId  Currently selected chip id (undefined = "All").
- */
-export function buildBriefChips(
-	accounts: RemitImapAccountResponse[],
-	unseenByAccount: Map<string, number>,
-	activeAccountId: string | undefined,
-): AccountChip[] {
-	const nonMuted = accounts.filter((a) => !a.muted?.value);
-	const chips: AccountChip[] = [
-		{ id: "all", label: "All", active: activeAccountId === undefined },
-	];
-	for (const account of nonMuted) {
-		chips.push({
-			id: account.accountId,
-			label: account.email.split("@")[0] ?? account.email,
-			count: unseenByAccount.get(account.accountId),
-			active: activeAccountId === account.accountId,
-		});
-	}
-	return chips;
-}
-
-/**
- * Count muted accounts (excluded from brief chips, shown as "+N muted").
- */
-export function countMutedAccounts(
-	accounts: RemitImapAccountResponse[],
-): number {
-	return accounts.filter((a) => a.muted?.value).length;
 }
 
 /**

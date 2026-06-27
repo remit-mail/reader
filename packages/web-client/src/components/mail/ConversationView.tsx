@@ -49,6 +49,11 @@ interface ConversationViewProps {
 	 */
 	onBack?: () => void;
 	/**
+	 * Mobile only: name of the mailbox this thread was opened from, shown beside
+	 * the top-bar "← <inbox>" back control (#735). Defaults to "Inbox".
+	 */
+	inboxName?: string;
+	/**
 	 * When set, immediately opens the inline compose in this mode. The
 	 * parent (e.g. the reading-pane toolbar) sets this to wire the
 	 * top-bar reply/reply-all/forward buttons into the inline compose
@@ -165,6 +170,7 @@ export const ConversationView = ({
 	authenticity,
 	onOpenIntelligence,
 	onBack,
+	inboxName,
 	composeRequest,
 	onComposeClose,
 	onSwipeNext,
@@ -438,6 +444,7 @@ export const ConversationView = ({
 	// Horizontal swipe between messages is wired through touchHandlers (#693).
 	if (!isDesktop) {
 		const hasMobileActions =
+			inboxName !== undefined ||
 			onMobileArchive !== undefined ||
 			onMobileDelete !== undefined ||
 			onMobileToggleStar !== undefined ||
@@ -448,6 +455,8 @@ export const ConversationView = ({
 		const managementBar = hasMobileActions ? (
 			<MobileConversationTopBar
 				hasThread
+				onBackToInbox={inboxName ? onBack : undefined}
+				inboxLabel={inboxName}
 				onArchive={onMobileArchive}
 				canArchive={canMobileArchive}
 				onDelete={onMobileDelete}

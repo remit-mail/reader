@@ -41,6 +41,7 @@ import { FileText, Inbox, Trash2 } from "lucide-react";
 import { useMemo } from "react";
 import { useCompose } from "@/components/compose/ComposeProvider";
 import { groupDraftSections } from "@/lib/drafts";
+import { NavMenuButton } from "./NavMenuButton";
 
 // ---------------------------------------------------------------------------
 // Section header (mirrors DailyBrief SectionHeader)
@@ -213,8 +214,11 @@ export function DraftsView({
 	return (
 		<section className="flex h-full w-full flex-col bg-surface">
 			{/* List datum bar */}
-			<header className="flex h-pane-header shrink-0 items-center justify-between gap-2 border-b border-line px-row-inset">
-				<h1 className="truncate text-sm font-semibold text-fg">{title}</h1>
+			<header className="flex h-pane-header shrink-0 items-center gap-2 border-b border-line px-row-inset">
+				<NavMenuButton />
+				<h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-fg">
+					{title}
+				</h1>
 				{(unreadCount ?? 0) > 0 && (
 					<span className="shrink-0 text-2xs text-fg-subtle tabular-nums">
 						{unreadCount} unread

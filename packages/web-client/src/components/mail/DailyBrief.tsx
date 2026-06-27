@@ -3,14 +3,11 @@
  *
  * Renders one section per message category (Flagged, then Personal /
  * Transactional / Newsletter / Marketing / Social / Automated) from the
- * GET /threads endpoint. Account chips filter all sections to a single
- * account; selection persists in sessionStorage so it survives route
- * navigation within the session.
- *
- * The category-pill / attribute-chip / capped list body is the shared
- * `BriefSections` component from remit-ui — this file owns only the
- * brief-specific wiring: data fetching, account chips, error/loading/empty
- * states, search filtering, and a navigation-aware row.
+ * GET /threads endpoint. The brief defaults to the cross-account aggregate;
+ * the shared `MailHeader` + `FilterSheet` expando (via `MailViewChrome`) own
+ * the title, unread count, search, and the category / Unread-Flagged / account
+ * filters. Account switching also lives in the nav sidebar — the account source
+ * group only appears here when more than one account feeds the brief.
  *
  * Loading: skeleton rows on first paint, patch-in-place on refetch.
  * Error: per-section; the brief still renders other sections.
@@ -22,13 +19,13 @@ import {
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
 import {
-	type AccountChip,
 	Avatar,
-	type BriefCategoryFilter,
-	BriefSections,
+	BriefSection,
+	briefFilterConfig,
 	ComfortableRowTextContent,
 	cn,
 	comfortableRowClass,
+	type FilterAccount,
 	KeyboardHintBar,
 	type ThreadRowData,
 	type ThreadSection,
@@ -40,36 +37,13 @@ import { useCallback, useMemo, useState } from "react";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { sortAccountsByCreatedAt } from "@/lib/account-order";
 import {
-	buildBriefChips,
-	countMutedAccounts,
 	groupBriefSections,
 	matchesBriefSearch,
 	toThreadRowData,
 } from "@/lib/brief";
 import { isFatalServerError } from "@/lib/error-classifier";
 import { useMailContext } from "@/lib/mail-context";
-
-const CHIP_STORAGE_KEY = "remit:brief-chip";
-
-function readStoredChip(): string | undefined {
-	try {
-		return sessionStorage.getItem(CHIP_STORAGE_KEY) ?? undefined;
-	} catch {
-		return undefined;
-	}
-}
-
-function writeStoredChip(id: string | undefined): void {
-	try {
-		if (id === undefined) {
-			sessionStorage.removeItem(CHIP_STORAGE_KEY);
-		} else {
-			sessionStorage.setItem(CHIP_STORAGE_KEY, id);
-		}
-	} catch {
-		// sessionStorage unavailable — silently ignore
-	}
-}
+import { MailViewChrome } from "./MailViewChrome";
 
 // ---------------------------------------------------------------------------
 // Skeleton
@@ -153,6 +127,15 @@ const BriefRow = ({
 };
 
 // ---------------------------------------------------------------------------
+// Filter predicates — the brief preset offers Unread + Flagged.
+// ---------------------------------------------------------------------------
+
+const FILTER_PREDICATES: Record<string, (t: ThreadRowData) => boolean> = {
+	unread: (t) => !t.isRead,
+	flagged: (t) => t.starred === true,
+};
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -174,18 +157,29 @@ export function DailyBrief({
 		() => sortAccountsByCreatedAt(accounts.filter((a) => !a.muted?.value)),
 		[accounts],
 	);
-	const mutedCount = useMemo(() => countMutedAccounts(accounts), [accounts]);
 
-	const [activeChipId, setActiveChipId] = useState<string | undefined>(
-		readStoredChip,
+	// "all" = the cross-account aggregate (the brief's default). Account
+	// switching also lives in the nav sidebar; this source group is a convenience
+	// shown only when more than one account feeds the brief.
+	const [selectedAccountId, setSelectedAccountId] = useState("all");
+	const [selectedCategory, setSelectedCategory] = useState("all");
+	const [activeFilters, setActiveFilters] = useState<ReadonlySet<string>>(
+		new Set(),
 	);
-	const [briefCategory, setBriefCategory] =
-		useState<BriefCategoryFilter>("all");
 
-	const handleChipClick = useCallback((id: string) => {
-		const next = id === "all" ? undefined : id;
-		setActiveChipId(next);
-		writeStoredChip(next);
+	const toggleFilter = useCallback((id: string) => {
+		setActiveFilters((prev) => {
+			const next = new Set(prev);
+			if (next.has(id)) next.delete(id);
+			else next.add(id);
+			return next;
+		});
+	}, []);
+
+	const clearFilters = useCallback(() => {
+		setSelectedCategory("all");
+		setActiveFilters(new Set());
+		setSelectedAccountId("all");
 	}, []);
 
 	// --- Unified threads query ---
@@ -209,7 +203,7 @@ export function DailyBrief({
 		})),
 	});
 
-	// Build accountId → unseen map for chip counts
+	// Build accountId → unseen map for source counts
 	const unseenByAccount = useMemo<Map<string, number>>(() => {
 		const map = new Map<string, number>();
 		for (let i = 0; i < nonMuted.length; i++) {
@@ -240,28 +234,50 @@ export function DailyBrief({
 
 	const sq = searchQuery.trim().toLowerCase();
 
-	// Convert API rows to ThreadRowData, narrowing by the account chip and the
-	// free-text search. Category / attribute / cap filtering lives in
-	// BriefSections, which receives these grouped sections.
+	// Convert API rows to ThreadRowData, narrowing by the selected account, the
+	// category, the active attribute filters and the free-text search. Grouping
+	// (starred → Flagged, then per category) runs on the result.
 	const filteredRows = useMemo<ThreadRowData[]>(() => {
 		const raw = threadsData?.items ?? [];
+		const predicates = Array.from(activeFilters)
+			.map((id) => FILTER_PREDICATES[id])
+			.filter((p): p is (t: ThreadRowData) => boolean => p != null);
 		return raw
 			.filter(
 				(t) =>
-					!activeChipId || (t.accountId ?? t.accountConfigId) === activeChipId,
+					selectedAccountId === "all" ||
+					(t.accountId ?? t.accountConfigId) === selectedAccountId,
 			)
 			.map(toThreadRowData)
-			.filter((t) => !sq || matchesBriefSearch(t, sq));
-	}, [threadsData, activeChipId, sq]);
+			.filter(
+				(t) =>
+					(selectedCategory === "all" || t.category === selectedCategory) &&
+					predicates.every((p) => p(t)) &&
+					(!sq || matchesBriefSearch(t, sq)),
+			);
+	}, [threadsData, selectedAccountId, selectedCategory, activeFilters, sq]);
 
 	const sections = useMemo<ThreadSection[]>(
 		() => groupBriefSections(filteredRows),
 		[filteredRows],
 	);
 
-	const chips = useMemo<AccountChip[]>(
-		() => buildBriefChips(nonMuted, unseenByAccount, activeChipId),
-		[nonMuted, unseenByAccount, activeChipId],
+	const accountSources = useMemo<FilterAccount[]>(() => {
+		if (nonMuted.length <= 1) return [];
+		return [
+			{ id: "all", label: "All", active: selectedAccountId === "all" },
+			...nonMuted.map((account) => ({
+				id: account.accountId,
+				label: account.email.split("@")[0] ?? account.email,
+				count: unseenByAccount.get(account.accountId),
+				active: selectedAccountId === account.accountId,
+			})),
+		];
+	}, [nonMuted, unseenByAccount, selectedAccountId]);
+
+	const preset = useMemo(
+		() => briefFilterConfig(accountSources),
+		[accountSources],
 	);
 
 	const totalUnseen = useMemo(
@@ -269,33 +285,25 @@ export function DailyBrief({
 		[unseenByAccount],
 	);
 
-	const mutedNote = mutedCount > 0 ? `+${mutedCount} muted` : undefined;
+	const hasFilters =
+		selectedCategory !== "all" ||
+		activeFilters.size > 0 ||
+		selectedAccountId !== "all" ||
+		sq.length > 0;
 
 	return (
-		<section className="flex h-full w-full flex-col bg-surface">
-			{/* Header */}
-			<header className="flex h-pane-header shrink-0 items-center justify-between gap-2 border-b border-line px-row-inset">
-				<h1 className="truncate text-sm font-semibold text-fg">Daily brief</h1>
-				<div className="flex items-center gap-2">
-					{totalUnseen > 0 && (
-						<span className="shrink-0 text-2xs text-fg-subtle tabular-nums">
-							{totalUnseen} unread
-						</span>
-					)}
-					{isError && (
-						<button
-							type="button"
-							onClick={() => refetch()}
-							className="shrink-0 p-1 text-fg-subtle hover:text-fg rounded"
-							aria-label="Retry"
-						>
-							<RefreshCw className="size-3.5" />
-						</button>
-					)}
-				</div>
-			</header>
-
-			{/* Per-account error banners */}
+		<MailViewChrome
+			title="Daily brief"
+			unreadCount={totalUnseen}
+			preset={preset}
+			selectedCategory={selectedCategory}
+			activeFilters={activeFilters}
+			onSelectCategory={setSelectedCategory}
+			onToggleFilter={toggleFilter}
+			onSelectSource={setSelectedAccountId}
+			onClearFilters={clearFilters}
+			footer={isDesktop ? <KeyboardHintBar /> : undefined}
+		>
 			{failedAccounts.map((account) => (
 				<ErrorBanner
 					key={account.accountId}
@@ -304,44 +312,47 @@ export function DailyBrief({
 				/>
 			))}
 
-			{/* Main scrollable body */}
 			{isLoading ? (
-				<div className="flex-1 overflow-y-auto">
+				<>
 					<SectionSkeleton />
 					<SectionSkeleton />
-				</div>
+				</>
 			) : isError ? (
-				<div className="flex flex-1 flex-col items-center justify-center gap-3 text-sm text-fg-muted">
+				<div className="flex flex-1 flex-col items-center justify-center gap-3 py-12 text-sm text-fg-muted">
 					<AlertCircle className="size-8 text-danger" />
 					<p>Couldn't load your messages</p>
 					<button
 						type="button"
 						onClick={() => refetch()}
-						className="text-accent underline text-xs"
+						className="flex items-center gap-1 text-accent underline text-xs"
 					>
+						<RefreshCw className="size-3.5" />
 						Try again
 					</button>
 				</div>
-			) : sections.length === 0 && !sq ? (
-				<div className="flex flex-1 flex-col items-center justify-center gap-2 text-center px-4">
-					<Sparkles className="size-8 text-fg-subtle" />
-					<p className="text-sm font-medium text-fg">You're caught up</p>
-					<p className="text-xs text-fg-subtle">Nothing needs attention.</p>
-				</div>
+			) : sections.length === 0 ? (
+				hasFilters ? (
+					<div className="px-row-inset py-6 text-center text-2xs text-fg-subtle">
+						No threads match these filters.
+					</div>
+				) : (
+					<div className="flex flex-1 flex-col items-center justify-center gap-2 py-12 text-center px-4">
+						<Sparkles className="size-8 text-fg-subtle" />
+						<p className="text-sm font-medium text-fg">You're caught up</p>
+						<p className="text-xs text-fg-subtle">Nothing needs attention.</p>
+					</div>
+				)
 			) : (
-				<BriefSections
-					sections={sections}
-					briefCategory={briefCategory}
-					selectedThreadId={selectedMessageId}
-					accountChips={chips}
-					mutedNote={mutedNote}
-					Row={BriefRow}
-					onSelectThread={onSelectMessage}
-					onSelectBriefCategory={setBriefCategory}
-					onSelectAccountChip={handleChipClick}
-				/>
+				sections.map((section) => (
+					<BriefSection
+						key={section.id}
+						section={section}
+						Row={BriefRow}
+						selectedThreadId={selectedMessageId}
+						onSelectThread={onSelectMessage}
+					/>
+				))
 			)}
-			{isDesktop && <KeyboardHintBar />}
-		</section>
+		</MailViewChrome>
 	);
 }
