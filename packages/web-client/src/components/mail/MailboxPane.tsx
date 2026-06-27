@@ -640,7 +640,7 @@ function MailboxPaneProvider({
 	}, [intelligenceOpen, onToggleIntelligence]);
 
 	const goToRoute = useCallback(
-		(to: "/mail" | "/settings") => {
+		(to: "/mail" | "/mail/flagged" | "/settings") => {
 			navigate({ to });
 		},
 		[navigate],
@@ -690,7 +690,7 @@ function MailboxPaneProvider({
 			goBrief: () => goToRoute("/mail"),
 			goInbox: () => goToRoute("/mail"),
 			goSent: () => goToRoute("/mail"),
-			goFlagged: () => goToRoute("/mail"),
+			goFlagged: () => goToRoute("/mail/flagged"),
 			goSettings: () => goToRoute("/settings"),
 		},
 	});

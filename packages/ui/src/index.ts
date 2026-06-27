@@ -310,6 +310,7 @@ export {
 	briefFilterConfig,
 	type FilterAccount,
 	type FilterPreset,
+	flaggedFilterConfig,
 	inboxFilterConfig,
 } from "./filter-presets.js";
 export {

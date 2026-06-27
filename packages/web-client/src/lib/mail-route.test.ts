@@ -12,6 +12,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
 	isBriefRoute,
+	isFlaggedRoute,
 	isMailboxRoute,
 	isOutboxRoute,
 	type MailRouteMatch,
@@ -33,6 +34,11 @@ const outboxMatches: MailRouteMatch[] = [
 	{ routeId: "/mail" },
 	{ routeId: "/mail/outbox" },
 ];
+const flaggedMatches: MailRouteMatch[] = [
+	{ routeId: "__root__" },
+	{ routeId: "/mail" },
+	{ routeId: "/mail/flagged" },
+];
 
 describe("mail route pane detection", () => {
 	it("classifies the brief index route as brief only", () => {
@@ -53,6 +59,13 @@ describe("mail route pane detection", () => {
 		assert.equal(isBriefRoute(outboxMatches), false);
 		assert.equal(isMailboxRoute(outboxMatches), false);
 		assert.equal(isOutboxRoute(outboxMatches), true);
+	});
+
+	it("classifies the flagged route as flagged only", () => {
+		assert.equal(isFlaggedRoute(flaggedMatches), true);
+		assert.equal(isBriefRoute(flaggedMatches), false);
+		assert.equal(isMailboxRoute(flaggedMatches), false);
+		assert.equal(isOutboxRoute(flaggedMatches), false);
 	});
 
 	it("never treats the parent /mail layout match as the brief route", () => {
