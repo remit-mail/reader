@@ -217,13 +217,6 @@ export interface ThreadSection {
 	threads: ThreadRowData[];
 }
 
-export interface AccountChip {
-	id: string;
-	label: string;
-	count?: number;
-	active?: boolean;
-}
-
 export interface ThreadMessageData {
 	id: string;
 	fromName: string;
@@ -264,10 +257,6 @@ export interface AppShellProps {
 	briefUnseen?: number;
 	listTitle: string;
 	listMeta?: string;
-	/** Account segmentation chips (daily brief). */
-	chips?: AccountChip[];
-	/** Subtle muted affordance, e.g. "+1 muted". */
-	mutedNote?: string;
 	sections: ThreadSection[];
 	/** Brief mode: collapsible section headers + a composable filter chip bar. */
 	briefFilters?: boolean;

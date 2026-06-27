@@ -1,8 +1,4 @@
 export {
-	AccountChipRow,
-	type AccountChipRowProps,
-} from "./components/account-chip-row.js";
-export {
 	AddressDisplay,
 	type AddressDisplayProps,
 	AddressList,
@@ -22,7 +18,6 @@ export {
 	useAppShellLayout,
 } from "./components/app-shell-slotted.js";
 export {
-	type AccountChip,
 	type AppShellProps,
 	type BriefCategoryFilter,
 	briefCategories,

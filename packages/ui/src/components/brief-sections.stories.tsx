@@ -88,7 +88,6 @@ const meta: Meta<typeof BriefSections> = {
 		briefCategory: "all",
 		onSelectThread: () => undefined,
 		onSelectBriefCategory: () => undefined,
-		onSelectAccountChip: () => undefined,
 	},
 };
 export default meta;

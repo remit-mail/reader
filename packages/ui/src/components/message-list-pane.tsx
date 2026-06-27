@@ -1,7 +1,6 @@
 import { Menu } from "lucide-react";
 import type { ReactNode } from "react";
 import { useState } from "react";
-import { AccountChipRow } from "./account-chip-row.js";
 import type { AppShellProps, TouchSeed } from "./app-shell-types.js";
 import { BriefSections } from "./brief-sections.js";
 import { Button } from "./button.js";
@@ -23,8 +22,6 @@ import { TouchListBody } from "./touch-list.js";
 export function MessageListPane({
 	listTitle,
 	listMeta,
-	chips,
-	mutedNote,
 	sections,
 	briefFilters,
 	flatList,
@@ -48,8 +45,6 @@ export function MessageListPane({
 	AppShellProps,
 	| "listTitle"
 	| "listMeta"
-	| "chips"
-	| "mutedNote"
 	| "sections"
 	| "briefFilters"
 	| "flatList"
@@ -94,7 +89,6 @@ export function MessageListPane({
 	hideHeader?: boolean;
 }) {
 	const Row = density === "compact" ? CompactRow : ComfortableRow;
-	const showChipBar = !briefFilters && !flatList && chips && chips.length > 0;
 
 	const touchTriage = !isDesktop && !briefFilters && listState === "ready";
 	const seededRows = sections.flatMap((section) => section.threads);
@@ -174,13 +168,6 @@ export function MessageListPane({
 					</header>
 				))}
 
-			{/* secondary row only for non-brief, non-flat lists; the brief's account
-			    chips live inside BriefSections (the filter drawer on mobile), and the
-			    plain flat mailbox carries no chip bar */}
-			{showChipBar && (
-				<AccountChipRow chips={chips ?? []} mutedNote={mutedNote} />
-			)}
-
 			{/* List body. Non-ready states replace the rows entirely (the live
 			    MessageList does the same): skeleton on cold load, empty on a clean
 			    mailbox / search, fail-hard error with a way back + report. */}
@@ -201,8 +188,6 @@ export function MessageListPane({
 					sections={sections}
 					briefCategory={briefCategory}
 					selectedThreadId={selectedThreadId}
-					accountChips={chips}
-					mutedNote={mutedNote}
 					Row={Row}
 					onSelectThread={onSelectThread}
 					onSelectBriefCategory={onSelectBriefCategory}
