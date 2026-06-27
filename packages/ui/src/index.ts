@@ -106,6 +106,24 @@ export {
 	type FilterSheetSource,
 } from "./components/filter-sheet.js";
 export {
+	type FolderDescriptor,
+	FolderNameList,
+	type FolderNameListProps,
+} from "./components/folder-name-list.js";
+export {
+	canonicalRoleLabel,
+	FOLDER_ROLES,
+	FolderNameRow,
+	type FolderNameRowProps,
+	type FolderRole,
+	folderNameDefault,
+	folderRowAffordance,
+	folderRowOverridden,
+	providerLeaf,
+	roleIcon,
+	roleOptionLabel,
+} from "./components/folder-name-row.js";
+export {
 	Input,
 	type InputProps,
 	type InputVariant,
