@@ -5,6 +5,7 @@ import {
 	allThreads,
 	briefSections,
 	briefUnseen,
+	flaggedThreads,
 	navAccounts,
 	navAccountsManyFolders,
 	newsletterIntelligence,
@@ -296,6 +297,27 @@ export const FlatInboxError: Story = {
 			listState="error"
 			onRetry={() => {}}
 			onReportError={() => {}}
+			selectedThreadId={undefined}
+			thread={undefined}
+			intelligence={undefined}
+		/>
+	),
+};
+
+/**
+ * Flagged virtual mailbox (#982): "Flagged" is the active nav item, directly
+ * under "Daily brief". The list is a flat, cross-account set of starred mail —
+ * no brief sections, no chip bar — the same flat surface as the plain inbox.
+ */
+export const FlaggedView: Story = {
+	render: () => (
+		<StatefulShell
+			startOpen={false}
+			selectedNavId="flagged"
+			listTitle="Flagged"
+			listMeta={`${flaggedThreads.filter((t) => !t.isRead).length} unread`}
+			sections={[{ id: "flagged", threads: flaggedThreads }]}
+			flatList
 			selectedThreadId={undefined}
 			thread={undefined}
 			intelligence={undefined}

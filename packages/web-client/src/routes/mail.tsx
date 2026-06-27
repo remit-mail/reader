@@ -16,6 +16,7 @@ import { z } from "zod";
 import { AppShellSkeleton } from "@/components/layout/AppShellSkeleton";
 import { ComposeFab } from "@/components/layout/ComposeFab";
 import { BriefPane } from "@/components/mail/BriefPane";
+import { FlaggedPane } from "@/components/mail/FlaggedPane";
 import { MailboxPane } from "@/components/mail/MailboxPane";
 import { MailNav } from "@/components/mail/MailNav";
 import { OutboxPane } from "@/components/mail/OutboxPane";
@@ -27,7 +28,7 @@ import { isSinglePaneTier, useLayoutTier } from "@/hooks/useLayoutTier";
 import { useStaleAccountSync } from "@/hooks/useStaleAccountSync";
 import { writeIntelligencePref } from "@/lib/intelligence-pref";
 import { MailContext } from "@/lib/mail-context";
-import { isBriefRoute, isOutboxRoute } from "@/lib/mail-route";
+import { isBriefRoute, isFlaggedRoute, isOutboxRoute } from "@/lib/mail-route";
 import "@/lib/client";
 
 // `MailContext` / `useMailContext` live in `@/lib/mail-context` so the provider
@@ -203,6 +204,9 @@ function MailLayout() {
 	const onBriefRoute = useRouterState({
 		select: (s) => isBriefRoute(s.matches),
 	});
+	const onFlaggedRoute = useRouterState({
+		select: (s) => isFlaggedRoute(s.matches),
+	});
 	const onOutboxRoute = useRouterState({
 		select: (s) => isOutboxRoute(s.matches),
 	});
@@ -285,6 +289,33 @@ function MailLayout() {
 						/>
 					)}
 				</BriefPane>
+			) : onFlaggedRoute ? (
+				// Flagged virtual mailbox (/mail/flagged) — flat starred list across
+				// accounts; 2-pane layout (no intelligence), like the brief.
+				<FlaggedPane selectedMessageId={mobileSelectedMessageId}>
+					{isSinglePane ? (
+						<AppShellSlotted
+							nav={navContent}
+							list={<FlaggedPane.Phone />}
+							intelligenceOpen={intelligenceOpen}
+							overlay={overlayContent}
+							skeleton={<AppShellSkeleton />}
+							isLoading={isLoading || hasNoAccounts}
+							{...navSlideOver}
+						/>
+					) : (
+						<AppShellSlotted
+							nav={navContent}
+							list={<FlaggedPane.List />}
+							reading={<FlaggedPane.Reading />}
+							intelligenceOpen={intelligenceOpen}
+							overlay={overlayContent}
+							skeleton={<AppShellSkeleton />}
+							isLoading={isLoading || hasNoAccounts}
+							{...navSlideOver}
+						/>
+					)}
+				</FlaggedPane>
 			) : mobileMailboxId ? (
 				// Mailbox view (/mail/$mailboxId) — full 4-pane layout.
 				<MailboxPane

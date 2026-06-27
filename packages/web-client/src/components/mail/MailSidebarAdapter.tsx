@@ -109,6 +109,7 @@ function toNavMailbox(mb: RemitImapMailboxResponse, t: Translator) {
  * Resolves the currently selected nav ID from the active route so the kit
  * component can highlight the right item.
  *   - /mail/outbox → "outbox"
+ *   - /mail/flagged → "flagged"
  *   - /mail/$mailboxId → mailboxId
  *   - /mail (daily brief) → "brief"
  */
@@ -117,6 +118,7 @@ function useSelectedNavId(): string {
 	const params = useParams({ strict: false }) as { mailboxId?: string };
 
 	if (location.pathname.startsWith("/mail/outbox")) return "outbox";
+	if (location.pathname.startsWith("/mail/flagged")) return "flagged";
 	if (params.mailboxId) return params.mailboxId;
 	if (location.pathname === "/mail" || location.pathname === "/mail/")
 		return "brief";
@@ -230,6 +232,20 @@ export function MailSidebarAdapter({
 			return (
 				<Link
 					to="/mail/outbox"
+					search={{}}
+					onClick={() => onClick?.()}
+					className={className}
+					aria-label={ariaLabel}
+					title={title}
+				>
+					{children}
+				</Link>
+			);
+		}
+		if (navId === "flagged") {
+			return (
+				<Link
+					to="/mail/flagged"
 					search={{}}
 					onClick={() => onClick?.()}
 					className={className}

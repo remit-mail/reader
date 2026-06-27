@@ -75,6 +75,8 @@ export const Default: Story = { args: { selectedNavId: "personal-inbox" } };
 
 export const Brief: Story = { args: { selectedNavId: "brief" } };
 
+export const Flagged: Story = { args: { selectedNavId: "flagged" } };
+
 export const ManyFolders: Story = {
 	args: {
 		accounts: [manyFoldersAccount],

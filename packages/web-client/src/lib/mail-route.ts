@@ -21,10 +21,16 @@ export interface MailRouteMatch {
 export const MAIL_BRIEF_ROUTE_ID = "/mail/" as const;
 export const MAIL_MAILBOX_ROUTE_ID = "/mail/$mailboxId" as const;
 export const MAIL_OUTBOX_ROUTE_ID = "/mail/outbox" as const;
+export const MAIL_FLAGGED_ROUTE_ID = "/mail/flagged" as const;
 
 /** True only on the brief index route (/mail/), never on a mailbox/outbox. */
 export function isBriefRoute(matches: readonly MailRouteMatch[]): boolean {
 	return matches.some((m) => m.routeId === MAIL_BRIEF_ROUTE_ID);
+}
+
+/** True only on the flagged virtual-mailbox route (/mail/flagged). */
+export function isFlaggedRoute(matches: readonly MailRouteMatch[]): boolean {
+	return matches.some((m) => m.routeId === MAIL_FLAGGED_ROUTE_ID);
 }
 
 /** True only on the outbox route. */

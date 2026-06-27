@@ -85,3 +85,15 @@ export function inboxFilterConfig(): FilterPreset {
 		filters: [UNREAD, FLAGGED, HAS_ATTACHMENT],
 	};
 }
+
+/**
+ * Flagged virtual-mailbox filter: categories + Unread/Has attachment. The view
+ * is already scoped to starred mail, so it never offers the redundant Flagged
+ * filter, and the flat starred list carries no account source group.
+ */
+export function flaggedFilterConfig(): FilterPreset {
+	return {
+		categories: [...MESSAGE_CATEGORIES],
+		filters: [UNREAD, HAS_ATTACHMENT],
+	};
+}
