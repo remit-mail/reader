@@ -1,5 +1,5 @@
-import { AppShell, type AppShellProps } from "@remit/ui";
-import type { Meta, StoryObj } from "@storybook/react-vite";
+import { AppShell, type AppShellProps, type ThreadData } from "@remit/ui";
+import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 import {
 	allThreads,
@@ -65,6 +65,10 @@ function StatefulShell({
  * mailboxes below, one muted account), dense sectioned message list,
  * threaded reading pane, intelligence sidebar. Benign thread — the
  * sidebar stays quiet.
+ *
+ * One responsive surface: flip the toolbar viewport to Mobile and the same
+ * component reflows to the single-pane touch layout (the `Mobile*` stories
+ * below seed that width directly).
  */
 export const Default: Story = {
 	render: () => <StatefulShell />,
@@ -296,4 +300,171 @@ export const FlatInboxError: Story = {
 			intelligence={undefined}
 		/>
 	),
+};
+
+/* ------------------------------------------------------------------ */
+/* Mobile (390×844): the SAME responsive AppShell, narrowed — not a    */
+/* separate component or story tree. Below 1024px the shell collapses   */
+/* to a single pane that swaps in place between the list and a          */
+/* dedicated message view; the reading state composes the shared        */
+/* MobileReadingPane. These are width variants of the scenarios above.  */
+/* ------------------------------------------------------------------ */
+
+const PHONE_WIDTH = 390;
+
+/** A flat inbox so back-from-message lands on the plain mailbox list. */
+const flatInbox: Partial<AppShellProps> = {
+	...inboxBase,
+	sections: flatInboxSection,
+};
+
+/** Frames the story at the iPhone 14 canvas so the container-query reflow
+ *  resolves to the single-pane touch layout regardless of the toolbar viewport. */
+const phoneFrame: Decorator = (Story) => (
+	<div
+		className="overflow-hidden rounded-lg border border-line"
+		style={{ width: PHONE_WIDTH, height: 844 }}
+	>
+		<Story />
+	</div>
+);
+
+const mobileParams = {
+	layout: "centered" as const,
+	viewport: { value: "mobile" },
+};
+
+/** Renders the real AppShell seeded to phone width. */
+function PhoneShell(overrides: Partial<AppShellProps>) {
+	return (
+		<AppShell
+			accounts={navAccounts}
+			initialWidth={PHONE_WIDTH}
+			selectedNavId="mbx_personal_inbox"
+			listTitle="Inbox"
+			flatList
+			sections={flatInboxSection}
+			{...overrides}
+		/>
+	);
+}
+
+const singleMessageThread: ThreadData = {
+	subject: "Q3 planning notes",
+	messages: [
+		{
+			id: "m1",
+			fromName: "Alex Rivera",
+			fromEmail: "alex@example.com",
+			toLabel: "you",
+			dateLabel: "9:42",
+			snippet: "Here are the notes from today's planning session.",
+			bodyHtml:
+				"<p>Here are the notes from today's planning session. Let me know if anything is off.</p>",
+			expanded: true,
+		},
+	],
+};
+
+/**
+ * Phone reading view — a multi-message thread (the shell swaps the single pane
+ * for the shared `MobileReadingPane`). Back (top-left) returns to the list; the
+ * ⓘ in the top bar opens the intelligence drawer. The latest message is
+ * expanded with its per-message action bar; the older ones are collapsed.
+ */
+export const MobileThread: Story = {
+	parameters: mobileParams,
+	decorators: [phoneFrame],
+	render: () => (
+		<PhoneShell
+			selectedThreadId="thr_q3"
+			thread={q3Thread}
+			intelligence={q3Intelligence}
+			initialNarrowView="message"
+		/>
+	),
+};
+
+/** Phone reading view — the single-message case: one expanded message with its
+ *  per-message bar, subject and intelligence in the top bar. */
+export const MobileSingleMessage: Story = {
+	parameters: mobileParams,
+	decorators: [phoneFrame],
+	render: () => (
+		<PhoneShell
+			selectedThreadId="thr_single"
+			thread={singleMessageThread}
+			intelligence={q3Intelligence}
+			initialNarrowView="message"
+		/>
+	),
+};
+
+/**
+ * Phone reading view — newsletter sender (design baseline for #854). The
+ * designed HTML body renders through the real sanitize → sandboxed-iframe
+ * pipeline; the ⓘ in the top bar opens the intelligence drawer (the real
+ * `IntelligencePanel` in the shared right-anchored Dialog).
+ */
+export const MobileNewsletter: Story = {
+	parameters: mobileParams,
+	decorators: [phoneFrame],
+	render: () => (
+		<PhoneShell
+			selectedThreadId="thr_marketing"
+			thread={newsletterThread}
+			intelligence={newsletterIntelligence}
+			initialNarrowView="message"
+		/>
+	),
+};
+
+/**
+ * Phone reading view — phishing sender (#854/#874). A DKIM-mismatch sender: the
+ * body carries the danger banner and the ⓘ drawer renders the red authenticity
+ * card plus similar-messages.
+ */
+export const MobilePhishing: Story = {
+	parameters: mobileParams,
+	decorators: [phoneFrame],
+	render: () => (
+		<PhoneShell
+			selectedThreadId="thr_phish"
+			thread={phishThread}
+			intelligence={phishIntelligence}
+			initialNarrowView="message"
+		/>
+	),
+};
+
+/**
+ * Phone selection mode: long-press promotes the list to multi-select. The list
+ * header is REPLACED by the selection bar (cancel + count + mark-read + delete,
+ * real Buttons, never disabled), and each selected row's avatar becomes a
+ * checkbox. Seeded with the first two rows checked.
+ */
+export const MobileSelectionMode: Story = {
+	parameters: mobileParams,
+	decorators: [phoneFrame],
+	render: () => <PhoneShell {...flatInbox} initialTouchState="selection" />,
+};
+
+/**
+ * Phone swipe — trailing: a row swiped left to reveal the destructive delete
+ * action on danger (the iOS-style trailing swipe). Tap the row to settle it back.
+ */
+export const MobileSwipeDelete: Story = {
+	parameters: mobileParams,
+	decorators: [phoneFrame],
+	render: () => <PhoneShell {...flatInbox} initialTouchState="peek-trailing" />,
+};
+
+/**
+ * Phone swipe — leading: a row swiped right to reveal the toggle-read action on
+ * accent-2 (the leading swipe). Tap the row to settle it back.
+ */
+export const MobileSwipeToggleRead: Story = {
+	parameters: mobileParams,
+	decorators: [phoneFrame],
+	render: () => <PhoneShell {...flatInbox} initialTouchState="peek-leading" />,
 };

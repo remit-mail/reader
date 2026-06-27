@@ -47,10 +47,11 @@ describe("MailActionToolbar never disables its action buttons (#799)", () => {
 		assert.match(html, /role="status"/);
 	});
 
-	it("keeps the action buttons present (reply/archive/flag) so they stay pressable", () => {
+	it("keeps the action buttons present (reply/flag) so they stay pressable", () => {
 		const html = render({ hasThread: false });
 		assert.match(html, /aria-label="Reply"/);
-		assert.match(html, /aria-label="Archive"/);
 		assert.match(html, /aria-label="Flag"/);
+		// No archive verb — Remit is IMAP-backed (move-to-folder is the equivalent).
+		assert.doesNotMatch(html, /aria-label="Archive"/);
 	});
 });

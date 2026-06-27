@@ -18,7 +18,6 @@ export interface KeyboardHintBarProps {
 /** The persistent message-list footer hint set (desktop). */
 export const defaultKeyboardHints: KeyboardHint[] = [
 	{ keys: ["j", "k"], label: "navigate" },
-	{ keys: ["e"], label: "archive" },
 	{ keys: ["m"], label: "mute" },
 	{ keys: ["?"], label: "all shortcuts" },
 ];

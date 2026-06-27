@@ -90,7 +90,6 @@ function buildSenderFlags(
 		muted: address.flags.muted?.value === true,
 		blocked: address.flags.blocked?.value === true,
 		unsubscribed: address.flags.unsubscribed?.value === true,
-		autoArchive: address.flags.autoArchive?.value === true,
 	};
 }
 

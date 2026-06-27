@@ -189,9 +189,15 @@ export {
 	compactRowClass,
 } from "./components/message-row.js";
 export {
-	MobileMessagePane,
-	type MobileMessagePaneProps,
-} from "./components/mobile-message-pane.js";
+	type MobileMessageAction,
+	MobileMessageActionBar,
+	type MobileMessageActionBarProps,
+} from "./components/mobile-message-action-bar.js";
+export {
+	type MobileReadingMessageActions,
+	MobileReadingPane,
+	type MobileReadingPaneProps,
+} from "./components/mobile-reading-pane.js";
 export {
 	type MoveMailboxOption,
 	MoveMailboxPicker,
@@ -209,6 +215,11 @@ export {
 	type OutboxStatusBadgeProps,
 	outboxStatusConfig,
 } from "./components/outbox-status-badge.js";
+export {
+	PopoverMenu,
+	type PopoverMenuItem,
+	type PopoverMenuProps,
+} from "./components/popover-menu.js";
 export {
 	PullToRefresh,
 	type PullToRefreshProps,

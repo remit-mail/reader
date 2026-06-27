@@ -59,7 +59,7 @@ interface MessageListProps {
 	/**
 	 * Triage-layer context bridge (#429). The roving focus cursor and the
 	 * multi-selection live here; the parent route's global keyboard dispatcher
-	 * needs them to target the action verbs (reply/archive/star/…) at the
+	 * needs them to target the action verbs (reply/star/…) at the
 	 * focused row, or the selection when one exists. Called whenever either
 	 * changes. `focusedMessageId` is the keyboard cursor (distinct from the
 	 * open/selected thread in the URL); `selectedIds` is the checkbox set.

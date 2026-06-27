@@ -19,6 +19,7 @@ import { formatDatePreset } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { MessageActionMenu } from "./MessageActionMenu";
 import { MessageBody } from "./MessageBody";
+import { MobileMessageBar } from "./MobileMessageBar";
 import { RawMessageView } from "./RawMessageView";
 
 const TrustedSenderBadge = () => (
@@ -98,6 +99,16 @@ interface MessageCardProps {
 	 * completes.
 	 */
 	accountId?: string;
+	/**
+	 * Single-pane mobile reading: the expanded card owns a per-message
+	 * `MobileMessageBar` (reply / star / move / delete / overflow) instead of
+	 * the desktop star indicator + kebab, so nothing is duplicated against the
+	 * shell. Reply verbs are supplied by the conversation.
+	 */
+	mobile?: boolean;
+	onReply?: () => void;
+	onReplyAll?: () => void;
+	onForward?: () => void;
 }
 
 const CollapsedCard = ({
@@ -159,6 +170,10 @@ const ExpandedCard = ({
 	accountId,
 	showRaw,
 	onToggleRaw,
+	mobile,
+	onReply,
+	onReplyAll,
+	onForward,
 }: {
 	threadMessage: RemitImapThreadMessageResponse;
 	messageData?: RemitImapDescribeMessageResponse;
@@ -173,11 +188,16 @@ const ExpandedCard = ({
 	accountId?: string;
 	showRaw: boolean;
 	onToggleRaw: () => void;
+	mobile?: boolean;
+	onReply?: () => void;
+	onReplyAll?: () => void;
+	onForward?: () => void;
 }) => {
 	const date = formatDatePreset(threadMessage.sentDate, "long");
 	const isUnread = !threadMessage.isRead;
 	const isTrusted =
 		messageData?.envelope.from[0]?.flags?.trusted?.value === true;
+	const fromAddressId = messageData?.envelope.from[0]?.addressId;
 	const message = toThreadMessageData(threadMessage, date);
 
 	return (
@@ -197,39 +217,63 @@ const ExpandedCard = ({
 				) : null
 			}
 			indicators={
-				<div className="flex items-center gap-1 mt-0.5">
-					<div className="flex items-center justify-end gap-1">
-						<StarButton
-							isStarred={threadMessage.hasStars}
-							onToggleStar={onToggleStar}
-							isStarPending={isStarPending}
-						/>
-						{threadMessage.hasAttachment && (
-							<span className="text-fg-subtle p-0.5">
-								<Paperclip className="size-3.5" />
-							</span>
+				mobile ? undefined : (
+					<div className="flex items-center gap-1 mt-0.5">
+						<div className="flex items-center justify-end gap-1">
+							<StarButton
+								isStarred={threadMessage.hasStars}
+								onToggleStar={onToggleStar}
+								isStarPending={isStarPending}
+							/>
+							{threadMessage.hasAttachment && (
+								<span className="text-fg-subtle p-0.5">
+									<Paperclip className="size-3.5" />
+								</span>
+							)}
+						</div>
+						{isUnread && (
+							<span
+								className="size-1.5 rounded-full bg-accent"
+								aria-label="Unread"
+							/>
 						)}
 					</div>
-					{isUnread && (
-						<span
-							className="size-1.5 rounded-full bg-accent"
-							aria-label="Unread"
-						/>
-					)}
-				</div>
+				)
 			}
 			actionMenu={
-				<MessageActionMenu
-					messageId={threadMessage.messageId}
-					threadId={threadMessage.threadId}
-					mailboxId={threadMessage.mailboxId}
-					isRead={threadMessage.isRead}
-					accountId={accountId}
-					fromAddressId={messageData?.envelope.from[0]?.addressId}
-					isTrusted={isTrusted}
-					showRaw={showRaw}
-					onToggleRaw={onToggleRaw}
-				/>
+				mobile ? undefined : (
+					<MessageActionMenu
+						messageId={threadMessage.messageId}
+						threadId={threadMessage.threadId}
+						mailboxId={threadMessage.mailboxId}
+						isRead={threadMessage.isRead}
+						accountId={accountId}
+						fromAddressId={fromAddressId}
+						isTrusted={isTrusted}
+						showRaw={showRaw}
+						onToggleRaw={onToggleRaw}
+					/>
+				)
+			}
+			actionBar={
+				mobile ? (
+					<MobileMessageBar
+						messageId={threadMessage.messageId}
+						threadId={threadMessage.threadId}
+						mailboxId={threadMessage.mailboxId}
+						accountId={accountId}
+						isRead={threadMessage.isRead}
+						isStarred={threadMessage.hasStars}
+						onToggleStar={onToggleStar}
+						fromAddressId={fromAddressId}
+						isTrusted={isTrusted}
+						showRaw={showRaw}
+						onToggleRaw={onToggleRaw}
+						onReply={onReply}
+						onReplyAll={onReplyAll}
+						onForward={onForward}
+					/>
+				) : undefined
 			}
 			body={
 				isLoading ? (
@@ -279,6 +323,10 @@ export const MessageCard = ({
 	onToggleStar,
 	isStarPending,
 	accountId,
+	mobile,
+	onReply,
+	onReplyAll,
+	onForward,
 }: MessageCardProps) => {
 	const [showRaw, setShowRaw] = useState(false);
 	const {
@@ -321,6 +369,10 @@ export const MessageCard = ({
 			accountId={accountId}
 			showRaw={showRaw}
 			onToggleRaw={() => setShowRaw((prev) => !prev)}
+			mobile={mobile}
+			onReply={onReply}
+			onReplyAll={onReplyAll}
+			onForward={onForward}
 		/>
 	);
 };

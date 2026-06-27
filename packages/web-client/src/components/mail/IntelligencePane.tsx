@@ -292,11 +292,6 @@ function WiredPanel({
 		updateFlags({ unsubscribed: { value: next } });
 	}, [data?.flags?.unsubscribed, updateFlags]);
 
-	const handleToggleAutoArchive = useCallback(() => {
-		const next = !(data?.flags?.autoArchive === true);
-		updateFlags({ autoArchive: { value: next } });
-	}, [data?.flags?.autoArchive, updateFlags]);
-
 	const handleReclassifySelect = useCallback(
 		(category: CategoryOverride) => {
 			setReclassifyOpen(false);
@@ -313,7 +308,6 @@ function WiredPanel({
 		onToggleMute: handleToggleMute,
 		onToggleBlock: handleToggleBlock,
 		onToggleUnsubscribe: handleToggleUnsubscribe,
-		onToggleAutoArchive: handleToggleAutoArchive,
 		onReclassify: () => setReclassifyOpen(true),
 		onNotSpam: spamAction === "notSpam" ? handleNotSpam : undefined,
 		onMarkSpam: spamAction === "markSpam" ? handleMarkSpam : undefined,

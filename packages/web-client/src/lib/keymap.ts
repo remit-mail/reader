@@ -23,7 +23,6 @@ export type TriageAction =
 	| "reply"
 	| "replyAll"
 	| "forward"
-	| "archive"
 	| "delete"
 	| "toggleStar"
 	| "toggleRead"
@@ -107,7 +106,6 @@ export const KEY_HINT_GROUPS: KeyHintGroup[] = [
 			{ action: "reply", keys: ["r"], description: "Reply" },
 			{ action: "replyAll", keys: ["a"], description: "Reply all" },
 			{ action: "forward", keys: ["f"], description: "Forward" },
-			{ action: "archive", keys: ["e"], description: "Archive" },
 			{ action: "delete", keys: ["#"], description: "Delete" },
 			{ action: "toggleStar", keys: ["s"], description: "Star / unstar" },
 			{
