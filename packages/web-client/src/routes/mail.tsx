@@ -2,7 +2,7 @@ import {
 	configOperationsGetConfigOptions,
 	unifiedThreadOperationsListAllThreadsOptions,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
-import { AppShellSlotted, SearchBar } from "@remit/ui";
+import { AppShellSlotted } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import {
 	createFileRoute,
@@ -11,10 +11,8 @@ import {
 	useRouterState,
 	useSearch,
 } from "@tanstack/react-router";
-import { Menu, Search, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
-import { AccountMenu } from "@/auth/AccountMenu";
 import { AppShellSkeleton } from "@/components/layout/AppShellSkeleton";
 import { ComposeFab } from "@/components/layout/ComposeFab";
 import { BriefPane } from "@/components/mail/BriefPane";
@@ -23,7 +21,6 @@ import { MailNav } from "@/components/mail/MailNav";
 import { OutboxPane } from "@/components/mail/OutboxPane";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { KeyboardShortcutsModal } from "@/components/ui/KeyboardShortcutsModal";
-import { useCurrentMailboxName } from "@/hooks/useCurrentMailboxName";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { isSinglePaneTier, useLayoutTier } from "@/hooks/useLayoutTier";
@@ -64,7 +61,6 @@ function MailLayout() {
 	const { q: searchQuery = "" } = useSearch({ from: "/mail" });
 	const navigate = useNavigate();
 	const tier = useLayoutTier();
-	const isPhone = tier === "phone";
 	// Below the reading boundary (phone AND tablet) AppShellSlotted shows a
 	// SINGLE pane — there is no reading pane to host the thread or the compose
 	// surface. So both tiers use the single-pane view, which swaps the pane in
@@ -74,10 +70,6 @@ function MailLayout() {
 	const isSinglePane = isSinglePaneTier(tier);
 	const [showShortcuts, setShowShortcuts] = useState(false);
 	const [drawerOpen, setDrawerOpen] = useState(false);
-	// Narrow layout: the top bar's search toggle expands an inline SearchBar
-	// (same affordance the retired Header carried, preserved so mobile search
-	// doesn't regress — the wide desktop layout puts search in the toolbar).
-	const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
 	// Pane 4 / the mobile details drawer share this toggle. It starts closed so
 	// the phone never slams a full-screen intelligence drawer over a freshly
 	// opened thread; the DESKTOP route opens it by default with the thread (the
@@ -180,11 +172,10 @@ function MailLayout() {
 	}, []);
 
 	const accounts = config?.accounts ?? [];
-	const mobileTitle = useCurrentMailboxName({ accounts });
 
 	// Read the current mailbox params and selected message (if any) from the
-	// child route so the narrow top-bar title can act as a back button when a
-	// thread is open.
+	// child route so the parent shell can mount the right pane (brief / mailbox /
+	// outbox) and forward the open thread into it.
 	//
 	// `useParams({ strict: false })` resolves against the *nearest* route match
 	// in the React component tree — which for this parent layout is /mail (no
@@ -242,79 +233,6 @@ function MailLayout() {
 		onSetIntelligenceOpen: handleSetIntelligenceOpen,
 	};
 
-	// Mobile header: shown only on narrow widths by AppShellSlotted.
-	const mobileHeader = (
-		<header className="flex h-12 shrink-0 items-center gap-2 border-b border-line bg-canvas px-2">
-			<button
-				type="button"
-				onClick={() => setDrawerOpen(true)}
-				className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md p-2 transition-colors hover:bg-surface-raised"
-				aria-label="Menu"
-			>
-				<Menu className="size-5" />
-			</button>
-			{mobileSearchOpen ? (
-				<div className="flex flex-1 items-center gap-1">
-					<div className="flex-1">
-						<SearchBar
-							value={searchInput}
-							onChange={handleSearchChange}
-							onClear={handleSearchClear}
-							onClearQuery={handleSearchClearQuery}
-							globalFocusKey={false}
-						/>
-					</div>
-					<button
-						type="button"
-						onClick={() => setMobileSearchOpen(false)}
-						className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md p-2 transition-colors hover:bg-surface-raised"
-						aria-label="Close search"
-					>
-						<X className="size-5" />
-					</button>
-				</div>
-			) : isPhone && mobileSelectedMessageId ? (
-				<>
-					<button
-						type="button"
-						onClick={() => {
-							if (!mobileMailboxId) return;
-							navigate({
-								to: "/mail/$mailboxId",
-								params: { mailboxId: mobileMailboxId },
-								search: (prev: Record<string, unknown>) => ({
-									...prev,
-									selectedMessageId: undefined,
-								}),
-							});
-						}}
-						className="inline-flex min-h-11 items-center gap-1.5 px-1 text-sm font-medium text-fg transition-colors hover:text-accent"
-						aria-label="Back to inbox"
-					>
-						<span className="truncate">{mobileTitle ?? "Inbox"}</span>
-					</button>
-					<div className="flex-1" />
-					<AccountMenu />
-				</>
-			) : (
-				<>
-					<span className="flex-1 truncate text-sm font-semibold text-fg">
-						{mobileTitle ?? "Remit"}
-					</span>
-					<button
-						type="button"
-						onClick={() => setMobileSearchOpen(true)}
-						className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md p-2 transition-colors hover:bg-surface-raised"
-						aria-label="Search"
-					>
-						<Search className="size-5" />
-					</button>
-					<AccountMenu />
-				</>
-			)}
-		</header>
-	);
-
 	// Single nav node: the kit renders it as a pane (≥1024px) or inside its
 	// own slide-over Dialog (narrow), never both — so there is exactly one
 	// "Mailboxes" nav landmark at any width. `MailNav` adds the mobile
@@ -349,7 +267,6 @@ function MailLayout() {
 							nav={navContent}
 							list={<BriefPane.Phone />}
 							intelligenceOpen={intelligenceOpen}
-							header={mobileHeader}
 							overlay={overlayContent}
 							skeleton={<AppShellSkeleton />}
 							isLoading={isLoading || hasNoAccounts}
@@ -361,7 +278,6 @@ function MailLayout() {
 							list={<BriefPane.List />}
 							reading={<BriefPane.Reading />}
 							intelligenceOpen={intelligenceOpen}
-							header={mobileHeader}
 							overlay={overlayContent}
 							skeleton={<AppShellSkeleton />}
 							isLoading={isLoading || hasNoAccounts}
@@ -380,7 +296,6 @@ function MailLayout() {
 							nav={navContent}
 							list={<MailboxPane.Phone />}
 							intelligenceOpen={intelligenceOpen}
-							header={mobileHeader}
 							overlay={overlayContent}
 							skeleton={<AppShellSkeleton />}
 							isLoading={isLoading || hasNoAccounts}
@@ -393,7 +308,6 @@ function MailLayout() {
 							reading={<MailboxPane.Reading />}
 							intelligence={<MailboxPane.Intelligence />}
 							intelligenceOpen={intelligenceOpen}
-							header={mobileHeader}
 							overlay={overlayContent}
 							skeleton={<AppShellSkeleton />}
 							isLoading={isLoading || hasNoAccounts}
@@ -409,7 +323,6 @@ function MailLayout() {
 							nav={navContent}
 							list={<OutboxPane.Phone />}
 							intelligenceOpen={false}
-							header={mobileHeader}
 							overlay={overlayContent}
 							skeleton={<AppShellSkeleton />}
 							isLoading={isLoading || hasNoAccounts}
@@ -421,7 +334,6 @@ function MailLayout() {
 							list={<OutboxPane.List />}
 							reading={<OutboxPane.Reading />}
 							intelligenceOpen={false}
-							header={mobileHeader}
 							overlay={overlayContent}
 							skeleton={<AppShellSkeleton />}
 							isLoading={isLoading || hasNoAccounts}

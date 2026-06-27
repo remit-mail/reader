@@ -43,6 +43,7 @@ export function MessageListPane({
 	initialTouchState,
 	selectionBar,
 	listBody,
+	hideHeader = false,
 }: Pick<
 	AppShellProps,
 	| "listTitle"
@@ -85,6 +86,12 @@ export function MessageListPane({
 	 * are still used by the pane chrome; the rows themselves come from this slot.
 	 */
 	listBody?: ReactNode;
+	/**
+	 * Suppress the built-in title header. The consumer owns the header (e.g. the
+	 * shared `MailHeader` rendered above the pane). The selection bar still
+	 * replaces the (now absent) header while a selection is active.
+	 */
+	hideHeader?: boolean;
 }) {
 	const Row = density === "compact" ? CompactRow : ComfortableRow;
 	const showChipBar = !briefFilters && !flatList && chips && chips.length > 0;
@@ -144,7 +151,7 @@ export function MessageListPane({
 						onMarkRead={cancelSelection}
 						onDelete={cancelSelection}
 					/>
-				) : (
+				) : hideHeader ? null : (
 					<header className="flex h-pane-header shrink-0 items-center gap-2 border-b border-line px-row-inset">
 						{onOpenNav && (
 							<Button

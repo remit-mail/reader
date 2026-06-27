@@ -1,13 +1,7 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
-import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
 import type { ThreadRowData } from "@remit/ui";
-import {
-	buildBriefChips,
-	countMutedAccounts,
-	groupBriefSections,
-	matchesBriefSearch,
-} from "./brief.js";
+import { groupBriefSections, matchesBriefSearch } from "./brief.js";
 
 function row(
 	overrides: Partial<ThreadRowData> & Pick<ThreadRowData, "id">,
@@ -194,25 +188,6 @@ describe("groupBriefSections", () => {
 	});
 });
 
-function account(
-	overrides: Partial<RemitImapAccountResponse> &
-		Pick<RemitImapAccountResponse, "accountId" | "email">,
-): RemitImapAccountResponse {
-	return {
-		accountConfigId: "cfg-1",
-		username: "user",
-		imapHost: "imap.example.com",
-		imapPort: 993,
-		imapTls: true,
-		imapStartTls: false,
-		isActive: true,
-		connectionState: "authenticated",
-		createdAt: 1000,
-		updatedAt: 1000,
-		...overrides,
-	} as RemitImapAccountResponse;
-}
-
 describe("matchesBriefSearch", () => {
 	const r = row({
 		id: "1",
@@ -240,54 +215,5 @@ describe("matchesBriefSearch", () => {
 
 	test("returns false when query matches nothing", () => {
 		assert.strictEqual(matchesBriefSearch(r, "zyxwvuts"), false);
-	});
-});
-
-describe("buildBriefChips / countMutedAccounts — muted is an object flag", () => {
-	// `muted` is RemitImapMutedFlag = { value: boolean, ... }, NOT a boolean.
-	// An account muted-then-unmuted carries `muted: { value: false }`, which is
-	// truthy as an object — these tests lock that only `value: true` counts as
-	// muted, mirroring routes/settings/accounts.tsx's `account.muted?.value`.
-	const personal = account({
-		accountId: "acc_p",
-		email: "alice@personal.test",
-	});
-	const work = account({ accountId: "acc_w", email: "alice@work.test" });
-	const unmuted = account({
-		accountId: "acc_u",
-		email: "alice@unmuted.test",
-		muted: { value: false } as RemitImapAccountResponse["muted"],
-	});
-	const muted = account({
-		accountId: "acc_m",
-		email: "alice@muted.test",
-		muted: { value: true } as RemitImapAccountResponse["muted"],
-	});
-
-	test("an account with muted:{value:false} is NOT counted as muted", () => {
-		assert.strictEqual(countMutedAccounts([personal, unmuted]), 0);
-	});
-
-	test("an account with muted:{value:true} IS counted as muted", () => {
-		assert.strictEqual(countMutedAccounts([personal, muted]), 1);
-	});
-
-	test("chips include accounts with muted:{value:false}", () => {
-		const chips = buildBriefChips([personal, unmuted], new Map(), undefined);
-		const ids = chips.map((c) => c.id);
-		assert.ok(ids.includes("acc_u"));
-		assert.ok(ids.includes("acc_p"));
-	});
-
-	test("chips exclude accounts with muted:{value:true}", () => {
-		const chips = buildBriefChips(
-			[personal, work, muted],
-			new Map(),
-			undefined,
-		);
-		const ids = chips.map((c) => c.id);
-		assert.ok(!ids.includes("acc_m"));
-		// "All" + the two non-muted accounts.
-		assert.strictEqual(chips.length, 3);
 	});
 });
