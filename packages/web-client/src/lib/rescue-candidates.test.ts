@@ -1,17 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import type {
-	RemitImapSenderTrust,
-	RemitImapThreadMessageResponse,
-} from "@remit/api-http-client/types.gen.ts";
+import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import {
-	assembleRescueCandidates,
-	buildRescueCandidate,
 	buildRescueCandidates,
-	deriveSenderTrustFromFlags,
-	isRescuableTrust,
 	isRescueCandidate,
-	type RescueSearchHit,
 	rescueCandidateReason,
 } from "./rescue-candidates.js";
 
@@ -152,105 +144,5 @@ describe("buildRescueCandidates", () => {
 		assert.equal(candidate.senderAddress, "");
 		assert.equal(candidate.subject, "(no subject)");
 		assert.equal(candidate.snippet, "");
-	});
-});
-
-describe("isRescuableTrust", () => {
-	test("only VIP and well-known senders qualify", () => {
-		assert.equal(isRescuableTrust("vip"), true);
-		assert.equal(isRescuableTrust("wellknown"), true);
-		assert.equal(isRescuableTrust("unknown"), false);
-	});
-});
-
-describe("deriveSenderTrustFromFlags", () => {
-	test("VIP flag wins", () => {
-		assert.equal(
-			deriveSenderTrustFromFlags({ vip: { value: true, setAt: 1 } }),
-			"vip",
-		);
-	});
-
-	test("well-known flag maps to wellknown", () => {
-		assert.equal(
-			deriveSenderTrustFromFlags({ wellknown: { value: true, setAt: 1 } }),
-			"wellknown",
-		);
-	});
-
-	test("absent or false flags fall back to unknown", () => {
-		assert.equal(deriveSenderTrustFromFlags(undefined), "unknown");
-		assert.equal(
-			deriveSenderTrustFromFlags({ vip: { value: false, setAt: 1 } }),
-			"unknown",
-		);
-	});
-});
-
-describe("assembleRescueCandidates", () => {
-	const hits: RescueSearchHit[] = [
-		{
-			messageId: "loaded-vip",
-			fromName: "Anna",
-			fromEmail: "anna@studio-noord.nl",
-			subject: "Re: invoice",
-		},
-		{
-			messageId: "unloaded-wellknown",
-			fromName: "Bob",
-			fromEmail: "bob@known.nl",
-			subject: "Quote",
-		},
-		{
-			messageId: "unloaded-unknown",
-			fromName: "Eve",
-			fromEmail: "eve@spam.nl",
-			subject: "You won",
-		},
-	];
-
-	test("resolves trust from loaded threads and address lookups, keeping only verified senders", () => {
-		const loaded = new Map<string, RemitImapThreadMessageResponse>([
-			["loaded-vip", thread({ messageId: "loaded-vip", senderTrust: "vip" })],
-		]);
-		const trustByEmail = new Map<string, RemitImapSenderTrust>([
-			["bob@known.nl", "wellknown"],
-			["eve@spam.nl", "unknown"],
-		]);
-
-		const candidates = assembleRescueCandidates(hits, loaded, trustByEmail);
-
-		assert.deepEqual(
-			candidates.map((c) => c.id),
-			["loaded-vip", "unloaded-wellknown"],
-		);
-		const vip = candidates.find((c) => c.id === "loaded-vip");
-		assert.equal(vip?.senderTrust, "vip");
-		assert.equal(vip?.snippet, "Final files attached.");
-		const wellknown = candidates.find((c) => c.id === "unloaded-wellknown");
-		assert.equal(wellknown?.senderTrust, "wellknown");
-		assert.equal(wellknown?.senderAddress, "bob@known.nl");
-	});
-
-	test("treats senders with no resolved trust as unknown and drops them", () => {
-		const candidates = assembleRescueCandidates(hits, new Map(), new Map());
-		assert.deepEqual(candidates, []);
-	});
-});
-
-describe("buildRescueCandidate", () => {
-	test("shapes a search hit into a candidate with a plain-language reason", () => {
-		const candidate = buildRescueCandidate({
-			messageId: "s1",
-			senderName: "Anna de Vries",
-			senderAddress: "anna@studio-noord.nl",
-			subject: "Re: invoice",
-			snippet: "",
-			senderTrust: "wellknown",
-		});
-		assert.equal(candidate.id, "s1");
-		assert.equal(candidate.trustReason, "We can verify this sender");
-		assert.equal(candidate.trustSubReason, "You've emailed them before");
-		assert.equal(candidate.senderAddress, "anna@studio-noord.nl");
 	});
 });

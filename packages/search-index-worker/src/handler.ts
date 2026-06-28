@@ -1,8 +1,5 @@
 import { inspect } from "node:util";
-import {
-	type MessageItem,
-	NotFoundError,
-} from "@remit/remit-electrodb-service";
+import { NotFoundError } from "@remit/remit-electrodb-service";
 import {
 	createLogger,
 	type Logger,
@@ -131,7 +128,6 @@ const prepareUpsert = async (
 	const {
 		accountService,
 		threadMessageService,
-		messageService,
 		storageService,
 		searchService,
 	} = services;
@@ -173,20 +169,6 @@ const prepareUpsert = async (
 		return null;
 	}
 
-	// Spam/auth signals live on the Message row, not the ThreadMessage. They
-	// power the Rescue-from-Spam filter (provider-classified spam that still
-	// passed DMARC). A missing Message row must not drop the index — the body
-	// is still worth indexing without these enrichment signals.
-	let message: MessageItem | undefined;
-	try {
-		message = await messageService.get(messageId);
-	} catch (error) {
-		if (!(error instanceof NotFoundError)) throw error;
-		log.info("Message row not found, indexing without spam/auth signals", {
-			messageId,
-		});
-	}
-
 	await searchService.delete(messageId);
 
 	return searchService.prepareVectors({
@@ -215,17 +197,7 @@ const prepareUpsert = async (
 			hasAttachment: threadMessage.hasAttachment,
 			hasStars: threadMessage.hasStars,
 			fromName: threadMessage.fromName ?? null,
-			fromEmail: threadMessage.fromEmail ?? "",
 			subject: threadMessage.subject ?? "",
-			...(message?.providerSpam?.classified !== undefined
-				? { providerSpamClassified: message.providerSpam.classified }
-				: {}),
-			...(message?.authResult?.dmarc !== undefined
-				? { authResultDmarc: message.authResult.dmarc }
-				: {}),
-			...(message?.authenticity?.dkimMismatch !== undefined
-				? { dkimMismatch: message.authenticity.dkimMismatch }
-				: {}),
 		},
 	});
 };

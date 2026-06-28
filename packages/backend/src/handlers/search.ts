@@ -21,9 +21,6 @@ const toResponse = (item: SearchResult): SemanticSearchResult => {
 	if (item.fromName !== undefined) {
 		result.fromName = item.fromName ?? undefined;
 	}
-	if (item.fromEmail !== undefined) {
-		result.fromEmail = item.fromEmail;
-	}
 	if (item.subject !== undefined) {
 		result.subject = item.subject;
 	}
@@ -48,9 +45,6 @@ export const SemanticSearchOperations: Record<
 			hasAttachment,
 			hasStars,
 			isRead,
-			providerSpamClassified,
-			authResultDmarc,
-			dkimMismatch,
 			limit,
 		} = context.request.query as {
 			query: string;
@@ -60,9 +54,6 @@ export const SemanticSearchOperations: Record<
 			hasAttachment?: boolean;
 			hasStars?: boolean;
 			isRead?: boolean;
-			providerSpamClassified?: boolean;
-			authResultDmarc?: string;
-			dkimMismatch?: boolean;
 			limit?: number;
 		};
 
@@ -79,9 +70,6 @@ export const SemanticSearchOperations: Record<
 			hasAttachment,
 			hasStars,
 			isRead,
-			providerSpamClassified,
-			authResultDmarc,
-			dkimMismatch,
 			limit: limit ?? DEFAULT_LIMIT,
 		});
 

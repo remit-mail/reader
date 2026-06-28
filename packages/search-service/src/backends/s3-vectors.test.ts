@@ -243,54 +243,6 @@ describe("S3VectorsBackend.query topK guard", () => {
 	});
 });
 
-describe("S3VectorsBackend.query filter expression", () => {
-	let s3vMock: AwsClientStub<S3VectorsClient>;
-
-	beforeEach(() => {
-		s3vMock = mockClient(S3VectorsClient);
-	});
-
-	afterEach(() => {
-		s3vMock.restore();
-	});
-
-	const filterSentFor = async (
-		filter: Parameters<S3VectorsBackend["query"]>[0]["filter"],
-	): Promise<Record<string, unknown> | undefined> => {
-		s3vMock.on(QueryVectorsCommand).resolves({
-			vectors: [],
-			distanceMetric: "cosine",
-		});
-		await buildBackend().query({ vector: [0.1, 0.2, 0.3], topK: 10, filter });
-		const calls = s3vMock.commandCalls(QueryVectorsCommand);
-		assert.equal(calls.length, 1);
-		return calls[0].args[0].input.filter as Record<string, unknown> | undefined;
-	};
-
-	it("builds the rescue filter: junk mailbox, provider-classified spam, DMARC pass, no DKIM mismatch", async () => {
-		const sent = await filterSentFor({
-			accountConfigId: "acct-1",
-			mailboxId: "mb-junk",
-			providerSpamClassified: true,
-			authResultDmarc: "Pass",
-			dkimMismatch: false,
-		});
-
-		assert.deepEqual(sent, {
-			accountConfigId: "acct-1",
-			mailboxIds: { $in: ["mb-junk"] },
-			providerSpamClassified: true,
-			authResultDmarc: "Pass",
-			dkimMismatch: false,
-		});
-	});
-
-	it("omits spam/auth conditions that are not set", async () => {
-		const sent = await filterSentFor({ accountConfigId: "acct-1" });
-		assert.deepEqual(sent, { accountConfigId: "acct-1" });
-	});
-});
-
 describe("S3VectorsBackend.upsert batching", () => {
 	let s3vMock: AwsClientStub<S3VectorsClient>;
 
@@ -413,49 +365,6 @@ describe("S3VectorsBackend.query metadata backward-compat (no reindex)", () => {
 		const meta = matches[0].metadata;
 		assert.equal(meta.fromName, null);
 		assert.equal(meta.subject, "Q1 invoice review");
-	});
-
-	it("parses spam/auth signals when present and treats them as absent otherwise", async () => {
-		s3vMock.on(QueryVectorsCommand).resolves({
-			vectors: [
-				{
-					key: `${MESSAGE_ID}::subject`,
-					distance: 0.1,
-					metadata: {
-						...legacyMetadata,
-						fromEmail: "alice@example.com",
-						providerSpamClassified: true,
-						authResultDmarc: "Pass",
-						dkimMismatch: false,
-					},
-				},
-				{
-					key: "msg-legacy::subject",
-					distance: 0.2,
-					metadata: { ...legacyMetadata, messageId: "msg-legacy" },
-				},
-			],
-			distanceMetric: "cosine",
-		});
-
-		const matches = await buildBackend().query({
-			vector: [0.1, 0.2, 0.3],
-			topK: 10,
-		});
-
-		const enriched = matches.find((m) => m.metadata.messageId === MESSAGE_ID);
-		assert.ok(enriched);
-		assert.equal(enriched.metadata.fromEmail, "alice@example.com");
-		assert.equal(enriched.metadata.providerSpamClassified, true);
-		assert.equal(enriched.metadata.authResultDmarc, "Pass");
-		assert.equal(enriched.metadata.dkimMismatch, false);
-
-		const legacy = matches.find((m) => m.metadata.messageId !== MESSAGE_ID);
-		assert.ok(legacy);
-		assert.equal(legacy.metadata.fromEmail, undefined);
-		assert.equal(legacy.metadata.providerSpamClassified, undefined);
-		assert.equal(legacy.metadata.authResultDmarc, undefined);
-		assert.equal(legacy.metadata.dkimMismatch, undefined);
 	});
 
 	it("parses enriched metadata with fromName and subject present", async () => {
@@ -591,24 +500,6 @@ describe("S3VectorsBackend.upsert metadata flattening", () => {
 		assert.deepEqual(sent.mailboxIds, ["mb-inbox"]);
 		assert.deepEqual(sent.fileTypes, ["pdf", "png"]);
 		assert.equal(sent.subject, "Q1 invoice review");
-		assertS3VectorsSafe(sent);
-	});
-
-	it("passes spam/auth signals through as S3-Vectors-safe scalars", async () => {
-		const metadata: VectorRecord["metadata"] = {
-			...baseMetadata,
-			fromEmail: "alice@example.com",
-			providerSpamClassified: true,
-			authResultDmarc: "Pass",
-			dkimMismatch: false,
-		};
-
-		const sent = await upsertedMetadata(metadata);
-
-		assert.equal(sent.fromEmail, "alice@example.com");
-		assert.equal(sent.providerSpamClassified, true);
-		assert.equal(sent.authResultDmarc, "Pass");
-		assert.equal(sent.dkimMismatch, false);
 		assertS3VectorsSafe(sent);
 	});
 
