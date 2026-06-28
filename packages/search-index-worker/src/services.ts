@@ -2,7 +2,6 @@ import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import {
 	AccountService,
-	MessageService,
 	ThreadMessageService,
 } from "@remit/remit-electrodb-service";
 import {
@@ -19,7 +18,6 @@ import {
 export interface Services {
 	accountService: AccountService;
 	threadMessageService: ThreadMessageService;
-	messageService: MessageService;
 	storageService: StorageService;
 	searchService: SearchService;
 }
@@ -47,10 +45,6 @@ export const getServices = (): Services => {
 		client: ddbClient,
 		table: tableName,
 	});
-	const messageService = new MessageService({
-		client: ddbClient,
-		table: tableName,
-	});
 
 	const storageService = createStorageService();
 
@@ -64,7 +58,6 @@ export const getServices = (): Services => {
 	cached = {
 		accountService,
 		threadMessageService,
-		messageService,
 		storageService,
 		searchService,
 	};

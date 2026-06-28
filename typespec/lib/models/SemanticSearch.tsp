@@ -32,9 +32,6 @@ model SemanticSearchResult {
   @doc("Display name of the sender (From header). Present for messages indexed after display-field enrichment was deployed.")
   fromName?: string;
 
-  @doc("Email address of the sender (From header). Present for messages indexed after the spam/auth signals were added.")
-  fromEmail?: string;
-
   @doc("Message subject. Present for messages indexed after display-field enrichment was deployed.")
   subject?: string;
 

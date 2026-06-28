@@ -111,9 +111,6 @@ export class DefaultSearchService implements SearchService {
 				hasAttachment: params.hasAttachment,
 				hasStars: params.hasStars,
 				isRead: params.isRead,
-				providerSpamClassified: params.providerSpamClassified,
-				authResultDmarc: params.authResultDmarc,
-				dkimMismatch: params.dkimMismatch,
 			},
 		});
 
@@ -127,9 +124,6 @@ export class DefaultSearchService implements SearchService {
 			sentDate: m.metadata.sentDate,
 			...(m.metadata.fromName !== undefined
 				? { fromName: m.metadata.fromName }
-				: {}),
-			...(m.metadata.fromEmail !== undefined
-				? { fromEmail: m.metadata.fromEmail }
 				: {}),
 			...(m.metadata.subject !== undefined
 				? { subject: m.metadata.subject }
