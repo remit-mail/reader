@@ -33,8 +33,16 @@ export interface ChunkMetadata {
 	fileTypes?: string[];
 	/** Display name of the sender. Stored at index time; absent for pre-enrichment vectors. */
 	fromName?: string | null;
+	/** Email address of the sender. Stored at index time; absent for pre-enrichment vectors. */
+	fromEmail?: string;
 	/** Message subject. Stored at index time; absent for pre-enrichment vectors. */
 	subject?: string;
+	/** True when the provider's spam filter classified this message as spam. Absent for vectors indexed before the spam/auth signals were added. */
+	providerSpamClassified?: boolean;
+	/** DMARC verdict string (e.g. "Pass"). Absent for vectors indexed before the spam/auth signals were added. */
+	authResultDmarc?: string;
+	/** True when DKIM signing domains are present and none aligns with the From domain. Absent for vectors indexed before the spam/auth signals were added. */
+	dkimMismatch?: boolean;
 }
 
 export interface Chunk {
@@ -63,6 +71,9 @@ export interface VectorQueryFilter {
 	hasStars?: boolean;
 	isRead?: boolean;
 	chunkType?: ChunkType;
+	providerSpamClassified?: boolean;
+	authResultDmarc?: string;
+	dkimMismatch?: boolean;
 }
 
 export interface VectorQuery {
@@ -110,6 +121,9 @@ export interface SearchParams {
 	hasAttachment?: boolean;
 	hasStars?: boolean;
 	isRead?: boolean;
+	providerSpamClassified?: boolean;
+	authResultDmarc?: string;
+	dkimMismatch?: boolean;
 	limit?: number;
 }
 
@@ -121,6 +135,8 @@ export interface SearchResult {
 	mailboxIds: string[];
 	/** Sender display name, populated for messages indexed after display-field enrichment. */
 	fromName?: string | null;
+	/** Sender email address, populated for messages indexed after the spam/auth signals were added. */
+	fromEmail?: string;
 	/** Message subject, populated for messages indexed after display-field enrichment. */
 	subject?: string;
 	/** Sent date as Unix epoch seconds, always populated. */

@@ -60,6 +60,24 @@ const matchesFilter = (
 	if (filter.isRead !== undefined && m.isRead !== filter.isRead) {
 		return false;
 	}
+	if (
+		filter.providerSpamClassified !== undefined &&
+		m.providerSpamClassified !== filter.providerSpamClassified
+	) {
+		return false;
+	}
+	if (
+		filter.authResultDmarc !== undefined &&
+		m.authResultDmarc !== filter.authResultDmarc
+	) {
+		return false;
+	}
+	if (
+		filter.dkimMismatch !== undefined &&
+		m.dkimMismatch !== filter.dkimMismatch
+	) {
+		return false;
+	}
 	if (filter.sentDateRange) {
 		const { from, to } = filter.sentDateRange;
 		if (from !== undefined && m.sentDate < from) return false;

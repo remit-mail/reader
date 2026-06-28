@@ -93,6 +93,23 @@ const mockAccountService = {
 	},
 } as Services["accountService"];
 
+type MockMessage = {
+	messageId: string;
+	providerSpam?: { classified: boolean };
+	authResult?: { dmarc?: string };
+	authenticity?: { dkimMismatch: boolean };
+};
+
+const messages = new Map<string, MockMessage>();
+
+const mockMessageService = {
+	get: async (messageId: string) => {
+		const message = messages.get(messageId);
+		if (!message) throw new NotFoundError(`Message not found: ${messageId}`);
+		return message;
+	},
+} as unknown as Services["messageService"];
+
 const createTestServices = (
 	storageService: StorageService,
 	searchService: SearchService,
@@ -100,6 +117,7 @@ const createTestServices = (
 ): Services => ({
 	accountService: accountService ?? mockAccountService,
 	threadMessageService: mockThreadMessageService,
+	messageService: mockMessageService,
 	storageService,
 	searchService,
 });
@@ -187,6 +205,115 @@ describe("search-index-worker handler", () => {
 		for (const v of forMessage) {
 			assert.strictEqual(v.metadata.fromName, tm.fromName ?? null);
 			assert.strictEqual(v.metadata.subject, tm.subject ?? "");
+		}
+
+		threadMessages.clear();
+		accounts.clear();
+	});
+
+	test("INSERT stores provider-spam and auth signals from the Message row", async () => {
+		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID });
+		const store = createMemoryVectorStore();
+		const embedder = createDeterministicEmbeddingService();
+		const searchService = createSearchService({ embedder, store });
+		const storageService = createMockStorageService();
+
+		const tm = makeThreadMessage(MESSAGE_ID);
+		threadMessages.set(MESSAGE_ID, tm);
+		messages.set(MESSAGE_ID, {
+			messageId: MESSAGE_ID,
+			providerSpam: { classified: true },
+			authResult: { dmarc: "Pass" },
+			authenticity: { dkimMismatch: false },
+		});
+		await storageService.storeParsedBody({
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			accountId: ACCOUNT_ID,
+			messageId: MESSAGE_ID,
+			parsed: {
+				text: "Spam-folder message that passed authentication",
+				html: null,
+				attachments: [],
+			},
+		});
+
+		const services = createTestServices(storageService, searchService);
+		await processBatch(
+			[makeRecord(makeSearchIndexMessage({ messageId: MESSAGE_ID }))],
+			services,
+			noopLogger,
+		);
+
+		const vectors = await store.query({
+			vector: new Array(64).fill(0.1),
+			topK: 100,
+			filter: {
+				accountConfigId: ACCOUNT_CONFIG_ID,
+				providerSpamClassified: true,
+				authResultDmarc: "Pass",
+				dkimMismatch: false,
+			},
+		});
+		const forMessage = vectors.filter(
+			(v) => v.metadata.messageId === MESSAGE_ID,
+		);
+		assert.ok(
+			forMessage.length > 0,
+			"the rescue filter should match the indexed message",
+		);
+		for (const v of forMessage) {
+			assert.strictEqual(v.metadata.fromEmail, tm.fromEmail);
+			assert.strictEqual(v.metadata.providerSpamClassified, true);
+			assert.strictEqual(v.metadata.authResultDmarc, "Pass");
+			assert.strictEqual(v.metadata.dkimMismatch, false);
+		}
+
+		threadMessages.clear();
+		messages.clear();
+		accounts.clear();
+	});
+
+	test("INSERT without a Message row still indexes (no spam/auth signals)", async () => {
+		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID });
+		const store = createMemoryVectorStore();
+		const embedder = createDeterministicEmbeddingService();
+		const searchService = createSearchService({ embedder, store });
+		const storageService = createMockStorageService();
+
+		threadMessages.set(MESSAGE_ID, makeThreadMessage(MESSAGE_ID));
+		messages.clear();
+		await storageService.storeParsedBody({
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			accountId: ACCOUNT_ID,
+			messageId: MESSAGE_ID,
+			parsed: {
+				text: "Body present but Message row missing",
+				html: null,
+				attachments: [],
+			},
+		});
+
+		const services = createTestServices(storageService, searchService);
+		const result = await processBatch(
+			[makeRecord(makeSearchIndexMessage({ messageId: MESSAGE_ID }))],
+			services,
+			noopLogger,
+		);
+
+		assert.equal(result.batchItemFailures.length, 0);
+		const vectors = await store.query({
+			vector: new Array(64).fill(0.1),
+			topK: 100,
+			filter: { accountConfigId: ACCOUNT_CONFIG_ID },
+		});
+		const forMessage = vectors.filter(
+			(v) => v.metadata.messageId === MESSAGE_ID,
+		);
+		assert.ok(forMessage.length > 0, "body should still index");
+		for (const v of forMessage) {
+			assert.strictEqual(v.metadata.providerSpamClassified, undefined);
+			assert.strictEqual(v.metadata.authResultDmarc, undefined);
+			assert.strictEqual(v.metadata.dkimMismatch, undefined);
 		}
 
 		threadMessages.clear();
