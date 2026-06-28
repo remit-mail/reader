@@ -24,18 +24,21 @@ import {
 	Avatar,
 	type BriefCategoryFilter,
 	BriefSections,
+	briefFilterConfig,
 	ComfortableRowTextContent,
 	cn,
 	comfortableRowClass,
+	type FilterSheetProps,
 	type FilterSheetSource,
 	KeyboardHintBar,
+	type SearchResult,
 	type ThreadRowData,
 	type ThreadSection,
 } from "@remit/ui";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { AlertCircle, RefreshCw, Sparkles } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { sortAccountsByCreatedAt } from "@/lib/account-order";
 import {
@@ -45,7 +48,19 @@ import {
 } from "@/lib/brief";
 import { isFatalServerError } from "@/lib/error-classifier";
 import { useMailContext } from "@/lib/mail-context";
+import { rowToSearchResult } from "@/lib/search-result";
 import { MailListHeader } from "./MailListHeader";
+
+/* The brief's attribute chips as predicates (mirrors the kit `briefFilterChips`
+   ids) so the phone search takeover narrows results the same way the list does. */
+const BRIEF_SEARCH_PREDICATES: Record<string, (t: ThreadRowData) => boolean> = {
+	unread: (t) => !t.isRead,
+	attachment: (t) => t.hasAttachment === true,
+	contacts: (t) => t.trust === "vip" || t.trust === "wellknown",
+	today: (t) =>
+		t.sentDate != null &&
+		new Date(t.sentDate).toDateString() === new Date().toDateString(),
+};
 
 // ---------------------------------------------------------------------------
 // Skeleton
@@ -161,6 +176,22 @@ export function DailyBrief({
 	const [selectedCategory, setSelectedCategory] =
 		useState<BriefCategoryFilter>("all");
 
+	// Attribute chips for the phone search takeover. The brief list's own chips
+	// live inside the kit `BriefSections`; the takeover is a separate surface, so
+	// it carries its own additive set (category + account are shared above).
+	const [searchAttributes, setSearchAttributes] = useState<ReadonlySet<string>>(
+		new Set(),
+	);
+	const [searchExpanded, setSearchExpanded] = useState(false);
+	const toggleSearchAttribute = useCallback((id: string) => {
+		setSearchAttributes((prev) => {
+			const next = new Set(prev);
+			if (next.has(id)) next.delete(id);
+			else next.add(id);
+			return next;
+		});
+	}, []);
+
 	// --- Unified threads query ---
 	const {
 		data: threadsData,
@@ -257,6 +288,58 @@ export function DailyBrief({
 		[unseenByAccount],
 	);
 
+	// The phone search takeover renders the account/free-text-narrowed rows,
+	// further narrowed by the shared category and the takeover's attribute chips.
+	const searchResults = useMemo<SearchResult[]>(() => {
+		const predicates = Array.from(searchAttributes)
+			.map((id) => BRIEF_SEARCH_PREDICATES[id])
+			.filter((p): p is (t: ThreadRowData) => boolean => p != null);
+		return filteredRows
+			.filter(
+				(t) =>
+					(selectedCategory === "all" || t.category === selectedCategory) &&
+					predicates.every((p) => p(t)),
+			)
+			.map(rowToSearchResult);
+	}, [filteredRows, selectedCategory, searchAttributes]);
+
+	const searchFilterConfig = useMemo<Omit<FilterSheetProps, "children">>(() => {
+		const preset = briefFilterConfig(
+			accountSources.map((s) => ({
+				id: s.id,
+				label: s.label,
+				count: s.count,
+				active: s.active,
+			})),
+		);
+		return {
+			categories: preset.categories,
+			filters: preset.filters,
+			sources: preset.sources,
+			sourcesNote: mutedCount > 0 ? `+${mutedCount} muted` : undefined,
+			selectedCategory,
+			activeFilters: searchAttributes,
+			expanded: searchExpanded,
+			onExpandedChange: setSearchExpanded,
+			onSelectCategory: (id: string) =>
+				setSelectedCategory(id as BriefCategoryFilter),
+			onSelectSource: setSelectedAccountId,
+			onToggleFilter: toggleSearchAttribute,
+			onClear: () => {
+				setSelectedCategory("all");
+				setSelectedAccountId("all");
+				setSearchAttributes(new Set());
+			},
+		};
+	}, [
+		accountSources,
+		mutedCount,
+		selectedCategory,
+		searchAttributes,
+		searchExpanded,
+		toggleSearchAttribute,
+	]);
+
 	// The brief is genuinely empty (caught up) only when nothing is narrowing the
 	// view: no account source and no search. When a source/search yields nothing,
 	// the BriefSections filter row stays so the user can clear it.
@@ -306,6 +389,10 @@ export function DailyBrief({
 			title="Daily brief"
 			unreadCount={totalUnseen}
 			footer={isDesktop ? <KeyboardHintBar /> : undefined}
+			searchFilter={searchFilterConfig}
+			searchResults={searchResults}
+			searchLoading={isLoading}
+			onSelectSearchResult={onSelectMessage}
 		>
 			<div className="flex h-full flex-col">
 				{failedAccounts.map((account) => (

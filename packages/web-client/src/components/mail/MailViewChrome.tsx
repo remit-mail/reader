@@ -4,13 +4,19 @@
  * Wraps the header-only `MailListHeader` and slots the `FilterSheet` expando
  * directly into its body, exactly as the kit story does. The caller supplies the
  * filter preset (`inboxFilterConfig` / `flaggedFilterConfig`) and owns the
- * category / attribute / source selection state.
+ * category / attribute / source selection state. The same filter config feeds
+ * the phone search takeover (via `MailListHeader`), so filters carry across.
  *
  * The daily brief no longer uses this: it composes `MailListHeader` with the kit
  * `BriefSections`, which owns its own filter row (so there is exactly one filter
  * surface and the section headers flatten correctly when filtered).
  */
-import { type FilterPreset, FilterSheet } from "@remit/ui";
+import {
+	type FilterPreset,
+	FilterSheet,
+	type FilterSheetProps,
+	type SearchResult,
+} from "@remit/ui";
 import { type ReactNode, useState } from "react";
 import { MailListHeader } from "./MailListHeader";
 
@@ -28,6 +34,10 @@ interface MailViewChromeProps {
 	children: ReactNode;
 	/** Pinned below the scrollable list (e.g. the keyboard hint bar). */
 	footer?: ReactNode;
+	/** Query-narrowed results for the phone search takeover. */
+	searchResults?: SearchResult[];
+	searchLoading?: boolean;
+	onSelectSearchResult?: (id: string) => void;
 }
 
 export function MailViewChrome({
@@ -42,26 +52,37 @@ export function MailViewChrome({
 	onClearFilters,
 	children,
 	footer,
+	searchResults,
+	searchLoading,
+	onSelectSearchResult,
 }: MailViewChromeProps) {
 	const [expanded, setExpanded] = useState(false);
 
+	const filterConfig: Omit<FilterSheetProps, "children"> = {
+		categories: preset.categories,
+		filters: preset.filters,
+		sources: preset.sources,
+		selectedCategory,
+		activeFilters,
+		expanded,
+		onExpandedChange: setExpanded,
+		onSelectCategory,
+		onSelectSource,
+		onToggleFilter,
+		onClear: onClearFilters,
+	};
+
 	return (
-		<MailListHeader title={title} unreadCount={unreadCount} footer={footer}>
-			<FilterSheet
-				categories={preset.categories}
-				filters={preset.filters}
-				sources={preset.sources}
-				selectedCategory={selectedCategory}
-				activeFilters={activeFilters}
-				expanded={expanded}
-				onExpandedChange={setExpanded}
-				onSelectCategory={onSelectCategory}
-				onSelectSource={onSelectSource}
-				onToggleFilter={onToggleFilter}
-				onClear={onClearFilters}
-			>
-				{children}
-			</FilterSheet>
+		<MailListHeader
+			title={title}
+			unreadCount={unreadCount}
+			footer={footer}
+			searchFilter={filterConfig}
+			searchResults={searchResults}
+			searchLoading={searchLoading}
+			onSelectSearchResult={onSelectSearchResult}
+		>
+			<FilterSheet {...filterConfig}>{children}</FilterSheet>
 		</MailListHeader>
 	);
 }

@@ -87,6 +87,7 @@ import {
 	resolveSelectedThread,
 } from "@/lib/search-pending";
 import { normalizeSearchQuery } from "@/lib/search-query";
+import { threadToSearchResult } from "@/lib/search-result";
 import { useTelemetry } from "@/lib/telemetry-context";
 import { MailViewChrome } from "./MailViewChrome";
 
@@ -797,9 +798,27 @@ function MailboxList() {
 	} = useMailboxPane();
 	const { searchQuery, accounts } = useMailContext();
 	const tier = useLayoutTier();
+	const navigate = useNavigate();
 
 	const listTitle = mailboxName ?? "Inbox";
 	const preset = useMemo(() => inboxFilterConfig(), []);
+
+	const searchResults = useMemo(
+		() => threads.map(threadToSearchResult),
+		[threads],
+	);
+	const handleSelectSearchResult = useCallback(
+		(id: string) =>
+			navigate({
+				to: "/mail/$mailboxId",
+				params: { mailboxId },
+				search: (prev: Record<string, unknown>) => ({
+					...prev,
+					selectedMessageId: id,
+				}),
+			}),
+		[mailboxId, navigate],
+	);
 
 	// Drafts keep their own dedicated view (and header); they don't carry the
 	// inbox category/attribute filter.
@@ -858,6 +877,9 @@ function MailboxList() {
 			onSelectCategory={onSelectFilterCategory}
 			onToggleFilter={onToggleFilterAttribute}
 			onClearFilters={onClearFilters}
+			searchResults={searchResults}
+			searchLoading={isLoading}
+			onSelectSearchResult={handleSelectSearchResult}
 		>
 			{body}
 		</MailViewChrome>
