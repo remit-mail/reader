@@ -34,9 +34,12 @@ interface MailViewChromeProps {
 	children: ReactNode;
 	/** Pinned below the scrollable list (e.g. the keyboard hint bar). */
 	footer?: ReactNode;
-	/** Query-narrowed results for the phone search takeover. */
+	/** Literal/instant results — the "Top matches" section. */
 	searchResults?: SearchResult[];
 	searchLoading?: boolean;
+	/** Semantic results — the "Related" section. */
+	relatedResults?: SearchResult[];
+	relatedLoading?: boolean;
 	onSelectSearchResult?: (id: string) => void;
 }
 
@@ -54,6 +57,8 @@ export function MailViewChrome({
 	footer,
 	searchResults,
 	searchLoading,
+	relatedResults,
+	relatedLoading,
 	onSelectSearchResult,
 }: MailViewChromeProps) {
 	const [expanded, setExpanded] = useState(false);
@@ -80,6 +85,8 @@ export function MailViewChrome({
 			searchFilter={filterConfig}
 			searchResults={searchResults}
 			searchLoading={searchLoading}
+			relatedResults={relatedResults}
+			relatedLoading={relatedLoading}
 			onSelectSearchResult={onSelectSearchResult}
 		>
 			<FilterSheet {...filterConfig}>{children}</FilterSheet>

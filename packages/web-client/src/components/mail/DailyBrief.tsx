@@ -40,6 +40,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { AlertCircle, RefreshCw, Sparkles } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
+import { useSemanticSearch } from "@/hooks/useSemanticSearch";
 import { sortAccountsByCreatedAt } from "@/lib/account-order";
 import {
 	groupBriefSections,
@@ -48,7 +49,7 @@ import {
 } from "@/lib/brief";
 import { isFatalServerError } from "@/lib/error-classifier";
 import { useMailContext } from "@/lib/mail-context";
-import { rowToSearchResult } from "@/lib/search-result";
+import { relatedSearchResults, rowToSearchResult } from "@/lib/search-result";
 import { MailListHeader } from "./MailListHeader";
 
 /* The brief's attribute chips as predicates (mirrors the kit `briefFilterChips`
@@ -303,6 +304,22 @@ export function DailyBrief({
 			.map(rowToSearchResult);
 	}, [filteredRows, selectedCategory, searchAttributes]);
 
+	// "Related" (semantic) spans every account here — the brief is the
+	// cross-account view, so no mailbox scope. Dedupe against the literal "Top
+	// matches" by thread; the brief rows key on messageId, so resolve each back to
+	// its thread via the raw threads.
+	const { hits: semanticHits, isLoading: relatedLoading } = useSemanticSearch();
+	const relatedResults = useMemo<SearchResult[]>(() => {
+		const threadByMessageId = new Map<string, string>();
+		for (const thread of threadsData?.items ?? []) {
+			threadByMessageId.set(thread.messageId, thread.threadId);
+		}
+		const literalThreadIds = searchResults
+			.map((result) => threadByMessageId.get(result.id))
+			.filter((id): id is string => id != null);
+		return relatedSearchResults(semanticHits, literalThreadIds);
+	}, [semanticHits, searchResults, threadsData]);
+
 	const searchFilterConfig = useMemo<Omit<FilterSheetProps, "children">>(() => {
 		const preset = briefFilterConfig(
 			accountSources.map((s) => ({
@@ -392,6 +409,8 @@ export function DailyBrief({
 			searchFilter={searchFilterConfig}
 			searchResults={searchResults}
 			searchLoading={isLoading}
+			relatedResults={relatedResults}
+			relatedLoading={relatedLoading}
 			onSelectSearchResult={onSelectMessage}
 		>
 			<div className="flex h-full flex-col">
