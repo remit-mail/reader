@@ -4,11 +4,12 @@
  * Renders one section per message category (Personal / Transactional /
  * Newsletter / Marketing / Social / Automated) from the GET /threads endpoint.
  * Starred mail is not a section — Flagged is a virtual mailbox in the nav. The
- * brief defaults to the cross-account aggregate;
- * the shared `MailHeader` + `FilterSheet` expando (via `MailViewChrome`) own
- * the title, unread count, search, and the category / Unread-Flagged / account
- * filters. Account switching also lives in the nav sidebar — the account source
- * group only appears here when more than one account feeds the brief.
+ * brief defaults to the cross-account aggregate; the kit `BriefSections` owns
+ * the filter row (categories + attribute chips + the account source group) and
+ * the flatten-when-filtered behavior, while `MailListHeader` provides the title,
+ * unread count, and search. Account switching also lives in the nav sidebar —
+ * the account source group only appears when more than one account feeds the
+ * brief.
  *
  * Loading: skeleton rows on first paint, patch-in-place on refetch.
  * Error: per-section; the brief still renders other sections.
@@ -21,12 +22,12 @@ import {
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
 import {
 	Avatar,
-	BriefSection,
-	briefFilterConfig,
+	type BriefCategoryFilter,
+	BriefSections,
 	ComfortableRowTextContent,
 	cn,
 	comfortableRowClass,
-	type FilterAccount,
+	type FilterSheetSource,
 	KeyboardHintBar,
 	type ThreadRowData,
 	type ThreadSection,
@@ -34,7 +35,7 @@ import {
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { AlertCircle, RefreshCw, Sparkles } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { sortAccountsByCreatedAt } from "@/lib/account-order";
 import {
@@ -44,7 +45,7 @@ import {
 } from "@/lib/brief";
 import { isFatalServerError } from "@/lib/error-classifier";
 import { useMailContext } from "@/lib/mail-context";
-import { MailViewChrome } from "./MailViewChrome";
+import { MailListHeader } from "./MailListHeader";
 
 // ---------------------------------------------------------------------------
 // Skeleton
@@ -128,15 +129,6 @@ const BriefRow = ({
 };
 
 // ---------------------------------------------------------------------------
-// Filter predicates — the brief preset offers Unread + Flagged.
-// ---------------------------------------------------------------------------
-
-const FILTER_PREDICATES: Record<string, (t: ThreadRowData) => boolean> = {
-	unread: (t) => !t.isRead,
-	flagged: (t) => t.starred === true,
-};
-
-// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -161,27 +153,13 @@ export function DailyBrief({
 
 	// "all" = the cross-account aggregate (the brief's default). Account
 	// switching also lives in the nav sidebar; this source group is a convenience
-	// shown only when more than one account feeds the brief.
+	// shown only when more than one account feeds the brief. The category axis and
+	// attribute chips are owned by the kit `BriefSections` filter row; the brief
+	// only controls the category (so it can drive the flatten-when-filtered path)
+	// and the account source.
 	const [selectedAccountId, setSelectedAccountId] = useState("all");
-	const [selectedCategory, setSelectedCategory] = useState("all");
-	const [activeFilters, setActiveFilters] = useState<ReadonlySet<string>>(
-		new Set(),
-	);
-
-	const toggleFilter = useCallback((id: string) => {
-		setActiveFilters((prev) => {
-			const next = new Set(prev);
-			if (next.has(id)) next.delete(id);
-			else next.add(id);
-			return next;
-		});
-	}, []);
-
-	const clearFilters = useCallback(() => {
-		setSelectedCategory("all");
-		setActiveFilters(new Set());
-		setSelectedAccountId("all");
-	}, []);
+	const [selectedCategory, setSelectedCategory] =
+		useState<BriefCategoryFilter>("all");
 
 	// --- Unified threads query ---
 	const {
@@ -235,14 +213,12 @@ export function DailyBrief({
 
 	const sq = searchQuery.trim().toLowerCase();
 
-	// Convert API rows to ThreadRowData, narrowing by the selected account, the
-	// category, the active attribute filters and the free-text search. Grouping
-	// (one section per category) runs on the result.
+	// Convert API rows to ThreadRowData, narrowing only by the selected account
+	// and the free-text search. The category axis and the attribute chips are the
+	// kit `BriefSections` filter row's job, so the full per-category sections are
+	// handed to it; it groups, narrows, and flattens.
 	const filteredRows = useMemo<ThreadRowData[]>(() => {
 		const raw = threadsData?.items ?? [];
-		const predicates = Array.from(activeFilters)
-			.map((id) => FILTER_PREDICATES[id])
-			.filter((p): p is (t: ThreadRowData) => boolean => p != null);
 		return raw
 			.filter(
 				(t) =>
@@ -250,20 +226,15 @@ export function DailyBrief({
 					(t.accountId ?? t.accountConfigId) === selectedAccountId,
 			)
 			.map(toThreadRowData)
-			.filter(
-				(t) =>
-					(selectedCategory === "all" || t.category === selectedCategory) &&
-					predicates.every((p) => p(t)) &&
-					(!sq || matchesBriefSearch(t, sq)),
-			);
-	}, [threadsData, selectedAccountId, selectedCategory, activeFilters, sq]);
+			.filter((t) => !sq || matchesBriefSearch(t, sq));
+	}, [threadsData, selectedAccountId, sq]);
 
 	const sections = useMemo<ThreadSection[]>(
 		() => groupBriefSections(filteredRows),
 		[filteredRows],
 	);
 
-	const accountSources = useMemo<FilterAccount[]>(() => {
+	const accountSources = useMemo<FilterSheetSource[]>(() => {
 		if (nonMuted.length <= 1) return [];
 		return [
 			{ id: "all", label: "All", active: selectedAccountId === "all" },
@@ -276,9 +247,9 @@ export function DailyBrief({
 		];
 	}, [nonMuted, unseenByAccount, selectedAccountId]);
 
-	const preset = useMemo(
-		() => briefFilterConfig(accountSources),
-		[accountSources],
+	const mutedCount = useMemo(
+		() => accounts.filter((a) => a.muted?.value).length,
+		[accounts],
 	);
 
 	const totalUnseen = useMemo(
@@ -286,74 +257,66 @@ export function DailyBrief({
 		[unseenByAccount],
 	);
 
-	const hasFilters =
-		selectedCategory !== "all" ||
-		activeFilters.size > 0 ||
-		selectedAccountId !== "all" ||
-		sq.length > 0;
+	// The brief is genuinely empty (caught up) only when nothing is narrowing the
+	// view: no account source and no search. When a source/search yields nothing,
+	// the BriefSections filter row stays so the user can clear it.
+	const caughtUp =
+		sections.length === 0 && selectedAccountId === "all" && sq.length === 0;
+
+	const stateBody = isLoading ? (
+		<div className="h-full overflow-y-auto">
+			<SectionSkeleton />
+			<SectionSkeleton />
+		</div>
+	) : isError ? (
+		<div className="flex h-full flex-col items-center justify-center gap-3 py-12 text-sm text-fg-muted">
+			<AlertCircle className="size-8 text-danger" />
+			<p>Couldn't load your messages</p>
+			<button
+				type="button"
+				onClick={() => refetch()}
+				className="flex items-center gap-1 text-accent underline text-xs"
+			>
+				<RefreshCw className="size-3.5" />
+				Try again
+			</button>
+		</div>
+	) : caughtUp ? (
+		<div className="flex h-full flex-col items-center justify-center gap-2 py-12 text-center px-4">
+			<Sparkles className="size-8 text-fg-subtle" />
+			<p className="text-sm font-medium text-fg">You're caught up</p>
+			<p className="text-xs text-fg-subtle">Nothing needs attention.</p>
+		</div>
+	) : (
+		<BriefSections
+			sections={sections}
+			Row={BriefRow}
+			briefCategory={selectedCategory}
+			onSelectBriefCategory={setSelectedCategory}
+			sources={accountSources}
+			sourcesNote={mutedCount > 0 ? `+${mutedCount} muted` : undefined}
+			onSelectSource={setSelectedAccountId}
+			selectedThreadId={selectedMessageId}
+			onSelectThread={onSelectMessage}
+		/>
+	);
 
 	return (
-		<MailViewChrome
+		<MailListHeader
 			title="Daily brief"
 			unreadCount={totalUnseen}
-			preset={preset}
-			selectedCategory={selectedCategory}
-			activeFilters={activeFilters}
-			onSelectCategory={setSelectedCategory}
-			onToggleFilter={toggleFilter}
-			onSelectSource={setSelectedAccountId}
-			onClearFilters={clearFilters}
 			footer={isDesktop ? <KeyboardHintBar /> : undefined}
 		>
-			{failedAccounts.map((account) => (
-				<ErrorBanner
-					key={account.accountId}
-					accountEmail={account.email}
-					accountId={account.accountId}
-				/>
-			))}
-
-			{isLoading ? (
-				<>
-					<SectionSkeleton />
-					<SectionSkeleton />
-				</>
-			) : isError ? (
-				<div className="flex flex-1 flex-col items-center justify-center gap-3 py-12 text-sm text-fg-muted">
-					<AlertCircle className="size-8 text-danger" />
-					<p>Couldn't load your messages</p>
-					<button
-						type="button"
-						onClick={() => refetch()}
-						className="flex items-center gap-1 text-accent underline text-xs"
-					>
-						<RefreshCw className="size-3.5" />
-						Try again
-					</button>
-				</div>
-			) : sections.length === 0 ? (
-				hasFilters ? (
-					<div className="px-row-inset py-6 text-center text-2xs text-fg-subtle">
-						No threads match these filters.
-					</div>
-				) : (
-					<div className="flex flex-1 flex-col items-center justify-center gap-2 py-12 text-center px-4">
-						<Sparkles className="size-8 text-fg-subtle" />
-						<p className="text-sm font-medium text-fg">You're caught up</p>
-						<p className="text-xs text-fg-subtle">Nothing needs attention.</p>
-					</div>
-				)
-			) : (
-				sections.map((section) => (
-					<BriefSection
-						key={section.id}
-						section={section}
-						Row={BriefRow}
-						selectedThreadId={selectedMessageId}
-						onSelectThread={onSelectMessage}
+			<div className="flex h-full flex-col">
+				{failedAccounts.map((account) => (
+					<ErrorBanner
+						key={account.accountId}
+						accountEmail={account.email}
+						accountId={account.accountId}
 					/>
-				))
-			)}
-		</MailViewChrome>
+				))}
+				<div className="min-h-0 flex-1">{stateBody}</div>
+			</div>
+		</MailListHeader>
 	);
 }

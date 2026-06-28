@@ -1,23 +1,18 @@
 /**
- * MailViewChrome — the shared list-pane chrome for the daily brief and inboxes.
+ * MailViewChrome — the shared list-pane chrome for the inbox and flagged views.
  *
- * Composes the kit `MailHeader` (hamburger + title + unread + search) with the
- * `FilterSheet` expando directly beneath it, exactly as the kit story does. The
- * caller supplies the filter preset (`briefFilterConfig` / `inboxFilterConfig`)
- * and owns the category / attribute / source selection state; this component
- * only wires the header, search, nav drawer, and the expand/search-open UI.
+ * Wraps the header-only `MailListHeader` and slots the `FilterSheet` expando
+ * directly into its body, exactly as the kit story does. The caller supplies the
+ * filter preset (`inboxFilterConfig` / `flaggedFilterConfig`) and owns the
+ * category / attribute / source selection state.
  *
- * Search comes from `MailContext` (one source of truth, mirrored to the URL).
- * The hamburger opens the nav drawer via the enclosing `AppShellSlotted`.
+ * The daily brief no longer uses this: it composes `MailListHeader` with the kit
+ * `BriefSections`, which owns its own filter row (so there is exactly one filter
+ * surface and the section headers flatten correctly when filtered).
  */
-import {
-	type FilterPreset,
-	FilterSheet,
-	MailHeader,
-	useAppShellLayout,
-} from "@remit/ui";
+import { type FilterPreset, FilterSheet } from "@remit/ui";
 import { type ReactNode, useState } from "react";
-import { useMailContext } from "@/lib/mail-context";
+import { MailListHeader } from "./MailListHeader";
 
 interface MailViewChromeProps {
 	title: string;
@@ -48,45 +43,25 @@ export function MailViewChrome({
 	children,
 	footer,
 }: MailViewChromeProps) {
-	const { searchInput, onSearchChange, onSearchClear } = useMailContext();
-	const layout = useAppShellLayout();
-	const [searchOpen, setSearchOpen] = useState(false);
 	const [expanded, setExpanded] = useState(false);
 
 	return (
-		<section className="flex h-full w-full flex-col bg-surface">
-			<MailHeader
-				title={title}
-				unreadCount={unreadCount}
-				// The list pane is narrow even on desktop, and the reading-pane
-				// toolbar owns the wide search; keep the header's search compact (a
-				// magnifier that expands over the title) at every width.
-				isDesktop={false}
-				onMenuClick={() => layout?.openNav()}
-				searchValue={searchInput}
-				onSearchChange={onSearchChange}
-				onSearchClear={onSearchClear}
-				searchOpen={searchOpen}
-				onSearchOpenChange={setSearchOpen}
-			/>
-			<div className="min-h-0 flex-1">
-				<FilterSheet
-					categories={preset.categories}
-					filters={preset.filters}
-					sources={preset.sources}
-					selectedCategory={selectedCategory}
-					activeFilters={activeFilters}
-					expanded={expanded}
-					onExpandedChange={setExpanded}
-					onSelectCategory={onSelectCategory}
-					onSelectSource={onSelectSource}
-					onToggleFilter={onToggleFilter}
-					onClear={onClearFilters}
-				>
-					{children}
-				</FilterSheet>
-			</div>
-			{footer}
-		</section>
+		<MailListHeader title={title} unreadCount={unreadCount} footer={footer}>
+			<FilterSheet
+				categories={preset.categories}
+				filters={preset.filters}
+				sources={preset.sources}
+				selectedCategory={selectedCategory}
+				activeFilters={activeFilters}
+				expanded={expanded}
+				onExpandedChange={setExpanded}
+				onSelectCategory={onSelectCategory}
+				onSelectSource={onSelectSource}
+				onToggleFilter={onToggleFilter}
+				onClear={onClearFilters}
+			>
+				{children}
+			</FilterSheet>
+		</MailListHeader>
 	);
 }
