@@ -101,11 +101,27 @@ export const UnreadableSender: Story = {
 
 export const WithSimilarMessages: Story = {
 	args: {
+		similarLinkComponent: ({
+			mailboxId,
+			messageId,
+			className,
+			ariaLabel,
+			children,
+		}) => (
+			<a
+				href={`/mail/${mailboxId}?selectedMessageId=${messageId}`}
+				className={className}
+				aria-label={ariaLabel}
+			>
+				{children}
+			</a>
+		),
 		data: {
 			...base,
 			similar: [
 				{
 					id: "msg-1",
+					mailboxId: "mbx-1",
 					fromName: "Alex Rivera",
 					subject: "Re: Q3 planning notes",
 					timeLabel: "Jan 17",
@@ -113,6 +129,7 @@ export const WithSimilarMessages: Story = {
 				},
 				{
 					id: "msg-2",
+					mailboxId: "mbx-1",
 					fromName: "Billing",
 					subject: "Your invoice is ready",
 					timeLabel: "Yesterday",
@@ -120,6 +137,7 @@ export const WithSimilarMessages: Story = {
 				},
 				{
 					id: "msg-3",
+					mailboxId: "mbx-2",
 					fromName: "",
 					subject: "(No subject)",
 					timeLabel: "Dec 4, 2024",
