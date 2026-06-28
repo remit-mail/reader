@@ -370,18 +370,6 @@ namespace RemitApi {
       @query(#{ explode: true })
       isRead?: boolean,
 
-      @doc("Restrict to messages the provider's spam filter did or did not classify as spam")
-      @query(#{ explode: true })
-      providerSpamClassified?: boolean,
-
-      @doc("Restrict to a DMARC verdict (e.g. \"Pass\")")
-      @query(#{ explode: true })
-      authResultDmarc?: string,
-
-      @doc("Restrict to messages with or without a DKIM-mismatch signal")
-      @query(#{ explode: true })
-      dkimMismatch?: boolean,
-
       @doc("Maximum number of results to return")
       @query(#{ explode: true })
       limit?: int32,
