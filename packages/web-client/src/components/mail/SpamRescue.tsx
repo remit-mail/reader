@@ -6,7 +6,14 @@ import {
 	RescueFromSpamFlow,
 } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
-import { type ReactNode, useCallback, useMemo, useState } from "react";
+import {
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { useInboxMailbox } from "@/hooks/useArchiveMailbox";
 import {
@@ -14,6 +21,12 @@ import {
 	getMailboxDisplayName,
 } from "@/lib/mailbox-order";
 import { buildMoveTargets } from "@/lib/move-targets";
+import {
+	recordRescueCandidatesSurfaced,
+	recordRescueCommitted,
+	recordRescueFlowOpened,
+} from "@/lib/rescue-telemetry";
+import { useTelemetry } from "@/lib/telemetry-context";
 
 interface SpamRescueProps {
 	accountId: string;
@@ -37,6 +50,7 @@ export function SpamRescue({
 	children,
 }: SpamRescueProps) {
 	const [open, setOpen] = useState(false);
+	const telemetry = useTelemetry();
 	const { t } = useTranslation("mail", { useSuspense: false });
 	const translator = useCallback(
 		(key: string, fallback: string): string =>
@@ -72,20 +86,34 @@ export function SpamRescue({
 		return inbox?.id ?? folders.find((f) => !f.isCurrent)?.id ?? "";
 	}, [inboxMailboxId, folders]);
 
+	const surfacedRef = useRef(false);
+	useEffect(() => {
+		if (surfacedRef.current) return;
+		surfacedRef.current = true;
+		recordRescueCandidatesSurfaced(telemetry, candidates.length);
+	}, [telemetry, candidates.length]);
+
+	const handleReview = useCallback(() => {
+		recordRescueFlowOpened(telemetry, candidates.length);
+		setOpen(true);
+	}, [telemetry, candidates.length]);
+
 	const handleConfirmMove = useCallback(
 		(messageIds: string[], destinationId: string) => {
+			recordRescueCommitted(telemetry, {
+				selected: messageIds.length,
+				total: candidates.length,
+				toInbox: destinationId === inboxMailboxId,
+			});
 			onMove(messageIds, destinationId);
 		},
-		[onMove],
+		[telemetry, candidates.length, inboxMailboxId, onMove],
 	);
 
 	return (
 		<div className="relative flex h-full min-h-0 flex-col">
 			<div className="shrink-0 px-row-inset pt-2">
-				<RescueBanner
-					count={candidates.length}
-					onReview={() => setOpen(true)}
-				/>
+				<RescueBanner count={candidates.length} onReview={handleReview} />
 			</div>
 			<div className="min-h-0 flex-1">{children}</div>
 			<RescueFromSpamFlow

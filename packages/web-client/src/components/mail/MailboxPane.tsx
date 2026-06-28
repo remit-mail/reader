@@ -89,6 +89,8 @@ import { useUpdateAddressFlags } from "@/hooks/useUpdateAddressFlags";
 import { adjacentMessageId } from "@/lib/adjacent-message";
 import { readIntelligencePref } from "@/lib/intelligence-pref";
 import { useMailContext } from "@/lib/mail-context";
+import { isRescueCandidate } from "@/lib/rescue-candidates";
+import { recordRescueSentToJunk } from "@/lib/rescue-telemetry";
 import {
 	isSearchPending as computeIsSearchPending,
 	resolveSelectedThread,
@@ -620,8 +622,20 @@ function MailboxPaneProvider({
 	const triageMarkJunk = useCallback(() => {
 		if (!junkMailboxId) return;
 		const ids = triageTargetMessageIds();
-		if (ids.length > 0) triageMove(ids, junkMailboxId);
-	}, [junkMailboxId, triageTargetMessageIds, triageMove]);
+		if (ids.length === 0) return;
+		recordRescueSentToJunk(telemetry, {
+			count: ids.length,
+			senderTrust: focusedThread?.senderTrust ?? "unknown",
+			wasRescuable: focusedThread ? isRescueCandidate(focusedThread) : false,
+		});
+		triageMove(ids, junkMailboxId);
+	}, [
+		junkMailboxId,
+		triageTargetMessageIds,
+		triageMove,
+		telemetry,
+		focusedThread,
+	]);
 
 	const triageStar = useCallback(() => {
 		if (triageSelectedIds.length > 0) {
