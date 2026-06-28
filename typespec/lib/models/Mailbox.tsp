@@ -272,8 +272,8 @@ model RenameMailboxInput {
   @doc("Sidebar display-name override. Pass a string to set; pass `null` to clear (UI falls back to the canonical/derived label).")
   displayNameOverride?: String256 | null;
 
-  @doc("Role override. Pass a MailboxRole to set; pass `null` to clear (UI falls back to the detected role).")
-  roleOverride?: MailboxRole | null;
+  @doc("Role override. Pass a MailboxRole value (see MailboxRole) to set; pass `null` to clear (UI falls back to the detected role). Typed as a nullable string rather than `MailboxRole | null`: the OpenAPI 3.0 output renders a nullable enum so that openapi-backend's AJV rejects a `null` value (the `enum` keyword overrides `nullable`), which would 400 the clear path. A bare nullable string keeps `null` valid at the wire; the handler validates the value against MailboxRole.")
+  roleOverride?: string | null;
 }
 
 // ============================================
