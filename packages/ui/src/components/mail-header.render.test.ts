@@ -47,9 +47,16 @@ describe("MailHeader", () => {
 		assert.match(html, /aria-label="Close search"/);
 	});
 
-	it("renders the search bar inline on desktop", () => {
-		const html = render({ isDesktop: true });
+	it("offers a single X when open with a query — close, not a separate inline clear", () => {
+		const html = render({ searchOpen: true, searchValue: "invoice" });
+		assert.match(html, /aria-label="Close search"/);
+		assert.doesNotMatch(html, /aria-label="Clear search"/);
+	});
+
+	it("renders the search bar inline on desktop, keeping its own clear", () => {
+		const html = render({ isDesktop: true, searchValue: "invoice" });
 		assert.match(html, /aria-label="Search mail"/);
+		assert.match(html, /aria-label="Clear search"/);
 		assert.match(html, /Daily brief/);
 	});
 });

@@ -199,7 +199,11 @@ export const MobileSearchCollapsed: Story = {
 	),
 };
 
-/** Mobile search expanded over the title. */
+/**
+ * Mobile search expanded over the title. A single X owns the dismiss: it clears
+ * the query AND closes the search (the SearchBar's own inline clear is suppressed
+ * here, so there is exactly one X).
+ */
 export const MobileSearchExpanded: Story = {
 	render: () => (
 		<MailScreen
