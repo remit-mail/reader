@@ -11,6 +11,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { formatErrorDetail } from "@/components/ui/error-banners";
+import { reportFatalError } from "@/lib/fatal-error";
 
 interface UseUpdateAddressFlagsOptions {
 	addressId: string | undefined;
@@ -108,18 +109,16 @@ export function useUpdateAddressFlags({
 	const updateFlags = useCallback(
 		(flags: RemitImapUpdateAddressFlagsInput) => {
 			if (!addressId) {
-				// The sender's address record hasn't resolved yet (the lookup is in
-				// flight or failed). Surface feedback rather than silently swallowing
-				// the tap — a quick action must never look active but do nothing.
-				pushError({
-					title: "Sender details still loading",
-					detail: "Try again in a moment.",
-				});
+				reportFatalError(
+					new Error(
+						`Quick action fired but the sender's address record did not resolve (sender: ${senderEmail ?? "unknown"}). This should never happen — the address row exists.`,
+					),
+				);
 				return;
 			}
 			mutate({ path: { addressId }, body: { flags } });
 		},
-		[addressId, mutate, pushError],
+		[addressId, mutate, senderEmail],
 	);
 
 	return { updateFlags, isPending };
