@@ -57,7 +57,7 @@ export function BriefSection({
 					type="button"
 					aria-expanded={!collapsed}
 					onClick={() => setCollapsed((v) => !v)}
-					className="sticky top-0 flex h-section-row w-full items-center gap-1.5 border-b border-line bg-surface-sunken px-row-inset text-left transition-colors hover:bg-surface"
+					className="sticky top-0 z-10 flex h-section-row w-full items-center gap-1.5 border-b border-line bg-surface-sunken px-row-inset text-left transition-colors hover:bg-surface"
 				>
 					<span className="flex-1 text-2xs font-semibold uppercase tracking-wider text-fg-subtle">
 						{section.label}
