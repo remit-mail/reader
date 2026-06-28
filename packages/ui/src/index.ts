@@ -54,6 +54,10 @@ export {
 	type BannerVariant,
 } from "./components/banner.js";
 export {
+	BottomSheet,
+	type BottomSheetProps,
+} from "./components/bottom-sheet.js";
+export {
 	BriefSection,
 	type BriefSectionProps,
 	SECTION_ROW_CAP,
@@ -76,6 +80,7 @@ export {
 	getCategoryLabel,
 	type MessageCategory,
 } from "./components/category-badge.js";
+export { Checkbox, type CheckboxProps } from "./components/checkbox.js";
 export {
 	ComposeActionBar,
 	type ComposeActionBarProps,
@@ -243,6 +248,15 @@ export {
 	ReadingPaneEmpty,
 	type ReadingPaneEmptyProps,
 } from "./components/reading-pane-empty.js";
+export {
+	RescueBanner,
+	type RescueBannerProps,
+} from "./components/rescue-banner.js";
+export {
+	type RescueCandidate,
+	RescueCandidateRow,
+	type RescueCandidateRowProps,
+} from "./components/rescue-candidate-row.js";
 export {
 	type PanelGroupProps,
 	type PanelProps,
