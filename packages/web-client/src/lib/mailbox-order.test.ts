@@ -451,7 +451,9 @@ const tNl = (key: string, fallback: string) =>
 		? "Verzonden"
 		: key === "sidebar.inbox"
 			? "Postvak IN"
-			: fallback;
+			: key === "sidebar.junk"
+				? "Ongewenst"
+				: fallback;
 
 describe("roleOverrideToKind (#964)", () => {
 	test("maps each PascalCase MailboxRole to its kit kind", () => {
@@ -600,6 +602,33 @@ describe("getEffectiveDisplayLabel (#964)", () => {
 				tNl,
 			),
 			"Verzonden items",
+		);
+	});
+
+	test("a Junk-flagged INBOX/Spam folder reads the canonical junk label, not the raw leaf", () => {
+		assert.strictEqual(
+			getEffectiveDisplayLabel(
+				{
+					mailboxId: "a",
+					fullPath: "INBOX/Spam",
+					specialUse: [MailboxSpecialUse.Junk],
+				},
+				tNl,
+			),
+			"Ongewenst",
+		);
+	});
+
+	test("a Custom folder reads its provider leaf, not a canonical label", () => {
+		assert.strictEqual(
+			getEffectiveDisplayLabel(
+				{
+					mailboxId: "a",
+					fullPath: "INBOX/Nieuwsbrieven",
+				},
+				tNl,
+			),
+			"Nieuwsbrieven",
 		);
 	});
 
