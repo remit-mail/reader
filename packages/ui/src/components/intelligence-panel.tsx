@@ -11,7 +11,7 @@ import {
 	Star,
 	X,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import type { ReactElement, ReactNode } from "react";
 import { cn } from "../lib/cn.js";
 import { Avatar } from "./avatar.js";
 import { Badge } from "./badge.js";
@@ -83,11 +83,31 @@ export type MatchedChunk =
 
 export interface SimilarMessageIntel {
 	id: string;
+	/** Mailbox the message lives in — the route param for opening it. */
+	mailboxId: string;
 	fromName: string;
 	subject: string;
 	timeLabel: string;
 	matched: MatchedChunk;
 }
+
+/**
+ * Renders a similar-message row as a real anchor so middle-click /
+ * open-in-new-tab / deep-linking / screen-reader link semantics all work. The
+ * web-client passes a router `<Link>` builder; when omitted the row falls back
+ * to a non-navigating element that preserves the visual (static stories).
+ */
+export interface SimilarMessageLinkProps {
+	mailboxId: string;
+	messageId: string;
+	className: string;
+	ariaLabel?: string;
+	children: ReactNode;
+}
+
+export type SimilarMessageLinkComponent = (
+	props: SimilarMessageLinkProps,
+) => ReactElement;
 
 export interface SenderFlagsIntel {
 	vip?: boolean;
@@ -139,6 +159,12 @@ export interface IntelligencePanelProps {
 	actions?: IntelligenceQuickActions;
 	/** Loading/error state for the similar-messages section. */
 	similarState?: SimilarState;
+	/**
+	 * Render-prop that wraps each similar-message row in a real router anchor so
+	 * it opens that email (deep-link / middle-click / link a11y). When omitted the
+	 * rows render as static, non-navigating elements (stories / SSR previews).
+	 */
+	similarLinkComponent?: SimilarMessageLinkComponent;
 	/** Layout overrides (e.g. when hosted inside a resizable panel). */
 	className?: string;
 	/**
@@ -327,6 +353,7 @@ export function IntelligencePanel({
 	onShowSimilar,
 	actions,
 	similarState = "ready",
+	similarLinkComponent,
 	className,
 	hideCloseButton = false,
 }: IntelligencePanelProps) {
@@ -444,12 +471,12 @@ export function IntelligencePanel({
 						</p>
 					) : (
 						<ul className="-mx-1 space-y-1">
-							{similar.map((s) => (
-								<li key={s.id}>
-									<button
-										type="button"
-										className="w-full rounded-md px-1 py-1 text-left hover:bg-surface-sunken"
-									>
+							{similar.map((s) => {
+								const rowClass =
+									"block w-full rounded-md px-1 py-1 text-left hover:bg-surface-sunken";
+								const ariaLabel = `Open message from ${s.fromName || "unknown sender"}: ${s.subject}`;
+								const inner = (
+									<>
 										<div className="flex items-baseline justify-between gap-2">
 											<span className="truncate text-xs font-medium text-fg">
 												{s.fromName}
@@ -464,9 +491,24 @@ export function IntelligencePanel({
 										<span className="mt-1 inline-block rounded-full bg-surface-sunken px-1.5 py-px text-2xs text-fg-subtle">
 											{matchTone[s.matched]}
 										</span>
-									</button>
-								</li>
-							))}
+									</>
+								);
+								return (
+									<li key={s.id}>
+										{similarLinkComponent ? (
+											similarLinkComponent({
+												mailboxId: s.mailboxId,
+												messageId: s.id,
+												className: rowClass,
+												ariaLabel,
+												children: inner,
+											})
+										) : (
+											<div className={rowClass}>{inner}</div>
+										)}
+									</li>
+								);
+							})}
 						</ul>
 					)}
 				</Section>

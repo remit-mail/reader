@@ -2,8 +2,10 @@ import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/type
 import {
 	IntelligencePanel,
 	type IntelligenceQuickActions,
+	type SimilarMessageLinkComponent,
 	type SimilarState,
 } from "@remit/ui";
+import { Link } from "@tanstack/react-router";
 import { Sparkles } from "lucide-react";
 import { useCallback, useState } from "react";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -218,7 +220,7 @@ function WiredPanel({
 		isSimilarLoading,
 		similarError,
 		similarErrorIsFatal,
-	} = useIntelligenceData(thread);
+	} = useIntelligenceData(thread, mailboxId);
 	const [confirmBlock, setConfirmBlock] = useState(false);
 	const [reclassifyOpen, setReclassifyOpen] = useState(false);
 	const senderEmail = thread.fromEmail ?? undefined;
@@ -313,6 +315,27 @@ function WiredPanel({
 		onMarkSpam: spamAction === "markSpam" ? handleMarkSpam : undefined,
 	};
 
+	// Each similar-message row is a real router anchor — same link shape as a
+	// message-list row — so it opens the message in the reading pane while
+	// preserving deep-linking, middle-click, and existing search params.
+	const similarLinkComponent: SimilarMessageLinkComponent = ({
+		mailboxId: rowMailboxId,
+		messageId,
+		className,
+		ariaLabel,
+		children,
+	}) => (
+		<Link
+			to="/mail/$mailboxId"
+			params={{ mailboxId: rowMailboxId }}
+			search={(prev) => ({ ...prev, selectedMessageId: messageId })}
+			className={className}
+			aria-label={ariaLabel}
+		>
+			{children}
+		</Link>
+	);
+
 	if (!data) {
 		return <IntelligenceSkeleton />;
 	}
@@ -332,6 +355,7 @@ function WiredPanel({
 				onShowSimilar={handleShowSimilar}
 				actions={actions}
 				similarState={similarState}
+				similarLinkComponent={similarLinkComponent}
 				// No left border: the ResizableHandle to our left already draws the
 				// hairline seam. The remit-ui IntelligencePanel default `border-l`
 				// would double it to 2px.

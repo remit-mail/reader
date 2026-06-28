@@ -201,6 +201,7 @@ export interface UseIntelligenceDataResult {
  */
 export function useIntelligenceData(
 	thread: RemitImapThreadMessageResponse | null | undefined,
+	currentMailboxId?: string,
 ): UseIntelligenceDataResult {
 	const senderEmail = thread?.fromEmail ?? null;
 	const subject = thread?.subject ?? "";
@@ -242,6 +243,13 @@ export function useIntelligenceData(
 			.filter((r) => r.messageId !== thread.messageId)
 			.map((r) => ({
 				id: r.messageId,
+				// Prefer the mailbox the user is already viewing when the message also
+				// lives there, so opening a similar message stays in the same folder;
+				// otherwise fall back to the first mailbox it lives in.
+				mailboxId:
+					currentMailboxId != null && r.mailboxIds.includes(currentMailboxId)
+						? currentMailboxId
+						: (r.mailboxIds[0] ?? ""),
 				fromName: r.fromName ?? "",
 				subject: r.subject ?? "(No subject)",
 				timeLabel: r.sentDate != null ? formatEmailDate(r.sentDate * 1000) : "",
@@ -262,7 +270,7 @@ export function useIntelligenceData(
 		const flags = buildSenderFlags(address);
 
 		return { sender, authenticity, category, flags, similar };
-	}, [thread, address, semanticResult]);
+	}, [thread, address, semanticResult, currentMailboxId]);
 
 	return {
 		data,

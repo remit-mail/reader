@@ -138,6 +138,8 @@ export {
 	type SenderIntel,
 	type SenderTrustLevel,
 	type SimilarMessageIntel,
+	type SimilarMessageLinkComponent,
+	type SimilarMessageLinkProps,
 	type SimilarState,
 } from "./components/intelligence-panel.js";
 export {

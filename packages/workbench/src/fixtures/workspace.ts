@@ -835,6 +835,7 @@ export const q3Intelligence: IntelligenceData = {
 	similar: [
 		{
 			id: "sim_q2",
+			mailboxId: "mbx_work_inbox",
 			fromName: "Priya Natarajan",
 			subject: "Q2 roadmap review — agenda",
 			timeLabel: "Mar",
@@ -842,6 +843,7 @@ export const q3Intelligence: IntelligenceData = {
 		},
 		{
 			id: "sim_billing",
+			mailboxId: "mbx_work_inbox",
 			fromName: "Marcus Webb",
 			subject: "Billing migration: cutover checklist",
 			timeLabel: "May",
@@ -895,6 +897,7 @@ export const phishIntelligence: IntelligenceData = {
 	similar: [
 		{
 			id: "sim_dhl",
+			mailboxId: "mbx_personal_junk",
 			fromName: "DHL Express",
 			subject: "Action required: customs fee outstanding",
 			timeLabel: "Thu",
@@ -902,6 +905,7 @@ export const phishIntelligence: IntelligenceData = {
 		},
 		{
 			id: "sim_postnl",
+			mailboxId: "mbx_personal_junk",
 			fromName: "PostNL",
 			subject: "Uw pakket kon niet worden bezorgd",
 			timeLabel: "28 May",
@@ -909,6 +913,7 @@ export const phishIntelligence: IntelligenceData = {
 		},
 		{
 			id: "sim_ups",
+			mailboxId: "mbx_personal_junk",
 			fromName: "UPS Notify",
 			subject: "Delivery attempt failed — reschedule now",
 			timeLabel: "21 May",
@@ -916,6 +921,7 @@ export const phishIntelligence: IntelligenceData = {
 		},
 		{
 			id: "sim_colissimo",
+			mailboxId: "mbx_personal_junk",
 			fromName: "Colissimo",
 			subject: "Frais de douane en attente de paiement",
 			timeLabel: "14 May",
@@ -1007,6 +1013,7 @@ export const newsletterIntelligence: IntelligenceData = {
 	similar: [
 		{
 			id: "sim_cb_1",
+			mailboxId: "mbx_personal_inbox",
 			fromName: "Coolblue",
 			subject: "Black Friday vroegboekdeals",
 			timeLabel: "30 May",
@@ -1014,6 +1021,7 @@ export const newsletterIntelligence: IntelligenceData = {
 		},
 		{
 			id: "sim_cb_2",
+			mailboxId: "mbx_personal_inbox",
 			fromName: "Coolblue",
 			subject: "Laatste kans: gratis bezorging weekend",
 			timeLabel: "23 May",
@@ -1021,6 +1029,7 @@ export const newsletterIntelligence: IntelligenceData = {
 		},
 		{
 			id: "sim_mm",
+			mailboxId: "mbx_personal_inbox",
 			fromName: "MediaMarkt",
 			subject: "Outlet: monitoren en docks afgeprijsd",
 			timeLabel: "19 May",
