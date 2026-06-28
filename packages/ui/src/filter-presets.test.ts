@@ -31,10 +31,10 @@ describe("briefFilterConfig", () => {
 		);
 	});
 
-	it("offers Unread and Flagged only", () => {
+	it("offers the BriefSections chip set", () => {
 		assert.deepEqual(
 			briefFilterConfig().filters.map((f) => f.id),
-			["unread", "flagged"],
+			["unread", "attachment", "contacts", "today"],
 		);
 	});
 

@@ -1,8 +1,9 @@
 import {
 	AppShell,
-	briefFilterConfig,
+	type BriefCategoryFilter,
+	BriefSections,
+	ComfortableRow,
 	defaultKeyboardHints,
-	FilterSheet,
 	KeyboardHintBar,
 	MailHeader,
 } from "@remit/ui";
@@ -161,27 +162,25 @@ export const KeyboardHintsPhone: Story = {
 };
 
 /**
- * The aggregate brief behind its filter: the MailHeader top row, then the
- * FilterSheet bar whose caret opens the brief preset — categories +
- * Unread/Flagged, plus the accounts group (three accounts feed the brief).
- * Fast account switching is the nav sidebar, so there is no header chip row.
+ * The aggregate brief behind its filter: the MailHeader top row, then the kit
+ * `BriefSections` — which owns the FilterSheet bar (categories + attribute chips
+ * + the accounts group) and flattens to a headerless list when narrowed to one
+ * category. Fast account switching is the nav sidebar, so there is no header chip
+ * row. The web client composes these exact blocks.
  */
 function BriefScreen({
-	initialExpanded = false,
+	initialCategory = "all",
+	defaultExpanded = false,
 }: {
-	initialExpanded?: boolean;
+	initialCategory?: BriefCategoryFilter;
+	defaultExpanded?: boolean;
 }) {
-	const preset = briefFilterConfig(briefChips());
 	const [searchValue, setSearchValue] = useState("");
 	const [searchOpen, setSearchOpen] = useState(false);
-	const [expanded, setExpanded] = useState(initialExpanded);
-	const [category, setCategory] = useState("all");
-	const [activeFilters, setActiveFilters] = useState<Set<string>>(new Set());
+	const [category, setCategory] =
+		useState<BriefCategoryFilter>(initialCategory);
 	const [source, setSource] = useState("all");
-	const sources = preset.sources?.map((s) => ({
-		...s,
-		active: s.id === source,
-	}));
+	const sources = briefChips().map((s) => ({ ...s, active: s.id === source }));
 
 	return (
 		<div
@@ -199,65 +198,46 @@ function BriefScreen({
 				onSearchOpenChange={setSearchOpen}
 			/>
 			<div className="min-h-0 flex-1">
-				<FilterSheet
-					categories={preset.categories}
-					filters={preset.filters}
+				<BriefSections
+					sections={briefSections()}
+					Row={ComfortableRow}
+					briefCategory={category}
+					onSelectBriefCategory={setCategory}
 					sources={sources}
-					selectedCategory={category}
-					activeFilters={activeFilters}
-					expanded={expanded}
-					onExpandedChange={setExpanded}
-					onSelectCategory={setCategory}
+					sourcesNote="+1 muted"
 					onSelectSource={setSource}
-					onToggleFilter={(id) =>
-						setActiveFilters((prev) => {
-							const next = new Set(prev);
-							if (next.has(id)) next.delete(id);
-							else next.add(id);
-							return next;
-						})
-					}
-					onClear={() => {
-						setCategory("all");
-						setActiveFilters(new Set());
-					}}
-				>
-					<ul className="divide-y divide-line">
-						{briefSections().flatMap((section) => [
-							<li
-								key={section.id}
-								className="bg-surface-sunken px-row-inset py-1 text-2xs font-medium uppercase tracking-wide text-fg-subtle"
-							>
-								{section.label}
-							</li>,
-							...section.threads.map((thread) => (
-								<li key={thread.id} className="px-row-inset py-2.5">
-									<div className="text-sm font-medium text-fg">
-										{thread.fromName}
-									</div>
-									<div className="truncate text-xs text-fg-muted">
-										{thread.subject}
-									</div>
-								</li>
-							)),
-						])}
-					</ul>
-				</FilterSheet>
+					defaultExpanded={defaultExpanded}
+				/>
 			</div>
 		</div>
 	);
 }
 
-/** Brief filter collapsed: header + the FilterSheet bar over the brief list. */
+/**
+ * (a) "All" scope: header + the FilterSheet bar over the brief, every category
+ * section rendered with its header.
+ */
 export const WithFilter: Story = {
 	parameters: { layout: "centered" },
 	render: () => <BriefScreen />,
 };
 
-/** Brief filter expanded: categories + Unread/Flagged + the accounts group. */
-export const WithFilterExpanded: Story = {
+/**
+ * (b) Single-category filter: narrowed to Newsletter, the brief renders FLAT
+ * with NO section header.
+ */
+export const FilteredToCategory: Story = {
 	parameters: { layout: "centered" },
-	render: () => <BriefScreen initialExpanded />,
+	render: () => <BriefScreen initialCategory="newsletter" />,
+};
+
+/**
+ * (c) Account sources (n>1): the filter opens onto the accounts group — three
+ * accounts feed the brief, so the source pill row appears above the categories.
+ */
+export const WithAccountSources: Story = {
+	parameters: { layout: "centered" },
+	render: () => <BriefScreen defaultExpanded />,
 };
 
 /**

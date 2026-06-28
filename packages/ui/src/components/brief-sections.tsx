@@ -10,6 +10,7 @@ import {
 	FilterSheet,
 	type FilterSheetCategory,
 	type FilterSheetFilter,
+	type FilterSheetSource,
 } from "./filter-sheet.js";
 import type { BriefRowComponent } from "./message-row.js";
 
@@ -45,6 +46,15 @@ const briefFilterDefs: ReadonlyArray<{
 	{ id: "today", label: "Today", match: isTodayRow },
 ];
 
+/**
+ * The brief's attribute chips as plain `{ id, label }` (no predicates) — the
+ * single source the `briefFilterConfig` preset reuses so the live filter row and
+ * the preset can never diverge.
+ */
+export const briefFilterChips: FilterSheetFilter[] = briefFilterDefs.map(
+	({ id, label }) => ({ id, label }),
+);
+
 export interface BriefSectionsProps {
 	sections: ThreadSection[];
 	briefCategory?: BriefCategoryFilter;
@@ -52,6 +62,18 @@ export interface BriefSectionsProps {
 	Row: BriefRowComponent;
 	onSelectThread?: (id: string) => void;
 	onSelectBriefCategory?: (category: BriefCategoryFilter) => void;
+	/**
+	 * Account/source pills, passed straight through to the FilterSheet. Selection
+	 * is encoded per source via `active`; the row only renders when more than one
+	 * source is supplied (the cross-account brief). Single-account views omit it.
+	 */
+	sources?: FilterSheetSource[];
+	/** Note rendered alongside the source pills (e.g. "+1 muted"). */
+	sourcesNote?: string;
+	/** Called when the user selects a source/account pill. */
+	onSelectSource?: (id: string) => void;
+	/** Seeds the filter panel open on first render (stories / deep links). */
+	defaultExpanded?: boolean;
 }
 
 /**
@@ -69,9 +91,13 @@ export function BriefSections({
 	Row,
 	onSelectThread,
 	onSelectBriefCategory,
+	sources,
+	sourcesNote,
+	onSelectSource,
+	defaultExpanded = false,
 }: BriefSectionsProps) {
 	const [active, setActive] = useState<ReadonlySet<BriefFilterId>>(new Set());
-	const [sheetExpanded, setSheetExpanded] = useState(false);
+	const [sheetExpanded, setSheetExpanded] = useState(defaultExpanded);
 
 	const toggleFilter = (id: BriefFilterId) => {
 		setActive((prev) => {
@@ -106,10 +132,7 @@ export function BriefSections({
 		tone: cat.id === "all" ? "neutral" : categoryTone[cat.id],
 	}));
 
-	const sheetFilters: FilterSheetFilter[] = briefFilterDefs.map((f) => ({
-		id: f.id,
-		label: f.label,
-	}));
+	const sheetFilters = briefFilterChips;
 
 	const clearFilters = () => {
 		onSelectBriefCategory?.("all");
@@ -159,6 +182,8 @@ export function BriefSections({
 		<FilterSheet
 			categories={sheetCategories}
 			filters={sheetFilters}
+			sources={sources}
+			sourcesNote={sourcesNote}
 			selectedCategory={briefCategory}
 			activeFilters={active}
 			expanded={sheetExpanded}
@@ -166,6 +191,7 @@ export function BriefSections({
 			onSelectCategory={(id) =>
 				onSelectBriefCategory?.(id as BriefCategoryFilter)
 			}
+			onSelectSource={onSelectSource}
 			onToggleFilter={(id) => toggleFilter(id as BriefFilterId)}
 			onClear={clearFilters}
 		>

@@ -55,7 +55,7 @@ test.describe("Mobile filter sheet", () => {
 			timeout: 3_000,
 		});
 		await expect(
-			page.getByRole("button", { name: "Flagged" }),
+			page.getByRole("button", { name: "Today", exact: true }),
 		).toBeInViewport();
 
 		await collapseBar.click();
@@ -76,7 +76,9 @@ test.describe("Mobile filter sheet", () => {
 			page.getByRole("button", { name: "Collapse filters" }),
 		).toBeVisible({ timeout: 3_000 });
 
-		await page.getByRole("button", { name: "Newsletter", exact: true }).click();
+		await page
+			.getByRole("button", { name: "Newsletters", exact: true })
+			.click();
 		await page.getByRole("button", { name: "Unread" }).click();
 
 		await page.getByRole("button", { name: "Collapse filters" }).click();
@@ -85,7 +87,7 @@ test.describe("Mobile filter sheet", () => {
 		).toBeVisible({ timeout: 3_000 });
 
 		const summaryBar = page.getByRole("button", { name: "Expand filters" });
-		await expect(summaryBar.getByText("Newsletter")).toBeVisible();
+		await expect(summaryBar.getByText("Newsletters")).toBeVisible();
 		await expect(summaryBar.getByText("Unread")).toBeVisible();
 
 		await expect(
@@ -152,13 +154,13 @@ test.describe("Mobile filter sheet", () => {
 		).toBeVisible({ timeout: 3_000 });
 
 		// Wrapped pills stay visible; a horizontally-scrolled row pushes its last
-		// pill off-screen-right. Automated is the last category, Flagged the last
+		// pill off-screen-right. Social is the last category, Today the last
 		// attribute filter.
 		await expect(
-			page.getByRole("button", { name: "Automated", exact: true }),
+			page.getByRole("button", { name: "Social", exact: true }),
 		).toBeInViewport({ timeout: 3_000 });
 		await expect(
-			page.getByRole("button", { name: "Flagged" }),
+			page.getByRole("button", { name: "Today", exact: true }),
 		).toBeInViewport();
 	});
 });
