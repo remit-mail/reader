@@ -47,13 +47,18 @@ export function MailHeader({
 }: MailHeaderProps) {
 	const unreadLabel = `${unreadCount.toLocaleString()} unread`;
 	const clearSearch = onSearchClear ?? (() => onSearchChange(""));
+	const clearAndClose = () => {
+		clearSearch();
+		onSearchOpenChange(false);
+	};
 
-	const searchBar = (
+	const renderSearchBar = (showClearButton: boolean) => (
 		<SearchBar
 			value={searchValue}
 			onChange={onSearchChange}
 			onClear={clearSearch}
 			globalFocusKey={false}
+			showClearButton={showClearButton}
 		/>
 	);
 
@@ -79,15 +84,17 @@ export function MailHeader({
 						<span className="shrink-0 text-2xs text-fg-subtle">
 							{unreadLabel}
 						</span>
-						<div className="w-64 max-w-[40%] shrink-0">{searchBar}</div>
+						<div className="w-64 max-w-[40%] shrink-0">
+							{renderSearchBar(true)}
+						</div>
 					</>
 				) : searchOpen ? (
 					<div className="flex flex-1 items-center gap-1">
-						<div className="flex-1">{searchBar}</div>
+						<div className="flex-1">{renderSearchBar(false)}</div>
 						<Button
 							variant="ghost"
 							icon={<X className="size-5" />}
-							onClick={() => onSearchOpenChange(false)}
+							onClick={clearAndClose}
 							aria-label="Close search"
 							className="min-h-11 min-w-11 shrink-0 px-0"
 						/>
