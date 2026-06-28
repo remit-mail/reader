@@ -22,6 +22,12 @@ export interface SearchBarProps {
 	 * page. Defaults to true; set false where a page hosts more than one bar.
 	 */
 	globalFocusKey?: boolean;
+	/**
+	 * Show the inline clear (X) inside the field. Defaults to true. Set false in
+	 * the mobile takeover / collapsed header, where a single outer X owns
+	 * clear-and-close so there is exactly one X (Esc still clears the query).
+	 */
+	showClearButton?: boolean;
 }
 
 const isEditableTarget = (target: EventTarget | null): boolean => {
@@ -40,6 +46,7 @@ export const SearchBar = ({
 	onClearQuery,
 	placeholder = "Search mail...",
 	globalFocusKey = true,
+	showClearButton = true,
 }: SearchBarProps) => {
 	const inputRef = useRef<HTMLInputElement>(null);
 	const clearQuery = onClearQuery ?? onClear;
@@ -96,7 +103,7 @@ export const SearchBar = ({
 					"transition-colors",
 				)}
 			/>
-			{value && (
+			{value && showClearButton && (
 				<button
 					type="button"
 					onClick={handleClear}

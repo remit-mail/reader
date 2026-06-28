@@ -39,4 +39,17 @@ describe("SearchBar", () => {
 		assert.match(html, /aria-label="Clear search"/);
 		assert.match(html, /value="receipt"/);
 	});
+
+	it("omits the inline clear button when showClearButton is false", () => {
+		const html = renderToString(
+			createElement(SearchBar, {
+				value: "receipt",
+				onChange: noop,
+				onClear: noop,
+				showClearButton: false,
+			}),
+		);
+		assert.doesNotMatch(html, /aria-label="Clear search"/);
+		assert.match(html, /value="receipt"/);
+	});
 });

@@ -167,6 +167,7 @@ type Story = StoryObj<typeof MobileSearchView>;
 /**
  * Global search — the daily-brief preset, so the FilterSheet carries the account
  * source row (matthijs@ / work@acme) on top of the shared categories + filters.
+ * The header carries a single X that clears the query AND dismisses the takeover.
  */
 export const GlobalSearch: Story = {
 	render: () => (
