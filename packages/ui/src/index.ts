@@ -258,6 +258,11 @@ export {
 	type RescueCandidateRowProps,
 } from "./components/rescue-candidate-row.js";
 export {
+	RescueFromSpamFlow,
+	type RescueFromSpamFlowProps,
+	rescueMoveConsequence,
+} from "./components/rescue-from-spam-flow.js";
+export {
 	type PanelGroupProps,
 	type PanelProps,
 	type PanelResizeHandleProps,
