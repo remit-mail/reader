@@ -13,6 +13,9 @@ import { useInboxMailbox, useJunkMailbox } from "@/hooks/useArchiveMailbox";
 import { useIntelligenceData } from "@/hooks/useIntelligenceData";
 import { useMoveMessages } from "@/hooks/useMoveMessages";
 import { useUpdateAddressFlags } from "@/hooks/useUpdateAddressFlags";
+import { isRescueCandidate } from "@/lib/rescue-candidates";
+import { recordRescueSentToJunk } from "@/lib/rescue-telemetry";
+import { useTelemetry } from "@/lib/telemetry-context";
 
 export interface IntelligencePaneProps {
 	onClose: () => void;
@@ -241,6 +244,7 @@ function WiredPanel({
 		threadId: thread.threadId,
 		accountId,
 	});
+	const telemetry = useTelemetry();
 
 	const spamAction = resolveSpamAction({
 		mailboxId,
@@ -255,8 +259,13 @@ function WiredPanel({
 
 	const handleMarkSpam = useCallback(() => {
 		if (!junkMailboxId) return;
+		recordRescueSentToJunk(telemetry, {
+			count: 1,
+			senderTrust: thread.senderTrust,
+			wasRescuable: isRescueCandidate(thread),
+		});
 		moveMessages([thread.messageId], junkMailboxId);
-	}, [junkMailboxId, moveMessages, thread.messageId]);
+	}, [junkMailboxId, moveMessages, thread, telemetry]);
 
 	const handleShowSimilar = useCallback(() => {
 		// The similar-messages section scrolls into view automatically when
