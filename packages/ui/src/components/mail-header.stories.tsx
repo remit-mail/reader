@@ -144,8 +144,8 @@ export const BriefFilterCollapsed: Story = {
 };
 
 /**
- * Brief, filter expanded — categories + Unread/Flagged, plus the accounts group
- * because more than one account feeds the aggregate brief.
+ * Brief, filter expanded — categories + Unread/Has attachment/From contacts/Today,
+ * plus the accounts group because more than one account feeds the aggregate brief.
  */
 export const BriefFilterExpanded: Story = {
 	render: () => (
@@ -160,7 +160,7 @@ export const BriefFilterExpanded: Story = {
 
 /**
  * Single account: the brief filter drops the accounts group entirely (one
- * account is meaningless to segment) — categories + Unread/Flagged only.
+ * account is meaningless to segment) — categories + the brief chip set only.
  */
 export const BriefFilterSingleAccount: Story = {
 	render: () => (

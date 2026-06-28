@@ -1,3 +1,4 @@
+import { briefFilterChips } from "./components/brief-sections.js";
 import type {
 	FilterSheetCategory,
 	FilterSheetFilter,
@@ -62,15 +63,16 @@ function accountSources(
 }
 
 /**
- * Daily-brief filter: categories + Unread/Flagged, plus an account source group
- * when more than one account feeds the brief (the brief aggregates them all).
+ * Daily-brief filter: categories + the BriefSections chip set (the single source
+ * of truth for the brief's attribute chips), plus an account source group when
+ * more than one account feeds the brief (the brief aggregates them all).
  */
 export function briefFilterConfig(
 	accounts: FilterAccount[] = [],
 ): FilterPreset {
 	return {
 		categories: [...MESSAGE_CATEGORIES],
-		filters: [UNREAD, FLAGGED],
+		filters: briefFilterChips,
 		sources: accountSources(accounts),
 	};
 }

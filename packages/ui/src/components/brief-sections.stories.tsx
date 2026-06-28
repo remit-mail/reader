@@ -1,6 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import type { ThreadRowData, ThreadSection } from "./app-shell-types.js";
+import { useState } from "react";
+import type {
+	BriefCategoryFilter,
+	ThreadRowData,
+	ThreadSection,
+} from "./app-shell-types.js";
 import { BriefSections } from "./brief-sections.js";
+import type { FilterSheetSource } from "./filter-sheet.js";
 import { ComfortableRow } from "./message-row.js";
 
 function newsletterRow(i: number): ThreadRowData {
@@ -108,4 +114,65 @@ export const Mobile: Story = {
 			<BriefSections {...args} />
 		</div>
 	),
+};
+
+/**
+ * (a) "All" scope: one capped section per category, each with its header. This
+ * is the cross-account aggregate where the section headers earn their keep.
+ */
+export const AllScopeWithHeaders: Story = {
+	args: { briefCategory: "all" },
+	render: (args) => (
+		<div className="flex h-screen w-96 flex-col border-r border-line">
+			<BriefSections {...args} />
+		</div>
+	),
+};
+
+/**
+ * (b) Single-category filter: narrowed to Newsletter, the list renders FLAT with
+ * NO section header — the header would be redundant once a single category is
+ * selected. This is the behavior the live brief now inherits from the kit.
+ */
+export const SingleCategoryFlat: Story = {
+	args: { briefCategory: "newsletter" },
+	render: (args) => (
+		<div className="flex h-screen w-96 flex-col border-r border-line">
+			<BriefSections {...args} />
+		</div>
+	),
+};
+
+const accountSources: FilterSheetSource[] = [
+	{ id: "all", label: "All", active: true },
+	{ id: "a1", label: "work", count: 3 },
+	{ id: "a2", label: "personal", count: 8 },
+];
+
+/**
+ * (c) Account-source filtering (n>1): the cross-account brief exposes an account
+ * pill row above the categories. The row only appears with more than one source.
+ * Selecting a source is single-select (encoded via each source's `active` flag).
+ */
+export const AccountSources: Story = {
+	render: (args) => {
+		const [source, setSource] = useState("all");
+		const [category, setCategory] = useState<BriefCategoryFilter>("all");
+		return (
+			<div className="flex h-screen w-96 flex-col border-r border-line">
+				<BriefSections
+					{...args}
+					briefCategory={category}
+					onSelectBriefCategory={setCategory}
+					sources={accountSources.map((s) => ({
+						...s,
+						active: s.id === source,
+					}))}
+					sourcesNote="+1 muted"
+					onSelectSource={setSource}
+					defaultExpanded
+				/>
+			</div>
+		);
+	},
 };
