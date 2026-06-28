@@ -2,7 +2,9 @@ import { mailboxOperationsListMailboxesOptions } from "@remit/api-http-client/@t
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
 import { useQueries } from "@tanstack/react-query";
 import { useLocation, useParams } from "@tanstack/react-router";
-import { getMailboxDisplayName } from "@/lib/mailbox-order";
+import { useCallback } from "react";
+import { useTranslation } from "react-i18next";
+import { getEffectiveDisplayLabel } from "@/lib/mailbox-order";
 
 interface UseCurrentMailboxNameOptions {
 	accounts: RemitImapAccountResponse[];
@@ -28,6 +30,11 @@ export const useCurrentMailboxName = ({
 	const params = useParams({ strict: false });
 	const location = useLocation();
 	const mailboxId = (params as { mailboxId?: string }).mailboxId;
+	const { t } = useTranslation("mail", { useSuspense: false });
+	const translator = useCallback(
+		(key: string, fallback: string) => t(key, { defaultValue: fallback }),
+		[t],
+	);
 
 	const queries = useQueries({
 		queries: accounts.map((account) => ({
@@ -45,7 +52,7 @@ export const useCurrentMailboxName = ({
 		const items = query.data?.items;
 		if (!items) continue;
 		const match = items.find((mailbox) => mailbox.mailboxId === mailboxId);
-		if (match) return getMailboxDisplayName(match.fullPath);
+		if (match) return getEffectiveDisplayLabel(match, translator);
 	}
 
 	return null;
