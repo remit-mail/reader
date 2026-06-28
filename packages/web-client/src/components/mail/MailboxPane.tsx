@@ -81,6 +81,7 @@ import { useLayoutTier } from "@/hooks/useLayoutTier";
 import { useMailboxAccount } from "@/hooks/useMailboxAccount";
 import { useToggleReadFor } from "@/hooks/useMarkAsRead";
 import { useMoveMessages } from "@/hooks/useMoveMessages";
+import { useRescueCandidates } from "@/hooks/useRescueCandidates";
 import { useSemanticSearch } from "@/hooks/useSemanticSearch";
 import { useToggleStar } from "@/hooks/useToggleStar";
 import { useTriageKeyboard } from "@/hooks/useTriageKeyboard";
@@ -88,7 +89,6 @@ import { useUpdateAddressFlags } from "@/hooks/useUpdateAddressFlags";
 import { adjacentMessageId } from "@/lib/adjacent-message";
 import { readIntelligencePref } from "@/lib/intelligence-pref";
 import { useMailContext } from "@/lib/mail-context";
-import { buildRescueCandidates } from "@/lib/rescue-candidates";
 import {
 	isSearchPending as computeIsSearchPending,
 	resolveSelectedThread,
@@ -557,10 +557,11 @@ function MailboxPaneProvider({
 
 	const { junkMailboxId } = useJunkMailbox(mailboxAccountId);
 	const isSpamFolder = junkMailboxId != null && junkMailboxId === mailboxId;
-	const rescueCandidates = useMemo(
-		() => buildRescueCandidates(rawThreads, isSpamFolder),
-		[rawThreads, isSpamFolder],
-	);
+	const { candidates: rescueCandidates } = useRescueCandidates({
+		mailboxId,
+		isSpamFolder,
+		loadedThreads: rawThreads,
+	});
 	const { moveMessages: triageMove } = useMoveMessages({
 		mailboxId,
 		threadId: focusedThread?.threadId,

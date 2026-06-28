@@ -128,6 +128,62 @@ describe("DefaultSearchService", () => {
 		assert.ok(results.every((r) => r.messageId === "msg-bob"));
 	});
 
+	it("filters to provider-classified spam that passed DMARC (rescue query)", async () => {
+		const { service } = buildService();
+		await service.index({
+			envelope: aliceEnvelope,
+			parsedBody: {
+				text: "Renewal invoice from a sender we trust",
+				html: null,
+			},
+			metadata: {
+				...baseMetadata,
+				messageId: "msg-rescuable",
+				threadId: "thread-rescuable",
+				mailboxIds: ["mb-junk"],
+				fromEmail: "alice@example.com",
+				providerSpamClassified: true,
+				authResultDmarc: "Pass",
+				dkimMismatch: false,
+			},
+		});
+		await service.index({
+			envelope: bobEnvelope,
+			parsedBody: {
+				text: "Renewal invoice that failed authentication",
+				html: null,
+			},
+			metadata: {
+				...baseMetadata,
+				messageId: "msg-failed-auth",
+				threadId: "thread-failed-auth",
+				mailboxIds: ["mb-junk"],
+				fromEmail: "bob@example.com",
+				providerSpamClassified: true,
+				authResultDmarc: "Fail",
+				dkimMismatch: true,
+			},
+		});
+
+		const results = await service.search({
+			query: "renewal invoice",
+			accountConfigId: "acct-1",
+			mailboxId: "mb-junk",
+			providerSpamClassified: true,
+			authResultDmarc: "Pass",
+			dkimMismatch: false,
+		});
+
+		assert.ok(results.length > 0);
+		assert.ok(
+			results.every((r) => r.messageId === "msg-rescuable"),
+			"only the DMARC-passing spam message should match",
+		);
+		const rescuable = results.find((r) => r.messageId === "msg-rescuable");
+		assert.ok(rescuable);
+		assert.strictEqual(rescuable.fromEmail, "alice@example.com");
+	});
+
 	it("removes all chunks for a deleted message", async () => {
 		const { service, store } = buildService();
 		await indexBoth(service);

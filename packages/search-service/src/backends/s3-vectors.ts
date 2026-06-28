@@ -138,6 +138,18 @@ const toMetadata = (raw: unknown): ChunkMetadata => {
 				? obj.fromName
 				: undefined;
 	const subject = typeof obj.subject === "string" ? obj.subject : undefined;
+	const fromEmail =
+		typeof obj.fromEmail === "string" ? obj.fromEmail : undefined;
+	// Spam/auth signals added after initial deployment. Pre-extension vectors
+	// will not carry them; treat as absent.
+	const providerSpamClassified =
+		typeof obj.providerSpamClassified === "boolean"
+			? obj.providerSpamClassified
+			: undefined;
+	const authResultDmarc =
+		typeof obj.authResultDmarc === "string" ? obj.authResultDmarc : undefined;
+	const dkimMismatch =
+		typeof obj.dkimMismatch === "boolean" ? obj.dkimMismatch : undefined;
 	return {
 		messageId: obj.messageId,
 		threadId: obj.threadId,
@@ -150,7 +162,11 @@ const toMetadata = (raw: unknown): ChunkMetadata => {
 		hasStars: obj.hasStars,
 		fileTypes,
 		...(fromName !== undefined ? { fromName } : {}),
+		...(fromEmail !== undefined ? { fromEmail } : {}),
 		...(subject !== undefined ? { subject } : {}),
+		...(providerSpamClassified !== undefined ? { providerSpamClassified } : {}),
+		...(authResultDmarc !== undefined ? { authResultDmarc } : {}),
+		...(dkimMismatch !== undefined ? { dkimMismatch } : {}),
 	};
 };
 
@@ -176,6 +192,15 @@ const buildFilterExpression = (
 	}
 	if (filter.isRead !== undefined) {
 		conditions.isRead = filter.isRead;
+	}
+	if (filter.providerSpamClassified !== undefined) {
+		conditions.providerSpamClassified = filter.providerSpamClassified;
+	}
+	if (filter.authResultDmarc !== undefined) {
+		conditions.authResultDmarc = filter.authResultDmarc;
+	}
+	if (filter.dkimMismatch !== undefined) {
+		conditions.dkimMismatch = filter.dkimMismatch;
 	}
 	if (filter.sentDateRange) {
 		const range: { [k: string]: DocumentType } = {};
