@@ -17,7 +17,7 @@ import type {
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { isFatalServerError } from "@/lib/error-classifier";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatEmailDate } from "@/lib/format";
 
 /**
  * Format a creation timestamp as a human-readable "first seen" label.
@@ -242,9 +242,9 @@ export function useIntelligenceData(
 			.filter((r) => r.messageId !== thread.messageId)
 			.map((r) => ({
 				id: r.messageId,
-				fromName: "",
-				subject: "",
-				timeLabel: "",
+				fromName: r.fromName ?? "",
+				subject: r.subject ?? "(No subject)",
+				timeLabel: r.sentDate != null ? formatEmailDate(r.sentDate * 1000) : "",
 				matched: r.matchedChunkType as MatchedChunk,
 			}));
 

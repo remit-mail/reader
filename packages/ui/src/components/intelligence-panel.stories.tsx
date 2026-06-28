@@ -98,3 +98,34 @@ export const UnreadableSender: Story = {
 		},
 	},
 };
+
+export const WithSimilarMessages: Story = {
+	args: {
+		data: {
+			...base,
+			similar: [
+				{
+					id: "msg-1",
+					fromName: "Alex Rivera",
+					subject: "Re: Q3 planning notes",
+					timeLabel: "Jan 17",
+					matched: "subject",
+				},
+				{
+					id: "msg-2",
+					fromName: "Billing",
+					subject: "Your invoice is ready",
+					timeLabel: "Yesterday",
+					matched: "body",
+				},
+				{
+					id: "msg-3",
+					fromName: "",
+					subject: "(No subject)",
+					timeLabel: "Dec 4, 2024",
+					matched: "sender",
+				},
+			],
+		},
+	},
+};
