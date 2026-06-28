@@ -13,7 +13,12 @@
  * and, once a query is present, swap the list-pane body to the same kit
  * `SearchResults` sections under the shared `FilterSheet`. Consumers feed the
  * filter chrome and query-narrowed results; both tiers render identical rows.
- * The hamburger opens the nav drawer via the enclosing `AppShellSlotted`.
+ *
+ * Results split into two sections: "Top matches" (literal/instant search) and
+ * "Related" (semantic). The consumer dedupes them — a thread in both appears
+ * only under "Top matches". Each loads independently; an empty section drops out
+ * kit-side, so a "Related"-only result still shows when the literal search finds
+ * nothing. The hamburger opens the nav drawer via the enclosing `AppShellSlotted`.
  */
 import {
 	FilterSheet,
@@ -39,9 +44,12 @@ interface MailListHeaderProps {
 	footer?: ReactNode;
 	/** Filter chrome for the phone search takeover. Omit to drop the filter row. */
 	searchFilter?: Omit<FilterSheetProps, "children">;
-	/** Query-narrowed results shown in the phone search takeover. */
+	/** Literal/instant results — the "Top matches" section. */
 	searchResults?: SearchResult[];
 	searchLoading?: boolean;
+	/** Semantic results — the "Related" section, deduped against "Top matches". */
+	relatedResults?: SearchResult[];
+	relatedLoading?: boolean;
 	onSelectSearchResult?: (id: string) => void;
 }
 
@@ -53,6 +61,8 @@ export function MailListHeader({
 	searchFilter,
 	searchResults,
 	searchLoading,
+	relatedResults,
+	relatedLoading,
 	onSelectSearchResult,
 }: MailListHeaderProps) {
 	const { searchInput, onSearchChange, onSearchClear } = useMailContext();
@@ -62,10 +72,22 @@ export function MailListHeader({
 	const [recentSearches, setRecentSearches] = useState(loadRecentSearches);
 
 	const hasQuery = searchInput.trim().length > 0;
-	const sections: SearchResultSection[] =
-		searchResults && searchResults.length > 0
-			? [{ id: "results", label: "Results", results: searchResults }]
-			: [];
+	const topMatches = searchResults ?? [];
+	const related = relatedResults ?? [];
+	// Always offer both sections while a query is present; the kit drops the empty
+	// ones, so a "Related"-only hit still shows and two empties fall to its empty
+	// state. The empty-query case (recent searches) is the kit's job.
+	const sections: SearchResultSection[] = hasQuery
+		? [
+				{ id: "top", label: "Top matches", results: topMatches },
+				{ id: "related", label: "Related", results: related },
+			]
+		: [];
+	// Skeleton only while nothing is in yet — once either section has rows, show
+	// them and let the other arrive (or not). Keeps the two sources independent.
+	const hasAnyResult = topMatches.length + related.length > 0;
+	const resultsLoading =
+		!hasAnyResult && (searchLoading === true || relatedLoading === true);
 
 	if (tier === "phone" && searchOpen) {
 		const handleSelectResult = (id: string) => {
@@ -87,7 +109,7 @@ export function MailListHeader({
 				recentSearches={recentSearches}
 				onPickRecent={onSearchChange}
 				sections={sections}
-				loading={searchLoading}
+				loading={resultsLoading}
 				onSelectResult={handleSelectResult}
 			/>
 		);
@@ -105,7 +127,7 @@ export function MailListHeader({
 		<SearchResults
 			value={searchInput}
 			sections={sections}
-			loading={searchLoading}
+			loading={resultsLoading}
 			onSelectResult={handleSelectInlineResult}
 		/>
 	);
