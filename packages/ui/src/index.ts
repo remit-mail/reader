@@ -201,7 +201,6 @@ export {
 	type MobileReadingPaneProps,
 } from "./components/mobile-reading-pane.js";
 export {
-	type MobileSearchSection,
 	MobileSearchView,
 	type MobileSearchViewProps,
 } from "./components/mobile-search-view.js";
@@ -265,6 +264,11 @@ export {
 	type SearchResultRowProps,
 	type SearchResultTone,
 } from "./components/search-result-row.js";
+export {
+	type SearchResultSection,
+	SearchResults,
+	type SearchResultsProps,
+} from "./components/search-results.js";
 export {
 	SecuritySelect,
 	type SecuritySelectProps,
