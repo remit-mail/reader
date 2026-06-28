@@ -5,11 +5,9 @@ import {
 	type FilterAccount,
 	inboxFilterConfig,
 } from "../filter-presets.js";
-import {
-	type MobileSearchSection,
-	MobileSearchView,
-} from "./mobile-search-view.js";
+import { MobileSearchView } from "./mobile-search-view.js";
 import type { SearchResult } from "./search-result-row.js";
+import type { SearchResultSection } from "./search-results.js";
 
 const phoneFrame: Decorator = (Story) => (
 	<div
@@ -82,12 +80,12 @@ const related: SearchResult[] = [
 	},
 ];
 
-const resultSections: MobileSearchSection[] = [
+const resultSections: SearchResultSection[] = [
 	{ id: "top", label: "Top matches", results: topMatches },
 	{ id: "related", label: "Related", results: related },
 ];
 
-const emptySections: MobileSearchSection[] = [
+const emptySections: SearchResultSection[] = [
 	{ id: "top", label: "Top matches", results: [] },
 	{ id: "related", label: "Related", results: [] },
 ];
@@ -102,7 +100,7 @@ function Harness({
 }: {
 	initialValue?: string;
 	loading?: boolean;
-	sections?: MobileSearchSection[];
+	sections?: SearchResultSection[];
 	preset: Preset;
 }) {
 	const [value, setValue] = useState(initialValue);
