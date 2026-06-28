@@ -88,7 +88,7 @@ export function MailHeader({
 							{renderSearchBar(true)}
 						</div>
 					</>
-				) : searchOpen ? (
+				) : searchOpen || searchValue.trim().length > 0 ? (
 					<div className="flex flex-1 items-center gap-1">
 						<div className="flex-1">{renderSearchBar(false)}</div>
 						<Button

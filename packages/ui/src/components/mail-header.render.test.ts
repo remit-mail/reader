@@ -53,6 +53,13 @@ describe("MailHeader", () => {
 		assert.doesNotMatch(html, /aria-label="Clear search"/);
 	});
 
+	it("expands the search bar when a query is active even if not explicitly opened", () => {
+		const html = render({ searchOpen: false, searchValue: "invoice" });
+		assert.match(html, /aria-label="Search mail"/);
+		assert.match(html, /aria-label="Close search"/);
+		assert.doesNotMatch(html, /aria-label="Search"/);
+	});
+
 	it("renders the search bar inline on desktop, keeping its own clear", () => {
 		const html = render({ isDesktop: true, searchValue: "invoice" });
 		assert.match(html, /aria-label="Search mail"/);
