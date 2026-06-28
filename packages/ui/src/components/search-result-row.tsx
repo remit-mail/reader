@@ -1,0 +1,112 @@
+import { Flag } from "lucide-react";
+import type { ReactNode } from "react";
+import { cn } from "../lib/cn.js";
+import { Badge } from "./badge.js";
+
+export type SearchResultTone =
+	| "neutral"
+	| "accent"
+	| "positive"
+	| "warning"
+	| "danger";
+
+export interface SearchResult {
+	id: string;
+	sender: string;
+	subject: string;
+	snippet: string;
+	date: string;
+	unread?: boolean;
+	flagged?: boolean;
+	category?: { label: string; tone?: SearchResultTone };
+}
+
+export interface SearchResultRowProps {
+	result: SearchResult;
+	onClick?: () => void;
+	/** When given, literal (case-insensitive) matches are bolded in subject/snippet. */
+	query?: string;
+}
+
+function highlight(text: string, query?: string): ReactNode {
+	const term = query?.trim();
+	if (!term) return text;
+	const lower = text.toLowerCase();
+	const needle = term.toLowerCase();
+	const parts: ReactNode[] = [];
+	let cursor = 0;
+	let match = lower.indexOf(needle, cursor);
+	let key = 0;
+	while (match !== -1) {
+		if (match > cursor) parts.push(text.slice(cursor, match));
+		parts.push(
+			<mark key={key++} className="bg-transparent font-semibold text-fg">
+				{text.slice(match, match + needle.length)}
+			</mark>,
+		);
+		cursor = match + needle.length;
+		match = lower.indexOf(needle, cursor);
+	}
+	if (cursor < text.length) parts.push(text.slice(cursor));
+	return parts;
+}
+
+/**
+ * One tappable search result. Mirrors the collapsed reading-pane row rhythm:
+ * sender + right-aligned date on the top line, the subject, then a one-line
+ * truncated snippet, with an optional category Badge and a flag indicator. The
+ * sender bolds when unread. Presentational and prop-driven; the app supplies
+ * `onClick` and the optional `query` to bold literal matches.
+ */
+export function SearchResultRow({
+	result,
+	onClick,
+	query,
+}: SearchResultRowProps) {
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			className="flex w-full flex-col gap-0.5 border-b border-line px-row-inset py-2.5 text-left transition-colors hover:bg-surface-sunken"
+		>
+			<div className="flex items-baseline gap-2">
+				<span
+					className={cn(
+						"min-w-0 flex-1 truncate text-sm",
+						result.unread
+							? "font-semibold text-fg"
+							: "font-medium text-fg-muted",
+					)}
+				>
+					{result.sender}
+				</span>
+				<span className="shrink-0 text-2xs text-fg-subtle tabular-nums">
+					{result.date}
+				</span>
+			</div>
+			<div className="flex items-center gap-1.5">
+				<span
+					className={cn(
+						"min-w-0 flex-1 truncate text-sm",
+						result.unread ? "text-fg" : "text-fg-muted",
+					)}
+				>
+					{highlight(result.subject, query)}
+				</span>
+				{result.flagged && (
+					<Flag className="size-3.5 shrink-0 fill-warning text-warning" />
+				)}
+			</div>
+			<div className="flex items-center gap-2">
+				<span className="min-w-0 flex-1 truncate text-xs text-fg-subtle">
+					{highlight(result.snippet, query)}
+				</span>
+				{result.category && (
+					<Badge tone={result.category.tone ?? "neutral"} className="shrink-0">
+						{result.category.label}
+					</Badge>
+				)}
+			</div>
+		</button>
+	);
+}

@@ -199,6 +199,11 @@ export {
 	type MobileReadingPaneProps,
 } from "./components/mobile-reading-pane.js";
 export {
+	type MobileSearchSection,
+	MobileSearchView,
+	type MobileSearchViewProps,
+} from "./components/mobile-search-view.js";
+export {
 	type MoveMailboxOption,
 	MoveMailboxPicker,
 	type MoveMailboxPickerLabels,
@@ -252,6 +257,12 @@ export {
 	type RowDestructiveAction,
 } from "./components/row-actions.js";
 export { SearchBar, type SearchBarProps } from "./components/search-bar.js";
+export {
+	type SearchResult,
+	SearchResultRow,
+	type SearchResultRowProps,
+	type SearchResultTone,
+} from "./components/search-result-row.js";
 export {
 	SecuritySelect,
 	type SecuritySelectProps,
