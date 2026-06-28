@@ -22,6 +22,7 @@ import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { matchesBriefSearch, toThreadRowData } from "@/lib/brief";
 import { buildBugReportContext, buildGitHubIssueUrl } from "@/lib/bug-report";
 import { useMailContext } from "@/lib/mail-context";
+import { rowToSearchResult } from "@/lib/search-result";
 import { MailViewChrome } from "./MailViewChrome";
 
 const FILTER_PREDICATES: Record<string, (t: ThreadRowData) => boolean> = {
@@ -90,6 +91,8 @@ export function FlaggedList({
 
 	const preset = useMemo(() => flaggedFilterConfig(), []);
 
+	const searchResults = useMemo(() => rows.map(rowToSearchResult), [rows]);
+
 	const unreadCount = useMemo(
 		() => rows.filter((t) => !t.isRead).length,
 		[rows],
@@ -133,6 +136,9 @@ export function FlaggedList({
 			onSelectCategory={setSelectedCategory}
 			onToggleFilter={toggleFilter}
 			onClearFilters={clearFilters}
+			searchResults={searchResults}
+			searchLoading={isLoading}
+			onSelectSearchResult={onSelectMessage}
 		>
 			<MessageListPane
 				listTitle="Flagged"
