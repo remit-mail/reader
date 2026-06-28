@@ -269,8 +269,9 @@ model RenameMailboxInput {
   @doc("Mute flag. Pass a MutedFlag object to mute; pass `null` to clear the mute.")
   muted?: MutedFlag | null;
 
-  @doc("Sidebar display-name override. Pass a string to set; pass `null` to clear (UI falls back to the canonical/derived label).")
-  displayNameOverride?: String256 | null;
+  @doc("Sidebar display-name override. Pass a string to set; pass `null` to clear (UI falls back to the canonical/derived label). Typed as an inline nullable string with `@maxLength(256)` rather than `String256 | null`: a named scalar union renders as allOf + nullable with no sibling type, which openapi-backend's AJV rejects for a `null` value (the `$ref` re-imposes the string type), 400ing the clear path. An inline string attaches `type:string`, AJV compiles, and `null` stays valid at the wire while the 256-length cap is preserved.")
+  @maxLength(256)
+  displayNameOverride?: string | null;
 
   @doc("Role override. Pass a MailboxRole value (see MailboxRole) to set; pass `null` to clear (UI falls back to the detected role). Typed as a nullable string rather than `MailboxRole | null`: the OpenAPI 3.0 output renders a nullable enum so that openapi-backend's AJV rejects a `null` value (the `enum` keyword overrides `nullable`), which would 400 the clear path. A bare nullable string keeps `null` valid at the wire; the handler validates the value against MailboxRole.")
   roleOverride?: string | null;
