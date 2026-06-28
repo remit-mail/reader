@@ -218,7 +218,7 @@ export function MailSidebarAdapter({
 			return (
 				<Link
 					to="/mail"
-					search={{}}
+					search={{ q: undefined, selectedMessageId: undefined }}
 					onClick={() => onClick?.()}
 					className={className}
 					aria-label={ariaLabel}
@@ -232,7 +232,7 @@ export function MailSidebarAdapter({
 			return (
 				<Link
 					to="/mail/outbox"
-					search={{}}
+					search={{ q: undefined, selectedOutboxMessageId: undefined }}
 					onClick={() => onClick?.()}
 					className={className}
 					aria-label={ariaLabel}
@@ -246,7 +246,7 @@ export function MailSidebarAdapter({
 			return (
 				<Link
 					to="/mail/flagged"
-					search={{}}
+					search={{ q: undefined, selectedMessageId: undefined }}
 					onClick={() => onClick?.()}
 					className={className}
 					aria-label={ariaLabel}

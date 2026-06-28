@@ -93,7 +93,6 @@ export function MailListHeader({
 		const handleSelectResult = (id: string) => {
 			setRecentSearches(saveRecentSearch(searchInput));
 			setSearchOpen(false);
-			onSearchClear();
 			onSelectSearchResult?.(id);
 		};
 		return (

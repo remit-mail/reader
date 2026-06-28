@@ -215,3 +215,19 @@ export const MobileSearchExpanded: Story = {
 		/>
 	),
 };
+
+/**
+ * An active query expands the bar on its own — even when search was never
+ * explicitly opened (e.g. returning from a result via Back). The query is
+ * visible, not hidden behind the collapsed magnifier.
+ */
+export const MobileSearchActiveQueryNotOpened: Story = {
+	render: () => (
+		<MailScreen
+			title="Daily brief"
+			unreadCount={15338}
+			preset={briefFilterConfig(accounts)}
+			initialSearchValue="invoice"
+		/>
+	),
+};
