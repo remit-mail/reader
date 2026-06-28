@@ -76,6 +76,7 @@ import { useLayoutTier } from "@/hooks/useLayoutTier";
 import { useMailboxAccount } from "@/hooks/useMailboxAccount";
 import { useToggleReadFor } from "@/hooks/useMarkAsRead";
 import { useMoveMessages } from "@/hooks/useMoveMessages";
+import { useSemanticSearch } from "@/hooks/useSemanticSearch";
 import { useToggleStar } from "@/hooks/useToggleStar";
 import { useTriageKeyboard } from "@/hooks/useTriageKeyboard";
 import { useUpdateAddressFlags } from "@/hooks/useUpdateAddressFlags";
@@ -87,7 +88,10 @@ import {
 	resolveSelectedThread,
 } from "@/lib/search-pending";
 import { normalizeSearchQuery } from "@/lib/search-query";
-import { threadToSearchResult } from "@/lib/search-result";
+import {
+	relatedSearchResults,
+	threadToSearchResult,
+} from "@/lib/search-result";
 import { useTelemetry } from "@/lib/telemetry-context";
 import { MailViewChrome } from "./MailViewChrome";
 
@@ -807,6 +811,19 @@ function MailboxList() {
 		() => threads.map(threadToSearchResult),
 		[threads],
 	);
+	// "Related" (semantic) is scoped to this mailbox and deduped against the
+	// literal "Top matches" by thread, so a thread never shows in both.
+	const { hits: semanticHits, isLoading: relatedLoading } = useSemanticSearch({
+		mailboxId,
+	});
+	const relatedResults = useMemo(
+		() =>
+			relatedSearchResults(
+				semanticHits,
+				threads.map((t) => t.threadId),
+			),
+		[semanticHits, threads],
+	);
 	const handleSelectSearchResult = useCallback(
 		(id: string) =>
 			navigate({
@@ -879,6 +896,8 @@ function MailboxList() {
 			onClearFilters={onClearFilters}
 			searchResults={searchResults}
 			searchLoading={isLoading}
+			relatedResults={relatedResults}
+			relatedLoading={relatedLoading}
 			onSelectSearchResult={handleSelectSearchResult}
 		>
 			{body}
