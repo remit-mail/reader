@@ -27,7 +27,11 @@ import {
 	threadOperationsSearchThreads,
 } from "@remit/api-http-client/sdk.gen.ts";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
-import { inboxFilterConfig, ReadingPaneEmpty } from "@remit/ui";
+import {
+	inboxFilterConfig,
+	ReadingPaneEmpty,
+	type RescueCandidate,
+} from "@remit/ui";
 import {
 	keepPreviousData,
 	useInfiniteQuery,
@@ -55,6 +59,7 @@ import { IntelligencePane } from "@/components/mail/IntelligencePane";
 import { MessageList } from "@/components/mail/MessageList";
 import { MessageToolbar } from "@/components/mail/MessageToolbar";
 import { PullToRefresh } from "@/components/mail/PullToRefresh";
+import { SpamRescue } from "@/components/mail/SpamRescue";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { buildMutationErrorBanner } from "@/components/ui/error-banners";
 import {
@@ -83,6 +88,7 @@ import { useUpdateAddressFlags } from "@/hooks/useUpdateAddressFlags";
 import { adjacentMessageId } from "@/lib/adjacent-message";
 import { readIntelligencePref } from "@/lib/intelligence-pref";
 import { useMailContext } from "@/lib/mail-context";
+import { buildRescueCandidates } from "@/lib/rescue-candidates";
 import {
 	isSearchPending as computeIsSearchPending,
 	resolveSelectedThread,
@@ -143,6 +149,11 @@ interface MailboxPaneContextValue {
 	mailboxName: string | null;
 	unreadCount: number;
 	isDraftsMailbox: boolean;
+	// Rescue-from-Spam: true on the account's Junk/Spam folder, with the
+	// suspected-safe messages over the loaded pages. Drives the rescue banner
+	// + flow above the spam list.
+	isSpamFolder: boolean;
+	rescueCandidates: RescueCandidate[];
 	// Inbox filter (category + Unread/Flagged/Attachment), applied client-side
 	// over the loaded threads. Owned here so the list, triage and adjacency all
 	// see the same filtered set; the open thread still resolves against the raw
@@ -545,6 +556,11 @@ function MailboxPaneProvider({
 	});
 
 	const { junkMailboxId } = useJunkMailbox(mailboxAccountId);
+	const isSpamFolder = junkMailboxId != null && junkMailboxId === mailboxId;
+	const rescueCandidates = useMemo(
+		() => buildRescueCandidates(rawThreads, isSpamFolder),
+		[rawThreads, isSpamFolder],
+	);
 	const { moveMessages: triageMove } = useMoveMessages({
 		mailboxId,
 		threadId: focusedThread?.threadId,
@@ -725,6 +741,8 @@ function MailboxPaneProvider({
 		mailboxName,
 		unreadCount,
 		isDraftsMailbox,
+		isSpamFolder,
+		rescueCandidates,
 		filterCategory,
 		filterAttributes,
 		onSelectFilterCategory,
@@ -792,6 +810,8 @@ function MailboxList() {
 		mailboxName,
 		unreadCount,
 		isDraftsMailbox,
+		isSpamFolder,
+		rescueCandidates,
 		onTriageContextChange,
 		onRetry,
 		filterCategory,
@@ -877,11 +897,25 @@ function MailboxList() {
 	);
 
 	const phoneAccountId = accounts[0]?.accountId;
-	const body =
+	const listBody =
 		tier === "phone" && phoneAccountId ? (
 			<PullToRefresh accountId={phoneAccountId}>{messageList}</PullToRefresh>
 		) : (
 			messageList
+		);
+
+	const body =
+		isSpamFolder && rescueCandidates.length > 0 && mailboxAccountId ? (
+			<SpamRescue
+				accountId={mailboxAccountId}
+				currentMailboxId={mailboxId}
+				candidates={rescueCandidates}
+				onMove={onMoveMessages}
+			>
+				{listBody}
+			</SpamRescue>
+		) : (
+			listBody
 		);
 
 	return (
