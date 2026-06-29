@@ -5,6 +5,8 @@ import type {
 	BodyPartUpsertInput,
 	EnvelopeService,
 	MailboxService,
+} from "@remit/remit-electrodb-service";
+import {
 	MessageService,
 	ThreadMessageService,
 } from "@remit/remit-electrodb-service";
@@ -14,7 +16,7 @@ import {
 	MessageSyncService,
 	parseHeaderDate,
 } from "./message-sync.js";
-import type { ImapAddress, ImapMessage } from "./types.js";
+import type { ImapAddress, ImapEnvelope, ImapMessage } from "./types.js";
 
 interface UpsertCall {
 	messageId: string;
@@ -1141,5 +1143,138 @@ describe("MessageSyncService.syncMessages — unparseable sender handling", () =
 			(a) => a.localPart === "alice" && a.domain === "example.com",
 		);
 		assert.equal(fromAddressSaved, true);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Thread root derivation: every persisted Message gets a ThreadMessage row.
+// A message with no References, no In-Reply-To, and no usable Message-ID
+// header (missing or a "<>" delivery-failure placeholder) must still create a
+// standalone thread-of-one off the always-present internal messageId — never
+// early-return (orphan, invisible message) and never collapse distinct "<>"
+// messages into one bogus thread.
+// ---------------------------------------------------------------------------
+
+describe("MessageSyncService.createThreadForMessage — thread root fallback", () => {
+	const ACCOUNT_ID = "acc-1";
+	const MAILBOX_ID = "mbx-1";
+
+	const baseEnvelope: ImapEnvelope = {
+		date: "2026-04-28T12:00:00.000Z",
+		subject: "alice -> bob",
+		from: [{ name: "Alice", mailbox: "alice", host: "example.com" }],
+		sender: [],
+		replyTo: [],
+		to: [{ name: "Bob", mailbox: "bob", host: "example.com" }],
+		cc: [],
+		bcc: [],
+		inReplyTo: "",
+		messageId: "<alice-1@example.com>",
+	};
+
+	const makeMessage = (uid: number, envelope: ImapEnvelope): ImapMessage => ({
+		...aliceMessage,
+		uid,
+		references: undefined,
+		envelope,
+	});
+
+	const internalMessageId = (uid: number, envelope: ImapEnvelope): string =>
+		MessageService.generateIdFromSource(ACCOUNT_ID, {
+			messageId: envelope.messageId,
+			uid,
+			mailboxId: MAILBOX_ID,
+			date: envelope.date,
+			subject: envelope.subject,
+			fromMailbox: envelope.from?.[0]?.mailbox,
+			fromHost: envelope.from?.[0]?.host,
+		});
+
+	const runWith = async (msgs: ImapMessage[]) => {
+		const fake = buildFakeServicesWithCreateCapture();
+		const factory = buildConnectionFactory(msgs);
+		const service = new MessageSyncService(
+			factory,
+			fake.mailboxService,
+			fake.messageService,
+			fake.envelopeService,
+			fake.addressService,
+			fake.threadMessageService,
+		);
+		await service.syncMessages(MAILBOX_ID, ACCOUNT_ID, "acc-cfg-1", 50);
+		return fake.createCalls;
+	};
+
+	it("creates a thread-of-one off the internal id when no References, In-Reply-To, or Message-ID header", async () => {
+		const envelope: ImapEnvelope = {
+			...baseEnvelope,
+			inReplyTo: "",
+			messageId: "",
+		};
+		const headerless = makeMessage(77, envelope);
+
+		const createCalls = await runWith([headerless]);
+
+		assert.equal(createCalls.length, 1);
+		const expectedId = internalMessageId(77, envelope);
+		assert.equal(
+			createCalls[0]?.threadId,
+			ThreadMessageService.deriveThreadId(ACCOUNT_ID, expectedId),
+		);
+		assert.equal(createCalls[0]?.messageId, expectedId);
+	});
+
+	it("gives two distinct '<>' messages distinct threadIds (no collision)", async () => {
+		const firstEnvelope: ImapEnvelope = {
+			...baseEnvelope,
+			subject: "bounce one",
+			inReplyTo: "",
+			messageId: "<>",
+		};
+		const secondEnvelope: ImapEnvelope = {
+			...baseEnvelope,
+			subject: "bounce two",
+			inReplyTo: "",
+			messageId: "<>",
+		};
+
+		const createCalls = await runWith([
+			makeMessage(81, firstEnvelope),
+			makeMessage(82, secondEnvelope),
+		]);
+
+		assert.equal(createCalls.length, 2);
+		const threadIds = createCalls.map((c) => c.threadId);
+		assert.notEqual(threadIds[0], threadIds[1]);
+		assert.equal(
+			threadIds[0],
+			ThreadMessageService.deriveThreadId(
+				ACCOUNT_ID,
+				internalMessageId(81, firstEnvelope),
+			),
+		);
+		assert.equal(
+			threadIds[1],
+			ThreadMessageService.deriveThreadId(
+				ACCOUNT_ID,
+				internalMessageId(82, secondEnvelope),
+			),
+		);
+	});
+
+	it("threads off a valid Message-ID header when no References or In-Reply-To (no regression)", async () => {
+		const envelope: ImapEnvelope = {
+			...baseEnvelope,
+			inReplyTo: "",
+			messageId: "<root-90@example.com>",
+		};
+
+		const createCalls = await runWith([makeMessage(90, envelope)]);
+
+		assert.equal(createCalls.length, 1);
+		assert.equal(
+			createCalls[0]?.threadId,
+			ThreadMessageService.deriveThreadId(ACCOUNT_ID, "<root-90@example.com>"),
+		);
 	});
 });

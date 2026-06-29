@@ -657,12 +657,16 @@ export class MessageSyncService {
 			// No References, but has In-Reply-To - use as thread root
 			// (This is a reply to a single message, which becomes the root)
 			rootMessageIdHeader = envelope.inReplyTo;
-		} else if (envelope.messageId) {
+		} else if (MessageService.isValidMessageId(envelope.messageId)) {
 			// No References, no In-Reply-To - this message is a thread root
 			rootMessageIdHeader = envelope.messageId;
 		} else {
-			// Cannot create thread without Message-ID
-			return;
+			// No usable header (missing, empty, or a "<>" delivery-failure
+			// placeholder). Fall back to the always-present internal messageId so
+			// this message becomes a standalone thread-of-one. Distinct headerless
+			// messages keep distinct ids, so they never collide into one bogus
+			// thread, and every persisted Message gets exactly one ThreadMessage.
+			rootMessageIdHeader = messageId;
 		}
 
 		// Derive threadId from the root Message-ID (deterministic)
