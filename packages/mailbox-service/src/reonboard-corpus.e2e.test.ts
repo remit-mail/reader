@@ -270,7 +270,7 @@ const countMessagesByMailbox = async (mailboxId: string): Promise<number> => {
 
 /**
  * Faithful local copy of the per-account purge drain (remit-account-worker
- * cascade.ts `enumerateAccountPurgeEntities` + cascade-delete.ts
+ * cascade.ts `collectMessageChildEntities` + cascade-delete.ts
  * `runDdbCascadeDelete`): enumerate every row this account owns by walking its
  * mailboxes → messages → message children + thread messages, then batch-delete
  * children-before-parents. Asserts the account's data drains to zero.
