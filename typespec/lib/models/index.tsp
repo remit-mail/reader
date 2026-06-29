@@ -1,5 +1,6 @@
 // Account Layer
 import "./Account.tsp";
+import "./AccountSetting.tsp";
 import "./Mailbox.tsp";
 import "./MailboxLock.tsp";
 
