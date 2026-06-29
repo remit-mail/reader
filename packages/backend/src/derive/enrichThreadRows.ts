@@ -4,7 +4,7 @@ import type {
 	ThreadMessageItem,
 } from "@remit/remit-electrodb-service";
 import { AddressService } from "@remit/remit-electrodb-service";
-import { MessageCategory, SenderTrust } from "@remit/domain-enums";
+import { MessageCategory, SenderTrust, StarColor } from "@remit/domain-enums";
 import type { ThreadMessageResponse } from "@remit/api-openapi-types";
 import { deriveSenderTrust } from "./senderTrust.js";
 
@@ -34,7 +34,7 @@ const toResponse = (item: ThreadMessageItem): ThreadMessageResponse => ({
 	sentDate: item.sentDate,
 	isRead: item.isRead,
 	hasAttachment: item.hasAttachment,
-	star: item.star,
+	star: item.star ?? StarColor.None,
 	hasStars: item.hasStars,
 	isDeleted: item.isDeleted,
 	snippet: item.snippet,
