@@ -752,6 +752,7 @@ export class BodySyncService {
 				},
 			};
 		} catch (err: unknown) {
+			// biome-ignore lint/plugin/no-silent-catch: best-effort placement verdict — failure here must never abort body-sync; the move is a non-fatal enhancement
 			this.log.warn?.(
 				{ messageId, accountId, error: inspect(err) },
 				"Placement move failed (best-effort, non-fatal)",
@@ -783,6 +784,7 @@ export class BodySyncService {
 				"Moved message by placement verdict",
 			);
 		} catch (err: unknown) {
+			// biome-ignore lint/plugin/no-silent-catch: best-effort placement move enqueue — failure here must never abort body-sync; the movedByRemit flag was already persisted
 			this.log.warn?.(
 				{ messageId, accountId, error: inspect(err) },
 				"Placement move failed (best-effort, non-fatal)",

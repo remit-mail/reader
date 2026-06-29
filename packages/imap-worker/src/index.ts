@@ -37,6 +37,7 @@ export const handler: SQSHandler = withTelemetry(
 				);
 				metrics.clearDimensions();
 			} catch (error) {
+				// biome-ignore lint/plugin/no-silent-catch: SQS batch handler — nacking via batchItemFailures is the correct error propagation; rethrowing would crash the entire batch
 				const imapEvent = (() => {
 					try {
 						return JSON.parse(record.body) as WorkerEvent;
@@ -45,7 +46,7 @@ export const handler: SQSHandler = withTelemetry(
 					}
 				})();
 				log.error(
-					{ error, messageId: record.messageId },
+					{ error: error, messageId: record.messageId },
 					"Event processing failed",
 				);
 				if (imapEvent) {

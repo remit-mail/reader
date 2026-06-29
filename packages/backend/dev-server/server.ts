@@ -116,6 +116,7 @@ app.all(/(.*)/, async (req: Request, res: Response) => {
 				body = parsed;
 			}
 		} catch (e) {
+			// biome-ignore lint/plugin/no-silent-catch: dev-server — top-level request handler; errors are caught to keep the dev server running
 			console.error("[dev-server] Failed to parse JSON:", e);
 		}
 	}

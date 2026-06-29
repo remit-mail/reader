@@ -557,6 +557,7 @@ export class FlagQueueService {
 				}),
 			);
 		} catch (error: unknown) {
+			// biome-ignore lint/plugin/no-silent-catch: best-effort SQS enqueue — local flag state is already persisted; a transient enqueue failure defers IMAP sync but must not fail the response
 			this.log.error(
 				{
 					alert: "flag_sync_enqueue_failed",

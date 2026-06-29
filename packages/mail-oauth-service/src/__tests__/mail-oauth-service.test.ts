@@ -304,6 +304,7 @@ describe("mail-oauth-service", () => {
 		try {
 			await svc.refresh(sensitiveRefreshToken);
 		} catch (e) {
+			// biome-ignore lint/plugin/no-silent-catch: test — catch is part of the test assertion; error presence/absence is what's being tested
 			caughtError = e;
 		}
 
