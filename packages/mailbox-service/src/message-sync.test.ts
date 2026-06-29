@@ -75,6 +75,7 @@ const buildFakeServices = () => {
 
 const buildConnectionFactory = (
 	msgs: ImapMessage[],
+	deletedCount = 0,
 ): ManagedConnectionFactory => {
 	const conn = {
 		openBox: async () => ({
@@ -82,7 +83,7 @@ const buildConnectionFactory = (
 			uidnext: msgs.length + 1,
 			messageCount: msgs.length,
 		}),
-		getMailboxStatus: async () => ({ unseen: 0 }),
+		getMailboxStatus: async () => ({ unseen: 0, deletedCount }),
 		search: async () => msgs.map((m) => m.uid),
 		fetchMessages: async () => msgs,
 	};
@@ -581,7 +582,7 @@ describe("MessageSyncService.syncMessages — watermark vs body-sync (#634)", ()
 					uidnext: 21,
 					messageCount: allMsgs.length,
 				}),
-				getMailboxStatus: async () => ({ unseen: 0 }),
+				getMailboxStatus: async () => ({ unseen: 0, deletedCount: 0 }),
 				search: async () => allMsgs.map((m) => m.uid),
 				fetchMessages: async (uids: number[]) => {
 					fetchedPerCycle.push(uids);
@@ -640,6 +641,74 @@ describe("MessageSyncService.syncMessages — watermark vs body-sync (#634)", ()
 		const patch = harness.updateCalls.at(-1)!;
 		assert.equal(patch.highWaterMarkUid, 15);
 		assert.equal(patch.lastSyncUid, 15);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// deletedCount projection (#1042)
+// ---------------------------------------------------------------------------
+
+describe("MessageSyncService.syncMessages — deletedCount projection (#1042)", () => {
+	it("persists deletedCount on the no-new-messages path", async () => {
+		const harness = buildWatermarkHarness({
+			lastSyncUid: 0,
+			highWaterMarkUid: 0,
+			resolveUpsert: (input) => ({
+				item: { mailboxId: input.mailboxId },
+				created: true,
+			}),
+		});
+		const factory = buildConnectionFactory([], 5);
+		const service = new MessageSyncService(
+			factory,
+			harness.mailboxService,
+			harness.messageService,
+			harness.envelopeService,
+			harness.addressService,
+			harness.threadMessageService,
+		);
+
+		const result = await service.syncMessages(
+			"mbx-1",
+			"acc-1",
+			"acc-cfg-1",
+			50,
+		);
+
+		assert.equal(result.syncedCount, 0);
+		const patch = harness.updateCalls.at(-1)!;
+		assert.equal(patch.deletedCount, 5);
+	});
+
+	it("persists deletedCount on the normal sync path", async () => {
+		const harness = buildWatermarkHarness({
+			lastSyncUid: 0,
+			highWaterMarkUid: 0,
+			resolveUpsert: (input) => ({
+				item: { mailboxId: input.mailboxId },
+				created: true,
+			}),
+		});
+		const factory = buildConnectionFactory([messageWithUid(10, "<a@x>")], 3);
+		const service = new MessageSyncService(
+			factory,
+			harness.mailboxService,
+			harness.messageService,
+			harness.envelopeService,
+			harness.addressService,
+			harness.threadMessageService,
+		);
+
+		const result = await service.syncMessages(
+			"mbx-1",
+			"acc-1",
+			"acc-cfg-1",
+			50,
+		);
+
+		assert.equal(result.syncedCount, 1);
+		const patch = harness.updateCalls.at(-1)!;
+		assert.equal(patch.deletedCount, 3);
 	});
 });
 
