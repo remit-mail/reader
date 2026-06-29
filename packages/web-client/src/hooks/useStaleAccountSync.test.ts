@@ -107,17 +107,30 @@ describe("handleBackgroundSyncFailure", () => {
 		console.warn = () => undefined;
 	};
 
-	test("a background-sync 5xx does NOT escalate to the fatal overlay", () => {
+	test("a background-sync 5xx escalates to the fatal overlay", () => {
+		silenceWarn();
+		const seen: string[] = [];
+		subscribeFatalError((fatal) => seen.push(fatal.message));
+
+		handleBackgroundSyncFailure("a-1", new ApiError("boom", 503));
+
+		// Fail-fast contract (#1059, rule 2): a 5xx is OUR API broken and always
+		// escalates — even from a best-effort background probe. (This reverses the
+		// #758 swallow, which let a real 500 vanish silently.)
+		assert.deepEqual(seen, ["boom"]);
+	});
+
+	test("a background-sync 4xx (the account's own problem) does NOT escalate", () => {
 		silenceWarn();
 		let escalated = false;
 		subscribeFatalError(() => {
 			escalated = true;
 		});
 
-		handleBackgroundSyncFailure("a-1", new ApiError("boom", 503));
+		handleBackgroundSyncFailure("a-1", new ApiError("forbidden", 403));
 
-		// Best-effort background probe: a single 5xx must stay soft, never take
-		// over the screen behind the reload-only overlay (#745 over-fire).
+		// Non-5xx stays soft — the call site owns it (the Settings "Refresh
+		// mailboxes" button is the surfaced path).
 		assert.equal(escalated, false);
 	});
 

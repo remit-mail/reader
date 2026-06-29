@@ -14,8 +14,8 @@ import { installAuthInterceptor } from "./auth/auth-interceptor";
 import { install as installConsoleErrorCatcher } from "./lib/console-errors";
 import { setFatalErrorTelemetry } from "./lib/fatal-error";
 import {
+	handleMutationCacheError,
 	handleQueryCacheError,
-	handleQueryError,
 } from "./lib/query-error-handler";
 import { initRum } from "./lib/rum-adapter";
 import { TelemetryContext } from "./lib/telemetry-context";
@@ -34,15 +34,15 @@ const telemetry = initRum();
 // Plug the live telemetry adapter into the single fatal-error seam.
 setFatalErrorTelemetry(telemetry);
 
-// Every query and mutation error flows through the global classifier: a genuine
-// first-party 5xx escalates to the full-screen red overlay; expected 4xx /
-// aborts / connectivity blips are left to the calling surface (and React Query's
-// reconnect/retry). Queries only escalate when the 5xx breaks the *initial*
-// load — a stale background refetch keeps the rendered screen. This is the v5
-// equivalent of `defaultOptions.queries.onError` / `.mutations.onError`.
+// Every query and mutation error flows through the global fail-fast classifier
+// (#1059): a non-2xx escalates to the full-screen red overlay by DEFAULT — a 5xx
+// always escalates (even on a background refetch). Only aborts, statusless
+// connectivity blips, and non-5xx errors a call site explicitly opted out of via
+// `meta.softError` stay soft. This is the v5 equivalent of
+// `defaultOptions.queries.onError` / `.mutations.onError`.
 const queryClient = new QueryClient({
 	queryCache: new QueryCache({ onError: handleQueryCacheError }),
-	mutationCache: new MutationCache({ onError: handleQueryError }),
+	mutationCache: new MutationCache({ onError: handleMutationCacheError }),
 	defaultOptions: {
 		queries: {
 			staleTime: 30_000,

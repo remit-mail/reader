@@ -3,6 +3,8 @@ import { syncOperationsTriggerSync } from "@remit/api-http-client/sdk.gen.ts";
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
+import { shouldEscalate } from "@/lib/error-classifier";
+import { reportFatalError } from "@/lib/fatal-error";
 
 /**
  * Mailboxes are considered stale 15 minutes after the last successful sync.
@@ -51,19 +53,23 @@ export const __peekStaleAccountSyncGuard = (): ReadonlySet<string> =>
 	triggeredAccountIds;
 
 /**
- * Handle a failed background mailbox-sync trigger. This is a best-effort,
- * direct SDK probe (the global React Query `retry`/escalation does not apply),
- * so a single failure — even a 5xx — is one unlucky trigger on mount, not proof
- * the backend is down. It must NEVER escalate to the full-screen fatal overlay
- * (the over-fire #745 introduced). We drop the per-account guard so a later
- * remount can retry, then log and move on. The explicit, surfaced path stays
- * the "Refresh mailboxes" button in Settings.
+ * Handle a failed background mailbox-sync trigger. This is a best-effort, direct
+ * SDK probe (not a React Query call), so we apply the same fail-fast decision by
+ * hand with the `softError` meta the call site owns: its non-5xx failures (the
+ * account's own 4xx, a statusless connectivity blip) stay soft — we drop the
+ * per-account guard so a later remount can retry, then log and move on. But a
+ * 5xx is OUR API broken, and per the contract (#1059) that always escalates to
+ * the full-screen overlay — even from a background trigger.
  */
 export const handleBackgroundSyncFailure = (
 	accountId: string,
 	error: unknown,
 ): void => {
 	triggeredAccountIds.delete(accountId);
+	if (shouldEscalate(error, { softError: true })) {
+		reportFatalError(error);
+		return;
+	}
 	console.warn("[remit] background mailbox sync failed", {
 		accountId,
 		error,

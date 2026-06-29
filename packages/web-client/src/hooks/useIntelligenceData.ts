@@ -16,7 +16,7 @@ import type {
 } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
-import { isFatalServerError } from "@/lib/error-classifier";
+import { isServerError } from "@/lib/error-classifier";
 import { formatDate, formatEmailDate } from "@/lib/format";
 
 /**
@@ -276,8 +276,8 @@ export function useIntelligenceData(
 		data,
 		isSimilarLoading,
 		similarError,
-		similarErrorIsFatal: isFatalServerError(similarError),
-		addressErrorIsFatal: isFatalServerError(addressError),
+		similarErrorIsFatal: isServerError(similarError),
+		addressErrorIsFatal: isServerError(addressError),
 		addressId: address?.addressId,
 		address,
 	};
