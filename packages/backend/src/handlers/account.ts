@@ -48,6 +48,10 @@ import {
 	toAccountResponse,
 } from "./account-guards.js";
 import { assertAccountOwnership } from "./account-ownership.js";
+import {
+	loadSignatureForAccount,
+	upsertAccountSignature,
+} from "./account-signature.js";
 import { ensureAccountConfig } from "./ensure-account-config.js";
 
 export { assertNotOAuthCreate, assertPasswordProvided, toAccountResponse };
@@ -347,7 +351,7 @@ export const AccountDetailOperations: Record<
 		const { accountId } = context.request.params as { accountId: string };
 		const input = JSON.parse(event.body ?? "{}") as UpdateAccountInput;
 
-		const { account, secrets } = getClient();
+		const { account, accountSetting, secrets } = getClient();
 
 		const existing = await account.get(accountId);
 		assertAccountOwnership(existing, accountConfigId, "act");
@@ -379,8 +383,6 @@ export const AccountDetailOperations: Record<
 			"smtpStartTls",
 			"smtpUsername",
 			"isActive",
-			"signaturePlainText",
-			"signatureHtml",
 		] as const;
 
 		for (const field of fields) {
@@ -401,12 +403,32 @@ export const AccountDetailOperations: Record<
 			}
 		}
 
+		// Signatures live in per-account AccountSetting rows (RFC 032), not on the
+		// account entity. Persist each supplied part as a composite-named setting;
+		// an empty string is a valid stored value (preserves the prior "set ''
+		// stores ''" semantics — it does not delete the row).
+		if (
+			input.signaturePlainText !== undefined ||
+			input.signatureHtml !== undefined
+		) {
+			await upsertAccountSignature(accountSetting, accountConfigId, accountId, {
+				plainText: input.signaturePlainText,
+				html: input.signatureHtml,
+			});
+		}
+
 		const updated = await account.update(
 			accountId,
 			updates,
 			remove.length > 0 ? remove : undefined,
 		);
-		return toAccountResponse(updated);
+
+		const signature = await loadSignatureForAccount(
+			accountSetting,
+			accountConfigId,
+			accountId,
+		);
+		return toAccountResponse(updated, signature);
 	},
 
 	AccountDetailOperations_deleteAccount: async (
