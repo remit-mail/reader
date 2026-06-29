@@ -4,6 +4,7 @@ import {
 	AccountConfigService,
 	AccountExportRequestService,
 	AccountService,
+	AccountSettingService,
 	AddressService,
 	EnvelopeService,
 	getClient,
@@ -59,6 +60,7 @@ export const cascadeServices: CascadeServices = {
 	threadMessageService: new ThreadMessageService(serviceConfig),
 	mailboxLockService: new MailboxLockService(serviceConfig),
 	accountExportRequestService: new AccountExportRequestService(serviceConfig),
+	accountSettingService: new AccountSettingService(serviceConfig),
 };
 
 export const accountConfigService = cascadeServices.accountConfigService;

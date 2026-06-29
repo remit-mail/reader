@@ -2,6 +2,7 @@ import { DeleteObjectsCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
 import {
 	Account,
 	AccountConfig,
+	AccountSetting,
 	Address,
 	BodyPart,
 	BodyPartContent,
@@ -49,6 +50,7 @@ const DDB_MAX_RETRIES = 5;
 const ENTITY_BY_TYPE: Record<string, any> = {
 	Account,
 	AccountConfig,
+	AccountSetting,
 	Address,
 	BodyPart,
 	BodyPartContent,
@@ -89,6 +91,7 @@ const DELETE_LEVELS: readonly (readonly string[])[] = [
 	["OutboxMessage"],
 	["Mailbox"],
 	["MailboxLock"],
+	["AccountSetting"],
 	["Address", "Account"],
 ];
 

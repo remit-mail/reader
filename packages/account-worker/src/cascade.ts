@@ -2,6 +2,7 @@ import {
 	type AccountConfigService,
 	type AccountExportRequestService,
 	type AccountService,
+	type AccountSettingService,
 	type AddressService,
 	type EnvelopeService,
 	type MailboxLockService,
@@ -31,6 +32,7 @@ export interface CascadeServices {
 	threadMessageService: ThreadMessageService;
 	mailboxLockService: MailboxLockService;
 	accountExportRequestService: AccountExportRequestService;
+	accountSettingService: AccountSettingService;
 }
 
 export interface CascadeResult {
@@ -138,6 +140,7 @@ export const enumerateCascadeEntities = async (
 		outboxMessageService,
 		threadMessageService,
 		mailboxLockService,
+		accountSettingService,
 	} = services;
 
 	const description = await accountConfigService.describe(accountConfigId);
@@ -257,6 +260,15 @@ export const enumerateCascadeEntities = async (
 		entities.push({
 			entityType: "ThreadMessage",
 			key: { accountConfigId, threadMessageId: tm.threadMessageId },
+		});
+	}
+
+	const accountSettings =
+		await accountSettingService.listByAccountConfig(accountConfigId);
+	for (const setting of accountSettings) {
+		entities.push({
+			entityType: "AccountSetting",
+			key: { accountSettingId: setting.accountSettingId },
 		});
 	}
 
@@ -671,6 +683,7 @@ export const enumerateAccountPurgeChunk = async (
 export const COVERED_ENTITY_TYPES = [
 	"Account",
 	"AccountConfig",
+	"AccountSetting",
 	"Address",
 	"BodyPart",
 	"BodyPartContent",
