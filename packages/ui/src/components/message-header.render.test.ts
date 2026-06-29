@@ -50,7 +50,7 @@ describe("MessageHeader", () => {
 		const html = renderToString(
 			createElement(MessageHeader, {
 				...base,
-				actions: createElement("button", null, "Menu"),
+				actions: createElement("button", { type: "button" }, "Menu"),
 			}),
 		);
 		assert.match(html, /Menu/);

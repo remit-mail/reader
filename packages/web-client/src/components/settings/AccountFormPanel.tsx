@@ -445,10 +445,14 @@ export const AccountFormPanel = ({
 							</h3>
 							<div className="space-y-3">
 								<div>
-									<label className="text-sm font-medium mb-1.5 block">
+									<label
+										htmlFor="email-sig-view"
+										className="text-sm font-medium mb-1.5 block"
+									>
 										Email Signature
 									</label>
 									<textarea
+										id="email-sig-view"
 										value={signatureText}
 										onChange={(e) => setSignatureText(e.target.value)}
 										onBlur={handleSignatureBlur}
@@ -499,10 +503,14 @@ export const AccountFormPanel = ({
 					</h3>
 					<div className="space-y-3">
 						<div>
-							<label className="text-sm font-medium mb-1.5 block">
+							<label
+								htmlFor="account-provider"
+								className="text-sm font-medium mb-1.5 block"
+							>
 								Provider
 							</label>
 							<Select
+								id="account-provider"
 								value={presetId}
 								onChange={(e) => handlePresetChange(e.target.value)}
 							>
@@ -519,10 +527,14 @@ export const AccountFormPanel = ({
 							</p>
 						</div>
 						<div>
-							<label className="text-sm font-medium mb-1.5 block">
+							<label
+								htmlFor="account-email"
+								className="text-sm font-medium mb-1.5 block"
+							>
 								Email Address
 							</label>
 							<Input
+								id="account-email"
 								{...form.register("email")}
 								placeholder="alice@example.com"
 							/>
@@ -533,29 +545,44 @@ export const AccountFormPanel = ({
 							)}
 						</div>
 						<div>
-							<label className="text-sm font-medium mb-1.5 block">
+							<label
+								htmlFor="account-displayName"
+								className="text-sm font-medium mb-1.5 block"
+							>
 								Display name (optional)
 							</label>
-							<Input {...form.register("displayName")} placeholder="Alice" />
+							<Input
+								id="account-displayName"
+								{...form.register("displayName")}
+								placeholder="Alice"
+							/>
 							<p className="text-xs text-fg-muted mt-1">
 								What to call this account in Remit. Leave blank to use a name
 								derived from the address.
 							</p>
 						</div>
 						<div>
-							<label className="text-sm font-medium mb-1.5 block">
+							<label
+								htmlFor="account-username"
+								className="text-sm font-medium mb-1.5 block"
+							>
 								Username
 							</label>
 							<Input
+								id="account-username"
 								{...form.register("username")}
 								placeholder="Same as email if empty"
 							/>
 						</div>
 						<div>
-							<label className="text-sm font-medium mb-1.5 block">
+							<label
+								htmlFor="account-password"
+								className="text-sm font-medium mb-1.5 block"
+							>
 								Password
 							</label>
 							<Input
+								id="account-password"
 								{...form.register("password", {
 									onChange: () => setPasswordModified(true),
 								})}
@@ -615,8 +642,14 @@ export const AccountFormPanel = ({
 					)}
 					<div className="space-y-3">
 						<div>
-							<label className="text-sm font-medium mb-1.5 block">Server</label>
+							<label
+								htmlFor="imap-host"
+								className="text-sm font-medium mb-1.5 block"
+							>
+								Server
+							</label>
 							<Input
+								id="imap-host"
 								{...form.register("imapHost")}
 								readOnly={serversLocked}
 								placeholder="imap.example.com"
@@ -629,17 +662,23 @@ export const AccountFormPanel = ({
 						</div>
 						<div className="grid grid-cols-2 gap-3">
 							<div>
-								<label className="text-sm font-medium mb-1.5 block">Port</label>
+								<label
+									htmlFor="imap-port"
+									className="text-sm font-medium mb-1.5 block"
+								>
+									Port
+								</label>
 								<Input
+									id="imap-port"
 									{...form.register("imapPort")}
 									readOnly={serversLocked}
 									type="number"
 								/>
 							</div>
 							<div>
-								<label className="text-sm font-medium mb-1.5 block">
+								<span className="text-sm font-medium mb-1.5 block">
 									Security
-								</label>
+								</span>
 								<div className="space-y-1.5 mt-2">
 									<label className="flex items-center gap-2 text-sm">
 										<input
@@ -728,8 +767,14 @@ export const AccountFormPanel = ({
 					</div>
 					<div className="space-y-3">
 						<div>
-							<label className="text-sm font-medium mb-1.5 block">Server</label>
+							<label
+								htmlFor="smtp-host"
+								className="text-sm font-medium mb-1.5 block"
+							>
+								Server
+							</label>
 							<Input
+								id="smtp-host"
 								{...form.register("smtpHost")}
 								readOnly={serversLocked}
 								placeholder="smtp.example.com"
@@ -737,17 +782,23 @@ export const AccountFormPanel = ({
 						</div>
 						<div className="grid grid-cols-2 gap-3">
 							<div>
-								<label className="text-sm font-medium mb-1.5 block">Port</label>
+								<label
+									htmlFor="smtp-port"
+									className="text-sm font-medium mb-1.5 block"
+								>
+									Port
+								</label>
 								<Input
+									id="smtp-port"
 									{...form.register("smtpPort")}
 									readOnly={serversLocked}
 									type="number"
 								/>
 							</div>
 							<div>
-								<label className="text-sm font-medium mb-1.5 block">
+								<span className="text-sm font-medium mb-1.5 block">
 									Security
-								</label>
+								</span>
 								<div className="space-y-1.5 mt-2">
 									<label className="flex items-center gap-2 text-sm">
 										<input
@@ -794,16 +845,29 @@ export const AccountFormPanel = ({
 						{form.watch("useDifferentSmtpCreds") && (
 							<>
 								<div>
-									<label className="text-sm font-medium mb-1.5 block">
+									<label
+										htmlFor="smtp-username"
+										className="text-sm font-medium mb-1.5 block"
+									>
 										SMTP Username
 									</label>
-									<Input {...form.register("smtpUsername")} />
+									<Input
+										id="smtp-username"
+										{...form.register("smtpUsername")}
+									/>
 								</div>
 								<div>
-									<label className="text-sm font-medium mb-1.5 block">
+									<label
+										htmlFor="smtp-password"
+										className="text-sm font-medium mb-1.5 block"
+									>
 										SMTP Password
 									</label>
-									<Input {...form.register("smtpPassword")} type="password" />
+									<Input
+										id="smtp-password"
+										{...form.register("smtpPassword")}
+										type="password"
+									/>
 								</div>
 							</>
 						)}
@@ -848,10 +912,14 @@ export const AccountFormPanel = ({
 						</h3>
 						<div className="space-y-3">
 							<div>
-								<label className="text-sm font-medium mb-1.5 block">
+								<label
+									htmlFor="email-sig-edit"
+									className="text-sm font-medium mb-1.5 block"
+								>
 									Email Signature
 								</label>
 								<textarea
+									id="email-sig-edit"
 									value={signatureText}
 									onChange={(e) => setSignatureText(e.target.value)}
 									onBlur={handleSignatureBlur}

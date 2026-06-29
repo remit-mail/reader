@@ -17,9 +17,6 @@ const MODE_LABELS: Record<string, string> = {
 export const FullCompose = () => {
 	const { state, closeCompose } = useCompose();
 	const isDesktop = useIsDesktop();
-
-	if (!isDesktop) return <MobileComposeSheet />;
-
 	const {
 		isError: isConfigError,
 		error: configError,
@@ -28,6 +25,8 @@ export const FullCompose = () => {
 		...configOperationsGetConfigOptions(),
 		staleTime: Infinity,
 	});
+
+	if (!isDesktop) return <MobileComposeSheet />;
 
 	if (!state.isOpen) return null;
 

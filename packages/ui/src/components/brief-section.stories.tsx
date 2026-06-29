@@ -11,7 +11,7 @@ function makeRow(i: number): ThreadRowData {
 		fromEmail: `sender${i}@example.com`,
 		subject: `Subject line ${i}`,
 		snippet: "A short preview of the message body.",
-		timeLabel: "9:0" + (i % 10),
+		timeLabel: `9:0${i % 10}`,
 		isRead: i % 2 === 0,
 		category: "personal",
 	};

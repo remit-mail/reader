@@ -8,6 +8,7 @@ export interface FieldLabelProps extends LabelHTMLAttributes<HTMLLabelElement> {
 
 export function FieldLabel({ className, children, ...props }: FieldLabelProps) {
 	return (
+		// biome-ignore lint/a11y/noLabelWithoutControl: htmlFor is always provided via the required props spread
 		<label
 			className={cn("mb-1 block text-xs font-medium text-fg-muted", className)}
 			{...props}

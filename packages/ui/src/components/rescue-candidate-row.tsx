@@ -49,6 +49,7 @@ export function RescueCandidateRow({
 	} = candidate;
 
 	return (
+		// biome-ignore lint/a11y/noLabelWithoutControl: label wraps a custom Checkbox component that handles focus
 		<label
 			className={cn(
 				"flex w-full cursor-pointer items-start gap-3 px-3 py-2.5 text-left transition-colors",

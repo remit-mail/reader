@@ -694,7 +694,7 @@ export const MessageList = ({
 			{isSearching && searchQuery && (
 				<SearchResultsHeader query={searchQuery} count={threads.length} />
 			)}
-			<div ref={parentRef} className="flex-1 overflow-y-auto" tabIndex={0}>
+			<div ref={parentRef} className="flex-1 overflow-y-auto">
 				<div
 					className="relative w-full"
 					style={{ height: `${virtualizer.getTotalSize()}px` }}

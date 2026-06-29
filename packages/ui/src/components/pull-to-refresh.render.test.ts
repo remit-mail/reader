@@ -10,7 +10,11 @@ const list = createElement("ul", null, "messages");
 describe("PullToRefresh", () => {
 	it("renders its children inside the pull wrapper", () => {
 		const html = renderToString(
-			createElement(PullToRefresh, { onRefresh: noop, children: list }),
+			createElement(PullToRefresh, {
+				onRefresh: noop,
+				// biome-ignore lint/correctness/noChildrenProp: React 19 types require children in props object when using createElement
+				children: list,
+			}),
 		);
 		assert.match(html, /messages/);
 		assert.match(html, /ptr/);
@@ -21,6 +25,7 @@ describe("PullToRefresh", () => {
 			createElement(PullToRefresh, {
 				onRefresh: noop,
 				isRefreshing: false,
+				// biome-ignore lint/correctness/noChildrenProp: React 19 types require children in props object when using createElement
 				children: list,
 			}),
 		);
@@ -32,6 +37,7 @@ describe("PullToRefresh", () => {
 			createElement(PullToRefresh, {
 				onRefresh: noop,
 				isRefreshing: true,
+				// biome-ignore lint/correctness/noChildrenProp: React 19 types require children in props object when using createElement
 				children: list,
 			}),
 		);

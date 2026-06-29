@@ -167,6 +167,7 @@ export function MailActionToolbar({
 				{children}
 			</header>
 			{!hasThread && unavailableHint && (
+				// biome-ignore lint/a11y/useSemanticElements: <p> with role="status" preserves block layout; <output> is inline
 				<p
 					role="status"
 					className="border-b border-line bg-surface-sunken px-3 py-1 text-2xs text-fg-subtle"

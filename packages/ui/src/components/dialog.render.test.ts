@@ -10,6 +10,7 @@ const render = (props: Partial<Parameters<typeof Dialog>[0]>) =>
 			open: true,
 			onClose: () => {},
 			title: "Folders",
+			// biome-ignore lint/correctness/noChildrenProp: React 19 types require children in props object when using createElement
 			children: createElement("span", null, "nav content"),
 			...props,
 		}),

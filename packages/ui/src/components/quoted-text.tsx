@@ -50,9 +50,11 @@ export const QuotedText = ({
 			{isExpanded && (
 				<blockquote className="mt-2 pl-3 border-l-2 border-fg-subtle/30 text-sm text-fg-muted [&_a]:text-accent [&_a]:underline [&_blockquote]:pl-3 [&_blockquote]:border-l-2 [&_blockquote]:border-fg-subtle/30">
 					{html ? (
+						// biome-ignore lint/security/noDangerouslySetInnerHtml: rendering sanitized HTML via email-sanitizer
 						<div dangerouslySetInnerHTML={{ __html: html }} />
 					) : (
 						text.split("\n").map((line, i) => (
+							// biome-ignore lint/suspicious/noArrayIndexKey: list is static, no stable id
 							<p key={i} className="min-h-[1.2em]">
 								{line}
 							</p>

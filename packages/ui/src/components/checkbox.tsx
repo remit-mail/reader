@@ -57,6 +57,7 @@ export function Checkbox({
 	}
 
 	return (
+		// biome-ignore lint/a11y/noLabelWithoutControl: label wraps a custom component that handles focus
 		<label
 			className={cn(
 				"flex min-h-11 cursor-pointer items-center gap-3 text-left",

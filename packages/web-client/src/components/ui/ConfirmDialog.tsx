@@ -68,7 +68,7 @@ export const ConfirmDialog = ({
 	return (
 		<div
 			className="fixed inset-0 z-50 flex items-center justify-center"
-			role="presentation"
+			aria-hidden="true"
 			onClick={onCancel}
 		>
 			{/* Backdrop */}
@@ -85,6 +85,7 @@ export const ConfirmDialog = ({
 					"p-6",
 				)}
 				onClick={(e) => e.stopPropagation()}
+				onKeyDown={(e) => e.stopPropagation()}
 			>
 				<h2 className="text-lg font-semibold">{title}</h2>
 				{description && (

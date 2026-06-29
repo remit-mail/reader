@@ -41,13 +41,13 @@ export const pickMailboxOverrideChanges = (
 		roleOverride?: string | null;
 		muted?: RenameMailboxInput["muted"];
 	} = {};
-	if (Object.prototype.hasOwnProperty.call(body, "displayNameOverride")) {
+	if (Object.hasOwn(body, "displayNameOverride")) {
 		changes.displayNameOverride = body.displayNameOverride;
 	}
-	if (Object.prototype.hasOwnProperty.call(body, "roleOverride")) {
+	if (Object.hasOwn(body, "roleOverride")) {
 		changes.roleOverride = body.roleOverride;
 	}
-	if (Object.prototype.hasOwnProperty.call(body, "muted")) {
+	if (Object.hasOwn(body, "muted")) {
 		changes.muted = body.muted;
 	}
 	return changes;

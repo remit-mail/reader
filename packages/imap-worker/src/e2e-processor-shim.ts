@@ -187,11 +187,9 @@ if (cluster.isPrimary) {
 				})),
 			};
 
-			const result = (await handler(
-				event,
-				lambdaContext,
-				() => {},
-			)) as SQSBatchResponse | void;
+			const result = (await handler(event, lambdaContext, () => {})) as
+				| SQSBatchResponse
+				| undefined;
 
 			const failedIds = new Set(
 				(result?.batchItemFailures ?? []).map((f) => f.itemIdentifier),

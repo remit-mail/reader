@@ -290,6 +290,7 @@ export const walkMimeStructure = (root: MimeNode): BodyPartRecord[] => {
 		out.push(toRecord(node, partPath, parentPath));
 		const children = node.childNodes ?? [];
 		for (let i = 0; i < children.length; i++) {
+			// biome-ignore lint/style/noNonNullAssertion: value is guaranteed by caller contract
 			visit(children[i]!, partPath, i + 1);
 		}
 	};

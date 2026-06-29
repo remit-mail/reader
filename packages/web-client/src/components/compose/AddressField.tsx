@@ -173,12 +173,19 @@ export const AddressField = ({
 	return (
 		<div className="relative">
 			<div className="flex items-start gap-2">
-				<label className="text-sm text-fg-muted shrink-0 w-12 pt-1.5">
+				<label
+					htmlFor={`address-field-${label}`}
+					className="text-sm text-fg-muted shrink-0 w-12 pt-1.5"
+				>
 					{label}:
 				</label>
+				{/* biome-ignore lint/a11y/noStaticElementInteractions: click-to-focus wrapper for the address input; keyboard is forwarded to the inner input */}
 				<div
 					className="flex-1 flex flex-wrap items-center gap-1 min-h-[36px] px-2 py-1 border rounded-md bg-canvas cursor-text"
 					onClick={() => inputRef.current?.focus()}
+					onKeyDown={(e) => {
+						if (e.key === "Enter" || e.key === " ") inputRef.current?.focus();
+					}}
 				>
 					{addresses.map((addr, i) => (
 						<AddressTag
@@ -190,6 +197,7 @@ export const AddressField = ({
 					))}
 					<input
 						ref={inputRef}
+						id={`address-field-${label}`}
 						type="text"
 						value={inputValue}
 						onChange={(e) => setInputValue(e.target.value)}

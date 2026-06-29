@@ -5,6 +5,7 @@ interface SubjectFieldProps {
 
 export const SubjectField = ({ value, onChange }: SubjectFieldProps) => (
 	<div className="flex items-start gap-2">
+		{/* biome-ignore lint/a11y/noLabelWithoutControl: label is visually adjacent to the sibling input; static id risks duplicates */}
 		<label className="text-sm text-fg-muted shrink-0 w-12 pt-1.5">Subj:</label>
 		<input
 			type="text"

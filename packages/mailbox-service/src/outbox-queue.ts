@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
-import {
-	type AccountService,
-	type OutboxMessageItem,
-	type OutboxMessageService,
+import type {
+	AccountService,
+	OutboxMessageItem,
+	OutboxMessageService,
 } from "@remit/remit-electrodb-service";
 import { OutboxMessageStatus } from "@remit/domain-enums";
 
