@@ -467,11 +467,18 @@ export const MessageList = ({
 	// Scroll the roving focus cursor into view as it moves (j/k). Falls back to
 	// the open thread when nothing is focused yet.
 	useEffect(() => {
+		// On single-pane tiers, opening a thread swaps this list out for the
+		// conversation. Scrolling the list as it unmounts is both pointless (it's
+		// no longer visible) and unsafe: @tanstack/react-virtual's scrollToIndex
+		// schedules a requestAnimationFrame retry chain on the scroll element's
+		// window, which throws once that element (and its window) are gone. Only
+		// auto-scroll while the list stays mounted alongside the reading pane.
+		if (!isDesktop && selectedMessageId) return;
 		const target = focusIndex >= 0 ? focusIndex : currentIndex;
 		if (target >= 0) {
 			virtualizer.scrollToIndex(target, { align: "auto" });
 		}
-	}, [focusIndex, currentIndex, virtualizer]);
+	}, [focusIndex, currentIndex, virtualizer, isDesktop, selectedMessageId]);
 
 	// Opening a thread (click or Enter, anywhere) seeds the focus cursor onto it
 	// so subsequent j/k continue from the open row — focus and open stay in

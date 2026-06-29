@@ -96,18 +96,33 @@ function MailLayout() {
 	// Mirror the debounced search into the URL so links are shareable and a
 	// refresh restores the query. One-directional: the URL is never read back
 	// into state, so there is no sync loop.
-	// When a query goes active, also strip selectedMessageId so the reading
+	// When a query *goes* active, also strip selectedMessageId so the reading
 	// pane closes (#539): an open message from the pre-search list is not
-	// meaningful in the search result set.
+	// meaningful in the search result set. Only strip on that transition though —
+	// tapping a search result commits the same `q` with the selection, so when
+	// `prev.q` already equals the query the result was opened under it (not a
+	// pre-search leftover) and must survive. The strip otherwise raced the tap:
+	// the row shows before the debounce settles, so this mirror can land just
+	// after the open and close it again.
 	useEffect(() => {
 		if (debouncedSearchInput === searchQueryRef.current) return;
 		navigate({
 			to: ".",
-			search: (prev) => ({
-				...prev,
-				q: debouncedSearchInput || undefined,
-				...(debouncedSearchInput ? { selectedMessageId: undefined } : {}),
-			}),
+			search: (prev) => {
+				const queryAlreadyActive =
+					(prev as { q?: string }).q === debouncedSearchInput;
+				return {
+					...prev,
+					q: debouncedSearchInput || undefined,
+					...(debouncedSearchInput && !queryAlreadyActive
+						? {
+								selectedMessageId: undefined,
+								selectedThreadId: undefined,
+								selectedMailboxId: undefined,
+							}
+						: {}),
+				};
+			},
 			replace: true,
 		});
 	}, [debouncedSearchInput, navigate]);
