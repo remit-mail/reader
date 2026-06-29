@@ -140,7 +140,7 @@ const rawHandler = async (event: APIGatewayProxyEvent, context: Context) => {
 		method: event.httpMethod,
 	});
 
-	logger.info(
+	logger.debug(
 		{ method: event.httpMethod, path: event.path },
 		"Request received",
 	);

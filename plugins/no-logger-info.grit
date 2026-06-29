@@ -1,0 +1,4 @@
+language js(typescript, jsx);
+`logger.info($...)` as $call where {
+    register_diagnostic(span = $call, message = "logger.info is banned — use logger.debug for routine traces or logger.warn/error for actionable signals. (Let-It-Crash / #1029)", severity = "error")
+}

@@ -97,6 +97,7 @@ export const MeOperations: Record<
 			}),
 		);
 
+		// biome-ignore lint/plugin/no-logger-info: account deletion is an audit-grade signal
 		logger.info({ accountConfigId }, "Account deletion initiated");
 
 		return {
@@ -136,6 +137,7 @@ export const MeOperations: Record<
 			}),
 		);
 
+		// biome-ignore lint/plugin/no-logger-info: account export is an audit-grade signal
 		logger.info(
 			{
 				accountConfigId,
