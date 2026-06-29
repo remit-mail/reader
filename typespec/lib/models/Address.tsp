@@ -134,29 +134,29 @@ model Address {
   @visibility(Lifecycle.Read)
   flags?: AddressFlags;
 
-  @doc("Number of inbound messages received from this address. Absent means zero.")
+  @doc("Number of inbound messages received from this address. Defaults to zero.")
   @visibility(Lifecycle.Read)
-  inboundCount?: int32;
+  inboundCount: int32 = 0;
 
-  @doc("Number of outbound messages sent to this address. Absent means zero.")
+  @doc("Number of outbound messages sent to this address. Defaults to zero.")
   @visibility(Lifecycle.Read)
-  outboundCount?: int32;
+  outboundCount: int32 = 0;
 
-  @doc("Number of user replies to messages from this address. Absent means zero.")
+  @doc("Number of user replies to messages from this address. Defaults to zero.")
   @visibility(Lifecycle.Read)
-  replyCount?: int32;
+  replyCount: int32 = 0;
 
-  @doc("Timestamp (ms epoch) of the last inbound message from this address")
+  @doc("Timestamp (ms epoch) of the last inbound message from this address. Zero means never.")
   @visibility(Lifecycle.Read)
-  lastInboundAt?: int64;
+  lastInboundAt: int64 = 0;
 
   @doc("Timestamp (ms epoch) of the last outbound message to this address")
   @visibility(Lifecycle.Read)
   lastOutboundAt?: int64;
 
-  @doc("Timestamp (ms epoch) of the last user reply to a message from this address")
+  @doc("Timestamp (ms epoch) of the last user reply to a message from this address. Zero means never.")
   @visibility(Lifecycle.Read)
-  lastReplyAt?: int64;
+  lastReplyAt: int64 = 0;
 
   @visibility(Lifecycle.Read)
   @createdAt

@@ -51,13 +51,13 @@ model OutboxMessage {
   @visibility(Lifecycle.Read)
   toAddresses: string[];
 
-  @doc("CC recipient addresses")
+  @doc("CC recipient addresses. Empty when none.")
   @visibility(Lifecycle.Read)
-  ccAddresses?: string[];
+  ccAddresses: string[] = #[];
 
-  @doc("BCC recipient addresses")
+  @doc("BCC recipient addresses. Empty when none.")
   @visibility(Lifecycle.Read)
-  bccAddresses?: string[];
+  bccAddresses: string[] = #[];
 
   @doc("Reply-To address if different from From")
   @visibility(Lifecycle.Read)
@@ -79,9 +79,9 @@ model OutboxMessage {
   @visibility(Lifecycle.Read)
   inReplyTo?: string;
 
-  @doc("References header values (array of message-ids, without brackets)")
+  @doc("References header values (array of message-ids, without brackets). Empty when none.")
   @visibility(Lifecycle.Read)
-  references?: string[];
+  references: string[] = #[];
 
   // ============================================
   // Content
