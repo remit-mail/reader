@@ -300,6 +300,7 @@ function StepMicrosoftEmail({
 	};
 
 	// Keyboard: Enter submits, Esc goes back
+	// biome-ignore lint/correctness/useExhaustiveDependencies: handleSubmit's identity changes every render; including it would re-run this keydown listener on every render. Omitted to preserve existing behavior (matches the pre-existing eslint-disable). Enter-submit uses a stale handleSubmit — latent, tracked separately.
 	useEffect(() => {
 		const handler = (e: KeyboardEvent) => {
 			if (e.key === "Enter" && !startMutation.isPending) handleSubmit();
@@ -810,6 +811,7 @@ function StepTest({
 		...accountOperationsTestConnectionMutation(),
 	});
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: mount-only effect guarded by hasRunRef; re-running on field change would trigger spurious test requests
 	useEffect(() => {
 		if (hasRunRef.current) return;
 		hasRunRef.current = true;
@@ -1051,6 +1053,7 @@ function StepSync({
 	});
 
 	// Create the account once on mount
+	// biome-ignore lint/correctness/useExhaustiveDependencies: mount-only effect guarded by hasCreatedRef; re-running on field change would trigger duplicate account creation
 	useEffect(() => {
 		if (hasCreatedRef.current) return;
 		hasCreatedRef.current = true;

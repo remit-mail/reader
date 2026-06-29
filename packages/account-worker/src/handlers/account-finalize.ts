@@ -1,7 +1,7 @@
 import { inspect } from "node:util";
 import { CloudFrontClient } from "@aws-sdk/client-cloudfront";
 import { S3Client } from "@aws-sdk/client-s3";
-import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
+import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
 import { NotFoundError } from "@remit/remit-electrodb-service";
 import {
 	createLogger,

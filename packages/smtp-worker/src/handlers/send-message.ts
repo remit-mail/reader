@@ -9,7 +9,7 @@ import {
 	MessageService,
 	OutboxMessageService,
 } from "@remit/remit-electrodb-service";
-import { ConnectionState } from "@remit/domain-enums";
+import type { ConnectionState } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import {
 	createMailOAuthService,

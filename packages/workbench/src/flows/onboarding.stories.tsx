@@ -44,13 +44,17 @@ function OnboardingWalkthrough() {
 	const restart = () => setIndex(0);
 
 	const screens = [
-		<StepWelcome onNext={() => setIndex(1)} />,
-		<StepConnector onBack={back} onNext={() => setIndex(2)} />,
-		<StepAddress onBack={back} onNext={() => setIndex(3)} />,
-		<StepServers onBack={back} onNext={() => setIndex(4)} />,
-		<StepCredentials onBack={back} onNext={() => setIndex(5)} />,
-		<StepTest onBack={back} onNext={() => setIndex(6)} />,
-		<StepSync onNext={restart} />,
+		<StepWelcome key="welcome" onNext={() => setIndex(1)} />,
+		<StepConnector key="connector" onBack={back} onNext={() => setIndex(2)} />,
+		<StepAddress key="address" onBack={back} onNext={() => setIndex(3)} />,
+		<StepServers key="servers" onBack={back} onNext={() => setIndex(4)} />,
+		<StepCredentials
+			key="credentials"
+			onBack={back}
+			onNext={() => setIndex(5)}
+		/>,
+		<StepTest key="test" onBack={back} onNext={() => setIndex(6)} />,
+		<StepSync key="sync" onNext={restart} />,
 	];
 
 	return screens[index];

@@ -77,7 +77,7 @@ const processAccountDelete = async (
 		await services.accountConfigService.get(accountConfigId);
 	const cognitoUserId = accountConfig.userId;
 
-	const { entities, messageIds } = await enumerateCascadeEntities(
+	const { entities, messageIds: _messageIds } = await enumerateCascadeEntities(
 		accountConfigId,
 		services,
 		log,

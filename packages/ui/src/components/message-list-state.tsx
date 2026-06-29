@@ -11,8 +11,15 @@ export type ListState = "ready" | "loading" | "empty" | "error";
  */
 export function MessageListLoading() {
 	return (
-		<div className="space-y-0" aria-busy="true" aria-label="Loading messages">
+		// biome-ignore lint/a11y/useSemanticElements: <div> with role="status" preserves block layout; <output> is inline
+		<div
+			className="space-y-0"
+			role="status"
+			aria-busy="true"
+			aria-label="Loading messages"
+		>
 			{Array.from({ length: 8 }).map((_, i) => (
+				// biome-ignore lint/suspicious/noArrayIndexKey: list is static, no stable id
 				<div key={i} className="animate-pulse border-b border-line px-3 py-2">
 					<div className="mb-2 flex items-center justify-between">
 						<div className="h-4 w-32 rounded bg-surface-sunken" />

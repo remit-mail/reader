@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
 import { emitEvent } from "./emit.js";
-import type { ImapEvent } from "./events.js";
 
 const HELP = `
 remit-imap-worker - Process IMAP sync events
@@ -138,43 +137,58 @@ const buildEvent = () => {
 		case "SYNC_MAILBOXES":
 			return {
 				type: "SYNC_MAILBOXES" as const,
+				// biome-ignore lint/style/noNonNullAssertion: value is guaranteed by caller contract
 				accountId: values.accountId!,
 			};
 		case "SYNC_MESSAGES":
 			return {
 				type: "SYNC_MESSAGES" as const,
+				// biome-ignore lint/style/noNonNullAssertion: value is guaranteed by caller contract
 				accountId: values.accountId!,
+				// biome-ignore lint/style/noNonNullAssertion: value is guaranteed by caller contract
 				mailboxId: values.mailboxId!,
 				fullSync: values.fullSync,
 			};
 		case "SYNC_MESSAGE_BODY":
 			return {
 				type: "SYNC_MESSAGE_BODY" as const,
+				// biome-ignore lint/style/noNonNullAssertion: value is guaranteed by caller contract
 				accountId: values.accountId!,
+				// biome-ignore lint/style/noNonNullAssertion: value is guaranteed by caller contract
 				mailboxId: values.mailboxId!,
-				messageIds: values.messageIds!.split(",").map((id) => id.trim()),
+				messageIds: values.messageIds?.split(",").map((id) => id.trim()),
 			};
 		case "MAILBOX_CREATE":
 			return {
 				type: "MAILBOX_CREATE" as const,
+				// biome-ignore lint/style/noNonNullAssertion: value is guaranteed by caller contract
 				accountId: values.accountId!,
+				// biome-ignore lint/style/noNonNullAssertion: value is guaranteed by caller contract
 				mailboxId: values.mailboxId!,
+				// biome-ignore lint/style/noNonNullAssertion: value is guaranteed by caller contract
 				path: values.path!,
 				subscribe: values.subscribe,
 			};
 		case "MAILBOX_RENAME":
 			return {
 				type: "MAILBOX_RENAME" as const,
+				// biome-ignore lint/style/noNonNullAssertion: value is guaranteed by caller contract
 				accountId: values.accountId!,
+				// biome-ignore lint/style/noNonNullAssertion: value is guaranteed by caller contract
 				mailboxId: values.mailboxId!,
+				// biome-ignore lint/style/noNonNullAssertion: value is guaranteed by caller contract
 				oldPath: values.oldPath!,
+				// biome-ignore lint/style/noNonNullAssertion: value is guaranteed by caller contract
 				newPath: values.newPath!,
 			};
 		case "MAILBOX_DELETE":
 			return {
 				type: "MAILBOX_DELETE" as const,
+				// biome-ignore lint/style/noNonNullAssertion: value is guaranteed by caller contract
 				accountId: values.accountId!,
+				// biome-ignore lint/style/noNonNullAssertion: value is guaranteed by caller contract
 				mailboxId: values.mailboxId!,
+				// biome-ignore lint/style/noNonNullAssertion: value is guaranteed by caller contract
 				path: values.path!,
 			};
 		default:

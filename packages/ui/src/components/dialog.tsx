@@ -7,7 +7,7 @@ export interface DialogProps {
 	title: string;
 	/** Unique ID for aria-labelledby. Defaults to "dialog-title". */
 	titleId?: string;
-	children: ReactNode;
+	children?: ReactNode;
 	className?: string;
 	/**
 	 * Anchor. `"center"` (default) is the centered modal card. `"left"`/`"right"`
@@ -63,6 +63,7 @@ export function Dialog({
 	const isSlideOver = isLeft || isRight;
 
 	return (
+		// biome-ignore lint/a11y/noStaticElementInteractions: outer overlay closes dialog on click; role=presentation lets inner role=dialog own the AT semantics
 		<div
 			className={cn(
 				"fixed inset-0 z-50 flex",
@@ -91,6 +92,7 @@ export function Dialog({
 					className,
 				)}
 				onClick={(e) => e.stopPropagation()}
+				onKeyDown={(e) => e.stopPropagation()}
 			>
 				<h2 id={titleId} className="sr-only">
 					{title}

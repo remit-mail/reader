@@ -19,6 +19,7 @@ export const SlidePanel = ({
 }: SlidePanelProps) => (
 	<>
 		{/* Backdrop overlay */}
+		{/* biome-ignore lint/a11y/useSemanticElements: full-screen backdrop overlay; <button> default styles would break fixed inset positioning */}
 		<div
 			className={cn(
 				"fixed inset-0 bg-black/30 z-40 transition-opacity",

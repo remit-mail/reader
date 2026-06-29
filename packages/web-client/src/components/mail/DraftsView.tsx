@@ -82,15 +82,13 @@ const RemitDraftRow = ({
 	>
 		<FileText className="size-7 shrink-0 text-fg-muted mt-0.5" />
 		<ComfortableRowTextContent thread={row} />
-		<div
-			className="flex items-center gap-1 shrink-0"
-			onClick={(e) => e.stopPropagation()}
-			onKeyDown={(e) => e.stopPropagation()}
-			role="presentation"
-		>
+		<div className="flex items-center gap-1 shrink-0">
 			<button
 				type="button"
-				onClick={() => onDelete(row.id)}
+				onClick={(e) => {
+					e.stopPropagation();
+					onDelete(row.id);
+				}}
 				disabled={isDeleting}
 				className="p-1.5 rounded-md text-fg-muted hover:text-danger hover:bg-surface-raised transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
 				title="Delete draft"

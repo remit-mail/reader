@@ -148,10 +148,16 @@ const accountsHelp = (
 /* ------------------------------------------------------------------ */
 
 const LoadingSkeleton = () => (
-	<div className="space-y-3" aria-busy="true" aria-label="Loading accounts">
-		{Array.from({ length: 2 }).map((_, i) => (
+	// biome-ignore lint/a11y/useSemanticElements: <div> with role="status" preserves block layout; <output> is inline
+	<div
+		className="space-y-3"
+		role="status"
+		aria-busy="true"
+		aria-label="Loading accounts"
+	>
+		{(["skeleton-0", "skeleton-1"] as const).map((key) => (
 			<div
-				key={i}
+				key={key}
 				className="rounded-sm border border-line bg-surface animate-pulse p-4"
 			>
 				<div className="flex items-center gap-3">

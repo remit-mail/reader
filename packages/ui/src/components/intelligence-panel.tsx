@@ -459,6 +459,7 @@ export function IntelligencePanel({
 					{similarState === "loading" ? (
 						<div className="animate-pulse space-y-2">
 							{Array.from({ length: 3 }).map((_, i) => (
+								// biome-ignore lint/suspicious/noArrayIndexKey: list is static, no stable id
 								<div key={i} className="space-y-1">
 									<div className="h-3 w-3/4 rounded bg-surface-sunken" />
 									<div className="h-2.5 w-1/2 rounded bg-surface-sunken" />

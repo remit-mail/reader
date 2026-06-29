@@ -91,6 +91,7 @@ export const AddressList = ({
 				{expanded ? (
 					<div className="flex flex-wrap gap-1">
 						{addresses.map((addr, idx) => (
+							// biome-ignore lint/suspicious/noArrayIndexKey: list is static, no stable id
 							<span key={idx}>
 								{renderAddress(addr)}
 								{idx < addresses.length - 1 && ", "}
@@ -100,6 +101,7 @@ export const AddressList = ({
 				) : (
 					<div className="truncate">
 						{addresses.map((addr, idx) => (
+							// biome-ignore lint/suspicious/noArrayIndexKey: list is static, no stable id
 							<span key={idx}>
 								{renderAddress(addr)}
 								{idx < addresses.length - 1 && ", "}

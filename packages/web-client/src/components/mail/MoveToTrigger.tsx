@@ -107,6 +107,7 @@ export const MoveToTrigger = ({
 			searchValue: mailbox.fullPath,
 			isCurrent: mailbox.mailboxId === currentMailboxId,
 		}));
+		// biome-ignore lint/correctness/useExhaustiveDependencies: intentional omission to avoid infinite loop
 	}, [mailboxesResponse?.items, currentMailboxId, translator]);
 
 	const handleSelect = useCallback(

@@ -81,6 +81,7 @@ export function SelectionTopBar({
 				/>
 			</div>
 			{moveDisabledHint && (
+				// biome-ignore lint/a11y/useSemanticElements: <p> with role="status" preserves block layout; <output> is inline
 				<p
 					className="px-row-inset pb-2 text-xs text-fg-muted"
 					role="status"

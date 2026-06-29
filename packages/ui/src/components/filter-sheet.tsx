@@ -76,7 +76,7 @@ function ChevronDown({ className }: { className?: string }) {
 			fill="none"
 			stroke="currentColor"
 			strokeWidth={1.5}
-			aria-hidden
+			aria-hidden="true"
 		>
 			<path d="M2 4l4 4 4-4" />
 		</svg>
@@ -91,7 +91,7 @@ function Close({ className }: { className?: string }) {
 			fill="none"
 			stroke="currentColor"
 			strokeWidth={1.5}
-			aria-hidden
+			aria-hidden="true"
 		>
 			<path d="M3 3l6 6M9 3l-6 6" />
 		</svg>
@@ -267,6 +267,7 @@ export function FilterSheet({
 			{/* The toggle is a div-button (not a real <button>) so the Clear
 			    control can be a real nested <button> without invalid
 			    button-in-button nesting. */}
+			{/* biome-ignore lint/a11y/useSemanticElements: nested <button> inside would be invalid button-in-button */}
 			<div
 				role="button"
 				tabIndex={0}

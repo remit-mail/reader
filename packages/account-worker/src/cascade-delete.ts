@@ -43,10 +43,10 @@ const DDB_BATCH_LIMIT = 25;
 // Bounded retry on `UnprocessedItems` — exponential backoff, jittered.
 const DDB_MAX_RETRIES = 5;
 
-// biome-ignore lint/suspicious/noExplicitAny: ElectroDB's Entity generics
-// are not parameterisable across heterogeneous schemas in a single map; the
-// schemas below are all valid Entity inputs and the wrapping at use-site
-// keeps the rest of the file fully typed.
+// ElectroDB's Entity generics are not parameterisable across heterogeneous
+// schemas in a single map; schemas below are valid Entity inputs and
+// the wrapping at use-site keeps the rest of the file fully typed.
+// biome-ignore lint/suspicious/noExplicitAny: ElectroDB heterogeneous entity map
 const ENTITY_BY_TYPE: Record<string, any> = {
 	Account,
 	AccountConfig,

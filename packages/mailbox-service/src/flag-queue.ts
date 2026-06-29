@@ -7,7 +7,7 @@ import {
 	NotFoundError,
 	type ThreadMessageService,
 } from "@remit/remit-electrodb-service";
-import { MessageSystemFlag, StarColor } from "@remit/domain-enums";
+import { MessageSystemFlag, type StarColor } from "@remit/domain-enums";
 
 /**
  * StarColor type derived from the StarColor const object

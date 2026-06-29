@@ -30,6 +30,7 @@ export const FromSelector = ({
 		if (!account) return null;
 		return (
 			<div className="flex items-start gap-2">
+				{/* biome-ignore lint/a11y/noLabelWithoutControl: decorative label for a read-only value, not a form control */}
 				<label className="text-sm text-fg-muted shrink-0 w-12 pt-1.5">
 					From:
 				</label>
@@ -40,10 +41,14 @@ export const FromSelector = ({
 
 	return (
 		<div className="flex items-start gap-2">
-			<label className="text-sm text-fg-muted shrink-0 w-12 pt-1.5">
+			<label
+				htmlFor="from-account-selector"
+				className="text-sm text-fg-muted shrink-0 w-12 pt-1.5"
+			>
 				From:
 			</label>
 			<select
+				id="from-account-selector"
 				value={selectedAccountId ?? ""}
 				onChange={(e) => {
 					const account = accounts.find((a) => a.accountId === e.target.value);

@@ -87,6 +87,7 @@ function AccountFolderNames({
 
 	if (isPending) {
 		return (
+			// biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-label on loading skeleton provides useful context for assistive tech
 			<div
 				className="h-24 animate-pulse rounded-sm border border-line bg-surface"
 				aria-busy="true"
@@ -155,6 +156,7 @@ function FoldersSettings() {
 			onBackToMail={() => void navigate({ to: "/mail" })}
 		>
 			{isPending ? (
+				// biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-label on loading skeleton provides useful context for assistive tech
 				<div
 					className="h-24 animate-pulse rounded-sm border border-line bg-surface"
 					aria-busy="true"

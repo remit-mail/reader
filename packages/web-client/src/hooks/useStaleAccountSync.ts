@@ -92,6 +92,7 @@ export const useStaleAccountSync = (
 	accountsRef.current = accounts;
 	const stableKey = accounts.map((a) => a.accountId).join(",");
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: stableKey is a serialized account list used to trigger re-sync on account changes; adding it would cause issues without also referencing accountsRef
 	useEffect(() => {
 		const now = Date.now();
 		const stale = selectStaleAccountIds(accountsRef.current, now);

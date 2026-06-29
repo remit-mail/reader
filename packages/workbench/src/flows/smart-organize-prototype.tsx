@@ -224,7 +224,7 @@ function makeIcon(paths: ReactNode, sw = 1.5) {
 				strokeWidth={sw}
 				strokeLinecap="round"
 				strokeLinejoin="round"
-				aria-hidden
+				aria-hidden="true"
 			>
 				{paths}
 			</svg>
@@ -244,11 +244,7 @@ const JunkIcon = makeIcon(
 		<path d="M12 10v4M12 17v.01" />
 	</>,
 );
-const HamburgerIcon = makeIcon(
-	<>
-		<path d="M4 6h16M4 12h16M4 18h16" />
-	</>,
-);
+const HamburgerIcon = makeIcon(<path d="M4 6h16M4 12h16M4 18h16" />);
 
 const SearchIcon = makeIcon(
 	<>
@@ -269,7 +265,7 @@ function ChevronUpIcon({ className }: IconProps) {
 			strokeWidth={2}
 			strokeLinecap="round"
 			strokeLinejoin="round"
-			aria-hidden
+			aria-hidden="true"
 		>
 			<path d="M18 15l-6-6-6 6" />
 		</svg>
@@ -284,7 +280,7 @@ function RefreshIcon({ className }: IconProps) {
 			fill="none"
 			stroke="currentColor"
 			strokeWidth={1.5}
-			aria-hidden
+			aria-hidden="true"
 		>
 			<path d="M10 6a4 4 0 1 1-1.17-2.83" />
 			<path d="M10 2v2H8" />
@@ -300,7 +296,7 @@ function EditIcon({ className }: IconProps) {
 			fill="none"
 			stroke="currentColor"
 			strokeWidth={1.5}
-			aria-hidden
+			aria-hidden="true"
 		>
 			<path d="M8 2l2 2-5.5 5.5H3v-1.5L8 2z" />
 		</svg>
@@ -315,7 +311,7 @@ function XIcon({ className }: IconProps) {
 			fill="none"
 			stroke="currentColor"
 			strokeWidth={1.5}
-			aria-hidden
+			aria-hidden="true"
 		>
 			<path d="M3 3l6 6M9 3l-6 6" />
 		</svg>
@@ -330,7 +326,7 @@ function ChevronDown({ className }: IconProps) {
 			fill="none"
 			stroke="currentColor"
 			strokeWidth={1.5}
-			aria-hidden
+			aria-hidden="true"
 		>
 			<path d="M2 4l4 4 4-4" />
 		</svg>
@@ -347,7 +343,7 @@ function ArrowUp({ className }: IconProps) {
 			strokeWidth={2}
 			strokeLinecap="round"
 			strokeLinejoin="round"
-			aria-hidden
+			aria-hidden="true"
 		>
 			<path d="M12 19V5M5 12l7-7 7 7" />
 		</svg>
@@ -501,6 +497,7 @@ export function SelectionSheet({
 			}}
 		>
 			{/* ── grabber / teaser row — always visible at the peek ── */}
+			{/* biome-ignore lint/a11y/useKeyWithClickEvents: click-only interaction in prototype UI */}
 			<div
 				role="slider"
 				aria-label={
@@ -655,7 +652,6 @@ function LabelBit({
 	if (editing) {
 		return (
 			<input
-				autoFocus
 				value={draft}
 				onChange={(e) => setDraft(e.target.value)}
 				onBlur={commit}
@@ -768,7 +764,7 @@ function SelectableAvatar({
 			{selected ? (
 				<span
 					className="flex size-7 items-center justify-center rounded-full bg-accent-2"
-					aria-hidden
+					aria-hidden="true"
 				>
 					<CheckIcon className="size-4 text-white" />
 				</span>
@@ -958,6 +954,7 @@ export function OrganizePanel({
 					{isSelectionMode && selectedMessages ? (
 						<div className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface-sunken">
 							{selectedMessages.map((msg, i) => (
+								// biome-ignore lint/suspicious/noArrayIndexKey: list is static, no stable id
 								<div key={i} className="flex items-start gap-2.5 px-3 py-2">
 									<Avatar name={msg.sender} size="sm" />
 									<div className="min-w-0 flex-1">

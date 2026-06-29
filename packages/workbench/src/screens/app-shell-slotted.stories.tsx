@@ -38,7 +38,7 @@ function StatefulSlotted({
 	startOpen = true,
 	...overrides
 }: Partial<AppShellSlottedProps> & { startOpen?: boolean }) {
-	const [open, setOpen] = useState(startOpen);
+	const [open, _setOpen] = useState(startOpen);
 	return (
 		<AppShellSlotted
 			nav={<SlotPlaceholder label="Nav" className="bg-canvas" />}

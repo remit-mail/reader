@@ -81,6 +81,7 @@ const LoadingSkeleton = () => (
 		<div className="h-6 bg-surface-sunken rounded w-3/4 mb-5" />
 		<div className="space-y-4">
 			{Array.from({ length: 2 }).map((_, i) => (
+				// biome-ignore lint/suspicious/noArrayIndexKey: list is static, no stable id
 				<div key={i} className="flex gap-3 py-3">
 					<div className="size-10 bg-surface-sunken rounded-full shrink-0" />
 					<div className="flex-1">

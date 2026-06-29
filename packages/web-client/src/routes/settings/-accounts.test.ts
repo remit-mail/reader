@@ -1,3 +1,4 @@
+// biome-ignore lint/style/useFilenamingConvention: TanStack Router convention
 import assert from "node:assert";
 import { describe, test } from "node:test";
 import { mapOauthError } from "./accounts.tsx";
