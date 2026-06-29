@@ -406,6 +406,7 @@ export class MessageSyncService {
 			);
 			return { kind: "saved", uid: msg.uid, result };
 		} catch (error) {
+			// biome-ignore lint/plugin/no-silent-catch: per-message save failure — returns {kind: "failed"} to the caller which retries on the next sync; rethrowing would abort all remaining messages in the batch
 			this.log.warn(
 				{
 					mailboxId,

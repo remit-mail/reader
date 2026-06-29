@@ -173,8 +173,9 @@ export const handler: SQSHandler = withTelemetry(
 
 				await processAccountFanout(fanoutEvent, log);
 			} catch (error) {
+				// biome-ignore lint/plugin/no-silent-catch: SQS batch handler — nacking via batchItemFailures is the correct error propagation; rethrowing would crash the entire batch
 				log.error(
-					{ error, messageId: record.messageId },
+					{ error: error, messageId: record.messageId },
 					"Account fanout event processing failed",
 				);
 				batchItemFailures.push({ itemIdentifier: record.messageId });

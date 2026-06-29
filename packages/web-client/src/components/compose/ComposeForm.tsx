@@ -521,8 +521,8 @@ export const ComposeForm = ({
 			const textBody = plateValueToText(body);
 			const htmlBody = plateValueToHtml(body);
 
-			try {
-				const outboxMessage = await createMutation.mutateAsync({
+			const outboxMessage = await createMutation
+				.mutateAsync({
 					body: {
 						accountId: selectedAccountId,
 						toAddresses: toAddresses.map((a) => a.email),
@@ -540,34 +540,36 @@ export const ComposeForm = ({
 						sendImmediately: true,
 						...replyData,
 					},
+				})
+				.catch((error: unknown) => {
+					pushError({
+						title: "Couldn't send message",
+						detail: formatErrorDetail(error) ?? "Saving the draft failed.",
+					});
+					return null;
 				});
-				messageId = outboxMessage.outboxMessageId;
-				createdThisAttempt = true;
-				setOutboxMessageId(messageId);
-			} catch (error) {
-				pushError({
-					title: "Couldn't send message",
-					detail: formatErrorDetail(error) ?? "Saving the draft failed.",
-				});
-				return;
-			}
+			if (outboxMessage === null) return;
+			messageId = outboxMessage.outboxMessageId;
+			createdThisAttempt = true;
+			setOutboxMessageId(messageId);
 		}
 
-		try {
-			await sendMutation.mutateAsync({
+		const sent = await sendMutation
+			.mutateAsync({
 				path: { outboxMessageId: messageId },
+			})
+			.catch((error: unknown) => {
+				pushError({
+					title: "Couldn't send message",
+					detail:
+						formatErrorDetail(error) ??
+						(createdThisAttempt
+							? "The draft was saved but the send request failed. Try again from the Outbox."
+							: "The send request failed. Try again."),
+				});
+				return null;
 			});
-		} catch (error) {
-			pushError({
-				title: "Couldn't send message",
-				detail:
-					formatErrorDetail(error) ??
-					(createdThisAttempt
-						? "The draft was saved but the send request failed. Try again from the Outbox."
-						: "The send request failed. Try again."),
-			});
-			return;
-		}
+		if (sent === null) return;
 
 		startSendPolling(messageId);
 		onClose();

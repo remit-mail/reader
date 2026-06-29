@@ -80,6 +80,7 @@ export const adjustSenderTrustForJunkMove = async ({
 	} catch (err: unknown) {
 		// A sender with no Address row yet (e.g. never counted) has no trust to
 		// adjust — that is an expected no-op, not a failure.
+		// biome-ignore lint/plugin/no-silent-catch: best-effort trust adjustment — a missing Address row (NotFoundError) or transient failure must not block the junk-move response
 		if (err instanceof NotFoundError) {
 			log.info(
 				{ messageId },

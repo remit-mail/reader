@@ -244,10 +244,7 @@ export const MicrosoftOAuthOperations: Record<
 			);
 		}
 
-		let credentials: MsOAuthCredentials;
-		try {
-			credentials = await getMsOAuthCredentials();
-		} catch (err: unknown) {
+		const credentials = await getMsOAuthCredentials().catch((err: unknown) => {
 			logger.error(
 				{
 					alert: "oauth_callback_failed",
@@ -260,17 +257,19 @@ export const MicrosoftOAuthOperations: Record<
 				},
 				"MS OAuth callback: failed to load OAuth config",
 			);
+			return null;
+		});
+		if (credentials === null)
 			return redirect(`${webOrigin}/settings/accounts?oauthError=config_error`);
-		}
 
 		// Verify the HMAC-signed state
-		let statePayload: OAuthState;
-		try {
-			statePayload = await verifyState(state, credentials.clientSecret);
-		} catch (err: unknown) {
-			// A bad/expired/forged state is a security-relevant signal (CSRF
-			// attempt, clock skew, or a stale callback) — must not be swallowed
-			// silently. Warn so it's observable; still redirect the user cleanly.
+		// A bad/expired/forged state is a security-relevant signal (CSRF
+		// attempt, clock skew, or a stale callback) — must not be swallowed
+		// silently. Warn so it's observable; still redirect the user cleanly.
+		const statePayload = await verifyState(
+			state,
+			credentials.clientSecret,
+		).catch((err: unknown) => {
 			logger.warn(
 				{
 					alert: "oauth_callback_failed",
@@ -280,10 +279,12 @@ export const MicrosoftOAuthOperations: Record<
 				},
 				"MS OAuth callback: state verification failed",
 			);
+			return null;
+		});
+		if (statePayload === null)
 			return redirect(
 				`${webOrigin}/settings/accounts?oauthError=invalid_state`,
 			);
-		}
 
 		const { accountConfigId } = statePayload;
 
@@ -299,18 +300,19 @@ export const MicrosoftOAuthOperations: Record<
 		);
 
 		// Exchange the authorization code for tokens
-		let tokenSet: Awaited<ReturnType<typeof oauthService.exchangeCode>>;
-		try {
-			tokenSet = await oauthService.exchangeCode(code, config.redirectUri);
-		} catch (err: unknown) {
-			logger.error(
-				{ accountConfigId, error: inspect(err) },
-				"MS OAuth code exchange failed",
-			);
+		const tokenSet = await oauthService
+			.exchangeCode(code, config.redirectUri)
+			.catch((err: unknown) => {
+				logger.error(
+					{ accountConfigId, error: inspect(err) },
+					"MS OAuth code exchange failed",
+				);
+				return null;
+			});
+		if (tokenSet === null)
 			return redirect(
 				`${webOrigin}/settings/accounts?oauthError=exchange_failed`,
 			);
-		}
 
 		if (!tokenSet.refreshToken) {
 			logger.error(
@@ -342,9 +344,11 @@ export const MicrosoftOAuthOperations: Record<
 				(claims.email as string | undefined) ??
 				(claims.upn as string | undefined);
 		} catch (err: unknown) {
+			// parseJwtClaims is not a promise; .catch() is unavailable.
 			// Not a JWT or missing claims. The empty-email check below turns this
 			// into a user-facing missing_email redirect, but log here so the
 			// parse failure itself is observable (e.g. an unexpected token shape).
+			// biome-ignore lint/plugin/no-silent-catch: sync-throw — parseJwtClaims is not a promise so .catch() is unavailable; email absence is handled by the guard below
 			logger.warn(
 				{
 					alert: "oauth_callback_failed",
