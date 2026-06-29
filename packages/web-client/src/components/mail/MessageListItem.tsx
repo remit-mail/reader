@@ -16,6 +16,7 @@ import { Check } from "lucide-react";
 import { type MouseEvent, memo, useCallback } from "react";
 import { useLongPress } from "@/hooks/useLongPress";
 import type { SelectionModifiers } from "@/hooks/useSelection";
+import { toDisplayCategory } from "@/lib/display-category";
 import { formatEmailDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -79,7 +80,7 @@ const toThreadRowData = (
 		starred:
 			thread.star != null && thread.star !== "none" && thread.hasStars === true,
 		trust: thread.senderTrust as SenderTrustLevel,
-		category: thread.category,
+		category: toDisplayCategory(thread.category),
 		messageCount,
 		suspicious,
 	};

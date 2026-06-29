@@ -15,6 +15,7 @@ import { useState } from "react";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { isMessageNotFoundError } from "@/components/ui/error-banners";
+import { toDisplayCategory } from "@/lib/display-category";
 import { formatDatePreset } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { MessageActionMenu } from "./MessageActionMenu";
@@ -306,7 +307,7 @@ const ExpandedCard = ({
 							messageId={threadMessage.messageId}
 							fromAddressId={messageData?.envelope.from[0]?.addressId}
 							isTrusted={isTrusted}
-							category={threadMessage.category}
+							category={toDisplayCategory(threadMessage.category)}
 						/>
 					</div>
 				)

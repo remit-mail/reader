@@ -2,6 +2,7 @@ import { inspect } from "node:util";
 import {
 	ContentDisposition,
 	MediaType,
+	MessageCategory,
 	SenderTrust,
 	StarColor,
 } from "@remit/domain-enums";
@@ -283,7 +284,7 @@ export const MessageOperations: Record<
 			cc: groupedAddresses.cc ?? [],
 			bcc: groupedAddresses.bcc ?? [],
 			replyTo: groupedAddresses.reply_to ?? [],
-			category: message.category,
+			category: message.category ?? MessageCategory.uncategorized,
 			senderTrust,
 		};
 
