@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import {
-	buildRescueCandidates,
 	isRescueCandidate,
 	rescueCandidateReason,
 } from "./rescue-candidates.js";
@@ -54,7 +53,7 @@ describe("rescueCandidateReason", () => {
 	});
 });
 
-describe("isRescueCandidate", () => {
+describe("isRescueCandidate (telemetry predicate)", () => {
 	test("includes verified senders with no DKIM mismatch", () => {
 		assert.equal(
 			isRescueCandidate(thread({ messageId: "m1", senderTrust: "wellknown" })),
@@ -91,58 +90,5 @@ describe("isRescueCandidate", () => {
 			isRescueCandidate(thread({ messageId: "m5", senderTrust: "wellknown" })),
 			true,
 		);
-	});
-});
-
-describe("buildRescueCandidates", () => {
-	const threads = [
-		thread({ messageId: "m1", senderTrust: "wellknown" }),
-		thread({ messageId: "m2", senderTrust: "vip" }),
-		thread({ messageId: "m3", senderTrust: "unknown" }),
-		thread({
-			messageId: "m4",
-			senderTrust: "vip",
-			authenticity: { fromDomain: "x.nl", dkimMismatch: true },
-		}),
-	];
-
-	test("returns nothing off the Spam folder", () => {
-		assert.deepEqual(buildRescueCandidates(threads, false), []);
-	});
-
-	test("keeps only verified, unmismatched senders", () => {
-		const candidates = buildRescueCandidates(threads, true);
-		assert.deepEqual(
-			candidates.map((c) => c.id),
-			["m1", "m2"],
-		);
-	});
-
-	test("shapes the candidate with a plain-language reason", () => {
-		const [first, second] = buildRescueCandidates(threads, true);
-		assert.equal(first.trustReason, "We can verify this sender");
-		assert.equal(first.trustSubReason, "You've emailed them before");
-		assert.equal(first.senderName, "Anna de Vries");
-		assert.equal(second.trustSubReason, "A sender you know");
-	});
-
-	test("falls back to safe display strings when fields are missing", () => {
-		const [candidate] = buildRescueCandidates(
-			[
-				thread({
-					messageId: "m9",
-					senderTrust: "vip",
-					fromName: undefined,
-					fromEmail: undefined,
-					subject: undefined,
-					snippet: undefined,
-				}),
-			],
-			true,
-		);
-		assert.equal(candidate.senderName, "Unknown sender");
-		assert.equal(candidate.senderAddress, "");
-		assert.equal(candidate.subject, "(no subject)");
-		assert.equal(candidate.snippet, "");
 	});
 });
