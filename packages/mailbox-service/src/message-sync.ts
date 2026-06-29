@@ -163,7 +163,7 @@ export class MessageSyncService {
 		const lastSyncUid = mailbox.lastSyncUid || 0;
 		const highWaterMarkUid = mailbox.highWaterMarkUid || 0;
 
-		const { box, unseenCount, uids } = await this.fetchUidsToSync(
+		const { box, unseenCount, deletedCount, uids } = await this.fetchUidsToSync(
 			mailboxPath,
 			lastSyncUid,
 			highWaterMarkUid,
@@ -176,6 +176,7 @@ export class MessageSyncService {
 				uidValidity: box.uidvalidity,
 				messageCount: box.messageCount,
 				unseenCount,
+				deletedCount,
 			});
 
 			this.log.info(
@@ -293,6 +294,7 @@ export class MessageSyncService {
 			uidValidity: box.uidvalidity,
 			messageCount: box.messageCount,
 			unseenCount,
+			deletedCount,
 		});
 
 		const remainingCount = uids.length - batchUids.length;
@@ -336,6 +338,7 @@ export class MessageSyncService {
 	): Promise<{
 		box: { uidvalidity: number; uidnext: number; messageCount: number };
 		unseenCount: number;
+		deletedCount: number;
 		uids: number[];
 	}> {
 		const connection = this.connectionFactory.getConnection();
@@ -367,6 +370,7 @@ export class MessageSyncService {
 				messageCount: status.messages,
 			},
 			unseenCount: status.unseen,
+			deletedCount: status.deletedCount,
 			uids: uidsToSync,
 		};
 	}
