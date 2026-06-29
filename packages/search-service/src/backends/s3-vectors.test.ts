@@ -8,7 +8,7 @@ import {
 	S3VectorsClient,
 } from "@aws-sdk/client-s3vectors";
 import { type AwsClientStub, mockClient } from "aws-sdk-client-mock";
-import type { VectorRecord } from "../types.js";
+import type { VectorQuery, VectorRecord } from "../types.js";
 import { S3VectorsBackend } from "./s3-vectors.js";
 
 const VECTOR_BUCKET = "test-vector-bucket";
@@ -240,6 +240,85 @@ describe("S3VectorsBackend.query topK guard", () => {
 			topK !== undefined && topK >= 1 && topK <= 100,
 			`topK must be within AWS S3 Vectors 1..100 range, got ${topK}`,
 		);
+	});
+});
+
+describe("S3VectorsBackend.query filter expression", () => {
+	let s3vMock: AwsClientStub<S3VectorsClient>;
+
+	beforeEach(() => {
+		s3vMock = mockClient(S3VectorsClient);
+	});
+
+	afterEach(() => {
+		s3vMock.restore();
+	});
+
+	const filterFor = async (filter: VectorQuery["filter"]): Promise<unknown> => {
+		s3vMock.resetHistory();
+		s3vMock.on(QueryVectorsCommand).resolves({
+			vectors: [],
+			distanceMetric: "cosine",
+		});
+		await buildBackend().query({ vector: [0.1, 0.2, 0.3], topK: 10, filter });
+		const calls = s3vMock.commandCalls(QueryVectorsCommand);
+		assert.equal(calls.length, 1);
+		return calls[0].args[0].input.filter;
+	};
+
+	it("emits a bare single-key object for a single condition (no $and)", async () => {
+		const emitted = await filterFor({ accountConfigId: "acct-1" });
+		assert.deepEqual(emitted, { accountConfigId: "acct-1" });
+	});
+
+	it("wraps two conditions in $and, one single-key object each", async () => {
+		const emitted = await filterFor({
+			accountConfigId: "acct-1",
+			mailboxId: "mb-inbox",
+		});
+		assert.deepEqual(emitted, {
+			$and: [
+				{ accountConfigId: "acct-1" },
+				{ mailboxIds: { $in: ["mb-inbox"] } },
+			],
+		});
+	});
+
+	it("wraps two scalar conditions in $and", async () => {
+		const emitted = await filterFor({
+			accountConfigId: "acct-1",
+			hasStars: true,
+		});
+		assert.deepEqual(emitted, {
+			$and: [{ accountConfigId: "acct-1" }, { hasStars: true }],
+		});
+	});
+
+	it("emits no filter for zero conditions", async () => {
+		assert.equal(await filterFor(undefined), undefined);
+		assert.equal(await filterFor({}), undefined);
+	});
+
+	it("emits the inbox Related shape as $and (regression for the Invalid filter 500)", async () => {
+		// The inbox "Related" section always filters by account + mailbox. As a
+		// flat 2-key object S3 Vectors rejects it with ValidationException, leaving
+		// the section permanently empty. It must be wrapped in $and.
+		const emitted = await filterFor({
+			accountConfigId: "acct-1",
+			mailboxId: "mb-inbox",
+		});
+		assert.ok(
+			emitted !== null &&
+				typeof emitted === "object" &&
+				"$and" in (emitted as Record<string, unknown>),
+			"multi-condition inbox filter must be wrapped in $and",
+		);
+		assert.deepEqual(emitted, {
+			$and: [
+				{ accountConfigId: "acct-1" },
+				{ mailboxIds: { $in: ["mb-inbox"] } },
+			],
+		});
 	});
 });
 
