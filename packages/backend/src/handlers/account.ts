@@ -167,12 +167,12 @@ const testOAuthConnection = async (
 	}
 
 	// OAuth accounts share the same access token for IMAP and SMTP.
-	if (existingAccount.smtpHost) {
+	if (existingAccount.smtpEnabled) {
 		const smtpResult = await testSmtpConnection({
-			host: existingAccount.smtpHost,
+			host: existingAccount.smtpHost ?? "",
 			port: existingAccount.smtpPort ?? 587,
 			secure: existingAccount.smtpTls ?? false,
-			user: existingAccount.smtpUsername ?? existingAccount.username,
+			user: existingAccount.smtpUsername || existingAccount.username,
 			credentials,
 		});
 		result.smtpSuccess = smtpResult.success;
@@ -238,6 +238,10 @@ export const AccountOperations: Record<
 			imapPort: input.imapPort,
 			imapTls: input.imapTls,
 			imapStartTls: input.imapStartTls,
+			// RFC 032 Tier 2: smtpEnabled is the explicit send-capability marker.
+			// Honour an explicit flag from the client; otherwise enable sending when
+			// an SMTP host was supplied (the prior implicit behaviour).
+			smtpEnabled: input.smtpEnabled ?? Boolean(input.smtpHost),
 			smtpHost: input.smtpHost,
 			smtpPort: input.smtpPort,
 			smtpTls: input.smtpTls,
@@ -397,6 +401,7 @@ export const AccountDetailOperations: Record<
 			"imapPort",
 			"imapTls",
 			"imapStartTls",
+			"smtpEnabled",
 			"smtpHost",
 			"smtpPort",
 			"smtpTls",
@@ -409,6 +414,13 @@ export const AccountDetailOperations: Record<
 			if (input[field] !== undefined) {
 				updates[field] = input[field];
 			}
+		}
+
+		// RFC 032 Tier 2: keep the explicit send-capability marker in sync. When a
+		// caller changes the SMTP host without passing smtpEnabled, derive it from
+		// host presence so the marker can't drift from the config.
+		if (input.smtpEnabled === undefined && input.smtpHost !== undefined) {
+			updates.smtpEnabled = Boolean(input.smtpHost);
 		}
 
 		// Display name and the mute flag live in per-account AccountSetting rows
