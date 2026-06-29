@@ -173,13 +173,13 @@ model Message {
   @visibility(Lifecycle.Read)
   providerSpam?: MessageProviderSpam;
 
-  @doc("True when a List-Unsubscribe header is present, indicating a bulk/mailing-list sender.")
+  @doc("True when a List-Unsubscribe header is present, indicating a bulk/mailing-list sender. Defaults to false.")
   @visibility(Lifecycle.Read)
-  hasListUnsubscribe?: boolean;
+  hasListUnsubscribe: boolean = false;
 
-  @doc("Set to true when Remit auto-moved this message out of Junk via the rescue heuristic. Guards against re-rescue loops.")
+  @doc("Set to true when Remit auto-moved this message out of Junk via the rescue heuristic. Guards against re-rescue loops. Defaults to false.")
   @visibility(Lifecycle.Read)
-  movedByRemit?: boolean;
+  movedByRemit: boolean = false;
 
   @doc("Remit's placement verdict, recorded when Remit decided to act (action != leave). Absent means left-in-place or synced before placement rolled out. Recorded in dry-run too, so the dark-ship distribution is queryable.")
   @visibility(Lifecycle.Read)
