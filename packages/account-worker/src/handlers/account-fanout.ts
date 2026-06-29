@@ -15,6 +15,7 @@ import {
 	cascadeServices,
 	cognitoClient,
 	getAccountFinalizeQueueUrl,
+	getAccountPurgeDeleteQueueUrl,
 	getImapWorkerQueueUrl,
 	getUserPoolId,
 	sqsClient,
@@ -34,6 +35,7 @@ export interface ProcessAccountFanoutDeps {
 	userPoolId: string;
 	imapWorkerQueueUrl: string;
 	accountFinalizeQueueUrl: string;
+	accountPurgeDeleteQueueUrl: string;
 }
 
 /**
@@ -52,7 +54,7 @@ export const processAccountFanout = async (
 		await processAccountDataPurge(event, log, {
 			services: deps.services,
 			sqs: deps.sqs,
-			accountFinalizeQueueUrl: deps.accountFinalizeQueueUrl,
+			accountPurgeDeleteQueueUrl: deps.accountPurgeDeleteQueueUrl,
 		});
 		return;
 	}
@@ -114,9 +116,6 @@ const processAccountDelete = async (
 		new SendMessageCommand({
 			QueueUrl: deps.accountFinalizeQueueUrl,
 			MessageBody: JSON.stringify(finalizeEvent),
-			// The finalize queue is FIFO (#1069); group by tenant. The queue's
-			// content-based deduplication supplies the dedup id.
-			MessageGroupId: accountConfigId,
 		}),
 	);
 	log.info({ accountConfigId }, "Enqueued finalize event");
@@ -152,6 +151,7 @@ const defaultDeps = (): ProcessAccountFanoutDeps => ({
 	userPoolId: getUserPoolId(),
 	imapWorkerQueueUrl: getImapWorkerQueueUrl(),
 	accountFinalizeQueueUrl: getAccountFinalizeQueueUrl(),
+	accountPurgeDeleteQueueUrl: getAccountPurgeDeleteQueueUrl(),
 });
 
 const log = createLogger();

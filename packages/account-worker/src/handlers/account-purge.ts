@@ -13,7 +13,7 @@ import type { CascadeServices } from "../cascade.js";
 import {
 	cascadeServices as defaultCascadeServices,
 	sqsClient as defaultSqsClient,
-	getAccountFinalizeQueueUrl,
+	getAccountPurgeDeleteQueueUrl,
 	getSearchIndexQueueUrl,
 } from "../config.js";
 import type {
@@ -25,7 +25,7 @@ import type {
 export interface ProcessPurgeFanoutDeps {
 	services?: CascadeServices;
 	sqs?: SQSClient;
-	accountFinalizeQueueUrl?: string;
+	accountPurgeDeleteQueueUrl?: string;
 	searchIndexQueueUrl?: string;
 }
 
@@ -162,8 +162,8 @@ export const processAccountDataPurge = async (
 	const { accountId, accountConfigId } = event;
 	const services = deps.services ?? defaultCascadeServices;
 	const sqs = deps.sqs ?? defaultSqsClient;
-	const accountFinalizeQueueUrl =
-		deps.accountFinalizeQueueUrl ?? getAccountFinalizeQueueUrl();
+	const accountPurgeDeleteQueueUrl =
+		deps.accountPurgeDeleteQueueUrl ?? getAccountPurgeDeleteQueueUrl();
 	const searchIndexQueueUrl =
 		deps.searchIndexQueueUrl ?? getSearchIndexQueueUrl();
 
@@ -201,7 +201,7 @@ export const processAccountDataPurge = async (
 
 	await enqueuePurgeFinalize(
 		sqs,
-		accountFinalizeQueueUrl,
+		accountPurgeDeleteQueueUrl,
 		accountId,
 		accountConfigId,
 		items,
