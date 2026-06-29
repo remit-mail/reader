@@ -22,39 +22,21 @@ export const getErrorStatus = (error: unknown): number | undefined => {
 	return undefined;
 };
 
-/**
- * Classify an error as a fatal first-party server failure that must escalate to
- * the full-screen red overlay.
- *
- * Fatal (true):
- *  - ONLY a genuine 5xx with a real HTTP status from a first-party endpoint
- *    (our API answered, and it answered "I'm broken" — never benign).
- *
- * NOT fatal (false) — expected/transient, soft-handled by the calling surface
- * or recovered by React Query's reconnect/retry:
- *  - 4xx (404 no-data, 401/403 auth, 409 conflict, 422 validation, 429);
- *  - a statusless transport/network failure (`TypeError: Failed to fetch` from a
- *    wifi drop, tab wake, captive portal, or a background refetch) — the request
- *    never reached a server, so it is indistinguishable from a connectivity blip
- *    and must NOT take over the screen behind a reload-only overlay (reload also
- *    fails while offline → user trapped). React Query's reconnect refetch
- *    recovers these;
- *  - an aborted/cancelled request (route change, React Query cancellation);
- *  - an empty result set (not an error at all).
- */
-export const isFatalServerError = (error: unknown): boolean => {
-	if (isAbortError(error)) return false;
+/** The error carries a real HTTP status — our API answered. */
+export const hasHttpStatus = (error: unknown): boolean =>
+	getErrorStatus(error) !== undefined;
 
+/** A genuine first-party server failure: an HTTP 5xx. */
+export const isServerError = (error: unknown): boolean => {
 	const status = getErrorStatus(error);
-	// No HTTP status means the request never got a server answer: a connectivity
-	// blip or transport failure, not a proven first-party 5xx. Treat it as soft
-	// and let React Query's reconnect/retry recover — never escalate.
-	if (status === undefined) return false;
-
-	return status >= 500 && status <= 599;
+	return status !== undefined && status >= 500 && status <= 599;
 };
 
-const isAbortError = (error: unknown): boolean => {
+/**
+ * A deliberately cancelled request (route change, React Query cancellation).
+ * Never a failure.
+ */
+export const isAbortError = (error: unknown): boolean => {
 	if (
 		typeof DOMException !== "undefined" &&
 		error instanceof DOMException &&
@@ -71,4 +53,44 @@ const isAbortError = (error: unknown): boolean => {
 		return true;
 	}
 	return false;
+};
+
+/**
+ * A statusless transport/network failure (`TypeError: Failed to fetch` from a
+ * wifi drop, tab wake, captive portal, or a background refetch): the request
+ * never reached a server, so it is environmental, not a proven first-party
+ * failure. Excludes deliberate aborts (also statusless, but their own category).
+ */
+export const isNetworkError = (error: unknown): boolean =>
+	!isAbortError(error) && !hasHttpStatus(error);
+
+const isSoftErrorMeta = (meta: Record<string, unknown> | undefined): boolean =>
+	meta?.softError === true;
+
+/**
+ * The single fail-fast decision: should this error escalate to the full-screen
+ * fatal overlay? Default is YES — a non-2xx must never silently vanish.
+ *
+ * The contract (issue #1059):
+ *  1. DEFAULT = escalate.
+ *  2. A 5xx (500–599) ALWAYS escalates — no opt-out, even on a background
+ *     refetch, even when the call site marked `meta.softError`. Our API
+ *     answered "I'm broken"; that is never benign.
+ *  3. The ONLY soft (do-NOT-escalate) exemptions:
+ *     a. aborts / cancellations — never a failure;
+ *     b. statusless network/offline errors — environmental, recovered by React
+ *        Query's reconnect/retry;
+ *     c. a non-5xx error on a query/mutation that opted out via
+ *        `meta.softError === true` — the call site owns that error's UX
+ *        (e.g. a 404 empty state, a 4xx "Reconnect" banner).
+ */
+export const shouldEscalate = (
+	error: unknown,
+	meta?: Record<string, unknown>,
+): boolean => {
+	if (isServerError(error)) return true;
+	if (isAbortError(error)) return false;
+	if (isNetworkError(error)) return false;
+	if (isSoftErrorMeta(meta)) return false;
+	return true;
 };

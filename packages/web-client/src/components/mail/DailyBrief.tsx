@@ -47,7 +47,7 @@ import {
 	matchesBriefSearch,
 	toThreadRowData,
 } from "@/lib/brief";
-import { isFatalServerError } from "@/lib/error-classifier";
+import { isServerError } from "@/lib/error-classifier";
 import { useMailContext } from "@/lib/mail-context";
 import { relatedSearchResults, rowToSearchResult } from "@/lib/search-result";
 import { MailListHeader } from "./MailListHeader";
@@ -218,6 +218,11 @@ export function DailyBrief({
 				path: { accountId: account.accountId },
 			}),
 			staleTime: Infinity,
+			// A 4xx here is the account's own problem (IMAP down, auth expired) and
+			// renders the inline "Reconnect" banner below — opt it out of the global
+			// fatal overlay. A 5xx is OUR API breaking, not the account, and still
+			// escalates globally (meta.softError is ignored for 5xx — #1059).
+			meta: { softError: true },
 		})),
 	});
 
@@ -246,7 +251,7 @@ export function DailyBrief({
 		return nonMuted.filter((_, i) => {
 			const query = mailboxQueries[i];
 			if (!query?.isError) return false;
-			return !isFatalServerError(query.error);
+			return !isServerError(query.error);
 		});
 	}, [nonMuted, mailboxQueries]);
 

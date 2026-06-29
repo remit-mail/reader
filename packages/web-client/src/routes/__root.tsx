@@ -13,14 +13,14 @@ import {
 	FatalErrorOverlay,
 	FatalErrorScreen,
 } from "@/components/ui/FatalErrorOverlay";
-import { isFatalServerError } from "@/lib/error-classifier";
+import { isServerError } from "@/lib/error-classifier";
 import { reportFatalError } from "@/lib/fatal-error";
 import type { RouterContext } from "@/router";
 
 const RootErrorComponent = ({ error, reset }: ErrorComponentProps) => {
 	// A fatal first-party 5xx that bubbled to the route boundary must escalate
 	// to the full-screen red page — never the soft grey "Something went wrong".
-	if (isFatalServerError(error)) {
+	if (isServerError(error)) {
 		const fatal = reportFatalError(error);
 		return <FatalErrorScreen fatal={fatal} />;
 	}
