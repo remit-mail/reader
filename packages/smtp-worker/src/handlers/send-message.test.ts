@@ -62,6 +62,12 @@ const buildAccount = (overrides: Partial<AccountItem> = {}): AccountItem =>
 		imapPort: 993,
 		imapTls: true,
 		imapStartTls: false,
+		smtpEnabled: true,
+		smtpHost: "smtp.example.com",
+		smtpPort: 587,
+		smtpTls: false,
+		smtpStartTls: true,
+		smtpUsername: "",
 		isActive: true,
 		connectionState: "not_authenticated",
 		createdAt: 0,
@@ -183,9 +189,9 @@ const event: SendMessageEvent = {
 };
 
 describe("sendMessage handler", () => {
-	it("marks status `blocked` when SMTP host/port missing — never `sent`", async () => {
+	it("marks status `blocked` when SMTP is disabled — never `sent`", async () => {
 		const { deps, recorded } = buildDeps({
-			account: buildAccount({ smtpHost: undefined, smtpPort: undefined }),
+			account: buildAccount({ smtpEnabled: false }),
 		});
 
 		await sendMessage(event, silentLogger, deps);

@@ -25,6 +25,12 @@ const buildAccount = (overrides: Partial<AccountItem> = {}): AccountItem =>
 		imapPort: 993,
 		imapTls: true,
 		imapStartTls: false,
+		smtpEnabled: true,
+		smtpHost: "smtp.example.com",
+		smtpPort: 587,
+		smtpTls: false,
+		smtpStartTls: true,
+		smtpUsername: "",
 		isActive: true,
 		connectionState: "not_authenticated",
 		createdAt: 0,
@@ -40,18 +46,18 @@ const stubSecrets = (calls: EncryptedPayload[]) => ({
 });
 
 describe("resolveSmtpConfig", () => {
-	it("returns missing when smtpHost is absent", async () => {
+	it("returns missing when smtpEnabled is false", async () => {
 		const result = await resolveSmtpConfig(
-			buildAccount({ smtpHost: undefined, smtpPort: 587 }),
+			buildAccount({ smtpEnabled: false, smtpHost: "smtp.example.com" }),
 			stubSecrets([]),
 		);
 		assert.equal(result.ok, false);
 		if (!result.ok) assert.match(result.reason, /SMTP not configured/);
 	});
 
-	it("returns missing when smtpPort is absent", async () => {
+	it("returns missing when smtpEnabled is absent (legacy row not yet backfilled)", async () => {
 		const result = await resolveSmtpConfig(
-			buildAccount({ smtpHost: "smtp.example.com", smtpPort: undefined }),
+			buildAccount({ smtpEnabled: undefined, smtpHost: "smtp.example.com" }),
 			stubSecrets([]),
 		);
 		assert.equal(result.ok, false);

@@ -42,9 +42,10 @@ export type SmtpCredentials =
  * sends fail with "SMTP not configured" for every account that uses the same
  * credentials for IMAP and SMTP (issue #163).
  *
- * - Missing smtpHost or smtpPort => account isn't configured for sending.
+ * - `smtpEnabled` false => account isn't configured for sending (RFC 032 Tier 2:
+ *   the explicit marker, not inferred from `smtpHost` presence).
  * - Missing smtpPasswordHash => fall back to passwordHash (the IMAP secret).
- * - Missing smtpUsername => fall back to username (the IMAP login).
+ * - Empty smtpUsername => fall back to username (the IMAP login).
  *
  * @param credentials - Pre-resolved credentials from resolveConnectionCredentials.
  *   Only the `accessToken` kind is consumed (OAuth accounts). For password
@@ -55,19 +56,21 @@ export const resolveSmtpConfig = async (
 	secrets: Pick<SecretsService, "decrypt">,
 	credentials?: SmtpCredentials,
 ): Promise<ResolvedSmtpConfig> => {
-	if (!account.smtpHost || !account.smtpPort) {
+	if (!account.smtpEnabled) {
 		return { ok: false, reason: "SMTP not configured for this account" };
 	}
 
-	const smtpUser = account.smtpUsername ?? account.username;
+	const smtpHost = account.smtpHost ?? "";
+	const smtpPort = account.smtpPort ?? 587;
+	const smtpUser = account.smtpUsername || account.username;
 
 	// OAuth accounts: use the pre-minted access token directly.
 	if (credentials?.kind === "accessToken") {
 		return {
 			ok: true,
 			config: {
-				host: account.smtpHost,
-				port: account.smtpPort,
+				host: smtpHost,
+				port: smtpPort,
 				secure: account.smtpTls ?? false,
 				user: smtpUser,
 				credentials: {
@@ -92,8 +95,8 @@ export const resolveSmtpConfig = async (
 	return {
 		ok: true,
 		config: {
-			host: account.smtpHost,
-			port: account.smtpPort,
+			host: smtpHost,
+			port: smtpPort,
 			secure: account.smtpTls ?? false,
 			user: smtpUser,
 			credentials: { kind: "password", password: smtpPassword },

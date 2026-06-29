@@ -50,7 +50,9 @@ const PASSWORD_PLACEHOLDER = "••••••••••";
  * is the only available signal.
  */
 export const deriveUseDifferentSmtpCreds = (
-	account: Pick<RemitImapAccountResponse, "username" | "smtpUsername">,
+	account: Pick<RemitImapAccountResponse, "username"> & {
+		smtpUsername?: string;
+	},
 ): boolean => {
 	const smtpUsername = account.smtpUsername?.trim();
 	if (!smtpUsername) return false;

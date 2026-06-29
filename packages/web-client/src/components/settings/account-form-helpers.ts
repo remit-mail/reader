@@ -93,13 +93,13 @@ export const appendAppPasswordHint = (
 
 /**
  * `true` when an account row should display the "Can't send mail —
- * configure SMTP" warning. We treat both `undefined` and a blank string
- * as missing so accounts created before SMTP existed surface the same
- * affordance as new ones.
+ * configure SMTP" warning. RFC 032 Tier 2: send capability is the explicit
+ * `smtpEnabled` marker, not inferred from `smtpHost` presence. Rows written
+ * before this field existed coalesce to `false` (treated as missing), so
+ * legacy accounts surface the same affordance as new ones.
  */
 export const accountIsMissingSmtp = (account: {
-	smtpHost?: string | null;
+	smtpEnabled?: boolean;
 }): boolean => {
-	const host = account.smtpHost?.trim();
-	return !host;
+	return account.smtpEnabled !== true;
 };

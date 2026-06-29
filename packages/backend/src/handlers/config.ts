@@ -150,11 +150,15 @@ const toAccountResponse = (
 	imapPort: account.imapPort,
 	imapTls: account.imapTls,
 	imapStartTls: account.imapStartTls,
-	smtpHost: account.smtpHost,
-	smtpPort: account.smtpPort,
-	smtpTls: account.smtpTls,
-	smtpStartTls: account.smtpStartTls,
-	smtpUsername: account.smtpUsername,
+	// RFC 032 Tier 2: SMTP config is total. ElectroDB `default` applies on write
+	// only, so rows written before this change still lack these attributes —
+	// coalesce to the schema defaults on read so the response is always complete.
+	smtpEnabled: account.smtpEnabled ?? false,
+	smtpHost: account.smtpHost ?? "",
+	smtpPort: account.smtpPort ?? 587,
+	smtpTls: account.smtpTls ?? false,
+	smtpStartTls: account.smtpStartTls ?? true,
+	smtpUsername: account.smtpUsername ?? "",
 	signaturePlainText: signature.plainText,
 	signatureHtml: signature.html,
 	isActive: account.isActive,

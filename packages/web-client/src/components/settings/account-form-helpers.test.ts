@@ -110,24 +110,16 @@ describe("computeSmtpAutoFill", () => {
 });
 
 describe("accountIsMissingSmtp", () => {
-	test("true when smtpHost is undefined", () => {
+	test("true when smtpEnabled is undefined (legacy row)", () => {
 		assert.equal(accountIsMissingSmtp({}), true);
 	});
 
-	test("true when smtpHost is null", () => {
-		assert.equal(accountIsMissingSmtp({ smtpHost: null }), true);
+	test("true when smtpEnabled is false", () => {
+		assert.equal(accountIsMissingSmtp({ smtpEnabled: false }), true);
 	});
 
-	test("true when smtpHost is empty string", () => {
-		assert.equal(accountIsMissingSmtp({ smtpHost: "" }), true);
-	});
-
-	test("true when smtpHost is whitespace", () => {
-		assert.equal(accountIsMissingSmtp({ smtpHost: "   " }), true);
-	});
-
-	test("false when smtpHost is set", () => {
-		assert.equal(accountIsMissingSmtp({ smtpHost: "smtp.example.com" }), false);
+	test("false when smtpEnabled is true", () => {
+		assert.equal(accountIsMissingSmtp({ smtpEnabled: true }), false);
 	});
 });
 
