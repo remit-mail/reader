@@ -42,6 +42,8 @@ export const getImapWorkerQueueUrl = (): string =>
 	env.SQS_QUEUE_URL_IMAP_WORKER;
 export const getAccountFinalizeQueueUrl = (): string =>
 	env.SQS_QUEUE_URL_ACCOUNT_FINALIZE;
+export const getAccountPurgeDeleteQueueUrl = (): string =>
+	env.SQS_QUEUE_URL_ACCOUNT_PURGE_DELETE;
 
 const graceSecondsRaw = process.env.ACCOUNT_DELETION_GRACE_SECONDS;
 export const graceSeconds = graceSecondsRaw
