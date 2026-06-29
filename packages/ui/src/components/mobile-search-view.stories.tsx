@@ -61,6 +61,8 @@ const topMatches: SearchResult[] = [
 	},
 ];
 
+// Semantic "Related" hits carry their own thread + mailbox so they open directly
+// — the matching message often lives outside the loaded list.
 const related: SearchResult[] = [
 	{
 		id: "r5",
@@ -69,6 +71,8 @@ const related: SearchResult[] = [
 		snippet: "You have outstanding invoices totalling €430.00.",
 		date: "Feb 20",
 		category: { label: "Reminder", tone: "warning" },
+		threadId: "thread-quickbooks",
+		mailboxId: "mailbox-personal",
 	},
 	{
 		id: "r6",
@@ -77,6 +81,8 @@ const related: SearchResult[] = [
 		snippet: "This invoice is now 14 days overdue. Please remit payment.",
 		date: "Feb 12",
 		category: { label: "Overdue", tone: "danger" },
+		threadId: "thread-vendor",
+		mailboxId: "mailbox-personal",
 	},
 ];
 
@@ -108,6 +114,7 @@ function Harness({
 	const [activeFilters, setActiveFilters] = useState<Set<string>>(new Set());
 	const [activeSource, setActiveSource] = useState("personal");
 	const [expanded, setExpanded] = useState(false);
+	const [opened, setOpened] = useState<SearchResult | null>(null);
 
 	const base =
 		preset === "brief"
@@ -118,6 +125,26 @@ function Harness({
 					})),
 				)
 			: inboxFilterConfig();
+
+	if (opened) {
+		return (
+			<div className="flex h-full flex-col items-center justify-center gap-2 bg-canvas p-6 text-center text-sm">
+				<p className="font-semibold text-fg">Opened conversation</p>
+				<p className="text-fg-muted">{opened.subject}</p>
+				<p className="text-2xs text-fg-subtle">
+					thread {opened.threadId ?? "(none)"} · mailbox{" "}
+					{opened.mailboxId ?? "(none)"}
+				</p>
+				<button
+					type="button"
+					className="mt-2 text-2xs text-accent underline"
+					onClick={() => setOpened(null)}
+				>
+					Back to search
+				</button>
+			</div>
+		);
+	}
 
 	return (
 		<MobileSearchView
@@ -149,7 +176,7 @@ function Harness({
 			onPickRecent={setValue}
 			sections={sections}
 			loading={loading}
-			onSelectResult={() => undefined}
+			onSelectResult={setOpened}
 		/>
 	);
 }
@@ -200,4 +227,21 @@ export const NoResults: Story = {
 /** Results still loading. */
 export const Loading: Story = {
 	render: () => <Harness initialValue="invoice" loading preset="brief" />,
+};
+
+/**
+ * Selecting a "Related" (semantic) hit. These rows carry their own thread +
+ * mailbox, so tapping one opens the conversation directly — even though the
+ * matching message lives outside the loaded list. Tap a row under "Related" to
+ * see the thread + mailbox the result hands the app to open. Regression cover for
+ * the brief bug where a tapped related result selected nothing.
+ */
+export const RelatedSelectable: Story = {
+	render: () => (
+		<Harness
+			initialValue="invoice"
+			sections={[{ id: "related", label: "Related", results: related }]}
+			preset="brief"
+		/>
+	),
 };

@@ -138,7 +138,7 @@ export function FlaggedList({
 			onClearFilters={clearFilters}
 			searchResults={searchResults}
 			searchLoading={isLoading}
-			onSelectSearchResult={onSelectMessage}
+			onSelectSearchResult={(result) => onSelectMessage?.(result.id)}
 		>
 			<MessageListPane
 				listTitle="Flagged"

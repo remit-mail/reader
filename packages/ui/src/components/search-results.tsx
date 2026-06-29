@@ -23,7 +23,7 @@ export interface SearchResultsProps {
 	/** Grouped result sections (e.g. "Top matches", "Related"). */
 	sections?: SearchResultSection[];
 	loading?: boolean;
-	onSelectResult?: (id: string) => void;
+	onSelectResult?: (result: SearchResult) => void;
 }
 
 /**
@@ -39,7 +39,7 @@ function CollapsibleResultSection({
 }: {
 	section: SearchResultSection;
 	query?: string;
-	onSelectResult?: (id: string) => void;
+	onSelectResult?: (result: SearchResult) => void;
 }) {
 	const [collapsed, setCollapsed] = useState(section.initialCollapsed ?? false);
 	const [expanded, setExpanded] = useState(false);
@@ -80,7 +80,7 @@ function CollapsibleResultSection({
 							result={result}
 							query={query}
 							onClick={
-								onSelectResult ? () => onSelectResult(result.id) : undefined
+								onSelectResult ? () => onSelectResult(result) : undefined
 							}
 						/>
 					))}

@@ -22,6 +22,8 @@ export function threadToSearchResult(
 		date: formatEmailDate(thread.sentDate),
 		unread: !thread.isRead,
 		flagged: thread.hasStars === true,
+		threadId: thread.threadId,
+		mailboxId: thread.mailboxId,
 	};
 }
 
@@ -52,6 +54,8 @@ export function semanticToSearchResult(
 		subject: hit.subject ?? "(No subject)",
 		snippet: "",
 		date: hit.sentDate != null ? formatEmailDate(hit.sentDate * 1000) : "",
+		threadId: hit.threadId,
+		...(hit.mailboxIds[0] != null ? { mailboxId: hit.mailboxIds[0] } : {}),
 	};
 }
 

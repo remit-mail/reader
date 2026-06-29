@@ -1,9 +1,13 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
-import type { RemitImapSemanticSearchResult } from "@remit/api-http-client/types.gen.ts";
+import type {
+	RemitImapSemanticSearchResult,
+	RemitImapThreadMessageResponse,
+} from "@remit/api-http-client/types.gen.ts";
 import {
 	relatedSearchResults,
 	semanticToSearchResult,
+	threadToSearchResult,
 } from "./search-result.js";
 
 function hit(
@@ -42,6 +46,46 @@ describe("semanticToSearchResult", () => {
 		assert.strictEqual(result.sender, "Unknown");
 		assert.strictEqual(result.subject, "(No subject)");
 		assert.strictEqual(result.date, "");
+	});
+
+	// The bug: without thread + mailbox the brief could only look the hit up by
+	// messageId in its loaded list, where a related hit isn't found — so it must
+	// carry both so the conversation opens directly.
+	test("carries the thread and first mailbox so the hit opens directly", () => {
+		const result = semanticToSearchResult(
+			hit({
+				messageId: "m3",
+				threadId: "t3",
+				score: 0.7,
+				mailboxIds: ["mb-inbox", "mb-other"],
+			}),
+		);
+		assert.strictEqual(result.threadId, "t3");
+		assert.strictEqual(result.mailboxId, "mb-inbox");
+	});
+
+	test("omits mailboxId when the hit carries no mailbox", () => {
+		const result = semanticToSearchResult(
+			hit({ messageId: "m4", threadId: "t4", score: 0.3, mailboxIds: [] }),
+		);
+		assert.strictEqual(result.threadId, "t4");
+		assert.strictEqual(result.mailboxId, undefined);
+	});
+});
+
+describe("threadToSearchResult", () => {
+	test("carries thread and mailbox so a literal hit opens directly", () => {
+		const result = threadToSearchResult({
+			messageId: "m1",
+			threadId: "t1",
+			mailboxId: "mb1",
+			subject: "Hi",
+			isRead: true,
+			sentDate: 1_700_000_000_000,
+		} as RemitImapThreadMessageResponse);
+		assert.strictEqual(result.id, "m1");
+		assert.strictEqual(result.threadId, "t1");
+		assert.strictEqual(result.mailboxId, "mb1");
 	});
 });
 

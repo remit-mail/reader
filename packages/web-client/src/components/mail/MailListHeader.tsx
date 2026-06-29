@@ -50,7 +50,7 @@ interface MailListHeaderProps {
 	/** Semantic results — the "Related" section, deduped against "Top matches". */
 	relatedResults?: SearchResult[];
 	relatedLoading?: boolean;
-	onSelectSearchResult?: (id: string) => void;
+	onSelectSearchResult?: (result: SearchResult) => void;
 }
 
 export function MailListHeader({
@@ -90,10 +90,10 @@ export function MailListHeader({
 		!hasAnyResult && (searchLoading === true || relatedLoading === true);
 
 	if (tier === "phone" && searchOpen) {
-		const handleSelectResult = (id: string) => {
+		const handleSelectResult = (result: SearchResult) => {
 			setRecentSearches(saveRecentSearch(searchInput));
 			setSearchOpen(false);
-			onSelectSearchResult?.(id);
+			onSelectSearchResult?.(result);
 		};
 		return (
 			<MobileSearchView
@@ -118,9 +118,9 @@ export function MailListHeader({
 	// list-pane body swaps to the same sectioned results the phone takeover shows,
 	// under the same FilterSheet. Clearing the query restores the normal list.
 	const showInlineResults = tier !== "phone" && hasQuery;
-	const handleSelectInlineResult = (id: string) => {
+	const handleSelectInlineResult = (result: SearchResult) => {
 		setRecentSearches(saveRecentSearch(searchInput));
-		onSelectSearchResult?.(id);
+		onSelectSearchResult?.(result);
 	};
 	const results = (
 		<SearchResults

@@ -151,13 +151,20 @@ const BriefRow = ({
 interface DailyBriefProps {
 	accounts: RemitImapAccountResponse[];
 	selectedMessageId?: string;
+	/** Opens an in-list brief row (resolved by messageId against the loaded list). */
 	onSelectMessage?: (id: string) => void;
+	/**
+	 * Opens a search result. A semantic "Related" hit carries its thread + mailbox
+	 * so it opens even when its message isn't in the loaded brief list.
+	 */
+	onSelectSearchResult?: (result: SearchResult) => void;
 }
 
 export function DailyBrief({
 	accounts,
 	selectedMessageId,
 	onSelectMessage,
+	onSelectSearchResult,
 }: DailyBriefProps) {
 	const { searchQuery } = useMailContext();
 	const isDesktop = useIsDesktop();
@@ -411,7 +418,7 @@ export function DailyBrief({
 			searchLoading={isLoading}
 			relatedResults={relatedResults}
 			relatedLoading={relatedLoading}
-			onSelectSearchResult={onSelectMessage}
+			onSelectSearchResult={onSelectSearchResult}
 		>
 			<div className="flex h-full flex-col">
 				{failedAccounts.map((account) => (
