@@ -156,9 +156,9 @@ model ThreadMessage {
   @visibility(Lifecycle.Read)
   hasAttachment: boolean;
 
-  @doc("Message-level star color")
+  @doc("Message-level star color. Defaults to `None` (no star) — the absent state is a named sentinel value, never an empty field. `hasStars` carries the boolean the byStarred index filters on.")
   @visibility(Lifecycle.Read)
-  star?: StarColor;
+  star: StarColor = StarColor.None;
 
   @doc("True if message is starred (for index filtering)")
   @visibility(Lifecycle.Read)

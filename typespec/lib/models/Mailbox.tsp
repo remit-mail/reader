@@ -117,9 +117,9 @@ model Mailbox {
   @visibility(Lifecycle.Read)
   initialSyncCompletedAt?: int64;
 
-  @doc("Reference to parent mailbox for hierarchy (null for root)")
+  @doc("Reference to parent mailbox for hierarchy. Total per RFC 032 Tier 3: a root mailbox carries the named sentinel `None` rather than an empty field, so the value is never absent. Any other value is a parent mailboxId.")
   @visibility(Lifecycle.Read)
-  parentMailboxId?: string;
+  parentMailboxId: string = "None";
 
   @doc("Sync status for mailbox operations (create, rename, delete)")
   @visibility(Lifecycle.Read)
