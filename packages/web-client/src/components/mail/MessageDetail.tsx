@@ -12,6 +12,7 @@ import {
 	formatErrorDetail,
 	isMessageNotFoundError,
 } from "@/components/ui/error-banners";
+import { toDisplayCategory } from "@/lib/display-category";
 import { formatDatePreset } from "@/lib/format";
 import { MessageBody } from "./MessageBody";
 
@@ -132,7 +133,7 @@ export const MessageDetail = ({ messageId }: MessageDetailProps) => {
 				to={messageData.envelope.to}
 				cc={messageData.envelope.cc}
 				date={formatDatePreset(messageData.envelope.date, "full")}
-				category={messageData.envelope.category}
+				category={toDisplayCategory(messageData.envelope.category)}
 				senderTrust={messageData.envelope.senderTrust}
 			/>
 			<MessageBody
@@ -140,7 +141,7 @@ export const MessageDetail = ({ messageId }: MessageDetailProps) => {
 				messageId={messageId}
 				fromAddressId={fromAddress?.addressId}
 				isTrusted={isTrusted}
-				category={messageData.envelope.category}
+				category={toDisplayCategory(messageData.envelope.category)}
 				className="p-4"
 			/>
 		</article>

@@ -8,6 +8,7 @@ import {
 import { Link } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 import type { SelectionModifiers } from "@/hooks/useSelection";
+import { toDisplayCategory } from "@/lib/display-category";
 import { formatEmailDate } from "@/lib/format";
 import { MessageListItem } from "./MessageListItem";
 
@@ -50,7 +51,7 @@ const toThreadRowData = (
 		starred:
 			thread.star != null && thread.star !== "none" && thread.hasStars === true,
 		trust: thread.senderTrust,
-		category: thread.category,
+		category: toDisplayCategory(thread.category),
 		suspicious,
 	};
 };

@@ -206,7 +206,7 @@ describe("enrichThreadRows", () => {
 		const enriched = await enrichThreadRows(rows, client);
 
 		assert.equal(enriched[0].senderTrust, "unknown");
-		assert.equal(enriched[0].category, undefined);
+		assert.equal(enriched[0].category, "uncategorized");
 	});
 
 	it("issues exactly one BatchGet for messages and one for addresses, dedup'd", async () => {
