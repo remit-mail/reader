@@ -125,6 +125,7 @@ function IntelligenceSkeleton() {
 					<div className="h-2.5 rounded bg-surface w-1/4" />
 					<div className="flex gap-1.5 flex-wrap">
 						{Array.from({ length: 5 }).map((_, i) => (
+							// biome-ignore lint/suspicious/noArrayIndexKey: list is static, no stable id
 							<div key={i} className="h-6 w-16 rounded bg-surface" />
 						))}
 					</div>
@@ -153,7 +154,7 @@ function ReclassifyDialog({
 	return (
 		<div
 			className="fixed inset-0 z-50 flex items-center justify-center"
-			role="presentation"
+			aria-hidden="true"
 			onClick={onCancel}
 		>
 			<div className="absolute inset-0 bg-canvas/80 backdrop-blur-sm" />
@@ -163,6 +164,7 @@ function ReclassifyDialog({
 				aria-label="Reclassify sender"
 				className="relative z-10 w-full max-w-sm rounded-sm border border-line bg-surface p-6 shadow-lg"
 				onClick={(e) => e.stopPropagation()}
+				onKeyDown={(e) => e.stopPropagation()}
 			>
 				<h2 className="text-lg font-semibold">Reclassify this sender</h2>
 				<p className="mt-2 text-sm text-fg-muted">

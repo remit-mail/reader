@@ -97,7 +97,7 @@ export {
 	type DangerZoneSectionProps,
 } from "./components/danger-zone-section.js";
 export { Dialog, type DialogProps } from "./components/dialog.js";
-export { type EmailFrameVariant } from "./components/email-frame-css.js";
+export type { EmailFrameVariant } from "./components/email-frame-css.js";
 export {
 	FieldLabel,
 	type FieldLabelProps,

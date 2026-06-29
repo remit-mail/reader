@@ -44,6 +44,7 @@ function SampleList() {
 	return (
 		<ul className="divide-y divide-line">
 			{Array.from({ length: 12 }, (_, i) => (
+				// biome-ignore lint/suspicious/noArrayIndexKey: list is static, no stable id
 				<li key={i} className="px-row-inset py-3 text-sm text-fg-muted">
 					Message {i + 1}
 				</li>

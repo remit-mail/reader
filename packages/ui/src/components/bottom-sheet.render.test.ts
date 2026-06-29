@@ -12,6 +12,7 @@ describe("BottomSheet", () => {
 			createElement(BottomSheet, {
 				open: true,
 				onClose: noop,
+				// biome-ignore lint/correctness/noChildrenProp: React 19 types require children in props object when using createElement
 				children: "Sheet body",
 			}),
 		);
@@ -26,6 +27,7 @@ describe("BottomSheet", () => {
 				open: true,
 				onClose: noop,
 				dismissLabel: "Close rescue",
+				// biome-ignore lint/correctness/noChildrenProp: React 19 types require children in props object when using createElement
 				children: "x",
 			}),
 		);
@@ -37,6 +39,7 @@ describe("BottomSheet", () => {
 			createElement(BottomSheet, {
 				open: false,
 				onClose: noop,
+				// biome-ignore lint/correctness/noChildrenProp: React 19 types require children in props object when using createElement
 				children: "x",
 			}),
 		);

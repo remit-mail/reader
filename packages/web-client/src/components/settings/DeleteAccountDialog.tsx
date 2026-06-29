@@ -151,6 +151,7 @@ function DeleteAccountDialogView({
 									: "Export my data first"}
 							</button>
 							{exportMutation.isSuccess && (
+								// biome-ignore lint/a11y/useSemanticElements: <p> with role="status" preserves block layout; <output> is inline
 								<p className="mt-1.5 text-fg-muted" role="status">
 									Export requested. We'll prepare a ZIP of your mail — find it
 									under your data exports when it's ready.

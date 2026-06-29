@@ -129,7 +129,8 @@ export type MicrosoftOAuthOperationIds = MatchPrefix<
 	OperationIds
 >;
 
-// biome-ignore lint/suspicious/noExplicitAny: Handler responses vary by operation
+// biome-ignore lint/suspicious/noExplicitAny: handler responses vary by operation
+type HandlerResponse = Record<string, any>;
 export type OperationHandler<_T extends OperationIds = OperationIds> = (
 	context: Context,
-) => Promise<Record<string, any>>;
+) => Promise<HandlerResponse>;

@@ -197,7 +197,7 @@ export function MessageListPane({
 				   (real <a href> anchors, virtualization, infinite scroll) and its
 				   own swipe-triage. The built-in TouchListBody below is only the
 				   mock fallback for callers that don't supply a body. */
-				<>{listBody}</>
+				listBody
 			) : touchTriage ? (
 				<TouchListBody
 					sections={sections}

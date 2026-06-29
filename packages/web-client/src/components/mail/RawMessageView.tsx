@@ -14,7 +14,12 @@ interface RawMessageViewProps {
 }
 
 const LoadingSkeleton = () => (
-	<div className="animate-pulse space-y-2" aria-label="Loading raw email">
+	// biome-ignore lint/a11y/useSemanticElements: <div> with role="status" preserves block layout; <output> is inline
+	<div
+		className="animate-pulse space-y-2"
+		role="status"
+		aria-label="Loading raw email"
+	>
 		<div className="h-4 bg-surface-sunken rounded w-full" />
 		<div className="h-4 bg-surface-sunken rounded w-11/12" />
 		<div className="h-4 bg-surface-sunken rounded w-5/6" />

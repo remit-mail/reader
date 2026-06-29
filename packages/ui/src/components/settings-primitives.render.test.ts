@@ -116,6 +116,7 @@ describe("SettingsShell responsive (#789)", () => {
 				title: "Accounts",
 				help: createElement("p", null, "tips"),
 				flush,
+				// biome-ignore lint/correctness/noChildrenProp: React 19 types require children in props object when using createElement
 				children: createElement("div", null, "pane body"),
 			}),
 		);
@@ -129,6 +130,7 @@ describe("SettingsShell responsive (#789)", () => {
 				],
 				activeId: "accounts",
 				title: "Accounts",
+				// biome-ignore lint/correctness/noChildrenProp: React 19 types require children in props object when using createElement
 				children: createElement("div", null, "pane body"),
 			}),
 		);

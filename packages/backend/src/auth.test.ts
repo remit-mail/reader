@@ -64,6 +64,7 @@ describe("deriveAccountConfigId byte-identity backend ↔ Lambda@Edge", () => {
 		});
 	}
 
+	// biome-ignore lint/suspicious/noTemplateCurlyInString: intentional string literal for test
 	it("backend's deriveAccountConfigId is a thin wrapper around base36uuidv5(`account:${sub}`, REMIT_NAMESPACE)", () => {
 		// Anchors the contract on the backend side: if `auth.ts` ever changes
 		// the prefix string or namespace, the Lambda@Edge byte-identity tests

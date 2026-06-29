@@ -92,6 +92,7 @@ describe("BedrockEmbeddingService", () => {
 		assert.equal(vector.length, 1024);
 		assert.equal(sentLengths[0], 6000, "first attempt uses the full budget");
 		assert.ok(
+			// biome-ignore lint/style/noNonNullAssertion: test assertion, value is guaranteed by test setup
 			sentLengths.at(-1) !== undefined && sentLengths.at(-1)! <= 3000,
 			"a later attempt shrinks under the token limit",
 		);

@@ -159,7 +159,7 @@ const captureLive = async (
 		await writeFile(dest, shot);
 		const flag = stepsFailed ? " [FLAGGED: step skipped]" : "";
 		console.log(
-			`  captured live → ${dest.replace(REPO_ROOT + "/", "")}${flag}`,
+			`  captured live → ${dest.replace(`${REPO_ROOT}/`, "")}${flag}`,
 		);
 
 		await context.close();
@@ -194,7 +194,7 @@ const captureStory = async (
 		await ensureDir(dirname(dest));
 		const shot = await page.screenshot({ fullPage: false });
 		await writeFile(dest, shot);
-		console.log(`  captured story → ${dest.replace(REPO_ROOT + "/", "")}`);
+		console.log(`  captured story → ${dest.replace(`${REPO_ROOT}/`, "")}`);
 
 		await context.close();
 	} finally {

@@ -1,10 +1,10 @@
 import { FolderInput } from "lucide-react";
 import { useState } from "react";
 import { AppShellSlotted, useAppShellLayout } from "./app-shell-slotted.js";
-import {
-	type AppShellProps,
-	type BriefCategoryFilter,
-	type NarrowView,
+import type {
+	AppShellProps,
+	BriefCategoryFilter,
+	NarrowView,
 } from "./app-shell-types.js";
 import { Button } from "./button.js";
 import { IntelligencePanel } from "./intelligence-panel.js";

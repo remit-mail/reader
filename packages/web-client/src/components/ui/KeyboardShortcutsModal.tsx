@@ -40,16 +40,17 @@ export const KeyboardShortcutsModal = ({
 	return (
 		<div
 			className="fixed inset-0 z-50 flex items-center justify-center"
-			onClick={onClose}
-			onKeyDown={(e) => e.key === "Escape" && onClose()}
 			role="dialog"
 			aria-modal="true"
 			aria-label="Keyboard shortcuts"
+			onClick={onClose}
+			onKeyDown={(e) => e.key === "Escape" && onClose()}
 		>
 			{/* Backdrop */}
 			<div className="absolute inset-0 bg-canvas/80 backdrop-blur-sm" />
 
 			{/* Modal */}
+			{/* biome-ignore lint/a11y/noStaticElementInteractions: stops event propagation from the modal content; keyboard is handled by the outer wrapper */}
 			<div
 				className={cn(
 					"relative z-10 max-h-[85vh] w-full max-w-2xl overflow-y-auto",
@@ -57,6 +58,7 @@ export const KeyboardShortcutsModal = ({
 					"p-6",
 				)}
 				onClick={(e) => e.stopPropagation()}
+				onKeyDown={(e) => e.stopPropagation()}
 			>
 				{/* Header */}
 				<div className="mb-6 flex items-center justify-between">

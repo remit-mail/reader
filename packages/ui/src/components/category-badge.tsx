@@ -55,6 +55,7 @@ export const CategoryBadge = ({
 	if (!label) return null;
 
 	return (
+		// biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-label provides useful context for assistive tech despite generic span role
 		<span
 			className={cn(
 				"inline-flex items-center rounded border border-line bg-surface-sunken/50 font-medium uppercase tracking-wide text-fg-muted shrink-0",

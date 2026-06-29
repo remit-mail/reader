@@ -10,6 +10,7 @@ describe("ComposeFormShell", () => {
 			createElement(ComposeFormShell, {
 				header: createElement("div", null, "HEADER"),
 				actionBar: createElement("div", null, "ACTIONBAR"),
+				// biome-ignore lint/correctness/noChildrenProp: React 19 types require children in props object when using createElement
 				children: createElement("div", null, "BODY"),
 			}),
 		);
@@ -24,6 +25,7 @@ describe("ComposeFormShell", () => {
 				header: createElement("div", null, "HEADER"),
 				quoted: createElement("div", null, "QUOTED"),
 				actionBar: createElement("div", null, "BAR"),
+				// biome-ignore lint/correctness/noChildrenProp: React 19 types require children in props object when using createElement
 				children: createElement("div", null, "BODY"),
 			}),
 		);
@@ -36,6 +38,7 @@ describe("ComposeFormShell", () => {
 			createElement(ComposeFormShell, {
 				header: createElement("div", null, "H"),
 				actionBar: createElement("div", null, "B"),
+				// biome-ignore lint/correctness/noChildrenProp: React 19 types require children in props object when using createElement
 				children: createElement("div", null, "BODY"),
 			}),
 		);

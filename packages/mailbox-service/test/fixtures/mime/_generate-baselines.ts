@@ -13,7 +13,7 @@
 
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { BodyPartItem } from "@remit/remit-electrodb-service";
 import { simpleParser } from "mailparser";

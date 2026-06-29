@@ -67,6 +67,7 @@ export const SenderTrustIndicator = ({
 
 	if (variant === "unknown-pill") {
 		return (
+			// biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-label provides useful context for assistive tech despite generic span role
 			<span
 				className={cn(
 					"inline-flex items-center rounded border border-dashed border-fg-subtle/40 font-medium uppercase tracking-wide text-fg-muted/80 shrink-0",

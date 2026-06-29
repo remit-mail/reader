@@ -13,7 +13,7 @@ export const ErrorBannerStack = ({
 	if (errors.length === 0) return null;
 
 	return (
-		<div
+		<section
 			aria-label="Notifications"
 			className="pointer-events-none fixed inset-x-0 top-0 z-[60] flex flex-col items-center gap-2 px-4 pt-4 sm:items-end sm:pr-6"
 		>
@@ -29,6 +29,6 @@ export const ErrorBannerStack = ({
 					/>
 				))}
 			</div>
-		</div>
+		</section>
 	);
 };

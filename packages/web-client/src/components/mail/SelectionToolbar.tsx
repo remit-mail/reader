@@ -62,6 +62,7 @@ export const SelectionToolbar = ({
 					selected
 				</span>
 				{moveDisabledHint && (
+					// biome-ignore lint/a11y/useSemanticElements: <span> with role="status" keeps inline layout; <output> would shift flow
 					<span
 						className="text-xs text-fg-muted"
 						role="status"

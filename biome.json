@@ -15,7 +15,7 @@
 	},
 	"linter": {
 		"enabled": true,
-		"includes": ["!**/routeTree.gen.ts"],
+		"includes": ["**/*.ts", "**/*.tsx", "**/*.js", "!**/routeTree.gen.ts"],
 		"rules": {
 			"recommended": true,
 			"correctness": {

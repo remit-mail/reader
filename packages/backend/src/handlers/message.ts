@@ -4,7 +4,7 @@ import {
 	MediaType,
 	MessageCategory,
 	SenderTrust,
-	StarColor,
+	type StarColor,
 } from "@remit/domain-enums";
 import { logger } from "@remit/remit-logger-lambda";
 import type {

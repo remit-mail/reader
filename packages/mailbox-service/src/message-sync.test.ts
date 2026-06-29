@@ -333,21 +333,21 @@ describe("MessageSyncService.syncMessages — hasAttachment derivation", () => {
 		const { service, fake } = buildService([aliceMessage]);
 		await service.syncMessages("mbx-1", "acc-1", "acc-cfg-1", 50);
 		assert.equal(fake.createCalls.length, 1);
-		assert.equal(fake.createCalls[0]!.hasAttachment, false);
+		assert.equal(fake.createCalls[0]?.hasAttachment, false);
 	});
 
 	it("sets hasAttachment: true when a non-inline part has disposition=attachment", async () => {
 		const { service, fake } = buildService([withAttachmentMessage]);
 		await service.syncMessages("mbx-1", "acc-1", "acc-cfg-1", 50);
 		assert.equal(fake.createCalls.length, 1);
-		assert.equal(fake.createCalls[0]!.hasAttachment, true);
+		assert.equal(fake.createCalls[0]?.hasAttachment, true);
 	});
 
 	it("sets hasAttachment: false when the only non-text part is inline (CID image)", async () => {
 		const { service, fake } = buildService([inlineImageMessage]);
 		await service.syncMessages("mbx-1", "acc-1", "acc-cfg-1", 50);
 		assert.equal(fake.createCalls.length, 1);
-		assert.equal(fake.createCalls[0]!.hasAttachment, false);
+		assert.equal(fake.createCalls[0]?.hasAttachment, false);
 	});
 
 	it("sets hasAttachment: false when BODYSTRUCTURE is absent", async () => {
@@ -356,7 +356,7 @@ describe("MessageSyncService.syncMessages — hasAttachment derivation", () => {
 		]);
 		await service.syncMessages("mbx-1", "acc-1", "acc-cfg-1", 50);
 		assert.equal(fake.createCalls.length, 1);
-		assert.equal(fake.createCalls[0]!.hasAttachment, false);
+		assert.equal(fake.createCalls[0]?.hasAttachment, false);
 	});
 });
 
@@ -439,6 +439,7 @@ const buildWatermarkHarness = (opts: {
 const messageWithUid = (uid: number, header: string): ImapMessage => ({
 	...aliceMessage,
 	uid,
+	// biome-ignore lint/style/noNonNullAssertion: test assertion, value is guaranteed by test setup
 	envelope: { ...aliceMessage.envelope!, messageId: header },
 	bodyStructure: undefined,
 });
@@ -474,6 +475,7 @@ describe("MessageSyncService.syncMessages — watermark vs body-sync (#634)", ()
 		);
 
 		assert.equal(result.syncedCount, 2);
+		// biome-ignore lint/style/noNonNullAssertion: test assertion, value is guaranteed by test setup
 		const patch = harness.updateCalls.at(-1)!;
 		assert.equal(patch.highWaterMarkUid, 20);
 		assert.equal(patch.lastSyncUid, 10);
@@ -515,6 +517,7 @@ describe("MessageSyncService.syncMessages — watermark vs body-sync (#634)", ()
 
 		// ...but the watermarks still advance over the consumed UIDs so the batch
 		// is not re-fetched forever (liveness).
+		// biome-ignore lint/style/noNonNullAssertion: test assertion, value is guaranteed by test setup
 		const patch = harness.updateCalls.at(-1)!;
 		assert.equal(patch.highWaterMarkUid, 20);
 		assert.equal(patch.lastSyncUid, 10);
@@ -552,8 +555,9 @@ describe("MessageSyncService.syncMessages — watermark vs body-sync (#634)", ()
 
 		// Only the owned uid 10 enters body-sync...
 		assert.equal(result.syncedCount, 1);
-		assert.equal(result.syncedMessages[0]!.uid, 10);
+		assert.equal(result.syncedMessages[0]?.uid, 10);
 		// ...while the watermarks advance over BOTH consumed UIDs.
+		// biome-ignore lint/style/noNonNullAssertion: test assertion, value is guaranteed by test setup
 		const patch = harness.updateCalls.at(-1)!;
 		assert.equal(patch.highWaterMarkUid, 20);
 		assert.equal(patch.lastSyncUid, 10);
@@ -603,6 +607,7 @@ describe("MessageSyncService.syncMessages — watermark vs body-sync (#634)", ()
 		// Cycle 1: both UIDs are fresh; watermark advances to 20.
 		await service.syncMessages("mbx-1", "acc-1", "acc-cfg-1", 50);
 		assert.deepEqual(
+			// biome-ignore lint/style/noNonNullAssertion: test assertion, value is guaranteed by test setup
 			[...fetchedPerCycle[0]!].sort((a, b) => a - b),
 			[10, 20],
 		);
@@ -638,6 +643,7 @@ describe("MessageSyncService.syncMessages — watermark vs body-sync (#634)", ()
 		);
 
 		assert.equal(result.syncedCount, 1);
+		// biome-ignore lint/style/noNonNullAssertion: test assertion, value is guaranteed by test setup
 		const patch = harness.updateCalls.at(-1)!;
 		assert.equal(patch.highWaterMarkUid, 15);
 		assert.equal(patch.lastSyncUid, 15);
@@ -828,6 +834,7 @@ describe("MessageSyncService.saveMessage — unparseable Date header (#817)", ()
 			...aliceMessage,
 			uid: 99,
 			internalDate,
+			// biome-ignore lint/style/noNonNullAssertion: test assertion, value is guaranteed by test setup
 			envelope: { ...aliceMessage.envelope!, date: "totally-not-a-date" },
 			bodyStructure: undefined,
 		};
@@ -867,6 +874,7 @@ describe("MessageSyncService.saveMessage — unparseable Date header (#817)", ()
 			...aliceMessage,
 			uid: 100,
 			envelope: {
+				// biome-ignore lint/style/noNonNullAssertion: test assertion, value is guaranteed by test setup
 				...aliceMessage.envelope!,
 				date: "2026-04-28T12:00:00.000Z",
 			},
@@ -965,6 +973,7 @@ describe("MessageSyncService.syncMessages — batch resilience (#817)", () => {
 
 		// Forward watermark stops below the failed uid 20 (top contiguous success
 		// run is empty), so it stays selectable as a "new" UID next cycle.
+		// biome-ignore lint/style/noNonNullAssertion: test assertion, value is guaranteed by test setup
 		const patch = harness.updateCalls.at(-1)!;
 		assert.equal(patch.highWaterMarkUid, 0);
 	});
@@ -997,6 +1006,7 @@ describe("MessageSyncService.syncMessages — batch resilience (#817)", () => {
 
 		await service.syncMessages("mbx-1", "acc-1", "acc-cfg-1", 50);
 
+		// biome-ignore lint/style/noNonNullAssertion: test assertion, value is guaranteed by test setup
 		const patch = harness.updateCalls.at(-1)!;
 		assert.equal(patch.highWaterMarkUid, 30);
 		// Lowest uid failed → backfill watermark must not move past it.

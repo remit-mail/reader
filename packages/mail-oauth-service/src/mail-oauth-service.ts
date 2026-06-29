@@ -88,7 +88,7 @@ async function postForm(
 			headers: { "Content-Type": "application/x-www-form-urlencoded" },
 			body,
 		});
-	} catch (cause) {
+	} catch (_cause) {
 		// network error → transient
 		throw new RefreshTokenError({ kind: "transient", code: "network_error" });
 	}

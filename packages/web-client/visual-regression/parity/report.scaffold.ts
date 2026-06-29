@@ -76,7 +76,7 @@ function render(rows: ReportRow[]): string {
 		}
 	}
 
-	return lines.join("\n") + "\n";
+	return `${lines.join("\n")}\n`;
 }
 
 function main(): void {

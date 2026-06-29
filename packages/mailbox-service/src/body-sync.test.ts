@@ -1277,7 +1277,7 @@ describe("BodySyncService.syncBodies (junk rescue isolation)", () => {
 	};
 
 	const buildAddressServiceWithTrust = (
-		fake: ReturnType<typeof buildFakeState>,
+		_fake: ReturnType<typeof buildFakeState>,
 		trust: (typeof SenderTrust)[keyof typeof SenderTrust],
 	): AddressService =>
 		({

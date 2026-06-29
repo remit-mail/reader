@@ -233,6 +233,7 @@ const ExpandedCard = ({
 							)}
 						</div>
 						{isUnread && (
+							// biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-label on decorative indicator provides useful context for assistive tech
 							<span
 								className="size-1.5 rounded-full bg-accent"
 								aria-label="Unread"

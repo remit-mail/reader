@@ -246,16 +246,16 @@ export const MoveMailboxPicker = ({
 				placeholder={text.searchPlaceholder}
 				aria-label={text.searchAriaLabel}
 			/>
-			<ul
+			<div
 				className="flex-1 overflow-y-auto py-1"
 				role="listbox"
 				aria-label={text.listAriaLabel}
 				onKeyDown={handleListKeyDown}
 			>
 				{filtered.length === 0 ? (
-					<li className="px-3 py-3 text-sm text-fg-muted" aria-live="polite">
+					<div className="px-3 py-3 text-sm text-fg-muted" aria-live="polite">
 						{text.emptyMessage(query)}
-					</li>
+					</div>
 				) : (
 					filtered.map((mailbox, idx) => {
 						const isCurrent = mailbox.isCurrent ?? false;
@@ -264,11 +264,12 @@ export const MoveMailboxPicker = ({
 						// rendered as a static option (never a disabled control) so the
 						// user can see where the message lives without a dead button.
 						// Selectable folders are real <button> options. Each interactive
-						// element IS the listbox option: a role="option" <li> wrapping a
+						// element IS the listbox option: a role="option" <div> wrapping a
 						// separately-interactive <button> is invalid ARIA.
 						if (isCurrent) {
 							return (
-								<li key={mailbox.id}>
+								<div key={mailbox.id}>
+									{/* biome-ignore lint/a11y/useFocusableInteractive: focus managed by the parent listbox component */}
 									<div
 										role="option"
 										aria-selected={false}
@@ -281,11 +282,11 @@ export const MoveMailboxPicker = ({
 											{text.currentTag}
 										</span>
 									</div>
-								</li>
+								</div>
 							);
 						}
 						return (
-							<li key={mailbox.id}>
+							<div key={mailbox.id}>
 								<button
 									ref={(node) => {
 										optionRefs.current[idx] = node;
@@ -301,11 +302,11 @@ export const MoveMailboxPicker = ({
 								>
 									<span className="truncate flex-1">{mailbox.label}</span>
 								</button>
-							</li>
+							</div>
 						);
 					})
 				)}
-			</ul>
+			</div>
 		</div>
 	);
 };

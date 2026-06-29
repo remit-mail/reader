@@ -435,7 +435,7 @@ export const AccountDetailOperations: Record<
 				input.displayName,
 			);
 		}
-		if (Object.prototype.hasOwnProperty.call(input, "muted")) {
+		if (Object.hasOwn(input, "muted")) {
 			if (input.muted !== undefined) {
 				await writeAccountMuted(
 					accountSetting,

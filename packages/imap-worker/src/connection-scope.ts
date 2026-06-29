@@ -189,7 +189,7 @@ export interface BorrowedConnection {
  * warm-container failure mode. A connection that fails this check is replaced.
  */
 const isLive = (entry: PooledConnection): boolean =>
-	entry.connection !== null && entry.connection.isConnected;
+	entry.connection?.isConnected ?? false;
 
 const disconnectQuietly = async (entry: PooledConnection): Promise<void> => {
 	try {

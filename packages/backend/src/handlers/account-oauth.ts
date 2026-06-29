@@ -38,7 +38,7 @@ export const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
  * The key is HMAC-SHA256("oauth-state-signing:" + clientSecret).
  */
 function deriveSigningKey(clientSecret: string): Buffer {
-	return createHmac("sha256", "oauth-state-signing:" + clientSecret)
+	return createHmac("sha256", `oauth-state-signing:${clientSecret}`)
 		.update("")
 		.digest();
 }

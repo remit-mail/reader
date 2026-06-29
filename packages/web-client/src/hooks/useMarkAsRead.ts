@@ -257,6 +257,7 @@ export const useMarkAsRead = ({
 		markMessagesRead(eligibleIds);
 	}, [eligibleIds, markMessagesRead]);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: intentionally clears state on threadId change; adding threadId to deps causes stale closure issues
 	useEffect(() => {
 		markedAsReadRef.current.clear();
 		pendingRef.current.clear();

@@ -21,7 +21,7 @@ const MONTAGE_DIR = path.join(PARITY_DIR, "_montage");
 
 const HEADER_HEIGHT = 40;
 const DIVIDER_WIDTH = 4;
-const LABEL_FONT_SIZE = 14; // px — used for guide only; we draw with a bitmap font
+const _LABEL_FONT_SIZE = 14; // px — used for guide only; we draw with a bitmap font
 
 // Minimal 8×13 bitmap font for ASCII printable chars (space–tilde).
 // Each char is 8 wide × 13 tall, stored as 13 bytes (1 bit per pixel, MSB first).

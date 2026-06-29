@@ -78,7 +78,7 @@ describe("pickMailboxOverrideChanges", () => {
 		} as unknown as RenameMailboxInput;
 		const changes = pickMailboxOverrideChanges(body);
 		assert.ok(
-			!Object.prototype.hasOwnProperty.call(changes, "fullPath"),
+			!Object.hasOwn(changes, "fullPath"),
 			"fullPath must not appear in override changes",
 		);
 	});

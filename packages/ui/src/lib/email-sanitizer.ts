@@ -47,8 +47,10 @@ const extractStyleBlocks = (html: string): string[] => {
 	const blocks: string[] = [];
 	const re = /<style[^>]*>([\s\S]*?)<\/style>/gi;
 	let match: RegExpExecArray | null;
-	while ((match = re.exec(html)) !== null) {
+	match = re.exec(html);
+	while (match !== null) {
 		blocks.push(match[1]);
+		match = re.exec(html);
 	}
 	return blocks;
 };
@@ -73,11 +75,13 @@ const styleBlockHasBackground = (css: string): boolean => {
 	// (everything up to the next `;`, `}`, or end of string).
 	const re = /background(?:-color)?\s*:\s*([^;}\n]+)/gi;
 	let match: RegExpExecArray | null;
-	while ((match = re.exec(css)) !== null) {
+	match = re.exec(css);
+	while (match !== null) {
 		const value = match[1].trim();
 		if (!NO_BACKGROUND_VALUES.test(value)) {
 			return true;
 		}
+		match = re.exec(css);
 	}
 	return false;
 };

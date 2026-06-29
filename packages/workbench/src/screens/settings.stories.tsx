@@ -395,7 +395,13 @@ export const AccountsLoading: Story = {
 	name: "Accounts — loading",
 	render: () => (
 		<AccountsShell count={null}>
-			<div className="space-y-3" aria-busy="true" aria-label="Loading accounts">
+			{/* biome-ignore lint/a11y/useSemanticElements: <div> with role="status" preserves block layout; <output> is inline */}
+			<div
+				className="space-y-3"
+				role="status"
+				aria-busy="true"
+				aria-label="Loading accounts"
+			>
 				{[0, 1].map((i) => (
 					<div
 						key={i}

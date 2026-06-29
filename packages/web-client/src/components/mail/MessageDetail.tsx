@@ -81,7 +81,7 @@ export const MessageDetail = ({ messageId }: MessageDetailProps) => {
 				body: { isRead: true },
 			});
 		}
-	}, [messageId, messageData]);
+	}, [messageId, messageData, updateFlags.mutate]);
 
 	if (!messageId) {
 		return (
