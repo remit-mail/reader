@@ -114,6 +114,9 @@ const processAccountDelete = async (
 		new SendMessageCommand({
 			QueueUrl: deps.accountFinalizeQueueUrl,
 			MessageBody: JSON.stringify(finalizeEvent),
+			// The finalize queue is FIFO (#1069); group by tenant. The queue's
+			// content-based deduplication supplies the dedup id.
+			MessageGroupId: accountConfigId,
 		}),
 	);
 	log.info({ accountConfigId }, "Enqueued finalize event");
