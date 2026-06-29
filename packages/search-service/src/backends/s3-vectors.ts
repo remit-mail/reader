@@ -154,28 +154,35 @@ const toMetadata = (raw: unknown): ChunkMetadata => {
 	};
 };
 
+// S3 Vectors does NOT accept implicit AND across multiple metadata keys — a flat
+// multi-key object (e.g. { accountConfigId, mailboxIds }) is rejected with
+// `ValidationException: Invalid filter`. Multiple conditions must be combined
+// explicitly with $and, each as its own single-key object. A single condition is
+// accepted bare, so we don't needlessly wrap it.
 const buildFilterExpression = (
 	filter: VectorQueryFilter | undefined,
 ): DocumentType | undefined => {
 	if (!filter) return undefined;
-	const conditions: { [k: string]: DocumentType } = {};
+	const conditions: { [k: string]: DocumentType }[] = [];
 	if (filter.accountConfigId !== undefined) {
-		conditions.accountConfigId = filter.accountConfigId;
+		conditions.push({ accountConfigId: filter.accountConfigId });
 	}
 	if (filter.mailboxId !== undefined) {
-		conditions.mailboxIds = { $in: [filter.mailboxId] as DocumentType[] };
+		conditions.push({
+			mailboxIds: { $in: [filter.mailboxId] as DocumentType[] },
+		});
 	}
 	if (filter.chunkType !== undefined) {
-		conditions.chunkType = filter.chunkType;
+		conditions.push({ chunkType: filter.chunkType });
 	}
 	if (filter.hasAttachment !== undefined) {
-		conditions.hasAttachment = filter.hasAttachment;
+		conditions.push({ hasAttachment: filter.hasAttachment });
 	}
 	if (filter.hasStars !== undefined) {
-		conditions.hasStars = filter.hasStars;
+		conditions.push({ hasStars: filter.hasStars });
 	}
 	if (filter.isRead !== undefined) {
-		conditions.isRead = filter.isRead;
+		conditions.push({ isRead: filter.isRead });
 	}
 	if (filter.sentDateRange) {
 		const range: { [k: string]: DocumentType } = {};
@@ -185,10 +192,11 @@ const buildFilterExpression = (
 		if (filter.sentDateRange.to !== undefined) {
 			range.$lte = filter.sentDateRange.to;
 		}
-		if (Object.keys(range).length > 0) conditions.sentDate = range;
+		if (Object.keys(range).length > 0) conditions.push({ sentDate: range });
 	}
-	if (Object.keys(conditions).length === 0) return undefined;
-	return conditions;
+	if (conditions.length === 0) return undefined;
+	if (conditions.length === 1) return conditions[0];
+	return { $and: conditions as DocumentType[] };
 };
 
 const chunkArray = <T>(arr: T[], size: number): T[][] => {
