@@ -1,7 +1,20 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { ApiError } from "./api";
-import { getErrorStatus, isFatalServerError } from "./error-classifier";
+import {
+	getErrorStatus,
+	hasHttpStatus,
+	isAbortError,
+	isNetworkError,
+	isServerError,
+	shouldEscalate,
+} from "./error-classifier";
+
+const abortError = (): Error => {
+	const error = new Error("aborted");
+	error.name = "AbortError";
+	return error;
+};
 
 describe("getErrorStatus", () => {
 	it("reads status off an ApiError", () => {
@@ -20,44 +33,101 @@ describe("getErrorStatus", () => {
 	});
 });
 
-describe("isFatalServerError", () => {
-	it("is true for any 5xx from a first-party endpoint", () => {
-		assert.equal(isFatalServerError(new ApiError("boom", 500)), true);
-		assert.equal(isFatalServerError(new ApiError("boom", 502)), true);
-		assert.equal(isFatalServerError(new ApiError("boom", 503)), true);
-		assert.equal(isFatalServerError({ status: 599 }), true);
+describe("isServerError", () => {
+	it("is true for any 5xx", () => {
+		assert.equal(isServerError(new ApiError("boom", 500)), true);
+		assert.equal(isServerError(new ApiError("boom", 502)), true);
+		assert.equal(isServerError({ status: 599 }), true);
 	});
 
-	it("is false for expected 4xx (404 no-data, 401/403 auth, 409/422/429)", () => {
-		assert.equal(isFatalServerError(new ApiError("not found", 404)), false);
-		assert.equal(isFatalServerError(new ApiError("unauthorized", 401)), false);
-		assert.equal(isFatalServerError(new ApiError("forbidden", 403)), false);
-		assert.equal(isFatalServerError(new ApiError("conflict", 409)), false);
-		assert.equal(isFatalServerError(new ApiError("invalid", 422)), false);
-		assert.equal(isFatalServerError(new ApiError("rate", 429)), false);
+	it("is false for a 4xx", () => {
+		assert.equal(isServerError(new ApiError("not found", 404)), false);
+		assert.equal(isServerError(new ApiError("forbidden", 403)), false);
 	});
 
-	it("is false for an empty result (undefined / null — not an error)", () => {
-		assert.equal(isFatalServerError(undefined), false);
-		assert.equal(isFatalServerError(null), false);
+	it("is false for a statusless error", () => {
+		assert.equal(isServerError(new TypeError("Failed to fetch")), false);
+		assert.equal(isServerError(undefined), false);
+	});
+});
+
+describe("hasHttpStatus", () => {
+	it("is true when the error carries a status", () => {
+		assert.equal(hasHttpStatus(new ApiError("boom", 500)), true);
+		assert.equal(hasHttpStatus({ statusCode: 404 }), true);
 	});
 
-	it("is false for an aborted / cancelled request", () => {
-		const abort = new Error("aborted");
-		abort.name = "AbortError";
-		assert.equal(isFatalServerError(abort), false);
+	it("is false for a statusless error", () => {
+		assert.equal(hasHttpStatus(new TypeError("Failed to fetch")), false);
+		assert.equal(hasHttpStatus(null), false);
+	});
+});
+
+describe("isAbortError", () => {
+	it("is true for an AbortError", () => {
+		assert.equal(isAbortError(abortError()), true);
 	});
 
-	it("is NOT fatal for a statusless transport/network failure (offline blip, not a proven 5xx)", () => {
-		// Headline regression: a `TypeError: Failed to fetch` from a wifi drop,
-		// tab wake, captive portal, or background refetch must never take over the
-		// screen behind a reload-only overlay. No HTTP status ⇒ not a proven
-		// first-party 5xx ⇒ soft; React Query's reconnect/retry recovers it.
-		assert.equal(isFatalServerError(new TypeError("Failed to fetch")), false);
-		assert.equal(isFatalServerError(new Error("network down")), false);
+	it("is false for anything else", () => {
+		assert.equal(isAbortError(new ApiError("boom", 500)), false);
+		assert.equal(isAbortError(new TypeError("Failed to fetch")), false);
+	});
+});
+
+describe("isNetworkError", () => {
+	it("is true for a statusless transport failure", () => {
+		assert.equal(isNetworkError(new TypeError("Failed to fetch")), true);
+		assert.equal(isNetworkError(new Error("network down")), true);
 	});
 
-	it("is NOT fatal for a statusless auth failure (handled by Amplify/redirect, never the overlay)", () => {
-		assert.equal(isFatalServerError(new Error("No current user")), false);
+	it("is false for an aborted request (its own category)", () => {
+		assert.equal(isNetworkError(abortError()), false);
+	});
+
+	it("is false when the error carries a status", () => {
+		assert.equal(isNetworkError(new ApiError("boom", 500)), false);
+		assert.equal(isNetworkError(new ApiError("not found", 404)), false);
+	});
+});
+
+describe("shouldEscalate (the fail-fast decision table — #1059)", () => {
+	it("escalates a 5xx by default", () => {
+		assert.equal(shouldEscalate(new ApiError("boom", 500)), true);
+		assert.equal(shouldEscalate(new ApiError("boom", 503)), true);
+	});
+
+	it("escalates a 5xx EVEN when the call site marked it soft (rule 2 wins)", () => {
+		assert.equal(
+			shouldEscalate(new ApiError("boom", 500), { softError: true }),
+			true,
+		);
+	});
+
+	it("escalates a 4xx by DEFAULT (no opt-out)", () => {
+		assert.equal(shouldEscalate(new ApiError("not found", 404)), true);
+		assert.equal(shouldEscalate(new ApiError("forbidden", 403)), true);
+	});
+
+	it("does NOT escalate a 4xx the call site opted out of via meta.softError", () => {
+		assert.equal(
+			shouldEscalate(new ApiError("not found", 404), { softError: true }),
+			false,
+		);
+	});
+
+	it("does NOT escalate an aborted/cancelled request", () => {
+		assert.equal(shouldEscalate(abortError()), false);
+	});
+
+	it("does NOT escalate a statusless network/offline blip", () => {
+		assert.equal(shouldEscalate(new TypeError("Failed to fetch")), false);
+		assert.equal(shouldEscalate(new Error("network down")), false);
+	});
+
+	it("a statusless error is soft regardless of meta", () => {
+		assert.equal(
+			shouldEscalate(new TypeError("Failed to fetch"), { softError: false }),
+			false,
+		);
 	});
 });

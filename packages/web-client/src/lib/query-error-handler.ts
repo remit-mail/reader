@@ -1,35 +1,34 @@
-import type { Query } from "@tanstack/react-query";
-import { isFatalServerError } from "./error-classifier";
+import type { Mutation, Query } from "@tanstack/react-query";
+import { shouldEscalate } from "./error-classifier";
 import { reportFatalError } from "./fatal-error";
 
 /**
  * Global React Query error sink. Every query and mutation error flows through
- * here (wired on the `QueryCache`/`MutationCache` in main.tsx). Fatal first-party
- * failures (5xx / unreachable backend) escalate to the full-screen red overlay
- * via `reportFatalError`; everything else (4xx, aborts) is left to the calling
- * surface to handle softly.
+ * here (wired on the `QueryCache`/`MutationCache` in main.tsx). The fail-fast
+ * contract (#1059) lives in `shouldEscalate`: a non-2xx escalates to the
+ * full-screen red overlay by default; a 5xx ALWAYS escalates; only aborts,
+ * statusless network blips, and non-5xx errors a call site opted out of via
+ * `meta.softError` stay soft.
  *
- * This is the v5 equivalent of `defaultOptions.queries.onError` — v5 moved the
- * global error hook onto the caches.
+ * This is the v5 equivalent of `defaultOptions.queries.onError` /
+ * `.mutations.onError` — v5 moved the global error hook onto the caches.
  */
-export const handleQueryError = (error: unknown): void => {
-	if (isFatalServerError(error)) {
+export const handleQueryCacheError = (
+	error: Error,
+	query: Query<unknown, unknown, unknown>,
+): void => {
+	if (shouldEscalate(error, query.meta)) {
 		reportFatalError(error);
 	}
 };
 
-/**
- * `QueryCache.onError` variant. Same fatal classification, but only escalates a
- * 5xx that breaks the *initial* load of a query (`dataUpdatedAt === 0` — the
- * screen has nothing to show). A routine stale background refetch that 5xxes on
- * an already-rendered screen keeps the cached data visible (the calling surface
- * handles the soft signal); blanking the whole app behind a reload-only overlay
- * for a transient refetch blip is the over-fire we are killing.
- */
-export const handleQueryCacheError = (
-	error: Error,
-	query: Query<unknown, unknown, unknown, readonly unknown[]>,
+export const handleMutationCacheError = (
+	error: unknown,
+	_variables: unknown,
+	_onMutateResult: unknown,
+	mutation: Mutation<unknown, unknown, unknown>,
 ): void => {
-	if (query.state.dataUpdatedAt !== 0) return;
-	handleQueryError(error);
+	if (shouldEscalate(error, mutation.meta)) {
+		reportFatalError(error);
+	}
 };

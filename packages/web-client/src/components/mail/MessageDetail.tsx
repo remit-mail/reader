@@ -53,6 +53,10 @@ export const MessageDetail = ({ messageId }: MessageDetailProps) => {
 			path: { messageId: messageId ?? "" },
 		}),
 		enabled: !!messageId,
+		// A 404 (row deleted / mid-refresh) renders the inline "deleted" empty
+		// state below — opt it out of the global fatal overlay. A 5xx still
+		// escalates globally (meta.softError is ignored for 5xx — #1059).
+		meta: { softError: true },
 	});
 
 	const updateFlags = useMutation({
