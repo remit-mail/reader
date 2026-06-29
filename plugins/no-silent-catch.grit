@@ -1,0 +1,8 @@
+language js(typescript, jsx);
+or {
+  `try { $_ } catch ($err) { $body }`,
+  `try { $_ } catch ($err: unknown) { $body }`
+} where {
+  $body <: not contains `throw $_`,
+  register_diagnostic(span = $body, message = "A block catch must rethrow (optionally after translating/adding context). For expected-failure recovery, use `.catch()` on the awaited call instead and branch on the result. Genuine exceptions (top-of-stack handler, sync-throw, documented best-effort) need a `// biome-ignore lint/plugin/no-silent-catch: <reason>` comment as the first line of the catch body. (#1029/#1064)", severity = "error")
+}

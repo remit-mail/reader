@@ -34,6 +34,7 @@ export const processBatch = async (
 		try {
 			message = parseQueueMessage(record.body);
 		} catch (error) {
+			// biome-ignore lint/plugin/no-silent-catch: SQS batch handler — unparseable message is nacked via batchItemFailures; rethrowing would crash the entire batch
 			log.error("Failed to parse message", {
 				error: inspect(error),
 				messageId: record.messageId,
@@ -48,6 +49,7 @@ export const processBatch = async (
 				log.info("Deleted search vectors", { messageId: message.messageId });
 				metrics.addMetric("searchIndexProcessed", MetricUnit.Count, 1);
 			} catch (error) {
+				// biome-ignore lint/plugin/no-silent-catch: SQS batch handler — delete failure is nacked via batchItemFailures; rethrowing would crash the entire batch
 				log.error("Delete failed", {
 					error: inspect(error),
 					messageId: message.messageId,
@@ -100,6 +102,7 @@ export const processBatch = async (
 		} catch (error) {
 			// Name the messageId so the dead-letter is diagnosable per message
 			// (#910); a transient/whole-call error retries this message alone.
+			// biome-ignore lint/plugin/no-silent-catch: SQS batch handler — upsert failure is nacked via batchItemFailures; rethrowing would crash the entire batch
 			log.error("Upsert failed", {
 				error: inspect(error),
 				accountId: message.accountId,

@@ -1,6 +1,9 @@
 {
 	"$schema": "https://biomejs.dev/schemas/2.3.11/schema.json",
-	"plugins": ["./plugins/no-logger-info.grit"],
+	"plugins": [
+		"./plugins/no-logger-info.grit",
+		"./plugins/no-silent-catch.grit"
+	],
 	"vcs": {
 		"enabled": true,
 		"clientKind": "git",

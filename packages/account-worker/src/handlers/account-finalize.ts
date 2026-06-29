@@ -386,6 +386,7 @@ export const handler: SQSHandler = withTelemetry(async (event: SQSEvent) => {
 				await processAccountFinalize(finalizeEvent, log);
 			}
 		} catch (error) {
+			// biome-ignore lint/plugin/no-silent-catch: SQS batch handler — nacking via batchItemFailures is the correct error propagation; rethrowing would crash the entire batch
 			log.error(
 				{ error: inspect(error), messageId: record.messageId },
 				"Account finalize event processing failed",
