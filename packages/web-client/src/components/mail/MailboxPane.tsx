@@ -330,7 +330,7 @@ function MailboxPaneProvider({
 		});
 
 	const rawThreads = dropDeletedThreads(
-		threadsData?.pages.flatMap((page) => page.items) ?? [],
+		threadsData?.pages.flatMap((page) => page.items ?? []) ?? [],
 	);
 
 	const [filterCategory, setFilterCategory] = useState("all");

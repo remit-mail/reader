@@ -329,7 +329,31 @@ namespace RemitApi {
 
       @query(#{ explode: true })
       attachments?: boolean,
-    ): ResultList<ThreadMessageResponse>;
+
+      @doc("Filter to messages whose From address has one of these trust levels. Off-row criterion, resolved by in-handler enrichment over the capped window.")
+      @query(#{ explode: true })
+      senderTrust?: SenderTrust[],
+
+      @doc("Filter to messages with one of these header-derived categories. Off-row criterion, resolved by in-handler enrichment over the capped window.")
+      @query(#{ explode: true })
+      category?: MessageCategory[],
+
+      @doc("Filter on the DKIM-alignment signal (true = DKIM mismatch). Off-row criterion; rows without an authenticity signal never match.")
+      @query(#{ explode: true })
+      dkimMismatch?: boolean,
+
+      @doc("Include a count of matches within the server-capped window.")
+      @query(#{ explode: true })
+      count?: boolean,
+
+      @doc("Return matching rows. Default true; set false for a count-only response.")
+      @query(#{ explode: true })
+      results?: boolean,
+
+      @doc("Caller-set recency window, capped server-side at 500. Bounds the read.")
+      @query(#{ explode: true })
+      limit?: int32,
+    ): ThreadSearchResponse;
   }
 
   // ============================================

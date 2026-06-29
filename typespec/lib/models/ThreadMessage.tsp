@@ -221,3 +221,22 @@ model ThreadMessageResponse {
   @doc("Account identifier attached at read time via a mailboxId→accountId map. Present on rows returned by `GET /threads`; absent on rows from per-mailbox endpoints (clients can resolve from the mailbox cache).")
   accountId?: UUID;
 }
+
+@doc("""
+  Aggregate response for `searchThreads`. Carries the matching rows (`items`), a
+  pagination `continuationToken`, and an optional `count` of matches within the
+  server-capped window. `items` is omitted when `results=false` (count-only);
+  `count` is present only when `count=true`. Thread-specific so the shared
+  `ResultList<T>` (7 endpoints) stays untouched.
+  """)
+model ThreadSearchResponse {
+  @doc("Matching thread rows for this page. Omitted when `results=false` (count-only mode).")
+  items?: ThreadMessageResponse[];
+
+  @doc("Pass to the next call to fetch the next page; absent when the window is exhausted.")
+  @continuationToken
+  continuationToken?: String800;
+
+  @doc("Number of matches within the server-capped window. Present only when `count=true`.")
+  count?: int32;
+}

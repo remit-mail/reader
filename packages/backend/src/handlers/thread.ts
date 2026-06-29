@@ -1,8 +1,23 @@
-import type { ThreadMessageItem } from "@remit/remit-electrodb-service";
+import type {
+	ResultList,
+	ThreadMessageItem,
+} from "@remit/remit-electrodb-service";
+import type {
+	MessageCategory,
+	SenderTrust,
+	ThreadSearchResponse,
+} from "@remit/api-openapi-types";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent } from "../auth.js";
-import { enrichThreadRows } from "../derive/enrichThreadRows.js";
+import {
+	type EnrichClient,
+	enrichThreadRows,
+} from "../derive/enrichThreadRows.js";
+import {
+	filterByOffRowCriteria,
+	hasOffRowCriteria,
+} from "../derive/filterThreadCriteria.js";
 import { getClient } from "../service/dynamodb.js";
 import type {
 	OperationHandler,
@@ -59,17 +74,167 @@ export const buildListThreadsOptions = (query: {
 });
 
 /**
- * Build the `searchByMailbox` options for the thread search handler.
- * Same #212 default as `buildListThreadsOptions`.
+ * Build the `searchByMailboxWindow` options for the thread search handler.
+ * Same #212 `excludeDeleted` default as `buildListThreadsOptions`. The caller's
+ * `limit` is forwarded raw and clamped server-side (THREAD_SEARCH_MAX_LIMIT).
  */
 export const buildSearchThreadsOptions = (query: {
 	continuationToken?: string;
 	order?: "asc" | "desc";
+	limit?: number;
 }) => ({
 	order: query.order ?? ("desc" as const),
 	continuationToken: query.continuationToken,
+	limit: query.limit,
+	attributes: [...THREAD_LIST_ATTRIBUTES],
 	excludeDeleted: true,
 });
+
+const toArray = <T>(value: T | T[] | undefined): T[] | undefined => {
+	if (value === undefined) return undefined;
+	return Array.isArray(value) ? value : [value];
+};
+
+type WindowOptions = {
+	order?: "asc" | "desc";
+	limit?: number;
+	continuationToken?: string;
+	attributes?: Array<keyof ThreadMessageItem>;
+	excludeDeleted?: boolean;
+};
+
+type ThreadSearch = {
+	query?: string;
+	subject?: string;
+	from?: string;
+	unread?: boolean;
+	starred?: boolean;
+	attachments?: boolean;
+};
+
+/**
+ * Minimal client surface `executeThreadSearch` needs. Declared structurally
+ * (like `EnrichClient`) so the orchestration — index/window read, count, and
+ * the off-row enrich/filter — is testable with an in-memory fake.
+ */
+export interface ThreadSearchClient extends EnrichClient {
+	threadMessage: {
+		searchByMailboxWindow(
+			accountConfigId: string,
+			mailboxId: string,
+			search: ThreadSearch,
+			options?: WindowOptions,
+		): Promise<ResultList<ThreadMessageItem>>;
+		countByMailbox(
+			accountConfigId: string,
+			mailboxId: string,
+			search: ThreadSearch,
+			options?: {
+				limit?: number;
+				excludeDeleted?: boolean;
+				order?: "asc" | "desc";
+			},
+		): Promise<number>;
+	};
+}
+
+export type ThreadSearchParams = {
+	continuationToken?: string;
+	order?: "asc" | "desc";
+	query?: string;
+	subject?: string;
+	from?: string;
+	unread?: boolean;
+	starred?: boolean;
+	attachments?: boolean;
+	senderTrust?: SenderTrust[];
+	category?: MessageCategory[];
+	dkimMismatch?: boolean;
+	count?: boolean;
+	results?: boolean;
+	limit?: number;
+};
+
+/**
+ * Run a per-mailbox thread search: select the index/window read, optionally
+ * count, and resolve off-row criteria by enriching+filtering the window. The
+ * `results` toggle omits `items` (count-only) and `count` adds the match count.
+ * Off-row criteria force a window read+enrich even in count-only mode, since no
+ * Select:COUNT can see fields that aren't on the row.
+ */
+export const executeThreadSearch = async (
+	client: ThreadSearchClient,
+	accountConfigId: string,
+	mailboxId: string,
+	params: ThreadSearchParams,
+): Promise<ThreadSearchResponse> => {
+	const search = {
+		query: params.query,
+		subject: params.subject,
+		from: params.from,
+		unread: params.unread,
+		starred: params.starred,
+		attachments: params.attachments,
+	};
+	const offRow = {
+		senderTrust: params.senderTrust,
+		category: params.category,
+		dkimMismatch: params.dkimMismatch,
+	};
+	const wantCount = params.count === true;
+	const wantResults = params.results !== false;
+	const options = buildSearchThreadsOptions({
+		continuationToken: params.continuationToken,
+		order: params.order,
+		limit: params.limit,
+	});
+
+	if (hasOffRowCriteria(offRow)) {
+		const window = await client.threadMessage.searchByMailboxWindow(
+			accountConfigId,
+			mailboxId,
+			search,
+			options,
+		);
+		const enriched = await enrichThreadRows(window.items, client);
+		const filtered = filterByOffRowCriteria(enriched, offRow);
+		return {
+			...(wantResults
+				? { items: filtered, continuationToken: window.continuationToken }
+				: {}),
+			...(wantCount ? { count: filtered.length } : {}),
+		};
+	}
+
+	const response: ThreadSearchResponse = {};
+
+	if (wantResults) {
+		const window = await client.threadMessage.searchByMailboxWindow(
+			accountConfigId,
+			mailboxId,
+			search,
+			options,
+		);
+		response.items = await enrichThreadRows(window.items, client);
+		response.continuationToken = window.continuationToken;
+		// The window read already yielded the exact match set, so the count is
+		// its length — no separate Select:COUNT, and count == items.length by
+		// construction.
+		if (wantCount) response.count = response.items.length;
+		return response;
+	}
+
+	if (wantCount) {
+		response.count = await client.threadMessage.countByMailbox(
+			accountConfigId,
+			mailboxId,
+			search,
+			{ limit: params.limit, excludeDeleted: true, order: params.order },
+		);
+	}
+
+	return response;
+};
 
 /**
  * Build the `listByThread` options for the thread-messages handler. Same
@@ -123,16 +288,7 @@ export const ThreadOperations: Record<
 		const event = args[0] as APIGatewayProxyEvent;
 		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const { mailboxId } = context.request.params as { mailboxId: string };
-		const {
-			continuationToken,
-			order,
-			query,
-			subject,
-			from,
-			unread,
-			starred,
-			attachments,
-		} = context.request.query as {
+		const raw = context.request.query as {
 			continuationToken?: string;
 			order?: "asc" | "desc";
 			query?: string;
@@ -141,29 +297,19 @@ export const ThreadOperations: Record<
 			unread?: boolean;
 			starred?: boolean;
 			attachments?: boolean;
+			senderTrust?: SenderTrust | SenderTrust[];
+			category?: MessageCategory | MessageCategory[];
+			dkimMismatch?: boolean;
+			count?: boolean;
+			results?: boolean;
+			limit?: number;
 		};
 
-		const client = getClient();
-		const result = await client.threadMessage.searchByMailbox(
-			accountConfigId,
-			mailboxId,
-			{
-				query,
-				subject,
-				from,
-				unread,
-				starred,
-				attachments,
-			},
-			buildSearchThreadsOptions({ continuationToken, order }),
-		);
-
-		const items = await enrichThreadRows(result.items, client);
-
-		return {
-			items,
-			continuationToken: result.continuationToken,
-		};
+		return executeThreadSearch(getClient(), accountConfigId, mailboxId, {
+			...raw,
+			senderTrust: toArray(raw.senderTrust),
+			category: toArray(raw.category),
+		});
 	},
 };
 
