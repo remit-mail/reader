@@ -346,7 +346,7 @@ export class MailboxSyncService {
 			highestModseq: status.highestModseq,
 			messageCount: status.messages,
 			unseenCount: status.unseen,
-			deletedCount: 0,
+			deletedCount: status.deletedCount,
 			totalSize: 0,
 			lastSyncUid: 0,
 			highWaterMarkUid: 0,
@@ -404,6 +404,7 @@ export class MailboxSyncService {
 			existing.uidValidity !== status.uidValidity ||
 			existing.messageCount !== status.messages ||
 			existing.unseenCount !== status.unseen ||
+			existing.deletedCount !== status.deletedCount ||
 			(status.highestModseq > 0 &&
 				existing.highestModseq !== status.highestModseq) ||
 			specialUseChanged;
@@ -429,6 +430,10 @@ export class MailboxSyncService {
 			);
 		if (existing.unseenCount !== status.unseen)
 			changes.push(`unseenCount: ${existing.unseenCount} -> ${status.unseen}`);
+		if (existing.deletedCount !== status.deletedCount)
+			changes.push(
+				`deletedCount: ${existing.deletedCount} -> ${status.deletedCount}`,
+			);
 		if (
 			status.highestModseq > 0 &&
 			existing.highestModseq !== status.highestModseq
@@ -454,6 +459,7 @@ export class MailboxSyncService {
 			highestModseq: status.highestModseq,
 			messageCount: status.messages,
 			unseenCount: status.unseen,
+			deletedCount: status.deletedCount,
 			specialUse: parsed.specialUse.length > 0 ? parsed.specialUse : undefined,
 		});
 	};

@@ -1065,11 +1065,16 @@ export class ImapFlowConnection {
 	};
 
 	/**
-	 * Get mailbox status without opening it.
-	 * Uses IMAP STATUS command to get message counts including unseen.
+	 * Get mailbox status.
+	 *
+	 * Message/unseen counts come from the IMAP STATUS command (no SELECT). The
+	 * \Deleted count is not part of imapflow's typed STATUS query (there is no
+	 * IMAP4rev2 STATUS=DELETED in the API), so it is derived by selecting the
+	 * mailbox read-only and running SEARCH \Deleted — a projection re-read from
+	 * the server, never a locally computed value.
 	 *
 	 * @param mailboxPath - Full path to the mailbox
-	 * @returns Mailbox status including unseen count
+	 * @returns Mailbox status including unseen and deleted counts
 	 */
 	getMailboxStatus = async (
 		mailboxPath: string,
@@ -1090,6 +1095,8 @@ export class ImapFlowConnection {
 			highestModseq: true,
 		});
 
+		const deletedCount = await this.countDeleted(mailboxPath);
+
 		return {
 			messages: status.messages ?? 0,
 			recent: status.recent ?? 0,
@@ -1097,7 +1104,20 @@ export class ImapFlowConnection {
 			uidNext: status.uidNext ?? 0,
 			uidValidity: Number(status.uidValidity ?? 0),
 			highestModseq: Number(status.highestModseq ?? 0),
+			deletedCount,
 		};
+	};
+
+	/**
+	 * Count messages flagged \Deleted but not yet expunged.
+	 *
+	 * Selects the mailbox read-only (no state change) and counts SEARCH \Deleted
+	 * hits. Read-only SELECT is idempotent against an already-open mailbox.
+	 */
+	private countDeleted = async (mailboxPath: string): Promise<number> => {
+		await this.openBox(mailboxPath, true);
+		const deletedUids = await this.search(["DELETED"]);
+		return deletedUids.length;
 	};
 
 	/**
