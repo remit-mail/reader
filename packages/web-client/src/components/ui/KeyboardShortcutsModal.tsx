@@ -58,7 +58,9 @@ export const KeyboardShortcutsModal = ({
 					"p-6",
 				)}
 				onClick={(e) => e.stopPropagation()}
-				onKeyDown={(e) => e.stopPropagation()}
+				onKeyDown={(e) => {
+					if (e.key !== "Escape") e.stopPropagation();
+				}}
 			>
 				{/* Header */}
 				<div className="mb-6 flex items-center justify-between">
