@@ -49,6 +49,7 @@ export const AdminAccountConfigOperations: Record<
 			}),
 		);
 
+		// biome-ignore lint/plugin/no-logger-info: finalize-delete enqueue is an audit-grade signal
 		logger.info({ accountConfigId }, "Account finalize-delete enqueued");
 
 		return { statusCode: 204 };

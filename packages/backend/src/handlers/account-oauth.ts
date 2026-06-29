@@ -209,6 +209,7 @@ export const MicrosoftOAuthOperations: Record<
 			loginHint: email,
 		});
 
+		// biome-ignore lint/plugin/no-logger-info: OAuth initiation is an audit-grade signal
 		logger.info({ accountConfigId }, "Microsoft OAuth start initiated");
 
 		return { authorizationUrl };
@@ -404,6 +405,7 @@ export const MicrosoftOAuthOperations: Record<
 				["lastError"] as never,
 			);
 			accountId = updated.accountId;
+			// biome-ignore lint/plugin/no-logger-info: OAuth reconnect is an audit-grade signal
 			logger.info(
 				{ accountConfigId, accountId },
 				"MS OAuth reconnect: refresh token updated",
@@ -430,6 +432,7 @@ export const MicrosoftOAuthOperations: Record<
 				connectionState: ConnectionState.NotAuthenticated,
 			});
 			accountId = newAccount.accountId;
+			// biome-ignore lint/plugin/no-logger-info: OAuth account creation is an audit-grade signal
 			logger.info(
 				{ accountConfigId, accountId },
 				"MS OAuth: new account created",

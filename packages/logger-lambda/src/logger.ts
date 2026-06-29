@@ -98,7 +98,7 @@ export const withTelemetry = <TEvent, TResult>(
 ): ((event: TEvent, context: Context) => Promise<TResult>) => {
 	return async (event: TEvent, context: Context): Promise<TResult> => {
 		powertoolsLogger.addContext(context);
-		logger.info("Lambda invocation started", {
+		logger.debug("Lambda invocation started", {
 			functionName: context.functionName,
 		});
 

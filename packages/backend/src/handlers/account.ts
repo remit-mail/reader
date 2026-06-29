@@ -77,6 +77,7 @@ export const triggerAccountSyncSafe = async (
 				queueUrl,
 				accountId,
 			});
+			// biome-ignore lint/plugin/no-logger-info: sync-triggered-for-new-account is an audit-grade signal
 			logger.info({ accountId, eventId }, "Sync triggered for new account");
 		},
 		{
@@ -498,6 +499,7 @@ export const AccountDetailOperations: Record<
 				}),
 			}),
 		);
+		// biome-ignore lint/plugin/no-logger-info: account data purge is an audit-grade signal
 		logger.info({ accountId, accountConfigId }, "Account data purge initiated");
 
 		return {
