@@ -35,6 +35,8 @@ describe("cascade entity coverage snapshot", () => {
 		const entityTypesByFile: Record<string, string[]> = {
 			"account-config": ["AccountConfig"],
 			"account-export-request": [],
+			"account-setting": ["AccountSetting"],
+			"account-setting-registry": [],
 			account: ["Account"],
 			address: ["Address", "EnvelopeAddress"],
 			envelope: [
