@@ -18,7 +18,7 @@ const baseAddress: AddressItem = {
 	domain: "example.com",
 	normalizedEmail: "alice@example.com",
 	normalizedCompound: "alice alice@example.com",
-	flags: undefined,
+	flags: {},
 	inboundCount: 0,
 	outboundCount: 0,
 	replyCount: 0,
@@ -29,10 +29,12 @@ const baseAddress: AddressItem = {
 	updatedAt: 1_700_000_001_000,
 };
 
-// A row written before the counters became required-with-default carries the
-// attribute absent at runtime, even though the type now models them as total.
+// A row written before the counters / flags became required-with-default
+// carries the attribute absent at runtime, even though the type now models them
+// as total.
 const unbackfilledAddress = {
 	...baseAddress,
+	flags: undefined,
 	inboundCount: undefined,
 	outboundCount: undefined,
 	replyCount: undefined,
@@ -55,6 +57,11 @@ describe("toAddressResponse", () => {
 		assert.equal(result.replyCount, 0);
 		assert.equal(result.lastInboundAt, 0);
 		assert.equal(result.lastReplyAt, 0);
+	});
+
+	it("coalesces missing flags to an empty map (un-backfilled row)", () => {
+		const result = toAddressResponse(unbackfilledAddress);
+		assert.deepEqual(result.flags, {});
 	});
 
 	it("maps engagement counters and timestamps when present", () => {

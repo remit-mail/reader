@@ -24,7 +24,7 @@ export const toAddressResponse = (item: AddressItem): AddressResponse => ({
 	localPart: item.localPart,
 	domain: item.domain,
 	normalizedEmail: item.normalizedEmail,
-	flags: item.flags,
+	flags: item.flags ?? {},
 	inboundCount: item.inboundCount ?? 0,
 	outboundCount: item.outboundCount ?? 0,
 	replyCount: item.replyCount ?? 0,
