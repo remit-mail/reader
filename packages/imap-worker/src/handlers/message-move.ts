@@ -14,9 +14,49 @@ import {
 import { env } from "expect-env";
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
-import type { MessageMoveEvent } from "../events.js";
+import { emitEvent } from "../emit.js";
+import type { MessageMoveEvent, SyncMessagesEvent } from "../events.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
+
+type EmitSyncMessages = (
+	event: Omit<SyncMessagesEvent, "eventId" | "timestamp">,
+) => Promise<unknown>;
+
+/**
+ * Re-read both folders' counts from IMAP after a move by enqueuing the existing
+ * per-folder SYNC_MESSAGES sync. Counts are a projection of IMAP, never mutated
+ * locally — the move shifted a message between source and destination, so both
+ * folders must refresh through the one-way pipeline.
+ */
+export const emitMoveResync = async (
+	emit: EmitSyncMessages,
+	params: {
+		accountId: string;
+		sourceMailboxId: string;
+		destinationMailboxId: string;
+	},
+): Promise<void> => {
+	const { accountId, sourceMailboxId, destinationMailboxId } = params;
+	await Promise.all(
+		[sourceMailboxId, destinationMailboxId].map((mailboxId) =>
+			emit({ type: "SYNC_MESSAGES", accountId, mailboxId }),
+		),
+	);
+};
+
+/**
+ * Resync the affected folders only once the IMAP move has resolved. A move that
+ * fails (or is retried) must not refresh counts off a move that didn't happen,
+ * so the resync is sequenced strictly after `performMove`.
+ */
+export const moveThenResync = async (
+	performMove: () => Promise<void>,
+	resync: () => Promise<void>,
+): Promise<void> => {
+	await performMove();
+	await resync();
+};
 
 /**
  * Build the `set` and `composites` payload for the ThreadMessage update on a
@@ -86,6 +126,7 @@ export const handleMessageMove = async (
 	const {
 		accountId,
 		messageId,
+		sourceMailboxId,
 		sourceMailboxPath,
 		destinationMailboxPath,
 		destinationMailboxId,
@@ -121,64 +162,74 @@ export const handleMessageMove = async (
 
 			await scope
 				.getConnection()
-				.then(async (connection) => {
-					// Open source mailbox (not read-only)
-					await connection.openBox(sourceMailboxPath, false);
+				.then((connection) =>
+					moveThenResync(
+						async () => {
+							// Open source mailbox (not read-only)
+							await connection.openBox(sourceMailboxPath, false);
 
-					// Execute IMAP MOVE
-					const result = await connection.moveMessages(
-						[uid],
-						destinationMailboxPath,
-					);
+							// Execute IMAP MOVE
+							const result = await connection.moveMessages(
+								[uid],
+								destinationMailboxPath,
+							);
 
-					// Get new UID from COPYUID response
-					const newUid = result.uidMap.get(uid);
+							// Get new UID from COPYUID response
+							const newUid = result.uidMap.get(uid);
 
-					if (newUid) {
-						// Update message with new UID
-						await messageService.updateUid(
-							messageId,
-							newUid,
-							destinationMailboxId,
-						);
+							if (newUid) {
+								// Update message with new UID
+								await messageService.updateUid(
+									messageId,
+									newUid,
+									destinationMailboxId,
+								);
 
-						// Update ThreadMessage UID and mailboxId
-						const threadMessage =
-							await threadMessageService.findByMessageId(messageId);
-						if (threadMessage) {
-							const args = buildThreadMessageMoveUpdate(
-								threadMessage,
-								newUid,
+								// Update ThreadMessage UID and mailboxId
+								const threadMessage =
+									await threadMessageService.findByMessageId(messageId);
+								if (threadMessage) {
+									const args = buildThreadMessageMoveUpdate(
+										threadMessage,
+										newUid,
+										destinationMailboxId,
+									);
+									await threadMessageService.update(
+										threadMessage.accountConfigId,
+										threadMessage.threadMessageId,
+										args.set,
+										{ composites: args.composites },
+									);
+								}
+
+								log.info(
+									{
+										messageId,
+										oldUid: uid,
+										newUid,
+										destination: destinationMailboxPath,
+									},
+									"Message moved successfully",
+								);
+							} else {
+								// Message may have been deleted on server
+								log.error(
+									{ messageId, uid },
+									"Message not found in COPYUID response - may have been deleted",
+								);
+								await messageService.update(messageId, {
+									syncStatus: MessageSyncStatus.failed,
+								});
+							}
+						},
+						() =>
+							emitMoveResync(emitEvent, {
+								accountId,
+								sourceMailboxId,
 								destinationMailboxId,
-							);
-							await threadMessageService.update(
-								threadMessage.accountConfigId,
-								threadMessage.threadMessageId,
-								args.set,
-								{ composites: args.composites },
-							);
-						}
-
-						log.info(
-							{
-								messageId,
-								oldUid: uid,
-								newUid,
-								destination: destinationMailboxPath,
-							},
-							"Message moved successfully",
-						);
-					} else {
-						// Message may have been deleted on server
-						log.error(
-							{ messageId, uid },
-							"Message not found in COPYUID response - may have been deleted",
-						);
-						await messageService.update(messageId, {
-							syncStatus: MessageSyncStatus.failed,
-						});
-					}
-				})
+							}),
+					),
+				)
 				.catch(async (error: unknown) => {
 					const errorMessage =
 						error instanceof Error ? error.message : String(error);

@@ -1,7 +1,11 @@
 import assert from "node:assert";
-import { describe, it } from "node:test";
+import { describe, it, mock } from "node:test";
 import type { ThreadMessageItem } from "@remit/remit-electrodb-service";
-import { buildThreadMessageMoveUpdate } from "./message-move.js";
+import {
+	buildThreadMessageMoveUpdate,
+	emitMoveResync,
+	moveThenResync,
+} from "./message-move.js";
 
 const sourceMailboxId = "source-mailbox-id-aaaaaaaaa";
 const destinationMailboxId = "destination-mailbox-aaaaa";
@@ -103,5 +107,62 @@ describe("buildThreadMessageMoveUpdate", () => {
 			hasStars: tm.hasStars,
 			hasAttachment: tm.hasAttachment,
 		});
+	});
+});
+
+const accountId = "alice-account-aaaaaaaaaa";
+
+describe("emitMoveResync (#1031)", () => {
+	// A move shifts a message between two folders; both folders' counts must
+	// refresh from IMAP via the existing per-folder SYNC_MESSAGES sync. Counts
+	// are never mutated locally — only re-read downstream.
+
+	it("emits SYNC_MESSAGES for both the source and destination folders", async () => {
+		const emit = mock.fn(async () => undefined);
+
+		await emitMoveResync(emit, {
+			accountId,
+			sourceMailboxId,
+			destinationMailboxId,
+		});
+
+		assert.equal(emit.mock.calls.length, 2);
+		assert.deepEqual(emit.mock.calls[0].arguments, [
+			{ type: "SYNC_MESSAGES", accountId, mailboxId: sourceMailboxId },
+		]);
+		assert.deepEqual(emit.mock.calls[1].arguments, [
+			{ type: "SYNC_MESSAGES", accountId, mailboxId: destinationMailboxId },
+		]);
+	});
+});
+
+describe("moveThenResync (#1031)", () => {
+	it("runs the resync after the move resolves", async () => {
+		const order: string[] = [];
+		const performMove = mock.fn(async () => {
+			order.push("move");
+		});
+		const resync = mock.fn(async () => {
+			order.push("resync");
+		});
+
+		await moveThenResync(performMove, resync);
+
+		assert.deepEqual(order, ["move", "resync"]);
+		assert.equal(resync.mock.calls.length, 1);
+	});
+
+	it("does not resync when the move fails, and propagates the error", async () => {
+		const performMove = mock.fn(async () => {
+			throw new Error("IMAP move failed");
+		});
+		const resync = mock.fn(async () => undefined);
+
+		await assert.rejects(
+			() => moveThenResync(performMove, resync),
+			/IMAP move failed/,
+		);
+
+		assert.equal(resync.mock.calls.length, 0);
 	});
 });
