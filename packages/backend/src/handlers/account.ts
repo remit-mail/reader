@@ -47,6 +47,11 @@ import {
 	assertPasswordProvided,
 	toAccountResponse,
 } from "./account-guards.js";
+import {
+	loadAccountOverrides,
+	upsertAccountDisplayName,
+	writeAccountMuted,
+} from "./account-overrides.js";
 import { assertAccountOwnership } from "./account-ownership.js";
 import {
 	loadSignatureForAccount,
@@ -197,7 +202,7 @@ export const AccountOperations: Record<
 		// Password accounts require a non-empty password
 		assertPasswordProvided(input.authType, input.password);
 
-		const { account, accountConfig, secrets } = getClient();
+		const { account, accountConfig, accountSetting, secrets } = getClient();
 
 		await ensureAccountConfig(accountConfig, accountConfigId);
 
@@ -225,7 +230,6 @@ export const AccountOperations: Record<
 
 		const newAccount = await account.create({
 			accountConfigId,
-			displayName: input.displayName,
 			email: input.email,
 			username: input.username ?? input.email,
 			authType: AccountAuthType.Password,
@@ -244,9 +248,26 @@ export const AccountOperations: Record<
 			connectionState: ConnectionState.NotAuthenticated,
 		});
 
+		// Display name lives in a per-account AccountSetting row (RFC 032), not on
+		// the entity. Persist it when supplied so the response and later reads
+		// surface it unchanged.
+		if (input.displayName !== undefined) {
+			await upsertAccountDisplayName(
+				accountSetting,
+				accountConfigId,
+				newAccount.accountId,
+				input.displayName,
+			);
+		}
+
 		await triggerAccountSyncSafe(newAccount.accountId);
 
-		return toAccountResponse(newAccount);
+		const overrides = await loadAccountOverrides(
+			accountSetting,
+			accountConfigId,
+			newAccount.accountId,
+		);
+		return toAccountResponse(newAccount, {}, overrides);
 	},
 
 	AccountOperations_testConnection: async (
@@ -372,7 +393,6 @@ export const AccountDetailOperations: Record<
 
 		// Copy non-password fields
 		const fields = [
-			"displayName",
 			"imapHost",
 			"imapPort",
 			"imapTls",
@@ -391,15 +411,26 @@ export const AccountDetailOperations: Record<
 			}
 		}
 
-		// Handle muted flag: explicit null removes the flag, object sets it.
-		// Mirrors UpdateAddressFlagsInput semantics: null → remove, object → set.
-		// The client is responsible for populating setAt (same pattern as address flags).
-		const remove: "muted"[] = [];
+		// Display name and the mute flag live in per-account AccountSetting rows
+		// (RFC 032), not on the account entity. Display name upserts when supplied;
+		// the mute flag follows the address-flag null→remove, object→set semantics
+		// (the client populates setAt).
+		if (input.displayName !== undefined) {
+			await upsertAccountDisplayName(
+				accountSetting,
+				accountConfigId,
+				accountId,
+				input.displayName,
+			);
+		}
 		if (Object.prototype.hasOwnProperty.call(input, "muted")) {
-			if (input.muted === null) {
-				remove.push("muted");
-			} else if (input.muted !== undefined) {
-				updates.muted = input.muted;
+			if (input.muted !== undefined) {
+				await writeAccountMuted(
+					accountSetting,
+					accountConfigId,
+					accountId,
+					input.muted,
+				);
 			}
 		}
 
@@ -417,18 +448,13 @@ export const AccountDetailOperations: Record<
 			});
 		}
 
-		const updated = await account.update(
-			accountId,
-			updates,
-			remove.length > 0 ? remove : undefined,
-		);
+		const updated = await account.update(accountId, updates);
 
-		const signature = await loadSignatureForAccount(
-			accountSetting,
-			accountConfigId,
-			accountId,
-		);
-		return toAccountResponse(updated, signature);
+		const [signature, overrides] = await Promise.all([
+			loadSignatureForAccount(accountSetting, accountConfigId, accountId),
+			loadAccountOverrides(accountSetting, accountConfigId, accountId),
+		]);
+		return toAccountResponse(updated, signature, overrides);
 	},
 
 	AccountDetailOperations_deleteAccount: async (

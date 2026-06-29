@@ -166,16 +166,32 @@ describe("toAccountResponse — no token material in output", () => {
 		assert.equal(response.authType, "password");
 	});
 
-	it("flows displayName through the response", () => {
+	it("flows displayName from the per-account setting override", () => {
 		const response = toAccountResponse(
-			makeAccountItem({ displayName: "Alice" }),
+			makeAccountItem(),
+			{},
+			{
+				displayName: "Alice",
+			},
 		);
 		assert.equal(response.displayName, "Alice");
 	});
 
-	it("leaves displayName undefined when the account has none", () => {
+	it("leaves displayName undefined when no override is set", () => {
 		const response = toAccountResponse(makeAccountItem());
 		assert.equal(response.displayName, undefined);
+	});
+
+	it("flows the mute flag from the per-account setting override", () => {
+		const mutedFlag = { value: true, setAt: 1_700_000_000_000 };
+		const response = toAccountResponse(
+			makeAccountItem(),
+			{},
+			{
+				muted: mutedFlag,
+			},
+		);
+		assert.deepEqual(response.muted, mutedFlag);
 	});
 });
 

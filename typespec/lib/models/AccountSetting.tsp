@@ -1,6 +1,7 @@
 import "typespec-electrodb-emitter";
 
 import "../scalars/string.tsp";
+import "./Address.tsp";
 
 namespace RemitImap;
 
@@ -40,6 +41,12 @@ model MapSetting extends AccountSettingValue {
   value: Record<string>;
 }
 
+@doc("MutedFlag-valued setting (a rich mute object: value + audit metadata). Carries the same shape as a sender/account/mailbox MutedFlag so a relocated mute flag survives unchanged.")
+model MutedFlagSetting extends AccountSettingValue {
+  kind: "MutedFlag";
+  value: MutedFlag;
+}
+
 @doc("Concrete setting values, one variant per `kind`. Persisted as an opaque map (the registry validates the shape per setting name); the discriminator above types it on the wire.")
 union AccountSettingValueUnion {
   boolean: BooleanSetting,
@@ -47,6 +54,7 @@ union AccountSettingValueUnion {
   number: NumberSetting,
   stringList: StringListSetting,
   map: MapSetting,
+  mutedFlag: MutedFlagSetting,
 }
 
 @doc("A single user setting for an account configuration. One row per (accountConfigId, name); the primary key is a deterministic UUID v5 of that pair, so writes are idempotent upserts.")

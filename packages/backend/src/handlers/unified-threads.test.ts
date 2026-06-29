@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { AccountItem, MailboxItem } from "@remit/remit-electrodb-service";
+import type {
+	AccountItem,
+	AccountSettingItem,
+	MailboxItem,
+} from "@remit/remit-electrodb-service";
 import {
 	attachAccountIds,
 	buildInboxMailboxMap,
@@ -12,33 +16,41 @@ import {
 // Fixture helpers
 // ---------------------------------------------------------------------------
 
-const makeAccount = (
-	accountId: string,
-	accountConfigId: string,
-	muted?: { value: boolean },
-): AccountItem =>
+const makeAccount = (accountId: string, accountConfigId: string): AccountItem =>
 	({
 		accountId,
 		accountConfigId,
-		muted,
 	}) as unknown as AccountItem;
 
 const makeMailbox = (
 	mailboxId: string,
 	accountId: string,
 	fullPath: string,
-	muted?: { value: boolean },
 ): MailboxItem =>
 	({
 		mailboxId,
 		accountId,
 		fullPath,
-		muted,
 	}) as unknown as MailboxItem;
+
+// Mute flags live in per-target AccountSetting rows (RFC 032). These build the
+// composite-named rows the client returns from listByAccountConfig.
+const mutedAccountSetting = (accountId: string): AccountSettingItem =>
+	({
+		name: `AccountMuted#${accountId}`,
+		value: { kind: "MutedFlag", value: { value: true, setAt: 1 } },
+	}) as unknown as AccountSettingItem;
+
+const mutedMailboxSetting = (mailboxId: string): AccountSettingItem =>
+	({
+		name: `MailboxMuted#${mailboxId}`,
+		value: { kind: "MutedFlag", value: { value: true, setAt: 1 } },
+	}) as unknown as AccountSettingItem;
 
 const makeClient = (
 	accounts: AccountItem[],
 	mailboxesByAccount: Record<string, MailboxItem[]>,
+	settings: AccountSettingItem[] = [],
 ): InboxMapClient => ({
 	account: {
 		listAllByAccountConfig: async (_accountConfigId) => accounts,
@@ -46,6 +58,9 @@ const makeClient = (
 	mailbox: {
 		listAllByAccount: async (accountId: string) =>
 			mailboxesByAccount[accountId] ?? [],
+	},
+	accountSetting: {
+		listByAccountConfig: async (_accountConfigId) => settings,
 	},
 });
 
@@ -87,11 +102,13 @@ describe("buildInboxMailboxMap (#432)", () => {
 		assert.equal(inboxMailboxIds.size, 2);
 	});
 
-	it("excludes muted accounts", async () => {
-		const mutedAccount = makeAccount("acc-muted", "cfg-1", { value: true });
+	it("excludes accounts muted via an AccountMuted setting", async () => {
+		const mutedAccount = makeAccount("acc-muted", "cfg-1");
 		const inbox = makeMailbox("mb-inbox-muted", "acc-muted", "INBOX");
 
-		const client = makeClient([mutedAccount], { "acc-muted": [inbox] });
+		const client = makeClient([mutedAccount], { "acc-muted": [inbox] }, [
+			mutedAccountSetting("acc-muted"),
+		]);
 		const { mailboxIdToAccountId, inboxMailboxIds } =
 			await buildInboxMailboxMap("cfg-1", client);
 
@@ -99,13 +116,13 @@ describe("buildInboxMailboxMap (#432)", () => {
 		assert.equal(mailboxIdToAccountId.size, 0);
 	});
 
-	it("excludes muted mailboxes even when account is not muted", async () => {
+	it("excludes mailboxes muted via a MailboxMuted setting even when account is not muted", async () => {
 		const account = makeAccount("acc-1", "cfg-1");
-		const mutedInbox = makeMailbox("mb-inbox-muted", "acc-1", "INBOX", {
-			value: true,
-		});
+		const mutedInbox = makeMailbox("mb-inbox-muted", "acc-1", "INBOX");
 
-		const client = makeClient([account], { "acc-1": [mutedInbox] });
+		const client = makeClient([account], { "acc-1": [mutedInbox] }, [
+			mutedMailboxSetting("mb-inbox-muted"),
+		]);
 		const { mailboxIdToAccountId, inboxMailboxIds } =
 			await buildInboxMailboxMap("cfg-1", client);
 
@@ -115,14 +132,18 @@ describe("buildInboxMailboxMap (#432)", () => {
 
 	it("includes account with only non-muted INBOX even when other accounts are muted", async () => {
 		const active = makeAccount("acc-active", "cfg-1");
-		const muted = makeAccount("acc-muted", "cfg-1", { value: true });
+		const muted = makeAccount("acc-muted", "cfg-1");
 		const inbox = makeMailbox("mb-inbox-active", "acc-active", "INBOX");
 		const mutedInbox = makeMailbox("mb-inbox-muted", "acc-muted", "INBOX");
 
-		const client = makeClient([active, muted], {
-			"acc-active": [inbox],
-			"acc-muted": [mutedInbox],
-		});
+		const client = makeClient(
+			[active, muted],
+			{
+				"acc-active": [inbox],
+				"acc-muted": [mutedInbox],
+			},
+			[mutedAccountSetting("acc-muted")],
+		);
 		const { mailboxIdToAccountId, inboxMailboxIds } =
 			await buildInboxMailboxMap("cfg-1", client);
 

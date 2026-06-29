@@ -1,4 +1,8 @@
-import type { AccountItem, MailboxItem } from "@remit/remit-electrodb-service";
+import type {
+	AccountItem,
+	AccountSettingService,
+	MailboxItem,
+} from "@remit/remit-electrodb-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import pMap from "p-map";
@@ -6,6 +10,10 @@ import { getAccountConfigIdFromEvent } from "../auth.js";
 import { enrichThreadRows } from "../derive/enrichThreadRows.js";
 import { getClient } from "../service/dynamodb.js";
 import type { OperationHandler, UnifiedThreadOperationIds } from "../types.js";
+import {
+	groupAccountOverrides,
+	groupMailboxOverrides,
+} from "./account-overrides.js";
 
 const DEFAULT_UNIFIED_THREADS_PAGE_SIZE = 50;
 const MAILBOX_LIST_CONCURRENCY = 5;
@@ -22,6 +30,7 @@ export interface InboxMapClient {
 	mailbox: {
 		listAllByAccount(accountId: string): Promise<MailboxItem[]>;
 	};
+	accountSetting: Pick<AccountSettingService, "listByAccountConfig">;
 }
 
 /**
@@ -37,7 +46,10 @@ export interface InboxMapClient {
  * sub-folders" — consistent with sync-mailboxes.
  *
  * Muted accounts and muted mailboxes are excluded so the unified thread
- * listing respects the mute flags from #437 (#433).
+ * listing respects the mute flags from #437 (#433). The mute flags now live in
+ * per-target AccountSetting rows (RFC 032), loaded once for the whole config and
+ * keyed by accountId/mailboxId; a target counts as muted only when its MutedFlag
+ * exists AND `value === true`.
  *
  * NOTE (read cost / mute drift): this fan-out (one listAllByAccountConfig + N
  * per-account mailbox listings) runs on *every* page request and is not cached
@@ -56,8 +68,23 @@ export const buildInboxMailboxMap = async (
 	mailboxIdToAccountId: Map<string, string>;
 	inboxMailboxIds: Set<string>;
 }> => {
-	const accounts = await client.account.listAllByAccountConfig(accountConfigId);
-	const activeAccounts = accounts.filter((account) => !account.muted);
+	const [accounts, settings] = await Promise.all([
+		client.account.listAllByAccountConfig(accountConfigId),
+		client.accountSetting.listByAccountConfig(accountConfigId),
+	]);
+
+	// Mute flags live in per-target AccountSetting rows (RFC 032). A target is
+	// muted only when its MutedFlag exists and `value === true`.
+	const accountOverrides = groupAccountOverrides(settings);
+	const mailboxOverrides = groupMailboxOverrides(settings);
+	const isAccountMuted = (accountId: string): boolean =>
+		accountOverrides.get(accountId)?.muted?.value === true;
+	const isMailboxMuted = (mailboxId: string): boolean =>
+		mailboxOverrides.get(mailboxId)?.muted?.value === true;
+
+	const activeAccounts = accounts.filter(
+		(account) => !isAccountMuted(account.accountId),
+	);
 
 	const mailboxLists = await pMap(
 		activeAccounts,
@@ -71,7 +98,9 @@ export const buildInboxMailboxMap = async (
 	const inboxes = mailboxLists
 		.flat()
 		.filter(
-			(mailbox) => !mailbox.muted && mailbox.fullPath.toUpperCase() === "INBOX",
+			(mailbox) =>
+				!isMailboxMuted(mailbox.mailboxId) &&
+				mailbox.fullPath.toUpperCase() === "INBOX",
 		);
 
 	for (const mailbox of inboxes) {

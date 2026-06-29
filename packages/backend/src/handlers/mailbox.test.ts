@@ -4,8 +4,8 @@ import type { MailboxItem } from "@remit/remit-electrodb-service";
 import type { RenameMailboxInput } from "@remit/api-openapi-types";
 import {
 	applyMailboxPatch,
-	buildMailboxOverrideChanges,
 	type MailboxPatchClient,
+	pickMailboxOverrideChanges,
 } from "./mailbox.js";
 
 const MUTED_FLAG = {
@@ -14,58 +14,48 @@ const MUTED_FLAG = {
 	setBy: "device-a",
 };
 
-describe("buildMailboxOverrideChanges", () => {
-	it("returns empty update and remove when no override key is present (no-op)", () => {
+describe("pickMailboxOverrideChanges", () => {
+	it("returns empty changes when no override key is present (no-op)", () => {
 		const body = { fullPath: "INBOX" } as RenameMailboxInput;
-		const { updates, remove } = buildMailboxOverrideChanges(body);
-		assert.deepEqual(updates, {});
-		assert.deepEqual(remove, []);
+		assert.deepEqual(pickMailboxOverrideChanges(body), {});
 	});
 
-	it("sets muted flag when a MutedFlag object is provided", () => {
+	it("picks muted flag when a MutedFlag object is provided", () => {
 		const body = { muted: MUTED_FLAG } as unknown as RenameMailboxInput;
-		const { updates, remove } = buildMailboxOverrideChanges(body);
-		assert.deepEqual(updates, { muted: MUTED_FLAG });
-		assert.deepEqual(remove, []);
+		assert.deepEqual(pickMailboxOverrideChanges(body), { muted: MUTED_FLAG });
 	});
 
-	it("signals removal when muted is null", () => {
+	it("picks muted null (clear signal)", () => {
 		const body = { muted: null } as unknown as RenameMailboxInput;
-		const { updates, remove } = buildMailboxOverrideChanges(body);
-		assert.deepEqual(updates, {});
-		assert.deepEqual(remove, ["muted"]);
+		assert.deepEqual(pickMailboxOverrideChanges(body), { muted: null });
 	});
 
-	it("sets displayNameOverride when a string is provided", () => {
-		const body = {
+	it("picks displayNameOverride when a string is provided", () => {
+		const body = { displayNameOverride: "Work Stuff" } as RenameMailboxInput;
+		assert.deepEqual(pickMailboxOverrideChanges(body), {
 			displayNameOverride: "Work Stuff",
-		} as RenameMailboxInput;
-		const { updates, remove } = buildMailboxOverrideChanges(body);
-		assert.deepEqual(updates, { displayNameOverride: "Work Stuff" });
-		assert.deepEqual(remove, []);
+		});
 	});
 
-	it("signals removal when displayNameOverride is null", () => {
+	it("picks displayNameOverride null (clear signal)", () => {
 		const body = {
 			displayNameOverride: null,
 		} as unknown as RenameMailboxInput;
-		const { updates, remove } = buildMailboxOverrideChanges(body);
-		assert.deepEqual(updates, {});
-		assert.deepEqual(remove, ["displayNameOverride"]);
+		assert.deepEqual(pickMailboxOverrideChanges(body), {
+			displayNameOverride: null,
+		});
 	});
 
-	it("sets roleOverride when a MailboxRole is provided", () => {
+	it("picks roleOverride when a MailboxRole is provided", () => {
 		const body = { roleOverride: "Archive" } as RenameMailboxInput;
-		const { updates, remove } = buildMailboxOverrideChanges(body);
-		assert.deepEqual(updates, { roleOverride: "Archive" });
-		assert.deepEqual(remove, []);
+		assert.deepEqual(pickMailboxOverrideChanges(body), {
+			roleOverride: "Archive",
+		});
 	});
 
-	it("signals removal when roleOverride is null", () => {
+	it("picks roleOverride null (clear signal)", () => {
 		const body = { roleOverride: null } as unknown as RenameMailboxInput;
-		const { updates, remove } = buildMailboxOverrideChanges(body);
-		assert.deepEqual(updates, {});
-		assert.deepEqual(remove, ["roleOverride"]);
+		assert.deepEqual(pickMailboxOverrideChanges(body), { roleOverride: null });
 	});
 
 	it("combines set and clear across override fields", () => {
@@ -74,49 +64,41 @@ describe("buildMailboxOverrideChanges", () => {
 			roleOverride: null,
 			muted: MUTED_FLAG,
 		} as unknown as RenameMailboxInput;
-		const { updates, remove } = buildMailboxOverrideChanges(body);
-		assert.deepEqual(updates, {
+		assert.deepEqual(pickMailboxOverrideChanges(body), {
 			displayNameOverride: "Receipts",
+			roleOverride: null,
 			muted: MUTED_FLAG,
 		});
-		assert.deepEqual(remove, ["roleOverride"]);
 	});
 
-	it("does not signal rename machinery (fullPath unchanged) for an override-only PATCH", () => {
-		// The handler only calls renameMailbox when fullPath is present.
-		// An override-only body without fullPath should produce override changes
-		// but no rename signal. Verified by asserting fullPath is not in updates.
-		const body = { muted: MUTED_FLAG } as unknown as RenameMailboxInput;
-		const { updates } = buildMailboxOverrideChanges(body);
+	it("never includes fullPath in the picked override changes", () => {
+		const body = {
+			fullPath: "INBOX",
+			muted: MUTED_FLAG,
+		} as unknown as RenameMailboxInput;
+		const changes = pickMailboxOverrideChanges(body);
 		assert.ok(
-			!Object.prototype.hasOwnProperty.call(updates, "fullPath"),
-			"fullPath must not appear in override updates",
+			!Object.prototype.hasOwnProperty.call(changes, "fullPath"),
+			"fullPath must not appear in override changes",
 		);
-	});
-
-	it("treats an override key set to undefined the same as absent (no-op)", () => {
-		// Destructuring a missing key yields undefined; should be a no-op.
-		const body = { muted: undefined } as RenameMailboxInput;
-		const { updates, remove } = buildMailboxOverrideChanges(body);
-		// key is present but undefined → still iterated, but neither set nor
-		// remove should fire.
-		assert.deepEqual(updates, {});
-		assert.deepEqual(remove, []);
 	});
 });
 
 // ── Handler-level tests for the no-rename guarantee ──────────────────
-// The spec's acceptance criterion: a mute-only PATCH "sets and clears the
-// mailbox mute without touching the rename/sync-status machinery". These
-// tests pin that at the handler level by stubbing the client and asserting
-// mailboxQueue.renameMailbox is (not) invoked.
+// The acceptance criterion: an override-only PATCH "sets and clears the mailbox
+// mute / display-name / role without touching the rename/sync-status
+// machinery". Overrides are written to per-mailbox AccountSetting rows (RFC 032),
+// so these tests stub accountSetting + the client and assert
+// mailboxQueue.renameMailbox is (not) invoked and the right setting writes fire.
 
+const ACCOUNT_CONFIG_ID = "cfg-1";
 const MAILBOX_ID = "mb-1";
 const ACCOUNT_ID = "acc-1";
 
 const makeStubClient = () => {
 	const calls = {
-		update: [] as unknown[][],
+		upsert: [] as unknown[],
+		delete: [] as unknown[][],
 		get: 0,
 		renameMailbox: [] as unknown[][],
 	};
@@ -127,10 +109,6 @@ const makeStubClient = () => {
 				calls.get += 1;
 				return item;
 			},
-			update: async (mailboxId, input, remove) => {
-				calls.update.push([mailboxId, input, remove]);
-				return item;
-			},
 		},
 		mailboxQueue: {
 			renameMailbox: async (mailboxId, newPath, accountId) => {
@@ -138,109 +116,168 @@ const makeStubClient = () => {
 				return item;
 			},
 		},
+		accountSetting: {
+			upsert: async (input: unknown) => {
+				calls.upsert.push(input);
+				return input as never;
+			},
+			delete: async (accountConfigId: string, name: string) => {
+				calls.delete.push([accountConfigId, name]);
+			},
+		} as MailboxPatchClient["accountSetting"],
 	};
 	return { client, calls, item };
 };
 
 describe("applyMailboxPatch", () => {
-	it("mute-only PATCH (set) never calls mailboxQueue.renameMailbox", async () => {
+	it("mute-only PATCH (set) writes the setting and never renames", async () => {
 		const { client, calls } = makeStubClient();
 		const body = { muted: MUTED_FLAG } as unknown as RenameMailboxInput;
 
-		await applyMailboxPatch(client, MAILBOX_ID, ACCOUNT_ID, body);
+		await applyMailboxPatch(
+			client,
+			ACCOUNT_CONFIG_ID,
+			MAILBOX_ID,
+			ACCOUNT_ID,
+			body,
+		);
 
 		assert.equal(calls.renameMailbox.length, 0);
-		assert.equal(calls.update.length, 1);
-		assert.deepEqual(calls.update[0], [
-			MAILBOX_ID,
-			{ muted: MUTED_FLAG },
-			undefined,
+		assert.deepEqual(calls.upsert, [
+			{
+				accountConfigId: ACCOUNT_CONFIG_ID,
+				name: `MailboxMuted#${MAILBOX_ID}`,
+				value: { kind: "MutedFlag", value: MUTED_FLAG },
+			},
 		]);
 		assert.equal(calls.get, 1, "responds with a fresh get, not a rename");
 	});
 
-	it("mute-only PATCH (clear via null) never calls mailboxQueue.renameMailbox", async () => {
+	it("mute-only PATCH (clear via null) deletes the setting and never renames", async () => {
 		const { client, calls } = makeStubClient();
 		const body = { muted: null } as unknown as RenameMailboxInput;
 
-		await applyMailboxPatch(client, MAILBOX_ID, ACCOUNT_ID, body);
+		await applyMailboxPatch(
+			client,
+			ACCOUNT_CONFIG_ID,
+			MAILBOX_ID,
+			ACCOUNT_ID,
+			body,
+		);
 
 		assert.equal(calls.renameMailbox.length, 0);
-		assert.equal(calls.update.length, 1);
-		assert.deepEqual(calls.update[0], [MAILBOX_ID, {}, ["muted"]]);
+		assert.deepEqual(calls.delete, [
+			[ACCOUNT_CONFIG_ID, `MailboxMuted#${MAILBOX_ID}`],
+		]);
 	});
 
-	it("PATCH with fullPath calls mailboxQueue.renameMailbox", async () => {
+	it("PATCH with fullPath renames and writes no setting", async () => {
 		const { client, calls } = makeStubClient();
 		const body = { fullPath: "Archive/2026" } as RenameMailboxInput;
 
-		await applyMailboxPatch(client, MAILBOX_ID, ACCOUNT_ID, body);
+		await applyMailboxPatch(
+			client,
+			ACCOUNT_CONFIG_ID,
+			MAILBOX_ID,
+			ACCOUNT_ID,
+			body,
+		);
 
 		assert.deepEqual(calls.renameMailbox, [
 			[MAILBOX_ID, "Archive/2026", ACCOUNT_ID],
 		]);
-		assert.equal(calls.update.length, 0, "no direct mute update");
+		assert.equal(calls.upsert.length, 0);
+		assert.equal(calls.delete.length, 0);
 	});
 
-	it("combined PATCH applies the mute update and then renames", async () => {
+	it("combined PATCH writes the setting and then renames", async () => {
 		const { client, calls } = makeStubClient();
 		const body = {
 			fullPath: "Archive/2026",
 			muted: MUTED_FLAG,
 		} as unknown as RenameMailboxInput;
 
-		await applyMailboxPatch(client, MAILBOX_ID, ACCOUNT_ID, body);
+		await applyMailboxPatch(
+			client,
+			ACCOUNT_CONFIG_ID,
+			MAILBOX_ID,
+			ACCOUNT_ID,
+			body,
+		);
 
-		assert.equal(calls.update.length, 1);
+		assert.equal(calls.upsert.length, 1);
 		assert.deepEqual(calls.renameMailbox, [
 			[MAILBOX_ID, "Archive/2026", ACCOUNT_ID],
 		]);
 	});
 
-	it("override-only PATCH (display name + role) never calls mailboxQueue.renameMailbox", async () => {
+	it("override-only PATCH (display name + role) writes both settings, no rename", async () => {
 		const { client, calls } = makeStubClient();
 		const body = {
 			displayNameOverride: "Receipts",
 			roleOverride: "Archive",
 		} as RenameMailboxInput;
 
-		await applyMailboxPatch(client, MAILBOX_ID, ACCOUNT_ID, body);
+		await applyMailboxPatch(
+			client,
+			ACCOUNT_CONFIG_ID,
+			MAILBOX_ID,
+			ACCOUNT_ID,
+			body,
+		);
 
 		assert.equal(calls.renameMailbox.length, 0);
-		assert.equal(calls.update.length, 1);
-		assert.deepEqual(calls.update[0], [
-			MAILBOX_ID,
-			{ displayNameOverride: "Receipts", roleOverride: "Archive" },
-			undefined,
+		assert.deepEqual(calls.upsert, [
+			{
+				accountConfigId: ACCOUNT_CONFIG_ID,
+				name: `MailboxDisplayName#${MAILBOX_ID}`,
+				value: { kind: "String", value: "Receipts" },
+			},
+			{
+				accountConfigId: ACCOUNT_CONFIG_ID,
+				name: `MailboxRole#${MAILBOX_ID}`,
+				value: { kind: "String", value: "Archive" },
+			},
 		]);
 		assert.equal(calls.get, 1, "responds with a fresh get, not a rename");
 	});
 
-	it("override-only PATCH (clear both via null) removes the attributes", async () => {
+	it("override-only PATCH (clear both via null) deletes the settings", async () => {
 		const { client, calls } = makeStubClient();
 		const body = {
 			displayNameOverride: null,
 			roleOverride: null,
 		} as unknown as RenameMailboxInput;
 
-		await applyMailboxPatch(client, MAILBOX_ID, ACCOUNT_ID, body);
+		await applyMailboxPatch(
+			client,
+			ACCOUNT_CONFIG_ID,
+			MAILBOX_ID,
+			ACCOUNT_ID,
+			body,
+		);
 
 		assert.equal(calls.renameMailbox.length, 0);
-		assert.equal(calls.update.length, 1);
-		assert.deepEqual(calls.update[0], [
-			MAILBOX_ID,
-			{},
-			["displayNameOverride", "roleOverride"],
+		assert.deepEqual(calls.delete, [
+			[ACCOUNT_CONFIG_ID, `MailboxDisplayName#${MAILBOX_ID}`],
+			[ACCOUNT_CONFIG_ID, `MailboxRole#${MAILBOX_ID}`],
 		]);
 	});
 
-	it("empty PATCH body is a no-op: no update, no rename", async () => {
+	it("empty PATCH body is a no-op: no setting write, no rename", async () => {
 		const { client, calls } = makeStubClient();
 		const body = {} as RenameMailboxInput;
 
-		await applyMailboxPatch(client, MAILBOX_ID, ACCOUNT_ID, body);
+		await applyMailboxPatch(
+			client,
+			ACCOUNT_CONFIG_ID,
+			MAILBOX_ID,
+			ACCOUNT_ID,
+			body,
+		);
 
-		assert.equal(calls.update.length, 0);
+		assert.equal(calls.upsert.length, 0);
+		assert.equal(calls.delete.length, 0);
 		assert.equal(calls.renameMailbox.length, 0);
 		assert.equal(calls.get, 1);
 	});
