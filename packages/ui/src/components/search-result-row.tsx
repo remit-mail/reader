@@ -19,6 +19,14 @@ export interface SearchResult {
 	unread?: boolean;
 	flagged?: boolean;
 	category?: { label: string; tone?: SearchResultTone };
+	/**
+	 * The thread this result belongs to. Lets the consumer open the conversation
+	 * directly — even when the message isn't in the currently loaded list, which is
+	 * the case for semantic "Related" hits surfaced from anywhere in the mailbox.
+	 */
+	threadId?: string;
+	/** The mailbox the result lives in; paired with {@link threadId} to open it. */
+	mailboxId?: string;
 }
 
 export interface SearchResultRowProps {

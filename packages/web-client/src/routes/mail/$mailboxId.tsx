@@ -14,6 +14,10 @@ import { z } from "zod";
 // Search schema includes q from parent route for proper inheritance
 const mailboxSearchSchema = z.object({
 	selectedMessageId: z.string().optional(),
+	// A tapped semantic "Related" hit can point at a message outside the loaded
+	// list; carrying its thread lets the mailbox open it directly (the mailbox is
+	// the route param). See `buildConversationTarget`.
+	selectedThreadId: z.string().optional(),
 	q: z.string().optional(),
 });
 

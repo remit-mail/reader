@@ -40,7 +40,7 @@ interface MailViewChromeProps {
 	/** Semantic results — the "Related" section. */
 	relatedResults?: SearchResult[];
 	relatedLoading?: boolean;
-	onSelectSearchResult?: (id: string) => void;
+	onSelectSearchResult?: (result: SearchResult) => void;
 }
 
 export function MailViewChrome({

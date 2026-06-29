@@ -27,6 +27,10 @@ const MailIndexError = ({ error, reset }: ErrorComponentProps) => (
 // navigating with a functional search updater.
 const briefSearchSchema = z.object({
 	selectedMessageId: z.string().optional(),
+	// A tapped semantic "Related" hit can point at a message outside the loaded
+	// brief list; carrying its thread + mailbox lets the brief open it directly.
+	selectedThreadId: z.string().optional(),
+	selectedMailboxId: z.string().optional(),
 	q: z.string().optional(),
 });
 

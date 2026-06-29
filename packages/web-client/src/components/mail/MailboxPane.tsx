@@ -31,6 +31,7 @@ import {
 	inboxFilterConfig,
 	ReadingPaneEmpty,
 	type RescueCandidate,
+	type SearchResult,
 } from "@remit/ui";
 import {
 	keepPreviousData,
@@ -38,7 +39,7 @@ import {
 	useMutation,
 	useQueryClient,
 } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import {
 	createContext,
 	type ReactNode,
@@ -86,6 +87,10 @@ import { useToggleStar } from "@/hooks/useToggleStar";
 import { useTriageKeyboard } from "@/hooks/useTriageKeyboard";
 import { useUpdateAddressFlags } from "@/hooks/useUpdateAddressFlags";
 import { adjacentMessageId } from "@/lib/adjacent-message";
+import {
+	buildConversationTarget,
+	type ConversationTarget,
+} from "@/lib/conversation-target";
 import { readIntelligencePref } from "@/lib/intelligence-pref";
 import { useMailContext } from "@/lib/mail-context";
 import {
@@ -145,6 +150,8 @@ interface MailboxPaneContextValue {
 	mailboxId: string;
 	selectedMessageId: string | undefined;
 	selectedThread: RemitImapThreadMessageResponse | undefined;
+	/** The conversation to open — the loaded thread, or a tapped "Related" hit. */
+	conversation: ConversationTarget | undefined;
 	threads: RemitImapThreadMessageResponse[];
 	isLoading: boolean;
 	isError: boolean;
@@ -299,6 +306,7 @@ function MailboxPaneProvider({
 				search: (prev: Record<string, unknown>) => ({
 					...prev,
 					selectedMessageId: undefined,
+					selectedThreadId: undefined,
 				}),
 			});
 		},
@@ -357,6 +365,28 @@ function MailboxPaneProvider({
 		rawThreads,
 		selectedMessageId,
 		isSearchPending,
+	);
+
+	// A semantic "Related" hit can point at a message outside the loaded list, so
+	// it carries its threadId through the URL; fall back to it (the mailbox is the
+	// route param) so the conversation still opens.
+	const { selectedThreadId } = useSearch({ strict: false }) as {
+		selectedThreadId?: string;
+	};
+	const conversation = useMemo(
+		() =>
+			buildConversationTarget(selectedThread, {
+				messageId: selectedMessageId,
+				threadId: isSearchPending ? undefined : selectedThreadId,
+				mailboxId,
+			}),
+		[
+			selectedThread,
+			selectedMessageId,
+			selectedThreadId,
+			isSearchPending,
+			mailboxId,
+		],
 	);
 
 	const [triageFocusedId, setTriageFocusedId] = useState<string | undefined>(
@@ -536,6 +566,7 @@ function MailboxPaneProvider({
 				search: (prev: Record<string, unknown>) => ({
 					...prev,
 					selectedMessageId: undefined,
+					selectedThreadId: undefined,
 				}),
 			});
 		}
@@ -749,6 +780,7 @@ function MailboxPaneProvider({
 		mailboxId,
 		selectedMessageId,
 		selectedThread,
+		conversation,
 		threads,
 		isLoading,
 		isError,
@@ -836,7 +868,7 @@ function MailboxList() {
 		onToggleFilterAttribute,
 		onClearFilters,
 	} = useMailboxPane();
-	const { searchQuery, accounts } = useMailContext();
+	const { searchQuery, searchInput, accounts } = useMailContext();
 	const tier = useLayoutTier();
 	const navigate = useNavigate();
 
@@ -861,16 +893,24 @@ function MailboxList() {
 		[semanticHits, threads],
 	);
 	const handleSelectSearchResult = useCallback(
-		(id: string) =>
+		(result: SearchResult) =>
 			navigate({
 				to: "/mail/$mailboxId",
 				params: { mailboxId },
 				search: (prev: Record<string, unknown>) => ({
 					...prev,
-					selectedMessageId: id,
+					// Commit the active query alongside the selection. The debounced
+					// q-mirror (mail.tsx) strips the selection whenever it sees the
+					// query go active; the row can be tapped before the debounce settles
+					// (it shows in the still-unfiltered list), so use the *live*
+					// `searchInput` here — committing `q` makes the mirror a no-op and
+					// keeps the opened result from being stripped out from under us.
+					q: searchInput || undefined,
+					selectedMessageId: result.id,
+					selectedThreadId: result.threadId,
 				}),
 			}),
-		[mailboxId, navigate],
+		[mailboxId, navigate, searchInput],
 	);
 
 	// Drafts keep their own dedicated view (and header); they don't carry the
@@ -964,6 +1004,7 @@ function MailboxReading() {
 		mailboxId,
 		mailboxAccountId,
 		selectedThread,
+		conversation,
 		hasRemitDraftOpen,
 		showIntelligence,
 		onToggleIntelligence,
@@ -983,20 +1024,20 @@ function MailboxReading() {
 		useMailContext();
 	const tier = useLayoutTier();
 	const isDesktop = tier === "desktop";
-	const hasThread = Boolean(selectedThread);
+	const hasThread = Boolean(conversation);
 
 	const detailPane =
-		composeState.isOpen && !selectedThread ? (
+		composeState.isOpen && !conversation ? (
 			<FullCompose />
-		) : selectedThread ? (
+		) : conversation ? (
 			<ConversationView
-				threadId={selectedThread.threadId}
-				mailboxId={mailboxId}
-				subject={selectedThread.subject}
-				selectedMessageId={selectedThread.messageId}
-				authenticity={selectedThread.authenticity}
+				threadId={conversation.threadId}
+				mailboxId={conversation.mailboxId}
+				subject={conversation.subject}
+				selectedMessageId={conversation.messageId}
+				authenticity={conversation.authenticity}
 				onOpenIntelligence={
-					selectedThread.authenticity?.dkimMismatch
+					conversation.authenticity?.dkimMismatch
 						? onToggleIntelligence
 						: undefined
 				}
@@ -1073,6 +1114,7 @@ function MailboxPhone() {
 	const {
 		mailboxId,
 		selectedThread,
+		conversation,
 		intelligenceOpen,
 		onToggleIntelligence,
 		onBack,
@@ -1082,7 +1124,7 @@ function MailboxPhone() {
 	} = useMailboxPane();
 	const navigate = useNavigate();
 
-	if (selectedThread) {
+	if (conversation) {
 		const openMessage = (messageId: string) =>
 			navigate({
 				to: "/mail/$mailboxId",
@@ -1090,17 +1132,18 @@ function MailboxPhone() {
 				search: (prev: Record<string, unknown>) => ({
 					...prev,
 					selectedMessageId: messageId,
+					selectedThreadId: undefined,
 				}),
 			});
 
 		return (
 			<>
 				<ConversationView
-					threadId={selectedThread.threadId}
-					mailboxId={mailboxId}
-					subject={selectedThread.subject}
-					selectedMessageId={selectedThread.messageId}
-					authenticity={selectedThread.authenticity}
+					threadId={conversation.threadId}
+					mailboxId={conversation.mailboxId}
+					subject={conversation.subject}
+					selectedMessageId={conversation.messageId}
+					authenticity={conversation.authenticity}
 					onBack={onBack}
 					onOpenIntelligence={onToggleIntelligence}
 					onSwipeNext={

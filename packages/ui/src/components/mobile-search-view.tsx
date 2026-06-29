@@ -2,6 +2,7 @@ import { X } from "lucide-react";
 import { Button } from "./button.js";
 import { FilterSheet, type FilterSheetProps } from "./filter-sheet.js";
 import { SearchBar } from "./search-bar.js";
+import type { SearchResult } from "./search-result-row.js";
 import { type SearchResultSection, SearchResults } from "./search-results.js";
 
 export interface MobileSearchViewProps {
@@ -26,7 +27,7 @@ export interface MobileSearchViewProps {
 	/** Grouped result sections (e.g. "Top matches", "Related"). */
 	sections?: SearchResultSection[];
 	loading?: boolean;
-	onSelectResult?: (id: string) => void;
+	onSelectResult?: (result: SearchResult) => void;
 }
 
 /**
