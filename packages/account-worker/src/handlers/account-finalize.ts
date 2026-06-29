@@ -1,7 +1,6 @@
 import { inspect } from "node:util";
 import { CloudFrontClient } from "@aws-sdk/client-cloudfront";
 import { S3Client } from "@aws-sdk/client-s3";
-import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
 import { NotFoundError } from "@remit/remit-electrodb-service";
 import {
 	createLogger,
@@ -12,7 +11,7 @@ import type { SQSEvent, SQSHandler } from "aws-lambda";
 import {
 	type CascadeEntity,
 	type CascadeServices,
-	enumerateAccountPurgeChunk,
+	collectMessageChildEntities,
 	enumerateCascadeEntities,
 } from "../cascade.js";
 import {
@@ -27,9 +26,7 @@ import {
 import {
 	cascadeServices as defaultCascadeServices,
 	ddbClient as defaultDdbClient,
-	sqsClient as defaultSqsClient,
 	tableName as defaultTableName,
-	getAccountFinalizeQueueUrl,
 } from "../config.js";
 import type {
 	AccountDataPurgeFinalizeEvent,
@@ -63,20 +60,7 @@ export interface ProcessFinalizeDeps {
 	cascadeServices?: CascadeServices;
 	ddbClient?: typeof defaultDdbClient;
 	tableName?: string;
-	sqs?: SQSClient;
-	accountFinalizeQueueUrl?: string;
-	purgeChunkSize?: number;
 }
-
-/**
- * Message subtrees deleted per finalize invocation. Bounded so one Lambda
- * always stays well within its timeout and DDB throughput on a real-sized
- * account (~8.7k messages × child entities): a chunk is at most
- * `PURGE_CHUNK_SIZE` `describe()` collection reads plus the resulting batched
- * deletes, then a continuation is re-enqueued. The full account is drained
- * across as many invocations as needed instead of a single all-or-nothing run.
- */
-export const PURGE_CHUNK_SIZE = 250;
 
 /**
  * GDPR hard-delete: every row tied to the deleted AccountConfig is removed
@@ -196,38 +180,95 @@ export const processAccountFinalize = async (
 };
 
 /**
- * Destructive phase of the per-account purge. Deletes ONE account's rows
- * (children → parents), the S3 objects under `accounts/{cfg}/{acct}/`, and
- * invalidates that account's CloudFront content — keeping the AccountConfig,
- * its sibling accounts, and the soft-deleted account row intact.
- *
- * Chunk-resumable: a single Lambda invocation deletes at most
- * {@link PURGE_CHUNK_SIZE} message subtrees, then — if the account still holds
- * messages — re-enqueues a continuation `FinalizeAccountDataPurge` and returns.
- * A real-sized account (~8.7k messages × child entities) drains across several
- * invocations instead of one all-or-nothing run that timed out and parked in
- * the finalize DLQ. The CloudFront invalidation and S3 prefix cleanup run only
- * on the FINAL (draining) chunk: invalidate-before-S3, S3-after-DDB.
+ * Destructive phase of the per-account purge. Consumes the FIFO stream the
+ * fanout producer emits (#1069), one message group per account so the messages
+ * arrive strictly in order: every `subtrees` batch, then exactly one
+ * `container` leftover. There is NO self-re-enqueue — the producer enqueues all
+ * the work; this worker only ever consumes. That kills the Lambda→own-queue
+ * loop that AWS recursive-loop detection terminated at 16 hops.
  *
  * Runs in the finalize worker so it reuses the S3-delete, CloudFront, and DDB
- * batch-write grants already on that Lambda — no new infrastructure or IAM.
+ * batch-write grants already on that Lambda — no new IAM.
  *
- * Vector deletes are NOT issued here: the fanout step already enqueues a
- * search-index REMOVE for every message id up front
- * (`account-purge.ts` → `enqueueVectorDeletes`), so re-enqueuing per chunk
- * would double-delete. Finalize deletes only DDB rows + S3 objects.
- *
- * Idempotency: deletes drain the mailboxes from the front, so a replayed chunk
- * re-deletes already-gone rows (DDB BatchWriteItem on a missing key is a 200)
- * and re-queries whatever remains. A `NotFoundError` (account row removed out
- * of band) is the already-purged signal — no-op. Termination: every non-final
- * chunk strictly reduces the message count by `PURGE_CHUNK_SIZE`, so the drain
- * is monotone and stops once the account is empty.
+ * Idempotency: DDB `BatchWriteItem` on a missing key is a 200, so a redelivered
+ * batch (or container) no-ops on already-gone rows. Vector deletes are NOT
+ * issued here — the fanout step enqueues a search-index REMOVE for every
+ * message id up front (`account-purge.ts` → `enqueueVectorDeletes`).
  */
 export const processAccountDataPurgeFinalize = async (
 	event: AccountDataPurgeFinalizeEvent,
 	log: Logger,
 	deps: ProcessFinalizeDeps = {},
+): Promise<void> => {
+	if (event.kind === "subtrees") {
+		await processPurgeSubtrees(event, log, deps);
+		return;
+	}
+	await processPurgeContainer(event, log, deps);
+};
+
+/**
+ * Delete a batch of message subtrees. For each `{ threadMessageId, messageId }`
+ * the manifest row is deleted UNCONDITIONALLY — there are ghost ThreadMessages
+ * whose Message is already gone — and the Message + its 9 child entities are
+ * deleted only when `describe()` resolves. A `describe()` 404 means the subtree
+ * is already gone: skip the children, still drop the manifest row.
+ */
+const processPurgeSubtrees = async (
+	event: Extract<AccountDataPurgeFinalizeEvent, { kind: "subtrees" }>,
+	log: Logger,
+	deps: ProcessFinalizeDeps,
+): Promise<void> => {
+	const { accountId, accountConfigId, items } = event;
+	const services = deps.cascadeServices ?? defaultCascadeServices;
+	const ddbClient = deps.ddbClient ?? defaultDdbClient;
+	const tableName = deps.tableName ?? defaultTableName;
+
+	const entities: CascadeEntity[] = [];
+	for (const { threadMessageId, messageId } of items) {
+		entities.push({
+			entityType: "ThreadMessage",
+			key: { accountConfigId, threadMessageId },
+		});
+		try {
+			const messageData = await services.messageService.describe(messageId);
+			entities.push({ entityType: "Message", key: { messageId } });
+			collectMessageChildEntities(entities, messageData);
+		} catch (error) {
+			if (error instanceof NotFoundError) {
+				log.info(
+					{ accountConfigId, accountId, messageId },
+					"Message subtree already gone — deleting manifest row only",
+				);
+				continue;
+			}
+			throw error;
+		}
+	}
+
+	await runDdbCascadeDelete(
+		entities,
+		{ client: ddbClient, table: tableName },
+		log,
+	);
+	log.info(
+		{ accountConfigId, accountId, count: items.length },
+		"Per-account purge subtree batch deleted",
+	);
+};
+
+/**
+ * The container leftover — processed last in the FIFO group, after every
+ * subtree delete. Deletes the account-keyed container rows (mailboxes, outbox,
+ * locks), the S3 prefix `accounts/{cfg}/{acct}/`, and invalidates the account's
+ * CloudFront content. Ordering is invalidate-before-S3, S3-after-DDB. The
+ * tenant-shared Address rows, the AccountConfig, sibling accounts, and the
+ * soft-deleted account row (the purge-in-progress marker) are all kept.
+ */
+const processPurgeContainer = async (
+	event: Extract<AccountDataPurgeFinalizeEvent, { kind: "container" }>,
+	log: Logger,
+	deps: ProcessFinalizeDeps,
 ): Promise<void> => {
 	const { accountId, accountConfigId } = event;
 	const distributionId =
@@ -239,9 +280,6 @@ export const processAccountDataPurgeFinalize = async (
 	const services = deps.cascadeServices ?? defaultCascadeServices;
 	const ddbClient = deps.ddbClient ?? defaultDdbClient;
 	const tableName = deps.tableName ?? defaultTableName;
-	const sqs = deps.sqs ?? defaultSqsClient;
-	const purgeChunkSize = deps.purgeChunkSize ?? PURGE_CHUNK_SIZE;
-	const chunk = event.chunk ?? 0;
 
 	if (!distributionId) {
 		throw new Error(
@@ -254,15 +292,13 @@ export const processAccountDataPurgeFinalize = async (
 		);
 	}
 
-	// "Already purged" is signalled ONLY by the absence of the account row
-	// itself — probed explicitly here. A NotFoundError from anywhere deeper in
-	// the chunk enumeration (e.g. a stale-GSI per-message read) must NOT be read
-	// as "account gone, no-op": that would silently abandon the drain with
-	// orphaned mailboxes/threads/outbox/locks/S3 surviving. Such errors are
-	// either handled inside the enumerator (stale message subtree → skip) or
-	// propagate as genuine failures so SQS retries.
+	// The account row is kept as the purge-in-progress marker. Its absence means
+	// the container leftover already ran — no-op on redelivery.
+	let accountDescription: Awaited<
+		ReturnType<CascadeServices["accountService"]["describe"]>
+	>;
 	try {
-		await services.accountService.get(accountId);
+		accountDescription = await services.accountService.describe(accountId);
 	} catch (error) {
 		if (error instanceof NotFoundError) {
 			log.info(
@@ -274,49 +310,11 @@ export const processAccountDataPurgeFinalize = async (
 		throw error;
 	}
 
-	const plan = await enumerateAccountPurgeChunk(
-		accountConfigId,
-		accountId,
-		purgeChunkSize,
-		services,
-		log,
-	);
-	const entities: CascadeEntity[] = plan.entities;
-	const drained: boolean = plan.drained;
-
-	// Non-final chunk: delete this slice of message subtrees and hand off to a
-	// continuation. CloudFront/S3 cleanup is deferred to the final chunk so the
-	// invalidate-before-S3, S3-after-DDB ordering still holds end-to-end.
-	if (!drained) {
-		await runDdbCascadeDelete(
-			entities,
-			{ client: ddbClient, table: tableName },
-			log,
-		);
-		const next: AccountDataPurgeFinalizeEvent = {
-			type: "FinalizeAccountDataPurge",
-			accountId,
-			accountConfigId,
-			chunk: chunk + 1,
-		};
-		await sqs.send(
-			new SendMessageCommand({
-				QueueUrl: deps.accountFinalizeQueueUrl ?? getAccountFinalizeQueueUrl(),
-				MessageBody: JSON.stringify(next),
-			}),
-		);
-		log.info(
-			{ accountConfigId, accountId, chunk, nextChunk: chunk + 1 },
-			"Per-account purge chunk deleted; continuation enqueued",
-		);
-		return;
-	}
-
-	// Final chunk — the account holds no more messages. Step 1: CloudFront
-	// invalidation for this account's content prefix only.
+	// Step 1: CloudFront invalidation — first, so cached body parts cannot leak
+	// after the underlying S3 objects are gone.
 	log.info(
-		{ accountConfigId, accountId, chunk },
-		"Invalidating CloudFront cache for purged account (final chunk)",
+		{ accountConfigId, accountId },
+		"Invalidating CloudFront cache for purged account",
 	);
 	await invalidateAccountContent(
 		`${accountConfigId}/${accountId}`,
@@ -324,10 +322,30 @@ export const processAccountDataPurgeFinalize = async (
 		cloudFrontClient,
 	);
 
-	// Step 2: DDB cascade delete (children → parents) for the last slice of
-	// messages plus the container rows (mailboxes, thread messages, outbox,
-	// locks). The Account row is not in the plan; it is kept as the
-	// purge-in-progress marker.
+	// Step 2: container DDB rows — mailboxes, outbox, locks. Address is
+	// tenant-shared and never deleted on a per-account purge.
+	const entities: CascadeEntity[] = [];
+	for (const mailbox of accountDescription.mailbox) {
+		entities.push({
+			entityType: "Mailbox",
+			key: { mailboxId: mailbox.mailboxId },
+		});
+	}
+	const outboxMessages =
+		await services.outboxMessageService.listByAccount(accountId);
+	for (const outbox of outboxMessages.items) {
+		entities.push({
+			entityType: "OutboxMessage",
+			key: { outboxMessageId: outbox.outboxMessageId },
+		});
+	}
+	const locks = await services.mailboxLockService.listByAccount(accountId);
+	for (const lock of locks) {
+		entities.push({
+			entityType: "MailboxLock",
+			key: { mailboxId: lock.mailboxId, eventName: lock.eventName },
+		});
+	}
 	await runDdbCascadeDelete(
 		entities,
 		{ client: ddbClient, table: tableName },
@@ -342,10 +360,7 @@ export const processAccountDataPurgeFinalize = async (
 		log,
 	);
 
-	log.info(
-		{ accountConfigId, accountId, chunk },
-		"Per-account data purge complete",
-	);
+	log.info({ accountConfigId, accountId }, "Per-account data purge complete");
 };
 
 // ---------- SQS handler ----------

@@ -9,10 +9,7 @@ import { NotFoundError } from "@remit/remit-electrodb-service";
 import type { Logger } from "@remit/logger-lambda";
 import type { SearchIndexMessage } from "@remit/search-index-worker";
 import { Entity } from "electrodb";
-import {
-	type CascadeServices,
-	enumerateAccountPurgeMessageIds,
-} from "../cascade.js";
+import type { CascadeServices } from "../cascade.js";
 import {
 	cascadeServices as defaultCascadeServices,
 	sqsClient as defaultSqsClient,
@@ -22,6 +19,7 @@ import {
 import type {
 	AccountDataPurgeEvent,
 	AccountDataPurgeFinalizeEvent,
+	AccountDataPurgeSubtreeItem,
 } from "../events.js";
 
 export interface ProcessPurgeFanoutDeps {
@@ -32,6 +30,14 @@ export interface ProcessPurgeFanoutDeps {
 }
 
 const SQS_BATCH_SIZE = 10;
+
+/**
+ * Message subtrees carried per FIFO finalize message. Each item is two ids
+ * (~70 bytes of JSON), so 100 stays far under the 256 KB SQS limit, and the
+ * worker's per-item `describe()` + batched delete for 100 subtrees fits well
+ * inside its timeout.
+ */
+const SUBTREE_BATCH_SIZE = 100;
 
 const messageEntity = new Entity(Message, { table: "purge-keys" });
 
@@ -87,21 +93,66 @@ const enqueueVectorDeletes = async (
 };
 
 /**
- * Fanout step of the per-account purge. Read-only against DDB: cheaply
- * enumerates the account's message ids (no per-message describe — see
- * `enumerateAccountPurgeMessageIds`), enqueues their search-index (vector)
- * deletes (#457), then forwards the destructive DDB+S3+CloudFront work to the
- * finalize worker — which already holds those grants and enumerates the full
- * child-entity plan itself — as a `FinalizeAccountDataPurge` event.
+ * Enqueue the destructive purge work onto the FIFO finalize queue, single
+ * message group per account so the worker processes everything strictly in
+ * order: every `subtrees` batch first, then exactly one `container` leftover
+ * last. The FIFO ordering is the barrier — the container delete (mailboxes,
+ * S3, CloudFront) cannot run until all subtree deletes have. The queue's
+ * content-based deduplication makes a fanout replay idempotent within the dedup
+ * window; beyond it, the worker's deletes are no-ops on already-gone rows.
+ */
+const enqueuePurgeFinalize = async (
+	sqs: SQSClient,
+	queueUrl: string,
+	accountId: string,
+	accountConfigId: string,
+	items: AccountDataPurgeSubtreeItem[],
+): Promise<void> => {
+	const send = (event: AccountDataPurgeFinalizeEvent): Promise<unknown> =>
+		sqs.send(
+			new SendMessageCommand({
+				QueueUrl: queueUrl,
+				MessageBody: JSON.stringify(event),
+				MessageGroupId: accountConfigId,
+			}),
+		);
+
+	for (let i = 0; i < items.length; i += SUBTREE_BATCH_SIZE) {
+		await send({
+			type: "FinalizeAccountDataPurge",
+			kind: "subtrees",
+			accountId,
+			accountConfigId,
+			items: items.slice(i, i + SUBTREE_BATCH_SIZE),
+		});
+	}
+
+	await send({
+		type: "FinalizeAccountDataPurge",
+		kind: "container",
+		accountId,
+		accountConfigId,
+	});
+};
+
+/**
+ * Fanout step of the per-account purge. Reads the account's ThreadMessage
+ * manifest (`pk = accountConfigId`, scoped to this account's mailbox set) —
+ * since the threading-visibility fix every persisted Message has exactly one
+ * manifest row, so the partition is a complete, describe-free index of the
+ * account's messages. Enqueues the per-message search-index (vector) deletes
+ * (#457), then hands the destructive DDB+S3+CloudFront work to the finalize
+ * worker as a stream of FIFO messages (subtree batches + one container
+ * leftover, single message group). No self-loop, no recursion: the producer
+ * enqueues all the work and the worker only ever consumes (#1069).
  *
- * Runs in the fanout worker, mirroring how `AccountDelete` fans out to
- * `FinalizeAccountDelete`. Scoped entirely to `accountId`; the AccountConfig,
- * its sibling accounts, and the (soft-deleted) account row are untouched.
+ * Runs in the fanout worker. Scoped entirely to `accountId`; the AccountConfig,
+ * its sibling accounts, the tenant-shared Address rows, and the soft-deleted
+ * account row are untouched.
  *
- * Replay-safe: enumeration is read-only and the search-index/finalize enqueues
- * are idempotent (vector delete and the finalize cascade both no-op on missing
- * rows). A redelivery after the account's rows are gone enumerates an empty
- * plan and forwards a finalize that no-ops.
+ * Replay-safe: the manifest read is read-only and the search-index/finalize
+ * enqueues are idempotent. A redelivery after the account's rows are gone reads
+ * an empty manifest and enqueues only a container leftover that no-ops.
  */
 export const processAccountDataPurge = async (
 	event: AccountDataPurgeEvent,
@@ -116,14 +167,10 @@ export const processAccountDataPurge = async (
 	const searchIndexQueueUrl =
 		deps.searchIndexQueueUrl ?? getSearchIndexQueueUrl();
 
-	let messageIds: string[] = [];
+	let mailboxIds: Set<string>;
 	try {
-		const plan = await enumerateAccountPurgeMessageIds(
-			accountId,
-			services,
-			log,
-		);
-		messageIds = plan.messageIds;
+		const account = await services.accountService.describe(accountId);
+		mailboxIds = new Set(account.mailbox.map((m) => m.mailboxId));
 	} catch (error) {
 		if (error instanceof NotFoundError) {
 			log.info(
@@ -135,25 +182,37 @@ export const processAccountDataPurge = async (
 		throw error;
 	}
 
+	const manifest =
+		await services.threadMessageService.listAllByAccount(accountConfigId);
+	const items: AccountDataPurgeSubtreeItem[] = manifest
+		.filter((tm) => mailboxIds.has(tm.mailboxId))
+		.map((tm) => ({
+			threadMessageId: tm.threadMessageId,
+			messageId: tm.messageId,
+		}));
+
+	const messageIds = [...new Set(items.map((i) => i.messageId))];
+
 	await enqueueVectorDeletes(sqs, searchIndexQueueUrl, accountId, messageIds);
 	log.info(
 		{ accountConfigId, accountId, count: messageIds.length },
 		"Enqueued search-index deletes for purged account",
 	);
 
-	const finalizeEvent: AccountDataPurgeFinalizeEvent = {
-		type: "FinalizeAccountDataPurge",
+	await enqueuePurgeFinalize(
+		sqs,
+		accountFinalizeQueueUrl,
 		accountId,
 		accountConfigId,
-	};
-	await sqs.send(
-		new SendMessageCommand({
-			QueueUrl: accountFinalizeQueueUrl,
-			MessageBody: JSON.stringify(finalizeEvent),
-		}),
+		items,
 	);
 	log.info(
-		{ accountConfigId, accountId },
-		"Enqueued per-account purge finalize event",
+		{
+			accountConfigId,
+			accountId,
+			subtreeCount: items.length,
+			batchCount: Math.ceil(items.length / SUBTREE_BATCH_SIZE),
+		},
+		"Enqueued per-account purge subtree batches + container leftover",
 	);
 };

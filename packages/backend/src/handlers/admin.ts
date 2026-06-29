@@ -46,6 +46,9 @@ export const AdminAccountConfigOperations: Record<
 					type: "FinalizeAccountDelete",
 					accountConfigId,
 				}),
+				// The finalize queue is FIFO (#1069); group by tenant. The queue's
+				// content-based deduplication supplies the dedup id.
+				MessageGroupId: accountConfigId,
 			}),
 		);
 
