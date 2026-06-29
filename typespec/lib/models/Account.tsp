@@ -259,18 +259,6 @@ model Account {
   @updatedAt
   updatedAt: int64;
 
-  // ============================================
-  // Signature Settings
-  // ============================================
-
-  @doc("Plain text email signature")
-  @visibility(Lifecycle.Read)
-  signaturePlainText?: string;
-
-  @doc("HTML email signature")
-  @visibility(Lifecycle.Read)
-  signatureHtml?: string;
-
   @doc("Timestamp when account was marked for deletion (tombstone)")
   @visibility(Lifecycle.Read)
   deletedAt?: int64;
@@ -347,9 +335,9 @@ model AccountConfigResponse
       | "updatedAt"
   >;
 
-@doc("Account response (excluding sensitive fields)")
-model AccountResponse
-  is PickProperties<
+@doc("Account response (excluding sensitive fields). Signatures are sourced from per-account AccountSetting rows (RFC 032), not the Account entity, but are surfaced here so the response shape is unchanged.")
+model AccountResponse {
+  ...PickProperties<
     Account,
 
       | "accountId"
@@ -375,12 +363,17 @@ model AccountResponse
       | "syncPhase"
       | "mailboxCountTotal"
       | "mailboxCountSynced"
-      | "signaturePlainText"
-      | "signatureHtml"
       | "muted"
       | "createdAt"
       | "updatedAt"
   >;
+
+  @doc("Plain text email signature for this account")
+  signaturePlainText?: string;
+
+  @doc("HTML email signature for this account")
+  signatureHtml?: string;
+}
 
 @doc("Address response for address book entries")
 model AddressResponse

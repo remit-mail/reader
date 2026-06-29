@@ -1,6 +1,5 @@
 import "typespec-electrodb-emitter";
 
-import "../enums/AccountSettingName.tsp";
 import "../scalars/string.tsp";
 
 namespace RemitImap;
@@ -76,8 +75,8 @@ model AccountSetting {
   @visibility(Lifecycle.Read)
   accountConfigId: UUID;
 
-  @doc("Setting key. The registry maps each name to its required value kind and a zod schema.")
-  name: AccountSettingName;
+  @doc("Setting key. Either a closed `AccountSettingName` member (e.g. `Theme`) or, for a per-target setting, a composite `<AccountSettingName>#<targetId>` (e.g. `AccountSignaturePlainText#<accountId>`). The registry resolves the base member and maps it to its required value kind and a zod schema.")
+  name: string;
 
   @doc("Typed setting value")
   value: AccountSettingValueUnion;

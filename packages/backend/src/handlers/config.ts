@@ -20,6 +20,10 @@ import { fireAndForget } from "../service/fire-and-forget.js";
 import { sqsClient } from "../service/sqs.js";
 import { triggerAccountSync } from "../service/trigger-sync.js";
 import type { ConfigOperationIds, OperationHandler } from "../types.js";
+import {
+	type AccountSignature,
+	loadSignaturesForConfig,
+} from "./account-signature.js";
 
 type StructuredLog = (fields: Record<string, unknown>, message: string) => void;
 
@@ -124,7 +128,12 @@ const emptyConfigResponse = (
 
 // SECURITY: passwordHash, oauthRefreshTokenHash, and smtpPasswordHash are
 // intentionally omitted — never expose token material in API responses.
-const toAccountResponse = (account: AccountItem): AccountResponse => ({
+// Signatures live in per-account AccountSetting rows (RFC 032), so the caller
+// resolves them and passes them in to keep the response shape unchanged.
+const toAccountResponse = (
+	account: AccountItem,
+	signature: AccountSignature,
+): AccountResponse => ({
 	accountId: account.accountId,
 	accountConfigId: account.accountConfigId,
 	username: account.username,
@@ -139,6 +148,8 @@ const toAccountResponse = (account: AccountItem): AccountResponse => ({
 	smtpTls: account.smtpTls,
 	smtpStartTls: account.smtpStartTls,
 	smtpUsername: account.smtpUsername,
+	signaturePlainText: signature.plainText,
+	signatureHtml: signature.html,
 	isActive: account.isActive,
 	connectionState: account.connectionState,
 	lastConnectedAt: account.lastConnectedAt,
@@ -182,6 +193,16 @@ export const ConfigOperations: Record<
 			(acc) => acc.deletedAt === undefined,
 		);
 
+		// Signatures are stored per-account in AccountSetting rows (RFC 032). Load
+		// the whole set for this config in one query and key it by accountId so the
+		// account mapping below can surface each signature without an N+1.
+		const signaturesByAccount = await loadSignaturesForConfig(
+			getClient().accountSetting,
+			accountConfigId,
+		);
+		const signatureOf = (accountId: string): AccountSignature =>
+			signaturesByAccount.get(accountId) ?? {};
+
 		// Fire-and-forget: a failed sync enqueue must never fail this read.
 		// triggerConfigLoadSyncs swallows nothing — it logs each failure loudly
 		// with an alertable structured field — but it also never rejects, so the
@@ -193,7 +214,9 @@ export const ConfigOperations: Record<
 
 		return {
 			accountConfig: toAccountConfigResponse(accountConfig),
-			accounts: activeAccounts.map(toAccountResponse),
+			accounts: activeAccounts.map((acc) =>
+				toAccountResponse(acc, signatureOf(acc.accountId)),
+			),
 		};
 	},
 };

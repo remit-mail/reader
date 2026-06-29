@@ -4,6 +4,7 @@ import {
 	AccountConfigService,
 	AccountExportRequestService,
 	AccountService,
+	AccountSettingService,
 	AddressService,
 	EnvelopeService,
 	MailboxService,
@@ -104,6 +105,7 @@ export interface RemitClient {
 	// ElectroDB services (reads)
 	accountConfig: AccountConfigService;
 	account: AccountService;
+	accountSetting: AccountSettingService;
 	address: AddressService;
 	mailbox: MailboxService;
 	mailboxSpecialUse: MailboxSpecialUseService;
@@ -148,6 +150,7 @@ export const getClient = (): RemitClient => {
 		// ElectroDB services
 		const accountConfigService = new AccountConfigService(config);
 		const accountService = new AccountService(config);
+		const accountSettingService = new AccountSettingService(config);
 		const mailboxService = new MailboxService(config);
 		const mailboxSpecialUseService = new MailboxSpecialUseService(config);
 		const messageService = new MessageService(config);
@@ -237,6 +240,7 @@ export const getClient = (): RemitClient => {
 			// ElectroDB services (reads)
 			accountConfig: accountConfigService,
 			account: accountService,
+			accountSetting: accountSettingService,
 			address: addressService,
 			mailbox: mailboxService,
 			mailboxSpecialUse: mailboxSpecialUseService,
