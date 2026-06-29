@@ -15,7 +15,7 @@ export const formatResponse = (
 		body = body.body as Record<string, unknown>;
 	}
 
-	logger.info({ statusCode }, "response");
+	logger.debug({ statusCode }, "response");
 
 	const allowOrigin = resolveAllowedOrigin(getRequestOrigin());
 
