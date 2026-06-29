@@ -421,6 +421,7 @@ export const MicrosoftOAuthOperations: Record<
 				imapPort: 993,
 				imapTls: true,
 				imapStartTls: false,
+				smtpEnabled: true,
 				smtpHost: "smtp.office365.com",
 				smtpPort: 587,
 				smtpTls: false,

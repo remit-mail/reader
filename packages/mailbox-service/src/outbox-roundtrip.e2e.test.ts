@@ -171,6 +171,7 @@ const seedAccount = async (config: ReturnType<typeof createDdbConfig>) => {
 			imapPort: MAILFUZZ_PORT,
 			imapTls: false,
 			imapStartTls: false,
+			smtpEnabled: true,
 			smtpHost: MOKAPI_SMTP_HOST,
 			smtpPort: MOKAPI_SMTP_PORT,
 			smtpTls: false,

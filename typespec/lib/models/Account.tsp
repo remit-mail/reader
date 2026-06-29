@@ -175,30 +175,40 @@ model Account {
   imapStartTls: boolean;
 
   // ============================================
-  // SMTP Server Connection Settings (optional)
+  // SMTP Server Connection Settings
   // ============================================
+  //
+  // RFC 032 Tier 2: SMTP config is total. `smtpEnabled` is the explicit marker
+  // for whether this account can send — it removes the old "disabled vs not
+  // configured yet" ambiguity that was inferred from `smtpHost` being absent.
+  // The config fields below always carry a concrete value (the defaults are the
+  // unconfigured behaviour); `smtpPasswordHash` stays optional as a credential.
+
+  @doc("Whether this account is configured to send mail over SMTP. The explicit marker for sending capability — never inferred from config-field presence.")
+  @visibility(Lifecycle.Read)
+  smtpEnabled: boolean = false;
 
   @doc("SMTP server hostname or IP address for sending mail")
   @visibility(Lifecycle.Read)
-  smtpHost?: string;
+  smtpHost: string = "";
 
   @doc("SMTP server port (typically 587 for STARTTLS, 465 for TLS)")
   @visibility(Lifecycle.Read)
   @minValue(1)
   @maxValue(65535)
-  smtpPort?: int32;
+  smtpPort: int32 = 587;
 
   @doc("Whether to use TLS/SSL encryption for SMTP")
   @visibility(Lifecycle.Read)
-  smtpTls?: boolean;
+  smtpTls: boolean = false;
 
   @doc("Whether to use STARTTLS upgrade for SMTP")
   @visibility(Lifecycle.Read)
-  smtpStartTls?: boolean;
+  smtpStartTls: boolean = true;
 
-  @doc("SMTP login username (may differ from IMAP username)")
+  @doc("SMTP login username (may differ from IMAP username); empty when sending uses the IMAP username")
   @visibility(Lifecycle.Read)
-  smtpUsername?: string;
+  smtpUsername: string = "";
 
   @doc("Hashed password for SMTP authentication (may differ from IMAP)")
   @visibility(Lifecycle.Read)
@@ -341,6 +351,7 @@ model AccountResponse {
       | "imapPort"
       | "imapTls"
       | "imapStartTls"
+      | "smtpEnabled"
       | "smtpHost"
       | "smtpPort"
       | "smtpTls"
@@ -439,6 +450,9 @@ model CreateAccountInput {
   @doc("Use STARTTLS upgrade")
   imapStartTls: boolean;
 
+  @doc("Whether to enable SMTP sending for this account. When omitted, the server enables sending if an SMTP host is supplied.")
+  smtpEnabled?: boolean;
+
   @doc("SMTP server hostname (optional)")
   smtpHost?: string;
 
@@ -483,6 +497,9 @@ model UpdateAccountInput {
 
   @doc("Use STARTTLS upgrade")
   imapStartTls?: boolean;
+
+  @doc("Whether SMTP sending is enabled for this account. When omitted, the server enables sending if an SMTP host is supplied here or already stored.")
+  smtpEnabled?: boolean;
 
   @doc("SMTP server hostname")
   smtpHost?: string;
