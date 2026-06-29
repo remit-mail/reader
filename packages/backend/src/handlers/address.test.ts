@@ -19,15 +19,26 @@ const baseAddress: AddressItem = {
 	normalizedEmail: "alice@example.com",
 	normalizedCompound: "alice alice@example.com",
 	flags: undefined,
+	inboundCount: 0,
+	outboundCount: 0,
+	replyCount: 0,
+	lastInboundAt: 0,
+	lastOutboundAt: undefined,
+	lastReplyAt: 0,
+	createdAt: 1_700_000_000_000,
+	updatedAt: 1_700_000_001_000,
+};
+
+// A row written before the counters became required-with-default carries the
+// attribute absent at runtime, even though the type now models them as total.
+const unbackfilledAddress = {
+	...baseAddress,
 	inboundCount: undefined,
 	outboundCount: undefined,
 	replyCount: undefined,
 	lastInboundAt: undefined,
-	lastOutboundAt: undefined,
 	lastReplyAt: undefined,
-	createdAt: 1_700_000_000_000,
-	updatedAt: 1_700_000_001_000,
-};
+} as unknown as AddressItem;
 
 describe("toAddressResponse", () => {
 	it("maps core fields", () => {
@@ -37,13 +48,13 @@ describe("toAddressResponse", () => {
 		assert.equal(result.normalizedEmail, "alice@example.com");
 	});
 
-	it("passes through undefined engagement counters as-is", () => {
-		const result = toAddressResponse(baseAddress);
-		assert.equal(result.inboundCount, undefined);
-		assert.equal(result.outboundCount, undefined);
-		assert.equal(result.replyCount, undefined);
-		assert.equal(result.lastInboundAt, undefined);
-		assert.equal(result.lastReplyAt, undefined);
+	it("defaults missing engagement counters to zero (un-backfilled row)", () => {
+		const result = toAddressResponse(unbackfilledAddress);
+		assert.equal(result.inboundCount, 0);
+		assert.equal(result.outboundCount, 0);
+		assert.equal(result.replyCount, 0);
+		assert.equal(result.lastInboundAt, 0);
+		assert.equal(result.lastReplyAt, 0);
 	});
 
 	it("maps engagement counters and timestamps when present", () => {
