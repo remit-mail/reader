@@ -133,18 +133,6 @@ model Mailbox {
   @visibility(Lifecycle.Read)
   specialUse?: MailboxSpecialUse[];
 
-  @doc("Mailbox-level mute flag. When set, this mailbox is hidden from unified/brief views (sync is unaffected). Use the existing PATCH endpoint to set or clear; pass `null` to remove.")
-  @visibility(Lifecycle.Read, Lifecycle.Update)
-  muted?: MutedFlag;
-
-  @doc("User-chosen sidebar label for this mailbox. Optional; when absent the UI uses the canonical/derived folder label. Use the existing PATCH endpoint to set or clear; pass `null` to remove.")
-  @visibility(Lifecycle.Read, Lifecycle.Update)
-  displayNameOverride?: String256;
-
-  @doc("User-chosen role for this mailbox, overriding the detected special-use role. Optional; when absent the UI uses the detected role. `Custom` marks a folder that is not a system folder. Use the existing PATCH endpoint to set or clear; pass `null` to remove.")
-  @visibility(Lifecycle.Read, Lifecycle.Update)
-  roleOverride?: MailboxRole;
-
   @visibility(Lifecycle.Read)
   @createdAt
   createdAt: int64;
@@ -281,9 +269,9 @@ model RenameMailboxInput {
 // API Response Models
 // ============================================
 
-@doc("Mailbox item returned by list/get operations")
-model MailboxResponse
-  is PickProperties<
+@doc("Mailbox item returned by list/get operations. The mute flag and the display-name/role overrides are sourced from per-mailbox AccountSetting rows (RFC 032), not the Mailbox entity, but are surfaced here so the response shape is unchanged.")
+model MailboxResponse {
+  ...PickProperties<
     Mailbox,
 
       | "mailboxId"
@@ -299,9 +287,16 @@ model MailboxResponse
       | "lastSyncUid"
       | "highWaterMarkUid"
       | "lastMessageSyncAt"
-      | "muted"
-      | "displayNameOverride"
-      | "roleOverride"
       | "createdAt"
       | "updatedAt"
   >;
+
+  @doc("Mailbox-level mute flag. When set, this mailbox is hidden from unified/brief views (sync is unaffected). Sourced from a per-mailbox AccountSetting row (RFC 032).")
+  muted?: MutedFlag;
+
+  @doc("User-chosen sidebar label for this mailbox. Optional; when absent the UI uses the canonical/derived folder label. Sourced from a per-mailbox AccountSetting row (RFC 032).")
+  displayNameOverride?: String256;
+
+  @doc("User-chosen role for this mailbox, overriding the detected special-use role. Optional; when absent the UI uses the detected role. `Custom` marks a folder that is not a system folder. Sourced from a per-mailbox AccountSetting row (RFC 032).")
+  roleOverride?: MailboxRole;
+}

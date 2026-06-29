@@ -124,10 +124,6 @@ model Account {
   @visibility(Lifecycle.Read)
   accountConfigId: UUID;
 
-  @doc("User-chosen display name for this account. Optional; when absent the UI derives a label from the email address.")
-  @visibility(Lifecycle.Read)
-  displayName?: string;
-
   @doc("Login username")
   @visibility(Lifecycle.Read)
   @minLength(1)
@@ -262,10 +258,6 @@ model Account {
   @doc("Timestamp when account was marked for deletion (tombstone)")
   @visibility(Lifecycle.Read)
   deletedAt?: int64;
-
-  @doc("Account-level mute flag. When set, all mailboxes of this account are hidden from unified/brief views (sync is unaffected). Use the existing PATCH endpoint to set or clear; pass `null` to remove.")
-  @visibility(Lifecycle.Read, Lifecycle.Update)
-  muted?: MutedFlag;
 }
 
 // ============================================
@@ -335,14 +327,13 @@ model AccountConfigResponse
       | "updatedAt"
   >;
 
-@doc("Account response (excluding sensitive fields). Signatures are sourced from per-account AccountSetting rows (RFC 032), not the Account entity, but are surfaced here so the response shape is unchanged.")
+@doc("Account response (excluding sensitive fields). Display name, mute flag, and signatures are sourced from per-account AccountSetting rows (RFC 032), not the Account entity, but are surfaced here so the response shape is unchanged.")
 model AccountResponse {
   ...PickProperties<
     Account,
 
       | "accountId"
       | "accountConfigId"
-      | "displayName"
       | "username"
       | "email"
       | "authType"
@@ -363,10 +354,15 @@ model AccountResponse {
       | "syncPhase"
       | "mailboxCountTotal"
       | "mailboxCountSynced"
-      | "muted"
       | "createdAt"
       | "updatedAt"
   >;
+
+  @doc("User-chosen display name for this account. Optional; when absent the UI derives a label from the email address. Sourced from a per-account AccountSetting row (RFC 032).")
+  displayName?: string;
+
+  @doc("Account-level mute flag. When set, all mailboxes of this account are hidden from unified/brief views (sync is unaffected). Sourced from a per-account AccountSetting row (RFC 032).")
+  muted?: MutedFlag;
 
   @doc("Plain text email signature for this account")
   signaturePlainText?: string;

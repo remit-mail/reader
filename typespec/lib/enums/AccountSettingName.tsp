@@ -19,4 +19,19 @@ enum AccountSettingName {
 
   @doc("HTML email signature for a single account. Stored per-account: the persisted name is composed as `AccountSignatureHtml#<accountId>`, so one account configuration can hold a distinct signature per account.")
   AccountSignatureHtml,
+
+  @doc("User-chosen display name for a single account. Stored per-account: the persisted name is composed as `AccountDisplayName#<accountId>`. String-valued.")
+  AccountDisplayName,
+
+  @doc("Account-level mute flag for a single account. Stored per-account: the persisted name is composed as `AccountMuted#<accountId>`. MutedFlag-valued (a rich object).")
+  AccountMuted,
+
+  @doc("User-chosen sidebar label for a single mailbox. Stored per-mailbox: the persisted name is composed as `MailboxDisplayName#<mailboxId>`. String-valued.")
+  MailboxDisplayName,
+
+  @doc("User-chosen role override for a single mailbox. Stored per-mailbox: the persisted name is composed as `MailboxRole#<mailboxId>`. String-valued (a MailboxRole member; the handler validates membership).")
+  MailboxRole,
+
+  @doc("Mailbox-level mute flag for a single mailbox. Stored per-mailbox: the persisted name is composed as `MailboxMuted#<mailboxId>`. MutedFlag-valued (a rich object).")
+  MailboxMuted,
 }

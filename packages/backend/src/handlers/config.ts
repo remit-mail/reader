@@ -21,8 +21,12 @@ import { sqsClient } from "../service/sqs.js";
 import { triggerAccountSync } from "../service/trigger-sync.js";
 import type { ConfigOperationIds, OperationHandler } from "../types.js";
 import {
+	type AccountOverrides,
+	groupAccountOverrides,
+} from "./account-overrides.js";
+import {
 	type AccountSignature,
-	loadSignaturesForConfig,
+	groupSignaturesByAccount,
 } from "./account-signature.js";
 
 type StructuredLog = (fields: Record<string, unknown>, message: string) => void;
@@ -128,14 +132,17 @@ const emptyConfigResponse = (
 
 // SECURITY: passwordHash, oauthRefreshTokenHash, and smtpPasswordHash are
 // intentionally omitted — never expose token material in API responses.
-// Signatures live in per-account AccountSetting rows (RFC 032), so the caller
-// resolves them and passes them in to keep the response shape unchanged.
+// Display name, mute flag, and signatures live in per-account AccountSetting
+// rows (RFC 032), so the caller resolves them and passes them in to keep the
+// response shape unchanged.
 const toAccountResponse = (
 	account: AccountItem,
 	signature: AccountSignature,
+	overrides: AccountOverrides,
 ): AccountResponse => ({
 	accountId: account.accountId,
 	accountConfigId: account.accountConfigId,
+	displayName: overrides.displayName,
 	username: account.username,
 	email: account.email,
 	authType: account.authType ?? AccountAuthType.Password,
@@ -158,6 +165,7 @@ const toAccountResponse = (
 	syncPhase: account.syncPhase,
 	mailboxCountTotal: account.mailboxCountTotal,
 	mailboxCountSynced: account.mailboxCountSynced,
+	muted: overrides.muted,
 	createdAt: account.createdAt,
 	updatedAt: account.updatedAt,
 });
@@ -193,15 +201,18 @@ export const ConfigOperations: Record<
 			(acc) => acc.deletedAt === undefined,
 		);
 
-		// Signatures are stored per-account in AccountSetting rows (RFC 032). Load
-		// the whole set for this config in one query and key it by accountId so the
-		// account mapping below can surface each signature without an N+1.
-		const signaturesByAccount = await loadSignaturesForConfig(
-			getClient().accountSetting,
-			accountConfigId,
-		);
+		// Signatures and the display-name/mute overrides are stored per-account in
+		// AccountSetting rows (RFC 032). Load the whole set for this config once and
+		// key both by accountId so the account mapping below surfaces each without
+		// an N+1.
+		const allSettings =
+			await getClient().accountSetting.listByAccountConfig(accountConfigId);
+		const signaturesByAccount = groupSignaturesByAccount(allSettings);
+		const overridesByAccount = groupAccountOverrides(allSettings);
 		const signatureOf = (accountId: string): AccountSignature =>
 			signaturesByAccount.get(accountId) ?? {};
+		const overridesOf = (accountId: string): AccountOverrides =>
+			overridesByAccount.get(accountId) ?? {};
 
 		// Fire-and-forget: a failed sync enqueue must never fail this read.
 		// triggerConfigLoadSyncs swallows nothing — it logs each failure loudly
@@ -215,7 +226,11 @@ export const ConfigOperations: Record<
 		return {
 			accountConfig: toAccountConfigResponse(accountConfig),
 			accounts: activeAccounts.map((acc) =>
-				toAccountResponse(acc, signatureOf(acc.accountId)),
+				toAccountResponse(
+					acc,
+					signatureOf(acc.accountId),
+					overridesOf(acc.accountId),
+				),
 			),
 		};
 	},
