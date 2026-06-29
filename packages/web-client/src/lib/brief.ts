@@ -32,6 +32,7 @@ import type {
 	ThreadRowData,
 	ThreadSection,
 } from "@remit/ui";
+import { toDisplayCategory } from "./display-category.js";
 import { formatEmailDate } from "./format.js";
 
 /**
@@ -57,7 +58,7 @@ export function toThreadRowData(
 		starred:
 			thread.star != null && thread.star !== "none" && thread.hasStars === true,
 		trust: thread.senderTrust as SenderTrustLevel,
-		category: thread.category,
+		category: toDisplayCategory(thread.category),
 		suspicious,
 	};
 }

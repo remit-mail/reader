@@ -4,7 +4,7 @@ import type {
 	ThreadMessageItem,
 } from "@remit/remit-electrodb-service";
 import { AddressService } from "@remit/remit-electrodb-service";
-import { SenderTrust } from "@remit/domain-enums";
+import { MessageCategory, SenderTrust } from "@remit/domain-enums";
 import type { ThreadMessageResponse } from "@remit/api-openapi-types";
 import { deriveSenderTrust } from "./senderTrust.js";
 
@@ -94,8 +94,10 @@ export const planBatchFetch = (rows: ThreadMessageItem[]): BatchPlan => {
  * Two BatchGetItem calls per page, regardless of page size — see
  * `planBatchFetch` for the dedup contract.
  *
- * Missing rows fall back gracefully: `category` is omitted (clients treat as
- * `personal`), `senderTrust` defaults to `"unknown"`.
+ * Missing rows fall back gracefully: `category` is omitted only when the
+ * underlying Message row is absent (clients treat as `personal`); a present
+ * Message with no stored category coalesces to `uncategorized` (RFC 032 Tier 2).
+ * `senderTrust` defaults to `"unknown"`.
  */
 export const enrichThreadRows = async (
 	rows: ThreadMessageItem[],
@@ -111,7 +113,10 @@ export const enrichThreadRows = async (
 	]);
 
 	const categoryByMessageId = new Map(
-		messages.map((m) => [m.messageId, m.category]),
+		messages.map((m) => [
+			m.messageId,
+			m.category ?? MessageCategory.uncategorized,
+		]),
 	);
 	const authenticityByMessageId = new Map(
 		messages.map((m) => [m.messageId, m.authenticity]),

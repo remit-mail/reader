@@ -141,13 +141,13 @@ model Message {
   @visibility(Lifecycle.Read)
   bodyStorageKey?: string;
 
-  @doc("Message lifecycle status for move/delete operations")
+  @doc("Message lifecycle status for move/delete operations. Defaults to `active` (normal, visible).")
   @visibility(Lifecycle.Read)
-  status?: MessageStatus;
+  status: MessageStatus = MessageStatus.active;
 
-  @doc("Sync status for move/delete operations")
+  @doc("Sync status for move/delete operations. Defaults to `synced` (nothing pending) so a freshly-synced message never looks like it has an outstanding move/delete.")
   @visibility(Lifecycle.Read)
-  syncStatus?: MessageSyncStatus;
+  syncStatus: MessageSyncStatus = MessageSyncStatus.synced;
 
   @doc("Original mailbox ID before move (for restore from trash)")
   @visibility(Lifecycle.Read)
@@ -157,9 +157,9 @@ model Message {
   @visibility(Lifecycle.Read)
   originalUid?: int64;
 
-  @doc("Header-derived category. Absent for messages synced before this rolled out.")
+  @doc("Header-derived category. Defaults to `uncategorized` for messages that have been metadata-synced but not yet body-classified — that pending state is a named value, not absence.")
   @visibility(Lifecycle.Read)
-  category?: MessageCategory;
+  category: MessageCategory = MessageCategory.uncategorized;
 
   @doc("Structured sender-authenticity signal derived from DKIM headers at classification time. Absent for messages classified before this field was introduced — absence means no signal.")
   @visibility(Lifecycle.Read)
