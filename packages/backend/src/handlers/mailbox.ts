@@ -1,6 +1,6 @@
 import type {
+	AccountSettingService,
 	MailboxItem,
-	UpdateMailboxInput,
 } from "@remit/remit-electrodb-service";
 import type {
 	MailboxResponse,
@@ -15,52 +15,42 @@ import type {
 	OperationHandler,
 	TrashOperationIds,
 } from "../types.js";
+import {
+	applyMailboxOverrideChanges,
+	loadMailboxOverrides,
+	loadMailboxOverridesForConfig,
+	type MailboxOverrides,
+} from "./account-overrides.js";
 import { assertAccountOwnership } from "./account-ownership.js";
 
 /**
- * PATCH body fields that map directly to a DDB attribute with no IMAP
- * machinery: the mute flag plus the user overrides. Each follows the same
- * `null` → remove, value → set, absent/undefined → no-op semantics as
- * UpdateAddressFlagsInput.
+ * The mute flag and the display-name/role overrides are user preferences that
+ * live in per-mailbox AccountSetting rows (RFC 032), not on the Mailbox entity.
+ * Pick only those keys from a PATCH body: each follows the same `null` → remove,
+ * value → set, absent/undefined → no-op semantics as UpdateAddressFlagsInput.
  */
-const MAILBOX_OVERRIDE_KEYS = [
-	"muted",
-	"displayNameOverride",
-	"roleOverride",
-] as const satisfies readonly (keyof RenameMailboxInput &
-	keyof UpdateMailboxInput)[];
-
-type MailboxOverrideKey = (typeof MAILBOX_OVERRIDE_KEYS)[number];
-
-/**
- * Derive the direct DDB changes (mute flag + display-name/role overrides) from
- * a PATCH body.
- *
- * Returns `{ updates, remove }` where `updates` holds the fields to set and
- * `remove` lists the fields to delete. A field absent from the body (or
- * present as `undefined`) is a no-op; `null` removes it; any other value sets
- * it. None of these touch the rename/IMAP machinery.
- */
-export const buildMailboxOverrideChanges = (
+export const pickMailboxOverrideChanges = (
 	body: RenameMailboxInput,
-): { updates: UpdateMailboxInput; remove: MailboxOverrideKey[] } => {
-	const updates: UpdateMailboxInput = {};
-	const remove: MailboxOverrideKey[] = [];
-
-	for (const key of MAILBOX_OVERRIDE_KEYS) {
-		if (!Object.prototype.hasOwnProperty.call(body, key)) continue;
-		const value = body[key];
-		if (value === null) {
-			remove.push(key);
-			continue;
-		}
-		if (value === undefined) continue;
-		// key/value originate from the same RenameMailboxInput field; the widened
-		// record write is sound for this fixed key set.
-		(updates as Record<MailboxOverrideKey, unknown>)[key] = value;
+): {
+	displayNameOverride?: string | null;
+	roleOverride?: string | null;
+	muted?: RenameMailboxInput["muted"];
+} => {
+	const changes: {
+		displayNameOverride?: string | null;
+		roleOverride?: string | null;
+		muted?: RenameMailboxInput["muted"];
+	} = {};
+	if (Object.prototype.hasOwnProperty.call(body, "displayNameOverride")) {
+		changes.displayNameOverride = body.displayNameOverride;
 	}
-
-	return { updates, remove };
+	if (Object.prototype.hasOwnProperty.call(body, "roleOverride")) {
+		changes.roleOverride = body.roleOverride;
+	}
+	if (Object.prototype.hasOwnProperty.call(body, "muted")) {
+		changes.muted = body.muted;
+	}
+	return changes;
 };
 
 /**
@@ -70,11 +60,6 @@ export const buildMailboxOverrideChanges = (
 export interface MailboxPatchClient {
 	mailbox: {
 		get(mailboxId: string): Promise<MailboxItem>;
-		update(
-			mailboxId: string,
-			input: UpdateMailboxInput,
-			remove?: (keyof UpdateMailboxInput)[],
-		): Promise<MailboxItem>;
 	};
 	mailboxQueue: {
 		renameMailbox(
@@ -83,34 +68,38 @@ export interface MailboxPatchClient {
 			accountId: string,
 		): Promise<MailboxItem>;
 	};
+	accountSetting: Pick<AccountSettingService, "upsert" | "delete">;
 }
 
 /**
- * Apply a mailbox PATCH body: mute changes first (direct DDB write, no IMAP
+ * Apply a mailbox PATCH body: override changes first (mute flag + display-name/
+ * role overrides — written to per-mailbox AccountSetting rows, no IMAP
  * machinery), then rename — which triggers the IMAP rename machinery
  * (syncStatus/oldPath + MAILBOX_RENAME event) — only when `fullPath` is
- * present. A mute-only PATCH therefore never calls
+ * present. An override-only PATCH therefore never calls
  * `mailboxQueue.renameMailbox`.
  */
 export const applyMailboxPatch = async (
 	client: MailboxPatchClient,
+	accountConfigId: string,
 	mailboxId: string,
 	accountId: string,
 	body: RenameMailboxInput,
 ): Promise<MailboxItem> => {
 	const { fullPath } = body;
 
-	// --- Direct DDB updates (mute flag + display-name/role overrides) ---
-	// Delegated to buildMailboxOverrideChanges which follows the same
+	// --- Override settings (mute flag + display-name/role overrides) ---
+	// Written to per-mailbox AccountSetting rows (RFC 032) with the same
 	// null→remove semantics as UpdateAddressFlagsInput. Applied before (and
 	// independent of) any rename so an override-only PATCH never touches
 	// syncStatus/oldPath.
-	const { updates, remove } = buildMailboxOverrideChanges(body);
-	if (Object.keys(updates).length > 0 || remove.length > 0) {
-		await client.mailbox.update(
+	const changes = pickMailboxOverrideChanges(body);
+	if (Object.keys(changes).length > 0) {
+		await applyMailboxOverrideChanges(
+			client.accountSetting,
+			accountConfigId,
 			mailboxId,
-			updates,
-			remove.length > 0 ? remove : undefined,
+			changes,
 		);
 	}
 
@@ -123,7 +112,10 @@ export const applyMailboxPatch = async (
 	return client.mailboxQueue.renameMailbox(mailboxId, fullPath, accountId);
 };
 
-const toMailboxResponse = (mailbox: MailboxItem): MailboxResponse => ({
+const toMailboxResponse = (
+	mailbox: MailboxItem,
+	overrides: MailboxOverrides = {},
+): MailboxResponse => ({
 	mailboxId: mailbox.mailboxId,
 	accountId: mailbox.accountId,
 	namespaceType: mailbox.namespaceType,
@@ -137,9 +129,9 @@ const toMailboxResponse = (mailbox: MailboxItem): MailboxResponse => ({
 	lastSyncUid: mailbox.lastSyncUid,
 	highWaterMarkUid: mailbox.highWaterMarkUid,
 	lastMessageSyncAt: mailbox.lastMessageSyncAt,
-	muted: mailbox.muted,
-	displayNameOverride: mailbox.displayNameOverride,
-	roleOverride: mailbox.roleOverride,
+	muted: overrides.muted,
+	displayNameOverride: overrides.displayNameOverride,
+	roleOverride: overrides.roleOverride,
 	createdAt: mailbox.createdAt,
 	updatedAt: mailbox.updatedAt,
 });
@@ -163,8 +155,21 @@ export const MailboxOperations: Record<
 		const result = await client.mailbox.listByAccount(accountId, {
 			continuationToken,
 		});
+
+		// Overrides (mute / display-name / role) live in per-mailbox AccountSetting
+		// rows (RFC 032). Load the whole config's set in one query and key it by
+		// mailboxId so each mailbox surfaces its overrides without an N+1.
+		const overridesByMailbox = await loadMailboxOverridesForConfig(
+			client.accountSetting,
+			accountConfigId,
+		);
 		return {
-			items: result.items.map(toMailboxResponse),
+			items: result.items.map((mailbox) =>
+				toMailboxResponse(
+					mailbox,
+					overridesByMailbox.get(mailbox.mailboxId) ?? {},
+				),
+			),
 			continuationToken: result.continuationToken,
 		};
 	},
@@ -225,7 +230,12 @@ export const MailboxDetailOperations: Record<
 		assertAccountOwnership(account, accountConfigId, "read");
 
 		const mailbox = await client.mailbox.get(mailboxId);
-		return toMailboxResponse(mailbox);
+		const overrides = await loadMailboxOverrides(
+			client.accountSetting,
+			accountConfigId,
+			mailboxId,
+		);
+		return toMailboxResponse(mailbox, overrides);
 	},
 
 	MailboxDetailOperations_renameMailbox: async (
@@ -244,8 +254,19 @@ export const MailboxDetailOperations: Record<
 		const account = await client.account.get(accountId);
 		assertAccountOwnership(account, accountConfigId, "act");
 
-		const mailbox = await applyMailboxPatch(client, mailboxId, accountId, body);
-		return toMailboxResponse(mailbox);
+		const mailbox = await applyMailboxPatch(
+			client,
+			accountConfigId,
+			mailboxId,
+			accountId,
+			body,
+		);
+		const overrides = await loadMailboxOverrides(
+			client.accountSetting,
+			accountConfigId,
+			mailboxId,
+		);
+		return toMailboxResponse(mailbox, overrides);
 	},
 
 	MailboxDetailOperations_deleteMailbox: async (
