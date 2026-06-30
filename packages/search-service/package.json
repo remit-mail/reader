@@ -13,16 +13,21 @@
 	"scripts": {
 		"test:typecheck": "tsgo --noEmit",
 		"test:run": "node --env-file=../../.test.env --import tsx --test 'src/**/*.test.ts'",
+		"test:integ": "RUN_INTEG_TESTS=1 node --env-file=../../.test.env --import tsx --test 'src/**/*.integ.test.ts'",
 		"test": "npm run test:typecheck && npm run test:run"
 	},
 	"dependencies": {
+		"@huggingface/transformers": "^4.2.0",
+		"better-sqlite3": "^12.11.1",
 		"p-limit": "^6.2.0",
+		"sqlite-vec": "^0.1.9",
 		"zod": "*"
 	},
 	"devDependencies": {
 		"@aws-sdk/client-bedrock-runtime": "*",
 		"@aws-sdk/client-s3vectors": "*",
 		"@remit/storage-service": "*",
+		"@types/better-sqlite3": "^7.6.13",
 		"aws-sdk-client-mock": "*"
 	}
 }

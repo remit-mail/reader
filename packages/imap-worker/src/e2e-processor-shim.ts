@@ -7,7 +7,13 @@ import {
 } from "@aws-sdk/client-sqs";
 import { AwsQueryProtocol } from "@aws-sdk/core/protocols";
 import { createLogger } from "@remit/logger-lambda";
-import type { Context, SQSBatchResponse, SQSEvent } from "aws-lambda";
+import { handler as searchIndexHandler } from "@remit/search-index-worker";
+import type {
+	Context,
+	SQSBatchResponse,
+	SQSEvent,
+	SQSHandler,
+} from "aws-lambda";
 import { env } from "expect-env";
 import { handler } from "./index.js";
 
@@ -28,8 +34,13 @@ import { handler } from "./index.js";
  * fails loudly, which is the desired signal — there is no crash net.
  */
 
-// Collect all unique queue URLs to poll. Every queue URL is required; missing
-// env vars crash at init via expect-env instead of silently dropping queues.
+// The search-index queue is drained by the production search-index-worker
+// handler instead of the imap handler. It is optional: when its URL is unset
+// (e.g. the e2e stack), the queue is simply not polled.
+const searchIndexQueueUrl = process.env.SQS_QUEUE_URL_SEARCH_INDEX;
+
+// Collect all unique queue URLs to poll. Every required queue URL crashes at
+// init via expect-env instead of silently dropping queues.
 const queueUrls = [
 	...new Set([
 		// FIFO queues for sync operations
@@ -40,6 +51,8 @@ const queueUrls = [
 		// Standard queues for management operations
 		env.SQS_QUEUE_URL_MAILBOX_MGMT,
 		env.SQS_QUEUE_URL_MESSAGE_MGMT,
+		// Standard queue for local search indexing (optional)
+		...(searchIndexQueueUrl ? [searchIndexQueueUrl] : []),
 	]),
 ];
 
@@ -95,6 +108,11 @@ if (cluster.isPrimary) {
 	const queueUrl = env.WORKER_QUEUE_URL;
 	const queueName = new URL(queueUrl).pathname.split("/").pop();
 	const log = createLogger().child({ queue: queueName });
+
+	// The search-index queue carries DynamoDB-stream-shaped events and is owned
+	// by the search-index-worker handler; every other queue is an imap operation.
+	const activeHandler: SQSHandler =
+		queueUrl === searchIndexQueueUrl ? searchIndexHandler : handler;
 
 	const maxMessages = 10; // SQS API limit
 
@@ -187,7 +205,7 @@ if (cluster.isPrimary) {
 				})),
 			};
 
-			const result = (await handler(event, lambdaContext, () => {})) as
+			const result = (await activeHandler(event, lambdaContext, () => {})) as
 				| SQSBatchResponse
 				| undefined;
 

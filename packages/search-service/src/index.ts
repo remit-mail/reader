@@ -9,6 +9,10 @@ export {
 	type S3VectorsBackendConfig,
 } from "./backends/s3-vectors.js";
 export {
+	createSqliteVectorStore,
+	type SqliteVectorStoreConfig,
+} from "./backends/sqlite-vec.js";
+export {
 	type ChunkInput,
 	createEmailChunker,
 	type EmailChunker,
@@ -32,10 +36,17 @@ export {
 	type BedrockEmbeddingConfig,
 	BedrockEmbeddingService,
 	createDeterministicEmbeddingService,
+	createLocalEmbeddingService,
 	type DeterministicEmbeddingConfig,
 	DeterministicEmbeddingService,
 	type EmbeddingService,
+	type LocalEmbeddingConfig,
+	LocalEmbeddingService,
 } from "./embeddings.js";
+export {
+	buildEmbeddingServiceFromEnv,
+	buildVectorStoreFromEnv,
+} from "./from-env.js";
 export {
 	createSearchService,
 	DefaultSearchService,

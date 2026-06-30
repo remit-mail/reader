@@ -1,12 +1,11 @@
-import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import {
 	AccountService,
+	getClient,
 	ThreadMessageService,
 } from "@remit/remit-electrodb-service";
 import {
-	BedrockEmbeddingService,
-	createS3VectorsBackend,
+	buildEmbeddingServiceFromEnv,
+	buildVectorStoreFromEnv,
 	createSearchService,
 	type SearchService,
 } from "@remit/search-service";
@@ -30,30 +29,38 @@ export const getServices = (): Services => {
 	const tableName = process.env.DYNAMODB_TABLE_NAME;
 	if (!tableName) throw new Error("DYNAMODB_TABLE_NAME is required");
 
-	const vectorBucketName = process.env.S3_VECTORS_BUCKET_NAME;
-	if (!vectorBucketName) throw new Error("S3_VECTORS_BUCKET_NAME is required");
-
-	const indexName = process.env.S3_VECTORS_INDEX_NAME;
-	if (!indexName) throw new Error("S3_VECTORS_INDEX_NAME is required");
-
-	const ddbClient = DynamoDBDocumentClient.from(new DynamoDBClient({}));
-	const accountService = new AccountService({
-		client: ddbClient,
-		table: tableName,
-	});
+	// getClient targets local DynamoDB in dev/test and default credentials in
+	// prod, so the same worker logic drains the local search-index queue (via the
+	// e2e-processor-shim) and the production SQS event-source mapping.
+	const client = getClient();
+	const accountService = new AccountService({ client, table: tableName });
 	const threadMessageService = new ThreadMessageService({
-		client: ddbClient,
+		client,
 		table: tableName,
 	});
 
 	const storageService = createStorageService();
 
-	const embedder = new BedrockEmbeddingService();
-	const store = createS3VectorsBackend({
-		vectorBucketName,
-		indexName,
+	// The worker must have a durable vector store — a typo'd or missing S3
+	// env var must not silently succeed by falling back to the throwaway
+	// in-memory store (which emits success metrics but drops every vector).
+	const localPath = process.env.LOCAL_VECTORDB_PATH;
+	const bucket = process.env.S3_VECTORS_BUCKET_NAME;
+	const indexName = process.env.S3_VECTORS_INDEX_NAME;
+	if (!localPath && !(bucket && indexName)) {
+		throw new Error(
+			"Vector store is not configured: set LOCAL_VECTORDB_PATH for local dev " +
+				"or both S3_VECTORS_BUCKET_NAME and S3_VECTORS_INDEX_NAME for production.",
+		);
+	}
+
+	// Build the embedder first so we can pass its dimension count to the
+	// sqlite-vec store — the vec0 table dimension must match the embedder.
+	const embedder = buildEmbeddingServiceFromEnv();
+	const searchService = createSearchService({
+		store: buildVectorStoreFromEnv(embedder.dimensions),
+		embedder,
 	});
-	const searchService = createSearchService({ embedder, store });
 
 	cached = {
 		accountService,
