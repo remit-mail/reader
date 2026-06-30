@@ -8,6 +8,8 @@ export const searchIndexMessageSchema = z.object({
 	accountId: z.string().min(1),
 	keys: z.object({ pk: z.string(), sk: z.string() }),
 	messageId: z.string().min(1),
+	/** Re-PUT every vector regardless of content hash (deliberate full re-embed / repair). */
+	force: z.boolean().optional(),
 });
 
 export type SearchIndexMessage = z.infer<typeof searchIndexMessageSchema>;
@@ -35,6 +37,12 @@ export interface ChunkMetadata {
 	fromName?: string | null;
 	/** Message subject. Stored at index time; absent for pre-enrichment vectors. */
 	subject?: string;
+	/**
+	 * sha256 over the embedding model/version id and the chunk's embeddable text.
+	 * Lets a re-index skip an unchanged chunk and re-embed only when content or the
+	 * embedding model changes. Absent on pre-hash vectors (re-PUT once to populate).
+	 */
+	contentHash?: string;
 }
 
 export interface Chunk {

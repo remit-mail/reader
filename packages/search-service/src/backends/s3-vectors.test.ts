@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import {
 	DeleteVectorsCommand,
+	GetVectorsCommand,
+	ListVectorsCommand,
 	PutVectorsCommand,
 	QueryVectorsCommand,
 	S3VectorsClient,
@@ -99,6 +101,89 @@ describe("S3VectorsBackend.delete (deterministic keys, no index scan)", () => {
 			0,
 			"delete must not use QueryVectors",
 		);
+	});
+});
+
+describe("S3VectorsBackend.existingContentHashes (GetVectors by key, no scan)", () => {
+	let s3vMock: AwsClientStub<S3VectorsClient>;
+
+	beforeEach(() => {
+		s3vMock = mockClient(S3VectorsClient);
+	});
+
+	afterEach(() => {
+		s3vMock.restore();
+	});
+
+	it("reads content hashes from metadata, omitting keys with no stored vector", async () => {
+		s3vMock.on(GetVectorsCommand).resolves({
+			vectors: [
+				{
+					key: `${MESSAGE_ID}::body-0`,
+					metadata: { contentHash: "hash-a", chunkType: "body" },
+				},
+				{
+					key: `${MESSAGE_ID}::subject`,
+					metadata: { contentHash: "hash-b", chunkType: "subject" },
+				},
+			],
+		});
+
+		const hashes = await buildBackend().existingContentHashes([
+			`${MESSAGE_ID}::body-0`,
+			`${MESSAGE_ID}::subject`,
+			`${MESSAGE_ID}::missing`,
+		]);
+
+		assert.equal(hashes.get(`${MESSAGE_ID}::body-0`), "hash-a");
+		assert.equal(hashes.get(`${MESSAGE_ID}::subject`), "hash-b");
+		assert.equal(
+			hashes.has(`${MESSAGE_ID}::missing`),
+			false,
+			"a key with no stored vector is absent from the map",
+		);
+	});
+
+	it("requests metadata only (no vector data) and addresses vectors by key", async () => {
+		s3vMock.on(GetVectorsCommand).resolves({ vectors: [] });
+
+		await buildBackend().existingContentHashes([`${MESSAGE_ID}::body-0`]);
+
+		const calls = s3vMock.commandCalls(GetVectorsCommand);
+		assert.equal(calls.length, 1);
+		const input = calls[0].args[0].input;
+		assert.equal(input.returnMetadata, true);
+		assert.equal(input.returnData, false, "must not pull vector data");
+		assert.deepEqual(input.keys, [`${MESSAGE_ID}::body-0`]);
+	});
+
+	it("never issues a ListVectors call (no index-wide scan)", async () => {
+		s3vMock.on(GetVectorsCommand).resolves({ vectors: [] });
+
+		await buildBackend().existingContentHashes([`${MESSAGE_ID}::body-0`]);
+
+		assert.equal(
+			s3vMock.commandCalls(ListVectorsCommand).length,
+			0,
+			"the unchanged-skip path must read by key, never list the index",
+		);
+	});
+
+	it("batches reads under the AWS 100-keys-per-GetVectors cap", async () => {
+		s3vMock.on(GetVectorsCommand).resolves({ vectors: [] });
+
+		const keys = Array.from(
+			{ length: 250 },
+			(_, i) => `${MESSAGE_ID}::body-${i}`,
+		);
+		await buildBackend().existingContentHashes(keys);
+
+		const calls = s3vMock.commandCalls(GetVectorsCommand);
+		const sizes = calls.map((c) => (c.args[0].input.keys ?? []).length);
+		assert.deepEqual(sizes, [100, 100, 50]);
+		for (const size of sizes) {
+			assert.ok(size <= 100, "no call exceeds the AWS 100/call cap");
+		}
 	});
 });
 

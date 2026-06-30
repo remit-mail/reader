@@ -18,7 +18,7 @@ const buildFakeSearch = (
 	const service: SearchService = {
 		index: async () => {},
 		prepareVectors: async () => [],
-		upsertVectors: async () => {},
+		upsertVectors: async () => ({ upserted: 0, skipped: 0 }),
 		delete: async () => {},
 		search: async (params) => {
 			captured.calls.push(params);

@@ -1,6 +1,7 @@
 import type { VectorStoreService } from "./backends/memory.js";
 import { createEmailChunker, type EmailChunker } from "./chunking/chunker.js";
 import { extractAttachmentFileTypes } from "./chunking/structured.js";
+import { computeContentHash } from "./content-hash.js";
 import type { EmbeddingService } from "./embeddings.js";
 import type {
 	ChunkMetadata,
@@ -11,10 +12,24 @@ import type {
 	VectorRecord,
 } from "./types.js";
 
+/** Outcome of an upsert: how many vectors were written vs skipped as unchanged. */
+export interface UpsertResult {
+	upserted: number;
+	skipped: number;
+}
+
+export interface UpsertOptions {
+	/** Re-PUT every record regardless of content hash (deliberate full re-embed / repair). */
+	force?: boolean;
+}
+
 export interface SearchService {
 	index(params: IndexEmailParams): Promise<void>;
 	prepareVectors(params: IndexEmailParams): Promise<VectorRecord[]>;
-	upsertVectors(records: VectorRecord[]): Promise<void>;
+	upsertVectors(
+		records: VectorRecord[],
+		options?: UpsertOptions,
+	): Promise<UpsertResult>;
 	search(params: SearchParams): Promise<SearchResult[]>;
 	delete(messageId: string): Promise<void>;
 }
@@ -53,7 +68,7 @@ export class DefaultSearchService implements SearchService {
 	index = async (params: IndexEmailParams): Promise<void> => {
 		const records = await this.prepareVectors(params);
 		if (records.length === 0) return;
-		await this.store.upsert(records);
+		await this.upsertVectors(records);
 	};
 
 	prepareVectors = async (
@@ -75,11 +90,13 @@ export class DefaultSearchService implements SearchService {
 		}
 
 		const fileTypes = extractAttachmentFileTypes(envelope.attachments);
+		const { embeddingId } = this.embedder;
 
 		return chunks.map((chunk, i) => {
 			const meta: ChunkMetadata = {
 				...metadata,
 				chunkType: chunk.chunkType,
+				contentHash: computeContentHash(embeddingId, chunk.text),
 				...(chunk.chunkType === "attachment" && fileTypes.length > 0
 					? { fileTypes }
 					: {}),
@@ -92,8 +109,34 @@ export class DefaultSearchService implements SearchService {
 		});
 	};
 
-	upsertVectors = async (records: VectorRecord[]): Promise<void> => {
-		await this.store.upsert(records);
+	// Idempotent by contract: PUT a vector only when its content hash differs from
+	// what is already stored. An unchanged re-index/backfill reads the existing
+	// hashes (cheap GetVectors, addressed by deterministic key — never a scan) and
+	// writes nothing. A content change or embedding-model bump changes the hash and
+	// re-PUTs; `force` re-PUTs every record regardless.
+	upsertVectors = async (
+		records: VectorRecord[],
+		options?: UpsertOptions,
+	): Promise<UpsertResult> => {
+		if (records.length === 0) return { upserted: 0, skipped: 0 };
+
+		if (options?.force) {
+			await this.store.upsert(records);
+			return { upserted: records.length, skipped: 0 };
+		}
+
+		const existing = await this.store.existingContentHashes(
+			records.map((r) => r.chunkId),
+		);
+		const changed = records.filter(
+			(r) => existing.get(r.chunkId) !== r.metadata.contentHash,
+		);
+
+		if (changed.length > 0) await this.store.upsert(changed);
+		return {
+			upserted: changed.length,
+			skipped: records.length - changed.length,
+		};
 	};
 
 	search = async (params: SearchParams): Promise<SearchResult[]> => {
