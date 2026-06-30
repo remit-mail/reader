@@ -1,5 +1,6 @@
 import {
 	DeleteVectorsCommand,
+	GetVectorsCommand,
 	PutVectorsCommand,
 	QueryVectorsCommand,
 	S3VectorsClient,
@@ -88,6 +89,14 @@ const toMetadataDocument = (metadata: ChunkMetadata): DocumentType => {
 
 const PUT_BATCH_SIZE = 100;
 const DELETE_BATCH_SIZE = 100;
+// AWS caps GetVectors at 100 keys per call (s3-vectors-limitations).
+const GET_BATCH_SIZE = 100;
+
+const readContentHash = (metadata: unknown): string | undefined => {
+	if (typeof metadata !== "object" || metadata === null) return undefined;
+	const hash = (metadata as Record<string, unknown>).contentHash;
+	return typeof hash === "string" ? hash : undefined;
+};
 
 export interface S3VectorsBackendConfig {
 	client?: S3VectorsClient;
@@ -247,6 +256,32 @@ export class S3VectorsBackend implements VectorStoreService {
 				score,
 				metadata: toMetadata(v.metadata),
 			});
+		}
+		return out;
+	};
+
+	// Read the stored content hash for each chunk key via GetVectors — addressed
+	// by key, returnMetadata only (no vector data), never an index-wide scan. A
+	// read, not a write: the idempotency check costs cheap GETs, never PUTs.
+	// Keys with no stored vector are simply absent from the response.
+	existingContentHashes = async (
+		chunkIds: string[],
+	): Promise<Map<string, string>> => {
+		const out = new Map<string, string>();
+		for (const batch of chunkArray(chunkIds, GET_BATCH_SIZE)) {
+			const cmd = new GetVectorsCommand({
+				vectorBucketName: this.vectorBucketName,
+				indexName: this.indexName,
+				keys: batch,
+				returnData: false,
+				returnMetadata: true,
+			});
+			const response = await this.client.send(cmd);
+			for (const v of response.vectors ?? []) {
+				if (typeof v.key !== "string") continue;
+				const hash = readContentHash(v.metadata);
+				if (hash !== undefined) out.set(v.key, hash);
+			}
 		}
 		return out;
 	};

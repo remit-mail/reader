@@ -7,6 +7,13 @@ import pLimit from "p-limit";
 export interface EmbeddingService {
 	embed(texts: string[]): Promise<number[][]>;
 	readonly dimensions: number;
+	/**
+	 * Stable identifier for the embedding model and the config that affects its
+	 * output (model id + dimensions). Folded into each chunk's content hash so a
+	 * model or dimension change invalidates the hash and forces a re-embed, while
+	 * unchanged content under the same model stays a no-op.
+	 */
+	readonly embeddingId: string;
 }
 
 export interface BedrockEmbeddingConfig {
@@ -60,6 +67,7 @@ export class BedrockEmbeddingService implements EmbeddingService {
 	private client: BedrockRuntimeClient;
 	private modelId: string;
 	readonly dimensions: number;
+	readonly embeddingId: string;
 	private limit: ReturnType<typeof pLimit>;
 
 	constructor(config: BedrockEmbeddingConfig = {}) {
@@ -67,6 +75,7 @@ export class BedrockEmbeddingService implements EmbeddingService {
 			config.client ?? new BedrockRuntimeClient({ region: config.region });
 		this.modelId = config.modelId ?? DEFAULT_MODEL_ID;
 		this.dimensions = config.dimensions ?? DEFAULT_DIMENSIONS;
+		this.embeddingId = `${this.modelId}@${this.dimensions}`;
 		this.limit = pLimit(config.concurrency ?? DEFAULT_CONCURRENCY);
 	}
 
@@ -133,9 +142,11 @@ const tokenize = (text: string): string[] => {
  */
 export class DeterministicEmbeddingService implements EmbeddingService {
 	readonly dimensions: number;
+	readonly embeddingId: string;
 
 	constructor(config: DeterministicEmbeddingConfig = {}) {
 		this.dimensions = config.dimensions ?? 64;
+		this.embeddingId = `deterministic@${this.dimensions}`;
 	}
 
 	embed = async (texts: string[]): Promise<number[][]> => {

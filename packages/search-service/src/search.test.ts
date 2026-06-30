@@ -1,9 +1,18 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import { MemoryVectorStore } from "./backends/memory.js";
+import {
+	MemoryVectorStore,
+	type VectorStoreService,
+} from "./backends/memory.js";
 import { createDeterministicEmbeddingService } from "./embeddings.js";
 import { DefaultSearchService } from "./search.js";
-import type { EnvelopeChunkInput, IndexEmailParams } from "./types.js";
+import type {
+	EnvelopeChunkInput,
+	IndexEmailParams,
+	VectorMatch,
+	VectorQuery,
+	VectorRecord,
+} from "./types.js";
 
 const baseMetadata: IndexEmailParams["metadata"] = {
 	messageId: "msg-1",
@@ -211,5 +220,121 @@ describe("DefaultSearchService", () => {
 		// fromName and subject should be absent for pre-enrichment vectors
 		assert.strictEqual(legacy.fromName, undefined);
 		assert.strictEqual(legacy.subject, undefined);
+	});
+});
+
+// Counts every vector handed to the store's upsert, so a re-index that writes
+// nothing can be asserted as exactly zero PutVectors-bound records.
+class SpyStore implements VectorStoreService {
+	private inner = new MemoryVectorStore();
+	writes: VectorRecord[][] = [];
+
+	upsert = async (vectors: VectorRecord[]): Promise<void> => {
+		this.writes.push(vectors);
+		await this.inner.upsert(vectors);
+	};
+	query = (params: VectorQuery): Promise<VectorMatch[]> =>
+		this.inner.query(params);
+	delete = (filter: { messageId: string }): Promise<void> =>
+		this.inner.delete(filter);
+	existingContentHashes = (chunkIds: string[]): Promise<Map<string, string>> =>
+		this.inner.existingContentHashes(chunkIds);
+
+	written = (): number => this.writes.reduce((n, b) => n + b.length, 0);
+	reset = (): void => {
+		this.writes = [];
+	};
+}
+
+const invoiceBody =
+	"I have reviewed the Q1 numbers in the spreadsheet and the team exceeded the renewal target by fourteen percent across the portfolio.";
+
+const aliceParams = (body: string): IndexEmailParams => ({
+	envelope: aliceEnvelope,
+	parsedBody: { text: body, html: null },
+	metadata: {
+		...baseMetadata,
+		messageId: "msg-alice",
+		threadId: "thread-a",
+		fromName: "Alice",
+		subject: "Q1 invoice review",
+	},
+});
+
+describe("DefaultSearchService idempotent indexing", () => {
+	it("(a) a re-index of unchanged content writes zero vectors", async () => {
+		const store = new SpyStore();
+		const embedder = createDeterministicEmbeddingService({ dimensions: 128 });
+		const service = new DefaultSearchService({ embedder, store });
+
+		await service.index(aliceParams(invoiceBody));
+		assert.ok(store.written() > 0, "first index writes the message's chunks");
+
+		store.reset();
+		await service.index(aliceParams(invoiceBody));
+		assert.strictEqual(
+			store.written(),
+			0,
+			"unchanged re-index must write nothing",
+		);
+	});
+
+	it("(b) changed body content re-PUTs", async () => {
+		const store = new SpyStore();
+		const embedder = createDeterministicEmbeddingService({ dimensions: 128 });
+		const service = new DefaultSearchService({ embedder, store });
+
+		await service.index(aliceParams(invoiceBody));
+		store.reset();
+
+		await service.index(
+			aliceParams(
+				"Completely different content: the renovation budget overran and we must escalate the vendor dispute before the quarter closes.",
+			),
+		);
+		assert.ok(store.written() > 0, "changed content must re-PUT the chunks");
+	});
+
+	it("(c) an embedding model/version bump re-PUTs", async () => {
+		const store = new SpyStore();
+		const service128 = new DefaultSearchService({
+			embedder: createDeterministicEmbeddingService({ dimensions: 128 }),
+			store,
+		});
+		await service128.index(aliceParams(invoiceBody));
+		store.reset();
+
+		// Same store, same content, different embedding id (dimensions change).
+		const service256 = new DefaultSearchService({
+			embedder: createDeterministicEmbeddingService({ dimensions: 256 }),
+			store,
+		});
+		await service256.index(aliceParams(invoiceBody));
+		assert.ok(
+			store.written() > 0,
+			"a model/dimension change must invalidate the hash and re-embed",
+		);
+	});
+
+	it("(d) force re-PUTs unchanged content regardless", async () => {
+		const store = new SpyStore();
+		const embedder = createDeterministicEmbeddingService({ dimensions: 128 });
+		const service = new DefaultSearchService({ embedder, store });
+
+		const records = await service.prepareVectors(aliceParams(invoiceBody));
+		await service.upsertVectors(records);
+		store.reset();
+
+		const skipResult = await service.upsertVectors(records);
+		assert.strictEqual(skipResult.upserted, 0, "unchanged upsert skips all");
+		assert.strictEqual(store.written(), 0);
+
+		const forceResult = await service.upsertVectors(records, { force: true });
+		assert.strictEqual(
+			forceResult.upserted,
+			records.length,
+			"force re-PUTs every record",
+		);
+		assert.strictEqual(store.written(), records.length);
 	});
 });

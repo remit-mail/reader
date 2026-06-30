@@ -88,17 +88,18 @@ export const processBatch = async (
 			}
 			const upsertRecords = [...deduped.values()];
 
-			await services.searchService.upsertVectors(upsertRecords);
+			const { upserted, skipped } = await services.searchService.upsertVectors(
+				upsertRecords,
+				{ force: message.force },
+			);
 			log.info("Upsert complete", {
 				accountId: message.accountId,
 				messageId: message.messageId,
-				count: upsertRecords.length,
+				upserted,
+				skipped,
 			});
-			metrics.addMetric(
-				"searchIndexProcessed",
-				MetricUnit.Count,
-				upsertRecords.length,
-			);
+			metrics.addMetric("searchIndexProcessed", MetricUnit.Count, upserted);
+			metrics.addMetric("searchIndexSkipped", MetricUnit.Count, skipped);
 		} catch (error) {
 			// Name the messageId so the dead-letter is diagnosable per message
 			// (#910); a transient/whole-call error retries this message alone.

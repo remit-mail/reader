@@ -27,6 +27,7 @@ export {
 	buildStructuredChunks,
 	extractAttachmentFileTypes,
 } from "./chunking/structured.js";
+export { computeContentHash } from "./content-hash.js";
 export {
 	type BedrockEmbeddingConfig,
 	BedrockEmbeddingService,
@@ -40,6 +41,8 @@ export {
 	DefaultSearchService,
 	type SearchService,
 	type SearchServiceConfig,
+	type UpsertOptions,
+	type UpsertResult,
 } from "./search.js";
 export type {
 	AttachmentChunkInput,
