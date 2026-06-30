@@ -5,6 +5,7 @@ import type {
 } from "../types.js";
 import { buildEntityChunks } from "./entities.js";
 import { buildBodyChunks } from "./entropy.js";
+import { chunkKeyFor } from "./keys.js";
 import { buildStructuredChunks } from "./structured.js";
 
 export interface ChunkInput {
@@ -39,7 +40,8 @@ const bodyText = (parsed: ParsedBodyForChunking): string => {
 
 export const createEmailChunker = (): EmailChunker => ({
 	chunk: ({ envelope, parsedBody, messageId }: ChunkInput): Chunk[] => {
-		const chunkIdFor = (suffix: string): string => `${messageId}::${suffix}`;
+		const chunkIdFor = (suffix: string): string =>
+			chunkKeyFor(messageId, suffix);
 		const chunks: Chunk[] = [];
 		chunks.push(...buildStructuredChunks(envelope, chunkIdFor));
 

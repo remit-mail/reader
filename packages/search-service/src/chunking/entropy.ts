@@ -1,4 +1,5 @@
 import type { Chunk } from "../types.js";
+import { MAX_CHUNKS_PER_TYPE } from "./keys.js";
 
 const SIGNATURE_MARKERS: RegExp[] = [
 	/^--\s*$/m,
@@ -150,7 +151,9 @@ export const buildBodyChunks = (
 		}
 	}
 
-	return final.map((textChunk, idx) => ({
+	// Cap at MAX_CHUNKS_PER_TYPE so every produced body-N has a matching key in
+	// candidateChunkKeys (keys.ts) and stays reapable on delete.
+	return final.slice(0, MAX_CHUNKS_PER_TYPE).map((textChunk, idx) => ({
 		chunkId: chunkIdFor(`body-${idx}`),
 		chunkType: "body",
 		text: textChunk,
