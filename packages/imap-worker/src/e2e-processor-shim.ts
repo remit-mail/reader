@@ -46,9 +46,9 @@ const queueUrls = [
 		// FIFO queues for sync operations
 		env.SQS_QUEUE_URL_MAILBOXES,
 		env.SQS_QUEUE_URL_MESSAGES,
-		env.SQS_QUEUE_URL_BODY,
 		env.SQS_QUEUE_URL_FLAGS,
-		// Standard queues for management operations
+		// Standard body queue (#612) + management queues
+		env.SQS_QUEUE_URL_BODY,
 		env.SQS_QUEUE_URL_MAILBOX_MGMT,
 		env.SQS_QUEUE_URL_MESSAGE_MGMT,
 		// Standard queue for local search indexing (optional)
