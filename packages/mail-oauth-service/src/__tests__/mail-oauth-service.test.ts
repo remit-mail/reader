@@ -300,26 +300,23 @@ describe("mail-oauth-service", () => {
 
 		const svc = createMailOAuthService(makeConfig());
 
-		let caughtError: unknown;
-		try {
-			await svc.refresh(sensitiveRefreshToken);
-		} catch (e) {
-			// biome-ignore lint/plugin/no-silent-catch: test — catch is part of the test assertion; error presence/absence is what's being tested
-			caughtError = e;
-		}
+		await assert.rejects(
+			() => svc.refresh(sensitiveRefreshToken),
+			(err: unknown) => {
+				assert.ok(err instanceof RefreshTokenError);
 
-		assert.ok(caughtError instanceof RefreshTokenError);
+				const serialized = JSON.stringify(err.error);
+				assert.ok(
+					!serialized.includes(sensitiveRefreshToken),
+					"serialized error must not contain the refresh token",
+				);
 
-		const serialized = JSON.stringify(caughtError.error);
-		assert.ok(
-			!serialized.includes(sensitiveRefreshToken),
-			"serialized error must not contain the refresh token",
-		);
-
-		const message = caughtError.message;
-		assert.ok(
-			!message.includes(sensitiveRefreshToken),
-			"error message must not contain the refresh token",
+				assert.ok(
+					!err.message.includes(sensitiveRefreshToken),
+					"error message must not contain the refresh token",
+				);
+				return true;
+			},
 		);
 	});
 

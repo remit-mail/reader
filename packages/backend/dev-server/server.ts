@@ -11,6 +11,7 @@ import express, {
 } from "express";
 import * as swaggerUi from "swagger-ui-express";
 import { handler, OpenAPISpec } from "../src/index.js";
+import { safeJsonParse } from "../src/json.js";
 import { resolveContentPath } from "./content-path.js";
 import { createLambdaContext, createLambdaEvent } from "./lambda-helpers.js";
 
@@ -94,30 +95,28 @@ app.all(/(.*)/, async (req: Request, res: Response) => {
 	const result: APIGatewayProxyResult = await handler(event, context);
 	const headers = (result.headers ?? {}) as Record<string, string>;
 
-	let body = result.body;
+	let body: unknown = result.body;
 
 	if (
 		typeof body === "string" &&
 		headers["Content-Type"]?.includes("application/json")
 	) {
-		try {
-			const parsed = JSON.parse(body);
-			if (
-				parsed &&
-				typeof parsed === "object" &&
-				"statusCode" in parsed &&
-				"body" in parsed
-			) {
-				body =
-					typeof parsed.body === "string"
-						? JSON.parse(parsed.body)
-						: parsed.body;
-			} else {
-				body = parsed;
-			}
-		} catch (e) {
-			// biome-ignore lint/plugin/no-silent-catch: dev-server — top-level request handler; errors are caught to keep the dev server running
-			console.error("[dev-server] Failed to parse JSON:", e);
+		const parsed = await safeJsonParse<unknown>(body).catch(() => undefined);
+		if (parsed === undefined) {
+			console.error("[dev-server] Failed to parse JSON body");
+		} else if (
+			parsed &&
+			typeof parsed === "object" &&
+			"statusCode" in parsed &&
+			"body" in parsed
+		) {
+			const inner = (parsed as { body: unknown }).body;
+			body =
+				typeof inner === "string"
+					? await safeJsonParse(inner).catch(() => inner)
+					: inner;
+		} else {
+			body = parsed;
 		}
 	}
 

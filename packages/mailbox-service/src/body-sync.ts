@@ -652,12 +652,11 @@ export class BodySyncService {
 	 * Always logs a structured verdict line for confident, actionable verdicts so
 	 * the real distribution is observable on a live mailbox.
 	 *
-	 * Best-effort: this is an enhancement bolted onto the body-sync hot path, NOT
-	 * part of the critical sync contract, so it is the one place where
-	 * let-it-crash is wrong. Any failure is swallowed with a warning and treated
-	 * as "no outcome" so it can never fail body-sync or block the search-index
-	 * enqueue. The verdict reads the just-computed classification rather than a
-	 * persisted row, since those fields are not written until the single update.
+	 * The verdict reads the just-computed classification rather than a persisted
+	 * row, since those fields are not written until the single update. A failure
+	 * here is a server-side DB error and propagates — body-sync retries on the
+	 * next cycle. The empty {@link PlacementOutcome} means "no action", never
+	 * "an error was swallowed".
 	 */
 	private async resolvePlacement(
 		messageId: string,
@@ -667,104 +666,118 @@ export class BodySyncService {
 		classification: UpdateMessageInput,
 	): Promise<PlacementOutcome> {
 		if (!this.placementConfig) return {};
-		const { mailboxSpecialUseService } = this.placementConfig;
+		return this.computePlacement(
+			this.placementConfig,
+			messageId,
+			accountId,
+			accountConfigId,
+			parsed,
+			classification,
+		);
+	}
 
-		try {
-			const message = await this.messageService.get(messageId);
-			const junkMailbox = await mailboxSpecialUseService.findBySpecialUse(
-				accountId,
-				MailboxSpecialUse.Junk,
-			);
-			const inboxMailbox =
-				await mailboxSpecialUseService.findInboxMailbox(accountId);
+	private async computePlacement(
+		placementConfig: PlacementConfig,
+		messageId: string,
+		accountId: string,
+		accountConfigId: string,
+		parsed: ParsedMail,
+		classification: UpdateMessageInput,
+	): Promise<PlacementOutcome> {
+		const { mailboxSpecialUseService } = placementConfig;
 
-			const placement: FolderPlacement =
-				junkMailbox && message.mailboxId === junkMailbox.mailboxId
-					? "junk"
-					: inboxMailbox && message.mailboxId === inboxMailbox.mailboxId
-						? "inbox"
-						: "other";
+		const message = await this.messageService.get(messageId);
+		const junkMailbox = await mailboxSpecialUseService.findBySpecialUse(
+			accountId,
+			MailboxSpecialUse.Junk,
+		);
+		const inboxMailbox =
+			await mailboxSpecialUseService.findInboxMailbox(accountId);
 
-			const fromEmail = extractPrimaryFromEmail(parsed);
-			const senderTrust = fromEmail
-				? await this.deriveSenderTrust(accountConfigId, fromEmail)
-				: SenderTrust.Unknown;
+		const placement: FolderPlacement =
+			junkMailbox && message.mailboxId === junkMailbox.mailboxId
+				? "junk"
+				: inboxMailbox && message.mailboxId === inboxMailbox.mailboxId
+					? "inbox"
+					: "other";
 
-			// The verdict needs the classification signals (providerSpam,
-			// authResult, authenticity) that this body-sync pass just derived; the
-			// stored row does not carry them yet, so overlay them onto the message.
-			const candidate = { ...message, ...classification };
-			const verdict = classifyPlacement(candidate, placement, senderTrust);
+		const fromEmail = extractPrimaryFromEmail(parsed);
+		const senderTrust = fromEmail
+			? await this.deriveSenderTrust(accountConfigId, fromEmail)
+			: SenderTrust.Unknown;
 
-			// A `leave` verdict carries no audit record and no move.
-			if (verdict.action === "leave") {
-				return {};
-			}
+		// The verdict needs the classification signals (providerSpam,
+		// authResult, authenticity) that this body-sync pass just derived; the
+		// stored row does not carry them yet, so overlay them onto the message.
+		const candidate = { ...message, ...classification };
+		const verdict = classifyPlacement(candidate, placement, senderTrust);
 
-			// Audit verdict — recorded for every actionable verdict (both
-			// confidences), so the distribution is queryable on the message.
-			// Independent of whether a move is enqueued.
-			const audit: MessagePlacementVerdict = {
-				action:
-					verdict.action === "move-to-inbox"
-						? PlacementAction.MoveToInbox
-						: PlacementAction.MoveToJunk,
-				confidence:
-					verdict.confidence === "confident"
-						? PlacementConfidence.Confident
-						: PlacementConfidence.Unsure,
-				fromPlacement: placement,
-				reasons: verdict.reasons,
-				dryRun: false,
-				decidedAt: Date.now(),
-			};
-
-			// Only a confident verdict moves mail. An unsure verdict is recorded
-			// but never enqueues a move.
-			if (verdict.confidence !== "confident") {
-				return { verdict: audit };
-			}
-
-			const target =
-				verdict.action === "move-to-inbox" ? inboxMailbox : junkMailbox;
-			if (!target) return { verdict: audit };
-
-			// Structured verdict line — emitted for confident, actionable verdicts
-			// so the real verdict distribution is observable on a live mailbox.
-			this.log.info(
-				{
-					messageId,
-					accountId,
-					placement,
-					action: verdict.action,
-					confidence: verdict.confidence,
-					reasons: verdict.reasons,
-					destinationMailboxId: target.mailboxId,
-				},
-				"Placement verdict",
-			);
-
-			return {
-				verdict: audit,
-				move: {
-					destinationMailboxId: target.mailboxId,
-					destinationPath: target.fullPath,
-				},
-			};
-		} catch (err: unknown) {
-			// biome-ignore lint/plugin/no-silent-catch: best-effort placement verdict — failure here must never abort body-sync; the move is a non-fatal enhancement
-			this.log.warn?.(
-				{ messageId, accountId, error: inspect(err) },
-				"Placement move failed (best-effort, non-fatal)",
-			);
+		// A `leave` verdict carries no audit record and no move.
+		if (verdict.action === "leave") {
 			return {};
 		}
+
+		// Audit verdict — recorded for every actionable verdict (both
+		// confidences), so the distribution is queryable on the message.
+		// Independent of whether a move is enqueued.
+		const audit: MessagePlacementVerdict = {
+			action:
+				verdict.action === "move-to-inbox"
+					? PlacementAction.MoveToInbox
+					: PlacementAction.MoveToJunk,
+			confidence:
+				verdict.confidence === "confident"
+					? PlacementConfidence.Confident
+					: PlacementConfidence.Unsure,
+			fromPlacement: placement,
+			reasons: verdict.reasons,
+			dryRun: false,
+			decidedAt: Date.now(),
+		};
+
+		// Only a confident verdict moves mail. An unsure verdict is recorded
+		// but never enqueues a move.
+		if (verdict.confidence !== "confident") {
+			return { verdict: audit };
+		}
+
+		const target =
+			verdict.action === "move-to-inbox" ? inboxMailbox : junkMailbox;
+		if (!target) return { verdict: audit };
+
+		// Structured verdict line — emitted for confident, actionable verdicts
+		// so the real verdict distribution is observable on a live mailbox.
+		this.log.info(
+			{
+				messageId,
+				accountId,
+				placement,
+				action: verdict.action,
+				confidence: verdict.confidence,
+				reasons: verdict.reasons,
+				destinationMailboxId: target.mailboxId,
+			},
+			"Placement verdict",
+		);
+
+		return {
+			verdict: audit,
+			move: {
+				destinationMailboxId: target.mailboxId,
+				destinationPath: target.fullPath,
+			},
+		};
 	}
 
 	/**
-	 * Enqueue the IMAP move for a placed message. Best-effort: a failure here is
-	 * swallowed with a warning so it can never fail body-sync. The `movedByRemit`
-	 * flag was already persisted in the single Message update.
+	 * Enqueue the IMAP move for a placed message. Contained, NOT a careless
+	 * swallow: this runs AFTER `bodyStorageKey` is durable, so a throw here would
+	 * mark the message failed yet the requeue would skip it (the stored body
+	 * trips the skip guard in syncBodies), permanently losing the move. Failing
+	 * hard is therefore worse than containing — the correct fix is an independent
+	 * retry for the move (tracked as a follow-up), not a propagated throw here.
+	 * Until then a failure is logged; the `movedByRemit` flag was already
+	 * persisted in the single Message update.
 	 */
 	private async enqueuePlacementMove(
 		messageId: string,
@@ -773,23 +786,20 @@ export class BodySyncService {
 		destinationPath: string,
 	): Promise<void> {
 		if (!this.placementConfig) return;
-		try {
-			await this.placementConfig.messageMoveService.moveMessage(
-				messageId,
-				destinationMailboxId,
-				accountId,
-			);
-			this.log.info(
-				{ messageId, accountId, destination: destinationPath },
-				"Moved message by placement verdict",
-			);
-		} catch (err: unknown) {
-			// biome-ignore lint/plugin/no-silent-catch: best-effort placement move enqueue — failure here must never abort body-sync; the movedByRemit flag was already persisted
-			this.log.warn?.(
-				{ messageId, accountId, error: inspect(err) },
-				"Placement move failed (best-effort, non-fatal)",
-			);
-		}
+		await this.placementConfig.messageMoveService
+			.moveMessage(messageId, destinationMailboxId, accountId)
+			.then(() => {
+				this.log.info(
+					{ messageId, accountId, destination: destinationPath },
+					"Moved message by placement verdict",
+				);
+			})
+			.catch((err: unknown) => {
+				this.log.warn?.(
+					{ messageId, accountId, error: inspect(err) },
+					"Placement move failed (best-effort, non-fatal)",
+				);
+			});
 	}
 
 	/**

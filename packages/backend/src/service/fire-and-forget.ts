@@ -60,10 +60,7 @@ export const fireAndForget = async (
 	work: () => Promise<unknown>,
 	context: FireAndForgetContext,
 ): Promise<void> => {
-	try {
-		await work();
-	} catch (error: unknown) {
-		// biome-ignore lint/plugin/no-silent-catch: fire-and-forget contract — caller has explicitly opted out of propagation; the error is logged and the response is not affected
+	await work().catch((error: unknown) => {
 		const log = context.logger ?? logger;
 		log.error(
 			{
@@ -78,5 +75,5 @@ export const fireAndForget = async (
 			},
 			context.message,
 		);
-	}
+	});
 };

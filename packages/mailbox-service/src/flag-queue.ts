@@ -545,8 +545,8 @@ export class FlagQueueService {
 		// flight, 500-ing unrelated /mailboxes, /threads and /outbox reads. Catch it
 		// at the source, log loudly with an alertable field, and resolve. The local
 		// state is correct; the worker reconciles IMAP on the next sync.
-		try {
-			await this.sqs.send(
+		await this.sqs
+			.send(
 				new SendMessageCommand({
 					QueueUrl: this.queueUrl,
 					MessageBody: JSON.stringify(event),
@@ -555,29 +555,28 @@ export class FlagQueueService {
 						MessageDeduplicationId: event.eventId,
 					}),
 				}),
-			);
-		} catch (error: unknown) {
-			// biome-ignore lint/plugin/no-silent-catch: best-effort SQS enqueue — local flag state is already persisted; a transient enqueue failure defers IMAP sync but must not fail the response
-			this.log.error(
-				{
-					alert: "flag_sync_enqueue_failed",
-					eventId: event.eventId,
-					accountId,
-					mailboxId,
-					operations,
-					errorName: (error as { name?: string })?.name,
-					errorCode:
-						(error as { Code?: string })?.Code ??
-						(error as { code?: string })?.code,
-				},
-				"Failed to enqueue SYNC_FLAGS event (local flag state persisted, best-effort IMAP sync deferred)",
-			);
-			return;
-		}
-
-		this.log.info(
-			{ eventId: event.eventId, accountId, mailboxId, operations },
-			"Enqueued SYNC_FLAGS event",
-		);
+			)
+			.then(() => {
+				this.log.info(
+					{ eventId: event.eventId, accountId, mailboxId, operations },
+					"Enqueued SYNC_FLAGS event",
+				);
+			})
+			.catch((error: unknown) => {
+				this.log.error(
+					{
+						alert: "flag_sync_enqueue_failed",
+						eventId: event.eventId,
+						accountId,
+						mailboxId,
+						operations,
+						errorName: (error as { name?: string })?.name,
+						errorCode:
+							(error as { Code?: string })?.Code ??
+							(error as { code?: string })?.code,
+					},
+					"Failed to enqueue SYNC_FLAGS event (local flag state persisted, best-effort IMAP sync deferred)",
+				);
+			});
 	};
 }

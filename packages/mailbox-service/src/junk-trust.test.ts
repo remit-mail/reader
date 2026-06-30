@@ -7,7 +7,7 @@ import type {
 import { NotFoundError } from "@remit/remit-electrodb-service";
 import { adjustSenderTrustForJunkMove } from "./junk-trust.js";
 
-const silentLog = { info: () => {}, warn: () => {} };
+const silentLog = { info: () => {} };
 
 const threadRow = (fromEmail: string | undefined) =>
 	({
@@ -101,47 +101,41 @@ describe("adjustSenderTrustForJunkMove", () => {
 		assert.equal(demote.mock.callCount(), 0);
 	});
 
-	it("swallows a missing-Address NotFoundError (best-effort no-op)", async () => {
-		const promote = mock.fn(async () => {
+	it("propagates a missing Address row (NotFound) — a guaranteed row is absent only on a real bug", async () => {
+		const { service, promote } = addressMock();
+		promote.mock.mockImplementation(async () => {
 			throw new NotFoundError("Address not found: x");
 		});
-		const service = {
-			promoteWellknownByUser: promote,
-			demoteSenderTrust: mock.fn(),
-		} as unknown as AddressService;
-
-		await assert.doesNotReject(() =>
-			adjustSenderTrustForJunkMove({
-				messageId: "m1",
-				isMovingFromJunk: true,
-				isMovingToJunk: false,
-				addressService: service,
-				threadMessageService: threadRow("sender@example.com"),
-				log: silentLog,
-			}),
+		await assert.rejects(
+			() =>
+				adjustSenderTrustForJunkMove({
+					messageId: "m1",
+					isMovingFromJunk: true,
+					isMovingToJunk: false,
+					addressService: service,
+					threadMessageService: threadRow("sender@example.com"),
+					log: silentLog,
+				}),
+			(err: unknown) => err instanceof NotFoundError,
 		);
 	});
 
-	it("swallows an unexpected error and warns (move must not fail)", async () => {
-		const promote = mock.fn(async () => {
+	it("propagates when the trust write fails", async () => {
+		const { service, demote } = addressMock();
+		demote.mock.mockImplementation(async () => {
 			throw new Error("ddb exploded");
 		});
-		const warn = mock.fn();
-		const service = {
-			promoteWellknownByUser: promote,
-			demoteSenderTrust: mock.fn(),
-		} as unknown as AddressService;
-
-		await assert.doesNotReject(() =>
-			adjustSenderTrustForJunkMove({
-				messageId: "m1",
-				isMovingFromJunk: true,
-				isMovingToJunk: false,
-				addressService: service,
-				threadMessageService: threadRow("sender@example.com"),
-				log: { info: () => {}, warn },
-			}),
+		await assert.rejects(
+			() =>
+				adjustSenderTrustForJunkMove({
+					messageId: "m1",
+					isMovingFromJunk: false,
+					isMovingToJunk: true,
+					addressService: service,
+					threadMessageService: threadRow("sender@example.com"),
+					log: silentLog,
+				}),
+			/ddb exploded/,
 		);
-		assert.equal(warn.mock.callCount(), 1);
 	});
 });

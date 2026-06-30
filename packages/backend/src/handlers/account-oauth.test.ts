@@ -139,27 +139,29 @@ describe("HMAC state signing", () => {
 // ─── JWT claims parsing ───────────────────────────────────────────────────────
 
 describe("parseJwtClaims", () => {
-	it("extracts preferred_username from a Microsoft-style access token", () => {
+	it("extracts preferred_username from a Microsoft-style access token", async () => {
 		const token = makeJwtToken({
 			sub: "12345",
 			preferred_username: "alice@example.com",
 			email: "alice@example.com",
 		});
-		const claims = parseJwtClaims(token);
+		const claims = await parseJwtClaims(token);
+		assert.ok(claims);
 		assert.equal(claims.preferred_username, "alice@example.com");
 	});
 
-	it("throws on a non-JWT string", () => {
-		assert.throws(() => parseJwtClaims("not-a-jwt"), /Invalid JWT/);
+	it("returns null on a non-JWT string", async () => {
+		assert.equal(await parseJwtClaims("not-a-jwt"), null);
 	});
 
-	it("throws on a two-part string", () => {
-		assert.throws(() => parseJwtClaims("header.payload"), /Invalid JWT/);
+	it("returns null on a two-part string", async () => {
+		assert.equal(await parseJwtClaims("header.payload"), null);
 	});
 
-	it("extracts email claim when preferred_username is absent", () => {
+	it("extracts email claim when preferred_username is absent", async () => {
 		const token = makeJwtToken({ email: "bob@outlook.com" });
-		const claims = parseJwtClaims(token);
+		const claims = await parseJwtClaims(token);
+		assert.ok(claims);
 		assert.equal(claims.email, "bob@outlook.com");
 	});
 });

@@ -16,29 +16,32 @@ export const handler = withTelemetry(
 		const batchItemFailures: { itemIdentifier: string }[] = [];
 
 		for (const record of event.Records) {
-			try {
-				const smtpEvent: SmtpEvent = JSON.parse(record.body);
-				log.info("Processing SMTP event", {
-					eventType: smtpEvent.type,
-					eventId: smtpEvent.eventId,
+			const smtpEvent: SmtpEvent = JSON.parse(record.body);
+			log.info("Processing SMTP event", {
+				eventType: smtpEvent.type,
+				eventId: smtpEvent.eventId,
+			});
+
+			const sendStart = Date.now();
+			const failed = await processEvent(smtpEvent, log)
+				.then(() => {
+					metrics.addMetric(
+						"smtpSendLatency",
+						MetricUnit.Milliseconds,
+						Date.now() - sendStart,
+					);
+					return false;
+				})
+				.catch((error) => {
+					log.error("SMTP event processing failed", {
+						error: inspect(error),
+						messageId: record.messageId,
+					});
+					metrics.addMetric("smtpSendFailures", MetricUnit.Count, 1);
+					return true;
 				});
 
-				const sendStart = Date.now();
-				await processEvent(smtpEvent, log);
-				const sendDuration = Date.now() - sendStart;
-
-				metrics.addMetric(
-					"smtpSendLatency",
-					MetricUnit.Milliseconds,
-					sendDuration,
-				);
-			} catch (error) {
-				// biome-ignore lint/plugin/no-silent-catch: SQS batch handler — nacking via batchItemFailures is the correct error propagation; rethrowing would crash the entire batch
-				log.error("SMTP event processing failed", {
-					error: inspect(error),
-					messageId: record.messageId,
-				});
-				metrics.addMetric("smtpSendFailures", MetricUnit.Count, 1);
+			if (failed) {
 				batchItemFailures.push({ itemIdentifier: record.messageId });
 			}
 		}
