@@ -2385,7 +2385,7 @@ describe("BodySyncService.deriveSenderTrust (error propagation via rescue)", () 
 		);
 	});
 
-	it("propagates a non-NotFound error (AccessDenied) so the rescue logs it (observable)", async () => {
+	it("requeues the message when placement trust derivation fails (AccessDenied)", async () => {
 		const fake = buildFakeState({
 			messageId: "msg-denied-trust",
 			rawEml: RESCUE_EML,
@@ -2399,7 +2399,13 @@ describe("BodySyncService.deriveSenderTrust (error propagation via rescue)", () 
 				});
 			},
 		} as unknown as AddressService;
-		const { logger, warnings } = captureWarnings();
+		const errors: Array<{ obj: Record<string, unknown>; msg: string }> = [];
+		const logger: BodySyncLogger = {
+			info: () => {},
+			debug: () => {},
+			warn: () => {},
+			error: (obj, msg) => errors.push({ obj, msg }),
+		};
 		const service = new BodySyncService(
 			fake.messageService,
 			fake.storageService,
@@ -2418,14 +2424,17 @@ describe("BodySyncService.deriveSenderTrust (error propagation via rescue)", () 
 			async () => buildFakeConnection(RESCUE_EML),
 		);
 
-		// Body sync still succeeds (the placement path is isolated), but the
-		// AccessDenied is now surfaced as a placement-failure warning instead of
-		// silently becoming SenderTrust.Unknown.
-		assert.equal(result.syncedCount, 1);
-		const warned = warnings.find((w) =>
-			w.msg.includes("Placement move failed"),
+		// Placement resolution runs BEFORE bodyStorageKey is persisted, so an
+		// AccessDenied propagates: the message is held back for requeue rather
+		// than synced on a rescue decision made from a failed trust read.
+		assert.equal(result.syncedCount, 0);
+		assert.equal(result.failedCount, 1);
+		assert.deepEqual(result.failedMessageIds, ["msg-denied-trust"]);
+		const logged = errors.find((e) => e.msg.includes("Body store failed"));
+		assert.ok(
+			logged,
+			"expected a body-store-failed error log for AccessDenied",
 		);
-		assert.ok(warned, "expected a placement-failure warning for AccessDenied");
-		assert.match(String(warned?.obj.error), /AccessDenied/);
+		assert.match(String(logged?.obj.error), /AccessDenied/);
 	});
 });

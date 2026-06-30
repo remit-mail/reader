@@ -30,86 +30,14 @@ export const processBatch = async (
 	const processingStart = Date.now();
 
 	for (const record of records) {
-		let message: ParsedQueueMessage;
-		try {
-			message = parseQueueMessage(record.body);
-		} catch (error) {
-			// biome-ignore lint/plugin/no-silent-catch: SQS batch handler — unparseable message is nacked via batchItemFailures; rethrowing would crash the entire batch
-			log.error("Failed to parse message", {
-				error: inspect(error),
-				messageId: record.messageId,
-			});
-			batchItemFailures.push({ itemIdentifier: record.messageId });
-			continue;
-		}
+		const message = parseQueueMessage(record.body);
 
-		if (message.kind === "delete") {
-			try {
-				await services.searchService.delete(message.messageId);
-				log.info("Deleted search vectors", { messageId: message.messageId });
-				metrics.addMetric("searchIndexProcessed", MetricUnit.Count, 1);
-			} catch (error) {
-				// biome-ignore lint/plugin/no-silent-catch: SQS batch handler — delete failure is nacked via batchItemFailures; rethrowing would crash the entire batch
-				log.error("Delete failed", {
-					error: inspect(error),
-					messageId: message.messageId,
-				});
-				metrics.addMetric("searchIndexFailures", MetricUnit.Count, 1);
-				batchItemFailures.push({ itemIdentifier: record.messageId });
-			}
-			continue;
-		}
+		const failed =
+			message.kind === "delete"
+				? await deleteMessage(message, services, log)
+				: await upsertMessage(message, services, log);
 
-		// One SQS message = one email's chunks = one upsert. Isolating the
-		// upsert per message means a record S3 Vectors rejects (e.g. a metadata
-		// ValidationException) dead-letters on its own — its siblings in the
-		// batch still index instead of retrying forever behind a poison record.
-		try {
-			const vectorRecords = await prepareUpsert(
-				message.accountId,
-				message.messageId,
-				services,
-				log,
-			);
-			if (vectorRecords === null) continue;
-			if (vectorRecords.length === 0) {
-				log.info("No indexable content, skipping", {
-					messageId: message.messageId,
-				});
-				continue;
-			}
-
-			// Dedup by chunkId within this single message. The same email can
-			// emit a repeated chunkId (deterministic keys); duplicate keys in one
-			// PutVectors call are rejected by S3 Vectors.
-			const deduped = new Map<string, VectorRecord>();
-			for (const vectorRecord of vectorRecords) {
-				deduped.set(vectorRecord.chunkId, vectorRecord);
-			}
-			const upsertRecords = [...deduped.values()];
-
-			const { upserted, skipped } = await services.searchService.upsertVectors(
-				upsertRecords,
-				{ force: message.force },
-			);
-			log.info("Upsert complete", {
-				accountId: message.accountId,
-				messageId: message.messageId,
-				upserted,
-				skipped,
-			});
-			metrics.addMetric("searchIndexProcessed", MetricUnit.Count, upserted);
-			metrics.addMetric("searchIndexSkipped", MetricUnit.Count, skipped);
-		} catch (error) {
-			// Name the messageId so the dead-letter is diagnosable per message
-			// (#910); a transient/whole-call error retries this message alone.
-			// biome-ignore lint/plugin/no-silent-catch: SQS batch handler — upsert failure is nacked via batchItemFailures; rethrowing would crash the entire batch
-			log.error("Upsert failed", {
-				error: inspect(error),
-				accountId: message.accountId,
-				messageId: message.messageId,
-			});
-			metrics.addMetric("searchIndexFailures", MetricUnit.Count, 1);
+		if (failed) {
 			batchItemFailures.push({ itemIdentifier: record.messageId });
 		}
 	}
@@ -121,6 +49,92 @@ export const processBatch = async (
 	);
 
 	return { batchItemFailures };
+};
+
+const deleteMessage = async (
+	message: Extract<ParsedQueueMessage, { kind: "delete" }>,
+	services: Services,
+	log: Logger,
+): Promise<boolean> =>
+	services.searchService
+		.delete(message.messageId)
+		.then(() => {
+			log.info("Deleted search vectors", { messageId: message.messageId });
+			metrics.addMetric("searchIndexProcessed", MetricUnit.Count, 1);
+			return false;
+		})
+		.catch((error) => {
+			log.error("Delete failed", {
+				error: inspect(error),
+				messageId: message.messageId,
+			});
+			metrics.addMetric("searchIndexFailures", MetricUnit.Count, 1);
+			return true;
+		});
+
+// One SQS message = one email's chunks = one upsert. Isolating the
+// upsert per message means a record S3 Vectors rejects (e.g. a metadata
+// ValidationException) dead-letters on its own — its siblings in the
+// batch still index instead of retrying forever behind a poison record.
+const upsertMessage = async (
+	message: Extract<ParsedQueueMessage, { kind: "upsert" }>,
+	services: Services,
+	log: Logger,
+): Promise<boolean> =>
+	indexMessage(message, services, log)
+		.then(() => false)
+		.catch((error) => {
+			// Name the messageId so the dead-letter is diagnosable per message
+			// (#910); a transient/whole-call error retries this message alone.
+			log.error("Upsert failed", {
+				error: inspect(error),
+				accountId: message.accountId,
+				messageId: message.messageId,
+			});
+			metrics.addMetric("searchIndexFailures", MetricUnit.Count, 1);
+			return true;
+		});
+
+const indexMessage = async (
+	message: Extract<ParsedQueueMessage, { kind: "upsert" }>,
+	services: Services,
+	log: Logger,
+): Promise<void> => {
+	const vectorRecords = await prepareUpsert(
+		message.accountId,
+		message.messageId,
+		services,
+		log,
+	);
+	if (vectorRecords === null) return;
+	if (vectorRecords.length === 0) {
+		log.info("No indexable content, skipping", {
+			messageId: message.messageId,
+		});
+		return;
+	}
+
+	// Dedup by chunkId within this single message. The same email can
+	// emit a repeated chunkId (deterministic keys); duplicate keys in one
+	// PutVectors call are rejected by S3 Vectors.
+	const deduped = new Map<string, VectorRecord>();
+	for (const vectorRecord of vectorRecords) {
+		deduped.set(vectorRecord.chunkId, vectorRecord);
+	}
+	const upsertRecords = [...deduped.values()];
+
+	const { upserted, skipped } = await services.searchService.upsertVectors(
+		upsertRecords,
+		{ force: message.force },
+	);
+	log.info("Upsert complete", {
+		accountId: message.accountId,
+		messageId: message.messageId,
+		upserted,
+		skipped,
+	});
+	metrics.addMetric("searchIndexProcessed", MetricUnit.Count, upserted);
+	metrics.addMetric("searchIndexSkipped", MetricUnit.Count, skipped);
 };
 
 const prepareUpsert = async (

@@ -15,6 +15,7 @@ import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent } from "../auth.js";
 import { getMsOAuthConfig } from "../config/msoauth.js";
+import { safeJsonParse } from "../json.js";
 import { getClient } from "../service/dynamodb.js";
 import type { MicrosoftOAuthOperationIds, OperationHandler } from "../types.js";
 import { triggerAccountSyncSafe } from "./account.js";
@@ -97,10 +98,14 @@ export async function verifyState(
 
 // ─── JWT claims parsing ──────────────────────────────────────────────────────
 
-export function parseJwtClaims(token: string): Record<string, unknown> {
+export async function parseJwtClaims(
+	token: string,
+): Promise<Record<string, unknown> | null> {
 	const parts = token.split(".");
-	if (parts.length !== 3) throw new Error("Invalid JWT: expected 3 parts");
-	return JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
+	if (parts.length !== 3) return null;
+	return safeJsonParse<Record<string, unknown>>(
+		Buffer.from(parts[1], "base64url").toString("utf8"),
+	).catch(() => null);
 }
 
 // ─── Secrets Manager / config helpers ───────────────────────────────────────
@@ -335,31 +340,26 @@ export const MicrosoftOAuthOperations: Record<
 		// Falls back to parsing the access token only in test/dev environments where
 		// idToken may not be present (e.g. custom token endpoints that don't issue
 		// OIDC tokens).
-		let email: string | undefined;
-		try {
-			const tokenToParse = tokenSet.idToken ?? tokenSet.accessToken;
-			const claims = parseJwtClaims(tokenToParse);
-			email =
-				(claims.preferred_username as string | undefined) ??
-				(claims.email as string | undefined) ??
-				(claims.upn as string | undefined);
-		} catch (err: unknown) {
-			// parseJwtClaims is not a promise; .catch() is unavailable.
-			// Not a JWT or missing claims. The empty-email check below turns this
-			// into a user-facing missing_email redirect, but log here so the
-			// parse failure itself is observable (e.g. an unexpected token shape).
-			// biome-ignore lint/plugin/no-silent-catch: sync-throw — parseJwtClaims is not a promise so .catch() is unavailable; email absence is handled by the guard below
+		const tokenToParse = tokenSet.idToken ?? tokenSet.accessToken;
+		const claims = await parseJwtClaims(tokenToParse);
+		if (!claims) {
+			// A non-JWT or unparseable token. The empty-email guard below turns
+			// this into a user-facing missing_email redirect; log here so the parse
+			// failure itself is observable (e.g. an unexpected token shape).
 			logger.warn(
 				{
 					alert: "oauth_callback_failed",
 					reason: "jwt_parse_failed",
 					accountConfigId,
-					errorName: (err as { name?: string })?.name,
-					error: inspect(err),
 				},
 				"MS OAuth callback: failed to parse identity token claims",
 			);
 		}
+		const email = claims
+			? ((claims.preferred_username as string | undefined) ??
+				(claims.email as string | undefined) ??
+				(claims.upn as string | undefined))
+			: undefined;
 
 		if (!email) {
 			logger.error(

@@ -955,7 +955,7 @@ describe("search-index-worker handler", () => {
 		accounts.clear();
 	});
 
-	test("malformed body dead-letters instead of mis-routing", async () => {
+	test("a malformed body is fatal — crashes the batch instead of mis-routing", async () => {
 		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID });
 		const store = createMemoryVectorStore();
 		const embedder = createDeterministicEmbeddingService();
@@ -965,18 +965,17 @@ describe("search-index-worker handler", () => {
 		threadMessages.set(MESSAGE_ID, makeThreadMessage(MESSAGE_ID));
 
 		const services = createTestServices(storageService, searchService);
+		// Valid JSON that fails the schema (would mis-route if not validated) and
+		// a non-JSON body. Both are producer contract violations: parsing is left
+		// uncaught so the batch crashes loud rather than silently dead-lettering.
 		const garbage = makeRawRecord(
 			JSON.stringify({ foo: "bar", messageId: MESSAGE_ID }),
 			"sqs-garbage",
 		);
 		const notJson = makeRawRecord("not-json-at-all", "sqs-notjson");
 
-		const result = await processBatch([garbage, notJson], services, noopLogger);
-
-		const failIds = result.batchItemFailures.map((f) => f.itemIdentifier);
-		assert.equal(result.batchItemFailures.length, 2);
-		assert.ok(failIds.includes("sqs-garbage"));
-		assert.ok(failIds.includes("sqs-notjson"));
+		await assert.rejects(() => processBatch([garbage], services, noopLogger));
+		await assert.rejects(() => processBatch([notJson], services, noopLogger));
 		assert.equal(store.size(), 0, "no vectors written for malformed bodies");
 
 		threadMessages.clear();
