@@ -25,13 +25,10 @@ import {
 	OutboxQueueService,
 } from "@remit/mailbox-service";
 import {
-	BedrockEmbeddingService,
-	createDeterministicEmbeddingService,
-	createMemoryVectorStore,
-	createS3VectorsBackend,
+	buildEmbeddingServiceFromEnv,
+	buildVectorStoreFromEnv,
 	createSearchService,
 	type SearchService,
-	type VectorStoreService,
 } from "@remit/search-service";
 import {
 	createCachedDataKeyProvider,
@@ -50,29 +47,18 @@ import { env } from "expect-env";
 const isLocalEnv =
 	process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test";
 
-const buildVectorStore = (): VectorStoreService => {
-	const bucket = process.env.S3_VECTORS_BUCKET_NAME;
-	const indexName = process.env.S3_VECTORS_INDEX_NAME;
-	if (bucket && indexName) {
-		return createS3VectorsBackend({
-			vectorBucketName: bucket,
-			indexName,
-			region: process.env.AWS_REGION,
-		});
-	}
-	return createMemoryVectorStore();
-};
-
+// The vector store and embedder are selected from the environment by the shared
+// builders: S3 Vectors + Bedrock Titan in production, persistent sqlite-vec +
+// Transformers.js when the LOCAL_* / local flags are set (local dev), and the
+// in-memory store + deterministic embedder otherwise (tests).
 const buildSearchService = (): SearchService => {
-	const store = buildVectorStore();
-	const useBedrock = process.env.SEARCH_EMBEDDING_PROVIDER === "bedrock";
-	const embedder = useBedrock
-		? new BedrockEmbeddingService({
-				region: process.env.AWS_REGION,
-				modelId: process.env.SEARCH_EMBEDDING_MODEL_ID,
-			})
-		: createDeterministicEmbeddingService();
-	return createSearchService({ store, embedder });
+	// Build the embedder first so we can pass its dimension count to the
+	// sqlite-vec store — the vec0 table dimension must match the embedder.
+	const embedder = buildEmbeddingServiceFromEnv();
+	return createSearchService({
+		store: buildVectorStoreFromEnv(embedder.dimensions),
+		embedder,
+	});
 };
 
 const getDocumentClient = (): DynamoDBDocumentClient => {
@@ -168,9 +154,9 @@ export const getClient = (): RemitClient => {
 		// Storage service - auto-selects filesystem or S3 based on env vars
 		const storageService = createStorageService();
 
-		// Search service - composes embedder + vector store. The vector store
-		// switches to S3 Vectors only when the bucket/index env vars are set;
-		// otherwise the in-memory store is used (suitable for local dev / tests).
+		// Search service - composes embedder + vector store, both selected from
+		// the environment (S3 Vectors + Bedrock in prod, sqlite-vec +
+		// Transformers locally, in-memory + deterministic in tests).
 		const searchService = buildSearchService();
 
 		// Secrets service - uses KMS in production, fake provider in dev
