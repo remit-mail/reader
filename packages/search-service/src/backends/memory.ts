@@ -9,6 +9,12 @@ export interface VectorStoreService {
 	upsert(vectors: VectorRecord[]): Promise<void>;
 	query(params: VectorQuery): Promise<VectorMatch[]>;
 	delete(filter: { messageId: string }): Promise<void>;
+	/**
+	 * Read the stored content hash for each of the given deterministic chunk keys.
+	 * Keys with no stored vector, or a vector with no contentHash, are absent from
+	 * the map. Addresses vectors by key only — never an index-wide scan.
+	 */
+	existingContentHashes(chunkIds: string[]): Promise<Map<string, string>>;
 }
 
 const cosineSimilarity = (a: number[], b: number[]): number => {
@@ -90,6 +96,17 @@ export class MemoryVectorStore implements VectorStoreService {
 		}
 		matches.sort((a, b) => b.score - a.score);
 		return matches.slice(0, params.topK);
+	};
+
+	existingContentHashes = async (
+		chunkIds: string[],
+	): Promise<Map<string, string>> => {
+		const out = new Map<string, string>();
+		for (const chunkId of chunkIds) {
+			const hash = this.store.get(chunkId)?.metadata.contentHash;
+			if (typeof hash === "string") out.set(chunkId, hash);
+		}
+		return out;
 	};
 
 	delete = async (filter: { messageId: string }): Promise<void> => {
