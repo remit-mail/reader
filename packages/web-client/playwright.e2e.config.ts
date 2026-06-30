@@ -38,8 +38,7 @@ export default defineConfig({
 					"http://localhost:9325/000000000000/remit-e2e-mailboxes.fifo",
 				SQS_QUEUE_URL_MESSAGES:
 					"http://localhost:9325/000000000000/remit-e2e-messages.fifo",
-				SQS_QUEUE_URL_BODY:
-					"http://localhost:9325/000000000000/remit-e2e-body.fifo",
+				SQS_QUEUE_URL_BODY: "http://localhost:9325/000000000000/remit-e2e-body",
 				SQS_QUEUE_URL_FLAGS:
 					"http://localhost:9325/000000000000/remit-e2e-flags.fifo",
 				SQS_QUEUE_URL_MAILBOX_MGMT:

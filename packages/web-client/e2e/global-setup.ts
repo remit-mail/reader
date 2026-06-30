@@ -236,13 +236,13 @@ const ensureQueuesExist = async () => {
 
 	const standardQueues = [
 		"remit-e2e",
+		"remit-e2e-body",
 		"remit-e2e-mailbox-mgmt",
 		"remit-e2e-message-mgmt",
 	];
 	const fifoQueues = [
 		"remit-e2e-mailboxes.fifo",
 		"remit-e2e-messages.fifo",
-		"remit-e2e-body.fifo",
 		"remit-e2e-flags.fifo",
 	];
 

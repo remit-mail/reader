@@ -105,6 +105,7 @@ const ensureQueuesExist = async () => {
 	const sqs = createSqs();
 	const standardQueues = [
 		"remit-e2e",
+		"remit-e2e-body",
 		"remit-e2e-mailbox-mgmt",
 		"remit-e2e-message-mgmt",
 		"remit-e2e-smtp",
@@ -112,7 +113,6 @@ const ensureQueuesExist = async () => {
 	const fifoQueues = [
 		"remit-e2e-mailboxes.fifo",
 		"remit-e2e-messages.fifo",
-		"remit-e2e-body.fifo",
 		"remit-e2e-flags.fifo",
 	];
 	for (const QueueName of standardQueues) {
