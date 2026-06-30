@@ -2,12 +2,12 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import {
 	DeleteVectorsCommand,
-	ListVectorsCommand,
 	PutVectorsCommand,
 	QueryVectorsCommand,
 	S3VectorsClient,
 } from "@aws-sdk/client-s3vectors";
 import { type AwsClientStub, mockClient } from "aws-sdk-client-mock";
+import { candidateChunkKeys } from "../chunking/keys.js";
 import type { VectorQuery, VectorRecord } from "../types.js";
 import { S3VectorsBackend } from "./s3-vectors.js";
 
@@ -22,10 +22,7 @@ const buildBackend = () =>
 		indexName: INDEX_NAME,
 	});
 
-const keysForMessage = (messageId: string, suffixes: string[]) =>
-	suffixes.map((s) => ({ key: `${messageId}::${s}` }));
-
-describe("S3VectorsBackend.findChunkKeysForMessage (via delete)", () => {
+describe("S3VectorsBackend.delete (deterministic keys, no index scan)", () => {
 	let s3vMock: AwsClientStub<S3VectorsClient>;
 
 	beforeEach(() => {
@@ -36,11 +33,7 @@ describe("S3VectorsBackend.findChunkKeysForMessage (via delete)", () => {
 		s3vMock.restore();
 	});
 
-	it("returns keys directly from a single-page ListVectors response", async () => {
-		s3vMock.on(ListVectorsCommand).resolves({
-			vectors: keysForMessage(MESSAGE_ID, ["body-0", "subject", "sender"]),
-			nextToken: undefined,
-		});
+	it("deletes the message's deterministic keys without ever listing the index", async () => {
 		const deleted: string[][] = [];
 		s3vMock.on(DeleteVectorsCommand).callsFake((input) => {
 			deleted.push((input.keys ?? []) as string[]);
@@ -49,166 +42,62 @@ describe("S3VectorsBackend.findChunkKeysForMessage (via delete)", () => {
 
 		await buildBackend().delete({ messageId: MESSAGE_ID });
 
-		const listCalls = s3vMock.commandCalls(ListVectorsCommand);
-		assert.equal(
-			listCalls.length,
-			1,
-			"should issue exactly one ListVectors call",
+		assert.deepEqual(
+			deleted.flat().sort(),
+			[...candidateChunkKeys(MESSAGE_ID)].sort(),
+			"delete must address exactly the message's candidate key set",
 		);
-		assert.deepEqual(deleted.flat().sort(), [
-			`${MESSAGE_ID}::body-0`,
-			`${MESSAGE_ID}::sender`,
-			`${MESSAGE_ID}::subject`,
-		]);
-	});
-
-	it("paginates over nextToken and returns the union of pages", async () => {
-		s3vMock
-			.on(ListVectorsCommand)
-			.resolvesOnce({
-				vectors: keysForMessage(MESSAGE_ID, ["body-0", "body-1"]),
-				nextToken: "tok-1",
-			})
-			.resolvesOnce({
-				vectors: keysForMessage(MESSAGE_ID, ["body-2", "entities"]),
-				nextToken: "tok-2",
-			})
-			.resolvesOnce({
-				vectors: keysForMessage(MESSAGE_ID, ["subject"]),
-				nextToken: undefined,
-			});
-		const deleted: string[][] = [];
-		s3vMock.on(DeleteVectorsCommand).callsFake((input) => {
-			deleted.push((input.keys ?? []) as string[]);
-			return {};
-		});
-
-		await buildBackend().delete({ messageId: MESSAGE_ID });
-
-		const listCalls = s3vMock.commandCalls(ListVectorsCommand);
-		assert.equal(listCalls.length, 3, "should paginate across three pages");
-		assert.equal(listCalls[0].args[0].input.nextToken, undefined);
-		assert.equal(listCalls[1].args[0].input.nextToken, "tok-1");
-		assert.equal(listCalls[2].args[0].input.nextToken, "tok-2");
-		assert.deepEqual(deleted.flat().sort(), [
-			`${MESSAGE_ID}::body-0`,
-			`${MESSAGE_ID}::body-1`,
-			`${MESSAGE_ID}::body-2`,
-			`${MESSAGE_ID}::entities`,
-			`${MESSAGE_ID}::subject`,
-		]);
-	});
-
-	it("filters out vectors belonging to other messages by key prefix", async () => {
-		s3vMock.on(ListVectorsCommand).resolves({
-			vectors: [
-				{ key: `${MESSAGE_ID}::body-0` },
-				{ key: "msg-other::body-0" },
-				{ key: `${MESSAGE_ID}::subject` },
-				{ key: "msg-other::subject" },
-			],
-			nextToken: undefined,
-		});
-		const deleted: string[][] = [];
-		s3vMock.on(DeleteVectorsCommand).callsFake((input) => {
-			deleted.push((input.keys ?? []) as string[]);
-			return {};
-		});
-
-		await buildBackend().delete({ messageId: MESSAGE_ID });
-
-		assert.deepEqual(deleted.flat().sort(), [
-			`${MESSAGE_ID}::body-0`,
-			`${MESSAGE_ID}::subject`,
-		]);
-	});
-
-	it("skips DeleteVectors entirely when no keys match", async () => {
-		s3vMock.on(ListVectorsCommand).resolves({
-			vectors: [{ key: "msg-other::body-0" }],
-			nextToken: undefined,
-		});
-		s3vMock.on(DeleteVectorsCommand).resolves({});
-
-		await buildBackend().delete({ messageId: MESSAGE_ID });
-
-		assert.equal(
-			s3vMock.commandCalls(DeleteVectorsCommand).length,
-			0,
-			"should not call DeleteVectors when there are no matching keys",
-		);
-	});
-
-	it("enumerates all keys when chunk listing spans more than the old 50-page limit", async () => {
-		// Simulate 51 pages (each with one key), more than the old MAX_LIST_PAGES=50.
-		// The fix must enumerate all keys without throwing.
-		const PAGE_COUNT = 51;
-		let call = 0;
-		s3vMock.on(ListVectorsCommand).callsFake(() => {
-			const page = call++;
-			const isLast = page === PAGE_COUNT - 1;
-			return {
-				vectors: [{ key: `${MESSAGE_ID}::body-${page}` }],
-				nextToken: isLast ? undefined : `tok-${page}`,
-			};
-		});
-		const deleted: string[][] = [];
-		s3vMock.on(DeleteVectorsCommand).callsFake((input) => {
-			deleted.push((input.keys ?? []) as string[]);
-			return {};
-		});
-
-		await buildBackend().delete({ messageId: MESSAGE_ID });
-
-		const listCalls = s3vMock.commandCalls(ListVectorsCommand);
-		assert.equal(
-			listCalls.length,
-			PAGE_COUNT,
-			`should issue ${PAGE_COUNT} ListVectors calls`,
-		);
-		const allDeleted = deleted.flat().sort();
-		assert.equal(
-			allDeleted.length,
-			PAGE_COUNT,
-			"all keys from all pages must be deleted",
-		);
-		for (let i = 0; i < PAGE_COUNT; i++) {
+		for (const key of deleted.flat()) {
 			assert.ok(
-				allDeleted.includes(`${MESSAGE_ID}::body-${i}`),
-				`key body-${i} must be deleted`,
+				key.startsWith(`${MESSAGE_ID}::`),
+				`every deleted key must belong to the message, got ${key}`,
 			);
 		}
 	});
 
-	it("throws when pagination exceeds the safety bound (runaway malformed response)", async () => {
-		// Always return a nextToken so pagination never terminates naturally.
-		// This simulates a malformed S3 response; the safety bound must fire loudly.
-		s3vMock.on(ListVectorsCommand).callsFake(() => ({
-			vectors: [{ key: `${MESSAGE_ID}::body-0` }],
-			nextToken: "never-ends",
-		}));
-		s3vMock.on(DeleteVectorsCommand).resolves({});
+	it("covers structured, body, and entity chunk keys", async () => {
+		const deleted: string[][] = [];
+		s3vMock.on(DeleteVectorsCommand).callsFake((input) => {
+			deleted.push((input.keys ?? []) as string[]);
+			return {};
+		});
 
-		await assert.rejects(
-			buildBackend().delete({ messageId: MESSAGE_ID }),
-			/exceeded MAX_LIST_PAGES/,
-		);
+		await buildBackend().delete({ messageId: MESSAGE_ID });
+
+		const all = new Set(deleted.flat());
+		for (const suffix of ["sender", "subject", "body-0", "entities"]) {
+			assert.ok(
+				all.has(`${MESSAGE_ID}::${suffix}`),
+				`candidate keys must include ${suffix}`,
+			);
+		}
 	});
 
-	it("never sends a QueryVectors call from findChunkKeysForMessage (regression guard for topK > 100)", async () => {
-		s3vMock.on(ListVectorsCommand).resolves({
-			vectors: keysForMessage(MESSAGE_ID, ["body-0"]),
-			nextToken: undefined,
-		});
+	it("batches deletes under the AWS 500-keys-per-call cap", async () => {
 		s3vMock.on(DeleteVectorsCommand).resolves({});
 
 		await buildBackend().delete({ messageId: MESSAGE_ID });
 
-		const queryCalls = s3vMock.commandCalls(QueryVectorsCommand);
+		const calls = s3vMock.commandCalls(DeleteVectorsCommand);
+		assert.ok(
+			calls.length >= 1,
+			"should issue at least one DeleteVectors call",
+		);
+		for (const call of calls) {
+			const keys = call.args[0].input.keys ?? [];
+			assert.ok(keys.length <= 500, "no call exceeds the AWS 500/call cap");
+		}
+	});
+
+	it("never issues a QueryVectors call (regression: no per-message ranking lookup)", async () => {
+		s3vMock.on(DeleteVectorsCommand).resolves({});
+
+		await buildBackend().delete({ messageId: MESSAGE_ID });
+
 		assert.equal(
-			queryCalls.length,
+			s3vMock.commandCalls(QueryVectorsCommand).length,
 			0,
-			"findChunkKeysForMessage must use ListVectors, not QueryVectors (topK is capped at 100)",
+			"delete must not use QueryVectors",
 		);
 	});
 });

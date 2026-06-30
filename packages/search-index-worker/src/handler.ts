@@ -172,8 +172,6 @@ const prepareUpsert = async (
 		return null;
 	}
 
-	await searchService.delete(messageId);
-
 	return searchService.prepareVectors({
 		envelope: {
 			from: {

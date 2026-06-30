@@ -1,11 +1,11 @@
 import {
 	DeleteVectorsCommand,
-	ListVectorsCommand,
 	PutVectorsCommand,
 	QueryVectorsCommand,
 	S3VectorsClient,
 } from "@aws-sdk/client-s3vectors";
 import type { DocumentType } from "@smithy/types";
+import { candidateChunkKeys } from "../chunking/keys.js";
 import type {
 	ChunkMetadata,
 	VectorMatch,
@@ -88,14 +88,6 @@ const toMetadataDocument = (metadata: ChunkMetadata): DocumentType => {
 
 const PUT_BATCH_SIZE = 100;
 const DELETE_BATCH_SIZE = 100;
-// AWS S3 Vectors ListVectors caps maxResults at 500 per page.
-const LIST_PAGE_SIZE = 500;
-// Safety bound: stop pagination after this many pages to prevent runaway
-// loops on a malformed response (e.g. S3 always returning nextToken).
-// 10,000 pages * 500 = 5,000,000 vectors per messageId — well above any
-// realistic chunk count. The loop errors loudly if this is hit; it never
-// silently truncates a delete.
-const MAX_LIST_PAGES = 10_000;
 
 export interface S3VectorsBackendConfig {
 	client?: S3VectorsClient;
@@ -259,9 +251,12 @@ export class S3VectorsBackend implements VectorStoreService {
 		return out;
 	};
 
+	// A message's chunks live under deterministic keys, so we delete them by
+	// address — never by listing the index. DeleteVectors ignores keys that
+	// aren't present, so addressing the full candidate set is safe and the cost
+	// is a fixed handful of requests per message regardless of index size.
 	delete = async (filter: { messageId: string }): Promise<void> => {
-		const keys = await this.findChunkKeysForMessage(filter.messageId);
-		if (keys.length === 0) return;
+		const keys = candidateChunkKeys(filter.messageId);
 		for (const batch of chunkArray(keys, DELETE_BATCH_SIZE)) {
 			const cmd = new DeleteVectorsCommand({
 				vectorBucketName: this.vectorBucketName,
@@ -269,46 +264,6 @@ export class S3VectorsBackend implements VectorStoreService {
 				keys: batch,
 			});
 			await this.client.send(cmd);
-		}
-	};
-
-	private findChunkKeysForMessage = async (
-		messageId: string,
-	): Promise<string[]> => {
-		// QueryVectors caps topK at 100 and returns no nextToken — it's a
-		// similarity-search API, not a listing API. ListVectors is the right
-		// surface here: it paginates natively and we don't need ranking.
-		// ListVectors has no server-side metadata filter, so we filter
-		// client-side on the key prefix. chunkIds are always
-		// `${messageId}::${suffix}` (see chunker.ts), so we never need to
-		// fetch metadata.
-		const keyPrefix = `${messageId}::`;
-		const keys: string[] = [];
-		let nextToken: string | undefined;
-		let page = 0;
-		while (true) {
-			if (page >= MAX_LIST_PAGES) {
-				throw new Error(
-					`findChunkKeysForMessage: exceeded MAX_LIST_PAGES (${MAX_LIST_PAGES}) for messageId=${messageId}`,
-				);
-			}
-			const cmd = new ListVectorsCommand({
-				vectorBucketName: this.vectorBucketName,
-				indexName: this.indexName,
-				maxResults: LIST_PAGE_SIZE,
-				nextToken,
-				returnData: false,
-				returnMetadata: false,
-			});
-			const response = await this.client.send(cmd);
-			for (const v of response.vectors ?? []) {
-				if (typeof v.key === "string" && v.key.startsWith(keyPrefix)) {
-					keys.push(v.key);
-				}
-			}
-			nextToken = response.nextToken;
-			if (!nextToken) return keys;
-			page++;
 		}
 	};
 }
