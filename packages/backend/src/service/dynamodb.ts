@@ -268,7 +268,6 @@ export const getClient = (): RemitClient => {
 				mailboxService,
 				mailboxSpecialUseService,
 				threadMessageService,
-				addressService,
 				sqsQueueUrl,
 				logger,
 			}),

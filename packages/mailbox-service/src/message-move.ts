@@ -5,7 +5,6 @@ import {
 	SQSClient,
 } from "@aws-sdk/client-sqs";
 import type {
-	AddressService,
 	MailboxService,
 	MailboxSpecialUseService,
 	MessageService,
@@ -13,7 +12,6 @@ import type {
 } from "@remit/remit-electrodb-service";
 import { base36uuid } from "@remit/remit-electrodb-service";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
-import { adjustSenderTrustForJunkMove } from "./junk-trust.js";
 
 /**
  * Event types for message move/delete operations.
@@ -97,13 +95,6 @@ export interface MessageMoveConfig {
 	mailboxService: MailboxService;
 	mailboxSpecialUseService: MailboxSpecialUseService;
 	threadMessageService: ThreadMessageService;
-	/**
-	 * Optional. When provided, moving a message out of / into the Junk mailbox
-	 * adjusts the sender's trust (issue #594): a move out of Junk promotes the
-	 * sender to Wellknown, a move into Junk strips their earned trust. Omitting
-	 * it disables the trust side-effect entirely (e.g. in narrow unit setups).
-	 */
-	addressService?: AddressService;
 	sqsQueueUrl: string;
 	sqsEndpoint?: string;
 	logger?: MessageMoveLogger;
@@ -133,7 +124,6 @@ export class MessageMoveService {
 	private mailboxService: MailboxService;
 	private mailboxSpecialUseService: MailboxSpecialUseService;
 	private threadMessageService: ThreadMessageService;
-	private addressService?: AddressService;
 	private sqs: SQSClient;
 	private queueUrl: string;
 	private log: MessageMoveLogger;
@@ -143,7 +133,6 @@ export class MessageMoveService {
 		this.mailboxService = config.mailboxService;
 		this.mailboxSpecialUseService = config.mailboxSpecialUseService;
 		this.threadMessageService = config.threadMessageService;
-		this.addressService = config.addressService;
 		this.queueUrl = config.sqsQueueUrl;
 		this.log = config.logger ?? noopLogger;
 
@@ -361,20 +350,6 @@ export class MessageMoveService {
 			trashMailbox && message.mailboxId === trashMailbox.mailboxId,
 		);
 
-		// Check if moving out of / into Junk — the trust signal (issue #594).
-		// Resolved before the optimistic write mutates `message.mailboxId`. Only
-		// looked up when trust adjustment is wired, so non-trust callers (e.g.
-		// the automated junk-rescue path) skip the extra mailbox scan.
-		const junkMailbox = this.addressService
-			? await this.mailboxSpecialUseService.findJunkMailbox(accountId)
-			: null;
-		const isMovingFromJunk = Boolean(
-			junkMailbox && message.mailboxId === junkMailbox.mailboxId,
-		);
-		const isMovingToJunk = Boolean(
-			junkMailbox && destinationMailboxId === junkMailbox.mailboxId,
-		);
-
 		// Update local state optimistically
 		await this.messageService.updateForMove(messageId, {
 			mailboxId: destinationMailboxId,
@@ -420,21 +395,6 @@ export class MessageMoveService {
 		};
 
 		await this.enqueueEvent(event);
-
-		// Best-effort sender-trust adjustment for Junk moves (issue #594). A
-		// no-op unless an `addressService` was wired and the move crosses the
-		// Junk boundary. Isolated so a trust-write failure never fails the move
-		// (which has already been enqueued above).
-		if (this.addressService && (isMovingFromJunk || isMovingToJunk)) {
-			await adjustSenderTrustForJunkMove({
-				messageId,
-				isMovingFromJunk,
-				isMovingToJunk,
-				addressService: this.addressService,
-				threadMessageService: this.threadMessageService,
-				log: this.log,
-			});
-		}
 	};
 
 	/**
