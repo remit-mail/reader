@@ -2,7 +2,12 @@ import {
 	BedrockRuntimeClient,
 	InvokeModelCommand,
 } from "@aws-sdk/client-bedrock-runtime";
+import type {
+	FeatureExtractionPipeline,
+	pipeline as PipelineFn,
+} from "@huggingface/transformers";
 import pLimit from "p-limit";
+import { runtimeImport } from "./backends/runtime-import.js";
 
 export interface EmbeddingService {
 	embed(texts: string[]): Promise<number[][]>;
@@ -172,3 +177,58 @@ export class DeterministicEmbeddingService implements EmbeddingService {
 export const createDeterministicEmbeddingService = (
 	config?: DeterministicEmbeddingConfig,
 ): EmbeddingService => new DeterministicEmbeddingService(config);
+
+export interface LocalEmbeddingConfig {
+	modelId?: string;
+	dimensions?: number;
+}
+
+const DEFAULT_LOCAL_MODEL_ID = "Xenova/all-MiniLM-L6-v2";
+const DEFAULT_LOCAL_DIMENSIONS = 384;
+
+type TransformersModule = { pipeline: typeof PipelineFn };
+
+/**
+ * In-process CPU embedder backed by Transformers.js, used for local dev so the
+ * SearchService produces real semantic vectors without calling Bedrock. The
+ * model is downloaded once (cached on disk by `@huggingface/transformers`) and
+ * loaded lazily on first use; the heavy dependency is never imported in the
+ * production bundle (see runtime-import.ts).
+ */
+export class LocalEmbeddingService implements EmbeddingService {
+	readonly dimensions: number;
+	readonly embeddingId: string;
+	private modelId: string;
+	private pipelinePromise: Promise<FeatureExtractionPipeline> | null = null;
+
+	constructor(config: LocalEmbeddingConfig = {}) {
+		this.modelId = config.modelId ?? DEFAULT_LOCAL_MODEL_ID;
+		this.dimensions = config.dimensions ?? DEFAULT_LOCAL_DIMENSIONS;
+		this.embeddingId = `local:${this.modelId}@${this.dimensions}`;
+	}
+
+	private getPipeline = async (): Promise<FeatureExtractionPipeline> => {
+		if (this.pipelinePromise) return this.pipelinePromise;
+		this.pipelinePromise = (async () => {
+			const { pipeline } = await runtimeImport<TransformersModule>(
+				"@huggingface/transformers",
+			);
+			return pipeline("feature-extraction", this.modelId);
+		})();
+		return this.pipelinePromise;
+	};
+
+	embed = async (texts: string[]): Promise<number[][]> => {
+		if (texts.length === 0) return [];
+		const extractor = await this.getPipeline();
+		const tensor = await extractor(texts, {
+			pooling: "mean",
+			normalize: true,
+		});
+		return tensor.tolist() as number[][];
+	};
+}
+
+export const createLocalEmbeddingService = (
+	config?: LocalEmbeddingConfig,
+): EmbeddingService => new LocalEmbeddingService(config);
