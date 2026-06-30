@@ -1,7 +1,5 @@
-import { inspect } from "node:util";
 import {
 	AddressService,
-	NotFoundError,
 	type ThreadMessageService,
 } from "@remit/remit-electrodb-service";
 
@@ -18,14 +16,17 @@ import {
  *   (`wellknown`/`vip` cleared, counters zeroed) so the engagement ladder
  *   cannot immediately re-promote and future mail can be junked again.
  *
- * Best-effort: this is a learning enhancement, not part of the move contract.
- * The move has already been enqueued by the caller; any failure here is
- * swallowed with a warning so it can never fail the move. A missing
- * `fromEmail` or `Address` is treated as a no-op (nothing to promote/demote).
+ * Address rows are created eagerly at message ingestion (every parseable sender
+ * gets one when its message is synced), so a sender whose message sits in a
+ * mailbox is guaranteed an Address row. This trust adjustment is business
+ * logic, not a best-effort side effect: it writes that row directly, with no
+ * defensive lookup and no catch. Any error — including a missing Address row
+ * (`NotFoundError`), which would be a real bug — propagates and fails the
+ * request. The only early returns are genuine no-trust-signal cases (a move
+ * that does not cross the Junk boundary, or a message with no From address).
  */
 export interface JunkTrustLogger {
 	info(obj: Record<string, unknown>, msg: string): void;
-	warn?(obj: Record<string, unknown>, msg: string): void;
 }
 
 export interface AdjustSenderTrustForJunkMoveInput {
@@ -37,60 +38,49 @@ export interface AdjustSenderTrustForJunkMoveInput {
 	log: JunkTrustLogger;
 }
 
-export const adjustSenderTrustForJunkMove = async ({
-	messageId,
-	isMovingFromJunk,
-	isMovingToJunk,
-	addressService,
-	threadMessageService,
-	log,
-}: AdjustSenderTrustForJunkMoveInput): Promise<void> => {
+export const adjustSenderTrustForJunkMove = async (
+	input: AdjustSenderTrustForJunkMoveInput,
+): Promise<void> => {
+	const { isMovingFromJunk, isMovingToJunk } = input;
 	// A move that neither leaves nor enters Junk carries no trust signal. A move
 	// that does both (Junk → Junk) is a no-op crossing — skip it.
 	if (isMovingFromJunk === isMovingToJunk) return;
 
-	try {
-		const threadMessage = await threadMessageService.getByMessageId(messageId);
-		const fromEmail = threadMessage.fromEmail;
-		if (!fromEmail) {
-			log.info({ messageId }, "Junk move: no From address; skipping trust");
-			return;
-		}
+	await applyJunkTrust(input);
+};
 
-		const addressId = AddressService.generateAddressId(
-			threadMessage.accountConfigId,
-			fromEmail,
-		);
-		const now = Date.now();
+const applyJunkTrust = async ({
+	messageId,
+	isMovingFromJunk,
+	addressService,
+	threadMessageService,
+	log,
+}: AdjustSenderTrustForJunkMoveInput): Promise<void> => {
+	const threadMessage = await threadMessageService.getByMessageId(messageId);
+	const fromEmail = threadMessage.fromEmail;
+	if (!fromEmail) {
+		log.info({ messageId }, "Junk move: no From address; skipping trust");
+		return;
+	}
 
-		if (isMovingFromJunk) {
-			await addressService.promoteWellknownByUser(addressId, now);
-			log.info(
-				{ messageId, addressId, fromEmail },
-				"Promoted sender to Wellknown (user moved mail out of Junk)",
-			);
-			return;
-		}
+	const addressId = AddressService.generateAddressId(
+		threadMessage.accountConfigId,
+		fromEmail,
+	);
+	const now = Date.now();
 
-		await addressService.demoteSenderTrust(addressId, now);
+	if (isMovingFromJunk) {
+		await addressService.promoteWellknownByUser(addressId, now);
 		log.info(
 			{ messageId, addressId, fromEmail },
-			"Demoted sender trust (user moved mail into Junk)",
+			"Promoted sender to Wellknown (user moved mail out of Junk)",
 		);
-	} catch (err: unknown) {
-		// A sender with no Address row yet (e.g. never counted) has no trust to
-		// adjust — that is an expected no-op, not a failure.
-		// biome-ignore lint/plugin/no-silent-catch: best-effort trust adjustment — a missing Address row (NotFoundError) or transient failure must not block the junk-move response
-		if (err instanceof NotFoundError) {
-			log.info(
-				{ messageId },
-				"Junk move: sender Address not found; skipping trust",
-			);
-			return;
-		}
-		log.warn?.(
-			{ messageId, error: inspect(err) },
-			"Junk-move trust adjustment failed (best-effort, non-fatal)",
-		);
+		return;
 	}
+
+	await addressService.demoteSenderTrust(addressId, now);
+	log.info(
+		{ messageId, addressId, fromEmail },
+		"Demoted sender trust (user moved mail into Junk)",
+	);
 };

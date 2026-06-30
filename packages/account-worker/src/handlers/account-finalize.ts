@@ -371,26 +371,31 @@ export const handler: SQSHandler = withTelemetry(async (event: SQSEvent) => {
 	const batchItemFailures: { itemIdentifier: string }[] = [];
 
 	for (const record of event.Records) {
-		try {
-			const finalizeEvent: AccountFinalizeEvent = JSON.parse(record.body);
-			log.info(
-				{
-					eventType: finalizeEvent.type,
-					accountConfigId: finalizeEvent.accountConfigId,
-				},
-				"Processing account finalize event",
-			);
-			if (finalizeEvent.type === "FinalizeAccountDataPurge") {
-				await processAccountDataPurgeFinalize(finalizeEvent, log);
-			} else {
-				await processAccountFinalize(finalizeEvent, log);
-			}
-		} catch (error) {
-			// biome-ignore lint/plugin/no-silent-catch: SQS batch handler — nacking via batchItemFailures is the correct error propagation; rethrowing would crash the entire batch
-			log.error(
-				{ error: inspect(error), messageId: record.messageId },
-				"Account finalize event processing failed",
-			);
+		const finalizeEvent: AccountFinalizeEvent = JSON.parse(record.body);
+		log.info(
+			{
+				eventType: finalizeEvent.type,
+				accountConfigId: finalizeEvent.accountConfigId,
+			},
+			"Processing account finalize event",
+		);
+
+		const work =
+			finalizeEvent.type === "FinalizeAccountDataPurge"
+				? processAccountDataPurgeFinalize(finalizeEvent, log)
+				: processAccountFinalize(finalizeEvent, log);
+
+		const failed = await work
+			.then(() => false)
+			.catch((error) => {
+				log.error(
+					{ error: inspect(error), messageId: record.messageId },
+					"Account finalize event processing failed",
+				);
+				return true;
+			});
+
+		if (failed) {
 			batchItemFailures.push({ itemIdentifier: record.messageId });
 		}
 	}

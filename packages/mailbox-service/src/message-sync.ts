@@ -397,27 +397,20 @@ export class MessageSyncService {
 		accountConfigId: string,
 		msg: ImapMessage,
 	): Promise<BatchOutcome> {
-		try {
-			const result = await this.saveMessage(
-				mailboxId,
-				accountId,
-				accountConfigId,
-				msg,
-			);
-			return { kind: "saved", uid: msg.uid, result };
-		} catch (error) {
-			// biome-ignore lint/plugin/no-silent-catch: per-message save failure — returns {kind: "failed"} to the caller which retries on the next sync; rethrowing would abort all remaining messages in the batch
-			this.log.warn(
-				{
-					mailboxId,
-					uid: msg.uid,
-					messageId: msg.envelope?.messageId,
-					error: error instanceof Error ? error.message : String(error),
-				},
-				"Failed to save message; will retry on next sync",
-			);
-			return { kind: "failed", uid: msg.uid };
-		}
+		return this.saveMessage(mailboxId, accountId, accountConfigId, msg)
+			.then((result): BatchOutcome => ({ kind: "saved", uid: msg.uid, result }))
+			.catch((error): BatchOutcome => {
+				this.log.warn(
+					{
+						mailboxId,
+						uid: msg.uid,
+						messageId: msg.envelope?.messageId,
+						error: error instanceof Error ? error.message : String(error),
+					},
+					"Failed to save message; will retry on next sync",
+				);
+				return { kind: "failed", uid: msg.uid };
+			});
 	}
 
 	private async saveMessage(
