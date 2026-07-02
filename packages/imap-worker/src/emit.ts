@@ -59,7 +59,7 @@ const fifoEventTypes = new Set([
  * SQS deduplication window is 5 minutes - duplicate messages within
  * this window are rejected.
  */
-const getDeduplicationId = (event: EventInput): string | undefined => {
+export const getDeduplicationId = (event: EventInput): string | undefined => {
 	switch (event.type) {
 		case "SYNC_MAILBOXES": {
 			const e = event as Omit<SyncMailboxesEvent, "eventId" | "timestamp">;
@@ -68,7 +68,12 @@ const getDeduplicationId = (event: EventInput): string | undefined => {
 
 		case "SYNC_MESSAGES": {
 			const e = event as Omit<SyncMessagesEvent, "eventId" | "timestamp">;
-			return `SYNC_MESSAGES:${e.mailboxId}`;
+			// A continuation carries a per-batch cursor so batches 2..N are not
+			// deduped against the initial event (which has none) or each other; the
+			// cursor-less initial id still dedups concurrent fresh syncs of a mailbox.
+			return e.resumeCursor === undefined
+				? `SYNC_MESSAGES:${e.mailboxId}`
+				: `SYNC_MESSAGES:${e.mailboxId}:${e.resumeCursor}`;
 		}
 
 		case "SYNC_FLAGS": {
