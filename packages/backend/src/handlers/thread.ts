@@ -1,6 +1,7 @@
-import type {
-	ResultList,
-	ThreadMessageItem,
+import {
+	NotFoundError,
+	type ResultList,
+	type ThreadMessageItem,
 } from "@remit/remit-electrodb-service";
 import type {
 	MessageCategory,
@@ -317,7 +318,12 @@ export const ThreadDetailOperations: Record<
 	ThreadDetailOperationIds,
 	OperationHandler<ThreadDetailOperationIds>
 > = {
-	ThreadDetailOperations_listThreadMessages: async (context) => {
+	ThreadDetailOperations_listThreadMessages: async (
+		context,
+		...args: unknown[]
+	) => {
+		const event = args[0] as APIGatewayProxyEvent;
+		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const { threadId } = context.request.params as { threadId: string };
 		const { order, mailboxId } = context.request.query as {
 			order?: "asc" | "desc";
@@ -327,8 +333,18 @@ export const ThreadDetailOperations: Record<
 		const client = getClient();
 		const result = await client.threadMessage.listByThread(
 			threadId,
+			accountConfigId,
 			buildListThreadMessagesOptions({ order, mailboxId }),
 		);
+
+		// Defense-in-depth: the query is already scoped to accountConfigId; assert
+		// no foreign row slips into the response. `read`-class → 404, no existence
+		// leak, consistent with the mailbox/message guards.
+		for (const row of result.items) {
+			if (row.accountConfigId !== accountConfigId) {
+				throw new NotFoundError(`Thread not found: ${threadId}`);
+			}
+		}
 
 		const items = await enrichThreadRows(result.items, client);
 
