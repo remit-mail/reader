@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { MailboxItem } from "@remit/remit-electrodb-service";
+import {
+	ForbiddenError,
+	type MailboxItem,
+	NotFoundError,
+} from "@remit/remit-electrodb-service";
 import type { RenameMailboxInput } from "@remit/api-openapi-types";
 import {
 	applyMailboxPatch,
+	assertMailboxInAccount,
 	type MailboxPatchClient,
 	pickMailboxOverrideChanges,
 } from "./mailbox.js";
@@ -13,6 +18,38 @@ const MUTED_FLAG = {
 	setAt: 1_700_000_000_000,
 	setBy: "device-a",
 };
+
+describe("assertMailboxInAccount", () => {
+	const mailbox = {
+		mailboxId: "mbx-1",
+		accountId: "acct-owner",
+	} satisfies Pick<MailboxItem, "mailboxId" | "accountId">;
+
+	it("passes when the mailbox belongs to the account", () => {
+		assert.doesNotThrow(() =>
+			assertMailboxInAccount(mailbox, "acct-owner", "read"),
+		);
+		assert.doesNotThrow(() =>
+			assertMailboxInAccount(mailbox, "acct-owner", "act"),
+		);
+	});
+
+	it("throws NotFound on a cross-account read (no existence leak)", () => {
+		assert.throws(
+			() => assertMailboxInAccount(mailbox, "acct-other", "read"),
+			(err: unknown) =>
+				err instanceof NotFoundError && /Mailbox not found/.test(err.message),
+		);
+	});
+
+	it("throws Forbidden on a cross-account action", () => {
+		assert.throws(
+			() => assertMailboxInAccount(mailbox, "acct-other", "act"),
+			(err: unknown) =>
+				err instanceof ForbiddenError && /not in account/.test(err.message),
+		);
+	});
+});
 
 describe("pickMailboxOverrideChanges", () => {
 	it("returns empty changes when no override key is present (no-op)", () => {
