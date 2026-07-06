@@ -42,7 +42,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AtSign, Inbox, Loader2, Mail, Server } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-// useRef is kept for hasRunRef / hasCreatedRef guards — not for DOM refs
+// useRef is kept for the hasCreatedRef guard — not for DOM refs
 import {
 	type DiscoveryResult,
 	discoverSettings,
@@ -803,7 +803,7 @@ function StepTest({
 		smtpState: "pending",
 		phase: "running",
 	});
-	const hasRunRef = useRef(false);
+	const [attempt, setAttempt] = useState(0);
 	const imapTls = securityToApi(imapConfig.security);
 	const smtpTls = securityToApi(smtpConfig.security);
 
@@ -811,10 +811,10 @@ function StepTest({
 		...accountOperationsTestConnectionMutation(),
 	});
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: mount-only effect guarded by hasRunRef; re-running on field change would trigger spurious test requests
+	// biome-ignore lint/correctness/useExhaustiveDependencies: runs on mount and each Retry via `attempt`; the connection inputs are read intentionally and must not re-trigger the test on every render
 	useEffect(() => {
-		if (hasRunRef.current) return;
-		hasRunRef.current = true;
+		let cancelled = false;
+		const timers: number[] = [];
 
 		setTestResult({
 			imapState: "running",
@@ -839,6 +839,7 @@ function StepTest({
 			},
 			{
 				onSuccess: (data) => {
+					if (cancelled) return;
 					// Show IMAP result first, then SMTP
 					const imapOk = data.imapSuccess;
 					const smtpOk = data.smtpSuccess;
@@ -852,47 +853,55 @@ function StepTest({
 						phase: "running",
 					});
 
-					window.setTimeout(() => {
-						// An auth error can come from either protocol; route on the
-						// one that actually failed. IMAP failures take precedence in
-						// the raw-error display since IMAP is tested first.
-						const isAuthError = (msg: string | undefined): boolean => {
-							const m = msg?.toLowerCase() ?? "";
-							return (
-								m.includes("auth") ||
-								m.includes("login") ||
-								m.includes("535") ||
-								m.includes("credential")
-							);
-						};
-						const isAuthFailure =
-							(!imapOk && isAuthError(data.imapError)) ||
-							(imapOk && !smtpOk && isAuthError(data.smtpError));
+					timers.push(
+						window.setTimeout(() => {
+							if (cancelled) return;
+							// An auth error can come from either protocol; route on the
+							// one that actually failed. IMAP failures take precedence in
+							// the raw-error display since IMAP is tested first.
+							const isAuthError = (msg: string | undefined): boolean => {
+								const m = msg?.toLowerCase() ?? "";
+								return (
+									m.includes("auth") ||
+									m.includes("login") ||
+									m.includes("535") ||
+									m.includes("credential")
+								);
+							};
+							const isAuthFailure =
+								(!imapOk && isAuthError(data.imapError)) ||
+								(imapOk && !smtpOk && isAuthError(data.smtpError));
 
-						setTestResult({
-							imapState: imapOk ? "ok" : "failed",
-							smtpState: smtpOk ? "ok" : "failed",
-							imapDetail: imapOk
-								? `Connected — ${imapConfig.host}:${imapConfig.port}`
-								: data.imapError,
-							smtpDetail: smtpOk
-								? `Connected — ${smtpConfig.host}:${smtpConfig.port}`
-								: data.smtpError,
-							rawError: !imapOk ? data.imapError : data.smtpError,
-							phase:
-								imapOk && smtpOk
-									? "success"
-									: isAuthFailure
-										? "auth-failure"
-										: "network-failure",
-						});
+							setTestResult({
+								imapState: imapOk ? "ok" : "failed",
+								smtpState: smtpOk ? "ok" : "failed",
+								imapDetail: imapOk
+									? `Connected — ${imapConfig.host}:${imapConfig.port}`
+									: data.imapError,
+								smtpDetail: smtpOk
+									? `Connected — ${smtpConfig.host}:${smtpConfig.port}`
+									: data.smtpError,
+								rawError: !imapOk ? data.imapError : data.smtpError,
+								phase:
+									imapOk && smtpOk
+										? "success"
+										: isAuthFailure
+											? "auth-failure"
+											: "network-failure",
+							});
 
-						if (imapOk && smtpOk) {
-							window.setTimeout(onSuccess, 800);
-						}
-					}, 400);
+							if (imapOk && smtpOk) {
+								timers.push(
+									window.setTimeout(() => {
+										if (!cancelled) onSuccess();
+									}, 800),
+								);
+							}
+						}, 400),
+					);
 				},
 				onError: (err) => {
+					if (cancelled) return;
 					const msg = err instanceof Error ? err.message : "Connection failed";
 					setTestResult({
 						imapState: "failed",
@@ -905,8 +914,12 @@ function StepTest({
 				},
 			},
 		);
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, []);
+
+		return () => {
+			cancelled = true;
+			for (const t of timers) window.clearTimeout(t);
+		};
+	}, [attempt]);
 
 	const { phase } = testResult;
 
@@ -928,17 +941,7 @@ function StepTest({
 				<Button variant="ghost" onClick={onBackToCredentials}>
 					Back to credentials
 				</Button>
-				<Button
-					variant="primary"
-					onClick={() => {
-						hasRunRef.current = false;
-						setTestResult({
-							imapState: "running",
-							smtpState: "pending",
-							phase: "running",
-						});
-					}}
-				>
+				<Button variant="primary" onClick={() => setAttempt((a) => a + 1)}>
 					Retry
 				</Button>
 			</>
@@ -947,17 +950,7 @@ function StepTest({
 				<Button variant="ghost" onClick={onBackToServers}>
 					Back to servers
 				</Button>
-				<Button
-					variant="primary"
-					onClick={() => {
-						hasRunRef.current = false;
-						setTestResult({
-							imapState: "running",
-							smtpState: "pending",
-							phase: "running",
-						});
-					}}
-				>
+				<Button variant="primary" onClick={() => setAttempt((a) => a + 1)}>
 					Retry
 				</Button>
 			</>

@@ -332,6 +332,7 @@ export const AccountOperations: Record<
 			host: input.imapHost,
 			port: input.imapPort,
 			secure: input.imapTls,
+			startTls: input.imapStartTls,
 			user: input.username,
 			credentials: { kind: "password", password: imapPassword },
 		});
