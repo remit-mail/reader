@@ -1,6 +1,8 @@
-import type {
-	AccountSettingService,
-	MailboxItem,
+import {
+	type AccountSettingService,
+	ForbiddenError,
+	type MailboxItem,
+	NotFoundError,
 } from "@remit/remit-electrodb-service";
 import type {
 	MailboxResponse,
@@ -110,6 +112,26 @@ export const applyMailboxPatch = async (
 	}
 
 	return client.mailboxQueue.renameMailbox(mailboxId, fullPath, accountId);
+};
+
+/**
+ * Cross-account guard for a mailbox reached by id under an `accountId` path.
+ * `assertAccountOwnership` only proves the caller owns the account in the path;
+ * the `mailboxId` in that same path can belong to a different account, so without
+ * this check a caller could read or mutate another account's mailbox. Mirrors the
+ * read/act split of `assertAccountOwnership`: 404 on a read (no existence leak),
+ * 403 on an action.
+ */
+export const assertMailboxInAccount = (
+	mailbox: Pick<MailboxItem, "mailboxId" | "accountId">,
+	accountId: string,
+	mode: "read" | "act",
+): void => {
+	if (mailbox.accountId === accountId) return;
+	if (mode === "read") {
+		throw new NotFoundError(`Mailbox not found: ${mailbox.mailboxId}`);
+	}
+	throw new ForbiddenError(`Mailbox ${mailbox.mailboxId} not in account`);
 };
 
 const toMailboxResponse = (
@@ -230,6 +252,7 @@ export const MailboxDetailOperations: Record<
 		assertAccountOwnership(account, accountConfigId, "read");
 
 		const mailbox = await client.mailbox.get(mailboxId);
+		assertMailboxInAccount(mailbox, accountId, "read");
 		const overrides = await loadMailboxOverrides(
 			client.accountSetting,
 			accountConfigId,
@@ -253,6 +276,9 @@ export const MailboxDetailOperations: Record<
 		const client = getClient();
 		const account = await client.account.get(accountId);
 		assertAccountOwnership(account, accountConfigId, "act");
+
+		const existing = await client.mailbox.get(mailboxId);
+		assertMailboxInAccount(existing, accountId, "act");
 
 		const mailbox = await applyMailboxPatch(
 			client,
@@ -283,6 +309,9 @@ export const MailboxDetailOperations: Record<
 		const client = getClient();
 		const account = await client.account.get(accountId);
 		assertAccountOwnership(account, accountConfigId, "act");
+
+		const mailbox = await client.mailbox.get(mailboxId);
+		assertMailboxInAccount(mailbox, accountId, "act");
 
 		await client.mailboxQueue.deleteMailbox(mailboxId, accountId);
 		return { statusCode: 204 };
