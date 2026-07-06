@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it, mock } from "node:test";
-import { NotFoundError } from "@remit/remit-electrodb-service";
+import {
+	BadRequestError,
+	ForbiddenError,
+	NotFoundError,
+} from "@remit/remit-electrodb-service";
 import { assertAccountOwnership } from "./account-ownership.js";
 import {
+	assertMessagesOwned,
 	type BodyPartLike,
 	type BodyPartMaterializer,
 	buildBodyPartResponses,
@@ -13,6 +18,92 @@ import {
 	isStorageNotFoundError,
 	materializeBodyPartsBestEffort,
 } from "./message.js";
+
+const ownershipClient = (opts: {
+	messages: Record<string, { mailboxId: string }>;
+	mailboxes: Record<string, { accountId: string }>;
+	accounts: Record<string, { accountId: string; accountConfigId: string }>;
+}) => ({
+	message: { get: async (id: string) => opts.messages[id] },
+	mailbox: { get: async (id: string) => opts.mailboxes[id] },
+	account: { get: async (id: string) => opts.accounts[id] },
+});
+
+describe("assertMessagesOwned", () => {
+	const owned = ownershipClient({
+		messages: { m1: { mailboxId: "mbx1" }, m2: { mailboxId: "mbx2" } },
+		mailboxes: { mbx1: { accountId: "acctA" }, mbx2: { accountId: "acctA" } },
+		accounts: { acctA: { accountId: "acctA", accountConfigId: "cfgA" } },
+	});
+
+	it("returns the account id for a caller-owned message (read and act)", async () => {
+		assert.equal(
+			await assertMessagesOwned(owned, ["m1"], "cfgA", "read"),
+			"acctA",
+		);
+		assert.equal(
+			await assertMessagesOwned(owned, ["m1"], "cfgA", "act"),
+			"acctA",
+		);
+	});
+
+	it("returns the shared account for a batch across mailboxes of one account", async () => {
+		assert.equal(
+			await assertMessagesOwned(owned, ["m1", "m2"], "cfgA", "act"),
+			"acctA",
+		);
+	});
+
+	it("throws NotFound on a cross-account read (no existence leak)", async () => {
+		await assert.rejects(
+			() => assertMessagesOwned(owned, ["m1"], "cfgOther", "read"),
+			(err: unknown) => err instanceof NotFoundError,
+		);
+	});
+
+	it("throws Forbidden on a cross-account action", async () => {
+		await assert.rejects(
+			() => assertMessagesOwned(owned, ["m1"], "cfgOther", "act"),
+			(err: unknown) => err instanceof ForbiddenError,
+		);
+	});
+
+	it("rejects the whole batch when any id resolves to a foreign account (own + foreign)", async () => {
+		const mixed = ownershipClient({
+			messages: { m1: { mailboxId: "mbx1" }, mForeign: { mailboxId: "mbxF" } },
+			mailboxes: {
+				mbx1: { accountId: "acctA" },
+				mbxF: { accountId: "acctForeign" },
+			},
+			accounts: {
+				acctA: { accountId: "acctA", accountConfigId: "cfgA" },
+				acctForeign: {
+					accountId: "acctForeign",
+					accountConfigId: "cfgForeign",
+				},
+			},
+		});
+		await assert.rejects(
+			() => assertMessagesOwned(mixed, ["m1", "mForeign"], "cfgA", "act"),
+			(err: unknown) => err instanceof ForbiddenError,
+		);
+	});
+
+	it("rejects a batch that spans multiple accounts the caller owns", async () => {
+		const twoAccounts = ownershipClient({
+			messages: { m1: { mailboxId: "mbx1" }, m2: { mailboxId: "mbx2" } },
+			mailboxes: { mbx1: { accountId: "acctA" }, mbx2: { accountId: "acctB" } },
+			accounts: {
+				acctA: { accountId: "acctA", accountConfigId: "cfgX" },
+				acctB: { accountId: "acctB", accountConfigId: "cfgX" },
+			},
+		});
+		await assert.rejects(
+			() => assertMessagesOwned(twoAccounts, ["m1", "m2"], "cfgX", "act"),
+			(err: unknown) => err instanceof BadRequestError,
+		);
+	});
+});
 
 describe("isStorageNotFoundError", () => {
 	it("matches S3 NoSuchKey via .name", () => {

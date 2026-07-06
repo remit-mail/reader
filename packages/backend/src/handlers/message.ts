@@ -1,5 +1,9 @@
 import { inspect } from "node:util";
 import {
+	BadRequestError,
+	ForbiddenError,
+} from "@remit/remit-electrodb-service";
+import {
 	ContentDisposition,
 	MediaType,
 	MessageCategory,
@@ -34,6 +38,52 @@ import type {
 import { assertAccountOwnership } from "./account-ownership.js";
 
 type StarColorValue = (typeof StarColor)[keyof typeof StarColor];
+
+interface MessageOwnershipClient {
+	message: { get(messageId: string): Promise<{ mailboxId: string }> };
+	mailbox: { get(mailboxId: string): Promise<{ accountId: string }> };
+	account: {
+		get(
+			accountId: string,
+		): Promise<{ accountId: string; accountConfigId: string }>;
+	};
+}
+
+/**
+ * Resolve the account that owns every message in `messageIds` and assert the
+ * caller owns it. Each message resolves message -> mailbox -> account; a foreign
+ * message throws before any content is returned or mutated (`read` -> 404, no
+ * existence leak; `act` -> 403). The whole batch must resolve to a single
+ * account — the downstream flag/move/delete services take one accountId — so a
+ * batch spanning accounts is rejected. Returns that accountId so callers reuse
+ * it without another lookup.
+ */
+export const assertMessagesOwned = async (
+	client: MessageOwnershipClient,
+	messageIds: string[],
+	callerAccountConfigId: string,
+	mode: "read" | "act",
+): Promise<string> => {
+	const messages = await Promise.all(
+		messageIds.map((id) => client.message.get(id)),
+	);
+	const mailboxIds = [...new Set(messages.map((m) => m.mailboxId))];
+	const mailboxes = await Promise.all(
+		mailboxIds.map((id) => client.mailbox.get(id)),
+	);
+	const accountIds = [...new Set(mailboxes.map((mb) => mb.accountId))];
+
+	for (const accountId of accountIds) {
+		const account = await client.account.get(accountId);
+		assertAccountOwnership(account, callerAccountConfigId, mode);
+	}
+
+	if (accountIds.length !== 1) {
+		throw new BadRequestError("All messages must belong to the same account");
+	}
+
+	return accountIds[0];
+};
 
 export const isStorageNotFoundError = (error: unknown): boolean =>
 	isStorageNotFoundErrorFromService(error);
@@ -221,7 +271,9 @@ export const MessageOperations: Record<
 		const event = args[0] as APIGatewayProxyEvent;
 		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const { messageId } = context.request.params as { messageId: string };
-		const description = await getClient().message.describe(messageId);
+		const client = getClient();
+		await assertMessagesOwned(client, [messageId], accountConfigId, "read");
+		const description = await client.message.describe(messageId);
 
 		const message = description.message[0];
 		const envelope = description.envelope[0];
@@ -243,7 +295,7 @@ export const MessageOperations: Record<
 			new Set(description.envelopeAddress.map((a) => a.addressId)),
 		);
 		const addresses = uniqueAddressIds.length
-			? await getClient().address.getAddress(uniqueAddressIds)
+			? await client.address.getAddress(uniqueAddressIds)
 			: [];
 		const flagsByAddressId = new Map(
 			addresses.map((a) => [a.addressId, a.flags]),
@@ -289,8 +341,6 @@ export const MessageOperations: Record<
 		};
 
 		const flags = description.messageFlag.map((f) => f.flagName);
-
-		const client = getClient();
 
 		// `accountId` is needed to build per-part `contentUrl` values for the
 		// BodyPartResponse list and on the IMAP-backfill path. Resolve it from
@@ -453,7 +503,9 @@ export const MessageOperations: Record<
 		return { raw: decodeRawEml(body) };
 	},
 
-	MessageOperations_updateMessageFlags: async (context) => {
+	MessageOperations_updateMessageFlags: async (context, ...args: unknown[]) => {
+		const event = args[0] as APIGatewayProxyEvent;
+		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const { messageId } = context.request.params as { messageId: string };
 		const { isRead, isStarred, starColor } = context.request.requestBody as {
 			isRead?: boolean;
@@ -462,17 +514,19 @@ export const MessageOperations: Record<
 		};
 
 		const client = getClient();
-
-		// Resolve accountId from message -> mailbox
-		const message = await client.message.get(messageId);
-		const mailbox = await client.mailbox.get(message.mailboxId);
+		const accountId = await assertMessagesOwned(
+			client,
+			[messageId],
+			accountConfigId,
+			"act",
+		);
 
 		// FlagQueueService handles: MessageFlag + ThreadMessage updates + SQS event
-		const result = await client.flagQueue.updateFlags(
-			messageId,
-			mailbox.accountId,
-			{ isRead, isStarred, starColor: starColor as StarColorValue | undefined },
-		);
+		const result = await client.flagQueue.updateFlags(messageId, accountId, {
+			isRead,
+			isStarred,
+			starColor: starColor as StarColorValue | undefined,
+		});
 
 		return {
 			messageId: result.messageId,
@@ -486,7 +540,9 @@ export const MessageBulkOperations: Record<
 	MessageBulkOperationIds,
 	OperationHandler<MessageBulkOperationIds>
 > = {
-	MessageBulkOperations_updateFlags: async (context) => {
+	MessageBulkOperations_updateFlags: async (context, ...args: unknown[]) => {
+		const event = args[0] as APIGatewayProxyEvent;
+		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const { messageIds, isRead, isStarred, starColor } = context.request
 			.requestBody as {
 			messageIds: string[];
@@ -500,15 +556,17 @@ export const MessageBulkOperations: Record<
 		}
 
 		const client = getClient();
-
-		// Resolve accountId from first message -> mailbox
-		const message = await client.message.get(messageIds[0]);
-		const mailbox = await client.mailbox.get(message.mailboxId);
+		const accountId = await assertMessagesOwned(
+			client,
+			messageIds,
+			accountConfigId,
+			"act",
+		);
 
 		// FlagQueueService handles: MessageFlag + ThreadMessage updates + SQS events
 		// Process each message individually (same pattern as moveMessages)
 		for (const messageId of messageIds) {
-			await client.flagQueue.updateFlags(messageId, mailbox.accountId, {
+			await client.flagQueue.updateFlags(messageId, accountId, {
 				isRead,
 				isStarred,
 				starColor: starColor as StarColorValue | undefined,
@@ -521,7 +579,9 @@ export const MessageBulkOperations: Record<
 		};
 	},
 
-	MessageBulkOperations_deleteMessages: async (context) => {
+	MessageBulkOperations_deleteMessages: async (context, ...args: unknown[]) => {
+		const event = args[0] as APIGatewayProxyEvent;
+		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const { messageIds, permanent } = context.request.requestBody as {
 			messageIds: string[];
 			permanent?: boolean;
@@ -532,13 +592,15 @@ export const MessageBulkOperations: Record<
 		}
 
 		const client = getClient();
-
-		// Resolve accountId from first message -> mailbox
-		const message = await client.message.get(messageIds[0]);
-		const mailbox = await client.mailbox.get(message.mailboxId);
+		const accountId = await assertMessagesOwned(
+			client,
+			messageIds,
+			accountConfigId,
+			"act",
+		);
 
 		// MessageMoveService handles: Message + ThreadMessage updates + SQS events
-		await client.messageMove.deleteMessages(messageIds, mailbox.accountId, {
+		await client.messageMove.deleteMessages(messageIds, accountId, {
 			permanent,
 		});
 
@@ -548,7 +610,9 @@ export const MessageBulkOperations: Record<
 		};
 	},
 
-	MessageBulkOperations_moveMessages: async (context) => {
+	MessageBulkOperations_moveMessages: async (context, ...args: unknown[]) => {
+		const event = args[0] as APIGatewayProxyEvent;
+		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const { messageIds, destinationMailboxId } = context.request
 			.requestBody as {
 			messageIds: string[];
@@ -560,19 +624,26 @@ export const MessageBulkOperations: Record<
 		}
 
 		const client = getClient();
+		const accountId = await assertMessagesOwned(
+			client,
+			messageIds,
+			accountConfigId,
+			"act",
+		);
 
-		// Verify destination mailbox exists
-		await client.mailbox.get(destinationMailboxId);
-
-		// Resolve accountId from first message -> mailbox
-		const message = await client.message.get(messageIds[0]);
-		const mailbox = await client.mailbox.get(message.mailboxId);
+		// Destination must belong to the same (caller-owned) account.
+		const destination = await client.mailbox.get(destinationMailboxId);
+		if (destination.accountId !== accountId) {
+			throw new ForbiddenError(
+				`Destination mailbox ${destinationMailboxId} not in account`,
+			);
+		}
 
 		// MessageMoveService handles: Message + ThreadMessage updates + SQS events
 		await client.messageMove.moveMessages(
 			messageIds,
 			destinationMailboxId,
-			mailbox.accountId,
+			accountId,
 		);
 
 		return {
@@ -581,7 +652,9 @@ export const MessageBulkOperations: Record<
 		};
 	},
 
-	MessageBulkOperations_copyMessages: async (context) => {
+	MessageBulkOperations_copyMessages: async (context, ...args: unknown[]) => {
+		const event = args[0] as APIGatewayProxyEvent;
+		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const { messageIds, destinationMailboxId } = context.request
 			.requestBody as {
 			messageIds: string[];
@@ -593,19 +666,26 @@ export const MessageBulkOperations: Record<
 		}
 
 		const client = getClient();
+		const accountId = await assertMessagesOwned(
+			client,
+			messageIds,
+			accountConfigId,
+			"act",
+		);
 
-		// Verify destination mailbox exists
-		await client.mailbox.get(destinationMailboxId);
-
-		// Resolve accountId from first message -> mailbox
-		const message = await client.message.get(messageIds[0]);
-		const mailbox = await client.mailbox.get(message.mailboxId);
+		// Destination must belong to the same (caller-owned) account.
+		const destination = await client.mailbox.get(destinationMailboxId);
+		if (destination.accountId !== accountId) {
+			throw new ForbiddenError(
+				`Destination mailbox ${destinationMailboxId} not in account`,
+			);
+		}
 
 		// MessageMoveService handles: Message copies + ThreadMessage creation + SQS events
 		await client.messageMove.copyMessages(
 			messageIds,
 			destinationMailboxId,
-			mailbox.accountId,
+			accountId,
 		);
 
 		return {
