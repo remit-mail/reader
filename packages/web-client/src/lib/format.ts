@@ -26,17 +26,37 @@ export const formatCompactNumber = (value: number): string => {
 	return formatNumber(value, { notation: "compact", compactDisplay: "short" });
 };
 
+const EPOCH_STRING = /^-?\d+$/;
+
 /**
- * Format a date according to user's locale.
+ * Coerce any accepted date input into a Date. An all-digit string is treated as
+ * an epoch (the Postgres read path serializes int64 columns as numeric strings);
+ * any other string goes through the normal Date parser.
+ */
+export const toDate = (value: Date | string | number): Date => {
+	if (value instanceof Date) return value;
+	if (typeof value === "number") return new Date(value);
+	if (typeof value === "string") {
+		const trimmed = value.trim();
+		if (EPOCH_STRING.test(trimmed)) return new Date(Number(trimmed));
+		return new Date(trimmed);
+	}
+	return new Date(Number.NaN);
+};
+
+const isValidDate = (date: Date): boolean => Number.isFinite(date.getTime());
+
+/**
+ * Format a date according to user's locale. A missing or unparseable date
+ * renders as an empty string instead of throwing — display must never crash the
+ * view over one bad row.
  */
 export const formatDate = (
 	date: Date | string | number,
 	options?: Intl.DateTimeFormatOptions,
 ): string => {
-	const d =
-		typeof date === "string" || typeof date === "number"
-			? new Date(date)
-			: date;
+	const d = toDate(date);
+	if (!isValidDate(d)) return "";
 	return new Intl.DateTimeFormat(getLocale(), options).format(d);
 };
 
@@ -67,10 +87,8 @@ export const formatDatePreset = (
  * Format relative time (e.g., "2 hours ago", "in 3 days").
  */
 export const formatRelativeTime = (date: Date | string | number): string => {
-	const d =
-		typeof date === "string" || typeof date === "number"
-			? new Date(date)
-			: date;
+	const d = toDate(date);
+	if (!isValidDate(d)) return "";
 	const rtf = new Intl.RelativeTimeFormat(getLocale(), { numeric: "auto" });
 	const now = Date.now();
 	const diff = d.getTime() - now;
@@ -107,10 +125,8 @@ export const formatRelativeTime = (date: Date | string | number): string => {
  * - Older: "Jan 17" (or "Jan 17, 2023" if different year)
  */
 export const formatEmailDate = (date: Date | string | number): string => {
-	const d =
-		typeof date === "string" || typeof date === "number"
-			? new Date(date)
-			: date;
+	const d = toDate(date);
+	if (!isValidDate(d)) return "";
 	const now = new Date();
 
 	const isToday = d.toDateString() === now.toDateString();
