@@ -4,9 +4,10 @@ import { renderToString } from "react-dom/server";
 import { AuthFooter } from "./auth-footer.js";
 
 describe("AuthFooter", () => {
-	it("renders the default Cognito note", () => {
+	it("renders a provider-neutral note by default", () => {
 		const html = renderToString(AuthFooter());
-		assert.match(html, /Secure sign-in powered by AWS Cognito/);
+		assert.match(html, /Secure sign-in/);
+		assert.doesNotMatch(html, /Cognito/);
 	});
 
 	it("renders a custom note", () => {

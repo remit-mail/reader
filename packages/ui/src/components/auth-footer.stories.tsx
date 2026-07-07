@@ -17,3 +17,7 @@ export const Dark: Story = {
 export const Light: Story = {
 	parameters: { theme: "light" },
 };
+
+export const CognitoProvider: Story = {
+	args: { note: "Secure sign-in powered by AWS Cognito" },
+};
