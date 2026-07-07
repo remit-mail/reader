@@ -7,7 +7,13 @@
  * anchor used in AuthShell.tsx. The branded hero, footer, and dev banner are
  * the real @remit/ui components the live shell composes.
  */
-import { AuthCard, AuthFooter, AuthHero, Banner } from "@remit/ui";
+import {
+	AuthCard,
+	AuthFooter,
+	AuthHero,
+	Banner,
+	COGNITO_FOOTER_NOTE,
+} from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 const meta: Meta = {
@@ -126,7 +132,7 @@ function MockAuthenticator({
 
 					{/* Footer */}
 					<div data-amplify-footer>
-						<AuthFooter />
+						<AuthFooter note={COGNITO_FOOTER_NOTE} />
 					</div>
 				</div>
 			</div>

@@ -43,7 +43,11 @@ export {
 	useContainerWidth,
 } from "./components/app-shell-types.js";
 export { AuthCard, type AuthCardProps } from "./components/auth-card.js";
-export { AuthFooter, type AuthFooterProps } from "./components/auth-footer.js";
+export {
+	AuthFooter,
+	type AuthFooterProps,
+	COGNITO_FOOTER_NOTE,
+} from "./components/auth-footer.js";
 export { AuthHero, type AuthHeroProps } from "./components/auth-hero.js";
 export { Avatar, type AvatarProps } from "./components/avatar.js";
 export { Badge, type BadgeProps } from "./components/badge.js";

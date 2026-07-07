@@ -7,6 +7,7 @@ import {
 import { AuthCard, AuthFooter, AuthHero, Banner } from "@remit/ui";
 import type { ReactNode } from "react";
 import { AppShellSkeleton } from "@/components/layout/AppShellSkeleton";
+import { authFooterNote } from "./account-menu-mode";
 import { isCognitoConfigured } from "./amplify-config";
 import { BetterAuthShell } from "./BetterAuthShell";
 import { isBetterAuthEnabled } from "./better-auth-config";
@@ -208,6 +209,15 @@ const LocalDevBanner = () => (
 	</Banner>
 );
 
+const CognitoAuthFooter = () => (
+	<AuthFooter
+		note={authFooterNote({
+			betterAuthEnabled: isBetterAuthEnabled(),
+			cognitoConfigured: isCognitoConfigured(),
+		})}
+	/>
+);
+
 const SignInGate = ({ children }: { children: ReactNode }) => {
 	const { authStatus } = useAuthenticator((ctx) => [ctx.authStatus]);
 
@@ -229,7 +239,7 @@ const SignInGate = ({ children }: { children: ReactNode }) => {
 				<Authenticator
 					hideSignUp={false}
 					formFields={authFormFields}
-					components={{ Footer: AuthFooter }}
+					components={{ Footer: CognitoAuthFooter }}
 				/>
 			</AuthCard>
 		</ThemeProvider>
