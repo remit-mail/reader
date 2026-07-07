@@ -64,19 +64,6 @@ namespace RemitApi {
   }
 
   // ============================================
-  // Admin Operations
-  // ============================================
-
-  @route("/admin/accountConfigs/{accountConfigId}")
-  namespace AdminAccountConfigOperations {
-    @doc("Finalize deletion of an account config after cascading cleanup is complete")
-    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
-    @post
-    @route("/finalize-delete")
-    op adminFinalizeDelete(@path accountConfigId: UUID): void;
-  }
-
-  // ============================================
   // Configuration Operations
   // ============================================
 
