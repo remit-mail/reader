@@ -6,6 +6,17 @@ import {
 } from "./app-info";
 import { getRecentErrors } from "./console-errors";
 
+/**
+ * A GitHub new-issue URL is capped (~8 KB). We budget below that so the stack
+ * is truncated to fit rather than producing a URL GitHub silently rejects. The
+ * untruncated report is always available via `buildBugReportDetails` (the
+ * overlay's "Copy full details" action).
+ */
+const MAX_ISSUE_URL_LENGTH = 7500;
+
+const TRUNCATION_MARKER =
+	"\n… (truncated — use “Copy full details” for the full stacktrace)";
+
 export interface BugReportContext {
 	appSha: string;
 	appShortSha: string;
@@ -16,9 +27,22 @@ export interface BugReportContext {
 	timezone: string;
 	href: string;
 	recentErrors: readonly string[];
+	/** The message of the error that triggered the report, when seeded from one. */
+	errorMessage?: string;
+	/** The error's stacktrace, when available. */
+	stack?: string;
+	/** React component stack from the error boundary, when available. */
+	componentStack?: string;
 }
 
-export function buildBugReportContext(): BugReportContext {
+/** Fields callers can seed from a caught error. */
+export interface BugReportSeed {
+	errorMessage?: string;
+	stack?: string;
+	componentStack?: string;
+}
+
+export function buildBugReportContext(seed?: BugReportSeed): BugReportContext {
 	return {
 		appSha: APP_SHA,
 		appShortSha: APP_SHORT_SHA,
@@ -29,16 +53,23 @@ export function buildBugReportContext(): BugReportContext {
 		timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
 		href: window.location.href,
 		recentErrors: getRecentErrors(),
+		errorMessage: seed?.errorMessage,
+		stack: seed?.stack,
+		componentStack: seed?.componentStack,
 	};
 }
 
-function buildIssueBody(ctx: BugReportContext): string {
+function fencedBlock(content: string): string {
+	return ["```", content, "```"].join("\n");
+}
+
+function buildIssueBody(ctx: BugReportContext, stack?: string): string {
 	const errorSection =
 		ctx.recentErrors.length > 0
 			? ctx.recentErrors.map((e) => `  - ${e}`).join("\n")
 			: "  (none)";
 
-	return [
+	const lines: string[] = [
 		"## Environment",
 		`- **Version**: [\`${ctx.appShortSha}\`](https://github.com/remit-mail/remit/commit/${ctx.appSha}) built ${ctx.appBuildTime}`,
 		`- **Browser**: ${ctx.userAgent}`,
@@ -48,6 +79,22 @@ function buildIssueBody(ctx: BugReportContext): string {
 		"## URL",
 		ctx.href,
 		"",
+	];
+
+	if (ctx.errorMessage) {
+		lines.push("## Error", ctx.errorMessage, "");
+	}
+
+	const resolvedStack = stack ?? ctx.stack;
+	if (resolvedStack) {
+		lines.push("## Stacktrace", fencedBlock(resolvedStack), "");
+	}
+
+	if (ctx.componentStack) {
+		lines.push("## Component stack", fencedBlock(ctx.componentStack), "");
+	}
+
+	lines.push(
 		"## Recent console errors",
 		errorSection,
 		"",
@@ -58,12 +105,72 @@ function buildIssueBody(ctx: BugReportContext): string {
 		"",
 		"## Actual behaviour",
 		"",
-	].join("\n");
+	);
+
+	return lines.join("\n");
 }
 
-export function buildGitHubIssueUrl(ctx: BugReportContext): string {
-	const title = `Bug: `;
-	const body = buildIssueBody(ctx);
-	const params = new URLSearchParams({ title, body });
+function buildIssueTitle(ctx: BugReportContext): string {
+	if (!ctx.errorMessage) return "Bug: ";
+	const firstLine = ctx.errorMessage.split("\n")[0].trim();
+	const clipped =
+		firstLine.length > 120 ? `${firstLine.slice(0, 117)}…` : firstLine;
+	return `Bug: ${clipped}`;
+}
+
+function issueUrl(ctx: BugReportContext, stack?: string): string {
+	const params = new URLSearchParams({
+		title: buildIssueTitle(ctx),
+		body: buildIssueBody(ctx, stack),
+	});
 	return `${GITHUB_NEW_ISSUE_URL}?${params.toString()}`;
+}
+
+/**
+ * The full, untruncated report — every field including the complete stacktrace
+ * and component stack. Backs the overlay's "Copy full details" action so
+ * nothing is lost when the URL-bound report has to truncate the stack.
+ */
+export function buildBugReportDetails(ctx: BugReportContext): string {
+	return buildIssueBody(ctx);
+}
+
+/**
+ * Build a prefilled GitHub new-issue URL. When the full body would exceed the
+ * URL budget, the stacktrace is truncated (binary-searched to the longest
+ * prefix that fits) and marked; everything else is preserved. The component
+ * stack is dropped from the URL when truncation kicks in — it survives in the
+ * "Copy full details" report.
+ */
+export function buildGitHubIssueUrl(ctx: BugReportContext): string {
+	const full = issueUrl(ctx);
+	if (full.length <= MAX_ISSUE_URL_LENGTH) return full;
+
+	const stack = ctx.stack ?? "";
+	const withoutComponentStack: BugReportContext = {
+		...ctx,
+		componentStack: undefined,
+	};
+
+	let lo = 0;
+	let hi = stack.length;
+	let best = 0;
+	while (lo <= hi) {
+		const mid = (lo + hi) >> 1;
+		const candidate = issueUrl(
+			withoutComponentStack,
+			stack.slice(0, mid) + TRUNCATION_MARKER,
+		);
+		if (candidate.length <= MAX_ISSUE_URL_LENGTH) {
+			best = mid;
+			lo = mid + 1;
+		} else {
+			hi = mid - 1;
+		}
+	}
+
+	return issueUrl(
+		withoutComponentStack,
+		stack.slice(0, best) + TRUNCATION_MARKER,
+	);
 }
