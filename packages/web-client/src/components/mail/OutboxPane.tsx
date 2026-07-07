@@ -46,6 +46,7 @@ import { MessageBody } from "@/components/mail/MessageBody";
 import { NavMenuButton } from "@/components/mail/NavMenuButton";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { buildMutationErrorBanner } from "@/components/ui/error-banners";
+import { formatDate as formatLocaleDate, toDate } from "@/lib/format";
 import { isOutboxListRow, isUnsendableStatus } from "@/lib/outbox-status";
 import { cn } from "@/lib/utils";
 
@@ -85,30 +86,15 @@ const STATUS_CONFIG: Record<
 };
 
 const formatDate = (timestamp: number): string => {
-	const date = new Date(timestamp);
-	const now = new Date();
-	const isToday = date.toDateString() === now.toDateString();
-
-	if (isToday) {
-		return date.toLocaleTimeString(undefined, {
-			hour: "numeric",
-			minute: "2-digit",
-		});
-	}
-
-	return date.toLocaleDateString(undefined, {
-		month: "short",
-		day: "numeric",
-	});
+	const date = toDate(timestamp);
+	const isToday = date.toDateString() === new Date().toDateString();
+	return isToday
+		? formatLocaleDate(timestamp, { hour: "numeric", minute: "2-digit" })
+		: formatLocaleDate(timestamp, { month: "short", day: "numeric" });
 };
 
-const formatDateFull = (timestamp: number): string => {
-	const date = new Date(timestamp);
-	return date.toLocaleString(undefined, {
-		dateStyle: "medium",
-		timeStyle: "short",
-	});
-};
+const formatDateFull = (timestamp: number): string =>
+	formatLocaleDate(timestamp, { dateStyle: "medium", timeStyle: "short" });
 
 const formatRecipients = (message: RemitImapOutboxMessageResponse): string => {
 	const recipients = message.toAddresses ?? [];

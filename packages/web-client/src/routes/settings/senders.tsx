@@ -32,6 +32,7 @@ import { Search, Star, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { formatDate } from "@/lib/format";
 import { SETTINGS_ID_TO_PATH, SETTINGS_NAV_ITEMS } from "@/routes/settings";
 
 export const Route = createFileRoute("/settings/senders")({
@@ -295,10 +296,10 @@ function SearchGroupPane({
 					? [
 							`${group}`,
 							flag.setAt
-								? new Date(flag.setAt).toLocaleDateString("en-US", {
+								? formatDate(flag.setAt, {
 										month: "short",
 										year: "numeric",
-									})
+									}) || null
 								: null,
 							flag.reason ? `— ${flag.reason}` : null,
 						]

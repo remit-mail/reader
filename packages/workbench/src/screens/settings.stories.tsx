@@ -292,6 +292,28 @@ export const Accounts: Story = {
 	render: () => <AccountsShell count={3}>{accountCards}</AccountsShell>,
 };
 
+/**
+ * An account whose last-sync date is missing or unparseable. The app derives an
+ * empty relative-time string for such a date and falls back to "never synced" —
+ * the row must render, never crash the whole Accounts screen over one bad date.
+ */
+export const AccountsMissingSyncDate: Story = {
+	render: () => (
+		<AccountsShell count={1}>
+			<div className="space-y-3">
+				<AccountHealthCard
+					label="Personal"
+					email="alice.tan@gmail.example"
+					connector="IMAP"
+					syncLabel="never synced"
+					state="healthy"
+					trailing={<ManageButton />}
+				/>
+			</div>
+		</AccountsShell>
+	),
+};
+
 /* ------------------------------------------------------------------ */
 /* Shell breakpoints: phone (390) and tablet (768).                   */
 /*                                                                    */
