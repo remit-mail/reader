@@ -32,9 +32,13 @@ export const deleteAllThreadMessagesForMessage = async (
 		ThreadMessageService,
 		"findAllByMessageId" | "delete"
 	>,
+	accountConfigId: string,
 	messageId: string,
 ): Promise<number> => {
-	const rows = await threadMessageService.findAllByMessageId(messageId);
+	const rows = await threadMessageService.findAllByMessageId(
+		accountConfigId,
+		messageId,
+	);
 	for (const row of rows) {
 		await threadMessageService.delete(row.accountConfigId, row.threadMessageId);
 	}
@@ -159,8 +163,10 @@ export const handleMessageDelete = async (
 							);
 
 							// Update ThreadMessage with new UID and isDeleted = true
-							const threadMessage =
-								await threadMessageService.findByMessageId(messageId);
+							const threadMessage = await threadMessageService.findByMessageId(
+								account.accountConfigId,
+								messageId,
+							);
 							if (threadMessage) {
 								const args = buildThreadMessageTrashUpdate(
 									threadMessage,
@@ -196,6 +202,7 @@ export const handleMessageDelete = async (
 						const threadMessagesDeleted =
 							await deleteAllThreadMessagesForMessage(
 								threadMessageService,
+								account.accountConfigId,
 								messageId,
 							);
 
@@ -226,6 +233,7 @@ export const handleMessageDelete = async (
 						await messageService.delete(messageId);
 						await deleteAllThreadMessagesForMessage(
 							threadMessageService,
+							account.accountConfigId,
 							messageId,
 						);
 						return;

@@ -1,6 +1,10 @@
 import { client } from "@remit/api-http-client/client.gen.ts";
 import { fetchAuthSession } from "aws-amplify/auth";
 import { isCognitoConfigured } from "./amplify-config";
+import {
+	fetchBetterAuthToken,
+	isBetterAuthEnabled,
+} from "./better-auth-config";
 
 let installed = false;
 
@@ -46,6 +50,19 @@ export const resetTokenCache = (): void => {
 
 export const installAuthInterceptor = (): void => {
 	if (installed) return;
+
+	if (isBetterAuthEnabled()) {
+		client.interceptors.request.use(async (request) => {
+			const token = await fetchBetterAuthToken();
+			if (token) {
+				request.headers.set("Authorization", `Bearer ${token}`);
+			}
+			return request;
+		});
+		installed = true;
+		return;
+	}
+
 	if (!isCognitoConfigured()) return;
 
 	client.interceptors.request.use(async (request) => {

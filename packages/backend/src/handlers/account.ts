@@ -1,8 +1,6 @@
 import { SendMessageCommand } from "@aws-sdk/client-sqs";
-import type {
-	AccountItem,
-	AccountService,
-} from "@remit/remit-electrodb-service";
+import type { IAccountRepository } from "@remit/data-ports";
+import type { AccountItem } from "@remit/remit-electrodb-service";
 import { AccountAuthType, ConnectionState } from "@remit/domain-enums";
 import { logger } from "@remit/logger-lambda";
 import {
@@ -103,7 +101,7 @@ export const triggerAccountSyncSafe = async (
  */
 const testOAuthConnection = async (
 	existingAccount: AccountItem,
-	account: AccountService,
+	account: IAccountRepository,
 	secrets: SecretsService,
 ): Promise<TestConnectionResponse> => {
 	if (!existingAccount.oauthRefreshTokenHash) {

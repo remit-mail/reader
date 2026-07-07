@@ -7,7 +7,7 @@
  * re-declare the same boilerplate.
  */
 
-import type { AccountService } from "@remit/remit-electrodb-service";
+import type { IAccountRepository } from "@remit/data-ports";
 import {
 	createMailOAuthService,
 	microsoftProviderConfig,
@@ -43,7 +43,7 @@ const getTokenService = (): ReturnType<typeof createMailOAuthService> => {
  */
 export const buildLifecycleDeps = (
 	secrets: SecretsService,
-	accountService: AccountService,
+	accountService: IAccountRepository,
 ): OAuthLifecycleDeps => ({
 	secrets,
 	tokenService: getTokenService(),

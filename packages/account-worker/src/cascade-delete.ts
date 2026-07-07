@@ -1,4 +1,5 @@
 import { DeleteObjectsCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
+import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import {
 	Account,
 	AccountConfig,
@@ -19,10 +20,10 @@ import {
 	RawMessageStorage,
 	ThreadMessage,
 } from "@remit/electrodb-entities";
+import type { CascadeDeleter } from "@remit/drizzle-service";
 import type { Logger } from "@remit/logger-lambda";
 import { Entity } from "electrodb";
 import type { CascadeEntity } from "./cascade.js";
-import type { ddbClient as defaultDdbClient } from "./config.js";
 
 /**
  * S3 client surface used by the cascade. Subset of the SDK `S3Client` so tests
@@ -99,9 +100,33 @@ const sleep = (ms: number): Promise<void> =>
 	new Promise((r) => setTimeout(r, ms));
 
 export interface DdbConfig {
-	client: typeof defaultDdbClient;
+	client: DynamoDBDocumentClient;
 	table: string;
 }
+
+export interface CascadeDeleteDeps {
+	ddbConfig: DdbConfig;
+	/** Present on `DATA_BACKEND=postgres`; when set, the cascade runs in Postgres. */
+	pgDeleter?: CascadeDeleter;
+}
+
+/**
+ * Backend-dispatched cascade delete. On Postgres the enumerated rows are removed
+ * through Drizzle in one transaction (message subtrees emit `message.removed`
+ * outbox rows for search cleanup); otherwise they are removed with DynamoDB
+ * BatchWriteItem. Same enumerated `CascadeEntity[]` input for both.
+ */
+export const runCascadeDelete = async (
+	entities: CascadeEntity[],
+	deps: CascadeDeleteDeps,
+	log: Logger,
+): Promise<void> => {
+	if (deps.pgDeleter) {
+		await deps.pgDeleter(entities, log);
+		return;
+	}
+	await runDdbCascadeDelete(entities, deps.ddbConfig, log);
+};
 
 /**
  * Deletes the enumerated rows in dependency order (children → parents).

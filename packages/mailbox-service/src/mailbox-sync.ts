@@ -1,16 +1,15 @@
 /**
  * Mailbox synchronization service
  *
- * Orchestrates syncing mailbox data from IMAP server to DynamoDB
+ * Orchestrates syncing mailbox data from IMAP server to the data backend.
  */
 
-import type { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import {
-	type CreateMailboxInput,
-	type MailboxItem,
-	MailboxService,
-	MailboxSpecialUseService,
-} from "@remit/remit-electrodb-service";
+import type {
+	CreateMailboxInput,
+	IMailboxRepository,
+	IMailboxSpecialUseRepository,
+	MailboxItem,
+} from "@remit/data-ports";
 import { MailboxSpecialUse, NamespaceType } from "@remit/domain-enums";
 import pMap from "p-map";
 import { isNoSelect, parseImapAttributes } from "./attribute-mapper.js";
@@ -65,14 +64,6 @@ const FOLDER_NAME_TO_SPECIAL_USE: Record<string, MailboxSpecialUseValue> = {
 };
 
 /**
- * Configuration for MailboxSyncService
- */
-export interface MailboxSyncConfig {
-	client: DynamoDBClient;
-	table: string;
-}
-
-/**
  * Account info needed for mailbox sync
  */
 export interface SyncAccountInfo {
@@ -80,21 +71,18 @@ export interface SyncAccountInfo {
 }
 
 /**
- * Service for synchronizing mailbox metadata between IMAP and DynamoDB
+ * Service for synchronizing mailbox metadata between IMAP and the data backend.
  */
 export class MailboxSyncService {
-	private mailboxService: MailboxService;
-	private specialUseService: MailboxSpecialUseService;
+	private mailboxService: IMailboxRepository;
+	private specialUseService: IMailboxSpecialUseRepository;
 
-	constructor(config: MailboxSyncConfig) {
-		this.mailboxService = new MailboxService({
-			client: config.client,
-			table: config.table,
-		});
-		this.specialUseService = new MailboxSpecialUseService({
-			client: config.client,
-			table: config.table,
-		});
+	constructor(
+		mailboxService: IMailboxRepository,
+		specialUseService: IMailboxSpecialUseRepository,
+	) {
+		this.mailboxService = mailboxService;
+		this.specialUseService = specialUseService;
 	}
 
 	/**
@@ -147,7 +135,10 @@ export class MailboxSyncService {
 					// If this mailbox exists in DB, delete it
 					const existing = existingByPath.get(mailboxInfo.fullPath);
 					if (existing) {
-						await this.mailboxService.delete(existing.mailboxId);
+						await this.mailboxService.delete(
+							account.accountId,
+							existing.mailboxId,
+						);
 						console.info(
 							`Deleted non-selectable mailbox: ${existing.mailboxId} (${existing.fullPath})`,
 						);
@@ -162,7 +153,10 @@ export class MailboxSyncService {
 					const existing = existingByPath.get(mailboxInfo.fullPath);
 					if (existing) {
 						await this.specialUseService.deleteByMailboxId(existing.mailboxId);
-						await this.mailboxService.delete(existing.mailboxId);
+						await this.mailboxService.delete(
+							account.accountId,
+							existing.mailboxId,
+						);
 						console.info(
 							`Deleted duplicate special-use mailbox: ${existing.mailboxId} (${existing.fullPath})`,
 						);
@@ -176,6 +170,7 @@ export class MailboxSyncService {
 
 				if (existing) {
 					const updated = await this.updateMailbox(
+						account.accountId,
 						existing,
 						mailboxInfo,
 						connection,
@@ -199,7 +194,7 @@ export class MailboxSyncService {
 		// Handle deleted mailboxes (exist in DB but not on server)
 		for (const existing of existingMailboxes) {
 			if (!seenPaths.has(existing.fullPath)) {
-				await this.mailboxService.delete(existing.mailboxId);
+				await this.mailboxService.delete(account.accountId, existing.mailboxId);
 				console.info(
 					`Deleted mailbox: ${existing.mailboxId} (${existing.fullPath})`,
 				);
@@ -216,14 +211,15 @@ export class MailboxSyncService {
 	 * Opens the mailbox to get current UID validity, counts, etc.
 	 */
 	syncMailboxMetadata = async (
+		accountId: string,
 		mailboxId: string,
 		connection: IImapConnection,
 	): Promise<MailboxItem> => {
-		const mailbox = await this.mailboxService.get(mailboxId);
+		const mailbox = await this.mailboxService.get(accountId, mailboxId);
 		const boxStatus = await connection.openBox(mailbox.fullPath, true);
 
 		return this.mailboxService
-			.update(mailboxId, {
+			.update(accountId, mailboxId, {
 				uidValidity: boxStatus.uidvalidity,
 				uidNext: boxStatus.uidnext,
 				messageCount: boxStatus.messages.total,
@@ -385,6 +381,7 @@ export class MailboxSyncService {
 	 * @returns The updated mailbox, or null if skipped due to no changes
 	 */
 	private updateMailbox = async (
+		accountId: string,
 		existing: MailboxItem,
 		mailboxInfo: FlatMailboxInfo,
 		connection: IImapConnection,
@@ -452,7 +449,7 @@ export class MailboxSyncService {
 
 		// Update mailbox with fresh status. ElectroDB rejects empty sets, so we
 		// pass undefined when no flags are present rather than [].
-		return this.mailboxService.update(existing.mailboxId, {
+		return this.mailboxService.update(accountId, existing.mailboxId, {
 			hierarchyDelimiter: mailboxInfo.delimiter,
 			uidValidity: status.uidValidity,
 			uidNext: status.uidNext,

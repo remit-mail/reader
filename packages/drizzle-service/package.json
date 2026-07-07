@@ -1,0 +1,38 @@
+{
+  "name": "@remit/drizzle-service",
+  "version": "1.0.0",
+  "description": "Drizzle ORM service for Postgres (pg-parity)",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "test:typecheck": "tsgo --noEmit -p tsconfig.json",
+    "test:run": "node --env-file=../../.test.env --import tsx --test 'src/**/*.test.ts'",
+    "test": "npm run test:typecheck && npm run test:run",
+    "fix": "biome check --write src"
+  },
+  "devDependencies": {
+    "@remit/api-zod-schemas": "*",
+    "@types/pg": "^8.0.0",
+    "drizzle-kit": "^0.31.1",
+    "embedded-postgres": "^18.4.0-beta.17",
+    "tsx": "*",
+    "zod": "*"
+  },
+  "dependencies": {
+    "@remit/data-ports": "*",
+    "@remit/domain-enums": "*",
+    "drizzle-orm": "^0.45.2",
+    "pg": "^8.0.0",
+    "postgres": "^3.4.5",
+    "short-uuid": "*",
+    "uuid": "*",
+    "@remit/drizzle-pg-schema": "*"
+  }
+}

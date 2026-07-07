@@ -1,8 +1,5 @@
-import {
-	type AccountConfigService,
-	ConflictError,
-	NotFoundError,
-} from "@remit/remit-electrodb-service";
+import type { IAccountConfigRepository } from "@remit/data-ports";
+import { ConflictError, NotFoundError } from "@remit/remit-electrodb-service";
 
 /**
  * Ensure an AccountConfig row exists for the given id. A first-time caller
@@ -12,7 +9,7 @@ import {
  * deterministic id (derived from Cognito `sub`) makes both paths safe.
  */
 export const ensureAccountConfig = async (
-	accountConfig: AccountConfigService,
+	accountConfig: IAccountConfigRepository,
 	accountConfigId: string,
 ): Promise<void> => {
 	const existing = await accountConfig.get(accountConfigId).catch((err) => {

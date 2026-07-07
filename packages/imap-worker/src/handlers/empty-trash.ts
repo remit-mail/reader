@@ -91,6 +91,7 @@ export const handleEmptyTrash = async (
 
 						// Delete the ThreadMessage entity
 						const threadMessage = await threadMessageService.findByMessageId(
+							account.accountConfigId,
 							message.messageId,
 						);
 						if (threadMessage) {

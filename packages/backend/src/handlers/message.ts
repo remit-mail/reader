@@ -2,6 +2,7 @@ import { inspect } from "node:util";
 import {
 	BadRequestError,
 	ForbiddenError,
+	NotFoundError,
 } from "@remit/remit-electrodb-service";
 import {
 	ContentDisposition,
@@ -25,6 +26,10 @@ import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent } from "../auth.js";
 import {
+	type ContentSigner,
+	getContentSigner,
+} from "../derive/contentSignature.js";
+import {
 	buildContentUrl,
 	getContentDeliveryDomain,
 } from "../derive/contentUrl.js";
@@ -35,28 +40,35 @@ import type {
 	MessageOperationIds,
 	OperationHandler,
 } from "../types.js";
-import { assertAccountOwnership } from "./account-ownership.js";
 
 type StarColorValue = (typeof StarColor)[keyof typeof StarColor];
 
 interface MessageOwnershipClient {
 	message: { get(messageId: string): Promise<{ mailboxId: string }> };
-	mailbox: { get(mailboxId: string): Promise<{ accountId: string }> };
-	account: {
+	mailbox: {
 		get(
 			accountId: string,
-		): Promise<{ accountId: string; accountConfigId: string }>;
+			mailboxIds: string[],
+		): Promise<{ mailboxId: string; accountId: string }[]>;
+	};
+	account: {
+		listAllByAccountConfig(
+			accountConfigId: string,
+		): Promise<{ accountId: string }[]>;
 	};
 }
 
 /**
  * Resolve the account that owns every message in `messageIds` and assert the
- * caller owns it. Each message resolves message -> mailbox -> account; a foreign
- * message throws before any content is returned or mutated (`read` -> 404, no
- * existence leak; `act` -> 403). The whole batch must resolve to a single
- * account — the downstream flag/move/delete services take one accountId — so a
- * batch spanning accounts is rejected. Returns that accountId so callers reuse
- * it without another lookup.
+ * caller owns it. Messages have no tenant column, so ownership resolves through
+ * the mailbox: the caller's own accounts (from their accountConfigId) scope a
+ * mailbox lookup, and a mailbox resolves only under the account that owns it —
+ * a foreign message never resolves and throws before any content is returned or
+ * mutated (`read` -> 404, no existence leak; `act` -> 403). The tenant comes
+ * from the caller's config, never from the row being read. The whole batch must
+ * resolve to a single account — the downstream flag/move/delete services take
+ * one accountId — so a batch spanning accounts is rejected. Returns that
+ * accountId so callers reuse it without another lookup.
  */
 export const assertMessagesOwned = async (
 	client: MessageOwnershipClient,
@@ -68,16 +80,27 @@ export const assertMessagesOwned = async (
 		messageIds.map((id) => client.message.get(id)),
 	);
 	const mailboxIds = [...new Set(messages.map((m) => m.mailboxId))];
-	const mailboxes = await Promise.all(
-		mailboxIds.map((id) => client.mailbox.get(id)),
-	);
-	const accountIds = [...new Set(mailboxes.map((mb) => mb.accountId))];
 
-	for (const accountId of accountIds) {
-		const account = await client.account.get(accountId);
-		assertAccountOwnership(account, callerAccountConfigId, mode);
+	const ownedAccounts = await client.account.listAllByAccountConfig(
+		callerAccountConfigId,
+	);
+
+	const accountByMailbox = new Map<string, string>();
+	for (const { accountId } of ownedAccounts) {
+		const rows = await client.mailbox.get(accountId, mailboxIds);
+		for (const row of rows) {
+			accountByMailbox.set(row.mailboxId, row.accountId);
+		}
 	}
 
+	if (mailboxIds.some((id) => !accountByMailbox.has(id))) {
+		if (mode === "read") {
+			throw new NotFoundError("Message not found");
+		}
+		throw new ForbiddenError("Message not in account config");
+	}
+
+	const accountIds = [...new Set(accountByMailbox.values())];
 	if (accountIds.length !== 1) {
 		throw new BadRequestError("All messages must belong to the same account");
 	}
@@ -185,6 +208,7 @@ export const buildBodyPartResponses = (
 		accountConfigId: string;
 		accountId: string;
 		messageId: string;
+		sign?: ContentSigner;
 	},
 ): BodyPartResponse[] => {
 	return parts.map((part) => ({
@@ -202,6 +226,7 @@ export const buildBodyPartResponses = (
 			accountId: context.accountId,
 			messageId: context.messageId,
 			partPath: part.partPath,
+			sign: context.sign,
 		}),
 	}));
 };
@@ -272,7 +297,12 @@ export const MessageOperations: Record<
 		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const { messageId } = context.request.params as { messageId: string };
 		const client = getClient();
-		await assertMessagesOwned(client, [messageId], accountConfigId, "read");
+		const ownedAccountId = await assertMessagesOwned(
+			client,
+			[messageId],
+			accountConfigId,
+			"read",
+		);
 		const description = await client.message.describe(messageId);
 
 		const message = description.message[0];
@@ -295,7 +325,7 @@ export const MessageOperations: Record<
 			new Set(description.envelopeAddress.map((a) => a.addressId)),
 		);
 		const addresses = uniqueAddressIds.length
-			? await client.address.getAddress(uniqueAddressIds)
+			? await client.address.getAddress(accountConfigId, uniqueAddressIds)
 			: [];
 		const flagsByAddressId = new Map(
 			addresses.map((a) => [a.addressId, a.flags]),
@@ -353,7 +383,10 @@ export const MessageOperations: Record<
 		let accountId = idsFromKey?.accountId;
 		let mailboxFullPath: string | undefined;
 		if (!accountId) {
-			const mailbox = await client.mailbox.get(message.mailboxId);
+			const mailbox = await client.mailbox.get(
+				ownedAccountId,
+				message.mailboxId,
+			);
 			accountId = mailbox.accountId;
 			mailboxFullPath = mailbox.fullPath;
 		}
@@ -370,7 +403,7 @@ export const MessageOperations: Record<
 		let bodyStorageKey = message.bodyStorageKey;
 		if (!bodyStorageKey) {
 			if (!mailboxFullPath) {
-				const mailbox = await client.mailbox.get(message.mailboxId);
+				const mailbox = await client.mailbox.get(accountId, message.mailboxId);
 				mailboxFullPath = mailbox.fullPath;
 			}
 			const scope = await client.createConnectionScope(accountId);
@@ -415,6 +448,7 @@ export const MessageOperations: Record<
 			accountConfigId,
 			accountId,
 			messageId,
+			sign: getContentSigner(),
 		});
 
 		const references = description.messageReference.map((ref) => ({
@@ -441,32 +475,20 @@ export const MessageOperations: Record<
 		const { messageId } = context.request.params as { messageId: string };
 		const client = getClient();
 
-		// Resolve the message row. `message.get` throws NotFoundError (→ 404)
-		// when the id is unknown, matching describeMessage's not-found behavior.
-		const message = await client.message.get(messageId);
-
-		// Resolve accountId. When the body is already stored the bodyStorageKey
-		// encodes both ids for free; otherwise fall back to a Mailbox lookup —
-		// same resolution describeMessage uses.
-		const idsFromKey = message.bodyStorageKey
-			? extractAccountIdsFromBodyKey(message.bodyStorageKey)
-			: null;
-		let accountId = idsFromKey?.accountId;
-		let mailboxFullPath: string | undefined;
-		if (!accountId) {
-			const mailbox = await client.mailbox.get(message.mailboxId);
-			accountId = mailbox.accountId;
-			mailboxFullPath = mailbox.fullPath;
-		}
-
 		// Cross-tenant ownership guard. Returning raw RFC822 bytes is sensitive,
-		// so run the same unit-tested check mailbox/account handlers use BEFORE
-		// any backfill or storage read — covering both the stored-body fast path
-		// and the IMAP-backfill path with one consistent rule. `read` mode throws
-		// NotFoundError (→ 404) on mismatch and never leaks the owner's
-		// accountConfigId.
-		const account = await client.account.get(accountId);
-		assertAccountOwnership(account, accountConfigId, "read");
+		// so resolve the owning account and prove the caller owns it BEFORE any
+		// storage read or backfill. `read` mode throws NotFoundError (→ 404) on a
+		// foreign message and never leaks the owner's accountConfigId.
+		const accountId = await assertMessagesOwned(
+			client,
+			[messageId],
+			accountConfigId,
+			"read",
+		);
+
+		// Resolve the message row for its mailboxId / bodyStorageKey.
+		const message = await client.message.get(messageId);
+		let mailboxFullPath: string | undefined;
 
 		// Backfill from IMAP when the body has never been stored, reusing the
 		// exact path describeMessage uses. fetchAndGetBody writes the raw .eml +
@@ -474,7 +496,7 @@ export const MessageOperations: Record<
 		// side-effect; we then re-read the row to pick up the freshly written key.
 		if (!message.bodyStorageKey) {
 			if (!mailboxFullPath) {
-				const mailbox = await client.mailbox.get(message.mailboxId);
+				const mailbox = await client.mailbox.get(accountId, message.mailboxId);
 				mailboxFullPath = mailbox.fullPath;
 			}
 			const scope = await client.createConnectionScope(accountId);
@@ -522,11 +544,16 @@ export const MessageOperations: Record<
 		);
 
 		// FlagQueueService handles: MessageFlag + ThreadMessage updates + SQS event
-		const result = await client.flagQueue.updateFlags(messageId, accountId, {
-			isRead,
-			isStarred,
-			starColor: starColor as StarColorValue | undefined,
-		});
+		const result = await client.flagQueue.updateFlags(
+			accountConfigId,
+			messageId,
+			accountId,
+			{
+				isRead,
+				isStarred,
+				starColor: starColor as StarColorValue | undefined,
+			},
+		);
 
 		return {
 			messageId: result.messageId,
@@ -566,11 +593,16 @@ export const MessageBulkOperations: Record<
 		// FlagQueueService handles: MessageFlag + ThreadMessage updates + SQS events
 		// Process each message individually (same pattern as moveMessages)
 		for (const messageId of messageIds) {
-			await client.flagQueue.updateFlags(messageId, accountId, {
-				isRead,
-				isStarred,
-				starColor: starColor as StarColorValue | undefined,
-			});
+			await client.flagQueue.updateFlags(
+				accountConfigId,
+				messageId,
+				accountId,
+				{
+					isRead,
+					isStarred,
+					starColor: starColor as StarColorValue | undefined,
+				},
+			);
 		}
 
 		return {
@@ -600,9 +632,14 @@ export const MessageBulkOperations: Record<
 		);
 
 		// MessageMoveService handles: Message + ThreadMessage updates + SQS events
-		await client.messageMove.deleteMessages(messageIds, accountId, {
-			permanent,
-		});
+		await client.messageMove.deleteMessages(
+			accountConfigId,
+			messageIds,
+			accountId,
+			{
+				permanent,
+			},
+		);
 
 		return {
 			successCount: messageIds.length,
@@ -632,7 +669,10 @@ export const MessageBulkOperations: Record<
 		);
 
 		// Destination must belong to the same (caller-owned) account.
-		const destination = await client.mailbox.get(destinationMailboxId);
+		const destination = await client.mailbox.get(
+			accountId,
+			destinationMailboxId,
+		);
 		if (destination.accountId !== accountId) {
 			throw new ForbiddenError(
 				`Destination mailbox ${destinationMailboxId} not in account`,
@@ -641,6 +681,7 @@ export const MessageBulkOperations: Record<
 
 		// MessageMoveService handles: Message + ThreadMessage updates + SQS events
 		await client.messageMove.moveMessages(
+			accountConfigId,
 			messageIds,
 			destinationMailboxId,
 			accountId,
@@ -674,7 +715,10 @@ export const MessageBulkOperations: Record<
 		);
 
 		// Destination must belong to the same (caller-owned) account.
-		const destination = await client.mailbox.get(destinationMailboxId);
+		const destination = await client.mailbox.get(
+			accountId,
+			destinationMailboxId,
+		);
 		if (destination.accountId !== accountId) {
 			throw new ForbiddenError(
 				`Destination mailbox ${destinationMailboxId} not in account`,
@@ -683,6 +727,7 @@ export const MessageBulkOperations: Record<
 
 		// MessageMoveService handles: Message copies + ThreadMessage creation + SQS events
 		await client.messageMove.copyMessages(
+			accountConfigId,
 			messageIds,
 			destinationMailboxId,
 			accountId,

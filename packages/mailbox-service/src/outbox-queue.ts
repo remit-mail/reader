@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 import type {
-	AccountService,
+	IAccountRepository,
+	IOutboxMessageRepository,
 	OutboxMessageItem,
-	OutboxMessageService,
-} from "@remit/remit-electrodb-service";
+} from "@remit/data-ports";
 import { OutboxMessageStatus } from "@remit/domain-enums";
+import { resolveSqsCredentials } from "@remit/sqs-client";
 
 interface SendMessageEvent {
 	type: "SEND_MESSAGE";
@@ -26,8 +27,8 @@ const noopLogger: OutboxQueueLogger = {
 };
 
 export interface OutboxQueueConfig {
-	outboxMessageService: OutboxMessageService;
-	accountService: AccountService;
+	outboxMessageService: IOutboxMessageRepository;
+	accountService: IAccountRepository;
 	sqsSmtpQueueUrl: string;
 	sqsEndpoint?: string;
 	logger?: OutboxQueueLogger;
@@ -72,8 +73,8 @@ const extractDomain = (email: string): string => {
 };
 
 export class OutboxQueueService {
-	private outboxMessageService: OutboxMessageService;
-	private accountService: AccountService;
+	private outboxMessageService: IOutboxMessageRepository;
+	private accountService: IAccountRepository;
 	private sqs: SQSClient;
 	private queueUrl: string;
 	private log: OutboxQueueLogger;
@@ -92,6 +93,7 @@ export class OutboxQueueService {
 
 		this.sqs = new SQSClient({
 			endpoint: sqsEndpoint ?? this.deriveEndpoint(sqsSmtpQueueUrl),
+			credentials: resolveSqsCredentials(),
 		});
 	}
 
@@ -132,42 +134,56 @@ export class OutboxQueueService {
 	};
 
 	updateDraft = async (
+		accountConfigId: string,
 		outboxMessageId: string,
 		input: UpdateDraftInput,
 	): Promise<OutboxMessageItem> => {
-		const existing = await this.outboxMessageService.get(outboxMessageId);
+		const existing = await this.outboxMessageService.get(
+			accountConfigId,
+			outboxMessageId,
+		);
 		if (existing.status !== OutboxMessageStatus.draft) {
 			throw new Error(
 				`Cannot update outbox message with status: ${existing.status}`,
 			);
 		}
 
-		const updated = await this.outboxMessageService.update(outboxMessageId, {
-			...(input.toAddresses !== undefined && {
-				toAddresses: input.toAddresses,
-			}),
-			...(input.ccAddresses !== undefined && {
-				ccAddresses: input.ccAddresses,
-			}),
-			...(input.bccAddresses !== undefined && {
-				bccAddresses: input.bccAddresses,
-			}),
-			...(input.subject !== undefined && { subject: input.subject }),
-			...(input.textBody !== undefined && { textBody: input.textBody }),
-			...(input.htmlBody !== undefined && { htmlBody: input.htmlBody }),
-			...(input.inReplyTo !== undefined && { inReplyTo: input.inReplyTo }),
-			...(input.references !== undefined && {
-				references: input.references,
-			}),
-		});
+		const updated = await this.outboxMessageService.update(
+			accountConfigId,
+			outboxMessageId,
+			{
+				...(input.toAddresses !== undefined && {
+					toAddresses: input.toAddresses,
+				}),
+				...(input.ccAddresses !== undefined && {
+					ccAddresses: input.ccAddresses,
+				}),
+				...(input.bccAddresses !== undefined && {
+					bccAddresses: input.bccAddresses,
+				}),
+				...(input.subject !== undefined && { subject: input.subject }),
+				...(input.textBody !== undefined && { textBody: input.textBody }),
+				...(input.htmlBody !== undefined && { htmlBody: input.htmlBody }),
+				...(input.inReplyTo !== undefined && { inReplyTo: input.inReplyTo }),
+				...(input.references !== undefined && {
+					references: input.references,
+				}),
+			},
+		);
 
 		this.log.info({ outboxMessageId }, "Updated draft outbox message");
 
 		return updated;
 	};
 
-	send = async (outboxMessageId: string): Promise<OutboxMessageItem> => {
-		const existing = await this.outboxMessageService.get(outboxMessageId);
+	send = async (
+		accountConfigId: string,
+		outboxMessageId: string,
+	): Promise<OutboxMessageItem> => {
+		const existing = await this.outboxMessageService.get(
+			accountConfigId,
+			outboxMessageId,
+		);
 		if (
 			existing.status !== OutboxMessageStatus.draft &&
 			existing.status !== OutboxMessageStatus.failed &&
@@ -179,6 +195,7 @@ export class OutboxQueueService {
 		}
 
 		const updated = await this.outboxMessageService.updateStatus(
+			accountConfigId,
 			outboxMessageId,
 			OutboxMessageStatus.queued,
 		);
@@ -226,8 +243,14 @@ export class OutboxQueueService {
 		return outbox;
 	};
 
-	deleteDraft = async (outboxMessageId: string): Promise<void> => {
-		const existing = await this.outboxMessageService.get(outboxMessageId);
+	deleteDraft = async (
+		accountConfigId: string,
+		outboxMessageId: string,
+	): Promise<void> => {
+		const existing = await this.outboxMessageService.get(
+			accountConfigId,
+			outboxMessageId,
+		);
 		if (
 			existing.status !== OutboxMessageStatus.draft &&
 			existing.status !== OutboxMessageStatus.failed &&
@@ -238,7 +261,7 @@ export class OutboxQueueService {
 			);
 		}
 
-		await this.outboxMessageService.delete(outboxMessageId);
+		await this.outboxMessageService.delete(accountConfigId, outboxMessageId);
 
 		this.log.info({ outboxMessageId }, "Deleted outbox message");
 	};

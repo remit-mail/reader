@@ -12,8 +12,6 @@ import {
  * ForbiddenError on mismatch (403) for action verbs (PATCH/POST/DELETE) where
  * the caller has already named the resource and the API contract says we
  * explicitly deny rather than feign 404.
- *
- * Mirrors `assertOutboxOwnership` in `outbox.ts` (PR #213).
  */
 export const assertAccountOwnership = (
 	account: Pick<AccountItem, "accountId" | "accountConfigId">,

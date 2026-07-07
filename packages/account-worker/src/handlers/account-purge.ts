@@ -5,13 +5,13 @@ import {
 	type SQSClient,
 } from "@aws-sdk/client-sqs";
 import { Message } from "@remit/electrodb-entities";
-import { NotFoundError } from "@remit/remit-electrodb-service";
 import type { Logger } from "@remit/logger-lambda";
 import type { SearchIndexMessage } from "@remit/search-index-worker";
 import { Entity } from "electrodb";
 import type { CascadeServices } from "../cascade.js";
 import {
 	cascadeServices as defaultCascadeServices,
+	dataBackend as defaultDataBackend,
 	sqsClient as defaultSqsClient,
 	getAccountPurgeDeleteQueueUrl,
 	getSearchIndexQueueUrl,
@@ -27,6 +27,7 @@ export interface ProcessPurgeFanoutDeps {
 	sqs?: SQSClient;
 	accountPurgeDeleteQueueUrl?: string;
 	searchIndexQueueUrl?: string;
+	dataBackend?: string;
 }
 
 const SQS_BATCH_SIZE = 10;
@@ -166,13 +167,14 @@ export const processAccountDataPurge = async (
 		deps.accountPurgeDeleteQueueUrl ?? getAccountPurgeDeleteQueueUrl();
 	const searchIndexQueueUrl =
 		deps.searchIndexQueueUrl ?? getSearchIndexQueueUrl();
+	const dataBackend = deps.dataBackend ?? defaultDataBackend;
 
 	let mailboxIds: Set<string>;
 	try {
 		const account = await services.accountService.describe(accountId);
 		mailboxIds = new Set(account.mailbox.map((m) => m.mailboxId));
 	} catch (error) {
-		if (error instanceof NotFoundError) {
+		if ((error as { name?: string })?.name === "NotFoundError") {
 			log.info(
 				{ accountConfigId, accountId },
 				"Account purge fanout: account already gone — no-op",
@@ -193,11 +195,17 @@ export const processAccountDataPurge = async (
 
 	const messageIds = [...new Set(items.map((i) => i.messageId))];
 
-	await enqueueVectorDeletes(sqs, searchIndexQueueUrl, accountId, messageIds);
-	log.info(
-		{ accountConfigId, accountId, count: messageIds.length },
-		"Enqueued search-index deletes for purged account",
-	);
+	// On Postgres the destructive delete emits a `message.removed` outbox row per
+	// message, which the pg-index worker relays as a search-index REMOVE; enqueuing
+	// here too would double the removal. On DynamoDB this fanout is the sole
+	// producer of the vector deletes (#457).
+	if (dataBackend !== "postgres") {
+		await enqueueVectorDeletes(sqs, searchIndexQueueUrl, accountId, messageIds);
+		log.info(
+			{ accountConfigId, accountId, count: messageIds.length },
+			"Enqueued search-index deletes for purged account",
+		);
+	}
 
 	await enqueuePurgeFinalize(
 		sqs,

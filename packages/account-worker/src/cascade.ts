@@ -1,17 +1,18 @@
 import type {
-	AccountConfigService,
-	AccountExportRequestService,
-	AccountService,
-	AccountSettingService,
-	AddressService,
-	EnvelopeService,
-	MailboxLockService,
-	MailboxService,
-	MessageFlagService,
-	MessageService,
-	OutboxMessageService,
-	ThreadMessageService,
-} from "@remit/remit-electrodb-service";
+	IAccountConfigRepository,
+	IAccountExportRequestRepository,
+	IAccountRepository,
+	IAccountSettingRepository,
+	IAddressRepository,
+	IEnvelopeRepository,
+	IMailboxLockRepository,
+	IMailboxRepository,
+	IMessageFlagRepository,
+	IMessageRepository,
+	IOutboxMessageRepository,
+	IThreadMessageRepository,
+	MessageDescription,
+} from "@remit/data-ports";
 import type { Logger } from "@remit/logger-lambda";
 
 export interface CascadeEntity {
@@ -20,18 +21,18 @@ export interface CascadeEntity {
 }
 
 export interface CascadeServices {
-	accountConfigService: AccountConfigService;
-	accountService: AccountService;
-	addressService: AddressService;
-	mailboxService: MailboxService;
-	messageService: MessageService;
-	envelopeService: EnvelopeService;
-	messageFlagService: MessageFlagService;
-	outboxMessageService: OutboxMessageService;
-	threadMessageService: ThreadMessageService;
-	mailboxLockService: MailboxLockService;
-	accountExportRequestService: AccountExportRequestService;
-	accountSettingService: AccountSettingService;
+	accountConfigService: IAccountConfigRepository;
+	accountService: IAccountRepository;
+	addressService: IAddressRepository;
+	mailboxService: IMailboxRepository;
+	messageService: IMessageRepository;
+	messageFlagService: IMessageFlagRepository;
+	envelopeService: IEnvelopeRepository;
+	outboxMessageService: IOutboxMessageRepository;
+	threadMessageService: IThreadMessageRepository;
+	mailboxLockService: IMailboxLockRepository;
+	accountExportRequestService: IAccountExportRequestRepository;
+	accountSettingService: IAccountSettingRepository;
 }
 
 export interface CascadeResult {
@@ -48,7 +49,7 @@ export interface CascadeResult {
  */
 export const collectMessageChildEntities = (
 	entities: CascadeEntity[],
-	messageData: Awaited<ReturnType<MessageService["describe"]>>,
+	messageData: MessageDescription,
 ): void => {
 	for (const flag of messageData.messageFlag) {
 		entities.push({

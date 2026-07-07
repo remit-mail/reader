@@ -10,25 +10,41 @@
  * (e.g. `1`, `1.2`, `2.1.3`) but a defensive encode keeps the builder safe
  * if the path ever carries unexpected characters.
  */
+import type { ContentSigner } from "./contentSignature.js";
+
 export interface BuildContentUrlInput {
 	domain: string;
 	accountConfigId: string;
 	accountId: string;
 	messageId: string;
 	partPath: string;
+	/**
+	 * When present (Postgres stack), append an `exp`/`sig` signature scoped to
+	 * this account's storage path. Absent on AWS, where Lambda@Edge guards the
+	 * URL and the path stays unsigned. See `contentSignature.ts`.
+	 */
+	sign?: ContentSigner;
 }
 
 export const buildContentUrl = (input: BuildContentUrlInput): string => {
-	const { domain, accountConfigId, accountId, messageId, partPath } = input;
+	const { domain, accountConfigId, accountId, messageId, partPath, sign } =
+		input;
 	const normalizedDomain = domain.replace(/\/+$/, "");
 	const base = normalizedDomain.startsWith("http")
 		? normalizedDomain
 		: `https://${normalizedDomain}`;
+	// The signed message is the decoded, account-scoped storage path — the same
+	// value the `/content` route recomputes from `req.path`. Keep it in lockstep
+	// with the verifier's `req.path.replace(/^\/content\//, "")`.
+	const relativePath = `accounts/${accountConfigId}/${accountId}/messages/${messageId}/parts/${partPath}`;
 	const safePart = partPath
 		.split("/")
 		.map((segment) => encodeURIComponent(segment))
 		.join("/");
-	return `${base}/content/accounts/${accountConfigId}/${accountId}/messages/${messageId}/parts/${safePart}`;
+	const url = `${base}/content/accounts/${accountConfigId}/${accountId}/messages/${messageId}/parts/${safePart}`;
+	if (!sign) return url;
+	const { exp, sig } = sign(relativePath);
+	return `${url}?exp=${exp}&sig=${encodeURIComponent(sig)}`;
 };
 
 /**

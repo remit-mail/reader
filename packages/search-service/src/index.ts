@@ -4,6 +4,10 @@ export {
 	type VectorStoreService,
 } from "./backends/memory.js";
 export {
+	createPgVectorStore,
+	type PgVectorStoreConfig,
+} from "./backends/pgvector.js";
+export {
 	createS3VectorsBackend,
 	S3VectorsBackend,
 	type S3VectorsBackendConfig,

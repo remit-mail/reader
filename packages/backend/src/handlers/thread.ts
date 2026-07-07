@@ -197,7 +197,11 @@ export const executeThreadSearch = async (
 			search,
 			options,
 		);
-		const enriched = await enrichThreadRows(window.items, client);
+		const enriched = await enrichThreadRows(
+			window.items,
+			client,
+			accountConfigId,
+		);
 		const filtered = filterByOffRowCriteria(enriched, offRow);
 		return {
 			...(wantResults
@@ -216,7 +220,11 @@ export const executeThreadSearch = async (
 			search,
 			options,
 		);
-		response.items = await enrichThreadRows(window.items, client);
+		response.items = await enrichThreadRows(
+			window.items,
+			client,
+			accountConfigId,
+		);
 		response.continuationToken = window.continuationToken;
 		// The window read already yielded the exact match set, so the count is
 		// its length — no separate Select:COUNT, and count == items.length by
@@ -274,7 +282,7 @@ export const ThreadOperations: Record<
 			buildListThreadsOptions({ continuationToken, order }),
 		);
 
-		const items = await enrichThreadRows(result.items, client);
+		const items = await enrichThreadRows(result.items, client, accountConfigId);
 
 		return {
 			items,
@@ -346,7 +354,7 @@ export const ThreadDetailOperations: Record<
 			}
 		}
 
-		const items = await enrichThreadRows(result.items, client);
+		const items = await enrichThreadRows(result.items, client, accountConfigId);
 
 		return {
 			items,

@@ -15,6 +15,12 @@ export interface VectorStoreService {
 	 * the map. Addresses vectors by key only — never an index-wide scan.
 	 */
 	existingContentHashes(chunkIds: string[]): Promise<Map<string, string>>;
+	/**
+	 * Release any held connections (e.g. a pooled database client). Optional — the
+	 * in-memory and file backends hold nothing; the pgvector backend closes its
+	 * pool so a short-lived process (a test, a one-shot reindex) can exit cleanly.
+	 */
+	close?(): Promise<void>;
 }
 
 const cosineSimilarity = (a: number[], b: number[]): number => {

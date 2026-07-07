@@ -1,14 +1,17 @@
 import { PassThrough, type Readable } from "node:stream";
 import { inspect } from "node:util";
+import type {
+	IAddressRepository,
+	IEnvelopeRepository,
+	IMailboxSpecialUseRepository,
+	IMessageRepository,
+	IThreadMessageRepository,
+	UpdateMessageInput,
+} from "@remit/data-ports";
 import {
 	AddressService,
-	type EnvelopeService,
 	isBulkSender,
-	type MailboxSpecialUseService,
-	type MessageService,
 	NotFoundError,
-	type ThreadMessageService,
-	type UpdateMessageInput,
 } from "@remit/remit-electrodb-service";
 import {
 	MailboxSpecialUse,
@@ -151,7 +154,7 @@ export interface StoreBodyPartContentsResult {
 export type ConnectionGetter = () => Promise<IImapConnection>;
 
 export interface PlacementConfig {
-	mailboxSpecialUseService: MailboxSpecialUseService;
+	mailboxSpecialUseService: IMailboxSpecialUseRepository;
 	messageMoveService: MessageMoveService;
 }
 
@@ -159,11 +162,11 @@ export class BodySyncService {
 	private log: BodySyncLogger;
 
 	constructor(
-		private messageService: MessageService,
+		private messageService: IMessageRepository,
 		private storageService: StorageService,
-		private threadMessageService: ThreadMessageService,
-		private addressService: AddressService,
-		private envelopeService: EnvelopeService,
+		private threadMessageService: IThreadMessageRepository,
+		private addressService: IAddressRepository,
+		private envelopeService: IEnvelopeRepository,
 		logger?: BodySyncLogger,
 		private readonly placementConfig?: PlacementConfig,
 	) {
@@ -437,6 +440,7 @@ export class BodySyncService {
 		// verdict yields no move, so this is a no-op for those.
 		if (resolved.move) {
 			await this.enqueuePlacementMove(
+				accountConfigId,
 				messageId,
 				accountId,
 				resolved.move.destinationMailboxId,
@@ -609,6 +613,7 @@ export class BodySyncService {
 			classification.hasListUnsubscribe ?? false,
 		);
 		await this.addressService.incrementInboundCount(
+			accountConfigId,
 			addressId,
 			Date.now(),
 			bulk,
@@ -624,7 +629,10 @@ export class BodySyncService {
 				accountConfigId,
 				fromEmail,
 			);
-			const address = await this.addressService.getAddress(addressId);
+			const address = await this.addressService.getAddress(
+				accountConfigId,
+				addressId,
+			);
 			if (address.flags?.vip?.value === true) return SenderTrust.Vip;
 			if (address.flags?.wellknown?.value === true)
 				return SenderTrust.Wellknown;
@@ -780,6 +788,7 @@ export class BodySyncService {
 	 * persisted in the single Message update.
 	 */
 	private async enqueuePlacementMove(
+		accountConfigId: string,
 		messageId: string,
 		accountId: string,
 		destinationMailboxId: string,
@@ -787,7 +796,7 @@ export class BodySyncService {
 	): Promise<void> {
 		if (!this.placementConfig) return;
 		await this.placementConfig.messageMoveService
-			.moveMessage(messageId, destinationMailboxId, accountId)
+			.moveMessage(accountConfigId, messageId, destinationMailboxId, accountId)
 			.then(() => {
 				this.log.info(
 					{ messageId, accountId, destination: destinationPath },
@@ -853,7 +862,12 @@ export class BodySyncService {
 			return { stored: 0 };
 		}
 
+		const bodyPartIdByPath = new Map(
+			bodyParts.map((bp) => [bp.partPath, bp.bodyPartId]),
+		);
+
 		let stored = 0;
+		const textContents: { bodyPartId: string; content: string }[] = [];
 		await pMap(
 			pairs,
 			async (entry) => {
@@ -877,9 +891,29 @@ export class BodySyncService {
 					contentType: entry.contentType,
 				});
 				stored++;
+
+				if (
+					entry.contentType.toLowerCase().startsWith("text/") &&
+					entry.content.length > 0
+				) {
+					const bodyPartId = bodyPartIdByPath.get(entry.partPath);
+					if (bodyPartId) {
+						textContents.push({
+							bodyPartId,
+							content: entry.content.toString("utf8"),
+						});
+					}
+				}
 			},
 			{ concurrency: BODY_PART_STORE_CONCURRENCY },
 		);
+
+		if (textContents.length > 0) {
+			await this.envelopeService.upsertBodyPartContents(
+				messageId,
+				textContents,
+			);
+		}
 
 		this.log.info(
 			{ messageId, partCount: pairs.length, stored },
@@ -1027,8 +1061,10 @@ export class BodySyncService {
 		}
 
 		// Get the ThreadMessage by messageId (efficient GSI lookup)
-		const threadMessage =
-			await this.threadMessageService.getByMessageId(messageId);
+		const threadMessage = await this.threadMessageService.getByMessageId(
+			accountConfigId,
+			messageId,
+		);
 
 		// Update ThreadMessage snippet.
 		// Pass the full composite set so that if a future key-attribute addition

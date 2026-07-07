@@ -1,0 +1,37 @@
+{
+  "name": "@remit/auth-service",
+  "version": "1.0.0",
+  "description": "better-auth identity service for the Postgres-parity stack (pg-parity)",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./edge-tls": {
+      "types": "./src/edge-tls.ts",
+      "default": "./src/edge-tls.ts"
+    }
+  },
+  "scripts": {
+    "test:typecheck": "tsgo --noEmit -p tsconfig.json",
+    "test:run": "node --import tsx --test 'src/**/*.test.ts'",
+    "test": "npm run test:typecheck && npm run test:run",
+    "auth:schema:generate": "npx @better-auth/cli generate --config src/auth.gen.ts --output src/schema/auth-schema.ts -y",
+    "auth:schema:push": "npx drizzle-kit push",
+    "fix": "biome check --write src"
+  },
+  "devDependencies": {
+    "@better-auth/cli": "^1.4.21",
+    "drizzle-kit": "^0.31.1",
+    "tsx": "*"
+  },
+  "dependencies": {
+    "better-auth": "^1.6.23",
+    "drizzle-orm": "^0.45.2",
+    "jose": "^6.2.3",
+    "pg": "^8.0.0"
+  }
+}

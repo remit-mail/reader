@@ -110,8 +110,10 @@ export const handleMessageCopy = async (
 						});
 
 						// Update ThreadMessage UID
-						const threadMessage =
-							await threadMessageService.findByMessageId(newMessageId);
+						const threadMessage = await threadMessageService.findByMessageId(
+							account.accountConfigId,
+							newMessageId,
+						);
 						if (threadMessage) {
 							await threadMessageService.update(
 								threadMessage.accountConfigId,

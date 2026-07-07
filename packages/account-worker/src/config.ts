@@ -1,20 +1,13 @@
 import { CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-provider";
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { SQSClient } from "@aws-sdk/client-sqs";
+import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
+import { getClient } from "@remit/backend/client";
 import {
-	AccountConfigService,
-	AccountExportRequestService,
-	AccountService,
-	AccountSettingService,
-	AddressService,
-	EnvelopeService,
-	getClient,
-	MailboxLockService,
-	MailboxService,
-	MessageFlagService,
-	MessageService,
-	OutboxMessageService,
-	ThreadMessageService,
-} from "@remit/remit-electrodb-service";
+	type CascadeDeleter,
+	createCascadeDeleter,
+} from "@remit/drizzle-service";
+import { resolveSqsCredentials } from "@remit/sqs-client";
 import {
 	createStorageService,
 	type StorageService,
@@ -22,12 +15,12 @@ import {
 import { env } from "expect-env";
 import type { CascadeServices } from "./cascade.js";
 
-export const ddbClient = getClient();
-export const tableName = env.DYNAMODB_TABLE_NAME;
-const serviceConfig = { client: ddbClient, table: tableName };
+const remitClient = getClient();
 
 export const cognitoClient = new CognitoIdentityProviderClient({});
-export const sqsClient = new SQSClient({});
+export const sqsClient = new SQSClient({
+	credentials: resolveSqsCredentials(),
+});
 
 // Cognito + SQS env vars are lazy-evaluated. The fanout worker needs them
 // at handler time; the finalize worker imports `cascadeServices` from this
@@ -51,18 +44,18 @@ export const graceSeconds = graceSecondsRaw
 	: 60;
 
 export const cascadeServices: CascadeServices = {
-	accountConfigService: new AccountConfigService(serviceConfig),
-	accountService: new AccountService(serviceConfig),
-	addressService: new AddressService(serviceConfig),
-	mailboxService: new MailboxService(serviceConfig),
-	messageService: new MessageService(serviceConfig),
-	envelopeService: new EnvelopeService(serviceConfig),
-	messageFlagService: new MessageFlagService(serviceConfig),
-	outboxMessageService: new OutboxMessageService(serviceConfig),
-	threadMessageService: new ThreadMessageService(serviceConfig),
-	mailboxLockService: new MailboxLockService(serviceConfig),
-	accountExportRequestService: new AccountExportRequestService(serviceConfig),
-	accountSettingService: new AccountSettingService(serviceConfig),
+	accountConfigService: remitClient.accountConfig,
+	accountService: remitClient.account,
+	addressService: remitClient.address,
+	mailboxService: remitClient.mailbox,
+	messageService: remitClient.message,
+	messageFlagService: remitClient.messageFlag,
+	envelopeService: remitClient.envelope,
+	outboxMessageService: remitClient.outboxMessage,
+	threadMessageService: remitClient.threadMessage,
+	mailboxLockService: remitClient.mailboxLock,
+	accountExportRequestService: remitClient.accountExportRequest,
+	accountSettingService: remitClient.accountSetting,
 };
 
 export const accountConfigService = cascadeServices.accountConfigService;
@@ -74,3 +67,40 @@ export const getStorageService = (): StorageService => {
 	}
 	return storageService;
 };
+
+// DDB document client and table name — used by cascade-delete.ts which performs
+// raw DDB batch deletes via ElectroDB Entity. This path is DynamoDB-only; when
+// DATA_BACKEND=postgres the cascade-delete worker is not exercised.
+const buildDdbDocumentClient = (): DynamoDBDocumentClient => {
+	const isLocalEnv =
+		process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test";
+
+	if (isLocalEnv) {
+		const port = process.env.DYNAMODB_PORT ?? "8000";
+		const endpoint = `http://localhost:${port}`;
+		const ddbClient = new DynamoDBClient({
+			endpoint,
+			credentials: {
+				accessKeyId: "fakeKey",
+				secretAccessKey: "fakeSecretKey",
+			},
+			region: "local",
+		});
+		return DynamoDBDocumentClient.from(ddbClient);
+	}
+
+	return DynamoDBDocumentClient.from(new DynamoDBClient({}));
+};
+
+export const ddbClient = buildDdbDocumentClient();
+export const tableName = process.env.DYNAMODB_TABLE_NAME ?? "";
+
+export const dataBackend = process.env.DATA_BACKEND;
+
+// On the Postgres backend the cascade deletes rows through Drizzle instead of
+// raw DynamoDB BatchWriteItem. Built once here and reused across invocations;
+// left undefined on DynamoDB, where `runCascadeDelete` falls back to DDB.
+export const pgCascadeDeleter: CascadeDeleter | undefined =
+	dataBackend === "postgres"
+		? createCascadeDeleter(env.PG_CONNECTION_URL)
+		: undefined;
