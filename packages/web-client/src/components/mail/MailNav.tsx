@@ -11,7 +11,8 @@
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
 import { useAppShellLayout } from "@remit/ui";
 import { Link } from "@tanstack/react-router";
-import { Settings } from "lucide-react";
+import { LogOut, Settings } from "lucide-react";
+import { AccountSession } from "@/auth/AccountSession";
 import { MailSidebarAdapter } from "@/components/mail/MailSidebarAdapter";
 import { BugReportButton } from "@/components/ui/BugReportButton";
 
@@ -47,6 +48,22 @@ export function MailNav({ accounts, onMailboxSelect }: MailNavProps) {
 					<span className="flex-1 truncate text-left">Settings</span>
 				</Link>
 				<BugReportButton variant="drawer" />
+				<AccountSession>
+					{({ signOut }) => (
+						<button
+							type="button"
+							onClick={() => {
+								onMailboxSelect?.();
+								signOut();
+							}}
+							className="flex min-h-11 w-full items-center gap-2 rounded-md px-2 py-1 text-sm text-fg-muted transition-colors hover:bg-surface hover:text-fg"
+							data-testid="sign-out-button"
+						>
+							<LogOut className="size-4 shrink-0" />
+							<span className="flex-1 truncate text-left">Sign out</span>
+						</button>
+					)}
+				</AccountSession>
 			</div>
 		</div>
 	);

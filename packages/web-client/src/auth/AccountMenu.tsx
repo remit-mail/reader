@@ -1,4 +1,3 @@
-import { useAuthenticator } from "@aws-amplify/ui-react";
 import { Avatar } from "@remit/ui";
 import { useNavigate } from "@tanstack/react-router";
 import { LogOut, Settings } from "lucide-react";
@@ -7,29 +6,15 @@ import {
 	DropdownMenuItem,
 	DropdownMenuSeparator,
 } from "@/components/ui/DropdownMenu";
-import { isCognitoConfigured } from "./amplify-config";
-import { isSignOutVisible } from "./sign-out-visibility";
+import { AccountSession } from "./AccountSession";
 
-const userEmail = (
-	user: { signInDetails?: { loginId?: string }; username?: string } | undefined,
-): string | null => {
-	if (!user) return null;
-	return user.signInDetails?.loginId ?? user.username ?? null;
-};
+interface AccountMenuViewProps {
+	email: string | null;
+	onSignOut: () => void;
+}
 
-const AccountMenuInner = () => {
-	const { authStatus, signOut, user } = useAuthenticator((ctx) => [
-		ctx.authStatus,
-		ctx.signOut,
-		ctx.user,
-	]);
+const AccountMenuView = ({ email, onSignOut }: AccountMenuViewProps) => {
 	const navigate = useNavigate();
-
-	if (!isSignOutVisible({ configured: true, authStatus })) {
-		return null;
-	}
-
-	const email = userEmail(user);
 	const displayName = email ?? "Account";
 
 	return (
@@ -56,7 +41,7 @@ const AccountMenuInner = () => {
 				Settings
 			</DropdownMenuItem>
 			<DropdownMenuSeparator />
-			<DropdownMenuItem onClick={() => signOut()}>
+			<DropdownMenuItem onClick={onSignOut}>
 				<LogOut className="size-4" />
 				Sign out
 			</DropdownMenuItem>
@@ -64,9 +49,10 @@ const AccountMenuInner = () => {
 	);
 };
 
-export const AccountMenu = () => {
-	if (!isCognitoConfigured()) {
-		return null;
-	}
-	return <AccountMenuInner />;
-};
+export const AccountMenu = () => (
+	<AccountSession>
+		{({ email, signOut }) => (
+			<AccountMenuView email={email} onSignOut={signOut} />
+		)}
+	</AccountSession>
+);

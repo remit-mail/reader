@@ -8,7 +8,13 @@ import {
 } from "@remit/ui";
 import { type FormEvent, type ReactNode, useState } from "react";
 import { AppShellSkeleton } from "@/components/layout/AppShellSkeleton";
-import { authClient, isSignUpDisabledError } from "./better-auth-config";
+import { authFooterNote } from "./account-menu-mode";
+import { isCognitoConfigured } from "./amplify-config";
+import {
+	authClient,
+	isBetterAuthEnabled,
+	isSignUpDisabledError,
+} from "./better-auth-config";
 
 type Mode = "signIn" | "signUp";
 
@@ -150,7 +156,12 @@ export const SignInForm = () => {
 					{activeMode === "signUp" ? "Create account" : "Sign in"}
 				</Button>
 			</form>
-			<AuthFooter />
+			<AuthFooter
+				note={authFooterNote({
+					betterAuthEnabled: isBetterAuthEnabled(),
+					cognitoConfigured: isCognitoConfigured(),
+				})}
+			/>
 		</AuthCard>
 	);
 };
