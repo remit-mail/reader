@@ -1,6 +1,37 @@
 import { base36uuidv5, REMIT_NAMESPACE } from "@remit/remit-electrodb-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 
+const LOCAL_BYPASS_VARS = [
+	"LOCAL_ACCOUNT_CONFIG_ID",
+	"LOCAL_COGNITO_SUB",
+] as const;
+
+const isLocalEnv = (env: NodeJS.ProcessEnv): boolean =>
+	env.NODE_ENV === "development" || env.NODE_ENV === "test";
+
+/**
+ * The LOCAL_ACCOUNT_CONFIG_ID / LOCAL_COGNITO_SUB overrides bypass authentication
+ * for local dev and fixtures: with them set, an unauthenticated request is served
+ * as the pinned account. They must never reach a deployed environment. Refuse to
+ * start (throw at module load) if either is present outside a local NODE_ENV — the
+ * same `development`/`test` signal the data layer already uses to decide local vs
+ * deployed. Fail loud rather than silently ignore, so a leaked env var is caught at
+ * boot, not exploited at runtime.
+ */
+export const assertLocalBypassNotInDeployedEnv = (
+	env: NodeJS.ProcessEnv = process.env,
+): void => {
+	if (isLocalEnv(env)) return;
+	const leaked = LOCAL_BYPASS_VARS.filter((name) => {
+		const value = env[name];
+		return typeof value === "string" && value.length > 0;
+	});
+	if (leaked.length === 0) return;
+	throw new Error(
+		`Refusing to start: local auth bypass ${leaked.join(", ")} is set while NODE_ENV=${env.NODE_ENV ?? "(unset)"}. These overrides bypass authentication and must never be present in a deployed environment.`,
+	);
+};
+
 /**
  * Derive a deterministic accountConfigId from a Cognito subject (`sub`) claim.
  * One Cognito user maps to exactly one account config.

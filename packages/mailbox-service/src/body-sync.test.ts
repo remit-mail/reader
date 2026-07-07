@@ -76,6 +76,7 @@ const buildFakeState = (opts: FakeStateOptions) => {
 		retrieve: 0,
 		bodyPartExists: 0,
 		listBodyParts: 0,
+		upsertBodyPartContents: 0,
 	};
 
 	const message = {
@@ -104,7 +105,11 @@ const buildFakeState = (opts: FakeStateOptions) => {
 	} as unknown as MessageService;
 
 	const addressService = {
-		incrementInboundCount: async (addressId: string, now: number) => {
+		incrementInboundCount: async (
+			_accountConfigId: string,
+			addressId: string,
+			now: number,
+		) => {
 			inboundIncrements.push({ addressId, now });
 		},
 	} as unknown as AddressService;
@@ -214,6 +219,9 @@ const buildFakeState = (opts: FakeStateOptions) => {
 			counts.listBodyParts++;
 			assert.equal(id, opts.messageId);
 			return opts.bodyParts ?? [];
+		},
+		upsertBodyPartContents: async () => {
+			counts.upsertBodyPartContents++;
 		},
 	} as unknown as EnvelopeService;
 
@@ -1265,7 +1273,7 @@ describe("BodySyncService.syncBodies (junk rescue isolation)", () => {
 		const messageMoveService = {
 			moveMessage:
 				opts.moveImpl ??
-				(async (messageId: string) => {
+				(async (_accountConfigId: string, messageId: string) => {
 					opts.moveCalls.push(messageId);
 				}),
 		} as unknown as MessageMoveService;
@@ -1477,7 +1485,11 @@ describe("BodySyncService.syncBodies (junk rescue isolation)", () => {
 		} as unknown as MailboxSpecialUseService;
 
 		const messageMoveService = {
-			moveMessage: async (messageId: string, destinationMailboxId: string) => {
+			moveMessage: async (
+				_accountConfigId: string,
+				messageId: string,
+				destinationMailboxId: string,
+			) => {
 				opts.moveCalls.push(`${messageId}->${destinationMailboxId}`);
 			},
 		} as unknown as MessageMoveService;
@@ -1864,7 +1876,7 @@ describe("BodySyncService.syncBodies (pipelined ranged fetch)", () => {
 			incrementInboundCount: async () => {},
 		} as unknown as AddressService;
 		const threadMessageService = {
-			getByMessageId: async (id: string) => ({
+			getByMessageId: async (_accountConfigId: string, id: string) => ({
 				threadMessageId: `tm-${id}`,
 				messageId: id,
 			}),
@@ -2177,7 +2189,7 @@ describe("BodySyncService.syncBodies (single consolidated Message write, #607)",
 		} as unknown as MailboxSpecialUseService;
 		const moveCalls: string[] = [];
 		const messageMoveService = {
-			moveMessage: async (messageId: string) => {
+			moveMessage: async (_accountConfigId: string, messageId: string) => {
 				moveCalls.push(messageId);
 			},
 		} as unknown as MessageMoveService;

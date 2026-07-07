@@ -67,7 +67,7 @@ const handleCreate = async (
 			);
 
 			await managementService
-				.syncCreate(mailboxId, path, scope.getConnection, subscribe)
+				.syncCreate(accountId, mailboxId, path, scope.getConnection, subscribe)
 				.then((result) => {
 					if (result.success) {
 						log.info({ accountId, mailboxId, path }, "Mailbox created on IMAP");
@@ -88,11 +88,11 @@ const handleCreate = async (
 							{ accountId, mailboxId, path },
 							"Mailbox already exists, marking as synced",
 						);
-						await mailboxService.update(mailboxId, {
+						await mailboxService.update(accountId, mailboxId, {
 							syncStatus: MailboxSyncStatus.synced,
 						});
 					} else {
-						await mailboxService.update(mailboxId, {
+						await mailboxService.update(accountId, mailboxId, {
 							syncStatus: MailboxSyncStatus.failed,
 						});
 						throw error;
@@ -138,7 +138,7 @@ const handleRename = async (
 			);
 
 			await managementService
-				.syncRename(mailboxId, oldPath, newPath, scope.getConnection)
+				.syncRename(accountId, mailboxId, oldPath, newPath, scope.getConnection)
 				.then((result) => {
 					if (result.success) {
 						log.info(
@@ -159,10 +159,10 @@ const handleRename = async (
 							{ accountId, mailboxId, oldPath },
 							"Source mailbox not found, deleting local",
 						);
-						await mailboxService.delete(mailboxId);
+						await mailboxService.delete(accountId, mailboxId);
 					} else {
 						// Rollback local rename by restoring old path
-						await mailboxService.update(mailboxId, {
+						await mailboxService.update(accountId, mailboxId, {
 							fullPath: oldPath,
 							oldPath: undefined,
 							syncStatus: MailboxSyncStatus.failed,
@@ -207,7 +207,7 @@ const handleDelete = async (
 			);
 
 			await managementService
-				.syncDelete(mailboxId, path, scope.getConnection)
+				.syncDelete(accountId, mailboxId, path, scope.getConnection)
 				.then((result) => {
 					if (result.success) {
 						log.info({ accountId, mailboxId, path }, "Mailbox deleted on IMAP");
@@ -225,13 +225,13 @@ const handleDelete = async (
 							{ accountId, mailboxId, path },
 							"Mailbox not found on IMAP, deleting local",
 						);
-						await mailboxService.delete(mailboxId);
+						await mailboxService.delete(accountId, mailboxId);
 					} else if (
 						error instanceof Error &&
 						error.message.includes("Cannot delete INBOX")
 					) {
 						// Restore the mailbox
-						await mailboxService.update(mailboxId, {
+						await mailboxService.update(accountId, mailboxId, {
 							syncStatus: MailboxSyncStatus.synced,
 						});
 						log.error(
@@ -241,7 +241,7 @@ const handleDelete = async (
 						// Don't rethrow - this is an expected error
 					} else {
 						// Restore the mailbox on other errors
-						await mailboxService.update(mailboxId, {
+						await mailboxService.update(accountId, mailboxId, {
 							syncStatus: MailboxSyncStatus.failed,
 						});
 						throw error;

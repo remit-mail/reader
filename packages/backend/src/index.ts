@@ -10,13 +10,20 @@ import {
 	type Context as OpenAPIContext,
 	type Request,
 } from "openapi-backend";
+import { assertLocalBypassNotInDeployedEnv } from "./auth.js";
 import { handleError } from "./error.js";
 import { handlers } from "./handlers/index.js";
+import { authenticatePostgresRequest } from "./jwt-auth.js";
 import { normalizeRequest } from "./request.js";
 import { runWithRequestContext } from "./request-context.js";
 import { formatResponse, postResponseHandler } from "./response.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// Boot-time refusal: the local auth-bypass overrides must never be set in a
+// deployed environment. Runs on module load so a leaked env var fails the
+// process at startup rather than silently opening authentication at runtime.
+assertLocalBypassNotInDeployedEnv();
 
 /**
  * Last-resort net for a leaked background rejection.
@@ -146,6 +153,11 @@ const rawHandler = async (event: APIGatewayProxyEvent, context: Context) => {
 	);
 
 	const origin = readOriginHeader(event.headers);
+
+	if (process.env.DATA_BACKEND === "postgres") {
+		const denied = await authenticatePostgresRequest(event);
+		if (denied) return denied;
+	}
 
 	return runWithRequestContext({ origin }, () =>
 		api

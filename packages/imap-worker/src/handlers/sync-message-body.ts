@@ -1,22 +1,9 @@
-import {
-	AccountService,
-	AddressService,
-	EnvelopeService,
-	getClient,
-	MailboxService,
-	MailboxSpecialUseService,
-	MessageService,
-	ThreadMessageService,
-} from "@remit/remit-electrodb-service";
+import { getClient } from "@remit/backend/client";
 import type { Logger } from "@remit/remit-logger-lambda";
 import {
 	BodySyncService,
 	MessageMoveService,
 } from "@remit/mailbox-service";
-import {
-	createKmsDataKeyProvider,
-	createSecretsService,
-} from "@remit/secrets-service";
 import { createStorageService } from "@remit/storage-service";
 import { env } from "expect-env";
 import { isAccountDeleted } from "../account-check.js";
@@ -30,51 +17,7 @@ import type { SyncMessageBodyEvent, SyncMessageBodyTarget } from "../events.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 
-const client = getClient();
-const dataKeyProvider = createKmsDataKeyProvider(env.KMS_KEY_ID);
-const secrets = createSecretsService(dataKeyProvider);
-
-const accountService = new AccountService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-const mailboxService = new MailboxService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-const mailboxSpecialUseService = new MailboxSpecialUseService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-const messageService = new MessageService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-const threadMessageService = new ThreadMessageService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-const addressService = new AddressService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-const envelopeService = new EnvelopeService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-
 const bodySyncEnabledParameterName = env.BODY_SYNC_ENABLED_PARAMETER_NAME;
-
-const messageMgmtQueueUrl = process.env.SQS_QUEUE_URL_MESSAGE_MGMT;
-const messageMoveService = messageMgmtQueueUrl
-	? new MessageMoveService({
-			messageService,
-			mailboxService,
-			mailboxSpecialUseService,
-			threadMessageService,
-			sqsQueueUrl: messageMgmtQueueUrl,
-		})
-	: undefined;
 
 /**
  * The ordered message ids to sync, plus a uid lookup when the event carried the
@@ -169,6 +112,17 @@ export const syncMessageBody = async (
 		return;
 	}
 
+	const {
+		account: accountService,
+		mailbox: mailboxService,
+		mailboxSpecialUse: mailboxSpecialUseService,
+		message: messageService,
+		threadMessage: threadMessageService,
+		address: addressService,
+		envelope: envelopeService,
+		secrets,
+	} = getClient();
+
 	const account = await accountService.get(accountId);
 	if (!account) {
 		throw new Error(`Account ${accountId} not found`);
@@ -177,6 +131,17 @@ export const syncMessageBody = async (
 	if (isAccountDeleted(account, log)) {
 		return;
 	}
+
+	const messageMgmtQueueUrl = process.env.SQS_QUEUE_URL_MESSAGE_MGMT;
+	const messageMoveService = messageMgmtQueueUrl
+		? new MessageMoveService({
+				messageService,
+				mailboxService,
+				mailboxSpecialUseService,
+				threadMessageService,
+				sqsQueueUrl: messageMgmtQueueUrl,
+			})
+		: undefined;
 
 	await withOAuthLifecycle(
 		buildLifecycleDeps(secrets, accountService),
@@ -190,7 +155,7 @@ export const syncMessageBody = async (
 			const borrowed = borrowWarmConnection(accountId, () =>
 				createConnectionScopeWithCredentials(account, credentials),
 			);
-			const mailbox = await mailboxService.get(mailboxId);
+			const mailbox = await mailboxService.get(accountId, mailboxId);
 			const storage = createStorageService();
 
 			// A confident, actionable placement verdict moves mail directly on

@@ -6,6 +6,16 @@
 	"author": "",
 	"type": "module",
 	"main": "src/index.ts",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		},
+		"./client": {
+			"types": "./src/service/dynamodb.ts",
+			"default": "./src/service/dynamodb.ts"
+		}
+	},
 	"scripts": {
 		"test:typecheck": "tsgo --noEmit",
 		"test:run": "node --env-file .env.test --import tsx --test 'src/**/*.test.ts' 'dev-server/**/*.test.ts'",
@@ -18,7 +28,11 @@
 		"@aws-sdk/client-secrets-manager": "*",
 		"@aws-sdk/client-sqs": "*",
 		"@aws-sdk/core": "*",
+		"@remit/data-ports": "*",
 		"@remit/electrodb-entities": "*",
+		"@remit/auth-service": "*",
+		"@remit/drizzle-service": "*",
+		"drizzle-orm": "^0.45.2",
 		"@remit/remit-electrodb-service": "*",
 		"@remit/domain-enums": "*",
 		"@remit/mail-oauth-service": "*",
@@ -27,6 +41,7 @@
 		"@remit/api-openapi-types": "*",
 		"@remit/search-index-worker": "*",
 		"@remit/search-service": "*",
+		"@remit/sqs-client": "*",
 		"@remit/storage-service": "*",
 		"@types/aws-lambda": "*",
 		"@types/express": "^5.0.3",

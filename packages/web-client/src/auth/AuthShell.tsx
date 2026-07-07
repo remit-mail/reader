@@ -8,6 +8,8 @@ import { AuthCard, AuthFooter, AuthHero, Banner } from "@remit/ui";
 import type { ReactNode } from "react";
 import { AppShellSkeleton } from "@/components/layout/AppShellSkeleton";
 import { isCognitoConfigured } from "./amplify-config";
+import { BetterAuthShell } from "./BetterAuthShell";
+import { isBetterAuthEnabled } from "./better-auth-config";
 
 interface AuthShellProps {
 	children: ReactNode;
@@ -235,6 +237,12 @@ const SignInGate = ({ children }: { children: ReactNode }) => {
 };
 
 export const AuthShell = ({ children }: AuthShellProps) => {
+	// Postgres-parity mode: better-auth owns identity. Gated behind an explicit
+	// flag so the Cognito path and the no-auth e2e bypass are unaffected.
+	if (isBetterAuthEnabled()) {
+		return <BetterAuthShell>{children}</BetterAuthShell>;
+	}
+
 	if (!isCognitoConfigured()) {
 		// The dev banner is fixed at the top. Pad content below it AND shrink the
 		// inner `main` (hardcoded `h-dvh`) by the banner height — otherwise main's

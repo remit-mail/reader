@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 import type {
-	CreateMailboxInput as ElectroDBACreateMailboxInput,
+	CreateMailboxInput,
+	IMailboxRepository,
 	MailboxItem,
-	MailboxService,
-} from "@remit/remit-electrodb-service";
+} from "@remit/data-ports";
 import { MailboxSyncStatus } from "@remit/domain-enums";
+import { resolveSqsCredentials } from "@remit/sqs-client";
 
 /**
  * MAILBOX_CREATE event structure (matches remit-imap-worker/events.ts)
@@ -66,16 +67,13 @@ const noopLogger: MailboxQueueLogger = {
 /**
  * Input for creating a mailbox via the queue service
  */
-export type CreateMailboxQueueInput = Omit<
-	ElectroDBACreateMailboxInput,
-	"syncStatus"
->;
+export type CreateMailboxQueueInput = Omit<CreateMailboxInput, "syncStatus">;
 
 /**
  * Configuration for MailboxQueueService
  */
 export interface MailboxQueueConfig {
-	mailboxService: MailboxService;
+	mailboxService: IMailboxRepository;
 	sqsQueueUrl: string;
 	sqsEndpoint?: string;
 	logger?: MailboxQueueLogger;
@@ -91,7 +89,7 @@ export interface MailboxQueueConfig {
  * This follows the same pattern as FlagQueueService (RFC 014).
  */
 export class MailboxQueueService {
-	private mailboxService: MailboxService;
+	private mailboxService: IMailboxRepository;
 	private sqs: SQSClient;
 	private queueUrl: string;
 	private log: MailboxQueueLogger;
@@ -104,6 +102,7 @@ export class MailboxQueueService {
 
 		this.sqs = new SQSClient({
 			endpoint: sqsEndpoint ?? this.deriveEndpoint(sqsQueueUrl),
+			credentials: resolveSqsCredentials(),
 		});
 	}
 
@@ -171,11 +170,11 @@ export class MailboxQueueService {
 		accountId: string,
 	): Promise<MailboxItem> => {
 		// Get current mailbox to capture old path
-		const mailbox = await this.mailboxService.get(mailboxId);
+		const mailbox = await this.mailboxService.get(accountId, mailboxId);
 		const oldPath = mailbox.fullPath;
 
 		// Update the mailbox path and set syncStatus to pending
-		const updated = await this.mailboxService.update(mailboxId, {
+		const updated = await this.mailboxService.update(accountId, mailboxId, {
 			fullPath: newPath,
 			syncStatus: MailboxSyncStatus.pending,
 		});
@@ -216,10 +215,10 @@ export class MailboxQueueService {
 		accountId: string,
 	): Promise<void> => {
 		// Get current mailbox to capture path
-		const mailbox = await this.mailboxService.get(mailboxId);
+		const mailbox = await this.mailboxService.get(accountId, mailboxId);
 
 		// Mark as deleting (soft delete - worker will do actual delete after IMAP sync)
-		await this.mailboxService.update(mailboxId, {
+		await this.mailboxService.update(accountId, mailboxId, {
 			syncStatus: MailboxSyncStatus.deleting,
 		});
 

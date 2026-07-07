@@ -1,9 +1,10 @@
-import {
-	type AccountItem,
-	AccountService,
-	getClient,
-	MailboxService,
-} from "@remit/remit-electrodb-service";
+import { getClient } from "@remit/backend/client";
+import type {
+	AccountItem,
+	IAccountRepository,
+	IMailboxRepository,
+	IMailboxSpecialUseRepository,
+} from "@remit/data-ports";
 import { SyncPhase } from "@remit/domain-enums";
 import type { Logger } from "@remit/remit-logger-lambda";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
@@ -13,11 +14,6 @@ import {
 	MailConnectionError,
 	type MailCredentials,
 } from "@remit/mailbox-service";
-import {
-	createKmsDataKeyProvider,
-	createSecretsService,
-} from "@remit/secrets-service";
-import { env } from "expect-env";
 import pMap from "p-map";
 import { isAccountDeleted, isUnsyncableHost } from "../account-check.js";
 import { emitEvent } from "../emit.js";
@@ -29,27 +25,17 @@ import { orderMailboxesForSync } from "./mailbox-sync-order.js";
 const EVENT_EMIT_CONCURRENCY = 20;
 const SYNC_COOLDOWN_MS = 30_000; // 30 seconds
 
-const client = getClient();
-const dataKeyProvider = createKmsDataKeyProvider(env.KMS_KEY_ID);
-const secrets = createSecretsService(dataKeyProvider);
-
-const accountService = new AccountService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-const mailboxService = new MailboxService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-const mailboxSyncService = new MailboxSyncService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-
 export const syncMailboxes = async (
 	event: SyncMailboxesEvent,
 	log: Logger,
 ): Promise<void> => {
+	const {
+		account: accountService,
+		mailbox: mailboxService,
+		mailboxSpecialUse: mailboxSpecialUseService,
+		secrets,
+	} = getClient();
+
 	const { accountId } = event;
 	log.info({ event: event.type, accountId }, "Handling event");
 
@@ -79,7 +65,14 @@ export const syncMailboxes = async (
 		log,
 		async (credentials) => {
 			try {
-				await syncMailboxesForAccount(account, credentials, log);
+				await syncMailboxesForAccount(
+					account,
+					credentials,
+					mailboxService,
+					mailboxSpecialUseService,
+					accountService,
+					log,
+				);
 			} catch (err) {
 				// Auth failures are handled by the wrapper — rethrow untouched so it
 				// flips the account to reauth_required rather than recording an error
@@ -106,6 +99,9 @@ export const syncMailboxes = async (
 const syncMailboxesForAccount = async (
 	account: AccountItem,
 	credentials: MailCredentials,
+	mailboxService: IMailboxRepository,
+	mailboxSpecialUseService: IMailboxSpecialUseRepository,
+	accountService: IAccountRepository,
 	log: Logger,
 ): Promise<void> => {
 	const { accountId } = account;
@@ -128,6 +124,11 @@ const syncMailboxesForAccount = async (
 	await accountService.update(accountId, {
 		syncPhase: SyncPhase.discovering_mailboxes,
 	});
+
+	const mailboxSyncService = new MailboxSyncService(
+		mailboxService,
+		mailboxSpecialUseService,
+	);
 
 	const result = await mailboxSyncService
 		.syncMailboxes({ accountId }, connection)
@@ -214,7 +215,7 @@ type MailboxSortEntry = {
  */
 const collectAllMailboxes = async (
 	accountId: string,
-	mailboxService: MailboxService,
+	mailboxService: IMailboxRepository,
 ): Promise<MailboxSortEntry[]> => {
 	const mailboxes: MailboxSortEntry[] = [];
 	let continuationToken: string | undefined;

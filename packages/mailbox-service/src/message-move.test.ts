@@ -71,7 +71,7 @@ const createMockMailboxService = (
 ) => {
 	const map = new Map(mailboxes.map((m) => [m.mailboxId, m]));
 	return {
-		get: mock.fn(async (idOrIds: string | string[]) => {
+		get: mock.fn(async (_accountId: string, idOrIds: string | string[]) => {
 			if (Array.isArray(idOrIds)) {
 				return idOrIds
 					.map((id) => map.get(id))
@@ -99,17 +99,20 @@ const createMockThreadMessageService = (rows: FakeThreadMessageRow[]) => {
 		byKey.set(row.threadMessageId, { ...row });
 	}
 
-	const findAllByMessageId = mock.fn(async (messageId: string) =>
-		Array.from(byKey.values()).filter((r) => r.messageId === messageId),
+	const findAllByMessageId = mock.fn(
+		async (_accountConfigId: string, messageId: string) =>
+			Array.from(byKey.values()).filter((r) => r.messageId === messageId),
 	);
 
-	const getByMessageId = mock.fn(async (messageId: string) => {
-		const row = Array.from(byKey.values()).find(
-			(r) => r.messageId === messageId,
-		);
-		if (!row) throw new Error(`ThreadMessage not found for ${messageId}`);
-		return row;
-	});
+	const getByMessageId = mock.fn(
+		async (_accountConfigId: string, messageId: string) => {
+			const row = Array.from(byKey.values()).find(
+				(r) => r.messageId === messageId,
+			);
+			if (!row) throw new Error(`ThreadMessage not found for ${messageId}`);
+			return row;
+		},
+	);
 
 	const update = mock.fn(
 		async (
@@ -218,9 +221,14 @@ describe("MessageMoveService.deleteMessages move-to-trash (#212)", () => {
 			],
 		});
 
-		await ctx.service.deleteMessages([messageId], aliceAccountId, {
-			toTrash: true,
-		});
+		await ctx.service.deleteMessages(
+			aliceAccountConfigId,
+			[messageId],
+			aliceAccountId,
+			{
+				toTrash: true,
+			},
+		);
 
 		const row = ctx.threadMessageService._rows.get(threadMessageId);
 		assert.ok(row, "row must still exist (move-to-trash, not permanent)");
@@ -261,9 +269,14 @@ describe("MessageMoveService.deleteMessages permanent-delete (#212)", () => {
 			],
 		});
 
-		await ctx.service.deleteMessages([messageId], aliceAccountId, {
-			permanent: true,
-		});
+		await ctx.service.deleteMessages(
+			aliceAccountConfigId,
+			[messageId],
+			aliceAccountId,
+			{
+				permanent: true,
+			},
+		);
 
 		assert.equal(
 			ctx.threadMessageService._rows.has(threadMessageId),
@@ -321,9 +334,14 @@ describe("MessageMoveService.deleteMessages permanent-delete (#212)", () => {
 			],
 		});
 
-		await ctx.service.deleteMessages([messageId], aliceAccountId, {
-			permanent: true,
-		});
+		await ctx.service.deleteMessages(
+			aliceAccountConfigId,
+			[messageId],
+			aliceAccountId,
+			{
+				permanent: true,
+			},
+		);
 
 		assert.equal(
 			ctx.threadMessageService._rows.has(tmInInbox),
@@ -367,7 +385,12 @@ describe("MessageMoveService.moveMessage / moveMessages (#236)", () => {
 			],
 		});
 
-		await ctx.service.moveMessage(messageId, projectMailboxId, aliceAccountId);
+		await ctx.service.moveMessage(
+			aliceAccountConfigId,
+			messageId,
+			projectMailboxId,
+			aliceAccountId,
+		);
 
 		const row = ctx.threadMessageService._rows.get(threadMessageId);
 		assert.ok(row, "row must still exist after move");
@@ -425,7 +448,12 @@ describe("MessageMoveService.moveMessage / moveMessages (#236)", () => {
 			],
 		});
 
-		await ctx.service.moveMessage(messageId, inboxId, aliceAccountId);
+		await ctx.service.moveMessage(
+			aliceAccountConfigId,
+			messageId,
+			inboxId,
+			aliceAccountId,
+		);
 
 		const row = ctx.threadMessageService._rows.get(threadMessageId);
 		assert.ok(row);
@@ -479,7 +507,12 @@ describe("MessageMoveService.moveMessage / moveMessages (#236)", () => {
 			],
 		});
 
-		await ctx.service.moveMessages([m1, m2], projectMailboxId, aliceAccountId);
+		await ctx.service.moveMessages(
+			aliceAccountConfigId,
+			[m1, m2],
+			projectMailboxId,
+			aliceAccountId,
+		);
 
 		assert.equal(
 			ctx.threadMessageService._rows.get(tm1)?.mailboxId,

@@ -187,7 +187,10 @@ export const handleMessageMove = async (
 
 								// Update ThreadMessage UID and mailboxId
 								const threadMessage =
-									await threadMessageService.findByMessageId(messageId);
+									await threadMessageService.findByMessageId(
+										account.accountConfigId,
+										messageId,
+									);
 								if (threadMessage) {
 									const args = buildThreadMessageMoveUpdate(
 										threadMessage,

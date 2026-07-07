@@ -53,6 +53,7 @@ import {
 	CreateFailedConflictError,
 	EnvelopeService,
 	MailboxService,
+	MailboxSpecialUseService,
 	MessageService,
 	REMIT_NAMESPACE,
 	ThreadMessageService,
@@ -100,7 +101,7 @@ const createDdbConfig = () => {
 		region: "local",
 	});
 	const client = DynamoDBDocumentClient.from(ddbClient);
-	return { client, table, rawClient: ddbClient };
+	return { client, table };
 };
 
 const ddb = createDdbConfig();
@@ -109,6 +110,7 @@ const serviceConfig = { client: ddb.client, table: ddb.table };
 const accountConfigService = new AccountConfigService(serviceConfig);
 const accountService = new AccountService(serviceConfig);
 const mailboxService = new MailboxService(serviceConfig);
+const mailboxSpecialUseService = new MailboxSpecialUseService(serviceConfig);
 const messageService = new MessageService(serviceConfig);
 const envelopeService = new EnvelopeService(serviceConfig);
 const addressService = new AddressService(serviceConfig);
@@ -188,10 +190,10 @@ const onboardAccount = async (
 	let imapMessageCount = 0;
 	let expectedCorpusSize = 0;
 	try {
-		const mailboxSync = new MailboxSyncService({
-			client: ddb.rawClient,
-			table: ddb.table,
-		});
+		const mailboxSync = new MailboxSyncService(
+			mailboxService,
+			mailboxSpecialUseService,
+		);
 		await mailboxSync.syncMailboxes({ accountId }, connection);
 
 		await connection.openBox("INBOX", true);

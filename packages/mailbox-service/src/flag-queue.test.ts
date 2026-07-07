@@ -43,11 +43,13 @@ const createMockMailboxService = (initialUnseenCount = 5) => {
 	const counts = new Map<string, number>();
 
 	return {
-		adjustUnseenCount: mock.fn(async (mailboxId: string, delta: number) => {
-			const current = counts.get(mailboxId) ?? initialUnseenCount;
-			const next = Math.max(0, current + delta);
-			counts.set(mailboxId, next);
-		}),
+		adjustUnseenCount: mock.fn(
+			async (_accountId: string, mailboxId: string, delta: number) => {
+				const current = counts.get(mailboxId) ?? initialUnseenCount;
+				const next = Math.max(0, current + delta);
+				counts.set(mailboxId, next);
+			},
+		),
 		_counts: counts,
 		_setUnseenCount: (mailboxId: string, count: number) => {
 			counts.set(mailboxId, count);
@@ -60,6 +62,8 @@ const createMockMailboxService = (initialUnseenCount = 5) => {
 		_getUnseenCount: (mailboxId: string) => number;
 	};
 };
+
+const TEST_ACCOUNT_CONFIG_ID = "test-account-config-id";
 
 const createMockThreadMessageService = () => {
 	const threadMessages = new Map<
@@ -79,13 +83,17 @@ const createMockThreadMessageService = () => {
 	>();
 
 	return {
-		findByMessageId: mock.fn(async (messageId: string) => {
-			return threadMessages.get(messageId) ?? null;
-		}),
-		findAllByMessageId: mock.fn(async (messageId: string) => {
-			const tm = threadMessages.get(messageId);
-			return tm ? [tm] : [];
-		}),
+		findByMessageId: mock.fn(
+			async (_accountConfigId: string, messageId: string) => {
+				return threadMessages.get(messageId) ?? null;
+			},
+		),
+		findAllByMessageId: mock.fn(
+			async (_accountConfigId: string, messageId: string) => {
+				const tm = threadMessages.get(messageId);
+				return tm ? [tm] : [];
+			},
+		),
 		update: mock.fn(
 			async (
 				_accountConfigId: string,
@@ -169,9 +177,14 @@ describe("FlagQueueService.updateFlags", () => {
 	it("marks message as read when isRead is true", async () => {
 		const { service, config } = createTestConfig();
 
-		const result = await service.updateFlags(messageId, accountId, {
-			isRead: true,
-		});
+		const result = await service.updateFlags(
+			TEST_ACCOUNT_CONFIG_ID,
+			messageId,
+			accountId,
+			{
+				isRead: true,
+			},
+		);
 
 		assert.strictEqual(result.messageId, messageId);
 		assert.strictEqual(result.isRead, true);
@@ -197,9 +210,14 @@ describe("FlagQueueService.updateFlags", () => {
 		>;
 		flagService._flags.set(messageId, new Set([MessageSystemFlag.Seen]));
 
-		const result = await service.updateFlags(messageId, accountId, {
-			isRead: false,
-		});
+		const result = await service.updateFlags(
+			TEST_ACCOUNT_CONFIG_ID,
+			messageId,
+			accountId,
+			{
+				isRead: false,
+			},
+		);
 
 		assert.strictEqual(result.messageId, messageId);
 		assert.strictEqual(result.isRead, false);
@@ -236,7 +254,9 @@ describe("FlagQueueService.updateFlags", () => {
 			hasAttachment: false,
 		});
 
-		await service.updateFlags(messageId, accountId, { isRead: true });
+		await service.updateFlags(TEST_ACCOUNT_CONFIG_ID, messageId, accountId, {
+			isRead: true,
+		});
 
 		const updateCalls = (
 			threadMessageService.update as unknown as ReturnType<typeof mock.fn>
@@ -275,7 +295,9 @@ describe("FlagQueueService.updateFlags", () => {
 			hasAttachment: false,
 		});
 
-		await service.updateFlags(messageId, accountId, { isStarred: true });
+		await service.updateFlags(TEST_ACCOUNT_CONFIG_ID, messageId, accountId, {
+			isStarred: true,
+		});
 
 		const updateCalls = (
 			threadMessageService.update as unknown as ReturnType<typeof mock.fn>
@@ -302,9 +324,14 @@ describe("FlagQueueService.updateFlags", () => {
 	it("marks message as starred when isStarred is true", async () => {
 		const { service, config, mockSQS } = createTestConfig();
 
-		const result = await service.updateFlags(messageId, accountId, {
-			isStarred: true,
-		});
+		const result = await service.updateFlags(
+			TEST_ACCOUNT_CONFIG_ID,
+			messageId,
+			accountId,
+			{
+				isStarred: true,
+			},
+		);
 
 		assert.strictEqual(result.messageId, messageId);
 		assert.strictEqual(result.isStarred, true);
@@ -338,9 +365,14 @@ describe("FlagQueueService.updateFlags", () => {
 		>;
 		flagService._flags.set(messageId, new Set([MessageSystemFlag.Flagged]));
 
-		const result = await service.updateFlags(messageId, accountId, {
-			isStarred: false,
-		});
+		const result = await service.updateFlags(
+			TEST_ACCOUNT_CONFIG_ID,
+			messageId,
+			accountId,
+			{
+				isStarred: false,
+			},
+		);
 
 		assert.strictEqual(result.messageId, messageId);
 		assert.strictEqual(result.isStarred, false);
@@ -375,7 +407,7 @@ describe("FlagQueueService.updateFlags", () => {
 			hasAttachment: false,
 		});
 
-		await service.updateFlags(messageId, accountId, {
+		await service.updateFlags(TEST_ACCOUNT_CONFIG_ID, messageId, accountId, {
 			starColor: StarColor.Blue,
 		});
 
@@ -408,7 +440,7 @@ describe("FlagQueueService.updateFlags", () => {
 			hasAttachment: false,
 		});
 
-		await service.updateFlags(messageId, accountId, {
+		await service.updateFlags(TEST_ACCOUNT_CONFIG_ID, messageId, accountId, {
 			isStarred: true,
 			starColor: StarColor.Red,
 		});
@@ -446,7 +478,7 @@ describe("FlagQueueService.updateFlags", () => {
 			hasAttachment: false,
 		});
 
-		await service.updateFlags(messageId, accountId, {
+		await service.updateFlags(TEST_ACCOUNT_CONFIG_ID, messageId, accountId, {
 			isRead: true,
 			isStarred: true,
 		});
@@ -470,7 +502,7 @@ describe("FlagQueueService.updateFlags", () => {
 		const { service, mockSQS } = createTestConfig();
 
 		// Call with empty input
-		await service.updateFlags(messageId, accountId, {});
+		await service.updateFlags(TEST_ACCOUNT_CONFIG_ID, messageId, accountId, {});
 
 		// Verify no SQS message was sent
 		assert.strictEqual(mockSQS._sentMessages.length, 0);
@@ -481,7 +513,7 @@ describe("FlagQueueService.updateFlags", () => {
 
 		// Don't add a thread message - it should skip the update
 
-		await service.updateFlags(messageId, accountId, {
+		await service.updateFlags(TEST_ACCOUNT_CONFIG_ID, messageId, accountId, {
 			isStarred: true,
 		});
 
@@ -506,7 +538,9 @@ describe("FlagQueueService SQS FIFO handling", () => {
 				"https://sqs.eu-west-1.amazonaws.com/123456789012/remit-dev-flags.fifo",
 		});
 
-		await service.updateFlags(messageId, accountId, { isRead: true });
+		await service.updateFlags(TEST_ACCOUNT_CONFIG_ID, messageId, accountId, {
+			isRead: true,
+		});
 
 		assert.strictEqual(mockSQS._sentMessages.length, 1);
 		const sent = mockSQS._sentMessages[0];
@@ -521,7 +555,9 @@ describe("FlagQueueService SQS FIFO handling", () => {
 				"https://sqs.eu-west-1.amazonaws.com/123456789012/remit-dev-flags",
 		});
 
-		await service.updateFlags(messageId, accountId, { isRead: true });
+		await service.updateFlags(TEST_ACCOUNT_CONFIG_ID, messageId, accountId, {
+			isRead: true,
+		});
 
 		assert.strictEqual(mockSQS._sentMessages.length, 1);
 		const sent = mockSQS._sentMessages[0];
@@ -541,14 +577,17 @@ describe("FlagQueueService.updateFlags unseenCount adjustment", () => {
 		mailboxService._setUnseenCount(mailboxId, 5);
 		const { service } = createTestConfig({ mailboxService });
 
-		await service.updateFlags(messageId, accountId, { isRead: true });
+		await service.updateFlags(TEST_ACCOUNT_CONFIG_ID, messageId, accountId, {
+			isRead: true,
+		});
 
 		const adjustCalls = (
 			mailboxService.adjustUnseenCount as unknown as ReturnType<typeof mock.fn>
 		).mock.calls;
 		assert.strictEqual(adjustCalls.length, 1);
-		assert.strictEqual(adjustCalls[0].arguments[0], mailboxId);
-		assert.strictEqual(adjustCalls[0].arguments[1], -1);
+		assert.strictEqual(adjustCalls[0].arguments[0], accountId);
+		assert.strictEqual(adjustCalls[0].arguments[1], mailboxId);
+		assert.strictEqual(adjustCalls[0].arguments[2], -1);
 		assert.strictEqual(mailboxService._getUnseenCount(mailboxId), 4);
 	});
 
@@ -563,14 +602,17 @@ describe("FlagQueueService.updateFlags unseenCount adjustment", () => {
 		>;
 		flagService._flags.set(messageId, new Set([MessageSystemFlag.Seen]));
 
-		await service.updateFlags(messageId, accountId, { isRead: false });
+		await service.updateFlags(TEST_ACCOUNT_CONFIG_ID, messageId, accountId, {
+			isRead: false,
+		});
 
 		const adjustCalls = (
 			mailboxService.adjustUnseenCount as unknown as ReturnType<typeof mock.fn>
 		).mock.calls;
 		assert.strictEqual(adjustCalls.length, 1);
-		assert.strictEqual(adjustCalls[0].arguments[0], mailboxId);
-		assert.strictEqual(adjustCalls[0].arguments[1], 1);
+		assert.strictEqual(adjustCalls[0].arguments[0], accountId);
+		assert.strictEqual(adjustCalls[0].arguments[1], mailboxId);
+		assert.strictEqual(adjustCalls[0].arguments[2], 1);
 		assert.strictEqual(mailboxService._getUnseenCount(mailboxId), 6);
 	});
 
@@ -585,7 +627,9 @@ describe("FlagQueueService.updateFlags unseenCount adjustment", () => {
 		>;
 		flagService._flags.set(messageId, new Set([MessageSystemFlag.Seen]));
 
-		await service.updateFlags(messageId, accountId, { isRead: true });
+		await service.updateFlags(TEST_ACCOUNT_CONFIG_ID, messageId, accountId, {
+			isRead: true,
+		});
 
 		const adjustCalls = (
 			mailboxService.adjustUnseenCount as unknown as ReturnType<typeof mock.fn>
@@ -599,7 +643,9 @@ describe("FlagQueueService.updateFlags unseenCount adjustment", () => {
 		mailboxService._setUnseenCount(mailboxId, 5);
 		const { service } = createTestConfig({ mailboxService });
 
-		await service.updateFlags(messageId, accountId, { isStarred: true });
+		await service.updateFlags(TEST_ACCOUNT_CONFIG_ID, messageId, accountId, {
+			isStarred: true,
+		});
 
 		const adjustCalls = (
 			mailboxService.adjustUnseenCount as unknown as ReturnType<typeof mock.fn>
@@ -613,7 +659,9 @@ describe("FlagQueueService.updateFlags unseenCount adjustment", () => {
 		const { service, config } = createTestConfig({ mailboxService });
 
 		// First decrement: 1 -> 0
-		await service.updateFlags(messageId, accountId, { isRead: true });
+		await service.updateFlags(TEST_ACCOUNT_CONFIG_ID, messageId, accountId, {
+			isRead: true,
+		});
 		assert.strictEqual(mailboxService._getUnseenCount(mailboxId), 0);
 
 		// Reset Seen flag so wasRead becomes false again
@@ -623,7 +671,9 @@ describe("FlagQueueService.updateFlags unseenCount adjustment", () => {
 		flagService._flags.set(messageId, new Set());
 
 		// Second decrement: would go to -1, but mailboxService.adjustUnseenCount clamps to 0
-		await service.updateFlags(messageId, accountId, { isRead: true });
+		await service.updateFlags(TEST_ACCOUNT_CONFIG_ID, messageId, accountId, {
+			isRead: true,
+		});
 		assert.strictEqual(mailboxService._getUnseenCount(mailboxId), 0);
 	});
 });
@@ -638,7 +688,7 @@ describe("FlagQueueService.markAsRead/markAsUnread unseenCount adjustment", () =
 		mailboxService._setUnseenCount(mailboxId, 3);
 		const { service } = createTestConfig({ mailboxService });
 
-		await service.markAsRead(messageId, accountId);
+		await service.markAsRead(TEST_ACCOUNT_CONFIG_ID, messageId, accountId);
 
 		assert.strictEqual(mailboxService._getUnseenCount(mailboxId), 2);
 	});
@@ -653,7 +703,7 @@ describe("FlagQueueService.markAsRead/markAsUnread unseenCount adjustment", () =
 		>;
 		flagService._flags.set(messageId, new Set([MessageSystemFlag.Seen]));
 
-		await service.markAsRead(messageId, accountId);
+		await service.markAsRead(TEST_ACCOUNT_CONFIG_ID, messageId, accountId);
 
 		assert.strictEqual(mailboxService._getUnseenCount(mailboxId), 3);
 	});
@@ -668,7 +718,7 @@ describe("FlagQueueService.markAsRead/markAsUnread unseenCount adjustment", () =
 		>;
 		flagService._flags.set(messageId, new Set([MessageSystemFlag.Seen]));
 
-		await service.markAsUnread(messageId, accountId);
+		await service.markAsUnread(TEST_ACCOUNT_CONFIG_ID, messageId, accountId);
 
 		assert.strictEqual(mailboxService._getUnseenCount(mailboxId), 4);
 	});
@@ -678,7 +728,7 @@ describe("FlagQueueService.markAsRead/markAsUnread unseenCount adjustment", () =
 		mailboxService._setUnseenCount(mailboxId, 3);
 		const { service } = createTestConfig({ mailboxService });
 
-		await service.markAsUnread(messageId, accountId);
+		await service.markAsUnread(TEST_ACCOUNT_CONFIG_ID, messageId, accountId);
 
 		assert.strictEqual(mailboxService._getUnseenCount(mailboxId), 3);
 	});
@@ -726,7 +776,9 @@ describe("FlagQueueService enqueue failure containment", () => {
 		service.sqs = deferredFailingSQS();
 
 		await assert.doesNotReject(
-			service.updateFlags(messageId, accountId, { isRead: true }),
+			service.updateFlags(TEST_ACCOUNT_CONFIG_ID, messageId, accountId, {
+				isRead: true,
+			}),
 		);
 	});
 
@@ -744,7 +796,9 @@ describe("FlagQueueService enqueue failure containment", () => {
 
 		let readResolved = false;
 		try {
-			void service.updateFlags(messageId, accountId, { isStarred: true });
+			void service.updateFlags(TEST_ACCOUNT_CONFIG_ID, messageId, accountId, {
+				isStarred: true,
+			});
 			await new Promise((resolve) => setImmediate(resolve)).then(() => {
 				readResolved = true;
 			});
@@ -764,7 +818,9 @@ describe("FlagQueueService enqueue failure containment", () => {
 		// @ts-expect-error - swap in a deferred-failing SQS for the down-queue case
 		service.sqs = deferredFailingSQS();
 
-		await service.updateFlags(messageId, accountId, { isRead: true });
+		await service.updateFlags(TEST_ACCOUNT_CONFIG_ID, messageId, accountId, {
+			isRead: true,
+		});
 
 		const alerted = errors.find(
 			(e) => e.fields.alert === "flag_sync_enqueue_failed",

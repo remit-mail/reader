@@ -118,12 +118,14 @@ export class MailboxManagementService {
 	 * Sync a CREATE operation to IMAP.
 	 * Called by worker after dequeuing MAILBOX_CREATE event.
 	 *
+	 * @param accountId - Account that owns the mailbox (tenant scope)
 	 * @param mailboxId - ID of the mailbox to create
 	 * @param path - Path of the mailbox to create
 	 * @param getConnection - Factory to get IMAP connection
 	 * @param subscribe - Whether to subscribe after creation
 	 */
 	syncCreate = async (
+		accountId: string,
 		mailboxId: string,
 		path: string,
 		getConnection: () => Promise<IImapConnection>,
@@ -151,7 +153,7 @@ export class MailboxManagementService {
 			// Open the mailbox to get UIDVALIDITY and other status info
 			const status = await connection.openBox(path, true);
 
-			await this.mailboxService.update(mailboxId, {
+			await this.mailboxService.update(accountId, mailboxId, {
 				uidValidity: status.uidvalidity,
 				uidNext: status.uidnext,
 				messageCount: status.messages.total,
@@ -161,7 +163,7 @@ export class MailboxManagementService {
 			await connection.closeBox();
 		} else {
 			// Mark as synced even if we couldn't get full info
-			await this.mailboxService.update(mailboxId, {
+			await this.mailboxService.update(accountId, mailboxId, {
 				syncStatus: MailboxSyncStatus.synced,
 			});
 		}
@@ -173,12 +175,14 @@ export class MailboxManagementService {
 	 * Sync a RENAME operation to IMAP.
 	 * Called by worker after dequeuing MAILBOX_RENAME event.
 	 *
+	 * @param accountId - Account that owns the mailbox (tenant scope)
 	 * @param mailboxId - ID of the mailbox to rename
 	 * @param oldPath - Current path of the mailbox
 	 * @param newPath - New path for the mailbox
 	 * @param getConnection - Factory to get IMAP connection
 	 */
 	syncRename = async (
+		accountId: string,
 		mailboxId: string,
 		oldPath: string,
 		newPath: string,
@@ -194,7 +198,7 @@ export class MailboxManagementService {
 		);
 
 		// Clear oldPath and mark as synced
-		await this.mailboxService.update(mailboxId, {
+		await this.mailboxService.update(accountId, mailboxId, {
 			oldPath: undefined,
 			syncStatus: MailboxSyncStatus.synced,
 		});
@@ -206,11 +210,13 @@ export class MailboxManagementService {
 	 * Sync a DELETE operation to IMAP.
 	 * Called by worker after dequeuing MAILBOX_DELETE event.
 	 *
+	 * @param accountId - Account that owns the mailbox (tenant scope)
 	 * @param mailboxId - ID of the mailbox to delete
 	 * @param path - Path of the mailbox to delete
 	 * @param getConnection - Factory to get IMAP connection
 	 */
 	syncDelete = async (
+		accountId: string,
 		mailboxId: string,
 		path: string,
 		getConnection: () => Promise<IImapConnection>,
@@ -222,7 +228,7 @@ export class MailboxManagementService {
 		this.log.info({ mailboxId, path }, "Deleted mailbox on IMAP server");
 
 		// Delete the mailbox entity from DynamoDB
-		await this.mailboxService.delete(mailboxId);
+		await this.mailboxService.delete(accountId, mailboxId);
 
 		return { success: true };
 	};

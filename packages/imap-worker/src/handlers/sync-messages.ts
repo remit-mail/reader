@@ -1,15 +1,14 @@
-import {
-	type AccountItem,
-	AccountService,
-	AddressService,
-	EnvelopeService,
-	getClient,
-	MailboxLockService,
-	MailboxService,
-	MessageService,
-	NotFoundError,
-	ThreadMessageService,
-} from "@remit/remit-electrodb-service";
+import { getClient } from "@remit/backend/client";
+import type {
+	AccountItem,
+	IAccountRepository,
+	IAddressRepository,
+	IEnvelopeRepository,
+	IMailboxRepository,
+	IMessageRepository,
+	IThreadMessageRepository,
+	IUnitOfWork,
+} from "@remit/data-ports";
 import { SyncPhase } from "@remit/domain-enums";
 import { type Logger, MetricUnit, metrics } from "@remit/remit-logger-lambda";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
@@ -20,11 +19,6 @@ import {
 	MessageSyncService,
 	type SyncedMessage,
 } from "@remit/mailbox-service";
-import {
-	createKmsDataKeyProvider,
-	createSecretsService,
-} from "@remit/secrets-service";
-import { env } from "expect-env";
 import pMap from "p-map";
 import { isAccountDeleted, isUnsyncableHost } from "../account-check.js";
 import { emitEvent } from "../emit.js";
@@ -49,39 +43,6 @@ export const batchSyncedMessages = (
 	return batches;
 };
 
-const client = getClient();
-const dataKeyProvider = createKmsDataKeyProvider(env.KMS_KEY_ID);
-const secrets = createSecretsService(dataKeyProvider);
-
-const accountService = new AccountService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-const mailboxService = new MailboxService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-const messageService = new MessageService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-const envelopeService = new EnvelopeService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-const addressService = new AddressService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-const threadMessageService = new ThreadMessageService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-const mailboxLockService = new MailboxLockService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-
 export const syncMessages = async (
 	event: SyncMessagesEvent,
 	log: Logger,
@@ -95,30 +56,42 @@ export const syncMessages = async (
 		"Handling event",
 	);
 
+	const {
+		account: accountService,
+		mailbox: mailboxService,
+		message: messageService,
+		envelope: envelopeService,
+		address: addressService,
+		threadMessage: threadMessageService,
+		mailboxLock: mailboxLockService,
+		unitOfWork,
+		secrets,
+	} = getClient();
+
 	// A deleted account never has its DDB row purged in lockstep with the queued
 	// SYNC_MESSAGES triggers, so a trigger can outlive its account. The lookup
-	// then raises NotFoundError, which can never succeed on retry — it would
-	// retry to maxReceiveCount and poison the messages DLQ forever (issue #911).
-	// Treat a missing account as terminal: ack the event with a WARN. Genuinely
-	// transient failures (throttle, network) surface as other errors and still
-	// propagate to be retried.
+	// then returns null (or throws a named NotFoundError), which can never succeed
+	// on retry — it would retry to maxReceiveCount and poison the messages DLQ
+	// forever (issue #911). Treat a missing account as terminal: ack the event
+	// with a WARN. Genuinely transient failures (throttle, network) surface as
+	// other errors and still propagate to be retried.
 	let account: AccountItem;
-	try {
-		account = await accountService.get(event.accountId);
-	} catch (err) {
-		if (err instanceof NotFoundError) {
-			log.warn(
-				{
-					accountId: event.accountId,
-					mailboxId: event.mailboxId,
-					eventId: event.eventId,
-				},
-				"Skipping SYNC_MESSAGES: account no longer exists",
-			);
-			return;
-		}
+	const rawAccount = await accountService.get(event.accountId).catch((err) => {
+		if ((err as { name?: string })?.name === "NotFoundError") return null;
 		throw err;
+	});
+	if (!rawAccount) {
+		log.warn(
+			{
+				accountId: event.accountId,
+				mailboxId: event.mailboxId,
+				eventId: event.eventId,
+			},
+			"Skipping SYNC_MESSAGES: account no longer exists",
+		);
+		return;
 	}
+	account = rawAccount;
 
 	if (isAccountDeleted(account, log)) {
 		return;
@@ -146,7 +119,21 @@ export const syncMessages = async (
 				event.accountId,
 				async () => {
 					try {
-						await syncMailboxMessages(event, account, credentials, log);
+						await syncMailboxMessages(
+							event,
+							account,
+							credentials,
+							{
+								accountService,
+								mailboxService,
+								messageService,
+								envelopeService,
+								addressService,
+								threadMessageService,
+								unitOfWork,
+							},
+							log,
+						);
 					} catch (err) {
 						// Auth failures are handled by the wrapper — rethrow untouched.
 						if (
@@ -177,6 +164,16 @@ export const syncMessages = async (
 	);
 };
 
+interface SyncDeps {
+	accountService: IAccountRepository;
+	mailboxService: IMailboxRepository;
+	messageService: IMessageRepository;
+	envelopeService: IEnvelopeRepository;
+	addressService: IAddressRepository;
+	threadMessageService: IThreadMessageRepository;
+	unitOfWork?: IUnitOfWork;
+}
+
 /**
  * Sync one batch of messages for a mailbox. Runs under the mailbox lock.
  */
@@ -184,8 +181,19 @@ const syncMailboxMessages = async (
 	event: SyncMessagesEvent,
 	account: AccountItem,
 	credentials: MailCredentials,
+	deps: SyncDeps,
 	log: Logger,
 ): Promise<void> => {
+	const {
+		accountService,
+		mailboxService,
+		messageService,
+		envelopeService,
+		addressService,
+		threadMessageService,
+		unitOfWork,
+	} = deps;
+
 	// Create a managed connection factory that caches and reuses the connection
 	const connectionFactory = createManagedConnectionFactory({
 		user: account.username,
@@ -196,7 +204,7 @@ const syncMailboxMessages = async (
 	});
 
 	// Get the mailbox - it must exist (should have been created by mailbox sync)
-	const mailbox = await mailboxService.get(event.mailboxId);
+	const mailbox = await mailboxService.get(account.accountId, event.mailboxId);
 	const mailboxId = mailbox.mailboxId;
 	const isInbox = mailbox.fullPath.toUpperCase() === "INBOX";
 
@@ -208,6 +216,7 @@ const syncMailboxMessages = async (
 		addressService,
 		threadMessageService,
 		log,
+		unitOfWork,
 	);
 
 	// Connect once, reuse for the entire sync operation
@@ -294,7 +303,7 @@ const syncMailboxMessages = async (
 	const firstCompletionThisRound =
 		previousCompletedAt === 0 || previousCompletedAt < roundStartedAt;
 
-	await mailboxService.update(mailboxId, {
+	await mailboxService.update(account.accountId, mailboxId, {
 		initialSyncCompletedAt: Date.now(),
 	});
 

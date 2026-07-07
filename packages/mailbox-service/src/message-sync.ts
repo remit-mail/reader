@@ -1,9 +1,16 @@
+import type {
+	BodyPartUpsertInput,
+	IAddressRepository,
+	IEnvelopeRepository,
+	IMailboxRepository,
+	IMessageRepository,
+	IThreadMessageRepository,
+	IUnitOfWork,
+} from "@remit/data-ports";
 import {
 	AddressService,
-	type BodyPartUpsertInput,
 	deriveBodyPartId,
 	EnvelopeService,
-	type MailboxService,
 	MessageService,
 	ThreadMessageService,
 } from "@remit/remit-electrodb-service";
@@ -11,6 +18,7 @@ import { AddressRole } from "@remit/domain-enums";
 import pMap from "p-map";
 import type { ManagedConnectionFactory } from "./connection-factory.js";
 import { ROOT_PART_PATH, walkMimeStructure } from "./mime-walker.js";
+import { PassThroughUnitOfWork } from "./pass-through-unit-of-work.js";
 import type {
 	ImapAddress,
 	ImapBodyStructure,
@@ -19,7 +27,6 @@ import type {
 } from "./types.js";
 
 const MESSAGE_SAVE_CONCURRENCY = 10;
-const ADDRESS_SAVE_CONCURRENCY = 10;
 
 // Some IMAP servers (e.g. Hostnet) emit these literal placeholders in the
 // ENVELOPE when they cannot parse a From header, instead of leaving the
@@ -124,17 +131,27 @@ export interface SyncMessagesResult {
 
 export class MessageSyncService {
 	private log: SyncLogger;
+	private unitOfWork: IUnitOfWork;
 
 	constructor(
 		private connectionFactory: ManagedConnectionFactory,
-		private mailboxService: MailboxService,
-		private messageService: MessageService,
-		private envelopeService: EnvelopeService,
-		private addressService: AddressService,
-		private threadMessageService: ThreadMessageService,
+		private mailboxService: IMailboxRepository,
+		messageService: IMessageRepository,
+		envelopeService: IEnvelopeRepository,
+		addressService: IAddressRepository,
+		threadMessageService: IThreadMessageRepository,
 		logger?: SyncLogger,
+		unitOfWork?: IUnitOfWork,
 	) {
 		this.log = logger ?? noopLogger;
+		this.unitOfWork =
+			unitOfWork ??
+			new PassThroughUnitOfWork({
+				message: messageService,
+				envelope: envelopeService,
+				address: addressService,
+				threadMessage: threadMessageService,
+			});
 	}
 
 	/**
@@ -158,7 +175,7 @@ export class MessageSyncService {
 		accountConfigId: string,
 		batchSize = 50,
 	): Promise<SyncMessagesResult> {
-		const mailbox = await this.mailboxService.get(mailboxId);
+		const mailbox = await this.mailboxService.get(accountId, mailboxId);
 		const mailboxPath = mailbox.fullPath;
 		const lastSyncUid = mailbox.lastSyncUid || 0;
 		const highWaterMarkUid = mailbox.highWaterMarkUid || 0;
@@ -171,7 +188,7 @@ export class MessageSyncService {
 
 		if (uids.length === 0) {
 			// Still update counts even if no new messages to sync
-			await this.mailboxService.update(mailboxId, {
+			await this.mailboxService.update(accountId, mailboxId, {
 				lastMessageSyncAt: Date.now(),
 				uidValidity: box.uidvalidity,
 				messageCount: box.messageCount,
@@ -287,7 +304,7 @@ export class MessageSyncService {
 				? backfillMin
 				: lastSyncUid;
 
-		await this.mailboxService.update(mailboxId, {
+		await this.mailboxService.update(accountId, mailboxId, {
 			lastSyncUid: newLastSyncUid,
 			highWaterMarkUid: newHighWaterMark,
 			lastMessageSyncAt: Date.now(),
@@ -477,76 +494,74 @@ export class MessageSyncService {
 		// and must not feed this mailbox's watermark / body-sync (#634).
 		let owned = false;
 
-		// Invariant: ThreadMessage ⟹ Message ⟹ Envelope. The list path anchors on
-		// ThreadMessage and tolerates a missing Message only as a degraded row (not
-		// a 404), so a ThreadMessage must never outlive its Message. Write in that
-		// dependency order — Envelope/addresses/body first, then the Message, then
-		// the ThreadMessage last (#1072). A crash leaves at worst a Message with no
-		// ThreadMessage (openable by direct fetch) or an orphan Envelope; next sync
-		// re-runs the full save and heals the partial state.
+		// One unit of work for the whole message: on Postgres these repos are
+		// transaction-bound, so the Envelope, addresses, Message, BodyParts and
+		// ThreadMessage — and the transactional-outbox rows the Message write
+		// appends — all commit together. A throw anywhere rolls the whole set
+		// back, so a failed save never strands a Message without its Envelope
+		// (#1072). Writes run in sequence: a single transaction serialises on one
+		// connection, and it lets the Envelope land before the Message, with the
+		// ThreadMessage written last so the list path never anchors on a
+		// ThreadMessage whose Message does not yet exist (#1209).
+		await this.unitOfWork.transaction(async (repos) => {
+			await repos.envelope.upsertEnvelope({
+				envelopeId,
+				messageId,
+				dateValue: sentDate,
+				dateRaw: envelope.date,
+				subject: envelope.subject,
+				messageIdValue: envelope.messageId,
+			});
 
-		// Phase 1: everything the Message references.
-		const prerequisiteOps: Array<() => Promise<void>> = [
-			// Save Envelope
-			async () => {
-				await this.envelopeService.upsertEnvelope({
-					envelopeId,
+			for (const { addresses, role } of addressOps) {
+				await this.saveAddresses(
+					repos.address,
 					messageId,
-					dateValue: sentDate,
-					dateRaw: envelope.date,
-					subject: envelope.subject,
-					messageIdValue: envelope.messageId,
-				});
-			},
-			// Save all address roles in parallel
-			...addressOps.map(({ addresses, role }) => async () => {
-				await this.saveAddresses(messageId, accountConfigId, addresses, role);
-			}),
-			// Save BodyPart + BodyPartParameter rows for the MIME tree.
+					accountConfigId,
+					addresses,
+					role,
+				);
+			}
+
 			// IMAP returns BODYSTRUCTURE in the same FETCH that returns the
-			// envelope, so this is "free" — no extra round-trip.
-			async () => {
-				if (bodyParts.length === 0) return;
-				await this.envelopeService.upsertBodyParts(messageId, bodyParts);
-			},
-		];
+			// envelope, so persisting BodyParts here is "free" — no extra round-trip.
+			if (bodyParts.length > 0) {
+				await repos.envelope.upsertBodyParts(messageId, bodyParts);
+			}
 
-		await pMap(prerequisiteOps, (op) => op(), {
-			concurrency: ADDRESS_SAVE_CONCURRENCY,
+			const { item, created } = await repos.message.upsertWithStatus({
+				messageId,
+				mailboxId,
+				uid: msg.uid,
+				sequenceNumber: msg.seq,
+				rfc822Size: msg.size ?? 0,
+				internalDate: msg.internalDate.getTime(),
+				envelopeId,
+				rootBodyPartId,
+			});
+			owned = created || item.mailboxId === mailboxId;
+
+			await this.createThreadForMessage(
+				repos.threadMessage,
+				messageId,
+				mailboxId,
+				accountId,
+				accountConfigId,
+				msg.uid,
+				msg.internalDate.getTime(),
+				sentDate,
+				envelope,
+				msg.flags,
+				msg.references,
+				hasAttachment,
+			);
 		});
-
-		// Phase 2: write the Message, once all its referenced rows exist.
-		const { item, created } = await this.messageService.upsertWithStatus({
-			messageId,
-			mailboxId,
-			uid: msg.uid,
-			sequenceNumber: msg.seq,
-			rfc822Size: msg.size ?? 0,
-			internalDate: msg.internalDate.getTime(),
-			envelopeId,
-			rootBodyPartId,
-		});
-		owned = created || item.mailboxId === mailboxId;
-
-		// Phase 3: write the ThreadMessage last, only after the Message exists.
-		await this.createThreadForMessage(
-			messageId,
-			mailboxId,
-			accountId,
-			accountConfigId,
-			msg.uid,
-			msg.internalDate.getTime(),
-			sentDate,
-			envelope,
-			msg.flags,
-			msg.references,
-			hasAttachment,
-		);
 
 		return { messageId, uid: msg.uid, owned };
 	}
 
 	private async saveAddresses(
+		addressService: IAddressRepository,
 		messageId: string,
 		accountConfigId: string,
 		addresses: ImapAddress[] | undefined,
@@ -573,54 +588,41 @@ export class MessageSyncService {
 			});
 		}
 
-		// Save all addresses in parallel with concurrency limit
-		await pMap(
-			addressData,
-			async ({ localPart, domain, displayName, order }) => {
-				const normalizedEmail = `${localPart}@${domain}`.toLowerCase();
-				const normalizedCompound = `${displayName.toLowerCase()} ${normalizedEmail}`;
+		for (const { localPart, domain, displayName, order } of addressData) {
+			const normalizedEmail = `${localPart}@${domain}`.toLowerCase();
+			const normalizedCompound = `${displayName.toLowerCase()} ${normalizedEmail}`;
 
-				const addressId = AddressService.generateAddressId(
-					accountConfigId,
-					normalizedEmail,
-				);
+			const addressId = AddressService.generateAddressId(
+				accountConfigId,
+				normalizedEmail,
+			);
 
-				const envelopeAddressId = AddressService.generateEnvelopeAddressId(
-					messageId,
-					role,
-					order,
-				);
+			const envelopeAddressId = AddressService.generateEnvelopeAddressId(
+				messageId,
+				role,
+				order,
+			);
 
-				// Both upserts can run in parallel
-				const ops: Array<() => Promise<void>> = [
-					async () => {
-						await this.addressService.upsertAddress({
-							addressId,
-							accountConfigId,
-							localPart,
-							domain,
-							normalizedEmail,
-							normalizedCompound,
-							displayName,
-						});
-					},
-					async () => {
-						await this.addressService.upsertEnvelopeAddress({
-							envelopeAddressId,
-							messageId,
-							addressId,
-							displayName,
-							normalizedEmail,
-							addressRole: role,
-							addressOrder: order,
-						});
-					},
-				];
+			await addressService.upsertAddress({
+				addressId,
+				accountConfigId,
+				localPart,
+				domain,
+				normalizedEmail,
+				normalizedCompound,
+				displayName,
+			});
 
-				await pMap(ops, (op) => op(), { concurrency: 2 });
-			},
-			{ concurrency: ADDRESS_SAVE_CONCURRENCY },
-		);
+			await addressService.upsertEnvelopeAddress({
+				envelopeAddressId,
+				messageId,
+				addressId,
+				displayName,
+				normalizedEmail,
+				addressRole: role,
+				addressOrder: order,
+			});
+		}
 	}
 
 	/**
@@ -635,6 +637,7 @@ export class MessageSyncService {
 	 * This ensures proper threading even when messages arrive out of order.
 	 */
 	private async createThreadForMessage(
+		threadMessageService: IThreadMessageRepository,
 		messageId: string,
 		mailboxId: string,
 		accountId: string,
@@ -692,7 +695,7 @@ export class MessageSyncService {
 		const referenceOrder = references?.length ?? (envelope.inReplyTo ? 1 : 0);
 
 		// Create ThreadMessage linking message to thread
-		await this.threadMessageService
+		await threadMessageService
 			.create({
 				threadId,
 				messageId,

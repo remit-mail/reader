@@ -1,13 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
-import {
-	type MailboxService,
-	type MessageFlagService,
-	type MessageService,
-	NotFoundError,
-	type ThreadMessageService,
-} from "@remit/remit-electrodb-service";
+import type {
+	IMailboxRepository,
+	IMessageFlagRepository,
+	IMessageRepository,
+	IThreadMessageRepository,
+} from "@remit/data-ports";
+import { NotFoundError } from "@remit/remit-electrodb-service";
 import { MessageSystemFlag, type StarColor } from "@remit/domain-enums";
+import { resolveSqsCredentials } from "@remit/sqs-client";
 
 /**
  * StarColor type derived from the StarColor const object
@@ -70,10 +71,10 @@ export interface UpdateFlagsResult {
  * Configuration for FlagQueueService
  */
 export interface FlagQueueConfig {
-	messageFlagService: MessageFlagService;
-	messageService: MessageService;
-	threadMessageService: ThreadMessageService;
-	mailboxService: MailboxService;
+	messageFlagService: IMessageFlagRepository;
+	messageService: IMessageRepository;
+	threadMessageService: IThreadMessageRepository;
+	mailboxService: IMailboxRepository;
 	sqsQueueUrl: string;
 	sqsEndpoint?: string;
 	logger?: FlagQueueLogger;
@@ -91,10 +92,10 @@ export interface FlagQueueConfig {
  * - ThreadMessage.isRead: Denormalized for efficient queries
  */
 export class FlagQueueService {
-	private messageFlagService: MessageFlagService;
-	private messageService: MessageService;
-	private threadMessageService: ThreadMessageService;
-	private mailboxService: MailboxService;
+	private messageFlagService: IMessageFlagRepository;
+	private messageService: IMessageRepository;
+	private threadMessageService: IThreadMessageRepository;
+	private mailboxService: IMailboxRepository;
 	private sqs: SQSClient;
 	private queueUrl: string;
 	private log: FlagQueueLogger;
@@ -117,6 +118,7 @@ export class FlagQueueService {
 
 		this.sqs = new SQSClient({
 			endpoint: sqsEndpoint ?? this.deriveEndpoint(sqsQueueUrl),
+			credentials: resolveSqsCredentials(),
 		});
 	}
 
@@ -146,11 +148,14 @@ export class FlagQueueService {
 	 * Handles race condition where ThreadMessage may be deleted between find and update.
 	 */
 	private updateThreadMessageIsRead = async (
+		accountConfigId: string,
 		messageId: string,
 		isRead: boolean,
 	): Promise<void> => {
-		const threadMessages =
-			await this.threadMessageService.findAllByMessageId(messageId);
+		const threadMessages = await this.threadMessageService.findAllByMessageId(
+			accountConfigId,
+			messageId,
+		);
 		if (threadMessages.length === 0) {
 			this.log.info(
 				{ messageId },
@@ -202,13 +207,16 @@ export class FlagQueueService {
 	 * Handles race condition where ThreadMessage may be deleted between find and update.
 	 */
 	private updateThreadMessageStars = async (
+		accountConfigId: string,
 		messageId: string,
 		updates: { hasStars?: boolean; star?: StarColorValue },
 	): Promise<void> => {
 		if (Object.keys(updates).length === 0) return;
 
-		const threadMessages =
-			await this.threadMessageService.findAllByMessageId(messageId);
+		const threadMessages = await this.threadMessageService.findAllByMessageId(
+			accountConfigId,
+			messageId,
+		);
 		if (threadMessages.length === 0) {
 			this.log.info(
 				{ messageId },
@@ -267,13 +275,14 @@ export class FlagQueueService {
 	 * count from scratch, so any drift is self-healing.
 	 */
 	private adjustUnseenForReadFlip = async (
+		accountId: string,
 		mailboxId: string,
 		wasRead: boolean,
 		isRead: boolean,
 	): Promise<void> => {
 		if (wasRead === isRead) return;
 		const delta = isRead ? -1 : 1;
-		await this.mailboxService.adjustUnseenCount(mailboxId, delta);
+		await this.mailboxService.adjustUnseenCount(accountId, mailboxId, delta);
 		this.log.info(
 			{ mailboxId, delta, wasRead, isRead },
 			"Adjusted mailbox unseenCount",
@@ -285,10 +294,15 @@ export class FlagQueueService {
 	 * Updates MessageFlag, ThreadMessage.isRead, mailbox unseenCount, and
 	 * enqueues IMAP sync.
 	 *
+	 * @param accountConfigId - The owning account config (tenant scope)
 	 * @param messageId - The message to mark as read
 	 * @param accountId - The account ID for the IMAP sync event
 	 */
-	markAsRead = async (messageId: string, accountId: string): Promise<void> => {
+	markAsRead = async (
+		accountConfigId: string,
+		messageId: string,
+		accountId: string,
+	): Promise<void> => {
 		const message = await this.messageService.get(messageId);
 		const wasRead = await this.messageFlagService.hasFlag(
 			messageId,
@@ -299,10 +313,15 @@ export class FlagQueueService {
 		await this.messageFlagService.addFlag(messageId, MessageSystemFlag.Seen);
 
 		// Update ThreadMessage.isRead (denormalized)
-		await this.updateThreadMessageIsRead(messageId, true);
+		await this.updateThreadMessageIsRead(accountConfigId, messageId, true);
 
 		// Adjust parent mailbox unseenCount (atomic, clamped at 0)
-		await this.adjustUnseenForReadFlip(message.mailboxId, wasRead, true);
+		await this.adjustUnseenForReadFlip(
+			accountId,
+			message.mailboxId,
+			wasRead,
+			true,
+		);
 
 		this.log.info({ messageId }, "Marked message as read (local)");
 
@@ -321,10 +340,12 @@ export class FlagQueueService {
 	 * Updates MessageFlag, ThreadMessage.isRead, mailbox unseenCount, and
 	 * enqueues IMAP sync.
 	 *
+	 * @param accountConfigId - The owning account config (tenant scope)
 	 * @param messageId - The message to mark as unread
 	 * @param accountId - The account ID for the IMAP sync event
 	 */
 	markAsUnread = async (
+		accountConfigId: string,
 		messageId: string,
 		accountId: string,
 	): Promise<void> => {
@@ -338,10 +359,15 @@ export class FlagQueueService {
 		await this.messageFlagService.removeFlag(messageId, MessageSystemFlag.Seen);
 
 		// Update ThreadMessage.isRead (denormalized)
-		await this.updateThreadMessageIsRead(messageId, false);
+		await this.updateThreadMessageIsRead(accountConfigId, messageId, false);
 
 		// Adjust parent mailbox unseenCount (atomic, clamped at 0)
-		await this.adjustUnseenForReadFlip(message.mailboxId, wasRead, false);
+		await this.adjustUnseenForReadFlip(
+			accountId,
+			message.mailboxId,
+			wasRead,
+			false,
+		);
 
 		this.log.info({ messageId }, "Marked message as unread (local)");
 
@@ -406,12 +432,14 @@ export class FlagQueueService {
 	 * Update message flags using API-friendly input format.
 	 * Maps isRead/isStarred to IMAP flags and updates ThreadMessage accordingly.
 	 *
+	 * @param accountConfigId - The owning account config (tenant scope)
 	 * @param messageId - The message to update
 	 * @param accountId - The account ID for the IMAP sync event
 	 * @param input - The flag updates to apply
 	 * @returns The current flag state after updates
 	 */
 	updateFlags = async (
+		accountConfigId: string,
 		messageId: string,
 		accountId: string,
 		input: UpdateFlagsInput,
@@ -446,8 +474,13 @@ export class FlagQueueService {
 					operation: "remove",
 				});
 			}
-			await this.updateThreadMessageIsRead(messageId, input.isRead);
+			await this.updateThreadMessageIsRead(
+				accountConfigId,
+				messageId,
+				input.isRead,
+			);
 			await this.adjustUnseenForReadFlip(
+				accountId,
 				message.mailboxId,
 				wasRead,
 				input.isRead,
@@ -488,7 +521,11 @@ export class FlagQueueService {
 			if (input.starColor !== undefined) {
 				starUpdates.star = input.starColor;
 			}
-			await this.updateThreadMessageStars(messageId, starUpdates);
+			await this.updateThreadMessageStars(
+				accountConfigId,
+				messageId,
+				starUpdates,
+			);
 		}
 
 		// Enqueue IMAP sync if there are flag operations

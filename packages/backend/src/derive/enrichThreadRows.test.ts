@@ -87,7 +87,7 @@ const buildClient = (opts: {
 		},
 	},
 	address: {
-		getAddress: async (ids: string[]) => {
+		getAddress: async (_accountConfigId: string, ids: string[]) => {
 			opts.onAddressGet?.(ids);
 			return opts.addresses.filter((a) => ids.includes(a.addressId));
 		},
@@ -183,7 +183,7 @@ describe("enrichThreadRows", () => {
 			],
 		});
 
-		const enriched = await enrichThreadRows(rows, client);
+		const enriched = await enrichThreadRows(rows, client, ACCOUNT_CONFIG_ID);
 
 		assert.equal(enriched[0].category, "newsletter");
 		assert.equal(enriched[0].senderTrust, "wellknown");
@@ -203,7 +203,7 @@ describe("enrichThreadRows", () => {
 			addresses: [],
 		});
 
-		const enriched = await enrichThreadRows(rows, client);
+		const enriched = await enrichThreadRows(rows, client, ACCOUNT_CONFIG_ID);
 
 		assert.equal(enriched[0].senderTrust, "unknown");
 		assert.equal(enriched[0].category, "uncategorized");
@@ -243,7 +243,7 @@ describe("enrichThreadRows", () => {
 			},
 		});
 
-		await enrichThreadRows(rows, client);
+		await enrichThreadRows(rows, client, ACCOUNT_CONFIG_ID);
 
 		assert.equal(messageBatches, 1);
 		assert.equal(addressBatches, 1);
@@ -276,7 +276,7 @@ describe("enrichThreadRows", () => {
 			],
 		});
 
-		const enriched = await enrichThreadRows(rows, client);
+		const enriched = await enrichThreadRows(rows, client, ACCOUNT_CONFIG_ID);
 
 		assert.equal(enriched[0].senderTrust, "vip");
 	});
@@ -295,7 +295,7 @@ describe("enrichThreadRows", () => {
 			},
 		});
 
-		const enriched = await enrichThreadRows([], client);
+		const enriched = await enrichThreadRows([], client, ACCOUNT_CONFIG_ID);
 
 		assert.deepEqual(enriched, []);
 		assert.equal(messageBatches, 0);
@@ -316,7 +316,7 @@ describe("enrichThreadRows", () => {
 			addresses: [],
 		});
 
-		const enriched = await enrichThreadRows(rows, client);
+		const enriched = await enrichThreadRows(rows, client, ACCOUNT_CONFIG_ID);
 
 		assert.equal(enriched[0].senderTrust, "unknown");
 		assert.equal(enriched[0].category, "automated");
@@ -344,7 +344,7 @@ describe("enrichThreadRows", () => {
 			addresses: [],
 		});
 
-		const enriched = await enrichThreadRows(rows, client);
+		const enriched = await enrichThreadRows(rows, client, ACCOUNT_CONFIG_ID);
 
 		assert.ok(enriched[0].authenticity, "expected authenticity on response");
 		assert.equal(enriched[0].authenticity?.fromDomain, "example.com");
@@ -366,7 +366,7 @@ describe("enrichThreadRows", () => {
 			addresses: [],
 		});
 
-		const enriched = await enrichThreadRows(rows, client);
+		const enriched = await enrichThreadRows(rows, client, ACCOUNT_CONFIG_ID);
 
 		assert.equal(enriched[0].authenticity, undefined);
 	});

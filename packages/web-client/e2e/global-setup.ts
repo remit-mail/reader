@@ -9,6 +9,7 @@ import {
 	SendMessageCommand,
 	SQSClient,
 } from "@aws-sdk/client-sqs";
+import nodemailer from "nodemailer";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -132,6 +133,16 @@ const spawnWorker = (): ChildProcess => {
 		"packages/remit-imap-worker/src/e2e-processor-shim.ts",
 	);
 
+	// Strip real AWS credentials so the worker uses the fake local ones from .e2e.env
+	const {
+		AWS_PROFILE,
+		AWS_SDK_LOAD_CONFIG,
+		AWS_ACCESS_KEY_ID: _ak,
+		AWS_SECRET_ACCESS_KEY: _sk,
+		AWS_SESSION_TOKEN,
+		...spawnEnv
+	} = process.env;
+
 	const worker = spawn(
 		"node",
 		["--env-file=.e2e.env", "--import", "tsx", workerPath],
@@ -139,7 +150,10 @@ const spawnWorker = (): ChildProcess => {
 			cwd: projectRoot,
 			stdio: "pipe",
 			env: {
-				...process.env,
+				...spawnEnv,
+				AWS_ACCESS_KEY_ID: "local",
+				AWS_SECRET_ACCESS_KEY: "local",
+				AWS_REGION: "not-a-region",
 				MAILFUZZ_HOST,
 				MAILFUZZ_PORT: String(MAILFUZZ_PORT),
 				MAILFUZZ_USER,
@@ -159,7 +173,40 @@ const spawnWorker = (): ChildProcess => {
 	return worker;
 };
 
-const SQS_ENDPOINT = "http://localhost:9325";
+const SQS_ENDPOINT = process.env.SQS_ENDPOINT ?? "http://localhost:9325";
+
+const injectTestMessages = async () => {
+	const smtpHost = process.env.MOKAPI_SMTP_HOST ?? "localhost";
+	const smtpPort = Number(process.env.MOKAPI_SMTP_PORT ?? "2525");
+	const smtpUser = process.env.MOKAPI_SMTP_USER ?? "alice@mokapi.io";
+	const smtpPass = process.env.MOKAPI_SMTP_PASSWORD ?? "alice123";
+
+	const transport = nodemailer.createTransport({
+		host: smtpHost,
+		port: smtpPort,
+		secure: false,
+		ignoreTLS: true,
+		auth: { user: smtpUser, pass: smtpPass },
+	});
+
+	try {
+		await transport.sendMail({
+			from: smtpUser,
+			to: E2E_EMAIL,
+			subject: "E2E test message 1",
+			text: "First test message for e2e sync.",
+		});
+		await transport.sendMail({
+			from: smtpUser,
+			to: E2E_EMAIL,
+			subject: "E2E test message 2",
+			text: "Second test message for e2e sync.",
+		});
+		console.log(`  Injected 2 test messages to ${E2E_EMAIL} via SMTP`);
+	} finally {
+		transport.close();
+	}
+};
 
 const createSqsClient = () => {
 	return new SQSClient({
@@ -273,6 +320,7 @@ const globalSetup = async () => {
 	console.log(`  AccountId: ${E2E_ACCOUNT_ID}`);
 
 	await ensureQueuesExist();
+	await injectTestMessages();
 
 	const worker = spawnWorker();
 	globalThis.__e2eWorkerProcess = worker;

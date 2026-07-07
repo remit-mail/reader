@@ -5,13 +5,14 @@ import {
 	SQSClient,
 } from "@aws-sdk/client-sqs";
 import type {
-	MailboxService,
-	MailboxSpecialUseService,
-	MessageService,
-	ThreadMessageService,
-} from "@remit/remit-electrodb-service";
+	IMailboxRepository,
+	IMailboxSpecialUseRepository,
+	IMessageRepository,
+	IThreadMessageRepository,
+} from "@remit/data-ports";
 import { base36uuid } from "@remit/remit-electrodb-service";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
+import { resolveSqsCredentials } from "@remit/sqs-client";
 
 /**
  * Event types for message move/delete operations.
@@ -91,10 +92,10 @@ const noopLogger: MessageMoveLogger = {
  * Configuration for MessageMoveService
  */
 export interface MessageMoveConfig {
-	messageService: MessageService;
-	mailboxService: MailboxService;
-	mailboxSpecialUseService: MailboxSpecialUseService;
-	threadMessageService: ThreadMessageService;
+	messageService: IMessageRepository;
+	mailboxService: IMailboxRepository;
+	mailboxSpecialUseService: IMailboxSpecialUseRepository;
+	threadMessageService: IThreadMessageRepository;
 	sqsQueueUrl: string;
 	sqsEndpoint?: string;
 	logger?: MessageMoveLogger;
@@ -120,10 +121,10 @@ export interface DeleteOptions {
  * Following RFC 016 for message deletion and moving.
  */
 export class MessageMoveService {
-	private messageService: MessageService;
-	private mailboxService: MailboxService;
-	private mailboxSpecialUseService: MailboxSpecialUseService;
-	private threadMessageService: ThreadMessageService;
+	private messageService: IMessageRepository;
+	private mailboxService: IMailboxRepository;
+	private mailboxSpecialUseService: IMailboxSpecialUseRepository;
+	private threadMessageService: IThreadMessageRepository;
 	private sqs: SQSClient;
 	private queueUrl: string;
 	private log: MessageMoveLogger;
@@ -138,6 +139,7 @@ export class MessageMoveService {
 
 		this.sqs = new SQSClient({
 			endpoint: config.sqsEndpoint ?? this.deriveEndpoint(config.sqsQueueUrl),
+			credentials: resolveSqsCredentials(),
 		});
 	}
 
@@ -159,11 +161,12 @@ export class MessageMoveService {
 	 * @param options - Delete options (toTrash, permanent)
 	 */
 	deleteMessage = async (
+		accountConfigId: string,
 		messageId: string,
 		accountId: string,
 		options: DeleteOptions = { toTrash: true },
 	): Promise<void> => {
-		await this.deleteMessages([messageId], accountId, options);
+		await this.deleteMessages(accountConfigId, [messageId], accountId, options);
 	};
 
 	/**
@@ -175,6 +178,7 @@ export class MessageMoveService {
 	 * @param options - Delete options (toTrash, permanent)
 	 */
 	deleteMessages = async (
+		accountConfigId: string,
 		messageIds: string[],
 		accountId: string,
 		options: DeleteOptions = { toTrash: true },
@@ -187,7 +191,10 @@ export class MessageMoveService {
 
 		// Get unique mailbox IDs and batch fetch mailboxes
 		const uniqueMailboxIds = [...new Set(messages.map((m) => m.mailboxId))];
-		const mailboxes = await this.mailboxService.get(uniqueMailboxIds);
+		const mailboxes = await this.mailboxService.get(
+			accountId,
+			uniqueMailboxIds,
+		);
 		const mailboxMap = new Map(mailboxes.map((m) => [m.mailboxId, m]));
 
 		// Find trash mailbox once
@@ -251,6 +258,7 @@ export class MessageMoveService {
 
 				// Update ThreadMessage
 				await this.updateThreadMessageForMove(
+					accountConfigId,
 					messageId,
 					trashMailbox.mailboxId,
 					true,
@@ -297,7 +305,7 @@ export class MessageMoveService {
 			// doing it eagerly here closes the visibility window where the inbox
 			// list shows a row whose backing Message is being deleted, leading
 			// to "Message not found: <id>" on click. See issue #212.
-			await this.deleteThreadMessagesForMessage(messageId);
+			await this.deleteThreadMessagesForMessage(accountConfigId, messageId);
 
 			events.push({
 				type: "MESSAGE_DELETE",
@@ -331,14 +339,20 @@ export class MessageMoveService {
 	 * @param accountId - Account ID
 	 */
 	moveMessage = async (
+		accountConfigId: string,
 		messageId: string,
 		destinationMailboxId: string,
 		accountId: string,
 	): Promise<void> => {
 		const message = await this.messageService.get(messageId);
-		const sourceMailbox = await this.mailboxService.get(message.mailboxId);
-		const destinationMailbox =
-			await this.mailboxService.get(destinationMailboxId);
+		const sourceMailbox = await this.mailboxService.get(
+			accountId,
+			message.mailboxId,
+		);
+		const destinationMailbox = await this.mailboxService.get(
+			accountId,
+			destinationMailboxId,
+		);
 
 		// Check if moving to/from Trash
 		const trashMailbox =
@@ -361,6 +375,7 @@ export class MessageMoveService {
 
 		// Update ThreadMessage
 		await this.updateThreadMessageForMove(
+			accountConfigId,
 			messageId,
 			destinationMailboxId,
 			isMovingToTrash,
@@ -368,7 +383,7 @@ export class MessageMoveService {
 
 		// If moving FROM Trash, clear isDeleted
 		if (isMovingFromTrash) {
-			await this.updateThreadMessageDeleted(messageId, false);
+			await this.updateThreadMessageDeleted(accountConfigId, messageId, false);
 		}
 
 		this.log.info(
@@ -405,12 +420,18 @@ export class MessageMoveService {
 	 * @param accountId - Account ID
 	 */
 	moveMessages = async (
+		accountConfigId: string,
 		messageIds: string[],
 		destinationMailboxId: string,
 		accountId: string,
 	): Promise<void> => {
 		for (const messageId of messageIds) {
-			await this.moveMessage(messageId, destinationMailboxId, accountId);
+			await this.moveMessage(
+				accountConfigId,
+				messageId,
+				destinationMailboxId,
+				accountId,
+			);
 		}
 	};
 
@@ -424,16 +445,20 @@ export class MessageMoveService {
 	 * @returns The new message ID for the copy
 	 */
 	copyMessage = async (
+		accountConfigId: string,
 		messageId: string,
 		destinationMailboxId: string,
 		accountId: string,
 	): Promise<string> => {
 		const sourceMessage = await this.messageService.get(messageId);
 		const sourceMailbox = await this.mailboxService.get(
+			accountId,
 			sourceMessage.mailboxId,
 		);
-		const destinationMailbox =
-			await this.mailboxService.get(destinationMailboxId);
+		const destinationMailbox = await this.mailboxService.get(
+			accountId,
+			destinationMailboxId,
+		);
 
 		// Generate new ID for the copy
 		const newMessageId = base36uuid();
@@ -455,8 +480,10 @@ export class MessageMoveService {
 		});
 
 		// Copy ThreadMessage entry
-		const sourceThreadMessage =
-			await this.threadMessageService.getByMessageId(messageId);
+		const sourceThreadMessage = await this.threadMessageService.getByMessageId(
+			accountConfigId,
+			messageId,
+		);
 
 		await this.threadMessageService.create({
 			accountConfigId: sourceThreadMessage.accountConfigId,
@@ -519,6 +546,7 @@ export class MessageMoveService {
 	 * @returns Array of new message IDs for the copies
 	 */
 	copyMessages = async (
+		accountConfigId: string,
 		messageIds: string[],
 		destinationMailboxId: string,
 		accountId: string,
@@ -526,6 +554,7 @@ export class MessageMoveService {
 		const newMessageIds: string[] = [];
 		for (const messageId of messageIds) {
 			const newId = await this.copyMessage(
+				accountConfigId,
 				messageId,
 				destinationMailboxId,
 				accountId,
@@ -542,6 +571,7 @@ export class MessageMoveService {
 	 * @param accountId - Account ID
 	 */
 	restoreMessage = async (
+		accountConfigId: string,
 		messageId: string,
 		accountId: string,
 	): Promise<void> => {
@@ -551,7 +581,12 @@ export class MessageMoveService {
 			throw new Error("Message has no original mailbox to restore to");
 		}
 
-		await this.moveMessage(messageId, message.originalMailboxId, accountId);
+		await this.moveMessage(
+			accountConfigId,
+			messageId,
+			message.originalMailboxId,
+			accountId,
+		);
 	};
 
 	/**
@@ -559,7 +594,10 @@ export class MessageMoveService {
 	 *
 	 * @param accountId - Account ID
 	 */
-	emptyTrash = async (accountId: string): Promise<void> => {
+	emptyTrash = async (
+		accountConfigId: string,
+		accountId: string,
+	): Promise<void> => {
 		const trashMailbox =
 			await this.mailboxSpecialUseService.findTrashMailbox(accountId);
 
@@ -578,7 +616,11 @@ export class MessageMoveService {
 				status: MessageStatus.deleting,
 				syncStatus: MessageSyncStatus.pending,
 			});
-			await this.updateThreadMessageDeleted(message.messageId, true);
+			await this.updateThreadMessageDeleted(
+				accountConfigId,
+				message.messageId,
+				true,
+			);
 		}
 
 		this.log.info(
@@ -608,12 +650,15 @@ export class MessageMoveService {
 	 * Updates mailboxId and optionally isDeleted.
 	 */
 	private updateThreadMessageForMove = async (
+		accountConfigId: string,
 		messageId: string,
 		newMailboxId: string,
 		isDeleted: boolean,
 	): Promise<void> => {
-		const threadMessage =
-			await this.threadMessageService.getByMessageId(messageId);
+		const threadMessage = await this.threadMessageService.getByMessageId(
+			accountConfigId,
+			messageId,
+		);
 
 		this.log.info(
 			{
@@ -665,9 +710,13 @@ export class MessageMoveService {
 	 * leaking into mailbox listings while IMAP catches up. See issue #212.
 	 */
 	private deleteThreadMessagesForMessage = async (
+		accountConfigId: string,
 		messageId: string,
 	): Promise<void> => {
-		const rows = await this.threadMessageService.findAllByMessageId(messageId);
+		const rows = await this.threadMessageService.findAllByMessageId(
+			accountConfigId,
+			messageId,
+		);
 		for (const row of rows) {
 			await this.threadMessageService.delete(
 				row.accountConfigId,
@@ -684,11 +733,14 @@ export class MessageMoveService {
 	 * Update ThreadMessage.isDeleted flag only.
 	 */
 	private updateThreadMessageDeleted = async (
+		accountConfigId: string,
 		messageId: string,
 		isDeleted: boolean,
 	): Promise<void> => {
-		const threadMessage =
-			await this.threadMessageService.getByMessageId(messageId);
+		const threadMessage = await this.threadMessageService.getByMessageId(
+			accountConfigId,
+			messageId,
+		);
 
 		await this.threadMessageService.update(
 			threadMessage.accountConfigId,

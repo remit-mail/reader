@@ -391,7 +391,7 @@ describe(
 			const sentOutbox = await waitFor<SentOutbox>(
 				async (): Promise<SentOutbox | null> => {
 					const current = await outboxMessageService
-						.get(outbox.outboxMessageId)
+						.get(ACCOUNT_CONFIG_ID, outbox.outboxMessageId)
 						.catch((err: unknown) => {
 							if (err instanceof NotFoundError) return null;
 							throw err;

@@ -18,7 +18,10 @@ export interface EnrichClient {
 		get(messageIds: string[]): Promise<MessageItem[]>;
 	};
 	address: {
-		getAddress(addressIds: string[]): Promise<AddressItem[]>;
+		getAddress(
+			accountConfigId: string,
+			addressIds: string[],
+		): Promise<AddressItem[]>;
 	};
 }
 
@@ -102,6 +105,7 @@ export const planBatchFetch = (rows: ThreadMessageItem[]): BatchPlan => {
 export const enrichThreadRows = async (
 	rows: ThreadMessageItem[],
 	client: EnrichClient,
+	accountConfigId: string,
 ): Promise<ThreadMessageResponse[]> => {
 	if (rows.length === 0) return [];
 
@@ -109,7 +113,9 @@ export const enrichThreadRows = async (
 
 	const [messages, addresses] = await Promise.all([
 		plan.messageIds.length ? client.message.get(plan.messageIds) : [],
-		plan.addressIds.length ? client.address.getAddress(plan.addressIds) : [],
+		plan.addressIds.length
+			? client.address.getAddress(accountConfigId, plan.addressIds)
+			: [],
 	]);
 
 	const categoryByMessageId = new Map(

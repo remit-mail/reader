@@ -4,6 +4,7 @@ import { base36uuidv5, REMIT_NAMESPACE } from "@remit/remit-electrodb-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { deriveAccountConfigId as edgeDeriveAccountConfigId } from "../../../infra/constructs/cloudfront/remit-content-delivery/lambda-edge/handler.js";
 import {
+	assertLocalBypassNotInDeployedEnv,
 	deriveAccountConfigId,
 	getAccountConfigIdFromEvent,
 	getSubFromEvent,
@@ -73,6 +74,69 @@ describe("deriveAccountConfigId byte-identity backend ↔ Lambda@Edge", () => {
 		const sub = "00000000-0000-0000-0000-aaaaaaaaaaaa";
 		const expected = base36uuidv5(`account:${sub}`, REMIT_NAMESPACE);
 		assert.equal(deriveAccountConfigId(sub), expected);
+	});
+});
+
+describe("assertLocalBypassNotInDeployedEnv", () => {
+	it("allows the bypass vars in a local NODE_ENV", () => {
+		for (const nodeEnv of ["development", "test"]) {
+			assert.doesNotThrow(() =>
+				assertLocalBypassNotInDeployedEnv({
+					NODE_ENV: nodeEnv,
+					LOCAL_ACCOUNT_CONFIG_ID: "pinned-config-id",
+					LOCAL_COGNITO_SUB: "local-sub",
+				}),
+			);
+		}
+	});
+
+	it("is a no-op in a deployed NODE_ENV when no bypass var is set", () => {
+		assert.doesNotThrow(() =>
+			assertLocalBypassNotInDeployedEnv({ NODE_ENV: "production" }),
+		);
+		assert.doesNotThrow(() => assertLocalBypassNotInDeployedEnv({}));
+	});
+
+	it("throws when LOCAL_ACCOUNT_CONFIG_ID is set outside a local env", () => {
+		assert.throws(
+			() =>
+				assertLocalBypassNotInDeployedEnv({
+					NODE_ENV: "production",
+					LOCAL_ACCOUNT_CONFIG_ID: "pinned-config-id",
+				}),
+			/Refusing to start.*LOCAL_ACCOUNT_CONFIG_ID/,
+		);
+	});
+
+	it("throws when a bypass var is set with NODE_ENV unset", () => {
+		assert.throws(
+			() =>
+				assertLocalBypassNotInDeployedEnv({
+					LOCAL_COGNITO_SUB: "local-sub",
+				}),
+			/Refusing to start.*LOCAL_COGNITO_SUB/,
+		);
+	});
+
+	it("names every leaked bypass var in the error", () => {
+		assert.throws(
+			() =>
+				assertLocalBypassNotInDeployedEnv({
+					NODE_ENV: "production",
+					LOCAL_ACCOUNT_CONFIG_ID: "pinned-config-id",
+					LOCAL_COGNITO_SUB: "local-sub",
+				}),
+			/LOCAL_ACCOUNT_CONFIG_ID, LOCAL_COGNITO_SUB/,
+		);
+	});
+
+	it("ignores an empty-string bypass var", () => {
+		assert.doesNotThrow(() =>
+			assertLocalBypassNotInDeployedEnv({
+				NODE_ENV: "production",
+				LOCAL_ACCOUNT_CONFIG_ID: "",
+			}),
+		);
 	});
 });
 

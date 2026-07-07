@@ -1,10 +1,17 @@
 import assert from "node:assert/strict";
-import { describe, it, mock } from "node:test";
+import { afterEach, describe, it, mock } from "node:test";
 import {
 	BadRequestError,
 	ForbiddenError,
 	NotFoundError,
 } from "@remit/remit-electrodb-service";
+import type { APIGatewayProxyEvent } from "aws-lambda";
+import type { Context } from "openapi-backend";
+import {
+	_resetForTest,
+	_setClientForTest,
+	type RemitClient,
+} from "../service/dynamodb.js";
 import { assertAccountOwnership } from "./account-ownership.js";
 import {
 	assertMessagesOwned,
@@ -16,6 +23,7 @@ import {
 	isContentDisposition,
 	isMediaType,
 	isStorageNotFoundError,
+	MessageOperations,
 	materializeBodyPartsBestEffort,
 } from "./message.js";
 
@@ -25,8 +33,18 @@ const ownershipClient = (opts: {
 	accounts: Record<string, { accountId: string; accountConfigId: string }>;
 }) => ({
 	message: { get: async (id: string) => opts.messages[id] },
-	mailbox: { get: async (id: string) => opts.mailboxes[id] },
-	account: { get: async (id: string) => opts.accounts[id] },
+	mailbox: {
+		get: async (accountId: string, mailboxIds: string[]) =>
+			mailboxIds
+				.filter((id) => opts.mailboxes[id]?.accountId === accountId)
+				.map((id) => ({ mailboxId: id, accountId })),
+	},
+	account: {
+		listAllByAccountConfig: async (accountConfigId: string) =>
+			Object.values(opts.accounts).filter(
+				(a) => a.accountConfigId === accountConfigId,
+			),
+	},
 });
 
 describe("assertMessagesOwned", () => {
@@ -412,6 +430,64 @@ describe("getRawMessage ownership guard", () => {
 				assert.doesNotMatch(err.message, new RegExp(OWNER));
 				return true;
 			},
+		);
+	});
+});
+
+describe("describeMessage ownership guard precedes content signing", () => {
+	afterEach(() => {
+		_resetForTest();
+	});
+
+	it("rejects a foreign message before any body part (and thus any signed URL) is built", async () => {
+		// A signed content URL is a capability to fetch the bytes. If describeMessage
+		// resolved a foreign message and minted a URL, the caller would hold a valid
+		// capability for content it does not own. The ownership guard must reject
+		// first. `message.describe` is the first call after the guard and gates all
+		// body-part building + URL signing, so proving it is never reached proves no
+		// URL was signed.
+		const describeSpy = mock.fn(async () => {
+			throw new Error("describe must not run for a foreign message");
+		});
+		const client = {
+			message: {
+				get: async (_id: string) => ({ mailboxId: "mbx-foreign" }),
+				describe: describeSpy,
+			},
+			mailbox: {
+				get: async (_accountId: string, _mailboxIds: string[]) =>
+					[] as { mailboxId: string; accountId: string }[],
+			},
+			account: {
+				listAllByAccountConfig: async (_accountConfigId: string) =>
+					[] as { accountId: string; accountConfigId: string }[],
+			},
+		} as unknown as RemitClient;
+		_setClientForTest(client);
+
+		const event = {
+			requestContext: { authorizer: { claims: { sub: "caller-sub" } } },
+		} as unknown as APIGatewayProxyEvent;
+		const context = {
+			request: { params: { messageId: "msg-foreign" } },
+		} as unknown as Context;
+
+		// openapi-backend invokes the handler as (context, event, lambdaContext);
+		// the OperationHandler type only surfaces the first param, so widen it here.
+		const describeMessage =
+			MessageOperations.MessageOperations_describeMessage as (
+				context: Context,
+				event: APIGatewayProxyEvent,
+			) => Promise<unknown>;
+
+		await assert.rejects(
+			() => describeMessage(context, event),
+			(err: unknown) => err instanceof NotFoundError,
+		);
+		assert.equal(
+			describeSpy.mock.calls.length,
+			0,
+			"nothing past the ownership guard ran, so no content URL was signed",
 		);
 	});
 });

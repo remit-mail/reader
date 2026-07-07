@@ -8,6 +8,7 @@ import {
 import { AwsQueryProtocol } from "@aws-sdk/core/protocols";
 import { createLogger } from "@remit/remit-logger-lambda";
 import { handler as searchIndexHandler } from "@remit/search-index-worker";
+import { resolveSqsCredentials } from "@remit/sqs-client";
 import type {
 	Context,
 	SQSBatchResponse,
@@ -120,6 +121,7 @@ if (cluster.isPrimary) {
 	const sqs = new SQSClient({
 		endpoint: isLocal ? new URL(queueUrl).origin : undefined,
 		...(isLocal && { protocol: AwsQueryProtocol }),
+		credentials: resolveSqsCredentials(),
 	});
 
 	let isShuttingDown = false;

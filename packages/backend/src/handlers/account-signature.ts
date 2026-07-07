@@ -1,7 +1,7 @@
 import type {
 	AccountSettingItem,
-	AccountSettingService,
-} from "@remit/remit-electrodb-service";
+	IAccountSettingRepository,
+} from "@remit/data-ports";
 import {
 	baseSettingName,
 	composeSettingName,
@@ -60,7 +60,7 @@ export const groupSignaturesByAccount = (
  * account. Callers reading multiple accounts (GET /config) use this once.
  */
 export const loadSignaturesForConfig = async (
-	accountSetting: AccountSettingService,
+	accountSetting: IAccountSettingRepository,
 	accountConfigId: string,
 ): Promise<Map<string, AccountSignature>> => {
 	const settings = await accountSetting.listByAccountConfig(accountConfigId);
@@ -72,7 +72,7 @@ export const loadSignaturesForConfig = async (
  * rows. Used by the account create/update handlers, which act on one account.
  */
 export const loadSignatureForAccount = async (
-	accountSetting: AccountSettingService,
+	accountSetting: IAccountSettingRepository,
 	accountConfigId: string,
 	accountId: string,
 ): Promise<AccountSignature> => {
@@ -101,7 +101,7 @@ export const loadSignatureForAccount = async (
  * semantics where setting `""` stored `""`.
  */
 export const upsertAccountSignature = async (
-	accountSetting: AccountSettingService,
+	accountSetting: IAccountSettingRepository,
 	accountConfigId: string,
 	accountId: string,
 	signature: { plainText?: string; html?: string },

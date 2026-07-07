@@ -147,7 +147,7 @@ export default defineConfig({
 			port: BACKEND_PORT,
 			reuseExistingServer: false,
 			env: {
-				DYNAMODB_PORT: "5435",
+				DYNAMODB_PORT: "5437",
 				DYNAMODB_TABLE_NAME: "remit-test",
 				SERVER_PORT: String(BACKEND_PORT),
 				KMS_KEY_ID: "FAKE_KMS_KEY_ID",

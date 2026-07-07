@@ -114,7 +114,10 @@ export const handleAppendSentMessage = async (
 		return;
 	}
 
-	const outbox = await outboxMessageService.get(outboxMessageId);
+	const outbox = await outboxMessageService.get(
+		account.accountConfigId,
+		outboxMessageId,
+	);
 	if (outbox.status !== "sent") {
 		log.info(
 			{ outboxMessageId, status: outbox.status },
@@ -161,7 +164,10 @@ export const handleAppendSentMessage = async (
 
 			// The message now lives in the IMAP Sent folder. Drop the outbox row so
 			// the user does not see it twice in the UI (Outbox + Sent). Issue #178.
-			await outboxMessageService.delete(outboxMessageId);
+			await outboxMessageService.delete(
+				account.accountConfigId,
+				outboxMessageId,
+			);
 			log.info(
 				{ outboxMessageId },
 				"Deleted outbox row after successful APPEND to Sent",

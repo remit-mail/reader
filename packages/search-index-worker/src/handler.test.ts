@@ -79,7 +79,7 @@ const makeThreadMessage = (messageId: string) => ({
 const threadMessages = new Map<string, ReturnType<typeof makeThreadMessage>>();
 
 const mockThreadMessageService = {
-	findByMessageId: async (messageId: string) =>
+	findByMessageId: async (_accountConfigId: string, messageId: string) =>
 		threadMessages.get(messageId) ?? null,
 } as Services["threadMessageService"];
 
@@ -89,7 +89,7 @@ const mockAccountService = {
 	get: async (accountId: string) => {
 		const account = accounts.get(accountId);
 		if (!account) throw new NotFoundError(`Account not found: ${accountId}`);
-		return account;
+		return { accountConfigId: ACCOUNT_CONFIG_ID, ...account };
 	},
 } as Services["accountService"];
 

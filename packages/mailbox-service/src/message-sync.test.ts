@@ -398,7 +398,11 @@ const buildWatermarkHarness = (opts: {
 			highWaterMarkUid: state.highWaterMarkUid,
 			messageCount: 0,
 		}),
-		update: async (_mailboxId: string, patch: Record<string, unknown>) => {
+		update: async (
+			_accountId: string,
+			_mailboxId: string,
+			patch: Record<string, unknown>,
+		) => {
 			updateCalls.push(patch);
 			if (typeof patch.lastSyncUid === "number") {
 				state.lastSyncUid = patch.lastSyncUid;
