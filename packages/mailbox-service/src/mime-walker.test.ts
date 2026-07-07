@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { MediaType, TransferEncoding } from "@remit/domain-enums";
 import {
 	type MimeNode,
 	ROOT_PART_PATH,
@@ -189,65 +190,59 @@ describe("walkMimeStructure", () => {
 		);
 	});
 
-	it("throws on an unknown MIME top-level type", () => {
-		assert.throws(
-			() =>
-				walkMimeStructure({
-					type: "carrierpigeon/scroll",
-					encoding: "7bit",
-					size: 1,
-				}),
-			/unknown MIME top-level type/,
-		);
+	it("falls back to application/octet-stream on an unknown MIME top-level type", () => {
+		const [rec] = walkMimeStructure({
+			type: "carrierpigeon/scroll",
+			encoding: "7bit",
+			size: 1,
+		});
+		assert.equal(rec.mediaType, MediaType.Application);
+		assert.equal(rec.mediaSubtype, "scroll");
 	});
 
-	it("throws on a Content-Type with no '/' separator", () => {
-		assert.throws(
-			() =>
-				walkMimeStructure({
-					type: "text",
-					encoding: "7bit",
-					size: 1,
-				}),
-			/malformed Content-Type/,
-		);
+	it("falls back to application/octet-stream on a Content-Type with no '/' separator", () => {
+		const [rec] = walkMimeStructure({
+			type: "text",
+			encoding: "7bit",
+			size: 1,
+		});
+		assert.equal(rec.mediaType, MediaType.Application);
+		assert.equal(rec.mediaSubtype, "octet-stream");
 	});
 
-	it("throws on a Content-Type missing the subtype", () => {
-		assert.throws(
-			() =>
-				walkMimeStructure({
-					type: "text/",
-					encoding: "7bit",
-					size: 1,
-				}),
-			/missing MIME subtype/,
-		);
+	it("falls back to octet-stream subtype on a Content-Type missing the subtype", () => {
+		const [rec] = walkMimeStructure({
+			type: "text/",
+			encoding: "7bit",
+			size: 1,
+		});
+		assert.equal(rec.mediaType, MediaType.Text);
+		assert.equal(rec.mediaSubtype, "octet-stream");
 	});
 
-	it("throws on an unknown transfer encoding (no silent fallback)", () => {
-		assert.throws(
-			() =>
-				walkMimeStructure({
-					type: "text/plain",
-					encoding: "rot13",
-					size: 1,
-				}),
-			/unknown transfer encoding/,
-		);
+	it("falls back to BINARY on an unknown transfer encoding", () => {
+		const [rec] = walkMimeStructure({
+			type: "text/plain",
+			encoding: "rot13",
+			size: 1,
+		});
+		assert.equal(rec.transferEncoding, TransferEncoding.Binary);
 	});
 
-	it("throws on an unknown Content-Disposition", () => {
-		assert.throws(
-			() =>
-				walkMimeStructure({
-					type: "application/pdf",
-					encoding: "base64",
-					size: 1,
-					disposition: "secretly-mine",
-				}),
-			/unknown Content-Disposition/,
-		);
+	it("drops an unknown Content-Disposition rather than throwing", () => {
+		const [rec] = walkMimeStructure({
+			type: "application/pdf",
+			encoding: "base64",
+			size: 1,
+			disposition: "secretly-mine",
+		});
+		assert.equal(rec.disposition, undefined);
+	});
+
+	it("keeps an empty Content-Type total (application/octet-stream)", () => {
+		const [rec] = walkMimeStructure({ type: "", encoding: "7bit", size: 1 });
+		assert.equal(rec.mediaType, MediaType.Application);
+		assert.equal(rec.mediaSubtype, "octet-stream");
 	});
 
 	it("defaults transferEncoding to 7BIT and sizeOctets to 0 when absent", () => {
