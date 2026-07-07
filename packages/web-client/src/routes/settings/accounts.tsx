@@ -101,10 +101,9 @@ function accountLabel(account: RemitImapAccountResponse): string {
 }
 
 function deriveSyncLabel(account: RemitImapAccountResponse): string {
-	if (account.lastSyncAt) {
-		return `synced ${formatRelativeTime(account.lastSyncAt)}`;
-	}
-	return "never synced";
+	if (!account.lastSyncAt) return "never synced";
+	const relative = formatRelativeTime(account.lastSyncAt);
+	return relative ? `synced ${relative}` : "never synced";
 }
 
 function deriveState(
