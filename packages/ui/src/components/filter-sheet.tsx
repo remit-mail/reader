@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { cn } from "../lib/cn.js";
+import { isSelfRowActivation } from "../lib/row-keyboard.js";
 import { Badge } from "./badge.js";
 
 export type CategoryTone =
@@ -275,10 +276,9 @@ export function FilterSheet({
 				aria-label={open ? "Collapse filters" : "Expand filters"}
 				onClick={() => setOpen(!open)}
 				onKeyDown={(e) => {
-					if (e.key === "Enter" || e.key === " ") {
-						e.preventDefault();
-						setOpen(!open);
-					}
+					if (!isSelfRowActivation(e)) return;
+					e.preventDefault();
+					setOpen(!open);
 				}}
 				className="flex h-section-row w-full shrink-0 cursor-pointer items-center gap-1.5 overflow-x-hidden border-b border-line bg-surface-sunken px-row-inset text-left hover:bg-surface"
 			>
