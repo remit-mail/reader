@@ -40,6 +40,34 @@ export const toIsoDateString = (value: unknown): string => {
 };
 
 /**
+ * Coerce an IMAP INTERNALDATE into a valid `Date`, tolerating malformed input.
+ *
+ * INTERNALDATE is the server's receive time and is almost always a clean Date.
+ * But a broken server (or an unexpected imapflow runtime value) can yield a
+ * string that `new Date` cannot parse, or a wholly unexpected type. Either way
+ * `getTime()` would be `NaN`, which is the message's date-of-last-resort — it
+ * is the fallback `parseHeaderDate` uses and is stored as the message's
+ * `internalDate` — so a `NaN` here silently corrupts every downstream date and
+ * gets rejected by ElectroDB, permanently failing the message.
+ *
+ * When the value cannot produce a valid Date we fall back to `now` so the
+ * message still syncs with an approximate receive time rather than being
+ * dropped. Returns `null` only for a genuinely absent value, which the caller
+ * skips (a transient imapflow artifact, see #408 — not bad data).
+ */
+export const toInternalDate = (value: unknown): Date | null => {
+	if (value == null) return null;
+	if (value instanceof Date) {
+		return Number.isNaN(value.getTime()) ? new Date() : value;
+	}
+	if (typeof value === "string" || typeof value === "number") {
+		const date = new Date(value);
+		return Number.isNaN(date.getTime()) ? new Date() : date;
+	}
+	return new Date();
+};
+
+/**
  * ImapFlow-based IMAP connection
  *
  * Drop-in replacement for ImapConnection using the ImapFlow library.
@@ -523,18 +551,12 @@ export class ImapFlowConnection {
 				continue;
 			}
 
-			// Convert internalDate to Date object
-			let internalDate: Date;
-			if (msg.internalDate instanceof Date) {
-				internalDate = msg.internalDate;
-			} else if (typeof msg.internalDate === "string") {
-				internalDate = new Date(msg.internalDate);
-			} else if (typeof msg.internalDate === "number") {
-				internalDate = new Date(msg.internalDate);
-			} else {
-				throw new Error(
-					`Unexpected internalDate type for UID ${msg.uid}: ${typeof msg.internalDate} (value: ${JSON.stringify(msg.internalDate)})`,
-				);
+			// Coerce INTERNALDATE without ever throwing: a malformed value must not
+			// abort the whole fetch batch. `null` only for an absent value (already
+			// handled by the guard above); a bad value falls back to now.
+			const internalDate = toInternalDate(msg.internalDate);
+			if (internalDate === null) {
+				continue;
 			}
 
 			// Parse References header if present
@@ -671,9 +693,13 @@ export class ImapFlowConnection {
 	): Promise<string[] | undefined> => {
 		if (!headers) return undefined;
 
-		const parsed = await simpleParser(headers);
+		// Raw header bytes are untrusted. simpleParser is tolerant but can still
+		// throw on sufficiently broken input; a throw here would abort the whole
+		// fetch batch. Missing references just means "no thread parent", so on any
+		// parse failure treat the message as a thread root rather than crashing.
+		const parsed = await simpleParser(headers).catch(() => null);
 
-		if (!parsed.references) return undefined;
+		if (!parsed?.references) return undefined;
 
 		// mailparser returns references as string or array
 		if (Array.isArray(parsed.references)) {
