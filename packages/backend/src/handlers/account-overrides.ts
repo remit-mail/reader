@@ -1,7 +1,7 @@
 import type {
 	AccountSettingItem,
-	AccountSettingService,
-} from "@remit/remit-electrodb-service";
+	IAccountSettingRepository,
+} from "@remit/data-ports";
 import {
 	baseSettingName,
 	composeSettingName,
@@ -115,7 +115,7 @@ export const groupAccountOverrides = (
  * (GET /config) use this once.
  */
 export const loadAccountOverridesForConfig = async (
-	accountSetting: AccountSettingService,
+	accountSetting: IAccountSettingRepository,
 	accountConfigId: string,
 ): Promise<Map<string, AccountOverrides>> => {
 	const settings = await accountSetting.listByAccountConfig(accountConfigId);
@@ -127,7 +127,7 @@ export const loadAccountOverridesForConfig = async (
  * composite rows. Used by the account create/update handlers.
  */
 export const loadAccountOverrides = async (
-	accountSetting: AccountSettingService,
+	accountSetting: IAccountSettingRepository,
 	accountConfigId: string,
 	accountId: string,
 ): Promise<AccountOverrides> => {
@@ -150,7 +150,7 @@ export const loadAccountOverrides = async (
 };
 
 export const upsertAccountDisplayName = (
-	accountSetting: AccountSettingService,
+	accountSetting: IAccountSettingRepository,
 	accountConfigId: string,
 	accountId: string,
 	displayName: string,
@@ -167,7 +167,7 @@ export const upsertAccountDisplayName = (
  * null→remove, object→set semantics.
  */
 export const writeAccountMuted = (
-	accountSetting: AccountSettingService,
+	accountSetting: IAccountSettingRepository,
 	accountConfigId: string,
 	accountId: string,
 	muted: MutedFlag | null,
@@ -227,7 +227,7 @@ export const groupMailboxOverrides = (
  * grouped by mailboxId. listMailboxes uses this once to avoid an N+1 per mailbox.
  */
 export const loadMailboxOverridesForConfig = async (
-	accountSetting: AccountSettingService,
+	accountSetting: IAccountSettingRepository,
 	accountConfigId: string,
 ): Promise<Map<string, MailboxOverrides>> => {
 	const settings = await accountSetting.listByAccountConfig(accountConfigId);
@@ -239,7 +239,7 @@ export const loadMailboxOverridesForConfig = async (
  * Used by getMailbox and the rename/PATCH handler.
  */
 export const loadMailboxOverrides = async (
-	accountSetting: AccountSettingService,
+	accountSetting: IAccountSettingRepository,
 	accountConfigId: string,
 	mailboxId: string,
 ): Promise<MailboxOverrides> => {
@@ -276,7 +276,7 @@ export const loadMailboxOverrides = async (
  * version used. `roleOverride` is validated against MailboxRole before storage.
  */
 export const applyMailboxOverrideChanges = async (
-	accountSetting: Pick<AccountSettingService, "upsert" | "delete">,
+	accountSetting: Pick<IAccountSettingRepository, "upsert" | "delete">,
 	accountConfigId: string,
 	mailboxId: string,
 	changes: {

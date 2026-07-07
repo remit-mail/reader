@@ -21,10 +21,24 @@ import {
 	type SmtpCredentials,
 } from "./resolve-smtp-config.js";
 
+/** Tenant scope carried from the loaded account, never read off a looked-up row. */
+export interface SendTenant {
+	accountConfigId: string;
+	accountId: string;
+}
+
 export interface EngagementCounterDeps {
 	resolveAddressId: (accountConfigId: string, email: string) => string;
-	incrementOutboundCount: (addressId: string, now: number) => Promise<void>;
-	incrementReplyCount: (addressId: string, now: number) => Promise<void>;
+	incrementOutboundCount: (
+		accountConfigId: string,
+		addressId: string,
+		now: number,
+	) => Promise<void>;
+	incrementReplyCount: (
+		accountConfigId: string,
+		addressId: string,
+		now: number,
+	) => Promise<void>;
 	findMessageByHeader: (
 		accountId: string,
 		messageIdHeader: string,
@@ -33,17 +47,23 @@ export interface EngagementCounterDeps {
 }
 
 export interface SendMessageDeps {
-	getOutbox: (id: string) => Promise<OutboxMessageItem>;
+	getOutbox: (
+		accountConfigId: string,
+		id: string,
+	) => Promise<OutboxMessageItem>;
 	getAccount: (id: string) => Promise<AccountItem>;
 	updateOutbox: (
+		accountConfigId: string,
 		id: string,
 		patch: UpdateOutboxMessageInput,
 	) => Promise<unknown>;
 	updateOutboxStatus: (
+		accountConfigId: string,
 		id: string,
 		status: OutboxMessageItem["status"],
 	) => Promise<unknown>;
 	markOutboxSent: (
+		accountConfigId: string,
 		id: string,
 		fields: { sentAt: number; smtpMessageId?: string },
 	) => Promise<unknown>;
@@ -79,15 +99,17 @@ export const sendMessage = async (
 
 	log.info({ outboxMessageId, accountId }, "Processing send message event");
 
-	const outbox = await deps.getOutbox(outboxMessageId);
+	// Load the account first: its accountConfigId scopes every outbox lookup and
+	// update. The worker's tenant comes from the account it loads by accountId,
+	// never off the outbox row it fetches.
+	const account = await deps.getAccount(accountId);
+	const { accountConfigId } = account;
+
+	const outbox = await deps.getOutbox(accountConfigId, outboxMessageId);
 	if (outbox.status === "sent") {
 		log.info({ outboxMessageId }, "Message already sent, skipping");
 		return;
 	}
-
-	// Resolve SMTP config before flipping to `sending` so a blocked-config send
-	// does not transient-flicker through "Sending..." in the UI (issue #192).
-	const account = await deps.getAccount(accountId);
 
 	// Tombstone fence: drop events for deleted accounts (#228)
 	if (account.deletedAt) {
@@ -146,7 +168,7 @@ export const sendMessage = async (
 	if (!resolved.ok) {
 		// `blocked` is distinct from `failed`: no auto-retry — the user has to
 		// reconfigure the account first (issue #192).
-		await deps.updateOutbox(outboxMessageId, {
+		await deps.updateOutbox(accountConfigId, outboxMessageId, {
 			status: "blocked",
 			lastError: resolved.reason,
 		});
@@ -155,7 +177,7 @@ export const sendMessage = async (
 	}
 	const smtpConfig = resolved.config;
 
-	await deps.updateOutboxStatus(outboxMessageId, "sending");
+	await deps.updateOutboxStatus(accountConfigId, outboxMessageId, "sending");
 
 	const message = buildMailMessage(outbox);
 
@@ -186,7 +208,7 @@ export const sendMessage = async (
 	}
 
 	if (result.success) {
-		await deps.markOutboxSent(outboxMessageId, {
+		await deps.markOutboxSent(accountConfigId, outboxMessageId, {
 			sentAt: Date.now(),
 			smtpMessageId: result.messageId,
 		});
@@ -195,14 +217,17 @@ export const sendMessage = async (
 			"Message sent successfully",
 		);
 
-		await writeEngagementCounters(outbox, deps.engagement, log).catch(
-			(error: unknown) => {
-				log.warn(
-					{ outboxMessageId, error: String(error) },
-					"Failed to write engagement counters (best-effort)",
-				);
-			},
-		);
+		await writeEngagementCounters(
+			outbox,
+			{ accountConfigId, accountId: account.accountId },
+			deps.engagement,
+			log,
+		).catch((error: unknown) => {
+			log.warn(
+				{ outboxMessageId, error: String(error) },
+				"Failed to write engagement counters (best-effort)",
+			);
+		});
 
 		await deps
 			.emitAppendSentMessage(accountId, outboxMessageId)
@@ -224,12 +249,12 @@ export const sendMessage = async (
 			},
 			"Transient failure, will retry",
 		);
-		await deps.updateOutboxStatus(outboxMessageId, "queued");
+		await deps.updateOutboxStatus(accountConfigId, outboxMessageId, "queued");
 		throw new Error(`SMTP transient error: ${result.error?.message}`);
 	}
 
 	// Permanent failure - mark as failed, don't throw (no retry)
-	await deps.updateOutbox(outboxMessageId, {
+	await deps.updateOutbox(accountConfigId, outboxMessageId, {
 		status: "failed",
 		lastError: result.error?.message,
 		lastSmtpCode: result.smtpCode,

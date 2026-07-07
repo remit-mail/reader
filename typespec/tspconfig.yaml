@@ -4,7 +4,16 @@ emit:
   - "@kattebak/typespec-enum-emitter"
   - "@kattebak/typespec-zod-emitter"
   - "@kattebak/typespec-openapi-types-emitter"
+  - "@kattebak/typespec-drizzle-orm-generator"
 options:
+  "@kattebak/typespec-drizzle-orm-generator":
+    emitter-output-dir: "{cwd}/build/drizzle-entities"
+    package-name: "@remit/drizzle-pg-schema"
+    package-version: "0.0.1"
+    frontend: "remit"
+    schema-only: true
+    foreign-keys: false
+    id-default: true
   "@kattebak/typespec-enum-emitter":
     emitter-output-dir: "{cwd}/build/ts-enums"
     package-name: "@remit/domain-enums"

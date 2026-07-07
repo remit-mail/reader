@@ -24,6 +24,7 @@ import {
 	createSecretsService,
 } from "@remit/secrets-service";
 import { sendMail } from "@remit/smtp-service";
+import { resolveSqsCredentials } from "@remit/sqs-client";
 import { env } from "expect-env";
 import type { SendMessageEvent } from "../events.js";
 import { sendMessage } from "./send-message-core.js";
@@ -78,6 +79,7 @@ const isLocalQueue = messageMgmtQueueUrl.startsWith("http://localhost");
 const messageMgmtSqs = new SQSClient({
 	endpoint: isLocalQueue ? new URL(messageMgmtQueueUrl).origin : undefined,
 	...(isLocalQueue && { protocol: AwsQueryProtocol }),
+	credentials: resolveSqsCredentials(),
 });
 
 const emitAppendSentMessage = async (
@@ -150,11 +152,14 @@ export const handleSendMessage = (
 ): Promise<void> => {
 	const credentialDeps = buildCredentialDeps();
 	return sendMessage(event, log, {
-		getOutbox: (id) => outboxService.get(id),
+		getOutbox: (accountConfigId, id) => outboxService.get(accountConfigId, id),
 		getAccount: (id) => accountService.get(id),
-		updateOutbox: (id, patch) => outboxService.update(id, patch),
-		updateOutboxStatus: (id, status) => outboxService.updateStatus(id, status),
-		markOutboxSent: (id, fields) => outboxService.markSent(id, fields),
+		updateOutbox: (accountConfigId, id, patch) =>
+			outboxService.update(accountConfigId, id, patch),
+		updateOutboxStatus: (accountConfigId, id, status) =>
+			outboxService.updateStatus(accountConfigId, id, status),
+		markOutboxSent: (accountConfigId, id, fields) =>
+			outboxService.markSent(accountConfigId, id, fields),
 		secrets,
 		resolveCredentials: (account) =>
 			resolveConnectionCredentials(account, credentialDeps),
@@ -168,10 +173,10 @@ export const handleSendMessage = (
 		emitAppendSentMessage,
 		engagement: {
 			resolveAddressId: AddressService.generateAddressId,
-			incrementOutboundCount: (addressId, now) =>
-				addressService.incrementOutboundCount(addressId, now),
-			incrementReplyCount: (addressId, now) =>
-				addressService.incrementReplyCount(addressId, now),
+			incrementOutboundCount: (accountConfigId, addressId, now) =>
+				addressService.incrementOutboundCount(accountConfigId, addressId, now),
+			incrementReplyCount: (accountConfigId, addressId, now) =>
+				addressService.incrementReplyCount(accountConfigId, addressId, now),
 			findMessageByHeader,
 			getEnvelopeFromEmail,
 		},

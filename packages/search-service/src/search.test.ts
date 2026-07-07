@@ -4,7 +4,10 @@ import {
 	MemoryVectorStore,
 	type VectorStoreService,
 } from "./backends/memory.js";
-import { createDeterministicEmbeddingService } from "./embeddings.js";
+import {
+	createDeterministicEmbeddingService,
+	type EmbeddingService,
+} from "./embeddings.js";
 import { DefaultSearchService } from "./search.js";
 import type {
 	EnvelopeChunkInput,
@@ -336,5 +339,78 @@ describe("DefaultSearchService idempotent indexing", () => {
 			"force re-PUTs every record",
 		);
 		assert.strictEqual(store.written(), records.length);
+	});
+});
+
+class CountingEmbedder implements EmbeddingService {
+	readonly embeddingId: string;
+	readonly dimensions: number;
+	private inner: EmbeddingService;
+	embedCalls = 0;
+	embeddedTexts = 0;
+	constructor(dimensions = 128) {
+		this.inner = createDeterministicEmbeddingService({ dimensions });
+		this.embeddingId = this.inner.embeddingId;
+		this.dimensions = this.inner.dimensions;
+	}
+	embed = async (texts: string[]): Promise<number[][]> => {
+		this.embedCalls += 1;
+		this.embeddedTexts += texts.length;
+		return this.inner.embed(texts);
+	};
+}
+
+describe("DefaultSearchService.indexIncremental", () => {
+	it("does not embed when content is unchanged and already indexed", async () => {
+		const store = new SpyStore();
+		const embedder = new CountingEmbedder();
+		const service = new DefaultSearchService({ embedder, store });
+
+		const first = await service.indexIncremental(aliceParams(invoiceBody));
+		assert.ok(first.upserted > 0, "first index embeds and writes");
+		assert.ok(embedder.embedCalls > 0);
+
+		embedder.embedCalls = 0;
+		store.reset();
+		const second = await service.indexIncremental(aliceParams(invoiceBody));
+		assert.strictEqual(embedder.embedCalls, 0, "unchanged: no embedding pass");
+		assert.strictEqual(store.written(), 0, "unchanged: nothing written");
+		assert.strictEqual(second.upserted, 0);
+		assert.ok(second.skipped > 0, "unchanged chunks are counted as skipped");
+	});
+
+	it("embeds only the changed chunks when the body changes", async () => {
+		const store = new SpyStore();
+		const embedder = new CountingEmbedder();
+		const service = new DefaultSearchService({ embedder, store });
+
+		await service.indexIncremental(aliceParams(invoiceBody));
+		embedder.embedCalls = 0;
+		store.reset();
+
+		const changed = await service.indexIncremental(
+			aliceParams(
+				"Completely different content: the renovation budget overran and we must escalate the vendor dispute before the quarter closes.",
+			),
+		);
+		assert.ok(embedder.embedCalls > 0, "changed content re-embeds");
+		assert.ok(changed.upserted > 0, "changed content is written");
+	});
+
+	it("force re-embeds every chunk even when unchanged (move metadata refresh)", async () => {
+		const store = new SpyStore();
+		const embedder = new CountingEmbedder();
+		const service = new DefaultSearchService({ embedder, store });
+
+		await service.indexIncremental(aliceParams(invoiceBody));
+		embedder.embedCalls = 0;
+		store.reset();
+
+		const forced = await service.indexIncremental(aliceParams(invoiceBody), {
+			force: true,
+		});
+		assert.ok(embedder.embedCalls > 0, "force embeds regardless of hash");
+		assert.ok(forced.upserted > 0, "force re-writes every chunk");
+		assert.strictEqual(forced.skipped, 0);
 	});
 });

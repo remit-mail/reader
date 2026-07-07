@@ -1,7 +1,7 @@
 import { inspect } from "node:util";
 import { CloudFrontClient } from "@aws-sdk/client-cloudfront";
 import { S3Client } from "@aws-sdk/client-s3";
-import { NotFoundError } from "@remit/remit-electrodb-service";
+import type { CascadeDeleter } from "@remit/drizzle-service";
 import {
 	createLogger,
 	type Logger,
@@ -17,7 +17,7 @@ import {
 import {
 	type CascadeS3Client,
 	deleteS3Prefix,
-	runDdbCascadeDelete,
+	runCascadeDelete,
 } from "../cascade-delete.js";
 import {
 	type InvalidationClient,
@@ -26,6 +26,7 @@ import {
 import {
 	cascadeServices as defaultCascadeServices,
 	ddbClient as defaultDdbClient,
+	pgCascadeDeleter as defaultPgCascadeDeleter,
 	tableName as defaultTableName,
 } from "../config.js";
 import type {
@@ -60,6 +61,7 @@ export interface ProcessFinalizeDeps {
 	cascadeServices?: CascadeServices;
 	ddbClient?: typeof defaultDdbClient;
 	tableName?: string;
+	pgDeleter?: CascadeDeleter;
 }
 
 /**
@@ -100,6 +102,7 @@ export const processAccountFinalize = async (
 	const services = deps.cascadeServices ?? defaultCascadeServices;
 	const ddbClient = deps.ddbClient ?? defaultDdbClient;
 	const tableName = deps.tableName ?? defaultTableName;
+	const pgDeleter = deps.pgDeleter ?? defaultPgCascadeDeleter;
 
 	// Fail-loud env validation up front, symmetric for both vars.
 	if (!distributionId) {
@@ -145,7 +148,7 @@ export const processAccountFinalize = async (
 		);
 		entities = enumeration.entities;
 	} catch (error) {
-		if (error instanceof NotFoundError) {
+		if ((error as { name?: string })?.name === "NotFoundError") {
 			log.info(
 				{ accountConfigId },
 				"Cascade already complete (AccountConfig not found on replay) — no-op",
@@ -157,9 +160,9 @@ export const processAccountFinalize = async (
 	const cascadeEntities = entities.filter(
 		(e) => e.entityType !== "AccountConfig",
 	);
-	await runDdbCascadeDelete(
+	await runCascadeDelete(
 		cascadeEntities,
-		{ client: ddbClient, table: tableName },
+		{ ddbConfig: { client: ddbClient, table: tableName }, pgDeleter },
 		log,
 	);
 
@@ -191,9 +194,10 @@ export const processAccountFinalize = async (
  * batch-write grants already on that Lambda — no new IAM.
  *
  * Idempotency: DDB `BatchWriteItem` on a missing key is a 200, so a redelivered
- * batch (or container) no-ops on already-gone rows. Vector deletes are NOT
- * issued here — the fanout step enqueues a search-index REMOVE for every
- * message id up front (`account-purge.ts` → `enqueueVectorDeletes`).
+ * batch (or container) no-ops on already-gone rows. Search-index cleanup is not
+ * driven from here: on DynamoDB the fanout step enqueues a REMOVE per message id
+ * up front (`account-purge.ts` → `enqueueVectorDeletes`); on Postgres the Drizzle
+ * delete emits a `message.removed` outbox row the pg-index worker relays.
  */
 export const processAccountDataPurgeFinalize = async (
 	event: AccountDataPurgeFinalizeEvent,
@@ -223,6 +227,7 @@ const processPurgeSubtrees = async (
 	const services = deps.cascadeServices ?? defaultCascadeServices;
 	const ddbClient = deps.ddbClient ?? defaultDdbClient;
 	const tableName = deps.tableName ?? defaultTableName;
+	const pgDeleter = deps.pgDeleter ?? defaultPgCascadeDeleter;
 
 	const entities: CascadeEntity[] = [];
 	for (const { threadMessageId, messageId } of items) {
@@ -235,7 +240,7 @@ const processPurgeSubtrees = async (
 			entities.push({ entityType: "Message", key: { messageId } });
 			collectMessageChildEntities(entities, messageData);
 		} catch (error) {
-			if (error instanceof NotFoundError) {
+			if ((error as { name?: string })?.name === "NotFoundError") {
 				log.info(
 					{ accountConfigId, accountId, messageId },
 					"Message subtree already gone — deleting manifest row only",
@@ -246,9 +251,9 @@ const processPurgeSubtrees = async (
 		}
 	}
 
-	await runDdbCascadeDelete(
+	await runCascadeDelete(
 		entities,
-		{ client: ddbClient, table: tableName },
+		{ ddbConfig: { client: ddbClient, table: tableName }, pgDeleter },
 		log,
 	);
 	log.info(
@@ -280,6 +285,7 @@ const processPurgeContainer = async (
 	const services = deps.cascadeServices ?? defaultCascadeServices;
 	const ddbClient = deps.ddbClient ?? defaultDdbClient;
 	const tableName = deps.tableName ?? defaultTableName;
+	const pgDeleter = deps.pgDeleter ?? defaultPgCascadeDeleter;
 
 	if (!distributionId) {
 		throw new Error(
@@ -300,7 +306,7 @@ const processPurgeContainer = async (
 	try {
 		accountDescription = await services.accountService.describe(accountId);
 	} catch (error) {
-		if (error instanceof NotFoundError) {
+		if ((error as { name?: string })?.name === "NotFoundError") {
 			log.info(
 				{ accountConfigId, accountId },
 				"Per-account purge already complete (account row gone) — no-op",
@@ -346,9 +352,9 @@ const processPurgeContainer = async (
 			key: { mailboxId: lock.mailboxId, eventName: lock.eventName },
 		});
 	}
-	await runDdbCascadeDelete(
+	await runCascadeDelete(
 		entities,
-		{ client: ddbClient, table: tableName },
+		{ ddbConfig: { client: ddbClient, table: tableName }, pgDeleter },
 		log,
 	);
 

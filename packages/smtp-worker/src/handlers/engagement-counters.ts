@@ -1,6 +1,6 @@
 import type { OutboxMessageItem } from "@remit/remit-electrodb-service";
 import type { Logger } from "@remit/logger-lambda";
-import type { EngagementCounterDeps } from "./send-message-core.js";
+import type { EngagementCounterDeps, SendTenant } from "./send-message-core.js";
 
 /**
  * Engagement counters for an outbound send.
@@ -15,6 +15,7 @@ import type { EngagementCounterDeps } from "./send-message-core.js";
  */
 export const writeEngagementCounters = async (
 	outbox: OutboxMessageItem,
+	tenant: SendTenant,
 	deps: EngagementCounterDeps,
 	log: Logger,
 ): Promise<void> => {
@@ -24,19 +25,19 @@ export const writeEngagementCounters = async (
 
 	const recipientAddressIds = new Map<string, string>();
 	for (const email of recipients) {
-		const addressId = deps.resolveAddressId(outbox.accountConfigId, email);
+		const addressId = deps.resolveAddressId(tenant.accountConfigId, email);
 		recipientAddressIds.set(email, addressId);
 	}
 
 	for (const addressId of recipientAddressIds.values()) {
-		await deps.incrementOutboundCount(addressId, now);
+		await deps.incrementOutboundCount(tenant.accountConfigId, addressId, now);
 	}
 
-	const replyTargets = await resolveReplyTargets(outbox, deps, log);
+	const replyTargets = await resolveReplyTargets(outbox, tenant, deps, log);
 	for (const email of replyTargets) {
 		const addressId = recipientAddressIds.get(email);
 		if (!addressId) continue;
-		await deps.incrementReplyCount(addressId, now);
+		await deps.incrementReplyCount(tenant.accountConfigId, addressId, now);
 	}
 };
 
@@ -70,6 +71,7 @@ const normalizeEmail = (raw: string): string | null => {
 
 const resolveReplyTargets = async (
 	outbox: OutboxMessageItem,
+	tenant: SendTenant,
 	deps: EngagementCounterDeps,
 	log: Logger,
 ): Promise<Set<string>> => {
@@ -81,7 +83,7 @@ const resolveReplyTargets = async (
 	const matched = new Set<string>();
 	for (const header of headerCandidates) {
 		for (const variant of headerVariants(header)) {
-			const message = await deps.findMessageByHeader(outbox.accountId, variant);
+			const message = await deps.findMessageByHeader(tenant.accountId, variant);
 			if (!message) continue;
 			const fromEmail = await deps.getEnvelopeFromEmail(message.messageId);
 			if (!fromEmail) continue;

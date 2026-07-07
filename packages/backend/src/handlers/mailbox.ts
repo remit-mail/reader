@@ -1,5 +1,5 @@
+import type { IAccountSettingRepository } from "@remit/data-ports";
 import {
-	type AccountSettingService,
 	ForbiddenError,
 	type MailboxItem,
 	NotFoundError,
@@ -61,7 +61,7 @@ export const pickMailboxOverrideChanges = (
  */
 export interface MailboxPatchClient {
 	mailbox: {
-		get(mailboxId: string): Promise<MailboxItem>;
+		get(accountId: string, mailboxId: string): Promise<MailboxItem>;
 	};
 	mailboxQueue: {
 		renameMailbox(
@@ -70,7 +70,7 @@ export interface MailboxPatchClient {
 			accountId: string,
 		): Promise<MailboxItem>;
 	};
-	accountSetting: Pick<AccountSettingService, "upsert" | "delete">;
+	accountSetting: Pick<IAccountSettingRepository, "upsert" | "delete">;
 }
 
 /**
@@ -108,7 +108,7 @@ export const applyMailboxPatch = async (
 	// --- Rename (IMAP machinery) ---
 	// Only triggered when fullPath is present.
 	if (!fullPath) {
-		return client.mailbox.get(mailboxId);
+		return client.mailbox.get(accountId, mailboxId);
 	}
 
 	return client.mailboxQueue.renameMailbox(mailboxId, fullPath, accountId);
@@ -251,7 +251,7 @@ export const MailboxDetailOperations: Record<
 		const account = await client.account.get(accountId);
 		assertAccountOwnership(account, accountConfigId, "read");
 
-		const mailbox = await client.mailbox.get(mailboxId);
+		const mailbox = await client.mailbox.get(accountId, mailboxId);
 		assertMailboxInAccount(mailbox, accountId, "read");
 		const overrides = await loadMailboxOverrides(
 			client.accountSetting,
@@ -277,7 +277,7 @@ export const MailboxDetailOperations: Record<
 		const account = await client.account.get(accountId);
 		assertAccountOwnership(account, accountConfigId, "act");
 
-		const existing = await client.mailbox.get(mailboxId);
+		const existing = await client.mailbox.get(accountId, mailboxId);
 		assertMailboxInAccount(existing, accountId, "act");
 
 		const mailbox = await applyMailboxPatch(
@@ -310,7 +310,7 @@ export const MailboxDetailOperations: Record<
 		const account = await client.account.get(accountId);
 		assertAccountOwnership(account, accountConfigId, "act");
 
-		const mailbox = await client.mailbox.get(mailboxId);
+		const mailbox = await client.mailbox.get(accountId, mailboxId);
 		assertMailboxInAccount(mailbox, accountId, "act");
 
 		await client.mailboxQueue.deleteMailbox(mailboxId, accountId);
@@ -346,7 +346,7 @@ export const TrashOperations: Record<
 		const deletedCount = messages.length;
 
 		// MessageMoveService handles: Message status updates + SQS event
-		await client.messageMove.emptyTrash(accountId);
+		await client.messageMove.emptyTrash(accountConfigId, accountId);
 
 		return { deletedCount };
 	},

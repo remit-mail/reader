@@ -96,7 +96,6 @@ export {
 	MailboxQueueService,
 } from "./mailbox-queue.js";
 export {
-	type MailboxSyncConfig,
 	MailboxSyncService,
 	type SyncAccountInfo,
 } from "./mailbox-sync.js";

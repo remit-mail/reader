@@ -111,7 +111,8 @@ const buildDeps = (
 	const outbox = options.outbox ?? buildOutbox();
 	const account = options.account ?? buildAccount();
 	const deps: SendMessageDeps = {
-		getOutbox: async (id) => {
+		getOutbox: async (accountConfigId, id) => {
+			assert.equal(accountConfigId, account.accountConfigId);
 			assert.equal(id, outbox.outboxMessageId);
 			return outbox;
 		},
@@ -119,13 +120,16 @@ const buildDeps = (
 			assert.equal(id, account.accountId);
 			return account;
 		},
-		updateOutbox: async (id, patch) => {
+		updateOutbox: async (accountConfigId, id, patch) => {
+			assert.equal(accountConfigId, account.accountConfigId);
 			recorded.updates.push({ id, patch });
 		},
-		updateOutboxStatus: async (id, status) => {
+		updateOutboxStatus: async (accountConfigId, id, status) => {
+			assert.equal(accountConfigId, account.accountConfigId);
 			recorded.statuses.push({ id, status });
 		},
-		markOutboxSent: async (id, fields) => {
+		markOutboxSent: async (accountConfigId, id, fields) => {
+			assert.equal(accountConfigId, account.accountConfigId);
 			recorded.marked.push({ id, ...fields });
 		},
 		secrets: {
@@ -167,10 +171,12 @@ const buildDeps = (
 		engagement: {
 			resolveAddressId: (accountConfigId, email) =>
 				`addr-${accountConfigId}-${email}`,
-			incrementOutboundCount: async (addressId, now) => {
+			incrementOutboundCount: async (accountConfigId, addressId, now) => {
+				assert.equal(accountConfigId, account.accountConfigId);
 				recorded.outboundIncrements.push({ addressId, now });
 			},
-			incrementReplyCount: async (addressId, now) => {
+			incrementReplyCount: async (accountConfigId, addressId, now) => {
+				assert.equal(accountConfigId, account.accountConfigId);
 				recorded.replyIncrements.push({ addressId, now });
 			},
 			findMessageByHeader: async () => null,

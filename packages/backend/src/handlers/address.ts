@@ -116,7 +116,10 @@ export const AddressDetailOperations: Record<
 		const client = getClient();
 
 		// Authorize: address must belong to the caller's accountConfig
-		const existing = await client.address.getAddress(addressId);
+		const existing = await client.address.getAddress(
+			accountConfigId,
+			addressId,
+		);
 		if (existing.accountConfigId !== accountConfigId) {
 			throw new ForbiddenError(`Address ${addressId} not in account config`);
 		}
@@ -126,7 +129,11 @@ export const AddressDetailOperations: Record<
 			return toAddressResponse(existing);
 		}
 
-		const updated = await client.address.mergeFlags(addressId, patch);
+		const updated = await client.address.mergeFlags(
+			accountConfigId,
+			addressId,
+			patch,
+		);
 		return toAddressResponse(updated);
 	},
 };

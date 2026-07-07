@@ -6,6 +6,7 @@ import {
 } from "@aws-sdk/client-sqs";
 import { AwsQueryProtocol } from "@aws-sdk/core/protocols";
 import { createLogger } from "@remit/logger-lambda";
+import { resolveSqsCredentials } from "@remit/sqs-client";
 import type { Context, SQSBatchResponse, SQSEvent } from "aws-lambda";
 import { env } from "expect-env";
 import { handler } from "./index.js";
@@ -35,6 +36,7 @@ const isLocal = queueUrl.startsWith("http://localhost");
 const sqs = new SQSClient({
 	endpoint: isLocal ? new URL(queueUrl).origin : undefined,
 	...(isLocal && { protocol: AwsQueryProtocol }),
+	credentials: resolveSqsCredentials(),
 });
 
 const maxMessages = 10;

@@ -1,8 +1,5 @@
-import type {
-	AccountItem,
-	AccountSettingService,
-	MailboxItem,
-} from "@remit/remit-electrodb-service";
+import type { IAccountSettingRepository } from "@remit/data-ports";
+import type { AccountItem, MailboxItem } from "@remit/remit-electrodb-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import pMap from "p-map";
@@ -30,7 +27,7 @@ export interface InboxMapClient {
 	mailbox: {
 		listAllByAccount(accountId: string): Promise<MailboxItem[]>;
 	};
-	accountSetting: Pick<AccountSettingService, "listByAccountConfig">;
+	accountSetting: Pick<IAccountSettingRepository, "listByAccountConfig">;
 }
 
 /**
@@ -181,7 +178,11 @@ export const UnifiedThreadOperations: Record<
 			),
 		);
 
-		const enriched = await enrichThreadRows(result.items, client);
+		const enriched = await enrichThreadRows(
+			result.items,
+			client,
+			accountConfigId,
+		);
 		const items = attachAccountIds(enriched, mailboxIdToAccountId);
 
 		return {

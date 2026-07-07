@@ -37,8 +37,21 @@ export default defineConfig({
 	},
 	server: {
 		host: "0.0.0.0",
-		allowedHosts: [os.hostname()],
+		allowedHosts: [
+			os.hostname(),
+			"sandbox",
+			"devbox",
+			"devbox.tailfa81e6.ts.net",
+			".ts.net",
+		],
 		proxy: {
+			// better-auth is mounted at /api/auth on the backend and must keep
+			// that prefix, so this rule (matched before the stripping `/api` rule)
+			// forwards without rewriting. Regular API routes below drop `/api`.
+			"/api/auth": {
+				target: `http://localhost:${process.env.VITE_PROXY_BACKEND_PORT ?? "5433"}`,
+				changeOrigin: true,
+			},
 			"/api": {
 				target: `http://localhost:${process.env.VITE_PROXY_BACKEND_PORT ?? "5433"}`,
 				changeOrigin: true,

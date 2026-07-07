@@ -536,11 +536,11 @@ function StepServers({
 		onChange(imap, smtp);
 	}, [imap, smtp, onChange]);
 
-	const isValid = imap.host.trim() !== "" && smtp.host.trim() !== "";
+	const isValid = imap.host.trim() !== "";
 
 	const handleContinue = useCallback(() => {
 		if (!isValid) {
-			setError("Enter both the IMAP and SMTP host.");
+			setError("Enter the IMAP host.");
 			return;
 		}
 		setError(null);
@@ -641,8 +641,12 @@ function StepServers({
 					onPortChange={(v) => setImap((s) => ({ ...s, port: Number(v) }))}
 					onSecurityChange={(v) => setImap((s) => ({ ...s, security: v }))}
 				/>
+				<p className="text-2xs text-fg-subtle">
+					Sending (SMTP) is optional — leave it blank to set up a receive-only
+					account and add sending later in Settings.
+				</p>
 				<ServerFields
-					legend="SMTP — outgoing"
+					legend="SMTP — outgoing (optional)"
 					badge={badge}
 					readOnly={locked}
 					host={smtp.host}
@@ -804,6 +808,7 @@ function StepTest({
 		phase: "running",
 	});
 	const [attempt, setAttempt] = useState(0);
+	const smtpConfigured = smtpConfig.host.trim() !== "";
 	const imapTls = securityToApi(imapConfig.security);
 	const smtpTls = securityToApi(smtpConfig.security);
 
@@ -840,13 +845,15 @@ function StepTest({
 			{
 				onSuccess: (data) => {
 					if (cancelled) return;
-					// Show IMAP result first, then SMTP
+					// Show IMAP result first, then SMTP. SMTP is optional: when no
+					// host was given the account is receive-only, so IMAP alone
+					// decides success.
 					const imapOk = data.imapSuccess;
-					const smtpOk = data.smtpSuccess;
+					const smtpOk = smtpConfigured ? data.smtpSuccess : true;
 
 					setTestResult({
 						imapState: imapOk ? "ok" : "failed",
-						smtpState: "running",
+						smtpState: smtpConfigured ? "running" : "ok",
 						imapDetail: imapOk
 							? `Connected — ${imapConfig.host}:${imapConfig.port}`
 							: data.imapError,
@@ -870,18 +877,31 @@ function StepTest({
 							};
 							const isAuthFailure =
 								(!imapOk && isAuthError(data.imapError)) ||
-								(imapOk && !smtpOk && isAuthError(data.smtpError));
+								(imapOk &&
+									smtpConfigured &&
+									!data.smtpSuccess &&
+									isAuthError(data.smtpError));
 
 							setTestResult({
 								imapState: imapOk ? "ok" : "failed",
-								smtpState: smtpOk ? "ok" : "failed",
+								smtpState: !smtpConfigured
+									? "ok"
+									: data.smtpSuccess
+										? "ok"
+										: "failed",
 								imapDetail: imapOk
 									? `Connected — ${imapConfig.host}:${imapConfig.port}`
 									: data.imapError,
-								smtpDetail: smtpOk
-									? `Connected — ${smtpConfig.host}:${smtpConfig.port}`
-									: data.smtpError,
-								rawError: !imapOk ? data.imapError : data.smtpError,
+								smtpDetail: !smtpConfigured
+									? "Not set up — receive-only"
+									: data.smtpSuccess
+										? `Connected — ${smtpConfig.host}:${smtpConfig.port}`
+										: data.smtpError,
+								rawError: !imapOk
+									? data.imapError
+									: smtpConfigured && !data.smtpSuccess
+										? data.smtpError
+										: undefined,
 								phase:
 									imapOk && smtpOk
 										? "success"
@@ -983,8 +1003,16 @@ function StepTest({
 					state={testResult.imapState}
 				/>
 				<CheckRow
-					label={`SMTP — ${smtpConfig.host}:${smtpConfig.port}`}
-					detail={testResult.smtpDetail}
+					label={
+						smtpConfigured
+							? `SMTP — ${smtpConfig.host}:${smtpConfig.port}`
+							: "SMTP — sending"
+					}
+					detail={
+						smtpConfigured
+							? testResult.smtpDetail
+							: "Not set up — you can add sending later in Settings"
+					}
 					state={testResult.smtpState}
 				/>
 				{(phase === "auth-failure" || phase === "network-failure") &&
@@ -1051,7 +1079,10 @@ function StepSync({
 		if (hasCreatedRef.current) return;
 		hasCreatedRef.current = true;
 
-		// Autofill SMTP from IMAP if needed
+		// SMTP is optional. When the user left the host blank the account is
+		// receive-only: send no SMTP host so the backend derives smtpEnabled=false.
+		// Only when a host was supplied do we autofill the remaining SMTP fields.
+		const smtpConfigured = smtpConfig.host.trim() !== "";
 		const autoFill = computeSmtpAutoFill({
 			imapHost: imapConfig.host,
 			smtpHost: smtpConfig.host,
@@ -1059,12 +1090,14 @@ function StepSync({
 			smtpTls: smtpTls.tls,
 			smtpStartTls: smtpTls.startTls,
 		});
-		const effectiveSmtp = autoFill ?? {
-			smtpHost: smtpConfig.host,
-			smtpPort: smtpConfig.port,
-			smtpTls: smtpTls.tls,
-			smtpStartTls: smtpTls.startTls,
-		};
+		const effectiveSmtp = smtpConfigured
+			? (autoFill ?? {
+					smtpHost: smtpConfig.host,
+					smtpPort: smtpConfig.port,
+					smtpTls: smtpTls.tls,
+					smtpStartTls: smtpTls.startTls,
+				})
+			: null;
 
 		createMutation.mutate({
 			body: {
@@ -1076,10 +1109,10 @@ function StepSync({
 				imapPort: imapConfig.port,
 				imapTls: imapTls.tls,
 				imapStartTls: imapTls.startTls,
-				smtpHost: effectiveSmtp.smtpHost || undefined,
-				smtpPort: effectiveSmtp.smtpPort || undefined,
-				smtpTls: effectiveSmtp.smtpTls,
-				smtpStartTls: effectiveSmtp.smtpStartTls,
+				smtpHost: effectiveSmtp?.smtpHost || undefined,
+				smtpPort: effectiveSmtp?.smtpPort || undefined,
+				smtpTls: effectiveSmtp?.smtpTls ?? false,
+				smtpStartTls: effectiveSmtp?.smtpStartTls ?? false,
 			},
 		});
 		// eslint-disable-next-line react-hooks/exhaustive-deps

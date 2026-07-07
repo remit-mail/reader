@@ -34,6 +34,7 @@ build/Release
 
 # Dependency directories
 node_modules/
+node_modules
 jspm_packages/
 
 # Typescript v1 declaration files
@@ -81,3 +82,6 @@ playwright-report/
 # never end up on `main`.
 .visual-baselines/
 packages/web-client/visual-regression/__screenshots__
+
+# Generated APISIX route table (from OpenAPI)
+apisix/apisix.yaml

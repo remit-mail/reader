@@ -1,5 +1,6 @@
 import type { VectorStoreService } from "./backends/memory.js";
 import { createMemoryVectorStore } from "./backends/memory.js";
+import { createPgVectorStore } from "./backends/pgvector.js";
 import { createS3VectorsBackend } from "./backends/s3-vectors.js";
 import { createSqliteVectorStore } from "./backends/sqlite-vec.js";
 import {
@@ -9,24 +10,44 @@ import {
 	type EmbeddingService,
 } from "./embeddings.js";
 
+const parseDimensions = (): number | undefined => {
+	const raw = process.env.SEARCH_EMBEDDING_DIMENSIONS;
+	if (!raw) return undefined;
+	const parsed = Number(raw);
+	if (!Number.isInteger(parsed) || parsed <= 0) {
+		throw new Error(
+			`SEARCH_EMBEDDING_DIMENSIONS must be a positive integer, got: ${raw}`,
+		);
+	}
+	return parsed;
+};
+
 /**
  * Select a vector store from the environment, shared by every process that
  * composes a SearchService (the API, the search-index worker, the local
  * indexing shim) so the selection rule lives in one place:
  *
+ * - `DATA_BACKEND=postgres` + `PG_CONNECTION_URL` set → pgvector (Postgres parity).
  * - `LOCAL_VECTORDB_PATH` set → persistent sqlite-vec (local dev).
  * - `S3_VECTORS_BUCKET_NAME` + `S3_VECTORS_INDEX_NAME` set → S3 Vectors (prod).
  * - otherwise → in-memory store (unit tests / default).
  *
- * `dimensions` should be the embedding service's dimension count. When the
- * sqlite-vec store is selected, the vec0 table is created with that dimension,
- * so the store and embedder always agree instead of failing confusingly at
- * insert time (e.g. a 64-dim deterministic embedder writing into a FLOAT[384]
- * table).
+ * `dimensions` should be the embedding service's dimension count. When a
+ * dimension-typed store is selected (sqlite-vec's vec0 table, pgvector's
+ * `VECTOR(n)` column), it is created with that dimension so the store and
+ * embedder always agree instead of failing confusingly at insert time (e.g. a
+ * 64-dim deterministic embedder writing into a 384-wide column).
  */
 export const buildVectorStoreFromEnv = (
 	dimensions?: number,
 ): VectorStoreService => {
+	const pgConnectionUrl = process.env.PG_CONNECTION_URL;
+	if (process.env.DATA_BACKEND === "postgres" && pgConnectionUrl) {
+		return createPgVectorStore({
+			connectionString: pgConnectionUrl,
+			dimensions,
+		});
+	}
 	const localPath = process.env.LOCAL_VECTORDB_PATH;
 	if (localPath) {
 		return createSqliteVectorStore({ path: localPath, dimensions });
@@ -46,14 +67,25 @@ export const buildVectorStoreFromEnv = (
 /**
  * Select an embedder from the environment, mirroring `buildVectorStoreFromEnv`:
  *
- * - `SEARCH_EMBEDDING_PROVIDER=local` → Transformers.js MiniLM (local dev).
+ * - `SEARCH_EMBEDDING_PROVIDER=local` → Transformers.js model (local dev). The
+ *   model is `SEARCH_EMBEDDING_MODEL_ID` (default MiniLM); the Postgres-parity
+ *   stack points it at a multilingual MiniLM so the ~50% non-English mail corpus
+ *   embeds well. Both models are 384-dim, so the pgvector column is stable.
  * - `SEARCH_EMBEDDING_PROVIDER=bedrock` → Bedrock Titan (prod).
  * - otherwise → deterministic bag-of-words embedder (unit tests / default).
+ *
+ * `SEARCH_EMBEDDING_DIMENSIONS`, when set, pins the dimension count for the local
+ * and deterministic embedders so the store's vector column and the embedder
+ * agree regardless of which embedder a given process runs.
  */
 export const buildEmbeddingServiceFromEnv = (): EmbeddingService => {
 	const provider = process.env.SEARCH_EMBEDDING_PROVIDER;
+	const dimensions = parseDimensions();
 	if (provider === "local") {
-		return createLocalEmbeddingService();
+		return createLocalEmbeddingService({
+			modelId: process.env.SEARCH_EMBEDDING_MODEL_ID,
+			dimensions,
+		});
 	}
 	if (provider === "bedrock") {
 		return new BedrockEmbeddingService({
@@ -61,5 +93,5 @@ export const buildEmbeddingServiceFromEnv = (): EmbeddingService => {
 			modelId: process.env.SEARCH_EMBEDDING_MODEL_ID,
 		});
 	}
-	return createDeterministicEmbeddingService();
+	return createDeterministicEmbeddingService({ dimensions });
 };

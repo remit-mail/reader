@@ -141,6 +141,7 @@ describe("deleteAllThreadMessagesForMessage (#212)", () => {
 				findAllByMessageId,
 				delete: deleteRow,
 			} as unknown as Parameters<typeof deleteAllThreadMessagesForMessage>[0],
+			"alice-config-aaaaaaaaaa",
 			"alice-msg-multi-aaaaaaaa",
 		);
 
@@ -165,6 +166,7 @@ describe("deleteAllThreadMessagesForMessage (#212)", () => {
 				findAllByMessageId,
 				delete: deleteRow,
 			} as unknown as Parameters<typeof deleteAllThreadMessagesForMessage>[0],
+			"alice-config-aaaaaaaaaa",
 			"alice-msg-missing-aaaaaa",
 		);
 

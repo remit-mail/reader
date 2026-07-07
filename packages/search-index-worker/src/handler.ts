@@ -150,6 +150,7 @@ const prepareUpsert = async (
 		searchService,
 	} = services;
 
+	let accountConfigId: string;
 	try {
 		const account = await accountService.get(accountId);
 		if (account.deletedAt) {
@@ -160,6 +161,7 @@ const prepareUpsert = async (
 			});
 			return null;
 		}
+		accountConfigId = account.accountConfigId;
 	} catch (error) {
 		// Only a genuine missing account is skippable. AccessDenied, throttling,
 		// and network errors must surface so the record retries (and reaches the
@@ -171,7 +173,10 @@ const prepareUpsert = async (
 		throw error;
 	}
 
-	const threadMessage = await threadMessageService.findByMessageId(messageId);
+	const threadMessage = await threadMessageService.findByMessageId(
+		accountConfigId,
+		messageId,
+	);
 	if (!threadMessage) {
 		log.info("ThreadMessage not found, skipping", { messageId });
 		return null;

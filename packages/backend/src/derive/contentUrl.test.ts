@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
+import {
+	createContentSigner,
+	verifyContentSignature,
+} from "./contentSignature.js";
 import { buildContentUrl, getContentDeliveryDomain } from "./contentUrl.js";
 
 describe("buildContentUrl", () => {
@@ -58,6 +62,46 @@ describe("buildContentUrl", () => {
 			url,
 			"https://cdn.test/content/accounts/cfg/acc/messages/msg/parts/1/strange%20path/3",
 		);
+	});
+
+	it("leaves the URL unsigned when no signer is provided (AWS/Lambda@Edge path)", () => {
+		const url = buildContentUrl({
+			domain: "https://abc123.cloudfront.net",
+			accountConfigId: "cfg-alice",
+			accountId: "acc-alice",
+			messageId: "msg-1",
+			partPath: "1",
+		});
+		assert.equal(url.includes("?"), false);
+	});
+
+	it("appends an exp/sig signature over the decoded storage path when a signer is provided", () => {
+		const secret = "test-master-secret-at-least-32-chars-long";
+		const url = buildContentUrl({
+			domain: "https://api.example.test",
+			accountConfigId: "cfg-alice",
+			accountId: "acc-alice",
+			messageId: "msg-1",
+			partPath: "1.2",
+			sign: createContentSigner(secret),
+		});
+
+		const parsed = new URL(url);
+		const exp = parsed.searchParams.get("exp");
+		const sig = parsed.searchParams.get("sig");
+		assert.ok(exp);
+		assert.ok(sig);
+		// The signature must verify against the same decoded storage path the
+		// `/content` route recomputes from `req.path`.
+		const relativePath = parsed.pathname.replace(/^\/content\//, "");
+		const result = verifyContentSignature(
+			relativePath,
+			exp,
+			sig,
+			secret,
+			Math.floor(Date.now() / 1000),
+		);
+		assert.deepEqual(result, { valid: true });
 	});
 
 	it("nests accountConfigId before accountId so the Lambda@Edge prefix check matches", () => {

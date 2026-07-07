@@ -19,6 +19,7 @@ const buildFakeSearch = (
 		index: async () => {},
 		prepareVectors: async () => [],
 		upsertVectors: async () => ({ upserted: 0, skipped: 0 }),
+		indexIncremental: async () => ({ upserted: 0, skipped: 0 }),
 		delete: async () => {},
 		search: async (params) => {
 			captured.calls.push(params);

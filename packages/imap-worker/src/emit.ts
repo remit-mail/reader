@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 import { AwsQueryProtocol } from "@aws-sdk/core/protocols";
+import { resolveSqsCredentials } from "@remit/sqs-client";
 import { env } from "expect-env";
 import type {
 	ImapEvent,
@@ -26,6 +27,7 @@ const isLocal = mailboxesQueueUrl.startsWith("http://localhost");
 const sqs = new SQSClient({
 	endpoint: isLocal ? new URL(mailboxesQueueUrl).origin : undefined,
 	...(isLocal && { protocol: AwsQueryProtocol }),
+	credentials: resolveSqsCredentials(),
 });
 
 const queueUrlMap: Record<ImapEvent["type"], string> = {

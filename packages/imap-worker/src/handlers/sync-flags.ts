@@ -94,7 +94,7 @@ export const syncFlags = async (
 		log,
 		async (credentials) => {
 			const scope = createConnectionScopeWithCredentials(account, credentials);
-			const mailbox = await mailboxService.get(mailboxId);
+			const mailbox = await mailboxService.get(accountId, mailboxId);
 
 			const flagSyncService = new FlagSyncService(
 				messageFlagService,

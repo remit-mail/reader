@@ -1,5 +1,38 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
+import type {
+	IAccountConfigRepository,
+	IAccountExportRequestRepository,
+	IAccountRepository,
+	IAccountSettingRepository,
+	IAddressRepository,
+	IEnvelopeRepository,
+	IMailboxLockRepository,
+	IMailboxRepository,
+	IMailboxSpecialUseRepository,
+	IMessageFlagRepository,
+	IMessageRepository,
+	IOutboxMessageRepository,
+	IThreadMessageRepository,
+	IUnitOfWork,
+} from "@remit/data-ports";
+import {
+	AccountConfigRepo,
+	AccountExportRequestRepo,
+	AccountRepo,
+	AccountSettingRepo,
+	AddressRepo,
+	DrizzleEnvelopeRepository,
+	DrizzleMessageFlagRepository,
+	DrizzleMessageRepository,
+	DrizzleThreadMessageRepository,
+	DrizzleUnitOfWork,
+	MailboxLockRepo,
+	MailboxRepo,
+	MailboxSpecialUseRepo,
+	messageDataSchema,
+	OutboxMessageRepo,
+} from "@remit/drizzle-service";
 import {
 	AccountConfigService,
 	AccountExportRequestService,
@@ -7,6 +40,7 @@ import {
 	AccountSettingService,
 	AddressService,
 	EnvelopeService,
+	MailboxLockService,
 	MailboxService,
 	MailboxSpecialUseService,
 	MessageFlagService,
@@ -42,6 +76,7 @@ import {
 	createStorageService,
 	type StorageService,
 } from "@remit/storage-service";
+import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { env } from "expect-env";
 
 const isLocalEnv =
@@ -88,19 +123,25 @@ export interface ConnectionScope {
 }
 
 export interface RemitClient {
-	// ElectroDB services (reads)
-	accountConfig: AccountConfigService;
-	account: AccountService;
-	accountSetting: AccountSettingService;
-	address: AddressService;
-	mailbox: MailboxService;
-	mailboxSpecialUse: MailboxSpecialUseService;
-	message: MessageService;
-	messageFlag: MessageFlagService;
-	outboxMessage: OutboxMessageService;
-	threadMessage: ThreadMessageService;
-	envelope: EnvelopeService;
-	accountExportRequest: AccountExportRequestService;
+	// Data repositories (satisfied by ElectroDB services or Drizzle repos)
+	accountConfig: IAccountConfigRepository;
+	account: IAccountRepository;
+	accountSetting: IAccountSettingRepository;
+	address: IAddressRepository;
+	mailbox: IMailboxRepository;
+	mailboxSpecialUse: IMailboxSpecialUseRepository;
+	mailboxLock: IMailboxLockRepository;
+	message: IMessageRepository;
+	messageFlag: IMessageFlagRepository;
+	outboxMessage: IOutboxMessageRepository;
+	threadMessage: IThreadMessageRepository;
+	envelope: IEnvelopeRepository;
+	accountExportRequest: IAccountExportRequestRepository;
+
+	// Atomic write set for a message save. Present on Postgres (real
+	// transaction); absent on DynamoDB, where callers fall back to per-repo
+	// writes with that backend's own (non-transactional) guarantees.
+	unitOfWork?: IUnitOfWork;
 
 	// Storage service
 	storage: StorageService;
@@ -126,162 +167,268 @@ export interface RemitClient {
 
 let client: RemitClient | null = null;
 
+const buildConnectionScope =
+	(accountService: IAccountRepository, secretsService: SecretsService) =>
+	async (accountId: string): Promise<ConnectionScope> => {
+		const account = await accountService.get(accountId);
+		if (!account.passwordHash) {
+			throw new Error(
+				`Account ${accountId} has no passwordHash — OAuth accounts cannot use this connection path`,
+			);
+		}
+		const password = await secretsService.decrypt(
+			deserializeEncryptedPayload(JSON.parse(account.passwordHash)),
+		);
+
+		let connection: IImapConnection | null = null;
+		let connectPromise: Promise<IImapConnection> | null = null;
+
+		const getConnection = async (): Promise<IImapConnection> => {
+			if (connectPromise) {
+				return connectPromise;
+			}
+
+			const conn = createConnection({
+				user: account.username,
+				credentials: { kind: "password", password },
+				host: account.imapHost,
+				port: account.imapPort,
+				tls: account.imapTls,
+			});
+			connection = conn;
+			connectPromise = conn.connect().then(() => conn);
+
+			return connectPromise;
+		};
+
+		const disconnect = async (): Promise<void> => {
+			if (connection) {
+				await connection.disconnect();
+				connection = null;
+				connectPromise = null;
+			}
+		};
+
+		return { getConnection, disconnect };
+	};
+
+const buildSharedServices = () => {
+	const storageService = createStorageService();
+	const searchService = buildSearchService();
+	const kmsKeyId = process.env.KMS_KEY_ID ?? FAKE_KMS_KEY_ID;
+	const dataKeyProvider = createCachedDataKeyProvider(
+		createKmsDataKeyProvider(kmsKeyId),
+	);
+	const secretsService = createSecretsService(dataKeyProvider);
+	return { storageService, searchService, secretsService };
+};
+
+const buildDynamoDBClient = (): RemitClient => {
+	const documentClient = getDocumentClient();
+	const table = env.DYNAMODB_TABLE_NAME;
+	const salt = process.env.DYNAMODB_PAGINATION_SALT ?? "";
+	const config = { client: documentClient, table, salt };
+
+	const accountConfigService = new AccountConfigService(config);
+	const accountService = new AccountService(config);
+	const accountSettingService = new AccountSettingService(config);
+	const mailboxService = new MailboxService(config);
+	const mailboxSpecialUseService = new MailboxSpecialUseService(config);
+	const mailboxLockService = new MailboxLockService(config);
+	const messageService = new MessageService(config);
+	const messageFlagService = new MessageFlagService(config);
+	const threadMessageService = new ThreadMessageService(config);
+	const envelopeService = new EnvelopeService(config);
+	const addressService = new AddressService(config);
+	const outboxMessageService = new OutboxMessageService(config);
+	const accountExportRequestService = new AccountExportRequestService(config);
+
+	const sqsQueueUrl = env.SQS_QUEUE_URL;
+	const sqsSmtpQueueUrl = process.env.SQS_QUEUE_URL_SMTP ?? sqsQueueUrl;
+
+	const { storageService, searchService, secretsService } =
+		buildSharedServices();
+
+	const bodySyncService = new BodySyncService(
+		messageService,
+		storageService,
+		threadMessageService,
+		addressService,
+		envelopeService,
+		logger,
+	);
+
+	return {
+		accountConfig: accountConfigService,
+		account: accountService,
+		accountSetting: accountSettingService,
+		address: addressService,
+		mailbox: mailboxService,
+		mailboxSpecialUse: mailboxSpecialUseService,
+		mailboxLock: mailboxLockService,
+		message: messageService,
+		messageFlag: messageFlagService,
+		outboxMessage: outboxMessageService,
+		threadMessage: threadMessageService,
+		envelope: envelopeService,
+		accountExportRequest: accountExportRequestService,
+
+		storage: storageService,
+		search: searchService,
+		secrets: secretsService,
+
+		bodySync: bodySyncService,
+
+		flagQueue: new FlagQueueService({
+			messageFlagService,
+			messageService,
+			threadMessageService,
+			mailboxService,
+			sqsQueueUrl,
+			logger,
+		}),
+		mailboxQueue: new MailboxQueueService({
+			mailboxService,
+			sqsQueueUrl,
+			logger,
+		}),
+		messageMove: new MessageMoveService({
+			messageService,
+			mailboxService,
+			mailboxSpecialUseService,
+			threadMessageService,
+			sqsQueueUrl,
+			logger,
+		}),
+		outboxQueue: new OutboxQueueService({
+			outboxMessageService,
+			accountService,
+			sqsSmtpQueueUrl,
+			logger,
+		}),
+
+		createConnectionScope: buildConnectionScope(accountService, secretsService),
+	};
+};
+
+const buildPostgresClient = (): RemitClient => {
+	const pgConnectionUrl = env.PG_CONNECTION_URL;
+
+	// One drizzle db instance shared across repos.
+	// The schema is registered for message-data tables; i4 repos use the same
+	// underlying connection and only need the builder API (no relational queries).
+	const db = drizzle(pgConnectionUrl, { schema: messageDataSchema });
+	const genericDb = db as unknown as NodePgDatabase<Record<string, unknown>>;
+
+	const accountService = new AccountRepo(genericDb);
+	const accountConfigService = new AccountConfigRepo(genericDb);
+	const accountSettingService = new AccountSettingRepo(genericDb);
+	const addressService = new AddressRepo(genericDb);
+	const mailboxService = new MailboxRepo(genericDb);
+	const mailboxSpecialUseService = new MailboxSpecialUseRepo(genericDb);
+	const mailboxLockService = new MailboxLockRepo(genericDb);
+	const outboxMessageService = new OutboxMessageRepo(genericDb);
+	const accountExportRequestService = new AccountExportRequestRepo(genericDb);
+
+	const messageDataDb = db as unknown as NodePgDatabase<
+		typeof messageDataSchema
+	>;
+	const envelopeService = new DrizzleEnvelopeRepository(messageDataDb);
+	const messageService = new DrizzleMessageRepository(messageDataDb);
+	const messageFlagService = new DrizzleMessageFlagRepository(messageDataDb);
+
+	const threadMessageService = new DrizzleThreadMessageRepository(
+		pgConnectionUrl,
+	);
+
+	const unitOfWork = new DrizzleUnitOfWork(messageDataDb);
+
+	const sqsQueueUrl = env.SQS_QUEUE_URL;
+	const sqsSmtpQueueUrl = process.env.SQS_QUEUE_URL_SMTP ?? sqsQueueUrl;
+
+	const { storageService, searchService, secretsService } =
+		buildSharedServices();
+
+	const bodySyncService = new BodySyncService(
+		messageService,
+		storageService,
+		threadMessageService,
+		addressService,
+		envelopeService,
+		logger,
+	);
+
+	return {
+		accountConfig: accountConfigService,
+		account: accountService,
+		accountSetting: accountSettingService,
+		address: addressService,
+		mailbox: mailboxService,
+		mailboxSpecialUse: mailboxSpecialUseService,
+		mailboxLock: mailboxLockService,
+		message: messageService,
+		messageFlag: messageFlagService,
+		outboxMessage: outboxMessageService,
+		threadMessage: threadMessageService,
+		envelope: envelopeService,
+		accountExportRequest: accountExportRequestService,
+		unitOfWork,
+
+		storage: storageService,
+		search: searchService,
+		secrets: secretsService,
+
+		bodySync: bodySyncService,
+
+		flagQueue: new FlagQueueService({
+			messageFlagService,
+			messageService,
+			threadMessageService,
+			mailboxService,
+			sqsQueueUrl,
+			logger,
+		}),
+		mailboxQueue: new MailboxQueueService({
+			mailboxService,
+			sqsQueueUrl,
+			logger,
+		}),
+		messageMove: new MessageMoveService({
+			messageService,
+			mailboxService,
+			mailboxSpecialUseService,
+			threadMessageService,
+			sqsQueueUrl,
+			logger,
+		}),
+		outboxQueue: new OutboxQueueService({
+			outboxMessageService,
+			accountService,
+			sqsSmtpQueueUrl,
+			logger,
+		}),
+
+		createConnectionScope: buildConnectionScope(accountService, secretsService),
+	};
+};
+
 export const getClient = (): RemitClient => {
 	if (!client) {
-		const documentClient = getDocumentClient();
-		const table = env.DYNAMODB_TABLE_NAME;
-		const salt = process.env.DYNAMODB_PAGINATION_SALT ?? "";
-		const config = { client: documentClient, table, salt };
-
-		// ElectroDB services
-		const accountConfigService = new AccountConfigService(config);
-		const accountService = new AccountService(config);
-		const accountSettingService = new AccountSettingService(config);
-		const mailboxService = new MailboxService(config);
-		const mailboxSpecialUseService = new MailboxSpecialUseService(config);
-		const messageService = new MessageService(config);
-		const messageFlagService = new MessageFlagService(config);
-		const threadMessageService = new ThreadMessageService(config);
-		const envelopeService = new EnvelopeService(config);
-		const addressService = new AddressService(config);
-		const outboxMessageService = new OutboxMessageService(config);
-		const accountExportRequestService = new AccountExportRequestService(config);
-
-		// Queue services (SQS_QUEUE_URL required for write operations)
-		const sqsQueueUrl = env.SQS_QUEUE_URL;
-		const sqsSmtpQueueUrl = process.env.SQS_QUEUE_URL_SMTP ?? sqsQueueUrl;
-
-		// Storage service - auto-selects filesystem or S3 based on env vars
-		const storageService = createStorageService();
-
-		// Search service - composes embedder + vector store, both selected from
-		// the environment (S3 Vectors + Bedrock in prod, sqlite-vec +
-		// Transformers locally, in-memory + deterministic in tests).
-		const searchService = buildSearchService();
-
-		// Secrets service - uses KMS in production, fake provider in dev
-		const kmsKeyId = process.env.KMS_KEY_ID ?? FAKE_KMS_KEY_ID;
-		const dataKeyProvider = createCachedDataKeyProvider(
-			createKmsDataKeyProvider(kmsKeyId),
-		);
-		const secretsService = createSecretsService(dataKeyProvider);
-
-		// Body sync service for on-demand IMAP body fetch.
-		const bodySyncService = new BodySyncService(
-			messageService,
-			storageService,
-			threadMessageService,
-			addressService,
-			envelopeService,
-			logger,
-		);
-
-		// Helper to create connection scope from accountId
-		const createConnectionScopeHelper = async (
-			accountId: string,
-		): Promise<ConnectionScope> => {
-			const account = await accountService.get(accountId);
-			if (!account.passwordHash) {
-				throw new Error(
-					`Account ${accountId} has no passwordHash — OAuth accounts cannot use this connection path`,
-				);
-			}
-			const password = await secretsService.decrypt(
-				deserializeEncryptedPayload(JSON.parse(account.passwordHash)),
-			);
-
-			let connection: IImapConnection | null = null;
-			let connectPromise: Promise<IImapConnection> | null = null;
-
-			const getConnection = async (): Promise<IImapConnection> => {
-				if (connectPromise) {
-					return connectPromise;
-				}
-
-				const conn = createConnection({
-					user: account.username,
-					credentials: { kind: "password", password },
-					host: account.imapHost,
-					port: account.imapPort,
-					tls: account.imapTls,
-				});
-				connection = conn;
-				connectPromise = conn.connect().then(() => conn);
-
-				return connectPromise;
-			};
-
-			const disconnect = async (): Promise<void> => {
-				if (connection) {
-					await connection.disconnect();
-					connection = null;
-					connectPromise = null;
-				}
-			};
-
-			return { getConnection, disconnect };
-		};
-
-		client = {
-			// ElectroDB services (reads)
-			accountConfig: accountConfigService,
-			account: accountService,
-			accountSetting: accountSettingService,
-			address: addressService,
-			mailbox: mailboxService,
-			mailboxSpecialUse: mailboxSpecialUseService,
-			message: messageService,
-			messageFlag: messageFlagService,
-			outboxMessage: outboxMessageService,
-			threadMessage: threadMessageService,
-			envelope: envelopeService,
-			accountExportRequest: accountExportRequestService,
-
-			// Storage service
-			storage: storageService,
-
-			// Search service (semantic vector search)
-			search: searchService,
-
-			// Secrets service (KMS encryption)
-			secrets: secretsService,
-
-			// Body sync service (on-demand IMAP body fetch)
-			bodySync: bodySyncService,
-
-			// Queue services (writes with IMAP sync)
-			flagQueue: new FlagQueueService({
-				messageFlagService,
-				messageService,
-				threadMessageService,
-				mailboxService,
-				sqsQueueUrl,
-				logger,
-			}),
-			mailboxQueue: new MailboxQueueService({
-				mailboxService,
-				sqsQueueUrl,
-				logger,
-			}),
-			messageMove: new MessageMoveService({
-				messageService,
-				mailboxService,
-				mailboxSpecialUseService,
-				threadMessageService,
-				sqsQueueUrl,
-				logger,
-			}),
-			outboxQueue: new OutboxQueueService({
-				outboxMessageService,
-				accountService,
-				sqsSmtpQueueUrl,
-				logger,
-			}),
-
-			// Helper to create IMAP connection scope from accountId
-			createConnectionScope: createConnectionScopeHelper,
-		};
+		client =
+			process.env.DATA_BACKEND === "postgres"
+				? buildPostgresClient()
+				: buildDynamoDBClient();
 	}
 
 	return client;
+};
+
+/** Reset the singleton — test use only. */
+export const _resetForTest = (): void => {
+	client = null;
+};
+
+/** Inject a (usually partial) client — test use only. */
+export const _setClientForTest = (override: RemitClient): void => {
+	client = override;
 };

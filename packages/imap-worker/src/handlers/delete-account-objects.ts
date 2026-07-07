@@ -6,6 +6,7 @@ import {
 import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 import { AwsQueryProtocol } from "@aws-sdk/core/protocols";
 import type { Logger } from "@remit/logger-lambda";
+import { resolveSqsCredentials } from "@remit/sqs-client";
 import { env } from "expect-env";
 
 export interface DeleteAccountObjectsEvent {
@@ -22,6 +23,7 @@ const isLocal = sqsQueueUrl.startsWith("http://localhost");
 const sqs = new SQSClient({
 	endpoint: isLocal ? new URL(sqsQueueUrl).origin : undefined,
 	...(isLocal && { protocol: AwsQueryProtocol }),
+	credentials: resolveSqsCredentials(),
 });
 
 const BATCH_SIZE = 1_000;
