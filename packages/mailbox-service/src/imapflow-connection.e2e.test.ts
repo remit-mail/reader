@@ -1,5 +1,9 @@
 import assert from "node:assert";
-import { after, describe, test } from "node:test";
+import { after, before, describe, test } from "node:test";
+import {
+	seedMailbox,
+	uniqueMailboxName,
+} from "./test-helpers/isolated-mailbox.js";
 import {
 	createMailfuzzConnection,
 	withMailfuzzConnection,
@@ -82,24 +86,26 @@ describe(
 		});
 
 		test("fetched message count matches status", async () => {
+			// Seed a mailbox this test owns so the SELECT-vs-SEARCH invariant holds
+			// regardless of what other e2e files do in parallel — the TOCTOU race
+			// that #501 papered over with --test-concurrency=1 is removed by
+			// isolation, not serialisation (#508).
+			const mailbox = uniqueMailboxName("E2E_count");
 			await withMailfuzzConnection(async (connection) => {
-				// Use the SELECT response (boxStatus.messages.total) rather than a
-				// separate STATUS command so both counts derive from the same
-				// opened-mailbox exchange, narrowing the window between the count
-				// snapshot and the SEARCH. NOTE: this is still two round-trips, so
-				// it is only race-free in practice because --test-concurrency=1 on
-				// test:e2e stops the other e2e file (adversarial-mime) from
-				// APPENDing to the shared INBOX in parallel. The durable fix is
-				// per-test mailbox isolation rather than a shared INBOX — see #508.
-				// Refs #501.
-				const boxStatus = await connection.openBox("INBOX", true);
-				const uids = await connection.search(["ALL"]);
+				await seedMailbox(connection, mailbox, 3);
+				try {
+					const boxStatus = await connection.openBox(mailbox, true);
+					const uids = await connection.search(["ALL"]);
 
-				assert.equal(
-					uids.length,
-					boxStatus.messages.total,
-					"Search ALL count should match SELECT messages count",
-				);
+					assert.equal(
+						uids.length,
+						boxStatus.messages.total,
+						"Search ALL count should match SELECT messages count",
+					);
+				} finally {
+					await connection.closeBox().catch(() => {});
+					await connection.deleteMailbox(mailbox).catch(() => {});
+				}
 			});
 		});
 	},
@@ -131,20 +137,35 @@ describe(
 	"Flag operations (Dovecot)",
 	{
 		skip: !process.env.RUN_E2E_TESTS,
-		// Defensive only: node:test already runs subtests within a describe
-		// sequentially by default, so these three flag tests (which all mutate
-		// uids[0] of INBOX) never raced each other. The real source of flag-state
-		// flakiness was the *other* e2e file mutating INBOX in parallel — that is
-		// fixed by --test-concurrency=1 on the test:e2e script. concurrency: 1
-		// here just pins the intended sequential behaviour against future changes.
+		// These three subtests all mutate uids[0] of the same seeded mailbox, so
+		// they must run sequentially relative to each other. node:test already
+		// serialises subtests within a describe; concurrency: 1 pins that intent.
+		// Cross-file isolation (a dedicated seeded mailbox, not the shared INBOX)
+		// is what makes the whole suite safe to run in parallel — see #508.
 		concurrency: 1,
 	},
 	() => {
 		let targetUid: number;
+		const mailbox = uniqueMailboxName("E2E_flags");
+
+		before(async () => {
+			await withMailfuzzConnection(async (connection) => {
+				await seedMailbox(connection, mailbox, 3);
+			});
+		});
+
+		after(async () => {
+			const connection = createMailfuzzConnection();
+			await connection.connect();
+			await connection.deleteMailbox(mailbox).catch(() => {});
+			if (connection.isConnected) {
+				await connection.disconnect();
+			}
+		});
 
 		test("sets \\Seen flag and verifies it persists", async () => {
 			await withMailfuzzConnection(async (connection) => {
-				await connection.openBox("INBOX", false);
+				await connection.openBox(mailbox, false);
 				const uids = await connection.search(["ALL"]);
 				assert.ok(uids.length > 0, "Should have messages");
 				targetUid = uids[0];
@@ -163,7 +184,7 @@ describe(
 
 		test("clears \\Seen flag and verifies it is cleared", async () => {
 			await withMailfuzzConnection(async (connection) => {
-				await connection.openBox("INBOX", false);
+				await connection.openBox(mailbox, false);
 				const uids = await connection.search(["ALL"]);
 				targetUid = uids[0];
 
@@ -181,7 +202,7 @@ describe(
 
 		test("sets custom keyword flag", async () => {
 			await withMailfuzzConnection(async (connection) => {
-				await connection.openBox("INBOX", false);
+				await connection.openBox(mailbox, false);
 				const uids = await connection.search(["ALL"]);
 				targetUid = uids[0];
 
@@ -206,13 +227,22 @@ describe(
 		skip: !process.env.RUN_E2E_TESTS,
 	},
 	() => {
-		const testFolder = `TestCopy_${Date.now()}`;
+		const testFolder = uniqueMailboxName("E2E_TestCopy");
+		// Copy/move source their messages from a mailbox this file owns rather than
+		// the shared INBOX, so nothing here appends to or mutates INBOX (#508).
+		const sourceFolder = uniqueMailboxName("E2E_TestSource");
+
+		before(async () => {
+			await withMailfuzzConnection(async (connection) => {
+				await seedMailbox(connection, sourceFolder, 3);
+			});
+		});
 
 		test("copy returns COPYUID response with uidMap entries", async () => {
 			await withMailfuzzConnection(async (connection) => {
 				await connection.createMailbox(testFolder);
 
-				await connection.openBox("INBOX", false);
+				await connection.openBox(sourceFolder, false);
 				const uids = await connection.search(["ALL"]);
 				assert.ok(uids.length > 0, "Should have messages to copy");
 
@@ -231,13 +261,13 @@ describe(
 		});
 
 		test("move returns COPYUID response with uidMap entries", async () => {
-			const moveFolder = `TestMove_${Date.now()}`;
+			const moveFolder = uniqueMailboxName("E2E_TestMove");
 
 			await withMailfuzzConnection(async (connection) => {
 				await connection.createMailbox(moveFolder);
 
 				const appendResult = await connection.append(
-					"INBOX",
+					sourceFolder,
 					[
 						"From: test@example.com",
 						"To: vmail@localhost",
@@ -249,7 +279,7 @@ describe(
 					].join("\r\n"),
 				);
 
-				await connection.openBox("INBOX", false);
+				await connection.openBox(sourceFolder, false);
 				const result = await connection.moveMessages(
 					[appendResult.uid],
 					moveFolder,
@@ -270,6 +300,7 @@ describe(
 			const connection = createMailfuzzConnection();
 			await connection.connect();
 			await connection.deleteMailbox(testFolder).catch(() => {});
+			await connection.deleteMailbox(sourceFolder).catch(() => {});
 			if (connection.isConnected) {
 				await connection.disconnect();
 			}

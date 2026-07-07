@@ -14,7 +14,7 @@
 		"test:typecheck": "tsgo --noEmit",
 		"test:run": "node --env-file=../../.test.env --import tsx --test 'src/**/*.test.ts'",
 		"test:integ": "RUN_INTEG_TESTS=1 node --env-file=../../.test.env --import tsx --test 'src/**/*.integ.test.ts'",
-		"test:e2e": "RUN_E2E_TESTS=1 node --env-file=../../.e2e.env --import tsx --test-concurrency=1 --test 'src/**/*.e2e.test.ts'",
+		"test:e2e": "RUN_E2E_TESTS=1 node --env-file=../../.e2e.env --import tsx --test 'src/**/*.e2e.test.ts'",
 		"test": "npm run test:typecheck && npm run test:run"
 	},
 	"devDependencies": {

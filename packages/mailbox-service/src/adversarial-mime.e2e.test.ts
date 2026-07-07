@@ -23,10 +23,14 @@
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { describe, test } from "node:test";
+import { after, before, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { type ParsedMail, simpleParser } from "mailparser";
-import { withMailfuzzConnection } from "./test-helpers/mailfuzz-connection.js";
+import { uniqueMailboxName } from "./test-helpers/isolated-mailbox.js";
+import {
+	createMailfuzzConnection,
+	withMailfuzzConnection,
+} from "./test-helpers/mailfuzz-connection.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -151,6 +155,25 @@ describe(
 	"Adversarial MIME corpus (Dovecot) — #402",
 	{ skip: !process.env.RUN_E2E_TESTS },
 	() => {
+		// Own mailbox instead of the shared INBOX so appending fixtures never
+		// collides with another e2e file's count/flag assertions (#508).
+		const inbox = uniqueMailboxName("E2E_adversarial");
+
+		before(async () => {
+			await withMailfuzzConnection(async (connection) => {
+				await connection.createMailbox(inbox);
+			});
+		});
+
+		after(async () => {
+			const connection = createMailfuzzConnection();
+			await connection.connect();
+			await connection.deleteMailbox(inbox).catch(() => {});
+			if (connection.isConnected) {
+				await connection.disconnect();
+			}
+		});
+
 		// Sanity: every .eml on disk has an expectation entry, and every
 		// expectation entry points at an existing file. Catches a fixture being
 		// added without an assertion (or vice versa).
@@ -185,16 +208,16 @@ describe(
 				const raw = loadFixtureRaw(name);
 
 				await withMailfuzzConnection(async (connection) => {
-					// APPEND the fixture into INBOX. Mailfuzz uses Dovecot which
-					// returns a proper UID on APPEND (mokapi does not — see
-					// outbox-roundtrip.e2e.test.ts and the RFC 025 notes).
-					const appendResult = await connection.append("INBOX", raw);
+					// APPEND the fixture into this file's own mailbox. Mailfuzz uses
+					// Dovecot which returns a proper UID on APPEND (mokapi does not —
+					// see outbox-roundtrip.e2e.test.ts and the RFC 025 notes).
+					const appendResult = await connection.append(inbox, raw);
 					assert.ok(
 						appendResult.uid > 0,
 						`APPEND should return a UID for ${name}`,
 					);
 
-					await connection.openBox("INBOX", true);
+					await connection.openBox(inbox, true);
 
 					// Fetch the message we just appended back. fetchMessageBody
 					// returns the raw RFC822 source; mailparser handles the rest
