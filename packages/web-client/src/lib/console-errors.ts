@@ -12,6 +12,20 @@ const MAX_ENTRIES = 20;
 
 const ring: string[] = [];
 
+// Browser-spec noise, not app errors: the ResizeObserver spec fires these when
+// observation callbacks don't settle within a frame. They surface as window
+// `error` events with a null `error` and are safe to ignore. The live message
+// carries a trailing period, so strip it before matching this canonical set.
+const BENIGN_RESIZE_OBSERVER_MESSAGES = new Set([
+	"ResizeObserver loop limit exceeded",
+	"ResizeObserver loop completed with undelivered notifications",
+]);
+
+function isBenignResizeObserverError(message: unknown): boolean {
+	if (typeof message !== "string") return false;
+	return BENIGN_RESIZE_OBSERVER_MESSAGES.has(message.replace(/\.\s*$/, ""));
+}
+
 function push(entry: string): void {
 	ring.push(entry);
 	if (ring.length > MAX_ENTRIES) ring.shift();
@@ -48,6 +62,7 @@ export function install(): void {
 	};
 
 	window.addEventListener("error", (event: ErrorEvent) => {
+		if (isBenignResizeObserverError(event.message)) return;
 		push(
 			`Uncaught ${event.error instanceof Error ? `${event.error.name}: ${event.error.message}` : String(event.message)} (${event.filename}:${event.lineno})`,
 		);
