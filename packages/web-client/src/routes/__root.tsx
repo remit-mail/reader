@@ -8,7 +8,6 @@ import { useTranslation } from "react-i18next";
 import { ComposeProvider } from "@/components/compose/ComposeProvider";
 import { AppShellSkeleton } from "@/components/layout/AppShellSkeleton";
 import { ErrorBannerProvider } from "@/components/ui/ErrorBannerProvider";
-import { ErrorState } from "@/components/ui/ErrorState";
 import {
 	FatalErrorOverlay,
 	FatalErrorScreen,
@@ -17,17 +16,19 @@ import { isServerError } from "@/lib/error-classifier";
 import { reportFatalError } from "@/lib/fatal-error";
 import type { RouterContext } from "@/router";
 
-const RootErrorComponent = ({ error, reset }: ErrorComponentProps) => {
-	// A fatal first-party 5xx that bubbled to the route boundary must escalate
-	// to the full-screen red page — never the soft grey "Something went wrong".
-	if (isServerError(error)) {
-		const fatal = reportFatalError(error);
-		return <FatalErrorScreen fatal={fatal} />;
-	}
+const RootErrorComponent = ({ error, reset, info }: ErrorComponentProps) => {
+	// Everything that bubbles to the route boundary escalates to the loud
+	// full-screen fatal page — never the soft grey "Something went wrong" that
+	// implied recovery. A bubbled 5xx is transient (Retry re-runs the loader via
+	// reset); a caught render exception is deterministic — retry re-crashes, so
+	// it is fatal with no Retry, offering a safe route out instead (issue #1231).
+	const recoverable = isServerError(error);
+	const fatal = reportFatalError(error, {
+		recoverable,
+		componentStack: info?.componentStack,
+	});
 	return (
-		<div className="flex h-dvh items-center justify-center bg-canvas p-4">
-			<ErrorState title="Something went wrong" error={error} onRetry={reset} />
-		</div>
+		<FatalErrorScreen fatal={fatal} onRetry={recoverable ? reset : undefined} />
 	);
 };
 
