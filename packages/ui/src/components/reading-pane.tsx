@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { cn } from "../lib/cn.js";
+import { isSelfRowActivation } from "../lib/row-keyboard.js";
 import type { ThreadData, ThreadMessageData } from "./app-shell-types.js";
 import { Avatar } from "./avatar.js";
 import { Button } from "./button.js";
@@ -27,6 +28,14 @@ import { ReadingPaneEmpty } from "./reading-pane-empty.js";
  * — `onClick` to expand, `isFocused`/`isUnread` for the keyboard ring and
  * unread dot, and a `trailing` slot for the star/attachment/date cluster. With
  * no slots it renders the fixture date label so the kit stories stand alone.
+ *
+ * The row is a `role="button"` div rather than a native `<button>` so the
+ * `trailing` slot can hold its own interactive controls (the star toggle) —
+ * `<button>` inside `<button>` is invalid HTML and throws a hydration error
+ * (#1232). Keyboard operation (Enter/Space) is wired by hand to keep the whole
+ * row expandable, guarded so a keypress bubbling up from the star doesn't also
+ * expand the row (`isSelfRowActivation`); the star stops click propagation so it
+ * toggles on its own.
  */
 export function CollapsedMessage({
 	message,
@@ -49,15 +58,8 @@ export function CollapsedMessage({
 	 */
 	trailing?: ReactNode;
 }) {
-	return (
-		<button
-			type="button"
-			onClick={onClick}
-			className={cn(
-				"group flex h-section-row w-full items-center gap-3 border-b border-line px-2 text-left transition-colors hover:bg-surface-sunken lg:px-4",
-				isFocused && "bg-surface-sunken ring-1 ring-inset ring-accent/30",
-			)}
-		>
+	const content = (
+		<>
 			<ChevronRight className="size-3.5 shrink-0 text-fg-subtle" />
 			<div className="relative shrink-0">
 				<Avatar name={message.fromName} email={message.fromEmail} size="md" />
@@ -81,7 +83,34 @@ export function CollapsedMessage({
 					{message.dateLabel}
 				</span>
 			)}
-		</button>
+		</>
+	);
+
+	const className = cn(
+		"group flex h-section-row w-full items-center gap-3 border-b border-line px-2 text-left transition-colors hover:bg-surface-sunken lg:px-4",
+		isFocused && "bg-surface-sunken ring-1 ring-inset ring-accent/30",
+	);
+
+	if (!onClick) {
+		return <div className={className}>{content}</div>;
+	}
+
+	return (
+		// biome-ignore lint/a11y/useSemanticElements: a nested <button> (the star in the trailing slot) inside a native <button> is invalid HTML and throws a hydration error (#1232); a role="button" div keeps the whole row keyboard-expandable while letting the star be its own control
+		<div
+			role="button"
+			tabIndex={0}
+			aria-expanded={false}
+			onClick={onClick}
+			onKeyDown={(e) => {
+				if (!isSelfRowActivation(e)) return;
+				e.preventDefault();
+				onClick();
+			}}
+			className={cn(className, "cursor-pointer")}
+		>
+			{content}
+		</div>
 	);
 }
 

@@ -109,17 +109,51 @@ const row: ThreadMessageData = {
 
 /** The collapsed row with the app's real trailing cluster (star + paperclip +
  *  date), an unread dot and a keyboard-focus ring — the slots the live
- *  MessageCard injects. */
+ *  MessageCard injects. The row is a `role="button"` div, so the interactive
+ *  star in the trailing slot is a valid sibling control and not a `<button>`
+ *  nested inside a `<button>` (#1232). Click the row to expand; the star stops
+ *  propagation so it toggles without expanding. */
 export const CollapsedRowComposed: StoryObj<typeof CollapsedMessage> = {
 	render: () => (
 		<div className="max-w-3xl border border-line">
-			<CollapsedMessage message={row} isUnread />
+			<CollapsedMessage
+				message={row}
+				isUnread
+				onClick={() => alert("expand row-1")}
+				trailing={
+					<div className="flex shrink-0 items-center gap-1">
+						<button
+							type="button"
+							onClick={(e) => {
+								e.stopPropagation();
+								alert("toggle star");
+							}}
+							aria-label="Add star"
+							className="rounded p-0.5 text-fg-subtle hover:text-warning"
+						>
+							<Star className="size-3" />
+						</button>
+						<span className="text-2xs text-fg-subtle tabular-nums">
+							Today, 09:11
+						</span>
+					</div>
+				}
+			/>
 			<CollapsedMessage
 				message={{ ...row, id: "row-2", fromName: "Alex Rivera" }}
 				isFocused
+				onClick={() => alert("expand row-2")}
 				trailing={
 					<div className="flex shrink-0 items-center gap-1">
-						<button type="button" className="rounded p-0.5 text-warning">
+						<button
+							type="button"
+							onClick={(e) => {
+								e.stopPropagation();
+								alert("toggle star");
+							}}
+							aria-label="Remove star"
+							className="rounded p-0.5 text-warning"
+						>
 							<Star className="size-3 fill-current" />
 						</button>
 						<Paperclip className="size-3 text-fg-subtle" />
