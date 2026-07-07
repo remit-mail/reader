@@ -1016,6 +1016,214 @@ describe("MessageSyncService.syncMessages — batch resilience (#817)", () => {
 	});
 });
 
+// ---------------------------------------------------------------------------
+// ThreadMessage is written last: a failure never strands a ThreadMessage
+// pointing at a missing Message, which the list path would surface (#1072)
+// ---------------------------------------------------------------------------
+
+describe("MessageSyncService.saveMessage — ThreadMessage written last (#1072)", () => {
+	it("does not write the Message when the Envelope write fails", async () => {
+		const order: string[] = [];
+		let messageUpserts = 0;
+
+		const mailboxService = {
+			get: async () => ({
+				fullPath: "INBOX",
+				lastSyncUid: 0,
+				highWaterMarkUid: 0,
+				messageCount: 0,
+			}),
+			update: async () => undefined,
+		} as unknown as MailboxService;
+
+		const messageService = {
+			upsertWithStatus: async (input: { mailboxId: string }) => {
+				messageUpserts++;
+				order.push("message");
+				return { item: { mailboxId: input.mailboxId }, created: true };
+			},
+		} as unknown as MessageService;
+
+		const envelopeService = {
+			upsertEnvelope: async () => {
+				order.push("envelope");
+				throw new Error("Failed to create Envelope");
+			},
+			upsertBodyParts: async () => undefined,
+		} as unknown as EnvelopeService;
+
+		const addressService = {
+			upsertAddress: async () => undefined,
+			upsertEnvelopeAddress: async () => undefined,
+		} as unknown as AddressService;
+
+		const threadMessageService = {
+			create: async () => ({}),
+		} as unknown as ThreadMessageService;
+
+		const factory = buildConnectionFactory([messageWithUid(10, "<a@x>")]);
+		const service = new MessageSyncService(
+			factory,
+			mailboxService,
+			messageService,
+			envelopeService,
+			addressService,
+			threadMessageService,
+		);
+
+		const result = await service.syncMessages(
+			"mbx-1",
+			"acc-1",
+			"acc-cfg-1",
+			50,
+		);
+
+		// The Envelope failure rejects the whole save, so no Message row is
+		// created — the message is retried whole on the next sync.
+		assert.equal(result.syncedCount, 0);
+		assert.equal(messageUpserts, 0);
+		assert.equal(order.includes("message"), false);
+	});
+
+	it("writes the ThreadMessage last, after the Message and its prerequisites", async () => {
+		const order: string[] = [];
+
+		const mailboxService = {
+			get: async () => ({
+				fullPath: "INBOX",
+				lastSyncUid: 0,
+				highWaterMarkUid: 0,
+				messageCount: 0,
+			}),
+			update: async () => undefined,
+		} as unknown as MailboxService;
+
+		const messageService = {
+			upsertWithStatus: async (input: { mailboxId: string }) => {
+				order.push("message");
+				return { item: { mailboxId: input.mailboxId }, created: true };
+			},
+		} as unknown as MessageService;
+
+		const envelopeService = {
+			upsertEnvelope: async () => {
+				order.push("envelope");
+			},
+			upsertBodyParts: async () => {
+				order.push("bodyParts");
+			},
+		} as unknown as EnvelopeService;
+
+		const addressService = {
+			upsertAddress: async () => {
+				order.push("address");
+			},
+			upsertEnvelopeAddress: async () => undefined,
+		} as unknown as AddressService;
+
+		const threadMessageService = {
+			create: async () => {
+				order.push("thread");
+				return {};
+			},
+		} as unknown as ThreadMessageService;
+
+		const factory = buildConnectionFactory([aliceMessage]);
+		const service = new MessageSyncService(
+			factory,
+			mailboxService,
+			messageService,
+			envelopeService,
+			addressService,
+			threadMessageService,
+		);
+
+		const result = await service.syncMessages(
+			"mbx-1",
+			"acc-1",
+			"acc-cfg-1",
+			50,
+		);
+
+		assert.equal(result.syncedCount, 1);
+		// Invariant ThreadMessage ⟹ Message ⟹ Envelope: the ThreadMessage is
+		// written last, and the Message before it.
+		assert.equal(order.at(-1), "thread");
+		assert.equal(order.filter((o) => o === "thread").length, 1);
+		assert.ok(order.indexOf("message") < order.indexOf("thread"));
+	});
+
+	it("does not write the ThreadMessage when the Message upsert fails", async () => {
+		const order: string[] = [];
+		let threadCreates = 0;
+
+		const mailboxService = {
+			get: async () => ({
+				fullPath: "INBOX",
+				lastSyncUid: 0,
+				highWaterMarkUid: 0,
+				messageCount: 0,
+			}),
+			update: async () => undefined,
+		} as unknown as MailboxService;
+
+		const messageService = {
+			upsertWithStatus: async () => {
+				order.push("message");
+				throw new Error("Failed to upsert Message");
+			},
+		} as unknown as MessageService;
+
+		const envelopeService = {
+			upsertEnvelope: async () => {
+				order.push("envelope");
+			},
+			upsertBodyParts: async () => {
+				order.push("bodyParts");
+			},
+		} as unknown as EnvelopeService;
+
+		const addressService = {
+			upsertAddress: async () => {
+				order.push("address");
+			},
+			upsertEnvelopeAddress: async () => undefined,
+		} as unknown as AddressService;
+
+		const threadMessageService = {
+			create: async () => {
+				threadCreates++;
+				order.push("thread");
+				return {};
+			},
+		} as unknown as ThreadMessageService;
+
+		const factory = buildConnectionFactory([aliceMessage]);
+		const service = new MessageSyncService(
+			factory,
+			mailboxService,
+			messageService,
+			envelopeService,
+			addressService,
+			threadMessageService,
+		);
+
+		const result = await service.syncMessages(
+			"mbx-1",
+			"acc-1",
+			"acc-cfg-1",
+			50,
+		);
+
+		// The Message upsert rejection propagates out of saveMessage before the
+		// ThreadMessage write, so no ThreadMessage is created — the message is
+		// held for retry on the next sync.
+		assert.equal(result.syncedCount, 0);
+		assert.equal(threadCreates, 0);
+		assert.equal(order.includes("thread"), false);
+	});
+});
+
 describe("isParseableEmailAddress", () => {
 	it("accepts a normal address with a real domain", () => {
 		assert.equal(
