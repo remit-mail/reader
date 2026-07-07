@@ -132,55 +132,59 @@ const DISPOSITION_BY_VALUE: Record<string, ContentDispositionValue> = {
 	attachment: ContentDisposition.Attachment,
 };
 
+const FALLBACK_MEDIA_SUBTYPE = "octet-stream";
+
+/**
+ * Split a Content-Type into a known media type and its subtype, tolerating
+ * malformed values. The Content-Type is copied from an untrusted header, so a
+ * missing "/", an unknown top-level type, or an empty subtype must not throw
+ * (that would drop the whole message). RFC 2046 §4.5.3 makes
+ * `application/octet-stream` the defined default for an unrecognized type, so
+ * that is the fallback; the raw subtype is preserved where present.
+ */
 const splitContentType = (
 	type: string,
 ): { mediaType: MediaTypeValue; mediaSubtype: string } => {
 	const slashIndex = type.indexOf("/");
 	if (slashIndex < 0) {
-		throw new Error(
-			`mime-walker: malformed Content-Type "${type}" (missing "/" separator)`,
-		);
+		return {
+			mediaType: MediaType.Application,
+			mediaSubtype: FALLBACK_MEDIA_SUBTYPE,
+		};
 	}
 	const topRaw = type.slice(0, slashIndex);
 	const subRaw = type.slice(slashIndex + 1);
 	const top = topRaw.toLowerCase();
-	const mediaType = MEDIA_TYPE_BY_TOP_LEVEL[top];
-	if (!mediaType) {
-		throw new Error(
-			`mime-walker: unknown MIME top-level type "${topRaw}" in "${type}"`,
-		);
-	}
-	const mediaSubtype = subRaw.toLowerCase();
-	if (mediaSubtype.length === 0) {
-		throw new Error(
-			`mime-walker: missing MIME subtype in Content-Type "${type}"`,
-		);
-	}
+	const mediaType = MEDIA_TYPE_BY_TOP_LEVEL[top] ?? MediaType.Application;
+	const subLower = subRaw.toLowerCase();
+	const mediaSubtype = subLower.length > 0 ? subLower : FALLBACK_MEDIA_SUBTYPE;
 	return { mediaType, mediaSubtype };
 };
 
+/**
+ * An absent Content-Transfer-Encoding means 7bit (RFC 2045 §6.1); an
+ * unrecognized token is treated as opaque bytes rather than throwing, so a
+ * message carrying an exotic encoding still syncs.
+ */
 const mapTransferEncoding = (
 	encoding: string | undefined,
 ): TransferEncodingValue => {
 	if (!encoding) return TransferEncoding.SevenBit;
-	const mapped = TRANSFER_ENCODING_BY_VALUE[encoding.toLowerCase()];
-	if (!mapped) {
-		throw new Error(`mime-walker: unknown transfer encoding "${encoding}"`);
-	}
-	return mapped;
+	return (
+		TRANSFER_ENCODING_BY_VALUE[encoding.toLowerCase()] ??
+		TransferEncoding.Binary
+	);
 };
 
+/**
+ * An unknown Content-Disposition is treated as absent (undefined) rather than
+ * throwing, so a message with a malformed disposition still syncs.
+ */
 const mapDisposition = (
 	disposition: string | undefined,
 ): ContentDispositionValue | undefined => {
 	if (!disposition) return undefined;
-	const mapped = DISPOSITION_BY_VALUE[disposition.toLowerCase()];
-	if (!mapped) {
-		throw new Error(
-			`mime-walker: unknown Content-Disposition "${disposition}"`,
-		);
-	}
-	return mapped;
+	return DISPOSITION_BY_VALUE[disposition.toLowerCase()];
 };
 
 const mapMultipartSubtype = (
@@ -254,9 +258,10 @@ const toRecord = (
  * Walk an IMAP BODYSTRUCTURE tree depth-first and return a flat list of
  * `BodyPartRecord`s. The root node uses `ROOT_PART_PATH` ("0"); all other
  * nodes use the dot-numbered IMAP path that ImapFlow assigns (e.g., "1",
- * "1.2", "2.1.3"). Throws on an unrecognized MIME top-level type, an
- * unknown transfer encoding, or an unknown Content-Disposition so callers
- * can fail loudly instead of silently dropping parts.
+ * "1.2", "2.1.3"). Every field comes from an untrusted BODYSTRUCTURE, so an
+ * unrecognized MIME type, transfer encoding, or Content-Disposition maps to a
+ * safe default rather than throwing — one malformed part must never drop the
+ * whole message.
  *
  * **Part-path uniqueness**: some IMAP servers (and the `message/rfc822`
  * inner-body convention) return child nodes with an empty `part` field.

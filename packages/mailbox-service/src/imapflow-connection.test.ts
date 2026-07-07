@@ -1,6 +1,10 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import { ImapFlowConnection, toIsoDateString } from "./imapflow-connection.js";
+import {
+	ImapFlowConnection,
+	toInternalDate,
+	toIsoDateString,
+} from "./imapflow-connection.js";
 
 describe("toIsoDateString", () => {
 	it("converts a Date to an ISO string", () => {
@@ -37,6 +41,47 @@ describe("toIsoDateString", () => {
 
 	it('returns "" for a non-Date value without toISOString instead of throwing', () => {
 		assert.strictEqual(toIsoDateString({ foo: "bar" }), "");
+	});
+});
+
+describe("toInternalDate", () => {
+	it("passes through a valid Date", () => {
+		const date = new Date("2026-06-21T10:20:30.000Z");
+		assert.strictEqual(toInternalDate(date), date);
+	});
+
+	it("parses a valid date string", () => {
+		const result = toInternalDate("2026-06-21T10:20:30.000Z");
+		assert.ok(result instanceof Date);
+		assert.strictEqual(result?.toISOString(), "2026-06-21T10:20:30.000Z");
+	});
+
+	it("parses a numeric epoch", () => {
+		const result = toInternalDate(0);
+		assert.strictEqual(result?.getTime(), 0);
+	});
+
+	it("returns null for an absent value (transient imapflow row, #408)", () => {
+		assert.strictEqual(toInternalDate(null), null);
+		assert.strictEqual(toInternalDate(undefined), null);
+	});
+
+	it("falls back to a valid now for an unparseable string, never NaN", () => {
+		const result = toInternalDate("not a date");
+		assert.ok(result instanceof Date);
+		assert.ok(Number.isFinite(result?.getTime()));
+	});
+
+	it("falls back to a valid now for an Invalid Date object", () => {
+		const result = toInternalDate(new Date("nonsense"));
+		assert.ok(result instanceof Date);
+		assert.ok(Number.isFinite(result?.getTime()));
+	});
+
+	it("falls back to a valid now for an unexpected type instead of throwing", () => {
+		const result = toInternalDate({ foo: "bar" });
+		assert.ok(result instanceof Date);
+		assert.ok(Number.isFinite(result?.getTime()));
 	});
 });
 
