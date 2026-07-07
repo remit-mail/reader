@@ -1,4 +1,5 @@
 import { execSync } from "node:child_process";
+import os from "node:os";
 import path from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
@@ -36,7 +37,7 @@ export default defineConfig({
 	},
 	server: {
 		host: "0.0.0.0",
-		allowedHosts: ["sandbox"],
+		allowedHosts: [os.hostname()],
 		proxy: {
 			"/api": {
 				target: `http://localhost:${process.env.VITE_PROXY_BACKEND_PORT ?? "5433"}`,
