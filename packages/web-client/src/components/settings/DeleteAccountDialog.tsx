@@ -8,6 +8,11 @@ import { useMutation } from "@tanstack/react-query";
 import { AlertTriangle, Download, X } from "lucide-react";
 import { useState } from "react";
 import { isCognitoConfigured } from "@/auth/amplify-config";
+import {
+	authClient,
+	isBetterAuthEnabled,
+	resetBetterAuthTokenCache,
+} from "@/auth/better-auth-config";
 
 interface DeleteAccountDialogProps {
 	open: boolean;
@@ -35,6 +40,32 @@ function DeleteAccountDialogInner({ open, onClose }: DeleteAccountDialogProps) {
 			open={open}
 			onClose={onClose}
 			accountEmail={accountEmail}
+			signOut={signOut}
+		/>
+	);
+}
+
+/**
+ * better-auth counterpart of the Cognito inner. In Postgres-parity / local
+ * mode better-auth owns identity, so the account email and `signOut` come from
+ * its session hook rather than the Amplify Authenticator context. Signing out
+ * also clears the cached bearer token, matching `AccountSession`.
+ */
+function DeleteAccountDialogBetterAuthInner({
+	open,
+	onClose,
+}: DeleteAccountDialogProps) {
+	const { data: session } = authClient.useSession();
+	const signOut = async () => {
+		await authClient.signOut();
+		resetBetterAuthTokenCache();
+	};
+
+	return (
+		<DeleteAccountDialogView
+			open={open}
+			onClose={onClose}
+			accountEmail={session?.user.email ?? ""}
 			signOut={signOut}
 		/>
 	);
@@ -222,17 +253,22 @@ function DeleteAccountDialogView({
 
 /**
  * Delete-account dialog. Safe to mount anywhere — `DangerZone` renders it
- * unconditionally on the settings/accounts route. The hook-using inner
- * component is gated on `isCognitoConfigured()`; without Cognito (local dev /
- * e2e / visual harness) there is no signed-in account to delete, so we render
- * the view with an empty identity and a no-op `signOut`. The env-derived
- * branch is constant for the app's lifetime, so the Rules of Hooks hold.
+ * unconditionally on the settings/accounts route. Each hook-using inner
+ * component is gated on its provider being active: better-auth (Postgres-parity
+ * / local) reads identity from its session hook, Cognito from the Amplify
+ * Authenticator context. With no provider (e2e / visual harness) there is no
+ * signed-in account to delete, so we render the view with an empty identity and
+ * a no-op `signOut`. The env-derived branch is constant for the app's lifetime,
+ * so the Rules of Hooks hold.
  */
 export function DeleteAccountDialog(props: DeleteAccountDialogProps) {
-	if (!isCognitoConfigured()) {
-		return (
-			<DeleteAccountDialogView {...props} accountEmail="" signOut={() => {}} />
-		);
+	if (isBetterAuthEnabled()) {
+		return <DeleteAccountDialogBetterAuthInner {...props} />;
 	}
-	return <DeleteAccountDialogInner {...props} />;
+	if (isCognitoConfigured()) {
+		return <DeleteAccountDialogInner {...props} />;
+	}
+	return (
+		<DeleteAccountDialogView {...props} accountEmail="" signOut={() => {}} />
+	);
 }
