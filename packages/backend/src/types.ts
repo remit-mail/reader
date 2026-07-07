@@ -10,7 +10,6 @@ export type OperationIds =
 	| "MeOperations_listVipSuggestions"
 	| "MeOperations_createExport"
 	| "MeOperations_getExport"
-	| "AdminAccountConfigOperations_adminFinalizeDelete"
 	| "ConfigOperations_getConfig"
 	| "AccountOperations_createAccount"
 	| "AccountOperations_testConnection"
@@ -48,11 +47,6 @@ export type OperationIds =
 	| "AddressDetailOperations_updateAddress";
 
 export type MeOperationIds = MatchPrefix<"MeOperations_", OperationIds>;
-
-export type AdminAccountConfigOperationIds = MatchPrefix<
-	"AdminAccountConfigOperations_",
-	OperationIds
->;
 
 export type ConfigOperationIds = MatchPrefix<"ConfigOperations_", OperationIds>;
 
