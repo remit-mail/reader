@@ -219,6 +219,11 @@ export const useMessageBodyContent = ({
 		enabled: enabled && !!messageId && !!picked,
 		staleTime: 5 * 60 * 1000,
 		gcTime: 30 * 60 * 1000,
+		// A missing/forbidden body (404/403 body-missing, auth) renders the inline
+		// MessageBodyErrorBanner below — a single sub-resource failure must not nuke
+		// the whole app to the fatal overlay. A 5xx still escalates globally
+		// (meta.softError is ignored for 5xx — #1059 / #1231 / #1232).
+		meta: { softError: true },
 	});
 
 	const isLoading = query.isLoading && !!picked;

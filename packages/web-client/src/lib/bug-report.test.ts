@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { BugReportContext } from "./bug-report";
-import { buildGitHubIssueUrl } from "./bug-report";
+import { buildBugReportDetails, buildGitHubIssueUrl } from "./bug-report";
 
 const baseCtx: BugReportContext = {
 	appSha: "abcdef1234567890abcdef1234567890abcdef12",
@@ -137,5 +137,77 @@ describe("buildGitHubIssueUrl", () => {
 		};
 		const url = buildGitHubIssueUrl(ctx);
 		assert.doesNotThrow(() => new URL(url), "URL must be valid");
+	});
+});
+
+describe("buildGitHubIssueUrl — seeded from a caught error", () => {
+	const seededCtx: BugReportContext = {
+		...baseCtx,
+		errorMessage: "date value is not finite in DateTimeFormat format()",
+		stack: "Error: date value is not finite\n    at format (util.ts:12)",
+		componentStack: "\n    at AccountsSettings\n    at Route",
+	};
+
+	it("puts the error message in the title", () => {
+		const url = buildGitHubIssueUrl(seededCtx);
+		const decoded = decode(url);
+		assert.ok(
+			decoded.includes("title=Bug: date value is not finite"),
+			"Expected the error message in the issue title",
+		);
+	});
+
+	it("includes the stacktrace and component stack in the body", () => {
+		const decoded = decode(buildGitHubIssueUrl(seededCtx));
+		assert.ok(
+			decoded.includes("## Stacktrace"),
+			"Expected a stacktrace section",
+		);
+		assert.ok(
+			decoded.includes("at format (util.ts:12)"),
+			"Expected the stack frame in the body",
+		);
+		assert.ok(
+			decoded.includes("## Component stack"),
+			"Expected a component-stack section",
+		);
+	});
+});
+
+describe("buildGitHubIssueUrl — truncation to fit the URL budget", () => {
+	const hugeStack = `Error: boom\n${"    at frame (file.ts:1)\n".repeat(2000)}`;
+	const hugeCtx: BugReportContext = {
+		...baseCtx,
+		errorMessage: "boom",
+		stack: hugeStack,
+	};
+
+	it("keeps the truncated URL under the GitHub length limit", () => {
+		const url = buildGitHubIssueUrl(hugeCtx);
+		assert.ok(
+			url.length <= 8000,
+			`Expected a URL under 8000 chars, got ${url.length}`,
+		);
+	});
+
+	it("marks the body as truncated and stays a valid URL", () => {
+		const url = buildGitHubIssueUrl(hugeCtx);
+		assert.ok(
+			decode(url).includes("truncated"),
+			"Expected a truncation marker",
+		);
+		assert.doesNotThrow(() => new URL(url), "Truncated URL must be valid");
+	});
+
+	it("Copy full details keeps the whole stacktrace (nothing lost)", () => {
+		const details = buildBugReportDetails(hugeCtx);
+		assert.ok(
+			details.includes(hugeStack),
+			"Expected the full untruncated stack in the copy-details report",
+		);
+		assert.ok(
+			details.length > buildGitHubIssueUrl(hugeCtx).length,
+			"Full details should be longer than the truncated URL body",
+		);
 	});
 });
