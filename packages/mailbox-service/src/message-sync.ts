@@ -477,8 +477,16 @@ export class MessageSyncService {
 		// and must not feed this mailbox's watermark / body-sync (#634).
 		let owned = false;
 
-		// Run all entity saves in parallel with concurrency limit
-		const saveOps: Array<() => Promise<void>> = [
+		// Invariant: ThreadMessage ⟹ Message ⟹ Envelope. The list path anchors on
+		// ThreadMessage and tolerates a missing Message only as a degraded row (not
+		// a 404), so a ThreadMessage must never outlive its Message. Write in that
+		// dependency order — Envelope/addresses/body first, then the Message, then
+		// the ThreadMessage last (#1072). A crash leaves at worst a Message with no
+		// ThreadMessage (openable by direct fetch) or an orphan Envelope; next sync
+		// re-runs the full save and heals the partial state.
+
+		// Phase 1: everything the Message references.
+		const prerequisiteOps: Array<() => Promise<void>> = [
 			// Save Envelope
 			async () => {
 				await this.envelopeService.upsertEnvelope({
@@ -494,20 +502,6 @@ export class MessageSyncService {
 			...addressOps.map(({ addresses, role }) => async () => {
 				await this.saveAddresses(messageId, accountConfigId, addresses, role);
 			}),
-			// Save Message
-			async () => {
-				const { item, created } = await this.messageService.upsertWithStatus({
-					messageId,
-					mailboxId,
-					uid: msg.uid,
-					sequenceNumber: msg.seq,
-					rfc822Size: msg.size ?? 0,
-					internalDate: msg.internalDate.getTime(),
-					envelopeId,
-					rootBodyPartId,
-				});
-				owned = created || item.mailboxId === mailboxId;
-			},
 			// Save BodyPart + BodyPartParameter rows for the MIME tree.
 			// IMAP returns BODYSTRUCTURE in the same FETCH that returns the
 			// envelope, so this is "free" — no extra round-trip.
@@ -515,27 +509,39 @@ export class MessageSyncService {
 				if (bodyParts.length === 0) return;
 				await this.envelopeService.upsertBodyParts(messageId, bodyParts);
 			},
-			// Create Thread and ThreadMessage
-			async () => {
-				await this.createThreadForMessage(
-					messageId,
-					mailboxId,
-					accountId,
-					accountConfigId,
-					msg.uid,
-					msg.internalDate.getTime(),
-					sentDate,
-					envelope,
-					msg.flags,
-					msg.references,
-					hasAttachment,
-				);
-			},
 		];
 
-		await pMap(saveOps, (op) => op(), {
+		await pMap(prerequisiteOps, (op) => op(), {
 			concurrency: ADDRESS_SAVE_CONCURRENCY,
 		});
+
+		// Phase 2: write the Message, once all its referenced rows exist.
+		const { item, created } = await this.messageService.upsertWithStatus({
+			messageId,
+			mailboxId,
+			uid: msg.uid,
+			sequenceNumber: msg.seq,
+			rfc822Size: msg.size ?? 0,
+			internalDate: msg.internalDate.getTime(),
+			envelopeId,
+			rootBodyPartId,
+		});
+		owned = created || item.mailboxId === mailboxId;
+
+		// Phase 3: write the ThreadMessage last, only after the Message exists.
+		await this.createThreadForMessage(
+			messageId,
+			mailboxId,
+			accountId,
+			accountConfigId,
+			msg.uid,
+			msg.internalDate.getTime(),
+			sentDate,
+			envelope,
+			msg.flags,
+			msg.references,
+			hasAttachment,
+		);
 
 		return { messageId, uid: msg.uid, owned };
 	}
