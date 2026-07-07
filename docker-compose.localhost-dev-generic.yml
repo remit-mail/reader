@@ -1,0 +1,102 @@
+# One-command local Postgres + better-auth Remit stack.
+#
+# Brings up postgres (pgvector), elasticmq, the backend (DATA_BACKEND=postgres,
+# better-auth identity) and the web client on a dedicated, non-test port range:
+# web on 4123, backend on 4124 — ports no e2e/mokapi/playwright config uses, so a
+# test run can never clobber it.
+#
+# App containers run in dev mode straight from the bind-mounted worktree with host
+# networking, so every service is reachable on localhost — the same wiring as the
+# pm2 stack. node:24 base; host node_modules are same-arch and reused via the bind
+# mount.
+#
+# Data lives in the `pgdata` docker-managed named volume: empty on first `up`
+# (fresh database), and persisted across `up`/`down` after that. All real state —
+# accounts, login passwords, messages — lives in this volume, not in config, so
+# the same compose works on any checkout. Never run `down -v` against data you
+# want to keep.
+
+name: remit-pg-dev
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: remit-pg-dev-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: remit
+      POSTGRES_PASSWORD: remit
+      POSTGRES_DB: remit_dev
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U remit -d remit_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  elasticmq:
+    image: softwaremill/elasticmq-native:1.6.9
+    container_name: remit-pg-dev-elasticmq
+    ports:
+      - "9324:9324"
+      - "9325:9325"
+    volumes:
+      - ./elasticmq.conf:/opt/elasticmq.conf:ro
+    restart: unless-stopped
+
+  backend:
+    image: node:24
+    container_name: remit-pg-dev-backend
+    user: "1000:1000"
+    working_dir: /app
+    network_mode: host
+    env_file:
+      - localhost-dev-generic.env
+    volumes:
+      - .:/app
+    command:
+      - node
+      - --env-file=localhost-dev-generic.env
+      - --import
+      - tsx
+      - packages/remit-backend/dev-server/server.ts
+    depends_on:
+      postgres:
+        condition: service_healthy
+      elasticmq:
+        condition: service_started
+    restart: unless-stopped
+
+  web:
+    image: node:24
+    container_name: remit-pg-dev-web
+    user: "1000:1000"
+    working_dir: /app
+    network_mode: host
+    environment:
+      HOME: /tmp
+      VITE_PROXY_BACKEND_PORT: "4124"
+      VITE_BETTER_AUTH_ENABLED: "1"
+    volumes:
+      - .:/app
+    command:
+      - npm
+      - run
+      - dev
+      - -w
+      - "@remit/web-client"
+      - --
+      - --port
+      - "4123"
+      - --host
+      - "0.0.0.0"
+      - --strictPort
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  pgdata:
