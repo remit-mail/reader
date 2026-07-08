@@ -82,7 +82,7 @@ const loadEnvFile = (envPath: string) => {
 	}
 };
 
-loadEnvFile(resolve(REPO_ROOT, ".e2e.env"));
+loadEnvFile(resolve(REPO_ROOT, "localhost-test-e2e.env"));
 
 // Fixed-clock support: mirrors global-setup.ts
 const parseFakeNow = (): number => {

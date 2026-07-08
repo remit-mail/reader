@@ -24,7 +24,7 @@ const loadEnvFile = (envPath: string) => {
 	}
 };
 
-loadEnvFile(resolve(__dirname, "../../../.e2e.env"));
+loadEnvFile(resolve(__dirname, "../../../localhost-test-e2e.env"));
 
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { Mailbox } from "@remit/electrodb-entities";

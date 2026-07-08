@@ -8,7 +8,7 @@
  *   - `MSOAUTH_REDIRECT_URI`— OAuth callback URI (baked in at deploy time).
  *
  * For local development, set `MSOAUTH_CLIENT_ID` and `MSOAUTH_CLIENT_SECRET`
- * directly in `.localhost.env` to bypass Secrets Manager.
+ * directly in `localhost-dev-aws.env` to bypass Secrets Manager.
  *
  * See doc/oauth-microsoft.md for the Azure portal setup runbook.
  */
@@ -32,7 +32,7 @@ export interface MsOAuthConfig {
  * Read Microsoft OAuth configuration from the environment.
  * Throws when mandatory values (`MSOAUTH_AUTHORITY`, `MSOAUTH_REDIRECT_URI`)
  * are absent — both are always present in deployed Lambdas and should be set
- * in `.localhost.env` for local development.
+ * in `localhost-dev-aws.env` for local development.
  */
 export const getMsOAuthConfig = (): MsOAuthConfig => {
 	const authority = process.env.MSOAUTH_AUTHORITY;
@@ -40,12 +40,12 @@ export const getMsOAuthConfig = (): MsOAuthConfig => {
 
 	if (!authority) {
 		throw new Error(
-			"MSOAUTH_AUTHORITY is not set. Wire via CDK (infra/stacks/dev/stacks/remit-api-stack.ts) or set in .localhost.env.",
+			"MSOAUTH_AUTHORITY is not set. Wire via CDK (infra/stacks/dev/stacks/remit-api-stack.ts) or set in localhost-dev-aws.env.",
 		);
 	}
 	if (!redirectUri) {
 		throw new Error(
-			"MSOAUTH_REDIRECT_URI is not set. Wire via CDK (infra/stacks/dev/stacks/remit-api-stack.ts) or set in .localhost.env.",
+			"MSOAUTH_REDIRECT_URI is not set. Wire via CDK (infra/stacks/dev/stacks/remit-api-stack.ts) or set in localhost-dev-aws.env.",
 		);
 	}
 

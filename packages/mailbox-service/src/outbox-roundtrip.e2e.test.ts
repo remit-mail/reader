@@ -198,7 +198,7 @@ const spawnWorker = (
 ): SpawnedWorker => {
 	const proc = spawn(
 		"node",
-		["--env-file=.e2e.env", "--import", "tsx", entry],
+		["--env-file=localhost-test-e2e.env", "--import", "tsx", entry],
 		{
 			cwd: PROJECT_ROOT,
 			stdio: "pipe",

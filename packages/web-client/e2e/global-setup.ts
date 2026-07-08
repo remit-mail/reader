@@ -32,7 +32,7 @@ const loadEnvFile = (envPath: string) => {
 	}
 };
 
-loadEnvFile(resolve(__dirname, "../../../.e2e.env"));
+loadEnvFile(resolve(__dirname, "../../../localhost-test-e2e.env"));
 
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import {
@@ -133,7 +133,7 @@ const spawnWorker = (): ChildProcess => {
 		"packages/remit-imap-worker/src/e2e-processor-shim.ts",
 	);
 
-	// Strip real AWS credentials so the worker uses the fake local ones from .e2e.env
+	// Strip real AWS credentials so the worker uses the fake local ones from localhost-test-e2e.env
 	const {
 		AWS_PROFILE,
 		AWS_SDK_LOAD_CONFIG,
@@ -145,7 +145,7 @@ const spawnWorker = (): ChildProcess => {
 
 	const worker = spawn(
 		"node",
-		["--env-file=.e2e.env", "--import", "tsx", workerPath],
+		["--env-file=localhost-test-e2e.env", "--import", "tsx", workerPath],
 		{
 			cwd: projectRoot,
 			stdio: "pipe",

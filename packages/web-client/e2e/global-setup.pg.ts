@@ -50,7 +50,7 @@ const loadEnvFile = (envPath: string) => {
 	}
 };
 
-loadEnvFile(resolve(REPO_ROOT, ".e2e.env"));
+loadEnvFile(resolve(REPO_ROOT, "localhost-test-e2e.env"));
 
 const MAILFUZZ_HOST = process.env.MAILFUZZ_HOST ?? "localhost";
 const MAILFUZZ_PORT = Number(process.env.MAILFUZZ_PORT ?? "1143");
@@ -226,7 +226,7 @@ const spawnWorker = (): ChildProcess => {
 		"packages/remit-imap-worker/src/e2e-processor-shim.ts",
 	);
 
-	// Strip real AWS credentials so the worker uses the fake local ones from .e2e.env
+	// Strip real AWS credentials so the worker uses the fake local ones from localhost-test-e2e.env
 	const {
 		AWS_PROFILE,
 		AWS_SDK_LOAD_CONFIG,
@@ -238,7 +238,7 @@ const spawnWorker = (): ChildProcess => {
 
 	const worker = spawn(
 		"node",
-		["--env-file=.e2e.env", "--import", "tsx", workerPath],
+		["--env-file=localhost-test-e2e.env", "--import", "tsx", workerPath],
 		{
 			cwd: REPO_ROOT,
 			stdio: "pipe",
