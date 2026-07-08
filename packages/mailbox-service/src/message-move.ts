@@ -505,6 +505,7 @@ export class MessageMoveService {
 			hasStars: sourceThreadMessage.hasStars,
 			isDeleted: false,
 			snippet: sourceThreadMessage.snippet,
+			category: sourceThreadMessage.category,
 		});
 
 		this.log.info(

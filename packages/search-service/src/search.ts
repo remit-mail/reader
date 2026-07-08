@@ -229,6 +229,7 @@ export class DefaultSearchService implements SearchService {
 				hasAttachment: params.hasAttachment,
 				hasStars: params.hasStars,
 				isRead: params.isRead,
+				category: params.category,
 			},
 		});
 
@@ -245,6 +246,9 @@ export class DefaultSearchService implements SearchService {
 				: {}),
 			...(m.metadata.subject !== undefined
 				? { subject: m.metadata.subject }
+				: {}),
+			...(m.metadata.category !== undefined
+				? { category: m.metadata.category }
 				: {}),
 		}));
 	};

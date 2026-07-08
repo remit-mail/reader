@@ -1,3 +1,4 @@
+import type { MessageCategory } from "@remit/api-openapi-types";
 import { z } from "zod";
 
 export const searchIndexMessageSchema = z.object({
@@ -37,6 +38,8 @@ export interface ChunkMetadata {
 	fromName?: string | null;
 	/** Message subject. Stored at index time; absent for pre-enrichment vectors. */
 	subject?: string;
+	/** Header-derived category. Stored at index time; absent for pre-enrichment vectors. */
+	category?: MessageCategory;
 	/**
 	 * sha256 over the embedding model/version id and the chunk's embeddable text.
 	 * Lets a re-index skip an unchanged chunk and re-embed only when content or the
@@ -71,6 +74,7 @@ export interface VectorQueryFilter {
 	hasStars?: boolean;
 	isRead?: boolean;
 	chunkType?: ChunkType;
+	category?: MessageCategory;
 }
 
 export interface VectorQuery {
@@ -118,6 +122,7 @@ export interface SearchParams {
 	hasAttachment?: boolean;
 	hasStars?: boolean;
 	isRead?: boolean;
+	category?: MessageCategory;
 	limit?: number;
 }
 
@@ -133,4 +138,6 @@ export interface SearchResult {
 	subject?: string;
 	/** Sent date as Unix epoch seconds, always populated. */
 	sentDate: number;
+	/** Header-derived category, populated for messages indexed after category enrichment. */
+	category?: MessageCategory;
 }

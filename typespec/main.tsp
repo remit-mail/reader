@@ -381,6 +381,10 @@ namespace RemitApi {
       @query(#{ explode: true })
       isRead?: boolean,
 
+      @doc("Restrict results to a single header-derived category")
+      @query(#{ explode: true })
+      category?: MessageCategory,
+
       @doc("Maximum number of results to return")
       @query(#{ explode: true })
       limit?: int32,

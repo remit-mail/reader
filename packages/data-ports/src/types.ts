@@ -363,8 +363,11 @@ export type UpdateOutboxMessageInput = Partial<
 
 export type CreateThreadMessageInput = Omit<
 	ThreadMessageItem,
-	"threadMessageId" | "createdAt" | "updatedAt" | "star"
-> & { star?: ThreadMessageItem["star"] };
+	"threadMessageId" | "createdAt" | "updatedAt" | "star" | "category"
+> & {
+	star?: ThreadMessageItem["star"];
+	category?: ThreadMessageItem["category"];
+};
 
 export type UpdateThreadMessageInput = Partial<
 	Omit<CreateThreadMessageInput, "accountConfigId" | "threadId" | "messageId">

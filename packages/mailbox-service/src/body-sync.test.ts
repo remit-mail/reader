@@ -70,7 +70,11 @@ const buildFakeState = (opts: FakeStateOptions) => {
 	const storedParsed: StoreParsedBodyParams[] = [];
 	const storedBodyParts: StoreBodyPartParams[] = [];
 	const updatedKeys: Array<{ messageId: string } & UpdateMessageInput> = [];
-	const threadSnippetUpdates: Array<{ threadMessageId: string }> = [];
+	const threadSnippetUpdates: Array<{
+		threadMessageId: string;
+		category?: string;
+		snippet?: string;
+	}> = [];
 	const inboundIncrements: Array<{ addressId: string; now: number }> = [];
 	const counts = {
 		retrieve: 0,
@@ -119,8 +123,16 @@ const buildFakeState = (opts: FakeStateOptions) => {
 			threadMessageId: "tm-1",
 			messageId: opts.messageId,
 		}),
-		update: async (_accountConfigId: string, threadMessageId: string) => {
-			threadSnippetUpdates.push({ threadMessageId });
+		update: async (
+			_accountConfigId: string,
+			threadMessageId: string,
+			input: { category?: string; snippet?: string },
+		) => {
+			threadSnippetUpdates.push({
+				threadMessageId,
+				category: input.category,
+				snippet: input.snippet,
+			});
 			return {};
 		},
 	} as unknown as ThreadMessageService;
@@ -2153,6 +2165,66 @@ describe("BodySyncService.syncBodies (single consolidated Message write, #607)",
 			"ThreadMessage snippet write still happens",
 		);
 		assert.equal(fake.threadSnippetUpdates[0].threadMessageId, "tm-1");
+		assert.equal(
+			fake.threadSnippetUpdates[0].category,
+			MessageCategory.newsletter,
+			"the classified category is denormalized onto the ThreadMessage",
+		);
+	});
+
+	it("denormalizes category onto the ThreadMessage even with no Message-ID header, matching the Message write", async () => {
+		// A message whose RFC822 Message-ID header is absent still classifies and
+		// must land the SAME category on both the Message and the ThreadMessage —
+		// the worker indexes off the ThreadMessage, so a stale `uncategorized`
+		// there would index the wrong category (#delta-review).
+		const HEADERLESS_NEWSLETTER = Buffer.from(
+			[
+				"From: news@news.example.com",
+				"To: bob@example.com",
+				"Subject: weekly digest",
+				"List-Id: <weekly.news.example.com>",
+				"List-Unsubscribe: <https://news.example.com/u>",
+				"Content-Type: text/plain",
+				"",
+				"weekly digest body",
+				"",
+			].join("\r\n"),
+		);
+		const fake = buildFakeState({
+			messageId: "msg-1",
+			rawEml: HEADERLESS_NEWSLETTER,
+			messageOverrides: { messageIdHeader: undefined },
+		});
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			fake.addressService,
+			fake.envelopeService,
+		);
+
+		await service.syncBodies(
+			["msg-1"],
+			"acc-1",
+			"acc-cfg-1",
+			"INBOX",
+			async () => buildFakeConnection(HEADERLESS_NEWSLETTER),
+		);
+
+		const messageWrite = fake.updatedKeys.find((u) => u.messageId === "msg-1");
+		assert.ok(messageWrite, "the Message write happens");
+		assert.equal(messageWrite.category, MessageCategory.newsletter);
+
+		assert.equal(
+			fake.threadSnippetUpdates.length,
+			1,
+			"ThreadMessage update still happens without a Message-ID header",
+		);
+		assert.equal(
+			fake.threadSnippetUpdates[0].category,
+			messageWrite.category,
+			"ThreadMessage.category matches Message.category for a headerless message",
+		);
 	});
 
 	it("folds the rescue movedByRemit flag into the same single Message write", async () => {

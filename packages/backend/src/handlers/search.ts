@@ -1,4 +1,7 @@
-import type { SemanticSearchResult } from "@remit/api-openapi-types";
+import type {
+	MessageCategory,
+	SemanticSearchResult,
+} from "@remit/api-openapi-types";
 import type { SearchResult } from "@remit/search-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
@@ -24,6 +27,9 @@ const toResponse = (item: SearchResult): SemanticSearchResult => {
 	if (item.subject !== undefined) {
 		result.subject = item.subject;
 	}
+	if (item.category !== undefined) {
+		result.category = item.category;
+	}
 	return result;
 };
 
@@ -45,6 +51,7 @@ export const SemanticSearchOperations: Record<
 			hasAttachment,
 			hasStars,
 			isRead,
+			category,
 			limit,
 		} = context.request.query as {
 			query: string;
@@ -54,6 +61,7 @@ export const SemanticSearchOperations: Record<
 			hasAttachment?: boolean;
 			hasStars?: boolean;
 			isRead?: boolean;
+			category?: MessageCategory;
 			limit?: number;
 		};
 
@@ -70,6 +78,7 @@ export const SemanticSearchOperations: Record<
 			hasAttachment,
 			hasStars,
 			isRead,
+			category,
 			limit: limit ?? DEFAULT_LIMIT,
 		});
 

@@ -1027,7 +1027,10 @@ export class BodySyncService {
 	}
 
 	/**
-	 * Extract snippet from message body and update ThreadMessage.
+	 * Extract snippet and header category from the body and denormalize both
+	 * onto the ThreadMessage. `category` mirrors the Message: created as
+	 * `uncategorized` at metadata-sync and set to the classified value here, so
+	 * the list/search read path carries it without a per-row Message fetch.
 	 * Returns the parsed mail so callers can reuse it (e.g., to write the
 	 * parsed-body cache) without paying for mailparser twice.
 	 */
@@ -1046,34 +1049,25 @@ export class BodySyncService {
 			256,
 		);
 
-		if (!snippet) {
-			return parsed;
-		}
+		const category = classifyByHeaders(parsed);
 
-		// Get the message to find its messageIdHeader
-		const message = await this.messageService.get(messageId);
-		if (!message.messageIdHeader) {
-			this.log.debug?.(
-				{ messageId },
-				"No messageIdHeader, skipping snippet update",
-			);
-			return parsed;
-		}
-
-		// Get the ThreadMessage by messageId (efficient GSI lookup)
+		// Get the ThreadMessage by messageId (efficient GSI lookup). The write is
+		// keyed on messageId, so it does not depend on the RFC822 Message-ID
+		// header — a headerless message still gets its category/snippet
+		// denormalized, matching the unconditional Message.category write.
 		const threadMessage = await this.threadMessageService.getByMessageId(
 			accountConfigId,
 			messageId,
 		);
 
-		// Update ThreadMessage snippet.
+		// Update ThreadMessage snippet + denormalized category.
 		// Pass the full composite set so that if a future key-attribute addition
 		// touches lsi3/lsi4/lsi5/gsi2 sort keys, the index rows remain consistent.
 		// The threadMessage was fetched just above, so the values are already in scope.
 		await this.threadMessageService.update(
 			accountConfigId,
 			threadMessage.threadMessageId,
-			{ snippet },
+			{ category, ...(snippet ? { snippet } : {}) },
 			{
 				composites: {
 					sentDate: threadMessage.sentDate,
@@ -1087,8 +1081,8 @@ export class BodySyncService {
 		);
 
 		this.log.debug?.(
-			{ messageId, snippetLength: snippet.length },
-			"Snippet updated",
+			{ messageId, category, snippetLength: snippet?.length ?? 0 },
+			"ThreadMessage snippet + category updated",
 		);
 
 		return parsed;

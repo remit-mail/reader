@@ -72,6 +72,7 @@ const makeThreadMessage = (messageId: string) => ({
 	hasStars: false,
 	isDeleted: false,
 	snippet: "Hello world",
+	category: "uncategorized",
 	createdAt: Date.now(),
 	updatedAt: Date.now(),
 });
@@ -154,7 +155,10 @@ describe("search-index-worker handler", () => {
 		const searchService = createSearchService({ embedder, store });
 		const storageService = createMockStorageService();
 
-		const tm = makeThreadMessage(MESSAGE_ID);
+		const tm = {
+			...makeThreadMessage(MESSAGE_ID),
+			category: "newsletter" as const,
+		};
 		threadMessages.set(MESSAGE_ID, tm);
 		await storageService.storeParsedBody({
 			accountConfigId: ACCOUNT_CONFIG_ID,
@@ -187,6 +191,7 @@ describe("search-index-worker handler", () => {
 		for (const v of forMessage) {
 			assert.strictEqual(v.metadata.fromName, tm.fromName ?? null);
 			assert.strictEqual(v.metadata.subject, tm.subject ?? "");
+			assert.strictEqual(v.metadata.category, "newsletter");
 		}
 
 		threadMessages.clear();

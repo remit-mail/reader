@@ -172,6 +172,10 @@ model ThreadMessage {
   @visibility(Lifecycle.Read)
   snippet?: String256;
 
+  @doc("Header-derived category, denormalized from the underlying Message. Defaults to `uncategorized` at metadata-sync and is set to the classified value at body-sync — that pending state is a named value, not absence.")
+  @visibility(Lifecycle.Read)
+  category: MessageCategory = MessageCategory.uncategorized;
+
   @visibility(Lifecycle.Read)
   @createdAt
   createdAt: int64;

@@ -83,6 +83,10 @@ const buildFilterClause = (
 		conditions.push(`chunk_type = $${i++}`);
 		params.push(filter.chunkType);
 	}
+	if (filter.category !== undefined) {
+		conditions.push(`metadata->>'category' = $${i++}`);
+		params.push(filter.category);
+	}
 	if (filter.hasAttachment !== undefined) {
 		conditions.push(`has_attachment = $${i++}`);
 		params.push(filter.hasAttachment);

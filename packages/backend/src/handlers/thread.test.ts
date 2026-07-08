@@ -4,7 +4,7 @@ import type {
 	ResultList,
 	ThreadMessageItem,
 } from "@remit/remit-electrodb-service";
-import { SenderTrust, StarColor } from "@remit/domain-enums";
+import { MessageCategory, SenderTrust, StarColor } from "@remit/domain-enums";
 import {
 	buildListThreadMessagesOptions,
 	buildListThreadsOptions,
@@ -109,6 +109,7 @@ const buildRow = (
 	fromName: "A",
 	star: StarColor.None,
 	snippet: "",
+	category: MessageCategory.uncategorized,
 	createdAt: 0,
 	updatedAt: 0,
 	...overrides,
