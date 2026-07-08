@@ -5,9 +5,9 @@
 	"main": "src/index.ts",
 	"scripts": {
 		"test:typecheck": "tsgo --noEmit",
-		"test:run": "node --env-file=../../.test.env --test 'src/**/*.test.ts'",
+		"test:run": "node --env-file=../../localhost-test-unit.env --test 'src/**/*.test.ts'",
 		"test": "npm run test:typecheck && npm run test:run",
-		"test:integ": "RUN_INTEG_TESTS=true node --env-file=../../.localhost.env --import tsx --test --test-force-exit 'src/**/*.integ.test.ts'"
+		"test:integ": "RUN_INTEG_TESTS=true node --env-file=../../localhost-dev-aws.env --import tsx --test --test-force-exit 'src/**/*.integ.test.ts'"
 	},
 	"devDependencies": {
 		

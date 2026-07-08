@@ -18,8 +18,8 @@ const parseEnvFile = (relativePath: string): Record<string, string> => {
 	return entries;
 };
 
-describe("local dev SQS routing (.localhost.env)", () => {
-	const env = parseEnvFile(".localhost.env");
+describe("local dev SQS routing (localhost-dev-aws.env)", () => {
+	const env = parseEnvFile("localhost-dev-aws.env");
 
 	it("publishes backend writes to the FIFO mailboxes queue the sync consumer drains", () => {
 		// Prod wires the API's SQS_QUEUE_URL to the mailboxes FIFO queue
