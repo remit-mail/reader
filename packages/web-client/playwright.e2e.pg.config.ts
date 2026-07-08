@@ -28,7 +28,7 @@ export default defineConfig({
 	webServer: [
 		{
 			command:
-				"node --env-file=../../.e2e.env --import tsx ../../packages/backend/dev-server/server.ts",
+				"node --env-file=../../localhost-test-e2e.env --import tsx ../../packages/backend/dev-server/server.ts",
 			port: 5439,
 			reuseExistingServer: !process.env.CI,
 			env: {

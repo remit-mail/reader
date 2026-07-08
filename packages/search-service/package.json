@@ -12,8 +12,8 @@
 	},
 	"scripts": {
 		"test:typecheck": "tsgo --noEmit",
-		"test:run": "node --env-file=../../.test.env --import tsx --test 'src/**/*.test.ts'",
-		"test:integ": "RUN_INTEG_TESTS=1 node --env-file=../../.test.env --import tsx --test 'src/**/*.integ.test.ts'",
+		"test:run": "node --env-file=../../localhost-test-unit.env --import tsx --test 'src/**/*.test.ts'",
+		"test:integ": "RUN_INTEG_TESTS=1 node --env-file=../../localhost-test-unit.env --import tsx --test 'src/**/*.integ.test.ts'",
 		"test": "npm run test:typecheck && npm run test:run"
 	},
 	"dependencies": {
