@@ -18,6 +18,8 @@
 	},
 	"dependencies": {
 		"@huggingface/transformers": "^4.2.0",
+		"@remit/domain-enums": "*",
+		"@remit/api-openapi-types": "*",
 		"better-sqlite3": "^12.11.1",
 		"p-limit": "^6.2.0",
 		"pg": "^8.0.0",

@@ -123,6 +123,7 @@ function toItem(row: Row): ThreadMessageItem {
 		star: row.star as ThreadMessageItem["star"],
 		hasStars: row.hasStars,
 		isDeleted: row.isDeleted,
+		category: row.category as ThreadMessageItem["category"],
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,
 		...(row.messageIdHeader !== null
@@ -258,6 +259,7 @@ export class DrizzleThreadMessageRepository
 			star: input.star ?? "none",
 			hasStars: input.hasStars,
 			isDeleted: input.isDeleted,
+			category: input.category ?? "uncategorized",
 			messageIdHeader: input.messageIdHeader ?? null,
 			inReplyTo: input.inReplyTo ?? null,
 			fromEmail: input.fromEmail ?? null,
@@ -346,6 +348,7 @@ export class DrizzleThreadMessageRepository
 			set.hasAttachment = input.hasAttachment;
 		if (input.hasStars !== undefined) set.hasStars = input.hasStars;
 		if (input.star !== undefined) set.star = input.star;
+		if (input.category !== undefined) set.category = input.category;
 		if (input.subject !== undefined) set.subject = input.subject;
 		if (input.fromEmail !== undefined) set.fromEmail = input.fromEmail;
 		if (input.fromName !== undefined) set.fromName = input.fromName;

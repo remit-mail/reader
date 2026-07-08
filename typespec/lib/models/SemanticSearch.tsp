@@ -1,4 +1,5 @@
 import "../scalars/string.tsp";
+import "../enums/MessageCategory.tsp";
 
 namespace RemitImap;
 
@@ -37,4 +38,7 @@ model SemanticSearchResult {
 
   @doc("Sent date as Unix epoch seconds. Present for messages indexed after display-field enrichment was deployed.")
   sentDate?: int64;
+
+  @doc("Header-derived category of the matched message. Present for messages indexed after category enrichment was deployed; older entries omit it.")
+  category?: MessageCategory;
 }
