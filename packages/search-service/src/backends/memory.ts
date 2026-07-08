@@ -60,6 +60,9 @@ const matchesFilter = (
 	if (filter.chunkType !== undefined && m.chunkType !== filter.chunkType) {
 		return false;
 	}
+	if (filter.category !== undefined && m.category !== filter.category) {
+		return false;
+	}
 	if (
 		filter.hasAttachment !== undefined &&
 		m.hasAttachment !== filter.hasAttachment

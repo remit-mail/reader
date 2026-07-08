@@ -88,6 +88,22 @@ describe("MemoryVectorStore", () => {
 		assert.strictEqual(matches[0].chunkId, "a");
 	});
 
+	it("filters by category", async () => {
+		const store = new MemoryVectorStore();
+		await store.upsert([
+			record("a", [1, 0, 0], { category: "newsletter" }),
+			record("b", [1, 0, 0], { category: "personal" }),
+		]);
+
+		const matches = await store.query({
+			vector: [1, 0, 0],
+			topK: 5,
+			filter: { category: "newsletter" },
+		});
+		assert.strictEqual(matches.length, 1);
+		assert.strictEqual(matches[0].chunkId, "a");
+	});
+
 	it("filters by sentDateRange", async () => {
 		const store = new MemoryVectorStore();
 		await store.upsert([

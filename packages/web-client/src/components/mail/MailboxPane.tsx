@@ -880,6 +880,7 @@ function MailboxList() {
 	// literal "Top matches" by thread, so a thread never shows in both.
 	const { hits: semanticHits, isLoading: relatedLoading } = useSemanticSearch({
 		mailboxId,
+		filterCategory,
 	});
 	const relatedResults = useMemo(
 		() =>

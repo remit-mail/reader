@@ -5,6 +5,7 @@ import {
 	QueryVectorsCommand,
 	S3VectorsClient,
 } from "@aws-sdk/client-s3vectors";
+import { MessageCategory } from "@remit/domain-enums";
 import type { DocumentType } from "@smithy/types";
 import { candidateChunkKeys } from "../chunking/keys.js";
 import type {
@@ -92,6 +93,13 @@ const DELETE_BATCH_SIZE = 100;
 // AWS caps GetVectors at 100 keys per call (s3-vectors-limitations).
 const GET_BATCH_SIZE = 100;
 
+const MESSAGE_CATEGORIES = new Set<string>(Object.values(MessageCategory));
+
+const isMessageCategory = (
+	value: unknown,
+): value is ChunkMetadata["category"] =>
+	typeof value === "string" && MESSAGE_CATEGORIES.has(value);
+
 const readContentHash = (metadata: unknown): string | undefined => {
 	if (typeof metadata !== "object" || metadata === null) return undefined;
 	const hash = (metadata as Record<string, unknown>).contentHash;
@@ -139,6 +147,7 @@ const toMetadata = (raw: unknown): ChunkMetadata => {
 				? obj.fromName
 				: undefined;
 	const subject = typeof obj.subject === "string" ? obj.subject : undefined;
+	const category = isMessageCategory(obj.category) ? obj.category : undefined;
 	return {
 		messageId: obj.messageId,
 		threadId: obj.threadId,
@@ -152,6 +161,7 @@ const toMetadata = (raw: unknown): ChunkMetadata => {
 		fileTypes,
 		...(fromName !== undefined ? { fromName } : {}),
 		...(subject !== undefined ? { subject } : {}),
+		...(category !== undefined ? { category } : {}),
 	};
 };
 
@@ -175,6 +185,9 @@ const buildFilterExpression = (
 	}
 	if (filter.chunkType !== undefined) {
 		conditions.push({ chunkType: filter.chunkType });
+	}
+	if (filter.category !== undefined) {
+		conditions.push({ category: filter.category });
 	}
 	if (filter.hasAttachment !== undefined) {
 		conditions.push({ hasAttachment: filter.hasAttachment });

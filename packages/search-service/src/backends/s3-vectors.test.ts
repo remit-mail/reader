@@ -273,6 +273,21 @@ describe("S3VectorsBackend.query filter expression", () => {
 		assert.equal(await filterFor({}), undefined);
 	});
 
+	it("emits category as a bare discrete condition", async () => {
+		const emitted = await filterFor({ category: "newsletter" });
+		assert.deepEqual(emitted, { category: "newsletter" });
+	});
+
+	it("combines category with other conditions under $and", async () => {
+		const emitted = await filterFor({
+			accountConfigId: "acct-1",
+			category: "newsletter",
+		});
+		assert.deepEqual(emitted, {
+			$and: [{ accountConfigId: "acct-1" }, { category: "newsletter" }],
+		});
+	});
+
 	it("emits the inbox Related shape as $and (regression for the Invalid filter 500)", async () => {
 		// The inbox "Related" section always filters by account + mailbox. As a
 		// flat 2-key object S3 Vectors rejects it with ValidationException, leaving
@@ -445,6 +460,48 @@ describe("S3VectorsBackend.query metadata backward-compat (no reindex)", () => {
 		const meta = matches[0].metadata;
 		assert.equal(meta.fromName, "Alice");
 		assert.equal(meta.subject, "Q1 invoice review");
+	});
+
+	it("parses enriched metadata with a category present", async () => {
+		s3vMock.on(QueryVectorsCommand).resolves({
+			vectors: [
+				{
+					key: `${MESSAGE_ID}::subject`,
+					distance: 0.1,
+					metadata: { ...legacyMetadata, category: "newsletter" },
+				},
+			],
+			distanceMetric: "cosine",
+		});
+
+		const matches = await buildBackend().query({
+			vector: [0.1, 0.2, 0.3],
+			topK: 10,
+		});
+
+		assert.equal(matches.length, 1);
+		assert.equal(matches[0].metadata.category, "newsletter");
+	});
+
+	it("ignores an unknown category value (absent, not thrown)", async () => {
+		s3vMock.on(QueryVectorsCommand).resolves({
+			vectors: [
+				{
+					key: `${MESSAGE_ID}::subject`,
+					distance: 0.1,
+					metadata: { ...legacyMetadata, category: "not-a-category" },
+				},
+			],
+			distanceMetric: "cosine",
+		});
+
+		const matches = await buildBackend().query({
+			vector: [0.1, 0.2, 0.3],
+			topK: 10,
+		});
+
+		assert.equal(matches.length, 1);
+		assert.equal(matches[0].metadata.category, undefined);
 	});
 });
 

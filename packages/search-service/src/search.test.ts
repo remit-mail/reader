@@ -197,6 +197,113 @@ describe("DefaultSearchService", () => {
 		assert.strictEqual(alice.sentDate, 1_700_000_000);
 	});
 
+	it("category filter returns only in-category hits", async () => {
+		const { service } = buildService();
+		await service.index({
+			envelope: aliceEnvelope,
+			parsedBody: {
+				text: "Quarterly renewal figures and the invoice reconciliation for the finance team review.",
+				html: null,
+			},
+			metadata: {
+				...baseMetadata,
+				messageId: "msg-personal",
+				threadId: "thread-personal",
+				category: "personal",
+			},
+		});
+		await service.index({
+			envelope: aliceEnvelope,
+			parsedBody: {
+				text: "Weekly renewal newsletter roundup with the invoice highlights and finance stories for subscribers.",
+				html: null,
+			},
+			metadata: {
+				...baseMetadata,
+				messageId: "msg-newsletter",
+				threadId: "thread-newsletter",
+				category: "newsletter",
+			},
+		});
+
+		const scoped = await service.search({
+			query: "renewal invoice finance",
+			accountConfigId: "acct-1",
+			category: "newsletter",
+		});
+		assert.ok(scoped.length > 0);
+		assert.ok(
+			scoped.every((r) => r.category === "newsletter"),
+			"every hit must be in the requested category",
+		);
+	});
+
+	// The real invariant is that a category filter only removes out-of-category
+	// hits from the candidate window — it never adds or reorders. It is NOT that
+	// `related(all)` limited to the top-N contains every scoped hit: with a large
+	// corpus both queries pull the same topK window then slice to `limit` by
+	// score, so an in-category hit ranked below the global top-N appears in the
+	// scoped result but not in the limited all-category result. That divergence
+	// is the point of the feature. We test the invariant against the full
+	// candidate window (a limit large enough that nothing is sliced off).
+	it("scoped hits are a subset of the same unsliced all-category window", async () => {
+		const { service } = buildService();
+		// Several strongly-matching personal messages that outrank the one
+		// newsletter, plus the newsletter itself. With a small all-limit the
+		// newsletter falls outside the top-N; the category scope surfaces it.
+		for (let i = 0; i < 5; i++) {
+			await service.index({
+				envelope: aliceEnvelope,
+				parsedBody: {
+					text: "Quarterly renewal invoice finance reconciliation for the finance team quarterly review.",
+					html: null,
+				},
+				metadata: {
+					...baseMetadata,
+					messageId: `msg-personal-${i}`,
+					threadId: `thread-personal-${i}`,
+					category: "personal",
+				},
+			});
+		}
+		await service.index({
+			envelope: aliceEnvelope,
+			parsedBody: {
+				text: "Weekly roundup newsletter mentioning renewal and a finance story for subscribers.",
+				html: null,
+			},
+			metadata: {
+				...baseMetadata,
+				messageId: "msg-newsletter",
+				threadId: "thread-newsletter",
+				category: "newsletter",
+			},
+		});
+
+		const allFull = await service.search({
+			query: "renewal invoice finance",
+			accountConfigId: "acct-1",
+			limit: 100,
+		});
+		const scoped = await service.search({
+			query: "renewal invoice finance",
+			accountConfigId: "acct-1",
+			category: "newsletter",
+			limit: 100,
+		});
+
+		const allIds = new Set(allFull.map((r) => r.messageId));
+		assert.ok(scoped.length > 0);
+		assert.ok(
+			scoped.every((r) => allIds.has(r.messageId)),
+			"every scoped hit must appear in the full (unsliced) all-category window",
+		);
+		assert.ok(
+			scoped.every((r) => r.category === "newsletter"),
+			"the scoped result is filtered to the requested category only",
+		);
+	});
+
 	it("omits fromName and subject when not stored in metadata (pre-enrichment vectors)", async () => {
 		const { service } = buildService();
 		// Index without display fields to simulate pre-enrichment vectors

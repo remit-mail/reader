@@ -219,6 +219,7 @@ const prepareUpsert = async (
 			hasStars: threadMessage.hasStars,
 			fromName: threadMessage.fromName ?? null,
 			subject: threadMessage.subject ?? "",
+			category: threadMessage.category,
 		},
 	});
 };

@@ -38,6 +38,7 @@ const CREATE_TABLE = (dimensions: number): string => `
 		account_config_id TEXT,
 		mailbox_id TEXT,
 		chunk_type TEXT,
+		category TEXT,
 		sent_date INTEGER,
 		is_read INTEGER,
 		has_attachment INTEGER,
@@ -77,6 +78,10 @@ const buildFilterClause = (
 	if (filter.chunkType !== undefined) {
 		sql.push("chunk_type = ?");
 		params.push(filter.chunkType);
+	}
+	if (filter.category !== undefined) {
+		sql.push("category = ?");
+		params.push(filter.category);
 	}
 	if (filter.hasAttachment !== undefined) {
 		sql.push("has_attachment = ?");
@@ -142,8 +147,8 @@ export const createSqliteVectorStore = (
 		const ins = db.prepare(`
 			INSERT INTO vec_chunks (
 				chunk_id, message_id, account_config_id, mailbox_id, chunk_type,
-				sent_date, is_read, has_attachment, has_stars, embedding, meta
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				category, sent_date, is_read, has_attachment, has_stars, embedding, meta
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`);
 		const writeAll = db.transaction((records: VectorRecord[]) => {
 			for (const r of records) {
@@ -155,6 +160,7 @@ export const createSqliteVectorStore = (
 					m.accountConfigId,
 					m.mailboxIds[0] ?? "",
 					m.chunkType,
+					m.category ?? null,
 					BigInt(Math.trunc(m.sentDate)),
 					bool(m.isRead),
 					bool(m.hasAttachment),

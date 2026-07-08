@@ -44,6 +44,9 @@ const toResponse = (item: SearchResult): SemanticSearchResult => {
 	if (item.subject !== undefined) {
 		result.subject = item.subject;
 	}
+	if (item.category !== undefined) {
+		result.category = item.category;
+	}
 	return result;
 };
 
@@ -81,6 +84,33 @@ describe("SemanticSearch handler response mapping", () => {
 		assert.equal(out.fromName, "Bob Smith");
 		assert.equal(out.subject, "Weekly sync");
 		assert.equal(out.sentDate, 1_700_001_000);
+	});
+
+	it("echoes category back when present in SearchResult", () => {
+		const item: SearchResult = {
+			messageId: "msg-news",
+			threadId: "thread-news",
+			score: 0.81,
+			matchedChunkType: "body",
+			mailboxIds: ["mb-inbox"],
+			sentDate: 1_700_003_000,
+			category: "newsletter",
+		};
+		const out = toResponse(item);
+		assert.equal(out.category, "newsletter");
+	});
+
+	it("omits category when absent (pre-enrichment vectors)", () => {
+		const item: SearchResult = {
+			messageId: "msg-legacy",
+			threadId: "thread-legacy",
+			score: 0.4,
+			matchedChunkType: "body",
+			mailboxIds: ["mb-archive"],
+			sentDate: 1_600_000_000,
+		};
+		const out = toResponse(item);
+		assert.equal(out.category, undefined);
 	});
 
 	it("omits fromName when it is null (sender has no display name)", () => {
@@ -134,6 +164,7 @@ describe("SemanticSearch handler search invocation", () => {
 			mailboxId: "mb-inbox",
 			sentDateRange: { from: 100, to: 200 },
 			hasAttachment: true,
+			category: "newsletter",
 			limit: 10,
 		});
 
@@ -145,6 +176,7 @@ describe("SemanticSearch handler search invocation", () => {
 		assert.equal(call.mailboxId, "mb-inbox");
 		assert.deepEqual(call.sentDateRange, { from: 100, to: 200 });
 		assert.equal(call.hasAttachment, true);
+		assert.equal(call.category, "newsletter");
 		assert.equal(call.limit, 10);
 	});
 });

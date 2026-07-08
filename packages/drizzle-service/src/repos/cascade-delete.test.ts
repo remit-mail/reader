@@ -138,6 +138,7 @@ describe("runDrizzleCascadeDelete", () => {
 			star: "none",
 			hasStars: false,
 			isDeleted: false,
+			category: "uncategorized",
 			createdAt: NOW,
 			updatedAt: NOW,
 		});
