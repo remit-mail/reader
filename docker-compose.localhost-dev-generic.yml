@@ -15,6 +15,9 @@
 # accounts, login passwords, messages — lives in this volume, not in config, so
 # the same compose works on any checkout. Never run `down -v` against data you
 # want to keep.
+#
+# To point at a pre-existing database volume instead of the empty default, set
+# REMIT_PG_VOLUME (and REMIT_PG_VOLUME_EXTERNAL=true) — see the `volumes` section.
 
 name: remit-pg-dev
 
@@ -99,4 +102,11 @@ services:
     restart: unless-stopped
 
 volumes:
+  # Defaults to the docker-managed `remit-pg-dev_pgdata` volume (empty on first
+  # `up`). To browse a pre-existing database instead, point at its volume:
+  #   REMIT_PG_VOLUME=<volume> REMIT_PG_VOLUME_EXTERNAL=true npm run dev:pg:up
+  # `external: true` marks the volume as owned outside this stack, so `down -v`
+  # can never delete it. Inspect volumes with `docker volume ls`.
   pgdata:
+    external: ${REMIT_PG_VOLUME_EXTERNAL:-false}
+    name: ${REMIT_PG_VOLUME:-remit-pg-dev_pgdata}
