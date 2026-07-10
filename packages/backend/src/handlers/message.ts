@@ -329,7 +329,7 @@ export const MessageOperations: Record<
 		const event = args[0] as APIGatewayProxyEvent;
 		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const { messageId } = context.request.params as { messageId: string };
-		const client = getClient();
+		const client = await getClient();
 		const ownedAccountId = await assertMessagesOwned(
 			client,
 			[messageId],
@@ -510,7 +510,7 @@ export const MessageOperations: Record<
 		const event = args[0] as APIGatewayProxyEvent;
 		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const { messageId } = context.request.params as { messageId: string };
-		const client = getClient();
+		const client = await getClient();
 
 		// Cross-tenant ownership guard. Returning raw RFC822 bytes is sensitive,
 		// so resolve the owning account and prove the caller owns it BEFORE any
@@ -572,7 +572,7 @@ export const MessageOperations: Record<
 			starColor?: string;
 		};
 
-		const client = getClient();
+		const client = await getClient();
 		const accountId = await assertMessagesOwned(
 			client,
 			[messageId],
@@ -619,7 +619,7 @@ export const MessageBulkOperations: Record<
 			return { successCount: 0, failureCount: 0 };
 		}
 
-		const client = getClient();
+		const client = await getClient();
 		const accountId = await assertMessagesOwned(
 			client,
 			messageIds,
@@ -660,7 +660,7 @@ export const MessageBulkOperations: Record<
 			return { successCount: 0, failureCount: 0 };
 		}
 
-		const client = getClient();
+		const client = await getClient();
 		const accountId = await assertMessagesOwned(
 			client,
 			messageIds,
@@ -697,7 +697,7 @@ export const MessageBulkOperations: Record<
 			return { successCount: 0, failureCount: 0 };
 		}
 
-		const client = getClient();
+		const client = await getClient();
 		const accountId = await assertMessagesOwned(
 			client,
 			messageIds,
@@ -743,7 +743,7 @@ export const MessageBulkOperations: Record<
 			return { successCount: 0, failureCount: 0 };
 		}
 
-		const client = getClient();
+		const client = await getClient();
 		const accountId = await assertMessagesOwned(
 			client,
 			messageIds,

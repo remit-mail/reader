@@ -170,7 +170,7 @@ export const MailboxOperations: Record<
 			continuationToken?: string;
 		};
 
-		const client = getClient();
+		const client = await getClient();
 		const account = await client.account.get(accountId);
 		assertAccountOwnership(account, accountConfigId, "read");
 
@@ -205,7 +205,7 @@ export const MailboxOperations: Record<
 			fullPath: string;
 		};
 
-		const client = getClient();
+		const client = await getClient();
 		const account = await client.account.get(accountId);
 		assertAccountOwnership(account, accountConfigId, "act");
 
@@ -247,7 +247,7 @@ export const MailboxDetailOperations: Record<
 			mailboxId: string;
 		};
 
-		const client = getClient();
+		const client = await getClient();
 		const account = await client.account.get(accountId);
 		assertAccountOwnership(account, accountConfigId, "read");
 
@@ -273,7 +273,7 @@ export const MailboxDetailOperations: Record<
 		};
 		const body = context.request.requestBody as RenameMailboxInput;
 
-		const client = getClient();
+		const client = await getClient();
 		const account = await client.account.get(accountId);
 		assertAccountOwnership(account, accountConfigId, "act");
 
@@ -306,7 +306,7 @@ export const MailboxDetailOperations: Record<
 			mailboxId: string;
 		};
 
-		const client = getClient();
+		const client = await getClient();
 		const account = await client.account.get(accountId);
 		assertAccountOwnership(account, accountConfigId, "act");
 
@@ -327,7 +327,7 @@ export const TrashOperations: Record<
 		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const { accountId } = context.request.params as { accountId: string };
 
-		const client = getClient();
+		const client = await getClient();
 
 		const account = await client.account.get(accountId);
 		assertAccountOwnership(account, accountConfigId, "act");

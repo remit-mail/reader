@@ -17,23 +17,6 @@ import type {
 	IUnitOfWork,
 } from "@remit/data-ports";
 import {
-	AccountConfigRepo,
-	AccountExportRequestRepo,
-	AccountRepo,
-	AccountSettingRepo,
-	AddressRepo,
-	DrizzleEnvelopeRepository,
-	DrizzleMessageFlagRepository,
-	DrizzleMessageRepository,
-	DrizzleThreadMessageRepository,
-	DrizzleUnitOfWork,
-	MailboxLockRepo,
-	MailboxRepo,
-	MailboxSpecialUseRepo,
-	messageDataSchema,
-	OutboxMessageRepo,
-} from "@remit/drizzle-service";
-import {
 	AccountConfigService,
 	AccountExportRequestService,
 	AccountService,
@@ -77,7 +60,10 @@ import {
 	createStorageService,
 	type StorageService,
 } from "@remit/storage-service";
-import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
+// Type-only: erased at build, so it carries no runtime dependency on
+// drizzle-orm. The value import lives inside `buildPostgresClient` as a
+// dynamic `import()` — see the comment there for why.
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { env } from "expect-env";
 
 const isLocalEnv =
@@ -171,7 +157,7 @@ export interface RemitClient {
 	createConnectionScope: (accountId: string) => Promise<ConnectionScope>;
 }
 
-let client: RemitClient | null = null;
+let clientPromise: Promise<RemitClient> | null = null;
 
 const buildConnectionScope =
 	(accountService: IAccountRepository, secretsService: SecretsService) =>
@@ -327,8 +313,40 @@ const buildDynamoDBClient = (): RemitClient => {
 	};
 };
 
-const buildPostgresClient = (): RemitClient => {
+// `@remit/drizzle-service` and `drizzle-orm/node-postgres` are loaded
+// lazily, inside this function, instead of as static top-level imports. This
+// branch only ever runs when `DATA_BACKEND === "postgres"` — true for the
+// local Postgres-parity dev stack, never on deployed Lambdas — but a static
+// import is bundled (and evaluated at module load) regardless of whether the
+// branch that uses it ever runs. A `pg.Pool`/drizzle client constructed at
+// Lambda cold start on every invocation was exactly the #1244 bundle leak.
+// `@remit/drizzle-service` and `drizzle-orm` are marked `external` for
+// the Lambda esbuild build (see LAMBDA_ESBUILD_OPTIONS), so esbuild leaves
+// this `import()` unresolved in the bundle; it is only ever reached — and
+// only ever needs to resolve — on the Postgres path, which runs via `tsx`
+// (no bundling, real module resolution) and always has both packages
+// installed.
+const buildPostgresClient = async (): Promise<RemitClient> => {
 	const pgConnectionUrl = env.PG_CONNECTION_URL;
+
+	const {
+		AccountConfigRepo,
+		AccountExportRequestRepo,
+		AccountRepo,
+		AccountSettingRepo,
+		AddressRepo,
+		DrizzleEnvelopeRepository,
+		DrizzleMessageFlagRepository,
+		DrizzleMessageRepository,
+		DrizzleThreadMessageRepository,
+		DrizzleUnitOfWork,
+		MailboxLockRepo,
+		MailboxRepo,
+		MailboxSpecialUseRepo,
+		messageDataSchema,
+		OutboxMessageRepo,
+	} = await import("@remit/drizzle-service");
+	const { drizzle } = await import("drizzle-orm/node-postgres");
 
 	// One drizzle db instance shared across repos.
 	// The schema is registered for message-data tables; i4 repos use the same
@@ -429,23 +447,23 @@ const buildPostgresClient = (): RemitClient => {
 	};
 };
 
-export const getClient = (): RemitClient => {
-	if (!client) {
-		client =
+export const getClient = (): Promise<RemitClient> => {
+	if (!clientPromise) {
+		clientPromise =
 			process.env.DATA_BACKEND === "postgres"
 				? buildPostgresClient()
-				: buildDynamoDBClient();
+				: Promise.resolve(buildDynamoDBClient());
 	}
 
-	return client;
+	return clientPromise;
 };
 
 /** Reset the singleton — test use only. */
 export const _resetForTest = (): void => {
-	client = null;
+	clientPromise = null;
 };
 
 /** Inject a (usually partial) client — test use only. */
 export const _setClientForTest = (override: RemitClient): void => {
-	client = override;
+	clientPromise = Promise.resolve(override);
 };

@@ -70,7 +70,7 @@ export const SemanticSearchOperations: Record<
 				? { from: sentDateFrom, to: sentDateTo }
 				: undefined;
 
-		const results = await getClient().search.search({
+		const results = await (await getClient()).search.search({
 			query,
 			accountConfigId,
 			mailboxId,

@@ -367,7 +367,11 @@ describe("syncMessageBody — retry cap drop path (integrated, #1245)", () => {
 
 		mock.method(AccountService.prototype, "get", async () => cappedAccount());
 		mock.method(MailboxService.prototype, "get", async () => cappedMailbox());
-		mock.method(getClient().secrets, "decrypt", async () => "fake-password");
+		mock.method(
+			(await getClient()).secrets,
+			"decrypt",
+			async () => "fake-password",
+		);
 		mock.method(BodySyncService.prototype, "syncBodies", async () => ({
 			syncedCount: 0,
 			syncedMessageIds: [],

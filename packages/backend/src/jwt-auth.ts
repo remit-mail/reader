@@ -3,7 +3,7 @@ import {
 	extractBearerToken,
 	type JwtVerifier,
 	resolveVerifierConfig,
-} from "@remit/auth-service";
+} from "@remit/auth-service/verifier";
 import { logger } from "@remit/logger-lambda";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 
