@@ -80,6 +80,26 @@ describe("resolveBatch — event-shape preference", () => {
 		assert.equal(uidByMessageId, undefined);
 	});
 
+	test("force defaults to false when the event omits it (legacy/bulk events)", () => {
+		const event: SyncMessageBodyEvent = {
+			...baseEvent,
+			messageIds: ["msg-1"],
+		};
+
+		assert.equal(resolveBatch(event).force, false);
+	});
+
+	test("force is carried from the event's read-miss re-arm cue", () => {
+		const event: SyncMessageBodyEvent = {
+			...baseEvent,
+			messageIds: ["msg-1"],
+			messages: [{ messageId: "msg-1", uid: 101 }],
+			force: true,
+		};
+
+		assert.equal(resolveBatch(event).force, true);
+	});
+
 	test("empty messages[] resolves to an empty batch, not the legacy list", () => {
 		const event: SyncMessageBodyEvent = {
 			...baseEvent,
@@ -135,6 +155,30 @@ describe("buildRetryEvent — partial-failure re-enqueue", () => {
 
 		assert.deepEqual(retry.messageIds, ["msg-2"]);
 		assert.equal(retry.messages, undefined);
+	});
+
+	test("carries force forward so a failed force-refetch keeps bypassing the skip guard on retry", () => {
+		const retry = buildRetryEvent(
+			baseEvent.accountId,
+			baseEvent.mailboxId,
+			["msg-2"],
+			uidMap,
+			true,
+		);
+
+		assert.equal(retry.force, true);
+	});
+
+	test("omits force when the original batch was not forced", () => {
+		const retry = buildRetryEvent(
+			baseEvent.accountId,
+			baseEvent.mailboxId,
+			["msg-2"],
+			uidMap,
+			false,
+		);
+
+		assert.equal(retry.force, undefined);
 	});
 
 	test("throws if a failed id has no uid in the map (never defaults to 0)", () => {

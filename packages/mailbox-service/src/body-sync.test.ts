@@ -2084,6 +2084,90 @@ describe("BodySyncService.syncBodies (pipelined ranged fetch)", () => {
 			"only the un-stored UID is fetched",
 		);
 	});
+
+	it("force absent: an already-stored body is still skipped (default behavior preserved)", async () => {
+		// Same stale-metadata shape as the `force` case below (bodyStorageKey set)
+		// but called without the `force` argument — must reproduce the original
+		// skip-guard behavior exactly, so existing callers (bulk metadata-sync)
+		// are unaffected by the new parameter.
+		const entries = [{ messageId: "m-stale", uid: 21, alreadyStored: true }];
+		const fake = buildMultiState(entries);
+		const calls: FakeConnectionCalls = {
+			openBoxCount: 0,
+			fetchBatchCount: 0,
+			fetchedUidBatches: [],
+		};
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			fake.addressService,
+			fake.envelopeService,
+		);
+
+		const result = await service.syncBodies(
+			["m-stale"],
+			"acc-1",
+			"acc-cfg-1",
+			"INBOX",
+			async () =>
+				buildFakeConnection(undefined, { bodies: fake.bodies, calls }),
+		);
+
+		assert.equal(result.skippedCount, 1);
+		assert.equal(result.syncedCount, 0);
+		assert.deepEqual(fake.storedStreamIds, []);
+		assert.deepEqual(calls.fetchedUidBatches, []);
+	});
+
+	it("force=true: re-fetches and rewrites a message whose bodyStorageKey is set but the storage object is gone (#1241 stale-metadata loop)", async () => {
+		// Regression for the self-heal convergence bug: the DB row already has
+		// bodyStorageKey set (e.g. an adopted database whose storage tree is
+		// gone), so the plain skip guard would leave `pending` empty and the
+		// worker would report "processed" without ever fetching from IMAP —
+		// the read path's /content re-arm would then 202 forever. The `force`
+		// cue (set only by BodySyncQueueService.requestBodySync on a read miss)
+		// must bypass the skip guard, re-fetch from IMAP, and rewrite
+		// body.eml (+ parsed.json.gz) even though bodyStorageKey was set.
+		const entries = [{ messageId: "m-stale", uid: 21, alreadyStored: true }];
+		const fake = buildMultiState(entries);
+		const calls: FakeConnectionCalls = {
+			openBoxCount: 0,
+			fetchBatchCount: 0,
+			fetchedUidBatches: [],
+		};
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			fake.addressService,
+			fake.envelopeService,
+		);
+
+		const result = await service.syncBodies(
+			["m-stale"],
+			"acc-1",
+			"acc-cfg-1",
+			"INBOX",
+			async () =>
+				buildFakeConnection(undefined, { bodies: fake.bodies, calls }),
+			true,
+		);
+
+		assert.equal(result.skippedCount, 0, "the skip guard is bypassed");
+		assert.equal(result.syncedCount, 1);
+		assert.deepEqual(result.syncedMessageIds, ["m-stale"]);
+		assert.deepEqual(
+			calls.fetchedUidBatches,
+			[[21]],
+			"the already-stored UID is fetched from IMAP anyway",
+		);
+		assert.deepEqual(
+			fake.storedStreamIds,
+			["m-stale"],
+			"body.eml is rewritten to storage",
+		);
+	});
 });
 
 describe("BodySyncService.syncBodies (single consolidated Message write, #607)", () => {

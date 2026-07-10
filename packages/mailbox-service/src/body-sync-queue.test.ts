@@ -50,6 +50,9 @@ describe("BodySyncQueueService.requestBodySync", () => {
 		assert.equal(event.mailboxId, "mbx-1");
 		assert.deepEqual(event.messageIds, ["msg-1"]);
 		assert.deepEqual(event.messages, [{ messageId: "msg-1", uid: 42 }]);
+		// The worker's skip guard must be bypassed for this message — a read
+		// miss already proved bodyStorageKey is stale.
+		assert.equal(event.force, true);
 		// A standard queue must not carry FIFO parameters.
 		assert.equal(sent[0].MessageGroupId, undefined);
 	});

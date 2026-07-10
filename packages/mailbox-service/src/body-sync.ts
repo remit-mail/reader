@@ -185,6 +185,12 @@ export class BodySyncService {
 	 * @param accountConfigId - The account config ID (for thread updates)
 	 * @param mailboxPath - The IMAP mailbox path
 	 * @param getConnection - Function to get a (lazy) IMAP connection
+	 * @param force - Bypass the "already stored" skip guard and re-fetch every
+	 * message in this batch even though `bodyStorageKey` is already set. Set
+	 * only by the read-miss re-arm cue (a `/content` read found the storage
+	 * object missing despite the DB row saying otherwise); bulk metadata-sync
+	 * never sets this, so it keeps skipping on `bodyStorageKey` with no
+	 * existence check.
 	 */
 	async syncBodies(
 		messageIds: string[],
@@ -192,6 +198,7 @@ export class BodySyncService {
 		accountConfigId: string,
 		mailboxPath: string,
 		getConnection: ConnectionGetter,
+		force = false,
 	): Promise<SyncBodiesResult> {
 		const syncedMessageIds: string[] = [];
 		let skippedCount = 0;
@@ -199,12 +206,15 @@ export class BodySyncService {
 		// Resolve every message up front so we can issue ONE ranged FETCH for the
 		// whole batch (the desktop-client pattern) instead of a SELECT + download
 		// per message. Messages whose body is already stored are skipped here and
-		// never hit the wire. `pending` maps each UID to its messageId so we can
-		// match FETCH rows back and re-enqueue any UID the server never returns.
+		// never hit the wire — UNLESS `force` is set, in which case every message
+		// is re-fetched regardless of `bodyStorageKey` (the read-miss cue already
+		// confirmed the stored object is gone). `pending` maps each UID to its
+		// messageId so we can match FETCH rows back and re-enqueue any UID the
+		// server never returns.
 		const pending = new Map<number, string>();
 		for (const messageId of messageIds) {
 			const message = await this.messageService.get(messageId);
-			if (message.bodyStorageKey) {
+			if (message.bodyStorageKey && !force) {
 				this.log.debug?.({ messageId }, "Body already stored, skipping");
 				skippedCount++;
 				continue;
