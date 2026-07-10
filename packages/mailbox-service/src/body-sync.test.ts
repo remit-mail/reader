@@ -1807,6 +1807,137 @@ describe("BodySyncService.syncBodies (junk rescue isolation)", () => {
 			"no audit record for a leave verdict",
 		);
 	});
+
+	it("does NOT fail body-sync when placement computation throws — body stored, message stays synced, alert logged", async () => {
+		// Simulates a placement-repo query error (e.g. a schema-drifted DB missing
+		// a table): the mailboxSpecialUseService itself throws, not the move.
+		const fake = buildFakeState({
+			messageId: "msg-placement-throw",
+			messageOverrides: rescueableMessageOverrides,
+		});
+		const addressService = buildAddressServiceWithTrust(fake, SenderTrust.Vip);
+		const errors: Array<{ obj: Record<string, unknown>; msg: string }> = [];
+		const logger: BodySyncLogger = {
+			info: () => {},
+			debug: () => {},
+			warn: () => {},
+			error: (obj, msg) => {
+				errors.push({ obj, msg });
+			},
+		};
+		const failingMailboxSpecialUseService = {
+			findBySpecialUse: async () => {
+				throw new Error('relation "mailbox_special_use_entry" does not exist');
+			},
+			findInboxMailbox: async () => ({
+				mailboxId: "inbox-mbx",
+				fullPath: "INBOX",
+			}),
+		} as unknown as MailboxSpecialUseService;
+		const moveCalls: string[] = [];
+		const messageMoveService = {
+			moveMessage: async (_accountConfigId: string, messageId: string) => {
+				moveCalls.push(messageId);
+			},
+		} as unknown as MessageMoveService;
+
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			addressService,
+			fake.envelopeService,
+			logger,
+			{
+				mailboxSpecialUseService: failingMailboxSpecialUseService,
+				messageMoveService,
+			},
+		);
+
+		const result = await service.syncBodies(
+			["msg-placement-throw"],
+			"acc-1",
+			"acc-cfg-1",
+			"Junk",
+			async () => buildFakeConnection(),
+		);
+
+		// The message still syncs — placement is auxiliary, the body was already
+		// durably written before placement ran.
+		assert.equal(result.syncedCount, 1);
+		assert.equal(result.failedCount, 0);
+		assert.deepEqual(result.syncedMessageIds, ["msg-placement-throw"]);
+		assert.equal(fake.storedBodies.length, 1, "body.eml stored");
+		assert.equal(fake.storedParsed.length, 1, "parsed-body cache stored");
+
+		// No move was attempted and no audit verdict recorded — placement failed
+		// outright, it did not decide anything.
+		assert.deepEqual(moveCalls, [], "no move attempted when placement throws");
+		const updates = fake.updatedKeys.filter(
+			(u) => u.messageId === "msg-placement-throw",
+		);
+		assert.equal(updates.length, 1, "exactly one Message update");
+		assert.equal(
+			updates[0]?.placementVerdict,
+			undefined,
+			"no audit record when placement computation throws",
+		);
+		assert.equal(
+			updates[0]?.movedByRemit,
+			undefined,
+			"no movedByRemit flag when placement computation throws",
+		);
+
+		// Loud, structured, alert-style log — this is the point, not a silent
+		// swallow.
+		const alertLog = errors.find(
+			(e) => e.obj.alert === "body_sync_placement_failed",
+		);
+		assert.ok(alertLog, "expected an alert-tagged placement-failure log");
+		assert.equal(alertLog?.obj.messageId, "msg-placement-throw");
+		assert.equal(alertLog?.obj.accountId, "acc-1");
+		assert.ok(alertLog?.obj.error, "error detail included in the log");
+	});
+
+	it("still records the placementVerdict and enqueues the move when placement computation succeeds", async () => {
+		// Placement success is unaffected by the isolation wrapper — the confident
+		// demote path still writes the audit verdict and enqueues the move.
+		const fake = buildFakeState({
+			messageId: "msg-placement-ok",
+			rawEml: DEMOTE_EML,
+			messageOverrides: { mailboxId: "inbox-mbx", movedByRemit: false },
+		});
+		const moveCalls: string[] = [];
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			untrustedAddressService,
+			fake.envelopeService,
+			undefined,
+			buildPlacementConfig({ moveCalls }),
+		);
+
+		const result = await service.syncBodies(
+			["msg-placement-ok"],
+			"acc-1",
+			"acc-cfg-1",
+			"INBOX",
+			async () => buildFakeConnection(DEMOTE_EML),
+		);
+
+		assert.equal(result.syncedCount, 1);
+		assert.deepEqual(moveCalls, ["msg-placement-ok->junk-mbx"]);
+		const updates = fake.updatedKeys.filter(
+			(u) => u.messageId === "msg-placement-ok",
+		);
+		assert.equal(updates.length, 1, "exactly one Message update");
+		assert.ok(
+			updates[0]?.placementVerdict,
+			"placementVerdict folded into update on success",
+		);
+		assert.equal(updates[0]?.movedByRemit, true);
+	});
 });
 
 describe("BodySyncService.syncBodies (pipelined ranged fetch)", () => {
@@ -2459,9 +2590,11 @@ describe("BodySyncService.fetchAndGetBody (storage retrieval error handling)", (
 describe("BodySyncService.deriveSenderTrust (error propagation via rescue)", () => {
 	// deriveSenderTrust is private; exercise it through the placement path, which
 	// calls it from resolvePlacement. A missing Address must degrade to "no move"
-	// with no warning; any other failure (AccessDenied/throttle) must propagate so
-	// the placement path's own catch logs it (observable) rather than being
-	// silently downgraded to SenderTrust.Unknown.
+	// with no warning; any other failure (AccessDenied/throttle) must propagate up
+	// through computePlacement so resolvePlacement's isolating catch logs it loudly
+	// (observable via the `body_sync_placement_failed` alert) rather than either
+	// silently downgrading to SenderTrust.Unknown or failing the whole message
+	// store over an auxiliary placement decision.
 	const rescueableMessageOverrides = {
 		mailboxId: "junk-mbx",
 		movedByRemit: false,
@@ -2553,7 +2686,7 @@ describe("BodySyncService.deriveSenderTrust (error propagation via rescue)", () 
 		);
 	});
 
-	it("requeues the message when placement trust derivation fails (AccessDenied)", async () => {
+	it("isolates the message from a placement trust-derivation failure (AccessDenied) — body still stored, alert logged", async () => {
 		const fake = buildFakeState({
 			messageId: "msg-denied-trust",
 			rawEml: RESCUE_EML,
@@ -2592,17 +2725,21 @@ describe("BodySyncService.deriveSenderTrust (error propagation via rescue)", () 
 			async () => buildFakeConnection(RESCUE_EML),
 		);
 
-		// Placement resolution runs BEFORE bodyStorageKey is persisted, so an
-		// AccessDenied propagates: the message is held back for requeue rather
-		// than synced on a rescue decision made from a failed trust read.
-		assert.equal(result.syncedCount, 0);
-		assert.equal(result.failedCount, 1);
-		assert.deepEqual(result.failedMessageIds, ["msg-denied-trust"]);
-		const logged = errors.find((e) => e.msg.includes("Body store failed"));
-		assert.ok(
-			logged,
-			"expected a body-store-failed error log for AccessDenied",
+		// Placement is auxiliary to the body store: an AccessDenied surfacing
+		// from trust derivation is caught by resolvePlacement's isolating catch,
+		// so the message still syncs and its already-stored body is never
+		// requeued forever over a placement-only fault.
+		assert.equal(result.syncedCount, 1);
+		assert.equal(result.failedCount, 0);
+		assert.deepEqual(result.syncedMessageIds, ["msg-denied-trust"]);
+		assert.equal(fake.storedBodies.length, 1, "body.eml stored");
+		const alertLog = errors.find(
+			(e) => e.obj.alert === "body_sync_placement_failed",
 		);
-		assert.match(String(logged?.obj.error), /AccessDenied/);
+		assert.ok(
+			alertLog,
+			"expected an alert-tagged placement-failure log for AccessDenied",
+		);
+		assert.match(String(alertLog?.obj.error), /AccessDenied/);
 	});
 });
