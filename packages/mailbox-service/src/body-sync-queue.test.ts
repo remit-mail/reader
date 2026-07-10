@@ -1,6 +1,9 @@
 import assert from "node:assert";
 import { describe, it, mock } from "node:test";
-import { BodySyncQueueService } from "./body-sync-queue.js";
+import {
+	type BodySyncQueueLogger,
+	BodySyncQueueService,
+} from "./body-sync-queue.js";
 
 interface CapturedInput {
 	QueueUrl: string;
@@ -13,6 +16,7 @@ const buildService = (
 	overrides: {
 		sqsQueueUrl?: string;
 		send?: (command: { input: CapturedInput }) => Promise<unknown>;
+		logger?: BodySyncQueueLogger;
 	} = {},
 ) => {
 	const sent: CapturedInput[] = [];
@@ -26,6 +30,7 @@ const buildService = (
 	const service = new BodySyncQueueService({
 		sqsQueueUrl:
 			overrides.sqsQueueUrl ?? "http://localhost:9324/000/remit-body",
+		logger: overrides.logger,
 	});
 	// @ts-expect-error - inject mock SQS client for the test
 	service.sqs = { send };
@@ -85,5 +90,35 @@ describe("BodySyncQueueService.requestBodySync", () => {
 				messageId: "msg-1",
 			}),
 		);
+	});
+
+	it("logs an alertable body_sync_cue_enqueue_failed error instead of rejecting — the swallow is not silent operationally, only silent to the caller (RFC 033 D5)", async () => {
+		const errorCalls: Array<[Record<string, unknown>, string]> = [];
+		const logger: BodySyncQueueLogger = {
+			info: () => {},
+			error: (obj, msg) => {
+				errorCalls.push([obj, msg]);
+			},
+		};
+		const { service } = buildService({
+			send: async () => {
+				throw new Error("queue down");
+			},
+			logger,
+		});
+
+		await service.requestBodySync({
+			accountId: "acc-1",
+			mailboxId: "mbx-1",
+			messageId: "msg-1",
+		});
+
+		assert.equal(errorCalls.length, 1);
+		const [fields, message] = errorCalls[0];
+		assert.equal(fields.alert, "body_sync_cue_enqueue_failed");
+		assert.equal(fields.accountId, "acc-1");
+		assert.equal(fields.mailboxId, "mbx-1");
+		assert.equal(fields.messageId, "msg-1");
+		assert.match(message, /read path returned a retryable 202/);
 	});
 });
