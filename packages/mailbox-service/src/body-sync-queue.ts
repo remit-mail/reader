@@ -19,6 +19,13 @@ interface SyncMessageBodyEvent {
 	mailboxId: string;
 	messageIds: string[];
 	messages?: SyncMessageBodyTarget[];
+	/**
+	 * Always true for this read-miss re-arm cue: the caller only reaches
+	 * `requestBodySync` when a `/content` read found `bodyStorageKey` set but
+	 * the storage object missing, so the worker must bypass its "already
+	 * stored" skip guard and re-fetch even though the DB row is stale.
+	 */
+	force: true;
 }
 
 export interface BodySyncQueueLogger {
@@ -89,6 +96,7 @@ export class BodySyncQueueService {
 			mailboxId,
 			messageIds: [messageId],
 			...(uid !== undefined && { messages: [{ messageId, uid }] }),
+			force: true,
 		};
 
 		const useFifo = this.queueUrl.endsWith(".fifo");

@@ -48,6 +48,17 @@ export interface SyncMessageBodyEvent extends BaseEvent {
 	 * Optional so older in-flight events (ids only) still process.
 	 */
 	messages?: SyncMessageBodyTarget[];
+	/**
+	 * Set only by the read-miss re-arm cue (`BodySyncQueueService.requestBodySync`,
+	 * called when a `/content` read finds `bodyStorageKey` set but the storage
+	 * object missing). Tells the consumer to bypass the "already stored" skip
+	 * guard and re-fetch + rewrite the body even though the DB row already
+	 * carries a `bodyStorageKey` — otherwise stale metadata (key set, object
+	 * gone) makes the read-miss retry loop forever, since the bulk skip guard
+	 * would keep treating the message as already synced. Optional so older
+	 * in-flight events (no force) keep the original skip behavior.
+	 */
+	force?: boolean;
 }
 
 export interface SyncFlagsEvent extends BaseEvent {
