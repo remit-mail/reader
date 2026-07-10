@@ -28,6 +28,12 @@ const bodySyncEnabledParameterName = env.BODY_SYNC_ENABLED_PARAMETER_NAME;
  * server) retries forever. Chosen generously above the handful of transient
  * failures (a dropped connection, a slow S3 write) a real message should need,
  * while still bounding the worst case to a small, finite number of attempts.
+ *
+ * "5 retries" means 6 total fetch attempts: the original invocation
+ * (`retryCount` 0) plus 5 re-enqueues (`retryCount` 1 through 5). The
+ * invocation that carries `retryCount === MAX_BODY_SYNC_RETRIES` still runs a
+ * full `syncBodies` (IMAP FETCH + placement) before the cap check drops it —
+ * the cap only stops the *next* re-enqueue, it doesn't skip that last attempt.
  */
 export const MAX_BODY_SYNC_RETRIES = 5;
 
