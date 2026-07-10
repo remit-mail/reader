@@ -20,6 +20,55 @@ import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 const bodySyncEnabledParameterName = env.BODY_SYNC_ENABLED_PARAMETER_NAME;
 
 /**
+ * Hard ceiling on body-sync retries. Every retry re-enqueues a brand-new SQS
+ * message (see `buildRetryEvent`), so the queue's maxReceiveCount/DLQ never
+ * sees repeated receives of the same message and can't engage — without an
+ * application-level cap, a message that can never be fetched (e.g. expunged
+ * from the IMAP server while its row remains, or stale metadata + gone from
+ * server) retries forever. Chosen generously above the handful of transient
+ * failures (a dropped connection, a slow S3 write) a real message should need,
+ * while still bounding the worst case to a small, finite number of attempts.
+ */
+export const MAX_BODY_SYNC_RETRIES = 5;
+
+/**
+ * Whether a batch that has already failed `retryCount` times should stop
+ * retrying. Pure and exported so the cap threshold is unit-testable without
+ * driving the full handler.
+ */
+export const isRetryCapExceeded = (retryCount: number): boolean =>
+	retryCount >= MAX_BODY_SYNC_RETRIES;
+
+export interface RetryCapExceededLogPayload {
+	alert: string;
+	accountId: string;
+	mailboxId: string;
+	messageIds: string[];
+	retryCount: number;
+	[key: string]: unknown;
+}
+
+/**
+ * The loud, alert-shaped log line emitted in place of re-enqueueing once a
+ * batch exceeds `MAX_BODY_SYNC_RETRIES`. This log line IS the DLQ-equivalent
+ * signal — the SQS-level redrive never engages because each retry is a fresh
+ * message, so dropping here without a distinct alert key would make the
+ * failure invisible.
+ */
+export const buildRetryCapExceededLog = (
+	accountId: string,
+	mailboxId: string,
+	failedMessageIds: string[],
+	retryCount: number,
+): RetryCapExceededLogPayload => ({
+	alert: "body-sync-retry-cap-exceeded",
+	accountId,
+	mailboxId,
+	messageIds: failedMessageIds,
+	retryCount,
+});
+
+/**
  * The ordered message ids to sync, plus a uid lookup when the event carried the
  * preferred `messages` shape. The uid map lets the body-sync service skip the
  * per-message DDB get; legacy events (ids only) leave it undefined and the
@@ -51,7 +100,10 @@ export const resolveBatch = (event: SyncMessageBodyEvent): ResolvedBatch => {
  * batch knew them so retries keep the one-fetch shape. `force` is carried
  * forward too — a failed force-re-fetch (e.g. a dropped IMAP connection) must
  * keep bypassing the skip guard on retry, otherwise the stale-metadata loop
- * from #1241 reopens on the very first retry.
+ * from #1241 reopens on the very first retry. `retryCount` (the number of
+ * retries already spent, 0 on the original event) is incremented so the next
+ * invocation knows how many attempts preceded it — the cap check in
+ * `syncMessageBody` reads this back to stop the loop from running forever.
  */
 export const buildRetryEvent = (
 	accountId: string,
@@ -59,6 +111,7 @@ export const buildRetryEvent = (
 	failedMessageIds: string[],
 	uidByMessageId?: Map<string, number>,
 	force?: boolean,
+	retryCount = 0,
 ): Omit<SyncMessageBodyEvent, "eventId" | "timestamp"> => {
 	const messages = uidByMessageId
 		? failedMessageIds.map((messageId): SyncMessageBodyTarget => {
@@ -82,6 +135,7 @@ export const buildRetryEvent = (
 		messageIds: failedMessageIds,
 		...(messages && { messages }),
 		...(force && { force }),
+		retryCount: retryCount + 1,
 	};
 };
 
@@ -90,6 +144,7 @@ export const syncMessageBody = async (
 	log: Logger,
 ): Promise<void> => {
 	const { accountId, mailboxId } = event;
+	const retryCount = event.retryCount ?? 0;
 
 	// Prefer the messageId+uid pairs when present (one ranged FETCH, no
 	// per-message UID lookup); fall back to the legacy id-only list otherwise.
@@ -103,6 +158,7 @@ export const syncMessageBody = async (
 			messageCount: messageIds.length,
 			hasUids: event.messages !== undefined,
 			force,
+			retryCount,
 		},
 		"Handling event",
 	);
@@ -203,22 +259,41 @@ export const syncMessageBody = async (
 			// Re-enqueue ONLY the failed messages with a jittered delay (avoid a
 			// thundering herd). A single bad message never forces a re-fetch of the
 			// whole batch. Carry uids forward when known so retries keep the
-			// one-fetch shape.
+			// one-fetch shape. Once `retryCount` exceeds the cap, stop re-enqueueing
+			// — the SQS-level redrive never engages here (each retry is a fresh
+			// message), so the loud log below is the DLQ-equivalent signal.
 			if (result.failedMessageIds.length > 0) {
-				const retryDelaySeconds = 20 + Math.floor(Math.random() * 21);
-				log.info(
-					{ failedCount: result.failedMessageIds.length, retryDelaySeconds },
-					"Re-enqueueing failed body syncs with delay",
-				);
+				if (isRetryCapExceeded(retryCount)) {
+					log.error(
+						buildRetryCapExceededLog(
+							accountId,
+							mailboxId,
+							result.failedMessageIds,
+							retryCount,
+						),
+						"Body sync retry cap exceeded; dropping message(s) without re-enqueueing",
+					);
+				} else {
+					const retryDelaySeconds = 20 + Math.floor(Math.random() * 21);
+					log.info(
+						{
+							failedCount: result.failedMessageIds.length,
+							retryDelaySeconds,
+							retryCount,
+						},
+						"Re-enqueueing failed body syncs with delay",
+					);
 
-				const retryEvent = buildRetryEvent(
-					accountId,
-					mailboxId,
-					result.failedMessageIds,
-					uidByMessageId,
-					force,
-				);
-				await emitEvent(retryEvent, { delaySeconds: retryDelaySeconds });
+					const retryEvent = buildRetryEvent(
+						accountId,
+						mailboxId,
+						result.failedMessageIds,
+						uidByMessageId,
+						force,
+						retryCount,
+					);
+					await emitEvent(retryEvent, { delaySeconds: retryDelaySeconds });
+				}
 			}
 		},
 	);
