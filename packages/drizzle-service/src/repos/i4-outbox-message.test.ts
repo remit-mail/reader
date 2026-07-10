@@ -1,5 +1,6 @@
 import assert from "node:assert";
 import { after, before, describe, test } from "node:test";
+import { ForbiddenError, NotFoundError } from "../error.js";
 import { createTestDb, randomId, type TestDb } from "../test-db.js";
 import { OutboxMessageRepo } from "./i4-outbox-message.js";
 
@@ -211,6 +212,28 @@ describe("OutboxMessageRepo", () => {
 		assert.deepEqual(await repo.get(other, [msg.outboxMessageId]), []);
 		const owned = await repo.get(accountConfigId, [msg.outboxMessageId]);
 		assert.equal(owned.length, 1);
+
+		await repo.delete(accountConfigId, msg.outboxMessageId);
+	});
+
+	test("cross-tenant: get mode 'act' denies a foreign accountConfig with Forbidden, not NotFound", async () => {
+		const accountConfigId = randomId();
+		const other = randomId();
+		const msg = await repo.create(makeOutboxInput(randomId(), accountConfigId));
+
+		await assert.rejects(
+			() => repo.get(other, msg.outboxMessageId, "read"),
+			(err: unknown) => err instanceof NotFoundError,
+		);
+		await assert.rejects(
+			() => repo.get(other, msg.outboxMessageId, "act"),
+			(err: unknown) => err instanceof ForbiddenError,
+		);
+		await assert.rejects(
+			() => repo.get(other, `${msg.outboxMessageId}-missing`, "act"),
+			(err: unknown) => err instanceof NotFoundError,
+			"a truly absent id stays NotFound even in act mode",
+		);
 
 		await repo.delete(accountConfigId, msg.outboxMessageId);
 	});
