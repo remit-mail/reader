@@ -102,6 +102,37 @@ services:
         condition: service_started
     restart: unless-stopped
 
+  # Periodic mailbox-sync scheduler (#1247) — the local-dev equivalent of
+  # production's EventBridge-scheduled Lambda (see
+  # infra/stacks/dev/stacks/remit-worker-stack.ts). Ticks `runSchedulerTick`
+  # on a plain loop at the online-tier cadence
+  # (MAILBOX_SYNC_ONLINE_INTERVAL_SECONDS) against the same Postgres backend,
+  # enqueuing SYNC_MAILBOXES onto `remit-mailboxes.fifo` for the imap-worker
+  # service above to drain — same scheduler code path, same config knobs as
+  # production.
+  scheduler:
+    image: node:24
+    container_name: remit-pg-dev-scheduler
+    user: "1000:1000"
+    working_dir: /app
+    network_mode: host
+    env_file:
+      - localhost-dev-generic.env
+    volumes:
+      - .:/app
+    command:
+      - node
+      - --env-file=localhost-dev-generic.env
+      - --import
+      - tsx
+      - packages/remit-imap-worker/src/scheduler/local-runner.ts
+    depends_on:
+      postgres:
+        condition: service_healthy
+      elasticmq:
+        condition: service_started
+    restart: unless-stopped
+
   web:
     image: node:24
     container_name: remit-pg-dev-web

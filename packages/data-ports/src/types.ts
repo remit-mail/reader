@@ -25,6 +25,17 @@ export type ResultList<T> = {
 	continuationToken: string | undefined;
 };
 
+/**
+ * Page shape for internal, non-API-facing pagination (e.g. the scheduled-sync
+ * tick paging through every account). `cursor` is a raw backend-native token —
+ * unlike `ResultList.continuationToken` it carries no salt/tamper check, since
+ * it never crosses a trust boundary. `null` means no further pages.
+ */
+export type AccountSchedulerPage = {
+	items: AccountItem[];
+	cursor: string | null;
+};
+
 export type ListOptions = {
 	limit?: number;
 	continuationToken?: string;
@@ -153,6 +164,7 @@ export type CreateAccountInput = Omit<
 	| "smtpTls"
 	| "smtpStartTls"
 	| "smtpUsername"
+	| "lastActivityAt"
 > & {
 	accountId?: string;
 	authType?: AccountItem["authType"];
@@ -162,6 +174,8 @@ export type CreateAccountInput = Omit<
 	smtpTls?: AccountItem["smtpTls"];
 	smtpStartTls?: AccountItem["smtpStartTls"];
 	smtpUsername?: AccountItem["smtpUsername"];
+	// Tier 2 default (RFC 032): 0 ("never") when omitted at creation.
+	lastActivityAt?: AccountItem["lastActivityAt"];
 };
 
 export type UpdateAccountInput = Partial<

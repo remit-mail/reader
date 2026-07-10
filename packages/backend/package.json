@@ -15,6 +15,10 @@
 			"types": "./src/service/dynamodb.ts",
 			"default": "./src/service/dynamodb.ts"
 		},
+		"./trigger-sync": {
+			"types": "./src/service/trigger-sync.ts",
+			"default": "./src/service/trigger-sync.ts"
+		},
 		"./content-handler": {
 			"types": "./dev-server/content-handler.ts",
 			"default": "./dev-server/content-handler.ts"
