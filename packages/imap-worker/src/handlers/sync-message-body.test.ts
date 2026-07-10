@@ -1,8 +1,15 @@
 import assert from "node:assert";
-import { afterEach, describe, test } from "node:test";
+import { afterEach, describe, mock, test } from "node:test";
+import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 import { GetParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
+import { getClient } from "@remit/backend/client";
+import type { AccountItem, MailboxItem } from "@remit/remit-electrodb-service";
+import { AccountService, MailboxService } from "@remit/remit-electrodb-service";
 import type { Logger } from "@remit/remit-logger-lambda";
-import type { SyncedMessage } from "@remit/mailbox-service";
+import {
+	BodySyncService,
+	type SyncedMessage,
+} from "@remit/mailbox-service";
 import { mockClient } from "aws-sdk-client-mock";
 import { resetBodySyncGateCache } from "../body-sync-gate.js";
 import { __warmPoolSizeForTest } from "../connection-scope.js";
@@ -294,6 +301,115 @@ describe("syncMessageBody — pause gate runs before connection reuse", () => {
 			__warmPoolSizeForTest(accountId),
 			0,
 			"paused handler must not create a warm connection",
+		);
+	});
+});
+
+describe("syncMessageBody — retry cap drop path (integrated, #1245)", () => {
+	const accountId = "cap-account-zzz";
+	const mailboxId = "cap-mailbox-zzz";
+
+	const cappedAccount = (): AccountItem =>
+		({
+			accountId,
+			accountConfigId: "cap-acfg-zzz",
+			connectionState: "authenticated",
+			username: "cap@imap.example.com",
+			imapHost: "imap.example.com",
+			imapPort: 993,
+			imapTls: true,
+			// deserializeEncryptedPayload just needs base64-decodable strings; the
+			// mocked secrets.decrypt below never inspects the actual bytes.
+			passwordHash: JSON.stringify({
+				encryptedDek: "",
+				encryptedData: "",
+				iv: "",
+				authTag: "",
+			}),
+		}) as unknown as AccountItem;
+
+	const cappedMailbox = (): MailboxItem =>
+		({ fullPath: "INBOX" }) as unknown as MailboxItem;
+
+	interface ErrorRecord {
+		fields: Record<string, unknown>;
+		message: string;
+	}
+
+	const recordingLogger = (errors: ErrorRecord[]): Logger => {
+		const noop = () => {};
+		const log = {
+			info: noop,
+			warn: noop,
+			error: (fields: Record<string, unknown>, message: string) => {
+				errors.push({ fields, message });
+			},
+			debug: noop,
+			fatal: noop,
+			trace: noop,
+			child: () => log,
+		} as unknown as Logger;
+		return log;
+	};
+
+	afterEach(() => {
+		mock.restoreAll();
+		mockClient(SSMClient).reset();
+		mockClient(SQSClient).reset();
+		resetBodySyncGateCache();
+	});
+
+	test("at the cap: drops the message without re-enqueueing, logs once, and does not throw (batch acks)", async () => {
+		mockClient(SSMClient)
+			.on(GetParameterCommand)
+			.resolves({ Parameter: { Value: "true" } });
+		const sqsMock = mockClient(SQSClient);
+
+		mock.method(AccountService.prototype, "get", async () => cappedAccount());
+		mock.method(MailboxService.prototype, "get", async () => cappedMailbox());
+		mock.method(getClient().secrets, "decrypt", async () => "fake-password");
+		mock.method(BodySyncService.prototype, "syncBodies", async () => ({
+			syncedCount: 0,
+			syncedMessageIds: [],
+			skippedCount: 0,
+			failedCount: 1,
+			failedMessageIds: ["msg-1"],
+		}));
+
+		const event: SyncMessageBodyEvent = {
+			...baseEvent,
+			accountId,
+			mailboxId,
+			messageIds: ["msg-1"],
+			messages: [{ messageId: "msg-1", uid: 101 }],
+			retryCount: MAX_BODY_SYNC_RETRIES,
+		};
+
+		const errors: ErrorRecord[] = [];
+
+		await assert.doesNotReject(() =>
+			syncMessageBody(event, recordingLogger(errors)),
+		);
+
+		assert.equal(
+			sqsMock.commandCalls(SendMessageCommand).length,
+			0,
+			"cap reached — no re-enqueue, so emitEvent must not send a retry",
+		);
+
+		assert.equal(errors.length, 1, "expected exactly one log.error call");
+		assert.equal(
+			errors[0].message,
+			"Body sync retry cap exceeded; dropping message(s) without re-enqueueing",
+		);
+		assert.deepEqual(
+			errors[0].fields,
+			buildRetryCapExceededLog(
+				accountId,
+				mailboxId,
+				["msg-1"],
+				MAX_BODY_SYNC_RETRIES,
+			),
 		);
 	});
 });
