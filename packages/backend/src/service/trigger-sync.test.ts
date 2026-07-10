@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
 import {
+	buildScheduledSyncDedupId,
 	buildSyncMailboxesCommand,
 	triggerAccountSync,
 } from "./trigger-sync.js";
@@ -73,6 +74,68 @@ describe("buildSyncMailboxesCommand", () => {
 		});
 
 		assert.equal(cmd.input.QueueUrl, FIFO_QUEUE_URL);
+	});
+
+	it("uses the caller-supplied dedupId instead of the manual default", () => {
+		const cmd = buildSyncMailboxesCommand({
+			sqsClient: {} as SQSClient,
+			queueUrl: FIFO_QUEUE_URL,
+			accountId: "account-abc",
+			dedupId: "SYNC_MAILBOXES:scheduled:account-abc:12345",
+		});
+
+		assert.equal(
+			cmd.input.MessageDeduplicationId,
+			"SYNC_MAILBOXES:scheduled:account-abc:12345",
+		);
+	});
+});
+
+describe("buildScheduledSyncDedupId", () => {
+	const FIVE_MINUTES_MS = 5 * 60 * 1000;
+
+	it("differs from the manual-trigger dedup id", () => {
+		const scheduled = buildScheduledSyncDedupId(
+			"account-abc",
+			Date.now(),
+			FIVE_MINUTES_MS,
+		);
+
+		assert.notEqual(scheduled, "SYNC_MAILBOXES:account-abc");
+	});
+
+	it("is stable within the same time bucket (dedupes a retried tick)", () => {
+		const bucketStart = 10 * FIVE_MINUTES_MS;
+
+		const first = buildScheduledSyncDedupId(
+			"account-abc",
+			bucketStart,
+			FIVE_MINUTES_MS,
+		);
+		const second = buildScheduledSyncDedupId(
+			"account-abc",
+			bucketStart + 1_000,
+			FIVE_MINUTES_MS,
+		);
+
+		assert.equal(first, second);
+	});
+
+	it("changes across a bucket boundary (never dedupes two ticks apart)", () => {
+		const bucketStart = 10 * FIVE_MINUTES_MS;
+
+		const thisTick = buildScheduledSyncDedupId(
+			"account-abc",
+			bucketStart,
+			FIVE_MINUTES_MS,
+		);
+		const nextTick = buildScheduledSyncDedupId(
+			"account-abc",
+			bucketStart + FIVE_MINUTES_MS,
+			FIVE_MINUTES_MS,
+		);
+
+		assert.notEqual(thisTick, nextTick);
 	});
 });
 

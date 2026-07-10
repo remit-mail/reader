@@ -185,4 +185,82 @@ describe("AccountRepo", () => {
 
 		await repo.delete(account.accountId);
 	});
+
+	test("bumpActivity sets lastActivityAt on first call", async () => {
+		const account = await repo.create(makeAccountInput(randomId()));
+
+		const now = Date.now();
+		await repo.bumpActivity(account.accountId, now);
+
+		const fetched = await repo.get(account.accountId);
+		assert.equal(fetched.lastActivityAt, now);
+
+		await repo.delete(account.accountId);
+	});
+
+	test("bumpActivity throttles a second call inside the window", async () => {
+		const account = await repo.create(makeAccountInput(randomId()));
+
+		const first = Date.now();
+		await repo.bumpActivity(account.accountId, first);
+		await repo.bumpActivity(account.accountId, first + 1_000);
+
+		const fetched = await repo.get(account.accountId);
+		assert.equal(
+			fetched.lastActivityAt,
+			first,
+			"second call inside the throttle window must be a no-op",
+		);
+
+		await repo.delete(account.accountId);
+	});
+
+	test("bumpActivity updates again once the throttle window has passed", async () => {
+		const account = await repo.create(makeAccountInput(randomId()));
+
+		const first = Date.now();
+		const later = first + 61_000;
+		await repo.bumpActivity(account.accountId, first);
+		await repo.bumpActivity(account.accountId, later);
+
+		const fetched = await repo.get(account.accountId);
+		assert.equal(fetched.lastActivityAt, later);
+
+		await repo.delete(account.accountId);
+	});
+
+	test("listAllAccountsPage paginates without dupes, gaps, or non-termination", async () => {
+		const accountConfigId = randomId();
+		const created: string[] = [];
+		for (let i = 0; i < 5; i++) {
+			const account = await repo.create(makeAccountInput(accountConfigId));
+			created.push(account.accountId);
+		}
+
+		const seen: string[] = [];
+		let cursor: string | undefined;
+		let pages = 0;
+		do {
+			const page = await repo.listAllAccountsPage({ limit: 2, cursor });
+			seen.push(...page.items.map((a) => a.accountId));
+			cursor = page.cursor ?? undefined;
+			pages++;
+			assert.ok(pages < 50, "pagination must terminate");
+		} while (cursor);
+
+		for (const accountId of created) {
+			assert.ok(
+				seen.includes(accountId),
+				`created account ${accountId} must appear in a page`,
+			);
+		}
+		const seenCreated = seen.filter((id) => created.includes(id));
+		assert.equal(
+			new Set(seenCreated).size,
+			seenCreated.length,
+			"no duplicates across pages",
+		);
+
+		await repo.deleteMany(created);
+	});
 });
