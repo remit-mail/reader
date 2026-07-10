@@ -66,7 +66,7 @@ export const syncMessages = async (
 		mailboxLock: mailboxLockService,
 		unitOfWork,
 		secrets,
-	} = getClient();
+	} = await getClient();
 
 	// A deleted account never has its DDB row purged in lockstep with the queued
 	// SYNC_MESSAGES triggers, so a trigger can outlive its account. The lookup

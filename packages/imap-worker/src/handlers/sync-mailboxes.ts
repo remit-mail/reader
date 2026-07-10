@@ -34,7 +34,7 @@ export const syncMailboxes = async (
 		mailbox: mailboxService,
 		mailboxSpecialUse: mailboxSpecialUseService,
 		secrets,
-	} = getClient();
+	} = await getClient();
 
 	const { accountId } = event;
 	log.info({ event: event.type, accountId }, "Handling event");

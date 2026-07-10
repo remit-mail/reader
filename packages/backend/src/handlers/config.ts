@@ -184,9 +184,10 @@ export const ConfigOperations: Record<
 	): Promise<ConfigDescriptionResponse> => {
 		const event = args[0] as APIGatewayProxyEvent;
 		const accountConfigId = getAccountConfigIdFromEvent(event);
-		const description = await getClient()
-			.accountConfig.describe(accountConfigId)
-			.catch((err) => {
+		const client = await getClient();
+		const description = await client.accountConfig
+			.describe(accountConfigId)
+			.catch((err: unknown) => {
 				if (err instanceof NotFoundError) return undefined;
 				throw err;
 			});
@@ -210,7 +211,7 @@ export const ConfigOperations: Record<
 		// key both by accountId so the account mapping below surfaces each without
 		// an N+1.
 		const allSettings =
-			await getClient().accountSetting.listByAccountConfig(accountConfigId);
+			await client.accountSetting.listByAccountConfig(accountConfigId);
 		const signaturesByAccount = groupSignaturesByAccount(allSettings);
 		const overridesByAccount = groupAccountOverrides(allSettings);
 		const signatureOf = (accountId: string): AccountSignature =>

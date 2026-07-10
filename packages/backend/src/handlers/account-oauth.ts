@@ -371,7 +371,7 @@ export const MicrosoftOAuthOperations: Record<
 			);
 		}
 
-		const { account, accountConfig, secrets } = getClient();
+		const { account, accountConfig, secrets } = await getClient();
 
 		// Ensure the account config row exists for this user
 		await ensureAccountConfig(accountConfig, accountConfigId);

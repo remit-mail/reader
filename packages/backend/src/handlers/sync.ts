@@ -78,7 +78,7 @@ export const SyncOperations: Record<
 		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const { accountId } = context.request.params as { accountId: string };
 
-		const account = await getClient().account.get(accountId);
+		const account = await (await getClient()).account.get(accountId);
 		assertAccountOwnership(account, accountConfigId, "act");
 
 		void triggerSyncSafe(account.accountId, accountConfigId);
@@ -94,7 +94,7 @@ export const SyncOperations: Record<
 		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const { accountId } = context.request.params as { accountId: string };
 
-		const client = getClient();
+		const client = await getClient();
 		const account = await client.account.get(accountId);
 		assertAccountOwnership(account, accountConfigId, "read");
 

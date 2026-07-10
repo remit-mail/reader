@@ -85,7 +85,7 @@ export const AddressOperations: Record<
 			limit?: number;
 		};
 
-		const client = getClient();
+		const client = await getClient();
 
 		const result = await client.address.listByAccountConfig({
 			accountConfigId,
@@ -113,7 +113,7 @@ export const AddressDetailOperations: Record<
 		const { addressId } = context.request.params as { addressId: string };
 		const body = (context.request.requestBody ?? {}) as UpdateAddressInput;
 
-		const client = getClient();
+		const client = await getClient();
 
 		// Authorize: address must belong to the caller's accountConfig
 		const existing = await client.address.getAddress(

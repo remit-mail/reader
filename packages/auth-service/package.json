@@ -13,6 +13,10 @@
     "./edge-tls": {
       "types": "./src/edge-tls.ts",
       "default": "./src/edge-tls.ts"
+    },
+    "./verifier": {
+      "types": "./src/verifier.ts",
+      "default": "./src/verifier.ts"
     }
   },
   "scripts": {

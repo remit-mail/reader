@@ -161,7 +161,7 @@ export const UnifiedThreadOperations: Record<
 			limit?: number;
 		};
 
-		const client = getClient();
+		const client = await getClient();
 
 		const { mailboxIdToAccountId, inboxMailboxIds } =
 			await buildInboxMailboxMap(accountConfigId, client);

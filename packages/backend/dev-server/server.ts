@@ -167,7 +167,7 @@ app.get(/^\/content\/.+$/, async (req: Request, res: Response) => {
 		return;
 	}
 
-	const client = getClient();
+	const client = await getClient();
 	const result = await serveContent(
 		{
 			// ENOENT means the body isn't synced yet (→ 202); any other read error
