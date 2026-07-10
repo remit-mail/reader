@@ -73,6 +73,35 @@ services:
         condition: service_started
     restart: unless-stopped
 
+  # Drains the elasticmq queues by invoking the production worker handler, the
+  # same wiring the e2e/CI stack uses. Runs against the same Postgres + storage
+  # as the backend (DATA_BACKEND=postgres via the shared env_file), so a
+  # triggered sync flows mailboxes -> messages -> body: metadata sync emits the
+  # SYNC_MESSAGE_BODY cue and this worker drains `remit-body`, writing body.eml.
+  # Without it the body queue is produced to but never consumed on this stack.
+  imap-worker:
+    image: node:24
+    container_name: remit-pg-dev-imap-worker
+    user: "1000:1000"
+    working_dir: /app
+    network_mode: host
+    env_file:
+      - localhost-dev-generic.env
+    volumes:
+      - .:/app
+    command:
+      - node
+      - --env-file=localhost-dev-generic.env
+      - --import
+      - tsx
+      - packages/remit-imap-worker/src/e2e-processor-shim.ts
+    depends_on:
+      postgres:
+        condition: service_healthy
+      elasticmq:
+        condition: service_started
+    restart: unless-stopped
+
   web:
     image: node:24
     container_name: remit-pg-dev-web

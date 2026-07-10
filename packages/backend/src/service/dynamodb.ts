@@ -50,6 +50,7 @@ import {
 } from "@remit/remit-electrodb-service";
 import { logger } from "@remit/remit-logger-lambda";
 import {
+	BodySyncQueueService,
 	BodySyncService,
 	createConnection,
 	FlagQueueService,
@@ -155,6 +156,11 @@ export interface RemitClient {
 	// Body sync service (on-demand IMAP body fetch)
 	bodySync: BodySyncService;
 
+	// Re-arms the SYNC_MESSAGE_BODY cue when a read-path body fetch finds the
+	// storage object missing. Absent when SQS_QUEUE_URL_BODY is not configured
+	// (the deployed API Lambda does not carry the body queue today).
+	bodySyncQueue?: BodySyncQueueService;
+
 	// Queue services (writes with IMAP sync)
 	flagQueue: FlagQueueService;
 	mailboxQueue: MailboxQueueService;
@@ -211,6 +217,15 @@ const buildConnectionScope =
 
 		return { getConnection, disconnect };
 	};
+
+// The body queue lives on the worker infra; the API only knows it locally
+// (dev / e2e set SQS_QUEUE_URL_BODY). When unset the read path still returns a
+// retryable 202 — it just cannot re-arm the cue itself.
+const buildBodySyncQueue = (): BodySyncQueueService | undefined => {
+	const bodyQueueUrl = process.env.SQS_QUEUE_URL_BODY;
+	if (!bodyQueueUrl) return undefined;
+	return new BodySyncQueueService({ sqsQueueUrl: bodyQueueUrl, logger });
+};
 
 const buildSharedServices = () => {
 	const storageService = createStorageService();
@@ -278,6 +293,7 @@ const buildDynamoDBClient = (): RemitClient => {
 		secrets: secretsService,
 
 		bodySync: bodySyncService,
+		bodySyncQueue: buildBodySyncQueue(),
 
 		flagQueue: new FlagQueueService({
 			messageFlagService,
@@ -379,6 +395,7 @@ const buildPostgresClient = (): RemitClient => {
 		secrets: secretsService,
 
 		bodySync: bodySyncService,
+		bodySyncQueue: buildBodySyncQueue(),
 
 		flagQueue: new FlagQueueService({
 			messageFlagService,

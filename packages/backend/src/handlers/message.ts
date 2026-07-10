@@ -1,4 +1,3 @@
-import { inspect } from "node:util";
 import {
 	BadRequestError,
 	ForbiddenError,
@@ -246,43 +245,77 @@ export interface BodyPartMaterializer {
 }
 
 export interface MaterializeLogger {
+	warn(obj: Record<string, unknown>, msg: string): void;
 	error(obj: Record<string, unknown>, msg: string): void;
 }
 
 /**
- * Lazily materialize the deferred per-part S3 objects for a message before the
- * SPA fetches any `contentUrl`. Best-effort by contract: a transient S3 hiccup
- * here must NEVER fail a message open with a 500. Pre-deferral these writes
- * happened at sync time and never touched the read path; an unmaterialized part
- * simply degrades to the SPA's per-part `body-missing` fallback and the next
- * open retries. No-op when the body isn't stored yet (no `bodyStorageKey`) or
- * when parts were written eagerly.
+ * Re-arms the body-sync cue for one message (the read-path slice of
+ * `BodySyncQueueService`). Narrowed to one method so the orchestration below can
+ * be unit-tested without an SQS client.
  */
-export const materializeBodyPartsBestEffort = async (
+export interface BodySyncCue {
+	requestBodySync(input: {
+		accountId: string;
+		mailboxId: string;
+		messageId: string;
+		uid?: number;
+	}): Promise<void>;
+}
+
+export interface MaterializeResult {
+	/** `false` when the body object was missing — the caller must not 200 the body. */
+	ready: boolean;
+}
+
+/**
+ * Materialize the deferred per-part storage objects for a message before the
+ * SPA fetches any `contentUrl`. Distinguishes the two failure modes the body
+ * contract cares about:
+ *
+ * - Missing storage object (never synced or lost) — re-arm the SYNC_MESSAGE_BODY
+ *   cue so the worker (re)stores the body, and report `ready: false`. Not a
+ *   500: a retry succeeds once the worker catches up.
+ * - Any other error — rethrow so the request 500s and the bug is observable.
+ *   Never swallowed, never "best-effort".
+ *
+ * No-op (`ready: true`) when the body isn't stored yet (no `bodyStorageKey`) or
+ * when the parts were written eagerly.
+ */
+export const materializeBodyParts = async (
 	materializer: BodyPartMaterializer,
 	args: {
 		accountConfigId: string;
 		accountId: string;
+		mailboxId: string;
 		messageId: string;
+		uid?: number;
 		bodyStorageKey: string | undefined;
+		cue: BodySyncCue | undefined;
 		logger: MaterializeLogger;
 	},
-): Promise<void> => {
-	const { accountConfigId, accountId, messageId, bodyStorageKey } = args;
-	if (!bodyStorageKey) return;
-	await materializer
-		.ensureBodyPartsStored(
+): Promise<MaterializeResult> => {
+	const { accountConfigId, accountId, mailboxId, messageId, uid } = args;
+	if (!args.bodyStorageKey) return { ready: true };
+
+	try {
+		await materializer.ensureBodyPartsStored(
 			accountConfigId,
 			accountId,
 			messageId,
-			bodyStorageKey,
-		)
-		.catch((error: unknown) => {
-			args.logger.error(
-				{ messageId, accountId, error: inspect(error) },
-				"Lazy body-part materialization failed (best-effort, non-fatal)",
-			);
-		});
+			args.bodyStorageKey,
+		);
+		return { ready: true };
+	} catch (error: unknown) {
+		if (!isStorageNotFoundError(error)) throw error;
+
+		args.logger.warn(
+			{ messageId, accountId, mailboxId },
+			"Body object missing on read; re-arming body-sync cue and signalling retry",
+		);
+		await args.cue?.requestBodySync({ accountId, mailboxId, messageId, uid });
+		return { ready: false };
+	}
 };
 
 export const MessageOperations: Record<
@@ -426,20 +459,24 @@ export const MessageOperations: Record<
 			bodyStorageKey = refreshed.message[0]?.bodyStorageKey;
 		}
 
-		// Per-part S3 objects are deferred during bulk sync (DEFER_BODY_PARTS) to
-		// cut S3 write amplification. CloudFront serves each part straight from S3
-		// with no Lambda in the request path, so a deferred (missing) object would
-		// surface to the SPA as a hard failure. Materialize them here — idempotent,
-		// skips parts already on S3 — so every contentUrl below resolves on first
-		// open. No-op when parts were written eagerly. Requires a stored body.
+		// Per-part storage objects are deferred during bulk sync (DEFER_BODY_PARTS)
+		// to cut write amplification. Content delivery serves each part straight
+		// from storage with no Lambda in the request path, so a deferred (missing)
+		// object would surface to the SPA as a hard failure. Materialize them here —
+		// idempotent, skips parts already stored — so every contentUrl below
+		// resolves on first open. No-op when parts were written eagerly.
 		//
-		// Best-effort: a transient S3 hiccup here must NEVER 500 a message open
-		// (see materializeBodyPartsBestEffort).
-		await materializeBodyPartsBestEffort(client.bodySync, {
+		// A missing body object re-arms the SYNC_MESSAGE_BODY cue (so the worker
+		// (re)stores it) and leaves the contentUrls to surface a retryable 202 on
+		// the content route; any other error is rethrown and 500s loudly.
+		await materializeBodyParts(client.bodySync, {
 			accountConfigId,
 			accountId,
+			mailboxId: message.mailboxId,
 			messageId,
+			uid: message.uid,
 			bodyStorageKey,
+			cue: client.bodySyncQueue,
 			logger,
 		});
 

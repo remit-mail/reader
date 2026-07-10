@@ -25,6 +25,12 @@ export {
 	type SyncBodiesResult,
 	toParsedBody,
 } from "./body-sync.js";
+export {
+	type BodySyncQueueConfig,
+	type BodySyncQueueLogger,
+	BodySyncQueueService,
+	type RequestBodySyncInput,
+} from "./body-sync-queue.js";
 // Connection factory
 export {
 	createConnection,

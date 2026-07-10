@@ -17,6 +17,7 @@ import {
 	assertMessagesOwned,
 	type BodyPartLike,
 	type BodyPartMaterializer,
+	type BodySyncCue,
 	buildBodyPartResponses,
 	decodeRawEml,
 	extractAccountIdsFromBodyKey,
@@ -24,7 +25,7 @@ import {
 	isMediaType,
 	isStorageNotFoundError,
 	MessageOperations,
-	materializeBodyPartsBestEffort,
+	materializeBodyParts,
 } from "./message.js";
 
 const ownershipClient = (opts: {
@@ -492,73 +493,119 @@ describe("describeMessage ownership guard precedes content signing", () => {
 	});
 });
 
-describe("materializeBodyPartsBestEffort", () => {
-	const noopLogger = { error: () => {} };
+describe("materializeBodyParts", () => {
+	const noopLogger = { warn: () => {}, error: () => {} };
+	const key = "s3://bucket/accounts/cfg-1/acc-1/messages/msg-1/body.eml";
 
-	it("materializes deferred parts for a stored message", async () => {
+	const recordingCue = () => {
+		const calls: Array<Record<string, unknown>> = [];
+		const cue: BodySyncCue = {
+			requestBodySync: async (input) => {
+				calls.push(input);
+			},
+		};
+		return { cue, calls };
+	};
+
+	it("materializes deferred parts for a stored message and reports ready", async () => {
 		const ensureBodyPartsStored = mock.fn(async () => ({ stored: 2 }));
 		const materializer: BodyPartMaterializer = { ensureBodyPartsStored };
+		const { cue, calls } = recordingCue();
 
-		await materializeBodyPartsBestEffort(materializer, {
+		const result = await materializeBodyParts(materializer, {
 			accountConfigId: "cfg-1",
 			accountId: "acc-1",
+			mailboxId: "mbx-1",
 			messageId: "msg-1",
-			bodyStorageKey:
-				"s3://bucket/accounts/cfg-1/acc-1/messages/msg-1/body.eml",
+			uid: 42,
+			bodyStorageKey: key,
+			cue,
 			logger: noopLogger,
 		});
 
+		assert.deepEqual(result, { ready: true });
 		assert.equal(ensureBodyPartsStored.mock.calls.length, 1);
 		assert.deepEqual(ensureBodyPartsStored.mock.calls[0].arguments, [
 			"cfg-1",
 			"acc-1",
 			"msg-1",
-			"s3://bucket/accounts/cfg-1/acc-1/messages/msg-1/body.eml",
+			key,
 		]);
+		assert.equal(calls.length, 0, "no cue re-armed when the body is present");
 	});
 
 	it("skips materialization when the body is not yet stored", async () => {
 		const ensureBodyPartsStored = mock.fn(async () => ({ stored: 0 }));
 		const materializer: BodyPartMaterializer = { ensureBodyPartsStored };
+		const { cue } = recordingCue();
 
-		await materializeBodyPartsBestEffort(materializer, {
+		const result = await materializeBodyParts(materializer, {
 			accountConfigId: "cfg-1",
 			accountId: "acc-1",
+			mailboxId: "mbx-1",
 			messageId: "msg-1",
 			bodyStorageKey: undefined,
+			cue,
 			logger: noopLogger,
 		});
 
+		assert.deepEqual(result, { ready: true });
 		assert.equal(ensureBodyPartsStored.mock.calls.length, 0);
 	});
 
-	it("degrades gracefully on a materialization failure — never throws, logs once", async () => {
+	it("re-arms the body-sync cue and reports not-ready when the body object is missing", async () => {
 		const ensureBodyPartsStored = mock.fn(async () => {
-			throw new Error("transient S3 failure");
+			throw { name: "NoSuchKey", message: "missing" };
 		});
 		const materializer: BodyPartMaterializer = { ensureBodyPartsStored };
-		const errors: Array<Record<string, unknown>> = [];
-		const logger = {
-			error: (obj: Record<string, unknown>) => {
-				errors.push(obj);
+		const { cue, calls } = recordingCue();
+		const warnings: Array<Record<string, unknown>> = [];
+
+		const result = await materializeBodyParts(materializer, {
+			accountConfigId: "cfg-1",
+			accountId: "acc-1",
+			mailboxId: "mbx-1",
+			messageId: "msg-1",
+			uid: 42,
+			bodyStorageKey: key,
+			cue,
+			logger: {
+				warn: (obj: Record<string, unknown>) => warnings.push(obj),
+				error: () => {},
 			},
-		};
+		});
 
-		// Must resolve, not reject — a hiccup here must never 500 a message open.
-		await assert.doesNotReject(() =>
-			materializeBodyPartsBestEffort(materializer, {
-				accountConfigId: "cfg-1",
-				accountId: "acc-1",
-				messageId: "msg-1",
-				bodyStorageKey:
-					"s3://bucket/accounts/cfg-1/acc-1/messages/msg-1/body.eml",
-				logger,
-			}),
+		assert.deepEqual(result, { ready: false });
+		assert.equal(calls.length, 1, "cue re-armed exactly once");
+		assert.deepEqual(calls[0], {
+			accountId: "acc-1",
+			mailboxId: "mbx-1",
+			messageId: "msg-1",
+			uid: 42,
+		});
+		assert.equal(warnings.length, 1, "warned once, never silent");
+	});
+
+	it("rethrows any non-missing error so the request 500s and stays observable", async () => {
+		const ensureBodyPartsStored = mock.fn(async () => {
+			throw new Error("AccessDenied");
+		});
+		const materializer: BodyPartMaterializer = { ensureBodyPartsStored };
+		const { cue, calls } = recordingCue();
+
+		await assert.rejects(
+			() =>
+				materializeBodyParts(materializer, {
+					accountConfigId: "cfg-1",
+					accountId: "acc-1",
+					mailboxId: "mbx-1",
+					messageId: "msg-1",
+					bodyStorageKey: key,
+					cue,
+					logger: noopLogger,
+				}),
+			/AccessDenied/,
 		);
-
-		assert.equal(ensureBodyPartsStored.mock.calls.length, 1);
-		assert.equal(errors.length, 1, "logged exactly once");
-		assert.equal(errors[0].messageId, "msg-1");
-		assert.equal(errors[0].accountId, "acc-1");
+		assert.equal(calls.length, 0, "an unexpected error never re-arms the cue");
 	});
 });

@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
+import { messageOperationsDescribeMessageQueryKey } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchAuthSession } from "aws-amplify/auth";
 import { useEffect, useRef } from "react";
 import { isCognitoConfigured } from "@/auth/amplify-config";
@@ -34,6 +35,10 @@ export interface MessageBodyContent {
  * - `spa-shell-leak` — CloudFront 403/404 fallback rewrote the response into
  *             the SPA shell HTML. The infra fix (#310) prevents this; this
  *             guard catches a regression.
+ * - `not-ready` — the body is not synced yet. The content route answers 202 +
+ *             `Retry-After` while the worker (re)fetches it from IMAP; the query
+ *             retries on this reason and only surfaces a banner if it never
+ *             lands.
  * - `generic` — any other non-2xx, or a fetch-level failure (e.g. offline).
  */
 export type BodyFetchReason =
@@ -41,6 +46,7 @@ export type BodyFetchReason =
 	| "body-missing"
 	| "content-type-mismatch"
 	| "spa-shell-leak"
+	| "not-ready"
 	| "generic";
 
 /**
@@ -51,14 +57,36 @@ export type BodyFetchReason =
 export class BodyFetchError extends Error {
 	readonly reason: BodyFetchReason;
 	readonly status?: number;
+	/** Seconds to wait before retrying — set from `Retry-After` on a 202. */
+	readonly retryAfterSeconds?: number;
 
-	constructor(reason: BodyFetchReason, message: string, status?: number) {
+	constructor(
+		reason: BodyFetchReason,
+		message: string,
+		status?: number,
+		retryAfterSeconds?: number,
+	) {
 		super(message);
 		this.name = "BodyFetchError";
 		this.reason = reason;
 		this.status = status;
+		this.retryAfterSeconds = retryAfterSeconds;
 	}
 }
+
+/**
+ * Parse a `Retry-After` header (delta-seconds form) into a bounded number of
+ * seconds. Falls back to 1s when the header is absent or unparseable, and caps
+ * the delay so a hostile/huge value can't wedge the query.
+ */
+export const parseRetryAfterSeconds = (headerValue: string | null): number => {
+	const parsed = Number.parseInt(headerValue ?? "", 10);
+	if (!Number.isFinite(parsed) || parsed <= 0) return 1;
+	return Math.min(parsed, 30);
+};
+
+/** Max 202 retries before the body-fetch surfaces a `not-ready` banner. */
+export const MAX_NOT_READY_RETRIES = 8;
 
 /**
  * The header set by the Lambda@Edge JWT verifier on its deny responses. When
@@ -161,6 +189,17 @@ export const fetchBodyContent = async (
 		if (token) headers.Authorization = `Bearer ${token}`;
 	}
 	const response = await fetch(url, { headers });
+	// 202 = the body is not synced yet. The content route has re-armed the sync
+	// cue; retry after `Retry-After` seconds rather than rendering the placeholder
+	// body (a 202 is `ok`, so this must be caught before the success path).
+	if (response.status === 202) {
+		throw new BodyFetchError(
+			"not-ready",
+			"Message body is still syncing",
+			202,
+			parseRetryAfterSeconds(response.headers.get("Retry-After")),
+		);
+	}
 	if (!response.ok) {
 		const edgeReason = response.headers.get(REASON_HEADER);
 		const reason = classifyBodyFetchFailure(response.status, edgeReason);
@@ -187,6 +226,38 @@ export const fetchBodyContent = async (
 	return body;
 };
 
+export interface BodyContentAttemptDeps {
+	fetchContent: (url: string, kind: BodyContentKind) => Promise<string>;
+	refetchDescribeMessage: () => Promise<unknown>;
+}
+
+/**
+ * Fetches one attempt at the renderable body part. `isRetryAfterNotReady`
+ * marks an attempt that follows a 202 `not-ready` response (after honoring
+ * `Retry-After`) — on that attempt, refetch the describe query *before*
+ * re-hitting the content URL.
+ *
+ * Under `DEFER_BODY_PARTS` (default on) the body-sync worker only writes
+ * `body.eml`; per-part storage objects are materialized as a side effect of
+ * the describe read path (`materializeBodyParts`, backend `describeMessage`).
+ * Re-hitting the same part URL alone can never progress past a 202 within one
+ * open — the describe refetch is what actually creates the missing object
+ * server-side (remit-mail/remit#1240).
+ */
+export const fetchBodyContentAttempt = async (
+	deps: BodyContentAttemptDeps,
+	args: {
+		contentUrl: string;
+		kind: BodyContentKind;
+		isRetryAfterNotReady: boolean;
+	},
+): Promise<string> => {
+	if (args.isRetryAfterNotReady) {
+		await deps.refetchDescribeMessage();
+	}
+	return deps.fetchContent(args.contentUrl, args.kind);
+};
+
 interface UseMessageBodyContentOptions {
 	messageId?: string;
 	bodyParts?: readonly RenderableBodyPart[];
@@ -207,6 +278,23 @@ export const useMessageBodyContent = ({
 	const picked = bodyParts ? pickRenderablePart(bodyParts) : null;
 	const telemetry = useTelemetry();
 	const loadStartRef = useRef<number | null>(null);
+	const queryClient = useQueryClient();
+	// Set by `retryDelay` when a `not-ready` (202) failure is being retried, and
+	// consumed by the next `queryFn` call — see `fetchBodyContentAttempt`.
+	const pendingDescribeRefetchRef = useRef(false);
+
+	// A new message/part invalidates any pending describe-refetch left over from
+	// the previous query — it belongs to a retry sequence that no longer
+	// applies. Adjusted during render (React's documented pattern for resetting
+	// state derived from a changing prop) rather than a useEffect, so the reset
+	// is visible to the very next queryFn call instead of racing it.
+	const bodyQueryKeyRef = useRef<string | null>(null);
+	const bodyQueryKey =
+		messageId && picked ? `${messageId}:${picked.contentUrl}` : null;
+	if (bodyQueryKeyRef.current !== bodyQueryKey) {
+		bodyQueryKeyRef.current = bodyQueryKey;
+		pendingDescribeRefetchRef.current = false;
+	}
 
 	const query = useQuery({
 		queryKey: messageId
@@ -214,11 +302,46 @@ export const useMessageBodyContent = ({
 			: ["messages", "body", "noop"],
 		queryFn: () => {
 			if (!picked) throw new Error("No renderable body part");
-			return fetchBodyContent(picked.contentUrl, picked.kind);
+			if (!messageId) throw new Error("No messageId");
+			const isRetryAfterNotReady = pendingDescribeRefetchRef.current;
+			pendingDescribeRefetchRef.current = false;
+			return fetchBodyContentAttempt(
+				{
+					fetchContent: fetchBodyContent,
+					refetchDescribeMessage: () =>
+						queryClient.refetchQueries({
+							queryKey: messageOperationsDescribeMessageQueryKey({
+								path: { messageId },
+							}),
+						}),
+				},
+				{
+					contentUrl: picked.contentUrl,
+					kind: picked.kind,
+					isRetryAfterNotReady,
+				},
+			);
 		},
 		enabled: enabled && !!messageId && !!picked,
 		staleTime: 5 * 60 * 1000,
 		gcTime: 30 * 60 * 1000,
+		// A `not-ready` (202) body is still syncing — keep retrying with the
+		// server's `Retry-After` delay until it lands. Every other error keeps the
+		// app-wide default (retry once) so a real failure surfaces its banner
+		// promptly instead of hanging on repeated attempts.
+		retry: (failureCount, error) => {
+			if (error instanceof BodyFetchError && error.reason === "not-ready") {
+				return failureCount < MAX_NOT_READY_RETRIES;
+			}
+			return failureCount < 1;
+		},
+		retryDelay: (_attempt, error) => {
+			if (error instanceof BodyFetchError && error.reason === "not-ready") {
+				pendingDescribeRefetchRef.current = true;
+				return (error.retryAfterSeconds ?? 1) * 1000;
+			}
+			return 1000;
+		},
 		// A missing/forbidden body (404/403 body-missing, auth) renders the inline
 		// MessageBodyErrorBanner below — a single sub-resource failure must not nuke
 		// the whole app to the fatal overlay. A 5xx still escalates globally
