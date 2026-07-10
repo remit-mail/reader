@@ -28,30 +28,37 @@ const bodySyncEnabledParameterName = env.BODY_SYNC_ENABLED_PARAMETER_NAME;
 export interface ResolvedBatch {
 	messageIds: string[];
 	uidByMessageId?: Map<string, number>;
+	force: boolean;
 }
 
 export const resolveBatch = (event: SyncMessageBodyEvent): ResolvedBatch => {
+	const force = event.force === true;
 	if (event.messages !== undefined) {
 		return {
 			messageIds: event.messages.map((m) => m.messageId),
 			uidByMessageId: new Map(
 				event.messages.map((m): [string, number] => [m.messageId, m.uid]),
 			),
+			force,
 		};
 	}
-	return { messageIds: event.messageIds };
+	return { messageIds: event.messageIds, force };
 };
 
 /**
  * Build the retry event for the FAILED message ids only. A single bad message
  * never re-fetches the whole batch. Uids are carried forward when the original
- * batch knew them so retries keep the one-fetch shape.
+ * batch knew them so retries keep the one-fetch shape. `force` is carried
+ * forward too — a failed force-re-fetch (e.g. a dropped IMAP connection) must
+ * keep bypassing the skip guard on retry, otherwise the stale-metadata loop
+ * from #1241 reopens on the very first retry.
  */
 export const buildRetryEvent = (
 	accountId: string,
 	mailboxId: string,
 	failedMessageIds: string[],
 	uidByMessageId?: Map<string, number>,
+	force?: boolean,
 ): Omit<SyncMessageBodyEvent, "eventId" | "timestamp"> => {
 	const messages = uidByMessageId
 		? failedMessageIds.map((messageId): SyncMessageBodyTarget => {
@@ -74,6 +81,7 @@ export const buildRetryEvent = (
 		mailboxId,
 		messageIds: failedMessageIds,
 		...(messages && { messages }),
+		...(force && { force }),
 	};
 };
 
@@ -85,7 +93,7 @@ export const syncMessageBody = async (
 
 	// Prefer the messageId+uid pairs when present (one ranged FETCH, no
 	// per-message UID lookup); fall back to the legacy id-only list otherwise.
-	const { messageIds, uidByMessageId } = resolveBatch(event);
+	const { messageIds, uidByMessageId, force } = resolveBatch(event);
 
 	log.info(
 		{
@@ -94,6 +102,7 @@ export const syncMessageBody = async (
 			mailboxId,
 			messageCount: messageIds.length,
 			hasUids: event.messages !== undefined,
+			force,
 		},
 		"Handling event",
 	);
@@ -187,6 +196,7 @@ export const syncMessageBody = async (
 					account.accountConfigId,
 					mailbox.fullPath,
 					borrowed.getConnection,
+					force,
 				)
 				.finally(() => borrowed.release());
 
@@ -206,6 +216,7 @@ export const syncMessageBody = async (
 					mailboxId,
 					result.failedMessageIds,
 					uidByMessageId,
+					force,
 				);
 				await emitEvent(retryEvent, { delaySeconds: retryDelaySeconds });
 			}
