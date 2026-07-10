@@ -15,6 +15,7 @@ import {
 	computeChecksum,
 	createMockStorageService,
 	isStorageNotFoundError,
+	parseContentStorageKey,
 } from "./storage.js";
 import { buildStorageUri, parseStorageUri } from "./uri.js";
 
@@ -93,6 +94,30 @@ describe("path builders", () => {
 		assert.strictEqual(segments[0], "accounts");
 		assert.strictEqual(segments[1], "CFG");
 		assert.strictEqual(segments[2], "ACC");
+	});
+});
+
+describe("parseContentStorageKey", () => {
+	test("parses accountConfigId/accountId/messageId out of a body key", () => {
+		const key = buildMessageBodyKey("cfg1", "acc123", "msg456");
+		assert.deepEqual(parseContentStorageKey(key), {
+			accountConfigId: "cfg1",
+			accountId: "acc123",
+			messageId: "msg456",
+		});
+	});
+
+	test("parses a part key the same way as a body key", () => {
+		const key = buildBodyPartKey("cfg1", "acc123", "msg456", "1.2");
+		assert.deepEqual(parseContentStorageKey(key), {
+			accountConfigId: "cfg1",
+			accountId: "acc123",
+			messageId: "msg456",
+		});
+	});
+
+	test("returns null for a key that doesn't match the accounts/.../messages/... layout", () => {
+		assert.strictEqual(parseContentStorageKey("nope/whatever"), null);
 	});
 });
 

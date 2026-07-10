@@ -1,24 +1,12 @@
 import { gunzipSync } from "node:zlib";
+import { parseContentStorageKey } from "@remit/storage-service";
 
-/**
- * Parse the account/message ids out of a `/content/*` storage key such as
- * `accounts/{accountConfigId}/{accountId}/messages/{messageId}/parts/1.2`.
- * Returns null when the shape doesn't match — the caller then cannot re-arm the
- * body-sync cue, but still answers a retryable 202.
- */
-export const parseContentStorageKey = (
-	storageKey: string,
-): { accountConfigId: string; accountId: string; messageId: string } | null => {
-	const match = storageKey.match(
-		/^accounts\/([^/]+)\/([^/]+)\/messages\/([^/]+)\//,
-	);
-	if (!match) return null;
-	return {
-		accountConfigId: match[1],
-		accountId: match[2],
-		messageId: match[3],
-	};
-};
+// Re-exported for existing same-package consumers (server.ts,
+// content-handler.test.ts). The key-shape parser itself lives in
+// `@remit/storage-service` next to the `build*Key` functions it
+// inverts, so non-backend consumers (e.g. the content-selfheal worker) can
+// depend on it without pulling in the rest of `@remit/backend`.
+export { parseContentStorageKey };
 
 export interface ContentResult {
 	status: number;

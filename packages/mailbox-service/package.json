@@ -8,6 +8,10 @@
 		".": {
 			"types": "./src/index.ts",
 			"default": "./src/index.ts"
+		},
+		"./body-sync-queue": {
+			"types": "./src/body-sync-queue.ts",
+			"default": "./src/body-sync-queue.ts"
 		}
 	},
 	"scripts": {

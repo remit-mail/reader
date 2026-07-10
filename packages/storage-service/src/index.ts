@@ -13,6 +13,8 @@ export {
 	isStorageNotFoundError,
 	type ParsedAttachmentMeta,
 	type ParsedBody,
+	type ParsedContentStorageKey,
+	parseContentStorageKey,
 	type StorageReference,
 	type StorageService,
 	type StorageTypeValue,
