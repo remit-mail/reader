@@ -61,6 +61,12 @@ export const contentForReason = (
 				detail:
 					"The server returned the app shell instead of the message body. This is an infrastructure bug — please report it.",
 			};
+		case "not-ready":
+			return {
+				title: "Message body is still syncing",
+				detail:
+					"This message's body hasn't finished downloading from the mail server yet. It should appear shortly — reopen the message to try again.",
+			};
 		default:
 			return {
 				title: "Couldn't load message body",
