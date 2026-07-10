@@ -1,8 +1,6 @@
-#!/usr/bin/env node --import tsx
-
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { gunzipSync } from "node:zlib";
+import { isStorageNotFoundError } from "@remit/storage-service";
 import type { APIGatewayProxyResult } from "aws-lambda";
 import { env } from "expect-env";
 import express, {
@@ -13,7 +11,9 @@ import express, {
 import * as swaggerUi from "swagger-ui-express";
 import { handler, OpenAPISpec } from "../src/index.js";
 import { safeJsonParse } from "../src/json.js";
+import { getClient } from "../src/service/dynamodb.js";
 import { authorizeContentRequest } from "./content-auth.js";
+import { serveContent } from "./content-handler.js";
 import { resolveContentPath } from "./content-path.js";
 import { parseAllowedOrigins, resolveAllowOrigin } from "./cors.js";
 import { createLambdaContext, createLambdaEvent } from "./lambda-helpers.js";
@@ -166,17 +166,36 @@ app.get(/^\/content\/.+$/, async (req: Request, res: Response) => {
 		res.status(400).send("invalid path");
 		return;
 	}
-	const raw = await readFile(fullPath).catch(() => null);
-	if (!raw) {
-		res.status(404).send("not found");
-		return;
+
+	const client = getClient();
+	const result = await serveContent(
+		{
+			// ENOENT means the body isn't synced yet (→ 202); any other read error
+			// throws so express 500s it — never masked as a missing body.
+			readObject: async (path) =>
+				readFile(path).catch((error: unknown) => {
+					if (isStorageNotFoundError(error)) return null;
+					throw error;
+				}),
+			lookupMessage: async (messageId) => {
+				// A gone message row means nothing to re-arm — still answer 202.
+				const message = await client.message.get(messageId).catch(() => null);
+				return message
+					? { mailboxId: message.mailboxId, uid: message.uid }
+					: null;
+			},
+			requestBodySync: async (input) => {
+				await client.bodySyncQueue?.requestBodySync(input);
+			},
+		},
+		{ fullPath, storageKey },
+	);
+
+	res.status(result.status);
+	for (const [name, value] of Object.entries(result.headers)) {
+		res.setHeader(name, value);
 	}
-	// The filesystem storage backend gzip-compresses every body part (same as
-	// S3, which sets ContentEncoding: gzip so CloudFront auto-decompresses).
-	// In dev there is no CloudFront, so we decompress here before sending.
-	const buffer = raw[0] === 0x1f && raw[1] === 0x8b ? gunzipSync(raw) : raw;
-	res.setHeader("content-type", "application/octet-stream");
-	res.send(buffer);
+	res.send(result.body);
 });
 
 app.all(/(.*)/, async (req: Request, res: Response) => {

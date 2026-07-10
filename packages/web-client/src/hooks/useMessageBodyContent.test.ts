@@ -4,8 +4,10 @@ import {
 	BodyFetchError,
 	classifyBodyFetchFailure,
 	fetchBodyContent,
+	fetchBodyContentAttempt,
 	isContentTypeMismatch,
 	isSpaShellResponse,
+	parseRetryAfterSeconds,
 } from "./useMessageBodyContent";
 
 const SPA_SHELL = `<!doctype html>
@@ -243,5 +245,126 @@ describe("fetchBodyContent — throws BodyFetchError with discriminated reason (
 			"text",
 		);
 		assert.equal(body, "hello world");
+	});
+
+	it("throws a retryable not-ready error carrying Retry-After on a 202", async () => {
+		// A 202 is `ok`, so this must never be rendered as the body — the body is
+		// still syncing and the query must retry (#body-sync-cue).
+		stubFetch(202, { "Retry-After": "2" }, "body not yet synced");
+		await assert.rejects(
+			() => fetchBodyContent("/content/accounts/x/messages/m/parts/1", "text"),
+			(err: unknown) => {
+				assert.ok(err instanceof BodyFetchError);
+				assert.equal(err.reason, "not-ready");
+				assert.equal(err.status, 202);
+				assert.equal(err.retryAfterSeconds, 2);
+				return true;
+			},
+		);
+	});
+
+	it("defaults Retry-After to 1s on a 202 without the header", async () => {
+		stubFetch(202, {}, "body not yet synced");
+		await assert.rejects(
+			() => fetchBodyContent("/content/accounts/x/messages/m/parts/1", "text"),
+			(err: unknown) => {
+				assert.ok(err instanceof BodyFetchError);
+				assert.equal(err.reason, "not-ready");
+				assert.equal(err.retryAfterSeconds, 1);
+				return true;
+			},
+		);
+	});
+});
+
+describe("fetchBodyContentAttempt — self-heals a deferred per-part object on a 202 retry (#1240)", () => {
+	it("refetches the describe query before re-fetching the content URL when isRetryAfterNotReady", async () => {
+		const calls: string[] = [];
+		const result = await fetchBodyContentAttempt(
+			{
+				fetchContent: async (url, kind) => {
+					calls.push(`fetch:${url}:${kind}`);
+					return "hello world";
+				},
+				refetchDescribeMessage: async () => {
+					calls.push("describe");
+				},
+			},
+			{
+				contentUrl: "/content/accounts/x/messages/m/parts/1",
+				kind: "text",
+				isRetryAfterNotReady: true,
+			},
+		);
+
+		assert.equal(result, "hello world");
+		assert.deepEqual(calls, [
+			"describe",
+			"fetch:/content/accounts/x/messages/m/parts/1:text",
+		]);
+	});
+
+	it("skips the describe refetch on a first attempt (isRetryAfterNotReady = false)", async () => {
+		const calls: string[] = [];
+		await fetchBodyContentAttempt(
+			{
+				fetchContent: async (url) => {
+					calls.push(`fetch:${url}`);
+					return "hello world";
+				},
+				refetchDescribeMessage: async () => {
+					calls.push("describe");
+				},
+			},
+			{
+				contentUrl: "/content/accounts/x/messages/m/parts/1",
+				kind: "text",
+				isRetryAfterNotReady: false,
+			},
+		);
+
+		assert.deepEqual(calls, ["fetch:/content/accounts/x/messages/m/parts/1"]);
+	});
+
+	it("propagates a not-ready error from the content fetch even after refetching describe (bounded retry keeps working)", async () => {
+		await assert.rejects(
+			() =>
+				fetchBodyContentAttempt(
+					{
+						fetchContent: async () => {
+							throw new BodyFetchError("not-ready", "still syncing", 202, 1);
+						},
+						refetchDescribeMessage: async () => {},
+					},
+					{
+						contentUrl: "/content/accounts/x/messages/m/parts/1",
+						kind: "text",
+						isRetryAfterNotReady: true,
+					},
+				),
+			(err: unknown) => {
+				assert.ok(err instanceof BodyFetchError);
+				assert.equal(err.reason, "not-ready");
+				return true;
+			},
+		);
+	});
+});
+
+describe("parseRetryAfterSeconds", () => {
+	it("parses a positive delta-seconds value", () => {
+		assert.equal(parseRetryAfterSeconds("5"), 5);
+	});
+
+	it("falls back to 1 for missing/invalid values", () => {
+		assert.equal(parseRetryAfterSeconds(null), 1);
+		assert.equal(parseRetryAfterSeconds(""), 1);
+		assert.equal(parseRetryAfterSeconds("0"), 1);
+		assert.equal(parseRetryAfterSeconds("-3"), 1);
+		assert.equal(parseRetryAfterSeconds("notanumber"), 1);
+	});
+
+	it("caps an absurdly large value", () => {
+		assert.equal(parseRetryAfterSeconds("99999"), 30);
 	});
 });
