@@ -211,6 +211,32 @@ export const buildDeduplicatedKey = (
 ): string =>
 	`accounts/${accountConfigId}/${accountId}/dedup/${checksumSha256.slice(0, 2)}/${checksumSha256}`;
 
+export interface ParsedContentStorageKey {
+	accountConfigId: string;
+	accountId: string;
+	messageId: string;
+}
+
+/**
+ * Parse the account/message ids out of a `/content/*` storage key such as
+ * `accounts/{accountConfigId}/{accountId}/messages/{messageId}/parts/1.2`
+ * (the inverse of `buildMessageBodyKey`/`buildParsedBodyKey`/`buildBodyPartKey`
+ * above). Returns null when the shape doesn't match.
+ */
+export const parseContentStorageKey = (
+	storageKey: string,
+): ParsedContentStorageKey | null => {
+	const match = storageKey.match(
+		/^accounts\/([^/]+)\/([^/]+)\/messages\/([^/]+)\//,
+	);
+	if (!match) return null;
+	return {
+		accountConfigId: match[1],
+		accountId: match[2],
+		messageId: match[3],
+	};
+};
+
 export const computeChecksum = (content: Buffer): string =>
 	createHash("sha256").update(content).digest("hex");
 
