@@ -8,7 +8,10 @@ import { resetBodySyncGateCache } from "../body-sync-gate.js";
 import { __warmPoolSizeForTest } from "../connection-scope.js";
 import type { SyncMessageBodyEvent } from "../events.js";
 import {
+	buildRetryCapExceededLog,
 	buildRetryEvent,
+	isRetryCapExceeded,
+	MAX_BODY_SYNC_RETRIES,
 	resolveBatch,
 	syncMessageBody,
 } from "./sync-message-body.js";
@@ -194,6 +197,73 @@ describe("buildRetryEvent — partial-failure re-enqueue", () => {
 				),
 			/No uid for failed messageId missing/,
 		);
+	});
+
+	test("retryCount defaults to 0 and increments to 1 on the first retry", () => {
+		const retry = buildRetryEvent(
+			baseEvent.accountId,
+			baseEvent.mailboxId,
+			["msg-2"],
+			uidMap,
+		);
+
+		assert.equal(retry.retryCount, 1);
+	});
+
+	test("retryCount increments by one on each successive retry", () => {
+		const retry = buildRetryEvent(
+			baseEvent.accountId,
+			baseEvent.mailboxId,
+			["msg-2"],
+			uidMap,
+			false,
+			3,
+		);
+
+		assert.equal(retry.retryCount, 4);
+	});
+
+	test("propagates force and retryCount together — one doesn't reset the other", () => {
+		const retry = buildRetryEvent(
+			baseEvent.accountId,
+			baseEvent.mailboxId,
+			["msg-2"],
+			uidMap,
+			true,
+			2,
+		);
+
+		assert.equal(retry.force, true);
+		assert.equal(retry.retryCount, 3);
+	});
+});
+
+describe("isRetryCapExceeded — bounding the retry loop", () => {
+	test("does not exceed the cap while under MAX_BODY_SYNC_RETRIES", () => {
+		assert.equal(isRetryCapExceeded(0), false);
+		assert.equal(isRetryCapExceeded(MAX_BODY_SYNC_RETRIES - 1), false);
+	});
+
+	test("exceeds the cap at and beyond MAX_BODY_SYNC_RETRIES", () => {
+		assert.equal(isRetryCapExceeded(MAX_BODY_SYNC_RETRIES), true);
+		assert.equal(isRetryCapExceeded(MAX_BODY_SYNC_RETRIES + 1), true);
+	});
+});
+
+describe("buildRetryCapExceededLog — the loud drop signal", () => {
+	test("carries a distinct alert key, the message ids, and the retry count", () => {
+		const payload = buildRetryCapExceededLog(
+			baseEvent.accountId,
+			baseEvent.mailboxId,
+			["msg-1", "msg-2"],
+			MAX_BODY_SYNC_RETRIES,
+		);
+
+		assert.equal(payload.alert, "body-sync-retry-cap-exceeded");
+		assert.equal(payload.accountId, baseEvent.accountId);
+		assert.equal(payload.mailboxId, baseEvent.mailboxId);
+		assert.deepEqual(payload.messageIds, ["msg-1", "msg-2"]);
+		assert.equal(payload.retryCount, MAX_BODY_SYNC_RETRIES);
 	});
 });
 
