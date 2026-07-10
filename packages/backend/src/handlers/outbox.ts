@@ -141,8 +141,8 @@ export const OutboxDetailOperations: Record<
 		};
 
 		const client = await getClient();
-		// The scoped get refuses a foreign message with NotFound, so it is the
-		// ownership gate — no separate check needed.
+		// Default mode "read": the scoped get refuses a foreign message with
+		// NotFound (404, no existence leak) — no separate check needed.
 		const outbox = await client.outboxMessage.get(
 			accountConfigId,
 			outboxMessageId,
@@ -162,7 +162,8 @@ export const OutboxDetailOperations: Record<
 		const input = context.request.requestBody as UpdateOutboxMessageInput;
 
 		const client = await getClient();
-		// updateDraft's own scoped get refuses a foreign message with NotFound.
+		// updateDraft's own scoped get uses mode "act": a foreign message is
+		// denied with Forbidden (403), not feigned as NotFound.
 		const updated = await client.outboxQueue.updateDraft(
 			accountConfigId,
 			outboxMessageId,
@@ -191,7 +192,8 @@ export const OutboxDetailOperations: Record<
 		};
 
 		const client = await getClient();
-		// deleteDraft's own scoped get refuses a foreign message with NotFound.
+		// deleteDraft's own scoped get uses mode "act": a foreign message is
+		// denied with Forbidden (403), not feigned as NotFound.
 		await client.outboxQueue.deleteDraft(accountConfigId, outboxMessageId);
 		return { statusCode: 204 };
 	},
@@ -207,7 +209,8 @@ export const OutboxDetailOperations: Record<
 		};
 
 		const client = await getClient();
-		// send's own scoped get refuses a foreign message with NotFound.
+		// send's own scoped get uses mode "act": a foreign message is denied
+		// with Forbidden (403), not feigned as NotFound.
 		const sent = await client.outboxQueue.send(
 			accountConfigId,
 			outboxMessageId,

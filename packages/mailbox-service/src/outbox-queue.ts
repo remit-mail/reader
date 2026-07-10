@@ -141,6 +141,7 @@ export class OutboxQueueService {
 		const existing = await this.outboxMessageService.get(
 			accountConfigId,
 			outboxMessageId,
+			"act",
 		);
 		if (existing.status !== OutboxMessageStatus.draft) {
 			throw new Error(
@@ -183,6 +184,7 @@ export class OutboxQueueService {
 		const existing = await this.outboxMessageService.get(
 			accountConfigId,
 			outboxMessageId,
+			"act",
 		);
 		if (
 			existing.status !== OutboxMessageStatus.draft &&
@@ -250,6 +252,7 @@ export class OutboxQueueService {
 		const existing = await this.outboxMessageService.get(
 			accountConfigId,
 			outboxMessageId,
+			"act",
 		);
 		if (
 			existing.status !== OutboxMessageStatus.draft &&

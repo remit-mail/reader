@@ -7,7 +7,7 @@ import type {
 } from "@remit/data-ports";
 import { and, desc, eq, inArray, lt, or } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
-import { NotFoundError } from "../error.js";
+import { ForbiddenError, NotFoundError } from "../error.js";
 import { decodeToken, resultList } from "../pagination.js";
 import { outboxMessageTable } from "../schema/i4-outbox-message.js";
 
@@ -79,6 +79,7 @@ export class OutboxMessageRepo implements IOutboxMessageRepository {
 	async get(
 		accountConfigId: string,
 		outboxMessageId: string,
+		mode?: "read" | "act",
 	): Promise<OutboxMessageItem>;
 	async get(
 		accountConfigId: string,
@@ -87,6 +88,7 @@ export class OutboxMessageRepo implements IOutboxMessageRepository {
 	async get(
 		accountConfigId: string,
 		outboxMessageId: string | string[],
+		mode: "read" | "act" = "read",
 	): Promise<OutboxMessageItem | OutboxMessageItem[]> {
 		if (Array.isArray(outboxMessageId)) {
 			if (outboxMessageId.length === 0) return [];
@@ -101,17 +103,23 @@ export class OutboxMessageRepo implements IOutboxMessageRepository {
 				);
 			return rows.map(rowToOutboxMessage);
 		}
+		// Fetch unscoped by id so a foreign row can be distinguished from an
+		// absent one — mode="act" reports the former as 403, not 404.
 		const [row] = await this.db
 			.select()
 			.from(outboxMessageTable)
-			.where(
-				and(
-					eq(outboxMessageTable.accountConfigId, accountConfigId),
-					eq(outboxMessageTable.outboxMessageId, outboxMessageId),
-				),
-			);
-		if (!row)
+			.where(eq(outboxMessageTable.outboxMessageId, outboxMessageId));
+		if (!row) {
 			throw new NotFoundError(`OutboxMessage not found: ${outboxMessageId}`);
+		}
+		if (row.accountConfigId !== accountConfigId) {
+			if (mode === "act") {
+				throw new ForbiddenError(
+					`OutboxMessage ${outboxMessageId} not in account config`,
+				);
+			}
+			throw new NotFoundError(`OutboxMessage not found: ${outboxMessageId}`);
+		}
 		return rowToOutboxMessage(row);
 	}
 

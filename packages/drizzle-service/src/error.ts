@@ -7,6 +7,7 @@
 // doesn't pull the electrodb models + ddb client into its runtime graph.
 export {
 	CreateFailedConflictError,
+	ForbiddenError,
 	NotFoundError,
 } from "@remit/remit-electrodb-service/error";
 
