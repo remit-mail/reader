@@ -671,10 +671,14 @@ export class BodySyncService {
 	 * the real distribution is observable on a live mailbox.
 	 *
 	 * The verdict reads the just-computed classification rather than a persisted
-	 * row, since those fields are not written until the single update. A failure
-	 * here is a server-side DB error and propagates — body-sync retries on the
-	 * next cycle. The empty {@link PlacementOutcome} means "no action", never
-	 * "an error was swallowed".
+	 * row, since those fields are not written until the single update. Placement
+	 * is auxiliary to the body store — the primary artifact (body.eml) is already
+	 * durable by the time this runs — so a failure here (e.g. a placement-repo
+	 * query erroring on a schema-drifted DB) is caught and logged loudly with an
+	 * alertable field instead of failing the surrounding message store. The empty
+	 * {@link PlacementOutcome} means "no action", whether Remit genuinely decided
+	 * to leave the message alone or placement itself failed; the alert log is
+	 * what distinguishes the latter.
 	 */
 	private async resolvePlacement(
 		messageId: string,
@@ -691,7 +695,20 @@ export class BodySyncService {
 			accountConfigId,
 			parsed,
 			classification,
-		);
+		).catch((error: unknown) => {
+			this.log.error?.(
+				{
+					alert: "body_sync_placement_failed",
+					messageId,
+					accountId,
+					accountConfigId,
+					errorName: (error as { name?: string })?.name,
+					error: inspect(error),
+				},
+				"Placement resolution failed; body already stored, continuing without placement (best-effort, non-fatal)",
+			);
+			return {};
+		});
 	}
 
 	private async computePlacement(
