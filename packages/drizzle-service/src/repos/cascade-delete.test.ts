@@ -57,6 +57,7 @@ describe("runDrizzleCascadeDelete", () => {
 			smtpPort: 587,
 			isActive: true,
 			connectionState: "authenticated",
+			lastActivityAt: 0,
 			createdAt: NOW,
 			updatedAt: NOW,
 		});

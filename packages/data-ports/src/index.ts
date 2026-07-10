@@ -21,6 +21,7 @@ export type {
 	AccountDescription,
 	AccountExportRequestItem,
 	AccountItem,
+	AccountSchedulerPage,
 	AccountSettingItem,
 	AccountSettingValue,
 	AddressFlags,
