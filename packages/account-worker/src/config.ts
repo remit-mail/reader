@@ -3,10 +3,11 @@ import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { SQSClient } from "@aws-sdk/client-sqs";
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { getClient } from "@remit/backend/client";
-import {
-	type CascadeDeleter,
-	createCascadeDeleter,
-} from "@remit/drizzle-service";
+// Type-only: erased at build, so it carries no runtime dependency on
+// @remit/drizzle-service. The value (`createCascadeDeleter`) is loaded
+// lazily below, inside the `dataBackend === "postgres"` branch — see the
+// comment on `pgCascadeDeleter` for why.
+import type { CascadeDeleter } from "@remit/drizzle-service";
 import { resolveSqsCredentials } from "@remit/sqs-client";
 import {
 	createStorageService,
@@ -15,7 +16,7 @@ import {
 import { env } from "expect-env";
 import type { CascadeServices } from "./cascade.js";
 
-const remitClient = getClient();
+const remitClient = await getClient();
 
 export const cognitoClient = new CognitoIdentityProviderClient({});
 export const sqsClient = new SQSClient({
@@ -100,7 +101,17 @@ export const dataBackend = process.env.DATA_BACKEND;
 // On the Postgres backend the cascade deletes rows through Drizzle instead of
 // raw DynamoDB BatchWriteItem. Built once here and reused across invocations;
 // left undefined on DynamoDB, where `runCascadeDelete` falls back to DDB.
+//
+// `@remit/drizzle-service` is loaded lazily (and marked `external` for
+// the Lambda esbuild build — see LAMBDA_ESBUILD_OPTIONS). account-worker
+// deploys only as an AWS Lambda (unlike remit-backend, which also ships as a
+// Scaleway container with DATA_BACKEND=postgres and full node_modules — see
+// infra/scaleway/main.tf), so this branch is unreachable in every place this
+// bundle runs; the lazy import keeps a Postgres client out of the bundle
+// (#1244/#1247; #1242 FAQ).
 export const pgCascadeDeleter: CascadeDeleter | undefined =
 	dataBackend === "postgres"
-		? createCascadeDeleter(env.PG_CONNECTION_URL)
+		? (await import("@remit/drizzle-service")).createCascadeDeleter(
+				env.PG_CONNECTION_URL,
+			)
 		: undefined;

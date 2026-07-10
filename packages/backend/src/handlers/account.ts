@@ -201,7 +201,8 @@ export const AccountOperations: Record<
 		// Password accounts require a non-empty password
 		assertPasswordProvided(input.authType, input.password);
 
-		const { account, accountConfig, accountSetting, secrets } = getClient();
+		const { account, accountConfig, accountSetting, secrets } =
+			await getClient();
 
 		await ensureAccountConfig(accountConfig, accountConfigId);
 
@@ -281,7 +282,7 @@ export const AccountOperations: Record<
 		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const input = JSON.parse(event.body ?? "{}") as TestConnectionInput;
 
-		const { account, secrets } = getClient();
+		const { account, secrets } = await getClient();
 
 		// Resolve password - use provided password or decrypt stored password
 		let imapPassword = input.password;
@@ -376,7 +377,7 @@ export const AccountDetailOperations: Record<
 		const { accountId } = context.request.params as { accountId: string };
 		const input = JSON.parse(event.body ?? "{}") as UpdateAccountInput;
 
-		const { account, accountSetting, secrets } = getClient();
+		const { account, accountSetting, secrets } = await getClient();
 
 		const existing = await account.get(accountId);
 		assertAccountOwnership(existing, accountConfigId, "act");
@@ -477,7 +478,7 @@ export const AccountDetailOperations: Record<
 		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const { accountId } = context.request.params as { accountId: string };
 
-		const { account } = getClient();
+		const { account } = await getClient();
 
 		const existing = await account.get(accountId);
 		assertAccountOwnership(existing, accountConfigId, "act");

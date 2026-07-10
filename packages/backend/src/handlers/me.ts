@@ -30,7 +30,7 @@ export const MeOperations: Record<
 		const event = args[0] as APIGatewayProxyEvent;
 		const accountConfigId = getAccountConfigIdFromEvent(event);
 
-		const { address } = getClient();
+		const { address } = await getClient();
 		const items = await address.listSuggestedVips({ accountConfigId });
 
 		return { suggestions: items.map(toVipSuggestionEntry) };
@@ -63,7 +63,7 @@ export const MeOperations: Record<
 			);
 		}
 
-		const { accountConfig } = getClient();
+		const { accountConfig } = await getClient();
 
 		try {
 			await accountConfig.update(accountConfigId, {
@@ -119,7 +119,7 @@ export const MeOperations: Record<
 			);
 		}
 
-		const { accountExportRequest } = getClient();
+		const { accountExportRequest } = await getClient();
 		const exportRequest = await accountExportRequest.create({
 			accountConfigId,
 			userId,
@@ -159,7 +159,7 @@ export const MeOperations: Record<
 		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const exportId = context.request.params.exportId as string;
 
-		const { accountExportRequest, storage } = getClient();
+		const { accountExportRequest, storage } = await getClient();
 		const exportRequest = await accountExportRequest.get(exportId);
 
 		if (exportRequest.accountConfigId !== accountConfigId) {

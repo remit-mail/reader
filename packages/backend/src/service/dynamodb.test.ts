@@ -30,7 +30,7 @@ afterEach(() => {
 	_resetForTest();
 });
 
-test("getClient() with DATA_BACKEND=postgres constructs all services without throwing", () => {
+test("getClient() with DATA_BACKEND=postgres constructs all services without throwing", async () => {
 	const savedBackend = process.env.DATA_BACKEND;
 	const savedPgUrl = process.env.PG_CONNECTION_URL;
 
@@ -39,7 +39,7 @@ test("getClient() with DATA_BACKEND=postgres constructs all services without thr
 		"postgresql://remit:remit@localhost:5432/remit_test";
 
 	try {
-		const client = getClient();
+		const client = await getClient();
 
 		for (const key of REQUIRED_KEYS) {
 			assert.ok(
@@ -64,12 +64,12 @@ test("getClient() with DATA_BACKEND=postgres constructs all services without thr
 	}
 });
 
-test("getClient() without DATA_BACKEND constructs all services without throwing (DynamoDB path, no regression)", () => {
+test("getClient() without DATA_BACKEND constructs all services without throwing (DynamoDB path, no regression)", async () => {
 	const savedBackend = process.env.DATA_BACKEND;
 	delete process.env.DATA_BACKEND;
 
 	try {
-		const client = getClient();
+		const client = await getClient();
 
 		for (const key of REQUIRED_KEYS) {
 			assert.ok(

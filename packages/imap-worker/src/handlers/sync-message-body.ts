@@ -192,7 +192,7 @@ export const syncMessageBody = async (
 		address: addressService,
 		envelope: envelopeService,
 		secrets,
-	} = getClient();
+	} = await getClient();
 
 	const account = await accountService.get(accountId);
 	if (!account) {

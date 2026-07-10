@@ -5,8 +5,26 @@
  * and stopword for stopword removal.
  */
 
+/// <reference path="../types/natural-porter-stemmer.d.ts" />
 import { franc } from "franc";
-import natural from "natural";
+// Import each Porter stemmer file directly instead of the `natural` package
+// root or its `stemmers` submodule barrel: the root barrel
+// (`natural/lib/natural/index.js`) loads WordNet and the Brill POS tagger,
+// which pull in `mongoose` and — via its Postgres storage plugin —
+// `pg`/`dotenv` (`dotenv.config()` at module scope on every cold start, see
+// #1244/#1247); the `stemmers` barrel is CJS and unconditionally requires
+// every stemmer it lists, including Japanese (which drags in its own
+// tokenizer) and Indonesian, neither used here. This module only needs the
+// seven Porter stemmers below — see
+// ../types/natural-porter-stemmer.d.ts for their (hand-written, since
+// `natural` ships none for individual files) type declarations.
+import PorterStemmer from "natural/lib/natural/stemmers/porter_stemmer.js";
+import PorterStemmerDe from "natural/lib/natural/stemmers/porter_stemmer_de.js";
+import PorterStemmerEs from "natural/lib/natural/stemmers/porter_stemmer_es.js";
+import PorterStemmerFr from "natural/lib/natural/stemmers/porter_stemmer_fr.js";
+import PorterStemmerIt from "natural/lib/natural/stemmers/porter_stemmer_it.js";
+import PorterStemmerNl from "natural/lib/natural/stemmers/porter_stemmer_nl.js";
+import PorterStemmerPt from "natural/lib/natural/stemmers/porter_stemmer_pt.js";
 import { deu, eng, fra, ita, nld, por, removeStopwords, spa } from "stopword";
 
 export type SupportedLanguage = "en" | "de" | "fr" | "es" | "it" | "nl" | "pt";
@@ -41,13 +59,13 @@ const supportedIso3 = Object.keys(iso3ToIso1);
 
 const stemmers: Record<SupportedLanguage, { stem: (word: string) => string }> =
 	{
-		en: natural.PorterStemmer,
-		de: natural.PorterStemmerDe,
-		fr: natural.PorterStemmerFr,
-		es: natural.PorterStemmerEs,
-		it: natural.PorterStemmerIt,
-		nl: natural.PorterStemmerNl,
-		pt: natural.PorterStemmerPt,
+		en: PorterStemmer,
+		de: PorterStemmerDe,
+		fr: PorterStemmerFr,
+		es: PorterStemmerEs,
+		it: PorterStemmerIt,
+		nl: PorterStemmerNl,
+		pt: PorterStemmerPt,
 	};
 
 const stopwordLists: Record<SupportedLanguage, string[]> = {

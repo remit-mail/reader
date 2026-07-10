@@ -275,7 +275,7 @@ export const ThreadOperations: Record<
 			order?: "asc" | "desc";
 		};
 
-		const client = getClient();
+		const client = await getClient();
 		const result = await client.threadMessage.listByMailbox(
 			accountConfigId,
 			mailboxId,
@@ -314,7 +314,7 @@ export const ThreadOperations: Record<
 			limit?: number;
 		};
 
-		return executeThreadSearch(getClient(), accountConfigId, mailboxId, {
+		return executeThreadSearch(await getClient(), accountConfigId, mailboxId, {
 			...raw,
 			senderTrust: toArray(raw.senderTrust),
 			category: toArray(raw.category),
@@ -338,7 +338,7 @@ export const ThreadDetailOperations: Record<
 			mailboxId?: string;
 		};
 
-		const client = getClient();
+		const client = await getClient();
 		const result = await client.threadMessage.listByThread(
 			threadId,
 			accountConfigId,

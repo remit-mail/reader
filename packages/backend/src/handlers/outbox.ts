@@ -51,7 +51,7 @@ export const OutboxOperations: Record<
 		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const input = JSON.parse(event.body ?? "{}") as CreateOutboxMessageInput;
 
-		const client = getClient();
+		const client = await getClient();
 
 		const account = await client.account.get(input.accountId);
 		if (account.accountConfigId !== accountConfigId) {
@@ -107,7 +107,7 @@ export const OutboxOperations: Record<
 			continuationToken?: string;
 		};
 
-		const client = getClient();
+		const client = await getClient();
 
 		const accounts = await client.account.list(accountConfigId);
 		if (accounts.items.length === 0) {
@@ -140,7 +140,7 @@ export const OutboxDetailOperations: Record<
 			outboxMessageId: string;
 		};
 
-		const client = getClient();
+		const client = await getClient();
 		// The scoped get refuses a foreign message with NotFound, so it is the
 		// ownership gate — no separate check needed.
 		const outbox = await client.outboxMessage.get(
@@ -161,7 +161,7 @@ export const OutboxDetailOperations: Record<
 		};
 		const input = context.request.requestBody as UpdateOutboxMessageInput;
 
-		const client = getClient();
+		const client = await getClient();
 		// updateDraft's own scoped get refuses a foreign message with NotFound.
 		const updated = await client.outboxQueue.updateDraft(
 			accountConfigId,
@@ -190,7 +190,7 @@ export const OutboxDetailOperations: Record<
 			outboxMessageId: string;
 		};
 
-		const client = getClient();
+		const client = await getClient();
 		// deleteDraft's own scoped get refuses a foreign message with NotFound.
 		await client.outboxQueue.deleteDraft(accountConfigId, outboxMessageId);
 		return { statusCode: 204 };
@@ -206,7 +206,7 @@ export const OutboxDetailOperations: Record<
 			outboxMessageId: string;
 		};
 
-		const client = getClient();
+		const client = await getClient();
 		// send's own scoped get refuses a foreign message with NotFound.
 		const sent = await client.outboxQueue.send(
 			accountConfigId,
