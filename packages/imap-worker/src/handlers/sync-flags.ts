@@ -9,6 +9,9 @@ import type { Logger } from "@remit/logger-lambda";
 import {
 	type FlagSyncResult,
 	FlagSyncService,
+	guardConnectionCursor,
+	isCursorRebuildNeeded,
+	MailboxCursorPausedError,
 } from "@remit/mailbox-service";
 import {
 	createKmsDataKeyProvider,
@@ -93,8 +96,20 @@ export const syncFlags = async (
 		account,
 		log,
 		async (credentials) => {
-			const scope = createConnectionScopeWithCredentials(account, credentials);
 			const mailbox = await mailboxService.get(accountId, mailboxId);
+
+			// Cheap frugal skip (epic #1281 invariant 6): a mailbox already known
+			// paused never even opens a connection. Optimization only — the
+			// guardConnectionCursor openBox wrap below is the structural guarantee.
+			if (isCursorRebuildNeeded(mailbox.cursorState)) {
+				log.info(
+					{ accountId, mailboxId, cursorState: mailbox.cursorState },
+					"Mailbox cursor not normal; pausing outbound flag push this round",
+				);
+				return;
+			}
+
+			const scope = createConnectionScopeWithCredentials(account, credentials);
 
 			const flagSyncService = new FlagSyncService(
 				messageFlagService,
@@ -102,33 +117,54 @@ export const syncFlags = async (
 				log,
 			);
 
-			// Open mailbox for write operations (readOnly = false)
-			const connection = await scope.getConnection();
-			await connection.openBox(mailbox.fullPath, false);
+			// Guard at the openBox choke point (epic #1281 invariants 3 & 5): a
+			// fresh mismatch trips the mailbox and throws once the SELECT reveals
+			// it. The flag change stays applied locally and is picked up once the
+			// mailbox returns to normal.
+			const connection = guardConnectionCursor(
+				await scope.getConnection(),
+				{ mailboxService },
+				accountId,
+				mailbox,
+			);
 
-			await flagSyncService
-				.syncToImap(operations, () => Promise.resolve(connection))
-				.then((result) => {
-					log.info(
-						{
-							accountId,
-							mailboxId,
-							successCount: result.successCount,
-							failedCount: result.failedCount,
-							errors: result.errors,
-						},
-						"Flag sync completed",
-					);
+			await connection
+				.openBox(mailbox.fullPath, false)
+				.then(() =>
+					flagSyncService
+						.syncToImap(operations, () => Promise.resolve(connection))
+						.then((result) => {
+							log.info(
+								{
+									accountId,
+									mailboxId,
+									successCount: result.successCount,
+									failedCount: result.failedCount,
+									errors: result.errors,
+								},
+								"Flag sync completed",
+							);
 
-					if (result.failedCount > 0) {
-						log.error(
-							{ accountId, mailboxId, errors: result.errors },
-							"Some flag operations failed; throwing to retry via SQS",
+							if (result.failedCount > 0) {
+								log.error(
+									{ accountId, mailboxId, errors: result.errors },
+									"Some flag operations failed; throwing to retry via SQS",
+								);
+							}
+							// Throws on partial failure so SQS retries instead of deleting the
+							// message and silently dropping the failed flag change.
+							assertFlagSyncComplete(result, mailboxId);
+						}),
+				)
+				.catch((error: unknown) => {
+					if (error instanceof MailboxCursorPausedError) {
+						log.info(
+							{ accountId, mailboxId, cursorState: error.state },
+							"Mailbox cursor not normal; pausing outbound flag push this round",
 						);
+						return;
 					}
-					// Throws on partial failure so SQS retries instead of deleting the
-					// message and silently dropping the failed flag change.
-					assertFlagSyncComplete(result, mailboxId);
+					throw error;
 				})
 				.finally(() => scope.disconnect());
 		},

@@ -6,6 +6,7 @@ import type {
 	IMessageRepository,
 	IThreadMessageRepository,
 	IUnitOfWork,
+	MailboxItem,
 } from "@remit/data-ports";
 import {
 	AddressService,
@@ -14,11 +15,18 @@ import {
 	MessageService,
 	ThreadMessageService,
 } from "@remit/remit-electrodb-service";
-import { AddressRole } from "@remit/domain-enums";
+import { AddressRole, MailboxCursorState } from "@remit/domain-enums";
 import pMap from "p-map";
 import type { ManagedConnectionFactory } from "./connection-factory.js";
+import { guardMailboxCursor, isCursorRebuildNeeded } from "./mailbox-cursor.js";
+import {
+	type CursorRebuildRow,
+	type CursorRebuildSnapshot,
+	matchCursorRebuild,
+} from "./mailbox-cursor-rebuild.js";
 import { ROOT_PART_PATH, walkMimeStructure } from "./mime-walker.js";
 import { PassThroughUnitOfWork } from "./pass-through-unit-of-work.js";
+import { reconcileStaleMessage } from "./stale-message-reconcile.js";
 import type {
 	ImapAddress,
 	ImapBodyStructure,
@@ -139,7 +147,7 @@ export class MessageSyncService {
 		messageService: IMessageRepository,
 		envelopeService: IEnvelopeRepository,
 		addressService: IAddressRepository,
-		threadMessageService: IThreadMessageRepository,
+		private threadMessageService: IThreadMessageRepository,
 		logger?: SyncLogger,
 		unitOfWork?: IUnitOfWork,
 	) {
@@ -177,6 +185,16 @@ export class MessageSyncService {
 	): Promise<SyncMessagesResult> {
 		const mailbox = await this.mailboxService.get(accountId, mailboxId);
 		const mailboxPath = mailbox.fullPath;
+
+		// A mailbox whose cursor is already invalid (or a rebuild that crashed
+		// mid-way, #1272) never falls through to the normal watermark-based sync
+		// below — stored UIDs on that axis are not trustworthy. The rebuild is a
+		// variant of sync, not a special wipe path, so it runs here under the
+		// same mailbox lock the caller already holds.
+		if (isCursorRebuildNeeded(mailbox.cursorState)) {
+			return this.rebuildCursor(mailbox, accountId, accountConfigId, mailboxId);
+		}
+
 		const lastSyncUid = mailbox.lastSyncUid || 0;
 		const highWaterMarkUid = mailbox.highWaterMarkUid || 0;
 
@@ -185,6 +203,31 @@ export class MessageSyncService {
 			lastSyncUid,
 			highWaterMarkUid,
 		);
+
+		// Detection: the served UIDVALIDITY may have changed since it was last
+		// stored, even though this mailbox was `normal` a moment ago. Trip the
+		// cursor and pause — the watermarks just used to filter `uids` may
+		// already be meaningless on the new axis, so nothing below may be acted
+		// on this round (epic #1281 invariants 3 and 5).
+		const cursorCheck = await guardMailboxCursor(
+			{ mailboxService: this.mailboxService },
+			accountId,
+			mailbox,
+			box.uidvalidity,
+		);
+		if (!cursorCheck.ok) {
+			this.log.warn(
+				{ mailboxId, mailboxPath, cursorState: cursorCheck.state },
+				"UIDVALIDITY changed; mailbox cursor tripped, pausing outbound sync this round",
+			);
+			return {
+				syncedCount: 0,
+				syncedMessageIds: [],
+				syncedMessages: [],
+				hasMore: false,
+				remainingCount: 0,
+			};
+		}
 
 		if (uids.length === 0) {
 			// Still update counts even if no new messages to sync
@@ -339,6 +382,225 @@ export class MessageSyncService {
 			hasMore,
 			remainingCount,
 		};
+	}
+
+	/**
+	 * Re-key a mailbox's stored UIDs against a new UIDVALIDITY axis (#1272).
+	 *
+	 * One envelope-level pass (UID + Message-ID + INTERNALDATE, no body
+	 * fetches — {@link matchCursorRebuild}) matched against the rows already
+	 * stored for this mailbox:
+	 * - Match → rewrite the row's UID mapping in place; bodies and threads are
+	 *   untouched.
+	 * - Server message with no row → normal new-message sync (the same
+	 *   `trySaveMessage` pipeline the regular batch sync uses).
+	 * - Row with no counterpart → expunged; reconcile via {@link
+	 *   reconcileStaleMessage} (#1283 — the exact same "gone upstream" outcome
+	 *   as a body-sync retry exhaustion finding a stale row).
+	 *
+	 * Idempotent by construction: re-entering mid-rebuild (crash recovery —
+	 * the mailbox was left `rebuilding`) simply redoes the same match/rewrite
+	 * pass, which converges on the same result. `cursorState` is stamped
+	 * `rebuilding` before any write and only cleared to `normal` after the
+	 * watermarks are rebuilt, so a crash anywhere in between leaves the
+	 * mailbox paused rather than falling back to the stale axis.
+	 */
+	private async rebuildCursor(
+		mailbox: MailboxItem,
+		accountId: string,
+		accountConfigId: string,
+		mailboxId: string,
+	): Promise<SyncMessagesResult> {
+		const mailboxPath = mailbox.fullPath;
+
+		await this.mailboxService.update(accountId, mailboxId, {
+			cursorState: MailboxCursorState.rebuilding,
+		});
+
+		const connection = this.connectionFactory.getConnection();
+		const box = await connection.openBox(mailboxPath);
+		const allUids = await connection.search(["ALL"]);
+		const snapshots = await connection.fetchEnvelopeSnapshots(allUids);
+		const serverSnapshots: CursorRebuildSnapshot[] = snapshots.map((s) => ({
+			uid: s.uid,
+			messageId: s.messageId,
+			internalDate: s.internalDate.getTime(),
+		}));
+
+		const existingRows = await this.listExistingCursorRows(
+			accountConfigId,
+			mailboxId,
+		);
+
+		const { matched, newUids, staleMessageIds } = matchCursorRebuild(
+			serverSnapshots,
+			existingRows,
+		);
+
+		// Bounded concurrency (mirrors MESSAGE_SAVE_CONCURRENCY below) — a
+		// sequential loop over a large mailbox's full match set risked the
+		// Lambda timeout on its own, independent of the fetch-size question
+		// (#1272 review, non-blocking finding).
+		await pMap(
+			matched,
+			async ({ messageId, newUid, threadMessage }) => {
+				await this.unitOfWork.transaction((repos) =>
+					repos.message.updateUid(messageId, newUid, mailboxId),
+				);
+				// Rewrite the denormalized ThreadMessage.uid alongside Message.uid —
+				// a normal move keeps both in sync (see buildThreadMessageMoveUpdate
+				// in message-move.ts), and the rebuild must too, or a resumed
+				// rebuild re-emits a no-op rewrite forever (listExistingCursorRows
+				// reads uid from ThreadMessage) and any reader of the list
+				// projection sees a stale UID.
+				if (threadMessage) {
+					await this.unitOfWork.transaction((repos) =>
+						repos.threadMessage.update(
+							threadMessage.accountConfigId,
+							threadMessage.threadMessageId,
+							{ uid: newUid },
+							{
+								composites: {
+									sentDate: threadMessage.sentDate,
+									mailboxId: threadMessage.mailboxId,
+									isRead: threadMessage.isRead,
+									isDeleted: threadMessage.isDeleted,
+									hasStars: threadMessage.hasStars,
+									hasAttachment: threadMessage.hasAttachment,
+								},
+							},
+						),
+					);
+				}
+			},
+			{ concurrency: MESSAGE_SAVE_CONCURRENCY },
+		);
+
+		await pMap(
+			staleMessageIds,
+			(messageId) =>
+				this.unitOfWork.transaction((repos) =>
+					reconcileStaleMessage(
+						{
+							messageService: repos.message,
+							threadMessageService: repos.threadMessage,
+						},
+						accountConfigId,
+						messageId,
+					),
+				),
+			{ concurrency: MESSAGE_SAVE_CONCURRENCY },
+		);
+
+		const newMessages =
+			newUids.length > 0 ? await this.fetchMessageBatch(newUids) : [];
+		const outcomes = await pMap(
+			newMessages,
+			(msg) => this.trySaveMessage(mailboxId, accountId, accountConfigId, msg),
+			{ concurrency: MESSAGE_SAVE_CONCURRENCY },
+		);
+		const syncedMessages: SyncedMessage[] = outcomes.flatMap((o) =>
+			o.kind === "saved" && o.result !== null && o.result.owned
+				? [{ messageId: o.result.messageId, uid: o.result.uid }]
+				: [],
+		);
+
+		const serverUids = serverSnapshots.map((s) => s.uid);
+		const status = await connection.getMailboxStatus(mailboxPath);
+
+		await this.mailboxService.update(accountId, mailboxId, {
+			cursorState: MailboxCursorState.normal,
+			uidValidity: box.uidvalidity,
+			highWaterMarkUid: serverUids.length > 0 ? Math.max(...serverUids) : 0,
+			lastSyncUid: serverUids.length > 0 ? Math.min(...serverUids) : 0,
+			highestModseq: status.highestModseq,
+			lastMessageSyncAt: Date.now(),
+			messageCount: status.messages,
+			unseenCount: status.unseen,
+			deletedCount: status.deletedCount,
+		});
+
+		this.log.info(
+			{
+				mailboxId,
+				mailboxPath,
+				matched: matched.length,
+				newMessages: syncedMessages.length,
+				stale: staleMessageIds.length,
+			},
+			"Mailbox cursor rebuild complete; returned to normal",
+		);
+
+		return {
+			syncedCount: syncedMessages.length,
+			syncedMessageIds: syncedMessages.map((m) => m.messageId),
+			syncedMessages,
+			hasMore: false,
+			remainingCount: 0,
+		};
+	}
+
+	/**
+	 * Page through every ThreadMessage row for this mailbox, projecting just
+	 * the fields {@link matchCursorRebuild} needs. ThreadMessage (not
+	 * Message) is the read source: it already denormalizes `messageIdHeader`
+	 * and `internalDate` alongside `uid`, so this needs no per-row Envelope
+	 * lookup.
+	 */
+	private async listExistingCursorRows(
+		accountConfigId: string,
+		mailboxId: string,
+	): Promise<CursorRebuildRow[]> {
+		const rows: CursorRebuildRow[] = [];
+		let continuationToken: string | undefined;
+
+		do {
+			const result = await this.threadMessageService.listByMailbox(
+				accountConfigId,
+				mailboxId,
+				{
+					continuationToken,
+					attributes: [
+						"messageId",
+						"messageIdHeader",
+						"internalDate",
+						"uid",
+						"accountConfigId",
+						"threadMessageId",
+						"sentDate",
+						"mailboxId",
+						"isRead",
+						"isDeleted",
+						"hasStars",
+						"hasAttachment",
+					],
+				},
+			);
+			for (const row of result.items) {
+				rows.push({
+					messageId: row.messageId,
+					messageIdHeader: row.messageIdHeader ?? "",
+					internalDate: row.internalDate,
+					uid: row.uid,
+					// Carried so a match can also rewrite ThreadMessage.uid (a normal
+					// move keeps both in sync — the rebuild must too, or #1271's
+					// push-time UID resolution can read a stale projection).
+					threadMessage: {
+						accountConfigId: row.accountConfigId,
+						threadMessageId: row.threadMessageId,
+						sentDate: row.sentDate,
+						mailboxId: row.mailboxId,
+						isRead: row.isRead,
+						isDeleted: row.isDeleted,
+						hasStars: row.hasStars,
+						hasAttachment: row.hasAttachment,
+					},
+				});
+			}
+			continuationToken = result.continuationToken;
+		} while (continuationToken);
+
+		return rows;
 	}
 
 	/**
