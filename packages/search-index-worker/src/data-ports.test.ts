@@ -1,0 +1,80 @@
+import assert from "node:assert/strict";
+import { afterEach, test } from "node:test";
+import { buildDataPortsFromEnv } from "./data-ports.js";
+
+const withEnv = async (
+	overrides: Record<string, string | undefined>,
+	fn: () => Promise<void>,
+): Promise<void> => {
+	const saved: Record<string, string | undefined> = {};
+	for (const key of Object.keys(overrides)) saved[key] = process.env[key];
+	for (const [key, value] of Object.entries(overrides)) {
+		if (value === undefined) delete process.env[key];
+		else process.env[key] = value;
+	}
+	try {
+		await fn();
+	} finally {
+		for (const [key, value] of Object.entries(saved)) {
+			if (value === undefined) delete process.env[key];
+			else process.env[key] = value;
+		}
+	}
+};
+
+afterEach(() => {
+	delete process.env.DATA_BACKEND;
+});
+
+test("without DATA_BACKEND builds DynamoDB (electrodb) ports and no resolveAccountId hook", async () => {
+	await withEnv(
+		{ DATA_BACKEND: undefined, DYNAMODB_TABLE_NAME: "remit-test" },
+		async () => {
+			const ports = await buildDataPortsFromEnv();
+			assert.ok(ports.account, "account port must be defined");
+			assert.ok(ports.threadMessage, "threadMessage port must be defined");
+			assert.equal(
+				ports.resolveAccountId,
+				undefined,
+				"DynamoDB messages already carry a real accountId — no resolution hook",
+			);
+		},
+	);
+});
+
+test("without DATA_BACKEND and no DYNAMODB_TABLE_NAME throws", async () => {
+	await withEnv(
+		{ DATA_BACKEND: undefined, DYNAMODB_TABLE_NAME: undefined },
+		async () => {
+			await assert.rejects(() => buildDataPortsFromEnv());
+		},
+	);
+});
+
+test("DATA_BACKEND=postgres builds Drizzle ports with a resolveAccountId hook, without connecting", async () => {
+	await withEnv(
+		{
+			DATA_BACKEND: "postgres",
+			PG_CONNECTION_URL: "postgresql://remit:remit@localhost:5432/remit_test",
+		},
+		async () => {
+			const ports = await buildDataPortsFromEnv();
+			assert.ok(ports.account, "account port must be defined");
+			assert.ok(ports.threadMessage, "threadMessage port must be defined");
+			assert.equal(
+				typeof ports.resolveAccountId,
+				"function",
+				"the pg outbox relay carries no accountId, so the consumer must derive it",
+			);
+		},
+	);
+});
+
+test("DATA_BACKEND=postgres without PG_CONNECTION_URL throws", async () => {
+	await withEnv(
+		{ DATA_BACKEND: "postgres", PG_CONNECTION_URL: undefined },
+		async () => {
+			await assert.rejects(() => buildDataPortsFromEnv());
+		},
+	);
+});
