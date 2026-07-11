@@ -5,11 +5,32 @@
  * third (`RemitImapSemanticSearchResult`) feeds the semantic "Related" section.
  */
 import type {
+	RemitImapSemanticSearchChunkType,
 	RemitImapSemanticSearchResult,
 	RemitImapThreadMessageResponse,
 } from "@remit/api-http-client/types.gen.ts";
 import type { SearchResult, ThreadRowData } from "@remit/ui";
 import { formatEmailDate } from "./format.js";
+
+/**
+ * Plain-language label for the `matched: …` chip, so the user understands why
+ * a "Related" hit matched (#428). Falls back to the raw chunk type for any
+ * value the backend adds later that the client doesn't know about yet.
+ */
+const MATCHED_CHUNK_LABELS: Record<RemitImapSemanticSearchChunkType, string> = {
+	sender: "sender",
+	recipient: "recipient",
+	subject: "subject",
+	attachment: "attachment",
+	body: "body",
+	entities: "entities",
+};
+
+export function matchedChunkLabel(
+	chunkType: RemitImapSemanticSearchChunkType,
+): string {
+	return MATCHED_CHUNK_LABELS[chunkType] ?? chunkType;
+}
 
 export function threadToSearchResult(
 	thread: RemitImapThreadMessageResponse,
@@ -55,6 +76,8 @@ export function semanticToSearchResult(
 		snippet: "",
 		date: hit.sentDate != null ? formatEmailDate(hit.sentDate * 1000) : "",
 		threadId: hit.threadId,
+		matchedChunkLabel: matchedChunkLabel(hit.matchedChunkType),
+		score: hit.score,
 		...(hit.mailboxIds[0] != null ? { mailboxId: hit.mailboxIds[0] } : {}),
 	};
 }

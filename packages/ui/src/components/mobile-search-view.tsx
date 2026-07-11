@@ -28,6 +28,8 @@ export interface MobileSearchViewProps {
 	sections?: SearchResultSection[];
 	loading?: boolean;
 	onSelectResult?: (result: SearchResult) => void;
+	/** Active filter-token chips parsed from the query; see `SearchResultsProps`. */
+	tokens?: { label: string; onRemove: () => void }[];
 }
 
 /**
@@ -52,6 +54,7 @@ export function MobileSearchView({
 	sections,
 	loading,
 	onSelectResult,
+	tokens,
 }: MobileSearchViewProps) {
 	const body = (
 		<SearchResults
@@ -61,6 +64,7 @@ export function MobileSearchView({
 			sections={sections}
 			loading={loading}
 			onSelectResult={onSelectResult}
+			tokens={tokens}
 		/>
 	);
 

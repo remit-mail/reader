@@ -27,6 +27,15 @@ export interface SearchResult {
 	threadId?: string;
 	/** The mailbox the result lives in; paired with {@link threadId} to open it. */
 	mailboxId?: string;
+	/**
+	 * Why a semantic ("Related") hit matched — a plain-language label derived
+	 * from `matchedChunkType` (e.g. "body", "subject", "attachment"), so the user
+	 * understands why the result showed up. Absent for literal "Top matches"
+	 * rows, which match by construction.
+	 */
+	matchedChunkLabel?: string;
+	/** Relevance figure (0–1) from the semantic engine; rendered beside the chip. */
+	score?: number;
 }
 
 export interface SearchResultRowProps {
@@ -113,6 +122,16 @@ export function SearchResultRow({
 					<Badge tone={result.category.tone ?? "neutral"} className="shrink-0">
 						{result.category.label}
 					</Badge>
+				)}
+				{result.matchedChunkLabel && (
+					<Badge tone="neutral" className="shrink-0">
+						{`matched: ${result.matchedChunkLabel}`}
+					</Badge>
+				)}
+				{result.score != null && (
+					<span className="shrink-0 text-2xs text-fg-subtle tabular-nums">
+						{result.score.toFixed(2)}
+					</span>
 				)}
 			</div>
 		</button>

@@ -105,6 +105,7 @@ import {
 	relatedSearchResults,
 	threadToSearchResult,
 } from "@/lib/search-result";
+import { parseSearchTokens } from "@/lib/search-tokens";
 import { useTelemetry } from "@/lib/telemetry-context";
 import { MailViewChrome } from "./MailViewChrome";
 
@@ -246,11 +247,30 @@ function MailboxPaneProvider({
 
 	const normalizedSearchQuery = normalizeSearchQuery(searchQuery);
 	const hasSearchQuery = normalizedSearchQuery.length > 0;
+	// Filter tokens (`from:`, `has:attachment`, `is:unread`) narrow this literal
+	// search to the params `threadOperationsSearchThreads` supports; `before:`/
+	// `after:` have no equivalent on this endpoint and are left for the semantic
+	// section only (see `useSemanticSearch`).
+	const { freeText, tokens: searchTokens } = parseSearchTokens(
+		normalizedSearchQuery,
+	);
+	const fromToken = searchTokens.find((t) => t.type === "from");
+	const searchThreadsQuery = {
+		order: "desc" as const,
+		...(freeText ? { query: freeText } : {}),
+		...(fromToken ? { from: fromToken.value } : {}),
+		...(searchTokens.some((t) => t.type === "hasAttachment")
+			? { attachments: true }
+			: {}),
+		...(searchTokens.some((t) => t.type === "isUnread")
+			? { unread: true }
+			: {}),
+	};
 
 	const queryKey = hasSearchQuery
 		? threadOperationsSearchThreadsQueryKey({
 				path: { mailboxId },
-				query: { order: "desc", query: normalizedSearchQuery },
+				query: searchThreadsQuery,
 			})
 		: threadOperationsListThreadsQueryKey({
 				path: { mailboxId },
@@ -273,8 +293,7 @@ function MailboxPaneProvider({
 				const { data } = await threadOperationsSearchThreads({
 					path: { mailboxId },
 					query: {
-						order: "desc",
-						query: normalizedSearchQuery,
+						...searchThreadsQuery,
 						continuationToken: pageParam,
 					},
 					throwOnError: true,

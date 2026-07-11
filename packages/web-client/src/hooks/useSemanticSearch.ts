@@ -4,6 +4,7 @@ import { MessageCategory } from "@remit/domain-enums";
 import { useQuery } from "@tanstack/react-query";
 import { useMailContext } from "@/lib/mail-context";
 import { normalizeSearchQuery } from "@/lib/search-query";
+import { parseSearchTokens } from "@/lib/search-tokens";
 
 /** Cap the "Related" section; the literal "Top matches" is the primary surface. */
 const SEMANTIC_RESULT_LIMIT = 20;
@@ -36,6 +37,12 @@ interface UseSemanticSearchParams {
  * debounced `searchQuery` in `MailContext`). Scoping mirrors the literal search:
  * pass `mailboxId` for a scoped inbox, omit it for the global brief. Disabled
  * until the query is non-empty so an empty field issues no request.
+ *
+ * Filter tokens (`has:attachment`, `is:unread`, `before:`/`after:`) parsed from
+ * the query map onto the search API's own filter params. `from:` has no
+ * equivalent on `GET /search/semantic` (no sender filter) — the token still
+ * renders as a chip and narrows the literal engine, but it never reaches the
+ * semantic request.
  */
 export function useSemanticSearch({
 	mailboxId,
@@ -45,18 +52,29 @@ export function useSemanticSearch({
 	isLoading: boolean;
 } {
 	const { searchQuery } = useMailContext();
-	const query = normalizeSearchQuery(searchQuery);
-	const enabled = query.length > 0;
+	const normalizedQuery = normalizeSearchQuery(searchQuery);
+	const { freeText, tokens } = parseSearchTokens(normalizedQuery);
+	const enabled = normalizedQuery.length > 0;
 
 	const category = toCategoryParam(filterCategory);
+	const hasAttachment = tokens.some((t) => t.type === "hasAttachment")
+		? true
+		: undefined;
+	const isRead = tokens.some((t) => t.type === "isUnread") ? false : undefined;
+	const afterToken = tokens.find((t) => t.type === "after");
+	const beforeToken = tokens.find((t) => t.type === "before");
 
 	const { data, isLoading } = useQuery({
 		...semanticSearchOperationsSemanticSearchOptions({
 			query: {
-				query,
+				query: freeText,
 				mailboxId,
 				limit: SEMANTIC_RESULT_LIMIT,
 				...(category !== undefined ? { category } : {}),
+				...(hasAttachment !== undefined ? { hasAttachment } : {}),
+				...(isRead !== undefined ? { isRead } : {}),
+				...(afterToken ? { sentDateFrom: afterToken.epochSeconds } : {}),
+				...(beforeToken ? { sentDateTo: beforeToken.epochSeconds } : {}),
 			},
 		}),
 		enabled,
