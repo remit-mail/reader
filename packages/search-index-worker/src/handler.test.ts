@@ -1054,4 +1054,148 @@ describe("search-index-worker handler", () => {
 
 		threadMessages.clear();
 	});
+
+	test("resolveAccountId hook (Postgres path) overrides the message's own accountId", async () => {
+		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID });
+		const store = createMemoryVectorStore();
+		const embedder = createDeterministicEmbeddingService();
+		const searchService = createSearchService({ embedder, store });
+		const storageService = createMockStorageService();
+
+		threadMessages.set(MESSAGE_ID, makeThreadMessage(MESSAGE_ID));
+		await storageService.storeParsedBody({
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			accountId: ACCOUNT_ID,
+			messageId: MESSAGE_ID,
+			parsed: { text: "Resolved via hook", html: null, attachments: [] },
+		});
+
+		const services: Services = {
+			...createTestServices(storageService, searchService),
+			resolveAccountId: async () => ACCOUNT_ID,
+		};
+		// The message's own accountId is a placeholder the pg relay can't fill
+		// in — the hook must win.
+		const msg = makeSearchIndexMessage({
+			messageId: MESSAGE_ID,
+			accountId: "placeholder-not-a-real-account",
+		});
+
+		const result = await processBatch([makeRecord(msg)], services, noopLogger);
+
+		assert.equal(result.batchItemFailures.length, 0);
+		assert.ok(store.size() > 0, "resolved accountId must drive the lookup");
+
+		threadMessages.clear();
+		accounts.clear();
+	});
+
+	test("resolveAccountId hook returning null skips without failure", async () => {
+		const store = createMemoryVectorStore();
+		const embedder = createDeterministicEmbeddingService();
+		const searchService = createSearchService({ embedder, store });
+		const storageService = createMockStorageService();
+
+		threadMessages.set(MESSAGE_ID, makeThreadMessage(MESSAGE_ID));
+
+		const services: Services = {
+			...createTestServices(storageService, searchService),
+			resolveAccountId: async () => null,
+		};
+		const msg = makeSearchIndexMessage({ messageId: MESSAGE_ID });
+
+		const result = await processBatch(
+			[makeRecord(msg, "sqs-unresolved")],
+			services,
+			noopLogger,
+		);
+
+		assert.equal(
+			result.batchItemFailures.length,
+			0,
+			"an unresolvable mailbox is skipped, not failed",
+		);
+		assert.equal(store.size(), 0);
+
+		threadMessages.clear();
+	});
+
+	test("onIndexOutcome fires 'indexed' with the upsert counts", async () => {
+		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID });
+		const store = createMemoryVectorStore();
+		const embedder = createDeterministicEmbeddingService();
+		const searchService = createSearchService({ embedder, store });
+		const storageService = createMockStorageService();
+
+		threadMessages.set(MESSAGE_ID, makeThreadMessage(MESSAGE_ID));
+		await storageService.storeParsedBody({
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			accountId: ACCOUNT_ID,
+			messageId: MESSAGE_ID,
+			parsed: { text: "Stats hook content", html: null, attachments: [] },
+		});
+
+		const outcomes: unknown[] = [];
+		const services: Services = {
+			...createTestServices(storageService, searchService),
+			onIndexOutcome: (outcome) => outcomes.push(outcome),
+		};
+		const msg = makeSearchIndexMessage({ messageId: MESSAGE_ID });
+
+		await processBatch([makeRecord(msg)], services, noopLogger);
+
+		assert.equal(outcomes.length, 1);
+		assert.deepEqual((outcomes[0] as { status: string }).status, "indexed");
+
+		threadMessages.clear();
+		accounts.clear();
+	});
+
+	test("onIndexOutcome fires a terminal skip for no indexable content", async () => {
+		accounts.set(ACCOUNT_ID, { accountId: ACCOUNT_ID });
+		const store = createMemoryVectorStore();
+		const embedder = createDeterministicEmbeddingService();
+		const baseSearchService = createSearchService({ embedder, store });
+		const storageService = createMockStorageService();
+
+		threadMessages.set(MESSAGE_ID, makeThreadMessage(MESSAGE_ID));
+		await storageService.storeParsedBody({
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			accountId: ACCOUNT_ID,
+			messageId: MESSAGE_ID,
+			parsed: {
+				text: "Body that would normally chunk",
+				html: null,
+				attachments: [],
+			},
+		});
+
+		// prepareVectors always includes at least a sender chunk in practice —
+		// force the zero-chunk branch directly, the same way other tests here
+		// force S3 Vectors errors, to prove the outcome hook without depending
+		// on chunker internals.
+		const emptySearchService: SearchService = {
+			...baseSearchService,
+			prepareVectors: async () => [],
+		};
+
+		const outcomes: unknown[] = [];
+		const services: Services = {
+			...createTestServices(storageService, emptySearchService),
+			onIndexOutcome: (outcome) => outcomes.push(outcome),
+		};
+		const msg = makeSearchIndexMessage({ messageId: MESSAGE_ID });
+
+		await processBatch([makeRecord(msg)], services, noopLogger);
+
+		assert.equal(outcomes.length, 1);
+		assert.deepEqual(outcomes[0], {
+			status: "skipped",
+			reason: "no-indexable-content",
+			retryable: false,
+		});
+
+		threadMessages.clear();
+		accounts.clear();
+	});
 });

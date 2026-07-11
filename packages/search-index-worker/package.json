@@ -11,18 +11,29 @@
 	},
 	"scripts": {
 		"test:typecheck": "tsgo --noEmit",
-		"test:run": "node --env-file=../../localhost-test-unit.env --test 'src/**/*.test.ts'",
+		"test:run": "node --env-file=../../localhost-test-unit.env --import tsx --test 'src/**/*.test.ts'",
+		"test:integ": "RUN_INTEG_TESTS=1 node --env-file=../../localhost-test-unit.env --import tsx --test 'src/**/*.integ.test.ts'",
 		"test": "npm run test:typecheck && npm run test:run"
+	},
+	"dependencies": {
+		"p-map": "*",
+		"pg": "^8.0.0"
 	},
 	"devDependencies": {
 		"@aws-sdk/client-dynamodb": "*",
 		"@aws-sdk/client-sqs": "*",
+		"@aws-sdk/core": "*",
 		"@aws-sdk/lib-dynamodb": "*",
+		"@remit/data-ports": "*",
+		"@remit/drizzle-service": "*",
 		"@remit/remit-electrodb-service": "*",
 		"@remit/remit-logger-lambda": "*",
 		"@remit/search-service": "*",
+		"@remit/sqs-client": "*",
 		"@remit/storage-service": "*",
 		"@types/aws-lambda": "*",
+		"@types/pg": "^8.0.0",
+		"tsx": "*",
 		"zod": "*"
 	}
 }
