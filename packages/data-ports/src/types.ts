@@ -8,11 +8,15 @@ import type {
 	BodyPartStorageSchema,
 	EnvelopeAddressSchema,
 	EnvelopeSchema,
+	FilterAnchorSchema,
+	FilterSchema,
+	LabelSchema,
 	MailboxLockSchema,
 	MailboxSchema,
 	MailboxSpecialUseEntrySchema,
 	MailboxSpecialUseSchema,
 	MessageFlagSchema,
+	MessageLabelSchema,
 	MessageSchema,
 	OutboxMessageSchema,
 	RawMessageStorageSchema,
@@ -70,6 +74,10 @@ export type MailboxSpecialUseItem = z.infer<
 	typeof MailboxSpecialUseEntrySchema
 >;
 export type AddressItem = z.infer<typeof AddressSchema>;
+export type LabelItem = z.infer<typeof LabelSchema>;
+export type MessageLabelItem = z.infer<typeof MessageLabelSchema>;
+export type FilterItem = z.infer<typeof FilterSchema>;
+export type FilterAnchorItem = z.infer<typeof FilterAnchorSchema>;
 
 export type MailboxSpecialUseValue = z.infer<typeof MailboxSpecialUseSchema>;
 
@@ -392,3 +400,50 @@ export type SearchOptions = {
 	starred?: boolean;
 	attachments?: boolean;
 };
+
+export type CreateLabelInput = Omit<
+	LabelItem,
+	"labelId" | "normalizedName" | "createdAt" | "updatedAt" | "color"
+> & { color?: LabelItem["color"] };
+
+export type UpdateLabelInput = Partial<
+	Pick<LabelItem, "name" | "normalizedName" | "color">
+>;
+
+export type CreateMessageLabelInput = Omit<
+	MessageLabelItem,
+	"messageLabelId" | "createdAt" | "updatedAt" | "appliedByFilterId"
+> & { appliedByFilterId?: MessageLabelItem["appliedByFilterId"] };
+
+export type CreateFilterInput = Omit<
+	FilterItem,
+	| "filterId"
+	| "createdAt"
+	| "updatedAt"
+	| "state"
+	| "hasAnchor"
+	| "ruleChangedAt"
+	| "matchOperator"
+	| "literalClauses"
+	| "actionLabelId"
+	| "actionMailboxId"
+> & {
+	state?: FilterItem["state"];
+	hasAnchor?: FilterItem["hasAnchor"];
+	matchOperator?: FilterItem["matchOperator"];
+	literalClauses?: FilterItem["literalClauses"];
+	actionLabelId?: FilterItem["actionLabelId"];
+	actionMailboxId?: FilterItem["actionMailboxId"];
+};
+
+// ruleChangedAt is never client-supplied: FilterService derives it, bumping
+// only when a predicate/action field is present in the update (RFC 034
+// Decision 3.2) — a cosmetic `name` rename must not move it.
+export type UpdateFilterInput = Partial<
+	Omit<CreateFilterInput, "accountConfigId" | "scope">
+>;
+
+export type CreateFilterAnchorInput = Omit<
+	FilterAnchorItem,
+	"createdAt" | "updatedAt"
+>;
