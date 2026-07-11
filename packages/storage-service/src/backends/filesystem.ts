@@ -1,6 +1,13 @@
 import { createHash } from "node:crypto";
 import { createWriteStream } from "node:fs";
-import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	readdir,
+	readFile,
+	stat,
+	unlink,
+	writeFile,
+} from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { PassThrough, Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -15,6 +22,9 @@ import {
 	buildBodyPartKey,
 	buildDeduplicatedKey,
 	buildExportArchiveKey,
+	buildExtractedPrefix,
+	buildExtractedSkippedKey,
+	buildExtractedTextKey,
 	buildMessageBodyKey,
 	buildParsedBodyKey,
 	computeChecksum,
@@ -120,6 +130,128 @@ export const createFilesystemStorageService = (
 			.catch(() => false);
 	};
 
+	const retrieveBodyPart: StorageService["retrieveBodyPart"] = async (
+		accountConfigId,
+		accountId,
+		messageId,
+		partPath,
+	) => {
+		const key = buildBodyPartKey(
+			accountConfigId,
+			accountId,
+			messageId,
+			partPath,
+		);
+		const fullPath = join(basePath, key);
+		const buffer = await readFile(fullPath).catch((error: unknown) => {
+			if (isStorageNotFoundError(error)) return null;
+			throw error;
+		});
+		if (!buffer) return null;
+		return buffer[0] === 0x1f && buffer[1] === 0x8b
+			? gunzipSync(buffer)
+			: buffer;
+	};
+
+	const storeExtractedText: StorageService["storeExtractedText"] = (params) => {
+		const { accountConfigId, accountId, messageId, partPath, text } = params;
+		return storeInternal({
+			key: buildExtractedTextKey(
+				accountConfigId,
+				accountId,
+				messageId,
+				partPath,
+			),
+			content: Buffer.from(text, "utf8"),
+		});
+	};
+
+	const storeExtractedSkipped: StorageService["storeExtractedSkipped"] = (
+		params,
+	) => {
+		const { accountConfigId, accountId, messageId, partPath, marker } = params;
+		return storeInternal({
+			key: buildExtractedSkippedKey(
+				accountConfigId,
+				accountId,
+				messageId,
+				partPath,
+			),
+			content: Buffer.from(JSON.stringify(marker), "utf8"),
+			compress: false,
+		});
+	};
+
+	const extractedResultExists: StorageService["extractedResultExists"] = async (
+		accountConfigId,
+		accountId,
+		messageId,
+		partPath,
+	) => {
+		const textPath = join(
+			basePath,
+			buildExtractedTextKey(accountConfigId, accountId, messageId, partPath),
+		);
+		const skippedPath = join(
+			basePath,
+			buildExtractedSkippedKey(accountConfigId, accountId, messageId, partPath),
+		);
+		const exists = (fullPath: string): Promise<boolean> =>
+			stat(fullPath)
+				.then(() => true)
+				.catch(() => false);
+
+		const [textExists, skippedExists] = await Promise.all([
+			exists(textPath),
+			exists(skippedPath),
+		]);
+		return textExists || skippedExists;
+	};
+
+	const retrieveExtractedText: StorageService["retrieveExtractedText"] = async (
+		accountConfigId,
+		accountId,
+		messageId,
+		partPath,
+	) => {
+		const fullPath = join(
+			basePath,
+			buildExtractedTextKey(accountConfigId, accountId, messageId, partPath),
+		);
+		const buffer = await readFile(fullPath).catch((error: unknown) => {
+			if (isStorageNotFoundError(error)) return null;
+			throw error;
+		});
+		if (!buffer) return null;
+		const decoded =
+			buffer[0] === 0x1f && buffer[1] === 0x8b ? gunzipSync(buffer) : buffer;
+		return decoded.toString("utf8");
+	};
+
+	const listExtractedTexts: StorageService["listExtractedTexts"] = async (
+		accountConfigId,
+		accountId,
+		messageId,
+	) => {
+		const prefix = buildExtractedPrefix(accountConfigId, accountId, messageId);
+		const suffix = ".txt.gz";
+		const dirPath = join(basePath, prefix);
+
+		const entries = await readdir(dirPath, { recursive: true }).catch(
+			(error: unknown) => {
+				if (isStorageNotFoundError(error)) return [];
+				throw error;
+			},
+		);
+
+		return entries
+			.filter((entry) => entry.endsWith(suffix))
+			.map((entry) => ({
+				partPath: entry.slice(0, -suffix.length),
+				key: `${prefix}${entry}`,
+			}));
+	};
+
 	const storeDeduplicated: StorageService["storeDeduplicated"] = (params) => {
 		const { accountConfigId, accountId, content } = params;
 		const checksumSha256 = computeChecksum(content);
@@ -205,9 +337,15 @@ export const createFilesystemStorageService = (
 		storeMessageBodyStream,
 		storeBodyPart,
 		bodyPartExists,
+		retrieveBodyPart,
 		storeDeduplicated,
 		storeParsedBody,
 		retrieveParsedBody,
+		storeExtractedText,
+		storeExtractedSkipped,
+		extractedResultExists,
+		retrieveExtractedText,
+		listExtractedTexts,
 		retrieveMessageBody: async (accountConfigId, accountId, messageId) => {
 			const key = buildMessageBodyKey(accountConfigId, accountId, messageId);
 			const fullPath = join(basePath, key);

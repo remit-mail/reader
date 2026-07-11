@@ -6,6 +6,7 @@ import {
 	DeleteObjectCommand,
 	GetObjectCommand,
 	HeadObjectCommand,
+	ListObjectsV2Command,
 	PutObjectCommand,
 	type S3Client,
 } from "@aws-sdk/client-s3";
@@ -13,6 +14,7 @@ import { Upload } from "@aws-sdk/lib-storage";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { ContentEncoding, StorageType } from "@remit/domain-enums";
 import type {
+	ExtractedTextListItem,
 	ParsedBody,
 	StorageReference,
 	StorageService,
@@ -21,6 +23,9 @@ import {
 	buildBodyPartKey,
 	buildDeduplicatedKey,
 	buildExportArchiveKey,
+	buildExtractedPrefix,
+	buildExtractedSkippedKey,
+	buildExtractedTextKey,
 	buildMessageBodyKey,
 	buildParsedBodyKey,
 	computeChecksum,
@@ -160,6 +165,164 @@ export const createS3StorageService = (
 			.send(new HeadObjectCommand({ Bucket: bucketName, Key: key }))
 			.then(() => true)
 			.catch(() => false);
+	};
+
+	const retrieveBodyPart: StorageService["retrieveBodyPart"] = async (
+		accountConfigId,
+		accountId,
+		messageId,
+		partPath,
+	) => {
+		const key = buildBodyPartKey(
+			accountConfigId,
+			accountId,
+			messageId,
+			partPath,
+		);
+
+		const response = await client
+			.send(new GetObjectCommand({ Bucket: bucketName, Key: key }))
+			.catch((error: unknown) => {
+				if (isStorageNotFoundError(error)) return null;
+				throw error;
+			});
+
+		if (!response) return null;
+		if (!response.Body) {
+			throw new Error(`Empty response body for body part: ${key}`);
+		}
+
+		const body = await response.Body.transformToByteArray();
+		const buffer = Buffer.from(body);
+		return response.ContentEncoding === "gzip" ? gunzipSync(buffer) : buffer;
+	};
+
+	const storeExtractedText: StorageService["storeExtractedText"] = (params) => {
+		const { accountConfigId, accountId, messageId, partPath, text } = params;
+		return storeInternal({
+			key: buildExtractedTextKey(
+				accountConfigId,
+				accountId,
+				messageId,
+				partPath,
+			),
+			content: Buffer.from(text, "utf8"),
+			contentType: "text/plain; charset=utf-8",
+		});
+	};
+
+	const storeExtractedSkipped: StorageService["storeExtractedSkipped"] = (
+		params,
+	) => {
+		const { accountConfigId, accountId, messageId, partPath, marker } = params;
+		return storeInternal({
+			key: buildExtractedSkippedKey(
+				accountConfigId,
+				accountId,
+				messageId,
+				partPath,
+			),
+			content: Buffer.from(JSON.stringify(marker), "utf8"),
+			contentType: "application/json",
+			compress: false,
+		});
+	};
+
+	const extractedResultExists: StorageService["extractedResultExists"] = async (
+		accountConfigId,
+		accountId,
+		messageId,
+		partPath,
+	) => {
+		const textKey = buildExtractedTextKey(
+			accountConfigId,
+			accountId,
+			messageId,
+			partPath,
+		);
+		const skippedKey = buildExtractedSkippedKey(
+			accountConfigId,
+			accountId,
+			messageId,
+			partPath,
+		);
+
+		const headExists = (key: string): Promise<boolean> =>
+			client
+				.send(new HeadObjectCommand({ Bucket: bucketName, Key: key }))
+				.then(() => true)
+				.catch(() => false);
+
+		const [textExists, skippedExists] = await Promise.all([
+			headExists(textKey),
+			headExists(skippedKey),
+		]);
+		return textExists || skippedExists;
+	};
+
+	const retrieveExtractedText: StorageService["retrieveExtractedText"] = async (
+		accountConfigId,
+		accountId,
+		messageId,
+		partPath,
+	) => {
+		const key = buildExtractedTextKey(
+			accountConfigId,
+			accountId,
+			messageId,
+			partPath,
+		);
+
+		const response = await client
+			.send(new GetObjectCommand({ Bucket: bucketName, Key: key }))
+			.catch((error: unknown) => {
+				if (isStorageNotFoundError(error)) return null;
+				throw error;
+			});
+
+		if (!response) return null;
+		if (!response.Body) {
+			throw new Error(`Empty response body for extracted text: ${key}`);
+		}
+
+		const body = await response.Body.transformToByteArray();
+		const buffer = Buffer.from(body);
+		const decoded =
+			response.ContentEncoding === "gzip" ? gunzipSync(buffer) : buffer;
+		return decoded.toString("utf8");
+	};
+
+	const listExtractedTexts: StorageService["listExtractedTexts"] = async (
+		accountConfigId,
+		accountId,
+		messageId,
+	) => {
+		const prefix = buildExtractedPrefix(accountConfigId, accountId, messageId);
+		const suffix = ".txt.gz";
+		const items: ExtractedTextListItem[] = [];
+		let continuationToken: string | undefined;
+
+		do {
+			const response = await client.send(
+				new ListObjectsV2Command({
+					Bucket: bucketName,
+					Prefix: prefix,
+					ContinuationToken: continuationToken,
+				}),
+			);
+			for (const object of response.Contents ?? []) {
+				if (!object.Key || !object.Key.endsWith(suffix)) continue;
+				items.push({
+					partPath: object.Key.slice(prefix.length, -suffix.length),
+					key: object.Key,
+				});
+			}
+			continuationToken = response.IsTruncated
+				? response.NextContinuationToken
+				: undefined;
+		} while (continuationToken);
+
+		return items;
 	};
 
 	const storeDeduplicated: StorageService["storeDeduplicated"] = (params) => {
@@ -341,9 +504,15 @@ export const createS3StorageService = (
 		storeMessageBodyStream,
 		storeBodyPart,
 		bodyPartExists,
+		retrieveBodyPart,
 		storeDeduplicated,
 		storeParsedBody,
 		retrieveParsedBody,
+		storeExtractedText,
+		storeExtractedSkipped,
+		extractedResultExists,
+		retrieveExtractedText,
+		listExtractedTexts,
 		retrieveMessageBody,
 		retrieveMessageBodyStream,
 		retrieve,
