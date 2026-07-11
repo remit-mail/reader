@@ -24,6 +24,8 @@ const isAppInfoSource = (url) =>
 	url.includes("/remit-web-client/src/lib/app-info.");
 const isRumAdapterSource = (url) =>
 	url.includes("/remit-web-client/src/lib/rum-adapter.");
+const isStaleAccountSyncSource = (url) =>
+	url.includes("/remit-web-client/src/hooks/useStaleAccountSync.");
 
 export const resolve = async (specifier, context, nextResolve) => {
 	const stub = packageStubs.get(specifier);
@@ -60,7 +62,11 @@ export const load = async (url, context, nextLoad) => {
 
 	let transformed = raw;
 
-	if (isAuthSourceUrl(url) || isRumAdapterSource(url)) {
+	if (
+		isAuthSourceUrl(url) ||
+		isRumAdapterSource(url) ||
+		isStaleAccountSyncSource(url)
+	) {
 		transformed = transformed.replaceAll(
 			"import.meta.env",
 			"(globalThis.__VITE_ENV__ ?? {})",

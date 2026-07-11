@@ -6,7 +6,10 @@ import {
 	__peekStaleAccountSyncGuard,
 	__resetStaleAccountSyncGuard,
 	handleBackgroundSyncFailure,
+	hasPollIntervalElapsed,
+	POLL_INTERVAL_MS,
 	STALENESS_THRESHOLD_MS,
+	selectPollableAccountIds,
 	selectStaleAccountIds,
 } from "./useStaleAccountSync.js";
 
@@ -90,6 +93,58 @@ describe("selectStaleAccountIds", () => {
 		const ids = selectStaleAccountIds(
 			[{ accountId: "a-1", lastSyncAt: NOW - STALENESS_THRESHOLD_MS }],
 			NOW,
+		);
+		assert.deepEqual(ids, []);
+	});
+});
+
+describe("POLL_INTERVAL_MS", () => {
+	test("defaults to 5 minutes when VITE_MAILBOX_POLL_INTERVAL_SECONDS is unset in this test run", () => {
+		assert.equal(POLL_INTERVAL_MS, 5 * 60 * 1000);
+	});
+});
+
+describe("hasPollIntervalElapsed", () => {
+	test("is false immediately after a poll", () => {
+		assert.equal(hasPollIntervalElapsed(NOW, NOW, 60_000), false);
+	});
+
+	test("is false before a full interval has elapsed", () => {
+		assert.equal(hasPollIntervalElapsed(NOW, NOW - 59_000, 60_000), false);
+	});
+
+	test("is true exactly at the interval boundary", () => {
+		assert.equal(hasPollIntervalElapsed(NOW, NOW - 60_000, 60_000), true);
+	});
+
+	test("is true once the interval has passed", () => {
+		assert.equal(hasPollIntervalElapsed(NOW, NOW - 61_000, 60_000), true);
+	});
+
+	test("defaults to POLL_INTERVAL_MS when no interval is passed", () => {
+		assert.equal(hasPollIntervalElapsed(NOW, NOW - POLL_INTERVAL_MS - 1), true);
+		assert.equal(
+			hasPollIntervalElapsed(NOW, NOW - POLL_INTERVAL_MS + 1),
+			false,
+		);
+	});
+});
+
+describe("selectPollableAccountIds", () => {
+	test("returns every accountId when nothing is in flight", () => {
+		const ids = selectPollableAccountIds(["a-1", "a-2"], new Set());
+		assert.deepEqual(ids, ["a-1", "a-2"]);
+	});
+
+	test("drops an accountId already in flight (no stacked requests)", () => {
+		const ids = selectPollableAccountIds(["a-1", "a-2"], new Set(["a-1"]));
+		assert.deepEqual(ids, ["a-2"]);
+	});
+
+	test("returns an empty list when every account is in flight", () => {
+		const ids = selectPollableAccountIds(
+			["a-1", "a-2"],
+			new Set(["a-1", "a-2"]),
 		);
 		assert.deepEqual(ids, []);
 	});

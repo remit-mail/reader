@@ -11,6 +11,7 @@ interface ImportMetaEnv {
 	readonly VITE_RUM_IDENTITY_POOL_ID?: string;
 	readonly VITE_AWS_REGION?: string;
 	readonly VITE_DISABLE_DEVTOOLS?: string;
+	readonly VITE_MAILBOX_POLL_INTERVAL_SECONDS?: string;
 }
 
 interface ImportMeta {
