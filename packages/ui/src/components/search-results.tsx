@@ -2,6 +2,7 @@ import { ChevronDown, Clock } from "lucide-react";
 import { useState } from "react";
 import { cn } from "../lib/cn.js";
 import { type SearchResult, SearchResultRow } from "./search-result-row.js";
+import { SearchTokenChips } from "./search-token-chip.js";
 
 /** Rows shown before the "Show N more" expander kicks in. */
 const SECTION_ROW_CAP = 6;
@@ -24,6 +25,13 @@ export interface SearchResultsProps {
 	sections?: SearchResultSection[];
 	loading?: boolean;
 	onSelectResult?: (result: SearchResult) => void;
+	/**
+	 * Active filter-token chips parsed from the query (`from:`, `has:attachment`,
+	 * …), removable. Rendered above the results/loading/empty states so they stay
+	 * visible whatever the query returns; omit or pass an empty array when the
+	 * query has no recognized tokens.
+	 */
+	tokens?: { label: string; onRemove: () => void }[];
 }
 
 /**
@@ -115,6 +123,7 @@ export function SearchResults({
 	sections,
 	loading,
 	onSelectResult,
+	tokens,
 }: SearchResultsProps) {
 	const hasQuery = value.trim().length > 0;
 	const hasResults = (sections ?? []).some(
@@ -151,35 +160,46 @@ export function SearchResults({
 		);
 	}
 
+	const chips = tokens && tokens.length > 0 && (
+		<SearchTokenChips tokens={tokens} />
+	);
+
 	if (loading) {
 		return (
-			<div className="flex flex-col gap-3 px-row-inset py-4">
-				{[0, 1, 2, 3].map((row) => (
-					<div key={row} className="flex flex-col gap-1.5">
-						<div className="h-3 w-1/3 animate-pulse rounded bg-surface-sunken" />
-						<div className="h-3 w-2/3 animate-pulse rounded bg-surface-sunken" />
-						<div className="h-2.5 w-1/2 animate-pulse rounded bg-surface-sunken" />
-					</div>
-				))}
+			<div className="flex flex-col">
+				{chips}
+				<div className="flex flex-col gap-3 px-row-inset py-4">
+					{[0, 1, 2, 3].map((row) => (
+						<div key={row} className="flex flex-col gap-1.5">
+							<div className="h-3 w-1/3 animate-pulse rounded bg-surface-sunken" />
+							<div className="h-3 w-2/3 animate-pulse rounded bg-surface-sunken" />
+							<div className="h-2.5 w-1/2 animate-pulse rounded bg-surface-sunken" />
+						</div>
+					))}
+				</div>
 			</div>
 		);
 	}
 
 	if (!hasResults) {
 		return (
-			<div className="px-row-inset py-10 text-center">
-				<p className="text-sm font-medium text-fg">
-					No matches for &ldquo;{value}&rdquo;
-				</p>
-				<p className="mt-1 text-xs text-fg-subtle">
-					Try a different word, or adjust the filters above.
-				</p>
+			<div className="flex flex-col">
+				{chips}
+				<div className="px-row-inset py-10 text-center">
+					<p className="text-sm font-medium text-fg">
+						No matches for &ldquo;{value}&rdquo;
+					</p>
+					<p className="mt-1 text-xs text-fg-subtle">
+						Try a different word, or adjust the filters above.
+					</p>
+				</div>
 			</div>
 		);
 	}
 
 	return (
 		<div className="flex flex-col">
+			{chips}
 			{sections
 				?.filter((section) => section.results.length > 0)
 				.map((section) => (

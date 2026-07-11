@@ -19,10 +19,15 @@ import { useQuery } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
 import { formatErrorMessage } from "@/components/ui/ErrorState";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
-import { matchesBriefSearch, toThreadRowData } from "@/lib/brief";
+import {
+	matchesBriefSearch,
+	matchesSearchTokens,
+	toThreadRowData,
+} from "@/lib/brief";
 import { buildBugReportContext, buildGitHubIssueUrl } from "@/lib/bug-report";
 import { useMailContext } from "@/lib/mail-context";
 import { rowToSearchResult } from "@/lib/search-result";
+import { parseSearchTokens } from "@/lib/search-tokens";
 import { MailViewChrome } from "./MailViewChrome";
 
 const FILTER_PREDICATES: Record<string, (t: ThreadRowData) => boolean> = {
@@ -72,7 +77,9 @@ export function FlaggedList({
 		staleTime: 60_000,
 	});
 
-	const sq = searchQuery.trim().toLowerCase();
+	const { freeText: sq, tokens: queryTokens } = parseSearchTokens(
+		searchQuery.trim().toLowerCase(),
+	);
 
 	const rows = useMemo<ThreadRowData[]>(() => {
 		const predicates = Array.from(activeFilters)
@@ -85,9 +92,10 @@ export function FlaggedList({
 				(t) =>
 					(selectedCategory === "all" || t.category === selectedCategory) &&
 					predicates.every((p) => p(t)) &&
-					(!sq || matchesBriefSearch(t, sq)),
+					(!sq || matchesBriefSearch(t, sq)) &&
+					matchesSearchTokens(t, queryTokens),
 			);
-	}, [threadsData, selectedCategory, activeFilters, sq]);
+	}, [threadsData, selectedCategory, activeFilters, sq, queryTokens]);
 
 	const preset = useMemo(() => flaggedFilterConfig(), []);
 

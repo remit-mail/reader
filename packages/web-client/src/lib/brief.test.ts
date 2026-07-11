@@ -1,7 +1,12 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
 import type { ThreadRowData } from "@remit/ui";
-import { groupBriefSections, matchesBriefSearch } from "./brief.js";
+import {
+	groupBriefSections,
+	matchesBriefSearch,
+	matchesSearchTokens,
+} from "./brief.js";
+import type { SearchToken } from "./search-tokens.js";
 
 function row(
 	overrides: Partial<ThreadRowData> & Pick<ThreadRowData, "id">,
@@ -216,5 +221,114 @@ describe("matchesBriefSearch", () => {
 
 	test("returns false when query matches nothing", () => {
 		assert.strictEqual(matchesBriefSearch(r, "zyxwvuts"), false);
+	});
+});
+
+describe("matchesSearchTokens", () => {
+	const from = (value: string): SearchToken => ({
+		type: "from",
+		raw: `from:${value}`,
+		value,
+	});
+	const hasAttachment: SearchToken = {
+		type: "hasAttachment",
+		raw: "has:attachment",
+	};
+	const isUnread: SearchToken = { type: "isUnread", raw: "is:unread" };
+	const after = (epochSeconds: number): SearchToken => ({
+		type: "after",
+		raw: "after:x",
+		value: "x",
+		epochSeconds,
+	});
+	const before = (epochSeconds: number): SearchToken => ({
+		type: "before",
+		raw: "before:x",
+		value: "x",
+		epochSeconds,
+	});
+
+	test("returns true with no tokens", () => {
+		assert.strictEqual(matchesSearchTokens(row({ id: "1" }), []), true);
+	});
+
+	test("from: matches fromEmail or fromName, case-insensitively", () => {
+		const r = row({ id: "1", fromEmail: "alice@dhl.com", fromName: "DHL" });
+		assert.strictEqual(matchesSearchTokens(r, [from("DHL")]), true);
+		assert.strictEqual(matchesSearchTokens(r, [from("alice@dhl")]), true);
+		assert.strictEqual(matchesSearchTokens(r, [from("ups")]), false);
+	});
+
+	test("has:attachment requires hasAttachment true", () => {
+		assert.strictEqual(
+			matchesSearchTokens(row({ id: "1", hasAttachment: true }), [
+				hasAttachment,
+			]),
+			true,
+		);
+		assert.strictEqual(
+			matchesSearchTokens(row({ id: "1", hasAttachment: false }), [
+				hasAttachment,
+			]),
+			false,
+		);
+	});
+
+	test("is:unread requires isRead falsy", () => {
+		assert.strictEqual(
+			matchesSearchTokens(row({ id: "1", isRead: false }), [isUnread]),
+			true,
+		);
+		assert.strictEqual(
+			matchesSearchTokens(row({ id: "1", isRead: true }), [isUnread]),
+			false,
+		);
+	});
+
+	test("after:/before: compare against sentDate (ms)", () => {
+		const jan15 = row({
+			id: "1",
+			sentDate: Date.parse("2024-01-15T00:00:00Z"),
+		});
+		assert.strictEqual(
+			matchesSearchTokens(jan15, [
+				after(Date.parse("2024-01-01T00:00:00Z") / 1000),
+			]),
+			true,
+		);
+		assert.strictEqual(
+			matchesSearchTokens(jan15, [
+				before(Date.parse("2024-01-01T00:00:00Z") / 1000),
+			]),
+			false,
+		);
+	});
+
+	test("a date token never matches a row with no sentDate", () => {
+		const r = row({ id: "1" });
+		assert.strictEqual(matchesSearchTokens(r, [after(0)]), false);
+		assert.strictEqual(matchesSearchTokens(r, [before(0)]), false);
+	});
+
+	test("all tokens must match (AND)", () => {
+		const r = row({
+			id: "1",
+			fromEmail: "alice@dhl.com",
+			hasAttachment: true,
+			isRead: false,
+		});
+		assert.strictEqual(
+			matchesSearchTokens(r, [from("dhl"), hasAttachment, isUnread]),
+			true,
+		);
+		assert.strictEqual(
+			matchesSearchTokens(r, [
+				from("dhl"),
+				hasAttachment,
+				isUnread,
+				from("ups"),
+			]),
+			false,
+		);
 	});
 });

@@ -34,6 +34,7 @@ import type {
 } from "@remit/ui";
 import { toDisplayCategory } from "./display-category.js";
 import { formatEmailDate } from "./format.js";
+import type { SearchToken } from "./search-tokens.js";
 
 /**
  * Map a `RemitImapThreadMessageResponse` to the `ThreadRowData` shape used by
@@ -133,4 +134,38 @@ export function matchesBriefSearch(t: ThreadRowData, query: string): boolean {
 		t.subject.toLowerCase().includes(query) ||
 		t.snippet.toLowerCase().includes(query)
 	);
+}
+
+/**
+ * Returns true when `t` satisfies every parsed filter token — the client-side
+ * counterpart of the params `threadOperationsSearchThreads` accepts, applied
+ * over the already-loaded brief/flagged rows (#428). A row without the data a
+ * token needs (e.g. no `sentDate` for `before:`/`after:`) never matches that
+ * token, so it drops out rather than showing under an unverifiable filter.
+ */
+export function matchesSearchTokens(
+	t: ThreadRowData,
+	tokens: SearchToken[],
+): boolean {
+	return tokens.every((token) => {
+		switch (token.type) {
+			case "from": {
+				const needle = token.value.toLowerCase();
+				return (
+					t.fromEmail.toLowerCase().includes(needle) ||
+					t.fromName.toLowerCase().includes(needle)
+				);
+			}
+			case "hasAttachment":
+				return t.hasAttachment === true;
+			case "isUnread":
+				return !t.isRead;
+			case "after":
+				return t.sentDate != null && t.sentDate >= token.epochSeconds * 1000;
+			case "before":
+				return t.sentDate != null && t.sentDate < token.epochSeconds * 1000;
+			default:
+				return false;
+		}
+	});
 }

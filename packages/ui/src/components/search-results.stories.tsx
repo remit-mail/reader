@@ -53,7 +53,8 @@ const related: SearchResult[] = [
 		subject: "Reminder: 2 invoices awaiting payment",
 		snippet: "You have outstanding invoices totalling €430.00.",
 		date: "Feb 20",
-		category: { label: "Reminder", tone: "warning" },
+		matchedChunkLabel: "body",
+		score: 0.92,
 	},
 	{
 		id: "r6",
@@ -61,7 +62,8 @@ const related: SearchResult[] = [
 		subject: "Overdue invoice notice",
 		snippet: "This invoice is now 14 days overdue. Please remit payment.",
 		date: "Feb 12",
-		category: { label: "Overdue", tone: "danger" },
+		matchedChunkLabel: "subject",
+		score: 0.81,
 	},
 ];
 
@@ -107,4 +109,18 @@ export const Loading: Story = {
 /** Empty query: recent searches (the list pane shows the normal list instead). */
 export const Idle: Story = {
 	render: () => <Harness value="" recentSearches={recentSearches} />,
+};
+
+/** Typed filter tokens (`from:`, `has:attachment`, …) render as removable chips above the sections. */
+export const WithFilterTokens: Story = {
+	render: () => (
+		<Harness
+			value="invoice from:stripe.com has:attachment"
+			sections={resultSections}
+			tokens={[
+				{ label: "From: stripe.com", onRemove: () => {} },
+				{ label: "Has attachment", onRemove: () => {} },
+			]}
+		/>
+	),
 };
