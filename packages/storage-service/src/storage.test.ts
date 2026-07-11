@@ -10,6 +10,9 @@ import { createFilesystemStorageService } from "./backends/filesystem.js";
 import {
 	buildBodyPartKey,
 	buildDeduplicatedKey,
+	buildExtractedPrefix,
+	buildExtractedSkippedKey,
+	buildExtractedTextKey,
 	buildMessageBodyKey,
 	buildParsedBodyKey,
 	computeChecksum,
@@ -94,6 +97,38 @@ describe("path builders", () => {
 		assert.strictEqual(segments[0], "accounts");
 		assert.strictEqual(segments[1], "CFG");
 		assert.strictEqual(segments[2], "ACC");
+	});
+
+	test("buildExtractedTextKey nests accountId under accountConfigId and suffixes .txt.gz", () => {
+		const key = buildExtractedTextKey("cfg1", "acc123", "msg456", "1.2");
+		assert.strictEqual(
+			key,
+			"accounts/cfg1/acc123/messages/msg456/extracted/1.2.txt.gz",
+		);
+	});
+
+	test("buildExtractedSkippedKey nests accountId under accountConfigId and suffixes .skipped.json", () => {
+		const key = buildExtractedSkippedKey("cfg1", "acc123", "msg456", "1.2");
+		assert.strictEqual(
+			key,
+			"accounts/cfg1/acc123/messages/msg456/extracted/1.2.skipped.json",
+		);
+	});
+
+	test("buildExtractedTextKey and buildExtractedSkippedKey share the same prefix", () => {
+		const prefix = buildExtractedPrefix("cfg1", "acc123", "msg456");
+		assert.strictEqual(
+			prefix,
+			"accounts/cfg1/acc123/messages/msg456/extracted/",
+		);
+		assert.ok(
+			buildExtractedTextKey("cfg1", "acc123", "msg456", "1").startsWith(prefix),
+		);
+		assert.ok(
+			buildExtractedSkippedKey("cfg1", "acc123", "msg456", "1").startsWith(
+				prefix,
+			),
+		);
 	});
 });
 
@@ -288,6 +323,144 @@ describe("createMockStorageService", () => {
 		const result = await storage.retrieveParsedBody("cfg1", "acc123", "nope");
 		assert.strictEqual(result, null);
 	});
+
+	test("retrieveBodyPart round-trips stored content and returns null on miss", async () => {
+		const storage = createMockStorageService();
+		const content = Buffer.from("attachment bytes");
+
+		await storage.storeBodyPart({
+			accountConfigId: "cfg1",
+			accountId: "acc123",
+			messageId: "msg456",
+			partPath: "1.2",
+			content,
+		});
+
+		const retrieved = await storage.retrieveBodyPart(
+			"cfg1",
+			"acc123",
+			"msg456",
+			"1.2",
+		);
+		assert.deepStrictEqual(retrieved, content);
+
+		const miss = await storage.retrieveBodyPart(
+			"cfg1",
+			"acc123",
+			"msg456",
+			"9",
+		);
+		assert.strictEqual(miss, null);
+	});
+
+	test("storeExtractedText / retrieveExtractedText round-trip", async () => {
+		const storage = createMockStorageService();
+
+		const ref = await storage.storeExtractedText({
+			accountConfigId: "cfg1",
+			accountId: "acc123",
+			messageId: "msg456",
+			partPath: "1.2",
+			text: "extracted attachment text",
+		});
+
+		assert.strictEqual(
+			ref.storageKey,
+			"accounts/cfg1/acc123/messages/msg456/extracted/1.2.txt.gz",
+		);
+
+		const retrieved = await storage.retrieveExtractedText(
+			"cfg1",
+			"acc123",
+			"msg456",
+			"1.2",
+		);
+		assert.strictEqual(retrieved, "extracted attachment text");
+	});
+
+	test("retrieveExtractedText returns null on miss", async () => {
+		const storage = createMockStorageService();
+		const result = await storage.retrieveExtractedText(
+			"cfg1",
+			"acc123",
+			"msg456",
+			"nope",
+		);
+		assert.strictEqual(result, null);
+	});
+
+	test("extractedResultExists is true after either the text artifact or the skip marker is stored", async () => {
+		const storage = createMockStorageService();
+
+		assert.strictEqual(
+			await storage.extractedResultExists("cfg1", "acc123", "msg456", "1"),
+			false,
+		);
+
+		await storage.storeExtractedText({
+			accountConfigId: "cfg1",
+			accountId: "acc123",
+			messageId: "msg456",
+			partPath: "1",
+			text: "hi",
+		});
+		assert.strictEqual(
+			await storage.extractedResultExists("cfg1", "acc123", "msg456", "1"),
+			true,
+		);
+
+		await storage.storeExtractedSkipped({
+			accountConfigId: "cfg1",
+			accountId: "acc123",
+			messageId: "msg456",
+			partPath: "2",
+			marker: { status: "skipped", reason: "type-not-allowed" },
+		});
+		assert.strictEqual(
+			await storage.extractedResultExists("cfg1", "acc123", "msg456", "2"),
+			true,
+		);
+	});
+
+	test("listExtractedTexts returns only .txt.gz artifacts, not skip markers", async () => {
+		const storage = createMockStorageService();
+
+		await storage.storeExtractedText({
+			accountConfigId: "cfg1",
+			accountId: "acc123",
+			messageId: "msg456",
+			partPath: "1",
+			text: "first",
+		});
+		await storage.storeExtractedText({
+			accountConfigId: "cfg1",
+			accountId: "acc123",
+			messageId: "msg456",
+			partPath: "2.1",
+			text: "second",
+		});
+		await storage.storeExtractedSkipped({
+			accountConfigId: "cfg1",
+			accountId: "acc123",
+			messageId: "msg456",
+			partPath: "3",
+			marker: { status: "failed", reason: "pdf: corrupt" },
+		});
+		// A different message must not leak into the list.
+		await storage.storeExtractedText({
+			accountConfigId: "cfg1",
+			accountId: "acc123",
+			messageId: "other-msg",
+			partPath: "1",
+			text: "unrelated",
+		});
+
+		const items = await storage.listExtractedTexts("cfg1", "acc123", "msg456");
+		assert.deepStrictEqual(items.map((i) => i.partPath).sort(), ["1", "2.1"]);
+		for (const item of items) {
+			assert.ok(item.key.endsWith(".txt.gz"));
+		}
+	});
 });
 
 describe("createFilesystemStorageService", () => {
@@ -444,6 +617,131 @@ describe("createFilesystemStorageService", () => {
 			"missing",
 		);
 		assert.strictEqual(result, null);
+	});
+
+	test("retrieveBodyPart round-trips gzipped content and returns null on miss (ENOENT)", async () => {
+		const storage = createFilesystemStorageService(testBasePath);
+		const content = Buffer.from("fs attachment bytes");
+
+		await storage.storeBodyPart({
+			accountConfigId: "cfg1",
+			accountId: "acc123",
+			messageId: "msg-part-fs",
+			partPath: "1.2",
+			content,
+		});
+
+		const retrieved = await storage.retrieveBodyPart(
+			"cfg1",
+			"acc123",
+			"msg-part-fs",
+			"1.2",
+		);
+		assert.deepStrictEqual(retrieved, content);
+
+		const miss = await storage.retrieveBodyPart(
+			"cfg1",
+			"acc123",
+			"msg-part-fs",
+			"nope",
+		);
+		assert.strictEqual(miss, null);
+	});
+
+	test("storeExtractedText / retrieveExtractedText round-trip with gzip", async () => {
+		const storage = createFilesystemStorageService(testBasePath);
+
+		const ref = await storage.storeExtractedText({
+			accountConfigId: "cfg1",
+			accountId: "acc123",
+			messageId: "msg-extracted-fs",
+			partPath: "1",
+			text: "fs extracted text",
+		});
+
+		assert.strictEqual(
+			ref.storageKey,
+			"accounts/cfg1/acc123/messages/msg-extracted-fs/extracted/1.txt.gz",
+		);
+		assert.strictEqual(ref.contentEncoding, ContentEncoding.Gzip);
+
+		const retrieved = await storage.retrieveExtractedText(
+			"cfg1",
+			"acc123",
+			"msg-extracted-fs",
+			"1",
+		);
+		assert.strictEqual(retrieved, "fs extracted text");
+	});
+
+	test("storeExtractedSkipped writes an uncompressed JSON marker that satisfies extractedResultExists", async () => {
+		const storage = createFilesystemStorageService(testBasePath);
+
+		assert.strictEqual(
+			await storage.extractedResultExists("cfg1", "acc123", "msg-skip-fs", "1"),
+			false,
+		);
+
+		const ref = await storage.storeExtractedSkipped({
+			accountConfigId: "cfg1",
+			accountId: "acc123",
+			messageId: "msg-skip-fs",
+			partPath: "1",
+			marker: { status: "skipped", reason: "too-large" },
+		});
+
+		assert.strictEqual(
+			ref.storageKey,
+			"accounts/cfg1/acc123/messages/msg-skip-fs/extracted/1.skipped.json",
+		);
+		assert.strictEqual(ref.contentEncoding, ContentEncoding.None);
+		assert.strictEqual(
+			await storage.extractedResultExists("cfg1", "acc123", "msg-skip-fs", "1"),
+			true,
+		);
+	});
+
+	test("listExtractedTexts lists only .txt.gz artifacts for the given message", async () => {
+		const storage = createFilesystemStorageService(testBasePath);
+
+		await storage.storeExtractedText({
+			accountConfigId: "cfg1",
+			accountId: "acc123",
+			messageId: "msg-list-fs",
+			partPath: "1",
+			text: "one",
+		});
+		await storage.storeExtractedText({
+			accountConfigId: "cfg1",
+			accountId: "acc123",
+			messageId: "msg-list-fs",
+			partPath: "2.1",
+			text: "two",
+		});
+		await storage.storeExtractedSkipped({
+			accountConfigId: "cfg1",
+			accountId: "acc123",
+			messageId: "msg-list-fs",
+			partPath: "3",
+			marker: { status: "failed", reason: "doc: corrupt" },
+		});
+
+		const items = await storage.listExtractedTexts(
+			"cfg1",
+			"acc123",
+			"msg-list-fs",
+		);
+		assert.deepStrictEqual(items.map((i) => i.partPath).sort(), ["1", "2.1"]);
+	});
+
+	test("listExtractedTexts returns an empty array when no extraction has happened yet", async () => {
+		const storage = createFilesystemStorageService(testBasePath);
+		const items = await storage.listExtractedTexts(
+			"cfg1",
+			"acc123",
+			"msg-never-scanned",
+		);
+		assert.deepStrictEqual(items, []);
 	});
 
 	test("cleanup test directory", async () => {

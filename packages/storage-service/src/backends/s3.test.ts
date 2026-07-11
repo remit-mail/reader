@@ -4,6 +4,8 @@ import { describe, test } from "node:test";
 import { gunzipSync } from "node:zlib";
 import {
 	GetObjectCommand,
+	HeadObjectCommand,
+	ListObjectsV2Command,
 	PutObjectCommand,
 	S3Client,
 } from "@aws-sdk/client-s3";
@@ -69,6 +71,26 @@ const createFakeS3Client = (): {
 				},
 				ContentEncoding: entry.contentEncoding,
 			};
+		}
+
+		if (command instanceof HeadObjectCommand) {
+			const input = command.input as unknown as Record<string, unknown>;
+			const key = String(input.Key);
+			if (!stored.has(key)) {
+				throw Object.assign(new Error(`not found: ${key}`), {
+					name: "NotFound",
+				});
+			}
+			return {};
+		}
+
+		if (command instanceof ListObjectsV2Command) {
+			const input = command.input as unknown as Record<string, unknown>;
+			const prefix = String(input.Prefix ?? "");
+			const Contents = [...stored.keys()]
+				.filter((key) => key.startsWith(prefix))
+				.map((Key) => ({ Key }));
+			return { Contents, IsTruncated: false };
 		}
 
 		throw new Error(`unexpected command: ${String(command)}`);
@@ -253,5 +275,189 @@ describe("createS3StorageService", () => {
 
 		const miss = await storage.retrieveParsedBody("cfg-r", "acc-r", "nope");
 		assert.strictEqual(miss, null);
+	});
+
+	test("retrieveBodyPart round-trips gzipped content and returns null on miss", async () => {
+		const { client } = createFakeS3Client();
+		const storage = createS3StorageService(client, "bucket");
+		const content = Buffer.from("attachment bytes");
+
+		await storage.storeBodyPart({
+			accountConfigId: "cfg-p",
+			accountId: "acc-p",
+			messageId: "msg-p",
+			partPath: "1.2",
+			content,
+		});
+
+		const retrieved = await storage.retrieveBodyPart(
+			"cfg-p",
+			"acc-p",
+			"msg-p",
+			"1.2",
+		);
+		assert.deepStrictEqual(retrieved, content);
+
+		const miss = await storage.retrieveBodyPart(
+			"cfg-p",
+			"acc-p",
+			"msg-p",
+			"nope",
+		);
+		assert.strictEqual(miss, null);
+	});
+
+	test("storeExtractedText writes gzipped text keyed under .../extracted/{partPath}.txt.gz and round-trips", async () => {
+		const { client, commands, stored } = createFakeS3Client();
+		const storage = createS3StorageService(client, "bucket");
+
+		const ref = await storage.storeExtractedText({
+			accountConfigId: "cfg-x",
+			accountId: "acc-x",
+			messageId: "msg-x",
+			partPath: "1.2",
+			text: "extracted attachment text",
+		});
+
+		assert.strictEqual(
+			ref.storageKey,
+			"accounts/cfg-x/acc-x/messages/msg-x/extracted/1.2.txt.gz",
+		);
+		const put = commands.find((c) => c.name === "PutObjectCommand");
+		assert.strictEqual(put?.input.ContentEncoding, "gzip");
+		assert.strictEqual(put?.input.ContentType, "text/plain; charset=utf-8");
+
+		const entry = stored.get(
+			"accounts/cfg-x/acc-x/messages/msg-x/extracted/1.2.txt.gz",
+		);
+		assert.ok(entry);
+		assert.strictEqual(
+			gunzipSync(entry.body).toString("utf8"),
+			"extracted attachment text",
+		);
+
+		const retrieved = await storage.retrieveExtractedText(
+			"cfg-x",
+			"acc-x",
+			"msg-x",
+			"1.2",
+		);
+		assert.strictEqual(retrieved, "extracted attachment text");
+	});
+
+	test("retrieveExtractedText returns null on miss", async () => {
+		const { client } = createFakeS3Client();
+		const storage = createS3StorageService(client, "bucket");
+		const result = await storage.retrieveExtractedText(
+			"cfg-x",
+			"acc-x",
+			"msg-x",
+			"nope",
+		);
+		assert.strictEqual(result, null);
+	});
+
+	test("storeExtractedSkipped writes an uncompressed JSON marker keyed under .../extracted/{partPath}.skipped.json", async () => {
+		const { client, commands, stored } = createFakeS3Client();
+		const storage = createS3StorageService(client, "bucket");
+
+		const ref = await storage.storeExtractedSkipped({
+			accountConfigId: "cfg-s",
+			accountId: "acc-s",
+			messageId: "msg-s",
+			partPath: "3",
+			marker: { status: "failed", reason: "pdf: corrupt" },
+		});
+
+		assert.strictEqual(
+			ref.storageKey,
+			"accounts/cfg-s/acc-s/messages/msg-s/extracted/3.skipped.json",
+		);
+		const put = commands.find((c) => c.name === "PutObjectCommand");
+		assert.strictEqual(put?.input.ContentEncoding, undefined);
+		assert.strictEqual(put?.input.ContentType, "application/json");
+
+		const entry = stored.get(
+			"accounts/cfg-s/acc-s/messages/msg-s/extracted/3.skipped.json",
+		);
+		assert.ok(entry);
+		assert.deepStrictEqual(JSON.parse(entry.body.toString("utf8")), {
+			status: "failed",
+			reason: "pdf: corrupt",
+		});
+	});
+
+	test("extractedResultExists is true once either the text artifact or the skip marker is stored", async () => {
+		const { client } = createFakeS3Client();
+		const storage = createS3StorageService(client, "bucket");
+
+		assert.strictEqual(
+			await storage.extractedResultExists("cfg-e", "acc-e", "msg-e", "1"),
+			false,
+		);
+
+		await storage.storeExtractedText({
+			accountConfigId: "cfg-e",
+			accountId: "acc-e",
+			messageId: "msg-e",
+			partPath: "1",
+			text: "hi",
+		});
+		assert.strictEqual(
+			await storage.extractedResultExists("cfg-e", "acc-e", "msg-e", "1"),
+			true,
+		);
+
+		await storage.storeExtractedSkipped({
+			accountConfigId: "cfg-e",
+			accountId: "acc-e",
+			messageId: "msg-e",
+			partPath: "2",
+			marker: { status: "skipped", reason: "too-large" },
+		});
+		assert.strictEqual(
+			await storage.extractedResultExists("cfg-e", "acc-e", "msg-e", "2"),
+			true,
+		);
+	});
+
+	test("listExtractedTexts returns only .txt.gz artifacts for the given message, excluding skip markers and other messages", async () => {
+		const { client } = createFakeS3Client();
+		const storage = createS3StorageService(client, "bucket");
+
+		await storage.storeExtractedText({
+			accountConfigId: "cfg-l",
+			accountId: "acc-l",
+			messageId: "msg-l",
+			partPath: "1",
+			text: "one",
+		});
+		await storage.storeExtractedText({
+			accountConfigId: "cfg-l",
+			accountId: "acc-l",
+			messageId: "msg-l",
+			partPath: "2.1",
+			text: "two",
+		});
+		await storage.storeExtractedSkipped({
+			accountConfigId: "cfg-l",
+			accountId: "acc-l",
+			messageId: "msg-l",
+			partPath: "3",
+			marker: { status: "failed", reason: "doc: corrupt" },
+		});
+		await storage.storeExtractedText({
+			accountConfigId: "cfg-l",
+			accountId: "acc-l",
+			messageId: "other-msg",
+			partPath: "1",
+			text: "unrelated",
+		});
+
+		const items = await storage.listExtractedTexts("cfg-l", "acc-l", "msg-l");
+		assert.deepStrictEqual(items.map((i) => i.partPath).sort(), ["1", "2.1"]);
+		for (const item of items) {
+			assert.ok(item.key.endsWith(".txt.gz"));
+		}
 	});
 });
