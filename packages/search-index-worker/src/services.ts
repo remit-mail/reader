@@ -1,9 +1,4 @@
 import {
-	AccountService,
-	getClient,
-	ThreadMessageService,
-} from "@remit/remit-electrodb-service";
-import {
 	buildEmbeddingServiceFromEnv,
 	buildVectorStoreFromEnv,
 	createSearchService,
@@ -13,44 +8,53 @@ import {
 	createStorageService,
 	type StorageService,
 } from "@remit/storage-service";
+import {
+	buildDataPortsFromEnv,
+	type SearchIndexDataPorts,
+} from "./data-ports.js";
+import type { IndexOutcome } from "./handler.js";
 
 export interface Services {
-	accountService: AccountService;
-	threadMessageService: ThreadMessageService;
+	accountService: SearchIndexDataPorts["account"];
+	threadMessageService: SearchIndexDataPorts["threadMessage"];
 	storageService: StorageService;
 	searchService: SearchService;
+	resolveAccountId?: SearchIndexDataPorts["resolveAccountId"];
+	/**
+	 * Fired once per upsert outcome — the pg-only work-summary signal
+	 * (`consumer.ts` wires this to `IndexWorkStats`). `undefined` on the Lambda
+	 * path, where it never fires and so never affects behavior.
+	 */
+	onIndexOutcome?: (outcome: IndexOutcome) => void;
 }
 
 let cached: Services | undefined;
 
-export const getServices = (): Services => {
+export const getServices = async (): Promise<Services> => {
 	if (cached) return cached;
 
-	const tableName = process.env.DYNAMODB_TABLE_NAME;
-	if (!tableName) throw new Error("DYNAMODB_TABLE_NAME is required");
-
-	// getClient targets local DynamoDB in dev/test and default credentials in
-	// prod, so the same worker logic drains the local search-index queue (via the
-	// e2e-processor-shim) and the production SQS event-source mapping.
-	const client = getClient();
-	const accountService = new AccountService({ client, table: tableName });
-	const threadMessageService = new ThreadMessageService({
-		client,
-		table: tableName,
-	});
+	const dataPorts = await buildDataPortsFromEnv();
 
 	const storageService = createStorageService();
 
-	// The worker must have a durable vector store — a typo'd or missing S3
-	// env var must not silently succeed by falling back to the throwaway
-	// in-memory store (which emits success metrics but drops every vector).
+	// The worker must have a durable vector store — a typo'd or missing S3 (or,
+	// on Postgres, PG_CONNECTION_URL) env var must not silently succeed by
+	// falling back to the throwaway in-memory store (which emits success
+	// metrics but drops every vector).
+	const isPostgres = process.env.DATA_BACKEND === "postgres";
+	const pgConnectionUrl = process.env.PG_CONNECTION_URL;
 	const localPath = process.env.LOCAL_VECTORDB_PATH;
 	const bucket = process.env.S3_VECTORS_BUCKET_NAME;
 	const indexName = process.env.S3_VECTORS_INDEX_NAME;
-	if (!localPath && !(bucket && indexName)) {
+	if (
+		!(isPostgres && pgConnectionUrl) &&
+		!localPath &&
+		!(bucket && indexName)
+	) {
 		throw new Error(
-			"Vector store is not configured: set LOCAL_VECTORDB_PATH for local dev " +
-				"or both S3_VECTORS_BUCKET_NAME and S3_VECTORS_INDEX_NAME for production.",
+			"Vector store is not configured: set PG_CONNECTION_URL for the Postgres " +
+				"backend, LOCAL_VECTORDB_PATH for local dev, or both " +
+				"S3_VECTORS_BUCKET_NAME and S3_VECTORS_INDEX_NAME for production.",
 		);
 	}
 
@@ -63,8 +67,9 @@ export const getServices = (): Services => {
 	});
 
 	cached = {
-		accountService,
-		threadMessageService,
+		accountService: dataPorts.account,
+		threadMessageService: dataPorts.threadMessage,
+		resolveAccountId: dataPorts.resolveAccountId,
 		storageService,
 		searchService,
 	};
@@ -72,3 +77,8 @@ export const getServices = (): Services => {
 };
 
 export const createServices = (overrides: Services): Services => overrides;
+
+/** Reset the singleton — test use only. */
+export const _resetForTest = (): void => {
+	cached = undefined;
+};

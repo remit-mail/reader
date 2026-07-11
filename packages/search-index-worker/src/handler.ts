@@ -16,10 +16,21 @@ const log = createLogger();
 
 export const handler = withTelemetry(
 	async (event: SQSEvent): Promise<SQSBatchResponse> => {
-		const services = getServices();
+		const services = await getServices();
 		return processBatch(event.Records, services, log);
 	},
 );
+
+/**
+ * A single message's indexing outcome — the pg-only work-summary signal
+ * (`remit-search-index-worker/consumer.ts`'s periodic noop/deferred/dropped
+ * log) hooks in via `Services.onIndexOutcome`, which is `undefined` on the
+ * Lambda path and so never fires there. Purely observational: nothing here
+ * feeds back into what gets logged, metriced, or returned to SQS.
+ */
+export type IndexOutcome =
+	| { status: "indexed"; upserted: number; skipped: number }
+	| { status: "skipped"; reason: string; retryable: boolean };
 
 export const processBatch = async (
 	records: SQSRecord[],
@@ -76,7 +87,10 @@ const deleteMessage = async (
 // upsert per message means a record S3 Vectors rejects (e.g. a metadata
 // ValidationException) dead-letters on its own — its siblings in the
 // batch still index instead of retrying forever behind a poison record.
-const upsertMessage = async (
+// Exported so the long-running Postgres consumer (`consumer.ts`) and the
+// bulk reindex script (`reindex.ts`) can process one message at a time
+// outside the Lambda batch shape, reusing this exact logic.
+export const upsertMessage = async (
 	message: Extract<ParsedQueueMessage, { kind: "upsert" }>,
 	services: Services,
 	log: Logger,
@@ -111,6 +125,11 @@ const indexMessage = async (
 		log.info("No indexable content, skipping", {
 			messageId: message.messageId,
 		});
+		services.onIndexOutcome?.({
+			status: "skipped",
+			reason: "no-indexable-content",
+			retryable: false,
+		});
 		return;
 	}
 
@@ -135,10 +154,11 @@ const indexMessage = async (
 	});
 	metrics.addMetric("searchIndexProcessed", MetricUnit.Count, upserted);
 	metrics.addMetric("searchIndexSkipped", MetricUnit.Count, skipped);
+	services.onIndexOutcome?.({ status: "indexed", upserted, skipped });
 };
 
 const prepareUpsert = async (
-	accountId: string,
+	accountIdFromMessage: string,
 	messageId: string,
 	services: Services,
 	log: Logger,
@@ -148,7 +168,27 @@ const prepareUpsert = async (
 		threadMessageService,
 		storageService,
 		searchService,
+		resolveAccountId,
 	} = services;
+
+	// On DynamoDB `resolveAccountId` is undefined (the stream bridge already
+	// resolved and attached a real accountId to the queue message), so this is
+	// exactly `accountIdFromMessage` — unchanged from before this hook existed.
+	// On Postgres the queue message carries no real accountId (the outbox
+	// trigger fires from a bare message id), so this derives it from the
+	// message's mailbox instead (see `data-ports.ts`).
+	const accountId = resolveAccountId
+		? await resolveAccountId(messageId)
+		: accountIdFromMessage;
+	if (!accountId) {
+		log.info("Account not found for message, skipping", { messageId });
+		services.onIndexOutcome?.({
+			status: "skipped",
+			reason: "account-not-found",
+			retryable: false,
+		});
+		return null;
+	}
 
 	let accountConfigId: string;
 	try {
@@ -159,6 +199,11 @@ const prepareUpsert = async (
 				messageId,
 				deletedAt: account.deletedAt,
 			});
+			services.onIndexOutcome?.({
+				status: "skipped",
+				reason: "account-deleted",
+				retryable: false,
+			});
 			return null;
 		}
 		accountConfigId = account.accountConfigId;
@@ -168,6 +213,11 @@ const prepareUpsert = async (
 		// DLQ) instead of being silently dropped as if it were a 404.
 		if (error instanceof NotFoundError) {
 			log.info("Account not found, skipping", { accountId, messageId });
+			services.onIndexOutcome?.({
+				status: "skipped",
+				reason: "account-not-found",
+				retryable: false,
+			});
 			return null;
 		}
 		throw error;
@@ -179,6 +229,11 @@ const prepareUpsert = async (
 	);
 	if (!threadMessage) {
 		log.info("ThreadMessage not found, skipping", { messageId });
+		services.onIndexOutcome?.({
+			status: "skipped",
+			reason: "thread-message-not-found",
+			retryable: true,
+		});
 		return null;
 	}
 
@@ -189,6 +244,11 @@ const prepareUpsert = async (
 	);
 	if (!parsedBody) {
 		log.info("Parsed body not found in S3, skipping", { messageId });
+		services.onIndexOutcome?.({
+			status: "skipped",
+			reason: "parsed-body-not-found",
+			retryable: true,
+		});
 		return null;
 	}
 
