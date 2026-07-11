@@ -1,4 +1,5 @@
 import { Paperclip, ShieldAlert, Star } from "lucide-react";
+import type { ReactNode } from "react";
 import { cn } from "../lib/cn.js";
 import { categoryTone, type ThreadRowData } from "./app-shell-types.js";
 import { Avatar } from "./avatar.js";
@@ -100,8 +101,11 @@ export function CompactRowBody({ thread }: { thread: ThreadRowData }) {
  */
 export function ComfortableRowTextContent({
 	thread,
+	badge,
 }: {
 	thread: ThreadRowData;
+	/** Extra chip rendered after the category badge (e.g. an auto-moved indicator). */
+	badge?: ReactNode;
 }) {
 	const unread = !thread.isRead;
 	return (
@@ -155,6 +159,7 @@ export function ComfortableRowTextContent({
 						{thread.category}
 					</Badge>
 				)}
+				{badge}
 			</span>
 		</span>
 	);

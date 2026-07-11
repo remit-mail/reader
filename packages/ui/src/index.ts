@@ -49,6 +49,10 @@ export {
 	COGNITO_FOOTER_NOTE,
 } from "./components/auth-footer.js";
 export { AuthHero, type AuthHeroProps } from "./components/auth-hero.js";
+export {
+	AutoMovedBadge,
+	type AutoMovedBadgeProps,
+} from "./components/auto-moved-badge.js";
 export { Avatar, type AvatarProps } from "./components/avatar.js";
 export { Badge, type BadgeProps } from "./components/badge.js";
 export {
