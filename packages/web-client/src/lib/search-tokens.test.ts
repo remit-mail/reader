@@ -64,9 +64,69 @@ describe("parseSearchTokens", () => {
 		assert.deepEqual(result.tokens, []);
 	});
 
-	it("leaves unsupported tokens (in:, account:) as free text", () => {
+	it("leaves in:/account: as free text with no name index", () => {
 		const result = parseSearchTokens("in:archive account:work invoice");
 		assert.equal(result.freeText, "in:archive account:work invoice");
+		assert.deepEqual(result.tokens, []);
+	});
+
+	it("resolves in: against a supplied mailbox name index", () => {
+		const result = parseSearchTokens("in:archive invoice", {
+			mailboxesByName: new Map([["archive", "mailbox-1"]]),
+		});
+		assert.equal(result.freeText, "invoice");
+		assert.deepEqual(result.tokens, [
+			{
+				type: "in",
+				raw: "in:archive",
+				value: "archive",
+				mailboxId: "mailbox-1",
+			},
+		]);
+	});
+
+	it("resolves in: case-insensitively", () => {
+		const result = parseSearchTokens("IN:Archive invoice", {
+			mailboxesByName: new Map([["archive", "mailbox-1"]]),
+		});
+		assert.deepEqual(result.tokens, [
+			{
+				type: "in",
+				raw: "IN:Archive",
+				value: "Archive",
+				mailboxId: "mailbox-1",
+			},
+		]);
+	});
+
+	it("leaves in: as free text when the name isn't in the index", () => {
+		const result = parseSearchTokens("in:nonexistent invoice", {
+			mailboxesByName: new Map([["archive", "mailbox-1"]]),
+		});
+		assert.equal(result.freeText, "in:nonexistent invoice");
+		assert.deepEqual(result.tokens, []);
+	});
+
+	it("resolves account: against a supplied account name index", () => {
+		const result = parseSearchTokens("account:work invoice", {
+			accountsByName: new Map([["work", "account-1"]]),
+		});
+		assert.equal(result.freeText, "invoice");
+		assert.deepEqual(result.tokens, [
+			{
+				type: "account",
+				raw: "account:work",
+				value: "work",
+				accountId: "account-1",
+			},
+		]);
+	});
+
+	it("leaves account: as free text when the name isn't in the index", () => {
+		const result = parseSearchTokens("account:nonexistent invoice", {
+			accountsByName: new Map([["work", "account-1"]]),
+		});
+		assert.equal(result.freeText, "account:nonexistent invoice");
 		assert.deepEqual(result.tokens, []);
 	});
 
@@ -135,6 +195,24 @@ describe("searchTokenLabel", () => {
 				epochSeconds: 0,
 			}),
 			"After 2024-01-01",
+		);
+		assert.equal(
+			searchTokenLabel({
+				type: "in",
+				raw: "in:archive",
+				value: "archive",
+				mailboxId: "mailbox-1",
+			}),
+			"In: archive",
+		);
+		assert.equal(
+			searchTokenLabel({
+				type: "account",
+				raw: "account:work",
+				value: "work",
+				accountId: "account-1",
+			}),
+			"Account: work",
 		);
 	});
 });

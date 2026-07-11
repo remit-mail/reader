@@ -48,6 +48,7 @@ export function toThreadRowData(
 	return {
 		id: thread.messageId,
 		accountId: thread.accountId ?? thread.accountConfigId,
+		mailboxId: thread.mailboxId,
 		fromName: thread.fromName ?? thread.fromEmail ?? "Unknown",
 		fromEmail: thread.fromEmail ?? "",
 		subject: thread.subject ?? "(No subject)",
@@ -142,6 +143,10 @@ export function matchesBriefSearch(t: ThreadRowData, query: string): boolean {
  * over the already-loaded brief/flagged rows (#428). A row without the data a
  * token needs (e.g. no `sentDate` for `before:`/`after:`) never matches that
  * token, so it drops out rather than showing under an unverifiable filter.
+ * `in:`/`account:` have no server param at all — this is the entire
+ * implementation of both, reusing the same per-account fan-out the daily
+ * brief already reads its rows from (`accountId`/`mailboxId` are already on
+ * every row).
  */
 export function matchesSearchTokens(
 	t: ThreadRowData,
@@ -164,6 +169,10 @@ export function matchesSearchTokens(
 				return t.sentDate != null && t.sentDate >= token.epochSeconds * 1000;
 			case "before":
 				return t.sentDate != null && t.sentDate < token.epochSeconds * 1000;
+			case "in":
+				return t.mailboxId === token.mailboxId;
+			case "account":
+				return t.accountId === token.accountId;
 			default:
 				return false;
 		}

@@ -39,10 +39,14 @@ interface UseSemanticSearchParams {
  * until the query is non-empty so an empty field issues no request.
  *
  * Filter tokens (`has:attachment`, `is:unread`, `before:`/`after:`) parsed from
- * the query map onto the search API's own filter params. `from:` has no
- * equivalent on `GET /search/semantic` (no sender filter) — the token still
- * renders as a chip and narrows the literal engine, but it never reaches the
- * semantic request.
+ * the query map onto the search API's own filter params. `from:` and
+ * `account:` have no equivalent on `GET /search/semantic` (no sender or
+ * account filter) — both still render as chips and narrow the literal engine,
+ * but never reach the semantic request (`account:` is a documented gap, see
+ * doc/design/flows/06-search.md — the semantic index is per account config).
+ * `in:` resolves to a mailboxId and, when present, overrides the caller's
+ * `mailboxId` — so typing `in:archive` re-scopes the semantic search to that
+ * mailbox even from the cross-account daily brief.
  */
 export function useSemanticSearch({
 	mailboxId,
@@ -51,9 +55,12 @@ export function useSemanticSearch({
 	hits: RemitImapSemanticSearchResult[];
 	isLoading: boolean;
 } {
-	const { searchQuery } = useMailContext();
+	const { searchQuery, mailboxNameIndex, accountNameIndex } = useMailContext();
 	const normalizedQuery = normalizeSearchQuery(searchQuery);
-	const { freeText, tokens } = parseSearchTokens(normalizedQuery);
+	const { freeText, tokens } = parseSearchTokens(normalizedQuery, {
+		mailboxesByName: mailboxNameIndex,
+		accountsByName: accountNameIndex,
+	});
 	const enabled = normalizedQuery.length > 0;
 
 	const category = toCategoryParam(filterCategory);
@@ -63,12 +70,14 @@ export function useSemanticSearch({
 	const isRead = tokens.some((t) => t.type === "isUnread") ? false : undefined;
 	const afterToken = tokens.find((t) => t.type === "after");
 	const beforeToken = tokens.find((t) => t.type === "before");
+	const inToken = tokens.find((t) => t.type === "in");
+	const effectiveMailboxId = inToken?.mailboxId ?? mailboxId;
 
 	const { data, isLoading } = useQuery({
 		...semanticSearchOperationsSemanticSearchOptions({
 			query: {
 				query: freeText,
-				mailboxId,
+				mailboxId: effectiveMailboxId,
 				limit: SEMANTIC_RESULT_LIMIT,
 				...(category !== undefined ? { category } : {}),
 				...(hasAttachment !== undefined ? { hasAttachment } : {}),

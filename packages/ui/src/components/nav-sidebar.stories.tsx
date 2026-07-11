@@ -183,6 +183,21 @@ export const LoadError: Story = {
 	},
 };
 
+/**
+ * The reserved "Saved searches" group (#428 follow-up): saved queries plus a
+ * "Save «query»" row when the active search isn't saved yet.
+ */
+export const WithSavedSearches: Story = {
+	args: {
+		selectedNavId: "personal-inbox",
+		savedSearches: ["from:alice has:attachment", "account:work is:unread"],
+		saveableQuery: "in:archive invoice",
+		onSelectSavedSearch: () => undefined,
+		onRemoveSavedSearch: () => undefined,
+		onSaveCurrentSearch: () => undefined,
+	},
+};
+
 /** Each nav row is a real anchor: the linkComponent renders <a href>. */
 export const AsLinks: Story = {
 	args: {

@@ -10,9 +10,15 @@ import type {
 import type { NavAccount, NavLinkComponent } from "@remit/ui";
 import { NavSidebar } from "@remit/ui";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useLocation, useParams } from "@tanstack/react-router";
-import { useCallback, useMemo } from "react";
+import {
+	Link,
+	useLocation,
+	useNavigate,
+	useParams,
+} from "@tanstack/react-router";
+import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useMailContext } from "@/lib/mail-context";
 import {
 	filterDuplicateSpecialUse,
 	getEffectiveDisplayLabel,
@@ -21,6 +27,11 @@ import {
 	shouldShowEffectiveUnreadBadge,
 } from "@/lib/mailbox-order";
 import { isOutboxListRow } from "@/lib/outbox-status";
+import {
+	loadSavedSearches,
+	removeSavedSearch,
+	saveSearch,
+} from "@/lib/saved-searches";
 
 interface MailSidebarAdapterProps {
 	accounts: RemitImapAccountResponse[];
@@ -137,7 +148,10 @@ export function MailSidebarAdapter({
 	variant = "desktop",
 }: MailSidebarAdapterProps) {
 	const queryClient = useQueryClient();
+	const navigate = useNavigate();
 	const selectedNavId = useSelectedNavId();
+	const { searchInput, onSearchChange } = useMailContext();
+	const [savedSearches, setSavedSearches] = useState(loadSavedSearches);
 	const { t } = useTranslation("mail", { useSuspense: false });
 	const translator: Translator = useCallback(
 		(key, fallback) => t(key, { defaultValue: fallback }),
@@ -281,6 +295,40 @@ export function MailSidebarAdapter({
 		onMailboxSelect?.();
 	};
 
+	// Saved searches (#428 follow-up, local-only MVP — see
+	// doc/design/flows/06-search.md). A saved query is the raw typed text; the
+	// existing token parser re-derives its chips on reselect, so there's nothing
+	// else to persist.
+	const trimmedSearchInput = searchInput.trim();
+	const saveableQuery =
+		trimmedSearchInput.length > 0 && !savedSearches.includes(trimmedSearchInput)
+			? trimmedSearchInput
+			: undefined;
+
+	const handleSaveCurrentSearch = useCallback(() => {
+		if (!saveableQuery) return;
+		setSavedSearches(saveSearch(saveableQuery));
+	}, [saveableQuery]);
+
+	const handleRemoveSavedSearch = useCallback((query: string) => {
+		setSavedSearches(removeSavedSearch(query));
+	}, []);
+
+	// Running a saved search re-uses the daily brief as the search surface (the
+	// cross-account default view) — the same destination the search field
+	// itself lands results in once a query is active.
+	const handleSelectSavedSearch = useCallback(
+		(query: string) => {
+			onSearchChange(query);
+			navigate({
+				to: "/mail",
+				search: { q: query, selectedMessageId: undefined },
+			});
+			onMailboxSelect?.();
+		},
+		[onSearchChange, navigate, onMailboxSelect],
+	);
+
 	return (
 		<NavSidebar
 			accounts={navAccounts}
@@ -288,6 +336,11 @@ export function MailSidebarAdapter({
 			onSelectNav={handleSelectNav}
 			linkComponent={linkComponent}
 			variant={variant}
+			savedSearches={savedSearches}
+			saveableQuery={saveableQuery}
+			onSaveCurrentSearch={handleSaveCurrentSearch}
+			onSelectSavedSearch={handleSelectSavedSearch}
+			onRemoveSavedSearch={handleRemoveSavedSearch}
 		/>
 	);
 }

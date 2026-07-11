@@ -310,6 +310,38 @@ describe("matchesSearchTokens", () => {
 		assert.strictEqual(matchesSearchTokens(r, [before(0)]), false);
 	});
 
+	test("in: matches on mailboxId", () => {
+		const r = row({ id: "1", mailboxId: "mb-archive" });
+		const inToken: SearchToken = {
+			type: "in",
+			raw: "in:archive",
+			value: "archive",
+			mailboxId: "mb-archive",
+		};
+		assert.strictEqual(matchesSearchTokens(r, [inToken]), true);
+		assert.strictEqual(
+			matchesSearchTokens(row({ id: "2", mailboxId: "mb-inbox" }), [inToken]),
+			false,
+		);
+	});
+
+	test("account: matches on accountId", () => {
+		const r = row({ id: "1", accountId: "acc_work" });
+		const accountToken: SearchToken = {
+			type: "account",
+			raw: "account:work",
+			value: "work",
+			accountId: "acc_work",
+		};
+		assert.strictEqual(matchesSearchTokens(r, [accountToken]), true);
+		assert.strictEqual(
+			matchesSearchTokens(row({ id: "2", accountId: "acc_personal" }), [
+				accountToken,
+			]),
+			false,
+		);
+	});
+
 	test("all tokens must match (AND)", () => {
 		const r = row({
 			id: "1",
