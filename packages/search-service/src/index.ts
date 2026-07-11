@@ -54,8 +54,11 @@ export {
 export {
 	createSearchService,
 	DefaultSearchService,
+	literalMatchScore,
+	rerank,
 	type SearchService,
 	type SearchServiceConfig,
+	tokenizeQuery,
 	type UpsertOptions,
 	type UpsertResult,
 } from "./search.js";

@@ -75,6 +75,16 @@ const flattenMetadataValue = (value: unknown): DocumentType => {
 	);
 };
 
+// PutVectors always sends one flat metadata document per vector — S3 Vectors has no
+// per-put "filterable vs non-filterable" split. Which keys count against the 2 KB
+// filterable budget (vs the 40 KB total budget) is decided entirely by the index's
+// CreateIndex-time `metadataConfiguration.nonFilterableMetadataKeys` config
+// (CfnIndex in infra/constructs/s3vectors/remit-vector-index/index.ts), not by this
+// put path. Declaring `textPreview` non-filterable there would need a CDK change that
+// forces index replacement and a full re-index — not planned. `textPreview` is written
+// as ordinary (filterable) metadata by design, bounded to a fixed byte budget
+// (TEXT_PREVIEW_MAX_BYTES in search.ts) so it — plus every other key here — always
+// fits the 2 KB filterable cap.
 const toMetadataDocument = (metadata: ChunkMetadata): DocumentType => {
 	const out: { [k: string]: DocumentType } = {};
 	for (const [k, v] of Object.entries(metadata)) {
@@ -148,6 +158,10 @@ const toMetadata = (raw: unknown): ChunkMetadata => {
 				: undefined;
 	const subject = typeof obj.subject === "string" ? obj.subject : undefined;
 	const category = isMessageCategory(obj.category) ? obj.category : undefined;
+	// textPreview is absent on vectors written before hybrid re-ranking shipped;
+	// treat as absent (score-neutral re-rank), same as the other display fields.
+	const textPreview =
+		typeof obj.textPreview === "string" ? obj.textPreview : undefined;
 	return {
 		messageId: obj.messageId,
 		threadId: obj.threadId,
@@ -162,6 +176,7 @@ const toMetadata = (raw: unknown): ChunkMetadata => {
 		...(fromName !== undefined ? { fromName } : {}),
 		...(subject !== undefined ? { subject } : {}),
 		...(category !== undefined ? { category } : {}),
+		...(textPreview !== undefined ? { textPreview } : {}),
 	};
 };
 

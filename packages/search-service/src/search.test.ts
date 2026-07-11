@@ -8,8 +8,16 @@ import {
 	createDeterministicEmbeddingService,
 	type EmbeddingService,
 } from "./embeddings.js";
-import { DefaultSearchService } from "./search.js";
+import {
+	buildTextPreview,
+	DefaultSearchService,
+	literalMatchScore,
+	rerank,
+	tokenizeQuery,
+	truncateUtf8Bytes,
+} from "./search.js";
 import type {
+	ChunkMetadata,
 	EnvelopeChunkInput,
 	IndexEmailParams,
 	VectorMatch,
@@ -519,5 +527,244 @@ describe("DefaultSearchService.indexIncremental", () => {
 		assert.ok(embedder.embedCalls > 0, "force embeds regardless of hash");
 		assert.ok(forced.upserted > 0, "force re-writes every chunk");
 		assert.strictEqual(forced.skipped, 0);
+	});
+});
+
+const buildMatch = (
+	overrides: Omit<Partial<VectorMatch>, "metadata"> & {
+		metadata?: Partial<ChunkMetadata>;
+	},
+): VectorMatch => ({
+	chunkId: overrides.chunkId ?? "chunk-1",
+	score: overrides.score ?? 0.5,
+	metadata: {
+		messageId: "msg-1",
+		threadId: "thread-1",
+		accountConfigId: "acct-1",
+		mailboxIds: ["mb-inbox"],
+		chunkType: "body",
+		sentDate: 1_700_000_000,
+		isRead: false,
+		hasAttachment: false,
+		hasStars: false,
+		...overrides.metadata,
+	},
+});
+
+describe("tokenizeQuery", () => {
+	it("lowercases and whitespace-splits", () => {
+		assert.deepStrictEqual(tokenizeQuery("Invoice NUMBER"), [
+			"invoice",
+			"number",
+		]);
+	});
+
+	it("drops tokens shorter than 3 characters", () => {
+		assert.deepStrictEqual(tokenizeQuery("a to inv-98234"), ["inv-98234"]);
+	});
+
+	it("caps at 8 tokens", () => {
+		const query = Array.from({ length: 12 }, (_, i) => `word${i}`).join(" ");
+		assert.strictEqual(tokenizeQuery(query).length, 8);
+	});
+});
+
+describe("truncateUtf8Bytes", () => {
+	it("returns the string unchanged when it already fits the byte budget", () => {
+		assert.strictEqual(truncateUtf8Bytes("hello world", 100), "hello world");
+	});
+
+	it("truncates ASCII text to exactly the byte budget", () => {
+		const text = "a".repeat(100);
+		const truncated = truncateUtf8Bytes(text, 40);
+		assert.strictEqual(Buffer.byteLength(truncated, "utf8"), 40);
+	});
+
+	it("never splits a multi-byte CJK character (stays valid UTF-8, no replacement char)", () => {
+		// Each character is a 3-byte UTF-8 CJK ideograph; a byte budget that isn't a
+		// multiple of 3 forces the truncator to back off mid-sequence.
+		const text = "書".repeat(50);
+		const truncated = truncateUtf8Bytes(text, 41);
+		assert.ok(Buffer.byteLength(truncated, "utf8") <= 41);
+		assert.ok(
+			!truncated.includes("�"),
+			"must not contain the UTF-8 replacement character",
+		);
+		assert.strictEqual(
+			Buffer.from(truncated, "utf8").toString("utf8"),
+			truncated,
+			"must round-trip through UTF-8 unchanged",
+		);
+	});
+
+	it("never splits a surrogate pair (4-byte UTF-8 emoji)", () => {
+		const text = "😀".repeat(50);
+		const truncated = truncateUtf8Bytes(text, 41);
+		assert.ok(Buffer.byteLength(truncated, "utf8") <= 41);
+		assert.ok(!truncated.includes("�"));
+		assert.strictEqual(
+			Buffer.from(truncated, "utf8").toString("utf8"),
+			truncated,
+		);
+		// A lone surrogate half would fail a round-trip through encodeURIComponent.
+		assert.doesNotThrow(() => encodeURIComponent(truncated));
+	});
+
+	it("returns an empty string when the budget is smaller than any single character", () => {
+		assert.strictEqual(truncateUtf8Bytes("書".repeat(10), 2), "");
+	});
+});
+
+describe("buildTextPreview", () => {
+	it("keeps a 512+ char CJK chunk under the byte budget and valid UTF-8", () => {
+		// 3 bytes/char in UTF-8; 600 chars is well past both the 512-char cap and
+		// the byte budget, so both bounds are exercised.
+		const cjkChunk = "取引先への請求書を添付いたします。".repeat(40);
+		assert.ok(cjkChunk.length > 512);
+
+		const preview = buildTextPreview(cjkChunk);
+
+		assert.ok(
+			Buffer.byteLength(preview, "utf8") <= 700,
+			`preview is ${Buffer.byteLength(preview, "utf8")} bytes, expected <= 700`,
+		);
+		assert.ok(!preview.includes("�"));
+		assert.strictEqual(Buffer.from(preview, "utf8").toString("utf8"), preview);
+	});
+
+	it("does not shorten a plain-ASCII 512-char preview (byte cap does not bite the common case)", () => {
+		const asciiChunk = "invoice payment reconciliation ".repeat(20);
+		assert.ok(asciiChunk.length > 512);
+
+		const preview = buildTextPreview(asciiChunk);
+
+		assert.strictEqual(preview.length, 512);
+		assert.strictEqual(preview, asciiChunk.slice(0, 512));
+	});
+});
+
+describe("literalMatchScore", () => {
+	it("returns undefined when textPreview is absent (missing-preview neutrality)", () => {
+		assert.strictEqual(literalMatchScore(["invoice"], undefined), undefined);
+	});
+
+	it("returns undefined when there are no qualifying query tokens", () => {
+		assert.strictEqual(literalMatchScore([], "some preview text"), undefined);
+	});
+
+	it("is case-insensitive", () => {
+		assert.strictEqual(
+			literalMatchScore(["invoice"], "Your INVOICE is attached"),
+			1,
+		);
+	});
+
+	it("scores the fraction of tokens found as substrings", () => {
+		assert.strictEqual(
+			literalMatchScore(
+				["invoice", "number", "zzz"],
+				"the invoice number is 42",
+			),
+			2 / 3,
+		);
+	});
+
+	it("returns 0 when no tokens match", () => {
+		assert.strictEqual(
+			literalMatchScore(["invoice"], "completely unrelated content"),
+			0,
+		);
+	});
+});
+
+describe("rerank", () => {
+	it("ranks an exact literal match above a semantically-similar but literal-miss chunk", () => {
+		const literalHit = buildMatch({
+			chunkId: "chunk-literal",
+			score: 0.5,
+			metadata: {
+				messageId: "msg-literal",
+				textPreview: "Please see invoice INV-98234 attached for payment.",
+			},
+		});
+		const semanticNearMiss = buildMatch({
+			chunkId: "chunk-semantic",
+			score: 0.9,
+			metadata: {
+				messageId: "msg-semantic",
+				textPreview:
+					"Here is the billing statement for this quarter's charges.",
+			},
+		});
+
+		const [first, second] = rerank(
+			[semanticNearMiss, literalHit],
+			"INV-98234",
+		).sort((a, b) => b.score - a.score);
+
+		assert.strictEqual(first.metadata.messageId, "msg-literal");
+		assert.strictEqual(second.metadata.messageId, "msg-semantic");
+	});
+
+	it("leaves cosine score untouched when textPreview is missing (score-neutral)", () => {
+		const legacy = buildMatch({
+			score: 0.42,
+			metadata: { textPreview: undefined },
+		});
+
+		const [result] = rerank([legacy], "invoice INV-98234");
+		assert.strictEqual(result.score, 0.42);
+	});
+
+	it("blends 40% cosine and 60% literal when a preview is present", () => {
+		const match = buildMatch({
+			score: 0.5,
+			metadata: { textPreview: "invoice inv-98234 attached" },
+		});
+
+		const [result] = rerank([match], "inv-98234");
+		assert.strictEqual(result.score, 0.4 * 0.5 + 0.6 * 1);
+	});
+});
+
+describe("DefaultSearchService.search hybrid re-ranking (integration)", () => {
+	it("ranks a message containing a literal query string first", async () => {
+		const { service } = buildService();
+		await service.index({
+			envelope: aliceEnvelope,
+			parsedBody: {
+				text: "Please process invoice INV-98234 for the March renewal before month end.",
+				html: null,
+			},
+			metadata: {
+				...baseMetadata,
+				messageId: "msg-literal-invoice",
+				threadId: "thread-literal",
+				fromName: "Alice",
+				subject: "Invoice INV-98234",
+			},
+		});
+		await service.index({
+			envelope: bobEnvelope,
+			parsedBody: {
+				text: "Billing and payment reconciliation for the quarterly renewal cycle across all accounts.",
+				html: null,
+			},
+			metadata: {
+				...baseMetadata,
+				messageId: "msg-semantic-only",
+				threadId: "thread-semantic",
+				fromName: "Bob",
+				subject: "Quarterly billing reconciliation",
+			},
+		});
+
+		const results = await service.search({
+			query: "INV-98234",
+			accountConfigId: "acct-1",
+		});
+
+		assert.ok(results.length > 0);
+		assert.strictEqual(results[0].messageId, "msg-literal-invoice");
 	});
 });
