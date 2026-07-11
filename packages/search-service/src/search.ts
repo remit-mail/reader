@@ -51,6 +51,135 @@ export interface SearchService {
 const DEFAULT_TOP_K = 50;
 const DEFAULT_LIMIT = 25;
 
+// S3 Vectors limits (docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors-limitations.html,
+// verified 2026-07): filterable metadata <= 2 KB/vector, total metadata <= 40 KB/vector.
+// textPreview should be declared non-filterable via the index's
+// metadataConfiguration.nonFilterableMetadataKeys (a CDK-level change) so it only counts
+// against the 40 KB total budget; that is not planned (see PR description) — the byte-bounded
+// preview below is the design, not an interim measure.
+//
+// Until then, textPreview shares the 2048 B filterable budget with every other ChunkMetadata
+// field written alongside it in the same PutVectors call (see toMetadataDocument in
+// backends/s3-vectors.ts). `slice(0, N)` on a JS string counts UTF-16 code units, not bytes —
+// for CJK/Cyrillic/Arabic text (2-3 bytes/char in UTF-8) a 512-char preview alone can reach
+// ~1.5 KB, leaving no room for the rest of the metadata and blowing the cap (PutVectors then
+// rejects the whole vector, dead-lettering the message). The budget below is therefore a fixed
+// byte cap, not a char cap.
+//
+// Worst-case JSON-serialized size of the other filterable fields (key + value + quoting/comma
+// overhead), rounded up per field:
+//
+//   messageId, threadId, accountConfigId   3 UUIDs                      ~170 B
+//   contentHash                            sha256 hex                    ~85 B
+//   mailboxIds                             up to ~6 labels/UUIDs        ~250 B
+//   chunkType, category                    short enum strings            ~50 B
+//   sentDate, isRead, hasAttachment,
+//     hasStars                             1 number + 3 booleans         ~70 B
+//   fileTypes                              a handful of MIME types      ~110 B
+//   fromName, subject                      display strings (unbounded
+//                                           elsewhere in the system)    ~450 B
+//                                                                     ---------
+//                                                             total    ~1185 B
+//
+// subject/fromName/mailboxIds have no hard length limit upstream, so this is a realistic
+// worst case, not a proof. OTHER_METADATA_MAX_BYTES rounds it up to 1300 B for headroom.
+// SAFETY_MARGIN_BYTES shaves another 48 B off the 748 B remainder, landing on a round
+// 700 B for textPreview — comfortably above what a 512-char ASCII preview needs (512 B,
+// so the byte cap never shortens the common case) and enough for ~175 chars of 4-byte
+// UTF-8 (emoji) or ~233 chars of 3-byte UTF-8 (CJK).
+const TEXT_PREVIEW_MAX_CHARS = 512;
+const S3_VECTORS_FILTERABLE_METADATA_MAX_BYTES = 2048;
+const OTHER_METADATA_MAX_BYTES = 1300;
+const SAFETY_MARGIN_BYTES = 48;
+const TEXT_PREVIEW_MAX_BYTES =
+	S3_VECTORS_FILTERABLE_METADATA_MAX_BYTES -
+	OTHER_METADATA_MAX_BYTES -
+	SAFETY_MARGIN_BYTES;
+
+const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
+
+// Truncate `text` to at most `maxBytes` UTF-8 bytes without splitting a multi-byte
+// sequence (or a surrogate pair, which encodes as one 4-byte UTF-8 sequence) —
+// naive byte-slicing can cut mid-character and produce invalid UTF-8 / a broken
+// glyph. Backs off at most 3 bytes (the longest UTF-8 sequence is 4 bytes) before
+// landing on a valid boundary.
+export const truncateUtf8Bytes = (text: string, maxBytes: number): string => {
+	const bytes = Buffer.from(text, "utf8");
+	if (bytes.byteLength <= maxBytes) return text;
+	for (let len = maxBytes; len > 0; len--) {
+		try {
+			return utf8Decoder.decode(bytes.subarray(0, len));
+		} catch {
+			// Landed mid-sequence; back off one byte and retry.
+		}
+	}
+	return "";
+};
+
+// Preview stored in vector metadata: bounded by char count (existing preview-length
+// semantics) and, independently, by UTF-8 byte size (the S3 Vectors filterable
+// metadata cap — see TEXT_PREVIEW_MAX_BYTES above). The byte cap only bites for
+// multi-byte text; a 512-char ASCII preview is unaffected.
+export const buildTextPreview = (text: string): string =>
+	truncateUtf8Bytes(
+		text.slice(0, TEXT_PREVIEW_MAX_CHARS),
+		TEXT_PREVIEW_MAX_BYTES,
+	);
+
+// Blend weights for hybrid re-ranking: literal substring matches on the stored
+// textPreview outweigh raw cosine similarity, so exact terms (invoice numbers,
+// names, codes) surface over a merely-similar semantic neighbor.
+const RERANK_COSINE_WEIGHT = 0.4;
+const RERANK_LITERAL_WEIGHT = 0.6;
+
+const QUERY_TOKEN_MIN_LENGTH = 3;
+const QUERY_TOKEN_MAX_COUNT = 8;
+
+export const tokenizeQuery = (query: string): string[] =>
+	query
+		.toLowerCase()
+		.split(/\s+/)
+		.filter((token) => token.length >= QUERY_TOKEN_MIN_LENGTH)
+		.slice(0, QUERY_TOKEN_MAX_COUNT);
+
+// Fraction of query tokens found as substrings in the chunk's textPreview.
+// `undefined` means "no preview stored" (pre-rerank vector) — the caller must
+// treat that as score-neutral, not as a literal score of 0. A query with no
+// qualifying tokens (all shorter than QUERY_TOKEN_MIN_LENGTH) has no literal
+// signal to compute either, so it is also treated as neutral.
+export const literalMatchScore = (
+	queryTokens: string[],
+	textPreview: string | undefined,
+): number | undefined => {
+	if (textPreview === undefined) return undefined;
+	if (queryTokens.length === 0) return undefined;
+	const haystack = textPreview.toLowerCase();
+	const hits = queryTokens.filter((token) => haystack.includes(token)).length;
+	return hits / queryTokens.length;
+};
+
+// Blend cosine similarity with a literal-substring score computed from the
+// chunk's textPreview. Applied to the full topK candidate window, before
+// dedupe-by-message, so the literal boost can change which chunk represents a
+// message. Vectors with no stored textPreview (written before this field
+// existed) keep their raw cosine score unscaled — never penalized for missing
+// a preview.
+export const rerank = (
+	matches: VectorMatch[],
+	query: string,
+): VectorMatch[] => {
+	const queryTokens = tokenizeQuery(query);
+	return matches.map((match) => {
+		const literal = literalMatchScore(queryTokens, match.metadata.textPreview);
+		if (literal === undefined) return match;
+		return {
+			...match,
+			score:
+				RERANK_COSINE_WEIGHT * match.score + RERANK_LITERAL_WEIGHT * literal,
+		};
+	});
+};
+
 const dedupeMatchesByMessage = (matches: VectorMatch[]): VectorMatch[] => {
 	const best = new Map<string, VectorMatch>();
 	for (const m of matches) {
@@ -111,6 +240,7 @@ export class DefaultSearchService implements SearchService {
 				...metadata,
 				chunkType: chunk.chunkType,
 				contentHash: computeContentHash(embeddingId, chunk.text),
+				textPreview: buildTextPreview(chunk.text),
 				...(chunk.chunkType === "attachment" && fileTypes.length > 0
 					? { fileTypes }
 					: {}),
@@ -205,6 +335,7 @@ export class DefaultSearchService implements SearchService {
 				...metadata,
 				chunkType: h.chunk.chunkType,
 				contentHash: h.contentHash,
+				textPreview: buildTextPreview(h.chunk.text),
 				...(h.chunk.chunkType === "attachment" && fileTypes.length > 0
 					? { fileTypes }
 					: {}),
@@ -233,7 +364,8 @@ export class DefaultSearchService implements SearchService {
 			},
 		});
 
-		const deduped = dedupeMatchesByMessage(matches).slice(0, limit);
+		const reranked = rerank(matches, params.query);
+		const deduped = dedupeMatchesByMessage(reranked).slice(0, limit);
 		return deduped.map((m) => ({
 			messageId: m.metadata.messageId,
 			threadId: m.metadata.threadId,

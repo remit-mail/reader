@@ -10,6 +10,7 @@ import {
 } from "@aws-sdk/client-s3vectors";
 import { type AwsClientStub, mockClient } from "aws-sdk-client-mock";
 import { candidateChunkKeys } from "../chunking/keys.js";
+import { buildTextPreview } from "../search.js";
 import type { VectorQuery, VectorRecord } from "../types.js";
 import { S3VectorsBackend } from "./s3-vectors.js";
 
@@ -351,6 +352,63 @@ describe("S3VectorsBackend.upsert batching", () => {
 		for (const size of sizes) {
 			assert.ok(size <= 500, "no call exceeds the AWS 500/call cap");
 		}
+	});
+
+	// S3 Vectors caps filterable metadata at 2 KB/vector and this index declares no
+	// non-filterable keys, so every field in ChunkMetadata counts against that cap.
+	// A worst-case chunk (long UUIDs/subject/mailboxIds/fromName plus a multi-byte
+	// CJK textPreview) must still fit — regression for the CJK PutVectors dead-letter.
+	it("keeps worst-case filterable metadata for a CJK chunk under the 2 KB S3 Vectors cap", async () => {
+		s3vMock.on(PutVectorsCommand).resolves({});
+
+		const cjkChunk = "取引先への請求書を添付いたします。".repeat(40);
+		const record: VectorRecord = {
+			chunkId: `${MESSAGE_ID}::body-0`,
+			vector: [0.1, 0.2, 0.3],
+			metadata: {
+				messageId: "018f2e1a-4b3d-4c2e-9f1a-0123456789ab",
+				threadId: "018f2e1a-4b3d-4c2e-9f1a-0123456789cd",
+				accountConfigId: "018f2e1a-4b3d-4c2e-9f1a-0123456789ef",
+				mailboxIds: [
+					"018f2e1a-0000-4c2e-9f1a-000000000001",
+					"018f2e1a-0000-4c2e-9f1a-000000000002",
+					"018f2e1a-0000-4c2e-9f1a-000000000003",
+					"018f2e1a-0000-4c2e-9f1a-000000000004",
+					"018f2e1a-0000-4c2e-9f1a-000000000005",
+					"018f2e1a-0000-4c2e-9f1a-000000000006",
+				],
+				chunkType: "attachment",
+				sentDate: 1_750_000_000,
+				isRead: false,
+				hasAttachment: true,
+				hasStars: true,
+				fileTypes: [
+					"application/pdf",
+					"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+					"image/png",
+					"text/csv",
+				],
+				fromName:
+					"取引先ご担当者様 (Accounts Payable Department, Global Procurement)",
+				subject:
+					"請求書送付のご案内: Invoice for Q3 Global Procurement Reconciliation and Renewal",
+				category: "newsletter",
+				contentHash: "a".repeat(64), // sha256 hex digest is always 64 chars
+				textPreview: buildTextPreview(cjkChunk),
+			},
+		};
+
+		await buildBackend().upsert([record]);
+
+		const putCalls = s3vMock.commandCalls(PutVectorsCommand);
+		const sentMetadata = putCalls[0]?.args[0].input.vectors?.[0]?.metadata;
+		assert.ok(sentMetadata, "PutVectors must receive metadata");
+
+		const bytes = Buffer.byteLength(JSON.stringify(sentMetadata), "utf8");
+		assert.ok(
+			bytes < 2048,
+			`worst-case filterable metadata is ${bytes} bytes, must stay under the 2 KB S3 Vectors cap`,
+		);
 	});
 });
 

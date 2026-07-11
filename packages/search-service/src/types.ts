@@ -46,6 +46,18 @@ export interface ChunkMetadata {
 	 * embedding model changes. Absent on pre-hash vectors (re-PUT once to populate).
 	 */
 	contentHash?: string;
+	/**
+	 * Prefix of the chunk's embeddable text, stored at index time and used for the
+	 * literal-match re-rank in search.ts. Bounded independently by char count
+	 * (`TEXT_PREVIEW_MAX_CHARS`) and UTF-8 byte size (`TEXT_PREVIEW_MAX_BYTES`,
+	 * search.ts) — the byte bound keeps this field, plus the rest of a vector's
+	 * filterable metadata, under the S3 Vectors 2 KB/vector filterable cap even for
+	 * multi-byte text (CJK, Cyrillic, Arabic, emoji). Absent for vectors written
+	 * before this field existed — those are re-ranked as cosine-only
+	 * (score-neutral), never penalized. No backfill; a preview appears organically
+	 * the next time a message re-indexes.
+	 */
+	textPreview?: string;
 }
 
 export interface Chunk {
