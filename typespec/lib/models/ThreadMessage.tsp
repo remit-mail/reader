@@ -224,6 +224,9 @@ model ThreadMessageResponse {
 
   @doc("Account identifier attached at read time via a mailboxId→accountId map. Present on rows returned by `GET /threads`; absent on rows from per-mailbox endpoints (clients can resolve from the mailbox cache).")
   accountId?: UUID;
+
+  @doc("Present only when Remit auto-moved this message on body-sync. Absent means the message was not auto-moved by Remit.")
+  autoMoved?: AutoMovedInfo;
 }
 
 @doc("""
