@@ -13,11 +13,9 @@ import {
 import { useTranslation } from "react-i18next";
 import { Drawer } from "vaul";
 import { ErrorState } from "@/components/ui/ErrorState";
+import { useFolderAppointments } from "@/hooks/useArchiveMailbox";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
-import {
-	getMailboxDisplayLabel,
-	getMailboxDisplayName,
-} from "@/lib/mailbox-order";
+import { buildMailboxRoleMap, labelForMailbox } from "@/lib/folder-roles";
 import { buildMoveTargets } from "@/lib/move-targets";
 import { cn } from "@/lib/utils";
 
@@ -72,12 +70,15 @@ export const MoveToTrigger = ({
 	const triggerLabel = label ?? "Move to folder";
 	const popoverId = useId();
 	const { t } = useTranslation("mail", { useSuspense: false });
-	// `getMailboxDisplayLabel` expects a translator with a positional
-	// `(key, fallback)` shape; i18next's `t` treats the second argument as an
-	// options object — passing it raw breaks fallback behavior. Wrap it the
-	// same way `MailboxItem.tsx` does so picker labels match the sidebar.
-	const translator = (key: string, fallback: string): string =>
-		t(key, { defaultValue: fallback });
+	// `labelForMailbox` expects a translator with a positional `(key,
+	// fallback)` shape; i18next's `t` treats the second argument as an options
+	// object — passing it raw breaks fallback behavior. Wrap it the same way
+	// the sidebar adapter does, memoized so it's a stable `useMemo` dependency.
+	const translator = useCallback(
+		(key: string, fallback: string): string =>
+			t(key, { defaultValue: fallback }),
+		[t],
+	);
 
 	const {
 		data: mailboxesResponse,
@@ -93,22 +94,30 @@ export const MoveToTrigger = ({
 		staleTime: Infinity,
 		enabled: isOpen,
 	});
+	const folderAppointments = useFolderAppointments(accountId);
 
 	const options = useMemo<MoveMailboxOption[]>(() => {
-		const targets = buildMoveTargets(mailboxesResponse?.items ?? []);
+		const targets = buildMoveTargets(
+			mailboxesResponse?.items ?? [],
+			folderAppointments,
+		);
+		const roleMap = buildMailboxRoleMap(folderAppointments);
 		return targets.map((mailbox) => ({
 			id: mailbox.mailboxId,
-			label:
-				getMailboxDisplayLabel(
-					mailbox.fullPath,
-					mailbox.specialUse,
-					translator,
-				) || getMailboxDisplayName(mailbox.fullPath),
+			label: labelForMailbox(
+				mailbox,
+				roleMap.get(mailbox.mailboxId),
+				translator,
+			),
 			searchValue: mailbox.fullPath,
 			isCurrent: mailbox.mailboxId === currentMailboxId,
 		}));
-		// biome-ignore lint/correctness/useExhaustiveDependencies: intentional omission to avoid infinite loop
-	}, [mailboxesResponse?.items, currentMailboxId, translator]);
+	}, [
+		mailboxesResponse?.items,
+		folderAppointments,
+		currentMailboxId,
+		translator,
+	]);
 
 	const handleSelect = useCallback(
 		(destinationMailboxId: string) => {

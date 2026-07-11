@@ -118,23 +118,11 @@ export {
 	type FilterSheetSource,
 } from "./components/filter-sheet.js";
 export {
-	type FolderDescriptor,
-	FolderNameList,
-	type FolderNameListProps,
-} from "./components/folder-name-list.js";
-export {
 	canonicalRoleLabel,
-	FOLDER_ROLES,
-	FolderNameRow,
-	type FolderNameRowProps,
 	type FolderRole,
-	folderNameDefault,
-	folderRowAffordance,
-	folderRowOverridden,
 	providerLeaf,
 	roleIcon,
-	roleOptionLabel,
-} from "./components/folder-name-row.js";
+} from "./components/folder-role.js";
 export {
 	Input,
 	type InputProps,
@@ -278,6 +266,12 @@ export {
 	ResizablePanel,
 	ResizablePanelGroup,
 } from "./components/resizable.js";
+export {
+	APPOINTABLE_ROLES,
+	type CandidateFolder,
+	RoleAppointmentList,
+	type RoleAppointmentListProps,
+} from "./components/role-appointment-list.js";
 export {
 	type RowAction,
 	RowActions,
