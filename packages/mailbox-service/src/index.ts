@@ -31,6 +31,13 @@ export {
 	BodySyncQueueService,
 	type RequestBodySyncInput,
 } from "./body-sync-queue.js";
+export {
+	isMessageBodySyncBroken,
+	type ResolveExhaustedBodySyncDeps,
+	type ResolveExhaustedBodySyncInput,
+	type ResolveExhaustedBodySyncResult,
+	resolveExhaustedBodySyncFailures,
+} from "./body-sync-terminal.js";
 // Connection factory
 export {
 	createConnection,
@@ -134,6 +141,11 @@ export {
 	normalizeSubject,
 	removeQuotedContent,
 } from "./snippet.js";
+export {
+	reconcileStaleMessage,
+	type StaleMessageReconcileDeps,
+	type StaleMessageReconcileResult,
+} from "./stale-message-reconcile.js";
 export type {
 	FlatMailboxInfo,
 	IImapConnection,

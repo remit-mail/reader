@@ -15,10 +15,9 @@ import { resetBodySyncGateCache } from "../body-sync-gate.js";
 import { __warmPoolSizeForTest } from "../connection-scope.js";
 import type { SyncMessageBodyEvent } from "../events.js";
 import {
-	buildRetryCapExceededLog,
-	buildRetryEvent,
-	isRetryCapExceeded,
-	MAX_BODY_SYNC_RETRIES,
+	BODY_SYNC_MAX_ATTEMPTS,
+	buildRetryableFailureError,
+	getBodySyncMaxAttempts,
 	resolveBatch,
 	syncMessageBody,
 } from "./sync-message-body.js";
@@ -125,152 +124,47 @@ describe("resolveBatch — event-shape preference", () => {
 	});
 });
 
-describe("buildRetryEvent — partial-failure re-enqueue", () => {
-	const uidMap = new Map<string, number>([
-		["msg-1", 101],
-		["msg-2", 102],
-		["msg-3", 103],
-	]);
+describe("buildRetryableFailureError — the DLQ-propagation signal", () => {
+	// Genuine processing failures must propagate (issue #1270): syncMessageBody
+	// throws this while SQS redelivery budget remains, instead of swallowing the
+	// failure into a fresh re-enqueue. index.ts's SQS handler catches it and
+	// reports the record as a batch item failure, so SQS redelivers it — and
+	// once the queue's own maxReceiveCount is hit, the record dead-letters into
+	// the body-dlq (alarmed in infra/stacks/dev/stacks/remit-worker-monitoring-stack.ts).
 
-	test("re-enqueues ONLY the failed ids, never the whole batch", () => {
-		const retry = buildRetryEvent(
-			baseEvent.accountId,
-			baseEvent.mailboxId,
-			["msg-2"],
-			uidMap,
-		);
+	test("names every failed message id and the current attempt", () => {
+		const error = buildRetryableFailureError(["msg-1", "msg-2"], 1);
 
-		assert.deepEqual(retry.messageIds, ["msg-2"]);
-		assert.deepEqual(retry.messages, [{ messageId: "msg-2", uid: 102 }]);
+		assert.match(error.message, /msg-1/);
+		assert.match(error.message, /msg-2/);
+		assert.match(error.message, /attempt 1\/3/);
 	});
 
-	test("carries forward uids for each failed id when known", () => {
-		const retry = buildRetryEvent(
-			baseEvent.accountId,
-			baseEvent.mailboxId,
-			["msg-1", "msg-3"],
-			uidMap,
-		);
-
-		assert.deepEqual(retry.messages, [
-			{ messageId: "msg-1", uid: 101 },
-			{ messageId: "msg-3", uid: 103 },
-		]);
+	test("is a real Error instance so it propagates like any other failure", () => {
+		const error = buildRetryableFailureError(["msg-1"], 2);
+		assert.ok(error instanceof Error);
 	});
 
-	test("legacy batch (no uid map) re-enqueues ids only", () => {
-		const retry = buildRetryEvent(baseEvent.accountId, baseEvent.mailboxId, [
-			"msg-2",
-		]);
-
-		assert.deepEqual(retry.messageIds, ["msg-2"]);
-		assert.equal(retry.messages, undefined);
-	});
-
-	test("carries force forward so a failed force-refetch keeps bypassing the skip guard on retry", () => {
-		const retry = buildRetryEvent(
-			baseEvent.accountId,
-			baseEvent.mailboxId,
-			["msg-2"],
-			uidMap,
-			true,
-		);
-
-		assert.equal(retry.force, true);
-	});
-
-	test("omits force when the original batch was not forced", () => {
-		const retry = buildRetryEvent(
-			baseEvent.accountId,
-			baseEvent.mailboxId,
-			["msg-2"],
-			uidMap,
-			false,
-		);
-
-		assert.equal(retry.force, undefined);
-	});
-
-	test("throws if a failed id has no uid in the map (never defaults to 0)", () => {
-		// A wrong UID (0) would silently fetch the wrong message on retry; the
-		// invariant is that every failed id came from this batch's uid map.
-		assert.throws(
-			() =>
-				buildRetryEvent(
-					baseEvent.accountId,
-					baseEvent.mailboxId,
-					["missing"],
-					uidMap,
-				),
-			/No uid for failed messageId missing/,
-		);
-	});
-
-	test("retryCount defaults to 0 and increments to 1 on the first retry", () => {
-		const retry = buildRetryEvent(
-			baseEvent.accountId,
-			baseEvent.mailboxId,
-			["msg-2"],
-			uidMap,
-		);
-
-		assert.equal(retry.retryCount, 1);
-	});
-
-	test("retryCount increments by one on each successive retry", () => {
-		const retry = buildRetryEvent(
-			baseEvent.accountId,
-			baseEvent.mailboxId,
-			["msg-2"],
-			uidMap,
-			false,
-			3,
-		);
-
-		assert.equal(retry.retryCount, 4);
-	});
-
-	test("propagates force and retryCount together — one doesn't reset the other", () => {
-		const retry = buildRetryEvent(
-			baseEvent.accountId,
-			baseEvent.mailboxId,
-			["msg-2"],
-			uidMap,
-			true,
-			2,
-		);
-
-		assert.equal(retry.force, true);
-		assert.equal(retry.retryCount, 3);
+	test("BODY_SYNC_MAX_ATTEMPTS matches the body queue's maxReceiveCount (3)", () => {
+		// See MAX_RECEIVE_COUNT in infra/stacks/dev/stacks/remit-queue-stack.ts.
+		assert.equal(BODY_SYNC_MAX_ATTEMPTS, 3);
 	});
 });
 
-describe("isRetryCapExceeded — bounding the retry loop", () => {
-	test("does not exceed the cap while under MAX_BODY_SYNC_RETRIES", () => {
-		assert.equal(isRetryCapExceeded(0), false);
-		assert.equal(isRetryCapExceeded(MAX_BODY_SYNC_RETRIES - 1), false);
+describe("getBodySyncMaxAttempts — env-derived, CDK-injected threshold (#1270)", () => {
+	test("parses the CDK-injected env var (derived from the queue's MAX_RECEIVE_COUNT)", () => {
+		assert.equal(getBodySyncMaxAttempts({ BODY_SYNC_MAX_ATTEMPTS: "3" }), 3);
+		assert.equal(getBodySyncMaxAttempts({ BODY_SYNC_MAX_ATTEMPTS: "5" }), 5);
 	});
 
-	test("exceeds the cap at and beyond MAX_BODY_SYNC_RETRIES", () => {
-		assert.equal(isRetryCapExceeded(MAX_BODY_SYNC_RETRIES), true);
-		assert.equal(isRetryCapExceeded(MAX_BODY_SYNC_RETRIES + 1), true);
+	test("defaults to 3 when unset (local dev, unit tests) — matches the queue's own default", () => {
+		assert.equal(getBodySyncMaxAttempts({}), 3);
 	});
-});
 
-describe("buildRetryCapExceededLog — the loud drop signal", () => {
-	test("carries a distinct alert key, the message ids, and the retry count", () => {
-		const payload = buildRetryCapExceededLog(
-			baseEvent.accountId,
-			baseEvent.mailboxId,
-			["msg-1", "msg-2"],
-			MAX_BODY_SYNC_RETRIES,
-		);
-
-		assert.equal(payload.alert, "body-sync-retry-cap-exceeded");
-		assert.equal(payload.accountId, baseEvent.accountId);
-		assert.equal(payload.mailboxId, baseEvent.mailboxId);
-		assert.deepEqual(payload.messageIds, ["msg-1", "msg-2"]);
-		assert.equal(payload.retryCount, MAX_BODY_SYNC_RETRIES);
+	test("defaults to 3 on a non-numeric or non-positive value", () => {
+		assert.equal(getBodySyncMaxAttempts({ BODY_SYNC_MAX_ATTEMPTS: "nope" }), 3);
+		assert.equal(getBodySyncMaxAttempts({ BODY_SYNC_MAX_ATTEMPTS: "0" }), 3);
+		assert.equal(getBodySyncMaxAttempts({ BODY_SYNC_MAX_ATTEMPTS: "-1" }), 3);
 	});
 });
 
@@ -305,7 +199,7 @@ describe("syncMessageBody — pause gate runs before connection reuse", () => {
 	});
 });
 
-describe("syncMessageBody — retry cap drop path (integrated, #1245)", () => {
+describe("syncMessageBody — DLQ propagation (integrated, #1270)", () => {
 	const accountId = "cap-account-zzz";
 	const mailboxId = "cap-mailbox-zzz";
 
@@ -331,27 +225,6 @@ describe("syncMessageBody — retry cap drop path (integrated, #1245)", () => {
 	const cappedMailbox = (): MailboxItem =>
 		({ fullPath: "INBOX" }) as unknown as MailboxItem;
 
-	interface ErrorRecord {
-		fields: Record<string, unknown>;
-		message: string;
-	}
-
-	const recordingLogger = (errors: ErrorRecord[]): Logger => {
-		const noop = () => {};
-		const log = {
-			info: noop,
-			warn: noop,
-			error: (fields: Record<string, unknown>, message: string) => {
-				errors.push({ fields, message });
-			},
-			debug: noop,
-			fatal: noop,
-			trace: noop,
-			child: () => log,
-		} as unknown as Logger;
-		return log;
-	};
-
 	afterEach(() => {
 		mock.restoreAll();
 		mockClient(SSMClient).reset();
@@ -359,7 +232,12 @@ describe("syncMessageBody — retry cap drop path (integrated, #1245)", () => {
 		resetBodySyncGateCache();
 	});
 
-	test("at the cap: drops the message without re-enqueueing, logs once, and does not throw (batch acks)", async () => {
+	test("below BODY_SYNC_MAX_ATTEMPTS: throws instead of re-enqueueing, so SQS redelivers the record (issue #1270)", async () => {
+		// This is the mechanism that lets a genuine processing failure ever reach
+		// the body-dlq: the handler used to swallow every failure into a fresh
+		// SQS SendMessage and always return successfully, so the queue's own
+		// maxReceiveCount/DLQ never engaged. Throwing here is what index.ts's SQS
+		// handler turns into a batchItemFailure, which SQS then redelivers.
 		mockClient(SSMClient)
 			.on(GetParameterCommand)
 			.resolves({ Parameter: { Value: "true" } });
@@ -386,34 +264,19 @@ describe("syncMessageBody — retry cap drop path (integrated, #1245)", () => {
 			mailboxId,
 			messageIds: ["msg-1"],
 			messages: [{ messageId: "msg-1", uid: 101 }],
-			retryCount: MAX_BODY_SYNC_RETRIES,
 		};
 
-		const errors: ErrorRecord[] = [];
-
-		await assert.doesNotReject(() =>
-			syncMessageBody(event, recordingLogger(errors)),
+		await assert.rejects(
+			() => syncMessageBody(event, silentLogger, 1),
+			(err: unknown) =>
+				err instanceof Error &&
+				/Body sync failed for 1 message/.test(err.message),
 		);
 
 		assert.equal(
 			sqsMock.commandCalls(SendMessageCommand).length,
 			0,
-			"cap reached — no re-enqueue, so emitEvent must not send a retry",
-		);
-
-		assert.equal(errors.length, 1, "expected exactly one log.error call");
-		assert.equal(
-			errors[0].message,
-			"Body sync retry cap exceeded; dropping message(s) without re-enqueueing",
-		);
-		assert.deepEqual(
-			errors[0].fields,
-			buildRetryCapExceededLog(
-				accountId,
-				mailboxId,
-				["msg-1"],
-				MAX_BODY_SYNC_RETRIES,
-			),
+			"no manual re-enqueue — SQS's own redelivery owns the retry now",
 		);
 	});
 });
