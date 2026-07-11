@@ -6,6 +6,7 @@ import type {
 import { AddressService } from "@remit/remit-electrodb-service";
 import { MessageCategory, SenderTrust, StarColor } from "@remit/domain-enums";
 import type { ThreadMessageResponse } from "@remit/api-openapi-types";
+import { deriveAutoMoved } from "./autoMoved.js";
 import { deriveSenderTrust } from "./senderTrust.js";
 
 /**
@@ -92,7 +93,9 @@ export const planBatchFetch = (rows: ThreadMessageItem[]): BatchPlan => {
 
 /**
  * Enrich a page of ThreadMessage rows with `category` (from the underlying
- * Message) and `senderTrust` (derived from the From Address's flags map).
+ * Message), `senderTrust` (derived from the From Address's flags map) and
+ * `autoMoved` (projected from the Message's internal placement verdict, see
+ * `deriveAutoMoved`).
  *
  * Two BatchGetItem calls per page, regardless of page size — see
  * `planBatchFetch` for the dedup contract.
@@ -100,7 +103,8 @@ export const planBatchFetch = (rows: ThreadMessageItem[]): BatchPlan => {
  * Missing rows fall back gracefully: `category` is omitted only when the
  * underlying Message row is absent (clients treat as `personal`); a present
  * Message with no stored category coalesces to `uncategorized` (RFC 032 Tier 2).
- * `senderTrust` defaults to `"unknown"`.
+ * `senderTrust` defaults to `"unknown"`. `autoMoved` is omitted whenever the
+ * move isn't a real, in-effect auto-move (or the Message row is absent).
  */
 export const enrichThreadRows = async (
 	rows: ThreadMessageItem[],
@@ -127,6 +131,9 @@ export const enrichThreadRows = async (
 	const authenticityByMessageId = new Map(
 		messages.map((m) => [m.messageId, m.authenticity]),
 	);
+	const autoMovedByMessageId = new Map(
+		messages.map((m) => [m.messageId, deriveAutoMoved(m)]),
+	);
 	const trustByAddressId = new Map(
 		addresses.map((a) => [a.addressId, deriveSenderTrust(a.flags)]),
 	);
@@ -135,6 +142,7 @@ export const enrichThreadRows = async (
 		const base = toResponse(row);
 		const category = categoryByMessageId.get(row.messageId);
 		const authenticity = authenticityByMessageId.get(row.messageId);
+		const autoMoved = autoMovedByMessageId.get(row.messageId);
 		const addressId = plan.addressIdByRow.get(row.threadMessageId);
 		const senderTrust = addressId
 			? (trustByAddressId.get(addressId) ?? SenderTrust.Unknown)
@@ -143,6 +151,7 @@ export const enrichThreadRows = async (
 			...base,
 			...(category !== undefined ? { category } : {}),
 			...(authenticity !== undefined ? { authenticity } : {}),
+			...(autoMoved !== undefined ? { autoMoved } : {}),
 			senderTrust,
 		};
 	});

@@ -19,6 +19,7 @@ import type { SelectionModifiers } from "@/hooks/useSelection";
 import { toDisplayCategory } from "@/lib/display-category";
 import { formatEmailDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { AutoMovedIndicator } from "./AutoMovedIndicator";
 
 interface MailboxLinkSearch {
 	selectedMessageId?: string;
@@ -28,6 +29,8 @@ interface MailboxLinkSearch {
 interface MessageListItemProps {
 	thread: RemitImapThreadMessageResponse;
 	mailboxId: string;
+	/** Owning account, used to resolve the Inbox/Junk mailboxes for the auto-moved badge's undo action. */
+	accountId?: string;
 	isSelected: boolean;
 	/**
 	 * Roving keyboard focus cursor (#429). Distinct from `isSelected` (the open
@@ -89,6 +92,7 @@ const toThreadRowData = (
 const MessageListItemComponent = ({
 	thread,
 	mailboxId,
+	accountId,
 	isSelected,
 	isFocused = false,
 	isChecked,
@@ -236,7 +240,21 @@ const MessageListItemComponent = ({
 			</div>
 
 			{/* Text/glyph content block */}
-			<ComfortableRowTextContent thread={rowData} />
+			<ComfortableRowTextContent
+				thread={rowData}
+				badge={
+					thread.autoMoved && (
+						<AutoMovedIndicator
+							accountId={accountId}
+							messageId={thread.messageId}
+							threadId={thread.threadId}
+							mailboxId={thread.mailboxId}
+							autoMoved={thread.autoMoved}
+							size="sm"
+						/>
+					)
+				}
+			/>
 		</Link>
 	);
 };

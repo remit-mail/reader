@@ -370,4 +370,105 @@ describe("enrichThreadRows", () => {
 
 		assert.equal(enriched[0].authenticity, undefined);
 	});
+
+	it("attaches autoMoved for a confident, non-dry-run move", async () => {
+		const rows = [
+			buildRow({
+				threadMessageId: "tm-1",
+				messageId: "msg-1",
+				fromEmail: "alice@example.com",
+			}),
+		];
+
+		const client = buildClient({
+			messages: [
+				buildMessage("msg-1", {
+					movedByRemit: true,
+					placementVerdict: {
+						action: "MoveToInbox",
+						confidence: "Confident",
+						fromPlacement: "junk",
+						reasons: ["provider=spam", "dmarc=pass", "sender=vip"],
+						dryRun: false,
+						decidedAt: 1_700_000_000_000,
+					},
+				}),
+			],
+			addresses: [],
+		});
+
+		const enriched = await enrichThreadRows(rows, client, ACCOUNT_CONFIG_ID);
+
+		assert.deepEqual(enriched[0].autoMoved, {
+			action: "MoveToInbox",
+			fromPlacement: "junk",
+		});
+	});
+
+	it("omits autoMoved when the verdict is unsure or dryRun", async () => {
+		const rows = [
+			buildRow({
+				threadMessageId: "tm-1",
+				messageId: "msg-1",
+				fromEmail: "alice@example.com",
+			}),
+			buildRow({
+				threadMessageId: "tm-2",
+				messageId: "msg-2",
+				fromEmail: "alice@example.com",
+			}),
+		];
+
+		const client = buildClient({
+			messages: [
+				buildMessage("msg-1", {
+					movedByRemit: true,
+					placementVerdict: {
+						action: "MoveToInbox",
+						confidence: "Unsure",
+						fromPlacement: "junk",
+						reasons: [],
+						dryRun: false,
+						decidedAt: 1_700_000_000_000,
+					},
+				}),
+				buildMessage("msg-2", {
+					movedByRemit: true,
+					placementVerdict: {
+						action: "MoveToInbox",
+						confidence: "Confident",
+						fromPlacement: "junk",
+						reasons: [],
+						dryRun: true,
+						decidedAt: 1_700_000_000_000,
+					},
+				}),
+			],
+			addresses: [],
+		});
+
+		const enriched = await enrichThreadRows(rows, client, ACCOUNT_CONFIG_ID);
+
+		assert.equal(enriched[0].autoMoved, undefined);
+		assert.equal(enriched[1].autoMoved, undefined);
+	});
+
+	it("omits autoMoved when movedByRemit is false", async () => {
+		const rows = [
+			buildRow({
+				threadMessageId: "tm-1",
+				messageId: "msg-1",
+				fromEmail: "alice@example.com",
+			}),
+		];
+
+		const client = buildClient({
+			messages: [buildMessage("msg-1", { movedByRemit: false })],
+			addresses: [],
+		});
+
+		const enriched = await enrichThreadRows(rows, client, ACCOUNT_CONFIG_ID);
+
+		assert.equal(enriched[0].autoMoved, undefined);
+	});
 });
