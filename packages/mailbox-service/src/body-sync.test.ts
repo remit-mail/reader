@@ -194,6 +194,9 @@ const buildFakeState = (opts: FakeStateOptions) => {
 					p.partPath === partPath,
 			);
 		},
+		retrieveBodyPart: async () => {
+			throw new Error("not used");
+		},
 		storeDeduplicated: async () => {
 			throw new Error("not used");
 		},
@@ -210,6 +213,21 @@ const buildFakeState = (opts: FakeStateOptions) => {
 			};
 		},
 		retrieveParsedBody: async () => null,
+		storeExtractedText: async () => {
+			throw new Error("not used");
+		},
+		storeExtractedSkipped: async () => {
+			throw new Error("not used");
+		},
+		extractedResultExists: async () => {
+			throw new Error("not used");
+		},
+		retrieveExtractedText: async () => {
+			throw new Error("not used");
+		},
+		listExtractedTexts: async () => {
+			throw new Error("not used");
+		},
 		retrieveMessageBody: async () => null,
 		retrieveMessageBodyStream: async () => null,
 		retrieve: async () => {

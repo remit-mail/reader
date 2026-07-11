@@ -85,6 +85,41 @@ export interface StoreParsedBodyParams {
 	parsed: ParsedBody;
 }
 
+/** Parameters for storing extracted attachment text (attachment-scan worker, #450) */
+export interface StoreExtractedTextParams {
+	accountConfigId: string;
+	accountId: string;
+	messageId: string;
+	partPath: string;
+	text: string;
+}
+
+/**
+ * Marker written in place of extracted text when extraction is skipped or
+ * fails, so the idempotency check terminates retries on a poison or
+ * unsupported attachment instead of re-running extraction on every
+ * redelivery.
+ */
+export interface ExtractedTextMarker {
+	status: "skipped" | "failed";
+	reason: string;
+}
+
+/** Parameters for storing an extraction skip/failure marker */
+export interface StoreExtractedSkippedParams {
+	accountConfigId: string;
+	accountId: string;
+	messageId: string;
+	partPath: string;
+	marker: ExtractedTextMarker;
+}
+
+/** One extracted-text artifact found under a message's `extracted/` prefix */
+export interface ExtractedTextListItem {
+	partPath: string;
+	key: string;
+}
+
 export interface StorageService {
 	/** Store a message body (raw RFC822 content) */
 	storeMessageBody(params: StoreMessageBodyParams): Promise<StorageReference>;
@@ -114,6 +149,17 @@ export interface StorageService {
 		partPath: string,
 	): Promise<boolean>;
 
+	/**
+	 * Retrieve a body-part's content (attachment or inline leaf) by
+	 * account/message id and IMAP section path; returns null on NoSuchKey.
+	 */
+	retrieveBodyPart(
+		accountConfigId: string,
+		accountId: string,
+		messageId: string,
+		partPath: string,
+	): Promise<Buffer | null>;
+
 	/** Store deduplicated content (content-addressable, for attachments) */
 	storeDeduplicated(params: StoreDeduplicatedParams): Promise<StorageReference>;
 
@@ -126,6 +172,48 @@ export interface StorageService {
 		accountId: string,
 		messageId: string,
 	): Promise<ParsedBody | null>;
+
+	/** Store extracted attachment text (attachment-scan worker, #450) */
+	storeExtractedText(
+		params: StoreExtractedTextParams,
+	): Promise<StorageReference>;
+
+	/** Store a skip/failure marker in place of extracted text */
+	storeExtractedSkipped(
+		params: StoreExtractedSkippedParams,
+	): Promise<StorageReference>;
+
+	/**
+	 * Whether an extraction result — either the text artifact or the
+	 * skip/failure marker — already exists for this part. Makes extraction
+	 * idempotent: a redelivered SQS message short-circuits instead of
+	 * re-running extraction (#450).
+	 */
+	extractedResultExists(
+		accountConfigId: string,
+		accountId: string,
+		messageId: string,
+		partPath: string,
+	): Promise<boolean>;
+
+	/** Retrieve previously extracted text; returns null on NoSuchKey */
+	retrieveExtractedText(
+		accountConfigId: string,
+		accountId: string,
+		messageId: string,
+		partPath: string,
+	): Promise<string | null>;
+
+	/**
+	 * List every extracted-text artifact stored for a message — the
+	 * `.skipped.json` markers are excluded. Used by the search-index worker
+	 * (#452) to fold attachment text into a message's vectors.
+	 */
+	listExtractedTexts(
+		accountConfigId: string,
+		accountId: string,
+		messageId: string,
+	): Promise<ExtractedTextListItem[]>;
 
 	/** Retrieve a raw message body (RFC822 .eml) by account/message id; returns null on NoSuchKey */
 	retrieveMessageBody(
@@ -203,6 +291,29 @@ export const buildBodyPartKey = (
 	partPath: string,
 ): string =>
 	`accounts/${accountConfigId}/${accountId}/messages/${messageId}/parts/${partPath}`;
+
+export const buildExtractedTextKey = (
+	accountConfigId: string,
+	accountId: string,
+	messageId: string,
+	partPath: string,
+): string =>
+	`${buildExtractedPrefix(accountConfigId, accountId, messageId)}${partPath}.txt.gz`;
+
+export const buildExtractedSkippedKey = (
+	accountConfigId: string,
+	accountId: string,
+	messageId: string,
+	partPath: string,
+): string =>
+	`${buildExtractedPrefix(accountConfigId, accountId, messageId)}${partPath}.skipped.json`;
+
+export const buildExtractedPrefix = (
+	accountConfigId: string,
+	accountId: string,
+	messageId: string,
+): string =>
+	`accounts/${accountConfigId}/${accountId}/messages/${messageId}/extracted/`;
 
 export const buildDeduplicatedKey = (
 	accountConfigId: string,
@@ -348,6 +459,78 @@ export const createMockStorageService = (): StorageService => {
 		return JSON.parse(content.toString("utf8")) as ParsedBody;
 	};
 
+	const retrieveBodyPart: StorageService["retrieveBodyPart"] = async (
+		accountConfigId,
+		accountId,
+		messageId,
+		partPath,
+	) => {
+		const uri = `mock://${buildBodyPartKey(accountConfigId, accountId, messageId, partPath)}`;
+		return storage.get(uri) ?? null;
+	};
+
+	const storeExtractedText: StorageService["storeExtractedText"] = async (
+		params,
+	) => {
+		const { accountConfigId, accountId, messageId, partPath, text } = params;
+		return storeInternal(
+			buildExtractedTextKey(accountConfigId, accountId, messageId, partPath),
+			Buffer.from(text, "utf8"),
+		);
+	};
+
+	const storeExtractedSkipped: StorageService["storeExtractedSkipped"] = async (
+		params,
+	) => {
+		const { accountConfigId, accountId, messageId, partPath, marker } = params;
+		return storeInternal(
+			buildExtractedSkippedKey(accountConfigId, accountId, messageId, partPath),
+			Buffer.from(JSON.stringify(marker), "utf8"),
+		);
+	};
+
+	const extractedResultExists: StorageService["extractedResultExists"] = async (
+		accountConfigId,
+		accountId,
+		messageId,
+		partPath,
+	) => {
+		const textUri = `mock://${buildExtractedTextKey(accountConfigId, accountId, messageId, partPath)}`;
+		const skippedUri = `mock://${buildExtractedSkippedKey(accountConfigId, accountId, messageId, partPath)}`;
+		return storage.has(textUri) || storage.has(skippedUri);
+	};
+
+	const retrieveExtractedText: StorageService["retrieveExtractedText"] = async (
+		accountConfigId,
+		accountId,
+		messageId,
+		partPath,
+	) => {
+		const uri = `mock://${buildExtractedTextKey(accountConfigId, accountId, messageId, partPath)}`;
+		const content = storage.get(uri);
+		if (!content) return null;
+		return content.toString("utf8");
+	};
+
+	const listExtractedTexts: StorageService["listExtractedTexts"] = async (
+		accountConfigId,
+		accountId,
+		messageId,
+	) => {
+		const prefix = `mock://${buildExtractedPrefix(accountConfigId, accountId, messageId)}`;
+		const suffix = ".txt.gz";
+		const items: ExtractedTextListItem[] = [];
+		for (const uri of storage.keys()) {
+			if (!uri.startsWith(prefix) || !uri.endsWith(suffix)) continue;
+			const key = uri.slice("mock://".length);
+			items.push({
+				partPath: uri.slice(prefix.length, -suffix.length),
+				key,
+			});
+		}
+		return items;
+	};
+
 	const retrieveMessageBody: StorageService["retrieveMessageBody"] = async (
 		accountConfigId,
 		accountId,
@@ -380,9 +563,15 @@ export const createMockStorageService = (): StorageService => {
 		storeMessageBodyStream,
 		storeBodyPart,
 		bodyPartExists,
+		retrieveBodyPart,
 		storeDeduplicated,
 		storeParsedBody,
 		retrieveParsedBody,
+		storeExtractedText,
+		storeExtractedSkipped,
+		extractedResultExists,
+		retrieveExtractedText,
+		listExtractedTexts,
 		retrieveMessageBody,
 		retrieveMessageBodyStream,
 		retrieve: async (uri) => {
