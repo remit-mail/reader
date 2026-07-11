@@ -70,6 +70,15 @@ model MessagePlacementVerdict {
   decidedAt: int64;
 }
 
+@doc("Present only when Remit auto-moved this message on body-sync (a confident, non-dry-run move). Absent means the message was not auto-moved by Remit — clients treat absence as no indicator.")
+model AutoMovedInfo {
+  @doc("Direction Remit moved the message: MoveToInbox | MoveToJunk. The implied destination lets the client tell whether the move is still in effect.")
+  action: PlacementAction;
+
+  @doc("Folder role the message was moved from: inbox | junk | other. Used to render \"moved from Junk\" and to resolve the undo target client-side via MailboxRole.")
+  fromPlacement: string;
+}
+
 @doc("Core message entity. The combination of Mailbox.uidValidity + Message.uid uniquely identifies a message forever per RFC 9051 Section 2.3.1.1.")
 @entity("message", "remit")
 @index(
@@ -243,8 +252,8 @@ model MessageFlag {
 // ============================================
 
 @doc("Core message metadata for API responses")
-model MessageSummaryResponse
-  is PickProperties<
+model MessageSummaryResponse {
+  ...PickProperties<
     Message,
 
       | "messageId"
@@ -255,6 +264,10 @@ model MessageSummaryResponse
       | "messageIdHeader"
       | "authenticity"
   >;
+
+  @doc("Present only when Remit auto-moved this message on body-sync. Absent means the message was not auto-moved by Remit.")
+  autoMoved?: AutoMovedInfo;
+}
 
 @doc("Message envelope (header metadata)")
 model EnvelopeResponse {
