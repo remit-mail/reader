@@ -1,7 +1,8 @@
 import { mailboxOperationsListMailboxesQueryKey } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import { syncOperationsTriggerSync } from "@remit/api-http-client/sdk.gen.ts";
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
-import { useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, useQueryClient } from "@tanstack/react-query";
+import pMap from "p-map";
 import { useEffect, useRef } from "react";
 import { shouldEscalate } from "@/lib/error-classifier";
 import { reportFatalError } from "@/lib/fatal-error";
@@ -11,6 +12,39 @@ import { reportFatalError } from "@/lib/fatal-error";
  * Exposed for unit tests and possible future tuning.
  */
 export const STALENESS_THRESHOLD_MS = 15 * 60 * 1000;
+
+const DEFAULT_POLL_INTERVAL_SECONDS = 5 * 60;
+
+const parsePositiveIntSeconds = (
+	raw: string | undefined,
+	fallback: number,
+): number => {
+	if (!raw) return fallback;
+	const parsed = Number.parseInt(raw, 10);
+	return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+/**
+ * Client-side online-poll interval (#1251): while an account's mail is open,
+ * the tab re-triggers the same sync the pull-to-refresh path uses on this
+ * cadence — the replacement for the server's removed "online tier". Runtime
+ * config follows the repo's `VITE_*` convention (see vite-env.d.ts).
+ */
+export const POLL_INTERVAL_MS =
+	parsePositiveIntSeconds(
+		import.meta.env.VITE_MAILBOX_POLL_INTERVAL_SECONDS,
+		DEFAULT_POLL_INTERVAL_SECONDS,
+	) * 1000;
+
+/**
+ * Bounded concurrency for the per-poll fan-out across open accounts —
+ * mirrors `SCHEDULER_ENQUEUE_CONCURRENCY` in
+ * remit-imap-worker/src/scheduler/config.ts (never an unbounded
+ * `Promise.all`, see doc/rules/coding-standards.md). A browser tab realistically
+ * has a handful of accounts open at once, so this is a ceiling, not a tuned
+ * throughput target.
+ */
+export const POLL_CONCURRENCY = 5;
 
 /**
  * Module-level guard: which accounts have already had a background sync
@@ -41,6 +75,26 @@ export const selectStaleAccountIds = (
 			return now - last > thresholdMs;
 		})
 		.map((account) => account.accountId);
+
+/**
+ * Pure predicate: has at least one full poll interval elapsed since the last
+ * poll? Shared by the recurring timer and the visibility-regain catch-up
+ * check so both use the exact same due-ness rule.
+ */
+export const hasPollIntervalElapsed = (
+	now: number,
+	lastPollAt: number,
+	intervalMs: number = POLL_INTERVAL_MS,
+): boolean => now - lastPollAt >= intervalMs;
+
+/**
+ * Pure selector: drop any accountId already mid-flight so a poll tick never
+ * stacks a second request onto one still in progress.
+ */
+export const selectPollableAccountIds = (
+	accountIds: string[],
+	inFlight: ReadonlySet<string>,
+): string[] => accountIds.filter((id) => !inFlight.has(id));
 
 /**
  * Test-only helpers. Not exported from the public hook surface; consumers
@@ -77,22 +131,41 @@ export const handleBackgroundSyncFailure = (
 };
 
 /**
- * Auto-trigger a background mailbox-list sync for every stale account
- * the first time MailLayout mounts in a session. Fire-and-forget: does
- * not block render, and silently logs failures (this is a best-effort
- * background refresh — the user-visible UI for triggering is the
- * "Refresh mailboxes" button in Settings).
- *
- * Uses a stable dependency derived from `accountIds.join(",")` so adding
- * or removing an account re-runs the effect, but unrelated re-renders
- * don't.
+ * Trigger the same sync the pull-to-refresh path uses and invalidate the
+ * mailbox-list query on success. `throwOnError: true` so a server failure
+ * rejects instead of silently resolving with `{ error }` (the default),
+ * which would let a 500 look like a successful sync and invalidate queries
+ * anyway.
+ */
+const runBackgroundSync = (
+	accountId: string,
+	queryClient: QueryClient,
+): Promise<void> =>
+	syncOperationsTriggerSync({ path: { accountId }, throwOnError: true }).then(
+		() => {
+			queryClient.invalidateQueries({
+				queryKey: mailboxOperationsListMailboxesQueryKey({
+					path: { accountId },
+				}),
+			});
+		},
+	);
+
+/**
+ * Auto-trigger a background mailbox-list sync for every stale account the
+ * first time MailLayout mounts in a session, then keep it fresh with a
+ * recurring online poll for as long as the mail app stays open (#1251) —
+ * the client-side replacement for the server's removed "online" sync tier.
+ * Fire-and-forget: does not block render, and silently logs failures (this
+ * is a best-effort background refresh — the user-visible UI for triggering
+ * is the "Refresh mailboxes" button in Settings).
  */
 export const useStaleAccountSync = (
 	accounts: RemitImapAccountResponse[],
 ): void => {
 	const queryClient = useQueryClient();
-	// Hold the latest accounts in a ref so the effect can read them without
-	// re-running on every render; we re-run only when the joined accountId
+	// Hold the latest accounts in a ref so both effects can read them without
+	// re-running on every render; they re-run only when the joined accountId
 	// list actually changes (account added / removed).
 	const accountsRef = useRef(accounts);
 	accountsRef.current = accounts;
@@ -107,20 +180,67 @@ export const useStaleAccountSync = (
 
 		for (const accountId of fresh) {
 			triggeredAccountIds.add(accountId);
-			// `throwOnError: true` so a server failure rejects instead of silently
-			// resolving with `{ error }` (the default), which would let a 500 look
-			// like a successful sync and invalidate queries anyway.
-			syncOperationsTriggerSync({ path: { accountId }, throwOnError: true })
-				.then(() => {
-					queryClient.invalidateQueries({
-						queryKey: mailboxOperationsListMailboxesQueryKey({
-							path: { accountId },
-						}),
-					});
-				})
-				.catch((err: unknown) => {
-					handleBackgroundSyncFailure(accountId, err);
-				});
+			runBackgroundSync(accountId, queryClient).catch((err: unknown) => {
+				handleBackgroundSyncFailure(accountId, err);
+			});
 		}
+	}, [stableKey, queryClient]);
+
+	// biome-ignore lint/correctness/useExhaustiveDependencies: stableKey re-runs the poll loop when the account list changes; accountsRef supplies the live list each tick
+	useEffect(() => {
+		let lastPollAt = Date.now();
+		let timeoutId: ReturnType<typeof setTimeout> | undefined;
+		const inFlight = new Set<string>();
+
+		const poll = () => {
+			lastPollAt = Date.now();
+			const ids = selectPollableAccountIds(
+				accountsRef.current.map((a) => a.accountId),
+				inFlight,
+			);
+			// Mark every selected id in flight before dispatch (not as pMap
+			// starts each one) so a concurrency-queued id still counts as
+			// "already polling" for the next tick's `selectPollableAccountIds`
+			// check — no stacked requests even while waiting for a free slot.
+			for (const accountId of ids) inFlight.add(accountId);
+			void pMap(
+				ids,
+				(accountId) =>
+					runBackgroundSync(accountId, queryClient)
+						.catch((err: unknown) => {
+							handleBackgroundSyncFailure(accountId, err);
+						})
+						.finally(() => {
+							inFlight.delete(accountId);
+						}),
+				{ concurrency: POLL_CONCURRENCY },
+			);
+		};
+
+		const tick = () => {
+			if (document.visibilityState === "visible") {
+				poll();
+				timeoutId = setTimeout(tick, POLL_INTERVAL_MS);
+				return;
+			}
+			// Hidden: don't reschedule. `handleVisibilityChange` resumes the loop
+			// (with an immediate catch-up poll) once the tab is visible again.
+		};
+
+		const handleVisibilityChange = () => {
+			if (document.visibilityState !== "visible") return;
+			if (!hasPollIntervalElapsed(Date.now(), lastPollAt)) return;
+			if (timeoutId !== undefined) clearTimeout(timeoutId);
+			poll();
+			timeoutId = setTimeout(tick, POLL_INTERVAL_MS);
+		};
+
+		timeoutId = setTimeout(tick, POLL_INTERVAL_MS);
+		document.addEventListener("visibilitychange", handleVisibilityChange);
+
+		return () => {
+			if (timeoutId !== undefined) clearTimeout(timeoutId);
+			document.removeEventListener("visibilitychange", handleVisibilityChange);
+		};
 	}, [stableKey, queryClient]);
 };

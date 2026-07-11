@@ -164,7 +164,6 @@ export type CreateAccountInput = Omit<
 	| "smtpTls"
 	| "smtpStartTls"
 	| "smtpUsername"
-	| "lastActivityAt"
 > & {
 	accountId?: string;
 	authType?: AccountItem["authType"];
@@ -174,8 +173,6 @@ export type CreateAccountInput = Omit<
 	smtpTls?: AccountItem["smtpTls"];
 	smtpStartTls?: AccountItem["smtpStartTls"];
 	smtpUsername?: AccountItem["smtpUsername"];
-	// Tier 2 default (RFC 032): 0 ("never") when omitted at creation.
-	lastActivityAt?: AccountItem["lastActivityAt"];
 };
 
 export type UpdateAccountInput = Partial<

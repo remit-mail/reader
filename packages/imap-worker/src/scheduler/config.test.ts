@@ -1,27 +1,27 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { getOfflineIntervalMs, getOnlineIntervalMs } from "./config.js";
+import { getOfflineIntervalMs, getTickIntervalMs } from "./config.js";
 
-describe("getOnlineIntervalMs", () => {
-	it("defaults to 5 minutes when unset", () => {
-		assert.equal(getOnlineIntervalMs({}), 5 * 60 * 1000);
+describe("getTickIntervalMs", () => {
+	it("defaults to 1 hour when unset", () => {
+		assert.equal(getTickIntervalMs({}), 60 * 60 * 1000);
 	});
 
-	it("reads MAILBOX_SYNC_ONLINE_INTERVAL_SECONDS", () => {
+	it("reads MAILBOX_SYNC_TICK_INTERVAL_SECONDS", () => {
 		assert.equal(
-			getOnlineIntervalMs({ MAILBOX_SYNC_ONLINE_INTERVAL_SECONDS: "60" }),
+			getTickIntervalMs({ MAILBOX_SYNC_TICK_INTERVAL_SECONDS: "60" }),
 			60_000,
 		);
 	});
 
 	it("falls back to the default on a non-positive or non-numeric value", () => {
 		assert.equal(
-			getOnlineIntervalMs({ MAILBOX_SYNC_ONLINE_INTERVAL_SECONDS: "0" }),
-			5 * 60 * 1000,
+			getTickIntervalMs({ MAILBOX_SYNC_TICK_INTERVAL_SECONDS: "0" }),
+			60 * 60 * 1000,
 		);
 		assert.equal(
-			getOnlineIntervalMs({ MAILBOX_SYNC_ONLINE_INTERVAL_SECONDS: "nope" }),
-			5 * 60 * 1000,
+			getTickIntervalMs({ MAILBOX_SYNC_TICK_INTERVAL_SECONDS: "nope" }),
+			60 * 60 * 1000,
 		);
 	});
 });

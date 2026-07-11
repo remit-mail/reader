@@ -37,10 +37,4 @@ export interface IAccountRepository {
 		limit?: number;
 		cursor?: string;
 	}): Promise<AccountSchedulerPage>;
-	/**
-	 * Record authenticated API activity for the "online" scheduled-sync tier.
-	 * Throttled server-side — callers may invoke this on every read; the
-	 * underlying write only lands when the last recorded activity is stale.
-	 */
-	bumpActivity(accountId: string, now?: number): Promise<void>;
 }

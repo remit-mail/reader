@@ -1,18 +1,23 @@
 /**
- * Scheduled-sync tiers (#1247): every account gets a full mailbox sync on a
- * schedule even with no client polling ("offline" tier); an account with
- * recent authenticated API activity gets refreshed on a much shorter
- * "online" tier instead. Both intervals are config-driven — never hardcode a
- * cadence — following the repo's env-var-with-a-safe-default convention (see
- * `ACCOUNT_DELETION_GRACE_SECONDS` in remit-account-worker/src/config.ts).
+ * Periodic mailbox-sync scheduler (#1247, restructured #1251): the tick rate
+ * and the offline-sync threshold are separate, independently configured
+ * knobs — never hardcode a cadence — following the repo's
+ * env-var-with-a-safe-default convention (see `ACCOUNT_DELETION_GRACE_SECONDS`
+ * in remit-account-worker/src/config.ts).
  *
- * The online interval also drives the EventBridge schedule rate in
- * infra (the tick cannot run more often than the rate it's invoked at), so
- * CDK and this runtime default must agree — see
- * infra/lib/config.ts's `mailboxSync` stage config.
+ * `tickIntervalSeconds` drives how often the tick itself runs — the
+ * EventBridge schedule rate in prod, the local-runner loop delay in dev — and
+ * must stay well below `offlineIntervalSeconds` so a tick reliably observes
+ * every account crossing the threshold. CDK and this runtime default must
+ * agree — see infra/lib/config.ts's `mailboxSync` stage config.
+ *
+ * `offlineIntervalSeconds` is the only due-ness threshold: an account is due
+ * once its last successful sync is older than this interval. There is no
+ * "online" tier — client-side polling (useStaleAccountSync) covers an
+ * account while its mail is actively open in the web client.
  */
 
-const DEFAULT_ONLINE_INTERVAL_SECONDS = 5 * 60; // 5 minutes
+const DEFAULT_TICK_INTERVAL_SECONDS = 60 * 60; // 1 hour
 const DEFAULT_OFFLINE_INTERVAL_SECONDS = 12 * 60 * 60; // 12 hours
 
 const parsePositiveIntSeconds = (
@@ -24,12 +29,12 @@ const parsePositiveIntSeconds = (
 	return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 };
 
-export const getOnlineIntervalMs = (
+export const getTickIntervalMs = (
 	env: NodeJS.ProcessEnv = process.env,
 ): number =>
 	parsePositiveIntSeconds(
-		env.MAILBOX_SYNC_ONLINE_INTERVAL_SECONDS,
-		DEFAULT_ONLINE_INTERVAL_SECONDS,
+		env.MAILBOX_SYNC_TICK_INTERVAL_SECONDS,
+		DEFAULT_TICK_INTERVAL_SECONDS,
 	) * 1000;
 
 export const getOfflineIntervalMs = (

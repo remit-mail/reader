@@ -8,7 +8,7 @@ import type {
 	UpdateAccountInput,
 } from "@remit/data-ports";
 import { SyncPhase } from "@remit/domain-enums";
-import { and, asc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, or, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { NotFoundError } from "../error.js";
 import { randomId } from "../id.js";
@@ -18,11 +18,6 @@ import { mailboxTable } from "../schema/i4-mailbox.js";
 import { rowToMailbox } from "./i4-mailbox.js";
 
 type DB = NodePgDatabase<Record<string, unknown>>;
-
-// Throttle window for `bumpActivity` writes (#1247): a polling client can call
-// it on every authenticated read, but the underlying table write only lands
-// once a minute per account.
-const ACTIVITY_THROTTLE_MS = 60_000;
 
 export function rowToAccount(
 	row: typeof accountTable.$inferSelect,
@@ -51,7 +46,6 @@ export function rowToAccount(
 		connectionState: row.connectionState as AccountItem["connectionState"],
 		lastConnectedAt: row.lastConnectedAt ?? undefined,
 		lastSyncAt: row.lastSyncAt ?? undefined,
-		lastActivityAt: row.lastActivityAt ?? undefined,
 		lastError: row.lastError ?? undefined,
 		syncPhase: (row.syncPhase as AccountItem["syncPhase"]) ?? undefined,
 		mailboxCountTotal: row.mailboxCountTotal ?? undefined,
@@ -94,8 +88,6 @@ export class AccountRepo implements IAccountRepository {
 				connectionState: input.connectionState,
 				lastConnectedAt: input.lastConnectedAt,
 				lastSyncAt: input.lastSyncAt,
-				// Tier 2 default (RFC 032): 0 ("never") when not supplied at creation.
-				lastActivityAt: input.lastActivityAt ?? 0,
 				lastError: input.lastError,
 				syncPhase: input.syncPhase,
 				mailboxCountTotal: input.mailboxCountTotal,
@@ -384,32 +376,5 @@ export class AccountRepo implements IAccountRepository {
 				: null;
 
 		return { items, cursor: cursorOut };
-	}
-
-	/**
-	 * Record authenticated API activity for the scheduled-sync "online" tier
-	 * (#1247). Throttled via a conditional UPDATE — the write only lands when
-	 * `lastActivityAt` is null or older than `ACTIVITY_THROTTLE_MS`, so a
-	 * polling client can call this on every read. Zero rows affected (already
-	 * fresh, or the account doesn't exist) is expected and not an error — this
-	 * is a best-effort side signal, not the request's primary write.
-	 */
-	async bumpActivity(
-		accountId: string,
-		now: number = Date.now(),
-	): Promise<void> {
-		const staleBefore = now - ACTIVITY_THROTTLE_MS;
-		await this.db
-			.update(accountTable)
-			.set({ lastActivityAt: now, updatedAt: now })
-			.where(
-				and(
-					eq(accountTable.accountId, accountId),
-					or(
-						isNull(accountTable.lastActivityAt),
-						lt(accountTable.lastActivityAt, staleBefore),
-					),
-				),
-			);
 	}
 }

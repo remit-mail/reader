@@ -13,20 +13,44 @@ interface TriggerAccountSyncInput {
 	queueUrl: string;
 	accountId: string;
 	/**
-	 * Override the FIFO `MessageDeduplicationId`. Defaults to
-	 * `SYNC_MAILBOXES:<accountId>`, the manual-trigger id (POST /sync, OAuth
-	 * connect, pull-to-refresh) — every one of those call sites intentionally
-	 * shares that id so a rapid double-tap collapses into one enqueue.
+	 * Override the FIFO `MessageDeduplicationId`. Defaults to a time-bucketed
+	 * manual-trigger id (`buildManualSyncDedupId`) shared by every manual call
+	 * site (POST /sync, OAuth connect, config load, pull-to-refresh, the
+	 * client's online-poll) so a rapid double-tap collapses into one enqueue,
+	 * while distinct triggers a bucket or more apart always pass through.
 	 *
-	 * The scheduled-sync tick (#1247) must NOT share that id: a 5-minute tick
-	 * would then intermittently collide with its own prior tick (SQS FIFO's
-	 * dedup window is 5 minutes) and with a concurrent manual trigger, silently
-	 * dropping a due sync. Pass `buildScheduledSyncDedupId()` here instead.
+	 * The scheduled-sync tick (#1247) must NOT share that namespace: pass
+	 * `buildScheduledSyncDedupId()` here instead, so the two paths can never
+	 * suppress each other.
 	 */
 	dedupId?: string;
 }
 
 const isFifoQueue = (queueUrl: string): boolean => queueUrl.endsWith(".fifo");
+
+/**
+ * Bucket window for the manual-trigger dedup id. SQS FIFO's own dedup window
+ * is 5 minutes; a static per-account id (the pre-#1250 behaviour) collided
+ * with the client's 5-minute online poll and swallowed a pull-to-refresh
+ * within 5 minutes of any prior trigger. Bucketing to ~60s keeps a rapid
+ * double-tap deduped while letting distinct polls a minute or more apart
+ * always enqueue.
+ */
+const MANUAL_DEDUP_BUCKET_MS = 60_000;
+
+/**
+ * Build the manual-trigger dedup id (POST /sync, OAuth connect, config load,
+ * pull-to-refresh, client online-poll), bucketed so consecutive triggers a
+ * bucket apart never collide — see `dedupId` above.
+ */
+export const buildManualSyncDedupId = (
+	accountId: string,
+	now: number,
+	bucketMs: number = MANUAL_DEDUP_BUCKET_MS,
+): string => {
+	const bucket = Math.floor(now / bucketMs);
+	return `SYNC_MAILBOXES:manual:${accountId}:${bucket}`;
+};
 
 /**
  * Build the scheduler's own dedup namespace, bucketed by tick interval so
@@ -61,7 +85,8 @@ export const buildSyncMailboxesCommand = (
 		MessageBody: JSON.stringify(event),
 		...(useFifo && {
 			MessageGroupId: accountId,
-			MessageDeduplicationId: dedupId ?? `SYNC_MAILBOXES:${accountId}`,
+			MessageDeduplicationId:
+				dedupId ?? buildManualSyncDedupId(accountId, event.timestamp),
 		}),
 	});
 };

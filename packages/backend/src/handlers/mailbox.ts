@@ -11,7 +11,6 @@ import type {
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { getAccountConfigIdFromEvent } from "../auth.js";
 import { getClient } from "../service/dynamodb.js";
-import { fireAndForget } from "../service/fire-and-forget.js";
 import type {
 	MailboxDetailOperationIds,
 	MailboxOperationIds,
@@ -174,18 +173,6 @@ export const MailboxOperations: Record<
 		const client = await getClient();
 		const account = await client.account.get(accountId);
 		assertAccountOwnership(account, accountConfigId, "read");
-
-		// Mailbox listing is the account view the web client polls while a
-		// mailbox is open (useStaleAccountSync's invalidation target) — the
-		// cheapest available proxy for "this account is online" (#1247). The
-		// write is throttled server-side (bumpActivity), so firing it on every
-		// read is safe; it must never fail or slow down this read.
-		void fireAndForget(() => client.account.bumpActivity(accountId), {
-			source: "account_activity_bump",
-			message: "Failed to record account activity (best-effort)",
-			ids: { accountId },
-			alert: "account_activity_bump_failed",
-		});
 
 		const result = await client.mailbox.listByAccount(accountId, {
 			continuationToken,
