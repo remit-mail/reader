@@ -37,7 +37,7 @@ const sqsClient = new SQSClient({
  * correctly dedupes.
  */
 export const handler: ScheduledHandler = withTelemetry(async (event) => {
-	const { account } = getClient();
+	const { account } = await getClient();
 	const now = Date.parse(event.time);
 
 	await runSchedulerTick({
