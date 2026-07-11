@@ -56,6 +56,7 @@ import {
 	upsertAccountSignature,
 } from "./account-signature.js";
 import { ensureAccountConfig } from "./ensure-account-config.js";
+import { resolveAccountFolderAppointments } from "./folder-role-appointments.js";
 
 export { assertNotOAuthCreate, assertPasswordProvided, toAccountResponse };
 
@@ -201,7 +202,7 @@ export const AccountOperations: Record<
 		// Password accounts require a non-empty password
 		assertPasswordProvided(input.authType, input.password);
 
-		const { account, accountConfig, accountSetting, secrets } =
+		const { account, accountConfig, accountSetting, mailbox, secrets } =
 			await getClient();
 
 		await ensureAccountConfig(accountConfig, accountConfigId);
@@ -266,12 +267,19 @@ export const AccountOperations: Record<
 
 		await triggerAccountSyncSafe(newAccount.accountId);
 
-		const overrides = await loadAccountOverrides(
-			accountSetting,
-			accountConfigId,
-			newAccount.accountId,
-		);
-		return toAccountResponse(newAccount, {}, overrides);
+		const [overrides, folderAppointments] = await Promise.all([
+			loadAccountOverrides(
+				accountSetting,
+				accountConfigId,
+				newAccount.accountId,
+			),
+			resolveAccountFolderAppointments(
+				{ mailbox, accountSetting },
+				accountConfigId,
+				newAccount.accountId,
+			),
+		]);
+		return toAccountResponse(newAccount, {}, overrides, folderAppointments);
 	},
 
 	AccountOperations_testConnection: async (
@@ -377,7 +385,7 @@ export const AccountDetailOperations: Record<
 		const { accountId } = context.request.params as { accountId: string };
 		const input = JSON.parse(event.body ?? "{}") as UpdateAccountInput;
 
-		const { account, accountSetting, secrets } = await getClient();
+		const { account, accountSetting, mailbox, secrets } = await getClient();
 
 		const existing = await account.get(accountId);
 		assertAccountOwnership(existing, accountConfigId, "act");
@@ -463,11 +471,16 @@ export const AccountDetailOperations: Record<
 
 		const updated = await account.update(accountId, updates);
 
-		const [signature, overrides] = await Promise.all([
+		const [signature, overrides, folderAppointments] = await Promise.all([
 			loadSignatureForAccount(accountSetting, accountConfigId, accountId),
 			loadAccountOverrides(accountSetting, accountConfigId, accountId),
+			resolveAccountFolderAppointments(
+				{ mailbox, accountSetting },
+				accountConfigId,
+				accountId,
+			),
 		]);
-		return toAccountResponse(updated, signature, overrides);
+		return toAccountResponse(updated, signature, overrides, folderAppointments);
 	},
 
 	AccountDetailOperations_deleteAccount: async (

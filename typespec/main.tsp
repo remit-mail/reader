@@ -122,6 +122,22 @@ namespace RemitApi {
   }
 
   // ============================================
+  // Folder Role Operations (RFC 032 exclusive-folder-appointment, #976)
+  // ============================================
+
+  @route("/accounts/{accountId}/folder-roles/{role}")
+  namespace FolderRoleOperations {
+    @doc("Appoint a canonical role to a mailbox, or clear it. Exclusive by construction: the role always resolves to exactly one mailbox, so appointing a new one silently replaces whichever mailbox previously held it — there is no second place a duplicate appointment could live. Returns the account with its refreshed folderAppointments.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @put
+    op appointFolderRole(
+      @path accountId: UUID,
+      @path role: CanonicalMailboxRole,
+      @body input: AppointFolderRoleInput,
+    ): AccountResponse;
+  }
+
+  // ============================================
   // Trash Operations
   // ============================================
 

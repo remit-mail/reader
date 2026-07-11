@@ -1,14 +1,12 @@
 import type { SQSClient } from "@aws-sdk/client-sqs";
-import {
-	type AccountConfigItem,
-	type AccountItem,
-	NotFoundError,
+import type {
+	AccountConfigItem,
+	MailboxItem,
 } from "@remit/remit-electrodb-service";
-import { AccountAuthType } from "@remit/domain-enums";
+import { NotFoundError } from "@remit/remit-electrodb-service";
 import { logger } from "@remit/logger-lambda";
 import type {
 	AccountConfigResponse,
-	AccountResponse,
 	ConfigDescriptionResponse,
 } from "@remit/api-openapi-types";
 import type { APIGatewayProxyEvent } from "aws-lambda";
@@ -20,6 +18,7 @@ import { fireAndForget } from "../service/fire-and-forget.js";
 import { sqsClient } from "../service/sqs.js";
 import { triggerAccountSync } from "../service/trigger-sync.js";
 import type { ConfigOperationIds, OperationHandler } from "../types.js";
+import { toAccountResponse } from "./account-guards.js";
 import {
 	type AccountOverrides,
 	groupAccountOverrides,
@@ -28,6 +27,10 @@ import {
 	type AccountSignature,
 	groupSignaturesByAccount,
 } from "./account-signature.js";
+import {
+	groupFolderAppointmentsByAccount,
+	resolveFolderAppointments,
+} from "./folder-role-appointments.js";
 
 type StructuredLog = (fields: Record<string, unknown>, message: string) => void;
 
@@ -130,50 +133,6 @@ const emptyConfigResponse = (
 	};
 };
 
-// SECURITY: passwordHash, oauthRefreshTokenHash, and smtpPasswordHash are
-// intentionally omitted — never expose token material in API responses.
-// Display name, mute flag, and signatures live in per-account AccountSetting
-// rows (RFC 032), so the caller resolves them and passes them in to keep the
-// response shape unchanged.
-const toAccountResponse = (
-	account: AccountItem,
-	signature: AccountSignature,
-	overrides: AccountOverrides,
-): AccountResponse => ({
-	accountId: account.accountId,
-	accountConfigId: account.accountConfigId,
-	displayName: overrides.displayName,
-	username: account.username,
-	email: account.email,
-	authType: account.authType ?? AccountAuthType.Password,
-	imapHost: account.imapHost,
-	imapPort: account.imapPort,
-	imapTls: account.imapTls,
-	imapStartTls: account.imapStartTls,
-	// RFC 032 Tier 2: SMTP config is total. ElectroDB `default` applies on write
-	// only, so rows written before this change still lack these attributes —
-	// coalesce to the schema defaults on read so the response is always complete.
-	smtpEnabled: account.smtpEnabled ?? false,
-	smtpHost: account.smtpHost ?? "",
-	smtpPort: account.smtpPort ?? 587,
-	smtpTls: account.smtpTls ?? false,
-	smtpStartTls: account.smtpStartTls ?? true,
-	smtpUsername: account.smtpUsername ?? "",
-	signaturePlainText: signature.plainText,
-	signatureHtml: signature.html,
-	isActive: account.isActive,
-	connectionState: account.connectionState,
-	lastConnectedAt: account.lastConnectedAt,
-	lastSyncAt: account.lastSyncAt,
-	lastError: account.lastError,
-	syncPhase: account.syncPhase,
-	mailboxCountTotal: account.mailboxCountTotal,
-	mailboxCountSynced: account.mailboxCountSynced,
-	muted: overrides.muted,
-	createdAt: account.createdAt,
-	updatedAt: account.updatedAt,
-});
-
 export const ConfigOperations: Record<
 	ConfigOperationIds,
 	OperationHandler<ConfigOperationIds>
@@ -209,15 +168,32 @@ export const ConfigOperations: Record<
 		// Signatures and the display-name/mute overrides are stored per-account in
 		// AccountSetting rows (RFC 032). Load the whole set for this config once and
 		// key both by accountId so the account mapping below surfaces each without
-		// an N+1.
+		// an N+1. The per-account folder-role map (RFC 032
+		// exclusive-folder-appointment, #976) rides the same settings rows, grouped
+		// the same way.
 		const allSettings =
 			await client.accountSetting.listByAccountConfig(accountConfigId);
 		const signaturesByAccount = groupSignaturesByAccount(allSettings);
 		const overridesByAccount = groupAccountOverrides(allSettings);
+		const appointmentsByAccount = groupFolderAppointmentsByAccount(allSettings);
 		const signatureOf = (accountId: string): AccountSignature =>
 			signaturesByAccount.get(accountId) ?? {};
 		const overridesOf = (accountId: string): AccountOverrides =>
 			overridesByAccount.get(accountId) ?? {};
+
+		// One mailbox list per account, fetched in parallel: `findFolderForRole`
+		// needs each account's folders to fill any role the user hasn't appointed
+		// yet (RFC 032: "the map is never empty for a normal provider").
+		const mailboxesByAccount = new Map<string, MailboxItem[]>(
+			await Promise.all(
+				activeAccounts.map(
+					async (acc): Promise<[string, MailboxItem[]]> => [
+						acc.accountId,
+						await client.mailbox.listAllByAccount(acc.accountId),
+					],
+				),
+			),
+		);
 
 		// Fire-and-forget: a failed sync enqueue must never fail this read.
 		// triggerConfigLoadSyncs swallows nothing — it logs each failure loudly
@@ -235,6 +211,10 @@ export const ConfigOperations: Record<
 					acc,
 					signatureOf(acc.accountId),
 					overridesOf(acc.accountId),
+					resolveFolderAppointments(
+						appointmentsByAccount.get(acc.accountId) ?? new Map(),
+						mailboxesByAccount.get(acc.accountId) ?? [],
+					),
 				),
 			),
 		};

@@ -7,7 +7,11 @@ import type {
 	RemitImapAccountResponse,
 	RemitImapMailboxResponse,
 } from "@remit/api-http-client/types.gen.ts";
-import type { NavAccount, NavLinkComponent } from "@remit/ui";
+import type {
+	NavAccount,
+	NavLinkComponent,
+	NavMailboxRole,
+} from "@remit/ui";
 import { NavSidebar } from "@remit/ui";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -18,14 +22,12 @@ import {
 } from "@tanstack/react-router";
 import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useMailContext } from "@/lib/mail-context";
 import {
-	filterDuplicateSpecialUse,
-	getEffectiveDisplayLabel,
-	getEffectiveRole,
-	getMailboxPriority,
-	shouldShowEffectiveUnreadBadge,
-} from "@/lib/mailbox-order";
+	buildMailboxRoleMap,
+	labelForMailbox,
+	shouldShowUnreadBadgeForRole,
+} from "@/lib/folder-roles";
+import { useMailContext } from "@/lib/mail-context";
 import { isOutboxListRow } from "@/lib/outbox-status";
 import {
 	loadSavedSearches,
@@ -60,39 +62,37 @@ const compareLabelNames = (a: string, b: string): number => {
 	return a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });
 };
 
-/** Map an API mailbox list to sorted system + folder arrays. */
+/**
+ * Split a mailbox list into pinned system rows and alpha-sorted plain
+ * folders. RFC 032 exclusive-folder-appointment (#976): "system" now means
+ * "appointed to a role in this account's folderAppointments map" — nothing is
+ * deduped here, because two folders can never share a role by construction.
+ * The kit re-pins/orders system rows by role itself; the adapter only needs
+ * to alpha-order the folders.
+ */
 function sortMailboxes(
 	mailboxes: RemitImapMailboxResponse[],
+	roleMap: Map<string, NavMailboxRole>,
 	t: Translator,
 ): {
 	system: RemitImapMailboxResponse[];
 	labels: RemitImapMailboxResponse[];
 } {
-	// Dedup and the system/folder split both key off the EFFECTIVE role so user
-	// overrides (#964) decide where a folder lands: a demoted folder joins the
-	// alpha-sorted labels, a promoted one is pinned. The kit re-pins/orders system
-	// rows by role itself; the adapter only needs to alpha-order the folders.
-	const filtered = filterDuplicateSpecialUse(mailboxes);
 	const system: RemitImapMailboxResponse[] = [];
 	const labels: RemitImapMailboxResponse[] = [];
 
-	for (const mailbox of filtered) {
-		if (getEffectiveRole(mailbox) != null) {
+	for (const mailbox of mailboxes) {
+		if (roleMap.has(mailbox.mailboxId)) {
 			system.push(mailbox);
 		} else {
 			labels.push(mailbox);
 		}
 	}
 
-	system.sort(
-		(a, b) =>
-			getMailboxPriority(a.fullPath, a.specialUse) -
-			getMailboxPriority(b.fullPath, b.specialUse),
-	);
 	labels.sort((a, b) =>
 		compareLabelNames(
-			getEffectiveDisplayLabel(a, t),
-			getEffectiveDisplayLabel(b, t),
+			labelForMailbox(a, undefined, t),
+			labelForMailbox(b, undefined, t),
 		),
 	);
 
@@ -100,18 +100,22 @@ function sortMailboxes(
 }
 
 /**
- * Convert an API mailbox to a NavMailbox for the kit, applying the override
- * precedence (#964): effective role drives pinning/order/icon, the effective
- * label drives the name, and the badge follows the effective kind. A
- * `roleOverride` of "Custom" yields no role, dropping the row into Folders.
+ * Convert an API mailbox to a NavMailbox for the kit: `role` comes from the
+ * account's folder-role map (RFC 032 exclusive-folder-appointment, #976), the
+ * label follows `displayNameOverride` then the role's canonical name then the
+ * provider leaf, and the badge follows the role.
  */
-function toNavMailbox(mb: RemitImapMailboxResponse, t: Translator) {
-	const showBadge = shouldShowEffectiveUnreadBadge(mb) && mb.unseenCount > 0;
+function toNavMailbox(
+	mb: RemitImapMailboxResponse,
+	role: NavMailboxRole | undefined,
+	t: Translator,
+) {
+	const showBadge = shouldShowUnreadBadgeForRole(role) && mb.unseenCount > 0;
 	return {
 		id: mb.mailboxId,
-		name: getEffectiveDisplayLabel(mb, t),
+		name: labelForMailbox(mb, role, t),
 		unseen: showBadge ? mb.unseenCount : undefined,
-		role: getEffectiveRole(mb) ?? undefined,
+		role,
 		fullPath: mb.fullPath,
 	};
 }
@@ -184,7 +188,8 @@ export function MailSidebarAdapter({
 		return accounts.map((account, i) => {
 			const query = mailboxQueries[i];
 			const mailboxes = query?.data?.items ?? [];
-			const { system, labels } = sortMailboxes(mailboxes, translator);
+			const roleMap = buildMailboxRoleMap(account.folderAppointments);
+			const { system, labels } = sortMailboxes(mailboxes, roleMap, translator);
 
 			const status: NavAccount["status"] = query?.isError
 				? "error"
@@ -203,7 +208,7 @@ export function MailSidebarAdapter({
 				status,
 				onRetry: () => query?.refetch(),
 				mailboxes: [...system, ...labels].map((mb) =>
-					toNavMailbox(mb, translator),
+					toNavMailbox(mb, roleMap.get(mb.mailboxId), translator),
 				),
 			};
 		});

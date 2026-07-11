@@ -1,7 +1,6 @@
 import "typespec-electrodb-emitter";
 
 import "../enums/MailboxAttribute.tsp";
-import "../enums/MailboxRole.tsp";
 import "../enums/MailboxSpecialUse.tsp";
 import "../enums/MailboxSyncStatus.tsp";
 import "../enums/MessageFlag.tsp";
@@ -249,7 +248,7 @@ model MailboxFlag {
 @doc("Input for creating a new mailbox")
 model CreateMailboxInput is Create<Mailbox>;
 
-@doc("Input for updating a mailbox. Rename (IMAP sync) is triggered only when `fullPath` is provided. The `muted` flag and the `displayNameOverride`/`roleOverride` overrides can be updated independently without triggering IMAP machinery; pass `null` to clear any of them.")
+@doc("Input for updating a mailbox. Rename (IMAP sync) is triggered only when `fullPath` is provided. The `muted` flag and the `displayNameOverride` override can be updated independently without triggering IMAP machinery; pass `null` to clear either. The canonical role a folder fills is appointed separately — see FolderRoleOperations.appointFolderRole (RFC 032 exclusive-folder-appointment).")
 model RenameMailboxInput {
   @doc("New full path (triggers IMAP rename when present)")
   fullPath?: String512;
@@ -260,16 +259,13 @@ model RenameMailboxInput {
   @doc("Sidebar display-name override. Pass a string to set; pass `null` to clear (UI falls back to the canonical/derived label). Typed as an inline nullable string with `@maxLength(256)` rather than `String256 | null`: a named scalar union renders as allOf + nullable with no sibling type, which openapi-backend's AJV rejects for a `null` value (the `$ref` re-imposes the string type), 400ing the clear path. An inline string attaches `type:string`, AJV compiles, and `null` stays valid at the wire while the 256-length cap is preserved.")
   @maxLength(256)
   displayNameOverride?: string | null;
-
-  @doc("Role override. Pass a MailboxRole value (see MailboxRole) to set; pass `null` to clear (UI falls back to the detected role). Typed as a nullable string rather than `MailboxRole | null`: the OpenAPI 3.0 output renders a nullable enum so that openapi-backend's AJV rejects a `null` value (the `enum` keyword overrides `nullable`), which would 400 the clear path. A bare nullable string keeps `null` valid at the wire; the handler validates the value against MailboxRole.")
-  roleOverride?: string | null;
 }
 
 // ============================================
 // API Response Models
 // ============================================
 
-@doc("Mailbox item returned by list/get operations. The mute flag and the display-name/role overrides are sourced from per-mailbox AccountSetting rows (RFC 032), not the Mailbox entity, but are surfaced here so the response shape is unchanged.")
+@doc("Mailbox item returned by list/get operations. The mute flag and the display-name override are sourced from per-mailbox AccountSetting rows (RFC 032), not the Mailbox entity, but are surfaced here so the response shape is unchanged. The canonical role a folder fills is not per-mailbox state — see AccountResponse.folderAppointments (RFC 032 exclusive-folder-appointment).")
 model MailboxResponse {
   ...PickProperties<
     Mailbox,
@@ -296,7 +292,4 @@ model MailboxResponse {
 
   @doc("User-chosen sidebar label for this mailbox. Optional; when absent the UI uses the canonical/derived folder label. Sourced from a per-mailbox AccountSetting row (RFC 032).")
   displayNameOverride?: String256;
-
-  @doc("User-chosen role for this mailbox, overriding the detected special-use role. Optional; when absent the UI uses the detected role. `Custom` marks a folder that is not a system folder. Sourced from a per-mailbox AccountSetting row (RFC 032).")
-  roleOverride?: MailboxRole;
 }

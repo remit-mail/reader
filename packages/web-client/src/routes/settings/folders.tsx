@@ -1,5 +1,7 @@
 import {
 	configOperationsGetConfigOptions,
+	configOperationsGetConfigQueryKey,
+	folderRoleOperationsAppointFolderRoleMutation,
 	mailboxDetailOperationsRenameMailboxMutation,
 	mailboxOperationsListMailboxesOptions,
 	mailboxOperationsListMailboxesQueryKey,
@@ -7,8 +9,9 @@ import {
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
 import {
 	Banner,
-	FolderNameList,
+	type CandidateFolder,
 	type FolderRole,
+	RoleAppointmentList,
 	SettingsShell,
 } from "@remit/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -16,10 +19,9 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { ErrorState } from "@/components/ui/ErrorState";
 import {
-	buildCommitBody,
-	buildFolderDescriptors,
-	buildResetBody,
-} from "@/lib/folder-names";
+	CANONICAL_TO_NAV_ROLE,
+	NAV_ROLE_TO_CANONICAL,
+} from "@/lib/folder-roles";
 import { SETTINGS_ID_TO_PATH, SETTINGS_NAV_ITEMS } from "@/routes/settings";
 
 export const Route = createFileRoute("/settings/folders")({
@@ -29,23 +31,25 @@ export const Route = createFileRoute("/settings/folders")({
 const foldersHelp = (
 	<div className="space-y-3">
 		<p>
-			<strong className="text-fg">Provider name</strong> is the folder as your
-			mail server reports it — read-only.
+			Each canonical role — Inbox, Drafts, Sent, Archive, Spam, Trash — points
+			at one of your account's real folders. Pick the one that actually holds
+			the mail; the message counts tell real folders from empty look-alikes.
 		</p>
 		<p>
-			<strong className="text-fg">Role</strong> is what we detected the folder
-			to be. Correct it with the picker; set a row to Custom to drop it from
-			this list.
+			Appointing a folder to a role here doesn't touch any other role, and
+			doesn't move or rename anything on the server — it just tells Remit which
+			folder to treat as e.g. "Drafts" everywhere (sidebar, unread badges, the
+			compose flow).
 		</p>
 		<p>
-			<strong className="text-fg">Display name</strong> is what the sidebar
-			shows. Leave it blank to use the canonical default for the role.
+			<strong className="text-fg">Display name</strong> renames the appointed
+			folder for the sidebar. Leave it blank to use the role's canonical name.
 		</p>
 	</div>
 );
 
-/** One account's mailboxes, fed to the kit list. Owns its own query + PATCH. */
-function AccountFolderNames({
+/** One account's folder roles, fed to the kit list. Owns its own queries + mutations. */
+function AccountFolderRoles({
 	account,
 }: {
 	account: RemitImapAccountResponse;
@@ -56,6 +60,15 @@ function AccountFolderNames({
 	const { data, isPending, isError, error, refetch } = useQuery(
 		mailboxOperationsListMailboxesOptions({ path: { accountId } }),
 	);
+
+	const appointMutation = useMutation({
+		...folderRoleOperationsAppointFolderRoleMutation(),
+		onSuccess: () => {
+			queryClient.invalidateQueries({
+				queryKey: configOperationsGetConfigQueryKey(),
+			});
+		},
+	});
 
 	const renameMutation = useMutation({
 		...mailboxDetailOperationsRenameMailboxMutation(),
@@ -68,20 +81,18 @@ function AccountFolderNames({
 		},
 	});
 
-	const handleCommit = (
-		mailboxId: string,
-		next: { role: FolderRole; name: string },
-	) => {
-		renameMutation.mutate({
-			path: { accountId, mailboxId },
-			body: buildCommitBody(next),
+	const handleAppoint = (role: FolderRole, mailboxId: string | null) => {
+		appointMutation.mutate({
+			path: { accountId, role: NAV_ROLE_TO_CANONICAL[role] },
+			body: { mailboxId },
 		});
 	};
 
-	const handleReset = (mailboxId: string) => {
+	const handleRename = (mailboxId: string, name: string) => {
+		const trimmed = name.trim();
 		renameMutation.mutate({
 			path: { accountId, mailboxId },
-			body: buildResetBody(),
+			body: { displayNameOverride: trimmed === "" ? null : trimmed },
 		});
 	};
 
@@ -109,18 +120,39 @@ function AccountFolderNames({
 		);
 	}
 
+	const folders: CandidateFolder[] = data.items.map((mailbox) => ({
+		mailboxId: mailbox.mailboxId,
+		providerPath: mailbox.fullPath,
+		messageCount: mailbox.messageCount,
+	}));
+
+	const appointments: Record<string, string | null> = {};
+	for (const appointment of account.folderAppointments) {
+		const role = CANONICAL_TO_NAV_ROLE[appointment.role];
+		if (role) appointments[role] = appointment.mailboxId ?? null;
+	}
+
+	const displayNames: Record<string, string> = {};
+	for (const mailbox of data.items) {
+		if (mailbox.displayNameOverride) {
+			displayNames[mailbox.mailboxId] = mailbox.displayNameOverride;
+		}
+	}
+
 	return (
 		<div className="space-y-2">
-			{renameMutation.isError && (
+			{(appointMutation.isError || renameMutation.isError) && (
 				<Banner tone="danger" variant="soft">
 					Couldn't save that change. Please try again.
 				</Banner>
 			)}
-			<FolderNameList
+			<RoleAppointmentList
 				accountEmail={account.email}
-				folders={buildFolderDescriptors(data.items)}
-				onCommit={handleCommit}
-				onReset={handleReset}
+				folders={folders}
+				appointments={appointments}
+				displayNames={displayNames}
+				onAppoint={handleAppoint}
+				onRename={handleRename}
 			/>
 		</div>
 	);
@@ -147,8 +179,8 @@ function FoldersSettings() {
 		<SettingsShell
 			items={SETTINGS_NAV_ITEMS}
 			activeId="folders"
-			title="Folder names"
-			description="Rename a recognized folder, or correct the role we detected, per account."
+			title="Folder roles"
+			description="Appoint which real folder fills each canonical role, per account."
 			help={foldersHelp}
 			helpOpen={helpOpen}
 			onToggleHelp={() => setHelpOpen((v) => !v)}
@@ -175,7 +207,7 @@ function FoldersSettings() {
 			) : (
 				<div className="space-y-8">
 					{config.accounts.map((account) => (
-						<AccountFolderNames key={account.accountId} account={account} />
+						<AccountFolderRoles key={account.accountId} account={account} />
 					))}
 				</div>
 			)}

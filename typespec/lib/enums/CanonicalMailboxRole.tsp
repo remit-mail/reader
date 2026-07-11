@@ -1,7 +1,7 @@
 namespace RemitImap;
 
-@doc("User-facing mailbox role. Mirrors the IMAP SPECIAL-USE roles (RFC 6154) plus `Custom` for a folder that is not a recognised system folder. Used as a user override of the detected role; string-valued so the value survives to zod/runtime.")
-enum MailboxRole {
+@doc("The fixed anchor set of canonical mailbox roles a user appoints to a folder (RFC 032 exclusive-folder-appointment, issue #976). Mirrors the IMAP SPECIAL-USE roles (RFC 6154). Each role resolves to at most one mailbox per account — see FolderAppointment.")
+enum CanonicalMailboxRole {
   @doc("Inbox / primary mailbox")
   Inbox: "Inbox",
 
@@ -25,7 +25,4 @@ enum MailboxRole {
 
   @doc("Flagged/starred messages")
   Flagged: "Flagged",
-
-  @doc("Not a system folder")
-  Custom: "Custom",
 }

@@ -29,9 +29,12 @@ enum AccountSettingName {
   @doc("User-chosen sidebar label for a single mailbox. Stored per-mailbox: the persisted name is composed as `MailboxDisplayName#<mailboxId>`. String-valued.")
   MailboxDisplayName,
 
-  @doc("User-chosen role override for a single mailbox. Stored per-mailbox: the persisted name is composed as `MailboxRole#<mailboxId>`. String-valued (a MailboxRole member; the handler validates membership).")
-  MailboxRole,
-
   @doc("Mailbox-level mute flag for a single mailbox. Stored per-mailbox: the persisted name is composed as `MailboxMuted#<mailboxId>`. MutedFlag-valued (a rich object).")
   MailboxMuted,
+
+  @doc("Per-account appointment of a canonical role to a mailbox (RFC 032 exclusive-folder-appointment, issue #976). Stored per-(account, role): the persisted name is composed as `FolderRoleAppointment#<accountId>#<role>`. String-valued (a mailboxId).")
+  FolderRoleAppointment,
+
+  @doc("Deprecated tombstone: superseded by `FolderRoleAppointment` (RFC 032 exclusive-folder-appointment, issue #976). Retained only so `baseSettingName` recognises leftover `MailboxRole#<mailboxId>` rows written by the #963/#964 backfill instead of throwing; readers ignore this base. Do not write new rows under this name. Remove once the row-deletion migration ships.")
+  MailboxRole,
 }
