@@ -83,27 +83,13 @@ describe("pickMailboxOverrideChanges", () => {
 		});
 	});
 
-	it("picks roleOverride when a MailboxRole is provided", () => {
-		const body = { roleOverride: "Archive" } as RenameMailboxInput;
-		assert.deepEqual(pickMailboxOverrideChanges(body), {
-			roleOverride: "Archive",
-		});
-	});
-
-	it("picks roleOverride null (clear signal)", () => {
-		const body = { roleOverride: null } as unknown as RenameMailboxInput;
-		assert.deepEqual(pickMailboxOverrideChanges(body), { roleOverride: null });
-	});
-
 	it("combines set and clear across override fields", () => {
 		const body = {
 			displayNameOverride: "Receipts",
-			roleOverride: null,
 			muted: MUTED_FLAG,
 		} as unknown as RenameMailboxInput;
 		assert.deepEqual(pickMailboxOverrideChanges(body), {
 			displayNameOverride: "Receipts",
-			roleOverride: null,
 			muted: MUTED_FLAG,
 		});
 	});
@@ -248,11 +234,10 @@ describe("applyMailboxPatch", () => {
 		]);
 	});
 
-	it("override-only PATCH (display name + role) writes both settings, no rename", async () => {
+	it("override-only PATCH (display name) writes the setting, no rename", async () => {
 		const { client, calls } = makeStubClient();
 		const body = {
 			displayNameOverride: "Receipts",
-			roleOverride: "Archive",
 		} as RenameMailboxInput;
 
 		await applyMailboxPatch(
@@ -270,20 +255,14 @@ describe("applyMailboxPatch", () => {
 				name: `MailboxDisplayName#${MAILBOX_ID}`,
 				value: { kind: "String", value: "Receipts" },
 			},
-			{
-				accountConfigId: ACCOUNT_CONFIG_ID,
-				name: `MailboxRole#${MAILBOX_ID}`,
-				value: { kind: "String", value: "Archive" },
-			},
 		]);
 		assert.equal(calls.get, 1, "responds with a fresh get, not a rename");
 	});
 
-	it("override-only PATCH (clear both via null) deletes the settings", async () => {
+	it("override-only PATCH (clear via null) deletes the setting", async () => {
 		const { client, calls } = makeStubClient();
 		const body = {
 			displayNameOverride: null,
-			roleOverride: null,
 		} as unknown as RenameMailboxInput;
 
 		await applyMailboxPatch(
@@ -297,7 +276,6 @@ describe("applyMailboxPatch", () => {
 		assert.equal(calls.renameMailbox.length, 0);
 		assert.deepEqual(calls.delete, [
 			[ACCOUNT_CONFIG_ID, `MailboxDisplayName#${MAILBOX_ID}`],
-			[ACCOUNT_CONFIG_ID, `MailboxRole#${MAILBOX_ID}`],
 		]);
 	});
 

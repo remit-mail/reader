@@ -4,7 +4,7 @@ import { useQueries } from "@tanstack/react-query";
 import { useLocation, useParams } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { getEffectiveDisplayLabel } from "@/lib/mailbox-order";
+import { buildMailboxRoleMap, labelForMailbox } from "@/lib/folder-roles";
 
 interface UseCurrentMailboxNameOptions {
 	accounts: RemitImapAccountResponse[];
@@ -48,11 +48,13 @@ export const useCurrentMailboxName = ({
 	if (location.pathname.startsWith("/mail/outbox")) return "Outbox";
 	if (!mailboxId) return null;
 
-	for (const query of queries) {
-		const items = query.data?.items;
+	for (let i = 0; i < accounts.length; i++) {
+		const items = queries[i]?.data?.items;
 		if (!items) continue;
 		const match = items.find((mailbox) => mailbox.mailboxId === mailboxId);
-		if (match) return getEffectiveDisplayLabel(match, translator);
+		if (!match) continue;
+		const roleMap = buildMailboxRoleMap(accounts[i].folderAppointments);
+		return labelForMailbox(match, roleMap.get(mailboxId), translator);
 	}
 
 	return null;

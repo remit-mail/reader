@@ -7,6 +7,7 @@ import "../enums/AccountConfigState.tsp";
 import "../enums/SyncPhase.tsp";
 import "../scalars/string.tsp";
 import "./Address.tsp";
+import "./FolderAppointment.tsp";
 
 using TypeSpec.Http;
 
@@ -380,6 +381,9 @@ model AccountResponse {
 
   @doc("HTML email signature for this account")
   signatureHtml?: string;
+
+  @doc("Per-account appointment of each canonical role (Inbox, Drafts, Sent, Archive, Junk, Trash, All, Flagged) to at most one mailbox (RFC 032 exclusive-folder-appointment, issue #976). Always carries one entry per CanonicalMailboxRole member; an entry's `mailboxId` is a persisted user choice when set, or a server-proposed detection result when the user hasn't appointed that role yet. Write with PUT /accounts/{accountId}/folder-roles/{role}.")
+  folderAppointments: FolderAppointment[];
 }
 
 @doc("Address response for address book entries")

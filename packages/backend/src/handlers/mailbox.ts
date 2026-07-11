@@ -26,28 +26,25 @@ import {
 import { assertAccountOwnership } from "./account-ownership.js";
 
 /**
- * The mute flag and the display-name/role overrides are user preferences that
- * live in per-mailbox AccountSetting rows (RFC 032), not on the Mailbox entity.
+ * The mute flag and the display-name override are user preferences that live
+ * in per-mailbox AccountSetting rows (RFC 032), not on the Mailbox entity.
  * Pick only those keys from a PATCH body: each follows the same `null` → remove,
  * value → set, absent/undefined → no-op semantics as UpdateAddressFlagsInput.
+ * The canonical role a folder fills is appointed separately — see
+ * FolderRoleOperations.appointFolderRole (RFC 032 exclusive-folder-appointment).
  */
 export const pickMailboxOverrideChanges = (
 	body: RenameMailboxInput,
 ): {
 	displayNameOverride?: string | null;
-	roleOverride?: string | null;
 	muted?: RenameMailboxInput["muted"];
 } => {
 	const changes: {
 		displayNameOverride?: string | null;
-		roleOverride?: string | null;
 		muted?: RenameMailboxInput["muted"];
 	} = {};
 	if (Object.hasOwn(body, "displayNameOverride")) {
 		changes.displayNameOverride = body.displayNameOverride;
-	}
-	if (Object.hasOwn(body, "roleOverride")) {
-		changes.roleOverride = body.roleOverride;
 	}
 	if (Object.hasOwn(body, "muted")) {
 		changes.muted = body.muted;
@@ -153,7 +150,6 @@ const toMailboxResponse = (
 	lastMessageSyncAt: mailbox.lastMessageSyncAt,
 	muted: overrides.muted,
 	displayNameOverride: overrides.displayNameOverride,
-	roleOverride: overrides.roleOverride,
 	createdAt: mailbox.createdAt,
 	updatedAt: mailbox.updatedAt,
 });

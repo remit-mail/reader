@@ -7,20 +7,18 @@ import {
 	composeSettingName,
 	SETTING_NAME_SEPARATOR,
 } from "@remit/remit-electrodb-service";
-import { MailboxRole } from "@remit/domain-enums";
-import type {
-	MailboxRole as MailboxRoleValue,
-	MutedFlag,
-} from "@remit/api-openapi-types";
+import type { MutedFlag } from "@remit/api-openapi-types";
 
 /**
  * RFC 032 Tier 1: the per-account display name and mute flag, and the
- * per-mailbox display-name/role overrides and mute flag, live in AccountSetting
+ * per-mailbox display-name override and mute flag, live in AccountSetting
  * rows — not on the Account/Mailbox entities. They are stored as composite-named
  * rows keyed by the target id (`AccountDisplayName#<accountId>`,
  * `MailboxMuted#<mailboxId>`, …), so one `listByAccountConfig` query yields every
  * target's overrides; readers group them by the `#<targetId>` suffix. This mirrors
- * the signature helper (`account-signature.ts`).
+ * the signature helper (`account-signature.ts`). The per-folder role override
+ * this module used to carry is superseded by the per-account role map — see
+ * `folder-role-appointments.ts` (RFC 032 exclusive-folder-appointment, #976).
  */
 
 const ACCOUNT_OVERRIDE_NAMES = {
@@ -30,7 +28,6 @@ const ACCOUNT_OVERRIDE_NAMES = {
 
 const MAILBOX_OVERRIDE_NAMES = {
 	displayName: "MailboxDisplayName",
-	role: "MailboxRole",
 	muted: "MailboxMuted",
 } as const;
 
@@ -41,7 +38,6 @@ export interface AccountOverrides {
 
 export interface MailboxOverrides {
 	displayNameOverride?: string;
-	roleOverride?: MailboxRoleValue;
 	muted?: MutedFlag;
 }
 
@@ -61,21 +57,6 @@ const targetIdOf = (name: string): string | undefined => {
 	const idx = name.indexOf(SETTING_NAME_SEPARATOR);
 	if (idx === -1) return undefined;
 	return name.slice(idx + SETTING_NAME_SEPARATOR.length) || undefined;
-};
-
-const isMailboxRole = (value: string): value is MailboxRoleValue =>
-	Object.values(MailboxRole).includes(value as MailboxRoleValue);
-
-/**
- * Validate a role override against the MailboxRole enum. A persisted or
- * patched value outside the enum is a programmer error (the handler rejects an
- * invalid PATCH before it is stored), so let it crash rather than silently drop.
- */
-export const assertMailboxRole = (value: string): MailboxRoleValue => {
-	if (!isMailboxRole(value)) {
-		throw new Error(`Invalid mailbox role: ${value}`);
-	}
-	return value;
 };
 
 // ============================================
@@ -184,7 +165,7 @@ export const writeAccountMuted = (
 };
 
 // ============================================
-// Mailbox overrides (displayNameOverride + roleOverride + muted)
+// Mailbox overrides (displayNameOverride + muted)
 // ============================================
 
 export const groupMailboxOverrides = (
@@ -200,14 +181,6 @@ export const groupMailboxOverrides = (
 			if (displayName === undefined) continue;
 			const current = byMailbox.get(mailboxId) ?? {};
 			current.displayNameOverride = displayName;
-			byMailbox.set(mailboxId, current);
-			continue;
-		}
-		if (base === MAILBOX_OVERRIDE_NAMES.role) {
-			const role = stringValueOf(setting);
-			if (role === undefined) continue;
-			const current = byMailbox.get(mailboxId) ?? {};
-			current.roleOverride = assertMailboxRole(role);
 			byMailbox.set(mailboxId, current);
 			continue;
 		}
@@ -235,7 +208,7 @@ export const loadMailboxOverridesForConfig = async (
 };
 
 /**
- * Resolve one mailbox's overrides by reading just its three composite rows.
+ * Resolve one mailbox's overrides by reading just its two composite rows.
  * Used by getMailbox and the rename/PATCH handler.
  */
 export const loadMailboxOverrides = async (
@@ -243,14 +216,10 @@ export const loadMailboxOverrides = async (
 	accountConfigId: string,
 	mailboxId: string,
 ): Promise<MailboxOverrides> => {
-	const [displayName, role, muted] = await Promise.all([
+	const [displayName, muted] = await Promise.all([
 		accountSetting.get(
 			accountConfigId,
 			composeSettingName(MAILBOX_OVERRIDE_NAMES.displayName, mailboxId),
-		),
-		accountSetting.get(
-			accountConfigId,
-			composeSettingName(MAILBOX_OVERRIDE_NAMES.role, mailboxId),
 		),
 		accountSetting.get(
 			accountConfigId,
@@ -259,21 +228,19 @@ export const loadMailboxOverrides = async (
 	]);
 	const overrides: MailboxOverrides = {};
 	const displayNameValue = displayName ? stringValueOf(displayName) : undefined;
-	const roleValue = role ? stringValueOf(role) : undefined;
 	const mutedValue = muted ? mutedValueOf(muted) : undefined;
 	if (displayNameValue !== undefined)
 		overrides.displayNameOverride = displayNameValue;
-	if (roleValue !== undefined)
-		overrides.roleOverride = assertMailboxRole(roleValue);
 	if (mutedValue !== undefined) overrides.muted = mutedValue;
 	return overrides;
 };
 
 /**
- * Apply a mailbox PATCH's override changes (displayNameOverride / roleOverride /
- * muted) to AccountSetting rows. For each field: `null` deletes the row, a value
- * upserts it, `undefined`/absent is a no-op — the same semantics the entity-backed
- * version used. `roleOverride` is validated against MailboxRole before storage.
+ * Apply a mailbox PATCH's override changes (displayNameOverride / muted) to
+ * AccountSetting rows. For each field: `null` deletes the row, a value upserts
+ * it, `undefined`/absent is a no-op — the same semantics the entity-backed
+ * version used. The canonical role a folder fills is written separately via
+ * `writeFolderRoleAppointment` (RFC 032 exclusive-folder-appointment, #976).
  */
 export const applyMailboxOverrideChanges = async (
 	accountSetting: Pick<IAccountSettingRepository, "upsert" | "delete">,
@@ -281,7 +248,6 @@ export const applyMailboxOverrideChanges = async (
 	mailboxId: string,
 	changes: {
 		displayNameOverride?: string | null;
-		roleOverride?: string | null;
 		muted?: MutedFlag | null;
 	},
 ): Promise<void> => {
@@ -299,22 +265,6 @@ export const applyMailboxOverrideChanges = async (
 						accountConfigId,
 						name,
 						value: { kind: "String", value: changes.displayNameOverride },
-					}),
-		);
-	}
-
-	if (changes.roleOverride !== undefined) {
-		const name = composeSettingName(MAILBOX_OVERRIDE_NAMES.role, mailboxId);
-		writes.push(
-			changes.roleOverride === null
-				? accountSetting.delete(accountConfigId, name)
-				: accountSetting.upsert({
-						accountConfigId,
-						name,
-						value: {
-							kind: "String",
-							value: assertMailboxRole(changes.roleOverride),
-						},
 					}),
 		);
 	}

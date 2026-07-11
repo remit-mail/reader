@@ -15,11 +15,11 @@ import {
 	useState,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { useInboxMailbox } from "@/hooks/useArchiveMailbox";
 import {
-	getMailboxDisplayLabel,
-	getMailboxDisplayName,
-} from "@/lib/mailbox-order";
+	useFolderAppointments,
+	useInboxMailbox,
+} from "@/hooks/useArchiveMailbox";
+import { buildMailboxRoleMap, labelForMailbox } from "@/lib/folder-roles";
 import { buildMoveTargets } from "@/lib/move-targets";
 import {
 	recordRescueCandidatesSurfaced,
@@ -59,6 +59,7 @@ export function SpamRescue({
 	);
 
 	const { inboxMailboxId } = useInboxMailbox(accountId);
+	const folderAppointments = useFolderAppointments(accountId);
 
 	const { data: mailboxesResponse } = useQuery({
 		...mailboxOperationsListMailboxesOptions({ path: { accountId } }),
@@ -66,19 +67,27 @@ export function SpamRescue({
 	});
 
 	const folders = useMemo<MoveMailboxOption[]>(() => {
-		const targets = buildMoveTargets(mailboxesResponse?.items ?? []);
+		const targets = buildMoveTargets(
+			mailboxesResponse?.items ?? [],
+			folderAppointments,
+		);
+		const roleMap = buildMailboxRoleMap(folderAppointments);
 		return targets.map((mailbox) => ({
 			id: mailbox.mailboxId,
-			label:
-				getMailboxDisplayLabel(
-					mailbox.fullPath,
-					mailbox.specialUse,
-					translator,
-				) || getMailboxDisplayName(mailbox.fullPath),
+			label: labelForMailbox(
+				mailbox,
+				roleMap.get(mailbox.mailboxId),
+				translator,
+			),
 			searchValue: mailbox.fullPath,
 			isCurrent: mailbox.mailboxId === currentMailboxId,
 		}));
-	}, [mailboxesResponse?.items, currentMailboxId, translator]);
+	}, [
+		mailboxesResponse?.items,
+		folderAppointments,
+		currentMailboxId,
+		translator,
+	]);
 
 	const defaultDestinationId = useMemo(() => {
 		if (inboxMailboxId) return inboxMailboxId;

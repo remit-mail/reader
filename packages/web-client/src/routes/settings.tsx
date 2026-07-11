@@ -25,7 +25,7 @@ export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
 	},
 	{
 		id: "folders",
-		label: "Folder names",
+		label: "Folder roles",
 		icon: <FolderTree className="size-4" />,
 	},
 	{
