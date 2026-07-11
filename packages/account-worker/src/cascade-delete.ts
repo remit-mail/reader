@@ -11,10 +11,14 @@ import {
 	BodyPartStorage,
 	Envelope,
 	EnvelopeAddress,
+	Filter,
+	FilterAnchor,
+	Label,
 	Mailbox,
 	MailboxLock,
 	Message,
 	MessageFlag,
+	MessageLabel,
 	MessageReference,
 	OutboxMessage,
 	RawMessageStorage,
@@ -59,10 +63,14 @@ const ENTITY_BY_TYPE: Record<string, any> = {
 	BodyPartStorage,
 	Envelope,
 	EnvelopeAddress,
+	Filter,
+	FilterAnchor,
+	Label,
 	Mailbox,
 	MailboxLock,
 	Message,
 	MessageFlag,
+	MessageLabel,
 	MessageReference,
 	OutboxMessage,
 	RawMessageStorage,
@@ -77,7 +85,7 @@ const ENTITY_BY_TYPE: Record<string, any> = {
  * explicitly, outside this ordering.
  */
 const DELETE_LEVELS: readonly (readonly string[])[] = [
-	["MessageFlag", "MessageReference"],
+	["MessageFlag", "MessageReference", "MessageLabel"],
 	[
 		"BodyPartParameter",
 		"BodyPartStorage",
@@ -93,6 +101,9 @@ const DELETE_LEVELS: readonly (readonly string[])[] = [
 	["Mailbox"],
 	["MailboxLock"],
 	["AccountSetting"],
+	["FilterAnchor"],
+	["Filter"],
+	["Label"],
 	["Address", "Account"],
 ];
 

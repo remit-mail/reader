@@ -8,6 +8,12 @@ import { getClient } from "@remit/backend/client";
 // lazily below, inside the `dataBackend === "postgres"` branch — see the
 // comment on `pgCascadeDeleter` for why.
 import type { CascadeDeleter } from "@remit/drizzle-service";
+import {
+	FilterAnchorService,
+	FilterService,
+	LabelService,
+	MessageLabelService,
+} from "@remit/remit-electrodb-service";
 import { resolveSqsCredentials } from "@remit/sqs-client";
 import {
 	createStorageService,
@@ -44,31 +50,6 @@ export const graceSeconds = graceSecondsRaw
 	? Number.parseInt(graceSecondsRaw, 10)
 	: 60;
 
-export const cascadeServices: CascadeServices = {
-	accountConfigService: remitClient.accountConfig,
-	accountService: remitClient.account,
-	addressService: remitClient.address,
-	mailboxService: remitClient.mailbox,
-	messageService: remitClient.message,
-	messageFlagService: remitClient.messageFlag,
-	envelopeService: remitClient.envelope,
-	outboxMessageService: remitClient.outboxMessage,
-	threadMessageService: remitClient.threadMessage,
-	mailboxLockService: remitClient.mailboxLock,
-	accountExportRequestService: remitClient.accountExportRequest,
-	accountSettingService: remitClient.accountSetting,
-};
-
-export const accountConfigService = cascadeServices.accountConfigService;
-
-let storageService: StorageService | null = null;
-export const getStorageService = (): StorageService => {
-	if (!storageService) {
-		storageService = createStorageService();
-	}
-	return storageService;
-};
-
 // DDB document client and table name — used by cascade-delete.ts which performs
 // raw DDB batch deletes via ElectroDB Entity. This path is DynamoDB-only; when
 // DATA_BACKEND=postgres the cascade-delete worker is not exercised.
@@ -95,6 +76,47 @@ const buildDdbDocumentClient = (): DynamoDBDocumentClient => {
 
 export const ddbClient = buildDdbDocumentClient();
 export const tableName = process.env.DYNAMODB_TABLE_NAME ?? "";
+
+// Filter/FilterAnchor/Label/MessageLabel (RFC 034, Smart Organize) are
+// DynamoDB-only today — there is no Postgres/Drizzle schema for them, and no
+// API handler constructs them through `remitClient` yet. Built directly off
+// the DDB document client already available here rather than threading them
+// through `@remit/backend`'s dual-backend `RemitClient`, which has
+// nothing to offer for a backend that doesn't exist for this feature.
+const ddbServiceConfig = { client: ddbClient, table: tableName };
+const filterService = new FilterService(ddbServiceConfig);
+const filterAnchorService = new FilterAnchorService(ddbServiceConfig);
+const labelService = new LabelService(ddbServiceConfig);
+const messageLabelService = new MessageLabelService(ddbServiceConfig);
+
+export const cascadeServices: CascadeServices = {
+	accountConfigService: remitClient.accountConfig,
+	accountService: remitClient.account,
+	addressService: remitClient.address,
+	mailboxService: remitClient.mailbox,
+	messageService: remitClient.message,
+	messageFlagService: remitClient.messageFlag,
+	envelopeService: remitClient.envelope,
+	outboxMessageService: remitClient.outboxMessage,
+	threadMessageService: remitClient.threadMessage,
+	mailboxLockService: remitClient.mailboxLock,
+	accountExportRequestService: remitClient.accountExportRequest,
+	accountSettingService: remitClient.accountSetting,
+	filterService,
+	filterAnchorService,
+	labelService,
+	messageLabelService,
+};
+
+export const accountConfigService = cascadeServices.accountConfigService;
+
+let storageService: StorageService | null = null;
+export const getStorageService = (): StorageService => {
+	if (!storageService) {
+		storageService = createStorageService();
+	}
+	return storageService;
+};
 
 export const dataBackend = process.env.DATA_BACKEND;
 

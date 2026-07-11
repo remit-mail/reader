@@ -5,9 +5,13 @@ import type {
 	IAccountSettingRepository,
 	IAddressRepository,
 	IEnvelopeRepository,
+	IFilterAnchorRepository,
+	IFilterRepository,
+	ILabelRepository,
 	IMailboxLockRepository,
 	IMailboxRepository,
 	IMessageFlagRepository,
+	IMessageLabelRepository,
 	IMessageRepository,
 	IOutboxMessageRepository,
 	IThreadMessageRepository,
@@ -33,6 +37,10 @@ export interface CascadeServices {
 	mailboxLockService: IMailboxLockRepository;
 	accountExportRequestService: IAccountExportRequestRepository;
 	accountSettingService: IAccountSettingRepository;
+	filterService: IFilterRepository;
+	filterAnchorService: IFilterAnchorRepository;
+	labelService: ILabelRepository;
+	messageLabelService: IMessageLabelRepository;
 }
 
 export interface CascadeResult {
@@ -123,6 +131,10 @@ export const enumerateCascadeEntities = async (
 		threadMessageService,
 		mailboxLockService,
 		accountSettingService,
+		filterService,
+		filterAnchorService,
+		labelService,
+		messageLabelService,
 	} = services;
 
 	const description = await accountConfigService.describe(accountConfigId);
@@ -254,6 +266,45 @@ export const enumerateCascadeEntities = async (
 		});
 	}
 
+	// Filter/FilterAnchor/Label/MessageLabel are accountConfig-scoped (RFC 034),
+	// not per sub-account, so — like AccountSetting and ThreadMessage above —
+	// they are enumerated once here rather than inside the per-account loop.
+	const filters = await filterService.listByAccountConfig(accountConfigId);
+	for (const filter of filters) {
+		entities.push({
+			entityType: "Filter",
+			key: { accountConfigId, filterId: filter.filterId },
+		});
+		if (!filter.hasAnchor) continue;
+		const anchor = await filterAnchorService.get(
+			accountConfigId,
+			filter.filterId,
+		);
+		if (!anchor) continue;
+		entities.push({
+			entityType: "FilterAnchor",
+			key: { accountConfigId, filterId: filter.filterId },
+		});
+	}
+
+	const labels = await labelService.listByAccountConfig(accountConfigId);
+	for (const label of labels) {
+		entities.push({
+			entityType: "Label",
+			key: { accountConfigId, labelId: label.labelId },
+		});
+		const messageLabels = await messageLabelService.listByLabelId(
+			accountConfigId,
+			label.labelId,
+		);
+		for (const messageLabel of messageLabels) {
+			entities.push({
+				entityType: "MessageLabel",
+				key: { messageLabelId: messageLabel.messageLabelId },
+			});
+		}
+	}
+
 	for (const address of description.address) {
 		entities.push({
 			entityType: "Address",
@@ -289,10 +340,14 @@ export const COVERED_ENTITY_TYPES = [
 	"BodyPartStorage",
 	"Envelope",
 	"EnvelopeAddress",
+	"Filter",
+	"FilterAnchor",
+	"Label",
 	"Mailbox",
 	"MailboxLock",
 	"Message",
 	"MessageFlag",
+	"MessageLabel",
 	"MessageReference",
 	"OutboxMessage",
 	"RawMessageStorage",
