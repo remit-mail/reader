@@ -15,6 +15,14 @@ import { syncMessages } from "./handlers/sync-messages.js";
 export const processEvent = async (
 	event: WorkerEvent,
 	log: Logger,
+	/**
+	 * SQS's own delivery count for the record carrying this event (1 on first
+	 * delivery). Only SYNC_MESSAGE_BODY reads it — it's how the handler knows
+	 * this is the last attempt before the queue's own redrive policy would
+	 * DLQ the record, so it can resolve retry exhaustion into a terminal
+	 * outcome (issue #1270) instead of dead-lettering blindly.
+	 */
+	receiveCount = 1,
 ): Promise<void> => {
 	switch (event.type) {
 		case "SYNC_MAILBOXES":
@@ -22,7 +30,7 @@ export const processEvent = async (
 		case "SYNC_MESSAGES":
 			return syncMessages(event, log);
 		case "SYNC_MESSAGE_BODY":
-			return syncMessageBody(event, log);
+			return syncMessageBody(event, log, receiveCount);
 		case "SYNC_FLAGS":
 			return syncFlags(event, log);
 		case "MAILBOX_CREATE":

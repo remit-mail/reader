@@ -59,17 +59,6 @@ export interface SyncMessageBodyEvent extends BaseEvent {
 	 * in-flight events (no force) keep the original skip behavior.
 	 */
 	force?: boolean;
-	/**
-	 * Number of times this batch has already been re-enqueued after a failure.
-	 * Absent (0) on the original event; `buildRetryEvent` increments it on each
-	 * requeue. Without this, a message id that can never be fetched (e.g.
-	 * expunged from the IMAP server while its row remains) retries forever —
-	 * each retry is a brand-new SQS message, so the queue's maxReceiveCount/DLQ
-	 * never sees repeated receives of the same message and can't engage. The
-	 * handler caps retries at `MAX_BODY_SYNC_RETRIES` and drops with a loud log
-	 * instead of re-enqueueing once exceeded.
-	 */
-	retryCount?: number;
 }
 
 export interface SyncFlagsEvent extends BaseEvent {

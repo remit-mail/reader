@@ -2,6 +2,7 @@ import {
 	BadRequestError,
 	ForbiddenError,
 	NotFoundError,
+	UnrecoverableBodyError,
 } from "@remit/remit-electrodb-service";
 import {
 	ContentDisposition,
@@ -11,6 +12,7 @@ import {
 	type StarColor,
 } from "@remit/domain-enums";
 import { logger } from "@remit/remit-logger-lambda";
+import { isMessageBodySyncBroken } from "@remit/mailbox-service";
 import type {
 	BodyPartResponse,
 	EnvelopeAddressResponse,
@@ -438,6 +440,28 @@ export const MessageOperations: Record<
 		let bodyPartRows = description.bodyPart;
 		let bodyStorageKey = message.bodyStorageKey;
 		if (!bodyStorageKey) {
+			// A message whose body-sync exhausted every retry against real
+			// (broken) content never gets a bodyStorageKey (issue #1270 / epic
+			// #1281 invariant 3) — this branch is the ONLY place that condition
+			// can occur, so the sentinel check lives here instead of unconditionally
+			// at the top of the handler, which would tax every already-synced
+			// read with an S3 HEAD it can never need. Checking before the backfill
+			// attempt stops a client from looping through repeated 202s
+			// (materializeBodyParts) or repeated synchronous IMAP round-trips
+			// (fetchAndGetBody) on a message that can never succeed.
+			if (
+				await isMessageBodySyncBroken(
+					client.storage,
+					accountConfigId,
+					accountId,
+					messageId,
+				)
+			) {
+				throw new UnrecoverableBodyError(
+					"This message's content could not be retrieved. Please report this issue.",
+				);
+			}
+
 			if (!mailboxFullPath) {
 				const mailbox = await client.mailbox.get(accountId, message.mailboxId);
 				mailboxFullPath = mailbox.fullPath;

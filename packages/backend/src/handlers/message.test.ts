@@ -4,6 +4,7 @@ import {
 	BadRequestError,
 	ForbiddenError,
 	NotFoundError,
+	UnrecoverableBodyError,
 } from "@remit/remit-electrodb-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
@@ -489,6 +490,149 @@ describe("describeMessage ownership guard precedes content signing", () => {
 			describeSpy.mock.calls.length,
 			0,
 			"nothing past the ownership guard ran, so no content URL was signed",
+		);
+	});
+});
+
+describe("describeMessage — body-sync-broken guard", () => {
+	afterEach(() => {
+		_resetForTest();
+	});
+
+	// A message stuck in outcome 2 (broken) NEVER gets a bodyStorageKey — that
+	// is the only way syncMessageBody's failure path leaves a message — so the
+	// sentinel check only ever needs to run inside the `!bodyStorageKey`
+	// backfill branch. No bodyStorageKey on the fixture below mirrors that.
+	const brokenMessage = {
+		messageId: "msg-1",
+		mailboxId: "mbx-1",
+		uid: 1,
+		rfc822Size: 100,
+		internalDate: 0,
+		category: "uncategorized",
+	};
+
+	const buildClient = (opts: {
+		bodyPartExists: () => Promise<boolean>;
+		fetchAndGetBody: ReturnType<typeof mock.fn>;
+		ensureBodyPartsStored: ReturnType<typeof mock.fn>;
+		message?: Record<string, unknown>;
+	}): RemitClient =>
+		({
+			message: {
+				get: async (_id: string) => ({ mailboxId: "mbx-1" }),
+				describe: async (_id: string) => ({
+					message: [opts.message ?? brokenMessage],
+					envelope: [],
+					envelopeAddress: [],
+					messageFlag: [],
+					bodyPart: [],
+					messageReference: [],
+				}),
+			},
+			mailbox: {
+				get: async (_accountId: string, mailboxIds: string | string[]) =>
+					Array.isArray(mailboxIds)
+						? mailboxIds.map((id) => ({ mailboxId: id, accountId: "acc-1" }))
+						: { mailboxId: mailboxIds, accountId: "acc-1", fullPath: "INBOX" },
+			},
+			account: {
+				listAllByAccountConfig: async (_accountConfigId: string) => [
+					{ accountId: "acc-1", accountConfigId: "cfg-1" },
+				],
+			},
+			address: { getAddress: async () => [] },
+			storage: { bodyPartExists: opts.bodyPartExists },
+			bodySync: {
+				fetchAndGetBody: opts.fetchAndGetBody,
+				ensureBodyPartsStored: opts.ensureBodyPartsStored,
+			},
+		}) as unknown as RemitClient;
+
+	const describeMessage =
+		MessageOperations.MessageOperations_describeMessage as (
+			context: Context,
+			event: APIGatewayProxyEvent,
+		) => Promise<unknown>;
+
+	const buildRequest = () => ({
+		event: {
+			requestContext: { authorizer: { claims: { sub: "caller-sub" } } },
+		} as unknown as APIGatewayProxyEvent,
+		context: {
+			request: { params: { messageId: "msg-1" } },
+		} as unknown as Context,
+	});
+
+	it("throws UnrecoverableBodyError before any IMAP backfill when the sync-failed sentinel exists", async () => {
+		const fetchAndGetBody = mock.fn(async () => {
+			throw new Error("bodySync must not run once broken");
+		});
+		const ensureBodyPartsStored = mock.fn(async () => {
+			throw new Error("materialize must not run once broken");
+		});
+
+		_setClientForTest(
+			buildClient({
+				bodyPartExists: async () => true,
+				fetchAndGetBody,
+				ensureBodyPartsStored,
+			}),
+		);
+
+		const { event, context } = buildRequest();
+
+		await assert.rejects(
+			() => describeMessage(context, event),
+			(err: unknown) => err instanceof UnrecoverableBodyError,
+		);
+		assert.equal(fetchAndGetBody.mock.calls.length, 0);
+		assert.equal(ensureBodyPartsStored.mock.calls.length, 0);
+	});
+
+	it("does not check the sentinel when bodyStorageKey is already set — no S3 tax on the common (already-synced) path", async () => {
+		const bodyPartExists = mock.fn(async () => true);
+		const ensureBodyPartsStored = mock.fn(async () => ({ stored: 0 }));
+		const fetchAndGetBody = mock.fn(async () => {
+			throw new Error("bodySync must not run when bodyStorageKey is set");
+		});
+
+		// Unrelated to this test's assertion: describeMessage builds contentUrls
+		// for the (empty, here) bodyParts list once it gets past the backfill
+		// section, which requires this env var. No other test in this file
+		// reaches that far, so it is set/restored locally instead of globally.
+		const priorDomain = process.env.CONTENT_DELIVERY_DOMAIN;
+		process.env.CONTENT_DELIVERY_DOMAIN = "cdn.example.com";
+
+		_setClientForTest(
+			buildClient({
+				bodyPartExists,
+				fetchAndGetBody,
+				ensureBodyPartsStored,
+				message: {
+					...brokenMessage,
+					bodyStorageKey:
+						"s3://bucket/accounts/cfg-1/acc-1/messages/msg-1/body.eml",
+				},
+			}),
+		);
+
+		const { event, context } = buildRequest();
+
+		try {
+			await describeMessage(context, event);
+		} finally {
+			if (priorDomain === undefined) {
+				delete process.env.CONTENT_DELIVERY_DOMAIN;
+			} else {
+				process.env.CONTENT_DELIVERY_DOMAIN = priorDomain;
+			}
+		}
+
+		assert.equal(
+			bodyPartExists.mock.calls.length,
+			0,
+			"an already-synced message must never pay for the broken-sentinel HEAD",
 		);
 	});
 });
