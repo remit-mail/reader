@@ -293,6 +293,12 @@ export {
 	type SearchResultsProps,
 } from "./components/search-results.js";
 export {
+	SearchTokenChip,
+	type SearchTokenChipProps,
+	SearchTokenChips,
+	type SearchTokenChipsProps,
+} from "./components/search-token-chip.js";
+export {
 	SecuritySelect,
 	type SecuritySelectProps,
 	type ServerSecurity,

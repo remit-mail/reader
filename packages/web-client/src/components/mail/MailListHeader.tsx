@@ -34,6 +34,11 @@ import { type ReactNode, useState } from "react";
 import { useLayoutTier } from "@/hooks/useLayoutTier";
 import { useMailContext } from "@/lib/mail-context";
 import { loadRecentSearches, saveRecentSearch } from "@/lib/recent-searches";
+import {
+	parseSearchTokens,
+	removeSearchToken,
+	searchTokenLabel,
+} from "@/lib/search-tokens";
 
 interface MailListHeaderProps {
 	title: string;
@@ -72,6 +77,13 @@ export function MailListHeader({
 	const [recentSearches, setRecentSearches] = useState(loadRecentSearches);
 
 	const hasQuery = searchInput.trim().length > 0;
+	// Filter tokens (`from:`, `has:attachment`, …) parsed live from the typed
+	// query render as removable chips above the sections; removing one edits the
+	// query text directly, which re-parses on the next render.
+	const tokenChips = parseSearchTokens(searchInput).tokens.map((token) => ({
+		label: searchTokenLabel(token),
+		onRemove: () => onSearchChange(removeSearchToken(searchInput, token)),
+	}));
 	const topMatches = searchResults ?? [];
 	const related = relatedResults ?? [];
 	// Always offer both sections while a query is present; the kit drops the empty
@@ -110,6 +122,7 @@ export function MailListHeader({
 				sections={sections}
 				loading={resultsLoading}
 				onSelectResult={handleSelectResult}
+				tokens={tokenChips}
 			/>
 		);
 	}
@@ -128,6 +141,7 @@ export function MailListHeader({
 			sections={sections}
 			loading={resultsLoading}
 			onSelectResult={handleSelectInlineResult}
+			tokens={tokenChips}
 		/>
 	);
 	const body = !showInlineResults ? (

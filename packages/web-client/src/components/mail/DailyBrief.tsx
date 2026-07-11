@@ -45,11 +45,13 @@ import { sortAccountsByCreatedAt } from "@/lib/account-order";
 import {
 	groupBriefSections,
 	matchesBriefSearch,
+	matchesSearchTokens,
 	toThreadRowData,
 } from "@/lib/brief";
 import { isServerError } from "@/lib/error-classifier";
 import { useMailContext } from "@/lib/mail-context";
 import { relatedSearchResults, rowToSearchResult } from "@/lib/search-result";
+import { parseSearchTokens } from "@/lib/search-tokens";
 import { MailListHeader } from "./MailListHeader";
 
 /* The brief's attribute chips as predicates (mirrors the kit `briefFilterChips`
@@ -255,12 +257,16 @@ export function DailyBrief({
 		});
 	}, [nonMuted, mailboxQueries]);
 
-	const sq = searchQuery.trim().toLowerCase();
+	const { freeText: sq, tokens: queryTokens } = parseSearchTokens(
+		searchQuery.trim().toLowerCase(),
+	);
 
 	// Convert API rows to ThreadRowData, narrowing only by the selected account
-	// and the free-text search. The category axis and the attribute chips are the
-	// kit `BriefSections` filter row's job, so the full per-category sections are
-	// handed to it; it groups, narrows, and flattens.
+	// and the free-text search plus any filter tokens (`from:`, `has:attachment`,
+	// `is:unread`, `before:`/`after:`) parsed out of the query. The category axis
+	// and the attribute chips are the kit `BriefSections` filter row's job, so the
+	// full per-category sections are handed to it; it groups, narrows, and
+	// flattens.
 	const filteredRows = useMemo<ThreadRowData[]>(() => {
 		const raw = threadsData?.items ?? [];
 		return raw
@@ -270,8 +276,12 @@ export function DailyBrief({
 					(t.accountId ?? t.accountConfigId) === selectedAccountId,
 			)
 			.map(toThreadRowData)
-			.filter((t) => !sq || matchesBriefSearch(t, sq));
-	}, [threadsData, selectedAccountId, sq]);
+			.filter(
+				(t) =>
+					(!sq || matchesBriefSearch(t, sq)) &&
+					matchesSearchTokens(t, queryTokens),
+			);
+	}, [threadsData, selectedAccountId, sq, queryTokens]);
 
 	const sections = useMemo<ThreadSection[]>(
 		() => groupBriefSections(filteredRows),

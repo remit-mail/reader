@@ -5,6 +5,7 @@ import type {
 	RemitImapThreadMessageResponse,
 } from "@remit/api-http-client/types.gen.ts";
 import {
+	matchedChunkLabel,
 	relatedSearchResults,
 	semanticToSearchResult,
 	threadToSearchResult,
@@ -70,6 +71,30 @@ describe("semanticToSearchResult", () => {
 		);
 		assert.strictEqual(result.threadId, "t4");
 		assert.strictEqual(result.mailboxId, undefined);
+	});
+
+	test("carries the matched-chunk label and score so the row can show why it matched", () => {
+		const result = semanticToSearchResult(
+			hit({
+				messageId: "m5",
+				threadId: "t5",
+				score: 0.42,
+				matchedChunkType: "attachment",
+			}),
+		);
+		assert.strictEqual(result.matchedChunkLabel, "attachment");
+		assert.strictEqual(result.score, 0.42);
+	});
+});
+
+describe("matchedChunkLabel", () => {
+	test("labels every known chunk type", () => {
+		assert.strictEqual(matchedChunkLabel("body"), "body");
+		assert.strictEqual(matchedChunkLabel("subject"), "subject");
+		assert.strictEqual(matchedChunkLabel("sender"), "sender");
+		assert.strictEqual(matchedChunkLabel("recipient"), "recipient");
+		assert.strictEqual(matchedChunkLabel("attachment"), "attachment");
+		assert.strictEqual(matchedChunkLabel("entities"), "entities");
 	});
 });
 

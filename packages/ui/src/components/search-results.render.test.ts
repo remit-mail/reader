@@ -50,4 +50,40 @@ describe("SearchResults", () => {
 		);
 		assert.match(html, /No matches for/);
 	});
+
+	it("renders the matched-chunk chip and score on a semantic hit", () => {
+		const semanticResult: SearchResult = {
+			...result,
+			matchedChunkLabel: "subject",
+			score: 0.87,
+		};
+		const html = renderToString(
+			createElement(SearchResults, {
+				value: "invoice",
+				sections: [
+					{ id: "related", label: "Related", results: [semanticResult] },
+				],
+			}),
+		);
+		assert.match(html, /matched: subject/);
+		assert.match(html, /0\.87/);
+	});
+
+	it("renders removable filter-token chips above the sections", () => {
+		const html = renderToString(
+			createElement(SearchResults, {
+				value: "invoice from:stripe.com",
+				sections,
+				tokens: [{ label: "From: stripe.com", onRemove: noop }],
+			}),
+		);
+		assert.match(html, /From: stripe\.com/);
+	});
+
+	it("omits the chip row when there are no tokens", () => {
+		const html = renderToString(
+			createElement(SearchResults, { value: "invoice", sections, tokens: [] }),
+		);
+		assert.doesNotMatch(html, /Remove filter/);
+	});
 });
