@@ -3,16 +3,19 @@ import {
 	AlertOctagon,
 	Archive,
 	BellOff,
+	BookmarkPlus,
 	ChevronDown,
 	ChevronRight,
 	FileText,
 	Folder,
 	Inbox,
 	Mails,
+	Search,
 	Send,
 	Sparkles,
 	Star,
 	Trash2,
+	X,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useState } from "react";
@@ -217,6 +220,95 @@ export function writeOpen(prefix: string, id: string, open: boolean): void {
 
 export const NAV_FOLDER_OPEN_KEY = FOLDER_OPEN_KEY;
 export const NAV_ACCOUNT_OPEN_KEY = ACCOUNT_OPEN_KEY;
+
+/**
+ * One row in the "Saved searches" group: a plain query string (local-only MVP
+ * — no separate label, see doc/design/flows/06-search.md). Hover reveals a
+ * remove control, mirroring `SearchTokenChip`'s dismiss affordance.
+ */
+function SavedSearchRow({
+	query,
+	onSelect,
+	onRemove,
+}: {
+	query: string;
+	onSelect?: () => void;
+	onRemove?: () => void;
+}) {
+	return (
+		<div className="group flex w-full items-center gap-1 rounded-md pr-1 hover:bg-surface">
+			<button
+				type="button"
+				onClick={onSelect}
+				className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1 text-left text-sm text-fg-muted transition-colors hover:text-fg"
+			>
+				<Search className="size-4 shrink-0 text-fg-subtle" />
+				<span className="min-w-0 flex-1 truncate">{query}</span>
+			</button>
+			{onRemove && (
+				<button
+					type="button"
+					onClick={onRemove}
+					aria-label={`Remove saved search: ${query}`}
+					className="shrink-0 rounded-full p-1 text-fg-subtle opacity-0 transition-opacity hover:bg-surface-sunken hover:text-fg group-hover:opacity-100 focus-visible:opacity-100"
+				>
+					<X className="size-3.5" />
+				</button>
+			)}
+		</div>
+	);
+}
+
+/**
+ * The reserved "Saved searches" group (#428 follow-up): a "Save «query»" row
+ * when the active search isn't saved yet, then every saved query as a
+ * removable row. Renders nothing when there is neither an active query to
+ * save nor any saved searches — an always-empty group would just be noise.
+ */
+function SavedSearchesGroup({
+	savedSearches,
+	saveableQuery,
+	onSelectSavedSearch,
+	onRemoveSavedSearch,
+	onSaveCurrentSearch,
+}: {
+	savedSearches: string[];
+	saveableQuery?: string;
+	onSelectSavedSearch?: (query: string) => void;
+	onRemoveSavedSearch?: (query: string) => void;
+	onSaveCurrentSearch?: () => void;
+}) {
+	if (savedSearches.length === 0 && !saveableQuery) return null;
+	return (
+		<div className="mt-3">
+			<div className="px-2 pb-1 text-2xs font-semibold uppercase tracking-wider text-fg-subtle">
+				Saved searches
+			</div>
+			{saveableQuery && (
+				<button
+					type="button"
+					onClick={onSaveCurrentSearch}
+					className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm text-accent transition-colors hover:bg-surface"
+				>
+					<BookmarkPlus className="size-4 shrink-0" />
+					<span className="min-w-0 flex-1 truncate">
+						Save &ldquo;{saveableQuery}&rdquo;
+					</span>
+				</button>
+			)}
+			{savedSearches.map((query) => (
+				<SavedSearchRow
+					key={query}
+					query={query}
+					onSelect={() => onSelectSavedSearch?.(query)}
+					onRemove={
+						onRemoveSavedSearch ? () => onRemoveSavedSearch(query) : undefined
+					}
+				/>
+			))}
+		</div>
+	);
+}
 
 function AccountNav({
 	account,
@@ -441,6 +533,16 @@ export interface NavSidebarProps
 	 * fall back to programmatic buttons (static stories / AppShell preview).
 	 */
 	linkComponent?: NavLinkComponent;
+	/** Every saved query, most recently saved first. See `SavedSearchesGroup`. */
+	savedSearches?: string[];
+	/**
+	 * The active search query, when it's non-empty and not already saved — shows
+	 * the "Save «query»" row. Omit (or pass an already-saved query) to hide it.
+	 */
+	saveableQuery?: string;
+	onSelectSavedSearch?: (query: string) => void;
+	onRemoveSavedSearch?: (query: string) => void;
+	onSaveCurrentSearch?: () => void;
 }
 
 export function NavSidebar({
@@ -450,6 +552,11 @@ export function NavSidebar({
 	onSelectNav,
 	variant = "desktop",
 	linkComponent,
+	savedSearches = [],
+	saveableQuery,
+	onSelectSavedSearch,
+	onRemoveSavedSearch,
+	onSaveCurrentSearch,
 }: NavSidebarProps) {
 	const navBody = (
 		<nav
@@ -477,6 +584,14 @@ export function NavSidebar({
 				ariaLabel="Flagged"
 				active={selectedNavId === "flagged"}
 				onClick={() => onSelectNav?.("flagged")}
+			/>
+
+			<SavedSearchesGroup
+				savedSearches={savedSearches}
+				saveableQuery={saveableQuery}
+				onSelectSavedSearch={onSelectSavedSearch}
+				onRemoveSavedSearch={onRemoveSavedSearch}
+				onSaveCurrentSearch={onSaveCurrentSearch}
 			/>
 
 			{accounts.length === 0 ? (

@@ -192,6 +192,8 @@ export const briefCategories: ReadonlyArray<{
 export interface ThreadRowData {
 	id: string;
 	accountId: string;
+	/** Owning mailbox — used by the `in:` search-token filter. */
+	mailboxId?: string;
 	fromName: string;
 	fromEmail: string;
 	subject: string;

@@ -238,6 +238,8 @@ function MailboxPaneProvider({
 	const telemetry = useTelemetry();
 	const {
 		accounts,
+		mailboxNameIndex,
+		accountNameIndex,
 		searchQuery,
 		searchInput,
 		intelligenceOpen,
@@ -249,10 +251,15 @@ function MailboxPaneProvider({
 	const hasSearchQuery = normalizedSearchQuery.length > 0;
 	// Filter tokens (`from:`, `has:attachment`, `is:unread`) narrow this literal
 	// search to the params `threadOperationsSearchThreads` supports; `before:`/
-	// `after:` have no equivalent on this endpoint and are left for the semantic
-	// section only (see `useSemanticSearch`).
+	// `after:`/`account:` have no equivalent on this endpoint and are left for
+	// the semantic section only (see `useSemanticSearch`). `in:` is likewise not
+	// applied here — this view is already scoped to one mailbox by its route —
+	// but still needs the name-index context so a resolved `in:`/`account:`
+	// token is stripped from `freeText` instead of leaking into the literal
+	// query text as a stray word.
 	const { freeText, tokens: searchTokens } = parseSearchTokens(
 		normalizedSearchQuery,
+		{ mailboxesByName: mailboxNameIndex, accountsByName: accountNameIndex },
 	);
 	const fromToken = searchTokens.find((t) => t.type === "from");
 	const searchThreadsQuery = {
