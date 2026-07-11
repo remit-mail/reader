@@ -1,6 +1,7 @@
 import {
 	BadRequestError,
 	ForbiddenError,
+	type MailboxItem,
 	NotFoundError,
 	UnrecoverableBodyError,
 } from "@remit/remit-electrodb-service";
@@ -12,7 +13,12 @@ import {
 	type StarColor,
 } from "@remit/domain-enums";
 import { logger } from "@remit/remit-logger-lambda";
-import { isMessageBodySyncBroken } from "@remit/mailbox-service";
+import {
+	guardConnectionCursor,
+	isCursorRebuildNeeded,
+	isMessageBodySyncBroken,
+	MailboxCursorPausedError,
+} from "@remit/mailbox-service";
 import type {
 	BodyPartResponse,
 	EnvelopeAddressResponse,
@@ -419,14 +425,10 @@ export const MessageOperations: Record<
 			? extractAccountIdsFromBodyKey(message.bodyStorageKey)
 			: null;
 		let accountId = idsFromKey?.accountId;
-		let mailboxFullPath: string | undefined;
+		let mailbox: MailboxItem | undefined;
 		if (!accountId) {
-			const mailbox = await client.mailbox.get(
-				ownedAccountId,
-				message.mailboxId,
-			);
+			mailbox = await client.mailbox.get(ownedAccountId, message.mailboxId);
 			accountId = mailbox.accountId;
-			mailboxFullPath = mailbox.fullPath;
 		}
 
 		// Trigger an IMAP backfill when the body has never been stored. The
@@ -462,28 +464,70 @@ export const MessageOperations: Record<
 				);
 			}
 
-			if (!mailboxFullPath) {
-				const mailbox = await client.mailbox.get(accountId, message.mailboxId);
-				mailboxFullPath = mailbox.fullPath;
+			if (!mailbox) {
+				mailbox = await client.mailbox.get(accountId, message.mailboxId);
 			}
-			const scope = await client.createConnectionScope(accountId);
 
-			await client.bodySync
-				.fetchAndGetBody(
-					messageId,
+			// Cheap frugal skip (epic #1281 invariant 6): a mailbox already known
+			// paused never even opens a connection. Optimization only —
+			// guardConnectionCursor's openBox wrap below is the structural
+			// guarantee (issue #1272's read-path detection point).
+			if (isCursorRebuildNeeded(mailbox.cursorState)) {
+				logger.debug(
+					{
+						accountId,
+						mailboxId: mailbox.mailboxId,
+						messageId,
+						cursorState: mailbox.cursorState,
+					},
+					"Mailbox cursor not normal; skipping IMAP body backfill for this request",
+				);
+			} else {
+				const scope = await client.createConnectionScope(accountId);
+				// Guard at the one choke point every UID-based IMAP op already
+				// passes through: openBox. A mismatch trips the mailbox to
+				// cursor_invalid and throws; caught below as a routine skip (epic
+				// #1281 invariant 3) — the request just returns without a fresh
+				// backfill this time.
+				const connection = guardConnectionCursor(
+					await scope.getConnection(),
+					{ mailboxService: client.mailbox },
 					accountId,
-					accountConfigId,
-					mailboxFullPath,
-					scope.getConnection,
-				)
-				.finally(() => scope.disconnect());
+					mailbox,
+				);
 
-			// Body just landed via IMAP — re-read so the response includes the
-			// parts the worker just wrote. Without this the first describe of a
-			// never-synced message would return an empty bodyParts array.
-			const refreshed = await client.message.describe(messageId);
-			bodyPartRows = refreshed.bodyPart;
-			bodyStorageKey = refreshed.message[0]?.bodyStorageKey;
+				await client.bodySync
+					.fetchAndGetBody(
+						messageId,
+						accountId,
+						accountConfigId,
+						mailbox.fullPath,
+						() => Promise.resolve(connection),
+					)
+					.catch((error: unknown) => {
+						if (error instanceof MailboxCursorPausedError) {
+							logger.debug(
+								{
+									accountId,
+									mailboxId: mailbox?.mailboxId,
+									messageId,
+									cursorState: error.state,
+								},
+								"Mailbox cursor not normal; skipping IMAP body backfill for this request",
+							);
+							return;
+						}
+						throw error;
+					})
+					.finally(() => scope.disconnect());
+
+				// Body just landed via IMAP — re-read so the response includes the
+				// parts the worker just wrote. Without this the first describe of a
+				// never-synced message would return an empty bodyParts array.
+				const refreshed = await client.message.describe(messageId);
+				bodyPartRows = refreshed.bodyPart;
+				bodyStorageKey = refreshed.message[0]?.bodyStorageKey;
+			}
 		}
 
 		// Per-part storage objects are deferred during bulk sync (DEFER_BODY_PARTS)
@@ -552,27 +596,64 @@ export const MessageOperations: Record<
 
 		// Resolve the message row for its mailboxId / bodyStorageKey.
 		const message = await client.message.get(messageId);
-		let mailboxFullPath: string | undefined;
 
 		// Backfill from IMAP when the body has never been stored, reusing the
 		// exact path describeMessage uses. fetchAndGetBody writes the raw .eml +
 		// parsed cache + per-part rows and sets message.bodyStorageKey as a
 		// side-effect; we then re-read the row to pick up the freshly written key.
 		if (!message.bodyStorageKey) {
-			if (!mailboxFullPath) {
-				const mailbox = await client.mailbox.get(accountId, message.mailboxId);
-				mailboxFullPath = mailbox.fullPath;
-			}
-			const scope = await client.createConnectionScope(accountId);
-			await client.bodySync
-				.fetchAndGetBody(
-					messageId,
+			const mailbox = await client.mailbox.get(accountId, message.mailboxId);
+
+			// Cheap frugal skip (epic #1281 invariant 6): a mailbox already known
+			// paused never even opens a connection. The existing "no
+			// bodyStorageKey after backfill" check just past this block is
+			// already the right signal for that case, so no new response shape
+			// is needed here.
+			if (isCursorRebuildNeeded(mailbox.cursorState)) {
+				logger.debug(
+					{
+						accountId,
+						mailboxId: mailbox.mailboxId,
+						messageId,
+						cursorState: mailbox.cursorState,
+					},
+					"Mailbox cursor not normal; skipping IMAP body backfill for this request",
+				);
+			} else {
+				const scope = await client.createConnectionScope(accountId);
+				// Guard at the openBox choke point — a fresh mismatch trips the
+				// mailbox and throws once the SELECT reveals it; caught below.
+				const connection = guardConnectionCursor(
+					await scope.getConnection(),
+					{ mailboxService: client.mailbox },
 					accountId,
-					accountConfigId,
-					mailboxFullPath,
-					scope.getConnection,
-				)
-				.finally(() => scope.disconnect());
+					mailbox,
+				);
+				await client.bodySync
+					.fetchAndGetBody(
+						messageId,
+						accountId,
+						accountConfigId,
+						mailbox.fullPath,
+						() => Promise.resolve(connection),
+					)
+					.catch((error: unknown) => {
+						if (error instanceof MailboxCursorPausedError) {
+							logger.debug(
+								{
+									accountId,
+									mailboxId: mailbox.mailboxId,
+									messageId,
+									cursorState: error.state,
+								},
+								"Mailbox cursor not normal; skipping IMAP body backfill for this request",
+							);
+							return;
+						}
+						throw error;
+					})
+					.finally(() => scope.disconnect());
+			}
 		}
 
 		// Re-read so we have the bodyStorageKey the backfill just wrote (or the

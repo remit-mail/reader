@@ -3,6 +3,9 @@ import type { Logger } from "@remit/remit-logger-lambda";
 import { MetricUnit, metrics } from "@remit/remit-logger-lambda";
 import {
 	BodySyncService,
+	guardConnectionCursor,
+	isCursorRebuildNeeded,
+	MailboxCursorPausedError,
 	MessageMoveService,
 	resolveExhaustedBodySyncFailures,
 } from "@remit/mailbox-service";
@@ -170,6 +173,20 @@ export const syncMessageBody = async (
 		account,
 		log,
 		async (credentials) => {
+			const mailbox = await mailboxService.get(accountId, mailboxId);
+
+			// Cheap frugal skip (epic #1281 invariant 6): a mailbox already known
+			// paused never even borrows a connection. This is an optimization only
+			// — guardConnectionCursor below is the structural guarantee, so a
+			// handler that forgot this check still cannot reach a stale UID.
+			if (isCursorRebuildNeeded(mailbox.cursorState)) {
+				log.info(
+					{ accountId, mailboxId, cursorState: mailbox.cursorState },
+					"Mailbox cursor not normal; pausing outbound body sync this round",
+				);
+				return;
+			}
+
 			// Warm reuse: borrow a live IMAP connection from the module-scoped pool
 			// (keyed by accountId) instead of dialing a fresh one per invocation. A
 			// warm container skips TCP+TLS+LOGIN+SELECT; a dead pooled connection is
@@ -177,7 +194,6 @@ export const syncMessageBody = async (
 			const borrowed = borrowWarmConnection(accountId, () =>
 				createConnectionScopeWithCredentials(account, credentials),
 			);
-			const mailbox = await mailboxService.get(accountId, mailboxId);
 			const storage = createStorageService();
 
 			// A confident, actionable placement verdict moves mail directly on
@@ -200,6 +216,21 @@ export const syncMessageBody = async (
 				placementConfig,
 			);
 
+			// Guard at the openBox choke point (epic #1281 invariants 3 & 5). The
+			// served UIDVALIDITY is only knowable by opening the box, which only a
+			// genuine fetch needs — BodySyncService.syncBodies skips connecting
+			// entirely when every message already has a stored body (nothing would
+			// touch a stored UID either way) — so the check fires lazily, the first
+			// time `openBox` is actually called, instead of forcing an extra open
+			// on every event.
+			const getConnectionChecked = async () =>
+				guardConnectionCursor(
+					await borrowed.getConnection(),
+					{ mailboxService },
+					accountId,
+					mailbox,
+				);
+
 			// Both the sync attempt AND the retry-exhaustion resolution below run
 			// against the SAME borrowed connection, so the mailbox stays open
 			// across the two — the connection is only released once both are done.
@@ -209,7 +240,7 @@ export const syncMessageBody = async (
 					accountId,
 					account.accountConfigId,
 					mailbox.fullPath,
-					borrowed.getConnection,
+					getConnectionChecked,
 					force,
 				);
 
@@ -247,7 +278,7 @@ export const syncMessageBody = async (
 							mailboxId,
 							mailboxPath: mailbox.fullPath,
 							failedMessageIds: result.failedMessageIds,
-							getConnection: borrowed.getConnection,
+							getConnection: getConnectionChecked,
 						},
 					);
 
@@ -265,7 +296,22 @@ export const syncMessageBody = async (
 						brokenMessageIds.length,
 					);
 				}
-			})().finally(() => borrowed.release());
+			})()
+				.catch((error: unknown) => {
+					// Expected pause (epic #1281 invariant 3), not a fault: ack and
+					// skip rather than propagating into SQS retry/DLQ. The read stays
+					// served from whatever is already stored; the fetch resumes once
+					// the mailbox returns to normal.
+					if (error instanceof MailboxCursorPausedError) {
+						log.info(
+							{ accountId, mailboxId, cursorState: error.state },
+							"UIDVALIDITY changed; mailbox cursor tripped, pausing outbound body sync",
+						);
+						return;
+					}
+					throw error;
+				})
+				.finally(() => borrowed.release());
 		},
 	);
 };

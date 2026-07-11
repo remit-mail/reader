@@ -1,12 +1,18 @@
 import {
 	AccountService,
 	getClient,
+	MailboxService,
 	MessageService,
 	type ThreadMessageItem,
 	ThreadMessageService,
 } from "@remit/remit-electrodb-service";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/remit-logger-lambda";
+import {
+	guardConnectionCursor,
+	isCursorRebuildNeeded,
+	MailboxCursorPausedError,
+} from "@remit/mailbox-service";
 import {
 	createKmsDataKeyProvider,
 	createSecretsService,
@@ -114,6 +120,10 @@ const threadMessageService = new ThreadMessageService({
 	client,
 	table: env.DYNAMODB_TABLE_NAME,
 });
+const mailboxService = new MailboxService({
+	client,
+	table: env.DYNAMODB_TABLE_NAME,
+});
 
 /**
  * Handle MESSAGE_MOVE events.
@@ -158,12 +168,34 @@ export const handleMessageMove = async (
 		account,
 		log,
 		async (credentials) => {
+			const mailbox = await mailboxService.get(accountId, sourceMailboxId);
+
+			// Cheap frugal skip (epic #1281 invariant 6): a mailbox already known
+			// paused never even opens a connection. Optimization only — the
+			// guardConnectionCursor openBox wrap below is the structural guarantee.
+			if (isCursorRebuildNeeded(mailbox.cursorState)) {
+				log.info(
+					{ accountId, messageId, mailboxId: sourceMailboxId },
+					"Mailbox cursor not normal; pausing outbound move this round",
+				);
+				return;
+			}
+
 			const scope = createConnectionScopeWithCredentials(account, credentials);
 
 			await scope
 				.getConnection()
-				.then((connection) =>
-					moveThenResync(
+				.then((rawConnection) => {
+					// Guard at the openBox choke point (epic #1281 invariants 3 & 5):
+					// a fresh mismatch trips the mailbox and throws once the SELECT
+					// reveals it. The move stays applied locally either way.
+					const connection = guardConnectionCursor(
+						rawConnection,
+						{ mailboxService },
+						accountId,
+						mailbox,
+					);
+					return moveThenResync(
 						async () => {
 							// Open source mailbox (not read-only)
 							await connection.openBox(sourceMailboxPath, false);
@@ -231,9 +263,22 @@ export const handleMessageMove = async (
 								sourceMailboxId,
 								destinationMailboxId,
 							}),
-					),
-				)
+					);
+				})
 				.catch(async (error: unknown) => {
+					if (error instanceof MailboxCursorPausedError) {
+						log.info(
+							{
+								accountId,
+								messageId,
+								mailboxId: sourceMailboxId,
+								cursorState: error.state,
+							},
+							"Mailbox cursor not normal; pausing outbound move this round",
+						);
+						return;
+					}
+
 					const errorMessage =
 						error instanceof Error ? error.message : String(error);
 

@@ -1,10 +1,16 @@
 import {
 	AccountService,
 	getClient,
+	MailboxService,
 	MessageService,
 	ThreadMessageService,
 } from "@remit/remit-electrodb-service";
 import type { Logger } from "@remit/remit-logger-lambda";
+import {
+	guardConnectionCursor,
+	isCursorRebuildNeeded,
+	MailboxCursorPausedError,
+} from "@remit/mailbox-service";
 import {
 	createKmsDataKeyProvider,
 	createSecretsService,
@@ -29,6 +35,10 @@ const messageService = new MessageService({
 	table: env.DYNAMODB_TABLE_NAME,
 });
 const threadMessageService = new ThreadMessageService({
+	client,
+	table: env.DYNAMODB_TABLE_NAME,
+});
+const mailboxService = new MailboxService({
 	client,
 	table: env.DYNAMODB_TABLE_NAME,
 });
@@ -62,11 +72,34 @@ export const handleEmptyTrash = async (
 		account,
 		log,
 		async (credentials) => {
+			const mailbox = await mailboxService.get(accountId, trashMailboxId);
+
+			// Cheap frugal skip (epic #1281 invariant 6): a mailbox already known
+			// paused never even opens a connection. Optimization only — the
+			// guardConnectionCursor openBox wrap below is the structural guarantee.
+			if (isCursorRebuildNeeded(mailbox.cursorState)) {
+				log.info(
+					{ accountId, mailboxId: trashMailboxId },
+					"Mailbox cursor not normal; pausing empty-trash this round",
+				);
+				return;
+			}
+
 			const scope = createConnectionScopeWithCredentials(account, credentials);
 
 			await scope
 				.getConnection()
-				.then(async (connection) => {
+				.then(async (rawConnection) => {
+					// Guard at the openBox choke point (epic #1281 invariants 3 & 5):
+					// a fresh mismatch trips the mailbox and throws once the SELECT
+					// reveals it. Local rows stay marked for deletion and are picked
+					// up once the mailbox returns to normal.
+					const connection = guardConnectionCursor(
+						rawConnection,
+						{ mailboxService },
+						accountId,
+						mailbox,
+					);
 					await connection.openBox(trashMailboxPath, false);
 
 					// Search for all messages in Trash
@@ -106,6 +139,20 @@ export const handleEmptyTrash = async (
 						{ accountId, deletedCount: localMessages.length },
 						"Trash emptied successfully",
 					);
+				})
+				.catch((error: unknown) => {
+					if (error instanceof MailboxCursorPausedError) {
+						log.info(
+							{
+								accountId,
+								mailboxId: trashMailboxId,
+								cursorState: error.state,
+							},
+							"Mailbox cursor not normal; pausing empty-trash this round",
+						);
+						return;
+					}
+					throw error;
 				})
 				.finally(() => scope.disconnect());
 		},

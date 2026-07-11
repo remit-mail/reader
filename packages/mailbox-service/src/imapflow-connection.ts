@@ -14,6 +14,7 @@ import type {
 	ImapBoxStatus,
 	ImapConnectionConfig,
 	ImapConnectionState,
+	ImapEnvelopeSnapshot,
 	ImapMailboxStatus,
 	ImapMessage,
 	ImapNamespaces,
@@ -575,6 +576,69 @@ export class ImapFlowConnection {
 		}
 
 		return messages;
+	};
+
+	/**
+	 * Cheap envelope-only FETCH for the UIDVALIDITY cursor rebuild (#1272):
+	 * UID + Message-ID + INTERNALDATE only — no flags, no BODYSTRUCTURE, no
+	 * References header, no body. Deliberately lighter than {@link
+	 * fetchMessages} so a rebuild pass over a large mailbox stays cheap (epic
+	 * #1281 invariant 6).
+	 */
+	fetchEnvelopeSnapshots = async (
+		uids: number[],
+	): Promise<ImapEnvelopeSnapshot[]> => {
+		this.ensureConnected();
+		const { client } = this;
+
+		if (!client) {
+			throw new Error("Not connected to IMAP server");
+		}
+
+		if (!this.currentMailbox) {
+			throw new Error("No mailbox selected");
+		}
+
+		if (uids.length === 0) {
+			return [];
+		}
+
+		const uidRange = uids.join(",");
+
+		const fetchIterator = client.fetch(
+			uidRange,
+			{ uid: true, envelope: true, internalDate: true },
+			{ uid: true },
+		);
+
+		if (!fetchIterator) {
+			throw new Error(
+				`IMAP connection lost while fetching envelope snapshots: ${uidRange}`,
+			);
+		}
+
+		const snapshots: ImapEnvelopeSnapshot[] = [];
+
+		for await (const msg of fetchIterator) {
+			// Same defensive skip as fetchMessages (#408) — an occasional row
+			// with no uid/internalDate must not abort the whole batch.
+			if (msg.uid == null || msg.internalDate == null) {
+				continue;
+			}
+
+			const internalDate = toInternalDate(msg.internalDate);
+			if (internalDate === null) {
+				continue;
+			}
+
+			snapshots.push({
+				uid: msg.uid,
+				messageId: msg.envelope?.messageId ?? "",
+				internalDate,
+			});
+		}
+
+		return snapshots;
 	};
 
 	/**

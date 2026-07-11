@@ -279,6 +279,56 @@ describe("syncMessageBody — DLQ propagation (integrated, #1270)", () => {
 			"no manual re-enqueue — SQS's own redelivery owns the retry now",
 		);
 	});
+
+	test("cursor_invalid: acks-and-skips without ever calling BodySyncService.syncBodies (#1272)", async () => {
+		// The cheap pre-check (isCursorRebuildNeeded, run before borrowing any
+		// connection — frugal, epic #1281 invariant 6) catches an already-paused
+		// mailbox before BodySyncService is ever invoked. The structural backstop
+		// for a cursor that trips *during* this call — guardConnectionCursor's
+		// openBox override — is covered directly in mailbox-cursor.test.ts.
+		mockClient(SSMClient)
+			.on(GetParameterCommand)
+			.resolves({ Parameter: { Value: "true" } });
+
+		mock.method(AccountService.prototype, "get", async () => cappedAccount());
+		mock.method(MailboxService.prototype, "get", async () => ({
+			...cappedMailbox(),
+			mailboxId,
+			cursorState: "cursor_invalid",
+		}));
+		mock.method(
+			(await getClient()).secrets,
+			"decrypt",
+			async () => "fake-password",
+		);
+		const syncBodies = mock.method(
+			BodySyncService.prototype,
+			"syncBodies",
+			async () => {
+				throw new Error(
+					"must not be called while the mailbox cursor is paused",
+				);
+			},
+		);
+
+		const event: SyncMessageBodyEvent = {
+			...baseEvent,
+			accountId,
+			mailboxId,
+			messageIds: ["msg-1"],
+			messages: [{ messageId: "msg-1", uid: 101 }],
+		};
+
+		// Must resolve, not reject — a paused cursor is a routine, expected pause
+		// (epic #1281 invariant 3), not a fault to retry/DLQ.
+		await syncMessageBody(event, silentLogger, 1);
+
+		assert.equal(
+			syncBodies.mock.calls.length,
+			0,
+			"outbound body fetch must not run while the mailbox cursor is paused",
+		);
+	});
 });
 
 describe("batchSyncedMessages — one batch == one ranged fetch", () => {

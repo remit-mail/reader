@@ -10,6 +10,7 @@ import {
 	MessageService,
 	ThreadMessageService,
 } from "@remit/remit-electrodb-service";
+import { MailboxCursorState } from "@remit/domain-enums";
 import type { ManagedConnectionFactory } from "./connection-factory.js";
 import {
 	isParseableEmailAddress,
@@ -32,6 +33,7 @@ const buildFakeServices = () => {
 	const mailboxService = {
 		get: async () => ({
 			fullPath: "INBOX",
+			uidValidity: 1,
 			lastSyncUid: 0,
 			highWaterMarkUid: 0,
 			messageCount: 0,
@@ -222,6 +224,7 @@ const buildFakeServicesWithCreateCapture = () => {
 	const mailboxService = {
 		get: async () => ({
 			fullPath: "INBOX",
+			uidValidity: 1,
 			lastSyncUid: 0,
 			highWaterMarkUid: 0,
 			messageCount: 0,
@@ -394,6 +397,7 @@ const buildWatermarkHarness = (opts: {
 	const mailboxService = {
 		get: async () => ({
 			fullPath: "INBOX",
+			uidValidity: 1,
 			lastSyncUid: state.lastSyncUid,
 			highWaterMarkUid: state.highWaterMarkUid,
 			messageCount: 0,
@@ -784,6 +788,7 @@ describe("MessageSyncService.saveMessage — unparseable Date header (#817)", ()
 		const mailboxService = {
 			get: async () => ({
 				fullPath: "INBOX",
+				uidValidity: 1,
 				lastSyncUid: 0,
 				highWaterMarkUid: 0,
 				messageCount: 0,
@@ -1033,6 +1038,7 @@ describe("MessageSyncService.saveMessage — ThreadMessage written last (#1072)"
 		const mailboxService = {
 			get: async () => ({
 				fullPath: "INBOX",
+				uidValidity: 1,
 				lastSyncUid: 0,
 				highWaterMarkUid: 0,
 				messageCount: 0,
@@ -1095,6 +1101,7 @@ describe("MessageSyncService.saveMessage — ThreadMessage written last (#1072)"
 		const mailboxService = {
 			get: async () => ({
 				fullPath: "INBOX",
+				uidValidity: 1,
 				lastSyncUid: 0,
 				highWaterMarkUid: 0,
 				messageCount: 0,
@@ -1164,6 +1171,7 @@ describe("MessageSyncService.saveMessage — ThreadMessage written last (#1072)"
 		const mailboxService = {
 			get: async () => ({
 				fullPath: "INBOX",
+				uidValidity: 1,
 				lastSyncUid: 0,
 				highWaterMarkUid: 0,
 				messageCount: 0,
@@ -1487,6 +1495,349 @@ describe("MessageSyncService.createThreadForMessage — thread root fallback", (
 		assert.equal(
 			createCalls[0]?.threadId,
 			ThreadMessageService.deriveThreadId(ACCOUNT_ID, "<root-90@example.com>"),
+		);
+	});
+});
+
+describe("MessageSyncService.syncMessages — UIDVALIDITY cursor (#1272)", () => {
+	interface ExistingRow {
+		messageId: string;
+		messageIdHeader: string;
+		internalDate: number;
+		uid: number;
+		threadMessageId?: string;
+		accountConfigId?: string;
+		sentDate?: number;
+		mailboxId?: string;
+		isRead?: boolean;
+		isDeleted?: boolean;
+		hasStars?: boolean;
+		hasAttachment?: boolean;
+	}
+
+	const buildFakes = (opts: {
+		mailboxCursorState?: string;
+		mailboxUidValidity?: number;
+		existingRows?: ExistingRow[];
+	}) => {
+		const updateCalls: Array<Record<string, unknown>> = [];
+		const updateUidCalls: Array<{
+			messageId: string;
+			newUid: number;
+			newMailboxId: string;
+		}> = [];
+		const deleteCalls: string[] = [];
+		const updateThreadMessageCalls: Array<{
+			accountConfigId: string;
+			threadMessageId: string;
+			input: Record<string, unknown>;
+		}> = [];
+
+		const mailboxService = {
+			get: async () => ({
+				mailboxId: "mbx-1",
+				fullPath: "INBOX",
+				uidValidity: opts.mailboxUidValidity ?? 1,
+				lastSyncUid: 5,
+				highWaterMarkUid: 20,
+				cursorState: opts.mailboxCursorState,
+			}),
+			update: async (
+				_accountId: string,
+				_mailboxId: string,
+				patch: Record<string, unknown>,
+			) => {
+				updateCalls.push(patch);
+				return {};
+			},
+		} as unknown as MailboxService;
+
+		const messageService = {
+			updateUid: async (
+				messageId: string,
+				newUid: number,
+				newMailboxId: string,
+			) => {
+				updateUidCalls.push({ messageId, newUid, newMailboxId });
+				return {};
+			},
+			delete: async (messageId: string) => {
+				deleteCalls.push(messageId);
+			},
+			upsertWithStatus: async (input: { mailboxId: string }) => ({
+				item: { mailboxId: input.mailboxId },
+				created: true,
+			}),
+		} as unknown as MessageService;
+
+		const envelopeService = {
+			upsertEnvelope: async () => undefined,
+			upsertBodyParts: async () => undefined,
+		} as unknown as EnvelopeService;
+
+		const addressService = {
+			upsertAddress: async () => undefined,
+			upsertEnvelopeAddress: async () => undefined,
+		} as unknown as AddressService;
+
+		const threadMessageService = {
+			listByMailbox: async () => ({
+				items: (opts.existingRows ?? []).map((row) => ({
+					messageId: row.messageId,
+					messageIdHeader: row.messageIdHeader,
+					internalDate: row.internalDate,
+					uid: row.uid,
+					threadMessageId: row.threadMessageId ?? `tm-${row.messageId}`,
+					accountConfigId: row.accountConfigId ?? "acc-cfg-1",
+					sentDate: row.sentDate ?? row.internalDate,
+					mailboxId: row.mailboxId ?? "mbx-1",
+					isRead: row.isRead ?? false,
+					isDeleted: row.isDeleted ?? false,
+					hasStars: row.hasStars ?? false,
+					hasAttachment: row.hasAttachment ?? false,
+				})),
+				continuationToken: undefined,
+			}),
+			findAllByMessageId: async () => [],
+			deleteMany: async () => undefined,
+			create: async () => ({}),
+			update: async (
+				accountConfigId: string,
+				threadMessageId: string,
+				input: Record<string, unknown>,
+			) => {
+				updateThreadMessageCalls.push({
+					accountConfigId,
+					threadMessageId,
+					input,
+				});
+				return {};
+			},
+		} as unknown as ThreadMessageService;
+
+		return {
+			mailboxService,
+			messageService,
+			envelopeService,
+			addressService,
+			threadMessageService,
+			updateCalls,
+			updateUidCalls,
+			deleteCalls,
+			updateThreadMessageCalls,
+		};
+	};
+
+	const buildRebuildConnectionFactory = (opts: {
+		servedUidValidity: number;
+		serverSnapshots: Array<{
+			uid: number;
+			messageId: string;
+			internalDate: Date;
+		}>;
+		newMessages?: ImapMessage[];
+	}): ManagedConnectionFactory => {
+		const conn = {
+			openBox: async () => ({
+				uidvalidity: opts.servedUidValidity,
+				uidnext: 999,
+				messageCount: opts.serverSnapshots.length,
+			}),
+			search: async () => opts.serverSnapshots.map((s) => s.uid),
+			fetchEnvelopeSnapshots: async () => opts.serverSnapshots,
+			fetchMessages: async (uids: number[]) =>
+				(opts.newMessages ?? []).filter((m) => uids.includes(m.uid)),
+			getMailboxStatus: async () => ({
+				unseen: 0,
+				deletedCount: 0,
+				highestModseq: 42,
+				messages: opts.serverSnapshots.length,
+			}),
+		};
+		return { getConnection: () => conn } as unknown as ManagedConnectionFactory;
+	};
+
+	it("trips cursor_invalid and skips this sync round when the served UIDVALIDITY disagrees with the stored value", async () => {
+		const fakes = buildFakes({ mailboxUidValidity: 1 });
+		const factory = {
+			getConnection: () => ({
+				openBox: async () => ({ uidvalidity: 2, uidnext: 10, messageCount: 1 }),
+				getMailboxStatus: async () => ({ unseen: 0, deletedCount: 0 }),
+				search: async () => [10],
+				fetchMessages: async () => [messageWithUid(10, "<a@x>")],
+			}),
+		} as unknown as ManagedConnectionFactory;
+
+		const service = new MessageSyncService(
+			factory,
+			fakes.mailboxService,
+			fakes.messageService,
+			fakes.envelopeService,
+			fakes.addressService,
+			fakes.threadMessageService,
+		);
+
+		const result = await service.syncMessages(
+			"mbx-1",
+			"acc-1",
+			"acc-cfg-1",
+			50,
+		);
+
+		assert.deepEqual(result, {
+			syncedCount: 0,
+			syncedMessageIds: [],
+			syncedMessages: [],
+			hasMore: false,
+			remainingCount: 0,
+		});
+		assert.equal(fakes.updateCalls.length, 1);
+		assert.deepEqual(fakes.updateCalls[0], {
+			cursorState: MailboxCursorState.cursor_invalid,
+		});
+	});
+
+	it("does not trip and proceeds normally when the served UIDVALIDITY matches", async () => {
+		const fakes = buildFakes({ mailboxUidValidity: 1 });
+		// uid 30 exceeds the fixture's highWaterMarkUid (20), so it is picked up
+		// as a new message rather than falling into the "no new messages" branch.
+		const factory = buildConnectionFactory([messageWithUid(30, "<a@x>")]);
+
+		const service = new MessageSyncService(
+			factory,
+			fakes.mailboxService,
+			fakes.messageService,
+			fakes.envelopeService,
+			fakes.addressService,
+			fakes.threadMessageService,
+		);
+
+		const result = await service.syncMessages(
+			"mbx-1",
+			"acc-1",
+			"acc-cfg-1",
+			50,
+		);
+
+		assert.equal(result.syncedCount, 1);
+		assert.equal(
+			fakes.updateCalls.some((c) => "cursorState" in c),
+			false,
+			"a matching UIDVALIDITY must never write cursorState",
+		);
+	});
+
+	it("runs the envelope-pass rebuild instead of a normal sync when cursorState is cursor_invalid, matching/new/stale rows, then returns to normal", async () => {
+		const fakes = buildFakes({
+			mailboxCursorState: MailboxCursorState.cursor_invalid,
+			existingRows: [
+				{
+					messageId: "msg-keep",
+					messageIdHeader: "<keep@x>",
+					internalDate: 1000,
+					uid: 5,
+				},
+				{
+					messageId: "msg-gone",
+					messageIdHeader: "<gone@x>",
+					internalDate: 2000,
+					uid: 6,
+				},
+			],
+		});
+
+		const newMsg = messageWithUid(300, "<new@x>");
+		const factory = buildRebuildConnectionFactory({
+			servedUidValidity: 2,
+			serverSnapshots: [
+				{ uid: 105, messageId: "<keep@x>", internalDate: new Date(1000) },
+				{ uid: 300, messageId: "<new@x>", internalDate: new Date(3000) },
+			],
+			newMessages: [newMsg],
+		});
+
+		const service = new MessageSyncService(
+			factory,
+			fakes.mailboxService,
+			fakes.messageService,
+			fakes.envelopeService,
+			fakes.addressService,
+			fakes.threadMessageService,
+		);
+
+		const result = await service.syncMessages(
+			"mbx-1",
+			"acc-1",
+			"acc-cfg-1",
+			50,
+		);
+
+		// Match: msg-keep's UID mapping is rewritten in place on Message...
+		assert.deepEqual(fakes.updateUidCalls, [
+			{ messageId: "msg-keep", newUid: 105, newMailboxId: "mbx-1" },
+		]);
+		// ...and on the denormalized ThreadMessage row too (#1272 review finding
+		// 3) — a normal move keeps both in sync, so the rebuild must as well.
+		assert.deepEqual(fakes.updateThreadMessageCalls, [
+			{
+				accountConfigId: "acc-cfg-1",
+				threadMessageId: "tm-msg-keep",
+				input: { uid: 105 },
+			},
+		]);
+		// Stale: msg-gone has no counterpart on the server — reconciled (row deleted).
+		assert.deepEqual(fakes.deleteCalls, ["msg-gone"]);
+		// New: uid 300 has no existing row — goes through normal new-message sync.
+		assert.equal(result.syncedCount, 1);
+		assert.equal(result.syncedMessages[0]?.uid, 300);
+
+		// First write stamps `rebuilding` before any other write, for crash safety.
+		assert.equal(
+			fakes.updateCalls[0]?.cursorState,
+			MailboxCursorState.rebuilding,
+		);
+
+		// Final write rebuilds watermarks from the fresh axis and returns to normal.
+		const finalUpdate = fakes.updateCalls.at(-1);
+		assert.equal(finalUpdate?.cursorState, MailboxCursorState.normal);
+		assert.equal(finalUpdate?.uidValidity, 2);
+		assert.equal(finalUpdate?.highWaterMarkUid, 300);
+		assert.equal(finalUpdate?.lastSyncUid, 105);
+	});
+
+	it("resumes (idempotently) when a prior rebuild crashed mid-way and left the mailbox in rebuilding", async () => {
+		const fakes = buildFakes({
+			mailboxCursorState: MailboxCursorState.rebuilding,
+			existingRows: [],
+		});
+		const factory = buildRebuildConnectionFactory({
+			servedUidValidity: 9,
+			serverSnapshots: [],
+		});
+
+		const service = new MessageSyncService(
+			factory,
+			fakes.mailboxService,
+			fakes.messageService,
+			fakes.envelopeService,
+			fakes.addressService,
+			fakes.threadMessageService,
+		);
+
+		await service.syncMessages("mbx-1", "acc-1", "acc-cfg-1", 50);
+
+		assert.equal(
+			fakes.updateCalls[0]?.cursorState,
+			MailboxCursorState.rebuilding,
+		);
+		assert.equal(
+			fakes.updateCalls.at(-1)?.cursorState,
+			MailboxCursorState.normal,
+		);
+		assert.equal(
+			fakes.updateCalls.at(-1)?.uidValidity,
+			9,
+			"the rebuild re-reads UIDVALIDITY fresh rather than trusting the stale stored value",
 		);
 	});
 });

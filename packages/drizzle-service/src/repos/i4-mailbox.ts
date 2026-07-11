@@ -6,6 +6,7 @@ import type {
 	ResultList,
 	UpdateMailboxInput,
 } from "@remit/data-ports";
+import { MailboxCursorState } from "@remit/domain-enums";
 import { and, asc, eq, gt, inArray, or, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import shortUuid from "short-uuid";
@@ -43,6 +44,7 @@ export function rowToMailbox(
 		initialSyncCompletedAt: row.initialSyncCompletedAt ?? undefined,
 		parentMailboxId: row.parentMailboxId,
 		syncStatus: (row.syncStatus as MailboxItem["syncStatus"]) ?? undefined,
+		cursorState: (row.cursorState as MailboxItem["cursorState"]) ?? undefined,
 		oldPath: row.oldPath ?? undefined,
 		specialUse: (row.specialUse as MailboxItem["specialUse"]) ?? undefined,
 		createdAt: row.createdAt,
@@ -77,6 +79,7 @@ export class MailboxRepo implements IMailboxRepository {
 				initialSyncCompletedAt: input.initialSyncCompletedAt,
 				parentMailboxId: input.parentMailboxId ?? "",
 				syncStatus: input.syncStatus,
+				cursorState: input.cursorState ?? MailboxCursorState.normal,
 				oldPath: input.oldPath,
 				specialUse: input.specialUse ?? null,
 				createdAt: now,
@@ -159,6 +162,8 @@ export class MailboxRepo implements IMailboxRepository {
 		if (input.parentMailboxId !== undefined)
 			updates.parentMailboxId = input.parentMailboxId;
 		if (input.syncStatus !== undefined) updates.syncStatus = input.syncStatus;
+		if (input.cursorState !== undefined)
+			updates.cursorState = input.cursorState;
 		if (input.oldPath !== undefined) updates.oldPath = input.oldPath;
 		if (input.specialUse !== undefined) updates.specialUse = input.specialUse;
 
