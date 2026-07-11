@@ -22,8 +22,12 @@ export interface RunSchedulerTickDeps {
 	sqsClient: SQSClient;
 	queueUrl: string;
 	log: Logger;
-	onlineIntervalMs: number;
 	offlineIntervalMs: number;
+	/**
+	 * How often this tick itself runs — the dedup-id bucket width for
+	 * `buildScheduledSyncDedupId`, so consecutive ticks each get a fresh id.
+	 */
+	tickIntervalMs: number;
 	/** Injectable for tests; defaults to `Date.now()`. */
 	now?: number;
 }
@@ -66,19 +70,19 @@ const isEligible = (account: AccountItem): boolean => {
 };
 
 /**
- * One tick of the periodic mailbox-sync scheduler (#1247). Pages through
- * every account (never loading the whole account base into memory),
- * decides per account via `isSyncDue`, and enqueues SYNC_MAILBOXES for the
- * accounts that are due — in bounded-concurrency batches, never an unbounded
- * `Promise.all`.
+ * One tick of the periodic mailbox-sync scheduler (#1247, restructured
+ * #1251). Pages through every account (never loading the whole account base
+ * into memory), decides per account via `isSyncDue` against the single
+ * offline threshold, and enqueues SYNC_MAILBOXES for the accounts that are
+ * due — in bounded-concurrency batches, never an unbounded `Promise.all`.
  *
  * Every enqueue goes through the same `triggerAccountSync` the manual
  * POST /sync path uses, with a scheduler-specific, time-bucketed dedup id
- * (`buildScheduledSyncDedupId`) so a 5-minute tick can never collide with its
- * own previous tick or with a concurrent manual trigger (see trigger-sync.ts).
- * Concurrent-sync safety for the mailbox itself is MailboxLockService's job,
- * inside the worker handler — this tick only decides "is a sync due" and
- * enqueues; it never talks to IMAP.
+ * (`buildScheduledSyncDedupId`, bucketed by `tickIntervalMs`) so this tick
+ * can never collide with its own previous tick or with a concurrent manual
+ * trigger (see trigger-sync.ts). Concurrent-sync safety for the mailbox
+ * itself is MailboxLockService's job, inside the worker handler — this tick
+ * only decides "is a sync due" and enqueues; it never talks to IMAP.
  */
 export const runSchedulerTick = async (
 	deps: RunSchedulerTickDeps,
@@ -88,11 +92,10 @@ export const runSchedulerTick = async (
 		sqsClient,
 		queueUrl,
 		log,
-		onlineIntervalMs,
 		offlineIntervalMs,
+		tickIntervalMs,
 	} = deps;
 	const now = deps.now ?? Date.now();
-	const thresholds = { onlineIntervalMs, offlineIntervalMs };
 
 	let cursor: string | undefined;
 	let scanned = 0;
@@ -107,7 +110,8 @@ export const runSchedulerTick = async (
 		scanned += page.items.length;
 
 		const due = page.items.filter(
-			(account) => isEligible(account) && isSyncDue(account, now, thresholds),
+			(account) =>
+				isEligible(account) && isSyncDue(account, now, offlineIntervalMs),
 		);
 		skipped += page.items.length - due.length;
 
@@ -121,7 +125,7 @@ export const runSchedulerTick = async (
 					dedupId: buildScheduledSyncDedupId(
 						account.accountId,
 						now,
-						onlineIntervalMs,
+						tickIntervalMs,
 					),
 				}),
 			{ concurrency: SCHEDULER_ENQUEUE_CONCURRENCY },

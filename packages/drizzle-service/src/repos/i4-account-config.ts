@@ -61,7 +61,6 @@ function rowToAccount(row: typeof accountTable.$inferSelect): AccountItem {
 		connectionState: row.connectionState as AccountItem["connectionState"],
 		lastConnectedAt: row.lastConnectedAt ?? undefined,
 		lastSyncAt: row.lastSyncAt ?? undefined,
-		lastActivityAt: row.lastActivityAt ?? 0,
 		lastError: row.lastError ?? undefined,
 		syncPhase: (row.syncPhase as AccountItem["syncPhase"]) ?? undefined,
 		mailboxCountTotal: row.mailboxCountTotal ?? undefined,

@@ -235,10 +235,6 @@ model Account {
   @visibility(Lifecycle.Read)
   lastSyncAt?: int64;
 
-  @doc("Timestamp of the most recent authenticated API activity for this account (e.g. a mailbox-list read); 0 means never recorded. Drives the scheduled-sync online/offline tier decision (RFC 032 Tier 2) — not exposed via the API.")
-  @visibility(Lifecycle.Read)
-  lastActivityAt: int64 = 0;
-
   @doc("Error message from last failed connection attempt")
   @visibility(Lifecycle.Read)
   lastError?: string;

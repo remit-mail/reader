@@ -6,17 +6,17 @@ import { getClient } from "@remit/backend/client";
 import { createLogger } from "@remit/logger-lambda";
 import { resolveSqsCredentials } from "@remit/sqs-client";
 import { env } from "expect-env";
-import { getOfflineIntervalMs, getOnlineIntervalMs } from "./config.js";
+import { getOfflineIntervalMs, getTickIntervalMs } from "./config.js";
 import { runSchedulerTick } from "./run-tick.js";
 
 /**
  * Standalone scheduled-sync runner for the local pg-dev docker-compose stack
- * (#1247). Production ticks `runSchedulerTick` off an EventBridge schedule
- * (see handler.ts); ElasticMQ/the pg-dev stack has no EventBridge, so this
- * process ticks on a plain loop at the same online-tier cadence instead —
- * same function, same config knobs (MAILBOX_SYNC_ONLINE_INTERVAL_SECONDS /
- * MAILBOX_SYNC_OFFLINE_INTERVAL_SECONDS), so local dev behaves like
- * production rather than needing its own scheduling logic.
+ * (#1247, restructured #1251). Production ticks `runSchedulerTick` off an
+ * EventBridge schedule (see handler.ts); ElasticMQ/the pg-dev stack has no
+ * EventBridge, so this process ticks on a plain loop at the same
+ * `MAILBOX_SYNC_TICK_INTERVAL_SECONDS` cadence instead — same function, same
+ * config knobs, so local dev behaves like production rather than needing its
+ * own scheduling logic.
  *
  * This is a dev-only harness, not production code: like
  * `e2e-processor-shim.ts`, a tick failure crashes the process loudly rather
@@ -35,7 +35,7 @@ const sqsClient = new SQSClient({
 	credentials: resolveSqsCredentials(),
 });
 
-const onlineIntervalMs = getOnlineIntervalMs();
+const tickIntervalMs = getTickIntervalMs();
 const offlineIntervalMs = getOfflineIntervalMs();
 
 // A persistent failure (e.g. Postgres not up yet at container boot) throws
@@ -47,22 +47,22 @@ const offlineIntervalMs = getOfflineIntervalMs();
 const CRASH_BACKOFF_MS = 5_000;
 
 log.info(
-	{ onlineIntervalMs, offlineIntervalMs },
+	{ tickIntervalMs, offlineIntervalMs },
 	"Local scheduled-sync runner started",
 );
 
 const runLoop = async (): Promise<void> => {
+	const { account } = await getClient();
 	for (;;) {
-		const { account } = await getClient();
 		await runSchedulerTick({
 			accountService: account,
 			sqsClient,
 			queueUrl: mailboxesQueueUrl,
 			log,
-			onlineIntervalMs,
+			tickIntervalMs,
 			offlineIntervalMs,
 		});
-		await delay(onlineIntervalMs);
+		await delay(tickIntervalMs);
 	}
 };
 

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
 import {
+	buildManualSyncDedupId,
 	buildScheduledSyncDedupId,
 	buildSyncMailboxesCommand,
 	triggerAccountSync,
@@ -28,16 +29,17 @@ describe("buildSyncMailboxesCommand", () => {
 		assert.equal(cmd.input.MessageGroupId, "account-abc");
 	});
 
-	it("sets MessageDeduplicationId to SYNC_MAILBOXES:<accountId> for FIFO queues", () => {
+	it("defaults MessageDeduplicationId to the time-bucketed manual dedup id for FIFO queues", () => {
 		const cmd = buildSyncMailboxesCommand({
 			sqsClient: {} as SQSClient,
 			queueUrl: FIFO_QUEUE_URL,
 			accountId: "account-abc",
 		});
 
-		assert.equal(
-			cmd.input.MessageDeduplicationId,
-			"SYNC_MAILBOXES:account-abc",
+		assert.ok(
+			cmd.input.MessageDeduplicationId?.startsWith(
+				"SYNC_MAILBOXES:manual:account-abc:",
+			),
 		);
 	});
 
@@ -91,18 +93,45 @@ describe("buildSyncMailboxesCommand", () => {
 	});
 });
 
-describe("buildScheduledSyncDedupId", () => {
-	const FIVE_MINUTES_MS = 5 * 60 * 1000;
+describe("buildManualSyncDedupId", () => {
+	const SIXTY_SECONDS_MS = 60 * 1000;
 
-	it("differs from the manual-trigger dedup id", () => {
-		const scheduled = buildScheduledSyncDedupId(
+	it("is stable within the same time bucket (dedupes a rapid double-tap)", () => {
+		const bucketStart = 10 * SIXTY_SECONDS_MS;
+
+		const first = buildManualSyncDedupId("account-abc", bucketStart);
+		const second = buildManualSyncDedupId("account-abc", bucketStart + 1_000);
+
+		assert.equal(first, second);
+	});
+
+	it("changes across a bucket boundary (never dedupes two polls a minute apart)", () => {
+		const bucketStart = 10 * SIXTY_SECONDS_MS;
+
+		const thisTrigger = buildManualSyncDedupId("account-abc", bucketStart);
+		const nextTrigger = buildManualSyncDedupId(
 			"account-abc",
-			Date.now(),
-			FIVE_MINUTES_MS,
+			bucketStart + SIXTY_SECONDS_MS,
 		);
 
-		assert.notEqual(scheduled, "SYNC_MAILBOXES:account-abc");
+		assert.notEqual(thisTrigger, nextTrigger);
 	});
+
+	it("never collides with the scheduler's dedup namespace", () => {
+		const now = 10 * SIXTY_SECONDS_MS;
+		const manual = buildManualSyncDedupId("account-abc", now);
+		const scheduled = buildScheduledSyncDedupId(
+			"account-abc",
+			now,
+			SIXTY_SECONDS_MS,
+		);
+
+		assert.notEqual(manual, scheduled);
+	});
+});
+
+describe("buildScheduledSyncDedupId", () => {
+	const FIVE_MINUTES_MS = 5 * 60 * 1000;
 
 	it("is stable within the same time bucket (dedupes a retried tick)", () => {
 		const bucketStart = 10 * FIVE_MINUTES_MS;

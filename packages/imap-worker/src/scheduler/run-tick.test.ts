@@ -8,7 +8,7 @@ import type {
 import type { Logger } from "@remit/logger-lambda";
 import { runSchedulerTick } from "./run-tick.js";
 
-const ONLINE_INTERVAL_MS = 5 * 60 * 1000;
+const TICK_INTERVAL_MS = 60 * 60 * 1000;
 const OFFLINE_INTERVAL_MS = 12 * 60 * 60 * 1000;
 const NOW = 1_700_000_000_000;
 
@@ -106,7 +106,6 @@ describe("runSchedulerTick", () => {
 		const notDue = baseAccount({
 			accountId: "acct_not_due",
 			lastSyncAt: NOW - 60_000,
-			lastActivityAt: NOW - 1_000,
 		});
 
 		const accountService = fakeAccountService([
@@ -121,7 +120,7 @@ describe("runSchedulerTick", () => {
 			queueUrl:
 				"https://sqs.eu-west-1.amazonaws.com/123/remit-dev-mailboxes.fifo",
 			log: createNoopLogger(),
-			onlineIntervalMs: ONLINE_INTERVAL_MS,
+			tickIntervalMs: TICK_INTERVAL_MS,
 			offlineIntervalMs: OFFLINE_INTERVAL_MS,
 			now: NOW,
 		});
@@ -156,7 +155,7 @@ describe("runSchedulerTick", () => {
 			queueUrl:
 				"https://sqs.eu-west-1.amazonaws.com/123/remit-dev-mailboxes.fifo",
 			log: createNoopLogger(),
-			onlineIntervalMs: ONLINE_INTERVAL_MS,
+			tickIntervalMs: TICK_INTERVAL_MS,
 			offlineIntervalMs: OFFLINE_INTERVAL_MS,
 			now: NOW,
 		});
@@ -189,7 +188,7 @@ describe("runSchedulerTick", () => {
 			queueUrl:
 				"https://sqs.eu-west-1.amazonaws.com/123/remit-dev-mailboxes.fifo",
 			log,
-			onlineIntervalMs: ONLINE_INTERVAL_MS,
+			tickIntervalMs: TICK_INTERVAL_MS,
 			offlineIntervalMs: OFFLINE_INTERVAL_MS,
 			now: NOW,
 		});
@@ -217,7 +216,7 @@ describe("runSchedulerTick", () => {
 			queueUrl:
 				"https://sqs.eu-west-1.amazonaws.com/123/remit-dev-mailboxes.fifo",
 			log: createNoopLogger(),
-			onlineIntervalMs: ONLINE_INTERVAL_MS,
+			tickIntervalMs: TICK_INTERVAL_MS,
 			offlineIntervalMs: OFFLINE_INTERVAL_MS,
 			now: NOW,
 		});
@@ -241,7 +240,7 @@ describe("runSchedulerTick", () => {
 			queueUrl:
 				"https://sqs.eu-west-1.amazonaws.com/123/remit-dev-mailboxes.fifo",
 			log: createNoopLogger(),
-			onlineIntervalMs: ONLINE_INTERVAL_MS,
+			tickIntervalMs: TICK_INTERVAL_MS,
 			offlineIntervalMs: OFFLINE_INTERVAL_MS,
 			now: NOW,
 		});

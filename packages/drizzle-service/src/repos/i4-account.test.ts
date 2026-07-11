@@ -186,49 +186,6 @@ describe("AccountRepo", () => {
 		await repo.delete(account.accountId);
 	});
 
-	test("bumpActivity sets lastActivityAt on first call", async () => {
-		const account = await repo.create(makeAccountInput(randomId()));
-
-		const now = Date.now();
-		await repo.bumpActivity(account.accountId, now);
-
-		const fetched = await repo.get(account.accountId);
-		assert.equal(fetched.lastActivityAt, now);
-
-		await repo.delete(account.accountId);
-	});
-
-	test("bumpActivity throttles a second call inside the window", async () => {
-		const account = await repo.create(makeAccountInput(randomId()));
-
-		const first = Date.now();
-		await repo.bumpActivity(account.accountId, first);
-		await repo.bumpActivity(account.accountId, first + 1_000);
-
-		const fetched = await repo.get(account.accountId);
-		assert.equal(
-			fetched.lastActivityAt,
-			first,
-			"second call inside the throttle window must be a no-op",
-		);
-
-		await repo.delete(account.accountId);
-	});
-
-	test("bumpActivity updates again once the throttle window has passed", async () => {
-		const account = await repo.create(makeAccountInput(randomId()));
-
-		const first = Date.now();
-		const later = first + 61_000;
-		await repo.bumpActivity(account.accountId, first);
-		await repo.bumpActivity(account.accountId, later);
-
-		const fetched = await repo.get(account.accountId);
-		assert.equal(fetched.lastActivityAt, later);
-
-		await repo.delete(account.accountId);
-	});
-
 	test("listAllAccountsPage paginates without dupes, gaps, or non-termination", async () => {
 		const accountConfigId = randomId();
 		const created: string[] = [];

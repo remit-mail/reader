@@ -102,14 +102,14 @@ services:
         condition: service_started
     restart: unless-stopped
 
-  # Periodic mailbox-sync scheduler (#1247) — the local-dev equivalent of
-  # production's EventBridge-scheduled Lambda (see
+  # Periodic mailbox-sync scheduler (#1247, restructured #1251) — the
+  # local-dev equivalent of production's EventBridge-scheduled Lambda (see
   # infra/stacks/dev/stacks/remit-worker-stack.ts). Ticks `runSchedulerTick`
-  # on a plain loop at the online-tier cadence
-  # (MAILBOX_SYNC_ONLINE_INTERVAL_SECONDS) against the same Postgres backend,
-  # enqueuing SYNC_MAILBOXES onto `remit-mailboxes.fifo` for the imap-worker
-  # service above to drain — same scheduler code path, same config knobs as
-  # production.
+  # on a plain loop at the tick cadence (MAILBOX_SYNC_TICK_INTERVAL_SECONDS,
+  # shortened here — see localhost-dev-generic.env) against the same
+  # Postgres backend, enqueuing SYNC_MAILBOXES onto `remit-mailboxes.fifo`
+  # for the imap-worker service above to drain — same scheduler code path,
+  # same config knobs as production.
   scheduler:
     image: node:24
     container_name: remit-pg-dev-scheduler
