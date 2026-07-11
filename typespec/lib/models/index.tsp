@@ -29,3 +29,9 @@ import "./SemanticSearch.tsp";
 
 // Export
 import "./AccountExportRequest.tsp";
+
+// Smart Organize (RFC 030, RFC 034)
+import "./Label.tsp";
+import "./MessageLabel.tsp";
+import "./Filter.tsp";
+import "./FilterAnchor.tsp";
