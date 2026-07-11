@@ -1,0 +1,32 @@
+{
+	"name": "@remit/attachment-service",
+	"version": "1.0.0",
+	"description": "Pure text extraction from email attachment bytes (PDF, DOCX, DOC, plain text)",
+	"type": "module",
+	"main": "src/index.ts",
+	"types": "src/index.ts",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		},
+		"./types": {
+			"types": "./src/types.ts",
+			"default": "./src/types.ts"
+		}
+	},
+	"scripts": {
+		"test:typecheck": "tsgo --noEmit",
+		"test:run": "node --experimental-test-module-mocks --import tsx --test 'src/**/*.test.ts'",
+		"test": "npm run test:typecheck && npm run test:run"
+	},
+	"dependencies": {
+		"file-type": "^22.0.1",
+		"mammoth": "^1.12.0",
+		"pdf-parse": "^2.4.5",
+		"word-extractor": "^1.0.4"
+	},
+	"devDependencies": {
+		"@types/word-extractor": "^1.0.6"
+	}
+}
