@@ -10,9 +10,14 @@ import type {
 	IMailboxSpecialUseRepository,
 	MailboxItem,
 } from "@remit/data-ports";
-import { MailboxSpecialUse, NamespaceType } from "@remit/domain-enums";
+import {
+	MailboxCursorState,
+	MailboxSpecialUse,
+	NamespaceType,
+} from "@remit/domain-enums";
 import pMap from "p-map";
 import { isNoSelect, parseImapAttributes } from "./attribute-mapper.js";
+import { isCursorRebuildNeeded } from "./mailbox-cursor.js";
 import type {
 	FlatMailboxInfo,
 	IImapConnection,
@@ -218,11 +223,20 @@ export class MailboxSyncService {
 		const mailbox = await this.mailboxService.get(accountId, mailboxId);
 		const boxStatus = await connection.openBox(mailbox.fullPath, true);
 
+		// See `updateMailbox` above for why this trips (not skips) on a
+		// UIDVALIDITY change instead of silently overwriting the stored value.
+		const uidValidityChanged = mailbox.uidValidity !== boxStatus.uidvalidity;
+		const cursorTrip =
+			uidValidityChanged && !isCursorRebuildNeeded(mailbox.cursorState)
+				? { cursorState: MailboxCursorState.cursor_invalid }
+				: {};
+
 		return this.mailboxService
 			.update(accountId, mailboxId, {
 				uidValidity: boxStatus.uidvalidity,
 				uidNext: boxStatus.uidnext,
 				messageCount: boxStatus.messages.total,
+				...cursorTrip,
 			})
 			.finally(() => connection.closeBox(false));
 	};
@@ -395,6 +409,19 @@ export class MailboxSyncService {
 			parsed.specialUse,
 		);
 
+		// UIDVALIDITY detection (#1272): this STATUS-based sweep persists a fresh
+		// uidValidity below regardless (harmless — it never touches a stored UID),
+		// but if the server's value disagrees with what's stored and the mailbox
+		// was still `normal`, the axis just changed. Trip the cursor here so the
+		// message-sync/flag-push/move/body-fetch paths pause outbound IMAP until
+		// the rebuild resolves it, instead of silently overwriting the old value
+		// and erasing the only evidence a bump happened.
+		const uidValidityChanged = existing.uidValidity !== status.uidValidity;
+		const cursorTrip =
+			uidValidityChanged && !isCursorRebuildNeeded(existing.cursorState)
+				? { cursorState: MailboxCursorState.cursor_invalid }
+				: {};
+
 		// Check if anything actually changed
 		const hasChanges =
 			existing.uidNext !== status.uidNext ||
@@ -458,6 +485,7 @@ export class MailboxSyncService {
 			unseenCount: status.unseen,
 			deletedCount: status.deletedCount,
 			specialUse: parsed.specialUse.length > 0 ? parsed.specialUse : undefined,
+			...cursorTrip,
 		});
 	};
 

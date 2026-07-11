@@ -92,6 +92,21 @@ export {
 	ImapFlowConnection,
 } from "./imapflow-connection.js";
 export {
+	guardConnectionCursor,
+	guardMailboxCursor,
+	isCursorRebuildNeeded,
+	type MailboxCursorCheck,
+	type MailboxCursorGuardDeps,
+	MailboxCursorPausedError,
+} from "./mailbox-cursor.js";
+export {
+	type CursorRebuildMatch,
+	type CursorRebuildMatchResult,
+	type CursorRebuildRow,
+	type CursorRebuildSnapshot,
+	matchCursorRebuild,
+} from "./mailbox-cursor-rebuild.js";
+export {
 	type CreateMailboxInput,
 	type DeleteMailboxInput,
 	type MailboxManagementLogger,

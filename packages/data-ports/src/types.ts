@@ -289,10 +289,17 @@ export type BodyPartContentUpsertInput = {
 
 export type CreateMailboxInput = Omit<
 	MailboxItem,
-	"mailboxId" | "createdAt" | "updatedAt" | "namespaceType" | "parentMailboxId"
+	| "mailboxId"
+	| "createdAt"
+	| "updatedAt"
+	| "namespaceType"
+	| "parentMailboxId"
+	| "cursorState"
 > & {
 	namespaceType?: MailboxItem["namespaceType"];
 	parentMailboxId?: MailboxItem["parentMailboxId"];
+	/** Total per RFC 032 (defaults to `normal`) — optional at the input boundary, callers rarely set it explicitly. */
+	cursorState?: MailboxItem["cursorState"];
 };
 
 export type UpdateMailboxInput = Partial<Omit<CreateMailboxInput, "accountId">>;

@@ -174,6 +174,18 @@ export interface ImapBodyStructure {
 	childNodes?: ImapBodyStructure[];
 }
 
+/**
+ * One server message from the cheap envelope-only FETCH the UIDVALIDITY
+ * cursor rebuild uses (#1272): UID + Message-ID + INTERNALDATE, nothing
+ * else — no flags, no BODYSTRUCTURE, no body fetch.
+ */
+export interface ImapEnvelopeSnapshot {
+	uid: number;
+	/** Raw RFC 822 Message-ID header; empty string when absent/unparseable. */
+	messageId: string;
+	internalDate: Date;
+}
+
 export interface ImapMessage {
 	uid: number;
 	seq: number;
@@ -213,6 +225,12 @@ export interface IImapConnection {
 	closeBox(expunge?: boolean): Promise<void>;
 	search(criteria: unknown[]): Promise<number[]>;
 	fetchMessages(uids: number[]): Promise<ImapMessage[]>;
+	/**
+	 * Cheap envelope-only pass for the UIDVALIDITY cursor rebuild (#1272): UID
+	 * + Message-ID + INTERNALDATE for every UID, no BODYSTRUCTURE, no flags,
+	 * no body. Requires a mailbox to be open.
+	 */
+	fetchEnvelopeSnapshots(uids: number[]): Promise<ImapEnvelopeSnapshot[]>;
 	fetchMessageBody(uid: number): Promise<Buffer>;
 	/**
 	 * Fetch full message bodies for many UIDs in ONE pipelined ranged UID FETCH.

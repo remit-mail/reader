@@ -1,6 +1,7 @@
 import "typespec-electrodb-emitter";
 
 import "../enums/MailboxAttribute.tsp";
+import "../enums/MailboxCursorState.tsp";
 import "../enums/MailboxSpecialUse.tsp";
 import "../enums/MailboxSyncStatus.tsp";
 import "../enums/MessageFlag.tsp";
@@ -123,6 +124,10 @@ model Mailbox {
   @doc("Sync status for mailbox operations (create, rename, delete)")
   @visibility(Lifecycle.Read)
   syncStatus?: MailboxSyncStatus;
+
+  @doc("Cursor integrity state machine for stored UIDs (epic #1281 invariant 5, issue #1272). Total per RFC 032: defaults to `normal` rather than being absent. A row written before this field existed reads back as `normal` (unset DynamoDB/Postgres attribute deserializes to the schema default).")
+  @visibility(Lifecycle.Read)
+  cursorState: MailboxCursorState = MailboxCursorState.normal;
 
   @doc("Previous path before rename (used during RENAME sync)")
   @visibility(Lifecycle.Read)

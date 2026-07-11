@@ -1,5 +1,6 @@
 import assert from "node:assert";
 import { after, before, describe, test } from "node:test";
+import { MailboxCursorState } from "@remit/domain-enums";
 import { eq } from "drizzle-orm";
 import {
 	accountSettingTable,
@@ -77,6 +78,7 @@ describe("runDrizzleCascadeDelete", () => {
 			lastSyncUid: 0,
 			highWaterMarkUid: 0,
 			lastMessageSyncAt: NOW,
+			cursorState: MailboxCursorState.normal,
 			createdAt: NOW,
 			updatedAt: NOW,
 		});
