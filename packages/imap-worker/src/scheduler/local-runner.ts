@@ -53,7 +53,7 @@ log.info(
 
 const runLoop = async (): Promise<void> => {
 	for (;;) {
-		const { account } = getClient();
+		const { account } = await getClient();
 		await runSchedulerTick({
 			accountService: account,
 			sqsClient,
