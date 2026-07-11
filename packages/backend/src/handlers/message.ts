@@ -24,6 +24,7 @@ import {
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent } from "../auth.js";
+import { deriveAutoMoved } from "../derive/autoMoved.js";
 import {
 	type ContentSigner,
 	getContentSigner,
@@ -341,6 +342,7 @@ export const MessageOperations: Record<
 		const message = description.message[0];
 		const envelope = description.envelope[0];
 
+		const autoMoved = deriveAutoMoved(message);
 		const messageSummary: MessageSummaryResponse = {
 			messageId: message.messageId,
 			mailboxId: message.mailboxId,
@@ -349,6 +351,7 @@ export const MessageOperations: Record<
 			internalDate: message.internalDate,
 			messageIdHeader: message.messageIdHeader,
 			authenticity: message.authenticity,
+			...(autoMoved ? { autoMoved } : {}),
 		};
 
 		// Batch-fetch the resolved Address rows so each EnvelopeAddressResponse can

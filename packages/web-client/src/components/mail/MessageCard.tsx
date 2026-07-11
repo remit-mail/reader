@@ -18,6 +18,7 @@ import { isMessageNotFoundError } from "@/components/ui/error-banners";
 import { toDisplayCategory } from "@/lib/display-category";
 import { formatDatePreset } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { AutoMovedIndicator } from "./AutoMovedIndicator";
 import { MessageActionMenu } from "./MessageActionMenu";
 import { MessageBody } from "./MessageBody";
 import { MobileMessageBar } from "./MobileMessageBar";
@@ -201,6 +202,17 @@ const ExpandedCard = ({
 	const fromAddressId = messageData?.envelope.from[0]?.addressId;
 	const message = toThreadMessageData(threadMessage, date);
 
+	const autoMovedNode = threadMessage.autoMoved ? (
+		<AutoMovedIndicator
+			accountId={accountId}
+			messageId={threadMessage.messageId}
+			threadId={threadMessage.threadId}
+			mailboxId={threadMessage.mailboxId}
+			autoMoved={threadMessage.autoMoved}
+			size="md"
+		/>
+	) : null;
+
 	return (
 		<ExpandedMessage
 			message={message}
@@ -218,29 +230,34 @@ const ExpandedCard = ({
 				) : null
 			}
 			indicators={
-				mobile ? undefined : (
-					<div className="flex items-center gap-1 mt-0.5">
-						<div className="flex items-center justify-end gap-1">
-							<StarButton
-								isStarred={threadMessage.hasStars}
-								onToggleStar={onToggleStar}
-								isStarPending={isStarPending}
-							/>
-							{threadMessage.hasAttachment && (
-								<span className="text-fg-subtle p-0.5">
-									<Paperclip className="size-3.5" />
-								</span>
-							)}
-						</div>
-						{isUnread && (
-							// biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-label on decorative indicator provides useful context for assistive tech
-							<span
-								className="size-1.5 rounded-full bg-accent"
-								aria-label="Unread"
-							/>
+				autoMovedNode || !mobile ? (
+					<div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+						{autoMovedNode}
+						{!mobile && (
+							<>
+								<div className="flex items-center justify-end gap-1">
+									<StarButton
+										isStarred={threadMessage.hasStars}
+										onToggleStar={onToggleStar}
+										isStarPending={isStarPending}
+									/>
+									{threadMessage.hasAttachment && (
+										<span className="text-fg-subtle p-0.5">
+											<Paperclip className="size-3.5" />
+										</span>
+									)}
+								</div>
+								{isUnread && (
+									// biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-label on decorative indicator provides useful context for assistive tech
+									<span
+										className="size-1.5 rounded-full bg-accent"
+										aria-label="Unread"
+									/>
+								)}
+							</>
 						)}
 					</div>
-				)
+				) : undefined
 			}
 			actionMenu={
 				mobile ? undefined : (

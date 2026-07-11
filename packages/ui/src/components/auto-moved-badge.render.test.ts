@@ -1,0 +1,42 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import { createElement } from "react";
+import { renderToString } from "react-dom/server";
+import { AutoMovedBadge } from "./auto-moved-badge.js";
+
+describe("AutoMovedBadge", () => {
+	it("renders the label", () => {
+		const html = renderToString(
+			createElement(AutoMovedBadge, { label: "Moved from Junk by Remit" }),
+		);
+		assert.match(html, /Moved from Junk by Remit/);
+	});
+
+	it("renders no Undo action when onUndo is omitted", () => {
+		const html = renderToString(
+			createElement(AutoMovedBadge, { label: "Moved from Junk by Remit" }),
+		);
+		assert.doesNotMatch(html, /Undo/);
+	});
+
+	it("renders an Undo action when onUndo is provided", () => {
+		const html = renderToString(
+			createElement(AutoMovedBadge, {
+				label: "Moved from Junk by Remit",
+				onUndo: () => undefined,
+			}),
+		);
+		assert.match(html, /Undo/);
+	});
+
+	it("renders a custom undo label", () => {
+		const html = renderToString(
+			createElement(AutoMovedBadge, {
+				label: "Moved from Junk by Remit",
+				onUndo: () => undefined,
+				undoLabel: "Move back to Junk",
+			}),
+		);
+		assert.match(html, /Move back to Junk/);
+	});
+});
