@@ -70,17 +70,28 @@ export function MailListHeader({
 	relatedLoading,
 	onSelectSearchResult,
 }: MailListHeaderProps) {
-	const { searchInput, onSearchChange, onSearchClear } = useMailContext();
+	const {
+		searchInput,
+		onSearchChange,
+		onSearchClear,
+		mailboxNameIndex,
+		accountNameIndex,
+	} = useMailContext();
 	const layout = useAppShellLayout();
 	const tier = useLayoutTier();
 	const [searchOpen, setSearchOpen] = useState(false);
 	const [recentSearches, setRecentSearches] = useState(loadRecentSearches);
 
 	const hasQuery = searchInput.trim().length > 0;
-	// Filter tokens (`from:`, `has:attachment`, …) parsed live from the typed
-	// query render as removable chips above the sections; removing one edits the
-	// query text directly, which re-parses on the next render.
-	const tokenChips = parseSearchTokens(searchInput).tokens.map((token) => ({
+	// Filter tokens (`from:`, `has:attachment`, `in:`, `account:`, …) parsed live
+	// from the typed query render as removable chips above the sections;
+	// removing one edits the query text directly, which re-parses on the next
+	// render. `in:`/`account:` resolve against the shared name indexes so a
+	// chip only appears for a name that actually matches a mailbox/account.
+	const tokenChips = parseSearchTokens(searchInput, {
+		mailboxesByName: mailboxNameIndex,
+		accountsByName: accountNameIndex,
+	}).tokens.map((token) => ({
 		label: searchTokenLabel(token),
 		onRemove: () => onSearchChange(removeSearchToken(searchInput, token)),
 	}));

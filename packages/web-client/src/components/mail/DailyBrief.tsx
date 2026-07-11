@@ -168,7 +168,7 @@ export function DailyBrief({
 	onSelectMessage,
 	onSelectSearchResult,
 }: DailyBriefProps) {
-	const { searchQuery } = useMailContext();
+	const { searchQuery, mailboxNameIndex, accountNameIndex } = useMailContext();
 	const isDesktop = useIsDesktop();
 
 	const nonMuted = useMemo(
@@ -259,14 +259,15 @@ export function DailyBrief({
 
 	const { freeText: sq, tokens: queryTokens } = parseSearchTokens(
 		searchQuery.trim().toLowerCase(),
+		{ mailboxesByName: mailboxNameIndex, accountsByName: accountNameIndex },
 	);
 
 	// Convert API rows to ThreadRowData, narrowing only by the selected account
 	// and the free-text search plus any filter tokens (`from:`, `has:attachment`,
-	// `is:unread`, `before:`/`after:`) parsed out of the query. The category axis
-	// and the attribute chips are the kit `BriefSections` filter row's job, so the
-	// full per-category sections are handed to it; it groups, narrows, and
-	// flattens.
+	// `is:unread`, `before:`/`after:`, `in:`, `account:`) parsed out of the
+	// query. The category axis and the attribute chips are the kit
+	// `BriefSections` filter row's job, so the full per-category sections are
+	// handed to it; it groups, narrows, and flattens.
 	const filteredRows = useMemo<ThreadRowData[]>(() => {
 		const raw = threadsData?.items ?? [];
 		return raw

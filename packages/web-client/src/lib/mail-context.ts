@@ -14,6 +14,14 @@ import { createContext, useContext } from "react";
  */
 export interface MailContextValue {
 	accounts: RemitImapAccountResponse[];
+	/**
+	 * Name indexes `parseSearchTokens` resolves `in:`/`account:` chips against
+	 * (#428 follow-up). Computed once here so every consumer — chip rendering,
+	 * the brief/flagged token filters, `useSemanticSearch` — agrees on the same
+	 * resolution. See `lib/search-token-index.ts`.
+	 */
+	mailboxNameIndex: ReadonlyMap<string, string>;
+	accountNameIndex: ReadonlyMap<string, string>;
 	searchQuery: string;
 	/** Live (pre-debounce) search input — the toolbar's search field binds this. */
 	searchInput: string;
@@ -41,6 +49,8 @@ export const useMailContext = (): MailContextValue => {
 	return (
 		context ?? {
 			accounts: [],
+			mailboxNameIndex: new Map(),
+			accountNameIndex: new Map(),
 			searchQuery: "",
 			searchInput: "",
 			onSearchChange: () => {},

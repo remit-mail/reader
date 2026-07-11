@@ -11,7 +11,7 @@ import {
 	useRouterState,
 	useSearch,
 } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import { AppShellSkeleton } from "@/components/layout/AppShellSkeleton";
 import { ComposeFab } from "@/components/layout/ComposeFab";
@@ -25,10 +25,12 @@ import { KeyboardShortcutsModal } from "@/components/ui/KeyboardShortcutsModal";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { isSinglePaneTier, useLayoutTier } from "@/hooks/useLayoutTier";
+import { useMailboxNameIndex } from "@/hooks/useMailboxNameIndex";
 import { useStaleAccountSync } from "@/hooks/useStaleAccountSync";
 import { writeIntelligencePref } from "@/lib/intelligence-pref";
 import { MailContext } from "@/lib/mail-context";
 import { isBriefRoute, isFlaggedRoute, isOutboxRoute } from "@/lib/mail-route";
+import { buildAccountNameIndex } from "@/lib/search-token-index";
 import "@/lib/client";
 
 // `MailContext` / `useMailContext` live in `@/lib/mail-context` so the provider
@@ -188,6 +190,11 @@ function MailLayout() {
 	}, []);
 
 	const accounts = config?.accounts ?? [];
+	const mailboxNameIndex = useMailboxNameIndex(accounts);
+	const accountNameIndex = useMemo(
+		() => buildAccountNameIndex(accounts),
+		[accounts],
+	);
 
 	// Read the current mailbox params and selected message (if any) from the
 	// child route so the parent shell can mount the right pane (brief / mailbox /
@@ -240,6 +247,8 @@ function MailLayout() {
 
 	const mailContextValue = {
 		accounts,
+		mailboxNameIndex,
+		accountNameIndex,
 		// Debounced local value is the source of truth for search; it is
 		// mirrored to the URL one-directionally for shareable links.
 		searchQuery: debouncedSearchInput,

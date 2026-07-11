@@ -44,7 +44,7 @@ export function FlaggedList({
 	selectedMessageId,
 	onSelectMessage,
 }: FlaggedListProps) {
-	const { searchQuery } = useMailContext();
+	const { searchQuery, mailboxNameIndex, accountNameIndex } = useMailContext();
 	const isDesktop = useIsDesktop();
 
 	const [selectedCategory, setSelectedCategory] = useState("all");
@@ -79,6 +79,7 @@ export function FlaggedList({
 
 	const { freeText: sq, tokens: queryTokens } = parseSearchTokens(
 		searchQuery.trim().toLowerCase(),
+		{ mailboxesByName: mailboxNameIndex, accountsByName: accountNameIndex },
 	);
 
 	const rows = useMemo<ThreadRowData[]>(() => {
