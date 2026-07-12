@@ -1,12 +1,16 @@
 import { getClient } from "@remit/backend/client";
 import {
+	FilterAnchorService,
+	FilterService,
 	getClient as getRawDynamoClient,
+	MessageLabelService,
 	MessagePlacementMoveService,
 } from "@remit/remit-electrodb-service";
 import type { Logger } from "@remit/logger-lambda";
 import { MetricUnit, metrics } from "@remit/logger-lambda";
 import {
 	BodySyncService,
+	type FilterConfig,
 	guardConnectionCursor,
 	isCursorRebuildNeeded,
 	MailboxCursorPausedError,
@@ -35,6 +39,19 @@ const markerService = new MessagePlacementMoveService({
 	client: getRawDynamoClient(),
 	table: env.DYNAMODB_TABLE_NAME,
 });
+
+// Index-time filter services (RFC 034). Instantiated directly here for the same
+// reason as `markerService` — filter matching is DynamoDB-specific and not part
+// of the generic `getClient()` port bundle. No embedder is wired yet, so only
+// literal-clause filters evaluate; semantic-anchor filters wait on the
+// FilterAnchor write path and an embedder (separate tickets).
+const filterServiceConfig = {
+	client: getRawDynamoClient(),
+	table: env.DYNAMODB_TABLE_NAME,
+};
+const filterService = new FilterService(filterServiceConfig);
+const filterAnchorService = new FilterAnchorService(filterServiceConfig);
+const messageLabelService = new MessageLabelService(filterServiceConfig);
 
 /**
  * Fallback when `BODY_SYNC_MAX_ATTEMPTS` is unset (local dev, unit tests).
@@ -221,6 +238,19 @@ export const syncMessageBody = async (
 					}
 				: undefined;
 
+			// A matched filter's actions (label upsert, exclusive move) apply on
+			// the same body-sync pass, reusing the placement mover for the move
+			// (RFC 034 Decision 3.1). Absent the placement mover there is no move
+			// path, so filters stay off — the two share the same enqueue plumbing.
+			const filterConfig: FilterConfig | undefined = placementMoveService
+				? {
+						filterService,
+						filterAnchorService,
+						messageLabelService,
+						placementMoveService,
+					}
+				: undefined;
+
 			const bodySyncService = new BodySyncService(
 				messageService,
 				storage,
@@ -229,6 +259,7 @@ export const syncMessageBody = async (
 				envelopeService,
 				log,
 				placementConfig,
+				filterConfig,
 			);
 
 			// Guard at the openBox choke point (epic #1281 invariants 3 & 5). The

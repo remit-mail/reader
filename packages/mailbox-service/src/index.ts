@@ -55,6 +55,23 @@ export {
 	testSmtpConnection,
 } from "./connection-test.js";
 export {
+	buildMatchText,
+	clauseMatches,
+	cosineSimilarity,
+	DEFAULT_SEMANTIC_MATCH_THRESHOLD,
+	type FilterMessage,
+	literalClausesMatch,
+	NO_ACTION,
+	selectMoveWinner,
+} from "./filters/match.js";
+export {
+	type FilterConfig,
+	type FilterDecision,
+	type FilterLogger,
+	FilterPipeline,
+	type MessageEmbedder,
+} from "./filters/pipeline.js";
+export {
 	type FlagPushConfig,
 	type FlagPushEvent,
 	type FlagPushLogger,
