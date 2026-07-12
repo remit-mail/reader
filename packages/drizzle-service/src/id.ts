@@ -14,6 +14,12 @@ export const randomId = (): string => base36.generate();
 export const generateDeterministicId = (name: string): string =>
 	uuidv5(name, REMIT_NAMESPACE);
 
+// Deterministic base36-encoded UUIDv5, byte-identical to the electrodb
+// adapter's `base36uuidv5` so a `MessageLabel` derived from the same
+// (messageId, labelId) keys the same row on either backend.
+export const deterministicBase36Id = (name: string): string =>
+	base36.fromUUID(uuidv5(name, REMIT_NAMESPACE));
+
 export const bodyPartId = (messageId: string, partPath: string): string =>
 	generateDeterministicId(`${messageId}:${partPath}`);
 
