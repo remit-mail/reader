@@ -6,5 +6,6 @@ export interface IFilterAnchorRepository {
 		accountConfigId: string,
 		filterId: string,
 	): Promise<FilterAnchorItem | null>;
+	listByAccountConfig(accountConfigId: string): Promise<FilterAnchorItem[]>;
 	delete(accountConfigId: string, filterId: string): Promise<void>;
 }

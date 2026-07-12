@@ -57,6 +57,14 @@ const createIndexesSql = (table: string): string[] => [
 
 const toVectorLiteral = (vector: number[]): string => `[${vector.join(",")}]`;
 
+// pgvector renders a `vector` column as `[1,2,3]`; parse it back to a number[]
+// for the anchor pooling read path (getByMessage).
+const parseVectorLiteral = (literal: string): number[] => {
+	const inner = literal.trim().replace(/^\[/, "").replace(/\]$/, "");
+	if (inner.length === 0) return [];
+	return inner.split(",").map((n) => Number(n));
+};
+
 interface WhereClause {
 	sql: string;
 	params: unknown[];
@@ -255,6 +263,24 @@ export const createPgVectorStore = (
 		return out;
 	};
 
+	const getByMessage = async (messageId: string): Promise<VectorRecord[]> => {
+		const pool = await getPool();
+		const result = await pool.query<{
+			chunk_id: string;
+			embedding: string;
+			metadata: ChunkMetadata;
+		}>(
+			`SELECT chunk_id, embedding::text AS embedding, metadata
+			 FROM ${table} WHERE message_id = $1`,
+			[messageId],
+		);
+		return result.rows.map((row) => ({
+			chunkId: row.chunk_id,
+			vector: parseVectorLiteral(row.embedding),
+			metadata: row.metadata,
+		}));
+	};
+
 	const del = async (filter: { messageId: string }): Promise<void> => {
 		const pool = await getPool();
 		await pool.query(`DELETE FROM ${table} WHERE message_id = $1`, [
@@ -269,5 +295,12 @@ export const createPgVectorStore = (
 		await pool.end();
 	};
 
-	return { upsert, query, existingContentHashes, delete: del, close };
+	return {
+		upsert,
+		query,
+		existingContentHashes,
+		getByMessage,
+		delete: del,
+		close,
+	};
 };
