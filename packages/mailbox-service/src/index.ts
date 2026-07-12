@@ -151,6 +151,19 @@ export {
 	type UpdateDraftInput,
 } from "./outbox-queue.js";
 export {
+	type PlacementMoveConfig,
+	type PlacementMoveLogger,
+	type PlacementMovePushEvent,
+	PlacementMoveService,
+} from "./placement-move.js";
+export {
+	type PlacementMoveTerminalOutcome,
+	type ResolveExhaustedPlacementMoveDeps,
+	type ResolveExhaustedPlacementMoveInput,
+	type ResolveExhaustedPlacementMoveResult,
+	resolveExhaustedPlacementMoveFailure,
+} from "./placement-move-terminal.js";
+export {
 	extractSnippetFromEmail,
 	generateSnippet,
 	normalizeSubject,

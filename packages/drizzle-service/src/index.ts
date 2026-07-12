@@ -15,6 +15,11 @@ export * from "./repos/i4-address.js";
 export * from "./repos/i4-mailbox.js";
 export * from "./repos/i4-mailbox-lock.js";
 export * from "./repos/i4-mailbox-special-use.js";
+export {
+	type MessagePlacementMoveItem,
+	MessagePlacementMoveRepo,
+	type PutMessagePlacementMoveInput,
+} from "./repos/i4-message-placement-move.js";
 export * from "./repos/i4-outbox-message.js";
 export {
 	DrizzleMessageRepository,
@@ -30,6 +35,7 @@ export * from "./schema/i4-account-setting.js";
 export * from "./schema/i4-address.js";
 export * from "./schema/i4-mailbox.js";
 export * from "./schema/i4-mailbox-lock.js";
+export * from "./schema/i4-message-placement-move.js";
 export * from "./schema/i4-outbox-message.js";
 export * from "./schema/message-data.js";
 export { messageDataSchema } from "./schema/message-data.js";

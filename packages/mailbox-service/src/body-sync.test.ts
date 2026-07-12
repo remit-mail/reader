@@ -26,7 +26,7 @@ import type {
 	StoreParsedBodyParams,
 } from "@remit/storage-service";
 import { type BodySyncLogger, BodySyncService } from "./body-sync.js";
-import type { MessageMoveService } from "./message-move.js";
+import type { PlacementMoveService } from "./placement-move.js";
 import { type IImapConnection, MailConnectionError } from "./types.js";
 
 const A_RAW_EML = Buffer.from(
@@ -1300,17 +1300,17 @@ describe("BodySyncService.syncBodies (junk rescue isolation)", () => {
 			}),
 		} as unknown as MailboxSpecialUseService;
 
-		const messageMoveService = {
+		const placementMoveService = {
 			moveMessage:
 				opts.moveImpl ??
 				(async (_accountConfigId: string, messageId: string) => {
 					opts.moveCalls.push(messageId);
 				}),
-		} as unknown as MessageMoveService;
+		} as unknown as PlacementMoveService;
 
 		return {
 			mailboxSpecialUseService,
-			messageMoveService,
+			placementMoveService,
 		};
 	};
 
@@ -1379,13 +1379,20 @@ describe("BodySyncService.syncBodies (junk rescue isolation)", () => {
 		assert.ok(movedFlag, "expected movedByRemit=true update");
 	});
 
-	it("does NOT fail body-sync when the rescue throws — body cache still stored and message stays synced", async () => {
+	it("propagates a placement-move failure instead of swallowing it (issue #1271) — the message is requeued, never marked synced with a broken promise", async () => {
+		// Before #1271: a failed move was caught, logged as a warning, and the
+		// message was still reported synced — with `movedByRemit` already
+		// durable and no record the move ever reached IMAP. The fix moves the
+		// (now unswallowed) move call BEFORE `bodyStorageKey` is written, so a
+		// throw here means bodyStorageKey never lands and the requeue
+		// reprocesses the message from scratch (marker included) instead of
+		// tripping the skip guard on a half-applied move.
 		const fake = buildFakeState({
 			messageId: "msg-rescue-throw",
 			messageOverrides: rescueableMessageOverrides,
 		});
 		const addressService = buildAddressServiceWithTrust(fake, SenderTrust.Vip);
-		const { logger, warnings } = captureLogger();
+		const { logger } = captureLogger();
 		const service = new BodySyncService(
 			fake.messageService,
 			fake.storageService,
@@ -1409,19 +1416,23 @@ describe("BodySyncService.syncBodies (junk rescue isolation)", () => {
 			async () => buildFakeConnection(),
 		);
 
-		// The message still syncs — so the handler enqueues a search-index
-		// upsert for it (syncedMessageIds drives that enqueue) and the inbox
-		// populates regardless of the rescue blowing up.
-		assert.equal(result.syncedCount, 1);
-		assert.equal(result.failedCount, 0);
-		assert.deepEqual(result.syncedMessageIds, ["msg-rescue-throw"]);
-		// Critical-path side effects completed despite the rescue throwing.
-		assert.equal(fake.storedBodies.length, 1, "body.eml stored");
-		assert.equal(fake.storedParsed.length, 1, "parsed-body cache stored");
-		// The failure was swallowed and logged, not propagated.
-		assert.ok(
-			warnings.some((w) => w.msg.includes("Placement move failed")),
-			"expected a best-effort placement-move failure warning",
+		// The message is NOT reported synced — it lands in failedMessageIds so
+		// the caller (syncMessageBody, #1283 pattern) lets SQS redeliver it.
+		assert.equal(result.syncedCount, 0);
+		assert.equal(result.failedCount, 1);
+		assert.deepEqual(result.failedMessageIds, ["msg-rescue-throw"]);
+		assert.deepEqual(result.syncedMessageIds, []);
+		// The body upload itself (the tee to S3) still ran — only the DB row
+		// (bodyStorageKey, movedByRemit) was never written, so a retry safely
+		// redoes the whole message rather than skipping it.
+		assert.equal(fake.storedBodies.length, 1, "body.eml stream was uploaded");
+		const updates = fake.updatedKeys.filter(
+			(u) => u.messageId === "msg-rescue-throw",
+		);
+		assert.equal(
+			updates.length,
+			0,
+			"no Message row update — bodyStorageKey/movedByRemit never went durable",
 		);
 	});
 
@@ -1514,7 +1525,7 @@ describe("BodySyncService.syncBodies (junk rescue isolation)", () => {
 			}),
 		} as unknown as MailboxSpecialUseService;
 
-		const messageMoveService = {
+		const placementMoveService = {
 			moveMessage: async (
 				_accountConfigId: string,
 				messageId: string,
@@ -1522,11 +1533,11 @@ describe("BodySyncService.syncBodies (junk rescue isolation)", () => {
 			) => {
 				opts.moveCalls.push(`${messageId}->${destinationMailboxId}`);
 			},
-		} as unknown as MessageMoveService;
+		} as unknown as PlacementMoveService;
 
 		return {
 			mailboxSpecialUseService,
-			messageMoveService,
+			placementMoveService,
 		};
 	};
 
@@ -1853,11 +1864,11 @@ describe("BodySyncService.syncBodies (junk rescue isolation)", () => {
 			}),
 		} as unknown as MailboxSpecialUseService;
 		const moveCalls: string[] = [];
-		const messageMoveService = {
+		const placementMoveService = {
 			moveMessage: async (_accountConfigId: string, messageId: string) => {
 				moveCalls.push(messageId);
 			},
-		} as unknown as MessageMoveService;
+		} as unknown as PlacementMoveService;
 
 		const service = new BodySyncService(
 			fake.messageService,
@@ -1868,7 +1879,7 @@ describe("BodySyncService.syncBodies (junk rescue isolation)", () => {
 			logger,
 			{
 				mailboxSpecialUseService: failingMailboxSpecialUseService,
-				messageMoveService,
+				placementMoveService,
 			},
 		);
 
@@ -2493,11 +2504,11 @@ describe("BodySyncService.syncBodies (single consolidated Message write, #607)",
 			}),
 		} as unknown as MailboxSpecialUseService;
 		const moveCalls: string[] = [];
-		const messageMoveService = {
+		const placementMoveService = {
 			moveMessage: async (_accountConfigId: string, messageId: string) => {
 				moveCalls.push(messageId);
 			},
-		} as unknown as MessageMoveService;
+		} as unknown as PlacementMoveService;
 
 		const service = new BodySyncService(
 			fake.messageService,
@@ -2506,7 +2517,7 @@ describe("BodySyncService.syncBodies (single consolidated Message write, #607)",
 			addressService,
 			fake.envelopeService,
 			undefined,
-			{ mailboxSpecialUseService, messageMoveService },
+			{ mailboxSpecialUseService, placementMoveService },
 		);
 
 		const result = await service.syncBodies(
@@ -2605,6 +2616,111 @@ describe("BodySyncService.fetchAndGetBody (storage retrieval error handling)", (
 	});
 });
 
+describe("BodySyncService — unified post-store step across both body paths (#1271)", () => {
+	// Before #1271, fetchAndGetBody's needsStore branch stored the body and
+	// snippet but skipped classification/placement entirely — a message got
+	// different treatment depending on which path fetched it first. Both paths
+	// now call the same applyPostStoreSteps.
+
+	it("fetchAndGetBody classifies the message on first fetch, same as storeStreamedBody", async () => {
+		const fake = buildFakeState({
+			messageId: "msg-read-path",
+			rawEml: NEWSLETTER_EML,
+		});
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			fake.addressService,
+			fake.envelopeService,
+		);
+
+		await service.fetchAndGetBody(
+			"msg-read-path",
+			"acc-1",
+			"acc-cfg-1",
+			"INBOX",
+			async () => buildFakeConnection(NEWSLETTER_EML),
+		);
+
+		const update = fake.updatedKeys.find(
+			(u) => u.messageId === "msg-read-path",
+		);
+		assert.ok(update, "expected a Message update from the read-path backfill");
+		assert.equal(
+			update?.category,
+			MessageCategory.newsletter,
+			"category classified on the read path, not left uncategorized",
+		);
+		assert.equal(fake.storedParsed.length, 1, "parsed-body cache also stored");
+	});
+
+	it("fetchAndGetBody applies a confident placement move, same as storeStreamedBody", async () => {
+		const fake = buildFakeState({
+			messageId: "msg-read-rescue",
+			messageOverrides: {
+				mailboxId: "junk-mbx",
+				movedByRemit: false,
+				providerSpam: { classified: true },
+				authResult: { dmarc: "Pass" },
+			},
+		});
+		const addressService = {
+			incrementInboundCount: async () => {},
+			getAddress: async () => ({
+				flags: { vip: { value: true }, wellknown: { value: false } },
+			}),
+		} as unknown as AddressService;
+		const mailboxSpecialUseService = {
+			findBySpecialUse: async (
+				_accountId: string,
+				specialUse: (typeof MailboxSpecialUse)[keyof typeof MailboxSpecialUse],
+			) =>
+				specialUse === MailboxSpecialUse.Junk
+					? { mailboxId: "junk-mbx", fullPath: "Junk" }
+					: null,
+			findInboxMailbox: async () => ({
+				mailboxId: "inbox-mbx",
+				fullPath: "INBOX",
+			}),
+		} as unknown as MailboxSpecialUseService;
+		const moveCalls: string[] = [];
+		const placementMoveService = {
+			moveMessage: async (_accountConfigId: string, messageId: string) => {
+				moveCalls.push(messageId);
+			},
+		} as unknown as PlacementMoveService;
+
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			addressService,
+			fake.envelopeService,
+			undefined,
+			{ mailboxSpecialUseService, placementMoveService },
+		);
+
+		await service.fetchAndGetBody(
+			"msg-read-rescue",
+			"acc-1",
+			"acc-cfg-1",
+			"Junk",
+			async () => buildFakeConnection(),
+		);
+
+		assert.deepEqual(
+			moveCalls,
+			["msg-read-rescue"],
+			"the read-path backfill triggers the same rescue as bulk sync",
+		);
+		const update = fake.updatedKeys.find(
+			(u) => u.messageId === "msg-read-rescue",
+		);
+		assert.equal(update?.movedByRemit, true);
+	});
+});
+
 describe("BodySyncService.deriveSenderTrust (error propagation via rescue)", () => {
 	// deriveSenderTrust is private; exercise it through the placement path, which
 	// calls it from resolvePlacement. A missing Address must degrade to "no move"
@@ -2634,10 +2750,10 @@ describe("BodySyncService.deriveSenderTrust (error propagation via rescue)", () 
 				fullPath: "INBOX",
 			}),
 		} as unknown as MailboxSpecialUseService;
-		const messageMoveService = {
+		const placementMoveService = {
 			moveMessage: async () => {},
-		} as unknown as MessageMoveService;
-		return { mailboxSpecialUseService, messageMoveService };
+		} as unknown as PlacementMoveService;
+		return { mailboxSpecialUseService, placementMoveService };
 	};
 
 	const captureWarnings = () => {

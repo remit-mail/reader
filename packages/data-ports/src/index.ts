@@ -13,6 +13,7 @@ export type { IMailboxSpecialUseRepository } from "./interfaces/mailbox-special-
 export type { IMessageRepository } from "./interfaces/message.js";
 export type { IMessageFlagRepository } from "./interfaces/message-flag.js";
 export type { IMessageLabelRepository } from "./interfaces/message-label.js";
+export type { IMessagePlacementMoveRepository } from "./interfaces/message-placement-move.js";
 export type { IOutboxMessageRepository } from "./interfaces/outbox-message.js";
 export type { IThreadMessageRepository } from "./interfaces/thread-message.js";
 export type {
@@ -69,8 +70,10 @@ export type {
 	MessageIdSource,
 	MessageItem,
 	MessageLabelItem,
+	MessagePlacementMoveItem,
 	MessageReferenceItem,
 	OutboxMessageItem,
+	PutMessagePlacementMoveInput,
 	RawMessageStorageItem,
 	ResultList,
 	SearchOptions,
