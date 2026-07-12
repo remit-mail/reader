@@ -188,6 +188,133 @@ describe("S3VectorsBackend.existingContentHashes (GetVectors by key, no scan)", 
 	});
 });
 
+describe("S3VectorsBackend.getByMessage (GetVectors by deterministic key, no scan)", () => {
+	let s3vMock: AwsClientStub<S3VectorsClient>;
+
+	beforeEach(() => {
+		s3vMock = mockClient(S3VectorsClient);
+	});
+
+	afterEach(() => {
+		s3vMock.restore();
+	});
+
+	const meta = (chunkType: string): Record<string, unknown> => ({
+		messageId: MESSAGE_ID,
+		threadId: "thread-1",
+		accountConfigId: "acct-1",
+		mailboxIds: ["mb-inbox"],
+		chunkType,
+		sentDate: 1_700_000_000,
+		isRead: false,
+		hasAttachment: false,
+		hasStars: false,
+	});
+
+	it("returns each stored chunk's vector and metadata, addressed by candidate key", async () => {
+		const stored = new Map<
+			string,
+			{ data: { float32: number[] }; metadata: Record<string, unknown> }
+		>([
+			[
+				`${MESSAGE_ID}::subject`,
+				{ data: { float32: [1, 0, 0] }, metadata: meta("subject") },
+			],
+			[
+				`${MESSAGE_ID}::body-0`,
+				{ data: { float32: [0, 1, 0] }, metadata: meta("body") },
+			],
+		]);
+		s3vMock.on(GetVectorsCommand).callsFake((input) => {
+			const keys = (input.keys ?? []) as string[];
+			return {
+				vectors: keys
+					.filter((k) => stored.has(k))
+					.map((k) => ({ key: k, ...stored.get(k) })),
+			};
+		});
+
+		const records = await buildBackend().getByMessage(MESSAGE_ID);
+
+		const byId = new Map(records.map((r) => [r.chunkId, r]));
+		assert.equal(records.length, 2);
+		assert.deepEqual(byId.get(`${MESSAGE_ID}::subject`)?.vector, [1, 0, 0]);
+		assert.deepEqual(byId.get(`${MESSAGE_ID}::body-0`)?.vector, [0, 1, 0]);
+		assert.equal(byId.get(`${MESSAGE_ID}::body-0`)?.metadata.chunkType, "body");
+		assert.equal(
+			byId.get(`${MESSAGE_ID}::subject`)?.metadata.messageId,
+			MESSAGE_ID,
+		);
+	});
+
+	it("requests vector data and metadata, addressing vectors by candidate key", async () => {
+		s3vMock.on(GetVectorsCommand).resolves({ vectors: [] });
+
+		await buildBackend().getByMessage(MESSAGE_ID);
+
+		const calls = s3vMock.commandCalls(GetVectorsCommand);
+		assert.ok(calls.length >= 1);
+		const input = calls[0].args[0].input;
+		assert.equal(input.returnData, true, "must pull vector data");
+		assert.equal(input.returnMetadata, true);
+		for (const key of input.keys ?? []) {
+			assert.ok(
+				(key as string).startsWith(`${MESSAGE_ID}::`),
+				`every requested key must belong to the message, got ${key}`,
+			);
+		}
+	});
+
+	it("reads exactly the candidate key set, batched under the AWS 100-keys-per-call cap", async () => {
+		s3vMock.on(GetVectorsCommand).resolves({ vectors: [] });
+
+		await buildBackend().getByMessage(MESSAGE_ID);
+
+		const calls = s3vMock.commandCalls(GetVectorsCommand);
+		let total = 0;
+		for (const call of calls) {
+			const keys = call.args[0].input.keys ?? [];
+			assert.ok(keys.length <= 100, "no call exceeds the AWS 100/call cap");
+			total += keys.length;
+		}
+		assert.equal(
+			total,
+			candidateChunkKeys(MESSAGE_ID).length,
+			"reads the message's full candidate key set, no more",
+		);
+	});
+
+	it("never issues a ListVectors call (no index-wide scan)", async () => {
+		s3vMock.on(GetVectorsCommand).resolves({ vectors: [] });
+
+		await buildBackend().getByMessage(MESSAGE_ID);
+
+		assert.equal(
+			s3vMock.commandCalls(ListVectorsCommand).length,
+			0,
+			"the anchor-pooling read must address keys, never list the index",
+		);
+	});
+
+	it("skips a stored vector that carries metadata but no float32 data", async () => {
+		s3vMock.on(GetVectorsCommand).callsFake((input) => {
+			const keys = (input.keys ?? []) as string[];
+			if (keys.includes(`${MESSAGE_ID}::subject`)) {
+				return {
+					vectors: [
+						{ key: `${MESSAGE_ID}::subject`, metadata: meta("subject") },
+					],
+				};
+			}
+			return { vectors: [] };
+		});
+
+		const records = await buildBackend().getByMessage(MESSAGE_ID);
+
+		assert.equal(records.length, 0, "a vector with no data is not returned");
+	});
+});
+
 describe("S3VectorsBackend.query topK guard", () => {
 	let s3vMock: AwsClientStub<S3VectorsClient>;
 

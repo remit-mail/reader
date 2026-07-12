@@ -139,9 +139,32 @@ export class FilterPipeline {
 			// evaluation, independent of whether the TTL delete has run.
 			const usable = await this.config.filterService.refreshExpiry(filter);
 			if (usable.state !== FilterState.Active) continue;
-			if (await this.filterMatches(accountConfigId, usable, msg, embed)) {
-				matched.push(usable);
-			}
+			// A bad or stale anchor vector (a dimension mismatch under a changed
+			// embedding model) throws from cosineSimilarity. Isolate it to this
+			// filter: it is skipped and loudly logged, and every other filter on
+			// the message still evaluates and applies. This sits inside the
+			// evaluate-level catch — a whole-phase failure still degrades to no
+			// filter actions — but stops one poisoned anchor from doing so.
+			const isMatch = await this.filterMatches(
+				accountConfigId,
+				usable,
+				msg,
+				embed,
+			).catch((error: unknown) => {
+				this.log.error?.(
+					{
+						alert: "filter_anchor_match_failed",
+						filterId: usable.filterId,
+						accountConfigId,
+						errorName: (error as { name?: string })?.name,
+						error: inspect(error),
+					},
+					"Filter anchor comparison failed; skipping this filter, other filters still evaluate (bad/stale anchor vector, non-fatal)",
+				);
+				return "skip" as const;
+			});
+			if (isMatch === "skip") continue;
+			if (isMatch) matched.push(usable);
 		}
 		if (matched.length === 0) return EMPTY_DECISION;
 
