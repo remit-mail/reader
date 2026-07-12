@@ -7,11 +7,15 @@ import type {
 	IAccountSettingRepository,
 	IAddressRepository,
 	IEnvelopeRepository,
+	IFilterAnchorRepository,
+	IFilterRepository,
+	ILabelRepository,
 	IMailboxLockRepository,
 	IMailboxRepository,
 	IMailboxSpecialUseRepository,
 	IMessageFlagPushRepository,
 	IMessageFlagRepository,
+	IMessageLabelRepository,
 	IMessagePlacementMoveRepository,
 	IMessageRepository,
 	IOutboxMessageRepository,
@@ -25,11 +29,15 @@ import {
 	AccountSettingService,
 	AddressService,
 	EnvelopeService,
+	FilterAnchorService,
+	FilterService,
+	LabelService,
 	MailboxLockService,
 	MailboxService,
 	MailboxSpecialUseService,
 	MessageFlagPushService,
 	MessageFlagService,
+	MessageLabelService,
 	MessagePlacementMoveService,
 	MessageService,
 	OutboxMessageService,
@@ -129,6 +137,17 @@ export interface RemitClient {
 	threadMessage: IThreadMessageRepository;
 	envelope: IEnvelopeRepository;
 	accountExportRequest: IAccountExportRequestRepository;
+
+	// Smart Organize (RFC 034, epic #1280). Present on both backends
+	// (`FilterService`/`LabelService`/… on DynamoDB, `FilterRepo`/`LabelRepo`/…
+	// on Postgres) so the matching pipeline and filter CRUD run unchanged on
+	// either. The Postgres side has no TTL reaper for expired Temporary filters;
+	// match-time correctness gates on `expiresAt` (RFC 034 Decision 1.1), never
+	// on the row still existing, so the missing reaper is housekeeping only.
+	filter: IFilterRepository;
+	filterAnchor: IFilterAnchorRepository;
+	label: ILabelRepository;
+	messageLabel: IMessageLabelRepository;
 
 	// Atomic write set for a message save. Present on Postgres (real
 	// transaction); absent on DynamoDB, where callers fall back to per-repo
@@ -272,6 +291,10 @@ const buildDynamoDBClient = (): RemitClient => {
 	const accountExportRequestService = new AccountExportRequestService(config);
 	const placementMoveService = new MessagePlacementMoveService(config);
 	const flagPushMarkerService = new MessageFlagPushService(config);
+	const filterService = new FilterService(config);
+	const filterAnchorService = new FilterAnchorService(config);
+	const labelService = new LabelService(config);
+	const messageLabelService = new MessageLabelService(config);
 
 	const sqsQueueUrl = env.SQS_QUEUE_URL;
 	const sqsSmtpQueueUrl = process.env.SQS_QUEUE_URL_SMTP ?? sqsQueueUrl;
@@ -308,6 +331,10 @@ const buildDynamoDBClient = (): RemitClient => {
 		threadMessage: threadMessageService,
 		envelope: envelopeService,
 		accountExportRequest: accountExportRequestService,
+		filter: filterService,
+		filterAnchor: filterAnchorService,
+		label: labelService,
+		messageLabel: messageLabelService,
 
 		storage: storageService,
 		search: searchService,
@@ -376,11 +403,15 @@ const buildPostgresClient = async (): Promise<RemitClient> => {
 		DrizzleMessageRepository,
 		DrizzleThreadMessageRepository,
 		DrizzleUnitOfWork,
+		FilterAnchorRepo,
+		FilterRepo,
+		LabelRepo,
 		MailboxLockRepo,
 		MailboxRepo,
 		MailboxSpecialUseRepo,
 		MessageFlagPushRepo,
 		messageDataSchema,
+		MessageLabelRepo,
 		MessagePlacementMoveRepo,
 		OutboxMessageRepo,
 	} = await import("@remit/drizzle-service");
@@ -403,6 +434,10 @@ const buildPostgresClient = async (): Promise<RemitClient> => {
 	const accountExportRequestService = new AccountExportRequestRepo(genericDb);
 	const placementMoveService = new MessagePlacementMoveRepo(genericDb);
 	const flagPushMarkerService = new MessageFlagPushRepo(genericDb);
+	const filterService = new FilterRepo(genericDb);
+	const filterAnchorService = new FilterAnchorRepo(genericDb);
+	const labelService = new LabelRepo(genericDb);
+	const messageLabelService = new MessageLabelRepo(genericDb);
 
 	const messageDataDb = db as unknown as NodePgDatabase<
 		typeof messageDataSchema
@@ -452,6 +487,10 @@ const buildPostgresClient = async (): Promise<RemitClient> => {
 		threadMessage: threadMessageService,
 		envelope: envelopeService,
 		accountExportRequest: accountExportRequestService,
+		filter: filterService,
+		filterAnchor: filterAnchorService,
+		label: labelService,
+		messageLabel: messageLabelService,
 		unitOfWork,
 
 		storage: storageService,

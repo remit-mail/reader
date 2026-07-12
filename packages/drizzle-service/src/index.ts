@@ -7,6 +7,8 @@ export {
 	runDrizzleCascadeDelete,
 } from "./repos/cascade-delete.js";
 export { DrizzleEnvelopeRepository } from "./repos/envelope.js";
+export { FilterRepo } from "./repos/filter.js";
+export { FilterAnchorRepo } from "./repos/filter-anchor.js";
 export * from "./repos/i4-account.js";
 export * from "./repos/i4-account-config.js";
 export * from "./repos/i4-account-export-request.js";
@@ -28,12 +30,14 @@ export {
 	type PutMessagePlacementMoveInput,
 } from "./repos/i4-message-placement-move.js";
 export * from "./repos/i4-outbox-message.js";
+export { LabelRepo } from "./repos/label.js";
 export {
 	DrizzleMessageRepository,
 	deleteMessageSubtree,
 	MESSAGE_REMOVED_EVENT,
 } from "./repos/message.js";
 export { DrizzleMessageFlagRepository } from "./repos/message-flag.js";
+export { MessageLabelRepo } from "./repos/message-label.js";
 export { DrizzleThreadMessageRepository } from "./repos/thread-message.js";
 export { DrizzleUnitOfWork } from "./repos/unit-of-work.js";
 export * from "./schema/i4-account-config.js";
