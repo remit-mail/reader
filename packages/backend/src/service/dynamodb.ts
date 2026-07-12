@@ -10,6 +10,7 @@ import type {
 	IMailboxLockRepository,
 	IMailboxRepository,
 	IMailboxSpecialUseRepository,
+	IMessageFlagPushRepository,
 	IMessageFlagRepository,
 	IMessagePlacementMoveRepository,
 	IMessageRepository,
@@ -27,6 +28,7 @@ import {
 	MailboxLockService,
 	MailboxService,
 	MailboxSpecialUseService,
+	MessageFlagPushService,
 	MessageFlagService,
 	MessagePlacementMoveService,
 	MessageService,
@@ -38,6 +40,7 @@ import {
 	BodySyncQueueService,
 	BodySyncService,
 	createConnection,
+	FlagPushService,
 	FlagQueueService,
 	type IImapConnection,
 	MailboxQueueService,
@@ -162,6 +165,15 @@ export interface RemitClient {
 	// only one (no separate "field absent" gap on top of it).
 	placementMove: IMessagePlacementMoveRepository;
 
+	// Pending flag-push markers (issue #1273). Present on both backends
+	// (`MessageFlagPushService` on DynamoDB, `MessageFlagPushRepo` on
+	// Postgres). Used for read-time unseenCount prediction (epic #1281
+	// invariant 4), by the account-worker cascade delete, and by the periodic
+	// per-mailbox sync tick to re-arm a marker stuck `pending`. Unlike
+	// `placementMove`, this one IS written on both backends — `flagQueue`
+	// below writes through it regardless of `DATA_BACKEND`.
+	flagPush: IMessageFlagPushRepository;
+
 	// Queue services (writes with IMAP sync)
 	flagQueue: FlagQueueService;
 	mailboxQueue: MailboxQueueService;
@@ -259,6 +271,7 @@ const buildDynamoDBClient = (): RemitClient => {
 	const outboxMessageService = new OutboxMessageService(config);
 	const accountExportRequestService = new AccountExportRequestService(config);
 	const placementMoveService = new MessagePlacementMoveService(config);
+	const flagPushMarkerService = new MessageFlagPushService(config);
 
 	const sqsQueueUrl = env.SQS_QUEUE_URL;
 	const sqsSmtpQueueUrl = process.env.SQS_QUEUE_URL_SMTP ?? sqsQueueUrl;
@@ -274,6 +287,12 @@ const buildDynamoDBClient = (): RemitClient => {
 		envelopeService,
 		logger,
 	);
+
+	const flagPushService = new FlagPushService({
+		markerService: flagPushMarkerService,
+		sqsQueueUrl,
+		logger,
+	});
 
 	return {
 		accountConfig: accountConfigService,
@@ -297,13 +316,13 @@ const buildDynamoDBClient = (): RemitClient => {
 		bodySync: bodySyncService,
 		bodySyncQueue: buildBodySyncQueue(),
 		placementMove: placementMoveService,
+		flagPush: flagPushMarkerService,
 
 		flagQueue: new FlagQueueService({
 			messageFlagService,
 			messageService,
 			threadMessageService,
-			mailboxService,
-			sqsQueueUrl,
+			flagPushService,
 			logger,
 		}),
 		mailboxQueue: new MailboxQueueService({
@@ -360,6 +379,7 @@ const buildPostgresClient = async (): Promise<RemitClient> => {
 		MailboxLockRepo,
 		MailboxRepo,
 		MailboxSpecialUseRepo,
+		MessageFlagPushRepo,
 		messageDataSchema,
 		MessagePlacementMoveRepo,
 		OutboxMessageRepo,
@@ -382,6 +402,7 @@ const buildPostgresClient = async (): Promise<RemitClient> => {
 	const outboxMessageService = new OutboxMessageRepo(genericDb);
 	const accountExportRequestService = new AccountExportRequestRepo(genericDb);
 	const placementMoveService = new MessagePlacementMoveRepo(genericDb);
+	const flagPushMarkerService = new MessageFlagPushRepo(genericDb);
 
 	const messageDataDb = db as unknown as NodePgDatabase<
 		typeof messageDataSchema
@@ -411,6 +432,12 @@ const buildPostgresClient = async (): Promise<RemitClient> => {
 		logger,
 	);
 
+	const flagPushService = new FlagPushService({
+		markerService: flagPushMarkerService,
+		sqsQueueUrl,
+		logger,
+	});
+
 	return {
 		accountConfig: accountConfigService,
 		account: accountService,
@@ -434,13 +461,13 @@ const buildPostgresClient = async (): Promise<RemitClient> => {
 		bodySync: bodySyncService,
 		bodySyncQueue: buildBodySyncQueue(),
 		placementMove: placementMoveService,
+		flagPush: flagPushMarkerService,
 
 		flagQueue: new FlagQueueService({
 			messageFlagService,
 			messageService,
 			threadMessageService,
-			mailboxService,
-			sqsQueueUrl,
+			flagPushService,
 			logger,
 		}),
 		mailboxQueue: new MailboxQueueService({

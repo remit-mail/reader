@@ -55,18 +55,26 @@ export {
 	testSmtpConnection,
 } from "./connection-test.js";
 export {
+	type FlagPushConfig,
+	type FlagPushEvent,
+	type FlagPushLogger,
+	type FlagPushOperationValue,
+	FlagPushService,
+} from "./flag-push.js";
+export {
+	type FlagPushTerminalOutcome,
+	type ResolveExhaustedFlagPushDeps,
+	type ResolveExhaustedFlagPushInput,
+	type ResolveExhaustedFlagPushResult,
+	resolveExhaustedFlagPushFailure,
+} from "./flag-push-terminal.js";
+export {
 	type FlagQueueConfig,
 	type FlagQueueLogger,
 	FlagQueueService,
 	type UpdateFlagsInput,
 	type UpdateFlagsResult,
 } from "./flag-queue.js";
-export {
-	type FlagOperation,
-	type FlagSyncLogger,
-	type FlagSyncResult,
-	FlagSyncService,
-} from "./flag-sync.js";
 export {
 	classifyByHeaders,
 	extractAuthenticity,
@@ -127,6 +135,10 @@ export {
 	MailboxSyncService,
 	type SyncAccountInfo,
 } from "./mailbox-sync.js";
+export {
+	createMarkerSqsClient,
+	deriveLocalSqsEndpoint,
+} from "./marker-sqs-client.js";
 export {
 	type DeleteOptions,
 	type MessageMoveConfig,
