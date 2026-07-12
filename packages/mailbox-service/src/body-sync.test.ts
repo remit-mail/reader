@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import { Readable } from "node:stream";
 import { after, before, describe, it } from "node:test";
+import type {
+	CreateMessageLabelInput,
+	FilterAnchorItem,
+	FilterItem,
+	IFilterAnchorRepository,
+	IFilterRepository,
+	IMessageLabelRepository,
+	MessageLabelItem,
+} from "@remit/data-ports";
 import {
 	AddressService,
 	type BodyPartItem,
@@ -12,6 +21,10 @@ import {
 	type UpdateMessageInput,
 } from "@remit/remit-electrodb-service";
 import {
+	FilterClauseField,
+	FilterMatchOperator,
+	FilterScope,
+	FilterState,
 	MailboxSpecialUse,
 	MessageCategory,
 	PlacementAction,
@@ -26,6 +39,7 @@ import type {
 	StoreParsedBodyParams,
 } from "@remit/storage-service";
 import { type BodySyncLogger, BodySyncService } from "./body-sync.js";
+import type { FilterConfig, MessageEmbedder } from "./filters/pipeline.js";
 import type { PlacementMoveService } from "./placement-move.js";
 import { type IImapConnection, MailConnectionError } from "./types.js";
 
@@ -2875,5 +2889,354 @@ describe("BodySyncService.deriveSenderTrust (error propagation via rescue)", () 
 			"expected an alert-tagged placement-failure log for AccessDenied",
 		);
 		assert.match(String(alertLog?.obj.error), /AccessDenied/);
+	});
+});
+
+describe("BodySyncService.syncBodies (filter matching + apply)", () => {
+	// A_RAW_EML: From a@example.com, Subject "hi", body "hello world body".
+	const makeFilter = (overrides: Partial<FilterItem>): FilterItem =>
+		({
+			filterId: "flt-1",
+			accountConfigId: "acc-cfg-1",
+			name: "test filter",
+			scope: FilterScope.Standing,
+			state: FilterState.Active,
+			hasAnchor: false,
+			ruleChangedAt: 100,
+			matchOperator: FilterMatchOperator.And,
+			literalClauses: [],
+			actionLabelId: "None",
+			actionMailboxId: "None",
+			createdAt: 1,
+			updatedAt: 1,
+			...overrides,
+		}) as FilterItem;
+
+	const fromClause = (value: string): FilterItem["literalClauses"] => [
+		{ field: FilterClauseField.From, value },
+	];
+
+	interface FilterHarness {
+		filters: FilterItem[];
+		anchors?: Record<string, FilterAnchorItem>;
+		embedder?: MessageEmbedder;
+		similarityThreshold?: number;
+	}
+
+	const buildFilterConfig = (harness: FilterHarness) => {
+		const labelApplies: CreateMessageLabelInput[] = [];
+		const moveCalls: Array<{
+			messageId: string;
+			destinationMailboxId: string;
+		}> = [];
+		const expiredPatches: string[] = [];
+		const anchorGets: string[] = [];
+		const embedTexts: string[] = [];
+
+		const filterService = {
+			listByAccountAndState: async (
+				_accountConfigId: string,
+				state: FilterItem["state"],
+			) => harness.filters.filter((f) => f.state === state),
+			refreshExpiry: async (item: FilterItem) => {
+				if (item.scope !== FilterScope.Temporary || !item.expiresAt)
+					return item;
+				if (item.state === FilterState.Expired) return item;
+				if (new Date(item.expiresAt).getTime() > Date.now()) return item;
+				expiredPatches.push(item.filterId);
+				return { ...item, state: FilterState.Expired };
+			},
+		} as unknown as IFilterRepository;
+
+		const filterAnchorService = {
+			get: async (_accountConfigId: string, filterId: string) => {
+				anchorGets.push(filterId);
+				return harness.anchors?.[filterId] ?? null;
+			},
+		} as unknown as IFilterAnchorRepository;
+
+		const messageLabelService = {
+			apply: async (input: CreateMessageLabelInput) => {
+				labelApplies.push(input);
+				return {
+					...input,
+					messageLabelId: `ml-${input.labelId}`,
+				} as MessageLabelItem;
+			},
+		} as unknown as IMessageLabelRepository;
+
+		const placementMoveService = {
+			moveMessage: async (
+				_accountConfigId: string,
+				messageId: string,
+				destinationMailboxId: string,
+			) => {
+				moveCalls.push({ messageId, destinationMailboxId });
+			},
+		} as unknown as PlacementMoveService;
+
+		const embedder: MessageEmbedder | undefined = harness.embedder
+			? {
+					embed: async (text: string) => {
+						embedTexts.push(text);
+						return harness.embedder!.embed(text);
+					},
+				}
+			: undefined;
+
+		const config: FilterConfig = {
+			filterService,
+			filterAnchorService,
+			messageLabelService,
+			placementMoveService,
+			embedder,
+			similarityThreshold: harness.similarityThreshold,
+		};
+
+		return {
+			config,
+			labelApplies,
+			moveCalls,
+			expiredPatches,
+			anchorGets,
+			embedTexts,
+		};
+	};
+
+	const runWithFilters = async (harness: FilterHarness) => {
+		const fake = buildFakeState({ messageId: "msg-1" });
+		const built = buildFilterConfig(harness);
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			fake.addressService,
+			fake.envelopeService,
+			undefined,
+			undefined,
+			built.config,
+		);
+		await service.syncBodies(
+			["msg-1"],
+			"acc-1",
+			"acc-cfg-1",
+			"INBOX",
+			async () => buildFakeConnection(),
+		);
+		return { fake, ...built };
+	};
+
+	it("applies both a label filter and a move filter to a matching message", async () => {
+		const { fake, labelApplies, moveCalls } = await runWithFilters({
+			filters: [
+				makeFilter({
+					filterId: "flt-label",
+					literalClauses: fromClause("a@example.com"),
+					actionLabelId: "label-x",
+				}),
+				makeFilter({
+					filterId: "flt-move",
+					literalClauses: fromClause("a@example.com"),
+					actionMailboxId: "mbx-target",
+				}),
+			],
+		});
+
+		assert.equal(labelApplies.length, 1);
+		assert.equal(labelApplies[0].labelId, "label-x");
+		assert.equal(labelApplies[0].appliedByFilterId, "flt-label");
+		assert.deepEqual(moveCalls, [
+			{ messageId: "msg-1", destinationMailboxId: "mbx-target" },
+		]);
+		assert.ok(
+			fake.updatedKeys.find((u) => u.movedByRemit === true),
+			"expected movedByRemit=true update from the filter move",
+		);
+	});
+
+	it("applies two label filters additively", async () => {
+		const { labelApplies } = await runWithFilters({
+			filters: [
+				makeFilter({
+					filterId: "flt-a",
+					literalClauses: fromClause("a@example.com"),
+					actionLabelId: "label-a",
+				}),
+				makeFilter({
+					filterId: "flt-b",
+					literalClauses: [{ field: FilterClauseField.Subject, value: "hi" }],
+					actionLabelId: "label-b",
+				}),
+			],
+		});
+
+		const applied = labelApplies.map((l) => l.labelId).sort();
+		assert.deepEqual(applied, ["label-a", "label-b"]);
+	});
+
+	it("resolves two conflicting move filters to the most-recently-changed one", async () => {
+		const { moveCalls } = await runWithFilters({
+			filters: [
+				makeFilter({
+					filterId: "flt-old",
+					literalClauses: fromClause("a@example.com"),
+					actionMailboxId: "mbx-old",
+					ruleChangedAt: 100,
+				}),
+				makeFilter({
+					filterId: "flt-new",
+					literalClauses: fromClause("a@example.com"),
+					actionMailboxId: "mbx-new",
+					ruleChangedAt: 500,
+				}),
+			],
+		});
+
+		assert.deepEqual(moveCalls, [
+			{ messageId: "msg-1", destinationMailboxId: "mbx-new" },
+		]);
+	});
+
+	it("skips a Temporary filter past its expiresAt and patches its state to Expired on read", async () => {
+		const { labelApplies, moveCalls, expiredPatches } = await runWithFilters({
+			filters: [
+				makeFilter({
+					filterId: "flt-expired",
+					scope: FilterScope.Temporary,
+					expiresAt: "2000-01-01T00:00:00Z",
+					literalClauses: fromClause("a@example.com"),
+					actionLabelId: "label-expired",
+				}),
+			],
+		});
+
+		assert.deepEqual(expiredPatches, ["flt-expired"]);
+		assert.equal(labelApplies.length, 0);
+		assert.equal(moveCalls.length, 0);
+	});
+
+	it("matches a semantic-anchor filter via the persisted anchorEmbedding without reading the anchor message", async () => {
+		const { labelApplies, anchorGets, embedTexts } = await runWithFilters({
+			filters: [
+				makeFilter({
+					filterId: "flt-semantic",
+					hasAnchor: true,
+					literalClauses: [],
+					actionLabelId: "label-semantic",
+				}),
+			],
+			anchors: {
+				"flt-semantic": {
+					accountConfigId: "acc-cfg-1",
+					filterId: "flt-semantic",
+					anchorEmbedding: [1, 0, 0],
+					anchorEmbeddingId: "amazon.titan-embed-text-v2:0@3",
+					anchorSourceText: "an anchor message about invoices",
+					anchorMessageId: "anchor-msg-should-never-be-read",
+					createdAt: 1,
+					updatedAt: 1,
+				},
+			},
+			embedder: { embed: async () => [1, 0, 0] },
+			similarityThreshold: 0.75,
+		});
+
+		assert.equal(labelApplies.length, 1);
+		assert.equal(labelApplies[0].labelId, "label-semantic");
+		assert.deepEqual(anchorGets, ["flt-semantic"]);
+		assert.equal(embedTexts.length, 1, "message embedded exactly once");
+	});
+
+	it("does not apply a semantic filter below the similarity threshold", async () => {
+		const { labelApplies } = await runWithFilters({
+			filters: [
+				makeFilter({
+					filterId: "flt-semantic",
+					hasAnchor: true,
+					literalClauses: [],
+					actionLabelId: "label-semantic",
+				}),
+			],
+			anchors: {
+				"flt-semantic": {
+					accountConfigId: "acc-cfg-1",
+					filterId: "flt-semantic",
+					anchorEmbedding: [0, 1, 0],
+					anchorEmbeddingId: "amazon.titan-embed-text-v2:0@3",
+					anchorSourceText: "unrelated",
+					anchorMessageId: "anchor-msg",
+					createdAt: 1,
+					updatedAt: 1,
+				},
+			},
+			embedder: { embed: async () => [1, 0, 0] },
+			similarityThreshold: 0.75,
+		});
+
+		assert.equal(labelApplies.length, 0);
+	});
+
+	it("isolates a filter-matching failure from the body store (message still synced)", async () => {
+		const fake = buildFakeState({ messageId: "msg-1" });
+		const filterService = {
+			listByAccountAndState: async () => {
+				throw new Error("DDB query blew up");
+			},
+			refreshExpiry: async (item: FilterItem) => item,
+		} as unknown as IFilterRepository;
+		const errors: Array<{ obj: Record<string, unknown>; msg: string }> = [];
+		const logger: BodySyncLogger = {
+			info: () => {},
+			debug: () => {},
+			warn: () => {},
+			error: (obj, msg) => {
+				errors.push({ obj, msg });
+			},
+		};
+		const config: FilterConfig = {
+			filterService,
+			filterAnchorService: {
+				get: async () => null,
+			} as unknown as IFilterAnchorRepository,
+			messageLabelService: {
+				apply: async () => {
+					throw new Error("should not be called");
+				},
+			} as unknown as IMessageLabelRepository,
+			placementMoveService: {
+				moveMessage: async () => {
+					throw new Error("should not be called");
+				},
+			} as unknown as PlacementMoveService,
+		};
+
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			fake.addressService,
+			fake.envelopeService,
+			logger,
+			undefined,
+			config,
+		);
+
+		const result = await service.syncBodies(
+			["msg-1"],
+			"acc-1",
+			"acc-cfg-1",
+			"INBOX",
+			async () => buildFakeConnection(),
+		);
+
+		assert.equal(result.syncedCount, 1);
+		assert.ok(
+			fake.updatedKeys.find((u) => u.bodyStorageKey),
+			"body still stored despite filter-match failure",
+		);
+		const alertLog = errors.find(
+			(e) => e.obj.alert === "body_sync_filter_match_failed",
+		);
+		assert.ok(alertLog, "expected an alert-tagged filter-match failure log");
 	});
 });

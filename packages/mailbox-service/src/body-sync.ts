@@ -27,6 +27,12 @@ import {
 import { type ParsedMail, simpleParser } from "mailparser";
 import pMap from "p-map";
 import { mapBodyPartsToContent } from "./body-part-mapper.js";
+import type { FilterMessage } from "./filters/match.js";
+import {
+	type FilterConfig,
+	type FilterDecision,
+	FilterPipeline,
+} from "./filters/pipeline.js";
 import {
 	classifyByHeaders,
 	extractAuthenticity,
@@ -110,6 +116,18 @@ export const extractPrimaryFromEmail = (parsed: ParsedMail): string | null => {
 	return address.toLowerCase();
 };
 
+/**
+ * Project a parsed message onto the fields a filter matches against (RFC 034) —
+ * the literal-clause targets plus the text a semantic anchor embeds. Kept
+ * separate from `ParsedMail` so {@link FilterPipeline} stays parser-agnostic.
+ */
+const toFilterMessage = (parsed: ParsedMail): FilterMessage => ({
+	from: extractPrimaryFromEmail(parsed) ?? "",
+	fromName: parsed.from?.value?.[0]?.name ?? "",
+	subject: parsed.subject ?? "",
+	text: parsed.text ?? "",
+});
+
 export const toParsedBody = (parsed: ParsedMail): ParsedBody => ({
 	text: parsed.text ?? null,
 	html: typeof parsed.html === "string" ? parsed.html : null,
@@ -167,6 +185,7 @@ export interface PlacementConfig {
 
 export class BodySyncService {
 	private log: BodySyncLogger;
+	private readonly filterPipeline?: FilterPipeline;
 
 	constructor(
 		private messageService: IMessageRepository,
@@ -176,8 +195,12 @@ export class BodySyncService {
 		private envelopeService: IEnvelopeRepository,
 		logger?: BodySyncLogger,
 		private readonly placementConfig?: PlacementConfig,
+		private readonly filterConfig?: FilterConfig,
 	) {
 		this.log = logger ?? noopLogger;
+		this.filterPipeline = filterConfig
+			? new FilterPipeline(filterConfig, this.log)
+			: undefined;
 	}
 
 	/**
@@ -439,6 +462,16 @@ export class BodySyncService {
 			classification,
 		);
 
+		// Index-time filter pass (RFC 034). Isolated the same way placement is —
+		// FilterPipeline.evaluate swallows any read/decision failure and returns
+		// no actions, so a schema-drifted filter query never fails the body store.
+		// The DECISION is computed here; the applies below are unswallowed.
+		const filterDecision = await this.evaluateFilters(
+			accountConfigId,
+			messageId,
+			parsed,
+		);
+
 		// Store the parsed-body cache BEFORE persisting bodyStorageKey. The skip
 		// guard in syncBodies treats a stored bodyStorageKey as "fully synced",
 		// so if we wrote it first and the parsed-cache write then failed, the
@@ -466,12 +499,22 @@ export class BodySyncService {
 			);
 		}
 
-		// Local-first placement move (issue #1271): local mailboxId change +
-		// pending marker + IMAP-push enqueue, all via PlacementMoveService,
-		// UNSWALLOWED — a throw here propagates before bodyStorageKey is
-		// written (see the method doc above). A non-confident or leave verdict
-		// yields no move, so this is a no-op for those.
-		if (resolved.move) {
+		// Local-first move (issue #1271): local mailboxId change + pending marker +
+		// IMAP-push enqueue via PlacementMoveService, UNSWALLOWED — a throw here
+		// propagates before bodyStorageKey is written (see the method doc above),
+		// so a genuine SQS/DDB write failure requeues the message rather than being
+		// absorbed. A matched filter's move is exclusive and outranks the
+		// classifier's placement move (RFC 034 Decision 3.1) — an explicit user
+		// rule wins the single mailbox a message occupies — so at most one move is
+		// enqueued. A non-confident/leave verdict with no filter move is a no-op.
+		if (filterDecision.move) {
+			await this.filterConfig?.placementMoveService.moveMessage(
+				accountConfigId,
+				messageId,
+				filterDecision.move.destinationMailboxId,
+				accountId,
+			);
+		} else if (resolved.move) {
 			await this.placementConfig?.placementMoveService.moveMessage(
 				accountConfigId,
 				messageId,
@@ -480,18 +523,33 @@ export class BodySyncService {
 			);
 		}
 
+		// Additive label actions (RFC 034 Decision 3.1): every matching filter's
+		// label applies. The deterministic MessageLabel upsert is idempotent, so a
+		// requeue after a later failure re-applies safely; UNSWALLOWED, so a DDB
+		// write failure propagates before bodyStorageKey is written.
+		for (const label of filterDecision.labels) {
+			await this.filterConfig?.messageLabelService.apply({
+				messageId,
+				labelId: label.labelId,
+				accountConfigId,
+				appliedByFilterId: label.filterId,
+			});
+		}
+
+		const moved = Boolean(resolved.move || filterDecision.move);
+
 		// ONE Message UpdateItem per synced message: bodyStorageKey + every
 		// classification/derived field + the move flag + the audit verdict. Each
 		// extra Message mutation emits a DDB stream record that fans out to a
 		// redundant S3-Vectors upsert, so we collapse them into a single write.
-		// The flag is folded in only when a move WAS applied; the verdict
-		// is folded in whenever Remit decided to act. Written LAST so bodyStorageKey
-		// — the skip-guard signal — is only durable once the parsed cache AND the
-		// placement move (when any) are.
+		// The flag is folded in only when a move WAS applied (by the classifier or
+		// a filter); the verdict is folded in whenever Remit decided to act.
+		// Written LAST so bodyStorageKey — the skip-guard signal — is only durable
+		// once the parsed cache AND the move (when any) are.
 		const update: UpdateMessageInput = {
 			bodyStorageKey: bodyRef.uri,
 			...classification,
-			...(resolved.move ? { movedByRemit: true } : {}),
+			...(moved ? { movedByRemit: true } : {}),
 			...(resolved.verdict ? { placementVerdict: resolved.verdict } : {}),
 		};
 		await this.messageService.update(messageId, update);
@@ -690,6 +748,30 @@ export class BodySyncService {
 			if (!(err instanceof NotFoundError)) throw err;
 		}
 		return SenderTrust.Unknown;
+	}
+
+	/**
+	 * Evaluate the account's active filters against a synced message (RFC 034),
+	 * BEFORE the single Message update — so a filter's `movedByRemit` flag joins
+	 * that same UpdateItem. Returns the actions to apply (labels + at most one
+	 * move); the caller applies them. A no-op returning no actions when no
+	 * {@link FilterConfig} is wired.
+	 *
+	 * Isolation lives in {@link FilterPipeline.evaluate}: this read/decision phase
+	 * never fails the body store (the #1246 placement precedent). The applies of
+	 * the returned decision are the caller's and are deliberately unswallowed.
+	 */
+	private async evaluateFilters(
+		accountConfigId: string,
+		messageId: string,
+		parsed: ParsedMail,
+	): Promise<FilterDecision> {
+		if (!this.filterPipeline) return { labels: [] };
+		return this.filterPipeline.evaluate(
+			accountConfigId,
+			messageId,
+			toFilterMessage(parsed),
+		);
 	}
 
 	/**
