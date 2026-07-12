@@ -8,7 +8,6 @@ import express, {
 	type Request,
 	type Response,
 } from "express";
-import * as swaggerUi from "swagger-ui-express";
 import { handler, OpenAPISpec } from "../src/index.js";
 import { safeJsonParse } from "../src/json.js";
 import { getClient } from "../src/service/dynamodb.js";
@@ -46,17 +45,34 @@ if (process.env.DATA_BACKEND === "postgres") {
 	// Synthetic OIDC discovery document for the APISIX edge tier. better-auth
 	// serves a JWKS but not a discovery doc; APISIX's openid-connect plugin needs
 	// one to locate the JWKS. Registered before the better-auth catch-all so it
-	// is not shadowed. `issuer` matches the token `iss`; `jwks_uri` must be
-	// reachable from wherever APISIX runs, hence derived from BETTER_AUTH_URL.
+	// is not shadowed. `issuer` matches the token `iss`, so it stays the public
+	// BETTER_AUTH_URL. `jwks_uri` is different: APISIX fetches it directly, and
+	// on a deployment where the public origin isn't reachable from inside the
+	// container network (a tailnet/VPN address a bridge network can't route to
+	// — the shape deploy/vps's compose stack runs in), deriving it from
+	// BETTER_AUTH_URL would point APISIX at an address it cannot reach, even
+	// though it just reached this very endpoint fine.
+	//
+	// BETTER_AUTH_JWKS_URL — the same in-network override
+	// remit-auth-service's own verifier config already reads
+	// (packages/remit-auth-service/src/config.ts) and every env file sets to
+	// the backend's in-network address — is authoritative here, not the
+	// incoming request's Host header: an operator-controlled value instead
+	// of one derived from client-supplied input. It only falls back to
+	// echoing the request's own host when unset, matching prior behavior
+	// for any environment that doesn't set it.
 	app.get(
 		"/api/auth/.well-known/openid-configuration",
-		(_req: Request, res: Response) => {
+		(req: Request, res: Response) => {
 			const base =
 				process.env.BETTER_AUTH_URL ??
 				`http://localhost:${process.env.SERVER_PORT ?? "5436"}`;
+			const jwksUri =
+				process.env.BETTER_AUTH_JWKS_URL ??
+				`${req.protocol}://${req.get("host")}/api/auth/jwks`;
 			res.json({
 				issuer: base,
-				jwks_uri: `${base}/api/auth/jwks`,
+				jwks_uri: jwksUri,
 				authorization_endpoint: `${base}/api/auth/authorize`,
 				token_endpoint: `${base}/api/auth/token`,
 				response_types_supported: ["token"],
@@ -116,7 +132,18 @@ app.get("/health", (_req: Request, res: Response) => {
 // gate the docs to non-Postgres (AWS-local dev) only. The generated OpenAPI
 // document is still consumed programmatically by the APISIX edge via its own
 // mounted paths — this only removes the browsable UI from the deployed surface.
+//
+// Dynamic import, not a static one: swagger-ui-express uses `__dirname` to
+// locate its bundled assets on disk, which esbuild only shims (not
+// eliminates) for an unconditional top-level import — that shim plus this
+// file's own top-level `await import("@remit/auth-service")` above
+// makes the bundle's module format ambiguous to Node
+// (`ERR_AMBIGUOUS_MODULE_SYNTAX`), crashing every backend container start,
+// including the ones that never take this branch. A dynamic import here
+// keeps swagger-ui-express (and its `__dirname` shim) out of module scope
+// entirely unless DATA_BACKEND is unset.
 if (process.env.DATA_BACKEND !== "postgres") {
+	const swaggerUi = await import("swagger-ui-express");
 	const localSpec = { ...OpenAPISpec };
 	if (localSpec.servers) {
 		localSpec.servers[0].url = "/";

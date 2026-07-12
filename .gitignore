@@ -85,3 +85,7 @@ packages/remit-web-client/visual-regression/__screenshots__
 
 # Generated APISIX route table (from OpenAPI)
 apisix/apisix.yaml
+
+# Local esbuild output from npm-scripts/docker-bundle.mjs (produced inside
+# the Docker builder stage normally; only appears on disk if run directly).
+dist-docker/

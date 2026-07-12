@@ -12,6 +12,10 @@
 		"./body-sync-queue": {
 			"types": "./src/body-sync-queue.ts",
 			"default": "./src/body-sync-queue.ts"
+		},
+		"./account-credentials": {
+			"types": "./src/account-credentials.ts",
+			"default": "./src/account-credentials.ts"
 		}
 	},
 	"scripts": {
