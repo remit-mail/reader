@@ -1499,6 +1499,89 @@ describe("MessageSyncService.createThreadForMessage — thread root fallback", (
 	});
 });
 
+describe("MessageSyncService.syncMessages — resync does not revert a pending local flag (issue #1273)", () => {
+	it("never calls ThreadMessage.update for an existing row, even when IMAP still reports the pre-flip flag state", async () => {
+		// Simulates: the user marked the message unread locally (a pending
+		// MessageFlagPush marker for \Seen/remove is durable, but IMAP has not
+		// confirmed the push yet — the server still reports \Seen). A sync
+		// round touches this mailbox in the meantime. `createThreadForMessage`
+		// only ever `create()`s a ThreadMessage — on an existing row that
+		// conflicts and is caught as a no-op, so nothing here can revert the
+		// local isRead=false intent back to true.
+		const mailboxService = {
+			get: async () => ({
+				fullPath: "INBOX",
+				uidValidity: 1,
+				lastSyncUid: 0,
+				highWaterMarkUid: 0,
+				messageCount: 0,
+			}),
+			update: async () => undefined,
+		} as unknown as MailboxService;
+
+		const messageService = {
+			upsertWithStatus: async (input: { mailboxId: string }) => ({
+				item: { mailboxId: input.mailboxId },
+				created: false,
+			}),
+		} as unknown as MessageService;
+
+		const envelopeService = {
+			upsertEnvelope: async () => undefined,
+			upsertBodyParts: async () => undefined,
+		} as unknown as EnvelopeService;
+
+		const addressService = {
+			upsertAddress: async () => undefined,
+			upsertEnvelopeAddress: async () => undefined,
+		} as unknown as AddressService;
+
+		let updateCalls = 0;
+		const threadMessageService = {
+			create: async () => {
+				// Existing row — matches ElectroDB's real create-conflict
+				// semantics (message-sync.ts catches exactly this name and
+				// no-ops).
+				const err = new Error("conflict");
+				(err as { name?: string }).name = "CreateFailedConflictError";
+				throw err;
+			},
+			update: async () => {
+				updateCalls++;
+				throw new Error(
+					"resync must never call ThreadMessage.update on an existing row — that would revert a pending local flag",
+				);
+			},
+		} as unknown as ThreadMessageService;
+
+		// aliceMessage.flags carries \Seen — the server's (stale, pre-push)
+		// view — while the local row (not modeled here, since create() never
+		// reaches an update) is presumed isRead=false from the user's pending
+		// unread flip.
+		const factory = buildConnectionFactory([aliceMessage]);
+		const service = new MessageSyncService(
+			factory,
+			mailboxService,
+			messageService,
+			envelopeService,
+			addressService,
+			threadMessageService,
+		);
+
+		const result = await service.syncMessages(
+			"mbx-1",
+			"acc-1",
+			"acc-cfg-1",
+			50,
+		);
+
+		// The conflict is swallowed, not a failure — the message still counts
+		// as synced (envelope/body work happened), just not newly threaded.
+		assert.equal(result.syncedCount, 1);
+		assert.equal(updateCalls, 0);
+	});
+});
+
 describe("MessageSyncService.syncMessages — UIDVALIDITY cursor (#1272)", () => {
 	interface ExistingRow {
 		messageId: string;

@@ -7,7 +7,7 @@ import type {
 	UpdateMailboxInput,
 } from "@remit/data-ports";
 import { MailboxCursorState } from "@remit/domain-enums";
-import { and, asc, eq, gt, inArray, or, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, or } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import shortUuid from "short-uuid";
 import { NotFoundError } from "../error.js";
@@ -206,42 +206,6 @@ export class MailboxRepo implements IMailboxRepository {
 					eq(mailboxTable.mailboxId, mailboxId),
 				),
 			);
-	}
-
-	async adjustUnseenCount(
-		accountId: string,
-		mailboxId: string,
-		delta: number,
-	): Promise<void> {
-		if (delta === 0) return;
-		if (delta > 0) {
-			await this.db
-				.update(mailboxTable)
-				.set({
-					unseenCount: sql`${mailboxTable.unseenCount} + ${delta}`,
-					updatedAt: Date.now(),
-				})
-				.where(
-					and(
-						eq(mailboxTable.accountId, accountId),
-						eq(mailboxTable.mailboxId, mailboxId),
-					),
-				);
-		} else {
-			// Clamp to 0 — never go negative
-			await this.db
-				.update(mailboxTable)
-				.set({
-					unseenCount: sql`GREATEST(0, ${mailboxTable.unseenCount} + ${delta})`,
-					updatedAt: Date.now(),
-				})
-				.where(
-					and(
-						eq(mailboxTable.accountId, accountId),
-						eq(mailboxTable.mailboxId, mailboxId),
-					),
-				);
-		}
 	}
 
 	async deleteMany(accountId: string, mailboxIds: string[]): Promise<void> {

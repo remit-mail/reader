@@ -1,32 +1,43 @@
 import assert from "node:assert";
 import { describe, it, mock } from "node:test";
 import type {
-	MailboxService,
 	MessageFlagService,
 	MessageService,
 	ThreadMessageService,
 } from "@remit/remit-electrodb-service";
 import { MessageSystemFlag, StarColor } from "@remit/domain-enums";
+import type { FlagPushService } from "./flag-push.js";
 import { type FlagQueueConfig, FlagQueueService } from "./flag-queue.js";
 
 const createMockMessageFlagService = () => {
 	const flags = new Map<string, Set<string>>();
+	const calls: Array<{
+		op: "add" | "remove";
+		messageId: string;
+		flag: string;
+	}> = [];
 
 	return {
 		addFlag: mock.fn(async (messageId: string, flag: string) => {
+			calls.push({ op: "add", messageId, flag });
 			if (!flags.has(messageId)) {
 				flags.set(messageId, new Set());
 			}
 			flags.get(messageId)?.add(flag);
 		}),
 		removeFlag: mock.fn(async (messageId: string, flag: string) => {
+			calls.push({ op: "remove", messageId, flag });
 			flags.get(messageId)?.delete(flag);
 		}),
 		hasFlag: mock.fn(async (messageId: string, flag: string) => {
 			return flags.get(messageId)?.has(flag) ?? false;
 		}),
 		_flags: flags,
-	} as unknown as MessageFlagService & { _flags: Map<string, Set<string>> };
+		_calls: calls,
+	} as unknown as MessageFlagService & {
+		_flags: Map<string, Set<string>>;
+		_calls: Array<{ op: "add" | "remove"; messageId: string; flag: string }>;
+	};
 };
 
 const createMockMessageService = (mailboxId: string) => {
@@ -37,30 +48,6 @@ const createMockMessageService = (mailboxId: string) => {
 			uid: 1,
 		})),
 	} as unknown as MessageService;
-};
-
-const createMockMailboxService = (initialUnseenCount = 5) => {
-	const counts = new Map<string, number>();
-
-	return {
-		adjustUnseenCount: mock.fn(
-			async (_accountId: string, mailboxId: string, delta: number) => {
-				const current = counts.get(mailboxId) ?? initialUnseenCount;
-				const next = Math.max(0, current + delta);
-				counts.set(mailboxId, next);
-			},
-		),
-		_counts: counts,
-		_setUnseenCount: (mailboxId: string, count: number) => {
-			counts.set(mailboxId, count);
-		},
-		_getUnseenCount: (mailboxId: string) =>
-			counts.get(mailboxId) ?? initialUnseenCount,
-	} as unknown as MailboxService & {
-		_counts: Map<string, number>;
-		_setUnseenCount: (mailboxId: string, count: number) => void;
-		_getUnseenCount: (mailboxId: string) => number;
-	};
 };
 
 const TEST_ACCOUNT_CONFIG_ID = "test-account-config-id";
@@ -129,82 +116,84 @@ const createMockThreadMessageService = () => {
 	};
 };
 
-interface CapturedSqsInput {
-	QueueUrl: string;
-	MessageBody: string;
-	MessageGroupId?: string;
-	MessageDeduplicationId?: string;
-}
-
-const createMockSQSClient = () => {
-	const sentMessages: CapturedSqsInput[] = [];
+const createMockFlagPushService = () => {
+	const flips: Array<{
+		accountId: string;
+		accountConfigId: string;
+		messageId: string;
+		mailboxId: string;
+		flagName: string;
+		operation: "add" | "remove";
+	}> = [];
 
 	return {
-		send: mock.fn(async (command: { input: CapturedSqsInput }) => {
-			sentMessages.push(command.input);
-			return { MessageId: "test-message-id" };
+		flip: mock.fn(async (params: (typeof flips)[number]) => {
+			flips.push(params);
 		}),
-		_sentMessages: sentMessages,
-	};
+		_flips: flips,
+	} as unknown as FlagPushService & { _flips: typeof flips };
 };
 
 const createTestConfig = (overrides: Partial<FlagQueueConfig> = {}) => {
 	const mailboxId = "test-mailbox-id";
-	const mockSQS = createMockSQSClient();
 
-	const config: FlagQueueConfig & { _mockSQS: typeof mockSQS } = {
+	const config: FlagQueueConfig = {
 		messageFlagService: createMockMessageFlagService(),
 		messageService: createMockMessageService(mailboxId),
 		threadMessageService: createMockThreadMessageService(),
-		mailboxService: createMockMailboxService(),
-		sqsQueueUrl: "http://localhost:4566/test-queue",
-		_mockSQS: mockSQS,
+		flagPushService: createMockFlagPushService(),
 		...overrides,
 	};
 
-	// Inject mock SQS client
 	const service = new FlagQueueService(config);
-	// @ts-expect-error - accessing private for testing
-	service.sqs = mockSQS;
 
-	return { service, config, mockSQS };
+	return { service, config, mailboxId };
 };
 
 describe("FlagQueueService.updateFlags", () => {
 	const messageId = "test-message-id";
 	const accountId = "test-account-id";
 
-	it("marks message as read when isRead is true", async () => {
-		const { service, config } = createTestConfig();
+	it("marks message as read: local addFlag(Seen) + flip(add) via FlagPushService", async () => {
+		const { service, config, mailboxId } = createTestConfig();
 
 		const result = await service.updateFlags(
 			TEST_ACCOUNT_CONFIG_ID,
 			messageId,
 			accountId,
-			{
-				isRead: true,
-			},
+			{ isRead: true },
 		);
 
 		assert.strictEqual(result.messageId, messageId);
 		assert.strictEqual(result.isRead, true);
 
-		// Verify addFlag was called with Seen
 		const flagService = config.messageFlagService as ReturnType<
 			typeof createMockMessageFlagService
 		>;
-		const addFlagCalls = (
-			flagService.addFlag as unknown as ReturnType<typeof mock.fn>
-		).mock.calls;
-		assert.strictEqual(addFlagCalls.length, 1);
-		assert.strictEqual(addFlagCalls[0].arguments[0], messageId);
-		assert.strictEqual(addFlagCalls[0].arguments[1], MessageSystemFlag.Seen);
+		assert.strictEqual(flagService._calls.length, 1);
+		assert.deepStrictEqual(flagService._calls[0], {
+			op: "add",
+			messageId,
+			flag: MessageSystemFlag.Seen,
+		});
+
+		const flagPushService = config.flagPushService as ReturnType<
+			typeof createMockFlagPushService
+		>;
+		assert.strictEqual(flagPushService._flips.length, 1);
+		assert.deepStrictEqual(flagPushService._flips[0], {
+			accountId,
+			accountConfigId: TEST_ACCOUNT_CONFIG_ID,
+			messageId,
+			mailboxId,
+			flagName: MessageSystemFlag.Seen,
+			operation: "add",
+		});
 	});
 
-	it("marks message as unread when isRead is false", async () => {
+	it("marks message as unread: local removeFlag(Seen) + flip(remove) via FlagPushService", async () => {
 		const { service, config } = createTestConfig();
 
-		// Pre-set the flag so hasFlag returns true after
 		const flagService = config.messageFlagService as ReturnType<
 			typeof createMockMessageFlagService
 		>;
@@ -214,30 +203,87 @@ describe("FlagQueueService.updateFlags", () => {
 			TEST_ACCOUNT_CONFIG_ID,
 			messageId,
 			accountId,
-			{
-				isRead: false,
-			},
+			{ isRead: false },
 		);
 
-		assert.strictEqual(result.messageId, messageId);
 		assert.strictEqual(result.isRead, false);
+		assert.strictEqual(flagService._calls.at(-1)?.op, "remove");
+		assert.strictEqual(flagService._calls.at(-1)?.flag, MessageSystemFlag.Seen);
 
-		// Verify removeFlag was called with Seen
-		const removeFlagCalls = (
-			flagService.removeFlag as unknown as ReturnType<typeof mock.fn>
-		).mock.calls;
-		assert.strictEqual(removeFlagCalls.length, 1);
-		assert.strictEqual(removeFlagCalls[0].arguments[0], messageId);
-		assert.strictEqual(removeFlagCalls[0].arguments[1], MessageSystemFlag.Seen);
+		const flagPushService = config.flagPushService as ReturnType<
+			typeof createMockFlagPushService
+		>;
+		assert.strictEqual(flagPushService._flips.length, 1);
+		assert.strictEqual(flagPushService._flips[0].operation, "remove");
+		assert.strictEqual(
+			flagPushService._flips[0].flagName,
+			MessageSystemFlag.Seen,
+		);
+	});
+
+	it("the marker flip is persisted BEFORE the local flag write (review finding on #1292 — a crash after must never strand a flipped flag with no marker)", async () => {
+		const { service, config } = createTestConfig();
+
+		const flagService = config.messageFlagService as ReturnType<
+			typeof createMockMessageFlagService
+		>;
+		const flagPushService = config.flagPushService as ReturnType<
+			typeof createMockFlagPushService
+		>;
+
+		const order: string[] = [];
+		flagService.addFlag = mock.fn(async () => {
+			order.push("local-write");
+		}) as unknown as typeof flagService.addFlag;
+		flagPushService.flip = mock.fn(async () => {
+			order.push("marker-flip");
+		}) as unknown as typeof flagPushService.flip;
+
+		await service.updateFlags(TEST_ACCOUNT_CONFIG_ID, messageId, accountId, {
+			isRead: true,
+		});
+
+		assert.deepStrictEqual(order, ["marker-flip", "local-write"]);
+	});
+
+	it("crash window: the marker is already durable even when the SUBSEQUENT local flag write then fails — never a flipped flag with no marker", async () => {
+		const { service, config, mailboxId } = createTestConfig();
+
+		const flagService = config.messageFlagService as ReturnType<
+			typeof createMockMessageFlagService
+		>;
+		const flagPushService = config.flagPushService as ReturnType<
+			typeof createMockFlagPushService
+		>;
+
+		flagService.addFlag = mock.fn(async () => {
+			throw new Error("simulated crash after the marker write");
+		}) as unknown as typeof flagService.addFlag;
+
+		await assert.rejects(
+			service.updateFlags(TEST_ACCOUNT_CONFIG_ID, messageId, accountId, {
+				isRead: true,
+			}),
+			/simulated crash after the marker write/,
+		);
+
+		// The marker flip already completed before the failing local write —
+		// it is durable regardless of what happens next. A stuck marker with
+		// no completed local write is safely recoverable (the caller's
+		// natural retry re-applies both steps, idempotently); a flipped flag
+		// with NO marker — the defect this fix closes — is now impossible.
+		assert.strictEqual(flagPushService._flips.length, 1);
+		assert.deepStrictEqual(flagPushService._flips[0], {
+			accountId,
+			accountConfigId: TEST_ACCOUNT_CONFIG_ID,
+			messageId,
+			mailboxId,
+			flagName: MessageSystemFlag.Seen,
+			operation: "add",
+		});
 	});
 
 	it("passes CURRENT isRead value (not new) to ThreadMessage update composites", async () => {
-		// Regression: ElectroDB's `patch().set().composite()` uses composites
-		// for the conditional check on the existing item AND to recompute the
-		// new sort keys. The CURRENT value goes in `composites`; the NEW value
-		// goes in `set`. Passing the new value in composites causes the patch
-		// to fail with NotFoundError (which flag-queue swallows) and the
-		// isRead update is silently dropped.
 		const { service, config } = createTestConfig();
 
 		const threadMessageService = config.threadMessageService as ReturnType<
@@ -277,8 +323,6 @@ describe("FlagQueueService.updateFlags", () => {
 	});
 
 	it("passes CURRENT hasStars value (not new) to ThreadMessage update composites", async () => {
-		// Regression: same root cause as the isRead test above, applied to the
-		// star-update path.
 		const { service, config } = createTestConfig();
 
 		const threadMessageService = config.threadMessageService as ReturnType<
@@ -321,45 +365,32 @@ describe("FlagQueueService.updateFlags", () => {
 		);
 	});
 
-	it("marks message as starred when isStarred is true", async () => {
-		const { service, config, mockSQS } = createTestConfig();
+	it("marks message as starred: local addFlag(Flagged) + flip(add)", async () => {
+		const { service, config } = createTestConfig();
 
 		const result = await service.updateFlags(
 			TEST_ACCOUNT_CONFIG_ID,
 			messageId,
 			accountId,
-			{
-				isStarred: true,
-			},
+			{ isStarred: true },
 		);
 
-		assert.strictEqual(result.messageId, messageId);
 		assert.strictEqual(result.isStarred, true);
 
-		// Verify addFlag was called with Flagged
-		const flagService = config.messageFlagService as ReturnType<
-			typeof createMockMessageFlagService
+		const flagPushService = config.flagPushService as ReturnType<
+			typeof createMockFlagPushService
 		>;
-		const addFlagCalls = (
-			flagService.addFlag as unknown as ReturnType<typeof mock.fn>
-		).mock.calls;
-		assert.strictEqual(addFlagCalls.length, 1);
-		assert.strictEqual(addFlagCalls[0].arguments[0], messageId);
-		assert.strictEqual(addFlagCalls[0].arguments[1], MessageSystemFlag.Flagged);
-
-		// Verify SQS message was sent
-		assert.strictEqual(mockSQS._sentMessages.length, 1);
-		const event = JSON.parse(mockSQS._sentMessages[0].MessageBody);
-		assert.strictEqual(event.type, "SYNC_FLAGS");
-		assert.strictEqual(event.accountId, accountId);
-		assert.strictEqual(event.operations[0].flagName, MessageSystemFlag.Flagged);
-		assert.strictEqual(event.operations[0].operation, "add");
+		assert.strictEqual(flagPushService._flips.length, 1);
+		assert.strictEqual(
+			flagPushService._flips[0].flagName,
+			MessageSystemFlag.Flagged,
+		);
+		assert.strictEqual(flagPushService._flips[0].operation, "add");
 	});
 
-	it("removes starred flag when isStarred is false", async () => {
+	it("removes starred flag: local removeFlag(Flagged) + flip(remove)", async () => {
 		const { service, config } = createTestConfig();
 
-		// Pre-set the flag
 		const flagService = config.messageFlagService as ReturnType<
 			typeof createMockMessageFlagService
 		>;
@@ -369,30 +400,20 @@ describe("FlagQueueService.updateFlags", () => {
 			TEST_ACCOUNT_CONFIG_ID,
 			messageId,
 			accountId,
-			{
-				isStarred: false,
-			},
+			{ isStarred: false },
 		);
 
-		assert.strictEqual(result.messageId, messageId);
 		assert.strictEqual(result.isStarred, false);
 
-		// Verify removeFlag was called with Flagged
-		const removeFlagCalls = (
-			flagService.removeFlag as unknown as ReturnType<typeof mock.fn>
-		).mock.calls;
-		assert.strictEqual(removeFlagCalls.length, 1);
-		assert.strictEqual(removeFlagCalls[0].arguments[0], messageId);
-		assert.strictEqual(
-			removeFlagCalls[0].arguments[1],
-			MessageSystemFlag.Flagged,
-		);
+		const flagPushService = config.flagPushService as ReturnType<
+			typeof createMockFlagPushService
+		>;
+		assert.strictEqual(flagPushService._flips[0].operation, "remove");
 	});
 
-	it("updates star color on ThreadMessage", async () => {
+	it("updates star color on ThreadMessage without a marker flip (starColor never syncs to IMAP)", async () => {
 		const { service, config } = createTestConfig();
 
-		// Add a thread message
 		const threadMessageService = config.threadMessageService as ReturnType<
 			typeof createMockThreadMessageService
 		>;
@@ -411,7 +432,6 @@ describe("FlagQueueService.updateFlags", () => {
 			starColor: StarColor.Blue,
 		});
 
-		// Verify update was called with star color
 		const updateCalls = (
 			threadMessageService.update as unknown as ReturnType<typeof mock.fn>
 		).mock.calls;
@@ -420,50 +440,16 @@ describe("FlagQueueService.updateFlags", () => {
 			(updateCalls[0].arguments[2] as { star?: string }).star,
 			StarColor.Blue,
 		);
+
+		const flagPushService = config.flagPushService as ReturnType<
+			typeof createMockFlagPushService
+		>;
+		assert.strictEqual(flagPushService._flips.length, 0);
 	});
 
-	it("updates both isStarred and starColor together", async () => {
+	it("handles multiple flags in a single call — one flip per field", async () => {
 		const { service, config } = createTestConfig();
 
-		// Add a thread message
-		const threadMessageService = config.threadMessageService as ReturnType<
-			typeof createMockThreadMessageService
-		>;
-		threadMessageService._addThreadMessage(messageId, {
-			accountConfigId: "test-account-config",
-			threadMessageId: "test-thread-message-id",
-			mailboxId: "test-mailbox-id",
-			sentDate: Date.now(),
-			isRead: false,
-			isDeleted: false,
-			hasStars: false,
-			hasAttachment: false,
-		});
-
-		await service.updateFlags(TEST_ACCOUNT_CONFIG_ID, messageId, accountId, {
-			isStarred: true,
-			starColor: StarColor.Red,
-		});
-
-		// Verify update was called with both hasStars and star
-		const updateCalls = (
-			threadMessageService.update as unknown as ReturnType<typeof mock.fn>
-		).mock.calls;
-		assert.strictEqual(updateCalls.length, 1);
-		assert.strictEqual(
-			(updateCalls[0].arguments[2] as { hasStars?: boolean }).hasStars,
-			true,
-		);
-		assert.strictEqual(
-			(updateCalls[0].arguments[2] as { star?: string }).star,
-			StarColor.Red,
-		);
-	});
-
-	it("handles multiple flags in single call", async () => {
-		const { service, config, mockSQS } = createTestConfig();
-
-		// Add a thread message
 		const threadMessageService = config.threadMessageService as ReturnType<
 			typeof createMockThreadMessageService
 		>;
@@ -483,41 +469,40 @@ describe("FlagQueueService.updateFlags", () => {
 			isStarred: true,
 		});
 
-		// Verify both flags were added
 		const flagService = config.messageFlagService as ReturnType<
 			typeof createMockMessageFlagService
 		>;
-		const addFlagCalls = (
-			flagService.addFlag as unknown as ReturnType<typeof mock.fn>
-		).mock.calls;
-		assert.strictEqual(addFlagCalls.length, 2);
+		assert.strictEqual(flagService._calls.length, 2);
 
-		// Verify SQS event contains both operations
-		assert.strictEqual(mockSQS._sentMessages.length, 1);
-		const event = JSON.parse(mockSQS._sentMessages[0].MessageBody);
-		assert.strictEqual(event.operations.length, 2);
+		const flagPushService = config.flagPushService as ReturnType<
+			typeof createMockFlagPushService
+		>;
+		assert.strictEqual(flagPushService._flips.length, 2);
+		const flagNames = flagPushService._flips.map((f) => f.flagName).sort();
+		assert.deepStrictEqual(
+			flagNames,
+			[MessageSystemFlag.Flagged, MessageSystemFlag.Seen].sort(),
+		);
 	});
 
-	it("does not enqueue SQS event when no flag changes", async () => {
-		const { service, mockSQS } = createTestConfig();
+	it("does not flip anything when no flag changes are requested", async () => {
+		const { service, config } = createTestConfig();
 
-		// Call with empty input
 		await service.updateFlags(TEST_ACCOUNT_CONFIG_ID, messageId, accountId, {});
 
-		// Verify no SQS message was sent
-		assert.strictEqual(mockSQS._sentMessages.length, 0);
+		const flagPushService = config.flagPushService as ReturnType<
+			typeof createMockFlagPushService
+		>;
+		assert.strictEqual(flagPushService._flips.length, 0);
 	});
 
 	it("skips ThreadMessage update when not found", async () => {
 		const { service, config } = createTestConfig();
 
-		// Don't add a thread message - it should skip the update
-
 		await service.updateFlags(TEST_ACCOUNT_CONFIG_ID, messageId, accountId, {
 			isStarred: true,
 		});
 
-		// Verify update was NOT called
 		const threadMessageService = config.threadMessageService as ReturnType<
 			typeof createMockThreadMessageService
 		>;
@@ -526,306 +511,185 @@ describe("FlagQueueService.updateFlags", () => {
 		).mock.calls;
 		assert.strictEqual(updateCalls.length, 0);
 	});
-});
 
-describe("FlagQueueService SQS FIFO handling", () => {
-	const messageId = "test-message-id";
-	const accountId = "test-account-id";
+	it("updateFlags(isRead: true) on an already-read message is a no-op — no false unseenCount undercount (review finding on #1292)", async () => {
+		const { service, config } = createTestConfig();
 
-	it("sets MessageGroupId=accountId for FIFO queue URLs", async () => {
-		const { service, mockSQS } = createTestConfig({
-			sqsQueueUrl:
-				"https://sqs.eu-west-1.amazonaws.com/123456789012/remit-dev-flags.fifo",
-		});
-
-		await service.updateFlags(TEST_ACCOUNT_CONFIG_ID, messageId, accountId, {
-			isRead: true,
-		});
-
-		assert.strictEqual(mockSQS._sentMessages.length, 1);
-		const sent = mockSQS._sentMessages[0];
-		if (!sent) throw new Error("expected sent message");
-		assert.strictEqual(sent.MessageGroupId, accountId);
-		assert.strictEqual(typeof sent.MessageDeduplicationId, "string");
-	});
-
-	it("omits FIFO params for standard queue URLs", async () => {
-		const { service, mockSQS } = createTestConfig({
-			sqsQueueUrl:
-				"https://sqs.eu-west-1.amazonaws.com/123456789012/remit-dev-flags",
-		});
-
-		await service.updateFlags(TEST_ACCOUNT_CONFIG_ID, messageId, accountId, {
-			isRead: true,
-		});
-
-		assert.strictEqual(mockSQS._sentMessages.length, 1);
-		const sent = mockSQS._sentMessages[0];
-		if (!sent) throw new Error("expected sent message");
-		assert.strictEqual(sent.MessageGroupId, undefined);
-		assert.strictEqual(sent.MessageDeduplicationId, undefined);
-	});
-});
-
-describe("FlagQueueService.updateFlags unseenCount adjustment", () => {
-	const messageId = "test-message-id";
-	const accountId = "test-account-id";
-	const mailboxId = "test-mailbox-id";
-
-	it("decrements mailbox.unseenCount when flipping unread -> read", async () => {
-		const mailboxService = createMockMailboxService();
-		mailboxService._setUnseenCount(mailboxId, 5);
-		const { service } = createTestConfig({ mailboxService });
-
-		await service.updateFlags(TEST_ACCOUNT_CONFIG_ID, messageId, accountId, {
-			isRead: true,
-		});
-
-		const adjustCalls = (
-			mailboxService.adjustUnseenCount as unknown as ReturnType<typeof mock.fn>
-		).mock.calls;
-		assert.strictEqual(adjustCalls.length, 1);
-		assert.strictEqual(adjustCalls[0].arguments[0], accountId);
-		assert.strictEqual(adjustCalls[0].arguments[1], mailboxId);
-		assert.strictEqual(adjustCalls[0].arguments[2], -1);
-		assert.strictEqual(mailboxService._getUnseenCount(mailboxId), 4);
-	});
-
-	it("increments mailbox.unseenCount when flipping read -> unread", async () => {
-		const mailboxService = createMockMailboxService();
-		mailboxService._setUnseenCount(mailboxId, 5);
-		const { service, config } = createTestConfig({ mailboxService });
-
-		// Pre-set the Seen flag so wasRead is true
 		const flagService = config.messageFlagService as ReturnType<
 			typeof createMockMessageFlagService
 		>;
 		flagService._flags.set(messageId, new Set([MessageSystemFlag.Seen]));
 
-		await service.updateFlags(TEST_ACCOUNT_CONFIG_ID, messageId, accountId, {
-			isRead: false,
-		});
+		const result = await service.updateFlags(
+			TEST_ACCOUNT_CONFIG_ID,
+			messageId,
+			accountId,
+			{ isRead: true },
+		);
 
-		const adjustCalls = (
-			mailboxService.adjustUnseenCount as unknown as ReturnType<typeof mock.fn>
-		).mock.calls;
-		assert.strictEqual(adjustCalls.length, 1);
-		assert.strictEqual(adjustCalls[0].arguments[0], accountId);
-		assert.strictEqual(adjustCalls[0].arguments[1], mailboxId);
-		assert.strictEqual(adjustCalls[0].arguments[2], 1);
-		assert.strictEqual(mailboxService._getUnseenCount(mailboxId), 6);
-	});
+		assert.strictEqual(result.isRead, true);
 
-	it("does not adjust when isRead is unchanged (already read -> read)", async () => {
-		const mailboxService = createMockMailboxService();
-		mailboxService._setUnseenCount(mailboxId, 5);
-		const { service, config } = createTestConfig({ mailboxService });
-
-		// Pre-set the Seen flag so wasRead is true
-		const flagService = config.messageFlagService as ReturnType<
-			typeof createMockMessageFlagService
+		const flagPushService = config.flagPushService as ReturnType<
+			typeof createMockFlagPushService
 		>;
-		flagService._flags.set(messageId, new Set([MessageSystemFlag.Seen]));
+		assert.strictEqual(flagPushService._flips.length, 0);
 
-		await service.updateFlags(TEST_ACCOUNT_CONFIG_ID, messageId, accountId, {
-			isRead: true,
-		});
-
-		const adjustCalls = (
-			mailboxService.adjustUnseenCount as unknown as ReturnType<typeof mock.fn>
-		).mock.calls;
-		assert.strictEqual(adjustCalls.length, 0);
-		assert.strictEqual(mailboxService._getUnseenCount(mailboxId), 5);
-	});
-
-	it("does not adjust when isRead is not in the input", async () => {
-		const mailboxService = createMockMailboxService();
-		mailboxService._setUnseenCount(mailboxId, 5);
-		const { service } = createTestConfig({ mailboxService });
-
-		await service.updateFlags(TEST_ACCOUNT_CONFIG_ID, messageId, accountId, {
-			isStarred: true,
-		});
-
-		const adjustCalls = (
-			mailboxService.adjustUnseenCount as unknown as ReturnType<typeof mock.fn>
-		).mock.calls;
-		assert.strictEqual(adjustCalls.length, 0);
-	});
-
-	it("does not drop unseenCount below 0 on repeated decrements", async () => {
-		const mailboxService = createMockMailboxService();
-		mailboxService._setUnseenCount(mailboxId, 1);
-		const { service, config } = createTestConfig({ mailboxService });
-
-		// First decrement: 1 -> 0
-		await service.updateFlags(TEST_ACCOUNT_CONFIG_ID, messageId, accountId, {
-			isRead: true,
-		});
-		assert.strictEqual(mailboxService._getUnseenCount(mailboxId), 0);
-
-		// Reset Seen flag so wasRead becomes false again
-		const flagService = config.messageFlagService as ReturnType<
-			typeof createMockMessageFlagService
+		const threadMessageService = config.threadMessageService as ReturnType<
+			typeof createMockThreadMessageService
 		>;
-		flagService._flags.set(messageId, new Set());
+		const updateCalls = (
+			threadMessageService.update as unknown as ReturnType<typeof mock.fn>
+		).mock.calls;
+		assert.strictEqual(
+			updateCalls.length,
+			0,
+			"no redundant ThreadMessage.isRead write either",
+		);
+	});
 
-		// Second decrement: would go to -1, but mailboxService.adjustUnseenCount clamps to 0
-		await service.updateFlags(TEST_ACCOUNT_CONFIG_ID, messageId, accountId, {
-			isRead: true,
-		});
-		assert.strictEqual(mailboxService._getUnseenCount(mailboxId), 0);
+	it("never touches mailbox unseenCount — projections are pure (data-flow.md)", async () => {
+		// FlagQueueConfig has no `mailboxService` at all anymore: the type
+		// system enforces this invariant structurally, this test documents it.
+		const { config } = createTestConfig();
+		assert.strictEqual("mailboxService" in config, false);
 	});
 });
 
-describe("FlagQueueService.markAsRead/markAsUnread unseenCount adjustment", () => {
+describe("FlagQueueService.markAsRead / markAsUnread", () => {
 	const messageId = "test-message-id";
 	const accountId = "test-account-id";
-	const mailboxId = "test-mailbox-id";
 
-	it("markAsRead decrements unseenCount when message was unread", async () => {
-		const mailboxService = createMockMailboxService();
-		mailboxService._setUnseenCount(mailboxId, 3);
-		const { service } = createTestConfig({ mailboxService });
+	it("markAsRead flips Seen -> add", async () => {
+		const { service, config, mailboxId } = createTestConfig();
 
 		await service.markAsRead(TEST_ACCOUNT_CONFIG_ID, messageId, accountId);
 
-		assert.strictEqual(mailboxService._getUnseenCount(mailboxId), 2);
-	});
-
-	it("markAsRead does not decrement when message was already read", async () => {
-		const mailboxService = createMockMailboxService();
-		mailboxService._setUnseenCount(mailboxId, 3);
-		const { service, config } = createTestConfig({ mailboxService });
-
-		const flagService = config.messageFlagService as ReturnType<
-			typeof createMockMessageFlagService
+		const flagPushService = config.flagPushService as ReturnType<
+			typeof createMockFlagPushService
 		>;
-		flagService._flags.set(messageId, new Set([MessageSystemFlag.Seen]));
-
-		await service.markAsRead(TEST_ACCOUNT_CONFIG_ID, messageId, accountId);
-
-		assert.strictEqual(mailboxService._getUnseenCount(mailboxId), 3);
-	});
-
-	it("markAsUnread increments unseenCount when message was read", async () => {
-		const mailboxService = createMockMailboxService();
-		mailboxService._setUnseenCount(mailboxId, 3);
-		const { service, config } = createTestConfig({ mailboxService });
-
-		const flagService = config.messageFlagService as ReturnType<
-			typeof createMockMessageFlagService
-		>;
-		flagService._flags.set(messageId, new Set([MessageSystemFlag.Seen]));
-
-		await service.markAsUnread(TEST_ACCOUNT_CONFIG_ID, messageId, accountId);
-
-		assert.strictEqual(mailboxService._getUnseenCount(mailboxId), 4);
-	});
-
-	it("markAsUnread does not increment when message was already unread", async () => {
-		const mailboxService = createMockMailboxService();
-		mailboxService._setUnseenCount(mailboxId, 3);
-		const { service } = createTestConfig({ mailboxService });
-
-		await service.markAsUnread(TEST_ACCOUNT_CONFIG_ID, messageId, accountId);
-
-		assert.strictEqual(mailboxService._getUnseenCount(mailboxId), 3);
-	});
-});
-
-describe("FlagQueueService enqueue failure containment", () => {
-	const messageId = "test-message-id";
-	const accountId = "test-account-id";
-
-	// A deferred ECONNREFUSED, the way a real socket error settles after the AWS
-	// SDK's connect attempt — not an inline throw a synchronous guard would catch.
-	const deferredFailingSQS = () => ({
-		send: mock.fn(
-			() =>
-				new Promise((_resolve, reject) => {
-					setImmediate(() =>
-						reject(
-							Object.assign(new Error(""), {
-								name: "AggregateError",
-								code: "ECONNREFUSED",
-							}),
-						),
-					);
-				}),
-		),
-	});
-
-	const createLoggerSpy = () => {
-		const errors: { fields: Record<string, unknown>; msg: string }[] = [];
-		return {
-			logger: {
-				info: () => {},
-				error: (fields: Record<string, unknown>, msg: string) => {
-					errors.push({ fields, msg });
-				},
+		assert.deepStrictEqual(flagPushService._flips, [
+			{
+				accountId,
+				accountConfigId: TEST_ACCOUNT_CONFIG_ID,
+				messageId,
+				mailboxId,
+				flagName: MessageSystemFlag.Seen,
+				operation: "add",
 			},
-			errors,
-		};
-	};
+		]);
+	});
 
-	it("does NOT reject updateFlags when the SYNC_FLAGS enqueue fails (queue down)", async () => {
-		const { logger } = createLoggerSpy();
-		const { service } = createTestConfig({ logger });
-		// @ts-expect-error - swap in a deferred-failing SQS for the down-queue case
-		service.sqs = deferredFailingSQS();
+	it("markAsUnread flips Seen -> remove", async () => {
+		const { service, config, mailboxId } = createTestConfig();
 
-		await assert.doesNotReject(
-			service.updateFlags(TEST_ACCOUNT_CONFIG_ID, messageId, accountId, {
-				isRead: true,
-			}),
+		// Message starts read — otherwise "mark unread" is a genuine no-op
+		// (already matches the desired state, review finding on #1292).
+		const flagService = config.messageFlagService as ReturnType<
+			typeof createMockMessageFlagService
+		>;
+		flagService._flags.set(messageId, new Set([MessageSystemFlag.Seen]));
+
+		await service.markAsUnread(TEST_ACCOUNT_CONFIG_ID, messageId, accountId);
+
+		const flagPushService = config.flagPushService as ReturnType<
+			typeof createMockFlagPushService
+		>;
+		assert.deepStrictEqual(flagPushService._flips, [
+			{
+				accountId,
+				accountConfigId: TEST_ACCOUNT_CONFIG_ID,
+				messageId,
+				mailboxId,
+				flagName: MessageSystemFlag.Seen,
+				operation: "remove",
+			},
+		]);
+	});
+
+	it("markAsRead on an ALREADY-read message is a no-op — no marker, no local write, no false unseenCount undercount (review finding on #1292)", async () => {
+		const { service, config } = createTestConfig();
+
+		const flagService = config.messageFlagService as ReturnType<
+			typeof createMockMessageFlagService
+		>;
+		flagService._flags.set(messageId, new Set([MessageSystemFlag.Seen]));
+
+		await service.markAsRead(TEST_ACCOUNT_CONFIG_ID, messageId, accountId);
+
+		const flagPushService = config.flagPushService as ReturnType<
+			typeof createMockFlagPushService
+		>;
+		assert.strictEqual(
+			flagPushService._flips.length,
+			0,
+			"a redundant mark-as-read must not write a fresh add-Seen marker — it would falsely subtract from unseenCount at read time",
+		);
+		assert.strictEqual(
+			flagService._calls.length,
+			0,
+			"no redundant local MessageFlag write either",
 		);
 	});
 
-	it("does NOT leak an unhandled rejection onto a concurrent read when the enqueue fails", async () => {
-		const leaked: unknown[] = [];
-		const onUnhandled = (reason: unknown): void => {
-			leaked.push(reason);
-		};
-		process.on("unhandledRejection", onUnhandled);
+	it("markAsUnread on an ALREADY-unread message is a no-op — no marker, no local write", async () => {
+		const { service, config } = createTestConfig();
 
-		const { logger } = createLoggerSpy();
-		const { service } = createTestConfig({ logger });
-		// @ts-expect-error - swap in a deferred-failing SQS for the down-queue case
-		service.sqs = deferredFailingSQS();
+		const flagPushService = config.flagPushService as ReturnType<
+			typeof createMockFlagPushService
+		>;
+		const flagService = config.messageFlagService as ReturnType<
+			typeof createMockMessageFlagService
+		>;
 
-		let readResolved = false;
-		try {
-			void service.updateFlags(TEST_ACCOUNT_CONFIG_ID, messageId, accountId, {
-				isStarred: true,
-			});
-			await new Promise((resolve) => setImmediate(resolve)).then(() => {
-				readResolved = true;
-			});
-			await new Promise((resolve) => setImmediate(resolve));
-			await new Promise((resolve) => setImmediate(resolve));
-		} finally {
-			process.off("unhandledRejection", onUnhandled);
-		}
+		await service.markAsUnread(TEST_ACCOUNT_CONFIG_ID, messageId, accountId);
 
-		assert.strictEqual(readResolved, true);
-		assert.strictEqual(leaked.length, 0);
+		assert.strictEqual(flagPushService._flips.length, 0);
+		assert.strictEqual(flagService._calls.length, 0);
+	});
+});
+
+describe("FlagQueueService.toggleFlagged", () => {
+	const messageId = "test-message-id";
+	const accountId = "test-account-id";
+
+	it("adds the Flagged flag and returns true when not currently starred", async () => {
+		const { service, config } = createTestConfig();
+
+		const result = await service.toggleFlagged(
+			TEST_ACCOUNT_CONFIG_ID,
+			messageId,
+			accountId,
+		);
+
+		assert.strictEqual(result, true);
+		const flagPushService = config.flagPushService as ReturnType<
+			typeof createMockFlagPushService
+		>;
+		assert.strictEqual(flagPushService._flips[0].operation, "add");
+		assert.strictEqual(
+			flagPushService._flips[0].flagName,
+			MessageSystemFlag.Flagged,
+		);
 	});
 
-	it("logs the enqueue failure loudly with an alertable field", async () => {
-		const { logger, errors } = createLoggerSpy();
-		const { service } = createTestConfig({ logger });
-		// @ts-expect-error - swap in a deferred-failing SQS for the down-queue case
-		service.sqs = deferredFailingSQS();
+	it("removes the Flagged flag and returns false when currently starred", async () => {
+		const { service, config } = createTestConfig();
 
-		await service.updateFlags(TEST_ACCOUNT_CONFIG_ID, messageId, accountId, {
-			isRead: true,
-		});
+		const flagService = config.messageFlagService as ReturnType<
+			typeof createMockMessageFlagService
+		>;
+		flagService._flags.set(messageId, new Set([MessageSystemFlag.Flagged]));
 
-		const alerted = errors.find(
-			(e) => e.fields.alert === "flag_sync_enqueue_failed",
+		const result = await service.toggleFlagged(
+			TEST_ACCOUNT_CONFIG_ID,
+			messageId,
+			accountId,
 		);
-		assert.ok(alerted, "expected an alertable flag_sync_enqueue_failed log");
-		assert.strictEqual(alerted.fields.errorCode, "ECONNREFUSED");
+
+		assert.strictEqual(result, false);
+		const flagPushService = config.flagPushService as ReturnType<
+			typeof createMockFlagPushService
+		>;
+		assert.strictEqual(flagPushService._flips[0].operation, "remove");
 	});
 });

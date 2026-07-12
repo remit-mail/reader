@@ -29,11 +29,6 @@ export interface IMailboxRepository {
 		remove?: string[],
 	): Promise<MailboxItem>;
 	delete(accountId: string, mailboxId: string): Promise<void>;
-	adjustUnseenCount(
-		accountId: string,
-		mailboxId: string,
-		delta: number,
-	): Promise<void>;
 	deleteMany(accountId: string, mailboxIds: string[]): Promise<void>;
 	listByAccount(
 		accountId: string,

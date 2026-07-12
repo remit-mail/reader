@@ -1,40 +1,16 @@
-import { randomUUID } from "node:crypto";
-import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 import type {
-	IMailboxRepository,
 	IMessageFlagRepository,
 	IMessageRepository,
 	IThreadMessageRepository,
 } from "@remit/data-ports";
 import { NotFoundError } from "@remit/remit-electrodb-service";
 import { MessageSystemFlag, type StarColor } from "@remit/domain-enums";
-import { resolveSqsCredentials } from "@remit/sqs-client";
+import type { FlagPushOperationValue, FlagPushService } from "./flag-push.js";
 
 /**
  * StarColor type derived from the StarColor const object
  */
 type StarColorValue = (typeof StarColor)[keyof typeof StarColor];
-
-/**
- * Flag operation for SQS event
- */
-interface FlagOperation {
-	messageId: string;
-	flagName: string;
-	operation: "add" | "remove";
-}
-
-/**
- * SYNC_FLAGS event structure (matches remit-imap-worker/events.ts)
- */
-interface SyncFlagsEvent {
-	type: "SYNC_FLAGS";
-	eventId: string;
-	timestamp: number;
-	accountId: string;
-	mailboxId: string;
-	operations: FlagOperation[];
-}
 
 /**
  * Logger interface
@@ -74,30 +50,38 @@ export interface FlagQueueConfig {
 	messageFlagService: IMessageFlagRepository;
 	messageService: IMessageRepository;
 	threadMessageService: IThreadMessageRepository;
-	mailboxService: IMailboxRepository;
-	sqsQueueUrl: string;
-	sqsEndpoint?: string;
+	flagPushService: FlagPushService;
 	logger?: FlagQueueLogger;
 }
 
 /**
- * Service for marking messages as read/unread with automatic IMAP sync queueing.
+ * Service for marking messages as read/unread/starred, local-first with a
+ * durable pending-flag marker (issue #1273, epic #1281).
  *
- * Implements optimistic local-first pattern:
- * 1. Updates local DynamoDB state immediately (MessageFlag + ThreadMessage)
- * 2. Enqueues SYNC_FLAGS event to SQS for worker to sync to IMAP
+ * Every flip below follows the SAME sequence: persist the pending marker
+ * FIRST via {@link FlagPushService.flip} (the durable record IMAP still owes
+ * this push, and best-effort enqueues a wake-up hint), THEN apply locally
+ * (MessageFlag + ThreadMessage). The marker write is what makes the user's
+ * intent durable — not the enqueue, which may fail freely (see
+ * `FlagPushService`'s own doc) — and writing it first means a crash before
+ * the local write leaves an unapplied local flip behind an already-durable
+ * marker, never a flipped flag with no marker (review finding on #1292;
+ * mirrors #1289's `PlacementMoveService.moveMessage` ordering). This class
+ * therefore no longer touches
+ * `Mailbox.unseenCount` at all: that field is a pure projection, recomputed
+ * only from IMAP (`doc/rules/data-flow.md`); the displayed count is adjusted
+ * at READ TIME from pending markers (`applyPendingMoveCountPrediction`,
+ * `packages/remit-backend/src/derive/pendingMoveCounts.ts`).
  *
- * The service updates BOTH entities:
+ * The service updates BOTH entities locally:
  * - MessageFlag: The canonical flag record
- * - ThreadMessage.isRead: Denormalized for efficient queries
+ * - ThreadMessage.isRead / hasStars / star: Denormalized for efficient queries
  */
 export class FlagQueueService {
 	private messageFlagService: IMessageFlagRepository;
 	private messageService: IMessageRepository;
 	private threadMessageService: IThreadMessageRepository;
-	private mailboxService: IMailboxRepository;
-	private sqs: SQSClient;
-	private queueUrl: string;
+	private flagPushService: FlagPushService;
 	private log: FlagQueueLogger;
 
 	constructor(config: FlagQueueConfig) {
@@ -105,31 +89,13 @@ export class FlagQueueService {
 			messageFlagService,
 			messageService,
 			threadMessageService,
-			mailboxService,
-			sqsQueueUrl,
-			sqsEndpoint,
+			flagPushService,
 		} = config;
 		this.messageFlagService = messageFlagService;
 		this.messageService = messageService;
 		this.threadMessageService = threadMessageService;
-		this.mailboxService = mailboxService;
-		this.queueUrl = sqsQueueUrl;
+		this.flagPushService = flagPushService;
 		this.log = config.logger ?? noopLogger;
-
-		this.sqs = new SQSClient({
-			endpoint: sqsEndpoint ?? this.deriveEndpoint(sqsQueueUrl),
-			credentials: resolveSqsCredentials(),
-		});
-	}
-
-	/**
-	 * Derive SQS endpoint from queue URL for local development.
-	 */
-	private deriveEndpoint(queueUrl: string): string | undefined {
-		if (queueUrl.startsWith("http://localhost")) {
-			return new URL(queueUrl).origin;
-		}
-		return undefined;
 	}
 
 	/**
@@ -264,35 +230,85 @@ export class FlagQueueService {
 	};
 
 	/**
-	 * Adjust the parent mailbox `unseenCount` to reflect a flip of the
-	 * `\Seen` flag.
+	 * Flip one flag field: persist the pending marker FIRST, then apply
+	 * locally. Every caller in this class routes through here so the marker
+	 * write is never skipped. Returns whether a change actually happened —
+	 * `false` for a redundant flip (already in the desired state), which
+	 * every caller uses to skip the (otherwise redundant) ThreadMessage
+	 * update too.
 	 *
-	 * Decrements when going unread -> read, increments when going read ->
-	 * unread, and is a no-op when state is unchanged. The adjustment is
-	 * delegated to `MailboxService.adjustUnseenCount`, which uses an atomic
-	 * DDB `ADD` plus a conditional check to stay race-safe and clamp at zero.
-	 * The IMAP sync path remains the periodic safety net that recomputes the
-	 * count from scratch, so any drift is self-healing.
+	 * Ordering matters (review finding on #1292): a marker written AFTER the
+	 * local `MessageFlag` flip means a crash between the two awaits strands a
+	 * flipped flag with no marker — no hint was ever sent, the pending-only
+	 * drain never finds it (no marker to find), and message-sync never
+	 * rewrites `MessageFlag` from IMAP for an existing row, so nothing else
+	 * reconciles it either. That is a permanent, silent divergence — exactly
+	 * the defect #1273 exists to kill. Writing the marker first (matching
+	 * #1289's `PlacementMoveService.moveMessage` ordering) makes that
+	 * scenario impossible: the marker's existence is the record of how far
+	 * the sequence got, so a crash after it can strand at worst an
+	 * un-applied LOCAL write behind an already-durable marker — recoverable
+	 * (the caller's natural retry re-applies both steps; `put` and
+	 * `addFlag`/`removeFlag` are both idempotent) — never the reverse.
+	 *
+	 * The current-state check (review finding on #1292) matters for a
+	 * different reason: `markAsRead`/`markAsUnread`/`updateFlags` take the
+	 * DESIRED boolean from the caller rather than deriving it from current
+	 * state (unlike `toggleFlagged`, which already reads `hasFlag` first and
+	 * so can never generate a redundant marker). A redundant "mark as read"
+	 * on an already-read message would otherwise still write a fresh `add
+	 * \Seen` marker; the read-time unseenCount prediction
+	 * (`applyPendingMoveCountPrediction`) would then subtract one for a
+	 * message IMAP already counts as seen, transiently under-counting the
+	 * badge until the marker clears. Skipping the marker (and the local
+	 * write) entirely when the flag already matches removes the false
+	 * prediction at the source, not just its symptom.
 	 */
-	private adjustUnseenForReadFlip = async (
+	private flipFlag = async (
 		accountId: string,
+		accountConfigId: string,
+		messageId: string,
 		mailboxId: string,
-		wasRead: boolean,
-		isRead: boolean,
-	): Promise<void> => {
-		if (wasRead === isRead) return;
-		const delta = isRead ? -1 : 1;
-		await this.mailboxService.adjustUnseenCount(accountId, mailboxId, delta);
-		this.log.info(
-			{ mailboxId, delta, wasRead, isRead },
-			"Adjusted mailbox unseenCount",
+		flagName: string,
+		operation: FlagPushOperationValue,
+	): Promise<boolean> => {
+		const alreadyInState = await this.messageFlagService.hasFlag(
+			messageId,
+			flagName,
 		);
+		if (
+			(operation === "add" && alreadyInState) ||
+			(operation === "remove" && !alreadyInState)
+		) {
+			this.log.info(
+				{ messageId, flagName, operation },
+				"Flag already in the desired state — skipping redundant marker + local write",
+			);
+			return false;
+		}
+
+		await this.flagPushService.flip({
+			accountId,
+			accountConfigId,
+			messageId,
+			mailboxId,
+			flagName,
+			operation,
+		});
+
+		if (operation === "add") {
+			await this.messageFlagService.addFlag(messageId, flagName);
+		} else {
+			await this.messageFlagService.removeFlag(messageId, flagName);
+		}
+
+		return true;
 	};
 
 	/**
 	 * Mark a message as read (add \Seen flag).
-	 * Updates MessageFlag, ThreadMessage.isRead, mailbox unseenCount, and
-	 * enqueues IMAP sync.
+	 * Updates MessageFlag, ThreadMessage.isRead, and persists a pending
+	 * flag-push marker for IMAP sync.
 	 *
 	 * @param accountConfigId - The owning account config (tenant scope)
 	 * @param messageId - The message to mark as read
@@ -304,41 +320,30 @@ export class FlagQueueService {
 		accountId: string,
 	): Promise<void> => {
 		const message = await this.messageService.get(messageId);
-		const wasRead = await this.messageFlagService.hasFlag(
-			messageId,
-			MessageSystemFlag.Seen,
-		);
 
-		// Update MessageFlag
-		await this.messageFlagService.addFlag(messageId, MessageSystemFlag.Seen);
-
-		// Update ThreadMessage.isRead (denormalized)
-		await this.updateThreadMessageIsRead(accountConfigId, messageId, true);
-
-		// Adjust parent mailbox unseenCount (atomic, clamped at 0)
-		await this.adjustUnseenForReadFlip(
+		const changed = await this.flipFlag(
 			accountId,
+			accountConfigId,
+			messageId,
 			message.mailboxId,
-			wasRead,
-			true,
+			MessageSystemFlag.Seen,
+			"add",
 		);
 
-		this.log.info({ messageId }, "Marked message as read (local)");
+		if (changed) {
+			await this.updateThreadMessageIsRead(accountConfigId, messageId, true);
+		}
 
-		// Enqueue IMAP sync
-		await this.enqueueSync(accountId, message.mailboxId, [
-			{
-				messageId,
-				flagName: MessageSystemFlag.Seen,
-				operation: "add",
-			},
-		]);
+		this.log.info(
+			{ messageId, changed },
+			"Marked message as read (local, push pending)",
+		);
 	};
 
 	/**
 	 * Mark a message as unread (remove \Seen flag).
-	 * Updates MessageFlag, ThreadMessage.isRead, mailbox unseenCount, and
-	 * enqueues IMAP sync.
+	 * Updates MessageFlag, ThreadMessage.isRead, and persists a pending
+	 * flag-push marker for IMAP sync.
 	 *
 	 * @param accountConfigId - The owning account config (tenant scope)
 	 * @param messageId - The message to mark as unread
@@ -350,46 +355,38 @@ export class FlagQueueService {
 		accountId: string,
 	): Promise<void> => {
 		const message = await this.messageService.get(messageId);
-		const wasRead = await this.messageFlagService.hasFlag(
-			messageId,
-			MessageSystemFlag.Seen,
-		);
 
-		// Update MessageFlag
-		await this.messageFlagService.removeFlag(messageId, MessageSystemFlag.Seen);
-
-		// Update ThreadMessage.isRead (denormalized)
-		await this.updateThreadMessageIsRead(accountConfigId, messageId, false);
-
-		// Adjust parent mailbox unseenCount (atomic, clamped at 0)
-		await this.adjustUnseenForReadFlip(
+		const changed = await this.flipFlag(
 			accountId,
+			accountConfigId,
+			messageId,
 			message.mailboxId,
-			wasRead,
-			false,
+			MessageSystemFlag.Seen,
+			"remove",
 		);
 
-		this.log.info({ messageId }, "Marked message as unread (local)");
+		if (changed) {
+			await this.updateThreadMessageIsRead(accountConfigId, messageId, false);
+		}
 
-		// Enqueue IMAP sync
-		await this.enqueueSync(accountId, message.mailboxId, [
-			{
-				messageId,
-				flagName: MessageSystemFlag.Seen,
-				operation: "remove",
-			},
-		]);
+		this.log.info(
+			{ messageId, changed },
+			"Marked message as unread (local, push pending)",
+		);
 	};
 
 	/**
 	 * Toggle the starred/flagged status of a message.
-	 * Updates local state and enqueues IMAP sync.
+	 * Updates local state and persists a pending flag-push marker for IMAP
+	 * sync.
 	 *
+	 * @param accountConfigId - The owning account config (tenant scope)
 	 * @param messageId - The message to toggle
 	 * @param accountId - The account ID for the IMAP sync event
 	 * @returns true if flag was added, false if removed
 	 */
 	toggleFlagged = async (
+		accountConfigId: string,
 		messageId: string,
 		accountId: string,
 	): Promise<boolean> => {
@@ -399,33 +396,23 @@ export class FlagQueueService {
 			messageId,
 			MessageSystemFlag.Flagged,
 		);
+		const operation: FlagPushOperationValue = hasFlag ? "remove" : "add";
 
-		const operation = hasFlag ? "remove" : "add";
+		await this.flipFlag(
+			accountId,
+			accountConfigId,
+			messageId,
+			message.mailboxId,
+			MessageSystemFlag.Flagged,
+			operation,
+		);
 
-		if (hasFlag) {
-			await this.messageFlagService.removeFlag(
-				messageId,
-				MessageSystemFlag.Flagged,
-			);
-			this.log.info({ messageId }, "Removed flagged status (local)");
-		} else {
-			await this.messageFlagService.addFlag(
-				messageId,
-				MessageSystemFlag.Flagged,
-			);
-			this.log.info({ messageId }, "Added flagged status (local)");
-		}
+		this.log.info(
+			{ messageId, operation },
+			"Toggled flagged status (local, push pending)",
+		);
 
-		// Enqueue IMAP sync
-		await this.enqueueSync(accountId, message.mailboxId, [
-			{
-				messageId,
-				flagName: MessageSystemFlag.Flagged,
-				operation,
-			},
-		]);
-
-		return !hasFlag;
+		return operation === "add";
 	};
 
 	/**
@@ -445,72 +432,37 @@ export class FlagQueueService {
 		input: UpdateFlagsInput,
 	): Promise<UpdateFlagsResult> => {
 		const message = await this.messageService.get(messageId);
-		const operations: FlagOperation[] = [];
 
 		// Handle isRead -> \Seen flag
 		if (input.isRead !== undefined) {
-			const wasRead = await this.messageFlagService.hasFlag(
-				messageId,
-				MessageSystemFlag.Seen,
-			);
-			if (input.isRead) {
-				await this.messageFlagService.addFlag(
-					messageId,
-					MessageSystemFlag.Seen,
-				);
-				operations.push({
-					messageId,
-					flagName: MessageSystemFlag.Seen,
-					operation: "add",
-				});
-			} else {
-				await this.messageFlagService.removeFlag(
-					messageId,
-					MessageSystemFlag.Seen,
-				);
-				operations.push({
-					messageId,
-					flagName: MessageSystemFlag.Seen,
-					operation: "remove",
-				});
-			}
-			await this.updateThreadMessageIsRead(
+			const changed = await this.flipFlag(
+				accountId,
 				accountConfigId,
 				messageId,
-				input.isRead,
-			);
-			await this.adjustUnseenForReadFlip(
-				accountId,
 				message.mailboxId,
-				wasRead,
-				input.isRead,
+				MessageSystemFlag.Seen,
+				input.isRead ? "add" : "remove",
 			);
+			if (changed) {
+				await this.updateThreadMessageIsRead(
+					accountConfigId,
+					messageId,
+					input.isRead,
+				);
+			}
 		}
 
 		// Handle isStarred -> \Flagged flag and ThreadMessage.hasStars/star
 		if (input.isStarred !== undefined || input.starColor !== undefined) {
 			if (input.isStarred !== undefined) {
-				if (input.isStarred) {
-					await this.messageFlagService.addFlag(
-						messageId,
-						MessageSystemFlag.Flagged,
-					);
-					operations.push({
-						messageId,
-						flagName: MessageSystemFlag.Flagged,
-						operation: "add",
-					});
-				} else {
-					await this.messageFlagService.removeFlag(
-						messageId,
-						MessageSystemFlag.Flagged,
-					);
-					operations.push({
-						messageId,
-						flagName: MessageSystemFlag.Flagged,
-						operation: "remove",
-					});
-				}
+				await this.flipFlag(
+					accountId,
+					accountConfigId,
+					messageId,
+					message.mailboxId,
+					MessageSystemFlag.Flagged,
+					input.isStarred ? "add" : "remove",
+				);
 			}
 
 			// Update ThreadMessage hasStars and star color for ALL instances
@@ -526,11 +478,6 @@ export class FlagQueueService {
 				messageId,
 				starUpdates,
 			);
-		}
-
-		// Enqueue IMAP sync if there are flag operations
-		if (operations.length > 0) {
-			await this.enqueueSync(accountId, message.mailboxId, operations);
 		}
 
 		// Return current state
@@ -549,71 +496,5 @@ export class FlagQueueService {
 		);
 
 		return { messageId, isRead, isStarred };
-	};
-
-	/**
-	 * Enqueue a SYNC_FLAGS event to SQS.
-	 *
-	 * FIFO queues require MessageGroupId; standard queues reject it. We detect
-	 * FIFO queues by the `.fifo` suffix and group by accountId so independent
-	 * accounts can be processed concurrently while preserving per-account order.
-	 */
-	private enqueueSync = async (
-		accountId: string,
-		mailboxId: string,
-		operations: FlagOperation[],
-	): Promise<void> => {
-		const event: SyncFlagsEvent = {
-			type: "SYNC_FLAGS",
-			eventId: randomUUID(),
-			timestamp: Date.now(),
-			accountId,
-			mailboxId,
-			operations,
-		};
-
-		const useFifo = this.queueUrl.endsWith(".fifo");
-
-		// The local flag state (MessageFlag + ThreadMessage rows) is already
-		// durably written by the time we get here; this enqueue only propagates the
-		// change to IMAP, which is best-effort. A queue-down failure must therefore
-		// NOT reject updateFlags — an awaited rejection here escapes the handler's
-		// promise and, on the shared API event loop, lands on whatever read is in
-		// flight, 500-ing unrelated /mailboxes, /threads and /outbox reads. Catch it
-		// at the source, log loudly with an alertable field, and resolve. The local
-		// state is correct; the worker reconciles IMAP on the next sync.
-		await this.sqs
-			.send(
-				new SendMessageCommand({
-					QueueUrl: this.queueUrl,
-					MessageBody: JSON.stringify(event),
-					...(useFifo && {
-						MessageGroupId: accountId,
-						MessageDeduplicationId: event.eventId,
-					}),
-				}),
-			)
-			.then(() => {
-				this.log.info(
-					{ eventId: event.eventId, accountId, mailboxId, operations },
-					"Enqueued SYNC_FLAGS event",
-				);
-			})
-			.catch((error: unknown) => {
-				this.log.error(
-					{
-						alert: "flag_sync_enqueue_failed",
-						eventId: event.eventId,
-						accountId,
-						mailboxId,
-						operations,
-						errorName: (error as { name?: string })?.name,
-						errorCode:
-							(error as { Code?: string })?.Code ??
-							(error as { code?: string })?.code,
-					},
-					"Failed to enqueue SYNC_FLAGS event (local flag state persisted, best-effort IMAP sync deferred)",
-				);
-			});
 	};
 }

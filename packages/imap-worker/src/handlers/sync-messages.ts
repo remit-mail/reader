@@ -5,6 +5,7 @@ import type {
 	IAddressRepository,
 	IEnvelopeRepository,
 	IMailboxRepository,
+	IMessageFlagPushRepository,
 	IMessageRepository,
 	IThreadMessageRepository,
 	IUnitOfWork,
@@ -22,7 +23,11 @@ import {
 import pMap from "p-map";
 import { isAccountDeleted, isUnsyncableHost } from "../account-check.js";
 import { emitEvent } from "../emit.js";
-import type { SyncMessageBodyEvent, SyncMessagesEvent } from "../events.js";
+import type {
+	FlagPushEvent,
+	SyncMessageBodyEvent,
+	SyncMessagesEvent,
+} from "../events.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 
@@ -64,6 +69,7 @@ export const syncMessages = async (
 		address: addressService,
 		threadMessage: threadMessageService,
 		mailboxLock: mailboxLockService,
+		flagPush: flagPushMarkerService,
 		unitOfWork,
 		secrets,
 	} = await getClient();
@@ -130,6 +136,7 @@ export const syncMessages = async (
 								envelopeService,
 								addressService,
 								threadMessageService,
+								flagPushMarkerService,
 								unitOfWork,
 							},
 							log,
@@ -171,8 +178,78 @@ interface SyncDeps {
 	envelopeService: IEnvelopeRepository;
 	addressService: IAddressRepository;
 	threadMessageService: IThreadMessageRepository;
+	flagPushMarkerService: IMessageFlagPushRepository;
 	unitOfWork?: IUnitOfWork;
 }
+
+// Bounds concurrent SQS sends while re-arming stuck flag-push markers —
+// markers are expected to be few, but never unbounded (coding-standards.md).
+const FLAG_PUSH_DRAIN_CONCURRENCY = 5;
+
+/**
+ * Periodic per-mailbox drain point for pending flag-push markers (issue
+ * #1273, epic #1281). The SQS enqueue in `FlagPushService.flip` is only a
+ * wake-up hint and may fail freely — a marker left `state: "pending"` means
+ * that hint never landed (queue down, or a crash between the local write and
+ * the enqueue). This periodic tick — which already runs per mailbox on a
+ * schedule regardless of user activity — re-arms every such marker with a
+ * fresh `FLAG_PUSH` event, closing the gap without the caller ever having to
+ * retry.
+ *
+ * Markers already `queued`/`processing` are left alone: a live SQS message
+ * (or the single-marker handler currently running) already owns driving them
+ * forward, and re-arming them too would just duplicate work.
+ *
+ * A re-arm failure (the SQS send itself) is caught per-marker and logged
+ * loudly — it must never fail the surrounding SYNC_MESSAGES batch, which is
+ * unrelated message-header sync work. The marker stays durable regardless;
+ * the next periodic tick tries again.
+ *
+ * `emit` defaults to the real `emitEvent` (imap-worker's shared SQS
+ * producer) and is only ever overridden in tests.
+ */
+export const drainPendingFlagPushes = async (
+	flagPushMarkerService: IMessageFlagPushRepository,
+	account: AccountItem,
+	mailboxId: string,
+	log: Logger,
+	emit: typeof emitEvent = emitEvent,
+): Promise<void> => {
+	const markers = await flagPushMarkerService.listByMailboxId(mailboxId);
+	const stuck = markers.filter((marker) => marker.state === "pending");
+	if (stuck.length === 0) return;
+
+	log.info(
+		{ mailboxId, count: stuck.length },
+		"Periodic sync tick found flag-push marker(s) stuck before their wake-up hint; re-arming",
+	);
+
+	await pMap(
+		stuck,
+		(marker) => {
+			const rearmEvent: Omit<FlagPushEvent, "eventId" | "timestamp"> = {
+				type: "FLAG_PUSH",
+				accountId: account.accountId,
+				accountConfigId: account.accountConfigId,
+				messageId: marker.messageId,
+				flagName: marker.flagName,
+			};
+			return emit(rearmEvent).catch((error: unknown) => {
+				log.error(
+					{
+						alert: "flag_push_drain_rearm_failed",
+						mailboxId,
+						messageId: marker.messageId,
+						flagName: marker.flagName,
+						error: error instanceof Error ? error.message : String(error),
+					},
+					"Failed to re-arm a stuck pending flag-push marker during the periodic drain",
+				);
+			});
+		},
+		{ concurrency: FLAG_PUSH_DRAIN_CONCURRENCY },
+	);
+};
 
 /**
  * Sync one batch of messages for a mailbox. Runs under the mailbox lock.
@@ -191,6 +268,7 @@ const syncMailboxMessages = async (
 		envelopeService,
 		addressService,
 		threadMessageService,
+		flagPushMarkerService,
 		unitOfWork,
 	} = deps;
 
@@ -206,6 +284,11 @@ const syncMailboxMessages = async (
 	// Get the mailbox - it must exist (should have been created by mailbox sync)
 	const mailbox = await mailboxService.get(account.accountId, event.mailboxId);
 	const mailboxId = mailbox.mailboxId;
+
+	// Periodic drain (issue #1273): independent of the IMAP sync below — no
+	// connection needed, just an SQS re-arm — so it runs regardless of this
+	// round's sync outcome.
+	await drainPendingFlagPushes(flagPushMarkerService, account, mailboxId, log);
 	const isInbox = mailbox.fullPath.toUpperCase() === "INBOX";
 
 	const syncService = new MessageSyncService(

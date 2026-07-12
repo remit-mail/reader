@@ -15,6 +15,7 @@ import type {
 	MailboxSchema,
 	MailboxSpecialUseEntrySchema,
 	MailboxSpecialUseSchema,
+	MessageFlagPushSchema,
 	MessageFlagSchema,
 	MessageLabelSchema,
 	MessagePlacementMoveSchema,
@@ -82,6 +83,7 @@ export type FilterAnchorItem = z.infer<typeof FilterAnchorSchema>;
 export type MessagePlacementMoveItem = z.infer<
 	typeof MessagePlacementMoveSchema
 >;
+export type MessageFlagPushItem = z.infer<typeof MessageFlagPushSchema>;
 
 export type MailboxSpecialUseValue = z.infer<typeof MailboxSpecialUseSchema>;
 
@@ -360,6 +362,11 @@ export type CreateMessageFlagInput = Omit<
 
 export type PutMessagePlacementMoveInput = Omit<
 	MessagePlacementMoveItem,
+	"state" | "createdAt" | "updatedAt"
+>;
+
+export type PutMessageFlagPushInput = Omit<
+	MessageFlagPushItem,
 	"state" | "createdAt" | "updatedAt"
 >;
 

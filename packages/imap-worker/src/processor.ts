@@ -3,12 +3,12 @@ import type { WorkerEvent } from "./events.js";
 import { handleAppendSentMessage } from "./handlers/append-sent-message.js";
 import { handleDeleteAccountObjects } from "./handlers/delete-account-objects.js";
 import { handleEmptyTrash } from "./handlers/empty-trash.js";
+import { handleFlagPush } from "./handlers/flag-push.js";
 import { processMailboxManagement } from "./handlers/mailbox-management.js";
 import { handleMessageCopy } from "./handlers/message-copy.js";
 import { handleMessageDelete } from "./handlers/message-delete.js";
 import { handleMessageMove } from "./handlers/message-move.js";
 import { handlePlacementMovePush } from "./handlers/placement-move-push.js";
-import { syncFlags } from "./handlers/sync-flags.js";
 import { syncMailboxes } from "./handlers/sync-mailboxes.js";
 import { syncMessageBody } from "./handlers/sync-message-body.js";
 import { syncMessages } from "./handlers/sync-messages.js";
@@ -32,8 +32,6 @@ export const processEvent = async (
 			return syncMessages(event, log);
 		case "SYNC_MESSAGE_BODY":
 			return syncMessageBody(event, log, receiveCount);
-		case "SYNC_FLAGS":
-			return syncFlags(event, log);
 		case "MAILBOX_CREATE":
 		case "MAILBOX_RENAME":
 		case "MAILBOX_DELETE":
@@ -44,6 +42,8 @@ export const processEvent = async (
 			return handleMessageMove(event, log);
 		case "PLACEMENT_MOVE_PUSH":
 			return handlePlacementMovePush(event, log, receiveCount);
+		case "FLAG_PUSH":
+			return handleFlagPush(event, log, receiveCount);
 		case "MESSAGE_COPY":
 			return handleMessageCopy(event, log);
 		case "EMPTY_TRASH":
