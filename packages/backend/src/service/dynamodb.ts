@@ -11,6 +11,7 @@ import type {
 	IMailboxRepository,
 	IMailboxSpecialUseRepository,
 	IMessageFlagRepository,
+	IMessagePlacementMoveRepository,
 	IMessageRepository,
 	IOutboxMessageRepository,
 	IThreadMessageRepository,
@@ -27,6 +28,7 @@ import {
 	MailboxService,
 	MailboxSpecialUseService,
 	MessageFlagService,
+	MessagePlacementMoveService,
 	MessageService,
 	OutboxMessageService,
 	ThreadMessageService,
@@ -147,6 +149,19 @@ export interface RemitClient {
 	// (the deployed API Lambda does not carry the body queue today).
 	bodySyncQueue?: BodySyncQueueService;
 
+	// Pending placement-move markers (issue #1271). Present on both backends
+	// (`MessagePlacementMoveService` on DynamoDB, `MessagePlacementMoveRepo` on
+	// Postgres) so a caller never needs to guess which backend is active. Used
+	// for read-time count prediction (epic #1281 invariant 4) and by the
+	// account-worker cascade delete. Note the asymmetry this does NOT close:
+	// markers are only ever WRITTEN by the imap-worker's bulk body-sync path,
+	// which is DynamoDB-only (a hardcoded `@remit/remit-electrodb-service`
+	// client, not wired through this RemitClient) — there is no
+	// Postgres-backed placement producer today, so the Postgres path always
+	// returns empty until one exists. This wiring exists so that gap is the
+	// only one (no separate "field absent" gap on top of it).
+	placementMove: IMessagePlacementMoveRepository;
+
 	// Queue services (writes with IMAP sync)
 	flagQueue: FlagQueueService;
 	mailboxQueue: MailboxQueueService;
@@ -243,6 +258,7 @@ const buildDynamoDBClient = (): RemitClient => {
 	const addressService = new AddressService(config);
 	const outboxMessageService = new OutboxMessageService(config);
 	const accountExportRequestService = new AccountExportRequestService(config);
+	const placementMoveService = new MessagePlacementMoveService(config);
 
 	const sqsQueueUrl = env.SQS_QUEUE_URL;
 	const sqsSmtpQueueUrl = process.env.SQS_QUEUE_URL_SMTP ?? sqsQueueUrl;
@@ -280,6 +296,7 @@ const buildDynamoDBClient = (): RemitClient => {
 
 		bodySync: bodySyncService,
 		bodySyncQueue: buildBodySyncQueue(),
+		placementMove: placementMoveService,
 
 		flagQueue: new FlagQueueService({
 			messageFlagService,
@@ -344,6 +361,7 @@ const buildPostgresClient = async (): Promise<RemitClient> => {
 		MailboxRepo,
 		MailboxSpecialUseRepo,
 		messageDataSchema,
+		MessagePlacementMoveRepo,
 		OutboxMessageRepo,
 	} = await import("@remit/drizzle-service");
 	const { drizzle } = await import("drizzle-orm/node-postgres");
@@ -363,6 +381,7 @@ const buildPostgresClient = async (): Promise<RemitClient> => {
 	const mailboxLockService = new MailboxLockRepo(genericDb);
 	const outboxMessageService = new OutboxMessageRepo(genericDb);
 	const accountExportRequestService = new AccountExportRequestRepo(genericDb);
+	const placementMoveService = new MessagePlacementMoveRepo(genericDb);
 
 	const messageDataDb = db as unknown as NodePgDatabase<
 		typeof messageDataSchema
@@ -414,6 +433,7 @@ const buildPostgresClient = async (): Promise<RemitClient> => {
 
 		bodySync: bodySyncService,
 		bodySyncQueue: buildBodySyncQueue(),
+		placementMove: placementMoveService,
 
 		flagQueue: new FlagQueueService({
 			messageFlagService,

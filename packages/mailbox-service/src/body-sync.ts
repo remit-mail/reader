@@ -38,7 +38,7 @@ import {
 	classifyPlacement,
 	type FolderPlacement,
 } from "./heuristics/classifyPlacement.js";
-import type { MessageMoveService } from "./message-move.js";
+import type { PlacementMoveService } from "./placement-move.js";
 import { extractSnippetFromEmail } from "./snippet.js";
 import { type IImapConnection, MailConnectionError } from "./types.js";
 
@@ -155,7 +155,14 @@ export type ConnectionGetter = () => Promise<IImapConnection>;
 
 export interface PlacementConfig {
 	mailboxSpecialUseService: IMailboxSpecialUseRepository;
-	messageMoveService: MessageMoveService;
+	/**
+	 * Local-first mover for a confident placement verdict (issue #1271). Same
+	 * `moveMessage(accountConfigId, messageId, destinationMailboxId, accountId)`
+	 * signature as the general-purpose `MessageMoveService` it replaced here,
+	 * but backed by a pending-move marker + its own reconciler queue instead of
+	 * the general MESSAGE_MOVE event (see `placement-move.ts`).
+	 */
+	placementMoveService: PlacementMoveService;
 }
 
 export class BodySyncService {
@@ -370,6 +377,46 @@ export class BodySyncService {
 
 		const body = Buffer.concat(chunks);
 
+		await this.applyPostStoreSteps(
+			messageId,
+			accountId,
+			accountConfigId,
+			body,
+			{
+				uri: ref.uri,
+			},
+		);
+	}
+
+	/**
+	 * The steps every synced body must go through regardless of which path
+	 * fetched it first — the sync path ({@link storeStreamedBody}) and the
+	 * read-path backfill ({@link fetchAndGetBody}) both call this instead of
+	 * duplicating (and drifting on) their own subset. Before issue #1271,
+	 * `fetchAndGetBody` skipped classification/placement entirely — a message
+	 * materialized by a read got different treatment than one synced in bulk.
+	 *
+	 * Order matters for two independent reasons, both load-bearing:
+	 * 1. The parsed-body cache must be durable before `bodyStorageKey` (the
+	 *    skip-guard signal) — see the comment on the write below.
+	 * 2. A placement move — local mailboxId change, pending marker, IMAP-push
+	 *    enqueue (`PlacementMoveService.moveMessage`, issue #1271) — must
+	 *    complete, or fully fail, BEFORE `bodyStorageKey` is written. That
+	 *    failure is never swallowed: if it throws, `bodyStorageKey` is not yet
+	 *    durable, so a retry reprocesses the message from scratch (marker
+	 *    included) instead of the skip-guard stranding a `movedByRemit` flag
+	 *    with no marker behind it — the defect this issue fixes.
+	 *
+	 * Returns the parsed mail so callers that already need it (both do) don't
+	 * pay for mailparser twice.
+	 */
+	private async applyPostStoreSteps(
+		messageId: string,
+		accountId: string,
+		accountConfigId: string,
+		body: Buffer,
+		bodyRef: { uri: string },
+	): Promise<ParsedMail> {
 		// Snippet + thread update; reuses the parsed mail for the steps below.
 		// This is a ThreadMessage write — a different entity — so it does NOT
 		// trigger the Message-filtered stream bridge and stays separate.
@@ -381,9 +428,8 @@ export class BodySyncService {
 
 		// Decide the placement move from the in-memory classification before the
 		// write, so its `movedByRemit` flag and audit verdict join the same
-		// UpdateItem. Best-effort and fully isolated: a failure here can never
-		// block the body sync. The verdict is recorded whenever Remit decided to
-		// act (action != leave); the move is enqueued only for a confident,
+		// UpdateItem. The verdict is recorded whenever Remit decided to act
+		// (action != leave); the move is enqueued only for a confident,
 		// actionable verdict.
 		const resolved = await this.resolvePlacement(
 			messageId,
@@ -420,21 +466,36 @@ export class BodySyncService {
 			);
 		}
 
+		// Local-first placement move (issue #1271): local mailboxId change +
+		// pending marker + IMAP-push enqueue, all via PlacementMoveService,
+		// UNSWALLOWED — a throw here propagates before bodyStorageKey is
+		// written (see the method doc above). A non-confident or leave verdict
+		// yields no move, so this is a no-op for those.
+		if (resolved.move) {
+			await this.placementConfig?.placementMoveService.moveMessage(
+				accountConfigId,
+				messageId,
+				resolved.move.destinationMailboxId,
+				accountId,
+			);
+		}
+
 		// ONE Message UpdateItem per synced message: bodyStorageKey + every
 		// classification/derived field + the move flag + the audit verdict. Each
 		// extra Message mutation emits a DDB stream record that fans out to a
 		// redundant S3-Vectors upsert, so we collapse them into a single write.
-		// The flag is folded in only when a move WILL be enqueued; the verdict
+		// The flag is folded in only when a move WAS applied; the verdict
 		// is folded in whenever Remit decided to act. Written LAST so bodyStorageKey
-		// — the skip-guard signal — is only durable once the parsed cache is.
+		// — the skip-guard signal — is only durable once the parsed cache AND the
+		// placement move (when any) are.
 		const update: UpdateMessageInput = {
-			bodyStorageKey: ref.uri,
+			bodyStorageKey: bodyRef.uri,
 			...classification,
 			...(resolved.move ? { movedByRemit: true } : {}),
 			...(resolved.verdict ? { placementVerdict: resolved.verdict } : {}),
 		};
 		await this.messageService.update(messageId, update);
-		this.log.info({ messageId, storageKey: ref.uri }, "Body stored");
+		this.log.info({ messageId, storageKey: bodyRef.uri }, "Body stored");
 
 		// From-Address engagement counter (Address entity, not Message).
 		await this.incrementInboundCount(
@@ -444,19 +505,7 @@ export class BodySyncService {
 			classification,
 		);
 
-		// The actual mailbox move runs LAST, after the body cache is durably
-		// stored. The `movedByRemit` flag was already folded into the update
-		// above; here we only enqueue the IMAP move. A non-confident or leave
-		// verdict yields no move, so this is a no-op for those.
-		if (resolved.move) {
-			await this.enqueuePlacementMove(
-				accountConfigId,
-				messageId,
-				accountId,
-				resolved.move.destinationMailboxId,
-				resolved.move.destinationPath,
-			);
-		}
+		return parsed;
 	}
 
 	/**
@@ -534,28 +583,16 @@ export class BodySyncService {
 				content: body,
 			});
 
-			await this.messageService.update(messageId, {
-				bodyStorageKey: ref.uri,
-			});
-			this.log.info?.({ messageId, storageKey: ref.uri }, "Body stored");
-
-			// Update snippets for thread entities — also returns the parsed
-			// mail so we don't pay mailparser twice.
-			parsed = await this.updateSnippets(messageId, accountConfigId, body);
-			await this.storeParsedBodyCache(
-				accountConfigId,
-				accountId,
+			// Same shared step the sync path (storeStreamedBody) runs — issue
+			// #1271 unified the two body paths so classification/placement no
+			// longer depends on which one fetched the body first.
+			parsed = await this.applyPostStoreSteps(
 				messageId,
-				parsed,
+				accountId,
+				accountConfigId,
+				body,
+				{ uri: ref.uri },
 			);
-			if (!isBodyPartDeferralEnabled()) {
-				await this.storeBodyPartContents(
-					accountConfigId,
-					accountId,
-					messageId,
-					parsed,
-				);
-			}
 		} else {
 			parsed = await simpleParser(body);
 		}
@@ -804,39 +841,13 @@ export class BodySyncService {
 		};
 	}
 
-	/**
-	 * Enqueue the IMAP move for a placed message. Contained, NOT a careless
-	 * swallow: this runs AFTER `bodyStorageKey` is durable, so a throw here would
-	 * mark the message failed yet the requeue would skip it (the stored body
-	 * trips the skip guard in syncBodies), permanently losing the move. Failing
-	 * hard is therefore worse than containing — the correct fix is an independent
-	 * retry for the move (tracked as a follow-up), not a propagated throw here.
-	 * Until then a failure is logged; the `movedByRemit` flag was already
-	 * persisted in the single Message update.
-	 */
-	private async enqueuePlacementMove(
-		accountConfigId: string,
-		messageId: string,
-		accountId: string,
-		destinationMailboxId: string,
-		destinationPath: string,
-	): Promise<void> {
-		if (!this.placementConfig) return;
-		await this.placementConfig.messageMoveService
-			.moveMessage(accountConfigId, messageId, destinationMailboxId, accountId)
-			.then(() => {
-				this.log.info(
-					{ messageId, accountId, destination: destinationPath },
-					"Moved message by placement verdict",
-				);
-			})
-			.catch((err: unknown) => {
-				this.log.warn?.(
-					{ messageId, accountId, error: inspect(err) },
-					"Placement move failed (best-effort, non-fatal)",
-				);
-			});
-	}
+	// The old `enqueuePlacementMove` (best-effort, catch-and-log) lived here.
+	// Issue #1271: it ran AFTER `bodyStorageKey` was already durable, so a
+	// failure was swallowed to avoid stranding the message behind the
+	// body-sync skip guard — but that meant `movedByRemit` could be true with
+	// no record the move ever reached IMAP. Replaced by the unswallowed call
+	// inside `applyPostStoreSteps`, sequenced BEFORE `bodyStorageKey` is
+	// written, backed by `PlacementMoveService`'s pending-move marker.
 
 	/**
 	 * Persist one S3 object per non-multipart leaf so the SPA can resolve

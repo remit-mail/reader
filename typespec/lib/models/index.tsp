@@ -7,6 +7,7 @@ import "./MailboxLock.tsp";
 
 // Message Layer
 import "./Message.tsp";
+import "./MessagePlacementMove.tsp";
 
 // Envelope Layer (RFC 2822)
 import "./Envelope.tsp";

@@ -10,6 +10,7 @@ import type {
 } from "@remit/api-openapi-types";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { getAccountConfigIdFromEvent } from "../auth.js";
+import { applyPendingMoveCountPrediction } from "../derive/pendingMoveCounts.js";
 import { getClient } from "../service/dynamodb.js";
 import type {
 	MailboxDetailOperationIds,
@@ -131,6 +132,20 @@ export const assertMailboxInAccount = (
 	throw new ForbiddenError(`Mailbox ${mailbox.mailboxId} not in account`);
 };
 
+/**
+ * Every pending placement move (issue #1271) for an account, on whichever
+ * backend is active (`RemitClient.placementMove` is present on both — see
+ * `dynamodb.ts`). Read-only; feeds `applyPendingMoveCountPrediction`'s
+ * read-time adjustment only, never mutates stored counts (epic #1281
+ * invariant 4). Markers are only ever written by the DynamoDB-only
+ * imap-worker bulk sync path today, so this is always `[]` on Postgres —
+ * not a gap this call introduces, see the `RemitClient.placementMove` doc.
+ */
+const loadPendingMoves = (
+	client: Awaited<ReturnType<typeof getClient>>,
+	accountId: string,
+) => client.placementMove.listByAccountId(accountId);
+
 const toMailboxResponse = (
 	mailbox: MailboxItem,
 	overrides: MailboxOverrides = {},
@@ -181,8 +196,15 @@ export const MailboxOperations: Record<
 			client.accountSetting,
 			accountConfigId,
 		);
+
+		// Read-time prediction for any pending placement move (issue #1271) —
+		// adjusts messageCount only, never the stored row (epic #1281
+		// invariant 4).
+		const pendingMoves = await loadPendingMoves(client, accountId);
+		const items = applyPendingMoveCountPrediction(result.items, pendingMoves);
+
 		return {
-			items: result.items.map((mailbox) =>
+			items: items.map((mailbox) =>
 				toMailboxResponse(
 					mailbox,
 					overridesByMailbox.get(mailbox.mailboxId) ?? {},
@@ -254,7 +276,15 @@ export const MailboxDetailOperations: Record<
 			accountConfigId,
 			mailboxId,
 		);
-		return toMailboxResponse(mailbox, overrides);
+
+		// Read-time prediction for any pending placement move (issue #1271) —
+		// adjusts messageCount only, never the stored row (epic #1281
+		// invariant 4).
+		const pendingMoves = await loadPendingMoves(client, accountId);
+		const adjusted =
+			applyPendingMoveCountPrediction([mailbox], pendingMoves)[0] ?? mailbox;
+
+		return toMailboxResponse(adjusted, overrides);
 	},
 
 	MailboxDetailOperations_renameMailbox: async (

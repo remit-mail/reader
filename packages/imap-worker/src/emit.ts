@@ -43,6 +43,10 @@ const queueUrlMap: Record<ImapEvent["type"], string> = {
 	MESSAGE_COPY: messageMgmtQueueUrl,
 	EMPTY_TRASH: messageMgmtQueueUrl,
 	APPEND_SENT_MESSAGE: messageMgmtQueueUrl,
+	// Rides messageMgmtQueue (issue #1271) rather than a dedicated queue — its
+	// payload carries only our message id (never a UID, unlike the legacy
+	// MESSAGE_MOVE event); per-event-type payload shape, same queue.
+	PLACEMENT_MOVE_PUSH: messageMgmtQueueUrl,
 };
 
 /**

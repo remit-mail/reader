@@ -17,6 +17,7 @@ import type {
 	MailboxSpecialUseSchema,
 	MessageFlagSchema,
 	MessageLabelSchema,
+	MessagePlacementMoveSchema,
 	MessageSchema,
 	OutboxMessageSchema,
 	RawMessageStorageSchema,
@@ -78,6 +79,9 @@ export type LabelItem = z.infer<typeof LabelSchema>;
 export type MessageLabelItem = z.infer<typeof MessageLabelSchema>;
 export type FilterItem = z.infer<typeof FilterSchema>;
 export type FilterAnchorItem = z.infer<typeof FilterAnchorSchema>;
+export type MessagePlacementMoveItem = z.infer<
+	typeof MessagePlacementMoveSchema
+>;
 
 export type MailboxSpecialUseValue = z.infer<typeof MailboxSpecialUseSchema>;
 
@@ -352,6 +356,11 @@ export type MessageIdSource = {
 export type CreateMessageFlagInput = Omit<
 	MessageFlagItem,
 	"messageFlagId" | "createdAt" | "updatedAt"
+>;
+
+export type PutMessagePlacementMoveInput = Omit<
+	MessagePlacementMoveItem,
+	"state" | "createdAt" | "updatedAt"
 >;
 
 export type CreateOutboxMessageInput = Omit<

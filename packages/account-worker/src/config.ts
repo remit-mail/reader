@@ -100,6 +100,7 @@ export const cascadeServices: CascadeServices = {
 	outboxMessageService: remitClient.outboxMessage,
 	threadMessageService: remitClient.threadMessage,
 	mailboxLockService: remitClient.mailboxLock,
+	messagePlacementMoveService: remitClient.placementMove,
 	accountExportRequestService: remitClient.accountExportRequest,
 	accountSettingService: remitClient.accountSetting,
 	filterService,
