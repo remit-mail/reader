@@ -31,7 +31,7 @@ itself (Settings → Add account).
 | Service | Image | Role |
 |---|---|---|
 | `caddy` | `caddy:2-alpine` | Only published port. TLS termination (optional), reverse proxy. |
-| `apisix` | `apache/apisix:3.13.0-debian` | Edge JWT gate — same generated route table the Scaleway deployment uses (RFC 035 D5 parity). |
+| `apisix` | `ghcr.io/remit-mail/remit/apisix` | Edge JWT gate — `apache/apisix:3.13.0-debian` with the generated route table baked in, the same table the Scaleway deployment uses (RFC 035 D5 parity). |
 | `web` | `ghcr.io/remit-mail/remit/web` | Static server for the built SPA. |
 | `backend` | `ghcr.io/remit-mail/remit/backend` | The API. Also the `migrate` service's image (see below). |
 | `imap-worker`, `smtp-worker`, `account-worker`, `search-index-worker` | `ghcr.io/remit-mail/remit/*` | Queue pollers — the deployed form of `packages/remit-imap-worker/src/e2e-processor-shim.ts`, running the same production Lambda handlers against ElasticMQ instead of an SQS event-source mapping. |
@@ -112,9 +112,10 @@ message from taking a whole queue's throughput down, but a message that
 lands in a DLQ is not automatically retried or drained — it just sits
 there until an operator looks at it.
 
-Check depth periodically (`docker compose exec elasticmq curl -s -X POST
-http://localhost:9324/ -d 'Action=GetQueueAttributes&QueueUrl=http://localhost:9324/000000000000/remit-body-dlq&AttributeName.1=ApproximateNumberOfMessages&Version=2012-11-05'`,
-or any SQS-compatible client against the queue you care about). A non-zero
+Check depth periodically (`docker compose exec elasticmq wget -qO-
+--post-data='Action=GetQueueAttributes&QueueUrl=http://localhost:9324/000000000000/remit-body-dlq&AttributeName.1=ApproximateNumberOfMessages&Version=2012-11-05' http://localhost:9324/`,
+or any SQS-compatible client against the queue you care about — the
+`elasticmq-native` image ships `wget`, not `curl`). A non-zero
 DLQ is a signal to look at, not a resolved failure: inspect the message
 body (`Action=ReceiveMessage` against the `-dlq` queue), fix the underlying
 bug or bad data, then either move it back to the source queue by hand
