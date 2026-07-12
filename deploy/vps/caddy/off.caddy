@@ -1,0 +1,6 @@
+# TLS_MODE=off (default) — plain HTTP on :80, the current behaviour.
+# Reach this over a private network (a tailnet, a VPN, an SSH tunnel); there
+# is no TLS here. PUBLIC_ORIGIN must be http://…
+:80 {
+	import /etc/caddy/routes.caddy
+}

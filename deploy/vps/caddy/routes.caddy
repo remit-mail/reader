@@ -1,0 +1,33 @@
+# Shared reverse-proxy routes, imported by the per-mode site file that
+# TLS_MODE selects (docker-compose.yml). This is the only copy of the routing
+# table; the mode files add nothing but the site address and TLS behaviour.
+#
+# Routing mirrors the dev vite proxy 1:1 (packages/web-client/vite.config.ts):
+#   /api/auth/*  -> apisix, path unchanged (better-auth's own routes)
+#   /api/*       -> apisix, with the /api prefix stripped (business routes,
+#                   matching the openapi-generated apisix route table, which
+#                   has no /api prefix)
+#   /content/*   -> backend directly, path unchanged (signed-URL content
+#                   delivery; not part of the openapi/JWT-gated surface, so
+#                   it does not go through apisix's business routes)
+#   everything else -> the web static server (the SPA and its assets)
+route /api/auth/* {
+	reverse_proxy apisix:9080
+}
+
+route /api/* {
+	uri strip_prefix /api
+	reverse_proxy apisix:9080
+}
+
+route /content/* {
+	reverse_proxy backend:8080
+}
+
+route /health {
+	reverse_proxy apisix:9080
+}
+
+route {
+	reverse_proxy web:8080
+}
