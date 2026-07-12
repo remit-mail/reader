@@ -8,6 +8,14 @@ deployment:
 apisix:
   node_listen: 9080
   enable_admin: false
+  # apisix.yaml's generated routes use `:paramName` path segments
+  # (/accounts/:accountId/sync, ...) — APISIX's default router
+  # (radixtree_uri) treats ':' as a literal character and never matches
+  # them, 404ing every parameterized route while leaving literal routes
+  # (/health, /accounts) working, which is what made this easy to miss.
+  # This router variant is what actually implements `:param` matching.
+  router:
+    http: radixtree_uri_with_parameter
 
 nginx_config:
   error_log_level: warn

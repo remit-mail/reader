@@ -15,10 +15,14 @@ import {
 	createMailOAuthService,
 	microsoftProviderConfig,
 } from "@remit/mail-oauth-service";
+// Subpath import, not the package root: the root barrel re-exports the whole
+// IMAP sync surface (mailbox/flag/message sync, snippet/heuristics text
+// processing), which drags `natural` and friends into a bundle that only
+// ever calls resolveConnectionCredentials.
 import {
 	type AccountCredentialsDeps,
 	resolveConnectionCredentials,
-} from "@remit/mailbox-service";
+} from "@remit/mailbox-service/account-credentials";
 import {
 	createKmsDataKeyProvider,
 	createSecretsService,

@@ -8,6 +8,10 @@
 		".": {
 			"types": "./src/index.ts",
 			"default": "./src/index.ts"
+		},
+		"./poller": {
+			"types": "./src/poller.ts",
+			"default": "./src/poller.ts"
 		}
 	},
 	"scripts": {
@@ -16,6 +20,8 @@
 		"test": "npm run test:typecheck && npm run test:run"
 	},
 	"devDependencies": {
-		"@aws-sdk/client-sqs": "*"
+		"@aws-sdk/client-sqs": "*",
+		"@aws-sdk/core": "*",
+		"@types/aws-lambda": "*"
 	}
 }
