@@ -2,13 +2,15 @@ import type {
 	CreateFilterInput,
 	FilterItem,
 	IFilterRepository,
+	ResultList,
 	UpdateFilterInput,
 } from "@remit/data-ports";
 import { FilterMatchOperator, FilterState } from "@remit/domain-enums";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, gt, or } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { NotFoundError } from "../error.js";
 import { randomId } from "../id.js";
+import { decodeToken, resultList } from "../pagination.js";
 import { filterTable } from "../schema.js";
 
 type DB = NodePgDatabase<Record<string, unknown>>;
@@ -144,6 +146,58 @@ export class FilterRepo implements IFilterRepository {
 			.from(filterTable)
 			.where(eq(filterTable.accountConfigId, accountConfigId));
 		return rows.map(rowToFilter);
+	}
+
+	/**
+	 * A single signed page of an account config's filters (RFC 034), mirroring
+	 * `MailboxRepo.listByAccount`: a `(createdAt, filterId)` keyset cursor that
+	 * round-trips through `continuationToken`.
+	 */
+	async listPageByAccountConfig(
+		accountConfigId: string,
+		options?: { limit?: number; continuationToken?: string },
+	): Promise<ResultList<FilterItem>> {
+		const limit = options?.limit ?? 100;
+		const cursor = options?.continuationToken
+			? decodeToken(options.continuationToken)
+			: undefined;
+		const after = cursor
+			? {
+					createdAt: cursor.createdAt as number,
+					filterId: cursor.filterId as string,
+				}
+			: undefined;
+
+		const rows = await this.db
+			.select()
+			.from(filterTable)
+			.where(
+				and(
+					eq(filterTable.accountConfigId, accountConfigId),
+					after
+						? or(
+								gt(filterTable.createdAt, after.createdAt),
+								and(
+									eq(filterTable.createdAt, after.createdAt),
+									gt(filterTable.filterId, after.filterId),
+								),
+							)
+						: undefined,
+				),
+			)
+			.orderBy(asc(filterTable.createdAt), asc(filterTable.filterId))
+			.limit(limit + 1);
+
+		const hasMore = rows.length > limit;
+		const items = rows.slice(0, limit).map(rowToFilter);
+		const lastItem = items[items.length - 1];
+		return resultList(
+			items,
+			limit,
+			hasMore && lastItem
+				? { createdAt: lastItem.createdAt, filterId: lastItem.filterId }
+				: undefined,
+		);
 	}
 
 	/**
