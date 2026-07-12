@@ -138,6 +138,49 @@ namespace RemitApi {
   }
 
   // ============================================
+  // Filter Operations (RFC 034 smart-organize filters, #1276)
+  // ============================================
+
+  @route("/accounts/{accountId}/filters")
+  namespace FilterOperations {
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    op listFilters(
+      @path accountId: UUID,
+
+      @query(#{ explode: true })
+      @continuationToken
+      continuationToken?: string,
+    ): ResultList<FilterResponse>;
+
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    op createFilter(
+      @path accountId: UUID,
+      @body input: CreateFilterInput,
+    ): FilterResponse;
+  }
+
+  @route("/accounts/{accountId}/filters/{filterId}")
+  namespace FilterDetailOperations {
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    op getFilter(@path accountId: UUID, @path filterId: UUID): FilterResponse;
+
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @patch(#{ implicitOptionality: true })
+    op updateFilter(
+      @path accountId: UUID,
+      @path filterId: UUID,
+      @body input: UpdateFilterInput,
+    ): FilterResponse;
+
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @delete
+    op deleteFilter(@path accountId: UUID, @path filterId: UUID): void;
+  }
+
+  // ============================================
   // Trash Operations
   // ============================================
 

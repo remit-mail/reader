@@ -225,4 +225,55 @@ describe("FilterRepo", () => {
 			NotFoundError,
 		);
 	});
+
+	test("listPageByAccountConfig round-trips a continuationToken across pages", async () => {
+		const accountConfigId = randomId();
+		const created = await Promise.all([
+			repo.create({
+				accountConfigId,
+				name: "One",
+				scope: FilterScope.Standing,
+			}),
+			repo.create({
+				accountConfigId,
+				name: "Two",
+				scope: FilterScope.Standing,
+			}),
+			repo.create({
+				accountConfigId,
+				name: "Three",
+				scope: FilterScope.Standing,
+			}),
+		]);
+
+		const first = await repo.listPageByAccountConfig(accountConfigId, {
+			limit: 2,
+		});
+		assert.equal(first.items.length, 2);
+		assert.ok(
+			first.continuationToken,
+			"a full page returns a continuationToken",
+		);
+
+		const second = await repo.listPageByAccountConfig(accountConfigId, {
+			limit: 2,
+			continuationToken: first.continuationToken,
+		});
+		assert.equal(second.items.length, 1);
+		assert.equal(
+			second.continuationToken,
+			undefined,
+			"the last page carries no continuationToken",
+		);
+
+		const seen = new Set([
+			...first.items.map((f) => f.filterId),
+			...second.items.map((f) => f.filterId),
+		]);
+		assert.equal(
+			seen.size,
+			created.length,
+			"every filter is paged exactly once",
+		);
+	});
 });

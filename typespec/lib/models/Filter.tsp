@@ -105,3 +105,36 @@ model Filter {
   @updatedAt
   updatedAt: int64;
 }
+
+// ============================================
+// API Input Models
+// ============================================
+
+@doc("""
+  Input for creating a filter (RFC 034). `ttl` is omitted — it is derived
+  server-side from `expiresAt` when `scope` is `Temporary` (RFC 034 Decision
+  1.3), never client-supplied. `state`, `hasAnchor`, `ruleChangedAt`, and
+  `filterId` are all server-derived and excluded by their Read-only visibility.
+  
+  When `anchorMessageId` is set, the server builds and persists the filter's
+  semantic anchor from that message's indexed vectors (RFC 034 Decision 2) and
+  sets `hasAnchor`. Absent for a purely-literal filter.
+  """)
+model CreateFilterInput {
+  ...OmitProperties<Create<Filter>, "ttl">;
+
+  @doc("Anchor message for a semantic filter — provenance for the persisted anchor the server builds at save time (RFC 034 Decision 2.1). Absent for a purely-literal filter.")
+  anchorMessageId?: UUID;
+}
+
+@doc("Input for updating a filter (RFC 034). Only the mutable name/predicate/action fields are updatable — `scope`, `expiresAt`, and `ttl` are fixed at creation, and `state`/`hasAnchor`/`ruleChangedAt`/`filterId` are server-derived. A patch touching a predicate or action field bumps `ruleChangedAt`; a name-only rename never does (RFC 034 Decision 3.2).")
+model UpdateFilterInput is Update<Filter>;
+
+// ============================================
+// API Response Models
+// ============================================
+
+@doc("Filter item returned by list/get/create/update operations. `ttl` is internal bookkeeping (RFC 034 Decision 1.3) and not surfaced.")
+model FilterResponse {
+  ...OmitProperties<Filter, "ttl">;
+}
