@@ -122,6 +122,12 @@ COPY --from=builder --chown=node:node /app/dist-docker/backend/server.mjs ./serv
 # openapi.json next to the entrypoint before falling back to the repo's
 # build/ tree, which does not exist in this image.
 COPY --from=builder --chown=node:node /app/build/remit-openapi3/openapi.json ./openapi.json
+# migrate.mjs is an alternate entrypoint baked into this same image — "the
+# backend image with a migrate command" (RFC 035 D8) — not a ninth image.
+# The deploy/vps/docker-compose.yml `migrate` one-shot service overrides CMD
+# to run it instead of server.mjs.
+COPY --from=builder --chown=node:node /app/dist-docker/backend/migrate.mjs ./migrate.mjs
+COPY --from=builder --chown=node:node /app/deploy/vps/migrations ./migrations
 ENV SERVER_PORT=8080
 EXPOSE 8080
 CMD ["node", "server.mjs"]
