@@ -65,22 +65,6 @@ describe("MailboxRepo", () => {
 		assert.deepEqual(results, []);
 	});
 
-	test("adjustUnseenCount increments without going negative", async () => {
-		const accountId = randomId();
-		const mailbox = await repo.create(makeMailboxInput(accountId));
-
-		await repo.adjustUnseenCount(accountId, mailbox.mailboxId, 3);
-		let updated = await repo.get(accountId, mailbox.mailboxId);
-		assert.equal(updated.unseenCount, 8);
-
-		// Clamp: cannot go below 0
-		await repo.adjustUnseenCount(accountId, mailbox.mailboxId, -100);
-		updated = await repo.get(accountId, mailbox.mailboxId);
-		assert.equal(updated.unseenCount, 0);
-
-		await repo.delete(accountId, mailbox.mailboxId);
-	});
-
 	test("findByPath finds existing mailbox", async () => {
 		const accountId = randomId();
 		await repo.create(makeMailboxInput(accountId, "Work/Projects"));
@@ -168,18 +152,6 @@ describe("MailboxRepo", () => {
 		);
 		const still = await repo.get(accountId, mailbox.mailboxId);
 		assert.equal(still.messageCount, 0);
-
-		await repo.delete(accountId, mailbox.mailboxId);
-	});
-
-	test("cross-tenant: adjustUnseenCount is a no-op for a foreign account", async () => {
-		const accountId = randomId();
-		const other = randomId();
-		const mailbox = await repo.create(makeMailboxInput(accountId));
-
-		await repo.adjustUnseenCount(other, mailbox.mailboxId, 3);
-		const still = await repo.get(accountId, mailbox.mailboxId);
-		assert.equal(still.unseenCount, 5);
 
 		await repo.delete(accountId, mailbox.mailboxId);
 	});

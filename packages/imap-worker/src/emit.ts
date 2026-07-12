@@ -5,7 +5,6 @@ import { resolveSqsCredentials } from "@remit/sqs-client";
 import { env } from "expect-env";
 import type {
 	ImapEvent,
-	SyncFlagsEvent,
 	SyncMailboxesEvent,
 	SyncMessagesEvent,
 } from "./events.js";
@@ -34,7 +33,6 @@ const queueUrlMap: Record<ImapEvent["type"], string> = {
 	SYNC_MAILBOXES: mailboxesQueueUrl,
 	SYNC_MESSAGES: messagesQueueUrl,
 	SYNC_MESSAGE_BODY: bodyQueueUrl,
-	SYNC_FLAGS: flagsQueueUrl,
 	MAILBOX_CREATE: mailboxMgmtQueueUrl,
 	MAILBOX_RENAME: mailboxMgmtQueueUrl,
 	MAILBOX_DELETE: mailboxMgmtQueueUrl,
@@ -47,6 +45,13 @@ const queueUrlMap: Record<ImapEvent["type"], string> = {
 	// payload carries only our message id (never a UID, unlike the legacy
 	// MESSAGE_MOVE event); per-event-type payload shape, same queue.
 	PLACEMENT_MOVE_PUSH: messageMgmtQueueUrl,
+	// Rides the existing flags queue (issue #1273) — this is imap-worker's OWN
+	// re-arm hint (the periodic per-mailbox sync tick catching up a marker
+	// stuck `pending`), distinct from `FlagPushService`'s user-facing hint
+	// (remit-mailbox-service, sent from the API on its own SQS client onto
+	// SQS_QUEUE_URL). Both land on a queue this worker already consumes;
+	// dispatch is by `type`, not by which queue delivered the message.
+	FLAG_PUSH: flagsQueueUrl,
 };
 
 /**
@@ -57,7 +62,11 @@ const queueUrlMap: Record<ImapEvent["type"], string> = {
 const fifoEventTypes = new Set([
 	"SYNC_MAILBOXES",
 	"SYNC_MESSAGES",
-	"SYNC_FLAGS",
+	// flagsQueue is FIFO and requires a MessageGroupId on every message.
+	// Content-based deduplication (queue-level setting) covers the dedup id —
+	// no per-event case is needed in getDeduplicationId below, same as the
+	// (standard-queue) management events that fall through its default.
+	"FLAG_PUSH",
 ]);
 
 /**
@@ -80,11 +89,6 @@ export const getDeduplicationId = (event: EventInput): string | undefined => {
 			return e.resumeCursor === undefined
 				? `SYNC_MESSAGES:${e.mailboxId}`
 				: `SYNC_MESSAGES:${e.mailboxId}:${e.resumeCursor}`;
-		}
-
-		case "SYNC_FLAGS": {
-			const e = event as Omit<SyncFlagsEvent, "eventId" | "timestamp">;
-			return `SYNC_FLAGS:${e.mailboxId}`;
 		}
 
 		default:

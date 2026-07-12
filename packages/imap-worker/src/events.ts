@@ -61,16 +61,6 @@ export interface SyncMessageBodyEvent extends BaseEvent {
 	force?: boolean;
 }
 
-export interface SyncFlagsEvent extends BaseEvent {
-	type: "SYNC_FLAGS";
-	mailboxId: string;
-	operations: Array<{
-		messageId: string;
-		flagName: string;
-		operation: "add" | "remove";
-	}>;
-}
-
 export interface MailboxCreateEvent extends BaseEvent {
 	type: "MAILBOX_CREATE";
 	mailboxId: string;
@@ -169,6 +159,24 @@ export interface PlacementMovePushEvent extends BaseEvent {
 	messageId: string;
 }
 
+/**
+ * Wake-up hint for one pending flag-push marker (issue #1273, epic #1281).
+ * Carries only our message id + the flag field — never a UID and never the
+ * desired add/remove transition (both live on the `MessageFlagPush` marker,
+ * resolved fresh at push time, epic invariant 1). Produced two ways: by
+ * `FlagPushService` (remit-mailbox-service) right after a user's flag flip
+ * commits locally, and by the periodic per-mailbox sync tick
+ * (`sync-messages.ts`) re-arming any marker it finds still stuck `pending`
+ * (a prior enqueue that never landed). If the marker is gone or has moved
+ * past `pending` by the time this is processed, the handler is a no-op.
+ */
+export interface FlagPushEvent extends BaseEvent {
+	type: "FLAG_PUSH";
+	accountConfigId: string;
+	messageId: string;
+	flagName: string;
+}
+
 export interface DeleteAccountObjectsEvent {
 	type: "DELETE_ACCOUNT_OBJECTS";
 	accountConfigId: string;
@@ -206,8 +214,8 @@ export type ImapEvent =
 	| SyncMailboxesEvent
 	| SyncMessagesEvent
 	| SyncMessageBodyEvent
-	| SyncFlagsEvent
 	| MailboxManagementEvent
 	| MessageManagementEvent
 	| AppendSentMessageEvent
-	| PlacementMovePushEvent;
+	| PlacementMovePushEvent
+	| FlagPushEvent;

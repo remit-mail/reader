@@ -41,6 +41,7 @@ describe("cascade entity coverage snapshot", () => {
 			"mailbox-special-use": [],
 			message: ["Message"],
 			"message-flag": ["MessageFlag"],
+			"message-flag-push": ["MessageFlagPush"],
 			"message-label": ["MessageLabel"],
 			"message-placement-move": ["MessagePlacementMove"],
 			"outbox-message": ["OutboxMessage"],

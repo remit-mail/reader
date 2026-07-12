@@ -10,6 +10,7 @@ import type {
 	ILabelRepository,
 	IMailboxLockRepository,
 	IMailboxRepository,
+	IMessageFlagPushRepository,
 	IMessageFlagRepository,
 	IMessageLabelRepository,
 	IMessagePlacementMoveRepository,
@@ -37,6 +38,7 @@ export interface CascadeServices {
 	threadMessageService: IThreadMessageRepository;
 	mailboxLockService: IMailboxLockRepository;
 	messagePlacementMoveService: IMessagePlacementMoveRepository;
+	messageFlagPushService: IMessageFlagPushRepository;
 	accountExportRequestService: IAccountExportRequestRepository;
 	accountSettingService: IAccountSettingRepository;
 	filterService: IFilterRepository;
@@ -133,6 +135,7 @@ export const enumerateCascadeEntities = async (
 		threadMessageService,
 		mailboxLockService,
 		messagePlacementMoveService,
+		messageFlagPushService,
 		accountSettingService,
 		filterService,
 		filterAnchorService,
@@ -259,6 +262,16 @@ export const enumerateCascadeEntities = async (
 				key: { messageId: move.messageId },
 			});
 		}
+
+		const flagPushes = await messageFlagPushService.listByAccountId(
+			account.accountId,
+		);
+		for (const push of flagPushes) {
+			entities.push({
+				entityType: "MessageFlagPush",
+				key: { messageId: push.messageId, flagName: push.flagName },
+			});
+		}
 	}
 
 	const threadMessages =
@@ -360,6 +373,7 @@ export const COVERED_ENTITY_TYPES = [
 	"MailboxLock",
 	"Message",
 	"MessageFlag",
+	"MessageFlagPush",
 	"MessageLabel",
 	"MessagePlacementMove",
 	"MessageReference",

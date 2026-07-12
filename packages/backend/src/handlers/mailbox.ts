@@ -4,13 +4,17 @@ import {
 	type MailboxItem,
 	NotFoundError,
 } from "@remit/remit-electrodb-service";
+import { MessageSystemFlag } from "@remit/domain-enums";
 import type {
 	MailboxResponse,
 	RenameMailboxInput,
 } from "@remit/api-openapi-types";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { getAccountConfigIdFromEvent } from "../auth.js";
-import { applyPendingMoveCountPrediction } from "../derive/pendingMoveCounts.js";
+import {
+	applyPendingMoveCountPrediction,
+	type PendingUnseenFlagPush,
+} from "../derive/pendingMoveCounts.js";
 import { getClient } from "../service/dynamodb.js";
 import type {
 	MailboxDetailOperationIds,
@@ -146,6 +150,23 @@ const loadPendingMoves = (
 	accountId: string,
 ) => client.placementMove.listByAccountId(accountId);
 
+/**
+ * Every pending `\Seen` flag-push marker (issue #1273) for an account —
+ * `\Flagged` (star) markers are excluded, since only read/unread state feeds
+ * `unseenCount`'s prediction. `RemitClient.flagPush` is present and WRITTEN
+ * on both backends (unlike `placementMove`), so this is a real signal on
+ * Postgres too, not a DynamoDB-only gap.
+ */
+const loadPendingUnseenFlagPushes = async (
+	client: Awaited<ReturnType<typeof getClient>>,
+	accountId: string,
+): Promise<PendingUnseenFlagPush[]> => {
+	const pushes = await client.flagPush.listByAccountId(accountId);
+	return pushes
+		.filter((push) => push.flagName === MessageSystemFlag.Seen)
+		.map((push) => ({ mailboxId: push.mailboxId, operation: push.operation }));
+};
+
 const toMailboxResponse = (
 	mailbox: MailboxItem,
 	overrides: MailboxOverrides = {},
@@ -197,11 +218,19 @@ export const MailboxOperations: Record<
 			accountConfigId,
 		);
 
-		// Read-time prediction for any pending placement move (issue #1271) —
-		// adjusts messageCount only, never the stored row (epic #1281
-		// invariant 4).
+		// Read-time prediction for any pending placement move (issue #1271) and
+		// pending \Seen flag push (issue #1273) — adjusts messageCount /
+		// unseenCount only, never the stored row (epic #1281 invariant 4).
 		const pendingMoves = await loadPendingMoves(client, accountId);
-		const items = applyPendingMoveCountPrediction(result.items, pendingMoves);
+		const pendingUnseenFlagPushes = await loadPendingUnseenFlagPushes(
+			client,
+			accountId,
+		);
+		const items = applyPendingMoveCountPrediction(
+			result.items,
+			pendingMoves,
+			pendingUnseenFlagPushes,
+		);
 
 		return {
 			items: items.map((mailbox) =>
@@ -277,12 +306,20 @@ export const MailboxDetailOperations: Record<
 			mailboxId,
 		);
 
-		// Read-time prediction for any pending placement move (issue #1271) —
-		// adjusts messageCount only, never the stored row (epic #1281
-		// invariant 4).
+		// Read-time prediction for any pending placement move (issue #1271) and
+		// pending \Seen flag push (issue #1273) — adjusts messageCount /
+		// unseenCount only, never the stored row (epic #1281 invariant 4).
 		const pendingMoves = await loadPendingMoves(client, accountId);
+		const pendingUnseenFlagPushes = await loadPendingUnseenFlagPushes(
+			client,
+			accountId,
+		);
 		const adjusted =
-			applyPendingMoveCountPrediction([mailbox], pendingMoves)[0] ?? mailbox;
+			applyPendingMoveCountPrediction(
+				[mailbox],
+				pendingMoves,
+				pendingUnseenFlagPushes,
+			)[0] ?? mailbox;
 
 		return toMailboxResponse(adjusted, overrides);
 	},

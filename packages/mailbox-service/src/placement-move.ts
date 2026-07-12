@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
+import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
 import type {
 	IMessageRepository,
 	IThreadMessageRepository,
 } from "@remit/data-ports";
 import type { MessagePlacementMoveService } from "@remit/remit-electrodb-service";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
-import { resolveSqsCredentials } from "@remit/sqs-client";
+import { createMarkerSqsClient } from "./marker-sqs-client.js";
 
 /**
  * Event the reconciler (imap-worker `handlePlacementMovePush`) drains. Carries
@@ -85,18 +85,7 @@ export class PlacementMoveService {
 		this.markerService = config.markerService;
 		this.queueUrl = config.sqsQueueUrl;
 		this.log = config.logger ?? noopLogger;
-
-		this.sqs = new SQSClient({
-			endpoint: config.sqsEndpoint ?? this.deriveEndpoint(config.sqsQueueUrl),
-			credentials: resolveSqsCredentials(),
-		});
-	}
-
-	private deriveEndpoint(queueUrl: string): string | undefined {
-		if (queueUrl.startsWith("http://localhost")) {
-			return new URL(queueUrl).origin;
-		}
-		return undefined;
+		this.sqs = createMarkerSqsClient(config.sqsQueueUrl, config.sqsEndpoint);
 	}
 
 	moveMessage = async (

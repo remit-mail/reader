@@ -10,7 +10,9 @@ import {
 	envelopeTable,
 	mailboxLockTable,
 	mailboxTable,
+	messageFlagPushTable,
 	messageFlagTable,
+	messagePlacementMoveTable,
 	messageTable,
 	outboxMessageTable,
 	outboxTable,
@@ -37,6 +39,7 @@ const ENVELOPE_ID = "00000000-0000-4000-8000-000000000001";
 const ROOT_BODY_PART_ID = "00000000-0000-4000-8000-000000000002";
 const MESSAGE_FLAG_ID = "00000000-0000-4000-8000-000000000003";
 const BODY_PART_ID = "00000000-0000-4000-8000-000000000004";
+const OTHER_MAILBOX_ID = "mbx-cascade-2";
 
 describe("runDrizzleCascadeDelete", () => {
 	let db: TestDb;
@@ -191,6 +194,40 @@ describe("runDrizzleCascadeDelete", () => {
 			createdAt: NOW,
 			updatedAt: NOW,
 		});
+		await db.insert(messagePlacementMoveTable).values({
+			messageId: MESSAGE_ID,
+			accountId: ACCOUNT_ID,
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			sourceMailboxId: MAILBOX_ID,
+			destinationMailboxId: OTHER_MAILBOX_ID,
+			state: "pending",
+			createdAt: NOW,
+			updatedAt: NOW,
+		});
+		await db.insert(messageFlagPushTable).values([
+			{
+				messageId: MESSAGE_ID,
+				flagName: "\\Seen",
+				accountId: ACCOUNT_ID,
+				accountConfigId: ACCOUNT_CONFIG_ID,
+				mailboxId: MAILBOX_ID,
+				operation: "add",
+				state: "pending",
+				createdAt: NOW,
+				updatedAt: NOW,
+			},
+			{
+				messageId: MESSAGE_ID,
+				flagName: "\\Flagged",
+				accountId: ACCOUNT_ID,
+				accountConfigId: ACCOUNT_CONFIG_ID,
+				mailboxId: MAILBOX_ID,
+				operation: "remove",
+				state: "pending",
+				createdAt: NOW,
+				updatedAt: NOW,
+			},
+		]);
 	});
 
 	after(async () => {
@@ -225,6 +262,18 @@ describe("runDrizzleCascadeDelete", () => {
 		},
 		{ entityType: "Address", key: { addressId: ADDRESS_ID } },
 		{ entityType: "Account", key: { accountId: ACCOUNT_ID } },
+		{
+			entityType: "MessagePlacementMove",
+			key: { messageId: MESSAGE_ID },
+		},
+		{
+			entityType: "MessageFlagPush",
+			key: { messageId: MESSAGE_ID, flagName: "\\Seen" },
+		},
+		{
+			entityType: "MessageFlagPush",
+			key: { messageId: MESSAGE_ID, flagName: "\\Flagged" },
+		},
 	];
 
 	test("deletes every enumerated row across all tables", async () => {
@@ -328,6 +377,25 @@ describe("runDrizzleCascadeDelete", () => {
 					.where(eq(accountTable.accountId, ACCOUNT_ID))
 			).length,
 			0,
+		);
+		assert.equal(
+			(
+				await db
+					.select()
+					.from(messagePlacementMoveTable)
+					.where(eq(messagePlacementMoveTable.messageId, MESSAGE_ID))
+			).length,
+			0,
+		);
+		assert.equal(
+			(
+				await db
+					.select()
+					.from(messageFlagPushTable)
+					.where(eq(messageFlagPushTable.messageId, MESSAGE_ID))
+			).length,
+			0,
+			"both the Seen and Flagged markers (composite key) must be deleted",
 		);
 	});
 

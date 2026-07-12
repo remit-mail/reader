@@ -18,6 +18,7 @@ import {
 	MailboxLock,
 	Message,
 	MessageFlag,
+	MessageFlagPush,
 	MessageLabel,
 	MessagePlacementMove,
 	MessageReference,
@@ -71,6 +72,7 @@ const ENTITY_BY_TYPE: Record<string, any> = {
 	MailboxLock,
 	Message,
 	MessageFlag,
+	MessageFlagPush,
 	MessageLabel,
 	MessagePlacementMove,
 	MessageReference,
@@ -87,7 +89,13 @@ const ENTITY_BY_TYPE: Record<string, any> = {
  * explicitly, outside this ordering.
  */
 const DELETE_LEVELS: readonly (readonly string[])[] = [
-	["MessageFlag", "MessageReference", "MessageLabel", "MessagePlacementMove"],
+	[
+		"MessageFlag",
+		"MessageFlagPush",
+		"MessageReference",
+		"MessageLabel",
+		"MessagePlacementMove",
+	],
 	[
 		"BodyPartParameter",
 		"BodyPartStorage",

@@ -5,6 +5,8 @@ import { accountSettingTable } from "../schema/i4-account-setting.js";
 import { addressTable } from "../schema/i4-address.js";
 import { mailboxTable } from "../schema/i4-mailbox.js";
 import { mailboxLockTable } from "../schema/i4-mailbox-lock.js";
+import { messageFlagPushTable } from "../schema/i4-message-flag-push.js";
+import { messagePlacementMoveTable } from "../schema/i4-message-placement-move.js";
 import { outboxMessageTable } from "../schema/i4-outbox-message.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import { deleteMessageSubtree, type SubtreeDb } from "./message.js";
@@ -47,6 +49,8 @@ const KEYED_TYPES = new Set([
 	"AccountSetting",
 	"Address",
 	"Account",
+	"MessagePlacementMove",
+	"MessageFlagPush",
 ]);
 
 const groupByType = (
@@ -147,6 +151,31 @@ export const runDrizzleCascadeDelete = async (
 			await tx
 				.delete(accountTable)
 				.where(inArray(accountTable.accountId, accountIds));
+		}
+
+		const placementMoveMessageIds = (
+			grouped.get("MessagePlacementMove") ?? []
+		).map((k) => k.messageId);
+		if (placementMoveMessageIds.length > 0) {
+			await tx
+				.delete(messagePlacementMoveTable)
+				.where(
+					inArray(messagePlacementMoveTable.messageId, placementMoveMessageIds),
+				);
+		}
+
+		// Composite key (messageId, flagName) — a message can carry an
+		// independent pending read-state marker and pending star marker at once
+		// (issue #1273), so a single-column inArray cannot target one row.
+		const flagPushKeys = grouped.get("MessageFlagPush") ?? [];
+		if (flagPushKeys.length > 0) {
+			const conditions: SQL[] = flagPushKeys.map((k) =>
+				and(
+					eq(messageFlagPushTable.messageId, k.messageId),
+					eq(messageFlagPushTable.flagName, k.flagName),
+				),
+			) as SQL[];
+			await tx.delete(messageFlagPushTable).where(or(...conditions));
 		}
 	});
 
