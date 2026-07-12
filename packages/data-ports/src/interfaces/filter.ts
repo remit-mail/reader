@@ -1,6 +1,7 @@
 import type {
 	CreateFilterInput,
 	FilterItem,
+	ResultList,
 	UpdateFilterInput,
 } from "../types.js";
 
@@ -14,6 +15,16 @@ export interface IFilterRepository {
 	): Promise<FilterItem>;
 	delete(accountConfigId: string, filterId: string): Promise<void>;
 	listByAccountConfig(accountConfigId: string): Promise<FilterItem[]>;
+	/**
+	 * A single signed page of an account config's filters via the primary index —
+	 * the settings-page/API list (RFC 034). Mirrors
+	 * `IMailboxRepository.listByAccount`, so the API surface paginates identically
+	 * to `listMailboxes`; `continuationToken` round-trips a backend-native cursor.
+	 */
+	listPageByAccountConfig(
+		accountConfigId: string,
+		options?: { limit?: number; continuationToken?: string },
+	): Promise<ResultList<FilterItem>>;
 	listByAccountAndState(
 		accountConfigId: string,
 		state: FilterItem["state"],

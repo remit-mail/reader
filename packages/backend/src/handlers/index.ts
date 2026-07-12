@@ -3,6 +3,7 @@ import { AccountDetailOperations, AccountOperations } from "./account.js";
 import { MicrosoftOAuthOperations } from "./account-oauth.js";
 import { AddressDetailOperations, AddressOperations } from "./address.js";
 import { ConfigOperations } from "./config.js";
+import { FilterDetailOperations, FilterOperations } from "./filter.js";
 import { FolderRoleOperations } from "./folder-role.js";
 import {
 	MailboxDetailOperations,
@@ -27,6 +28,8 @@ export const handlers: Record<OperationIds, OperationHandler<any>> = {
 	...MailboxOperations,
 	...MailboxDetailOperations,
 	...FolderRoleOperations,
+	...FilterOperations,
+	...FilterDetailOperations,
 	...TrashOperations,
 	...SyncOperations,
 	...ThreadDetailOperations,

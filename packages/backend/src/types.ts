@@ -23,6 +23,11 @@ export type OperationIds =
 	| "MailboxDetailOperations_renameMailbox"
 	| "MailboxDetailOperations_deleteMailbox"
 	| "FolderRoleOperations_appointFolderRole"
+	| "FilterOperations_listFilters"
+	| "FilterOperations_createFilter"
+	| "FilterDetailOperations_getFilter"
+	| "FilterDetailOperations_updateFilter"
+	| "FilterDetailOperations_deleteFilter"
 	| "SyncOperations_triggerSync"
 	| "SyncOperations_getSyncStatus"
 	| "SemanticSearchOperations_semanticSearch"
@@ -73,6 +78,13 @@ export type MailboxDetailOperationIds = MatchPrefix<
 
 export type FolderRoleOperationIds = MatchPrefix<
 	"FolderRoleOperations_",
+	OperationIds
+>;
+
+export type FilterOperationIds = MatchPrefix<"FilterOperations_", OperationIds>;
+
+export type FilterDetailOperationIds = MatchPrefix<
+	"FilterDetailOperations_",
 	OperationIds
 >;
 
