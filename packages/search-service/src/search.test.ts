@@ -357,6 +357,8 @@ class SpyStore implements VectorStoreService {
 		this.inner.delete(filter);
 	existingContentHashes = (chunkIds: string[]): Promise<Map<string, string>> =>
 		this.inner.existingContentHashes(chunkIds);
+	getByMessage = (messageId: string): Promise<VectorRecord[]> =>
+		this.inner.getByMessage(messageId);
 
 	written = (): number => this.writes.reduce((n, b) => n + b.length, 0);
 	reset = (): void => {

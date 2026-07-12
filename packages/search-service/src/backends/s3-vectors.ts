@@ -126,6 +126,9 @@ export interface S3VectorsBackendConfig {
 const isStringArray = (value: unknown): value is string[] =>
 	Array.isArray(value) && value.every((v) => typeof v === "string");
 
+const isNumberArray = (value: unknown): value is number[] =>
+	Array.isArray(value) && value.every((v) => typeof v === "number");
+
 const toMetadata = (raw: unknown): ChunkMetadata => {
 	if (typeof raw !== "object" || raw === null) {
 		throw new Error("S3 Vectors metadata is not an object");
@@ -309,6 +312,37 @@ export class S3VectorsBackend implements VectorStoreService {
 				if (typeof v.key !== "string") continue;
 				const hash = readContentHash(v.metadata);
 				if (hash !== undefined) out.set(v.key, hash);
+			}
+		}
+		return out;
+	};
+
+	// Read a message's chunk vectors (data + metadata) via GetVectors, addressed
+	// by the message's deterministic candidate keys — never a scan. GetVectors
+	// omits keys with no stored vector, so the result holds only chunks the
+	// message actually indexed. Backs the filter-anchor pooling (RFC 034
+	// Decision 2.1).
+	getByMessage = async (messageId: string): Promise<VectorRecord[]> => {
+		const out: VectorRecord[] = [];
+		const keys = candidateChunkKeys(messageId);
+		for (const batch of chunkArray(keys, GET_BATCH_SIZE)) {
+			const cmd = new GetVectorsCommand({
+				vectorBucketName: this.vectorBucketName,
+				indexName: this.indexName,
+				keys: batch,
+				returnData: true,
+				returnMetadata: true,
+			});
+			const response = await this.client.send(cmd);
+			for (const v of response.vectors ?? []) {
+				if (typeof v.key !== "string") continue;
+				const vector = v.data?.float32;
+				if (!isNumberArray(vector)) continue;
+				out.push({
+					chunkId: v.key,
+					vector,
+					metadata: toMetadata(v.metadata),
+				});
 			}
 		}
 		return out;

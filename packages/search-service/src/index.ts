@@ -1,4 +1,12 @@
 export {
+	type AnchorBuildDeps,
+	type AnchorBuildParams,
+	type AnchorPayload,
+	buildAnchorSourceText,
+	buildMessageAnchor,
+	poolChunkVectors,
+} from "./anchor.js";
+export {
 	createMemoryVectorStore,
 	MemoryVectorStore,
 	type VectorStoreService,

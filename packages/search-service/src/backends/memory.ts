@@ -16,6 +16,13 @@ export interface VectorStoreService {
 	 */
 	existingContentHashes(chunkIds: string[]): Promise<Map<string, string>>;
 	/**
+	 * Read every stored chunk vector (data + metadata) for a message, addressed by
+	 * the message's deterministic chunk keys — never an index-wide scan. Empty when
+	 * the message has no indexed chunks. Backs the filter-anchor build (RFC 034
+	 * Decision 2.1), which pools a message's chunk vectors into a single anchor.
+	 */
+	getByMessage(messageId: string): Promise<VectorRecord[]>;
+	/**
 	 * Release any held connections (e.g. a pooled database client). Optional — the
 	 * in-memory and file backends hold nothing; the pgvector backend closes its
 	 * pool so a short-lived process (a test, a one-shot reindex) can exit cleanly.
@@ -114,6 +121,14 @@ export class MemoryVectorStore implements VectorStoreService {
 		for (const chunkId of chunkIds) {
 			const hash = this.store.get(chunkId)?.metadata.contentHash;
 			if (typeof hash === "string") out.set(chunkId, hash);
+		}
+		return out;
+	};
+
+	getByMessage = async (messageId: string): Promise<VectorRecord[]> => {
+		const out: VectorRecord[] = [];
+		for (const record of this.store.values()) {
+			if (record.metadata.messageId === messageId) out.push(record);
 		}
 		return out;
 	};

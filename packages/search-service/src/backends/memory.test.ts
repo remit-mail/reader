@@ -136,6 +136,26 @@ describe("MemoryVectorStore", () => {
 		assert.strictEqual(matches[0].chunkId, "c");
 	});
 
+	it("returns all chunk records for a messageId via getByMessage", async () => {
+		const store = new MemoryVectorStore();
+		await store.upsert([
+			record("a", [1, 0, 0], { messageId: "msg-1", chunkType: "subject" }),
+			record("b", [0, 1, 0], { messageId: "msg-1", chunkType: "body" }),
+			record("c", [0, 0, 1], { messageId: "msg-2" }),
+		]);
+
+		const records = await store.getByMessage("msg-1");
+		const ids = records.map((r) => r.chunkId).sort();
+		assert.deepStrictEqual(ids, ["a", "b"]);
+		const subject = records.find((r) => r.chunkId === "a");
+		assert.deepStrictEqual(subject?.vector, [1, 0, 0]);
+	});
+
+	it("returns an empty array from getByMessage for an unknown message", async () => {
+		const store = new MemoryVectorStore();
+		assert.deepStrictEqual(await store.getByMessage("absent"), []);
+	});
+
 	it("upsert overwrites an existing record by chunkId", async () => {
 		const store = new MemoryVectorStore();
 		await store.upsert([record("a", [1, 0, 0])]);
