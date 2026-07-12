@@ -154,6 +154,21 @@ export interface AppendSentMessageEvent extends BaseEvent {
 	outboxMessageId: string;
 }
 
+/**
+ * Drains one pending placement-move marker (issue #1271, epic #1281) to
+ * IMAP. Deliberately carries no UID and no destination — both are resolved
+ * fresh from the Message row and the `MessagePlacementMove` marker at push
+ * time (epic invariant 1), so this event stays valid across any amount of
+ * queue delay or an unrelated UIDVALIDITY rebuild (#1272). If the marker is
+ * gone by the time this is processed (confirmed, superseded, or an external
+ * delete already reconciled it), the handler is a no-op.
+ */
+export interface PlacementMovePushEvent extends BaseEvent {
+	type: "PLACEMENT_MOVE_PUSH";
+	accountConfigId: string;
+	messageId: string;
+}
+
 export interface DeleteAccountObjectsEvent {
 	type: "DELETE_ACCOUNT_OBJECTS";
 	accountConfigId: string;
@@ -194,4 +209,5 @@ export type ImapEvent =
 	| SyncFlagsEvent
 	| MailboxManagementEvent
 	| MessageManagementEvent
-	| AppendSentMessageEvent;
+	| AppendSentMessageEvent
+	| PlacementMovePushEvent;

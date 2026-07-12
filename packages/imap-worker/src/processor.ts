@@ -7,6 +7,7 @@ import { processMailboxManagement } from "./handlers/mailbox-management.js";
 import { handleMessageCopy } from "./handlers/message-copy.js";
 import { handleMessageDelete } from "./handlers/message-delete.js";
 import { handleMessageMove } from "./handlers/message-move.js";
+import { handlePlacementMovePush } from "./handlers/placement-move-push.js";
 import { syncFlags } from "./handlers/sync-flags.js";
 import { syncMailboxes } from "./handlers/sync-mailboxes.js";
 import { syncMessageBody } from "./handlers/sync-message-body.js";
@@ -41,6 +42,8 @@ export const processEvent = async (
 			return handleMessageDelete(event, log);
 		case "MESSAGE_MOVE":
 			return handleMessageMove(event, log);
+		case "PLACEMENT_MOVE_PUSH":
+			return handlePlacementMovePush(event, log, receiveCount);
 		case "MESSAGE_COPY":
 			return handleMessageCopy(event, log);
 		case "EMPTY_TRASH":

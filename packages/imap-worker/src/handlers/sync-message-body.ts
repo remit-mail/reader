@@ -1,4 +1,8 @@
 import { getClient } from "@remit/backend/client";
+import {
+	getClient as getRawDynamoClient,
+	MessagePlacementMoveService,
+} from "@remit/remit-electrodb-service";
 import type { Logger } from "@remit/logger-lambda";
 import { MetricUnit, metrics } from "@remit/logger-lambda";
 import {
@@ -6,7 +10,7 @@ import {
 	guardConnectionCursor,
 	isCursorRebuildNeeded,
 	MailboxCursorPausedError,
-	MessageMoveService,
+	PlacementMoveService,
 	resolveExhaustedBodySyncFailures,
 } from "@remit/mailbox-service";
 import { createStorageService } from "@remit/storage-service";
@@ -22,6 +26,15 @@ import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 
 const bodySyncEnabledParameterName = env.BODY_SYNC_ENABLED_PARAMETER_NAME;
+
+// Marker service for pending placement moves (issue #1271). Not part of the
+// `getClient()` RemitClient bundle (that wraps only the ports every backend
+// implements) — placement-move machinery is DynamoDB/SQS-specific, same as
+// the general move/delete/copy machinery, so it is instantiated directly here.
+const markerService = new MessagePlacementMoveService({
+	client: getRawDynamoClient(),
+	table: env.DYNAMODB_TABLE_NAME,
+});
 
 /**
  * Fallback when `BODY_SYNC_MAX_ATTEMPTS` is unset (local dev, unit tests).
@@ -157,14 +170,16 @@ export const syncMessageBody = async (
 		return;
 	}
 
-	const messageMgmtQueueUrl = process.env.SQS_QUEUE_URL_MESSAGE_MGMT;
-	const messageMoveService = messageMgmtQueueUrl
-		? new MessageMoveService({
+	// PLACEMENT_MOVE_PUSH rides messageMgmtQueue (issue #1271) — same queue
+	// the general MessageMoveService move/delete/copy machinery uses, not a
+	// dedicated one.
+	const placementMoveQueueUrl = process.env.SQS_QUEUE_URL_MESSAGE_MGMT;
+	const placementMoveService = placementMoveQueueUrl
+		? new PlacementMoveService({
 				messageService,
-				mailboxService,
-				mailboxSpecialUseService,
 				threadMessageService,
-				sqsQueueUrl: messageMgmtQueueUrl,
+				markerService,
+				sqsQueueUrl: placementMoveQueueUrl,
 			})
 		: undefined;
 
@@ -199,10 +214,10 @@ export const syncMessageBody = async (
 			// A confident, actionable placement verdict moves mail directly on
 			// body-sync. Safety lives in the verdict itself (only confident,
 			// INBOX/Junk-only) and the movedByRemit loop guard.
-			const placementConfig = messageMoveService
+			const placementConfig = placementMoveService
 				? {
 						mailboxSpecialUseService,
-						messageMoveService,
+						placementMoveService,
 					}
 				: undefined;
 

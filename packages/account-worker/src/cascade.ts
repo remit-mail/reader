@@ -12,6 +12,7 @@ import type {
 	IMailboxRepository,
 	IMessageFlagRepository,
 	IMessageLabelRepository,
+	IMessagePlacementMoveRepository,
 	IMessageRepository,
 	IOutboxMessageRepository,
 	IThreadMessageRepository,
@@ -35,6 +36,7 @@ export interface CascadeServices {
 	outboxMessageService: IOutboxMessageRepository;
 	threadMessageService: IThreadMessageRepository;
 	mailboxLockService: IMailboxLockRepository;
+	messagePlacementMoveService: IMessagePlacementMoveRepository;
 	accountExportRequestService: IAccountExportRequestRepository;
 	accountSettingService: IAccountSettingRepository;
 	filterService: IFilterRepository;
@@ -130,6 +132,7 @@ export const enumerateCascadeEntities = async (
 		outboxMessageService,
 		threadMessageService,
 		mailboxLockService,
+		messagePlacementMoveService,
 		accountSettingService,
 		filterService,
 		filterAnchorService,
@@ -246,6 +249,16 @@ export const enumerateCascadeEntities = async (
 				key: { mailboxId: lock.mailboxId, eventName: lock.eventName },
 			});
 		}
+
+		const placementMoves = await messagePlacementMoveService.listByAccountId(
+			account.accountId,
+		);
+		for (const move of placementMoves) {
+			entities.push({
+				entityType: "MessagePlacementMove",
+				key: { messageId: move.messageId },
+			});
+		}
 	}
 
 	const threadMessages =
@@ -348,6 +361,7 @@ export const COVERED_ENTITY_TYPES = [
 	"Message",
 	"MessageFlag",
 	"MessageLabel",
+	"MessagePlacementMove",
 	"MessageReference",
 	"OutboxMessage",
 	"RawMessageStorage",
