@@ -1,0 +1,9 @@
+# TLS_MODE=internal — HTTPS on :443 signed by Caddy's own locally-trusted CA.
+# No external dependency: no public DNS, no ACME, no tailnet. Works for any
+# hostname or IP you point at the box. Browsers show a warning until you trust
+# Caddy's root CA on the client (README: TLS). PUBLIC_ORIGIN must be https://…
+# and its host is the name on the certificate.
+{$PUBLIC_ORIGIN} {
+	tls internal
+	import /etc/caddy/routes.caddy
+}

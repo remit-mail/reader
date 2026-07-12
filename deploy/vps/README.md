@@ -7,9 +7,9 @@ docker compose on one small VPS, consuming only published
 build toolchain on the server — pulling `main` onto a server is not
 possible with this deployment, by design (RFC 035 D3).
 
-Sized for a 2 vCPU / 4 GB EU VPS (Hetzner CX23-class, ~€5.50/mo). Reachable
-over a private network (tailnet, VPN, SSH tunnel) by default — see
-`Caddyfile` for the public-hostname/TLS variant if you have one.
+Sized for a 2 vCPU / 4 GB EU VPS (Hetzner CX23-class, ~€5.50/mo). Plain HTTP
+over a private network (tailnet, VPN, SSH tunnel) by default; the [TLS](#tls)
+section covers turning on HTTPS.
 
 ## Quickstart
 
@@ -30,7 +30,7 @@ itself (Settings → Add account).
 
 | Service | Image | Role |
 |---|---|---|
-| `caddy` | `caddy:2-alpine` | Only published port. TLS termination (optional), reverse proxy. |
+| `caddy` | `caddy:2-alpine` | The edge: reverse proxy and TLS termination. Publishes the only host ports, 80 and 443 (443 is bound in every mode but serves traffic only in the TLS modes). See [TLS](#tls). |
 | `apisix` | `ghcr.io/remit-mail/remit/apisix` | Edge JWT gate — `apache/apisix:3.13.0-debian` with the generated route table baked in, the same table the Scaleway deployment uses (RFC 035 D5 parity). |
 | `web` | `ghcr.io/remit-mail/remit/web` | Static server for the built SPA. |
 | `backend` | `ghcr.io/remit-mail/remit/backend` | The API. Also the `migrate` service's image (see below). |
@@ -43,6 +43,65 @@ itself (Settings → Add account).
 Message bodies live on the `message_storage` named volume via the
 filesystem storage backend (`STORAGE_LOCAL_PATH`) — not S3, not backed up
 by the nightly dump below (see Backups).
+
+## TLS
+
+One setting, `TLS_MODE` in `.env`, picks how Caddy serves the origin. The
+deployment never depends on a single provider for TLS — `internal` needs
+nothing outside the box. Set it, set `PUBLIC_ORIGIN` to a matching
+`scheme://host`, and `docker compose up -d`.
+
+| `TLS_MODE` | What it does | `PUBLIC_ORIGIN` |
+|---|---|---|
+| `off` (default) | Plain HTTP on :80. Reach it over a private network (tailnet, VPN, SSH tunnel). | `http://…` |
+| `internal` | HTTPS on :443 with Caddy's own locally-trusted CA. No public DNS, no ACME, no tailnet. Browsers warn until you trust the root CA. | `https://…` |
+| `tailscale` | A real, publicly-trusted certificate from the local `tailscaled` for this box's `<name>.<tailnet>.ts.net`. | `https://<name>.<tailnet>.ts.net` |
+| `acme` | Public Let's Encrypt. Ports 80/443 must be reachable from the internet and the host must resolve in public DNS. | `https://mail.example.com` |
+
+`internal` is the first-class provider-free option. To make the browser
+warning go away, trust Caddy's root CA on each client. Caddy keeps it on the
+`caddy_data` volume; export it with:
+
+```bash
+docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./remit-root.crt
+```
+
+Then import `remit-root.crt` into the client's trust store (macOS Keychain,
+the Windows cert store, `/usr/local/share/ca-certificates` + `update-ca-certificates`
+on Linux, or the browser's own authorities). Skipping this is fine — it only
+means the browser warning stays.
+
+`tailscale` needs two things beyond `TLS_MODE`: enable HTTPS for your tailnet
+(Tailscale admin console → DNS → **Enable HTTPS**), and set `TAILSCALED_SOCKET`
+in `.env` to the host's `tailscaled` socket (usually
+`/var/run/tailscale/tailscaled.sock`) so the caddy container can reach the
+daemon. Caddy detects the `.ts.net` host and fetches the certificate itself.
+
+### FAQ
+
+**My browser says the connection isn't private in `internal` mode. Is it broken?**
+No. The certificate is real but signed by Caddy's own CA, which the browser
+doesn't know yet. Trust the exported root CA (above) or click through the
+warning — traffic is encrypted either way.
+
+**Why is port 443 open in `off` mode?** Compose publishes 80 and 443 for all
+modes so switching to a TLS mode needs no compose edit. In `off` mode nothing
+listens on 443; it just sits unused. If another service already holds :443 on
+the host, free it before `up`.
+
+**I set `TLS_MODE=tailscale` but Caddy can't get a certificate.** Two usual
+causes: HTTPS isn't enabled for the tailnet, or `TAILSCALED_SOCKET` doesn't
+point at a running `tailscaled` (the socket must exist on the host and be
+mounted into the container). Both are required.
+
+**Do I have to change `PUBLIC_ORIGIN` when I switch modes?** Yes — its scheme
+must match. `http://` only for `off`; `https://` for the other three. It stays
+the single origin knob (Caddy's site address and the app's auth/CORS origins
+all derive from it), so nothing else changes.
+
+**Can I use `acme` behind a tailnet or without public DNS?** No. Public Let's
+Encrypt validates a publicly-resolvable name over ports 80/443. Use `internal`
+or `tailscale` for private networks.
 
 ## Update procedure
 
