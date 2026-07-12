@@ -160,7 +160,12 @@ export const createSqliteVectorStore = (
 					m.accountConfigId,
 					m.mailboxIds[0] ?? "",
 					m.chunkType,
-					m.category ?? null,
+					// vec0 filterable metadata columns are strict NOT NULL; a chunk
+					// with no category binds an empty-string sentinel (a `category = ?`
+					// filter never matches it) rather than NULL, which vec0 rejects.
+					// The returned metadata reads from the `meta` JSON column, so
+					// category stays correctly absent there.
+					m.category ?? "",
 					BigInt(Math.trunc(m.sentDate)),
 					bool(m.isRead),
 					bool(m.hasAttachment),

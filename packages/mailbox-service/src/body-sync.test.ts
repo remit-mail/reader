@@ -3176,6 +3176,84 @@ describe("BodySyncService.syncBodies (filter matching + apply)", () => {
 		assert.equal(labelApplies.length, 0);
 	});
 
+	it("isolates a corrupt anchor to its own filter; other filters still apply", async () => {
+		const fake = buildFakeState({ messageId: "msg-1" });
+		const errors: Array<{ obj: Record<string, unknown>; msg: string }> = [];
+		const logger: BodySyncLogger = {
+			info: () => {},
+			debug: () => {},
+			warn: () => {},
+			error: (obj, msg) => {
+				errors.push({ obj, msg });
+			},
+		};
+		const built = buildFilterConfig({
+			filters: [
+				makeFilter({
+					filterId: "flt-corrupt",
+					hasAnchor: true,
+					literalClauses: [],
+					actionLabelId: "label-corrupt",
+				}),
+				makeFilter({
+					filterId: "flt-good",
+					literalClauses: fromClause("a@example.com"),
+					actionLabelId: "label-good",
+				}),
+			],
+			anchors: {
+				// A stale anchor embedded under a different model: its dimension
+				// no longer matches the message vector, so cosineSimilarity throws.
+				"flt-corrupt": {
+					accountConfigId: "acc-cfg-1",
+					filterId: "flt-corrupt",
+					anchorEmbedding: [1, 0, 0, 0],
+					anchorEmbeddingId: "amazon.titan-embed-text-v2:0@3",
+					anchorSourceText: "stale anchor under a different model",
+					anchorMessageId: "anchor-msg",
+					createdAt: 1,
+					updatedAt: 1,
+				},
+			},
+			embedder: { embed: async () => [1, 0, 0] },
+			similarityThreshold: 0.75,
+		});
+
+		const service = new BodySyncService(
+			fake.messageService,
+			fake.storageService,
+			fake.threadMessageService,
+			fake.addressService,
+			fake.envelopeService,
+			logger,
+			undefined,
+			built.config,
+		);
+		await service.syncBodies(
+			["msg-1"],
+			"acc-1",
+			"acc-cfg-1",
+			"INBOX",
+			async () => buildFakeConnection(),
+		);
+
+		const applied = built.labelApplies.map((l) => l.labelId);
+		assert.deepEqual(
+			applied,
+			["label-good"],
+			"the healthy filter applies despite the corrupt anchor",
+		);
+		const alertLog = errors.find(
+			(e) => e.obj.alert === "filter_anchor_match_failed",
+		);
+		assert.ok(alertLog, "expected an alert-tagged anchor-failure log");
+		assert.equal(
+			alertLog?.obj.filterId,
+			"flt-corrupt",
+			"the log names the offending filter",
+		);
+	});
+
 	it("isolates a filter-matching failure from the body store (message still synced)", async () => {
 		const fake = buildFakeState({ messageId: "msg-1" });
 		const filterService = {
