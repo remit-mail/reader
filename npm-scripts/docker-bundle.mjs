@@ -94,6 +94,17 @@ export const TARGETS = [
 		entry: "packages/remit-pg-index-worker/src/run-worker.ts",
 		external: [PG],
 	},
+	// Ships inside the backend image (dist-docker/backend/migrate.mjs) as an
+	// alternate entrypoint — "the backend image with a migrate command"
+	// (RFC 035 D8) — not a ninth image. The compose `migrate` one-shot
+	// service overrides CMD to run this instead of server.mjs.
+	{
+		name: "backend-migrate",
+		entry: "deploy/vps/migrate/run-migrate.ts",
+		outfile: "dist-docker/backend/migrate.mjs",
+		external: [PG],
+		loader: { ".sql": "text" },
+	},
 ];
 
 async function main() {
