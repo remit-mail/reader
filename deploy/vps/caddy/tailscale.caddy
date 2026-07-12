@@ -1,0 +1,9 @@
+# TLS_MODE=tailscale — a real, publicly-trusted certificate fetched from the
+# local tailscaled for this machine's <name>.<tailnet>.ts.net address. Caddy
+# detects the .ts.net host and uses Tailscale automatically; no ACME directive
+# is needed. Requires the tailscaled API socket mounted into this container
+# (docker-compose.yml: TAILSCALED_SOCKET) and HTTPS enabled for the tailnet.
+# PUBLIC_ORIGIN must be https://<name>.<tailnet>.ts.net
+{$PUBLIC_ORIGIN} {
+	import /etc/caddy/routes.caddy
+}
