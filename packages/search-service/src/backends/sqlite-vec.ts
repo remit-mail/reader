@@ -216,6 +216,24 @@ export const createSqliteVectorStore = (
 		return out;
 	};
 
+	const getByMessage = async (messageId: string): Promise<VectorRecord[]> => {
+		const db = await getDb();
+		const stmt = db.prepare(
+			`SELECT chunk_id AS chunkId, vec_to_json(embedding) AS embedding, meta
+			 FROM vec_chunks WHERE message_id = ?`,
+		);
+		const rows = stmt.all(messageId) as {
+			chunkId: string;
+			embedding: string;
+			meta: string;
+		}[];
+		return rows.map((row) => ({
+			chunkId: row.chunkId,
+			vector: JSON.parse(row.embedding) as number[],
+			metadata: JSON.parse(row.meta) as ChunkMetadata,
+		}));
+	};
+
 	const del = async (filter: { messageId: string }): Promise<void> => {
 		const db = await getDb();
 		db.prepare("DELETE FROM vec_chunks WHERE message_id = ?").run(
@@ -223,5 +241,5 @@ export const createSqliteVectorStore = (
 		);
 	};
 
-	return { upsert, query, existingContentHashes, delete: del };
+	return { upsert, query, existingContentHashes, getByMessage, delete: del };
 };
