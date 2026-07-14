@@ -40,7 +40,7 @@
     "@platejs/autoformat": "*",
     "@platejs/basic-nodes": "*",
     "@platejs/link": "*",
-    "@playwright/test": "^1",
+    "@playwright/test": "1.58.2",
     "@remit/api-http-client": "file:../../build/remit-client",
     "@remit/electrodb-entities": "*",
     "@remit/drizzle-service": "*",
