@@ -29,6 +29,7 @@ export {
 	MessagePlacementMoveRepo,
 	type PutMessagePlacementMoveInput,
 } from "./repos/i4-message-placement-move.js";
+export * from "./repos/i4-organize-job-request.js";
 export * from "./repos/i4-outbox-message.js";
 export { LabelRepo } from "./repos/label.js";
 export {
@@ -48,6 +49,7 @@ export * from "./schema/i4-mailbox.js";
 export * from "./schema/i4-mailbox-lock.js";
 export * from "./schema/i4-message-flag-push.js";
 export * from "./schema/i4-message-placement-move.js";
+export * from "./schema/i4-organize-job-request.js";
 export * from "./schema/i4-outbox-message.js";
 export * from "./schema/message-data.js";
 export { messageDataSchema } from "./schema/message-data.js";

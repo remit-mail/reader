@@ -37,6 +37,7 @@ import "./AccountConfigState.tsp";
 import "./AccountSettingName.tsp";
 import "./SyncPhase.tsp";
 import "./AccountExportState.tsp";
+import "./OrganizeJobState.tsp";
 
 // Authentication Enums
 import "./AuthResultVerdict.tsp";

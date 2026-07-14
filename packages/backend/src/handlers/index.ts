@@ -12,6 +12,7 @@ import {
 } from "./mailbox.js";
 import { MeOperations } from "./me.js";
 import { MessageBulkOperations, MessageOperations } from "./message.js";
+import { OrganizeJobDetailOperations, OrganizeOperations } from "./organize.js";
 import { OutboxDetailOperations, OutboxOperations } from "./outbox.js";
 import { SemanticSearchOperations } from "./search.js";
 import { SyncOperations } from "./sync.js";
@@ -30,6 +31,8 @@ export const handlers: Record<OperationIds, OperationHandler<any>> = {
 	...FolderRoleOperations,
 	...FilterOperations,
 	...FilterDetailOperations,
+	...OrganizeOperations,
+	...OrganizeJobDetailOperations,
 	...TrashOperations,
 	...SyncOperations,
 	...ThreadDetailOperations,

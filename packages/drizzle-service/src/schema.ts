@@ -22,6 +22,7 @@ export * from "./schema/i4-mailbox.js";
 export * from "./schema/i4-mailbox-lock.js";
 export * from "./schema/i4-message-flag-push.js";
 export * from "./schema/i4-message-placement-move.js";
+export * from "./schema/i4-organize-job-request.js";
 export * from "./schema/i4-outbox-message.js";
 export * from "./schema/message-data.js";
 export { threadMessageTable } from "./schema/thread-message.js";

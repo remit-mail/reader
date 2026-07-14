@@ -32,6 +32,9 @@ import "./SemanticSearch.tsp";
 // Export
 import "./AccountExportRequest.tsp";
 
+// Smart Organize back-apply job (RFC 034, #1278)
+import "./OrganizeJobRequest.tsp";
+
 // Smart Organize (RFC 030, RFC 034)
 import "./Label.tsp";
 import "./MessageLabel.tsp";

@@ -20,6 +20,7 @@ import type {
 	MessageLabelSchema,
 	MessagePlacementMoveSchema,
 	MessageSchema,
+	OrganizeJobRequestSchema,
 	OutboxMessageSchema,
 	RawMessageStorageSchema,
 	ThreadMessageSchema,
@@ -211,6 +212,27 @@ export type UpdateAccountExportRequestInput = Partial<
 	Pick<AccountExportRequestItem, "state" | "expiresAt" | "errorMessage"> & {
 		objectKey?: string;
 	}
+>;
+
+export type OrganizeJobRequestItem = z.infer<typeof OrganizeJobRequestSchema>;
+
+export type CreateOrganizeJobRequestInput = Omit<
+	OrganizeJobRequestItem,
+	| "organizeJobId"
+	| "createdAt"
+	| "updatedAt"
+	| "state"
+	| "matchedCount"
+	| "appliedCount"
+	| "failedCount"
+	| "errorMessage"
+> & { state?: OrganizeJobRequestItem["state"] };
+
+export type UpdateOrganizeJobRequestInput = Partial<
+	Pick<
+		OrganizeJobRequestItem,
+		"state" | "matchedCount" | "appliedCount" | "failedCount" | "errorMessage"
+	>
 >;
 
 export type UpsertAccountSettingInput = {

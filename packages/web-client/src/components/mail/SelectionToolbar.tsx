@@ -1,4 +1,4 @@
-import { Loader2, MailOpen, Trash2, X } from "lucide-react";
+import { Loader2, MailOpen, Sparkles, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MoveToTrigger } from "./MoveToTrigger";
 
@@ -8,6 +8,12 @@ interface SelectionToolbarProps {
 	onClearSelection: () => void;
 	onMarkAsRead?: () => void;
 	onMove?: (destinationMailboxId: string) => void;
+	/**
+	 * Open the smart-organize flow for the current selection. Rendered only
+	 * when a single-account move target is resolvable (same guard as Move) —
+	 * organize is account-scoped.
+	 */
+	onOrganize?: () => void;
 	isDeleting?: boolean;
 	/**
 	 * True while a move mutation is in flight. Action buttons no-op while
@@ -35,6 +41,7 @@ export const SelectionToolbar = ({
 	onClearSelection,
 	onMarkAsRead,
 	onMove,
+	onOrganize,
 	isDeleting = false,
 	isMoving = false,
 	accountId,
@@ -45,6 +52,8 @@ export const SelectionToolbar = ({
 	if (selectedCount === 0) return null;
 
 	const canShowMove = !!onMove && !!accountId && !!currentMailboxId;
+	const canShowOrganize =
+		!!onOrganize && !!accountId && !!currentMailboxId && !moveDisabledHint;
 
 	return (
 		<div className="sticky top-0 z-10 flex items-center justify-between px-3 py-2 bg-surface-sunken border-b border-line">
@@ -73,6 +82,17 @@ export const SelectionToolbar = ({
 				)}
 			</div>
 			<div className="flex items-center gap-1">
+				{canShowOrganize && onOrganize && (
+					<button
+						type="button"
+						onClick={isBusy ? undefined : onOrganize}
+						className="min-h-11 inline-flex items-center justify-center gap-1.5 px-3 rounded text-sm font-medium transition-colors hover:bg-surface-raised"
+						aria-label="Organize similar messages"
+					>
+						<Sparkles className="size-4" />
+						<span className="hidden sm:inline">Organize</span>
+					</button>
+				)}
 				{onMarkAsRead && (
 					<button
 						type="button"

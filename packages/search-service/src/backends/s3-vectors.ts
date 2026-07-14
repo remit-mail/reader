@@ -266,29 +266,42 @@ export class S3VectorsBackend implements VectorStoreService {
 		}
 	};
 
+	// S3 Vectors returns a large topK across pages: one QueryVectors call yields a
+	// single page plus a `nextToken` when more results remain. Follow the token,
+	// re-issuing with the same queryVector/topK/filter, until the requested topK is
+	// filled or no token remains — a single-page query stops after one call. The
+	// loop is bounded by topK (never issues a request once topK matches are in
+	// hand), so a 4000-topK back-apply reads every page instead of silently capping
+	// at the first.
 	query = async (params: VectorQuery): Promise<VectorMatch[]> => {
-		const cmd = new QueryVectorsCommand({
-			vectorBucketName: this.vectorBucketName,
-			indexName: this.indexName,
-			topK: params.topK,
-			queryVector: { float32: params.vector },
-			filter: buildFilterExpression(params.filter),
-			returnMetadata: true,
-			returnDistance: true,
-		});
-		const response = await this.client.send(cmd);
+		const filter = buildFilterExpression(params.filter);
 		const out: VectorMatch[] = [];
-		for (const v of response.vectors ?? []) {
-			if (typeof v.key !== "string") continue;
-			const distance = v.distance ?? 0;
-			const score = 1 - distance;
-			out.push({
-				chunkId: v.key,
-				score,
-				metadata: toMetadata(v.metadata),
+		let nextToken: string | undefined;
+		do {
+			const cmd = new QueryVectorsCommand({
+				vectorBucketName: this.vectorBucketName,
+				indexName: this.indexName,
+				topK: params.topK,
+				queryVector: { float32: params.vector },
+				filter,
+				returnMetadata: true,
+				returnDistance: true,
+				nextToken,
 			});
-		}
-		return out;
+			const response = await this.client.send(cmd);
+			for (const v of response.vectors ?? []) {
+				if (typeof v.key !== "string") continue;
+				const distance = v.distance ?? 0;
+				const score = 1 - distance;
+				out.push({
+					chunkId: v.key,
+					score,
+					metadata: toMetadata(v.metadata),
+				});
+			}
+			nextToken = response.nextToken || undefined;
+		} while (nextToken && out.length < params.topK);
+		return out.slice(0, params.topK);
 	};
 
 	// Read the stored content hash for each chunk key via GetVectors — addressed

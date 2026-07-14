@@ -6,7 +6,7 @@ import {
 } from "@remit/ui";
 import { useNavigate } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Search } from "lucide-react";
+import { Search, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { formatErrorMessage } from "@/components/ui/ErrorState";
@@ -21,6 +21,7 @@ import {
 import { buildBugReportContext, buildGitHubIssueUrl } from "@/lib/bug-report";
 import { formatDeleteToTrashTitle } from "@/lib/format";
 import { MoveToTrigger } from "./MoveToTrigger";
+import { OrganizeDialog } from "./organize/OrganizeDialog";
 import { SelectionToolbar } from "./SelectionToolbar";
 import { SwipeableMessageRow } from "./SwipeableMessageRow";
 
@@ -132,6 +133,7 @@ export const MessageList = ({
 	const navigate = useNavigate();
 	const isDesktop = useIsDesktop();
 	const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
+	const [organizeOpen, setOrganizeOpen] = useState(false);
 
 	// Roving focus cursor (#429): the keyboard "where am I" pointer, distinct
 	// from the open thread (`selectedMessageId` in the URL). j/k move this
@@ -649,6 +651,7 @@ export const MessageList = ({
 				onClearSelection={clearSelection}
 				onMarkAsRead={onMarkAsRead ? handleMarkAsRead : undefined}
 				onMove={onMoveMessages ? handleMoveSelected : undefined}
+				onOrganize={() => setOrganizeOpen(true)}
 				isDeleting={isDeleting}
 				isMoving={isMoving}
 				accountId={accountId}
@@ -669,13 +672,25 @@ export const MessageList = ({
 				moveDisabledHint={moveDisabledHint}
 				moveSlot={
 					onMoveMessages && accountId && mailboxId ? (
-						<MoveToTrigger
-							accountId={accountId}
-							currentMailboxId={mailboxId}
-							onMove={isDeleting || isMoving ? () => {} : handleMoveSelected}
-							disabledHint={moveDisabledHint}
-							label="Move selected messages"
-						/>
+						<>
+							{!moveDisabledHint && (
+								<button
+									type="button"
+									onClick={() => setOrganizeOpen(true)}
+									className="min-h-11 min-w-11 inline-flex shrink-0 items-center justify-center rounded text-fg-muted hover:bg-surface-raised"
+									aria-label="Organize similar messages"
+								>
+									<Sparkles className="size-4" />
+								</button>
+							)}
+							<MoveToTrigger
+								accountId={accountId}
+								currentMailboxId={mailboxId}
+								onMove={isDeleting || isMoving ? () => {} : handleMoveSelected}
+								disabledHint={moveDisabledHint}
+								label="Move selected messages"
+							/>
+						</>
 					) : undefined
 				}
 			/>
@@ -775,6 +790,15 @@ export const MessageList = ({
 				onConfirm={handleConfirmDelete}
 				onCancel={handleCancelDelete}
 			/>
+			{organizeOpen && accountId && (
+				<OrganizeDialog
+					open={organizeOpen}
+					accountId={accountId}
+					mailboxId={mailboxId}
+					selectedMessageIds={Array.from(selectedIds)}
+					onClose={() => setOrganizeOpen(false)}
+				/>
+			)}
 		</>
 	);
 };
