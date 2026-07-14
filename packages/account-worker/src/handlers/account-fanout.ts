@@ -27,6 +27,7 @@ import type {
 } from "../events.js";
 import { processAccountExport } from "./account-export.js";
 import { processAccountDataPurge } from "./account-purge.js";
+import { processOrganizeJob } from "./organize-job.js";
 
 export interface ProcessAccountFanoutDeps {
 	services: CascadeServices;
@@ -61,6 +62,11 @@ export const processAccountFanout = async (
 
 	if (event.type === "AccountExport") {
 		await processAccountExport(event, log);
+		return;
+	}
+
+	if (event.type === "OrganizeJob") {
+		await processOrganizeJob(event, log);
 		return;
 	}
 

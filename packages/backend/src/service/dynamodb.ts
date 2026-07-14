@@ -18,6 +18,7 @@ import type {
 	IMessageLabelRepository,
 	IMessagePlacementMoveRepository,
 	IMessageRepository,
+	IOrganizeJobRequestRepository,
 	IOutboxMessageRepository,
 	IThreadMessageRepository,
 	IUnitOfWork,
@@ -40,6 +41,7 @@ import {
 	MessageLabelService,
 	MessagePlacementMoveService,
 	MessageService,
+	OrganizeJobRequestService,
 	OutboxMessageService,
 	ThreadMessageService,
 } from "@remit/remit-electrodb-service";
@@ -137,6 +139,11 @@ export interface RemitClient {
 	threadMessage: IThreadMessageRepository;
 	envelope: IEnvelopeRepository;
 	accountExportRequest: IAccountExportRequestRepository;
+
+	// Smart Organize back-apply job (RFC 034, #1278). Present on both backends,
+	// modeled on accountExportRequest — a Pending row the account-fanout worker
+	// picks up and drives to Complete/Failed. Never a Filter.
+	organizeJobRequest: IOrganizeJobRequestRepository;
 
 	// Smart Organize (RFC 034, epic #1280). Present on both backends
 	// (`FilterService`/`LabelService`/… on DynamoDB, `FilterRepo`/`LabelRepo`/…
@@ -289,6 +296,7 @@ const buildDynamoDBClient = (): RemitClient => {
 	const addressService = new AddressService(config);
 	const outboxMessageService = new OutboxMessageService(config);
 	const accountExportRequestService = new AccountExportRequestService(config);
+	const organizeJobRequestService = new OrganizeJobRequestService(config);
 	const placementMoveService = new MessagePlacementMoveService(config);
 	const flagPushMarkerService = new MessageFlagPushService(config);
 	const filterService = new FilterService(config);
@@ -331,6 +339,7 @@ const buildDynamoDBClient = (): RemitClient => {
 		threadMessage: threadMessageService,
 		envelope: envelopeService,
 		accountExportRequest: accountExportRequestService,
+		organizeJobRequest: organizeJobRequestService,
 		filter: filterService,
 		filterAnchor: filterAnchorService,
 		label: labelService,
@@ -413,6 +422,7 @@ const buildPostgresClient = async (): Promise<RemitClient> => {
 		messageDataSchema,
 		MessageLabelRepo,
 		MessagePlacementMoveRepo,
+		OrganizeJobRequestRepo,
 		OutboxMessageRepo,
 	} = await import("@remit/drizzle-service");
 	const { drizzle } = await import("drizzle-orm/node-postgres");
@@ -432,6 +442,7 @@ const buildPostgresClient = async (): Promise<RemitClient> => {
 	const mailboxLockService = new MailboxLockRepo(genericDb);
 	const outboxMessageService = new OutboxMessageRepo(genericDb);
 	const accountExportRequestService = new AccountExportRequestRepo(genericDb);
+	const organizeJobRequestService = new OrganizeJobRequestRepo(genericDb);
 	const placementMoveService = new MessagePlacementMoveRepo(genericDb);
 	const flagPushMarkerService = new MessageFlagPushRepo(genericDb);
 	const filterService = new FilterRepo(genericDb);
@@ -487,6 +498,7 @@ const buildPostgresClient = async (): Promise<RemitClient> => {
 		threadMessage: threadMessageService,
 		envelope: envelopeService,
 		accountExportRequest: accountExportRequestService,
+		organizeJobRequest: organizeJobRequestService,
 		filter: filterService,
 		filterAnchor: filterAnchorService,
 		label: labelService,

@@ -44,6 +44,7 @@ describe("cascade entity coverage snapshot", () => {
 			"message-flag-push": ["MessageFlagPush"],
 			"message-label": ["MessageLabel"],
 			"message-placement-move": ["MessagePlacementMove"],
+			"organize-job-request": [],
 			"outbox-message": ["OutboxMessage"],
 			"thread-message": ["ThreadMessage"],
 			"wellknown-rule": [],

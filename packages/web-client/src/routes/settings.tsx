@@ -10,7 +10,14 @@
  */
 import type { SettingsNavItem } from "@remit/ui";
 import { createFileRoute, Outlet } from "@tanstack/react-router";
-import { FolderTree, Inbox, Palette, Users, Wrench } from "lucide-react";
+import {
+	Filter,
+	FolderTree,
+	Inbox,
+	Palette,
+	Users,
+	Wrench,
+} from "lucide-react";
 
 /* ------------------------------------------------------------------ */
 /* Nav items — single source of truth shared by all settings pages    */
@@ -29,6 +36,11 @@ export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
 		icon: <FolderTree className="size-4" />,
 	},
 	{
+		id: "filters",
+		label: "Filters",
+		icon: <Filter className="size-4" />,
+	},
+	{
 		id: "appearance",
 		label: "Appearance",
 		icon: <Palette className="size-4" />,
@@ -40,6 +52,7 @@ export const SETTINGS_ID_TO_PATH: Record<string, string> = {
 	accounts: "/settings/accounts",
 	senders: "/settings/senders",
 	folders: "/settings/folders",
+	filters: "/settings/filters",
 	appearance: "/settings/appearance",
 	advanced: "/settings/advanced",
 };
