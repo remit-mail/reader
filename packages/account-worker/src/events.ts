@@ -21,10 +21,23 @@ export type AccountExportEvent = {
 	accountExportRequestId: string;
 };
 
+/**
+ * A "all like these" back-apply job (RFC 034, #1278). Rides the same
+ * account-fanout queue as export: the API writes a Pending OrganizeJobRequest
+ * row and enqueues this; the fanout worker matches the corpus and applies the
+ * action, driving the row to Complete/Failed. Never creates a Filter row.
+ */
+export type OrganizeJobEvent = {
+	type: "OrganizeJob";
+	accountConfigId: string;
+	organizeJobId: string;
+};
+
 export type AccountFanoutEvent =
 	| AccountDeleteEvent
 	| AccountDataPurgeEvent
-	| AccountExportEvent;
+	| AccountExportEvent
+	| OrganizeJobEvent;
 
 export type AccountDeleteFinalizeEvent = {
 	type: "FinalizeAccountDelete";

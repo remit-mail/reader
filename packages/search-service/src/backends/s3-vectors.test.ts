@@ -345,6 +345,119 @@ describe("S3VectorsBackend.query topK guard", () => {
 	});
 });
 
+describe("S3VectorsBackend.query pagination (follows nextToken)", () => {
+	let s3vMock: AwsClientStub<S3VectorsClient>;
+
+	beforeEach(() => {
+		s3vMock = mockClient(S3VectorsClient);
+	});
+
+	afterEach(() => {
+		s3vMock.restore();
+	});
+
+	const pageMeta = (messageId: string) => ({
+		messageId,
+		threadId: "thread-1",
+		accountConfigId: "acct-1",
+		mailboxIds: ["mb-inbox"],
+		chunkType: "body",
+		sentDate: 1_700_000_000,
+		isRead: false,
+		hasAttachment: false,
+		hasStars: false,
+	});
+
+	// A large topK spans pages: the first QueryVectors returns one page plus a
+	// nextToken, and the wrapper must replay that token to gather the rest instead
+	// of silently capping at the first page (the anchored back-apply requests
+	// topK = 4000).
+	it("follows nextToken across pages until it is empty, replaying the token", async () => {
+		s3vMock.on(QueryVectorsCommand).callsFake((input) => {
+			if (!input.nextToken) {
+				return {
+					vectors: [
+						{ key: "m1::body-0", distance: 0.1, metadata: pageMeta("m1") },
+					],
+					nextToken: "tok-1",
+					distanceMetric: "cosine",
+				};
+			}
+			assert.equal(input.nextToken, "tok-1", "second page replays the token");
+			return {
+				vectors: [
+					{ key: "m2::body-0", distance: 0.2, metadata: pageMeta("m2") },
+				],
+				distanceMetric: "cosine",
+			};
+		});
+
+		const matches = await buildBackend().query({
+			vector: [0.1, 0.2, 0.3],
+			topK: 4000,
+			filter: { accountConfigId: "acct-1" },
+		});
+
+		const calls = s3vMock.commandCalls(QueryVectorsCommand);
+		assert.equal(calls.length, 2, "must issue a second call for the next page");
+		assert.equal(
+			calls[0].args[0].input.nextToken,
+			undefined,
+			"the first page carries no token",
+		);
+		assert.equal(
+			calls[1].args[0].input.nextToken,
+			"tok-1",
+			"the second page carries the token from the first response",
+		);
+		assert.deepEqual(
+			matches.map((m) => m.chunkId),
+			["m1::body-0", "m2::body-0"],
+			"results from every page are accumulated in order",
+		);
+	});
+
+	it("stops after the first page when no nextToken is returned", async () => {
+		s3vMock.on(QueryVectorsCommand).resolves({
+			vectors: [{ key: "m1::body-0", distance: 0.1, metadata: pageMeta("m1") }],
+			distanceMetric: "cosine",
+		});
+
+		const matches = await buildBackend().query({
+			vector: [0.1, 0.2, 0.3],
+			topK: 4000,
+		});
+
+		assert.equal(s3vMock.commandCalls(QueryVectorsCommand).length, 1);
+		assert.equal(matches.length, 1);
+	});
+
+	// Bounded by topK: once topK matches are in hand the wrapper stops requesting
+	// pages even if the service still hands back a nextToken.
+	it("never requests another page once topK matches are collected", async () => {
+		s3vMock.on(QueryVectorsCommand).callsFake(() => ({
+			vectors: [
+				{ key: "m1::body-0", distance: 0.1, metadata: pageMeta("m1") },
+				{ key: "m2::body-0", distance: 0.2, metadata: pageMeta("m2") },
+			],
+			nextToken: "always-more",
+			distanceMetric: "cosine",
+		}));
+
+		const matches = await buildBackend().query({
+			vector: [0.1, 0.2, 0.3],
+			topK: 2,
+		});
+
+		assert.equal(
+			s3vMock.commandCalls(QueryVectorsCommand).length,
+			1,
+			"topK filled on the first page must not trigger a further page request",
+		);
+		assert.equal(matches.length, 2);
+	});
+});
+
 describe("S3VectorsBackend.query filter expression", () => {
 	let s3vMock: AwsClientStub<S3VectorsClient>;
 

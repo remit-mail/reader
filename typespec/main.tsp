@@ -181,6 +181,41 @@ namespace RemitApi {
   }
 
   // ============================================
+  // Smart Organize Back-Apply Operations (RFC 034 "all like these", #1278)
+  // ============================================
+
+  @route("/accounts/{accountId}/organize")
+  namespace OrganizeOperations {
+    @doc("Start a one-time \"all like these\" back-apply: match the corpus against the given predicate and apply the action to every match, in one pass. Returns immediately with an organizeJobId; poll GET /accounts/{accountId}/organize/{organizeJobId} for state and counts. Never creates a Filter or FilterAnchor row (RFC 034 recap).")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    op createOrganizeJob(
+      @path accountId: UUID,
+      @body input: OrganizeInput,
+    ): CreateOrganizeJobResponse;
+
+    @doc("Preview an \"all like these\" back-apply: run the exact same matcher read-only and return the messages the action would be applied to, without applying it. The previewed set equals the set a job with the same input would apply to.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    @route("/preview")
+    op previewOrganize(
+      @path accountId: UUID,
+      @body input: OrganizeInput,
+    ): OrganizePreviewResponse;
+  }
+
+  @route("/accounts/{accountId}/organize/{organizeJobId}")
+  namespace OrganizeJobDetailOperations {
+    @doc("Get the status of a back-apply job, including matched/applied/failed counts. Terminal states are Complete and Failed.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    op getOrganizeJob(
+      @path accountId: UUID,
+      @path organizeJobId: UUID,
+    ): OrganizeJobResponse;
+  }
+
+  // ============================================
   // Trash Operations
   // ============================================
 

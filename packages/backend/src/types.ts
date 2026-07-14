@@ -28,6 +28,9 @@ export type OperationIds =
 	| "FilterDetailOperations_getFilter"
 	| "FilterDetailOperations_updateFilter"
 	| "FilterDetailOperations_deleteFilter"
+	| "OrganizeOperations_createOrganizeJob"
+	| "OrganizeOperations_previewOrganize"
+	| "OrganizeJobDetailOperations_getOrganizeJob"
 	| "SyncOperations_triggerSync"
 	| "SyncOperations_getSyncStatus"
 	| "SemanticSearchOperations_semanticSearch"
@@ -85,6 +88,16 @@ export type FilterOperationIds = MatchPrefix<"FilterOperations_", OperationIds>;
 
 export type FilterDetailOperationIds = MatchPrefix<
 	"FilterDetailOperations_",
+	OperationIds
+>;
+
+export type OrganizeOperationIds = MatchPrefix<
+	"OrganizeOperations_",
+	OperationIds
+>;
+
+export type OrganizeJobDetailOperationIds = MatchPrefix<
+	"OrganizeJobDetailOperations_",
 	OperationIds
 >;
 
