@@ -1,0 +1,217 @@
+#!/bin/sh
+#
+# remit — admin wrapper for the self-host docker compose deployment.
+#
+# Wraps `docker compose` against the deployment directory so the operator
+# never has to cd there or repeat -f/--env-file. install.sh bakes the
+# directory it installed to into DEFAULT_DIR below; $REMIT_DIR overrides it.
+
+set -eu
+
+DEFAULT_DIR=/opt/remit
+REMIT_DIR="${REMIT_DIR:-$DEFAULT_DIR}"
+
+PROG=remit
+
+die() {
+	printf '%s: %s\n' "$PROG" "$1" >&2
+	exit 1
+}
+
+usage() {
+	cat <<EOF
+Usage: remit <command> [args]
+
+  restart [--hard]     Apply .env changes and start (docker compose up -d).
+                       --hard stops the stack first.
+  logs [service...]    Follow logs (last 100 lines).
+  status               Show services, the running tag, and the public origin.
+  update [--tag TAG]   Pull images and apply them, then check the migration.
+  down                 Stop the stack. Volumes and data are left alone.
+  config               Print the effective configuration, secrets redacted.
+  help                 This message.
+
+Deployment directory: $REMIT_DIR (override with \$REMIT_DIR)
+EOF
+}
+
+compose() {
+	docker compose \
+		--project-directory "$REMIT_DIR" \
+		-f "$REMIT_DIR/docker-compose.yml" \
+		--env-file "$REMIT_DIR/.env" \
+		"$@"
+}
+
+require_deployment() {
+	[ -f "$REMIT_DIR/docker-compose.yml" ] ||
+		die "no deployment at $REMIT_DIR — set \$REMIT_DIR or run install.sh"
+	[ -f "$REMIT_DIR/.env" ] ||
+		die "no .env at $REMIT_DIR — set \$REMIT_DIR or run install.sh"
+}
+
+get_var() {
+	_k=$1
+	_k="$_k" awk '
+		BEGIN { k = ENVIRON["_k"] }
+		index($0, k "=") == 1 { print substr($0, length(k) + 2); exit }
+	' "$REMIT_DIR/.env"
+}
+
+set_var() {
+	_k=$1
+	_v=$2
+	_k="$_k" _v="$_v" awk '
+		BEGIN { k = ENVIRON["_k"]; v = ENVIRON["_v"]; done = 0 }
+		!done && index($0, k "=") == 1 { print k "=" v; done = 1; next }
+		{ print }
+		END { if (!done) print k "=" v }
+	' "$REMIT_DIR/.env" >"$REMIT_DIR/.env.tmp"
+	chmod 600 "$REMIT_DIR/.env.tmp"
+	mv "$REMIT_DIR/.env.tmp" "$REMIT_DIR/.env"
+}
+
+# Shared by `update` and by install.sh, which calls this wrapper rather than
+# repeating the pull/up/migrate-gate sequence.
+pull_images() {
+	if _out=$(compose pull 2>&1); then
+		printf '%s\n' "$_out"
+		return 0
+	fi
+	printf '%s\n' "$_out" >&2
+	if printf '%s' "$_out" | grep -qiE 'denied|unauthorized|401|403'; then
+		if [ -z "${GITHUB_TOKEN:-}" ]; then
+			die "the ghcr.io/remit-mail/remit/* packages are private, so an anonymous pull is refused.
+Set GITHUB_TOKEN to a token with read:packages and re-run, or make the packages public."
+		fi
+		die "GITHUB_TOKEN was rejected by ghcr.io. It needs the read:packages scope
+and access to the remit-mail/remit packages."
+	fi
+	die "docker compose pull failed (see above)"
+}
+
+# migrate is a one-shot that every app service gates on
+# (service_completed_successfully). If it fails, `up -d` reports a dependency
+# error and the real cause is only in migrate's own logs.
+check_migrate() {
+	_cid=$(compose ps -aq migrate 2>/dev/null || true)
+	if [ -z "$_cid" ]; then
+		die "the migrate one-shot never ran — the stack is not usable"
+	fi
+	_code=$(docker inspect -f '{{.State.ExitCode}}' "$_cid" 2>/dev/null || echo 1)
+	if [ "$_code" != "0" ]; then
+		printf '\n--- migrate logs ---\n' >&2
+		compose logs --no-log-prefix migrate >&2 2>/dev/null || true
+		printf -- '--- end migrate logs ---\n\n' >&2
+		die "the database migration failed (exit $_code). No app service starts until it succeeds."
+	fi
+}
+
+apply() {
+	if ! compose up -d; then
+		check_migrate
+		die "docker compose up failed (see above)"
+	fi
+	check_migrate
+}
+
+cmd_restart() {
+	require_deployment
+	if [ "${1:-}" = "--hard" ]; then
+		compose stop
+	elif [ -n "${1:-}" ]; then
+		die "restart: unknown option '$1'"
+	fi
+	# up -d, never `compose restart`: restart reuses existing containers and
+	# ignores .env changes, so config edits appear to apply but do not.
+	apply
+	printf 'remit is up. Configuration in %s/.env is live.\n' "$REMIT_DIR"
+}
+
+cmd_logs() {
+	require_deployment
+	compose logs -f --tail=100 "$@"
+}
+
+cmd_status() {
+	require_deployment
+	printf 'Directory: %s\n' "$REMIT_DIR"
+	printf 'Tag:       %s\n' "$(get_var REMIT_TAG)"
+	printf 'Origin:    %s\n' "$(get_var PUBLIC_ORIGIN)"
+	printf '\n'
+	compose ps
+}
+
+cmd_update() {
+	require_deployment
+	_tag=""
+	while [ $# -gt 0 ]; do
+		case "$1" in
+		--tag)
+			[ $# -ge 2 ] || die "update: --tag needs a value"
+			_tag=$2
+			shift 2
+			;;
+		*) die "update: unknown option '$1'" ;;
+		esac
+	done
+	if [ -n "$_tag" ]; then
+		set_var REMIT_TAG "$_tag"
+	fi
+	pull_images
+	apply
+	printf '\nremit is running tag %s.\n' "$(get_var REMIT_TAG)"
+}
+
+cmd_down() {
+	require_deployment
+	# stop, never `down`: the pgdata and message_storage volumes hold every
+	# account, credential and message body on this box.
+	compose stop
+	printf "remit is stopped. Data volumes are untouched; 'remit restart' brings it back.\n"
+}
+
+cmd_config() {
+	require_deployment
+	awk '
+		/^[ \t]*#/ { next }
+		/^[ \t]*$/ { next }
+		{
+			eq = index($0, "=")
+			if (eq == 0) next
+			k = substr($0, 1, eq - 1)
+			v = substr($0, eq + 1)
+			if (k == "POSTGRES_PASSWORD" || k == "BETTER_AUTH_SECRET" || k == "FAKE_KMS_DATAKEY") {
+				v = "<redacted>"
+			} else if (k == "PG_CONNECTION_URL") {
+				sub(/:\/\/[^@]*@/, "://<redacted>@", v)
+			}
+			print k "=" v
+		}
+	' "$REMIT_DIR/.env"
+}
+
+main() {
+	[ $# -gt 0 ] || {
+		usage >&2
+		exit 2
+	}
+	_cmd=$1
+	shift
+	case "$_cmd" in
+	restart) cmd_restart "$@" ;;
+	logs) cmd_logs "$@" ;;
+	status) cmd_status "$@" ;;
+	update) cmd_update "$@" ;;
+	down) cmd_down "$@" ;;
+	config) cmd_config "$@" ;;
+	help | --help | -h) usage ;;
+	*)
+		printf '%s: unknown command '\''%s'\''\n\n' "$PROG" "$_cmd" >&2
+		usage >&2
+		exit 2
+		;;
+	esac
+}
+
+main "$@"
