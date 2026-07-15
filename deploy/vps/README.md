@@ -11,7 +11,76 @@ Sized for a 2 vCPU / 4 GB EU VPS (Hetzner CX23-class, ~€5.50/mo). Plain HTTP
 over a private network (tailnet, VPN, SSH tunnel) by default; the [TLS](#tls)
 section covers turning on HTTPS.
 
-## Quickstart
+## Install
+
+On a fresh amd64 box:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/remit-mail/remit/main/deploy/vps/install.sh \
+  | sh -s -- --origin http://your-host
+```
+
+This downloads the deploy assets for one ref into `/opt/remit`, generates the
+secrets, writes `.env` with mode 600, and brings the stack up. It takes no
+input while it runs — everything comes from flags and environment variables.
+`--help` lists them; the ones that matter are `--tls-mode`, `--tag`, `--dir`
+and `--ref`.
+
+Re-running is safe. An existing `.env` is kept, and a secret that already has a
+value is never regenerated: `.env` holds `FAKE_KMS_DATAKEY`, the only copy of
+the key every stored IMAP credential is encrypted with.
+
+The installer checks the host before it changes anything — docker and the
+compose v2 plugin, amd64 (no arm64 image is built), disk, RAM, ports 80 and
+443, and that `--origin`'s scheme matches `--tls-mode`. Missing dependencies
+are reported with the install command for the detected distro and nothing is
+changed; `--install-deps` installs them instead. The host needs docker, the
+compose v2 plugin, curl and openssl. Everything else runs in a container.
+
+The repository and the `ghcr.io/remit-mail/remit/*` packages are private today,
+so the download and the image pull both need a token until they are public
+(RFC 035 D4). With one set, the installer uses it for both:
+
+```bash
+export GITHUB_TOKEN=ghp_...    # repo read + read:packages
+curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github.raw" \
+  "https://api.github.com/repos/remit-mail/remit/contents/deploy/vps/install.sh?ref=main" \
+  | sh -s -- --origin http://your-host
+```
+
+Then visit the address passed as `--origin`. Sign up creates the first account;
+every subsequent IMAP account is added from the app itself (Settings → Add
+account).
+
+### The `remit` command
+
+The installer puts a `remit` wrapper at `/usr/local/bin/remit`. It wraps
+`docker compose` against the install directory, so nothing below needs a `cd`
+or any flags.
+
+| Command | What it does |
+|---|---|
+| `remit status` | Services, the running tag, the public origin. |
+| `remit logs [service…]` | Follow logs. |
+| `remit restart [--hard]` | Apply `.env` changes and start. |
+| `remit update [--tag sha-…]` | Pull images, apply them, check the migration. |
+| `remit down` | Stop. Data volumes are left alone. |
+| `remit config` | The effective configuration, secrets redacted. |
+
+Editing `.env` and running `docker compose restart` does not apply the change.
+`restart` reuses the existing containers with the environment they were created
+with, and reports success — the edit appears to have taken effect and has not.
+`remit restart` runs `docker compose up -d`, which recreates the containers
+whose configuration changed.
+
+The wrapper is a convenience over the compose commands documented below, not a
+replacement: every subcommand is a `docker compose` invocation you can type
+yourself. It reads the deployment directory from `$REMIT_DIR`, defaulting to
+whatever `--dir` the installer used.
+
+## Manual install
+
+The explicit path the installer automates:
 
 ```bash
 cd deploy/vps
@@ -106,6 +175,12 @@ or `tailscale` for private networks.
 ## Update procedure
 
 ```bash
+remit update --tag sha-<git-sha>
+```
+
+Or the same thing by hand:
+
+```bash
 $EDITOR .env             # bump REMIT_TAG to the sha- tag you want
 docker compose pull
 docker compose up -d     # migrate runs again (idempotent) before app services restart
@@ -128,6 +203,62 @@ docker compose up -d
 
 This is also the disaster-recovery story for a bad release (RFC 035 D3) —
 practice it once, deliberately, before you need it for real.
+
+## Podman
+
+One path is supported: **rootful podman, driving real Compose v2 over
+podman's Docker-compatible socket** — not podman-compose.
+
+```bash
+systemctl enable --now podman.socket
+export DOCKER_HOST=unix:///run/podman/podman.sock
+docker compose up -d     # the ordinary compose commands throughout this file
+```
+
+`docker compose` behaves exactly as documented once it is talking to that
+socket — the installer and every command above work unchanged. `install.sh`
+detects podman automatically and adjusts what it checks.
+
+**Never run `podman-compose` against this deployment.** It silently drops
+`depends_on: condition:` (translated to `--requires`, which ignores the
+condition entirely) and ignores `profiles:`. On this repo's own
+`docker-compose.yml`, `podman-compose up -d` exits `0` with every app
+container stuck in `Created` — the migration never gates them, it just never
+runs them — and the backup sidecar starts unrequested. A green exit code with
+a broken stack is worse than no podman support at all, so `install.sh`
+refuses to proceed if `docker compose` resolves to podman-compose under the
+hood.
+
+Two host settings need attention before the first `up`, both checked by the
+installer:
+
+- **Short image names.** The 8 `ghcr.io/remit-mail/remit/*` images are fully
+  qualified and unaffected; the 4 upstream images (`caddy`, `pgvector`,
+  `elasticmq`, `postgres`) are not. A fresh podman install has no
+  unqualified-search-registries and refuses them:
+  `short-name "caddy:2-alpine" did not resolve to an alias`. Fix:
+  ```
+  echo 'unqualified-search-registries = ["docker.io"]' | sudo tee /etc/containers/registries.conf
+  ```
+- **`docker login ghcr.io` while the packages are private, not `podman
+  login`.** Run it as root (`sudo docker login ghcr.io`, or plain `docker
+  login` if already root) — `docker compose pull` reads credentials from
+  root's `~/.docker/config.json`. `podman login` succeeds on its own but
+  writes to a separate podman-native auth store that `docker compose pull`
+  never reads; relying on it alone gets you GHCR's
+  `invalid username/password: unauthorized` on the first pull.
+
+Rootless podman also runs the stack, with one more setting:
+`net.ipv4.ip_unprivileged_port_start=80` (`sysctl -w`, or persist it in
+`/etc/sysctl.conf`) — compose publishes 80 and 443 in every `TLS_MODE`, and
+rootless podman refuses to bind ports below that threshold by default.
+Rootful podman binds them the same as real docker and needs no tuning.
+
+`--tls-mode tailscale` under rootless podman is unproven and likely broken:
+`tailscaled`'s socket is normally `0600 root:root`, so a rootless container
+gets `READ_DENIED` opening it, and the certificate fetch may also
+peer-credential-check for uid 0. This isn't claimed to work — use rootful
+podman if you need `tailscale` mode.
 
 ## Backups (RFC 035 D7)
 
