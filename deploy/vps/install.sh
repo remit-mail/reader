@@ -4,7 +4,9 @@
 # checkout on the server). Downloads the deploy assets for one pinned ref,
 # writes .env, and brings the stack up.
 #
-#   curl -fsSL https://raw.githubusercontent.com/remit-mail/remit/main/deploy/vps/install.sh \
+#   export GITHUB_TOKEN=ghp_...
+#   curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github.raw" \
+#     "https://api.github.com/repos/remit-mail/remit/contents/deploy/vps/install.sh?ref=main" \
 #     | sh -s -- --origin http://your-host
 #
 # Runs under `curl | sh`, where stdin is the script itself: there is no
@@ -13,8 +15,16 @@
 set -eu
 
 REPO=remit-mail/remit
-INSTALL_URL="https://raw.githubusercontent.com/remit-mail/remit/main/deploy/vps/install.sh"
-REGISTRY=ghcr.io
+
+# The images are public and pull anonymously; the repo is not. The token is
+# only for reading deploy/vps/*. raw.githubusercontent.com cannot carry one
+# for a private repo's file, so the assets come through the contents API,
+# which can. INSTALL_RAW_URL is what the command becomes once the repo is
+# public: documented, not used.
+INSTALL_API_URL="https://api.github.com/repos/$REPO/contents/deploy/vps/install.sh?ref=main"
+INSTALL_RAW_URL="https://raw.githubusercontent.com/$REPO/main/deploy/vps/install.sh"
+
+MANIFEST=.remit-assets
 
 ASSETS="docker-compose.yml
 elasticmq.conf
@@ -63,7 +73,15 @@ usage() {
 Remit self-host installer.
 
 Usage:
-  curl -fsSL $INSTALL_URL | sh -s -- --origin <url> [options]
+  export GITHUB_TOKEN=ghp_...
+  curl -fsSL -H "Authorization: Bearer \$GITHUB_TOKEN" -H "Accept: application/vnd.github.raw" \\
+    "$INSTALL_API_URL" \\
+    | sh -s -- --origin <url> [options]
+
+  The token reads deploy/vps/* out of the private repo. The images are public,
+  so nothing else needs it. Once the repo is public this is the whole command:
+
+  curl -fsSL $INSTALL_RAW_URL | sh -s -- --origin <url> [options]
 
 Required:
   --origin <url>        Public origin, scheme://host, no trailing path. This is
@@ -86,8 +104,10 @@ Options:
   --help                This message.
 
 Environment:
-  GITHUB_TOKEN          A token with read:packages. Needed only while the repo
-                        and the ghcr.io/remit-mail/remit/* packages are private.
+  GITHUB_TOKEN          A token with read access to $REPO. Needed only while
+                        the repo is private, and only to download deploy/vps/*.
+                        The images are public: no registry login, no
+                        read:packages scope, nothing to rotate.
   TAILSCALED_SOCKET     Host path of the tailscaled socket, for
                         --tls-mode tailscale
                         (default: /var/run/tailscale/tailscaled.sock)
@@ -103,8 +123,18 @@ quote() {
 	esac
 }
 
+# Every error path below prints this as the command to run once the problem is
+# fixed, so it has to be one that works: while the repo is private that means
+# the contents API and a token. $GITHUB_TOKEN is printed literally, never
+# expanded — the token itself must not reach stdout, and the operator's shell
+# already holds it.
 rerun_command() {
-	printf 'curl -fsSL %s | sh -s --%s' "$INSTALL_URL" "$ORIGINAL_ARGS"
+	if [ -z "${GITHUB_TOKEN:-}" ]; then
+		printf 'export GITHUB_TOKEN=ghp_...\n  '
+	fi
+	# shellcheck disable=SC2016  # $GITHUB_TOKEN is printed, not expanded: see above
+	printf 'curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github.raw" "%s" | sh -s --%s' \
+		"$INSTALL_API_URL" "$ORIGINAL_ARGS"
 }
 
 parse_args() {
@@ -612,10 +642,14 @@ fetch() {
 	_dest=$2
 	_url="https://api.github.com/repos/$REPO/contents/deploy/vps/$_path?ref=$REF"
 	if [ -n "${GITHUB_TOKEN:-}" ]; then
-		_code=$(curl -sSL -o "$_dest" -w '%{http_code}' \
-			-H 'Accept: application/vnd.github.raw' \
-			-H "Authorization: Bearer $GITHUB_TOKEN" \
-			"$_url" || printf '000')
+		# As an argument the token would sit in `ps` output for the life of
+		# every request; curl reads it from a config file on stdin instead.
+		# printf is a shell builtin, so it forks nothing that could carry it
+		# either.
+		_code=$(printf 'header = "Authorization: Bearer %s"\n' "$GITHUB_TOKEN" |
+			curl -sSL -o "$_dest" -w '%{http_code}' --config - \
+				-H 'Accept: application/vnd.github.raw' \
+				"$_url" || printf '000')
 	else
 		_code=$(curl -sSL -o "$_dest" -w '%{http_code}' \
 			-H 'Accept: application/vnd.github.raw' \
@@ -628,12 +662,13 @@ fetch() {
 		if [ -z "${GITHUB_TOKEN:-}" ]; then
 			die "cannot download deploy/vps/$_path from $REPO at ref '$REF' (HTTP $_code).
 
-The remit-mail/remit repository is private today, and GitHub answers an
-anonymous request for a private file with $_code. Either:
-  - set GITHUB_TOKEN to a token with repo read access and re-run, or
+The repository is private, and GitHub answers an anonymous request for a
+private file with $_code. This is about the repo only — the images are public
+and pull without a token. Either:
+  - set GITHUB_TOKEN to a token with read access to $REPO and re-run, or
   - check --ref '$REF' names a real branch, tag or sha.
 
-  GITHUB_TOKEN=ghp_... $(rerun_command)"
+  $(rerun_command)"
 		fi
 		die "cannot download deploy/vps/$_path from $REPO at ref '$REF' (HTTP $_code).
 GITHUB_TOKEN is set, so either it lacks read access to $REPO, or ref '$REF'
@@ -654,12 +689,76 @@ directory with --dir."
 	[ -w "$DIR" ] || die "$DIR is not writable by $(id -un). Run as root, or use --dir."
 }
 
+file_sha() {
+	openssl dgst -sha256 "$1" | awk '{print $NF}'
+}
+
+# The sha the installer last recorded writing for an asset. Empty when it has
+# no record of one: a directory made before this manifest existed, or by hand.
+recorded_sha() {
+	[ -f "$DIR/$MANIFEST" ] || return 0
+	_p="$1" awk '$2 == ENVIRON["_p"] { print $1; exit }' "$DIR/$MANIFEST"
+}
+
+# The installer bakes the install directory into the wrapper, so what ships as
+# `remit` is what comes out of here — not what was downloaded. Doing it before
+# the manifest records the file is what keeps the installer's own rewrite from
+# reading as an operator edit on the next run.
+bake_wrapper_dir() {
+	_k=DEFAULT_DIR _v="$DIR" awk '
+		BEGIN { k = ENVIRON["_k"]; v = ENVIRON["_v"] }
+		index($0, k "=") == 1 { print k "=" v; next }
+		{ print }
+	' "$1" >"$1.baked"
+	mv "$1.baked" "$1"
+}
+
+# remit.env.template tells operators to pin images by digest in
+# docker-compose.yml, so a re-run must not revert that pin — an operator edit
+# is kept for the same reason an existing secret is. The manifest is what tells
+# an edit apart from an upstream change: a file still matching the sha the
+# installer recorded writing is untouched and safe to replace, anything else is
+# the operator's and is left alone.
 fetch_assets() {
 	say "Downloading deploy assets from $REPO at $REF"
+	_next="$DIR/$MANIFEST.tmp"
+	: >"$_next"
+	_kept=""
 	for _a in $ASSETS; do
-		fetch "$_a" "$DIR/$_a"
+		fetch "$_a" "$DIR/$_a.new"
+		if [ "$_a" = "remit" ]; then
+			bake_wrapper_dir "$DIR/$_a.new"
+		fi
+		_incoming=$(file_sha "$DIR/$_a.new")
+		if [ ! -f "$DIR/$_a" ]; then
+			mv "$DIR/$_a.new" "$DIR/$_a"
+			printf '%s  %s\n' "$_incoming" "$_a" >>"$_next"
+			continue
+		fi
+		_local=$(file_sha "$DIR/$_a")
+		if [ "$_local" = "$_incoming" ]; then
+			rm -f "$DIR/$_a.new"
+			printf '%s  %s\n' "$_incoming" "$_a" >>"$_next"
+			continue
+		fi
+		_recorded=$(recorded_sha "$_a")
+		if [ -n "$_recorded" ] && [ "$_local" = "$_recorded" ]; then
+			mv "$DIR/$_a.new" "$DIR/$_a"
+			printf '%s  %s\n' "$_incoming" "$_a" >>"$_next"
+			continue
+		fi
+		_kept="$_kept $_a"
+		if [ -n "$_recorded" ]; then
+			printf '%s  %s\n' "$_recorded" "$_a" >>"$_next"
+		fi
 	done
+	mv "$_next" "$DIR/$MANIFEST"
 	chmod 755 "$DIR/remit"
+	[ -n "$_kept" ] || return 0
+	warn "kept your edited copy of:$_kept
+         Each incoming version is alongside it as <file>.new — diff and merge
+         if you want it. A digest pin in docker-compose.yml is an edit like
+         any other, which is why this re-run did not revert it."
 }
 
 # ---------------------------------------------------------------------------
@@ -676,17 +775,23 @@ get_var() {
 	' "$_f"
 }
 
+# The temp file holds FAKE_KMS_DATAKEY like the .env it replaces, so it is
+# created under a 077 umask rather than chmod'd after the write: a chmod after
+# the fact leaves the secrets world-readable for the length of the write.
 set_var() {
 	_k=$1
 	_v=$2
 	_f=$3
-	_k="$_k" _v="$_v" awk '
-		BEGIN { k = ENVIRON["_k"]; v = ENVIRON["_v"]; done = 0 }
-		!done && index($0, k "=") == 1 { print k "=" v; done = 1; next }
-		{ print }
-		END { if (!done) print k "=" v }
-	' "$_f" >"$_f.tmp"
-	chmod 600 "$_f.tmp"
+	rm -f "$_f.tmp"
+	(
+		umask 077
+		_k="$_k" _v="$_v" awk '
+			BEGIN { k = ENVIRON["_k"]; v = ENVIRON["_v"]; done = 0 }
+			!done && index($0, k "=") == 1 { print k "=" v; done = 1; next }
+			{ print }
+			END { if (!done) print k "=" v }
+		' "$_f" >"$_f.tmp"
+	)
 	mv "$_f.tmp" "$_f"
 }
 
@@ -737,20 +842,17 @@ write_env() {
 	fi
 	chmod 600 "$_f"
 
-	_pg_before=$(get_var POSTGRES_PASSWORD "$_f")
 	ensure_secret POSTGRES_PASSWORD 24 "$_f"
 	ensure_secret BETTER_AUTH_SECRET 32 "$_f"
 	ensure_secret FAKE_KMS_DATAKEY 32 "$_f"
 
 	# The template ships POSTGRES_PASSWORD and PG_CONNECTION_URL as two
-	# separate placeholders that have to carry the same password; a mismatch
-	# is a silent breakage, so the URL is built from the password rather than
-	# filled in twice. An operator-customised URL (a different host, say) is
-	# left alone.
-	if is_unset "$_pg_before" || is_unset "$(get_var PG_CONNECTION_URL "$_f")"; then
-		_pw=$(get_var POSTGRES_PASSWORD "$_f")
-		set_var PG_CONNECTION_URL "postgresql://remit:$_pw@postgres:5432/remit" "$_f"
-	fi
+	# placeholders carrying one password, which is a drift waiting to happen:
+	# the two disagree and the only symptom is migrate failing to authenticate.
+	# The URL is derived from the password every run rather than trusted, so
+	# the password is the single place that value lives.
+	set_var PG_CONNECTION_URL \
+		"postgresql://remit:$(get_var POSTGRES_PASSWORD "$_f")@postgres:5432/remit" "$_f"
 
 	set_var PUBLIC_ORIGIN "$ORIGIN" "$_f"
 	set_var TLS_MODE "$TLS_MODE" "$_f"
@@ -761,15 +863,6 @@ write_env() {
 }
 
 install_wrapper() {
-	_k=DEFAULT_DIR
-	_v=$DIR
-	_k="$_k" _v="$_v" awk '
-		BEGIN { k = ENVIRON["_k"]; v = ENVIRON["_v"] }
-		index($0, k "=") == 1 { print k "=" v; next }
-		{ print }
-	' "$DIR/remit" >"$DIR/remit.tmp"
-	mv "$DIR/remit.tmp" "$DIR/remit"
-	chmod 755 "$DIR/remit"
 	if cp "$DIR/remit" /usr/local/bin/remit 2>/dev/null; then
 		chmod 755 /usr/local/bin/remit
 		say "Installed the 'remit' admin command to /usr/local/bin/remit"
@@ -777,15 +870,6 @@ install_wrapper() {
 		warn "cannot write /usr/local/bin/remit — the admin command is at $DIR/remit.
          Copy it onto your PATH yourself, or re-run as root."
 	fi
-}
-
-registry_login() {
-	[ -n "${GITHUB_TOKEN:-}" ] || return 0
-	say "Logging in to $REGISTRY with GITHUB_TOKEN"
-	# GHCR authenticates on the token; the username is not checked.
-	printf '%s' "$GITHUB_TOKEN" |
-		docker login "$REGISTRY" -u "${GITHUB_USER:-remit-installer}" --password-stdin >/dev/null 2>&1 ||
-		die "docker login to $REGISTRY failed. GITHUB_TOKEN needs the read:packages scope."
 }
 
 bring_up() {
@@ -846,7 +930,6 @@ main() {
 	fetch_assets
 	write_env
 	install_wrapper
-	registry_login
 	bring_up
 	summary
 }

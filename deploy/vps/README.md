@@ -16,6 +16,20 @@ section covers turning on HTTPS.
 On a fresh amd64 box:
 
 ```bash
+export GITHUB_TOKEN=ghp_...    # read access to the repo
+curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github.raw" \
+  "https://api.github.com/repos/remit-mail/remit/contents/deploy/vps/install.sh?ref=main" \
+  | sh -s -- --origin http://your-host
+```
+
+The images are public and pull anonymously (RFC 035 D4). The repository is
+not, so the token is only for reading `deploy/vps/*`: no `read:packages`
+scope, no registry login, and nothing on the box holds a credential
+afterwards. `raw.githubusercontent.com` cannot carry a token for a private
+repo's file, which is why the assets come through the contents API. Once the
+repo is public the command is:
+
+```bash
 curl -fsSL https://raw.githubusercontent.com/remit-mail/remit/main/deploy/vps/install.sh \
   | sh -s -- --origin http://your-host
 ```
@@ -28,7 +42,10 @@ and `--ref`.
 
 Re-running is safe. An existing `.env` is kept, and a secret that already has a
 value is never regenerated: `.env` holds `FAKE_KMS_DATAKEY`, the only copy of
-the key every stored IMAP credential is encrypted with.
+the key every stored IMAP credential is encrypted with. Edits to the deploy
+files are kept on the same principle — a digest pin in `docker-compose.yml`
+survives a re-run, and the incoming version is left beside it as `<file>.new`
+to diff.
 
 The installer checks the host before it changes anything — docker and the
 compose v2 plugin, amd64 (no arm64 image is built), disk, RAM, ports 80 and
@@ -36,17 +53,6 @@ compose v2 plugin, amd64 (no arm64 image is built), disk, RAM, ports 80 and
 are reported with the install command for the detected distro and nothing is
 changed; `--install-deps` installs them instead. The host needs docker, the
 compose v2 plugin, curl and openssl. Everything else runs in a container.
-
-The repository and the `ghcr.io/remit-mail/remit/*` packages are private today,
-so the download and the image pull both need a token until they are public
-(RFC 035 D4). With one set, the installer uses it for both:
-
-```bash
-export GITHUB_TOKEN=ghp_...    # repo read + read:packages
-curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github.raw" \
-  "https://api.github.com/repos/remit-mail/remit/contents/deploy/vps/install.sh?ref=main" \
-  | sh -s -- --origin http://your-host
-```
 
 Then visit the address passed as `--origin`. Sign up creates the first account;
 every subsequent IMAP account is added from the app itself (Settings → Add
@@ -90,6 +96,13 @@ $EDITOR .env            # fill in every value marked SECRET — see the file
 docker compose up -d
 docker compose logs -f migrate    # confirm the one-shot migration succeeded
 ```
+
+`POSTGRES_PASSWORD` and `PG_CONNECTION_URL` carry the same password in two
+places. Set both to the same value: they are what Postgres is created with and
+what every service connects with, so a mismatch surfaces only as `migrate`
+failing to authenticate. The installer derives the URL from the password on
+every run, so this is the one hazard the manual path has and the installer
+does not.
 
 Then visit the address you set as `PUBLIC_ORIGIN` in `.env`. Sign up creates
 the first account; every subsequent IMAP account is added from the app
@@ -229,7 +242,7 @@ a broken stack is worse than no podman support at all, so `install.sh`
 refuses to proceed if `docker compose` resolves to podman-compose under the
 hood.
 
-Two host settings need attention before the first `up`, both checked by the
+One host setting needs attention before the first `up`, checked by the
 installer:
 
 - **Short image names.** The 8 `ghcr.io/remit-mail/remit/*` images are fully
@@ -240,13 +253,6 @@ installer:
   ```
   echo 'unqualified-search-registries = ["docker.io"]' | sudo tee /etc/containers/registries.conf
   ```
-- **`docker login ghcr.io` while the packages are private, not `podman
-  login`.** Run it as root (`sudo docker login ghcr.io`, or plain `docker
-  login` if already root) — `docker compose pull` reads credentials from
-  root's `~/.docker/config.json`. `podman login` succeeds on its own but
-  writes to a separate podman-native auth store that `docker compose pull`
-  never reads; relying on it alone gets you GHCR's
-  `invalid username/password: unauthorized` on the first pull.
 
 Rootless podman also runs the stack, with one more setting:
 `net.ipv4.ip_unprivileged_port_start=80` (`sysctl -w`, or persist it in

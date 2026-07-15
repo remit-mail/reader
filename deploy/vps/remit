@@ -58,35 +58,69 @@ get_var() {
 	' "$REMIT_DIR/.env"
 }
 
+# The temp file holds FAKE_KMS_DATAKEY like the .env it replaces, so it is
+# created under a 077 umask rather than chmod'd after the write: a chmod after
+# the fact leaves the secrets world-readable for the length of the write.
 set_var() {
 	_k=$1
 	_v=$2
-	_k="$_k" _v="$_v" awk '
-		BEGIN { k = ENVIRON["_k"]; v = ENVIRON["_v"]; done = 0 }
-		!done && index($0, k "=") == 1 { print k "=" v; done = 1; next }
-		{ print }
-		END { if (!done) print k "=" v }
-	' "$REMIT_DIR/.env" >"$REMIT_DIR/.env.tmp"
-	chmod 600 "$REMIT_DIR/.env.tmp"
+	rm -f "$REMIT_DIR/.env.tmp"
+	(
+		umask 077
+		_k="$_k" _v="$_v" awk '
+			BEGIN { k = ENVIRON["_k"]; v = ENVIRON["_v"]; done = 0 }
+			!done && index($0, k "=") == 1 { print k "=" v; done = 1; next }
+			{ print }
+			END { if (!done) print k "=" v }
+		' "$REMIT_DIR/.env" >"$REMIT_DIR/.env.tmp"
+	)
 	mv "$REMIT_DIR/.env.tmp" "$REMIT_DIR/.env"
 }
 
 # Shared by `update` and by install.sh, which calls this wrapper rather than
 # repeating the pull/up/migrate-gate sequence.
+#
+# The pull moves ~4 GB on a first install (search-index-worker alone is
+# ~1.36 GB), so its progress is streamed rather than buffered for a diagnosis
+# that is usually never needed — buffering makes a working install look hung
+# for minutes. The copy kept on the side is only there to classify a failure,
+# and the pull's own exit status has to be carried out of the pipeline by hand
+# because the pipeline reports tee's.
 pull_images() {
-	if _out=$(compose pull 2>&1); then
-		printf '%s\n' "$_out"
+	_log=$(mktemp) || die "cannot create a temporary file for the pull log"
+	_status=$(mktemp) || die "cannot create a temporary file for the pull status"
+	# `|| _rc=$?` is what keeps set -e from killing the subshell before the
+	# status is recorded; the status has to travel by file because the subshell
+	# cannot assign to this one.
+	{
+		_rc=0
+		compose pull 2>&1 || _rc=$?
+		printf '%s' "$_rc" >"$_status"
+	} | tee "$_log"
+	_code=$(cat "$_status" 2>/dev/null || printf 1)
+	rm -f "$_status"
+	if [ "$_code" = "0" ]; then
+		rm -f "$_log"
 		return 0
 	fi
-	printf '%s\n' "$_out" >&2
-	if printf '%s' "$_out" | grep -qiE 'denied|unauthorized|401|403'; then
-		if [ -z "${GITHUB_TOKEN:-}" ]; then
-			die "the ghcr.io/remit-mail/remit/* packages are private, so an anonymous pull is refused.
-Set GITHUB_TOKEN to a token with read:packages and re-run, or make the packages public."
-		fi
-		die "GITHUB_TOKEN was rejected by ghcr.io. It needs the read:packages scope
-and access to the remit-mail/remit packages."
+	if grep -qiE 'denied|unauthorized|401|403' "$_log"; then
+		rm -f "$_log"
+		die "a registry refused the pull (see above).
+
+This is not a missing token. Every image here pulls anonymously — the
+ghcr.io/remit-mail/remit/* packages are public — so a refusal means a
+credential was sent and rejected: an expired or revoked token left in
+~/.docker/config.json by an earlier 'docker login' is offered instead of
+pulling anonymously. Drop it and retry:
+
+  docker logout ghcr.io       # or whichever registry the error names above
+  remit update
+
+Credentials are per-user, so a login done under sudo lives in root's config,
+not yours. If neither is it, check whether the docker daemon is pointed at a
+registry mirror or proxy fronting the registry above."
 	fi
+	rm -f "$_log"
 	die "docker compose pull failed (see above)"
 }
 
@@ -155,10 +189,19 @@ cmd_update() {
 		*) die "update: unknown option '$1'" ;;
 		esac
 	done
+	# The tag reaches .env only once its images are on the box. Writing it
+	# first leaves .env naming a version that failed to pull, which is then
+	# what the next `up` — or the next operator reading it — believes is
+	# running. Compose reads the exported value ahead of the .env one, so the
+	# pull is already the new tag's.
+	if [ -n "$_tag" ]; then
+		REMIT_TAG=$_tag
+		export REMIT_TAG
+	fi
+	pull_images
 	if [ -n "$_tag" ]; then
 		set_var REMIT_TAG "$_tag"
 	fi
-	pull_images
 	apply
 	printf '\nremit is running tag %s.\n' "$(get_var REMIT_TAG)"
 }
@@ -171,20 +214,31 @@ cmd_down() {
 	printf "remit is stopped. Data volumes are untouched; 'remit restart' brings it back.\n"
 }
 
+# Redaction keys off what a name says the value is, not off a list of known
+# secrets: a list prints whatever secret is added to the template next in the
+# clear, and MSOAUTH_CLIENT_SECRET and the RCLONE_* backup keys are already in
+# there. compose honours `export K=` and indented keys alike, so the name is
+# matched after stripping either.
 cmd_config() {
 	require_deployment
 	awk '
 		/^[ \t]*#/ { next }
 		/^[ \t]*$/ { next }
 		{
-			eq = index($0, "=")
+			line = $0
+			sub(/^[ \t]+/, "", line)
+			sub(/^export[ \t]+/, "", line)
+			eq = index(line, "=")
 			if (eq == 0) next
-			k = substr($0, 1, eq - 1)
-			v = substr($0, eq + 1)
-			if (k == "POSTGRES_PASSWORD" || k == "BETTER_AUTH_SECRET" || k == "FAKE_KMS_DATAKEY") {
+			k = substr(line, 1, eq - 1)
+			v = substr(line, eq + 1)
+			if (v == "") { print k "="; next }
+			if (k ~ /SECRET|PASSWORD|TOKEN|DATAKEY|ACCESS_KEY|PRIVATE_KEY|CREDENTIAL/) {
 				v = "<redacted>"
-			} else if (k == "PG_CONNECTION_URL") {
-				sub(/:\/\/[^@]*@/, "://<redacted>@", v)
+			} else if (v ~ /:\/\/[^\/@]*@/) {
+				# Greedy to the last @: a password may contain one, and
+				# stopping at the first prints its tail in the clear.
+				sub(/:\/\/.*@/, "://<redacted>@", v)
 			}
 			print k "=" v
 		}
