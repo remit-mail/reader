@@ -35,7 +35,7 @@
     "@aws-sdk/client-sqs": "*",
     "@aws-sdk/lib-dynamodb": "*",
     "@types/nodemailer": "*",
-    "nodemailer": "^8",
+    "nodemailer": "^9.0.3",
     "@hookform/resolvers": "*",
     "@platejs/autoformat": "*",
     "@platejs/basic-nodes": "*",
