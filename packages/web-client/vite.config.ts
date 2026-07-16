@@ -41,7 +41,7 @@ export default defineConfig({
 			os.hostname(),
 			"sandbox",
 			"devbox",
-			"devbox.tailfa81e6.ts.net",
+			...(process.env.VITE_ALLOWED_HOST ? [process.env.VITE_ALLOWED_HOST] : []),
 			".ts.net",
 		],
 		proxy: {
