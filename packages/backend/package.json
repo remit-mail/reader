@@ -69,6 +69,6 @@
 	},
 	"dependencies": {
 		"jose": "^6.2.3",
-		"mailparser": "^3.9.8"
+		"mailparser": "^3.9.14"
 	}
 }
