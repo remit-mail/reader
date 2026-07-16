@@ -37,6 +37,6 @@
 	},
 	"dependencies": {
 		"@aws-sdk/client-s3": "^3.1055.0",
-		"nodemailer": "^8.0.5"
+		"nodemailer": "^9.0.3"
 	}
 }
