@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1-labs
 #
 # Remit container images (RFC 035 D1-D4). One multi-stage Dockerfile, one
 # shared builder stage, one target per service. Build any target from a bare
@@ -19,16 +18,33 @@
 # (.github/workflows/images.yml) builds every target on push to main.
 
 ########################################################################
+# manifests — the repo's package.json/package-lock.json files with the rest
+# of the source pruned away, so the builder's npm ci layer below only busts
+# when a manifest actually changes, not on every source edit.
+#
+# This is the portable stand-in for a `COPY --parents <manifest globs>`
+# (dockerfile:1-labs): plain multi-stage syntax the CI fleet's podman/buildah
+# also accept. `COPY --from` keys its layer cache on the copied content's
+# checksum, so the npm ci layer still only busts when a manifest changes —
+# the same cache property, without the labs frontend.
+########################################################################
+FROM docker.io/library/node:24 AS manifests
+WORKDIR /src
+COPY . .
+RUN find . -type f ! -name package.json ! -name package-lock.json -delete \
+	&& find . -type d -empty -delete
+
+########################################################################
 # builder — npm ci, TypeSpec codegen (make), the web client, the generated
 # apisix route table, and one esbuild bundle per node-service entrypoint.
 # Shared by every target below so the expensive steps run once.
 ########################################################################
-FROM node:24 AS builder
+FROM docker.io/library/node:24 AS builder
 WORKDIR /app
 
 # Manifests only, first — so an npm ci is only re-run when a package.json or
 # the lockfile actually changes, not on every source edit.
-COPY --parents package.json package-lock.json packages/*/package.json infra/package.json infra-dns/package.json ./
+COPY --from=manifests /src ./
 
 # Nothing here touches a private registry: npm ci resolves public npm only.
 RUN npm ci --no-audit --no-fund --loglevel=error
@@ -75,7 +91,7 @@ RUN node npm-scripts/docker-bundle.mjs
 # ownership of an already-large tree (node_modules, a baked model) copies
 # every file into a new union-fs layer instead of mutating in place.
 ########################################################################
-FROM alpine:3.23 AS node-service-base
+FROM docker.io/library/alpine:3.23 AS node-service-base
 RUN apk add --no-cache nodejs \
 	&& addgroup -g 1000 node \
 	&& adduser -D -u 1000 -G node node
@@ -173,7 +189,7 @@ CMD ["node", "server.mjs"]
 # onnxruntime-node from source for musl is out of proportion to this PR;
 # node:24-slim (glibc/Debian) stays for this one image only.
 ########################################################################
-FROM node:24-slim AS search-index-worker
+FROM docker.io/library/node:24-slim AS search-index-worker
 WORKDIR /app
 RUN chown node:node /app
 USER node
@@ -232,7 +248,7 @@ CMD ["node", "server.mjs"]
 ########################################################################
 # apisix — stock image, generated route table baked in (RFC 035 D5 parity).
 ########################################################################
-FROM apache/apisix:3.13.0-debian AS apisix
+FROM docker.io/apache/apisix:3.13.0-debian AS apisix
 COPY --from=builder /app/apisix/config.yaml /usr/local/apisix/conf/config.yaml
 COPY --from=builder /app/apisix/apisix.yaml /usr/local/apisix/conf/apisix.yaml
 # The upstream image's docker-entrypoint.sh only trusts config.yaml's
@@ -246,7 +262,7 @@ ENV APISIX_STAND_ALONE=true
 ########################################################################
 # web — static server for the vite dist/, no framework dependency.
 ########################################################################
-FROM alpine:3.23 AS web
+FROM docker.io/library/alpine:3.23 AS web
 RUN apk add --no-cache nodejs \
 	&& addgroup -g 1000 node \
 	&& adduser -D -u 1000 -G node node
