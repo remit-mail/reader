@@ -15,10 +15,8 @@ import {
 	MessageLabelService,
 } from "@remit/remit-electrodb-service";
 import { resolveSqsCredentials } from "@remit/sqs-client";
-import {
-	createStorageService,
-	type StorageService,
-} from "@remit/storage-service";
+import type { StorageService } from "@remit/storage-service";
+import { createStorageService } from "@remit/storage-service/s3";
 import { env } from "expect-env";
 import type { CascadeServices } from "./cascade.js";
 

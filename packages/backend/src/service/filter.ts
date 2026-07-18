@@ -1,9 +1,11 @@
 import {
 	type AnchorPayload,
-	buildEmbeddingServiceFromEnv,
 	buildMessageAnchor,
-	buildVectorStoreFromEnv,
 } from "@remit/search-service";
+import {
+	buildEmbeddingServiceFromEnv,
+	buildVectorStoreFromEnv,
+} from "@remit/search-service/from-env";
 
 /**
  * Build a filter's persisted semantic anchor from an already-indexed message's

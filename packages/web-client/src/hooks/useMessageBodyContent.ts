@@ -1,8 +1,7 @@
 import { messageOperationsDescribeMessageQueryKey } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchAuthSession } from "aws-amplify/auth";
 import { useEffect, useRef } from "react";
-import { isCognitoConfigured } from "@/auth/amplify-config";
+import { fetchAuthToken } from "@/auth/auth-token";
 import {
 	type BodyContentKind,
 	pickRenderablePart,
@@ -170,8 +169,9 @@ export const isContentTypeMismatch = (
  * Fetch the renderable body part (HTML preferred, plain-text fallback) for a
  * message via CloudFront. The Lambda@Edge JWT verifier (`/content/*`) accepts
  * both `Cookie: id_token=…` and `Authorization: Bearer …`; same-origin
- * cookies aren't set in the SPA today, so we forward the Cognito ID token
- * via the Authorization header — same pattern as the API auth interceptor.
+ * cookies aren't set in the SPA today, so we forward the session bearer token
+ * from the auth seam via the Authorization header — same pattern as the API
+ * auth interceptor.
  *
  * Throws on non-2xx so the surrounding `useQuery` exposes `isError` and the
  * caller can render an alert banner. Never silently substitutes an empty
@@ -183,11 +183,8 @@ export const fetchBodyContent = async (
 	expected: BodyContentKind,
 ): Promise<string> => {
 	const headers: Record<string, string> = {};
-	if (isCognitoConfigured()) {
-		const session = await fetchAuthSession();
-		const token = session.tokens?.idToken?.toString();
-		if (token) headers.Authorization = `Bearer ${token}`;
-	}
+	const token = await fetchAuthToken();
+	if (token) headers.Authorization = `Bearer ${token}`;
 	const response = await fetch(url, { headers });
 	// 202 = the body is not synced yet. The content route has re-armed the sync
 	// cue; retry after `Retry-After` seconds rather than rendering the placeholder

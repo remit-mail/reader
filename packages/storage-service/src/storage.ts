@@ -1,9 +1,6 @@
 import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
-import { S3Client } from "@aws-sdk/client-s3";
 import { ContentEncoding, StorageType } from "@remit/domain-enums";
-import { createFilesystemStorageService } from "./backends/filesystem.js";
-import { createS3StorageService } from "./backends/s3.js";
 
 export type StorageTypeValue = (typeof StorageType)[keyof typeof StorageType];
 export type ContentEncodingValue =
@@ -363,20 +360,6 @@ export const isStorageNotFoundError = (error: unknown): boolean => {
 	if (obj.Code === "NoSuchKey") return true;
 	if (obj.code === "ENOENT") return true;
 	return false;
-};
-
-export const createStorageService = (): StorageService => {
-	const bucketName = process.env.S3_BUCKET_NAME;
-
-	if (bucketName) {
-		const client = new S3Client({
-			endpoint: process.env.S3_ENDPOINT,
-		});
-		return createS3StorageService(client, bucketName);
-	}
-
-	const basePath = process.env.STORAGE_LOCAL_PATH ?? ".remit/storage";
-	return createFilesystemStorageService(basePath);
 };
 
 export const createMockStorageService = (): StorageService => {

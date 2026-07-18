@@ -12,19 +12,6 @@ export {
 	type VectorStoreService,
 } from "./backends/memory.js";
 export {
-	createPgVectorStore,
-	type PgVectorStoreConfig,
-} from "./backends/pgvector.js";
-export {
-	createS3VectorsBackend,
-	S3VectorsBackend,
-	type S3VectorsBackendConfig,
-} from "./backends/s3-vectors.js";
-export {
-	createSqliteVectorStore,
-	type SqliteVectorStoreConfig,
-} from "./backends/sqlite-vec.js";
-export {
 	type ChunkInput,
 	createEmailChunker,
 	type EmailChunker,
@@ -45,8 +32,6 @@ export {
 } from "./chunking/structured.js";
 export { computeContentHash } from "./content-hash.js";
 export {
-	type BedrockEmbeddingConfig,
-	BedrockEmbeddingService,
 	createDeterministicEmbeddingService,
 	createLocalEmbeddingService,
 	type DeterministicEmbeddingConfig,
@@ -55,10 +40,6 @@ export {
 	type LocalEmbeddingConfig,
 	LocalEmbeddingService,
 } from "./embeddings.js";
-export {
-	buildEmbeddingServiceFromEnv,
-	buildVectorStoreFromEnv,
-} from "./from-env.js";
 export {
 	createSearchService,
 	DefaultSearchService,

@@ -15,12 +15,14 @@ import {
 } from "@remit/mailbox-service";
 import {
 	type AnchorPayload,
-	buildEmbeddingServiceFromEnv,
 	buildMessageAnchor,
-	buildVectorStoreFromEnv,
 	type VectorRecord,
 	type VectorStoreService,
 } from "@remit/search-service";
+import {
+	buildEmbeddingServiceFromEnv,
+	buildVectorStoreFromEnv,
+} from "@remit/search-service/from-env";
 import { env } from "expect-env";
 import type { RemitClient } from "./dynamodb.js";
 

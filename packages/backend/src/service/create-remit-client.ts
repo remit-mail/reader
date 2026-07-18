@@ -34,11 +34,13 @@ import {
 	OutboxQueueService,
 } from "@remit/mailbox-service";
 import {
-	buildEmbeddingServiceFromEnv,
-	buildVectorStoreFromEnv,
 	createSearchService,
 	type SearchService,
 } from "@remit/search-service";
+import {
+	buildEmbeddingServiceFromEnv,
+	buildVectorStoreFromEnv,
+} from "@remit/search-service/from-env";
 import {
 	createCachedDataKeyProvider,
 	createKmsDataKeyProvider,
@@ -47,10 +49,8 @@ import {
 	FAKE_KMS_KEY_ID,
 	type SecretsService,
 } from "@remit/secrets-service";
-import {
-	createStorageService,
-	type StorageService,
-} from "@remit/storage-service";
+import type { StorageService } from "@remit/storage-service";
+import { createStorageService } from "@remit/storage-service/s3";
 import { env } from "expect-env";
 
 export interface ConnectionScope {
