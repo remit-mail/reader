@@ -17,15 +17,22 @@ export class NotImplementedError extends Error {
 }
 
 const PG_UNIQUE_VIOLATION = "23505";
+// better-sqlite3 raises a `SqliteError` whose `.code` is one of these for a
+// primary-key or unique-index collision (RFC 036 D1).
+const SQLITE_UNIQUE_VIOLATIONS = new Set([
+	"SQLITE_CONSTRAINT_UNIQUE",
+	"SQLITE_CONSTRAINT_PRIMARYKEY",
+]);
 
-// Drizzle wraps the underlying pg error in a DrizzleQueryError and carries the
-// original (with its SQLSTATE `code`) on `.cause`, so walk the cause chain.
+// Drizzle wraps the underlying driver error and carries the original (with its
+// SQLSTATE / SQLite `code`) on `.cause`, so walk the cause chain — covers both
+// the pg and better-sqlite3 drivers.
 export const isUniqueViolation = (error: unknown): boolean => {
 	let current: unknown = error;
 	while (current) {
-		if ((current as { code?: string }).code === PG_UNIQUE_VIOLATION) {
-			return true;
-		}
+		const code = (current as { code?: string }).code;
+		if (code === PG_UNIQUE_VIOLATION) return true;
+		if (code !== undefined && SQLITE_UNIQUE_VIOLATIONS.has(code)) return true;
 		current = (current as { cause?: unknown }).cause;
 	}
 	return false;

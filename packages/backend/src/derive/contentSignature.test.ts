@@ -132,4 +132,22 @@ describe("getContentSigner", () => {
 		delete process.env.BETTER_AUTH_SECRET;
 		assert.throws(() => getContentSigner(), /BETTER_AUTH_SECRET/);
 	});
+
+	it("returns a working signer in SQLite mode", () => {
+		process.env.DATA_BACKEND = "sqlite";
+		process.env.BETTER_AUTH_SECRET = SECRET;
+		const signer = getContentSigner();
+		assert.ok(signer);
+		const { exp, sig } = signer(PATH_A);
+		assert.deepEqual(
+			verifyContentSignature(PATH_A, String(exp), sig, SECRET, nowSeconds()),
+			{ valid: true },
+		);
+	});
+
+	it("throws in SQLite mode when the master secret is missing (fail loud)", () => {
+		process.env.DATA_BACKEND = "sqlite";
+		delete process.env.BETTER_AUTH_SECRET;
+		assert.throws(() => getContentSigner(), /BETTER_AUTH_SECRET/);
+	});
 });

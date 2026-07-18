@@ -5,12 +5,40 @@ import {
 	InvokeModelCommand,
 } from "@aws-sdk/client-bedrock-runtime";
 import { mockClient } from "aws-sdk-client-mock";
-import { BedrockEmbeddingService } from "./embeddings.js";
+import {
+	BedrockEmbeddingService,
+	LocalEmbeddingService,
+} from "./embeddings.js";
 
 const encodeTitanResponse = (dimensions: number): Uint8Array =>
 	new TextEncoder().encode(
 		JSON.stringify({ embedding: new Array(dimensions).fill(0) }),
 	);
+
+describe("LocalEmbeddingService", () => {
+	it("keeps the historical embeddingId when dtype is unset", () => {
+		const service = new LocalEmbeddingService({
+			modelId: "Xenova/paraphrase-multilingual-MiniLM-L12-v2",
+			dimensions: 384,
+		});
+		assert.equal(
+			service.embeddingId,
+			"local:Xenova/paraphrase-multilingual-MiniLM-L12-v2@384",
+		);
+	});
+
+	it("includes dtype in the embeddingId so quantized vectors get their own content hashes", () => {
+		const service = new LocalEmbeddingService({
+			modelId: "Xenova/paraphrase-multilingual-MiniLM-L12-v2",
+			dimensions: 384,
+			dtype: "q8",
+		});
+		assert.equal(
+			service.embeddingId,
+			"local:Xenova/paraphrase-multilingual-MiniLM-L12-v2:q8@384",
+		);
+	});
+});
 
 describe("BedrockEmbeddingService", () => {
 	it("caps in-flight InvokeModel calls to the configured concurrency", async () => {

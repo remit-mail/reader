@@ -109,6 +109,55 @@ Then visit the address you set as `PUBLIC_ORIGIN` in `.env`. Sign up creates
 the first account; every subsequent IMAP account is added from the app
 itself (Settings → Add account).
 
+## Which backend: Postgres or SQLite
+
+Two ways to run the same images. The default (`docker-compose.yml`, above) uses
+Postgres — a database server with its own upgrade, tuning, and dump lifecycle,
+the right choice when you want headroom or run more than one mailbox's worth of
+mail. The SQLite variant (`docker-compose.sqlite.yml`, RFC 036) drops the
+Postgres server and the `pg-index-worker` and keeps all relational state as two
+files on one local volume; pick it on a small single-mailbox box where the
+fewest moving parts matter more than server-grade headroom. Removing the
+database server and one worker lowers the idle footprint (RFC 036 D6 targets
+≤350 MiB); the embedding model in `search-index-worker` stays the largest
+resident once indexing has run.
+
+Run one or the other, never both — they share the `remit` project name. The
+SQLite quickstart is the same, with the file flag:
+
+```bash
+cd deploy/vps
+cp remit.env.template .env
+chmod 600 .env
+$EDITOR .env            # fill in the SECRET values; leave the Postgres ones unused
+docker compose -f docker-compose.sqlite.yml up -d
+docker compose -f docker-compose.sqlite.yml logs -f migrate
+```
+
+The relational store and the better-auth identity tables share one file
+(`/data/sqlite/remit.db`); sqlite-vec keeps its vectors in a second file
+(`/data/sqlite/vec.db`). Both sit on the `sqlite_data` named volume, which
+**must be local disk** — WAL's cross-process coordination uses a shared-memory
+file next to the database that does not work over NFS/CIFS. Text search behaves
+the same as Postgres with two named differences: a slightly different
+accent-folding table, and 1–2 character queries running as an unindexed scan
+(RFC 036 D4). Switching backends means re-onboarding your account — mail
+re-syncs from IMAP; there is no in-place Postgres→SQLite move.
+
+Semantic (vector) search queries are not served on either compose profile:
+answering one requires embedding the query in the API process, and the
+`backend` image deliberately ships without the embedding runtime (the model
+plus `@huggingface/transformers` would roughly quadruple the image and keep
+~300 MiB resident in the API container). On the SQLite profile the vector
+store's `sqlite-vec` extension is additionally glibc-only, which the
+Alpine/musl backend could not load. The `/search/semantic` endpoint detects
+the missing pipeline and returns empty results instead of erroring, so the
+web client's "Related" section is simply empty. Text search — FTS5 here,
+trigram on Postgres — is the primary search surface and is unaffected, and
+the `search-index-worker` (a glibc image with the model baked in) keeps
+indexing embeddings, so a future backend image that carries the pipeline
+lights up querying without a re-index.
+
 ## What's running
 
 | Service | Image | Role |
@@ -185,6 +234,12 @@ all derive from it), so nothing else changes.
 **Can I use `acme` behind a tailnet or without public DNS?** No. Public Let's
 Encrypt validates a publicly-resolvable name over ports 80/443. Use `internal`
 or `tailscale` for private networks.
+
+**Will search rank results the same as the hosted deployment?** Not exactly.
+The `search-index-worker` image bakes an int8-quantized embedding model to keep
+the image small, so semantic search scoring differs slightly from the fp32
+deployment targets; embeddings are a rebuildable projection that re-derives on
+reindex, so this carries no durable state and cross-target parity isn't required.
 
 ## Update procedure
 
@@ -269,14 +324,18 @@ podman if you need `tailscale` mode.
 
 ## Backups (RFC 035 D7)
 
-A `backup` sidecar (`deploy/vps/backup/backup.sh`) is in `docker-compose.yml`
-behind `profiles: ["backup"]` — off by default, on with
-`docker compose --profile backup up -d`. It runs a nightly `pg_dump`,
-encrypted with `age`, shipped to an S3-compatible bucket via `rclone`
-(retention 30 days is the reference RPO: 24 hours). The database —
-accounts, credentials, metadata, tags — is the asset; message bodies are a
-cache of IMAP (the source of truth) and re-sync after a restore, so they
-are deliberately not backed up here.
+A `backup` sidecar is in both compose files behind `profiles: ["backup"]` —
+off by default, on with `docker compose --profile backup up -d` (Postgres) or
+`docker compose -f docker-compose.sqlite.yml --profile backup up -d` (SQLite).
+Under Postgres it runs a nightly `pg_dump` (`deploy/vps/backup/backup.sh`);
+under SQLite it VACUUM INTOs the two database files — the app/auth store and
+the vector store (`deploy/vps/backup/backup-sqlite.sh`). Both encrypt with
+`age` and ship to an S3-compatible bucket via `rclone` (retention 30 days is
+the reference RPO: 24 hours). The database — accounts, credentials, metadata,
+tags — is the asset; message bodies are a cache of IMAP (the source of truth)
+and re-sync after a restore, so they are deliberately not backed up here. On
+SQLite, restore is putting the two files back on the volume and starting the
+stack.
 
 Turning it on is not free of responsibility: you own the offsite bucket,
 custody of the `age` key (losing it makes every backup unreadable, and

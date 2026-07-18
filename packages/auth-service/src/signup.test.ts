@@ -35,15 +35,29 @@ const baseConfig = {
 };
 
 describe("createAuth self-signup gate", () => {
-	it("flips better-auth disableSignUp from the selfSignUpEnabled flag", () => {
-		const open = createAuth({ ...baseConfig, selfSignUpEnabled: true });
-		const closed = createAuth({ ...baseConfig, selfSignUpEnabled: false });
+	it("flips better-auth disableSignUp from the selfSignUpEnabled flag", async () => {
+		const open = await createAuth({ ...baseConfig, selfSignUpEnabled: true });
+		const closed = await createAuth({
+			...baseConfig,
+			selfSignUpEnabled: false,
+		});
 		assert.equal(open.options.emailAndPassword?.disableSignUp, false);
 		assert.equal(closed.options.emailAndPassword?.disableSignUp, true);
 	});
 
+	it("selects the sqlite drizzle provider when configured", async () => {
+		const auth = await createAuth({
+			provider: "sqlite",
+			connectionString: ":memory:",
+			secret: baseConfig.secret,
+			baseURL: baseConfig.baseURL,
+			selfSignUpEnabled: true,
+		});
+		assert.equal(auth.options.emailAndPassword?.disableSignUp, false);
+	});
+
 	it("rejects a signup request server-side when disabled, before any DB access", async () => {
-		const auth = createAuth({ ...baseConfig, selfSignUpEnabled: false });
+		const auth = await createAuth({ ...baseConfig, selfSignUpEnabled: false });
 		const request = new Request(
 			"http://localhost:3000/api/auth/sign-up/email",
 			{

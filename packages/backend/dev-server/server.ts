@@ -19,17 +19,21 @@ import { createLambdaContext, createLambdaEvent } from "./lambda-helpers.js";
 
 const app = express();
 
-// CORS is driven by CORS_ALLOWED_ORIGINS (comma-separated, or `*`). In Postgres
-// mode it is required config — refuse to start if unset, so the deployed edge is
-// never accidentally wide open by omission. Outside Postgres mode (AWS-local dev)
-// it defaults to `*` to keep the existing local flow working.
+// The self-host relational backends — Postgres and, from RFC 036, SQLite — both
+// run better-auth and the APISIX edge; the AWS-local (DynamoDB) dev path runs
+// neither. Everything gated on "not the AWS-local path" keys off this.
+const isSelfHostBackend =
+	process.env.DATA_BACKEND === "postgres" ||
+	process.env.DATA_BACKEND === "sqlite";
+
+// CORS is driven by CORS_ALLOWED_ORIGINS (comma-separated, or `*`). On the
+// self-host backends it is required config — refuse to start if unset, so the
+// deployed edge is never accidentally wide open by omission. On the AWS-local
+// dev path it defaults to `*` to keep the existing local flow working.
 const configuredCorsOrigins = parseAllowedOrigins(
 	process.env.CORS_ALLOWED_ORIGINS,
 );
-if (
-	process.env.DATA_BACKEND === "postgres" &&
-	configuredCorsOrigins.length === 0
-) {
+if (isSelfHostBackend && configuredCorsOrigins.length === 0) {
 	throw new Error(
 		"Missing required env var CORS_ALLOWED_ORIGINS (comma-separated origins, or '*')",
 	);
@@ -37,11 +41,11 @@ if (
 const corsAllowedOrigins =
 	configuredCorsOrigins.length > 0 ? configuredCorsOrigins : ["*"];
 
-// better-auth owns identity in Postgres mode. Its handler must be mounted
-// BEFORE express.json() (better-auth reads the raw body itself; a prior json
-// parser leaves its fetch calls hanging). This mirrors the production edge where
-// the same better-auth service sits in front of the API.
-if (process.env.DATA_BACKEND === "postgres") {
+// better-auth owns identity on the self-host backends. Its handler must be
+// mounted BEFORE express.json() (better-auth reads the raw body itself; a prior
+// json parser leaves its fetch calls hanging). This mirrors the production edge
+// where the same better-auth service sits in front of the API.
+if (isSelfHostBackend) {
 	// Synthetic OIDC discovery document for the APISIX edge tier. better-auth
 	// serves a JWKS but not a discovery doc; APISIX's openid-connect plugin needs
 	// one to locate the JWKS. Registered before the better-auth catch-all so it
@@ -85,7 +89,7 @@ if (process.env.DATA_BACKEND === "postgres") {
 	const { createAuth, resolveAuthConfig, toNodeHandler } = await import(
 		"@remit/auth-service"
 	);
-	const auth = createAuth(resolveAuthConfig());
+	const auth = await createAuth(resolveAuthConfig());
 	app.all(/^\/api\/auth\//, toNodeHandler(auth));
 }
 
@@ -128,10 +132,11 @@ app.get("/health", (_req: Request, res: Response) => {
 });
 
 // Swagger UI exposes the full API schema, so it must never be on the public
-// surface. On the Postgres stack this server is the deployed backend container;
-// gate the docs to non-Postgres (AWS-local dev) only. The generated OpenAPI
-// document is still consumed programmatically by the APISIX edge via its own
-// mounted paths — this only removes the browsable UI from the deployed surface.
+// surface. On the self-host backends this server is the deployed backend
+// container; gate the docs to the AWS-local dev path only. The generated
+// OpenAPI document is still consumed programmatically by the APISIX edge via its
+// own mounted paths — this only removes the browsable UI from the deployed
+// surface.
 //
 // Dynamic import, not a static one: swagger-ui-express uses `__dirname` to
 // locate its bundled assets on disk, which esbuild only shims (not
@@ -141,8 +146,8 @@ app.get("/health", (_req: Request, res: Response) => {
 // (`ERR_AMBIGUOUS_MODULE_SYNTAX`), crashing every backend container start,
 // including the ones that never take this branch. A dynamic import here
 // keeps swagger-ui-express (and its `__dirname` shim) out of module scope
-// entirely unless DATA_BACKEND is unset.
-if (process.env.DATA_BACKEND !== "postgres") {
+// entirely unless this is the AWS-local dev path.
+if (!isSelfHostBackend) {
 	const swaggerUi = await import("swagger-ui-express");
 	const localSpec = { ...OpenAPISpec };
 	if (localSpec.servers) {

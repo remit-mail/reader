@@ -868,6 +868,14 @@ write_env() {
 	set_var PG_CONNECTION_URL \
 		"postgresql://remit:$(get_var POSTGRES_PASSWORD "$_f")@postgres:5432/remit" "$_f"
 
+	# This installer only ever brings up the Postgres stack, whose compose file
+	# reads DATA_BACKEND from .env. A box first installed in the SQLite era keeps
+	# DATA_BACKEND=sqlite in its preserved .env, and on that value the backend
+	# never mounts the better-auth routes, so signup 404s. Pin it every run
+	# rather than inherit a stale value. The SQLite stack sets DATA_BACKEND
+	# itself in docker-compose.sqlite.yml, so it is unaffected by this.
+	set_var DATA_BACKEND postgres "$_f"
+
 	set_var PUBLIC_ORIGIN "$ORIGIN" "$_f"
 	set_var TLS_MODE "$TLS_MODE" "$_f"
 	set_var REMIT_TAG "$TAG" "$_f"

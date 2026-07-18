@@ -32,6 +32,7 @@ import {
 	messageReferenceTable,
 	rawMessageStorageTable,
 } from "../schema/message-data.js";
+import { runInTransaction } from "../tx.js";
 import {
 	toBodyPartContentItem,
 	toBodyPartItem,
@@ -179,7 +180,7 @@ export class DrizzleEnvelopeRepository implements IEnvelopeRepository {
 			(r) => r.bodyPartParameterId,
 		);
 
-		await this.db.transaction(async (tx) => {
+		await runInTransaction(this.db, async (tx) => {
 			await tx
 				.insert(bodyPartTable)
 				.values(dedupedBodyPartRows)
@@ -206,7 +207,7 @@ export class DrizzleEnvelopeRepository implements IEnvelopeRepository {
 	async deleteManyEnvelopes(envelopeIds: string[]): Promise<void> {
 		if (envelopeIds.length === 0) return;
 
-		await this.db.transaction(async (tx) => {
+		await runInTransaction(this.db, async (tx) => {
 			await tx
 				.delete(envelopeTable)
 				.where(inArray(envelopeTable.envelopeId, envelopeIds));

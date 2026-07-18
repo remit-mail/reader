@@ -545,12 +545,171 @@ const buildPostgresClient = async (): Promise<RemitClient> => {
 	};
 };
 
+// The SQLite backend (RFC 036). Mirrors `buildPostgresClient` — the same
+// dialect-neutral Drizzle repos, wired to one shared SQLite file instead of a
+// Postgres server — with two differences the file topology forces (D3): every
+// repo runs on the single serialized connection `createSqliteDatabase` opens
+// (writes cannot bypass serialization, so a plain repo write never joins an
+// open transaction's savepoint), and `threadMessage` takes that shared handle
+// rather than its own connection string, so its writes enlist in the same
+// unit-of-work transaction and the same write queue as everything else.
+//
+// Loaded lazily for the same reason as `buildPostgresClient`: this branch only
+// runs when `DATA_BACKEND === "sqlite"`, and keeping `@remit/remit-drizzle-
+// service` (and, through it, the native better-sqlite3 binding) behind a
+// dynamic `import()` keeps both out of the DynamoDB Lambda bundle.
+const buildSqliteClient = async (): Promise<RemitClient> => {
+	const sqliteDbPath = env.SQLITE_DB_PATH;
+
+	const {
+		AccountConfigRepo,
+		AccountExportRequestRepo,
+		AccountRepo,
+		AccountSettingRepo,
+		AddressRepo,
+		createSqliteDatabase,
+		DrizzleEnvelopeRepository,
+		DrizzleMessageFlagRepository,
+		DrizzleMessageRepository,
+		DrizzleThreadMessageRepository,
+		DrizzleUnitOfWork,
+		FilterAnchorRepo,
+		FilterRepo,
+		LabelRepo,
+		MailboxLockRepo,
+		MailboxRepo,
+		MailboxSpecialUseRepo,
+		MessageFlagPushRepo,
+		messageDataSchema,
+		MessageLabelRepo,
+		MessagePlacementMoveRepo,
+		OrganizeJobRequestRepo,
+		OutboxMessageRepo,
+	} = await import("@remit/drizzle-service");
+
+	const { db } = await createSqliteDatabase(messageDataSchema, {
+		filename: sqliteDbPath,
+	});
+	const genericDb = db as unknown as NodePgDatabase<Record<string, unknown>>;
+
+	const accountService = new AccountRepo(genericDb);
+	const accountConfigService = new AccountConfigRepo(genericDb);
+	const accountSettingService = new AccountSettingRepo(genericDb);
+	const addressService = new AddressRepo(genericDb);
+	const mailboxService = new MailboxRepo(genericDb);
+	const mailboxSpecialUseService = new MailboxSpecialUseRepo(genericDb);
+	const mailboxLockService = new MailboxLockRepo(genericDb);
+	const outboxMessageService = new OutboxMessageRepo(genericDb);
+	const accountExportRequestService = new AccountExportRequestRepo(genericDb);
+	const organizeJobRequestService = new OrganizeJobRequestRepo(genericDb);
+	const placementMoveService = new MessagePlacementMoveRepo(genericDb);
+	const flagPushMarkerService = new MessageFlagPushRepo(genericDb);
+	const filterService = new FilterRepo(genericDb);
+	const filterAnchorService = new FilterAnchorRepo(genericDb);
+	const labelService = new LabelRepo(genericDb);
+	const messageLabelService = new MessageLabelRepo(genericDb);
+
+	const messageDataDb = db as unknown as NodePgDatabase<
+		typeof messageDataSchema
+	>;
+	const envelopeService = new DrizzleEnvelopeRepository(messageDataDb);
+	const messageService = new DrizzleMessageRepository(messageDataDb);
+	const messageFlagService = new DrizzleMessageFlagRepository(messageDataDb);
+	const threadMessageService = new DrizzleThreadMessageRepository(genericDb);
+
+	const unitOfWork = new DrizzleUnitOfWork(messageDataDb);
+
+	const sqsQueueUrl = env.SQS_QUEUE_URL;
+	const sqsSmtpQueueUrl = process.env.SQS_QUEUE_URL_SMTP ?? sqsQueueUrl;
+
+	const { storageService, searchService, secretsService } =
+		buildSharedServices();
+
+	const bodySyncService = new BodySyncService(
+		messageService,
+		storageService,
+		threadMessageService,
+		addressService,
+		envelopeService,
+		logger,
+	);
+
+	const flagPushService = new FlagPushService({
+		markerService: flagPushMarkerService,
+		sqsQueueUrl,
+		logger,
+	});
+
+	return {
+		accountConfig: accountConfigService,
+		account: accountService,
+		accountSetting: accountSettingService,
+		address: addressService,
+		mailbox: mailboxService,
+		mailboxSpecialUse: mailboxSpecialUseService,
+		mailboxLock: mailboxLockService,
+		message: messageService,
+		messageFlag: messageFlagService,
+		outboxMessage: outboxMessageService,
+		threadMessage: threadMessageService,
+		envelope: envelopeService,
+		accountExportRequest: accountExportRequestService,
+		organizeJobRequest: organizeJobRequestService,
+		filter: filterService,
+		filterAnchor: filterAnchorService,
+		label: labelService,
+		messageLabel: messageLabelService,
+		unitOfWork,
+
+		storage: storageService,
+		search: searchService,
+		secrets: secretsService,
+
+		bodySync: bodySyncService,
+		bodySyncQueue: buildBodySyncQueue(),
+		placementMove: placementMoveService,
+		flagPush: flagPushMarkerService,
+
+		flagQueue: new FlagQueueService({
+			messageFlagService,
+			messageService,
+			threadMessageService,
+			flagPushService,
+			logger,
+		}),
+		mailboxQueue: new MailboxQueueService({
+			mailboxService,
+			sqsQueueUrl,
+			logger,
+		}),
+		messageMove: new MessageMoveService({
+			messageService,
+			mailboxService,
+			mailboxSpecialUseService,
+			threadMessageService,
+			sqsQueueUrl,
+			logger,
+		}),
+		outboxQueue: new OutboxQueueService({
+			outboxMessageService,
+			accountService,
+			sqsSmtpQueueUrl,
+			logger,
+		}),
+
+		createConnectionScope: buildConnectionScope(accountService, secretsService),
+	};
+};
+
 export const getClient = (): Promise<RemitClient> => {
 	if (!clientPromise) {
-		clientPromise =
-			process.env.DATA_BACKEND === "postgres"
-				? buildPostgresClient()
-				: Promise.resolve(buildDynamoDBClient());
+		if (process.env.DATA_BACKEND === "postgres") {
+			clientPromise = buildPostgresClient();
+		} else if (process.env.DATA_BACKEND === "sqlite") {
+			clientPromise = buildSqliteClient();
+		} else {
+			clientPromise = Promise.resolve(buildDynamoDBClient());
+		}
 	}
 
 	return clientPromise;

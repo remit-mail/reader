@@ -1,1 +1,3 @@
-export { outboxMessages as outboxMessageTable } from "@remit/drizzle-pg-schema";
+import { entities } from "./active-entities.js";
+
+export const outboxMessageTable = entities.outboxMessages;

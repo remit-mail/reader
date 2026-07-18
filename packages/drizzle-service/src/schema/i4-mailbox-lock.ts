@@ -1,1 +1,3 @@
-export { mailboxLocks as mailboxLockTable } from "@remit/drizzle-pg-schema";
+import { entities } from "./active-entities.js";
+
+export const mailboxLockTable = entities.mailboxLocks;

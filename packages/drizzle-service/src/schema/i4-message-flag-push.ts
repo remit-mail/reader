@@ -1,1 +1,3 @@
-export { messageFlagPushes as messageFlagPushTable } from "@remit/drizzle-pg-schema";
+import { entities } from "./active-entities.js";
+
+export const messageFlagPushTable = entities.messageFlagPushes;

@@ -1,11 +1,11 @@
 import { verifyContentSignature } from "../src/derive/contentSignature.js";
 
 /**
- * Decide whether a `/content` request is authorized. Enforcement only applies on
- * the Postgres stack, where this server is the deployed backend container and
- * content URLs are signed. On AWS-local dev (`DATA_BACKEND` unset) `/content` is
- * served straight from the filesystem stand-in for CloudFront and URLs are
- * unsigned, so the check is a no-op.
+ * Decide whether a `/content` request is authorized. Enforcement applies on the
+ * self-host SQL backends (postgres and sqlite), where this server is the
+ * deployed backend container and content URLs are signed. On AWS-local dev
+ * (`DATA_BACKEND` unset) `/content` is served straight from the filesystem
+ * stand-in for CloudFront and URLs are unsigned, so the check is a no-op.
  *
  * Pure so the decision can be unit-tested without a live server. `relativePath`
  * is the decoded storage path (`accounts/{cfg}/{acc}/messages/{msg}/parts/{part}`)
@@ -25,11 +25,13 @@ export const authorizeContentRequest = (
 ):
 	| { authorized: true }
 	| { authorized: false; status: number; reason: string } => {
-	if (input.dataBackend !== "postgres") return { authorized: true };
+	if (input.dataBackend !== "postgres" && input.dataBackend !== "sqlite") {
+		return { authorized: true };
+	}
 
 	if (!input.secret || input.secret.length === 0) {
-		// Postgres mode with no signing secret means every content URL is
-		// unsigned and unverifiable. Fail closed rather than serve mail bytes
+		// A self-host SQL backend with no signing secret means every content URL
+		// is unsigned and unverifiable. Fail closed rather than serve mail bytes
 		// without auth.
 		return {
 			authorized: false,

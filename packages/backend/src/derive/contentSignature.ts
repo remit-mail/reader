@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { usesBetterAuthJwt } from "../data-backend.js";
 
 /**
  * Signed-URL scheme for `/content/*` on the Postgres stack.
@@ -77,18 +78,19 @@ export const createContentSigner = (
 
 /**
  * Build the content-URL signer for the current environment, or `undefined` when
- * signing does not apply. Signing is only enforced on the Postgres stack; on AWS
- * the Lambda@Edge JWT verifier guards `/content/*` and the URL stays unsigned so
- * CloudFront/S3 behaviour is unchanged. Throws in Postgres mode when the master
- * secret is missing, so a misconfigured deploy fails loud rather than shipping
- * unsigned (unauthenticated) content URLs.
+ * signing does not apply. Signing is enforced on the self-host SQL backends
+ * (postgres and sqlite), which serve `/content/*` straight from the backend
+ * container; on AWS the Lambda@Edge JWT verifier guards `/content/*` and the URL
+ * stays unsigned so CloudFront/S3 behaviour is unchanged. Throws on those
+ * backends when the master secret is missing, so a misconfigured deploy fails
+ * loud rather than shipping unsigned (unauthenticated) content URLs.
  */
 export const getContentSigner = (): ContentSigner | undefined => {
-	if (process.env.DATA_BACKEND !== "postgres") return undefined;
+	if (!usesBetterAuthJwt()) return undefined;
 	const secret = process.env.BETTER_AUTH_SECRET;
 	if (!secret || secret.length === 0) {
 		throw new Error(
-			"DATA_BACKEND=postgres requires BETTER_AUTH_SECRET to sign content URLs",
+			"a self-host SQL backend (postgres/sqlite) requires BETTER_AUTH_SECRET to sign content URLs",
 		);
 	}
 	return createContentSigner(secret);

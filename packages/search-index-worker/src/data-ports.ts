@@ -89,12 +89,52 @@ const buildPostgresDataPorts = async (): Promise<SearchIndexDataPorts> => {
 	};
 };
 
+// The SQLite twin of `buildPostgresDataPorts` (RFC 036): the same Drizzle repos
+// over the one shared SQLite file instead of a Postgres connection string.
+// `createSqliteDatabase` (and better-sqlite3 behind it) is kept external from
+// this worker's DynamoDB Lambda bundle by the same dynamic-import treatment.
+const buildSqliteDataPorts = async (): Promise<SearchIndexDataPorts> => {
+	const sqliteDbPath = process.env.SQLITE_DB_PATH;
+	if (!sqliteDbPath) throw new Error("SQLITE_DB_PATH is required");
+
+	const {
+		AccountRepo,
+		createSqliteDatabase,
+		DrizzleMessageRepository,
+		DrizzleThreadMessageRepository,
+		MailboxRepo,
+		messageDataSchema,
+	} = await import("@remit/drizzle-service");
+
+	const { db } = await createSqliteDatabase(messageDataSchema, {
+		filename: sqliteDbPath,
+	});
+	const genericDb = db as unknown as NodePgDatabase<Record<string, unknown>>;
+	const messageDataDb = db as unknown as NodePgDatabase<
+		typeof messageDataSchema
+	>;
+
+	const message = new DrizzleMessageRepository(messageDataDb);
+	const mailbox = new MailboxRepo(genericDb);
+
+	return {
+		account: new AccountRepo(genericDb),
+		threadMessage: new DrizzleThreadMessageRepository(genericDb),
+		resolveAccountId: async (messageId) => {
+			const row = await message.get(messageId);
+			return mailbox.resolveAccountId(row.mailboxId);
+		},
+	};
+};
+
 /**
  * Select the account + threadMessage data ports from the environment, mirroring
  * `buildVectorStoreFromEnv`'s `DATA_BACKEND` selection so one handler serves
- * both the DynamoDB (AWS, production) and Postgres (pg-parity) stacks:
+ * the DynamoDB (AWS, production), Postgres (pg-parity), and SQLite
+ * (single-box, RFC 036) stacks:
  *
  * - `DATA_BACKEND=postgres` → Drizzle repos over `PG_CONNECTION_URL`.
+ * - `DATA_BACKEND=sqlite` → Drizzle repos over the shared `SQLITE_DB_PATH` file.
  * - otherwise → ElectroDB services over `DYNAMODB_TABLE_NAME` (unchanged from
  *   the pre-convergence worker — this is the production path).
  */
@@ -102,7 +142,10 @@ const buildPostgresDataPorts = async (): Promise<SearchIndexDataPorts> => {
 // `buildDynamoDBDataPorts` (a missing `DYNAMODB_TABLE_NAME`) becomes a
 // rejected promise instead of throwing before any promise exists — callers
 // (including `getServices`) always get a promise to await.
-export const buildDataPortsFromEnv = async (): Promise<SearchIndexDataPorts> =>
-	process.env.DATA_BACKEND === "postgres"
-		? buildPostgresDataPorts()
-		: buildDynamoDBDataPorts();
+export const buildDataPortsFromEnv =
+	async (): Promise<SearchIndexDataPorts> => {
+		if (process.env.DATA_BACKEND === "postgres")
+			return buildPostgresDataPorts();
+		if (process.env.DATA_BACKEND === "sqlite") return buildSqliteDataPorts();
+		return buildDynamoDBDataPorts();
+	};

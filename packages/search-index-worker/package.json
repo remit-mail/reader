@@ -16,6 +16,7 @@
 		"test": "npm run test:typecheck && npm run test:run"
 	},
 	"dependencies": {
+		"@remit/remit-outbox-relay": "*",
 		"p-map": "*",
 		"pg": "^8.0.0"
 	},
@@ -26,6 +27,7 @@
 		"@aws-sdk/lib-dynamodb": "*",
 		"@remit/data-ports": "*",
 		"@remit/drizzle-service": "*",
+		"better-sqlite3": "^12.11.1",
 		"@remit/remit-electrodb-service": "*",
 		"@remit/remit-logger-lambda": "*",
 		"@remit/search-service": "*",

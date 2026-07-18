@@ -1,3 +1,4 @@
+import type { DataType } from "@huggingface/transformers";
 import type { VectorStoreService } from "./backends/memory.js";
 import { createMemoryVectorStore } from "./backends/memory.js";
 import { createPgVectorStore } from "./backends/pgvector.js";
@@ -20,6 +21,33 @@ const parseDimensions = (): number | undefined => {
 		);
 	}
 	return parsed;
+};
+
+const DTYPES: readonly DataType[] = [
+	"auto",
+	"fp32",
+	"fp16",
+	"q8",
+	"int8",
+	"uint8",
+	"q4",
+	"bnb4",
+	"q4f16",
+	"q2",
+	"q2f16",
+	"q1",
+	"q1f16",
+];
+
+const parseDtype = (): DataType | undefined => {
+	const raw = process.env.SEARCH_EMBEDDING_DTYPE;
+	if (!raw) return undefined;
+	if (!DTYPES.includes(raw as DataType)) {
+		throw new Error(
+			`SEARCH_EMBEDDING_DTYPE must be one of ${DTYPES.join(", ")}, got: ${raw}`,
+		);
+	}
+	return raw as DataType;
 };
 
 /**
@@ -77,6 +105,10 @@ export const buildVectorStoreFromEnv = (
  * `SEARCH_EMBEDDING_DIMENSIONS`, when set, pins the dimension count for the local
  * and deterministic embedders so the store's vector column and the embedder
  * agree regardless of which embedder a given process runs.
+ *
+ * `SEARCH_EMBEDDING_DTYPE`, when set, selects the ONNX weight precision the local
+ * model loads (`q8` → int8-quantized `model_quantized.onnx`); unset defaults to
+ * `fp32`. The search-index-worker container sets `q8` and bakes the matching file.
  */
 export const buildEmbeddingServiceFromEnv = (): EmbeddingService => {
 	const provider = process.env.SEARCH_EMBEDDING_PROVIDER;
@@ -85,6 +117,7 @@ export const buildEmbeddingServiceFromEnv = (): EmbeddingService => {
 		return createLocalEmbeddingService({
 			modelId: process.env.SEARCH_EMBEDDING_MODEL_ID,
 			dimensions,
+			dtype: parseDtype(),
 		});
 	}
 	if (provider === "bedrock") {
