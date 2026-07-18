@@ -1,11 +1,4 @@
-import {
-	AccountService,
-	getClient,
-	MailboxService,
-	MessagePlacementMoveService,
-	MessageService,
-	ThreadMessageService,
-} from "@remit/remit-electrodb-service";
+import { getClient } from "@remit/backend/client";
 import type { Logger } from "@remit/logger-lambda";
 import { MetricUnit, metrics } from "@remit/logger-lambda";
 import {
@@ -16,11 +9,6 @@ import {
 	reconcileStaleMessage,
 	resolveExhaustedPlacementMoveFailure,
 } from "@remit/mailbox-service";
-import {
-	createKmsDataKeyProvider,
-	createSecretsService,
-} from "@remit/secrets-service";
-import { env } from "expect-env";
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import { emitEvent } from "../emit.js";
@@ -31,31 +19,6 @@ import {
 	buildThreadMessageMoveUpdate,
 	emitMoveResync,
 } from "./message-move.js";
-
-const client = getClient();
-const dataKeyProvider = createKmsDataKeyProvider(env.KMS_KEY_ID);
-const secrets = createSecretsService(dataKeyProvider);
-
-const accountService = new AccountService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-const mailboxService = new MailboxService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-const messageService = new MessageService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-const threadMessageService = new ThreadMessageService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-const markerService = new MessagePlacementMoveService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
 
 /**
  * Fallback when `PLACEMENT_MOVE_MAX_ATTEMPTS` is unset (local dev, unit
@@ -209,6 +172,15 @@ export const handlePlacementMovePush = async (
 	log: Logger,
 	receiveCount = 1,
 ): Promise<void> => {
+	const {
+		account: accountService,
+		mailbox: mailboxService,
+		message: messageService,
+		threadMessage: threadMessageService,
+		placementMove: markerService,
+		secrets,
+	} = await getClient();
+
 	const { accountId, accountConfigId, messageId } = event;
 
 	const marker = await markerService.find(messageId);

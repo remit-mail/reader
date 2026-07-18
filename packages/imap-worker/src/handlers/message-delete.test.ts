@@ -1,6 +1,6 @@
 import assert from "node:assert";
 import { describe, it, mock } from "node:test";
-import type { ThreadMessageItem } from "@remit/remit-electrodb-service";
+import type { ThreadMessageItem } from "@remit/data-ports";
 import {
 	buildThreadMessageTrashUpdate,
 	deleteAllThreadMessagesForMessage,

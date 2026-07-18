@@ -1,11 +1,4 @@
 import { getClient } from "@remit/backend/client";
-import {
-	FilterAnchorService,
-	FilterService,
-	getClient as getRawDynamoClient,
-	MessageLabelService,
-	MessagePlacementMoveService,
-} from "@remit/remit-electrodb-service";
 import type { Logger } from "@remit/logger-lambda";
 import { MetricUnit, metrics } from "@remit/logger-lambda";
 import {
@@ -17,7 +10,6 @@ import {
 	PlacementMoveService,
 	resolveExhaustedBodySyncFailures,
 } from "@remit/mailbox-service";
-import { createStorageService } from "@remit/storage-service";
 import { env } from "expect-env";
 import { isAccountDeleted } from "../account-check.js";
 import { isBodySyncEnabled } from "../body-sync-gate.js";
@@ -30,28 +22,6 @@ import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 
 const bodySyncEnabledParameterName = env.BODY_SYNC_ENABLED_PARAMETER_NAME;
-
-// Marker service for pending placement moves (issue #1271). Not part of the
-// `getClient()` RemitClient bundle (that wraps only the ports every backend
-// implements) — placement-move machinery is DynamoDB/SQS-specific, same as
-// the general move/delete/copy machinery, so it is instantiated directly here.
-const markerService = new MessagePlacementMoveService({
-	client: getRawDynamoClient(),
-	table: env.DYNAMODB_TABLE_NAME,
-});
-
-// Index-time filter services (RFC 034). Instantiated directly here for the same
-// reason as `markerService` — filter matching is DynamoDB-specific and not part
-// of the generic `getClient()` port bundle. No embedder is wired yet, so only
-// literal-clause filters evaluate; semantic-anchor filters wait on the
-// FilterAnchor write path and an embedder (separate tickets).
-const filterServiceConfig = {
-	client: getRawDynamoClient(),
-	table: env.DYNAMODB_TABLE_NAME,
-};
-const filterService = new FilterService(filterServiceConfig);
-const filterAnchorService = new FilterAnchorService(filterServiceConfig);
-const messageLabelService = new MessageLabelService(filterServiceConfig);
 
 /**
  * Fallback when `BODY_SYNC_MAX_ATTEMPTS` is unset (local dev, unit tests).
@@ -175,6 +145,11 @@ export const syncMessageBody = async (
 		threadMessage: threadMessageService,
 		address: addressService,
 		envelope: envelopeService,
+		placementMove: markerService,
+		filter: filterService,
+		filterAnchor: filterAnchorService,
+		messageLabel: messageLabelService,
+		storage,
 		secrets,
 	} = await getClient();
 
@@ -226,7 +201,6 @@ export const syncMessageBody = async (
 			const borrowed = borrowWarmConnection(accountId, () =>
 				createConnectionScopeWithCredentials(account, credentials),
 			);
-			const storage = createStorageService();
 
 			// A confident, actionable placement verdict moves mail directly on
 			// body-sync. Safety lives in the verdict itself (only confident,

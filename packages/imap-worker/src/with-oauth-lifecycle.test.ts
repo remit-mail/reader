@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { AccountItem } from "@remit/remit-electrodb-service";
+import type { AccountItem } from "@remit/data-ports";
 import { AccountAuthType, ConnectionState } from "@remit/domain-enums";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
 import {

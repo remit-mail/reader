@@ -17,7 +17,7 @@
  * Tokens must NEVER appear in logs — only accountId / errorKind / errorCode.
  */
 
-import type { AccountItem } from "@remit/remit-electrodb-service";
+import type { AccountItem } from "@remit/data-ports";
 import { AccountAuthType, ConnectionState } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import { RefreshTokenError } from "@remit/mail-oauth-service";

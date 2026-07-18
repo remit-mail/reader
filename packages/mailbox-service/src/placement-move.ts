@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
 import type {
+	IMessagePlacementMoveRepository,
 	IMessageRepository,
 	IThreadMessageRepository,
 } from "@remit/data-ports";
-import type { MessagePlacementMoveService } from "@remit/remit-electrodb-service";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 import { createQueueProducer } from "@remit/sqs-client/producer";
 
@@ -37,7 +37,7 @@ const noopLogger: PlacementMoveLogger = {
 export interface PlacementMoveConfig {
 	messageService: IMessageRepository;
 	threadMessageService: IThreadMessageRepository;
-	markerService: MessagePlacementMoveService;
+	markerService: IMessagePlacementMoveRepository;
 	sqsQueueUrl: string;
 	sqsEndpoint?: string;
 	logger?: PlacementMoveLogger;
@@ -74,7 +74,7 @@ export interface PlacementMoveConfig {
 export class PlacementMoveService {
 	private messageService: IMessageRepository;
 	private threadMessageService: IThreadMessageRepository;
-	private markerService: MessagePlacementMoveService;
+	private markerService: IMessagePlacementMoveRepository;
 	private sqs: SQSClient;
 	private queueUrl: string;
 	private log: PlacementMoveLogger;

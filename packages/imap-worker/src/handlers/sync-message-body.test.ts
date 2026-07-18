@@ -3,8 +3,7 @@ import { afterEach, describe, mock, test } from "node:test";
 import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 import { GetParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
 import { getClient } from "@remit/backend/client";
-import type { AccountItem, MailboxItem } from "@remit/remit-electrodb-service";
-import { AccountService, MailboxService } from "@remit/remit-electrodb-service";
+import type { AccountItem, MailboxItem } from "@remit/data-ports";
 import type { Logger } from "@remit/logger-lambda";
 import {
 	BodySyncService,
@@ -243,8 +242,12 @@ describe("syncMessageBody — DLQ propagation (integrated, #1270)", () => {
 			.resolves({ Parameter: { Value: "true" } });
 		const sqsMock = mockClient(SQSClient);
 
-		mock.method(AccountService.prototype, "get", async () => cappedAccount());
-		mock.method(MailboxService.prototype, "get", async () => cappedMailbox());
+		mock.method((await getClient()).account, "get", async () =>
+			cappedAccount(),
+		);
+		mock.method((await getClient()).mailbox, "get", async () =>
+			cappedMailbox(),
+		);
 		mock.method(
 			(await getClient()).secrets,
 			"decrypt",
@@ -290,8 +293,10 @@ describe("syncMessageBody — DLQ propagation (integrated, #1270)", () => {
 			.on(GetParameterCommand)
 			.resolves({ Parameter: { Value: "true" } });
 
-		mock.method(AccountService.prototype, "get", async () => cappedAccount());
-		mock.method(MailboxService.prototype, "get", async () => ({
+		mock.method((await getClient()).account, "get", async () =>
+			cappedAccount(),
+		);
+		mock.method((await getClient()).mailbox, "get", async () => ({
 			...cappedMailbox(),
 			mailboxId,
 			cursorState: "cursor_invalid",

@@ -1,11 +1,5 @@
-import {
-	AccountService,
-	getClient,
-	MailboxService,
-	MessageService,
-	type ThreadMessageItem,
-	ThreadMessageService,
-} from "@remit/remit-electrodb-service";
+import { getClient } from "@remit/backend/client";
+import type { ThreadMessageItem } from "@remit/data-ports";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import {
@@ -13,11 +7,6 @@ import {
 	isCursorRebuildNeeded,
 	MailboxCursorPausedError,
 } from "@remit/mailbox-service";
-import {
-	createKmsDataKeyProvider,
-	createSecretsService,
-} from "@remit/secrets-service";
-import { env } from "expect-env";
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import { emitEvent } from "../emit.js";
@@ -104,27 +93,6 @@ export const buildThreadMessageMoveUpdate = (
 	},
 });
 
-const client = getClient();
-const dataKeyProvider = createKmsDataKeyProvider(env.KMS_KEY_ID);
-const secrets = createSecretsService(dataKeyProvider);
-
-const accountService = new AccountService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-const messageService = new MessageService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-const threadMessageService = new ThreadMessageService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-const mailboxService = new MailboxService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-
 /**
  * Handle MESSAGE_MOVE events.
  * Executes IMAP MOVE command and updates local state with new UID.
@@ -133,6 +101,14 @@ export const handleMessageMove = async (
 	event: MessageMoveEvent,
 	log: Logger,
 ): Promise<void> => {
+	const {
+		account: accountService,
+		message: messageService,
+		threadMessage: threadMessageService,
+		mailbox: mailboxService,
+		secrets,
+	} = await getClient();
+
 	const {
 		accountId,
 		messageId,
