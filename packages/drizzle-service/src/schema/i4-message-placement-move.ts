@@ -1,1 +1,3 @@
-export { messagePlacementMoves as messagePlacementMoveTable } from "@remit/drizzle-pg-schema";
+import { entities } from "./active-entities.js";
+
+export const messagePlacementMoveTable = entities.messagePlacementMoves;

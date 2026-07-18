@@ -1,0 +1,24 @@
+{
+	"name": "@remit/outbox-relay",
+	"version": "1.0.0",
+	"type": "module",
+	"main": "src/index.ts",
+	"types": "src/index.ts",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		}
+	},
+	"scripts": {
+		"test:typecheck": "tsgo --noEmit",
+		"test:run": "node --env-file=../../localhost-test-unit.env --test 'src/**/*.test.ts'",
+		"test": "npm run test:typecheck && npm run test:run"
+	},
+	"dependencies": {
+		"@aws-sdk/client-sqs": "*",
+		"@aws-sdk/core": "*",
+		"@remit/search-service": "*",
+		"@remit/sqs-client": "*"
+	}
+}

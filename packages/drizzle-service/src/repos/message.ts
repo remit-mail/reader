@@ -32,6 +32,7 @@ import {
 	outboxTable,
 	rawMessageStorageTable,
 } from "../schema/message-data.js";
+import { runInTransaction } from "../tx.js";
 import {
 	toBodyPartContentItem,
 	toBodyPartItem,
@@ -196,7 +197,7 @@ export class DrizzleMessageRepository implements IMessageRepository {
 		// violation, which rolls back the transaction so NO outbox row is
 		// written; we surface it as the domain conflict error.
 		try {
-			await this.db.transaction(async (tx) => {
+			await runInTransaction(this.db, async (tx) => {
 				await tx.insert(messageTable).values(row);
 
 				await tx.insert(outboxTable).values({
@@ -389,7 +390,7 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			typeof input.bodyStorageKey === "string" &&
 			input.bodyStorageKey.length > 0;
 
-		await this.db.transaction(async (tx) => {
+		await runInTransaction(this.db, async (tx) => {
 			await tx
 				.update(messageTable)
 				.set(setValues)
@@ -425,7 +426,7 @@ export class DrizzleMessageRepository implements IMessageRepository {
 
 	async deleteMany(messageIds: string[]): Promise<void> {
 		if (messageIds.length === 0) return;
-		await this.db.transaction((tx) =>
+		await runInTransaction(this.db, (tx) =>
 			deleteMessageSubtree(tx as unknown as SubtreeDb, messageIds),
 		);
 	}
@@ -527,7 +528,7 @@ export class DrizzleMessageRepository implements IMessageRepository {
 		// re-index would skip them on content hash. Enqueue a move re-index event
 		// in the same transaction as the update; the pg-index worker drains it
 		// with force, refreshing the stored mailbox metadata.
-		const rows = await this.db.transaction(async (tx) => {
+		const rows = await runInTransaction(this.db, async (tx) => {
 			const updated = await tx
 				.update(messageTable)
 				.set({

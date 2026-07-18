@@ -24,6 +24,7 @@ import { v5 as uuidv5 } from "uuid";
 import type { Db } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { threadMessageTable } from "../schema/thread-message.js";
+import { fromMatch, subjectMatch } from "./thread-search-predicates.js";
 
 // ─── ID generation (mirrors remit-electrodb-service/src/id.ts) ───────────────
 
@@ -139,35 +140,9 @@ function toItem(row: Row): ThreadMessageItem {
 
 // ─── Search predicates ────────────────────────────────────────────────────────
 
-// Accent- and case-insensitive substring match, served by the trigram GIN
-// indexes defined in npm-scripts/pg-search-index.sql (kept out of the drizzle
-// schema so the extension-less embedded-Postgres unit harness still pushes).
-// The folded expressions below reproduce the indexed expressions exactly so the
-// planner uses the indexes. Matching runs over the WHOLE mailbox — unlike
-// DynamoDB, Postgres indexes the text, so there is no recent-window read bound.
-
-// The folded subject text — must match the tm_search_subject_trgm expression.
-const SUBJECT_FOLDED = sql`remit_immutable_unaccent(lower(coalesce(subject, '')))`;
-// The folded sender text (display name + email) — must match tm_search_from_trgm.
-const FROM_FOLDED = sql`remit_immutable_unaccent(lower(coalesce(from_name, '') || ' ' || coalesce(from_email, '')))`;
-
-// Fold a needle the same way the indexed expressions are folded, and match it
-// as a literal substring: LIKE metacharacters (`\`, `%`, `_`) are escaped in JS
-// so they arrive as bind-parameter text (no SQL string-literal reinterpretation),
-// leaving the LIKE default `\` escape to treat them literally — parity with the
-// DynamoDB contains() substring semantics.
-function likePattern(term: string): SQL {
-	const escaped = term.replace(/[\\%_]/g, "\\$&");
-	return sql`'%' || remit_immutable_unaccent(lower(${escaped})) || '%'`;
-}
-
-function subjectMatch(term: string): SQL {
-	return sql`${SUBJECT_FOLDED} like ${likePattern(term)}`;
-}
-
-function fromMatch(term: string): SQL {
-	return sql`${FROM_FOLDED} like ${likePattern(term)}`;
-}
+// The accent-/case-insensitive substring predicates are the one text-search
+// seam that differs by dialect; they live in ./thread-search-predicates.ts
+// (Postgres: unaccent + pg_trgm; SQLite: a folded LIKE fallback, RFC 036 D4).
 
 // Translate SearchOptions into SQL conditions: subject/from/query as indexed
 // text predicates, the rest as plain column equalities. A multi-word `query`
@@ -234,8 +209,17 @@ export class DrizzleThreadMessageRepository
 	}
 
 	async close(): Promise<void> {
-		const db = this.db as unknown as { $client: { end(): Promise<void> } };
-		await db.$client.end();
+		// The underlying driver differs by dialect: a pg Pool closes with `end()`,
+		// a better-sqlite3 Database with `close()`. Feature-detect so a sqlite
+		// handle never hits a missing `end()`.
+		const client = (this.db as unknown as { $client?: unknown }).$client;
+		if (client && typeof (client as { end?: unknown }).end === "function") {
+			await (client as { end: () => Promise<void> }).end();
+			return;
+		}
+		if (client && typeof (client as { close?: unknown }).close === "function") {
+			(client as { close: () => void }).close();
+		}
 	}
 
 	async create(input: CreateThreadMessageInput): Promise<ThreadMessageItem> {

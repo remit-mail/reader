@@ -6,14 +6,14 @@
 // instead (the entity package wholesale), so the migration is driven by the
 // entities, not by this hand-maintained alias list.
 
-export {
-	filterAnchors as filterAnchorTable,
-	filters as filterTable,
-	labels as labelTable,
-	mailboxAttributeEntries as mailboxAttributeEntryTable,
-	mailboxFlags as mailboxFlagTable,
-	messageLabels as messageLabelTable,
-} from "@remit/drizzle-pg-schema";
+import { entities } from "./schema/active-entities.js";
+
+export const filterAnchorTable = entities.filterAnchors;
+export const filterTable = entities.filters;
+export const labelTable = entities.labels;
+export const mailboxAttributeEntryTable = entities.mailboxAttributeEntries;
+export const mailboxFlagTable = entities.mailboxFlags;
+export const messageLabelTable = entities.messageLabels;
 export * from "./schema/i4-account-config.js";
 export * from "./schema/i4-account-export-request.js";
 export * from "./schema/i4-account-setting.js";

@@ -1,0 +1,241 @@
+# Reference self-host deployment, SQLite backend (RFC 036 D6). The same
+# published images as docker-compose.yml, the same single .env file, two
+# residents fewer: no postgres server and no pg-index-worker. All relational
+# state is two files on one local volume — the app/auth database and the
+# sqlite-vec vector store.
+#
+# Pick this file instead of docker-compose.yml when you want the fewest moving
+# parts (see README.md, "Which backend"):
+#   cp remit.env.template .env   # fill in the secrets, then:
+#   docker compose -f docker-compose.sqlite.yml up -d
+#
+# Compose profiles cannot drop an always-on service, so the SQLite variant is a
+# separate file rather than a `--profile` toggle on docker-compose.yml. Run one
+# or the other, never both — they share the project name and would collide.
+#
+# The shared SQLite volume MUST be local disk (RFC 036 D3): WAL's cross-process
+# coordination uses a shared-memory file next to the database that does not work
+# over a network filesystem. The default local volume driver below satisfies
+# this; do not repoint `sqlite_data` at an NFS/CIFS mount.
+name: remit
+
+x-app-env: &app-env
+  env_file:
+    - .env
+  environment:
+    BETTER_AUTH_URL: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in .env}
+    BETTER_AUTH_TRUSTED_ORIGINS: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in .env}
+    CONTENT_DELIVERY_DOMAIN: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in .env}
+    CORS_ALLOWED_ORIGINS: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in .env}
+    # The backend is pinned here, not read from .env: choosing this compose file
+    # is what selects SQLite, so the file and the backend can never disagree.
+    # SQLITE_DB_PATH holds both the app schema and the better-auth identity
+    # tables (one file, RFC 036 D3); LOCAL_VECTORDB_PATH is sqlite-vec's own
+    # separate file. Both live on the sqlite_data volume mounted at /data/sqlite.
+    DATA_BACKEND: sqlite
+    SQLITE_DB_PATH: /data/sqlite/remit.db
+    LOCAL_VECTORDB_PATH: /data/sqlite/vec.db
+
+services:
+  # ---------------------------------------------------------------------
+  # Data plane — the queue seam only; the relational store is a file.
+  # ---------------------------------------------------------------------
+  elasticmq:
+    image: softwaremill/elasticmq-native:1.6.9
+    volumes:
+      - ./elasticmq.conf:/opt/elasticmq.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 9324"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------
+  # One-shot migrator (RFC 035 D8, RFC 036 D5) — the backend image, migrate
+  # command. On DATA_BACKEND=sqlite it applies the sqlite migration sets and
+  # installs the FTS5 search table + triggers against the file. Every app
+  # service waits on it succeeding.
+  # ---------------------------------------------------------------------
+  migrate:
+    image: ghcr.io/remit-mail/remit/backend:${REMIT_TAG:-latest}
+    <<: *app-env
+    command: ["node", "migrate.mjs"]
+    volumes:
+      - sqlite_data:/data/sqlite
+    depends_on:
+      elasticmq:
+        condition: service_healthy
+      volume-init:
+        condition: service_completed_successfully
+
+  # Docker creates named volumes root-owned; every app container runs as the
+  # image's non-root "node" user (uid 1000), so the first write under
+  # /data/storage or /data/sqlite would EACCES without this. Reuses the backend
+  # image with a root override purely to fix ownership once; runs no app code.
+  volume-init:
+    image: ghcr.io/remit-mail/remit/backend:${REMIT_TAG:-latest}
+    user: root
+    entrypoint:
+      ["sh", "-c", "mkdir -p /data/storage /data/sqlite && chown -R node:node /data/storage /data/sqlite"]
+    volumes:
+      - message_storage:/data/storage
+      - sqlite_data:/data/sqlite
+
+  # ---------------------------------------------------------------------
+  # App plane
+  # ---------------------------------------------------------------------
+  backend:
+    image: ghcr.io/remit-mail/remit/backend:${REMIT_TAG:-latest}
+    <<: *app-env
+    volumes:
+      - message_storage:/data/storage
+      - sqlite_data:/data/sqlite
+    depends_on:
+      elasticmq:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      volume-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  apisix:
+    image: ghcr.io/remit-mail/remit/apisix:${REMIT_TAG:-latest}
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  web:
+    image: ghcr.io/remit-mail/remit/web:${REMIT_TAG:-latest}
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in .env}
+    volumes:
+      - ./caddy/routes.caddy:/etc/caddy/routes.caddy:ro
+      - ./caddy/${TLS_MODE:-off}.caddy:/etc/caddy/Caddyfile:ro
+      - ${TAILSCALED_SOCKET:-/dev/null}:/var/run/tailscale/tailscaled.sock
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - apisix
+      - web
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------
+  # Workers — the same queue pollers as the Postgres profile. Each opens the
+  # shared SQLite file (WAL) for its writes; no pg-index-worker exists here
+  # (RFC 036 D2) — search-index-worker drains the outbox on a 2 s poll instead.
+  # ---------------------------------------------------------------------
+  imap-worker:
+    image: ghcr.io/remit-mail/remit/imap-worker:${REMIT_TAG:-latest}
+    <<: *app-env
+    volumes:
+      - message_storage:/data/storage
+      - sqlite_data:/data/sqlite
+    depends_on:
+      elasticmq:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      volume-init:
+        condition: service_completed_successfully
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+  smtp-worker:
+    image: ghcr.io/remit-mail/remit/smtp-worker:${REMIT_TAG:-latest}
+    <<: *app-env
+    volumes:
+      - message_storage:/data/storage
+      - sqlite_data:/data/sqlite
+    depends_on:
+      elasticmq:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      volume-init:
+        condition: service_completed_successfully
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+  account-worker:
+    image: ghcr.io/remit-mail/remit/account-worker:${REMIT_TAG:-latest}
+    <<: *app-env
+    volumes:
+      - message_storage:/data/storage
+      - sqlite_data:/data/sqlite
+    depends_on:
+      elasticmq:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      volume-init:
+        condition: service_completed_successfully
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+  # The outbox drain (RFC 036 D2) runs inside this container: a 2 s poll over
+  # the shared file's unprocessed outbox rows, relaying them onto the
+  # search-index queue. It needs SQLITE_DB_PATH (drain source) and
+  # LOCAL_VECTORDB_PATH (vector writes) — both set in the shared app env above.
+  search-index-worker:
+    image: ghcr.io/remit-mail/remit/search-index-worker:${REMIT_TAG:-latest}
+    <<: *app-env
+    volumes:
+      - message_storage:/data/storage
+      - sqlite_data:/data/sqlite
+    depends_on:
+      elasticmq:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      volume-init:
+        condition: service_completed_successfully
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------
+  # Backup sidecar (RFC 036 D6) — off by default. Enable with
+  # `docker compose -f docker-compose.sqlite.yml --profile backup up -d`.
+  # VACUUM INTO snapshots of the two database files, then age + rclone,
+  # the same shipping as the Postgres profile (see remit.env.template).
+  # ---------------------------------------------------------------------
+  backup:
+    image: alpine:3.23
+    profiles: ["backup"]
+    <<: *app-env
+    # apk needs root; the backup itself runs as uid/gid 1000 (the "node" user
+    # every app container writes the volume as). Running it as root would leave
+    # root-owned files on the shared volume — opening a WAL database recreates
+    # its -shm/-wal sidecars if they are absent, and a root-owned -shm makes
+    # every app writer's next open fail with EACCES.
+    entrypoint:
+      ["sh", "-c", "apk add --no-cache sqlite age rclone su-exec >/dev/null && exec su-exec 1000:1000 sh /backup.sh"]
+    volumes:
+      - ./backup/backup-sqlite.sh:/backup.sh:ro
+      # Read-write, not :ro — VACUUM INTO opens the live WAL database, which
+      # needs write access to its -shm/-wal sidecars. The snapshot it writes
+      # goes to /tmp; the source files are only read.
+      - sqlite_data:/data/sqlite
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  message_storage:
+  # Local disk only — WAL's shared-memory coordination does not work over a
+  # network filesystem (RFC 036 D3). The default local driver is correct; do
+  # not repoint this at NFS/CIFS.
+  sqlite_data:
+  caddy_data:
+  caddy_config:

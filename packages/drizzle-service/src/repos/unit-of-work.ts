@@ -4,6 +4,7 @@ import type {
 } from "@remit/data-ports";
 import type { Db } from "../db.js";
 import type { MessageDataSchema } from "../schema/message-data.js";
+import { runInTransaction } from "../tx.js";
 import { DrizzleEnvelopeRepository } from "./envelope.js";
 import { AddressRepo } from "./i4-address.js";
 import { DrizzleMessageRepository } from "./message.js";
@@ -21,7 +22,7 @@ export class DrizzleUnitOfWork implements IUnitOfWork {
 	transaction<T>(
 		fn: (repos: UnitOfWorkRepositories) => Promise<T>,
 	): Promise<T> {
-		return this.db.transaction((tx) =>
+		return runInTransaction(this.db, (tx) =>
 			fn({
 				message: new DrizzleMessageRepository(tx),
 				envelope: new DrizzleEnvelopeRepository(tx),
