@@ -1,6 +1,8 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { OnboardingWizard } from "@/components/onboarding/OnboardingWizard";
+import { completeOnboarding } from "@/lib/onboarding-completion";
 import { useTelemetry } from "@/lib/telemetry-context";
 
 /**
@@ -16,13 +18,17 @@ export const Route = createFileRoute("/onboarding")({
 function OnboardingPage() {
 	const navigate = useNavigate();
 	const telemetry = useTelemetry();
+	const queryClient = useQueryClient();
 
 	const handleComplete = useCallback(
 		(_accountId: string) => {
-			telemetry.recordEvent("onboarding.completed");
-			void navigate({ to: "/mail" });
+			void completeOnboarding({
+				queryClient,
+				recordCompleted: () => telemetry.recordEvent("onboarding.completed"),
+				navigateToInbox: () => void navigate({ to: "/mail" }),
+			});
 		},
-		[navigate, telemetry],
+		[navigate, telemetry, queryClient],
 	);
 
 	return <OnboardingWizard skipWelcome={false} onComplete={handleComplete} />;
