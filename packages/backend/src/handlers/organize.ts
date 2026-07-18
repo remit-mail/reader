@@ -1,12 +1,12 @@
 import { SendMessageCommand } from "@aws-sdk/client-sqs";
-import { NotFoundError } from "@remit/remit-electrodb-service";
-import { logger } from "@remit/remit-logger-lambda";
 import type {
 	CreateOrganizeJobResponse,
 	OrganizeInput,
 	OrganizeJobResponse,
 	OrganizePreviewResponse,
 } from "@remit/api-openapi-types";
+import { NotFoundError } from "@remit/remit-electrodb-service";
+import { logger } from "@remit/remit-logger-lambda";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { env } from "expect-env";
 import type { Context } from "openapi-backend";

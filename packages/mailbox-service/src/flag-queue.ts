@@ -3,8 +3,8 @@ import type {
 	IMessageRepository,
 	IThreadMessageRepository,
 } from "@remit/data-ports";
-import { NotFoundError } from "@remit/remit-electrodb-service";
 import { MessageSystemFlag, type StarColor } from "@remit/domain-enums";
+import { NotFoundError } from "@remit/remit-electrodb-service";
 import type { FlagPushOperationValue, FlagPushService } from "./flag-push.js";
 
 /**

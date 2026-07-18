@@ -1,11 +1,4 @@
-import type {
-	FilterItem,
-	OrganizeJobRequestItem,
-} from "@remit/data-ports";
-import {
-	getClient as getRawDynamoClient,
-	MessagePlacementMoveService,
-} from "@remit/remit-electrodb-service";
+import type { FilterItem, OrganizeJobRequestItem } from "@remit/data-ports";
 import {
 	DEFAULT_SEMANTIC_MATCH_THRESHOLD,
 	type FilterMessage,
@@ -13,6 +6,10 @@ import {
 	NO_ACTION,
 	PlacementMoveService,
 } from "@remit/mailbox-service";
+import {
+	getClient as getRawDynamoClient,
+	MessagePlacementMoveService,
+} from "@remit/remit-electrodb-service";
 import {
 	type AnchorPayload,
 	buildEmbeddingServiceFromEnv,

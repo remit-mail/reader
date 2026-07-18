@@ -8,10 +8,10 @@
  * Grep-verifiable constraint: `account.authType` must only appear here.
  */
 
-import type { AccountItem } from "@remit/remit-electrodb-service";
 import { AccountAuthType, ConnectionState } from "@remit/domain-enums";
 import type { MailOAuthService } from "@remit/mail-oauth-service";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
+import type { AccountItem } from "@remit/remit-electrodb-service";
 import {
 	deserializeEncryptedPayload,
 	type SecretsService,
@@ -125,4 +125,4 @@ export const encryptRefreshToken = async (
 	return JSON.stringify(serializeEncryptedPayload(payload));
 };
 
-export { RefreshTokenError, ConnectionState };
+export { ConnectionState, RefreshTokenError };

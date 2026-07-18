@@ -1,10 +1,4 @@
-import {
-	Button,
-	Dialog,
-	FieldLabel,
-	Input,
-	ServerFields,
-} from "@remit/ui";
+import { Button, Dialog, FieldLabel, Input, ServerFields } from "@remit/ui";
 import { AtSign, X } from "lucide-react";
 
 /**

@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { ClientError, type FilterItem } from "@remit/remit-electrodb-service";
 import {
 	FilterMatchOperator,
 	FilterScope,
 	FilterState,
 } from "@remit/domain-enums";
+import { ClientError, type FilterItem } from "@remit/remit-electrodb-service";
 import type { AnchorPayload } from "@remit/search-service";
 import {
 	createFilterWithAnchor,

@@ -254,188 +254,181 @@ const waitFor = async <T>(
 	throw new Error(`Timeout waiting for: ${label}`);
 };
 
-describe(
-	"Outbox roundtrip (compose -> SMTP -> IMAP append)",
-	{
-		skip: !process.env.RUN_E2E_TESTS,
-	},
-	() => {
-		const config = createDdbConfig();
-		let imapWorker: SpawnedWorker | null = null;
-		let smtpWorker: SpawnedWorker | null = null;
+describe("Outbox roundtrip (compose -> SMTP -> IMAP append)", {
+	skip: !process.env.RUN_E2E_TESTS,
+}, () => {
+	const config = createDdbConfig();
+	let imapWorker: SpawnedWorker | null = null;
+	let smtpWorker: SpawnedWorker | null = null;
 
-		before(async () => {
-			await ensureQueuesExist();
+	before(async () => {
+		await ensureQueuesExist();
 
-			// Purge queues so leftover messages from previous runs don't pollute
-			// this test (workers stay green even when picking up stale events
-			// because of `expect-env` validation, but message ordering matters
-			// for the deduplication assertions).
-			const queueUrls = [
-				process.env.SQS_QUEUE_URL_SMTP,
-				process.env.SQS_QUEUE_URL_MESSAGE_MGMT,
-				process.env.SQS_QUEUE_URL_MAILBOXES,
-			];
-			for (const url of queueUrls) {
-				if (url) await purgeQueue(url);
-			}
+		// Purge queues so leftover messages from previous runs don't pollute
+		// this test (workers stay green even when picking up stale events
+		// because of `expect-env` validation, but message ordering matters
+		// for the deduplication assertions).
+		const queueUrls = [
+			process.env.SQS_QUEUE_URL_SMTP,
+			process.env.SQS_QUEUE_URL_MESSAGE_MGMT,
+			process.env.SQS_QUEUE_URL_MAILBOXES,
+		];
+		for (const url of queueUrls) {
+			if (url) await purgeQueue(url);
+		}
 
-			await seedAccount(config);
+		await seedAccount(config);
 
-			// Mailfuzz's Dovecot fixture only ships with INBOX. The
-			// append-sent-message handler needs a Sent folder to APPEND into,
-			// so create it directly via IMAP before we sync. This is a
-			// per-test setup concern, not something the production code path
-			// would do (real IMAP servers ship with a Sent folder or the user
-			// creates one).
-			await withMailfuzzConnection(async (conn) => {
-				await conn.createMailbox("Sent").catch((err: unknown) => {
-					const msg = err instanceof Error ? err.message : String(err);
-					if (!msg.toLowerCase().includes("already")) throw err;
-				});
+		// Mailfuzz's Dovecot fixture only ships with INBOX. The
+		// append-sent-message handler needs a Sent folder to APPEND into,
+		// so create it directly via IMAP before we sync. This is a
+		// per-test setup concern, not something the production code path
+		// would do (real IMAP servers ship with a Sent folder or the user
+		// creates one).
+		await withMailfuzzConnection(async (conn) => {
+			await conn.createMailbox("Sent").catch((err: unknown) => {
+				const msg = err instanceof Error ? err.message : String(err);
+				if (!msg.toLowerCase().includes("already")) throw err;
 			});
-
-			imapWorker = spawnWorker(
-				"imap-worker",
-				"packages/remit-imap-worker/src/e2e-processor-shim.ts",
-			);
-			// Mokapi presents a self-signed cert for STARTTLS; the production
-			// SmtpConfig has no escape hatch and the handler does not set
-			// tls.rejectUnauthorized, so disable cert validation in the
-			// child process via the standard Node opt-out for the test env.
-			smtpWorker = spawnWorker(
-				"smtp-worker",
-				"packages/remit-smtp-worker/src/e2e-processor-shim.ts",
-				{ NODE_TLS_REJECT_UNAUTHORIZED: "0" },
-			);
-
-			// Give both workers time to register with SQS before driving any
-			// events through the queues.
-			await new Promise((r) => setTimeout(r, 2000));
-
-			// Trigger a one-shot SYNC_MAILBOXES so mailfuzz mailboxes (now
-			// including Sent) land in DynamoDB. The append-sent-message handler
-			// resolves the Sent folder via MailboxSpecialUseService or by name
-			// lookup, so the mailboxes must exist in DDB beforehand.
-			const queueUrl = process.env.SQS_QUEUE_URL_MAILBOXES;
-			if (!queueUrl) throw new Error("SQS_QUEUE_URL_MAILBOXES is not set");
-			const sqs = createSqs();
-			const syncEvent = {
-				type: "SYNC_MAILBOXES" as const,
-				eventId: randomUUID(),
-				timestamp: Date.now(),
-				accountId: ACCOUNT_ID,
-			};
-			await sqs.send(
-				new SendMessageCommand({
-					QueueUrl: queueUrl,
-					MessageBody: JSON.stringify(syncEvent),
-					MessageGroupId: ACCOUNT_ID,
-					MessageDeduplicationId: `SYNC_MAILBOXES:${ACCOUNT_ID}:${syncEvent.eventId}`,
-				}),
-			);
-
-			const mailboxService = new MailboxService(config);
-			await waitFor(
-				async () => {
-					const result = await mailboxService.listByAccount(ACCOUNT_ID);
-					const sent = result.items.find(
-						(m) => m.fullPath.toLowerCase() === "sent",
-					);
-					if (!sent) return null;
-					return sent;
-				},
-				{ timeoutMs: 60_000, label: "Sent mailbox to be synced" },
-			);
 		});
 
-		after(async () => {
-			await killWorker(imapWorker);
-			await killWorker(smtpWorker);
-		});
+		imapWorker = spawnWorker(
+			"imap-worker",
+			"packages/remit-imap-worker/src/e2e-processor-shim.ts",
+		);
+		// Mokapi presents a self-signed cert for STARTTLS; the production
+		// SmtpConfig has no escape hatch and the handler does not set
+		// tls.rejectUnauthorized, so disable cert validation in the
+		// child process via the standard Node opt-out for the test env.
+		smtpWorker = spawnWorker(
+			"smtp-worker",
+			"packages/remit-smtp-worker/src/e2e-processor-shim.ts",
+			{ NODE_TLS_REJECT_UNAUTHORIZED: "0" },
+		);
 
-		test("send via SMTP queue, APPEND_SENT_MESSAGE lands in Sent folder", async () => {
-			const outboxMessageService = new OutboxMessageService(config);
-			const accountService = new AccountService(config);
+		// Give both workers time to register with SQS before driving any
+		// events through the queues.
+		await new Promise((r) => setTimeout(r, 2000));
 
-			const smtpQueueUrl = process.env.SQS_QUEUE_URL_SMTP;
-			if (!smtpQueueUrl) {
-				throw new Error("SQS_QUEUE_URL_SMTP is not set");
-			}
+		// Trigger a one-shot SYNC_MAILBOXES so mailfuzz mailboxes (now
+		// including Sent) land in DynamoDB. The append-sent-message handler
+		// resolves the Sent folder via MailboxSpecialUseService or by name
+		// lookup, so the mailboxes must exist in DDB beforehand.
+		const queueUrl = process.env.SQS_QUEUE_URL_MAILBOXES;
+		if (!queueUrl) throw new Error("SQS_QUEUE_URL_MAILBOXES is not set");
+		const sqs = createSqs();
+		const syncEvent = {
+			type: "SYNC_MAILBOXES" as const,
+			eventId: randomUUID(),
+			timestamp: Date.now(),
+			accountId: ACCOUNT_ID,
+		};
+		await sqs.send(
+			new SendMessageCommand({
+				QueueUrl: queueUrl,
+				MessageBody: JSON.stringify(syncEvent),
+				MessageGroupId: ACCOUNT_ID,
+				MessageDeduplicationId: `SYNC_MAILBOXES:${ACCOUNT_ID}:${syncEvent.eventId}`,
+			}),
+		);
 
-			const outboxQueue = new OutboxQueueService({
-				outboxMessageService,
-				accountService,
-				sqsSmtpQueueUrl: smtpQueueUrl,
-				sqsEndpoint: SQS_ENDPOINT,
-			});
-
-			const subject = `Roundtrip ${Date.now()} ${randomUUID().slice(0, 8)}`;
-			const recipient = "bob@mokapi.io";
-			const bodyText = "Roundtrip e2e: compose -> SMTP -> IMAP APPEND to Sent.";
-
-			const outbox = await outboxQueue.createAndSend({
-				accountId: ACCOUNT_ID,
-				accountConfigId: ACCOUNT_CONFIG_ID,
-				fromAddress: ROUNDTRIP_EMAIL,
-				toAddresses: [recipient],
-				subject,
-				textBody: bodyText,
-			});
-
-			// 1. SMTP worker picks up SEND_MESSAGE, sends via mokapi, marks sent.
-			//    Per issue #178 the outbox row is deleted after the IMAP APPEND
-			//    completes, so the row may already be gone by the time we poll.
-			//    Treat NotFoundError as success (delete implies prior status=sent).
-			type SentOutbox = OutboxMessageItem | { status: "deleted" };
-			const sentOutbox = await waitFor<SentOutbox>(
-				async (): Promise<SentOutbox | null> => {
-					const current = await outboxMessageService
-						.get(ACCOUNT_CONFIG_ID, outbox.outboxMessageId)
-						.catch((err: unknown) => {
-							if (err instanceof NotFoundError) return null;
-							throw err;
-						});
-					if (!current) return { status: "deleted" } as const;
-					if (current.status === "sent") return current;
-					if (current.status === "failed") {
-						throw new Error(
-							`Outbox transitioned to failed: ${current.lastError ?? "unknown"}`,
-						);
-					}
-					return null;
-				},
-				{ timeoutMs: 30_000, label: "outbox status to be sent" },
-			);
-			if (sentOutbox.status === "sent") {
-				assert.ok(
-					sentOutbox.smtpMessageId,
-					"smtpMessageId should be populated",
+		const mailboxService = new MailboxService(config);
+		await waitFor(
+			async () => {
+				const result = await mailboxService.listByAccount(ACCOUNT_ID);
+				const sent = result.items.find(
+					(m) => m.fullPath.toLowerCase() === "sent",
 				);
-				assert.ok(sentOutbox.sentAt, "sentAt should be populated");
-			}
+				if (!sent) return null;
+				return sent;
+			},
+			{ timeoutMs: 60_000, label: "Sent mailbox to be synced" },
+		);
+	});
 
-			// 2. APPEND_SENT_MESSAGE flows to message-mgmt queue, IMAP worker
-			//    appends to mailfuzz Sent folder. We assert the message lands
-			//    by searching for our unique subject. Times out (not silently
-			//    skips) on regression — wrong queue routing or the env-var
-			//    rename from PR #100 would both surface as a timeout here.
-			await waitFor(
-				async () => {
-					let found = false;
-					await withMailfuzzConnection(async (conn) => {
-						await conn.openBox("Sent", true);
-						const uids = await conn.search(["ALL"]);
-						if (uids.length === 0) return;
-						// Search the most recent UIDs first — Sent grows monotonically.
-						const recent = uids.slice(-20);
-						const messages = await conn.fetchMessages(recent);
-						found = messages.some((m) => m.envelope?.subject === subject);
-					});
-					return found ? true : null;
-				},
-				{ timeoutMs: 60_000, label: "message to appear in mailfuzz Sent" },
-			);
+	after(async () => {
+		await killWorker(imapWorker);
+		await killWorker(smtpWorker);
+	});
+
+	test("send via SMTP queue, APPEND_SENT_MESSAGE lands in Sent folder", async () => {
+		const outboxMessageService = new OutboxMessageService(config);
+		const accountService = new AccountService(config);
+
+		const smtpQueueUrl = process.env.SQS_QUEUE_URL_SMTP;
+		if (!smtpQueueUrl) {
+			throw new Error("SQS_QUEUE_URL_SMTP is not set");
+		}
+
+		const outboxQueue = new OutboxQueueService({
+			outboxMessageService,
+			accountService,
+			sqsSmtpQueueUrl: smtpQueueUrl,
+			sqsEndpoint: SQS_ENDPOINT,
 		});
-	},
-);
+
+		const subject = `Roundtrip ${Date.now()} ${randomUUID().slice(0, 8)}`;
+		const recipient = "bob@mokapi.io";
+		const bodyText = "Roundtrip e2e: compose -> SMTP -> IMAP APPEND to Sent.";
+
+		const outbox = await outboxQueue.createAndSend({
+			accountId: ACCOUNT_ID,
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			fromAddress: ROUNDTRIP_EMAIL,
+			toAddresses: [recipient],
+			subject,
+			textBody: bodyText,
+		});
+
+		// 1. SMTP worker picks up SEND_MESSAGE, sends via mokapi, marks sent.
+		//    Per issue #178 the outbox row is deleted after the IMAP APPEND
+		//    completes, so the row may already be gone by the time we poll.
+		//    Treat NotFoundError as success (delete implies prior status=sent).
+		type SentOutbox = OutboxMessageItem | { status: "deleted" };
+		const sentOutbox = await waitFor<SentOutbox>(
+			async (): Promise<SentOutbox | null> => {
+				const current = await outboxMessageService
+					.get(ACCOUNT_CONFIG_ID, outbox.outboxMessageId)
+					.catch((err: unknown) => {
+						if (err instanceof NotFoundError) return null;
+						throw err;
+					});
+				if (!current) return { status: "deleted" } as const;
+				if (current.status === "sent") return current;
+				if (current.status === "failed") {
+					throw new Error(
+						`Outbox transitioned to failed: ${current.lastError ?? "unknown"}`,
+					);
+				}
+				return null;
+			},
+			{ timeoutMs: 30_000, label: "outbox status to be sent" },
+		);
+		if (sentOutbox.status === "sent") {
+			assert.ok(sentOutbox.smtpMessageId, "smtpMessageId should be populated");
+			assert.ok(sentOutbox.sentAt, "sentAt should be populated");
+		}
+
+		// 2. APPEND_SENT_MESSAGE flows to message-mgmt queue, IMAP worker
+		//    appends to mailfuzz Sent folder. We assert the message lands
+		//    by searching for our unique subject. Times out (not silently
+		//    skips) on regression — wrong queue routing or the env-var
+		//    rename from PR #100 would both surface as a timeout here.
+		await waitFor(
+			async () => {
+				let found = false;
+				await withMailfuzzConnection(async (conn) => {
+					await conn.openBox("Sent", true);
+					const uids = await conn.search(["ALL"]);
+					if (uids.length === 0) return;
+					// Search the most recent UIDs first — Sent grows monotonically.
+					const recent = uids.slice(-20);
+					const messages = await conn.fetchMessages(recent);
+					found = messages.some((m) => m.envelope?.subject === subject);
+				});
+				return found ? true : null;
+			},
+			{ timeoutMs: 60_000, label: "message to appear in mailfuzz Sent" },
+		);
+	});
+});

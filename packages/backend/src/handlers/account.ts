@@ -1,8 +1,14 @@
 import { SendMessageCommand } from "@aws-sdk/client-sqs";
+import type {
+	AccountResponse,
+	CreateAccountInput,
+	DeleteAccountResponse,
+	TestConnectionInput,
+	TestConnectionResponse,
+	UpdateAccountInput,
+} from "@remit/api-openapi-types";
 import type { IAccountRepository } from "@remit/data-ports";
-import type { AccountItem } from "@remit/remit-electrodb-service";
 import { AccountAuthType, ConnectionState } from "@remit/domain-enums";
-import { logger } from "@remit/remit-logger-lambda";
 import {
 	createMailOAuthService,
 	microsoftProviderConfig,
@@ -13,14 +19,8 @@ import {
 	testImapConnection,
 	testSmtpConnection,
 } from "@remit/mailbox-service";
-import type {
-	AccountResponse,
-	CreateAccountInput,
-	DeleteAccountResponse,
-	TestConnectionInput,
-	TestConnectionResponse,
-	UpdateAccountInput,
-} from "@remit/api-openapi-types";
+import type { AccountItem } from "@remit/remit-electrodb-service";
+import { logger } from "@remit/remit-logger-lambda";
 import {
 	deserializeEncryptedPayload,
 	type SecretsService,

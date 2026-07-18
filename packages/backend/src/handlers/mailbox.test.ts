@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import type { RenameMailboxInput } from "@remit/api-openapi-types";
 import {
 	ForbiddenError,
 	type MailboxItem,
 	NotFoundError,
 } from "@remit/remit-electrodb-service";
-import type { RenameMailboxInput } from "@remit/api-openapi-types";
 import {
 	applyMailboxPatch,
 	assertMailboxInAccount,

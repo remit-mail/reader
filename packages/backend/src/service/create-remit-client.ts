@@ -21,7 +21,6 @@ import type {
 	IThreadMessageRepository,
 	IUnitOfWork,
 } from "@remit/data-ports";
-import { logger } from "@remit/remit-logger-lambda";
 import {
 	BodySyncQueueService,
 	BodySyncService,
@@ -33,6 +32,7 @@ import {
 	MessageMoveService,
 	OutboxQueueService,
 } from "@remit/mailbox-service";
+import { logger } from "@remit/remit-logger-lambda";
 import {
 	buildEmbeddingServiceFromEnv,
 	buildVectorStoreFromEnv,

@@ -4,11 +4,8 @@ import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 import { GetParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
 import { getClient } from "@remit/backend/client";
 import type { AccountItem, MailboxItem } from "@remit/data-ports";
+import { BodySyncService, type SyncedMessage } from "@remit/mailbox-service";
 import type { Logger } from "@remit/remit-logger-lambda";
-import {
-	BodySyncService,
-	type SyncedMessage,
-} from "@remit/mailbox-service";
 import { mockClient } from "aws-sdk-client-mock";
 import { resetBodySyncGateCache } from "../body-sync-gate.js";
 import { __warmPoolSizeForTest } from "../connection-scope.js";

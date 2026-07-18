@@ -1,22 +1,22 @@
 import type {
+	CanonicalMailboxRole as CanonicalMailboxRoleValue,
+	FolderAppointment,
+} from "@remit/api-openapi-types";
+import type {
 	AccountSettingItem,
 	IAccountSettingRepository,
 	IMailboxRepository,
 } from "@remit/data-ports";
 import {
-	baseSettingName,
-	composeSettingName,
-	SETTING_NAME_SEPARATOR,
-} from "@remit/remit-electrodb-service";
-import {
 	AccountSettingName,
 	CanonicalMailboxRole,
 	MailboxSpecialUse,
 } from "@remit/domain-enums";
-import type {
-	CanonicalMailboxRole as CanonicalMailboxRoleValue,
-	FolderAppointment,
-} from "@remit/api-openapi-types";
+import {
+	baseSettingName,
+	composeSettingName,
+	SETTING_NAME_SEPARATOR,
+} from "@remit/remit-electrodb-service";
 
 /**
  * RFC 032 exclusive-folder-appointment (#976): a per-account role→mailbox map.

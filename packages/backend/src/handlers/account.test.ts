@@ -3,13 +3,13 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import { AccountAuthType } from "@remit/domain-enums";
 import type { AccountItem } from "@remit/remit-electrodb-service";
 import {
 	ConflictError,
 	ForbiddenError,
 	NotFoundError,
 } from "@remit/remit-electrodb-service";
-import { AccountAuthType } from "@remit/domain-enums";
 import {
 	assertNoDuplicateMailbox,
 	assertNotOAuthCreate,

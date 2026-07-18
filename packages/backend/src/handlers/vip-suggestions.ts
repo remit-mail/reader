@@ -1,5 +1,5 @@
-import type { AddressItem } from "@remit/remit-electrodb-service";
 import type { VipSuggestionEntry } from "@remit/api-openapi-types";
+import type { AddressItem } from "@remit/remit-electrodb-service";
 
 /**
  * Map an Address row to the wire-format `VipSuggestionEntry` returned by

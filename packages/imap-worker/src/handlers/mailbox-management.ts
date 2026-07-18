@@ -1,7 +1,7 @@
 import { getClient } from "@remit/backend/client";
 import { MailboxSyncStatus } from "@remit/domain-enums";
-import type { Logger } from "@remit/remit-logger-lambda";
 import { MailboxManagementService } from "@remit/mailbox-service";
+import type { Logger } from "@remit/remit-logger-lambda";
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import type {

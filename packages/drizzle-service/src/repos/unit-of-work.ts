@@ -1,7 +1,4 @@
-import type {
-	IUnitOfWork,
-	UnitOfWorkRepositories,
-} from "@remit/data-ports";
+import type { IUnitOfWork, UnitOfWorkRepositories } from "@remit/data-ports";
 import type { Db } from "../db.js";
 import type { MessageDataSchema } from "../schema/message-data.js";
 import { runInTransaction } from "../tx.js";

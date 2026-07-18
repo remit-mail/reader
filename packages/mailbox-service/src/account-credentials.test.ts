@@ -1,10 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { RefreshTokenError, type TokenSet } from "@remit/mail-oauth-service";
 import type { AccountItem } from "@remit/remit-electrodb-service";
-import {
-	RefreshTokenError,
-	type TokenSet,
-} from "@remit/mail-oauth-service";
 import {
 	type EncryptedPayload,
 	serializeEncryptedPayload,

@@ -10,13 +10,13 @@
  * without spinning up an IMAP connection.
  */
 
-import { ROOT_PART_PATH } from "@remit/remit-electrodb-service";
 import {
 	ContentDisposition,
 	MediaType,
 	MultipartSubtype,
 	TransferEncoding,
 } from "@remit/domain-enums";
+import { ROOT_PART_PATH } from "@remit/remit-electrodb-service";
 
 export { ROOT_PART_PATH };
 

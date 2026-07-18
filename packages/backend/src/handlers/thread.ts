@@ -1,13 +1,13 @@
-import {
-	NotFoundError,
-	type ResultList,
-	type ThreadMessageItem,
-} from "@remit/remit-electrodb-service";
 import type {
 	MessageCategory,
 	SenderTrust,
 	ThreadSearchResponse,
 } from "@remit/api-openapi-types";
+import {
+	NotFoundError,
+	type ResultList,
+	type ThreadMessageItem,
+} from "@remit/remit-electrodb-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent } from "../auth.js";

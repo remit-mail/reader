@@ -1,12 +1,12 @@
+import type {
+	AddressResponse,
+	UpdateAddressInput,
+} from "@remit/api-openapi-types";
 import {
 	type AddressItem,
 	type FlagsMergePatch,
 	ForbiddenError,
 } from "@remit/remit-electrodb-service";
-import type {
-	AddressResponse,
-	UpdateAddressInput,
-} from "@remit/api-openapi-types";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent } from "../auth.js";

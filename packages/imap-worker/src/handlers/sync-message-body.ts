@@ -1,6 +1,4 @@
 import { getClient } from "@remit/backend/client";
-import type { Logger } from "@remit/remit-logger-lambda";
-import { MetricUnit, metrics } from "@remit/remit-logger-lambda";
 import {
 	BodySyncService,
 	type FilterConfig,
@@ -10,6 +8,8 @@ import {
 	PlacementMoveService,
 	resolveExhaustedBodySyncFailures,
 } from "@remit/mailbox-service";
+import type { Logger } from "@remit/remit-logger-lambda";
+import { MetricUnit, metrics } from "@remit/remit-logger-lambda";
 import { env } from "expect-env";
 import { isAccountDeleted } from "../account-check.js";
 import { isBodySyncEnabled } from "../body-sync-gate.js";
