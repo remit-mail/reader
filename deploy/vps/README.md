@@ -7,9 +7,9 @@ docker compose on one small VPS, consuming only published
 build toolchain on the server — pulling `main` onto a server is not
 possible with this deployment, by design (RFC 035 D3).
 
-Sized for a 2 vCPU / 4 GB EU VPS (Hetzner CX23-class, ~€5.50/mo). Plain HTTP
-over a private network (tailnet, VPN, SSH tunnel) by default; the [TLS](#tls)
-section covers turning on HTTPS.
+Sized for a 2 vCPU / 4 GB EU VPS (Hetzner CX23-class, ~€5.50/mo). HTTPS on :443
+out of the box, signed by Caddy's own CA (browsers warn until you trust its
+root); the [TLS](#tls) section covers the other modes, including plain HTTP.
 
 ## Install
 
@@ -19,7 +19,7 @@ On a fresh amd64 box:
 export GITHUB_TOKEN=ghp_...    # read access to the repo
 curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github.raw" \
   "https://api.github.com/repos/remit-mail/remit/contents/deploy/vps/install.sh?ref=main" \
-  | sh -s -- --origin http://your-host
+  | sh -s -- --origin https://your-host
 ```
 
 The images are public and pull anonymously (RFC 035 D4). The repository is
@@ -31,7 +31,7 @@ repo is public the command is:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/remit-mail/remit/main/deploy/vps/install.sh \
-  | sh -s -- --origin http://your-host
+  | sh -s -- --origin https://your-host
 ```
 
 This downloads the deploy assets for one ref into `/opt/remit`, generates the
@@ -49,7 +49,8 @@ to diff.
 
 The installer checks the host before it changes anything — docker and the
 compose v2 plugin, amd64 (no arm64 image is built), disk, RAM, ports 80 and
-443, and that `--origin`'s scheme matches `--tls-mode`. Missing dependencies
+443, and `--origin`'s scheme (an `http://` origin is upgraded to `https://`
+under the default internal mode; `--tls-mode off` needs `http://`). Missing dependencies
 are reported with the install command for the detected distro and nothing is
 changed; `--install-deps` installs them instead. The host needs docker, the
 compose v2 plugin, curl and openssl. Everything else runs in a container.
@@ -135,8 +136,8 @@ nothing outside the box. Set it, set `PUBLIC_ORIGIN` to a matching
 
 | `TLS_MODE` | What it does | `PUBLIC_ORIGIN` |
 |---|---|---|
-| `off` (default) | Plain HTTP on :80. Reach it over a private network (tailnet, VPN, SSH tunnel). | `http://…` |
-| `internal` | HTTPS on :443 with Caddy's own locally-trusted CA. No public DNS, no ACME, no tailnet. Browsers warn until you trust the root CA. | `https://…` |
+| `internal` (default) | HTTPS on :443 with Caddy's own locally-trusted CA. No public DNS, no ACME, no tailnet. Browsers warn until you trust the root CA. | `https://…` |
+| `off` | Plain HTTP on :80. Reach it over a private network (tailnet, VPN, SSH tunnel). | `http://…` |
 | `tailscale` | A real, publicly-trusted certificate from the local `tailscaled` for this box's `<name>.<tailnet>.ts.net`. | `https://<name>.<tailnet>.ts.net` |
 | `acme` | Public Let's Encrypt. Ports 80/443 must be reachable from the internet and the host must resolve in public DNS. | `https://mail.example.com` |
 

@@ -7,7 +7,7 @@
 #   export GITHUB_TOKEN=ghp_...
 #   curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github.raw" \
 #     "https://api.github.com/repos/remit-mail/remit/contents/deploy/vps/install.sh?ref=main" \
-#     | sh -s -- --origin http://your-host
+#     | sh -s -- --origin https://your-host
 #
 # Runs under `curl | sh`, where stdin is the script itself: there is no
 # prompting, ever. Everything comes from flags and environment variables.
@@ -50,11 +50,12 @@ DIR=/opt/remit
 REF=main
 TAG=latest
 TAG_SET=0
-TLS_MODE=off
+TLS_MODE=internal
 TLS_MODE_SET=0
 ORIGIN=""
 INSTALL_DEPS=0
 ORIGINAL_ARGS=""
+WRAPPER_MANUAL=""
 
 PKG=""
 DISTRO="this system"
@@ -85,13 +86,18 @@ Usage:
 
 Required:
   --origin <url>        Public origin, scheme://host, no trailing path. This is
-                        the address you load the app from. http:// for
-                        --tls-mode off, https:// for every other mode.
+                        the address you load the app from. https:// for the
+                        default internal mode (an http:// origin is upgraded to
+                        it and served over Caddy's redirect); http:// only for
+                        --tls-mode off.
 
 Options:
-  --tls-mode <mode>     off | internal | tailscale | acme   (default: off)
+  --tls-mode <mode>     internal | off | tailscale | acme   (default: internal)
+                        internal   HTTPS on :443 with Caddy's own CA, no
+                                   external deps; browsers warn until you trust
+                                   its root. The default: https works out of
+                                   the box.
                         off        plain HTTP; reach it over a tailnet/VPN/tunnel
-                        internal   HTTPS with Caddy's own CA, no external deps
                         tailscale  HTTPS via the local tailscaled
                         acme       public Let's Encrypt, needs public DNS + 80/443
   --tag <tag>           Image tag: sha-<git-sha> or latest   (default: latest)
@@ -520,7 +526,7 @@ check_origin() {
 	[ -n "$ORIGIN" ] || {
 		usage >&2
 		die "--origin is required. It is the address you load the app from,
-e.g. --origin http://100.64.12.3 for a tailnet IP in the default off mode."
+e.g. --origin https://100.64.12.3 for a tailnet IP in the default internal mode."
 	}
 	case "$ORIGIN" in
 	*/) ORIGIN=${ORIGIN%/} ;;
@@ -541,12 +547,20 @@ mismatch fails at request time rather than here." ;;
 		esac
 		;;
 	internal | tailscale | acme)
+		# These modes serve HTTPS, so the origin caddy takes as its site address
+		# and the app derives auth/CORS from must be https. An http:// origin is
+		# upgraded rather than rejected: caddy redirects http→https on its own,
+		# so the address the operator typed still reaches the app. A scheme-less
+		# origin is a real mistake and still fails.
 		case "$ORIGIN" in
 		https://*) ;;
-		*) die "--tls-mode $TLS_MODE serves HTTPS, so --origin must start with https://
-Got '$ORIGIN'. The scheme and the mode have to agree: caddy takes the origin as
-its site address, and the app derives its auth and CORS origins from it, so a
-mismatch fails at request time rather than here." ;;
+		http://*)
+			ORIGIN="https://${ORIGIN#http://}"
+			warn "--tls-mode $TLS_MODE serves HTTPS; using --origin $ORIGIN.
+         Caddy redirects http→https itself, so the http address still works."
+			;;
+		*) die "--tls-mode $TLS_MODE serves HTTPS, so --origin must be a URL,
+e.g. https://your-host. Got '$ORIGIN'." ;;
 		esac
 		;;
 	*)
@@ -862,14 +876,23 @@ write_env() {
 	fi
 }
 
+# The wrapper is the operator's 'remit' command; this either lands it on PATH or
+# tells them the one command that will, never skips it silently. A plain copy
+# covers root and any host where /usr/local/bin is already writable; a non-root
+# run falls back to non-interactive sudo (never prompting — the installer does
+# not). When neither lands it (no root, no passwordless sudo), the stack is
+# still up and summary() prints the exact command to finish.
 install_wrapper() {
-	if cp "$DIR/remit" /usr/local/bin/remit 2>/dev/null; then
-		chmod 755 /usr/local/bin/remit
-		say "Installed the 'remit' admin command to /usr/local/bin/remit"
-	else
-		warn "cannot write /usr/local/bin/remit — the admin command is at $DIR/remit.
-         Copy it onto your PATH yourself, or re-run as root."
+	_dest=/usr/local/bin/remit
+	if install -m 755 "$DIR/remit" "$_dest" 2>/dev/null; then
+		say "Installed the 'remit' admin command to $_dest"
+		return 0
 	fi
+	if [ -n "$SUDO" ] && sudo -n install -m 755 "$DIR/remit" "$_dest" 2>/dev/null; then
+		say "Installed the 'remit' admin command to $_dest"
+		return 0
+	fi
+	WRAPPER_MANUAL="sudo install -m 755 $DIR/remit $_dest"
 }
 
 bring_up() {
@@ -898,6 +921,18 @@ remit is up.
   Manage      remit status | logs | restart | update | down | config
               After editing $DIR/.env, run 'remit restart' to apply it.
 EOF
+	if [ -n "$WRAPPER_MANUAL" ]; then
+		cat <<EOF
+
+  !! Action   The 'remit' command is not on your PATH — no root and no
+              passwordless sudo during install. The stack is up regardless.
+              Put it on PATH with:
+
+                $WRAPPER_MANUAL
+
+              Until then, run it by full path: $DIR/remit status
+EOF
+	fi
 	if [ "$TLS_MODE" = "internal" ]; then
 		cat <<EOF
 
