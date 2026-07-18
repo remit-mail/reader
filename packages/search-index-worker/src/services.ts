@@ -1,13 +1,13 @@
 import {
-	buildEmbeddingServiceFromEnv,
-	buildVectorStoreFromEnv,
 	createSearchService,
 	type SearchService,
 } from "@remit/search-service";
 import {
-	createStorageService,
-	type StorageService,
-} from "@remit/storage-service";
+	buildEmbeddingServiceFromEnv,
+	buildVectorStoreFromEnv,
+} from "@remit/search-service/from-env";
+import type { StorageService } from "@remit/storage-service";
+import { createStorageService } from "@remit/storage-service/s3";
 import {
 	buildDataPortsFromEnv,
 	type SearchIndexDataPorts,

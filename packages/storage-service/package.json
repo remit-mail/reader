@@ -8,6 +8,14 @@
 		".": {
 			"types": "./src/index.ts",
 			"default": "./src/index.ts"
+		},
+		"./filesystem": {
+			"types": "./src/filesystem.ts",
+			"default": "./src/filesystem.ts"
+		},
+		"./s3": {
+			"types": "./src/s3.ts",
+			"default": "./src/s3.ts"
 		}
 	},
 	"scripts": {

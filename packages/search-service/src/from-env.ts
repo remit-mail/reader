@@ -1,11 +1,11 @@
 import type { DataType } from "@huggingface/transformers";
+import { BedrockEmbeddingService } from "./backends/bedrock.js";
 import type { VectorStoreService } from "./backends/memory.js";
 import { createMemoryVectorStore } from "./backends/memory.js";
 import { createPgVectorStore } from "./backends/pgvector.js";
 import { createS3VectorsBackend } from "./backends/s3-vectors.js";
 import { createSqliteVectorStore } from "./backends/sqlite-vec.js";
 import {
-	BedrockEmbeddingService,
 	createDeterministicEmbeddingService,
 	createLocalEmbeddingService,
 	type EmbeddingService,

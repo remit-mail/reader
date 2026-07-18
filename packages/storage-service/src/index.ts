@@ -1,5 +1,3 @@
-export { createFilesystemStorageService } from "./backends/filesystem.js";
-export { createS3StorageService } from "./backends/s3.js";
 export {
 	buildBodyPartKey,
 	buildDeduplicatedKey,
@@ -12,7 +10,6 @@ export {
 	type ContentEncodingValue,
 	computeChecksum,
 	createMockStorageService,
-	createStorageService,
 	type ExtractedTextListItem,
 	type ExtractedTextMarker,
 	isStorageNotFoundError,

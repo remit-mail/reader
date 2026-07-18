@@ -18,8 +18,8 @@ const packageStubs = new Map([
 const amplifyConfigStubUrl = `${stubsDir}amplify-config.mjs`;
 
 const isAuthSourceUrl = (url) => url.includes("/remit-web-client/src/auth/");
-const isInterceptorSource = (url) =>
-	url.includes("/remit-web-client/src/auth/auth-interceptor.ts");
+const isAuthTokenSource = (url) =>
+	url.includes("/remit-web-client/src/auth/auth-token.ts");
 const isAppInfoSource = (url) =>
 	url.includes("/remit-web-client/src/lib/app-info.");
 const isRumAdapterSource = (url) =>
@@ -33,7 +33,7 @@ export const resolve = async (specifier, context, nextResolve) => {
 
 	const parent = context?.parentURL ?? "";
 	if (
-		isInterceptorSource(parent) &&
+		isAuthTokenSource(parent) &&
 		(specifier === "./amplify-config" || specifier === "./amplify-config.ts")
 	) {
 		return {

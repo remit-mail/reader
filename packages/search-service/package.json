@@ -8,6 +8,26 @@
 		".": {
 			"types": "./src/index.ts",
 			"default": "./src/index.ts"
+		},
+		"./from-env": {
+			"types": "./src/from-env.ts",
+			"default": "./src/from-env.ts"
+		},
+		"./s3-vectors": {
+			"types": "./src/s3-vectors.ts",
+			"default": "./src/s3-vectors.ts"
+		},
+		"./bedrock": {
+			"types": "./src/bedrock.ts",
+			"default": "./src/bedrock.ts"
+		},
+		"./sqlite-vec": {
+			"types": "./src/sqlite-vec.ts",
+			"default": "./src/sqlite-vec.ts"
+		},
+		"./pgvector": {
+			"types": "./src/pgvector.ts",
+			"default": "./src/pgvector.ts"
 		}
 	},
 	"scripts": {
