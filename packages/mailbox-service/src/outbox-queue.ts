@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
+import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
 import type {
 	IAccountRepository,
 	IOutboxMessageRepository,
 	OutboxMessageItem,
 } from "@remit/data-ports";
 import { OutboxMessageStatus } from "@remit/domain-enums";
-import { resolveSqsCredentials } from "@remit/sqs-client";
+import { createQueueProducer } from "@remit/sqs-client/producer";
 
 interface SendMessageEvent {
 	type: "SEND_MESSAGE";
@@ -91,17 +91,10 @@ export class OutboxQueueService {
 		this.queueUrl = sqsSmtpQueueUrl;
 		this.log = config.logger ?? noopLogger;
 
-		this.sqs = new SQSClient({
-			endpoint: sqsEndpoint ?? this.deriveEndpoint(sqsSmtpQueueUrl),
-			credentials: resolveSqsCredentials(),
+		this.sqs = createQueueProducer({
+			queueUrl: sqsSmtpQueueUrl,
+			endpoint: sqsEndpoint,
 		});
-	}
-
-	private deriveEndpoint(queueUrl: string): string | undefined {
-		if (queueUrl.startsWith("http://localhost")) {
-			return new URL(queueUrl).origin;
-		}
-		return undefined;
 	}
 
 	createDraft = async (input: CreateDraftInput): Promise<OutboxMessageItem> => {

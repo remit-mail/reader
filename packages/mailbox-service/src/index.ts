@@ -153,10 +153,6 @@ export {
 	type SyncAccountInfo,
 } from "./mailbox-sync.js";
 export {
-	createMarkerSqsClient,
-	deriveLocalSqsEndpoint,
-} from "./marker-sqs-client.js";
-export {
 	type DeleteOptions,
 	type MessageMoveConfig,
 	type MessageMoveLogger,

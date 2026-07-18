@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
-import { resolveSqsCredentials } from "@remit/sqs-client";
+import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
+import { createQueueProducer } from "@remit/sqs-client/producer";
 
 /**
  * SYNC_MESSAGE_BODY event structure (matches remit-imap-worker/events.ts). The
@@ -73,17 +73,10 @@ export class BodySyncQueueService {
 	constructor(config: BodySyncQueueConfig) {
 		this.queueUrl = config.sqsQueueUrl;
 		this.log = config.logger ?? noopLogger;
-		this.sqs = new SQSClient({
-			endpoint: config.sqsEndpoint ?? this.deriveEndpoint(config.sqsQueueUrl),
-			credentials: resolveSqsCredentials(),
+		this.sqs = createQueueProducer({
+			queueUrl: config.sqsQueueUrl,
+			endpoint: config.sqsEndpoint,
 		});
-	}
-
-	private deriveEndpoint(queueUrl: string): string | undefined {
-		if (queueUrl.startsWith("http://localhost")) {
-			return new URL(queueUrl).origin;
-		}
-		return undefined;
 	}
 
 	requestBodySync = async (input: RequestBodySyncInput): Promise<void> => {

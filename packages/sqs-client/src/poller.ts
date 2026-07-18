@@ -1,16 +1,14 @@
 import {
 	DeleteMessageCommand,
 	ReceiveMessageCommand,
-	SQSClient,
 } from "@aws-sdk/client-sqs";
-import { AwsQueryProtocol } from "@aws-sdk/core/protocols";
 import type {
 	Context,
 	SQSBatchResponse,
 	SQSEvent,
 	SQSHandler,
 } from "aws-lambda";
-import { resolveSqsCredentials } from "./index.js";
+import { createQueueProducer } from "./producer.js";
 
 /**
  * Production queue poller — the non-e2e counterpart of the per-worker
@@ -48,23 +46,13 @@ export interface RunQueuePollerOptions {
 const DEFAULT_MAX_MESSAGES = 10; // SQS API limit
 const DEFAULT_VISIBILITY_TIMEOUT_SECONDS = 300;
 
-const buildClient = (queueUrl: string): SQSClient => {
-	const isLocal =
-		queueUrl.startsWith("http://") || queueUrl.startsWith("https://localhost");
-	return new SQSClient({
-		endpoint: isLocal ? new URL(queueUrl).origin : undefined,
-		...(isLocal && { protocol: AwsQueryProtocol }),
-		credentials: resolveSqsCredentials(),
-	});
-};
-
 const pollTarget = async (
 	target: QueuePollerTarget,
 	log: QueuePollerLog,
 	isShuttingDown: () => boolean,
 ): Promise<void> => {
 	const queueName = new URL(target.queueUrl).pathname.split("/").pop();
-	const sqs = buildClient(target.queueUrl);
+	const sqs = createQueueProducer({ queueUrl: target.queueUrl });
 	const maxMessages = target.maxMessages ?? DEFAULT_MAX_MESSAGES;
 	const visibilityTimeout =
 		target.visibilityTimeoutSeconds ?? DEFAULT_VISIBILITY_TIMEOUT_SECONDS;
