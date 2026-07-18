@@ -1,22 +1,14 @@
-# Reference self-host deployment, SQLite backend (RFC 036 D6). The same
-# published images as docker-compose.yml, the same single .env file, two
-# residents fewer: no postgres server and no pg-index-worker. All relational
-# state is two files on one local volume — the app/auth database and the
-# sqlite-vec vector store.
+# Reference self-host deployment. All relational state is two files on one
+# local volume — the app/auth database and the sqlite-vec vector store — so
+# there is no database server to run.
 #
-# Pick this file instead of docker-compose.yml when you want the fewest moving
-# parts (see README.md, "Which backend"):
 #   cp remit.env.template .env   # fill in the secrets, then:
-#   docker compose -f docker-compose.sqlite.yml up -d
+#   docker compose -f docker-compose.sqlite.yml --env-file .env up -d
 #
-# Compose profiles cannot drop an always-on service, so the SQLite variant is a
-# separate file rather than a `--profile` toggle on docker-compose.yml. Run one
-# or the other, never both — they share the project name and would collide.
-#
-# The shared SQLite volume MUST be local disk (RFC 036 D3): WAL's cross-process
-# coordination uses a shared-memory file next to the database that does not work
-# over a network filesystem. The default local volume driver below satisfies
-# this; do not repoint `sqlite_data` at an NFS/CIFS mount.
+# The shared SQLite volume MUST be local disk: WAL's cross-process coordination
+# uses a shared-memory file next to the database that does not work over a
+# network filesystem. The default local volume driver below satisfies this; do
+# not repoint `sqlite_data` at an NFS/CIFS mount.
 name: remit
 
 x-app-env: &app-env
@@ -30,8 +22,8 @@ x-app-env: &app-env
     # The backend is pinned here, not read from .env: choosing this compose file
     # is what selects SQLite, so the file and the backend can never disagree.
     # SQLITE_DB_PATH holds both the app schema and the better-auth identity
-    # tables (one file, RFC 036 D3); LOCAL_VECTORDB_PATH is sqlite-vec's own
-    # separate file. Both live on the sqlite_data volume mounted at /data/sqlite.
+    # tables (one file); LOCAL_VECTORDB_PATH is sqlite-vec's own separate file.
+    # Both live on the sqlite_data volume mounted at /data/sqlite.
     DATA_BACKEND: sqlite
     SQLITE_DB_PATH: /data/sqlite/remit.db
     LOCAL_VECTORDB_PATH: /data/sqlite/vec.db
@@ -52,8 +44,8 @@ services:
     restart: unless-stopped
 
   # ---------------------------------------------------------------------
-  # One-shot migrator (RFC 035 D8, RFC 036 D5) — the backend image, migrate
-  # command. On DATA_BACKEND=sqlite it applies the sqlite migration sets and
+  # One-shot migrator — the backend image, migrate command. It applies the
+  # sqlite migration sets and
   # installs the FTS5 search table + triggers against the file. Every app
   # service waits on it succeeding.
   # ---------------------------------------------------------------------
@@ -131,9 +123,8 @@ services:
     restart: unless-stopped
 
   # ---------------------------------------------------------------------
-  # Workers — the same queue pollers as the Postgres profile. Each opens the
-  # shared SQLite file (WAL) for its writes; no pg-index-worker exists here
-  # (RFC 036 D2) — search-index-worker drains the outbox on a 2 s poll instead.
+  # Workers — the queue pollers. Each opens the shared SQLite file (WAL) for its
+  # writes; search-index-worker drains the outbox on a 2 s poll.
   # ---------------------------------------------------------------------
   imap-worker:
     image: ghcr.io/remit-mail/remit/imap-worker:${REMIT_TAG:-latest}
@@ -183,8 +174,8 @@ services:
     stop_grace_period: 30s
     restart: unless-stopped
 
-  # The outbox drain (RFC 036 D2) runs inside this container: a 2 s poll over
-  # the shared file's unprocessed outbox rows, relaying them onto the
+  # The outbox drain runs inside this container: a 2 s poll over the shared
+  # file's unprocessed outbox rows, relaying them onto the
   # search-index queue. It needs SQLITE_DB_PATH (drain source) and
   # LOCAL_VECTORDB_PATH (vector writes) — both set in the shared app env above.
   search-index-worker:
@@ -204,10 +195,10 @@ services:
     restart: unless-stopped
 
   # ---------------------------------------------------------------------
-  # Backup sidecar (RFC 036 D6) — off by default. Enable with
-  # `docker compose -f docker-compose.sqlite.yml --profile backup up -d`.
-  # VACUUM INTO snapshots of the two database files, then age + rclone,
-  # the same shipping as the Postgres profile (see remit.env.template).
+  # Backup sidecar — off by default. Enable with
+  # `docker compose -f docker-compose.sqlite.yml --env-file .env --profile backup up -d`.
+  # VACUUM INTO snapshots of the two database files, then age + rclone
+  # (see remit.env.template).
   # ---------------------------------------------------------------------
   backup:
     image: alpine:3.23
@@ -234,8 +225,8 @@ services:
 volumes:
   message_storage:
   # Local disk only — WAL's shared-memory coordination does not work over a
-  # network filesystem (RFC 036 D3). The default local driver is correct; do
-  # not repoint this at NFS/CIFS.
+  # network filesystem. The default local driver is correct; do not repoint
+  # this at NFS/CIFS.
   sqlite_data:
   caddy_data:
   caddy_config:

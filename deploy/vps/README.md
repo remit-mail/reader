@@ -1,89 +1,76 @@
-# Remit — self-host VPS deployment
+# Reader — self-host VPS deployment
 
-The reference deployment from RFC 035 (`doc/RFC/035_container-deployment-target.md`):
-docker compose on one small VPS, consuming only published
-`ghcr.io/remit-mail/remit/*` images plus three upstream images
-(`pgvector/pgvector`, `elasticmq`, `caddy`). No repo checkout, no npm, no
-build toolchain on the server — pulling `main` onto a server is not
-possible with this deployment, by design (RFC 035 D3).
+A single-VM deployment: Docker Compose on one small box, running the published
+`ghcr.io/remit-mail/remit/*` images plus three upstream images (`caddy`,
+`elasticmq`, `alpine`). All relational state lives in two SQLite files on one
+local volume — there is no database server to run. Message bodies are cached
+on a second volume and can always be re-synced from IMAP.
 
-Sized for a 2 vCPU / 4 GB EU VPS (Hetzner CX23-class, ~€5.50/mo). HTTPS on :443
-out of the box, signed by Caddy's own CA (browsers warn until you trust its
-root); the [TLS](#tls) section covers the other modes, including plain HTTP.
+Sized for a 2 vCPU / 4 GB box (~€5/mo class). HTTPS on :443 out of the box,
+signed by Caddy's own CA (browsers warn until you trust its root); the [TLS](#tls)
+section covers the other modes, including plain HTTP.
+
+The images are published to `ghcr.io/remit-mail/remit/*` and pull anonymously —
+no registry login, no token, nothing on the box holds a credential.
 
 ## Install
 
-On a fresh amd64 box:
+On a fresh amd64 box with Docker (or Podman) and the Compose v2 plugin:
 
 ```bash
-export GITHUB_TOKEN=ghp_...    # read access to the repo
-curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github.raw" \
-  "https://api.github.com/repos/remit-mail/remit/contents/deploy/vps/install.sh?ref=main" \
-  | sh -s -- --origin https://your-host
+curl -fsSL https://raw.githubusercontent.com/remit-mail/reader/main/install.sh \
+  | bash -s -- --origin https://your-host
 ```
 
-The images are public and pull anonymously (RFC 035 D4). The repository is
-not, so the token is only for reading `deploy/vps/*`: no `read:packages`
-scope, no registry login, and nothing on the box holds a credential
-afterwards. `raw.githubusercontent.com` cannot carry a token for a private
-repo's file, which is why the assets come through the contents API. Once the
-repo is public the command is:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/remit-mail/remit/main/deploy/vps/install.sh \
-  | sh -s -- --origin https://your-host
-```
-
-This downloads the deploy assets for one ref into `/opt/remit`, generates the
+The installer downloads the deploy assets into `./reader`, generates the
 secrets, writes `.env` with mode 600, and brings the stack up. It takes no
 input while it runs — everything comes from flags and environment variables.
 `--help` lists them; the ones that matter are `--tls-mode`, `--tag`, `--dir`
-and `--ref`.
+and `--dry-run`. `--dry-run` runs the host checks, fetches the assets, writes
+`.env`, and validates the compose file without pulling images or starting
+anything.
 
-Re-running is safe. An existing `.env` is kept, and a secret that already has a
-value is never regenerated: `.env` holds `FAKE_KMS_DATAKEY`, the only copy of
-the key every stored IMAP credential is encrypted with. Edits to the deploy
-files are kept on the same principle — a digest pin in `docker-compose.yml`
-survives a re-run, and the incoming version is left beside it as `<file>.new`
-to diff.
+The installer checks the host before it changes anything: a container engine
+and the Compose v2 plugin (real Compose, not podman-compose), amd64 (no arm64
+image is built), and ports 80 and 443. It also normalizes `--origin` against
+`--tls-mode` — an `http://` origin is upgraded to `https://` under the default
+`internal` mode, and `--tls-mode off` requires an `http://` origin.
 
-The installer checks the host before it changes anything — docker and the
-compose v2 plugin, amd64 (no arm64 image is built), disk, RAM, ports 80 and
-443, and `--origin`'s scheme (an `http://` origin is upgraded to `https://`
-under the default internal mode; `--tls-mode off` needs `http://`). Missing dependencies
-are reported with the install command for the detected distro and nothing is
-changed; `--install-deps` installs them instead. The host needs docker, the
-compose v2 plugin, curl and openssl. Everything else runs in a container.
+Re-running is safe for your data. An existing `.env` is kept, and a secret that
+already has a value is never regenerated: `.env` holds `FAKE_KMS_DATAKEY`, the
+only copy of the key every stored IMAP credential is encrypted with. The
+installer re-downloads the deploy assets on every run, so edits to the compose
+file or the Caddy files are replaced — pin the image version through
+`REMIT_TAG` in `.env` (which is kept across runs), not by editing the compose
+file.
 
-Then visit the address passed as `--origin`. Sign up creates the first account;
-every subsequent IMAP account is added from the app itself (Settings → Add
-account).
+Then visit the address passed as `--origin`. The first sign-up on that page
+creates your account; every subsequent IMAP account is added from the app
+itself (Settings → Add account).
 
-### The `remit` command
+## Managing the deployment
 
-The installer puts a `remit` wrapper at `/usr/local/bin/remit`. It wraps
-`docker compose` against the install directory, so nothing below needs a `cd`
-or any flags.
+The installer writes everything into the install directory (`./reader` by
+default). Manage the stack with Compose from that directory:
 
-| Command | What it does |
-|---|---|
-| `remit status` | Services, the running tag, the public origin. |
-| `remit logs [service…]` | Follow logs. |
-| `remit restart [--hard]` | Apply `.env` changes and start. |
-| `remit update [--tag sha-…]` | Pull images, apply them, check the migration. |
-| `remit down` | Stop. Data volumes are left alone. |
-| `remit config` | The effective configuration, secrets redacted. |
+```bash
+cd reader
+docker compose -f docker-compose.sqlite.yml --env-file .env ps
+docker compose -f docker-compose.sqlite.yml --env-file .env logs -f [service…]
+docker compose -f docker-compose.sqlite.yml --env-file .env down   # data volumes are kept
+```
 
 Editing `.env` and running `docker compose restart` does not apply the change.
 `restart` reuses the existing containers with the environment they were created
 with, and reports success — the edit appears to have taken effect and has not.
-`remit restart` runs `docker compose up -d`, which recreates the containers
-whose configuration changed.
+`docker compose … up -d` recreates the containers whose configuration changed,
+which is what applies an `.env` edit.
 
-The wrapper is a convenience over the compose commands documented below, not a
-replacement: every subcommand is a `docker compose` invocation you can type
-yourself. It reads the deployment directory from `$REMIT_DIR`, defaulting to
-whatever `--dir` the installer used.
+`deploy/vps/remit` is a wrapper over these commands (`remit status`, `remit
+logs`, `remit restart`, `remit update`, `remit down`, `remit config`) — it adds
+the `-f`/`--env-file` flags and reads the install directory from `$REMIT_DIR`.
+The installer does not put it on your PATH; copy it to `/usr/local/bin/remit`
+and set `REMIT_DIR` to your install directory if you want the shorter commands.
 
 ## Manual install
 
@@ -94,114 +81,87 @@ cd deploy/vps
 cp remit.env.template .env
 chmod 600 .env
 $EDITOR .env            # fill in every value marked SECRET — see the file
-docker compose up -d
-docker compose logs -f migrate    # confirm the one-shot migration succeeded
+docker compose -f docker-compose.sqlite.yml --env-file .env up -d
+docker compose -f docker-compose.sqlite.yml --env-file .env logs -f migrate
 ```
 
-`POSTGRES_PASSWORD` and `PG_CONNECTION_URL` carry the same password in two
-places. Set both to the same value: they are what Postgres is created with and
-what every service connects with, so a mismatch surfaces only as `migrate`
-failing to authenticate. The installer derives the URL from the password on
-every run, so this is the one hazard the manual path has and the installer
-does not.
+The two secrets the stack cannot run without are `BETTER_AUTH_SECRET` (signs
+the identity JWTs) and `FAKE_KMS_DATAKEY` (encrypts stored IMAP credentials).
+Generate each with `openssl rand -hex 32`. `migrate` is a one-shot that runs
+before every app service and applies the schema; confirm it succeeds before
+signing in.
 
-Then visit the address you set as `PUBLIC_ORIGIN` in `.env`. Sign up creates
-the first account; every subsequent IMAP account is added from the app
+Then visit the address you set as `PUBLIC_ORIGIN` in `.env`. The first sign-up
+creates your account; every subsequent IMAP account is added from the app
 itself (Settings → Add account).
-
-## Which backend: Postgres or SQLite
-
-Two ways to run the same images. The default (`docker-compose.yml`, above) uses
-Postgres — a database server with its own upgrade, tuning, and dump lifecycle,
-the right choice when you want headroom or run more than one mailbox's worth of
-mail. The SQLite variant (`docker-compose.sqlite.yml`, RFC 036) drops the
-Postgres server and the `pg-index-worker` and keeps all relational state as two
-files on one local volume; pick it on a small single-mailbox box where the
-fewest moving parts matter more than server-grade headroom. Removing the
-database server and one worker lowers the idle footprint (RFC 036 D6 targets
-≤350 MiB); the embedding model in `search-index-worker` stays the largest
-resident once indexing has run.
-
-Run one or the other, never both — they share the `remit` project name. The
-SQLite quickstart is the same, with the file flag:
-
-```bash
-cd deploy/vps
-cp remit.env.template .env
-chmod 600 .env
-$EDITOR .env            # fill in the SECRET values; leave the Postgres ones unused
-docker compose -f docker-compose.sqlite.yml up -d
-docker compose -f docker-compose.sqlite.yml logs -f migrate
-```
-
-The relational store and the better-auth identity tables share one file
-(`/data/sqlite/remit.db`); sqlite-vec keeps its vectors in a second file
-(`/data/sqlite/vec.db`). Both sit on the `sqlite_data` named volume, which
-**must be local disk** — WAL's cross-process coordination uses a shared-memory
-file next to the database that does not work over NFS/CIFS. Text search behaves
-the same as Postgres with two named differences: a slightly different
-accent-folding table, and 1–2 character queries running as an unindexed scan
-(RFC 036 D4). Switching backends means re-onboarding your account — mail
-re-syncs from IMAP; there is no in-place Postgres→SQLite move.
-
-Semantic (vector) search queries are not served on either compose profile:
-answering one requires embedding the query in the API process, and the
-`backend` image deliberately ships without the embedding runtime (the model
-plus `@huggingface/transformers` would roughly quadruple the image and keep
-~300 MiB resident in the API container). On the SQLite profile the vector
-store's `sqlite-vec` extension is additionally glibc-only, which the
-Alpine/musl backend could not load. The `/search/semantic` endpoint detects
-the missing pipeline and returns empty results instead of erroring, so the
-web client's "Related" section is simply empty. Text search — FTS5 here,
-trigram on Postgres — is the primary search surface and is unaffected, and
-the `search-index-worker` (a glibc image with the model baked in) keeps
-indexing embeddings, so a future backend image that carries the pipeline
-lights up querying without a re-index.
 
 ## What's running
 
 | Service | Image | Role |
 |---|---|---|
 | `caddy` | `caddy:2-alpine` | The edge: reverse proxy and TLS termination. Publishes the only host ports, 80 and 443 (443 is bound in every mode but serves traffic only in the TLS modes). See [TLS](#tls). |
-| `apisix` | `ghcr.io/remit-mail/remit/apisix` | Edge JWT gate — `apache/apisix:3.13.0-debian` with the generated route table baked in, the same table the Scaleway deployment uses (RFC 035 D5 parity). |
-| `web` | `ghcr.io/remit-mail/remit/web` | Static server for the built SPA. |
-| `backend` | `ghcr.io/remit-mail/remit/backend` | The API. Also the `migrate` service's image (see below). |
-| `imap-worker`, `smtp-worker`, `account-worker`, `search-index-worker` | `ghcr.io/remit-mail/remit/*` | Queue pollers — the deployed form of `packages/remit-imap-worker/src/e2e-processor-shim.ts`, running the same production Lambda handlers against ElasticMQ instead of an SQS event-source mapping. |
-| `pg-index-worker` | `ghcr.io/remit-mail/remit/pg-index-worker` | Postgres LISTEN/NOTIFY → SQS relay; wakes `search-index-worker` on new mail without a polling loop. |
-| `postgres` | `pgvector/pgvector:pg16` | All durable state except message bodies. Named volume `pgdata`. |
+| `apisix` | `ghcr.io/remit-mail/remit/apisix` | Edge JWT gate, with the generated route table baked in. |
+| `web` | `ghcr.io/remit-mail/remit/web` | Static server for the built web client. |
+| `backend` | `ghcr.io/remit-mail/remit/backend` | The API. Also the image the `migrate` and `volume-init` one-shots run. |
+| `imap-worker`, `smtp-worker`, `account-worker`, `search-index-worker` | `ghcr.io/remit-mail/remit/*` | Queue pollers: sync mail, push flag and folder changes back, send outgoing mail, and build the search index. |
 | `elasticmq` | `softwaremill/elasticmq-native` | The SQS-compatible queue seam. |
-| `migrate` | `ghcr.io/remit-mail/remit/backend` (command override) | One-shot: runs before every app service (`depends_on: condition: service_completed_successfully`). |
+| `migrate` | `ghcr.io/remit-mail/remit/backend` (command override) | One-shot: applies the SQLite migrations and the FTS5 search index before any app service starts. |
+| `volume-init` | `ghcr.io/remit-mail/remit/backend` (entrypoint override) | One-shot: fixes ownership of the data volumes so the non-root app user can write them. |
+| `backup` | `alpine:3.23` | Off by default (`profiles: ["backup"]`). Nightly encrypted database snapshot. See [Backups](#backups). |
 
-Message bodies live on the `message_storage` named volume via the
-filesystem storage backend (`STORAGE_LOCAL_PATH`) — not S3, not backed up
-by the nightly dump below (see Backups).
+The relational store and the better-auth identity tables share one file
+(`/data/sqlite/remit.db`); the vector store keeps its data in a second file
+(`/data/sqlite/vec.db`). Both sit on the `sqlite_data` named volume, which
+**must be local disk** — WAL's cross-process coordination uses a shared-memory
+file next to the database that does not work over NFS/CIFS. Message bodies live
+on the `message_storage` named volume via the filesystem storage backend — not
+backed up by the nightly snapshot below (see [Backups](#backups)).
+
+The idle footprint stays small: removing a database server leaves the embedding
+model in `search-index-worker` as the largest resident once indexing has run.
+
+## Search
+
+Text search is the primary surface and works out of the box: FTS5 over subjects
+and senders. Queries of 1–2 characters run as an unindexed scan rather than
+through the index.
+
+Semantic (vector) search queries are not served. Answering one requires
+embedding the query in the API process, and the `backend` image deliberately
+ships without the embedding runtime (the model plus its dependencies would
+roughly quadruple the image and keep hundreds of MiB resident). The vector
+store's extension is additionally glibc-only, which the Alpine/musl backend
+cannot load. The `/search/semantic` endpoint detects the missing pipeline and
+returns empty results instead of erroring, so the web client's "Related"
+section is simply empty. The `search-index-worker` still indexes embeddings, so
+a future backend image that carries the query pipeline lights up semantic search
+without a re-index.
 
 ## TLS
 
-One setting, `TLS_MODE` in `.env`, picks how Caddy serves the origin. The
-deployment never depends on a single provider for TLS — `internal` needs
-nothing outside the box. Set it, set `PUBLIC_ORIGIN` to a matching
-`scheme://host`, and `docker compose up -d`.
+One setting, `TLS_MODE` in `.env`, picks how Caddy serves the origin. `internal`
+needs nothing outside the box. Set it, set `PUBLIC_ORIGIN` to a matching
+`scheme://host`, and bring the stack up.
 
 | `TLS_MODE` | What it does | `PUBLIC_ORIGIN` |
 |---|---|---|
 | `internal` (default) | HTTPS on :443 with Caddy's own locally-trusted CA. No public DNS, no ACME, no tailnet. Browsers warn until you trust the root CA. | `https://…` |
 | `off` | Plain HTTP on :80. Reach it over a private network (tailnet, VPN, SSH tunnel). | `http://…` |
-| `tailscale` | A real, publicly-trusted certificate from the local `tailscaled` for this box's `<name>.<tailnet>.ts.net`. | `https://<name>.<tailnet>.ts.net` |
+| `tailscale` | A publicly-trusted certificate from the local `tailscaled` for this box's `<name>.<tailnet>.ts.net`. | `https://<name>.<tailnet>.ts.net` |
 | `acme` | Public Let's Encrypt. Ports 80/443 must be reachable from the internet and the host must resolve in public DNS. | `https://mail.example.com` |
 
-`internal` is the first-class provider-free option. To make the browser
-warning go away, trust Caddy's root CA on each client. Caddy keeps it on the
-`caddy_data` volume; export it with:
+To make the `internal`-mode browser warning go away, trust Caddy's root CA on
+each client. Caddy keeps it on the `caddy_data` volume; export it with:
 
 ```bash
-docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./remit-root.crt
+docker compose -f docker-compose.sqlite.yml --env-file .env cp \
+  caddy:/data/caddy/pki/authorities/local/root.crt ./reader-root.crt
 ```
 
-Then import `remit-root.crt` into the client's trust store (macOS Keychain,
-the Windows cert store, `/usr/local/share/ca-certificates` + `update-ca-certificates`
-on Linux, or the browser's own authorities). Skipping this is fine — it only
-means the browser warning stays.
+Then import `reader-root.crt` into the client's trust store (macOS Keychain, the
+Windows cert store, `/usr/local/share/ca-certificates` +
+`update-ca-certificates` on Linux, or the browser's own authorities). Skipping
+this is fine — it only means the browser warning stays.
 
 `tailscale` needs two things beyond `TLS_MODE`: enable HTTPS for your tailnet
 (Tailscale admin console → DNS → **Enable HTTPS**), and set `TAILSCALED_SOCKET`
@@ -219,7 +179,7 @@ warning — traffic is encrypted either way.
 **Why is port 443 open in `off` mode?** Compose publishes 80 and 443 for all
 modes so switching to a TLS mode needs no compose edit. In `off` mode nothing
 listens on 443; it just sits unused. If another service already holds :443 on
-the host, free it before `up`.
+the host, free it before starting the stack.
 
 **I set `TLS_MODE=tailscale` but Caddy can't get a certificate.** Two usual
 causes: HTTPS isn't enabled for the tailnet, or `TAILSCALED_SOCKET` doesn't
@@ -228,164 +188,150 @@ mounted into the container). Both are required.
 
 **Do I have to change `PUBLIC_ORIGIN` when I switch modes?** Yes — its scheme
 must match. `http://` only for `off`; `https://` for the other three. It stays
-the single origin knob (Caddy's site address and the app's auth/CORS origins
-all derive from it), so nothing else changes.
+the single origin knob (Caddy's site address and the app's auth/CORS origins all
+derive from it), so nothing else changes.
 
 **Can I use `acme` behind a tailnet or without public DNS?** No. Public Let's
 Encrypt validates a publicly-resolvable name over ports 80/443. Use `internal`
 or `tailscale` for private networks.
 
-**Will search rank results the same as the hosted deployment?** Not exactly.
-The `search-index-worker` image bakes an int8-quantized embedding model to keep
-the image small, so semantic search scoring differs slightly from the fp32
-deployment targets; embeddings are a rebuildable projection that re-derives on
-reindex, so this carries no durable state and cross-target parity isn't required.
+## Updating
 
-## Update procedure
+Point `REMIT_TAG` at the tag you want, pull, and apply:
 
 ```bash
-remit update --tag sha-<git-sha>
+$EDITOR .env             # set REMIT_TAG=sha-<git-sha>
+docker compose -f docker-compose.sqlite.yml --env-file .env pull
+docker compose -f docker-compose.sqlite.yml --env-file .env up -d
 ```
 
-Or the same thing by hand:
+`migrate` runs again (idempotent) before the app services restart. Published
+tags are listed on the `ghcr.io/remit-mail/remit/backend` package page in GitHub
+Packages; every image in the roster is built and tagged together, so the same
+`REMIT_TAG` value applies to all of them.
 
-```bash
-$EDITOR .env             # bump REMIT_TAG to the sha- tag you want
-docker compose pull
-docker compose up -d     # migrate runs again (idempotent) before app services restart
-```
-
-Find published tags at `https://github.com/remit-mail/remit/pkgs/container/remit%2Fbackend`
-(every image in the roster is built and tagged together, so the same
-`REMIT_TAG` value applies to all of them).
+`latest` tracks `main` — convenient for a first install, but pin a specific
+`sha-…` tag once you are running for real so an update is a deliberate step.
 
 ## Rollback
 
-Repoint `REMIT_TAG` at the previous working tag (or a pinned digest) and
-run the same update procedure:
-
-```bash
-$EDITOR .env             # REMIT_TAG=sha-<previous-sha>
-docker compose pull
-docker compose up -d
-```
-
-This is also the disaster-recovery story for a bad release (RFC 035 D3) —
+Point `REMIT_TAG` at the previous working tag (or a pinned digest) and run the
+same pull/up. This is also the disaster-recovery story for a bad release —
 practice it once, deliberately, before you need it for real.
 
 ## Podman
 
-One path is supported: **rootful podman, driving real Compose v2 over
-podman's Docker-compatible socket** — not podman-compose.
+One path is supported: **rootful Podman driving real Compose v2 over Podman's
+Docker-compatible socket** — not podman-compose.
 
 ```bash
 systemctl enable --now podman.socket
 export DOCKER_HOST=unix:///run/podman/podman.sock
-docker compose up -d     # the ordinary compose commands throughout this file
+docker compose -f docker-compose.sqlite.yml --env-file .env up -d
 ```
 
-`docker compose` behaves exactly as documented once it is talking to that
-socket — the installer and every command above work unchanged. `install.sh`
-detects podman automatically and adjusts what it checks.
+`docker compose` behaves as documented once it is talking to that socket — the
+installer and every command above work unchanged.
 
 **Never run `podman-compose` against this deployment.** It silently drops
-`depends_on: condition:` (translated to `--requires`, which ignores the
-condition entirely) and ignores `profiles:`. On this repo's own
-`docker-compose.yml`, `podman-compose up -d` exits `0` with every app
-container stuck in `Created` — the migration never gates them, it just never
-runs them — and the backup sidecar starts unrequested. A green exit code with
-a broken stack is worse than no podman support at all, so `install.sh`
-refuses to proceed if `docker compose` resolves to podman-compose under the
-hood.
+`depends_on: condition:` and ignores `profiles:`, so every app container is left
+in `Created` (the migration never gates them, it just never runs them) while the
+command exits `0`. A green exit with a broken stack is worse than no Podman
+support, so the installer refuses to proceed if `docker compose` resolves to
+podman-compose.
 
-One host setting needs attention before the first `up`, checked by the
+One host setting needs attention before the first start, checked by the
 installer:
 
-- **Short image names.** The 8 `ghcr.io/remit-mail/remit/*` images are fully
-  qualified and unaffected; the 4 upstream images (`caddy`, `pgvector`,
-  `elasticmq`, `postgres`) are not. A fresh podman install has no
-  unqualified-search-registries and refuses them:
-  `short-name "caddy:2-alpine" did not resolve to an alias`. Fix:
+- **Short image names.** The `ghcr.io/remit-mail/remit/*` images are fully
+  qualified and unaffected; the upstream images (`caddy`, `elasticmq`, `alpine`)
+  are pulled by short name. A fresh Podman install has no
+  unqualified-search-registries and refuses them
+  (`short-name "caddy:2-alpine" did not resolve to an alias`). Fix:
   ```
   echo 'unqualified-search-registries = ["docker.io"]' | sudo tee /etc/containers/registries.conf
   ```
 
-Rootless podman also runs the stack, with one more setting:
+Rootless Podman also runs the stack, with one more setting:
 `net.ipv4.ip_unprivileged_port_start=80` (`sysctl -w`, or persist it in
 `/etc/sysctl.conf`) — compose publishes 80 and 443 in every `TLS_MODE`, and
-rootless podman refuses to bind ports below that threshold by default.
-Rootful podman binds them the same as real docker and needs no tuning.
+rootless Podman refuses to bind ports below that threshold by default. Rootful
+Podman binds them the same as real Docker and needs no tuning.
 
-`--tls-mode tailscale` under rootless podman is unproven and likely broken:
-`tailscaled`'s socket is normally `0600 root:root`, so a rootless container
-gets `READ_DENIED` opening it, and the certificate fetch may also
-peer-credential-check for uid 0. This isn't claimed to work — use rootful
-podman if you need `tailscale` mode.
+`--tls-mode tailscale` under rootless Podman is unproven and likely broken: the
+`tailscaled` socket is normally `0600 root:root`, so a rootless container gets
+`READ_DENIED` opening it. Use rootful Podman if you need `tailscale` mode.
 
-## Backups (RFC 035 D7)
+## Backups
 
-A `backup` sidecar is in both compose files behind `profiles: ["backup"]` —
-off by default, on with `docker compose --profile backup up -d` (Postgres) or
-`docker compose -f docker-compose.sqlite.yml --profile backup up -d` (SQLite).
-Under Postgres it runs a nightly `pg_dump` (`deploy/vps/backup/backup.sh`);
-under SQLite it VACUUM INTOs the two database files — the app/auth store and
-the vector store (`deploy/vps/backup/backup-sqlite.sh`). Both encrypt with
-`age` and ship to an S3-compatible bucket via `rclone` (retention 30 days is
-the reference RPO: 24 hours). The database — accounts, credentials, metadata,
+A `backup` sidecar is in the compose file behind `profiles: ["backup"]` — off by
+default, on with:
+
+```bash
+docker compose -f docker-compose.sqlite.yml --env-file .env --profile backup up -d
+```
+
+It runs `VACUUM INTO` on the two database files — the app/auth store and the
+vector store — on a nightly interval, encrypts each with `age`, and ships them
+to an S3-compatible bucket via `rclone`. Retention defaults to 30 days (the
+reference RPO is 24 hours). The database — accounts, credentials, metadata,
 tags — is the asset; message bodies are a cache of IMAP (the source of truth)
-and re-sync after a restore, so they are deliberately not backed up here. On
-SQLite, restore is putting the two files back on the volume and starting the
-stack.
+and re-sync after a restore, so they are deliberately not backed up here.
+Restore is putting the two files back on the `sqlite_data` volume and starting
+the stack.
 
 Turning it on is not free of responsibility: you own the offsite bucket,
-custody of the `age` key (losing it makes every backup unreadable, and
-there is no recovery from that), and actually testing a restore before you
-need one — decrypt a backup with the private key, `gunzip`, `psql` it into
-a scratch database, and confirm it looks right. See the Backups section in
-`remit.env.template` for the variables (`BACKUP_AGE_RECIPIENT`,
-`BACKUP_RCLONE_REMOTE`, and the `RCLONE_CONFIG_*` vars for your provider).
+custody of the `age` key (losing it makes every backup unreadable, with no
+recovery), and actually testing a restore before you need one — decrypt a
+backup with the private key, `gunzip` it, open it with `sqlite3`, and confirm it
+looks right. See the Backups section in `remit.env.template` for the variables
+(`BACKUP_AGE_RECIPIENT`, `BACKUP_RCLONE_REMOTE`, and the `RCLONE_CONFIG_*` vars
+for your provider).
 
 ## Known gap: account deletion's AWS-only steps
 
-`account-worker`'s deletion cascade calls Cognito (sign-out) and CloudFront
-(cache invalidation) directly — both AWS-only, with no portable
-implementation in this codebase today. The image runs and the queues are
-wired (`remit-account-fanout`, `remit-account-finalize`,
-`remit-account-purge-delete.fifo`), but triggering an actual account
-deletion on this deployment will error partway through the cascade. This is
-a pre-existing application gap (see `packages/remit-account-worker/src/poller.ts`),
-not something particular to this deployment — flagged here so it's not a
-surprise.
+The `account-worker` deletion cascade calls AWS-only services directly (identity
+sign-out and CDN cache invalidation), with no portable implementation in the
+codebase today. The image runs and the queues are wired
+(`remit-account-fanout`, `remit-account-finalize`,
+`remit-account-purge-delete.fifo`), but triggering an actual account deletion on
+this deployment errors partway through the cascade. This is a pre-existing
+application gap, not something particular to this deployment — flagged here so
+it is not a surprise.
 
 ## Queue failures: watch the dead-letter queues
 
-Every worker queue in `elasticmq.conf` has a dead-letter queue
-(`<queue>-dlq`, `maxReceiveCount = 3`) — a message a worker's handler keeps
-failing to process (a malformed payload, a bug, a downstream outage) is
-redelivered up to 3 times, then quarantined in the DLQ instead of
-redelivering forever and crash-looping the worker. This stops one bad
-message from taking a whole queue's throughput down, but a message that
-lands in a DLQ is not automatically retried or drained — it just sits
-there until an operator looks at it.
+Every worker queue in `elasticmq.conf` has a dead-letter queue (`<queue>-dlq`,
+`maxReceiveCount = 3`) — a message a worker's handler keeps failing to process
+(a malformed payload, a bug, a downstream outage) is redelivered up to 3 times,
+then quarantined in the DLQ instead of redelivering forever and crash-looping
+the worker. This stops one bad message from taking a whole queue's throughput
+down, but a message that lands in a DLQ is not automatically retried or drained
+— it sits there until an operator looks at it.
 
-Check depth periodically (`docker compose exec elasticmq wget -qO-
---post-data='Action=GetQueueAttributes&QueueUrl=http://localhost:9324/000000000000/remit-body-dlq&AttributeName.1=ApproximateNumberOfMessages&Version=2012-11-05' http://localhost:9324/`,
-or any SQS-compatible client against the queue you care about — the
-`elasticmq-native` image ships `wget`, not `curl`). A non-zero
-DLQ is a signal to look at, not a resolved failure: inspect the message
-body (`Action=ReceiveMessage` against the `-dlq` queue), fix the underlying
-bug or bad data, then either move it back to the source queue by hand
-(`SendMessage` to the original queue, `DeleteMessage` from the DLQ) or
-discard it once you understand why it failed.
+Check depth periodically — any SQS-compatible client against the queue you care
+about works. The `elasticmq-native` image ships `wget`, not `curl`:
+
+```bash
+docker compose -f docker-compose.sqlite.yml --env-file .env exec elasticmq \
+  wget -qO- --post-data='Action=GetQueueAttributes&QueueUrl=http://localhost:9324/000000000000/remit-body-dlq&AttributeName.1=ApproximateNumberOfMessages&Version=2012-11-05' \
+  http://localhost:9324/
+```
+
+A non-zero DLQ is a signal to look at, not a resolved failure: inspect the
+message body (`Action=ReceiveMessage` against the `-dlq` queue), fix the
+underlying bug or bad data, then either move it back to the source queue by hand
+(`SendMessage` to the original queue, `DeleteMessage` from the DLQ) or discard it
+once you understand why it failed.
 
 ## Security notes
 
-- `.env` holds real secrets (Postgres password, the better-auth JWT signing
-  key, the IMAP credential encryption key). `chmod 600` it and never commit
-  it — `deploy/vps/.gitignore` already excludes it.
-- The IMAP credential encryption key (`FAKE_KMS_DATAKEY`) is explained in
-  the template — the name is a holdover from how the code was first built,
-  not a statement that it's unfit for this use. Generate it once, keep it
-  safe; losing it makes every stored IMAP credential unrecoverable.
+- `.env` holds real secrets (the better-auth JWT signing key and the IMAP
+  credential encryption key). `chmod 600` it and never commit it —
+  `deploy/vps/.gitignore` already excludes it.
+- The IMAP credential encryption key (`FAKE_KMS_DATAKEY`) is explained in the
+  template — the name is a holdover from how the code was first built, not a
+  statement that it is unfit for this use. Generate it once, keep it safe;
+  losing it makes every stored IMAP credential unrecoverable.
 - `apisix` re-verifies every JWT the same way the backend does — defence in
   depth, not the only check.

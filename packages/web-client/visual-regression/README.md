@@ -17,7 +17,7 @@ Both the cache directory and the symlink are gitignored.
 ## Run the suite
 
 ```sh
-npm run test:visual -w packages/remit-web-client
+npm run test:visual -w packages/web-client
 ```
 
 Compares against the baselines in the orphan branch. Fails on diffs greater than 5% of pixels (configured via `maxDiffPixelRatio` in `playwright.visual.config.ts`).
@@ -55,10 +55,10 @@ the cross-env drift the CI workflow exists to remove.
 npm run ddb:test:reset
 
 # 1. Re-capture every spec into the local cache (preview).
-npm run test:visual:update -w packages/remit-web-client
+npm run test:visual:update -w packages/web-client
 
 # 2. Inspect the diff.
-npm run test:visual:status -w packages/remit-web-client
+npm run test:visual:status -w packages/web-client
 # (or just `git -C .visual-baselines diff` for the gory detail)
 ```
 
@@ -110,7 +110,7 @@ Override locally if you ever need a different anchor (for example to chase a rel
 
 ```sh
 REMIT_FAKE_NOW=$(date -u -d '2026-04-01T10:00:00Z' +%s%3N) \
-  npm run test:visual -w packages/remit-web-client
+  npm run test:visual -w packages/web-client
 ```
 
 Falls back to `Date.now()` when unset, so e2e and smoke runs (which want fresh timestamps) are unaffected.

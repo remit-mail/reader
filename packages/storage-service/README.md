@@ -5,7 +5,7 @@ Abstract storage service for email body parts and raw message content. Provides 
 ## Installation
 
 ```bash
-npm install -w packages/remit-storage-service
+npm install -w packages/storage-service
 ```
 
 ## Quick Start
@@ -194,10 +194,10 @@ const content = await storage.retrieve(ref.uri);
 
 ```bash
 # Run package tests
-npm test -w packages/remit-storage-service
+npm test -w packages/storage-service
 
 # With LocalStack for S3 tests
-S3_BUCKET_NAME=test-bucket S3_ENDPOINT=http://localhost:4566 npm test -w packages/remit-storage-service
+S3_BUCKET_NAME=test-bucket S3_ENDPOINT=http://localhost:4566 npm test -w packages/storage-service
 ```
 
 ## Key Path Conventions

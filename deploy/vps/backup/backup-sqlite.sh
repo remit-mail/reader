@@ -1,10 +1,9 @@
 #!/bin/sh
-# Nightly encrypted SQLite backup sidecar (RFC 036 D6).
+# Nightly encrypted SQLite backup sidecar.
 #
 # VACUUM INTO each database file -> gzip -> age-encrypt -> rclone copy to an
 # operator-supplied S3-compatible bucket, then prune anything older than
-# BACKUP_RETENTION_DAYS. The Postgres profile's backup.sh does the same with
-# pg_dump; this one snapshots the two SQLite files instead.
+# BACKUP_RETENTION_DAYS.
 #
 # VACUUM INTO is SQLite's online-backup primitive: it reads a consistent
 # snapshot of a live WAL database into a new, defragmented file without
