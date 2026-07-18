@@ -8,13 +8,29 @@
 		".": {
 			"types": "./src/index.ts",
 			"default": "./src/index.ts"
+		},
+		"./conformance": {
+			"types": "./src/conformance/index.ts",
+			"default": "./src/conformance/index.ts"
 		}
 	},
 	"scripts": {
 		"test:typecheck": "tsgo --noEmit"
 	},
+	"dependencies": {
+		"@remit/domain-enums": "*"
+	},
 	"devDependencies": {
 		"@remit/api-zod-schemas": "*",
 		"zod": "*"
+	},
+	"license": "MIT",
+	"publishConfig": {
+		"access": "public"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/remit-mail/remit.git",
+		"directory": "packages/data-ports"
 	}
 }

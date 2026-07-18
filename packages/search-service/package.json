@@ -33,5 +33,14 @@
 		"@types/better-sqlite3": "^7.6.13",
 		"@types/pg": "^8.20.0",
 		"aws-sdk-client-mock": "*"
+	},
+	"license": "MIT",
+	"publishConfig": {
+		"access": "public"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/remit-mail/remit.git",
+		"directory": "packages/search-service"
 	}
 }

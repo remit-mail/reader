@@ -27,5 +27,14 @@
 		"@aws-sdk/client-sqs": "*",
 		"@aws-sdk/core": "*",
 		"@types/aws-lambda": "*"
+	},
+	"license": "MIT",
+	"publishConfig": {
+		"access": "public"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/remit-mail/remit.git",
+		"directory": "packages/sqs-client"
 	}
 }

@@ -20,5 +20,14 @@
 		"@aws-sdk/core": "*",
 		"@remit/search-service": "*",
 		"@remit/sqs-client": "*"
+	},
+	"license": "MIT",
+	"publishConfig": {
+		"access": "public"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/remit-mail/remit.git",
+		"directory": "packages/outbox-relay"
 	}
 }
