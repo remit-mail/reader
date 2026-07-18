@@ -13,9 +13,11 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it, mock } from "node:test";
 import {
-	type AccountItem,
-	AccountService,
-} from "@remit/remit-electrodb-service";
+	_resetForTest,
+	_setClientForTest,
+	type RemitClient,
+} from "@remit/backend/client";
+import type { AccountItem } from "@remit/data-ports";
 import type { Logger } from "@remit/remit-logger-lambda";
 import type { SyncMailboxesEvent, SyncMessagesEvent } from "../events.js";
 import { syncMailboxes } from "./sync-mailboxes.js";
@@ -47,20 +49,28 @@ const reservedAccount = (): AccountItem =>
 	}) as unknown as AccountItem;
 
 const failIfReached = () => {
-	throw new Error("post-skip-gate AccountService write must not run");
+	throw new Error("post-skip-gate account write must not run");
+};
+
+const setClientWithAccountGet = (get: ReturnType<typeof mock.fn>): void => {
+	_setClientForTest({
+		account: {
+			get,
+			markAuthenticated: failIfReached,
+			update: failIfReached,
+		},
+	} as unknown as RemitClient);
 };
 
 afterEach(() => {
 	mock.restoreAll();
+	_resetForTest();
 });
 
 describe("reserved-host skip gate", () => {
 	it("syncMailboxes skips a reserved host cleanly — no connect, no throw", async () => {
-		const get = mock.method(AccountService.prototype, "get", async () =>
-			reservedAccount(),
-		);
-		mock.method(AccountService.prototype, "markAuthenticated", failIfReached);
-		mock.method(AccountService.prototype, "update", failIfReached);
+		const get = mock.fn(async () => reservedAccount());
+		setClientWithAccountGet(get);
 
 		const event = {
 			type: "SYNC_MAILBOXES",
@@ -72,11 +82,8 @@ describe("reserved-host skip gate", () => {
 	});
 
 	it("syncMessages skips a reserved host cleanly — no connect, no throw", async () => {
-		const get = mock.method(AccountService.prototype, "get", async () =>
-			reservedAccount(),
-		);
-		mock.method(AccountService.prototype, "markAuthenticated", failIfReached);
-		mock.method(AccountService.prototype, "update", failIfReached);
+		const get = mock.fn(async () => reservedAccount());
+		setClientWithAccountGet(get);
 
 		const event = {
 			type: "SYNC_MESSAGES",

@@ -116,13 +116,9 @@ export interface RemitClient {
 	// (`MessagePlacementMoveService` on DynamoDB, `MessagePlacementMoveRepo` on
 	// Postgres) so a caller never needs to guess which backend is active. Used
 	// for read-time count prediction (epic #1281 invariant 4) and by the
-	// account-worker cascade delete. Note the asymmetry this does NOT close:
-	// markers are only ever WRITTEN by the imap-worker's bulk body-sync path,
-	// which is DynamoDB-only (a hardcoded `@remit/remit-electrodb-service`
-	// client, not wired through this RemitClient) — there is no
-	// Postgres-backed placement producer today, so the Postgres path always
-	// returns empty until one exists. This wiring exists so that gap is the
-	// only one (no separate "field absent" gap on top of it).
+	// account-worker cascade delete. Written by the imap-worker's bulk
+	// body-sync path through this `placementMove`, so the placement producer
+	// runs on whatever backend is active — DynamoDB, Postgres, or SQLite.
 	placementMove: IMessagePlacementMoveRepository;
 
 	// Pending flag-push markers (issue #1273). Present on both backends

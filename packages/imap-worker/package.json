@@ -19,7 +19,6 @@
 		"@aws-sdk/core": "*",
 		"@remit/backend": "*",
 		"@remit/data-ports": "*",
-		"@remit/remit-electrodb-service": "*",
 		"@remit/domain-enums": "*",
 		"@remit/remit-logger-lambda": "*",
 		"@remit/mail-oauth-service": "*",

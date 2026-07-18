@@ -1,18 +1,11 @@
-import {
-	AccountService,
-	getClient,
-	MailboxService,
-	MailboxSpecialUseService,
-	type OutboxMessageItem,
-	OutboxMessageService,
-} from "@remit/remit-electrodb-service";
+import { getClient } from "@remit/backend/client";
+import type {
+	IMailboxRepository,
+	IMailboxSpecialUseRepository,
+	OutboxMessageItem,
+} from "@remit/data-ports";
 import { MailboxSpecialUse } from "@remit/domain-enums";
 import type { Logger } from "@remit/remit-logger-lambda";
-import {
-	createKmsDataKeyProvider,
-	createSecretsService,
-} from "@remit/secrets-service";
-import { env } from "expect-env";
 import nodemailer from "nodemailer";
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
@@ -20,28 +13,9 @@ import type { AppendSentMessageEvent } from "../events.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 
-const client = getClient();
-const dataKeyProvider = createKmsDataKeyProvider(env.KMS_KEY_ID);
-const secrets = createSecretsService(dataKeyProvider);
-
-const accountService = new AccountService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-const outboxMessageService = new OutboxMessageService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-const mailboxSpecialUseService = new MailboxSpecialUseService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-const mailboxService = new MailboxService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-
 const findSentMailbox = async (
+	mailboxSpecialUseService: IMailboxSpecialUseRepository,
+	mailboxService: IMailboxRepository,
 	accountId: string,
 ): Promise<{ mailboxId: string; fullPath: string } | null> => {
 	const bySpecialUse = await mailboxSpecialUseService.findBySpecialUse(
@@ -105,6 +79,14 @@ export const handleAppendSentMessage = async (
 	event: AppendSentMessageEvent,
 	log: Logger,
 ): Promise<void> => {
+	const {
+		account: accountService,
+		outboxMessage: outboxMessageService,
+		mailboxSpecialUse: mailboxSpecialUseService,
+		mailbox: mailboxService,
+		secrets,
+	} = await getClient();
+
 	const { accountId, outboxMessageId } = event;
 
 	log.info({ event: event.type, accountId, outboxMessageId }, "Handling event");
@@ -126,7 +108,11 @@ export const handleAppendSentMessage = async (
 		return;
 	}
 
-	const sentMailbox = await findSentMailbox(accountId);
+	const sentMailbox = await findSentMailbox(
+		mailboxSpecialUseService,
+		mailboxService,
+		accountId,
+	);
 	if (!sentMailbox) {
 		log.info({ accountId }, "No Sent mailbox found, skipping IMAP APPEND");
 		return;
