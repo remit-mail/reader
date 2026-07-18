@@ -9,31 +9,41 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Until the generated @remit/* packages are published to npm, a workspace
+# install cannot resolve and there is nothing to compile. This job validates
+# what a clone actually contains today: the installer, the deploy stack, and
+# the manifests. Build, type-check, and unit tests join here once the packages
+# are on npm.
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
+      - name: Installer — shell syntax
+        run: bash -n install.sh
 
-      - name: Install
-        run: npm ci
+      - name: Installer — shellcheck
+        run: shellcheck install.sh
 
-      - name: Generate API from TypeSpec
-        run: npm run codegen
+      - name: Manifests — JSON syntax
+        run: |
+          python3 -c 'import json,sys; [json.load(open(f)) for f in sys.argv[1:]]' \
+            package.json biome.json tsconfig.json
 
-      - name: Lint
-        run: npm run lint
+      - name: Manifests — YAML syntax
+        run: |
+          python3 -c 'import yaml,sys; [yaml.safe_load(open(f)) for f in sys.argv[1:]]' \
+            .github/workflows/ci.yml
 
-      - name: Type-check
-        run: npm run typecheck
+      - name: Deploy stack — SQLite compose validates
+        run: |
+          printf 'PUBLIC_ORIGIN=https://ci.invalid\nTLS_MODE=off\n' > deploy/vps/.env
+          docker compose -f deploy/vps/docker-compose.sqlite.yml \
+            --env-file deploy/vps/.env config -q
+          rm -f deploy/vps/.env
 
-      - name: Build
-        run: npm run build
-
-      - name: Test
-        run: npm test
+      - name: Deploy stack — dev compose validates
+        run: |
+          docker compose -f docker-compose.localhost-dev-generic.yml \
+            --env-file localhost-dev-generic.env config -q
