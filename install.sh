@@ -34,12 +34,17 @@ ASSETS=(
 	"docker-compose.sqlite.yml"
 	"elasticmq.conf"
 	"remit.env.template"
+	"remit"
 	"caddy/routes.caddy"
 	"caddy/off.caddy"
 	"caddy/internal.caddy"
 	"caddy/tailscale.caddy"
 	"caddy/acme.caddy"
 )
+
+# Set once the remit admin wrapper is placed on PATH, so the summary can point
+# at it.
+WRAPPER_ON_PATH=""
 
 say() { printf '%s\n' "$*"; }
 warn() { printf 'warning: %s\n' "$*" >&2; }
@@ -249,6 +254,29 @@ write_env() {
 	fi
 }
 
+# The remit wrapper ships as a deploy asset; here it is made executable and,
+# where possible, put on PATH. DEFAULT_DIR is rewritten to this install
+# directory so `remit` works with no REMIT_DIR set. /usr/local/bin is written
+# only when already writable — the installer never elevates on its own.
+place_wrapper() {
+	local src="$DIR/remit"
+	[ -f "$src" ] || return 0
+	local tmp="$src.tmp"
+	sed "s#^DEFAULT_DIR=.*#DEFAULT_DIR=$DIR#" "$src" >"$tmp"
+	mv "$tmp" "$src"
+	chmod +x "$src"
+	[ "$DRY_RUN" = "1" ] && return 0
+	local bindir="/usr/local/bin"
+	if [ -w "$bindir" ]; then
+		cp "$src" "$bindir/remit"
+		chmod +x "$bindir/remit"
+		WRAPPER_ON_PATH="$bindir/remit"
+		say "  remit: installed at $bindir/remit"
+	else
+		say "  remit: wrapper written to $src (not on PATH — see the summary)"
+	fi
+}
+
 compose() {
 	docker compose --project-directory "$DIR" -f "$DIR/$COMPOSE_FILE" --env-file "$DIR/.env" "$@"
 }
@@ -284,6 +312,20 @@ reader is up.
               docker compose -f $COMPOSE_FILE --env-file .env logs -f
               docker compose -f $COMPOSE_FILE --env-file .env down   # data volumes are kept
 EOF
+	if [ -n "$WRAPPER_ON_PATH" ]; then
+		cat <<EOF
+
+  remit       $WRAPPER_ON_PATH wraps those compose commands:
+              remit status | remit logs | remit restart | remit update | remit down
+EOF
+	else
+		cat <<EOF
+
+  remit       $DIR/remit wraps those compose commands (status, logs, restart,
+              update, down). Put it on PATH with:
+                sudo cp $DIR/remit /usr/local/bin/remit
+EOF
+	fi
 	if [ "$TLS_MODE" = "internal" ]; then
 		cat <<EOF
 
@@ -304,6 +346,7 @@ main() {
 	check_ports
 	fetch_assets
 	write_env
+	place_wrapper
 	validate_compose
 	if [ "$DRY_RUN" = "1" ]; then
 		say ""

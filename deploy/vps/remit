@@ -3,9 +3,8 @@
 # remit — admin wrapper for the self-host docker compose deployment.
 #
 # Wraps `docker compose` against the deployment directory so the operator
-# never has to cd there or repeat -f/--env-file. This wrapper is optional and
-# not installed by default; set $REMIT_DIR to your install directory (it
-# overrides DEFAULT_DIR below).
+# never has to cd there or repeat -f/--env-file. install.sh rewrites
+# DEFAULT_DIR below to the directory it installed to; $REMIT_DIR overrides it.
 
 set -eu
 

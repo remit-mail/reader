@@ -66,11 +66,14 @@ with, and reports success — the edit appears to have taken effect and has not.
 `docker compose … up -d` recreates the containers whose configuration changed,
 which is what applies an `.env` edit.
 
-`deploy/vps/remit` is a wrapper over these commands (`remit status`, `remit
-logs`, `remit restart`, `remit update`, `remit down`, `remit config`) — it adds
-the `-f`/`--env-file` flags and reads the install directory from `$REMIT_DIR`.
-The installer does not put it on your PATH; copy it to `/usr/local/bin/remit`
-and set `REMIT_DIR` to your install directory if you want the shorter commands.
+The installer also ships `remit`, a wrapper over those Compose commands:
+`remit status`, `remit logs`, `remit restart`, `remit update`, `remit down`,
+`remit config`. It adds the `-f`/`--env-file` flags and knows the install
+directory, so it works from anywhere. When `/usr/local/bin` is writable the
+installer puts it there; otherwise it leaves it in the install directory and
+prints the one-line `sudo cp` to place it on PATH yourself. The wrapper is a
+convenience — every subcommand is one of the `docker compose` invocations
+above.
 
 ## Manual install
 
