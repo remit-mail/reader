@@ -1,4 +1,4 @@
-export {
-	mailboxes as mailboxTable,
-	mailboxSpecialUseEntries as mailboxSpecialUseTable,
-} from "@remit/drizzle-pg-schema";
+import { entities } from "./active-entities.js";
+
+export const mailboxTable = entities.mailboxes;
+export const mailboxSpecialUseTable = entities.mailboxSpecialUseEntries;

@@ -45,6 +45,14 @@ const DIRNAME_DEFINES = {
 // external everywhere it's used and install it in the runtime stage instead.
 const PG = "pg";
 
+// better-sqlite3 is a native module (a `.node` binding it locates relative to
+// its own install tree). It is reached only on the DATA_BACKEND=sqlite branch
+// (RFC 036), through a dynamic `import()` inside @remit/drizzle-service —
+// so every service that builds a data client can reach it. Keep it external and
+// install it in the runtime stage of the sqlite images: inlining the driver's
+// JS would still leave its `.node` require unresolvable next to the bundle.
+const SQLITE = "better-sqlite3";
+
 // The embedding model path. remit-search-index-worker is the process that
 // actually calls buildEmbeddingServiceFromEnv()/pgvector when
 // DATA_BACKEND=postgres (see packages/search-index-worker/src/services.ts).
@@ -54,12 +62,25 @@ const PG = "pg";
 // image, not pg-index-worker. Stated here, and in the PR description, as a
 // deliberate correction rather than a silent fix.
 //
-// better-sqlite3/sqlite-vec back the LOCAL_VECTORDB_PATH dev-only vector
-// store; they are reached only through `runtimeImport` (a dynamic
-// `import(variable)` esbuild cannot see, by design — see
-// remit-search-service/src/backends/runtime-import.ts) and are dead code on
-// this deployment (pgvector wins whenever DATA_BACKEND=postgres). They are
-// deliberately left out of both the bundle and the runtime image.
+// better-sqlite3/sqlite-vec back the LOCAL_VECTORDB_PATH vector store, reached
+// only through `runtimeImport` (a dynamic `import(variable)` esbuild cannot see,
+// by design — see remit-search-service/src/backends/runtime-import.ts). Because
+// runtimeImport is invisible to esbuild they are never bundled; they are
+// installed into the runtime image instead. On DATA_BACKEND=sqlite (RFC 036)
+// this is the live vector path: search-index-worker WRITES embeddings, so its
+// runtime image (docker/runtime/search-index-worker/package.json) pins
+// `sqlite-vec`. That image is the glibc node:24-slim base — sqlite-vec ships a
+// glibc-only loadable extension (`vec0.so`), which would not dlopen on the
+// Alpine/musl backend image anyway.
+//
+// The backend image serves no semantic-search READS on either compose profile:
+// answering a query means embedding it in-process, and @huggingface/transformers
+// plus the model are deliberately absent from that image (they would roughly
+// quadruple it and park the model's ~300 MiB in the API container). The
+// /search/semantic endpoint capability-gates to empty results instead of
+// erroring — see remit-backend/src/service/semantic-capability.ts and
+// deploy/vps/README.md; FTS/trigram text search covers the primary search
+// contract on both profiles.
 const SEARCH_NATIVE = ["@huggingface/transformers"];
 
 /** @type {Array<{name: string, entry: string, outfile?: string, external?: string[], loader?: Record<string, string>}>} */
@@ -67,27 +88,27 @@ export const TARGETS = [
 	{
 		name: "backend",
 		entry: "packages/backend/dev-server/server.ts",
-		external: [PG],
+		external: [PG, SQLITE],
 	},
 	{
 		name: "imap-worker",
 		entry: "packages/imap-worker/src/poller.ts",
-		external: [PG],
+		external: [PG, SQLITE],
 	},
 	{
 		name: "smtp-worker",
 		entry: "packages/smtp-worker/src/poller.ts",
-		external: [PG],
+		external: [PG, SQLITE],
 	},
 	{
 		name: "account-worker",
 		entry: "packages/account-worker/src/poller.ts",
-		external: [PG],
+		external: [PG, SQLITE],
 	},
 	{
 		name: "search-index-worker",
 		entry: "packages/search-index-worker/src/poller.ts",
-		external: [PG, ...SEARCH_NATIVE],
+		external: [PG, SQLITE, ...SEARCH_NATIVE],
 	},
 	{
 		name: "pg-index-worker",
@@ -102,7 +123,11 @@ export const TARGETS = [
 		name: "backend-migrate",
 		entry: "deploy/vps/migrate/run-migrate.ts",
 		outfile: "dist-docker/backend/migrate.mjs",
-		external: [PG],
+		// better-sqlite3 is a native module reached only on the
+		// DATA_BACKEND=sqlite branch (RFC 036 D5), via a dynamic import esbuild
+		// leaves unresolved; keep it external and install it in the runtime
+		// stage, the same treatment pg gets.
+		external: [PG, SQLITE],
 		loader: { ".sql": "text" },
 	},
 ];

@@ -1,4 +1,4 @@
-export {
-	accountConfigs as accountConfigTable,
-	accounts as accountTable,
-} from "@remit/drizzle-pg-schema";
+import { entities } from "./active-entities.js";
+
+export const accountConfigTable = entities.accountConfigs;
+export const accountTable = entities.accounts;

@@ -3,7 +3,9 @@
 	"private": true,
 	"version": "0.0.0",
 	"dependencies": {
+		"@huggingface/transformers": "4.2.0",
+		"better-sqlite3": "12.11.1",
 		"pg": "8.21.0",
-		"@huggingface/transformers": "4.2.0"
+		"sqlite-vec": "0.1.9"
 	}
 }

@@ -86,4 +86,28 @@ describe("authorizeContentRequest", () => {
 		assert.equal(result.authorized, false);
 		assert.equal(result.authorized === false && result.status, 500);
 	});
+
+	it("enforces signatures in SQLite mode the same as Postgres", () => {
+		const { exp, sig } = createContentSigner(SECRET)(PATH);
+		const valid = authorizeContentRequest({
+			dataBackend: "sqlite",
+			secret: SECRET,
+			relativePath: PATH,
+			exp: String(exp),
+			sig,
+			nowSeconds: now(),
+		});
+		assert.deepEqual(valid, { authorized: true });
+
+		const unsigned = authorizeContentRequest({
+			dataBackend: "sqlite",
+			secret: SECRET,
+			relativePath: PATH,
+			exp: undefined,
+			sig: undefined,
+			nowSeconds: now(),
+		});
+		assert.equal(unsigned.authorized, false);
+		assert.equal(unsigned.authorized === false && unsigned.status, 401);
+	});
 });

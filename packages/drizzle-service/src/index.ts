@@ -53,3 +53,9 @@ export * from "./schema/i4-organize-job-request.js";
 export * from "./schema/i4-outbox-message.js";
 export * from "./schema/message-data.js";
 export { messageDataSchema } from "./schema/message-data.js";
+export {
+	createSqliteDatabase,
+	type SqliteClient,
+	type SqliteClientOptions,
+} from "./sqlite-client.js";
+export { runInTransaction, serializeSqliteWrites } from "./tx.js";

@@ -11,6 +11,7 @@ import {
 	type Request,
 } from "openapi-backend";
 import { assertLocalBypassNotInDeployedEnv } from "./auth.js";
+import { usesBetterAuthJwt } from "./data-backend.js";
 import { handleError } from "./error.js";
 import { handlers } from "./handlers/index.js";
 import { authenticatePostgresRequest } from "./jwt-auth.js";
@@ -154,7 +155,7 @@ const rawHandler = async (event: APIGatewayProxyEvent, context: Context) => {
 
 	const origin = readOriginHeader(event.headers);
 
-	if (process.env.DATA_BACKEND === "postgres") {
+	if (usesBetterAuthJwt()) {
 		const denied = await authenticatePostgresRequest(event);
 		if (denied) return denied;
 	}

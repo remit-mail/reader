@@ -1,1 +1,3 @@
-export { threadMessages as threadMessageTable } from "@remit/drizzle-pg-schema";
+import { entities } from "./active-entities.js";
+
+export const threadMessageTable = entities.threadMessages;

@@ -1,7 +1,7 @@
 {
   "name": "@remit/drizzle-service",
   "version": "1.0.0",
-  "description": "Drizzle ORM service for Postgres (pg-parity)",
+  "description": "Drizzle ORM service parameterized by dialect (Postgres / SQLite)",
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",
@@ -13,13 +13,17 @@
   },
   "scripts": {
     "test:typecheck": "tsgo --noEmit -p tsconfig.json",
-    "test:run": "node --env-file=../../localhost-test-unit.env --import tsx --test 'src/**/*.test.ts'",
+    "test:run:pg": "node --env-file=../../localhost-test-unit.env --import tsx --test 'src/**/!(*.sqlite).test.ts'",
+    "test:run:sqlite": "node --env-file=../../localhost-test-unit-sqlite.env --import tsx --test 'src/**/*.sqlite.test.ts'",
+    "test:run": "npm run test:run:pg && npm run test:run:sqlite",
     "test": "npm run test:typecheck && npm run test:run",
     "fix": "biome check --write src"
   },
   "devDependencies": {
     "@remit/api-zod-schemas": "*",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/pg": "^8.0.0",
+    "better-sqlite3": "^12.11.1",
     "drizzle-kit": "^0.31.1",
     "embedded-postgres": "^18.4.0-beta.17",
     "tsx": "*",
@@ -33,6 +37,7 @@
     "postgres": "^3.4.5",
     "short-uuid": "*",
     "uuid": "*",
-    "@remit/drizzle-pg-schema": "*"
+    "@remit/drizzle-pg-schema": "*",
+    "@remit/drizzle-sqlite-schema": "*"
   }
 }

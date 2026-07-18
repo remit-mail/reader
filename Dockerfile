@@ -144,6 +144,10 @@ COPY --from=builder --chown=node:node /app/build/remit-openapi3/openapi.json ./o
 # to run it instead of server.mjs.
 COPY --from=builder --chown=node:node /app/dist-docker/backend/migrate.mjs ./migrate.mjs
 COPY --from=builder --chown=node:node /app/deploy/vps/migrations ./migrations
+# The sqlite migration sets the migrate entrypoint applies when
+# DATA_BACKEND=sqlite (RFC 036 D5). Shipped alongside the pg set; the compose
+# `migrate` service picks one by DATA_BACKEND.
+COPY --from=builder --chown=node:node /app/deploy/vps/migrations-sqlite ./migrations-sqlite
 ENV SERVER_PORT=8080
 EXPOSE 8080
 CMD ["node", "server.mjs"]
@@ -227,9 +231,23 @@ RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack 
 	/usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 USER node
 COPY --chown=node:node docker/runtime/search-index-worker/bake-model.mjs ./bake-model.mjs
-RUN SEARCH_EMBEDDING_MODEL_ID=Xenova/paraphrase-multilingual-MiniLM-L12-v2 \
-	node bake-model.mjs \
-	&& rm bake-model.mjs
+# Bake the int8-quantized model_quantized.onnx (~118MB), not the fp32
+# model.onnx (~470MB): SEARCH_EMBEDDING_DTYPE=q8 here and in the runtime ENV
+# below make the bake and the worker resolve the identical cached file. Search
+# scoring differs slightly from the fp32 deployment targets by design —
+# embeddings are a rebuildable projection re-derived on reindex, so cross-target
+# parity is not required (see deploy/vps/README.md).
+RUN MODEL_ID=Xenova/paraphrase-multilingual-MiniLM-L12-v2 && \
+	SEARCH_EMBEDDING_MODEL_ID="$MODEL_ID" SEARCH_EMBEDDING_DTYPE=q8 \
+		node bake-model.mjs && \
+	rm bake-model.mjs && \
+	# Assert the bake fetched the quantized weights and NOT the fp32 file: if a
+	# transformers.js bump changes the dtype→filename mapping or the default
+	# precision, fail the build loudly instead of silently shipping the ~470MB
+	# fp32 model (or an image with no model at all).
+	MODEL_CACHE="node_modules/@huggingface/transformers/.cache/$MODEL_ID/onnx" && \
+	test -f "$MODEL_CACHE/model_quantized.onnx" || { echo "FATAL: $MODEL_CACHE/model_quantized.onnx missing after bake — dtype=q8 did not resolve model_quantized.onnx, transformers.js dtype mapping changed" >&2; exit 1; } && \
+	test ! -f "$MODEL_CACHE/model.onnx" || { echo "FATAL: $MODEL_CACHE/model.onnx present after bake — fp32 weights baked into the image, dtype=q8 was ignored" >&2; exit 1; }
 # sharp is NOT pruned, unlike onnxruntime-web above, despite
 # `feature-extraction` (text embeddings) never calling into it at runtime:
 # @huggingface/transformers' Node entrypoint (transformers.node.mjs) has a
@@ -243,6 +261,7 @@ RUN SEARCH_EMBEDDING_MODEL_ID=Xenova/paraphrase-multilingual-MiniLM-L12-v2 \
 COPY --from=builder --chown=node:node /app/dist-docker/search-index-worker/server.mjs ./server.mjs
 ENV SEARCH_EMBEDDING_PROVIDER=local
 ENV SEARCH_EMBEDDING_MODEL_ID=Xenova/paraphrase-multilingual-MiniLM-L12-v2
+ENV SEARCH_EMBEDDING_DTYPE=q8
 CMD ["node", "server.mjs"]
 
 ########################################################################

@@ -7,6 +7,10 @@ import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent } from "../auth.js";
 import { getClient } from "../service/dynamodb.js";
+import {
+	isSemanticSearchUnavailable,
+	noteSemanticCapabilityAbsence,
+} from "../service/semantic-capability.js";
 import type { OperationHandler, SemanticSearchOperationIds } from "../types.js";
 
 const DEFAULT_LIMIT = 25;
@@ -70,17 +74,29 @@ export const SemanticSearchOperations: Record<
 				? { from: sentDateFrom, to: sentDateTo }
 				: undefined;
 
-		const results = await (await getClient()).search.search({
-			query,
-			accountConfigId,
-			mailboxId,
-			sentDateRange,
-			hasAttachment,
-			hasStars,
-			isRead,
-			category,
-			limit: limit ?? DEFAULT_LIMIT,
-		});
+		// Capability gate for the self-host compose profiles, whose backend
+		// image cannot run the semantic pipeline — see semantic-capability.ts.
+		if (isSemanticSearchUnavailable()) {
+			return { items: [] };
+		}
+
+		let results: SearchResult[];
+		try {
+			results = await (await getClient()).search.search({
+				query,
+				accountConfigId,
+				mailboxId,
+				sentDateRange,
+				hasAttachment,
+				hasStars,
+				isRead,
+				category,
+				limit: limit ?? DEFAULT_LIMIT,
+			});
+		} catch (error) {
+			if (!noteSemanticCapabilityAbsence(error)) throw error;
+			return { items: [] };
+		}
 
 		return {
 			items: results.map(toResponse),

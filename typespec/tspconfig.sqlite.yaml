@@ -1,0 +1,12 @@
+emit:
+  - "@kattebak/typespec-drizzle-orm-generator"
+options:
+  "@kattebak/typespec-drizzle-orm-generator":
+    emitter-output-dir: "{cwd}/build/drizzle-entities-sqlite"
+    package-name: "@remit/drizzle-sqlite-schema"
+    package-version: "0.0.1"
+    frontend: "remit"
+    schema-only: true
+    foreign-keys: false
+    id-default: true
+    dialect: "sqlite"

@@ -30,15 +30,21 @@ export const resolveSelfSignUpEnabled = (
 
 /**
  * Resolve the better-auth config from the environment. Callers reach this only
- * in Postgres mode; the Cognito/AWS path never touches better-auth.
+ * on the self-host relational backends (Postgres or SQLite); the Cognito/AWS
+ * path never touches better-auth. On `DATA_BACKEND=sqlite` the identity tables
+ * share the app database file (RFC 036 D3), so the locator is `SQLITE_DB_PATH`;
+ * otherwise it is the Postgres URL.
  */
 export const resolveAuthConfig = (): AuthConfig => {
 	const baseURL = required("BETTER_AUTH_URL", process.env.BETTER_AUTH_URL);
+	const provider = process.env.DATA_BACKEND === "sqlite" ? "sqlite" : "pg";
+	const connectionString =
+		provider === "sqlite"
+			? required("SQLITE_DB_PATH", process.env.SQLITE_DB_PATH)
+			: required("PG_CONNECTION_URL", process.env.PG_CONNECTION_URL);
 	return {
-		connectionString: required(
-			"PG_CONNECTION_URL",
-			process.env.PG_CONNECTION_URL,
-		),
+		provider,
+		connectionString,
 		secret: required("BETTER_AUTH_SECRET", process.env.BETTER_AUTH_SECRET),
 		baseURL,
 		trustedOrigins: process.env.BETTER_AUTH_TRUSTED_ORIGINS?.split(",")

@@ -9,6 +9,7 @@ import { messageFlagPushTable } from "../schema/i4-message-flag-push.js";
 import { messagePlacementMoveTable } from "../schema/i4-message-placement-move.js";
 import { outboxMessageTable } from "../schema/i4-outbox-message.js";
 import { threadMessageTable } from "../schema/thread-message.js";
+import { runInTransaction } from "../tx.js";
 import { deleteMessageSubtree, type SubtreeDb } from "./message.js";
 
 export interface CascadeEntity {
@@ -88,7 +89,7 @@ export const runDrizzleCascadeDelete = async (
 		}
 	}
 
-	await db.transaction(async (tx) => {
+	await runInTransaction(db, async (tx) => {
 		const messageIds = (grouped.get("Message") ?? []).map((k) => k.messageId);
 		await deleteMessageSubtree(tx as unknown as SubtreeDb, messageIds);
 

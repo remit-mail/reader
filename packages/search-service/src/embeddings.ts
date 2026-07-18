@@ -3,6 +3,7 @@ import {
 	InvokeModelCommand,
 } from "@aws-sdk/client-bedrock-runtime";
 import type {
+	DataType,
 	FeatureExtractionPipeline,
 	pipeline as PipelineFn,
 } from "@huggingface/transformers";
@@ -181,6 +182,14 @@ export const createDeterministicEmbeddingService = (
 export interface LocalEmbeddingConfig {
 	modelId?: string;
 	dimensions?: number;
+	/**
+	 * ONNX weight precision Transformers.js loads. Left unset it defaults to
+	 * `fp32` (the full-precision `model.onnx`); set to `q8` to load the
+	 * int8-quantized `model_quantized.onnx`, which the search-index-worker
+	 * container bakes to keep the image small. The bake step and this runtime
+	 * must pass the same value so they resolve the identical cached file.
+	 */
+	dtype?: DataType;
 }
 
 const DEFAULT_LOCAL_MODEL_ID = "Xenova/all-MiniLM-L6-v2";
@@ -199,12 +208,20 @@ export class LocalEmbeddingService implements EmbeddingService {
 	readonly dimensions: number;
 	readonly embeddingId: string;
 	private modelId: string;
+	private dtype?: DataType;
 	private pipelinePromise: Promise<FeatureExtractionPipeline> | null = null;
 
 	constructor(config: LocalEmbeddingConfig = {}) {
 		this.modelId = config.modelId ?? DEFAULT_LOCAL_MODEL_ID;
 		this.dimensions = config.dimensions ?? DEFAULT_LOCAL_DIMENSIONS;
-		this.embeddingId = `local:${this.modelId}@${this.dimensions}`;
+		this.dtype = config.dtype;
+		// dtype is part of the embedding identity: quantized weights produce
+		// different vectors, and embeddingId feeds the content hash that gates
+		// re-embedding. Unset keeps the historical id so existing fp32 indexes
+		// are not invalidated.
+		this.embeddingId = this.dtype
+			? `local:${this.modelId}:${this.dtype}@${this.dimensions}`
+			: `local:${this.modelId}@${this.dimensions}`;
 	}
 
 	private getPipeline = async (): Promise<FeatureExtractionPipeline> => {
@@ -213,7 +230,9 @@ export class LocalEmbeddingService implements EmbeddingService {
 			const { pipeline } = await runtimeImport<TransformersModule>(
 				"@huggingface/transformers",
 			);
-			return pipeline("feature-extraction", this.modelId);
+			return pipeline("feature-extraction", this.modelId, {
+				dtype: this.dtype,
+			});
 		})();
 		return this.pipelinePromise;
 	};
