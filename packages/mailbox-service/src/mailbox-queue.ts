@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
+import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
 import type {
 	CreateMailboxInput,
 	IMailboxRepository,
 	MailboxItem,
 } from "@remit/data-ports";
 import { MailboxSyncStatus } from "@remit/domain-enums";
-import { resolveSqsCredentials } from "@remit/sqs-client";
+import { createQueueProducer } from "@remit/sqs-client/producer";
 
 /**
  * MAILBOX_CREATE event structure (matches remit-imap-worker/events.ts)
@@ -100,20 +100,10 @@ export class MailboxQueueService {
 		this.queueUrl = sqsQueueUrl;
 		this.log = config.logger ?? noopLogger;
 
-		this.sqs = new SQSClient({
-			endpoint: sqsEndpoint ?? this.deriveEndpoint(sqsQueueUrl),
-			credentials: resolveSqsCredentials(),
+		this.sqs = createQueueProducer({
+			queueUrl: sqsQueueUrl,
+			endpoint: sqsEndpoint,
 		});
-	}
-
-	/**
-	 * Derive SQS endpoint from queue URL for local development.
-	 */
-	private deriveEndpoint(queueUrl: string): string | undefined {
-		if (queueUrl.startsWith("http://localhost")) {
-			return new URL(queueUrl).origin;
-		}
-		return undefined;
 	}
 
 	/**

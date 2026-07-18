@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
 import type { IMessageFlagPushRepository } from "@remit/data-ports";
-import { createMarkerSqsClient } from "./marker-sqs-client.js";
+import { createQueueProducer } from "@remit/sqs-client/producer";
 
 /**
  * Event the reconciler (imap-worker `handleFlagPush`) drains. Carries ONLY
@@ -76,7 +76,10 @@ export class FlagPushService {
 		this.markerService = config.markerService;
 		this.queueUrl = config.sqsQueueUrl;
 		this.log = config.logger ?? noopLogger;
-		this.sqs = createMarkerSqsClient(config.sqsQueueUrl, config.sqsEndpoint);
+		this.sqs = createQueueProducer({
+			queueUrl: config.sqsQueueUrl,
+			endpoint: config.sqsEndpoint,
+		});
 	}
 
 	flip = async (params: {

@@ -12,6 +12,10 @@
 		"./poller": {
 			"types": "./src/poller.ts",
 			"default": "./src/poller.ts"
+		},
+		"./producer": {
+			"types": "./src/producer.ts",
+			"default": "./src/producer.ts"
 		}
 	},
 	"scripts": {
