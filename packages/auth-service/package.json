@@ -39,5 +39,14 @@
     "drizzle-orm": "^0.45.2",
     "jose": "^6.2.3",
     "pg": "^8.0.0"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/remit-mail/remit.git",
+    "directory": "packages/auth-service"
   }
 }

@@ -28,5 +28,14 @@
 	},
 	"devDependencies": {
 		"@types/word-extractor": "^1.0.6"
+	},
+	"license": "MIT",
+	"publishConfig": {
+		"access": "public"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/remit-mail/remit.git",
+		"directory": "packages/attachment-service"
 	}
 }
