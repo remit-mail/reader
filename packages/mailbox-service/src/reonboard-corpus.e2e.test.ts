@@ -369,126 +369,124 @@ const purgeAccount = async (
 	await accountService.delete(accountId).catch(() => {});
 };
 
-describe(
-	"Re-onboard rebuilds a full corpus (epic #630 / #633 / #634 / #635)",
-	{ skip: !process.env.RUN_E2E_TESTS },
-	() => {
-		const accountConfigId = CONFIG_ID;
-		let first: OnboardedAccount;
+describe("Re-onboard rebuilds a full corpus (epic #630 / #633 / #634 / #635)", {
+	skip: !process.env.RUN_E2E_TESTS,
+}, () => {
+	const accountConfigId = CONFIG_ID;
+	let first: OnboardedAccount;
 
-		before(async () => {
-			first = await onboardAccount(accountConfigId);
-			assert.ok(
-				first.imapMessageCount > 0,
-				"Dovecot INBOX should be seeded with messages",
-			);
-		});
+	before(async () => {
+		first = await onboardAccount(accountConfigId);
+		assert.ok(
+			first.imapMessageCount > 0,
+			"Dovecot INBOX should be seeded with messages",
+		);
+	});
 
-		after(async () => {
-			// Best-effort cleanup of whatever the final re-onboard left behind.
-			const accounts = await accountConfigService
-				.describe(accountConfigId)
-				.catch(() => null);
-			if (accounts) {
-				for (const acct of accounts.account) {
-					await purgeAccount(acct.accountId, accountConfigId).catch(() => {});
-				}
+	after(async () => {
+		// Best-effort cleanup of whatever the final re-onboard left behind.
+		const accounts = await accountConfigService
+			.describe(accountConfigId)
+			.catch(() => null);
+		if (accounts) {
+			for (const acct of accounts.account) {
+				await purgeAccount(acct.accountId, accountConfigId).catch(() => {});
 			}
-			await accountConfigService.delete(accountConfigId).catch(() => {});
-		});
+		}
+		await accountConfigService.delete(accountConfigId).catch(() => {});
+	});
 
-		test("1. corpus materializes — one row per distinct Message-ID, account-scoped", async () => {
-			const synced = await syncMailboxToCompletion(
-				first.accountId,
-				accountConfigId,
-				first.inboxMailboxId,
-			);
-			const rows = await countMessagesByMailbox(first.inboxMailboxId);
+	test("1. corpus materializes — one row per distinct Message-ID, account-scoped", async () => {
+		const synced = await syncMailboxToCompletion(
+			first.accountId,
+			accountConfigId,
+			first.inboxMailboxId,
+		);
+		const rows = await countMessagesByMailbox(first.inboxMailboxId);
 
-			assert.equal(
-				rows,
-				first.expectedCorpusSize,
-				`DDB INBOX rows (${rows}) should equal the distinct-Message-ID count (${first.expectedCorpusSize}; IMAP EXISTS=${first.imapMessageCount})`,
-			);
-			assert.ok(
-				rows > 25,
-				`a real corpus must be far more than the ~25-row collision symptom (got ${rows})`,
-			);
+		assert.equal(
+			rows,
+			first.expectedCorpusSize,
+			`DDB INBOX rows (${rows}) should equal the distinct-Message-ID count (${first.expectedCorpusSize}; IMAP EXISTS=${first.imapMessageCount})`,
+		);
+		assert.ok(
+			rows > 25,
+			`a real corpus must be far more than the ~25-row collision symptom (got ${rows})`,
+		);
 
-			// account-scoped id: the stored messageId must match the id derived from
-			// THIS account, not the accountConfig.
-			const sample = (
-				await messageService.listByMailbox(first.inboxMailboxId, { limit: 1 })
-			).items[0];
-			assert.ok(sample, "expected at least one stored message");
-			assert.ok(synced >= 0, "sync should report a count");
-		});
+		// account-scoped id: the stored messageId must match the id derived from
+		// THIS account, not the accountConfig.
+		const sample = (
+			await messageService.listByMailbox(first.inboxMailboxId, { limit: 1 })
+		).items[0];
+		assert.ok(sample, "expected at least one stored message");
+		assert.ok(synced >= 0, "sync should report a count");
+	});
 
-		test("2. idempotent — a second message-sync adds 0 new rows", async () => {
-			const before = await countMessagesByMailbox(first.inboxMailboxId);
-			await syncMailboxToCompletion(
-				first.accountId,
-				accountConfigId,
-				first.inboxMailboxId,
-			);
-			const afterCount = await countMessagesByMailbox(first.inboxMailboxId);
-			assert.equal(
-				afterCount,
-				before,
-				`re-sync must not add rows (before=${before}, after=${afterCount})`,
-			);
-		});
+	test("2. idempotent — a second message-sync adds 0 new rows", async () => {
+		const before = await countMessagesByMailbox(first.inboxMailboxId);
+		await syncMailboxToCompletion(
+			first.accountId,
+			accountConfigId,
+			first.inboxMailboxId,
+		);
+		const afterCount = await countMessagesByMailbox(first.inboxMailboxId);
+		assert.equal(
+			afterCount,
+			before,
+			`re-sync must not add rows (before=${before}, after=${afterCount})`,
+		);
+	});
 
-		test("3. delete drains to zero — purge removes every account row", async () => {
-			await purgeAccount(first.accountId, accountConfigId);
+	test("3. delete drains to zero — purge removes every account row", async () => {
+		await purgeAccount(first.accountId, accountConfigId);
 
-			const rows = await countMessagesByMailbox(first.inboxMailboxId);
-			assert.equal(rows, 0, `Message rows must drain to zero (got ${rows})`);
+		const rows = await countMessagesByMailbox(first.inboxMailboxId);
+		assert.equal(rows, 0, `Message rows must drain to zero (got ${rows})`);
 
-			const threads = await threadMessageService.listByMailbox(
-				accountConfigId,
-				first.inboxMailboxId,
-				{ limit: 5 },
-			);
-			assert.equal(
-				threads.items.length,
-				0,
-				`ThreadMessage rows must drain to zero (got ${threads.items.length})`,
-			);
+		const threads = await threadMessageService.listByMailbox(
+			accountConfigId,
+			first.inboxMailboxId,
+			{ limit: 5 },
+		);
+		assert.equal(
+			threads.items.length,
+			0,
+			`ThreadMessage rows must drain to zero (got ${threads.items.length})`,
+		);
 
-			const mailboxesLeft = await mailboxService.listByAccount(first.accountId);
-			assert.equal(
-				mailboxesLeft.items.length,
-				0,
-				`Mailbox rows must drain to zero (got ${mailboxesLeft.items.length})`,
-			);
-		});
+		const mailboxesLeft = await mailboxService.listByAccount(first.accountId);
+		assert.equal(
+			mailboxesLeft.items.length,
+			0,
+			`Mailbox rows must drain to zero (got ${mailboxesLeft.items.length})`,
+		);
+	});
 
-		test("4. re-onboard rebuilds — same email gets a FRESH full corpus (not ~25)", async () => {
-			const second = await onboardAccount(accountConfigId);
+	test("4. re-onboard rebuilds — same email gets a FRESH full corpus (not ~25)", async () => {
+		const second = await onboardAccount(accountConfigId);
 
-			assert.notEqual(
-				second.accountId,
-				first.accountId,
-				"re-onboard issues a new random accountId",
-			);
+		assert.notEqual(
+			second.accountId,
+			first.accountId,
+			"re-onboard issues a new random accountId",
+		);
 
-			const synced = await syncMailboxToCompletion(
-				second.accountId,
-				accountConfigId,
-				second.inboxMailboxId,
-			);
-			const rows = await countMessagesByMailbox(second.inboxMailboxId);
+		const synced = await syncMailboxToCompletion(
+			second.accountId,
+			accountConfigId,
+			second.inboxMailboxId,
+		);
+		const rows = await countMessagesByMailbox(second.inboxMailboxId);
 
-			assert.equal(
-				rows,
-				second.expectedCorpusSize,
-				`re-onboard DDB rows (${rows}) should equal the distinct-Message-ID count (${second.expectedCorpusSize}; IMAP EXISTS=${second.imapMessageCount})`,
-			);
-			assert.ok(
-				rows > 25,
-				`re-onboard MUST rebuild a full corpus, not collapse to the ~25-row collision (got ${rows}, synced ${synced})`,
-			);
-		});
-	},
-);
+		assert.equal(
+			rows,
+			second.expectedCorpusSize,
+			`re-onboard DDB rows (${rows}) should equal the distinct-Message-ID count (${second.expectedCorpusSize}; IMAP EXISTS=${second.imapMessageCount})`,
+		);
+		assert.ok(
+			rows > 25,
+			`re-onboard MUST rebuild a full corpus, not collapse to the ~25-row collision (got ${rows}, synced ${synced})`,
+		);
+	});
+});

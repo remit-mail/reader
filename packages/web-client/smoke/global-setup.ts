@@ -27,6 +27,7 @@ const loadEnvFile = (envPath: string) => {
 loadEnvFile(resolve(__dirname, "../../../localhost-test-e2e.env"));
 
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
+import { MailboxSpecialUse } from "@remit/domain-enums";
 import { Mailbox } from "@remit/electrodb-entities";
 import {
 	AccountConfigService,
@@ -42,7 +43,6 @@ import {
 	REMIT_NAMESPACE,
 	ThreadMessageService,
 } from "@remit/remit-electrodb-service";
-import { MailboxSpecialUse } from "@remit/domain-enums";
 import {
 	createKmsDataKeyProvider,
 	createSecretsService,

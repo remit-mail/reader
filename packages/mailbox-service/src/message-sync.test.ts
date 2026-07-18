@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { MailboxCursorState } from "@remit/domain-enums";
 import type {
 	AddressService,
 	BodyPartUpsertInput,
@@ -10,7 +11,6 @@ import {
 	MessageService,
 	ThreadMessageService,
 } from "@remit/remit-electrodb-service";
-import { MailboxCursorState } from "@remit/domain-enums";
 import type { ManagedConnectionFactory } from "./connection-factory.js";
 import {
 	isParseableEmailAddress,

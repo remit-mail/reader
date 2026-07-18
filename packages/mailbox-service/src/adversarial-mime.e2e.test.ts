@@ -151,161 +151,157 @@ const bodyText = (parsed: ParsedMail): string => {
 	return `${text}\n${html}`;
 };
 
-describe(
-	"Adversarial MIME corpus (Dovecot) — #402",
-	{ skip: !process.env.RUN_E2E_TESTS },
-	() => {
-		// Own mailbox instead of the shared INBOX so appending fixtures never
-		// collides with another e2e file's count/flag assertions (#508).
-		const inbox = uniqueMailboxName("E2E_adversarial");
+describe("Adversarial MIME corpus (Dovecot) — #402", {
+	skip: !process.env.RUN_E2E_TESTS,
+}, () => {
+	// Own mailbox instead of the shared INBOX so appending fixtures never
+	// collides with another e2e file's count/flag assertions (#508).
+	const inbox = uniqueMailboxName("E2E_adversarial");
 
-		before(async () => {
-			await withMailfuzzConnection(async (connection) => {
-				await connection.createMailbox(inbox);
-			});
+	before(async () => {
+		await withMailfuzzConnection(async (connection) => {
+			await connection.createMailbox(inbox);
 		});
+	});
 
-		after(async () => {
-			const connection = createMailfuzzConnection();
-			await connection.connect();
-			await connection.deleteMailbox(inbox).catch(() => {});
-			if (connection.isConnected) {
-				await connection.disconnect();
-			}
-		});
-
-		// Sanity: every .eml on disk has an expectation entry, and every
-		// expectation entry points at an existing file. Catches a fixture being
-		// added without an assertion (or vice versa).
-		test("every fixture has an expectation entry", () => {
-			const onDisk = new Set(listEmlFixtures());
-			const expected = new Set(Object.keys(EXPECTATIONS));
-			for (const name of onDisk) {
-				assert.ok(
-					expected.has(name),
-					`Fixture ${name} has no expectation entry in EXPECTATIONS`,
-				);
-			}
-			for (const name of expected) {
-				assert.ok(
-					onDisk.has(name),
-					`Expectation ${name} has no .eml file on disk`,
-				);
-			}
-			// Pin the count: #402 calls for 8 adversarial shapes.
-			assert.equal(
-				onDisk.size,
-				8,
-				"Expected exactly 8 adversarial MIME fixtures",
-			);
-		});
-
-		for (const name of Object.keys(EXPECTATIONS).sort()) {
-			const expectation = EXPECTATIONS[name];
-			if (!expectation) continue;
-
-			test(`fixture ${name} round-trips through IMAP and parses`, async () => {
-				const raw = loadFixtureRaw(name);
-
-				await withMailfuzzConnection(async (connection) => {
-					// APPEND the fixture into this file's own mailbox. Mailfuzz uses
-					// Dovecot which returns a proper UID on APPEND (mokapi does not —
-					// see outbox-roundtrip.e2e.test.ts and the RFC 025 notes).
-					const appendResult = await connection.append(inbox, raw);
-					assert.ok(
-						appendResult.uid > 0,
-						`APPEND should return a UID for ${name}`,
-					);
-
-					await connection.openBox(inbox, true);
-
-					// Fetch the message we just appended back. fetchMessageBody
-					// returns the raw RFC822 source; mailparser handles the rest
-					// (multipart walking, base64/qp decoding, charset folding).
-					const rfc822 = await connection.fetchMessageBody(appendResult.uid);
-					assert.ok(
-						rfc822.length > 0,
-						`fetchMessageBody should return bytes for ${name}`,
-					);
-
-					// BODYSTRUCTURE re-fetch: exercises the IMAP mapper path at the
-					// integration boundary (the exact regression class from #394).
-					// Skipped for fixtures with synthetic shapes that don't produce
-					// meaningful BODYSTRUCTURE (see skipBodyStructure flag + #408).
-					// The guard in fetchMessages skips rows with undefined uid/internalDate
-					// so back-to-back FETCH is safe on Dovecot (see imapflow-connection.ts).
-					if (!expectation.skipBodyStructure) {
-						const refetched = await connection.fetchMessages([
-							appendResult.uid,
-						]);
-						assert.ok(
-							refetched.length > 0,
-							`BODYSTRUCTURE re-fetch should return a message for ${name}`,
-						);
-						assert.ok(
-							refetched[0]?.bodyStructure != null,
-							`BODYSTRUCTURE should be present for ${name}`,
-						);
-					}
-
-					const parsed = await simpleParser(rfc822);
-
-					// Subject round-trips (proves we fetched the right message and
-					// any encoded-word headers decoded correctly).
-					assert.ok(
-						parsed.subject,
-						`Parsed subject should be present for ${name}`,
-					);
-					assert.ok(
-						parsed.subject?.includes(expectation.subjectIncludes),
-						`Subject "${parsed.subject}" should include "${expectation.subjectIncludes}" for ${name}`,
-					);
-
-					// Body renders — at least one of text/html is non-empty. This
-					// is the headline "body renders" assertion from #402.
-					const text = parsed.text ?? "";
-					const html = typeof parsed.html === "string" ? parsed.html : "";
-					assert.ok(
-						text.trim().length > 0 || html.trim().length > 0,
-						`Body should render (text or html non-empty) for ${name}`,
-					);
-
-					if (expectation.bodyContains) {
-						const haystack = bodyText(parsed).toLowerCase();
-						const needle = expectation.bodyContains.toLowerCase();
-						assert.ok(
-							haystack.includes(needle),
-							`Body should contain "${expectation.bodyContains}" for ${name}`,
-						);
-					}
-
-					// Attachments are listable — every expected attachment appears
-					// in parsed.attachments with a matching filename and non-zero
-					// content length. This is the "attachments listable" half of
-					// the #402 contract.
-					const attachments = parsed.attachments ?? [];
-					for (const expectedAtt of expectation.attachments) {
-						const found = attachments.find(
-							(a) => a.filename === expectedAtt.filename,
-						);
-						assert.ok(
-							found,
-							`Attachment "${expectedAtt.filename}" should be listable for ${name}; got [${attachments.map((a) => a.filename).join(", ")}]`,
-						);
-						assert.ok(
-							(found.size ?? 0) > 0,
-							`Attachment "${expectedAtt.filename}" should have non-zero size for ${name}`,
-						);
-						if (expectedAtt.contentType) {
-							assert.equal(
-								found.contentType,
-								expectedAtt.contentType,
-								`Attachment "${expectedAtt.filename}" should have contentType "${expectedAtt.contentType}" for ${name}`,
-							);
-						}
-					}
-				});
-			});
+	after(async () => {
+		const connection = createMailfuzzConnection();
+		await connection.connect();
+		await connection.deleteMailbox(inbox).catch(() => {});
+		if (connection.isConnected) {
+			await connection.disconnect();
 		}
-	},
-);
+	});
+
+	// Sanity: every .eml on disk has an expectation entry, and every
+	// expectation entry points at an existing file. Catches a fixture being
+	// added without an assertion (or vice versa).
+	test("every fixture has an expectation entry", () => {
+		const onDisk = new Set(listEmlFixtures());
+		const expected = new Set(Object.keys(EXPECTATIONS));
+		for (const name of onDisk) {
+			assert.ok(
+				expected.has(name),
+				`Fixture ${name} has no expectation entry in EXPECTATIONS`,
+			);
+		}
+		for (const name of expected) {
+			assert.ok(
+				onDisk.has(name),
+				`Expectation ${name} has no .eml file on disk`,
+			);
+		}
+		// Pin the count: #402 calls for 8 adversarial shapes.
+		assert.equal(
+			onDisk.size,
+			8,
+			"Expected exactly 8 adversarial MIME fixtures",
+		);
+	});
+
+	for (const name of Object.keys(EXPECTATIONS).sort()) {
+		const expectation = EXPECTATIONS[name];
+		if (!expectation) continue;
+
+		test(`fixture ${name} round-trips through IMAP and parses`, async () => {
+			const raw = loadFixtureRaw(name);
+
+			await withMailfuzzConnection(async (connection) => {
+				// APPEND the fixture into this file's own mailbox. Mailfuzz uses
+				// Dovecot which returns a proper UID on APPEND (mokapi does not —
+				// see outbox-roundtrip.e2e.test.ts and the RFC 025 notes).
+				const appendResult = await connection.append(inbox, raw);
+				assert.ok(
+					appendResult.uid > 0,
+					`APPEND should return a UID for ${name}`,
+				);
+
+				await connection.openBox(inbox, true);
+
+				// Fetch the message we just appended back. fetchMessageBody
+				// returns the raw RFC822 source; mailparser handles the rest
+				// (multipart walking, base64/qp decoding, charset folding).
+				const rfc822 = await connection.fetchMessageBody(appendResult.uid);
+				assert.ok(
+					rfc822.length > 0,
+					`fetchMessageBody should return bytes for ${name}`,
+				);
+
+				// BODYSTRUCTURE re-fetch: exercises the IMAP mapper path at the
+				// integration boundary (the exact regression class from #394).
+				// Skipped for fixtures with synthetic shapes that don't produce
+				// meaningful BODYSTRUCTURE (see skipBodyStructure flag + #408).
+				// The guard in fetchMessages skips rows with undefined uid/internalDate
+				// so back-to-back FETCH is safe on Dovecot (see imapflow-connection.ts).
+				if (!expectation.skipBodyStructure) {
+					const refetched = await connection.fetchMessages([appendResult.uid]);
+					assert.ok(
+						refetched.length > 0,
+						`BODYSTRUCTURE re-fetch should return a message for ${name}`,
+					);
+					assert.ok(
+						refetched[0]?.bodyStructure != null,
+						`BODYSTRUCTURE should be present for ${name}`,
+					);
+				}
+
+				const parsed = await simpleParser(rfc822);
+
+				// Subject round-trips (proves we fetched the right message and
+				// any encoded-word headers decoded correctly).
+				assert.ok(
+					parsed.subject,
+					`Parsed subject should be present for ${name}`,
+				);
+				assert.ok(
+					parsed.subject?.includes(expectation.subjectIncludes),
+					`Subject "${parsed.subject}" should include "${expectation.subjectIncludes}" for ${name}`,
+				);
+
+				// Body renders — at least one of text/html is non-empty. This
+				// is the headline "body renders" assertion from #402.
+				const text = parsed.text ?? "";
+				const html = typeof parsed.html === "string" ? parsed.html : "";
+				assert.ok(
+					text.trim().length > 0 || html.trim().length > 0,
+					`Body should render (text or html non-empty) for ${name}`,
+				);
+
+				if (expectation.bodyContains) {
+					const haystack = bodyText(parsed).toLowerCase();
+					const needle = expectation.bodyContains.toLowerCase();
+					assert.ok(
+						haystack.includes(needle),
+						`Body should contain "${expectation.bodyContains}" for ${name}`,
+					);
+				}
+
+				// Attachments are listable — every expected attachment appears
+				// in parsed.attachments with a matching filename and non-zero
+				// content length. This is the "attachments listable" half of
+				// the #402 contract.
+				const attachments = parsed.attachments ?? [];
+				for (const expectedAtt of expectation.attachments) {
+					const found = attachments.find(
+						(a) => a.filename === expectedAtt.filename,
+					);
+					assert.ok(
+						found,
+						`Attachment "${expectedAtt.filename}" should be listable for ${name}; got [${attachments.map((a) => a.filename).join(", ")}]`,
+					);
+					assert.ok(
+						(found.size ?? 0) > 0,
+						`Attachment "${expectedAtt.filename}" should have non-zero size for ${name}`,
+					);
+					if (expectedAtt.contentType) {
+						assert.equal(
+							found.contentType,
+							expectedAtt.contentType,
+							`Attachment "${expectedAtt.filename}" should have contentType "${expectedAtt.contentType}" for ${name}`,
+						);
+					}
+				}
+			});
+		});
+	}
+});

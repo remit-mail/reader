@@ -6,7 +6,6 @@ import type {
 	IMailboxSpecialUseRepository,
 } from "@remit/data-ports";
 import { SyncPhase } from "@remit/domain-enums";
-import type { Logger } from "@remit/remit-logger-lambda";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
 import {
 	createConnectionWithCredentials,
@@ -14,6 +13,7 @@ import {
 	MailConnectionError,
 	type MailCredentials,
 } from "@remit/mailbox-service";
+import type { Logger } from "@remit/remit-logger-lambda";
 import pMap from "p-map";
 import { isAccountDeleted, isUnsyncableHost } from "../account-check.js";
 import { emitEvent } from "../emit.js";

@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { MessageCategory, SenderTrust, StarColor } from "@remit/domain-enums";
 import type {
 	ResultList,
 	ThreadMessageItem,
 } from "@remit/remit-electrodb-service";
-import { MessageCategory, SenderTrust, StarColor } from "@remit/domain-enums";
 import {
 	buildListThreadMessagesOptions,
 	buildListThreadsOptions,

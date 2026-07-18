@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { MessageItem } from "@remit/remit-electrodb-service";
 import { SenderTrust } from "@remit/domain-enums";
+import type { MessageItem } from "@remit/remit-electrodb-service";
 import { classifyPlacement } from "./classifyPlacement.js";
 
 const baseMessage = (): Partial<MessageItem> => ({

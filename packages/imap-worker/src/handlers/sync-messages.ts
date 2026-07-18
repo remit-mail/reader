@@ -11,7 +11,6 @@ import type {
 	IUnitOfWork,
 } from "@remit/data-ports";
 import { SyncPhase } from "@remit/domain-enums";
-import { type Logger, MetricUnit, metrics } from "@remit/remit-logger-lambda";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
 import {
 	createManagedConnectionFactory,
@@ -20,6 +19,7 @@ import {
 	MessageSyncService,
 	type SyncedMessage,
 } from "@remit/mailbox-service";
+import { type Logger, MetricUnit, metrics } from "@remit/remit-logger-lambda";
 import pMap from "p-map";
 import { isAccountDeleted, isUnsyncableHost } from "../account-check.js";
 import { emitEvent } from "../emit.js";

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { MessageItem } from "@remit/remit-electrodb-service";
 import { PlacementAction, PlacementConfidence } from "@remit/domain-enums";
+import type { MessageItem } from "@remit/remit-electrodb-service";
 import { deriveAutoMoved } from "./autoMoved.js";
 
 const DECIDED_AT = 1_700_000_000_000;

@@ -1,5 +1,5 @@
-import type { MessageItem } from "@remit/remit-electrodb-service";
 import { SenderTrust } from "@remit/domain-enums";
+import type { MessageItem } from "@remit/remit-electrodb-service";
 
 type SenderTrustValue = (typeof SenderTrust)[keyof typeof SenderTrust];
 

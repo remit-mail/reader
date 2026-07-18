@@ -11,16 +11,6 @@ import type {
 	MessageLabelItem,
 } from "@remit/data-ports";
 import {
-	AddressService,
-	type BodyPartItem,
-	type EnvelopeService,
-	type MailboxSpecialUseService,
-	type MessageService,
-	NotFoundError,
-	type ThreadMessageService,
-	type UpdateMessageInput,
-} from "@remit/remit-electrodb-service";
-import {
 	FilterClauseField,
 	FilterMatchOperator,
 	FilterScope,
@@ -31,6 +21,16 @@ import {
 	PlacementConfidence,
 	SenderTrust,
 } from "@remit/domain-enums";
+import {
+	AddressService,
+	type BodyPartItem,
+	type EnvelopeService,
+	type MailboxSpecialUseService,
+	type MessageService,
+	NotFoundError,
+	type ThreadMessageService,
+	type UpdateMessageInput,
+} from "@remit/remit-electrodb-service";
 import type {
 	StorageReference,
 	StorageService,

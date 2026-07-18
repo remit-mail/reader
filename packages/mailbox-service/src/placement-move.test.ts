@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it, mock } from "node:test";
+import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 import type {
 	MessagePlacementMoveService,
 	MessageService,
 	ThreadMessageService,
 } from "@remit/remit-electrodb-service";
-import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 import {
 	type PlacementMoveConfig,
 	PlacementMoveService,

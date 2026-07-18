@@ -1,6 +1,6 @@
-import type { MessageItem } from "@remit/remit-electrodb-service";
-import { PlacementConfidence } from "@remit/domain-enums";
 import type { AutoMovedInfo } from "@remit/api-openapi-types";
+import { PlacementConfidence } from "@remit/domain-enums";
+import type { MessageItem } from "@remit/remit-electrodb-service";
 
 /**
  * Project a Message's internal placement verdict to the public `AutoMovedInfo`

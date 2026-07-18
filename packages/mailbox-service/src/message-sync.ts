@@ -8,6 +8,7 @@ import type {
 	IUnitOfWork,
 	MailboxItem,
 } from "@remit/data-ports";
+import { AddressRole, MailboxCursorState } from "@remit/domain-enums";
 import {
 	AddressService,
 	deriveBodyPartId,
@@ -15,7 +16,6 @@ import {
 	MessageService,
 	ThreadMessageService,
 } from "@remit/remit-electrodb-service";
-import { AddressRole, MailboxCursorState } from "@remit/domain-enums";
 import pMap from "p-map";
 import type { ManagedConnectionFactory } from "./connection-factory.js";
 import { guardMailboxCursor, isCursorRebuildNeeded } from "./mailbox-cursor.js";

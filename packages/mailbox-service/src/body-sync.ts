@@ -9,16 +9,16 @@ import type {
 	UpdateMessageInput,
 } from "@remit/data-ports";
 import {
-	AddressService,
-	isBulkSender,
-	NotFoundError,
-} from "@remit/remit-electrodb-service";
-import {
 	MailboxSpecialUse,
 	PlacementAction,
 	PlacementConfidence,
 	SenderTrust,
 } from "@remit/domain-enums";
+import {
+	AddressService,
+	isBulkSender,
+	NotFoundError,
+} from "@remit/remit-electrodb-service";
 import {
 	isStorageNotFoundError,
 	type ParsedBody,

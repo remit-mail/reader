@@ -1,10 +1,10 @@
-import { ClientError, type FilterItem } from "@remit/remit-electrodb-service";
-import { FilterScope } from "@remit/domain-enums";
 import type {
 	CreateFilterInput,
 	FilterResponse,
 	UpdateFilterInput,
 } from "@remit/api-openapi-types";
+import { FilterScope } from "@remit/domain-enums";
+import { ClientError, type FilterItem } from "@remit/remit-electrodb-service";
 import type { AnchorPayload } from "@remit/search-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { getAccountConfigIdFromEvent } from "../auth.js";

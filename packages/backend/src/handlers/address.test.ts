@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { AddressItem } from "@remit/remit-electrodb-service";
 import type { UpdateAddressInput } from "@remit/api-openapi-types";
+import type { AddressItem } from "@remit/remit-electrodb-service";
 import { buildFlagsPatch, toAddressResponse } from "./address.js";
 
 const trustedNow = {

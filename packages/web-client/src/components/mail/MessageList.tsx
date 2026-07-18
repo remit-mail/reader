@@ -1,9 +1,5 @@
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
-import {
-	type Density,
-	MessageListPane,
-	SelectionTopBar,
-} from "@remit/ui";
+import { type Density, MessageListPane, SelectionTopBar } from "@remit/ui";
 import { useNavigate } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Search, Sparkles } from "lucide-react";

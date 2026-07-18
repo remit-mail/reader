@@ -1,12 +1,12 @@
-import {
-	ForbiddenError,
-	type OutboxMessageItem,
-} from "@remit/remit-electrodb-service";
 import type {
 	CreateOutboxMessageInput,
 	OutboxMessageResponse,
 	UpdateOutboxMessageInput,
 } from "@remit/api-openapi-types";
+import {
+	ForbiddenError,
+	type OutboxMessageItem,
+} from "@remit/remit-electrodb-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent } from "../auth.js";

@@ -5,11 +5,11 @@ import {
 	SecretsManagerClient,
 } from "@aws-sdk/client-secrets-manager";
 import { AccountAuthType, ConnectionState } from "@remit/domain-enums";
-import { logger } from "@remit/remit-logger-lambda";
 import {
 	createMailOAuthService,
 	microsoftProviderConfig,
 } from "@remit/mail-oauth-service";
+import { logger } from "@remit/remit-logger-lambda";
 import { serializeEncryptedPayload } from "@remit/secrets-service";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";

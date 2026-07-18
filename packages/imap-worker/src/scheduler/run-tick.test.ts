@@ -1,10 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
-import type {
-	AccountItem,
-	AccountSchedulerPage,
-} from "@remit/data-ports";
+import type { AccountItem, AccountSchedulerPage } from "@remit/data-ports";
 import type { Logger } from "@remit/remit-logger-lambda";
 import { runSchedulerTick } from "./run-tick.js";
 

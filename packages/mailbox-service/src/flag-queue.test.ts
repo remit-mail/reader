@@ -1,11 +1,11 @@
 import assert from "node:assert";
 import { describe, it, mock } from "node:test";
+import { MessageSystemFlag, StarColor } from "@remit/domain-enums";
 import type {
 	MessageFlagService,
 	MessageService,
 	ThreadMessageService,
 } from "@remit/remit-electrodb-service";
-import { MessageSystemFlag, StarColor } from "@remit/domain-enums";
 import type { FlagPushService } from "./flag-push.js";
 import { type FlagQueueConfig, FlagQueueService } from "./flag-queue.js";
 

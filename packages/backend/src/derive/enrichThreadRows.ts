@@ -1,11 +1,11 @@
+import type { ThreadMessageResponse } from "@remit/api-openapi-types";
+import { MessageCategory, SenderTrust, StarColor } from "@remit/domain-enums";
 import type {
 	AddressItem,
 	MessageItem,
 	ThreadMessageItem,
 } from "@remit/remit-electrodb-service";
 import { AddressService } from "@remit/remit-electrodb-service";
-import { MessageCategory, SenderTrust, StarColor } from "@remit/domain-enums";
-import type { ThreadMessageResponse } from "@remit/api-openapi-types";
 import { deriveAutoMoved } from "./autoMoved.js";
 import { deriveSenderTrust } from "./senderTrust.js";
 

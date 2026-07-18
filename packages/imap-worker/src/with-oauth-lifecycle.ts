@@ -19,7 +19,6 @@
 
 import type { AccountItem } from "@remit/data-ports";
 import { AccountAuthType, ConnectionState } from "@remit/domain-enums";
-import type { Logger } from "@remit/remit-logger-lambda";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
 import {
 	type AccountCredentialsDeps,
@@ -27,6 +26,7 @@ import {
 	type MailCredentials,
 	resolveConnectionCredentials,
 } from "@remit/mailbox-service";
+import type { Logger } from "@remit/remit-logger-lambda";
 import { isAccountReauthRequired } from "./account-check.js";
 
 /** ConnectionState is a const object (not a TS enum); this is its value type. */

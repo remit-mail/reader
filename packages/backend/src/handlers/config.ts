@@ -1,14 +1,14 @@
 import type { SQSClient } from "@aws-sdk/client-sqs";
 import type {
+	AccountConfigResponse,
+	ConfigDescriptionResponse,
+} from "@remit/api-openapi-types";
+import type {
 	AccountConfigItem,
 	MailboxItem,
 } from "@remit/remit-electrodb-service";
 import { NotFoundError } from "@remit/remit-electrodb-service";
 import { logger } from "@remit/remit-logger-lambda";
-import type {
-	AccountConfigResponse,
-	ConfigDescriptionResponse,
-} from "@remit/api-openapi-types";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { env } from "expect-env";
 import type { Context } from "openapi-backend";

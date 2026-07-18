@@ -1,14 +1,14 @@
+import type {
+	MailboxResponse,
+	RenameMailboxInput,
+} from "@remit/api-openapi-types";
 import type { IAccountSettingRepository } from "@remit/data-ports";
+import { MessageSystemFlag } from "@remit/domain-enums";
 import {
 	ForbiddenError,
 	type MailboxItem,
 	NotFoundError,
 } from "@remit/remit-electrodb-service";
-import { MessageSystemFlag } from "@remit/domain-enums";
-import type {
-	MailboxResponse,
-	RenameMailboxInput,
-} from "@remit/api-openapi-types";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { getAccountConfigIdFromEvent } from "../auth.js";
 import {

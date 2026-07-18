@@ -1,10 +1,9 @@
-import {
-	BadRequestError,
-	ForbiddenError,
-	type MailboxItem,
-	NotFoundError,
-	UnrecoverableBodyError,
-} from "@remit/remit-electrodb-service";
+import type {
+	BodyPartResponse,
+	EnvelopeAddressResponse,
+	EnvelopeResponse,
+	MessageSummaryResponse,
+} from "@remit/api-openapi-types";
 import {
 	ContentDisposition,
 	MediaType,
@@ -12,19 +11,20 @@ import {
 	SenderTrust,
 	type StarColor,
 } from "@remit/domain-enums";
-import { logger } from "@remit/remit-logger-lambda";
 import {
 	guardConnectionCursor,
 	isCursorRebuildNeeded,
 	isMessageBodySyncBroken,
 	MailboxCursorPausedError,
 } from "@remit/mailbox-service";
-import type {
-	BodyPartResponse,
-	EnvelopeAddressResponse,
-	EnvelopeResponse,
-	MessageSummaryResponse,
-} from "@remit/api-openapi-types";
+import {
+	BadRequestError,
+	ForbiddenError,
+	type MailboxItem,
+	NotFoundError,
+	UnrecoverableBodyError,
+} from "@remit/remit-electrodb-service";
+import { logger } from "@remit/remit-logger-lambda";
 import {
 	isStorageNotFoundError as isStorageNotFoundErrorFromService,
 	parseStorageUri,
