@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { IMessageFlagPushRepository } from "@remit/data-ports";
-import type { AccountItem } from "@remit/remit-electrodb-service";
+import type {
+	AccountItem,
+	IMessageFlagPushRepository,
+} from "@remit/data-ports";
 import type { Logger } from "@remit/logger-lambda";
 import { drainPendingFlagPushes } from "./sync-messages.js";
 

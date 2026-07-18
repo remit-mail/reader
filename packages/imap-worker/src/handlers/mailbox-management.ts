@@ -1,16 +1,7 @@
-import {
-	AccountService,
-	getClient,
-	MailboxService,
-} from "@remit/remit-electrodb-service";
+import { getClient } from "@remit/backend/client";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import { MailboxManagementService } from "@remit/mailbox-service";
-import {
-	createKmsDataKeyProvider,
-	createSecretsService,
-} from "@remit/secrets-service";
-import { env } from "expect-env";
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import type {
@@ -22,19 +13,6 @@ import type {
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 
-const client = getClient();
-const dataKeyProvider = createKmsDataKeyProvider(env.KMS_KEY_ID);
-const secrets = createSecretsService(dataKeyProvider);
-
-const accountService = new AccountService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-const mailboxService = new MailboxService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-
 /**
  * Handle MAILBOX_CREATE event
  */
@@ -42,6 +20,12 @@ const handleCreate = async (
 	event: MailboxCreateEvent,
 	log: Logger,
 ): Promise<void> => {
+	const {
+		account: accountService,
+		mailbox: mailboxService,
+		secrets,
+	} = await getClient();
+
 	const { accountId, mailboxId, path, subscribe } = event;
 
 	log.info({ event: event.type, accountId, mailboxId, path }, "Handling event");
@@ -110,6 +94,12 @@ const handleRename = async (
 	event: MailboxRenameEvent,
 	log: Logger,
 ): Promise<void> => {
+	const {
+		account: accountService,
+		mailbox: mailboxService,
+		secrets,
+	} = await getClient();
+
 	const { accountId, mailboxId, oldPath, newPath } = event;
 
 	log.info(
@@ -182,6 +172,12 @@ const handleDelete = async (
 	event: MailboxDeleteEvent,
 	log: Logger,
 ): Promise<void> => {
+	const {
+		account: accountService,
+		mailbox: mailboxService,
+		secrets,
+	} = await getClient();
+
 	const { accountId, mailboxId, path } = event;
 
 	log.info({ event: event.type, accountId, mailboxId, path }, "Handling event");

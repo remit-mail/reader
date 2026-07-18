@@ -17,13 +17,24 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it, mock } from "node:test";
 import {
-	type AccountItem,
-	AccountService,
-	NotFoundError,
-} from "@remit/remit-electrodb-service";
+	_resetForTest,
+	_setClientForTest,
+	type RemitClient,
+} from "@remit/backend/client";
+import type { AccountItem } from "@remit/data-ports";
 import type { Logger } from "@remit/logger-lambda";
 import type { SyncMessagesEvent } from "../events.js";
 import { syncMessages } from "./sync-messages.js";
+
+const notFoundError = (message: string): Error => {
+	const error = new Error(message);
+	error.name = "NotFoundError";
+	return error;
+};
+
+const setAccountGet = (get: () => Promise<AccountItem>): void => {
+	_setClientForTest({ account: { get } } as unknown as RemitClient);
+};
 
 interface WarnRecord {
 	fields: Record<string, unknown>;
@@ -75,12 +86,13 @@ const event = (accountId: string): SyncMessagesEvent =>
 
 afterEach(() => {
 	mock.restoreAll();
+	_resetForTest();
 });
 
 describe("syncMessages deleted/missing account drop (#911)", () => {
 	it("acks and warns when the account no longer exists", async () => {
-		mock.method(AccountService.prototype, "get", async () => {
-			throw new NotFoundError("Account not found: acct-gone");
+		setAccountGet(async () => {
+			throw notFoundError("Account not found: acct-gone");
 		});
 		const warns: WarnRecord[] = [];
 
@@ -98,7 +110,7 @@ describe("syncMessages deleted/missing account drop (#911)", () => {
 	});
 
 	it("acks a soft-deleted account without throwing", async () => {
-		mock.method(AccountService.prototype, "get", async () => deletedAccount());
+		setAccountGet(async () => deletedAccount());
 
 		await assert.doesNotReject(() =>
 			syncMessages(event("acct-deleted"), recordingLogger([])),
@@ -106,7 +118,7 @@ describe("syncMessages deleted/missing account drop (#911)", () => {
 	});
 
 	it("proceeds past the gate for a healthy account (not silently dropped)", async () => {
-		mock.method(AccountService.prototype, "get", async () => healthyAccount());
+		setAccountGet(async () => healthyAccount());
 
 		// No live IMAP server, so a healthy account must reach real work and fail
 		// there — the not-found gate must not swallow it as a clean ack.
@@ -117,7 +129,7 @@ describe("syncMessages deleted/missing account drop (#911)", () => {
 
 	it("propagates a transient error so SQS retries", async () => {
 		const transient = new Error("ProvisionedThroughputExceededException");
-		mock.method(AccountService.prototype, "get", async () => {
+		setAccountGet(async () => {
 			throw transient;
 		});
 

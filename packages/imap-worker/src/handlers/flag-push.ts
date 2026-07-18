@@ -1,12 +1,4 @@
-import {
-	AccountService,
-	getClient,
-	MailboxService,
-	MessageFlagPushService,
-	MessageService,
-	NotFoundError,
-	ThreadMessageService,
-} from "@remit/remit-electrodb-service";
+import { getClient } from "@remit/backend/client";
 import type { Logger } from "@remit/logger-lambda";
 import { MetricUnit, metrics } from "@remit/logger-lambda";
 import {
@@ -15,41 +7,11 @@ import {
 	MailboxCursorPausedError,
 	resolveExhaustedFlagPushFailure,
 } from "@remit/mailbox-service";
-import {
-	createKmsDataKeyProvider,
-	createSecretsService,
-} from "@remit/secrets-service";
-import { env } from "expect-env";
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import type { FlagPushEvent } from "../events.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
-
-const client = getClient();
-const dataKeyProvider = createKmsDataKeyProvider(env.KMS_KEY_ID);
-const secrets = createSecretsService(dataKeyProvider);
-
-const accountService = new AccountService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-const mailboxService = new MailboxService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-const messageService = new MessageService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-const threadMessageService = new ThreadMessageService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-const markerService = new MessageFlagPushService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
 
 /**
  * Fallback when `FLAG_PUSH_MAX_ATTEMPTS` is unset (local dev, unit tests).
@@ -103,6 +65,15 @@ export const handleFlagPush = async (
 	log: Logger,
 	receiveCount = 1,
 ): Promise<void> => {
+	const {
+		account: accountService,
+		mailbox: mailboxService,
+		message: messageService,
+		threadMessage: threadMessageService,
+		flagPush: markerService,
+		secrets,
+	} = await getClient();
+
 	const { accountId, accountConfigId, messageId, flagName } = event;
 
 	const marker = await markerService.find(messageId, flagName);
@@ -122,12 +93,7 @@ export const handleFlagPush = async (
 		return;
 	}
 
-	const message = await messageService
-		.get(messageId)
-		.catch((error: unknown) => {
-			if (error instanceof NotFoundError) return null;
-			throw error;
-		});
+	const [message] = await messageService.get([messageId]);
 
 	// The message row is already gone — some other reconciliation path (body
 	// sync, placement move, a prior flag-push exhaustion) already deleted it.

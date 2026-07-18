@@ -1,4 +1,4 @@
-import type { MailboxService } from "@remit/remit-electrodb-service";
+import type { IMailboxRepository } from "@remit/data-ports";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import type { IImapConnection } from "./types.js";
 
@@ -108,7 +108,7 @@ export class MailboxManagementService {
 	private log: MailboxManagementLogger;
 
 	constructor(
-		private mailboxService: MailboxService,
+		private mailboxService: IMailboxRepository,
 		logger?: MailboxManagementLogger,
 	) {
 		this.log = logger ?? noopLogger;

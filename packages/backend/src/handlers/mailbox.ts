@@ -139,11 +139,11 @@ export const assertMailboxInAccount = (
 /**
  * Every pending placement move (issue #1271) for an account, on whichever
  * backend is active (`RemitClient.placementMove` is present on both — see
- * `dynamodb.ts`). Read-only; feeds `applyPendingMoveCountPrediction`'s
- * read-time adjustment only, never mutates stored counts (epic #1281
- * invariant 4). Markers are only ever written by the DynamoDB-only
- * imap-worker bulk sync path today, so this is always `[]` on Postgres —
- * not a gap this call introduces, see the `RemitClient.placementMove` doc.
+ * `create-remit-client.ts`). Read-only; feeds
+ * `applyPendingMoveCountPrediction`'s read-time adjustment only, never mutates
+ * stored counts (epic #1281 invariant 4). Markers are written by the
+ * imap-worker bulk sync path through `RemitClient.placementMove` on every
+ * backend, so this is a real signal on Postgres too.
  */
 const loadPendingMoves = (
 	client: Awaited<ReturnType<typeof getClient>>,
@@ -154,8 +154,7 @@ const loadPendingMoves = (
  * Every pending `\Seen` flag-push marker (issue #1273) for an account —
  * `\Flagged` (star) markers are excluded, since only read/unread state feeds
  * `unseenCount`'s prediction. `RemitClient.flagPush` is present and WRITTEN
- * on both backends (unlike `placementMove`), so this is a real signal on
- * Postgres too, not a DynamoDB-only gap.
+ * on both backends, so this is a real signal on Postgres too.
  */
 const loadPendingUnseenFlagPushes = async (
 	client: Awaited<ReturnType<typeof getClient>>,

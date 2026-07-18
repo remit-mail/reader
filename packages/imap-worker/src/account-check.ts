@@ -1,4 +1,4 @@
-import type { AccountItem } from "@remit/remit-electrodb-service";
+import type { AccountItem } from "@remit/data-ports";
 import type { Logger } from "@remit/logger-lambda";
 
 /**
