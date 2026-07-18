@@ -6,7 +6,7 @@ import type {
 } from "@remit/data-ports";
 import type { MessagePlacementMoveService } from "@remit/remit-electrodb-service";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
-import { createMarkerSqsClient } from "./marker-sqs-client.js";
+import { createQueueProducer } from "@remit/sqs-client/producer";
 
 /**
  * Event the reconciler (imap-worker `handlePlacementMovePush`) drains. Carries
@@ -85,7 +85,10 @@ export class PlacementMoveService {
 		this.markerService = config.markerService;
 		this.queueUrl = config.sqsQueueUrl;
 		this.log = config.logger ?? noopLogger;
-		this.sqs = createMarkerSqsClient(config.sqsQueueUrl, config.sqsEndpoint);
+		this.sqs = createQueueProducer({
+			queueUrl: config.sqsQueueUrl,
+			endpoint: config.sqsEndpoint,
+		});
 	}
 
 	moveMessage = async (

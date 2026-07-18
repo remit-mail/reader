@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
 	SendMessageBatchCommand,
 	SendMessageCommand,
-	SQSClient,
+	type SQSClient,
 } from "@aws-sdk/client-sqs";
 import type {
 	IMailboxRepository,
@@ -12,7 +12,7 @@ import type {
 } from "@remit/data-ports";
 import { base36uuid } from "@remit/remit-electrodb-service";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
-import { resolveSqsCredentials } from "@remit/sqs-client";
+import { createQueueProducer } from "@remit/sqs-client/producer";
 
 /**
  * Event types for message move/delete operations.
@@ -137,20 +137,10 @@ export class MessageMoveService {
 		this.queueUrl = config.sqsQueueUrl;
 		this.log = config.logger ?? noopLogger;
 
-		this.sqs = new SQSClient({
-			endpoint: config.sqsEndpoint ?? this.deriveEndpoint(config.sqsQueueUrl),
-			credentials: resolveSqsCredentials(),
+		this.sqs = createQueueProducer({
+			queueUrl: config.sqsQueueUrl,
+			endpoint: config.sqsEndpoint,
 		});
-	}
-
-	/**
-	 * Derive SQS endpoint from queue URL for local development.
-	 */
-	private deriveEndpoint(queueUrl: string): string | undefined {
-		if (queueUrl.startsWith("http://localhost")) {
-			return new URL(queueUrl).origin;
-		}
-		return undefined;
 	}
 
 	/**
