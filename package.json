@@ -24,6 +24,7 @@
     "format": "biome check --fix && tsp format ./typespec",
     "release": "changeset publish",
     "release:version": "changeset version",
+    "release:generated": "node npm-scripts/publish-generated.mjs",
     "release:dry-run": "node npm-scripts/release-dry-run.mjs",
     "check:publish-closure": "node npm-scripts/check-publish-closure.mjs",
     "bootstrap:publish-metadata": "node npm-scripts/set-publish-metadata.mjs",
