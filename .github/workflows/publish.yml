@@ -38,16 +38,18 @@ jobs:
       - run: npm ci --no-audit --no-fund --loglevel=error
       - run: make
       - run: npm run release:dry-run
-      # Guards install-ability of the currently published set: a clean directory,
-      # outside the repo, must resolve the service packages off the public
-      # registry alone — the failure mode this whole pipeline exists to prevent.
+      # Guards install-ability of the published set: a clean directory, outside
+      # the repo, installing @remit/backend alone must pull and resolve its full
+      # transitive @remit closure off the public registry — the failure mode this
+      # pipeline exists to prevent. Each manifest declares its @remit imports, so
+      # one package drags in the rest.
       - name: Clean-install acceptance
         run: |
           tmp=$(mktemp -d)
           cd "$tmp"
           npm init -y >/dev/null
-          npm install @remit/data-ports @remit/drizzle-service @remit/backend --loglevel=error
-          node -e "for (const p of ['@remit/data-ports','@remit/drizzle-service','@remit/backend','@remit/domain-enums','@remit/drizzle-pg-schema']) require.resolve(p)"
+          npm install @remit/backend --loglevel=error
+          node -e "for (const p of ['@remit/backend','@remit/data-ports','@remit/drizzle-service','@remit/domain-enums','@remit/api-openapi-types','@remit/mailbox-service','@remit/search-service','@remit/storage-service','@remit/auth-service','@remit/secrets-service','@remit/sqs-client','@remit/mail-oauth-service','@remit/logger-lambda','@remit/api-zod-schemas','@remit/drizzle-pg-schema','@remit/drizzle-sqlite-schema']) require.resolve(p)"
 
   publish:
     if: github.event_name == 'push' && vars.NPM_PUBLISH_ENABLED == 'true'
