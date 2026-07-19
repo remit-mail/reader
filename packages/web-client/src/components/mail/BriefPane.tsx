@@ -184,26 +184,15 @@ function BriefList() {
  */
 function BriefReading() {
 	const { conversation } = useBriefPane();
-	const {
-		onToggleIntelligence,
-		searchInput,
-		onSearchChange,
-		onSearchClear,
-		onSearchClearQuery,
-	} = useMailContext();
+	const { onToggleIntelligence } = useMailContext();
 
 	return (
 		<section className="flex h-full w-full min-w-0 flex-col bg-canvas">
 			<MessageToolbar
 				hasThread={Boolean(conversation)}
-				onCompose={() => undefined}
 				intelligenceOpen={false}
 				showIntelligenceToggle={false}
 				onToggleIntelligence={onToggleIntelligence}
-				searchValue={searchInput}
-				onSearchChange={onSearchChange}
-				onSearchClear={onSearchClear}
-				onSearchClearQuery={onSearchClearQuery}
 			/>
 			<div className="min-h-0 flex-1 overflow-hidden">
 				{conversation ? (

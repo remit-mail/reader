@@ -60,6 +60,13 @@ export interface AppShellSlottedProps {
 	 */
 	header?: ReactNode;
 	/**
+	 * Full-width row above every pane, including the nav. Unlike `header` it is
+	 * rendered at whatever width the caller mounts it, and it spans the whole
+	 * shell rather than sitting inside a pane — that width is what makes the
+	 * search field in it read as the app's search rather than the list's.
+	 */
+	topBar?: ReactNode;
+	/**
 	 * Content rendered outside the pane group (e.g., the compose FAB). Floats
 	 * over the layout regardless of width.
 	 */
@@ -130,6 +137,7 @@ export function AppShellSlotted({
 	hasThread = true,
 	density = "comfortable",
 	header,
+	topBar,
 	overlay,
 	skeleton,
 	isLoading = false,
@@ -178,6 +186,8 @@ export function AppShellSlotted({
 					skeleton
 				) : (
 					<>
+						{topBar}
+
 						{/* Narrow top bar: rendered only when the nav is a slide-over
 						    (< 1024px). Desktop has no slim bar. */}
 						{!showNavPane && header && <div className="shrink-0">{header}</div>}

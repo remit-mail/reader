@@ -12,6 +12,7 @@ import { describe, it } from "node:test";
 import { MailActionToolbar } from "@remit/ui";
 import React, { createElement } from "react";
 import { renderToString } from "react-dom/server";
+import { MessageToolbar } from "./MessageToolbar";
 
 // The node test loader transpiles remit-ui's `.tsx` (resolved through
 // node_modules) with the classic JSX runtime, which references a global
@@ -53,5 +54,43 @@ describe("MailActionToolbar never disables its action buttons (#799)", () => {
 		assert.match(html, /aria-label="Star"/);
 		// No archive verb — Remit is IMAP-backed (move-to-folder is the equivalent).
 		assert.doesNotMatch(html, /aria-label="Archive"/);
+	});
+});
+
+/**
+ * The reading-pane toolbar carries message context only (#49). Search, compose,
+ * bug report and the account menu moved up into the app top bar, which spans
+ * every pane. Two search fields on one screen fight over "/" and over focus, so
+ * the absence of one here is the thing worth pinning.
+ */
+describe("MessageToolbar carries message context only (#49)", () => {
+	const render = (hasThread: boolean): string =>
+		renderToString(
+			createElement(MessageToolbar, {
+				hasThread,
+				intelligenceOpen: false,
+				showIntelligenceToggle: true,
+				onToggleIntelligence: () => undefined,
+			}) as never,
+		);
+
+	it("mounts no search field", () => {
+		for (const hasThread of [false, true]) {
+			assert.doesNotMatch(render(hasThread), /aria-label="Search mail"/);
+		}
+	});
+
+	it("carries no global actions — compose, bug report, account", () => {
+		const html = render(true);
+		assert.doesNotMatch(html, /aria-label="Compose"/);
+		assert.doesNotMatch(html, /aria-label="Report a bug"/);
+		assert.doesNotMatch(html, /aria-label="Account menu"/);
+	});
+
+	it("keeps the message verbs and the intelligence toggle", () => {
+		const html = render(true);
+		assert.match(html, /aria-label="Reply"/);
+		assert.match(html, /aria-label="Star"/);
+		assert.match(html, /intelligence sidebar/);
 	});
 });

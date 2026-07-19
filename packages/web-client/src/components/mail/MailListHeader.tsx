@@ -168,11 +168,14 @@ export function MailListHeader({
 			<MailHeader
 				title={title}
 				unreadCount={unreadCount}
-				// The list pane is narrow even on desktop, and the reading-pane
-				// toolbar owns the wide search; keep the header's search compact (a
-				// magnifier) at every width. On phone the magnifier opens the
-				// full-screen takeover above; on tablet it expands over the title.
+				// Desktop mounts the app top bar, which owns search for the whole
+				// shell — the list header shows no field there, so the page never
+				// has two search inputs competing for "/" and for focus. Below
+				// desktop the header keeps a compact magnifier: on phone it opens
+				// the full-screen takeover above, on tablet it expands over the
+				// title.
 				isDesktop={false}
+				showSearch={tier !== "desktop"}
 				onMenuClick={() => layout?.openNav()}
 				searchValue={searchInput}
 				onSearchChange={onSearchChange}
