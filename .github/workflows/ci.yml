@@ -5,51 +5,15 @@ on:
     branches: [main]
   pull_request:
 
+# Superseded pull request pushes are cancelled; runs on main are not, so every
+# commit that lands keeps a completed result.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Real pipeline: install → codegen → typecheck → unit tests. Keeps the job
-  # name `build` because branch protection pins that status check.
-  #
-  # `npm ci` and `setup-node` cache: npm both require package-lock.json. The
-  # lockfile can only be committed once the export carries the closure-fix
-  # packages and a workspace install resolves; until then this job cannot pass.
-  # The workflow is structured to be correct the moment install works.
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Restore modules and codegen output
-        uses: actions/cache@v4
-        with:
-          path: |
-            node_modules
-            packages/**/node_modules
-            build
-          key: ${{ runner.os }}-modules-${{ hashFiles('package-lock.json', 'typespec/**') }}
-
-      - name: Install
-        run: npm ci --no-audit --no-fund --loglevel=error
-
-      - name: Codegen (generated @remit/* packages)
-        run: make
-
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Unit tests
-        run: npm test
-
   # Static validation that needs no workspace install: the installer script, the
-  # deploy compose stacks, and the manifest syntax. Runs in parallel with build.
+  # deploy compose stacks, and the manifest syntax.
   validate:
     runs-on: ubuntu-latest
     steps:
@@ -70,7 +34,8 @@ jobs:
         run: |
           python3 -c 'import yaml,sys; [yaml.safe_load(open(f)) for f in sys.argv[1:]]' \
             .github/workflows/ci.yml .github/workflows/storybook-pages.yml \
-            .github/workflows/images.yml .github/workflows/publish.yml
+            .github/workflows/images.yml .github/workflows/publish.yml \
+            .github/actions/setup/action.yml
 
       - name: Deploy stack — SQLite compose validates
         run: |
@@ -83,3 +48,39 @@ jobs:
         run: |
           docker compose -f docker-compose.localhost-dev-generic.yml \
             --env-file localhost-dev-generic.env config -q
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Typecheck
+        run: npm run typecheck
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Unit tests
+        run: npm run test:ci
+
+  # Branch protection pins this status check. It is the aggregate gate: it runs
+  # after every other job whatever their outcome and fails unless all of them
+  # succeeded, so a failed or skipped dependency can never report green.
+  build:
+    runs-on: ubuntu-latest
+    needs: [validate, typecheck, test]
+    if: always()
+    steps:
+      - name: Require every job to have succeeded
+        run: |
+          results="${{ join(needs.*.result, ' ') }}"
+          echo "upstream results: $results"
+          for result in $results; do
+            if [ "$result" != "success" ]; then
+              echo "::error::a required job did not succeed"
+              exit 1
+            fi
+          done
+          echo "all required jobs succeeded"

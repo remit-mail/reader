@@ -1,0 +1,72 @@
+name: Setup workspace
+description: >-
+  Restores the workspace install and the generated codegen output, running
+  `npm ci` or `make` only when the matching cache key misses.
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+
+    # Keyed on the lockfile, but a stale entry still holds nearly every tarball,
+    # so the restore-keys fallback keeps a lockfile change off the network.
+    - name: Restore npm download cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.npm
+        key: ${{ runner.os }}-npm-store-${{ hashFiles('package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-npm-store-
+
+    # Exact key only: `npm ci` deletes node_modules before installing, so a
+    # partial restore would be thrown away. A hit means the tree already matches
+    # the lockfile and the install is skipped outright.
+    #
+    # build/*/node_modules is an install artifact, not codegen output: the
+    # `file:build/*` dependencies pin their own copies (short-uuid 5.2.0 against
+    # the root's 6.0.3) and `make` builds them with tsc. It belongs to this
+    # cache, because a codegen miss must not leave it unrestored.
+    - name: Restore node_modules
+      id: modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          node_modules
+          packages/*/node_modules
+          build/*/node_modules
+        # v2 because the path set above changed: entries written under v1 have
+        # no build/*/node_modules and a key is never overwritten once it exists.
+        # Bump whenever the paths change.
+        key: ${{ runner.os }}-node22-modules-v2-${{ hashFiles('package-lock.json', 'patches/**') }}
+
+    - name: Install
+      if: steps.modules.outputs.cache-hit != 'true'
+      shell: bash
+      run: npm ci --no-audit --no-fund --loglevel=error
+
+    # build/ is a pure function of the TypeSpec sources, the Makefile, the
+    # openapi-ts config and the emitter versions pinned in the lockfile. The
+    # nested node_modules is excluded so the two caches own disjoint paths and
+    # neither can restore a stale copy over the other.
+    - name: Restore codegen output
+      id: codegen
+      uses: actions/cache@v4
+      with:
+        path: |
+          build
+          !build/*/node_modules
+        key: ${{ runner.os }}-codegen-v2-${{ hashFiles('typespec/**', 'Makefile', 'openapi-ts.config.js', 'package-lock.json') }}
+
+    - name: Codegen (generated @remit/* packages)
+      if: steps.codegen.outputs.cache-hit != 'true'
+      shell: bash
+      run: make
+
+    # Gitignored, derived from the web-client route files rather than from
+    # TypeSpec, and needed by both typecheck and the unit tests. Cheap enough
+    # (~1s) to regenerate every time instead of keying another cache on it.
+    - name: Codegen (web-client route tree)
+      shell: bash
+      run: npm run generate:routes -w @remit/web-client
