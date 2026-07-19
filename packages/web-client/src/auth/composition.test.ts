@@ -18,19 +18,16 @@ const packageDir = join(srcDir, "..");
 interface Variant {
 	specifier: string;
 	name: string;
-	tokenSeam: string;
 }
 
 const VARIANTS: Record<"betterAuth" | "cognito", Variant> = {
 	betterAuth: {
 		specifier: "@/auth/better-auth-provider",
 		name: "betterAuthProvider",
-		tokenSeam: join(srcDir, "auth/token-better-auth.ts"),
 	},
 	cognito: {
 		specifier: "@/auth/cognito-provider",
 		name: "cognitoAuthProvider",
-		tokenSeam: join(srcDir, "auth/auth-token.ts"),
 	},
 };
 
@@ -38,6 +35,23 @@ interface Graph {
 	inputs: string[];
 	importPaths: string[];
 }
+
+// Externalize third-party packages, but bundle in-repo `@remit/*` workspace
+// source so the walk matches what the real vite build includes. A shared
+// primitive (e.g. `@remit/ui`) that pulled in Amplify would then surface in this
+// graph and fail the test, rather than hiding behind an external edge.
+const externalizeThirdParty = {
+	name: "externalize-third-party",
+	setup(build: import("esbuild").PluginBuild) {
+		build.onResolve({ filter: /.*/ }, (args) => {
+			const path = args.path;
+			if (path.startsWith(".") || path.startsWith("/")) return null;
+			if (path === "@" || path.startsWith("@/")) return null;
+			if (path.startsWith("@remit/")) return null;
+			return { path, external: true };
+		});
+	},
+};
 
 const bundleGraph = async (variant: Variant): Promise<Graph> => {
 	const entry = [
@@ -62,12 +76,10 @@ const bundleGraph = async (variant: Variant): Promise<Graph> => {
 		platform: "browser",
 		jsx: "automatic",
 		jsxImportSource: "react",
-		// Walk only the primitives' own source; treat every installed package as
-		// an external edge so the amplify import shows up as an edge, not a tree.
-		packages: "external",
+		plugins: [externalizeThirdParty],
 		loader: { ".css": "empty", ".png": "empty", ".svg": "empty" },
 		absWorkingDir: packageDir,
-		alias: { "@": srcDir, "#auth-token": variant.tokenSeam },
+		alias: { "@": srcDir },
 	});
 
 	const inputs = Object.keys(result.metafile.inputs);

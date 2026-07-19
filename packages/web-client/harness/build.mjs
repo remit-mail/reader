@@ -16,6 +16,8 @@ import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "vite";
+// Loaded through tsx (see the `build:dist` script) so the .ts preset and the
+// shared vite.base resolve without a prior compile step.
 import { webClientPreset } from "./vite-preset.ts";
 
 const harnessDir = dirname(fileURLToPath(import.meta.url));
@@ -70,7 +72,7 @@ const run = async () => {
 			root,
 			publicDir: join(packageDir, "public"),
 			build: { outDir: resolve(packageDir, out), emptyOutDir: true },
-			...webClientPreset({ authProvider: auth }),
+			...webClientPreset(),
 		});
 	} finally {
 		rmSync(root, { recursive: true, force: true });

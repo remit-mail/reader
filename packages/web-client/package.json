@@ -2,29 +2,22 @@
   "name": "@remit/web-client",
   "version": "1.0.0",
   "type": "module",
-  "description": "Remit web client, published as composable primitives — the app shell, screens, auth shells, and runtime config. A distributor imports what it composes and bundles it.",
+  "description": "Remit web client, published as composable primitives — the app shell, auth shells, and runtime config. A distributor imports what it composes and bundles it.",
   "exports": {
     "./shell": "./src/shell/index.tsx",
-    "./screens": "./src/screens.ts",
     "./config": "./src/runtime-config.ts",
     "./auth/provider": "./src/auth/provider.tsx",
     "./auth/cognito": "./src/auth/cognito-provider.tsx",
     "./auth/better-auth": "./src/auth/better-auth-provider.tsx",
     "./auth/combined": "./src/auth/combined-provider.tsx",
-    "./auth/token": "./src/auth/auth-token.ts",
-    "./auth/token/better-auth": "./src/auth/token-better-auth.ts",
     "./styles/app.css": "./src/index.css",
     "./styles/cognito.css": "./src/auth/cognito/cognito.css",
     "./vite-preset": "./harness/vite-preset.ts"
   },
-  "imports": {
-    "#auth-token": {
-      "default": "./src/auth/auth-token.ts"
-    }
-  },
   "files": [
     "src",
     "harness",
+    "vite.base.ts",
     "public",
     "index.html"
   ],
@@ -33,7 +26,7 @@
     "generate:routes": "node scripts/generate-routes.mjs",
     "prepack": "npm run generate:routes",
     "build": "npm run generate:routes && tsc -b && vite build",
-    "build:dist": "npm run generate:routes && node harness/build.mjs",
+    "build:dist": "npm run generate:routes && node --import tsx harness/build.mjs",
     "preview": "vite preview",
     "test:typecheck": "npm run generate:routes && tsgo --noEmit",
     "test:run": "node --import tsx --import ./test-support/register.mjs --test 'src/**/*.test.ts'",
@@ -58,7 +51,19 @@
   },
   "peerDependencies": {
     "react": "^19",
-    "react-dom": "^19"
+    "react-dom": "^19",
+    "vite": "^7",
+    "@vitejs/plugin-react": "^4",
+    "@tailwindcss/vite": "^4",
+    "tailwindcss": "^4",
+    "@tanstack/router-plugin": "^1"
+  },
+  "peerDependenciesMeta": {
+    "vite": { "optional": true },
+    "@vitejs/plugin-react": { "optional": true },
+    "@tailwindcss/vite": { "optional": true },
+    "tailwindcss": { "optional": true },
+    "@tanstack/router-plugin": { "optional": true }
   },
   "dependencies": {
     "@hookform/resolvers": "*",

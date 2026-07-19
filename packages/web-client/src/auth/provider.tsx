@@ -21,6 +21,14 @@ export interface AuthAccountProps {
 export interface AuthProvider {
 	/** Called once at boot, before render, to initialize the identity SDK. */
 	configure(): void;
+	/**
+	 * The current session's bearer token, or `null` when signed out. The API
+	 * interceptor and the raw content fetch read it through here, so the identity
+	 * SDK stays inside the provider.
+	 */
+	getToken(): Promise<string | null>;
+	/** Drop any cached token so the next `getToken` re-mints. */
+	resetToken(): void;
 	/** The sign-in gate: renders children only once a session is established. */
 	Shell: FC<{ children: ReactNode }>;
 	/**
@@ -41,6 +49,8 @@ const Passthrough: FC<{ children?: ReactNode }> = ({ children }) => (
  */
 export const noneAuthProvider: AuthProvider = {
 	configure: () => {},
+	getToken: async () => null,
+	resetToken: () => {},
 	Shell: Passthrough,
 	Account: ({ fallback = null }) => <>{fallback}</>,
 };

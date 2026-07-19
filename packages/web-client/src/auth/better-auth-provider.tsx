@@ -1,5 +1,9 @@
 import { BetterAuthShell } from "./BetterAuthShell";
 import { BetterAuthAccount } from "./better-auth/BetterAuthAccount";
+import {
+	fetchBetterAuthToken,
+	resetBetterAuthTokenCache,
+} from "./better-auth-config";
 import type { AuthProvider } from "./provider";
 
 /**
@@ -9,6 +13,8 @@ import type { AuthProvider } from "./provider";
  */
 export const betterAuthProvider: AuthProvider = {
 	configure: () => {},
+	getToken: fetchBetterAuthToken,
+	resetToken: resetBetterAuthTokenCache,
 	Shell: BetterAuthShell,
 	Account: BetterAuthAccount,
 };

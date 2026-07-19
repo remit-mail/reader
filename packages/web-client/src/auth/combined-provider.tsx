@@ -29,6 +29,14 @@ const CombinedAccount = (props: AuthAccountProps) =>
 
 export const combinedAuthProvider: AuthProvider = {
 	configure: configureAmplify,
+	getToken: () =>
+		isBetterAuthEnabled()
+			? betterAuthProvider.getToken()
+			: cognitoAuthProvider.getToken(),
+	resetToken: () => {
+		betterAuthProvider.resetToken();
+		cognitoAuthProvider.resetToken();
+	},
 	Shell: CombinedShell,
 	Account: CombinedAccount,
 };

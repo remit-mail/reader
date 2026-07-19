@@ -45,7 +45,7 @@ export const mountApp = ({
 	installConsoleErrorCatcher();
 	installThemeSync();
 	authProvider.configure();
-	installAuthInterceptor();
+	installAuthInterceptor(authProvider);
 
 	const telemetry = initRum();
 	// Plug the live telemetry adapter into the single fatal-error seam.

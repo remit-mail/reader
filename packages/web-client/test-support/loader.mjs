@@ -23,36 +23,25 @@ const amplifyConfigStubUrl = `${stubsDir}amplify-config.mjs`;
 const inWebClient = (url, sub) =>
 	url.includes(`/remit-web-client/${sub}`) || url.includes(`/web-client/${sub}`);
 
-const isAuthTokenSource = (url) => inWebClient(url, "src/auth/auth-token.ts");
 const isAppInfoSource = (url) => inWebClient(url, "src/lib/app-info.");
 
-// `#auth-token` is the package-internal auth-token seam (package.json
-// `imports`). The default resolution — auth-token.ts, the combined token —
-// is what the tests exercise, so route the specifier there explicitly rather
-// than relying on the runtime's subpath-imports resolver inside the loader
-// chain.
-const authTokenDefaultUrl = pathToFileURL(
-	`${import.meta.dirname}/../src/auth/auth-token.ts`,
-).href;
+// `amplify-config` snapshots the runtime config at module load, so a test that
+// re-imports the token module per case cannot flip "configured" through the real
+// module. The stub reads `__AMPLIFY_CONFIG_MOCKS__.configured` fresh, so route
+// the cognito token module's import to it.
+const isCognitoTokenSource = (url) =>
+	inWebClient(url, "src/auth/cognito/cognito-token.ts");
 
 export const resolve = async (specifier, context, nextResolve) => {
 	const stub = packageStubs.get(specifier);
 	if (stub) return { url: stub, shortCircuit: true, format: "module" };
 
-	if (specifier === "#auth-token") {
-		return { url: authTokenDefaultUrl, shortCircuit: true, format: "module" };
-	}
-
 	const parent = context?.parentURL ?? "";
 	if (
-		isAuthTokenSource(parent) &&
-		(specifier === "./amplify-config" || specifier === "./amplify-config.ts")
+		isCognitoTokenSource(parent) &&
+		(specifier === "../amplify-config" || specifier === "../amplify-config.ts")
 	) {
-		return {
-			url: amplifyConfigStubUrl,
-			shortCircuit: true,
-			format: "module",
-		};
+		return { url: amplifyConfigStubUrl, shortCircuit: true, format: "module" };
 	}
 
 	return nextResolve(specifier, context);
