@@ -33,6 +33,13 @@ export interface Message {
 	 * neither.
 	 */
 	headers?: ReadonlyArray<readonly [name: string, value: string]>;
+	/**
+	 * IMAP keywords to set at APPEND time, e.g. `["\\Flagged"]`. This is how mail
+	 * arrives already flagged from another client — the state exists on the
+	 * server before the app has ever seen the message, so a sync that ignores it
+	 * loses the star rather than displaying it wrong.
+	 */
+	flags?: string[];
 }
 
 const rfc5322 = (message: Message, recipient: string): string => {
@@ -85,7 +92,11 @@ export const appendMessages = async (
 	const client = await connect(user);
 	try {
 		for (const message of messages) {
-			await client.append(mailbox, Buffer.from(rfc5322(message, user)));
+			await client.append(
+				mailbox,
+				Buffer.from(rfc5322(message, user)),
+				message.flags,
+			);
 		}
 	} finally {
 		await client.logout();
