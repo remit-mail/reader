@@ -6,18 +6,18 @@
 import { imap, imapFromStack } from "../src/env.js";
 import { expect, test } from "../src/fixtures.js";
 
-const connection = {
-	username: imap.user,
+const connection = (username: string) => ({
+	username,
 	imapHost: imapFromStack.host,
 	imapPort: imapFromStack.port,
 	imapTls: false,
 	imapStartTls: false,
-};
+});
 
 test.describe("Account connection", () => {
-	test("reports success for valid IMAP credentials", async ({ api }) => {
+	test("reports success for valid IMAP credentials", async ({ api, run }) => {
 		const result = await api.testConnection({
-			...connection,
+			...connection(run.imapUser),
 			password: imap.password,
 		});
 		expect(result.imapSuccess).toBe(true);
@@ -25,9 +25,10 @@ test.describe("Account connection", () => {
 
 	test("reports failure for a wrong password rather than succeeding", async ({
 		api,
+		run,
 	}) => {
 		const result = await api.testConnection({
-			...connection,
+			...connection(run.imapUser),
 			password: "definitely-not-the-password",
 		});
 		expect(result.imapSuccess).toBe(false);
@@ -39,6 +40,9 @@ test.describe("Account connection", () => {
 		run,
 	}) => {
 		const mailboxes = await api.listMailboxes(run.accountId);
-		expect(mailboxes.length).toBeGreaterThan(0);
+		expect(mailboxes.map((mailbox) => mailbox.fullPath)).toContain("INBOX");
+		expect(mailboxes.map((mailbox) => mailbox.mailboxId)).toContain(
+			run.inboxId,
+		);
 	});
 });

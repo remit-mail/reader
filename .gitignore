@@ -76,6 +76,12 @@ playwright-report/
 # TypeScript build info files
 **/*.tsbuildinfo
 
+# Visual regression baselines live on the `visual-baselines` orphan
+# branch. The cache and the symlink it backs are gitignored so they
+# never end up on `main`.
+.visual-baselines/
+packages/web-client/visual-regression/__screenshots__
+
 # Black-box e2e suite: the generated stack .env, the run state global setup
 # writes, and Playwright's own output.
 deploy/vps/.env

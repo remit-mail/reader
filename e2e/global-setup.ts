@@ -5,8 +5,8 @@
  */
 import { writeFileSync } from "node:fs";
 import { ApiClient, fetchBearerToken, signUp, waitFor } from "./src/api.js";
-import { baseUrl, imap, imapFromStack } from "./src/env.js";
-import { appendMessages } from "./src/imap.js";
+import { baseUrl, imap, imapFromStack, mintImapUser } from "./src/env.js";
+import { appendMessages, listServerSubjects } from "./src/imap.js";
 import {
 	ensureStateDir,
 	storageStatePath,
@@ -40,33 +40,50 @@ const cookiesToStorageState = (cookie: string): string =>
 const globalSetup = async (): Promise<void> => {
 	ensureStateDir();
 
-	// A fresh identity per run. Two runs against the same stack never see each
-	// other's accounts, and a leftover volume cannot make a run pass.
+	// A fresh identity and a fresh mailbox per run. The mailbox is the one that
+	// matters: reusing a stack must not let a previous run's mail stand in for
+	// this run's, which would turn every assertion about seeded mail into one
+	// that cannot fail.
 	const credentials = {
 		email: `e2e-${Date.now()}@remit.test`,
 		password: "e2e-password-1234",
 		name: "E2E User",
 	};
+	const imapUser = mintImapUser();
 
 	console.log(`e2e setup: signing up ${credentials.email} at ${baseUrl}`);
 	const cookie = await signUp(credentials);
 	const token = await fetchBearerToken(cookie);
 	const api = new ApiClient(token);
 
+	// Checked, not assumed. If this mailbox ever came back non-empty the
+	// isolation this suite depends on would be gone, and every downstream
+	// assertion would be worth less than it looks.
+	console.log(`e2e setup: claiming the mailbox ${imapUser}`);
+	const existing = await listServerSubjects(imapUser);
+	if (existing.length > 0) {
+		throw new Error(
+			`${imapUser} was expected to be a fresh mailbox but holds ${existing.length} messages`,
+		);
+	}
+
+	console.log("e2e setup: appending seed messages over IMAP");
+	await appendMessages(
+		imapUser,
+		SEEDED_SUBJECTS.map((subject) => ({ subject })),
+	);
+
 	console.log("e2e setup: creating the account against dovecot");
 	const { accountId } = await api.createAccount({
-		email: imap.user,
+		email: imapUser,
 		displayName: "E2E Mailbox",
-		username: imap.user,
+		username: imapUser,
 		password: imap.password,
 		imapHost: imapFromStack.host,
 		imapPort: imapFromStack.port,
 		imapTls: false,
 		imapStartTls: false,
 	});
-
-	console.log("e2e setup: appending seed messages over IMAP");
-	await appendMessages(SEEDED_SUBJECTS.map((subject) => ({ subject })));
 
 	console.log("e2e setup: triggering sync");
 	await api.triggerSync(accountId);
@@ -85,10 +102,11 @@ const globalSetup = async (): Promise<void> => {
 		token,
 		accountId,
 		inboxId: inbox.mailboxId,
+		imapUser,
 		seededSubjects: SEEDED_SUBJECTS,
 	});
 	console.log(
-		`e2e setup: ready (account ${accountId}, inbox ${inbox.mailboxId})`,
+		`e2e setup: ready (mailbox ${imapUser}, account ${accountId}, inbox ${inbox.mailboxId})`,
 	);
 };
 

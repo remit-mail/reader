@@ -7,7 +7,10 @@ import { expect, test } from "../src/fixtures.js";
 
 const openInbox = async (page: import("@playwright/test").Page) => {
 	await page.goto("/mail");
-	const sidebar = page.getByRole("navigation", { name: "Mailboxes" });
+	const sidebar = page.getByRole("navigation", {
+		name: "Mailboxes",
+		exact: true,
+	});
 	await expect(sidebar).toBeVisible({ timeout: 20_000 });
 	const inbox = sidebar.getByRole("link", { name: /inbox/i });
 	await expect(inbox).toBeVisible({ timeout: 10_000 });
@@ -21,10 +24,19 @@ test.describe("Mailbox navigation", () => {
 		await expect(sidebar.getByRole("link", { name: /trash/i })).toBeVisible();
 	});
 
-	test("opening a mailbox puts it in the URL", async ({ page }) => {
+	test("opening a mailbox loads its messages and puts it in the URL", async ({
+		page,
+		run,
+	}) => {
 		const { inbox } = await openInbox(page);
 		await inbox.click();
 		await page.waitForURL(/\/mail\/[a-z0-9]+/);
+
+		// Navigating has to deliver the mailbox's contents, not just its route.
+		await expect(page.locator("a[href*='selectedMessageId']")).toHaveCount(
+			run.seededSubjects.length,
+			{ timeout: 20_000 },
+		);
 	});
 
 	test("moving between mailboxes is navigable with the back button", async ({

@@ -10,13 +10,17 @@ source "$(dirname "${BASH_SOURCE[0]}")/e2e-compose.sh"
 
 E2E_DIR="$REPO_ROOT/e2e"
 
-# The stack's own configuration is the suite's configuration — one file, so the
-# two can never point at different ports or mailboxes. Only the E2E_* keys are
-# exported: the rest of that file configures the containers, and some of it
-# (NODE_ENV=production) would change how npm installs here.
+# The running stack's own configuration is the suite's configuration, so the two
+# cannot point at different ports. The generated .env is preferred over the
+# committed template because it carries any override the caller applied; later
+# assignments in it win, which is how those overrides take effect. Only the E2E_*
+# keys are exported — the rest configures containers, and one of them
+# (NODE_ENV=production) would change how npm installs below.
+env_source="$DEPLOY_DIR/e2e.env"
+[ -f "$DEPLOY_DIR/.env" ] && env_source="$DEPLOY_DIR/.env"
 while IFS= read -r line; do
 	export "${line?}"
-done < <(grep -E '^E2E_[A-Z_]+=' "$DEPLOY_DIR/e2e.env")
+done < <(grep -E '^E2E_[A-Z_]+=' "$env_source")
 
 cd "$E2E_DIR"
 
@@ -25,8 +29,12 @@ cd "$E2E_DIR"
 # repository root. That makes the install below resolve the root's lockfile
 # instead of this directory's. Drop the inherited configuration so the suite
 # installs itself.
+#
+# `|| true` because npm also exports keys that are not valid shell identifiers
+# (registry auth, scoped-registry settings); `unset` rejects those, and under
+# `set -e` one of them would end the run.
 while IFS='=' read -r name _; do
-	unset "$name"
+	unset "$name" || true
 done < <(env | grep '^npm_')
 
 if [ -f package-lock.json ]; then

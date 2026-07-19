@@ -15,13 +15,13 @@
 name: remit-e2e
 
 services:
-  # The mail server under test. Empty on start; the suite APPENDs the messages
-  # each spec needs over IMAP.
+  # The mail server under test. Every username authenticates with one shared
+  # password and gets its own empty maildir, so each run can claim a mailbox
+  # nobody has written to. The suite APPENDs the messages each spec needs.
   dovecot:
     image: dovecot/dovecot:2.3.21
     entrypoint: ["/bin/sh", "/etc/dovecot/e2e-entrypoint.sh"]
     environment:
-      E2E_IMAP_USER: ${E2E_IMAP_USER:?set E2E_IMAP_USER}
       E2E_IMAP_PASSWORD: ${E2E_IMAP_PASSWORD:?set E2E_IMAP_PASSWORD}
     volumes:
       - ../../docker/test/dovecot/dovecot.conf:/etc/dovecot/dovecot.conf:ro

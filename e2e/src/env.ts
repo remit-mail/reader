@@ -17,9 +17,16 @@ export const baseUrl = `http://localhost:${required("E2E_HTTP_PORT")}`;
 export const imap = {
 	host: "127.0.0.1",
 	port: Number(required("E2E_IMAP_PORT")),
-	user: required("E2E_IMAP_USER"),
 	password: required("E2E_IMAP_PASSWORD"),
 };
+
+/**
+ * The mailbox this run owns. Dovecot accepts any username with the shared
+ * password and hands each one its own empty maildir, so minting a name here is
+ * what isolates a run — including on a stack that a previous run left behind.
+ */
+export const mintImapUser = (): string =>
+	`run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@remit.test`;
 
 /** How the deployment reaches Dovecot: a service name on the compose network. */
 export const imapFromStack = {

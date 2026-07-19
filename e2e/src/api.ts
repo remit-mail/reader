@@ -160,20 +160,42 @@ export class ApiClient {
  * Poll `read` until `accept` holds. Sync is asynchronous end to end — the API
  * accepts a trigger and workers do the work — so every assertion about synced
  * state is a poll, never a sleep.
+ *
+ * A failing read is a poll that did not succeed yet, not a verdict: a worker
+ * restarting mid-run makes the gateway answer 502 for a moment, and giving up on
+ * the first one would report that as the feature being broken. The last failure
+ * is kept and reported if the deadline passes.
+ *
+ * The default deadline stays under Playwright's per-test timeout so the message
+ * below — which names what was being waited for and what was last seen — is what
+ * a reader gets, instead of a bare "test timeout exceeded".
  */
 export const waitFor = async <T>(
 	read: () => Promise<T>,
 	accept: (value: T) => boolean,
-	{ timeoutMs = 60_000, intervalMs = 1_000, what = "condition" } = {},
+	{ timeoutMs = 30_000, intervalMs = 1_000, what = "condition" } = {},
 ): Promise<T> => {
 	const deadline = Date.now() + timeoutMs;
 	let last: T | undefined;
+	let lastError: unknown;
 	while (Date.now() < deadline) {
-		last = await read();
-		if (accept(last)) return last;
+		const attempt = await read().then(
+			(value) => ({ ok: true as const, value }),
+			(error: unknown) => ({ ok: false as const, error }),
+		);
+		if (attempt.ok) {
+			last = attempt.value;
+			lastError = undefined;
+			if (accept(last)) return last;
+		} else {
+			lastError = attempt.error;
+		}
 		await new Promise((resolve) => setTimeout(resolve, intervalMs));
 	}
+	const seen = lastError
+		? `last read failed: ${lastError instanceof Error ? lastError.message : String(lastError)}`
+		: `last value: ${JSON.stringify(last)}`;
 	throw new Error(
-		`timed out after ${timeoutMs}ms waiting for ${what}; last value: ${JSON.stringify(last)}`,
+		`timed out after ${timeoutMs}ms waiting for ${what}; ${seen}`,
 	);
 };

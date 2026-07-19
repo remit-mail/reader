@@ -54,7 +54,7 @@ test.describe("First run", () => {
 		await page.locator('form button[type="submit"]').click();
 
 		await expect(
-			page.getByRole("navigation", { name: "Mailboxes" }),
+			page.getByRole("navigation", { name: "Mailboxes", exact: true }),
 		).toBeVisible({ timeout: 30_000 });
 	});
 });

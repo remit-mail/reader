@@ -18,6 +18,8 @@ export interface RunState {
 	token: string;
 	accountId: string;
 	inboxId: string;
+	/** The IMAP mailbox this run owns. No other run has ever written to it. */
+	imapUser: string;
 	seededSubjects: string[];
 }
 

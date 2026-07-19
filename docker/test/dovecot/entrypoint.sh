@@ -1,14 +1,22 @@
 #!/bin/sh
-# Write the single-user passdb from the environment, then hand PID 1 to dovecot.
-# The image already ships uid/gid 1000 as `vmail`; only the mail root and the
-# users file are missing.
+# Generate the passdb from the environment, then hand PID 1 to dovecot. The
+# image already ships uid/gid 1000 as `vmail`; only the mail root and the
+# generated passdb are missing.
+#
+# Every username authenticates with the same password and gets its own maildir
+# (see dovecot.conf) — the suite relies on that for per-run isolation.
 set -eu
 
-user="${E2E_IMAP_USER:?E2E_IMAP_USER is required}"
 password="${E2E_IMAP_PASSWORD:?E2E_IMAP_PASSWORD is required}"
 
-mkdir -p /srv/mail/Maildir/cur /srv/mail/Maildir/new /srv/mail/Maildir/tmp
-printf '%s:{PLAIN}%s:1000:1000::/srv/mail\n' "$user" "$password" >/etc/dovecot/users
+cat >/etc/dovecot/e2e-passdb.conf <<EOF
+passdb {
+  driver = static
+  args = password=$password allow_all_users=yes
+}
+EOF
+
+mkdir -p /srv/mail
 chown -R vmail:vmail /srv/mail
 
 exec dovecot -F
