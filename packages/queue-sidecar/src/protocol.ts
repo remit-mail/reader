@@ -65,15 +65,25 @@ export const sendMessageResult = (result: {
 	tag("MD5OfMessageBody", result.md5OfBody) +
 	(result.sequenceNumber ? tag("SequenceNumber", result.sequenceNumber) : "");
 
+export interface BatchSuccessEntry {
+	id: string;
+	messageId: string;
+	md5OfBody: string;
+	sequenceNumber: string | null;
+}
+
+export interface BatchErrorEntry {
+	id: string;
+	code: string;
+	message: string;
+	senderFault: boolean;
+}
+
 export const sendMessageBatchResult = (
-	entries: {
-		id: string;
-		messageId: string;
-		md5OfBody: string;
-		sequenceNumber: string | null;
-	}[],
-): string =>
-	entries
+	successful: BatchSuccessEntry[],
+	failed: BatchErrorEntry[],
+): string => {
+	const successXml = successful
 		.map(
 			(e) =>
 				`<SendMessageBatchResultEntry>` +
@@ -84,6 +94,19 @@ export const sendMessageBatchResult = (
 				`</SendMessageBatchResultEntry>`,
 		)
 		.join("");
+	const errorXml = failed
+		.map(
+			(e) =>
+				`<BatchResultErrorEntry>` +
+				tag("Id", e.id) +
+				tag("Code", e.code) +
+				tag("Message", e.message) +
+				tag("SenderFault", e.senderFault ? "true" : "false") +
+				`</BatchResultErrorEntry>`,
+		)
+		.join("");
+	return successXml + errorXml;
+};
 
 export interface ReceiveMessageXml {
 	messageId: string;

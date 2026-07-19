@@ -10,6 +10,9 @@ export {
 	type SidecarLog,
 } from "./server.js";
 export {
+	type FifoSendInput,
+	InvalidParameterValueError,
+	MissingParameterError,
 	type QueueAttributes,
 	type QueueDefinition,
 	QueueDoesNotExistError,
@@ -17,4 +20,6 @@ export {
 	QueueStore,
 	type ReceivedMessage,
 	type SendResult,
+	SqsError,
+	validateFifoSend,
 } from "./store.js";

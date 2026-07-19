@@ -4,7 +4,11 @@ import { join } from "node:path";
 import { after, beforeEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { bootstrapQueues, parseQueuesConfig } from "./queues-config.js";
-import { QueueStore } from "./store.js";
+import {
+	InvalidParameterValueError,
+	MissingParameterError,
+	QueueStore,
+} from "./store.js";
 
 const tmpRoot = join(
 	fileURLToPath(new URL(".", import.meta.url)),
@@ -66,6 +70,30 @@ describe("QueueStore", () => {
 		assert.equal(
 			store.receiveMessages({ queueName: "jobs", maxMessages: 10 }).length,
 			0,
+		);
+	});
+
+	it("rejects a FIFO send with no MessageGroupId", () => {
+		assert.throws(
+			() =>
+				store.sendMessage({
+					queueName: "orders.fifo",
+					body: "x",
+					deduplicationId: "d",
+				}),
+			MissingParameterError,
+		);
+	});
+
+	it("rejects a FIFO send with neither a dedup id nor content-based dedup", () => {
+		assert.throws(
+			() =>
+				store.sendMessage({
+					queueName: "orders.fifo",
+					body: "x",
+					groupId: "g1",
+				}),
+			InvalidParameterValueError,
 		);
 	});
 

@@ -107,7 +107,7 @@ itself (Settings → Add account).
 | `web` | `ghcr.io/remit-mail/remit/web` | Static server for the built web client. |
 | `backend` | `ghcr.io/remit-mail/remit/backend` | The API. Also the image the `migrate` and `volume-init` one-shots run. |
 | `imap-worker`, `smtp-worker`, `account-worker`, `search-index-worker` | `ghcr.io/remit-mail/remit/*` | Queue pollers: sync mail, push flag and folder changes back, send outgoing mail, and build the search index. |
-| `queue` | `ghcr.io/remit-mail/remit/queue-sidecar` | The SQS-compatible queue seam: a SQLite-backed sidecar speaking the SQS wire protocol, persisting enqueued work to its own volume. |
+| `queue` | `ghcr.io/remit-mail/reader/queue-sidecar` | The SQS-compatible queue seam: a SQLite-backed sidecar speaking the SQS wire protocol, persisting enqueued work to its own volume. |
 | `migrate` | `ghcr.io/remit-mail/remit/backend` (command override) | One-shot: applies the SQLite migrations and the FTS5 search index before any app service starts. |
 | `volume-init` | `ghcr.io/remit-mail/remit/backend` (entrypoint override) | One-shot: fixes ownership of the data volumes so the non-root app user can write them. |
 | `backup` | `alpine:3.23` | Off by default (`profiles: ["backup"]`). Nightly encrypted database snapshot. See [Backups](#backups). |

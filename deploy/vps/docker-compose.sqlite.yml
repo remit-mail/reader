@@ -48,7 +48,7 @@ services:
   # store — so the outbox survives a restart.
   # ---------------------------------------------------------------------
   queue:
-    image: ghcr.io/remit-mail/remit/queue-sidecar:${REMIT_TAG:-latest}
+    image: ghcr.io/remit-mail/reader/queue-sidecar:${REMIT_TAG:-latest}
     environment:
       QUEUE_SIDECAR_QUEUES_CONFIG: /etc/queue/queues.json
       QUEUE_SIDECAR_DB: /data/queue/queue.db

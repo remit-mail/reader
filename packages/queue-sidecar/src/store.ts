@@ -102,7 +102,12 @@ export class QueueStore {
 		this.db = new Database(filename);
 		this.db.pragma("journal_mode = WAL");
 		this.db.pragma("busy_timeout = 5000");
-		this.db.pragma("synchronous = NORMAL");
+		// FULL, not NORMAL: the outbox path makes durability non-negotiable
+		// (ADR constraint 5) — a queued send lost is a mail the user believes
+		// left but never did. FULL flushes the WAL on every commit, so a
+		// committed send survives host power-loss, not only a process restart.
+		// At this queue's write volume the extra fsync cost is irrelevant.
+		this.db.pragma("synchronous = FULL");
 		this.migrate();
 		this.sequenceCounter = this.readMaxSequence();
 	}
@@ -214,6 +219,9 @@ export class QueueStore {
 		const queue = this.requireQueue(input.queueName);
 		const now = input.now ?? Date.now();
 		const md5 = md5Hex(input.body);
+
+		const invalid = validateFifoSend(queue, input);
+		if (invalid) throw invalid;
 
 		const dedupId = queue.fifo
 			? (input.deduplicationId ??
@@ -445,9 +453,67 @@ export class QueueStore {
 	}
 }
 
-export class QueueDoesNotExistError extends Error {
-	constructor(public readonly queueName: string) {
-		super(`The specified queue does not exist: ${queueName}`);
-		this.name = "QueueDoesNotExistError";
+/**
+ * An error that maps to an SQS Query wire fault. `code` is the SQS error code
+ * the SDK deserializes into a named exception; `senderFault` decides Sender vs
+ * Receiver (HTTP 400 vs 500).
+ */
+export class SqsError extends Error {
+	constructor(
+		public readonly code: string,
+		message: string,
+		public readonly senderFault = true,
+	) {
+		super(message);
+		this.name = new.target.name;
 	}
 }
+
+export class QueueDoesNotExistError extends SqsError {
+	constructor(public readonly queueName: string) {
+		super(
+			"AWS.SimpleQueueService.NonExistentQueue",
+			`The specified queue does not exist: ${queueName}`,
+		);
+	}
+}
+
+export class MissingParameterError extends SqsError {
+	constructor(message: string) {
+		super("MissingParameter", message);
+	}
+}
+
+export class InvalidParameterValueError extends SqsError {
+	constructor(message: string) {
+		super("InvalidParameterValue", message);
+	}
+}
+
+export interface FifoSendInput {
+	readonly groupId?: string;
+	readonly deduplicationId?: string;
+}
+
+/**
+ * The FIFO-send preconditions real SQS enforces, returned rather than thrown so
+ * the batch path can map a bad entry to a per-entry failure instead of failing
+ * the whole request. A standard queue has no preconditions.
+ */
+export const validateFifoSend = (
+	queue: QueueRecord,
+	input: FifoSendInput,
+): SqsError | undefined => {
+	if (!queue.fifo) return undefined;
+	if (!input.groupId) {
+		return new MissingParameterError(
+			"The request must contain the parameter MessageGroupId.",
+		);
+	}
+	if (!input.deduplicationId && !queue.contentBasedDeduplication) {
+		return new InvalidParameterValueError(
+			"The queue should either have ContentBasedDeduplication enabled or MessageDeduplicationId provided explicitly.",
+		);
+	}
+	return undefined;
+};

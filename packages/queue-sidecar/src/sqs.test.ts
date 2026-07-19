@@ -221,6 +221,46 @@ describe("SQS wire protocol via the AWS SDK", () => {
 		assert.deepEqual(result.Successful?.map((e) => e.Id).sort(), ["a", "b"]);
 	});
 
+	it("returns per-entry failures for a partially invalid batch", async () => {
+		const url = h.queueUrl("sync.fifo");
+		await h.client.send(new PurgeQueueCommand({ QueueUrl: url }));
+		const result = await h.client.send(
+			new SendMessageBatchCommand({
+				QueueUrl: url,
+				Entries: [
+					{
+						Id: "good",
+						MessageBody: "ok",
+						MessageGroupId: "g",
+						MessageDeduplicationId: "good-1",
+					},
+					// No MessageGroupId on a FIFO queue — SQS rejects this entry,
+					// the valid one still lands.
+					{ Id: "bad", MessageBody: "no-group" },
+				],
+			}),
+		);
+		assert.equal(result.Successful?.length, 1);
+		assert.equal(result.Successful?.[0].Id, "good");
+		assert.equal(result.Failed?.length, 1);
+		assert.equal(result.Failed?.[0].Id, "bad");
+		assert.equal(result.Failed?.[0].Code, "MissingParameter");
+		assert.equal(result.Failed?.[0].SenderFault, true);
+	});
+
+	it("rejects a FIFO SendMessage without a MessageGroupId", async () => {
+		const url = h.queueUrl("sync.fifo");
+		await assert.rejects(
+			h.client.send(
+				new SendMessageCommand({ QueueUrl: url, MessageBody: "no-group" }),
+			),
+			(error: Error) => {
+				assert.match(`${error.name} ${error.message}`, /MissingParameter/);
+				return true;
+			},
+		);
+	});
+
 	it("redelivers after the visibility timeout and reports the receive count", async () => {
 		const url = h.queueUrl("work");
 		await h.client.send(new PurgeQueueCommand({ QueueUrl: url }));

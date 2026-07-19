@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createServer, type Server } from "node:http";
 import {
+	type BatchErrorEntry,
+	type BatchSuccessEntry,
 	errorResponse,
 	queryResponse,
 	queryResponseNoResult,
@@ -11,7 +13,12 @@ import {
 	sendMessageBatchResult,
 	sendMessageResult,
 } from "./protocol.js";
-import { QueueDoesNotExistError, type QueueStore } from "./store.js";
+import {
+	QueueDoesNotExistError,
+	type QueueStore,
+	SqsError,
+	validateFifoSend,
+} from "./store.js";
 
 export interface SidecarLog {
 	info: (fields: Record<string, unknown>, message: string) => void;
@@ -55,7 +62,11 @@ const queueNameFromUrl = (queueUrl: string): string => {
 	return decodeURIComponent(name);
 };
 
-class InvalidRequestError extends Error {}
+class InvalidRequestError extends SqsError {
+	constructor(message: string) {
+		super("InvalidParameterValue", message);
+	}
+}
 
 const collectIndexed = (params: URLSearchParams, prefix: string): string[] => {
 	const values: string[] = [];
@@ -213,23 +224,45 @@ export const createSidecarServer = (options: CreateSidecarOptions): Server => {
 
 		if (action === "SendMessageBatch") {
 			const entries = parseBatchEntries(params, "SendMessageBatchRequestEntry");
-			const results = entries.map((entry) => {
+			// A missing/unknown queue faults the whole request (SQS returns an
+			// error, not per-entry failures); a bad individual entry becomes a
+			// per-entry failure so the rest of the batch still lands.
+			const queue = store.getQueue(queueName);
+			if (!queue) throw new QueueDoesNotExistError(queueName);
+
+			const successful: BatchSuccessEntry[] = [];
+			const failed: BatchErrorEntry[] = [];
+			for (const entry of entries) {
+				const invalid = validateFifoSend(queue, entry);
+				if (invalid) {
+					failed.push({
+						id: entry.id,
+						code: invalid.code,
+						message: invalid.message,
+						senderFault: invalid.senderFault,
+					});
+					continue;
+				}
 				const result = store.sendMessage({
 					queueName,
 					body: entry.body,
 					groupId: entry.groupId,
 					deduplicationId: entry.deduplicationId,
 				});
-				return {
+				successful.push({
 					id: entry.id,
 					messageId: result.messageId,
 					md5OfBody: result.md5OfBody,
 					sequenceNumber: result.sequenceNumber,
-				};
-			});
+				});
+			}
 			return {
 				status: 200,
-				body: queryResponse(action, sendMessageBatchResult(results), requestId),
+				body: queryResponse(
+					action,
+					sendMessageBatchResult(successful, failed),
+					requestId,
+				),
 			};
 		}
 
@@ -330,20 +363,13 @@ export const createSidecarServer = (options: CreateSidecarOptions): Server => {
 
 	const respondError = (res: ServerResponse, error: unknown): void => {
 		const requestId = randomUUID();
-		if (error instanceof QueueDoesNotExistError) {
-			res.writeHead(400, { "content-type": "text/xml" });
+		if (error instanceof SqsError) {
+			res.writeHead(error.senderFault ? 400 : 500, {
+				"content-type": "text/xml",
+			});
 			res.end(
-				errorResponse(
-					"AWS.SimpleQueueService.NonExistentQueue",
-					error.message,
-					requestId,
-				),
+				errorResponse(error.code, error.message, requestId, error.senderFault),
 			);
-			return;
-		}
-		if (error instanceof InvalidRequestError) {
-			res.writeHead(400, { "content-type": "text/xml" });
-			res.end(errorResponse("InvalidParameterValue", error.message, requestId));
 			return;
 		}
 		const message = error instanceof Error ? error.message : "internal error";
