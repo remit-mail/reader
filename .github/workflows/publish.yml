@@ -1,12 +1,14 @@
-# Publish pipeline: changesets drives versioning and publishing of the open-core
-# `@remit/*` workspace packages to the public npm org. The TypeSpec-generated
-# packages under build/ are not workspaces and are published separately by
-# `release:generated`, content-hash-gated against the registry.
+# Publish pipeline: one registry-gated mechanism publishes every open-core
+# `@remit/*` package — the workspace services under packages/ and the
+# TypeSpec-generated packages under build/. The public registry is the source of
+# truth for versions: each package publishes only when its freshly built content
+# differs from the version on npm, patch-bumping from the registry version (or
+# seeding 0.0.1). No changesets, no committed version bumps.
 #
-# Pull requests run a dry run — version + pack the intended package set and print
-# the generated-package publish decisions, no registry writes. Pushes to main
-# publish for real, gated behind the `NPM_PUBLISH_ENABLED` repository variable so
-# publishing is armed deliberately. Set the variable to `true` to go live.
+# Pull requests run a dry run — pack every package and print the publish
+# decisions, no registry writes. Pushes to main publish for real, gated behind
+# the `NPM_PUBLISH_ENABLED` repository variable so publishing is armed
+# deliberately. Set the variable to `true` to go live.
 #
 # Auth is the granular access token in the `NPM_TOKEN` secret.
 name: Publish
@@ -36,14 +38,20 @@ jobs:
       - run: npm ci --no-audit --no-fund --loglevel=error
       - run: make
       - run: npm run release:dry-run
-      - run: node npm-scripts/publish-generated.mjs --dry-run
+      # Guards install-ability of the currently published set: a clean directory,
+      # outside the repo, must resolve the service packages off the public
+      # registry alone — the failure mode this whole pipeline exists to prevent.
+      - name: Clean-install acceptance
+        run: |
+          tmp=$(mktemp -d)
+          cd "$tmp"
+          npm init -y >/dev/null
+          npm install @remit/data-ports @remit/drizzle-service @remit/backend --loglevel=error
+          node -e "for (const p of ['@remit/data-ports','@remit/drizzle-service','@remit/backend','@remit/domain-enums','@remit/drizzle-pg-schema']) require.resolve(p)"
 
   publish:
     if: github.event_name == 'push' && vars.NPM_PUBLISH_ENABLED == 'true'
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -55,18 +63,9 @@ jobs:
           registry-url: https://registry.npmjs.org
       - run: npm ci --no-audit --no-fund --loglevel=error
       - run: make
-      # Generated (build/) packages first — the workspace set depends on them.
-      # Content-hash-gated: publishes only what changed, safe on every run.
-      - name: Publish generated packages
-        run: npm run release:generated
+      # Content-hash-gated: publishes only packages whose content changed,
+      # generated (build/) before the workspace set that depends on them. Safe on
+      # every run.
+      - run: npm run release
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-      # On merge with pending changesets: opens/updates a "Version Packages" PR.
-      # On merge with none pending (that PR merged): publishes the bumped set.
-      - uses: changesets/action@v1
-        with:
-          version: npm run release:version
-          publish: npm run release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

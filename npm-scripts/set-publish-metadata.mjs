@@ -1,17 +1,12 @@
 #!/usr/bin/env node
 // Stamps the npm-publish metadata (MIT license, public access, repository
-// directory) onto every workspace package the publish pipeline ships — the
-// non-private packages that changesets does not ignore. Idempotent: re-run it
-// after adding or reclassifying a package.
+// directory) onto every publishable workspace package — the non-private ones.
+// Idempotent: re-run it after adding or reclassifying a package.
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const config = JSON.parse(
-	readFileSync(join(repoRoot, ".changeset", "config.json"), "utf8"),
-);
-const ignored = new Set(config.ignore ?? []);
 
 const repository = "https://github.com/remit-mail/reader.git";
 
@@ -37,7 +32,7 @@ for (const dir of workspaceDirs) {
 		continue;
 	}
 
-	const publishes = !manifest.private && !ignored.has(manifest.name);
+	const publishes = !manifest.private;
 	// Manage only the three publish markers. On strip, leave a pre-existing
 	// license alone (a closed package may carry its own, e.g. UNLICENSED) and
 	// remove only the access/repository markers the pipeline added.

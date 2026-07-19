@@ -22,10 +22,8 @@
     "build-storybook": "npm run build-storybook -w @remit/workbench",
     "lint": "biome ci",
     "format": "biome check --fix && tsp format ./typespec",
-    "release": "changeset publish",
-    "release:version": "changeset version",
-    "release:generated": "node npm-scripts/publish-generated.mjs",
-    "release:dry-run": "node npm-scripts/release-dry-run.mjs",
+    "release": "node npm-scripts/publish-packages.mjs",
+    "release:dry-run": "node npm-scripts/publish-packages.mjs --dry-run",
     "check:publish-closure": "node npm-scripts/check-publish-closure.mjs",
     "bootstrap:publish-metadata": "node npm-scripts/set-publish-metadata.mjs",
     "images:publish": "bash npm-scripts/images-publish.sh"
@@ -37,7 +35,6 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.11",
-    "@changesets/cli": "^2.31.1",
     "@hey-api/openapi-ts": "^0.90.10",
     "@kattebak/typespec-drizzle-orm-generator": "^3.8.3",
     "@kattebak/typespec-enum-emitter": "^1.2.2",
