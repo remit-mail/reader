@@ -14,6 +14,7 @@
 // it never touches through barrel imports — the lesson from the Lambda path,
 // where barrel imports pulled `pg` and NLP libraries into DynamoDB functions.
 import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { build } from "esbuild";
 
 const CJS_REQUIRE_BANNER =
@@ -133,6 +134,22 @@ export const TARGETS = [
 	},
 ];
 
+// A dynamic relative import whose target is absent was stripped from the
+// open-core tree (the DynamoDB composition module sits behind a DATA_BACKEND
+// branch this deploy never takes). Mark it external so esbuild skips it instead
+// of failing to resolve; the import throws only if that dead branch is entered.
+const externalizeStripped = {
+	name: "externalize-stripped",
+	setup(build) {
+		build.onResolve({ filter: /^\.\.?\// }, (args) => {
+			if (args.kind !== "dynamic-import") return undefined;
+			const base = resolve(args.resolveDir, args.path);
+			const exists = [base, base.replace(/\.js$/, ".ts")].some(existsSync);
+			return exists ? undefined : { path: args.path, external: true };
+		});
+	},
+};
+
 async function main() {
 	const only = process.argv[2];
 	// Only bundle targets whose entrypoint ships in this tree. The open-core
@@ -167,6 +184,7 @@ async function main() {
 			define: DIRNAME_DEFINES,
 			external: target.external ?? [],
 			loader: target.loader ?? {},
+			plugins: [externalizeStripped],
 			logLevel: "warning",
 		});
 	}
