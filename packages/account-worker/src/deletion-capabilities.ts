@@ -68,9 +68,14 @@ const buildDeletionCapabilitiesFromEnv =
 			);
 			return buildRelationalDeletionCapabilities();
 		}
-		const { buildDynamoDBDeletionCapabilities } = await import(
-			"./compose-dynamodb.js"
-		);
+		// `as string` stops tsgo resolving the module in the open-core tree, which
+		// strips it; the named contract keeps the call site typed rather than `any`.
+		type ComposeDynamoDBModule = {
+			buildDynamoDBDeletionCapabilities: () => DeletionCapabilities;
+		};
+		const { buildDynamoDBDeletionCapabilities } = (await import(
+			"./compose-dynamodb.js" as string
+		)) as ComposeDynamoDBModule;
 		return buildDynamoDBDeletionCapabilities();
 	};
 
