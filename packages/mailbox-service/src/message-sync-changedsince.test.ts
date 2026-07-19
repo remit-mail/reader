@@ -428,12 +428,12 @@ describe("MessageSyncService CHANGEDSINCE path", () => {
 		// got rather than claiming the whole of mod-sequence 900.
 		assert.equal(harness.created.length, 50);
 		assert.equal(first.hasMore, true);
-		assert.equal(harness.mailboxUpdates[0].highestModseq, "500:149");
+		assert.equal(harness.mailboxUpdates[0].highestModseq, "900:149");
 
-		// The next round asks from the last COMPLETE mod-sequence, so the server
-		// serves the whole group again and the applied half is skipped.
+		// The next round asks from just below the recorded group, so the server
+		// serves that group again and the applied half is skipped by identity.
 		const resumed = buildHarness({
-			mailbox: mailbox({ highestModseq: "500:149" }),
+			mailbox: mailbox({ highestModseq: "900:149" }),
 			supportsCondstore: true,
 			serverModseq: "900",
 			changed: bulk,
@@ -442,10 +442,31 @@ describe("MessageSyncService CHANGEDSINCE path", () => {
 
 		const second = await syncOnce(resumed, 50);
 
-		assert.deepEqual(resumed.calls.changedSince, [500n]);
+		assert.deepEqual(resumed.calls.changedSince, [899n]);
 		assert.equal(resumed.created.length, 10);
 		assert.equal(second.hasMore, false);
 		assert.equal(resumed.mailboxUpdates[0].highestModseq, "900");
+	});
+
+	it("applies every change when the group it was resuming has vanished", async () => {
+		// The rest of group 900 was expunged, or modified again onto 950. The
+		// resumed round must treat none of what it is served as already applied.
+		const harness = buildHarness({
+			mailbox: mailbox({ highestModseq: "900:149" }),
+			supportsCondstore: true,
+			serverModseq: "950",
+			changed: [
+				serverMessage({ uid: 10, modseq: "950" }),
+				serverMessage({ uid: 20, modseq: "950" }),
+				serverMessage({ uid: 600, modseq: "950" }),
+			],
+			storedRows: [],
+		});
+
+		await syncOnce(harness);
+
+		assert.equal(harness.created.length, 3);
+		assert.equal(harness.mailboxUpdates[0].highestModseq, "950");
 	});
 
 	it("keeps the cursor below a group it only partly applied", async () => {
@@ -467,7 +488,7 @@ describe("MessageSyncService CHANGEDSINCE path", () => {
 
 		assert.equal(result.hasMore, true);
 		// Group 800 complete, 49 into group 900 — never a bare "900".
-		assert.equal(harness.mailboxUpdates[0].highestModseq, "800:148");
+		assert.equal(harness.mailboxUpdates[0].highestModseq, "900:148");
 	});
 
 	it("reports a stalled cursor when a round moves nothing", async () => {

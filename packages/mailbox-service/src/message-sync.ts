@@ -43,6 +43,7 @@ import {
 	type ChangeCursor,
 	dropAppliedPrefix,
 	formatChangeCursor,
+	hasChangeCursor,
 	orderByModseq,
 	parseChangeCursor,
 	parseModseq,
@@ -299,7 +300,7 @@ export class MessageSyncService {
 		}
 
 		const cursor = parseChangeCursor(mailbox.highestModseq);
-		if (cursor.modseq > 0n && connection.supportsCondstore()) {
+		if (hasChangeCursor(cursor) && connection.supportsCondstore()) {
 			return this.syncChangedSince({
 				mailbox,
 				accountId,

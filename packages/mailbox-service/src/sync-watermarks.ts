@@ -18,9 +18,17 @@ import type { ImapMessage } from "./types.js";
  * digits and only ever compared as a BigInt. `undefined` covers rows written
  * before the field existed, and "0" is the server's own way of saying it has
  * no mod-sequence to report.
+ *
+ * Anything that is not plain digits reads as no mod-sequence rather than
+ * throwing. A cursor is read at the very top of a sync round, so a value this
+ * cannot parse would take the mailbox out of sync permanently, and leave no
+ * path to repair it — every route to the field runs through here. Degrading to
+ * 0 sends the mailbox back to enumeration, which reseeds it.
  */
+const DECIMAL_DIGITS = /^\d+$/;
+
 export const parseModseq = (raw: string | undefined): bigint => {
-	if (!raw) return 0n;
+	if (!raw || !DECIMAL_DIGITS.test(raw)) return 0n;
 	const value = BigInt(raw);
 	return value > 0n ? value : 0n;
 };
@@ -44,9 +52,9 @@ export const orderByModseq = (messages: ImapMessage[]): ImapMessage[] =>
 /**
  * The message-sync cursor: how far CHANGEDSINCE has been applied.
  *
- * `modseq` is the highest mod-sequence fully applied. `uid` is a position
- * INSIDE the next mod-sequence — the highest UID of that group already
- * applied, or 0 when the group has not been started.
+ * `modseq` is what the next fetch asks from. `group` and `uid` describe a
+ * mod-sequence a previous round left part-applied: which one, and how far into
+ * it the round got. `group` is 0 when the cursor sits on a clean boundary.
  *
  * The sub-position exists because one STORE assigns the SAME mod-sequence to
  * every message it touched (RFC 7162 permits it and servers do it), so "select
@@ -54,56 +62,84 @@ export const orderByModseq = (messages: ImapMessage[]): ImapMessage[] =>
  * strictly greater-than, so a cursor that advanced to a partly-applied group
  * would never see its tail again; a cursor that refused to split it would have
  * to apply the whole group in one round, which for a large mailbox does not
- * finish — and every retry would repeat the same unfinished work. The
+ * finish, and every retry would repeat the same unfinished work. The
  * sub-position is what lets one group span rounds without ever claiming more
  * than was applied.
+ *
+ * The group is recorded rather than inferred from the fetch result. The
+ * in-progress group is NOT reliably the lowest mod-sequence returned: its
+ * remaining members can disappear between rounds, by being expunged (which
+ * CONDSTORE simply stops reporting) or by being modified again onto a higher
+ * mod-sequence. Inferring it then points the skip at an unrelated group and
+ * silently drops that group's leading messages.
  */
 export interface ChangeCursor {
-	/** Highest mod-sequence fully applied. */
+	/** Fetch from here — everything above it is still owed. */
 	modseq: bigint;
-	/** Highest UID applied within the next mod-sequence; 0 when none. */
+	/** The mod-sequence left part-applied, or 0 on a clean boundary. */
+	group: bigint;
+	/** Highest UID applied within `group`. */
 	uid: number;
 }
 
 /**
- * Read a stored cursor. Plain digits — every value written before the
- * sub-position existed — mean a group boundary, which is what they always
- * meant.
+ * Read a stored cursor.
+ *
+ * Two forms: `"<modseq>"` is a clean boundary — every value written before the
+ * sub-position existed, which is what they always meant. `"<group>:<uid>"` is a
+ * position inside a group; the fetch point is implied, because a round only
+ * ever stops inside a group once everything below it has been applied.
+ *
+ * Storing the implied fetch point instead of a third number is what keeps the
+ * value inside the field's 32 characters: two 64-bit mod-sequences and a UID
+ * would not fit.
  */
 export const parseChangeCursor = (raw: string | undefined): ChangeCursor => {
-	if (!raw) return { modseq: 0n, uid: 0 };
-	const [modseq, uid] = raw.split(":");
-	return {
-		modseq: parseModseq(modseq),
-		uid: uid === undefined ? 0 : Number.parseInt(uid, 10) || 0,
-	};
+	// SQLite gives a numeric column back as a number whatever the declared
+	// type, so normalize before parsing rather than trusting the static type.
+	const text = raw === undefined || raw === null ? "" : String(raw);
+	const [left, right] = text.split(":");
+
+	if (right === undefined) {
+		return { modseq: parseModseq(left), group: 0n, uid: 0 };
+	}
+
+	const group = parseModseq(left);
+	const uid = DECIMAL_DIGITS.test(right) ? Number.parseInt(right, 10) : 0;
+	if (group === 0n || uid === 0) {
+		return { modseq: group, group: 0n, uid: 0 };
+	}
+
+	return { modseq: group - 1n, group, uid };
 };
 
-/** Render a cursor. A group boundary stays plain digits. */
+/** Render a cursor. A clean boundary stays plain digits. */
 export const formatChangeCursor = (cursor: ChangeCursor): string =>
-	cursor.uid > 0
-		? `${cursor.modseq.toString()}:${cursor.uid}`
+	cursor.group > 0n && cursor.uid > 0
+		? `${cursor.group.toString()}:${cursor.uid}`
 		: cursor.modseq.toString();
 
+/** True when the cursor is far enough along to fetch incrementally at all. */
+export const hasChangeCursor = (cursor: ChangeCursor): boolean =>
+	cursor.modseq > 0n || cursor.group > 0n;
+
 /**
- * Drop the part of a partly-applied group that a previous round already
- * applied.
+ * Drop the part of a part-applied group that a previous round already applied.
  *
- * The fetch asks for everything above the last COMPLETE mod-sequence, so a
- * resumed round is served the whole in-progress group again. Its already-applied
- * members are recognised by position alone — the fetch row carries both its
- * mod-sequence and its UID — so skipping them costs no lookup.
+ * The fetch asks from below the in-progress group, so a resumed round is served
+ * that group again in full. Its applied members are recognised by position
+ * alone — the fetch row carries both its mod-sequence and its UID — so skipping
+ * them costs no lookup. Rows of any other mod-sequence are never skipped, which
+ * is what makes a vanished remainder harmless instead of lossy.
  */
 export const dropAppliedPrefix = (
 	ordered: ImapMessage[],
 	cursor: ChangeCursor,
 ): ImapMessage[] => {
-	if (cursor.uid === 0 || ordered.length === 0) return ordered;
-	// `ordered` is ascending, so the in-progress group is the lowest one left.
-	const inProgress = parseModseq(ordered[0].modseq);
+	if (cursor.group === 0n || cursor.uid === 0) return ordered;
 	return ordered.filter(
 		(message) =>
-			parseModseq(message.modseq) !== inProgress || message.uid > cursor.uid,
+			parseModseq(message.modseq) !== cursor.group || message.uid > cursor.uid,
 	);
 };
 
@@ -174,6 +210,7 @@ export const advanceChangeCursor = ({
 		return {
 			cursor: {
 				modseq: serverModseq > lastModseq ? serverModseq : lastModseq,
+				group: 0n,
 				uid: 0,
 			},
 			hasMore,
@@ -182,18 +219,17 @@ export const advanceChangeCursor = ({
 
 	const nextModseq = parseModseq(next.modseq);
 	if (nextModseq > lastModseq) {
-		return { cursor: { modseq: lastModseq, uid: 0 }, hasMore };
+		return { cursor: { modseq: lastModseq, group: 0n, uid: 0 }, hasMore };
 	}
 
-	// Stopped inside a group: the cursor keeps the highest mod-sequence it
-	// completed and records its position within the one it is part-way through.
-	let completed = cursor.modseq;
-	for (const message of applied) {
-		const modseq = parseModseq(message.modseq);
-		if (modseq < nextModseq && modseq > completed) completed = modseq;
-	}
-
-	return { cursor: { modseq: completed, uid: last.uid }, hasMore };
+	// Stopped inside a group. Everything below it was applied — the round works
+	// through `ordered` in order — so the fetch point is the value just below
+	// the group, and the group itself is recorded so the resumed round skips by
+	// identity rather than by guessing which group it is looking at.
+	return {
+		cursor: { modseq: nextModseq - 1n, group: nextModseq, uid: last.uid },
+		hasMore,
+	};
 };
 
 export interface UidWatermarkInput {
