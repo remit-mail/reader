@@ -1,0 +1,26 @@
+diff --git a/node_modules/@kattebak/typespec-enum-emitter/dist/emitter.js b/node_modules/@kattebak/typespec-enum-emitter/dist/emitter.js
+index 3a9095a..5b597c3 100644
+--- a/node_modules/@kattebak/typespec-enum-emitter/dist/emitter.js
++++ b/node_modules/@kattebak/typespec-enum-emitter/dist/emitter.js
+@@ -52,8 +52,8 @@ function generateEnumObject(members) {
+         .map((member) => {
+         const key = member.name;
+         const value = member.value ?? member.name;
+-        const valueStr = typeof value === "string" ? `"${value}"` : value;
+-        return `\t"${key}": ${valueStr}`;
++        const valueStr = typeof value === "string" ? JSON.stringify(value) : value;
++        return `\t${JSON.stringify(key)}: ${valueStr}`;
+     })
+         .join(",\n");
+     return `{\n${entries}\n}`;
+@@ -66,8 +66,8 @@ function generateTypeScript(enums) {
+             .map((member) => {
+             const key = member.name;
+             const value = member.value ?? member.name;
+-            const valueStr = typeof value === "string" ? `"${value}"` : value;
+-            return `\treadonly "${key}": ${valueStr}`;
++            const valueStr = typeof value === "string" ? JSON.stringify(value) : value;
++            return `\treadonly ${JSON.stringify(key)}: ${valueStr}`;
+         })
+             .join(";\n");
+         return `export declare const ${enumType.name}: {\n${memberTypes}\n};`;

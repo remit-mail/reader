@@ -1,0 +1,13 @@
+diff --git a/node_modules/@kattebak/typespec-zod-emitter/dist/emitter.js b/node_modules/@kattebak/typespec-zod-emitter/dist/emitter.js
+index 9b1174a..b06d667 100644
+--- a/node_modules/@kattebak/typespec-zod-emitter/dist/emitter.js
++++ b/node_modules/@kattebak/typespec-zod-emitter/dist/emitter.js
+@@ -209,7 +209,7 @@ function generateEnumSchema(enumType) {
+     }
+     const values = members.map((member) => {
+         const value = member.value ?? member.name;
+-        return typeof value === "string" ? `"${value}"` : value;
++        return typeof value === "string" ? JSON.stringify(value) : value;
+     });
+     return `export const ${enumType.name}Schema = z.enum([${values.join(", ")}]);`;
+ }

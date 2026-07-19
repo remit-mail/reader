@@ -1,7 +1,16 @@
 diff --git a/node_modules/@kattebak/typespec-openapi-types-emitter/dist/emitter.js b/node_modules/@kattebak/typespec-openapi-types-emitter/dist/emitter.js
-index dd5cf8f..1c7ecaa 100644
+index dd5cf8f..79b2092 100644
 --- a/node_modules/@kattebak/typespec-openapi-types-emitter/dist/emitter.js
 +++ b/node_modules/@kattebak/typespec-openapi-types-emitter/dist/emitter.js
+@@ -383,7 +383,7 @@ function generateTypeScriptDefinitions(collected, program) {
+         const memberTypes = members
+             .map((member) => {
+             const value = member.value ?? member.name;
+-            return typeof value === "string" ? `"${value}"` : value;
++            return typeof value === "string" ? JSON.stringify(value) : value;
+         })
+             .join(" | ");
+         const enumDoc = getDoc(program, enumType);
 @@ -404,7 +404,7 @@ function generateTypeScriptDefinitions(collected, program) {
          const modelDoc = getDoc(program, model);
          lines.push(...formatJsDoc(modelDoc, "    "));
