@@ -1,7 +1,16 @@
 diff --git a/node_modules/@kattebak/typespec-openapi-types-emitter/dist/emitter.js b/node_modules/@kattebak/typespec-openapi-types-emitter/dist/emitter.js
-index dd5cf8f..79b2092 100644
+index dd5cf8f..b32dec4 100644
 --- a/node_modules/@kattebak/typespec-openapi-types-emitter/dist/emitter.js
 +++ b/node_modules/@kattebak/typespec-openapi-types-emitter/dist/emitter.js
+@@ -322,7 +322,7 @@ function typeToTypeInfo(type, collected) {
+             return { tsType: variants || "any" };
+         }
+         case "String":
+-            return { tsType: `"${type.value}"` };
++            return { tsType: JSON.stringify(type.value) };
+         case "Number":
+             return { tsType: String(type.value) };
+         case "Boolean":
 @@ -383,7 +383,7 @@ function generateTypeScriptDefinitions(collected, program) {
          const memberTypes = members
              .map((member) => {
@@ -35,3 +44,12 @@ index dd5cf8f..79b2092 100644
  function getPropertyType(type, collected) {
      switch (type.kind) {
          case "Scalar":
+@@ -619,7 +627,7 @@ function getPropertyType(type, collected) {
+             return variants || "any";
+         }
+         case "String":
+-            return `"${type.value}"`;
++            return JSON.stringify(type.value);
+         case "Number":
+             return String(type.value);
+         case "Boolean":

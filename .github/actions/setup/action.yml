@@ -63,7 +63,7 @@ runs:
         path: |
           build
           !build/*/node_modules
-        key: ${{ runner.os }}-codegen-v2-${{ hashFiles('typespec/**', 'Makefile', 'openapi-ts.config.js', 'package-lock.json') }}
+        key: ${{ runner.os }}-codegen-v2-${{ hashFiles('typespec/**', 'Makefile', 'openapi-ts.config.js', 'package-lock.json', 'patches/**') }}
 
     - name: Codegen (generated @remit/* packages)
       if: inputs.codegen == 'true' && steps.codegen.outputs.cache-hit != 'true'

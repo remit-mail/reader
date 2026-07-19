@@ -12,7 +12,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "postinstall": "patch-package",
+    "postinstall": "patch-package --error-on-fail --error-on-warn",
     "codegen": "make",
     "codegen:openapi": "tsp compile ./typespec",
     "codegen:sqlite": "tsp compile ./typespec --config ./typespec/tspconfig.sqlite.yaml",
