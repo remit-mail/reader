@@ -1,7 +1,3 @@
-import {
-	AdminUserGlobalSignOutCommand,
-	type CognitoIdentityProviderClient,
-} from "@aws-sdk/client-cognito-identity-provider";
 import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
 import {
 	createLogger,
@@ -13,13 +9,15 @@ import type { CascadeServices } from "../cascade.js";
 import { enumerateCascadeEntities } from "../cascade.js";
 import {
 	cascadeServices,
-	cognitoClient,
 	getAccountFinalizeQueueUrl,
 	getAccountPurgeDeleteQueueUrl,
 	getImapWorkerQueueUrl,
-	getUserPoolId,
 	sqsClient,
 } from "../config.js";
+import {
+	type DeletionCapabilities,
+	getDeletionCapabilities,
+} from "../deletion-capabilities.js";
 import type {
 	AccountDeleteEvent,
 	AccountFanoutEvent,
@@ -30,32 +28,35 @@ import { processAccountDataPurge } from "./account-purge.js";
 import { processOrganizeJob } from "./organize-job.js";
 
 export interface ProcessAccountFanoutDeps {
-	services: CascadeServices;
-	sqs: SQSClient;
-	cognito: CognitoIdentityProviderClient;
-	userPoolId: string;
-	imapWorkerQueueUrl: string;
-	accountFinalizeQueueUrl: string;
-	accountPurgeDeleteQueueUrl: string;
+	services?: CascadeServices;
+	sqs?: SQSClient;
+	signOut?: DeletionCapabilities["signOut"];
+	imapWorkerQueueUrl?: string;
+	accountFinalizeQueueUrl?: string;
+	accountPurgeDeleteQueueUrl?: string;
 }
 
 /**
  * Fanout step of the account-deletion cascade. Read-only: enumerates the
  * AccountConfig's data and dispatches downstream work — search-index
- * deletes, per-account imap-worker stops, a Cognito sign-out, and the
- * finalize enqueue. Throws on any non-swallowable AWS error so SQS partial
- * batch-failure retries the whole record.
+ * deletes, per-account imap-worker stops, a sign-out, and the finalize
+ * enqueue. Throws on any non-swallowable error so SQS partial batch-failure
+ * retries the whole record.
  */
 export const processAccountFanout = async (
 	event: AccountFanoutEvent,
 	log: Logger,
-	deps: ProcessAccountFanoutDeps = defaultDeps(),
+	deps: ProcessAccountFanoutDeps = {},
 ): Promise<void> => {
+	const services = deps.services ?? cascadeServices;
+	const sqs = deps.sqs ?? sqsClient;
+
 	if (event.type === "AccountDataPurge") {
 		await processAccountDataPurge(event, log, {
-			services: deps.services,
-			sqs: deps.sqs,
-			accountPurgeDeleteQueueUrl: deps.accountPurgeDeleteQueueUrl,
+			services,
+			sqs,
+			accountPurgeDeleteQueueUrl:
+				deps.accountPurgeDeleteQueueUrl ?? getAccountPurgeDeleteQueueUrl(),
 		});
 		return;
 	}
@@ -70,20 +71,25 @@ export const processAccountFanout = async (
 		return;
 	}
 
-	await processAccountDelete(event, log, deps);
+	await processAccountDelete(event, log, services, sqs, deps);
 };
 
 const processAccountDelete = async (
 	event: AccountDeleteEvent,
 	log: Logger,
+	services: CascadeServices,
+	sqs: SQSClient,
 	deps: ProcessAccountFanoutDeps,
 ): Promise<void> => {
 	const { accountConfigId } = event;
-	const { services, sqs, cognito } = deps;
+	const signOut = deps.signOut ?? (await getDeletionCapabilities()).signOut;
+	const imapWorkerQueueUrl = deps.imapWorkerQueueUrl ?? getImapWorkerQueueUrl();
+	const accountFinalizeQueueUrl =
+		deps.accountFinalizeQueueUrl ?? getAccountFinalizeQueueUrl();
 
 	const accountConfig =
 		await services.accountConfigService.get(accountConfigId);
-	const cognitoUserId = accountConfig.userId;
+	const userId = accountConfig.userId;
 
 	const { entities, messageIds: _messageIds } = await enumerateCascadeEntities(
 		accountConfigId,
@@ -98,7 +104,7 @@ const processAccountDelete = async (
 	for (const accountId of accountIds) {
 		await sqs.send(
 			new SendMessageCommand({
-				QueueUrl: deps.imapWorkerQueueUrl,
+				QueueUrl: imapWorkerQueueUrl,
 				MessageBody: JSON.stringify({
 					type: "IMAP_WORKER_STOP",
 					accountConfigId,
@@ -112,7 +118,7 @@ const processAccountDelete = async (
 		"Enqueued imap-worker stop signals",
 	);
 
-	await signOutCognitoUser(cognito, deps.userPoolId, cognitoUserId, log);
+	await signOut(userId, log);
 
 	const finalizeEvent: AccountFinalizeEvent = {
 		type: "FinalizeAccountDelete",
@@ -120,45 +126,12 @@ const processAccountDelete = async (
 	};
 	await sqs.send(
 		new SendMessageCommand({
-			QueueUrl: deps.accountFinalizeQueueUrl,
+			QueueUrl: accountFinalizeQueueUrl,
 			MessageBody: JSON.stringify(finalizeEvent),
 		}),
 	);
 	log.info({ accountConfigId }, "Enqueued finalize event");
 };
-
-const signOutCognitoUser = async (
-	cognito: CognitoIdentityProviderClient,
-	userPoolId: string,
-	username: string,
-	log: Logger,
-): Promise<void> => {
-	try {
-		await cognito.send(
-			new AdminUserGlobalSignOutCommand({
-				UserPoolId: userPoolId,
-				Username: username,
-			}),
-		);
-		log.info({ username }, "Cognito user signed out globally");
-	} catch (error: unknown) {
-		if ((error as { name?: string }).name === "UserNotFoundException") {
-			log.info({ username }, "Cognito user already gone, skipping sign-out");
-			return;
-		}
-		throw error;
-	}
-};
-
-const defaultDeps = (): ProcessAccountFanoutDeps => ({
-	services: cascadeServices,
-	sqs: sqsClient,
-	cognito: cognitoClient,
-	userPoolId: getUserPoolId(),
-	imapWorkerQueueUrl: getImapWorkerQueueUrl(),
-	accountFinalizeQueueUrl: getAccountFinalizeQueueUrl(),
-	accountPurgeDeleteQueueUrl: getAccountPurgeDeleteQueueUrl(),
-});
 
 const log = createLogger();
 

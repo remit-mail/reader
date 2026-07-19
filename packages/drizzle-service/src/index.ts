@@ -4,6 +4,7 @@ export {
 	type CascadeDeleter,
 	type CascadeEntity,
 	createCascadeDeleter,
+	createSqliteCascadeDeleter,
 	runDrizzleCascadeDelete,
 } from "./repos/cascade-delete.js";
 export { DrizzleEnvelopeRepository } from "./repos/envelope.js";
