@@ -22,7 +22,9 @@ interface ComposeFabProps {
  *
  * Layout follows Material 3: 56×56 surface, 16px from the right and
  * bottom edges (plus the iOS safe-area inset). Hidden when any of:
- *   - Viewport is `≥ md` (desktop has compose in the top bar).
+ *   - Viewport is `≥ lg` (1024px), where the top bar owns compose. The
+ *     `/mail` shell also stops mounting the FAB above that width; the
+ *     `lg:hidden` class covers the pre-hydration frame.
  *   - The compose surface is already open.
  *   - The user is reading a thread (`?selectedMessageId=…`) — the
  *     conversation's Reply/Forward action bar covers that workflow.

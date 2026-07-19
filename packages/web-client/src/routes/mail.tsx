@@ -269,7 +269,12 @@ function MailLayout() {
 	const navContent = (
 		<MailNav accounts={accounts} onMailboxSelect={handleMailboxSelect} />
 	);
-	const overlayContent = <ComposeFab accounts={accounts} />;
+	// Single-pane only, where the FAB is the compose entry point. Above it the
+	// top bar owns compose, and mounting the FAB there would resolve the same
+	// compose target twice for a button CSS keeps hidden.
+	const overlayContent = isSinglePane ? (
+		<ComposeFab accounts={accounts} />
+	) : undefined;
 	// Desktop only. Below 1024px the single pane keeps its own header search and
 	// the phone takeover; there is no room for a bar spanning panes that do not
 	// exist side by side.
