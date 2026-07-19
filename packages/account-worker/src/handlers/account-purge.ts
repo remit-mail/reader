@@ -11,10 +11,10 @@ import { Entity } from "electrodb";
 import type { CascadeServices } from "../cascade.js";
 import {
 	dataBackend as defaultDataBackend,
-	sqsClient as defaultSqsClient,
 	getAccountPurgeDeleteQueueUrl,
 	getCascadeServices,
 	getSearchIndexQueueUrl,
+	getSqsClient,
 } from "../config.js";
 import type {
 	AccountDataPurgeEvent,
@@ -162,7 +162,8 @@ export const processAccountDataPurge = async (
 ): Promise<void> => {
 	const { accountId, accountConfigId } = event;
 	const services = deps.services ?? (await getCascadeServices());
-	const sqs = deps.sqs ?? defaultSqsClient;
+	const sqsFor = (queueUrl: string): SQSClient =>
+		deps.sqs ?? getSqsClient(queueUrl);
 	const accountPurgeDeleteQueueUrl =
 		deps.accountPurgeDeleteQueueUrl ?? getAccountPurgeDeleteQueueUrl();
 	const searchIndexQueueUrl =
@@ -200,7 +201,12 @@ export const processAccountDataPurge = async (
 	// here too would double the removal. On DynamoDB this fanout is the sole
 	// producer of the vector deletes (#457).
 	if (dataBackend !== "postgres") {
-		await enqueueVectorDeletes(sqs, searchIndexQueueUrl, accountId, messageIds);
+		await enqueueVectorDeletes(
+			sqsFor(searchIndexQueueUrl),
+			searchIndexQueueUrl,
+			accountId,
+			messageIds,
+		);
 		log.info(
 			{ accountConfigId, accountId, count: messageIds.length },
 			"Enqueued search-index deletes for purged account",
@@ -208,7 +214,7 @@ export const processAccountDataPurge = async (
 	}
 
 	await enqueuePurgeFinalize(
-		sqs,
+		sqsFor(accountPurgeDeleteQueueUrl),
 		accountPurgeDeleteQueueUrl,
 		accountId,
 		accountConfigId,

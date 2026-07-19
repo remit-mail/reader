@@ -1,14 +1,25 @@
-import { SQSClient } from "@aws-sdk/client-sqs";
+import type { SQSClient } from "@aws-sdk/client-sqs";
 import { getClient } from "@remit/backend/client";
-import { resolveSqsCredentials } from "@remit/sqs-client";
+import { createQueueProducer } from "@remit/sqs-client/producer";
 import type { StorageService } from "@remit/storage-service";
 import { createStorageService } from "@remit/storage-service/s3";
 import { env } from "expect-env";
 import type { CascadeServices } from "./cascade.js";
 
-export const sqsClient = new SQSClient({
-	credentials: resolveSqsCredentials(),
-});
+// A client per queue URL, resolved at send time rather than at import. The
+// endpoint and wire protocol are derived from the URL, so a self-hosted stack
+// (http://queue:9324/...) gets the query protocol its queue server speaks while
+// real SQS keeps the default. Building at import is not an option: the queue
+// URLs are read lazily for the reason given below.
+const sqsClients = new Map<string, SQSClient>();
+
+export const getSqsClient = (queueUrl: string): SQSClient => {
+	const existing = sqsClients.get(queueUrl);
+	if (existing) return existing;
+	const client = createQueueProducer({ queueUrl });
+	sqsClients.set(queueUrl, client);
+	return client;
+};
 
 // SQS env vars are lazy-evaluated. The fanout worker needs them at handler time;
 // the finalize worker imports `getCascadeServices` from this module but talks to

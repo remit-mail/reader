@@ -3,12 +3,10 @@ import cluster from "node:cluster";
 import {
 	DeleteMessageCommand,
 	ReceiveMessageCommand,
-	SQSClient,
 } from "@aws-sdk/client-sqs";
-import { AwsQueryProtocol } from "@aws-sdk/core/protocols";
 import { createLogger } from "@remit/logger-lambda";
 import { handler as searchIndexHandler } from "@remit/search-index-worker";
-import { resolveSqsCredentials } from "@remit/sqs-client";
+import { createQueueProducer } from "@remit/sqs-client/producer";
 import type {
 	Context,
 	SQSBatchResponse,
@@ -117,12 +115,7 @@ if (cluster.isPrimary) {
 
 	const maxMessages = 10; // SQS API limit
 
-	const isLocal = queueUrl.startsWith("http://localhost");
-	const sqs = new SQSClient({
-		endpoint: isLocal ? new URL(queueUrl).origin : undefined,
-		...(isLocal && { protocol: AwsQueryProtocol }),
-		credentials: resolveSqsCredentials(),
-	});
+	const sqs = createQueueProducer({ queueUrl });
 
 	let isShuttingDown = false;
 
