@@ -10,8 +10,10 @@ set -euo pipefail
 # shellcheck source=./e2e-compose.sh
 source "$(dirname "${BASH_SOURCE[0]}")/e2e-compose.sh"
 
-follow=()
-[ "${E2E_LOGS_FOLLOW:-1}" = "1" ] && follow=(--follow)
+# Colour is for the terminal that follows; a collector writes to a file, where
+# the escape codes are noise. One knob decides both.
+opts=(--follow)
+[ "${E2E_LOGS_FOLLOW:-1}" = "1" ] || opts=(--no-color)
 
 e2e_install_env
-e2e_compose logs "${follow[@]}" --no-color --tail "${E2E_LOGS_TAIL:-200}" "$@"
+e2e_compose logs "${opts[@]}" --tail "${E2E_LOGS_TAIL:-200}" "$@"

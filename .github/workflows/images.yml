@@ -64,6 +64,10 @@ jobs:
   e2e:
     needs: build-and-push
     runs-on: ubuntu-latest
+    # This job only consumes the roster, so it drops the workflow-level write.
+    permissions:
+      contents: read
+      packages: read
     env:
       REMIT_TAG: sha-${{ github.sha }}
     steps:
