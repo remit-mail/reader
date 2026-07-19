@@ -12,16 +12,6 @@ export interface SyncMessagesEvent extends BaseEvent {
 	type: "SYNC_MESSAGES";
 	mailboxId: string;
 	fullSync?: boolean; // If true, ignore lastSyncUid
-	/**
-	 * Set on a continuation event (the "next batch" a batch emits when it drains
-	 * only part of a mailbox). Carries the batch's remaining-message count so the
-	 * FIFO deduplication id is distinct per batch — otherwise every continuation
-	 * for a mailbox shares one dedup id and the 5-minute window silently drops
-	 * batches 2..N, capping any mailbox over one batch. The value is not used by
-	 * the handler (the resume point comes from the persisted watermark); it only
-	 * makes the dedup id unique.
-	 */
-	resumeCursor?: number;
 }
 
 /**

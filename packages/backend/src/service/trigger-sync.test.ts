@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
 import {
-	buildManualSyncDedupId,
 	buildScheduledSyncDedupId,
 	buildSyncMailboxesCommand,
 	triggerAccountSync,
@@ -29,17 +28,35 @@ describe("buildSyncMailboxesCommand", () => {
 		assert.equal(cmd.input.MessageGroupId, "account-abc");
 	});
 
-	it("defaults MessageDeduplicationId to the time-bucketed manual dedup id for FIFO queues", () => {
+	it("defaults MessageDeduplicationId to the event's own id for FIFO queues", () => {
 		const cmd = buildSyncMailboxesCommand({
 			sqsClient: {} as SQSClient,
 			queueUrl: FIFO_QUEUE_URL,
 			accountId: "account-abc",
 		});
 
-		assert.ok(
-			cmd.input.MessageDeduplicationId?.startsWith(
-				"SYNC_MAILBOXES:manual:account-abc:",
-			),
+		assert.equal(cmd.input.MessageDeduplicationId, parseBody(cmd).eventId);
+	});
+
+	// Issue #37: a shared, time-bucketed dedup id let SQS FIFO's 5-minute
+	// window discard the second sync of an account, so mail that arrived after
+	// a sync stayed invisible until the window elapsed. Back-to-back triggers
+	// must each reach the queue.
+	it("gives two triggers for one account distinct dedup ids", () => {
+		const first = buildSyncMailboxesCommand({
+			sqsClient: {} as SQSClient,
+			queueUrl: FIFO_QUEUE_URL,
+			accountId: "account-abc",
+		});
+		const second = buildSyncMailboxesCommand({
+			sqsClient: {} as SQSClient,
+			queueUrl: FIFO_QUEUE_URL,
+			accountId: "account-abc",
+		});
+
+		assert.notEqual(
+			first.input.MessageDeduplicationId,
+			second.input.MessageDeduplicationId,
 		);
 	});
 
@@ -90,43 +107,6 @@ describe("buildSyncMailboxesCommand", () => {
 			cmd.input.MessageDeduplicationId,
 			"SYNC_MAILBOXES:scheduled:account-abc:12345",
 		);
-	});
-});
-
-describe("buildManualSyncDedupId", () => {
-	const SIXTY_SECONDS_MS = 60 * 1000;
-
-	it("is stable within the same time bucket (dedupes a rapid double-tap)", () => {
-		const bucketStart = 10 * SIXTY_SECONDS_MS;
-
-		const first = buildManualSyncDedupId("account-abc", bucketStart);
-		const second = buildManualSyncDedupId("account-abc", bucketStart + 1_000);
-
-		assert.equal(first, second);
-	});
-
-	it("changes across a bucket boundary (never dedupes two polls a minute apart)", () => {
-		const bucketStart = 10 * SIXTY_SECONDS_MS;
-
-		const thisTrigger = buildManualSyncDedupId("account-abc", bucketStart);
-		const nextTrigger = buildManualSyncDedupId(
-			"account-abc",
-			bucketStart + SIXTY_SECONDS_MS,
-		);
-
-		assert.notEqual(thisTrigger, nextTrigger);
-	});
-
-	it("never collides with the scheduler's dedup namespace", () => {
-		const now = 10 * SIXTY_SECONDS_MS;
-		const manual = buildManualSyncDedupId("account-abc", now);
-		const scheduled = buildScheduledSyncDedupId(
-			"account-abc",
-			now,
-			SIXTY_SECONDS_MS,
-		);
-
-		assert.notEqual(manual, scheduled);
 	});
 });
 

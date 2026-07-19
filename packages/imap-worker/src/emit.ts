@@ -5,11 +5,7 @@ import {
 	isLocalEndpoint,
 } from "@remit/sqs-client/producer";
 import { env } from "expect-env";
-import type {
-	ImapEvent,
-	SyncMailboxesEvent,
-	SyncMessagesEvent,
-} from "./events.js";
+import type { ImapEvent } from "./events.js";
 
 type EventInput = Omit<ImapEvent, "eventId" | "timestamp">;
 
@@ -53,49 +49,6 @@ const queueUrlMap: Record<ImapEvent["type"], string> = {
 };
 
 /**
- * FIFO queue event types that support deduplication.
- * Management events (MAILBOX_*, MESSAGE_*, EMPTY_TRASH) are not deduplicated
- * because each operation is unique.
- */
-const fifoEventTypes = new Set([
-	"SYNC_MAILBOXES",
-	"SYNC_MESSAGES",
-	// flagsQueue is FIFO and requires a MessageGroupId on every message.
-	// Content-based deduplication (queue-level setting) covers the dedup id —
-	// no per-event case is needed in getDeduplicationId below, same as the
-	// (standard-queue) management events that fall through its default.
-	"FLAG_PUSH",
-]);
-
-/**
- * Generate a deduplication ID for FIFO queue events.
- * SQS deduplication window is 5 minutes - duplicate messages within
- * this window are rejected.
- */
-export const getDeduplicationId = (event: EventInput): string | undefined => {
-	switch (event.type) {
-		case "SYNC_MAILBOXES": {
-			const e = event as Omit<SyncMailboxesEvent, "eventId" | "timestamp">;
-			return `SYNC_MAILBOXES:${e.accountId}`;
-		}
-
-		case "SYNC_MESSAGES": {
-			const e = event as Omit<SyncMessagesEvent, "eventId" | "timestamp">;
-			// A continuation carries a per-batch cursor so batches 2..N are not
-			// deduped against the initial event (which has none) or each other; the
-			// cursor-less initial id still dedups concurrent fresh syncs of a mailbox.
-			return e.resumeCursor === undefined
-				? `SYNC_MESSAGES:${e.mailboxId}`
-				: `SYNC_MESSAGES:${e.mailboxId}:${e.resumeCursor}`;
-		}
-
-		default:
-			// Management events are not deduplicated
-			return undefined;
-	}
-};
-
-/**
  * Check if queue URL is a FIFO queue (ends with .fifo)
  */
 const isFifoQueue = (queueUrl: string): boolean => queueUrl.endsWith(".fifo");
@@ -119,7 +72,7 @@ export const emitEvent = async (
 	} as ImapEvent;
 
 	const queueUrl = queueUrlMap[event.type];
-	const useFifo = isFifoQueue(queueUrl) && fifoEventTypes.has(event.type);
+	const useFifo = isFifoQueue(queueUrl);
 
 	// ElasticMQ FIFO queues don't support per-message DelaySeconds
 	const useDelay = options?.delaySeconds && !isLocal;
@@ -130,10 +83,19 @@ export const emitEvent = async (
 			MessageBody: JSON.stringify(fullEvent),
 			// Delay delivery for retry backoff (skip for local ElasticMQ)
 			...(useDelay && { DelaySeconds: options.delaySeconds }),
-			// FIFO queue parameters - only set if queue is FIFO
+			// FIFO queue parameters — only set if the queue is FIFO. The
+			// deduplication id is the event's own id, so the queue suppresses a
+			// re-send of one event (the retry SQS's own idempotency guard is for)
+			// and nothing else. A shared id per account or per mailbox instead made
+			// the 5-minute window a rate limiter: the second sync of a mailbox
+			// within five minutes was discarded before any worker saw it, so mail
+			// that arrived after a sync could not be fetched until the window
+			// elapsed (issue #37). Repeated work is bounded where it belongs —
+			// MessageGroupId serializes an account's events, and MailboxLockService
+			// collapses a sync that overlaps one already running.
 			...(useFifo && {
 				MessageGroupId: event.accountId,
-				MessageDeduplicationId: getDeduplicationId(event),
+				MessageDeduplicationId: fullEvent.eventId,
 			}),
 		}),
 	);

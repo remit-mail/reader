@@ -23,7 +23,6 @@ import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import { orderMailboxesForSync } from "./mailbox-sync-order.js";
 
 const EVENT_EMIT_CONCURRENCY = 20;
-const SYNC_COOLDOWN_MS = 30_000; // 30 seconds
 
 export const syncMailboxes = async (
 	event: SyncMailboxesEvent,
@@ -138,28 +137,22 @@ const syncMailboxesForAccount = async (
 
 	log.info({ result }, "Mailbox sync complete");
 
-	// Get all mailboxes and emit SYNC_MESSAGES for each
-	const allMailboxes = await collectAllMailboxes(accountId, mailboxService);
-
-	// Filter out mailboxes that were synced recently (cooldown)
-	// Always include mailboxes that were never synced (lastMessageSyncAt is 0, undefined, or null)
-	const now = Date.now();
-	const mailboxes = allMailboxes.filter(
-		(m) => !m.lastMessageSyncAt || now - m.lastMessageSyncAt > SYNC_COOLDOWN_MS,
-	);
-
-	const skipped = allMailboxes.length - mailboxes.length;
-	if (skipped > 0) {
-		log.info({ accountId, skipped }, "Skipped mailboxes due to sync cooldown");
-	}
+	// Every mailbox is fanned out on every SYNC_MAILBOXES event. A recency
+	// filter here used to drop mailboxes synced in the last 30 seconds, which
+	// made a sync the user asked for a no-op whenever a sync had just run —
+	// exactly when new mail is most likely to be waiting (issue #37). Deciding
+	// whether a sync is warranted belongs to whoever enqueues SYNC_MAILBOXES:
+	// the scheduler's own interval, or a person pressing refresh. A mailbox with
+	// nothing new costs one SEARCH and returns, and a fan-out that overlaps a
+	// sync already running is collapsed by MailboxLockService.
+	const mailboxes = await collectAllMailboxes(accountId, mailboxService);
 
 	if (mailboxes.length === 0) {
 		log.info({ accountId }, "No mailboxes to sync messages for");
-		// If there are no mailboxes to sync, mark as complete
 		await accountService.update(accountId, {
 			syncPhase: SyncPhase.complete,
-			mailboxCountTotal: allMailboxes.length,
-			mailboxCountSynced: allMailboxes.length,
+			mailboxCountTotal: 0,
+			mailboxCountSynced: 0,
 		});
 		return;
 	}
@@ -169,10 +162,8 @@ const syncMailboxesForAccount = async (
 		"Emitting SYNC_MESSAGES events",
 	);
 
-	// Phase transition. Completion events only fire for the enqueued
-	// (cooldown-filtered) set, so pre-credit the skipped mailboxes into
-	// mailboxCountSynced — otherwise synced can never reach total.
-	// If INBOX itself was skipped, go straight to syncing_others.
+	// Phase transition. Every mailbox is enqueued, so the synced counter starts
+	// at zero and each completion event drives it towards the total.
 	const inboxEnqueued = mailboxes.some(
 		(m) => m.fullPath.toUpperCase() === "INBOX",
 	);
@@ -180,8 +171,8 @@ const syncMailboxesForAccount = async (
 		syncPhase: inboxEnqueued
 			? SyncPhase.syncing_inbox
 			: SyncPhase.syncing_others,
-		mailboxCountTotal: allMailboxes.length,
-		mailboxCountSynced: skipped,
+		mailboxCountTotal: mailboxes.length,
+		mailboxCountSynced: 0,
 	});
 
 	// Emit events in parallel with concurrency limit
@@ -203,7 +194,6 @@ const syncMailboxesForAccount = async (
 type MailboxSortEntry = {
 	mailboxId: string;
 	fullPath: string;
-	lastMessageSyncAt: number;
 	specialUse?: readonly string[];
 };
 
@@ -229,7 +219,6 @@ const collectAllMailboxes = async (
 			mailboxes.push({
 				mailboxId: mailbox.mailboxId,
 				fullPath: mailbox.fullPath,
-				lastMessageSyncAt: mailbox.lastMessageSyncAt,
 				specialUse: mailbox.specialUse,
 			});
 		}
