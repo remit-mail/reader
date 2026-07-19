@@ -70,12 +70,7 @@ describe("SearchChipInput", () => {
 		assert.match(html, /value="receipt"/);
 	});
 
-	it("exposes the chip's marked-for-deletion state as a toggle", () => {
-		const html = render({ chips: [SPAM] });
-		assert.match(html, /aria-pressed="false"/);
-	});
-
-	it("carries a live region for announcing the selected chip", () => {
+	it("carries a live region so a removal is never silent", () => {
 		const html = render({ chips: [SPAM] });
 		assert.match(html, /role="status"/);
 		assert.match(html, /aria-live="polite"/);
@@ -91,5 +86,53 @@ describe("SearchChipInput", () => {
 
 	it("takes a caller-supplied input id so a page can host more than one field", () => {
 		assert.match(render({ inputId: "top-bar-search" }), /id="top-bar-search"/);
+	});
+});
+
+describe("SearchChipInput chip semantics", () => {
+	it("groups the chips as a labelled grid of rows", () => {
+		const html = render({ chips: [SPAM, FROM] });
+		assert.match(html, /role="grid"/);
+		assert.match(html, /aria-label="Search filters"/);
+		assert.equal(html.match(/role="row"/g)?.length, 2, "one row per chip");
+	});
+
+	it("names the label and the remove action as separate cells", () => {
+		// A chip with a remove affordance has to announce both actions, not one.
+		const html = render({ chips: [SPAM] });
+		assert.equal(html.match(/role="gridcell"/g)?.length, 2);
+	});
+
+	it("omits the grid entirely when there are no chips", () => {
+		assert.doesNotMatch(render(), /role="grid"/);
+	});
+
+	it("keeps the text input outside the grid, as its sibling", () => {
+		const html = render({ chips: [SPAM] });
+		const gridEnd = html.indexOf("</div>", html.indexOf('role="grid"'));
+		assert.ok(
+			html.indexOf('aria-label="Search mail"') > gridEnd,
+			"the input renders after the grid closes",
+		);
+	});
+
+	it("holds the whole field in a single tab stop", () => {
+		// Exactly one thing is in the tab order — the text input, until a chip
+		// takes it over. Everything else is reached by the arrow/backspace route,
+		// so Tab never walks through the chips one at a time.
+		const html = render({ chips: [SPAM, FROM] });
+		assert.equal(
+			html.match(/tabindex="0"/gi)?.length,
+			1,
+			"one tab stop for the whole field",
+		);
+		assert.ok((html.match(/tabindex="-1"/gi)?.length ?? 0) >= 6);
+	});
+
+	it("differentiates a scope chip from a typed filter chip", () => {
+		const scoped = render({ chips: [{ ...SPAM, tone: "scope" }] });
+		const filter = render({ chips: [SPAM] });
+		assert.notEqual(scoped, filter);
+		assert.match(scoped, /accent-2/);
 	});
 });

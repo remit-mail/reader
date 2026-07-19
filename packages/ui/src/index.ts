@@ -297,6 +297,9 @@ export {
 	type SearchResultsProps,
 } from "./components/search-results.js";
 export {
+	SearchChipRow,
+	type SearchChipRowProps,
+	type SearchChipTone,
 	SearchTokenChip,
 	type SearchTokenChipProps,
 	SearchTokenChips,

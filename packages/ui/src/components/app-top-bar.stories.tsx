@@ -49,6 +49,8 @@ const Actions = () => (
 	</>
 );
 
+const SCOPE: SearchChip = { id: "in:spam", label: "in:spam", tone: "scope" };
+
 const Bar = ({ initialChips = [] }: { initialChips?: SearchChip[] }) => {
 	const [chips, setChips] = useState<SearchChip[]>(initialChips);
 	const [value, setValue] = useState("");
@@ -99,15 +101,19 @@ export const Unscoped: Story = {
 	render: () => <Bar />,
 };
 
-/** Viewing Spam: the sidebar's narrowing term, removable, back to unscoped. */
+/**
+ * A narrowing scope in the bar, tinted to mark it as the view the user is in
+ * rather than a filter they typed. Removing it widens the search again.
+ */
 export const Scoped: Story = {
-	render: () => <Bar initialChips={[{ id: "in:spam", label: "in:spam" }]} />,
+	render: () => <Bar initialChips={[SCOPE]} />,
 };
 
+/** The arrangement: one bar over the nav, the list, and the message pane. */
 export const OverTheLayout: Story = {
 	render: () => (
 		<WithPanes>
-			<Bar initialChips={[{ id: "in:spam", label: "in:spam" }]} />
+			<Bar initialChips={[SCOPE]} />
 		</WithPanes>
 	),
 };

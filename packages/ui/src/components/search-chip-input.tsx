@@ -1,8 +1,13 @@
 import { Search, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "../lib/cn.js";
-import { preventsDefault, resolveChipKey } from "./search-chip-keys.js";
-import { SearchTokenChip } from "./search-token-chip.js";
+import {
+	type ChipFocusTarget,
+	focusAfterRemoval,
+	resolveChipInputKey,
+	resolveChipKey,
+} from "./search-chip-keys.js";
+import { SearchChipRow, type SearchChipTone } from "./search-token-chip.js";
 
 /**
  * One narrowing term of the search expression, pinned ahead of the free text.
@@ -12,17 +17,21 @@ import { SearchTokenChip } from "./search-token-chip.js";
 export interface SearchChip {
 	id: string;
 	label: string;
+	/** `scope` marks the view the user navigated into. See `SearchChipTone`. */
+	tone?: SearchChipTone;
 }
 
 export interface SearchChipInputProps {
 	/**
 	 * The narrowing terms, in expression order. Chips are host-owned: this
-	 * component never promotes typed text into a chip (see the module note on
-	 * chips vs typed operators).
+	 * component never turns typed text into a chip (see the module note on chip
+	 * creation).
 	 */
 	chips?: readonly SearchChip[];
 	onRemoveChip?: (id: string) => void;
-	/** The free text after the chips. */
+	/** Opens a chip's own value editor, where the host offers one. */
+	onActivateChip?: (id: string) => void;
+	/** The free text alongside the chips. */
 	value: string;
 	onChange: (value: string) => void;
 	/**
@@ -55,6 +64,8 @@ export interface SearchChipInputProps {
 	size?: "sm" | "lg";
 	/** DOM id of the text input. Defaults to `mail-search`. */
 	inputId?: string;
+	/** Accessible name for the chip grid. */
+	chipsLabel?: string;
 	className?: string;
 }
 
@@ -68,32 +79,41 @@ const isEditableTarget = (target: EventTarget | null): boolean => {
 };
 
 /**
- * The search field as a single editable expression: removable chips inline
- * ahead of the caret, free text after them, one focus ring around the whole
- * thing.
+ * The search field as one editable expression: removable chips inline ahead of
+ * the free text, a single focus ring around the whole thing, one Tab stop.
  *
- * **Chips vs typed operators.** Typing `in:spam` leaves plain text — it is not
- * promoted to a chip. Chips come from structured intent (the route you are
- * viewing, a filter panel, a suggestion), matching Gmail, where the search box
- * only ever chips terms the product itself committed. This keeps the typed
- * query honest: what you see in the text is exactly what you typed.
+ * **Chip creation.** This component does not create chips. Typing `in:spam`
+ * leaves plain text; chips arrive from structured intent the host commits — the
+ * view being navigated to, a filter menu, a suggestion. Keeping the parse on
+ * the host side means the field never has to guess whether text was meant as an
+ * operator, and the host owns the one requirement that matters: chips plus the
+ * remaining text must serialise back to exactly the query the user meant.
  *
- * **Keyboard.** The standard chip-input contract (Material, CoreUI, Angular
- * Material all agree), so deletion is never a surprise:
- *   - Backspace with the caret at position 0 selects the preceding chip;
- *     pressing it again removes that chip. Two steps, never one.
- *   - ArrowLeft at position 0 selects the preceding chip; ArrowRight (or
- *     typing, or any caret move) returns to the text.
- *   - Escape deselects a selected chip; with nothing selected it clears the
- *     query, and on an empty query it blurs.
+ * **Keyboard.** Focus roves between the text input and the chips, and the
+ * meaning of a key follows it:
+ *   - Backspace (or ArrowLeft) with the caret at the start of the text moves
+ *     focus onto the preceding chip. Backspace again removes it — two presses,
+ *     so a term is never lost to a stray keystroke.
+ *   - On a focused chip: Backspace/Delete removes, Left/Right walk the chips,
+ *     Right past the last one returns to the text, Escape returns to the text.
+ *   - Shift+Tab from the text steps back into the chips rather than leaving.
+ *   - After a removal, focus lands on the chip that took its place, else the
+ *     one before it, else the text input.
  *
- * DOM focus stays on the real text input throughout — chips are marked with
- * `aria-selected` and announced through a live region rather than becoming
- * focus stops, so typing is never interrupted mid-expression.
+ * Removal is never keyboard-only: every chip carries a remove button, which is
+ * what touch and soft-keyboard users need (a soft keyboard gives no reliable
+ * Backspace-into-chip signal).
+ *
+ * **Semantics.** The chips form a `grid` of one-`row`-per-chip, each with a
+ * label `gridcell` and a remove `gridcell`, and the text input is a sibling of
+ * that grid. ARIA has no chips/tokens pattern, so this follows Material Design
+ * 3's chip accessibility guidance and Angular Material's `mat-chip-grid` — an
+ * adaptation, to be settled by screen-reader testing rather than role names.
  */
 export const SearchChipInput = ({
 	chips = [],
 	onRemoveChip,
+	onActivateChip,
 	value,
 	onChange,
 	onClear,
@@ -103,59 +123,77 @@ export const SearchChipInput = ({
 	showClearButton = true,
 	size = "sm",
 	inputId = "mail-search",
+	chipsLabel = "Search filters",
 	className,
 }: SearchChipInputProps) => {
 	const inputRef = useRef<HTMLInputElement>(null);
+	const chipRefs = useRef<(HTMLButtonElement | null)[]>([]);
 	const clearQuery = onClearQuery ?? onClear;
-	const [selectedChipId, setSelectedChipId] = useState<string | null>(null);
+	/** Which chip holds focus; null means the text input does. */
+	const [focusedChip, setFocusedChip] = useState<ChipFocusTarget>(null);
+	/** Where focus must be moved after the next render, if anywhere. */
+	const pendingFocus = useRef<ChipFocusTarget | undefined>(undefined);
+	const [announcement, setAnnouncement] = useState("");
 
-	// A chip removed by any route (X, keyboard, host state change) must not leave
-	// a dangling selection pointing at an id that no longer exists.
-	const hasSelectedChip = chips.some((chip) => chip.id === selectedChipId);
+	const hasChips = chips.length > 0;
+
+	// A chip list that shrinks from under the focused index (the host removed one,
+	// or the route changed) must not strand the roving tab order out of bounds.
 	useEffect(() => {
-		if (!hasSelectedChip && selectedChipId !== null) setSelectedChipId(null);
-	}, [hasSelectedChip, selectedChipId]);
+		setFocusedChip((current) =>
+			current !== null && current >= chips.length ? null : current,
+		);
+	}, [chips.length]);
 
-	const focusInput = useCallback(() => {
-		inputRef.current?.focus();
+	// Focus moves are queued during the keydown and applied once the new chip set
+	// has rendered, so the element being focused actually exists.
+	useEffect(() => {
+		const target = pendingFocus.current;
+		if (target === undefined) return;
+		pendingFocus.current = undefined;
+		if (target === null) {
+			inputRef.current?.focus();
+			return;
+		}
+		chipRefs.current[target]?.focus();
+	});
+
+	const moveFocus = useCallback((target: ChipFocusTarget) => {
+		setFocusedChip(target);
+		pendingFocus.current = target;
 	}, []);
 
-	const removeChip = useCallback(
-		(id: string) => {
-			setSelectedChipId(null);
-			onRemoveChip?.(id);
-			focusInput();
+	const removeChipAt = useCallback(
+		(index: number) => {
+			const chip = chips[index];
+			if (!chip) return;
+			moveFocus(focusAfterRemoval(index, chips.length));
+			setAnnouncement(`${chip.label} removed`);
+			onRemoveChip?.(chip.id);
 		},
-		[onRemoveChip, focusInput],
+		[chips, onRemoveChip, moveFocus],
 	);
 
 	const handleClear = useCallback(() => {
-		setSelectedChipId(null);
+		moveFocus(null);
 		onClear();
-		focusInput();
-	}, [onClear, focusInput]);
+	}, [onClear, moveFocus]);
 
-	const handleKeyDown = useCallback(
+	const handleInputKeyDown = useCallback(
 		(event: React.KeyboardEvent<HTMLInputElement>) => {
 			const input = event.currentTarget;
-			const action = resolveChipKey({
+			const action = resolveChipInputKey({
 				key: event.key,
+				shiftKey: event.shiftKey,
 				caretAtStart: input.selectionStart === 0 && input.selectionEnd === 0,
 				hasValue: value.length > 0,
-				selectedChipId,
-				lastChipId: chips.at(-1)?.id ?? null,
+				chipCount: chips.length,
 			});
-			if (preventsDefault(action)) event.preventDefault();
 
 			switch (action.type) {
-				case "selectChip":
-					setSelectedChipId(action.id);
-					return;
-				case "removeChip":
-					removeChip(action.id);
-					return;
-				case "deselect":
-					setSelectedChipId(null);
+				case "focusChip":
+					event.preventDefault();
+					moveFocus(action.index);
 					return;
 				case "clearQuery":
 					clearQuery();
@@ -167,7 +205,38 @@ export const SearchChipInput = ({
 					return;
 			}
 		},
-		[chips, selectedChipId, value, clearQuery, removeChip],
+		[chips.length, value, clearQuery, moveFocus],
+	);
+
+	const handleChipKeyDown = useCallback(
+		(index: number) => (event: React.KeyboardEvent) => {
+			const action = resolveChipKey({
+				key: event.key,
+				index,
+				chipCount: chips.length,
+			});
+			if (action.type !== "none") event.preventDefault();
+
+			switch (action.type) {
+				case "removeChip":
+					removeChipAt(action.index);
+					return;
+				case "focusChip":
+					moveFocus(action.index);
+					return;
+				case "focusInput":
+					moveFocus(null);
+					return;
+				case "activateChip": {
+					const chip = chips[action.index];
+					if (chip && onActivateChip) onActivateChip(chip.id);
+					return;
+				}
+				case "none":
+					return;
+			}
+		},
+		[chips, removeChipAt, moveFocus, onActivateChip],
 	);
 
 	useEffect(() => {
@@ -184,23 +253,20 @@ export const SearchChipInput = ({
 		return () => window.removeEventListener("keydown", handleGlobalSlash);
 	}, [globalFocusKey]);
 
-	const selectedChip = chips.find((chip) => chip.id === selectedChipId);
-	const hasChips = chips.length > 0;
-
 	return (
-		// A <label> so pressing anywhere on the field — its padding, the gap after
-		// the chips — puts the caret in the text, natively and without a handler.
-		// Presses on the chips' own buttons are interactive descendants, so they act
-		// on the chip instead. The input's `aria-label` still wins the accessible
-		// name, so the chip text never leaks into it.
+		// A <label> so pressing the field's own padding puts the caret in the text,
+		// natively and without a handler. Presses on the chips' buttons are
+		// interactive descendants, so they act on the chip instead. The input's
+		// `aria-label` still wins the accessible name, so chip text never leaks
+		// into it.
 		<label
 			htmlFor={inputId}
 			className={cn(
-				"relative flex w-full items-center gap-1.5 text-sm",
+				"flex w-full items-center gap-1.5 text-sm",
 				"bg-surface-sunken/50 border border-transparent",
 				"focus-within:bg-canvas focus-within:border-line focus-within:ring-2 focus-within:ring-ring",
 				"transition-colors",
-				size === "lg" ? "rounded-xl px-4 py-2.5" : "rounded-md px-2.5 py-1.5",
+				size === "lg" ? "rounded-xl px-4 py-2" : "rounded-md px-2.5 py-1",
 				className,
 			)}
 		>
@@ -210,17 +276,37 @@ export const SearchChipInput = ({
 					size === "lg" ? "size-5" : "size-4",
 				)}
 			/>
-			<div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
-				{chips.map((chip) => (
-					<SearchTokenChip
-						key={chip.id}
-						label={chip.label}
-						selected={chip.id === selectedChipId}
-						onSelect={() => setSelectedChipId(chip.id)}
-						onRemove={() => removeChip(chip.id)}
-						className="shrink-0"
-					/>
-				))}
+			{/* Chips wrap onto further lines rather than stacking or clipping, and
+			    the text input is a sibling of the grid, not a cell inside it. */}
+			<div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+				{hasChips && (
+					// Not tabular data, and <table> cannot live inside a text field. See
+					// SearchChipRow for why grid is the pattern being adapted here.
+					// biome-ignore lint/a11y/useSemanticElements: see above
+					<div
+						role="grid"
+						aria-label={chipsLabel}
+						className="flex min-w-0 flex-wrap items-center gap-1"
+					>
+						{chips.map((chip, index) => (
+							<SearchChipRow
+								key={chip.id}
+								ref={(node) => {
+									chipRefs.current[index] = node;
+								}}
+								label={chip.label}
+								tone={chip.tone}
+								focused={focusedChip === index}
+								onFocusLabel={() => setFocusedChip(index)}
+								onKeyDown={handleChipKeyDown(index)}
+								onRemove={() => removeChipAt(index)}
+								onActivate={
+									onActivateChip ? () => onActivateChip(chip.id) : undefined
+								}
+							/>
+						))}
+					</div>
+				)}
 				<input
 					ref={inputRef}
 					id={inputId}
@@ -229,15 +315,14 @@ export const SearchChipInput = ({
 					aria-label="Search mail"
 					autoComplete="off"
 					value={value}
+					tabIndex={focusedChip === null ? 0 : -1}
 					onChange={(e) => onChange(e.target.value)}
-					onKeyDown={handleKeyDown}
-					// Once the expression carries chips the field is self-describing;
-					// a placeholder there would read as another term.
+					onKeyDown={handleInputKeyDown}
+					onFocus={() => setFocusedChip(null)}
+					// Once the expression carries chips the field is self-describing; a
+					// placeholder there would read as another term.
 					placeholder={hasChips ? undefined : placeholder}
-					className={cn(
-						"min-w-24 flex-1 bg-transparent text-fg outline-none",
-						"placeholder:text-fg-muted",
-					)}
+					className="min-w-24 flex-1 bg-transparent text-fg outline-none placeholder:text-fg-muted"
 				/>
 			</div>
 			{(value || hasChips) && showClearButton && (
@@ -252,10 +337,10 @@ export const SearchChipInput = ({
 					/>
 				</button>
 			)}
+			{/* A removal that says nothing is the most common failure of this
+			    pattern, so every one is announced. */}
 			<span role="status" aria-live="polite" className="sr-only">
-				{selectedChip
-					? `${selectedChip.label} selected. Press Backspace to remove.`
-					: ""}
+				{announcement}
 			</span>
 		</label>
 	);

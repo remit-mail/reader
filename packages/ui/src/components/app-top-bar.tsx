@@ -27,8 +27,8 @@ export interface AppTopBarProps {
  *
  * Search sits here rather than over the message list because it is not the
  * list's search — it reads across the whole app, and the bar's width is what
- * says so. The layout follows Gmail's: leading brand/nav, a wide centred
- * search field, global actions trailing.
+ * says so. Leading brand and nav trigger, then the search field taking the
+ * room it needs, then the global actions.
  *
  * Presentational and slot-driven; the host supplies the wired field and
  * action controls.
@@ -42,7 +42,9 @@ export function AppTopBar({
 	return (
 		<header
 			className={cn(
-				"flex h-16 w-full shrink-0 items-center gap-3 border-b border-line bg-canvas px-3",
+				// min-h, not a fixed height: the search field grows when its chips
+				// wrap onto a second line.
+				"flex min-h-16 w-full shrink-0 items-center gap-3 border-b border-line bg-canvas px-3 py-2",
 				className,
 			)}
 		>

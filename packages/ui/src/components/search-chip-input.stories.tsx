@@ -12,10 +12,10 @@ export default meta;
 type Story = StoryObj<typeof SearchChipInput>;
 
 /**
- * Chips are host-owned, exactly as in Gmail: the product commits them (the
- * folder you are viewing, a filter panel, a suggestion) and typed text stays
- * text. The "Add filter" buttons here stand in for that structured intent so
- * the chip lifecycle is exercisable in isolation.
+ * The field does not create chips — the host commits them from structured
+ * intent (the view being navigated to, a filter menu, a suggestion). The "Add
+ * filter" buttons below stand in for that host, so the chip lifecycle is
+ * exercisable here in isolation.
  */
 const Interactive = ({
 	initialChips = [],
@@ -64,56 +64,57 @@ const Interactive = ({
 					))}
 				</div>
 			)}
-			<p className="text-2xs text-fg-subtle">
-				Caret at the start of the text: Backspace selects the last chip, a
-				second Backspace removes it. ArrowLeft selects; typing returns to the
+			<p className="max-w-prose text-2xs leading-relaxed text-fg-subtle">
+				One tab stop. From the text: Backspace or ArrowLeft at the very start
+				moves onto the last chip, Shift+Tab steps back into the chips. On a
+				chip: Backspace or Delete removes it, Left/Right walk the chips,
+				ArrowRight past the last one returns to the text. After a removal focus
+				lands on the chip that took its place, else the previous one, else the
 				text.
 			</p>
 		</div>
 	);
 };
 
+const SCOPE: SearchChip = { id: "in:spam", label: "in:spam", tone: "scope" };
+
 const OFFER: SearchChip[] = [
-	{ id: "in:spam", label: "in:spam" },
 	{ id: "from:acme", label: "from:acme" },
 	{ id: "has:attachment", label: "has:attachment" },
 	{ id: "is:unread", label: "is:unread" },
+	{ id: "before:2026-01-01", label: "before:2026-01-01" },
 ];
 
 /** Unscoped — the daily brief's state: no chips, search reads across everything. */
 export const Unscoped: Story = {
-	render: () => <Interactive offer={OFFER} />,
+	render: () => <Interactive offer={[SCOPE, ...OFFER]} />,
 };
 
-/** One narrowing chip, the shape the sidebar prefills when you open Spam. */
+/**
+ * One narrowing chip: the view the user navigated into. A scope carries a
+ * different tint from a filter the user added, because it came from where they
+ * are rather than from something they typed.
+ */
 export const OneChip: Story = {
-	render: () => (
-		<Interactive
-			initialChips={[{ id: "in:spam", label: "in:spam" }]}
-			offer={OFFER}
-		/>
-	),
+	render: () => <Interactive initialChips={[SCOPE]} offer={OFFER} />,
 };
 
 /** A chip and free text together — one expression, read left to right. */
 export const ChipWithText: Story = {
 	render: () => (
-		<Interactive
-			initialChips={[{ id: "in:spam", label: "in:spam" }]}
-			initialValue="invoice"
-			offer={OFFER}
-		/>
+		<Interactive initialChips={[SCOPE]} initialValue="invoice" offer={OFFER} />
 	),
 };
 
-/** Several chips: the field scrolls rather than growing taller. */
+/** Several chips: they wrap onto the next line rather than clipping. */
 export const MultipleChips: Story = {
 	render: () => (
 		<Interactive
 			initialChips={[
-				{ id: "in:spam", label: "in:spam" },
+				SCOPE,
 				{ id: "from:acme", label: "from:acme" },
 				{ id: "has:attachment", label: "has:attachment" },
+				{ id: "before:2026-01-01", label: "before:2026-01-01" },
 			]}
 			initialValue="refund"
 			offer={OFFER}
@@ -122,14 +123,30 @@ export const MultipleChips: Story = {
 };
 
 /**
- * A typed operator stays plain text — it only becomes a chip when the product
- * commits it. Both are visible here: `in:spam` as a chip, `from:bob` as text.
+ * A typed operator stays plain text. Chipping only what the product committed
+ * keeps the typed query honest — the text is exactly what the user typed, and
+ * the field never has to guess what was meant as an operator.
  */
 export const TypedOperatorStaysText: Story = {
 	render: () => (
 		<Interactive
-			initialChips={[{ id: "in:spam", label: "in:spam" }]}
+			initialChips={[SCOPE]}
 			initialValue="from:bob receipt"
+			offer={OFFER}
+		/>
+	),
+};
+
+/** A long chip label truncates; its remove control stays reachable. */
+export const LongChipLabel: Story = {
+	render: () => (
+		<Interactive
+			initialChips={[
+				{
+					id: "from:long",
+					label: "from:notifications-noreply@some-very-long-domain.example.com",
+				},
+			]}
 			offer={OFFER}
 		/>
 	),
@@ -137,28 +154,18 @@ export const TypedOperatorStaysText: Story = {
 
 /** The taller field the global top bar uses. */
 export const LargeForTopBar: Story = {
-	render: () => (
-		<Interactive
-			size="lg"
-			initialChips={[{ id: "in:spam", label: "in:spam" }]}
-			offer={OFFER}
-		/>
-	),
+	render: () => <Interactive size="lg" initialChips={[SCOPE]} offer={OFFER} />,
 };
 
-/** Chip selected — the state a first Backspace leaves the field in. */
-export const ChipSelected: Story = {
-	render: () => (
-		<Interactive
-			initialChips={[{ id: "in:spam", label: "in:spam" }]}
-			offer={OFFER}
-		/>
-	),
+/**
+ * Focus resting on a chip — the state the first Backspace leaves the field in,
+ * from which a second Backspace removes it.
+ */
+export const ChipFocused: Story = {
+	render: () => <Interactive initialChips={[SCOPE]} offer={OFFER} />,
 	play: async ({ canvasElement }) => {
-		const input = canvasElement.querySelector<HTMLInputElement>("#mail-search");
-		input?.focus();
-		input?.dispatchEvent(
-			new KeyboardEvent("keydown", { key: "Backspace", bubbles: true }),
-		);
+		canvasElement
+			.querySelector<HTMLButtonElement>('[role="row"] button')
+			?.focus();
 	},
 };
