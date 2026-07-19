@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
-	advanceModseqWatermark,
+	advanceChangeCursor,
 	advanceUidWatermarks,
+	dropAppliedPrefix,
+	formatChangeCursor,
 	orderByModseq,
+	parseChangeCursor,
 	parseModseq,
-	takeModseqBatch,
 } from "./sync-watermarks.js";
 import type { ImapMessage } from "./types.js";
 
@@ -66,162 +68,195 @@ describe("orderByModseq", () => {
 	});
 });
 
-describe("takeModseqBatch", () => {
-	it("takes everything when the changed set fits", () => {
-		const ordered = [message(1, "11"), message(2, "12")];
-
-		assert.equal(takeModseqBatch(ordered, 50).length, 2);
+describe("parseChangeCursor / formatChangeCursor", () => {
+	it("reads a plain value written before the sub-position existed", () => {
+		assert.deepEqual(parseChangeCursor("900"), { modseq: 900n, uid: 0 });
 	});
 
-	it("stops short of a group that straddles the batch boundary", () => {
-		// One STORE marked 60 messages read: all 60 share mod-sequence 900.
-		const ordered = [message(1, "800"), ...tieGroup(60, "900", 10)];
+	it("round-trips a group boundary as plain digits", () => {
+		assert.equal(formatChangeCursor({ modseq: 900n, uid: 0 }), "900");
+	});
 
-		const batch = takeModseqBatch(ordered, 50);
+	it("round-trips a position inside a group", () => {
+		assert.equal(formatChangeCursor({ modseq: 800n, uid: 1234 }), "800:1234");
+		assert.deepEqual(parseChangeCursor("800:1234"), {
+			modseq: 800n,
+			uid: 1234,
+		});
+	});
 
-		assert.deepEqual(
-			batch.map((m) => m.uid),
-			[1],
+	it("treats an absent cursor as no cursor", () => {
+		assert.deepEqual(parseChangeCursor(undefined), { modseq: 0n, uid: 0 });
+		assert.deepEqual(parseChangeCursor("0"), { modseq: 0n, uid: 0 });
+	});
+
+	it("keeps a value beyond 2^53 lossless through the round trip", () => {
+		const raw = "18446744073709551615:7";
+		assert.equal(formatChangeCursor(parseChangeCursor(raw)), raw);
+	});
+});
+
+describe("dropAppliedPrefix", () => {
+	it("passes everything through at a group boundary", () => {
+		const ordered = tieGroup(3, "900", 10);
+
+		assert.equal(
+			dropAppliedPrefix(ordered, { modseq: 800n, uid: 0 }).length,
+			3,
 		);
 	});
 
-	it("takes an oversized group whole, since it can only be applied entirely", () => {
-		const ordered = tieGroup(60, "900", 10);
+	it("drops the members of the in-progress group already applied", () => {
+		const ordered = [...tieGroup(4, "900", 10), message(50, "950")];
 
-		const batch = takeModseqBatch(ordered, 50);
-
-		assert.equal(batch.length, 60);
-	});
-
-	it("cuts exactly on a boundary when the batch already ends on one", () => {
-		const ordered = [...tieGroup(2, "10", 1), ...tieGroup(2, "20", 3)];
-
-		const batch = takeModseqBatch(ordered, 2);
+		const remaining = dropAppliedPrefix(ordered, { modseq: 800n, uid: 11 });
 
 		assert.deepEqual(
-			batch.map((m) => m.uid),
-			[1, 2],
+			remaining.map((m) => m.uid),
+			[12, 13, 50],
+		);
+	});
+
+	it("keeps a later change to a low UID, which is a different group", () => {
+		const ordered = [...tieGroup(2, "900", 10), message(10, "950")];
+
+		const remaining = dropAppliedPrefix(ordered, { modseq: 800n, uid: 11 });
+
+		assert.deepEqual(
+			remaining.map((m) => `${m.uid}@${m.modseq}`),
+			["10@950"],
 		);
 	});
 });
 
-describe("advanceModseqWatermark", () => {
+describe("advanceChangeCursor", () => {
 	const noFailures = new Set<number>();
 
-	it("jumps to the server HIGHESTMODSEQ when the whole changed set was applied", () => {
+	it("jumps to the server HIGHESTMODSEQ when the whole set was applied", () => {
 		const ordered = [message(1, "11"), message(2, "12")];
 
-		const result = advanceModseqWatermark({
-			storedModseq: 10n,
+		const result = advanceChangeCursor({
+			cursor: { modseq: 10n, uid: 0 },
 			serverModseq: 20n,
 			ordered,
 			batch: ordered,
 			failedUids: noFailures,
 		});
 
-		assert.deepEqual(result, { highestModseq: "20", hasMore: false });
+		assert.deepEqual(result, {
+			cursor: { modseq: 20n, uid: 0 },
+			hasMore: false,
+		});
 	});
 
-	it("advances to the server watermark when nothing changed at all", () => {
-		const result = advanceModseqWatermark({
-			storedModseq: 10n,
-			serverModseq: 42n,
-			ordered: [],
-			batch: [],
+	it("records a position inside a group it only partly applied", () => {
+		// 60 messages marked read by one STORE; the round applies 50.
+		const ordered = tieGroup(60, "900", 10);
+
+		const result = advanceChangeCursor({
+			cursor: { modseq: 800n, uid: 0 },
+			serverModseq: 900n,
+			ordered,
+			batch: ordered.slice(0, 50),
 			failedUids: noFailures,
 		});
 
-		assert.deepEqual(result, { highestModseq: "42", hasMore: false });
+		// Last complete mod-sequence unchanged, position recorded — so the next
+		// fetch returns the whole group again and the applied half is skipped.
+		assert.deepEqual(result, {
+			cursor: { modseq: 800n, uid: 59 },
+			hasMore: true,
+		});
 	});
 
-	it("never leaves the watermark inside a shared mod-sequence", () => {
-		// Half the group applied, half left over: the watermark must stay below
-		// the shared value or CHANGEDSINCE never returns the other half.
-		const ordered = tieGroup(4, "900", 10);
+	it("resumes a part-applied group and closes it on the boundary", () => {
+		const ordered = tieGroup(10, "900", 60);
 
-		const result = advanceModseqWatermark({
-			storedModseq: 800n,
-			serverModseq: 950n,
+		const result = advanceChangeCursor({
+			cursor: { modseq: 800n, uid: 59 },
+			serverModseq: 900n,
+			ordered,
+			batch: ordered,
+			failedUids: noFailures,
+		});
+
+		assert.deepEqual(result, {
+			cursor: { modseq: 900n, uid: 0 },
+			hasMore: false,
+		});
+	});
+
+	it("stops on the group boundary when the next change starts a new group", () => {
+		const ordered = [...tieGroup(2, "900", 10), ...tieGroup(2, "950", 20)];
+
+		const result = advanceChangeCursor({
+			cursor: { modseq: 800n, uid: 0 },
+			serverModseq: 999n,
 			ordered,
 			batch: ordered.slice(0, 2),
 			failedUids: noFailures,
 		});
 
-		assert.deepEqual(result, { highestModseq: "800", hasMore: true });
+		assert.deepEqual(result, {
+			cursor: { modseq: 900n, uid: 0 },
+			hasMore: true,
+		});
 	});
 
-	it("holds back the whole group when one of its members fails", () => {
-		const ordered = tieGroup(3, "900", 10);
+	it("stops below a failure inside a group", () => {
+		const ordered = tieGroup(4, "900", 10);
 
-		const result = advanceModseqWatermark({
-			storedModseq: 800n,
-			serverModseq: 950n,
+		const result = advanceChangeCursor({
+			cursor: { modseq: 800n, uid: 0 },
+			serverModseq: 900n,
 			ordered,
 			batch: ordered,
-			failedUids: new Set([11]),
+			failedUids: new Set([12]),
 		});
 
-		// uid 10 succeeded and shares 900 with the failure — advancing to 900
-		// would drop uid 11 and 12 permanently.
-		assert.equal(result.highestModseq, "800");
+		// uids 10 and 11 applied; 12 failed, so the cursor sits at 11 and the
+		// next round re-fetches the group from 12 on.
+		assert.deepEqual(result.cursor, { modseq: 800n, uid: 11 });
 	});
 
-	it("advances past earlier groups but stops below a failing one", () => {
-		const ordered = [
-			...tieGroup(2, "810", 1),
-			...tieGroup(2, "900", 10),
-			...tieGroup(2, "950", 20),
-		];
+	it("does not move when the very first change fails", () => {
+		const ordered = tieGroup(2, "900", 10);
 
-		const result = advanceModseqWatermark({
-			storedModseq: 800n,
-			serverModseq: 999n,
+		const result = advanceChangeCursor({
+			cursor: { modseq: 800n, uid: 0 },
+			serverModseq: 900n,
 			ordered,
 			batch: ordered,
 			failedUids: new Set([10]),
 		});
 
-		assert.equal(result.highestModseq, "810");
+		assert.deepEqual(result.cursor, { modseq: 800n, uid: 0 });
 	});
 
-	it("holds the watermark when the very first change fails", () => {
-		const ordered = [message(1, "11")];
+	it("keeps the last complete group when a later one fails part-way", () => {
+		const ordered = [...tieGroup(2, "810", 1), ...tieGroup(3, "900", 10)];
 
-		const result = advanceModseqWatermark({
-			storedModseq: 10n,
-			serverModseq: 20n,
+		const result = advanceChangeCursor({
+			cursor: { modseq: 800n, uid: 0 },
+			serverModseq: 999n,
 			ordered,
 			batch: ordered,
-			failedUids: new Set([1]),
+			failedUids: new Set([11]),
 		});
 
-		assert.equal(result.highestModseq, "10");
+		assert.deepEqual(result.cursor, { modseq: 810n, uid: 10 });
 	});
 
-	it("advances only over the processed prefix and reports the rest as remaining", () => {
-		const ordered = [message(1, "11"), message(2, "12"), message(3, "13")];
-
-		const result = advanceModseqWatermark({
-			storedModseq: 10n,
-			serverModseq: 99n,
-			ordered,
-			batch: ordered.slice(0, 2),
-			failedUids: noFailures,
-		});
-
-		assert.deepEqual(result, { highestModseq: "12", hasMore: true });
-	});
-
-	it("never moves backwards when the server reports a lower watermark", () => {
-		const result = advanceModseqWatermark({
-			storedModseq: 50n,
+	it("never moves backwards when the server reports a lower value", () => {
+		const result = advanceChangeCursor({
+			cursor: { modseq: 50n, uid: 0 },
 			serverModseq: 20n,
 			ordered: [],
 			batch: [],
 			failedUids: noFailures,
 		});
 
-		assert.equal(result.highestModseq, "50");
+		assert.deepEqual(result.cursor, { modseq: 50n, uid: 0 });
 	});
 });
 

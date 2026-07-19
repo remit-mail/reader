@@ -42,112 +42,158 @@ export const orderByModseq = (messages: ImapMessage[]): ImapMessage[] =>
 	});
 
 /**
- * Take a batch off the front of an ordered changed set without splitting a
- * mod-sequence.
+ * The message-sync cursor: how far CHANGEDSINCE has been applied.
  *
- * One STORE assigns the SAME mod-sequence to every message it touched — RFC
- * 7162 permits it and servers do it — so "mark 60 messages read" arrives as
- * 60 messages sharing one value. CHANGEDSINCE is strictly greater-than, so a
- * watermark landing inside such a group would never return the group's tail:
- * mark 60 read with a batch size of 50 and 10 stay unread forever.
+ * `modseq` is the highest mod-sequence fully applied. `uid` is a position
+ * INSIDE the next mod-sequence — the highest UID of that group already
+ * applied, or 0 when the group has not been started.
  *
- * The batch therefore ends on a mod-sequence boundary. It stops short of the
- * straddling group; a single group larger than the batch size is taken whole,
- * because it can only be applied entirely or not at all.
+ * The sub-position exists because one STORE assigns the SAME mod-sequence to
+ * every message it touched (RFC 7162 permits it and servers do it), so "select
+ * all, mark read" arrives as one group of arbitrary size. CHANGEDSINCE is
+ * strictly greater-than, so a cursor that advanced to a partly-applied group
+ * would never see its tail again; a cursor that refused to split it would have
+ * to apply the whole group in one round, which for a large mailbox does not
+ * finish — and every retry would repeat the same unfinished work. The
+ * sub-position is what lets one group span rounds without ever claiming more
+ * than was applied.
  */
-export const takeModseqBatch = (
-	ordered: ImapMessage[],
-	batchSize: number,
-): ImapMessage[] => {
-	if (ordered.length <= batchSize) return [...ordered];
+export interface ChangeCursor {
+	/** Highest mod-sequence fully applied. */
+	modseq: bigint;
+	/** Highest UID applied within the next mod-sequence; 0 when none. */
+	uid: number;
+}
 
-	const straddled = parseModseq(ordered[batchSize - 1].modseq);
-
-	let end = batchSize;
-	while (end > 0 && parseModseq(ordered[end - 1].modseq) === straddled) end--;
-
-	if (end === 0) {
-		end = batchSize;
-		while (
-			end < ordered.length &&
-			parseModseq(ordered[end].modseq) === straddled
-		) {
-			end++;
-		}
-	}
-
-	return ordered.slice(0, end);
+/**
+ * Read a stored cursor. Plain digits — every value written before the
+ * sub-position existed — mean a group boundary, which is what they always
+ * meant.
+ */
+export const parseChangeCursor = (raw: string | undefined): ChangeCursor => {
+	if (!raw) return { modseq: 0n, uid: 0 };
+	const [modseq, uid] = raw.split(":");
+	return {
+		modseq: parseModseq(modseq),
+		uid: uid === undefined ? 0 : Number.parseInt(uid, 10) || 0,
+	};
 };
 
-export interface ModseqAdvanceInput {
-	/** Watermark this round started from. */
-	storedModseq: bigint;
+/** Render a cursor. A group boundary stays plain digits. */
+export const formatChangeCursor = (cursor: ChangeCursor): string =>
+	cursor.uid > 0
+		? `${cursor.modseq.toString()}:${cursor.uid}`
+		: cursor.modseq.toString();
+
+/**
+ * Drop the part of a partly-applied group that a previous round already
+ * applied.
+ *
+ * The fetch asks for everything above the last COMPLETE mod-sequence, so a
+ * resumed round is served the whole in-progress group again. Its already-applied
+ * members are recognised by position alone — the fetch row carries both its
+ * mod-sequence and its UID — so skipping them costs no lookup.
+ */
+export const dropAppliedPrefix = (
+	ordered: ImapMessage[],
+	cursor: ChangeCursor,
+): ImapMessage[] => {
+	if (cursor.uid === 0 || ordered.length === 0) return ordered;
+	// `ordered` is ascending, so the in-progress group is the lowest one left.
+	const inProgress = parseModseq(ordered[0].modseq);
+	return ordered.filter(
+		(message) =>
+			parseModseq(message.modseq) !== inProgress || message.uid > cursor.uid,
+	);
+};
+
+export interface ChangeCursorAdvanceInput {
+	/** The cursor this round started from. */
+	cursor: ChangeCursor;
 	/** HIGHESTMODSEQ the server reported before this round fetched anything. */
 	serverModseq: bigint;
-	/** The full changed set, in {@link orderByModseq} order. */
+	/** The changed set still to apply, in {@link orderByModseq} order. */
 	ordered: ImapMessage[];
-	/** The prefix of `ordered` this round processed — see {@link takeModseqBatch}. */
+	/** The prefix of `ordered` this round processed. */
 	batch: ImapMessage[];
-	/** UIDs whose save threw and must be re-fetched. */
+	/** UIDs whose save threw and must be re-applied. */
 	failedUids: ReadonlySet<number>;
 }
 
-export interface ModseqAdvance {
-	/** The watermark to persist, as decimal digits. */
-	highestModseq: string;
+export interface ChangeCursorAdvance {
+	cursor: ChangeCursor;
 	/** True when changes remain that this round did not process. */
 	hasMore: boolean;
 }
 
 /**
- * Decide how far the mod-sequence watermark may move after a round.
+ * Decide how far the cursor may move after a round.
  *
- * The watermark stops strictly below the lowest mod-sequence this round left
- * unprocessed — unprocessed because the batch ended before it, or because its
- * save threw. Clamping below that value rather than at the last success is
- * what makes a shared mod-sequence safe: one failure holds back every message
- * carrying the same value, and they all return next round.
+ * It moves over the leading run of applied messages and stops at the first one
+ * that was not — a failure, or simply the end of the batch. Everything after
+ * that point is treated as unapplied even if it succeeded, which costs an
+ * idempotent re-apply next round and buys a cursor that can never claim more
+ * than it did.
  *
- * When the round consumed the whole changed set without a failure the
- * watermark jumps to the server's HIGHESTMODSEQ instead of the last message's
- * mod-sequence. Those are not the same number: a mod-sequence also moves for
- * events that return no message (an expunge, a change to a message the fetch
- * filtered out), and stopping short of it would re-deliver every one of them
- * on every subsequent round. That value is read before the fetch, so anything
- * changing while the round runs lands above it and arrives next time.
+ * Where it stops decides the shape: on a group boundary the cursor is that
+ * group's mod-sequence with no sub-position; inside a group it keeps the last
+ * complete mod-sequence and records how far into the next one it got.
+ *
+ * A round that consumed everything without a failure jumps to the server's
+ * HIGHESTMODSEQ rather than the last message's mod-sequence. Those are not the
+ * same number: a mod-sequence also moves for events that return no message (an
+ * expunge, a change to a message the fetch filtered out), and stopping short
+ * would re-deliver them on every subsequent round. That value is read before
+ * the fetch, so anything changing while the round runs lands above it and
+ * arrives next time.
  */
-export const advanceModseqWatermark = ({
-	storedModseq,
+export const advanceChangeCursor = ({
+	cursor,
 	serverModseq,
 	ordered,
 	batch,
 	failedUids,
-}: ModseqAdvanceInput): ModseqAdvance => {
-	const unprocessed = [
-		...ordered.slice(batch.length),
-		...batch.filter((message) => failedUids.has(message.uid)),
-	].map((message) => parseModseq(message.modseq));
-
-	const limit = unprocessed.length
-		? unprocessed.reduce((lowest, value) => (value < lowest ? value : lowest))
-		: null;
-
-	let applied = storedModseq;
+}: ChangeCursorAdvanceInput): ChangeCursorAdvance => {
+	const applied: ImapMessage[] = [];
 	for (const message of batch) {
-		if (failedUids.has(message.uid)) continue;
+		if (failedUids.has(message.uid)) break;
+		applied.push(message);
+	}
+
+	const hasMore = ordered.length > batch.length;
+	const next = ordered[applied.length];
+
+	if (applied.length === 0) {
+		return { cursor, hasMore };
+	}
+
+	const last = applied[applied.length - 1];
+	const lastModseq = parseModseq(last.modseq);
+
+	if (next === undefined) {
+		return {
+			cursor: {
+				modseq: serverModseq > lastModseq ? serverModseq : lastModseq,
+				uid: 0,
+			},
+			hasMore,
+		};
+	}
+
+	const nextModseq = parseModseq(next.modseq);
+	if (nextModseq > lastModseq) {
+		return { cursor: { modseq: lastModseq, uid: 0 }, hasMore };
+	}
+
+	// Stopped inside a group: the cursor keeps the highest mod-sequence it
+	// completed and records its position within the one it is part-way through.
+	let completed = cursor.modseq;
+	for (const message of applied) {
 		const modseq = parseModseq(message.modseq);
-		if (limit !== null && modseq >= limit) continue;
-		if (modseq > applied) applied = modseq;
+		if (modseq < nextModseq && modseq > completed) completed = modseq;
 	}
 
-	if (limit === null && serverModseq > applied) {
-		applied = serverModseq;
-	}
-
-	return {
-		highestModseq: applied.toString(),
-		hasMore: ordered.length > batch.length,
-	};
+	return { cursor: { modseq: completed, uid: last.uid }, hasMore };
 };
 
 export interface UidWatermarkInput {

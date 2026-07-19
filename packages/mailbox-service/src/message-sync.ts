@@ -38,11 +38,14 @@ import { ROOT_PART_PATH, walkMimeStructure } from "./mime-walker.js";
 import { PassThroughUnitOfWork } from "./pass-through-unit-of-work.js";
 import { reconcileStaleMessage } from "./stale-message-reconcile.js";
 import {
-	advanceModseqWatermark,
+	advanceChangeCursor,
 	advanceUidWatermarks,
+	type ChangeCursor,
+	dropAppliedPrefix,
+	formatChangeCursor,
 	orderByModseq,
+	parseChangeCursor,
 	parseModseq,
-	takeModseqBatch,
 } from "./sync-watermarks.js";
 import type {
 	ImapAddress,
@@ -116,11 +119,13 @@ export type ImapConnectionFactory = () => {
 export interface SyncLogger {
 	info(obj: Record<string, unknown>, msg: string): void;
 	warn(obj: Record<string, unknown>, msg: string): void;
+	error(obj: Record<string, unknown>, msg: string): void;
 }
 
 const noopLogger: SyncLogger = {
 	info: () => {},
 	warn: () => {},
+	error: () => {},
 };
 
 export interface SyncedMessage {
@@ -153,6 +158,13 @@ export interface SyncMessagesResult {
 	syncedMessages: SyncedMessage[];
 	hasMore: boolean;
 	remainingCount: number;
+	/**
+	 * The round had work to do and moved no cursor. Nothing throws on this
+	 * path — a message that cannot be applied is caught and held back — so
+	 * without this flag a mailbox that stops syncing looks exactly like one
+	 * with nothing to sync. Callers must surface it.
+	 */
+	cursorStalled: boolean;
 }
 
 const emptySyncResult = (): SyncMessagesResult => ({
@@ -161,6 +173,7 @@ const emptySyncResult = (): SyncMessagesResult => ({
 	syncedMessages: [],
 	hasMore: false,
 	remainingCount: 0,
+	cursorStalled: false,
 });
 
 const IMAP_SEEN_FLAG = "\\Seen";
@@ -285,13 +298,13 @@ export class MessageSyncService {
 			return emptySyncResult();
 		}
 
-		const storedModseq = parseModseq(mailbox.highestModseq);
-		if (storedModseq > 0n && connection.supportsCondstore()) {
+		const cursor = parseChangeCursor(mailbox.highestModseq);
+		if (cursor.modseq > 0n && connection.supportsCondstore()) {
 			return this.syncChangedSince({
 				mailbox,
 				accountId,
 				accountConfigId,
-				storedModseq,
+				cursor,
 				box,
 				status,
 				batchSize,
@@ -416,6 +429,26 @@ export class MessageSyncService {
 			deletedCount,
 		});
 
+		// Same stall condition as the CHANGEDSINCE round, on the UID axis: work
+		// selected, nothing moved, and the next round will select exactly the
+		// same work. No error surfaces on its own — every failure here is caught
+		// and held back — so this is the only signal that the mailbox is stuck.
+		const stalled =
+			newHighWaterMark === highWaterMarkUid && newLastSyncUid === lastSyncUid;
+		if (stalled) {
+			this.log.error(
+				{
+					alert: "message_sync_cursor_stalled",
+					mailboxId,
+					mailboxPath,
+					accountId,
+					pendingUids: uids.length,
+					failedUids: [...failedUids],
+				},
+				"Message sync watermarks did not advance while UIDs were pending; this mailbox stops syncing until they do",
+			);
+		}
+
 		this.log.info(
 			{
 				batch: 1,
@@ -437,6 +470,7 @@ export class MessageSyncService {
 			syncedMessages,
 			hasMore,
 			remainingCount,
+			cursorStalled: stalled,
 		};
 	}
 
@@ -612,6 +646,7 @@ export class MessageSyncService {
 			syncedMessages,
 			hasMore: false,
 			remainingCount: 0,
+			cursorStalled: false,
 		};
 	}
 
@@ -697,7 +732,7 @@ export class MessageSyncService {
 		mailbox: MailboxItem;
 		accountId: string;
 		accountConfigId: string;
-		storedModseq: bigint;
+		cursor: ChangeCursor;
 		box: { uidvalidity: number };
 		status: ImapMailboxStatus;
 		batchSize: number;
@@ -706,7 +741,7 @@ export class MessageSyncService {
 			mailbox,
 			accountId,
 			accountConfigId,
-			storedModseq,
+			cursor,
 			box,
 			status,
 			batchSize,
@@ -715,10 +750,13 @@ export class MessageSyncService {
 		const mailboxPath = mailbox.fullPath;
 
 		const connection = this.connectionFactory.getConnection();
-		const changed = await connection.fetchMessagesChangedSince(storedModseq);
+		// Ask from the last COMPLETE mod-sequence, so a group left part-applied
+		// by an earlier round is served again in full; its applied members are
+		// then dropped by position, without a lookup.
+		const changed = await connection.fetchMessagesChangedSince(cursor.modseq);
 
-		const ordered = orderByModseq(changed);
-		const batch = takeModseqBatch(ordered, batchSize);
+		const ordered = dropAppliedPrefix(orderByModseq(changed), cursor);
+		const batch = ordered.slice(0, batchSize);
 
 		const outcomes = await pMap(
 			batch,
@@ -732,7 +770,7 @@ export class MessageSyncService {
 		if (failedUids.size > 0) {
 			this.log.warn(
 				{ mailboxId, mailboxPath, failedUids: [...failedUids] },
-				"Some changes failed to apply; holding the mod-sequence watermark below them for retry",
+				"Some changes failed to apply; holding the sync cursor below them for retry",
 			);
 		}
 
@@ -745,18 +783,19 @@ export class MessageSyncService {
 		);
 		const syncedMessageIds = syncedMessages.map((m) => m.messageId);
 
-		const { highestModseq, hasMore } = advanceModseqWatermark({
-			storedModseq,
+		const { cursor: nextCursor, hasMore } = advanceChangeCursor({
+			cursor,
 			serverModseq: parseModseq(status.highestModseq),
 			ordered,
 			batch,
 			failedUids,
 		});
+		const highestModseq = formatChangeCursor(nextCursor);
 
 		// The UID watermark obeys the same clamp as the enumeration path even
-		// though the mod-sequence governs retries here: a mailbox that later
-		// falls back to enumeration must not find a failed UID already behind
-		// its forward watermark.
+		// though the cursor governs retries here: a mailbox that later falls
+		// back to enumeration must not find a failed UID already behind its
+		// forward watermark.
 		const { highWaterMarkUid: newHighWaterMark } = advanceUidWatermarks({
 			batchUids: batch.map((msg) => msg.uid),
 			failedUids,
@@ -774,6 +813,27 @@ export class MessageSyncService {
 			deletedCount: status.deletedCount,
 		});
 
+		// A round that had work to do and moved nothing is stalled: the same
+		// fetch will return the same set forever, and the set only grows as the
+		// mailbox keeps changing. Nothing above this call fails, so nothing else
+		// would ever notice — the queue message is acked either way.
+		const stalled =
+			ordered.length > 0 && highestModseq === mailbox.highestModseq;
+		if (stalled) {
+			this.log.error(
+				{
+					alert: "message_sync_cursor_stalled",
+					mailboxId,
+					mailboxPath,
+					accountId,
+					cursor: highestModseq,
+					pendingChanges: ordered.length,
+					failedUids: [...failedUids],
+				},
+				"Message sync cursor did not advance while changes were pending; this mailbox stops seeing changes until it does",
+			);
+		}
+
 		this.log.info(
 			{
 				mailboxId,
@@ -781,8 +841,8 @@ export class MessageSyncService {
 				changed: ordered.length,
 				applied: batch.length,
 				created: syncedMessageIds.length,
-				sinceModseq: storedModseq.toString(),
-				highestModseq,
+				fromCursor: formatChangeCursor(cursor),
+				cursor: highestModseq,
 				hasMore,
 			},
 			"CHANGEDSINCE round complete",
@@ -794,6 +854,7 @@ export class MessageSyncService {
 			syncedMessages,
 			hasMore,
 			remainingCount: ordered.length - batch.length,
+			cursorStalled: stalled,
 		};
 	}
 
@@ -889,9 +950,18 @@ export class MessageSyncService {
 			))
 		) {
 			updates.hasStars = hasStars;
-			// A star that the server cleared must lose its colour with it, or the
-			// row ships `hasStars: false` with a colour still attached.
-			if (!hasStars) updates.star = StarColor.None;
+			// `hasStars` is the boolean of record and `star` its presentation
+			// colour; the two may never disagree (#58). A star cleared upstream
+			// loses its colour; one set upstream takes the standard colour unless
+			// the row already carries a real one the user chose.
+			if (!hasStars) {
+				updates.star = StarColor.None;
+			} else if (
+				existing.star === undefined ||
+				existing.star === StarColor.None
+			) {
+				updates.star = StarColor.Yellow;
+			}
 		}
 
 		if (Object.keys(updates).length === 0) return;

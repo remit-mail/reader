@@ -338,6 +338,16 @@ const syncMailboxMessages = async (
 		);
 	}
 
+	// A stalled cursor is the one failure on this path that produces no error:
+	// unapplicable messages are caught and held back, so the round returns
+	// normally, the SQS record is deleted, and neither redrive nor the DLQ ever
+	// engages. Without this metric the mailbox stops syncing behind a worker
+	// that looks healthy. It is emitted as a count so a sustained non-zero
+	// value alarms, per-mailbox detail being in the accompanying ERROR log.
+	if (result.cursorStalled) {
+		metrics.addMetric("imapSyncCursorStalled", MetricUnit.Count, 1);
+	}
+
 	// Emit body sync events for the messages we just synced. Each event carries
 	// messageId+uid pairs so the consumer issues one ranged FETCH per batch
 	// without re-resolving UIDs. messageIds stays populated for backward compat.

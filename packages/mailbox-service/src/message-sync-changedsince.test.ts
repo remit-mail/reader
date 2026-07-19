@@ -107,6 +107,8 @@ interface Harness {
 	}>;
 	created: string[];
 	calls: { search: number; fetchMessages: number; changedSince: bigint[] };
+	/** Alarm-shaped ERROR logs the round emitted. */
+	errors: Array<Record<string, unknown>>;
 	/** The canonical flag record after the round. */
 	flagStore: Set<string>;
 	messageFlagService: IMessageFlagRepository;
@@ -120,6 +122,14 @@ const buildHarness = (options: HarnessOptions): Harness => {
 	}> = [];
 	const created: string[] = [];
 	const calls = { search: 0, fetchMessages: 0, changedSince: [] as bigint[] };
+	const errors: Array<Record<string, unknown>> = [];
+	const logger = {
+		info: () => {},
+		warn: () => {},
+		error: (obj: Record<string, unknown>) => {
+			errors.push(obj);
+		},
+	};
 	const rows = options.storedRows ?? [];
 	const uidValidity = options.servedUidValidity ?? options.mailbox.uidValidity;
 
@@ -238,7 +248,7 @@ const buildHarness = (options: HarnessOptions): Harness => {
 		{} as IEnvelopeRepository,
 		{} as IAddressRepository,
 		threadMessageService,
-		undefined,
+		logger,
 		unitOfWork,
 		flagPushMarkerService,
 		messageFlagService,
@@ -250,6 +260,7 @@ const buildHarness = (options: HarnessOptions): Harness => {
 		threadUpdates,
 		created,
 		calls,
+		errors,
 		flagStore,
 		messageFlagService,
 	};
@@ -282,12 +293,32 @@ describe("MessageSyncService CHANGEDSINCE path", () => {
 		]);
 	});
 
-	it("picks up a star set on another client", async () => {
+	it("picks up a star set on another client, colour following the boolean", async () => {
 		const harness = buildHarness({
 			mailbox: mailbox(),
 			supportsCondstore: true,
 			changed: [serverMessage({ flags: ["\\Flagged"] })],
 			storedRows: [storedRow({ hasStars: false })],
+		});
+
+		await syncOnce(harness);
+
+		// #58: `hasStars` is the boolean of record and `star` its colour; the
+		// two may never disagree.
+		assert.deepEqual(harness.threadUpdates, [
+			{
+				threadMessageId: "tm-1",
+				input: { hasStars: true, star: "yellow" },
+			},
+		]);
+	});
+
+	it("keeps a colour the user chose when the server re-flags", async () => {
+		const harness = buildHarness({
+			mailbox: mailbox(),
+			supportsCondstore: true,
+			changed: [serverMessage({ flags: ["\\Flagged"] })],
+			storedRows: [storedRow({ hasStars: false, star: "purple" })],
 		});
 
 		await syncOnce(harness);
@@ -378,7 +409,7 @@ describe("MessageSyncService CHANGEDSINCE path", () => {
 		assert.equal(harness.mailboxUpdates[0].highestModseq, "515");
 	});
 
-	it("keeps a bulk change whole rather than splitting the mod-sequence", async () => {
+	it("splits a bulk change across rounds without losing its tail", async () => {
 		// One STORE marked 60 messages read, so all 60 carry mod-sequence 900.
 		const bulk = Array.from({ length: 60 }, (_, i) =>
 			serverMessage({ uid: 100 + i, modseq: "900" }),
@@ -391,15 +422,33 @@ describe("MessageSyncService CHANGEDSINCE path", () => {
 			storedRows: [],
 		});
 
-		const result = await syncOnce(harness, 50);
+		const first = await syncOnce(harness, 50);
 
-		// All 60 applied in one round; the watermark never lands inside the group.
-		assert.equal(harness.created.length, 60);
-		assert.equal(result.hasMore, false);
-		assert.equal(harness.mailboxUpdates[0].highestModseq, "900");
+		// The round is bounded, and the cursor records how far into the group it
+		// got rather than claiming the whole of mod-sequence 900.
+		assert.equal(harness.created.length, 50);
+		assert.equal(first.hasMore, true);
+		assert.equal(harness.mailboxUpdates[0].highestModseq, "500:149");
+
+		// The next round asks from the last COMPLETE mod-sequence, so the server
+		// serves the whole group again and the applied half is skipped.
+		const resumed = buildHarness({
+			mailbox: mailbox({ highestModseq: "500:149" }),
+			supportsCondstore: true,
+			serverModseq: "900",
+			changed: bulk,
+			storedRows: [],
+		});
+
+		const second = await syncOnce(resumed, 50);
+
+		assert.deepEqual(resumed.calls.changedSince, [500n]);
+		assert.equal(resumed.created.length, 10);
+		assert.equal(second.hasMore, false);
+		assert.equal(resumed.mailboxUpdates[0].highestModseq, "900");
 	});
 
-	it("holds the watermark below a bulk group it only partly applied", async () => {
+	it("keeps the cursor below a group it only partly applied", async () => {
 		const bulk = [
 			serverMessage({ uid: 99, modseq: "800" }),
 			...Array.from({ length: 60 }, (_, i) =>
@@ -417,8 +466,43 @@ describe("MessageSyncService CHANGEDSINCE path", () => {
 		const result = await syncOnce(harness, 50);
 
 		assert.equal(result.hasMore, true);
-		// Below 900, so the next round's CHANGEDSINCE returns the whole group.
-		assert.equal(harness.mailboxUpdates[0].highestModseq, "800");
+		// Group 800 complete, 49 into group 900 — never a bare "900".
+		assert.equal(harness.mailboxUpdates[0].highestModseq, "800:148");
+	});
+
+	it("reports a stalled cursor when a round moves nothing", async () => {
+		const harness = buildHarness({
+			mailbox: mailbox(),
+			supportsCondstore: true,
+			serverModseq: "900",
+			changed: [serverMessage({ uid: 31, modseq: "515" })],
+			storedRows: [],
+			failUids: new Set([31]),
+		});
+
+		const result = await syncOnce(harness);
+
+		assert.equal(result.cursorStalled, true);
+		assert.equal(harness.mailboxUpdates[0].highestModseq, "500");
+		assert.equal(
+			harness.errors.filter((e) => e.alert === "message_sync_cursor_stalled")
+				.length,
+			1,
+		);
+	});
+
+	it("does not report a stall when the cursor moved", async () => {
+		const harness = buildHarness({
+			mailbox: mailbox(),
+			supportsCondstore: true,
+			changed: [serverMessage({ uid: 31, modseq: "515" })],
+			storedRows: [],
+		});
+
+		const result = await syncOnce(harness);
+
+		assert.equal(result.cursorStalled, false);
+		assert.deepEqual(harness.errors, []);
 	});
 
 	it("writes the canonical flag record, not only the list projection", async () => {
