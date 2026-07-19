@@ -28,7 +28,7 @@ describe("buildGitHubIssueUrl", () => {
 	it("returns a URL pointing at the GitHub new-issue endpoint", () => {
 		const url = buildGitHubIssueUrl(baseCtx);
 		assert.ok(
-			url.startsWith("https://github.com/remit-mail/remit/issues/new?"),
+			url.startsWith("https://github.com/remit-mail/reader/issues/new?"),
 			`Expected GitHub issues URL, got: ${url}`,
 		);
 	});

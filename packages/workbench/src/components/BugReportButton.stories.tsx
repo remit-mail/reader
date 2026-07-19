@@ -15,7 +15,7 @@ function buildIssueBody(): string {
 
 	return [
 		"## Environment",
-		`- **Version**: [\`${shortSha}\`](https://github.com/remit-mail/remit/commit/${sha}) built ${buildTime}`,
+		`- **Version**: [\`${shortSha}\`](https://github.com/remit-mail/reader/commit/${sha}) built ${buildTime}`,
 		`- **Browser**: ${navigator.userAgent}`,
 		`- **Viewport**: ${window.innerWidth}×${window.innerHeight}`,
 		`- **Time**: ${new Date().toISOString()} (${Intl.DateTimeFormat().resolvedOptions().timeZone})`,
@@ -40,7 +40,7 @@ function BugReportButtonDemo() {
 	const handleClick = () => {
 		const body = buildIssueBody();
 		const params = new URLSearchParams({ title: "Bug: ", body });
-		const url = `https://github.com/remit-mail/remit/issues/new?${params.toString()}`;
+		const url = `https://github.com/remit-mail/reader/issues/new?${params.toString()}`;
 		console.info("[BugReportButton] Would open:", url);
 		alert("Bug report URL logged to the Storybook console (Actions tab).");
 	};
