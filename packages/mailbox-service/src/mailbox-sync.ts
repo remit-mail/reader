@@ -429,7 +429,7 @@ export class MailboxSyncService {
 			existing.messageCount !== status.messages ||
 			existing.unseenCount !== status.unseen ||
 			existing.deletedCount !== status.deletedCount ||
-			(status.highestModseq > 0 &&
+			(BigInt(status.highestModseq) > 0n &&
 				existing.highestModseq !== status.highestModseq) ||
 			specialUseChanged;
 
@@ -459,7 +459,7 @@ export class MailboxSyncService {
 				`deletedCount: ${existing.deletedCount} -> ${status.deletedCount}`,
 			);
 		if (
-			status.highestModseq > 0 &&
+			BigInt(status.highestModseq) > 0n &&
 			existing.highestModseq !== status.highestModseq
 		)
 			changes.push(

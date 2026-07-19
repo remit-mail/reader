@@ -1,7 +1,15 @@
 import assert from "node:assert";
 import { beforeEach, describe, test } from "node:test";
 
-type ViteEnvShape = Record<string, string | undefined>;
+type TestConfig = {
+	cognito?: {
+		userPoolId?: string;
+		clientId?: string;
+		domain?: string;
+		region?: string;
+	};
+	appOrigin?: string;
+};
 type AmplifyCall = {
 	Auth?: {
 		Cognito?: {
@@ -22,8 +30,6 @@ type AmplifyCall = {
 
 declare global {
 	// eslint-disable-next-line no-var
-	var __VITE_ENV__: ViteEnvShape | undefined;
-	// eslint-disable-next-line no-var
 	var __AMPLIFY_MOCKS__: { configureCalls: AmplifyCall[] } | undefined;
 	// eslint-disable-next-line no-var
 	var __CACHE_BUST__: number | undefined;
@@ -31,40 +37,42 @@ declare global {
 
 let cacheBust = 0;
 
-const loadModule = async (env: ViteEnvShape) => {
+const loadModule = async (config: TestConfig) => {
 	cacheBust += 1;
 	globalThis.__CACHE_BUST__ = cacheBust;
-	globalThis.__VITE_ENV__ = env;
+	globalThis.__REMIT_CONFIG__ = config;
 	globalThis.__AMPLIFY_MOCKS__ = { configureCalls: [] };
 	return import(`./amplify-config.ts?v=${cacheBust}`);
 };
 
-const fullEnv: ViteEnvShape = {
-	VITE_COGNITO_USER_POOL_ID: "us-east-1_pool",
-	VITE_COGNITO_CLIENT_ID: "client-id",
-	VITE_COGNITO_DOMAIN: "example.auth.us-east-1.amazoncognito.com",
-	VITE_COGNITO_REGION: "us-east-1",
-	VITE_APP_ORIGIN: "https://app.example.com",
+const fullConfig: TestConfig = {
+	cognito: {
+		userPoolId: "us-east-1_pool",
+		clientId: "client-id",
+		domain: "example.auth.us-east-1.amazoncognito.com",
+		region: "us-east-1",
+	},
+	appOrigin: "https://app.example.com",
 };
 
 describe("isCognitoConfigured", () => {
 	test("returns true when userPoolId and clientId are present", async () => {
-		const mod = await loadModule(fullEnv);
+		const mod = await loadModule(fullConfig);
 		assert.equal(mod.isCognitoConfigured(), true);
 	});
 
-	test("returns false when both env vars are missing", async () => {
+	test("returns false when both values are missing", async () => {
 		const mod = await loadModule({});
 		assert.equal(mod.isCognitoConfigured(), false);
 	});
 
 	test("returns false when only userPoolId is set", async () => {
-		const mod = await loadModule({ VITE_COGNITO_USER_POOL_ID: "pool" });
+		const mod = await loadModule({ cognito: { userPoolId: "pool" } });
 		assert.equal(mod.isCognitoConfigured(), false);
 	});
 
 	test("returns false when only clientId is set", async () => {
-		const mod = await loadModule({ VITE_COGNITO_CLIENT_ID: "client" });
+		const mod = await loadModule({ cognito: { clientId: "client" } });
 		assert.equal(mod.isCognitoConfigured(), false);
 	});
 });
@@ -89,13 +97,13 @@ describe("configureAmplify", () => {
 		assert.equal(warnings.length, 1);
 		const message = String(warnings[0][0]);
 		assert.ok(
-			message.includes("VITE_COGNITO_USER_POOL_ID"),
-			`expected warning to mention env var, got: ${message}`,
+			message.includes("Cognito"),
+			`expected warning to mention Cognito, got: ${message}`,
 		);
 	});
 
 	test("passes userPoolId and clientId to Amplify.configure", async () => {
-		const mod = await loadModule(fullEnv);
+		const mod = await loadModule(fullConfig);
 		mod.configureAmplify();
 		console.warn = originalWarn;
 		const calls = globalThis.__AMPLIFY_MOCKS__?.configureCalls ?? [];
@@ -106,7 +114,7 @@ describe("configureAmplify", () => {
 	});
 
 	test("wires OAuth block with appOrigin in redirect arrays when domain set", async () => {
-		const mod = await loadModule(fullEnv);
+		const mod = await loadModule(fullConfig);
 		mod.configureAmplify();
 		console.warn = originalWarn;
 		const oauth =
@@ -121,8 +129,7 @@ describe("configureAmplify", () => {
 
 	test("omits loginWith block when no domain configured", async () => {
 		const mod = await loadModule({
-			VITE_COGNITO_USER_POOL_ID: "pool",
-			VITE_COGNITO_CLIENT_ID: "client",
+			cognito: { userPoolId: "pool", clientId: "client" },
 		});
 		mod.configureAmplify();
 		console.warn = originalWarn;
@@ -133,9 +140,11 @@ describe("configureAmplify", () => {
 
 	test("uses empty redirect arrays when domain present but appOrigin missing", async () => {
 		const mod = await loadModule({
-			VITE_COGNITO_USER_POOL_ID: "pool",
-			VITE_COGNITO_CLIENT_ID: "client",
-			VITE_COGNITO_DOMAIN: "example.auth.us-east-1.amazoncognito.com",
+			cognito: {
+				userPoolId: "pool",
+				clientId: "client",
+				domain: "example.auth.us-east-1.amazoncognito.com",
+			},
 		});
 		mod.configureAmplify();
 		console.warn = originalWarn;

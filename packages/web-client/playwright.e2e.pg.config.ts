@@ -74,6 +74,7 @@ export default defineConfig({
 			reuseExistingServer: !process.env.CI,
 			env: {
 				VITE_PROXY_BACKEND_PORT: "5439",
+				REMIT_RUNTIME_CONFIG: '{"betterAuthEnabled":false}',
 			},
 			stdout: "pipe",
 			stderr: "pipe",

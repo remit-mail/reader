@@ -62,7 +62,7 @@ describe("MailboxSyncService.syncMailboxes — UIDVALIDITY cursor detection (#12
 				unseen: 1,
 				uidNext: 100,
 				uidValidity,
-				highestModseq: 0,
+				highestModseq: "0",
 				deletedCount: 0,
 			}),
 		}) as unknown as IImapConnection;
@@ -83,7 +83,7 @@ describe("MailboxSyncService.syncMailboxes — UIDVALIDITY cursor detection (#12
 						messageCount: 5,
 						unseenCount: 1,
 						deletedCount: 0,
-						highestModseq: 0,
+						highestModseq: "0",
 						specialUse: undefined,
 						cursorState: existingCursorState,
 					},

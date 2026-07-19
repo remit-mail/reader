@@ -4,7 +4,7 @@ import path from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 
 function resolveGitSha(): string {
 	if (process.env.GITHUB_SHA) return process.env.GITHUB_SHA;
@@ -17,12 +17,32 @@ function resolveGitSha(): string {
 
 const APP_SHA = resolveGitSha();
 
+// Serve /config.js from REMIT_RUNTIME_CONFIG (a JSON string) during dev so a run
+// mode can pick its runtime config — the dev-server equivalent of the static
+// default in public/config.js. Falls through to the static file when unset.
+function runtimeConfigDevServer(): Plugin {
+	return {
+		name: "remit-runtime-config-dev",
+		apply: "serve",
+		configureServer(server) {
+			const override = process.env.REMIT_RUNTIME_CONFIG;
+			if (!override) return;
+			server.middlewares.use((req, res, next) => {
+				if (req.url !== "/config.js") return next();
+				res.setHeader("Content-Type", "application/javascript");
+				res.end(`window.__REMIT_CONFIG__ = ${override};`);
+			});
+		},
+	};
+}
+
 export default defineConfig({
 	define: {
 		__APP_SHA__: JSON.stringify(APP_SHA),
 		__APP_BUILD_TIME__: JSON.stringify(new Date().toISOString()),
 	},
 	plugins: [
+		runtimeConfigDevServer(),
 		tanstackRouter({
 			target: "react",
 			autoCodeSplitting: true,

@@ -21,6 +21,7 @@ import { initRum } from "./lib/rum-adapter";
 import { TelemetryContext } from "./lib/telemetry-context";
 import { installThemeSync } from "./lib/theme";
 import { createAppRouter } from "./router";
+import { getRuntimeConfig } from "./runtime-config";
 import "./lib/i18n";
 import "./index.css";
 import "./lib/client"; // Initialize client with error interceptor
@@ -67,7 +68,7 @@ createRoot(rootElement).render(
 				<AuthShell>
 					<RouterProvider router={router} />
 				</AuthShell>
-				{!import.meta.env.PROD && !import.meta.env.VITE_DISABLE_DEVTOOLS && (
+				{!import.meta.env.PROD && !getRuntimeConfig().disableDevtools && (
 					<ReactQueryDevtools initialIsOpen={false} />
 				)}
 			</QueryClientProvider>

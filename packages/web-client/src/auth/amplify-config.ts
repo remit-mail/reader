@@ -1,4 +1,5 @@
 import { Amplify } from "aws-amplify";
+import { getRuntimeConfig } from "../runtime-config";
 
 export interface CognitoEnv {
 	userPoolId: string;
@@ -9,20 +10,17 @@ export interface CognitoEnv {
 }
 
 const readCognitoEnv = (): CognitoEnv | null => {
-	const userPoolId = import.meta.env.VITE_COGNITO_USER_POOL_ID;
-	const userPoolClientId = import.meta.env.VITE_COGNITO_CLIENT_ID;
-	const domain = import.meta.env.VITE_COGNITO_DOMAIN;
-	const region = import.meta.env.VITE_COGNITO_REGION;
-	const appOrigin = import.meta.env.VITE_APP_ORIGIN;
+	const config = getRuntimeConfig();
+	const { userPoolId, clientId, domain, region } = config.cognito;
 
-	if (!userPoolId || !userPoolClientId) return null;
+	if (!userPoolId || !clientId) return null;
 
 	return {
 		userPoolId,
-		userPoolClientId,
-		domain: domain ?? "",
-		region: region ?? "",
-		appOrigin: appOrigin ?? "",
+		userPoolClientId: clientId,
+		domain,
+		region,
+		appOrigin: config.appOrigin,
 	};
 };
 
@@ -33,7 +31,7 @@ export const isCognitoConfigured = (): boolean => cognitoEnv !== null;
 export const configureAmplify = (): void => {
 	if (!cognitoEnv) {
 		console.warn(
-			"[auth] VITE_COGNITO_USER_POOL_ID is not set. Running in local dev mode without Cognito auth.",
+			"[auth] Cognito user pool is not configured. Running in local dev mode without Cognito auth.",
 		);
 		return;
 	}

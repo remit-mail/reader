@@ -63,7 +63,8 @@ export default defineConfig({
 			env: {
 				// Proxy /api and /content to the PG backend
 				VITE_PROXY_BACKEND_PORT: "5436",
-				VITE_DISABLE_DEVTOOLS: "1",
+				REMIT_RUNTIME_CONFIG:
+					'{"betterAuthEnabled":false,"disableDevtools":true}',
 			},
 			stdout: "pipe",
 			stderr: "pipe",

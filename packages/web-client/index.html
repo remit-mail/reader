@@ -34,6 +34,14 @@
   </head>
   <body>
     <div id="root"></div>
+    <!--
+      Runtime deployment config. A classic (non-module) script so it runs before
+      the deferred module bundle: it sets window.__REMIT_CONFIG__, which
+      src/runtime-config.ts reads. Served as a static default in the built dist
+      and replaced per deployment; never bundled, so one build serves every
+      deployment.
+    -->
+    <script src="/config.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

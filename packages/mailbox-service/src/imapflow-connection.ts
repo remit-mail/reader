@@ -1193,7 +1193,7 @@ export class ImapFlowConnection {
 			unseen: status.unseen ?? 0,
 			uidNext: status.uidNext ?? 0,
 			uidValidity: Number(status.uidValidity ?? 0),
-			highestModseq: Number(status.highestModseq ?? 0),
+			highestModseq: (status.highestModseq ?? 0n).toString(),
 			deletedCount,
 		};
 	};

@@ -76,10 +76,9 @@ model Mailbox {
   @minValue(1)
   uidNext: int64;
 
-  @doc("Highest modification sequence number (CONDSTORE). Used to detect mailbox changes efficiently.")
+  @doc("Highest modification sequence number (CONDSTORE, RFC 7162) as decimal digits. A modseq is an unsigned 64-bit integer that exceeds both a signed int64 column and JS Number precision, so it is stored as a string and parsed to BigInt only at the point of comparison.")
   @visibility(Lifecycle.Read)
-  @minValue(0)
-  highestModseq: int64;
+  highestModseq: String32;
 
   @doc("Total message count in mailbox")
   @visibility(Lifecycle.Read)

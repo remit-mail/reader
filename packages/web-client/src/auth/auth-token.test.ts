@@ -16,8 +16,6 @@ declare global {
 	var __AMPLIFY_AUTH_MOCKS__: AmplifyAuthMocks | undefined;
 	// eslint-disable-next-line no-var
 	var __AMPLIFY_CONFIG_MOCKS__: AmplifyConfigMocks | undefined;
-	// eslint-disable-next-line no-var
-	var __VITE_ENV__: Record<string, string | undefined> | undefined;
 }
 
 let cacheBust = 2000;
@@ -34,7 +32,7 @@ const loadAuthToken = async (
 	authMocks: Partial<AmplifyAuthMocks>,
 ) => {
 	cacheBust += 1;
-	globalThis.__VITE_ENV__ = {};
+	globalThis.__REMIT_CONFIG__ = {};
 	globalThis.__AMPLIFY_CONFIG_MOCKS__ = {
 		configured,
 		configureCalls: 0,
