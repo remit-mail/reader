@@ -11,7 +11,7 @@ describe("MailActionToolbar", () => {
 		);
 		assert.match(html, /aria-label="Reply"/);
 		assert.match(html, /aria-label="Move to Trash"/);
-		assert.match(html, /aria-label="Flag"/);
+		assert.match(html, /aria-label="Star"/);
 		assert.match(html, /aria-label="Move to mailbox"/);
 		// No archive verb — Remit is IMAP-backed (move-to-folder is the equivalent).
 		assert.doesNotMatch(html, /aria-label="Archive"/);
@@ -27,7 +27,7 @@ describe("MailActionToolbar", () => {
 		assert.match(html, /aria-label="Forward"/);
 		assert.doesNotMatch(html, /aria-label="Archive"/);
 		assert.doesNotMatch(html, /aria-label="Move to Trash"/);
-		assert.doesNotMatch(html, /aria-label="Flag"/);
+		assert.doesNotMatch(html, /aria-label="Star"/);
 		assert.doesNotMatch(html, /aria-label="Move to mailbox"/);
 	});
 

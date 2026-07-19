@@ -69,6 +69,18 @@ describe("NavSidebar", () => {
 		assert.match(html, /Daily brief/);
 	});
 
+	it("labels the \\Flagged virtual mailbox 'Starred'", () => {
+		const html = renderToString(
+			createElement(NavSidebar, {
+				accounts,
+				selectedNavId: "flagged",
+				onSelectNav: () => undefined,
+			}),
+		);
+		assert.match(html, /Starred/);
+		assert.doesNotMatch(html, /Flagged/);
+	});
+
 	it("renders system and custom mailbox names", () => {
 		const html = renderToString(
 			createElement(NavSidebar, {

@@ -20,7 +20,7 @@ describe("MobileMessageActionBar", () => {
 				}),
 			}),
 		);
-		assert.equal(countMatches(html, 'aria-label="Flag"'), 1);
+		assert.equal(countMatches(html, 'aria-label="Star"'), 1);
 		assert.equal(countMatches(html, 'aria-label="Move to folder"'), 1);
 		assert.equal(countMatches(html, 'aria-label="Move to Trash"'), 1);
 		assert.doesNotMatch(html, /aria-label="Archive"/);
@@ -30,7 +30,7 @@ describe("MobileMessageActionBar", () => {
 		const html = renderToString(
 			createElement(MobileMessageActionBar, { ...base, isStarred: true }),
 		);
-		assert.match(html, /aria-label="Remove flag"/);
+		assert.match(html, /aria-label="Unstar"/);
 		assert.match(html, /aria-pressed="true"/);
 	});
 
