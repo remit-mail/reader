@@ -1,0 +1,58 @@
+name: Setup workspace
+description: >-
+  Restores the workspace install and the generated codegen output, running
+  `npm ci` or `make` only when the matching cache key misses.
+
+inputs:
+  codegen:
+    description: Restore the generated build/ output (and generate it on a miss).
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+
+    # Keyed on the lockfile, but a stale entry still holds nearly every tarball,
+    # so the restore-keys fallback keeps a lockfile change off the network.
+    - name: Restore npm download cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.npm
+        key: ${{ runner.os }}-npm-store-${{ hashFiles('package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-npm-store-
+
+    # Exact key only: `npm ci` deletes node_modules before installing, so a
+    # partial restore would be thrown away. A hit means the tree already matches
+    # the lockfile and the install is skipped outright.
+    - name: Restore node_modules
+      id: modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          node_modules
+          packages/*/node_modules
+        key: ${{ runner.os }}-node22-modules-${{ hashFiles('package-lock.json', 'patches/**') }}
+
+    - name: Install
+      if: steps.modules.outputs.cache-hit != 'true'
+      shell: bash
+      run: npm ci --no-audit --no-fund --loglevel=error
+
+    # build/ is a pure function of the TypeSpec sources, the Makefile, the
+    # openapi-ts config and the emitter versions pinned in the lockfile.
+    - name: Restore codegen output
+      if: inputs.codegen == 'true'
+      id: codegen
+      uses: actions/cache@v4
+      with:
+        path: build
+        key: ${{ runner.os }}-codegen-${{ hashFiles('typespec/**', 'Makefile', 'openapi-ts.config.js', 'package-lock.json') }}
+
+    - name: Codegen (generated @remit/* packages)
+      if: inputs.codegen == 'true' && steps.codegen.outputs.cache-hit != 'true'
+      shell: bash
+      run: make

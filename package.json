@@ -27,7 +27,8 @@
     "check:publish-closure": "node npm-scripts/check-publish-closure.mjs",
     "check:web-client-consumer": "node npm-scripts/check-web-client-consumer.mjs",
     "bootstrap:publish-metadata": "node npm-scripts/set-publish-metadata.mjs",
-    "images:publish": "bash npm-scripts/images-publish.sh"
+    "images:publish": "bash npm-scripts/images-publish.sh",
+    "test:ci": "node npm-scripts/test-parallel.mjs"
   },
   "dependencies": {
     "@remit/api-http-client": "file:build/remit-client",
