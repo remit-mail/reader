@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import type { UserConfig } from "vite";
 import {
 	webClientAlias,
+	webClientBuild,
 	webClientDefine,
 	webClientPlugins,
 } from "../vite.base.ts";
@@ -26,4 +27,5 @@ export const webClientPreset = (): UserConfig => ({
 	}),
 	resolve: { alias: webClientAlias() },
 	define: webClientDefine(),
+	build: webClientBuild(),
 });

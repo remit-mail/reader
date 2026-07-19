@@ -67,15 +67,27 @@ const run = async () => {
 	cpSync(join(harnessDir, "index.html"), join(root, "index.html"));
 	writeFileSync(join(root, "entry.tsx"), entrySource(provider));
 
+	const preset = webClientPreset();
 	try {
 		await build({
+			...preset,
 			root,
 			publicDir: join(packageDir, "public"),
-			build: { outDir: resolve(packageDir, out), emptyOutDir: true },
-			...webClientPreset(),
+			build: {
+				...preset.build,
+				outDir: resolve(packageDir, out),
+				emptyOutDir: true,
+			},
 		});
 	} finally {
-		rmSync(root, { recursive: true, force: true });
+		// Never let cleanup replace the build's own failure. Removing the root is
+		// best-effort housekeeping on a throwaway directory; a build error is the
+		// thing the caller needs to see.
+		try {
+			rmSync(root, { recursive: true, force: true });
+		} catch (error) {
+			console.warn(`Could not remove ${root}: ${error.message}`);
+		}
 	}
 
 	console.log(`Built web client (auth: ${auth}) to ${resolve(packageDir, out)}`);
