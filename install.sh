@@ -255,14 +255,17 @@ write_env() {
 }
 
 # The remit wrapper ships as a deploy asset; here it is made executable and,
-# where possible, put on PATH. DEFAULT_DIR is rewritten to this install
-# directory so `remit` works with no REMIT_DIR set. /usr/local/bin is written
-# only when already writable — the installer never elevates on its own.
+# where possible, put on PATH. DEFAULT_DIR and DEFAULT_COMPOSE_FILE are
+# rewritten to what this run installed, so `remit` works with no REMIT_DIR or
+# REMIT_COMPOSE_FILE set. /usr/local/bin is written only when already
+# writable — the installer never elevates on its own.
 place_wrapper() {
 	local src="$DIR/remit"
-	[ -f "$src" ] || return 0
+	[ -f "$src" ] || die "the remit wrapper is missing from $DIR — the asset fetch did not complete."
 	local tmp="$src.tmp"
-	sed "s#^DEFAULT_DIR=.*#DEFAULT_DIR=$DIR#" "$src" >"$tmp"
+	sed -e "s#^DEFAULT_DIR=.*#DEFAULT_DIR=$DIR#" \
+		-e "s#^DEFAULT_COMPOSE_FILE=.*#DEFAULT_COMPOSE_FILE=$COMPOSE_FILE#" \
+		"$src" >"$tmp"
 	mv "$tmp" "$src"
 	chmod +x "$src"
 	[ "$DRY_RUN" = "1" ] && return 0
@@ -286,10 +289,12 @@ validate_compose() {
 	say "  compose file validates"
 }
 
+# Delegated to the placed wrapper so a first install goes through the same
+# migrate gate and registry-refusal diagnosis as every later `remit update` —
+# which is when an operator is least equipped to read a raw compose failure.
 bring_up() {
 	say "Pulling images and starting reader"
-	compose pull
-	compose up -d
+	REMIT_DIR="$DIR" REMIT_COMPOSE_FILE="$COMPOSE_FILE" "$DIR/remit" update
 }
 
 summary() {

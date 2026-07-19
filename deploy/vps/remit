@@ -4,12 +4,16 @@
 #
 # Wraps `docker compose` against the deployment directory so the operator
 # never has to cd there or repeat -f/--env-file. install.sh bakes the
-# directory it installed to into DEFAULT_DIR below; $REMIT_DIR overrides it.
+# directory it installed to into DEFAULT_DIR below and the compose file it
+# installed into DEFAULT_COMPOSE_FILE; $REMIT_DIR and $REMIT_COMPOSE_FILE
+# override them.
 
 set -eu
 
 DEFAULT_DIR=/opt/remit
+DEFAULT_COMPOSE_FILE=docker-compose.sqlite.yml
 REMIT_DIR="${REMIT_DIR:-$DEFAULT_DIR}"
+REMIT_COMPOSE_FILE="${REMIT_COMPOSE_FILE:-$DEFAULT_COMPOSE_FILE}"
 
 PROG=remit
 
@@ -32,20 +36,26 @@ Usage: remit <command> [args]
   help                 This message.
 
 Deployment directory: $REMIT_DIR (override with \$REMIT_DIR)
+Compose file:         $REMIT_COMPOSE_FILE (override with \$REMIT_COMPOSE_FILE)
 EOF
 }
 
 compose() {
 	docker compose \
 		--project-directory "$REMIT_DIR" \
-		-f "$REMIT_DIR/docker-compose.yml" \
+		-f "$REMIT_DIR/$REMIT_COMPOSE_FILE" \
 		--env-file "$REMIT_DIR/.env" \
 		"$@"
 }
 
 require_deployment() {
-	[ -f "$REMIT_DIR/docker-compose.yml" ] ||
-		die "no deployment at $REMIT_DIR — set \$REMIT_DIR or run install.sh"
+	[ -d "$REMIT_DIR" ] ||
+		die "no deployment directory at $REMIT_DIR — set \$REMIT_DIR or run install.sh"
+	[ -f "$REMIT_DIR/$REMIT_COMPOSE_FILE" ] ||
+		die "$REMIT_DIR holds no $REMIT_COMPOSE_FILE.
+The directory exists, so the deployment may be there under another compose
+file name: set \$REMIT_COMPOSE_FILE to it. Otherwise \$REMIT_DIR points at the
+wrong directory."
 	[ -f "$REMIT_DIR/.env" ] ||
 		die "no .env at $REMIT_DIR — set \$REMIT_DIR or run install.sh"
 }
