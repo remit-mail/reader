@@ -3,7 +3,7 @@ import type {
 	MessageItem,
 	OutboxMessageItem,
 	UpdateOutboxMessageInput,
-} from "@remit/remit-electrodb-service";
+} from "@remit/data-ports";
 import { AccountAuthType } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import { RefreshTokenError } from "@remit/mail-oauth-service";

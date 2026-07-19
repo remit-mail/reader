@@ -1,14 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 import { AwsQueryProtocol } from "@aws-sdk/core/protocols";
-import {
-	AccountService,
-	AddressService,
-	EnvelopeService,
-	getClient,
-	MessageService,
-	OutboxMessageService,
-} from "@remit/remit-electrodb-service";
+import { deriveAddressId, deriveMessageId } from "@remit/data-ports/id";
 import type { ConnectionState } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import {
@@ -30,10 +23,11 @@ import {
 import { sendMail } from "@remit/smtp-service";
 import { resolveSqsCredentials } from "@remit/sqs-client";
 import { env } from "expect-env";
+import { buildDataPortsFromEnv } from "../data-ports.js";
 import type { SendMessageEvent } from "../events.js";
 import { sendMessage } from "./send-message-core.js";
 
-const client = getClient();
+const ports = await buildDataPortsFromEnv();
 const dataKeyProvider = createKmsDataKeyProvider(env.KMS_KEY_ID);
 const secrets = createSecretsService(dataKeyProvider);
 
@@ -54,26 +48,11 @@ const getTokenService = () => {
 	return _tokenService;
 };
 
-const accountService = new AccountService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-const outboxService = new OutboxMessageService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-const addressService = new AddressService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-const messageService = new MessageService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
-const envelopeService = new EnvelopeService({
-	client,
-	table: env.DYNAMODB_TABLE_NAME,
-});
+const accountService = ports.account;
+const outboxService = ports.outboxMessage;
+const addressService = ports.address;
+const messageService = ports.message;
+const envelopeService = ports.envelope;
 
 // APPEND_SENT_MESSAGE is processed by the IMAP worker via the
 // message-management queue (see remit-imap-worker/src/emit.ts).
@@ -110,7 +89,7 @@ const findMessageByHeader = async (
 	accountId: string,
 	messageIdHeader: string,
 ) => {
-	const messageId = MessageService.generateId(accountId, messageIdHeader);
+	const messageId = deriveMessageId(accountId, messageIdHeader);
 	return messageService.get(messageId).catch((error: unknown) => {
 		if ((error as { name?: string })?.name === "NotFoundError") return null;
 		throw error;
@@ -176,7 +155,7 @@ export const handleSendMessage = (
 		send: sendMail,
 		emitAppendSentMessage,
 		engagement: {
-			resolveAddressId: AddressService.generateAddressId,
+			resolveAddressId: deriveAddressId,
 			incrementOutboundCount: (accountConfigId, addressId, now) =>
 				addressService.incrementOutboundCount(accountConfigId, addressId, now),
 			incrementReplyCount: (accountConfigId, addressId, now) =>

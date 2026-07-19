@@ -43,19 +43,29 @@ PUSH_LATEST="${PUSH_LATEST:-0}"
 CACHE_REF="${CACHE_REF:-}"
 CACHE_TO="${CACHE_TO:-1}"
 
-ALL_TARGETS=(apisix backend imap-worker smtp-worker account-worker pg-index-worker search-index-worker web)
-# These five share the Dockerfile's ARG-parameterized node-service-installed
-# stage (SERVICE_NAME picks docker/runtime/<service>/package.json).
-SERVICE_NAME_TARGETS=(backend imap-worker smtp-worker account-worker pg-index-worker)
+# The image roster, derived from the build contexts present in this tree — the
+# top-level apisix/ config and every docker/runtime/<service>. The open-core
+# export strips the Postgres-only pg-index-worker's runtime context, so it drops
+# out automatically and the exported roster matches the reader's compose without
+# editing this file.
+ALL_TARGETS=()
+[ -d apisix ] && ALL_TARGETS+=(apisix)
+for dir in docker/runtime/*/; do
+	ALL_TARGETS+=("$(basename "$dir")")
+done
 
+# The node-service targets share the Dockerfile's ARG-parameterized
+# node-service-installed stage (SERVICE_NAME picks docker/runtime/<service>/
+# package.json). web and search-index-worker have dedicated Dockerfile stages,
+# apisix its own — so any other present docker/runtime target is a SERVICE_NAME
+# target.
 service_name_arg() {
-	local target="$1" s
-	for s in "${SERVICE_NAME_TARGETS[@]}"; do
-		if [ "$target" = "$s" ]; then
-			printf -- '--build-arg\nSERVICE_NAME=%s\n' "$target"
-			return
-		fi
-	done
+	local target="$1"
+	case "$target" in
+	apisix | web | search-index-worker) return ;;
+	esac
+	[ -d "docker/runtime/$target" ] &&
+		printf -- '--build-arg\nSERVICE_NAME=%s\n' "$target"
 }
 
 # Registry cache flags for one build. Podman content-addresses cache layers

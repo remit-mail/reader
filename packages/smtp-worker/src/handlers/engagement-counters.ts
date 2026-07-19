@@ -1,4 +1,4 @@
-import type { OutboxMessageItem } from "@remit/remit-electrodb-service";
+import type { OutboxMessageItem } from "@remit/data-ports";
 import type { Logger } from "@remit/logger-lambda";
 import type { EngagementCounterDeps, SendTenant } from "./send-message-core.js";
 

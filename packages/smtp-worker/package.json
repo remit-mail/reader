@@ -12,6 +12,8 @@
 	"devDependencies": {
 		"@aws-sdk/client-sqs": "*",
 		"@aws-sdk/core": "*",
+		"@remit/data-ports": "*",
+		"@remit/drizzle-service": "*",
 		"@remit/domain-enums": "*",
 		"@remit/logger-lambda": "*",
 		"@remit/mail-oauth-service": "*",
@@ -21,8 +23,18 @@
 		"@remit/sqs-client": "*",
 		"@remit/storage-service": "*",
 		"@types/aws-lambda": "*",
+		"@types/pg": "^8.0.0",
 		"esbuild": "^0.27.7",
 		"expect-env": "*",
 		"p-map": "*"
+	},
+	"license": "MIT",
+	"publishConfig": {
+		"access": "public"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/remit-mail/remit.git",
+		"directory": "packages/smtp-worker"
 	}
 }

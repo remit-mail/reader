@@ -13,6 +13,7 @@
 // whole workspace) is what keeps a worker image from dragging in dependencies
 // it never touches through barrel imports — the lesson from the Lambda path,
 // where barrel imports pulled `pg` and NLP libraries into DynamoDB functions.
+import { existsSync } from "node:fs";
 import { build } from "esbuild";
 
 const CJS_REQUIRE_BANNER =
@@ -134,9 +135,20 @@ export const TARGETS = [
 
 async function main() {
 	const only = process.argv[2];
-	const targets = only ? TARGETS.filter((t) => t.name === only) : TARGETS;
+	// Only bundle targets whose entrypoint ships in this tree. The open-core
+	// export strips the Postgres-only pg-index-worker package, so its target
+	// drops out automatically here instead of failing on the missing entry —
+	// the exported roster matches the reader's compose without editing this file.
+	const present = TARGETS.filter((t) => existsSync(t.entry));
+	const targets = only
+		? present.filter((t) => t.name === only)
+		: present;
 	if (targets.length === 0) {
-		throw new Error(`docker-bundle: no target named "${only}"`);
+		throw new Error(
+			only
+				? `docker-bundle: no present target named "${only}"`
+				: "docker-bundle: no target entrypoints present in this tree",
+		);
 	}
 
 	for (const target of targets) {

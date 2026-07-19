@@ -4,7 +4,7 @@ import type {
 	AccountItem,
 	OutboxMessageItem,
 	UpdateOutboxMessageInput,
-} from "@remit/remit-electrodb-service";
+} from "@remit/data-ports";
 import { AccountAuthType } from "@remit/domain-enums";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
 import {
