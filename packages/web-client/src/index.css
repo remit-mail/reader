@@ -15,7 +15,7 @@
 
 /* Tailwind v4 content scanning: point at the source Tailwind must inspect
    for utility class usage (auto-detection misses linked workspace packages). */
-@source "../../remit-ui/src/**/*.{ts,tsx}";
+@source "../../ui/src/**/*.{ts,tsx}";
 
 /* Hide scrollbars while maintaining scroll functionality */
 .overflow-y-auto {
