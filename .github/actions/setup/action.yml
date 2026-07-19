@@ -50,3 +50,10 @@ runs:
       if: steps.codegen.outputs.cache-hit != 'true'
       shell: bash
       run: make
+
+    # Gitignored, derived from the web-client route files rather than from
+    # TypeSpec, and needed by both typecheck and the unit tests. Cheap enough
+    # (~1s) to regenerate every time instead of keying another cache on it.
+    - name: Codegen (web-client route tree)
+      shell: bash
+      run: npm run generate:routes -w @remit/web-client
