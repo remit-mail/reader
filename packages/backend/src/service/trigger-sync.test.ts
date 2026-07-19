@@ -60,6 +60,30 @@ describe("buildSyncMailboxesCommand", () => {
 		);
 	});
 
+	// The worker's fan-out gate reads this off the event: it is what lets a
+	// refresh sync every folder while a background trigger skips the ones that
+	// were just enumerated.
+	it("marks a user-requested trigger on the event", () => {
+		const cmd = buildSyncMailboxesCommand({
+			sqsClient: {} as SQSClient,
+			queueUrl: FIFO_QUEUE_URL,
+			accountId: "account-abc",
+			requestedByUser: true,
+		});
+
+		assert.equal(parseBody(cmd).requestedByUser, true);
+	});
+
+	it("leaves an incidental trigger unmarked", () => {
+		const cmd = buildSyncMailboxesCommand({
+			sqsClient: {} as SQSClient,
+			queueUrl: FIFO_QUEUE_URL,
+			accountId: "account-abc",
+		});
+
+		assert.equal(parseBody(cmd).requestedByUser, undefined);
+	});
+
 	it("does not set FIFO params for standard queues", () => {
 		const cmd = buildSyncMailboxesCommand({
 			sqsClient: {} as SQSClient,

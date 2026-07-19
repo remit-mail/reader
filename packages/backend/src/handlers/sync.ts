@@ -54,6 +54,10 @@ export const triggerSyncSafe = async (
 				sqsClient: deps.sqsClient,
 				queueUrl: deps.queueUrl,
 				accountId,
+				// POST /sync is the refresh control: this is the one trigger a
+				// person asks for by name, so it syncs every mailbox regardless of
+				// how recently one ran.
+				requestedByUser: true,
 			});
 			deps.logger.info(
 				{ accountId, eventId },

@@ -62,6 +62,25 @@ describe("triggerSyncSafe", () => {
 		assert.equal(error.length, 0);
 	});
 
+	// The guarantee behind issue #37: POST /sync is the refresh control, so the
+	// event it enqueues has to carry the mark that makes the worker's fan-out
+	// sync every mailbox rather than skip the fresh ones.
+	it("marks the event as user-requested", async () => {
+		const sent: SendMessageCommand[] = [];
+		const { logger } = createLoggerSpy();
+
+		await triggerSyncSafe("acc-a", "config-1", {
+			sqsClient: okSqsClient(sent),
+			queueUrl: QUEUE_URL,
+			logger,
+		});
+
+		const body = JSON.parse(sent[0]?.input.MessageBody ?? "{}") as {
+			requestedByUser?: boolean;
+		};
+		assert.equal(body.requestedByUser, true);
+	});
+
 	it("does NOT reject when the SQS enqueue fails (POST /sync stays resilient)", async () => {
 		const econnrefused = Object.assign(new Error(""), {
 			name: "AggregateError",

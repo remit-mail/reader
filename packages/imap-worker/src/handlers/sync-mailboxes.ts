@@ -24,6 +24,39 @@ import { orderMailboxesForSync } from "./mailbox-sync-order.js";
 
 const EVENT_EMIT_CONCURRENCY = 20;
 
+/**
+ * How recently a mailbox must have been synced for a background trigger to
+ * leave it alone. Short enough that a folder is never more than a minute
+ * staler than the trigger that arrived, long enough to collapse the burst a
+ * client produces when it loads (`GET /config` triggers a sync per account)
+ * into one round of IMAP work.
+ *
+ * It bounds background triggers only. A sync a person asked for ignores it —
+ * see `mailboxNeedsSync`.
+ */
+export const MAILBOX_FRESHNESS_MS = 60_000;
+
+/**
+ * Whether this fan-out should enqueue a mailbox.
+ *
+ * A user-requested sync always does: pressing refresh has to produce a real
+ * sync of every folder, whatever ran a moment ago. Everything else — config
+ * load, OAuth connect, the scheduled tick — skips mailboxes synced inside
+ * {@link MAILBOX_FRESHNESS_MS}, which is what stops incidental triggers from
+ * re-enumerating an account's folders on every page load.
+ *
+ * A mailbox that has never synced is always due.
+ */
+export const mailboxNeedsSync = (
+	mailbox: { lastMessageSyncAt?: number },
+	event: Pick<SyncMailboxesEvent, "requestedByUser">,
+	now: number,
+): boolean => {
+	if (event.requestedByUser) return true;
+	if (!mailbox.lastMessageSyncAt) return true;
+	return now - mailbox.lastMessageSyncAt >= MAILBOX_FRESHNESS_MS;
+};
+
 export const syncMailboxes = async (
 	event: SyncMailboxesEvent,
 	log: Logger,
@@ -65,6 +98,7 @@ export const syncMailboxes = async (
 		async (credentials) => {
 			try {
 				await syncMailboxesForAccount(
+					event,
 					account,
 					credentials,
 					mailboxService,
@@ -96,6 +130,7 @@ export const syncMailboxes = async (
 };
 
 const syncMailboxesForAccount = async (
+	event: SyncMailboxesEvent,
 	account: AccountItem,
 	credentials: MailCredentials,
 	mailboxService: IMailboxRepository,
@@ -137,17 +172,31 @@ const syncMailboxesForAccount = async (
 
 	log.info({ result }, "Mailbox sync complete");
 
-	// Every mailbox is fanned out on every SYNC_MAILBOXES event. A recency
-	// filter here used to drop mailboxes synced in the last 30 seconds, which
-	// made a sync the user asked for a no-op whenever a sync had just run —
-	// exactly when new mail is most likely to be waiting (issue #37). Deciding
-	// whether a sync is warranted belongs to whoever enqueues SYNC_MAILBOXES:
-	// the scheduler's own interval, or a person pressing refresh. A mailbox with
-	// nothing new costs one SEARCH and returns, and a fan-out that overlaps a
-	// sync already running is collapsed by MailboxLockService.
-	const mailboxes = await collectAllMailboxes(accountId, mailboxService);
+	const allMailboxes = await collectAllMailboxes(accountId, mailboxService);
 
-	if (mailboxes.length === 0) {
+	// This fan-out is where an account's IMAP work is decided: one SEARCH per
+	// mailbox per event, on a queue every account shares. `GET /config` fires a
+	// trigger per account on every call, so without a gate here an idle client
+	// re-enumerates every folder it owns on every page load.
+	//
+	// The gate is per mailbox and it is skipped outright for a sync a person
+	// asked for. That distinction is the whole point: the previous cooldown
+	// gated everything, which is what made a refresh a no-op whenever a
+	// background trigger had just run (issue #37).
+	const now = Date.now();
+	const mailboxes = allMailboxes.filter((mailbox) =>
+		mailboxNeedsSync(mailbox, event, now),
+	);
+
+	const skipped = allMailboxes.length - mailboxes.length;
+	if (skipped > 0) {
+		log.info(
+			{ accountId, skipped },
+			"Skipped recently-synced mailboxes for a background trigger",
+		);
+	}
+
+	if (allMailboxes.length === 0) {
 		log.info({ accountId }, "No mailboxes to sync messages for");
 		await accountService.update(accountId, {
 			syncPhase: SyncPhase.complete,
@@ -157,13 +206,31 @@ const syncMailboxesForAccount = async (
 		return;
 	}
 
+	if (mailboxes.length === 0) {
+		log.info({ accountId }, "Every mailbox is fresh; nothing to sync");
+		await accountService.update(accountId, {
+			syncPhase: SyncPhase.complete,
+			mailboxCountTotal: allMailboxes.length,
+			mailboxCountSynced: allMailboxes.length,
+		});
+		return;
+	}
+
 	log.info(
 		{ accountId, count: mailboxes.length },
 		"Emitting SYNC_MESSAGES events",
 	);
 
-	// Phase transition. Every mailbox is enqueued, so the synced counter starts
-	// at zero and each completion event drives it towards the total.
+	// Phase transition. Only the enqueued mailboxes emit a completion, so the
+	// gated ones are pre-credited — otherwise synced could never reach total.
+	//
+	// The counter is progress through THIS round, not a lifetime total: a new
+	// round restarts it, which is why it can read lower than a moment ago while
+	// a previous round is still draining. That is the same instant
+	// `account.lastSyncAt` is stamped, and the per-mailbox completion guard in
+	// sync-messages.ts keys off exactly that stamp — so a completion still in
+	// flight from the previous round counts once towards the new one, and each
+	// mailbox counts at most once per round.
 	const inboxEnqueued = mailboxes.some(
 		(m) => m.fullPath.toUpperCase() === "INBOX",
 	);
@@ -171,8 +238,8 @@ const syncMailboxesForAccount = async (
 		syncPhase: inboxEnqueued
 			? SyncPhase.syncing_inbox
 			: SyncPhase.syncing_others,
-		mailboxCountTotal: mailboxes.length,
-		mailboxCountSynced: 0,
+		mailboxCountTotal: allMailboxes.length,
+		mailboxCountSynced: skipped,
 	});
 
 	// Emit events in parallel with concurrency limit
@@ -194,6 +261,7 @@ const syncMailboxesForAccount = async (
 type MailboxSortEntry = {
 	mailboxId: string;
 	fullPath: string;
+	lastMessageSyncAt: number;
 	specialUse?: readonly string[];
 };
 
@@ -219,6 +287,7 @@ const collectAllMailboxes = async (
 			mailboxes.push({
 				mailboxId: mailbox.mailboxId,
 				fullPath: mailbox.fullPath,
+				lastMessageSyncAt: mailbox.lastMessageSyncAt,
 				specialUse: mailbox.specialUse,
 			});
 		}

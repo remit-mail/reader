@@ -6,6 +6,7 @@ interface SyncMailboxesEvent {
 	eventId: string;
 	timestamp: number;
 	accountId: string;
+	requestedByUser?: boolean;
 }
 
 interface TriggerAccountSyncInput {
@@ -13,13 +14,24 @@ interface TriggerAccountSyncInput {
 	queueUrl: string;
 	accountId: string;
 	/**
+	 * Set only where a person asked for this sync (POST /sync — the refresh
+	 * control and pull-to-refresh both land there). It travels on the event and
+	 * tells the worker's fan-out to sync every mailbox even if one just ran; a
+	 * trigger that fires as a side effect of something else (config load, OAuth
+	 * connect, the scheduled tick) leaves it unset and takes the freshness gate.
+	 * See `mailboxNeedsSync` in imap-worker's sync-mailboxes handler.
+	 */
+	requestedByUser?: boolean;
+	/**
 	 * Override the FIFO `MessageDeduplicationId`. Defaults to the event's own
 	 * id, so the queue suppresses a re-send of one event and nothing else —
 	 * every manual call site (POST /sync, OAuth connect, config load,
 	 * pull-to-refresh, the client's online-poll) always enqueues. A shared,
 	 * time-bucketed id instead turned SQS's 5-minute window into a rate limiter
 	 * and silently discarded a sync the user asked for whenever one had run
-	 * recently (issue #37).
+	 * recently (issue #37). What a trigger costs is bounded in the worker's
+	 * fan-out (`mailboxNeedsSync`), by skipping mailboxes not worth
+	 * re-enumerating — never by dropping the trigger.
 	 *
 	 * The scheduled-sync tick (#1247) passes `buildScheduledSyncDedupId()`,
 	 * which is bucketed by the tick's own cadence: there it collapses a
@@ -48,12 +60,13 @@ export const buildScheduledSyncDedupId = (
 export const buildSyncMailboxesCommand = (
 	input: TriggerAccountSyncInput,
 ): SendMessageCommand => {
-	const { queueUrl, accountId, dedupId } = input;
+	const { queueUrl, accountId, dedupId, requestedByUser } = input;
 	const event: SyncMailboxesEvent = {
 		type: "SYNC_MAILBOXES",
 		eventId: randomUUID(),
 		timestamp: Date.now(),
 		accountId,
+		...(requestedByUser && { requestedByUser }),
 	};
 
 	const useFifo = isFifoQueue(queueUrl);

@@ -90,9 +90,12 @@ export const emitEvent = async (
 			// the 5-minute window a rate limiter: the second sync of a mailbox
 			// within five minutes was discarded before any worker saw it, so mail
 			// that arrived after a sync could not be fetched until the window
-			// elapsed (issue #37). Repeated work is bounded where it belongs —
-			// MessageGroupId serializes an account's events, and MailboxLockService
-			// collapses a sync that overlaps one already running.
+			// elapsed (issue #37).
+			//
+			// Dropping events is not how repeated work is bounded — that is the
+			// freshness gate in the sync-mailboxes fan-out, which decides whether
+			// a mailbox is worth enumerating at all. MessageGroupId only orders an
+			// account's events; it makes duplicates serial, not cheap.
 			...(useFifo && {
 				MessageGroupId: event.accountId,
 				MessageDeduplicationId: fullEvent.eventId,

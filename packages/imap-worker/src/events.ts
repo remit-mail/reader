@@ -6,6 +6,13 @@ export interface BaseEvent {
 
 export interface SyncMailboxesEvent extends BaseEvent {
 	type: "SYNC_MAILBOXES";
+	/**
+	 * Set by POST /sync — the only trigger a person asks for by name. It makes
+	 * the fan-out sync every mailbox, skipping the freshness gate that keeps
+	 * incidental triggers (config load, OAuth connect, the scheduled tick) from
+	 * re-enumerating folders that were just enumerated.
+	 */
+	requestedByUser?: boolean;
 }
 
 export interface SyncMessagesEvent extends BaseEvent {
