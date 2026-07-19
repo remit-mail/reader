@@ -32,7 +32,7 @@ DRY_RUN=0
 COMPOSE_FILE="docker-compose.sqlite.yml"
 ASSETS=(
 	"docker-compose.sqlite.yml"
-	"elasticmq.conf"
+	"queues.json"
 	"remit.env.template"
 	"remit"
 	"caddy/routes.caddy"

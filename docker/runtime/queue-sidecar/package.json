@@ -1,0 +1,8 @@
+{
+	"name": "remit-runtime-queue-sidecar",
+	"private": true,
+	"version": "0.0.0",
+	"dependencies": {
+		"better-sqlite3": "12.11.1"
+	}
+}

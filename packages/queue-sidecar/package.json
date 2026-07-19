@@ -1,0 +1,39 @@
+{
+	"name": "@remit/queue-sidecar",
+	"version": "0.0.1",
+	"type": "module",
+	"main": "src/index.ts",
+	"types": "src/index.ts",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		}
+	},
+	"bin": {
+		"queue-sidecar": "src/main.ts"
+	},
+	"scripts": {
+		"start": "node --import tsx src/main.ts",
+		"test:typecheck": "tsgo --noEmit",
+		"test:run": "node --import tsx --test 'src/**/*.test.ts'",
+		"test": "npm run test:typecheck && npm run test:run"
+	},
+	"dependencies": {
+		"better-sqlite3": "^12.11.1"
+	},
+	"devDependencies": {
+		"@aws-sdk/client-sqs": "*",
+		"@aws-sdk/core": "*",
+		"@types/better-sqlite3": "^7.6.13"
+	},
+	"license": "MIT",
+	"publishConfig": {
+		"access": "public"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/remit-mail/reader.git",
+		"directory": "packages/queue-sidecar"
+	}
+}
