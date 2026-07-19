@@ -3,11 +3,6 @@ description: >-
   Restores the workspace install and the generated codegen output, running
   `npm ci` or `make` only when the matching cache key misses.
 
-inputs:
-  codegen:
-    description: Restore the generated build/ output (and generate it on a miss).
-    default: "true"
-
 runs:
   using: composite
   steps:
@@ -45,7 +40,6 @@ runs:
     # build/ is a pure function of the TypeSpec sources, the Makefile, the
     # openapi-ts config and the emitter versions pinned in the lockfile.
     - name: Restore codegen output
-      if: inputs.codegen == 'true'
       id: codegen
       uses: actions/cache@v4
       with:
@@ -53,6 +47,6 @@ runs:
         key: ${{ runner.os }}-codegen-${{ hashFiles('typespec/**', 'Makefile', 'openapi-ts.config.js', 'package-lock.json') }}
 
     - name: Codegen (generated @remit/* packages)
-      if: inputs.codegen == 'true' && steps.codegen.outputs.cache-hit != 'true'
+      if: steps.codegen.outputs.cache-hit != 'true'
       shell: bash
       run: make
