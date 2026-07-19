@@ -156,10 +156,24 @@ check_origin() {
 # still well before the pull, which is where the cost of a wrong origin is.
 
 ORIGIN_DNS_WARNING=""
+ORIGIN_WARNING_LABEL="Unreachable"
 
 check_origin_dns() {
 	local probe verdict addrs
 	probe="$("$DIR/remit" probe-host "$ORIGIN" 2>/dev/null || true)"
+	# A probe that produced nothing is a broken probe, not a clean origin. The
+	# silent branch below is for verdicts that mean "fine"; falling into it on
+	# failure would make this check pass exactly when it cannot be trusted —
+	# reachable with an older wrapper via $REMIT_REF or $REMIT_ASSET_BASE.
+	[ -n "$probe" ] || {
+		ORIGIN_WARNING_LABEL="Unchecked  "
+		ORIGIN_DNS_WARNING="whether $ORIGIN points at this box is unknown:
+the remit wrapper in $DIR did not answer 'probe-host'.
+The install continues. Check it yourself with:
+  $DIR/remit probe-host $ORIGIN"
+		warn "$ORIGIN_DNS_WARNING"
+		return 0
+	}
 	verdict="${probe%% *}"
 	addrs="${probe#* }"
 	case "$verdict" in
@@ -375,7 +389,7 @@ bring_up() {
 # reading: next to the address that will not load.
 origin_warning_block() {
 	[ -n "$ORIGIN_DNS_WARNING" ] || return 0
-	printf '\n  Unreachable %s\n' "$(printf '%s' "$ORIGIN_DNS_WARNING" | sed '2,$s/^/              /')"
+	printf '\n  %s %s\n' "$ORIGIN_WARNING_LABEL" "$(printf '%s' "$ORIGIN_DNS_WARNING" | sed '2,$s/^/              /')"
 }
 
 # The wrapper is the interface: it knows the install directory and the compose
