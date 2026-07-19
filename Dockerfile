@@ -196,6 +196,25 @@ COPY --from=builder --chown=node:node /app/dist-docker/pg-index-worker/server.mj
 CMD ["node", "server.mjs"]
 
 ########################################################################
+# queue-sidecar — SQLite-backed SQS wire-protocol backend for the self-host
+# deployment (ADR: self-host queue backend). Same alpine + system-nodejs base
+# as the workers, with better-sqlite3 installed via node-service-installed
+# (docker/runtime/queue-sidecar/package.json); no pg. Speaks the AWS Query
+# subset the SDK emits on 9324 and persists to its own SQLite file, which the
+# compose stack mounts on a dedicated volume. The queue set is supplied at
+# runtime through QUEUE_SIDECAR_QUEUES_CONFIG (compose mounts queues.json), the
+# same way elasticmq.conf was mounted.
+########################################################################
+FROM node-service-installed AS queue-sidecar
+COPY --from=builder --chown=node:node /app/dist-docker/queue-sidecar/server.mjs ./server.mjs
+ENV QUEUE_SIDECAR_PORT=9324
+ENV QUEUE_SIDECAR_DB=/data/queue/queue.db
+EXPOSE 9324
+HEALTHCHECK --interval=5s --timeout=5s --retries=10 \
+	CMD ["node", "-e", "require('http').get('http://127.0.0.1:9324/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+CMD ["node", "server.mjs"]
+
+########################################################################
 # search-index-worker — bakes the local embedding model at build time.
 #
 # Exception to the alpine/musl base every other node-service image uses:

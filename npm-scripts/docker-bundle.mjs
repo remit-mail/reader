@@ -116,6 +116,15 @@ export const TARGETS = [
 		entry: "packages/remit-pg-index-worker/src/run-worker.ts",
 		external: [PG],
 	},
+	// The self-host queue backend (ADR: SQLite-backed SQS sidecar). better-sqlite3
+	// is a native module reached through @remit/queue-sidecar's store; keep it
+	// external and install it in the runtime stage, the same treatment the other
+	// sqlite images give it.
+	{
+		name: "queue-sidecar",
+		entry: "packages/queue-sidecar/src/main.ts",
+		external: [SQLITE],
+	},
 	// Ships inside the backend image (dist-docker/backend/migrate.mjs) as an
 	// alternate entrypoint — "the backend image with a migrate command"
 	// (RFC 035 D8) — not a ninth image. The compose `migrate` one-shot
