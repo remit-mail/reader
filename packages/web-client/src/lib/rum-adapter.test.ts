@@ -198,14 +198,12 @@ function getRumConfig(
 
 describe("initRum", () => {
 	afterEach(() => {
-		delete (globalThis as unknown as { __VITE_ENV__?: unknown }).__VITE_ENV__;
+		delete globalThis.__REMIT_CONFIG__;
 		delete (globalThis as unknown as { window?: unknown }).window;
 	});
 
 	it("returns a no-op telemetry when VITE_RUM_APP_MONITOR_ID is unset", () => {
-		(
-			globalThis as unknown as { __VITE_ENV__: Record<string, unknown> }
-		).__VITE_ENV__ = {};
+		globalThis.__REMIT_CONFIG__ = {};
 		const t = initRum();
 		assert.doesNotThrow(() => t.recordPageView("/"));
 		assert.doesNotThrow(() => t.recordError(new Error("x")));
@@ -216,12 +214,12 @@ describe("initRum", () => {
 	it("creates a RumTelemetry when VITE_RUM_APP_MONITOR_ID is set", () => {
 		resetInstances();
 		installWindowStub();
-		(
-			globalThis as unknown as { __VITE_ENV__: Record<string, string> }
-		).__VITE_ENV__ = {
-			VITE_RUM_APP_MONITOR_ID: "test-monitor-id",
-			VITE_RUM_IDENTITY_POOL_ID: "eu-west-1:test-pool",
-			VITE_AWS_REGION: "eu-west-1",
+		globalThis.__REMIT_CONFIG__ = {
+			rum: {
+				appMonitorId: "test-monitor-id",
+				identityPoolId: "eu-west-1:test-pool",
+				region: "eu-west-1",
+			},
 		};
 		const t = initRum();
 		const instance = getLastInstance();
@@ -232,10 +230,8 @@ describe("initRum", () => {
 	it("does not enable leaky auto-telemetries", () => {
 		resetInstances();
 		installWindowStub();
-		(
-			globalThis as unknown as { __VITE_ENV__: Record<string, string> }
-		).__VITE_ENV__ = {
-			VITE_RUM_APP_MONITOR_ID: "test-monitor-id",
+		globalThis.__REMIT_CONFIG__ = {
+			rum: { appMonitorId: "test-monitor-id" },
 		};
 		initRum();
 		const config = getRumConfig(getLastInstance());
@@ -252,10 +248,8 @@ describe("initRum", () => {
 	it("disables auto page view so paths are recorded via the sanitizing adapter", () => {
 		resetInstances();
 		installWindowStub();
-		(
-			globalThis as unknown as { __VITE_ENV__: Record<string, string> }
-		).__VITE_ENV__ = {
-			VITE_RUM_APP_MONITOR_ID: "test-monitor-id",
+		globalThis.__REMIT_CONFIG__ = {
+			rum: { appMonitorId: "test-monitor-id" },
 		};
 		initRum();
 		const config = getRumConfig(getLastInstance());
@@ -265,10 +259,8 @@ describe("initRum", () => {
 	it("scrubs uncaught errors before recording them through RUM", () => {
 		resetInstances();
 		const win = installWindowStub();
-		(
-			globalThis as unknown as { __VITE_ENV__: Record<string, string> }
-		).__VITE_ENV__ = {
-			VITE_RUM_APP_MONITOR_ID: "test-monitor-id",
+		globalThis.__REMIT_CONFIG__ = {
+			rum: { appMonitorId: "test-monitor-id" },
 		};
 		initRum();
 		const handler = win.listeners.get("error");
@@ -288,10 +280,8 @@ describe("initRum", () => {
 	it("scrubs unhandled rejections before recording them through RUM", () => {
 		resetInstances();
 		const win = installWindowStub();
-		(
-			globalThis as unknown as { __VITE_ENV__: Record<string, string> }
-		).__VITE_ENV__ = {
-			VITE_RUM_APP_MONITOR_ID: "test-monitor-id",
+		globalThis.__REMIT_CONFIG__ = {
+			rum: { appMonitorId: "test-monitor-id" },
 		};
 		initRum();
 		const handler = win.listeners.get("unhandledrejection");

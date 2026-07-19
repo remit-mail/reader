@@ -52,11 +52,11 @@ describe("MessageBodyErrorBanner renders without an Authenticator.Provider in sc
 	});
 
 	it("renders the auth variant in local-dev WITHOUT mounting the sign-in CTA — `useAuthenticator` would throw outside `Authenticator.Provider` and crash the subtree", () => {
-		// Default test env: `globalThis.__VITE_ENV__` is unset, so the loader
-		// rewrites `import.meta.env` to `{}` and `isCognitoConfigured()`
-		// returns false — same shape as `AuthShell` running without the
-		// provider. If `MessageBodyErrorBanner` calls `useAuthenticator`
-		// unconditionally again, this `renderToString` call throws.
+		// Default test env: `globalThis.__REMIT_CONFIG__` is unset, so
+		// `isCognitoConfigured()` returns false — same shape as `AuthShell`
+		// running without the provider. If `MessageBodyErrorBanner` calls
+		// `useAuthenticator` unconditionally again, this `renderToString`
+		// call throws.
 		const html = renderBanner(
 			new BodyFetchError("auth", "Invalid id_token", 401),
 		);

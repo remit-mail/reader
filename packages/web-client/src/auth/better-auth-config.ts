@@ -1,12 +1,13 @@
 import { createAuthClient } from "better-auth/react";
+import { getRuntimeConfig } from "../runtime-config";
 
 /**
  * better-auth owns identity in the Postgres-parity / local mode. It is gated
  * behind an explicit flag so the Cognito path and the existing no-auth e2e
- * bypass are untouched unless a build opts in.
+ * bypass are untouched unless a deployment opts in.
  */
 export const isBetterAuthEnabled = (): boolean =>
-	import.meta.env.VITE_BETTER_AUTH_ENABLED === "1";
+	getRuntimeConfig().betterAuthEnabled;
 
 /**
  * Error code better-auth returns from `/sign-up/email` when signup is closed

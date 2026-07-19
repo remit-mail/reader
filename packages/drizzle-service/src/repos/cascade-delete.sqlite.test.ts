@@ -74,7 +74,7 @@ describe("createSqliteCascadeDeleter", () => {
 			fullPath: "INBOX",
 			uidValidity: 1,
 			uidNext: 1,
-			highestModseq: 0,
+			highestModseq: "0",
 			messageCount: 0,
 			unseenCount: 0,
 			deletedCount: 0,

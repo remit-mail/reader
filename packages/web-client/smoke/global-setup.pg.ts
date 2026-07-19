@@ -342,7 +342,7 @@ const seedMailboxes = async (db: NodePgDatabase<Record<string, unknown>>) => {
 				fullPath: mb.fullPath,
 				uidValidity: 1,
 				uidNext: mb.messageCount + 1,
-				highestModseq: 1,
+				highestModseq: "1",
 				messageCount: mb.messageCount,
 				unseenCount: mb.unseenCount,
 				deletedCount: 0,

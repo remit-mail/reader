@@ -158,4 +158,26 @@ describe("ImapFlowConnection.getMailboxStatus — deletedCount (#1042)", () => {
 
 		assert.strictEqual(status.deletedCount, 0);
 	});
+
+	it("carries highestModseq above 2^53 as a lossless decimal string (reader#9)", async () => {
+		const modseq = 18446744073709551615n;
+		const connection = buildConnectionWithClient({
+			status: async () => ({
+				path: "INBOX",
+				messages: 1,
+				recent: 0,
+				unseen: 0,
+				uidNext: 2,
+				uidValidity: 1n,
+				highestModseq: modseq,
+			}),
+			mailboxOpen: async (path: string) => fakeMailbox(path, 1),
+			search: async () => false,
+		});
+
+		const status = await connection.getMailboxStatus("INBOX");
+
+		assert.strictEqual(status.highestModseq, "18446744073709551615");
+		assert.strictEqual(BigInt(status.highestModseq), modseq);
+	});
 });

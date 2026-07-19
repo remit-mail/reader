@@ -6,6 +6,7 @@ import pMap from "p-map";
 import { useEffect, useRef } from "react";
 import { shouldEscalate } from "@/lib/error-classifier";
 import { reportFatalError } from "@/lib/fatal-error";
+import { getRuntimeConfig } from "@/runtime-config";
 
 /**
  * Mailboxes are considered stale 15 minutes after the last successful sync.
@@ -27,12 +28,11 @@ const parsePositiveIntSeconds = (
 /**
  * Client-side online-poll interval (#1251): while an account's mail is open,
  * the tab re-triggers the same sync the pull-to-refresh path uses on this
- * cadence — the replacement for the server's removed "online tier". Runtime
- * config follows the repo's `VITE_*` convention (see vite-env.d.ts).
+ * cadence — the replacement for the server's removed "online tier".
  */
 export const POLL_INTERVAL_MS =
 	parsePositiveIntSeconds(
-		import.meta.env.VITE_MAILBOX_POLL_INTERVAL_SECONDS,
+		getRuntimeConfig().mailboxPollIntervalSeconds,
 		DEFAULT_POLL_INTERVAL_SECONDS,
 	) * 1000;
 

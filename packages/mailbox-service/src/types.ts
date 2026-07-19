@@ -114,8 +114,8 @@ export interface ImapMailboxStatus {
 	unseen: number;
 	uidNext: number;
 	uidValidity: number;
-	/** Highest modification sequence (CONDSTORE). 0 if server doesn't support CONDSTORE. */
-	highestModseq: number;
+	/** Highest modification sequence (CONDSTORE) as decimal digits of an unsigned 64-bit value. "0" if the server does not support CONDSTORE. */
+	highestModseq: string;
 	/** Count of messages flagged \Deleted but not yet expunged. */
 	deletedCount: number;
 }

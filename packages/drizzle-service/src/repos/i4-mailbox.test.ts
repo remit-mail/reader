@@ -12,7 +12,7 @@ function makeMailboxInput(accountId: string, fullPath = "INBOX") {
 		fullPath,
 		uidValidity: 1,
 		uidNext: 1,
-		highestModseq: 0,
+		highestModseq: "0",
 		messageCount: 0,
 		unseenCount: 5,
 		deletedCount: 0,
@@ -47,6 +47,29 @@ describe("MailboxRepo", () => {
 		assert.equal(fetched.mailboxId, mailbox.mailboxId);
 
 		await repo.delete(accountId, mailbox.mailboxId);
+	});
+
+	test("highestModseq round-trips a value above 2^53 without loss (reader#9)", async () => {
+		const accountId = randomId();
+		const modseq = "18446744073709551615";
+		const created = await repo.create({
+			...makeMailboxInput(accountId),
+			highestModseq: modseq,
+		});
+		assert.equal(created.highestModseq, modseq);
+
+		const fetched = await repo.get(accountId, created.mailboxId);
+		assert.equal(fetched.highestModseq, modseq);
+		assert.equal(BigInt(fetched.highestModseq) > 2n ** 53n, true);
+
+		const updated = await repo.update(accountId, created.mailboxId, {
+			highestModseq: "9007199254740993",
+		});
+		assert.equal(updated.highestModseq, "9007199254740993");
+		const reread = await repo.get(accountId, created.mailboxId);
+		assert.equal(reread.highestModseq, "9007199254740993");
+
+		await repo.delete(accountId, created.mailboxId);
 	});
 
 	test("batchGet: WHERE id = ANY($1)", async () => {

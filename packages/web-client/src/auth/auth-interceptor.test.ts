@@ -20,8 +20,6 @@ declare global {
 	var __AMPLIFY_CONFIG_MOCKS__: AmplifyConfigMocks | undefined;
 	// eslint-disable-next-line no-var
 	var __REMIT_CLIENT_MOCKS__: { requestFns: RequestFn[] } | undefined;
-	// eslint-disable-next-line no-var
-	var __VITE_ENV__: Record<string, string | undefined> | undefined;
 }
 
 let cacheBust = 1000;
@@ -38,7 +36,7 @@ const loadInterceptor = async (
 	authMocks: Partial<AmplifyAuthMocks>,
 ) => {
 	cacheBust += 1;
-	globalThis.__VITE_ENV__ = {};
+	globalThis.__REMIT_CONFIG__ = {};
 	globalThis.__AMPLIFY_CONFIG_MOCKS__ = {
 		configured,
 		configureCalls: 0,

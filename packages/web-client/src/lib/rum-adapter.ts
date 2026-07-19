@@ -1,4 +1,5 @@
 import { AwsRum } from "aws-rum-web";
+import { getRuntimeConfig } from "../runtime-config";
 import type { Telemetry } from "./telemetry";
 import { noopTelemetry } from "./telemetry";
 
@@ -85,13 +86,10 @@ function installGlobalErrorHandlers(telemetry: Telemetry): void {
 }
 
 export function initRum(): Telemetry {
-	const appMonitorId = import.meta.env.VITE_RUM_APP_MONITOR_ID;
+	const { appMonitorId, identityPoolId, region } = getRuntimeConfig().rum;
 	if (!appMonitorId) {
 		return noopTelemetry;
 	}
-
-	const identityPoolId = import.meta.env.VITE_RUM_IDENTITY_POOL_ID ?? "";
-	const region = import.meta.env.VITE_AWS_REGION ?? "eu-west-1";
 
 	const rum = new AwsRum(appMonitorId, "1.0.0", region, {
 		sessionSampleRate: 1,

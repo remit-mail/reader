@@ -99,7 +99,7 @@ describe("selectStaleAccountIds", () => {
 });
 
 describe("POLL_INTERVAL_MS", () => {
-	test("defaults to 5 minutes when VITE_MAILBOX_POLL_INTERVAL_SECONDS is unset in this test run", () => {
+	test("defaults to 5 minutes when mailboxPollIntervalSeconds is unset in this test run", () => {
 		assert.equal(POLL_INTERVAL_MS, 5 * 60 * 1000);
 	});
 });

@@ -23,12 +23,8 @@ const amplifyConfigStubUrl = `${stubsDir}amplify-config.mjs`;
 const inWebClient = (url, sub) =>
 	url.includes(`/remit-web-client/${sub}`) || url.includes(`/web-client/${sub}`);
 
-const isAuthSourceUrl = (url) => inWebClient(url, "src/auth/");
 const isAuthTokenSource = (url) => inWebClient(url, "src/auth/auth-token.ts");
 const isAppInfoSource = (url) => inWebClient(url, "src/lib/app-info.");
-const isRumAdapterSource = (url) => inWebClient(url, "src/lib/rum-adapter.");
-const isStaleAccountSyncSource = (url) =>
-	inWebClient(url, "src/hooks/useStaleAccountSync.");
 
 export const resolve = async (specifier, context, nextResolve) => {
 	const stub = packageStubs.get(specifier);
@@ -64,17 +60,6 @@ export const load = async (url, context, nextLoad) => {
 			: new TextDecoder().decode(result.source);
 
 	let transformed = raw;
-
-	if (
-		isAuthSourceUrl(url) ||
-		isRumAdapterSource(url) ||
-		isStaleAccountSyncSource(url)
-	) {
-		transformed = transformed.replaceAll(
-			"import.meta.env",
-			"(globalThis.__VITE_ENV__ ?? {})",
-		);
-	}
 
 	if (isAppInfoSource(url)) {
 		// Replace Vite define constants with test-time fallbacks so the module
