@@ -1,5 +1,5 @@
 import { SendMessageCommand } from "@aws-sdk/client-sqs";
-import { NotFoundError } from "@remit/remit-electrodb-service";
+import { NotFoundError } from "@remit/data-ports/errors";
 import { logger } from "@remit/logger-lambda";
 import type {
 	CreateOrganizeJobResponse,

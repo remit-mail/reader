@@ -1,8 +1,5 @@
-import {
-	type AccountItem,
-	ForbiddenError,
-	NotFoundError,
-} from "@remit/remit-electrodb-service";
+import type { AccountItem } from "@remit/data-ports";
+import { ForbiddenError, NotFoundError } from "@remit/data-ports/errors";
 
 /**
  * Cross-tenant ownership guard for accounts.

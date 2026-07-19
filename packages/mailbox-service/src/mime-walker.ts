@@ -10,7 +10,7 @@
  * without spinning up an IMAP connection.
  */
 
-import { ROOT_PART_PATH } from "@remit/remit-electrodb-service";
+import { ROOT_PART_PATH } from "@remit/data-ports/id";
 import {
 	ContentDisposition,
 	MediaType,

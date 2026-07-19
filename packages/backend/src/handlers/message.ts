@@ -1,10 +1,10 @@
+import type { MailboxItem } from "@remit/data-ports";
 import {
 	BadRequestError,
 	ForbiddenError,
-	type MailboxItem,
 	NotFoundError,
 	UnrecoverableBodyError,
-} from "@remit/remit-electrodb-service";
+} from "@remit/data-ports/errors";
 import {
 	ContentDisposition,
 	MediaType,

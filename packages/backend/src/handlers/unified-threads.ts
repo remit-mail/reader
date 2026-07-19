@@ -1,5 +1,8 @@
-import type { IAccountSettingRepository } from "@remit/data-ports";
-import type { AccountItem, MailboxItem } from "@remit/remit-electrodb-service";
+import type {
+	AccountItem,
+	IAccountSettingRepository,
+	MailboxItem,
+} from "@remit/data-ports";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import pMap from "p-map";

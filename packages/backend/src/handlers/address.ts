@@ -1,8 +1,5 @@
-import {
-	type AddressItem,
-	type FlagsMergePatch,
-	ForbiddenError,
-} from "@remit/remit-electrodb-service";
+import type { AddressItem, FlagsMergePatch } from "@remit/data-ports";
+import { ForbiddenError } from "@remit/data-ports/errors";
 import type {
 	AddressResponse,
 	UpdateAddressInput,

@@ -9,6 +9,7 @@ import {
 	SendMessageCommand,
 	SQSClient,
 } from "@aws-sdk/client-sqs";
+import { base36uuidv5, REMIT_NAMESPACE } from "@remit/data-ports/id";
 import {
 	AccountConfigRepo,
 	AccountRepo,
@@ -16,7 +17,6 @@ import {
 	MailboxRepo,
 	messageDataSchema,
 } from "@remit/drizzle-service";
-import { base36uuidv5, REMIT_NAMESPACE } from "@remit/remit-electrodb-service";
 import {
 	createKmsDataKeyProvider,
 	createSecretsService,

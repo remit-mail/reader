@@ -1,8 +1,5 @@
-import {
-	NotFoundError,
-	type ResultList,
-	type ThreadMessageItem,
-} from "@remit/remit-electrodb-service";
+import type { ResultList, ThreadMessageItem } from "@remit/data-ports";
+import { NotFoundError } from "@remit/data-ports/errors";
 import type {
 	MessageCategory,
 	SenderTrust,

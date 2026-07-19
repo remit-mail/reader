@@ -8,11 +8,9 @@ import type {
 	IThreadMessageRepository,
 	UpdateMessageInput,
 } from "@remit/data-ports";
-import {
-	AddressService,
-	isBulkSender,
-	NotFoundError,
-} from "@remit/remit-electrodb-service";
+import { NotFoundError } from "@remit/data-ports/errors";
+import { deriveAddressId } from "@remit/data-ports/id";
+import { isBulkSender } from "@remit/data-ports/wellknown";
 import {
 	MailboxSpecialUse,
 	PlacementAction,
@@ -709,10 +707,7 @@ export class BodySyncService {
 			return;
 		}
 
-		const addressId = AddressService.generateAddressId(
-			accountConfigId,
-			fromEmail,
-		);
+		const addressId = deriveAddressId(accountConfigId, fromEmail);
 		const bulk = isBulkSender(
 			classification.category,
 			classification.hasListUnsubscribe ?? false,
@@ -730,10 +725,7 @@ export class BodySyncService {
 		fromEmail: string,
 	): Promise<(typeof SenderTrust)[keyof typeof SenderTrust]> {
 		try {
-			const addressId = AddressService.generateAddressId(
-				accountConfigId,
-				fromEmail,
-			);
+			const addressId = deriveAddressId(accountConfigId, fromEmail);
 			const address = await this.addressService.getAddress(
 				accountConfigId,
 				addressId,

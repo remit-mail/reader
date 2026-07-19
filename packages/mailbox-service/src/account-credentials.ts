@@ -8,7 +8,7 @@
  * Grep-verifiable constraint: `account.authType` must only appear here.
  */
 
-import type { AccountItem } from "@remit/remit-electrodb-service";
+import type { AccountItem } from "@remit/data-ports";
 import { AccountAuthType, ConnectionState } from "@remit/domain-enums";
 import type { MailOAuthService } from "@remit/mail-oauth-service";
 import { RefreshTokenError } from "@remit/mail-oauth-service";

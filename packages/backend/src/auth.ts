@@ -1,4 +1,4 @@
-import { base36uuidv5, REMIT_NAMESPACE } from "@remit/remit-electrodb-service";
+import { base36uuidv5, REMIT_NAMESPACE } from "@remit/data-ports/id";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 
 const LOCAL_BYPASS_VARS = [

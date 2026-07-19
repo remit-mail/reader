@@ -1,7 +1,5 @@
-import {
-	ForbiddenError,
-	type OutboxMessageItem,
-} from "@remit/remit-electrodb-service";
+import type { OutboxMessageItem } from "@remit/data-ports";
+import { ForbiddenError } from "@remit/data-ports/errors";
 import type {
 	CreateOutboxMessageInput,
 	OutboxMessageResponse,

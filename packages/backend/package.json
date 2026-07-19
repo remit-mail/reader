@@ -2,7 +2,7 @@
 	"name": "@remit/backend",
 	"version": "1.0.0",
 	"description": "Remit Mail Inspector API backend",
-	"license": "UNLICENSED",
+	"license": "MIT",
 	"author": "",
 	"type": "module",
 	"main": "src/index.ts",
@@ -70,5 +70,13 @@
 	"dependencies": {
 		"jose": "^6.2.3",
 		"mailparser": "^3.9.14"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/remit-mail/remit.git",
+		"directory": "packages/backend"
 	}
 }

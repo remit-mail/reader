@@ -1,6 +1,5 @@
 import { SendMessageCommand } from "@aws-sdk/client-sqs";
-import type { IAccountRepository } from "@remit/data-ports";
-import type { AccountItem } from "@remit/remit-electrodb-service";
+import type { AccountItem, IAccountRepository } from "@remit/data-ports";
 import { AccountAuthType, ConnectionState } from "@remit/domain-enums";
 import { logger } from "@remit/logger-lambda";
 import {

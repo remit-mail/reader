@@ -3,10 +3,6 @@ import type {
 	OrganizeJobRequestItem,
 } from "@remit/data-ports";
 import {
-	getClient as getRawDynamoClient,
-	MessagePlacementMoveService,
-} from "@remit/remit-electrodb-service";
-import {
 	DEFAULT_SEMANTIC_MATCH_THRESHOLD,
 	type FilterMessage,
 	literalClausesMatch,
@@ -23,7 +19,6 @@ import {
 	buildEmbeddingServiceFromEnv,
 	buildVectorStoreFromEnv,
 } from "@remit/search-service/from-env";
-import { env } from "expect-env";
 import type { RemitClient } from "./dynamodb.js";
 
 /**
@@ -254,18 +249,6 @@ export const buildOrganizeMatchDeps = (
 	listAccountMessageIds: listAccountMessageIdsFromClient(client),
 });
 
-let cachedPlacementMarker: MessagePlacementMoveService | null = null;
-
-const getPlacementMarker = (): MessagePlacementMoveService => {
-	if (!cachedPlacementMarker) {
-		cachedPlacementMarker = new MessagePlacementMoveService({
-			client: getRawDynamoClient(),
-			table: env.DYNAMODB_TABLE_NAME,
-		});
-	}
-	return cachedPlacementMarker;
-};
-
 /**
  * The exclusive-move arm of a back-apply, wired exactly like the body-sync
  * placement mover (`sync-message-body.ts`): the local-first
@@ -285,7 +268,7 @@ export const buildOrganizeMoveService = (
 	return new PlacementMoveService({
 		messageService: client.message,
 		threadMessageService: client.threadMessage,
-		markerService: getPlacementMarker(),
+		markerService: client.placementMove,
 		sqsQueueUrl: queueUrl,
 	});
 };

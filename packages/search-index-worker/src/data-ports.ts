@@ -2,11 +2,6 @@ import type {
 	IAccountRepository,
 	IThreadMessageRepository,
 } from "@remit/data-ports";
-import {
-	AccountService,
-	getClient,
-	ThreadMessageService,
-} from "@remit/remit-electrodb-service";
 // Type-only: erased at build, so it carries no runtime dependency on
 // drizzle-orm. The value import lives inside `buildPostgresDataPorts` as a
 // dynamic `import()` — see the comment there for why.
@@ -30,20 +25,6 @@ export interface SearchIndexDataPorts {
 	 */
 	resolveAccountId?: (messageId: string) => Promise<string | null>;
 }
-
-const buildDynamoDBDataPorts = (): SearchIndexDataPorts => {
-	const tableName = process.env.DYNAMODB_TABLE_NAME;
-	if (!tableName) throw new Error("DYNAMODB_TABLE_NAME is required");
-
-	// getClient targets local DynamoDB in dev/test and default credentials in
-	// prod, so the same worker logic drains the local search-index queue (via the
-	// e2e-processor-shim) and the production SQS event-source mapping.
-	const client = getClient();
-	return {
-		account: new AccountService({ client, table: tableName }),
-		threadMessage: new ThreadMessageService({ client, table: tableName }),
-	};
-};
 
 // `@remit/drizzle-service` and `drizzle-orm/node-postgres` are loaded
 // lazily, inside this function, instead of as static top-level imports. This
@@ -137,15 +118,18 @@ const buildSqliteDataPorts = async (): Promise<SearchIndexDataPorts> => {
  * - `DATA_BACKEND=sqlite` → Drizzle repos over the shared `SQLITE_DB_PATH` file.
  * - otherwise → ElectroDB services over `DYNAMODB_TABLE_NAME` (unchanged from
  *   the pre-convergence worker — this is the production path).
+ *
+ * Each branch loads its composition module through a dynamic `import()`, so the
+ * DynamoDB path — the sole importer of the closed `@remit/remit-electrodb-
+ * service` (`./compose-dynamodb.js`) — is never loaded on the relational
+ * (open-core) tree, where that module is not shipped. esbuild still bundles it
+ * into the Lambda because the specifier is a relative import, not an `external`.
  */
-// `async` (not a plain arrow returning a Promise) so a synchronous throw in
-// `buildDynamoDBDataPorts` (a missing `DYNAMODB_TABLE_NAME`) becomes a
-// rejected promise instead of throwing before any promise exists — callers
-// (including `getServices`) always get a promise to await.
 export const buildDataPortsFromEnv =
 	async (): Promise<SearchIndexDataPorts> => {
 		if (process.env.DATA_BACKEND === "postgres")
 			return buildPostgresDataPorts();
 		if (process.env.DATA_BACKEND === "sqlite") return buildSqliteDataPorts();
+		const { buildDynamoDBDataPorts } = await import("./compose-dynamodb.js");
 		return buildDynamoDBDataPorts();
 	};

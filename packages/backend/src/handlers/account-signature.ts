@@ -6,7 +6,7 @@ import {
 	baseSettingName,
 	composeSettingName,
 	SETTING_NAME_SEPARATOR,
-} from "@remit/remit-electrodb-service";
+} from "@remit/data-ports/account-settings";
 
 export interface AccountSignature {
 	plainText?: string;
