@@ -1,12 +1,40 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
+import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import type { ThreadRowData } from "@remit/ui";
 import {
 	groupBriefSections,
 	matchesBriefSearch,
 	matchesSearchTokens,
+	toThreadRowData,
 } from "./brief.js";
 import type { SearchToken } from "./search-tokens.js";
+
+function threadResponse(
+	overrides: Partial<RemitImapThreadMessageResponse> = {},
+): RemitImapThreadMessageResponse {
+	return {
+		threadId: "t1",
+		threadMessageId: "tm1",
+		messageId: "m1",
+		accountConfigId: "cfg_1",
+		mailboxId: "mb1",
+		fromName: "Sender",
+		fromEmail: "sender@example.com",
+		subject: "Subject",
+		snippet: "Snippet",
+		sentDate: 1767225600,
+		isRead: false,
+		isDeleted: false,
+		hasAttachment: false,
+		hasStars: false,
+		star: "none",
+		senderTrust: "unknown",
+		createdAt: 0,
+		updatedAt: 0,
+		...overrides,
+	};
+}
 
 function row(
 	overrides: Partial<ThreadRowData> & Pick<ThreadRowData, "id">,
@@ -24,6 +52,32 @@ function row(
 		...overrides,
 	};
 }
+
+describe("toThreadRowData", () => {
+	// `star` is a colour, and it defaults to the "none" sentinel — starring a
+	// message only flips `hasStars`. Reading the colour to decide starredness
+	// made every row unstarred and left the Starred mailbox permanently empty.
+	test("a message with hasStars and the default star colour is starred", () => {
+		const row = toThreadRowData(
+			threadResponse({ hasStars: true, star: "none" }),
+		);
+		assert.strictEqual(row.starred, true);
+	});
+
+	test("a message with a star colour is starred", () => {
+		const row = toThreadRowData(
+			threadResponse({ hasStars: true, star: "yellow" }),
+		);
+		assert.strictEqual(row.starred, true);
+	});
+
+	test("a message without hasStars is not starred", () => {
+		const row = toThreadRowData(
+			threadResponse({ hasStars: false, star: "yellow" }),
+		);
+		assert.strictEqual(row.starred, false);
+	});
+});
 
 describe("groupBriefSections", () => {
 	test("returns empty array when no rows", () => {

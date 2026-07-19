@@ -60,10 +60,17 @@ describe("inboxFilterConfig", () => {
 		);
 	});
 
-	it("adds Has attachment to Unread and Flagged", () => {
+	it("adds Has attachment to Unread and Starred", () => {
 		assert.deepEqual(
 			inboxFilterConfig().filters.map((f) => f.id),
 			["unread", "flagged", "attachment"],
+		);
+	});
+
+	it("labels the IMAP \\Flagged filter 'Starred'", () => {
+		assert.deepEqual(
+			inboxFilterConfig().filters.map((f) => f.label),
+			["Unread", "Starred", "Has attachment"],
 		);
 	});
 
