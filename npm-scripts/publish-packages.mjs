@@ -43,6 +43,21 @@ const generated = [
 	{ dir: "build/remit-client", name: "@remit/api-http-client", peerDependencies: { "@tanstack/react-query": "^5.0.0" } },
 	{ dir: "build/drizzle-entities", name: "@remit/drizzle-pg-schema", peerDependencies: {} },
 	{ dir: "build/drizzle-entities-sqlite", name: "@remit/drizzle-sqlite-schema", peerDependencies: {} },
+	// The @typespec/openapi3 emitter writes only openapi.json, no manifest, so
+	// the publish tool synthesizes one. The spec ships as a data package: the
+	// closed platform resolves openapi.json from it instead of a local build tree.
+	{
+		dir: "build/remit-openapi3",
+		name: "@remit/api-openapi-spec",
+		peerDependencies: {},
+		manifest: {
+			name: "@remit/api-openapi-spec",
+			version: "0.0.0",
+			description: "Remit API OpenAPI 3 document, generated from TypeSpec.",
+			exports: { ".": "./openapi.json", "./openapi.json": "./openapi.json" },
+			files: ["openapi.json"],
+		},
+	},
 ];
 
 const run = (cmd, args, opts = {}) =>
@@ -161,6 +176,14 @@ const setVersion = (pkgDir, version) => {
 	writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 };
 
+const synthesizeManifest = ({ dir, manifest }) => {
+	if (!manifest) return;
+	writeFileSync(
+		join(repoRoot, dir, "package.json"),
+		`${JSON.stringify(manifest, null, 2)}\n`,
+	);
+};
+
 const stampGeneratedMetadata = ({ dir, peerDependencies }) => {
 	const manifestPath = join(repoRoot, dir, "package.json");
 	const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
@@ -193,7 +216,10 @@ const summary = [];
 const failures = [];
 
 for (const pkg of packages) {
-	if (pkg.kind !== "workspace") stampGeneratedMetadata(pkg);
+	if (pkg.kind !== "workspace") {
+		synthesizeManifest(pkg);
+		stampGeneratedMetadata(pkg);
+	}
 	const fresh = freshContentHash(pkg.dir);
 	const latest = registryLatest(pkg.name);
 
