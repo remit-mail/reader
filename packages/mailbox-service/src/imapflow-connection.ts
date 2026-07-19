@@ -502,6 +502,61 @@ export class ImapFlowConnection {
 	 */
 	fetchMessages = async (uids: number[]): Promise<ImapMessage[]> => {
 		this.ensureConnected();
+
+		if (uids.length === 0) {
+			return [];
+		}
+
+		return this.runMessageFetch(uids.join(","), {});
+	};
+
+	/**
+	 * True when this session negotiated CONDSTORE (RFC 7162) and the open
+	 * mailbox keeps persistent mod-sequences.
+	 *
+	 * Both halves matter. `enabled` reflects the ENABLE exchange, not merely
+	 * the advertised capability, and a server may still answer NOMODSEQ for an
+	 * individual mailbox — in which case RFC 7162 Section 3.1.2.2 requires it
+	 * to reject CHANGEDSINCE with a BAD response.
+	 */
+	supportsCondstore = (): boolean => {
+		const { client } = this;
+		if (!client?.mailbox) return false;
+		return client.enabled.has("CONDSTORE") && !client.mailbox.noModseq;
+	};
+
+	/**
+	 * FETCH everything in the open mailbox whose MODSEQ is strictly greater
+	 * than `sinceModseq` — new arrivals and metadata changes to messages
+	 * already synced, in one pass over the whole UID space.
+	 *
+	 * The CONDSTORE guard is load-bearing rather than defensive: imapflow drops
+	 * the CHANGEDSINCE modifier when the extension is unavailable, so the same
+	 * call would degrade into a fetch of every message in the mailbox.
+	 */
+	fetchMessagesChangedSince = async (
+		sinceModseq: bigint,
+	): Promise<ImapMessage[]> => {
+		this.ensureConnected();
+
+		if (!this.supportsCondstore()) {
+			throw new Error(
+				"CHANGEDSINCE requires CONDSTORE on both the session and the open mailbox",
+			);
+		}
+
+		return this.runMessageFetch("1:*", { changedSince: sinceModseq });
+	};
+
+	/**
+	 * One UID FETCH over `range`, mapped to {@link ImapMessage}. The shared
+	 * body of {@link fetchMessages} and {@link fetchMessagesChangedSince} —
+	 * both need identical message shapes and differ only in what they select.
+	 */
+	private runMessageFetch = async (
+		range: string,
+		options: { changedSince?: bigint },
+	): Promise<ImapMessage[]> => {
 		const { client } = this;
 
 		if (!client) {
@@ -512,17 +567,10 @@ export class ImapFlowConnection {
 			throw new Error("No mailbox selected");
 		}
 
-		if (uids.length === 0) {
-			return [];
-		}
-
 		const messages: ImapMessage[] = [];
 
-		// ImapFlow fetch with native envelope support + References header
-		const uidRange = uids.join(",");
-
 		const fetchIterator = client.fetch(
-			uidRange,
+			range,
 			{
 				uid: true,
 				flags: true,
@@ -532,14 +580,12 @@ export class ImapFlowConnection {
 				size: true,
 				headers: ["references"],
 			},
-			{ uid: true },
+			{ uid: true, ...options },
 		);
 
 		// Connection may have been lost - fetch returns an async iterable
 		if (!fetchIterator) {
-			throw new Error(
-				`IMAP connection lost while fetching messages: ${uidRange}`,
-			);
+			throw new Error(`IMAP connection lost while fetching messages: ${range}`);
 		}
 
 		for await (const msg of fetchIterator) {
@@ -572,6 +618,7 @@ export class ImapFlowConnection {
 				envelope: this.convertEnvelope(msg.envelope),
 				references,
 				bodyStructure: msg.bodyStructure,
+				...(msg.modseq != null ? { modseq: msg.modseq.toString() } : {}),
 			});
 		}
 

@@ -300,6 +300,7 @@ const syncMailboxMessages = async (
 		threadMessageService,
 		log,
 		unitOfWork,
+		flagPushMarkerService,
 	);
 
 	// Connect once, reuse for the entire sync operation

@@ -3,10 +3,12 @@ import type {
 	IAddressRepository,
 	IEnvelopeRepository,
 	IMailboxRepository,
+	IMessageFlagPushRepository,
 	IMessageRepository,
 	IThreadMessageRepository,
 	IUnitOfWork,
 	MailboxItem,
+	ThreadMessageItem,
 } from "@remit/data-ports";
 import {
 	deriveAddressId,
@@ -20,6 +22,7 @@ import {
 import {
 	AddressRole,
 	MailboxCursorState,
+	MessageSystemFlag,
 	StarColor,
 } from "@remit/domain-enums";
 import pMap from "p-map";
@@ -30,6 +33,11 @@ import {
 	type CursorRebuildSnapshot,
 	matchCursorRebuild,
 } from "./mailbox-cursor-rebuild.js";
+import {
+	advanceModseqWatermark,
+	orderByModseq,
+	parseModseq,
+} from "./message-sync-condstore.js";
 import { ROOT_PART_PATH, walkMimeStructure } from "./mime-walker.js";
 import { PassThroughUnitOfWork } from "./pass-through-unit-of-work.js";
 import { reconcileStaleMessage } from "./stale-message-reconcile.js";
@@ -37,6 +45,7 @@ import type {
 	ImapAddress,
 	ImapBodyStructure,
 	ImapEnvelope,
+	ImapMailboxStatus,
 	ImapMessage,
 } from "./types.js";
 
@@ -143,6 +152,39 @@ export interface SyncMessagesResult {
 	remainingCount: number;
 }
 
+const emptySyncResult = (): SyncMessagesResult => ({
+	syncedCount: 0,
+	syncedMessageIds: [],
+	syncedMessages: [],
+	hasMore: false,
+	remainingCount: 0,
+});
+
+const IMAP_SEEN_FLAG = "\\Seen";
+const IMAP_FLAGGED_FLAG = "\\Flagged";
+
+/**
+ * Pick the UIDs a full-enumeration round should sync, newest first.
+ *
+ * 1. New messages: UIDs above the forward watermark.
+ * 2. Backfill: UIDs below the lowest one synced so far.
+ * 3. A mailbox with no watermarks at all syncs everything.
+ */
+export const selectUidsToSync = (
+	allUids: number[],
+	lastSyncUid: number,
+	highWaterMarkUid: number,
+): number[] => {
+	const newUids = allUids.filter((uid) => uid > highWaterMarkUid);
+	const backfillUids =
+		lastSyncUid > 1 ? allUids.filter((uid) => uid < lastSyncUid) : [];
+
+	const isFreshSync = highWaterMarkUid === 0 && lastSyncUid === 0;
+	const uidsToSync = isFreshSync ? [...allUids] : [...newUids, ...backfillUids];
+
+	return uidsToSync.sort((a, b) => b - a);
+};
+
 export class MessageSyncService {
 	private log: SyncLogger;
 	private unitOfWork: IUnitOfWork;
@@ -156,6 +198,12 @@ export class MessageSyncService {
 		private threadMessageService: IThreadMessageRepository,
 		logger?: SyncLogger,
 		unitOfWork?: IUnitOfWork,
+		/**
+		 * Pending outbound flag-push markers (#1273). Supplied, an inbound
+		 * metadata change never overwrites a local flip that IMAP has not been
+		 * told about yet; omitted, the server always wins.
+		 */
+		private flagPushMarkerService?: IMessageFlagPushRepository,
 	) {
 		this.log = logger ?? noopLogger;
 		this.unitOfWork =
@@ -204,17 +252,16 @@ export class MessageSyncService {
 		const lastSyncUid = mailbox.lastSyncUid || 0;
 		const highWaterMarkUid = mailbox.highWaterMarkUid || 0;
 
-		const { box, unseenCount, deletedCount, uids } = await this.fetchUidsToSync(
-			mailboxPath,
-			lastSyncUid,
-			highWaterMarkUid,
-		);
+		const connection = this.connectionFactory.getConnection();
+		const box = await connection.openBox(mailboxPath);
+		const status = await connection.getMailboxStatus(mailboxPath);
 
 		// Detection: the served UIDVALIDITY may have changed since it was last
 		// stored, even though this mailbox was `normal` a moment ago. Trip the
-		// cursor and pause — the watermarks just used to filter `uids` may
-		// already be meaningless on the new axis, so nothing below may be acted
-		// on this round (epic #1281 invariants 3 and 5).
+		// cursor and pause — every stored watermark, the mod-sequence included,
+		// is meaningless on the new axis, so nothing below may be acted on this
+		// round (epic #1281 invariants 3 and 5). The rebuild that follows is
+		// where the mod-sequence is reseeded from the new axis.
 		const cursorCheck = await guardMailboxCursor(
 			{ mailboxService: this.mailboxService },
 			accountId,
@@ -226,21 +273,37 @@ export class MessageSyncService {
 				{ mailboxId, mailboxPath, cursorState: cursorCheck.state },
 				"UIDVALIDITY changed; mailbox cursor tripped, pausing outbound sync this round",
 			);
-			return {
-				syncedCount: 0,
-				syncedMessageIds: [],
-				syncedMessages: [],
-				hasMore: false,
-				remainingCount: 0,
-			};
+			return emptySyncResult();
 		}
 
+		const storedModseq = parseModseq(mailbox.highestModseq);
+		if (storedModseq > 0n && connection.supportsCondstore()) {
+			return this.syncChangedSince({
+				mailbox,
+				accountId,
+				accountConfigId,
+				storedModseq,
+				box,
+				status,
+				batchSize,
+			});
+		}
+
+		const allUids = await connection.search(["ALL"]);
+		const uids = selectUidsToSync(allUids, lastSyncUid, highWaterMarkUid);
+		const unseenCount = status.unseen;
+		const deletedCount = status.deletedCount;
+
 		if (uids.length === 0) {
-			// Still update counts even if no new messages to sync
+			// Nothing left to enumerate: the folder is fully covered on this
+			// UIDVALIDITY axis, which is the one moment a mod-sequence watermark
+			// can be seeded without hiding unsynced history behind it. From the
+			// next round on, this mailbox takes the CHANGEDSINCE path above.
 			await this.mailboxService.update(accountId, mailboxId, {
 				lastMessageSyncAt: Date.now(),
 				uidValidity: box.uidvalidity,
-				messageCount: box.messageCount,
+				messageCount: status.messages,
+				highestModseq: status.highestModseq,
 				unseenCount,
 				deletedCount,
 			});
@@ -250,18 +313,13 @@ export class MessageSyncService {
 					mailboxId,
 					mailboxPath,
 					total: 0,
-					messageCount: box.messageCount,
+					messageCount: status.messages,
 					unseenCount,
+					highestModseq: status.highestModseq,
 				},
 				"No new messages to sync",
 			);
-			return {
-				syncedCount: 0,
-				syncedMessageIds: [],
-				syncedMessages: [],
-				hasMore: false,
-				remainingCount: 0,
-			};
+			return emptySyncResult();
 		}
 
 		const totalBatches = Math.ceil(uids.length / batchSize);
@@ -312,7 +370,7 @@ export class MessageSyncService {
 		}
 
 		// Watermarks advance over every SUCCESSFULLY-consumed UID in the batch,
-		// independent of ownership. `fetchUidsToSync` reselects work purely by UID
+		// independent of ownership. `selectUidsToSync` reselects work purely by UID
 		// vs watermark (there is no per-UID processed set), so a foreign-owned UID
 		// that did not advance the watermark would be re-fetched every cycle
 		// forever. The same Message-ID legitimately appears in several of one
@@ -353,18 +411,26 @@ export class MessageSyncService {
 				? backfillMin
 				: lastSyncUid;
 
+		const remainingCount = uids.length - batchUids.length;
+		const hasMore = remainingCount > 0;
+
+		// The mod-sequence watermark is seeded only by a round that leaves no
+		// enumeration work behind and lost no message to a failed save. Seeding
+		// it earlier would switch the mailbox to CHANGEDSINCE while UIDs it has
+		// never fetched still sit below the watermark, and those messages would
+		// never be discovered.
+		const enumerationComplete = !hasMore && failedUids.size === 0;
+
 		await this.mailboxService.update(accountId, mailboxId, {
 			lastSyncUid: newLastSyncUid,
 			highWaterMarkUid: newHighWaterMark,
 			lastMessageSyncAt: Date.now(),
 			uidValidity: box.uidvalidity,
-			messageCount: box.messageCount,
+			messageCount: status.messages,
+			...(enumerationComplete ? { highestModseq: status.highestModseq } : {}),
 			unseenCount,
 			deletedCount,
 		});
-
-		const remainingCount = uids.length - batchUids.length;
-		const hasMore = remainingCount > 0;
 
 		this.log.info(
 			{
@@ -610,54 +676,251 @@ export class MessageSyncService {
 	}
 
 	/**
-	 * Fetch UIDs to sync using dual-watermark strategy.
+	 * One CHANGEDSINCE round (issue #20).
 	 *
-	 * Returns UIDs sorted descending (newest first):
-	 * 1. New messages: UIDs > highWaterMarkUid
-	 * 2. Backfill: UIDs < lastSyncUid (if lastSyncUid > 1)
+	 * A single `FETCH ... (CHANGEDSINCE <modseq>)` over the whole UID space
+	 * returns both the messages that arrived and the messages whose metadata
+	 * changed since the stored watermark, so a flag flipped on another client
+	 * is picked up without enumerating the folder. Rows already present take
+	 * the metadata path — the envelope, body structure and addresses are
+	 * immutable, so re-writing them for a read-state change would be pure
+	 * waste; everything else is a new message and takes the normal save
+	 * pipeline.
+	 *
+	 * Expunges are invisible here (CONDSTORE without QRESYNC never reports
+	 * them, RFC 7162 Section 3.1.2.1) — they remain the reconcile path's job.
 	 */
-	private async fetchUidsToSync(
-		mailboxPath: string,
-		lastSyncUid: number,
-		highWaterMarkUid: number,
-	): Promise<{
-		box: { uidvalidity: number; uidnext: number; messageCount: number };
-		unseenCount: number;
-		deletedCount: number;
-		uids: number[];
-	}> {
+	private async syncChangedSince(params: {
+		mailbox: MailboxItem;
+		accountId: string;
+		accountConfigId: string;
+		storedModseq: bigint;
+		box: { uidvalidity: number };
+		status: ImapMailboxStatus;
+		batchSize: number;
+	}): Promise<SyncMessagesResult> {
+		const {
+			mailbox,
+			accountId,
+			accountConfigId,
+			storedModseq,
+			box,
+			status,
+			batchSize,
+		} = params;
+		const mailboxId = mailbox.mailboxId;
+		const mailboxPath = mailbox.fullPath;
+
 		const connection = this.connectionFactory.getConnection();
-		const box = await connection.openBox(mailboxPath);
+		const changed = await connection.fetchMessagesChangedSince(storedModseq);
 
-		// Get mailbox status including unseen count
-		const status = await connection.getMailboxStatus(mailboxPath);
+		const ordered = orderByModseq(changed);
+		const batch = ordered.slice(0, batchSize);
 
-		const allUids = await connection.search(["ALL"]);
+		const outcomes = await pMap(
+			batch,
+			(msg) => this.tryApplyChange(mailboxId, accountId, accountConfigId, msg),
+			{ concurrency: MESSAGE_SAVE_CONCURRENCY },
+		);
 
-		// New messages: UIDs greater than what we've seen
-		const newUids = allUids.filter((uid) => uid > highWaterMarkUid);
+		const failedUids = new Set(
+			outcomes.flatMap((o) => (o.kind === "failed" ? [o.uid] : [])),
+		);
+		if (failedUids.size > 0) {
+			this.log.warn(
+				{ mailboxId, mailboxPath, failedUids: [...failedUids] },
+				"Some changes failed to apply; holding the mod-sequence watermark below them for retry",
+			);
+		}
 
-		// Backfill: UIDs below our lowest synced point (if sync started)
-		const backfillUids =
-			lastSyncUid > 1 ? allUids.filter((uid) => uid < lastSyncUid) : [];
+		// Body sync only concerns messages this round created — a metadata
+		// change has no new body to fetch.
+		const syncedMessages: SyncedMessage[] = outcomes.flatMap((o) =>
+			o.kind === "saved" && o.result !== null && o.result.owned
+				? [{ messageId: o.result.messageId, uid: o.result.uid }]
+				: [],
+		);
+		const syncedMessageIds = syncedMessages.map((m) => m.messageId);
 
-		// Fresh sync: if no watermarks, sync everything
-		const isFreshSync = highWaterMarkUid === 0 && lastSyncUid === 0;
-		const uidsToSync = isFreshSync ? allUids : [...newUids, ...backfillUids];
+		const { highestModseq, hasMore } = advanceModseqWatermark({
+			storedModseq,
+			serverModseq: parseModseq(status.highestModseq),
+			ordered,
+			batch,
+			failedUids,
+		});
 
-		// Sort descending (newest first)
-		uidsToSync.sort((a, b) => b - a);
+		const appliedUids = batch
+			.filter((msg) => !failedUids.has(msg.uid))
+			.map((msg) => msg.uid);
+		const newHighWaterMark = Math.max(
+			mailbox.highWaterMarkUid || 0,
+			...appliedUids,
+			0,
+		);
 
-		return {
-			box: {
-				uidvalidity: box.uidvalidity,
-				uidnext: box.uidnext,
-				messageCount: status.messages,
-			},
+		await this.mailboxService.update(accountId, mailboxId, {
+			highestModseq,
+			highWaterMarkUid: newHighWaterMark,
+			lastMessageSyncAt: Date.now(),
+			uidValidity: box.uidvalidity,
+			messageCount: status.messages,
 			unseenCount: status.unseen,
 			deletedCount: status.deletedCount,
-			uids: uidsToSync,
+		});
+
+		this.log.info(
+			{
+				mailboxId,
+				mailboxPath,
+				changed: ordered.length,
+				applied: batch.length,
+				created: syncedMessageIds.length,
+				sinceModseq: storedModseq.toString(),
+				highestModseq,
+				hasMore,
+			},
+			"CHANGEDSINCE round complete",
+		);
+
+		return {
+			syncedCount: syncedMessageIds.length,
+			syncedMessageIds,
+			syncedMessages,
+			hasMore,
+			remainingCount: ordered.length - batch.length,
 		};
+	}
+
+	/**
+	 * Apply one message from a CHANGEDSINCE result without ever rejecting —
+	 * same contract as {@link trySaveMessage}, so a single unapplicable change
+	 * holds the watermark back instead of failing the round.
+	 */
+	private async tryApplyChange(
+		mailboxId: string,
+		accountId: string,
+		accountConfigId: string,
+		msg: ImapMessage,
+	): Promise<BatchOutcome> {
+		return this.applyChange(mailboxId, accountId, accountConfigId, msg)
+			.then((result): BatchOutcome => ({ kind: "saved", uid: msg.uid, result }))
+			.catch((error): BatchOutcome => {
+				this.log.warn(
+					{
+						mailboxId,
+						uid: msg.uid,
+						messageId: msg.envelope?.messageId,
+						error: error instanceof Error ? error.message : String(error),
+					},
+					"Failed to apply message change; will retry on next sync",
+				);
+				return { kind: "failed", uid: msg.uid };
+			});
+	}
+
+	private async applyChange(
+		mailboxId: string,
+		accountId: string,
+		accountConfigId: string,
+		msg: ImapMessage,
+	): Promise<SaveMessageResult | null> {
+		if (!msg.envelope) return null;
+
+		const messageId = deriveMessageIdFromSource(accountId, {
+			messageId: msg.envelope.messageId,
+			uid: msg.uid,
+			mailboxId,
+			date: msg.envelope.date,
+			subject: msg.envelope.subject,
+			fromMailbox: msg.envelope.from?.[0]?.mailbox,
+			fromHost: msg.envelope.from?.[0]?.host,
+		});
+
+		const existing = await this.threadMessageService.findByMessageId(
+			accountConfigId,
+			messageId,
+		);
+		if (!existing) {
+			return this.saveMessage(mailboxId, accountId, accountConfigId, msg);
+		}
+
+		await this.applyServerFlags(existing, msg.flags);
+		return null;
+	}
+
+	/**
+	 * Bring a stored row's read and star state in line with the server's
+	 * flags.
+	 *
+	 * A field with a pending outbound push is left alone: the user flipped it
+	 * locally, IMAP has not been told yet, and the server's answer is
+	 * therefore known-stale for that field. Writing it back would revert the
+	 * flip in front of the user and then push the reverted value.
+	 */
+	private async applyServerFlags(
+		existing: ThreadMessageItem,
+		flags: string[],
+	): Promise<void> {
+		const isRead = flags.includes(IMAP_SEEN_FLAG);
+		const hasStars = flags.includes(IMAP_FLAGGED_FLAG);
+
+		const updates: { isRead?: boolean; hasStars?: boolean } = {};
+		if (
+			existing.isRead !== isRead &&
+			!(await this.hasPendingPush(existing.messageId, MessageSystemFlag.Seen))
+		) {
+			updates.isRead = isRead;
+		}
+		if (
+			existing.hasStars !== hasStars &&
+			!(await this.hasPendingPush(
+				existing.messageId,
+				MessageSystemFlag.Flagged,
+			))
+		) {
+			updates.hasStars = hasStars;
+		}
+
+		if (Object.keys(updates).length === 0) return;
+
+		await this.threadMessageService.update(
+			existing.accountConfigId,
+			existing.threadMessageId,
+			updates,
+			{
+				// The CURRENT values of every sort-key attribute: ElectroDB uses
+				// them for the conditional check on the existing row and to
+				// recompute the new keys. Passing the new value here would fail
+				// that check and silently drop the update (see FlagQueueService).
+				composites: {
+					sentDate: existing.sentDate,
+					mailboxId: existing.mailboxId,
+					isRead: existing.isRead,
+					isDeleted: existing.isDeleted,
+					hasStars: existing.hasStars,
+					hasAttachment: existing.hasAttachment,
+				},
+			},
+		);
+
+		this.log.info(
+			{
+				messageId: existing.messageId,
+				threadMessageId: existing.threadMessageId,
+				...updates,
+			},
+			"Applied server flag state from CHANGEDSINCE",
+		);
+	}
+
+	private async hasPendingPush(
+		messageId: string,
+		flagName: string,
+	): Promise<boolean> {
+		if (!this.flagPushMarkerService) return false;
+		const marker = await this.flagPushMarkerService.find(messageId, flagName);
+		return marker !== null;
 	}
 
 	/**
