@@ -72,16 +72,14 @@ build
 packages/web-client/src/routeTree.gen.ts
 test-results/
 playwright-report/
-.e2e-account-id
 
 # TypeScript build info files
 **/*.tsbuildinfo
 
-# Visual regression baselines live on the `visual-baselines` orphan
-# branch. The cache and the symlink it backs are gitignored so they
-# never end up on `main`.
-.visual-baselines/
-packages/web-client/visual-regression/__screenshots__
+# Black-box e2e suite: the generated stack .env, the run state global setup
+# writes, and Playwright's own output.
+deploy/vps/.env
+e2e/.state/
 
 # Generated APISIX route table (from OpenAPI)
 apisix/apisix.yaml

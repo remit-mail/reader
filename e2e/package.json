@@ -1,0 +1,11 @@
+{
+	"name": "@remit/e2e",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"description": "Black-box end-to-end suite for the published self-host stack.",
+	"devDependencies": {
+		"@playwright/test": "1.58.2",
+		"imapflow": "^1.3.3"
+	}
+}

@@ -30,7 +30,12 @@
     "test:closure-guard": "node --test npm-scripts/lib/publish-closure.test.mjs",
     "bootstrap:publish-metadata": "node npm-scripts/set-publish-metadata.mjs",
     "images:publish": "bash npm-scripts/images-publish.sh",
-    "test:ci": "node npm-scripts/test-parallel.mjs"
+    "test:ci": "node npm-scripts/test-parallel.mjs",
+    "e2e": "npm run e2e:up && npm run e2e:test; status=$?; npm run e2e:down; exit $status",
+    "e2e:up": "bash npm-scripts/e2e-up.sh",
+    "e2e:test": "bash npm-scripts/e2e-test.sh",
+    "e2e:logs": "bash npm-scripts/e2e-logs.sh",
+    "e2e:down": "bash npm-scripts/e2e-down.sh"
   },
   "dependencies": {
     "@remit/api-http-client": "file:build/remit-client",
