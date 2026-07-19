@@ -25,6 +25,11 @@ export interface Thread {
 	subject?: string;
 	fromEmail?: string;
 	isRead?: boolean;
+	/**
+	 * Header-derived category. `uncategorized` until the message is
+	 * body-classified, and never absent — the contract is total.
+	 */
+	category?: string;
 }
 
 export interface ThreadMessage {

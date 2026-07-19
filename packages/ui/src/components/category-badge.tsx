@@ -1,6 +1,7 @@
 import { cn } from "../lib/cn.js";
 
 export type MessageCategory =
+	| "uncategorized"
 	| "personal"
 	| "newsletter"
 	| "marketing"
@@ -15,8 +16,14 @@ export type MessageCategory =
  * so it has no entry here. `transactional` shows as "receipt" and `automated`
  * shows as "notification" — wording chosen so the badge reads naturally next
  * to a subject line.
+ *
+ * `uncategorized` does render a badge. It used to be displayed as `personal`,
+ * which made "the classifier never ran on this message" indistinguishable from
+ * "the classifier decided this is a person writing to you" — a classification
+ * gap presented as a full personal inbox (issue #45).
  */
 const CATEGORY_LABELS: Record<Exclude<MessageCategory, "personal">, string> = {
+	uncategorized: "unclassified",
 	newsletter: "newsletter",
 	marketing: "marketing",
 	automated: "notification",

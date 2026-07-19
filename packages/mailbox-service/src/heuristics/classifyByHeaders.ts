@@ -6,6 +6,7 @@ import type {
 	ParsedMail,
 	StructuredHeader,
 } from "mailparser";
+import { hasMachineHeader, isMachineLocalPart } from "./machineSenders.js";
 import { SOCIAL_DOMAINS } from "./socialDomains.js";
 import { TRANSACTIONAL_DOMAINS } from "./transactionalDomains.js";
 
@@ -46,24 +47,32 @@ export interface MessageAuthenticity {
  * Header-only classification. Pure function. First match wins. Falls through
  * to `personal` so misclassification stays in the safest bucket.
  *
- * Rule order matches the EDD heuristic table:
+ * Rules are ordered most-specific-signal first. Two properties drive the
+ * order, and both were violated by the original table (issue #45):
  *
- * 1. `Auto-Submitted: auto-generated|auto-replied` → `automated`
- * 2. `Precedence: bulk|list|junk` → `automated`
- * 3. `Content-Type: text/calendar` part anywhere → `transactional`
- * 4. From-domain in TRANSACTIONAL_DOMAINS → `transactional`
- * 5. `List-Unsubscribe` AND `List-Id` → `newsletter`
- * 6. `List-Unsubscribe` only → `marketing`
- * 7. DKIM `d=` differs from From domain → `automated`
- * 8. From-domain in SOCIAL_DOMAINS → `social`
- * 9. fallback → `personal`
+ * - A signal that identifies WHO sent the mail (calendar part, allow-listed
+ *   domain) outranks a signal that only says the mail was sent in bulk.
+ * - `Precedence` and `Auto-Submitted` say "a machine sent this", which is true
+ *   of nearly every newsletter, marketing blast, and platform notification.
+ *   Ranking them first collapsed `newsletter`, `marketing`, `social` and
+ *   `transactional` into `automated`, leaving those buckets empty.
+ *
+ * 1. `Content-Type: text/calendar` part anywhere → `transactional`
+ * 2. From-domain in TRANSACTIONAL_DOMAINS → `transactional`
+ * 3. From-domain in SOCIAL_DOMAINS → `social`
+ * 4. `List-Unsubscribe` AND `List-Id` → `newsletter`
+ * 5. `List-Unsubscribe` only → `marketing`
+ * 6. `Auto-Submitted: auto-generated|auto-replied` → `automated`
+ * 7. `Precedence: bulk|list|junk` → `automated`
+ * 8. Machine sender (no-reply local-part, `Feedback-ID`,
+ *    `X-Auto-Response-Suppress`) → `automated`
+ * 9. DKIM `d=` differs from From domain → `automated`
+ * 10. fallback → `personal`
  */
 export const classifyByHeaders = (parsed: ParsedMail): Category => {
 	const headers = parsed.headers;
 	const lines = parsed.headerLines;
 
-	if (matchesAutoSubmitted(headers)) return MessageCategory.automated;
-	if (matchesPrecedence(headers)) return MessageCategory.automated;
 	if (hasCalendarPart(parsed.attachments)) return MessageCategory.transactional;
 
 	const fromDomain = getFromDomain(parsed);
@@ -72,18 +81,22 @@ export const classifyByHeaders = (parsed: ParsedMail): Category => {
 		return MessageCategory.transactional;
 	}
 
+	if (fromDomain && domainMatches(fromDomain, SOCIAL_DOMAINS)) {
+		return MessageCategory.social;
+	}
+
 	const hasListUnsubscribe = hasHeaderLine(lines, "list-unsubscribe");
 	const hasListId = hasHeaderLine(lines, "list-id");
 
 	if (hasListUnsubscribe && hasListId) return MessageCategory.newsletter;
 	if (hasListUnsubscribe) return MessageCategory.marketing;
 
+	if (matchesAutoSubmitted(headers)) return MessageCategory.automated;
+	if (matchesPrecedence(headers)) return MessageCategory.automated;
+	if (isMachineSender(parsed, lines)) return MessageCategory.automated;
+
 	if (fromDomain && dkimMismatchResult(headers, lines, fromDomain).mismatch) {
 		return MessageCategory.automated;
-	}
-
-	if (fromDomain && domainMatches(fromDomain, SOCIAL_DOMAINS)) {
-		return MessageCategory.social;
 	}
 
 	return MessageCategory.personal;
@@ -240,6 +253,26 @@ const hasCalendarPart = (attachments: Attachment[] | undefined): boolean => {
 		}
 	}
 	return false;
+};
+
+/**
+ * Whether the sender is a machine that does not read replies — a no-reply
+ * local-part, or a header only bulk/notification infrastructure sets. This is
+ * what routes platform notifications (npm, CI, password resets) to `automated`
+ * instead of the `personal` fallback; they carry no list or bulk headers.
+ */
+const isMachineSender = (parsed: ParsedMail, lines: HeaderLines): boolean => {
+	if (hasMachineHeader(lines.map((line) => line.key))) return true;
+	const localPart = getFromLocalPart(parsed);
+	return localPart !== null && isMachineLocalPart(localPart);
+};
+
+const getFromLocalPart = (parsed: ParsedMail): string | null => {
+	const address = parsed.from?.value?.[0]?.address;
+	if (!address) return null;
+	const at = address.lastIndexOf("@");
+	if (at <= 0) return null;
+	return address.slice(0, at);
 };
 
 const getFromDomain = (parsed: ParsedMail): string | null => {

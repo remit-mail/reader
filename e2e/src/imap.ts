@@ -20,6 +20,13 @@ export interface Message {
 	inReplyTo?: string;
 	/** The reply chain, root first, as RFC 5322 References. */
 	references?: string[];
+	/**
+	 * Extra header lines, in order, written verbatim above the body. This is how
+	 * a spec reproduces the mail a real bulk sender emits — `List-Unsubscribe`,
+	 * `List-ID`, `Precedence`, `DKIM-Signature` — which is what the classifier
+	 * reads and what a synthetic one-header fixture cannot express.
+	 */
+	headers?: Record<string, string>;
 }
 
 const rfc5322 = (message: Message, recipient: string): string => {
@@ -29,6 +36,9 @@ const rfc5322 = (message: Message, recipient: string): string => {
 	const messageId =
 		message.messageIdHeader ??
 		`<${Math.random().toString(36).slice(2)}@remit.test>`;
+	const extra = Object.entries(message.headers ?? {}).map(
+		([name, value]) => `${name}: ${value}`,
+	);
 	return [
 		`From: ${from}`,
 		`To: ${to}`,
@@ -39,6 +49,7 @@ const rfc5322 = (message: Message, recipient: string): string => {
 		...(message.references?.length
 			? [`References: ${message.references.join(" ")}`]
 			: []),
+		...extra,
 		"MIME-Version: 1.0",
 		'Content-Type: text/plain; charset="utf-8"',
 		"",

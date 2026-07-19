@@ -37,6 +37,11 @@ export interface RunState {
 	imapUser: string;
 	seededSubjects: string[];
 	conversation: SeededConversation;
+	/** Subject → the category the classifier must assign it (issue #45). */
+	classificationExpectations: Array<{
+		subject: string;
+		expectedCategory: string;
+	}>;
 }
 
 export const writeRunState = (state: RunState): void => {

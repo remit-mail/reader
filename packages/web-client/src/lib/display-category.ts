@@ -5,16 +5,18 @@ import type { ThreadCategory } from "@remit/ui";
  * Map an API message category to a kit display category.
  *
  * The API category is total (RFC 032 Tier 2) and carries `uncategorized` for
- * messages that are metadata-synced but not yet body-classified. The kit's
- * display unions (`ThreadCategory`, `EmailRenderCategory`, badge `MessageCategory`)
- * have no `uncategorized` member — there is nothing to show for "not yet
- * classified", so it collapses to `personal`, the classifier's own fallback and
- * the display default that never renders a badge. Pre-migration rows that still
- * read `undefined` collapse the same way.
+ * messages that are metadata-synced but not yet body-classified. That state is
+ * shown as itself, not collapsed into `personal`: collapsing made an
+ * unclassified message identical on screen to one the classifier positively
+ * decided was personal, so a classification gap read as a large personal inbox
+ * rather than as missing work (issue #45).
+ *
+ * Pre-migration rows that read `undefined` carry no category either, so they
+ * map to `uncategorized` the same way.
  */
 export function toDisplayCategory(
 	category: RemitImapMessageCategory | undefined,
 ): ThreadCategory {
-	if (category === undefined || category === "uncategorized") return "personal";
+	if (category === undefined) return "uncategorized";
 	return category;
 }

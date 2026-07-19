@@ -22,6 +22,7 @@
  * in fresh checkouts).
  */
 export type EmailRenderCategory =
+	| "uncategorized"
 	| "personal"
 	| "newsletter"
 	| "marketing"

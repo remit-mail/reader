@@ -256,7 +256,7 @@ describe("classifyByHeaders", () => {
 		assert.equal(classifyByHeaders(parsed), MessageCategory.transactional);
 	});
 
-	it("Auto-Submitted wins over List-Unsubscribe", async () => {
+	it("List-Unsubscribe wins over Auto-Submitted", async () => {
 		const parsed = await parse([
 			"From: alice@example.com",
 			"To: bob@example.com",
@@ -266,7 +266,7 @@ describe("classifyByHeaders", () => {
 			"",
 			"body",
 		]);
-		assert.equal(classifyByHeaders(parsed), MessageCategory.automated);
+		assert.equal(classifyByHeaders(parsed), MessageCategory.marketing);
 	});
 });
 
