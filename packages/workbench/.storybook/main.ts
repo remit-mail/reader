@@ -3,7 +3,7 @@ import type { StorybookConfig } from "@storybook/react-vite";
 const config: StorybookConfig = {
 	// Glob remit-ui's co-located stories plus the workbench flow stories.
 	stories: [
-		"../../remit-ui/src/**/*.stories.@(ts|tsx)",
+		"../../ui/src/**/*.stories.@(ts|tsx)",
 		"../src/**/*.stories.@(ts|tsx)",
 	],
 	addons: [],
@@ -26,10 +26,10 @@ const config: StorybookConfig = {
 		config.resolve.alias = {
 			...(config.resolve.alias ?? {}),
 			"@remit/ui/tokens.css": fileURLToPath(
-				new URL("../../remit-ui/src/tokens.css", import.meta.url),
+				new URL("../../ui/src/tokens.css", import.meta.url),
 			),
 			"@remit/ui": fileURLToPath(
-				new URL("../../remit-ui/src/index.ts", import.meta.url),
+				new URL("../../ui/src/index.ts", import.meta.url),
 			),
 		};
 		return config;

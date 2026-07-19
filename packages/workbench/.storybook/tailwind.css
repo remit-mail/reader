@@ -8,10 +8,10 @@
 
 /* Tailwind v4 content scanning: point at the source it must inspect for
    utility class usage (auto-detection misses linked workspace packages). */
-@source "../../remit-ui/src/**/*.{ts,tsx}";
+@source "../../ui/src/**/*.{ts,tsx}";
 @source "../src/**/*.{ts,tsx}";
 
 /* The auth page frame (radial bg, centring, card max-width) lives in the
    remit-ui <AuthCard> component. Amplify structural overrides below are
    unlayered, scoped to [data-auth-page]. */
-@import "../../remit-web-client/src/auth/auth.css";
+@import "../../web-client/src/auth/auth.css";
