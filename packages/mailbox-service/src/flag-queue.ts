@@ -452,38 +452,41 @@ export class FlagQueueService {
 			}
 		}
 
-		// Handle isStarred -> \Flagged flag and ThreadMessage.hasStars/star
+		// `hasStars` is the boolean of record (the byStarred index sort key) and
+		// the server-side \Flagged keyword; `star` is its presentation colour,
+		// whose absent state is the None sentinel. The two must never disagree,
+		// whichever field the caller sent:
+		//
+		//   isStarred alone  → colour follows the boolean (standard colour on,
+		//                      None off)
+		//   starColor alone  → boolean follows the colour, so `none` unstars and
+		//                      any real colour stars
+		//   both             → isStarred decides the boolean, starColor the colour
+		//
+		// The \Flagged push follows the resulting boolean in every case, so a
+		// colour-only request still reaches the server. `flipFlag` no-ops when the
+		// flag already holds the desired state.
 		if (input.isStarred !== undefined || input.starColor !== undefined) {
-			if (input.isStarred !== undefined) {
-				await this.flipFlag(
-					accountId,
-					accountConfigId,
-					messageId,
-					message.mailboxId,
-					MessageSystemFlag.Flagged,
-					input.isStarred ? "add" : "remove",
-				);
-			}
+			const starred =
+				input.isStarred ??
+				(input.starColor ?? StarColor.None) !== StarColor.None;
+			const color =
+				input.starColor ?? (starred ? StarColor.Yellow : StarColor.None);
 
-			// Update ThreadMessage hasStars and star color for ALL instances
-			// `hasStars` is the boolean of record (the byStarred index sort key);
-			// `star` is its presentation colour. A caller toggling the star without
-			// picking a colour must not leave the two disagreeing, so the colour
-			// follows the boolean: the standard colour on star, the None sentinel
-			// on unstar.
-			const starUpdates: { hasStars?: boolean; star?: StarColorValue } = {};
-			if (input.isStarred !== undefined) {
-				starUpdates.hasStars = input.isStarred;
-				starUpdates.star = input.isStarred ? StarColor.Yellow : StarColor.None;
-			}
-			if (input.starColor !== undefined) {
-				starUpdates.star = input.starColor;
-			}
-			await this.updateThreadMessageStars(
+			await this.flipFlag(
+				accountId,
 				accountConfigId,
 				messageId,
-				starUpdates,
+				message.mailboxId,
+				MessageSystemFlag.Flagged,
+				starred ? "add" : "remove",
 			);
+
+			// Update ThreadMessage hasStars and star color for ALL instances
+			await this.updateThreadMessageStars(accountConfigId, messageId, {
+				hasStars: starred,
+				star: color,
+			});
 		}
 
 		// Return current state

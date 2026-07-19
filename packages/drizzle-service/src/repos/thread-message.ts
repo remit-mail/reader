@@ -43,6 +43,9 @@ export const deriveThreadMessageId = (
 
 export const THREAD_SEARCH_MAX_LIMIT = 500;
 
+/** Page size used when a list caller supplies no explicit limit. */
+const DEFAULT_LIST_LIMIT = 100;
+
 export const clampThreadSearchLimit = (limit?: number): number => {
 	if (limit === undefined || !Number.isFinite(limit)) {
 		return THREAD_SEARCH_MAX_LIMIT;
@@ -504,27 +507,12 @@ export class DrizzleThreadMessageRepository
 		},
 	): Promise<ResultList<ThreadMessageItem>> {
 		const order = options?.order ?? "desc";
+		// Default before the has-more check, or an absent limit silently truncates
+		// at the implicit cap with no continuation token.
+		const limit = options?.limit ?? DEFAULT_LIST_LIMIT;
 		const cursor = options?.continuationToken
 			? decodeDateCursor(options.continuationToken)
 			: null;
-
-		const cursorCond = cursor
-			? order === "desc"
-				? or(
-						lt(threadMessageTable.sentDate, cursor.s),
-						and(
-							eq(threadMessageTable.sentDate, cursor.s),
-							gt(threadMessageTable.threadMessageId, cursor.id),
-						),
-					)
-				: or(
-						gt(threadMessageTable.sentDate, cursor.s),
-						and(
-							eq(threadMessageTable.sentDate, cursor.s),
-							gt(threadMessageTable.threadMessageId, cursor.id),
-						),
-					)
-			: undefined;
 
 		const mailboxCond = options?.mailboxIds?.size
 			? inArray(threadMessageTable.mailboxId, [...options.mailboxIds])
@@ -541,7 +529,7 @@ export class DrizzleThreadMessageRepository
 					options?.excludeDeleted
 						? eq(threadMessageTable.isDeleted, false)
 						: undefined,
-					cursorCond,
+					sentDateCursorCond(order, cursor),
 				),
 			)
 			.orderBy(
@@ -550,11 +538,10 @@ export class DrizzleThreadMessageRepository
 					: asc(threadMessageTable.sentDate),
 				asc(threadMessageTable.threadMessageId),
 			)
-			.limit(options?.limit ?? 100);
+			.limit(limit);
 
 		const lastRow = rows[rows.length - 1];
-		const hasMore =
-			options?.limit !== undefined && rows.length === options.limit;
+		const hasMore = rows.length === limit;
 		return {
 			items: rows.map(toItem),
 			continuationToken:

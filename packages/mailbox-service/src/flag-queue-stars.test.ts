@@ -8,6 +8,7 @@ import type {
 	ThreadMessageItem,
 	UpdateThreadMessageInput,
 } from "@remit/data-ports";
+import { MessageSystemFlag } from "@remit/domain-enums";
 import type { FlagPushService } from "./flag-push.js";
 import { FlagQueueService } from "./flag-queue.js";
 
@@ -33,18 +34,25 @@ const threadMessage = {
 	hasAttachment: false,
 } as unknown as ThreadMessageItem;
 
-const buildService = (): {
+const buildService = ({
+	alreadyFlagged = false,
+}: {
+	alreadyFlagged?: boolean;
+} = {}): {
 	service: FlagQueueService;
 	updates: UpdateThreadMessageInput[];
+	flips: Array<{ flagName: string; operation: string }>;
 } => {
 	const updates: UpdateThreadMessageInput[] = [];
+	const flips: Array<{ flagName: string; operation: string }> = [];
 
 	const messageService = {
 		get: async () => ({ mailboxId: MAILBOX_ID }) as unknown as MessageItem,
 	} as unknown as IMessageRepository;
 
 	const messageFlagService = {
-		hasFlag: async () => false,
+		hasFlag: async (_messageId: string, flagName: string) =>
+			flagName === MessageSystemFlag.Flagged ? alreadyFlagged : false,
 		addFlag: async () => {},
 		removeFlag: async () => {},
 	} as unknown as IMessageFlagRepository;
@@ -62,7 +70,9 @@ const buildService = (): {
 	} as unknown as IThreadMessageRepository;
 
 	const flagPushService = {
-		flip: async () => {},
+		flip: async (event: { flagName: string; operation: string }) => {
+			flips.push({ flagName: event.flagName, operation: event.operation });
+		},
 	} as unknown as FlagPushService;
 
 	const service = new FlagQueueService({
@@ -72,7 +82,7 @@ const buildService = (): {
 		flagPushService,
 	});
 
-	return { service, updates };
+	return { service, updates, flips };
 };
 
 describe("updateFlags keeps hasStars and the star colour in step", () => {
@@ -87,7 +97,7 @@ describe("updateFlags keeps hasStars and the star colour in step", () => {
 	});
 
 	test("unstarring clears the colour back to the none sentinel", async () => {
-		const { service, updates } = buildService();
+		const { service, updates } = buildService({ alreadyFlagged: true });
 
 		await service.updateFlags(ACCOUNT_CONFIG_ID, MESSAGE_ID, ACCOUNT_ID, {
 			isStarred: false,
@@ -107,13 +117,55 @@ describe("updateFlags keeps hasStars and the star colour in step", () => {
 		assert.deepEqual(updates, [{ hasStars: true, star: "red" }]);
 	});
 
-	test("a colour change alone does not touch the boolean", async () => {
-		const { service, updates } = buildService();
+	// A colour-only request is legal on the wire. Before, it wrote the colour
+	// and left `hasStars` alone, so a coloured-but-unstarred row rendered
+	// unstarred, stayed out of Starred, and never pushed \Flagged.
+	test("a colour alone stars the message and pushes the flag", async () => {
+		const { service, updates, flips } = buildService();
 
 		await service.updateFlags(ACCOUNT_CONFIG_ID, MESSAGE_ID, ACCOUNT_ID, {
 			starColor: "blue",
 		});
 
-		assert.deepEqual(updates, [{ star: "blue" }]);
+		assert.deepEqual(updates, [{ hasStars: true, star: "blue" }]);
+		assert.deepEqual(flips, [
+			{ flagName: MessageSystemFlag.Flagged, operation: "add" },
+		]);
+	});
+
+	test("the none colour unstars the message", async () => {
+		const { service, updates, flips } = buildService({ alreadyFlagged: true });
+
+		await service.updateFlags(ACCOUNT_CONFIG_ID, MESSAGE_ID, ACCOUNT_ID, {
+			starColor: "none",
+		});
+
+		assert.deepEqual(updates, [{ hasStars: false, star: "none" }]);
+		assert.deepEqual(flips, [
+			{ flagName: MessageSystemFlag.Flagged, operation: "remove" },
+		]);
+	});
+
+	test("isStarred decides the boolean when both fields are sent", async () => {
+		const { service, updates } = buildService();
+
+		await service.updateFlags(ACCOUNT_CONFIG_ID, MESSAGE_ID, ACCOUNT_ID, {
+			isStarred: true,
+			starColor: "none",
+		});
+
+		assert.deepEqual(updates, [{ hasStars: true, star: "none" }]);
+	});
+
+	test("starring pushes the Flagged keyword", async () => {
+		const { service, flips } = buildService();
+
+		await service.updateFlags(ACCOUNT_CONFIG_ID, MESSAGE_ID, ACCOUNT_ID, {
+			isStarred: true,
+		});
+
+		assert.deepEqual(flips, [
+			{ flagName: MessageSystemFlag.Flagged, operation: "add" },
+		]);
 	});
 });

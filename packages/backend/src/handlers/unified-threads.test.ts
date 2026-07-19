@@ -26,8 +26,9 @@ const mailbox = (
 	mailboxId: string,
 	accountId: string,
 	fullPath: string,
+	specialUse?: string[],
 ): MailboxItem =>
-	({ mailboxId, accountId, fullPath }) as unknown as MailboxItem;
+	({ mailboxId, accountId, fullPath, specialUse }) as unknown as MailboxItem;
 
 const mutedSetting = (
 	name: "AccountMuted" | "MailboxMuted",
@@ -53,20 +54,20 @@ const buildClient = (
 	}) as unknown as InboxMapClient;
 
 describe("buildInboxMailboxMap", () => {
-	test("separates the INBOX scope from the all-mailbox starred scope", async () => {
+	test("separates the INBOX scope from the wider starred scope", async () => {
 		const client = buildClient([account("a1")], {
 			a1: [
 				mailbox("m-inbox", "a1", "INBOX"),
-				mailbox("m-archive", "a1", "Archive"),
+				mailbox("m-archive", "a1", "Archive", ["Archive"]),
 				mailbox("m-sub", "a1", "INBOX/Receipts"),
 			],
 		});
 
-		const { inboxMailboxIds, activeMailboxIds, mailboxIdToAccountId } =
+		const { inboxMailboxIds, starredMailboxIds, mailboxIdToAccountId } =
 			await buildInboxMailboxMap(CONFIG_ID, client);
 
 		assert.deepEqual([...inboxMailboxIds], ["m-inbox"]);
-		assert.deepEqual([...activeMailboxIds].sort(), [
+		assert.deepEqual([...starredMailboxIds].sort(), [
 			"m-archive",
 			"m-inbox",
 			"m-sub",
@@ -74,6 +75,37 @@ describe("buildInboxMailboxMap", () => {
 		// The map must cover every mailbox, or a starred row from Archive could
 		// not resolve its accountId.
 		assert.equal(mailboxIdToAccountId.get("m-archive"), "a1");
+	});
+
+	// A star on mail in Spam or Trash is not something the starred view should
+	// resurface; Gmail's All Mail is a second copy of everything, so including it
+	// renders every starred Gmail message twice.
+	test("the starred scope excludes All Mail, Junk and Trash", async () => {
+		const client = buildClient([account("a1")], {
+			a1: [
+				mailbox("m-inbox", "a1", "INBOX"),
+				mailbox("m-all", "a1", "[Gmail]/All Mail", ["All"]),
+				mailbox("m-junk", "a1", "[Gmail]/Spam", ["Junk"]),
+				mailbox("m-trash", "a1", "[Gmail]/Trash", ["Trash"]),
+				mailbox("m-sent", "a1", "[Gmail]/Sent Mail", ["Sent"]),
+			],
+		});
+
+		const { starredMailboxIds, mailboxIdToAccountId } =
+			await buildInboxMailboxMap(CONFIG_ID, client);
+
+		assert.deepEqual([...starredMailboxIds].sort(), ["m-inbox", "m-sent"]);
+		// Excluded mailboxes still resolve an accountId — the map is the wider set.
+		assert.equal(mailboxIdToAccountId.get("m-trash"), "a1");
+	});
+
+	test("a mailbox carrying several special uses is excluded on any one of them", async () => {
+		const client = buildClient([account("a1")], {
+			a1: [mailbox("m-archive-all", "a1", "Archive", ["Archive", "All"])],
+		});
+
+		const { starredMailboxIds } = await buildInboxMailboxMap(CONFIG_ID, client);
+		assert.equal(starredMailboxIds.size, 0);
 	});
 
 	test("muted mailboxes are excluded from both scopes", async () => {
@@ -88,13 +120,13 @@ describe("buildInboxMailboxMap", () => {
 			[mutedSetting("MailboxMuted", "m-muted")],
 		);
 
-		const { inboxMailboxIds, activeMailboxIds } = await buildInboxMailboxMap(
+		const { inboxMailboxIds, starredMailboxIds } = await buildInboxMailboxMap(
 			CONFIG_ID,
 			client,
 		);
 
 		assert.deepEqual([...inboxMailboxIds], ["m-inbox"]);
-		assert.deepEqual([...activeMailboxIds], ["m-inbox"]);
+		assert.deepEqual([...starredMailboxIds], ["m-inbox"]);
 	});
 
 	test("a muted account contributes no mailboxes", async () => {
@@ -104,8 +136,8 @@ describe("buildInboxMailboxMap", () => {
 			[mutedSetting("AccountMuted", "a1")],
 		);
 
-		const { activeMailboxIds } = await buildInboxMailboxMap(CONFIG_ID, client);
-		assert.equal(activeMailboxIds.size, 0);
+		const { starredMailboxIds } = await buildInboxMailboxMap(CONFIG_ID, client);
+		assert.equal(starredMailboxIds.size, 0);
 	});
 });
 

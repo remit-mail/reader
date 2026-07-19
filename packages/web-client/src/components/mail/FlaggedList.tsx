@@ -32,6 +32,7 @@ import { buildBugReportContext, buildGitHubIssueUrl } from "@/lib/bug-report";
 import { useMailContext } from "@/lib/mail-context";
 import { rowToSearchResult } from "@/lib/search-result";
 import { parseSearchTokens } from "@/lib/search-tokens";
+import { dedupeByThread } from "@/lib/starred-rows";
 import { MailViewChrome } from "./MailViewChrome";
 
 const FILTER_PREDICATES: Record<string, (t: ThreadRowData) => boolean> = {
@@ -81,7 +82,7 @@ export function FlaggedList({
 		isFetchingNextPage,
 	} = useInfiniteQuery({
 		queryKey: unifiedThreadOperationsListAllThreadsQueryKey({
-			query: { starred: true },
+			query: { starred: true, order: "desc" },
 		}),
 		queryFn: async ({ pageParam }) => {
 			const { data } = await unifiedThreadOperationsListAllThreads({
@@ -108,8 +109,9 @@ export function FlaggedList({
 		const predicates = Array.from(activeFilters)
 			.map((id) => FILTER_PREDICATES[id])
 			.filter((p): p is (t: ThreadRowData) => boolean => p != null);
-		return (threadsData?.pages ?? [])
-			.flatMap((page) => page.items ?? [])
+		return dedupeByThread(
+			(threadsData?.pages ?? []).flatMap((page) => page.items ?? []),
+		)
 			.map(toThreadRowData)
 			.filter(
 				(t) =>
