@@ -58,6 +58,25 @@ const generated = [
 			files: ["openapi.json"],
 		},
 	},
+	// The built web client as a static-asset data package: index.html, the
+	// hashed asset bundle, locales, and the default runtime config.js
+	// (better-auth self-host). A deployment installs it and replaces config.js
+	// with its own values instead of building the client from source. `build`
+	// runs the vite build (which empties dist/) before the manifest is
+	// synthesized into it, so packing sees a fresh tree.
+	{
+		dir: "packages/web-client/dist",
+		name: "@remit/web-client-dist",
+		peerDependencies: {},
+		build: ["npm", ["run", "build", "-w", "@remit/web-client"]],
+		manifest: {
+			name: "@remit/web-client-dist",
+			version: "0.0.0",
+			description:
+				"Built Remit web client — static assets and the default runtime config.",
+			files: ["**/*"],
+		},
+	},
 ];
 
 const run = (cmd, args, opts = {}) =>
@@ -217,6 +236,8 @@ const failures = [];
 
 for (const pkg of packages) {
 	if (pkg.kind !== "workspace") {
+		if (pkg.build)
+			run(pkg.build[0], pkg.build[1], { cwd: repoRoot, stdio: "inherit" });
 		synthesizeManifest(pkg);
 		stampGeneratedMetadata(pkg);
 	}
