@@ -353,7 +353,13 @@ export class MailboxSyncService {
 			fullPath: mailboxInfo.fullPath,
 			uidValidity: status.uidValidity,
 			uidNext: status.uidNext,
-			highestModseq: status.highestModseq,
+			// The message-sync cursor, not a status projection: it records how
+			// far THIS mailbox's messages have been applied, and nothing has
+			// been. Seeding it from the server's current HIGHESTMODSEQ would
+			// declare an unsynced folder already caught up and skip every
+			// message in it. Message sync seeds it once it has enumerated the
+			// folder.
+			highestModseq: "0",
 			messageCount: status.messages,
 			unseenCount: status.unseen,
 			deletedCount: status.deletedCount,
@@ -429,8 +435,6 @@ export class MailboxSyncService {
 			existing.messageCount !== status.messages ||
 			existing.unseenCount !== status.unseen ||
 			existing.deletedCount !== status.deletedCount ||
-			(BigInt(status.highestModseq) > 0n &&
-				existing.highestModseq !== status.highestModseq) ||
 			specialUseChanged;
 
 		// Sync special-use attributes (handles migration of existing mailboxes)
@@ -458,13 +462,6 @@ export class MailboxSyncService {
 			changes.push(
 				`deletedCount: ${existing.deletedCount} -> ${status.deletedCount}`,
 			);
-		if (
-			BigInt(status.highestModseq) > 0n &&
-			existing.highestModseq !== status.highestModseq
-		)
-			changes.push(
-				`highestModseq: ${existing.highestModseq} -> ${status.highestModseq}`,
-			);
 		if (specialUseChanged)
 			changes.push(
 				`specialUse: [${(existing.specialUse ?? []).join(",")}] -> [${parsed.specialUse.join(",")}]`,
@@ -480,7 +477,10 @@ export class MailboxSyncService {
 			hierarchyDelimiter: mailboxInfo.delimiter,
 			uidValidity: status.uidValidity,
 			uidNext: status.uidNext,
-			highestModseq: status.highestModseq,
+			// `highestModseq` is deliberately absent: it is message sync's
+			// cursor over this mailbox's own applied changes, and overwriting it
+			// with the server's current value here would step it over every
+			// change message sync had not yet applied.
 			messageCount: status.messages,
 			unseenCount: status.unseen,
 			deletedCount: status.deletedCount,

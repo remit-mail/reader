@@ -6,6 +6,7 @@ import type {
 	IEnvelopeRepository,
 	IMailboxRepository,
 	IMessageFlagPushRepository,
+	IMessageFlagRepository,
 	IMessageRepository,
 	IThreadMessageRepository,
 	IUnitOfWork,
@@ -70,6 +71,7 @@ export const syncMessages = async (
 		threadMessage: threadMessageService,
 		mailboxLock: mailboxLockService,
 		flagPush: flagPushMarkerService,
+		messageFlag: messageFlagService,
 		unitOfWork,
 		secrets,
 	} = await getClient();
@@ -137,6 +139,7 @@ export const syncMessages = async (
 								addressService,
 								threadMessageService,
 								flagPushMarkerService,
+								messageFlagService,
 								unitOfWork,
 							},
 							log,
@@ -179,6 +182,7 @@ interface SyncDeps {
 	addressService: IAddressRepository;
 	threadMessageService: IThreadMessageRepository;
 	flagPushMarkerService: IMessageFlagPushRepository;
+	messageFlagService: IMessageFlagRepository;
 	unitOfWork?: IUnitOfWork;
 }
 
@@ -269,6 +273,7 @@ const syncMailboxMessages = async (
 		addressService,
 		threadMessageService,
 		flagPushMarkerService,
+		messageFlagService,
 		unitOfWork,
 	} = deps;
 
@@ -300,6 +305,8 @@ const syncMailboxMessages = async (
 		threadMessageService,
 		log,
 		unitOfWork,
+		flagPushMarkerService,
+		messageFlagService,
 	);
 
 	// Connect once, reuse for the entire sync operation
@@ -329,6 +336,16 @@ const syncMailboxMessages = async (
 			MetricUnit.Count,
 			result.syncedCount,
 		);
+	}
+
+	// A stalled cursor is the one failure on this path that produces no error:
+	// unapplicable messages are caught and held back, so the round returns
+	// normally, the SQS record is deleted, and neither redrive nor the DLQ ever
+	// engages. Without this metric the mailbox stops syncing behind a worker
+	// that looks healthy. It is emitted as a count so a sustained non-zero
+	// value alarms, per-mailbox detail being in the accompanying ERROR log.
+	if (result.cursorStalled) {
+		metrics.addMetric("imapSyncCursorStalled", MetricUnit.Count, 1);
 	}
 
 	// Emit body sync events for the messages we just synced. Each event carries
