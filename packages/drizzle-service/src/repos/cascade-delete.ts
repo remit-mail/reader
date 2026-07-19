@@ -8,7 +8,9 @@ import { mailboxLockTable } from "../schema/i4-mailbox-lock.js";
 import { messageFlagPushTable } from "../schema/i4-message-flag-push.js";
 import { messagePlacementMoveTable } from "../schema/i4-message-placement-move.js";
 import { outboxMessageTable } from "../schema/i4-outbox-message.js";
+import { messageDataSchema } from "../schema/message-data.js";
 import { threadMessageTable } from "../schema/thread-message.js";
+import { createSqliteDatabase } from "../sqlite-client.js";
 import { runInTransaction } from "../tx.js";
 import { deleteMessageSubtree, type SubtreeDb } from "./message.js";
 
@@ -196,4 +198,22 @@ export type CascadeDeleter = (
 export const createCascadeDeleter = (connectionUrl: string): CascadeDeleter => {
 	const db = drizzle(connectionUrl) as CascadeDb;
 	return (entities, log) => runDrizzleCascadeDelete(db, entities, log);
+};
+
+/**
+ * SQLite twin of {@link createCascadeDeleter} (RFC 036). Opens the shared SQLite
+ * file through the same serialized connection every writer uses and binds a
+ * cascade deleter to it. `runDrizzleCascadeDelete` deletes through the
+ * dialect-selected entity tables (`active-entities`, SQLite on this backend), so
+ * the same enumerated `CascadeEntity[]` drives an identical cascade over SQLite.
+ * Async because opening the SQLite handle loads the native binding lazily.
+ */
+export const createSqliteCascadeDeleter = async (
+	dbPath: string,
+): Promise<CascadeDeleter> => {
+	const { db } = await createSqliteDatabase(messageDataSchema, {
+		filename: dbPath,
+	});
+	const cascadeDb = db as unknown as CascadeDb;
+	return (entities, log) => runDrizzleCascadeDelete(cascadeDb, entities, log);
 };
