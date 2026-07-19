@@ -7,9 +7,25 @@
  * real browser against a real build: the desktop layout is the one on screen,
  * the content column scrolls, and adding an account is reachable.
  */
+import type { Locator } from "@playwright/test";
 import { expect, test } from "../src/fixtures.js";
 
 const DESKTOP = { width: 1512, height: 864 };
+
+/**
+ * Whether the element is the one a click at its own centre would land on.
+ *
+ * `toBeVisible` is not enough for this bug: the elements it checks were painted
+ * and had size the whole time — they were simply underneath a slide-over that
+ * covered the viewport. Only a hit test distinguishes rendered from reachable.
+ */
+const isOnTop = (locator: Locator): Promise<boolean> =>
+	locator.evaluate((element) => {
+		const { x, y, width, height } = element.getBoundingClientRect();
+		const hit = document.elementFromPoint(x + width / 2, y + height / 2);
+		if (!hit) return false;
+		return element.contains(hit) || hit.contains(element);
+	});
 
 test.describe("Settings", () => {
 	test.use({ viewport: DESKTOP });
@@ -28,11 +44,10 @@ test.describe("Settings", () => {
 			page.getByRole("button", { name: "Open settings menu" }),
 		).toBeHidden();
 
-		// Nothing overlays the screen: the accounts content is what receives a
-		// click at the centre of the viewport.
-		await expect(
-			page.getByRole("button", { name: "Add account" }),
-		).toBeVisible();
+		// Nothing overlays the screen.
+		await expect
+			.poll(() => isOnTop(page.getByRole("button", { name: "Add account" })))
+			.toBe(true);
 	});
 
 	test("the content column scrolls to the bottom of the page", async ({
@@ -40,9 +55,7 @@ test.describe("Settings", () => {
 	}) => {
 		await page.goto("/settings/accounts");
 		await expect(page.getByRole("button", { name: "Add account" })).toBeVisible(
-			{
-				timeout: 30_000,
-			},
+			{ timeout: 30_000 },
 		);
 
 		// The danger zone sits below the accounts list — the part of the page a
@@ -51,7 +64,7 @@ test.describe("Settings", () => {
 			name: /delete your remit account/i,
 		});
 		await dangerZone.scrollIntoViewIfNeeded();
-		await expect(dangerZone).toBeVisible();
+		await expect.poll(() => isOnTop(dangerZone)).toBe(true);
 
 		// The page itself never scrolls; the shell pins the chrome and scrolls
 		// one column inside it.
@@ -85,19 +98,20 @@ test.describe("Settings", () => {
 		await expect(manage).toBeVisible({ timeout: 30_000 });
 
 		// Closed: the panel is mounted but must sit entirely off-canvas and out
-		// of the accessibility tree.
+		// of the accessibility tree, leaving the screen behind it clickable.
 		await expect(
 			page.getByRole("heading", { name: "Edit Account" }),
 		).toBeHidden();
+		await expect.poll(() => isOnTop(manage)).toBe(true);
 
 		await manage.click();
-		await expect(
-			page.getByRole("heading", { name: "Edit Account" }),
-		).toBeVisible({ timeout: 10_000 });
+		const panelTitle = page.getByRole("heading", { name: "Edit Account" });
+		await expect(panelTitle).toBeVisible({ timeout: 10_000 });
+		await expect.poll(() => isOnTop(panelTitle)).toBe(true);
 
 		await page.getByRole("button", { name: "Close", exact: true }).click();
-		await expect(
-			page.getByRole("heading", { name: "Edit Account" }),
-		).toBeHidden();
+		await expect(panelTitle).toBeHidden();
+		// Back off-canvas: the accounts list takes clicks again.
+		await expect.poll(() => isOnTop(manage)).toBe(true);
 	});
 });

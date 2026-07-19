@@ -18,9 +18,15 @@ const here = dirname(fileURLToPath(import.meta.url));
 const cssPath = resolve(here, "index.css");
 const css = readFileSync(cssPath, "utf8");
 
+/** Globs Tailwind scans, and globs it is told to skip. */
+const globs = (kind: "include" | "exclude"): string[] =>
+	[...css.matchAll(/@source\s+(not\s+)?"([^"]+)"/g)]
+		.filter(([, negated]) => (kind === "exclude") === Boolean(negated))
+		.map(([, , glob]) => glob);
+
 /** The directory an `@source` glob starts scanning from. */
 const sourceRoots = (): string[] =>
-	[...css.matchAll(/@source\s+"([^"]+)"/g)].map(([, glob]) => {
+	globs("include").map((glob) => {
 		const literal = glob.split("*")[0] ?? glob;
 		return resolve(dirname(cssPath), literal);
 	});
@@ -71,5 +77,21 @@ describe("tailwind source coverage (#57)", () => {
 			uncovered.map((d) => relative(ui, d)),
 			[],
 		);
+	});
+
+	/**
+	 * A test asserting on a class string is a class string in a scanned file, so
+	 * without this every utility a test names is emitted into the shipped CSS.
+	 */
+	it("excludes test files from every source it scans", () => {
+		const uncovered = globs("include").filter(
+			(glob) =>
+				!globs("exclude").some(
+					(excluded) =>
+						excluded ===
+						glob.replace(/\/\*\*\/\*\.\{ts,tsx\}$/, "/**/*.test.{ts,tsx}"),
+				),
+		);
+		assert.deepEqual(uncovered, []);
 	});
 });
