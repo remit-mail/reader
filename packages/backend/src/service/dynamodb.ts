@@ -5,6 +5,14 @@ export type {
 	RemitClient,
 } from "./create-remit-client.js";
 
+// The DynamoDB composition module is stripped from the open-core export (it
+// imports the closed electrodb-service). The `as string` specifier keeps
+// tsgo from resolving it there — where the file is absent — while this named
+// contract keeps the call site typed rather than `any`. The relational tree
+// never takes this branch; the DynamoDB deploy, where the module is present,
+// resolves it at runtime.
+type ComposeDynamoDBModule = { buildDynamoDBClient: () => RemitClient };
+
 let clientPromise: Promise<RemitClient> | null = null;
 
 // The API process and the imap-worker share this composition root. Each backend
@@ -28,9 +36,11 @@ export const getClient = (): Promise<RemitClient> => {
 				m.buildSqliteClient(),
 			);
 		} else {
-			clientPromise = import("./compose-dynamodb.js").then((m) =>
-				m.buildDynamoDBClient(),
-			);
+			clientPromise = (
+				import(
+					"./compose-dynamodb.js" as string
+				) as Promise<ComposeDynamoDBModule>
+			).then((m) => m.buildDynamoDBClient());
 		}
 	}
 

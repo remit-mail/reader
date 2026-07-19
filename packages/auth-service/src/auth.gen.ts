@@ -1,3 +1,4 @@
+import type { Auth as BetterAuthInstance } from "better-auth";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { jwt } from "better-auth/plugins";
@@ -31,4 +32,4 @@ export const auth = betterAuth({
 			jwks: { keyPairConfig: { alg: "RS256", modulusLength: 2048 } },
 		}),
 	],
-});
+}) as unknown as BetterAuthInstance;

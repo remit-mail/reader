@@ -1,3 +1,4 @@
+import type { Auth as BetterAuthInstance } from "better-auth";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { jwt } from "better-auth/plugins";
@@ -69,7 +70,15 @@ const intEnv = (name: string, fallback: number): number => {
  * published at `${baseURL}/api/auth/jwks` and tokens are minted at
  * `${baseURL}/api/auth/token`.
  */
-export const createAuth = async (config: AuthConfig) => {
+// The return is widened to better-auth's own `Auth` type so the exported
+// surface never names better-auth's bundled zod internals. When a consumer
+// resolves a different zod major than better-auth (open-core reader: web-client
+// pins zod 3, better-auth needs 4, so better-auth's copy nests and is
+// unnameable), the inferred instance type is not portable; the widening keeps
+// the public type stable across any consumer's dependency graph.
+export const createAuth = async (
+	config: AuthConfig,
+): Promise<BetterAuthInstance> => {
 	const database = await buildAuthAdapter(config);
 
 	return betterAuth({
@@ -114,7 +123,7 @@ export const createAuth = async (config: AuthConfig) => {
 				},
 			}),
 		],
-	});
+	}) as unknown as BetterAuthInstance;
 };
 
 export type Auth = Awaited<ReturnType<typeof createAuth>>;
