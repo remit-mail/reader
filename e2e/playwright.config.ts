@@ -15,7 +15,12 @@ export default defineConfig({
 	workers: 1,
 	forbidOnly: !!process.env.CI,
 	retries: 0,
-	reporter: process.env.CI ? [["github"], ["list"]] : [["list"]],
+	// The HTML report is what a CI lane uploads after a failure — annotations
+	// name the failing spec, the report carries the trace and screenshot that
+	// explain it.
+	reporter: process.env.CI
+		? [["github"], ["list"], ["html", { open: "never" }]]
+		: [["list"]],
 	timeout: 60_000,
 	globalSetup: "./global-setup.ts",
 	use: {

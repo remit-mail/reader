@@ -46,3 +46,70 @@ jobs:
           TAG: sha-${{ github.sha }}
           PUSH: "1"
           PUSH_LATEST: ${{ github.ref == 'refs/heads/main' && '1' || '0' }}
+
+  # Black-box acceptance on the roster that was just pushed: bring up the
+  # reference self-host stack from the registry and drive it through a browser
+  # and an IMAP client. Nothing here is built, installed, or mocked — a failure
+  # means an operator following the install instructions gets a broken product.
+  #
+  # This lives in the Images workflow rather than a `workflow_run` listener
+  # because the tag it must pin is the one the job above published, and inside
+  # the same run that is `github.sha` — the identical expression, no head_sha
+  # re-derivation and no second checkout that could resolve elsewhere.
+  #
+  # It is deliberately absent from pull request CI and from the `build` aggregate
+  # gate. The suite tests published images; a pull request has none, so it would
+  # assert against main's code and report a verdict about a commit that is not
+  # the one under review. Making it a PR gate would make it lie.
+  e2e:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    env:
+      REMIT_TAG: sha-${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Log in to GHCR
+        run: docker login ghcr.io -u "${{ github.actor }}" --password-stdin <<<"${{ secrets.GITHUB_TOKEN }}"
+
+      # The sha tag and never :latest. `latest` names whatever build finished
+      # most recently, which on a busy main is not necessarily this commit, so a
+      # run pinned to it could pass or fail on images that do not contain the
+      # code being tested.
+      - name: Start the published stack
+        run: npm run e2e:up
+
+      - name: Black-box suite
+        run: npm run e2e:test
+
+      - name: Collect stack logs
+        if: failure()
+        env:
+          E2E_LOGS_FOLLOW: "0"
+          E2E_LOGS_TAIL: "400"
+        run: npm run e2e:logs >e2e-stack.log 2>&1
+
+      - name: Upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-diagnostics-${{ github.sha }}
+          path: |
+            e2e-stack.log
+            e2e/playwright-report/
+            e2e/test-results/
+          retention-days: 14
+          if-no-files-found: warn
+
+      # `always()` covers cancellation as well as failure. Without it a cancelled
+      # run leaves the stack's containers and volumes behind, which on a
+      # long-lived runner accumulates until the box runs out of disk.
+      - name: Tear down
+        if: always()
+        run: npm run e2e:down
