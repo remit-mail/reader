@@ -143,6 +143,116 @@ check_origin() {
 	esac
 }
 
+# --- origin resolution ------------------------------------------------------
+#
+# The shape of an origin is checkable; whether it points anywhere is not, so a
+# wrong one installs cleanly and only surfaces later as an app nobody can load.
+# Every outcome here is a warning: DNS pointed at the box after the install,
+# a name only the clients resolve, a proxy or NAT in front — all legitimate,
+# and none of them worth refusing an install over.
+
+PROBE_TIMEOUT=3
+ORIGIN_DNS_WARNING=""
+
+capped() {
+	if command -v timeout >/dev/null 2>&1; then
+		timeout "$PROBE_TIMEOUT" "$@" 2>/dev/null || true
+		return 0
+	fi
+	"$@" 2>/dev/null || true
+}
+
+origin_host() {
+	local h="${1#*://}"
+	h="${h%%/*}"
+	h="${h#*@}"
+	case "$h" in
+	"["*)
+		h="${h#[}"
+		h="${h%%]*}"
+		;;
+	*) h="${h%%:*}" ;;
+	esac
+	printf '%s' "$h"
+}
+
+resolver_tool() {
+	local t
+	for t in getent dig host; do
+		if command -v "$t" >/dev/null 2>&1; then
+			printf '%s' "$t"
+			return 0
+		fi
+	done
+	return 1
+}
+
+resolve_host() {
+	case "$(resolver_tool || true)" in
+	getent) capped getent ahosts "$1" | awk '{print $1}' | sort -u | tr '\n' ' ' ;;
+	dig) capped dig +short +time=2 +tries=1 "$1" | grep -E '^[0-9a-fA-F.:]+$' | sort -u | tr '\n' ' ' ;;
+	host) capped host -W 2 "$1" | awk '/has( IPv6)? address/ {print $NF}' | sort -u | tr '\n' ' ' ;;
+	esac
+}
+
+local_addresses() {
+	if command -v ip >/dev/null 2>&1; then
+		capped ip -o addr show | awk '{print $4}' | cut -d/ -f1
+		return 0
+	fi
+	if command -v ifconfig >/dev/null 2>&1; then
+		capped ifconfig | awk '/inet6? /{print $2}' | sed 's/^addr://'
+		return 0
+	fi
+	return 1
+}
+
+check_origin_dns() {
+	local host addrs local_addrs a l held=0 loopback_only=1
+	host="$(origin_host "$ORIGIN")"
+	[ -n "$host" ] || return 0
+	# No resolver is not the operator's problem to hear about here.
+	resolver_tool >/dev/null || return 0
+
+	addrs="$(resolve_host "$host")"
+	addrs="${addrs% }"
+	if [ -z "$addrs" ]; then
+		ORIGIN_DNS_WARNING="$host does not resolve from this box.
+Nothing loads at $ORIGIN until it does.
+Expected if you point DNS at this box after the install, or
+if only your clients resolve the name (tailnet, VPN, a hosts
+file). Otherwise the record is missing."
+		warn "$ORIGIN_DNS_WARNING"
+		return 0
+	fi
+
+	for a in $addrs; do
+		case "$a" in
+		127.* | ::1) ;;
+		*) loopback_only=0 ;;
+		esac
+	done
+	[ "$loopback_only" = "0" ] || return 0
+
+	local_addrs="$(local_addresses || true)"
+	[ -n "$local_addrs" ] || return 0
+	for a in $addrs; do
+		for l in $local_addrs; do
+			if [ "$a" = "$l" ]; then
+				held=1
+			fi
+		done
+	done
+	[ "$held" = "0" ] || return 0
+
+	ORIGIN_DNS_WARNING="$host resolves to $addrs,
+which this box does not hold — clients using DNS reach a
+different machine, not this one. Expected behind a proxy, NAT
+or split-horizon DNS. Otherwise the record is stale or names
+the wrong host, and nothing loads at $ORIGIN."
+	warn "$ORIGIN_DNS_WARNING"
+}
+
 check_engine() {
 	command -v docker >/dev/null 2>&1 || die "docker (or a docker-compatible CLI such as podman's) is required and was not found on PATH."
 	command -v openssl >/dev/null 2>&1 || die "openssl is required to generate secrets and was not found on PATH."
@@ -314,6 +424,14 @@ bring_up() {
 	REMIT_DIR="$DIR" REMIT_COMPOSE_FILE="$COMPOSE_FILE" "$DIR/remit" update
 }
 
+# A warning emitted before the pull is minutes of image progress behind by the
+# time the install finishes, so it is repeated where the operator is actually
+# reading: next to the address that will not load.
+origin_warning_block() {
+	[ -n "$ORIGIN_DNS_WARNING" ] || return 0
+	printf '\n  Unreachable %s\n' "$(printf '%s' "$ORIGIN_DNS_WARNING" | sed '2,$s/^/              /')"
+}
+
 # The wrapper is the interface: it knows the install directory and the compose
 # file, so on PATH it runs from anywhere. When it could not be placed there the
 # same commands are shown relative to the install directory, prefixed by the cd
@@ -345,6 +463,9 @@ reader is up.
               The first sign-up on that page creates your account. After you
               are in, add a mailbox from Settings -> Add account with your
               IMAP/SMTP details (or "Sign in with Microsoft" if configured).
+EOF
+	origin_warning_block
+	cat <<EOF
 
   Config      $DIR/.env  (chmod 600)
               Holds FAKE_KMS_DATAKEY, the key every stored IMAP credential is
@@ -377,6 +498,9 @@ EOF
 main() {
 	parse_args "$@"
 	check_origin
+	# Before the host checks and well before the pull: a wrong origin caught
+	# here costs nothing, and caught after it costs ~4 GB and an install.
+	check_origin_dns
 	check_engine
 	check_arch
 	check_ports
@@ -388,6 +512,7 @@ main() {
 		say ""
 		say "Dry run complete. Host checks passed, assets and .env are in $DIR."
 		say "Re-run without --dry-run to pull the images and start the stack."
+		origin_warning_block
 		return 0
 	fi
 	bring_up
