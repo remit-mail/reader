@@ -1,3 +1,4 @@
+import type { MutedFlag } from "@remit/api-openapi-types";
 import type {
 	AccountSettingItem,
 	IAccountSettingRepository,
@@ -7,7 +8,6 @@ import {
 	composeSettingName,
 	SETTING_NAME_SEPARATOR,
 } from "@remit/data-ports/account-settings";
-import type { MutedFlag } from "@remit/api-openapi-types";
 
 /**
  * RFC 032 Tier 1: the per-account display name and mute flag, and the

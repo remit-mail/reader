@@ -1,5 +1,5 @@
-import { SenderTrust } from "@remit/domain-enums";
 import type { AddressFlags } from "@remit/api-openapi-types";
+import { SenderTrust } from "@remit/domain-enums";
 
 export type SenderTrustValue = (typeof SenderTrust)[keyof typeof SenderTrust];
 
