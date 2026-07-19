@@ -226,8 +226,17 @@ export const advanceChangeCursor = ({
 	// through `ordered` in order — so the fetch point is the value just below
 	// the group, and the group itself is recorded so the resumed round skips by
 	// identity rather than by guessing which group it is looking at.
+	//
+	// "Everything below it was applied" holds because `ordered` is the COMPLETE
+	// set of unapplied changes: the fetch is CHANGEDSINCE over `1:*`. Narrowing
+	// that fetch by UID range would leave changes below the group unapplied and
+	// unrepresented here, and this cursor would then step over them.
+	//
+	// The floor matters when a server returns a message with no MODSEQ at all:
+	// `nextModseq` is then 0 and the cursor must not go negative.
+	const fetchFrom = nextModseq > 0n ? nextModseq - 1n : 0n;
 	return {
-		cursor: { modseq: nextModseq - 1n, group: nextModseq, uid: last.uid },
+		cursor: { modseq: fetchFrom, group: nextModseq, uid: last.uid },
 		hasMore,
 	};
 };

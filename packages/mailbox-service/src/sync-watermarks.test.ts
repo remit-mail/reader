@@ -306,6 +306,21 @@ describe("advanceChangeCursor", () => {
 		assert.deepEqual(result.cursor, { modseq: 899n, group: 900n, uid: 10 });
 	});
 
+	it("floors the fetch point at zero when a message carries no MODSEQ", () => {
+		const ordered = [message(1), message(2)];
+
+		const result = advanceChangeCursor({
+			cursor: boundary(0n),
+			serverModseq: 0n,
+			ordered,
+			batch: ordered.slice(0, 1),
+			failedUids: noFailures,
+		});
+
+		assert.equal(result.cursor.modseq >= 0n, true);
+		assert.equal(formatChangeCursor(result.cursor).startsWith("-"), false);
+	});
+
 	it("never moves backwards when the server reports a lower value", () => {
 		const result = advanceChangeCursor({
 			cursor: boundary(50n),

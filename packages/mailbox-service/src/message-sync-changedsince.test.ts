@@ -14,7 +14,7 @@ import type {
 	UpdateMailboxInput,
 	UpdateThreadMessageInput,
 } from "@remit/data-ports";
-import { MailboxCursorState } from "@remit/domain-enums";
+import { MailboxCursorState, MessageSystemFlag } from "@remit/domain-enums";
 import type { ManagedConnectionFactory } from "./connection-factory.js";
 import type { FlagPushService } from "./flag-push.js";
 import { FlagQueueService } from "./flag-queue.js";
@@ -347,7 +347,7 @@ describe("MessageSyncService CHANGEDSINCE path", () => {
 			supportsCondstore: true,
 			changed: [serverMessage({ flags: [] })],
 			storedRows: [storedRow({ isRead: true })],
-			pendingFlags: new Set(["Seen"]),
+			pendingFlags: new Set([MessageSystemFlag.Seen]),
 		});
 
 		await syncOnce(harness);
@@ -537,7 +537,7 @@ describe("MessageSyncService CHANGEDSINCE path", () => {
 
 		await syncOnce(harness);
 
-		assert.deepEqual([...harness.flagStore], ["Seen"]);
+		assert.deepEqual([...harness.flagStore], [MessageSystemFlag.Seen]);
 	});
 
 	it("clears the canonical flag and the star colour when the server unstars", async () => {
@@ -546,7 +546,7 @@ describe("MessageSyncService CHANGEDSINCE path", () => {
 			supportsCondstore: true,
 			changed: [serverMessage({ flags: [] })],
 			storedRows: [storedRow({ hasStars: true })],
-			storedFlags: ["Flagged"],
+			storedFlags: [MessageSystemFlag.Flagged],
 		});
 
 		await syncOnce(harness);
@@ -596,7 +596,9 @@ describe("MessageSyncService CHANGEDSINCE path", () => {
 
 		await flagQueue.markAsUnread(ACCOUNT_CONFIG_ID, "msg-1", ACCOUNT_ID);
 
-		assert.deepEqual(pushes, [{ flagName: "Seen", operation: "remove" }]);
+		assert.deepEqual(pushes, [
+			{ flagName: MessageSystemFlag.Seen, operation: "remove" },
+		]);
 		assert.deepEqual([...harness.flagStore], []);
 	});
 });

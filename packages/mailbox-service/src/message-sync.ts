@@ -177,9 +177,6 @@ const emptySyncResult = (): SyncMessagesResult => ({
 	cursorStalled: false,
 });
 
-const IMAP_SEEN_FLAG = "\\Seen";
-const IMAP_FLAGGED_FLAG = "\\Flagged";
-
 /**
  * Pick the UIDs a full-enumeration round should sync, newest first.
  *
@@ -929,8 +926,8 @@ export class MessageSyncService {
 		existing: ThreadMessageItem,
 		flags: string[],
 	): Promise<void> {
-		const isRead = flags.includes(IMAP_SEEN_FLAG);
-		const hasStars = flags.includes(IMAP_FLAGGED_FLAG);
+		const isRead = flags.includes(MessageSystemFlag.Seen);
+		const hasStars = flags.includes(MessageSystemFlag.Flagged);
 
 		const updates: {
 			isRead?: boolean;
@@ -1325,15 +1322,15 @@ export class MessageSyncService {
 		// Derive threadId from the root Message-ID (deterministic)
 		const threadId = deriveThreadId(accountId, rootMessageIdHeader);
 
-		// Check if message is read based on IMAP flags
-		const isRead = flags.includes("\\Seen");
+		const isRead = flags.includes(MessageSystemFlag.Seen);
 
 		// The server's \Flagged keyword is the star. Mail flagged in another
 		// client must arrive starred, so carry it through on create rather than
-		// defaulting every row to unstarred. Compared as a literal for the same
-		// reason \Seen is above: the generated MessageSystemFlag members drop the
-		// leading backslash, so they do not match a wire flag.
-		const hasStars = flags.includes("\\Flagged");
+		// defaulting every row to unstarred. Both comparisons go through the
+		// generated members, which carry the wire spelling (reader#65) and are
+		// the same values the flag-push markers are keyed by — one source of
+		// truth for the wire flag and the record of it.
+		const hasStars = flags.includes(MessageSystemFlag.Flagged);
 
 		// Extract sender info. When the server could not parse the From address,
 		// omit fromEmail rather than persist a fabricated string — a display name
