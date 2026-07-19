@@ -1,8 +1,10 @@
 {
 	"name": "@remit/ui",
 	"version": "0.0.1",
-	"private": true,
 	"type": "module",
+	"files": [
+		"src"
+	],
 	"exports": {
 		".": "./src/index.ts",
 		"./tokens.css": "./src/tokens.css"
@@ -35,5 +37,14 @@
 		"react": "^19",
 		"react-dom": "^19",
 		"typescript": "*"
+	},
+	"license": "MIT",
+	"publishConfig": {
+		"access": "public"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/remit-mail/reader.git",
+		"directory": "packages/ui"
 	}
 }

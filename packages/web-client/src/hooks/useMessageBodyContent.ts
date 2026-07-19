@@ -1,7 +1,7 @@
 import { messageOperationsDescribeMessageQueryKey } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
-import { fetchAuthToken } from "@/auth/auth-token";
+import { fetchAuthToken } from "#auth-token";
 import {
 	type BodyContentKind,
 	pickRenderablePart,

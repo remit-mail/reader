@@ -1,5 +1,5 @@
 import { client } from "@remit/api-http-client/client.gen.ts";
-import { fetchAuthToken } from "./auth-token";
+import { fetchAuthToken } from "#auth-token";
 
 let installed = false;
 

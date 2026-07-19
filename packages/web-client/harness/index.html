@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Remit</title>
+    <!--
+      Pre-paint theme to avoid a flash-of-wrong-theme on reload. Mirrors
+      theme-preference.ts: a stored "remit.theme" of "light"/"dark" wins;
+      "system" (or no key) follows prefers-color-scheme.
+    -->
+    <script>
+      (function () {
+        try {
+          var pref = localStorage.getItem("remit.theme");
+          var isDark =
+            pref === "dark" ||
+            (pref !== "light" &&
+              window.matchMedia &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          document.documentElement.classList.toggle("dark", isDark);
+        } catch (_) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!--
+      Runtime deployment config. A classic (non-module) script so it runs before
+      the deferred module bundle: it sets window.__REMIT_CONFIG__, read by the
+      runtime-config primitive. Served from the distributor's public dir and
+      replaced per deployment; never bundled.
+    -->
+    <script src="/config.js"></script>
+    <script type="module" src="./entry.tsx"></script>
+  </body>
+</html>

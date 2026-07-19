@@ -54,10 +54,12 @@ COPY . .
 # `make` regenerates build/ from the TypeSpec source in-repo (RFC 035 D2).
 RUN make
 
-# Same-origin relative API base (packages/web-client/src/lib/client.ts
-# defaults VITE_API_URL-less builds to "/api"); Caddy proxies /api and
-# /content to apisix/backend, so no build-time API host is needed.
-RUN VITE_BETTER_AUTH_ENABLED=1 npm run build -w packages/web-client
+# Compose the web client from the primitives with the better-auth shell only —
+# the self-host stack is a distributor and omits the Cognito shell entirely.
+# Same-origin relative API base (packages/web-client/src/lib/client.ts defaults
+# VITE_API_URL-less builds to "/api"); Caddy proxies /api and /content to
+# apisix/backend, so no build-time API host is needed.
+RUN npm run build:dist -w packages/web-client -- --auth better-auth
 
 # Bakes the generated route table into the apisix image. backend:8080 is the
 # in-network service name/port every runtime target below also uses.
