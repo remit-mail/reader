@@ -1,5 +1,5 @@
 import { Search, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { cn } from "../lib/cn.js";
 import {
 	type ChipFocusTarget,
@@ -62,7 +62,12 @@ export interface SearchChipInputProps {
 	 * takeover. `lg` is the taller, rounder field the global top bar wants.
 	 */
 	size?: "sm" | "lg";
-	/** DOM id of the text input. Defaults to `mail-search`. */
+	/**
+	 * DOM id of the text input. Defaults to a generated, per-instance id — a
+	 * fixed default would collide wherever two fields are mounted at once, and
+	 * the enclosing <label for> would then aim at the wrong one. Pass this only
+	 * when something outside needs to address the field by a stable id.
+	 */
 	inputId?: string;
 	/** Accessible name for the chip grid. */
 	chipsLabel?: string;
@@ -122,10 +127,16 @@ export const SearchChipInput = ({
 	globalFocusKey = true,
 	showClearButton = true,
 	size = "sm",
-	inputId = "mail-search",
+	inputId,
 	chipsLabel = "Search filters",
 	className,
 }: SearchChipInputProps) => {
+	// The field wraps itself in a <label for>, and `for` binds to the FIRST
+	// matching id in tree order. A shared default would therefore aim every
+	// mounted field's label at whichever one rendered first — the desktop layout
+	// mounts two at once. A generated id per instance makes that unrepresentable.
+	const generatedId = useId();
+	const resolvedInputId = inputId ?? generatedId;
 	const inputRef = useRef<HTMLInputElement>(null);
 	const chipRefs = useRef<(HTMLButtonElement | null)[]>([]);
 	const clearQuery = onClearQuery ?? onClear;
@@ -185,6 +196,7 @@ export const SearchChipInput = ({
 			const action = resolveChipInputKey({
 				key: event.key,
 				shiftKey: event.shiftKey,
+				repeat: event.repeat,
 				caretAtStart: input.selectionStart === 0 && input.selectionEnd === 0,
 				hasValue: value.length > 0,
 				chipCount: chips.length,
@@ -212,6 +224,7 @@ export const SearchChipInput = ({
 		(index: number) => (event: React.KeyboardEvent) => {
 			const action = resolveChipKey({
 				key: event.key,
+				repeat: event.repeat,
 				index,
 				chipCount: chips.length,
 			});
@@ -260,7 +273,7 @@ export const SearchChipInput = ({
 		// `aria-label` still wins the accessible name, so chip text never leaks
 		// into it.
 		<label
-			htmlFor={inputId}
+			htmlFor={resolvedInputId}
 			className={cn(
 				"flex w-full items-center gap-1.5 text-sm",
 				"bg-surface-sunken/50 border border-transparent",
@@ -309,7 +322,7 @@ export const SearchChipInput = ({
 				)}
 				<input
 					ref={inputRef}
-					id={inputId}
+					id={resolvedInputId}
 					name="q"
 					type="text"
 					aria-label="Search mail"

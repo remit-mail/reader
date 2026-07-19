@@ -40,6 +40,12 @@ export interface SearchBarProps {
 	showClearButton?: boolean;
 	/** Field scale — `lg` for the global top bar. See `SearchChipInput`. */
 	size?: SearchChipInputProps["size"];
+	/**
+	 * DOM id of the text input. Defaults to a generated, per-instance id; see
+	 * `SearchChipInput`, which explains why a shared default breaks the field's
+	 * enclosing label.
+	 */
+	inputId?: string;
 	className?: string;
 }
 
@@ -60,6 +66,7 @@ export const SearchBar = ({
 	globalFocusKey = true,
 	showClearButton = true,
 	size,
+	inputId,
 	className,
 }: SearchBarProps) => (
 	<SearchChipInput
@@ -73,6 +80,7 @@ export const SearchBar = ({
 		globalFocusKey={globalFocusKey}
 		showClearButton={showClearButton}
 		size={size}
+		inputId={inputId}
 		className={className}
 	/>
 );

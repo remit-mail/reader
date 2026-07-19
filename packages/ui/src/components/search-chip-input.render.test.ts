@@ -136,3 +136,59 @@ describe("SearchChipInput chip semantics", () => {
 		assert.match(scoped, /accent-2/);
 	});
 });
+
+describe("Two fields mounted at once stay independent", () => {
+	// The field wraps itself in <label for>, and `for` binds to the first
+	// matching id in tree order. A shared default id would therefore point the
+	// second field's label at the first field's input — clicking one bar's
+	// padding would focus the other. The desktop layout mounts two at once.
+	const renderPair = (): string =>
+		renderToString(
+			createElement(
+				"div",
+				null,
+				createElement(SearchChipInput, {
+					value: "",
+					onChange: noop,
+					onClear: noop,
+				}),
+				createElement(SearchChipInput, {
+					value: "",
+					onChange: noop,
+					onClear: noop,
+				}),
+			),
+		);
+
+	it("gives each field its own input id", () => {
+		const ids = [...renderPair().matchAll(/<input[^>]*\sid="([^"]+)"/g)].map(
+			(m) => m[1],
+		);
+		assert.equal(ids.length, 2);
+		assert.notEqual(ids[0], ids[1], "two fields must not share an input id");
+	});
+
+	it("points each label at its own input", () => {
+		const html = renderPair();
+		const labelTargets = [...html.matchAll(/<label[^>]*\sfor="([^"]+)"/g)].map(
+			(m) => m[1],
+		);
+		const inputIds = [...html.matchAll(/<input[^>]*\sid="([^"]+)"/g)].map(
+			(m) => m[1],
+		);
+		assert.deepEqual(labelTargets, inputIds);
+	});
+
+	it("still honours an explicit id when the caller needs a stable one", () => {
+		const html = renderToString(
+			createElement(SearchChipInput, {
+				value: "",
+				onChange: noop,
+				onClear: noop,
+				inputId: "top-bar-search",
+			}),
+		);
+		assert.match(html, /<label[^>]*for="top-bar-search"/);
+		assert.match(html, /<input[^>]*id="top-bar-search"/);
+	});
+});

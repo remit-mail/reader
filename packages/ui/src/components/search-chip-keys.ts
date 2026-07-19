@@ -39,6 +39,13 @@ export type ChipAction =
 export interface ChipInputKeyState {
 	key: string;
 	shiftKey?: boolean;
+	/**
+	 * The keystroke came from the keyboard's auto-repeat, not a fresh press.
+	 * Holding Backspace to clear the text must stop at the chips instead of
+	 * running on into them, which would collapse the two-press rule into one
+	 * held key.
+	 */
+	repeat?: boolean;
 	/** Caret sits before all typed text, with nothing selected in the input. */
 	caretAtStart: boolean;
 	/** The field has typed text. */
@@ -48,6 +55,8 @@ export interface ChipInputKeyState {
 
 export interface ChipKeyState {
 	key: string;
+	/** See `ChipInputKeyState.repeat`. */
+	repeat?: boolean;
 	/** Index of the chip that currently holds focus. */
 	index: number;
 	chipCount: number;
@@ -64,6 +73,7 @@ export interface ChipKeyState {
 export function resolveChipInputKey({
 	key,
 	shiftKey = false,
+	repeat = false,
 	caretAtStart,
 	hasValue,
 	chipCount,
@@ -84,6 +94,9 @@ export function resolveChipInputKey({
 
 	if (key === "Backspace" || key === "ArrowLeft") {
 		if (!caretAtStart || chipCount === 0) return { type: "none" };
+		// A held key that has just eaten the last character stops here: crossing
+		// into the chips has to be a deliberate press.
+		if (repeat) return { type: "none" };
 		return { type: "focusChip", index: lastChip };
 	}
 
@@ -93,10 +106,13 @@ export function resolveChipInputKey({
 /** Keystrokes while a chip holds focus. */
 export function resolveChipKey({
 	key,
+	repeat = false,
 	index,
 	chipCount,
 }: ChipKeyState): ChipAction {
 	if (key === "Backspace" || key === "Delete") {
+		// One press, one chip. Holding the key must not walk the whole strip.
+		if (repeat) return { type: "none" };
 		return { type: "removeChip", index };
 	}
 

@@ -168,3 +168,39 @@ describe("Focus after a removal never falls off the field", () => {
 		assert.equal(focusAfterRemoval(0, 1), null);
 	});
 });
+
+describe("Auto-repeat cannot collapse the two-press rule into one held key", () => {
+	it("stops at the chips when a held Backspace has just emptied the text", () => {
+		assert.deepEqual(
+			resolveChipInputKey(inText({ key: "Backspace", repeat: true })),
+			{ type: "none" },
+		);
+	});
+
+	it("still crosses into the chips on a deliberate press", () => {
+		assert.deepEqual(
+			resolveChipInputKey(inText({ key: "Backspace", repeat: false })),
+			{ type: "focusChip", index: 0 },
+		);
+	});
+
+	it("removes one chip per press, never a strip on a held key", () => {
+		assert.deepEqual(
+			resolveChipKey(onChip({ key: "Backspace", repeat: true, chipCount: 3 })),
+			{ type: "none" },
+		);
+		assert.deepEqual(
+			resolveChipKey(onChip({ key: "Delete", repeat: true, chipCount: 3 })),
+			{ type: "none" },
+		);
+	});
+
+	it("leaves arrow-key repeat alone — walking the chips is not destructive", () => {
+		assert.deepEqual(
+			resolveChipKey(
+				onChip({ key: "ArrowLeft", repeat: true, index: 2, chipCount: 3 }),
+			),
+			{ type: "focusChip", index: 1 },
+		);
+	});
+});

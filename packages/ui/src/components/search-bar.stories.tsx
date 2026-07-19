@@ -41,6 +41,8 @@ export const WithQuery: Story = {
 export const Focused: Story = {
 	render: () => <Interactive />,
 	play: async ({ canvasElement }) => {
-		canvasElement.querySelector<HTMLInputElement>("#mail-search")?.focus();
+		canvasElement
+			.querySelector<HTMLInputElement>('input[aria-label="Search mail"]')
+			?.focus();
 	},
 };
