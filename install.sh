@@ -150,19 +150,42 @@ check_origin() {
 # Every outcome here is a warning: DNS pointed at the box after the install,
 # a name only the clients resolve, a proxy or NAT in front — all legitimate,
 # and none of them worth refusing an install over.
+#
+# The resolving is the wrapper's `probe-host`, not a second copy of it here.
+# That is why this runs after place_wrapper rather than beside check_origin —
+# still well before the pull, which is where the cost of a wrong origin is.
 
-PROBE_TIMEOUT=3
 ORIGIN_DNS_WARNING=""
 
-capped() {
-	if command -v timeout >/dev/null 2>&1; then
-		timeout "$PROBE_TIMEOUT" "$@" 2>/dev/null || true
-		return 0
-	fi
-	"$@" 2>/dev/null || true
+check_origin_dns() {
+	local probe verdict addrs
+	probe="$("$DIR/remit" probe-host "$ORIGIN" 2>/dev/null || true)"
+	verdict="${probe%% *}"
+	addrs="${probe#* }"
+	case "$verdict" in
+	unresolved)
+		ORIGIN_DNS_WARNING="$(origin_host_of "$ORIGIN") does not resolve from this box.
+Nothing loads at $ORIGIN until it does.
+Expected if you point DNS at this box after the install, or
+if only your clients resolve the name (tailnet, VPN, a hosts
+file). Otherwise the record is missing."
+		;;
+	elsewhere)
+		ORIGIN_DNS_WARNING="$ORIGIN resolves to $addrs,
+which this box does not hold — clients using DNS reach a
+different machine, not this one. Expected behind a proxy, NAT
+or split-horizon DNS. Otherwise the record is stale or names
+the wrong host, and nothing loads there."
+		;;
+	# held, loopback, unknown, and an unreadable probe are all silent: each is
+	# either correct or unknowable, and neither is worth a warning.
+	*) return 0 ;;
+	esac
+	warn "$ORIGIN_DNS_WARNING"
 }
 
-origin_host() {
+# Only for the warning text; the probe does its own parsing.
+origin_host_of() {
 	local h="${1#*://}"
 	h="${h%%/*}"
 	h="${h#*@}"
@@ -174,83 +197,6 @@ origin_host() {
 	*) h="${h%%:*}" ;;
 	esac
 	printf '%s' "$h"
-}
-
-resolver_tool() {
-	local t
-	for t in getent dig host; do
-		if command -v "$t" >/dev/null 2>&1; then
-			printf '%s' "$t"
-			return 0
-		fi
-	done
-	return 1
-}
-
-resolve_host() {
-	case "$(resolver_tool || true)" in
-	getent) capped getent ahosts "$1" | awk '{print $1}' | sort -u | tr '\n' ' ' ;;
-	dig) capped dig +short +time=2 +tries=1 "$1" | grep -E '^[0-9a-fA-F.:]+$' | sort -u | tr '\n' ' ' ;;
-	host) capped host -W 2 "$1" | awk '/has( IPv6)? address/ {print $NF}' | sort -u | tr '\n' ' ' ;;
-	esac
-}
-
-local_addresses() {
-	if command -v ip >/dev/null 2>&1; then
-		capped ip -o addr show | awk '{print $4}' | cut -d/ -f1
-		return 0
-	fi
-	if command -v ifconfig >/dev/null 2>&1; then
-		capped ifconfig | awk '/inet6? /{print $2}' | sed 's/^addr://'
-		return 0
-	fi
-	return 1
-}
-
-check_origin_dns() {
-	local host addrs local_addrs a l held=0 loopback_only=1
-	host="$(origin_host "$ORIGIN")"
-	[ -n "$host" ] || return 0
-	# No resolver is not the operator's problem to hear about here.
-	resolver_tool >/dev/null || return 0
-
-	addrs="$(resolve_host "$host")"
-	addrs="${addrs% }"
-	if [ -z "$addrs" ]; then
-		ORIGIN_DNS_WARNING="$host does not resolve from this box.
-Nothing loads at $ORIGIN until it does.
-Expected if you point DNS at this box after the install, or
-if only your clients resolve the name (tailnet, VPN, a hosts
-file). Otherwise the record is missing."
-		warn "$ORIGIN_DNS_WARNING"
-		return 0
-	fi
-
-	for a in $addrs; do
-		case "$a" in
-		127.* | ::1) ;;
-		*) loopback_only=0 ;;
-		esac
-	done
-	[ "$loopback_only" = "0" ] || return 0
-
-	local_addrs="$(local_addresses || true)"
-	[ -n "$local_addrs" ] || return 0
-	for a in $addrs; do
-		for l in $local_addrs; do
-			if [ "$a" = "$l" ]; then
-				held=1
-			fi
-		done
-	done
-	[ "$held" = "0" ] || return 0
-
-	ORIGIN_DNS_WARNING="$host resolves to $addrs,
-which this box does not hold — clients using DNS reach a
-different machine, not this one. Expected behind a proxy, NAT
-or split-horizon DNS. Otherwise the record is stale or names
-the wrong host, and nothing loads at $ORIGIN."
-	warn "$ORIGIN_DNS_WARNING"
 }
 
 check_engine() {
@@ -382,16 +328,16 @@ write_env() {
 }
 
 # The remit wrapper ships as a deploy asset; here it is made executable and,
-# where possible, put on PATH. DEFAULT_DIR and DEFAULT_COMPOSE_FILE are
-# rewritten to what this run installed, so `remit` works with no REMIT_DIR or
-# REMIT_COMPOSE_FILE set. /usr/local/bin is written only when already
-# writable — the installer never elevates on its own.
+# where possible, put on PATH. DEFAULT_DIR and COMPOSE_FILE are rewritten to
+# what this run installed, so `remit` needs nothing in the environment to find
+# the deployment. /usr/local/bin is written only when already writable — the
+# installer never elevates on its own.
 place_wrapper() {
 	local src="$DIR/remit"
 	[ -f "$src" ] || die "the remit wrapper is missing from $DIR — the asset fetch did not complete."
 	local tmp="$src.tmp"
 	sed -e "s#^DEFAULT_DIR=.*#DEFAULT_DIR=$DIR#" \
-		-e "s#^DEFAULT_COMPOSE_FILE=.*#DEFAULT_COMPOSE_FILE=$COMPOSE_FILE#" \
+		-e "s#^COMPOSE_FILE=.*#COMPOSE_FILE=$COMPOSE_FILE#" \
 		"$src" >"$tmp"
 	mv "$tmp" "$src"
 	chmod +x "$src"
@@ -421,7 +367,7 @@ validate_compose() {
 # which is when an operator is least equipped to read a raw compose failure.
 bring_up() {
 	say "Pulling images and starting reader"
-	REMIT_DIR="$DIR" REMIT_COMPOSE_FILE="$COMPOSE_FILE" "$DIR/remit" update
+	REMIT_DIR="$DIR" REMIT_QUIET=1 "$DIR/remit" update
 }
 
 # A warning emitted before the pull is minutes of image progress behind by the
@@ -498,15 +444,15 @@ EOF
 main() {
 	parse_args "$@"
 	check_origin
-	# Before the host checks and well before the pull: a wrong origin caught
-	# here costs nothing, and caught after it costs ~4 GB and an install.
-	check_origin_dns
 	check_engine
 	check_arch
 	check_ports
 	fetch_assets
 	write_env
 	place_wrapper
+	# Needs the wrapper on disk, and belongs before the pull: a wrong origin
+	# caught here costs nothing, caught after it costs ~4 GB and an install.
+	check_origin_dns
 	validate_compose
 	if [ "$DRY_RUN" = "1" ]; then
 		say ""

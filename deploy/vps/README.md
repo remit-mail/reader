@@ -69,12 +69,19 @@ remit down                # stop serving; remit restart brings it back
 remit config              # the effective configuration, secrets redacted
 remit cert                # export Caddy's root CA (TLS_MODE=internal)
 remit purge --yes         # destroy the deployment, data included
+remit probe-host <origin> # check how a name resolves from this box
 ```
 
 When `/usr/local/bin` is writable the installer puts `remit` there; otherwise it
 stays in the install directory and the installer prints the one-line `sudo cp`
-that places it on PATH. `$REMIT_DIR` overrides the directory it was installed
-against, for a box running more than one deployment.
+that places it on PATH. `$REMIT_DIR` points it at a different install directory.
+
+That chooses whose files and `.env` are used, not whose data is touched. The
+compose file pins `name: remit`, which outranks the directory it is run from, so
+every install on a host is one Compose project sharing one set of containers and
+volumes. A second install directory on the same box adopts the first one's data
+rather than getting its own, and `remit purge` from either destroys it for both.
+One deployment per host.
 
 `remit down` stops the containers, so the address stops answering until
 `remit restart`. It removes no volume — accounts, mail and settings all come
@@ -101,19 +108,20 @@ command for.
 
 ## When the app is unreachable
 
-Run `remit status` first. Besides the service table it checks the name in
-`PUBLIC_ORIGIN` from this box: what it resolves to, whether this host actually
-holds that address, and whether the origin answers.
+Run `remit status` first. Besides the service table it resolves the host in
+`PUBLIC_ORIGIN` from this box and probes it, printing what it resolved to and
+whether the origin answers.
 
 The failure worth knowing about is the one nothing else reports: every container
 is up, the box serves fine, and the browser hangs anyway, because the name
 resolves somewhere else — a record left from an earlier origin, or a stale
 answer cached by the client's resolver or MagicDNS. From the box the name works,
-so nothing looks wrong. `remit status` says `this host does not hold that
-address` when that is what happened; fix the record, then flush the resolver
-cache on the machine you browse from. A name that resolves to loopback is the
-same blind spot pointing the other way — it works here and proves nothing about
-a remote client — and `remit status` calls that out too.
+so nothing looks wrong. `remit status` says `this box does not hold that, so
+clients reach a different machine` when that is what happened. Fix the record,
+then flush the resolver cache on the machine you browse from.
+
+`remit probe-host <origin>` runs the same check against any name, which is how
+to test a record before pointing `PUBLIC_ORIGIN` at it.
 
 ## Manual install
 
