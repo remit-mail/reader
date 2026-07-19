@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { afterEach, test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { buildDataPortsFromEnv } from "./data-ports.js";
+
+// The DynamoDB composition module is stripped from the open-core tree; the
+// DynamoDB-path cases skip there and run where the module ships.
+const hasDynamoComposition = existsSync(
+	fileURLToPath(new URL("./compose-dynamodb.ts", import.meta.url)),
+);
 
 const withEnv = async (
 	overrides: Record<string, string | undefined>,
@@ -26,30 +34,38 @@ afterEach(() => {
 	delete process.env.DATA_BACKEND;
 });
 
-test("without DATA_BACKEND builds DynamoDB (electrodb) ports and no resolveAccountId hook", async () => {
-	await withEnv(
-		{ DATA_BACKEND: undefined, DYNAMODB_TABLE_NAME: "remit-test" },
-		async () => {
-			const ports = await buildDataPortsFromEnv();
-			assert.ok(ports.account, "account port must be defined");
-			assert.ok(ports.threadMessage, "threadMessage port must be defined");
-			assert.equal(
-				ports.resolveAccountId,
-				undefined,
-				"DynamoDB messages already carry a real accountId — no resolution hook",
-			);
-		},
-	);
-});
+test(
+	"without DATA_BACKEND builds DynamoDB (electrodb) ports and no resolveAccountId hook",
+	{ skip: !hasDynamoComposition },
+	async () => {
+		await withEnv(
+			{ DATA_BACKEND: undefined, DYNAMODB_TABLE_NAME: "remit-test" },
+			async () => {
+				const ports = await buildDataPortsFromEnv();
+				assert.ok(ports.account, "account port must be defined");
+				assert.ok(ports.threadMessage, "threadMessage port must be defined");
+				assert.equal(
+					ports.resolveAccountId,
+					undefined,
+					"DynamoDB messages already carry a real accountId — no resolution hook",
+				);
+			},
+		);
+	},
+);
 
-test("without DATA_BACKEND and no DYNAMODB_TABLE_NAME throws", async () => {
-	await withEnv(
-		{ DATA_BACKEND: undefined, DYNAMODB_TABLE_NAME: undefined },
-		async () => {
-			await assert.rejects(() => buildDataPortsFromEnv());
-		},
-	);
-});
+test(
+	"without DATA_BACKEND and no DYNAMODB_TABLE_NAME throws",
+	{ skip: !hasDynamoComposition },
+	async () => {
+		await withEnv(
+			{ DATA_BACKEND: undefined, DYNAMODB_TABLE_NAME: undefined },
+			async () => {
+				await assert.rejects(() => buildDataPortsFromEnv());
+			},
+		);
+	},
+);
 
 test("DATA_BACKEND=postgres builds Drizzle ports with a resolveAccountId hook, without connecting", async () => {
 	await withEnv(
