@@ -31,7 +31,7 @@ import {
 	useAppShellLayout,
 } from "@remit/ui";
 import { type ReactNode, useState } from "react";
-import { useLayoutTier } from "@/hooks/useLayoutTier";
+import { isSinglePaneTier, useLayoutTier } from "@/hooks/useLayoutTier";
 import { useMailContext } from "@/lib/mail-context";
 import { loadRecentSearches, saveRecentSearch } from "@/lib/recent-searches";
 import {
@@ -173,9 +173,10 @@ export function MailListHeader({
 				// has two search inputs competing for "/" and for focus. Below
 				// desktop the header keeps a compact magnifier: on phone it opens
 				// the full-screen takeover above, on tablet it expands over the
-				// title.
+				// title. `isSinglePaneTier` is the same predicate the shell gates
+				// the top bar on, so the two cannot drift into zero or two fields.
 				isDesktop={false}
-				showSearch={tier !== "desktop"}
+				showSearch={isSinglePaneTier(tier)}
 				onMenuClick={() => layout?.openNav()}
 				searchValue={searchInput}
 				onSearchChange={onSearchChange}

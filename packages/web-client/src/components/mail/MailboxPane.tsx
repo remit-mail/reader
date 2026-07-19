@@ -202,7 +202,6 @@ interface MailboxPaneContextValue {
 	onToolbarDiscardDraft: () => void;
 	onToolbarMove: (destMailboxId: string) => void;
 	composeState: ReturnType<typeof useCompose>["state"];
-	openCompose: () => void;
 	closeCompose: () => void;
 	hasRemitDraftOpen: boolean;
 	// Phone actions
@@ -843,7 +842,6 @@ function MailboxPaneProvider({
 		onToolbarDiscardDraft: handleToolbarDiscardDraft,
 		onToolbarMove: handleToolbarMove,
 		composeState,
-		openCompose: handleNewCompose,
 		closeCompose,
 		hasRemitDraftOpen,
 		onBack: goBack,

@@ -269,7 +269,7 @@ function MailLayout() {
 	const navContent = (
 		<MailNav accounts={accounts} onMailboxSelect={handleMailboxSelect} />
 	);
-	const overlayContent = <ComposeFab />;
+	const overlayContent = <ComposeFab accounts={accounts} />;
 	// Desktop only. Below 1024px the single pane keeps its own header search and
 	// the phone takeover; there is no room for a bar spanning panes that do not
 	// exist side by side.
