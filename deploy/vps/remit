@@ -3,8 +3,8 @@
 # remit — admin wrapper for the self-host docker compose deployment.
 #
 # Wraps `docker compose` against the deployment directory so the operator
-# never has to cd there or repeat -f/--env-file. install.sh bakes the
-# directory it installed to into DEFAULT_DIR below; $REMIT_DIR overrides it.
+# never has to cd there or repeat -f/--env-file. install.sh rewrites
+# DEFAULT_DIR below to the directory it installed to; $REMIT_DIR overrides it.
 
 set -eu
 
@@ -38,13 +38,13 @@ EOF
 compose() {
 	docker compose \
 		--project-directory "$REMIT_DIR" \
-		-f "$REMIT_DIR/docker-compose.yml" \
+		-f "$REMIT_DIR/docker-compose.sqlite.yml" \
 		--env-file "$REMIT_DIR/.env" \
 		"$@"
 }
 
 require_deployment() {
-	[ -f "$REMIT_DIR/docker-compose.yml" ] ||
+	[ -f "$REMIT_DIR/docker-compose.sqlite.yml" ] ||
 		die "no deployment at $REMIT_DIR — set \$REMIT_DIR or run install.sh"
 	[ -f "$REMIT_DIR/.env" ] ||
 		die "no .env at $REMIT_DIR — set \$REMIT_DIR or run install.sh"
@@ -208,7 +208,7 @@ cmd_update() {
 
 cmd_down() {
 	require_deployment
-	# stop, never `down`: the pgdata and message_storage volumes hold every
+	# stop, never `down`: the sqlite_data and message_storage volumes hold every
 	# account, credential and message body on this box.
 	compose stop
 	printf "remit is stopped. Data volumes are untouched; 'remit restart' brings it back.\n"
