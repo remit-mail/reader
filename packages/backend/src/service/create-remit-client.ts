@@ -33,10 +33,7 @@ import {
 	MessageMoveService,
 	OutboxQueueService,
 } from "@remit/mailbox-service";
-import {
-	createSearchService,
-	type SearchService,
-} from "@remit/search-service";
+import { createSearchService, type SearchService } from "@remit/search-service";
 import {
 	buildEmbeddingServiceFromEnv,
 	buildVectorStoreFromEnv,

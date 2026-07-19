@@ -2,17 +2,10 @@ import assert from "node:assert";
 import { afterEach, before, describe, mock, test } from "node:test";
 import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 import { GetParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
-import {
-	getClient,
-	type RemitClient,
-	setClient,
-} from "@remit/backend/client";
+import { getClient, type RemitClient, setClient } from "@remit/backend/client";
 import type { AccountItem, MailboxItem } from "@remit/data-ports";
 import type { Logger } from "@remit/logger-lambda";
-import {
-	BodySyncService,
-	type SyncedMessage,
-} from "@remit/mailbox-service";
+import { BodySyncService, type SyncedMessage } from "@remit/mailbox-service";
 import { mockClient } from "aws-sdk-client-mock";
 import { resetBodySyncGateCache } from "../body-sync-gate.js";
 import { __warmPoolSizeForTest } from "../connection-scope.js";

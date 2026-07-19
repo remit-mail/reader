@@ -16,19 +16,13 @@ const hasCheckScript = existsSync(
 // Fails when the committed VPS migrations (deploy/vps/migrations/*) no longer
 // produce the schema drizzle would generate from the entity + auth schemas.
 // See npm-scripts/check-vps-migrations.mjs for the mechanism.
-test(
-	"committed VPS migrations match the drizzle schema",
-	{ skip: !hasCheckScript },
-	() => {
-		assert.doesNotThrow(() => {
-			execFileSync(
-				"node",
-				["npm-scripts/check-vps-migrations.mjs", "--check"],
-				{
-					cwd: repoRoot,
-					stdio: "inherit",
-				},
-			);
-		}, "committed VPS migrations are stale — run `npm run migrations:generate`");
-	},
-);
+test("committed VPS migrations match the drizzle schema", {
+	skip: !hasCheckScript,
+}, () => {
+	assert.doesNotThrow(() => {
+		execFileSync("node", ["npm-scripts/check-vps-migrations.mjs", "--check"], {
+			cwd: repoRoot,
+			stdio: "inherit",
+		});
+	}, "committed VPS migrations are stale — run `npm run migrations:generate`");
+});

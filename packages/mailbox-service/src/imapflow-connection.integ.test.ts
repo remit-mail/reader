@@ -134,194 +134,183 @@ const getMailboxUids = async (mailbox: string): Promise<number[]> => {
 	return uids;
 };
 
-describe(
-	"ImapFlowConnection integration tests",
-	{
-		skip: !process.env.RUN_INTEG_TESTS,
-	},
-	() => {
-		describe("moveMessages", () => {
-			test("moves a message to another mailbox", async () => {
-				// Seed the test message first
-				const subject = `Move test ${Date.now()}`;
-				const uid = await seedTestMessage("INBOX", subject);
+describe("ImapFlowConnection integration tests", {
+	skip: !process.env.RUN_INTEG_TESTS,
+}, () => {
+	describe("moveMessages", () => {
+		test("moves a message to another mailbox", async () => {
+			// Seed the test message first
+			const subject = `Move test ${Date.now()}`;
+			const uid = await seedTestMessage("INBOX", subject);
 
-				// Count messages in Work before
-				const workCountBefore = await countMessagesInMailbox("Work");
+			// Count messages in Work before
+			const workCountBefore = await countMessagesInMailbox("Work");
 
-				await withConnection(async (connection) => {
-					// Open INBOX
-					await connection.openBox("INBOX", false);
+			await withConnection(async (connection) => {
+				// Open INBOX
+				await connection.openBox("INBOX", false);
 
-					// Move to Work folder
-					const result = await connection.moveMessages([uid], "Work");
+				// Move to Work folder
+				const result = await connection.moveMessages([uid], "Work");
 
-					// mokapi doesn't return uidMap, but should return destination
-					assert.equal(
-						result.destination,
-						"Work",
-						"Destination should be Work",
-					);
-				});
+				// mokapi doesn't return uidMap, but should return destination
+				assert.equal(result.destination, "Work", "Destination should be Work");
+			});
 
-				// Verify message moved using fresh connections (mokapi caching workaround)
-				const inboxUids = await getMailboxUids("INBOX");
-				assert.ok(
-					!inboxUids.includes(uid),
-					"Original UID should not be in INBOX",
-				);
+			// Verify message moved using fresh connections (mokapi caching workaround)
+			const inboxUids = await getMailboxUids("INBOX");
+			assert.ok(
+				!inboxUids.includes(uid),
+				"Original UID should not be in INBOX",
+			);
 
-				const workCountAfter = await countMessagesInMailbox("Work");
-				assert.ok(
-					workCountAfter > workCountBefore,
-					`Work folder should have more messages (before: ${workCountBefore}, after: ${workCountAfter})`,
+			const workCountAfter = await countMessagesInMailbox("Work");
+			assert.ok(
+				workCountAfter > workCountBefore,
+				`Work folder should have more messages (before: ${workCountBefore}, after: ${workCountAfter})`,
+			);
+		});
+
+		test("returns empty uidMap when no UIDs provided", async () => {
+			await withConnection(async (connection) => {
+				await connection.openBox("INBOX", false);
+
+				const result = await connection.moveMessages([], "Work");
+
+				assert.equal(result.destination, "Work");
+				assert.equal(result.uidMap.size, 0);
+			});
+		});
+	});
+
+	describe("copyMessages", () => {
+		test("copies a message to another mailbox", async () => {
+			// Seed the test message first
+			const subject = `Copy test ${Date.now()}`;
+			const uid = await seedTestMessage("INBOX", subject);
+
+			// Count messages in Archive before
+			const archiveCountBefore = await countMessagesInMailbox("Archive");
+
+			await withConnection(async (connection) => {
+				// Open INBOX
+				await connection.openBox("INBOX", false);
+
+				// Copy to Archive folder
+				const result = await connection.copyMessages([uid], "Archive");
+
+				assert.equal(
+					result.destination,
+					"Archive",
+					"Destination should be Archive",
 				);
 			});
 
-			test("returns empty uidMap when no UIDs provided", async () => {
-				await withConnection(async (connection) => {
-					await connection.openBox("INBOX", false);
+			// Verify original message is still in INBOX
+			const inboxUids = await getMailboxUids("INBOX");
+			assert.ok(
+				inboxUids.includes(uid),
+				"Original UID should still be in INBOX",
+			);
 
-					const result = await connection.moveMessages([], "Work");
+			// Verify copy is in Archive (count increased)
+			const archiveCountAfter = await countMessagesInMailbox("Archive");
+			assert.ok(
+				archiveCountAfter > archiveCountBefore,
+				`Archive folder should have more messages (before: ${archiveCountBefore}, after: ${archiveCountAfter})`,
+			);
 
-					assert.equal(result.destination, "Work");
-					assert.equal(result.uidMap.size, 0);
-				});
+			// Cleanup: delete the original from INBOX
+			await withConnection(async (connection) => {
+				await connection.openBox("INBOX", false);
+				await connection.deleteMessages([uid]);
 			});
 		});
 
-		describe("copyMessages", () => {
-			test("copies a message to another mailbox", async () => {
-				// Seed the test message first
-				const subject = `Copy test ${Date.now()}`;
-				const uid = await seedTestMessage("INBOX", subject);
+		test("returns empty uidMap when no UIDs provided", async () => {
+			await withConnection(async (connection) => {
+				await connection.openBox("INBOX", false);
 
-				// Count messages in Archive before
-				const archiveCountBefore = await countMessagesInMailbox("Archive");
+				const result = await connection.copyMessages([], "Archive");
 
-				await withConnection(async (connection) => {
-					// Open INBOX
-					await connection.openBox("INBOX", false);
-
-					// Copy to Archive folder
-					const result = await connection.copyMessages([uid], "Archive");
-
-					assert.equal(
-						result.destination,
-						"Archive",
-						"Destination should be Archive",
-					);
-				});
-
-				// Verify original message is still in INBOX
-				const inboxUids = await getMailboxUids("INBOX");
-				assert.ok(
-					inboxUids.includes(uid),
-					"Original UID should still be in INBOX",
-				);
-
-				// Verify copy is in Archive (count increased)
-				const archiveCountAfter = await countMessagesInMailbox("Archive");
-				assert.ok(
-					archiveCountAfter > archiveCountBefore,
-					`Archive folder should have more messages (before: ${archiveCountBefore}, after: ${archiveCountAfter})`,
-				);
-
-				// Cleanup: delete the original from INBOX
-				await withConnection(async (connection) => {
-					await connection.openBox("INBOX", false);
-					await connection.deleteMessages([uid]);
-				});
+				assert.equal(result.destination, "Archive");
+				assert.equal(result.uidMap.size, 0);
 			});
+		});
+	});
 
-			test("returns empty uidMap when no UIDs provided", async () => {
-				await withConnection(async (connection) => {
-					await connection.openBox("INBOX", false);
+	describe("deleteMessages", () => {
+		test("permanently deletes a message", async () => {
+			// Seed the test message first
+			const subject = `Delete test ${Date.now()}`;
+			const uid = await seedTestMessage("INBOX", subject);
 
-					const result = await connection.copyMessages([], "Archive");
+			// Verify message exists
+			let uids = await getMailboxUids("INBOX");
+			assert.ok(uids.includes(uid), "Message should exist before delete");
 
-					assert.equal(result.destination, "Archive");
-					assert.equal(result.uidMap.size, 0);
-				});
+			await withConnection(async (connection) => {
+				// Open INBOX
+				await connection.openBox("INBOX", false);
+
+				// Delete the message
+				const deleted = await connection.deleteMessages([uid]);
+				// mokapi may return true instead of count
+				assert.ok(deleted, "Should report message deleted");
+
+				// mokapi requires mailbox close for delete to persist
+				await connection.closeBox();
+
+				// Verify within same connection
+				await connection.openBox("INBOX", true);
+				uids = await connection.search(["ALL"]);
+				assert.ok(!uids.includes(uid), "Message should not exist after delete");
 			});
 		});
 
-		describe("deleteMessages", () => {
-			test("permanently deletes a message", async () => {
-				// Seed the test message first
-				const subject = `Delete test ${Date.now()}`;
-				const uid = await seedTestMessage("INBOX", subject);
+		test("returns 0 when no UIDs provided", async () => {
+			await withConnection(async (connection) => {
+				await connection.openBox("INBOX", false);
 
-				// Verify message exists
-				let uids = await getMailboxUids("INBOX");
-				assert.ok(uids.includes(uid), "Message should exist before delete");
-
-				await withConnection(async (connection) => {
-					// Open INBOX
-					await connection.openBox("INBOX", false);
-
-					// Delete the message
-					const deleted = await connection.deleteMessages([uid]);
-					// mokapi may return true instead of count
-					assert.ok(deleted, "Should report message deleted");
-
-					// mokapi requires mailbox close for delete to persist
-					await connection.closeBox();
-
-					// Verify within same connection
-					await connection.openBox("INBOX", true);
-					uids = await connection.search(["ALL"]);
-					assert.ok(
-						!uids.includes(uid),
-						"Message should not exist after delete",
-					);
-				});
-			});
-
-			test("returns 0 when no UIDs provided", async () => {
-				await withConnection(async (connection) => {
-					await connection.openBox("INBOX", false);
-
-					const deleted = await connection.deleteMessages([]);
-					assert.equal(deleted, 0);
-				});
+				const deleted = await connection.deleteMessages([]);
+				assert.equal(deleted, 0);
 			});
 		});
+	});
 
-		describe("move to Trash workflow", () => {
-			test("moves message to Trash folder", async () => {
-				// Seed the test message first
-				const subject = `Trash test ${Date.now()}`;
-				const uid = await seedTestMessage("INBOX", subject);
+	describe("move to Trash workflow", () => {
+		test("moves message to Trash folder", async () => {
+			// Seed the test message first
+			const subject = `Trash test ${Date.now()}`;
+			const uid = await seedTestMessage("INBOX", subject);
 
-				// Count messages in Trash before
-				const trashCountBefore = await countMessagesInMailbox("Trash");
+			// Count messages in Trash before
+			const trashCountBefore = await countMessagesInMailbox("Trash");
 
-				await withConnection(async (connection) => {
-					// Open INBOX
-					await connection.openBox("INBOX", false);
+			await withConnection(async (connection) => {
+				// Open INBOX
+				await connection.openBox("INBOX", false);
 
-					// Move to Trash
-					const result = await connection.moveMessages([uid], "Trash");
+				// Move to Trash
+				const result = await connection.moveMessages([uid], "Trash");
 
-					assert.equal(
-						result.destination,
-						"Trash",
-						"Destination should be Trash",
-					);
-				});
-
-				// Verify message is no longer in INBOX
-				const inboxUids = await getMailboxUids("INBOX");
-				assert.ok(!inboxUids.includes(uid), "Message should not be in INBOX");
-
-				// Verify message is in Trash (count increased)
-				const trashCountAfter = await countMessagesInMailbox("Trash");
-				assert.ok(
-					trashCountAfter > trashCountBefore,
-					`Trash folder should have more messages (before: ${trashCountBefore}, after: ${trashCountAfter})`,
+				assert.equal(
+					result.destination,
+					"Trash",
+					"Destination should be Trash",
 				);
 			});
+
+			// Verify message is no longer in INBOX
+			const inboxUids = await getMailboxUids("INBOX");
+			assert.ok(!inboxUids.includes(uid), "Message should not be in INBOX");
+
+			// Verify message is in Trash (count increased)
+			const trashCountAfter = await countMessagesInMailbox("Trash");
+			assert.ok(
+				trashCountAfter > trashCountBefore,
+				`Trash folder should have more messages (before: ${trashCountBefore}, after: ${trashCountAfter})`,
+			);
 		});
-	},
-);
+	});
+});

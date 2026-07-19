@@ -1,9 +1,9 @@
-import type { AddressItem, FlagsMergePatch } from "@remit/data-ports";
-import { ForbiddenError } from "@remit/data-ports/errors";
 import type {
 	AddressResponse,
 	UpdateAddressInput,
 } from "@remit/api-openapi-types";
+import type { AddressItem, FlagsMergePatch } from "@remit/data-ports";
+import { ForbiddenError } from "@remit/data-ports/errors";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent } from "../auth.js";

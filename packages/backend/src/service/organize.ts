@@ -1,7 +1,4 @@
-import type {
-	FilterItem,
-	OrganizeJobRequestItem,
-} from "@remit/data-ports";
+import type { FilterItem, OrganizeJobRequestItem } from "@remit/data-ports";
 import {
 	DEFAULT_SEMANTIC_MATCH_THRESHOLD,
 	type FilterMessage,
