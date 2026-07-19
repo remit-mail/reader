@@ -12,17 +12,35 @@
 		"./conformance": {
 			"types": "./src/conformance/index.ts",
 			"default": "./src/conformance/index.ts"
+		},
+		"./errors": {
+			"types": "./src/errors.ts",
+			"default": "./src/errors.ts"
+		},
+		"./id": {
+			"types": "./src/id.ts",
+			"default": "./src/id.ts"
+		},
+		"./account-settings": {
+			"types": "./src/account-settings.ts",
+			"default": "./src/account-settings.ts"
+		},
+		"./wellknown": {
+			"types": "./src/wellknown.ts",
+			"default": "./src/wellknown.ts"
 		}
 	},
 	"scripts": {
 		"test:typecheck": "tsgo --noEmit"
 	},
 	"dependencies": {
-		"@remit/domain-enums": "*"
+		"@remit/domain-enums": "*",
+		"short-uuid": "*",
+		"uuid": "*",
+		"zod": "*"
 	},
 	"devDependencies": {
-		"@remit/api-zod-schemas": "*",
-		"zod": "*"
+		"@remit/api-zod-schemas": "*"
 	},
 	"license": "MIT",
 	"publishConfig": {

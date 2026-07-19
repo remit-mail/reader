@@ -2,8 +2,8 @@ import type {
 	AddressItem,
 	MessageItem,
 	ThreadMessageItem,
-} from "@remit/remit-electrodb-service";
-import { AddressService } from "@remit/remit-electrodb-service";
+} from "@remit/data-ports";
+import { deriveAddressId } from "@remit/data-ports/id";
 import { MessageCategory, SenderTrust, StarColor } from "@remit/domain-enums";
 import type { ThreadMessageResponse } from "@remit/api-openapi-types";
 import { deriveAutoMoved } from "./autoMoved.js";
@@ -56,7 +56,7 @@ const toResponse = (item: ThreadMessageItem): ThreadMessageResponse => ({
  * same messageId / sender.
  *
  * `addressId` is derived deterministically from `(accountConfigId, fromEmail)`
- * via `AddressService.generateAddressId`, mirroring the write path in
+ * via `deriveAddressId`, mirroring the write path in
  * `body-sync.ts`. Rows without a `fromEmail` (rare; sentinel/system rows)
  * contribute no addressId and fall back to `senderTrust: "unknown"`.
  */
@@ -76,10 +76,7 @@ export const planBatchFetch = (rows: ThreadMessageItem[]): BatchPlan => {
 
 		if (!row.fromEmail) continue;
 
-		const addressId = AddressService.generateAddressId(
-			row.accountConfigId,
-			row.fromEmail,
-		);
+		const addressId = deriveAddressId(row.accountConfigId, row.fromEmail);
 		addressIds.add(addressId);
 		addressIdByRow.set(row.threadMessageId, addressId);
 	}

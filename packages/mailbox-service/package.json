@@ -52,5 +52,14 @@
 		"mailparser": "^3.9.14",
 		"nodemailer": "^9.0.3",
 		"p-map": "^7.0.4"
+	},
+	"license": "MIT",
+	"publishConfig": {
+		"access": "public"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/remit-mail/remit.git",
+		"directory": "packages/mailbox-service"
 	}
 }

@@ -1,4 +1,3 @@
-import { buildDynamoDBClient } from "./compose-dynamodb.js";
 import type { RemitClient } from "./create-remit-client.js";
 
 export type {
@@ -8,13 +7,16 @@ export type {
 
 let clientPromise: Promise<RemitClient> | null = null;
 
-// The API process and the imap-worker share this composition root. DynamoDB is
-// the default and the only backend statically wired here — the sole one a
-// deployed Lambda ever runs. The relational backends are loaded through a
-// dynamic import of their own composition module, so `@remit/remit-drizzle-
-// service` and `drizzle-orm` never enter a Lambda bundle (both are `external`
-// for the Lambda esbuild build; the relational path runs via `tsx` on the
-// self-host stacks). `remit-lambda-bundles.test.ts` enforces this.
+// The API process and the imap-worker share this composition root. Each backend
+// is loaded through a dynamic import of its own composition module, so the
+// module that a given deploy never runs never enters its graph: `@remit/remit-
+// drizzle-service`/`drizzle-orm` stay out of a Lambda bundle (both `external`
+// for the Lambda esbuild build; `remit-lambda-bundles.test.ts` enforces this),
+// and the DynamoDB composition — which imports the closed `@remit/remit-
+// electrodb-service` — stays out of the relational (open-core) tree, where its
+// module is not shipped at all. esbuild still bundles the DynamoDB path into
+// the Lambda because `./compose-dynamodb.js` is a relative import, not an
+// `external`.
 export const getClient = (): Promise<RemitClient> => {
 	if (!clientPromise) {
 		if (process.env.DATA_BACKEND === "postgres") {
@@ -26,7 +28,9 @@ export const getClient = (): Promise<RemitClient> => {
 				m.buildSqliteClient(),
 			);
 		} else {
-			clientPromise = Promise.resolve(buildDynamoDBClient());
+			clientPromise = import("./compose-dynamodb.js").then((m) =>
+				m.buildDynamoDBClient(),
+			);
 		}
 	}
 

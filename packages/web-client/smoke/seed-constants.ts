@@ -1,8 +1,8 @@
 import {
 	base36uuidv5,
-	MessageService,
+	deriveMessageId,
 	REMIT_NAMESPACE,
-} from "@remit/remit-electrodb-service";
+} from "@remit/data-ports/id";
 
 /**
  * Seeded test-data constants. Imported by both the seeder
@@ -35,7 +35,7 @@ export const DRAFTS_ID = base36uuidv5("e2e:mailbox:Drafts", REMIT_NAMESPACE);
 export const DRAFTS_IMAP_MESSAGE_ID_HEADER = "<e2e-imap-draft-1@test.local>";
 
 export const SAMPLE_MESSAGE_ID_HEADER = "<e2e-msg-3@test.local>";
-export const SAMPLE_MESSAGE_ID = MessageService.generateId(
+export const SAMPLE_MESSAGE_ID = deriveMessageId(
 	E2E_ACCOUNT_ID,
 	SAMPLE_MESSAGE_ID_HEADER,
 );

@@ -1,4 +1,4 @@
-import type { MailboxItem } from "@remit/remit-electrodb-service";
+import type { MailboxItem } from "@remit/data-ports";
 
 /**
  * The subset of a pending placement-move marker (issue #1271) this

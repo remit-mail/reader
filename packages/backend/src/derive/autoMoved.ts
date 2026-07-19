@@ -1,4 +1,4 @@
-import type { MessageItem } from "@remit/remit-electrodb-service";
+import type { MessageItem } from "@remit/data-ports";
 import { PlacementConfidence } from "@remit/domain-enums";
 import type { AutoMovedInfo } from "@remit/api-openapi-types";
 

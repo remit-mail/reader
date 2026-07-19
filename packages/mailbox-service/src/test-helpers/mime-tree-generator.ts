@@ -27,7 +27,7 @@
  */
 
 import { Buffer } from "node:buffer";
-import type { BodyPartItem } from "@remit/remit-electrodb-service";
+import type { BodyPartItem } from "@remit/data-ports";
 
 export type MapperInput = Pick<
 	BodyPartItem,

@@ -1,4 +1,4 @@
-import type { AddressItem } from "@remit/remit-electrodb-service";
+import type { AddressItem } from "@remit/data-ports";
 import type { VipSuggestionEntry } from "@remit/api-openapi-types";
 
 /**

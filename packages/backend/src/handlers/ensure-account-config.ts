@@ -1,5 +1,5 @@
 import type { IAccountConfigRepository } from "@remit/data-ports";
-import { ConflictError, NotFoundError } from "@remit/remit-electrodb-service";
+import { ConflictError, NotFoundError } from "@remit/data-ports/errors";
 
 /**
  * Ensure an AccountConfig row exists for the given id. A first-time caller

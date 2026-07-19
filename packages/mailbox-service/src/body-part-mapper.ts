@@ -45,7 +45,7 @@
 /// <reference path="./types/mailparser-augment.d.ts" />
 
 import { Buffer } from "node:buffer";
-import type { BodyPartItem } from "@remit/remit-electrodb-service";
+import type { BodyPartItem } from "@remit/data-ports";
 import type { Attachment, ParsedMail } from "mailparser";
 
 export interface BodyPartContentPair {

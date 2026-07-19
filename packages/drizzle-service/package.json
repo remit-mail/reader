@@ -39,5 +39,14 @@
     "uuid": "*",
     "@remit/drizzle-pg-schema": "*",
     "@remit/drizzle-sqlite-schema": "*"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/remit-mail/remit.git",
+    "directory": "packages/drizzle-service"
   }
 }

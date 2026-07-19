@@ -37,5 +37,14 @@
 		"expect-env": "*",
 		"tsx": "*",
 		"zod": "*"
+	},
+	"license": "MIT",
+	"publishConfig": {
+		"access": "public"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/remit-mail/remit.git",
+		"directory": "packages/search-index-worker"
 	}
 }

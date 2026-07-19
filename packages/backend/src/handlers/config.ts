@@ -1,9 +1,6 @@
 import type { SQSClient } from "@aws-sdk/client-sqs";
-import type {
-	AccountConfigItem,
-	MailboxItem,
-} from "@remit/remit-electrodb-service";
-import { NotFoundError } from "@remit/remit-electrodb-service";
+import type { AccountConfigItem, MailboxItem } from "@remit/data-ports";
+import { NotFoundError } from "@remit/data-ports/errors";
 import { logger } from "@remit/logger-lambda";
 import type {
 	AccountConfigResponse,

@@ -1,4 +1,5 @@
-import { ClientError, type FilterItem } from "@remit/remit-electrodb-service";
+import type { FilterItem } from "@remit/data-ports";
+import { ClientError } from "@remit/data-ports/errors";
 import { FilterScope } from "@remit/domain-enums";
 import type {
 	CreateFilterInput,

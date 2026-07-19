@@ -17,5 +17,14 @@
 	},
 	"dependencies": {
 		"nodemailer": "^9.0.3"
+	},
+	"license": "MIT",
+	"publishConfig": {
+		"access": "public"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/remit-mail/remit.git",
+		"directory": "packages/smtp-service"
 	}
 }

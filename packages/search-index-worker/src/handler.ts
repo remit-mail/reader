@@ -1,5 +1,5 @@
 import { inspect } from "node:util";
-import { NotFoundError } from "@remit/remit-electrodb-service";
+import { NotFoundError } from "@remit/data-ports/errors";
 import {
 	createLogger,
 	type Logger,

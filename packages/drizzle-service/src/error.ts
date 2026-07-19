@@ -1,15 +1,13 @@
 // Re-export the shared error contract so an error thrown by a pg repo is the
 // same class the backend handlers and workers already catch (they import these
-// from remit-electrodb-service). Defining parallel classes here made
+// from @remit/data-ports/errors). Defining parallel classes here made
 // `instanceof NotFoundError` false across the adapter boundary — a fresh user's
 // GET /config surfaced a 404 fatal overlay instead of the empty-config path.
-// Imported via the `/error` subpath (a self-contained module) so the pg adapter
-// doesn't pull the electrodb models + ddb client into its runtime graph.
 export {
 	CreateFailedConflictError,
 	ForbiddenError,
 	NotFoundError,
-} from "@remit/remit-electrodb-service/error";
+} from "@remit/data-ports/errors";
 
 export class NotImplementedError extends Error {
 	name = "NotImplementedError";

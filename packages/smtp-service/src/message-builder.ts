@@ -1,4 +1,4 @@
-import type { OutboxMessageItem } from "@remit/remit-electrodb-service";
+import type { OutboxMessageItem } from "@remit/data-ports";
 
 export interface MailMessage {
 	from: string;

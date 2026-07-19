@@ -9,12 +9,14 @@ import type {
 	MailboxItem,
 } from "@remit/data-ports";
 import {
-	AddressService,
+	deriveAddressId,
 	deriveBodyPartId,
-	EnvelopeService,
-	MessageService,
-	ThreadMessageService,
-} from "@remit/remit-electrodb-service";
+	deriveEnvelopeAddressId,
+	deriveEnvelopeId,
+	deriveMessageIdFromSource,
+	deriveThreadId,
+	isValidMessageId,
+} from "@remit/data-ports/id";
 import { AddressRole, MailboxCursorState } from "@remit/domain-enums";
 import pMap from "p-map";
 import type { ManagedConnectionFactory } from "./connection-factory.js";
@@ -703,7 +705,7 @@ export class MessageSyncService {
 		// Store envelope to preserve narrowing in closures
 		const envelope = msg.envelope;
 
-		const messageId = MessageService.generateIdFromSource(accountId, {
+		const messageId = deriveMessageIdFromSource(accountId, {
 			messageId: envelope.messageId,
 			uid: msg.uid,
 			mailboxId,
@@ -712,7 +714,7 @@ export class MessageSyncService {
 			fromMailbox: envelope.from?.[0]?.mailbox,
 			fromHost: envelope.from?.[0]?.host,
 		});
-		const envelopeId = EnvelopeService.generateId(messageId);
+		const envelopeId = deriveEnvelopeId(messageId);
 		const rootBodyPartId = deriveBodyPartId(messageId, ROOT_PART_PATH);
 
 		const internalDateMs = msg.internalDate.getTime();
@@ -854,16 +856,9 @@ export class MessageSyncService {
 			const normalizedEmail = `${localPart}@${domain}`.toLowerCase();
 			const normalizedCompound = `${displayName.toLowerCase()} ${normalizedEmail}`;
 
-			const addressId = AddressService.generateAddressId(
-				accountConfigId,
-				normalizedEmail,
-			);
+			const addressId = deriveAddressId(accountConfigId, normalizedEmail);
 
-			const envelopeAddressId = AddressService.generateEnvelopeAddressId(
-				messageId,
-				role,
-				order,
-			);
+			const envelopeAddressId = deriveEnvelopeAddressId(messageId, role, order);
 
 			await addressService.upsertAddress({
 				addressId,
@@ -922,7 +917,7 @@ export class MessageSyncService {
 			// No References, but has In-Reply-To - use as thread root
 			// (This is a reply to a single message, which becomes the root)
 			rootMessageIdHeader = envelope.inReplyTo;
-		} else if (MessageService.isValidMessageId(envelope.messageId)) {
+		} else if (isValidMessageId(envelope.messageId)) {
 			// No References, no In-Reply-To - this message is a thread root
 			rootMessageIdHeader = envelope.messageId;
 		} else {
@@ -935,10 +930,7 @@ export class MessageSyncService {
 		}
 
 		// Derive threadId from the root Message-ID (deterministic)
-		const threadId = ThreadMessageService.deriveThreadId(
-			accountId,
-			rootMessageIdHeader,
-		);
+		const threadId = deriveThreadId(accountId, rootMessageIdHeader);
 
 		// Check if message is read based on IMAP flags
 		const isRead = flags.includes("\\Seen");

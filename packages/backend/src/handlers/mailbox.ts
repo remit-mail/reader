@@ -1,9 +1,8 @@
-import type { IAccountSettingRepository } from "@remit/data-ports";
-import {
-	ForbiddenError,
-	type MailboxItem,
-	NotFoundError,
-} from "@remit/remit-electrodb-service";
+import type {
+	IAccountSettingRepository,
+	MailboxItem,
+} from "@remit/data-ports";
+import { ForbiddenError, NotFoundError } from "@remit/data-ports/errors";
 import { MessageSystemFlag } from "@remit/domain-enums";
 import type {
 	MailboxResponse,

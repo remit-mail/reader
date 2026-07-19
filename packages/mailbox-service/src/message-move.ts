@@ -10,7 +10,7 @@ import type {
 	IMessageRepository,
 	IThreadMessageRepository,
 } from "@remit/data-ports";
-import { base36uuid } from "@remit/remit-electrodb-service";
+import { base36uuid } from "@remit/data-ports/id";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 import { createQueueProducer } from "@remit/sqs-client/producer";
 
