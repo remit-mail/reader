@@ -369,7 +369,6 @@ const syncMailboxMessages = async (
 			type: "SYNC_MESSAGES",
 			accountId: event.accountId,
 			mailboxId,
-			resumeCursor: result.remainingCount,
 		};
 		await emitEvent(nextSyncEvent);
 		return;

@@ -7,7 +7,9 @@ import {
 	__resetStaleAccountSyncGuard,
 	handleBackgroundSyncFailure,
 	hasPollIntervalElapsed,
+	MIN_POLL_INTERVAL_MS,
 	POLL_INTERVAL_MS,
+	resolvePollIntervalMs,
 	STALENESS_THRESHOLD_MS,
 	selectPollableAccountIds,
 	selectStaleAccountIds,
@@ -101,6 +103,35 @@ describe("selectStaleAccountIds", () => {
 describe("POLL_INTERVAL_MS", () => {
 	test("defaults to 5 minutes when mailboxPollIntervalSeconds is unset in this test run", () => {
 		assert.equal(POLL_INTERVAL_MS, 5 * 60 * 1000);
+	});
+});
+
+describe("resolvePollIntervalMs", () => {
+	// This poll shares POST /sync with the refresh control, and that endpoint's
+	// triggers skip the server's per-mailbox freshness gate
+	// (MAILBOX_FRESHNESS_MS in imap-worker's sync-mailboxes fan-out). A timer is
+	// not a person: without this floor, configuring a sub-window interval turns
+	// every tick into a full folder-by-folder re-enumeration for every open
+	// account, which is exactly the fan-out storm the gate prevents. The floor
+	// is what stops a config value from reintroducing it.
+	test("never returns less than the server's freshness window", () => {
+		assert.equal(resolvePollIntervalMs("10"), MIN_POLL_INTERVAL_MS);
+		assert.equal(resolvePollIntervalMs("59"), MIN_POLL_INTERVAL_MS);
+	});
+
+	test("matches the freshness window the fan-out gate uses", () => {
+		// Keep in step with MAILBOX_FRESHNESS_MS in
+		// packages/imap-worker/src/handlers/sync-mailboxes.ts.
+		assert.equal(MIN_POLL_INTERVAL_MS, 60_000);
+	});
+
+	test("honours a configured interval above the floor", () => {
+		assert.equal(resolvePollIntervalMs("900"), 900_000);
+	});
+
+	test("falls back to the default when unset or unparseable", () => {
+		assert.equal(resolvePollIntervalMs(undefined), 5 * 60 * 1000);
+		assert.equal(resolvePollIntervalMs("not-a-number"), 5 * 60 * 1000);
 	});
 });
 
