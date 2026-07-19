@@ -4,8 +4,9 @@
 #
 # Run it straight from the repo:
 #
+#   REMIT_ORIGIN="https://<the address you will load the app from>"
 #   curl -fsSL https://raw.githubusercontent.com/remit-mail/reader/main/install.sh \
-#     | bash -s -- --origin https://mail.example.com
+#     | bash -s -- --origin "$REMIT_ORIGIN"
 #
 # It checks the host has a container engine and Compose v2, downloads the
 # SQLite deploy assets, generates the secrets into a .env, and brings the
@@ -58,13 +59,16 @@ usage() {
 Reader self-host installer (single VM, SQLite).
 
 Usage:
+  REMIT_ORIGIN="https://<the address you will load the app from>"
   curl -fsSL https://raw.githubusercontent.com/${REPO}/${REF}/install.sh \\
-    | bash -s -- --origin <url> [options]
+    | bash -s -- --origin "\$REMIT_ORIGIN" [options]
 
 Required:
   --origin <url>     The address you load the app from: scheme://host, no
                      trailing path. Its scheme must match --tls-mode (https for
-                     internal/tailscale/acme, http for off).
+                     internal/tailscale/acme, http for off). Every auth and CORS
+                     origin derives from it, so a wrong value fails at sign-in,
+                     not at install.
 
 Options:
   --tls-mode <mode>  internal | off | tailscale | acme     (default: internal)
@@ -88,7 +92,17 @@ EOF
 parse_args() {
 	while [ $# -gt 0 ]; do
 		case "$1" in
-		--origin) [ $# -ge 2 ] || die "--origin needs a value"; ORIGIN="$2"; shift 2 ;;
+		# An unset $REMIT_ORIGIN expands to nothing, so --origin either runs out
+		# of arguments or swallows the next flag. Both are the same mistake and
+		# neither should reach the compose file as a hostname.
+		--origin)
+			[ $# -ge 2 ] || die "--origin got no value. Set REMIT_ORIGIN to the address you will load the app from, then pass --origin \$REMIT_ORIGIN."
+			case "$2" in
+			-*) die "--origin got '$2', which is another flag. \$REMIT_ORIGIN is empty — set it to the address you will load the app from." ;;
+			esac
+			ORIGIN="$2"
+			shift 2
+			;;
 		--tls-mode) [ $# -ge 2 ] || die "--tls-mode needs a value"; TLS_MODE="$2"; shift 2 ;;
 		--dir) [ $# -ge 2 ] || die "--dir needs a value"; DIR="$2"; shift 2 ;;
 		--tag) [ $# -ge 2 ] || die "--tag needs a value"; TAG="$2"; shift 2 ;;
@@ -100,9 +114,12 @@ parse_args() {
 }
 
 check_origin() {
-	[ -n "$ORIGIN" ] || { usage >&2; die "--origin is required."; }
+	[ -n "$ORIGIN" ] || { usage >&2; die "--origin is required. Set REMIT_ORIGIN to the address you will load the app from, then pass --origin \$REMIT_ORIGIN."; }
 	ORIGIN="${ORIGIN%/}"
 	case "$ORIGIN" in
+	# A pasted placeholder is worse than a rejected one: it installs a stack
+	# whose auth and CORS origins are wrong, which surfaces at sign-in.
+	*"<"* | *">"*) die "--origin still contains the placeholder: '$ORIGIN'. Set REMIT_ORIGIN to the real address you will load the app from." ;;
 	*://*/*) die "--origin must be scheme://host with no trailing path: got '$ORIGIN'" ;;
 	esac
 	case "$TLS_MODE" in
@@ -124,6 +141,76 @@ check_origin() {
 		;;
 	*) die "--tls-mode must be one of off, internal, tailscale, acme (got '$TLS_MODE')" ;;
 	esac
+}
+
+# --- origin resolution ------------------------------------------------------
+#
+# The shape of an origin is checkable; whether it points anywhere is not, so a
+# wrong one installs cleanly and only surfaces later as an app nobody can load.
+# Every outcome here is a warning: DNS pointed at the box after the install,
+# a name only the clients resolve, a proxy or NAT in front — all legitimate,
+# and none of them worth refusing an install over.
+#
+# The resolving is the wrapper's `probe-host`, not a second copy of it here.
+# That is why this runs after place_wrapper rather than beside check_origin —
+# still well before the pull, which is where the cost of a wrong origin is.
+
+ORIGIN_DNS_WARNING=""
+ORIGIN_WARNING_LABEL="Unreachable"
+
+check_origin_dns() {
+	local probe verdict addrs
+	probe="$("$DIR/remit" probe-host "$ORIGIN" 2>/dev/null || true)"
+	# A probe that produced nothing is a broken probe, not a clean origin. The
+	# silent branch below is for verdicts that mean "fine"; falling into it on
+	# failure would make this check pass exactly when it cannot be trusted —
+	# reachable with an older wrapper via $REMIT_REF or $REMIT_ASSET_BASE.
+	[ -n "$probe" ] || {
+		ORIGIN_WARNING_LABEL="Unchecked  "
+		ORIGIN_DNS_WARNING="whether $ORIGIN points at this box is unknown:
+the remit wrapper in $DIR did not answer 'probe-host'.
+The install continues. Check it yourself with:
+  $DIR/remit probe-host $ORIGIN"
+		warn "$ORIGIN_DNS_WARNING"
+		return 0
+	}
+	verdict="${probe%% *}"
+	addrs="${probe#* }"
+	case "$verdict" in
+	unresolved)
+		ORIGIN_DNS_WARNING="$(origin_host_of "$ORIGIN") does not resolve from this box.
+Nothing loads at $ORIGIN until it does.
+Expected if you point DNS at this box after the install, or
+if only your clients resolve the name (tailnet, VPN, a hosts
+file). Otherwise the record is missing."
+		;;
+	elsewhere)
+		ORIGIN_DNS_WARNING="$ORIGIN resolves to $addrs,
+which this box does not hold — clients using DNS reach a
+different machine, not this one. Expected behind a proxy, NAT
+or split-horizon DNS. Otherwise the record is stale or names
+the wrong host, and nothing loads there."
+		;;
+	# held, loopback, unknown, and an unreadable probe are all silent: each is
+	# either correct or unknowable, and neither is worth a warning.
+	*) return 0 ;;
+	esac
+	warn "$ORIGIN_DNS_WARNING"
+}
+
+# Only for the warning text; the probe does its own parsing.
+origin_host_of() {
+	local h="${1#*://}"
+	h="${h%%/*}"
+	h="${h#*@}"
+	case "$h" in
+	"["*)
+		h="${h#[}"
+		h="${h%%]*}"
+		;;
+	*) h="${h%%:*}" ;;
+	esac
+	printf '%s' "$h"
 }
 
 check_engine() {
@@ -255,14 +342,17 @@ write_env() {
 }
 
 # The remit wrapper ships as a deploy asset; here it is made executable and,
-# where possible, put on PATH. DEFAULT_DIR is rewritten to this install
-# directory so `remit` works with no REMIT_DIR set. /usr/local/bin is written
-# only when already writable — the installer never elevates on its own.
+# where possible, put on PATH. DEFAULT_DIR and COMPOSE_FILE are rewritten to
+# what this run installed, so `remit` needs nothing in the environment to find
+# the deployment. /usr/local/bin is written only when already writable — the
+# installer never elevates on its own.
 place_wrapper() {
 	local src="$DIR/remit"
-	[ -f "$src" ] || return 0
+	[ -f "$src" ] || die "the remit wrapper is missing from $DIR — the asset fetch did not complete."
 	local tmp="$src.tmp"
-	sed "s#^DEFAULT_DIR=.*#DEFAULT_DIR=$DIR#" "$src" >"$tmp"
+	sed -e "s#^DEFAULT_DIR=.*#DEFAULT_DIR=$DIR#" \
+		-e "s#^COMPOSE_FILE=.*#COMPOSE_FILE=$COMPOSE_FILE#" \
+		"$src" >"$tmp"
 	mv "$tmp" "$src"
 	chmod +x "$src"
 	[ "$DRY_RUN" = "1" ] && return 0
@@ -286,13 +376,45 @@ validate_compose() {
 	say "  compose file validates"
 }
 
+# Delegated to the placed wrapper so a first install goes through the same
+# migrate gate and registry-refusal diagnosis as every later `remit update` —
+# which is when an operator is least equipped to read a raw compose failure.
 bring_up() {
 	say "Pulling images and starting reader"
-	compose pull
-	compose up -d
+	REMIT_DIR="$DIR" REMIT_QUIET=1 "$DIR/remit" update
+}
+
+# A warning emitted before the pull is minutes of image progress behind by the
+# time the install finishes, so it is repeated where the operator is actually
+# reading: next to the address that will not load.
+origin_warning_block() {
+	[ -n "$ORIGIN_DNS_WARNING" ] || return 0
+	printf '\n  %s %s\n' "$ORIGIN_WARNING_LABEL" "$(printf '%s' "$ORIGIN_DNS_WARNING" | sed '2,$s/^/              /')"
+}
+
+# The wrapper is the interface: it knows the install directory and the compose
+# file, so on PATH it runs from anywhere. When it could not be placed there the
+# same commands are shown relative to the install directory, prefixed by the cd
+# that makes them work.
+manage_block() {
+	local remit="remit" indent="              "
+	if [ -n "$WRAPPER_ON_PATH" ]; then
+		printf '  Manage      '
+	else
+		remit="./remit"
+		printf '  Manage      cd %s\n%s' "$DIR" "$indent"
+	fi
+	printf '%s %-8s What is running, and whether the origin reaches it.\n' "$remit" status
+	printf '%s%s %-8s Follow the logs.\n' "$indent" "$remit" logs
+	printf '%s%s %-8s Apply an edit to .env.\n' "$indent" "$remit" restart
+	printf '%s%s %-8s Pull the current images and apply them.\n' "$indent" "$remit" update
+	printf '%s%s %-8s Stop serving; %s restart brings it back.\n' "$indent" "$remit" down "$remit"
+	printf '%s%s %-8s Every command, including the destructive one.\n' "$indent" "$remit" help
 }
 
 summary() {
+	local remit="remit"
+	[ -n "$WRAPPER_ON_PATH" ] || remit="./remit"
 	cat <<EOF
 
 reader is up.
@@ -301,28 +423,22 @@ reader is up.
               The first sign-up on that page creates your account. After you
               are in, add a mailbox from Settings -> Add account with your
               IMAP/SMTP details (or "Sign in with Microsoft" if configured).
+EOF
+	origin_warning_block
+	cat <<EOF
 
   Config      $DIR/.env  (chmod 600)
               Holds FAKE_KMS_DATAKEY, the key every stored IMAP credential is
               encrypted with. It is the only copy — back it up. Losing it means
               re-entering every account's credentials.
 
-  Manage      cd $DIR
-              docker compose -f $COMPOSE_FILE --env-file .env ps
-              docker compose -f $COMPOSE_FILE --env-file .env logs -f
-              docker compose -f $COMPOSE_FILE --env-file .env down   # data volumes are kept
 EOF
-	if [ -n "$WRAPPER_ON_PATH" ]; then
+	manage_block
+	if [ -z "$WRAPPER_ON_PATH" ]; then
 		cat <<EOF
 
-  remit       $WRAPPER_ON_PATH wraps those compose commands:
-              remit status | remit logs | remit restart | remit update | remit down
-EOF
-	else
-		cat <<EOF
-
-  remit       $DIR/remit wraps those compose commands (status, logs, restart,
-              update, down). Put it on PATH with:
+              /usr/local/bin was not writable, so remit stayed in the install
+              directory. To type 'remit' from anywhere instead:
                 sudo cp $DIR/remit /usr/local/bin/remit
 EOF
 	fi
@@ -332,8 +448,9 @@ EOF
   Certificate --tls-mode internal signs with Caddy's own CA, so browsers warn
               until you trust its root. Export it with:
 
-                docker compose -f $DIR/$COMPOSE_FILE cp \\
-                  caddy:/data/caddy/pki/authorities/local/root.crt ./reader-root.crt
+                $remit cert
+
+              then import reader-root.crt on every machine you browse from.
 EOF
 	fi
 }
@@ -347,11 +464,15 @@ main() {
 	fetch_assets
 	write_env
 	place_wrapper
+	# Needs the wrapper on disk, and belongs before the pull: a wrong origin
+	# caught here costs nothing, caught after it costs ~4 GB and an install.
+	check_origin_dns
 	validate_compose
 	if [ "$DRY_RUN" = "1" ]; then
 		say ""
 		say "Dry run complete. Host checks passed, assets and .env are in $DIR."
 		say "Re-run without --dry-run to pull the images and start the stack."
+		origin_warning_block
 		return 0
 	fi
 	bring_up
