@@ -52,9 +52,12 @@ runs:
       run: npm ci --no-audit --no-fund --loglevel=error
 
     # build/ is a pure function of the TypeSpec sources, the Makefile, the
-    # openapi-ts config and the emitter versions pinned in the lockfile. The
-    # nested node_modules is excluded so the two caches own disjoint paths and
-    # neither can restore a stale copy over the other.
+    # openapi-ts config, the emitter versions pinned in the lockfile, and the
+    # patches applied to those emitters — a patch changes the generated output
+    # with nothing else moving, so patches/** must stay in the key or CI tests
+    # a stale build/ (issue #64). The nested node_modules is excluded so the
+    # two caches own disjoint paths and neither can restore a stale copy over
+    # the other.
     - name: Restore codegen output
       if: inputs.codegen == 'true'
       id: codegen
