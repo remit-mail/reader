@@ -44,6 +44,54 @@ describe("isLocalEndpoint", () => {
 	it("treats a real SQS queue URL as remote", () => {
 		assert.equal(isLocalEndpoint(awsQueueUrl), false);
 	});
+
+	// A prefix match on "https://localhost" reads all of these as local. The
+	// host is localhost in none of them.
+	it("treats an https host that merely starts with localhost as remote", () => {
+		assert.equal(isLocalEndpoint("https://localhost.example.com/0/q"), false);
+		assert.equal(
+			isLocalEndpoint("https://localhost-queue.example.com/0/q"),
+			false,
+		);
+	});
+
+	it("treats an https URL with localhost in the userinfo as remote", () => {
+		assert.equal(isLocalEndpoint("https://localhost@example.com/0/q"), false);
+		assert.equal(
+			isLocalEndpoint("https://localhost:pass@example.com/0/q"),
+			false,
+		);
+	});
+
+	// The mirror image: a prefix match misses these, and they are local.
+	it("treats a loopback https URL carrying credentials as local", () => {
+		assert.equal(isLocalEndpoint("https://user:pass@localhost/0/q"), true);
+	});
+
+	it("ignores scheme case", () => {
+		assert.equal(isLocalEndpoint("HTTP://queue:9324/0/q"), true);
+		assert.equal(isLocalEndpoint("HtTpS://localhost:9324/0/q"), true);
+	});
+
+	it("treats loopback addresses over https as local", () => {
+		assert.equal(isLocalEndpoint("https://127.0.0.1:9324/0/q"), true);
+		assert.equal(isLocalEndpoint("https://[::1]:9324/0/q"), true);
+	});
+
+	it("treats any http URL as local regardless of host, port, or credentials", () => {
+		assert.equal(isLocalEndpoint("http://queue/0/q"), true);
+		assert.equal(isLocalEndpoint("http://user:pass@queue:9324/0/q"), true);
+		assert.equal(isLocalEndpoint("http://example.com/0/q"), true);
+	});
+
+	// Must not throw: several callers construct their client at module load, so
+	// a throw here would take the worker down at import.
+	it("treats an unparseable queue URL as remote without throwing", () => {
+		assert.equal(isLocalEndpoint(""), false);
+		assert.equal(isLocalEndpoint("not a url"), false);
+		assert.equal(isLocalEndpoint("queue:9324/0/q"), false);
+		assert.equal(isLocalEndpoint("//queue:9324/0/q"), false);
+	});
 });
 
 describe("createQueueProducer", () => {
@@ -65,6 +113,12 @@ describe("createQueueProducer", () => {
 
 	it("leaves the default protocol and endpoint for a real AWS queue URL", async () => {
 		const client = createQueueProducer({ queueUrl: awsQueueUrl });
+		assert.equal(usesQueryProtocol(client), false);
+		assert.equal(await resolvedEndpoint(client), undefined);
+	});
+
+	it("does not throw when the queue URL is unparseable", async () => {
+		const client = createQueueProducer({ queueUrl: "not a url" });
 		assert.equal(usesQueryProtocol(client), false);
 		assert.equal(await resolvedEndpoint(client), undefined);
 	});
