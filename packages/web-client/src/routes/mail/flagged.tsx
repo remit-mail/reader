@@ -15,7 +15,7 @@ import { ErrorState } from "@/components/ui/ErrorState";
 const FlaggedError = ({ error, reset }: ErrorComponentProps) => (
 	<div className="flex h-full items-center justify-center bg-canvas p-4">
 		<ErrorState
-			title="Couldn't load your flagged mail"
+			title="Couldn't load your starred mail"
 			error={error}
 			onRetry={reset}
 		/>

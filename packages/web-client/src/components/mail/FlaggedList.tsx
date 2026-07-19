@@ -137,7 +137,7 @@ export function FlaggedList({
 
 	return (
 		<MailViewChrome
-			title="Flagged"
+			title="Starred"
 			unreadCount={unreadCount}
 			preset={preset}
 			selectedCategory={selectedCategory}
@@ -150,7 +150,7 @@ export function FlaggedList({
 			onSelectSearchResult={(result) => onSelectMessage?.(result.id)}
 		>
 			<MessageListPane
-				listTitle="Flagged"
+				listTitle="Starred"
 				sections={[{ id: "flagged", threads: rows }]}
 				flatList
 				hideHeader

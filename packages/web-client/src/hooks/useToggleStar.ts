@@ -3,6 +3,7 @@ import {
 	threadDetailOperationsListThreadMessagesQueryKey,
 	threadOperationsListThreadsQueryKey,
 	threadOperationsSearchThreadsQueryKey,
+	unifiedThreadOperationsListAllThreadsQueryKey,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -38,11 +39,13 @@ interface ToggleStarContext {
 	threadMessagesPrefix: readonly unknown[];
 	threadsListPrefix: readonly unknown[];
 	threadsSearchPrefix: readonly unknown[];
+	unifiedThreadsPrefix: readonly unknown[];
 	previousThreadMessages: SnapshotEntry<ThreadMessagesData>[];
 	previousThreadsList: SnapshotEntry<ThreadsListData>[];
+	previousUnifiedThreads: SnapshotEntry<ThreadMessagesData>[];
 }
 
-const toggleStarsInItems = (
+export const toggleStarsInItems = (
 	items: RemitImapThreadMessageResponse[],
 	messageId: string,
 	nextStarred: boolean,
@@ -78,11 +81,18 @@ export const useToggleStar = ({
 			const threadsSearchPrefix = threadOperationsSearchThreadsQueryKey({
 				path: { mailboxId },
 			});
+			// The unified cross-account listing backs the daily brief and the
+			// Starred mailbox, so a star toggled from an inbox has to land there
+			// too — without this the starred view keeps serving a stale page for
+			// its whole staleTime and the message never appears.
+			const unifiedThreadsPrefix =
+				unifiedThreadOperationsListAllThreadsQueryKey();
 
 			await Promise.all([
 				queryClient.cancelQueries({ queryKey: threadMessagesPrefix }),
 				queryClient.cancelQueries({ queryKey: threadsListPrefix }),
 				queryClient.cancelQueries({ queryKey: threadsSearchPrefix }),
+				queryClient.cancelQueries({ queryKey: unifiedThreadsPrefix }),
 			]);
 
 			const previousThreadMessages = queryClient
@@ -106,15 +116,29 @@ export const useToggleStar = ({
 				)
 				.map(([queryKey, data]) => ({ queryKey, data }));
 
+			const previousUnifiedThreads = queryClient
+				.getQueriesData<ThreadMessagesData>({ queryKey: unifiedThreadsPrefix })
+				.filter(
+					(entry): entry is [readonly unknown[], ThreadMessagesData] =>
+						entry[1] !== undefined,
+				)
+				.map(([queryKey, data]) => ({ queryKey, data }));
+
+			const patchItemsData = (old: ThreadMessagesData | undefined) => {
+				if (!old) return old;
+				return {
+					...old,
+					items: toggleStarsInItems(old.items, messageId, nextStarred),
+				};
+			};
+
 			queryClient.setQueriesData<ThreadMessagesData>(
 				{ queryKey: threadMessagesPrefix },
-				(old) => {
-					if (!old) return old;
-					return {
-						...old,
-						items: toggleStarsInItems(old.items, messageId, nextStarred),
-					};
-				},
+				patchItemsData,
+			);
+			queryClient.setQueriesData<ThreadMessagesData>(
+				{ queryKey: unifiedThreadsPrefix },
+				patchItemsData,
 			);
 
 			const patchListData = (old: ThreadsListData | undefined) => {
@@ -141,8 +165,10 @@ export const useToggleStar = ({
 				threadMessagesPrefix,
 				threadsListPrefix,
 				threadsSearchPrefix,
+				unifiedThreadsPrefix,
 				previousThreadMessages,
 				previousThreadsList,
+				previousUnifiedThreads,
 			};
 		},
 		onError: (err, vars, context) => {
@@ -151,6 +177,9 @@ export const useToggleStar = ({
 					queryClient.setQueryData(entry.queryKey, entry.data);
 				}
 				for (const entry of context.previousThreadsList) {
+					queryClient.setQueryData(entry.queryKey, entry.data);
+				}
+				for (const entry of context.previousUnifiedThreads) {
 					queryClient.setQueryData(entry.queryKey, entry.data);
 				}
 			}
@@ -167,6 +196,7 @@ export const useToggleStar = ({
 			queryClient.invalidateQueries({ queryKey: context.threadMessagesPrefix });
 			queryClient.invalidateQueries({ queryKey: context.threadsListPrefix });
 			queryClient.invalidateQueries({ queryKey: context.threadsSearchPrefix });
+			queryClient.invalidateQueries({ queryKey: context.unifiedThreadsPrefix });
 		},
 	});
 

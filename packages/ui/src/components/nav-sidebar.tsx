@@ -580,8 +580,8 @@ export function NavSidebar({
 				navId="flagged"
 				linkComponent={linkComponent}
 				icon={<Star className="size-4" />}
-				label="Flagged"
-				ariaLabel="Flagged"
+				label="Starred"
+				ariaLabel="Starred"
 				active={selectedNavId === "flagged"}
 				onClick={() => onSelectNav?.("flagged")}
 			/>

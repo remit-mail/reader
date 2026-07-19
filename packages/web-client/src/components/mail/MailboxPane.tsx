@@ -110,8 +110,10 @@ import { useTelemetry } from "@/lib/telemetry-context";
 import { MailViewChrome } from "./MailViewChrome";
 
 /* ------------------------------------------------------------------ */
-/* Inbox filter predicates — the inbox preset offers Unread / Flagged /
-   Has attachment (never accounts; an inbox is one account already).    */
+/* Inbox filter predicates — the inbox preset offers Unread / Starred /
+   Has attachment (never accounts; an inbox is one account already).
+   The `flagged` id is the wire name for IMAP \Flagged; the label is
+   "Starred".                                                           */
 /* ------------------------------------------------------------------ */
 
 const INBOX_FILTER_PREDICATES: Record<
@@ -119,7 +121,7 @@ const INBOX_FILTER_PREDICATES: Record<
 	(t: RemitImapThreadMessageResponse) => boolean
 > = {
 	unread: (t) => !t.isRead,
-	flagged: (t) => t.star != null && t.star !== "none" && t.hasStars === true,
+	flagged: (t) => t.hasStars === true,
 	attachment: (t) => Boolean(t.hasAttachment),
 };
 
