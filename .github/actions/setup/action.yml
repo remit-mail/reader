@@ -36,7 +36,10 @@ runs:
           node_modules
           packages/*/node_modules
           build/*/node_modules
-        key: ${{ runner.os }}-node22-modules-${{ hashFiles('package-lock.json', 'patches/**') }}
+        # v2 because the path set above changed: entries written under v1 have
+        # no build/*/node_modules and a key is never overwritten once it exists.
+        # Bump whenever the paths change.
+        key: ${{ runner.os }}-node22-modules-v2-${{ hashFiles('package-lock.json', 'patches/**') }}
 
     - name: Install
       if: steps.modules.outputs.cache-hit != 'true'
@@ -54,7 +57,7 @@ runs:
         path: |
           build
           !build/*/node_modules
-        key: ${{ runner.os }}-codegen-${{ hashFiles('typespec/**', 'Makefile', 'openapi-ts.config.js', 'package-lock.json') }}
+        key: ${{ runner.os }}-codegen-v2-${{ hashFiles('typespec/**', 'Makefile', 'openapi-ts.config.js', 'package-lock.json') }}
 
     - name: Codegen (generated @remit/* packages)
       if: steps.codegen.outputs.cache-hit != 'true'
