@@ -13,8 +13,9 @@ async function countTestFiles(dir) {
 		let entries;
 		try {
 			entries = await readdir(current, { withFileTypes: true });
-		} catch {
-			return;
+		} catch (error) {
+			if (error.code === "ENOENT") return;
+			throw error;
 		}
 		for (const entry of entries) {
 			if (entry.name === "node_modules" || entry.name === "dist") continue;
@@ -32,20 +33,40 @@ async function countTestFiles(dir) {
 	return total;
 }
 
+// A workspace that cannot be read is an error, never a silent skip: dropping a
+// manifest here would quietly remove that workspace's whole suite from a run
+// that still reports green.
 async function discoverWorkspaces() {
 	const names = await readdir(packagesDir);
 	const found = [];
+	const skipped = [];
 	for (const name of names) {
 		const dir = join(packagesDir, name);
 		if (!(await stat(dir)).isDirectory()) continue;
+		const manifestPath = join(dir, "package.json");
 		let manifest;
 		try {
-			manifest = JSON.parse(await readFile(join(dir, "package.json"), "utf8"));
-		} catch {
+			manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+		} catch (error) {
+			if (error.code === "ENOENT") {
+				skipped.push(`${name} (no package.json)`);
+				continue;
+			}
+			throw new Error(`cannot read ${manifestPath}: ${error.message}`, {
+				cause: error,
+			});
+		}
+		if (!manifest.scripts?.["test:run"]) {
+			skipped.push(`${name} (no test:run script)`);
 			continue;
 		}
-		if (!manifest.scripts?.["test:run"]) continue;
 		found.push({ name, weight: await countTestFiles(join(dir, "src")) });
+	}
+	if (found.length === 0) {
+		throw new Error("no workspaces with a test:run script were found");
+	}
+	if (skipped.length > 0) {
+		console.log(`no tests to run for: ${skipped.join(", ")}`);
 	}
 	return found.sort((a, b) => b.weight - a.weight);
 }
@@ -106,7 +127,7 @@ async function main() {
 
 	if (failed.length > 0) {
 		console.log(`failing workspaces: ${failed.map((r) => r.name).join(", ")}`);
-		process.exit(1);
+		process.exitCode = 1;
 	}
 }
 
