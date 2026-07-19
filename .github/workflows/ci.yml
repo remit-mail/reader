@@ -75,7 +75,7 @@ jobs:
     steps:
       - name: Require every job to have succeeded
         run: |
-          results='${{ join(needs.*.result, ' ') }}'
+          results="${{ join(needs.*.result, ' ') }}"
           echo "upstream results: $results"
           for result in $results; do
             if [ "$result" != "success" ]; then
