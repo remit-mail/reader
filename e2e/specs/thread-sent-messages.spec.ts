@@ -7,6 +7,12 @@
  * correspondent's message in INBOX, the reply to it in Sent, chained by
  * References — so what is asserted here is that the deployment reassembles them
  * into one conversation, over the API and in the browser.
+ *
+ * Only the browser test guards the regression. The bug was the web client
+ * scoping its thread request to the browsed mailbox, and this suite's own API
+ * client never sent that parameter — so the API test below passes against a
+ * build that still has the defect. It is kept for what it does cover: that the
+ * threading and the sync of the Sent folder put both turns on one thread.
  */
 
 import type { ApiClient } from "../src/api.js";
@@ -29,7 +35,9 @@ const conversationThreadId = async (
 		{ timeoutMs: 60_000, what: `the inbox row for "${subject}" to sync` },
 	);
 	const thread = threads.find((item) => item.subject === subject);
-	if (!thread) throw new Error("unreachable: the thread was matched not found");
+	if (!thread) {
+		throw new Error("unreachable: the thread was matched but not found");
+	}
 	return thread.threadId;
 };
 

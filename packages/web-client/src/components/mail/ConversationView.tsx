@@ -266,6 +266,7 @@ export const ConversationView = ({
 	} = useToggleStar({
 		threadId,
 		mailboxId,
+		messages,
 	});
 
 	// Compose state for inline reply/forward.

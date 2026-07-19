@@ -327,7 +327,7 @@ namespace RemitApi {
     @doc("""
       Get all messages in a thread, across every mailbox of the account — a conversation spans INBOX, Sent, Archive and any folder the user filed a message in, so it is never scoped to one mailbox. Soft-deleted messages (including anything moved to Trash) are excluded.
       
-      There is exactly one row per (thread, message): a message that exists in several mailboxes is stored once, so the result needs no deduplication.
+      One entry per piece of mail. A message synced from several folders is stored once, and where a second row exists for the same Message-ID — a copy taken with `copyMessages`, which gives its copy a fresh message id — the oldest is returned and the rest are dropped.
       """)
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
