@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
-import type { AliasOptions, PluginOption } from "vite";
+import type { AliasOptions, BuildOptions, PluginOption } from "vite";
 
 /**
  * The one place the web-client build toolchain is described. Both the dev
@@ -34,6 +34,20 @@ export const webClientAlias = (): AliasOptions => ({ "@": srcDir });
 export const webClientDefine = (): Record<string, string> => ({
 	__APP_SHA__: JSON.stringify(resolveGitSha()),
 	__APP_BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+});
+
+/**
+ * Rollup keeps up to `maxParallelFileOps` module reads in flight, and each one
+ * holds a file descriptor. Its default of 1000 is above the 1024 `RLIMIT_NOFILE`
+ * soft limit that container runtimes hand a build step, and the icon barrels this
+ * app imports (lucide-react re-exports ~1500 single-icon modules) give rollup
+ * enough sibling modules to saturate the ceiling, so the default reliably fails
+ * with EMFILE inside an image build while passing on a developer machine.
+ * Reading 64 files at a time keeps the build IO-bound without depending on the
+ * descriptor budget of whatever runs it.
+ */
+export const webClientBuild = (): BuildOptions => ({
+	rollupOptions: { maxParallelFileOps: 64 },
 });
 
 export const webClientPlugins = (routes: RouterPaths = {}): PluginOption[] => [
