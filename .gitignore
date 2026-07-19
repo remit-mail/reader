@@ -86,6 +86,8 @@ packages/web-client/visual-regression/__screenshots__
 # writes, and Playwright's own output.
 deploy/vps/.env
 e2e/.state/
+e2e/test-results/
+e2e/playwright-report/
 
 # Generated APISIX route table (from OpenAPI)
 apisix/apisix.yaml
