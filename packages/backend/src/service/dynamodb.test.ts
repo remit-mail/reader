@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { afterEach, test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { _resetForTest, getClient, type RemitClient } from "./dynamodb.js";
+
+// The DynamoDB composition module is stripped from the open-core tree; its
+// no-regression guard runs where the module ships and skips where it does not.
+const hasDynamoComposition = existsSync(
+	fileURLToPath(new URL("./compose-dynamodb.ts", import.meta.url)),
+);
 
 const REQUIRED_KEYS: ReadonlyArray<keyof RemitClient> = [
 	"accountConfig",
@@ -64,25 +72,29 @@ test("getClient() with DATA_BACKEND=postgres constructs all services without thr
 	}
 });
 
-test("getClient() without DATA_BACKEND constructs all services without throwing (DynamoDB path, no regression)", async () => {
-	const savedBackend = process.env.DATA_BACKEND;
-	delete process.env.DATA_BACKEND;
+test(
+	"getClient() without DATA_BACKEND constructs all services without throwing (DynamoDB path, no regression)",
+	{ skip: !hasDynamoComposition },
+	async () => {
+		const savedBackend = process.env.DATA_BACKEND;
+		delete process.env.DATA_BACKEND;
 
-	try {
-		const client = await getClient();
+		try {
+			const client = await getClient();
 
-		for (const key of REQUIRED_KEYS) {
-			assert.ok(
-				client[key] !== undefined && client[key] !== null,
-				`RemitClient.${key} must be defined on the DynamoDB path`,
-			);
+			for (const key of REQUIRED_KEYS) {
+				assert.ok(
+					client[key] !== undefined && client[key] !== null,
+					`RemitClient.${key} must be defined on the DynamoDB path`,
+				);
+			}
+
+			assert.equal(typeof client.createConnectionScope, "function");
+		} finally {
+			_resetForTest();
+			if (savedBackend !== undefined) {
+				process.env.DATA_BACKEND = savedBackend;
+			}
 		}
-
-		assert.equal(typeof client.createConnectionScope, "function");
-	} finally {
-		_resetForTest();
-		if (savedBackend !== undefined) {
-			process.env.DATA_BACKEND = savedBackend;
-		}
-	}
-});
+	},
+);

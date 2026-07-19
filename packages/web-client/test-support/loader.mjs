@@ -17,15 +17,18 @@ const packageStubs = new Map([
 
 const amplifyConfigStubUrl = `${stubsDir}amplify-config.mjs`;
 
-const isAuthSourceUrl = (url) => url.includes("/remit-web-client/src/auth/");
-const isAuthTokenSource = (url) =>
-	url.includes("/remit-web-client/src/auth/auth-token.ts");
-const isAppInfoSource = (url) =>
-	url.includes("/remit-web-client/src/lib/app-info.");
-const isRumAdapterSource = (url) =>
-	url.includes("/remit-web-client/src/lib/rum-adapter.");
+// The open-core export renames this package directory (remit-web-client ->
+// web-client), so match either name; a check pinned to one drops every
+// transform in the other tree and the tests fail to load.
+const inWebClient = (url, sub) =>
+	url.includes(`/remit-web-client/${sub}`) || url.includes(`/web-client/${sub}`);
+
+const isAuthSourceUrl = (url) => inWebClient(url, "src/auth/");
+const isAuthTokenSource = (url) => inWebClient(url, "src/auth/auth-token.ts");
+const isAppInfoSource = (url) => inWebClient(url, "src/lib/app-info.");
+const isRumAdapterSource = (url) => inWebClient(url, "src/lib/rum-adapter.");
 const isStaleAccountSyncSource = (url) =>
-	url.includes("/remit-web-client/src/hooks/useStaleAccountSync.");
+	inWebClient(url, "src/hooks/useStaleAccountSync.");
 
 export const resolve = async (specifier, context, nextResolve) => {
 	const stub = packageStubs.get(specifier);
