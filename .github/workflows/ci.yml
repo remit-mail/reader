@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Real pipeline: install → codegen → typecheck → unit tests. Keeps the job
+  # name `build` because branch protection pins that status check.
+  #
+  # `npm ci` and `setup-node` cache: npm both require package-lock.json. The
+  # lockfile can only be committed once the export carries the closure-fix
+  # packages and a workspace install resolves; until then this job cannot pass.
+  # The workflow is structured to be correct the moment install works.
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Restore modules and codegen output
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            packages/**/node_modules
+            build
+          key: ${{ runner.os }}-modules-${{ hashFiles('package-lock.json', 'typespec/**') }}
+
+      - name: Install
+        run: npm ci --no-audit --no-fund --loglevel=error
+
+      - name: Codegen (generated @remit/* packages)
+        run: make
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+  # Static validation that needs no workspace install: the installer script, the
+  # deploy compose stacks, and the manifest syntax. Runs in parallel with build.
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Installer — shell syntax
+        run: bash -n install.sh
+
+      - name: Installer — shellcheck
+        run: shellcheck install.sh
+
+      - name: Manifests — JSON syntax
+        run: |
+          python3 -c 'import json,sys; [json.load(open(f)) for f in sys.argv[1:]]' \
+            package.json biome.json tsconfig.json
+
+      - name: Manifests — YAML syntax
+        run: |
+          python3 -c 'import yaml,sys; [yaml.safe_load(open(f)) for f in sys.argv[1:]]' \
+            .github/workflows/ci.yml .github/workflows/storybook-pages.yml \
+            .github/workflows/images.yml .github/workflows/publish.yml
+
+      - name: Deploy stack — SQLite compose validates
+        run: |
+          printf 'PUBLIC_ORIGIN=https://ci.invalid\nTLS_MODE=off\n' > deploy/vps/.env
+          docker compose -f deploy/vps/docker-compose.sqlite.yml \
+            --env-file deploy/vps/.env config -q
+          rm -f deploy/vps/.env
+
+      - name: Deploy stack — dev compose validates
+        run: |
+          docker compose -f docker-compose.localhost-dev-generic.yml \
+            --env-file localhost-dev-generic.env config -q

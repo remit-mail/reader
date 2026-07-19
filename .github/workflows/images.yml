@@ -1,0 +1,48 @@
+name: Images
+
+# Builds and publishes the runtime container image roster to
+# ghcr.io/remit-mail/reader/* on every merge to main. Sequential builds share
+# one builder stage so the install/codegen/bundle cost is paid once.
+#
+# Drives `npm run images:publish` (npm-scripts/images-publish.sh), the same
+# entrypoint remit uses. That script and the docker/ build context (Dockerfile,
+# container-runtime.sh, per-service runtime manifests) must be carried by the
+# open-core export before this workflow can produce images; see the toolchain
+# staging notes.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Log in to GHCR
+        run: docker login ghcr.io -u "${{ github.actor }}" --password-stdin <<<"${{ secrets.GITHUB_TOKEN }}"
+
+      # sha tags are unique per commit; :latest is the deploy-tracking tag, so
+      # only a main build moves it.
+      - name: Build and push image roster
+        run: npm run images:publish
+        env:
+          REGISTRY: ghcr.io/remit-mail/reader
+          TAG: sha-${{ github.sha }}
+          PUSH: "1"
+          PUSH_LATEST: ${{ github.ref == 'refs/heads/main' && '1' || '0' }}
