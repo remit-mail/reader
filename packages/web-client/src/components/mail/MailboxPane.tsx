@@ -32,6 +32,7 @@ import {
 	ReadingPaneEmpty,
 	type RescueCandidate,
 	type SearchResult,
+	useAppShellLayout,
 } from "@remit/ui";
 import {
 	keepPreviousData,
@@ -1094,8 +1095,10 @@ function MailboxReading() {
 		onToolbarMove,
 		composeState,
 	} = useMailboxPane();
-	const tier = useLayoutTier();
-	const isDesktop = tier === "desktop";
+	// The rail's own width gate, not the shell tier: between 1024 and 1280 the
+	// reading pane is mounted but the rail is not, so "enabled" would promise an
+	// open that cannot happen.
+	const railFits = useAppShellLayout()?.showIntelligencePane ?? false;
 	const hasThread = Boolean(conversation);
 
 	const detailPane =
@@ -1125,7 +1128,7 @@ function MailboxReading() {
 			<MessageToolbar
 				hasThread={hasThread}
 				intelligenceOpen={showIntelligence}
-				showIntelligenceToggle={isDesktop && hasThread}
+				canToggleIntelligence={railFits && hasThread}
 				onToggleIntelligence={onToggleIntelligence}
 				onReply={hasThread ? onToolbarReply : undefined}
 				onReplyAll={hasThread ? onToolbarReplyAll : undefined}

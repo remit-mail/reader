@@ -1,5 +1,4 @@
-import { Button, type MailAction, MailActionToolbar } from "@remit/ui";
-import { Info } from "lucide-react";
+import { IntelligenceToggle, type MailAction, MailActionToolbar } from "@remit/ui";
 import { useState } from "react";
 import { tooltipForAction } from "@/lib/keymap";
 import { MoveToTrigger } from "./MoveToTrigger";
@@ -13,19 +12,21 @@ import { MoveToTrigger } from "./MoveToTrigger";
  * Search, compose, bug report and the account menu are not message context;
  * they live in the app top bar above every pane (`MailTopBar`, #49).
  *
- * Buttons are always pressable (never `disabled`): with no thread open a press
- * is a no-op that surfaces a one-line inline explanation rather than greying
- * out (`doc/rules/ux.md`).
+ * The control set is fixed: every button occupies the same slot on every view
+ * and in every selection state (#52). The mail verbs stay pressable with no
+ * thread open — a press is a no-op that surfaces a one-line inline explanation
+ * (`doc/rules/ux.md`). The intelligence toggle greys out instead, because it
+ * has nothing to explain: it opens a rail, and there is no rail to open.
  */
 export interface MessageToolbarProps {
 	hasThread: boolean;
 	intelligenceOpen: boolean;
 	/**
-	 * Whether the intelligence toggle is shown at all. The rail is contextual
-	 * to an open message, so the toggle only appears once a thread is selected
-	 * (matches the remit-ui AppShell reference) — it never opens an empty rail.
+	 * Whether pressing the intelligence toggle would open a rail: the view has
+	 * one, the width allows it, and a thread is selected. The button renders
+	 * either way — disabled when false, never absent (#52).
 	 */
-	showIntelligenceToggle: boolean;
+	canToggleIntelligence: boolean;
 	onToggleIntelligence: () => void;
 
 	/* ---- wired action callbacks (omit to keep the no-op-explain behaviour) ---- */
@@ -60,7 +61,7 @@ const OPEN_FIRST = "Open a message first";
 export const MessageToolbar = ({
 	hasThread,
 	intelligenceOpen,
-	showIntelligenceToggle,
+	canToggleIntelligence,
 	onToggleIntelligence,
 	onReply,
 	onReplyAll,
@@ -103,24 +104,11 @@ export const MessageToolbar = ({
 				) : undefined
 			}
 		>
-			{showIntelligenceToggle && (
-				<Button
-					variant="ghost"
-					size="sm"
-					icon={<Info className="size-4" />}
-					title="Intelligence"
-					aria-label={
-						intelligenceOpen
-							? "Hide intelligence sidebar"
-							: "Show intelligence sidebar"
-					}
-					aria-pressed={intelligenceOpen}
-					onClick={onToggleIntelligence}
-					className={
-						intelligenceOpen ? "bg-accent-2-soft text-accent-2" : undefined
-					}
-				/>
-			)}
+			<IntelligenceToggle
+				open={intelligenceOpen}
+				enabled={canToggleIntelligence}
+				onToggle={onToggleIntelligence}
+			/>
 		</MailActionToolbar>
 	);
 };

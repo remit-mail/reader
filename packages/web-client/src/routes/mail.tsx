@@ -298,7 +298,8 @@ function MailLayout() {
 					/>
 				</div>
 			) : onBriefRoute ? (
-				// Daily brief (/mail/) — no mailboxId param; 2-pane layout (no intelligence).
+				// Daily brief (/mail/) — no mailboxId param; same 3-pane layout as a
+				// mailbox: an open message has an intelligence rail here too (#52).
 				<BriefPane selectedMessageId={mobileSelectedMessageId}>
 					{isSinglePane ? (
 						<AppShellSlotted
@@ -316,7 +317,9 @@ function MailLayout() {
 							topBar={topBar}
 							list={<BriefPane.List />}
 							reading={<BriefPane.Reading />}
+							intelligence={<BriefPane.Intelligence />}
 							intelligenceOpen={intelligenceOpen}
+							hasThread={Boolean(mobileSelectedMessageId)}
 							overlay={overlayContent}
 							skeleton={<AppShellSkeleton />}
 							isLoading={isLoading || hasNoAccounts}
@@ -326,7 +329,7 @@ function MailLayout() {
 				</BriefPane>
 			) : onFlaggedRoute ? (
 				// Flagged virtual mailbox (/mail/flagged) — flat starred list across
-				// accounts; 2-pane layout (no intelligence), like the brief.
+				// accounts; same slots as the brief, intelligence rail included.
 				<FlaggedPane selectedMessageId={mobileSelectedMessageId}>
 					{isSinglePane ? (
 						<AppShellSlotted
@@ -344,7 +347,9 @@ function MailLayout() {
 							topBar={topBar}
 							list={<FlaggedPane.List />}
 							reading={<FlaggedPane.Reading />}
+							intelligence={<FlaggedPane.Intelligence />}
 							intelligenceOpen={intelligenceOpen}
+							hasThread={Boolean(mobileSelectedMessageId)}
 							overlay={overlayContent}
 							skeleton={<AppShellSkeleton />}
 							isLoading={isLoading || hasNoAccounts}
@@ -376,6 +381,7 @@ function MailLayout() {
 							reading={<MailboxPane.Reading />}
 							intelligence={<MailboxPane.Intelligence />}
 							intelligenceOpen={intelligenceOpen}
+							hasThread={Boolean(mobileSelectedMessageId)}
 							overlay={overlayContent}
 							skeleton={<AppShellSkeleton />}
 							isLoading={isLoading || hasNoAccounts}
