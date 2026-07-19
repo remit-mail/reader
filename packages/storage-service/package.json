@@ -26,10 +26,10 @@
 	"dependencies": {
 		"@aws-sdk/client-s3": "*",
 		"@aws-sdk/lib-storage": "*",
-		"@aws-sdk/s3-request-presigner": "*"
+		"@aws-sdk/s3-request-presigner": "*",
+		"@remit/domain-enums": "*"
 	},
 	"devDependencies": {
-		"@remit/domain-enums": "*",
 		"aws-sdk-client-mock": "*"
 	},
 	"license": "MIT",

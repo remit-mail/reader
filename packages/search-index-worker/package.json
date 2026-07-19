@@ -22,20 +22,20 @@
 	"dependencies": {
 		"@remit/outbox-relay": "*",
 		"p-map": "*",
-		"pg": "^8.0.0"
+		"pg": "^8.0.0",
+		"@remit/logger-lambda": "*",
+		"@remit/sqs-client": "*",
+		"@remit/data-ports": "*",
+		"@remit/drizzle-service": "*",
+		"@remit/search-service": "*",
+		"@remit/storage-service": "*"
 	},
 	"devDependencies": {
 		"@aws-sdk/client-dynamodb": "*",
 		"@aws-sdk/client-sqs": "*",
 		"@aws-sdk/core": "*",
 		"@aws-sdk/lib-dynamodb": "*",
-		"@remit/data-ports": "*",
-		"@remit/drizzle-service": "*",
 		"better-sqlite3": "^12.11.1",
-		"@remit/logger-lambda": "*",
-		"@remit/search-service": "*",
-		"@remit/sqs-client": "*",
-		"@remit/storage-service": "*",
 		"@types/aws-lambda": "*",
 		"@types/pg": "^8.0.0",
 		"expect-env": "*",
