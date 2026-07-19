@@ -49,6 +49,18 @@ jobs:
           docker compose -f docker-compose.localhost-dev-generic.yml \
             --env-file localhost-dev-generic.env config -q
 
+  # Biome reads the source tree and never the generated output, so this job
+  # skips the codegen restore and reports within a minute of the push.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          codegen: "false"
+      - name: Lint
+        run: npm run lint
+
   typecheck:
     runs-on: ubuntu-latest
     steps:
@@ -70,7 +82,7 @@ jobs:
   # succeeded, so a failed or skipped dependency can never report green.
   build:
     runs-on: ubuntu-latest
-    needs: [validate, typecheck, test]
+    needs: [validate, lint, typecheck, test]
     if: always()
     steps:
       - name: Require every job to have succeeded
