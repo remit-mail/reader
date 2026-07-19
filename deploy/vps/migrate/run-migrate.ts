@@ -25,6 +25,36 @@ import sqliteSearchIndexSql from "../../../npm-scripts/sqlite-search-index.sql";
  * store owns its own file the same way; neither is this migrator's concern.
  */
 
+/**
+ * One-shot data migrations, keyed by name in `remit_data_migration`.
+ *
+ * Distinct from the drizzle sets above, which describe the shape of the data,
+ * not its content. A step lands here when a column's MEANING changes and the
+ * rows already written under the old meaning would be misread under the new
+ * one.
+ */
+const DATA_MIGRATION_TABLE_SQL = `CREATE TABLE IF NOT EXISTS remit_data_migration (
+	name TEXT PRIMARY KEY,
+	applied_at BIGINT NOT NULL
+)`;
+
+/**
+ * `mailbox.highest_modseq` used to be a copy of the server's live
+ * HIGHESTMODSEQ, rewritten by every mailbox-list sweep. It is now message
+ * sync's own cursor: how far CHANGEDSINCE has been applied for that mailbox.
+ *
+ * Every row written by an older build therefore claims the server's current
+ * position, which under the new meaning says "everything is already applied".
+ * Left alone, an upgraded stack would go straight to incremental fetching,
+ * abandon any backfill in progress, and never see a message below the value.
+ *
+ * Resetting to "0" says "nothing applied yet", which is the truthful answer
+ * for a cursor that was never maintained. It costs one enumeration round per
+ * mailbox — the UID watermarks are untouched, so nothing is re-fetched — and
+ * message sync reseeds the cursor once a round completes cleanly.
+ */
+const RESET_MAILBOX_CURSOR = "reset_mailbox_highest_modseq_to_unseeded";
+
 const runPostgres = async (): Promise<void> => {
 	const connectionString = process.env.PG_CONNECTION_URL;
 	if (!connectionString) {
@@ -55,6 +85,30 @@ const runPostgres = async (): Promise<void> => {
 
 		console.log("[migrate] installing search index objects");
 		await pool.query(searchIndexSql);
+
+		await pool.query(DATA_MIGRATION_TABLE_SQL);
+		const applied = await pool.query(
+			"SELECT 1 FROM remit_data_migration WHERE name = $1",
+			[RESET_MAILBOX_CURSOR],
+		);
+		if (applied.rowCount === 0) {
+			console.log(`[migrate] data migration: ${RESET_MAILBOX_CURSOR}`);
+			const client = await pool.connect();
+			try {
+				await client.query("BEGIN");
+				await client.query("UPDATE mailbox SET highest_modseq = '0'");
+				await client.query(
+					"INSERT INTO remit_data_migration (name, applied_at) VALUES ($1, $2)",
+					[RESET_MAILBOX_CURSOR, Date.now()],
+				);
+				await client.query("COMMIT");
+			} catch (error) {
+				await client.query("ROLLBACK");
+				throw error;
+			} finally {
+				client.release();
+			}
+		}
 	} finally {
 		await pool.end();
 	}
@@ -133,6 +187,23 @@ const runSqlite = async (): Promise<void> => {
 			}
 		});
 		installSearchIndex();
+
+		sqlite.exec(DATA_MIGRATION_TABLE_SQL);
+		const alreadyApplied = sqlite
+			.prepare("SELECT 1 FROM remit_data_migration WHERE name = ?")
+			.get(RESET_MAILBOX_CURSOR);
+		if (!alreadyApplied) {
+			console.log(`[migrate] data migration: ${RESET_MAILBOX_CURSOR}`);
+			const resetCursor = sqlite.transaction(() => {
+				sqlite.exec("UPDATE mailbox SET highest_modseq = '0'");
+				sqlite
+					.prepare(
+						"INSERT INTO remit_data_migration (name, applied_at) VALUES (?, ?)",
+					)
+					.run(RESET_MAILBOX_CURSOR, Date.now());
+			});
+			resetCursor();
+		}
 	} finally {
 		sqlite.close();
 	}

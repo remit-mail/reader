@@ -12,8 +12,34 @@ import { formatErrorDetail } from "@/components/ui/error-banners";
 
 interface UseToggleStarOptions {
 	threadId: string;
+	/**
+	 * The mailbox whose lists to patch when the starred message is not in
+	 * `messages` — the browsed mailbox, which is where a list row lives.
+	 */
 	mailboxId: string;
+	/**
+	 * The thread's messages, when the caller has them. A conversation spans
+	 * mailboxes (#46), so the lists to patch are the ones for the mailbox the
+	 * starred message is actually in, not the one being browsed.
+	 */
+	messages?: RemitImapThreadMessageResponse[];
 }
+
+/**
+ * The mailbox whose cached listings a mutation on `messageId` affects.
+ *
+ * The message's own mailbox, falling back to the browsed one when the thread's
+ * messages are unknown or do not contain it. Starring a reply in Sent from a
+ * conversation opened in INBOX has to patch Sent's lists; INBOX's do not hold
+ * that message and patching them changes nothing.
+ */
+export const resolveMailboxForMessage = (
+	messageId: string,
+	messages: RemitImapThreadMessageResponse[] | undefined,
+	fallbackMailboxId: string,
+): string =>
+	messages?.find((message) => message.messageId === messageId)?.mailboxId ??
+	fallbackMailboxId;
 
 interface ThreadMessagesData {
 	items: RemitImapThreadMessageResponse[];
@@ -57,6 +83,7 @@ export const toggleStarsInItems = (
 export const useToggleStar = ({
 	threadId,
 	mailboxId,
+	messages,
 }: UseToggleStarOptions) => {
 	const queryClient = useQueryClient();
 	const { pushError } = useErrorBanners();
@@ -75,11 +102,16 @@ export const useToggleStar = ({
 				threadDetailOperationsListThreadMessagesQueryKey({
 					path: { threadId },
 				});
+			const affectedMailboxId = resolveMailboxForMessage(
+				messageId,
+				messages,
+				mailboxId,
+			);
 			const threadsListPrefix = threadOperationsListThreadsQueryKey({
-				path: { mailboxId },
+				path: { mailboxId: affectedMailboxId },
 			});
 			const threadsSearchPrefix = threadOperationsSearchThreadsQueryKey({
-				path: { mailboxId },
+				path: { mailboxId: affectedMailboxId },
 			});
 			// The unified cross-account listing backs the daily brief and the
 			// Starred mailbox, so a star toggled from an inbox has to land there

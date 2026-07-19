@@ -44,7 +44,10 @@ describe("MailboxSyncService.syncMailboxes — UIDVALIDITY cursor detection (#12
 		shared: [],
 	};
 
-	const buildConnection = (uidValidity: number): IImapConnection =>
+	const buildConnection = (
+		uidValidity: number,
+		highestModseq = "0",
+	): IImapConnection =>
 		({
 			getNamespaces: async () => namespaces,
 			listMailboxes: async () => [
@@ -62,7 +65,7 @@ describe("MailboxSyncService.syncMailboxes — UIDVALIDITY cursor detection (#12
 				unseen: 1,
 				uidNext: 100,
 				uidValidity,
-				highestModseq: "0",
+				highestModseq,
 				deletedCount: 0,
 			}),
 		}) as unknown as IImapConnection;
@@ -130,6 +133,32 @@ describe("MailboxSyncService.syncMailboxes — UIDVALIDITY cursor detection (#12
 		const { mailboxService, specialUseService, updateCalls } = buildServices(1);
 		const service = new MailboxSyncService(mailboxService, specialUseService);
 		const connection = buildConnection(1);
+
+		await service.syncMailboxes({ accountId: "acc-1" }, connection);
+
+		assert.equal(updateCalls.length, 0);
+	});
+
+	it("never writes the message-sync cursor, whatever the server reports", async () => {
+		// `highestModseq` on the mailbox row is message sync's own cursor over
+		// applied changes, not a status projection. The sweep overwriting it with
+		// the server's current value would step it over every change message sync
+		// had not yet applied.
+		const { mailboxService, specialUseService, updateCalls } = buildServices(1);
+		const service = new MailboxSyncService(mailboxService, specialUseService);
+		const connection = buildConnection(2, "99999");
+
+		await service.syncMailboxes({ accountId: "acc-1" }, connection);
+
+		for (const call of updateCalls) {
+			assert.equal("highestModseq" in call, false);
+		}
+	});
+
+	it("does not sweep-write a mailbox whose only difference is the server mod-sequence", async () => {
+		const { mailboxService, specialUseService, updateCalls } = buildServices(1);
+		const service = new MailboxSyncService(mailboxService, specialUseService);
+		const connection = buildConnection(1, "4242");
 
 		await service.syncMailboxes({ accountId: "acc-1" }, connection);
 

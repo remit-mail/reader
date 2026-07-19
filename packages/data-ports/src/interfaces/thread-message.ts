@@ -73,6 +73,11 @@ export interface IThreadMessageRepository {
 			excludeDeleted?: boolean;
 		},
 	): Promise<ResultList<ThreadMessageItem>>;
+	/**
+	 * Every message of a thread, across all mailboxes of the account. A
+	 * conversation spans INBOX, Sent and any folder its messages were filed
+	 * in, so this listing is deliberately not scoped to a mailbox (#46).
+	 */
 	listByThread(
 		threadId: string,
 		accountConfigId: string,
@@ -80,7 +85,6 @@ export interface IThreadMessageRepository {
 			order?: "asc" | "desc";
 			limit?: number;
 			continuationToken?: string;
-			mailboxId?: string;
 			excludeDeleted?: boolean;
 		},
 	): Promise<ResultList<ThreadMessageItem>>;

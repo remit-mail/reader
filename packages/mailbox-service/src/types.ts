@@ -200,6 +200,11 @@ export interface ImapMessage {
 	references?: string[];
 	/** Parsed BODYSTRUCTURE tree (RFC 9051 Section 7.5.2). */
 	bodyStructure?: ImapBodyStructure;
+	/**
+	 * Per-message MODSEQ (RFC 7162) as decimal digits of an unsigned 64-bit
+	 * value. Absent when the session has no CONDSTORE.
+	 */
+	modseq?: string;
 }
 
 /**
@@ -225,6 +230,23 @@ export interface IImapConnection {
 	closeBox(expunge?: boolean): Promise<void>;
 	search(criteria: unknown[]): Promise<number[]>;
 	fetchMessages(uids: number[]): Promise<ImapMessage[]>;
+	/**
+	 * True when the session negotiated CONDSTORE (RFC 7162) AND the currently
+	 * open mailbox keeps persistent mod-sequences. A mailbox that answered
+	 * NOMODSEQ on SELECT reports false, as does any server that never
+	 * advertised the extension. Requires a mailbox to be open.
+	 */
+	supportsCondstore(): boolean;
+	/**
+	 * FETCH every message in the open mailbox whose MODSEQ is strictly greater
+	 * than `sinceModseq` (RFC 7162 CHANGEDSINCE) — both messages that arrived
+	 * and messages whose metadata changed. Requires a mailbox to be open.
+	 *
+	 * Throws when CONDSTORE is unavailable: the underlying client drops the
+	 * modifier in that case, which would silently turn the call into a fetch of
+	 * the entire mailbox.
+	 */
+	fetchMessagesChangedSince(sinceModseq: bigint): Promise<ImapMessage[]>;
 	/**
 	 * Cheap envelope-only pass for the UIDVALIDITY cursor rebuild (#1272): UID
 	 * + Message-ID + INTERNALDATE for every UID, no BODYSTRUCTURE, no flags,

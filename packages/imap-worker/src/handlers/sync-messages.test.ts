@@ -147,6 +147,45 @@ describe("drainPendingFlagPushes — periodic per-mailbox re-arm (issue #1273)",
 		assert.equal(emitted.length, 2);
 	});
 
+	/**
+	 * Markers persisted before the system-flag wire-format fix carry the
+	 * unprefixed spelling (`Seen`, not `\Seen`) the enum emitter used to
+	 * produce. The drain re-arms from the stored `marker.flagName` and never
+	 * from the enum, and `handleFlagPush` threads that same value through
+	 * `find`/`updateState`/`delete` — so a marker written under the old
+	 * spelling still matches itself and drains to completion. No migration,
+	 * no orphans.
+	 */
+	it("re-arms a marker persisted under the pre-fix unprefixed spelling verbatim", async () => {
+		const markerService = {
+			listByMailboxId: async () => [
+				marker({ messageId: "legacy-msg", flagName: "Seen" }),
+				marker({ messageId: "legacy-star", flagName: "Flagged" }),
+			],
+		} as unknown as IMessageFlagPushRepository;
+
+		const emitted: Array<{ messageId: string; flagName: string }> = [];
+		const { log } = buildLogger();
+
+		await drainPendingFlagPushes(
+			markerService,
+			account,
+			"mbx-1",
+			log,
+			async (event) => {
+				emitted.push(event as unknown as (typeof emitted)[number]);
+			},
+		);
+
+		assert.deepEqual(
+			emitted.map((e) => [e.messageId, e.flagName]),
+			[
+				["legacy-msg", "Seen"],
+				["legacy-star", "Flagged"],
+			],
+		);
+	});
+
 	it("a re-arm (SQS) failure is caught per-marker and logged loudly — never thrown", async () => {
 		const markerService = {
 			listByMailboxId: async () => [marker()],

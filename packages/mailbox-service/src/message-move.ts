@@ -695,10 +695,14 @@ export class MessageMoveService {
 	/**
 	 * Delete every ThreadMessage row that points at this messageId.
 	 *
-	 * A single Message can have multiple ThreadMessage rows — one per mailbox
-	 * the message exists in (e.g. INBOX + a label/folder copy). Deleting them
-	 * up-front in the permanent-delete optimistic step prevents stale rows from
-	 * leaking into mailbox listings while IMAP catches up. See issue #212.
+	 * A row is keyed by (threadId, messageId), so this is one row in practice —
+	 * a message filed in several folders keeps a single row, because its
+	 * messageId is derived from the Message-ID header and not from the mailbox.
+	 * The query stays a list because the key permits more than one thread per
+	 * message and nothing enforces otherwise.
+	 *
+	 * Deleting up-front in the permanent-delete optimistic step prevents stale
+	 * rows from leaking into mailbox listings while IMAP catches up (#212).
 	 */
 	private deleteThreadMessagesForMessage = async (
 		accountConfigId: string,

@@ -1,7 +1,10 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
-import { toggleStarsInItems } from "./useToggleStar.js";
+import {
+	resolveMailboxForMessage,
+	toggleStarsInItems,
+} from "./useToggleStar.js";
 
 const make = (
 	messageId: string,
@@ -52,6 +55,41 @@ describe("toggleStarsInItems", () => {
 		assert.deepStrictEqual(
 			got.map((i) => i.hasStars),
 			[false],
+		);
+	});
+});
+
+describe("resolveMailboxForMessage", () => {
+	const messages = [
+		{ ...make("m-received", false), mailboxId: "mb-inbox" },
+		{ ...make("m-sent", false), mailboxId: "mb-sent" },
+	];
+
+	test("starring a sent reply patches the sent mailbox, not the browsed one", () => {
+		assert.strictEqual(
+			resolveMailboxForMessage("m-sent", messages, "mb-inbox"),
+			"mb-sent",
+		);
+	});
+
+	test("starring a message in the browsed mailbox is unchanged", () => {
+		assert.strictEqual(
+			resolveMailboxForMessage("m-received", messages, "mb-inbox"),
+			"mb-inbox",
+		);
+	});
+
+	test("falls back to the browsed mailbox when the thread is unknown", () => {
+		assert.strictEqual(
+			resolveMailboxForMessage("m-sent", undefined, "mb-inbox"),
+			"mb-inbox",
+		);
+	});
+
+	test("falls back to the browsed mailbox for a message not in the thread", () => {
+		assert.strictEqual(
+			resolveMailboxForMessage("m-elsewhere", messages, "mb-inbox"),
+			"mb-inbox",
 		);
 	});
 });
