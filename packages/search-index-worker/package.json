@@ -7,6 +7,10 @@
 		".": {
 			"types": "./src/index.ts",
 			"default": "./src/index.ts"
+		},
+		"./data-ports": {
+			"types": "./src/data-ports.ts",
+			"default": "./src/data-ports.ts"
 		}
 	},
 	"scripts": {

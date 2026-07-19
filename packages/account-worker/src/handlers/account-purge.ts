@@ -10,10 +10,10 @@ import type { SearchIndexMessage } from "@remit/search-index-worker";
 import { Entity } from "electrodb";
 import type { CascadeServices } from "../cascade.js";
 import {
-	cascadeServices as defaultCascadeServices,
 	dataBackend as defaultDataBackend,
 	sqsClient as defaultSqsClient,
 	getAccountPurgeDeleteQueueUrl,
+	getCascadeServices,
 	getSearchIndexQueueUrl,
 } from "../config.js";
 import type {
@@ -161,7 +161,7 @@ export const processAccountDataPurge = async (
 	deps: ProcessPurgeFanoutDeps = {},
 ): Promise<void> => {
 	const { accountId, accountConfigId } = event;
-	const services = deps.services ?? defaultCascadeServices;
+	const services = deps.services ?? (await getCascadeServices());
 	const sqs = deps.sqs ?? defaultSqsClient;
 	const accountPurgeDeleteQueueUrl =
 		deps.accountPurgeDeleteQueueUrl ?? getAccountPurgeDeleteQueueUrl();

@@ -3,6 +3,16 @@
 	"version": "0.0.1",
 	"type": "module",
 	"main": "dist/index.js",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		},
+		"./data-ports": {
+			"types": "./src/data-ports.ts",
+			"default": "./src/data-ports.ts"
+		}
+	},
 	"scripts": {
 		"bundle": "node build.mjs",
 		"test:typecheck": "tsgo --noEmit",

@@ -5,7 +5,7 @@ build/remit-openapi3/openapi.json: $(shell find typespec/ -type f)
 
 build/remit-client: build/remit-openapi3/openapi.json openapi-ts.config.js
 	npx @hey-api/openapi-ts
-	echo '{"name":"@remit/api-http-client","version":"0.0.1","type":"module","exports":{".":"./index.ts","./*":"./*"}}' > $@/package.json
+	echo '{"name":"@remit/api-http-client","version":"1.0.0","type":"module","exports":{".":"./index.ts","./*":"./*"}}' > $@/package.json
 	touch $@
 
 build/drizzle-entities/dist: build/remit-openapi3/openapi.json

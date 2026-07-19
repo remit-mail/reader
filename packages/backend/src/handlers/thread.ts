@@ -1,10 +1,10 @@
+import type { ResultList, ThreadMessageItem } from "@remit/data-ports";
+import { NotFoundError } from "@remit/data-ports/errors";
 import type {
 	MessageCategory,
 	SenderTrust,
 	ThreadSearchResponse,
 } from "@remit/api-openapi-types";
-import type { ResultList, ThreadMessageItem } from "@remit/data-ports";
-import { NotFoundError } from "@remit/data-ports/errors";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent } from "../auth.js";

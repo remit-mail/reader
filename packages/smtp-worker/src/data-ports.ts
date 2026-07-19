@@ -96,31 +96,33 @@ const buildSqliteDataPorts = async (): Promise<SmtpDataPorts> => {
 	};
 };
 
+let injectedDataPorts: SmtpDataPorts | null = null;
+
+/**
+ * Register the DynamoDB-backed SMTP data ports from the composition root. The
+ * DynamoDB composition lives outside this shared, open-core module and is never
+ * imported here. The relational backends compose in-package below and never
+ * touch this seam.
+ */
+export const setSmtpDataPorts = (ports: SmtpDataPorts): void => {
+	injectedDataPorts = ports;
+};
+
 /**
  * Select the SMTP data ports from the environment, mirroring the other workers'
  * `DATA_BACKEND` selection:
  *
  * - `DATA_BACKEND=postgres` → Drizzle repos over `PG_CONNECTION_URL`.
  * - `DATA_BACKEND=sqlite` → Drizzle repos over the shared `SQLITE_DB_PATH` file.
- * - otherwise → ElectroDB services over `DYNAMODB_TABLE_NAME` (the AWS path,
- *   unchanged from the pre-convergence worker).
- *
- * The DynamoDB branch loads its composition through a dynamic `import()`, so the
- * sole importer of the closed `@remit/remit-electrodb-service`
- * (`./compose-dynamodb.js`) is never loaded on the relational (open-core) tree,
- * where that module is not shipped. esbuild still bundles it into the Lambda
- * because the specifier is a relative import, not an `external`.
+ * - otherwise → the DynamoDB ElectroDB ports the composition root injected.
  */
 export const buildDataPortsFromEnv = async (): Promise<SmtpDataPorts> => {
 	if (process.env.DATA_BACKEND === "postgres") return buildPostgresDataPorts();
 	if (process.env.DATA_BACKEND === "sqlite") return buildSqliteDataPorts();
-	// `as string` stops tsgo resolving the module in the open-core tree, which
-	// strips it; the named contract keeps the call site typed rather than `any`.
-	type ComposeDynamoDBModule = {
-		buildDynamoDBDataPorts: () => SmtpDataPorts;
-	};
-	const { buildDynamoDBDataPorts } = (await import(
-		"./compose-dynamodb.js" as string
-	)) as ComposeDynamoDBModule;
-	return buildDynamoDBDataPorts();
+	if (!injectedDataPorts) {
+		throw new Error(
+			"no DynamoDB SMTP data ports registered — register them with setSmtpDataPorts() from your composition root",
+		);
+	}
+	return injectedDataPorts;
 };

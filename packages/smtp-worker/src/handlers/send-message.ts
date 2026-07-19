@@ -23,11 +23,19 @@ import {
 import { sendMail } from "@remit/smtp-service";
 import { resolveSqsCredentials } from "@remit/sqs-client";
 import { env } from "expect-env";
-import { buildDataPortsFromEnv } from "../data-ports.js";
+import { buildDataPortsFromEnv, type SmtpDataPorts } from "../data-ports.js";
 import type { SendMessageEvent } from "../events.js";
 import { sendMessage } from "./send-message-core.js";
 
-const ports = await buildDataPortsFromEnv();
+// The data ports are resolved lazily and cached, not at module load: the
+// DynamoDB backend is injected by the composition root before the first send,
+// so building at import time would race the registration.
+let portsPromise: Promise<SmtpDataPorts> | null = null;
+const getPorts = (): Promise<SmtpDataPorts> => {
+	if (!portsPromise) portsPromise = buildDataPortsFromEnv();
+	return portsPromise;
+};
+
 const dataKeyProvider = createKmsDataKeyProvider(env.KMS_KEY_ID);
 const secrets = createSecretsService(dataKeyProvider);
 
@@ -47,12 +55,6 @@ const getTokenService = () => {
 	}
 	return _tokenService;
 };
-
-const accountService = ports.account;
-const outboxService = ports.outboxMessage;
-const addressService = ports.address;
-const messageService = ports.message;
-const envelopeService = ports.envelope;
 
 // APPEND_SENT_MESSAGE is processed by the IMAP worker via the
 // message-management queue (see remit-imap-worker/src/emit.ts).
@@ -90,7 +92,8 @@ const findMessageByHeader = async (
 	messageIdHeader: string,
 ) => {
 	const messageId = deriveMessageId(accountId, messageIdHeader);
-	return messageService.get(messageId).catch((error: unknown) => {
+	const { message } = await getPorts();
+	return message.get(messageId).catch((error: unknown) => {
 		if ((error as { name?: string })?.name === "NotFoundError") return null;
 		throw error;
 	});
@@ -99,7 +102,8 @@ const findMessageByHeader = async (
 const getEnvelopeFromEmail = async (
 	messageId: string,
 ): Promise<string | null> => {
-	const data = await envelopeService
+	const { envelope } = await getPorts();
+	const data = await envelope
 		.getMessageData(messageId)
 		.catch((error: unknown) => {
 			if ((error as { name?: string })?.name === "NotFoundError") return null;
@@ -122,7 +126,8 @@ const buildCredentialDeps = (): AccountCredentialsDeps => ({
 	secrets,
 	tokenService: getTokenService(),
 	persistRotatedToken: async (accountId, encryptedHash, updatedAt) => {
-		await accountService.update(accountId, {
+		const { account } = await getPorts();
+		await account.update(accountId, {
 			oauthRefreshTokenHash: encryptedHash,
 			oauthTokenUpdatedAt: updatedAt,
 		});
@@ -135,19 +140,25 @@ export const handleSendMessage = (
 ): Promise<void> => {
 	const credentialDeps = buildCredentialDeps();
 	return sendMessage(event, log, {
-		getOutbox: (accountConfigId, id) => outboxService.get(accountConfigId, id),
-		getAccount: (id) => accountService.get(id),
-		updateOutbox: (accountConfigId, id, patch) =>
-			outboxService.update(accountConfigId, id, patch),
-		updateOutboxStatus: (accountConfigId, id, status) =>
-			outboxService.updateStatus(accountConfigId, id, status),
-		markOutboxSent: (accountConfigId, id, fields) =>
-			outboxService.markSent(accountConfigId, id, fields),
+		getOutbox: async (accountConfigId, id) =>
+			(await getPorts()).outboxMessage.get(accountConfigId, id),
+		getAccount: async (id) => (await getPorts()).account.get(id),
+		updateOutbox: async (accountConfigId, id, patch) =>
+			(await getPorts()).outboxMessage.update(accountConfigId, id, patch),
+		updateOutboxStatus: async (accountConfigId, id, status) =>
+			(await getPorts()).outboxMessage.updateStatus(
+				accountConfigId,
+				id,
+				status,
+			),
+		markOutboxSent: async (accountConfigId, id, fields) =>
+			(await getPorts()).outboxMessage.markSent(accountConfigId, id, fields),
 		secrets,
 		resolveCredentials: (account) =>
 			resolveConnectionCredentials(account, credentialDeps),
 		updateConnectionState: async (id, state) => {
-			await accountService.update(id, {
+			const { account } = await getPorts();
+			await account.update(id, {
 				connectionState:
 					state as (typeof ConnectionState)[keyof typeof ConnectionState],
 			});
@@ -156,10 +167,18 @@ export const handleSendMessage = (
 		emitAppendSentMessage,
 		engagement: {
 			resolveAddressId: deriveAddressId,
-			incrementOutboundCount: (accountConfigId, addressId, now) =>
-				addressService.incrementOutboundCount(accountConfigId, addressId, now),
-			incrementReplyCount: (accountConfigId, addressId, now) =>
-				addressService.incrementReplyCount(accountConfigId, addressId, now),
+			incrementOutboundCount: async (accountConfigId, addressId, now) =>
+				(await getPorts()).address.incrementOutboundCount(
+					accountConfigId,
+					addressId,
+					now,
+				),
+			incrementReplyCount: async (accountConfigId, addressId, now) =>
+				(await getPorts()).address.incrementReplyCount(
+					accountConfigId,
+					addressId,
+					now,
+				),
 			findMessageByHeader,
 			getEnvelopeFromEmail,
 		},

@@ -69,6 +69,19 @@ RUN APISIX_BACKEND_HOST=backend APISIX_BACKEND_PORT=8080 \
 # dependency notes.
 RUN node npm-scripts/docker-bundle.mjs
 
+# Stage whichever migration sets ship in this tree into one directory so the
+# backend image COPYs it unconditionally — a Dockerfile COPY cannot skip a
+# missing path. Both sets ship here (Postgres `migrations` + `migrations-sqlite`,
+# RFC 036 D5); the open-core export strips the Postgres set, and this loop
+# tolerates its absence. Directory names are preserved, so the backend image's
+# ./migrations and ./migrations-sqlite are byte-identical to a direct COPY.
+RUN mkdir -p dist-docker/backend-migrations \
+	&& for set in migrations migrations-sqlite; do \
+		if [ -d "deploy/vps/$set" ]; then \
+			cp -a "deploy/vps/$set" "dist-docker/backend-migrations/$set"; \
+		fi; \
+	done
+
 ########################################################################
 # node-service-base — shared runtime layer for the six alpine-based images.
 #
@@ -143,10 +156,12 @@ COPY --from=builder --chown=node:node /app/build/remit-openapi3/openapi.json ./o
 # The deploy/vps/docker-compose.yml `migrate` one-shot service overrides CMD
 # to run it instead of server.mjs.
 COPY --from=builder --chown=node:node /app/dist-docker/backend/migrate.mjs ./migrate.mjs
-# The sqlite migration sets the migrate entrypoint applies when
-# DATA_BACKEND=sqlite (RFC 036 D5). Shipped alongside the pg set; the compose
-# `migrate` service picks one by DATA_BACKEND.
-COPY --from=builder --chown=node:node /app/deploy/vps/migrations-sqlite ./migrations-sqlite
+# Both migration sets, staged in the builder into one directory so this COPY is
+# unconditional. The migrate entrypoint applies ./migrations (Postgres) or
+# ./migrations-sqlite by DATA_BACKEND (RFC 036 D5); the compose `migrate` service
+# picks one. The open-core export ships only the sqlite set — the builder stage
+# tolerates the Postgres set's absence, which a bare COPY cannot.
+COPY --from=builder --chown=node:node /app/dist-docker/backend-migrations/ ./
 ENV SERVER_PORT=8080
 EXPOSE 8080
 CMD ["node", "server.mjs"]

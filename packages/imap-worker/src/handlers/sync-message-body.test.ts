@@ -1,11 +1,18 @@
 import assert from "node:assert";
-import { afterEach, describe, mock, test } from "node:test";
+import { afterEach, before, describe, mock, test } from "node:test";
 import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 import { GetParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
-import { getClient } from "@remit/backend/client";
+import {
+	getClient,
+	type RemitClient,
+	setClient,
+} from "@remit/backend/client";
 import type { AccountItem, MailboxItem } from "@remit/data-ports";
 import type { Logger } from "@remit/logger-lambda";
-import { BodySyncService, type SyncedMessage } from "@remit/mailbox-service";
+import {
+	BodySyncService,
+	type SyncedMessage,
+} from "@remit/mailbox-service";
 import { mockClient } from "aws-sdk-client-mock";
 import { resetBodySyncGateCache } from "../body-sync-gate.js";
 import { __warmPoolSizeForTest } from "../connection-scope.js";
@@ -220,6 +227,28 @@ describe("syncMessageBody — DLQ propagation (integrated, #1270)", () => {
 
 	const cappedMailbox = (): MailboxItem =>
 		({ fullPath: "INBOX" }) as unknown as MailboxItem;
+
+	// On the DynamoDB path (main repo, DATA_BACKEND unset) the client is injected
+	// by the composition root; register a client whose repositories these tests
+	// then mock. On the relational path (reader, DATA_BACKEND=postgres) getClient
+	// builds its own client and this injection is inert.
+	before(() => {
+		setClient({
+			account: { get: async () => cappedAccount() },
+			mailbox: { get: async () => cappedMailbox() },
+			mailboxSpecialUse: {},
+			message: {},
+			threadMessage: {},
+			address: {},
+			envelope: {},
+			placementMove: {},
+			filter: {},
+			filterAnchor: {},
+			messageLabel: {},
+			storage: {},
+			secrets: { decrypt: async () => "fake-password" },
+		} as unknown as RemitClient);
+	});
 
 	afterEach(() => {
 		mock.restoreAll();

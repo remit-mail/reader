@@ -1,5 +1,9 @@
 import { inspect } from "node:util";
-import { createLogger, type Logger, withTelemetry } from "@remit/logger-lambda";
+import {
+	createLogger,
+	type Logger,
+	withTelemetry,
+} from "@remit/logger-lambda";
 import type { SQSEvent, SQSHandler } from "aws-lambda";
 import {
 	type CascadeEntity,
@@ -7,7 +11,7 @@ import {
 	collectMessageChildEntities,
 	enumerateCascadeEntities,
 } from "../cascade.js";
-import { cascadeServices as defaultCascadeServices } from "../config.js";
+import { getCascadeServices } from "../config.js";
 import {
 	type DeletionCapabilities,
 	getDeletionCapabilities,
@@ -30,7 +34,7 @@ const resolveDeps = async (
 	services: CascadeServices;
 }> => ({
 	capabilities: deps.capabilities ?? (await getDeletionCapabilities()),
-	services: deps.cascadeServices ?? defaultCascadeServices,
+	services: deps.cascadeServices ?? (await getCascadeServices()),
 });
 
 /**

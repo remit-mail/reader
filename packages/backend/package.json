@@ -15,6 +15,10 @@
 			"types": "./src/service/dynamodb.ts",
 			"default": "./src/service/dynamodb.ts"
 		},
+		"./create-remit-client": {
+			"types": "./src/service/create-remit-client.ts",
+			"default": "./src/service/create-remit-client.ts"
+		},
 		"./organize": {
 			"types": "./src/service/organize.ts",
 			"default": "./src/service/organize.ts"

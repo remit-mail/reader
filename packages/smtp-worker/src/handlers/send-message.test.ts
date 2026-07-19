@@ -11,7 +11,10 @@ import {
 	type EncryptedPayload,
 	serializeEncryptedPayload,
 } from "@remit/secrets-service";
-import { type SendResult, SmtpConnectionError } from "@remit/smtp-service";
+import {
+	type SendResult,
+	SmtpConnectionError,
+} from "@remit/smtp-service";
 import type { SendMessageEvent } from "../events.js";
 import { type SendMessageDeps, sendMessage } from "./send-message-core.js";
 

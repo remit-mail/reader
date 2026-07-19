@@ -58,7 +58,7 @@ services:
   # service waits on it succeeding.
   # ---------------------------------------------------------------------
   migrate:
-    image: ghcr.io/remit-mail/reader/backend:${REMIT_TAG:-latest}
+    image: ghcr.io/remit-mail/remit/backend:${REMIT_TAG:-latest}
     <<: *app-env
     command: ["node", "migrate.mjs"]
     volumes:
@@ -74,7 +74,7 @@ services:
   # /data/storage or /data/sqlite would EACCES without this. Reuses the backend
   # image with a root override purely to fix ownership once; runs no app code.
   volume-init:
-    image: ghcr.io/remit-mail/reader/backend:${REMIT_TAG:-latest}
+    image: ghcr.io/remit-mail/remit/backend:${REMIT_TAG:-latest}
     user: root
     entrypoint:
       ["sh", "-c", "mkdir -p /data/storage /data/sqlite && chown -R node:node /data/storage /data/sqlite"]
@@ -86,7 +86,7 @@ services:
   # App plane
   # ---------------------------------------------------------------------
   backend:
-    image: ghcr.io/remit-mail/reader/backend:${REMIT_TAG:-latest}
+    image: ghcr.io/remit-mail/remit/backend:${REMIT_TAG:-latest}
     <<: *app-env
     volumes:
       - message_storage:/data/storage
@@ -101,13 +101,13 @@ services:
     restart: unless-stopped
 
   apisix:
-    image: ghcr.io/remit-mail/reader/apisix:${REMIT_TAG:-latest}
+    image: ghcr.io/remit-mail/remit/apisix:${REMIT_TAG:-latest}
     depends_on:
       - backend
     restart: unless-stopped
 
   web:
-    image: ghcr.io/remit-mail/reader/web:${REMIT_TAG:-latest}
+    image: ghcr.io/remit-mail/remit/web:${REMIT_TAG:-latest}
     depends_on:
       - backend
     restart: unless-stopped
@@ -136,7 +136,7 @@ services:
   # (RFC 036 D2) — search-index-worker drains the outbox on a 2 s poll instead.
   # ---------------------------------------------------------------------
   imap-worker:
-    image: ghcr.io/remit-mail/reader/imap-worker:${REMIT_TAG:-latest}
+    image: ghcr.io/remit-mail/remit/imap-worker:${REMIT_TAG:-latest}
     <<: *app-env
     volumes:
       - message_storage:/data/storage
@@ -152,7 +152,7 @@ services:
     restart: unless-stopped
 
   smtp-worker:
-    image: ghcr.io/remit-mail/reader/smtp-worker:${REMIT_TAG:-latest}
+    image: ghcr.io/remit-mail/remit/smtp-worker:${REMIT_TAG:-latest}
     <<: *app-env
     volumes:
       - message_storage:/data/storage
@@ -168,7 +168,7 @@ services:
     restart: unless-stopped
 
   account-worker:
-    image: ghcr.io/remit-mail/reader/account-worker:${REMIT_TAG:-latest}
+    image: ghcr.io/remit-mail/remit/account-worker:${REMIT_TAG:-latest}
     <<: *app-env
     volumes:
       - message_storage:/data/storage
@@ -188,7 +188,7 @@ services:
   # search-index queue. It needs SQLITE_DB_PATH (drain source) and
   # LOCAL_VECTORDB_PATH (vector writes) — both set in the shared app env above.
   search-index-worker:
-    image: ghcr.io/remit-mail/reader/search-index-worker:${REMIT_TAG:-latest}
+    image: ghcr.io/remit-mail/remit/search-index-worker:${REMIT_TAG:-latest}
     <<: *app-env
     volumes:
       - message_storage:/data/storage

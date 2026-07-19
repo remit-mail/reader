@@ -3,7 +3,7 @@ import type { Logger } from "@remit/logger-lambda";
 import type { StorageService } from "@remit/storage-service";
 import { ZipArchive } from "archiver";
 import type { CascadeServices } from "../cascade.js";
-import { cascadeServices, getStorageService } from "../config.js";
+import { getCascadeServices, getStorageService } from "../config.js";
 import type { AccountExportEvent } from "../events.js";
 
 const THIRTY_DAYS_MILLIS = 30 * 24 * 60 * 60 * 1000;
@@ -13,8 +13,8 @@ export interface ProcessAccountExportDeps {
 	storageService: StorageService;
 }
 
-const defaultDeps = (): ProcessAccountExportDeps => ({
-	services: cascadeServices,
+const defaultDeps = async (): Promise<ProcessAccountExportDeps> => ({
+	services: await getCascadeServices(),
 	storageService: getStorageService(),
 });
 
@@ -66,10 +66,10 @@ const appendMessageBodies = async (
 export const processAccountExport = async (
 	event: AccountExportEvent,
 	log: Logger,
-	deps: ProcessAccountExportDeps = defaultDeps(),
+	deps?: ProcessAccountExportDeps,
 ): Promise<void> => {
 	const { accountConfigId, accountExportRequestId } = event;
-	const { services, storageService } = deps;
+	const { services, storageService } = deps ?? (await defaultDeps());
 	const { accountExportRequestService } = services;
 
 	await accountExportRequestService.get(accountExportRequestId);

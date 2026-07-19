@@ -1,8 +1,4 @@
 import type {
-	CanonicalMailboxRole as CanonicalMailboxRoleValue,
-	FolderAppointment,
-} from "@remit/api-openapi-types";
-import type {
 	AccountSettingItem,
 	IAccountSettingRepository,
 	IMailboxRepository,
@@ -17,6 +13,10 @@ import {
 	CanonicalMailboxRole,
 	MailboxSpecialUse,
 } from "@remit/domain-enums";
+import type {
+	CanonicalMailboxRole as CanonicalMailboxRoleValue,
+	FolderAppointment,
+} from "@remit/api-openapi-types";
 
 /**
  * RFC 032 exclusive-folder-appointment (#976): a per-account role→mailbox map.

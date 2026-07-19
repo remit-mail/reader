@@ -119,24 +119,29 @@ const buildSqliteDataPorts = async (): Promise<SearchIndexDataPorts> => {
  * - otherwise → ElectroDB services over `DYNAMODB_TABLE_NAME` (unchanged from
  *   the pre-convergence worker — this is the production path).
  *
- * Each branch loads its composition module through a dynamic `import()`, so the
- * DynamoDB path — the sole importer of the closed `@remit/remit-electrodb-
- * service` (`./compose-dynamodb.js`) — is never loaded on the relational
- * (open-core) tree, where that module is not shipped. esbuild still bundles it
- * into the Lambda because the specifier is a relative import, not an `external`.
+ * The DynamoDB ports are injected by the composition root, which lives outside
+ * this shared, open-core module and is never imported here.
  */
+let injectedDataPorts: SearchIndexDataPorts | null = null;
+
+/**
+ * Register the DynamoDB-backed search-index data ports from the composition
+ * root. The relational backends compose in-package above and never touch this
+ * seam.
+ */
+export const setSearchIndexDataPorts = (ports: SearchIndexDataPorts): void => {
+	injectedDataPorts = ports;
+};
+
 export const buildDataPortsFromEnv =
 	async (): Promise<SearchIndexDataPorts> => {
 		if (process.env.DATA_BACKEND === "postgres")
 			return buildPostgresDataPorts();
 		if (process.env.DATA_BACKEND === "sqlite") return buildSqliteDataPorts();
-		// `as string` stops tsgo resolving the module in the open-core tree, which
-		// strips it; the named contract keeps the call site typed rather than `any`.
-		type ComposeDynamoDBModule = {
-			buildDynamoDBDataPorts: () => SearchIndexDataPorts;
-		};
-		const { buildDynamoDBDataPorts } = (await import(
-			"./compose-dynamodb.js" as string
-		)) as ComposeDynamoDBModule;
-		return buildDynamoDBDataPorts();
+		if (!injectedDataPorts) {
+			throw new Error(
+				"no DynamoDB search-index data ports registered — register them with setSearchIndexDataPorts() from your composition root",
+			);
+		}
+		return injectedDataPorts;
 	};
