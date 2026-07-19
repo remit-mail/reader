@@ -10,40 +10,17 @@
  * query-key prefix as the mailbox list — so the move failed before it was ever
  * sent, and said so in a toast.
  *
- * This spec drives both from outside: the API for the lookup, a browser for the
- * move.
+ * The Junk message is seeded in global setup, before the account is connected.
+ * Appending it here and triggering a sync would ride the path `sync.spec.ts`
+ * pins as known-failing, and this spec would then fail for that reason instead
+ * of its own.
+ *
+ * Both halves are driven from outside: the API for the lookup, a browser for
+ * the move.
  */
-import { ApiClient, waitFor } from "../src/api.js";
+import type { ApiClient } from "../src/api.js";
+import { waitFor } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
-import { appendMessages } from "../src/imap.js";
-import { readRunState } from "../src/state.js";
-
-const SENDER_NAME = "npm support";
-const SENDER_EMAIL = "support@npmjs.com";
-const SUBJECT = `Rescue me ${Date.now()}`;
-
-/**
- * Put one message in Spam from a sender who has a display name — the ordinary
- * case, and the one address search used to miss. Worker-scoped, so it reads the
- * run state directly rather than through the per-test fixtures.
- */
-test.beforeAll(async () => {
-	const run = readRunState();
-	const api = new ApiClient(run.token);
-
-	await appendMessages(
-		run.imapUser,
-		[
-			{
-				subject: SUBJECT,
-				from: `${SENDER_NAME} <${SENDER_EMAIL}>`,
-				body: "This one does not belong in Spam.",
-			},
-		],
-		"Junk",
-	);
-	await api.triggerSync(run.accountId);
-});
 
 const junkMailboxId = async (
 	api: ApiClient,
@@ -59,11 +36,15 @@ const junkMailboxId = async (
 	return junk.mailboxId;
 };
 
-const waitForSpamMessage = async (api: ApiClient, mailboxId: string) =>
+const waitForSpamMessage = async (
+	api: ApiClient,
+	mailboxId: string,
+	subject: string,
+) =>
 	waitFor(
 		() => api.listThreads(mailboxId),
-		(items) => items.some((thread) => thread.subject === SUBJECT),
-		{ timeoutMs: 60_000, what: `"${SUBJECT}" to sync into Junk` },
+		(items) => items.some((thread) => thread.subject === subject),
+		{ timeoutMs: 60_000, what: `"${subject}" to sync into Junk` },
 	);
 
 test.describe("Spam rescue", () => {
@@ -72,21 +53,26 @@ test.describe("Spam rescue", () => {
 		run,
 	}) => {
 		const junkId = await junkMailboxId(api, run.accountId);
-		await waitForSpamMessage(api, junkId);
+		await waitForSpamMessage(api, junkId, run.spamSubject);
 
 		// Sync writes the address row as a side effect of storing the message, so
 		// once the message is readable the row exists. Searching by the exact
 		// address must return it: the sender's flags, and every quick action that
 		// writes them, hang off this lookup.
 		const addresses = await waitFor(
-			() => api.searchAddresses(SENDER_EMAIL),
+			() => api.searchAddresses(run.spamSenderEmail),
 			(items) =>
-				items.some((address) => address.normalizedEmail === SENDER_EMAIL),
-			{ timeoutMs: 30_000, what: `the address record for ${SENDER_EMAIL}` },
+				items.some(
+					(address) => address.normalizedEmail === run.spamSenderEmail,
+				),
+			{
+				timeoutMs: 30_000,
+				what: `the address record for ${run.spamSenderEmail}`,
+			},
 		);
 
 		expect(addresses.map((address) => address.normalizedEmail)).toContain(
-			SENDER_EMAIL,
+			run.spamSenderEmail,
 		);
 	});
 
@@ -96,10 +82,10 @@ test.describe("Spam rescue", () => {
 		run,
 	}) => {
 		const junkId = await junkMailboxId(api, run.accountId);
-		await waitForSpamMessage(api, junkId);
+		await waitForSpamMessage(api, junkId, run.spamSubject);
 
 		await page.goto(`/mail/${junkId}`);
-		const row = page.getByText(SUBJECT, { exact: true }).first();
+		const row = page.getByText(run.spamSubject, { exact: true }).first();
 		await expect(row).toBeVisible({ timeout: 30_000 });
 		await row.click();
 		await page.waitForURL(/selectedMessageId=/);
@@ -120,14 +106,17 @@ test.describe("Spam rescue", () => {
 		await expect(page.getByRole("alert")).toHaveCount(0);
 
 		// And the move has to have actually happened, not merely not-failed.
-		await expect(page.getByText(SUBJECT, { exact: true })).toHaveCount(0, {
-			timeout: 20_000,
-		});
+		await expect(page.getByText(run.spamSubject, { exact: true })).toHaveCount(
+			0,
+			{ timeout: 20_000 },
+		);
 		const remaining = await waitFor(
 			() => api.listThreads(junkId),
-			(items) => items.every((thread) => thread.subject !== SUBJECT),
-			{ timeoutMs: 30_000, what: `"${SUBJECT}" to leave Junk` },
+			(items) => items.every((thread) => thread.subject !== run.spamSubject),
+			{ timeoutMs: 30_000, what: `"${run.spamSubject}" to leave Junk` },
 		);
-		expect(remaining.map((thread) => thread.subject)).not.toContain(SUBJECT);
+		expect(remaining.map((thread) => thread.subject)).not.toContain(
+			run.spamSubject,
+		);
 	});
 });

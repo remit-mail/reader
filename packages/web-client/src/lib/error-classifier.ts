@@ -1,4 +1,5 @@
 import { ApiError } from "./api";
+import { NetworkError } from "./network-error";
 
 /**
  * Extract an HTTP status code from a thrown error, regardless of which client
@@ -55,55 +56,38 @@ export const isAbortError = (error: unknown): boolean => {
 	return false;
 };
 
-/**
- * The messages browsers use for a `fetch()` that never reached a server.
- * Chrome/Edge, Firefox, Safari and React Native each phrase it differently.
- */
-const FETCH_FAILURE_MESSAGES = [
-	"failed to fetch",
-	"networkerror when attempting to fetch resource",
-	"load failed",
-	"network request failed",
-	"the internet connection appears to be offline",
-];
-
 const isOffline = (): boolean =>
 	typeof navigator !== "undefined" && navigator.onLine === false;
 
 /**
- * A statusless transport/network failure from a wifi drop, tab wake, captive
- * portal, or a background refetch: the request never reached a server, so it is
- * environmental, not a proven first-party failure. Excludes deliberate aborts
- * (also statusless, but their own category).
+ * A transport failure from a wifi drop, tab wake, captive portal, or a timeout:
+ * the request never reached a server, so it is environmental, not a proven
+ * first-party failure.
  *
- * Being statusless is necessary but NOT sufficient. Every exception thrown
- * inside our own code — a `TypeError` from an optimistic cache updater, say —
- * is statusless too, and treating those as environmental is what let a real
- * bug surface as a dismissible "check your connection" toast (issue #55).
- * A network error must additionally look like one: a recognised fetch-failure
- * message, or the browser telling us it is offline.
+ * This is decided at the fetch boundary, not inferred here. Every app-owned
+ * request goes through `taggedFetch`, which knows a `fetch()` rejection is
+ * transport-level because `fetch` rejects for no other reason, and tags it a
+ * `NetworkError`. Reading that tag is exact; matching browser failure strings
+ * was not — the list is open-ended (WebKit alone has four, undici another) and
+ * anything missed would put a full-screen fatal page in front of someone who
+ * had merely walked out of wifi range.
+ *
+ * `navigator.onLine === false` is kept as a second signal for an error that
+ * reached us from outside that boundary while the browser reports no
+ * connectivity at all.
  */
 export const isNetworkError = (error: unknown): boolean => {
 	if (isAbortError(error)) return false;
 	if (hasHttpStatus(error)) return false;
-	if (isOffline()) return true;
-	const message = (
-		error instanceof Error
-			? error.message
-			: typeof error === "string"
-				? error
-				: ""
-	).toLowerCase();
-	return FETCH_FAILURE_MESSAGES.some((signature) =>
-		message.includes(signature),
-	);
+	if (error instanceof NetworkError) return true;
+	return isOffline();
 };
 
 /**
  * An exception raised by our own client code rather than by a request: it
- * carries no HTTP status, is not an abort, and does not look like a transport
- * failure. That leaves a programming error — the one class the user can do
- * nothing about and must never be asked to shrug off.
+ * carries no HTTP status, is not an abort, and was not tagged as transport.
+ * That leaves a programming error — the one class the user can do nothing
+ * about and must never be asked to shrug off.
  */
 export const isClientBug = (error: unknown): boolean =>
 	!hasHttpStatus(error) && !isAbortError(error) && !isNetworkError(error);

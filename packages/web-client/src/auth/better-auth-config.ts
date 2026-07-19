@@ -1,5 +1,6 @@
 import { createAuthClient } from "better-auth/react";
 import { getRuntimeConfig } from "../runtime-config";
+import { taggedFetch } from "../lib/network-error";
 
 /**
  * better-auth owns identity in the Postgres-parity / local mode. It is gated
@@ -51,7 +52,9 @@ const decodeExp = (token: string): number => {
 };
 
 const requestToken = async (): Promise<string | null> => {
-	const res = await fetch("/api/auth/token", { credentials: "include" });
+	const res = await taggedFetch("/api/auth/token", {
+		credentials: "include",
+	});
 	if (!res.ok) return null;
 	const body: unknown = await res.json();
 	if (

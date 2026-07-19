@@ -3,6 +3,7 @@ import { afterEach, describe, it } from "node:test";
 import type { Mutation, Query } from "@tanstack/react-query";
 import { ApiError } from "./api";
 import { __resetFatalError, subscribeFatalError } from "./fatal-error";
+import { NetworkError } from "./network-error";
 import {
 	handleMutationCacheError,
 	handleQueryCacheError,
@@ -95,12 +96,15 @@ describe("handleQueryCacheError (fail-fast contract #1059)", () => {
 		assert.equal(escalated, false);
 	});
 
-	it("does NOT escalate a statusless network blip", () => {
+	it("does NOT escalate a network blip tagged at the fetch boundary", () => {
 		let escalated = false;
 		subscribeFatalError(() => {
 			escalated = true;
 		});
-		handleQueryCacheError(new TypeError("Failed to fetch"), fakeQuery());
+		handleQueryCacheError(
+			new NetworkError(new TypeError("Failed to fetch")),
+			fakeQuery(),
+		);
 		assert.equal(escalated, false);
 	});
 });

@@ -40,6 +40,20 @@ const CONVERSATION = {
 	replyTo: "dana@remit.test",
 };
 
+/**
+ * One message in Junk, from a sender who has a display name — the ordinary
+ * shape, and the one the address lookup used to miss. The spam-rescue spec
+ * works from this.
+ *
+ * Junk, not INBOX, so it stays out of `seededSubjects` and the exact-count
+ * inbox assertions keep counting only what is in the inbox.
+ */
+const SPAM_SEED = {
+	subject: "Reminder: please verify your account",
+	senderName: "npm support",
+	senderEmail: "support@npmjs.com",
+};
+
 const cookiesToStorageState = (cookie: string): string =>
 	JSON.stringify({
 		cookies: cookie.split("; ").map((pair) => {
@@ -92,6 +106,17 @@ const globalSetup = async (): Promise<void> => {
 	await appendMessages(
 		imapUser,
 		SEEDED_SUBJECTS.map((subject) => ({ subject })),
+	);
+	await appendMessages(
+		imapUser,
+		[
+			{
+				subject: SPAM_SEED.subject,
+				from: `${SPAM_SEED.senderName} <${SPAM_SEED.senderEmail}>`,
+				body: "This one does not belong in Spam.",
+			},
+		],
+		"Junk",
 	);
 
 	// The cross-folder conversation. Message-IDs are minted per run so a reused
@@ -168,8 +193,9 @@ const globalSetup = async (): Promise<void> => {
 		// Everything this run appended to the INBOX, in one list. Specs that
 		// assert the inbox holds EXACTLY what was seeded read this, so a fixture
 		// added for one spec must appear here or it reads as an unexplained
-		// extra message. The conversation's reply is not here: it is appended to
-		// Sent, not the inbox.
+		// extra message. Two seeded messages are deliberately absent: the
+		// conversation's reply (appended to Sent) and the spam fixture (appended
+		// to Junk) — neither is in the inbox.
 		seededSubjects: [
 			...SEEDED_SUBJECTS,
 			CONVERSATION.receivedSubject,
@@ -185,6 +211,9 @@ const globalSetup = async (): Promise<void> => {
 			subject: fixture.subject,
 			expectedCategory: fixture.expectedCategory,
 		})),
+		spamSubject: SPAM_SEED.subject,
+		spamSenderName: SPAM_SEED.senderName,
+		spamSenderEmail: SPAM_SEED.senderEmail,
 	});
 	console.log(
 		`e2e setup: ready (mailbox ${imapUser}, account ${accountId}, inbox ${inbox.mailboxId})`,
