@@ -1,6 +1,6 @@
+import type { AutoMovedInfo } from "@remit/api-openapi-types";
 import type { MessageItem } from "@remit/data-ports";
 import { PlacementConfidence } from "@remit/domain-enums";
-import type { AutoMovedInfo } from "@remit/api-openapi-types";
 
 /**
  * Project a Message's internal placement verdict to the public `AutoMovedInfo`

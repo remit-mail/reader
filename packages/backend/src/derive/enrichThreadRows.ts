@@ -1,3 +1,4 @@
+import type { ThreadMessageResponse } from "@remit/api-openapi-types";
 import type {
 	AddressItem,
 	MessageItem,
@@ -5,7 +6,6 @@ import type {
 } from "@remit/data-ports";
 import { deriveAddressId } from "@remit/data-ports/id";
 import { MessageCategory, SenderTrust, StarColor } from "@remit/domain-enums";
-import type { ThreadMessageResponse } from "@remit/api-openapi-types";
 import { deriveAutoMoved } from "./autoMoved.js";
 import { deriveSenderTrust } from "./senderTrust.js";
 

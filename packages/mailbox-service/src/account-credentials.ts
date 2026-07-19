@@ -125,4 +125,4 @@ export const encryptRefreshToken = async (
 	return JSON.stringify(serializeEncryptedPayload(payload));
 };
 
-export { RefreshTokenError, ConnectionState };
+export { ConnectionState, RefreshTokenError };

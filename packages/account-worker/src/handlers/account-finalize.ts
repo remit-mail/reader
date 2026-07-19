@@ -1,9 +1,5 @@
 import { inspect } from "node:util";
-import {
-	createLogger,
-	type Logger,
-	withTelemetry,
-} from "@remit/logger-lambda";
+import { createLogger, type Logger, withTelemetry } from "@remit/logger-lambda";
 import type { SQSEvent, SQSHandler } from "aws-lambda";
 import {
 	type CascadeEntity,

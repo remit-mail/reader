@@ -1,7 +1,4 @@
-import {
-	type AnchorPayload,
-	buildMessageAnchor,
-} from "@remit/search-service";
+import { type AnchorPayload, buildMessageAnchor } from "@remit/search-service";
 import {
 	buildEmbeddingServiceFromEnv,
 	buildVectorStoreFromEnv,

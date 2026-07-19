@@ -1,6 +1,4 @@
 import { SendMessageCommand } from "@aws-sdk/client-sqs";
-import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
-import { logger } from "@remit/logger-lambda";
 import type {
 	AccountExportRequestResponse,
 	CreateExportResponse,
@@ -8,6 +6,8 @@ import type {
 	DeleteMeInput,
 	VipSuggestionsResponse,
 } from "@remit/api-openapi-types";
+import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
+import { logger } from "@remit/logger-lambda";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { env } from "expect-env";
 import type { Context } from "openapi-backend";
