@@ -64,8 +64,7 @@ export function toImapDraftRowData(
 		timeLabel: formatEmailDate(thread.sentDate),
 		isRead: thread.isRead,
 		hasAttachment: thread.hasAttachment,
-		starred:
-			thread.star != null && thread.star !== "none" && thread.hasStars === true,
+		starred: thread.hasStars === true,
 	};
 }
 

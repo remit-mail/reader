@@ -4,7 +4,7 @@ import type {
 	IThreadMessageRepository,
 } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
-import { MessageSystemFlag, type StarColor } from "@remit/domain-enums";
+import { MessageSystemFlag, StarColor } from "@remit/domain-enums";
 import type { FlagPushOperationValue, FlagPushService } from "./flag-push.js";
 
 /**
@@ -466,9 +466,15 @@ export class FlagQueueService {
 			}
 
 			// Update ThreadMessage hasStars and star color for ALL instances
+			// `hasStars` is the boolean of record (the byStarred index sort key);
+			// `star` is its presentation colour. A caller toggling the star without
+			// picking a colour must not leave the two disagreeing, so the colour
+			// follows the boolean: the standard colour on star, the None sentinel
+			// on unstar.
 			const starUpdates: { hasStars?: boolean; star?: StarColorValue } = {};
 			if (input.isStarred !== undefined) {
 				starUpdates.hasStars = input.isStarred;
+				starUpdates.star = input.isStarred ? StarColor.Yellow : StarColor.None;
 			}
 			if (input.starColor !== undefined) {
 				starUpdates.star = input.starColor;

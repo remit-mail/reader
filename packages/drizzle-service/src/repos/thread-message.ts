@@ -493,6 +493,77 @@ export class DrizzleThreadMessageRepository
 		};
 	}
 
+	async listByStarred(
+		accountConfigId: string,
+		options?: {
+			order?: "asc" | "desc";
+			limit?: number;
+			continuationToken?: string;
+			mailboxIds?: Set<string>;
+			excludeDeleted?: boolean;
+		},
+	): Promise<ResultList<ThreadMessageItem>> {
+		const order = options?.order ?? "desc";
+		const cursor = options?.continuationToken
+			? decodeDateCursor(options.continuationToken)
+			: null;
+
+		const cursorCond = cursor
+			? order === "desc"
+				? or(
+						lt(threadMessageTable.sentDate, cursor.s),
+						and(
+							eq(threadMessageTable.sentDate, cursor.s),
+							gt(threadMessageTable.threadMessageId, cursor.id),
+						),
+					)
+				: or(
+						gt(threadMessageTable.sentDate, cursor.s),
+						and(
+							eq(threadMessageTable.sentDate, cursor.s),
+							gt(threadMessageTable.threadMessageId, cursor.id),
+						),
+					)
+			: undefined;
+
+		const mailboxCond = options?.mailboxIds?.size
+			? inArray(threadMessageTable.mailboxId, [...options.mailboxIds])
+			: undefined;
+
+		const rows = await this.db
+			.select()
+			.from(threadMessageTable)
+			.where(
+				and(
+					eq(threadMessageTable.accountConfigId, accountConfigId),
+					eq(threadMessageTable.hasStars, true),
+					mailboxCond,
+					options?.excludeDeleted
+						? eq(threadMessageTable.isDeleted, false)
+						: undefined,
+					cursorCond,
+				),
+			)
+			.orderBy(
+				order === "desc"
+					? desc(threadMessageTable.sentDate)
+					: asc(threadMessageTable.sentDate),
+				asc(threadMessageTable.threadMessageId),
+			)
+			.limit(options?.limit ?? 100);
+
+		const lastRow = rows[rows.length - 1];
+		const hasMore =
+			options?.limit !== undefined && rows.length === options.limit;
+		return {
+			items: rows.map(toItem),
+			continuationToken:
+				hasMore && lastRow
+					? encodeDateCursor(lastRow.sentDate, lastRow.threadMessageId)
+					: undefined,
+		};
+	}
+
 	async listByThread(
 		threadId: string,
 		accountConfigId: string,

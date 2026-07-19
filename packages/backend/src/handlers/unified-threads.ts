@@ -34,8 +34,12 @@ export interface InboxMapClient {
 }
 
 /**
- * Build a mailboxId→accountId map for all non-muted INBOX mailboxes across
- * all non-muted accounts of a given accountConfigId.
+ * Build the read scope for the unified listing: a mailboxId→accountId map over
+ * every non-muted mailbox of every non-muted account in a given
+ * accountConfigId, plus two id sets — `inboxMailboxIds` (top-level INBOX only,
+ * the unified inbox scope) and `activeMailboxIds` (all of them, the starred
+ * scope). The map covers all mailboxes so a starred row from any folder still
+ * resolves its accountId.
  *
  * INBOX is identified by exact match `fullPath.toUpperCase() === "INBOX"` —
  * MailboxSpecialUse has no Inbox value per RFC 6154. This is the same rule
@@ -67,6 +71,7 @@ export const buildInboxMailboxMap = async (
 ): Promise<{
 	mailboxIdToAccountId: Map<string, string>;
 	inboxMailboxIds: Set<string>;
+	activeMailboxIds: Set<string>;
 }> => {
 	const [accounts, settings] = await Promise.all([
 		client.account.listAllByAccountConfig(accountConfigId),
@@ -94,21 +99,21 @@ export const buildInboxMailboxMap = async (
 
 	const mailboxIdToAccountId = new Map<string, string>();
 	const inboxMailboxIds = new Set<string>();
+	const activeMailboxIds = new Set<string>();
 
-	const inboxes = mailboxLists
+	const activeMailboxes = mailboxLists
 		.flat()
-		.filter(
-			(mailbox) =>
-				!isMailboxMuted(mailbox.mailboxId) &&
-				mailbox.fullPath.toUpperCase() === "INBOX",
-		);
+		.filter((mailbox) => !isMailboxMuted(mailbox.mailboxId));
 
-	for (const mailbox of inboxes) {
+	for (const mailbox of activeMailboxes) {
 		mailboxIdToAccountId.set(mailbox.mailboxId, mailbox.accountId);
-		inboxMailboxIds.add(mailbox.mailboxId);
+		activeMailboxIds.add(mailbox.mailboxId);
+		if (mailbox.fullPath.toUpperCase() === "INBOX") {
+			inboxMailboxIds.add(mailbox.mailboxId);
+		}
 	}
 
-	return { mailboxIdToAccountId, inboxMailboxIds };
+	return { mailboxIdToAccountId, inboxMailboxIds, activeMailboxIds };
 };
 
 /**
@@ -131,6 +136,28 @@ export const buildListAllThreadsOptions = (
 	continuationToken: query.continuationToken,
 	limit: query.limit ?? DEFAULT_UNIFIED_THREADS_PAGE_SIZE,
 	inboxMailboxIds,
+	excludeDeleted: true,
+});
+
+/**
+ * Build listByStarred options for the starred (`starred=true`) listing.
+ *
+ * A star marks the mail, not its placement, so the INBOX narrowing does not
+ * apply: the scope is every non-muted mailbox in the config. Same defaults as
+ * the unified listing otherwise.
+ */
+export const buildListStarredThreadsOptions = (
+	query: {
+		continuationToken?: string;
+		order?: "asc" | "desc";
+		limit?: number;
+	},
+	activeMailboxIds: Set<string>,
+) => ({
+	order: query.order ?? ("desc" as const),
+	continuationToken: query.continuationToken,
+	limit: query.limit ?? DEFAULT_UNIFIED_THREADS_PAGE_SIZE,
+	mailboxIds: activeMailboxIds,
 	excludeDeleted: true,
 });
 
@@ -158,28 +185,40 @@ export const UnifiedThreadOperations: Record<
 	) => {
 		const event = args[0] as APIGatewayProxyEvent;
 		const accountConfigId = getAccountConfigIdFromEvent(event);
-		const { continuationToken, order, limit } = context.request.query as {
+		const { continuationToken, order, limit, starred } = context.request
+			.query as {
 			continuationToken?: string;
 			order?: "asc" | "desc";
 			limit?: number;
+			starred?: boolean | string;
 		};
+		const starredOnly = starred === true || starred === "true";
 
 		const client = await getClient();
 
-		const { mailboxIdToAccountId, inboxMailboxIds } =
+		const { mailboxIdToAccountId, inboxMailboxIds, activeMailboxIds } =
 			await buildInboxMailboxMap(accountConfigId, client);
 
-		if (inboxMailboxIds.size === 0) {
+		const scope = starredOnly ? activeMailboxIds : inboxMailboxIds;
+		if (scope.size === 0) {
 			return { items: [], continuationToken: undefined };
 		}
 
-		const result = await client.threadMessage.listByDate(
-			accountConfigId,
-			buildListAllThreadsOptions(
-				{ continuationToken, order, limit },
-				inboxMailboxIds,
-			),
-		);
+		const result = starredOnly
+			? await client.threadMessage.listByStarred(
+					accountConfigId,
+					buildListStarredThreadsOptions(
+						{ continuationToken, order, limit },
+						activeMailboxIds,
+					),
+				)
+			: await client.threadMessage.listByDate(
+					accountConfigId,
+					buildListAllThreadsOptions(
+						{ continuationToken, order, limit },
+						inboxMailboxIds,
+					),
+				);
 
 		const enriched = await enrichThreadRows(
 			result.items,

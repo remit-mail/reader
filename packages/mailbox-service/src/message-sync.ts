@@ -17,7 +17,11 @@ import {
 	deriveThreadId,
 	isValidMessageId,
 } from "@remit/data-ports/id";
-import { AddressRole, MailboxCursorState } from "@remit/domain-enums";
+import {
+	AddressRole,
+	MailboxCursorState,
+	StarColor,
+} from "@remit/domain-enums";
 import pMap from "p-map";
 import type { ManagedConnectionFactory } from "./connection-factory.js";
 import { guardMailboxCursor, isCursorRebuildNeeded } from "./mailbox-cursor.js";
@@ -935,6 +939,13 @@ export class MessageSyncService {
 		// Check if message is read based on IMAP flags
 		const isRead = flags.includes("\\Seen");
 
+		// The server's \Flagged keyword is the star. Mail flagged in another
+		// client must arrive starred, so carry it through on create rather than
+		// defaulting every row to unstarred. Compared as a literal for the same
+		// reason \Seen is above: the generated MessageSystemFlag members drop the
+		// leading backslash, so they do not match a wire flag.
+		const hasStars = flags.includes("\\Flagged");
+
 		// Extract sender info. When the server could not parse the From address,
 		// omit fromEmail rather than persist a fabricated string — a display name
 		// may still be present and useful, so keep it.
@@ -967,7 +978,8 @@ export class MessageSyncService {
 				isRead,
 				isDeleted: false,
 				hasAttachment,
-				hasStars: false,
+				hasStars,
+				star: hasStars ? StarColor.Yellow : StarColor.None,
 			})
 			.catch((error: unknown) => {
 				// Ignore conflict errors (idempotent create)
