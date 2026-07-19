@@ -18,6 +18,10 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { isServerError } from "@/lib/error-classifier";
 import { formatDate, formatEmailDate } from "@/lib/format";
+import {
+	pickSenderAddress,
+	senderAddressSearchQuery,
+} from "@/lib/sender-address";
 
 /**
  * Format a creation timestamp as a human-readable "first seen" label.
@@ -180,7 +184,11 @@ export interface UseIntelligenceDataResult {
 	 * that misrepresents the sender's real state. Escalation covers it.
 	 */
 	addressErrorIsFatal: boolean;
-	/** Address id for the sender — needed for PATCH /addresses/{id} mutations. */
+	/**
+	 * Address id for the sender — needed for PATCH /addresses/{id} mutations.
+	 * `undefined` until the lookup resolves the row for exactly this address;
+	 * quick actions that PATCH it must stay unwired until then.
+	 */
 	addressId: string | undefined;
 	/**
 	 * Raw address response for the sender — forwarded to the quick-action
@@ -209,13 +217,16 @@ export function useIntelligenceData(
 	// --- Address lookup: flags + first-seen timestamp ---
 	const { data: addressSearchResult, error: addressError } = useQuery({
 		...addressOperationsSearchAddressesOptions({
-			query: { q: senderEmail ?? "", limit: 1 },
+			query: senderAddressSearchQuery(senderEmail ?? undefined),
 		}),
 		enabled: Boolean(senderEmail),
 		staleTime: 30_000,
 	});
 
-	const address = addressSearchResult?.items?.[0];
+	const address = pickSenderAddress(
+		addressSearchResult?.items,
+		senderEmail ?? undefined,
+	);
 
 	// --- Semantic search: similar messages ---
 	const semanticQuery = [subject, senderEmail].filter(Boolean).join(" ");

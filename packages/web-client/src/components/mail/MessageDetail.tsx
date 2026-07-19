@@ -74,6 +74,7 @@ export const MessageDetail = ({ messageId }: MessageDetailProps) => {
 			pushError({
 				title: "Couldn't mark message as read",
 				detail: formatErrorDetail(error),
+				error,
 			});
 		},
 	});

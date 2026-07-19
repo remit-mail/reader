@@ -43,6 +43,12 @@ export interface ThreadMessage {
 	sentDate?: number;
 }
 
+export interface Address {
+	addressId: string;
+	normalizedEmail: string;
+	displayName?: string;
+}
+
 interface ResultList<T> {
 	items: T[];
 	continuationToken?: string;
@@ -159,6 +165,19 @@ export class ApiClient {
 		const result = await this.json<ResultList<Mailbox>>(
 			"GET",
 			`/accounts/${accountId}/mailboxes`,
+		);
+		return result.items ?? [];
+	}
+
+	/**
+	 * The lookup every per-sender action depends on: given a sender's address,
+	 * find that sender's address record. Quick actions PATCH the row this
+	 * returns, so a miss here disables them (issue #51).
+	 */
+	async searchAddresses(query: string): Promise<Address[]> {
+		const result = await this.json<ResultList<Address>>(
+			"GET",
+			`/addresses/search?q=${encodeURIComponent(query)}&limit=10`,
 		);
 		return result.items ?? [];
 	}

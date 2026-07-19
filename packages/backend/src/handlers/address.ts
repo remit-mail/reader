@@ -86,7 +86,7 @@ export const AddressOperations: Record<
 
 		const result = await client.address.listByAccountConfig({
 			accountConfigId,
-			normalizedCompound: q.toLowerCase(),
+			search: q.toLowerCase(),
 			limit: limit ?? 10,
 		});
 

@@ -15,12 +15,12 @@ const SEVERITY_STYLES: Record<
 	{ container: string; icon: string; title: string }
 > = {
 	error: {
-		container: "border-danger/50 bg-danger/10 dark:bg-danger/20",
+		container: "border-danger/50 bg-danger-soft",
 		icon: "text-danger",
 		title: "text-danger",
 	},
 	warning: {
-		container: "border-warning/50 bg-warning/10",
+		container: "border-warning/50 bg-warning-soft",
 		icon: "text-warning",
 		title: "text-warning",
 	},
@@ -61,7 +61,10 @@ export const ErrorBanner = ({
 			role={severity === "error" ? "alert" : "status"}
 			aria-live={severity === "error" ? "assertive" : "polite"}
 			className={cn(
-				"pointer-events-auto flex items-start gap-3 rounded-md border bg-canvas/80 px-3 py-2 shadow-md backdrop-blur",
+				// Opaque, not translucent: a banner overlaps the toolbar and the
+				// message list, and see-through text on top of see-through text is
+				// unreadable (issue #55).
+				"pointer-events-auto flex items-start gap-3 rounded-md border bg-canvas px-3 py-2 shadow-lg",
 				styles.container,
 			)}
 		>

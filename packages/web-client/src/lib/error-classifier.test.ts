@@ -5,6 +5,7 @@ import {
 	getErrorStatus,
 	hasHttpStatus,
 	isAbortError,
+	isClientBug,
 	isNetworkError,
 	isServerError,
 	shouldEscalate,
@@ -75,9 +76,15 @@ describe("isAbortError", () => {
 });
 
 describe("isNetworkError", () => {
-	it("is true for a statusless transport failure", () => {
+	it("is true for the fetch-failure message of every browser", () => {
 		assert.equal(isNetworkError(new TypeError("Failed to fetch")), true);
-		assert.equal(isNetworkError(new Error("network down")), true);
+		assert.equal(
+			isNetworkError(
+				new TypeError("NetworkError when attempting to fetch resource."),
+			),
+			true,
+		);
+		assert.equal(isNetworkError(new TypeError("Load failed")), true);
 	});
 
 	it("is false for an aborted request (its own category)", () => {
@@ -87,6 +94,33 @@ describe("isNetworkError", () => {
 	it("is false when the error carries a status", () => {
 		assert.equal(isNetworkError(new ApiError("boom", 500)), false);
 		assert.equal(isNetworkError(new ApiError("not found", 404)), false);
+	});
+
+	it("is false for an exception thrown by our own code", () => {
+		assert.equal(
+			isNetworkError(
+				new TypeError('can\'t access property "map", x is undefined'),
+			),
+			false,
+		);
+	});
+});
+
+describe("isClientBug", () => {
+	it("is true for an exception raised inside our own code", () => {
+		assert.equal(
+			isClientBug(
+				new TypeError('can\'t access property "map", x is undefined'),
+			),
+			true,
+		);
+	});
+
+	it("is false for a request that reached, or failed to reach, a server", () => {
+		assert.equal(isClientBug(new ApiError("boom", 500)), false);
+		assert.equal(isClientBug(new ApiError("not found", 404)), false);
+		assert.equal(isClientBug(new TypeError("Failed to fetch")), false);
+		assert.equal(isClientBug(abortError()), false);
 	});
 });
 
@@ -119,15 +153,21 @@ describe("shouldEscalate (the fail-fast decision table — #1059)", () => {
 		assert.equal(shouldEscalate(abortError()), false);
 	});
 
-	it("does NOT escalate a statusless network/offline blip", () => {
+	it("does NOT escalate a network/offline blip", () => {
 		assert.equal(shouldEscalate(new TypeError("Failed to fetch")), false);
-		assert.equal(shouldEscalate(new Error("network down")), false);
+		assert.equal(shouldEscalate(new TypeError("Load failed")), false);
 	});
 
-	it("a statusless error is soft regardless of meta", () => {
+	it("a network error is soft regardless of meta", () => {
 		assert.equal(
 			shouldEscalate(new TypeError("Failed to fetch"), { softError: false }),
 			false,
 		);
+	});
+
+	it("escalates an exception thrown by our own code, softError or not", () => {
+		const bug = new TypeError('can\'t access property "map", x is undefined');
+		assert.equal(shouldEscalate(bug), true);
+		assert.equal(shouldEscalate(bug, { softError: true }), true);
 	});
 });

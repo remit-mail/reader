@@ -10,6 +10,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { formatErrorDetail } from "@/components/ui/error-banners";
+import { patchThreadListCache, type ThreadListCache } from "@/lib/thread-cache";
 
 interface UseMoveMessagesOptions {
 	mailboxId: string;
@@ -28,15 +29,12 @@ interface ThreadMessagesData {
 	[key: string]: unknown;
 }
 
-interface ThreadsListPage {
-	items: RemitImapThreadMessageResponse[];
-	[key: string]: unknown;
-}
-
-interface ThreadsListData {
-	pages: ThreadsListPage[];
-	pageParams: Array<string | undefined>;
-}
+/**
+ * Either shape a thread list/search query caches — the infinite mailbox list
+ * or a single-shot page. `setQueriesData` matches by key prefix, so the
+ * optimistic updater sees both.
+ */
+type ThreadsListData = ThreadListCache;
 
 interface SnapshotEntry<T> {
 	queryKey: readonly unknown[];
@@ -142,16 +140,10 @@ export const useMoveMessages = ({
 				);
 			}
 
-			const patchListData = (old: ThreadsListData | undefined) => {
-				if (!old) return old;
-				return {
-					...old,
-					pages: old.pages.map((page) => ({
-						...page,
-						items: removeMovedMessagesFromItems(page.items, messageIds),
-					})),
-				};
-			};
+			const patchListData = (old: ThreadsListData | undefined) =>
+				patchThreadListCache(old, (items) =>
+					removeMovedMessagesFromItems(items, messageIds),
+				);
 
 			queryClient.setQueriesData<ThreadsListData>(
 				{ queryKey: threadsListPrefix },
@@ -188,6 +180,7 @@ export const useMoveMessages = ({
 						? `Couldn't move ${count} messages`
 						: "Couldn't move this message",
 				detail: formatErrorDetail(err),
+				error: err,
 			});
 		},
 		onSettled: (_data, _err, _vars, context) => {

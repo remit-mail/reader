@@ -419,6 +419,7 @@ export const ComposeForm = ({
 		pushError({
 			title: "Couldn't save draft",
 			detail: formatErrorDetail(saveError) ?? "Saving the draft failed.",
+			error: saveError,
 		});
 	}, [saveError, pushError]);
 
@@ -541,6 +542,7 @@ export const ComposeForm = ({
 					pushError({
 						title: "Couldn't send message",
 						detail: formatErrorDetail(error) ?? "Saving the draft failed.",
+						error,
 					});
 					return null;
 				});
@@ -562,6 +564,7 @@ export const ComposeForm = ({
 						(createdThisAttempt
 							? "The draft was saved but the send request failed. Try again from the Outbox."
 							: "The send request failed. Try again."),
+					error,
 				});
 				return null;
 			});

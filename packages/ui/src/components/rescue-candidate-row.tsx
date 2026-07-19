@@ -25,6 +25,12 @@ export interface RescueCandidateRowProps {
 	candidate: RescueCandidate;
 	selected: boolean;
 	onToggle: () => void;
+	/**
+	 * Drop the sender identity and trust chip from the row. Set when the row sits
+	 * under a sender group that already states both — repeating them per message
+	 * is the noise the grouping exists to remove.
+	 */
+	hideSender?: boolean;
 }
 
 /**
@@ -37,6 +43,7 @@ export function RescueCandidateRow({
 	candidate,
 	selected,
 	onToggle,
+	hideSender = false,
 }: RescueCandidateRowProps) {
 	const {
 		senderName,
@@ -53,6 +60,7 @@ export function RescueCandidateRow({
 		<label
 			className={cn(
 				"flex w-full cursor-pointer items-start gap-3 px-3 py-2.5 text-left transition-colors",
+				hideSender && "pl-11",
 				selected ? "bg-positive/10" : "bg-surface hover:bg-surface-sunken",
 			)}
 		>
@@ -60,34 +68,40 @@ export function RescueCandidateRow({
 				className="mt-0.5"
 				checked={selected}
 				onChange={onToggle}
-				aria-label={`${selected ? "Deselect" : "Select"} message from ${senderName}`}
+				aria-label={`${selected ? "Deselect" : "Select"} ${hideSender ? subject : `message from ${senderName}`}`}
 			/>
 
-			<Avatar name={senderName} email={senderAddress} size="sm" />
+			{!hideSender && (
+				<Avatar name={senderName} email={senderAddress} size="sm" />
+			)}
 
 			<span className="min-w-0 flex-1">
-				<span className="flex items-center gap-1.5">
-					<span className="truncate text-sm font-medium text-fg">
-						{senderName}
+				{!hideSender && (
+					<span className="flex items-center gap-1.5">
+						<span className="truncate text-sm font-medium text-fg">
+							{senderName}
+						</span>
+						{senderTrust && (
+							<SenderTrustIndicator senderTrust={senderTrust} size="sm" />
+						)}
+						<span className="truncate text-2xs text-fg-subtle">
+							{senderAddress}
+						</span>
 					</span>
-					{senderTrust && (
-						<SenderTrustIndicator senderTrust={senderTrust} size="sm" />
-					)}
-					<span className="truncate text-2xs text-fg-subtle">
-						{senderAddress}
-					</span>
-				</span>
+				)}
 				<span className="block truncate text-sm text-fg-muted">{subject}</span>
 				<span className="block line-clamp-1 text-xs text-fg-subtle">
 					{snippet}
 				</span>
-				<span className="mt-1.5 flex flex-wrap items-center gap-1.5">
-					<Badge tone="positive">
-						<ShieldCheck className="size-3" aria-hidden />
-						{trustReason}
-					</Badge>
-					<span className="text-2xs text-fg-subtle">{trustSubReason}</span>
-				</span>
+				{!hideSender && (
+					<span className="mt-1.5 flex flex-wrap items-center gap-1.5">
+						<Badge tone="positive">
+							<ShieldCheck className="size-3" aria-hidden />
+							{trustReason}
+						</Badge>
+						<span className="text-2xs text-fg-subtle">{trustSubReason}</span>
+					</span>
+				)}
 			</span>
 		</label>
 	);
