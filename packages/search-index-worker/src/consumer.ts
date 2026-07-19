@@ -2,11 +2,10 @@ import {
 	DeleteMessageCommand,
 	ReceiveMessageCommand,
 	type ReceiveMessageCommandOutput,
-	SQSClient,
+	type SQSClient,
 } from "@aws-sdk/client-sqs";
-import { AwsQueryProtocol } from "@aws-sdk/core/protocols";
 import type { Logger } from "@remit/logger-lambda";
-import { resolveSqsCredentials } from "@remit/sqs-client";
+import { createQueueProducer } from "@remit/sqs-client/producer";
 import type { SQSRecord } from "aws-lambda";
 import { type IndexOutcome, processBatch } from "./handler.js";
 import { createIndexWorkStats, type IndexWorkStats } from "./index-stats.js";
@@ -33,18 +32,11 @@ const toSqsRecord = (
 		awsRegion: "",
 	}) satisfies SQSRecord;
 
-const createSqsClient = (queueUrl: string): SQSClient => {
-	const isLocal = queueUrl.startsWith("http://localhost");
-	return new SQSClient({
-		endpoint: isLocal ? new URL(queueUrl).origin : undefined,
-		...(isLocal
-			? {
-					protocol: AwsQueryProtocol,
-					credentials: { accessKeyId: "local", secretAccessKey: "local" },
-				}
-			: { credentials: resolveSqsCredentials() }),
+const createSqsClient = (queueUrl: string): SQSClient =>
+	createQueueProducer({
+		queueUrl,
+		localCredentials: { accessKeyId: "local", secretAccessKey: "local" },
 	});
-};
 
 export interface SqsConsumerConfig {
 	/** Search-index queue URL; defaults to `SQS_QUEUE_URL_SEARCH_INDEX`. */

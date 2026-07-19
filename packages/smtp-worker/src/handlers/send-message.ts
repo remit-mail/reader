@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
-import { AwsQueryProtocol } from "@aws-sdk/core/protocols";
+import { SendMessageCommand } from "@aws-sdk/client-sqs";
 import { deriveAddressId, deriveMessageId } from "@remit/data-ports/id";
 import type { ConnectionState } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
@@ -21,7 +20,7 @@ import {
 	createSecretsService,
 } from "@remit/secrets-service";
 import { sendMail } from "@remit/smtp-service";
-import { resolveSqsCredentials } from "@remit/sqs-client";
+import { createQueueProducer } from "@remit/sqs-client/producer";
 import { env } from "expect-env";
 import { buildDataPortsFromEnv, type SmtpDataPorts } from "../data-ports.js";
 import type { SendMessageEvent } from "../events.js";
@@ -59,12 +58,8 @@ const getTokenService = () => {
 // APPEND_SENT_MESSAGE is processed by the IMAP worker via the
 // message-management queue (see remit-imap-worker/src/emit.ts).
 const messageMgmtQueueUrl = env.SQS_QUEUE_URL_MESSAGE_MGMT;
-const isLocalQueue = messageMgmtQueueUrl.startsWith("http://localhost");
-
-const messageMgmtSqs = new SQSClient({
-	endpoint: isLocalQueue ? new URL(messageMgmtQueueUrl).origin : undefined,
-	...(isLocalQueue && { protocol: AwsQueryProtocol }),
-	credentials: resolveSqsCredentials(),
+const messageMgmtSqs = createQueueProducer({
+	queueUrl: messageMgmtQueueUrl,
 });
 
 const emitAppendSentMessage = async (

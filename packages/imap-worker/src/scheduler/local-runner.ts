@@ -1,10 +1,8 @@
 #!/usr/bin/env node
 import { setTimeout as delay } from "node:timers/promises";
-import { SQSClient } from "@aws-sdk/client-sqs";
-import { AwsQueryProtocol } from "@aws-sdk/core/protocols";
 import { getClient } from "@remit/backend/client";
 import { createLogger } from "@remit/logger-lambda";
-import { resolveSqsCredentials } from "@remit/sqs-client";
+import { createQueueProducer } from "@remit/sqs-client/producer";
 import { env } from "expect-env";
 import { getOfflineIntervalMs, getTickIntervalMs } from "./config.js";
 import { runSchedulerTick } from "./run-tick.js";
@@ -27,13 +25,7 @@ import { runSchedulerTick } from "./run-tick.js";
 const log = createLogger();
 
 const mailboxesQueueUrl = env.SQS_QUEUE_URL_MAILBOXES;
-const isLocal = mailboxesQueueUrl.startsWith("http://localhost");
-
-const sqsClient = new SQSClient({
-	endpoint: isLocal ? new URL(mailboxesQueueUrl).origin : undefined,
-	...(isLocal && { protocol: AwsQueryProtocol }),
-	credentials: resolveSqsCredentials(),
-});
+const sqsClient = createQueueProducer({ queueUrl: mailboxesQueueUrl });
 
 const tickIntervalMs = getTickIntervalMs();
 const offlineIntervalMs = getOfflineIntervalMs();

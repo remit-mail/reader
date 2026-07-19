@@ -3,10 +3,9 @@ import {
 	ListObjectsV2Command,
 	S3Client,
 } from "@aws-sdk/client-s3";
-import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
-import { AwsQueryProtocol } from "@aws-sdk/core/protocols";
+import { SendMessageCommand } from "@aws-sdk/client-sqs";
 import type { Logger } from "@remit/logger-lambda";
-import { resolveSqsCredentials } from "@remit/sqs-client";
+import { createQueueProducer } from "@remit/sqs-client/producer";
 import { env } from "expect-env";
 
 export interface DeleteAccountObjectsEvent {
@@ -18,13 +17,7 @@ export interface DeleteAccountObjectsEvent {
 const s3 = new S3Client({});
 
 const sqsQueueUrl = env.SQS_QUEUE_URL_MESSAGE_MGMT;
-const isLocal = sqsQueueUrl.startsWith("http://localhost");
-
-const sqs = new SQSClient({
-	endpoint: isLocal ? new URL(sqsQueueUrl).origin : undefined,
-	...(isLocal && { protocol: AwsQueryProtocol }),
-	credentials: resolveSqsCredentials(),
-});
+const sqs = createQueueProducer({ queueUrl: sqsQueueUrl });
 
 const BATCH_SIZE = 1_000;
 const MIN_REMAINING_MS = 30_000;
