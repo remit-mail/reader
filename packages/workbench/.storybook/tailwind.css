@@ -10,6 +10,9 @@
    utility class usage (auto-detection misses linked workspace packages). */
 @source "../../ui/src/**/*.{ts,tsx}";
 @source "../src/**/*.{ts,tsx}";
+/* Same source set the app's own stylesheet declares, so a story that pulls in
+   a web-client component is styled the way the app styles it. */
+@source "../../web-client/src/**/*.{ts,tsx}";
 
 /* The auth page frame (radial bg, centring, card max-width) lives in the
    remit-ui <AuthCard> component. Amplify structural overrides below are

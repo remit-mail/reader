@@ -181,3 +181,88 @@ describe("ImapFlowConnection.getMailboxStatus — deletedCount (#1042)", () => {
 		assert.strictEqual(BigInt(status.highestModseq), modseq);
 	});
 });
+
+describe("ImapFlowConnection CONDSTORE (reader#20)", () => {
+	const buildCondstoreConnection = (options: {
+		enabled: Set<string>;
+		noModseq?: boolean;
+		fetched?: Array<Record<string, unknown>>;
+		record?: Array<{ range: string; options: Record<string, unknown> }>;
+	}): ImapFlowConnection => {
+		const connection = buildConnectionWithClient({
+			enabled: options.enabled,
+			mailbox: { ...fakeMailbox("INBOX", 1), noModseq: options.noModseq },
+			mailboxOpen: async (path: string) => fakeMailbox(path, 1),
+			fetch: (
+				range: string,
+				_query: Record<string, unknown>,
+				fetchOptions: Record<string, unknown>,
+			) => {
+				options.record?.push({ range, options: fetchOptions });
+				return (async function* () {
+					for (const row of options.fetched ?? []) yield row;
+				})();
+			},
+		});
+		Object.assign(connection as unknown as Record<string, unknown>, {
+			currentMailbox: "INBOX",
+		});
+		return connection;
+	};
+
+	it("reports CONDSTORE only when the session enabled it and the mailbox keeps mod-sequences", () => {
+		assert.strictEqual(
+			buildCondstoreConnection({
+				enabled: new Set(["CONDSTORE"]),
+			}).supportsCondstore(),
+			true,
+		);
+		assert.strictEqual(
+			buildCondstoreConnection({ enabled: new Set() }).supportsCondstore(),
+			false,
+		);
+		assert.strictEqual(
+			buildCondstoreConnection({
+				enabled: new Set(["CONDSTORE"]),
+				noModseq: true,
+			}).supportsCondstore(),
+			false,
+		);
+	});
+
+	it("refuses CHANGEDSINCE without CONDSTORE rather than fetching the whole mailbox", async () => {
+		const connection = buildCondstoreConnection({ enabled: new Set() });
+
+		await assert.rejects(
+			() => connection.fetchMessagesChangedSince(500n),
+			/CONDSTORE/,
+		);
+	});
+
+	it("passes the mod-sequence through as a BigInt over the whole UID space", async () => {
+		const record: Array<{ range: string; options: Record<string, unknown> }> =
+			[];
+		const connection = buildCondstoreConnection({
+			enabled: new Set(["CONDSTORE"]),
+			record,
+			fetched: [
+				{
+					uid: 7,
+					seq: 7,
+					flags: new Set(["\\Seen"]),
+					internalDate: new Date(0),
+					size: 10,
+					modseq: 18446744073709551615n,
+				},
+			],
+		});
+
+		const messages = await connection.fetchMessagesChangedSince(500n);
+
+		assert.deepStrictEqual(record, [
+			{ range: "1:*", options: { uid: true, changedSince: 500n } },
+		]);
+		assert.strictEqual(messages[0].modseq, "18446744073709551615");
+		assert.deepStrictEqual(messages[0].flags, ["\\Seen"]);
+	});
+});

@@ -4,9 +4,18 @@
    the .dark ancestor scope used everywhere in this app. */
 @import "@remit/ui/tokens.css";
 
-/* Tailwind v4 content scanning: point at the source Tailwind must inspect
-   for utility class usage (auto-detection misses linked workspace packages). */
+/* Tailwind v4 content scanning: name every source Tailwind must inspect for
+   utility class usage. Automatic detection is rooted at the Vite root, which
+   for the distributor harness build is a throwaway directory holding only the
+   entry — so nothing here may rely on it. Both this package's own components
+   and the linked workspace UI package are declared explicitly.
+
+   Tests are excluded: they assert on class strings, and a scanned assertion
+   emits the utility it names into the shipped stylesheet. */
+@source "./**/*.{ts,tsx}";
 @source "../../ui/src/**/*.{ts,tsx}";
+@source not "./**/*.test.{ts,tsx}";
+@source not "../../ui/src/**/*.test.{ts,tsx}";
 
 /* Hide scrollbars while maintaining scroll functionality */
 .overflow-y-auto {
