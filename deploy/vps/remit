@@ -26,13 +26,19 @@ usage() {
 	cat <<EOF
 Usage: remit <command> [args]
 
-  restart [--hard]     Apply .env changes and start (docker compose up -d).
-                       --hard stops the stack first.
+  restart [--hard]     Start serving, applying any .env change. --hard stops
+                       the stack first.
   logs [service...]    Follow logs (last 100 lines).
   status               Show services, the running tag, and the public origin.
   update [--tag TAG]   Pull images and apply them, then check the migration.
-  down                 Stop the stack. Volumes and data are left alone.
+  down                 Stop serving: the site goes offline until 'remit
+                       restart'. Accounts, mail and settings are untouched.
+  purge --yes          Destroy the deployment: containers and every data
+                       volume, accounts included. Without --yes it only says
+                       what would go. Use 'down' to merely stop serving.
   config               Print the effective configuration, secrets redacted.
+  cert                 Export Caddy's root CA to the current directory, so
+                       browsers stop warning (TLS_MODE=internal only).
   help                 This message.
 
 Deployment directory: $REMIT_DIR (override with \$REMIT_DIR)
@@ -169,12 +175,22 @@ cmd_restart() {
 	# up -d, never `compose restart`: restart reuses existing containers and
 	# ignores .env changes, so config edits appear to apply but do not.
 	apply
-	printf 'remit is up. Configuration in %s/.env is live.\n' "$REMIT_DIR"
+	report_serving
+	printf 'Configuration in %s/.env is live.\n' "$REMIT_DIR"
 }
 
 cmd_logs() {
 	require_deployment
 	compose logs -f --tail=100 "$@"
+}
+
+# What the operator wants after a command that leaves the stack serving is the
+# address, so it leads. A deployment part-way through configuration may not have
+# one yet; that is not a reason to fail the command that just succeeded.
+report_serving() {
+	_origin=$(get_var PUBLIC_ORIGIN 2>/dev/null || true)
+	[ -n "$_origin" ] || return 0
+	printf 'Open %s\n' "$_origin"
 }
 
 cmd_status() {
@@ -213,7 +229,9 @@ cmd_update() {
 		set_var REMIT_TAG "$_tag"
 	fi
 	apply
-	printf '\nremit is running tag %s.\n' "$(get_var REMIT_TAG)"
+	printf '\n'
+	report_serving
+	printf 'Running tag %s.\n' "$(get_var REMIT_TAG)"
 }
 
 cmd_down() {
@@ -221,7 +239,77 @@ cmd_down() {
 	# stop, never `down`: the pgdata and message_storage volumes hold every
 	# account, credential and message body on this box.
 	compose stop
-	printf "remit is stopped. Data volumes are untouched; 'remit restart' brings it back.\n"
+	printf "remit is stopped: %s serves nothing until 'remit restart'.\n" "$(get_var PUBLIC_ORIGIN)"
+	printf "No data was removed — accounts, mail and settings come back with it.\n"
+}
+
+# The one destructive command. --yes is the confirmation: the wrapper has to
+# work under `curl | bash`-style non-interactive use, so it never reads stdin.
+cmd_purge() {
+	require_deployment
+	_yes=0
+	while [ $# -gt 0 ]; do
+		case "$1" in
+		--yes)
+			_yes=1
+			shift
+			;;
+		*) die "purge: unknown option '$1'" ;;
+		esac
+	done
+	if [ "$_yes" != "1" ]; then
+		cat >&2 <<EOF
+purge would destroy this deployment's data. Nothing has been touched.
+
+It removes every container and network, and these volumes:
+
+  sqlite_data      every account, message index, tag and setting
+  message_storage  the cached message bodies
+  queue_data       work still queued
+  caddy_data       the TLS certificates, including the internal root CA
+  caddy_config     caddy's own state
+
+Your accounts and everything you have organised in the app are gone with
+sqlite_data and do not come back. Message bodies do: they are a cache of IMAP,
+which is the source of truth, so they re-sync once an account is added again.
+
+The install directory is left alone, .env and its FAKE_KMS_DATAKEY included:
+  $REMIT_DIR
+So 'remit restart' afterwards brings up an empty but working stack.
+
+To stop serving without destroying anything, use 'remit down'.
+Run 'remit purge --yes' if this is what you want.
+EOF
+		exit 1
+	fi
+	compose down -v --remove-orphans
+	printf "\nremit is purged. %s/.env and the compose files are untouched;\n" "$REMIT_DIR"
+	printf "'remit restart' brings up an empty stack.\n"
+}
+
+# The root CA only exists in internal mode, and only on the caddy volume: the
+# first thing an internal-mode operator has to do is get it off the box, so it
+# is a command rather than a compose invocation to copy out of the docs.
+cmd_cert() {
+	require_deployment
+	[ $# -eq 0 ] || die "cert: unknown option '$1'"
+	_mode=$(get_var TLS_MODE)
+	if [ "$_mode" != "internal" ]; then
+		die "TLS_MODE is '$_mode', which has no root CA to export.
+Only TLS_MODE=internal signs with Caddy's own CA. Under 'acme' and 'tailscale'
+the certificate is already publicly trusted, and 'off' serves plain HTTP."
+	fi
+	_dest="$PWD/reader-root.crt"
+	compose cp caddy:/data/caddy/pki/authorities/local/root.crt "$_dest" ||
+		die "could not read the root CA from the caddy container.
+Caddy generates it on its first start in internal mode — check 'remit status'
+shows caddy running, then try again."
+	printf 'Root CA written to %s\n\n' "$_dest"
+	printf 'Import it into the trust store of every machine you browse from:\n'
+	printf '  macOS    Keychain Access, then mark it "Always Trust"\n'
+	printf '  Windows  certlm.msc, Trusted Root Certification Authorities\n'
+	printf '  Linux    /usr/local/share/ca-certificates + update-ca-certificates\n'
+	printf '  Firefox  Settings, Certificates, View Certificates, Authorities\n'
 }
 
 # Redaction keys off what a name says the value is, not off a list of known
@@ -268,7 +356,9 @@ main() {
 	status) cmd_status "$@" ;;
 	update) cmd_update "$@" ;;
 	down) cmd_down "$@" ;;
+	purge) cmd_purge "$@" ;;
 	config) cmd_config "$@" ;;
+	cert) cmd_cert "$@" ;;
 	help | --help | -h) usage ;;
 	*)
 		printf '%s: unknown command '\''%s'\''\n\n' "$PROG" "$_cmd" >&2

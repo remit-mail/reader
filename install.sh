@@ -4,8 +4,9 @@
 #
 # Run it straight from the repo:
 #
+#   REMIT_ORIGIN="https://<the address you will load the app from>"
 #   curl -fsSL https://raw.githubusercontent.com/remit-mail/reader/main/install.sh \
-#     | bash -s -- --origin https://mail.example.com
+#     | bash -s -- --origin "$REMIT_ORIGIN"
 #
 # It checks the host has a container engine and Compose v2, downloads the
 # SQLite deploy assets, generates the secrets into a .env, and brings the
@@ -58,13 +59,16 @@ usage() {
 Reader self-host installer (single VM, SQLite).
 
 Usage:
+  REMIT_ORIGIN="https://<the address you will load the app from>"
   curl -fsSL https://raw.githubusercontent.com/${REPO}/${REF}/install.sh \\
-    | bash -s -- --origin <url> [options]
+    | bash -s -- --origin "\$REMIT_ORIGIN" [options]
 
 Required:
   --origin <url>     The address you load the app from: scheme://host, no
                      trailing path. Its scheme must match --tls-mode (https for
-                     internal/tailscale/acme, http for off).
+                     internal/tailscale/acme, http for off). Every auth and CORS
+                     origin derives from it, so a wrong value fails at sign-in,
+                     not at install.
 
 Options:
   --tls-mode <mode>  internal | off | tailscale | acme     (default: internal)
@@ -88,7 +92,17 @@ EOF
 parse_args() {
 	while [ $# -gt 0 ]; do
 		case "$1" in
-		--origin) [ $# -ge 2 ] || die "--origin needs a value"; ORIGIN="$2"; shift 2 ;;
+		# An unset $REMIT_ORIGIN expands to nothing, so --origin either runs out
+		# of arguments or swallows the next flag. Both are the same mistake and
+		# neither should reach the compose file as a hostname.
+		--origin)
+			[ $# -ge 2 ] || die "--origin got no value. Set REMIT_ORIGIN to the address you will load the app from, then pass --origin \$REMIT_ORIGIN."
+			case "$2" in
+			-*) die "--origin got '$2', which is another flag. \$REMIT_ORIGIN is empty — set it to the address you will load the app from." ;;
+			esac
+			ORIGIN="$2"
+			shift 2
+			;;
 		--tls-mode) [ $# -ge 2 ] || die "--tls-mode needs a value"; TLS_MODE="$2"; shift 2 ;;
 		--dir) [ $# -ge 2 ] || die "--dir needs a value"; DIR="$2"; shift 2 ;;
 		--tag) [ $# -ge 2 ] || die "--tag needs a value"; TAG="$2"; shift 2 ;;
@@ -100,9 +114,12 @@ parse_args() {
 }
 
 check_origin() {
-	[ -n "$ORIGIN" ] || { usage >&2; die "--origin is required."; }
+	[ -n "$ORIGIN" ] || { usage >&2; die "--origin is required. Set REMIT_ORIGIN to the address you will load the app from, then pass --origin \$REMIT_ORIGIN."; }
 	ORIGIN="${ORIGIN%/}"
 	case "$ORIGIN" in
+	# A pasted placeholder is worse than a rejected one: it installs a stack
+	# whose auth and CORS origins are wrong, which surfaces at sign-in.
+	*"<"* | *">"*) die "--origin still contains the placeholder: '$ORIGIN'. Set REMIT_ORIGIN to the real address you will load the app from." ;;
 	*://*/*) die "--origin must be scheme://host with no trailing path: got '$ORIGIN'" ;;
 	esac
 	case "$TLS_MODE" in
@@ -297,7 +314,29 @@ bring_up() {
 	REMIT_DIR="$DIR" REMIT_COMPOSE_FILE="$COMPOSE_FILE" "$DIR/remit" update
 }
 
+# The wrapper is the interface: it knows the install directory and the compose
+# file, so on PATH it runs from anywhere. When it could not be placed there the
+# same commands are shown relative to the install directory, prefixed by the cd
+# that makes them work.
+manage_block() {
+	local remit="remit" indent="              "
+	if [ -n "$WRAPPER_ON_PATH" ]; then
+		printf '  Manage      '
+	else
+		remit="./remit"
+		printf '  Manage      cd %s\n%s' "$DIR" "$indent"
+	fi
+	printf '%s %-8s What is running, on which tag.\n' "$remit" status
+	printf '%s%s %-8s Follow the logs.\n' "$indent" "$remit" logs
+	printf '%s%s %-8s Apply an edit to .env.\n' "$indent" "$remit" restart
+	printf '%s%s %-8s Pull the current images and apply them.\n' "$indent" "$remit" update
+	printf '%s%s %-8s Stop serving; %s restart brings it back.\n' "$indent" "$remit" down "$remit"
+	printf '%s%s %-8s Every command, including the destructive one.\n' "$indent" "$remit" help
+}
+
 summary() {
+	local remit="remit"
+	[ -n "$WRAPPER_ON_PATH" ] || remit="./remit"
 	cat <<EOF
 
 reader is up.
@@ -312,22 +351,13 @@ reader is up.
               encrypted with. It is the only copy — back it up. Losing it means
               re-entering every account's credentials.
 
-  Manage      cd $DIR
-              docker compose -f $COMPOSE_FILE --env-file .env ps
-              docker compose -f $COMPOSE_FILE --env-file .env logs -f
-              docker compose -f $COMPOSE_FILE --env-file .env down   # data volumes are kept
 EOF
-	if [ -n "$WRAPPER_ON_PATH" ]; then
+	manage_block
+	if [ -z "$WRAPPER_ON_PATH" ]; then
 		cat <<EOF
 
-  remit       $WRAPPER_ON_PATH wraps those compose commands:
-              remit status | remit logs | remit restart | remit update | remit down
-EOF
-	else
-		cat <<EOF
-
-  remit       $DIR/remit wraps those compose commands (status, logs, restart,
-              update, down). Put it on PATH with:
+              /usr/local/bin was not writable, so remit stayed in the install
+              directory. To type 'remit' from anywhere instead:
                 sudo cp $DIR/remit /usr/local/bin/remit
 EOF
 	fi
@@ -337,8 +367,9 @@ EOF
   Certificate --tls-mode internal signs with Caddy's own CA, so browsers warn
               until you trust its root. Export it with:
 
-                docker compose -f $DIR/$COMPOSE_FILE cp \\
-                  caddy:/data/caddy/pki/authorities/local/root.crt ./reader-root.crt
+                $remit cert
+
+              then import reader-root.crt on every machine you browse from.
 EOF
 	fi
 }
