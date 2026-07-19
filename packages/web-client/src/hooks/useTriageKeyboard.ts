@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import type { TriageAction } from "@/lib/keymap";
 import {
 	dispatchKey,
+	isControlTarget,
 	isEditableTarget,
 	type SequencePrefix,
 } from "@/lib/keymap-dispatch";
@@ -27,14 +28,12 @@ interface UseTriageKeyboardOptions {
  * even Esc is left to the focused field's own handler) and carrying the `g …`
  * go-to sequence prefix across keystrokes with a timeout.
  *
- * Routing is intentionally NOT fully unified yet: this hook owns the action
- * verbs + go-to keys, while the list-local navigation keys (j/k/x/Enter/d,
- * Shift+arrow, Delete/Backspace) are still routed by MessageList's legacy
- * `useKeyboardNavigation`, `/` by SearchBar, and `?` by the mail layout — three
- * separate window listeners, each with its own (consistent) input-guard. The
- * `@/lib/keymap` module is the single source of truth for the DISPLAYED
- * bindings (the `?` overlay + tooltips), but not yet for routing. Consolidating
- * every binding through `dispatchKey` is a follow-up; see #429.
+ * This is the only listener that routes list navigation and selection: the
+ * message list publishes its commands upward (see `MessageListCommands`) and
+ * the route wires them into the handler table, so `@/lib/keymap` is the single
+ * source of truth for both the displayed bindings and the routed ones. A second
+ * listener claiming the same keys is what made Enter unusable on every focused
+ * button in the app (#43).
  *
  * Per-action targeting (focused row vs selection) and the actual mutations live
  * in the handlers the caller passes in — this hook only dispatches.
@@ -70,6 +69,7 @@ export function useTriageKeyboard({
 					ctrlKey: event.ctrlKey,
 					altKey: event.altKey,
 					inEditable: isEditableTarget(event.target),
+					onControl: isControlTarget(event.target),
 				},
 				prefixRef.current,
 			);

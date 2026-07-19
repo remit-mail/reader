@@ -12,6 +12,7 @@ const stroke = (partial: Partial<KeyStroke> & { key: string }): KeyStroke => ({
 	ctrlKey: false,
 	altKey: false,
 	inEditable: false,
+	onControl: false,
 	...partial,
 });
 
@@ -61,6 +62,82 @@ describe("dispatchKey — plain bindings", () => {
 	});
 });
 
+describe("dispatchKey — list navigation", () => {
+	const cases: Array<[string, string]> = [
+		["ArrowDown", "focusNext"],
+		["ArrowUp", "focusPrevious"],
+		["Home", "focusFirst"],
+		["End", "focusLast"],
+		[" ", "toggleSelect"],
+		["Delete", "delete"],
+		["Backspace", "delete"],
+	];
+
+	for (const [key, action] of cases) {
+		test(`'${key}' → ${action}`, () => {
+			const result = run({ key });
+			assert.strictEqual(result.action, action);
+			assert.strictEqual(result.preventDefault, true);
+		});
+	}
+
+	test("Shift+Arrow extends the selection instead of moving the cursor", () => {
+		assert.strictEqual(
+			run({ key: "ArrowDown", shiftKey: true }).action,
+			"extendSelectDown",
+		);
+		assert.strictEqual(
+			run({ key: "ArrowUp", shiftKey: true }).action,
+			"extendSelectUp",
+		);
+	});
+
+	test("⌘A / Ctrl+A selects every loaded row", () => {
+		assert.strictEqual(run({ key: "a", metaKey: true }).action, "selectAll");
+		assert.strictEqual(run({ key: "a", ctrlKey: true }).action, "selectAll");
+		assert.strictEqual(
+			run({ key: "a", metaKey: true }).preventDefault,
+			true,
+			"the browser's select-all-text default must be replaced",
+		);
+	});
+});
+
+describe("dispatchKey — controls keep their activation keys", () => {
+	// The regression behind #43: a global Enter binding cancelled the default
+	// action of whatever the user had tabbed to, so no button in the app could
+	// be activated from the keyboard.
+	test("Enter on a focused control is left to the control", () => {
+		const result = run({ key: "Enter", onControl: true });
+		assert.strictEqual(result.action, null);
+		assert.strictEqual(result.preventDefault, false);
+	});
+
+	test("Space on a focused control is left to the control", () => {
+		const result = run({ key: " ", onControl: true });
+		assert.strictEqual(result.action, null);
+		assert.strictEqual(result.preventDefault, false);
+	});
+
+	test("Enter and Space still drive the list away from a control", () => {
+		assert.strictEqual(run({ key: "Enter" }).action, "openFocused");
+		assert.strictEqual(run({ key: " " }).action, "toggleSelect");
+	});
+
+	test("non-activation keys still fire from a focused control", () => {
+		// Tabbing to a toolbar button must not strand the rest of the keymap.
+		assert.strictEqual(run({ key: "j", onControl: true }).action, "focusNext");
+		assert.strictEqual(run({ key: "r", onControl: true }).action, "reply");
+	});
+
+	test("an Enter released to a control still cancels a pending g prefix", () => {
+		assert.strictEqual(
+			run({ key: "Enter", onControl: true }, "g").nextPrefix,
+			null,
+		);
+	});
+});
+
 describe("dispatchKey — input suppression", () => {
 	test("plain keys are inert in an editable surface", () => {
 		assert.strictEqual(run({ key: "j", inEditable: true }).action, null);
@@ -98,8 +175,8 @@ describe("dispatchKey — modifiers", () => {
 	});
 
 	test("other meta combos are left to the browser", () => {
-		assert.strictEqual(run({ key: "a", metaKey: true }).action, null);
 		assert.strictEqual(run({ key: "c", metaKey: true }).action, null);
+		assert.strictEqual(run({ key: "f", metaKey: true }).action, null);
 	});
 
 	test("Shift+J / Shift+K extend the selection", () => {

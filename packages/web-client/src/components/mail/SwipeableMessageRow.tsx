@@ -25,6 +25,10 @@ interface SwipeableMessageRowProps {
 	isSelected: boolean;
 	/** Roving keyboard focus cursor — renders the left accent rail (#429). */
 	isFocused?: boolean;
+	/** The one row in the tab order (roving tabindex). */
+	isTabStop?: boolean;
+	/** Called when the row takes DOM focus, so the cursor follows it. */
+	onFocusRow?: (messageId: string) => void;
 	isChecked: boolean;
 	onToggleCheck: (id: string) => void;
 	onRowSelect: (messageId: string, modifiers: SelectionModifiers) => boolean;
@@ -63,6 +67,8 @@ export const SwipeableMessageRow = ({
 	accountId,
 	isSelected,
 	isFocused,
+	isTabStop,
+	onFocusRow,
 	isChecked,
 	onToggleCheck,
 	onRowSelect,
@@ -104,6 +110,8 @@ export const SwipeableMessageRow = ({
 				accountId={accountId}
 				isSelected={isSelected}
 				isFocused={isFocused}
+				isTabStop={isTabStop}
+				onFocusRow={onFocusRow}
 				isChecked={isChecked}
 				onToggleCheck={onToggleCheck}
 				onRowSelect={onRowSelect}

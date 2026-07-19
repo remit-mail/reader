@@ -43,6 +43,7 @@ import { useNavigate, useSearch } from "@tanstack/react-router";
 import {
 	createContext,
 	type ReactNode,
+	type RefObject,
 	useCallback,
 	useContext,
 	useEffect,
@@ -57,7 +58,10 @@ import { Drawer } from "@/components/layout/Drawer";
 import { ConversationView } from "@/components/mail/ConversationView";
 import { DraftsView } from "@/components/mail/DraftsView";
 import { IntelligencePane } from "@/components/mail/IntelligencePane";
-import { MessageList } from "@/components/mail/MessageList";
+import {
+	MessageList,
+	type MessageListCommands,
+} from "@/components/mail/MessageList";
 import { MessageToolbar } from "@/components/mail/MessageToolbar";
 import { PullToRefresh } from "@/components/mail/PullToRefresh";
 import { SpamRescue } from "@/components/mail/SpamRescue";
@@ -190,6 +194,8 @@ interface MailboxPaneContextValue {
 		focusedMessageId: string | undefined;
 		selectedIds: string[];
 	}) => void;
+	/** Where the list publishes the commands the keyboard layer drives. */
+	listCommandsRef: RefObject<MessageListCommands | null>;
 	onRetry: () => void;
 	// Toolbar / reading pane actions
 	toolbarComposeRequest: ComposeMode | null;
@@ -419,6 +425,10 @@ function MailboxPaneProvider({
 		undefined,
 	);
 	const [triageSelectedIds, setTriageSelectedIds] = useState<string[]>([]);
+	// The mounted message list publishes its navigation/selection commands here.
+	// Null whenever no list is mounted (reading-only phone view, drafts) — the
+	// keyboard layer then simply has nothing to drive.
+	const listCommandsRef = useRef<MessageListCommands | null>(null);
 	const handleTriageContextChange = useCallback(
 		(context: {
 			focusedMessageId: string | undefined;
@@ -584,7 +594,10 @@ function MailboxPaneProvider({
 		closeCompose,
 	]);
 
+	// Esc unwinds one step at a time: an active selection first, then the open
+	// thread.
 	const goBack = useCallback(() => {
+		if (listCommandsRef.current?.clearSelection()) return;
 		if (selectedMessageId) {
 			navigate({
 				to: "/mail/$mailboxId",
@@ -671,7 +684,11 @@ function MailboxPaneProvider({
 		return messageIdsForFocusedThread(focusedThread);
 	}, [triageSelectedIds, messageIdsForFocusedThread, focusedThread]);
 
+	// Prefer the list's delete: it confirms the move to Trash and then places the
+	// cursor on a surviving row. Falls back to the reading pane's message when no
+	// list is mounted or nothing in it is targeted.
 	const triageDeleteAction = useCallback(() => {
+		if (listCommandsRef.current?.requestDelete()) return;
 		const ids = triageTargetMessageIds();
 		if (ids.length > 0) triageDelete(ids);
 	}, [triageTargetMessageIds, triageDelete]);
@@ -767,6 +784,19 @@ function MailboxPaneProvider({
 	useTriageKeyboard({
 		enabled: !composeState.isOpen,
 		handlers: {
+			// List navigation and selection. The mounted list owns the roving
+			// cursor and the checkbox set; this layer is the only keydown listener
+			// that routes to them.
+			focusNext: () => listCommandsRef.current?.focusNext(),
+			focusPrevious: () => listCommandsRef.current?.focusPrevious(),
+			focusFirst: () => listCommandsRef.current?.focusFirst(),
+			focusLast: () => listCommandsRef.current?.focusLast(),
+			openFocused: () => listCommandsRef.current?.openFocused(),
+			toggleSelect: () => listCommandsRef.current?.toggleSelect(),
+			extendSelectDown: () => listCommandsRef.current?.extendSelectDown(),
+			extendSelectUp: () => listCommandsRef.current?.extendSelectUp(),
+			selectAll: () => listCommandsRef.current?.selectAll(),
+			toggleDensity: () => listCommandsRef.current?.toggleDensity(),
 			back: goBack,
 			reply: triageReply,
 			replyAll: triageReplyAll,
@@ -832,6 +862,7 @@ function MailboxPaneProvider({
 		hasMore: hasNextPage,
 		isLoadingMore: isFetchingNextPage,
 		onTriageContextChange: handleTriageContextChange,
+		listCommandsRef,
 		onRetry: () => refetch(),
 		toolbarComposeRequest,
 		onToolbarReply: handleToolbarReply,
@@ -886,6 +917,7 @@ function MailboxList() {
 		isSpamFolder,
 		rescueCandidates,
 		onTriageContextChange,
+		listCommandsRef,
 		onRetry,
 		filterCategory,
 		filterAttributes,
@@ -975,6 +1007,7 @@ function MailboxList() {
 			listTitle={listTitle}
 			hideHeader
 			onTriageContextChange={onTriageContextChange}
+			commandsRef={listCommandsRef}
 		/>
 	);
 

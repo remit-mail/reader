@@ -105,6 +105,31 @@ const useMatchMedia = (query: string): boolean => {
 };
 
 /**
+ * Keydown events raised inside an iframe never reach the embedding window, so
+ * once the reader clicks into the message body every app shortcut goes dead —
+ * j/k, arrows, Esc, the lot (#43). Replay unmodified keystrokes on the host
+ * window so the app's one keyboard layer keeps hearing them. The replay is a
+ * copy: the original event is untouched, so selecting and scrolling inside the
+ * email still behave normally. Modifier combos stay with the frame and the
+ * browser.
+ */
+const forwardKeyDown = (event: KeyboardEvent) => {
+	if (event.metaKey || event.ctrlKey || event.altKey) return;
+	const doc = (event.currentTarget ?? event.target) as Document | null;
+	const host = doc?.defaultView?.parent;
+	if (!host || host === doc?.defaultView) return;
+	host.dispatchEvent(
+		new KeyboardEvent("keydown", {
+			key: event.key,
+			code: event.code,
+			shiftKey: event.shiftKey,
+			bubbles: true,
+			cancelable: true,
+		}),
+	);
+};
+
+/**
  * Render untrusted (sanitized) email HTML in a sandboxed iframe that fits the
  * viewport width on mobile and isolates the email's CSS from the app chrome.
  *
@@ -175,6 +200,7 @@ export const IsolatedEmailFrame = ({
 		};
 
 		let observer: ResizeObserver | undefined;
+		let keyDoc: Document | undefined;
 		const handleLoad = () => {
 			measure();
 			const doc = iframe.contentDocument;
@@ -182,11 +208,14 @@ export const IsolatedEmailFrame = ({
 			observer = new ResizeObserver(measure);
 			observer.observe(doc.body);
 			if (doc.documentElement) observer.observe(doc.documentElement);
+			doc.addEventListener("keydown", forwardKeyDown);
+			keyDoc = doc;
 		};
 
 		iframe.addEventListener("load", handleLoad);
 		return () => {
 			iframe.removeEventListener("load", handleLoad);
+			keyDoc?.removeEventListener("keydown", forwardKeyDown);
 			observer?.disconnect();
 		};
 	}, []);
