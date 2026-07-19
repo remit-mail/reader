@@ -246,13 +246,15 @@ export const executeThreadSearch = async (
  * Build the `listByThread` options for the thread-messages handler. Same
  * #212 default as the listing handlers — a soft-deleted message inside a
  * conversation should not surface in the conversation pane either.
+ *
+ * A conversation is never scoped to one mailbox: the user's own replies live
+ * in Sent, filed messages live in their folder, and all of them belong to the
+ * same thread (#46).
  */
 export const buildListThreadMessagesOptions = (query: {
 	order?: "asc" | "desc";
-	mailboxId?: string;
 }) => ({
 	order: query.order ?? ("desc" as const),
-	mailboxId: query.mailboxId,
 	excludeDeleted: true,
 });
 
@@ -330,16 +332,15 @@ export const ThreadDetailOperations: Record<
 		const event = args[0] as APIGatewayProxyEvent;
 		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const { threadId } = context.request.params as { threadId: string };
-		const { order, mailboxId } = context.request.query as {
+		const { order } = context.request.query as {
 			order?: "asc" | "desc";
-			mailboxId?: string;
 		};
 
 		const client = await getClient();
 		const result = await client.threadMessage.listByThread(
 			threadId,
 			accountConfigId,
-			buildListThreadMessagesOptions({ order, mailboxId }),
+			buildListThreadMessagesOptions({ order }),
 		);
 
 		// Defense-in-depth: the query is already scoped to accountConfigId; assert

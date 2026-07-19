@@ -558,7 +558,6 @@ export class DrizzleThreadMessageRepository
 			order?: "asc" | "desc";
 			limit?: number;
 			continuationToken?: string;
-			mailboxId?: string;
 			excludeDeleted?: boolean;
 		},
 	): Promise<ResultList<ThreadMessageItem>> {
@@ -592,9 +591,6 @@ export class DrizzleThreadMessageRepository
 				and(
 					eq(threadMessageTable.threadId, threadId),
 					eq(threadMessageTable.accountConfigId, accountConfigId),
-					options?.mailboxId
-						? eq(threadMessageTable.mailboxId, options.mailboxId)
-						: undefined,
 					options?.excludeDeleted
 						? eq(threadMessageTable.isDeleted, false)
 						: undefined,

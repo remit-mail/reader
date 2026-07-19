@@ -163,7 +163,7 @@ export const ConversationView = ({
 	} = useQuery({
 		...threadDetailOperationsListThreadMessagesOptions({
 			path: { threadId },
-			query: { order: "desc", mailboxId },
+			query: { order: "desc" },
 		}),
 	});
 
