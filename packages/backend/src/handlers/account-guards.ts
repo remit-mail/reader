@@ -1,10 +1,10 @@
-import type { AccountItem } from "@remit/data-ports";
-import { ConflictError } from "@remit/data-ports/errors";
-import { AccountAuthType } from "@remit/domain-enums";
 import type {
 	AccountResponse,
 	FolderAppointment,
 } from "@remit/api-openapi-types";
+import type { AccountItem } from "@remit/data-ports";
+import { ConflictError } from "@remit/data-ports/errors";
+import { AccountAuthType } from "@remit/domain-enums";
 import type { AccountOverrides } from "./account-overrides.js";
 import type { AccountSignature } from "./account-signature.js";
 

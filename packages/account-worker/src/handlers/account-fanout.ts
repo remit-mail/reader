@@ -1,9 +1,5 @@
 import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
-import {
-	createLogger,
-	type Logger,
-	withTelemetry,
-} from "@remit/logger-lambda";
+import { createLogger, type Logger, withTelemetry } from "@remit/logger-lambda";
 import type { SQSBatchResponse, SQSEvent, SQSHandler } from "aws-lambda";
 import type { CascadeServices } from "../cascade.js";
 import { enumerateCascadeEntities } from "../cascade.js";

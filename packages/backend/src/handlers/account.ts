@@ -1,4 +1,12 @@
 import { SendMessageCommand } from "@aws-sdk/client-sqs";
+import type {
+	AccountResponse,
+	CreateAccountInput,
+	DeleteAccountResponse,
+	TestConnectionInput,
+	TestConnectionResponse,
+	UpdateAccountInput,
+} from "@remit/api-openapi-types";
 import type { AccountItem, IAccountRepository } from "@remit/data-ports";
 import { AccountAuthType, ConnectionState } from "@remit/domain-enums";
 import { logger } from "@remit/logger-lambda";
@@ -12,14 +20,6 @@ import {
 	testImapConnection,
 	testSmtpConnection,
 } from "@remit/mailbox-service";
-import type {
-	AccountResponse,
-	CreateAccountInput,
-	DeleteAccountResponse,
-	TestConnectionInput,
-	TestConnectionResponse,
-	UpdateAccountInput,
-} from "@remit/api-openapi-types";
 import {
 	deserializeEncryptedPayload,
 	type SecretsService,

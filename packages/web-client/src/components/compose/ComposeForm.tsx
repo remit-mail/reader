@@ -9,11 +9,7 @@ import type {
 	RemitImapAccountResponse,
 	RemitImapDescribeMessageResponse,
 } from "@remit/api-http-client/types.gen.ts";
-import {
-	ComposeActionBar,
-	ComposeFormShell,
-	QuotedText,
-} from "@remit/ui";
+import { ComposeActionBar, ComposeFormShell, QuotedText } from "@remit/ui";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import type { Value } from "platejs";
 import {

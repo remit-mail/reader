@@ -1,11 +1,11 @@
 import type { SQSClient } from "@aws-sdk/client-sqs";
-import type { AccountConfigItem, MailboxItem } from "@remit/data-ports";
-import { NotFoundError } from "@remit/data-ports/errors";
-import { logger } from "@remit/logger-lambda";
 import type {
 	AccountConfigResponse,
 	ConfigDescriptionResponse,
 } from "@remit/api-openapi-types";
+import type { AccountConfigItem, MailboxItem } from "@remit/data-ports";
+import { NotFoundError } from "@remit/data-ports/errors";
+import { logger } from "@remit/logger-lambda";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { env } from "expect-env";
 import type { Context } from "openapi-backend";
