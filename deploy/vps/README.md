@@ -1,8 +1,8 @@
 # Reader — self-host VPS deployment
 
 A single-VM deployment: Docker Compose on one small box, running the published
-`ghcr.io/remit-mail/remit/*` images plus three upstream images (`caddy`,
-`elasticmq`, `alpine`). All relational state lives in two SQLite files on one
+`ghcr.io/remit-mail/remit/*` images plus two upstream images (`caddy`,
+`alpine`). All relational state lives in two SQLite files on one
 local volume — there is no database server to run. Message bodies are cached
 on a second volume and can always be re-synced from IMAP.
 
@@ -107,7 +107,7 @@ itself (Settings → Add account).
 | `web` | `ghcr.io/remit-mail/remit/web` | Static server for the built web client. |
 | `backend` | `ghcr.io/remit-mail/remit/backend` | The API. Also the image the `migrate` and `volume-init` one-shots run. |
 | `imap-worker`, `smtp-worker`, `account-worker`, `search-index-worker` | `ghcr.io/remit-mail/remit/*` | Queue pollers: sync mail, push flag and folder changes back, send outgoing mail, and build the search index. |
-| `elasticmq` | `softwaremill/elasticmq-native` | The SQS-compatible queue seam. |
+| `queue` | `ghcr.io/remit-mail/remit/queue-sidecar` | The SQS-compatible queue seam: a SQLite-backed sidecar speaking the SQS wire protocol, persisting enqueued work to its own volume. |
 | `migrate` | `ghcr.io/remit-mail/remit/backend` (command override) | One-shot: applies the SQLite migrations and the FTS5 search index before any app service starts. |
 | `volume-init` | `ghcr.io/remit-mail/remit/backend` (entrypoint override) | One-shot: fixes ownership of the data volumes so the non-root app user can write them. |
 | `backup` | `alpine:3.23` | Off by default (`profiles: ["backup"]`). Nightly encrypted database snapshot. See [Backups](#backups). |
@@ -247,7 +247,7 @@ One host setting needs attention before the first start, checked by the
 installer:
 
 - **Short image names.** The `ghcr.io/remit-mail/remit/*` images are fully
-  qualified and unaffected; the upstream images (`caddy`, `elasticmq`, `alpine`)
+  qualified and unaffected; the upstream images (`caddy`, `alpine`)
   are pulled by short name. A fresh Podman install has no
   unqualified-search-registries and refuses them
   (`short-name "caddy:2-alpine" did not resolve to an alias`). Fix:
@@ -304,7 +304,7 @@ it is not a surprise.
 
 ## Queue failures: watch the dead-letter queues
 
-Every worker queue in `elasticmq.conf` has a dead-letter queue (`<queue>-dlq`,
+Every worker queue in `queues.json` has a dead-letter queue (`<queue>-dlq`,
 `maxReceiveCount = 3`) — a message a worker's handler keeps failing to process
 (a malformed payload, a bug, a downstream outage) is redelivered up to 3 times,
 then quarantined in the DLQ instead of redelivering forever and crash-looping
@@ -313,12 +313,12 @@ down, but a message that lands in a DLQ is not automatically retried or drained
 — it sits there until an operator looks at it.
 
 Check depth periodically — any SQS-compatible client against the queue you care
-about works. The `elasticmq-native` image ships `wget`, not `curl`:
+about works. The `queue` image ships `node`, so a one-liner from inside the
+container reads a queue's depth over the SQS wire protocol:
 
 ```bash
-docker compose -f docker-compose.sqlite.yml --env-file .env exec elasticmq \
-  wget -qO- --post-data='Action=GetQueueAttributes&QueueUrl=http://localhost:9324/000000000000/remit-body-dlq&AttributeName.1=ApproximateNumberOfMessages&Version=2012-11-05' \
-  http://localhost:9324/
+docker compose -f docker-compose.sqlite.yml --env-file .env exec queue \
+  node -e 'const b="Action=GetQueueAttributes&QueueUrl=http://localhost:9324/000000000000/remit-body-dlq&AttributeName.1=ApproximateNumberOfMessages&Version=2012-11-05";const r=require("http").request("http://localhost:9324/",{method:"POST"},s=>{let d="";s.on("data",c=>d+=c);s.on("end",()=>console.log(d))});r.end(b)'
 ```
 
 A non-zero DLQ is a signal to look at, not a resolved failure: inspect the

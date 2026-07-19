@@ -39,13 +39,28 @@ x-app-env: &app-env
 services:
   # ---------------------------------------------------------------------
   # Data plane — the queue seam only; the relational store is a file.
+  #
+  # The SQLite-backed SQS sidecar (ADR: self-host queue backend). Speaks the
+  # AWS Query protocol the SDK emits, so the app's SQS client reaches it
+  # unchanged. Its queue set is declared in queues.json (mounted read-only,
+  # the same way elasticmq.conf was); enqueued messages persist to a dedicated
+  # SQLite file on its own `queue_data` volume, isolated from the app/search
+  # store — so the outbox survives a restart.
   # ---------------------------------------------------------------------
-  elasticmq:
-    image: softwaremill/elasticmq-native:1.6.9
+  queue:
+    image: ghcr.io/remit-mail/remit/queue-sidecar:${REMIT_TAG:-latest}
+    environment:
+      QUEUE_SIDECAR_QUEUES_CONFIG: /etc/queue/queues.json
+      QUEUE_SIDECAR_DB: /data/queue/queue.db
     volumes:
-      - ./elasticmq.conf:/opt/elasticmq.conf:ro
+      - ./queues.json:/etc/queue/queues.json:ro
+      - queue_data:/data/queue
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
     healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost 9324"]
+      test:
+        ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:9324/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -64,7 +79,7 @@ services:
     volumes:
       - sqlite_data:/data/sqlite
     depends_on:
-      elasticmq:
+      queue:
         condition: service_healthy
       volume-init:
         condition: service_completed_successfully
@@ -77,10 +92,11 @@ services:
     image: ghcr.io/remit-mail/remit/backend:${REMIT_TAG:-latest}
     user: root
     entrypoint:
-      ["sh", "-c", "mkdir -p /data/storage /data/sqlite && chown -R node:node /data/storage /data/sqlite"]
+      ["sh", "-c", "mkdir -p /data/storage /data/sqlite /data/queue && chown -R node:node /data/storage /data/sqlite /data/queue"]
     volumes:
       - message_storage:/data/storage
       - sqlite_data:/data/sqlite
+      - queue_data:/data/queue
 
   # ---------------------------------------------------------------------
   # App plane
@@ -92,7 +108,7 @@ services:
       - message_storage:/data/storage
       - sqlite_data:/data/sqlite
     depends_on:
-      elasticmq:
+      queue:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
@@ -142,7 +158,7 @@ services:
       - message_storage:/data/storage
       - sqlite_data:/data/sqlite
     depends_on:
-      elasticmq:
+      queue:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
@@ -158,7 +174,7 @@ services:
       - message_storage:/data/storage
       - sqlite_data:/data/sqlite
     depends_on:
-      elasticmq:
+      queue:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
@@ -174,7 +190,7 @@ services:
       - message_storage:/data/storage
       - sqlite_data:/data/sqlite
     depends_on:
-      elasticmq:
+      queue:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
@@ -194,7 +210,7 @@ services:
       - message_storage:/data/storage
       - sqlite_data:/data/sqlite
     depends_on:
-      elasticmq:
+      queue:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
@@ -237,5 +253,8 @@ volumes:
   # network filesystem (RFC 036 D3). The default local driver is correct; do
   # not repoint this at NFS/CIFS.
   sqlite_data:
+  # The queue sidecar's own SQLite file — durable enqueued work, isolated from
+  # the app/search store. Local disk only, for the same WAL reason as above.
+  queue_data:
   caddy_data:
   caddy_config:

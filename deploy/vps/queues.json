@@ -1,0 +1,82 @@
+{
+	"accountId": "000000000000",
+	"queues": [
+		{
+			"name": "remit-mailboxes.fifo",
+			"fifo": true,
+			"visibilityTimeoutSeconds": 60,
+			"deadLetter": { "name": "remit-mailboxes-dlq.fifo", "maxReceiveCount": 3 }
+		},
+		{
+			"name": "remit-messages.fifo",
+			"fifo": true,
+			"visibilityTimeoutSeconds": 60,
+			"deadLetter": { "name": "remit-messages-dlq.fifo", "maxReceiveCount": 3 }
+		},
+		{
+			"name": "remit-flags.fifo",
+			"fifo": true,
+			"visibilityTimeoutSeconds": 60,
+			"deadLetter": { "name": "remit-flags-dlq.fifo", "maxReceiveCount": 3 }
+		},
+		{
+			"name": "remit-body",
+			"visibilityTimeoutSeconds": 300,
+			"deadLetter": { "name": "remit-body-dlq", "maxReceiveCount": 3 }
+		},
+		{
+			"name": "remit-mailbox-mgmt",
+			"visibilityTimeoutSeconds": 60,
+			"deadLetter": { "name": "remit-mailbox-mgmt-dlq", "maxReceiveCount": 3 }
+		},
+		{
+			"name": "remit-message-mgmt",
+			"visibilityTimeoutSeconds": 60,
+			"deadLetter": { "name": "remit-message-mgmt-dlq", "maxReceiveCount": 3 }
+		},
+		{
+			"name": "remit-search-index",
+			"visibilityTimeoutSeconds": 300,
+			"deadLetter": { "name": "remit-search-index-dlq", "maxReceiveCount": 3 }
+		},
+		{
+			"name": "remit-smtp",
+			"visibilityTimeoutSeconds": 60,
+			"deadLetter": { "name": "remit-smtp-dlq", "maxReceiveCount": 3 }
+		},
+		{
+			"name": "remit-account-fanout",
+			"visibilityTimeoutSeconds": 300,
+			"deadLetter": { "name": "remit-account-fanout-dlq", "maxReceiveCount": 3 }
+		},
+		{
+			"name": "remit-account-finalize",
+			"visibilityTimeoutSeconds": 60,
+			"deadLetter": { "name": "remit-account-finalize-dlq", "maxReceiveCount": 3 }
+		},
+		{
+			"name": "remit-account-purge-delete.fifo",
+			"fifo": true,
+			"visibilityTimeoutSeconds": 60,
+			"deadLetter": {
+				"name": "remit-account-purge-delete-dlq.fifo",
+				"maxReceiveCount": 3
+			}
+		},
+		{ "name": "remit-mailboxes-dlq.fifo", "fifo": true, "visibilityTimeoutSeconds": 60 },
+		{ "name": "remit-messages-dlq.fifo", "fifo": true, "visibilityTimeoutSeconds": 60 },
+		{ "name": "remit-flags-dlq.fifo", "fifo": true, "visibilityTimeoutSeconds": 60 },
+		{ "name": "remit-body-dlq", "visibilityTimeoutSeconds": 60 },
+		{ "name": "remit-mailbox-mgmt-dlq", "visibilityTimeoutSeconds": 60 },
+		{ "name": "remit-message-mgmt-dlq", "visibilityTimeoutSeconds": 60 },
+		{ "name": "remit-search-index-dlq", "visibilityTimeoutSeconds": 60 },
+		{ "name": "remit-smtp-dlq", "visibilityTimeoutSeconds": 60 },
+		{ "name": "remit-account-fanout-dlq", "visibilityTimeoutSeconds": 60 },
+		{ "name": "remit-account-finalize-dlq", "visibilityTimeoutSeconds": 60 },
+		{
+			"name": "remit-account-purge-delete-dlq.fifo",
+			"fifo": true,
+			"visibilityTimeoutSeconds": 60
+		}
+	]
+}
