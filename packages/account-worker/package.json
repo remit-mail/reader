@@ -31,6 +31,16 @@
 		"test:run": "node --env-file=../../localhost-test-unit.env --test 'src/**/*.test.ts'",
 		"test": "npm run test:typecheck && npm run test:run"
 	},
+	"dependencies": {
+		"@remit/data-ports": "*",
+		"@remit/logger-lambda": "*",
+		"@remit/drizzle-service": "*",
+		"@remit/backend": "*",
+		"@remit/sqs-client": "*",
+		"@remit/storage-service": "*",
+		"@remit/electrodb-entities": "*",
+		"@remit/search-index-worker": "*"
+	},
 	"devDependencies": {
 		"@aws-sdk/client-cloudfront": "*",
 		"@aws-sdk/client-cognito-identity-provider": "*",
@@ -41,16 +51,8 @@
 		"@aws-sdk/lib-dynamodb": "*",
 		"@aws-sdk/lib-storage": "*",
 		"@aws-sdk/s3-request-presigner": "*",
-		"@remit/backend": "*",
-		"@remit/data-ports": "*",
-		"@remit/electrodb-entities": "*",
-		"@remit/drizzle-service": "*",
 		"@remit/domain-enums": "*",
-		"@remit/logger-lambda": "*",
-		"@remit/search-index-worker": "*",
 		"@remit/search-service": "*",
-		"@remit/sqs-client": "*",
-		"@remit/storage-service": "*",
 		"@types/archiver": "*",
 		"@types/aws-lambda": "*",
 		"archiver": "*",

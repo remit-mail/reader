@@ -27,15 +27,6 @@
 		"@aws-sdk/client-sqs": "*",
 		"@aws-sdk/client-ssm": "*",
 		"@aws-sdk/core": "*",
-		"@remit/backend": "*",
-		"@remit/data-ports": "*",
-		"@remit/domain-enums": "*",
-		"@remit/logger-lambda": "*",
-		"@remit/mail-oauth-service": "*",
-		"@remit/mailbox-service": "*",
-		"@remit/search-index-worker": "*",
-		"@remit/secrets-service": "*",
-		"@remit/sqs-client": "*",
 		"@remit/storage-service": "*",
 		"@types/aws-lambda": "*",
 		"@types/nodemailer": "*",
@@ -46,7 +37,16 @@
 	},
 	"dependencies": {
 		"@aws-sdk/client-s3": "^3.1055.0",
-		"nodemailer": "^9.0.3"
+		"nodemailer": "^9.0.3",
+		"@remit/data-ports": "*",
+		"@remit/logger-lambda": "*",
+		"@remit/mailbox-service": "*",
+		"@remit/search-index-worker": "*",
+		"@remit/sqs-client": "*",
+		"@remit/backend": "*",
+		"@remit/domain-enums": "*",
+		"@remit/mail-oauth-service": "*",
+		"@remit/secrets-service": "*"
 	},
 	"license": "MIT",
 	"publishConfig": {
