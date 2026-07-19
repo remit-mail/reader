@@ -130,6 +130,13 @@ export const buildDataPortsFromEnv =
 		if (process.env.DATA_BACKEND === "postgres")
 			return buildPostgresDataPorts();
 		if (process.env.DATA_BACKEND === "sqlite") return buildSqliteDataPorts();
-		const { buildDynamoDBDataPorts } = await import("./compose-dynamodb.js");
+		// `as string` stops tsgo resolving the module in the open-core tree, which
+		// strips it; the named contract keeps the call site typed rather than `any`.
+		type ComposeDynamoDBModule = {
+			buildDynamoDBDataPorts: () => SearchIndexDataPorts;
+		};
+		const { buildDynamoDBDataPorts } = (await import(
+			"./compose-dynamodb.js" as string
+		)) as ComposeDynamoDBModule;
 		return buildDynamoDBDataPorts();
 	};
