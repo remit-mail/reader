@@ -5,6 +5,7 @@ import type {
 	IEnvelopeRepository,
 	IMailboxRepository,
 	IMessageFlagPushRepository,
+	IMessageFlagRepository,
 	IMessageRepository,
 	IThreadMessageRepository,
 	IUnitOfWork,
@@ -15,6 +16,8 @@ import type {
 } from "@remit/data-ports";
 import { MailboxCursorState } from "@remit/domain-enums";
 import type { ManagedConnectionFactory } from "./connection-factory.js";
+import type { FlagPushService } from "./flag-push.js";
+import { FlagQueueService } from "./flag-queue.js";
 import { MessageSyncService } from "./message-sync.js";
 import type { IImapConnection, ImapMessage } from "./types.js";
 
@@ -87,6 +90,12 @@ interface HarnessOptions {
 	storedRows?: ThreadMessageItem[];
 	/** Flag names with an outbound push still owed to IMAP. */
 	pendingFlags?: Set<string>;
+	/** Flag names already on the canonical MessageFlag record. */
+	storedFlags?: string[];
+	/** Envelope snapshots the cursor rebuild sees on the server. */
+	snapshots?: Array<{ uid: number; messageId: string; internalDate: Date }>;
+	/** UIDs whose save throws, to exercise the failure clamps. */
+	failUids?: Set<number>;
 }
 
 interface Harness {
@@ -98,6 +107,9 @@ interface Harness {
 	}>;
 	created: string[];
 	calls: { search: number; fetchMessages: number; changedSince: bigint[] };
+	/** The canonical flag record after the round. */
+	flagStore: Set<string>;
+	messageFlagService: IMessageFlagRepository;
 }
 
 const buildHarness = (options: HarnessOptions): Harness => {
@@ -135,7 +147,7 @@ const buildHarness = (options: HarnessOptions): Harness => {
 			calls.fetchMessages++;
 			return options.enumerated ?? [];
 		},
-		fetchEnvelopeSnapshots: async () => [],
+		fetchEnvelopeSnapshots: async () => options.snapshots ?? [],
 	} as unknown as IImapConnection;
 
 	const connectionFactory = {
@@ -175,10 +187,15 @@ const buildHarness = (options: HarnessOptions): Harness => {
 		transaction: (fn) =>
 			fn({
 				message: {
-					upsertWithStatus: async (input: { mailboxId: string }) => ({
-						item: { mailboxId: input.mailboxId },
-						created: true,
-					}),
+					upsertWithStatus: async (input: {
+						mailboxId: string;
+						uid: number;
+					}) => {
+						if (options.failUids?.has(input.uid)) {
+							throw new Error(`save failed for uid ${input.uid}`);
+						}
+						return { item: { mailboxId: input.mailboxId }, created: true };
+					},
 					updateUid: async () => undefined,
 				} as unknown as IMessageRepository,
 				envelope: {
@@ -200,6 +217,20 @@ const buildHarness = (options: HarnessOptions): Harness => {
 				: null,
 	} as unknown as IMessageFlagPushRepository;
 
+	// The canonical flag record, as a set of flag names held per message.
+	const flagStore = new Set<string>(options.storedFlags ?? []);
+	const messageFlagService = {
+		hasFlag: async (_messageId: string, flagName: string) =>
+			flagStore.has(flagName),
+		addFlag: async (_messageId: string, flagName: string) => {
+			flagStore.add(flagName);
+			return { flagName };
+		},
+		removeFlag: async (_messageId: string, flagName: string) => {
+			flagStore.delete(flagName);
+		},
+	} as unknown as IMessageFlagRepository;
+
 	const service = new MessageSyncService(
 		connectionFactory,
 		mailboxService,
@@ -210,9 +241,18 @@ const buildHarness = (options: HarnessOptions): Harness => {
 		undefined,
 		unitOfWork,
 		flagPushMarkerService,
+		messageFlagService,
 	);
 
-	return { service, mailboxUpdates, threadUpdates, created, calls };
+	return {
+		service,
+		mailboxUpdates,
+		threadUpdates,
+		created,
+		calls,
+		flagStore,
+		messageFlagService,
+	};
 };
 
 const syncOnce = (harness: Harness, batchSize = 50) =>
@@ -337,6 +377,123 @@ describe("MessageSyncService CHANGEDSINCE path", () => {
 		assert.equal(result.remainingCount, 1);
 		assert.equal(harness.mailboxUpdates[0].highestModseq, "515");
 	});
+
+	it("keeps a bulk change whole rather than splitting the mod-sequence", async () => {
+		// One STORE marked 60 messages read, so all 60 carry mod-sequence 900.
+		const bulk = Array.from({ length: 60 }, (_, i) =>
+			serverMessage({ uid: 100 + i, modseq: "900" }),
+		);
+		const harness = buildHarness({
+			mailbox: mailbox(),
+			supportsCondstore: true,
+			serverModseq: "900",
+			changed: bulk,
+			storedRows: [],
+		});
+
+		const result = await syncOnce(harness, 50);
+
+		// All 60 applied in one round; the watermark never lands inside the group.
+		assert.equal(harness.created.length, 60);
+		assert.equal(result.hasMore, false);
+		assert.equal(harness.mailboxUpdates[0].highestModseq, "900");
+	});
+
+	it("holds the watermark below a bulk group it only partly applied", async () => {
+		const bulk = [
+			serverMessage({ uid: 99, modseq: "800" }),
+			...Array.from({ length: 60 }, (_, i) =>
+				serverMessage({ uid: 100 + i, modseq: "900" }),
+			),
+		];
+		const harness = buildHarness({
+			mailbox: mailbox(),
+			supportsCondstore: true,
+			serverModseq: "900",
+			changed: bulk,
+			storedRows: [],
+		});
+
+		const result = await syncOnce(harness, 50);
+
+		assert.equal(result.hasMore, true);
+		// Below 900, so the next round's CHANGEDSINCE returns the whole group.
+		assert.equal(harness.mailboxUpdates[0].highestModseq, "800");
+	});
+
+	it("writes the canonical flag record, not only the list projection", async () => {
+		const harness = buildHarness({
+			mailbox: mailbox(),
+			supportsCondstore: true,
+			changed: [serverMessage({ flags: ["\\Seen"] })],
+			storedRows: [storedRow({ isRead: false })],
+			storedFlags: [],
+		});
+
+		await syncOnce(harness);
+
+		assert.deepEqual([...harness.flagStore], ["Seen"]);
+	});
+
+	it("clears the canonical flag and the star colour when the server unstars", async () => {
+		const harness = buildHarness({
+			mailbox: mailbox(),
+			supportsCondstore: true,
+			changed: [serverMessage({ flags: [] })],
+			storedRows: [storedRow({ hasStars: true })],
+			storedFlags: ["Flagged"],
+		});
+
+		await syncOnce(harness);
+
+		assert.deepEqual([...harness.flagStore], []);
+		assert.deepEqual(harness.threadUpdates, [
+			{
+				threadMessageId: "tm-1",
+				input: { hasStars: false, star: "none" },
+			},
+		]);
+	});
+
+	it("leaves the user's next flip a real flip, not a redundant no-op", async () => {
+		// Another client marks the message read; the reader picks it up.
+		const harness = buildHarness({
+			mailbox: mailbox(),
+			supportsCondstore: true,
+			changed: [serverMessage({ flags: ["\\Seen"] })],
+			storedRows: [storedRow({ isRead: false })],
+			storedFlags: [],
+		});
+
+		await syncOnce(harness);
+
+		// The user now clicks "mark unread". FlagQueueService decides whether
+		// that is a real change by reading the canonical record.
+		const pushes: Array<{ flagName: string; operation: string }> = [];
+		const flagQueue = new FlagQueueService({
+			messageFlagService: harness.messageFlagService,
+			messageService: {
+				get: async () => ({ mailboxId: MAILBOX_ID }),
+			} as unknown as IMessageRepository,
+			threadMessageService: {
+				findAllByMessageId: async () => [storedRow({ isRead: true })],
+				update: async () => storedRow(),
+			} as unknown as IThreadMessageRepository,
+			flagPushService: {
+				flip: async (params: { flagName: string; operation: string }) => {
+					pushes.push({
+						flagName: params.flagName,
+						operation: params.operation,
+					});
+				},
+			} as unknown as FlagPushService,
+		});
+
+		await flagQueue.markAsUnread(ACCOUNT_CONFIG_ID, "msg-1", ACCOUNT_ID);
+
+		assert.deepEqual(pushes, [{ flagName: "Seen", operation: "remove" }]);
+		assert.deepEqual([...harness.flagStore], []);
+	});
 });
 
 describe("MessageSyncService without CONDSTORE", () => {
@@ -413,6 +570,36 @@ describe("MessageSyncService UIDVALIDITY reseed", () => {
 		assert.deepEqual(harness.mailboxUpdates, [
 			{ cursorState: MailboxCursorState.cursor_invalid },
 		]);
+	});
+
+	it("withholds the seed when the rebuild lost a message to a failed save", async () => {
+		const harness = buildHarness({
+			mailbox: mailbox({
+				cursorState: MailboxCursorState.cursor_invalid,
+				highestModseq: "500",
+			}),
+			servedUidValidity: 777,
+			supportsCondstore: true,
+			serverModseq: "12",
+			allUids: [30, 31],
+			snapshots: [
+				{ uid: 30, messageId: "<a@example.com>", internalDate: new Date(0) },
+				{ uid: 31, messageId: "<b@example.com>", internalDate: new Date(0) },
+			],
+			enumerated: [serverMessage({ uid: 30 }), serverMessage({ uid: 31 })],
+			failUids: new Set([31]),
+			storedRows: [],
+		});
+
+		await syncOnce(harness);
+
+		const final = harness.mailboxUpdates[1];
+		// Neither the stale value (meaningless on the new axis) nor the new one
+		// (already above the message that failed).
+		assert.equal(final.highestModseq, "0");
+		// The forward watermark stops below the failure, so uid 31 is enumerated
+		// again next round.
+		assert.equal(final.highWaterMarkUid, 30);
 	});
 
 	it("reseeds the watermark from the new axis when the rebuild completes", async () => {

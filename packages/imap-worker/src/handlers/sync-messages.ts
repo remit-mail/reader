@@ -6,6 +6,7 @@ import type {
 	IEnvelopeRepository,
 	IMailboxRepository,
 	IMessageFlagPushRepository,
+	IMessageFlagRepository,
 	IMessageRepository,
 	IThreadMessageRepository,
 	IUnitOfWork,
@@ -70,6 +71,7 @@ export const syncMessages = async (
 		threadMessage: threadMessageService,
 		mailboxLock: mailboxLockService,
 		flagPush: flagPushMarkerService,
+		messageFlag: messageFlagService,
 		unitOfWork,
 		secrets,
 	} = await getClient();
@@ -137,6 +139,7 @@ export const syncMessages = async (
 								addressService,
 								threadMessageService,
 								flagPushMarkerService,
+								messageFlagService,
 								unitOfWork,
 							},
 							log,
@@ -179,6 +182,7 @@ interface SyncDeps {
 	addressService: IAddressRepository;
 	threadMessageService: IThreadMessageRepository;
 	flagPushMarkerService: IMessageFlagPushRepository;
+	messageFlagService: IMessageFlagRepository;
 	unitOfWork?: IUnitOfWork;
 }
 
@@ -269,6 +273,7 @@ const syncMailboxMessages = async (
 		addressService,
 		threadMessageService,
 		flagPushMarkerService,
+		messageFlagService,
 		unitOfWork,
 	} = deps;
 
@@ -301,6 +306,7 @@ const syncMailboxMessages = async (
 		log,
 		unitOfWork,
 		flagPushMarkerService,
+		messageFlagService,
 	);
 
 	// Connect once, reuse for the entire sync operation
