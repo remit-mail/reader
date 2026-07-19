@@ -1,21 +1,25 @@
 /**
  * FlaggedList — a FLAT, cross-account inbox of starred mail.
  *
- * Reads the same unified GET /threads source as the daily brief, keeps only
- * starred rows (`toThreadRowData(...).starred`), and renders them as one
- * continuous list (no category sections). The shared `MailViewChrome` owns the
- * `MailHeader` + filter expando; the kit `MessageListPane` (flat, no
- * `briefFilters`) owns the loading / empty / error chrome and keyboard hints,
- * with a consumer-supplied `listBody` so the real rows render at every width.
+ * Reads GET /threads with `starred=true`, which is served by the `byStarred`
+ * index and returns every starred thread in the config across all non-muted
+ * mailboxes, paged. Starredness is decided server-side from `hasStars`; the
+ * client neither re-filters nor caps the set, so a starred thread outside the
+ * newest inbox page still appears. Rendered as one continuous list (no category
+ * sections). The shared `MailViewChrome` owns the `MailHeader` + filter
+ * expando; the kit `MessageListPane` (flat, no `briefFilters`) owns the loading
+ * / empty / error chrome and keyboard hints, with a consumer-supplied
+ * `listBody` so the real rows render at every width.
  */
-import { unifiedThreadOperationsListAllThreadsOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import { unifiedThreadOperationsListAllThreadsQueryKey } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import { unifiedThreadOperationsListAllThreads } from "@remit/api-http-client/sdk.gen.ts";
 import {
 	ComfortableRow,
 	flaggedFilterConfig,
 	MessageListPane,
 	type ThreadRowData,
 } from "@remit/ui";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
 import { formatErrorMessage } from "@/components/ui/ErrorState";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
@@ -28,6 +32,7 @@ import { buildBugReportContext, buildGitHubIssueUrl } from "@/lib/bug-report";
 import { useMailContext } from "@/lib/mail-context";
 import { rowToSearchResult } from "@/lib/search-result";
 import { parseSearchTokens } from "@/lib/search-tokens";
+import { dedupeByThread } from "@/lib/starred-rows";
 import { MailViewChrome } from "./MailViewChrome";
 
 const FILTER_PREDICATES: Record<string, (t: ThreadRowData) => boolean> = {
@@ -72,8 +77,26 @@ export function FlaggedList({
 		isError,
 		error,
 		refetch,
-	} = useQuery({
-		...unifiedThreadOperationsListAllThreadsOptions(),
+		fetchNextPage,
+		hasNextPage,
+		isFetchingNextPage,
+	} = useInfiniteQuery({
+		queryKey: unifiedThreadOperationsListAllThreadsQueryKey({
+			query: { starred: true, order: "desc" },
+		}),
+		queryFn: async ({ pageParam }) => {
+			const { data } = await unifiedThreadOperationsListAllThreads({
+				query: {
+					starred: true,
+					order: "desc",
+					continuationToken: pageParam,
+				},
+				throwOnError: true,
+			});
+			return data;
+		},
+		initialPageParam: undefined as string | undefined,
+		getNextPageParam: (lastPage) => lastPage.continuationToken,
 		staleTime: 60_000,
 	});
 
@@ -86,9 +109,10 @@ export function FlaggedList({
 		const predicates = Array.from(activeFilters)
 			.map((id) => FILTER_PREDICATES[id])
 			.filter((p): p is (t: ThreadRowData) => boolean => p != null);
-		return (threadsData?.items ?? [])
+		return dedupeByThread(
+			(threadsData?.pages ?? []).flatMap((page) => page.items ?? []),
+		)
 			.map(toThreadRowData)
-			.filter((t) => t.starred === true)
 			.filter(
 				(t) =>
 					(selectedCategory === "all" || t.category === selectedCategory) &&
@@ -132,6 +156,16 @@ export function FlaggedList({
 					/>
 				))}
 			</div>
+			{hasNextPage ? (
+				<button
+					type="button"
+					className="w-full py-3 text-sm text-muted hover:text-fg disabled:opacity-50"
+					onClick={() => fetchNextPage()}
+					disabled={isFetchingNextPage}
+				>
+					{isFetchingNextPage ? "Loading…" : "Load more"}
+				</button>
+			) : null}
 		</div>
 	);
 

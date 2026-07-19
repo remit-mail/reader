@@ -195,4 +195,152 @@ describe("DrizzleThreadMessageRepository (sqlite)", () => {
 			"pages do not overlap",
 		);
 	});
+	// #44: Flagged was a client-side filter over the newest page of the primary
+	// inboxes, so a star outside that window was invisible. listByStarred is the
+	// byStarred access pattern that view now reads.
+	test("listByStarred returns starred rows from every mailbox", async () => {
+		const acct = "acct-starred";
+		const base = Date.now();
+		await repo.create(
+			makeInput({
+				accountConfigId: acct,
+				mailboxId: "mbx-inbox",
+				subject: "starred in inbox",
+				hasStars: true,
+				sentDate: base,
+				internalDate: base,
+			}),
+		);
+		await repo.create(
+			makeInput({
+				accountConfigId: acct,
+				mailboxId: "mbx-archive",
+				subject: "starred in archive",
+				hasStars: true,
+				sentDate: base - 1,
+				internalDate: base - 1,
+			}),
+		);
+		await repo.create(
+			makeInput({
+				accountConfigId: acct,
+				mailboxId: "mbx-inbox",
+				subject: "not starred",
+				hasStars: false,
+				sentDate: base - 2,
+				internalDate: base - 2,
+			}),
+		);
+
+		const result = await repo.listByStarred(acct, { order: "desc" });
+		assert.deepEqual(
+			result.items.map((i) => i.subject),
+			["starred in inbox", "starred in archive"],
+		);
+	});
+
+	// The star colour is presentation only and defaults to the `none` sentinel,
+	// so a row starred without an explicit colour must still be returned.
+	test("listByStarred returns a starred row whose colour is the none sentinel", async () => {
+		const acct = "acct-starred-none";
+		const created = await repo.create(
+			makeInput({
+				accountConfigId: acct,
+				subject: "uncoloured star",
+				hasStars: true,
+			}),
+		);
+		assert.equal(created.star, "none");
+
+		const result = await repo.listByStarred(acct);
+		assert.deepEqual(
+			result.items.map((i) => i.subject),
+			["uncoloured star"],
+		);
+	});
+
+	test("listByStarred narrows to the supplied mailbox set", async () => {
+		const acct = "acct-starred-scope";
+		await repo.create(
+			makeInput({
+				accountConfigId: acct,
+				mailboxId: "mbx-kept",
+				subject: "kept",
+				hasStars: true,
+			}),
+		);
+		await repo.create(
+			makeInput({
+				accountConfigId: acct,
+				mailboxId: "mbx-muted",
+				subject: "muted",
+				hasStars: true,
+			}),
+		);
+
+		const result = await repo.listByStarred(acct, {
+			mailboxIds: new Set(["mbx-kept"]),
+		});
+		assert.deepEqual(
+			result.items.map((i) => i.subject),
+			["kept"],
+		);
+	});
+
+	test("listByStarred excludes soft-deleted rows when asked", async () => {
+		const acct = "acct-starred-deleted";
+		await repo.create(
+			makeInput({
+				accountConfigId: acct,
+				subject: "live star",
+				hasStars: true,
+			}),
+		);
+		await repo.create(
+			makeInput({
+				accountConfigId: acct,
+				subject: "trashed star",
+				hasStars: true,
+				isDeleted: true,
+			}),
+		);
+
+		const result = await repo.listByStarred(acct, { excludeDeleted: true });
+		assert.deepEqual(
+			result.items.map((i) => i.subject),
+			["live star"],
+		);
+	});
+
+	test("listByStarred pages without overlap", async () => {
+		const acct = "acct-starred-page";
+		const base = Date.now();
+		for (let i = 0; i < 5; i++) {
+			await repo.create(
+				makeInput({
+					accountConfigId: acct,
+					subject: `star ${i}`,
+					hasStars: true,
+					sentDate: base - i,
+					internalDate: base - i,
+				}),
+			);
+		}
+
+		const first = await repo.listByStarred(acct, { limit: 2, order: "desc" });
+		assert.equal(first.items.length, 2);
+		assert.ok(first.continuationToken);
+
+		const second = await repo.listByStarred(acct, {
+			limit: 2,
+			order: "desc",
+			continuationToken: first.continuationToken,
+		});
+		assert.equal(second.items.length, 2);
+		const firstIds = new Set(first.items.map((i) => i.threadMessageId));
+		assert.ok(
+			second.items.every((i) => !firstIds.has(i.threadMessageId)),
+			"pages do not overlap",
+		);
+	});
 });

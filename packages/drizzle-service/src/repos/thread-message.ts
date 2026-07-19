@@ -43,6 +43,9 @@ export const deriveThreadMessageId = (
 
 export const THREAD_SEARCH_MAX_LIMIT = 500;
 
+/** Page size used when a list caller supplies no explicit limit. */
+const DEFAULT_LIST_LIMIT = 100;
+
 export const clampThreadSearchLimit = (limit?: number): number => {
 	if (limit === undefined || !Number.isFinite(limit)) {
 		return THREAD_SEARCH_MAX_LIMIT;
@@ -484,6 +487,61 @@ export class DrizzleThreadMessageRepository
 		const lastRow = rows[rows.length - 1];
 		const hasMore =
 			options?.limit !== undefined && rows.length === options.limit;
+		return {
+			items: rows.map(toItem),
+			continuationToken:
+				hasMore && lastRow
+					? encodeDateCursor(lastRow.sentDate, lastRow.threadMessageId)
+					: undefined,
+		};
+	}
+
+	async listByStarred(
+		accountConfigId: string,
+		options?: {
+			order?: "asc" | "desc";
+			limit?: number;
+			continuationToken?: string;
+			mailboxIds?: Set<string>;
+			excludeDeleted?: boolean;
+		},
+	): Promise<ResultList<ThreadMessageItem>> {
+		const order = options?.order ?? "desc";
+		// Default before the has-more check, or an absent limit silently truncates
+		// at the implicit cap with no continuation token.
+		const limit = options?.limit ?? DEFAULT_LIST_LIMIT;
+		const cursor = options?.continuationToken
+			? decodeDateCursor(options.continuationToken)
+			: null;
+
+		const mailboxCond = options?.mailboxIds?.size
+			? inArray(threadMessageTable.mailboxId, [...options.mailboxIds])
+			: undefined;
+
+		const rows = await this.db
+			.select()
+			.from(threadMessageTable)
+			.where(
+				and(
+					eq(threadMessageTable.accountConfigId, accountConfigId),
+					eq(threadMessageTable.hasStars, true),
+					mailboxCond,
+					options?.excludeDeleted
+						? eq(threadMessageTable.isDeleted, false)
+						: undefined,
+					sentDateCursorCond(order, cursor),
+				),
+			)
+			.orderBy(
+				order === "desc"
+					? desc(threadMessageTable.sentDate)
+					: asc(threadMessageTable.sentDate),
+				asc(threadMessageTable.threadMessageId),
+			)
+			.limit(limit);
+
+		const lastRow = rows[rows.length - 1];
+		const hasMore = rows.length === limit;
 		return {
 			items: rows.map(toItem),
 			continuationToken:
