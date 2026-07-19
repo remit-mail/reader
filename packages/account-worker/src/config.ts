@@ -6,15 +6,13 @@ import { createStorageService } from "@remit/storage-service/s3";
 import { env } from "expect-env";
 import type { CascadeServices } from "./cascade.js";
 
-const remitClient = await getClient();
-
 export const sqsClient = new SQSClient({
 	credentials: resolveSqsCredentials(),
 });
 
 // SQS env vars are lazy-evaluated. The fanout worker needs them at handler time;
-// the finalize worker imports `cascadeServices` from this module but talks to no
-// queue, so its Lambda doesn't carry the env vars. Eager evaluation here would
+// the finalize worker imports `getCascadeServices` from this module but talks to
+// no queue, so its Lambda doesn't carry the env vars. Eager evaluation here would
 // crash finalize at module load — getters defer the read to the fanout-only call
 // sites.
 export const getSearchIndexQueueUrl = (): string =>
@@ -31,33 +29,41 @@ export const graceSeconds = graceSecondsRaw
 	? Number.parseInt(graceSecondsRaw, 10)
 	: 60;
 
+// The RemitClient is resolved lazily and cached, not at module load: the
+// DynamoDB backend is injected by the composition root before the first cascade
+// runs, so building at import time would race the registration.
+let cascadeServicesPromise: Promise<CascadeServices> | null = null;
+
 // Every cascade service is a `RemitClient` repository, so the whole enumeration
 // runs on whatever backend `getClient()` selected — DynamoDB (ElectroDB),
 // Postgres, or SQLite (Drizzle). Filter/FilterAnchor/Label/MessageLabel (Smart
 // Organize, RFC 034) are present on all three backends via the client, so they
 // need no backend-specific wiring here.
-export const cascadeServices: CascadeServices = {
-	accountConfigService: remitClient.accountConfig,
-	accountService: remitClient.account,
-	addressService: remitClient.address,
-	mailboxService: remitClient.mailbox,
-	messageService: remitClient.message,
-	messageFlagService: remitClient.messageFlag,
-	envelopeService: remitClient.envelope,
-	outboxMessageService: remitClient.outboxMessage,
-	threadMessageService: remitClient.threadMessage,
-	mailboxLockService: remitClient.mailboxLock,
-	messagePlacementMoveService: remitClient.placementMove,
-	messageFlagPushService: remitClient.flagPush,
-	accountExportRequestService: remitClient.accountExportRequest,
-	accountSettingService: remitClient.accountSetting,
-	filterService: remitClient.filter,
-	filterAnchorService: remitClient.filterAnchor,
-	labelService: remitClient.label,
-	messageLabelService: remitClient.messageLabel,
+export const getCascadeServices = (): Promise<CascadeServices> => {
+	if (!cascadeServicesPromise) {
+		cascadeServicesPromise = getClient().then((remitClient) => ({
+			accountConfigService: remitClient.accountConfig,
+			accountService: remitClient.account,
+			addressService: remitClient.address,
+			mailboxService: remitClient.mailbox,
+			messageService: remitClient.message,
+			messageFlagService: remitClient.messageFlag,
+			envelopeService: remitClient.envelope,
+			outboxMessageService: remitClient.outboxMessage,
+			threadMessageService: remitClient.threadMessage,
+			mailboxLockService: remitClient.mailboxLock,
+			messagePlacementMoveService: remitClient.placementMove,
+			messageFlagPushService: remitClient.flagPush,
+			accountExportRequestService: remitClient.accountExportRequest,
+			accountSettingService: remitClient.accountSetting,
+			filterService: remitClient.filter,
+			filterAnchorService: remitClient.filterAnchor,
+			labelService: remitClient.label,
+			messageLabelService: remitClient.messageLabel,
+		}));
+	}
+	return cascadeServicesPromise;
 };
-
-export const accountConfigService = cascadeServices.accountConfigService;
 
 let storageService: StorageService | null = null;
 export const getStorageService = (): StorageService => {

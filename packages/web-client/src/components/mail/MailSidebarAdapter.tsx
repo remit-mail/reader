@@ -7,7 +7,11 @@ import type {
 	RemitImapAccountResponse,
 	RemitImapMailboxResponse,
 } from "@remit/api-http-client/types.gen.ts";
-import type { NavAccount, NavLinkComponent, NavMailboxRole } from "@remit/ui";
+import type {
+	NavAccount,
+	NavLinkComponent,
+	NavMailboxRole,
+} from "@remit/ui";
 import { NavSidebar } from "@remit/ui";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import {

@@ -5,26 +5,28 @@ export type {
 	RemitClient,
 } from "./create-remit-client.js";
 
-// The DynamoDB composition module is stripped from the open-core export (it
-// imports the closed electrodb-service). The `as string` specifier keeps
-// tsgo from resolving it there — where the file is absent — while this named
-// contract keeps the call site typed rather than `any`. The relational tree
-// never takes this branch; the DynamoDB deploy, where the module is present,
-// resolves it at runtime.
-type ComposeDynamoDBModule = { buildDynamoDBClient: () => RemitClient };
-
 let clientPromise: Promise<RemitClient> | null = null;
+let injected: RemitClient | null = null;
 
-// The API process and the imap-worker share this composition root. Each backend
-// is loaded through a dynamic import of its own composition module, so the
-// module that a given deploy never runs never enters its graph: `@remit/remit-
-// drizzle-service`/`drizzle-orm` stay out of a Lambda bundle (both `external`
-// for the Lambda esbuild build; `remit-lambda-bundles.test.ts` enforces this),
-// and the DynamoDB composition — which imports the closed `@remit/remit-
-// electrodb-service` — stays out of the relational (open-core) tree, where its
-// module is not shipped at all. esbuild still bundles the DynamoDB path into
-// the Lambda because `./compose-dynamodb.js` is a relative import, not an
-// `external`.
+/**
+ * Register the DynamoDB-backed client from the composition root. The DynamoDB
+ * composition lives outside this shared, open-core module and is never imported
+ * here. Every DynamoDB entry point calls this before handling a request. The
+ * relational backends compose in-package below and never touch this seam.
+ */
+export const setClient = (client: RemitClient): void => {
+	injected = client;
+	clientPromise = null;
+};
+
+// The API process and the imap-worker share this composition root. The
+// relational backends are loaded through a lazy `import()` of their own
+// in-package composition module, so the module a given deploy never runs never
+// enters its graph: `@remit/drizzle-service`/`drizzle-orm` stay out of a
+// Lambda bundle (both `external` for the Lambda esbuild build;
+// `remit-lambda-bundles.test.ts` enforces this). The DynamoDB backend is
+// injected by the composition root through `setClient`, so this module carries
+// no import of the DynamoDB composition.
 export const getClient = (): Promise<RemitClient> => {
 	if (!clientPromise) {
 		if (process.env.DATA_BACKEND === "postgres") {
@@ -36,23 +38,20 @@ export const getClient = (): Promise<RemitClient> => {
 				m.buildSqliteClient(),
 			);
 		} else {
-			clientPromise = (
-				import(
-					"./compose-dynamodb.js" as string
-				) as Promise<ComposeDynamoDBModule>
-			).then((m) => m.buildDynamoDBClient());
+			if (!injected) {
+				throw new Error(
+					"no DynamoDB client registered — register one with setClient() from your composition root",
+				);
+			}
+			clientPromise = Promise.resolve(injected);
 		}
 	}
 
 	return clientPromise;
 };
 
-/** Reset the singleton — test use only. */
+/** Reset the singleton and any injected client — test use only. */
 export const _resetForTest = (): void => {
 	clientPromise = null;
-};
-
-/** Inject a (usually partial) client — test use only. */
-export const _setClientForTest = (override: RemitClient): void => {
-	clientPromise = Promise.resolve(override);
+	injected = null;
 };

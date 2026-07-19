@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { MailboxSpecialUse } from "@remit/domain-enums";
 import {
 	AccountConfigRepo,
 	AccountRepo,
@@ -17,6 +16,7 @@ import {
 	messageDataSchema,
 	OutboxMessageRepo,
 } from "@remit/drizzle-service";
+import { MailboxSpecialUse } from "@remit/domain-enums";
 import {
 	createKmsDataKeyProvider,
 	createSecretsService,

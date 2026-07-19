@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { OrganizeInput } from "@remit/api-openapi-types";
 import { FilterMatchOperator } from "@remit/domain-enums";
+import type { OrganizeInput } from "@remit/api-openapi-types";
 import { predicateFromInput } from "./organize.js";
 
 const input = (over: Partial<OrganizeInput> = {}): OrganizeInput => ({

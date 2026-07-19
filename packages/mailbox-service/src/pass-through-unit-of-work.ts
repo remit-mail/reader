@@ -1,4 +1,7 @@
-import type { IUnitOfWork, UnitOfWorkRepositories } from "@remit/data-ports";
+import type {
+	IUnitOfWork,
+	UnitOfWorkRepositories,
+} from "@remit/data-ports";
 
 /**
  * Runs the write set against fixed repositories with no surrounding

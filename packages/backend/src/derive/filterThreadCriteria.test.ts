@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { ThreadMessageResponse } from "@remit/api-openapi-types";
 import { MessageCategory, SenderTrust, StarColor } from "@remit/domain-enums";
+import type { ThreadMessageResponse } from "@remit/api-openapi-types";
 import {
 	filterByOffRowCriteria,
 	hasOffRowCriteria,

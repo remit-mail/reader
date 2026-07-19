@@ -1,12 +1,16 @@
 import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
-import { createLogger, type Logger, withTelemetry } from "@remit/logger-lambda";
+import {
+	createLogger,
+	type Logger,
+	withTelemetry,
+} from "@remit/logger-lambda";
 import type { SQSBatchResponse, SQSEvent, SQSHandler } from "aws-lambda";
 import type { CascadeServices } from "../cascade.js";
 import { enumerateCascadeEntities } from "../cascade.js";
 import {
-	cascadeServices,
 	getAccountFinalizeQueueUrl,
 	getAccountPurgeDeleteQueueUrl,
+	getCascadeServices,
 	getImapWorkerQueueUrl,
 	sqsClient,
 } from "../config.js";
@@ -44,7 +48,7 @@ export const processAccountFanout = async (
 	log: Logger,
 	deps: ProcessAccountFanoutDeps = {},
 ): Promise<void> => {
-	const services = deps.services ?? cascadeServices;
+	const services = deps.services ?? (await getCascadeServices());
 	const sqs = deps.sqs ?? sqsClient;
 
 	if (event.type === "AccountDataPurge") {

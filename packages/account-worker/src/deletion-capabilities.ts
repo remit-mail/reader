@@ -6,15 +6,16 @@ import type { CascadeEntity } from "./cascade.js";
  * else — enumerating the AccountConfig's rows, the FIFO purge orchestration, the
  * queue sends — is backend-neutral and lives in the handlers unchanged.
  *
- * Two composition roots build this, selected by `DATA_BACKEND` exactly like
- * `@remit/backend`'s `compose-{dynamodb,postgres,sqlite}`:
+ * Two composition roots build this:
  *
- * - `compose-dynamodb.ts` (AWS custody stack): Cognito global sign-out,
+ * - The DynamoDB composition (AWS custody stack): Cognito global sign-out,
  *   CloudFront invalidation, raw-S3 prefix delete, DynamoDB `BatchWriteItem`
- *   cascade. Byte-for-byte the pre-split behavior. Stripped from the open-core
- *   export and loaded through a lazy `import()` so the closed AWS SDK/ElectroDB
- *   graph never reaches the relational tree.
- * - `compose-relational.ts` (self-host stack, RFC 035/036): no-op sign-out
+ *   cascade. Byte-for-byte the pre-split behavior. It imports the AWS SDK /
+ *   ElectroDB graph and lives outside this shared, open-core module; it is
+ *   injected here through `setDeletionCapabilities` so that graph never reaches
+ *   the relational tree.
+ * - `compose-relational.ts` (self-host stack, RFC 035/036), selected by
+ *   `DATA_BACKEND`: no-op sign-out
  *   (deleting the AccountConfig severs the session's data resolution; there is
  *   no CDN to sign out of), no-op invalidation (Caddy proxies `/content/*`
  *   straight to the backend with no cache), filesystem prefix delete, and the
@@ -60,6 +61,20 @@ const isRelationalBackend = (): boolean => {
 	return backend === "postgres" || backend === "sqlite";
 };
 
+let injectedCapabilities: DeletionCapabilities | null = null;
+
+/**
+ * Register the DynamoDB-backed deletion capabilities from the composition root.
+ * The DynamoDB composition imports the AWS SDK / ElectroDB graph and lives
+ * outside this shared, open-core module; it is never imported here. The
+ * relational backend composes in-package below and never touches this seam.
+ */
+export const setDeletionCapabilities = (
+	capabilities: DeletionCapabilities,
+): void => {
+	injectedCapabilities = capabilities;
+};
+
 const buildDeletionCapabilitiesFromEnv =
 	async (): Promise<DeletionCapabilities> => {
 		if (isRelationalBackend()) {
@@ -68,15 +83,12 @@ const buildDeletionCapabilitiesFromEnv =
 			);
 			return buildRelationalDeletionCapabilities();
 		}
-		// `as string` stops tsgo resolving the module in the open-core tree, which
-		// strips it; the named contract keeps the call site typed rather than `any`.
-		type ComposeDynamoDBModule = {
-			buildDynamoDBDeletionCapabilities: () => DeletionCapabilities;
-		};
-		const { buildDynamoDBDeletionCapabilities } = (await import(
-			"./compose-dynamodb.js" as string
-		)) as ComposeDynamoDBModule;
-		return buildDynamoDBDeletionCapabilities();
+		if (!injectedCapabilities) {
+			throw new Error(
+				"no DynamoDB deletion capabilities registered — register them with setDeletionCapabilities() from your composition root",
+			);
+		}
+		return injectedCapabilities;
 	};
 
 let capabilitiesPromise: Promise<DeletionCapabilities> | undefined;

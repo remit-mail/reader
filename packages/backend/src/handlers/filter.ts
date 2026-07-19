@@ -1,11 +1,11 @@
+import type { FilterItem } from "@remit/data-ports";
+import { ClientError } from "@remit/data-ports/errors";
+import { FilterScope } from "@remit/domain-enums";
 import type {
 	CreateFilterInput,
 	FilterResponse,
 	UpdateFilterInput,
 } from "@remit/api-openapi-types";
-import type { FilterItem } from "@remit/data-ports";
-import { ClientError } from "@remit/data-ports/errors";
-import { FilterScope } from "@remit/domain-enums";
 import type { AnchorPayload } from "@remit/search-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { getAccountConfigIdFromEvent } from "../auth.js";

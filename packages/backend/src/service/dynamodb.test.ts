@@ -1,14 +1,11 @@
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
 import { afterEach, test } from "node:test";
-import { fileURLToPath } from "node:url";
-import { _resetForTest, getClient, type RemitClient } from "./dynamodb.js";
-
-// The DynamoDB composition module is stripped from the open-core tree; its
-// no-regression guard runs where the module ships and skips where it does not.
-const hasDynamoComposition = existsSync(
-	fileURLToPath(new URL("./compose-dynamodb.ts", import.meta.url)),
-);
+import {
+	_resetForTest,
+	getClient,
+	type RemitClient,
+	setClient,
+} from "./dynamodb.js";
 
 const REQUIRED_KEYS: ReadonlyArray<keyof RemitClient> = [
 	"accountConfig",
@@ -72,29 +69,29 @@ test("getClient() with DATA_BACKEND=postgres constructs all services without thr
 	}
 });
 
-test(
-	"getClient() without DATA_BACKEND constructs all services without throwing (DynamoDB path, no regression)",
-	{ skip: !hasDynamoComposition },
-	async () => {
-		const savedBackend = process.env.DATA_BACKEND;
-		delete process.env.DATA_BACKEND;
+test("getClient() without DATA_BACKEND throws until a client is registered", () => {
+	const savedBackend = process.env.DATA_BACKEND;
+	delete process.env.DATA_BACKEND;
 
-		try {
-			const client = await getClient();
+	try {
+		assert.throws(() => getClient(), /no DynamoDB client registered/);
+	} finally {
+		if (savedBackend !== undefined) process.env.DATA_BACKEND = savedBackend;
+	}
+});
 
-			for (const key of REQUIRED_KEYS) {
-				assert.ok(
-					client[key] !== undefined && client[key] !== null,
-					`RemitClient.${key} must be defined on the DynamoDB path`,
-				);
-			}
+test("getClient() without DATA_BACKEND returns the injected client", async () => {
+	const savedBackend = process.env.DATA_BACKEND;
+	delete process.env.DATA_BACKEND;
 
-			assert.equal(typeof client.createConnectionScope, "function");
-		} finally {
-			_resetForTest();
-			if (savedBackend !== undefined) {
-				process.env.DATA_BACKEND = savedBackend;
-			}
-		}
-	},
-);
+	const injected = { account: {} } as unknown as RemitClient;
+	setClient(injected);
+
+	try {
+		const client = await getClient();
+		assert.equal(client, injected);
+	} finally {
+		_resetForTest();
+		if (savedBackend !== undefined) process.env.DATA_BACKEND = savedBackend;
+	}
+});

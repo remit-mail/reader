@@ -1,9 +1,3 @@
-import type {
-	BodyPartResponse,
-	EnvelopeAddressResponse,
-	EnvelopeResponse,
-	MessageSummaryResponse,
-} from "@remit/api-openapi-types";
 import type { MailboxItem } from "@remit/data-ports";
 import {
 	BadRequestError,
@@ -25,6 +19,12 @@ import {
 	isMessageBodySyncBroken,
 	MailboxCursorPausedError,
 } from "@remit/mailbox-service";
+import type {
+	BodyPartResponse,
+	EnvelopeAddressResponse,
+	EnvelopeResponse,
+	MessageSummaryResponse,
+} from "@remit/api-openapi-types";
 import {
 	isStorageNotFoundError as isStorageNotFoundErrorFromService,
 	parseStorageUri,

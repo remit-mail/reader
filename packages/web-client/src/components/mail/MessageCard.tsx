@@ -4,7 +4,11 @@ import type {
 	RemitImapThreadMessageResponse,
 } from "@remit/api-http-client/types.gen.ts";
 import type { ThreadMessageData } from "@remit/ui";
-import { AddressList, CollapsedMessage, ExpandedMessage } from "@remit/ui";
+import {
+	AddressList,
+	CollapsedMessage,
+	ExpandedMessage,
+} from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { BadgeCheck, Paperclip, Star } from "lucide-react";
 import { useState } from "react";
