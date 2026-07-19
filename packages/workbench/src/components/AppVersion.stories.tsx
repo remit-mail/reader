@@ -28,7 +28,7 @@ function formatBuildTime(iso: string): string {
 
 function AppVersion({
 	sha = "abcdef1",
-	commitUrl = "https://github.com/remit-mail/remit/commit/abcdef1234567890",
+	commitUrl = "https://github.com/remit-mail/reader/commit/abcdef1234567890",
 	buildTime = new Date().toISOString(),
 }: AppVersionProps) {
 	return (
@@ -66,7 +66,7 @@ type Story = StoryObj<AppVersionProps>;
 export const Default: Story = {
 	args: {
 		sha: "a1b2c3d",
-		commitUrl: "https://github.com/remit-mail/remit/commit/a1b2c3d4e5f6",
+		commitUrl: "https://github.com/remit-mail/reader/commit/a1b2c3d4e5f6",
 		buildTime: "2024-06-12T10:30:00.000Z",
 	},
 };
@@ -75,7 +75,7 @@ export const Default: Story = {
 export const DevBuild: Story = {
 	args: {
 		sha: "dev",
-		commitUrl: "https://github.com/remit-mail/remit",
+		commitUrl: "https://github.com/remit-mail/reader",
 		buildTime: new Date().toISOString(),
 	},
 };
@@ -90,7 +90,7 @@ export const InSettingsAboutSection: Story = {
 	),
 	args: {
 		sha: "a1b2c3d",
-		commitUrl: "https://github.com/remit-mail/remit/commit/a1b2c3d4e5f6",
+		commitUrl: "https://github.com/remit-mail/reader/commit/a1b2c3d4e5f6",
 		buildTime: "2024-06-12T10:30:00.000Z",
 	},
 };

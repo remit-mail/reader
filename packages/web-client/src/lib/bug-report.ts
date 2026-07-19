@@ -71,7 +71,7 @@ function buildIssueBody(ctx: BugReportContext, stack?: string): string {
 
 	const lines: string[] = [
 		"## Environment",
-		`- **Version**: [\`${ctx.appShortSha}\`](https://github.com/remit-mail/remit/commit/${ctx.appSha}) built ${ctx.appBuildTime}`,
+		`- **Version**: [\`${ctx.appShortSha}\`](https://github.com/remit-mail/reader/commit/${ctx.appSha}) built ${ctx.appBuildTime}`,
 		`- **Browser**: ${ctx.userAgent}`,
 		`- **Viewport**: ${ctx.viewport}`,
 		`- **Time**: ${ctx.timestamp} (${ctx.timezone})`,
