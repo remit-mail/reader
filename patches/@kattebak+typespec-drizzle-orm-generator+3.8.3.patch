@@ -1,3 +1,16 @@
+diff --git a/node_modules/@kattebak/typespec-drizzle-orm-generator/dist/codegen/stringify.js b/node_modules/@kattebak/typespec-drizzle-orm-generator/dist/codegen/stringify.js
+index 2cb123b..b64af09 100644
+--- a/node_modules/@kattebak/typespec-drizzle-orm-generator/dist/codegen/stringify.js
++++ b/node_modules/@kattebak/typespec-drizzle-orm-generator/dist/codegen/stringify.js
+@@ -16,7 +16,7 @@ function stringifyValue(value) {
+         case "undefined":
+             return "undefined";
+         case "string":
+-            return `"${value}"`;
++            return JSON.stringify(value);
+         case "number":
+         case "boolean":
+             return String(value);
 diff --git a/node_modules/@kattebak/typespec-drizzle-orm-generator/dist/ir/remit-builder.js b/node_modules/@kattebak/typespec-drizzle-orm-generator/dist/ir/remit-builder.js
 index b151e88..5e17ef9 100644
 --- a/node_modules/@kattebak/typespec-drizzle-orm-generator/dist/ir/remit-builder.js

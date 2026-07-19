@@ -11,8 +11,9 @@ type MailboxSpecialUseValue =
 	(typeof MailboxSpecialUse)[keyof typeof MailboxSpecialUse];
 
 /**
- * Map from IMAP attribute strings to MailboxAttribute enum values
- * IMAP attributes have backslash prefix, our enum values don't
+ * Map from IMAP attribute strings to MailboxAttribute enum values.
+ * MailboxAttribute keeps the RFC 9051 backslash prefix; MailboxSpecialUse
+ * below is a canonical bare designation, so only that map strips it.
  */
 const ATTRIBUTE_MAP: Record<string, MailboxAttributeValue> = {
 	"\\NonExistent": MailboxAttribute.NonExistent,

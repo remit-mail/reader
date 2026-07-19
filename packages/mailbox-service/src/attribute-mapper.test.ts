@@ -1,6 +1,6 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import { MailboxSpecialUse } from "@remit/domain-enums";
+import { MailboxAttribute, MailboxSpecialUse } from "@remit/domain-enums";
 import {
 	hasChildren,
 	isNoSelect,
@@ -50,7 +50,33 @@ describe("parseImapAttributes special-use", () => {
 	it("separates standard attributes from special-use", () => {
 		const parsed = parseImapAttributes(["\\HasChildren", "\\Sent"]);
 		assert.deepStrictEqual(parsed.specialUse, [MailboxSpecialUse.Sent]);
-		assert.deepStrictEqual(parsed.attributes, ["HasChildren"]);
+		assert.deepStrictEqual(parsed.attributes, ["\\HasChildren"]);
+	});
+
+	it("keeps standard attributes in the RFC 9051 backslash-prefixed form", () => {
+		const parsed = parseImapAttributes([
+			"\\NonExistent",
+			"\\Noinferiors",
+			"\\Noselect",
+			"\\HasChildren",
+			"\\HasNoChildren",
+			"\\Marked",
+			"\\Unmarked",
+			"\\Subscribed",
+			"\\Remote",
+		]);
+		assert.deepStrictEqual(parsed.attributes, [
+			"\\NonExistent",
+			"\\Noinferiors",
+			"\\Noselect",
+			"\\HasChildren",
+			"\\HasNoChildren",
+			"\\Marked",
+			"\\Unmarked",
+			"\\Subscribed",
+			"\\Remote",
+		]);
+		assert.deepStrictEqual(parsed.attributes, Object.values(MailboxAttribute));
 	});
 
 	it("collects unknown attributes without dropping them", () => {
