@@ -10,14 +10,13 @@
 		"test:integ": "RUN_INTEG_TESTS=true node --env-file=../../localhost-dev-aws.env --import tsx --test --test-force-exit 'src/**/*.integ.test.ts'"
 	},
 	"devDependencies": {
-		
 		"@remit/domain-enums": "*",
-		"@types/node": "*",
-		"@types/nodemailer": "*"
+		"@types/node": "*"
 	},
 	"dependencies": {
 		"nodemailer": "^9.0.3",
-		"@remit/data-ports": "*"
+		"@remit/data-ports": "*",
+		"@types/nodemailer": "*"
 	},
 	"license": "MIT",
 	"publishConfig": {

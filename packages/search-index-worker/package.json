@@ -28,17 +28,18 @@
 		"@remit/data-ports": "*",
 		"@remit/drizzle-service": "*",
 		"@remit/search-service": "*",
-		"@remit/storage-service": "*"
+		"@remit/storage-service": "*",
+		"@aws-sdk/client-sqs": "*",
+		"better-sqlite3": "^12.11.1",
+		"drizzle-orm": "^0.45.2",
+		"expect-env": "*",
+		"@types/aws-lambda": "*",
+		"@types/pg": "^8.0.0"
 	},
 	"devDependencies": {
 		"@aws-sdk/client-dynamodb": "*",
-		"@aws-sdk/client-sqs": "*",
 		"@aws-sdk/core": "*",
 		"@aws-sdk/lib-dynamodb": "*",
-		"better-sqlite3": "^12.11.1",
-		"@types/aws-lambda": "*",
-		"@types/pg": "^8.0.0",
-		"expect-env": "*",
 		"tsx": "*",
 		"zod": "*"
 	},

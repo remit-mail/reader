@@ -25,7 +25,9 @@
     "release": "node npm-scripts/publish-packages.mjs",
     "release:dry-run": "node npm-scripts/publish-packages.mjs --dry-run",
     "check:publish-closure": "node npm-scripts/check-publish-closure.mjs",
+    "check:consumer-typecheck": "node npm-scripts/check-consumer-typecheck.mjs",
     "check:web-client-consumer": "node npm-scripts/check-web-client-consumer.mjs",
+    "test:closure-guard": "node --test npm-scripts/lib/publish-closure.test.mjs",
     "bootstrap:publish-metadata": "node npm-scripts/set-publish-metadata.mjs",
     "images:publish": "bash npm-scripts/images-publish.sh",
     "test:ci": "node npm-scripts/test-parallel.mjs"
