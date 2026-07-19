@@ -108,7 +108,7 @@ pull_images() {
 		die "a registry refused the pull (see above).
 
 This is not a missing token. Every image here pulls anonymously — the
-ghcr.io/remit-mail/remit/* packages are public — so a refusal means a
+ghcr.io/remit-mail/reader/* packages are public — so a refusal means a
 credential was sent and rejected: an expired or revoked token left in
 ~/.docker/config.json by an earlier 'docker login' is offered instead of
 pulling anonymously. Drop it and retry:

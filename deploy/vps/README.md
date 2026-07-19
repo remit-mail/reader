@@ -1,7 +1,7 @@
 # Reader — self-host VPS deployment
 
 A single-VM deployment: Docker Compose on one small box, running the published
-`ghcr.io/remit-mail/remit/*` images plus two upstream images (`caddy`,
+`ghcr.io/remit-mail/reader/*` images plus two upstream images (`caddy`,
 `alpine`). All relational state lives in two SQLite files on one
 local volume — there is no database server to run. Message bodies are cached
 on a second volume and can always be re-synced from IMAP.
@@ -10,7 +10,7 @@ Sized for a 2 vCPU / 4 GB box (~€5/mo class). HTTPS on :443 out of the box,
 signed by Caddy's own CA (browsers warn until you trust its root); the [TLS](#tls)
 section covers the other modes, including plain HTTP.
 
-The images are published to `ghcr.io/remit-mail/remit/*` and pull anonymously —
+The images are published to `ghcr.io/remit-mail/reader/*` and pull anonymously —
 no registry login, no token, nothing on the box holds a credential.
 
 ## Install
@@ -103,13 +103,13 @@ itself (Settings → Add account).
 | Service | Image | Role |
 |---|---|---|
 | `caddy` | `caddy:2-alpine` | The edge: reverse proxy and TLS termination. Publishes the only host ports, 80 and 443 (443 is bound in every mode but serves traffic only in the TLS modes). See [TLS](#tls). |
-| `apisix` | `ghcr.io/remit-mail/remit/apisix` | Edge JWT gate, with the generated route table baked in. |
-| `web` | `ghcr.io/remit-mail/remit/web` | Static server for the built web client. |
-| `backend` | `ghcr.io/remit-mail/remit/backend` | The API. Also the image the `migrate` and `volume-init` one-shots run. |
-| `imap-worker`, `smtp-worker`, `account-worker`, `search-index-worker` | `ghcr.io/remit-mail/remit/*` | Queue pollers: sync mail, push flag and folder changes back, send outgoing mail, and build the search index. |
+| `apisix` | `ghcr.io/remit-mail/reader/apisix` | Edge JWT gate, with the generated route table baked in. |
+| `web` | `ghcr.io/remit-mail/reader/web` | Static server for the built web client. |
+| `backend` | `ghcr.io/remit-mail/reader/backend` | The API. Also the image the `migrate` and `volume-init` one-shots run. |
+| `imap-worker`, `smtp-worker`, `account-worker`, `search-index-worker` | `ghcr.io/remit-mail/reader/*` | Queue pollers: sync mail, push flag and folder changes back, send outgoing mail, and build the search index. |
 | `queue` | `ghcr.io/remit-mail/reader/queue-sidecar` | The SQS-compatible queue seam: a SQLite-backed sidecar speaking the SQS wire protocol, persisting enqueued work to its own volume. |
-| `migrate` | `ghcr.io/remit-mail/remit/backend` (command override) | One-shot: applies the SQLite migrations and the FTS5 search index before any app service starts. |
-| `volume-init` | `ghcr.io/remit-mail/remit/backend` (entrypoint override) | One-shot: fixes ownership of the data volumes so the non-root app user can write them. |
+| `migrate` | `ghcr.io/remit-mail/reader/backend` (command override) | One-shot: applies the SQLite migrations and the FTS5 search index before any app service starts. |
+| `volume-init` | `ghcr.io/remit-mail/reader/backend` (entrypoint override) | One-shot: fixes ownership of the data volumes so the non-root app user can write them. |
 | `backup` | `alpine:3.23` | Off by default (`profiles: ["backup"]`). Nightly encrypted database snapshot. See [Backups](#backups). |
 
 The relational store and the better-auth identity tables share one file
@@ -209,7 +209,7 @@ docker compose -f docker-compose.sqlite.yml --env-file .env up -d
 ```
 
 `migrate` runs again (idempotent) before the app services restart. Published
-tags are listed on the `ghcr.io/remit-mail/remit/backend` package page in GitHub
+tags are listed on the `ghcr.io/remit-mail/reader/backend` package page in GitHub
 Packages; every image in the roster is built and tagged together, so the same
 `REMIT_TAG` value applies to all of them.
 
@@ -246,7 +246,7 @@ podman-compose.
 One host setting needs attention before the first start, checked by the
 installer:
 
-- **Short image names.** The `ghcr.io/remit-mail/remit/*` images are fully
+- **Short image names.** The `ghcr.io/remit-mail/reader/*` images are fully
   qualified and unaffected; the upstream images (`caddy`, `alpine`)
   are pulled by short name. A fresh Podman install has no
   unqualified-search-registries and refuses them
