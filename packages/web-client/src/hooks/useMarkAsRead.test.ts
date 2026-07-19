@@ -1,7 +1,10 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
-import { selectMessagesToMarkRead } from "./useMarkAsRead.js";
+import {
+	resolveMailboxesForMessages,
+	selectMessagesToMarkRead,
+} from "./useMarkAsRead.js";
 
 const make = (
 	overrides: Partial<RemitImapThreadMessageResponse> & {
@@ -161,5 +164,54 @@ describe("selectMessagesToMarkRead", () => {
 		);
 		// Only the unread older message should be marked — the newest is already read.
 		assert.deepStrictEqual(got, ["m-older"]);
+	});
+});
+
+describe("resolveMailboxesForMessages", () => {
+	const messages = [
+		make({
+			messageId: "m-received",
+			threadMessageId: "tm1",
+			isRead: false,
+			mailboxId: "mb-inbox",
+		}),
+		make({
+			messageId: "m-sent",
+			threadMessageId: "tm2",
+			isRead: false,
+			mailboxId: "mb-sent",
+		}),
+	];
+
+	test("names every mailbox the batch touches, not the browsed one", () => {
+		const got = resolveMailboxesForMessages(
+			["m-received", "m-sent"],
+			messages,
+			"mb-inbox",
+		);
+		assert.deepStrictEqual([...got].sort(), ["mb-inbox", "mb-sent"]);
+	});
+
+	test("marking only the sent reply leaves the browsed mailbox alone", () => {
+		const got = resolveMailboxesForMessages(["m-sent"], messages, "mb-inbox");
+		assert.deepStrictEqual(got, ["mb-sent"]);
+	});
+
+	test("names each mailbox once however many messages it holds", () => {
+		const got = resolveMailboxesForMessages(
+			["m-received", "m-received"],
+			messages,
+			"mb-inbox",
+		);
+		assert.deepStrictEqual(got, ["mb-inbox"]);
+	});
+
+	test("falls back to the browsed mailbox for an unknown message", () => {
+		const got = resolveMailboxesForMessages(
+			["m-elsewhere"],
+			messages,
+			"mb-inbox",
+		);
+		assert.deepStrictEqual(got, ["mb-inbox"]);
 	});
 });

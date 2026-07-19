@@ -163,7 +163,7 @@ export const ConversationView = ({
 	} = useQuery({
 		...threadDetailOperationsListThreadMessagesOptions({
 			path: { threadId },
-			query: { order: "desc", mailboxId },
+			query: { order: "desc" },
 		}),
 	});
 
@@ -266,6 +266,7 @@ export const ConversationView = ({
 	} = useToggleStar({
 		threadId,
 		mailboxId,
+		messages,
 	});
 
 	// Compose state for inline reply/forward.

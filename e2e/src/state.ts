@@ -11,6 +11,21 @@ const stateDir = join(dirname(fileURLToPath(import.meta.url)), "..", ".state");
 export const storageStatePath = join(stateDir, "storage-state.json");
 const runStatePath = join(stateDir, "run.json");
 
+/**
+ * A two-turn conversation seeded across two IMAP folders: the correspondent's
+ * message in INBOX and the user's own reply in Sent, chained by References.
+ * A thread that spans folders is the only way to catch a reader that assembles
+ * conversations from one folder at a time (#46).
+ */
+export interface SeededConversation {
+	/** In INBOX, from the correspondent. */
+	receivedSubject: string;
+	receivedFromName: string;
+	/** In Sent, from the user, References-chained to the received message. */
+	sentSubject: string;
+	sentFromName: string;
+}
+
 export interface RunState {
 	email: string;
 	password: string;
@@ -21,6 +36,7 @@ export interface RunState {
 	/** The IMAP mailbox this run owns. No other run has ever written to it. */
 	imapUser: string;
 	seededSubjects: string[];
+	conversation: SeededConversation;
 }
 
 export const writeRunState = (state: RunState): void => {
