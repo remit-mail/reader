@@ -23,6 +23,11 @@ export interface IntelligenceToggleProps {
  * being disabled rather than by vanishing (#52). A control that appears and
  * disappears moves its neighbours and leaves the user with nothing to learn
  * from; a greyed-out one stays where they last saw it.
+ *
+ * The title names the control rather than the reason it is off. There are three
+ * reasons (nothing selected, a window too narrow for the rail, a view with no
+ * rail), a disabled `Button` is `pointer-events-none` so no tooltip surfaces
+ * anyway, and a reason string that covers one case is wrong in the other two.
  */
 export function IntelligenceToggle({
 	open = false,
@@ -35,7 +40,7 @@ export function IntelligenceToggle({
 			variant="ghost"
 			size="sm"
 			icon={<Info className="size-4" />}
-			title={enabled ? "Intelligence" : "Open a message to see its details"}
+			title="Intelligence"
 			aria-label={
 				open ? "Hide intelligence sidebar" : "Show intelligence sidebar"
 			}
