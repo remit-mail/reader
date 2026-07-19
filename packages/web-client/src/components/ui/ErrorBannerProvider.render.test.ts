@@ -32,6 +32,20 @@ describe("pushError — a banner is a soft surface only", () => {
 		assert.equal(push({ title: "Couldn't save draft" }).escalated, false);
 	});
 
+	it("treats an absent error as absent, not as a bug", () => {
+		// A caller forwarding an optional error it does not have passes
+		// `undefined`. That is "nothing went wrong that we can classify", not a
+		// client-side exception, and must not take over the screen.
+		assert.equal(
+			push({ title: "Couldn't save draft", error: undefined }).escalated,
+			false,
+		);
+		assert.equal(
+			push({ title: "Couldn't save draft", error: null }).escalated,
+			false,
+		);
+	});
+
 	it("keeps a 4xx the call site owns in a banner", () => {
 		assert.equal(
 			push({

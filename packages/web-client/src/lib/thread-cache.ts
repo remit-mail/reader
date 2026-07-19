@@ -44,14 +44,21 @@ const isThreadItemsPage = (data: unknown): data is ThreadItemsPage =>
 
 /**
  * Apply `patchItems` to every list of thread messages inside a cache entry,
- * whichever of the two shapes it holds.
+ * whichever shape it holds.
+ *
+ * `old` is `unknown` because that is the truth: a prefix match hands this
+ * whatever happens to be cached under that prefix, and the two shapes below are
+ * the ones we know about today, not the ones we are guaranteed. Declaring a
+ * narrower parameter type is what produced the original bug — the type asserted
+ * a shape the runtime never promised, and the first entry that disagreed threw.
+ * Anything unrecognised is returned untouched.
  */
 export const patchThreadListCache = (
-	old: ThreadListCache | undefined,
+	old: unknown,
 	patchItems: (
 		items: RemitImapThreadMessageResponse[],
 	) => RemitImapThreadMessageResponse[],
-): ThreadListCache | undefined => {
+): unknown => {
 	if (old === undefined) return old;
 	if (isInfiniteThreadData(old)) {
 		return {

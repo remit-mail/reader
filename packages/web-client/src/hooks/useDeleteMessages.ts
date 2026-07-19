@@ -145,16 +145,16 @@ export const useDeleteMessages = ({
 				);
 			}
 
-			const patchListData = (old: ThreadsListData | undefined) =>
+			const patchListData = (old: unknown) =>
 				patchThreadListCache(old, (items) =>
 					removeMessagesFromItems(items, messageIds),
 				);
 
-			queryClient.setQueriesData<ThreadsListData>(
+			queryClient.setQueriesData(
 				{ queryKey: threadsListPrefix },
 				patchListData,
 			);
-			queryClient.setQueriesData<ThreadsListData>(
+			queryClient.setQueriesData(
 				{ queryKey: threadsSearchPrefix },
 				patchListData,
 			);

@@ -12,7 +12,11 @@ import { SenderTrustIndicator } from "./sender-trust-indicator.js";
 
 /** Every suspected-safe message from one sender, as one reviewable unit. */
 export interface RescueSenderGroup {
-	/** Lowercased sender address — stable identity for the group. */
+	/**
+	 * Stable identity for the group: the lowercased sender address, falling back
+	 * to the lowercased sender name when a message carries no address. Treat it
+	 * as an opaque key — it is not guaranteed to be an email address.
+	 */
 	key: string;
 	senderName: string;
 	senderAddress: string;

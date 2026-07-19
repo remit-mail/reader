@@ -167,7 +167,7 @@ export const MessageActionMenu = ({
 				},
 			);
 
-			const patchListData = (old: ThreadsListData | undefined) =>
+			const patchListData = (old: unknown) =>
 				patchThreadListCache(old, (items) =>
 					items.map((item) =>
 						targetIds.has(item.messageId)
@@ -176,11 +176,11 @@ export const MessageActionMenu = ({
 					),
 				);
 
-			queryClient.setQueriesData<ThreadsListData>(
+			queryClient.setQueriesData(
 				{ queryKey: threadsListPrefix },
 				patchListData,
 			);
-			queryClient.setQueriesData<ThreadsListData>(
+			queryClient.setQueriesData(
 				{ queryKey: threadsSearchPrefix },
 				patchListData,
 			);

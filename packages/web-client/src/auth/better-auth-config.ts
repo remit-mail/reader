@@ -1,6 +1,6 @@
 import { createAuthClient } from "better-auth/react";
-import { getRuntimeConfig } from "../runtime-config";
 import { taggedFetch } from "../lib/network-error";
+import { getRuntimeConfig } from "../runtime-config";
 
 /**
  * better-auth owns identity in the Postgres-parity / local mode. It is gated

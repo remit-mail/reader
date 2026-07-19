@@ -176,7 +176,7 @@ export const useMarkAsRead = ({
 				},
 			);
 
-			const patchListData = (old: ThreadsListData | undefined) =>
+			const patchListData = (old: unknown) =>
 				patchThreadListCache(old, (items) =>
 					setReadOnItems(items, messageIds, isRead),
 				);
@@ -185,10 +185,7 @@ export const useMarkAsRead = ({
 				...threadsListPrefixes,
 				...threadsSearchPrefixes,
 			]) {
-				queryClient.setQueriesData<ThreadsListData>(
-					{ queryKey },
-					patchListData,
-				);
+				queryClient.setQueriesData({ queryKey }, patchListData);
 			}
 
 			return {

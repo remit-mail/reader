@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, describe, test } from "node:test";
 import { ApiError } from "../lib/api.js";
 import { __resetFatalError, subscribeFatalError } from "../lib/fatal-error.js";
+import { NetworkError } from "../lib/network-error.js";
 import {
 	__peekStaleAccountSyncGuard,
 	__resetStaleAccountSyncGuard,
@@ -227,9 +228,29 @@ describe("handleBackgroundSyncFailure", () => {
 			escalated = true;
 		});
 
-		handleBackgroundSyncFailure("a-1", new TypeError("Failed to fetch"));
+		// The probe goes through the generated client, so a real transport
+		// failure arrives tagged by the fetch boundary.
+		handleBackgroundSyncFailure(
+			"a-1",
+			new NetworkError(new TypeError("Failed to fetch")),
+		);
 
 		assert.equal(escalated, false);
+	});
+
+	test("an exception from our own code on the probe DOES escalate", () => {
+		silenceWarn();
+		let escalated = false;
+		subscribeFatalError(() => {
+			escalated = true;
+		});
+
+		// Untagged and statusless: nothing said this came off the wire, so it is
+		// our bug, and a silent background probe is exactly where one would
+		// otherwise go unnoticed.
+		handleBackgroundSyncFailure("a-1", new TypeError("x is not a function"));
+
+		assert.equal(escalated, true);
 	});
 
 	test("drops the per-account guard so a later remount can retry", () => {
