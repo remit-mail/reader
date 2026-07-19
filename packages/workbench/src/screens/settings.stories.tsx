@@ -289,7 +289,40 @@ const accountCards = (
  * Every card carries Manage; the errored card swaps in Reconnect.
  */
 export const Accounts: Story = {
+	globals: { viewport: { value: "desktop" } },
 	render: () => <AccountsShell count={3}>{accountCards}</AccountsShell>,
+};
+
+/**
+ * Desktop with more accounts than fit the fold. The nav rail, the tips rail and
+ * the pane header stay fixed; only the content column scrolls, so the danger
+ * zone at the bottom is always reachable (#57).
+ */
+const manyAccounts = Array.from({ length: 9 }, (_, i) => ({
+	label: `Account ${i + 1}`,
+	email: `alice+${i + 1}@northwind.example`,
+}));
+
+export const AccountsScrolling: Story = {
+	name: "Accounts — desktop, beyond the fold",
+	globals: { viewport: { value: "desktop" } },
+	render: () => (
+		<AccountsShell count={9}>
+			<div className="space-y-3">
+				{manyAccounts.map((account) => (
+					<AccountHealthCard
+						key={account.email}
+						label={account.label}
+						email={account.email}
+						connector="IMAP"
+						syncLabel="synced 2m ago"
+						state="healthy"
+						trailing={<ManageButton />}
+					/>
+				))}
+			</div>
+		</AccountsShell>
+	),
 };
 
 /**
@@ -348,7 +381,7 @@ function AccountsShellNoHelp({ children }: { children: ReactNode }) {
  */
 export const ShellPhone: Story = {
 	name: "Shell — phone",
-	parameters: { viewport: { defaultViewport: "mobile1" } },
+	globals: { viewport: { value: "mobile" } },
 	render: () => <AccountsShell count={3}>{accountCards}</AccountsShell>,
 };
 
@@ -359,7 +392,7 @@ export const ShellPhone: Story = {
  */
 export const ShellPhoneNoTips: Story = {
 	name: "Shell — phone, no tips",
-	parameters: { viewport: { defaultViewport: "mobile1" } },
+	globals: { viewport: { value: "mobile" } },
 	render: () => (
 		<AccountsShellNoHelp>
 			<Badge tone="neutral">3 accounts</Badge>
@@ -374,7 +407,7 @@ export const ShellPhoneNoTips: Story = {
  */
 export const ShellTablet: Story = {
 	name: "Shell — tablet",
-	parameters: { viewport: { defaultViewport: "ipad" } },
+	globals: { viewport: { value: "tablet" } },
 	render: () => <AccountsShell count={3}>{accountCards}</AccountsShell>,
 };
 
@@ -384,7 +417,7 @@ export const ShellTablet: Story = {
  */
 export const ShellTabletNoTips: Story = {
 	name: "Shell — tablet, no tips",
-	parameters: { viewport: { defaultViewport: "ipad" } },
+	globals: { viewport: { value: "tablet" } },
 	render: () => (
 		<AccountsShellNoHelp>
 			<Badge tone="neutral">3 accounts</Badge>
@@ -540,6 +573,40 @@ export const AccountsDeleteConfirm: Story = {
  */
 export const AccountEdit: Story = {
 	name: "Accounts — edit",
+	globals: { viewport: { value: "desktop" } },
+	render: () => (
+		<AccountsShell count={3}>
+			{accountCards}
+			<EditAccountForm email="alice@northwind.example" displayName="Work" />
+		</AccountsShell>
+	),
+};
+
+/**
+ * The same screen with the panel closed. The panel stays mounted so it can
+ * animate, which is what made #57 possible: a closed panel that is not pushed
+ * off-canvas covers the settings screen and takes it over. Nothing of the panel
+ * may be visible here — the accounts list reads exactly as it does without it.
+ */
+export const AccountEditClosed: Story = {
+	name: "Accounts — edit panel closed",
+	globals: { viewport: { value: "desktop" } },
+	render: () => (
+		<AccountsShell count={3}>
+			{accountCards}
+			<EditAccountForm
+				isOpen={false}
+				email="alice@northwind.example"
+				displayName="Work"
+			/>
+		</AccountsShell>
+	),
+};
+
+/** The edit panel on a phone, where it owns the full width. */
+export const AccountEditPhone: Story = {
+	name: "Accounts — edit, phone",
+	globals: { viewport: { value: "mobile" } },
 	render: () => (
 		<AccountsShell count={3}>
 			{accountCards}
