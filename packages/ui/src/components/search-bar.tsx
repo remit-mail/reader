@@ -1,6 +1,10 @@
-import { Search, X } from "lucide-react";
-import { useCallback, useEffect, useRef } from "react";
-import { cn } from "../lib/cn.js";
+import {
+	type SearchChip,
+	SearchChipInput,
+	type SearchChipInputProps,
+} from "./search-chip-input.js";
+
+export type { SearchChip };
 
 export interface SearchBarProps {
 	value: string;
@@ -16,6 +20,12 @@ export interface SearchBarProps {
 	 * `onClear` when omitted.
 	 */
 	onClearQuery?: () => void;
+	/**
+	 * Narrowing terms shown inline ahead of the typed text. Omit for a plain
+	 * text field; see `SearchChipInput` for the expression semantics.
+	 */
+	chips?: readonly SearchChip[];
+	onRemoveChip?: (id: string) => void;
 	placeholder?: string;
 	/**
 	 * Bind the global "/" shortcut that focuses the field from anywhere on the
@@ -28,91 +38,41 @@ export interface SearchBarProps {
 	 * clear-and-close so there is exactly one X (Esc still clears the query).
 	 */
 	showClearButton?: boolean;
+	/** Field scale — `lg` for the global top bar. See `SearchChipInput`. */
+	size?: SearchChipInputProps["size"];
+	className?: string;
 }
 
-const isEditableTarget = (target: EventTarget | null): boolean => {
-	if (!(target instanceof HTMLElement)) return false;
-	return (
-		target.tagName === "INPUT" ||
-		target.tagName === "TEXTAREA" ||
-		target.isContentEditable
-	);
-};
-
+/**
+ * The mail search field. A thin naming layer over `SearchChipInput`, which owns
+ * the chips-plus-text expression and its keyboard contract; every search
+ * surface (list header, mobile takeover, global top bar) renders this one
+ * field so the behaviour cannot drift between them.
+ */
 export const SearchBar = ({
 	value,
 	onChange,
 	onClear,
 	onClearQuery,
+	chips,
+	onRemoveChip,
 	placeholder = "Search mail...",
 	globalFocusKey = true,
 	showClearButton = true,
-}: SearchBarProps) => {
-	const inputRef = useRef<HTMLInputElement>(null);
-	const clearQuery = onClearQuery ?? onClear;
-
-	const handleClear = useCallback(() => {
-		onClear();
-		inputRef.current?.focus();
-	}, [onClear]);
-
-	const handleKeyDown = useCallback(
-		(event: React.KeyboardEvent<HTMLInputElement>) => {
-			if (event.key !== "Escape") return;
-			if (value) {
-				clearQuery();
-				return;
-			}
-			inputRef.current?.blur();
-		},
-		[value, clearQuery],
-	);
-
-	useEffect(() => {
-		if (!globalFocusKey) return;
-		const handleGlobalSlash = (event: KeyboardEvent) => {
-			if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) {
-				return;
-			}
-			if (isEditableTarget(event.target)) return;
-			event.preventDefault();
-			inputRef.current?.focus();
-		};
-		window.addEventListener("keydown", handleGlobalSlash);
-		return () => window.removeEventListener("keydown", handleGlobalSlash);
-	}, [globalFocusKey]);
-
-	return (
-		<div className="relative w-full">
-			<Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-fg-muted pointer-events-none" />
-			<input
-				ref={inputRef}
-				id="mail-search"
-				name="q"
-				type="text"
-				aria-label="Search mail"
-				value={value}
-				onChange={(e) => onChange(e.target.value)}
-				onKeyDown={handleKeyDown}
-				placeholder={placeholder}
-				className={cn(
-					"w-full pl-9 pr-9 py-1.5 text-sm rounded-md",
-					"bg-surface-sunken/50 border border-transparent",
-					"focus:bg-canvas focus:border-line focus:outline-none focus:ring-2 focus:ring-ring",
-					"placeholder:text-fg-muted",
-					"transition-colors",
-				)}
-			/>
-			{value && showClearButton && (
-				<button
-					type="button"
-					onClick={handleClear}
-					className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-surface-raised transition-colors"
-					aria-label="Clear search"
-				>
-					<X className="size-4 text-fg-muted" />
-				</button>
-			)}
-		</div>
-	);
-};
+	size,
+	className,
+}: SearchBarProps) => (
+	<SearchChipInput
+		value={value}
+		onChange={onChange}
+		onClear={onClear}
+		onClearQuery={onClearQuery}
+		chips={chips}
+		onRemoveChip={onRemoveChip}
+		placeholder={placeholder}
+		globalFocusKey={globalFocusKey}
+		showClearButton={showClearButton}
+		size={size}
+		className={className}
+	/>
+);

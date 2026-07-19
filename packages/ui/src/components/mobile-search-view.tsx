@@ -2,6 +2,7 @@ import { X } from "lucide-react";
 import { Button } from "./button.js";
 import { FilterSheet, type FilterSheetProps } from "./filter-sheet.js";
 import { SearchBar } from "./search-bar.js";
+import type { SearchChip } from "./search-chip-input.js";
 import type { SearchResult } from "./search-result-row.js";
 import { type SearchResultSection, SearchResults } from "./search-results.js";
 
@@ -30,6 +31,15 @@ export interface MobileSearchViewProps {
 	onSelectResult?: (result: SearchResult) => void;
 	/** Active filter-token chips parsed from the query; see `SearchResultsProps`. */
 	tokens?: { label: string; onRemove: () => void }[];
+	/**
+	 * Narrowing terms rendered inline inside the search field, as part of the
+	 * editable expression — the same `SearchChipInput` the desktop top bar uses.
+	 * Supersedes `tokens` for chips the user can act on: `tokens` renders them as
+	 * a static row above the results, `chips` puts them in the field where
+	 * backspace and the caret keys reach them.
+	 */
+	chips?: readonly SearchChip[];
+	onRemoveChip?: (id: string) => void;
 }
 
 /**
@@ -55,6 +65,8 @@ export function MobileSearchView({
 	loading,
 	onSelectResult,
 	tokens,
+	chips,
+	onRemoveChip,
 }: MobileSearchViewProps) {
 	const body = (
 		<SearchResults
@@ -76,6 +88,8 @@ export function MobileSearchView({
 						value={value}
 						onChange={onChange}
 						onClear={onClear}
+						chips={chips}
+						onRemoveChip={onRemoveChip}
 						globalFocusKey={false}
 						showClearButton={false}
 					/>
