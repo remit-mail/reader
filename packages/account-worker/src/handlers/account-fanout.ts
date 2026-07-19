@@ -1,9 +1,5 @@
 import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
-import {
-	createLogger,
-	type Logger,
-	withTelemetry,
-} from "@remit/logger-lambda";
+import { createLogger, type Logger, withTelemetry } from "@remit/logger-lambda";
 import type { SQSBatchResponse, SQSEvent, SQSHandler } from "aws-lambda";
 import type { CascadeServices } from "../cascade.js";
 import { enumerateCascadeEntities } from "../cascade.js";
@@ -12,7 +8,7 @@ import {
 	getAccountPurgeDeleteQueueUrl,
 	getCascadeServices,
 	getImapWorkerQueueUrl,
-	sqsClient,
+	getSqsClient,
 } from "../config.js";
 import {
 	type DeletionCapabilities,
@@ -49,12 +45,13 @@ export const processAccountFanout = async (
 	deps: ProcessAccountFanoutDeps = {},
 ): Promise<void> => {
 	const services = deps.services ?? (await getCascadeServices());
-	const sqs = deps.sqs ?? sqsClient;
+	const sqsFor = (queueUrl: string): SQSClient =>
+		deps.sqs ?? getSqsClient(queueUrl);
 
 	if (event.type === "AccountDataPurge") {
 		await processAccountDataPurge(event, log, {
 			services,
-			sqs,
+			sqs: deps.sqs,
 			accountPurgeDeleteQueueUrl:
 				deps.accountPurgeDeleteQueueUrl ?? getAccountPurgeDeleteQueueUrl(),
 		});
@@ -71,14 +68,14 @@ export const processAccountFanout = async (
 		return;
 	}
 
-	await processAccountDelete(event, log, services, sqs, deps);
+	await processAccountDelete(event, log, services, sqsFor, deps);
 };
 
 const processAccountDelete = async (
 	event: AccountDeleteEvent,
 	log: Logger,
 	services: CascadeServices,
-	sqs: SQSClient,
+	sqsFor: (queueUrl: string) => SQSClient,
 	deps: ProcessAccountFanoutDeps,
 ): Promise<void> => {
 	const { accountConfigId } = event;
@@ -102,7 +99,7 @@ const processAccountDelete = async (
 		.map((e) => e.key.accountId);
 
 	for (const accountId of accountIds) {
-		await sqs.send(
+		await sqsFor(imapWorkerQueueUrl).send(
 			new SendMessageCommand({
 				QueueUrl: imapWorkerQueueUrl,
 				MessageBody: JSON.stringify({
@@ -124,7 +121,7 @@ const processAccountDelete = async (
 		type: "FinalizeAccountDelete",
 		accountConfigId,
 	};
-	await sqs.send(
+	await sqsFor(accountFinalizeQueueUrl).send(
 		new SendMessageCommand({
 			QueueUrl: accountFinalizeQueueUrl,
 			MessageBody: JSON.stringify(finalizeEvent),
