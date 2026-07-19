@@ -57,8 +57,7 @@ export function toThreadRowData(
 		sentDate: thread.sentDate,
 		isRead: thread.isRead,
 		hasAttachment: thread.hasAttachment,
-		starred:
-			thread.star != null && thread.star !== "none" && thread.hasStars === true,
+		starred: thread.hasStars === true,
 		trust: thread.senderTrust as SenderTrustLevel,
 		category: toDisplayCategory(thread.category),
 		suspicious,

@@ -18,9 +18,15 @@ no registry login, no token, nothing on the box holds a credential.
 On a fresh amd64 box with Docker (or Podman) and the Compose v2 plugin:
 
 ```bash
+REMIT_ORIGIN="https://<the address you will load the app from>"
 curl -fsSL https://raw.githubusercontent.com/remit-mail/reader/main/install.sh \
-  | bash -s -- --origin https://your-host
+  | bash -s -- --origin "$REMIT_ORIGIN"
 ```
+
+Set `REMIT_ORIGIN` first — pasted unedited, the installer refuses the
+placeholder rather than installing against it. Every auth and CORS origin
+derives from this value, so one that is merely accepted rather than correct
+surfaces later as a failed sign-in, not as a failed install.
 
 The installer downloads the deploy assets into `./reader`, generates the
 secrets, writes `.env` with mode 600, and brings the stack up. It takes no
@@ -44,40 +50,83 @@ file or the Caddy files are replaced — pin the image version through
 `REMIT_TAG` in `.env` (which is kept across runs), not by editing the compose
 file.
 
-Then visit the address passed as `--origin`. The first sign-up on that page
-creates your account; every subsequent IMAP account is added from the app
-itself (Settings → Add account).
+Then visit `$REMIT_ORIGIN` — the installer prints it when it finishes. The first
+sign-up on that page creates your account; every subsequent IMAP account is
+added from the app itself (Settings → Add account).
 
 ## Managing the deployment
 
 The installer writes everything into the install directory (`./reader` by
-default). Manage the stack with Compose from that directory:
+default) and ships `remit`, which knows that directory and the compose file in
+it. It is the interface to the deployment and runs from anywhere:
 
 ```bash
-cd reader
-docker compose -f docker-compose.sqlite.yml --env-file .env ps
-docker compose -f docker-compose.sqlite.yml --env-file .env logs -f [service…]
-docker compose -f docker-compose.sqlite.yml --env-file .env down   # data volumes are kept
+remit status              # what is running, and whether the origin reaches it
+remit logs [service…]     # follow the logs
+remit restart             # apply an edit to .env
+remit update              # pull the current images and apply them
+remit down                # stop serving; remit restart brings it back
+remit config              # the effective configuration, secrets redacted
+remit cert                # export Caddy's root CA (TLS_MODE=internal)
+remit purge --yes         # destroy the deployment, data included
+remit probe-host <origin> # check how a name resolves from this box
 ```
 
-Editing `.env` and running `docker compose restart` does not apply the change.
-`restart` reuses the existing containers with the environment they were created
-with, and reports success — the edit appears to have taken effect and has not.
-`docker compose … up -d` recreates the containers whose configuration changed,
-which is what applies an `.env` edit.
+When `/usr/local/bin` is writable the installer puts `remit` there; otherwise it
+stays in the install directory and the installer prints the one-line `sudo cp`
+that places it on PATH. `$REMIT_DIR` points it at a different install directory.
 
-The installer also ships `remit`, a wrapper over those Compose commands:
-`remit status`, `remit logs`, `remit restart`, `remit update`, `remit down`,
-`remit config`. It adds the `-f`/`--env-file` flags and knows the install
-directory, so it works from anywhere. When `/usr/local/bin` is writable the
-installer puts it there; otherwise it leaves it in the install directory and
-prints the one-line `sudo cp` to place it on PATH yourself. The wrapper is a
-convenience — every subcommand is one of the `docker compose` invocations
-above.
+That chooses whose files and `.env` are used, not whose data is touched. The
+compose file pins `name: remit`, which outranks the directory it is run from, so
+every install on a host is one Compose project sharing one set of containers and
+volumes. A second install directory on the same box adopts the first one's data
+rather than getting its own, and `remit purge` from either destroys it for both.
+One deployment per host.
+
+`remit down` stops the containers, so the address stops answering until
+`remit restart`. It removes no volume — accounts, mail and settings all come
+back with it.
+
+`remit purge` is the destructive one, for abandoning a failed install or
+starting clean: it removes the containers and every data volume, including
+`sqlite_data`, which holds the accounts and everything organised in the app.
+Those do not come back. Message bodies do — they are a cache of IMAP and
+re-sync once an account is added again. Run without `--yes` it only prints what
+would go. The install directory survives either way, `.env` and its
+`FAKE_KMS_DATAKEY` included, so `remit restart` afterwards brings up an empty
+working stack.
+
+Apply an `.env` edit with `remit restart`, not `docker compose restart`.
+Compose's `restart` reuses the existing containers with the environment they
+were created with, and reports success — the edit appears to have taken effect
+and has not. `remit restart` runs `up -d`, which recreates the containers whose
+configuration changed.
+
+A few operations below still show a raw `docker compose` line. Those are
+escape hatches: one-off or rarely-needed things the wrapper deliberately has no
+command for.
+
+## When the app is unreachable
+
+Run `remit status` first. Besides the service table it resolves the host in
+`PUBLIC_ORIGIN` from this box and probes it, printing what it resolved to and
+whether the origin answers.
+
+The failure worth knowing about is the one nothing else reports: every container
+is up, the box serves fine, and the browser hangs anyway, because the name
+resolves somewhere else — a record left from an earlier origin, or a stale
+answer cached by the client's resolver or MagicDNS. From the box the name works,
+so nothing looks wrong. `remit status` says `this box does not hold that, so
+clients reach a different machine` when that is what happened. Fix the record,
+then flush the resolver cache on the machine you browse from.
+
+`remit probe-host <origin>` runs the same check against any name, which is how
+to test a record before pointing `PUBLIC_ORIGIN` at it.
 
 ## Manual install
 
-The explicit path the installer automates:
+The explicit path the installer automates, from a checkout — raw Compose
+throughout, since this is the path that does without the installer:
 
 ```bash
 cd deploy/vps
@@ -87,6 +136,9 @@ $EDITOR .env            # fill in every value marked SECRET — see the file
 docker compose -f docker-compose.sqlite.yml --env-file .env up -d
 docker compose -f docker-compose.sqlite.yml --env-file .env logs -f migrate
 ```
+
+`remit` still works against a directory set up this way — it just does not know
+where that is, so point it there once: `export REMIT_DIR=$PWD`.
 
 The two secrets the stack cannot run without are `BETTER_AUTH_SECRET` (signs
 the identity JWTs) and `FAKE_KMS_DATAKEY` (encrypts stored IMAP credentials).
@@ -154,11 +206,11 @@ needs nothing outside the box. Set it, set `PUBLIC_ORIGIN` to a matching
 | `acme` | Public Let's Encrypt. Ports 80/443 must be reachable from the internet and the host must resolve in public DNS. | `https://mail.example.com` |
 
 To make the `internal`-mode browser warning go away, trust Caddy's root CA on
-each client. Caddy keeps it on the `caddy_data` volume; export it with:
+each client. Caddy keeps it on the `caddy_data` volume; export it into the
+current directory with:
 
 ```bash
-docker compose -f docker-compose.sqlite.yml --env-file .env cp \
-  caddy:/data/caddy/pki/authorities/local/root.crt ./reader-root.crt
+remit cert
 ```
 
 Then import `reader-root.crt` into the client's trust store (macOS Keychain, the
@@ -200,13 +252,13 @@ or `tailscale` for private networks.
 
 ## Updating
 
-Point `REMIT_TAG` at the tag you want, pull, and apply:
-
 ```bash
-$EDITOR .env             # set REMIT_TAG=sha-<git-sha>
-docker compose -f docker-compose.sqlite.yml --env-file .env pull
-docker compose -f docker-compose.sqlite.yml --env-file .env up -d
+remit update                    # the tag already in .env
+remit update --tag sha-<git-sha>
 ```
+
+`--tag` writes `REMIT_TAG` back to `.env` only after its images are on the box,
+so a failed pull never leaves `.env` naming a version that is not there.
 
 `migrate` runs again (idempotent) before the app services restart. Published
 tags are listed on the `ghcr.io/remit-mail/reader/backend` package page in GitHub
@@ -218,9 +270,9 @@ Packages; every image in the roster is built and tagged together, so the same
 
 ## Rollback
 
-Point `REMIT_TAG` at the previous working tag (or a pinned digest) and run the
-same pull/up. This is also the disaster-recovery story for a bad release —
-practice it once, deliberately, before you need it for real.
+`remit update --tag <previous working tag>`. This is also the disaster-recovery
+story for a bad release — practice it once, deliberately, before you need it for
+real.
 
 ## Podman
 
@@ -230,11 +282,10 @@ Docker-compatible socket** — not podman-compose.
 ```bash
 systemctl enable --now podman.socket
 export DOCKER_HOST=unix:///run/podman/podman.sock
-docker compose -f docker-compose.sqlite.yml --env-file .env up -d
 ```
 
-`docker compose` behaves as documented once it is talking to that socket — the
-installer and every command above work unchanged.
+`docker compose` behaves as documented once it is talking to that socket, so the
+installer and every `remit` command above work unchanged.
 
 **Never run `podman-compose` against this deployment.** It silently drops
 `depends_on: condition:` and ignores `profiles:`, so every app container is left
@@ -268,7 +319,8 @@ Podman binds them the same as real Docker and needs no tuning.
 ## Backups
 
 A `backup` sidecar is in the compose file behind `profiles: ["backup"]` — off by
-default, on with:
+default. Turning it on is a one-off, so it is an escape hatch rather than a
+`remit` command; run it from the install directory:
 
 ```bash
 docker compose -f docker-compose.sqlite.yml --env-file .env --profile backup up -d
@@ -314,7 +366,8 @@ down, but a message that lands in a DLQ is not automatically retried or drained
 
 Check depth periodically — any SQS-compatible client against the queue you care
 about works. The `queue` image ships `node`, so a one-liner from inside the
-container reads a queue's depth over the SQS wire protocol:
+container reads a queue's depth over the SQS wire protocol. This is an escape
+hatch — `remit` has no command for it; run it from the install directory:
 
 ```bash
 docker compose -f docker-compose.sqlite.yml --env-file .env exec queue \

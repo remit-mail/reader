@@ -43,7 +43,8 @@ const MESSAGE_CATEGORIES: FilterSheetCategory[] = [
 ];
 
 const UNREAD: FilterSheetFilter = { id: "unread", label: "Unread" };
-const FLAGGED: FilterSheetFilter = { id: "flagged", label: "Flagged" };
+// `flagged` is the wire name (IMAP \Flagged); the user-facing label is "Starred".
+const FLAGGED: FilterSheetFilter = { id: "flagged", label: "Starred" };
 const HAS_ATTACHMENT: FilterSheetFilter = {
 	id: "attachment",
 	label: "Has attachment",

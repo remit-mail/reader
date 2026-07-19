@@ -3,6 +3,7 @@ import type {
 	IAccountSettingRepository,
 	MailboxItem,
 } from "@remit/data-ports";
+import { MailboxSpecialUse } from "@remit/domain-enums";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import pMap from "p-map";
@@ -34,8 +35,34 @@ export interface InboxMapClient {
 }
 
 /**
- * Build a mailboxId→accountId map for all non-muted INBOX mailboxes across
- * all non-muted accounts of a given accountConfigId.
+ * Special-use folders a star never surfaces from.
+ *
+ * `Junk` and `Trash` match what Gmail and Fastmail do — a star on mail the user
+ * already threw away or that was classed as spam is not something the starred
+ * view should resurface. `All` is Gmail's All Mail: a second copy of everything
+ * already reachable through its own folder, and because a message's identity
+ * includes its mailbox, the copy is a distinct row carrying the same
+ * server-side \Flagged. Including it would render every starred Gmail message
+ * twice.
+ */
+const STARRED_EXCLUDED_SPECIAL_USE: readonly string[] = [
+	MailboxSpecialUse.All,
+	MailboxSpecialUse.Junk,
+	MailboxSpecialUse.Trash,
+];
+
+const isExcludedFromStarred = (mailbox: MailboxItem): boolean =>
+	mailbox.specialUse?.some((use) =>
+		STARRED_EXCLUDED_SPECIAL_USE.includes(use),
+	) === true;
+
+/**
+ * Build the read scope for the unified listing: a mailboxId→accountId map over
+ * every non-muted mailbox of every non-muted account in a given
+ * accountConfigId, plus two id sets — `inboxMailboxIds` (top-level INBOX only,
+ * the unified inbox scope) and `starredMailboxIds` (every folder a star may
+ * surface from, see `STARRED_EXCLUDED_SPECIAL_USE`). The map covers all
+ * mailboxes, excluded ones included, so any row still resolves its accountId.
  *
  * INBOX is identified by exact match `fullPath.toUpperCase() === "INBOX"` —
  * MailboxSpecialUse has no Inbox value per RFC 6154. This is the same rule
@@ -67,6 +94,7 @@ export const buildInboxMailboxMap = async (
 ): Promise<{
 	mailboxIdToAccountId: Map<string, string>;
 	inboxMailboxIds: Set<string>;
+	starredMailboxIds: Set<string>;
 }> => {
 	const [accounts, settings] = await Promise.all([
 		client.account.listAllByAccountConfig(accountConfigId),
@@ -94,21 +122,23 @@ export const buildInboxMailboxMap = async (
 
 	const mailboxIdToAccountId = new Map<string, string>();
 	const inboxMailboxIds = new Set<string>();
+	const starredMailboxIds = new Set<string>();
 
-	const inboxes = mailboxLists
+	const activeMailboxes = mailboxLists
 		.flat()
-		.filter(
-			(mailbox) =>
-				!isMailboxMuted(mailbox.mailboxId) &&
-				mailbox.fullPath.toUpperCase() === "INBOX",
-		);
+		.filter((mailbox) => !isMailboxMuted(mailbox.mailboxId));
 
-	for (const mailbox of inboxes) {
+	for (const mailbox of activeMailboxes) {
 		mailboxIdToAccountId.set(mailbox.mailboxId, mailbox.accountId);
-		inboxMailboxIds.add(mailbox.mailboxId);
+		if (!isExcludedFromStarred(mailbox)) {
+			starredMailboxIds.add(mailbox.mailboxId);
+		}
+		if (mailbox.fullPath.toUpperCase() === "INBOX") {
+			inboxMailboxIds.add(mailbox.mailboxId);
+		}
 	}
 
-	return { mailboxIdToAccountId, inboxMailboxIds };
+	return { mailboxIdToAccountId, inboxMailboxIds, starredMailboxIds };
 };
 
 /**
@@ -131,6 +161,28 @@ export const buildListAllThreadsOptions = (
 	continuationToken: query.continuationToken,
 	limit: query.limit ?? DEFAULT_UNIFIED_THREADS_PAGE_SIZE,
 	inboxMailboxIds,
+	excludeDeleted: true,
+});
+
+/**
+ * Build listByStarred options for the starred (`starred=true`) listing.
+ *
+ * A star marks the mail, not its placement, so the INBOX narrowing does not
+ * apply: the scope is every non-muted mailbox except the ones a star never
+ * surfaces from. Same defaults as the unified listing otherwise.
+ */
+export const buildListStarredThreadsOptions = (
+	query: {
+		continuationToken?: string;
+		order?: "asc" | "desc";
+		limit?: number;
+	},
+	starredMailboxIds: Set<string>,
+) => ({
+	order: query.order ?? ("desc" as const),
+	continuationToken: query.continuationToken,
+	limit: query.limit ?? DEFAULT_UNIFIED_THREADS_PAGE_SIZE,
+	mailboxIds: starredMailboxIds,
 	excludeDeleted: true,
 });
 
@@ -158,28 +210,40 @@ export const UnifiedThreadOperations: Record<
 	) => {
 		const event = args[0] as APIGatewayProxyEvent;
 		const accountConfigId = getAccountConfigIdFromEvent(event);
-		const { continuationToken, order, limit } = context.request.query as {
+		const { continuationToken, order, limit, starred } = context.request
+			.query as {
 			continuationToken?: string;
 			order?: "asc" | "desc";
 			limit?: number;
+			starred?: boolean | string;
 		};
+		const starredOnly = starred === true || starred === "true";
 
 		const client = await getClient();
 
-		const { mailboxIdToAccountId, inboxMailboxIds } =
+		const { mailboxIdToAccountId, inboxMailboxIds, starredMailboxIds } =
 			await buildInboxMailboxMap(accountConfigId, client);
 
-		if (inboxMailboxIds.size === 0) {
+		const scope = starredOnly ? starredMailboxIds : inboxMailboxIds;
+		if (scope.size === 0) {
 			return { items: [], continuationToken: undefined };
 		}
 
-		const result = await client.threadMessage.listByDate(
-			accountConfigId,
-			buildListAllThreadsOptions(
-				{ continuationToken, order, limit },
-				inboxMailboxIds,
-			),
-		);
+		const result = starredOnly
+			? await client.threadMessage.listByStarred(
+					accountConfigId,
+					buildListStarredThreadsOptions(
+						{ continuationToken, order, limit },
+						starredMailboxIds,
+					),
+				)
+			: await client.threadMessage.listByDate(
+					accountConfigId,
+					buildListAllThreadsOptions(
+						{ continuationToken, order, limit },
+						inboxMailboxIds,
+					),
+				);
 
 		const enriched = await enrichThreadRows(
 			result.items,

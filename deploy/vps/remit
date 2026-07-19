@@ -3,12 +3,18 @@
 # remit — admin wrapper for the self-host docker compose deployment.
 #
 # Wraps `docker compose` against the deployment directory so the operator
-# never has to cd there or repeat -f/--env-file. install.sh bakes the
-# directory it installed to into DEFAULT_DIR below; $REMIT_DIR overrides it.
+# never has to cd there or repeat -f/--env-file. install.sh rewrites both
+# DEFAULT_DIR and COMPOSE_FILE below to what it installed; $REMIT_DIR selects
+# a different directory.
+#
+# $REMIT_DIR chooses whose files and .env are used, not whose data is touched.
+# The compose file pins `name: remit`, so every deployment on a host is the
+# same Compose project, sharing container names and volumes.
 
 set -eu
 
 DEFAULT_DIR=/opt/remit
+COMPOSE_FILE=docker-compose.sqlite.yml
 REMIT_DIR="${REMIT_DIR:-$DEFAULT_DIR}"
 
 PROG=remit
@@ -22,32 +28,42 @@ usage() {
 	cat <<EOF
 Usage: remit <command> [args]
 
-  restart [--hard]     Apply .env changes and start (docker compose up -d).
-                       --hard stops the stack first.
+  restart [--hard]     Start serving, applying any .env change. --hard stops
+                       the stack first.
   logs [service...]    Follow logs (last 100 lines).
-  status               Show services, the running tag, and the public origin.
+  status               Services and the running tag, plus whether the origin
+                       resolves to this box and answers.
   update [--tag TAG]   Pull images and apply them, then check the migration.
-  down                 Stop the stack. Volumes and data are left alone.
+  down                 Stop serving: the site goes offline until 'remit
+                       restart'. Accounts, mail and settings are untouched.
+  purge --yes          Destroy the deployment: containers and every data
+                       volume, accounts included. Without --yes it only says
+                       what would go. Use 'down' to merely stop serving.
   config               Print the effective configuration, secrets redacted.
+  cert                 Export Caddy's root CA to the current directory, so
+                       browsers stop warning (TLS_MODE=internal only).
+  probe-host <origin>  Report how a name resolves from this box. Used by
+                       install.sh; useful on its own to check an origin.
   help                 This message.
 
 Deployment directory: $REMIT_DIR (override with \$REMIT_DIR)
+Compose file:         $REMIT_DIR/$COMPOSE_FILE
 EOF
 }
 
 compose() {
 	docker compose \
 		--project-directory "$REMIT_DIR" \
-		-f "$REMIT_DIR/docker-compose.yml" \
+		-f "$REMIT_DIR/$COMPOSE_FILE" \
 		--env-file "$REMIT_DIR/.env" \
 		"$@"
 }
 
 require_deployment() {
-	[ -f "$REMIT_DIR/docker-compose.yml" ] ||
-		die "no deployment at $REMIT_DIR — set \$REMIT_DIR or run install.sh"
+	[ -f "$REMIT_DIR/$COMPOSE_FILE" ] ||
+		die "no $COMPOSE_FILE in $REMIT_DIR — point \$REMIT_DIR at the install directory, or run install.sh"
 	[ -f "$REMIT_DIR/.env" ] ||
-		die "no .env at $REMIT_DIR — set \$REMIT_DIR or run install.sh"
+		die "no .env in $REMIT_DIR — point \$REMIT_DIR at the install directory, or run install.sh"
 }
 
 get_var() {
@@ -159,7 +175,8 @@ cmd_restart() {
 	# up -d, never `compose restart`: restart reuses existing containers and
 	# ignores .env changes, so config edits appear to apply but do not.
 	apply
-	printf 'remit is up. Configuration in %s/.env is live.\n' "$REMIT_DIR"
+	report_serving
+	printf 'Configuration in %s/.env is live.\n' "$REMIT_DIR"
 }
 
 cmd_logs() {
@@ -167,11 +184,244 @@ cmd_logs() {
 	compose logs -f --tail=100 "$@"
 }
 
+# What the operator wants after a command that leaves the stack serving is the
+# address, so it leads. A deployment part-way through configuration may not have
+# one yet; that is not a reason to fail the command that just succeeded.
+#
+# install.sh sets $REMIT_QUIET because it prints its own summary immediately
+# after, and two "Open <origin>" lines a screen apart read as two deployments.
+report_serving() {
+	if [ "${REMIT_QUIET:-0}" = "1" ]; then
+		return 0
+	fi
+	_origin=$(get_var PUBLIC_ORIGIN 2>/dev/null || true)
+	[ -n "$_origin" ] || return 0
+	printf 'Open %s\n' "$_origin"
+}
+
+# --- reachability -----------------------------------------------------------
+#
+# A stack can be perfectly healthy and still be unreachable, because the name in
+# PUBLIC_ORIGIN is answered somewhere the operator does not control. From the
+# box that failure is invisible: the name resolves, the stack serves, `ps` is
+# all green, and the browser hangs. These probes exist to name that case.
+#
+# `status` is what an operator types when something is already wrong, so no
+# probe may hang, none may fail the command, and a missing tool degrades to a
+# printed reason. install.sh runs `remit probe-host` rather than carrying a
+# second copy of any of this.
+
+PROBE_TIMEOUT=3
+
+# coreutils timeout is the only thing that caps a command that will not cap
+# itself. dig (+time), host (-W) and curl (-m) do; `getent ahosts` has no such
+# flag, which is why resolver_tool drops it to last resort when timeout is
+# missing rather than letting it block on the resolver's full retry budget.
+capped() {
+	if command -v timeout >/dev/null 2>&1; then
+		timeout "$PROBE_TIMEOUT" "$@" 2>/dev/null || true
+		return 0
+	fi
+	"$@" 2>/dev/null || true
+}
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+origin_host() {
+	_h=${1#*://}
+	_h=${_h%%/*}
+	_h=${_h#*@}
+	case "$_h" in
+	"["*) # bracketed IPv6 literal
+		_h=${_h#[}
+		_h=${_h%%]*}
+		;;
+	*) _h=${_h%%:*} ;;
+	esac
+	printf '%s' "$_h"
+}
+
+resolver_tool() {
+	if have timeout; then
+		set -- getent dig host
+	else
+		set -- dig host getent
+	fi
+	for _t in "$@"; do
+		if have "$_t"; then
+			printf '%s' "$_t"
+			return 0
+		fi
+	done
+	return 1
+}
+
+# A name that does not resolve is an ordinary empty result, never a failure.
+# grep exits 1 on no match, which under a shell with `set -o pipefail` — as
+# install.sh has, and this script does not — would otherwise become the
+# pipeline's status and abort the caller. The braces contain it in both.
+resolve_host() {
+	case "$(resolver_tool)" in
+	getent) capped getent ahosts "$1" | awk '{print $1}' | sort -u | tr '\n' ' ' ;;
+	dig)
+		# Both families explicitly: bare `dig +short` asks for A only, and a
+		# box reachable over IPv6 alone would read as pointing elsewhere.
+		{
+			capped dig +short +time=2 +tries=1 A "$1"
+			capped dig +short +time=2 +tries=1 AAAA "$1"
+		} | { grep -E '^[0-9a-fA-F.:]+$' || true; } | sort -u | tr '\n' ' '
+		;;
+	host) capped host -W 2 "$1" | awk '/has( IPv6)? address/ {print $NF}' | sort -u | tr '\n' ' ' ;;
+	esac
+}
+
+# An origin may name an address directly. getent resolves a literal to itself;
+# dig and host ask DNS about it and come back empty, which would read as a name
+# that does not resolve. Answer it here instead of per-tool.
+is_ip_literal() {
+	case "$1" in
+	*:*) return 0 ;;
+	*[!0-9.]*) return 1 ;;
+	*.*) return 0 ;;
+	esac
+	return 1
+}
+
+local_addresses() {
+	if have ip; then
+		capped ip -o addr show | awk '{print $4}' | cut -d/ -f1
+		return 0
+	fi
+	if have ifconfig; then
+		capped ifconfig | awk '/inet6? /{print $2}' | sed 's/^addr://'
+		return 0
+	fi
+	return 1
+}
+
+# The one classification both callers need, as one line: a verdict and the
+# addresses behind it. install.sh formats its own pre-install wording from
+# this; cmd_status formats the diagnostic wording below.
+#
+#   unresolved              the name answers with nothing
+#   unknown                 no resolver, or this box's own addresses are unreadable
+#   loopback <addrs>        resolves here and only here
+#   held <addrs>            resolves to an address this box holds
+#   elsewhere <addrs>       resolves to an address it does not
+probe_host() {
+	_host=$(origin_host "$1")
+	if [ -z "$_host" ]; then
+		printf 'unknown\n'
+		return 0
+	fi
+	if is_ip_literal "$_host"; then
+		_addrs=$_host
+	else
+		if ! resolver_tool >/dev/null; then
+			printf 'unknown\n'
+			return 0
+		fi
+		_addrs=$(resolve_host "$_host")
+		_addrs=${_addrs% }
+		if [ -z "$_addrs" ]; then
+			printf 'unresolved\n'
+			return 0
+		fi
+	fi
+
+	_loopback_only=1
+	for _a in $_addrs; do
+		case "$_a" in
+		127.* | ::1) ;;
+		*) _loopback_only=0 ;;
+		esac
+	done
+	if [ "$_loopback_only" = "1" ]; then
+		printf 'loopback %s\n' "$_addrs"
+		return 0
+	fi
+
+	_local=$(local_addresses || true)
+	if [ -z "$_local" ]; then
+		printf 'unknown %s\n' "$_addrs"
+		return 0
+	fi
+	for _a in $_addrs; do
+		for _l in $_local; do
+			if [ "$_a" = "$_l" ]; then
+				printf 'held %s\n' "$_addrs"
+				return 0
+			fi
+		done
+	done
+	printf 'elsewhere %s\n' "$_addrs"
+}
+
+serve_probe() {
+	if have curl; then
+		# -k: internal mode is self-signed on purpose. An untrusted certificate
+		# is the documented state there, not a reachability failure.
+		_code=$(capped curl -k -s -o /dev/null -m "$PROBE_TIMEOUT" -w '%{http_code}' "$1")
+		case "$_code" in
+		"" | 000) printf 'no answer within %ss\n' "$PROBE_TIMEOUT" ;;
+		*) printf 'HTTP %s\n' "$_code" ;;
+		esac
+		return 0
+	fi
+	if have wget; then
+		if capped wget -q -O /dev/null --no-check-certificate -T "$PROBE_TIMEOUT" -t 1 "$1"; then
+			printf 'answers\n'
+		else
+			printf 'no answer within %ss\n' "$PROBE_TIMEOUT"
+		fi
+		return 0
+	fi
+	printf 'not checked (no curl or wget)\n'
+}
+
+report_reachability() {
+	_origin=$1
+	[ -n "$_origin" ] || return 0
+	_probe=$(probe_host "$_origin")
+	_verdict=${_probe%% *}
+	_addrs=${_probe#* }
+
+	case "$_verdict" in
+	unresolved)
+		# Nothing to serve to, so there is nothing to probe either.
+		printf 'Address:   %s does not resolve from this box — nothing loads there.\n' "$(origin_host "$_origin")"
+		return 0
+		;;
+	elsewhere)
+		printf 'Address:   %s\n' "$_addrs"
+		printf '           This box does not hold that, so clients reach a different\n'
+		printf '           machine, not this one.\n'
+		# The probe follows the same name a browser does, so a healthy answer
+		# came from that other machine. Saying so stops it reading as proof
+		# this deployment is fine.
+		printf 'Serving:   %s, at that address rather than here\n' "$(serve_probe "$_origin")"
+		return 0
+		;;
+	loopback) printf 'Address:   %s — loopback, so reachable from this box only.\n' "$_addrs" ;;
+	held) printf 'Address:   %s\n' "$_addrs" ;;
+	*)
+		if [ "$_addrs" = "$_verdict" ]; then
+			printf 'Address:   not checked (no getent, dig or host on this box)\n'
+		else
+			printf 'Address:   %s\n' "$_addrs"
+		fi
+		;;
+	esac
+	printf 'Serving:   %s\n' "$(serve_probe "$_origin")"
+}
+
 cmd_status() {
 	require_deployment
+	_origin=$(get_var PUBLIC_ORIGIN)
 	printf 'Directory: %s\n' "$REMIT_DIR"
 	printf 'Tag:       %s\n' "$(get_var REMIT_TAG)"
-	printf 'Origin:    %s\n' "$(get_var PUBLIC_ORIGIN)"
+	printf 'Origin:    %s\n' "$_origin"
+	report_reachability "$_origin"
 	printf '\n'
 	compose ps
 }
@@ -203,15 +453,102 @@ cmd_update() {
 		set_var REMIT_TAG "$_tag"
 	fi
 	apply
-	printf '\nremit is running tag %s.\n' "$(get_var REMIT_TAG)"
+	if [ "${REMIT_QUIET:-0}" != "1" ]; then
+		printf '\n'
+		report_serving
+		printf 'Running tag %s.\n' "$(get_var REMIT_TAG)"
+	fi
 }
 
 cmd_down() {
 	require_deployment
-	# stop, never `down`: the pgdata and message_storage volumes hold every
+	# stop, never `down`: the sqlite_data and message_storage volumes hold every
 	# account, credential and message body on this box.
 	compose stop
-	printf "remit is stopped. Data volumes are untouched; 'remit restart' brings it back.\n"
+	_origin=$(get_var PUBLIC_ORIGIN 2>/dev/null || true)
+	if [ -n "$_origin" ]; then
+		printf "remit is stopped: %s serves nothing until 'remit restart'.\n" "$_origin"
+	else
+		printf "remit is stopped: nothing is served until 'remit restart'.\n"
+	fi
+	printf "No data was removed — accounts, mail and settings come back with it.\n"
+}
+
+# The one destructive command. --yes is the confirmation: the wrapper has to
+# work under `curl | bash`-style non-interactive use, so it never reads stdin.
+cmd_purge() {
+	require_deployment
+	_yes=0
+	while [ $# -gt 0 ]; do
+		case "$1" in
+		--yes)
+			_yes=1
+			shift
+			;;
+		*) die "purge: unknown option '$1'" ;;
+		esac
+	done
+	if [ "$_yes" != "1" ]; then
+		cat >&2 <<EOF
+purge would destroy this deployment's data. Nothing has been touched.
+
+It removes every container and network, and these volumes:
+
+  sqlite_data      every account, message index, tag and setting
+  message_storage  the cached message bodies
+  queue_data       work still queued
+  caddy_data       the TLS certificates, including the internal root CA
+  caddy_config     caddy's own state
+
+Your accounts and everything you have organised in the app are gone with
+sqlite_data and do not come back. Message bodies do: they are a cache of IMAP,
+which is the source of truth, so they re-sync once an account is added again.
+
+The install directory is left alone, .env and its FAKE_KMS_DATAKEY included:
+  $REMIT_DIR
+So 'remit restart' afterwards brings up an empty but working stack.
+
+Those volumes belong to the host, not to that directory: every deployment on
+this box is the same Compose project, so a second install directory shares
+exactly these volumes and loses its data here too.
+
+To stop serving without destroying anything, use 'remit down'.
+Run 'remit purge --yes' if this is what you want.
+EOF
+		exit 1
+	fi
+	compose down -v --remove-orphans
+	printf "\nremit is purged. %s/.env and the compose files are untouched;\n" "$REMIT_DIR"
+	printf "'remit restart' brings up an empty stack.\n"
+}
+
+# The root CA only exists in internal mode, and only on the caddy volume: the
+# first thing an internal-mode operator has to do is get it off the box, so it
+# is a command rather than a compose invocation to copy out of the docs.
+cmd_cert() {
+	require_deployment
+	[ $# -eq 0 ] || die "cert: unknown option '$1'"
+	_mode=$(get_var TLS_MODE)
+	if [ "$_mode" != "internal" ]; then
+		die "TLS_MODE is '$_mode', which has no root CA to export.
+Only TLS_MODE=internal signs with Caddy's own CA. Under 'acme' and 'tailscale'
+the certificate is already publicly trusted, and 'off' serves plain HTTP."
+	fi
+	_dest="$PWD/reader-root.crt"
+	# Checked separately, because `compose cp` reports an unwritable destination
+	# and an absent container the same way, and the message below names only one.
+	[ -w "$PWD" ] ||
+		die "cannot write to $PWD — run 'remit cert' from a directory you own."
+	compose cp caddy:/data/caddy/pki/authorities/local/root.crt "$_dest" ||
+		die "could not read the root CA from the caddy container.
+Caddy generates it on its first start in internal mode — check 'remit status'
+shows caddy running, then try again."
+	printf 'Root CA written to %s\n\n' "$_dest"
+	printf 'Import it into the trust store of every machine you browse from:\n'
+	printf '  macOS    Keychain Access, then mark it "Always Trust"\n'
+	printf '  Windows  certlm.msc, Trusted Root Certification Authorities\n'
+	printf '  Linux    /usr/local/share/ca-certificates + update-ca-certificates\n'
+	printf '  Firefox  Settings, Certificates, View Certificates, Authorities\n'
 }
 
 # Redaction keys off what a name says the value is, not off a list of known
@@ -258,7 +595,13 @@ main() {
 	status) cmd_status "$@" ;;
 	update) cmd_update "$@" ;;
 	down) cmd_down "$@" ;;
+	purge) cmd_purge "$@" ;;
 	config) cmd_config "$@" ;;
+	cert) cmd_cert "$@" ;;
+	probe-host)
+		[ $# -eq 1 ] || die "probe-host: needs one origin or hostname"
+		probe_host "$1"
+		;;
 	help | --help | -h) usage ;;
 	*)
 		printf '%s: unknown command '\''%s'\''\n\n' "$PROG" "$_cmd" >&2

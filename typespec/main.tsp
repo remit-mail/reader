@@ -348,7 +348,9 @@ namespace RemitApi {
       
       Mute exclusion: muted accounts and muted mailboxes are excluded. The inbox/mute filter set is rebuilt per page from live state, so muting/unmuting a mailbox mid-pagination takes effect on the next page (never retroactively).
       
-      Pagination: pass the returned `continuationToken` to fetch the next page; keep paging until it is absent. The INBOX/deleted filter is applied after the index read with a bounded read window per request, so a page may return FEWER than `limit` rows while still carrying a `continuationToken` — treat the presence of the token (not a full page) as the "more results" signal. No rows are skipped or duplicated across pages.
+      Pagination: pass the returned `continuationToken` to fetch the next page; keep paging until it is absent. In the default (INBOX) mode the INBOX/deleted filter is applied after the index read with a bounded read window per request, so a page may return FEWER than `limit` rows while still carrying a `continuationToken` — treat the presence of the token (not a full page) as the "more results" signal. No rows are skipped or duplicated across pages.
+      
+      Starred mode (`starred=true`): served by the `byStarred` LSI4 instead. A star is a marker on the mail rather than on its placement, so the INBOX scope does not apply and a starred thread in Archive is still returned. Excluded are muted and soft-deleted rows as usual, plus the folders a star never surfaces from: Junk, Trash, and Gmail's All Mail (a second copy of everything, whose rows would otherwise double every starred message). All filtering happens in the query, so a page is short only when the results are exhausted. Rows are per mailbox: the same mail filed in two folders is two rows sharing a `threadId`, and a client rendering one row per conversation collapses by `threadId` across the pages it has accumulated.
       """)
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
@@ -362,6 +364,10 @@ namespace RemitApi {
 
       @query(#{ explode: true })
       limit?: int32,
+
+      @doc("When true, return only starred threads — every starred thread in the config, across all non-muted mailboxes, not just the INBOX scope. Starredness is read from `hasStars`, the boolean of record.")
+      @query(#{ explode: true })
+      starred?: boolean,
     ): ResultList<ThreadMessageResponse>;
   }
 

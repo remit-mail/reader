@@ -141,9 +141,9 @@ export function MobileMessageActionBar({
 						/>
 					}
 					onClick={act("star", onToggleStar)}
-					aria-label={isStarred ? "Remove flag" : "Flag"}
+					aria-label={isStarred ? "Unstar" : "Star"}
 					aria-pressed={isStarred}
-					title={isStarred ? "Remove flag" : "Flag"}
+					title={isStarred ? "Unstar" : "Star"}
 					className={TOUCH}
 				/>
 				{moveSlot}

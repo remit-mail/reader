@@ -130,7 +130,7 @@ export const KEY_HINT_GROUPS: KeyHintGroup[] = [
 			{ action: "goBrief", keys: ["g", "b"], description: "Daily brief" },
 			{ action: "goInbox", keys: ["g", "i"], description: "Inbox" },
 			{ action: "goSent", keys: ["g", "s"], description: "Sent" },
-			{ action: "goFlagged", keys: ["g", "f"], description: "Flagged" },
+			{ action: "goFlagged", keys: ["g", "f"], description: "Starred" },
 			{ action: "goSettings", keys: ["g", ","], description: "Settings" },
 		],
 	},

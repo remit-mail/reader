@@ -314,7 +314,7 @@ export const FlaggedView: Story = {
 		<StatefulShell
 			startOpen={false}
 			selectedNavId="flagged"
-			listTitle="Flagged"
+			listTitle="Starred"
 			listMeta={`${flaggedThreads.filter((t) => !t.isRead).length} unread`}
 			sections={[{ id: "flagged", threads: flaggedThreads }]}
 			flatList

@@ -6,22 +6,19 @@ export interface BaseEvent {
 
 export interface SyncMailboxesEvent extends BaseEvent {
 	type: "SYNC_MAILBOXES";
+	/**
+	 * Set by POST /sync — the only trigger a person asks for by name. It makes
+	 * the fan-out sync every mailbox, skipping the freshness gate that keeps
+	 * incidental triggers (config load, OAuth connect, the scheduled tick) from
+	 * re-enumerating folders that were just enumerated.
+	 */
+	explicitRequest?: boolean;
 }
 
 export interface SyncMessagesEvent extends BaseEvent {
 	type: "SYNC_MESSAGES";
 	mailboxId: string;
 	fullSync?: boolean; // If true, ignore lastSyncUid
-	/**
-	 * Set on a continuation event (the "next batch" a batch emits when it drains
-	 * only part of a mailbox). Carries the batch's remaining-message count so the
-	 * FIFO deduplication id is distinct per batch — otherwise every continuation
-	 * for a mailbox shares one dedup id and the 5-minute window silently drops
-	 * batches 2..N, capping any mailbox over one batch. The value is not used by
-	 * the handler (the resume point comes from the persisted watermark); it only
-	 * makes the dedup id unique.
-	 */
-	resumeCursor?: number;
 }
 
 /**

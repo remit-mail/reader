@@ -81,7 +81,7 @@ export function MailActionToolbar({
 	replyAllTitle = "Reply all (a)",
 	forwardTitle = "Forward (f)",
 	deleteTitle = "Move to Trash (#)",
-	flagTitle = "Flag (s)",
+	flagTitle = "Star (s)",
 	children,
 	className,
 }: MailActionToolbarProps) {
@@ -158,7 +158,7 @@ export function MailActionToolbar({
 								/>
 							}
 							title={flagTitle}
-							aria-label="Flag"
+							aria-label="Star"
 							onClick={act("flag", onToggleStar)}
 						/>
 					</>

@@ -30,7 +30,7 @@ export const Default: Story = {
 		<AppShell
 			accounts={navAccounts}
 			selectedNavId="flagged"
-			listTitle="Flagged"
+			listTitle="Starred"
 			listMeta={`${flaggedUnread} unread`}
 			sections={flaggedSection}
 			flatList
@@ -46,7 +46,7 @@ export const Phone: Story = {
 			accounts={navAccounts}
 			initialWidth={390}
 			selectedNavId="flagged"
-			listTitle="Flagged"
+			listTitle="Starred"
 			listMeta={`${flaggedUnread} unread`}
 			sections={flaggedSection}
 			flatList
@@ -60,7 +60,7 @@ export const Empty: Story = {
 		<AppShell
 			accounts={navAccounts}
 			selectedNavId="flagged"
-			listTitle="Flagged"
+			listTitle="Starred"
 			sections={[]}
 			flatList
 			listState="empty"

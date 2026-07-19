@@ -52,32 +52,26 @@ test.describe("Sync", () => {
 		);
 	});
 
-	// Known-failing, and annotated rather than deleted or weakened. Mail that
-	// arrives after an account is connected does not reach the API on a
-	// triggered sync: on a freshly connected account the message is still absent
-	// after minutes of polling, while the same append against a worker that has
-	// just restarted lands in about two seconds. `test.fail` keeps the assertion
-	// running and the suite honest — when the defect is fixed this spec reports
-	// "expected to fail but passed" and the annotation has to come off.
-	//
-	// The window is short on purpose: the defect reproduces immediately, and a
-	// longer one would spend the suite's runtime re-proving something already
-	// known.
-	test.fail(
-		"a message appended after onboarding arrives on the next sync",
-		async ({ api, run }) => {
-			const subject = `Late arrival ${Date.now()}`;
-			await appendMessages(run.imapUser, [
-				{ subject, body: "Appended mid-run." },
-			]);
-			await api.triggerSync(run.accountId);
+	// The core loop: mail that arrives after setup reaches the API on the next
+	// triggered sync. This ran right after a sync had already completed, which
+	// is what made it fail (issue #37) — the trigger was discarded as a
+	// duplicate of the one before it. The window is short on purpose: the
+	// message either comes through on this sync or the sync was dropped.
+	test("a message appended after onboarding arrives on the next sync", async ({
+		api,
+		run,
+	}) => {
+		const subject = `Late arrival ${Date.now()}`;
+		await appendMessages(run.imapUser, [
+			{ subject, body: "Appended mid-run." },
+		]);
+		await api.triggerSync(run.accountId);
 
-			const threads = await waitFor(
-				() => api.listThreads(run.inboxId),
-				(items) => items.some((thread) => thread.subject === subject),
-				{ timeoutMs: 15_000, what: `the appended message "${subject}"` },
-			);
-			expect(threads.map((thread) => thread.subject)).toContain(subject);
-		},
-	);
+		const threads = await waitFor(
+			() => api.listThreads(run.inboxId),
+			(items) => items.some((thread) => thread.subject === subject),
+			{ timeoutMs: 15_000, what: `the appended message "${subject}"` },
+		);
+		expect(threads.map((thread) => thread.subject)).toContain(subject);
+	});
 });

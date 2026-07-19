@@ -87,7 +87,7 @@ describe("MobileReadingPane", () => {
 		// One expanded message ⇒ one Reply / Flag / Trash cluster; the two
 		// collapsed rows carry no bar.
 		assert.equal(countMatches(html, 'aria-label="Reply"'), 1);
-		assert.equal(countMatches(html, 'aria-label="Flag"'), 1);
+		assert.equal(countMatches(html, 'aria-label="Star"'), 1);
 		assert.equal(countMatches(html, 'aria-label="Move to Trash"'), 1);
 	});
 

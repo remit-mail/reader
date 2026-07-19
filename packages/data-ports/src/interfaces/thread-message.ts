@@ -49,6 +49,30 @@ export interface IThreadMessageRepository {
 			excludeDeleted?: boolean;
 		},
 	): Promise<ResultList<ThreadMessageItem>>;
+	/**
+	 * List starred rows for a config, newest first, across every mailbox.
+	 *
+	 * Backed by the `byStarred` index (pk = accountConfigId, sk = hasStars +
+	 * sentDate). Starredness is read from `hasStars` — the boolean of record —
+	 * never from the presentation-only `star` colour. `mailboxIds` narrows the
+	 * result to a caller-supplied set (used to drop muted mailboxes and the
+	 * folders a star never surfaces from); omitting it returns every mailbox.
+	 *
+	 * Rows are per mailbox, not per conversation: the same mail filed in two
+	 * folders is two rows sharing a `threadId`. Callers that render one row per
+	 * conversation must collapse by `threadId` across the pages they have
+	 * accumulated — this cannot be done inside a single page.
+	 */
+	listByStarred(
+		accountConfigId: string,
+		options?: {
+			order?: "asc" | "desc";
+			limit?: number;
+			continuationToken?: string;
+			mailboxIds?: Set<string>;
+			excludeDeleted?: boolean;
+		},
+	): Promise<ResultList<ThreadMessageItem>>;
 	listByThread(
 		threadId: string,
 		accountConfigId: string,
