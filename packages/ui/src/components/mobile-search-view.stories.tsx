@@ -6,6 +6,7 @@ import {
 	inboxFilterConfig,
 } from "../filter-presets.js";
 import { MobileSearchView } from "./mobile-search-view.js";
+import type { SearchChip } from "./search-chip-input.js";
 import type { SearchResult } from "./search-result-row.js";
 import type { SearchResultSection } from "./search-results.js";
 
@@ -100,16 +101,19 @@ type Preset = "brief" | "inbox";
 
 function Harness({
 	initialValue = "",
+	initialChips = [],
 	loading,
 	sections,
 	preset,
 }: {
 	initialValue?: string;
+	initialChips?: SearchChip[];
 	loading?: boolean;
 	sections?: SearchResultSection[];
 	preset: Preset;
 }) {
 	const [value, setValue] = useState(initialValue);
+	const [chips, setChips] = useState<SearchChip[]>(initialChips);
 	const [selectedCategory, setSelectedCategory] = useState("all");
 	const [activeFilters, setActiveFilters] = useState<Set<string>>(new Set());
 	const [activeSource, setActiveSource] = useState("personal");
@@ -152,6 +156,8 @@ function Harness({
 			onChange={setValue}
 			onClear={() => setValue("")}
 			onCancel={() => undefined}
+			chips={chips}
+			onRemoveChip={(id) => setChips((cs) => cs.filter((c) => c.id !== id))}
 			filter={{
 				...base,
 				selectedCategory,
@@ -242,6 +248,23 @@ export const RelatedSelectable: Story = {
 			initialValue="invoice"
 			sections={[{ id: "related", label: "Related", results: related }]}
 			preset="brief"
+		/>
+	),
+};
+
+/**
+ * The narrowing expression on mobile: the same `SearchChipInput` the desktop
+ * top bar uses, inside the full-screen takeover's own chrome. The chip is
+ * removable in place — backspace at the start of the text reaches it just as it
+ * does on desktop.
+ */
+export const ScopedByChip: Story = {
+	render: () => (
+		<Harness
+			initialValue="invoice"
+			initialChips={[{ id: "in:spam", label: "in:spam" }]}
+			sections={resultSections}
+			preset="inbox"
 		/>
 	),
 };

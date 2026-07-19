@@ -53,3 +53,20 @@ describe("SearchBar", () => {
 		assert.match(html, /value="receipt"/);
 	});
 });
+
+describe("SearchBar narrowing chips", () => {
+	it("carries the chips inside the field, alongside the typed text", () => {
+		const html = renderToString(
+			createElement(SearchBar, {
+				value: "invoice",
+				onChange: noop,
+				onClear: noop,
+				chips: [{ id: "in:spam", label: "in:spam" }],
+				onRemoveChip: noop,
+			}),
+		);
+		assert.match(html, /in:spam/);
+		assert.match(html, /aria-label="Remove filter: in:spam"/);
+		assert.match(html, /value="invoice"/);
+	});
+});

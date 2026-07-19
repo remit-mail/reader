@@ -42,6 +42,7 @@ export {
 	type TouchSeed,
 	useContainerWidth,
 } from "./components/app-shell-types.js";
+export { AppTopBar, type AppTopBarProps } from "./components/app-top-bar.js";
 export { AuthCard, type AuthCardProps } from "./components/auth-card.js";
 export {
 	AuthFooter,
@@ -280,6 +281,11 @@ export {
 } from "./components/row-actions.js";
 export { SearchBar, type SearchBarProps } from "./components/search-bar.js";
 export {
+	type SearchChip,
+	SearchChipInput,
+	type SearchChipInputProps,
+} from "./components/search-chip-input.js";
+export {
 	type SearchResult,
 	SearchResultRow,
 	type SearchResultRowProps,
@@ -291,6 +297,9 @@ export {
 	type SearchResultsProps,
 } from "./components/search-results.js";
 export {
+	SearchChipRow,
+	type SearchChipRowProps,
+	type SearchChipTone,
 	SearchTokenChip,
 	type SearchTokenChipProps,
 	SearchTokenChips,
