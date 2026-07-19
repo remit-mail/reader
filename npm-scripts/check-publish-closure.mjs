@@ -1,21 +1,15 @@
 #!/usr/bin/env node
 // Guards publish ordering: a package the pipeline ships to public npm must not
 // import — anywhere in its runtime (non-test) source — a workspace package that
-// stays closed (changeset-ignored or private). The changesets closure check only
-// reads `dependencies`/`peerDependencies`, so a closed dependency declared as a
-// devDependency slips past it; this walks the actual imports instead. Wired into
-// the dry run so CI fails before an early NPM_PUBLISH_ENABLED can publish a
-// package whose imports do not resolve off the public registry.
+// stays private. A private dependency declared only as a devDependency would slip
+// past a dependency-list check, so this walks the actual imports instead. Run
+// before publishing so a package whose imports do not resolve off the public
+// registry never ships.
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-
-const config = JSON.parse(
-	readFileSync(join(repoRoot, ".changeset", "config.json"), "utf8"),
-);
-const ignored = new Set(config.ignore ?? []);
 
 const workspaceNames = new Map();
 const manifests = new Map();
@@ -33,10 +27,8 @@ for (const name of readdirSync(join(repoRoot, "packages"))) {
 	manifests.set(manifest.name, manifest);
 }
 
-const closed = (name) => ignored.has(name) || manifests.get(name)?.private;
-const publishable = [...manifests.values()].filter(
-	(m) => !m.private && !ignored.has(m.name),
-);
+const closed = (name) => Boolean(manifests.get(name)?.private);
+const publishable = [...manifests.values()].filter((m) => !m.private);
 
 const sourceFiles = (dir) => {
 	const out = [];
@@ -106,6 +98,6 @@ for (const [pkg, imports] of byPkg) {
 	}
 }
 console.error(
-	"\nEither cut the import, or add the publishable package to `ignore` in .changeset/config.json until the coupling is removed.",
+	"\nEither cut the import, or mark the package private until the coupling is removed.",
 );
 process.exit(1);
