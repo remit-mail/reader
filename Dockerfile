@@ -143,7 +143,6 @@ COPY --from=builder --chown=node:node /app/build/remit-openapi3/openapi.json ./o
 # The deploy/vps/docker-compose.yml `migrate` one-shot service overrides CMD
 # to run it instead of server.mjs.
 COPY --from=builder --chown=node:node /app/dist-docker/backend/migrate.mjs ./migrate.mjs
-COPY --from=builder --chown=node:node /app/deploy/vps/migrations ./migrations
 # The sqlite migration sets the migrate entrypoint applies when
 # DATA_BACKEND=sqlite (RFC 036 D5). Shipped alongside the pg set; the compose
 # `migrate` service picks one by DATA_BACKEND.
