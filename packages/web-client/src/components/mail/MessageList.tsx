@@ -92,6 +92,18 @@ interface MessageListProps {
 	onTriageContextChange?: (context: {
 		focusedMessageId: string | undefined;
 		selectedIds: string[];
+		/**
+		 * Whether a list is mounted with commands published. The route registers
+		 * its list-driven key handlers only while this holds, so keys the list
+		 * owns (Enter, Space, ⌘A) are left to the browser everywhere else.
+		 */
+		hasList: boolean;
+		/**
+		 * Whether the list has a modal open that owns the keyboard. The route
+		 * suspends the whole triage layer while it does, so no shortcut can act
+		 * behind the dialog — a second Delete press must not reach a delete.
+		 */
+		blocksKeyboard: boolean;
 	}) => void;
 	/**
 	 * Ref the list publishes its {@link MessageListCommands} into, so the route's
@@ -219,6 +231,13 @@ export const MessageList = ({
 	// — agree with what the list highlights (#43). Mouse-driven focus changes
 	// leave this null, so the list never yanks focus out of the reading pane.
 	const pendingDomFocusRef = useRef<string | null>(null);
+
+	// Whether the list can serve keyboard commands at all. It stays true while
+	// the delete confirmation is open — withdrawing the commands there would let
+	// the route fall through to its own unconfirmed delete on a second Delete
+	// press. The route suspends the whole keyboard layer for the dialog instead.
+	const commandsAvailable = !isLoading && threads.length > 0;
+	const confirmOpen = pendingDeleteIds !== null;
 
 	// Auto-exit multi-select when selection becomes empty
 	useEffect(() => {
@@ -361,6 +380,10 @@ export const MessageList = ({
 	// Returns true when it took the keypress, so the route's fallback delete
 	// (which skips the confirmation) doesn't also fire.
 	const handleDeleteKey = useCallback((): boolean => {
+		// The confirmation is already asking about a delete: the keypress belongs
+		// to it, and answering it is the Confirm button's job. Claiming the press
+		// here is what stops a second Delete from reaching an unconfirmed delete.
+		if (pendingDeleteIds !== null) return true;
 		if (!onDeleteMessages) return false;
 		if (selectedCount > 0) {
 			requestDelete(Array.from(selectedIds));
@@ -372,6 +395,7 @@ export const MessageList = ({
 		}
 		return false;
 	}, [
+		pendingDeleteIds,
 		onDeleteMessages,
 		selectedCount,
 		selectedIds,
@@ -565,8 +589,33 @@ export const MessageList = ({
 		onTriageContextChange?.({
 			focusedMessageId,
 			selectedIds: Array.from(selectedIds),
+			hasList: commandsAvailable,
+			blocksKeyboard: confirmOpen,
 		});
-	}, [focusedMessageId, selectedIds, onTriageContextChange]);
+	}, [
+		focusedMessageId,
+		selectedIds,
+		commandsAvailable,
+		confirmOpen,
+		onTriageContextChange,
+	]);
+
+	// Retract the context when the list goes away (drafts view, phone reading
+	// view). Without this the route keeps its list key handlers registered
+	// against a list that no longer exists, and goes on swallowing Enter, Space
+	// and ⌘A on a screen that has no rows.
+	const bridgeRef = useRef(onTriageContextChange);
+	bridgeRef.current = onTriageContextChange;
+	useEffect(
+		() => () =>
+			bridgeRef.current?.({
+				focusedMessageId: undefined,
+				selectedIds: [],
+				hasList: false,
+				blocksKeyboard: false,
+			}),
+		[],
+	);
 
 	// Clear selection when threads change (e.g., after delete)
 	useEffect(() => {
@@ -618,11 +667,6 @@ export const MessageList = ({
 		row.focus({ preventScroll: true });
 	});
 
-	// Publish the list's keyboard commands to the route's dispatcher. The
-	// confirm dialog owns the keyboard while open, so the commands withdraw
-	// rather than double-handling a second Delete press.
-	const commandsAvailable =
-		!isLoading && threads.length > 0 && pendingDeleteIds === null;
 	useEffect(() => {
 		if (!commandsRef) return;
 		if (!commandsAvailable) {

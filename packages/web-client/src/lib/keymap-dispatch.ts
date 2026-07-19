@@ -235,6 +235,10 @@ const CONTROL_SELECTOR =
  */
 export function isControlTarget(target: EventTarget | null): boolean {
 	if (!(target instanceof HTMLElement)) return false;
-	if (target.closest(`[${ROW_ATTRIBUTE}]`)) return false;
-	return target.closest(CONTROL_SELECTOR) !== null;
+	const control = target.closest(CONTROL_SELECTOR);
+	if (!control) return false;
+	// The nearest control wins. A row is an anchor and so matches the selector,
+	// but the list owns Enter/Space on its rows; a control nested *inside* a row
+	// (the select checkbox) is a control like any other and keeps its own keys.
+	return !control.hasAttribute(ROW_ATTRIBUTE);
 }

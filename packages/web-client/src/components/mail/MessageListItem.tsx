@@ -265,6 +265,10 @@ const MessageListItemComponent = ({
 				/>
 				<button
 					type="button"
+					// Out of the tab order: the row is the list's single tab stop, and
+					// this control is `opacity-0` until hover, so a tabbable one would
+					// put focus on something invisible on every row.
+					tabIndex={-1}
 					onClick={handleCheckboxClick}
 					className={cn(
 						"absolute inset-0 size-7 rounded-full border items-center justify-center transition-opacity",

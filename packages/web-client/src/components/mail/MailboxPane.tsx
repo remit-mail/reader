@@ -193,6 +193,8 @@ interface MailboxPaneContextValue {
 	onTriageContextChange: (ctx: {
 		focusedMessageId: string | undefined;
 		selectedIds: string[];
+		hasList: boolean;
+		blocksKeyboard: boolean;
 	}) => void;
 	/** Where the list publishes the commands the keyboard layer drives. */
 	listCommandsRef: RefObject<MessageListCommands | null>;
@@ -429,13 +431,21 @@ function MailboxPaneProvider({
 	// Null whenever no list is mounted (reading-only phone view, drafts) — the
 	// keyboard layer then simply has nothing to drive.
 	const listCommandsRef = useRef<MessageListCommands | null>(null);
+	// Whether a message list is mounted and serving commands, and whether it has
+	// a modal that owns the keyboard. Both drive which keys this route claims.
+	const [hasList, setHasList] = useState(false);
+	const [listBlocksKeyboard, setListBlocksKeyboard] = useState(false);
 	const handleTriageContextChange = useCallback(
 		(context: {
 			focusedMessageId: string | undefined;
 			selectedIds: string[];
+			hasList: boolean;
+			blocksKeyboard: boolean;
 		}) => {
 			setTriageFocusedId(context.focusedMessageId);
 			setTriageSelectedIds(context.selectedIds);
+			setHasList(context.hasList);
+			setListBlocksKeyboard(context.blocksKeyboard);
 		},
 		[],
 	);
@@ -782,21 +792,29 @@ function MailboxPaneProvider({
 	const showIntelligence = isDesktop && intelligenceOpen && hasThread;
 
 	useTriageKeyboard({
-		enabled: !composeState.isOpen,
+		// A modal owns the keyboard outright. Suspending the layer is what keeps a
+		// second Delete press from reaching a delete while the confirmation for
+		// the first one is still on screen.
+		enabled: !composeState.isOpen && !listBlocksKeyboard,
 		handlers: {
-			// List navigation and selection. The mounted list owns the roving
-			// cursor and the checkbox set; this layer is the only keydown listener
-			// that routes to them.
-			focusNext: () => listCommandsRef.current?.focusNext(),
-			focusPrevious: () => listCommandsRef.current?.focusPrevious(),
-			focusFirst: () => listCommandsRef.current?.focusFirst(),
-			focusLast: () => listCommandsRef.current?.focusLast(),
-			openFocused: () => listCommandsRef.current?.openFocused(),
-			toggleSelect: () => listCommandsRef.current?.toggleSelect(),
-			extendSelectDown: () => listCommandsRef.current?.extendSelectDown(),
-			extendSelectUp: () => listCommandsRef.current?.extendSelectUp(),
-			selectAll: () => listCommandsRef.current?.selectAll(),
-			toggleDensity: () => listCommandsRef.current?.toggleDensity(),
+			// List navigation and selection, registered only while a list is
+			// mounted to serve them. An unregistered action is never
+			// preventDefault-ed, so with no list the browser keeps Enter, Space and
+			// ⌘A — select-all-text in the reading pane still works.
+			...(hasList
+				? {
+						focusNext: () => listCommandsRef.current?.focusNext(),
+						focusPrevious: () => listCommandsRef.current?.focusPrevious(),
+						focusFirst: () => listCommandsRef.current?.focusFirst(),
+						focusLast: () => listCommandsRef.current?.focusLast(),
+						openFocused: () => listCommandsRef.current?.openFocused(),
+						toggleSelect: () => listCommandsRef.current?.toggleSelect(),
+						extendSelectDown: () => listCommandsRef.current?.extendSelectDown(),
+						extendSelectUp: () => listCommandsRef.current?.extendSelectUp(),
+						selectAll: () => listCommandsRef.current?.selectAll(),
+						toggleDensity: () => listCommandsRef.current?.toggleDensity(),
+					}
+				: {}),
 			back: goBack,
 			reply: triageReply,
 			replyAll: triageReplyAll,

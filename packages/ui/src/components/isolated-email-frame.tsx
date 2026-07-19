@@ -104,10 +104,39 @@ const useMatchMedia = (query: string): boolean => {
 	return matches;
 };
 
+/** Named (non-character) keys worth replaying: moving around and closing. */
+const FORWARDED_NAMED_KEYS = new Set([
+	"Enter",
+	"Escape",
+	"ArrowUp",
+	"ArrowDown",
+	"ArrowLeft",
+	"ArrowRight",
+	"Home",
+	"End",
+]);
+
+/**
+ * Which keystrokes leave the frame. An allowlist rather than a denylist: the
+ * replayed event's target is the host window, so the app's keyboard layer sees
+ * no focused control and routes everything it recognises to the message list.
+ * Forwarding indiscriminately would therefore let Backspace pressed while
+ * reading delete the message under the cursor, and Space select it.
+ *
+ * Single characters (letters, digits, punctuation) carry the app's navigation
+ * and verb bindings and are safe to replay. Space is excluded: it belongs to
+ * reading the email, not to selecting rows behind it.
+ */
+export const isForwardableKey = (key: string): boolean => {
+	if (key === " ") return false;
+	if (key.length === 1) return true;
+	return FORWARDED_NAMED_KEYS.has(key);
+};
+
 /**
  * Keydown events raised inside an iframe never reach the embedding window, so
  * once the reader clicks into the message body every app shortcut goes dead —
- * j/k, arrows, Esc, the lot (#43). Replay unmodified keystrokes on the host
+ * j/k, arrows, Esc, the lot (#43). Replay the allowlisted keystrokes on the host
  * window so the app's one keyboard layer keeps hearing them. The replay is a
  * copy: the original event is untouched, so selecting and scrolling inside the
  * email still behave normally. Modifier combos stay with the frame and the
@@ -115,6 +144,7 @@ const useMatchMedia = (query: string): boolean => {
  */
 const forwardKeyDown = (event: KeyboardEvent) => {
 	if (event.metaKey || event.ctrlKey || event.altKey) return;
+	if (!isForwardableKey(event.key)) return;
 	const doc = (event.currentTarget ?? event.target) as Document | null;
 	const host = doc?.defaultView?.parent;
 	if (!host || host === doc?.defaultView) return;
