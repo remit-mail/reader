@@ -26,15 +26,41 @@ const parsePositiveIntSeconds = (
 };
 
 /**
+ * Floor for the poll interval, matching `MAILBOX_FRESHNESS_MS` in the
+ * imap-worker's sync-mailboxes fan-out.
+ *
+ * This poll uses POST /sync, the same endpoint as a person pressing refresh,
+ * and that endpoint's triggers skip the server's per-mailbox freshness gate.
+ * A timer is not a person: polling faster than the gate's own window would
+ * make every tick a full folder-by-folder re-enumeration for every open
+ * account — the fan-out storm the gate exists to prevent, reintroduced by a
+ * config value. `mailboxPollIntervalSeconds` can lengthen the interval, never
+ * shorten it past this: below the window there is nothing to gain, since no
+ * mailbox can have become stale in the meantime.
+ */
+export const MIN_POLL_INTERVAL_MS = 60 * 1000;
+
+/**
+ * Resolve the configured poll interval, never returning less than
+ * {@link MIN_POLL_INTERVAL_MS}.
+ */
+export const resolvePollIntervalMs = (
+	configuredSeconds: string | undefined,
+): number =>
+	Math.max(
+		parsePositiveIntSeconds(configuredSeconds, DEFAULT_POLL_INTERVAL_SECONDS) *
+			1000,
+		MIN_POLL_INTERVAL_MS,
+	);
+
+/**
  * Client-side online-poll interval (#1251): while an account's mail is open,
  * the tab re-triggers the same sync the pull-to-refresh path uses on this
  * cadence — the replacement for the server's removed "online tier".
  */
-export const POLL_INTERVAL_MS =
-	parsePositiveIntSeconds(
-		getRuntimeConfig().mailboxPollIntervalSeconds,
-		DEFAULT_POLL_INTERVAL_SECONDS,
-	) * 1000;
+export const POLL_INTERVAL_MS = resolvePollIntervalMs(
+	getRuntimeConfig().mailboxPollIntervalSeconds,
+);
 
 /**
  * Bounded concurrency for the per-poll fan-out across open accounts —

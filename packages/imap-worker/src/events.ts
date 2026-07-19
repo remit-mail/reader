@@ -12,7 +12,7 @@ export interface SyncMailboxesEvent extends BaseEvent {
 	 * incidental triggers (config load, OAuth connect, the scheduled tick) from
 	 * re-enumerating folders that were just enumerated.
 	 */
-	requestedByUser?: boolean;
+	explicitRequest?: boolean;
 }
 
 export interface SyncMessagesEvent extends BaseEvent {

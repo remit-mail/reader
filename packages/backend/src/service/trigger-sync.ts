@@ -6,7 +6,7 @@ interface SyncMailboxesEvent {
 	eventId: string;
 	timestamp: number;
 	accountId: string;
-	requestedByUser?: boolean;
+	explicitRequest?: boolean;
 }
 
 interface TriggerAccountSyncInput {
@@ -14,14 +14,22 @@ interface TriggerAccountSyncInput {
 	queueUrl: string;
 	accountId: string;
 	/**
-	 * Set only where a person asked for this sync (POST /sync — the refresh
-	 * control and pull-to-refresh both land there). It travels on the event and
-	 * tells the worker's fan-out to sync every mailbox even if one just ran; a
-	 * trigger that fires as a side effect of something else (config load, OAuth
-	 * connect, the scheduled tick) leaves it unset and takes the freshness gate.
-	 * See `mailboxNeedsSync` in imap-worker's sync-mailboxes handler.
+	 * Set by POST /sync, whose callers ask for a sync of one named account: the
+	 * refresh control, pull-to-refresh, and the web client's automatic poll
+	 * (`useStaleAccountSync`) — a timer, not a person. It travels on the event
+	 * and makes the worker's fan-out sync every mailbox even if one just ran.
+	 *
+	 * Everything else triggers a sync as a side effect of doing something else
+	 * (config load, OAuth connect, account create, the scheduled tick), leaves
+	 * this unset, and takes the freshness gate — see `mailboxNeedsSync` in
+	 * imap-worker's sync-mailboxes handler.
+	 *
+	 * The poll cannot use this to outrun the gate: its interval is floored at
+	 * the gate's own window (`MIN_POLL_INTERVAL_MS` in the client hook), so
+	 * however low `mailboxPollIntervalSeconds` is set, a timer never fans out
+	 * more often than the gate would have allowed anyway.
 	 */
-	requestedByUser?: boolean;
+	explicitRequest?: boolean;
 	/**
 	 * Override the FIFO `MessageDeduplicationId`. Defaults to the event's own
 	 * id, so the queue suppresses a re-send of one event and nothing else —
@@ -60,13 +68,13 @@ export const buildScheduledSyncDedupId = (
 export const buildSyncMailboxesCommand = (
 	input: TriggerAccountSyncInput,
 ): SendMessageCommand => {
-	const { queueUrl, accountId, dedupId, requestedByUser } = input;
+	const { queueUrl, accountId, dedupId, explicitRequest } = input;
 	const event: SyncMailboxesEvent = {
 		type: "SYNC_MAILBOXES",
 		eventId: randomUUID(),
 		timestamp: Date.now(),
 		accountId,
-		...(requestedByUser && { requestedByUser }),
+		...(explicitRequest && { explicitRequest }),
 	};
 
 	const useFifo = isFifoQueue(queueUrl);

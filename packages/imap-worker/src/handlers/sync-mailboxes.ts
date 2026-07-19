@@ -25,34 +25,37 @@ import { orderMailboxesForSync } from "./mailbox-sync-order.js";
 const EVENT_EMIT_CONCURRENCY = 20;
 
 /**
- * How recently a mailbox must have been synced for a background trigger to
+ * How recently a mailbox must have been synced for a side-effect trigger to
  * leave it alone. Short enough that a folder is never more than a minute
  * staler than the trigger that arrived, long enough to collapse the burst a
  * client produces when it loads (`GET /config` triggers a sync per account)
  * into one round of IMAP work.
  *
- * It bounds background triggers only. A sync a person asked for ignores it —
- * see `mailboxNeedsSync`.
+ * The web client floors its automatic poll at this same window
+ * (`MIN_POLL_INTERVAL_MS` in useStaleAccountSync), so the one caller that
+ * skips this gate on a timer still cannot drive a fan-out faster than it.
  */
 export const MAILBOX_FRESHNESS_MS = 60_000;
 
 /**
  * Whether this fan-out should enqueue a mailbox.
  *
- * A user-requested sync always does: pressing refresh has to produce a real
- * sync of every folder, whatever ran a moment ago. Everything else — config
- * load, OAuth connect, the scheduled tick — skips mailboxes synced inside
- * {@link MAILBOX_FRESHNESS_MS}, which is what stops incidental triggers from
- * re-enumerating an account's folders on every page load.
+ * A sync asked for by name — POST /sync, which is the refresh control,
+ * pull-to-refresh, and the client's automatic poll — always syncs every
+ * mailbox, whatever ran a moment ago. A sync that happens as a side effect of
+ * something else (config load, OAuth connect, account create, the scheduled
+ * tick) skips mailboxes synced inside {@link MAILBOX_FRESHNESS_MS}, which is
+ * what stops those triggers from re-enumerating an account's folders on every
+ * page load.
  *
  * A mailbox that has never synced is always due.
  */
 export const mailboxNeedsSync = (
 	mailbox: { lastMessageSyncAt?: number },
-	event: Pick<SyncMailboxesEvent, "requestedByUser">,
+	event: Pick<SyncMailboxesEvent, "explicitRequest">,
 	now: number,
 ): boolean => {
-	if (event.requestedByUser) return true;
+	if (event.explicitRequest) return true;
 	if (!mailbox.lastMessageSyncAt) return true;
 	return now - mailbox.lastMessageSyncAt >= MAILBOX_FRESHNESS_MS;
 };
@@ -179,10 +182,10 @@ const syncMailboxesForAccount = async (
 	// trigger per account on every call, so without a gate here an idle client
 	// re-enumerates every folder it owns on every page load.
 	//
-	// The gate is per mailbox and it is skipped outright for a sync a person
-	// asked for. That distinction is the whole point: the previous cooldown
-	// gated everything, which is what made a refresh a no-op whenever a
-	// background trigger had just run (issue #37).
+	// The gate is per mailbox and a sync asked for by name skips it outright.
+	// That distinction is the whole point: the previous cooldown gated
+	// everything, which is what made a refresh a no-op whenever a side-effect
+	// trigger had just run (issue #37).
 	const now = Date.now();
 	const mailboxes = allMailboxes.filter((mailbox) =>
 		mailboxNeedsSync(mailbox, event, now),
@@ -192,7 +195,7 @@ const syncMailboxesForAccount = async (
 	if (skipped > 0) {
 		log.info(
 			{ accountId, skipped },
-			"Skipped recently-synced mailboxes for a background trigger",
+			"Skipped recently-synced mailboxes for a side-effect trigger",
 		);
 	}
 

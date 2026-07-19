@@ -62,10 +62,13 @@ describe("triggerSyncSafe", () => {
 		assert.equal(error.length, 0);
 	});
 
-	// The guarantee behind issue #37: POST /sync is the refresh control, so the
-	// event it enqueues has to carry the mark that makes the worker's fan-out
-	// sync every mailbox rather than skip the fresh ones.
-	it("marks the event as user-requested", async () => {
+	// The guarantee behind issue #37: POST /sync asks for a sync of this
+	// account by name, so the event it enqueues has to carry the mark that
+	// makes the worker's fan-out sync every mailbox rather than skip the fresh
+	// ones. Its callers are the refresh control, pull-to-refresh and the
+	// client's automatic poll — the poll is kept from abusing this by the
+	// interval floor in useStaleAccountSync, not by the server.
+	it("marks the event as an explicit request", async () => {
 		const sent: SendMessageCommand[] = [];
 		const { logger } = createLoggerSpy();
 
@@ -76,9 +79,9 @@ describe("triggerSyncSafe", () => {
 		});
 
 		const body = JSON.parse(sent[0]?.input.MessageBody ?? "{}") as {
-			requestedByUser?: boolean;
+			explicitRequest?: boolean;
 		};
-		assert.equal(body.requestedByUser, true);
+		assert.equal(body.explicitRequest, true);
 	});
 
 	it("does NOT reject when the SQS enqueue fails (POST /sync stays resilient)", async () => {
