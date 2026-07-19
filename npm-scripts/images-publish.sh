@@ -20,12 +20,12 @@
 #
 # Environment:
 #   TAG          image tag to build and push (e.g. sha-<git-sha>). Required.
-#   REGISTRY     registry/namespace prefix. Default ghcr.io/remit-mail/remit.
+#   REGISTRY     registry/namespace prefix. Default ghcr.io/remit-mail/reader.
 #   PUSH         "1" to push built tags, "0" to build only. Default "0".
 #   PUSH_LATEST  "1" to also tag and push :latest. Default "0". Only main
 #                should set this — a non-main run must not move :latest.
 #   CACHE_REF    registry repo for the layer cache (e.g.
-#                ghcr.io/remit-mail/remit/cache). Unset disables registry
+#                ghcr.io/remit-mail/reader/cache). Unset disables registry
 #                caching; the build still reuses the local layer cache.
 #   CACHE_TO     "0" to read the cache but not write it, for lanes without
 #                registry write access. Default "1" when CACHE_REF is set.
@@ -36,7 +36,7 @@ cd "$REPO_ROOT"
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/container-runtime.sh"
 
-REGISTRY="${REGISTRY:-ghcr.io/remit-mail/remit}"
+REGISTRY="${REGISTRY:-ghcr.io/remit-mail/reader}"
 TAG="${TAG:?TAG is required (e.g. sha-<git-sha>)}"
 PUSH="${PUSH:-0}"
 PUSH_LATEST="${PUSH_LATEST:-0}"
