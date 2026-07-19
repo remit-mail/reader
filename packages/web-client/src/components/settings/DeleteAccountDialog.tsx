@@ -1,4 +1,3 @@
-import { useAuthenticator } from "@aws-amplify/ui-react";
 import {
 	meOperationsCreateExportMutation,
 	meOperationsDeleteMeMutation,
@@ -7,73 +6,16 @@ import { Button, Dialog, Input } from "@remit/ui";
 import { useMutation } from "@tanstack/react-query";
 import { AlertTriangle, Download, X } from "lucide-react";
 import { useState } from "react";
-import { isCognitoConfigured } from "@/auth/amplify-config";
-import {
-	authClient,
-	isBetterAuthEnabled,
-	resetBetterAuthTokenCache,
-} from "@/auth/better-auth-config";
+import { useAuthProvider } from "@/auth/provider";
 
 interface DeleteAccountDialogProps {
 	open: boolean;
 	onClose: () => void;
 }
 
-/**
- * Inner component that pulls the account identity and `signOut` from the
- * Amplify Authenticator context. Mounted only when Cognito is configured
- * (see the wrapper below), so `useAuthenticator` always runs inside the
- * `Authenticator.Provider` that `AuthShell` mounts in the configured path.
- *
- * When Cognito is NOT configured (local dev / e2e / visual harness),
- * `AuthShell` does not mount `Authenticator.Provider`, and calling
- * `useAuthenticator` would throw `USE_AUTHENTICATOR_ERROR`, crashing the
- * whole settings/accounts route. The wrapper therefore gates this inner
- * component on `isCognitoConfigured()`.
- */
-function DeleteAccountDialogInner({ open, onClose }: DeleteAccountDialogProps) {
-	const { user, signOut } = useAuthenticator((ctx) => [ctx.user, ctx.signOut]);
-	const accountEmail = user?.signInDetails?.loginId ?? user?.username ?? "";
-
-	return (
-		<DeleteAccountDialogView
-			open={open}
-			onClose={onClose}
-			accountEmail={accountEmail}
-			signOut={signOut}
-		/>
-	);
-}
-
-/**
- * better-auth counterpart of the Cognito inner. In Postgres-parity / local
- * mode better-auth owns identity, so the account email and `signOut` come from
- * its session hook rather than the Amplify Authenticator context. Signing out
- * also clears the cached bearer token, matching `AccountSession`.
- */
-function DeleteAccountDialogBetterAuthInner({
-	open,
-	onClose,
-}: DeleteAccountDialogProps) {
-	const { data: session } = authClient.useSession();
-	const signOut = async () => {
-		await authClient.signOut();
-		resetBetterAuthTokenCache();
-	};
-
-	return (
-		<DeleteAccountDialogView
-			open={open}
-			onClose={onClose}
-			accountEmail={session?.user.email ?? ""}
-			signOut={signOut}
-		/>
-	);
-}
-
 interface DeleteAccountDialogViewProps extends DeleteAccountDialogProps {
 	accountEmail: string;
-	signOut: () => void;
+	signOut: () => void | Promise<void>;
 }
 
 function DeleteAccountDialogView({
@@ -253,22 +195,30 @@ function DeleteAccountDialogView({
 
 /**
  * Delete-account dialog. Safe to mount anywhere — `DangerZone` renders it
- * unconditionally on the settings/accounts route. Each hook-using inner
- * component is gated on its provider being active: better-auth (Postgres-parity
- * / local) reads identity from its session hook, Cognito from the Amplify
- * Authenticator context. With no provider (e2e / visual harness) there is no
- * signed-in account to delete, so we render the view with an empty identity and
- * a no-op `signOut`. The env-derived branch is constant for the app's lifetime,
- * so the Rules of Hooks hold.
+ * unconditionally on the settings/accounts route. Identity comes from the
+ * composed auth provider's `Account` render-prop; when no session is active
+ * (e2e / visual harness / signed out) it falls back to the view with an empty
+ * identity and a no-op `signOut`.
  */
 export function DeleteAccountDialog(props: DeleteAccountDialogProps) {
-	if (isBetterAuthEnabled()) {
-		return <DeleteAccountDialogBetterAuthInner {...props} />;
-	}
-	if (isCognitoConfigured()) {
-		return <DeleteAccountDialogInner {...props} />;
-	}
+	const { Account } = useAuthProvider();
 	return (
-		<DeleteAccountDialogView {...props} accountEmail="" signOut={() => {}} />
+		<Account
+			fallback={
+				<DeleteAccountDialogView
+					{...props}
+					accountEmail=""
+					signOut={() => {}}
+				/>
+			}
+		>
+			{({ email, signOut }) => (
+				<DeleteAccountDialogView
+					{...props}
+					accountEmail={email ?? ""}
+					signOut={signOut}
+				/>
+			)}
+		</Account>
 	);
 }

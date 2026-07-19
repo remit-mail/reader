@@ -10,7 +10,6 @@ import { type FormEvent, type ReactNode, useState } from "react";
 import { AppShellSkeleton } from "@/components/layout/AppShellSkeleton";
 import { FatalErrorOverlay } from "@/components/ui/FatalErrorOverlay";
 import { authFooterNote } from "./account-menu-mode";
-import { isCognitoConfigured } from "./amplify-config";
 import {
 	type AuthRequest,
 	authInlineMessage,
@@ -182,7 +181,7 @@ export const SignInForm = () => {
 				<AuthFooter
 					note={authFooterNote({
 						betterAuthEnabled: isBetterAuthEnabled(),
-						cognitoConfigured: isCognitoConfigured(),
+						cognitoConfigured: false,
 					})}
 				/>
 			</AuthCard>

@@ -25,6 +25,7 @@
     "release": "node npm-scripts/publish-packages.mjs",
     "release:dry-run": "node npm-scripts/publish-packages.mjs --dry-run",
     "check:publish-closure": "node npm-scripts/check-publish-closure.mjs",
+    "check:web-client-consumer": "node npm-scripts/check-web-client-consumer.mjs",
     "bootstrap:publish-metadata": "node npm-scripts/set-publish-metadata.mjs",
     "images:publish": "bash npm-scripts/images-publish.sh"
   },

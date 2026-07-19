@@ -1,7 +1,7 @@
 import { messageOperationsDescribeMessageQueryKey } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
-import { fetchAuthToken } from "@/auth/auth-token";
+import { useAuthProvider } from "@/auth/provider";
 import {
 	type BodyContentKind,
 	pickRenderablePart,
@@ -181,9 +181,10 @@ export const isContentTypeMismatch = (
 export const fetchBodyContent = async (
 	url: string,
 	expected: BodyContentKind,
+	getToken: () => Promise<string | null> = async () => null,
 ): Promise<string> => {
 	const headers: Record<string, string> = {};
-	const token = await fetchAuthToken();
+	const token = await getToken();
 	if (token) headers.Authorization = `Bearer ${token}`;
 	const response = await fetch(url, { headers });
 	// 202 = the body is not synced yet. The content route has re-armed the sync
@@ -274,6 +275,7 @@ export const useMessageBodyContent = ({
 }: UseMessageBodyContentOptions) => {
 	const picked = bodyParts ? pickRenderablePart(bodyParts) : null;
 	const telemetry = useTelemetry();
+	const { getToken } = useAuthProvider();
 	const loadStartRef = useRef<number | null>(null);
 	const queryClient = useQueryClient();
 	// Set by `retryDelay` when a `not-ready` (202) failure is being retried, and
@@ -304,7 +306,7 @@ export const useMessageBodyContent = ({
 			pendingDescribeRefetchRef.current = false;
 			return fetchBodyContentAttempt(
 				{
-					fetchContent: fetchBodyContent,
+					fetchContent: (url, kind) => fetchBodyContent(url, kind, getToken),
 					refetchDescribeMessage: () =>
 						queryClient.refetchQueries({
 							queryKey: messageOperationsDescribeMessageQueryKey({

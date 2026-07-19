@@ -23,8 +23,14 @@ const amplifyConfigStubUrl = `${stubsDir}amplify-config.mjs`;
 const inWebClient = (url, sub) =>
 	url.includes(`/remit-web-client/${sub}`) || url.includes(`/web-client/${sub}`);
 
-const isAuthTokenSource = (url) => inWebClient(url, "src/auth/auth-token.ts");
 const isAppInfoSource = (url) => inWebClient(url, "src/lib/app-info.");
+
+// `amplify-config` snapshots the runtime config at module load, so a test that
+// re-imports the token module per case cannot flip "configured" through the real
+// module. The stub reads `__AMPLIFY_CONFIG_MOCKS__.configured` fresh, so route
+// the cognito token module's import to it.
+const isCognitoTokenSource = (url) =>
+	inWebClient(url, "src/auth/cognito/cognito-token.ts");
 
 export const resolve = async (specifier, context, nextResolve) => {
 	const stub = packageStubs.get(specifier);
@@ -32,14 +38,10 @@ export const resolve = async (specifier, context, nextResolve) => {
 
 	const parent = context?.parentURL ?? "";
 	if (
-		isAuthTokenSource(parent) &&
-		(specifier === "./amplify-config" || specifier === "./amplify-config.ts")
+		isCognitoTokenSource(parent) &&
+		(specifier === "../amplify-config" || specifier === "../amplify-config.ts")
 	) {
-		return {
-			url: amplifyConfigStubUrl,
-			shortCircuit: true,
-			format: "module",
-		};
+		return { url: amplifyConfigStubUrl, shortCircuit: true, format: "module" };
 	}
 
 	return nextResolve(specifier, context);

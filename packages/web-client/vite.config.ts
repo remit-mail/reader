@@ -1,21 +1,10 @@
-import { execSync } from "node:child_process";
 import os from "node:os";
-import path from "node:path";
-import tailwindcss from "@tailwindcss/vite";
-import { tanstackRouter } from "@tanstack/router-plugin/vite";
-import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
-
-function resolveGitSha(): string {
-	if (process.env.GITHUB_SHA) return process.env.GITHUB_SHA;
-	try {
-		return execSync("git rev-parse HEAD", { encoding: "utf8" }).trim();
-	} catch {
-		return "dev";
-	}
-}
-
-const APP_SHA = resolveGitSha();
+import {
+	webClientAlias,
+	webClientDefine,
+	webClientPlugins,
+} from "./vite.base.ts";
 
 // Serve /config.js from REMIT_RUNTIME_CONFIG (a JSON string) during dev so a run
 // mode can pick its runtime config — the dev-server equivalent of the static
@@ -37,24 +26,9 @@ function runtimeConfigDevServer(): Plugin {
 }
 
 export default defineConfig({
-	define: {
-		__APP_SHA__: JSON.stringify(APP_SHA),
-		__APP_BUILD_TIME__: JSON.stringify(new Date().toISOString()),
-	},
-	plugins: [
-		runtimeConfigDevServer(),
-		tanstackRouter({
-			target: "react",
-			autoCodeSplitting: true,
-		}),
-		react(),
-		tailwindcss(),
-	],
-	resolve: {
-		alias: {
-			"@": path.resolve(__dirname, "./src"),
-		},
-	},
+	define: webClientDefine(),
+	plugins: [runtimeConfigDevServer(), ...webClientPlugins()],
+	resolve: { alias: webClientAlias() },
 	server: {
 		host: "0.0.0.0",
 		allowedHosts: [

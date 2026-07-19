@@ -1,0 +1,21 @@
+/* Amplify ships an unlayered reset (`button, input { font-size: inherit }`)
+   that, being unlayered, outranks every Tailwind utility on form elements —
+   so text-sm/text-2xs on sidebar header buttons were ignored and inherited
+   the 16px body size. Importing it into the `amplify` cascade layer, declared
+   here before Tailwind, lets Tailwind's utilities win. Must be imported as
+   CSS (not via a JS `import "...styles.css"`, which lands unlayered).
+
+   This sheet ships ONLY in a build that composes the Cognito shell. A build
+   that omits Cognito never imports it, so the Amplify reset and the
+   Authenticator overrides below stay out of that bundle entirely. */
+@layer amplify;
+@import "@aws-amplify/ui-react/styles.css" layer(amplify);
+
+/* ------------------------------------------------------------------ */
+/* Auth page                                                          */
+/* The page frame (radial-gradient bg, centring, card max-width) lives */
+/* in the remit-ui <AuthCard> component. Amplify structural overrides  */
+/* below are unlayered so they beat both @layer amplify and Tailwind   */
+/* preflight; scoped to [data-auth-page] so nothing else is affected.  */
+/* ------------------------------------------------------------------ */
+@import "../auth.css";

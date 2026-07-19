@@ -1,7 +1,6 @@
-import { useAuthenticator } from "@aws-amplify/ui-react";
 import { AlertCircle, X } from "lucide-react";
 import { useState } from "react";
-import { isCognitoConfigured } from "@/auth/amplify-config";
+import { useAuthProvider } from "@/auth/provider";
 import {
 	contentForReason,
 	extractFallbackDetail,
@@ -14,38 +13,15 @@ interface MessageBodyErrorBannerProps {
 }
 
 /**
- * Sign-in button that pulls `signOut` from the Amplify Authenticator context.
- * Split into its own component so `useAuthenticator` is ONLY invoked when
- * Cognito is configured — i.e. when `AuthShell` actually mounted the
- * `Authenticator.Provider`. The hook throws `USE_AUTHENTICATOR_ERROR` when
- * called outside the Provider (see `@aws-amplify/ui-react-core` —
- * `useAuthenticator.ts` early-exits with `throw new Error(...)` if the
- * context is undefined), and React hooks can't be conditional, so the
- * conditional has to live one level up at the component-mount boundary.
- *
- * Signing out flips `AuthShell` back to the sign-in form; we don't ship a
- * standalone sign-in route — the Amplify Authenticator handles it.
- */
-const SignInAgainButton = () => {
-	const { signOut } = useAuthenticator((ctx) => [ctx.signOut]);
-	return (
-		<button
-			type="button"
-			onClick={() => signOut()}
-			className="text-sm font-medium text-accent hover:underline"
-		>
-			Sign in again
-		</button>
-	);
-};
-
-/**
  * Inline alert banner for a body-fetch failure. Renders variant-specific copy
  * for auth-expired vs. body-missing-in-storage 403s (issue #401), with a
  * Retry button (always) and a Sign-in button (auth variant only, and only
- * when Cognito is configured — local-dev runs without the Authenticator
- * provider). Dismissible — once dismissed, the message body area falls back
- * to an empty state until Retry is clicked.
+ * when a session is active to sign out of). Dismissible — once dismissed, the
+ * message body area falls back to an empty state until Retry is clicked.
+ *
+ * The sign-in affordance goes through the composed auth provider's `Account`
+ * render-prop: it renders only when there is a session to sign out of, so no
+ * identity SDK hook fires in a build (or a local-dev run) that has none.
  *
  * Uses the same destructive colour palette as `ErrorState(variant="inline")`
  * so it looks at home in the message body slot.
@@ -58,15 +34,9 @@ export const MessageBodyErrorBanner = ({
 	const fallback = extractFallbackDetail(error);
 	const { title, detail } = contentForReason(reason, fallback);
 	const [dismissed, setDismissed] = useState(false);
+	const { Account } = useAuthProvider();
 
 	if (dismissed) return null;
-
-	// Gate the `useAuthenticator`-using subcomponent on Cognito being
-	// configured. In local-dev (`isCognitoConfigured() === false`),
-	// `AuthShell` renders children without `Authenticator.Provider`, and
-	// calling `useAuthenticator` would throw and crash this whole subtree —
-	// the SPA has no error boundary above MessageBody.
-	const showSignIn = reason === "auth" && isCognitoConfigured();
 
 	return (
 		<div
@@ -84,7 +54,19 @@ export const MessageBodyErrorBanner = ({
 				<p className="text-fg-muted mt-1 break-words">{detail}</p>
 			</div>
 			<div className="flex shrink-0 items-center gap-3">
-				{showSignIn && <SignInAgainButton />}
+				{reason === "auth" && (
+					<Account>
+						{({ signOut }) => (
+							<button
+								type="button"
+								onClick={() => signOut()}
+								className="text-sm font-medium text-accent hover:underline"
+							>
+								Sign in again
+							</button>
+						)}
+					</Account>
+				)}
 				{onRetry && (
 					<button
 						type="button"

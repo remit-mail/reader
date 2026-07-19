@@ -1,12 +1,3 @@
-/* Amplify ships an unlayered reset (`button, input { font-size: inherit }`)
-   that, being unlayered, outranks every Tailwind utility on form elements —
-   so text-sm/text-2xs on sidebar header buttons were ignored and inherited
-   the 16px body size. Importing it into the `amplify` cascade layer, declared
-   here before Tailwind, lets Tailwind's utilities win. Must be imported as
-   CSS (not via a JS `import "...styles.css"`, which lands unlayered). */
-@layer amplify;
-@import "@aws-amplify/ui-react/styles.css" layer(amplify);
-
 /* remit-ui owns @import "tailwindcss", the @theme token block, :root and
    .dark — importing its token sheet gives the web client the full design
    system. The @custom-variant dark declaration inside tokens.css covers
@@ -26,12 +17,3 @@
 .overflow-y-auto::-webkit-scrollbar {
   display: none; /* Chrome, Safari, Opera */
 }
-
-/* ------------------------------------------------------------------ */
-/* Auth page                                                          */
-/* The page frame (radial-gradient bg, centring, card max-width) lives */
-/* in the remit-ui <AuthCard> component. Amplify structural overrides  */
-/* below are unlayered so they beat both @layer amplify and Tailwind   */
-/* preflight; scoped to [data-auth-page] so nothing else is affected.  */
-/* ------------------------------------------------------------------ */
-@import "./auth/auth.css";

@@ -51,6 +51,13 @@ jobs:
           npm install @remit/backend --loglevel=error
           node -e "for (const p of ['@remit/backend','@remit/data-ports','@remit/drizzle-service','@remit/domain-enums','@remit/api-openapi-types','@remit/mailbox-service','@remit/search-service','@remit/storage-service','@remit/auth-service','@remit/secrets-service','@remit/sqs-client','@remit/mail-oauth-service','@remit/logger-lambda','@remit/api-zod-schemas','@remit/drizzle-pg-schema','@remit/drizzle-sqlite-schema']) require.resolve(p)"
 
+      # Consumer-side acceptance for the web client's published build surface:
+      # off the packed tarball, assert the harness toolchain is declared (not
+      # devDependencies-only) and that `./vite-preset` plus its toolchain imports
+      # resolve in a clean dir with only the declared peers installed.
+      - name: Web client consumer acceptance
+        run: npm run check:web-client-consumer
+
   publish:
     if: github.event_name == 'push' && vars.NPM_PUBLISH_ENABLED == 'true'
     runs-on: ubuntu-latest
