@@ -711,14 +711,13 @@ export class BodySyncService {
 	}
 
 	/**
-	 * Pure header classification. Returns the subset of the Message update that
-	 * carries the derived fields; the caller folds it into a single UpdateItem
-	 * alongside `bodyStorageKey`. Optional signals are omitted when absent so we
-	 * never overwrite an existing value with `undefined`.
-	 */
-	/**
-	 * Classify a message whose body is already stored but whose `category` is
-	 * still `uncategorized`, reading the body from storage instead of IMAP.
+	 * Classify a message whose body is already stored but which carries no
+	 * decided category, reading the body from storage instead of IMAP.
+	 *
+	 * "No decided category" is `uncategorized` OR the field being absent: rows
+	 * written before the column existed have no value at all, and treating that
+	 * as already-classified would strand exactly the oldest mail this backfill
+	 * exists to reach.
 	 *
 	 * Deliberately narrower than {@link applyPostStoreSteps}: it writes the
 	 * derived classification fields and the denormalized ThreadMessage category,
@@ -737,7 +736,12 @@ export class BodySyncService {
 		accountConfigId: string,
 	): Promise<void> {
 		if (!message.bodyStorageKey) return;
-		if (message.category !== MessageCategory.uncategorized) return;
+		if (
+			message.category !== undefined &&
+			message.category !== MessageCategory.uncategorized
+		) {
+			return;
+		}
 
 		const body = await this.storageService.retrieve(message.bodyStorageKey);
 		const parsed = await simpleParser(body);
@@ -756,6 +760,12 @@ export class BodySyncService {
 		);
 	}
 
+	/**
+	 * Pure header classification. Returns the subset of the Message update that
+	 * carries the derived fields; the caller folds it into a single UpdateItem
+	 * alongside `bodyStorageKey`. Optional signals are omitted when absent so we
+	 * never overwrite an existing value with `undefined`.
+	 */
 	private classifyMessage(
 		parsed: ParsedMail,
 	): UpdateMessageInput & { category: ThreadMessageCategory } {

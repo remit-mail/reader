@@ -21,12 +21,18 @@ export interface Message {
 	/** The reply chain, root first, as RFC 5322 References. */
 	references?: string[];
 	/**
-	 * Extra header lines, in order, written verbatim above the body. This is how
-	 * a spec reproduces the mail a real bulk sender emits — `List-Unsubscribe`,
-	 * `List-ID`, `Precedence`, `DKIM-Signature` — which is what the classifier
-	 * reads and what a synthetic one-header fixture cannot express.
+	 * Extra header lines, written verbatim above the body in the order given.
+	 * This is how a spec reproduces the mail a real bulk sender emits —
+	 * `List-Unsubscribe`, `List-ID`, `Precedence`, `DKIM-Signature` — which is
+	 * what the classifier reads and what a synthetic one-header fixture cannot
+	 * express.
+	 *
+	 * A list of pairs rather than an object: real mail repeats header names
+	 * (several `DKIM-Signature` lines, several `Received` lines), and the order
+	 * of those repeats is part of what is under test. An object can express
+	 * neither.
 	 */
-	headers?: Record<string, string>;
+	headers?: ReadonlyArray<readonly [name: string, value: string]>;
 }
 
 const rfc5322 = (message: Message, recipient: string): string => {
@@ -36,7 +42,7 @@ const rfc5322 = (message: Message, recipient: string): string => {
 	const messageId =
 		message.messageIdHeader ??
 		`<${Math.random().toString(36).slice(2)}@remit.test>`;
-	const extra = Object.entries(message.headers ?? {}).map(
+	const extra = (message.headers ?? []).map(
 		([name, value]) => `${name}: ${value}`,
 	);
 	return [

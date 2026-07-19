@@ -26,8 +26,9 @@ export interface Thread {
 	fromEmail?: string;
 	isRead?: boolean;
 	/**
-	 * Header-derived category. `uncategorized` until the message is
-	 * body-classified, and never absent — the contract is total.
+	 * Header-derived category. Carries `uncategorized` until the message is
+	 * body-classified; omitted only when the underlying message row cannot be
+	 * resolved, which is why it stays optional here.
 	 */
 	category?: string;
 }

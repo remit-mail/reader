@@ -173,6 +173,33 @@ describe("body-sync classification backfill", () => {
 		assert.deepEqual(harness.retrieved, ["s3://bodies/m-1"]);
 	});
 
+	it("classifies a message whose category field is absent entirely", async () => {
+		// Rows written before the column existed carry no value at all. Reading
+		// that as "already classified" would strand the oldest mail — exactly
+		// what this backfill exists to reach.
+		const harness = buildHarness([
+			{
+				messageId: "m-1",
+				bodyStorageKey: "s3://bodies/m-1",
+				category: undefined,
+			},
+		]);
+
+		await harness.service.syncBodies(
+			["m-1"],
+			"acc-1",
+			"cfg-1",
+			"INBOX",
+			failingConnection,
+		);
+
+		assert.equal(harness.messageUpdates.length, 1);
+		assert.equal(
+			harness.messageUpdates[0].input.category,
+			MessageCategory.social,
+		);
+	});
+
 	it("leaves an already-classified message untouched", async () => {
 		const harness = buildHarness([
 			{ ...stored("m-1"), category: MessageCategory.marketing },

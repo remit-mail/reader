@@ -34,10 +34,12 @@ export const buildClassificationFixtures = (): ClassificationFixture[] => {
 			message: {
 				subject: `Your build failed ${tag}`,
 				from: "CircleCI <no-reply@circleci.test>",
-				headers: {
-					"DKIM-Signature":
+				headers: [
+					[
+						"DKIM-Signature",
 						"v=1; a=rsa-sha256; d=circleci.test; s=s1; h=from:to",
-				},
+					],
+				],
 			},
 		},
 		{
@@ -48,7 +50,7 @@ export const buildClassificationFixtures = (): ClassificationFixture[] => {
 			message: {
 				subject: `A new version was published ${tag}`,
 				from: "npm <notifications@npmjs.test>",
-				headers: { "Feedback-ID": "1.eu-west-1.abc:AmazonSES" },
+				headers: [["Feedback-ID", "1.eu-west-1.abc:AmazonSES"]],
 			},
 		},
 		{
@@ -59,11 +61,11 @@ export const buildClassificationFixtures = (): ClassificationFixture[] => {
 			message: {
 				subject: `50% off everything ${tag}`,
 				from: "Shop <deals@shop.test>",
-				headers: {
-					Precedence: "bulk",
-					"List-Unsubscribe": "<https://shop.test/unsub>",
-					"List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
-				},
+				headers: [
+					["Precedence", "bulk"],
+					["List-Unsubscribe", "<https://shop.test/unsub>"],
+					["List-Unsubscribe-Post", "List-Unsubscribe=One-Click"],
+				],
 			},
 		},
 		{
@@ -72,11 +74,11 @@ export const buildClassificationFixtures = (): ClassificationFixture[] => {
 			message: {
 				subject: `This week's issue ${tag}`,
 				from: "Some Writer <writer@letter.test>",
-				headers: {
-					Precedence: "list",
-					"List-ID": "<someletter.letter.test>",
-					"List-Unsubscribe": "<https://letter.test/unsub>",
-				},
+				headers: [
+					["Precedence", "list"],
+					["List-ID", "<someletter.letter.test>"],
+					["List-Unsubscribe", "<https://letter.test/unsub>"],
+				],
 			},
 		},
 		{
@@ -87,9 +89,7 @@ export const buildClassificationFixtures = (): ClassificationFixture[] => {
 			message: {
 				subject: `You have a new invitation ${tag}`,
 				from: "LinkedIn <messages-noreply@linkedin.com>",
-				headers: {
-					"List-Unsubscribe": "<https://www.linkedin.com/e/unsub>",
-				},
+				headers: [["List-Unsubscribe", "<https://www.linkedin.com/e/unsub>"]],
 			},
 		},
 		{
@@ -100,11 +100,11 @@ export const buildClassificationFixtures = (): ClassificationFixture[] => {
 			message: {
 				subject: `[org/repo] Fix the thing ${tag}`,
 				from: "contributor <notifications@github.com>",
-				headers: {
-					Precedence: "list",
-					"List-ID": "org/repo <repo.org.github.com>",
-					"List-Unsubscribe": "<https://github.com/unsub>",
-				},
+				headers: [
+					["Precedence", "list"],
+					["List-ID", "org/repo <repo.org.github.com>"],
+					["List-Unsubscribe", "<https://github.com/unsub>"],
+				],
 			},
 		},
 		{
