@@ -27,6 +27,16 @@ export interface Thread {
 	isRead?: boolean;
 }
 
+export interface ThreadMessage {
+	threadMessageId: string;
+	messageId: string;
+	mailboxId: string;
+	subject?: string;
+	fromEmail?: string;
+	fromName?: string;
+	sentDate?: number;
+}
+
 interface ResultList<T> {
 	items: T[];
 	continuationToken?: string;
@@ -151,6 +161,18 @@ export class ApiClient {
 		const result = await this.json<ResultList<Thread>>(
 			"GET",
 			`/mailboxes/${mailboxId}/threads`,
+		);
+		return result.items ?? [];
+	}
+
+	/**
+	 * A whole conversation, oldest first. The endpoint is deliberately not given
+	 * a mailbox: a thread spans every folder the account holds a message in.
+	 */
+	async listThreadMessages(threadId: string): Promise<ThreadMessage[]> {
+		const result = await this.json<ResultList<ThreadMessage>>(
+			"GET",
+			`/threads/${threadId}/messages?order=asc`,
 		);
 		return result.items ?? [];
 	}

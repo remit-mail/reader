@@ -164,6 +164,113 @@ describe("DrizzleThreadMessageRepository (sqlite)", () => {
 		assert.ok(n >= 1);
 	});
 
+	test("listByThread returns inbox and sent messages interleaved in order", async () => {
+		const acct = "acct-conversation";
+		const threadId = "t-conversation";
+		const inbox = "mbx-inbox";
+		const sent = "mbx-sent";
+		const base = Date.now();
+		const turns = [
+			{ mailboxId: inbox, subject: "Databricks pricing", at: base },
+			{ mailboxId: sent, subject: "Re: Databricks pricing", at: base + 1000 },
+			{ mailboxId: inbox, subject: "Re: Databricks pricing", at: base + 2000 },
+			{ mailboxId: sent, subject: "Re: Databricks pricing", at: base + 3000 },
+		];
+		for (const [index, turn] of turns.entries()) {
+			await repo.create(
+				makeInput({
+					accountConfigId: acct,
+					threadId,
+					messageId: `m-conversation-${index}`,
+					mailboxId: turn.mailboxId,
+					subject: turn.subject,
+					referenceOrder: index,
+					internalDate: turn.at,
+					sentDate: turn.at,
+				}),
+			);
+		}
+
+		const ascending = await repo.listByThread(threadId, acct, {
+			order: "asc",
+			excludeDeleted: true,
+		});
+		assert.deepEqual(
+			ascending.items.map((item) => item.mailboxId),
+			[inbox, sent, inbox, sent],
+			"the conversation carries both received and sent messages, oldest first",
+		);
+
+		const descending = await repo.listByThread(threadId, acct, {
+			order: "desc",
+			excludeDeleted: true,
+		});
+		assert.deepEqual(
+			descending.items.map((item) => item.mailboxId),
+			[sent, inbox, sent, inbox],
+			"reversing the order reverses the conversation",
+		);
+	});
+
+	test("listByThread excludes soft-deleted messages but keeps the rest of the conversation", async () => {
+		const acct = "acct-conversation-deleted";
+		const threadId = "t-conversation-deleted";
+		const base = Date.now();
+		const kept = await repo.create(
+			makeInput({
+				accountConfigId: acct,
+				threadId,
+				messageId: "m-kept",
+				mailboxId: "mbx-sent",
+				internalDate: base,
+				sentDate: base,
+			}),
+		);
+		await repo.create(
+			makeInput({
+				accountConfigId: acct,
+				threadId,
+				messageId: "m-trashed",
+				mailboxId: "mbx-trash",
+				isDeleted: true,
+				internalDate: base + 1000,
+				sentDate: base + 1000,
+			}),
+		);
+
+		const result = await repo.listByThread(threadId, acct, {
+			excludeDeleted: true,
+		});
+		assert.deepEqual(
+			result.items.map((item) => item.threadMessageId),
+			[kept.threadMessageId],
+		);
+	});
+
+	test("listByThread scopes to the account config", async () => {
+		const threadId = "t-shared-id";
+		await repo.create(
+			makeInput({
+				accountConfigId: "acct-mine",
+				threadId,
+				messageId: "m-mine",
+			}),
+		);
+		await repo.create(
+			makeInput({
+				accountConfigId: "acct-theirs",
+				threadId,
+				messageId: "m-theirs",
+			}),
+		);
+
+		const mine = await repo.listByThread(threadId, "acct-mine");
+		assert.deepEqual(
+			mine.items.map((item) => item.messageId),
+			["m-mine"],
+		);
+	});
+
 	test("listByDate paginates with a stable keyset cursor", async () => {
 		const acct = "acct-page";
 		const base = Date.now();

@@ -16,6 +16,10 @@ export interface Message {
 	body?: string;
 	messageIdHeader?: string;
 	date?: Date;
+	/** The Message-ID this message replies to, as RFC 5322 In-Reply-To. */
+	inReplyTo?: string;
+	/** The reply chain, root first, as RFC 5322 References. */
+	references?: string[];
 }
 
 const rfc5322 = (message: Message, recipient: string): string => {
@@ -31,6 +35,10 @@ const rfc5322 = (message: Message, recipient: string): string => {
 		`Subject: ${message.subject}`,
 		`Date: ${date}`,
 		`Message-ID: ${messageId}`,
+		...(message.inReplyTo ? [`In-Reply-To: ${message.inReplyTo}`] : []),
+		...(message.references?.length
+			? [`References: ${message.references.join(" ")}`]
+			: []),
 		"MIME-Version: 1.0",
 		'Content-Type: text/plain; charset="utf-8"',
 		"",

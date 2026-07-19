@@ -41,11 +41,34 @@ interface SnapshotEntry<T> {
 
 interface MarkAsReadContext {
 	threadMessagesPrefix: readonly unknown[];
-	threadsListPrefix: readonly unknown[];
-	threadsSearchPrefix: readonly unknown[];
+	threadsListPrefixes: ReadonlyArray<readonly unknown[]>;
+	threadsSearchPrefixes: ReadonlyArray<readonly unknown[]>;
 	previousThreadMessages: SnapshotEntry<ThreadMessagesData>[];
 	previousThreadsList: SnapshotEntry<ThreadsListData>[];
 }
+
+/**
+ * The mailboxes whose cached listings a batch of message mutations affects.
+ *
+ * A conversation spans mailboxes (#46), so marking a thread read can touch a
+ * received message in INBOX and the user's own reply in Sent at once, and each
+ * one's lists live under its own mailbox key. Falls back to the browsed mailbox
+ * for ids the thread's messages do not cover.
+ */
+export const resolveMailboxesForMessages = (
+	messageIds: Iterable<string>,
+	messages: RemitImapThreadMessageResponse[],
+	fallbackMailboxId: string,
+): string[] => {
+	const byMessageId = new Map(
+		messages.map((message) => [message.messageId, message.mailboxId]),
+	);
+	const mailboxIds = new Set<string>();
+	for (const messageId of messageIds) {
+		mailboxIds.add(byMessageId.get(messageId) ?? fallbackMailboxId);
+	}
+	return [...mailboxIds];
+};
 
 const setReadOnItems = (
 	items: RemitImapThreadMessageResponse[],
@@ -101,17 +124,26 @@ export const useMarkAsRead = ({
 				threadDetailOperationsListThreadMessagesQueryKey({
 					path: { threadId },
 				});
-			const threadsListPrefix = threadOperationsListThreadsQueryKey({
-				path: { mailboxId },
-			});
-			const threadsSearchPrefix = threadOperationsSearchThreadsQueryKey({
-				path: { mailboxId },
-			});
+			const affectedMailboxIds = resolveMailboxesForMessages(
+				messageIds,
+				messages,
+				mailboxId,
+			);
+			const threadsListPrefixes = affectedMailboxIds.map((id) =>
+				threadOperationsListThreadsQueryKey({ path: { mailboxId: id } }),
+			);
+			const threadsSearchPrefixes = affectedMailboxIds.map((id) =>
+				threadOperationsSearchThreadsQueryKey({ path: { mailboxId: id } }),
+			);
 
 			await Promise.all([
 				queryClient.cancelQueries({ queryKey: threadMessagesPrefix }),
-				queryClient.cancelQueries({ queryKey: threadsListPrefix }),
-				queryClient.cancelQueries({ queryKey: threadsSearchPrefix }),
+				...threadsListPrefixes.map((queryKey) =>
+					queryClient.cancelQueries({ queryKey }),
+				),
+				...threadsSearchPrefixes.map((queryKey) =>
+					queryClient.cancelQueries({ queryKey }),
+				),
 			]);
 
 			const previousThreadMessages = queryClient
@@ -122,12 +154,12 @@ export const useMarkAsRead = ({
 				)
 				.map(([queryKey, data]) => ({ queryKey, data }));
 
-			const previousThreadsList = queryClient
-				.getQueriesData<ThreadsListData>({ queryKey: threadsListPrefix })
-				.concat(
-					queryClient.getQueriesData<ThreadsListData>({
-						queryKey: threadsSearchPrefix,
-					}),
+			const previousThreadsList = [
+				...threadsListPrefixes,
+				...threadsSearchPrefixes,
+			]
+				.flatMap((queryKey) =>
+					queryClient.getQueriesData<ThreadsListData>({ queryKey }),
 				)
 				.filter(
 					(entry): entry is [readonly unknown[], ThreadsListData] =>
@@ -157,19 +189,20 @@ export const useMarkAsRead = ({
 				};
 			};
 
-			queryClient.setQueriesData<ThreadsListData>(
-				{ queryKey: threadsListPrefix },
-				patchListData,
-			);
-			queryClient.setQueriesData<ThreadsListData>(
-				{ queryKey: threadsSearchPrefix },
-				patchListData,
-			);
+			for (const queryKey of [
+				...threadsListPrefixes,
+				...threadsSearchPrefixes,
+			]) {
+				queryClient.setQueriesData<ThreadsListData>(
+					{ queryKey },
+					patchListData,
+				);
+			}
 
 			return {
 				threadMessagesPrefix,
-				threadsListPrefix,
-				threadsSearchPrefix,
+				threadsListPrefixes,
+				threadsSearchPrefixes,
 				previousThreadMessages,
 				previousThreadsList,
 			};
@@ -203,8 +236,12 @@ export const useMarkAsRead = ({
 		onSettled: (_data, _err, _vars, context) => {
 			if (!context) return;
 			queryClient.invalidateQueries({ queryKey: context.threadMessagesPrefix });
-			queryClient.invalidateQueries({ queryKey: context.threadsListPrefix });
-			queryClient.invalidateQueries({ queryKey: context.threadsSearchPrefix });
+			for (const queryKey of [
+				...context.threadsListPrefixes,
+				...context.threadsSearchPrefixes,
+			]) {
+				queryClient.invalidateQueries({ queryKey });
+			}
 			// Refresh the sidebar mailbox list so the unread badge picks up the
 			// next backend `unseenCount` (which is owned by IMAP sync).
 			if (accountId) {

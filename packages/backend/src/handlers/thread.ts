@@ -5,6 +5,7 @@ import type {
 } from "@remit/api-openapi-types";
 import type { ResultList, ThreadMessageItem } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
+import { isValidMessageId } from "@remit/data-ports/id";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent } from "../auth.js";
@@ -246,15 +247,67 @@ export const executeThreadSearch = async (
  * Build the `listByThread` options for the thread-messages handler. Same
  * #212 default as the listing handlers — a soft-deleted message inside a
  * conversation should not surface in the conversation pane either.
+ *
+ * A conversation is never scoped to one mailbox: the user's own replies live
+ * in Sent, filed messages live in their folder, and all of them belong to the
+ * same thread (#46).
  */
 export const buildListThreadMessagesOptions = (query: {
 	order?: "asc" | "desc";
-	mailboxId?: string;
 }) => ({
 	order: query.order ?? ("desc" as const),
-	mailboxId: query.mailboxId,
 	excludeDeleted: true,
 });
+
+/**
+ * Collapse rows that are the same piece of mail to one entry.
+ *
+ * A ThreadMessage row is keyed by (threadId, messageId), and a messageId is
+ * derived from the account plus the RFC 5322 Message-ID, so the same mail
+ * synced from two folders is one row — the mailbox a thread spans is not what
+ * duplicates it. `MessageMoveService.copyMessage` is the exception: it mints a
+ * random id for the copy, so a copied message becomes a second row in the same
+ * thread carrying the same `messageIdHeader`. Reading the whole thread rather
+ * than one mailbox of it (#46) is what makes both rows visible at once, and two
+ * entries for one message is never what a conversation should show.
+ *
+ * The oldest row wins, so the original outlives the copy, with `threadMessageId`
+ * breaking ties. Both are independent of sort order, so `asc` and `desc` keep
+ * the same message rather than each keeping a different copy of it.
+ *
+ * A row without a usable `messageIdHeader` is never merged: the fallback
+ * identity for headerless mail is per-row by construction, so two such rows are
+ * two distinct messages.
+ */
+export const dedupeThreadMessages = <
+	T extends Pick<
+		ThreadMessageItem,
+		"threadMessageId" | "messageIdHeader" | "createdAt"
+	>,
+>(
+	rows: T[],
+): T[] => {
+	const winners = new Map<string, T>();
+
+	for (const row of rows) {
+		if (!isValidMessageId(row.messageIdHeader)) continue;
+		const header = (row.messageIdHeader as string).trim();
+		const held = winners.get(header);
+		if (
+			!held ||
+			row.createdAt < held.createdAt ||
+			(row.createdAt === held.createdAt &&
+				row.threadMessageId < held.threadMessageId)
+		) {
+			winners.set(header, row);
+		}
+	}
+
+	return rows.filter((row) => {
+		if (!isValidMessageId(row.messageIdHeader)) return true;
+		return winners.get((row.messageIdHeader as string).trim()) === row;
+	});
+};
 
 export const ThreadOperations: Record<
 	ThreadOperationIds,
@@ -330,16 +383,15 @@ export const ThreadDetailOperations: Record<
 		const event = args[0] as APIGatewayProxyEvent;
 		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const { threadId } = context.request.params as { threadId: string };
-		const { order, mailboxId } = context.request.query as {
+		const { order } = context.request.query as {
 			order?: "asc" | "desc";
-			mailboxId?: string;
 		};
 
 		const client = await getClient();
 		const result = await client.threadMessage.listByThread(
 			threadId,
 			accountConfigId,
-			buildListThreadMessagesOptions({ order, mailboxId }),
+			buildListThreadMessagesOptions({ order }),
 		);
 
 		// Defense-in-depth: the query is already scoped to accountConfigId; assert
@@ -351,7 +403,11 @@ export const ThreadDetailOperations: Record<
 			}
 		}
 
-		const items = await enrichThreadRows(result.items, client, accountConfigId);
+		const items = await enrichThreadRows(
+			dedupeThreadMessages(result.items),
+			client,
+			accountConfigId,
+		);
 
 		return {
 			items,
