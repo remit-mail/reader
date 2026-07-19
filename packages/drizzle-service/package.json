@@ -21,9 +21,7 @@
   },
   "devDependencies": {
     "@remit/api-zod-schemas": "*",
-    "@types/better-sqlite3": "^7.6.13",
     "@types/pg": "^8.0.0",
-    "better-sqlite3": "^12.11.1",
     "drizzle-kit": "^0.31.1",
     "embedded-postgres": "^18.4.0-beta.17",
     "tsx": "*",
@@ -38,7 +36,9 @@
     "short-uuid": "*",
     "uuid": "*",
     "@remit/drizzle-pg-schema": "*",
-    "@remit/drizzle-sqlite-schema": "*"
+    "@remit/drizzle-sqlite-schema": "*",
+    "better-sqlite3": "^12.11.1",
+    "@types/better-sqlite3": "^7.6.13"
   },
   "license": "MIT",
   "publishConfig": {

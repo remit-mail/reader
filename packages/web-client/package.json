@@ -56,7 +56,8 @@
     "@vitejs/plugin-react": "^4",
     "@tailwindcss/vite": "^4",
     "tailwindcss": "^4",
-    "@tanstack/router-plugin": "^1"
+    "@tanstack/router-plugin": "^1",
+    "@types/react-dom": "^19"
   },
   "peerDependenciesMeta": {
     "vite": { "optional": true },
@@ -96,7 +97,8 @@
     "react-resizable-panels": "^2.1.9",
     "tailwind-merge": "^2",
     "vaul": "^1.1.2",
-    "zod": "^3"
+    "zod": "^3",
+    "@types/dompurify": "*"
   },
   "devDependencies": {
     "@aws-sdk/client-dynamodb": "*",
@@ -111,9 +113,7 @@
     "@tailwindcss/vite": "^4",
     "@tanstack/router-generator": "^1",
     "@tanstack/router-plugin": "^1",
-    "@types/dompurify": "*",
     "@types/pngjs": "^6.0.5",
-    "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^4",
     "electrodb": "*",
     "esbuild": "*",

@@ -24,16 +24,10 @@
 		"test": "npm run test:typecheck && npm run test:run"
 	},
 	"devDependencies": {
-		"@aws-sdk/client-sqs": "*",
-		"@aws-sdk/client-ssm": "*",
 		"@aws-sdk/core": "*",
 		"@remit/storage-service": "*",
-		"@types/aws-lambda": "*",
-		"@types/nodemailer": "*",
 		"aws-sdk-client-mock": "*",
-		"esbuild": "^0.27.7",
-		"expect-env": "*",
-		"p-map": "*"
+		"esbuild": "^0.27.7"
 	},
 	"dependencies": {
 		"@aws-sdk/client-s3": "^3.1055.0",
@@ -46,7 +40,13 @@
 		"@remit/backend": "*",
 		"@remit/domain-enums": "*",
 		"@remit/mail-oauth-service": "*",
-		"@remit/secrets-service": "*"
+		"@remit/secrets-service": "*",
+		"@aws-sdk/client-sqs": "*",
+		"@aws-sdk/client-ssm": "*",
+		"expect-env": "*",
+		"p-map": "*",
+		"@types/aws-lambda": "*",
+		"@types/nodemailer": "*"
 	},
 	"license": "MIT",
 	"publishConfig": {

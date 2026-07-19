@@ -17,10 +17,10 @@
 	},
 	"dependencies": {
 		"@aws-lambda-powertools/logger": "^2",
-		"@aws-lambda-powertools/metrics": "^2"
+		"@aws-lambda-powertools/metrics": "^2",
+		"@types/aws-lambda": "*"
 	},
 	"devDependencies": {
-		"@types/aws-lambda": "*",
 		"vitest": "*"
 	},
 	"license": "MIT",

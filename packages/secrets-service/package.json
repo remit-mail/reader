@@ -15,9 +15,6 @@
 		"test:run": "node --env-file=../../localhost-test-unit.env --test 'src/**/*.test.ts'",
 		"test": "npm run test:typecheck && npm run test:run"
 	},
-	"devDependencies": {
-		"@aws-sdk/client-kms": "*"
-	},
 	"license": "MIT",
 	"publishConfig": {
 		"access": "public"
@@ -26,5 +23,8 @@
 		"type": "git",
 		"url": "git+https://github.com/remit-mail/reader.git",
 		"directory": "packages/secrets-service"
+	},
+	"dependencies": {
+		"@aws-sdk/client-kms": "*"
 	}
 }

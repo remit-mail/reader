@@ -20,12 +20,12 @@
 		"test": "npm run test:typecheck && npm run test:run"
 	},
 	"dependencies": {
-		"better-sqlite3": "^12.11.1"
+		"better-sqlite3": "^12.11.1",
+		"@types/better-sqlite3": "^7.6.13"
 	},
 	"devDependencies": {
 		"@aws-sdk/client-sqs": "*",
-		"@aws-sdk/core": "*",
-		"@types/better-sqlite3": "^7.6.13"
+		"@aws-sdk/core": "*"
 	},
 	"license": "MIT",
 	"publishConfig": {

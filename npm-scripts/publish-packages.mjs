@@ -230,6 +230,23 @@ const packCheck = (pkgDir) =>
 console.log("Checking publish closure...\n");
 run("node", ["npm-scripts/check-publish-closure.mjs"], { cwd: repoRoot, stdio: "inherit" });
 
+// The dry run is the pre-publish gate every pull request passes. Verify the
+// closure guard's own logic, then compile a clean-install consumer against the
+// heaviest package so a missing @types — which the static scan cannot see —
+// fails here rather than in a downstream build.
+if (dryRun) {
+	console.log("\nVerifying publish-closure guard...\n");
+	run("node", ["--test", "npm-scripts/lib/publish-closure.test.mjs"], {
+		cwd: repoRoot,
+		stdio: "inherit",
+	});
+	console.log("\nConsumer typecheck acceptance...\n");
+	run("node", ["npm-scripts/check-consumer-typecheck.mjs"], {
+		cwd: repoRoot,
+		stdio: "inherit",
+	});
+}
+
 const packages = [...generated, ...workspacePackages()];
 const summary = [];
 const failures = [];

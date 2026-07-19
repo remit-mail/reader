@@ -44,14 +44,15 @@
 		"p-limit": "^6.2.0",
 		"pg": "^8.0.0",
 		"sqlite-vec": "^0.1.9",
-		"zod": "*"
-	},
-	"devDependencies": {
+		"zod": "*",
 		"@aws-sdk/client-bedrock-runtime": "*",
 		"@aws-sdk/client-s3vectors": "*",
-		"@remit/storage-service": "*",
+		"@smithy/types": "^4.16.1",
 		"@types/better-sqlite3": "^7.6.13",
-		"@types/pg": "^8.20.0",
+		"@types/pg": "^8.20.0"
+	},
+	"devDependencies": {
+		"@remit/storage-service": "*",
 		"aws-sdk-client-mock": "*"
 	},
 	"license": "MIT",

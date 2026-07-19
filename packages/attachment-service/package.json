@@ -24,9 +24,7 @@
 		"file-type": "^22.0.1",
 		"mammoth": "^1.12.0",
 		"pdf-parse": "^2.4.5",
-		"word-extractor": "^1.0.4"
-	},
-	"devDependencies": {
+		"word-extractor": "^1.0.4",
 		"@types/word-extractor": "^1.0.6"
 	},
 	"license": "MIT",
