@@ -51,9 +51,8 @@ file or the Caddy files are replaced — pin the image version through
 file.
 
 Then visit `$REMIT_ORIGIN` — the installer prints it when it finishes. The first
-sign-up on that page
-creates your account; every subsequent IMAP account is added from the app
-itself (Settings → Add account).
+sign-up on that page creates your account; every subsequent IMAP account is
+added from the app itself (Settings → Add account).
 
 ## Managing the deployment
 
@@ -62,7 +61,7 @@ default) and ships `remit`, which knows that directory and the compose file in
 it. It is the interface to the deployment and runs from anywhere:
 
 ```bash
-remit status              # what is running, on which tag
+remit status              # what is running, and whether the origin reaches it
 remit logs [service…]     # follow the logs
 remit restart             # apply an edit to .env
 remit update              # pull the current images and apply them
@@ -99,6 +98,22 @@ configuration changed.
 A few operations below still show a raw `docker compose` line. Those are
 escape hatches: one-off or rarely-needed things the wrapper deliberately has no
 command for.
+
+## When the app is unreachable
+
+Run `remit status` first. Besides the service table it checks the name in
+`PUBLIC_ORIGIN` from this box: what it resolves to, whether this host actually
+holds that address, and whether the origin answers.
+
+The failure worth knowing about is the one nothing else reports: every container
+is up, the box serves fine, and the browser hangs anyway, because the name
+resolves somewhere else — a record left from an earlier origin, or a stale
+answer cached by the client's resolver or MagicDNS. From the box the name works,
+so nothing looks wrong. `remit status` says `this host does not hold that
+address` when that is what happened; fix the record, then flush the resolver
+cache on the machine you browse from. A name that resolves to loopback is the
+same blind spot pointing the other way — it works here and proves nothing about
+a remote client — and `remit status` calls that out too.
 
 ## Manual install
 

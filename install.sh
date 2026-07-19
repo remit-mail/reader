@@ -326,7 +326,7 @@ manage_block() {
 		remit="./remit"
 		printf '  Manage      cd %s\n%s' "$DIR" "$indent"
 	fi
-	printf '%s %-8s What is running, on which tag.\n' "$remit" status
+	printf '%s %-8s What is running, and whether the origin reaches it.\n' "$remit" status
 	printf '%s%s %-8s Follow the logs.\n' "$indent" "$remit" logs
 	printf '%s%s %-8s Apply an edit to .env.\n' "$indent" "$remit" restart
 	printf '%s%s %-8s Pull the current images and apply them.\n' "$indent" "$remit" update
