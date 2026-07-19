@@ -263,16 +263,21 @@ export class BodySyncService {
 				// Contained per-message: one unreadable body object must not abort a
 				// batch that has not fetched anything yet. The failure is loud and
 				// the id is requeued, but the other messages still get their bodies.
-				try {
-					await this.backfillClassification(message, accountConfigId);
-				} catch (error) {
+				const backfillError = await this.backfillClassification(
+					message,
+					accountConfigId,
+				).then(
+					() => null,
+					(error: unknown) => error,
+				);
+				if (backfillError !== null) {
 					this.log.error?.(
 						{
 							messageId,
 							storageKey: message.bodyStorageKey,
-							errorName: (error as { name?: string }).name,
-							errorCode: (error as { Code?: string }).Code,
-							error: inspect(error),
+							errorName: (backfillError as { name?: string }).name,
+							errorCode: (backfillError as { Code?: string }).Code,
+							error: inspect(backfillError),
 						},
 						"Classification backfill failed for an already-stored body; leaving for requeue",
 					);
