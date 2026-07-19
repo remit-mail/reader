@@ -1,6 +1,6 @@
 {
 	"name": "@remit/attachment-service",
-	"version": "1.0.0",
+	"version": "0.0.1",
 	"description": "Pure text extraction from email attachment bytes (PDF, DOCX, DOC, plain text)",
 	"type": "module",
 	"main": "src/index.ts",

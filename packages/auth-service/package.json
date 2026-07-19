@@ -1,6 +1,6 @@
 {
   "name": "@remit/auth-service",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "description": "better-auth identity service for the Postgres-parity stack (pg-parity)",
   "type": "module",
   "main": "src/index.ts",

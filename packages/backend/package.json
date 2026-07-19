@@ -1,6 +1,6 @@
 {
 	"name": "@remit/backend",
-	"version": "1.0.0",
+	"version": "0.0.1",
 	"description": "Remit Mail Inspector API backend",
 	"license": "MIT",
 	"author": "",
