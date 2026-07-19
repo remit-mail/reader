@@ -1,5 +1,5 @@
 import { X } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect } from "react";
 import { cn } from "../lib/cn.js";
 
 /* ------------------------------------------------------------------ */
@@ -27,20 +27,29 @@ export function SlidePanel({
 	children,
 	footer,
 }: SlidePanelProps) {
+	// Escape closes the panel from anywhere inside it, which is what a dialog
+	// owes the keyboard. The scrim is a pointer affordance only.
+	useEffect(() => {
+		if (!isOpen) return;
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (event.key === "Escape") onClose();
+		};
+		document.addEventListener("keydown", onKeyDown);
+		return () => document.removeEventListener("keydown", onKeyDown);
+	}, [isOpen, onClose]);
+
 	return (
 		<>
-			{/* biome-ignore lint/a11y/useSemanticElements: full-screen backdrop overlay; <button> default styles would break fixed inset positioning */}
+			{/* Click-to-dismiss scrim: a pointer shortcut for the header's Close
+			    button, never the only way out, so it stays out of the tab order and
+			    the a11y tree rather than posing as a control. */}
 			<div
 				className={cn(
 					"fixed inset-0 z-40 bg-black/30 transition-opacity",
 					isOpen ? "opacity-100" : "pointer-events-none opacity-0",
 				)}
 				onClick={onClose}
-				onKeyDown={(e) => e.key === "Escape" && onClose()}
-				role="button"
-				tabIndex={isOpen ? 0 : -1}
-				aria-hidden={!isOpen}
-				aria-label="Close panel"
+				aria-hidden="true"
 			/>
 
 			<div
