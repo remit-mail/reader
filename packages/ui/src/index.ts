@@ -343,6 +343,10 @@ export {
 	type SettingsShellProps,
 } from "./components/settings-screen.js";
 export {
+	SlidePanel,
+	type SlidePanelProps,
+} from "./components/slide-panel.js";
+export {
 	commitPeek,
 	SwipeableRow,
 	type SwipeableRowOpenProps,

@@ -6,7 +6,7 @@ import {
 	configOperationsGetConfigQueryKey,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
-import { Button, Input, Select, securityToApi } from "@remit/ui";
+import { Button, Input, Select, SlidePanel, securityToApi } from "@remit/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, Loader2, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -19,7 +19,6 @@ import {
 	type ProviderPreset,
 } from "../../lib/provider-presets.js";
 import { cn } from "../../lib/utils";
-import { SlidePanel } from "../ui/SlidePanel";
 import {
 	appendAppPasswordHint,
 	computeSmtpAutoFill,
