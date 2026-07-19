@@ -54,6 +54,35 @@ describe("isMachineLocalPart", () => {
 			assert.equal(isMachineLocalPart(localPart), false, localPart);
 		}
 	});
+
+	it("does not read a machine name across two words of a person's name", () => {
+		// `bruno.reply` strips to "brunoreply", which contains "noreply" spanning
+		// the boundary between the two words. Matching on whole words is what
+		// keeps Bruno out of `automated`.
+		for (const localPart of [
+			"bruno.reply",
+			"bruno-reply",
+			"bruno_reply",
+			"juno.replies",
+			"toni.fyi",
+			"bruno.reply+newsletter",
+		]) {
+			assert.equal(isMachineLocalPart(localPart), false, localPart);
+		}
+	});
+
+	it("still matches the qualified machine forms", () => {
+		for (const localPart of [
+			"noreply-github",
+			"messages-noreply",
+			"jobalerts-noreply",
+			"mailer.daemon",
+			"do-not-reply",
+			"team.notifications",
+		]) {
+			assert.equal(isMachineLocalPart(localPart), true, localPart);
+		}
+	});
 });
 
 describe("hasMachineHeader", () => {

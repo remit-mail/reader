@@ -10,8 +10,8 @@
 
 /**
  * From local-parts that mean "this mailbox is not read by a person". Matched
- * case-insensitively against the whole local-part with `.`, `_` and `-`
- * removed, so `no-reply`, `no_reply` and `noreply` are one entry.
+ * case-insensitively against whole separator-delimited words, so `no-reply`,
+ * `no_reply` and `noreply` are one entry.
  *
  * Deliberately excludes ambiguous, human-reachable local-parts (`support`,
  * `info`, `contact`, `hello`, `sales`): a person does answer those, and a
@@ -20,7 +20,6 @@
 const MACHINE_LOCAL_PARTS = new Set([
 	"noreply",
 	"donotreply",
-	"nreply",
 	"notification",
 	"notifications",
 	"notify",
@@ -36,6 +35,20 @@ const MACHINE_LOCAL_PARTS = new Set([
 ]);
 
 /**
+ * Machine mailbox names that senders spell across separators. Joined into one
+ * word before the local-part is split, so `no-reply` and `mailer.daemon` reduce
+ * to a single token that {@link MACHINE_LOCAL_PARTS} can match.
+ */
+const SPELLED_OUT_MACHINE_NAMES: ReadonlyArray<[RegExp, string]> = [
+	[/do-not-reply/g, "donotreply"],
+	[/donot-reply/g, "donotreply"],
+	[/no-reply/g, "noreply"],
+	[/mailer-daemon/g, "mailerdaemon"],
+	[/auto-reply/g, "autoreply"],
+	[/auto-mailer/g, "automailer"],
+];
+
+/**
  * Headers only bulk/notification infrastructure sets. `Feedback-ID` is the
  * per-campaign identifier SES, Google and other ESPs attach to programmatic
  * sends; `X-Auto-Response-Suppress` tells the receiving client not to send
@@ -43,23 +56,31 @@ const MACHINE_LOCAL_PARTS = new Set([
  */
 const MACHINE_HEADERS = ["feedback-id", "x-auto-response-suppress"];
 
-const normalizeLocalPart = (localPart: string): string =>
-	localPart.toLowerCase().replace(/[._-]/g, "");
+/**
+ * Split a local-part into its separator-delimited words, with the spelled-out
+ * machine names joined back up first. The `+tag` suffix is dropped: it labels a
+ * subaddress, never the mailbox.
+ */
+const toWords = (localPart: string): string[] => {
+	let canonical = localPart.toLowerCase().split("+")[0].replace(/[._]/g, "-");
+	for (const [pattern, replacement] of SPELLED_OUT_MACHINE_NAMES) {
+		canonical = canonical.replace(pattern, replacement);
+	}
+	return canonical.split("-").filter(Boolean);
+};
 
 /**
- * True when the From local-part is one of the known machine mailboxes, or
- * carries `noreply`/`donotreply` anywhere in it.
+ * True when any whole word of the From local-part is a known machine mailbox.
  *
- * Substring, not prefix: platforms qualify the mailbox on either side —
- * `noreply-github`, `messages-noreply`, `jobalerts-noreply`. No mailbox a
- * person answers spells "noreply" in its name, so the looser match costs
- * nothing.
+ * Word-boundary, not substring: platforms qualify the mailbox on either side
+ * (`noreply-github`, `messages-noreply`, `jobalerts-noreply`), so a bare prefix
+ * test misses half of them — but a substring test reads `bruno.reply` as
+ * "bru|noreply" and files a real person as `automated`. Splitting on the
+ * separators the sender wrote catches the qualified forms without inventing a
+ * match that spans two words.
  */
-export const isMachineLocalPart = (localPart: string): boolean => {
-	const normalized = normalizeLocalPart(localPart.split("+")[0]);
-	if (MACHINE_LOCAL_PARTS.has(normalized)) return true;
-	return normalized.includes("noreply") || normalized.includes("donotreply");
-};
+export const isMachineLocalPart = (localPart: string): boolean =>
+	toWords(localPart).some((word) => MACHINE_LOCAL_PARTS.has(word));
 
 export const hasMachineHeader = (headerKeys: readonly string[]): boolean => {
 	for (const key of headerKeys) {

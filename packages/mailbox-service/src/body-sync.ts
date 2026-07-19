@@ -245,6 +245,10 @@ export class BodySyncService {
 		// messageId so we can match FETCH rows back and re-enqueue any UID the
 		// server never returns.
 		const pending = new Map<number, string>();
+		// Messages that were skipped (body already stored) but whose backfill
+		// classification failed. They are NOT in `pending` — nothing about them
+		// needs fetching — so they are merged into failedMessageIds separately.
+		const backfillFailedMessageIds: string[] = [];
 		for (const messageId of messageIds) {
 			const message = await this.messageService.get(messageId);
 			if (message.bodyStorageKey && !force) {
@@ -255,7 +259,26 @@ export class BodySyncService {
 				// the body landed — is skipped here forever and stays `uncategorized`
 				// (issue #45). Classify it from the stored bytes: no IMAP, no
 				// placement/filter side effects, and it skips cleanly once done.
-				await this.backfillClassification(message, accountConfigId);
+				//
+				// Contained per-message: one unreadable body object must not abort a
+				// batch that has not fetched anything yet. The failure is loud and
+				// the id is requeued, but the other messages still get their bodies.
+				try {
+					await this.backfillClassification(message, accountConfigId);
+				} catch (error) {
+					this.log.error?.(
+						{
+							messageId,
+							storageKey: message.bodyStorageKey,
+							errorName: (error as { name?: string }).name,
+							errorCode: (error as { Code?: string }).Code,
+							error: inspect(error),
+						},
+						"Classification backfill failed for an already-stored body; leaving for requeue",
+					);
+					backfillFailedMessageIds.push(messageId);
+					continue;
+				}
 				skippedCount++;
 				continue;
 			}
@@ -263,7 +286,11 @@ export class BodySyncService {
 		}
 
 		if (pending.size === 0) {
-			return this.buildResult(syncedMessageIds, skippedCount, []);
+			return this.buildResult(
+				syncedMessageIds,
+				skippedCount,
+				backfillFailedMessageIds,
+			);
 		}
 
 		const connection = await getConnection();
@@ -333,7 +360,7 @@ export class BodySyncService {
 
 		// Anything still pending was never yielded (mid-stream drop or a UID the
 		// server silently omitted) — re-enqueue it.
-		const failedMessageIds = [...pending.values()];
+		const failedMessageIds = [...pending.values(), ...backfillFailedMessageIds];
 
 		this.log.info(
 			{
@@ -699,9 +726,11 @@ export class BodySyncService {
 	 * decisions that already ran (or were declined) when the body first landed;
 	 * re-running them here would move mail the user has since filed by hand.
 	 *
-	 * A storage or write failure propagates. The caller is inside the body-sync
-	 * batch, so the message lands in `failedMessageIds` and SQS requeues it —
-	 * an unreadable body object is an infra fault, not a message to skip.
+	 * A storage or write failure propagates to the caller, which contains it per
+	 * message: the id lands in `failedMessageIds` and SQS requeues it, while the
+	 * rest of the batch still gets its bodies. An unreadable body object is an
+	 * infra fault, never absorbed — but it is also not a reason to abort a batch
+	 * that has fetched nothing yet.
 	 */
 	private async backfillClassification(
 		message: MessageItem,
