@@ -128,7 +128,11 @@ export const SearchChipRow = forwardRef<HTMLButtonElement, SearchChipRowProps>(
 				role="gridcell"
 				tabIndex={-1}
 				onClick={onRemove}
-				onKeyDown={onKeyDown}
+				// Deliberately not wired to the roving handler. Should this button take
+				// focus — a click, or assistive tech moving to it — that handler would
+				// read Enter/Space as "activate the chip" and preventDefault them,
+				// swallowing the button's own click. Its native activation is the
+				// remove action already.
 				className="block shrink-0 rounded-full p-0.5 transition-colors hover:bg-fg-muted/20"
 				aria-label={`Remove filter: ${label}`}
 			>

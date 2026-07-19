@@ -178,9 +178,13 @@ export const SearchChipInput = ({
 		(index: number) => {
 			const chip = chips[index];
 			if (!chip) return;
+			// Chips are host-owned, so with no removal handler the chip stays put.
+			// Announcing it gone and moving focus as though it had would describe a
+			// removal that never happened.
+			if (!onRemoveChip) return;
 			moveFocus(focusAfterRemoval(index, chips.length));
 			setAnnouncement(`${chip.label} removed`);
-			onRemoveChip?.(chip.id);
+			onRemoveChip(chip.id);
 		},
 		[chips, onRemoveChip, moveFocus],
 	);

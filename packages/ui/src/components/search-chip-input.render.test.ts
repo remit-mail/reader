@@ -192,3 +192,21 @@ describe("Two fields mounted at once stay independent", () => {
 		assert.match(html, /<input[^>]*id="top-bar-search"/);
 	});
 });
+
+describe("A read-only chip strip promises nothing it cannot do", () => {
+	it("still renders the remove control so the strip looks the same", () => {
+		// Removal is host-owned. Without a handler the chip cannot go anywhere, so
+		// the field must not announce a removal or move focus as though it had —
+		// see the guard in removeChipAt.
+		const html = render({ chips: [SPAM] });
+		assert.match(html, /aria-label="Remove filter: in:spam"/);
+	});
+
+	it("starts with an empty live region rather than a stale announcement", () => {
+		const html = render({ chips: [SPAM], onRemoveChip: noop });
+		assert.match(
+			html,
+			/role="status"[^>]*><\/span>|role="status"[^>]*>\s*<\/span>/,
+		);
+	});
+});
