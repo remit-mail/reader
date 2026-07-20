@@ -162,6 +162,22 @@ export class ApiClient {
 		return this.json("POST", `/accounts/${accountId}/sync`);
 	}
 
+	/**
+	 * The same bulk move the reading pane's move picker issues. Specs use it to
+	 * put a message back where they found it: the suite runs serially over one
+	 * shared mailbox, and several specs assert the inbox holds exactly the
+	 * seeded set.
+	 */
+	moveMessages(
+		messageIds: string[],
+		destinationMailboxId: string,
+	): Promise<{ successCount: number; failureCount: number }> {
+		return this.json("POST", "/messages/move", {
+			messageIds,
+			destinationMailboxId,
+		});
+	}
+
 	async listMailboxes(accountId: string): Promise<Mailbox[]> {
 		const result = await this.json<ResultList<Mailbox>>(
 			"GET",
