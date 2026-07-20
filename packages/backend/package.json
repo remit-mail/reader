@@ -1,86 +1,87 @@
 {
-	"name": "@remit/backend",
-	"version": "0.0.1",
-	"description": "Remit Mail Inspector API backend",
-	"license": "MIT",
-	"author": "",
-	"type": "module",
-	"main": "src/index.ts",
-	"exports": {
-		".": {
-			"types": "./src/index.ts",
-			"default": "./src/index.ts"
-		},
-		"./client": {
-			"types": "./src/service/dynamodb.ts",
-			"default": "./src/service/dynamodb.ts"
-		},
-		"./create-remit-client": {
-			"types": "./src/service/create-remit-client.ts",
-			"default": "./src/service/create-remit-client.ts"
-		},
-		"./organize": {
-			"types": "./src/service/organize.ts",
-			"default": "./src/service/organize.ts"
-		},
-		"./trigger-sync": {
-			"types": "./src/service/trigger-sync.ts",
-			"default": "./src/service/trigger-sync.ts"
-		},
-		"./content-handler": {
-			"types": "./dev-server/content-handler.ts",
-			"default": "./dev-server/content-handler.ts"
-		}
-	},
-	"scripts": {
-		"test:typecheck": "tsgo --noEmit",
-		"test:run": "node --env-file .env.test --import tsx --test 'src/**/*.test.ts' 'dev-server/**/*.test.ts'",
-		"test": "npm run test:typecheck && npm run test:run",
-		"bundle": "esbuild 'src/index.ts' --sourcemap --bundle --platform=node --outfile=dist/index.js",
-		"dev": "node --env-file .env.test --watch --import tsx dev-server/server.ts",
-		"dev:remote": "node --env-file ../../.env.dev --watch --import tsx dev-server/server.ts"
-	},
-	"devDependencies": {
-		"@aws-sdk/core": "*",
-		"@remit/electrodb-entities": "*",
-		"@remit/search-index-worker": "*",
-		"@types/express": "^5.0.3",
-		"@types/swagger-ui-express": "^4.1.8",
-		"electrodb": "*",
-		"esbuild": "^0.27.7",
-		"express": "^5.1.0",
-		"swagger-ui-express": "^5.0.1",
-		"tsx": "*"
-	},
-	"dependencies": {
-		"jose": "^6.2.3",
-		"mailparser": "^3.9.14",
-		"@remit/data-ports": "*",
-		"@remit/domain-enums": "*",
-		"@remit/api-openapi-types": "*",
-		"@remit/logger-lambda": "*",
-		"@remit/mail-oauth-service": "*",
-		"@remit/secrets-service": "*",
-		"@remit/mailbox-service": "*",
-		"@remit/search-service": "*",
-		"@remit/storage-service": "*",
-		"@remit/auth-service": "*",
-		"@remit/drizzle-service": "*",
-		"@remit/sqs-client": "*",
-		"@aws-sdk/client-secrets-manager": "*",
-		"@aws-sdk/client-sqs": "*",
-		"drizzle-orm": "^0.45.2",
-		"expect-env": "*",
-		"openapi-backend": "*",
-		"p-map": "*",
-		"@types/aws-lambda": "*"
-	},
-	"publishConfig": {
-		"access": "public"
-	},
-	"repository": {
-		"type": "git",
-		"url": "git+https://github.com/remit-mail/reader.git",
-		"directory": "packages/backend"
-	}
+  "name": "@remit/backend",
+  "version": "0.0.1",
+  "description": "Remit Mail Inspector API backend",
+  "license": "MIT",
+  "author": "",
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./client": {
+      "types": "./src/service/dynamodb.ts",
+      "default": "./src/service/dynamodb.ts"
+    },
+    "./create-remit-client": {
+      "types": "./src/service/create-remit-client.ts",
+      "default": "./src/service/create-remit-client.ts"
+    },
+    "./organize": {
+      "types": "./src/service/organize.ts",
+      "default": "./src/service/organize.ts"
+    },
+    "./trigger-sync": {
+      "types": "./src/service/trigger-sync.ts",
+      "default": "./src/service/trigger-sync.ts"
+    },
+    "./content-handler": {
+      "types": "./dev-server/content-handler.ts",
+      "default": "./dev-server/content-handler.ts"
+    }
+  },
+  "scripts": {
+    "test:typecheck": "tsgo --noEmit",
+    "test:run": "node --env-file .env.test --import tsx --test 'src/**/*.test.ts' 'dev-server/**/*.test.ts'",
+    "test": "npm run test:typecheck && npm run test:run",
+    "bundle": "esbuild 'src/index.ts' --sourcemap --bundle --platform=node --outfile=dist/index.js",
+    "dev": "node --env-file .env.test --watch --import tsx dev-server/server.ts",
+    "dev:remote": "node --env-file ../../.env.dev --watch --import tsx dev-server/server.ts",
+    "serve": "node --import tsx dev-server/server.ts"
+  },
+  "devDependencies": {
+    "@aws-sdk/core": "*",
+    "@remit/electrodb-entities": "*",
+    "@remit/search-index-worker": "*",
+    "@types/express": "^5.0.3",
+    "@types/swagger-ui-express": "^4.1.8",
+    "electrodb": "*",
+    "esbuild": "^0.27.7",
+    "express": "^5.1.0",
+    "swagger-ui-express": "^5.0.1",
+    "tsx": "*"
+  },
+  "dependencies": {
+    "jose": "^6.2.3",
+    "mailparser": "^3.9.14",
+    "@remit/data-ports": "*",
+    "@remit/domain-enums": "*",
+    "@remit/api-openapi-types": "*",
+    "@remit/logger-lambda": "*",
+    "@remit/mail-oauth-service": "*",
+    "@remit/secrets-service": "*",
+    "@remit/mailbox-service": "*",
+    "@remit/search-service": "*",
+    "@remit/storage-service": "*",
+    "@remit/auth-service": "*",
+    "@remit/drizzle-service": "*",
+    "@remit/sqs-client": "*",
+    "@aws-sdk/client-secrets-manager": "*",
+    "@aws-sdk/client-sqs": "*",
+    "drizzle-orm": "^0.45.2",
+    "expect-env": "*",
+    "openapi-backend": "*",
+    "p-map": "*",
+    "@types/aws-lambda": "*"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/remit-mail/reader.git",
+    "directory": "packages/backend"
+  }
 }

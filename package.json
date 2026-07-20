@@ -37,7 +37,12 @@
     "e2e:up": "bash npm-scripts/e2e-up.sh",
     "e2e:test": "bash npm-scripts/e2e-test.sh",
     "e2e:logs": "bash npm-scripts/e2e-logs.sh",
-    "e2e:down": "bash npm-scripts/e2e-down.sh"
+    "e2e:down": "bash npm-scripts/e2e-down.sh",
+    "e2e:dev": "npm run e2e:dev:up && npm run e2e:test; status=$?; npm run e2e:dev:down; exit $status",
+    "e2e:dev:up": "bash npm-scripts/e2e-dev-up.sh",
+    "e2e:dev:logs": "bash npm-scripts/e2e-dev-logs.sh",
+    "e2e:dev:down": "bash npm-scripts/e2e-dev-down.sh",
+    "e2e:dev:migrate": "node npm-scripts/docker-bundle.mjs backend-migrate && cd deploy/vps && node ../../dist-docker/backend/migrate.mjs"
   },
   "dependencies": {
     "@remit/api-http-client": "file:build/remit-client",
