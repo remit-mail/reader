@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import {
+	QUARANTINE_REPORT_DISCLAIMER,
+	type QuarantineEntry,
+	quarantineDemoEntries,
+	quarantineIssueTitle,
+	quarantineReportSections,
+} from "@remit/ui";
 import type { BugReportContext } from "./bug-report";
 import { buildBugReportDetails, buildGitHubIssueUrl } from "./bug-report";
 
@@ -208,6 +215,91 @@ describe("buildGitHubIssueUrl — truncation to fit the URL budget", () => {
 		assert.ok(
 			details.length > buildGitHubIssueUrl(hugeCtx).length,
 			"Full details should be longer than the truncated URL body",
+		);
+	});
+});
+
+describe("quarantine reports", () => {
+	// A flat multipart/mixed of 200 parts — the shape that first broke the
+	// fence. A message with a pathological part count is precisely the message
+	// that fails to parse, so a long report is the common case, not the tail.
+	const entry: QuarantineEntry = {
+		...quarantineDemoEntries[0],
+		structure: {
+			contentType: "multipart/mixed",
+			parts: Array.from({ length: 200 }, () => ({
+				contentType: "application/octet-stream",
+			})),
+		},
+	};
+
+	const ctx = (over?: Partial<BugReportContext>): BugReportContext => ({
+		...baseCtx,
+		title: quarantineIssueTitle(entry),
+		quarantine: quarantineReportSections(entry),
+		...over,
+	});
+
+	const fenceCount = (body: string): number =>
+		(body.match(/^```/gm) ?? []).length;
+
+	it("carries the diagnostics section and the supplied title", () => {
+		const decoded = decode(
+			buildGitHubIssueUrl(
+				ctx({ quarantine: quarantineReportSections(quarantineDemoEntries[0]) }),
+			),
+		);
+		assert.ok(decoded.includes("UnterminatedMultipartBoundary"));
+		assert.ok(decoded.includes("Message quarantined:"));
+	});
+
+	it("truncates a long report without cutting inside the code fence", () => {
+		const url = buildGitHubIssueUrl(ctx());
+		const body = decode(url);
+		assert.ok(
+			url.length <= 8000,
+			`Expected a URL under 8000 chars, got ${url.length}`,
+		);
+		assert.ok(body.includes("truncated"), "Expected a truncation marker");
+		assert.equal(
+			fenceCount(body) % 2,
+			0,
+			`Unbalanced code fence in truncated body:\n${body.slice(-400)}`,
+		);
+	});
+
+	it("keeps the redaction disclaimer on a truncated report", () => {
+		const body = decode(buildGitHubIssueUrl(ctx()));
+		assert.ok(
+			body.includes(QUARANTINE_REPORT_DISCLAIMER),
+			"A truncated report must still state what was withheld",
+		);
+	});
+
+	it("keeps the reproduction template outside the code block", () => {
+		const body = decode(buildGitHubIssueUrl(ctx()));
+		const afterLastFence = body.slice(body.lastIndexOf("```") + 3);
+		assert.ok(afterLastFence.includes("## Steps to reproduce"));
+	});
+
+	it("truncates the longer section when a stack is present too", () => {
+		const url = buildGitHubIssueUrl(
+			ctx({ stack: "at foo\n".repeat(2000), errorMessage: "boom" }),
+		);
+		assert.ok(
+			url.length <= 8000,
+			`Expected a URL under 8000 chars, got ${url.length}`,
+		);
+	});
+
+	it("Copy full details keeps every part the URL had to drop", () => {
+		const parts = (text: string): number =>
+			(text.match(/- application\/octet-stream/g) ?? []).length;
+		const details = buildBugReportDetails(ctx());
+		assert.equal(parts(details), 200);
+		assert.ok(
+			parts(decode(buildGitHubIssueUrl(ctx()))) < 200,
+			"Expected the URL body to have dropped parts",
 		);
 	});
 });

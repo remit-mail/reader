@@ -1,3 +1,4 @@
+import type { QuarantineReportSections } from "@remit/ui";
 import {
 	APP_BUILD_TIME,
 	APP_SHA,
@@ -15,7 +16,7 @@ import { getRecentErrors } from "./console-errors";
 const MAX_ISSUE_URL_LENGTH = 7500;
 
 const TRUNCATION_MARKER =
-	"\n… (truncated — use “Copy full details” for the full stacktrace)";
+	"\n… (truncated — the copy action on this screen has the full report)";
 
 export interface BugReportContext {
 	appSha: string;
@@ -33,6 +34,14 @@ export interface BugReportContext {
 	stack?: string;
 	/** React component stack from the error boundary, when available. */
 	componentStack?: string;
+	/**
+	 * A quarantined message's diagnostics, when the report is filed from the
+	 * quarantine surface. Split into sections by `quarantineReportSections` in
+	 * @remit/ui so the MIME tree is fenced after truncation, never before.
+	 */
+	quarantine?: QuarantineReportSections;
+	/** Overrides the derived title, e.g. for a quarantine report. */
+	title?: string;
 }
 
 /** Fields callers can seed from a caught error. */
@@ -40,6 +49,9 @@ export interface BugReportSeed {
 	errorMessage?: string;
 	stack?: string;
 	componentStack?: string;
+	quarantine?: QuarantineReportSections;
+	/** Overrides the derived title, e.g. for a quarantine report. */
+	title?: string;
 }
 
 export function buildBugReportContext(seed?: BugReportSeed): BugReportContext {
@@ -56,6 +68,8 @@ export function buildBugReportContext(seed?: BugReportSeed): BugReportContext {
 		errorMessage: seed?.errorMessage,
 		stack: seed?.stack,
 		componentStack: seed?.componentStack,
+		quarantine: seed?.quarantine,
+		title: seed?.title,
 	};
 }
 
@@ -63,7 +77,16 @@ function fencedBlock(content: string): string {
 	return ["```", content, "```"].join("\n");
 }
 
-function buildIssueBody(ctx: BugReportContext, stack?: string): string {
+interface BodyOverrides {
+	stack?: string;
+	/** Replaces the MIME-tree section only; it is fenced after this is applied. */
+	quarantineStructure?: string;
+}
+
+function buildIssueBody(
+	ctx: BugReportContext,
+	overrides?: BodyOverrides,
+): string {
 	const errorSection =
 		ctx.recentErrors.length > 0
 			? ctx.recentErrors.map((e) => `  - ${e}`).join("\n")
@@ -85,7 +108,20 @@ function buildIssueBody(ctx: BugReportContext, stack?: string): string {
 		lines.push("## Error", ctx.errorMessage, "");
 	}
 
-	const resolvedStack = stack ?? ctx.stack;
+	if (ctx.quarantine) {
+		const structure =
+			overrides?.quarantineStructure ?? ctx.quarantine.structure;
+		lines.push(
+			ctx.quarantine.head,
+			"",
+			fencedBlock(structure),
+			"",
+			ctx.quarantine.disclaimer,
+			"",
+		);
+	}
+
+	const resolvedStack = overrides?.stack ?? ctx.stack;
 	if (resolvedStack) {
 		lines.push("## Stacktrace", fencedBlock(resolvedStack), "");
 	}
@@ -111,6 +147,7 @@ function buildIssueBody(ctx: BugReportContext, stack?: string): string {
 }
 
 function buildIssueTitle(ctx: BugReportContext): string {
+	if (ctx.title) return ctx.title;
 	if (!ctx.errorMessage) return "Bug: ";
 	const firstLine = ctx.errorMessage.split("\n")[0].trim();
 	const clipped =
@@ -118,10 +155,10 @@ function buildIssueTitle(ctx: BugReportContext): string {
 	return `Bug: ${clipped}`;
 }
 
-function issueUrl(ctx: BugReportContext, stack?: string): string {
+function issueUrl(ctx: BugReportContext, overrides?: BodyOverrides): string {
 	const params = new URLSearchParams({
 		title: buildIssueTitle(ctx),
-		body: buildIssueBody(ctx, stack),
+		body: buildIssueBody(ctx, overrides),
 	});
 	return `${GITHUB_NEW_ISSUE_URL}?${params.toString()}`;
 }
@@ -137,40 +174,63 @@ export function buildBugReportDetails(ctx: BugReportContext): string {
 
 /**
  * Build a prefilled GitHub new-issue URL. When the full body would exceed the
- * URL budget, the stacktrace is truncated (binary-searched to the longest
- * prefix that fits) and marked; everything else is preserved. The component
- * stack is dropped from the URL when truncation kicks in — it survives in the
- * "Copy full details" report.
+ * URL budget, the longest truncatable section — a stacktrace, or a quarantine
+ * report's MIME tree — is binary-searched to the longest prefix that fits and
+ * marked; everything else is preserved. The component stack is dropped from
+ * the URL when truncation kicks in — it survives in the copy-details report.
+ *
+ * The quarantine MIME tree is handed over unfenced and fenced by
+ * `buildIssueBody` afterwards, so a cut can never land inside a code fence.
+ * The disclaimer is appended by the builder rather than carried in the
+ * truncated text, so a truncated report still states what was withheld.
  */
 export function buildGitHubIssueUrl(ctx: BugReportContext): string {
 	const full = issueUrl(ctx);
 	if (full.length <= MAX_ISSUE_URL_LENGTH) return full;
 
-	const stack = ctx.stack ?? "";
 	const withoutComponentStack: BugReportContext = {
 		...ctx,
 		componentStack: undefined,
 	};
 
-	let lo = 0;
-	let hi = stack.length;
-	let best = 0;
-	while (lo <= hi) {
-		const mid = (lo + hi) >> 1;
-		const candidate = issueUrl(
-			withoutComponentStack,
-			stack.slice(0, mid) + TRUNCATION_MARKER,
-		);
-		if (candidate.length <= MAX_ISSUE_URL_LENGTH) {
-			best = mid;
-			lo = mid + 1;
-		} else {
-			hi = mid - 1;
+	// Both sections can be present — a seed is not discriminated — and cutting
+	// one to nothing does not necessarily fit the other. Truncate the longest
+	// first and keep going while the budget is still exceeded.
+	const sections: Array<[keyof BodyOverrides, string]> = [];
+	if (ctx.stack) sections.push(["stack", ctx.stack]);
+	if (ctx.quarantine?.structure) {
+		sections.push(["quarantineStructure", ctx.quarantine.structure]);
+	}
+	sections.sort((a, b) => b[1].length - a[1].length);
+
+	let overrides: BodyOverrides = {};
+	for (const [field, text] of sections) {
+		if (
+			issueUrl(withoutComponentStack, overrides).length <= MAX_ISSUE_URL_LENGTH
+		) {
+			break;
 		}
+		let lo = 0;
+		let hi = text.length;
+		let best = 0;
+		while (lo <= hi) {
+			const mid = (lo + hi) >> 1;
+			const candidate = issueUrl(withoutComponentStack, {
+				...overrides,
+				[field]: text.slice(0, mid) + TRUNCATION_MARKER,
+			});
+			if (candidate.length <= MAX_ISSUE_URL_LENGTH) {
+				best = mid;
+				lo = mid + 1;
+			} else {
+				hi = mid - 1;
+			}
+		}
+		overrides = {
+			...overrides,
+			[field]: text.slice(0, best) + TRUNCATION_MARKER,
+		};
 	}
 
-	return issueUrl(
-		withoutComponentStack,
-		stack.slice(0, best) + TRUNCATION_MARKER,
-	);
+	return issueUrl(withoutComponentStack, overrides);
 }
