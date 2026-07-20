@@ -19,8 +19,8 @@
     {
       "idx": 2,
       "version": "6",
-      "when": 1784500000000,
-      "tag": "0002_system_flag_wire_format",
+      "when": 1784529810965,
+      "tag": "0002_highest_modseq_text",
       "breakpoints": true
     }
   ]

@@ -135,15 +135,6 @@ describe("parseChangeCursor / formatChangeCursor", () => {
 		assert.equal(parseChangeCursor("abc").modseq, 0n);
 		assert.equal(parseChangeCursor("500:abc").modseq, 500n);
 	});
-
-	it("survives a numeric column value", () => {
-		// SQLite hands back a number whatever the declared column type.
-		assert.deepEqual(parseChangeCursor(900 as unknown as string), {
-			modseq: 900n,
-			group: 0n,
-			uid: 0,
-		});
-	});
 });
 
 describe("dropAppliedPrefix", () => {

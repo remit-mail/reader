@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "385b0134-7124-5e80-9a15-67802c80baae",
+  "id": "ad82b05c-a7c5-4be0-acf0-be6e5a5d9e68",
   "prevId": "faee5da9-b2e4-4793-b624-4789692a8f44",
   "tables": {
     "outbox": {
@@ -1796,7 +1796,7 @@
         },
         "highest_modseq": {
           "name": "highest_modseq",
-          "type": "integer",
+          "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false

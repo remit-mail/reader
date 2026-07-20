@@ -26,6 +26,7 @@ import {
 	isFlaggedRoute,
 	isMailboxRoute,
 	isOutboxRoute,
+	MAIL_MAILBOX_ROUTE_ID,
 	type MailRouteMatch,
 } from "./mail-route";
 
@@ -73,6 +74,45 @@ export function isScopedRoute(matches: readonly MailRouteMatch[]): boolean {
 	return (
 		isFlaggedRoute(matches) || isOutboxRoute(matches) || isMailboxRoute(matches)
 	);
+}
+
+/**
+ * The mailbox id carried by a mailbox route, or `undefined` on any other route.
+ */
+export function routeMailboxId(
+	matches: readonly MailRouteMatch[],
+): string | undefined {
+	return matches.find((m) => m.routeId === MAIL_MAILBOX_ROUTE_ID)?.params
+		?.mailboxId;
+}
+
+/**
+ * The mailbox every engine on the active route must be pinned to.
+ *
+ * No chip means global; a chip means nothing on the route reaches past it. The
+ * semantic engine used to run unscoped inside a mailbox under an "Everywhere"
+ * heading, which contradicted the `in:` chip the same bar was showing, so the
+ * scope is now resolved from the route here rather than left to each caller:
+ *
+ *  - A mailbox route pins to its own mailbox. It beats both the caller's
+ *    argument and a typed `in:`, so no call site can widen or redirect it.
+ *  - Any other scoped route (flagged, outbox) never falls back to a typed
+ *    `in:`. Its scope is a collection rather than a folder, which the semantic
+ *    API cannot express — which is why neither view runs a semantic section
+ *    today. Honouring `in:` there would be a search reaching past a chip that
+ *    promises otherwise.
+ *  - An unscoped route (the daily brief) is global unless a typed `in:` narrows
+ *    it, which is the one place `useSearchTokenContext` resolves that term.
+ */
+export function semanticMailboxScope(args: {
+	matches: readonly MailRouteMatch[];
+	callerMailboxId?: string;
+	inTokenMailboxId?: string;
+}): string | undefined {
+	const fromRoute = routeMailboxId(args.matches);
+	if (fromRoute) return fromRoute;
+	if (isScopedRoute(args.matches)) return args.callerMailboxId;
+	return args.callerMailboxId ?? args.inTokenMailboxId;
 }
 
 /**

@@ -382,6 +382,281 @@ describe("DrizzleThreadMessageRepository.searchByMailboxWindow / countByMailbox"
 	});
 });
 
+// ─── searchByDate: the unified listing's cross-folder search mode ─────────────
+// The daily brief's unscoped search reaches every folder of every account in
+// one query, so matching must span the caller-supplied mailbox scope rather
+// than a single mailbox.
+
+describe("DrizzleThreadMessageRepository.searchByDate", {
+	skip: !RUN_INTEG,
+}, () => {
+	let repo: DrizzleThreadMessageRepository;
+	const cleanup: Array<() => Promise<void>> = [];
+
+	before(async () => {
+		await setupDb();
+		repo = new DrizzleThreadMessageRepository(PG_URL);
+	});
+
+	after(async () => {
+		for (const fn of cleanup.reverse()) {
+			await fn();
+		}
+		await repo.close();
+	});
+
+	async function seed(
+		accountConfigId: string,
+		mailboxId: string,
+		rows: Array<Partial<CreateThreadMessageInput>>,
+	): Promise<void> {
+		for (const overrides of rows) {
+			const created = await repo.create(
+				makeInput(accountConfigId, mailboxId, overrides),
+			);
+			cleanup.push(() => repo.delete(accountConfigId, created.threadMessageId));
+		}
+	}
+
+	test("matches across every mailbox in the scope, not just the inbox", async () => {
+		const acct = uuid();
+		const inbox = uuid();
+		const archive = uuid();
+		const spam = uuid();
+		const now = Date.now();
+		await seed(acct, inbox, [
+			{ subject: "invoice inbox", sentDate: now, internalDate: now },
+		]);
+		await seed(acct, archive, [
+			{ subject: "invoice archive", sentDate: now - 1, internalDate: now - 1 },
+		]);
+		await seed(acct, spam, [
+			{ subject: "invoice spam", sentDate: now - 2, internalDate: now - 2 },
+		]);
+
+		const result = await repo.searchByDate(
+			acct,
+			{ query: "invoice" },
+			{ excludeDeleted: true, mailboxIds: new Set([inbox, archive, spam]) },
+		);
+
+		assert.deepEqual(
+			result.items.map((r) => r.subject),
+			["invoice inbox", "invoice archive", "invoice spam"],
+			"newest first, across all three folders",
+		);
+	});
+
+	test("a mailbox outside the scope contributes nothing", async () => {
+		const acct = uuid();
+		const inbox = uuid();
+		const excluded = uuid();
+		const now = Date.now();
+		await seed(acct, inbox, [
+			{ subject: "receipt kept", sentDate: now, internalDate: now },
+		]);
+		await seed(acct, excluded, [
+			{ subject: "receipt dropped", sentDate: now - 1, internalDate: now - 1 },
+		]);
+
+		const result = await repo.searchByDate(
+			acct,
+			{ query: "receipt" },
+			{ excludeDeleted: true, mailboxIds: new Set([inbox]) },
+		);
+
+		assert.deepEqual(
+			result.items.map((r) => r.subject),
+			["receipt kept"],
+		);
+	});
+
+	test("every whitespace-separated term must match", async () => {
+		const acct = uuid();
+		const mbx = uuid();
+		const now = Date.now();
+		await seed(acct, mbx, [
+			{
+				subject: "quarterly invoice",
+				fromEmail: "billing@acme.test",
+				sentDate: now,
+				internalDate: now,
+			},
+			{
+				subject: "quarterly report",
+				fromEmail: "reports@acme.test",
+				sentDate: now - 1,
+				internalDate: now - 1,
+			},
+		]);
+
+		const result = await repo.searchByDate(
+			acct,
+			{ query: "quarterly invoice" },
+			{ excludeDeleted: true, mailboxIds: new Set([mbx]) },
+		);
+
+		assert.deepEqual(
+			result.items.map((r) => r.subject),
+			["quarterly invoice"],
+		);
+	});
+
+	test("a term matches the From address as well as the subject", async () => {
+		const acct = uuid();
+		const mbx = uuid();
+		const now = Date.now();
+		await seed(acct, mbx, [
+			{
+				subject: "no keyword here",
+				fromEmail: "penelope@acme.test",
+				sentDate: now,
+				internalDate: now,
+			},
+		]);
+
+		const result = await repo.searchByDate(
+			acct,
+			{ query: "penelope" },
+			{ excludeDeleted: true, mailboxIds: new Set([mbx]) },
+		);
+
+		assert.equal(result.items.length, 1);
+	});
+
+	test("soft-deleted rows stay out", async () => {
+		const acct = uuid();
+		const mbx = uuid();
+		const now = Date.now();
+		await seed(acct, mbx, [
+			{ subject: "parcel live", sentDate: now, internalDate: now },
+			{
+				subject: "parcel gone",
+				isDeleted: true,
+				sentDate: now - 1,
+				internalDate: now - 1,
+			},
+		]);
+
+		const result = await repo.searchByDate(
+			acct,
+			{ query: "parcel" },
+			{ excludeDeleted: true, mailboxIds: new Set([mbx]) },
+		);
+
+		assert.deepEqual(
+			result.items.map((r) => r.subject),
+			["parcel live"],
+		);
+	});
+
+	// A short page means the matches ran out, never that a read window did — the
+	// contract the endpoint documents for search mode.
+	test("pages over matches, and a full page yields a resumable cursor", async () => {
+		const acct = uuid();
+		const inbox = uuid();
+		const archive = uuid();
+		const now = Date.now();
+		await seed(acct, inbox, [
+			{ subject: "noise a", sentDate: now, internalDate: now },
+			{ subject: "gamma one", sentDate: now - 1, internalDate: now - 1 },
+			{ subject: "noise b", sentDate: now - 2, internalDate: now - 2 },
+		]);
+		await seed(acct, archive, [
+			{ subject: "gamma two", sentDate: now - 3, internalDate: now - 3 },
+			{ subject: "gamma three", sentDate: now - 4, internalDate: now - 4 },
+		]);
+
+		const scope = {
+			excludeDeleted: true,
+			mailboxIds: new Set([inbox, archive]),
+		};
+
+		const page1 = await repo.searchByDate(
+			acct,
+			{ query: "gamma" },
+			{ ...scope, limit: 2 },
+		);
+		assert.deepEqual(
+			page1.items.map((r) => r.subject),
+			["gamma one", "gamma two"],
+			"a full page of matches, skipping the non-matching newer rows",
+		);
+		assert.ok(page1.continuationToken, "more matches remain — cursor expected");
+
+		const page2 = await repo.searchByDate(
+			acct,
+			{ query: "gamma" },
+			{ ...scope, limit: 2, continuationToken: page1.continuationToken },
+		);
+		assert.deepEqual(
+			page2.items.map((r) => r.subject),
+			["gamma three"],
+			"the last page is short because the matches ran out",
+		);
+		assert.equal(
+			page2.continuationToken,
+			undefined,
+			"a short page ends the pagination",
+		);
+	});
+
+	test("starred narrows the search without changing the scope", async () => {
+		const acct = uuid();
+		const archive = uuid();
+		const now = Date.now();
+		await seed(acct, archive, [
+			{
+				subject: "delta starred",
+				hasStars: true,
+				sentDate: now,
+				internalDate: now,
+			},
+			{
+				subject: "delta plain",
+				hasStars: false,
+				sentDate: now - 1,
+				internalDate: now - 1,
+			},
+		]);
+
+		const result = await repo.searchByDate(
+			acct,
+			{ query: "delta", starred: true },
+			{ excludeDeleted: true, mailboxIds: new Set([archive]) },
+		);
+
+		assert.deepEqual(
+			result.items.map((r) => r.subject),
+			["delta starred"],
+		);
+	});
+
+	test("another config's mail is never returned", async () => {
+		const mine = uuid();
+		const theirs = uuid();
+		const mbx = uuid();
+		const now = Date.now();
+		await seed(mine, mbx, [
+			{ subject: "epsilon mine", sentDate: now, internalDate: now },
+		]);
+		await seed(theirs, mbx, [
+			{ subject: "epsilon theirs", sentDate: now - 1, internalDate: now - 1 },
+		]);
+
+		const result = await repo.searchByDate(
+			mine,
+			{ query: "epsilon" },
+			{ excludeDeleted: true, mailboxIds: new Set([mbx]) },
+		);
+
+		assert.deepEqual(
+			result.items.map((r) => r.subject),
+			["epsilon mine"],
+		);
+	});
+});
+
 // ─── Native text-search semantics ─────────────────────────────────────────────
 // The type-ahead search box lowercases the query before sending it. These tests
 // pin the Postgres-native behaviour: case- and accent-insensitive substring
