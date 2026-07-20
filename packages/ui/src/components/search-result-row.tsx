@@ -2,6 +2,7 @@ import { Flag } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "../lib/cn.js";
 import { Badge } from "./badge.js";
+import { provenanceFolderLabel, type ResultFolder } from "./folder-role.js";
 
 export type SearchResultTone =
 	| "neutral"
@@ -28,6 +29,12 @@ export interface SearchResult {
 	/** The mailbox the result lives in; paired with {@link threadId} to open it. */
 	mailboxId?: string;
 	/**
+	 * The folder this row was read from. A search that reaches every folder
+	 * returns rows from all over, so the row says where it came from; see
+	 * {@link provenanceFolderLabel} for which folders can be named.
+	 */
+	folder?: ResultFolder;
+	/**
 	 * Why a semantic ("Related") hit matched — a plain-language label derived
 	 * from `matchedChunkType` (e.g. "body", "subject", "attachment"), so the user
 	 * understands why the result showed up. Absent for literal "Top matches"
@@ -43,6 +50,12 @@ export interface SearchResultRowProps {
 	onClick?: () => void;
 	/** When given, literal (case-insensitive) matches are bolded in subject/snippet. */
 	query?: string;
+	/**
+	 * Show the folder the row came from. Defaults to true. A search confined to
+	 * one folder turns it off — every row would carry the same label, which is
+	 * noise rather than provenance.
+	 */
+	showFolder?: boolean;
 }
 
 function highlight(text: string, query?: string): ReactNode {
@@ -79,7 +92,12 @@ export function SearchResultRow({
 	result,
 	onClick,
 	query,
+	showFolder = true,
 }: SearchResultRowProps) {
+	const folderLabel =
+		showFolder && result.folder
+			? provenanceFolderLabel(result.folder)
+			: undefined;
 	return (
 		<button
 			type="button"
@@ -118,6 +136,11 @@ export function SearchResultRow({
 				<span className="min-w-0 flex-1 truncate text-xs text-fg-subtle">
 					{highlight(result.snippet, query)}
 				</span>
+				{folderLabel && (
+					<Badge tone="neutral" className="shrink-0">
+						{folderLabel}
+					</Badge>
+				)}
 				{result.category && (
 					<Badge tone={result.category.tone ?? "neutral"} className="shrink-0">
 						{result.category.label}

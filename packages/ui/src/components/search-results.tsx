@@ -1,8 +1,10 @@
 import { ChevronDown, Clock } from "lucide-react";
 import { useState } from "react";
 import { cn } from "../lib/cn.js";
+import type { FolderRole } from "./folder-role.js";
 import { type SearchResult, SearchResultRow } from "./search-result-row.js";
 import { SearchTokenChips } from "./search-token-chip.js";
+import { SpamResultsOffer } from "./spam-results-offer.js";
 
 /** Rows shown before the "Show N more" expander kicks in. */
 const SECTION_ROW_CAP = 6;
@@ -13,6 +15,44 @@ export interface SearchResultSection {
 	results: SearchResult[];
 	/** Seed the section-collapse state — lets a story render the header-only view. */
 	initialCollapsed?: boolean;
+}
+
+/**
+ * What the search currently covers. `global` is the unscoped search the daily
+ * brief runs — every account, every folder, no chip in the bar. `folder` is a
+ * search the sidebar narrowed to one place, which the bar shows as a chip.
+ */
+export type SearchScope =
+	| { kind: "global" }
+	| { kind: "folder"; role?: FolderRole };
+
+const GLOBAL_SCOPE: SearchScope = { kind: "global" };
+
+const isSpamScope = (scope: SearchScope): boolean =>
+	scope.kind === "folder" && scope.role === "junk";
+
+const isSpamResult = (result: SearchResult): boolean =>
+	result.folder?.role === "junk";
+
+/**
+ * Split spam matches out of the rows a search returned.
+ *
+ * Spam is identified by the account's `\Junk` special-use appointment, never by
+ * folder name, so an account that calls it `Junk`, `Bulk Mail` or nothing at
+ * all behaves the same, and an account with no junk folder simply never yields
+ * a spam row.
+ */
+export function partitionSpamResults(results: SearchResult[]): {
+	kept: SearchResult[];
+	spam: SearchResult[];
+} {
+	const kept: SearchResult[] = [];
+	const spam: SearchResult[] = [];
+	for (const result of results) {
+		if (isSpamResult(result)) spam.push(result);
+		else kept.push(result);
+	}
+	return { kept, spam };
 }
 
 export interface SearchResultsProps {
@@ -32,6 +72,19 @@ export interface SearchResultsProps {
 	 * query has no recognized tokens.
 	 */
 	tokens?: { label: string; onRemove: () => void }[];
+	/** What the search covers. Defaults to the unscoped, global search. */
+	scope?: SearchScope;
+	/**
+	 * Total spam matches the search found, for when the app knows more than the
+	 * rows on this page. Defaults to the number of spam rows held out of
+	 * {@link sections}.
+	 */
+	spamMatchCount?: number;
+	/**
+	 * Scope the search to Spam. Without it there is no offer, so an app that has
+	 * nowhere to navigate simply never makes one.
+	 */
+	onScopeToSpam?: () => void;
 }
 
 /**
@@ -44,10 +97,12 @@ function CollapsibleResultSection({
 	section,
 	query,
 	onSelectResult,
+	showFolder,
 }: {
 	section: SearchResultSection;
 	query?: string;
 	onSelectResult?: (result: SearchResult) => void;
+	showFolder?: boolean;
 }) {
 	const [collapsed, setCollapsed] = useState(section.initialCollapsed ?? false);
 	const [expanded, setExpanded] = useState(false);
@@ -87,6 +142,7 @@ function CollapsibleResultSection({
 							key={result.id}
 							result={result}
 							query={query}
+							showFolder={showFolder}
 							onClick={
 								onSelectResult ? () => onSelectResult(result) : undefined
 							}
@@ -115,6 +171,18 @@ function CollapsibleResultSection({
  * sections — one implementation so both tiers render identical rows. The caller
  * owns the surrounding chrome and scroll container (a `FilterSheet`, the
  * takeover header, or the list-pane body). Presentational and prop-driven.
+ *
+ * Spam is the one folder that does not inline, and it behaves differently by
+ * scope:
+ *
+ * - **Global** — spam rows are held out of the sections and offered instead, as
+ *   a count with a way into a Spam-scoped search.
+ * - **Scoped to anything else** — spam rows are held out and nothing is offered.
+ *   A scoped search shows its own scope and no more.
+ * - **Scoped to Spam** — ordinary rows, rendered normally, no offer.
+ *
+ * Provenance labels follow the same logic: only a global search names the
+ * folder each row came from, because a scoped one would repeat itself.
  */
 export function SearchResults({
 	value,
@@ -124,11 +192,11 @@ export function SearchResults({
 	loading,
 	onSelectResult,
 	tokens,
+	scope = GLOBAL_SCOPE,
+	spamMatchCount,
+	onScopeToSpam,
 }: SearchResultsProps) {
 	const hasQuery = value.trim().length > 0;
-	const hasResults = (sections ?? []).some(
-		(section) => section.results.length > 0,
-	);
 
 	if (!hasQuery) {
 		if (recentSearches && recentSearches.length > 0) {
@@ -181,10 +249,36 @@ export function SearchResults({
 		);
 	}
 
+	const spamScoped = isSpamScope(scope);
+	const isGlobal = scope.kind === "global";
+
+	const partitioned = (sections ?? []).map((section) => {
+		if (spamScoped) return { section, spam: [] as SearchResult[] };
+		const { kept, spam } = partitionSpamResults(section.results);
+		return { section: { ...section, results: kept }, spam };
+	});
+
+	const visibleSections = partitioned.map((entry) => entry.section);
+	const heldOutSpamCount = partitioned.reduce(
+		(total, entry) => total + entry.spam.length,
+		0,
+	);
+	const spamCount = spamMatchCount ?? heldOutSpamCount;
+	const spamOffer = isGlobal &&
+		spamCount > 0 &&
+		onScopeToSpam !== undefined && (
+			<SpamResultsOffer count={spamCount} onScopeToSpam={onScopeToSpam} />
+		);
+
+	const hasResults = visibleSections.some(
+		(section) => section.results.length > 0,
+	);
+
 	if (!hasResults) {
 		return (
 			<div className="flex flex-col">
 				{chips}
+				{spamOffer}
 				<div className="px-row-inset py-10 text-center">
 					<p className="text-sm font-medium text-fg">
 						No matches for &ldquo;{value}&rdquo;
@@ -200,13 +294,15 @@ export function SearchResults({
 	return (
 		<div className="flex flex-col">
 			{chips}
-			{sections
-				?.filter((section) => section.results.length > 0)
+			{spamOffer}
+			{visibleSections
+				.filter((section) => section.results.length > 0)
 				.map((section) => (
 					<CollapsibleResultSection
 						key={section.id}
 						section={section}
 						query={value}
+						showFolder={isGlobal}
 						onSelectResult={onSelectResult}
 					/>
 				))}
