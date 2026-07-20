@@ -397,7 +397,15 @@ export class ImapFlowConnection {
 	};
 
 	/**
-	 * Search for messages
+	 * Search for messages, answering UIDs.
+	 *
+	 * imapflow answers a successful SEARCH with an array — empty when the
+	 * server matched nothing — and `false` when the command failed or no
+	 * mailbox was selected. Collapsing the two into `[]` makes a failed SEARCH
+	 * indistinguishable from an empty mailbox, and every caller here acts on
+	 * emptiness by deleting something: the cursor rebuild reads it as "every
+	 * local row is stale", and {@link isMessageGoneFromOpenMailbox} reads it as
+	 * "this message is gone". A failure therefore throws.
 	 */
 	search = async (criteria: unknown[]): Promise<number[]> => {
 		this.ensureConnected();
@@ -410,9 +418,8 @@ export class ImapFlowConnection {
 		const searchQuery = this.convertSearchCriteria(criteria);
 
 		const result = await this.client?.search(searchQuery, { uid: true });
-		// search can return false if no messages match, or undefined if client is null
-		if (!result) {
-			return [];
+		if (!Array.isArray(result)) {
+			throw new Error(`IMAP SEARCH failed in mailbox ${this.currentMailbox}`);
 		}
 		return result;
 	};

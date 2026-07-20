@@ -1,4 +1,5 @@
 import type { FlagPushLogger } from "./flag-push.js";
+import { isMessageGoneFromOpenMailbox } from "./message-presence.js";
 import {
 	reconcileStaleMessage,
 	type StaleMessageReconcileDeps,
@@ -35,10 +36,11 @@ export interface ResolveExhaustedFlagPushResult {
  * (epic #1281 invariant 3) — no third, softer outcome.
  *
  * 1. RECONCILED (expected) — the message no longer exists at its mailbox on
- *    IMAP. Per invariant 2, an external delete supersedes the marker
- *    entirely: the marker is dropped and the stale Message/ThreadMessage rows
- *    are deleted via {@link reconcileStaleMessage}. Metric only, no alarm —
- *    routine.
+ *    IMAP, confirmed by {@link isMessageGoneFromOpenMailbox} rather than by a
+ *    FETCH coming back empty. Per invariant 2, an external delete supersedes
+ *    the marker entirely: the marker is dropped and the stale
+ *    Message/ThreadMessage rows are deleted via {@link reconcileStaleMessage}.
+ *    Metric only, no alarm — routine.
  * 2. BROKEN — the message still exists, but the flag push keeps failing.
  *    Broken code or a broken account, not a transient blip. The marker is
  *    left in place (not cleared) — while pending, resync never reverts the
@@ -48,6 +50,15 @@ export interface ResolveExhaustedFlagPushResult {
  *    entry for an operator alarm; never re-thrown (terminal — the caller acks
  *    either way, since retrying a stale or permanently-broken push can never
  *    succeed).
+ *
+ * An operator reading `flag_push_failed` should know one case where the
+ * message is not actually there: a message another client expunged
+ * mid-session can answer an empty FETCH while the server still lists its UID
+ * in SEARCH, until it is allowed to send the untagged EXPUNGE. That message
+ * lands in BROKEN, and BROKEN is terminal — the marker stays pending and the
+ * alert stands until someone clears it. The reverse mistake deletes live
+ * mail, so the cost is paid deliberately: a stale alert is recoverable, a
+ * deleted message is not.
  */
 export const resolveExhaustedFlagPushFailure = async (
 	deps: ResolveExhaustedFlagPushDeps,
@@ -65,9 +76,8 @@ export const resolveExhaustedFlagPushFailure = async (
 
 	const connection = await getConnection();
 	await connection.openBox(mailboxPath, true);
-	const found = await connection.fetchMessages([uid]);
 
-	if (found.length === 0) {
+	if (await isMessageGoneFromOpenMailbox(connection, uid)) {
 		await deps.markerService.delete(messageId, flagName);
 		const { threadMessagesDeleted } = await reconcileStaleMessage(
 			deps,

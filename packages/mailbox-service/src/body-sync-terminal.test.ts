@@ -102,14 +102,26 @@ const buildStorageService = (
 	};
 };
 
-/** A connection whose `fetchMessages` returns a hit for every uid in `present`. */
-const buildConnection = (present: Set<number>): IImapConnection =>
+/**
+ * A connection whose `fetchMessages` returns a hit for every uid in `present`,
+ * except those in `fetchDrops` — messages the server still has and SEARCH
+ * still lists, whose FETCH row imapflow drops (#408).
+ */
+const buildConnection = (
+	present: Set<number>,
+	fetchDrops: Set<number> = new Set(),
+): IImapConnection =>
 	({
 		openBox: async () => ({}) as never,
 		fetchMessages: async (uids: number[]) =>
 			uids
-				.filter((uid) => present.has(uid))
+				.filter((uid) => present.has(uid) && !fetchDrops.has(uid))
 				.map((uid) => ({ uid }) as unknown as never),
+		search: async (criteria: unknown[]) => {
+			const [, value] = (criteria as Array<[string, string]>)[0];
+			const uid = Number(value);
+			return present.has(uid) ? [uid] : [];
+		},
 	}) as unknown as IImapConnection;
 
 describe("resolveExhaustedBodySyncFailures — the two terminal outcomes", () => {
@@ -187,6 +199,39 @@ describe("resolveExhaustedBodySyncFailures — the two terminal outcomes", () =>
 			errors.some((e) => e.obj.alert === "body_sync_message_broken"),
 			"expects an alert-shaped error log for the broken case",
 		);
+	});
+
+	it("a dropped FETCH row mid-batch is not absence: the live message keeps its rows", async () => {
+		const deletedMessages: string[] = [];
+		const deletedThreadMessages: Array<{
+			accountConfigId: string;
+			threadMessageId: string;
+		}> = [];
+		const { storageService } = buildStorageService();
+		const { log } = buildLogger();
+
+		const deps: ResolveExhaustedBodySyncDeps = {
+			messageService: buildMessageService({ m1: 1, m2: 2 }, deletedMessages),
+			threadMessageService: buildThreadMessageService(deletedThreadMessages),
+			storageService,
+			log,
+		};
+
+		// Both messages are live. The FETCH for m1 returns its row; the
+		// immediately following FETCH for m2 drops its row (#408).
+		const result = await resolveExhaustedBodySyncFailures(deps, {
+			accountId: "acc-1",
+			accountConfigId: "cfg-1",
+			mailboxId: "mbx-1",
+			mailboxPath: "INBOX",
+			failedMessageIds: ["m1", "m2"],
+			getConnection: async () => buildConnection(new Set([1, 2]), new Set([2])),
+		});
+
+		assert.deepEqual(result.reconciledMessageIds, []);
+		assert.deepEqual(result.brokenMessageIds, ["m1", "m2"]);
+		assert.deepEqual(deletedMessages, []);
+		assert.deepEqual(deletedThreadMessages, []);
 	});
 
 	it("resolves a mixed batch into both outcomes independently", async () => {

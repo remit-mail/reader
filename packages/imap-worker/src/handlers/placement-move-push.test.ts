@@ -12,8 +12,10 @@ const buildConnection = (opts: {
 	moveError?: Error;
 	/** Message-ID search hits in the destination mailbox — the verification probe. */
 	destinationSearchUids?: number[];
-	/** Whether the uid is still found via fetchMessages on the source mailbox. */
+	/** Whether the message is still in the source mailbox. */
 	stillAtSource?: boolean;
+	/** The source FETCH drops the row for a message that is still there. */
+	sourceFetchDrops?: boolean;
 }): IImapConnection =>
 	({
 		openBox: async () => ({}) as never,
@@ -25,9 +27,15 @@ const buildConnection = (opts: {
 				uidMap: opts.uidMap ?? new Map(),
 			};
 		},
-		search: async (_criteria: unknown[]) => opts.destinationSearchUids ?? [],
+		search: async (criteria: unknown[]) => {
+			const [first] = criteria;
+			if (Array.isArray(first) && first[0] === "UID") {
+				return opts.stillAtSource ? [Number(first[1])] : [];
+			}
+			return opts.destinationSearchUids ?? [];
+		},
 		fetchMessages: async (uids: number[]) =>
-			opts.stillAtSource
+			opts.stillAtSource && !opts.sourceFetchDrops
 				? uids.map((uid) => ({ uid }) as unknown as never)
 				: [],
 	}) as unknown as IImapConnection;
@@ -151,7 +159,29 @@ describe("attemptMove — the IMAP push (issue #1271)", () => {
 			);
 		});
 
-		it("not-found: confirmed absent from BOTH destination (search miss) AND source (fetch miss)", async () => {
+		it("throws (never deletes) when the source FETCH drops the row for a message the server still lists", async () => {
+			const connection = buildConnection({
+				uidMap: new Map(),
+				destinationSearchUids: [],
+				stillAtSource: true,
+				sourceFetchDrops: true,
+			});
+
+			await assert.rejects(
+				() =>
+					attemptMove(
+						connection,
+						connection,
+						"Junk",
+						"INBOX",
+						42,
+						MESSAGE_ID_HEADER,
+					),
+				/unresolved/,
+			);
+		});
+
+		it("not-found: confirmed absent from BOTH destination (search miss) AND source (search miss)", async () => {
 			const connection = buildConnection({
 				uidMap: new Map(),
 				destinationSearchUids: [],

@@ -33,13 +33,21 @@ const buildLogger = (): {
 	};
 };
 
-const buildConnection = (present: Set<number>): IImapConnection =>
+const buildConnection = (
+	present: Set<number>,
+	fetchDrops: Set<number> = new Set(),
+): IImapConnection =>
 	({
 		openBox: async () => ({}) as never,
 		fetchMessages: async (uids: number[]) =>
 			uids
-				.filter((uid) => present.has(uid))
+				.filter((uid) => present.has(uid) && !fetchDrops.has(uid))
 				.map((uid) => ({ uid }) as unknown as never),
+		search: async (criteria: unknown[]) => {
+			const [, value] = (criteria as Array<[string, string]>)[0];
+			const uid = Number(value);
+			return present.has(uid) ? [uid] : [];
+		},
 	}) as unknown as IImapConnection;
 
 describe("resolveExhaustedFlagPushFailure — the two terminal outcomes (mirrors #1289/#1270 for flag pushes)", () => {
@@ -102,6 +110,51 @@ describe("resolveExhaustedFlagPushFailure — the two terminal outcomes (mirrors
 			(entry) => entry.obj.metric === "flag_push_stale_row_reconciled",
 		);
 		assert.ok(metricLog, "expected a routine reconciliation metric log");
+	});
+
+	it("a dropped FETCH row is not absence: the message is still in the mailbox — marker and local rows survive", async () => {
+		const markerDeletes: Array<{ messageId: string; flagName: string }> = [];
+		const { log, errors } = buildLogger();
+
+		const deps: ResolveExhaustedFlagPushDeps = {
+			markerService: {
+				delete: async (messageId: string, flagName: string) => {
+					markerDeletes.push({ messageId, flagName });
+				},
+			},
+			messageService: {
+				delete: async () => {
+					throw new Error("must not be called — the message still exists");
+				},
+			} as unknown as Pick<IMessageRepository, "delete">,
+			threadMessageService: {
+				findAllByMessageId: async () => {
+					throw new Error("must not be called — the message still exists");
+				},
+				deleteMany: async () => {
+					throw new Error("must not be called — the message still exists");
+				},
+			} as unknown as Pick<
+				IThreadMessageRepository,
+				"findAllByMessageId" | "deleteMany"
+			>,
+			log,
+		};
+
+		const result = await resolveExhaustedFlagPushFailure(deps, {
+			accountId: "acc-1",
+			accountConfigId: "cfg-1",
+			messageId: "msg-live",
+			flagName: "\\Seen",
+			uid: 303,
+			mailboxPath: "INBOX",
+			getConnection: async () =>
+				buildConnection(new Set([303]), new Set([303])),
+		});
+
+		assert.equal(result.outcome, "broken");
+		assert.deepEqual(markerDeletes, []);
+		assert.ok(errors.some((e) => e.obj.alert === "flag_push_failed"));
 	});
 
 	it("BROKEN (should never happen): the message still exists — marker left in place, alert logged", async () => {

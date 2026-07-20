@@ -1,6 +1,7 @@
 import type { IMessageRepository } from "@remit/data-ports";
 import type { StorageService } from "@remit/storage-service";
 import type { BodySyncLogger } from "./body-sync.js";
+import { isMessageGoneFromOpenMailbox } from "./message-presence.js";
 import {
 	reconcileStaleMessage,
 	type StaleMessageReconcileDeps,
@@ -84,7 +85,11 @@ const markMessageBodySyncFailed = async (
  * outcome — every failed id lands in one of the two result lists.
  *
  * 1. EXPECTED — the message no longer exists on IMAP (expunged, or a
- *    UIDVALIDITY change moved it, #1272). The stale row is deleted via
+ *    UIDVALIDITY change moved it, #1272), confirmed by
+ *    {@link isMessageGoneFromOpenMailbox}. This loop is the most exposed of
+ *    the four sites that used to read an empty FETCH as absence: it issues
+ *    back-to-back single-UID FETCHes on one connection, which is the
+ *    condition imapflow #408 drops rows under. The stale row is deleted via
  *    {@link reconcileStaleMessage} so the existing missing-row 404 path
  *    takes over. Callers should emit a metric only — this is routine, not an
  *    incident.
@@ -123,9 +128,8 @@ export const resolveExhaustedBodySyncFailures = async (
 
 	for (const messageId of failedMessageIds) {
 		const message = await deps.messageService.get(messageId);
-		const found = await connection.fetchMessages([message.uid]);
 
-		if (found.length === 0) {
+		if (await isMessageGoneFromOpenMailbox(connection, message.uid)) {
 			const { threadMessagesDeleted } = await reconcileStaleMessage(
 				deps,
 				accountConfigId,
