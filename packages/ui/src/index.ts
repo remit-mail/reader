@@ -145,6 +145,10 @@ export {
 	type SimilarState,
 } from "./components/intelligence-panel.js";
 export {
+	IntelligenceToggle,
+	type IntelligenceToggleProps,
+} from "./components/intelligence-toggle.js";
+export {
 	IsolatedEmailFrame,
 	type IsolatedEmailFrameProps,
 	measureContentAxis,

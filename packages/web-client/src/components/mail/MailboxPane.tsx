@@ -32,6 +32,7 @@ import {
 	ReadingPaneEmpty,
 	type RescueCandidate,
 	type SearchResult,
+	useAppShellLayout,
 } from "@remit/ui";
 import {
 	keepPreviousData,
@@ -179,7 +180,6 @@ interface MailboxPaneContextValue {
 	onSelectFilterCategory: (id: string) => void;
 	onToggleFilterAttribute: (id: string) => void;
 	onClearFilters: () => void;
-	showIntelligence: boolean;
 	intelligenceOpen: boolean;
 	onToggleIntelligence: () => void;
 	// List actions
@@ -782,13 +782,11 @@ function MailboxPaneProvider({
 		}
 	}, [normalizedSearchQuery, mailboxType, telemetry]);
 
-	const hasThread = Boolean(selectedThread);
 	const hasRemitDraftOpen =
 		isDraftsMailbox &&
 		composeState.isOpen &&
 		!!composeState.outboxMessageId &&
 		!selectedThread;
-	const showIntelligence = isDesktop && intelligenceOpen && hasThread;
 
 	useTriageKeyboard({
 		// A modal owns the keyboard outright. Suspending the layer is what keeps a
@@ -868,7 +866,6 @@ function MailboxPaneProvider({
 		onSelectFilterCategory,
 		onToggleFilterAttribute,
 		onClearFilters,
-		showIntelligence,
 		intelligenceOpen,
 		onToggleIntelligence,
 		onDeleteMessages: handleDeleteMessages,
@@ -1081,7 +1078,7 @@ function MailboxReading() {
 		selectedThread,
 		conversation,
 		hasRemitDraftOpen,
-		showIntelligence,
+		intelligenceOpen,
 		onToggleIntelligence,
 		toolbarComposeRequest,
 		onToolbarReply,
@@ -1094,9 +1091,12 @@ function MailboxReading() {
 		onToolbarMove,
 		composeState,
 	} = useMailboxPane();
-	const tier = useLayoutTier();
-	const isDesktop = tier === "desktop";
+	// The rail's own width gate, not the shell tier: between 1024 and 1280 the
+	// reading pane is mounted but the rail is not, so "enabled" would promise an
+	// open that cannot happen.
+	const railFits = useAppShellLayout()?.showIntelligencePane ?? false;
 	const hasThread = Boolean(conversation);
+	const canToggleIntelligence = railFits && hasThread;
 
 	const detailPane =
 		composeState.isOpen && !conversation ? (
@@ -1124,8 +1124,8 @@ function MailboxReading() {
 		<section className="flex h-full w-full min-w-0 flex-col bg-canvas">
 			<MessageToolbar
 				hasThread={hasThread}
-				intelligenceOpen={showIntelligence}
-				showIntelligenceToggle={isDesktop && hasThread}
+				intelligenceOpen={canToggleIntelligence && intelligenceOpen}
+				canToggleIntelligence={canToggleIntelligence}
 				onToggleIntelligence={onToggleIntelligence}
 				onReply={hasThread ? onToolbarReply : undefined}
 				onReplyAll={hasThread ? onToolbarReplyAll : undefined}

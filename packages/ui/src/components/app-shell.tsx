@@ -269,9 +269,7 @@ function AppShellReading({
 			thread={thread}
 			intelligenceOpen={showIntelligence}
 			onToggleIntelligence={onToggleIntelligence}
-			showIntelligenceToggle={
-				isWide && Boolean(intelligence) && Boolean(thread)
-			}
+			canToggleIntelligence={isWide && Boolean(intelligence) && Boolean(thread)}
 		/>
 	);
 }

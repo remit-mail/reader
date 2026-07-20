@@ -17,7 +17,7 @@
  */
 import { unifiedThreadOperationsListAllThreadsOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
-import { ReadingPaneEmpty } from "@remit/ui";
+import { ReadingPaneEmpty, useAppShellLayout } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -128,14 +128,20 @@ function FlaggedListSlot() {
  */
 function FlaggedReading() {
 	const { selectedThread } = useFlaggedPane();
-	const { onToggleIntelligence } = useMailContext();
+	const { intelligenceOpen, onToggleIntelligence } = useMailContext();
+	// The rail's own width gate, not the shell tier: between 1024 and 1280 the
+	// reading pane is mounted but the rail is not, so "enabled" would promise an
+	// open that cannot happen.
+	const railFits = useAppShellLayout()?.showIntelligencePane ?? false;
+	const hasThread = Boolean(selectedThread);
+	const canToggleIntelligence = railFits && hasThread;
 
 	return (
 		<section className="flex h-full w-full min-w-0 flex-col bg-canvas">
 			<MessageToolbar
-				hasThread={Boolean(selectedThread)}
-				intelligenceOpen={false}
-				showIntelligenceToggle={false}
+				hasThread={hasThread}
+				intelligenceOpen={canToggleIntelligence && intelligenceOpen}
+				canToggleIntelligence={canToggleIntelligence}
 				onToggleIntelligence={onToggleIntelligence}
 			/>
 			<div className="min-h-0 flex-1 overflow-hidden">
@@ -151,6 +157,24 @@ function FlaggedReading() {
 				)}
 			</div>
 		</section>
+	);
+}
+
+/**
+ * Intelligence pane: IntelligencePane for the open thread.
+ * Mount in the `intelligence` slot of `AppShellSlotted`. Only rendered ≥ 1280px.
+ */
+function FlaggedIntelligence() {
+	const { selectedThread } = useFlaggedPane();
+	const { onToggleIntelligence } = useMailContext();
+
+	return (
+		<IntelligencePane
+			onClose={onToggleIntelligence}
+			thread={selectedThread}
+			mailboxId={selectedThread?.mailboxId}
+			accountId={selectedThread?.accountId}
+		/>
 	);
 }
 
@@ -200,6 +224,7 @@ function FlaggedPhone() {
 const FlaggedPane = Object.assign(FlaggedPaneProvider, {
 	List: FlaggedListSlot,
 	Reading: FlaggedReading,
+	Intelligence: FlaggedIntelligence,
 	Phone: FlaggedPhone,
 });
 
