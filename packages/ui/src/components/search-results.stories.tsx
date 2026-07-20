@@ -190,8 +190,7 @@ export const GlobalAcrossFolders: Story = {
 	render: () => (
 		<Harness
 			value="invoice"
-			scope={{ kind: "global" }}
-			onScopeToSpam={() => {}}
+			scope={{ kind: "global", onScopeToSpam: () => {} }}
 			sections={[
 				{ id: "top", label: "Top matches", results: globalTopMatches },
 				{ id: "related", label: "Related", results: related },
@@ -209,8 +208,7 @@ export const GlobalWithoutSpamMatches: Story = {
 	render: () => (
 		<Harness
 			value="invoice"
-			scope={{ kind: "global" }}
-			onScopeToSpam={() => {}}
+			scope={{ kind: "global", onScopeToSpam: () => {} }}
 			sections={[
 				{
 					id: "top",
@@ -234,8 +232,7 @@ export const GlobalAccountWithoutSpamFolder: Story = {
 	render: () => (
 		<Harness
 			value="invoice"
-			scope={{ kind: "global" }}
-			onScopeToSpam={() => {}}
+			scope={{ kind: "global", onScopeToSpam: () => {} }}
 			sections={[
 				{ id: "top", label: "Top matches", results: crossFolderMatches },
 			]}
@@ -252,8 +249,7 @@ export const GlobalOnlySpamMatches: Story = {
 	render: () => (
 		<Harness
 			value="invoice"
-			scope={{ kind: "global" }}
-			onScopeToSpam={() => {}}
+			scope={{ kind: "global", onScopeToSpam: () => {} }}
 			sections={[{ id: "top", label: "Top matches", results: spamMatches }]}
 		/>
 	),
@@ -273,7 +269,6 @@ export const ScopedToInbox: Story = {
 		<Harness
 			value="invoice"
 			scope={{ kind: "folder", role: "inbox" }}
-			onScopeToSpam={() => {}}
 			sections={[
 				{ id: "top", label: "Top matches", results: globalTopMatches },
 				{ id: "related", label: "Related", results: related },
@@ -293,7 +288,6 @@ export const ScopedToSpam: Story = {
 		<Harness
 			value="invoice"
 			scope={{ kind: "folder", role: "junk" }}
-			onScopeToSpam={() => {}}
 			sections={[{ id: "top", label: "Top matches", results: spamMatches }]}
 		/>
 	),
@@ -357,7 +351,6 @@ export const StarredCollection: Story = {
 		<Harness
 			value="invoice"
 			scope={{ kind: "collection" }}
-			onScopeToSpam={() => {}}
 			sections={[
 				{ id: "top", label: "Top matches", results: globalTopMatches },
 			]}

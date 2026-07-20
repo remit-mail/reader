@@ -25,7 +25,7 @@
  * This is also the one place the route's scope reaches the results list, so both
  * tiers agree on it: a global search labels every row with the folder it came
  * from and offers the spam it held out, and a scoped search does neither. See
- * `resultsScopeForState` and `lib/spam-offer.ts`.
+ * `resultsScopeForRoute` and `lib/spam-offer.ts`.
  */
 import {
 	FilterSheet,
@@ -35,6 +35,7 @@ import {
 	type SearchResult,
 	type SearchResultSection,
 	SearchResults,
+	type SearchScope,
 	useAppShellLayout,
 } from "@remit/ui";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
@@ -147,46 +148,39 @@ export function MailListHeader({
 	const resultsLoading =
 		!hasAnyResult && (searchLoading === true || relatedLoading === true);
 
-	// The scope the results list acts on is the route's scope, mapped down to the
-	// two states the list distinguishes; the mailbox's appointed role is what
-	// lets a search scoped to Spam show its rows rather than drop them.
+	// The mailbox's appointed role is what lets a search scoped to Spam show its
+	// rows rather than drop them.
 	const { scope } = useSearchScope(accounts);
 	const matches = useRouterState({ select: (s) => s.matches });
 	const scopedMailboxId = routeMailboxId(matches);
-	const resultsScope = resultsScopeForRoute(
+	const routeScope = resultsScopeForRoute(
 		matches,
 		scope,
 		scopedMailboxId ? resultFolderIndex.get(scopedMailboxId)?.role : undefined,
 	);
 
-	// Spam is held out of a global search and offered instead. Only a global
-	// search offers it: a scoped search shows its own scope and no more, so
-	// neither the count nor the offer exists there.
+	// The offer counts results for the *committed* query, so that is the query it
+	// carries into Spam. The count the banner states is the results list's own,
+	// over every row it held out; the app supplies only where "Go to Spam" goes.
 	const spamOffer =
-		resultsScope.kind === "global"
+		routeScope.kind === "global"
 			? spamOfferForResults([...topMatches, ...related])
 			: undefined;
-	// The offer counts results for the *committed* query, so that is the query it
-	// carries into Spam — taking the offer shows the matches it advertised, not
-	// whatever has been typed since.
-	const onScopeToSpam = spamOffer
-		? () =>
-				navigate({
-					to: "/mail/$mailboxId",
-					params: { mailboxId: spamOffer.mailboxId },
-					search: {
-						q: searchQuery || undefined,
-						selectedMessageId: undefined,
-						selectedThreadId: undefined,
-					},
-				})
-		: undefined;
-	// No `spamMatchCount`: the kit counts the rows it actually held out, which is
-	// the honest total across accounts. The offer only supplies the destination.
-	const spamProps = {
-		scope: resultsScope,
-		...(onScopeToSpam ? { onScopeToSpam } : {}),
-	};
+	const resultsScope: SearchScope = spamOffer
+		? {
+				kind: "global",
+				onScopeToSpam: () =>
+					navigate({
+						to: "/mail/$mailboxId",
+						params: { mailboxId: spamOffer.mailboxId },
+						search: {
+							q: searchQuery || undefined,
+							selectedMessageId: undefined,
+							selectedThreadId: undefined,
+						},
+					}),
+			}
+		: routeScope;
 
 	if (tier === "phone" && searchOpen) {
 		const handleSelectResult = (result: SearchResult) => {
@@ -210,7 +204,7 @@ export function MailListHeader({
 				loading={resultsLoading}
 				onSelectResult={handleSelectResult}
 				tokens={tokenChips}
-				{...spamProps}
+				scope={resultsScope}
 			/>
 		);
 	}
@@ -230,7 +224,7 @@ export function MailListHeader({
 			loading={resultsLoading}
 			onSelectResult={handleSelectInlineResult}
 			tokens={tokenChips}
-			{...spamProps}
+			scope={resultsScope}
 		/>
 	);
 	const body = !showInlineResults ? (

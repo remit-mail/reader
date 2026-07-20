@@ -46,10 +46,6 @@ export interface MobileSearchViewProps {
 	onRemoveChip?: (id: string) => void;
 	/** What the search covers; see `SearchResultsProps`. Defaults to global. */
 	scope?: SearchScope;
-	/** Total spam matches found; see `SearchResultsProps`. */
-	spamMatchCount?: number;
-	/** Scope the search to Spam; see `SearchResultsProps`. */
-	onScopeToSpam?: () => void;
 }
 
 /**
@@ -81,8 +77,6 @@ export function MobileSearchView({
 	chips,
 	onRemoveChip,
 	scope,
-	spamMatchCount,
-	onScopeToSpam,
 }: MobileSearchViewProps) {
 	const body = (
 		<SearchResults
@@ -94,8 +88,6 @@ export function MobileSearchView({
 			onSelectResult={onSelectResult}
 			tokens={tokens}
 			scope={scope}
-			spamMatchCount={spamMatchCount}
-			onScopeToSpam={onScopeToSpam}
 		/>
 	);
 

@@ -42,8 +42,7 @@ describe("MobileSearchView search scope", () => {
 		const html = renderToString(
 			createElement(MobileSearchView, {
 				...base,
-				scope: { kind: "global" as const },
-				onScopeToSpam: noop,
+				scope: { kind: "global" as const, onScopeToSpam: noop },
 			}),
 		);
 		assert.doesNotMatch(html, /unknown-vendor/);
@@ -56,7 +55,6 @@ describe("MobileSearchView search scope", () => {
 			createElement(MobileSearchView, {
 				...base,
 				scope: { kind: "folder" as const, role: "inbox" as const },
-				onScopeToSpam: noop,
 			}),
 		);
 		assert.doesNotMatch(html, /unknown-vendor/);
@@ -64,15 +62,14 @@ describe("MobileSearchView search scope", () => {
 		assert.doesNotMatch(html, /Archive/);
 	});
 
-	it("passes a caller-supplied spam total through", () => {
+	it("counts the spam it held out, on the phone tier too", () => {
 		const html = renderToString(
 			createElement(MobileSearchView, {
 				...base,
-				scope: { kind: "global" as const },
-				spamMatchCount: 42,
-				onScopeToSpam: noop,
+				scope: { kind: "global" as const, onScopeToSpam: noop },
 			}),
 		);
-		assert.match(html, />42</);
+		assert.match(html, /from Spam/);
+		assert.match(html, /Go to Spam/);
 	});
 });

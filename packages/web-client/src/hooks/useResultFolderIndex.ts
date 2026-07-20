@@ -5,7 +5,10 @@
  * search results resolve their provenance against. See `lib/result-folder.ts`.
  */
 import { mailboxOperationsListMailboxesOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
-import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
+import type {
+	RemitImapAccountResponse,
+	RemitImapMailboxResponse,
+} from "@remit/api-http-client/types.gen.ts";
 import { useQueries } from "@tanstack/react-query";
 import { useMemo } from "react";
 import {
@@ -13,13 +16,21 @@ import {
 	type ResultFolderIndex,
 } from "@/lib/result-folder";
 
+type MailboxItems = RemitImapMailboxResponse[];
+
+/**
+ * Hoisted, not inline: `useQueries` skips re-running `combine` when it is given
+ * the same function, so a stable reference is what makes this a memo rather than
+ * a per-render reduce. Without it the index — and every search-result memo keyed
+ * on it — rebuilds on every render.
+ */
+const combineMailboxItems = (
+	results: { data?: { items: MailboxItems } }[],
+): MailboxItems[] => results.map((result) => result.data?.items ?? []);
+
 export function useResultFolderIndex(
 	accounts: RemitImapAccountResponse[],
 ): ResultFolderIndex {
-	// `combine` reduces inside react-query, which memoizes on the query results
-	// themselves. Reducing outside would rebuild the index on every render —
-	// `useQueries` hands back a fresh array each time — and every search-result
-	// memo keyed on the index would rebuild with it.
 	const mailboxItems = useQueries({
 		queries: accounts.map((account) => ({
 			...mailboxOperationsListMailboxesOptions({
@@ -27,7 +38,7 @@ export function useResultFolderIndex(
 			}),
 			staleTime: Infinity,
 		})),
-		combine: (results) => results.map((result) => result.data?.items ?? []),
+		combine: combineMailboxItems,
 	});
 
 	return useMemo(

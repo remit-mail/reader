@@ -13,7 +13,7 @@ describe("SpamResultsOffer", () => {
 		);
 		assert.match(html, />3</);
 		assert.match(html, /results from Spam/);
-		assert.match(html, /View them/);
+		assert.match(html, /Go to Spam/);
 	});
 
 	it("reads in the singular for one match", () => {

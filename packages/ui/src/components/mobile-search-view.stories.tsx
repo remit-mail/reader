@@ -156,8 +156,6 @@ function Harness({
 	sections,
 	preset,
 	scope,
-	spamMatchCount,
-	onScopeToSpam,
 }: {
 	initialValue?: string;
 	initialChips?: SearchChip[];
@@ -165,8 +163,6 @@ function Harness({
 	sections?: SearchResultSection[];
 	preset: Preset;
 	scope?: SearchScope;
-	spamMatchCount?: number;
-	onScopeToSpam?: () => void;
 }) {
 	const [value, setValue] = useState(initialValue);
 	const [chips, setChips] = useState<SearchChip[]>(initialChips);
@@ -240,8 +236,6 @@ function Harness({
 			loading={loading}
 			onSelectResult={setOpened}
 			scope={scope}
-			spamMatchCount={spamMatchCount}
-			onScopeToSpam={onScopeToSpam}
 		/>
 	);
 }
@@ -343,8 +337,7 @@ export const GlobalAcrossFolders: Story = {
 		<Harness
 			initialValue="invoice"
 			sections={acrossFoldersSections}
-			scope={{ kind: "global" }}
-			onScopeToSpam={() => {}}
+			scope={{ kind: "global", onScopeToSpam: () => {} }}
 			preset="brief"
 		/>
 	),
@@ -362,7 +355,6 @@ export const ScopedToInbox: Story = {
 			initialChips={[{ id: "in:inbox", label: "in:inbox" }]}
 			sections={acrossFoldersSections}
 			scope={{ kind: "folder", role: "inbox" }}
-			onScopeToSpam={() => {}}
 			preset="inbox"
 		/>
 	),
@@ -377,8 +369,7 @@ export const GlobalOnlySpamMatches: Story = {
 		<Harness
 			initialValue="invoice"
 			sections={[{ id: "top", label: "Top matches", results: spamMatches }]}
-			scope={{ kind: "global" }}
-			onScopeToSpam={() => {}}
+			scope={{ kind: "global", onScopeToSpam: () => {} }}
 			preset="brief"
 		/>
 	),
@@ -397,7 +388,6 @@ export const StarredCollection: Story = {
 			initialChips={[{ id: "is:starred", label: "is:starred" }]}
 			sections={acrossFoldersSections}
 			scope={{ kind: "collection" }}
-			onScopeToSpam={() => {}}
 			preset="brief"
 		/>
 	),

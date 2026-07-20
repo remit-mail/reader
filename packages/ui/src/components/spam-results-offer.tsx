@@ -20,6 +20,12 @@ const plural = (n: number): string => (n === 1 ? "result" : "results");
  * the whole point of the folder is that its contents are unwanted until asked
  * for. Taking the offer scopes the search to Spam.
  *
+ * The count is every match held out; the action opens Spam. It deliberately
+ * does not read "view them", because scope is a single mailbox and a user with
+ * several accounts has several Spam folders — the count would then name more
+ * mail than the click delivers. Saying where the button goes is true whatever
+ * the account setup.
+ *
  * Quiet on purpose: this is an offer, not a warning. Presentational — the
  * caller owns what "scope to spam" does.
  */
@@ -44,7 +50,7 @@ export function SpamResultsOffer({
 					onClick={onScopeToSpam}
 					className="shrink-0 text-accent"
 				>
-					View them
+					Go to Spam
 				</Button>
 			</div>
 		</Banner>
