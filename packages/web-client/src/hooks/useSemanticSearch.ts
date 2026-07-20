@@ -70,7 +70,12 @@ export function useSemanticSearch({
 	const matches = useRouterState({ select: (s) => s.matches });
 	const normalizedQuery = normalizeSearchQuery(searchQuery);
 	const { freeText, tokens } = parseSearchTokens(normalizedQuery, tokenContext);
-	const enabled = normalizedQuery.length > 0;
+	// `freeText`, not the raw query: a query of nothing but tokens
+	// (`has:attachment`, `in:archive`) parses to empty free text, and asking a
+	// vector index what an empty string means has no answer to give. The literal
+	// engines still apply those tokens; the semantic section simply has nothing
+	// to rank.
+	const enabled = freeText.length > 0;
 
 	const category = toCategoryParam(filterCategory);
 	const hasAttachment = tokens.some((t) => t.type === "hasAttachment")
