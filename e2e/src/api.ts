@@ -178,6 +178,49 @@ export class ApiClient {
 		});
 	}
 
+	/**
+	 * Delete messages the same way the bulk-delete toolbar does. Specs use this
+	 * both to seed a real partial-failure retry (the ids the UI's mocked first
+	 * call reports as failed still have to actually go away on Retry) and to
+	 * clean up scratch fixtures a UI-driven delete didn't reach.
+	 */
+	deleteMessages(messageIds: string[]): Promise<{
+		successCount: number;
+		failureCount: number;
+		failedIds?: string[];
+	}> {
+		return this.json("POST", "/messages/delete", { messageIds });
+	}
+
+	/**
+	 * Every message id currently matching a free-text query in one mailbox,
+	 * paged to exhaustion at the write side's own 100-id cap — the same page
+	 * size `useEscalatedDelete` uses, so a spec can compute "how many actually
+	 * match right now" independently of whatever the UI claims.
+	 */
+	async searchMatchingMessageIds(
+		mailboxId: string,
+		query: string,
+	): Promise<string[]> {
+		const ids: string[] = [];
+		let continuationToken: string | undefined;
+		do {
+			const params = new URLSearchParams({
+				order: "desc",
+				query,
+				limit: "100",
+			});
+			if (continuationToken) params.set("continuationToken", continuationToken);
+			const result = await this.json<ResultList<{ messageId: string }>>(
+				"GET",
+				`/mailboxes/${mailboxId}/threads/search?${params.toString()}`,
+			);
+			ids.push(...(result.items ?? []).map((item) => item.messageId));
+			continuationToken = result.continuationToken;
+		} while (continuationToken);
+		return ids;
+	}
+
 	async listMailboxes(accountId: string): Promise<Mailbox[]> {
 		const result = await this.json<ResultList<Mailbox>>(
 			"GET",
