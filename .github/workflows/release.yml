@@ -2,6 +2,14 @@
 # creates the matching GitHub release. Triggered by pushing the tag (see
 # npm-scripts/release-tag.sh / `npm run release:tag`), never by a branch push.
 #
+# The trigger is a bare tag pattern, so any pushed vX.Y.Z tag reaches this
+# workflow — including a hand-pushed lightweight tag that never ran
+# release:tag. The first step re-checks the tag here rather than trusting the
+# script: it must be an annotated tag whose message is a valid summary (the
+# string rendered verbatim on the update consent screen, RFC 037 / the
+# manifest schema's `summary`), or the release is refused before anything is
+# built or published.
+#
 # A release tag is never re-pushed. The preflight queries the registry for
 # every image in the roster and fails before anything builds if the tag
 # already resolves — a botched release is fixed by cutting the next one.
@@ -41,6 +49,27 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      - name: Require an authored release summary
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          object_type="$(gh api "repos/${REPO}/git/ref/tags/${TAG}" --jq '.object.type')"
+          if [ "$object_type" != "tag" ]; then
+            echo "release: ${TAG} is a lightweight tag with no annotation; releases must be cut with 'npm run release:tag'" >&2
+            exit 1
+          fi
+          object_sha="$(gh api "repos/${REPO}/git/ref/tags/${TAG}" --jq '.object.sha')"
+          summary="$(gh api "repos/${REPO}/git/tags/${object_sha}" --jq '.message')"
+          source npm-scripts/lib/summary-check.sh
+          summary_error="$(validate_summary "$summary")"
+          if [ -n "$summary_error" ]; then
+            echo "release: tag ${TAG} annotation is not a valid summary: ${summary_error}" >&2
+            exit 1
+          fi
+          echo "release: ${TAG} carries a valid summary"
 
       - name: Log in to GHCR
         run: docker login ghcr.io -u "${{ github.actor }}" --password-stdin <<<"${{ secrets.GITHUB_TOKEN }}"
