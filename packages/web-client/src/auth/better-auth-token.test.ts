@@ -197,6 +197,94 @@ describe("fetchBetterAuthToken", () => {
 		assert.equal(second, held);
 	});
 
+	test("a network failure keeps the still-valid token instead of discarding it", async () => {
+		const seed = stubTokenEndpoint(() =>
+			tokenResponse(nearExpiryJwt("still-valid")),
+		);
+		seed.release();
+		const held = await fetchBetterAuthToken();
+
+		globalThis.fetch = (async () => {
+			throw new TypeError("Failed to fetch");
+		}) as typeof fetch;
+		const afterNetworkFailure = await fetchBetterAuthToken();
+
+		assert.equal(afterNetworkFailure, held);
+	});
+
+	test("a 5xx refresh keeps the still-valid token instead of discarding it", async () => {
+		const seed = stubTokenEndpoint(() =>
+			tokenResponse(nearExpiryJwt("still-valid")),
+		);
+		seed.release();
+		const held = await fetchBetterAuthToken();
+
+		const faulted = stubTokenEndpoint(
+			() =>
+				new Response("", { status: 503, statusText: "Service Unavailable" }),
+		);
+		faulted.release();
+		const afterFault = await fetchBetterAuthToken();
+
+		assert.equal(faulted.calls, 1);
+		assert.equal(afterFault, held);
+	});
+
+	test("a revoked mint (401) clears the held token and re-authenticates", async () => {
+		const seed = stubTokenEndpoint(() =>
+			tokenResponse(nearExpiryJwt("revoked-soon")),
+		);
+		seed.release();
+		const held = await fetchBetterAuthToken();
+
+		const revoked = stubTokenEndpoint(
+			() => new Response("", { status: 401, statusText: "Unauthorized" }),
+		);
+		revoked.release();
+		await assert.rejects(
+			() => fetchBetterAuthToken(),
+			(error: unknown) => {
+				assert.ok(error instanceof AuthTokenError);
+				assert.equal(error.status, 401);
+				return true;
+			},
+		);
+		assert.equal(revoked.calls, 1);
+
+		const reissued = stubTokenEndpoint(() => tokenResponse(jwt("reissued")));
+		reissued.release();
+		const afterReauth = await fetchBetterAuthToken();
+
+		assert.equal(reissued.calls, 1);
+		assert.notEqual(afterReauth, held);
+	});
+
+	test("a revoked mint (403) clears the held token and re-authenticates", async () => {
+		const seed = stubTokenEndpoint(() =>
+			tokenResponse(nearExpiryJwt("forbidden-soon")),
+		);
+		seed.release();
+		await fetchBetterAuthToken();
+
+		const forbidden = stubTokenEndpoint(
+			() => new Response("", { status: 403, statusText: "Forbidden" }),
+		);
+		forbidden.release();
+		await assert.rejects(
+			() => fetchBetterAuthToken(),
+			(error: unknown) => {
+				assert.ok(error instanceof AuthTokenError);
+				assert.equal(error.status, 403);
+				return true;
+			},
+		);
+
+		const reissued = stubTokenEndpoint(() => tokenResponse(jwt("reissued")));
+		reissued.release();
+		assert.ok(await fetchBetterAuthToken());
+		assert.equal(reissued.calls, 1);
+	});
+
 	test("a throttled refresh with no usable token to fall back on still throws", async () => {
 		const seed = stubTokenEndpoint(() =>
 			tokenResponse(jwtExpiringIn("already-expired", -10)),

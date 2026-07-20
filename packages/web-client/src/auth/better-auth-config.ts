@@ -1,5 +1,5 @@
 import { createAuthClient } from "better-auth/react";
-import { taggedFetch } from "../lib/network-error";
+import { NetworkError, taggedFetch } from "../lib/network-error";
 import { getRuntimeConfig } from "../runtime-config";
 
 /**
@@ -186,17 +186,44 @@ const isUsable = (token: CachedToken): boolean =>
 	token.expiresAt > nowSeconds();
 
 /**
+ * A mint failure the held token is allowed to ride out: throttling (429), a
+ * server-side fault (5xx), or a transport failure that never reached the server.
+ * These say nothing about the session's validity, so keeping the token the tab
+ * already holds is correct. A 4xx that is not 429 does not qualify — least of all
+ * a 401/403, which is the server revoking the session.
+ */
+const isTransientMintFailure = (error: unknown): boolean => {
+	if (error instanceof NetworkError) return true;
+	if (error instanceof AuthTokenError) {
+		return error.status === 429 || (error.status ?? 0) >= 500;
+	}
+	return false;
+};
+
+/**
+ * The mint was refused because the session is no longer valid. The held token is
+ * signed for that same revoked session, so it must be discarded rather than
+ * served until it expires.
+ */
+const isRevocation = (error: unknown): boolean =>
+	error instanceof AuthTokenError &&
+	(error.status === 401 || error.status === 403);
+
+/**
  * Return a valid RS256 JWT for the current session, minting a fresh one only
  * when the cached token is missing or within the skew window of expiry. The API
  * interceptor attaches it as a Bearer token; the backend verifies it against the
  * JWKS.
  *
- * A throttled or failed refresh never discards a token that is still usable: the
- * request keeps the session it already holds and the endpoint is left alone
- * until the backoff clears. Only a mint with nothing usable to fall back to
- * throws — returning null would put the request on the wire without an
- * Authorization header, and the backend answers that with a 401 that names a
- * missing token rather than the mint that failed.
+ * A throttled, faulted, or unreachable refresh never discards a token that is
+ * still usable: the request keeps the session it already holds and the endpoint
+ * is left alone until the backoff clears. A revocation (401/403) is the opposite
+ * — the session behind the held token is gone, so it is cleared and the failure
+ * propagates to re-authentication rather than serving a dead token until expiry.
+ * Only a mint with nothing usable to fall back to throws otherwise — returning
+ * null would put the request on the wire without an Authorization header, and the
+ * backend answers that with a 401 that names a missing token rather than the mint
+ * that failed.
  */
 export const fetchBetterAuthToken = async (): Promise<string> => {
 	const current = currentCache();
@@ -212,7 +239,11 @@ export const fetchBetterAuthToken = async (): Promise<string> => {
 	try {
 		return await mint();
 	} catch (error) {
-		if (current && isUsable(current)) {
+		if (isRevocation(error)) {
+			resetBetterAuthTokenCache();
+			throw error;
+		}
+		if (current && isUsable(current) && isTransientMintFailure(error)) {
 			backoffUntil = nowSeconds() + REFRESH_BACKOFF_SECONDS;
 			return current.value;
 		}
