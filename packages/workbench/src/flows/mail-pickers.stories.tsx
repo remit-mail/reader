@@ -4,18 +4,20 @@ import {
 	Archive,
 	FolderInput,
 	Inbox,
-	MailOpen,
 	Search,
 	Send,
 	Trash2,
-	X,
 } from "lucide-react";
 
 /**
- * Design source for the bulk-triage and folder-picker surfaces (#788): the
- * desktop `SelectionToolbar`, the mobile `SelectionTopBar` (with the
- * cross-account move guard), the move-to-mailbox picker, and the
- * reclassify-sender dialog. Presentational shells mirroring the live wiring.
+ * Design source for the folder-picker surfaces (#788): the move-to-mailbox
+ * picker and the reclassify-sender dialog. The bulk-triage selection bars
+ * used to live here as hand-rolled `<div>`/`<button>` mockups; they drifted
+ * from the real components (no busy spinner, no Organize action, bare div
+ * icons instead of real `Button`s) and are superseded by
+ * `selection-top-bar.stories.tsx`, which renders the actual `SelectionTopBar`
+ * kit component including its full prop surface (busy, cross-account hint,
+ * select-all, counting, bulk-progress, partial-failure).
  */
 
 const meta: Meta = {
@@ -25,110 +27,6 @@ const meta: Meta = {
 export default meta;
 
 type Story = StoryObj;
-
-function SelectionToolbar({
-	count,
-	moveDisabledHint,
-}: {
-	count: number;
-	moveDisabledHint?: string;
-}) {
-	return (
-		<div className="sticky top-0 z-10 flex items-center justify-between border-b border-line bg-surface-sunken px-3 py-2">
-			<div className="flex items-center gap-3">
-				<button
-					type="button"
-					aria-label="Clear selection"
-					className="inline-flex min-h-11 min-w-11 items-center justify-center rounded hover:bg-surface-raised"
-				>
-					<X className="size-4 text-fg-muted" />
-				</button>
-				<span className="text-sm font-medium text-fg">
-					{count} {count === 1 ? "message" : "messages"} selected
-				</span>
-				{moveDisabledHint && (
-					<span className="text-xs text-fg-muted">{moveDisabledHint}</span>
-				)}
-			</div>
-			<div className="flex items-center gap-1">
-				<button
-					type="button"
-					aria-label="Mark as read"
-					className="inline-flex min-h-11 min-w-11 items-center justify-center rounded hover:bg-surface-raised"
-				>
-					<MailOpen className="size-4" />
-				</button>
-				<button
-					type="button"
-					aria-label="Move selected messages"
-					className="inline-flex min-h-11 min-w-11 items-center justify-center rounded hover:bg-surface-raised"
-				>
-					<FolderInput className="size-4" />
-				</button>
-				<button
-					type="button"
-					aria-label="Delete selected messages"
-					className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded bg-danger px-3 text-sm font-medium text-canvas hover:bg-danger/90"
-				>
-					<Trash2 className="size-4" />
-					<span className="hidden sm:inline">Delete</span>
-				</button>
-			</div>
-		</div>
-	);
-}
-
-/** Desktop bulk-triage bar over a selected list. */
-export const SelectionDesktop: Story = {
-	render: () => (
-		<div className="w-full">
-			<SelectionToolbar count={3} />
-		</div>
-	),
-};
-
-/** Cross-account selection: Move is guarded with an inline reason, never a dead button. */
-export const SelectionCrossAccount: Story = {
-	render: () => (
-		<div className="w-full">
-			<SelectionToolbar
-				count={5}
-				moveDisabledHint="Move works within one account — narrow the selection"
-			/>
-		</div>
-	),
-};
-
-/** Mobile multi-select top bar with the move guard surfaced below the row. */
-export const SelectionMobile: Story = {
-	parameters: { viewport: { defaultViewport: "mobile1" } },
-	render: () => (
-		<div className="sticky top-0 z-10 flex flex-col gap-1 border-b border-line bg-surface-sunken/50 px-3 py-2">
-			<div className="flex items-center justify-between">
-				<div className="flex items-center gap-3">
-					<button
-						type="button"
-						aria-label="Cancel selection"
-						className="inline-flex min-h-11 min-w-11 items-center justify-center rounded"
-					>
-						<X className="size-4 text-fg-muted" />
-					</button>
-					<span className="text-sm font-medium text-fg">
-						4 messages selected
-					</span>
-				</div>
-				<div className="flex items-center gap-1 text-fg-muted">
-					<MailOpen className="size-4" />
-					<FolderInput className="size-4" />
-					<Trash2 className="size-4 text-danger" />
-				</div>
-			</div>
-			<p className="text-xs text-fg-muted">
-				Move works within one account — narrow the selection
-			</p>
-		</div>
-	),
-};
 
 /** Move-to-mailbox picker: search + the destination folder list. */
 export const MovePicker: Story = {

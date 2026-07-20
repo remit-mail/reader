@@ -70,6 +70,7 @@ export function AppShell({
 	thread,
 	initialNarrowView = "list",
 	initialTouchState,
+	selectionBar,
 	intelligence,
 	intelligenceOpen = true,
 	density,
@@ -126,6 +127,7 @@ export function AppShell({
 			}}
 			onSelectBriefCategory={selectCategory}
 			initialTouchState={initialTouchState}
+			selectionBar={selectionBar}
 		/>
 	);
 
@@ -185,6 +187,7 @@ function AppShellList({
 	onSelectThread,
 	onSelectBriefCategory,
 	initialTouchState,
+	selectionBar,
 }: Pick<
 	AppShellProps,
 	| "thread"
@@ -202,6 +205,7 @@ function AppShellList({
 	| "density"
 	| "onSelectThread"
 	| "initialTouchState"
+	| "selectionBar"
 > & {
 	narrowView: NarrowView;
 	onBackToList: () => void;
@@ -244,6 +248,7 @@ function AppShellList({
 			onOpenNav={showNavPane ? undefined : layout?.openNav}
 			isDesktop={showReadingPane}
 			initialTouchState={initialTouchState}
+			selectionBar={selectionBar}
 		/>
 	);
 }

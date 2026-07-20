@@ -300,9 +300,7 @@ describe("AppShell touch-state seeds (story/SSR affordance)", () => {
 			/aria-label="Cancel selection"/,
 			"the selection bar is shown",
 		);
-		// SSR splits interpolated text with comment markers, so match the parts.
-		assert.match(html, /messages<!-- --> selected/, "selection wording shown");
-		assert.match(html, />2<!-- -->/, "the seeded count of 2 is shown");
+		assert.match(html, /2 messages selected/, "selection wording shown");
 		// Selection mode is not a swipe — no action zones revealed.
 		assert.equal(
 			count(html, trailingAction),
@@ -342,6 +340,23 @@ describe("AppShell touch-state seeds (story/SSR affordance)", () => {
 			html,
 			/<button[^>]*aria-label="Mark as (read|unread)"/,
 			"toggle-read action is a tappable button",
+		);
+	});
+
+	it("selectionBar overrides the built-in bar and forwards to the list pane", () => {
+		const html = render({
+			...touchBase,
+			selectionBar: createElement(
+				"div",
+				{ "data-testid": "custom-bar" },
+				"Deleting 1,200 of 3,412…",
+			),
+		});
+		assert.match(html, /Deleting 1,200 of 3,412…/, "the override renders");
+		assert.doesNotMatch(
+			html,
+			/aria-label="Cancel selection"/,
+			"the built-in bar is not also rendered",
 		);
 	});
 

@@ -56,6 +56,20 @@ export const PeekedLeading: Story = { args: { peek: "leading" } };
 export const PeekedTrailing: Story = { args: { peek: "trailing" } };
 
 /**
+ * In selection mode the leading avatar is REPLACED by a checkbox affordance
+ * — unchecked below, checked in the next story. `baseArgs` never flips
+ * `selectionMode`/`checked`, so this row-level toggle had zero coverage.
+ */
+export const SelectionUnchecked: Story = {
+	args: { peek: "none", selectionMode: true, checked: false },
+};
+
+/** Selection mode, row checked: the circle fills accent and shows a tick. */
+export const SelectionChecked: Story = {
+	args: { peek: "none", selectionMode: true, checked: true },
+};
+
+/**
  * The open affordance is rendered as a real `<a href>` via `linkComponent`,
  * so deep-link, middle-click and open-in-new-tab work. Consumers pass their
  * router's Link; here a plain anchor stands in. Inspect the DOM: the row is an
