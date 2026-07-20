@@ -13,11 +13,20 @@ const base64url = (value: string): string =>
 		.replace(/\//g, "_")
 		.replace(/=+$/, "");
 
-/** A token shaped like the one better-auth mints, valid for an hour. */
-const jwt = (label: string): string =>
+/** A token shaped like the one better-auth mints, expiring after `ttl` seconds. */
+const jwtExpiringIn = (label: string, ttl: number): string =>
 	`header.${base64url(
-		JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600, label }),
+		JSON.stringify({ exp: Math.floor(Date.now() / 1000) + ttl, label }),
 	)}.signature`;
+
+/** A token shaped like the one better-auth mints, valid for an hour. */
+const jwt = (label: string): string => jwtExpiringIn(label, 3600);
+
+/**
+ * A token past its comfortable-refresh window but not yet expired: `getToken`
+ * treats it as needing a refresh while still holding it as a usable fallback.
+ */
+const nearExpiryJwt = (label: string): string => jwtExpiringIn(label, 30);
 
 const realFetch = globalThis.fetch;
 
@@ -147,6 +156,66 @@ describe("fetchBetterAuthToken", () => {
 		await assert.rejects(
 			() => fetchBetterAuthToken(),
 			/could not be completed|Failed to fetch/i,
+		);
+	});
+
+	test("a throttled refresh keeps the still-valid token instead of discarding it", async () => {
+		const seed = stubTokenEndpoint(() =>
+			tokenResponse(nearExpiryJwt("still-valid")),
+		);
+		seed.release();
+		const held = await fetchBetterAuthToken();
+
+		const throttled = stubTokenEndpoint(
+			() => new Response("", { status: 429, statusText: "Too Many Requests" }),
+		);
+		throttled.release();
+		const afterThrottle = await fetchBetterAuthToken();
+
+		assert.equal(throttled.calls, 1);
+		assert.equal(afterThrottle, held);
+	});
+
+	test("after a throttled refresh it backs off rather than hammering the endpoint", async () => {
+		const seed = stubTokenEndpoint(() =>
+			tokenResponse(nearExpiryJwt("still-valid")),
+		);
+		seed.release();
+		const held = await fetchBetterAuthToken();
+
+		const throttled = stubTokenEndpoint(
+			() => new Response("", { status: 429, statusText: "Too Many Requests" }),
+		);
+		throttled.release();
+		await fetchBetterAuthToken();
+
+		const first = await fetchBetterAuthToken();
+		const second = await fetchBetterAuthToken();
+
+		assert.equal(throttled.calls, 1);
+		assert.equal(first, held);
+		assert.equal(second, held);
+	});
+
+	test("a throttled refresh with no usable token to fall back on still throws", async () => {
+		const seed = stubTokenEndpoint(() =>
+			tokenResponse(jwtExpiringIn("already-expired", -10)),
+		);
+		seed.release();
+		await fetchBetterAuthToken();
+
+		const throttled = stubTokenEndpoint(
+			() => new Response("", { status: 429, statusText: "Too Many Requests" }),
+		);
+		throttled.release();
+
+		await assert.rejects(
+			() => fetchBetterAuthToken(),
+			(error: unknown) => {
+				assert.ok(error instanceof AuthTokenError);
+				assert.equal(error.status, 429);
+				return true;
+			},
 		);
 	});
 });

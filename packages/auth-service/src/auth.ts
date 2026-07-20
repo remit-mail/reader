@@ -104,6 +104,15 @@ export const createAuth = async (
 					window: intEnv("BETTER_AUTH_RATE_LIMIT_SIGN_UP_WINDOW", 60),
 					max: intEnv("BETTER_AUTH_RATE_LIMIT_SIGN_UP_MAX", 5),
 				},
+				// The token endpoint is the hot path: it is polled per session, per
+				// tab, and on every page load, so it needs a far higher ceiling than
+				// a generic auth route. The global bucket keyed by IP otherwise
+				// throttles a legitimate browser — several tabs, or a NAT'd office —
+				// and a throttled mint strands the session in a 401 cascade.
+				"/token": {
+					window: intEnv("BETTER_AUTH_RATE_LIMIT_TOKEN_WINDOW", 60),
+					max: intEnv("BETTER_AUTH_RATE_LIMIT_TOKEN_MAX", 300),
+				},
 			},
 		},
 		user: { modelName: "auth_user" },
