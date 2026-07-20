@@ -1,8 +1,11 @@
 import {
 	AppShell,
 	type AppShellProps,
+	Banner,
+	MessageListPane,
 	SelectionTopBar,
 	type ThreadData,
+	TouchListBody,
 } from "@remit/ui";
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
@@ -528,15 +531,22 @@ export const MobileSelectionViaLongPress: Story = {
 /**
  * A `selectionBar` override carrying a running-progress `statusLabel` —
  * `MessageList.tsx`'s live bulk-delete state (thousands of messages, deleted
- * in batches) rendered through the real `AppShell`/`SelectionTopBar`, not a
- * seed the pane derives internally.
+ * in batches) — plus a `listBody` override so the rows get the same
+ * treatment: dimmed, still checked, taps suppressed. The number in the bar
+ * and the rows underneath now agree that something is happening. Rendered
+ * directly through `MessageListPane` (both overrides are its slots; `AppShell`
+ * doesn't forward `listBody` further up its own prop surface).
  */
 export const MobileBulkDeleteBusy: Story = {
 	parameters: mobileParams,
 	decorators: [phoneFrame],
 	render: () => (
-		<PhoneShell
-			{...flatInbox}
+		<MessageListPane
+			listTitle="Inbox"
+			sections={flatInboxSection}
+			flatList
+			listState="ready"
+			isDesktop={false}
 			selectionBar={
 				<SelectionTopBar
 					count={3412}
@@ -544,8 +554,43 @@ export const MobileBulkDeleteBusy: Story = {
 					onDelete={() => undefined}
 					statusLabel="Deleting 1,200 of 3,412…"
 					isBusy
+					progress={{ value: 1200, max: 3412, tone: "danger" }}
+				/>
+			}
+			listBody={
+				<TouchListBody
+					sections={flatInboxSection}
+					selectionMode
+					checkedIds={new Set(allThreads.map((t) => t.id))}
+					busy
+					onToggleCheck={() => undefined}
+					onEnterSelection={() => undefined}
+					onOpenThread={() => undefined}
+					onRefresh={() => undefined}
+					refreshing={false}
 				/>
 			}
 		/>
+	),
+};
+
+/**
+ * The delete finishes: selection mode has exited (no bar), and a transient
+ * success banner replaces it — naming Trash explicitly and admitting IMAP
+ * applies the move asynchronously, rather than claiming a finality the API
+ * response doesn't have.
+ */
+export const MobileBulkDeleteComplete: Story = {
+	parameters: mobileParams,
+	decorators: [phoneFrame],
+	render: () => (
+		<div className="flex h-full flex-col">
+			<Banner tone="success" variant="soft" className="m-2 rounded-md">
+				3,412 moved to Trash. Your mail server is still catching up.
+			</Banner>
+			<div className="min-h-0 flex-1">
+				<PhoneShell {...flatInbox} />
+			</div>
+		</div>
 	),
 };

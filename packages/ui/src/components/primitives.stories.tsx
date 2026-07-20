@@ -30,6 +30,12 @@ export const Buttons: Story = {
 			<Button variant="primary" disabled>
 				Disabled
 			</Button>
+			<Button
+				variant="ghost"
+				size="touch"
+				icon={<Mail className="size-4" />}
+				aria-label="Touch-sized icon button"
+			/>
 		</div>
 	),
 };

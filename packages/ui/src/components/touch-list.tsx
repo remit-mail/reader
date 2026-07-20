@@ -14,6 +14,7 @@ export function TouchListBody({
 	onOpenThread,
 	onRefresh,
 	refreshing,
+	busy = false,
 }: {
 	sections: ThreadSection[];
 	selectedThreadId?: string;
@@ -25,6 +26,12 @@ export function TouchListBody({
 	onOpenThread: (id: string) => void;
 	onRefresh: () => void;
 	refreshing: boolean;
+	/**
+	 * A bulk operation (e.g. delete) is running against the checked set. Rows
+	 * dim and stop responding to taps instead of sitting normal, undimmed and
+	 * still tappable while a count above them claims they're being deleted.
+	 */
+	busy?: boolean;
 }) {
 	// Local copy so the mock can act on a swipe: delete removes the row,
 	// toggle-read flips its state. The live client owns real mutation.
@@ -56,24 +63,28 @@ export function TouchListBody({
 			)}
 			<div className="divide-y divide-line">
 				{items.map((thread) => (
-					<SwipeableRow
+					<div
 						key={thread.id}
-						thread={thread}
-						selectionMode={selectionMode}
-						checked={checkedIds.has(thread.id)}
-						active={thread.id === selectedThreadId}
-						peek={peek?.id === thread.id ? peek.side : "none"}
-						onPeek={(next) =>
-							setPeek(next === "none" ? null : { id: thread.id, side: next })
-						}
-						onToggleCheck={() => onToggleCheck(thread.id)}
-						onLongPress={() => onEnterSelection(thread.id)}
-						onOpen={() => onOpenThread(thread.id)}
-						onAct={(side) => act(thread.id, side)}
-					/>
+						className={busy ? "pointer-events-none opacity-50" : undefined}
+					>
+						<SwipeableRow
+							thread={thread}
+							selectionMode={selectionMode}
+							checked={checkedIds.has(thread.id)}
+							active={thread.id === selectedThreadId}
+							peek={peek?.id === thread.id ? peek.side : "none"}
+							onPeek={(next) =>
+								setPeek(next === "none" ? null : { id: thread.id, side: next })
+							}
+							onToggleCheck={() => onToggleCheck(thread.id)}
+							onLongPress={() => onEnterSelection(thread.id)}
+							onOpen={() => onOpenThread(thread.id)}
+							onAct={(side) => act(thread.id, side)}
+						/>
+					</div>
 				))}
 			</div>
-			{!selectionMode && !refreshing && (
+			{!selectionMode && !refreshing && !busy && (
 				<button
 					type="button"
 					onClick={onRefresh}

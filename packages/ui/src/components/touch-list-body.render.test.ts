@@ -63,4 +63,29 @@ describe("TouchListBody", () => {
 		const html = renderToString(createElement(TouchListBody, baseProps));
 		assert.match(html, /Pull to refresh/);
 	});
+
+	it("dims and suppresses taps on every row while busy", () => {
+		const html = renderToString(
+			createElement(TouchListBody, {
+				...baseProps,
+				selectionMode: true,
+				checkedIds: new Set(["t1", "t2"]),
+				busy: true,
+			}),
+		);
+		const dimmed = (html.match(/pointer-events-none opacity-50/g) ?? []).length;
+		assert.equal(dimmed, 2, "both seeded rows are dimmed");
+	});
+
+	it("hides pull to refresh while busy", () => {
+		const html = renderToString(
+			createElement(TouchListBody, { ...baseProps, busy: true }),
+		);
+		assert.doesNotMatch(html, /Pull to refresh/);
+	});
+
+	it("renders rows undimmed when not busy", () => {
+		const html = renderToString(createElement(TouchListBody, baseProps));
+		assert.doesNotMatch(html, /pointer-events-none/);
+	});
 });

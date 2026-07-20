@@ -2,7 +2,7 @@ import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { cn } from "../lib/cn.js";
 
 type Variant = "primary" | "secondary" | "ghost" | "danger";
-type Size = "sm" | "md";
+type Size = "sm" | "md" | "touch";
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 	variant?: Variant;
@@ -25,6 +25,10 @@ const variants: Record<Variant, string> = {
 const sizes: Record<Size, string> = {
 	sm: "h-7 px-2.5 text-xs",
 	md: "h-9 px-3.5 text-sm",
+	/** 44px square — the touch-target floor (HIG 44 / Material 48-ish). For an
+	 *  icon-only control; a control carrying a text label should size itself
+	 *  with `md` plus an explicit `min-h-11` instead of stretching to square. */
+	touch: "h-11 w-11 text-sm",
 };
 
 export function Button({

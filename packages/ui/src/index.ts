@@ -233,6 +233,10 @@ export {
 	type PopoverMenuProps,
 } from "./components/popover-menu.js";
 export {
+	ProgressBar,
+	type ProgressBarProps,
+} from "./components/progress-bar.js";
+export {
 	PullToRefresh,
 	type PullToRefreshProps,
 } from "./components/pull-to-refresh.js";
@@ -331,6 +335,8 @@ export {
 export { Select, type SelectProps } from "./components/select.js";
 export {
 	SelectionTopBar,
+	type SelectionTopBarNotice,
+	type SelectionTopBarNoticeAction,
 	type SelectionTopBarProps,
 } from "./components/selection-top-bar.js";
 export {

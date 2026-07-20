@@ -93,6 +93,7 @@
     "@remit/drizzle-service": "*",
     "@remit/electrodb-entities": "*",
     "@remit/secrets-service": "*",
+    "@storybook/react-vite": "^9",
     "@tailwindcss/vite": "^4",
     "@tanstack/router-generator": "^1",
     "@tanstack/router-plugin": "^1",

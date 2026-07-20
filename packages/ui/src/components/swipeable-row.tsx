@@ -2,8 +2,8 @@ import { Check, Mail, MailOpen, Trash2 } from "lucide-react";
 import { useRef, useState } from "react";
 import { cn } from "../lib/cn.js";
 import type { ThreadRowData } from "./app-shell-types.js";
+import { Avatar } from "./avatar.js";
 import {
-	ComfortableRowBody,
 	ComfortableRowTextContent,
 	comfortableRowClass,
 } from "./message-row.js";
@@ -192,6 +192,14 @@ export function SwipeableRow({
 		transition: dragX === null ? "transform 150ms ease" : "none",
 		minHeight: 44,
 	};
+	const unread = !thread.isRead;
+
+	// Stops the row's own pointer-gesture handlers (long-press, swipe axis
+	// detection) from also firing for a tap that started on the nested avatar
+	// toggle — the row and the toggle are two separate controls sharing the
+	// same leading 28px slot.
+	const stopRowGesture = (e: React.PointerEvent) => e.stopPropagation();
+
 	const body = selectionMode ? (
 		<>
 			<span
@@ -207,7 +215,36 @@ export function SwipeableRow({
 			<ComfortableRowTextContent thread={thread} />
 		</>
 	) : (
-		<ComfortableRowBody thread={thread} />
+		<>
+			{unread && (
+				<span className="absolute left-1.5 top-1/2 size-1.5 -translate-y-1/2 rounded-full bg-accent" />
+			)}
+			{/*
+			 * Tappable, focusable entry point into selection mode — long-press is
+			 * never the only way in. Nested inside the row's own open control
+			 * (button or, via linkComponent, an anchor); mirrors the leading-slot
+			 * toggle already shipped in the web client's row.
+			 */}
+			{/* biome-ignore lint/a11y/useSemanticElements: a native <input type="checkbox"> can't host the Avatar as its visible content; role="checkbox" on a button mirrors the row-checkbox pattern already shipped in MessageListItem.tsx */}
+			<button
+				type="button"
+				role="checkbox"
+				aria-checked={checked}
+				aria-label={`Select message from ${thread.fromName}`}
+				onPointerDown={stopRowGesture}
+				onPointerMove={stopRowGesture}
+				onPointerUp={stopRowGesture}
+				onClick={(e) => {
+					e.preventDefault();
+					e.stopPropagation();
+					onLongPress();
+				}}
+				className="inline-flex size-7 shrink-0 items-center justify-center rounded-full"
+			>
+				<Avatar name={thread.fromName} email={thread.fromEmail} size="sm" />
+			</button>
+			<ComfortableRowTextContent thread={thread} />
+		</>
 	);
 
 	return (
@@ -251,8 +288,11 @@ export function SwipeableRow({
 					children: body,
 				})
 			) : (
+				// biome-ignore lint/a11y/useAriaPropsSupportedByRole: role is only ever "checkbox" (aria-checked's owning role) when selectionMode is true; the ternaries are linked, biome can't see that statically
 				<button
 					type="button"
+					role={selectionMode ? "checkbox" : undefined}
+					aria-checked={selectionMode ? checked : undefined}
 					onPointerDown={onPointerDown}
 					onPointerMove={onPointerMove}
 					onPointerUp={onPointerUp}

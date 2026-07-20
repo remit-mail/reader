@@ -802,7 +802,11 @@ export const MessageList = ({
 				onDelete={handleDelete}
 				onMarkRead={onMarkAsRead ? handleMarkAsRead : undefined}
 				isBusy={isDeleting || isMoving}
-				moveDisabledHint={moveDisabledHint}
+				notice={
+					moveDisabledHint
+						? { tone: "warning", text: moveDisabledHint }
+						: undefined
+				}
 				moveSlot={
 					onMoveMessages && accountId && mailboxId ? (
 						<>
