@@ -28,6 +28,10 @@
 		"./wellknown": {
 			"types": "./src/wellknown.ts",
 			"default": "./src/wellknown.ts"
+		},
+		"./update-manifest": {
+			"types": "./src/update-manifest.ts",
+			"default": "./src/update-manifest.ts"
 		}
 	},
 	"scripts": {

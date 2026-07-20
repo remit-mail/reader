@@ -31,6 +31,8 @@ jobs:
         run: make
       - name: Build Storybook
         run: npm run build-storybook
+      - name: Copy update manifest into the Pages artifact
+        run: npm run manifest:copy-to-pages
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
