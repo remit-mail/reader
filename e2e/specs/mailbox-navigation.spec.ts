@@ -39,6 +39,48 @@ test.describe("Mailbox navigation", () => {
 		);
 	});
 
+	test("search does not follow you into the next mailbox (#47)", async ({
+		page,
+	}) => {
+		const { sidebar, inbox } = await openInbox(page);
+		await inbox.click();
+		await page.waitForURL(/\/mail\/[a-z0-9]+/);
+
+		// The one search field, in the top bar above every pane.
+		const field = page.getByRole("textbox", { name: "Search mail" });
+		await expect(field).toHaveCount(1);
+		await field.fill("invoice");
+		await page.waitForURL(/[?&]q=invoice/);
+
+		await sidebar.getByRole("link", { name: /sent/i }).click();
+		await page.waitForURL(/\/mail\/[a-z0-9]+/);
+
+		// The query is gone from the URL and from the field — the next mailbox is
+		// not silently searching for "invoice".
+		expect(page.url()).not.toContain("q=");
+		await expect(field).toHaveValue("");
+	});
+
+	test("a URL that carries a query arrives searching, and keeps it (#47)", async ({
+		page,
+	}) => {
+		const { inbox } = await openInbox(page);
+		await inbox.click();
+		await page.waitForURL(/\/mail\/[a-z0-9]+/);
+		const mailboxUrl = new URL(page.url());
+		mailboxUrl.searchParams.set("q", "invoice");
+
+		await page.goto(mailboxUrl.toString());
+
+		// The field takes the query from the URL, and the mirror leaves the URL
+		// alone while the debounce catches up.
+		await expect(
+			page.getByRole("textbox", { name: "Search mail" }),
+		).toHaveValue("invoice");
+		await page.waitForTimeout(500);
+		expect(page.url()).toContain("q=invoice");
+	});
+
 	test("moving between mailboxes is navigable with the back button", async ({
 		page,
 	}) => {

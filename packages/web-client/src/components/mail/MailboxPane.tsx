@@ -949,10 +949,13 @@ function MailboxList() {
 		() => threads.map(threadToSearchResult),
 		[threads],
 	);
-	// "Related" (semantic) is scoped to this mailbox and deduped against the
-	// literal "Top matches" by thread, so a thread never shows in both.
+	// The field above every pane says "Search all mail", and it means it (#47).
+	// The literal engine only searches one mailbox at a time (there is no
+	// cross-mailbox thread search), so this view names that section after the
+	// mailbox and lets the semantic engine run unscoped — the "Everywhere"
+	// section reaches the rest of the mail. Results are deduped by thread, so a
+	// thread never shows in both.
 	const { hits: semanticHits, isLoading: relatedLoading } = useSemanticSearch({
-		mailboxId,
 		filterCategory,
 	});
 	const relatedResults = useMemo(
@@ -967,7 +970,10 @@ function MailboxList() {
 		(result: SearchResult) =>
 			navigate({
 				to: "/mail/$mailboxId",
-				params: { mailboxId },
+				// A hit from the unscoped "Everywhere" section lives in another
+				// mailbox; open it there, so the list, the toolbar's verbs and the
+				// message all belong to the same mailbox.
+				params: { mailboxId: result.mailboxId ?? mailboxId },
 				search: (prev: Record<string, unknown>) => ({
 					...prev,
 					// Commit the active query alongside the selection. The debounced
@@ -1061,6 +1067,8 @@ function MailboxList() {
 			relatedResults={relatedResults}
 			relatedLoading={relatedLoading}
 			onSelectSearchResult={handleSelectSearchResult}
+			searchResultsLabel={`In ${listTitle}`}
+			relatedResultsLabel="Everywhere"
 		>
 			{body}
 		</MailViewChrome>
