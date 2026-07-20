@@ -22,7 +22,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import shortUuid from "short-uuid";
 import { v5 as uuidv5 } from "uuid";
 import type { Db } from "../db.js";
-import { NotFoundError } from "../error.js";
+import { BadRequestError, NotFoundError } from "../error.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import { fromMatch, subjectMatch } from "./thread-search-predicates.js";
 
@@ -58,32 +58,62 @@ export const clampThreadSearchLimit = (limit?: number): number => {
 type DateCursor = { s: number; id: string };
 type AccountCursor = { id: string };
 
-function encodeDateCursor(sentDate: number, threadMessageId: string): string {
+// A continuation token is server-minted opaque state. An absent token means
+// "start from page one" and is handled by the callers (they only decode when a
+// token is present). A token that is present but cannot be decoded is a client
+// error, not a fresh start: decoding it back to page one re-serves the first
+// page with a new token, so a client replaying a stale token pages forever over
+// duplicate rows (issue #136). Undecodable and malformed tokens raise a 400.
+const INVALID_CURSOR_MESSAGE = "Invalid continuationToken";
+
+export function encodeDateCursor(
+	sentDate: number,
+	threadMessageId: string,
+): string {
 	return Buffer.from(
 		JSON.stringify({ s: sentDate, id: threadMessageId }),
 	).toString("base64");
 }
 
-function decodeDateCursor(token: string): DateCursor | null {
+export function decodeDateCursor(token: string): DateCursor {
+	let parsed: unknown;
 	try {
-		return JSON.parse(Buffer.from(token, "base64").toString()) as DateCursor;
+		parsed = JSON.parse(Buffer.from(token, "base64").toString());
 	} catch {
-		return null;
+		throw new BadRequestError(INVALID_CURSOR_MESSAGE);
 	}
+	if (
+		typeof parsed !== "object" ||
+		parsed === null ||
+		typeof (parsed as DateCursor).s !== "number" ||
+		typeof (parsed as DateCursor).id !== "string"
+	) {
+		throw new BadRequestError(INVALID_CURSOR_MESSAGE);
+	}
+	return parsed as DateCursor;
 }
 
-function encodeAccountCursor(threadMessageId: string): string {
+export function encodeAccountCursor(threadMessageId: string): string {
 	return Buffer.from(JSON.stringify({ id: threadMessageId })).toString(
 		"base64",
 	);
 }
 
-function decodeAccountCursor(token: string): AccountCursor | null {
+export function decodeAccountCursor(token: string): AccountCursor {
+	let parsed: unknown;
 	try {
-		return JSON.parse(Buffer.from(token, "base64").toString()) as AccountCursor;
+		parsed = JSON.parse(Buffer.from(token, "base64").toString());
 	} catch {
-		return null;
+		throw new BadRequestError(INVALID_CURSOR_MESSAGE);
 	}
+	if (
+		typeof parsed !== "object" ||
+		parsed === null ||
+		typeof (parsed as AccountCursor).id !== "string"
+	) {
+		throw new BadRequestError(INVALID_CURSOR_MESSAGE);
+	}
+	return parsed as AccountCursor;
 }
 
 // ─── Schema ──────────────────────────────────────────────────────────────────

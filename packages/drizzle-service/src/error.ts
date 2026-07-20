@@ -4,6 +4,7 @@
 // `instanceof NotFoundError` false across the adapter boundary — a fresh user's
 // GET /config surfaced a 404 fatal overlay instead of the empty-config path.
 export {
+	BadRequestError,
 	CreateFailedConflictError,
 	ForbiddenError,
 	NotFoundError,

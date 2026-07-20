@@ -6,10 +6,15 @@ import type { CreateThreadMessageInput } from "@remit/data-ports";
 import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import shortUuid from "short-uuid";
+import type { Db } from "../db.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import {
 	clampThreadSearchLimit,
 	DrizzleThreadMessageRepository,
+	decodeAccountCursor,
+	decodeDateCursor,
+	encodeAccountCursor,
+	encodeDateCursor,
 	THREAD_SEARCH_MAX_LIMIT,
 } from "./thread-message.js";
 
@@ -17,6 +22,8 @@ import {
 
 const translator = shortUuid.createTranslator(shortUuid.constants.uuid25Base36);
 const uuid = () => translator.generate();
+
+type Row = typeof threadMessageTable.$inferSelect;
 
 const PG_URL =
 	process.env.PG_CONNECTION_URL ??
@@ -127,6 +134,160 @@ describe("clampThreadSearchLimit", () => {
 	test("truncates and defaults non-finite input", () => {
 		assert.equal(clampThreadSearchLimit(12.9), 12);
 		assert.equal(clampThreadSearchLimit(Number.NaN), THREAD_SEARCH_MAX_LIMIT);
+	});
+});
+
+// ─── continuation-token cursor unit tests ────────────────────────────────────
+//
+// An absent token is page one; a present-but-undecodable token is a 400, never
+// a silent restart (issue #136).
+
+describe("continuationToken decoding", () => {
+	test("round-trips a date cursor", () => {
+		const token = encodeDateCursor(1700000000000, "abc123");
+		assert.deepEqual(decodeDateCursor(token), {
+			s: 1700000000000,
+			id: "abc123",
+		});
+	});
+
+	test("round-trips an account cursor", () => {
+		const token = encodeAccountCursor("abc123");
+		assert.deepEqual(decodeAccountCursor(token), { id: "abc123" });
+	});
+
+	test("rejects a garbage date token with a 400", () => {
+		assert.throws(
+			() => decodeDateCursor("not-a-real-token"),
+			(error: unknown) => {
+				assert.ok(error instanceof Error);
+				assert.equal((error as { statusCode?: number }).statusCode, 400);
+				return true;
+			},
+		);
+	});
+
+	test("rejects a garbage account token with a 400", () => {
+		assert.throws(
+			() => decodeAccountCursor("not-a-real-token"),
+			(error: unknown) => {
+				assert.equal((error as { statusCode?: number }).statusCode, 400);
+				return true;
+			},
+		);
+	});
+
+	test("rejects a well-formed base64 token of the wrong shape with a 400", () => {
+		const wrongShape = Buffer.from(JSON.stringify({ nope: true })).toString(
+			"base64",
+		);
+		assert.throws(
+			() => decodeDateCursor(wrongShape),
+			(error: unknown) => {
+				assert.equal((error as { statusCode?: number }).statusCode, 400);
+				return true;
+			},
+		);
+		assert.throws(
+			() => decodeAccountCursor(wrongShape),
+			(error: unknown) => {
+				assert.equal((error as { statusCode?: number }).statusCode, 400);
+				return true;
+			},
+		);
+	});
+});
+
+// ─── searchByMailboxWindow cursor handling (no Postgres) ──────────────────────
+//
+// A fake db returns a fixed page so the cursor branch is exercised without a
+// live Postgres: an undecodable token must fail before any query; an absent or
+// valid token must page normally.
+
+function makeRow(overrides: Partial<Row> = {}): Row {
+	const now = Date.now();
+	return {
+		threadMessageId: uuid(),
+		accountConfigId: "acct-1",
+		threadId: uuid(),
+		messageId: uuid(),
+		mailboxId: "mbx-1",
+		uid: 1,
+		messageIdHeader: null,
+		inReplyTo: null,
+		referenceOrder: 0,
+		fromEmail: null,
+		fromName: null,
+		subject: null,
+		internalDate: now,
+		sentDate: now,
+		isRead: false,
+		hasAttachment: false,
+		star: "none",
+		hasStars: false,
+		isDeleted: false,
+		category: "uncategorized",
+		snippet: null,
+		createdAt: now,
+		updatedAt: now,
+		...overrides,
+	} as Row;
+}
+
+function fakeDbReturning(rows: Row[]): Db<Record<string, unknown>> {
+	const chain = {
+		from: () => chain,
+		where: () => chain,
+		orderBy: () => chain,
+		limit: () => Promise.resolve(rows),
+	};
+	return { select: () => chain } as unknown as Db<Record<string, unknown>>;
+}
+
+describe("searchByMailboxWindow continuationToken handling", () => {
+	test("rejects an undecodable token with a 400 before querying", async () => {
+		const repo = new DrizzleThreadMessageRepository(
+			fakeDbReturning([makeRow()]),
+		);
+		await assert.rejects(
+			repo.searchByMailboxWindow(
+				"acct-1",
+				"mbx-1",
+				{},
+				{
+					continuationToken: "garbage-token",
+				},
+			),
+			(error: unknown) => {
+				assert.equal((error as { statusCode?: number }).statusCode, 400);
+				return true;
+			},
+		);
+	});
+
+	test("serves page one when no token is supplied", async () => {
+		const repo = new DrizzleThreadMessageRepository(
+			fakeDbReturning([makeRow()]),
+		);
+		const page = await repo.searchByMailboxWindow("acct-1", "mbx-1", {});
+		assert.equal(page.items.length, 1);
+	});
+
+	test("serves the next page for a valid token", async () => {
+		const row = makeRow();
+		const repo = new DrizzleThreadMessageRepository(fakeDbReturning([row]));
+		const token = encodeDateCursor(row.sentDate, row.threadMessageId);
+		const page = await repo.searchByMailboxWindow(
+			"acct-1",
+			"mbx-1",
+			{},
+			{
+				limit: 1,
+				continuationToken: token,
+			},
+		);
+		assert.equal(page.items.length, 1);
+		assert.ok(page.continuationToken);
 	});
 });
 
