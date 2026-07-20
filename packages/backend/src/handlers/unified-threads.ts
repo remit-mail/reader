@@ -40,10 +40,9 @@ export interface InboxMapClient {
  * `Junk` and `Trash` match what Gmail and Fastmail do — a star on mail the user
  * already threw away or that was classed as spam is not something the starred
  * view should resurface. `All` is Gmail's All Mail: a second copy of everything
- * already reachable through its own folder, and because a message's identity
- * includes its mailbox, the copy is a distinct row carrying the same
- * server-side \Flagged. Including it would render every starred Gmail message
- * twice.
+ * already reachable through its own folder, and on a backend that keys a row by
+ * its mailbox the copy is a distinct row carrying the same server-side
+ * \Flagged, so including it would render every starred Gmail message twice.
  */
 const STARRED_EXCLUDED_SPECIAL_USE: readonly string[] = [
 	MailboxSpecialUse.All,
@@ -57,12 +56,75 @@ const isExcludedFromStarred = (mailbox: MailboxItem): boolean =>
 	) === true;
 
 /**
+ * The only folder the unscoped search never reaches: `Trash` holds mail the
+ * user discarded, the same judgement `excludeDeleted` already applies to
+ * soft-deleted rows.
+ *
+ * Everything else is in scope, and the rule is stated as a complement on
+ * purpose — enumerating the folders a search DOES reach is what left Drafts out
+ * of every description of it while it was in scope all along. `Junk` is in:
+ * an unscoped search exists to reach the folders the user did not think to look
+ * in, and misfiled mail in Spam is the case that matters most.
+ *
+ * Gmail's virtual folders (All Mail, Starred, Important) are in scope too, and
+ * deliberately so. They hold a second copy of mail that also lives in a real
+ * folder, which on a per-mailbox-row backend multiplies results — but a row
+ * here is keyed by `(threadId, messageId)`, both mailbox-independent, so the
+ * copies collapse into ONE row whose `mailboxId` is whichever mailbox synced it
+ * first (message-sync calls this a "residual cross-mailbox collision"). Barring
+ * those mailboxes therefore does not remove a duplicate, it removes the only
+ * row a message has whenever a virtual folder won that race — mail that exists
+ * and cannot be found. Duplicates are handled where they are safe to handle,
+ * by `dedupeByMessageId` below.
+ */
+const SEARCH_EXCLUDED_SPECIAL_USE: readonly string[] = [
+	MailboxSpecialUse.Trash,
+];
+
+/**
+ * Special-use folders that hold a second copy of mail already reachable through
+ * the folder it actually lives in — Gmail's All Mail, Starred and Important.
+ * Used to pick which duplicate to drop, never to decide what is searched.
+ */
+const VIRTUAL_COPY_SPECIAL_USE: readonly string[] = [
+	MailboxSpecialUse.All,
+	MailboxSpecialUse.Flagged,
+	MailboxSpecialUse.Important,
+];
+
+/**
+ * Well-known Gmail virtual paths, for servers that do not advertise the
+ * special-use attribute. Whole path, never a prefix — a user's own
+ * `Starred ideas` folder is real mail.
+ */
+const VIRTUAL_COPY_FULL_PATHS: readonly string[] = [
+	"[gmail]/all mail",
+	"[gmail]/starred",
+	"[gmail]/important",
+];
+
+const isVirtualCopy = (mailbox: MailboxItem): boolean =>
+	mailbox.specialUse?.some((use) => VIRTUAL_COPY_SPECIAL_USE.includes(use)) ===
+		true || VIRTUAL_COPY_FULL_PATHS.includes(mailbox.fullPath.toLowerCase());
+
+const isExcludedFromSearch = (mailbox: MailboxItem): boolean =>
+	mailbox.specialUse?.some((use) =>
+		SEARCH_EXCLUDED_SPECIAL_USE.includes(use),
+	) === true ||
+	// `specialUse` is absent on servers that do not advertise it and on accounts
+	// synced before it was recorded, so the well-known path is matched too.
+	// Whole path, never a prefix — a user's own `Trash talk` folder is real mail.
+	mailbox.fullPath.toLowerCase() === "[gmail]/trash";
+
+/**
  * Build the read scope for the unified listing: a mailboxId→accountId map over
  * every non-muted mailbox of every non-muted account in a given
- * accountConfigId, plus two id sets — `inboxMailboxIds` (top-level INBOX only,
- * the unified inbox scope) and `starredMailboxIds` (every folder a star may
- * surface from, see `STARRED_EXCLUDED_SPECIAL_USE`). The map covers all
- * mailboxes, excluded ones included, so any row still resolves its accountId.
+ * accountConfigId, plus three id sets — `inboxMailboxIds` (top-level INBOX
+ * only, the unified inbox scope), `starredMailboxIds` (every folder a star may
+ * surface from, see `STARRED_EXCLUDED_SPECIAL_USE`) and `searchMailboxIds`
+ * (every folder the unscoped search reaches, see
+ * `SEARCH_EXCLUDED_SPECIAL_USE`). The map covers all mailboxes, excluded ones
+ * included, so any row still resolves its accountId.
  *
  * INBOX is identified by exact match `fullPath.toUpperCase() === "INBOX"` —
  * MailboxSpecialUse has no Inbox value per RFC 6154. This is the same rule
@@ -95,6 +157,8 @@ export const buildInboxMailboxMap = async (
 	mailboxIdToAccountId: Map<string, string>;
 	inboxMailboxIds: Set<string>;
 	starredMailboxIds: Set<string>;
+	searchMailboxIds: Set<string>;
+	virtualCopyMailboxIds: Set<string>;
 }> => {
 	const [accounts, settings] = await Promise.all([
 		client.account.listAllByAccountConfig(accountConfigId),
@@ -123,6 +187,8 @@ export const buildInboxMailboxMap = async (
 	const mailboxIdToAccountId = new Map<string, string>();
 	const inboxMailboxIds = new Set<string>();
 	const starredMailboxIds = new Set<string>();
+	const searchMailboxIds = new Set<string>();
+	const virtualCopyMailboxIds = new Set<string>();
 
 	const activeMailboxes = mailboxLists
 		.flat()
@@ -133,12 +199,24 @@ export const buildInboxMailboxMap = async (
 		if (!isExcludedFromStarred(mailbox)) {
 			starredMailboxIds.add(mailbox.mailboxId);
 		}
+		if (!isExcludedFromSearch(mailbox)) {
+			searchMailboxIds.add(mailbox.mailboxId);
+		}
+		if (isVirtualCopy(mailbox)) {
+			virtualCopyMailboxIds.add(mailbox.mailboxId);
+		}
 		if (mailbox.fullPath.toUpperCase() === "INBOX") {
 			inboxMailboxIds.add(mailbox.mailboxId);
 		}
 	}
 
-	return { mailboxIdToAccountId, inboxMailboxIds, starredMailboxIds };
+	return {
+		mailboxIdToAccountId,
+		inboxMailboxIds,
+		starredMailboxIds,
+		searchMailboxIds,
+		virtualCopyMailboxIds,
+	};
 };
 
 /**
@@ -187,6 +265,64 @@ export const buildListStarredThreadsOptions = (
 });
 
 /**
+ * Build searchByDate options for the search mode (`query=<text>`).
+ *
+ * The scope is the caller-built set: every non-muted mailbox minus the folders
+ * a search never reaches, or the starred scope when `starred=true` narrows it
+ * further. Same defaults as the unified listing; `limit` is a page size over
+ * matches and is clamped by the repository.
+ */
+export const buildSearchAllThreadsOptions = (
+	query: {
+		continuationToken?: string;
+		order?: "asc" | "desc";
+		limit?: number;
+	},
+	mailboxIds: Set<string>,
+) => ({
+	order: query.order ?? ("desc" as const),
+	continuationToken: query.continuationToken,
+	limit: query.limit ?? DEFAULT_UNIFIED_THREADS_PAGE_SIZE,
+	mailboxIds,
+	excludeDeleted: true,
+});
+
+/**
+ * Collapse rows that are the same piece of mail seen through more than one
+ * folder, keeping the copy in a real folder over the one in a virtual folder.
+ *
+ * A backend that keys a row by its mailbox returns one row per copy, so a
+ * starred, Important Gmail inbox message arrives four times and crowds genuine
+ * matches off the page. Dropping the extras here rather than barring the
+ * virtual folders from the scope is what keeps the message reachable when the
+ * ONLY row it has sits in one of them.
+ *
+ * Preference matters: a real folder is where the user filed the mail, so its
+ * row is the one whose `mailboxId` should open. Ties keep the first row seen,
+ * which is the newest given the caller's ordering.
+ *
+ * Scope: within a page. A duplicate split across a page boundary survives, the
+ * same caveat the endpoint already documents for collapsing by `threadId`.
+ */
+export const dedupeByMessageId = <T extends { messageId: string }>(
+	rows: readonly T[],
+	isVirtualCopy: (row: T) => boolean,
+): T[] => {
+	const chosen = new Map<string, T>();
+	for (const row of rows) {
+		const existing = chosen.get(row.messageId);
+		if (!existing) {
+			chosen.set(row.messageId, row);
+			continue;
+		}
+		if (isVirtualCopy(existing) && !isVirtualCopy(row)) {
+			chosen.set(row.messageId, row);
+		}
+	}
+	return [...chosen.values()];
+};
+
+/**
  * Attach accountId to each enriched ThreadMessageResponse row using the
  * mailboxId→accountId map built from inbox discovery. Same read-time-attach
  * pattern as senderTrust/category in enrichThreadRows.
@@ -210,46 +346,78 @@ export const UnifiedThreadOperations: Record<
 	) => {
 		const event = args[0] as APIGatewayProxyEvent;
 		const accountConfigId = getAccountConfigIdFromEvent(event);
-		const { continuationToken, order, limit, starred } = context.request
+		const { continuationToken, order, limit, starred, query } = context.request
 			.query as {
 			continuationToken?: string;
 			order?: "asc" | "desc";
 			limit?: number;
 			starred?: boolean | string;
+			query?: string;
 		};
 		const starredOnly = starred === true || starred === "true";
+		// Whitespace-only text is not a search: it would widen the scope to every
+		// folder while matching nothing in particular.
+		const searchText = query?.trim();
+		const searching = searchText !== undefined && searchText.length > 0;
 
 		const client = await getClient();
 
-		const { mailboxIdToAccountId, inboxMailboxIds, starredMailboxIds } =
-			await buildInboxMailboxMap(accountConfigId, client);
+		const {
+			mailboxIdToAccountId,
+			inboxMailboxIds,
+			starredMailboxIds,
+			searchMailboxIds,
+			virtualCopyMailboxIds,
+		} = await buildInboxMailboxMap(accountConfigId, client);
 
-		const scope = starredOnly ? starredMailboxIds : inboxMailboxIds;
+		// Search widens past INBOX to every folder it may reach; `starred=true`
+		// still narrows it to the starred scope, so the two compose.
+		const searchScope = starredOnly ? starredMailboxIds : searchMailboxIds;
+		const scope = searching
+			? searchScope
+			: starredOnly
+				? starredMailboxIds
+				: inboxMailboxIds;
 		if (scope.size === 0) {
 			return { items: [], continuationToken: undefined };
 		}
 
-		const result = starredOnly
-			? await client.threadMessage.listByStarred(
+		const result = searching
+			? await client.threadMessage.searchByDate(
 					accountConfigId,
-					buildListStarredThreadsOptions(
+					{ query: searchText, starred: starredOnly ? true : undefined },
+					buildSearchAllThreadsOptions(
 						{ continuationToken, order, limit },
-						starredMailboxIds,
+						searchScope,
 					),
 				)
-			: await client.threadMessage.listByDate(
-					accountConfigId,
-					buildListAllThreadsOptions(
-						{ continuationToken, order, limit },
-						inboxMailboxIds,
-					),
-				);
+			: starredOnly
+				? await client.threadMessage.listByStarred(
+						accountConfigId,
+						buildListStarredThreadsOptions(
+							{ continuationToken, order, limit },
+							starredMailboxIds,
+						),
+					)
+				: await client.threadMessage.listByDate(
+						accountConfigId,
+						buildListAllThreadsOptions(
+							{ continuationToken, order, limit },
+							inboxMailboxIds,
+						),
+					);
 
-		const enriched = await enrichThreadRows(
-			result.items,
-			client,
-			accountConfigId,
-		);
+		// Search spans folders, so it is the one mode that can see the same mail
+		// twice — through its real folder and through a virtual copy of it. The
+		// INBOX and starred listings each read a scope that already holds one row
+		// per message, so they are left exactly as they were.
+		const rows = searching
+			? dedupeByMessageId(result.items, (row) =>
+					virtualCopyMailboxIds.has(row.mailboxId),
+				)
+			: result.items;
+
+		const enriched = await enrichThreadRows(rows, client, accountConfigId);
 		const items = attachAccountIds(enriched, mailboxIdToAccountId);
 
 		return {

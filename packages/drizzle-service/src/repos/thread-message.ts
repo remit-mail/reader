@@ -478,6 +478,65 @@ export class DrizzleThreadMessageRepository
 		};
 	}
 
+	/**
+	 * Cross-mailbox search for the unified listing's search mode. Same predicate
+	 * builder and keyset cursor as `searchByMailboxWindow`, with the mailbox
+	 * equality swapped for the caller's scope set. Matching runs in SQL over the
+	 * whole scope, so a short page means the matches are exhausted.
+	 */
+	async searchByDate(
+		accountConfigId: string,
+		search: SearchOptions,
+		options?: {
+			order?: "asc" | "desc";
+			limit?: number;
+			continuationToken?: string;
+			mailboxIds?: Set<string>;
+			excludeDeleted?: boolean;
+		},
+	): Promise<ResultList<ThreadMessageItem>> {
+		const order = options?.order ?? "desc";
+		const limit = clampThreadSearchLimit(options?.limit);
+		const cursor = options?.continuationToken
+			? decodeDateCursor(options.continuationToken)
+			: null;
+
+		const mailboxCond = options?.mailboxIds?.size
+			? inArray(threadMessageTable.mailboxId, [...options.mailboxIds])
+			: undefined;
+
+		const rows = await this.db
+			.select()
+			.from(threadMessageTable)
+			.where(
+				and(
+					eq(threadMessageTable.accountConfigId, accountConfigId),
+					mailboxCond,
+					options?.excludeDeleted
+						? eq(threadMessageTable.isDeleted, false)
+						: undefined,
+					...buildSearchConditions(search),
+					sentDateCursorCond(order, cursor),
+				),
+			)
+			.orderBy(
+				order === "desc"
+					? desc(threadMessageTable.sentDate)
+					: asc(threadMessageTable.sentDate),
+				asc(threadMessageTable.threadMessageId),
+			)
+			.limit(limit);
+
+		const lastRow = rows[rows.length - 1];
+		return {
+			items: rows.map(toItem),
+			continuationToken:
+				rows.length === limit && lastRow
+					? encodeDateCursor(lastRow.sentDate, lastRow.threadMessageId)
+					: undefined,
+		};
+	}
+
 	async listByStarred(
 		accountConfigId: string,
 		options?: {

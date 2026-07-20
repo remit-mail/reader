@@ -2,8 +2,10 @@ import { semanticSearchOperationsSemanticSearchOptions } from "@remit/api-http-c
 import type { RemitImapSemanticSearchResult } from "@remit/api-http-client/types.gen.ts";
 import { MessageCategory } from "@remit/domain-enums";
 import { useQuery } from "@tanstack/react-query";
+import { useRouterState } from "@tanstack/react-router";
 import { useMailContext } from "@/lib/mail-context";
 import { normalizeSearchQuery } from "@/lib/search-query";
+import { semanticMailboxScope } from "@/lib/search-scope";
 import { parseSearchTokens } from "@/lib/search-tokens";
 import { useSearchTokenContext } from "./useSearchTokenContext";
 
@@ -22,8 +24,9 @@ const toCategoryParam = (
 
 interface UseSemanticSearchParams {
 	/**
-	 * Restrict results to a single mailbox (the scoped inbox). Omit for the
-	 * cross-account daily brief, where semantic search spans every account.
+	 * Restrict results to a single mailbox. A mailbox route pins the scope to its
+	 * own mailbox regardless of what is passed here, so this only carries a scope
+	 * a route does not already imply.
 	 */
 	mailboxId?: string;
 	/**
@@ -35,9 +38,10 @@ interface UseSemanticSearchParams {
 
 /**
  * Fetch semantic-search hits for the active query (one source of truth: the
- * debounced `searchQuery` in `MailContext`). Scoping mirrors the literal search:
- * pass `mailboxId` for a scoped inbox, omit it for the global brief. Disabled
- * until the query is non-empty so an empty field issues no request.
+ * debounced `searchQuery` in `MailContext`). Scoping mirrors the literal search
+ * and is taken from the route (`semanticMailboxScope`): no chip means global, a
+ * chip means this engine respects it like every other. Disabled until the query
+ * is non-empty so an empty field issues no request.
  *
  * Filter tokens (`has:attachment`, `is:unread`, `before:`/`after:`) parsed from
  * the query map onto the search API's own filter params. `from:` and
@@ -50,7 +54,7 @@ interface UseSemanticSearchParams {
  * `useSearchTokenContext` does not resolve the term there at all — the term
  * stays free text and no engine, and no chip, treats it as a filter.
  *
- * Without a `mailboxId` the request spans every mailbox of every account the
+ * With no resolved mailbox the request spans every mailbox of every account the
  * caller owns: the backend partitions the vector index by accountConfigId (one
  * per signed-in user, not per mail account), so unscoped is genuinely global.
  */
@@ -63,9 +67,15 @@ export function useSemanticSearch({
 } {
 	const { searchQuery } = useMailContext();
 	const tokenContext = useSearchTokenContext();
+	const matches = useRouterState({ select: (s) => s.matches });
 	const normalizedQuery = normalizeSearchQuery(searchQuery);
 	const { freeText, tokens } = parseSearchTokens(normalizedQuery, tokenContext);
-	const enabled = normalizedQuery.length > 0;
+	// `freeText`, not the raw query: a query of nothing but tokens
+	// (`has:attachment`, `in:archive`) parses to empty free text, and asking a
+	// vector index what an empty string means has no answer to give. The literal
+	// engines still apply those tokens; the semantic section simply has nothing
+	// to rank.
+	const enabled = freeText.length > 0;
 
 	const category = toCategoryParam(filterCategory);
 	const hasAttachment = tokens.some((t) => t.type === "hasAttachment")
@@ -75,7 +85,12 @@ export function useSemanticSearch({
 	const afterToken = tokens.find((t) => t.type === "after");
 	const beforeToken = tokens.find((t) => t.type === "before");
 	const inToken = tokens.find((t) => t.type === "in");
-	const effectiveMailboxId = mailboxId ?? inToken?.mailboxId;
+	// The route decides the scope, not the call site — see `semanticMailboxScope`.
+	const effectiveMailboxId = semanticMailboxScope({
+		matches,
+		callerMailboxId: mailboxId,
+		inTokenMailboxId: inToken?.mailboxId,
+	});
 
 	const { data, isLoading } = useQuery({
 		...semanticSearchOperationsSemanticSearchOptions({

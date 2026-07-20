@@ -947,14 +947,13 @@ function MailboxList() {
 		() => threads.map(threadToSearchResult),
 		[threads],
 	);
-	// The route scopes this view, and the top bar's chip says so. Both sections
-	// are named by the ground they cover so that scope is never overstated: the
-	// literal engine searches this mailbox and nothing else (there is no
-	// cross-mailbox thread search), while the semantic engine runs unscoped and
-	// its section says "Everywhere" (#47). Reaching past the folder is a labelled
-	// section, not a silent widening of the chip. Results are deduped by thread,
-	// so a thread never shows in both.
+	// The route scopes this view and the top bar's chip says so, so every engine
+	// here respects it: the literal engine searches this mailbox, and the
+	// semantic engine takes the same `mailboxId`. No chip means global; a chip
+	// means nothing on the route reaches past it. Results are deduped by thread,
+	// so a thread never shows in both sections.
 	const { hits: semanticHits, isLoading: relatedLoading } = useSemanticSearch({
+		mailboxId,
 		filterCategory,
 	});
 	const relatedResults = useMemo(
@@ -969,9 +968,9 @@ function MailboxList() {
 		(result: SearchResult) =>
 			navigate({
 				to: "/mail/$mailboxId",
-				// A hit from the unscoped "Everywhere" section lives in another
-				// mailbox; open it there, so the list, the toolbar's verbs and the
-				// message all belong to the same mailbox.
+				// Both sections are scoped to this mailbox, so a result's own
+				// mailbox is normally this one; keep reading it off the result so a
+				// row can never open under a mailbox it does not belong to.
 				params: { mailboxId: result.mailboxId ?? mailboxId },
 				search: (prev: Record<string, unknown>) => ({
 					...prev,
@@ -1066,8 +1065,6 @@ function MailboxList() {
 			relatedResults={relatedResults}
 			relatedLoading={relatedLoading}
 			onSelectSearchResult={handleSelectSearchResult}
-			searchResultsLabel={`In ${listTitle}`}
-			relatedResultsLabel="Everywhere"
 		>
 			{body}
 		</MailViewChrome>
