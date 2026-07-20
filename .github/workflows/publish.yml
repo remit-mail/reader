@@ -5,10 +5,14 @@
 # differs from the version on npm, patch-bumping from the registry version (or
 # seeding 0.0.1). No changesets, no committed version bumps.
 #
-# Pull requests run a dry run — pack every package and print the publish
-# decisions, no registry writes. Pushes to main publish for real, gated behind
-# the `NPM_PUBLISH_ENABLED` repository variable so publishing is armed
-# deliberately. Set the variable to `true` to go live.
+# Pushes to main publish for real, gated behind the `NPM_PUBLISH_ENABLED`
+# repository variable so publishing is armed deliberately. Set the variable to
+# `true` to go live.
+#
+# The pull request half — the dry run that packs every package and checks the
+# publish surface without writing to the registry — lives in ci.yml as
+# `publish-dry-run`, because only a job in that workflow can be a dependency of
+# the `gate` job branch protection requires.
 #
 # Auth is the granular access token in the `NPM_TOKEN` secret.
 name: Publish
@@ -16,48 +20,12 @@ name: Publish
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  dry-run:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci --no-audit --no-fund --loglevel=error
-      - run: make
-      - run: npm run release:dry-run
-      # Guards install-ability of the published set: a clean directory, outside
-      # the repo, installing @remit/backend alone must pull and resolve its full
-      # transitive @remit closure off the public registry — the failure mode this
-      # pipeline exists to prevent. Each manifest declares its @remit imports, so
-      # one package drags in the rest.
-      - name: Clean-install acceptance
-        run: |
-          tmp=$(mktemp -d)
-          cd "$tmp"
-          npm init -y >/dev/null
-          npm install @remit/backend --loglevel=error
-          node -e "for (const p of ['@remit/backend','@remit/data-ports','@remit/drizzle-service','@remit/domain-enums','@remit/api-openapi-types','@remit/mailbox-service','@remit/search-service','@remit/storage-service','@remit/auth-service','@remit/secrets-service','@remit/sqs-client','@remit/mail-oauth-service','@remit/logger-lambda','@remit/api-zod-schemas','@remit/drizzle-pg-schema','@remit/drizzle-sqlite-schema']) require.resolve(p)"
-
-      # Consumer-side acceptance for the web client's published build surface:
-      # off the packed tarball, assert the harness toolchain is declared (not
-      # devDependencies-only) and that `./vite-preset` plus its toolchain imports
-      # resolve in a clean dir with only the declared peers installed.
-      - name: Web client consumer acceptance
-        run: npm run check:web-client-consumer
-
   publish:
     if: github.event_name == 'push' && vars.NPM_PUBLISH_ENABLED == 'true'
     runs-on: ubuntu-latest
