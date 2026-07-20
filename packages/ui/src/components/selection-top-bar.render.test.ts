@@ -102,7 +102,7 @@ describe("SelectionTopBar", () => {
 		assert.doesNotMatch(html, /aria-label="Select all"/);
 	});
 
-	it("renders the select-all control when provided", () => {
+	it("renders the select-all control, unchecked, in the some-selected state", () => {
 		const html = renderToString(
 			createElement(SelectionTopBar, {
 				...handlers,
@@ -115,5 +115,42 @@ describe("SelectionTopBar", () => {
 			}),
 		);
 		assert.match(html, /aria-label="Select all"/);
+		assert.doesNotMatch(
+			html,
+			/aria-label="Select all"[^>]*checked=""/,
+			"some-selected is not the checked state",
+		);
+	});
+
+	it("renders the select-all control checked in the all-selected state", () => {
+		const html = renderToString(
+			createElement(SelectionTopBar, {
+				...handlers,
+				count: 12,
+				selectAll: {
+					checked: true,
+					indeterminate: false,
+					onChange: () => undefined,
+				},
+			}),
+		);
+		assert.match(
+			html,
+			/aria-label="Select all"[^>]*checked=""/,
+			"all-selected renders the checkbox checked",
+		);
+	});
+
+	it("omitting every new prop renders exactly the pre-existing bar", () => {
+		const html = renderToString(
+			createElement(SelectionTopBar, { ...handlers, count: 2 }),
+		);
+		assert.doesNotMatch(
+			html,
+			/aria-label="Select all"/,
+			"no select-all control",
+		);
+		assert.match(text(html), /2 messages selected/, "default count copy");
+		assert.doesNotMatch(html, /role="status"/, "no status line rendered");
 	});
 });
