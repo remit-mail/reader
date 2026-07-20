@@ -1,6 +1,7 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
+import { patchThreadListCache } from "../lib/thread-cache.js";
 import {
 	resolveMailboxForMessage,
 	toggleStarsInItems,
@@ -91,5 +92,35 @@ describe("resolveMailboxForMessage", () => {
 			resolveMailboxForMessage("m-elsewhere", messages, "mb-inbox"),
 			"mb-inbox",
 		);
+	});
+});
+
+describe("starring across the unified-threads cache shapes", () => {
+	// The Flagged view runs an infinite query on `listAllThreads({ starred:
+	// true })`, which shares its query-key prefix with the single-shot readers.
+	// A `setQueriesData` on that prefix therefore sees both shapes, and the
+	// optimistic patch has to survive whichever it is handed — patching the
+	// infinite entry as a plain `{ items }` threw and failed the star before it
+	// was sent.
+	const patch = (old: unknown) =>
+		patchThreadListCache(old, (items) => toggleStarsInItems(items, "m1", true));
+
+	test("patches the single-shot readers", () => {
+		const patched = patch({
+			items: [make("m1", false), make("m2", false)],
+		}) as {
+			items: RemitImapThreadMessageResponse[];
+		};
+		assert.equal(patched.items[0].hasStars, true);
+		assert.equal(patched.items[1].hasStars, false);
+	});
+
+	test("patches the Flagged view's infinite query instead of throwing", () => {
+		const patched = patch({
+			pages: [{ items: [make("m1", false)] }, { items: [make("m2", false)] }],
+			pageParams: [undefined, "next"],
+		}) as { pages: Array<{ items: RemitImapThreadMessageResponse[] }> };
+		assert.equal(patched.pages[0].items[0].hasStars, true);
+		assert.equal(patched.pages[1].items[0].hasStars, false);
 	});
 });

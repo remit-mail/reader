@@ -154,19 +154,22 @@ export const useToggleStar = ({
 				)
 				.map(([queryKey, data]) => ({ queryKey, data }));
 
-			const patchItemsData = (old: ThreadMessagesData | undefined) => {
-				if (!old) return old;
-				return {
-					...old,
-					items: toggleStarsInItems(old.items, messageId, nextStarred),
-				};
-			};
+			// The unified-threads prefix carries both shapes too: the Flagged view
+			// runs an infinite query on `listAllThreads({ starred: true })`, which
+			// sits under the same prefix as the single-shot readers. Patching it as
+			// a plain `{ items }` threw on that entry and failed the star before it
+			// was sent — the same defect as the mailbox list (issues #51, #55), so
+			// it goes through the same helper.
+			const patchItemsData = (old: unknown) =>
+				patchThreadListCache(old, (items) =>
+					toggleStarsInItems(items, messageId, nextStarred),
+				);
 
-			queryClient.setQueriesData<ThreadMessagesData>(
+			queryClient.setQueriesData(
 				{ queryKey: threadMessagesPrefix },
 				patchItemsData,
 			);
-			queryClient.setQueriesData<ThreadMessagesData>(
+			queryClient.setQueriesData(
 				{ queryKey: unifiedThreadsPrefix },
 				patchItemsData,
 			);
