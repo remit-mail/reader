@@ -23,7 +23,7 @@ export function UpdateAvailableDot({
 			{children}
 			{show && (
 				<>
-					<span className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-accent-2" />
+					<span className="absolute -right-1 -top-1 size-2 rounded-full bg-accent-2" />
 					<span className="sr-only">{label}</span>
 				</>
 			)}
