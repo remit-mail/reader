@@ -50,7 +50,7 @@ export function FlaggedList({
 	selectedMessageId,
 	onSelectMessage,
 }: FlaggedListProps) {
-	const { searchQuery } = useMailContext();
+	const { searchQuery, resultFolderIndex } = useMailContext();
 	const tokenContext = useSearchTokenContext();
 	const isDesktop = useIsDesktop();
 
@@ -106,7 +106,10 @@ export function FlaggedList({
 
 	const preset = useMemo(() => flaggedFilterConfig(), []);
 
-	const searchResults = useMemo(() => rows.map(rowToSearchResult), [rows]);
+	const searchResults = useMemo(
+		() => rows.map((row) => rowToSearchResult(row, resultFolderIndex)),
+		[rows, resultFolderIndex],
+	);
 
 	const unreadCount = useMemo(
 		() => rows.filter((t) => !t.isRead).length,

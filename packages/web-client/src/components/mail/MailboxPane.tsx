@@ -936,7 +936,8 @@ function MailboxList() {
 		onToggleFilterAttribute,
 		onClearFilters,
 	} = useMailboxPane();
-	const { searchQuery, searchInput, accounts } = useMailContext();
+	const { searchQuery, searchInput, accounts, resultFolderIndex } =
+		useMailContext();
 	const tier = useLayoutTier();
 	const navigate = useNavigate();
 
@@ -944,8 +945,9 @@ function MailboxList() {
 	const preset = useMemo(() => inboxFilterConfig(), []);
 
 	const searchResults = useMemo(
-		() => threads.map(threadToSearchResult),
-		[threads],
+		() =>
+			threads.map((thread) => threadToSearchResult(thread, resultFolderIndex)),
+		[threads, resultFolderIndex],
 	);
 	// The route scopes this view and the top bar's chip says so, so every engine
 	// here respects it: the literal engine searches this mailbox, and the
@@ -961,8 +963,9 @@ function MailboxList() {
 			relatedSearchResults(
 				semanticHits,
 				threads.map((t) => t.threadId),
+				resultFolderIndex,
 			),
-		[semanticHits, threads],
+		[semanticHits, threads, resultFolderIndex],
 	);
 	const handleSelectSearchResult = useCallback(
 		(result: SearchResult) =>

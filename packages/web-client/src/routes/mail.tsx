@@ -27,6 +27,7 @@ import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { isSinglePaneTier, useLayoutTier } from "@/hooks/useLayoutTier";
 import { useMailboxNameIndex } from "@/hooks/useMailboxNameIndex";
+import { useResultFolderIndex } from "@/hooks/useResultFolderIndex";
 import { useStaleAccountSync } from "@/hooks/useStaleAccountSync";
 import { writeIntelligencePref } from "@/lib/intelligence-pref";
 import { MailContext } from "@/lib/mail-context";
@@ -232,6 +233,7 @@ function MailLayout() {
 
 	const accounts = config?.accounts ?? [];
 	const mailboxNameIndex = useMailboxNameIndex(accounts);
+	const resultFolderIndex = useResultFolderIndex(accounts);
 	const accountNameIndex = useMemo(
 		() => buildAccountNameIndex(accounts),
 		[accounts],
@@ -290,6 +292,7 @@ function MailLayout() {
 		accounts,
 		mailboxNameIndex,
 		accountNameIndex,
+		resultFolderIndex,
 		// The committed local value is the source of truth for search; it is
 		// mirrored to the URL for shareable links.
 		searchQuery: committedQuery,

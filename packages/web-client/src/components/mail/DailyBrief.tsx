@@ -174,7 +174,7 @@ export function DailyBrief({
 	onSelectMessage,
 	onSelectSearchResult,
 }: DailyBriefProps) {
-	const { searchQuery } = useMailContext();
+	const { searchQuery, resultFolderIndex } = useMailContext();
 	const tokenContext = useSearchTokenContext();
 	const isDesktop = useIsDesktop();
 
@@ -346,8 +346,8 @@ export function DailyBrief({
 					(selectedCategory === "all" || t.category === selectedCategory) &&
 					predicates.every((p) => p(t)),
 			)
-			.map(rowToSearchResult);
-	}, [filteredRows, selectedCategory, searchAttributes]);
+			.map((row) => rowToSearchResult(row, resultFolderIndex));
+	}, [filteredRows, selectedCategory, searchAttributes, resultFolderIndex]);
 
 	// "Related" (semantic) spans every account here — the brief is the
 	// cross-account view, so no mailbox scope. Dedupe against the literal "Top
@@ -362,8 +362,12 @@ export function DailyBrief({
 		const literalThreadIds = searchResults
 			.map((result) => threadByMessageId.get(result.id))
 			.filter((id): id is string => id != null);
-		return relatedSearchResults(semanticHits, literalThreadIds);
-	}, [semanticHits, searchResults, threadsData]);
+		return relatedSearchResults(
+			semanticHits,
+			literalThreadIds,
+			resultFolderIndex,
+		);
+	}, [semanticHits, searchResults, threadsData, resultFolderIndex]);
 
 	const searchFilterConfig = useMemo<Omit<FilterSheetProps, "children">>(() => {
 		const preset = briefFilterConfig(

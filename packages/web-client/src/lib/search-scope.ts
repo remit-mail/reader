@@ -21,6 +21,7 @@
  *
  * Pure functions only. `useSearchScope` binds these to the router.
  */
+import type { FolderRole, SearchScope as ResultsScope } from "@remit/ui";
 import {
 	isBriefRoute,
 	isFlaggedRoute,
@@ -151,4 +152,28 @@ export function searchScopeForRoute(
 		};
 	}
 	return { kind: "global" };
+}
+
+/**
+ * The route's scope as the results list understands it.
+ *
+ * The list knows two states, because two are all it acts on: a global search
+ * names the folder each row came from and offers the spam it held out, and a
+ * folder search does neither. The bar's third state, `pending`, is a mailbox
+ * route whose name has not loaded — it maps to `folder` (with no role yet)
+ * because the list underneath is already one mailbox, and calling it global for
+ * that one frame would flash folder labels and a spam offer and then retract
+ * them.
+ *
+ * `role` is the appointed role of the mailbox the route is on, which is what
+ * makes a search scoped to Spam show its rows instead of dropping them. Scoped
+ * routes that are collections rather than folders (flagged, outbox) carry no
+ * role, and neither does a folder nobody appointed.
+ */
+export function resultsScopeForState(
+	state: SearchScopeState,
+	role?: FolderRole,
+): ResultsScope {
+	if (state.kind === "global") return { kind: "global" };
+	return { kind: "folder", ...(role ? { role } : {}) };
 }

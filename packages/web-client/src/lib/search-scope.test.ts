@@ -8,6 +8,7 @@ import {
 } from "./mail-route";
 import {
 	isScopedRoute,
+	resultsScopeForState,
 	SEARCH_SCOPE_CHIP_ID,
 	scopeLabelForMailboxName,
 	searchScopeForRoute,
@@ -193,5 +194,42 @@ describe("semanticMailboxScope — a chip binds every engine on the route", () =
 				expected,
 			);
 		}
+	});
+});
+
+describe("resultsScopeForState", () => {
+	it("passes the global search through as global", () => {
+		assert.deepEqual(resultsScopeForState({ kind: "global" }), {
+			kind: "global",
+		});
+	});
+
+	it("treats a mailbox whose name has not loaded as a folder, not global", () => {
+		assert.deepEqual(resultsScopeForState({ kind: "pending" }), {
+			kind: "folder",
+		});
+	});
+
+	it("carries the mailbox's role so a Spam search shows its rows", () => {
+		assert.deepEqual(
+			resultsScopeForState(
+				{
+					kind: "scoped",
+					chip: { id: SEARCH_SCOPE_CHIP_ID, label: "in:spam" },
+				},
+				"junk",
+			),
+			{ kind: "folder", role: "junk" },
+		);
+	});
+
+	it("leaves the role off a collection scope like starred", () => {
+		assert.deepEqual(
+			resultsScopeForState({
+				kind: "scoped",
+				chip: { id: SEARCH_SCOPE_CHIP_ID, label: "is:starred" },
+			}),
+			{ kind: "folder" },
+		);
 	});
 });
