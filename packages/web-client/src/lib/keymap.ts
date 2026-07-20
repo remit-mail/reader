@@ -13,12 +13,15 @@ export type TriageAction =
 	// list navigation / focus model
 	| "focusNext"
 	| "focusPrevious"
+	| "focusFirst"
+	| "focusLast"
 	| "openFocused"
 	| "back"
 	// selection
 	| "toggleSelect"
 	| "extendSelectDown"
 	| "extendSelectUp"
+	| "selectAll"
 	// message verbs (focused row / selection)
 	| "reply"
 	| "replyAll"
@@ -76,6 +79,14 @@ export const KEY_HINT_GROUPS: KeyHintGroup[] = [
 				keys: ["k"],
 				description: "Focus previous message",
 			},
+			{ action: "focusNext", keys: ["↓"], description: "Focus next message" },
+			{
+				action: "focusPrevious",
+				keys: ["↑"],
+				description: "Focus previous message",
+			},
+			{ action: "focusFirst", keys: ["Home"], description: "Focus first" },
+			{ action: "focusLast", keys: ["End"], description: "Focus last" },
 			{
 				action: "openFocused",
 				keys: ["Enter"],
@@ -88,6 +99,7 @@ export const KEY_HINT_GROUPS: KeyHintGroup[] = [
 		title: "Selection",
 		hints: [
 			{ action: "toggleSelect", keys: ["x"], description: "Toggle select" },
+			{ action: "toggleSelect", keys: ["Space"], description: "Toggle select" },
 			{
 				action: "extendSelectDown",
 				keys: ["Shift", "j"],
@@ -98,6 +110,17 @@ export const KEY_HINT_GROUPS: KeyHintGroup[] = [
 				keys: ["Shift", "k"],
 				description: "Extend selection up",
 			},
+			{
+				action: "extendSelectDown",
+				keys: ["Shift", "↓"],
+				description: "Extend selection down",
+			},
+			{
+				action: "extendSelectUp",
+				keys: ["Shift", "↑"],
+				description: "Extend selection up",
+			},
+			{ action: "selectAll", keys: ["⌘", "A"], description: "Select all" },
 		],
 	},
 	{

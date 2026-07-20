@@ -63,7 +63,14 @@ export interface IAddressRepository {
 	}): Promise<AddressItem[]>;
 	listByAccountConfig(input: {
 		accountConfigId: string;
-		normalizedCompound?: string;
+		/**
+		 * Prefix term matched against both the display-name compound
+		 * (`"<display name> <email>"`) and the normalized email. Matching the
+		 * email separately is what makes an exact-address lookup resolve: the
+		 * compound leads with the display name, so an email prefix never
+		 * matches it.
+		 */
+		search?: string;
 		cursor?: string;
 		limit?: number;
 	}): Promise<ResultList<AddressItem>>;

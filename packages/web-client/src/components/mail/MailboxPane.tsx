@@ -32,6 +32,7 @@ import {
 	ReadingPaneEmpty,
 	type RescueCandidate,
 	type SearchResult,
+	useAppShellLayout,
 } from "@remit/ui";
 import {
 	keepPreviousData,
@@ -43,6 +44,7 @@ import { useNavigate, useSearch } from "@tanstack/react-router";
 import {
 	createContext,
 	type ReactNode,
+	type RefObject,
 	useCallback,
 	useContext,
 	useEffect,
@@ -57,7 +59,10 @@ import { Drawer } from "@/components/layout/Drawer";
 import { ConversationView } from "@/components/mail/ConversationView";
 import { DraftsView } from "@/components/mail/DraftsView";
 import { IntelligencePane } from "@/components/mail/IntelligencePane";
-import { MessageList } from "@/components/mail/MessageList";
+import {
+	MessageList,
+	type MessageListCommands,
+} from "@/components/mail/MessageList";
 import { MessageToolbar } from "@/components/mail/MessageToolbar";
 import { PullToRefresh } from "@/components/mail/PullToRefresh";
 import { SpamRescue } from "@/components/mail/SpamRescue";
@@ -176,7 +181,6 @@ interface MailboxPaneContextValue {
 	onSelectFilterCategory: (id: string) => void;
 	onToggleFilterAttribute: (id: string) => void;
 	onClearFilters: () => void;
-	showIntelligence: boolean;
 	intelligenceOpen: boolean;
 	onToggleIntelligence: () => void;
 	// List actions
@@ -190,7 +194,11 @@ interface MailboxPaneContextValue {
 	onTriageContextChange: (ctx: {
 		focusedMessageId: string | undefined;
 		selectedIds: string[];
+		hasList: boolean;
+		blocksKeyboard: boolean;
 	}) => void;
+	/** Where the list publishes the commands the keyboard layer drives. */
+	listCommandsRef: RefObject<MessageListCommands | null>;
 	onRetry: () => void;
 	// Toolbar / reading pane actions
 	toolbarComposeRequest: ComposeMode | null;
@@ -416,13 +424,25 @@ function MailboxPaneProvider({
 		undefined,
 	);
 	const [triageSelectedIds, setTriageSelectedIds] = useState<string[]>([]);
+	// The mounted message list publishes its navigation/selection commands here.
+	// Null whenever no list is mounted (reading-only phone view, drafts) — the
+	// keyboard layer then simply has nothing to drive.
+	const listCommandsRef = useRef<MessageListCommands | null>(null);
+	// Whether a message list is mounted and serving commands, and whether it has
+	// a modal that owns the keyboard. Both drive which keys this route claims.
+	const [hasList, setHasList] = useState(false);
+	const [listBlocksKeyboard, setListBlocksKeyboard] = useState(false);
 	const handleTriageContextChange = useCallback(
 		(context: {
 			focusedMessageId: string | undefined;
 			selectedIds: string[];
+			hasList: boolean;
+			blocksKeyboard: boolean;
 		}) => {
 			setTriageFocusedId(context.focusedMessageId);
 			setTriageSelectedIds(context.selectedIds);
+			setHasList(context.hasList);
+			setListBlocksKeyboard(context.blocksKeyboard);
 		},
 		[],
 	);
@@ -581,7 +601,10 @@ function MailboxPaneProvider({
 		closeCompose,
 	]);
 
+	// Esc unwinds one step at a time: an active selection first, then the open
+	// thread.
 	const goBack = useCallback(() => {
+		if (listCommandsRef.current?.clearSelection()) return;
 		if (selectedMessageId) {
 			navigate({
 				to: "/mail/$mailboxId",
@@ -668,7 +691,11 @@ function MailboxPaneProvider({
 		return messageIdsForFocusedThread(focusedThread);
 	}, [triageSelectedIds, messageIdsForFocusedThread, focusedThread]);
 
+	// Prefer the list's delete: it confirms the move to Trash and then places the
+	// cursor on a surviving row. Falls back to the reading pane's message when no
+	// list is mounted or nothing in it is targeted.
 	const triageDeleteAction = useCallback(() => {
+		if (listCommandsRef.current?.requestDelete()) return;
 		const ids = triageTargetMessageIds();
 		if (ids.length > 0) triageDelete(ids);
 	}, [triageTargetMessageIds, triageDelete]);
@@ -753,17 +780,36 @@ function MailboxPaneProvider({
 		}
 	}, [normalizedSearchQuery, mailboxType, telemetry]);
 
-	const hasThread = Boolean(selectedThread);
 	const hasRemitDraftOpen =
 		isDraftsMailbox &&
 		composeState.isOpen &&
 		!!composeState.outboxMessageId &&
 		!selectedThread;
-	const showIntelligence = isDesktop && intelligenceOpen && hasThread;
 
 	useTriageKeyboard({
-		enabled: !composeState.isOpen,
+		// A modal owns the keyboard outright. Suspending the layer is what keeps a
+		// second Delete press from reaching a delete while the confirmation for
+		// the first one is still on screen.
+		enabled: !composeState.isOpen && !listBlocksKeyboard,
 		handlers: {
+			// List navigation and selection, registered only while a list is
+			// mounted to serve them. An unregistered action is never
+			// preventDefault-ed, so with no list the browser keeps Enter, Space and
+			// ⌘A — select-all-text in the reading pane still works.
+			...(hasList
+				? {
+						focusNext: () => listCommandsRef.current?.focusNext(),
+						focusPrevious: () => listCommandsRef.current?.focusPrevious(),
+						focusFirst: () => listCommandsRef.current?.focusFirst(),
+						focusLast: () => listCommandsRef.current?.focusLast(),
+						openFocused: () => listCommandsRef.current?.openFocused(),
+						toggleSelect: () => listCommandsRef.current?.toggleSelect(),
+						extendSelectDown: () => listCommandsRef.current?.extendSelectDown(),
+						extendSelectUp: () => listCommandsRef.current?.extendSelectUp(),
+						selectAll: () => listCommandsRef.current?.selectAll(),
+						toggleDensity: () => listCommandsRef.current?.toggleDensity(),
+					}
+				: {}),
 			back: goBack,
 			reply: triageReply,
 			replyAll: triageReplyAll,
@@ -818,7 +864,6 @@ function MailboxPaneProvider({
 		onSelectFilterCategory,
 		onToggleFilterAttribute,
 		onClearFilters,
-		showIntelligence,
 		intelligenceOpen,
 		onToggleIntelligence,
 		onDeleteMessages: handleDeleteMessages,
@@ -829,6 +874,7 @@ function MailboxPaneProvider({
 		hasMore: hasNextPage,
 		isLoadingMore: isFetchingNextPage,
 		onTriageContextChange: handleTriageContextChange,
+		listCommandsRef,
 		onRetry: () => refetch(),
 		toolbarComposeRequest,
 		onToolbarReply: handleToolbarReply,
@@ -882,6 +928,7 @@ function MailboxList() {
 		isSpamFolder,
 		rescueCandidates,
 		onTriageContextChange,
+		listCommandsRef,
 		onRetry,
 		filterCategory,
 		filterAttributes,
@@ -900,10 +947,14 @@ function MailboxList() {
 		() => threads.map(threadToSearchResult),
 		[threads],
 	);
-	// "Related" (semantic) is scoped to this mailbox and deduped against the
-	// literal "Top matches" by thread, so a thread never shows in both.
+	// The route scopes this view, and the top bar's chip says so. Both sections
+	// are named by the ground they cover so that scope is never overstated: the
+	// literal engine searches this mailbox and nothing else (there is no
+	// cross-mailbox thread search), while the semantic engine runs unscoped and
+	// its section says "Everywhere" (#47). Reaching past the folder is a labelled
+	// section, not a silent widening of the chip. Results are deduped by thread,
+	// so a thread never shows in both.
 	const { hits: semanticHits, isLoading: relatedLoading } = useSemanticSearch({
-		mailboxId,
 		filterCategory,
 	});
 	const relatedResults = useMemo(
@@ -918,7 +969,10 @@ function MailboxList() {
 		(result: SearchResult) =>
 			navigate({
 				to: "/mail/$mailboxId",
-				params: { mailboxId },
+				// A hit from the unscoped "Everywhere" section lives in another
+				// mailbox; open it there, so the list, the toolbar's verbs and the
+				// message all belong to the same mailbox.
+				params: { mailboxId: result.mailboxId ?? mailboxId },
 				search: (prev: Record<string, unknown>) => ({
 					...prev,
 					// Commit the active query alongside the selection. The debounced
@@ -971,6 +1025,7 @@ function MailboxList() {
 			listTitle={listTitle}
 			hideHeader
 			onTriageContextChange={onTriageContextChange}
+			commandsRef={listCommandsRef}
 		/>
 	);
 
@@ -1011,6 +1066,8 @@ function MailboxList() {
 			relatedResults={relatedResults}
 			relatedLoading={relatedLoading}
 			onSelectSearchResult={handleSelectSearchResult}
+			searchResultsLabel={`In ${listTitle}`}
+			relatedResultsLabel="Everywhere"
 		>
 			{body}
 		</MailViewChrome>
@@ -1028,7 +1085,7 @@ function MailboxReading() {
 		selectedThread,
 		conversation,
 		hasRemitDraftOpen,
-		showIntelligence,
+		intelligenceOpen,
 		onToggleIntelligence,
 		toolbarComposeRequest,
 		onToolbarReply,
@@ -1041,9 +1098,12 @@ function MailboxReading() {
 		onToolbarMove,
 		composeState,
 	} = useMailboxPane();
-	const tier = useLayoutTier();
-	const isDesktop = tier === "desktop";
+	// The rail's own width gate, not the shell tier: between 1024 and 1280 the
+	// reading pane is mounted but the rail is not, so "enabled" would promise an
+	// open that cannot happen.
+	const railFits = useAppShellLayout()?.showIntelligencePane ?? false;
 	const hasThread = Boolean(conversation);
+	const canToggleIntelligence = railFits && hasThread;
 
 	const detailPane =
 		composeState.isOpen && !conversation ? (
@@ -1071,8 +1131,8 @@ function MailboxReading() {
 		<section className="flex h-full w-full min-w-0 flex-col bg-canvas">
 			<MessageToolbar
 				hasThread={hasThread}
-				intelligenceOpen={showIntelligence}
-				showIntelligenceToggle={isDesktop && hasThread}
+				intelligenceOpen={canToggleIntelligence && intelligenceOpen}
+				canToggleIntelligence={canToggleIntelligence}
 				onToggleIntelligence={onToggleIntelligence}
 				onReply={hasThread ? onToolbarReply : undefined}
 				onReplyAll={hasThread ? onToolbarReplyAll : undefined}

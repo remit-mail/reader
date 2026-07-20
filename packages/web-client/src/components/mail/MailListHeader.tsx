@@ -14,11 +14,13 @@
  * `SearchResults` sections under the shared `FilterSheet`. Consumers feed the
  * filter chrome and query-narrowed results; both tiers render identical rows.
  *
- * Results split into two sections: "Top matches" (literal/instant search) and
- * "Related" (semantic). The consumer dedupes them — a thread in both appears
- * only under "Top matches". Each loads independently; an empty section drops out
- * kit-side, so a "Related"-only result still shows when the literal search finds
- * nothing. The hamburger opens the nav drawer via the enclosing `AppShellSlotted`.
+ * Results split into two sections, one per engine: literal/instant and semantic.
+ * The consumer dedupes them — a thread in both appears only under the literal
+ * section — and names them, so a view whose engines reach different mail says so
+ * ("In Archive" / "Everywhere"). Each loads independently; an empty section
+ * drops out kit-side, so a semantic-only result still shows when the literal
+ * search finds nothing. The hamburger opens the nav drawer via the enclosing
+ * `AppShellSlotted`.
  */
 import {
 	FilterSheet,
@@ -30,7 +32,7 @@ import {
 	SearchResults,
 	useAppShellLayout,
 } from "@remit/ui";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { isSinglePaneTier, useLayoutTier } from "@/hooks/useLayoutTier";
 import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
 import { useMailContext } from "@/lib/mail-context";
@@ -57,6 +59,13 @@ interface MailListHeaderProps {
 	relatedResults?: SearchResult[];
 	relatedLoading?: boolean;
 	onSelectSearchResult?: (result: SearchResult) => void;
+	/**
+	 * Section headings. A view whose two engines cover different ground names
+	 * them by that ground ("In Archive" / "Everywhere") so the reach of a result
+	 * is on screen rather than inferred.
+	 */
+	searchResultsLabel?: string;
+	relatedResultsLabel?: string;
 }
 
 export function MailListHeader({
@@ -70,13 +79,26 @@ export function MailListHeader({
 	relatedResults,
 	relatedLoading,
 	onSelectSearchResult,
+	searchResultsLabel = "Top matches",
+	relatedResultsLabel = "Related",
 }: MailListHeaderProps) {
-	const { searchInput, onSearchChange, onSearchClear } = useMailContext();
+	const { searchInput, onSearchChange, onSearchClear, searchViewKey } =
+		useMailContext();
 	const tokenContext = useSearchTokenContext();
 	const layout = useAppShellLayout();
 	const tier = useLayoutTier();
 	const [searchOpen, setSearchOpen] = useState(false);
 	const [recentSearches, setRecentSearches] = useState(loadRecentSearches);
+
+	// Leaving the view ends the search: the shell drops the query, and the chrome
+	// it opened — the phone takeover, the expanded tablet field — closes with it
+	// rather than sitting there empty over the new mailbox (#47).
+	const searchViewRef = useRef(searchViewKey);
+	useEffect(() => {
+		if (searchViewRef.current === searchViewKey) return;
+		searchViewRef.current = searchViewKey;
+		setSearchOpen(false);
+	}, [searchViewKey]);
 
 	const hasQuery = searchInput.trim().length > 0;
 	// Filter tokens (`from:`, `has:attachment`, `account:`, …) parsed live from
@@ -98,8 +120,8 @@ export function MailListHeader({
 	// state. The empty-query case (recent searches) is the kit's job.
 	const sections: SearchResultSection[] = hasQuery
 		? [
-				{ id: "top", label: "Top matches", results: topMatches },
-				{ id: "related", label: "Related", results: related },
+				{ id: "top", label: searchResultsLabel, results: topMatches },
+				{ id: "related", label: relatedResultsLabel, results: related },
 			]
 		: [];
 	// Skeleton only while nothing is in yet — once either section has rows, show

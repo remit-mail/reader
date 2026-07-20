@@ -1,7 +1,6 @@
 import {
 	ChevronDown,
 	ChevronRight,
-	Info,
 	Search,
 	ShieldAlert,
 	SquarePen,
@@ -13,6 +12,7 @@ import type { ThreadData, ThreadMessageData } from "./app-shell-types.js";
 import { Avatar } from "./avatar.js";
 import { Button } from "./button.js";
 import { Input } from "./input.js";
+import { IntelligenceToggle } from "./intelligence-toggle.js";
 import { MailActionToolbar } from "./mail-action-toolbar.js";
 import { MessageBodyView } from "./message-body-view.js";
 import { ReadingPaneEmpty } from "./reading-pane-empty.js";
@@ -248,19 +248,21 @@ export function ExpandedMessage({
  * Message action toolbar on the pane-header datum: the reading pane's
  * verbs (reply/reply-all/forward, delete/move/flag) plus search and
  * compose, Apple Mail-style above the message area. Built on the shared
- * `MailActionToolbar` so the buttons stay pressable with no thread open and
- * explain inline rather than greying out (the never-disable tenet).
+ * `MailActionToolbar` so the mail verbs stay pressable with no
+ * thread open and explain inline rather than greying out (the never-disable
+ * tenet). The intelligence toggle is the exception: it holds its slot and greys
+ * out when there is no rail to open (#52).
  */
 function MessageToolbar({
 	hasThread,
 	intelligenceOpen,
 	onToggleIntelligence,
-	showIntelligenceToggle,
+	canToggleIntelligence = false,
 }: {
 	hasThread: boolean;
 	intelligenceOpen?: boolean;
 	onToggleIntelligence?: () => void;
-	showIntelligenceToggle?: boolean;
+	canToggleIntelligence?: boolean;
 }) {
 	const [hint, setHint] = useState<string | null>(null);
 	return (
@@ -284,15 +286,11 @@ function MessageToolbar({
 				title="Compose (⌘N)"
 				aria-label="Compose"
 			/>
-			{showIntelligenceToggle && !intelligenceOpen && (
-				<Button
-					variant="ghost"
-					size="sm"
-					icon={<Info className="size-4" />}
-					onClick={onToggleIntelligence}
-					aria-label="Show intelligence sidebar"
-				/>
-			)}
+			<IntelligenceToggle
+				open={intelligenceOpen}
+				enabled={canToggleIntelligence}
+				onToggle={onToggleIntelligence}
+			/>
 		</MailActionToolbar>
 	);
 }
@@ -301,12 +299,12 @@ export function ReadingPane({
 	thread,
 	intelligenceOpen,
 	onToggleIntelligence,
-	showIntelligenceToggle,
+	canToggleIntelligence,
 }: {
 	thread?: ThreadData;
 	intelligenceOpen?: boolean;
 	onToggleIntelligence?: () => void;
-	showIntelligenceToggle?: boolean;
+	canToggleIntelligence?: boolean;
 }) {
 	return (
 		<article className="flex h-full w-full min-w-0 flex-col bg-canvas">
@@ -314,7 +312,7 @@ export function ReadingPane({
 				hasThread={Boolean(thread)}
 				intelligenceOpen={intelligenceOpen}
 				onToggleIntelligence={onToggleIntelligence}
-				showIntelligenceToggle={showIntelligenceToggle}
+				canToggleIntelligence={canToggleIntelligence}
 			/>
 
 			{!thread ? (

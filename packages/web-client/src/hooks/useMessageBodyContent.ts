@@ -7,6 +7,7 @@ import {
 	pickRenderablePart,
 	type RenderableBodyPart,
 } from "@/lib/message-body-source";
+import { taggedFetch } from "@/lib/network-error";
 import { useTelemetry } from "@/lib/telemetry-context";
 import { messageKeys } from "./queries/keys";
 
@@ -186,7 +187,7 @@ export const fetchBodyContent = async (
 	const headers: Record<string, string> = {};
 	const token = await getToken();
 	if (token) headers.Authorization = `Bearer ${token}`;
-	const response = await fetch(url, { headers });
+	const response = await taggedFetch(url, { headers });
 	// 202 = the body is not synced yet. The content route has re-armed the sync
 	// cue; retry after `Retry-After` seconds rather than rendering the placeholder
 	// body (a 202 is `ok`, so this must be caught before the success path).

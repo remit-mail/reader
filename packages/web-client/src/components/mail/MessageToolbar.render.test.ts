@@ -69,7 +69,7 @@ describe("MessageToolbar carries message context only (#49)", () => {
 			createElement(MessageToolbar, {
 				hasThread,
 				intelligenceOpen: false,
-				showIntelligenceToggle: true,
+				canToggleIntelligence: true,
 				onToggleIntelligence: () => undefined,
 			}) as never,
 		);
@@ -92,5 +92,33 @@ describe("MessageToolbar carries message context only (#49)", () => {
 		assert.match(html, /aria-label="Reply"/);
 		assert.match(html, /aria-label="Star"/);
 		assert.match(html, /intelligence sidebar/);
+	});
+});
+
+/**
+ * The toggle holds its slot whatever the view and the selection are (#52); it
+ * reports "cannot act" by being disabled, not by leaving the bar.
+ */
+describe("MessageToolbar keeps the intelligence toggle in place (#52)", () => {
+	const render = (canToggleIntelligence: boolean): string =>
+		renderToString(
+			createElement(MessageToolbar, {
+				hasThread: false,
+				intelligenceOpen: false,
+				canToggleIntelligence,
+				onToggleIntelligence: () => undefined,
+			}) as never,
+		);
+
+	it("renders the toggle when it cannot open a rail", () => {
+		assert.match(render(false), /aria-label="Show intelligence sidebar"/);
+	});
+
+	it("disables it rather than dropping it from the bar", () => {
+		assert.match(render(false), /\sdisabled(=""|\s|>)/);
+	});
+
+	it("leaves it pressable once a rail can open", () => {
+		assert.equal(/\sdisabled(=""|\s|>)/.test(render(true)), false);
 	});
 });

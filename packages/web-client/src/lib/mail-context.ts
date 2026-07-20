@@ -23,8 +23,14 @@ export interface MailContextValue {
 	mailboxNameIndex: ReadonlyMap<string, string>;
 	accountNameIndex: ReadonlyMap<string, string>;
 	searchQuery: string;
-	/** Live (pre-debounce) search input — the toolbar's search field binds this. */
+	/** Live (pre-debounce) search input — the search field binds this. */
 	searchInput: string;
+	/**
+	 * Identity of the view the current search belongs to (`lib/mail-route.ts`).
+	 * It changes when the user leaves that view, which is when search ends: the
+	 * query re-seeds from the new URL and any search chrome collapses (#47).
+	 */
+	searchViewKey: string;
 	onSearchChange: (query: string) => void;
 	/** Full clear (X button): drops the query and any selected thread (#538). */
 	onSearchClear: () => void;
@@ -53,6 +59,7 @@ export const useMailContext = (): MailContextValue => {
 			accountNameIndex: new Map(),
 			searchQuery: "",
 			searchInput: "",
+			searchViewKey: "",
 			onSearchChange: () => {},
 			onSearchClear: () => {},
 			onSearchClearQuery: () => {},

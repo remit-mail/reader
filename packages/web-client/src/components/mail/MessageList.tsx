@@ -3,10 +3,10 @@ import { type Density, MessageListPane, SelectionTopBar } from "@remit/ui";
 import { useNavigate } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Search, Sparkles } from "lucide-react";
+import type { RefObject } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { formatErrorMessage } from "@/components/ui/ErrorState";
-import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { useToggleReadFor } from "@/hooks/useMarkAsRead";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import {
@@ -16,10 +16,38 @@ import {
 } from "@/hooks/useSelection";
 import { buildBugReportContext, buildGitHubIssueUrl } from "@/lib/bug-report";
 import { formatDeleteToTrashTitle } from "@/lib/format";
+import { tabStopId } from "@/lib/list-focus";
 import { MoveToTrigger } from "./MoveToTrigger";
 import { OrganizeDialog } from "./organize/OrganizeDialog";
 import { SelectionToolbar } from "./SelectionToolbar";
 import { SwipeableMessageRow } from "./SwipeableMessageRow";
+
+/**
+ * The list operations the global keyboard layer drives. The list publishes an
+ * implementation into a ref the route owns, so navigation and selection keys
+ * are routed by the one dispatcher in `useTriageKeyboard` instead of a second
+ * window listener of the list's own (#43).
+ */
+export interface MessageListCommands {
+	focusNext: () => void;
+	focusPrevious: () => void;
+	focusFirst: () => void;
+	focusLast: () => void;
+	openFocused: () => void;
+	toggleSelect: () => void;
+	extendSelectDown: () => void;
+	extendSelectUp: () => void;
+	selectAll: () => void;
+	/** Returns true when there was a selection to clear — Esc consumes it. */
+	clearSelection: () => boolean;
+	/**
+	 * Opens the move-to-Trash confirmation for the selection, or the focused row
+	 * when nothing is selected. Returns false when there is nothing to delete, so
+	 * the route can fall back to its own reading-pane delete.
+	 */
+	requestDelete: () => boolean;
+	toggleDensity: () => void;
+}
 
 interface MessageListProps {
 	mailboxId: string;
@@ -64,7 +92,24 @@ interface MessageListProps {
 	onTriageContextChange?: (context: {
 		focusedMessageId: string | undefined;
 		selectedIds: string[];
+		/**
+		 * Whether a list is mounted with commands published. The route registers
+		 * its list-driven key handlers only while this holds, so keys the list
+		 * owns (Enter, Space, ⌘A) are left to the browser everywhere else.
+		 */
+		hasList: boolean;
+		/**
+		 * Whether the list has a modal open that owns the keyboard. The route
+		 * suspends the whole triage layer while it does, so no shortcut can act
+		 * behind the dialog — a second Delete press must not reach a delete.
+		 */
+		blocksKeyboard: boolean;
 	}) => void;
+	/**
+	 * Ref the list publishes its {@link MessageListCommands} into, so the route's
+	 * keyboard dispatcher can drive navigation and selection. Cleared on unmount.
+	 */
+	commandsRef?: RefObject<MessageListCommands | null>;
 	/**
 	 * Suppress the pane's built-in title header — the shared `MailHeader` above
 	 * the list owns it (the inbox renders inside `MailViewChrome`).
@@ -123,6 +168,7 @@ export const MessageList = ({
 	listTitle,
 	listMeta,
 	onTriageContextChange,
+	commandsRef,
 	hideHeader = false,
 }: MessageListProps) => {
 	const parentRef = useRef<HTMLDivElement>(null);
@@ -179,6 +225,20 @@ export const MessageList = ({
 		null,
 	);
 
+	// Set when a keyboard command moves the roving cursor. Real DOM focus then
+	// follows the cursor onto the row once the virtualizer has rendered it, so
+	// the browser's own focus — and therefore Tab, Shift+Tab and the focus ring
+	// — agree with what the list highlights (#43). Mouse-driven focus changes
+	// leave this null, so the list never yanks focus out of the reading pane.
+	const pendingDomFocusRef = useRef<string | null>(null);
+
+	// Whether the list can serve keyboard commands at all. It stays true while
+	// the delete confirmation is open — withdrawing the commands there would let
+	// the route fall through to its own unconfirmed delete on a second Delete
+	// press. The route suspends the whole keyboard layer for the dialog instead.
+	const commandsAvailable = !isLoading && threads.length > 0;
+	const confirmOpen = pendingDeleteIds !== null;
+
 	// Auto-exit multi-select when selection becomes empty
 	useEffect(() => {
 		if (isMultiSelectMode && selectedCount === 0) {
@@ -214,6 +274,7 @@ export const MessageList = ({
 				toggleCheck(thread.messageId);
 				return;
 			}
+			pendingDomFocusRef.current = thread.messageId;
 			setFocusedMessageId(thread.messageId);
 		},
 		[threads, isMultiSelectMode, toggleCheck],
@@ -234,6 +295,12 @@ export const MessageList = ({
 		const prevIndex = focusIndex <= 0 ? 0 : focusIndex - 1;
 		moveFocusToIndex(prevIndex);
 	}, [threads.length, focusIndex, moveFocusToIndex]);
+
+	const focusFirst = useCallback(() => moveFocusToIndex(0), [moveFocusToIndex]);
+	const focusLast = useCallback(
+		() => moveFocusToIndex(threads.length - 1),
+		[moveFocusToIndex, threads.length],
+	);
 
 	// Toggle selection on the focused row with x.
 	const toggleFocusedSelection = useCallback(() => {
@@ -292,6 +359,7 @@ export const MessageList = ({
 			// Shift+arrow moves the focus cursor (not the open thread) and grows
 			// the selection from the anchor — the keyboard equivalent of
 			// shift-click.
+			pendingDomFocusRef.current = target;
 			setFocusedMessageId(target);
 		},
 		[orderedIds, focusedMessageId, selectRange],
@@ -309,13 +377,31 @@ export const MessageList = ({
 
 	// Delete / Backspace: confirm-delete the selection, or the focused row when
 	// nothing is selected.
-	const handleDeleteKey = useCallback(() => {
+	// Returns true when it took the keypress, so the route's fallback delete
+	// (which skips the confirmation) doesn't also fire.
+	const handleDeleteKey = useCallback((): boolean => {
+		// The confirmation is already asking about a delete: the keypress belongs
+		// to it, and answering it is the Confirm button's job. Claiming the press
+		// here is what stops a second Delete from reaching an unconfirmed delete.
+		if (pendingDeleteIds !== null) return true;
+		if (!onDeleteMessages) return false;
 		if (selectedCount > 0) {
 			requestDelete(Array.from(selectedIds));
-		} else if (focusedMessageId) {
-			requestDelete([focusedMessageId]);
+			return true;
 		}
-	}, [selectedCount, selectedIds, focusedMessageId, requestDelete]);
+		if (focusedMessageId) {
+			requestDelete([focusedMessageId]);
+			return true;
+		}
+		return false;
+	}, [
+		pendingDeleteIds,
+		onDeleteMessages,
+		selectedCount,
+		selectedIds,
+		focusedMessageId,
+		requestDelete,
+	]);
 
 	// Enter: open the focused row in the reading pane (sets selected/URL). This
 	// is the focus→open transition of the 2-state model.
@@ -503,8 +589,33 @@ export const MessageList = ({
 		onTriageContextChange?.({
 			focusedMessageId,
 			selectedIds: Array.from(selectedIds),
+			hasList: commandsAvailable,
+			blocksKeyboard: confirmOpen,
 		});
-	}, [focusedMessageId, selectedIds, onTriageContextChange]);
+	}, [
+		focusedMessageId,
+		selectedIds,
+		commandsAvailable,
+		confirmOpen,
+		onTriageContextChange,
+	]);
+
+	// Retract the context when the list goes away (drafts view, phone reading
+	// view). Without this the route keeps its list key handlers registered
+	// against a list that no longer exists, and goes on swallowing Enter, Space
+	// and ⌘A on a screen that has no rows.
+	const bridgeRef = useRef(onTriageContextChange);
+	bridgeRef.current = onTriageContextChange;
+	useEffect(
+		() => () =>
+			bridgeRef.current?.({
+				focusedMessageId: undefined,
+				selectedIds: [],
+				hasList: false,
+				blocksKeyboard: false,
+			}),
+		[],
+	);
 
 	// Clear selection when threads change (e.g., after delete)
 	useEffect(() => {
@@ -541,81 +652,65 @@ export const MessageList = ({
 		return () => scrollElement.removeEventListener("scroll", handleScroll);
 	}, [hasMore, isLoadingMore, onLoadMore]);
 
-	// Keyboard navigation. The dialog owns the keyboard while open, so list
-	// shortcuts pause to avoid double-handling (e.g. a second Delete press).
-	useKeyboardNavigation({
-		enabled: !isLoading && threads.length > 0 && pendingDeleteIds === null,
-		bindings: [
-			// Focus movement (plain). requireShift:false so Shift+Arrow falls
-			// through to the range-extend bindings below instead of also moving
-			// focus without selecting. j/k move the roving cursor WITHOUT opening
-			// the thread (#429) — only Enter / click open.
-			{ key: "j", handler: focusNext, preventDefault: true },
-			{
-				key: "ArrowDown",
-				handler: focusNext,
-				preventDefault: true,
-				requireShift: false,
-			},
-			{ key: "k", handler: focusPrevious, preventDefault: true },
-			{
-				key: "ArrowUp",
-				handler: focusPrevious,
-				preventDefault: true,
-				requireShift: false,
-			},
-			// Shift+Arrow: extend the selection range.
-			{
-				key: "ArrowDown",
-				handler: extendRangeDown,
-				preventDefault: true,
-				requireShift: true,
-			},
-			{
-				key: "ArrowUp",
-				handler: extendRangeUp,
-				preventDefault: true,
-				requireShift: true,
-			},
-			// Toggle focused row (x or Space) and re-anchor.
-			{ key: "x", handler: toggleFocusedSelection, preventDefault: true },
-			{ key: " ", handler: toggleFocusedSelection, preventDefault: true },
-			// Cmd/Ctrl+A select all loaded rows.
-			{
-				key: "a",
-				handler: handleSelectAll,
-				preventDefault: true,
-				requireMeta: true,
-			},
-			// Enter opens the focused message.
-			{ key: "Enter", handler: handleOpenFocused, preventDefault: true },
-			// Delete / Backspace: confirm-delete selection or focused row.
-			{ key: "Delete", handler: handleDeleteKey, preventDefault: true },
-			{ key: "Backspace", handler: handleDeleteKey, preventDefault: true },
-			// d: toggle density (comfortable / compact).
-			{ key: "d", handler: toggleDensity, preventDefault: true },
-		],
+	// Move real DOM focus onto the roving cursor after a keyboard move. The
+	// virtualizer may not have rendered the row yet on the commit that moved the
+	// cursor; the scroll effect above brings it in and this runs again on the
+	// next commit, so the lookup retries until the row exists.
+	useEffect(() => {
+		const messageId = pendingDomFocusRef.current;
+		if (!messageId) return;
+		const row = parentRef.current?.querySelector<HTMLElement>(
+			`[data-message-id="${messageId}"]`,
+		);
+		if (!row) return;
+		pendingDomFocusRef.current = null;
+		row.focus({ preventScroll: true });
 	});
 
-	// Esc-to-clear-selection on the capture phase, enabled only when a
-	// selection exists. Capture + stopPropagation makes a single Esc clear the
-	// selection and consume the keypress, so the route-level Esc (go back) does
-	// NOT also fire. With no selection this listener is disabled and Esc falls
-	// through to the route as before. The ConfirmDialog (when open) registers
-	// its own capture-phase Esc and pauses these list shortcuts, so its cancel
-	// still wins first.
-	useKeyboardNavigation({
-		enabled: hasSelection && pendingDeleteIds === null,
-		capture: true,
-		bindings: [
-			{
-				key: "Escape",
-				handler: clearSelection,
-				preventDefault: true,
-				stopPropagation: true,
+	useEffect(() => {
+		if (!commandsRef) return;
+		if (!commandsAvailable) {
+			commandsRef.current = null;
+			return;
+		}
+		commandsRef.current = {
+			focusNext,
+			focusPrevious,
+			focusFirst,
+			focusLast,
+			openFocused: handleOpenFocused,
+			toggleSelect: toggleFocusedSelection,
+			extendSelectDown: extendRangeDown,
+			extendSelectUp: extendRangeUp,
+			selectAll: handleSelectAll,
+			clearSelection: () => {
+				if (!hasSelection) return false;
+				clearSelection();
+				return true;
 			},
-		],
-	});
+			requestDelete: handleDeleteKey,
+			toggleDensity,
+		};
+		return () => {
+			commandsRef.current = null;
+		};
+	}, [
+		commandsRef,
+		commandsAvailable,
+		focusNext,
+		focusPrevious,
+		focusFirst,
+		focusLast,
+		handleOpenFocused,
+		toggleFocusedSelection,
+		extendRangeDown,
+		extendRangeUp,
+		handleSelectAll,
+		hasSelection,
+		clearSelection,
+		handleDeleteKey,
+		toggleDensity,
+	]);
 
 	// Derive the MessageListPane listState from the loading/error/empty signals.
 	const listState = isLoading
@@ -694,6 +789,17 @@ export const MessageList = ({
 
 	const activeSelectionBar = desktopSelectionBar ?? mobileSelectionBar;
 
+	// Roving tabindex: exactly one row is in the tab order, so Tab moves focus
+	// into the list at the cursor and Shift+Tab moves back out to the side panel
+	// instead of walking every row (#43).
+	const tabStopMessageId = tabStopId(orderedIds, focusedMessageId);
+
+	// A row focused by Tab or click becomes the cursor, so the keys act on what
+	// the browser says is focused.
+	const handleRowFocus = useCallback((messageId: string) => {
+		setFocusedMessageId(messageId);
+	}, []);
+
 	const isSearching = !!searchQuery?.trim();
 
 	// The virtualized list body: rows + search header + load-more indicator.
@@ -705,8 +811,17 @@ export const MessageList = ({
 			{isSearching && searchQuery && (
 				<SearchResultsHeader query={searchQuery} count={threads.length} />
 			)}
-			<div ref={parentRef} className="flex-1 overflow-y-auto">
+			<div
+				ref={parentRef}
+				role="listbox"
+				aria-multiselectable
+				aria-label={listTitle}
+				className="flex-1 overflow-y-auto"
+			>
+				{/* Virtualizer scaffolding — presentational so the listbox sees the
+				    rows as its options rather than these positioning wrappers. */}
 				<div
+					role="presentation"
 					className="relative w-full"
 					style={{ height: `${virtualizer.getTotalSize()}px` }}
 				>
@@ -715,6 +830,7 @@ export const MessageList = ({
 						return (
 							<div
 								key={virtualRow.key}
+								role="presentation"
 								data-index={virtualRow.index}
 								ref={virtualizer.measureElement}
 								className="absolute left-0 top-0 w-full border-b border-line"
@@ -726,6 +842,8 @@ export const MessageList = ({
 									accountId={accountId}
 									isSelected={selectedMessageId === thread.messageId}
 									isFocused={focusedMessageId === thread.messageId}
+									isTabStop={tabStopMessageId === thread.messageId}
+									onFocusRow={handleRowFocus}
 									isChecked={isChecked(thread.messageId)}
 									onToggleCheck={toggleCheck}
 									onRowSelect={handleRowSelect}

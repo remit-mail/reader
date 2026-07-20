@@ -38,6 +38,14 @@ interface MessageListItemProps {
 	 * row shows the full highlight. Both can be true (the open row stays focused).
 	 */
 	isFocused?: boolean;
+	/**
+	 * Whether this row holds the list's single tab stop (roving tabindex). Every
+	 * other row is `tabIndex={-1}`, so Tab enters the list at the cursor and
+	 * Shift+Tab leaves it rather than stepping through hundreds of rows.
+	 */
+	isTabStop?: boolean;
+	/** Called when the row takes DOM focus, so the roving cursor follows it. */
+	onFocusRow?: (messageId: string) => void;
 	isChecked: boolean;
 	onToggleCheck: (id: string) => void;
 	/**
@@ -94,6 +102,8 @@ const MessageListItemComponent = ({
 	accountId,
 	isSelected,
 	isFocused = false,
+	isTabStop = false,
+	onFocusRow,
 	isChecked,
 	onToggleCheck,
 	onRowSelect,
@@ -116,20 +126,39 @@ const MessageListItemComponent = ({
 	// Desktop mouse selection semantics. Plain click falls through to the Link's
 	// navigation; shift / cmd / ctrl click is routed to selection and the
 	// navigation is suppressed. On mobile this is a no-op so taps still open.
+	//
+	// A modified click must preventDefault: the router skips navigation for any
+	// modified click and leaves the anchor's own default in place, which in a
+	// browser means shift-click opens a new window and cmd-click a new tab.
+	// Shift-click also drags a native text selection across the rows it spans,
+	// so drop it — the row highlight is the selection the user asked for.
 	const handleRowClick = useCallback(
 		(e: MouseEvent) => {
 			if (!isDesktop) return;
-			const handled = onRowSelect(messageId, {
+			const modifiers = {
 				shiftKey: e.shiftKey,
 				metaKey: e.metaKey,
 				ctrlKey: e.ctrlKey,
-			});
-			if (handled) {
-				e.preventDefault();
-				e.stopPropagation();
+			};
+			const handled = onRowSelect(messageId, modifiers);
+			if (!handled) return;
+			e.preventDefault();
+			e.stopPropagation();
+			if (modifiers.shiftKey) {
+				window.getSelection()?.removeAllRanges();
 			}
 		},
 		[isDesktop, onRowSelect, messageId],
+	);
+
+	// Shift-click starts a native text selection on mousedown; suppressing it
+	// there keeps the drag from painting a text range over the rows.
+	const handleRowMouseDown = useCallback(
+		(e: MouseEvent) => {
+			if (!isDesktop) return;
+			if (e.shiftKey) e.preventDefault();
+		},
+		[isDesktop],
 	);
 
 	const handleLongPress = useCallback(() => {
@@ -151,6 +180,24 @@ const MessageListItemComponent = ({
 		);
 	}, [queryClient, thread.messageId]);
 
+	const handleRowFocus = useCallback(() => {
+		prefetchMessage();
+		onFocusRow?.(messageId);
+	}, [prefetchMessage, onFocusRow, messageId]);
+
+	// Listbox semantics + roving tabindex, shared by both densities.
+	const rowInteractionProps = {
+		"data-message-row": true,
+		"data-message-id": messageId,
+		role: "option" as const,
+		"aria-selected": isChecked,
+		tabIndex: isTabStop ? 0 : -1,
+		onClick: handleRowClick,
+		onMouseDown: handleRowMouseDown,
+		onMouseEnter: prefetchMessage,
+		onFocus: handleRowFocus,
+	};
+
 	const unread = !thread.isRead;
 
 	if (density === "compact") {
@@ -162,13 +209,11 @@ const MessageListItemComponent = ({
 					...prev,
 					selectedMessageId: thread.messageId,
 				})}
-				data-message-row
-				onClick={handleRowClick}
-				onMouseEnter={prefetchMessage}
-				onFocus={prefetchMessage}
+				{...rowInteractionProps}
 				{...(!isDesktop && longPressHandlers.handlers)}
 				className={cn(
 					compactRowClass({ active: isSelected, focused: isFocused }),
+					"outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset",
 					isChecked && "bg-accent-soft",
 					!isDesktop && "min-h-11",
 				)}
@@ -189,14 +234,12 @@ const MessageListItemComponent = ({
 				...prev,
 				selectedMessageId: thread.messageId,
 			})}
-			data-message-row
-			onClick={handleRowClick}
-			onMouseEnter={prefetchMessage}
-			onFocus={prefetchMessage}
+			{...rowInteractionProps}
 			{...(!isDesktop && longPressHandlers.handlers)}
 			className={cn(
 				"group",
 				comfortableRowClass({ active: isSelected, focused: isFocused }),
+				"outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset",
 				isChecked && "bg-accent-soft",
 				!isDesktop && "min-h-11",
 			)}
@@ -222,6 +265,10 @@ const MessageListItemComponent = ({
 				/>
 				<button
 					type="button"
+					// Out of the tab order: the row is the list's single tab stop, and
+					// this control is `opacity-0` until hover, so a tabbable one would
+					// put focus on something invisible on every row.
+					tabIndex={-1}
 					onClick={handleCheckboxClick}
 					className={cn(
 						"absolute inset-0 size-7 rounded-full border items-center justify-center transition-opacity",

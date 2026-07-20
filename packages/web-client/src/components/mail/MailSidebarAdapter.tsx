@@ -295,11 +295,12 @@ export function MailSidebarAdapter({
 		// post-selection side effects.
 		//
 		// Clearing the field is one of them. Every link above drops `q`, and the
-		// shell re-seeds the field from the destination's `q` when the path
-		// changes — but picking the folder you are already in does not change the
-		// path, so the shell sees nothing and the previous query would sit in the
-		// bar over a list that no longer has it in the URL. Selecting a nav entry
-		// is an unambiguous "show me this", so it clears here regardless.
+		// shell re-seeds the field from the destination's `q` when the view
+		// changes — but picking the folder you are already in is the same view,
+		// so the shell leaves the field alone and the previous query would sit in
+		// the bar over a list that no longer has it in the URL. Selecting a nav
+		// entry is an unambiguous "show me this", so it clears here regardless.
+		// It is a user action, not a mirror, so it cannot race in-flight typing.
 		onSearchChange("");
 		onMailboxSelect?.();
 	};

@@ -15,6 +15,7 @@
 /** A matched route, minimal shape needed for pane detection. */
 export interface MailRouteMatch {
 	routeId: string;
+	params?: Record<string, string | undefined>;
 }
 
 /** The leaf route ids the /mail shell branches on. */
@@ -41,4 +42,20 @@ export function isOutboxRoute(matches: readonly MailRouteMatch[]): boolean {
 /** True only on a mailbox route (/mail/$mailboxId). */
 export function isMailboxRoute(matches: readonly MailRouteMatch[]): boolean {
 	return matches.some((m) => m.routeId === MAIL_MAILBOX_ROUTE_ID);
+}
+
+/**
+ * Identity of the list view the shell is showing — one mailbox, the brief, the
+ * flagged list, or the outbox. Two locations share a key when they differ only
+ * in search params (opening a result, mirroring `q`), so opening a hit is not a
+ * view change while switching mailbox is. `lib/search-view.ts` re-seeds the
+ * search field whenever this changes.
+ */
+export function mailViewKey(matches: readonly MailRouteMatch[]): string {
+	const mailboxId = matches.find((m) => m.params?.mailboxId)?.params?.mailboxId;
+	if (mailboxId) return `${MAIL_MAILBOX_ROUTE_ID}:${mailboxId}`;
+	if (isFlaggedRoute(matches)) return MAIL_FLAGGED_ROUTE_ID;
+	if (isOutboxRoute(matches)) return MAIL_OUTBOX_ROUTE_ID;
+	if (isBriefRoute(matches)) return MAIL_BRIEF_ROUTE_ID;
+	return "";
 }

@@ -88,7 +88,7 @@ export const Newsletter: Story = { args: { thread: newsletterThread } };
 export const Empty: Story = { args: { thread: undefined } };
 
 export const WithIntelligenceToggle: Story = {
-	args: { thread, showIntelligenceToggle: true, intelligenceOpen: false },
+	args: { thread, canToggleIntelligence: true, intelligenceOpen: false },
 };
 
 /* ------------------------------------------------------------------ */

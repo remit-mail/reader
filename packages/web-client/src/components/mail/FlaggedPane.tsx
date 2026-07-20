@@ -2,9 +2,14 @@
  * FlaggedPane — compound component for the Flagged virtual mailbox
  * (/mail/flagged route).
  *
- * Mirrors BriefPane: it reads the unified cross-account thread list to resolve
- * the open thread and owns the list / reading / phone slots. The list itself is
- * a FLAT inbox of starred mail (see `FlaggedList`), not the sectioned brief.
+ * Mirrors BriefPane in shape: it resolves the open thread and owns the list /
+ * reading / phone slots. The list itself is a FLAT inbox of starred mail (see
+ * `FlaggedList`), not the sectioned brief.
+ *
+ * The selection resolves from the starred listing, the same query that produced
+ * the rows. The unified listing is INBOX-scoped, so resolving against it left
+ * every starred thread filed elsewhere — Sent, an archive folder, anything past
+ * the inbox window — visible in the list but impossible to open (issue #70).
  *
  *   <FlaggedPane selectedMessageId={...}>
  *     <AppShellSlotted
@@ -15,10 +20,8 @@
  *
  * On phone, use `<FlaggedPane.Phone />` instead.
  */
-import { unifiedThreadOperationsListAllThreadsOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
-import { ReadingPaneEmpty } from "@remit/ui";
-import { useQuery } from "@tanstack/react-query";
+import { ReadingPaneEmpty, useAppShellLayout } from "@remit/ui";
 import { useNavigate } from "@tanstack/react-router";
 import {
 	createContext,
@@ -32,6 +35,7 @@ import { ConversationView } from "@/components/mail/ConversationView";
 import { FlaggedList } from "@/components/mail/FlaggedList";
 import { IntelligencePane } from "@/components/mail/IntelligencePane";
 import { MessageToolbar } from "@/components/mail/MessageToolbar";
+import { useStarredThreads } from "@/hooks/useStarredThreads";
 import { useMailContext } from "@/lib/mail-context";
 
 /* ------------------------------------------------------------------ */
@@ -68,15 +72,12 @@ function FlaggedPaneProvider({
 }: FlaggedPaneProps) {
 	const navigate = useNavigate();
 
-	const { data: threadsData } = useQuery({
-		...unifiedThreadOperationsListAllThreadsOptions(),
-		staleTime: 60_000,
-	});
+	const { threads } = useStarredThreads();
 
 	const selectedThread = useMemo(() => {
 		if (!selectedMessageId) return undefined;
-		return threadsData?.items.find((t) => t.messageId === selectedMessageId);
-	}, [threadsData, selectedMessageId]);
+		return threads.find((t) => t.messageId === selectedMessageId);
+	}, [threads, selectedMessageId]);
 
 	const handleSelectMessage = useCallback(
 		(id: string) => {
@@ -128,14 +129,20 @@ function FlaggedListSlot() {
  */
 function FlaggedReading() {
 	const { selectedThread } = useFlaggedPane();
-	const { onToggleIntelligence } = useMailContext();
+	const { intelligenceOpen, onToggleIntelligence } = useMailContext();
+	// The rail's own width gate, not the shell tier: between 1024 and 1280 the
+	// reading pane is mounted but the rail is not, so "enabled" would promise an
+	// open that cannot happen.
+	const railFits = useAppShellLayout()?.showIntelligencePane ?? false;
+	const hasThread = Boolean(selectedThread);
+	const canToggleIntelligence = railFits && hasThread;
 
 	return (
 		<section className="flex h-full w-full min-w-0 flex-col bg-canvas">
 			<MessageToolbar
-				hasThread={Boolean(selectedThread)}
-				intelligenceOpen={false}
-				showIntelligenceToggle={false}
+				hasThread={hasThread}
+				intelligenceOpen={canToggleIntelligence && intelligenceOpen}
+				canToggleIntelligence={canToggleIntelligence}
 				onToggleIntelligence={onToggleIntelligence}
 			/>
 			<div className="min-h-0 flex-1 overflow-hidden">
@@ -151,6 +158,24 @@ function FlaggedReading() {
 				)}
 			</div>
 		</section>
+	);
+}
+
+/**
+ * Intelligence pane: IntelligencePane for the open thread.
+ * Mount in the `intelligence` slot of `AppShellSlotted`. Only rendered ≥ 1280px.
+ */
+function FlaggedIntelligence() {
+	const { selectedThread } = useFlaggedPane();
+	const { onToggleIntelligence } = useMailContext();
+
+	return (
+		<IntelligencePane
+			onClose={onToggleIntelligence}
+			thread={selectedThread}
+			mailboxId={selectedThread?.mailboxId}
+			accountId={selectedThread?.accountId}
+		/>
 	);
 }
 
@@ -200,6 +225,7 @@ function FlaggedPhone() {
 const FlaggedPane = Object.assign(FlaggedPaneProvider, {
 	List: FlaggedListSlot,
 	Reading: FlaggedReading,
+	Intelligence: FlaggedIntelligence,
 	Phone: FlaggedPhone,
 });
 

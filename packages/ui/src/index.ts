@@ -145,6 +145,10 @@ export {
 	type SimilarState,
 } from "./components/intelligence-panel.js";
 export {
+	IntelligenceToggle,
+	type IntelligenceToggleProps,
+} from "./components/intelligence-toggle.js";
+export {
 	IsolatedEmailFrame,
 	type IsolatedEmailFrameProps,
 	measureContentAxis,
@@ -259,6 +263,14 @@ export {
 	type RescueFromSpamFlowProps,
 	rescueMoveConsequence,
 } from "./components/rescue-from-spam-flow.js";
+export {
+	type GroupSelectionState,
+	groupRescueCandidatesBySender,
+	type RescueSenderGroup,
+	RescueSenderGroupRow,
+	type RescueSenderGroupRowProps,
+	senderGroupSelectionState,
+} from "./components/rescue-sender-group.js";
 export {
 	type PanelGroupProps,
 	type PanelProps,

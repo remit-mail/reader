@@ -10,6 +10,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { formatErrorDetail } from "@/components/ui/error-banners";
+import { patchThreadListCache, type ThreadListCache } from "@/lib/thread-cache";
 
 interface UseMarkAsReadOptions {
 	messages: RemitImapThreadMessageResponse[];
@@ -24,15 +25,12 @@ interface ThreadMessagesData {
 	[key: string]: unknown;
 }
 
-interface ThreadsListPage {
-	items: RemitImapThreadMessageResponse[];
-	[key: string]: unknown;
-}
-
-interface ThreadsListData {
-	pages: ThreadsListPage[];
-	pageParams: Array<string | undefined>;
-}
+/**
+ * Either shape a thread list/search query caches — the infinite mailbox list
+ * or a single-shot page. `setQueriesData` matches by key prefix, so the
+ * optimistic updater sees both.
+ */
+type ThreadsListData = ThreadListCache;
 
 interface SnapshotEntry<T> {
 	queryKey: readonly unknown[];
@@ -178,25 +176,16 @@ export const useMarkAsRead = ({
 				},
 			);
 
-			const patchListData = (old: ThreadsListData | undefined) => {
-				if (!old) return old;
-				return {
-					...old,
-					pages: old.pages.map((page) => ({
-						...page,
-						items: setReadOnItems(page.items, messageIds, isRead),
-					})),
-				};
-			};
+			const patchListData = (old: unknown) =>
+				patchThreadListCache(old, (items) =>
+					setReadOnItems(items, messageIds, isRead),
+				);
 
 			for (const queryKey of [
 				...threadsListPrefixes,
 				...threadsSearchPrefixes,
 			]) {
-				queryClient.setQueriesData<ThreadsListData>(
-					{ queryKey },
-					patchListData,
-				);
+				queryClient.setQueriesData({ queryKey }, patchListData);
 			}
 
 			return {
@@ -231,6 +220,7 @@ export const useMarkAsRead = ({
 			pushError({
 				title: isRead ? "Couldn't mark as read" : "Couldn't mark as unread",
 				detail: formatErrorDetail(error),
+				error,
 			});
 		},
 		onSettled: (_data, _err, _vars, context) => {
@@ -321,6 +311,7 @@ export const useToggleReadFor = (options: {
 			pushError({
 				title: isRead ? "Couldn't mark as read" : "Couldn't mark as unread",
 				detail: formatErrorDetail(error),
+				error,
 			});
 		},
 		onSettled: () => {

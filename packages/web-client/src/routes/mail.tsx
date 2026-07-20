@@ -30,8 +30,18 @@ import { useMailboxNameIndex } from "@/hooks/useMailboxNameIndex";
 import { useStaleAccountSync } from "@/hooks/useStaleAccountSync";
 import { writeIntelligencePref } from "@/lib/intelligence-pref";
 import { MailContext } from "@/lib/mail-context";
-import { isBriefRoute, isFlaggedRoute, isOutboxRoute } from "@/lib/mail-route";
+import {
+	isBriefRoute,
+	isFlaggedRoute,
+	isOutboxRoute,
+	mailViewKey,
+} from "@/lib/mail-route";
 import { buildAccountNameIndex } from "@/lib/search-token-index";
+import {
+	committedSearchQuery,
+	searchInputForView,
+	shouldMirrorQuery,
+} from "@/lib/search-view";
 import "@/lib/client";
 
 // `MailContext` / `useMailContext` live in `@/lib/mail-context` so the provider
@@ -86,41 +96,48 @@ function MailLayout() {
 		writeIntelligencePref(open);
 	}, []);
 
-	// URL `q` is a load-once seed for the input and a one-directional write
-	// target. The debounced local value is the source of truth and drives the
-	// search API; it is mirrored back to the URL but the URL is never read into
-	// state after mount — with one exception below, navigation.
+	// Within one view, URL `q` seeds the input and is a one-directional write
+	// target: the debounced local value drives the search API and is mirrored
+	// back. Across views the URL wins again — see the view-change adjustment
+	// below and `lib/search-view.ts` (#47).
 	const [searchInput, setSearchInput] = useState(searchQuery);
 	const debouncedSearchInput = useDebouncedValue(searchInput, 200);
+	const committedQuery = committedSearchQuery(
+		searchInput,
+		debouncedSearchInput,
+	);
 
 	const searchQueryRef = useRef(searchQuery);
 	searchQueryRef.current = searchQuery;
 
-	// Navigating re-scopes the search, so the field takes the destination's
-	// own `q`: empty when the sidebar dropped it (a folder switch starts that
-	// folder's search fresh), and the carried query when the top bar's scope
-	// chip was removed and sent the user to the brief to search everything.
-	// Without this the field kept text the URL no longer had, so the chip said
-	// one scope and the words came from another.
+	// Search is a mode of the view it was typed in, so leaving that view re-seeds
+	// the field from wherever we land (#47): empty when the sidebar dropped `q`
+	// (a folder switch starts that folder's search fresh), and the carried query
+	// when the top bar's scope chip was removed and sent the user to the brief to
+	// search everything. Views that differ only in search params — opening a
+	// result, mirroring `q` — are the same view, so in-flight typing survives
+	// them (`searchInputForView`).
 	//
 	// Adjusted during render, not in an effect. This is React's documented
 	// "adjusting state when a prop changes" pattern: both updates are to this
-	// component's own state and are guarded by a changed value, so React
-	// re-runs the render before committing and nothing is painted with the
-	// stale query. An effect would commit one frame carrying the previous
-	// route's text, and the debounced mirror below would then read that frame
-	// and write the old query onto the new URL — which is the bug the mirror's
-	// own pathname guard exists to prevent.
-	const pathname = useRouterState({ select: (s) => s.location.pathname });
-	const [searchPathname, setSearchPathname] = useState(pathname);
-	if (searchPathname !== pathname) {
-		setSearchPathname(pathname);
-		setSearchInput(searchQuery);
+	// component's own state and are guarded by a changed value, so React re-runs
+	// the render before committing and nothing is painted with the stale query.
+	// An effect would commit one frame carrying the previous view's text, which
+	// the mirror below then has to be defended against.
+	const viewKey = useRouterState({ select: (s) => mailViewKey(s.matches) });
+	const [searchViewKey, setSearchViewKey] = useState(viewKey);
+	if (searchViewKey !== viewKey) {
+		const seeded = searchInputForView(searchViewKey, viewKey, searchQuery);
+		setSearchViewKey(viewKey);
+		if (seeded !== undefined) setSearchInput(seeded);
 	}
 
-	// Mirror the debounced search into the URL so links are shareable and a
-	// refresh restores the query. One-directional: the URL is never read back
-	// into state, so there is no sync loop.
+	// Mirror the settled search into the URL so links are shareable and a
+	// refresh restores the query. Within a view this is one-directional — the
+	// URL is not read back into state, so there is no sync loop — and it writes
+	// only once the debounce agrees with the field, so a query arriving by URL
+	// is never overwritten mid-debounce, and the query the user just left behind
+	// is never written onto the view they landed on (`shouldMirrorQuery`).
 	// When a query *goes* active, also strip selectedMessageId so the reading
 	// pane closes (#539): an open message from the pre-search list is not
 	// meaningful in the search result set. Only strip on that transition though —
@@ -129,27 +146,18 @@ function MailLayout() {
 	// pre-search leftover) and must survive. The strip otherwise raced the tap:
 	// the row shows before the debounce settles, so this mirror can land just
 	// after the open and close it again.
-	// The debounce lags a navigation by up to 200ms, so on the render right
-	// after a route change it still holds the previous route's query. Writing
-	// that would put the old query back on the new URL — and, when the scope
-	// chip cleared it, undo the clear. Skip one pass and let the debounce catch
-	// up; the effect re-runs when it does.
-	const mirroredPathnameRef = useRef(pathname);
 	useEffect(() => {
-		if (mirroredPathnameRef.current !== pathname) {
-			mirroredPathnameRef.current = pathname;
+		if (!shouldMirrorQuery(searchInput, committedQuery, searchQueryRef.current))
 			return;
-		}
-		if (debouncedSearchInput === searchQueryRef.current) return;
 		navigate({
 			to: ".",
 			search: (prev) => {
 				const queryAlreadyActive =
-					(prev as { q?: string }).q === debouncedSearchInput;
+					(prev as { q?: string }).q === committedQuery;
 				return {
 					...prev,
-					q: debouncedSearchInput || undefined,
-					...(debouncedSearchInput && !queryAlreadyActive
+					q: committedQuery || undefined,
+					...(committedQuery && !queryAlreadyActive
 						? {
 								selectedMessageId: undefined,
 								selectedThreadId: undefined,
@@ -160,7 +168,7 @@ function MailLayout() {
 			},
 			replace: true,
 		});
-	}, [debouncedSearchInput, pathname, navigate]);
+	}, [searchInput, committedQuery, navigate]);
 
 	const {
 		data: config,
@@ -282,10 +290,11 @@ function MailLayout() {
 		accounts,
 		mailboxNameIndex,
 		accountNameIndex,
-		// Debounced local value is the source of truth for search; it is
-		// mirrored to the URL one-directionally for shareable links.
-		searchQuery: debouncedSearchInput,
+		// The committed local value is the source of truth for search; it is
+		// mirrored to the URL for shareable links.
+		searchQuery: committedQuery,
 		searchInput,
+		searchViewKey: viewKey,
 		onSearchChange: handleSearchChange,
 		onSearchClear: handleSearchClear,
 		onSearchClearQuery: handleSearchClearQuery,
@@ -330,7 +339,8 @@ function MailLayout() {
 					/>
 				</div>
 			) : onBriefRoute ? (
-				// Daily brief (/mail/) — no mailboxId param; 2-pane layout (no intelligence).
+				// Daily brief (/mail/) — no mailboxId param; same 3-pane layout as a
+				// mailbox: an open message has an intelligence rail here too (#52).
 				<BriefPane selectedMessageId={mobileSelectedMessageId}>
 					{isSinglePane ? (
 						<AppShellSlotted
@@ -348,7 +358,9 @@ function MailLayout() {
 							topBar={topBar}
 							list={<BriefPane.List />}
 							reading={<BriefPane.Reading />}
+							intelligence={<BriefPane.Intelligence />}
 							intelligenceOpen={intelligenceOpen}
+							hasThread={Boolean(mobileSelectedMessageId)}
 							overlay={overlayContent}
 							skeleton={<AppShellSkeleton />}
 							isLoading={isLoading || hasNoAccounts}
@@ -358,7 +370,7 @@ function MailLayout() {
 				</BriefPane>
 			) : onFlaggedRoute ? (
 				// Flagged virtual mailbox (/mail/flagged) — flat starred list across
-				// accounts; 2-pane layout (no intelligence), like the brief.
+				// accounts; same slots as the brief, intelligence rail included.
 				<FlaggedPane selectedMessageId={mobileSelectedMessageId}>
 					{isSinglePane ? (
 						<AppShellSlotted
@@ -376,7 +388,9 @@ function MailLayout() {
 							topBar={topBar}
 							list={<FlaggedPane.List />}
 							reading={<FlaggedPane.Reading />}
+							intelligence={<FlaggedPane.Intelligence />}
 							intelligenceOpen={intelligenceOpen}
+							hasThread={Boolean(mobileSelectedMessageId)}
 							overlay={overlayContent}
 							skeleton={<AppShellSkeleton />}
 							isLoading={isLoading || hasNoAccounts}
@@ -408,6 +422,7 @@ function MailLayout() {
 							reading={<MailboxPane.Reading />}
 							intelligence={<MailboxPane.Intelligence />}
 							intelligenceOpen={intelligenceOpen}
+							hasThread={Boolean(mobileSelectedMessageId)}
 							overlay={overlayContent}
 							skeleton={<AppShellSkeleton />}
 							isLoading={isLoading || hasNoAccounts}

@@ -42,6 +42,37 @@ export interface RunState {
 		subject: string;
 		expectedCategory: string;
 	}>;
+	/**
+	 * The message seeded into Junk, from a sender who has a display name. Seeded
+	 * before the account is connected, like everything else here — mail that
+	 * arrives after onboarding does not reach the API on a triggered sync (see
+	 * the annotated failure in `sync.spec.ts`), so a spec that appended its own
+	 * fixture mid-run would be testing that defect instead of its own subject.
+	 *
+	 * It lives in Junk, not INBOX, so it stays out of `seededSubjects` and the
+	 * exact-count INBOX assertions are unaffected.
+	 */
+	spamSubject: string;
+	spamSenderName: string;
+	spamSenderEmail: string;
+	/**
+	 * The INBOX message appended with `\Flagged` already set, before the account
+	 * existed. It is part of `seededSubjects` — ordinary INBOX mail in every
+	 * other respect — and named separately only so a spec can tell it apart.
+	 *
+	 * The star has to survive the FIRST sync of the message, which is a path
+	 * that runs once and cannot be replayed by flagging it later (issue #44).
+	 */
+	preFlaggedSubject: string;
+	/**
+	 * A starred message filed outside INBOX, in Sent. Seeded pre-onboarding for
+	 * the reason given above for the spam fixture, and in Sent rather than Junk
+	 * or Trash because those are excluded from the starred scope by design.
+	 *
+	 * Not in INBOX, so it stays out of `seededSubjects` and the exact-count
+	 * INBOX assertions are unaffected.
+	 */
+	starredElsewhereSubject: string;
 }
 
 export const writeRunState = (state: RunState): void => {
