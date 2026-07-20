@@ -190,8 +190,7 @@ export const GlobalAcrossFolders: Story = {
 	render: () => (
 		<Harness
 			value="invoice"
-			scope={{ kind: "global" }}
-			onScopeToSpam={() => {}}
+			scope={{ kind: "global", onScopeToSpam: () => {} }}
 			sections={[
 				{ id: "top", label: "Top matches", results: globalTopMatches },
 				{ id: "related", label: "Related", results: related },
@@ -209,8 +208,7 @@ export const GlobalWithoutSpamMatches: Story = {
 	render: () => (
 		<Harness
 			value="invoice"
-			scope={{ kind: "global" }}
-			onScopeToSpam={() => {}}
+			scope={{ kind: "global", onScopeToSpam: () => {} }}
 			sections={[
 				{
 					id: "top",
@@ -234,8 +232,7 @@ export const GlobalAccountWithoutSpamFolder: Story = {
 	render: () => (
 		<Harness
 			value="invoice"
-			scope={{ kind: "global" }}
-			onScopeToSpam={() => {}}
+			scope={{ kind: "global", onScopeToSpam: () => {} }}
 			sections={[
 				{ id: "top", label: "Top matches", results: crossFolderMatches },
 			]}
@@ -252,8 +249,7 @@ export const GlobalOnlySpamMatches: Story = {
 	render: () => (
 		<Harness
 			value="invoice"
-			scope={{ kind: "global" }}
-			onScopeToSpam={() => {}}
+			scope={{ kind: "global", onScopeToSpam: () => {} }}
 			sections={[{ id: "top", label: "Top matches", results: spamMatches }]}
 		/>
 	),
@@ -273,7 +269,6 @@ export const ScopedToInbox: Story = {
 		<Harness
 			value="invoice"
 			scope={{ kind: "folder", role: "inbox" }}
-			onScopeToSpam={() => {}}
 			sections={[
 				{ id: "top", label: "Top matches", results: globalTopMatches },
 				{ id: "related", label: "Related", results: related },
@@ -293,7 +288,6 @@ export const ScopedToSpam: Story = {
 		<Harness
 			value="invoice"
 			scope={{ kind: "folder", role: "junk" }}
-			onScopeToSpam={() => {}}
 			sections={[{ id: "top", label: "Top matches", results: spamMatches }]}
 		/>
 	),
@@ -339,6 +333,26 @@ export const WithFilterTokens: Story = {
 			tokens={[
 				{ label: "From: stripe.com", onRemove: () => {} },
 				{ label: "Has attachment", onRemove: () => {} },
+			]}
+		/>
+	),
+};
+
+/**
+ * Starred search (`is:starred` in the bar), given the same rows as the global
+ * story. Starring is not a folder: the rows come from all over, so each keeps
+ * its provenance label, and the two Spam matches stay in the list rather than
+ * being held out. The user starred them; holding their own mail back from them
+ * would be the surprising behaviour, and there is no offer because nothing was
+ * taken away.
+ */
+export const StarredCollection: Story = {
+	render: () => (
+		<Harness
+			value="invoice"
+			scope={{ kind: "collection" }}
+			sections={[
+				{ id: "top", label: "Top matches", results: globalTopMatches },
 			]}
 		/>
 	),

@@ -156,8 +156,6 @@ function Harness({
 	sections,
 	preset,
 	scope,
-	spamMatchCount,
-	onScopeToSpam,
 }: {
 	initialValue?: string;
 	initialChips?: SearchChip[];
@@ -165,8 +163,6 @@ function Harness({
 	sections?: SearchResultSection[];
 	preset: Preset;
 	scope?: SearchScope;
-	spamMatchCount?: number;
-	onScopeToSpam?: () => void;
 }) {
 	const [value, setValue] = useState(initialValue);
 	const [chips, setChips] = useState<SearchChip[]>(initialChips);
@@ -240,8 +236,6 @@ function Harness({
 			loading={loading}
 			onSelectResult={setOpened}
 			scope={scope}
-			spamMatchCount={spamMatchCount}
-			onScopeToSpam={onScopeToSpam}
 		/>
 	);
 }
@@ -343,8 +337,7 @@ export const GlobalAcrossFolders: Story = {
 		<Harness
 			initialValue="invoice"
 			sections={acrossFoldersSections}
-			scope={{ kind: "global" }}
-			onScopeToSpam={() => {}}
+			scope={{ kind: "global", onScopeToSpam: () => {} }}
 			preset="brief"
 		/>
 	),
@@ -362,7 +355,6 @@ export const ScopedToInbox: Story = {
 			initialChips={[{ id: "in:inbox", label: "in:inbox" }]}
 			sections={acrossFoldersSections}
 			scope={{ kind: "folder", role: "inbox" }}
-			onScopeToSpam={() => {}}
 			preset="inbox"
 		/>
 	),
@@ -377,8 +369,25 @@ export const GlobalOnlySpamMatches: Story = {
 		<Harness
 			initialValue="invoice"
 			sections={[{ id: "top", label: "Top matches", results: spamMatches }]}
-			scope={{ kind: "global" }}
-			onScopeToSpam={() => {}}
+			scope={{ kind: "global", onScopeToSpam: () => {} }}
+			preset="brief"
+		/>
+	),
+};
+
+/**
+ * The same rows under a starred search. Starring spans folders, so the rows
+ * keep their provenance labels, and the spam among them stays in the list — the
+ * user starred it themselves, so there is nothing to hold back and no offer to
+ * make.
+ */
+export const StarredCollection: Story = {
+	render: () => (
+		<Harness
+			initialValue="invoice"
+			initialChips={[{ id: "is:starred", label: "is:starred" }]}
+			sections={acrossFoldersSections}
+			scope={{ kind: "collection" }}
 			preset="brief"
 		/>
 	),

@@ -1,5 +1,9 @@
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
 import { createContext, useContext } from "react";
+import {
+	EMPTY_RESULT_FOLDER_INDEX,
+	type ResultFolderIndex,
+} from "./result-folder.js";
 
 /**
  * Shared mail-layout context. Lives in `lib/` — NOT in `routes/mail.tsx` — on
@@ -22,6 +26,13 @@ export interface MailContextValue {
 	 */
 	mailboxNameIndex: ReadonlyMap<string, string>;
 	accountNameIndex: ReadonlyMap<string, string>;
+	/**
+	 * mailboxId → the folder a search result read from that mailbox came from.
+	 * Computed once here for the same reason as the name indexes: the row labels,
+	 * the spam hold-out and the scope chip must agree on which folder is which.
+	 * See `lib/result-folder.ts`.
+	 */
+	resultFolderIndex: ResultFolderIndex;
 	searchQuery: string;
 	/** Live (pre-debounce) search input — the search field binds this. */
 	searchInput: string;
@@ -57,6 +68,7 @@ export const useMailContext = (): MailContextValue => {
 			accounts: [],
 			mailboxNameIndex: new Map(),
 			accountNameIndex: new Map(),
+			resultFolderIndex: EMPTY_RESULT_FOLDER_INDEX,
 			searchQuery: "",
 			searchInput: "",
 			searchViewKey: "",

@@ -11,6 +11,10 @@ import type {
 } from "@remit/api-http-client/types.gen.ts";
 import type { SearchResult, ThreadRowData } from "@remit/ui";
 import { formatEmailDate } from "./format.js";
+import {
+	type ResultFolderIndex,
+	resolveResultFolder,
+} from "./result-folder.js";
 
 /**
  * Plain-language label for the `matched: …` chip, so the user understands why
@@ -34,7 +38,9 @@ export function matchedChunkLabel(
 
 export function threadToSearchResult(
 	thread: RemitImapThreadMessageResponse,
+	folders?: ResultFolderIndex,
 ): SearchResult {
+	const { folder } = resolveResultFolder(folders, [thread.mailboxId]);
 	return {
 		id: thread.messageId,
 		sender: thread.fromName ?? thread.fromEmail ?? "Unknown",
@@ -45,10 +51,18 @@ export function threadToSearchResult(
 		flagged: thread.hasStars === true,
 		threadId: thread.threadId,
 		mailboxId: thread.mailboxId,
+		...(folder ? { folder } : {}),
 	};
 }
 
-export function rowToSearchResult(row: ThreadRowData): SearchResult {
+export function rowToSearchResult(
+	row: ThreadRowData,
+	folders?: ResultFolderIndex,
+): SearchResult {
+	const { folder } = resolveResultFolder(
+		folders,
+		row.mailboxId ? [row.mailboxId] : [],
+	);
 	return {
 		id: row.id,
 		sender: row.fromName,
@@ -57,6 +71,8 @@ export function rowToSearchResult(row: ThreadRowData): SearchResult {
 		date: row.timeLabel,
 		unread: !row.isRead,
 		flagged: row.starred === true,
+		...(row.mailboxId ? { mailboxId: row.mailboxId } : {}),
+		...(folder ? { folder } : {}),
 	};
 }
 
@@ -68,7 +84,9 @@ export function rowToSearchResult(row: ThreadRowData): SearchResult {
  */
 export function semanticToSearchResult(
 	hit: RemitImapSemanticSearchResult,
+	folders?: ResultFolderIndex,
 ): SearchResult {
+	const { mailboxId, folder } = resolveResultFolder(folders, hit.mailboxIds);
 	return {
 		id: hit.messageId,
 		sender: hit.fromName ?? "Unknown",
@@ -78,7 +96,8 @@ export function semanticToSearchResult(
 		threadId: hit.threadId,
 		matchedChunkLabel: matchedChunkLabel(hit.matchedChunkType),
 		score: hit.score,
-		...(hit.mailboxIds[0] != null ? { mailboxId: hit.mailboxIds[0] } : {}),
+		...(mailboxId ? { mailboxId } : {}),
+		...(folder ? { folder } : {}),
 	};
 }
 
@@ -90,13 +109,14 @@ export function semanticToSearchResult(
 export function relatedSearchResults(
 	hits: RemitImapSemanticSearchResult[],
 	literalThreadIds: Iterable<string>,
+	folders?: ResultFolderIndex,
 ): SearchResult[] {
 	const seenThreadIds = new Set<string>(literalThreadIds);
 	const results: SearchResult[] = [];
 	for (const hit of [...hits].sort((a, b) => b.score - a.score)) {
 		if (seenThreadIds.has(hit.threadId)) continue;
 		seenThreadIds.add(hit.threadId);
-		results.push(semanticToSearchResult(hit));
+		results.push(semanticToSearchResult(hit, folders));
 	}
 	return results;
 }

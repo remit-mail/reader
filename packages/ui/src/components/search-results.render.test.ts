@@ -114,8 +114,7 @@ describe("SearchResults spam handling", () => {
 			createElement(SearchResults, {
 				value: "invoice",
 				sections: mixed,
-				scope: { kind: "global" },
-				onScopeToSpam: noop,
+				scope: { kind: "global", onScopeToSpam: noop },
 			}),
 		);
 		assert.doesNotMatch(html, /unknown-vendor/);
@@ -130,8 +129,7 @@ describe("SearchResults spam handling", () => {
 				sections: [
 					{ id: "results", label: "Results", results: [archivedResult] },
 				],
-				scope: { kind: "global" },
-				onScopeToSpam: noop,
+				scope: { kind: "global", onScopeToSpam: noop },
 			}),
 		);
 		assert.doesNotMatch(html, /from Spam/);
@@ -142,8 +140,7 @@ describe("SearchResults spam handling", () => {
 			createElement(SearchResults, {
 				value: "invoice",
 				sections: [{ id: "results", label: "Results", results: [spamResult] }],
-				scope: { kind: "global" },
-				onScopeToSpam: noop,
+				scope: { kind: "global", onScopeToSpam: noop },
 			}),
 		);
 		assert.match(html, /No matches for/);
@@ -156,7 +153,6 @@ describe("SearchResults spam handling", () => {
 				value: "invoice",
 				sections: mixed,
 				scope: { kind: "folder", role: "inbox" },
-				onScopeToSpam: noop,
 			}),
 		);
 		assert.doesNotMatch(html, /unknown-vendor/);
@@ -170,7 +166,6 @@ describe("SearchResults spam handling", () => {
 				value: "invoice",
 				sections: mixed,
 				scope: { kind: "folder", role: "junk" },
-				onScopeToSpam: noop,
 			}),
 		);
 		assert.match(html, /unknown-vendor/);
@@ -186,19 +181,6 @@ describe("SearchResults spam handling", () => {
 			}),
 		);
 		assert.doesNotMatch(html, /from Spam/);
-	});
-
-	it("prefers a caller-supplied total over the rows held out of this page", () => {
-		const html = renderToString(
-			createElement(SearchResults, {
-				value: "invoice",
-				sections: mixed,
-				scope: { kind: "global" },
-				spamMatchCount: 42,
-				onScopeToSpam: noop,
-			}),
-		);
-		assert.match(html, />42</);
 	});
 });
 
@@ -266,5 +248,88 @@ describe("SearchResults provenance labels", () => {
 		assert.doesNotMatch(html, /All Mail/);
 		assert.doesNotMatch(html, /Starred/);
 		assert.doesNotMatch(html, /Important/);
+	});
+});
+
+describe("SearchResults scoped to a collection", () => {
+	const spamRow: SearchResult = {
+		id: "s1",
+		sender: "billing@unknown-vendor.test",
+		subject: "URGENT invoice attached",
+		snippet: "Wire the amount below.",
+		date: "Feb 11",
+		folder: { role: "junk" },
+	};
+	const archivedRow: SearchResult = {
+		...result,
+		id: "a1",
+		folder: { role: "archive" },
+	};
+	const collectionSections: SearchResultSection[] = [
+		{ id: "results", label: "Results", results: [archivedRow, spamRow] },
+	];
+
+	it("keeps a starred spam match in the list", () => {
+		const html = renderToString(
+			createElement(SearchResults, {
+				value: "invoice",
+				sections: collectionSections,
+				scope: { kind: "collection" },
+			}),
+		);
+		assert.match(html, /billing@unknown-vendor\.test/);
+		assert.doesNotMatch(html, /from Spam/);
+	});
+
+	it("still names the folder each row came from", () => {
+		const html = renderToString(
+			createElement(SearchResults, {
+				value: "invoice",
+				sections: collectionSections,
+				scope: { kind: "collection" },
+			}),
+		);
+		assert.match(html, /Archive/);
+		assert.match(html, /Spam/);
+	});
+
+	it("holds the same spam row out when the search is scoped to a folder", () => {
+		const html = renderToString(
+			createElement(SearchResults, {
+				value: "invoice",
+				sections: collectionSections,
+				scope: { kind: "folder", role: "inbox" },
+			}),
+		);
+		assert.doesNotMatch(html, /billing@unknown-vendor\.test/);
+	});
+});
+
+describe("SearchResults spam count", () => {
+	const spamIn = (id: string): SearchResult => ({
+		id,
+		sender: "spammer",
+		subject: "Offer",
+		snippet: "",
+		date: "",
+		folder: { role: "junk" },
+	});
+
+	it("counts every held-out row, not just one account's", () => {
+		const html = renderToString(
+			createElement(SearchResults, {
+				value: "invoice",
+				sections: [
+					{
+						id: "results",
+						label: "Results",
+						results: [result, spamIn("a1"), spamIn("b1"), spamIn("b2")],
+					},
+				],
+				scope: { kind: "global", onScopeToSpam: noop },
+			}),
+		);
+		assert.match(html, />3</);
+		assert.match(html, /results from Spam/);
 	});
 });

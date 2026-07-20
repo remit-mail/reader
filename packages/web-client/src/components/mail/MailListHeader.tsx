@@ -21,6 +21,11 @@
  * drops out kit-side, so a semantic-only result still shows when the literal
  * search finds nothing. The hamburger opens the nav drawer via the enclosing
  * `AppShellSlotted`.
+ *
+ * This is also the one place the route's scope reaches the results list, so both
+ * tiers agree on it: a global search labels every row with the folder it came
+ * from and offers the spam it held out, and a scoped search does neither. See
+ * `resultsScopeForRoute` and `lib/spam-offer.ts`.
  */
 import {
 	FilterSheet,
@@ -30,18 +35,23 @@ import {
 	type SearchResult,
 	type SearchResultSection,
 	SearchResults,
+	type SearchScope,
 	useAppShellLayout,
 } from "@remit/ui";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { isSinglePaneTier, useLayoutTier } from "@/hooks/useLayoutTier";
+import { useSearchScope } from "@/hooks/useSearchScope";
 import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
 import { useMailContext } from "@/lib/mail-context";
 import { loadRecentSearches, saveRecentSearch } from "@/lib/recent-searches";
+import { resultsScopeForRoute, routeMailboxId } from "@/lib/search-scope";
 import {
 	parseSearchTokens,
 	removeSearchToken,
 	searchTokenLabel,
 } from "@/lib/search-tokens";
+import { spamOfferForResults } from "@/lib/spam-offer";
 
 interface MailListHeaderProps {
 	title: string;
@@ -82,9 +92,17 @@ export function MailListHeader({
 	searchResultsLabel = "Top matches",
 	relatedResultsLabel = "Related",
 }: MailListHeaderProps) {
-	const { searchInput, onSearchChange, onSearchClear, searchViewKey } =
-		useMailContext();
+	const {
+		accounts,
+		resultFolderIndex,
+		searchQuery,
+		searchInput,
+		onSearchChange,
+		onSearchClear,
+		searchViewKey,
+	} = useMailContext();
 	const tokenContext = useSearchTokenContext();
+	const navigate = useNavigate();
 	const layout = useAppShellLayout();
 	const tier = useLayoutTier();
 	const [searchOpen, setSearchOpen] = useState(false);
@@ -130,6 +148,40 @@ export function MailListHeader({
 	const resultsLoading =
 		!hasAnyResult && (searchLoading === true || relatedLoading === true);
 
+	// The mailbox's appointed role is what lets a search scoped to Spam show its
+	// rows rather than drop them.
+	const { scope } = useSearchScope(accounts);
+	const matches = useRouterState({ select: (s) => s.matches });
+	const scopedMailboxId = routeMailboxId(matches);
+	const routeScope = resultsScopeForRoute(
+		matches,
+		scope,
+		scopedMailboxId ? resultFolderIndex.get(scopedMailboxId)?.role : undefined,
+	);
+
+	// The offer counts results for the *committed* query, so that is the query it
+	// carries into Spam. The count the banner states is the results list's own,
+	// over every row it held out; the app supplies only where "Go to Spam" goes.
+	const spamOffer =
+		routeScope.kind === "global"
+			? spamOfferForResults([...topMatches, ...related])
+			: undefined;
+	const resultsScope: SearchScope = spamOffer
+		? {
+				kind: "global",
+				onScopeToSpam: () =>
+					navigate({
+						to: "/mail/$mailboxId",
+						params: { mailboxId: spamOffer.mailboxId },
+						search: {
+							q: searchQuery || undefined,
+							selectedMessageId: undefined,
+							selectedThreadId: undefined,
+						},
+					}),
+			}
+		: routeScope;
+
 	if (tier === "phone" && searchOpen) {
 		const handleSelectResult = (result: SearchResult) => {
 			setRecentSearches(saveRecentSearch(searchInput));
@@ -152,6 +204,7 @@ export function MailListHeader({
 				loading={resultsLoading}
 				onSelectResult={handleSelectResult}
 				tokens={tokenChips}
+				scope={resultsScope}
 			/>
 		);
 	}
@@ -171,6 +224,7 @@ export function MailListHeader({
 			loading={resultsLoading}
 			onSelectResult={handleSelectInlineResult}
 			tokens={tokenChips}
+			scope={resultsScope}
 		/>
 	);
 	const body = !showInlineResults ? (
