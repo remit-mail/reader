@@ -147,9 +147,10 @@ export const ScopePending: Story = {
 };
 
 /**
- * The virtual collections scope the bar too, and their chips are not `in:`
- * terms — Flagged is a marker on the mail, the outbox is a queue rather than a
- * folder.
+ * The virtual collections scope the bar too, and their chips read as whatever
+ * describes the collection. Flagged is a marker on the mail rather than a
+ * place, so it chips `is:starred`; the outbox is a place mail sits in and keeps
+ * the `in:` form.
  */
 export const ScopedToFlagged: Story = {
 	render: () => (
