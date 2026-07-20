@@ -7,7 +7,7 @@
  * at all, so it is asserted here alongside a mailbox to show the two views
  * agree.
  */
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "../src/fixtures.js";
 
 const SHOW_INFO = "Show intelligence sidebar";
@@ -19,6 +19,16 @@ const HIDE_INFO = "Hide intelligence sidebar";
  * a failure here mean "the row did not open" rather than "the selector was
  * written against markup that never existed".
  */
+/**
+ * The page carries two `complementary` landmarks — the mailbox sidebar and this
+ * panel — so the role alone is ambiguous. The panel is addressed by the header
+ * it renders, which is the only thing distinguishing the two to a reader.
+ */
+const infoPanel = (page: Page): Locator =>
+	page
+		.getByRole("complementary")
+		.filter({ has: page.getByText("Intelligence", { exact: true }) });
+
 const openBriefMessage = async (page: Page, subject: string): Promise<void> => {
 	const row = page.getByRole("button").filter({ hasText: subject }).first();
 	await expect(row).toBeVisible({ timeout: 30_000 });
@@ -72,7 +82,7 @@ test.describe("Reading-pane toolbar", () => {
 			await info.click();
 
 			await expect(page.getByRole("button", { name: HIDE_INFO })).toBeVisible();
-			await expect(page.getByRole("complementary")).toBeVisible();
+			await expect(infoPanel(page)).toBeVisible();
 		});
 
 		test("a mailbox offers the info button with nothing selected, disabled", async ({

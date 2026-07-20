@@ -349,7 +349,9 @@ test.describe("Delete confirmation", () => {
 		await page.keyboard.press("Delete");
 		await expect(confirmation(page)).toBeVisible();
 
-		await page.getByRole("button", { name: "Move to Trash" }).click();
+		await confirmation(page)
+			.getByRole("button", { name: "Move to Trash" })
+			.click();
 
 		await expect(confirmation(page)).toBeHidden();
 		await expect(rows(page)).toHaveCount(run.seededSubjects.length);
