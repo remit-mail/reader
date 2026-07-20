@@ -177,6 +177,24 @@ export const runPredicateDelete = async (
 	return { done, failedIds, cancelled: false };
 };
 
+/**
+ * Corrects a progress reading so its `total` can never read as less than
+ * `done` (#109). `runPredicateDelete`'s `total` is `countMatches`'s frozen
+ * page-through, taken before the delete re-pages the same predicate a second,
+ * independent time; if more matches arrived in between, `done` can overtake
+ * it mid-run and a raw "Deleting 1,340 of 1,284" would follow. Widening the
+ * denominator to match keeps the bar's ratio sane (never past 100%) without
+ * claiming the original count was exact — the honest fix is admitting the
+ * estimate grew, not re-paging to reconcile it (the result set is live; a
+ * second count taken any later is no less stale than the first).
+ */
+export const honestProgress = (
+	progress: BulkDeleteProgress,
+): BulkDeleteProgress => ({
+	done: progress.done,
+	total: Math.max(progress.total, progress.done),
+});
+
 export interface CountMatchesResult {
 	total: number;
 	cancelled: boolean;
