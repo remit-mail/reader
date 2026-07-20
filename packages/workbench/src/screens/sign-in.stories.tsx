@@ -160,10 +160,8 @@ function SignInPage({
  */
 export const SignInMobile: Story = {
 	name: "Sign In — mobile",
-	parameters: {
-		theme: "dark",
-		viewport: { defaultViewport: "mobile1" },
-	},
+	parameters: { theme: "dark" },
+	globals: { viewport: { value: "mobile" } },
 	render: () => <SignInPage />,
 };
 
@@ -172,10 +170,8 @@ export const SignInMobile: Story = {
  */
 export const CreateAccountMobile: Story = {
 	name: "Create Account — mobile",
-	parameters: {
-		theme: "dark",
-		viewport: { defaultViewport: "mobile1" },
-	},
+	parameters: { theme: "dark" },
+	globals: { viewport: { value: "mobile" } },
 	render: () => <SignInPage activeTab="signup" />,
 };
 
