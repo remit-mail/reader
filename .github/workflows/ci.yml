@@ -19,6 +19,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The coverage guard is plain stdlib Node and needs no workspace install,
+      # only a pinned interpreter.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - name: Installer — shell syntax
         run: bash -n install.sh
 
@@ -32,22 +38,19 @@ jobs:
             npm-scripts/lib/image-roster.sh npm-scripts/lib/manifest-check.sh \
             npm-scripts/lib/summary-check.sh npm-scripts/lib/tag-object-check.sh
 
-      # No workspace install needed: these test only the pure decision
-      # functions in the npm-scripts/lib/*.mjs suites (built-in
-      # node:child_process, node:fs, node:test — no @remit/* or third-party
-      # imports).
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
+      # Every npm-scripts/**/*.test.mjs suite, discovered rather than listed, so
+      # adding one runs it on the commit that adds it. No workspace install
+      # needed: these test only the pure decision functions in npm-scripts/lib
+      # (node:child_process, node:fs, node:test — no @remit/* or third-party
+      # imports), which is why they run here instead of with the unit tests.
+      - name: Script suites — unit tests
+        run: npm run test:scripts
 
-      - name: Release scripts — unit tests
-        run: npm run test:release-scripts-guard
-
-      - name: Publish closure guard — unit tests
-        run: npm run test:closure-guard
-
-      - name: Patch guard — unit tests
-        run: npm run test:patch-guard
+      # Reads the manifest, the workflow files and the scripts they invoke, so
+      # it belongs with the other install-free static checks and reports before
+      # any job installs.
+      - name: CI coverage — every test and check is reachable
+        run: npm run check:ci-coverage
 
       - name: Manifests — JSON syntax
         run: |

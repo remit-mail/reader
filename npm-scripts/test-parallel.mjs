@@ -57,11 +57,23 @@ async function discoverWorkspaces() {
 				cause: error,
 			});
 		}
+		const weight = await countTestFiles(join(dir, "src"));
 		if (!manifest.scripts?.["test:run"]) {
-			skipped.push(`${name} (no test:run script)`);
+			// Test files with no script to run them is the same silent hole as a
+			// suite nothing collects: the workspace drops out of a green run.
+			if (weight > 0) {
+				throw new Error(
+					`packages/${name} has ${weight} test files but no test:run script: add one, or delete the tests`,
+				);
+			}
+			skipped.push(`${name} (no tests)`);
 			continue;
 		}
-		found.push({ name, weight: await countTestFiles(join(dir, "src")) });
+		found.push({
+			name,
+			weight,
+			command: ["npm", ["run", "test:run", "-w", `packages/${name}`]],
+		});
 	}
 	if (found.length === 0) {
 		throw new Error("no workspaces with a test:run script were found");
@@ -69,15 +81,15 @@ async function discoverWorkspaces() {
 	if (skipped.length > 0) {
 		console.log(`no tests to run for: ${skipped.join(", ")}`);
 	}
-	return found.sort((a, b) => b.weight - a.weight);
+	return found;
 }
 
-function runWorkspace(name) {
+function runUnit({ name, command: [file, args] }) {
 	return new Promise((resolve) => {
 		const started = Date.now();
 		execFile(
-			"npm",
-			["run", "test:run", "-w", `packages/${name}`],
+			file,
+			args,
 			{ cwd: root, maxBuffer: 64 * 1024 * 1024 },
 			(error, stdout, stderr) => {
 				resolve({
@@ -92,19 +104,19 @@ function runWorkspace(name) {
 }
 
 async function main() {
-	const workspaces = await discoverWorkspaces();
+	const units = (await discoverWorkspaces()).sort((a, b) => b.weight - a.weight);
 	const requested = Number.parseInt(process.env.TEST_CONCURRENCY ?? "", 10);
 	const limit = Number.isNaN(requested)
 		? Math.max(1, Math.min(availableParallelism(), 4))
 		: Math.max(1, requested);
-	const queue = [...workspaces];
+	const queue = [...units];
 	const results = [];
 
 	const worker = async () => {
 		for (;;) {
 			const next = queue.shift();
 			if (!next) return;
-			const result = await runWorkspace(next.name);
+			const result = await runUnit(next);
 			results.push(result);
 			console.log(
 				`${result.ok ? "PASS" : "FAIL"} ${result.name} (${(result.ms / 1000).toFixed(1)}s)`,
@@ -123,11 +135,11 @@ async function main() {
 	}
 
 	console.log(
-		`\n${results.length - failed.length}/${results.length} workspaces passed in ${((Date.now() - started) / 1000).toFixed(1)}s (concurrency ${limit})`,
+		`\n${results.length - failed.length}/${results.length} suites passed in ${((Date.now() - started) / 1000).toFixed(1)}s (concurrency ${limit})`,
 	);
 
 	if (failed.length > 0) {
-		console.log(`failing workspaces: ${failed.map((r) => r.name).join(", ")}`);
+		console.log(`failing suites: ${failed.map((r) => r.name).join(", ")}`);
 		process.exitCode = 1;
 	}
 }
