@@ -13,9 +13,8 @@ namespace RemitImap;
   The tree is carried flat with an explicit `depth` rather than as nested
   children: a self-referential model is not expressible here (the entity
   emitter recurses forever on one), and the tree is only ever rendered as an
-  indented list, which a pre-order walk reproduces exactly. Flat also bounds
-  the document, so a message nested a thousand deep costs a truncated list
-  instead of a thousand-frame parse.
+  indented list, which a pre-order walk reproduces exactly. Nothing caps the
+  walk — it is as long as the message has parts.
   
   `contentType` is `type/subtype` only. BODYSTRUCTURE hands the type and its
   parameters over separately, so a node is built from `type`/`subtype` and
@@ -51,7 +50,7 @@ model QuarantineMimeNode {
   and tell the user it was unreadable.
   """)
 @entity("quarantine", "remit")
-@doc("Get one entry by identity. `quarantineId` is derived from (accountId, mailboxId, uid), so re-quarantining the same message rewrites the same row instead of accumulating duplicates.")
+@doc("Get one entry by identity. `quarantineId` is derived from (accountId, mailboxId, uidValidity, uid), so re-quarantining the same message rewrites the same row instead of accumulating duplicates.")
 @index(
   "Quarantine",
   {
@@ -69,7 +68,7 @@ model QuarantineMimeNode {
   }
 )
 model Quarantine {
-  @doc("Deterministic v5 identity derived from accountId, mailboxId and uid. Idempotent by construction: the same failing message keys the same row on every retry, so nothing has to check for an existing entry before writing one.")
+  @doc("Deterministic v5 identity derived from accountId, mailboxId, uidValidity and uid. Idempotent by construction: the same failing message keys the same row on every retry, so nothing has to check for an existing entry before writing one.")
   @visibility(Lifecycle.Read)
   quarantineId: UUID;
 
@@ -84,6 +83,10 @@ model Quarantine {
   @doc("Mailbox the message arrived in. Part of the quarantineId derivation.")
   @visibility(Lifecycle.Read)
   mailboxId: UUID;
+
+  @doc("UIDVALIDITY of the mailbox when the message was set aside. A uid means nothing without it — only uidValidity + uid names a message forever (RFC 9051 2.3.1.1), and a mailbox keeps its mailboxId across a bump, so leaving this out would let a stale entry claim the identity of a later, unrelated message and suppress it from a sync round.")
+  @visibility(Lifecycle.Read)
+  uidValidity: int64;
 
   @doc("The IMAP uid that was never written. Part of the quarantineId derivation.")
   @visibility(Lifecycle.Read)
@@ -125,29 +128,29 @@ model Quarantine {
   @visibility(Lifecycle.Read)
   workerVersion: String64;
 
-  @doc("Top-level Content-Type, `type/subtype` only. Sender-controlled text — escape it wherever it is rendered.")
+  @doc("Top-level Content-Type, `type/subtype` only. Sender-controlled text — escape it wherever it is rendered. Absent together with the other BODYSTRUCTURE-derived fields when the message failed before its structure was read.")
   @visibility(Lifecycle.Read)
-  contentType: String140;
+  contentType?: String140;
 
-  @doc("Content-Transfer-Encoding as declared. Sender-controlled text.")
+  @doc("Content-Transfer-Encoding as declared. Sender-controlled text. Absent when there was no BODYSTRUCTURE to read it from.")
   @visibility(Lifecycle.Read)
-  transferEncoding: String64;
+  transferEncoding?: String64;
 
   @doc("Declared charset. Sender-controlled text. Absent is meaningful: an undeclared charset is a cause in its own right, distinct from a charset nobody recognises.")
   @visibility(Lifecycle.Read)
   charset?: String64;
 
-  @doc("RFC822.SIZE. Separates \"too large\" from \"malformed\".")
+  @doc("RFC822.SIZE. Separates \"too large\" from \"malformed\". Absent when the FETCH that failed carried no size.")
   @visibility(Lifecycle.Read)
-  sizeBytes: int64;
+  sizeBytes?: int64;
 
-  @doc("The MIME tree, structure only, as a pre-order walk. The one field here that cannot be a column, because it is a tree; every other message-shape field is flat and stays typed.")
+  @doc("The MIME tree, structure only, as a pre-order walk. The one field here that cannot be a column, because it is a tree; every other message-shape field is flat and stays typed. Empty when the message failed before its BODYSTRUCTURE was read.")
   @visibility(Lifecycle.Read)
-  structure: QuarantineMimeNode[];
+  structure: QuarantineMimeNode[] = #[];
 
-  @doc("SHA-256 of the Message-ID, `sha256:` prefixed. Pinned to one algorithm: correlating two reports of the same message is the whole point of the field, and two builds hashing differently make it useless.")
+  @doc("SHA-256 of the Message-ID, `sha256:` prefixed. Pinned to one algorithm: correlating two reports of the same message is the whole point of the field, and two builds hashing differently make it useless. Absent when the message declared no Message-ID — a hash of the empty string would make every such message correlate with every other, which is worse than no value at all.")
   @visibility(Lifecycle.Read)
-  messageIdHash: String140;
+  messageIdHash?: String140;
 
   @visibility(Lifecycle.Read)
   @createdAt

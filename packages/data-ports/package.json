@@ -31,7 +31,8 @@
 		}
 	},
 	"scripts": {
-		"test:typecheck": "tsgo --noEmit"
+		"test:typecheck": "tsgo --noEmit",
+		"test:run": "node --import tsx --test 'src/**/*.test.ts'"
 	},
 	"dependencies": {
 		"@remit/domain-enums": "*",

@@ -11,6 +11,7 @@ import {
 	envelopeTable,
 	mailboxTable,
 	messageTable,
+	quarantineTable,
 } from "../schema.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
 import {
@@ -22,11 +23,13 @@ import {
 // this harness pushes must live on a real file (not the in-memory default) for
 // the deleter's own connection to see it. `deleteMessageSubtree` touches every
 // message-data child table, so push the full message-data schema plus the
-// account and mailbox containers.
+// account and mailbox containers, plus quarantine — the cascade deletes those
+// rows set-wise by account, so the table has to exist here too.
 const CASCADE_SCHEMA = {
 	...messageDataSchema,
 	account: accountTable,
 	mailbox: mailboxTable,
+	quarantine: quarantineTable,
 };
 
 const log = { info: () => {} };

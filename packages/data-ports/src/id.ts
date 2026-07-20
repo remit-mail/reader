@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import shortUuid from "short-uuid";
 import { v5 as uuidv5 } from "uuid";
 import type { MessageIdSource } from "./types.js";
@@ -108,10 +109,40 @@ export const deriveBodyPartParameterId = (
  * Identity of a quarantined message (issue #72). Derived rather than generated
  * so re-quarantining the same message rewrites its own row: the sync path can
  * write without first checking whether an entry already exists.
+ *
+ * `uidValidity` is part of the name because a uid alone does not identify a
+ * message — only uidValidity + uid does, forever (RFC 9051 2.3.1.1). A mailbox
+ * keeps its `mailboxId` across a UIDVALIDITY bump (the sync path updates the
+ * same row), so without this a stale entry would derive the same id as a later,
+ * unrelated message and suppress it from a sync round.
  */
 export const deriveQuarantineId = (
 	accountId: string,
 	mailboxId: string,
+	uidValidity: number,
 	uid: number,
 ): string =>
-	base36uuidv5(`quarantine:${accountId}:${mailboxId}:${uid}`, REMIT_NAMESPACE);
+	base36uuidv5(
+		`quarantine:${accountId}:${mailboxId}:${uidValidity}:${uid}`,
+		REMIT_NAMESPACE,
+	);
+
+/**
+ * The `sha256:`-prefixed Message-ID hash a quarantine record carries, or
+ * undefined when the message declared no usable Message-ID.
+ *
+ * The sync path coerces a missing Message-ID to `""`, and hashing that would
+ * give every Message-ID-less message the same hash — so the one field whose
+ * purpose is correlating reports of the same message would silently correlate
+ * unrelated ones. Absent is the honest value, and this is the only way the
+ * value is produced, so the empty hash cannot be written by accident.
+ */
+export const quarantineMessageIdHash = (
+	messageIdHeader: string | undefined,
+): string | undefined => {
+	if (!messageIdHeader || !isValidMessageId(messageIdHeader)) return undefined;
+	const digest = createHash("sha256")
+		.update(messageIdHeader.trim())
+		.digest("hex");
+	return `sha256:${digest}`;
+};

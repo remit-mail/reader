@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "b4bc46fa-0ed0-4300-acc1-67e87428324b",
+  "id": "e102d684-4537-46d7-af45-7c7cab4ec137",
   "prevId": "ad82b05c-a7c5-4be0-acf0-be6e5a5d9e68",
   "tables": {
     "outbox": {
@@ -2846,6 +2846,13 @@
           "notNull": true,
           "autoincrement": false
         },
+        "uid_validity": {
+          "name": "uid_validity",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
         "uid": {
           "name": "uid",
           "type": "integer",
@@ -2920,14 +2927,14 @@
           "name": "content_type",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "autoincrement": false
         },
         "transfer_encoding": {
           "name": "transfer_encoding",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "autoincrement": false
         },
         "charset": {
@@ -2941,7 +2948,7 @@
           "name": "size_bytes",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "autoincrement": false
         },
         "structure": {
@@ -2955,7 +2962,7 @@
           "name": "message_id_hash",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "autoincrement": false
         },
         "created_at": {

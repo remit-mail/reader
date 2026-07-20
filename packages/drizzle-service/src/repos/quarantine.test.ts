@@ -20,6 +20,7 @@ describe("QuarantineRepo", () => {
 			quarantineId,
 			accountId: randomId(),
 			mailboxId: randomId(),
+			uidValidity: 1_712_000_000,
 			uid: 40217,
 			mailboxPath: "INBOX",
 			quarantinedAt: now,
@@ -28,11 +29,7 @@ describe("QuarantineRepo", () => {
 			failureCode: "UnterminatedMultipartBoundary",
 			failureMessage: "multipart boundary was never closed",
 			workerVersion: "worker 1.0.0",
-			contentType: "multipart/mixed",
-			transferEncoding: "7bit",
-			sizeBytes: 184_233,
 			structure: [{ depth: 0, contentType: "multipart/mixed" }],
-			messageIdHash: "sha256:6f1c4a9d20",
 			createdAt: now,
 			updatedAt: now,
 			...overrides,
@@ -105,5 +102,11 @@ describe("QuarantineRepo", () => {
 		assert.equal(entry.mailboxRole, undefined);
 		assert.equal(entry.failurePartPath, undefined);
 		assert.equal(entry.charset, undefined);
+		// The message-shape fields come off one optional BODYSTRUCTURE, so a
+		// message that failed before it was read carries none of them.
+		assert.equal(entry.contentType, undefined);
+		assert.equal(entry.transferEncoding, undefined);
+		assert.equal(entry.sizeBytes, undefined);
+		assert.equal(entry.messageIdHash, undefined);
 	});
 });
