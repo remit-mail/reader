@@ -48,15 +48,13 @@ describe("formatQuarantineReport", () => {
 		const report = formatQuarantineReport({
 			...entry,
 			contentType: 'multipart/mixed; boundary="=_a1b2"',
-			structure: {
-				contentType: "multipart/mixed",
-				parts: [
-					{
-						contentType:
-							'application/octet-stream; name="Q3 payroll — Acme.pdf"',
-					},
-				],
-			},
+			structure: [
+				{ depth: 0, contentType: "multipart/mixed" },
+				{
+					depth: 1,
+					contentType: 'application/octet-stream; name="Q3 payroll — Acme.pdf"',
+				},
+			],
 		});
 		assert.doesNotMatch(report, /payroll/);
 		assert.doesNotMatch(report, /boundary/);
@@ -71,9 +69,38 @@ describe("formatQuarantineReport", () => {
 		);
 	});
 
+	it("says no role was appointed rather than inventing one", () => {
+		const report = formatQuarantineReport({
+			...entry,
+			mailboxRole: undefined,
+		});
+		assert.match(report, /Folder role.*none appointed/);
+	});
+
 	it("marks an undeclared charset rather than omitting it", () => {
-		const report = formatQuarantineReport({ ...entry, charset: null });
+		const report = formatQuarantineReport({ ...entry, charset: undefined });
 		assert.match(report, /Charset.*not declared/);
+	});
+
+	// Absent is the wire shape: the API omits an optional diagnostic and the
+	// repo maps a null column to undefined. A report that printed `undefined`
+	// into a public issue would do it on the common case — a whole-body parse
+	// failure has no failing part, which is every failure today.
+	it("never prints undefined for a diagnostic the message did not carry", () => {
+		const report = formatQuarantineReport({
+			...entry,
+			failurePartPath: undefined,
+			charset: undefined,
+			contentType: undefined,
+			transferEncoding: undefined,
+			sizeBytes: undefined,
+			messageIdHash: undefined,
+			structure: [],
+		});
+		assert.doesNotMatch(report, /undefined|null/);
+		assert.match(report, /Failing part.*whole message/);
+		assert.match(report, /Message-ID hash.*none declared/);
+		assert.match(report, /no MIME structure was read/);
 	});
 });
 
@@ -109,13 +136,35 @@ describe("sender-controlled BODYSTRUCTURE strings", () => {
 	it("keeps a hostile node type from closing the MIME fence", () => {
 		const report = formatQuarantineReport({
 			...entry,
-			structure: {
-				contentType: "multipart/mixed",
-				parts: [{ contentType: "```\n## Injected heading" }],
-			},
+			structure: [
+				{ depth: 0, contentType: "multipart/mixed" },
+				{ depth: 1, contentType: "```\n## Injected heading" },
+			],
 		});
 		assert.equal((report.match(/^```/gm) ?? []).length, 2);
 		assert.doesNotMatch(report, /^## Injected heading/m);
+	});
+});
+
+describe("a message that failed before its shape was read", () => {
+	const shapeless: QuarantineEntry = {
+		...entry,
+		contentType: undefined,
+		transferEncoding: undefined,
+		sizeBytes: undefined,
+		structure: [],
+	};
+
+	it("says the shape was never read rather than guessing one", () => {
+		const report = formatQuarantineReport(shapeless);
+		assert.match(report, /Content-Type.*not read/);
+		assert.match(report, /Content-Transfer-Encoding.*not read/);
+		assert.match(report, /Size.*not read/);
+	});
+
+	it("keeps the fence balanced with an empty tree", () => {
+		const report = formatQuarantineReport(shapeless);
+		assert.equal((report.match(/^```/gm) ?? []).length, 2);
 	});
 });
 

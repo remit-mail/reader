@@ -16,6 +16,7 @@ import {
 	messageTable,
 	outboxMessageTable,
 	outboxTable,
+	quarantineTable,
 	threadMessageTable,
 } from "../schema.js";
 import { createTestDb, type TestDb } from "../test-db.js";
@@ -40,6 +41,7 @@ const ROOT_BODY_PART_ID = "00000000-0000-4000-8000-000000000002";
 const MESSAGE_FLAG_ID = "00000000-0000-4000-8000-000000000003";
 const BODY_PART_ID = "00000000-0000-4000-8000-000000000004";
 const OTHER_MAILBOX_ID = "mbx-cascade-2";
+const QUARANTINE_ID = "quarantine-cascade-1";
 
 describe("runDrizzleCascadeDelete", () => {
 	let db: TestDb;
@@ -228,6 +230,25 @@ describe("runDrizzleCascadeDelete", () => {
 				updatedAt: NOW,
 			},
 		]);
+
+		await db.insert(quarantineTable).values({
+			quarantineId: QUARANTINE_ID,
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			accountId: ACCOUNT_ID,
+			mailboxId: MAILBOX_ID,
+			uidValidity: 1_712_000_000,
+			uid: 40217,
+			mailboxPath: "Clients/Acme Holdings",
+			quarantinedAt: NOW,
+			attempts: 3,
+			failureStage: "BodyParse",
+			failureCode: "UnterminatedMultipartBoundary",
+			failureMessage: "multipart boundary was never closed",
+			workerVersion: "worker 1.0.0",
+			structure: [{ depth: 0, contentType: "multipart/mixed" }],
+			createdAt: NOW,
+			updatedAt: NOW,
+		});
 	});
 
 	after(async () => {
@@ -396,6 +417,16 @@ describe("runDrizzleCascadeDelete", () => {
 			).length,
 			0,
 			"both the Seen and Flagged markers (composite key) must be deleted",
+		);
+		assert.equal(
+			(
+				await db
+					.select()
+					.from(quarantineTable)
+					.where(eq(quarantineTable.quarantineId, QUARANTINE_ID))
+			).length,
+			0,
+			"quarantine rows carry the user's folder names and parser output, so account deletion must take them",
 		);
 	});
 

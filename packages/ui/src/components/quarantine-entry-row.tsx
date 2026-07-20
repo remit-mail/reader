@@ -41,7 +41,11 @@ export function QuarantineEntryRow({
 					{entry.failureMessage}
 				</p>
 				<p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-2xs text-fg-subtle">
-					<Badge tone="warning">{canonicalRoleLabel(entry.mailboxRole)}</Badge>
+					{entry.mailboxRole && (
+						<Badge tone="warning">
+							{canonicalRoleLabel(entry.mailboxRole)}
+						</Badge>
+					)}
 					<span className="truncate" title={entry.mailboxPath}>
 						{providerLeaf(entry.mailboxPath)}
 					</span>

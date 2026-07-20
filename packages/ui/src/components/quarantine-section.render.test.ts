@@ -8,7 +8,7 @@ import type { QuarantineEntry } from "./quarantine-report.js";
 import { QuarantineSection } from "./quarantine-section.js";
 
 const noop = () => {};
-const [base, second] = quarantineDemoEntries;
+const [base, second, unappointedFolder] = quarantineDemoEntries;
 const ISSUE_URL = "https://github.com/remit-mail/reader/issues/new?title=x";
 
 const render = (entries: readonly QuarantineEntry[]) =>
@@ -36,6 +36,12 @@ describe("QuarantineSection", () => {
 	it("shows the parser's own words on screen, where the report will not", () => {
 		const html = render([base]);
 		assert.match(html, /multipart boundary was never closed/);
+	});
+
+	it("names no role for a folder the user never appointed one to", () => {
+		const html = render([unappointedFolder]);
+		assert.doesNotMatch(html, /Inbox|Spam|Archive/);
+		assert.match(html, /Acme Holdings/);
 	});
 
 	it("offers reporting as the only per-row action", () => {

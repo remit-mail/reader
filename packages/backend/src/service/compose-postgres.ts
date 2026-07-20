@@ -21,6 +21,7 @@ import {
 	messageDataSchema,
 	OrganizeJobRequestRepo,
 	OutboxMessageRepo,
+	QuarantineRepo,
 } from "@remit/drizzle-service";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { env } from "expect-env";
@@ -58,6 +59,7 @@ export const buildPostgresClient = (): RemitClient => {
 		threadMessage: new DrizzleThreadMessageRepository(pgConnectionUrl),
 		envelope: new DrizzleEnvelopeRepository(messageDataDb),
 		accountExportRequest: new AccountExportRequestRepo(genericDb),
+		quarantine: new QuarantineRepo(genericDb),
 		organizeJobRequest: new OrganizeJobRequestRepo(genericDb),
 		placementMove: new MessagePlacementMoveRepo(genericDb),
 		flagPush: new MessageFlagPushRepo(genericDb),
