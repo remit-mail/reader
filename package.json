@@ -1,0 +1,62 @@
+{
+  "name": "reader",
+  "version": "0.1.0",
+  "private": true,
+  "description": "An email client you run yourself.",
+  "type": "module",
+  "license": "MIT",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "postinstall": "patch-package",
+    "codegen": "make",
+    "codegen:openapi": "tsp compile ./typespec",
+    "codegen:sqlite": "tsp compile ./typespec --config ./typespec/tspconfig.sqlite.yaml",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run test:typecheck --workspaces --if-present",
+    "test": "npm run test:run --workspaces --if-present",
+    "build-storybook": "npm run build-storybook -w @remit/workbench",
+    "lint": "biome ci",
+    "format": "biome check --fix && tsp format ./typespec",
+    "release": "changeset publish",
+    "release:version": "changeset version",
+    "release:dry-run": "node npm-scripts/release-dry-run.mjs",
+    "check:publish-closure": "node npm-scripts/check-publish-closure.mjs",
+    "bootstrap:publish-metadata": "node npm-scripts/set-publish-metadata.mjs",
+    "images:publish": "bash npm-scripts/images-publish.sh"
+  },
+  "dependencies": {
+    "@remit/api-http-client": "file:build/remit-client",
+    "@remit/drizzle-pg-schema": "file:build/drizzle-entities",
+    "@remit/drizzle-sqlite-schema": "file:build/drizzle-entities-sqlite"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.3.11",
+    "@changesets/cli": "^2.31.1",
+    "@hey-api/openapi-ts": "^0.90.10",
+    "@kattebak/typespec-drizzle-orm-generator": "^3.8.3",
+    "@kattebak/typespec-enum-emitter": "^1.2.2",
+    "@kattebak/typespec-openapi-types-emitter": "^1.0.0",
+    "@kattebak/typespec-zod-emitter": "^2.0.3",
+    "@remit/api-openapi-types": "file:build/openapi-types",
+    "@remit/api-zod-schemas": "file:build/zod-schemas",
+    "@remit/domain-enums": "file:build/ts-enums",
+    "@remit/electrodb-entities": "file:build/ddb-entities",
+    "@tanstack/react-query": "^5.90.20",
+    "@typescript/native-preview": "7.0.0-dev.20260505.1",
+    "@typespec/compiler": "~1.8.0",
+    "@typespec/http": "~1.8.0",
+    "@typespec/openapi": "~1.8.0",
+    "@typespec/openapi3": "~1.8.0",
+    "drizzle-orm": "0.45.2",
+    "patch-package": "^8.0.1",
+    "short-uuid": "^6.0.3",
+    "tsx": "^4",
+    "typescript": "^5.9.3",
+    "typespec-electrodb-emitter": "^3.2.2"
+  }
+}
