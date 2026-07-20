@@ -7,14 +7,15 @@ import {
 	comfortableRowClass,
 	compactRowClass,
 	type Density,
+	mergeProps,
 	type SenderTrustLevel,
 	type ThreadRowData,
+	useLongPress,
 } from "@remit/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Check } from "lucide-react";
 import { type MouseEvent, memo, useCallback } from "react";
-import { useLongPress } from "@/hooks/useLongPress";
 import type { SelectionModifiers } from "@/hooks/useSelection";
 import { toDisplayCategory } from "@/lib/display-category";
 import { formatEmailDate } from "@/lib/format";
@@ -125,16 +126,27 @@ const MessageListItemComponent = ({
 
 	// Desktop mouse selection semantics. Plain click falls through to the Link's
 	// navigation; shift / cmd / ctrl click is routed to selection and the
-	// navigation is suppressed. On mobile this is a no-op so taps still open.
+	// navigation is suppressed.
 	//
 	// A modified click must preventDefault: the router skips navigation for any
 	// modified click and leaves the anchor's own default in place, which in a
 	// browser means shift-click opens a new window and cmd-click a new tab.
 	// Shift-click also drags a native text selection across the rows it spans,
 	// so drop it — the row highlight is the selection the user asked for.
+	//
+	// On mobile, once selection mode is active (#92) a plain tap toggles the
+	// row instead of opening it — the same tap-to-toggle contract every
+	// reference mail client uses once you're mid-selection. Outside selection
+	// mode a short tap still falls through to the Link's native navigation.
 	const handleRowClick = useCallback(
 		(e: MouseEvent) => {
-			if (!isDesktop) return;
+			if (!isDesktop) {
+				if (!isMultiSelectMode) return;
+				e.preventDefault();
+				e.stopPropagation();
+				onToggleCheck(messageId);
+				return;
+			}
 			const modifiers = {
 				shiftKey: e.shiftKey,
 				metaKey: e.metaKey,
@@ -148,7 +160,7 @@ const MessageListItemComponent = ({
 				window.getSelection()?.removeAllRanges();
 			}
 		},
-		[isDesktop, onRowSelect, messageId],
+		[isDesktop, isMultiSelectMode, onToggleCheck, onRowSelect, messageId],
 	);
 
 	// Shift-click starts a native text selection on mousedown; suppressing it
@@ -165,9 +177,10 @@ const MessageListItemComponent = ({
 		onLongPress?.(messageId);
 	}, [onLongPress, messageId]);
 
-	const longPressHandlers = useLongPress({
+	const { longPressProps } = useLongPress({
 		onLongPress: handleLongPress,
 		delayMs: 500,
+		accessibilityDescription: isChecked ? "Deselect message" : "Select message",
 	});
 
 	// Intent-based prefetch: by the time the user clicks, the body is in
@@ -185,18 +198,25 @@ const MessageListItemComponent = ({
 		onFocusRow?.(messageId);
 	}, [prefetchMessage, onFocusRow, messageId]);
 
-	// Listbox semantics + roving tabindex, shared by both densities.
-	const rowInteractionProps = {
-		"data-message-row": true,
-		"data-message-id": messageId,
-		role: "option" as const,
-		"aria-selected": isChecked,
-		tabIndex: isTabStop ? 0 : -1,
-		onClick: handleRowClick,
-		onMouseDown: handleRowMouseDown,
-		onMouseEnter: prefetchMessage,
-		onFocus: handleRowFocus,
-	};
+	// Listbox semantics + roving tabindex, shared by both densities. Merged
+	// (not spread) with the mobile long-press props: react-aria's pressProps
+	// carries its own onClick for its internal press bookkeeping, and a plain
+	// object spread would silently drop whichever onClick landed second
+	// instead of running both.
+	const rowInteractionProps = mergeProps(
+		{
+			"data-message-row": true,
+			"data-message-id": messageId,
+			role: "option" as const,
+			"aria-selected": isChecked,
+			tabIndex: isTabStop ? 0 : -1,
+			onClick: handleRowClick,
+			onMouseDown: handleRowMouseDown,
+			onMouseEnter: prefetchMessage,
+			onFocus: handleRowFocus,
+		},
+		isDesktop ? {} : longPressProps,
+	);
 
 	const unread = !thread.isRead;
 
@@ -210,12 +230,16 @@ const MessageListItemComponent = ({
 					selectedMessageId: thread.messageId,
 				})}
 				{...rowInteractionProps}
-				{...(!isDesktop && longPressHandlers.handlers)}
 				className={cn(
 					compactRowClass({ active: isSelected, focused: isFocused }),
 					"outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset",
 					isChecked && "bg-accent-soft",
-					!isDesktop && "min-h-11",
+					// Long-press enters selection mode; without these, Android Chrome
+					// opens the link context menu / starts text selection and iOS
+					// Safari fires the callout, racing the app's handler. react-aria
+					// suppresses contextmenu/text-selection but not iOS's callout —
+					// it fires no cancelable event, so CSS is the only lever.
+					!isDesktop && "min-h-11 select-none [-webkit-touch-callout:none]",
 				)}
 			>
 				<CompactRowBody thread={rowData} />
@@ -235,13 +259,13 @@ const MessageListItemComponent = ({
 				selectedMessageId: thread.messageId,
 			})}
 			{...rowInteractionProps}
-			{...(!isDesktop && longPressHandlers.handlers)}
 			className={cn(
 				"group",
 				comfortableRowClass({ active: isSelected, focused: isFocused }),
 				"outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset",
 				isChecked && "bg-accent-soft",
-				!isDesktop && "min-h-11",
+				// See the compact-density Link above for why both are required.
+				!isDesktop && "min-h-11 select-none [-webkit-touch-callout:none]",
 			)}
 		>
 			{/* Absolute unread dot — 6px gutter from the left pane hairline */}
