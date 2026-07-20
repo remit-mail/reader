@@ -380,6 +380,38 @@ export {
 	type SelectionTopBarProps,
 } from "./components/selection-top-bar.js";
 export {
+	demoLogsCommand,
+	demoRelease,
+	demoRunId,
+	formatRelativeCheck,
+	formatReleaseDate,
+	type ReleaseInfo,
+	type SelfUpdateState,
+	type SelfUpdateStatus,
+	type UpdatePhase,
+	type UpdateRunId,
+	updatePhaseLabel,
+	updateWaitNote,
+} from "./components/self-update.js";
+export {
+	SelfUpdateConfirmDialog,
+	type SelfUpdateConfirmDialogProps,
+} from "./components/self-update-confirm-dialog.js";
+export {
+	UpdateAvailableDot,
+	type UpdateAvailableDotProps,
+} from "./components/self-update-dot.js";
+export {
+	SelfUpdateProgressOverlay,
+	type SelfUpdateProgressOverlayProps,
+	SelfUpdateUnreachableScreen,
+	type SelfUpdateUnreachableScreenProps,
+} from "./components/self-update-progress-overlay.js";
+export {
+	SelfUpdateSection,
+	type SelfUpdateSectionProps,
+} from "./components/self-update-section.js";
+export {
 	type SenderGroupOption,
 	SenderGroupSwitch,
 	type SenderGroupSwitchProps,
