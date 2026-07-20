@@ -161,9 +161,10 @@ export const ConversationView = ({
 		error,
 		refetch,
 	} = useQuery({
+		// The API reads a conversation oldest first (#81) and the pane renders it
+		// in that order, so no `order` is asked for and none is re-sorted here.
 		...threadDetailOperationsListThreadMessagesOptions({
 			path: { threadId },
-			query: { order: "desc" },
 		}),
 	});
 
@@ -171,21 +172,24 @@ export const ConversationView = ({
 		() => messagesResponse?.items ?? [],
 		[messagesResponse?.items],
 	);
+	const latestMessage = messages[messages.length - 1];
 	const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
 	// Track which messages are expanded
-	// By default, the first (newest) message is expanded
+	// By default, the latest message is expanded
 	const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 	const [currentThreadId, setCurrentThreadId] = useState<string | null>(null);
 	const [focusedIndex, setFocusedIndex] = useState(0);
 
-	// Reset and expand first message when thread changes or messages load.
+	// Reset and expand the latest message when thread changes or messages load.
 	// Also expand the selected message (the row the user clicked in the list)
 	// so that an older unread message is visible and gets marked as read.
 	useEffect(() => {
 		if (messages.length > 0 && threadId !== currentThreadId) {
 			setCurrentThreadId(threadId);
-			const initialExpanded = new Set([messages[0].threadMessageId]);
+			const initialExpanded = new Set([
+				messages[messages.length - 1].threadMessageId,
+			]);
 			if (selectedMessageId) {
 				const selected = messages.find(
 					(m) => m.messageId === selectedMessageId,
@@ -193,7 +197,7 @@ export const ConversationView = ({
 				if (selected) initialExpanded.add(selected.threadMessageId);
 			}
 			setExpandedIds(initialExpanded);
-			setFocusedIndex(0);
+			setFocusedIndex(messages.length - 1);
 		}
 	}, [threadId, messages, currentThreadId, selectedMessageId]);
 
@@ -283,12 +287,13 @@ export const ConversationView = ({
 		}
 	}, [composeRequest, onComposeClose]);
 
-	const lastMessage = messages[0];
-	const { data: lastMessageData } = useQuery({
+	// Reply and forward act on the latest turn of the conversation, which is the
+	// last message now that the thread reads oldest first.
+	const { data: latestMessageData } = useQuery({
 		...messageOperationsDescribeMessageOptions({
-			path: { messageId: lastMessage?.messageId ?? "" },
+			path: { messageId: latestMessage?.messageId ?? "" },
 		}),
-		enabled: !!lastMessage && composeMode !== null,
+		enabled: !!latestMessage && composeMode !== null,
 	});
 
 	const handleReply = useCallback(() => {
@@ -432,7 +437,7 @@ export const ConversationView = ({
 					<InlineCompose
 						mode={composeMode}
 						account={activeAccount}
-						sourceMessage={lastMessageData}
+						sourceMessage={latestMessageData}
 						onClose={handleCloseCompose}
 					/>
 				)}
@@ -454,7 +459,7 @@ export const ConversationView = ({
 				<InlineCompose
 					mode={composeMode}
 					account={activeAccount}
-					sourceMessage={lastMessageData}
+					sourceMessage={latestMessageData}
 					onClose={handleCloseCompose}
 				/>
 			)}

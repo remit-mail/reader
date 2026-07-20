@@ -18,15 +18,18 @@ const row = (
 ): Row => ({ threadMessageId, messageIdHeader, createdAt });
 
 describe("buildListThreadMessagesOptions", () => {
-	it("defaults to newest-first and hides soft-deleted messages", () => {
+	it("defaults to oldest-first and hides soft-deleted messages", () => {
 		assert.deepEqual(buildListThreadMessagesOptions({}), {
-			order: "desc",
+			order: "asc",
 			excludeDeleted: true,
 		});
 	});
 
 	it("honours an explicit order", () => {
-		assert.equal(buildListThreadMessagesOptions({ order: "asc" }).order, "asc");
+		assert.equal(
+			buildListThreadMessagesOptions({ order: "desc" }).order,
+			"desc",
+		);
 	});
 
 	it("carries no mailbox filter, so sent messages stay in the conversation", () => {

@@ -208,13 +208,15 @@ export class ApiClient {
 	}
 
 	/**
-	 * A whole conversation, oldest first. The endpoint is deliberately not given
-	 * a mailbox: a thread spans every folder the account holds a message in.
+	 * A whole conversation. The endpoint is deliberately not given a mailbox: a
+	 * thread spans every folder the account holds a message in. No `order` is
+	 * sent either — oldest first is what the endpoint promises (#81), and the
+	 * suite asserts the promise rather than a parameter it passed itself.
 	 */
 	async listThreadMessages(threadId: string): Promise<ThreadMessage[]> {
 		const result = await this.json<ResultList<ThreadMessage>>(
 			"GET",
-			`/threads/${threadId}/messages?order=asc`,
+			`/threads/${threadId}/messages`,
 		);
 		return result.items ?? [];
 	}

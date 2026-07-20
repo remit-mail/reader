@@ -328,6 +328,8 @@ namespace RemitApi {
       Get all messages in a thread, across every mailbox of the account — a conversation spans INBOX, Sent, Archive and any folder the user filed a message in, so it is never scoped to one mailbox. Soft-deleted messages (including anything moved to Trash) are excluded.
       
       One entry per piece of mail. A message synced from several folders is stored once, and where a second row exists for the same Message-ID — a copy taken with `copyMessages`, which gives its copy a fresh message id — the oldest is returned and the rest are dropped.
+      
+      Ordering: oldest first, by the date the message was sent, with `threadMessageId` breaking ties. A conversation is read in the order it happened, so a reply always follows the message it answers. Pass `order=desc` for the reverse.
       """)
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get

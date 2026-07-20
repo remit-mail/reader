@@ -56,7 +56,6 @@ export const clampThreadSearchLimit = (limit?: number): number => {
 // ─── Cursor ──────────────────────────────────────────────────────────────────
 
 type DateCursor = { s: number; id: string };
-type ThreadCursor = { d: number; id: string };
 type AccountCursor = { id: string };
 
 function encodeDateCursor(sentDate: number, threadMessageId: string): string {
@@ -68,23 +67,6 @@ function encodeDateCursor(sentDate: number, threadMessageId: string): string {
 function decodeDateCursor(token: string): DateCursor | null {
 	try {
 		return JSON.parse(Buffer.from(token, "base64").toString()) as DateCursor;
-	} catch {
-		return null;
-	}
-}
-
-function encodeThreadCursor(
-	internalDate: number,
-	threadMessageId: string,
-): string {
-	return Buffer.from(
-		JSON.stringify({ d: internalDate, id: threadMessageId }),
-	).toString("base64");
-}
-
-function decodeThreadCursor(token: string): ThreadCursor | null {
-	try {
-		return JSON.parse(Buffer.from(token, "base64").toString()) as ThreadCursor;
 	} catch {
 		return null;
 	}
@@ -563,22 +545,22 @@ export class DrizzleThreadMessageRepository
 	): Promise<ResultList<ThreadMessageItem>> {
 		const order = options?.order ?? "asc";
 		const cursor = options?.continuationToken
-			? decodeThreadCursor(options.continuationToken)
+			? decodeDateCursor(options.continuationToken)
 			: null;
 
 		const cursorCond = cursor
 			? order === "asc"
 				? or(
-						gt(threadMessageTable.internalDate, cursor.d),
+						gt(threadMessageTable.sentDate, cursor.s),
 						and(
-							eq(threadMessageTable.internalDate, cursor.d),
+							eq(threadMessageTable.sentDate, cursor.s),
 							gt(threadMessageTable.threadMessageId, cursor.id),
 						),
 					)
 				: or(
-						lt(threadMessageTable.internalDate, cursor.d),
+						lt(threadMessageTable.sentDate, cursor.s),
 						and(
-							eq(threadMessageTable.internalDate, cursor.d),
+							eq(threadMessageTable.sentDate, cursor.s),
 							gt(threadMessageTable.threadMessageId, cursor.id),
 						),
 					)
@@ -599,8 +581,8 @@ export class DrizzleThreadMessageRepository
 			)
 			.orderBy(
 				order === "asc"
-					? asc(threadMessageTable.internalDate)
-					: desc(threadMessageTable.internalDate),
+					? asc(threadMessageTable.sentDate)
+					: desc(threadMessageTable.sentDate),
 				asc(threadMessageTable.threadMessageId),
 			)
 			.limit(options?.limit ?? 100);
@@ -612,7 +594,7 @@ export class DrizzleThreadMessageRepository
 			items: rows.map(toItem),
 			continuationToken:
 				hasMore && lastRow
-					? encodeThreadCursor(lastRow.internalDate, lastRow.threadMessageId)
+					? encodeDateCursor(lastRow.sentDate, lastRow.threadMessageId)
 					: undefined,
 		};
 	}
