@@ -3,10 +3,14 @@
  *
  * The driving case the issue names: search "npm", long-press into selection
  * mode, select everything that matches, delete it. The highest-value claim in
- * this file is that the count the UI shows always matches what actually gets
- * removed — every delete here is verified against the real backend (message
- * ids paged over the API, or subjects read straight off IMAP), never against
- * UI text alone.
+ * this file is that the number the UI ever reports as *deleted* — the
+ * completion banner, the partial-failure notice — always matches what
+ * actually gets removed; every delete here is verified against the real
+ * backend (message ids paged over the API, or subjects read straight off
+ * IMAP), never against UI text alone. The confirm dialog's pre-delete count is
+ * a labeled estimate, not that claim (#109): `countMatches` and the delete
+ * itself re-page the same predicate independently, so mail arriving or
+ * leaving in between can make the two disagree.
  *
  * Two things this harness cannot reproduce cheaply are worked around
  * deliberately, both noted where they're used:
@@ -522,8 +526,11 @@ test.describe("Search-scoped escalation and bulk delete", () => {
 		);
 
 		await deleteButton(page).click();
+		// "about": an escalated-predicate count, not a materialized selection
+		// (#109) — countMatches and the delete itself re-page the same
+		// predicate independently, so the dialog never claims an exact number.
 		await expect(confirmDialog(page)).toHaveAccessibleName(
-			`Move ${NPM_MAIN_COUNT} messages to Trash?`,
+			`Move about ${NPM_MAIN_COUNT} messages to Trash?`,
 		);
 		await confirmDialog(page).getByRole("button", { name: "Cancel" }).click();
 
@@ -573,15 +580,22 @@ test.describe("Search-scoped escalation and bulk delete", () => {
 		);
 
 		await deleteButton(page).click();
-		// The stale, pre-arrival count — documented, not asserted as correct.
+		// The pre-arrival count, honestly labeled as an estimate rather than
+		// asserted as the number that gets deleted (#109): "about" says up front
+		// that countMatches and the delete re-page the same predicate
+		// independently, so this can't be a promise. What must NOT be stale is
+		// the completion banner below, which reports the real delivered total.
 		await expect(confirmDialog(page)).toHaveAccessibleName(
-			`Move ${NPM_MAIN_COUNT} messages to Trash?`,
+			`Move about ${NPM_MAIN_COUNT} messages to Trash?`,
 		);
 		await confirmDialog(page)
 			.getByRole("button", { name: "Move to Trash" })
 			.click();
 
 		await expect(selectionBar(page)).toBeHidden({ timeout: 30_000 });
+		// The honest number: the actual count the run deleted, including the
+		// late arrivals the pre-confirm estimate above never saw — never the
+		// stale estimate itself.
 		await expect(
 			page.getByText(
 				`${realTotalAtExecution} moved to Trash. Your mail server is still catching up.`,
