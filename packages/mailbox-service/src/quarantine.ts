@@ -8,7 +8,6 @@ import type {
 } from "@remit/data-ports";
 import { quarantineMessageIdHash, ROOT_PART_PATH } from "@remit/data-ports/id";
 import { CanonicalMailboxRole } from "@remit/domain-enums";
-import type { ImapBodyStructure, ImapMessage } from "./types.js";
 
 type CanonicalRole = NonNullable<QuarantineItem["mailboxRole"]>;
 type FailureStage = QuarantineItem["failureStage"];
@@ -68,49 +67,6 @@ export interface QuarantineFailure {
 }
 
 const EMPTY_SHAPE: QuarantineMessageShape = { structure: [] };
-
-const walkBodyStructure = (
-	node: ImapBodyStructure,
-	depth: number,
-	into: QuarantineMimeNodeItem[],
-): void => {
-	into.push({ depth, contentType: node.type });
-	for (const child of node.childNodes ?? []) {
-		walkBodyStructure(child, depth + 1, into);
-	}
-};
-
-/**
- * Message shape off a FETCH result. Every field here came pre-parsed over the
- * wire in the same FETCH, so it survives exactly when local parsing is what
- * failed. Nodes are built from the BODYSTRUCTURE type, never from a raw
- * content-type line — a raw line carries `name=` and `filename=`, which name
- * the user's own attachments.
- */
-export const shapeFromImapMessage = (
-	msg: ImapMessage,
-): QuarantineMessageShape => {
-	const root = msg.bodyStructure;
-	if (!root) {
-		return {
-			...(msg.size > 0 ? { sizeBytes: msg.size } : {}),
-			structure: [],
-			...hashOf(msg.envelope?.messageId),
-		};
-	}
-
-	const structure: QuarantineMimeNodeItem[] = [];
-	walkBodyStructure(root, 0, structure);
-
-	return {
-		contentType: root.type,
-		...(root.encoding ? { transferEncoding: root.encoding } : {}),
-		...(root.parameters?.charset ? { charset: root.parameters.charset } : {}),
-		...(msg.size > 0 ? { sizeBytes: msg.size } : {}),
-		structure,
-		...hashOf(msg.envelope?.messageId),
-	};
-};
 
 /**
  * Message shape off the rows metadata sync already wrote. The body path has no

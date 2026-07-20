@@ -1,11 +1,13 @@
 /**
- * The two ways an enumeration round used to let go of a message without a
- * record of it (issue #72).
+ * The ways an enumeration round used to let go of a message without a record of
+ * it (issue #72).
  *
- * A message with no ENVELOPE was counted as saved and the watermark moved past
- * it. A UID the FETCH never returned a row for was counted the same way. Both
- * are now visible: the first as a quarantine record, the second as work the
- * round did not finish.
+ * A row carrying no ENVELOPE was counted as saved and the watermark moved past
+ * it; so was a UID the FETCH never returned a row for. Neither is attributable
+ * to the message — an absent envelope is indistinguishable from the FETCH row
+ * glitching — so neither is quarantined. Both are now failures the watermark
+ * must stop below, which is the only treatment that survives a gap in the
+ * middle of a batch.
  */
 
 import assert from "node:assert/strict";
@@ -35,16 +37,18 @@ const ACCOUNT_CONFIG_ID = "cfg-1";
 const MAILBOX_ID = "mbx-1";
 const UID_VALIDITY = 100;
 
-const mailbox = {
-	mailboxId: MAILBOX_ID,
-	accountId: ACCOUNT_ID,
-	fullPath: "INBOX",
-	uidValidity: UID_VALIDITY,
-	lastSyncUid: 0,
-	highWaterMarkUid: 20,
-	highestModseq: "0",
-	cursorState: MailboxCursorState.normal,
-} as MailboxItem;
+const buildMailbox = (over: Partial<MailboxItem> = {}): MailboxItem =>
+	({
+		mailboxId: MAILBOX_ID,
+		accountId: ACCOUNT_ID,
+		fullPath: "INBOX",
+		uidValidity: UID_VALIDITY,
+		lastSyncUid: 0,
+		highWaterMarkUid: 20,
+		highestModseq: "0",
+		cursorState: MailboxCursorState.normal,
+		...over,
+	}) as MailboxItem;
 
 const withEnvelope = (uid: number): ImapMessage => ({
 	uid,
@@ -79,8 +83,17 @@ const buildHarness = (options: {
 	allUids: number[];
 	enumerated: ImapMessage[];
 	existing?: QuarantineItem[];
-	upsertFails?: boolean;
+	lastSyncUid?: number;
+	highWaterMarkUid?: number;
 }) => {
+	const mailbox = buildMailbox({
+		...(options.lastSyncUid !== undefined
+			? { lastSyncUid: options.lastSyncUid }
+			: {}),
+		...(options.highWaterMarkUid !== undefined
+			? { highWaterMarkUid: options.highWaterMarkUid }
+			: {}),
+	});
 	const mailboxUpdates: UpdateMailboxInput[] = [];
 	const writes: QuarantineUpsertInput[] = [];
 	const fetched: number[][] = [];
@@ -144,7 +157,6 @@ const buildHarness = (options: {
 	const repository = {
 		listByAccountConfigId: async () => options.existing ?? [],
 		upsert: async (input: QuarantineUpsertInput) => {
-			if (options.upsertFails) throw new Error("database unavailable");
 			writes.push(input);
 		},
 	} satisfies IQuarantineRepository;
@@ -179,8 +191,8 @@ const buildHarness = (options: {
 const sync = (service: MessageSyncService) =>
 	service.syncMessages(MAILBOX_ID, ACCOUNT_ID, ACCOUNT_CONFIG_ID, 50);
 
-describe("a message that arrives without an ENVELOPE", () => {
-	it("is recorded rather than skipped in silence", async () => {
+describe("a row that carried no ENVELOPE", () => {
+	it("is held for retry rather than set aside", async () => {
 		const harness = buildHarness({
 			allUids: [21],
 			enumerated: [withoutEnvelope(21)],
@@ -188,49 +200,22 @@ describe("a message that arrives without an ENVELOPE", () => {
 
 		await sync(harness.service);
 
-		assert.equal(harness.writes.length, 1);
-		assert.equal(harness.writes[0]?.uid, 21);
-		assert.equal(harness.writes[0]?.failureStage, "MessageEnvelope");
-		assert.equal(harness.writes[0]?.failureCode, "MissingEnvelope");
-	});
-
-	it("lets the watermark move past it, so one bad message cannot stall the mailbox", async () => {
-		const harness = buildHarness({
-			allUids: [21],
-			enumerated: [withoutEnvelope(21)],
-		});
-
-		await sync(harness.service);
-
-		assert.equal(harness.mailboxUpdates[0]?.highWaterMarkUid, 21);
-	});
-
-	it("carries the shape the FETCH did supply, which is the repro fingerprint", async () => {
-		const harness = buildHarness({
-			allUids: [21],
-			enumerated: [withoutEnvelope(21)],
-		});
-
-		await sync(harness.service);
-
-		assert.equal(harness.writes[0]?.contentType, "text/plain");
-		assert.deepEqual(harness.writes[0]?.structure, [
-			{ depth: 0, contentType: "text/plain" },
-		]);
-	});
-
-	it("holds the watermark when the record itself could not be written", async () => {
-		const harness = buildHarness({
-			allUids: [21],
-			enumerated: [withoutEnvelope(21)],
-			upsertFails: true,
-		});
-
-		await sync(harness.service);
-
-		// A failed write is database work failing, not the message being
-		// resolved. Nothing may move past it.
+		// Nothing can tell an envelope-less row apart from the FETCH glitching,
+		// and the client is far more often the cause than the message. Recording
+		// it would set aside mail that is fine.
+		assert.deepEqual(harness.writes, []);
 		assert.equal(harness.mailboxUpdates[0]?.highWaterMarkUid, 20);
+	});
+
+	it("keeps the mailbox on enumeration rather than seeding a mod-sequence over it", async () => {
+		const harness = buildHarness({
+			allUids: [21],
+			enumerated: [withoutEnvelope(21)],
+		});
+
+		await sync(harness.service);
+
+		assert.equal(harness.mailboxUpdates[0]?.highestModseq, undefined);
 	});
 });
 
@@ -256,10 +241,9 @@ describe("a uid already quarantined", () => {
 });
 
 describe("a uid the FETCH returned no row for", () => {
-	it("does not count as consumed, so the watermark stops below it", async () => {
+	it("stops the watermark below it when it is the highest of the batch", async () => {
 		const harness = buildHarness({
-			allUids: [21, 22],
-			// The server (or the client library, #408) hands back only one row.
+			allUids: [22, 21],
 			enumerated: [withEnvelope(21)],
 		});
 
@@ -268,9 +252,36 @@ describe("a uid the FETCH returned no row for", () => {
 		assert.equal(harness.mailboxUpdates[0]?.highWaterMarkUid, 21);
 	});
 
+	it("stops the watermark below it when it sits in the middle of the batch", async () => {
+		const harness = buildHarness({
+			allUids: [23, 22, 21],
+			// 22's row is dropped; 23 above it saves fine.
+			enumerated: [withEnvelope(23), withEnvelope(21)],
+		});
+
+		await sync(harness.service);
+
+		// The watermark advances by MAX of what was applied, so absence alone
+		// would let 23 carry it straight over the gap and lose 22 for good.
+		assert.equal(harness.mailboxUpdates[0]?.highWaterMarkUid, 21);
+	});
+
+	it("stops the backfill floor above a gap, so it stays selectable", async () => {
+		const harness = buildHarness({
+			allUids: [12, 11, 10],
+			enumerated: [withEnvelope(12), withEnvelope(10)],
+			lastSyncUid: 20,
+			highWaterMarkUid: 20,
+		});
+
+		await sync(harness.service);
+
+		assert.equal(harness.mailboxUpdates[0]?.lastSyncUid, 12);
+	});
+
 	it("keeps the mailbox on enumeration rather than seeding a mod-sequence over it", async () => {
 		const harness = buildHarness({
-			allUids: [21, 22],
+			allUids: [22, 21],
 			enumerated: [withEnvelope(21)],
 		});
 

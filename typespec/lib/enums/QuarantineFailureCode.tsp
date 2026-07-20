@@ -16,6 +16,7 @@ namespace RemitImap;
   `TruncatedBody` were provisional members carried by Phase 2 and are gone —
   nothing on the narrowed sync path could produce either, and a member no
   writer can reach is a vocabulary that lies about what the field means.
+  `MissingEnvelope` is absent for the same reason: see QuarantineFailureStage.
   """)
 enum QuarantineFailureCode {
   @doc("The declared charset is not an encoding the parser knows. The one body-parse defect the writer can identify: it comes from the charset decoder rather than the parser's own prose.")
@@ -23,7 +24,4 @@ enum QuarantineFailureCode {
 
   @doc("The body parser refused the message and the defect is not attributable further. The parser's own words go to `failureMessage`, which stays on screen.")
   UnreadableBody: "UnreadableBody",
-
-  @doc("The FETCH returned the message without an ENVELOPE, so it has no sender, no date and no Message-ID to key on.")
-  MissingEnvelope: "MissingEnvelope",
 }

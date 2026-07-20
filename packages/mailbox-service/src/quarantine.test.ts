@@ -12,10 +12,8 @@ import {
 	QuarantinedUids,
 	QuarantineService,
 	resolveMailboxRole,
-	shapeFromImapMessage,
 	shapeFromMessageData,
 } from "./quarantine.js";
-import type { ImapMessage } from "./types.js";
 
 const noopLog = { info: () => {}, warn: () => {} };
 
@@ -142,45 +140,6 @@ describe("QuarantinedUids", () => {
 
 	it("does not match the same uid in another mailbox", () => {
 		assert.equal(new QuarantinedUids(entries).has("mbx-2", 10, 5), false);
-	});
-});
-
-describe("shapeFromImapMessage", () => {
-	const msg = {
-		uid: 1,
-		seq: 1,
-		flags: [],
-		internalDate: new Date(0),
-		size: 4096,
-		envelope: { messageId: "<abc@example.com>" },
-		bodyStructure: {
-			type: "multipart/mixed",
-			encoding: "7bit",
-			parameters: { charset: "utf-8" },
-			childNodes: [{ type: "text/plain" }, { type: "image/png" }],
-		},
-	} as unknown as ImapMessage;
-
-	it("walks the MIME tree pre-order with an explicit depth", () => {
-		assert.deepEqual(shapeFromImapMessage(msg).structure, [
-			{ depth: 0, contentType: "multipart/mixed" },
-			{ depth: 1, contentType: "text/plain" },
-			{ depth: 1, contentType: "image/png" },
-		]);
-	});
-
-	it("hashes the Message-ID rather than carrying it in the clear", () => {
-		const { messageIdHash } = shapeFromImapMessage(msg);
-		assert.ok(messageIdHash?.startsWith("sha256:"));
-		assert.ok(!messageIdHash?.includes("example.com"));
-	});
-
-	it("carries no shape at all when the FETCH had no BODYSTRUCTURE", () => {
-		const bare = { ...msg, bodyStructure: undefined, size: 0 };
-		const shape = shapeFromImapMessage(bare as ImapMessage);
-		assert.deepEqual(shape.structure, []);
-		assert.equal(shape.contentType, undefined);
-		assert.equal(shape.sizeBytes, undefined);
 	});
 });
 

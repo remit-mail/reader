@@ -325,7 +325,11 @@ export class BodySyncService {
 				// database work and stays on the requeue path below.
 				if (
 					backfillError instanceof BodyParseError &&
-					(await this.quarantineBodyParse(message, location, backfillError))
+					(await this.quarantineBodyParse(
+						message.messageId,
+						location,
+						backfillError,
+					))
 				) {
 					skippedCount++;
 					continue;
@@ -398,11 +402,7 @@ export class BodySyncService {
 					// `pending`, so the message is never let go of unrecorded.
 					if (
 						error instanceof BodyParseError &&
-						(await this.quarantineBodyParse(
-							await this.messageService.get(messageId),
-							location,
-							error,
-						))
+						(await this.quarantineBodyParse(messageId, location, error))
 					) {
 						pending.delete(uid);
 						skippedCount++;
@@ -464,10 +464,17 @@ export class BodySyncService {
 	/**
 	 * Set a message aside because its body will not parse (issue #72).
 	 *
-	 * Returns false when this service was built without a quarantine writer, so
-	 * the caller falls back to requeueing rather than dropping a message no
+	 * Returns false when no record was written — either because this service was
+	 * built without a quarantine writer, or because writing it failed. The
+	 * caller then falls back to requeueing rather than dropping a message no
 	 * record survives. The failure the row carries is the parser's, and only the
 	 * parser's — see {@link BodyParseError}.
+	 *
+	 * Reading and writing the record is storage and database work, so its own
+	 * failure is contained per message the same way the save it replaces is: it
+	 * must not take down a batch that has other messages to fetch, and in the
+	 * stream loop a throw would also skip `source.resume()` and leave the
+	 * literal undrained on an otherwise usable connection.
 	 *
 	 * The fingerprint comes from the BodyPart rows metadata sync already wrote:
 	 * the body path streams raw bytes and has no FETCH result to read, and
@@ -475,7 +482,7 @@ export class BodySyncService {
 	 * thing that is broken.
 	 */
 	private async quarantineBodyParse(
-		message: MessageItem,
+		messageId: string,
 		location: {
 			accountId: string;
 			accountConfigId: string;
@@ -486,9 +493,34 @@ export class BodySyncService {
 		const config = this.quarantineConfig;
 		if (!config) return false;
 
-		const messageData = await this.envelopeService.getMessageData(
-			message.messageId,
+		return this.recordQuarantine(config, messageId, location, error).then(
+			() => true,
+			(writeError: unknown) => {
+				this.log.error?.(
+					{
+						messageId,
+						errorName: (writeError as { name?: string }).name,
+						error: inspect(writeError),
+					},
+					"Could not record quarantine; leaving the message for requeue",
+				);
+				return false;
+			},
 		);
+	}
+
+	private async recordQuarantine(
+		config: QuarantineConfig,
+		messageId: string,
+		location: {
+			accountId: string;
+			accountConfigId: string;
+			mailboxPath: string;
+		},
+		error: BodyParseError,
+	): Promise<void> {
+		const message = await this.messageService.get(messageId);
+		const messageData = await this.envelopeService.getMessageData(messageId);
 
 		await config.quarantineService.record(
 			{
@@ -507,7 +539,6 @@ export class BodySyncService {
 			},
 			shapeFromMessageData(message, messageData),
 		);
-		return true;
 	}
 
 	private buildResult(

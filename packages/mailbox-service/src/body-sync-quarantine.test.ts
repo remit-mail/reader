@@ -32,6 +32,7 @@ const UNPARSEABLE = Symbol("unparseable");
 const buildHarness = (options: {
 	retrieve?: (key: string) => Promise<Buffer>;
 	existing?: QuarantineItem[];
+	upsertFails?: boolean;
 }) => {
 	const writes: QuarantineUpsertInput[] = [];
 	const messageUpdates: string[] = [];
@@ -68,6 +69,7 @@ const buildHarness = (options: {
 	const repository = {
 		listByAccountConfigId: async () => options.existing ?? [],
 		upsert: async (input: QuarantineUpsertInput) => {
+			if (options.upsertFails) throw new Error("database unavailable");
 			writes.push(input);
 		},
 	} satisfies IQuarantineRepository;
@@ -170,6 +172,23 @@ describe("body sync leaves infrastructure failures alone", () => {
 			},
 		});
 
+		const result = await sync(harness.service);
+
+		assert.deepEqual(harness.writes, []);
+		assert.deepEqual(result.failedMessageIds, ["m-1"]);
+	});
+});
+
+describe("body sync contains a failure to write the record", () => {
+	it("requeues the message instead of aborting the batch", async () => {
+		const harness = buildHarness({
+			retrieve: async () => UNPARSEABLE as unknown as Buffer,
+			upsertFails: true,
+		});
+
+		// Writing the record is database work, so its failure is infrastructure:
+		// the message keeps its place in the queue rather than being let go of
+		// with nothing written down, and the rest of the batch is unaffected.
 		const result = await sync(harness.service);
 
 		assert.deepEqual(harness.writes, []);

@@ -3,15 +3,19 @@ import type { FolderRole } from "./folder-role.js";
 /**
  * The pipeline step that refused the message.
  *
- * A member exists only where the sync path can tell a message defect from an
- * infrastructure failure. Both members sit behind that narrowing: the body
- * parse has its own try block around the parse call and nothing else, and the
- * envelope check reads a field that arrived on the FETCH result. S3, queue and
- * database failures propagate and never become a record here — quarantining
- * one would set a message aside for an outage, tell the user it was
- * unreadable, and invite a public GitHub issue about it.
+ * One member, behind a real narrowing rather than a promise of one: the body
+ * parse has its own try block around the parse call and nothing else, so an
+ * error out of it can only be the message. S3, queue and database failures
+ * propagate and never become a record here — quarantining one would set a
+ * message aside for an outage, tell the user it was unreadable, and invite a
+ * public GitHub issue about it.
+ *
+ * A message that arrives with no ENVELOPE is deliberately not a member:
+ * nothing can tell that apart from the FETCH row glitching, and the IMAP
+ * client is far more often the cause than the message. The sync path holds its
+ * cursor and retries instead.
  */
-export type QuarantineFailureStage = "BodyParse" | "MessageEnvelope";
+export type QuarantineFailureStage = "BodyParse";
 
 /**
  * The specific defect within a stage.
@@ -26,10 +30,7 @@ export type QuarantineFailureStage = "BodyParse" | "MessageEnvelope";
  * `UnreadableBody`, and the parser's own words stay in `failureMessage`, which
  * is shown on screen and never published.
  */
-export type QuarantineFailureCode =
-	| "UnknownCharset"
-	| "UnreadableBody"
-	| "MissingEnvelope";
+export type QuarantineFailureCode = "UnknownCharset" | "UnreadableBody";
 
 /**
  * One node of the message's MIME tree, in a pre-order walk.
@@ -116,7 +117,6 @@ export interface QuarantineEntry {
 
 const stageSummaries: Record<QuarantineFailureStage, string> = {
 	BodyParse: "The message is built in a way Remit could not read.",
-	MessageEnvelope: "The message arrived without a sender, date or subject.",
 };
 
 /** Plain-language one-liner for a row. The detail lives in the report. */

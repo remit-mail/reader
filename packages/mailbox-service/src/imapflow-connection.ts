@@ -843,20 +843,13 @@ export class ImapFlowConnection {
 			  }
 			| undefined,
 	): ImapMessage["envelope"] => {
-		if (!envelope) {
-			return {
-				date: "",
-				subject: "",
-				from: [],
-				sender: [],
-				replyTo: [],
-				to: [],
-				cc: [],
-				bcc: [],
-				inReplyTo: "",
-				messageId: "",
-			};
-		}
+		// An absent ENVELOPE stays absent. Synthesising an empty one here made
+		// every `if (!msg.envelope)` guard downstream unreachable, so a FETCH row
+		// that carried no envelope was saved as a row with no sender, no subject
+		// and no date, keyed by the `generated:` fallback — indistinguishable
+		// from a real message. The field is optional on `ImapMessage` precisely
+		// so callers can see the difference (issue #72).
+		if (!envelope) return undefined;
 
 		const convertAddresses = (
 			addrs?: Array<{ name?: string; address?: string }>,

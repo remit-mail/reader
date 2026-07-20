@@ -179,9 +179,9 @@ describe("QuarantineRepo", () => {
 			mailboxPath: "INBOX",
 			quarantinedAt: 1_000,
 			attempts: 1,
-			failureStage: "MessageEnvelope",
-			failureCode: "MissingEnvelope",
-			failureMessage: "FETCH returned the message with no ENVELOPE",
+			failureStage: "BodyParse",
+			failureCode: "UnreadableBody",
+			failureMessage: "the parser said no",
 			workerVersion: "sha-abc",
 		});
 

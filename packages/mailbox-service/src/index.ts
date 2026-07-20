@@ -201,7 +201,6 @@ export {
 	type QuarantineMessageShape,
 	QuarantineService,
 	resolveMailboxRole,
-	shapeFromImapMessage,
 	shapeFromMessageData,
 } from "./quarantine.js";
 export {
