@@ -212,6 +212,76 @@ describe("DrizzleThreadMessageRepository (sqlite)", () => {
 		);
 	});
 
+	test("listByThread defaults to oldest first, by the date the mail was sent", async () => {
+		const acct = "acct-conversation-dates";
+		const threadId = "t-conversation-dates";
+		const base = Date.now();
+		// The folder a message was delivered to decides its internalDate, so a
+		// reply synced from Sent can carry an earlier internalDate than the
+		// message it answers. sentDate is what the conversation is ordered by.
+		const turns = [
+			{ messageId: "m-question", sentDate: base, internalDate: base + 5000 },
+			{ messageId: "m-answer", sentDate: base + 1000, internalDate: base },
+		];
+		for (const turn of turns) {
+			await repo.create(
+				makeInput({
+					accountConfigId: acct,
+					threadId,
+					messageId: turn.messageId,
+					sentDate: turn.sentDate,
+					internalDate: turn.internalDate,
+				}),
+			);
+		}
+
+		const result = await repo.listByThread(threadId, acct, {
+			excludeDeleted: true,
+		});
+		assert.deepEqual(
+			result.items.map((item) => item.messageId),
+			["m-question", "m-answer"],
+			"the reply follows the message it answers",
+		);
+	});
+
+	test("listByThread paginates in sentDate order without skipping or repeating", async () => {
+		const acct = "acct-conversation-pages";
+		const threadId = "t-conversation-pages";
+		const base = Date.now();
+		for (let index = 0; index < 5; index++) {
+			await repo.create(
+				makeInput({
+					accountConfigId: acct,
+					threadId,
+					messageId: `m-page-${index}`,
+					sentDate: base + index * 1000,
+					internalDate: base,
+				}),
+			);
+		}
+
+		const seen: string[] = [];
+		let continuationToken: string | undefined;
+		do {
+			const page = await repo.listByThread(threadId, acct, {
+				limit: 2,
+				continuationToken,
+				excludeDeleted: true,
+			});
+			seen.push(...page.items.map((item) => item.messageId));
+			continuationToken = page.continuationToken;
+		} while (continuationToken);
+
+		assert.deepEqual(seen, [
+			"m-page-0",
+			"m-page-1",
+			"m-page-2",
+			"m-page-3",
+			"m-page-4",
+		]);
+	});
+
 	test("listByThread excludes soft-deleted messages but keeps the rest of the conversation", async () => {
 		const acct = "acct-conversation-deleted";
 		const threadId = "t-conversation-deleted";

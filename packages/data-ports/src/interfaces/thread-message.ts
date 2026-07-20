@@ -77,6 +77,11 @@ export interface IThreadMessageRepository {
 	 * Every message of a thread, across all mailboxes of the account. A
 	 * conversation spans INBOX, Sent and any folder its messages were filed
 	 * in, so this listing is deliberately not scoped to a mailbox (#46).
+	 *
+	 * Ordered by `sentDate` with `threadMessageId` breaking ties, ascending
+	 * unless `order` says otherwise — a conversation reads in the order it
+	 * happened (#81). Every implementation sorts in the query, so the order
+	 * holds across pages and not merely within one page.
 	 */
 	listByThread(
 		threadId: string,

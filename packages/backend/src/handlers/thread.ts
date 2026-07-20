@@ -251,11 +251,16 @@ export const executeThreadSearch = async (
  * A conversation is never scoped to one mailbox: the user's own replies live
  * in Sent, filed messages live in their folder, and all of them belong to the
  * same thread (#46).
+ *
+ * The default order is `asc`: a conversation is read in the order it happened,
+ * so a reply follows the message it answers (#81). The ordering is the query's,
+ * not the handler's — `listByThread` sorts on sentDate with `threadMessageId`
+ * breaking ties, so it holds across pages rather than within one response.
  */
 export const buildListThreadMessagesOptions = (query: {
 	order?: "asc" | "desc";
 }) => ({
-	order: query.order ?? ("desc" as const),
+	order: query.order ?? ("asc" as const),
 	excludeDeleted: true,
 });
 
