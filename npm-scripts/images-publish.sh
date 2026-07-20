@@ -43,9 +43,11 @@ PUSH_LATEST="${PUSH_LATEST:-0}"
 CACHE_REF="${CACHE_REF:-}"
 CACHE_TO="${CACHE_TO:-1}"
 
-# shellcheck source=./lib/image-roster.sh
+# shellcheck source=npm-scripts/lib/image-roster.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/image-roster.sh"
-mapfile -t ALL_TARGETS < <(image_roster)
+image_roster
+assert_roster_nonempty
+echo "images-publish: roster is ${ALL_TARGETS[*]} (${#ALL_TARGETS[@]} targets)"
 
 # The node-service targets share the Dockerfile's ARG-parameterized
 # node-service-installed stage (SERVICE_NAME picks docker/runtime/<service>/

@@ -6,10 +6,24 @@
 # editing this file. Shared by images-publish.sh and the release preflight so
 # the two never drift.
 #
-# Run from the repo root; prints one target per line.
+# Populates ALL_TARGETS directly in the caller's shell — call it as a plain
+# statement, never through `$(...)` or `<(...)`. A subshell can fail (or, worse,
+# silently truncate) without the caller ever seeing a non-zero exit; a direct
+# call can't. Run from the repo root.
 image_roster() {
-	[ -d apisix ] && echo apisix
+	ALL_TARGETS=()
+	[ -d apisix ] && ALL_TARGETS+=(apisix)
 	for dir in docker/runtime/*/; do
-		basename "$dir"
+		ALL_TARGETS+=("$(basename "$dir")")
 	done
+}
+
+# Aborts if the roster came back empty. A wrong-but-nonzero count has nothing
+# independent to check it against, but empty is always wrong — every roster
+# gained so far has had at least apisix and one node service.
+assert_roster_nonempty() {
+	if [ "${#ALL_TARGETS[@]}" -eq 0 ]; then
+		echo "release: image roster is empty; refusing to proceed" >&2
+		exit 1
+	fi
 }

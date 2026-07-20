@@ -25,6 +25,11 @@ jobs:
       - name: Installer — shellcheck
         run: shellcheck install.sh
 
+      - name: Release scripts — shellcheck
+        run: |
+          shellcheck -x npm-scripts/release-tag.sh npm-scripts/release-check-tag.sh \
+            npm-scripts/lib/image-roster.sh
+
       - name: Manifests — JSON syntax
         run: |
           python3 -c 'import json,sys; [json.load(open(f)) for f in sys.argv[1:]]' \
@@ -35,7 +40,7 @@ jobs:
           python3 -c 'import yaml,sys; [yaml.safe_load(open(f)) for f in sys.argv[1:]]' \
             .github/workflows/ci.yml .github/workflows/storybook-pages.yml \
             .github/workflows/images.yml .github/workflows/publish.yml \
-            .github/actions/setup/action.yml
+            .github/workflows/release.yml .github/actions/setup/action.yml
 
       - name: Deploy stack — SQLite compose validates
         run: |

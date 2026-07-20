@@ -8,6 +8,15 @@
 #
 # `:latest` belongs to main (see images.yml) and this workflow must not move
 # it, so images:publish runs here with PUSH_LATEST=0.
+#
+# The GitHub release object is the definition of a published version (RFC 037
+# D2, R1a) — never the presence of an image tag. Pushing eight images is not
+# atomic, so it runs last, on the default all-steps-must-succeed behaviour: no
+# `if: always()`, no continue-on-error, nothing that would create it after a
+# partial push. A run that fails partway leaves the tags it managed to push
+# and no release for them; that is permanent, because step 1 forbids
+# completing a partial set under the tag it started with. The fix is cutting
+# the next version, never resuming this one.
 name: Release
 
 on:
@@ -17,10 +26,6 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
-
-permissions:
-  contents: read
-  packages: write
 
 jobs:
   release:
