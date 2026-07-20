@@ -98,22 +98,33 @@ const processAccountDelete = async (
 		.filter((e) => e.entityType === "Account")
 		.map((e) => e.key.accountId);
 
-	for (const accountId of accountIds) {
-		await sqsFor(imapWorkerQueueUrl).send(
-			new SendMessageCommand({
-				QueueUrl: imapWorkerQueueUrl,
-				MessageBody: JSON.stringify({
-					type: "IMAP_WORKER_STOP",
-					accountConfigId,
-					accountId,
+	// IMAP_WORKER_STOP is a no-op acknowledgement — the account tombstone fence
+	// (isActive=false + deletedAt) is what actually halts the worker. Deployments
+	// that provision a dedicated imap-worker stop queue get the signal; the
+	// self-host stacks, which do not, skip it and let the fence do the work.
+	if (imapWorkerQueueUrl) {
+		for (const accountId of accountIds) {
+			await sqsFor(imapWorkerQueueUrl).send(
+				new SendMessageCommand({
+					QueueUrl: imapWorkerQueueUrl,
+					MessageBody: JSON.stringify({
+						type: "IMAP_WORKER_STOP",
+						accountConfigId,
+						accountId,
+					}),
 				}),
-			}),
+			);
+		}
+		log.info(
+			{ accountConfigId, count: accountIds.length },
+			"Enqueued imap-worker stop signals",
+		);
+	} else {
+		log.info(
+			{ accountConfigId, count: accountIds.length },
+			"No imap-worker stop queue configured; skipping stop signals (tombstone fence halts the worker)",
 		);
 	}
-	log.info(
-		{ accountConfigId, count: accountIds.length },
-		"Enqueued imap-worker stop signals",
-	);
 
 	await signOut(userId, log);
 

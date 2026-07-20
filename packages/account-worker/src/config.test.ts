@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { afterEach, describe, it } from "node:test";
 import { AwsQueryProtocol } from "@aws-sdk/core/protocols";
-import { getSqsClient } from "./config.js";
+import { getImapWorkerQueueUrl, getSqsClient } from "./config.js";
 
 // The queue URL a self-hosted compose stack hands the account worker
 // (deploy/vps/remit.env.template). It is a plain http:// URL that is not
@@ -33,5 +33,27 @@ describe("getSqsClient", () => {
 	it("reuses one client per queue URL and keeps distinct queues apart", () => {
 		assert.equal(getSqsClient(composeQueueUrl), getSqsClient(composeQueueUrl));
 		assert.notEqual(getSqsClient(composeQueueUrl), getSqsClient(awsQueueUrl));
+	});
+});
+
+describe("getImapWorkerQueueUrl", () => {
+	// The imap-worker stop queue is optional: the self-host compose stacks do not
+	// provision it, and reading it through expect-env would throw and abort the
+	// deletion fanout before it ever reached the finalize step. It must yield
+	// undefined when unset so the fanout can skip the (no-op) stop signal.
+	const prev = process.env.SQS_QUEUE_URL_IMAP_WORKER;
+	afterEach(() => {
+		if (prev === undefined) delete process.env.SQS_QUEUE_URL_IMAP_WORKER;
+		else process.env.SQS_QUEUE_URL_IMAP_WORKER = prev;
+	});
+
+	it("returns undefined when the var is unset instead of throwing", () => {
+		delete process.env.SQS_QUEUE_URL_IMAP_WORKER;
+		assert.equal(getImapWorkerQueueUrl(), undefined);
+	});
+
+	it("returns the configured value when set", () => {
+		process.env.SQS_QUEUE_URL_IMAP_WORKER = "http://queue/imap-worker";
+		assert.equal(getImapWorkerQueueUrl(), "http://queue/imap-worker");
 	});
 });
