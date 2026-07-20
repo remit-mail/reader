@@ -47,6 +47,7 @@ import {
 	groupBriefSections,
 	matchesBriefSearch,
 	matchesSearchTokens,
+	mergeSearchRows,
 	toThreadRowData,
 } from "@/lib/brief";
 import { isServerError } from "@/lib/error-classifier";
@@ -57,6 +58,10 @@ import { MailListHeader } from "./MailListHeader";
 
 /* The brief's attribute chips as predicates (mirrors the kit `briefFilterChips`
    ids) so the phone search takeover narrows results the same way the list does. */
+/* Page size for the unscoped cross-folder search. One page is what the takeover
+   and the "Top matches" list render; the server caps it at 500. */
+const UNSCOPED_SEARCH_PAGE_SIZE = 200;
+
 const BRIEF_SEARCH_PREDICATES: Record<string, (t: ThreadRowData) => boolean> = {
 	unread: (t) => !t.isRead,
 	attachment: (t) => t.hasAttachment === true,
@@ -264,6 +269,21 @@ export function DailyBrief({
 		tokenContext,
 	);
 
+	// --- Unscoped search query ---
+	// The brief's list is the unified INBOX, so filtering it client-side can only
+	// ever find inbox mail. The same endpoint in search mode (`query`) widens to
+	// every non-muted folder of every account — Archive, Sent, Spam, custom
+	// folders — and matches subject/From in the query. Its rows are merged with
+	// the client-side pass below, which still contributes snippet matches the
+	// server does not index.
+	const { data: searchData, isFetching: searchFetching } = useQuery({
+		...unifiedThreadOperationsListAllThreadsOptions({
+			query: { query: sq, limit: UNSCOPED_SEARCH_PAGE_SIZE },
+		}),
+		enabled: sq.length > 0,
+		staleTime: 30_000,
+	});
+
 	// Convert API rows to ThreadRowData, narrowing only by the selected account
 	// and the free-text search plus any filter tokens (`from:`, `has:attachment`,
 	// `is:unread`, `before:`/`after:`, `in:`, `account:`) parsed out of the
@@ -271,20 +291,20 @@ export function DailyBrief({
 	// `BriefSections` filter row's job, so the full per-category sections are
 	// handed to it; it groups, narrows, and flattens.
 	const filteredRows = useMemo<ThreadRowData[]>(() => {
-		const raw = threadsData?.items ?? [];
-		return raw
-			.filter(
-				(t) =>
-					selectedAccountId === "all" ||
-					(t.accountId ?? t.accountConfigId) === selectedAccountId,
-			)
-			.map(toThreadRowData)
-			.filter(
-				(t) =>
-					(!sq || matchesBriefSearch(t, sq)) &&
-					matchesSearchTokens(t, queryTokens),
-			);
-	}, [threadsData, selectedAccountId, sq, queryTokens]);
+		const briefRows = (threadsData?.items ?? []).map(toThreadRowData);
+		// No free text: the brief list as it comes, order untouched.
+		const rows = sq
+			? mergeSearchRows(
+					briefRows.filter((t) => matchesBriefSearch(t, sq)),
+					(searchData?.items ?? []).map(toThreadRowData),
+				)
+			: briefRows;
+		return rows.filter(
+			(t) =>
+				(selectedAccountId === "all" || t.accountId === selectedAccountId) &&
+				matchesSearchTokens(t, queryTokens),
+		);
+	}, [threadsData, searchData, selectedAccountId, sq, queryTokens]);
 
 	const sections = useMemo<ThreadSection[]>(
 		() => groupBriefSections(filteredRows),
@@ -433,7 +453,7 @@ export function DailyBrief({
 			footer={isDesktop ? <KeyboardHintBar /> : undefined}
 			searchFilter={searchFilterConfig}
 			searchResults={searchResults}
-			searchLoading={isLoading}
+			searchLoading={isLoading || searchFetching}
 			relatedResults={relatedResults}
 			relatedLoading={relatedLoading}
 			onSelectSearchResult={onSelectSearchResult}

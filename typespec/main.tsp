@@ -353,6 +353,12 @@ namespace RemitApi {
       Pagination: pass the returned `continuationToken` to fetch the next page; keep paging until it is absent. In the default (INBOX) mode the INBOX/deleted filter is applied after the index read with a bounded read window per request, so a page may return FEWER than `limit` rows while still carrying a `continuationToken` — treat the presence of the token (not a full page) as the "more results" signal. No rows are skipped or duplicated across pages.
       
       Starred mode (`starred=true`): served by the `byStarred` LSI4 instead. A star is a marker on the mail rather than on its placement, so the INBOX scope does not apply and a starred thread in Archive is still returned. Excluded are muted and soft-deleted rows as usual, plus the folders a star never surfaces from: Junk, Trash, and Gmail's All Mail (a second copy of everything, whose rows would otherwise double every starred message). All filtering happens in the query, so a page is short only when the results are exhausted. Rows are per mailbox: the same mail filed in two folders is two rows sharing a `threadId`, and a client rendering one row per conversation collapses by `threadId` across the pages it has accumulated.
+      
+      Search mode (`query=<text>`): the listing widens past the INBOX scope to every non-muted mailbox of every non-muted account — Archive, Sent, Spam and any custom folder — and returns only rows whose subject or From address matches the text. This is the unscoped search of the daily brief: one query reaching every folder of every account. Whitespace splits the text into terms and every term must match (AND), each against subject OR From. Matching is case-insensitive substring, not tokenized full-text, so it neither stems nor ranks. Excluded from the search scope are Trash and Gmail's All Mail: Trash holds mail the user discarded, and All Mail is a second copy of everything already reachable through its own folder, whose rows would otherwise double every Gmail result. Spam is in scope — the point of an unscoped search is that it reaches the folders the user did not think to look in. Combining `query` with `starred=true` searches the starred scope instead.
+      
+      Search mode and pagination: filtering happens in the query, so a page is short only when the matches are exhausted; `limit` is a page size over MATCHES, capped server-side at 500. Rows are per mailbox as in starred mode — the same mail filed in two folders is two rows sharing a `threadId` — so a client rendering one row per conversation collapses by `threadId`. There is no total match count; page until `continuationToken` is absent.
+      
+      Callers that omit `query` are unaffected: the INBOX (and starred) listings behave exactly as before.
       """)
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
@@ -370,6 +376,10 @@ namespace RemitApi {
       @doc("When true, return only starred threads — every starred thread in the config, across all non-muted mailboxes, not just the INBOX scope. Starredness is read from `hasStars`, the boolean of record.")
       @query(#{ explode: true })
       starred?: boolean,
+
+      @doc("Free text to match against subject and From address. Supplying it switches the listing into search mode, which widens the scope past INBOX to every non-muted mailbox — see the operation description. Omitting it leaves the listing unchanged.")
+      @query(#{ explode: true })
+      query?: string,
     ): ResultList<ThreadMessageResponse>;
   }
 

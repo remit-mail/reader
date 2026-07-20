@@ -57,12 +57,36 @@ const isExcludedFromStarred = (mailbox: MailboxItem): boolean =>
 	) === true;
 
 /**
+ * Special-use folders the unscoped search never reaches.
+ *
+ * `Trash` holds mail the user discarded — the same judgement `excludeDeleted`
+ * already applies to soft-deleted rows. `All` is Gmail's All Mail: a second
+ * copy of everything already reachable through its own folder, so including it
+ * would return every Gmail match twice.
+ *
+ * `Junk` is deliberately absent. An unscoped search exists to reach the folders
+ * the user did not think to look in, and misfiled mail in Spam is the case that
+ * matters most.
+ */
+const SEARCH_EXCLUDED_SPECIAL_USE: readonly string[] = [
+	MailboxSpecialUse.All,
+	MailboxSpecialUse.Trash,
+];
+
+const isExcludedFromSearch = (mailbox: MailboxItem): boolean =>
+	mailbox.specialUse?.some((use) =>
+		SEARCH_EXCLUDED_SPECIAL_USE.includes(use),
+	) === true;
+
+/**
  * Build the read scope for the unified listing: a mailboxId→accountId map over
  * every non-muted mailbox of every non-muted account in a given
- * accountConfigId, plus two id sets — `inboxMailboxIds` (top-level INBOX only,
- * the unified inbox scope) and `starredMailboxIds` (every folder a star may
- * surface from, see `STARRED_EXCLUDED_SPECIAL_USE`). The map covers all
- * mailboxes, excluded ones included, so any row still resolves its accountId.
+ * accountConfigId, plus three id sets — `inboxMailboxIds` (top-level INBOX
+ * only, the unified inbox scope), `starredMailboxIds` (every folder a star may
+ * surface from, see `STARRED_EXCLUDED_SPECIAL_USE`) and `searchMailboxIds`
+ * (every folder the unscoped search reaches, see
+ * `SEARCH_EXCLUDED_SPECIAL_USE`). The map covers all mailboxes, excluded ones
+ * included, so any row still resolves its accountId.
  *
  * INBOX is identified by exact match `fullPath.toUpperCase() === "INBOX"` —
  * MailboxSpecialUse has no Inbox value per RFC 6154. This is the same rule
@@ -95,6 +119,7 @@ export const buildInboxMailboxMap = async (
 	mailboxIdToAccountId: Map<string, string>;
 	inboxMailboxIds: Set<string>;
 	starredMailboxIds: Set<string>;
+	searchMailboxIds: Set<string>;
 }> => {
 	const [accounts, settings] = await Promise.all([
 		client.account.listAllByAccountConfig(accountConfigId),
@@ -123,6 +148,7 @@ export const buildInboxMailboxMap = async (
 	const mailboxIdToAccountId = new Map<string, string>();
 	const inboxMailboxIds = new Set<string>();
 	const starredMailboxIds = new Set<string>();
+	const searchMailboxIds = new Set<string>();
 
 	const activeMailboxes = mailboxLists
 		.flat()
@@ -133,12 +159,20 @@ export const buildInboxMailboxMap = async (
 		if (!isExcludedFromStarred(mailbox)) {
 			starredMailboxIds.add(mailbox.mailboxId);
 		}
+		if (!isExcludedFromSearch(mailbox)) {
+			searchMailboxIds.add(mailbox.mailboxId);
+		}
 		if (mailbox.fullPath.toUpperCase() === "INBOX") {
 			inboxMailboxIds.add(mailbox.mailboxId);
 		}
 	}
 
-	return { mailboxIdToAccountId, inboxMailboxIds, starredMailboxIds };
+	return {
+		mailboxIdToAccountId,
+		inboxMailboxIds,
+		starredMailboxIds,
+		searchMailboxIds,
+	};
 };
 
 /**
@@ -187,6 +221,29 @@ export const buildListStarredThreadsOptions = (
 });
 
 /**
+ * Build searchByDate options for the search mode (`query=<text>`).
+ *
+ * The scope is the caller-built set: every non-muted mailbox minus the folders
+ * a search never reaches, or the starred scope when `starred=true` narrows it
+ * further. Same defaults as the unified listing; `limit` is a page size over
+ * matches and is clamped by the repository.
+ */
+export const buildSearchAllThreadsOptions = (
+	query: {
+		continuationToken?: string;
+		order?: "asc" | "desc";
+		limit?: number;
+	},
+	mailboxIds: Set<string>,
+) => ({
+	order: query.order ?? ("desc" as const),
+	continuationToken: query.continuationToken,
+	limit: query.limit ?? DEFAULT_UNIFIED_THREADS_PAGE_SIZE,
+	mailboxIds,
+	excludeDeleted: true,
+});
+
+/**
  * Attach accountId to each enriched ThreadMessageResponse row using the
  * mailboxId→accountId map built from inbox discovery. Same read-time-attach
  * pattern as senderTrust/category in enrichThreadRows.
@@ -210,40 +267,65 @@ export const UnifiedThreadOperations: Record<
 	) => {
 		const event = args[0] as APIGatewayProxyEvent;
 		const accountConfigId = getAccountConfigIdFromEvent(event);
-		const { continuationToken, order, limit, starred } = context.request
+		const { continuationToken, order, limit, starred, query } = context.request
 			.query as {
 			continuationToken?: string;
 			order?: "asc" | "desc";
 			limit?: number;
 			starred?: boolean | string;
+			query?: string;
 		};
 		const starredOnly = starred === true || starred === "true";
+		// Whitespace-only text is not a search: it would widen the scope to every
+		// folder while matching nothing in particular.
+		const searchText = query?.trim();
+		const searching = searchText !== undefined && searchText.length > 0;
 
 		const client = await getClient();
 
-		const { mailboxIdToAccountId, inboxMailboxIds, starredMailboxIds } =
-			await buildInboxMailboxMap(accountConfigId, client);
+		const {
+			mailboxIdToAccountId,
+			inboxMailboxIds,
+			starredMailboxIds,
+			searchMailboxIds,
+		} = await buildInboxMailboxMap(accountConfigId, client);
 
-		const scope = starredOnly ? starredMailboxIds : inboxMailboxIds;
+		// Search widens past INBOX to every folder it may reach; `starred=true`
+		// still narrows it to the starred scope, so the two compose.
+		const searchScope = starredOnly ? starredMailboxIds : searchMailboxIds;
+		const scope = searching
+			? searchScope
+			: starredOnly
+				? starredMailboxIds
+				: inboxMailboxIds;
 		if (scope.size === 0) {
 			return { items: [], continuationToken: undefined };
 		}
 
-		const result = starredOnly
-			? await client.threadMessage.listByStarred(
+		const result = searching
+			? await client.threadMessage.searchByDate(
 					accountConfigId,
-					buildListStarredThreadsOptions(
+					{ query: searchText, starred: starredOnly ? true : undefined },
+					buildSearchAllThreadsOptions(
 						{ continuationToken, order, limit },
-						starredMailboxIds,
+						searchScope,
 					),
 				)
-			: await client.threadMessage.listByDate(
-					accountConfigId,
-					buildListAllThreadsOptions(
-						{ continuationToken, order, limit },
-						inboxMailboxIds,
-					),
-				);
+			: starredOnly
+				? await client.threadMessage.listByStarred(
+						accountConfigId,
+						buildListStarredThreadsOptions(
+							{ continuationToken, order, limit },
+							starredMailboxIds,
+						),
+					)
+				: await client.threadMessage.listByDate(
+						accountConfigId,
+						buildListAllThreadsOptions(
+							{ continuationToken, order, limit },
+							inboxMailboxIds,
+						),
+					);
 
 		const enriched = await enrichThreadRows(
 			result.items,

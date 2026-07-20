@@ -6,6 +6,7 @@ import {
 	groupBriefSections,
 	matchesBriefSearch,
 	matchesSearchTokens,
+	mergeSearchRows,
 	toThreadRowData,
 } from "./brief.js";
 import type { SearchToken } from "./search-tokens.js";
@@ -430,6 +431,84 @@ describe("matchesSearchTokens", () => {
 				from("ups"),
 			]),
 			false,
+		);
+	});
+});
+
+// #49: the brief's list is the unified INBOX, so filtering it client-side found
+// only inbox mail. The server's cross-folder search supplies the rest, and the
+// two are merged.
+describe("mergeSearchRows", () => {
+	test("keeps rows the server found in other folders", () => {
+		const merged = mergeSearchRows(
+			[row({ id: "inbox-hit", sentDate: 300 })],
+			[
+				row({ id: "archive-hit", sentDate: 200 }),
+				row({ id: "spam-hit", sentDate: 100 }),
+			],
+		);
+
+		assert.deepEqual(
+			merged.map((r) => r.id),
+			["inbox-hit", "archive-hit", "spam-hit"],
+		);
+	});
+
+	test("keeps a snippet-only match the server cannot see", () => {
+		const merged = mergeSearchRows(
+			[row({ id: "snippet-only", sentDate: 100 })],
+			[],
+		);
+
+		assert.deepEqual(
+			merged.map((r) => r.id),
+			["snippet-only"],
+		);
+	});
+
+	test("the two sources overlap on INBOX, so rows are deduped", () => {
+		const merged = mergeSearchRows(
+			[row({ id: "shared", sentDate: 200, subject: "from the brief" })],
+			[
+				row({ id: "shared", sentDate: 200, subject: "from the search" }),
+				row({ id: "archive-hit", sentDate: 100 }),
+			],
+		);
+
+		assert.deepEqual(
+			merged.map((r) => r.id),
+			["shared", "archive-hit"],
+		);
+		assert.equal(merged[0].subject, "from the brief");
+	});
+
+	test("the union reads newest first, interleaving both sources", () => {
+		const merged = mergeSearchRows(
+			[
+				row({ id: "brief-new", sentDate: 400 }),
+				row({ id: "brief-old", sentDate: 200 }),
+			],
+			[
+				row({ id: "search-mid", sentDate: 300 }),
+				row({ id: "search-oldest", sentDate: 100 }),
+			],
+		);
+
+		assert.deepEqual(
+			merged.map((r) => r.id),
+			["brief-new", "search-mid", "brief-old", "search-oldest"],
+		);
+	});
+
+	test("a row without a sentDate sorts last", () => {
+		const merged = mergeSearchRows(
+			[row({ id: "undated" })],
+			[row({ id: "dated", sentDate: 100 })],
+		);
+
+		assert.deepEqual(
+			merged.map((r) => r.id),
+			["dated", "undated"],
 		);
 	});
 });
