@@ -10,6 +10,7 @@ import {
 	buildListAllThreadsOptions,
 	buildListStarredThreadsOptions,
 	buildSearchAllThreadsOptions,
+	dedupeByMessageId,
 	type InboxMapClient,
 } from "./unified-threads.js";
 
@@ -111,8 +112,9 @@ describe("buildInboxMailboxMap", () => {
 
 	// #49: the unified list backing the unscoped search was INBOX-only, so a
 	// search from the daily brief could not see Archive, Sent, Spam or any
-	// custom folder.
-	test("the search scope reaches every folder but Trash and All Mail", async () => {
+	// custom folder. The scope is defined by what it excludes — anything not on
+	// that list is searched, Drafts included.
+	test("the search scope reaches every folder but Trash", async () => {
 		const client = buildClient([account("a1")], {
 			a1: [
 				mailbox("m-inbox", "a1", "INBOX"),
@@ -120,8 +122,8 @@ describe("buildInboxMailboxMap", () => {
 				mailbox("m-archive", "a1", "Archive", ["Archive"]),
 				mailbox("m-sent", "a1", "[Gmail]/Sent Mail", ["Sent"]),
 				mailbox("m-junk", "a1", "[Gmail]/Spam", ["Junk"]),
+				mailbox("m-drafts", "a1", "[Gmail]/Drafts", ["Drafts"]),
 				mailbox("m-custom", "a1", "Projects/Remit"),
-				mailbox("m-all", "a1", "[Gmail]/All Mail", ["All"]),
 				mailbox("m-trash", "a1", "[Gmail]/Trash", ["Trash"]),
 			],
 		});
@@ -130,9 +132,77 @@ describe("buildInboxMailboxMap", () => {
 
 		assert.deepEqual(
 			[...searchMailboxIds].sort(),
-			["m-archive", "m-custom", "m-inbox", "m-junk", "m-sent", "m-sub"],
-			"Spam is in scope; Trash and All Mail are not",
+			[
+				"m-archive",
+				"m-custom",
+				"m-drafts",
+				"m-inbox",
+				"m-junk",
+				"m-sent",
+				"m-sub",
+			],
+			"Spam and Drafts are in scope; Trash is not",
 		);
+	});
+
+	// Trash is matched by path too, for servers that do not advertise the
+	// special-use attribute.
+	test("Trash is excluded without a special-use attribute", async () => {
+		const client = buildClient([account("a1")], {
+			a1: [
+				mailbox("m-inbox", "a1", "INBOX"),
+				mailbox("m-trash", "a1", "[Gmail]/Trash"),
+				// Whole path, never a prefix — a user's own folder is real mail.
+				mailbox("m-trash-talk", "a1", "Trash talk"),
+			],
+		});
+
+		const { searchMailboxIds } = await buildInboxMailboxMap(CONFIG_ID, client);
+		assert.deepEqual([...searchMailboxIds].sort(), ["m-inbox", "m-trash-talk"]);
+	});
+
+	// A row is keyed by (threadId, messageId), both mailbox-independent, so
+	// Gmail's copies collapse into ONE row owned by whichever mailbox synced it
+	// first. Barring the virtual folders from the scope would therefore delete
+	// the only row such a message has — mail that exists and cannot be found.
+	test("the virtual copies stay IN the search scope, so mail they own is findable", async () => {
+		const client = buildClient([account("a1")], {
+			a1: [
+				mailbox("m-inbox", "a1", "INBOX"),
+				mailbox("m-all", "a1", "[Gmail]/All Mail", ["All"]),
+				mailbox("m-starred", "a1", "[Gmail]/Starred", ["Flagged"]),
+				mailbox("m-important", "a1", "[Gmail]/Important", ["Important"]),
+			],
+		});
+
+		const { searchMailboxIds, virtualCopyMailboxIds } =
+			await buildInboxMailboxMap(CONFIG_ID, client);
+
+		assert.deepEqual(
+			[...searchMailboxIds].sort(),
+			["m-all", "m-important", "m-inbox", "m-starred"],
+			"nothing is barred — duplicates are dropped after the read instead",
+		);
+		assert.deepEqual(
+			[...virtualCopyMailboxIds].sort(),
+			["m-all", "m-important", "m-starred"],
+			"they are still identified, to decide which duplicate to drop",
+		);
+	});
+
+	test("a user folder named like a virtual copy is not treated as one", async () => {
+		const client = buildClient([account("a1")], {
+			a1: [
+				mailbox("m-starred-ideas", "a1", "Starred ideas"),
+				mailbox("m-important-clients", "a1", "Important clients"),
+			],
+		});
+
+		const { virtualCopyMailboxIds } = await buildInboxMailboxMap(
+			CONFIG_ID,
+			client,
+		);
+		assert.equal(virtualCopyMailboxIds.size, 0);
 	});
 
 	// The starred scope drops Junk; the search scope keeps it. Two sets, two
@@ -242,6 +312,90 @@ describe("buildListStarredThreadsOptions", () => {
 		const starred = buildListStarredThreadsOptions({}, new Set(["m-inbox"]));
 		const unified = buildListAllThreadsOptions({}, new Set(["m-inbox"]));
 		assert.equal(starred.limit, unified.limit);
+	});
+});
+
+// A backend that keys a row by its mailbox returns one row per Gmail copy, so
+// a starred, Important inbox message arrives four times and crowds genuine
+// matches off the page. Dropping the extras here — rather than barring the
+// virtual folders from the scope — keeps the message reachable when the only
+// row it has sits in one of them.
+describe("dedupeByMessageId", () => {
+	const row = (messageId: string, mailboxId: string) => ({
+		messageId,
+		mailboxId,
+	});
+	const virtual = new Set(["m-all", "m-starred", "m-important"]);
+	const isVirtual = (r: { mailboxId: string }) => virtual.has(r.mailboxId);
+
+	test("a starred, Important Gmail inbox message collapses to one row", () => {
+		const deduped = dedupeByMessageId(
+			[
+				row("msg-1", "m-inbox"),
+				row("msg-1", "m-all"),
+				row("msg-1", "m-starred"),
+				row("msg-1", "m-important"),
+			],
+			isVirtual,
+		);
+
+		assert.equal(deduped.length, 1);
+		assert.equal(deduped[0].mailboxId, "m-inbox");
+	});
+
+	test("the real folder wins even when a virtual copy came first", () => {
+		const deduped = dedupeByMessageId(
+			[row("msg-1", "m-all"), row("msg-1", "m-archive")],
+			isVirtual,
+		);
+
+		assert.deepEqual(
+			deduped.map((r) => r.mailboxId),
+			["m-archive"],
+		);
+	});
+
+	// The case the scope exclusion would have broken: nothing but a virtual
+	// copy holds this message, so that row must survive.
+	test("a message that exists only in a virtual folder is kept", () => {
+		const deduped = dedupeByMessageId([row("msg-1", "m-starred")], isVirtual);
+
+		assert.deepEqual(
+			deduped.map((r) => r.mailboxId),
+			["m-starred"],
+		);
+	});
+
+	test("the same mail in two real folders keeps the first, newest by order", () => {
+		const deduped = dedupeByMessageId(
+			[row("msg-1", "m-archive"), row("msg-1", "m-custom")],
+			isVirtual,
+		);
+
+		assert.deepEqual(
+			deduped.map((r) => r.mailboxId),
+			["m-archive"],
+		);
+	});
+
+	test("distinct messages are all kept, in order", () => {
+		const deduped = dedupeByMessageId(
+			[
+				row("msg-1", "m-inbox"),
+				row("msg-2", "m-archive"),
+				row("msg-3", "m-junk"),
+			],
+			isVirtual,
+		);
+
+		assert.deepEqual(
+			deduped.map((r) => r.messageId),
+			["msg-1", "msg-2", "msg-3"],
+		);
+	});
+
+	test("an empty page stays empty", () => {
+		assert.deepEqual(dedupeByMessageId([], isVirtual), []);
 	});
 });
 

@@ -72,6 +72,44 @@ const resultSections: SearchResultSection[] = [
 	{ id: "related", label: "Related", results: related },
 ];
 
+/**
+ * Matches from outside the inbox — Archive, Sent, Spam and a custom folder.
+ * These are the rows an unscoped search returns that an INBOX-only one could
+ * not, so they only ever appear under the brief's sections.
+ */
+const crossFolderMatches: SearchResult[] = [
+	{
+		id: "x1",
+		sender: "Mollie",
+		subject: "Invoice 2026-02 — archived",
+		snippet: "Filed to Archive last month; payment already settled.",
+		date: "Feb 24",
+		category: { label: "Receipt", tone: "positive" },
+	},
+	{
+		id: "x2",
+		sender: "me",
+		subject: "Re: invoice query",
+		snippet: "Sent — attaching the invoice you asked for.",
+		date: "Feb 18",
+	},
+	{
+		id: "x3",
+		sender: "billing@unknown-vendor.test",
+		subject: "URGENT invoice attached",
+		snippet: "Marked as spam, but it is the invoice the user is looking for.",
+		date: "Feb 11",
+		category: { label: "Spam", tone: "warning" },
+	},
+	{
+		id: "x4",
+		sender: "Accountant",
+		subject: "Invoices for the quarter",
+		snippet: "Filed under Projects/Bookkeeping.",
+		date: "Jan 30",
+	},
+];
+
 const emptySections: SearchResultSection[] = [
 	{ id: "top", label: "Top matches", results: [] },
 ];
@@ -109,6 +147,50 @@ export const Loading: Story = {
 /** Empty query: recent searches (the list pane shows the normal list instead). */
 export const Idle: Story = {
 	render: () => <Harness value="" recentSearches={recentSearches} />,
+};
+
+/**
+ * The daily brief's unscoped search: no scope chip in the bar, and the literal
+ * section carries matches from every folder — Archive, Sent, Spam and custom
+ * folders alongside the inbox. Before the listing behind it took a search mode
+ * it could only ever return inbox mail, so this section was silently narrower
+ * than the bar promised.
+ *
+ * The rows themselves do not say which folder they came from; the sections are
+ * ordered newest first regardless of where each message is filed.
+ */
+export const UnscopedAcrossFolders: Story = {
+	render: () => (
+		<Harness
+			value="invoice"
+			sections={[
+				{
+					id: "top",
+					label: "Top matches",
+					results: [...topMatches, ...crossFolderMatches],
+				},
+				{ id: "related", label: "Related", results: related },
+			]}
+		/>
+	),
+};
+
+/**
+ * A scoped view (a mailbox route, its `in:` chip in the bar). Both sections are
+ * scoped to that folder and take the kit's default labels — the semantic
+ * section used to run unscoped here under an "Everywhere" heading, which
+ * contradicted the chip the same bar was showing.
+ */
+export const ScopedToOneFolder: Story = {
+	render: () => (
+		<Harness
+			value="invoice"
+			sections={[
+				{ id: "top", label: "Top matches", results: topMatches.slice(0, 2) },
+				{ id: "related", label: "Related", results: related.slice(0, 1) },
+			]}
+		/>
+	),
 };
 
 /** Typed filter tokens (`from:`, `has:attachment`, …) render as removable chips above the sections. */
