@@ -1,9 +1,12 @@
 import type { StorybookConfig } from "@storybook/react-vite";
 
 const config: StorybookConfig = {
-	// Glob remit-ui's co-located stories plus the workbench flow stories.
+	// Glob remit-ui's co-located stories, the web-client's co-located stories
+	// (leaf presentational components with no shell/router dependency), and
+	// the workbench flow stories.
 	stories: [
 		"../../ui/src/**/*.stories.@(ts|tsx)",
+		"../../web-client/src/**/*.stories.@(ts|tsx)",
 		"../src/**/*.stories.@(ts|tsx)",
 	],
 	addons: [],
@@ -31,6 +34,10 @@ const config: StorybookConfig = {
 			"@remit/ui": fileURLToPath(
 				new URL("../../ui/src/index.ts", import.meta.url),
 			),
+			// web-client stories (e.g. ConfirmDialog) use its own "@/" alias for
+			// in-package imports — mirrors `webClientAlias()` in
+			// packages/web-client/vite.base.ts, which Storybook doesn't load.
+			"@": fileURLToPath(new URL("../../web-client/src", import.meta.url)),
 		};
 		return config;
 	},

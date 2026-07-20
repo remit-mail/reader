@@ -93,3 +93,18 @@ export const SelectionModeAllChecked: Story = {
 export const SelectionModeNoneChecked: Story = {
 	args: { selectionMode: true, checkedIds: new Set<string>() },
 };
+
+/**
+ * A bulk delete is running against the checked rows: they stay checked but
+ * dim, and stop responding to taps — no more opening a message that's
+ * mid-delete. Pairs with `SelectionTopBar`'s `DeletingWithProgress` story.
+ */
+export const SelectionModeBusy: Story = {
+	args: {
+		selectionMode: true,
+		checkedIds: new Set(
+			sections.flatMap((section) => section.threads.map((t) => t.id)),
+		),
+		busy: true,
+	},
+};

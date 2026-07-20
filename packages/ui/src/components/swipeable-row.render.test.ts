@@ -103,4 +103,33 @@ describe("SwipeableRow", () => {
 		assert.doesNotMatch(html, /<a /);
 		assert.match(html, /<button[^>]*>/);
 	});
+
+	it("gives the row checkbox semantics while in selection mode", () => {
+		const checked = render("none", { selectionMode: true, checked: true });
+		assert.match(checked, /role="checkbox"/);
+		assert.match(checked, /aria-checked="true"/);
+
+		const unchecked = render("none", { selectionMode: true, checked: false });
+		assert.match(unchecked, /aria-checked="false"/);
+	});
+
+	it("does not put checkbox semantics on the outer row outside selection mode", () => {
+		// Outside selection mode the row's own open control (the outer button)
+		// stays a plain button — only the nested leading-avatar toggle carries
+		// checkbox semantics, asserted separately below.
+		const html = render("none");
+		const outerTag = html.match(
+			/^<div class="relative overflow-hidden"><button type="button"[^>]*>/,
+		)?.[0];
+		assert.ok(outerTag, "outer row button found");
+		assert.doesNotMatch(outerTag as string, /role="checkbox"/);
+	});
+
+	it("renders the leading avatar as a focusable checkbox-role toggle outside selection mode", () => {
+		const html = render("none");
+		assert.match(
+			html,
+			/role="checkbox"[^>]*aria-label="Select message from Alex Rivera"/,
+		);
+	});
 });

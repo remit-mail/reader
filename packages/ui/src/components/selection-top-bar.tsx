@@ -1,13 +1,28 @@
 import { Loader2, MailOpen, Trash2, X } from "lucide-react";
 import type { ReactNode } from "react";
+import { Banner, type BannerTone } from "./banner.js";
 import { Button } from "./button.js";
 import { Checkbox } from "./checkbox.js";
+import { ProgressBar } from "./progress-bar.js";
+
+const formatCount = (n: number): string => n.toLocaleString();
+
+export interface SelectionTopBarNoticeAction {
+	label: string;
+	onClick: () => void;
+}
+
+export interface SelectionTopBarNotice {
+	tone: BannerTone;
+	text: string;
+	action?: SelectionTopBarNoticeAction;
+}
 
 export interface SelectionTopBarProps {
 	count: number;
 	onCancel: () => void;
 	onDelete: () => void;
-	/** Optional — hide the mark-read button when omitted. */
+	/** Optional — hide the mark-read button when omitted, or while `isBusy`. */
 	onMarkRead?: () => void;
 	/**
 	 * Slot for a move-to-folder trigger. Rendered between mark-read and delete.
@@ -15,20 +30,22 @@ export interface SelectionTopBarProps {
 	 */
 	moveSlot?: ReactNode;
 	/**
-	 * Cross-account hint surfaced below the action row. When set, Move is
-	 * expected to be suppressed by the caller (via moveSlot).
-	 */
-	moveDisabledHint?: string;
-	/**
 	 * True while a delete or move mutation is in flight. The delete button
-	 * shows a spinner; other actions no-op. Never disables controls.
+	 * shows a spinner and mark-read is hidden (never disabled — nothing here
+	 * disables, states that can't act are hidden instead).
 	 */
 	isBusy?: boolean;
+	/**
+	 * True while a search result set is still paging to find its total. Hides
+	 * delete — the count it would act on isn't known yet.
+	 */
+	isCounting?: boolean;
 	/**
 	 * Select-all control rendered between cancel and the count label. Presence
 	 * of this prop is what renders the checkbox — omit it for a bar with no
 	 * select-all affordance. `indeterminate` renders the some-selected tri-state
-	 * (`Checkbox`'s dash), `checked` is the all-selected state.
+	 * (`Checkbox`'s dash), `checked` is the all-selected state. The checkbox
+	 * itself stays visually small; a wrapping 44px hit area makes it tappable.
 	 */
 	selectAll?: {
 		checked: boolean;
@@ -36,18 +53,31 @@ export interface SelectionTopBarProps {
 		onChange: () => void;
 	};
 	/**
-	 * Overrides the "{count} messages selected" text. For states where the
-	 * count itself isn't the useful thing to show yet — "Counting…" while a
-	 * search result set is still paging, or "Deleting 1,200 of 3,412…" progress
-	 * during a bulk delete.
+	 * Overrides the default "{count} messages selected" text. Required once the
+	 * count's scope is anything other than "every loaded row is selected" —
+	 * an escalated selection ("All 3,412 matching \"npm\" selected"), a
+	 * counting state ("Counting… 1,900 so far"), or bulk-delete progress
+	 * ("Deleting 1,200 of 3,412…"). When `selectAll.checked` is true and this
+	 * is omitted, the default text names the loaded-scope itself ("All 47
+	 * loaded selected") rather than a bare count — a ticked select-all box
+	 * next to a bare number reads as "everything", which is only true for the
+	 * escalated case.
 	 */
 	statusLabel?: string;
 	/**
-	 * Danger-toned status line below the action row, for a partial failure
-	 * after a bulk operation (e.g. some batches failed to delete). Independent
-	 * of `moveDisabledHint` — a caller shows one or the other, never both.
+	 * Determinate progress for a bulk operation in flight (e.g. a chunked
+	 * delete). Renders a `ProgressBar` below the action row. Independent of
+	 * `notice` — a caller can show progress and a notice at the same time.
 	 */
-	failureHint?: string;
+	progress?: { value: number; max: number; tone?: BannerTone };
+	/**
+	 * Toned status line below the action row, sometimes carrying an action
+	 * button — a cross-account move restriction, a "Select all N matching…"
+	 * escalation, a "Stop" during counting, or a partial-failure "Retry N".
+	 * Replaces the old `moveDisabledHint`/`failureHint` pair: a caller shows
+	 * at most one notice at a time.
+	 */
+	notice?: SelectionTopBarNotice;
 }
 
 /**
@@ -60,83 +90,106 @@ export function SelectionTopBar({
 	onMarkRead,
 	onDelete,
 	moveSlot,
-	moveDisabledHint,
 	isBusy = false,
+	isCounting = false,
 	selectAll,
 	statusLabel,
-	failureHint,
+	progress,
+	notice,
 }: SelectionTopBarProps) {
+	const defaultLabel = selectAll?.checked
+		? `All ${formatCount(count)} loaded selected`
+		: `${formatCount(count)} ${count === 1 ? "message" : "messages"} selected`;
+
 	return (
 		<header className="flex shrink-0 flex-col border-b border-line bg-surface-sunken">
 			<div className="flex h-pane-header items-center gap-2 px-row-inset">
 				<Button
 					variant="ghost"
-					size="sm"
+					size="touch"
 					icon={<X className="size-4" />}
 					onClick={onCancel}
 					aria-label="Cancel selection"
-					className="-ml-1 shrink-0"
+					className="-ml-2 shrink-0"
 				/>
 				{selectAll && (
-					<Checkbox
-						aria-label="Select all"
-						checked={selectAll.checked}
-						indeterminate={selectAll.indeterminate}
-						onChange={selectAll.onChange}
-						className="shrink-0"
-					/>
+					// biome-ignore lint/a11y/noLabelWithoutControl: label wraps Checkbox's own input, giving the 20px control a real 44px hit area
+					<label className="-ml-1.5 flex size-11 shrink-0 cursor-pointer items-center justify-center">
+						<Checkbox
+							aria-label="Select all"
+							checked={selectAll.checked}
+							indeterminate={selectAll.indeterminate}
+							onChange={selectAll.onChange}
+						/>
+					</label>
 				)}
-				<span className="min-w-0 flex-1 truncate text-sm font-medium text-fg">
-					{statusLabel ??
-						`${count} ${count === 1 ? "message" : "messages"} selected`}
+				<span
+					className="min-w-0 flex-1 truncate text-sm font-medium text-fg"
+					role="status"
+					aria-live="polite"
+				>
+					{statusLabel ?? defaultLabel}
 				</span>
-				{onMarkRead && (
+				{onMarkRead && !isBusy && (
 					<Button
 						variant="ghost"
-						size="sm"
+						size="touch"
 						icon={<MailOpen className="size-4" />}
-						onClick={isBusy ? undefined : onMarkRead}
+						onClick={onMarkRead}
 						aria-label="Mark as read"
-						aria-busy={isBusy || undefined}
 						className="shrink-0"
 					/>
 				)}
 				{moveSlot}
-				<Button
-					variant="ghost"
-					size="sm"
-					icon={
-						isBusy ? (
-							<Loader2 className="size-4 animate-spin" />
-						) : (
-							<Trash2 className="size-4 text-danger" />
-						)
-					}
-					onClick={isBusy ? undefined : onDelete}
-					aria-label="Delete selected messages"
-					aria-busy={isBusy || undefined}
-					className="shrink-0"
-				/>
+				{!isCounting && (
+					<Button
+						variant="ghost"
+						size="touch"
+						icon={
+							isBusy ? (
+								<Loader2 className="size-4 animate-spin" />
+							) : (
+								<Trash2 className="size-4 text-danger" />
+							)
+						}
+						onClick={isBusy ? undefined : onDelete}
+						aria-label="Move selected messages to Trash"
+						aria-busy={isBusy || undefined}
+						className="ml-4 shrink-0"
+					/>
+				)}
 			</div>
-			{moveDisabledHint && (
-				// biome-ignore lint/a11y/useSemanticElements: <p> with role="status" preserves block layout; <output> is inline
-				<p
-					className="px-row-inset pb-2 text-xs text-fg-muted"
-					role="status"
-					aria-live="polite"
-				>
-					{moveDisabledHint}
-				</p>
+			{progress && (
+				<div className="px-row-inset pb-2">
+					<ProgressBar
+						value={progress.value}
+						max={progress.max}
+						tone={progress.tone}
+					/>
+				</div>
 			)}
-			{failureHint && (
-				// biome-ignore lint/a11y/useSemanticElements: <p> with role="status" preserves block layout; <output> is inline
-				<p
-					className="px-row-inset pb-2 text-xs text-danger"
+			{notice && (
+				<Banner
+					tone={notice.tone}
+					variant="soft"
 					role="status"
 					aria-live="polite"
+					className="mx-row-inset mb-2"
 				>
-					{failureHint}
-				</p>
+					<div className="flex items-center justify-between gap-2">
+						{notice.text && <span>{notice.text}</span>}
+						{notice.action && (
+							<Button
+								variant="ghost"
+								size="md"
+								onClick={notice.action.onClick}
+								className="-my-1 min-h-11 shrink-0"
+							>
+								{notice.action.label}
+							</Button>
+						)}
+					</div>
+				</Banner>
 			)}
 		</header>
 	);
