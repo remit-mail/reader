@@ -167,6 +167,7 @@ export {
 	type ParsedMessageContent,
 	parseMessageContent,
 } from "./message-parser.js";
+export { isMessageGoneFromOpenMailbox } from "./message-presence.js";
 export {
 	type ImapConnectionFactory,
 	MessageSyncService,

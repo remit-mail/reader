@@ -5,6 +5,7 @@ import {
 	guardConnectionCursor,
 	type IImapConnection,
 	isCursorRebuildNeeded,
+	isMessageGoneFromOpenMailbox,
 	MailboxCursorPausedError,
 	reconcileStaleMessage,
 	resolveExhaustedPlacementMoveFailure,
@@ -90,7 +91,8 @@ const searchMailboxByMessageId = async (
  *   gone (PR #1289 review finding 2) — deleting the local row on that
  *   ambiguity would be data loss. `not-found` is only returned once BOTH a
  *   destination Message-ID search (when the header is known) misses AND
- *   the message is confirmed absent from the source.
+ *   {@link isMessageGoneFromOpenMailbox} confirms the message absent from the
+ *   source — a FETCH returning no row does not, on its own, confirm anything.
  */
 export const attemptMove = async (
 	sourceConnection: IImapConnection,
@@ -135,8 +137,7 @@ export const attemptMove = async (
 	}
 
 	await sourceConnection.openBox(sourceMailboxPath, true);
-	const stillAtSource = await sourceConnection.fetchMessages([uid]);
-	if (stillAtSource.length > 0) {
+	if (!(await isMessageGoneFromOpenMailbox(sourceConnection, uid))) {
 		throw new Error(
 			"Placement move unresolved (unconfirmed at destination, still present at source) — retrying",
 		);

@@ -33,13 +33,21 @@ const buildLogger = (): {
 	};
 };
 
-const buildConnection = (present: Set<number>): IImapConnection =>
+const buildConnection = (
+	present: Set<number>,
+	fetchDrops: Set<number> = new Set(),
+): IImapConnection =>
 	({
 		openBox: async () => ({}) as never,
 		fetchMessages: async (uids: number[]) =>
 			uids
-				.filter((uid) => present.has(uid))
+				.filter((uid) => present.has(uid) && !fetchDrops.has(uid))
 				.map((uid) => ({ uid }) as unknown as never),
+		search: async (criteria: unknown[]) => {
+			const [, value] = (criteria as Array<[string, string]>)[0];
+			const uid = Number(value);
+			return present.has(uid) ? [uid] : [];
+		},
 	}) as unknown as IImapConnection;
 
 describe("resolveExhaustedPlacementMoveFailure — the two terminal outcomes (mirrors #1270 for placement moves)", () => {
@@ -146,6 +154,54 @@ describe("resolveExhaustedPlacementMoveFailure — the two terminal outcomes (mi
 			errors.some((e) => e.obj.alert === "placement_move_failed"),
 			"expected an alert-shaped log for the broken case",
 		);
+	});
+
+	it("a dropped FETCH row is not absence: the message is still at the source — marker and local rows survive", async () => {
+		const deletedMessages: string[] = [];
+		const deletedThreadMessages: unknown[] = [];
+		const markerDeletes: string[] = [];
+		const { log, errors } = buildLogger();
+
+		const deps: ResolveExhaustedPlacementMoveDeps = {
+			markerService: {
+				delete: async (id: string) => {
+					markerDeletes.push(id);
+				},
+			},
+			messageService: {
+				delete: async (id: string) => {
+					deletedMessages.push(id);
+				},
+			} as unknown as Pick<IMessageRepository, "delete">,
+			threadMessageService: {
+				findAllByMessageId: async () => [
+					{ accountConfigId: "cfg-1", threadMessageId: "tm-msg-live" },
+				],
+				deleteMany: async (keys: unknown[]) => {
+					deletedThreadMessages.push(...keys);
+				},
+			} as unknown as Pick<
+				IThreadMessageRepository,
+				"findAllByMessageId" | "deleteMany"
+			>,
+			log,
+		};
+
+		const result = await resolveExhaustedPlacementMoveFailure(deps, {
+			accountId: "acc-1",
+			accountConfigId: "cfg-1",
+			messageId: "msg-live",
+			uid: 303,
+			sourceMailboxPath: "INBOX",
+			getConnection: async () =>
+				buildConnection(new Set([303]), new Set([303])),
+		});
+
+		assert.equal(result.outcome, "broken");
+		assert.deepEqual(markerDeletes, []);
+		assert.deepEqual(deletedMessages, []);
+		assert.deepEqual(deletedThreadMessages, []);
+		assert.ok(errors.some((e) => e.obj.alert === "placement_move_failed"));
 	});
 
 	it("never throws — both outcomes are terminal, the caller always acks", async () => {

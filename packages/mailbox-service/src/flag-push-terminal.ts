@@ -1,4 +1,5 @@
 import type { FlagPushLogger } from "./flag-push.js";
+import { isMessageGoneFromOpenMailbox } from "./message-presence.js";
 import {
 	reconcileStaleMessage,
 	type StaleMessageReconcileDeps,
@@ -35,7 +36,8 @@ export interface ResolveExhaustedFlagPushResult {
  * (epic #1281 invariant 3) — no third, softer outcome.
  *
  * 1. RECONCILED (expected) — the message no longer exists at its mailbox on
- *    IMAP. Per invariant 2, an external delete supersedes the marker
+ *    IMAP, confirmed by {@link isMessageGoneFromOpenMailbox} rather than by a
+ *    FETCH coming back empty. Per invariant 2, an external delete supersedes the marker
  *    entirely: the marker is dropped and the stale Message/ThreadMessage rows
  *    are deleted via {@link reconcileStaleMessage}. Metric only, no alarm —
  *    routine.
@@ -65,9 +67,8 @@ export const resolveExhaustedFlagPushFailure = async (
 
 	const connection = await getConnection();
 	await connection.openBox(mailboxPath, true);
-	const found = await connection.fetchMessages([uid]);
 
-	if (found.length === 0) {
+	if (await isMessageGoneFromOpenMailbox(connection, uid)) {
 		await deps.markerService.delete(messageId, flagName);
 		const { threadMessagesDeleted } = await reconcileStaleMessage(
 			deps,

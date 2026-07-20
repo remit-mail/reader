@@ -1,3 +1,4 @@
+import { isMessageGoneFromOpenMailbox } from "./message-presence.js";
 import type { PlacementMoveLogger } from "./placement-move.js";
 import {
 	reconcileStaleMessage,
@@ -33,7 +34,8 @@ export interface ResolveExhaustedPlacementMoveResult {
  * taxonomy (epic #1281 invariant 3) — no third, softer outcome.
  *
  * 1. RECONCILED (expected) — the message no longer exists at its pending-move
- *    source on IMAP. Per invariant 2, an external delete supersedes the
+ *    source on IMAP, confirmed by {@link isMessageGoneFromOpenMailbox} rather
+ *    than by a FETCH coming back empty. Per invariant 2, an external delete supersedes the
  *    marker entirely: the marker is dropped and the stale Message/ThreadMessage
  *    rows are deleted via {@link reconcileStaleMessage}. This is also the
  *    outcome for the (rarer, functionally indistinguishable from here) case
@@ -65,9 +67,8 @@ export const resolveExhaustedPlacementMoveFailure = async (
 
 	const connection = await getConnection();
 	await connection.openBox(sourceMailboxPath);
-	const found = await connection.fetchMessages([uid]);
 
-	if (found.length === 0) {
+	if (await isMessageGoneFromOpenMailbox(connection, uid)) {
 		await deps.markerService.delete(messageId);
 		const { threadMessagesDeleted } = await reconcileStaleMessage(
 			deps,
