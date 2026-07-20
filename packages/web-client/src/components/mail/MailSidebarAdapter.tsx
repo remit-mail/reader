@@ -291,8 +291,16 @@ export function MailSidebarAdapter({
 	};
 
 	const handleSelectNav = () => {
-		// Navigation is handled by the router <Link>; this only runs the
-		// post-selection side effect (drawer auto-close on mobile).
+		// Navigation is handled by the router <Link>; this runs the
+		// post-selection side effects.
+		//
+		// Clearing the field is one of them. Every link above drops `q`, and the
+		// shell re-seeds the field from the destination's `q` when the path
+		// changes — but picking the folder you are already in does not change the
+		// path, so the shell sees nothing and the previous query would sit in the
+		// bar over a list that no longer has it in the URL. Selecting a nav entry
+		// is an unambiguous "show me this", so it clears here regardless.
+		onSearchChange("");
 		onMailboxSelect?.();
 	};
 

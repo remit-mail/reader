@@ -2,7 +2,7 @@ import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { useMailContext } from "@/lib/mail-context";
-import { type SearchScope, searchScopeForRoute } from "@/lib/search-scope";
+import { type SearchScopeState, searchScopeForRoute } from "@/lib/search-scope";
 import { useCurrentMailboxName } from "./useCurrentMailboxName";
 
 /**
@@ -15,7 +15,7 @@ import { useCurrentMailboxName } from "./useCurrentMailboxName";
  * leave the chip in place and the list still narrowed.
  */
 export function useSearchScope(accounts: RemitImapAccountResponse[]): {
-	scope: SearchScope | undefined;
+	scope: SearchScopeState;
 	clearScope: () => void;
 } {
 	const navigate = useNavigate();

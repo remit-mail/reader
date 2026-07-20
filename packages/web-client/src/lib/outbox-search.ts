@@ -7,10 +7,16 @@
  * and sender — because that is what the user can see to search for.
  *
  * Filter tokens (`from:`, `is:unread`, dates) are not honored: an outbox row
- * has no read state, no mailbox and no received date, so the operators would
- * silently match nothing. The free text is used and the tokens are dropped
- * with the rest of the parse, same as any engine that cannot serve them.
+ * has no read state, no mailbox and no received date, so the operators have
+ * nothing to read. Only the free text narrows, so `Q3 from:billing` still
+ * matches on "Q3".
+ *
+ * A query made only of tokens asks for a filter this view cannot apply, and
+ * there is no free text left to fall back on. Rather than return every row as
+ * if the filter had been honored, that case returns nothing and the list says
+ * why — see `outboxQueryIsUnsupported`.
  */
+import type { ParsedSearchQuery } from "./search-tokens";
 
 /** The outbox row fields a query is matched against. */
 export interface OutboxSearchRow {
@@ -40,4 +46,13 @@ export function matchesOutboxSearch(
 	return needle
 		.split(/\s+/)
 		.every((word) => word.length === 0 || haystack.includes(word));
+}
+
+/**
+ * True when the query is nothing but filter tokens. The outbox can serve none
+ * of them, and matching on the empty free text left over would return every
+ * row — indistinguishable from a filter that matched everything.
+ */
+export function outboxQueryIsUnsupported(parsed: ParsedSearchQuery): boolean {
+	return parsed.tokens.length > 0 && parsed.freeText.trim().length === 0;
 }

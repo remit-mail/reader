@@ -26,6 +26,13 @@ import { useGlobalCompose } from "@/hooks/useComposeTarget";
 import { useSearchScope } from "@/hooks/useSearchScope";
 import { tooltipForAction } from "@/lib/keymap";
 import { useMailContext } from "@/lib/mail-context";
+import type { SearchScopeState } from "@/lib/search-scope";
+
+const SEARCH_PLACEHOLDER: Record<SearchScopeState["kind"], string> = {
+	global: "Search all mail",
+	pending: "Search mail",
+	scoped: "Search this folder",
+};
 
 interface MailTopBarProps {
 	accounts: RemitImapAccountResponse[];
@@ -36,9 +43,14 @@ export function MailTopBar({ accounts }: MailTopBarProps) {
 		useMailContext();
 	const compose = useGlobalCompose(accounts);
 	const { scope, clearScope } = useSearchScope(accounts);
-	const chips = scope
-		? [{ id: scope.id, label: scope.label, tone: "scope" as const }]
-		: undefined;
+	const chips =
+		scope.kind === "scoped"
+			? [{ id: scope.chip.id, label: scope.chip.label, tone: "scope" as const }]
+			: undefined;
+	// Only the brief may claim to search all mail. A mailbox route whose name has
+	// not loaded yet has no chip to show but is already narrowed, so it gets the
+	// neutral wording rather than a placeholder that asserts the wrong scope.
+	const placeholder = SEARCH_PLACEHOLDER[scope.kind];
 
 	return (
 		<AppTopBar
@@ -55,7 +67,7 @@ export function MailTopBar({ accounts }: MailTopBarProps) {
 					onClearQuery={onSearchClearQuery}
 					chips={chips}
 					onRemoveChip={clearScope}
-					placeholder={scope ? "Search this folder" : "Search all mail"}
+					placeholder={placeholder}
 					size="lg"
 				/>
 			}

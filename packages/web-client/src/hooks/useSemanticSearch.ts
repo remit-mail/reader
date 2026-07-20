@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useMailContext } from "@/lib/mail-context";
 import { normalizeSearchQuery } from "@/lib/search-query";
 import { parseSearchTokens } from "@/lib/search-tokens";
+import { useSearchTokenContext } from "./useSearchTokenContext";
 
 /** Cap the "Related" section; the literal "Top matches" is the primary surface. */
 const SEMANTIC_RESULT_LIMIT = 20;
@@ -44,11 +45,10 @@ interface UseSemanticSearchParams {
  * account filter) — both still render as chips and narrow the literal engine,
  * but never reach the semantic request (`account:` is a documented gap, see
  * doc/design/flows/06-search.md — the semantic index is per account config).
- * `in:` resolves to a mailboxId and applies only where the caller has no scope
- * of its own, so typing `in:archive` re-scopes the search from the unscoped
- * daily brief but cannot contradict a scoped view: on a mailbox route the route
- * is the scope, the top bar's chip says so, and the two engines must not
- * disagree about which mailbox the results came from.
+ * `in:` resolves to a mailboxId, so typing `in:archive` re-scopes the search
+ * from the unscoped daily brief. It cannot contradict a scoped view because
+ * `useSearchTokenContext` does not resolve the term there at all — the term
+ * stays free text and no engine, and no chip, treats it as a filter.
  *
  * Without a `mailboxId` the request spans every mailbox of every account the
  * caller owns: the backend partitions the vector index by accountConfigId (one
@@ -61,12 +61,10 @@ export function useSemanticSearch({
 	hits: RemitImapSemanticSearchResult[];
 	isLoading: boolean;
 } {
-	const { searchQuery, mailboxNameIndex, accountNameIndex } = useMailContext();
+	const { searchQuery } = useMailContext();
+	const tokenContext = useSearchTokenContext();
 	const normalizedQuery = normalizeSearchQuery(searchQuery);
-	const { freeText, tokens } = parseSearchTokens(normalizedQuery, {
-		mailboxesByName: mailboxNameIndex,
-		accountsByName: accountNameIndex,
-	});
+	const { freeText, tokens } = parseSearchTokens(normalizedQuery, tokenContext);
 	const enabled = normalizedQuery.length > 0;
 
 	const category = toCategoryParam(filterCategory);

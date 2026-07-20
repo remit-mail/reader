@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { matchesOutboxSearch } from "./outbox-search";
+import { matchesOutboxSearch, outboxQueryIsUnsupported } from "./outbox-search";
+import { parseSearchTokens } from "./search-tokens";
 
 const row = {
 	subject: "Q3 Invoice",
@@ -39,5 +40,36 @@ describe("matchesOutboxSearch", () => {
 	it("tolerates rows with absent fields", () => {
 		assert.equal(matchesOutboxSearch({}, "anything"), false);
 		assert.equal(matchesOutboxSearch({}, ""), true);
+	});
+
+	it("matches the free text of a query that also carries a token", () => {
+		// The token is dropped, but what the user typed alongside it still
+		// searches — the row is not lost to an operator the outbox can't serve.
+		const { freeText } = parseSearchTokens("Q3 from:billing");
+		assert.equal(matchesOutboxSearch(row, freeText), true);
+	});
+});
+
+describe("outboxQueryIsUnsupported", () => {
+	it("is true for a query that is only tokens", () => {
+		assert.equal(
+			outboxQueryIsUnsupported(parseSearchTokens("from:billing")),
+			true,
+		);
+	});
+
+	it("is false when free text survives the parse", () => {
+		assert.equal(
+			outboxQueryIsUnsupported(parseSearchTokens("Q3 from:billing")),
+			false,
+		);
+	});
+
+	it("is false for plain free text", () => {
+		assert.equal(outboxQueryIsUnsupported(parseSearchTokens("invoice")), false);
+	});
+
+	it("is false for an empty query", () => {
+		assert.equal(outboxQueryIsUnsupported(parseSearchTokens("")), false);
 	});
 });
