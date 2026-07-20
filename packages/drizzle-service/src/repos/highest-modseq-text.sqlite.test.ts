@@ -46,22 +46,28 @@ const readModseq = (sqlite: Database.Database, path: string): unknown =>
 			.get(path) as { highest_modseq: unknown }
 	).highest_modseq;
 
-describe("mailbox.highest_modseq type correction (reader#73, sqlite)", () => {
+/** A database at the pre-migration DDL, seeded with the cursors under test. */
+const seeded = (): Database.Database => {
+	const sqlite = new Database(":memory:");
+	sqlite.exec(shippedTableDdl("0000_happy_roland_deschain", "mailbox"));
+	seed(sqlite, "INBOX", "900");
+	seed(sqlite, "Archive", "9007199254740995");
+	seed(sqlite, "Sent", "9223372036854775807");
+	return sqlite;
+};
+
+describe("mailbox.highest_modseq before the correction (reader#73, sqlite)", () => {
 	let sqlite: Database.Database;
 
 	before(() => {
-		sqlite = new Database(":memory:");
-		sqlite.exec(shippedTableDdl("0000_happy_roland_deschain", "mailbox"));
-		seed(sqlite, "INBOX", "900");
-		seed(sqlite, "Archive", "9007199254740995");
-		seed(sqlite, "Sent", "9223372036854775807");
+		sqlite = seeded();
 	});
 
 	after(() => {
 		sqlite.close();
 	});
 
-	test("the pre-migration column reads back a higher cursor than it stores", () => {
+	test("the column reads back a higher cursor than it stores", () => {
 		// 2^53 + 3 has no double representation and rounds to 2^53 + 4, still
 		// plain digits and still past every check a caller makes. A cursor that
 		// reads higher than it was written claims work that was never applied,
@@ -73,10 +79,24 @@ describe("mailbox.highest_modseq type correction (reader#73, sqlite)", () => {
 		const max = readModseq(sqlite, "Sent");
 		assert.equal(BigInt(String(max)) > 9223372036854775807n, true);
 	});
+});
+
+describe("mailbox.highest_modseq type correction (reader#73, sqlite)", () => {
+	let sqlite: Database.Database;
+
+	// A database of its own, migrated in setup: every test here asserts against
+	// the post-migration state and none of them mutates the schema, so the suite
+	// holds whatever order or concurrency the runner chooses.
+	before(() => {
+		sqlite = seeded();
+		applyMigration(sqlite, "0003_highest_modseq_text");
+	});
+
+	after(() => {
+		sqlite.close();
+	});
 
 	test("converts the column to text", () => {
-		applyMigration(sqlite, "0003_highest_modseq_text");
-
 		const columns = sqlite
 			.prepare("PRAGMA table_info(mailbox)")
 			.all() as Array<{
@@ -123,9 +143,15 @@ describe("mailbox.highest_modseq type correction (reader#73, sqlite)", () => {
 	});
 
 	test("a non-numeric resumable cursor stores and reads back unchanged", () => {
-		sqlite.exec(
-			"UPDATE mailbox SET highest_modseq = '18446744073709551615:149' WHERE full_path = 'INBOX'",
-		);
-		assert.strictEqual(readModseq(sqlite, "INBOX"), "18446744073709551615:149");
+		const own = seeded();
+		applyMigration(own, "0003_highest_modseq_text");
+		try {
+			own.exec(
+				"UPDATE mailbox SET highest_modseq = '18446744073709551615:149' WHERE full_path = 'INBOX'",
+			);
+			assert.strictEqual(readModseq(own, "INBOX"), "18446744073709551615:149");
+		} finally {
+			own.close();
+		}
 	});
 });

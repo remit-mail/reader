@@ -5,11 +5,10 @@ import {
 	generateSQLiteDrizzleJson,
 	generateSQLiteMigration,
 } from "drizzle-kit/api";
-import * as schemaFullSqlite from "./schema-full-sqlite.js";
 
 /**
- * The committed SQLite entity migrations must describe the same schema the
- * entity package declares.
+ * Every committed SQLite migration set must describe the schema its drizzle
+ * source declares.
  *
  * Nothing else checked this. The previous guard shelled out to
  * `npm-scripts/check-vps-migrations.mjs`, which is stripped from this tree, so
@@ -21,54 +20,71 @@ import * as schemaFullSqlite from "./schema-full-sqlite.js";
  * a wrong declaration corrupts values instead of rejecting them.
  *
  * This is the same diff `drizzle-kit generate` takes, run in-process against
- * the latest committed snapshot. A non-empty result means someone changed the
- * entities without regenerating:
+ * each set's latest committed snapshot. A non-empty result means someone
+ * changed a schema without regenerating:
  *
- *   npx drizzle-kit generate --config deploy/vps/migrate/drizzle.entities.sqlite.config.ts
+ *   npx drizzle-kit generate --config <the config named below>
+ *
+ * The schema and output paths come from the configs themselves, so a set stays
+ * covered when either moves.
  */
 
-const MIGRATIONS_DIR = new URL(
-	"../../../deploy/vps/migrations-sqlite/entities/",
-	import.meta.url,
-);
+const REPO_ROOT = new URL("../../../", import.meta.url);
 
-const latestSnapshot = (): Record<string, unknown> => {
+const CONFIGS = [
+	"deploy/vps/migrate/drizzle.entities.sqlite.config.ts",
+	"deploy/vps/migrate/drizzle.auth.sqlite.config.ts",
+];
+
+type DrizzleConfig = { schema: string; out: string };
+
+const loadConfig = async (path: string): Promise<DrizzleConfig> =>
+	(
+		(await import(new URL(path, REPO_ROOT).href)) as {
+			default: DrizzleConfig;
+		}
+	).default;
+
+const latestSnapshot = (out: string): Record<string, unknown> => {
+	const dir = new URL(`${out}/`, REPO_ROOT);
 	const journal = JSON.parse(
-		readFileSync(new URL("meta/_journal.json", MIGRATIONS_DIR), "utf8"),
+		readFileSync(new URL("meta/_journal.json", dir), "utf8"),
 	) as { entries: Array<{ idx: number }> };
 	const idx = Math.max(...journal.entries.map((entry) => entry.idx));
 	return JSON.parse(
 		readFileSync(
-			new URL(
-				`meta/${String(idx).padStart(4, "0")}_snapshot.json`,
-				MIGRATIONS_DIR,
-			),
+			new URL(`meta/${String(idx).padStart(4, "0")}_snapshot.json`, dir),
 			"utf8",
 		),
 	) as Record<string, unknown>;
 };
 
-describe("committed sqlite entity migrations", () => {
-	test("describe the schema the entities declare", async () => {
-		const fresh = await generateSQLiteDrizzleJson(
-			schemaFullSqlite as unknown as Record<string, unknown>,
-		);
-		const drift = await generateSQLiteMigration(
-			latestSnapshot() as unknown as Parameters<
-				typeof generateSQLiteMigration
-			>[0],
-			fresh,
-		);
+describe("committed sqlite migrations", () => {
+	for (const configPath of CONFIGS) {
+		test(`${configPath} — the set matches its schema`, async () => {
+			const config = await loadConfig(configPath);
+			const schema = (await import(
+				new URL(config.schema, REPO_ROOT).href
+			)) as Record<string, unknown>;
 
-		assert.deepEqual(
-			drift,
-			[],
-			"the committed migrations no longer match the entity schema — regenerate them with drizzle-kit generate",
-		);
-	});
+			const drift = await generateSQLiteMigration(
+				latestSnapshot(config.out) as unknown as Parameters<
+					typeof generateSQLiteMigration
+				>[0],
+				await generateSQLiteDrizzleJson(schema),
+			);
 
-	test("declare mailbox.highest_modseq as text", () => {
-		const snapshot = latestSnapshot() as {
+			assert.deepEqual(
+				drift,
+				[],
+				`the committed migrations in ${config.out} no longer match ${config.schema} — regenerate them with drizzle-kit generate`,
+			);
+		});
+	}
+
+	test("declare mailbox.highest_modseq as text", async () => {
+		const { out } = await loadConfig(CONFIGS[0]);
+		const snapshot = latestSnapshot(out) as {
 			tables: Record<
 				string,
 				{ columns: Record<string, { type: string; notNull: boolean }> }
