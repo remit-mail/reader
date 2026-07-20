@@ -60,6 +60,20 @@ describe("QuarantineBugDialog", () => {
 		assert.match(html, /Copy report/);
 	});
 
+	it("never renders the parser's own error text into the report", () => {
+		const html = renderToString(
+			createElement(QuarantineBugDialog, {
+				entry: base,
+				onClose: noop,
+				onCopy: noop,
+				issueUrl: ISSUE_URL,
+			}),
+		);
+		// The row shows it; the report must not. Locked at the render boundary,
+		// which is where the regression would actually happen.
+		assert.doesNotMatch(html, /multipart boundary was never closed/);
+	});
+
 	it("files through the supplied url with hardened external rel", () => {
 		const html = renderToString(
 			createElement(QuarantineBugDialog, {

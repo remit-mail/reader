@@ -3,20 +3,46 @@ import type { FolderRole } from "./folder-role.js";
 /**
  * The pipeline step that refused the message.
  *
- * One member, because one member is what the sync path can actually reach
- * today: every `simpleParser` call in `body-sync.ts` parses the whole fetched
- * body in one frame, so a charset, MIME or address defect is not separable
- * from any other mailparser failure at the catch site.
+ * One member, because **no catch site on the sync path can currently tell a
+ * parse failure from an infrastructure failure**. The per-message frame in
+ * `body-sync.ts` wraps the S3 body write, the parsed-body cache write, the
+ * body-part `pMap` and DynamoDB upsert, the placement move (SQS + DynamoDB)
+ * and the label and counter writes, alongside the `simpleParser` call; only
+ * connection drops are filtered out of it.
  *
- * Stages are added as Phase 3 narrows those try blocks — never ahead of them.
- * A member no catch site can produce is worse than a missing one: it invites
- * Phase 3 to attribute a failure to it. The obvious candidates cannot fail at
- * all (an unparseable date falls back to INTERNALDATE, an unrecognized MIME
- * type maps to a safe default, addresses arrive pre-parsed in the ENVELOPE),
- * and the attachment path's only failure surface is an S3 write, which must
- * never be quarantined.
+ * **Precondition on Phase 3**: narrow the try block to the parse call before
+ * quarantining anything. Quarantining at the frame as it stands would set a
+ * message aside for a DynamoDB throttle, tell the user it was unreadable, and
+ * invite a public GitHub issue for an outage — the same defect as naming an
+ * S3 write `AttachmentExtract`, one layer up.
+ *
+ * There are three distinct parse sites, and a quarantine would have to
+ * attribute them differently: the fresh-fetch path, `backfillClassification`
+ * (its own parse over a different result list), and the header parse in
+ * `imapflow-connection.ts`, which is swallowed and treated as "no thread
+ * parent". Stages are added as those sites are separated — never ahead of it.
+ *
+ * The stages this replaced could not fire at all: an unparseable Date falls
+ * back to INTERNALDATE, and an unrecognized MIME type maps to a safe default
+ * rather than throwing. Unparseable addresses are dropped with a `continue`
+ * and the message is written anyway — so that defect is reached but discarded,
+ * never raised, which is a reason to have no `AddressParse` stage but not the
+ * reason that it cannot happen.
  */
 export type QuarantineFailureStage = "BodyParse";
+
+/**
+ * The specific defect within a stage.
+ *
+ * Closed, because `quarantineIssueTitle` interpolates it into a public issue
+ * title: a `string` here would make the one field whose publishability is
+ * asserted rather than derived into free text. Grows with the narrowing
+ * described on `QuarantineFailureStage`, and no faster.
+ */
+export type QuarantineFailureCode =
+	| "UnterminatedMultipartBoundary"
+	| "UnknownCharset"
+	| "TruncatedBody";
 
 /**
  * A node in the message's MIME tree.
@@ -51,8 +77,7 @@ export interface QuarantineEntry {
 	/** The user's own folder name. Shown on screen, withheld from the report. */
 	mailboxPath: string;
 	failureStage: QuarantineFailureStage;
-	/** Closed vocabulary, so it is provably safe to publish. */
-	failureCode: string;
+	failureCode: QuarantineFailureCode;
 	/** Parser error text. Shown on screen, never in the report. */
 	failureMessage: string;
 	/**
@@ -96,8 +121,33 @@ function stripParameters(contentType: string): string {
 	return contentType.split(";")[0].trim();
 }
 
+/** RFC 2045 token characters — what a charset or encoding is allowed to be. */
+const TOKEN = /^[A-Za-z0-9!#$%&'*+._-]+$/;
+const MEDIA_TYPE = /^[A-Za-z0-9!#$%&'*+._-]+\/[A-Za-z0-9!#$%&'*+._-]+$/;
+
+/**
+ * `charset`, `transferEncoding` and `contentType` are BODYSTRUCTURE strings —
+ * arbitrary quoted text chosen by whoever sent the message, echoed into an
+ * issue filed under the user's own account. A conforming value renders as
+ * itself; anything else is JSON-escaped, so newlines and backticks cannot
+ * close the code span and inject markdown. The malformed value is kept rather
+ * than dropped, because a malformed value is usually the bug.
+ */
+function renderToken(value: string, pattern: RegExp): string {
+	if (pattern.test(value)) return `\`${value}\``;
+	const escaped = JSON.stringify(value).replace(/`/g, "\\u0060");
+	return `\`${escaped}\` (malformed)`;
+}
+
+/** Inside a fence the only escape is a lone fence line, so tokens are enough. */
+function renderNodeType(contentType: string): string {
+	const stripped = stripParameters(contentType);
+	if (MEDIA_TYPE.test(stripped)) return stripped;
+	return JSON.stringify(stripped);
+}
+
 function renderStructure(node: QuarantineMimeNode, depth = 0): string[] {
-	const line = `${"  ".repeat(depth)}- ${stripParameters(node.contentType)}`;
+	const line = `${"  ".repeat(depth)}- ${renderNodeType(node.contentType)}`;
 	const children = node.parts ?? [];
 	return [
 		line,
@@ -105,14 +155,30 @@ function renderStructure(node: QuarantineMimeNode, depth = 0): string[] {
 	];
 }
 
+export const QUARANTINE_REPORT_DISCLAIMER =
+	"_No message content, addresses, subject, attachment names or parser output are included._";
+
 /**
- * The report body, rendered from the record alone so the user can read the
- * whole thing before anything leaves the machine. This is a section a bug
- * report carries — URL budgeting and the repository constant belong to the
- * app's shared bug-report helper, not here.
+ * The report split into the parts a bug report assembles.
+ *
+ * `structure` is the only unbounded section, so it is handed over unfenced:
+ * the URL budget truncates it and fences it afterwards, the same shape a
+ * stacktrace already uses. Fencing here instead would let the binary search
+ * cut inside the fence, leaving every following section rendered inside one
+ * code block — and the first line lost would be the disclaimer, so the one
+ * report that is truncated would be the one with no statement of what was
+ * withheld.
  */
-export function formatQuarantineReport(entry: QuarantineEntry): string {
-	return [
+export interface QuarantineReportSections {
+	head: string;
+	structure: string;
+	disclaimer: string;
+}
+
+export function quarantineReportSections(
+	entry: QuarantineEntry,
+): QuarantineReportSections {
+	const head = [
 		`### Message quarantined at \`${entry.failureStage}\``,
 		"",
 		`- **Failure**: \`${entry.failureCode}\``,
@@ -124,19 +190,29 @@ export function formatQuarantineReport(entry: QuarantineEntry): string {
 		"",
 		"#### Message shape",
 		"",
-		`- **Content-Type**: \`${stripParameters(entry.contentType)}\``,
-		`- **Content-Transfer-Encoding**: \`${entry.transferEncoding}\``,
-		`- **Charset**: ${entry.charset === null ? "_not declared_" : `\`${entry.charset}\``}`,
+		`- **Content-Type**: ${renderToken(stripParameters(entry.contentType), MEDIA_TYPE)}`,
+		`- **Content-Transfer-Encoding**: ${renderToken(entry.transferEncoding, TOKEN)}`,
+		`- **Charset**: ${entry.charset === null ? "_not declared_" : renderToken(entry.charset, TOKEN)}`,
 		`- **Size**: ${entry.sizeBytes} bytes`,
 		"",
 		"MIME structure:",
-		"",
-		"```",
-		...renderStructure(entry.structure),
-		"```",
-		"",
-		"_No message content, addresses, subject, attachment names or parser output are included._",
 	].join("\n");
+
+	return {
+		head,
+		structure: renderStructure(entry.structure).join("\n"),
+		disclaimer: QUARANTINE_REPORT_DISCLAIMER,
+	};
+}
+
+/**
+ * The whole report as one string — what the dialog shows and the copy action
+ * copies. The published issue is assembled from the sections instead, so that
+ * a long MIME tree can be truncated without breaking the fence.
+ */
+export function formatQuarantineReport(entry: QuarantineEntry): string {
+	const { head, structure, disclaimer } = quarantineReportSections(entry);
+	return [head, "", "```", structure, "```", "", disclaimer].join("\n");
 }
 
 /** Issue title. Closed vocabulary only, so it is safe to publish. */

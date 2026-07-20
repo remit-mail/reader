@@ -3,8 +3,10 @@ import { describe, it } from "node:test";
 import { quarantineDemoEntries } from "./quarantine-fixtures.js";
 import {
 	formatQuarantineReport,
+	QUARANTINE_REPORT_DISCLAIMER,
 	type QuarantineEntry,
 	quarantineIssueTitle,
+	quarantineReportSections,
 	quarantineSummary,
 } from "./quarantine-report.js";
 
@@ -72,6 +74,63 @@ describe("formatQuarantineReport", () => {
 	it("marks an undeclared charset rather than omitting it", () => {
 		const report = formatQuarantineReport({ ...entry, charset: null });
 		assert.match(report, /Charset.*not declared/);
+	});
+});
+
+describe("sender-controlled BODYSTRUCTURE strings", () => {
+	// charset, transferEncoding and contentType are arbitrary quoted strings
+	// chosen by whoever sent the message, echoed into an issue filed under the
+	// user's own account. They are hostile input.
+	const injection = "`\n\n**Click here:** https://evil.example\n\n`";
+
+	it("cannot break out of the code span and inject markdown", () => {
+		const report = formatQuarantineReport({ ...entry, charset: injection });
+		const line = report.split("\n").find((l) => l.startsWith("- **Charset**:"));
+		assert.ok(line, "Expected a charset line");
+		// Neutralised, not deleted: the payload survives as literal text inside
+		// a code span, which needs the value to carry no raw newline and no
+		// backtick beyond the two delimiters.
+		assert.equal((line.match(/`/g) ?? []).length, 2);
+		assert.doesNotMatch(report, /^\s*\*\*Click here:\*\*/m);
+	});
+
+	it("keeps the malformed value visible, since it is usually the bug", () => {
+		const report = formatQuarantineReport({ ...entry, charset: injection });
+		assert.match(report, /malformed/);
+		assert.match(report, /evil\.example/);
+	});
+
+	it("renders a conforming value as itself", () => {
+		const report = formatQuarantineReport({ ...entry, charset: "utf-8" });
+		assert.match(report, /\*\*Charset\*\*: `utf-8`/);
+		assert.doesNotMatch(report, /malformed/);
+	});
+
+	it("keeps a hostile node type from closing the MIME fence", () => {
+		const report = formatQuarantineReport({
+			...entry,
+			structure: {
+				contentType: "multipart/mixed",
+				parts: [{ contentType: "```\n## Injected heading" }],
+			},
+		});
+		assert.equal((report.match(/^```/gm) ?? []).length, 2);
+		assert.doesNotMatch(report, /^## Injected heading/m);
+	});
+});
+
+describe("quarantineReportSections", () => {
+	it("hands the MIME tree over unfenced, so it can be truncated safely", () => {
+		const { head, structure, disclaimer } = quarantineReportSections(entry);
+		assert.doesNotMatch(structure, /```/);
+		assert.doesNotMatch(head, /```/);
+		assert.equal(disclaimer, QUARANTINE_REPORT_DISCLAIMER);
+	});
+
+	it("assembles back into the fenced report the dialog shows", () => {
+		const report = formatQuarantineReport(entry);
+		assert.equal((report.match(/^```/gm) ?? []).length, 2);
+		assert.ok(report.endsWith(QUARANTINE_REPORT_DISCLAIMER));
 	});
 });
 

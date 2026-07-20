@@ -5,7 +5,8 @@ import { quarantineDemoEntries } from "./quarantine-fixtures.js";
 import type { QuarantineEntry } from "./quarantine-report.js";
 import { QuarantineSection } from "./quarantine-section.js";
 
-const [mimeStructure, charsetDecode, truncated] = quarantineDemoEntries;
+const [unterminatedBoundary, unknownCharset, truncatedBody] =
+	quarantineDemoEntries;
 
 /**
  * Stands in for the app's shared bug-report helper, which owns the URL budget
@@ -35,11 +36,11 @@ export const Empty: Story = {
 };
 
 export const OneEntry: Story = {
-	args: { entries: [mimeStructure] },
+	args: { entries: [unterminatedBoundary] },
 };
 
 export const AlertState: Story = {
-	args: { entries: [mimeStructure, charsetDecode, truncated] },
+	args: { entries: [unterminatedBoundary, unknownCharset, truncatedBody] },
 };
 
 export const CutABugFlow: Story = {
@@ -64,7 +65,7 @@ export const CutABugFlow: Story = {
 export const BugReport: Story = {
 	render: () => (
 		<QuarantineBugDialog
-			entry={mimeStructure}
+			entry={unterminatedBoundary}
 			issueUrl={demoIssueUrl}
 			onClose={() => {}}
 			onCopy={() => {}}

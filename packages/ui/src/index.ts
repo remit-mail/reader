@@ -255,10 +255,14 @@ export {
 export { quarantineDemoEntries } from "./components/quarantine-fixtures.js";
 export {
 	formatQuarantineReport,
+	QUARANTINE_REPORT_DISCLAIMER,
 	type QuarantineEntry,
+	type QuarantineFailureCode,
 	type QuarantineFailureStage,
 	type QuarantineMimeNode,
+	type QuarantineReportSections,
 	quarantineIssueTitle,
+	quarantineReportSections,
 	quarantineSummary,
 } from "./components/quarantine-report.js";
 export {
