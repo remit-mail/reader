@@ -33,14 +33,21 @@ jobs:
             npm-scripts/lib/summary-check.sh npm-scripts/lib/tag-object-check.sh
 
       # No workspace install needed: these test only the pure decision
-      # functions in npm-scripts/lib/*.sh (built-in node:child_process,
-      # node:fs, node:test — no @remit/* or third-party imports).
+      # functions in the npm-scripts/lib/*.mjs suites (built-in
+      # node:child_process, node:fs, node:test — no @remit/* or third-party
+      # imports).
       - uses: actions/setup-node@v4
         with:
           node-version: 22
 
       - name: Release scripts — unit tests
         run: npm run test:release-scripts-guard
+
+      - name: Publish closure guard — unit tests
+        run: npm run test:closure-guard
+
+      - name: Patch guard — unit tests
+        run: npm run test:patch-guard
 
       - name: Manifests — JSON syntax
         run: |
