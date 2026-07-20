@@ -14,6 +14,12 @@
 # every image in the roster and fails before anything builds if the tag
 # already resolves — a botched release is fixed by cutting the next one.
 #
+# The trigger accepts any pushed v*.*.* tag, including one pushed by hand, so
+# the annotation gate is a step in this workflow rather than a check inside
+# npm-scripts/release-tag.sh. The tag's annotation is the summary shown
+# verbatim on the self-update consent screen; a lightweight tag has none, and
+# that surface has nothing legitimate to show.
+#
 # `:latest` belongs to main (see images.yml) and this workflow must not move
 # it, so images:publish runs here with PUSH_LATEST=0.
 #
@@ -45,6 +51,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
+
+      # First, before any registry work: a tag with no authored annotation is
+      # not a release, and nothing should be built for one.
+      - name: Refuse a tag with no authored summary
+        run: npm run release:check-annotation
+        env:
+          TAG: ${{ github.ref_name }}
 
       - uses: actions/setup-node@v4
         with:
