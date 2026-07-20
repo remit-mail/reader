@@ -20,16 +20,25 @@ function makeFixture(runtimeTargets, { withApisix = true } = {}) {
 function roster(fixtureDir) {
 	const out = execFileSync(
 		"bash",
-		["-c", 'cd "$1" && source "$2" && image_roster && printf "%s\\n" "${ALL_TARGETS[@]}"', "roster", fixtureDir, LIB],
+		[
+			"-c",
+			'cd "$1" && source "$2" && image_roster && printf "%s\\n" "${ALL_TARGETS[@]}"',
+			"roster",
+			fixtureDir,
+			LIB,
+		],
 		{ encoding: "utf8" },
 	);
 	return out.split("\n").filter(Boolean);
 }
 
 function assertNonemptyExitCode(fixtureDir) {
-	const script = 'cd "$1" && source "$2" && ALL_TARGETS=() && assert_roster_nonempty';
+	const script =
+		'cd "$1" && source "$2" && ALL_TARGETS=() && assert_roster_nonempty';
 	try {
-		execFileSync("bash", ["-c", script, "assert", fixtureDir, LIB], { encoding: "utf8" });
+		execFileSync("bash", ["-c", script, "assert", fixtureDir, LIB], {
+			encoding: "utf8",
+		});
 		return 0;
 	} catch (error) {
 		return error.status;
@@ -48,7 +57,12 @@ describe("image_roster", () => {
 		const fixture = makeFixture(["backend", "web", "smtp-worker"]);
 		try {
 			// docker/runtime/*/ globs in lexicographic order, not insertion order.
-			assert.deepEqual(roster(fixture), ["apisix", "backend", "smtp-worker", "web"]);
+			assert.deepEqual(roster(fixture), [
+				"apisix",
+				"backend",
+				"smtp-worker",
+				"web",
+			]);
 		} finally {
 			rmSync(fixture, { recursive: true, force: true });
 		}
@@ -88,7 +102,13 @@ describe("assert_roster_nonempty", () => {
 		try {
 			execFileSync(
 				"bash",
-				["-c", 'cd "$1" && source "$2" && image_roster && assert_roster_nonempty && echo ok', "assert", fixture, LIB],
+				[
+					"-c",
+					'cd "$1" && source "$2" && image_roster && assert_roster_nonempty && echo ok',
+					"assert",
+					fixture,
+					LIB,
+				],
 				{ encoding: "utf8" },
 			);
 		} finally {

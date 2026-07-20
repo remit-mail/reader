@@ -8,10 +8,7 @@
 import { readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-	findUnappliedPatches,
-	readPatches,
-} from "./lib/patches-applied.mjs";
+import { findUnappliedPatches, readPatches } from "./lib/patches-applied.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const patchDir = join(repoRoot, "patches");

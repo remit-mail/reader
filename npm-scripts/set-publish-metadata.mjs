@@ -59,7 +59,10 @@ for (const dir of workspaceDirs) {
 	manifest.repository = wanted.repository;
 
 	const trailing = raw.endsWith("\n") ? "\n" : "";
-	writeFileSync(path, JSON.stringify(manifest, null, detectIndent(raw)) + trailing);
+	writeFileSync(
+		path,
+		JSON.stringify(manifest, null, detectIndent(raw)) + trailing,
+	);
 	if (publishes) {
 		stamped += 1;
 		console.log(`stamped ${manifest.name}`);

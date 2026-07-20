@@ -168,9 +168,7 @@ async function main() {
 	// drops out automatically here instead of failing on the missing entry —
 	// the exported roster matches the reader's compose without editing this file.
 	const present = TARGETS.filter((t) => existsSync(t.entry));
-	const targets = only
-		? present.filter((t) => t.name === only)
-		: present;
+	const targets = only ? present.filter((t) => t.name === only) : present;
 	if (targets.length === 0) {
 		throw new Error(
 			only

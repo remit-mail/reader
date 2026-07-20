@@ -48,9 +48,8 @@ describe("parsePatch", () => {
 
 describe("findUnappliedPatches", () => {
 	test("a patched tree reports nothing", async () => {
-		const findings = await findUnappliedPatches(
-			patches,
-			async () => asFile(PATCHED_LINES),
+		const findings = await findUnappliedPatches(patches, async () =>
+			asFile(PATCHED_LINES),
 		);
 
 		assert.deepEqual(findings, []);
@@ -61,9 +60,8 @@ describe("findUnappliedPatches", () => {
 	// patch directory, so nothing failed, and the escapes stayed eaten all the
 	// way into the published images (#79).
 	test("an installed but unpatched package is reported", async () => {
-		const findings = await findUnappliedPatches(
-			patches,
-			async () => asFile(PUBLISHED_LINES),
+		const findings = await findUnappliedPatches(patches, async () =>
+			asFile(PUBLISHED_LINES),
 		);
 
 		assert.equal(findings.length, 1);

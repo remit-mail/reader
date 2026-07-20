@@ -21,7 +21,8 @@ const amplifyConfigStubUrl = `${stubsDir}amplify-config.mjs`;
 // web-client), so match either name; a check pinned to one drops every
 // transform in the other tree and the tests fail to load.
 const inWebClient = (url, sub) =>
-	url.includes(`/remit-web-client/${sub}`) || url.includes(`/web-client/${sub}`);
+	url.includes(`/remit-web-client/${sub}`) ||
+	url.includes(`/web-client/${sub}`);
 
 const isAppInfoSource = (url) => inWebClient(url, "src/lib/app-info.");
 

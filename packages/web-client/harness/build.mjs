@@ -24,7 +24,10 @@ const harnessDir = dirname(fileURLToPath(import.meta.url));
 const packageDir = resolve(harnessDir, "..");
 
 const parseArgs = (argv) => {
-	const args = { auth: process.env.REMIT_AUTH_PROVIDER ?? "combined", out: "dist" };
+	const args = {
+		auth: process.env.REMIT_AUTH_PROVIDER ?? "combined",
+		out: "dist",
+	};
 	for (let i = 0; i < argv.length; i += 1) {
 		if (argv[i] === "--auth") args.auth = argv[(i += 1)];
 		else if (argv[i] === "--out") args.out = argv[(i += 1)];
@@ -33,14 +36,28 @@ const parseArgs = (argv) => {
 };
 
 const PROVIDERS = {
-	combined: { specifier: "@remit/web-client/auth/combined", name: "combinedAuthProvider", cognitoCss: true },
-	cognito: { specifier: "@remit/web-client/auth/cognito", name: "cognitoAuthProvider", cognitoCss: true },
-	"better-auth": { specifier: "@remit/web-client/auth/better-auth", name: "betterAuthProvider", cognitoCss: false },
+	combined: {
+		specifier: "@remit/web-client/auth/combined",
+		name: "combinedAuthProvider",
+		cognitoCss: true,
+	},
+	cognito: {
+		specifier: "@remit/web-client/auth/cognito",
+		name: "cognitoAuthProvider",
+		cognitoCss: true,
+	},
+	"better-auth": {
+		specifier: "@remit/web-client/auth/better-auth",
+		name: "betterAuthProvider",
+		cognitoCss: false,
+	},
 };
 
 const entrySource = (provider) =>
 	[
-		provider.cognitoCss ? 'import "@remit/web-client/styles/cognito.css";' : null,
+		provider.cognitoCss
+			? 'import "@remit/web-client/styles/cognito.css";'
+			: null,
 		'import { mountApp } from "@remit/web-client/shell";',
 		`import { ${provider.name} } from "${provider.specifier}";`,
 		"",
@@ -54,7 +71,9 @@ const run = async () => {
 	const { auth, out } = parseArgs(process.argv.slice(2));
 	const provider = PROVIDERS[auth];
 	if (!provider) {
-		console.error(`Unknown --auth "${auth}". Expected one of: ${Object.keys(PROVIDERS).join(", ")}.`);
+		console.error(
+			`Unknown --auth "${auth}". Expected one of: ${Object.keys(PROVIDERS).join(", ")}.`,
+		);
 		process.exit(1);
 	}
 
@@ -90,7 +109,9 @@ const run = async () => {
 		}
 	}
 
-	console.log(`Built web client (auth: ${auth}) to ${resolve(packageDir, out)}`);
+	console.log(
+		`Built web client (auth: ${auth}) to ${resolve(packageDir, out)}`,
+	);
 };
 
 run();

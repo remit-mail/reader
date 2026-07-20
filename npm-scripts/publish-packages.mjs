@@ -21,7 +21,14 @@
 //   --dry-run  compute and print each decision, pack-check, never publish.
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -37,12 +44,36 @@ const repositoryUrl = "git+https://github.com/remit-mail/reader.git";
 // a standalone install resolves them.
 const generated = [
 	{ dir: "build/ts-enums", name: "@remit/domain-enums", peerDependencies: {} },
-	{ dir: "build/openapi-types", name: "@remit/api-openapi-types", peerDependencies: {} },
-	{ dir: "build/zod-schemas", name: "@remit/api-zod-schemas", peerDependencies: { zod: "^3.0.0" } },
-	{ dir: "build/ddb-entities", name: "@remit/electrodb-entities", peerDependencies: { electrodb: ">=3.0.0" } },
-	{ dir: "build/remit-client", name: "@remit/api-http-client", peerDependencies: { "@tanstack/react-query": "^5.0.0" } },
-	{ dir: "build/drizzle-entities", name: "@remit/drizzle-pg-schema", peerDependencies: {} },
-	{ dir: "build/drizzle-entities-sqlite", name: "@remit/drizzle-sqlite-schema", peerDependencies: {} },
+	{
+		dir: "build/openapi-types",
+		name: "@remit/api-openapi-types",
+		peerDependencies: {},
+	},
+	{
+		dir: "build/zod-schemas",
+		name: "@remit/api-zod-schemas",
+		peerDependencies: { zod: "^3.0.0" },
+	},
+	{
+		dir: "build/ddb-entities",
+		name: "@remit/electrodb-entities",
+		peerDependencies: { electrodb: ">=3.0.0" },
+	},
+	{
+		dir: "build/remit-client",
+		name: "@remit/api-http-client",
+		peerDependencies: { "@tanstack/react-query": "^5.0.0" },
+	},
+	{
+		dir: "build/drizzle-entities",
+		name: "@remit/drizzle-pg-schema",
+		peerDependencies: {},
+	},
+	{
+		dir: "build/drizzle-entities-sqlite",
+		name: "@remit/drizzle-sqlite-schema",
+		peerDependencies: {},
+	},
 	// The @typespec/openapi3 emitter writes only openapi.json, no manifest, so
 	// the publish tool synthesizes one. The spec ships as a data package: the
 	// closed platform resolves openapi.json from it instead of a local build tree.
@@ -164,9 +195,19 @@ const freshContentHash = (pkgDir) =>
 
 const publishedContentHash = (name, version) =>
 	withTempDir((tempDir) => {
-		run("npm", ["pack", `${name}@${version}`, "--pack-destination", tempDir, "--loglevel=error"], {
-			cwd: repoRoot,
-		});
+		run(
+			"npm",
+			[
+				"pack",
+				`${name}@${version}`,
+				"--pack-destination",
+				tempDir,
+				"--loglevel=error",
+			],
+			{
+				cwd: repoRoot,
+			},
+		);
 		return hashPackageDir(extractedTarballDir(tempDir));
 	});
 
@@ -210,7 +251,10 @@ const stampGeneratedMetadata = ({ dir, peerDependencies }) => {
 	manifest.publishConfig = { ...manifest.publishConfig, access: "public" };
 	manifest.repository = { type: "git", url: repositoryUrl };
 	if (Object.keys(peerDependencies).length > 0) {
-		manifest.peerDependencies = { ...manifest.peerDependencies, ...peerDependencies };
+		manifest.peerDependencies = {
+			...manifest.peerDependencies,
+			...peerDependencies,
+		};
 	}
 	writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 };
@@ -228,7 +272,10 @@ const packCheck = (pkgDir) =>
 	});
 
 console.log("Checking publish closure...\n");
-run("node", ["npm-scripts/check-publish-closure.mjs"], { cwd: repoRoot, stdio: "inherit" });
+run("node", ["npm-scripts/check-publish-closure.mjs"], {
+	cwd: repoRoot,
+	stdio: "inherit",
+});
 
 // The dry run is the pre-publish gate every pull request passes. Verify the
 // closure guard's own logic, then compile a clean-install consumer against the
@@ -264,13 +311,19 @@ for (const pkg of packages) {
 	let target;
 	if (latest === null) {
 		target = "0.0.1";
-		summary.push({ name: pkg.name, decision: `seed ${target} (not on registry)` });
+		summary.push({
+			name: pkg.name,
+			decision: `seed ${target} (not on registry)`,
+		});
 	} else if (publishedContentHash(pkg.name, latest) === fresh) {
 		summary.push({ name: pkg.name, decision: `skip (identical to ${latest})` });
 		continue;
 	} else {
 		target = patchBump(latest);
-		summary.push({ name: pkg.name, decision: `publish ${latest} -> ${target}` });
+		summary.push({
+			name: pkg.name,
+			decision: `publish ${latest} -> ${target}`,
+		});
 	}
 
 	if (dryRun) {
@@ -291,6 +344,7 @@ for (const { name, decision } of summary) console.log(`  ${name}: ${decision}`);
 
 if (failures.length > 0) {
 	console.error("\nPublish failures:");
-	for (const f of failures) console.error(`  ${f.name}@${f.version}: ${f.error}`);
+	for (const f of failures)
+		console.error(`  ${f.name}@${f.version}: ${f.error}`);
 	process.exit(1);
 }

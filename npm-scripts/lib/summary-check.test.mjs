@@ -31,9 +31,13 @@ function readSchemaSummaryMaxLength() {
 const SUMMARY_MAX_LENGTH = readSchemaSummaryMaxLength();
 
 function validate(summary) {
-	return execFileSync("bash", ["-c", 'source "$1"; validate_summary "$2"', "validate", LIB, summary], {
-		encoding: "utf8",
-	}).replace(/\n$/, "");
+	return execFileSync(
+		"bash",
+		["-c", 'source "$1"; validate_summary "$2"', "validate", LIB, summary],
+		{
+			encoding: "utf8",
+		},
+	).replace(/\n$/, "");
 }
 
 function readShellSummaryMaxLength() {
@@ -44,7 +48,10 @@ function readShellSummaryMaxLength() {
 
 describe("validate_summary", () => {
 	it("accepts a normal one-line summary", () => {
-		assert.equal(validate("Fixes the sync retry loop and speeds up search indexing."), "");
+		assert.equal(
+			validate("Fixes the sync retry loop and speeds up search indexing."),
+			"",
+		);
 	});
 
 	it("rejects an empty summary rather than defaulting it", () => {

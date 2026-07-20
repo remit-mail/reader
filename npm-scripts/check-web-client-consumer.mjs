@@ -97,7 +97,9 @@ withTempDir((tmp) => {
 		.trim();
 	run("tar", ["-xzf", join(tmp, packed), "-C", tmp]);
 	const pkgDir = join(tmp, "package");
-	const manifest = JSON.parse(readFileSync(join(pkgDir, "package.json"), "utf8"));
+	const manifest = JSON.parse(
+		readFileSync(join(pkgDir, "package.json"), "utf8"),
+	);
 
 	const declared = new Set([
 		...Object.keys(manifest.dependencies ?? {}),
@@ -140,10 +142,14 @@ withTempDir((tmp) => {
 	// Install the declared toolchain peers first — a later npm run would prune an
 	// extraneous package — then drop the packed web-client into node_modules
 	// without npm resolving its (as-yet-unpublished) @remit workspace deps.
-	run("npm", ["install", ...toolchain, "--loglevel=error", "--no-audit", "--no-fund"], {
-		cwd: consumer,
-		stdio: "inherit",
-	});
+	run(
+		"npm",
+		["install", ...toolchain, "--loglevel=error", "--no-audit", "--no-fund"],
+		{
+			cwd: consumer,
+			stdio: "inherit",
+		},
+	);
 	mkdirSync(join(consumer, "node_modules", "@remit"), { recursive: true });
 	cpSync(pkgDir, join(consumer, "node_modules", "@remit", "web-client"), {
 		recursive: true,
