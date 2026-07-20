@@ -35,7 +35,6 @@ jobs:
           python3 -c 'import yaml,sys; [yaml.safe_load(open(f)) for f in sys.argv[1:]]' \
             .github/workflows/ci.yml .github/workflows/storybook-pages.yml \
             .github/workflows/images.yml .github/workflows/publish.yml \
-            .github/workflows/e2e-dev.yml \
             .github/actions/setup/action.yml
 
       - name: Deploy stack — SQLite compose validates
@@ -78,22 +77,131 @@ jobs:
       - name: Unit tests
         run: npm run test:ci
 
-  # Branch protection pins this status check. It is the aggregate gate: it runs
-  # after every other job whatever their outcome and fails unless all of them
-  # succeeded, so a failed or skipped dependency can never report green.
-  build:
+  # The pull request half of the two-lane e2e split. This one assembles the stack
+  # from the branch under review — queue sidecar, migrator, backend dev-server,
+  # imap-worker, vite, SQLite, and the Dovecot container — and runs the black-box
+  # suite against it. It is the regression gate: a spec that breaks does so on the
+  # commit that broke it.
+  #
+  # The other lane is the `e2e` job in images.yml. That one runs on main against
+  # the published roster and is the deploy gate. Neither replaces the other: this
+  # lane has no packaged edge, so the Caddy and APISIX assertions are skipped by
+  # name here (e2e/src/stack.ts) and only the image lane covers them.
+  #
+  # Pull requests only. On main this would re-test from source what images.yml is
+  # already testing as shipped. The gate below knows this skip is legitimate and
+  # accepts it on push events alone.
+  e2e-dev:
     runs-on: ubuntu-latest
-    needs: [validate, lint, typecheck, test]
+    timeout-minutes: 45
+    if: github.event_name == 'pull_request'
+    steps:
+      # Every host-wide name the stack claims — the compose project and its port
+      # block — is derived from this. A runner runs one job at a time and reuses
+      # its name, so concurrent runs get disjoint slots and an interrupted run's
+      # containers are recreated by the next run rather than left behind.
+      #
+      # Written to the job environment rather than declared in `env:` because the
+      # `runner` context does not exist at job level.
+      - name: Claim a stack slot
+        run: echo "E2E_DEV_SLOT=${{ runner.name }}" >>"$GITHUB_ENV"
+
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup
+
+      - name: Start the source-built stack
+        run: npm run e2e:dev:up
+
+      - name: Black-box suite
+        run: npm run e2e:test
+
+      - name: Collect stack logs
+        if: failure()
+        env:
+          E2E_LOGS_TAIL: "400"
+        run: npm run e2e:dev:logs >e2e-dev-stack.log 2>&1
+
+      - name: Upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-dev-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            e2e-dev-stack.log
+            e2e/playwright-report/
+            e2e/test-results/
+          retention-days: 14
+          if-no-files-found: warn
+
+      # `always()` rather than `failure()`: a cancelled run leaves host processes
+      # and a Dovecot container holding this slot's ports, which the next run on
+      # the same runner would then collide with.
+      - name: Tear down
+        if: always()
+        run: npm run e2e:dev:down
+
+  # The one status check branch protection requires. Every other job in this
+  # workflow is a dependency, so jobs can be added, renamed, or split here
+  # without ever touching the protection settings — add the job to `needs` and
+  # to the assertions below and it is enforced.
+  #
+  # A `needs:` job is skipped, not failed, when a dependency fails, and a skipped
+  # required check reads as passing to branch protection. Hence `always()` plus
+  # an assertion per dependency: `failure`, `cancelled`, and any unaccounted-for
+  # `skipped` all fail here. The single legitimate skip is e2e-dev on main.
+  #
+  # The count guard is the backstop for the two-places problem: a job wired into
+  # `needs` but not asserted below fails the gate rather than riding along
+  # unchecked.
+  gate:
+    runs-on: ubuntu-latest
+    needs: [validate, lint, typecheck, test, e2e-dev]
     if: always()
     steps:
       - name: Require every job to have succeeded
+        env:
+          VALIDATE: ${{ needs.validate.result }}
+          LINT: ${{ needs.lint.result }}
+          TYPECHECK: ${{ needs.typecheck.result }}
+          TEST: ${{ needs.test.result }}
+          E2E_DEV: ${{ needs['e2e-dev'].result }}
+          E2E_DEV_MAY_SKIP: ${{ github.event_name != 'pull_request' }}
+          ALL_RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |
-          results="${{ join(needs.*.result, ' ') }}"
-          echo "upstream results: $results"
-          for result in $results; do
-            if [ "$result" != "success" ]; then
-              echo "::error::a required job did not succeed"
-              exit 1
+          set -u
+          failed=0
+          asserted=0
+
+          require() {
+            name=$1
+            result=$2
+            may_skip=${3:-false}
+            asserted=$((asserted + 1))
+            if [ "$result" = "success" ]; then
+              echo "$name: success"
+              return
             fi
-          done
-          echo "all required jobs succeeded"
+            if [ "$result" = "skipped" ] && [ "$may_skip" = "true" ]; then
+              echo "$name: skipped (expected on ${GITHUB_EVENT_NAME})"
+              return
+            fi
+            echo "::error::$name: $result"
+            failed=1
+          }
+
+          require validate "$VALIDATE"
+          require lint "$LINT"
+          require typecheck "$TYPECHECK"
+          require test "$TEST"
+          require e2e-dev "$E2E_DEV" "$E2E_DEV_MAY_SKIP"
+
+          wired=0
+          for _ in $ALL_RESULTS; do wired=$((wired + 1)); done
+          if [ "$asserted" -ne "$wired" ]; then
+            echo "::error::$wired jobs are wired into needs but $asserted are asserted"
+            failed=1
+          fi
+
+          [ "$failed" -eq 0 ] || exit 1
+          echo "every required job succeeded"
