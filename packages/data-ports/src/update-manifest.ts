@@ -1,9 +1,11 @@
 import { z } from "zod";
 
+export const SUMMARY_MAX_LENGTH = 140;
+
 export const UpdateManifestSchema = z.object({
 	version: z.string().regex(/^v\d+\.\d+\.\d+$/),
 	publishedAt: z.string().datetime(),
-	summary: z.string().min(1).max(140),
+	summary: z.string().min(1).max(SUMMARY_MAX_LENGTH),
 	releaseNotesUrl: z
 		.string()
 		.url()

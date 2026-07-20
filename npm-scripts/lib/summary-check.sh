@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 # Validates a release summary — the tag annotation shown verbatim on the
 # update consent screen (packages/data-ports/src/update-manifest.ts,
-# `summary`). Pure — no I/O — so release-tag.sh's validation is testable
-# without touching git.
+# `summary`). release-tag.sh's validation is testable without touching git;
+# the one file read below is the exception.
 #
-# SUMMARY_MAX_LENGTH must stay in sync with that schema's `z.string().max(140)`.
-SUMMARY_MAX_LENGTH=140
+# SUMMARY_MAX_LENGTH is read from the schema's own exported constant rather
+# than hand-copied, so the two cannot drift: change one and this reads the
+# new value on its next invocation.
+UPDATE_MANIFEST_TS="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/packages/data-ports/src/update-manifest.ts"
+SUMMARY_MAX_LENGTH="$(sed -n 's/^export const SUMMARY_MAX_LENGTH = \([0-9]\+\);$/\1/p' "$UPDATE_MANIFEST_TS")"
+if [ -z "$SUMMARY_MAX_LENGTH" ]; then
+	echo "summary-check: could not read SUMMARY_MAX_LENGTH from ${UPDATE_MANIFEST_TS}" >&2
+	exit 1
+fi
 
 # Echoes "" for a valid summary, or a one-line reason it was rejected.
 validate_summary() {

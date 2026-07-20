@@ -1,5 +1,6 @@
+import { SUMMARY_MAX_LENGTH } from "@remit/data-ports/update-manifest";
+
 export const RELEASE_TAG_PATTERN = /^v\d+\.\d+\.\d+$/;
-export const SUMMARY_MAX_LENGTH = 140;
 export const DEFAULT_REGISTRY = "ghcr.io/remit-mail/reader";
 
 export function assertValidVersion(version) {
