@@ -12,10 +12,15 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { UpdateManifestSchema } from "@remit/data-ports/update-manifest";
-import { assertValidVersion, extractSummary } from "./lib/update-manifest.mjs";
+import {
+	assertValidVersion,
+	DEFAULT_REGISTRY,
+	readTagSummary,
+} from "./lib/update-manifest.mjs";
 
-const REGISTRY = "ghcr.io/remit-mail/reader";
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+const execFile = (cmd, args) =>
+	execFileSync(cmd, args, { cwd: repoRoot, encoding: "utf8" });
 
 const version = process.argv[2];
 if (!version) {
@@ -32,11 +37,13 @@ try {
 
 let release;
 try {
-	const raw = execFileSync(
-		"gh",
-		["release", "view", version, "--json", "publishedAt,url,tagName"],
-		{ cwd: repoRoot, encoding: "utf8" },
-	);
+	const raw = execFile("gh", [
+		"release",
+		"view",
+		version,
+		"--json",
+		"publishedAt,url,tagName,isDraft,isPrerelease",
+	]);
 	release = JSON.parse(raw);
 } catch {
 	console.error(
@@ -45,23 +52,23 @@ try {
 	process.exit(1);
 }
 
-let tagMessage;
-try {
-	tagMessage = execFileSync(
-		"git",
-		["for-each-ref", "--format=%(contents:subject)", `refs/tags/${version}`],
-		{ cwd: repoRoot, encoding: "utf8" },
-	);
-} catch (error) {
+if (release.isDraft) {
 	console.error(
-		`manifest: could not read the tag message for ${version}: ${error.message}`,
+		`manifest: ${version} is a draft release; refusing until it is published`,
+	);
+	process.exit(1);
+}
+
+if (release.isPrerelease) {
+	console.error(
+		`manifest: ${version} is marked a pre-release; refusing to offer it as the stable update`,
 	);
 	process.exit(1);
 }
 
 let summary;
 try {
-	summary = extractSummary(tagMessage);
+	summary = readTagSummary(version, { execFile });
 } catch (error) {
 	console.error(`manifest: ${error.message}`);
 	process.exit(1);
@@ -72,7 +79,7 @@ const manifest = UpdateManifestSchema.parse({
 	publishedAt: release.publishedAt,
 	summary,
 	releaseNotesUrl: release.url,
-	registry: REGISTRY,
+	registry: DEFAULT_REGISTRY,
 });
 
 const outPath = join(repoRoot, "deploy/updates/stable.json");

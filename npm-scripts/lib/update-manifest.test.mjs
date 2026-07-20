@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
-import { assertValidVersion, extractSummary } from "./update-manifest.mjs";
+import { fileURLToPath } from "node:url";
+import {
+	DEFAULT_REGISTRY,
+	assertValidVersion,
+	extractSummary,
+	readTagSummary,
+} from "./update-manifest.mjs";
+
+const scriptsDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 describe("assertValidVersion", () => {
 	it("accepts vX.Y.Z", () => {
@@ -47,5 +57,49 @@ describe("extractSummary", () => {
 
 	it("refuses a summary over 140 characters", () => {
 		assert.throws(() => extractSummary("x".repeat(141)), /at most 140/);
+	});
+});
+
+describe("readTagSummary", () => {
+	it("reads the summary from an annotated tag", () => {
+		const execFile = (_cmd, args) => {
+			if (args[0] === "cat-file") return "tag";
+			if (args[0] === "for-each-ref") return "Faster search.\n";
+			throw new Error(`unexpected git invocation: ${args.join(" ")}`);
+		};
+		assert.equal(readTagSummary("v1.5.0", { execFile }), "Faster search.");
+	});
+
+	it("refuses a lightweight tag without reading its contents", () => {
+		let readContents = false;
+		const execFile = (_cmd, args) => {
+			if (args[0] === "cat-file") return "commit";
+			readContents = true;
+			return "some commit subject";
+		};
+		assert.throws(
+			() => readTagSummary("v1.5.0", { execFile }),
+			/lightweight tag/,
+		);
+		assert.equal(readContents, false);
+	});
+
+	it("wraps a missing ref as a readable error", () => {
+		const execFile = () => {
+			throw new Error("fatal: not a valid object name");
+		};
+		assert.throws(
+			() => readTagSummary("v9.9.9", { execFile }),
+			/could not read the tag v9\.9\.9/,
+		);
+	});
+});
+
+describe("DEFAULT_REGISTRY", () => {
+	it("matches the registry images-publish.sh defaults to", () => {
+		const script = readFileSync(join(scriptsDir, "images-publish.sh"), "utf8");
+		const [, registry] =
+			script.match(/REGISTRY="\$\{REGISTRY:-([^}]+)\}"/) ?? [];
+		assert.equal(DEFAULT_REGISTRY, registry);
 	});
 });

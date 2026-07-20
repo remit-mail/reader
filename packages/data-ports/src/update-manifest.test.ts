@@ -68,6 +68,25 @@ describe("UpdateManifestSchema", () => {
 		);
 	});
 
+	it("rejects a releaseNotesUrl that is not https", () => {
+		assert.throws(() =>
+			UpdateManifestSchema.parse({
+				...GOOD_MANIFEST,
+				releaseNotesUrl:
+					"http://github.com/remit-mail/reader/releases/tag/v1.5.0",
+			}),
+		);
+	});
+
+	it("rejects a releaseNotesUrl using a non-http(s) scheme", () => {
+		assert.throws(() =>
+			UpdateManifestSchema.parse({
+				...GOOD_MANIFEST,
+				releaseNotesUrl: "javascript:alert(1)",
+			}),
+		);
+	});
+
 	it("rejects an empty registry", () => {
 		assert.throws(() =>
 			UpdateManifestSchema.parse({ ...GOOD_MANIFEST, registry: "" }),

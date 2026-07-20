@@ -1,5 +1,6 @@
 export const RELEASE_TAG_PATTERN = /^v\d+\.\d+\.\d+$/;
 export const SUMMARY_MAX_LENGTH = 140;
+export const DEFAULT_REGISTRY = "ghcr.io/remit-mail/reader";
 
 export function assertValidVersion(version) {
 	if (!RELEASE_TAG_PATTERN.test(version)) {
@@ -18,4 +19,24 @@ export function extractSummary(tagMessage) {
 		);
 	}
 	return summary;
+}
+
+export function readTagSummary(version, { execFile }) {
+	let tagType;
+	try {
+		tagType = execFile("git", ["cat-file", "-t", `refs/tags/${version}`]).trim();
+	} catch (error) {
+		throw new Error(`could not read the tag ${version}: ${error.message}`);
+	}
+	if (tagType !== "tag") {
+		throw new Error(
+			`${version} is a lightweight tag; an annotated tag is required so the summary is an authored message rather than the commit it happens to point at`,
+		);
+	}
+	const contents = execFile("git", [
+		"for-each-ref",
+		"--format=%(contents:subject)",
+		`refs/tags/${version}`,
+	]);
+	return extractSummary(contents);
 }
