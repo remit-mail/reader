@@ -1,6 +1,9 @@
+import type { DOMAttributes } from "@react-types/shared";
 import { Check, Mail, MailOpen, Trash2 } from "lucide-react";
 import { useRef, useState } from "react";
+import { mergeProps } from "react-aria";
 import { cn } from "../lib/cn.js";
+import { useLongPress } from "../lib/use-long-press.js";
 import type { ThreadRowData } from "./app-shell-types.js";
 import { Avatar } from "./avatar.js";
 import {
@@ -16,6 +19,19 @@ const SWIPE_ACTION_WIDTH = 72;
 /** Movement (px) before a pointer drag claims the horizontal (swipe) axis; below
  *  this a press is still a tap / long-press and vertical scroll wins. */
 const SWIPE_AXIS_THRESHOLD = 10;
+
+/**
+ * Tags a pointercancel dispatched by this component's own axis arbitration
+ * (see `cancelLongPress` below) so `onPointerCancel` can tell it apart from
+ * one react-aria dispatches itself when its own long press fires, or a
+ * genuine browser-triggered cancel. Both of those arrive with no axis
+ * claimed yet and must reset gesture state silently; a tagged one arrives
+ * *because* `onPointerMove` just claimed an axis and is already handling
+ * gesture state inline, so `onPointerCancel` must ignore it — otherwise it
+ * re-reads a gesture with no axis claimed and mistakes the abort for a tap,
+ * firing a spurious onOpen/onToggleCheck.
+ */
+const AXIS_CANCEL = "__swipeableRowAxisCancel";
 
 function peekOffset(peek: SwipePeek): number {
 	if (peek === "leading") return SWIPE_ACTION_WIDTH;
@@ -34,19 +50,17 @@ export function commitPeek(offset: number): SwipePeek {
 
 /**
  * Props the row's interactive (open) element must receive — the swipe gesture
- * handlers, the transform/transition style, the row body, plus an onClick that
- * suppresses navigation when the row is peeked. A consumer passes `linkComponent`
- * to render these on a real anchor (e.g. a router Link) so the open affordance is
- * a true `<a href>` — keeping open-in-new-tab, middle-click, deep-link and a11y
- * — instead of the default JS-only `<button onOpen>`.
+ * handlers (merged with react-aria's long-press props: pointer handlers,
+ * `aria-describedby`, and friends), the transform/transition style, the row
+ * body, plus an onClick that suppresses navigation when the row is peeked. A
+ * consumer passes `linkComponent` to render these on a real anchor (e.g. a
+ * router Link) so the open affordance is a true `<a href>` — keeping
+ * open-in-new-tab, middle-click, deep-link and a11y — instead of the default
+ * JS-only `<button onOpen>`.
  */
-export interface SwipeableRowOpenProps {
+export interface SwipeableRowOpenProps extends DOMAttributes {
 	className: string;
 	style: React.CSSProperties;
-	onPointerDown: (e: React.PointerEvent) => void;
-	onPointerMove: (e: React.PointerEvent) => void;
-	onPointerUp: () => void;
-	onPointerCancel: () => void;
 	/** Wire to the anchor's onClick. When the row is peeked it calls
 	 *  preventDefault so a tap closes the peek instead of navigating; otherwise
 	 *  it is a no-op and the anchor's native navigation proceeds. */
@@ -86,9 +100,6 @@ export function SwipeableRow({
 	 *  deep-link/middle-click work); onOpen is not called for the tap. */
 	linkComponent?: (props: SwipeableRowOpenProps) => React.ReactNode;
 }) {
-	const pressTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
-		undefined,
-	);
 	const gesture = useRef<{
 		startX: number;
 		startY: number;
@@ -97,7 +108,23 @@ export function SwipeableRow({
 	} | null>(null);
 	const [dragX, setDragX] = useState<number | null>(null);
 
-	const cancelLongPress = () => clearTimeout(pressTimer.current);
+	// Long-press timing/threshold and contextmenu/text-selection suppression
+	// are owned by react-aria; this component only arbitrates the swipe axis.
+	const { longPressProps } = useLongPress({
+		onLongPress,
+		isDisabled: selectionMode,
+		accessibilityDescription: "Select message",
+	});
+
+	// react-aria's usePress has no imperative "cancel" — a synthetic
+	// pointercancel is the mechanism it uses itself to abort other pointer
+	// consumers when its own long press fires. Reused here in reverse, tagged
+	// so onPointerCancel below can recognize it as ours (see AXIS_CANCEL).
+	const cancelLongPress = (e: React.PointerEvent) => {
+		const event = new PointerEvent("pointercancel", { bubbles: true });
+		(event as PointerEvent & Record<string, boolean>)[AXIS_CANCEL] = true;
+		e.currentTarget.dispatchEvent(event);
+	};
 
 	const onPointerDown = (e: React.PointerEvent) => {
 		gesture.current = {
@@ -106,13 +133,6 @@ export function SwipeableRow({
 			axis: "none",
 			moved: false,
 		};
-		// selection mode is tap-to-toggle only — no long-press, no swipe drag
-		if (selectionMode) return;
-		pressTimer.current = setTimeout(() => {
-			gesture.current = null;
-			setDragX(null);
-			onLongPress();
-		}, 500);
 	};
 
 	const onPointerMove = (e: React.PointerEvent) => {
@@ -125,14 +145,14 @@ export function SwipeableRow({
 			if (Math.abs(dy) > SWIPE_AXIS_THRESHOLD && Math.abs(dy) > Math.abs(dx)) {
 				// vertical scroll wins: abandon the swipe + long-press, let the list scroll
 				g.axis = "vertical";
-				cancelLongPress();
+				cancelLongPress(e);
 				gesture.current = null;
 				return;
 			}
 			if (Math.abs(dx) > SWIPE_AXIS_THRESHOLD) {
 				g.axis = "horizontal";
 				g.moved = true;
-				cancelLongPress();
+				cancelLongPress(e);
 				e.currentTarget.setPointerCapture(e.pointerId);
 			}
 		}
@@ -146,7 +166,6 @@ export function SwipeableRow({
 	};
 
 	const onPointerUp = () => {
-		cancelLongPress();
 		const g = gesture.current;
 		gesture.current = null;
 		const offset = dragX;
@@ -172,6 +191,28 @@ export function SwipeableRow({
 		onOpen();
 	};
 
+	// A genuine cancel — react-aria's own dispatch when its long press fires,
+	// or a real browser-triggered interruption — always resets silently, never
+	// as a tap-to-open/toggle/peek-commit. An axis-claim cancel (tagged, see
+	// AXIS_CANCEL) is a no-op here: onPointerMove already handled that gesture
+	// inline, either continuing to track it (horizontal) or nulling it itself
+	// (vertical) — see the comment there.
+	const onPointerCancel = (e: React.PointerEvent) => {
+		const tagged = (e.nativeEvent as unknown as Record<string, boolean>)[
+			AXIS_CANCEL
+		];
+		if (tagged) return;
+		gesture.current = null;
+		setDragX(null);
+	};
+
+	const gestureProps = mergeProps(longPressProps, {
+		onPointerDown,
+		onPointerMove,
+		onPointerUp,
+		onPointerCancel,
+	});
+
 	// A tap on a peeked anchor must close the peek, not navigate; suppress the
 	// native click in that case. onPointerUp already snapped it closed.
 	const onOpenClick = (e: { preventDefault: () => void }) => {
@@ -185,6 +226,12 @@ export function SwipeableRow({
 	const interactiveClassName = cn(
 		// opaque bg so the row occludes the action behind it until peeked
 		"relative touch-pan-y bg-surface",
+		// This row's long press enters selection mode; without these, Android
+		// Chrome opens the link context menu / starts text selection and iOS
+		// Safari fires the callout, racing the app's handler. react-aria
+		// suppresses contextmenu/text-selection but not iOS's callout — it
+		// fires no cancelable event, so CSS is the only lever.
+		"select-none [-webkit-touch-callout:none]",
 		comfortableRowClass({ active: checked || active }),
 	);
 	const interactiveStyle: React.CSSProperties = {
@@ -278,12 +325,9 @@ export function SwipeableRow({
 			    keep the button so a checkbox tap can't open a thread. */}
 			{linkComponent && !selectionMode ? (
 				linkComponent({
+					...gestureProps,
 					className: interactiveClassName,
 					style: interactiveStyle,
-					onPointerDown,
-					onPointerMove,
-					onPointerUp,
-					onPointerCancel: onPointerUp,
 					onOpenClick,
 					children: body,
 				})
@@ -293,10 +337,7 @@ export function SwipeableRow({
 					type="button"
 					role={selectionMode ? "checkbox" : undefined}
 					aria-checked={selectionMode ? checked : undefined}
-					onPointerDown={onPointerDown}
-					onPointerMove={onPointerMove}
-					onPointerUp={onPointerUp}
-					onPointerCancel={onPointerUp}
+					{...gestureProps}
 					className={interactiveClassName}
 					style={interactiveStyle}
 				>

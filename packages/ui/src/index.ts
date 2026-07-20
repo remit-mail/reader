@@ -1,3 +1,8 @@
+// Re-exported so a consumer can compose useLongPress's longPressProps with its
+// own DOM props (its pressProps include an onClick react-aria uses for its
+// own bookkeeping; a plain object spread silently drops one side's handler
+// instead of chaining them) without importing react-aria directly.
+export { mergeProps } from "react-aria";
 export {
 	AddressDisplay,
 	type AddressDisplayProps,
@@ -446,3 +451,8 @@ export {
 	sanitizeInlineStyle,
 	sanitizeStyleElementCss,
 } from "./lib/email-sanitizer.js";
+export {
+	type UseLongPressOptions,
+	type UseLongPressResult,
+	useLongPress,
+} from "./lib/use-long-press.js";

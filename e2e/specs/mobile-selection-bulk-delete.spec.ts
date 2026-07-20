@@ -228,6 +228,26 @@ test.describe("Entering selection mode", () => {
 		await expect(selectionStatus(page)).toHaveText("1 message selected");
 	});
 
+	test("in selection mode, a plain tap on the row body toggles it instead of opening the message", async ({
+		page,
+	}) => {
+		await longPress(page, rows(page).first());
+		await expect(selectionStatus(page)).toHaveText("1 message selected");
+
+		// A tap on the row itself (not the dedicated toggle button) must behave
+		// the same as tapping the toggle: select the row, never navigate.
+		await rows(page).nth(1).click();
+		await expect(selectionStatus(page)).toHaveText("2 messages selected");
+		await expect(page).not.toHaveURL(/selectedMessageId=/);
+		await expect(rowToggle(rows(page).nth(1))).toHaveAccessibleName(
+			"Deselect message",
+		);
+
+		await rows(page).nth(1).click();
+		await expect(selectionStatus(page)).toHaveText("1 message selected");
+		await expect(page).not.toHaveURL(/selectedMessageId=/);
+	});
+
 	test("swipe actions are suppressed while selection mode is active", async ({
 		page,
 	}) => {

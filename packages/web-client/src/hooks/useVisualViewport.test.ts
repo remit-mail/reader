@@ -3,8 +3,7 @@ import { beforeEach, describe, test } from "node:test";
 
 /**
  * Unit test for useVisualViewport hook logic.
- * Tests the core behaviour without React — mirrors the pattern used
- * by useLongPress.test.ts in this project.
+ * Tests the core behaviour without React.
  */
 
 const KEYBOARD_THRESHOLD = 150;
