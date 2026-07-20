@@ -7,6 +7,9 @@ import {
 	Dialog,
 	Input,
 	Kbd,
+	QuarantineBugDialog,
+	type QuarantineEntry,
+	QuarantineSection,
 	SegmentedControl,
 	SenderFlagRow,
 	SenderGroupSwitch,
@@ -904,11 +907,84 @@ const advancedHelp = (
 			<strong className="text-fg">Notification rules</strong>, data export, and
 			per-account diagnostics are coming in a future release.
 		</p>
+		<p>
+			A message Remit cannot read is{" "}
+			<strong className="text-fg">set aside</strong> rather than skipped, and
+			the folder keeps syncing. Setting one aside is a defect in Remit, so every
+			entry can be reported with the diagnostics already attached.
+		</p>
 	</div>
 );
 
-function AdvancedPage() {
+const REPOSITORY_URL = "https://github.com/remit-mail/reader";
+
+const quarantineFixtures: QuarantineEntry[] = [
+	{
+		quarantineId: "q-1",
+		uid: 40217,
+		mailboxRole: "inbox",
+		mailboxPath: "INBOX",
+		failureStage: "MimeStructure",
+		failureCode: "UnterminatedMultipartBoundary",
+		failureMessage: "multipart boundary was never closed",
+		quarantinedAt: Date.parse("2026-07-18T09:12:00Z"),
+		attempts: 3,
+		sizeBytes: 184_233,
+		contentType: "multipart/mixed",
+		transferEncoding: "7bit",
+		charset: "utf-8",
+		structure: {
+			contentType: "multipart/mixed",
+			parts: [
+				{
+					contentType: "multipart/alternative",
+					parts: [{ contentType: "text/plain" }, { contentType: "text/html" }],
+				},
+				{ contentType: "application/pdf" },
+			],
+		},
+		headerNames: [
+			"Date",
+			"From",
+			"To",
+			"Subject",
+			"Message-ID",
+			"MIME-Version",
+			"Content-Type",
+		],
+		messageIdHash: "sha256:6f1c4a…9d20",
+		appVersion: "1.0.0",
+	},
+	{
+		quarantineId: "q-2",
+		uid: 40219,
+		mailboxRole: "archive",
+		mailboxPath: "Archive/2026",
+		failureStage: "CharsetDecode",
+		failureCode: "UnknownCharset",
+		failureMessage: "declared charset is not a known encoding",
+		quarantinedAt: Date.parse("2026-07-18T14:40:00Z"),
+		attempts: 3,
+		sizeBytes: 9_812,
+		contentType: "text/plain",
+		transferEncoding: "quoted-printable",
+		charset: "x-user-defined",
+		structure: { contentType: "text/plain" },
+		headerNames: ["Date", "From", "To", "Subject", "Content-Type"],
+		messageIdHash: "sha256:b31e07…44af",
+		appVersion: "1.0.0",
+	},
+];
+
+function AdvancedPage({
+	quarantined = [],
+}: {
+	quarantined?: readonly QuarantineEntry[];
+}) {
 	const [helpOpen, setHelpOpen] = useState(true);
+	const [reporting, setReporting] = useState<QuarantineEntry | null>(null);
+	const [retryingIds, setRetryingIds] = useState<string[]>([]);
+
 	return (
 		<SettingsShell
 			items={navItems}
@@ -919,19 +995,44 @@ function AdvancedPage() {
 			helpOpen={helpOpen}
 			onToggleHelp={() => setHelpOpen((v) => !v)}
 		>
-			<p className="text-sm text-fg-muted">
-				Advanced options — notification rules, data export, and raw sync
-				diagnostics — are coming in a future release.
-			</p>
+			<QuarantineSection
+				entries={quarantined}
+				onCutBug={setReporting}
+				onRetry={(entry) =>
+					setRetryingIds((ids) => [...ids, entry.quarantineId])
+				}
+				retryingIds={retryingIds}
+			/>
+			<div className="mt-6 border-t border-line pt-4">
+				<p className="text-sm text-fg-muted">
+					Notification rules and data export are coming in a future release.
+				</p>
+			</div>
 			<div className="mt-4 border-t border-line pt-4">
 				<p className="mb-1 text-sm font-medium text-fg">About</p>
 				<p className="text-xs text-fg-subtle">Version 1.0.0 · built today</p>
 			</div>
+			<QuarantineBugDialog
+				entry={reporting}
+				repositoryUrl={REPOSITORY_URL}
+				onClose={() => setReporting(null)}
+				onCopy={() => setReporting(null)}
+			/>
 		</SettingsShell>
 	);
 }
 
-/** Advanced: future-scope stub plus the About / version block. */
+/** Advanced with a clean sync: the quarantine list reassures rather than warns. */
 export const Advanced: Story = {
 	render: () => <AdvancedPage />,
+};
+
+/** One message set aside — a fact on the page, not an incident. */
+export const AdvancedOneQuarantined: Story = {
+	render: () => <AdvancedPage quarantined={quarantineFixtures.slice(0, 1)} />,
+};
+
+/** Two or more is a pattern, so the page raises an alert above the list. */
+export const AdvancedQuarantineAlert: Story = {
+	render: () => <AdvancedPage quarantined={quarantineFixtures} />,
 };

@@ -240,6 +240,26 @@ export {
 	type PullToRefreshProps,
 } from "./components/pull-to-refresh.js";
 export {
+	QuarantineBugDialog,
+	type QuarantineBugDialogProps,
+} from "./components/quarantine-bug-dialog.js";
+export {
+	QuarantineEntryRow,
+	type QuarantineEntryRowProps,
+} from "./components/quarantine-entry-row.js";
+export {
+	formatQuarantineReport,
+	type QuarantineEntry,
+	type QuarantineFailureStage,
+	type QuarantineMimeNode,
+	quarantineIssueUrl,
+	quarantineSummary,
+} from "./components/quarantine-report.js";
+export {
+	QuarantineSection,
+	type QuarantineSectionProps,
+} from "./components/quarantine-section.js";
+export {
 	QuotedText,
 	type QuotedTextProps,
 } from "./components/quoted-text.js";
