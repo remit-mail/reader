@@ -66,13 +66,15 @@ export const ConfirmDialog = ({
 	if (!isOpen) return null;
 
 	return (
-		<div
-			className="fixed inset-0 z-50 flex items-center justify-center"
-			aria-hidden="true"
-			onClick={onCancel}
-		>
-			{/* Backdrop */}
-			<div className="absolute inset-0 bg-canvas/80 backdrop-blur-sm" />
+		<div className="fixed inset-0 z-50 flex items-center justify-center">
+			{/* Backdrop. It carries the click-to-dismiss and the aria-hidden: the
+			    dialog itself must stay in the accessibility tree, and an
+			    aria-hidden ancestor would take it out. */}
+			<div
+				className="absolute inset-0 bg-canvas/80 backdrop-blur-sm"
+				aria-hidden="true"
+				onClick={onCancel}
+			/>
 
 			{/* Dialog */}
 			<div

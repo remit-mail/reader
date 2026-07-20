@@ -19,6 +19,15 @@ export interface KeyStroke {
 	altKey: boolean;
 	/** Whether the event originated inside an editable surface. */
 	inEditable: boolean;
+	/**
+	 * Whether the event originated on an activatable control that is not a
+	 * message-list row — a button, link, `role="button"`, `<summary>`. Enter and
+	 * Space are that control's activation keys, so the layer releases them; every
+	 * other binding still fires. Without this a global Enter binding cancels the
+	 * default action of whatever the user tabbed to, and no button in the app can
+	 * be activated from the keyboard.
+	 */
+	onControl: boolean;
 }
 
 /** Pending sequence-prefix state. `"g"` means a `g` was pressed recently. */
@@ -69,7 +78,14 @@ interface PlainBinding {
 const PLAIN_BINDINGS: Record<string, PlainBinding> = {
 	j: { action: "focusNext" },
 	k: { action: "focusPrevious" },
+	arrowdown: { action: "focusNext" },
+	arrowup: { action: "focusPrevious" },
+	home: { action: "focusFirst" },
+	end: { action: "focusLast" },
 	enter: { action: "openFocused" },
+	" ": { action: "toggleSelect" },
+	delete: { action: "delete" },
+	backspace: { action: "delete" },
 	u: { action: "toggleRead" },
 	x: { action: "toggleSelect" },
 	r: { action: "reply" },
@@ -118,10 +134,24 @@ export function dispatchKey(
 		return { ...NONE, nextPrefix: prefix === "g" ? null : prefix };
 	}
 
+	// Enter / Space belong to whatever control has focus. Releasing them here is
+	// what keeps Tab-to-a-button-then-Enter working anywhere in the app; the
+	// list's own rows are excluded from `onControl`, so the roving cursor still
+	// opens and selects.
+	if (stroke.onControl && (lower === "enter" || lower === " ")) {
+		return { ...NONE, nextPrefix: prefix === "g" ? null : prefix };
+	}
+
 	// ⌘N / Ctrl+N → compose. Checked before the prefix/plain tables so the
 	// browser's "new window" is the only thing we intercept among meta combos.
 	if (meta && lower === "n") {
 		return { action: "compose", nextPrefix: null, preventDefault: true };
+	}
+
+	// ⌘A / Ctrl+A → select every loaded row, replacing the browser's
+	// select-all-text default.
+	if (meta && lower === "a") {
+		return { action: "selectAll", nextPrefix: null, preventDefault: true };
 	}
 
 	// Any other meta/ctrl combo is left to the browser/OS.
@@ -145,13 +175,17 @@ export function dispatchKey(
 		return { action: null, nextPrefix: "g", preventDefault: true };
 	}
 
-	// Shift+J / Shift+K extend the selection.
-	if (stroke.shiftKey && (lower === "j" || lower === "k")) {
-		return {
-			action: lower === "j" ? "extendSelectDown" : "extendSelectUp",
-			nextPrefix: null,
-			preventDefault: true,
-		};
+	// Shift+J/K and Shift+Arrow extend the selection.
+	if (stroke.shiftKey) {
+		const down = lower === "j" || lower === "arrowdown";
+		const up = lower === "k" || lower === "arrowup";
+		if (down || up) {
+			return {
+				action: down ? "extendSelectDown" : "extendSelectUp",
+				nextPrefix: null,
+				preventDefault: true,
+			};
+		}
 	}
 
 	// Plain single-key bindings.
@@ -184,4 +218,27 @@ export function isEditableTarget(target: EventTarget | null): boolean {
 		tag === "SELECT" ||
 		target.isContentEditable
 	);
+}
+
+/**
+ * Marks an element as a message-list row. Rows are anchors, so they would
+ * otherwise read as ordinary controls; the list owns Enter/Space on them.
+ */
+export const ROW_ATTRIBUTE = "data-message-row";
+
+const CONTROL_SELECTOR =
+	'button, a[href], summary, [role="button"], [role="menuitem"], [role="tab"], [role="switch"], [role="checkbox"]';
+
+/**
+ * Whether the event target sits inside an activatable control that is not a
+ * message-list row. See {@link KeyStroke.onControl}.
+ */
+export function isControlTarget(target: EventTarget | null): boolean {
+	if (!(target instanceof HTMLElement)) return false;
+	const control = target.closest(CONTROL_SELECTOR);
+	if (!control) return false;
+	// The nearest control wins. A row is an anchor and so matches the selector,
+	// but the list owns Enter/Space on its rows; a control nested *inside* a row
+	// (the select checkbox) is a control like any other and keeps its own keys.
+	return !control.hasAttribute(ROW_ATTRIBUTE);
 }
