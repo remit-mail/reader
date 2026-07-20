@@ -28,7 +28,7 @@ import type {
 } from "@remit/data-ports";
 import { MailboxCursorState } from "@remit/domain-enums";
 import type { ManagedConnectionFactory } from "./connection-factory.js";
-import { MessageSyncService } from "./message-sync.js";
+import { MessageSyncService, selectUidsToSync } from "./message-sync.js";
 import { QuarantineService } from "./quarantine.js";
 import type { IImapConnection, ImapMessage } from "./types.js";
 
@@ -85,6 +85,10 @@ const buildHarness = (options: {
 	existing?: QuarantineItem[];
 	lastSyncUid?: number;
 	highWaterMarkUid?: number;
+	/** UIDs the cheap snapshot FETCH returns; defaults to `allUids`. */
+	snapshotUids?: number[];
+	/** Set to `cursor_invalid` to take the rebuild path. */
+	cursorState?: MailboxItem["cursorState"];
 }) => {
 	const mailbox = buildMailbox({
 		...(options.lastSyncUid !== undefined
@@ -93,6 +97,7 @@ const buildHarness = (options: {
 		...(options.highWaterMarkUid !== undefined
 			? { highWaterMarkUid: options.highWaterMarkUid }
 			: {}),
+		...(options.cursorState ? { cursorState: options.cursorState } : {}),
 	});
 	const mailboxUpdates: UpdateMailboxInput[] = [];
 	const writes: QuarantineUpsertInput[] = [];
@@ -111,6 +116,12 @@ const buildHarness = (options: {
 		}),
 		supportsCondstore: () => false,
 		search: async () => options.allUids,
+		fetchEnvelopeSnapshots: async () =>
+			(options.snapshotUids ?? options.allUids).map((uid) => ({
+				uid,
+				messageId: `<${uid}@example.com>`,
+				internalDate: new Date("2026-01-01T00:00:00Z"),
+			})),
 		fetchMessages: async (uids: number[]) => {
 			fetched.push(uids);
 			return options.enumerated.filter((msg) => uids.includes(msg.uid));
@@ -128,6 +139,7 @@ const buildHarness = (options: {
 	const threadMessageService = {
 		findByMessageId: async () => null,
 		findAllByMessageId: async () => [],
+		listByMailbox: async () => ({ items: [], continuationToken: undefined }),
 		create: async () => ({ threadMessageId: "tm-1" }),
 		update: async () => ({ threadMessageId: "tm-1" }),
 	} as unknown as IThreadMessageRepository;
@@ -288,5 +300,108 @@ describe("a uid the FETCH returned no row for", () => {
 		await sync(harness.service);
 
 		assert.equal(harness.mailboxUpdates[0]?.highestModseq, undefined);
+	});
+});
+
+/**
+ * The cursor rebuild is the third save path, and the one where a lost UID is
+ * lost for good: its covered region is computed from the server snapshot
+ * rather than from what it applied, and it seeds the mod-sequence and returns
+ * the mailbox to `normal` — so the next round takes CHANGEDSINCE, which never
+ * enumerates.
+ */
+describe("cursor rebuild", () => {
+	const rebuild = (over: {
+		allUids: number[];
+		enumerated: ImapMessage[];
+		snapshotUids?: number[];
+	}) =>
+		buildHarness({
+			...over,
+			cursorState: MailboxCursorState.cursor_invalid,
+			lastSyncUid: 0,
+			highWaterMarkUid: 0,
+		});
+
+	it("holds the watermark below a UID whose row carried no ENVELOPE", async () => {
+		const harness = rebuild({
+			allUids: [23, 22, 21],
+			enumerated: [withEnvelope(23), withoutEnvelope(22), withEnvelope(21)],
+		});
+
+		await sync(harness.service);
+
+		const final = harness.mailboxUpdates.at(-1);
+		assert.equal(final?.highWaterMarkUid, 21);
+	});
+
+	it("holds the watermark below a UID the message FETCH did not return", async () => {
+		const harness = rebuild({
+			allUids: [23, 22, 21],
+			enumerated: [withEnvelope(23), withEnvelope(21)],
+		});
+
+		await sync(harness.service);
+
+		assert.equal(harness.mailboxUpdates.at(-1)?.highWaterMarkUid, 21);
+	});
+
+	it("holds the watermark below a UID the snapshot FETCH did not return", async () => {
+		const harness = rebuild({
+			allUids: [23, 22, 21],
+			snapshotUids: [23, 21],
+			enumerated: [withEnvelope(23), withEnvelope(21)],
+		});
+
+		await sync(harness.service);
+
+		// This UID never reaches the snapshot, so it is not even a candidate for
+		// saving — but the covered region spans it, which is the whole hazard.
+		assert.equal(harness.mailboxUpdates.at(-1)?.highWaterMarkUid, 21);
+	});
+
+	it("withholds the mod-sequence seed, so the mailbox stays on enumeration", async () => {
+		const harness = rebuild({
+			allUids: [23, 22, 21],
+			enumerated: [withEnvelope(23), withEnvelope(21)],
+		});
+
+		await sync(harness.service);
+
+		// Seeding it would flip the mailbox to CHANGEDSINCE, which never
+		// enumerates — the UID would never be looked for again.
+		assert.equal(harness.mailboxUpdates.at(-1)?.highestModseq, "0");
+	});
+
+	it("leaves the missing UID selectable by the next round", async () => {
+		const harness = rebuild({
+			allUids: [23, 22, 21],
+			enumerated: [withEnvelope(23), withEnvelope(21)],
+		});
+
+		await sync(harness.service);
+
+		const final = harness.mailboxUpdates.at(-1);
+		assert.deepEqual(
+			selectUidsToSync(
+				[23, 22, 21],
+				final?.lastSyncUid ?? 0,
+				final?.highWaterMarkUid ?? 0,
+			),
+			[23, 22],
+		);
+	});
+
+	it("seeds the mod-sequence when every UID was accounted for", async () => {
+		const harness = rebuild({
+			allUids: [23, 22, 21],
+			enumerated: [withEnvelope(23), withEnvelope(22), withEnvelope(21)],
+		});
+
+		await sync(harness.service);
+
+		const final = harness.mailboxUpdates.at(-1);
+		assert.equal(final?.highestModseq, "600");
+		assert.equal(final?.highWaterMarkUid, 23);
 	});
 });

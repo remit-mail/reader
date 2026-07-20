@@ -639,8 +639,9 @@ export class MessageSyncService {
 
 		const newMessages =
 			newUids.length > 0 ? await this.fetchMessageBatch(newUids) : [];
+		const applicable = newMessages.filter((msg) => msg.envelope !== undefined);
 		const outcomes = await pMap(
-			newMessages,
+			applicable,
 			(msg) => this.trySaveMessage(mailboxId, accountId, accountConfigId, msg),
 			{ concurrency: MESSAGE_SAVE_CONCURRENCY },
 		);
@@ -652,6 +653,31 @@ export class MessageSyncService {
 
 		const serverUids = serverSnapshots.map((s) => s.uid);
 
+		// A UID this pass could not account for, in any of the three ways it can
+		// go missing: the snapshot FETCH never returned a row for it, the
+		// message FETCH never returned one, or the row it returned carried no
+		// ENVELOPE. None of the three is the message's fault and none can be
+		// quarantined, so each has to keep the UID selectable.
+		//
+		// This matters more here than on the enumeration path, not less. The
+		// covered region is computed from `serverUids` rather than from what was
+		// applied, so a UID missing anywhere inside its span is silently inside
+		// it; and this round seeds the mod-sequence and returns the mailbox to
+		// `normal`, so the next round takes CHANGEDSINCE, which never
+		// enumerates. A UID lost here is lost for good.
+		const savedUids = new Set(applicable.map((msg) => msg.uid));
+		const snapshotUids = new Set(serverUids);
+		const unusableUids = [
+			...allUids.filter((uid) => !snapshotUids.has(uid)),
+			...newUids.filter((uid) => !savedUids.has(uid)),
+		];
+		if (unusableUids.length > 0) {
+			this.log.warn(
+				{ mailboxId, mailboxPath, unusableUids },
+				"Cursor rebuild could not account for some UIDs; holding the watermark below them",
+			);
+		}
+
 		// A new message whose save threw must stay selectable, so the forward
 		// watermark stops below it and every UID above it is re-enumerated next
 		// round. The mod-sequence seed is withheld entirely in that case: the
@@ -659,9 +685,10 @@ export class MessageSyncService {
 		// it on a UIDVALIDITY change) and the new one would sit above the
 		// message that failed, so the mailbox goes back to enumeration until a
 		// clean round seeds it.
-		const failedUids = new Set(
-			outcomes.flatMap((o) => (o.kind === "failed" ? [o.uid] : [])),
-		);
+		const failedUids = new Set([
+			...outcomes.flatMap((o) => (o.kind === "failed" ? [o.uid] : [])),
+			...unusableUids,
+		]);
 		const lowestFailure = failedUids.size
 			? Math.min(...failedUids)
 			: Number.POSITIVE_INFINITY;
@@ -827,7 +854,10 @@ export class MessageSyncService {
 		// without a sender". A transient glitch heals on the retry; a persistent
 		// one trips the stalled-cursor alert, which is what that alert is for.
 		const unusableUids = batch.flatMap((msg) =>
-			msg.envelope === undefined ? [msg.uid] : [],
+			msg.envelope === undefined &&
+			!quarantined?.has(mailboxId, box.uidvalidity, msg.uid)
+				? [msg.uid]
+				: [],
 		);
 		if (unusableUids.length > 0) {
 			this.log.warn(
