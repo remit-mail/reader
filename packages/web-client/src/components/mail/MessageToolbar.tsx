@@ -1,4 +1,8 @@
-import { IntelligenceToggle, type MailAction, MailActionToolbar } from "@remit/ui";
+import {
+	IntelligenceToggle,
+	type MailAction,
+	MailActionToolbar,
+} from "@remit/ui";
 import { useState } from "react";
 import { tooltipForAction } from "@/lib/keymap";
 import { MoveToTrigger } from "./MoveToTrigger";
