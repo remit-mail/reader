@@ -11,6 +11,7 @@ import { afterEach, describe, it } from "node:test";
 import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
 import { ApiError } from "./api";
 import { __resetFatalError, subscribeFatalError } from "./fatal-error";
+import { NetworkError } from "./network-error";
 import {
 	handleMutationCacheError,
 	handleQueryCacheError,
@@ -117,7 +118,7 @@ describe("global query/mutation escalation", () => {
 		assert.deepEqual(seen, ["not found"]);
 	});
 
-	it("a statusless `Failed to fetch` (offline blip) from a query does NOT escalate", async () => {
+	it("an offline blip tagged at the fetch boundary does NOT escalate", async () => {
 		let escalated = false;
 		subscribeFatalError(() => {
 			escalated = true;
@@ -128,7 +129,7 @@ describe("global query/mutation escalation", () => {
 			.fetchQuery({
 				queryKey: ["offline"],
 				queryFn: async () => {
-					throw new TypeError("Failed to fetch");
+					throw new NetworkError(new TypeError("Failed to fetch"));
 				},
 			})
 			.catch(() => {});

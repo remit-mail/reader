@@ -209,6 +209,57 @@ describe("AddressRepo", () => {
 		await repo.deleteManyAddresses(accountConfigId, created);
 	});
 
+	test("listByAccountConfig resolves a search by exact email even when the sender has a display name", async () => {
+		const accountConfigId = randomId();
+		const created = await repo.createAddress({
+			...makeAddressInput(accountConfigId, "support@npmjs.com"),
+			displayName: "npm support",
+			// How message-sync writes it: display name first, then the email.
+			normalizedCompound: "npm support support@npmjs.com",
+		});
+
+		const byEmail = await repo.listByAccountConfig({
+			accountConfigId,
+			search: "support@npmjs.com",
+		});
+		assert.deepEqual(
+			byEmail.items.map((a) => a.addressId),
+			[created.addressId],
+			"an exact-address lookup must resolve the row",
+		);
+
+		const byDisplayName = await repo.listByAccountConfig({
+			accountConfigId,
+			search: "npm",
+		});
+		assert.deepEqual(
+			byDisplayName.items.map((a) => a.addressId),
+			[created.addressId],
+			"display-name search keeps working",
+		);
+
+		await repo.deleteManyAddresses(accountConfigId, [created.addressId]);
+	});
+
+	test("listByAccountConfig treats LIKE metacharacters in a search term literally", async () => {
+		const accountConfigId = randomId();
+		const plain = await repo.createAddress(
+			makeAddressInput(accountConfigId, "ab@x.com"),
+		);
+
+		const result = await repo.listByAccountConfig({
+			accountConfigId,
+			search: "a_@x.com",
+		});
+		assert.equal(
+			result.items.length,
+			0,
+			"`_` must not act as a single-character wildcard",
+		);
+
+		await repo.deleteManyAddresses(accountConfigId, [plain.addressId]);
+	});
+
 	test("cross-tenant: getAddress refuses a foreign accountConfig", async () => {
 		const addr = await repo.createAddress(makeAddressInput(randomId()));
 		const other = randomId();

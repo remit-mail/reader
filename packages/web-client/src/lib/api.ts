@@ -1,3 +1,5 @@
+import { taggedFetch } from "./network-error";
+
 export class ApiError extends Error {
 	constructor(
 		message: string,
@@ -38,7 +40,7 @@ const request = async <T>(
 
 	const url = buildUrl(path, params);
 
-	const response = await fetch(url, {
+	const response = await taggedFetch(url, {
 		method,
 		headers: {
 			"Content-Type": "application/json",

@@ -313,15 +313,17 @@ function WiredPanel({
 		[updateFlags],
 	);
 
-	// Per-sender flag toggles are always wired. They stay active even before the
-	// address record resolves: `updateFlags` surfaces feedback when `addressId`
-	// is missing rather than letting the button look active but do nothing.
+	// Every per-sender flag toggle PATCHes the sender's address row, so none of
+	// them can be serviced until that row resolves. Leave them unwired until it
+	// does: the panel renders an unwired quick action as disabled, so the flow is
+	// never reachable in a state where a click can only fail (issue #51).
+	const canUpdateFlags = addressId !== undefined;
 	const actions: IntelligenceQuickActions = {
-		onToggleVip: handleToggleVip,
-		onToggleMute: handleToggleMute,
-		onToggleBlock: handleToggleBlock,
-		onToggleUnsubscribe: handleToggleUnsubscribe,
-		onReclassify: () => setReclassifyOpen(true),
+		onToggleVip: canUpdateFlags ? handleToggleVip : undefined,
+		onToggleMute: canUpdateFlags ? handleToggleMute : undefined,
+		onToggleBlock: canUpdateFlags ? handleToggleBlock : undefined,
+		onToggleUnsubscribe: canUpdateFlags ? handleToggleUnsubscribe : undefined,
+		onReclassify: canUpdateFlags ? () => setReclassifyOpen(true) : undefined,
 		onNotSpam: spamAction === "notSpam" ? handleNotSpam : undefined,
 		onMarkSpam: spamAction === "markSpam" ? handleMarkSpam : undefined,
 	};

@@ -260,6 +260,14 @@ export {
 	rescueMoveConsequence,
 } from "./components/rescue-from-spam-flow.js";
 export {
+	type GroupSelectionState,
+	groupRescueCandidatesBySender,
+	type RescueSenderGroup,
+	RescueSenderGroupRow,
+	type RescueSenderGroupRowProps,
+	senderGroupSelectionState,
+} from "./components/rescue-sender-group.js";
+export {
 	type PanelGroupProps,
 	type PanelProps,
 	type PanelResizeHandleProps,

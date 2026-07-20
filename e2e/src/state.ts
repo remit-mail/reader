@@ -42,6 +42,19 @@ export interface RunState {
 		subject: string;
 		expectedCategory: string;
 	}>;
+	/**
+	 * The message seeded into Junk, from a sender who has a display name. Seeded
+	 * before the account is connected, like everything else here — mail that
+	 * arrives after onboarding does not reach the API on a triggered sync (see
+	 * the annotated failure in `sync.spec.ts`), so a spec that appended its own
+	 * fixture mid-run would be testing that defect instead of its own subject.
+	 *
+	 * It lives in Junk, not INBOX, so it stays out of `seededSubjects` and the
+	 * exact-count INBOX assertions are unaffected.
+	 */
+	spamSubject: string;
+	spamSenderName: string;
+	spamSenderEmail: string;
 }
 
 export const writeRunState = (state: RunState): void => {

@@ -320,16 +320,22 @@ function QuickAction({
 	danger?: boolean;
 	onClick?: () => void;
 }) {
+	// No handler means the action cannot be serviced yet (the sender's address
+	// record has not resolved). Render it visibly unavailable rather than as a
+	// live button that swallows the click.
+	const disabled = onClick === undefined;
 	return (
 		<button
 			type="button"
 			onClick={onClick}
+			disabled={disabled}
 			className={cn(
 				"flex items-center gap-2 rounded-md border px-2 py-1 text-xs transition-colors",
 				active
 					? "border-accent-2 bg-accent-2-soft text-accent-2"
 					: "border-line text-fg-muted hover:border-line-strong hover:text-fg",
 				danger && !active && "text-danger hover:bg-danger-soft",
+				disabled && "cursor-not-allowed opacity-50 hover:border-line",
 			)}
 		>
 			{icon}
@@ -401,7 +407,12 @@ export function IntelligencePanel({
 					)}
 					<button
 						type="button"
-						className="ml-auto text-2xs text-accent hover:underline"
+						className={cn(
+							"ml-auto text-2xs text-accent hover:underline",
+							!actions?.onReclassify &&
+								"cursor-not-allowed opacity-50 hover:no-underline",
+						)}
+						disabled={!actions?.onReclassify}
 						onClick={actions?.onReclassify}
 					>
 						reclassify

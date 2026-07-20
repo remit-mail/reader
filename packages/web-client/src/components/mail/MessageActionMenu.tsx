@@ -27,6 +27,7 @@ import { formatErrorDetail } from "@/components/ui/error-banners";
 import { useDeleteMessages } from "@/hooks/useDeleteMessages";
 import { useMoveMessages } from "@/hooks/useMoveMessages";
 import { useToggleTrusted } from "@/hooks/useToggleTrusted";
+import { patchThreadListCache, type ThreadListCache } from "@/lib/thread-cache";
 import { MoveToTrigger } from "./MoveToTrigger";
 
 interface ThreadMessagesData {
@@ -34,15 +35,12 @@ interface ThreadMessagesData {
 	[key: string]: unknown;
 }
 
-interface ThreadsListPage {
-	items: RemitImapThreadMessageResponse[];
-	[key: string]: unknown;
-}
-
-interface ThreadsListData {
-	pages: ThreadsListPage[];
-	pageParams: Array<string | undefined>;
-}
+/**
+ * Either shape a thread list/search query caches — the infinite mailbox list
+ * or a single-shot page. `setQueriesData` matches by key prefix, so the
+ * optimistic updater sees both.
+ */
+type ThreadsListData = ThreadListCache;
 
 interface SnapshotEntry<T> {
 	queryKey: readonly unknown[];
@@ -169,26 +167,20 @@ export const MessageActionMenu = ({
 				},
 			);
 
-			const patchListData = (old: ThreadsListData | undefined) => {
-				if (!old) return old;
-				return {
-					...old,
-					pages: old.pages.map((page) => ({
-						...page,
-						items: page.items.map((item) =>
-							targetIds.has(item.messageId)
-								? { ...item, isRead: isReadNext }
-								: item,
-						),
-					})),
-				};
-			};
+			const patchListData = (old: unknown) =>
+				patchThreadListCache(old, (items) =>
+					items.map((item) =>
+						targetIds.has(item.messageId)
+							? { ...item, isRead: isReadNext }
+							: item,
+					),
+				);
 
-			queryClient.setQueriesData<ThreadsListData>(
+			queryClient.setQueriesData(
 				{ queryKey: threadsListPrefix },
 				patchListData,
 			);
-			queryClient.setQueriesData<ThreadsListData>(
+			queryClient.setQueriesData(
 				{ queryKey: threadsSearchPrefix },
 				patchListData,
 			);
@@ -214,6 +206,7 @@ export const MessageActionMenu = ({
 			pushError({
 				title: isReadNext ? "Couldn't mark as read" : "Couldn't mark as unread",
 				detail: formatErrorDetail(err),
+				error: err,
 			});
 		},
 		onSettled: (_data, _err, _vars, context) => {

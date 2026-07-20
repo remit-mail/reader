@@ -1,5 +1,5 @@
 import { CheckCircle2, HelpCircle, ShieldCheck } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Banner } from "./banner.js";
 import { BottomSheet } from "./bottom-sheet.js";
 import { Button } from "./button.js";
@@ -7,10 +7,12 @@ import {
 	type MoveMailboxOption,
 	MoveMailboxPicker,
 } from "./move-mailbox-picker.js";
+import type { RescueCandidate } from "./rescue-candidate-row.js";
 import {
-	type RescueCandidate,
-	RescueCandidateRow,
-} from "./rescue-candidate-row.js";
+	groupRescueCandidatesBySender,
+	type RescueSenderGroup,
+	RescueSenderGroupRow,
+} from "./rescue-sender-group.js";
 
 type Step = "review" | "destination" | "done";
 
@@ -60,6 +62,7 @@ function ReviewStep({
 	candidates,
 	selected,
 	onToggle,
+	onToggleGroup,
 	onSelectAll,
 	onSelectNone,
 	onContinue,
@@ -68,6 +71,7 @@ function ReviewStep({
 	candidates: RescueCandidate[];
 	selected: Set<string>;
 	onToggle: (id: string) => void;
+	onToggleGroup: (group: RescueSenderGroup, nextSelected: boolean) => void;
 	onSelectAll: () => void;
 	onSelectNone: () => void;
 	onContinue: () => void;
@@ -75,6 +79,10 @@ function ReviewStep({
 }) {
 	const [showWhy, setShowWhy] = useState(false);
 	const count = selected.size;
+	const groups = useMemo(
+		() => groupRescueCandidatesBySender(candidates),
+		[candidates],
+	);
 	return (
 		<div className="flex min-h-0 flex-col">
 			<div className="px-row-inset pb-2 pt-1">
@@ -94,8 +102,8 @@ function ReviewStep({
 					</Button>
 				</div>
 				<p className="mt-1 text-2xs text-fg-subtle">
-					These look safe — from senders we can verify. Uncheck anything that
-					belongs in Spam.
+					These look safe — from senders we can verify. Uncheck any sender that
+					belongs in Spam, or open a sender to pick individual messages.
 				</p>
 				{showWhy && (
 					<div className="mt-2">
@@ -106,7 +114,7 @@ function ReviewStep({
 
 			<div className="flex items-center justify-between px-row-inset pb-1.5">
 				<span className="text-2xs font-medium text-fg-muted">
-					{`${count} of ${candidates.length} selected`}
+					{`${count} of ${candidates.length} selected · ${groups.length} ${groups.length === 1 ? "sender" : "senders"}`}
 				</span>
 				<span className="flex gap-1">
 					<Button variant="ghost" size="sm" onClick={onSelectAll}>
@@ -119,12 +127,13 @@ function ReviewStep({
 			</div>
 
 			<div className="min-h-0 flex-1 divide-y divide-line overflow-y-auto border-y border-line">
-				{candidates.map((candidate) => (
-					<RescueCandidateRow
-						key={candidate.id}
-						candidate={candidate}
-						selected={selected.has(candidate.id)}
-						onToggle={() => onToggle(candidate.id)}
+				{groups.map((group) => (
+					<RescueSenderGroupRow
+						key={group.key}
+						group={group}
+						selected={selected}
+						onToggleGroup={onToggleGroup}
+						onToggleMessage={onToggle}
 					/>
 				))}
 			</div>
@@ -300,6 +309,17 @@ export function RescueFromSpamFlow({
 		});
 	};
 
+	const toggleGroup = (group: RescueSenderGroup, nextSelected: boolean) => {
+		setSelected((prev) => {
+			const next = new Set(prev);
+			for (const message of group.messages) {
+				if (nextSelected) next.add(message.id);
+				else next.delete(message.id);
+			}
+			return next;
+		});
+	};
+
 	const move = () => {
 		const ids = Array.from(selected);
 		setMovedCount(ids.length);
@@ -314,6 +334,7 @@ export function RescueFromSpamFlow({
 					candidates={candidates}
 					selected={selected}
 					onToggle={toggle}
+					onToggleGroup={toggleGroup}
 					onSelectAll={() => setSelected(new Set(candidates.map((c) => c.id)))}
 					onSelectNone={() => setSelected(new Set())}
 					onContinue={() => setStep("destination")}

@@ -12,6 +12,7 @@ import { useCallback } from "react";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { formatErrorDetail } from "@/components/ui/error-banners";
 import { reportFatalError } from "@/lib/fatal-error";
+import { senderAddressSearchQuery } from "@/lib/sender-address";
 
 interface UseUpdateAddressFlagsOptions {
 	addressId: string | undefined;
@@ -61,7 +62,7 @@ export function useUpdateAddressFlags({
 	const { pushError } = useErrorBanners();
 
 	const addressCacheKey = addressOperationsSearchAddressesQueryKey({
-		query: { q: senderEmail ?? "", limit: 1 },
+		query: senderAddressSearchQuery(senderEmail),
 	});
 
 	const { mutate, isPending } = useMutation({
@@ -99,6 +100,7 @@ export function useUpdateAddressFlags({
 			pushError({
 				title: "Couldn't update sender preference",
 				detail: formatErrorDetail(err),
+				error: err,
 			});
 		},
 		onSettled: () => {

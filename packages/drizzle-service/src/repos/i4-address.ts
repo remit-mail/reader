@@ -20,6 +20,31 @@ import { shouldPromoteWellknown } from "./i4-address-wellknown.js";
 
 type DB = Db<Record<string, unknown>>;
 
+/**
+ * Escape the LIKE metacharacters so a term containing `%` or `_` (both legal in
+ * an email local part) matches literally instead of as a wildcard.
+ */
+const escapeLikeTerm = (term: string): string =>
+	term.replace(/[\\%_]/g, (char) => `\\${char}`);
+
+/**
+ * Match an address search term as a prefix of either the display-name compound
+ * or the normalized email.
+ *
+ * `normalizedCompound` is stored as `"<display name> <email>"`, so a prefix
+ * match on it only ever answers display-name queries — an exact-address lookup
+ * such as `support@npmjs.com` can never match a row whose sender has a display
+ * name. Matching `normalizedEmail` in the same predicate is what makes address
+ * resolution by email work at all (issue #51).
+ */
+const addressSearchPredicate = (term: string) => {
+	const pattern = `${escapeLikeTerm(term)}%`;
+	return or(
+		sql`${addressTable.normalizedCompound} LIKE ${pattern} ESCAPE '\\'`,
+		sql`${addressTable.normalizedEmail} LIKE ${pattern} ESCAPE '\\'`,
+	);
+};
+
 export function rowToAddress(
 	row: typeof addressTable.$inferSelect,
 ): AddressItem {
@@ -454,11 +479,11 @@ export class AddressRepo implements IAddressRepository {
 
 	async listByAccountConfig(input: {
 		accountConfigId: string;
-		normalizedCompound?: string;
+		search?: string;
 		cursor?: string;
 		limit?: number;
 	}): Promise<ResultList<AddressItem>> {
-		const { accountConfigId, normalizedCompound, cursor, limit = 100 } = input;
+		const { accountConfigId, search, cursor, limit = 100 } = input;
 		const decoded = cursor ? decodeToken(cursor) : undefined;
 		const after = decoded
 			? {
@@ -473,9 +498,7 @@ export class AddressRepo implements IAddressRepository {
 			.where(
 				and(
 					eq(addressTable.accountConfigId, accountConfigId),
-					normalizedCompound
-						? sql`${addressTable.normalizedCompound} LIKE ${`${normalizedCompound}%`}`
-						: undefined,
+					search ? addressSearchPredicate(search) : undefined,
 					after
 						? or(
 								gt(addressTable.normalizedCompound, after.normalizedCompound),

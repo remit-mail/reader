@@ -1244,7 +1244,8 @@ export class MessageSyncService {
 
 		for (const { localPart, domain, displayName, order } of addressData) {
 			const normalizedEmail = `${localPart}@${domain}`.toLowerCase();
-			const normalizedCompound = `${displayName.toLowerCase()} ${normalizedEmail}`;
+			const normalizedCompound =
+				`${displayName.toLowerCase()} ${normalizedEmail}`.trim();
 
 			const addressId = deriveAddressId(accountConfigId, normalizedEmail);
 
