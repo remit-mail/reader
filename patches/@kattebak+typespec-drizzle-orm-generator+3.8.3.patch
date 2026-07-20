@@ -11,11 +11,29 @@ index 2cb123b..b64af09 100644
          case "number":
          case "boolean":
              return String(value);
+diff --git a/node_modules/@kattebak/typespec-drizzle-orm-generator/dist/generators/column-mapper.js b/node_modules/@kattebak/typespec-drizzle-orm-generator/dist/generators/column-mapper.js
+index 4d8663d..c3d748b 100644
+--- a/node_modules/@kattebak/typespec-drizzle-orm-generator/dist/generators/column-mapper.js
++++ b/node_modules/@kattebak/typespec-drizzle-orm-generator/dist/generators/column-mapper.js
+@@ -39,6 +39,12 @@ function mapDefault(value) {
+     if (typeof value === "string") {
+         return quoted(value);
+     }
++    // Drizzle takes a JSON column's default as the JS value it will serialize,
++    // so an array default has to survive as a literal. `String([])` renders the
++    // empty string, which is not valid JS in that position.
++    if (Array.isArray(value)) {
++        return JSON.stringify(value);
++    }
+     return String(value);
+ }
+ //# sourceMappingURL=column-mapper.js.map
+\ No newline at end of file
 diff --git a/node_modules/@kattebak/typespec-drizzle-orm-generator/dist/ir/remit-builder.js b/node_modules/@kattebak/typespec-drizzle-orm-generator/dist/ir/remit-builder.js
-index b151e88..5e17ef9 100644
+index b151e88..8ebbec9 100644
 --- a/node_modules/@kattebak/typespec-drizzle-orm-generator/dist/ir/remit-builder.js
 +++ b/node_modules/@kattebak/typespec-drizzle-orm-generator/dist/ir/remit-builder.js
-@@ -258,6 +258,19 @@ function extractDefaultValue(prop) {
+@@ -258,6 +258,28 @@ function extractDefaultValue(prop) {
      }
      if (typeof value === "object" && value !== null) {
          const typed = value;
@@ -31,6 +49,15 @@ index b151e88..5e17ef9 100644
 +                return member.value;
 +            if (member.name !== undefined)
 +                return member.name;
++        }
++        // An array default (`= #[]`) arrives as { valueKind: "ArrayValue",
++        // values: Value[] }. Only an empty one is expressible as a column
++        // default here, which is the only one TypeSpec sources use: a JSON
++        // column whose TypeSpec says `= #[]` otherwise emits notNull with no
++        // default, so a row written without the field fails at insert time
++        // rather than getting the default the schema promises (issue #72).
++        if (typed.valueKind === "ArrayValue" && Array.isArray(typed.values)) {
++            return typed.values.length === 0 ? [] : undefined;
 +        }
          if ("value" in typed && typed.value !== undefined) {
              const inner = typed.value;

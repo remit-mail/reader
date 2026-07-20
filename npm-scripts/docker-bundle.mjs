@@ -13,8 +13,27 @@
 // whole workspace) is what keeps a worker image from dragging in dependencies
 // it never touches through barrel imports — the lesson from the Lambda path,
 // where barrel imports pulled `pg` and NLP libraries into DynamoDB functions.
+import { execSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { build } from "esbuild";
+
+// The commit each service image was built from. Stamped into the bundle rather
+// than read from the container's environment: it is a property of the build,
+// and a quarantine record that names a build has to name the one that actually
+// ran (issue #72). GITHUB_SHA is present in every CI job without a workflow
+// change; a local build reads git; neither available is honestly "dev".
+const resolveWorkerSha = () => {
+	if (process.env.GITHUB_SHA) return process.env.GITHUB_SHA;
+	try {
+		return execSync("git rev-parse HEAD", { encoding: "utf8" }).trim();
+	} catch {
+		return "dev";
+	}
+};
+
+const BUILD_DEFINES = {
+	"process.env.REMIT_WORKER_SHA": JSON.stringify(resolveWorkerSha()),
+};
 
 const CJS_REQUIRE_BANNER =
 	"import{createRequire as __remitCreateRequire}from 'module';const require=__remitCreateRequire(import.meta.url);";
@@ -173,7 +192,7 @@ async function main() {
 			minify: true,
 			sourcemap: false,
 			banner: { js: CJS_REQUIRE_BANNER },
-			define: DIRNAME_DEFINES,
+			define: { ...DIRNAME_DEFINES, ...BUILD_DEFINES },
 			external: target.external ?? [],
 			loader: target.loader ?? {},
 			logLevel: "warning",

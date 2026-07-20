@@ -83,6 +83,7 @@ export type {
 	PutMessagePlacementMoveInput,
 	QuarantineItem,
 	QuarantineMimeNodeItem,
+	QuarantineUpsertInput,
 	RawMessageStorageItem,
 	ResultList,
 	SearchOptions,

@@ -5,6 +5,7 @@ import {
 	toInternalDate,
 	toIsoDateString,
 } from "./imapflow-connection.js";
+import type { ImapMessage } from "./types.js";
 
 describe("toIsoDateString", () => {
 	it("converts a Date to an ISO string", () => {
@@ -264,5 +265,53 @@ describe("ImapFlowConnection CONDSTORE (reader#20)", () => {
 		]);
 		assert.strictEqual(messages[0].modseq, "18446744073709551615");
 		assert.deepStrictEqual(messages[0].flags, ["\\Seen"]);
+	});
+});
+
+describe("ImapFlowConnection message envelopes (issue #72)", () => {
+	const fetchRows = async (
+		rows: Array<Record<string, unknown>>,
+	): Promise<ImapMessage[]> => {
+		const connection = buildConnectionWithClient({
+			enabled: new Set(),
+			mailbox: fakeMailbox("INBOX", 1),
+			mailboxOpen: async (path: string) => fakeMailbox(path, 1),
+			fetch: () =>
+				(async function* () {
+					for (const row of rows) yield row;
+				})(),
+		});
+		Object.assign(connection as unknown as Record<string, unknown>, {
+			currentMailbox: "INBOX",
+		});
+		return connection.fetchMessages([1]);
+	};
+
+	it("leaves an absent ENVELOPE absent instead of synthesising an empty one", async () => {
+		// A synthesised envelope made every `if (!msg.envelope)` guard downstream
+		// unreachable, so the row was saved as a message with no sender, subject
+		// or date under a `generated:` key — indistinguishable from real mail.
+		const [message] = await fetchRows([
+			{ uid: 1, seq: 1, internalDate: new Date(0), size: 10 },
+		]);
+		assert.equal(message?.envelope, undefined);
+	});
+
+	it("still converts an envelope the server did send", async () => {
+		const [message] = await fetchRows([
+			{
+				uid: 1,
+				seq: 1,
+				internalDate: new Date(0),
+				size: 10,
+				envelope: {
+					subject: "Hello",
+					messageId: "<a@example.com>",
+					from: [{ address: "sender@example.com" }],
+				},
+			},
+		]);
+		assert.equal(message?.envelope?.subject, "Hello");
+		assert.equal(message?.envelope?.from[0]?.mailbox, "sender");
 	});
 });

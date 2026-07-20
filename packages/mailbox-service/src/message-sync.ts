@@ -36,6 +36,7 @@ import {
 } from "./mailbox-cursor-rebuild.js";
 import { ROOT_PART_PATH, walkMimeStructure } from "./mime-walker.js";
 import { PassThroughUnitOfWork } from "./pass-through-unit-of-work.js";
+import type { QuarantineService } from "./quarantine.js";
 import { reconcileStaleMessage } from "./stale-message-reconcile.js";
 import {
 	advanceChangeCursor,
@@ -146,8 +147,11 @@ interface SaveMessageResult extends SyncedMessage {
 /**
  * Wrapper outcome for a single message in the batch. A `failed` outcome means
  * the save threw (and was caught) — its UID must NOT advance the watermark, so
- * the message is re-fetched and retried on the next cycle. `null` means the
- * message carried no envelope and was intentionally skipped (nothing to retry).
+ * the message is re-fetched and retried on the next cycle. A `saved` outcome
+ * with a `null` result is a UID this round finished with but created no row
+ * for: a cross-mailbox collision, a change applied to an existing row, or a
+ * message quarantined instead of applied (issue #72). Its watermark advances
+ * either way, because there is nothing left to retry.
  */
 type BatchOutcome =
 	| { kind: "saved"; uid: number; result: SaveMessageResult | null }
@@ -224,6 +228,13 @@ export class MessageSyncService {
 		 * flip is never dismissed as redundant.
 		 */
 		private messageFlagService?: IMessageFlagRepository,
+		/**
+		 * The set of messages already set aside (issue #72). Message sync never
+		 * writes a record — only the body path can attribute a failure to the
+		 * message — but it reads the set so a uid the body path quarantined is
+		 * not re-fetched on every round.
+		 */
+		private quarantineService?: QuarantineService,
 	) {
 		this.log = logger ?? noopLogger;
 		this.unitOfWork =
@@ -309,6 +320,10 @@ export class MessageSyncService {
 			});
 		}
 
+		// One read per round, not per message (issue #72). The list is small by
+		// design — a growing one is a bug being reported, not a page to paginate.
+		const quarantined = await this.quarantineService?.load(accountConfigId);
+
 		const allUids = await connection.search(["ALL"]);
 		const uids = selectUidsToSync(allUids, lastSyncUid, highWaterMarkUid);
 		const unseenCount = status.unseen;
@@ -350,7 +365,42 @@ export class MessageSyncService {
 
 		// Process only the first batch
 		const batchUids = uids.slice(0, batchSize);
-		const messages = await this.fetchMessageBatch(batchUids);
+
+		// A quarantined UID is not fetched again, but it stays in `batchUids` so
+		// the watermark still advances over it. Filtering it out of the selection
+		// instead would hold the watermark below a message that is already
+		// durably resolved, which is the stall by another route.
+		const fetchUids = batchUids.filter(
+			(uid) => !quarantined?.has(mailboxId, box.uidvalidity, uid),
+		);
+		const messages =
+			fetchUids.length > 0 ? await this.fetchMessageBatch(fetchUids) : [];
+
+		// A UID the round could not act on. Two shapes reach here and neither is
+		// the message's fault: the FETCH returned no row at all (the connection
+		// layer drops rows imapflow yields without a usable UID or INTERNALDATE,
+		// #408, and a message can be expunged between the SEARCH and the FETCH),
+		// or it returned a row carrying no ENVELOPE, which names no message and
+		// is the same client-side glitch one field further in.
+		//
+		// They join `failedUids` rather than merely being left out of the batch.
+		// Absence alone does not hold a watermark: `advanceUidWatermarks` takes
+		// the MAX of what was applied, so a gap in the middle of a batch is
+		// stepped straight over — [23, 22, 21] with 22 missing still advances to
+		// 23 and loses 22 for good. A failure is the one thing a watermark is
+		// built to stop below.
+		const applicable = messages.filter((msg) => msg.envelope !== undefined);
+		const unusableUids = batchUids.filter(
+			(uid) =>
+				!applicable.some((msg) => msg.uid === uid) &&
+				!quarantined?.has(mailboxId, box.uidvalidity, uid),
+		);
+		if (unusableUids.length > 0) {
+			this.log.warn(
+				{ mailboxId, mailboxPath, unusableUids },
+				"FETCH returned no usable row for some requested UIDs; holding the watermark below them",
+			);
+		}
 
 		// Process messages in parallel with concurrency limit. `stopOnError` stays
 		// at its default — but each message is saved through `trySaveMessage`,
@@ -358,7 +408,7 @@ export class MessageSyncService {
 		// rejecting. So one bad message can no longer abort the whole batch (the
 		// poison pill that previously froze the mailbox, #817).
 		const outcomes = await pMap(
-			messages,
+			applicable,
 			(msg) => this.trySaveMessage(mailboxId, accountId, accountConfigId, msg),
 			{ concurrency: MESSAGE_SAVE_CONCURRENCY },
 		);
@@ -379,15 +429,16 @@ export class MessageSyncService {
 
 		// UIDs whose save threw. They must stay inside the next cycle's fetch
 		// window, so the watermark may not advance past them (no silent loss).
-		const failedUids = new Set(
-			outcomes.flatMap((o) => (o.kind === "failed" ? [o.uid] : [])),
+		const saveFailedUids = outcomes.flatMap((o) =>
+			o.kind === "failed" ? [o.uid] : [],
 		);
-		if (failedUids.size > 0) {
+		if (saveFailedUids.length > 0) {
 			this.log.warn(
-				{ mailboxId, mailboxPath, failedUids: [...failedUids] },
+				{ mailboxId, mailboxPath, failedUids: saveFailedUids },
 				"Some messages failed to save; holding watermark below them for retry",
 			);
 		}
+		const failedUids = new Set([...saveFailedUids, ...unusableUids]);
 
 		// Watermarks advance over every SUCCESSFULLY-consumed UID in the batch,
 		// independent of ownership. `selectUidsToSync` reselects work purely by UID
@@ -413,7 +464,8 @@ export class MessageSyncService {
 		// enumeration work behind and lost no message to a failed save. Seeding
 		// it earlier would switch the mailbox to CHANGEDSINCE while UIDs it has
 		// never fetched still sit below the watermark, and those messages would
-		// never be discovered.
+		// never be discovered. A UID the FETCH returned nothing usable for is in
+		// `failedUids` too: the round did not finish with it either.
 		const enumerationComplete = !hasMore && failedUids.size === 0;
 
 		await this.mailboxService.update(accountId, mailboxId, {
@@ -587,8 +639,9 @@ export class MessageSyncService {
 
 		const newMessages =
 			newUids.length > 0 ? await this.fetchMessageBatch(newUids) : [];
+		const applicable = newMessages.filter((msg) => msg.envelope !== undefined);
 		const outcomes = await pMap(
-			newMessages,
+			applicable,
 			(msg) => this.trySaveMessage(mailboxId, accountId, accountConfigId, msg),
 			{ concurrency: MESSAGE_SAVE_CONCURRENCY },
 		);
@@ -600,6 +653,31 @@ export class MessageSyncService {
 
 		const serverUids = serverSnapshots.map((s) => s.uid);
 
+		// A UID this pass could not account for, in any of the three ways it can
+		// go missing: the snapshot FETCH never returned a row for it, the
+		// message FETCH never returned one, or the row it returned carried no
+		// ENVELOPE. None of the three is the message's fault and none can be
+		// quarantined, so each has to keep the UID selectable.
+		//
+		// This matters more here than on the enumeration path, not less. The
+		// covered region is computed from `serverUids` rather than from what was
+		// applied, so a UID missing anywhere inside its span is silently inside
+		// it; and this round seeds the mod-sequence and returns the mailbox to
+		// `normal`, so the next round takes CHANGEDSINCE, which never
+		// enumerates. A UID lost here is lost for good.
+		const savedUids = new Set(applicable.map((msg) => msg.uid));
+		const snapshotUids = new Set(serverUids);
+		const unusableUids = [
+			...allUids.filter((uid) => !snapshotUids.has(uid)),
+			...newUids.filter((uid) => !savedUids.has(uid)),
+		];
+		if (unusableUids.length > 0) {
+			this.log.warn(
+				{ mailboxId, mailboxPath, unusableUids },
+				"Cursor rebuild could not account for some UIDs; holding the watermark below them",
+			);
+		}
+
 		// A new message whose save threw must stay selectable, so the forward
 		// watermark stops below it and every UID above it is re-enumerated next
 		// round. The mod-sequence seed is withheld entirely in that case: the
@@ -607,9 +685,10 @@ export class MessageSyncService {
 		// it on a UIDVALIDITY change) and the new one would sit above the
 		// message that failed, so the mailbox goes back to enumeration until a
 		// clean round seeds it.
-		const failedUids = new Set(
-			outcomes.flatMap((o) => (o.kind === "failed" ? [o.uid] : [])),
-		);
+		const failedUids = new Set([
+			...outcomes.flatMap((o) => (o.kind === "failed" ? [o.uid] : [])),
+			...unusableUids,
+		]);
 		const lowestFailure = failedUids.size
 			? Math.min(...failedUids)
 			: Number.POSITIVE_INFINITY;
@@ -756,21 +835,53 @@ export class MessageSyncService {
 		const ordered = dropAppliedPrefix(orderByModseq(changed), cursor);
 		const batch = ordered.slice(0, batchSize);
 
+		// A quarantined UID stays in `batch`, so the cursor still advances over
+		// it; only the work of re-applying it is skipped.
+		const quarantined = await this.quarantineService?.load(accountConfigId);
+		const applicable = batch.filter(
+			(msg) =>
+				!quarantined?.has(mailboxId, box.uidvalidity, msg.uid) &&
+				msg.envelope !== undefined,
+		);
+
+		// A change row carrying no ENVELOPE holds the cursor and is retried; it
+		// is never set aside. On this path the message is usually one already
+		// stored — it demonstrably had a sender, a date and a Message-ID when it
+		// was first saved — so an envelope-less row is the FETCH glitching
+		// (#408), not the message being defective. Quarantining it would filter
+		// that UID out of every later round, stopping its flag sync until a
+		// purge, and tell the user a message they can open and read "arrived
+		// without a sender". A transient glitch heals on the retry; a persistent
+		// one trips the stalled-cursor alert, which is what that alert is for.
+		const unusableUids = batch.flatMap((msg) =>
+			msg.envelope === undefined &&
+			!quarantined?.has(mailboxId, box.uidvalidity, msg.uid)
+				? [msg.uid]
+				: [],
+		);
+		if (unusableUids.length > 0) {
+			this.log.warn(
+				{ mailboxId, mailboxPath, unusableUids },
+				"Change rows carried no ENVELOPE; holding the sync cursor below them",
+			);
+		}
+
 		const outcomes = await pMap(
-			batch,
+			applicable,
 			(msg) => this.tryApplyChange(mailboxId, accountId, accountConfigId, msg),
 			{ concurrency: MESSAGE_SAVE_CONCURRENCY },
 		);
 
-		const failedUids = new Set(
-			outcomes.flatMap((o) => (o.kind === "failed" ? [o.uid] : [])),
+		const saveFailedUids = outcomes.flatMap((o) =>
+			o.kind === "failed" ? [o.uid] : [],
 		);
-		if (failedUids.size > 0) {
+		if (saveFailedUids.length > 0) {
 			this.log.warn(
-				{ mailboxId, mailboxPath, failedUids: [...failedUids] },
+				{ mailboxId, mailboxPath, failedUids: saveFailedUids },
 				"Some changes failed to apply; holding the sync cursor below them for retry",
 			);
 		}
+		const failedUids = new Set([...saveFailedUids, ...unusableUids]);
 
 		// Body sync only concerns messages this round created — a metadata
 		// change has no new body to fetch.
@@ -1231,6 +1342,12 @@ export class MessageSyncService {
 			order: number;
 		}> = [];
 
+		// An unusable address is dropped and the message is written anyway, and
+		// that stays deliberate under the quarantine rules (issue #72). What is
+		// lost is one envelope address, not the message: it is stored, listed and
+		// readable, and its body is untouched. Setting the whole message aside
+		// over a malformed From would take readable mail out of the mailbox to
+		// protect a display name.
 		for (let i = 0; i < addresses.length; i++) {
 			const addr = addresses[i];
 			if (!isParseableEmailAddress(addr)) continue;

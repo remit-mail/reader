@@ -61,7 +61,7 @@ describe("QuarantineBugDialog", () => {
 				issueUrl: ISSUE_URL,
 			}),
 		);
-		assert.match(html, /UnterminatedMultipartBoundary/);
+		assert.match(html, /UnreadableBody/);
 		assert.match(html, /attachment names, or the parser&#x27;s own error text/);
 		assert.match(html, /Copy report/);
 	});

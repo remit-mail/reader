@@ -8,6 +8,7 @@ import {
 	isCursorRebuildNeeded,
 	MailboxCursorPausedError,
 	PlacementMoveService,
+	QuarantineService,
 	resolveExhaustedBodySyncFailures,
 } from "@remit/mailbox-service";
 import { env } from "expect-env";
@@ -20,6 +21,7 @@ import {
 import type { SyncMessageBodyEvent } from "../events.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
+import { workerVersion } from "../worker-version.js";
 
 const bodySyncEnabledParameterName = env.BODY_SYNC_ENABLED_PARAMETER_NAME;
 
@@ -151,6 +153,8 @@ export const syncMessageBody = async (
 		messageLabel: messageLabelService,
 		storage,
 		secrets,
+		mailboxSpecialUse: mailboxSpecialUseRepository,
+		quarantine: quarantineRepository,
 	} = await getClient();
 
 	const account = await accountService.get(accountId);
@@ -234,6 +238,17 @@ export const syncMessageBody = async (
 				log,
 				placementConfig,
 				filterConfig,
+				{
+					quarantineService: new QuarantineService(
+						quarantineRepository,
+						mailboxSpecialUseRepository,
+						workerVersion(),
+						log,
+					),
+					mailboxId,
+					uidValidity: mailbox.uidValidity ?? 0,
+					attempts: receiveCount,
+				},
 			);
 
 			// Guard at the openBox choke point (epic #1281 invariants 3 & 5). The

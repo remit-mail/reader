@@ -16,12 +16,17 @@ export {
 	parseImapAttributes,
 } from "./attribute-mapper.js";
 export {
+	BodyParseError,
+	parseMessageBody,
+} from "./body-parse.js";
+export {
 	type BodySyncLogger,
 	BodySyncService,
 	type ConnectionGetter,
 	extractPrimaryFromEmail,
 	type FetchBodyResult,
 	type PlacementConfig,
+	type QuarantineConfig,
 	type SyncBodiesResult,
 	toParsedBody,
 } from "./body-sync.js";
@@ -188,6 +193,16 @@ export {
 	type ResolveExhaustedPlacementMoveResult,
 	resolveExhaustedPlacementMoveFailure,
 } from "./placement-move-terminal.js";
+export {
+	type QuarantineContext,
+	QuarantinedUids,
+	type QuarantineFailure,
+	type QuarantineLogger,
+	type QuarantineMessageShape,
+	QuarantineService,
+	resolveMailboxRole,
+	shapeFromMessageData,
+} from "./quarantine.js";
 export {
 	extractSnippetFromEmail,
 	generateSnippet,

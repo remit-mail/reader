@@ -20,7 +20,7 @@ describe("formatQuarantineReport", () => {
 	it("names the stage, the code and the build that failed", () => {
 		const report = formatQuarantineReport(entry);
 		assert.match(report, /BodyParse/);
-		assert.match(report, /UnterminatedMultipartBoundary/);
+		assert.match(report, /UnreadableBody/);
 		assert.match(report, /worker 1\.0\.0/);
 	});
 
@@ -186,7 +186,7 @@ describe("quarantineReportSections", () => {
 describe("quarantineIssueTitle", () => {
 	it("carries only the closed vocabulary", () => {
 		const title = quarantineIssueTitle(entry);
-		assert.match(title, /UnterminatedMultipartBoundary/);
+		assert.match(title, /UnreadableBody/);
 		assert.match(title, /BodyParse/);
 		assert.doesNotMatch(title, /joan@/);
 	});

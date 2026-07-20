@@ -250,7 +250,7 @@ describe("quarantine reports", () => {
 				ctx({ quarantine: quarantineReportSections(quarantineDemoEntries[0]) }),
 			),
 		);
-		assert.ok(decoded.includes("UnterminatedMultipartBoundary"));
+		assert.ok(decoded.includes("UnreadableBody"));
 		assert.ok(decoded.includes("Message quarantined:"));
 	});
 

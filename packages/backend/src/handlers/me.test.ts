@@ -35,7 +35,7 @@ const entry = (over: Partial<QuarantineItem> = {}): QuarantineItem =>
 		quarantinedAt: 1_000,
 		attempts: 3,
 		failureStage: "BodyParse",
-		failureCode: "UnterminatedMultipartBoundary",
+		failureCode: "UnreadableBody",
 		failureMessage: "multipart boundary was never closed",
 		workerVersion: "worker 1.0.0",
 		structure: [{ depth: 0, contentType: "multipart/mixed" }],

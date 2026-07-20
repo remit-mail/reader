@@ -2,7 +2,9 @@ import type {
 	IQuarantineRepository,
 	QuarantineItem,
 	QuarantineMimeNodeItem,
+	QuarantineUpsertInput,
 } from "@remit/data-ports";
+import { deriveQuarantineId } from "@remit/data-ports/id";
 import { desc, eq } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { quarantineTable } from "../schema/quarantine.js";
@@ -38,8 +40,8 @@ function rowToItem(row: typeof quarantineTable.$inferSelect): QuarantineItem {
 }
 
 /**
- * Read side of the message quarantine (issue #72). The rows are written by the
- * sync worker; nothing in the API process creates or clears one.
+ * The message quarantine (issue #72). Written by the sync worker, read by the
+ * settings surface; nothing in the API process creates or clears a row.
  */
 export class QuarantineRepo implements IQuarantineRepository {
 	constructor(private db: DB) {}
@@ -53,5 +55,49 @@ export class QuarantineRepo implements IQuarantineRepository {
 			.where(eq(quarantineTable.accountConfigId, accountConfigId))
 			.orderBy(desc(quarantineTable.quarantinedAt));
 		return rows.map(rowToItem);
+	};
+
+	upsert = async (input: QuarantineUpsertInput): Promise<void> => {
+		const quarantineId = deriveQuarantineId(
+			input.accountId,
+			input.mailboxId,
+			input.uidValidity,
+			input.uid,
+		);
+		const now = Date.now();
+		const columns = {
+			accountConfigId: input.accountConfigId,
+			accountId: input.accountId,
+			mailboxId: input.mailboxId,
+			uidValidity: input.uidValidity,
+			uid: input.uid,
+			mailboxRole: input.mailboxRole ?? null,
+			mailboxPath: input.mailboxPath,
+			quarantinedAt: input.quarantinedAt,
+			attempts: input.attempts,
+			failureStage: input.failureStage,
+			failureCode: input.failureCode,
+			failureMessage: input.failureMessage,
+			failurePartPath: input.failurePartPath ?? null,
+			workerVersion: input.workerVersion,
+			contentType: input.contentType ?? null,
+			transferEncoding: input.transferEncoding ?? null,
+			charset: input.charset ?? null,
+			sizeBytes: input.sizeBytes ?? null,
+			structure: input.structure ?? [],
+			messageIdHash: input.messageIdHash ?? null,
+		};
+
+		// `quarantinedAt` is deliberately part of the update set: a re-quarantine
+		// is the message being set aside again, and the list is ordered by it.
+		// `createdAt` is not, so the row keeps saying when the message first
+		// failed.
+		await this.db
+			.insert(quarantineTable)
+			.values({ quarantineId, ...columns, createdAt: now, updatedAt: now })
+			.onConflictDoUpdate({
+				target: quarantineTable.quarantineId,
+				set: { ...columns, updatedAt: now },
+			});
 	};
 }
