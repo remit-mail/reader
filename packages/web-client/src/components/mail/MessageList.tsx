@@ -232,6 +232,12 @@ export const MessageList = ({
 	// leave this null, so the list never yanks focus out of the reading pane.
 	const pendingDomFocusRef = useRef<string | null>(null);
 
+	// The row the cursor was on when the delete confirmation opened. The dialog
+	// takes DOM focus for as long as it is up, so dismissing it has to give that
+	// focus back or the list is left with no cursor and the next shortcut acts on
+	// nothing (#80).
+	const focusBeforeConfirmRef = useRef<string | null>(null);
+
 	// Whether the list can serve keyboard commands at all. It stays true while
 	// the delete confirmation is open — withdrawing the commands there would let
 	// the route fall through to its own unconfirmed delete on a second Delete
@@ -341,9 +347,10 @@ export const MessageList = ({
 	const requestDelete = useCallback(
 		(ids: string[]) => {
 			if (!onDeleteMessages || ids.length === 0) return;
+			focusBeforeConfirmRef.current = focusedMessageId ?? null;
 			setPendingDeleteIds(ids);
 		},
-		[onDeleteMessages],
+		[onDeleteMessages, focusedMessageId],
 	);
 
 	// Keyboard shift-arrow range extend: move focus one row in `direction` and
@@ -452,9 +459,14 @@ export const MessageList = ({
 
 		onDeleteMessages?.(pendingDeleteIds);
 		clearSelection();
+		focusBeforeConfirmRef.current = null;
 		setPendingDeleteIds(null);
 
 		if (nextFocus !== undefined) {
+			// Same hand-back as cancelling, aimed at the surviving neighbour
+			// instead: confirming also closes a dialog that held DOM focus.
+			pendingDomFocusRef.current = nextFocus;
+			setFocusedMessageId(nextFocus);
 			navigate({
 				to: "/mail/$mailboxId",
 				params: { mailboxId },
@@ -471,8 +483,17 @@ export const MessageList = ({
 		mailboxId,
 	]);
 
+	// Every way out of the confirmation that isn't the delete — Escape, Cancel,
+	// the backdrop — arrives here, so this is the one place the keyboard has to
+	// be handed back. Restoring the cursor also puts DOM focus back on that row,
+	// via the same pending-focus channel j/k use.
 	const handleCancelDelete = useCallback(() => {
+		const restoreTo = focusBeforeConfirmRef.current;
+		focusBeforeConfirmRef.current = null;
 		setPendingDeleteIds(null);
+		if (restoreTo === null) return;
+		pendingDomFocusRef.current = restoreTo;
+		setFocusedMessageId(restoreTo);
 	}, []);
 
 	// Handle mark as read

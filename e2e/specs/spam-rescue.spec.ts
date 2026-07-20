@@ -16,11 +16,12 @@
  * of its own.
  *
  * Both halves are driven from outside: the API for the lookup, a browser for
- * the move.
+ * the move. The move leaves the suite's shared mailbox in a state no other spec
+ * expects, so it is undone in `afterAll`.
  */
-import type { ApiClient } from "../src/api.js";
-import { waitFor } from "../src/api.js";
+import { ApiClient, waitFor } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
+import { readRunState } from "../src/state.js";
 
 const junkMailboxId = async (
 	api: ApiClient,
@@ -48,6 +49,33 @@ const waitForSpamMessage = async (
 	);
 
 test.describe("Spam rescue", () => {
+	// The rescue is the only mutation in the suite that moves a seeded message
+	// between folders. Every later spec that asserts the inbox holds exactly the
+	// seeded set would read the rescued message as an extra row (#82), so this
+	// puts it back. It runs whether or not the test reached its assertions, and
+	// does nothing when the message never left Junk.
+	test.afterAll(async () => {
+		const run = readRunState();
+		const api = new ApiClient(run.token);
+		const junkId = await junkMailboxId(api, run.accountId);
+
+		const inbox = await api.listThreads(run.inboxId);
+		const rescued = inbox.filter(
+			(thread) => thread.subject === run.spamSubject,
+		);
+		if (rescued.length === 0) return;
+
+		await api.moveMessages(
+			rescued.map((thread) => thread.messageId),
+			junkId,
+		);
+		await waitFor(
+			() => api.listThreads(run.inboxId),
+			(items) => items.every((thread) => thread.subject !== run.spamSubject),
+			{ timeoutMs: 30_000, what: `"${run.spamSubject}" to return to Junk` },
+		);
+	});
+
 	test("a sender with a display name is resolvable by their address", async ({
 		api,
 		run,
