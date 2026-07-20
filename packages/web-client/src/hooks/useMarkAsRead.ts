@@ -2,15 +2,21 @@ import {
 	mailboxOperationsListMailboxesQueryKey,
 	messageBulkOperationsUpdateFlagsMutation,
 	threadDetailOperationsListThreadMessagesQueryKey,
-	threadOperationsListThreadsQueryKey,
-	threadOperationsSearchThreadsQueryKey,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { formatErrorDetail } from "@/components/ui/error-banners";
-import { patchThreadListCache, type ThreadListCache } from "@/lib/thread-cache";
+import {
+	cancelThreadListQueries,
+	invalidateThreadListQueries,
+	patchThreadListQueries,
+	restoreThreadListQueries,
+	snapshotThreadListQueries,
+	type ThreadListSnapshotEntry,
+	threadListCacheKeys,
+} from "@/lib/thread-list-cache";
 
 interface UseMarkAsReadOptions {
 	messages: RemitImapThreadMessageResponse[];
@@ -25,13 +31,6 @@ interface ThreadMessagesData {
 	[key: string]: unknown;
 }
 
-/**
- * Either shape a thread list/search query caches — the infinite mailbox list
- * or a single-shot page. `setQueriesData` matches by key prefix, so the
- * optimistic updater sees both.
- */
-type ThreadsListData = ThreadListCache;
-
 interface SnapshotEntry<T> {
 	queryKey: readonly unknown[];
 	data: T;
@@ -39,11 +38,37 @@ interface SnapshotEntry<T> {
 
 interface MarkAsReadContext {
 	threadMessagesPrefix: readonly unknown[];
-	threadsListPrefixes: ReadonlyArray<readonly unknown[]>;
-	threadsSearchPrefixes: ReadonlyArray<readonly unknown[]>;
+	listPrefixes: ReadonlyArray<readonly unknown[]>;
 	previousThreadMessages: SnapshotEntry<ThreadMessagesData>[];
-	previousThreadsList: SnapshotEntry<ThreadsListData>[];
+	previousThreadsList: ThreadListSnapshotEntry[];
 }
+
+/**
+ * Dwell before a message the user is viewing is marked read. A glance closed
+ * within this window leaves it unread (#140). Applied by the single shared
+ * trigger below, so the daily brief and the mailbox thread views agree.
+ */
+export const MARK_READ_DELAY_MS = 3000;
+
+/**
+ * Fire `markRead` for `messageIds` after `delayMs`. Returns a canceller the
+ * caller runs on unmount or when the selection changes before the dwell
+ * elapses; an empty list schedules nothing, and a non-positive delay fires at
+ * once. Framework-agnostic so the timing can be exercised with fake timers.
+ */
+export const scheduleMarkRead = (
+	messageIds: string[],
+	delayMs: number,
+	markRead: (ids: string[]) => void,
+): (() => void) => {
+	if (messageIds.length === 0) return () => {};
+	if (delayMs <= 0) {
+		markRead(messageIds);
+		return () => {};
+	}
+	const timer = setTimeout(() => markRead(messageIds), delayMs);
+	return () => clearTimeout(timer);
+};
 
 /**
  * The mailboxes whose cached listings a batch of message mutations affects.
@@ -68,7 +93,7 @@ export const resolveMailboxesForMessages = (
 	return [...mailboxIds];
 };
 
-const setReadOnItems = (
+export const setReadOnItems = (
 	items: RemitImapThreadMessageResponse[],
 	messageIds: Set<string>,
 	isRead: boolean,
@@ -122,26 +147,13 @@ export const useMarkAsRead = ({
 				threadDetailOperationsListThreadMessagesQueryKey({
 					path: { threadId },
 				});
-			const affectedMailboxIds = resolveMailboxesForMessages(
-				messageIds,
-				messages,
-				mailboxId,
-			);
-			const threadsListPrefixes = affectedMailboxIds.map((id) =>
-				threadOperationsListThreadsQueryKey({ path: { mailboxId: id } }),
-			);
-			const threadsSearchPrefixes = affectedMailboxIds.map((id) =>
-				threadOperationsSearchThreadsQueryKey({ path: { mailboxId: id } }),
+			const listPrefixes = threadListCacheKeys(
+				resolveMailboxesForMessages(messageIds, messages, mailboxId),
 			);
 
 			await Promise.all([
 				queryClient.cancelQueries({ queryKey: threadMessagesPrefix }),
-				...threadsListPrefixes.map((queryKey) =>
-					queryClient.cancelQueries({ queryKey }),
-				),
-				...threadsSearchPrefixes.map((queryKey) =>
-					queryClient.cancelQueries({ queryKey }),
-				),
+				cancelThreadListQueries(queryClient, listPrefixes),
 			]);
 
 			const previousThreadMessages = queryClient
@@ -152,18 +164,10 @@ export const useMarkAsRead = ({
 				)
 				.map(([queryKey, data]) => ({ queryKey, data }));
 
-			const previousThreadsList = [
-				...threadsListPrefixes,
-				...threadsSearchPrefixes,
-			]
-				.flatMap((queryKey) =>
-					queryClient.getQueriesData<ThreadsListData>({ queryKey }),
-				)
-				.filter(
-					(entry): entry is [readonly unknown[], ThreadsListData] =>
-						entry[1] !== undefined,
-				)
-				.map(([queryKey, data]) => ({ queryKey, data }));
+			const previousThreadsList = snapshotThreadListQueries(
+				queryClient,
+				listPrefixes,
+			);
 
 			queryClient.setQueriesData<ThreadMessagesData>(
 				{ queryKey: threadMessagesPrefix },
@@ -176,22 +180,13 @@ export const useMarkAsRead = ({
 				},
 			);
 
-			const patchListData = (old: unknown) =>
-				patchThreadListCache(old, (items) =>
-					setReadOnItems(items, messageIds, isRead),
-				);
-
-			for (const queryKey of [
-				...threadsListPrefixes,
-				...threadsSearchPrefixes,
-			]) {
-				queryClient.setQueriesData({ queryKey }, patchListData);
-			}
+			patchThreadListQueries(queryClient, listPrefixes, (items) =>
+				setReadOnItems(items, messageIds, isRead),
+			);
 
 			return {
 				threadMessagesPrefix,
-				threadsListPrefixes,
-				threadsSearchPrefixes,
+				listPrefixes,
 				previousThreadMessages,
 				previousThreadsList,
 			};
@@ -212,9 +207,7 @@ export const useMarkAsRead = ({
 				for (const entry of context.previousThreadMessages) {
 					queryClient.setQueryData(entry.queryKey, entry.data);
 				}
-				for (const entry of context.previousThreadsList) {
-					queryClient.setQueryData(entry.queryKey, entry.data);
-				}
+				restoreThreadListQueries(queryClient, context.previousThreadsList);
 			}
 			const isRead = variables.body.isRead ?? true;
 			pushError({
@@ -226,12 +219,7 @@ export const useMarkAsRead = ({
 		onSettled: (_data, _err, _vars, context) => {
 			if (!context) return;
 			queryClient.invalidateQueries({ queryKey: context.threadMessagesPrefix });
-			for (const queryKey of [
-				...context.threadsListPrefixes,
-				...context.threadsSearchPrefixes,
-			]) {
-				queryClient.invalidateQueries({ queryKey });
-			}
+			invalidateThreadListQueries(queryClient, context.listPrefixes);
 			// Refresh the sidebar mailbox list so the unread badge picks up the
 			// next backend `unseenCount` (which is owned by IMAP sync).
 			if (accountId) {
@@ -276,13 +264,13 @@ export const useMarkAsRead = ({
 		[messages, expandedIds],
 	);
 
-	// Mark as read immediately when a message is expanded — match Gmail
-	// behaviour. The previous implementation used a 10s delay plus an
-	// "all expanded" gate that meant most reads silently never fired.
-	useEffect(() => {
-		if (eligibleIds.length === 0) return;
-		markMessagesRead(eligibleIds);
-	}, [eligibleIds, markMessagesRead]);
+	// Mark as read after a short dwell on the open message. Changing the
+	// selection or leaving the view before the dwell elapses cancels the pending
+	// mark, so a glance stays unread (#140).
+	useEffect(
+		() => scheduleMarkRead(eligibleIds, MARK_READ_DELAY_MS, markMessagesRead),
+		[eligibleIds, markMessagesRead],
+	);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: intentionally clears state on threadId change; adding threadId to deps causes stale closure issues
 	useEffect(() => {
@@ -315,16 +303,10 @@ export const useToggleReadFor = (options: {
 			});
 		},
 		onSettled: () => {
-			queryClient.invalidateQueries({
-				queryKey: threadOperationsListThreadsQueryKey({
-					path: { mailboxId },
-				}),
-			});
-			queryClient.invalidateQueries({
-				queryKey: threadOperationsSearchThreadsQueryKey({
-					path: { mailboxId },
-				}),
-			});
+			invalidateThreadListQueries(
+				queryClient,
+				threadListCacheKeys([mailboxId]),
+			);
 			if (accountId) {
 				queryClient.invalidateQueries({
 					queryKey: mailboxOperationsListMailboxesQueryKey({

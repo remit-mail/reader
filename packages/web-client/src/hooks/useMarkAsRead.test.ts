@@ -1,9 +1,13 @@
 import assert from "node:assert";
-import { describe, test } from "node:test";
+import { afterEach, beforeEach, describe, mock, test } from "node:test";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
+import { patchThreadListCache } from "../lib/thread-cache.js";
 import {
+	MARK_READ_DELAY_MS,
 	resolveMailboxesForMessages,
+	scheduleMarkRead,
 	selectMessagesToMarkRead,
+	setReadOnItems,
 } from "./useMarkAsRead.js";
 
 const make = (
@@ -164,6 +168,92 @@ describe("selectMessagesToMarkRead", () => {
 		);
 		// Only the unread older message should be marked — the newest is already read.
 		assert.deepStrictEqual(got, ["m-older"]);
+	});
+});
+
+describe("marking read across the unified-threads cache shapes", () => {
+	// The daily brief reads from the unified cross-account listing, a different
+	// cache than the per-mailbox lists the regular inboxes render. Marking a
+	// message read has to patch that cache too, or the brief keeps its unread
+	// dot until reload (#140). The unified prefix carries both cache shapes — the
+	// brief's single page and the Flagged view's infinite query — so the patch
+	// has to survive whichever it is handed.
+	const patch = (old: unknown) =>
+		patchThreadListCache(old, (items) =>
+			setReadOnItems(items, new Set(["m1"]), true),
+		);
+
+	test("patches the brief's single-shot page", () => {
+		const patched = patch({
+			items: [
+				make({ messageId: "m1", threadMessageId: "tm1", isRead: false }),
+				make({ messageId: "m2", threadMessageId: "tm2", isRead: false }),
+			],
+		}) as { items: RemitImapThreadMessageResponse[] };
+		assert.equal(patched.items[0].isRead, true);
+		assert.equal(patched.items[1].isRead, false);
+	});
+
+	test("patches the Flagged view's infinite query instead of throwing", () => {
+		const patched = patch({
+			pages: [
+				{
+					items: [
+						make({ messageId: "m1", threadMessageId: "tm1", isRead: false }),
+					],
+				},
+				{
+					items: [
+						make({ messageId: "m2", threadMessageId: "tm2", isRead: false }),
+					],
+				},
+			],
+			pageParams: [undefined, "next"],
+		}) as { pages: Array<{ items: RemitImapThreadMessageResponse[] }> };
+		assert.equal(patched.pages[0].items[0].isRead, true);
+		assert.equal(patched.pages[1].items[0].isRead, false);
+	});
+});
+
+describe("scheduleMarkRead", () => {
+	beforeEach(() => {
+		mock.timers.enable({ apis: ["setTimeout"] });
+	});
+	afterEach(() => {
+		mock.timers.reset();
+	});
+
+	test("marks read once the dwell elapses", () => {
+		const marked: string[][] = [];
+		scheduleMarkRead(["m1"], MARK_READ_DELAY_MS, (ids) => marked.push(ids));
+		mock.timers.tick(MARK_READ_DELAY_MS - 1);
+		assert.deepStrictEqual(marked, []);
+		mock.timers.tick(1);
+		assert.deepStrictEqual(marked, [["m1"]]);
+	});
+
+	test("does not mark when the selection changes before the dwell", () => {
+		const marked: string[][] = [];
+		const cancel = scheduleMarkRead(["m1"], MARK_READ_DELAY_MS, (ids) =>
+			marked.push(ids),
+		);
+		mock.timers.tick(2000);
+		cancel();
+		mock.timers.tick(MARK_READ_DELAY_MS);
+		assert.deepStrictEqual(marked, []);
+	});
+
+	test("schedules nothing for an already-read (empty) selection", () => {
+		const marked: string[][] = [];
+		scheduleMarkRead([], MARK_READ_DELAY_MS, (ids) => marked.push(ids));
+		mock.timers.tick(MARK_READ_DELAY_MS);
+		assert.deepStrictEqual(marked, []);
+	});
+
+	test("marks at once when the delay is not positive", () => {
+		const marked: string[][] = [];
+		scheduleMarkRead(["m1"], 0, (ids) => marked.push(ids));
+		assert.deepStrictEqual(marked, [["m1"]]);
 	});
 });
 
