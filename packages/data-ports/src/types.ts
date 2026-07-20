@@ -89,6 +89,21 @@ export type MessageFlagPushItem = z.infer<typeof MessageFlagPushSchema>;
 export type QuarantineItem = z.infer<typeof QuarantineSchema>;
 export type QuarantineMimeNodeItem = QuarantineItem["structure"][number];
 
+/**
+ * What a caller supplies to quarantine a message.
+ *
+ * `quarantineId` is absent on purpose. The column carries a random-id default
+ * (the house pattern for every entity here), so an input that merely allowed
+ * the id would let a writer omit it, take a fresh random one on every retry,
+ * and turn the idempotent write this record depends on into an accumulating
+ * pile of rows that the derived-id lookup never finds. The repository derives
+ * it from the four fields that name the message, which are all required here.
+ */
+export type QuarantineUpsertInput = Omit<
+	QuarantineItem,
+	"quarantineId" | "createdAt" | "updatedAt" | "structure"
+> & { structure?: QuarantineMimeNodeItem[] };
+
 export type MailboxSpecialUseValue = z.infer<typeof MailboxSpecialUseSchema>;
 
 export type AccountSettingValue =

@@ -3,31 +3,17 @@ import type { FolderRole } from "./folder-role.js";
 /**
  * The pipeline step that refused the message.
  *
- * One member, because **no catch site on the sync path can currently tell a
- * parse failure from an infrastructure failure**. The per-message frame in
- * `body-sync.ts` wraps the S3 body write, the parsed-body cache write, the
- * body-part `pMap` and DynamoDB upsert, the placement move (SQS + DynamoDB)
- * and the label and counter writes, alongside the `simpleParser` call; only
- * connection drops are filtered out of it.
+ * One member, behind a real narrowing rather than a promise of one: the body
+ * parse has its own try block around the parse call and nothing else, so an
+ * error out of it can only be the message. S3, queue and database failures
+ * propagate and never become a record here — quarantining one would set a
+ * message aside for an outage, tell the user it was unreadable, and invite a
+ * public GitHub issue about it.
  *
- * **Precondition on Phase 3**: narrow the try block to the parse call before
- * quarantining anything. Quarantining at the frame as it stands would set a
- * message aside for a DynamoDB throttle, tell the user it was unreadable, and
- * invite a public GitHub issue for an outage — the same defect as naming an
- * S3 write `AttachmentExtract`, one layer up.
- *
- * There are three distinct parse sites, and a quarantine would have to
- * attribute them differently: the fresh-fetch path, `backfillClassification`
- * (its own parse over a different result list), and the header parse in
- * `imapflow-connection.ts`, which is swallowed and treated as "no thread
- * parent". Stages are added as those sites are separated — never ahead of it.
- *
- * The stages this replaced could not fire at all: an unparseable Date falls
- * back to INTERNALDATE, and an unrecognized MIME type maps to a safe default
- * rather than throwing. Unparseable addresses are dropped with a `continue`
- * and the message is written anyway — so that defect is reached but discarded,
- * never raised, which is a reason to have no `AddressParse` stage but not the
- * reason that it cannot happen.
+ * A message that arrives with no ENVELOPE is deliberately not a member:
+ * nothing can tell that apart from the FETCH row glitching, and the IMAP
+ * client is far more often the cause than the message. The sync path holds its
+ * cursor and retries instead.
  */
 export type QuarantineFailureStage = "BodyParse";
 
@@ -36,13 +22,15 @@ export type QuarantineFailureStage = "BodyParse";
  *
  * Closed, because `quarantineIssueTitle` interpolates it into a public issue
  * title: a `string` here would make the one field whose publishability is
- * asserted rather than derived into free text. Grows with the narrowing
- * described on `QuarantineFailureStage`, and no faster.
+ * asserted rather than derived into free text.
+ *
+ * Total and small. The body parser reports its refusals as free text with no
+ * stable type or code, so a member exists only where the writer can identify
+ * the defect without reading parser prose; anything it cannot name is
+ * `UnreadableBody`, and the parser's own words stay in `failureMessage`, which
+ * is shown on screen and never published.
  */
-export type QuarantineFailureCode =
-	| "UnterminatedMultipartBoundary"
-	| "UnknownCharset"
-	| "TruncatedBody";
+export type QuarantineFailureCode = "UnknownCharset" | "UnreadableBody";
 
 /**
  * One node of the message's MIME tree, in a pre-order walk.
