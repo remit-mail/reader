@@ -73,41 +73,69 @@ const resultSections: SearchResultSection[] = [
 ];
 
 /**
- * Matches from outside the inbox — Archive, Sent, Spam and a custom folder.
- * These are the rows an unscoped search returns that an INBOX-only one could
- * not, so they only ever appear under the brief's sections.
+ * Matches from outside the inbox — Archive, Sent and a custom folder — each
+ * carrying the folder it was read from. These are the rows a search reaching
+ * every folder returns that an INBOX-only one could not.
  */
 const crossFolderMatches: SearchResult[] = [
 	{
 		id: "x1",
 		sender: "Mollie",
 		subject: "Invoice 2026-02 — archived",
-		snippet: "Filed to Archive last month; payment already settled.",
+		snippet: "Filed last month; payment already settled.",
 		date: "Feb 24",
+		folder: { role: "archive" },
 		category: { label: "Receipt", tone: "positive" },
 	},
 	{
 		id: "x2",
 		sender: "me",
 		subject: "Re: invoice query",
-		snippet: "Sent — attaching the invoice you asked for.",
+		snippet: "Attaching the invoice you asked for.",
 		date: "Feb 18",
-	},
-	{
-		id: "x3",
-		sender: "billing@unknown-vendor.test",
-		subject: "URGENT invoice attached",
-		snippet: "Marked as spam, but it is the invoice the user is looking for.",
-		date: "Feb 11",
-		category: { label: "Spam", tone: "warning" },
+		folder: { role: "sent" },
 	},
 	{
 		id: "x4",
 		sender: "Accountant",
 		subject: "Invoices for the quarter",
-		snippet: "Filed under Projects/Bookkeeping.",
+		snippet: "The quarterly set, filed with the rest of the bookkeeping.",
 		date: "Jan 30",
+		folder: { providerPath: "Projects/Bookkeeping" },
 	},
+];
+
+/**
+ * Matches that live in the account's `\Junk` folder. A global search holds
+ * these out of the sections entirely and offers them as a count instead.
+ */
+const spamMatches: SearchResult[] = [
+	{
+		id: "s1",
+		sender: "billing@unknown-vendor.test",
+		subject: "URGENT invoice attached",
+		snippet: "Wire the amount below within 24 hours to avoid suspension.",
+		date: "Feb 11",
+		folder: { role: "junk" },
+	},
+	{
+		id: "s2",
+		sender: "invoices@pay-now.test",
+		subject: "Outstanding invoice — final notice",
+		snippet: "Your account is overdue. Settle immediately.",
+		date: "Feb 4",
+		folder: { role: "junk" },
+	},
+];
+
+/** The literal section a global search returns: inbox rows plus everywhere else. */
+const globalTopMatches: SearchResult[] = [
+	...topMatches.map((result) => ({
+		...result,
+		folder: { role: "inbox" as const },
+	})),
+	...crossFolderMatches,
+	...spamMatches,
 ];
 
 const emptySections: SearchResultSection[] = [
@@ -151,23 +179,45 @@ export const Idle: Story = {
 
 /**
  * The daily brief's unscoped search: no scope chip in the bar, and the literal
- * section carries matches from every folder — Archive, Sent, Spam and custom
- * folders alongside the inbox. Before the listing behind it took a search mode
- * it could only ever return inbox mail, so this section was silently narrower
- * than the bar promised.
+ * section carries matches from every folder — Archive, Sent and custom folders
+ * alongside the inbox. Each row says which folder it came from, because with
+ * nothing scoping the search the folder is the only thing placing the result.
  *
- * The rows themselves do not say which folder they came from; the sections are
- * ordered newest first regardless of where each message is filed.
+ * The two spam matches in the same data are not in this list. They are held out
+ * and offered above it as a count.
  */
-export const UnscopedAcrossFolders: Story = {
+export const GlobalAcrossFolders: Story = {
 	render: () => (
 		<Harness
 			value="invoice"
+			scope={{ kind: "global" }}
+			onScopeToSpam={() => {}}
+			sections={[
+				{ id: "top", label: "Top matches", results: globalTopMatches },
+				{ id: "related", label: "Related", results: related },
+			]}
+		/>
+	),
+};
+
+/**
+ * The same global search over an account whose Spam folder holds nothing
+ * matching. No spam rows to hold out, so no offer — the offer only ever appears
+ * because there is something behind it.
+ */
+export const GlobalWithoutSpamMatches: Story = {
+	render: () => (
+		<Harness
+			value="invoice"
+			scope={{ kind: "global" }}
+			onScopeToSpam={() => {}}
 			sections={[
 				{
 					id: "top",
 					label: "Top matches",
-					results: [...topMatches, ...crossFolderMatches],
+					results: globalTopMatches.filter(
+						(result) => result.folder?.role !== "junk",
+					),
 				},
 				{ id: "related", label: "Related", results: related },
 			]}
@@ -176,18 +226,105 @@ export const UnscopedAcrossFolders: Story = {
 };
 
 /**
- * A scoped view (a mailbox route, its `in:` chip in the bar). Both sections are
- * scoped to that folder and take the kit's default labels — the semantic
- * section used to run unscoped here under an "Everywhere" heading, which
- * contradicted the chip the same bar was showing.
+ * An account with no junk folder at all. Nothing is appointed `\Junk`, so no
+ * row can be spam and the component behaves exactly as it does when Spam is
+ * simply empty — there is no separate case to handle.
  */
-export const ScopedToOneFolder: Story = {
+export const GlobalAccountWithoutSpamFolder: Story = {
 	render: () => (
 		<Harness
 			value="invoice"
+			scope={{ kind: "global" }}
+			onScopeToSpam={() => {}}
 			sections={[
-				{ id: "top", label: "Top matches", results: topMatches.slice(0, 2) },
-				{ id: "related", label: "Related", results: related.slice(0, 1) },
+				{ id: "top", label: "Top matches", results: crossFolderMatches },
+			]}
+		/>
+	),
+};
+
+/**
+ * A global search whose only matches are in Spam. The sections are empty, so
+ * the empty state stands — with the offer above it, which is the whole reason
+ * the user is not left thinking the search found nothing.
+ */
+export const GlobalOnlySpamMatches: Story = {
+	render: () => (
+		<Harness
+			value="invoice"
+			scope={{ kind: "global" }}
+			onScopeToSpam={() => {}}
+			sections={[{ id: "top", label: "Top matches", results: spamMatches }]}
+		/>
+	),
+};
+
+/**
+ * Scoped to the inbox (its `in:inbox` chip in the bar), given the very same
+ * rows as the global story — spam matches included. Nothing about Spam appears:
+ * no rows, no count, no offer. A scoped search shows its own scope and no more,
+ * and that asymmetry with the global view is deliberate.
+ *
+ * The rows also drop their folder labels here. Every row is in the scoped
+ * folder, so naming it on each one repeats the chip.
+ */
+export const ScopedToInbox: Story = {
+	render: () => (
+		<Harness
+			value="invoice"
+			scope={{ kind: "folder", role: "inbox" }}
+			onScopeToSpam={() => {}}
+			sections={[
+				{ id: "top", label: "Top matches", results: globalTopMatches },
+				{ id: "related", label: "Related", results: related },
+			]}
+		/>
+	),
+};
+
+/**
+ * Scoped to Spam — where taking the offer lands. Ordinary rows, rendered
+ * normally, and no offer, because the user is already here. This is the same
+ * scoped search reached by navigating to Spam with the query carried over; the
+ * offer is a shortcut into it, not a mode of its own.
+ */
+export const ScopedToSpam: Story = {
+	render: () => (
+		<Harness
+			value="invoice"
+			scope={{ kind: "folder", role: "junk" }}
+			onScopeToSpam={() => {}}
+			sections={[{ id: "top", label: "Top matches", results: spamMatches }]}
+		/>
+	),
+};
+
+/**
+ * A folder a search result can be in but never labelled with. All Mail and
+ * Starred are views over mail filed elsewhere, and Gmail exposes them as
+ * ordinary folders, so a row read from one carries no provenance label rather
+ * than a misleading one. The other rows keep theirs.
+ */
+export const VirtualFoldersGoUnlabelled: Story = {
+	render: () => (
+		<Harness
+			value="invoice"
+			scope={{ kind: "global" }}
+			sections={[
+				{
+					id: "top",
+					label: "Top matches",
+					results: [
+						{ ...topMatches[0], id: "v1", folder: { role: "all" } },
+						{ ...topMatches[1], id: "v2", folder: { role: "flagged" } },
+						{
+							...topMatches[2],
+							id: "v3",
+							folder: { providerPath: "[Gmail]/Important" },
+						},
+						...crossFolderMatches.slice(0, 1),
+					],
+				},
 			]}
 		/>
 	),

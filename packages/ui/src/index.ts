@@ -121,7 +121,10 @@ export {
 export {
 	canonicalRoleLabel,
 	type FolderRole,
+	isVirtualFolderRole,
+	provenanceFolderLabel,
 	providerLeaf,
+	type ResultFolder,
 	roleIcon,
 } from "./components/folder-role.js";
 export {
@@ -304,9 +307,11 @@ export {
 	type SearchResultTone,
 } from "./components/search-result-row.js";
 export {
+	partitionSpamResults,
 	type SearchResultSection,
 	SearchResults,
 	type SearchResultsProps,
+	type SearchScope,
 } from "./components/search-results.js";
 export {
 	SearchChipRow,
@@ -358,6 +363,10 @@ export {
 	SlidePanel,
 	type SlidePanelProps,
 } from "./components/slide-panel.js";
+export {
+	SpamResultsOffer,
+	type SpamResultsOfferProps,
+} from "./components/spam-results-offer.js";
 export {
 	commitPeek,
 	SwipeableRow,
