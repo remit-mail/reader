@@ -4,6 +4,7 @@ import type {
 	CreateExportResponse,
 	DeleteAccountConfigResponse,
 	DeleteMeInput,
+	QuarantineListResponse,
 	VipSuggestionsResponse,
 } from "@remit/api-openapi-types";
 import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
@@ -34,6 +35,18 @@ export const MeOperations: Record<
 		const items = await address.listSuggestedVips({ accountConfigId });
 
 		return { suggestions: items.map(toVipSuggestionEntry) };
+	},
+	MeOperations_listQuarantine: async (
+		_context: Context,
+		...args: unknown[]
+	): Promise<QuarantineListResponse> => {
+		const event = args[0] as APIGatewayProxyEvent;
+		const accountConfigId = getAccountConfigIdFromEvent(event);
+
+		const { quarantine } = await getClient();
+		const entries = await quarantine.listByAccountConfigId(accountConfigId);
+
+		return { entries };
 	},
 	MeOperations_deleteMe: async (
 		_context: Context,

@@ -9,6 +9,7 @@ import { messageFlagPushTable } from "../schema/i4-message-flag-push.js";
 import { messagePlacementMoveTable } from "../schema/i4-message-placement-move.js";
 import { outboxMessageTable } from "../schema/i4-outbox-message.js";
 import { messageDataSchema } from "../schema/message-data.js";
+import { quarantineTable } from "../schema/quarantine.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import { createSqliteDatabase } from "../sqlite-client.js";
 import { runInTransaction } from "../tx.js";
@@ -151,6 +152,13 @@ export const runDrizzleCascadeDelete = async (
 
 		const accountIds = (grouped.get("Account") ?? []).map((k) => k.accountId);
 		if (accountIds.length > 0) {
+			// Quarantine rows are deleted set-wise by account rather than from an
+			// enumerated key, the way message subtrees are. They carry the user's
+			// own folder names and parser output quoting the message, so account
+			// deletion has to take them even though nothing enumerates them.
+			await tx
+				.delete(quarantineTable)
+				.where(inArray(quarantineTable.accountId, accountIds));
 			await tx
 				.delete(accountTable)
 				.where(inArray(accountTable.accountId, accountIds));

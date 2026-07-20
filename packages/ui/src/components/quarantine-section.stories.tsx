@@ -5,7 +5,7 @@ import { quarantineDemoEntries } from "./quarantine-fixtures.js";
 import type { QuarantineEntry } from "./quarantine-report.js";
 import { QuarantineSection } from "./quarantine-section.js";
 
-const [unterminatedBoundary, unknownCharset, truncatedBody] =
+const [unterminatedBoundary, unknownCharset, truncatedBody, shapeUnread] =
 	quarantineDemoEntries;
 
 /**
@@ -60,6 +60,22 @@ export const CutABugFlow: Story = {
 			</>
 		);
 	},
+};
+
+/**
+ * A message that failed before its BODYSTRUCTURE was read carries no content
+ * type, encoding, size or MIME tree, and one that declared no Message-ID
+ * carries no hash. The report says so rather than printing an empty value.
+ */
+export const BugReportWithoutMessageShape: Story = {
+	render: () => (
+		<QuarantineBugDialog
+			entry={shapeUnread}
+			issueUrl={demoIssueUrl}
+			onClose={() => {}}
+			onCopy={() => {}}
+		/>
+	),
 };
 
 export const BugReport: Story = {

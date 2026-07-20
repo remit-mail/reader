@@ -45,7 +45,12 @@ export type QuarantineFailureCode =
 	| "TruncatedBody";
 
 /**
- * A node in the message's MIME tree.
+ * One node of the message's MIME tree, in a pre-order walk.
+ *
+ * The tree arrives flat with an explicit `depth` rather than as nested
+ * children: a self-referential model is not expressible in the schema this
+ * comes from, and the tree is only ever rendered as an indented list, which a
+ * pre-order walk reproduces exactly.
  *
  * `contentType` is `type/subtype` only. BODYSTRUCTURE hands the type and its
  * parameters over separately, so a node is built from `type`/`subtype` and
@@ -53,8 +58,8 @@ export type QuarantineFailureCode =
  * `filename=`, which name the user's attachments.
  */
 export interface QuarantineMimeNode {
+	depth: number;
 	contentType: string;
-	parts?: readonly QuarantineMimeNode[];
 }
 
 /**
@@ -70,10 +75,19 @@ export interface QuarantineEntry {
 	quarantineId: string;
 	accountId: string;
 	mailboxId: string;
+	/**
+	 * UIDVALIDITY of the mailbox when the message was set aside. A uid names a
+	 * message only alongside it.
+	 */
+	uidValidity: number;
 	/** IMAP uid of the message that was not written. */
 	uid: number;
-	/** Canonical role of the folder it arrived in — travels in the report. */
-	mailboxRole: FolderRole;
+	/**
+	 * Canonical role of the folder it arrived in — travels in the report.
+	 * Absent when the user appointed no role to that folder, which is the
+	 * ordinary state of a plain folder.
+	 */
+	mailboxRole?: FolderRole;
 	/** The user's own folder name. Shown on screen, withheld from the report. */
 	mailboxPath: string;
 	failureStage: QuarantineFailureStage;
@@ -81,26 +95,36 @@ export interface QuarantineEntry {
 	/** Parser error text. Shown on screen, never in the report. */
 	failureMessage: string;
 	/**
-	 * Dot-numbered part path the failure is attributable to, or null when it is
-	 * not attributable to one node — the case for a whole-body parse failure.
+	 * Dot-numbered part path the failure is attributable to. Absent when it is
+	 * not attributable to one node — the case for a whole-body parse failure,
+	 * which is every failure today.
 	 */
-	failurePartPath: string | null;
+	failurePartPath?: string;
 	/** Epoch millis the message was quarantined. */
 	quarantinedAt: number;
 	/** Rounds attempted before the message was set aside. */
 	attempts: number;
-	sizeBytes: number;
+	/**
+	 * The message-shape fields all come off BODYSTRUCTURE and RFC822.SIZE in
+	 * the same FETCH, so a message that failed before either was read carries
+	 * none of them — they are absent together, and `structure` is empty.
+	 */
+	sizeBytes?: number;
 	/** Top-level Content-Type, `type/subtype` only. */
-	contentType: string;
-	transferEncoding: string;
-	/** Declared charset, or null when the message declared none. */
-	charset: string | null;
-	/** The MIME tree, structure only. */
-	structure: QuarantineMimeNode;
-	/** SHA-256 of the Message-ID, `sha256:` prefixed. */
-	messageIdHash: string;
+	contentType?: string;
+	transferEncoding?: string;
+	/** Declared charset. Absent when the message declared none. */
+	charset?: string;
+	/** The MIME tree, structure only, as a pre-order walk. */
+	structure: readonly QuarantineMimeNode[];
+	/**
+	 * SHA-256 of the Message-ID, `sha256:` prefixed. Absent when the message
+	 * declared no Message-ID — a shared hash of nothing would correlate
+	 * unrelated reports.
+	 */
+	messageIdHash?: string;
 	/** Build of the worker that failed to parse — a parse bug belongs to it. */
-	appVersion: string;
+	workerVersion: string;
 }
 
 const stageSummaries: Record<QuarantineFailureStage, string> = {
@@ -146,13 +170,18 @@ function renderNodeType(contentType: string): string {
 	return JSON.stringify(stripped);
 }
 
-function renderStructure(node: QuarantineMimeNode, depth = 0): string[] {
-	const line = `${"  ".repeat(depth)}- ${renderNodeType(node.contentType)}`;
-	const children = node.parts ?? [];
-	return [
-		line,
-		...children.flatMap((part) => renderStructure(part, depth + 1)),
-	];
+/**
+ * What a message-shape field reads as when the message failed before its
+ * BODYSTRUCTURE was read. Distinct from "not declared", which is a statement
+ * about the message rather than about how far sync got.
+ */
+const NOT_READ = "_not read_";
+
+function renderStructure(nodes: readonly QuarantineMimeNode[]): string[] {
+	if (nodes.length === 0) return ["(no MIME structure was read)"];
+	return nodes.map(
+		(node) => `${"  ".repeat(node.depth)}- ${renderNodeType(node.contentType)}`,
+	);
 }
 
 export const QUARANTINE_REPORT_DISCLAIMER =
@@ -182,18 +211,18 @@ export function quarantineReportSections(
 		`### Message quarantined at \`${entry.failureStage}\``,
 		"",
 		`- **Failure**: \`${entry.failureCode}\``,
-		`- **Folder role**: ${entry.mailboxRole}`,
-		`- **Failing part**: ${entry.failurePartPath === null ? "_whole message_" : `\`${entry.failurePartPath}\``}`,
+		`- **Folder role**: ${entry.mailboxRole ?? "_none appointed_"}`,
+		`- **Failing part**: ${entry.failurePartPath == null ? "_whole message_" : `\`${entry.failurePartPath}\``}`,
 		`- **Attempts before quarantine**: ${entry.attempts}`,
-		`- **Worker build**: ${entry.appVersion}`,
-		`- **Message-ID hash**: \`${entry.messageIdHash}\``,
+		`- **Worker build**: ${entry.workerVersion}`,
+		`- **Message-ID hash**: ${entry.messageIdHash == null ? "_none declared_" : `\`${entry.messageIdHash}\``}`,
 		"",
 		"#### Message shape",
 		"",
-		`- **Content-Type**: ${renderToken(stripParameters(entry.contentType), MEDIA_TYPE)}`,
-		`- **Content-Transfer-Encoding**: ${renderToken(entry.transferEncoding, TOKEN)}`,
-		`- **Charset**: ${entry.charset === null ? "_not declared_" : renderToken(entry.charset, TOKEN)}`,
-		`- **Size**: ${entry.sizeBytes} bytes`,
+		`- **Content-Type**: ${entry.contentType == null ? NOT_READ : renderToken(stripParameters(entry.contentType), MEDIA_TYPE)}`,
+		`- **Content-Transfer-Encoding**: ${entry.transferEncoding == null ? NOT_READ : renderToken(entry.transferEncoding, TOKEN)}`,
+		`- **Charset**: ${entry.charset == null ? "_not declared_" : renderToken(entry.charset, TOKEN)}`,
+		`- **Size**: ${entry.sizeBytes == null ? NOT_READ : `${entry.sizeBytes} bytes`}`,
 		"",
 		"MIME structure:",
 	].join("\n");

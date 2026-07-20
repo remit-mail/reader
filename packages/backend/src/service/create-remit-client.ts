@@ -18,6 +18,7 @@ import type {
 	IMessageRepository,
 	IOrganizeJobRequestRepository,
 	IOutboxMessageRepository,
+	IQuarantineRepository,
 	IThreadMessageRepository,
 	IUnitOfWork,
 } from "@remit/data-ports";
@@ -70,6 +71,10 @@ export interface RemitClient {
 	threadMessage: IThreadMessageRepository;
 	envelope: IEnvelopeRepository;
 	accountExportRequest: IAccountExportRequestRepository;
+
+	// Messages the sync path could not read (issue #72). Read-only from the API
+	// process: the sync worker writes the rows, settings lists them.
+	quarantine: IQuarantineRepository;
 
 	// Smart Organize back-apply job (RFC 034, #1278). Present on both backends,
 	// modeled on accountExportRequest — a Pending row the account-fanout worker
@@ -151,6 +156,7 @@ export interface RemitClientRepositories {
 	threadMessage: IThreadMessageRepository;
 	envelope: IEnvelopeRepository;
 	accountExportRequest: IAccountExportRequestRepository;
+	quarantine: IQuarantineRepository;
 	organizeJobRequest: IOrganizeJobRequestRepository;
 	placementMove: IMessagePlacementMoveRepository;
 	flagPush: IMessageFlagPushRepository;
@@ -310,6 +316,7 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 		threadMessage: repositories.threadMessage,
 		envelope: repositories.envelope,
 		accountExportRequest: repositories.accountExportRequest,
+		quarantine: repositories.quarantine,
 		organizeJobRequest: repositories.organizeJobRequest,
 		filter: repositories.filter,
 		filterAnchor: repositories.filterAnchor,

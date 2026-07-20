@@ -20,6 +20,7 @@ const REQUIRED_KEYS: ReadonlyArray<keyof RemitClient> = [
 	"threadMessage",
 	"envelope",
 	"accountExportRequest",
+	"quarantine",
 	"storage",
 	"search",
 	"secrets",

@@ -10,6 +10,7 @@ export type OperationIds =
 	| "MeOperations_listVipSuggestions"
 	| "MeOperations_createExport"
 	| "MeOperations_getExport"
+	| "MeOperations_listQuarantine"
 	| "ConfigOperations_getConfig"
 	| "AccountOperations_createAccount"
 	| "AccountOperations_testConnection"
