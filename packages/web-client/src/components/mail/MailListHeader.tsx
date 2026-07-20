@@ -31,7 +31,7 @@ import {
 	useAppShellLayout,
 } from "@remit/ui";
 import { type ReactNode, useState } from "react";
-import { useLayoutTier } from "@/hooks/useLayoutTier";
+import { isSinglePaneTier, useLayoutTier } from "@/hooks/useLayoutTier";
 import { useMailContext } from "@/lib/mail-context";
 import { loadRecentSearches, saveRecentSearch } from "@/lib/recent-searches";
 import {
@@ -168,11 +168,15 @@ export function MailListHeader({
 			<MailHeader
 				title={title}
 				unreadCount={unreadCount}
-				// The list pane is narrow even on desktop, and the reading-pane
-				// toolbar owns the wide search; keep the header's search compact (a
-				// magnifier) at every width. On phone the magnifier opens the
-				// full-screen takeover above; on tablet it expands over the title.
+				// Desktop mounts the app top bar, which owns search for the whole
+				// shell — the list header shows no field there, so the page never
+				// has two search inputs competing for "/" and for focus. Below
+				// desktop the header keeps a compact magnifier: on phone it opens
+				// the full-screen takeover above, on tablet it expands over the
+				// title. `isSinglePaneTier` is the same predicate the shell gates
+				// the top bar on, so the two cannot drift into zero or two fields.
 				isDesktop={false}
+				showSearch={isSinglePaneTier(tier)}
 				onMenuClick={() => layout?.openNav()}
 				searchValue={searchInput}
 				onSearchChange={onSearchChange}

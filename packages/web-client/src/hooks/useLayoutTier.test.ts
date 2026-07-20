@@ -45,3 +45,29 @@ describe("isSinglePaneTier — compose surface must mount below desktop", () => 
 		assert.equal(isSinglePaneTier(resolveLayoutTier(1024)), false);
 	});
 });
+
+describe("exactly one search field is mounted at every width", () => {
+	// Two call sites decide this from the same tier: `mail.tsx` mounts the top
+	// bar's field when the layout is not single-pane, and `MailListHeader`
+	// passes `showSearch` to keep the header's field otherwise. Both read
+	// `isSinglePaneTier`, so they are each other's complement by construction —
+	// if either is rewritten to its own expression this fails. Two mounted
+	// fields compete for "/" and for focus (#59); zero leaves no way to search.
+	const mountsTopBarField = (width: number): boolean =>
+		!isSinglePaneTier(resolveLayoutTier(width));
+	const mountsHeaderField = (width: number): boolean =>
+		isSinglePaneTier(resolveLayoutTier(width));
+
+	for (const width of [0, 390, 767, 768, 1023, 1024, 1440]) {
+		it(`mounts one field at ${width}px`, () => {
+			const fields =
+				Number(mountsTopBarField(width)) + Number(mountsHeaderField(width));
+			assert.equal(fields, 1, `${width}px mounts ${fields} search fields`);
+		});
+	}
+
+	it("puts the field in the top bar only from desktop up", () => {
+		assert.equal(mountsTopBarField(1023), false);
+		assert.equal(mountsTopBarField(1024), true);
+	});
+});

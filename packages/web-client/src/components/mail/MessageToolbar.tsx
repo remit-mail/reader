@@ -1,22 +1,17 @@
-import {
-	Button,
-	type MailAction,
-	MailActionToolbar,
-	SearchBar,
-} from "@remit/ui";
-import { Info, SquarePen } from "lucide-react";
+import { Button, type MailAction, MailActionToolbar } from "@remit/ui";
+import { Info } from "lucide-react";
 import { useState } from "react";
-import { AccountMenu } from "@/auth/AccountMenu";
-import { BugReportButton } from "@/components/ui/BugReportButton";
 import { tooltipForAction } from "@/lib/keymap";
 import { MoveToTrigger } from "./MoveToTrigger";
 
 /**
  * Message action toolbar on the pane-header datum (40px, the shared
- * `--spacing-pane-header`). The reading pane's verbs — reply / reply-all /
- * forward, then delete / move / flag — Apple-Mail-style ghost icon buttons,
- * then the search field top-right (still filters the current list), compose
- * (✎) and the intelligence toggle (#422).
+ * `--spacing-pane-header`). Everything here acts on the open message: reply /
+ * reply-all / forward, then delete / move / flag — Apple-Mail-style ghost icon
+ * buttons — and the intelligence toggle (#422).
+ *
+ * Search, compose, bug report and the account menu are not message context;
+ * they live in the app top bar above every pane (`MailTopBar`, #49).
  *
  * Buttons are always pressable (never `disabled`): with no thread open a press
  * is a no-op that surfaces a one-line inline explanation rather than greying
@@ -24,7 +19,6 @@ import { MoveToTrigger } from "./MoveToTrigger";
  */
 export interface MessageToolbarProps {
 	hasThread: boolean;
-	onCompose: () => void;
 	intelligenceOpen: boolean;
 	/**
 	 * Whether the intelligence toggle is shown at all. The rail is contextual
@@ -33,12 +27,6 @@ export interface MessageToolbarProps {
 	 */
 	showIntelligenceToggle: boolean;
 	onToggleIntelligence: () => void;
-	searchValue: string;
-	onSearchChange: (value: string) => void;
-	/** Full clear (X button): drops the query and any selected thread (#538). */
-	onSearchClear: () => void;
-	/** Query-only clear (Esc): drops the query, keeps the thread open (#489). */
-	onSearchClearQuery?: () => void;
 
 	/* ---- wired action callbacks (omit to keep the no-op-explain behaviour) ---- */
 	onReply?: () => void;
@@ -71,14 +59,9 @@ const OPEN_FIRST = "Open a message first";
 
 export const MessageToolbar = ({
 	hasThread,
-	onCompose,
 	intelligenceOpen,
 	showIntelligenceToggle,
 	onToggleIntelligence,
-	searchValue,
-	onSearchChange,
-	onSearchClear,
-	onSearchClearQuery,
 	onReply,
 	onReplyAll,
 	onForward,
@@ -120,27 +103,6 @@ export const MessageToolbar = ({
 				) : undefined
 			}
 		>
-			{/* Apple Mail geometry: search sits top-right over the message area
-			    but still filters the current list. Reuses the wired SearchBar
-			    (the global "/" focus shortcut + Escape handling live in it). */}
-			<div className="w-64 min-w-40 shrink">
-				<SearchBar
-					value={searchValue}
-					onChange={onSearchChange}
-					onClear={onSearchClear}
-					onClearQuery={onSearchClearQuery}
-					placeholder="Search mail"
-				/>
-			</div>
-			<span className="mx-1 h-4 w-px bg-line" aria-hidden />
-			<Button
-				variant="ghost"
-				size="sm"
-				icon={<SquarePen className="size-4" />}
-				title={`Compose ${tooltipForAction("compose")}`}
-				aria-label="Compose"
-				onClick={onCompose}
-			/>
 			{showIntelligenceToggle && (
 				<Button
 					variant="ghost"
@@ -159,8 +121,6 @@ export const MessageToolbar = ({
 					}
 				/>
 			)}
-			<BugReportButton />
-			<AccountMenu />
 		</MailActionToolbar>
 	);
 };

@@ -202,7 +202,6 @@ interface MailboxPaneContextValue {
 	onToolbarDiscardDraft: () => void;
 	onToolbarMove: (destMailboxId: string) => void;
 	composeState: ReturnType<typeof useCompose>["state"];
-	openCompose: () => void;
 	closeCompose: () => void;
 	hasRemitDraftOpen: boolean;
 	// Phone actions
@@ -843,7 +842,6 @@ function MailboxPaneProvider({
 		onToolbarDiscardDraft: handleToolbarDiscardDraft,
 		onToolbarMove: handleToolbarMove,
 		composeState,
-		openCompose: handleNewCompose,
 		closeCompose,
 		hasRemitDraftOpen,
 		onBack: goBack,
@@ -1044,10 +1042,7 @@ function MailboxReading() {
 		onToolbarDiscardDraft,
 		onToolbarMove,
 		composeState,
-		openCompose,
 	} = useMailboxPane();
-	const { searchInput, onSearchChange, onSearchClear, onSearchClearQuery } =
-		useMailContext();
 	const tier = useLayoutTier();
 	const isDesktop = tier === "desktop";
 	const hasThread = Boolean(conversation);
@@ -1078,14 +1073,9 @@ function MailboxReading() {
 		<section className="flex h-full w-full min-w-0 flex-col bg-canvas">
 			<MessageToolbar
 				hasThread={hasThread}
-				onCompose={openCompose}
 				intelligenceOpen={showIntelligence}
 				showIntelligenceToggle={isDesktop && hasThread}
 				onToggleIntelligence={onToggleIntelligence}
-				searchValue={searchInput}
-				onSearchChange={onSearchChange}
-				onSearchClear={onSearchClear}
-				onSearchClearQuery={onSearchClearQuery}
 				onReply={hasThread ? onToolbarReply : undefined}
 				onReplyAll={hasThread ? onToolbarReplyAll : undefined}
 				onForward={hasThread ? onToolbarForward : undefined}

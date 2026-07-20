@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import { AppShellSkeleton } from "@/components/layout/AppShellSkeleton";
 import { ComposeFab } from "@/components/layout/ComposeFab";
+import { MailTopBar } from "@/components/layout/MailTopBar";
 import { BriefPane } from "@/components/mail/BriefPane";
 import { FlaggedPane } from "@/components/mail/FlaggedPane";
 import { MailboxPane } from "@/components/mail/MailboxPane";
@@ -268,7 +269,16 @@ function MailLayout() {
 	const navContent = (
 		<MailNav accounts={accounts} onMailboxSelect={handleMailboxSelect} />
 	);
-	const overlayContent = <ComposeFab />;
+	// Single-pane only, where the FAB is the compose entry point. Above it the
+	// top bar owns compose, and mounting the FAB there would resolve the same
+	// compose target twice for a button CSS keeps hidden.
+	const overlayContent = isSinglePane ? (
+		<ComposeFab accounts={accounts} />
+	) : undefined;
+	// Desktop only. Below 1024px the single pane keeps its own header search and
+	// the phone takeover; there is no room for a bar spanning panes that do not
+	// exist side by side.
+	const topBar = isSinglePane ? undefined : <MailTopBar accounts={accounts} />;
 	const navSlideOver = {
 		navOpen: drawerOpen,
 		onOpenNav: () => setDrawerOpen(true),
@@ -303,6 +313,7 @@ function MailLayout() {
 					) : (
 						<AppShellSlotted
 							nav={navContent}
+							topBar={topBar}
 							list={<BriefPane.List />}
 							reading={<BriefPane.Reading />}
 							intelligenceOpen={intelligenceOpen}
@@ -330,6 +341,7 @@ function MailLayout() {
 					) : (
 						<AppShellSlotted
 							nav={navContent}
+							topBar={topBar}
 							list={<FlaggedPane.List />}
 							reading={<FlaggedPane.Reading />}
 							intelligenceOpen={intelligenceOpen}
@@ -359,6 +371,7 @@ function MailLayout() {
 					) : (
 						<AppShellSlotted
 							nav={navContent}
+							topBar={topBar}
 							list={<MailboxPane.List />}
 							reading={<MailboxPane.Reading />}
 							intelligence={<MailboxPane.Intelligence />}
@@ -386,6 +399,7 @@ function MailLayout() {
 					) : (
 						<AppShellSlotted
 							nav={navContent}
+							topBar={topBar}
 							list={<OutboxPane.List />}
 							reading={<OutboxPane.Reading />}
 							intelligenceOpen={false}

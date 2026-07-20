@@ -22,6 +22,12 @@ export interface MailHeaderProps {
 	/** Mobile only: whether the inline search is expanded over the title. */
 	searchOpen: boolean;
 	onSearchOpenChange: (open: boolean) => void;
+	/**
+	 * Whether this header owns a search surface at all. Defaults to true. Set
+	 * false where an enclosing `AppTopBar` already carries the search field, so
+	 * the page never mounts two search inputs competing for the same focus.
+	 */
+	showSearch?: boolean;
 }
 
 /**
@@ -44,6 +50,7 @@ export function MailHeader({
 	onSearchClear,
 	searchOpen,
 	onSearchOpenChange,
+	showSearch = true,
 }: MailHeaderProps) {
 	const unreadLabel = `${unreadCount.toLocaleString()} unread`;
 	const clearSearch = onSearchClear ?? (() => onSearchChange(""));
@@ -75,7 +82,17 @@ export function MailHeader({
 	return (
 		<header className="flex shrink-0 flex-col bg-canvas">
 			<div className="flex h-12 items-center gap-2 px-row-inset">
-				{isDesktop ? (
+				{!showSearch ? (
+					<>
+						{menuButton}
+						<h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-fg">
+							{title}
+						</h1>
+						<span className="shrink-0 text-2xs text-fg-subtle">
+							{unreadLabel}
+						</span>
+					</>
+				) : isDesktop ? (
 					<>
 						{menuButton}
 						<h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-fg">

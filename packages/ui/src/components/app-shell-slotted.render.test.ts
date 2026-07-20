@@ -105,6 +105,37 @@ describe("AppShellSlotted slot rendering", () => {
 		);
 	});
 
+	it("renders the top bar above the panes, at every width", () => {
+		const topBarEl = createElement("div", { "data-testid": "topbar" }, "Bar");
+		for (const initialWidth of [800, 1100, 1400]) {
+			const html = render({ initialWidth, topBar: topBarEl });
+			assert.match(
+				html,
+				/data-testid="topbar"/,
+				`top bar at ${initialWidth}px`,
+			);
+			assert.ok(
+				html.indexOf('data-testid="topbar"') <
+					html.indexOf('data-testid="list"'),
+				`top bar precedes the pane group at ${initialWidth}px`,
+			);
+		}
+	});
+
+	it("omits the top bar when the caller passes none", () => {
+		const html = render({ initialWidth: 1100 });
+		assert.doesNotMatch(html, /data-testid="topbar"/);
+	});
+
+	it("hides the top bar with the rest of the layout while loading", () => {
+		const html = render({
+			isLoading: true,
+			skeleton: createElement("div", { "data-testid": "skeleton" }, "Loading"),
+			topBar: createElement("div", { "data-testid": "topbar" }, "Bar"),
+		});
+		assert.doesNotMatch(html, /data-testid="topbar"/);
+	});
+
 	it("renders the overlay regardless of width", () => {
 		const overlayEl = createElement("div", { "data-testid": "overlay" }, "FAB");
 		const narrowHtml = render({ initialWidth: 800, overlay: overlayEl });
