@@ -40,6 +40,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { AlertCircle, RefreshCw, Sparkles } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
+import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
 import { useSemanticSearch } from "@/hooks/useSemanticSearch";
 import { sortAccountsByCreatedAt } from "@/lib/account-order";
 import {
@@ -168,7 +169,8 @@ export function DailyBrief({
 	onSelectMessage,
 	onSelectSearchResult,
 }: DailyBriefProps) {
-	const { searchQuery, mailboxNameIndex, accountNameIndex } = useMailContext();
+	const { searchQuery } = useMailContext();
+	const tokenContext = useSearchTokenContext();
 	const isDesktop = useIsDesktop();
 
 	const nonMuted = useMemo(
@@ -259,7 +261,7 @@ export function DailyBrief({
 
 	const { freeText: sq, tokens: queryTokens } = parseSearchTokens(
 		searchQuery.trim().toLowerCase(),
-		{ mailboxesByName: mailboxNameIndex, accountsByName: accountNameIndex },
+		tokenContext,
 	);
 
 	// Convert API rows to ThreadRowData, narrowing only by the selected account

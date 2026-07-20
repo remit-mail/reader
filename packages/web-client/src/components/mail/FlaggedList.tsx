@@ -22,6 +22,7 @@ import {
 import { useCallback, useMemo, useState } from "react";
 import { formatErrorMessage } from "@/components/ui/ErrorState";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
+import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
 import { useStarredThreads } from "@/hooks/useStarredThreads";
 import {
 	matchesBriefSearch,
@@ -49,7 +50,8 @@ export function FlaggedList({
 	selectedMessageId,
 	onSelectMessage,
 }: FlaggedListProps) {
-	const { searchQuery, mailboxNameIndex, accountNameIndex } = useMailContext();
+	const { searchQuery } = useMailContext();
+	const tokenContext = useSearchTokenContext();
 	const isDesktop = useIsDesktop();
 
 	const [selectedCategory, setSelectedCategory] = useState("all");
@@ -84,7 +86,7 @@ export function FlaggedList({
 
 	const { freeText: sq, tokens: queryTokens } = parseSearchTokens(
 		searchQuery.trim().toLowerCase(),
-		{ mailboxesByName: mailboxNameIndex, accountsByName: accountNameIndex },
+		tokenContext,
 	);
 
 	const rows = useMemo<ThreadRowData[]>(() => {

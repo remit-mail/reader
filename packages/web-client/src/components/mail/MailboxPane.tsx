@@ -88,6 +88,7 @@ import { useMailboxAccount } from "@/hooks/useMailboxAccount";
 import { useToggleReadFor } from "@/hooks/useMarkAsRead";
 import { useMoveMessages } from "@/hooks/useMoveMessages";
 import { useRescueCandidates } from "@/hooks/useRescueCandidates";
+import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
 import { useSemanticSearch } from "@/hooks/useSemanticSearch";
 import { useToggleStar } from "@/hooks/useToggleStar";
 import { useTriageKeyboard } from "@/hooks/useTriageKeyboard";
@@ -247,28 +248,25 @@ function MailboxPaneProvider({
 	const telemetry = useTelemetry();
 	const {
 		accounts,
-		mailboxNameIndex,
-		accountNameIndex,
 		searchQuery,
 		searchInput,
 		intelligenceOpen,
 		onToggleIntelligence,
 		onSetIntelligenceOpen,
 	} = useMailContext();
+	const tokenContext = useSearchTokenContext();
 
 	const normalizedSearchQuery = normalizeSearchQuery(searchQuery);
 	const hasSearchQuery = normalizedSearchQuery.length > 0;
 	// Filter tokens (`from:`, `has:attachment`, `is:unread`) narrow this literal
 	// search to the params `threadOperationsSearchThreads` supports; `before:`/
 	// `after:`/`account:` have no equivalent on this endpoint and are left for
-	// the semantic section only (see `useSemanticSearch`). `in:` is likewise not
-	// applied here — this view is already scoped to one mailbox by its route —
-	// but still needs the name-index context so a resolved `in:`/`account:`
-	// token is stripped from `freeText` instead of leaking into the literal
-	// query text as a stray word.
+	// the semantic section only (see `useSemanticSearch`). `in:` never reaches
+	// here at all: this view is scoped to one mailbox by its route, so
+	// `useSearchTokenContext` does not resolve the term and it stays free text.
 	const { freeText, tokens: searchTokens } = parseSearchTokens(
 		normalizedSearchQuery,
-		{ mailboxesByName: mailboxNameIndex, accountsByName: accountNameIndex },
+		tokenContext,
 	);
 	const fromToken = searchTokens.find((t) => t.type === "from");
 	const searchThreadsQuery = {
@@ -949,12 +947,13 @@ function MailboxList() {
 		() => threads.map(threadToSearchResult),
 		[threads],
 	);
-	// The field above every pane says "Search all mail", and it means it (#47).
-	// The literal engine only searches one mailbox at a time (there is no
-	// cross-mailbox thread search), so this view names that section after the
-	// mailbox and lets the semantic engine run unscoped — the "Everywhere"
-	// section reaches the rest of the mail. Results are deduped by thread, so a
-	// thread never shows in both.
+	// The route scopes this view, and the top bar's chip says so. Both sections
+	// are named by the ground they cover so that scope is never overstated: the
+	// literal engine searches this mailbox and nothing else (there is no
+	// cross-mailbox thread search), while the semantic engine runs unscoped and
+	// its section says "Everywhere" (#47). Reaching past the folder is a labelled
+	// section, not a silent widening of the chip. Results are deduped by thread,
+	// so a thread never shows in both.
 	const { hits: semanticHits, isLoading: relatedLoading } = useSemanticSearch({
 		filterCategory,
 	});

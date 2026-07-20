@@ -34,6 +34,7 @@ import {
 } from "@remit/ui";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { isSinglePaneTier, useLayoutTier } from "@/hooks/useLayoutTier";
+import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
 import { useMailContext } from "@/lib/mail-context";
 import { loadRecentSearches, saveRecentSearch } from "@/lib/recent-searches";
 import {
@@ -81,14 +82,9 @@ export function MailListHeader({
 	searchResultsLabel = "Top matches",
 	relatedResultsLabel = "Related",
 }: MailListHeaderProps) {
-	const {
-		searchInput,
-		onSearchChange,
-		onSearchClear,
-		searchViewKey,
-		mailboxNameIndex,
-		accountNameIndex,
-	} = useMailContext();
+	const { searchInput, onSearchChange, onSearchClear, searchViewKey } =
+		useMailContext();
+	const tokenContext = useSearchTokenContext();
 	const layout = useAppShellLayout();
 	const tier = useLayoutTier();
 	const [searchOpen, setSearchOpen] = useState(false);
@@ -105,18 +101,18 @@ export function MailListHeader({
 	}, [searchViewKey]);
 
 	const hasQuery = searchInput.trim().length > 0;
-	// Filter tokens (`from:`, `has:attachment`, `in:`, `account:`, …) parsed live
-	// from the typed query render as removable chips above the sections;
-	// removing one edits the query text directly, which re-parses on the next
-	// render. `in:`/`account:` resolve against the shared name indexes so a
-	// chip only appears for a name that actually matches a mailbox/account.
-	const tokenChips = parseSearchTokens(searchInput, {
-		mailboxesByName: mailboxNameIndex,
-		accountsByName: accountNameIndex,
-	}).tokens.map((token) => ({
-		label: searchTokenLabel(token),
-		onRemove: () => onSearchChange(removeSearchToken(searchInput, token)),
-	}));
+	// Filter tokens (`from:`, `has:attachment`, `account:`, …) parsed live from
+	// the typed query render as removable chips above the sections; removing one
+	// edits the query text directly, which re-parses on the next render. The
+	// parse runs through `useSearchTokenContext`, the same one the engines use,
+	// so a chip appears only for a term that is actually being applied — on a
+	// scoped view `in:` is not resolved and so is never chipped here.
+	const tokenChips = parseSearchTokens(searchInput, tokenContext).tokens.map(
+		(token) => ({
+			label: searchTokenLabel(token),
+			onRemove: () => onSearchChange(removeSearchToken(searchInput, token)),
+		}),
+	);
 	const topMatches = searchResults ?? [];
 	const related = relatedResults ?? [];
 	// Always offer both sections while a query is present; the kit drops the empty

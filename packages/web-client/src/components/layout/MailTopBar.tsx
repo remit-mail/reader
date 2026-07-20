@@ -9,6 +9,13 @@
  * The actions here are the ones that belong to the app rather than to whatever
  * is currently listed or open — compose, bug report, account. Reply, delete,
  * move and the rest stay on the reading pane's own toolbar, under this bar.
+ *
+ * The field carries one chip: the scope of the view the user navigated into
+ * (`in:spam` in Spam, nothing on the brief). Removing it goes to the brief and
+ * searches everything. Typed `in:`/`from:` terms are not chipped here — they
+ * are already visible as the text the user typed, and chipping them would show
+ * the same term twice in one field; they render as chips over the result
+ * sections instead, where the text is not repeated.
  */
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
 import { AppTopBar, Button, SearchBar } from "@remit/ui";
@@ -16,8 +23,16 @@ import { SquarePen } from "lucide-react";
 import { AccountMenu } from "@/auth/AccountMenu";
 import { BugReportButton } from "@/components/ui/BugReportButton";
 import { useGlobalCompose } from "@/hooks/useComposeTarget";
+import { useSearchScope } from "@/hooks/useSearchScope";
 import { tooltipForAction } from "@/lib/keymap";
 import { useMailContext } from "@/lib/mail-context";
+import type { SearchScopeState } from "@/lib/search-scope";
+
+const SEARCH_PLACEHOLDER: Record<SearchScopeState["kind"], string> = {
+	global: "Search all mail",
+	pending: "Search mail",
+	scoped: "Search this folder",
+};
 
 interface MailTopBarProps {
 	accounts: RemitImapAccountResponse[];
@@ -27,6 +42,15 @@ export function MailTopBar({ accounts }: MailTopBarProps) {
 	const { searchInput, onSearchChange, onSearchClear, onSearchClearQuery } =
 		useMailContext();
 	const compose = useGlobalCompose(accounts);
+	const { scope, clearScope } = useSearchScope(accounts);
+	const chips =
+		scope.kind === "scoped"
+			? [{ id: scope.chip.id, label: scope.chip.label, tone: "scope" as const }]
+			: undefined;
+	// Only the brief may claim to search all mail. A mailbox route whose name has
+	// not loaded yet has no chip to show but is already narrowed, so it gets the
+	// neutral wording rather than a placeholder that asserts the wrong scope.
+	const placeholder = SEARCH_PLACEHOLDER[scope.kind];
 
 	return (
 		<AppTopBar
@@ -41,7 +65,9 @@ export function MailTopBar({ accounts }: MailTopBarProps) {
 					onChange={onSearchChange}
 					onClear={onSearchClear}
 					onClearQuery={onSearchClearQuery}
-					placeholder="Search all mail"
+					chips={chips}
+					onRemoveChip={clearScope}
+					placeholder={placeholder}
 					size="lg"
 				/>
 			}

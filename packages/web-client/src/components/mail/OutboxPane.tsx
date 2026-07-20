@@ -46,8 +46,16 @@ import { MessageBody } from "@/components/mail/MessageBody";
 import { NavMenuButton } from "@/components/mail/NavMenuButton";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { buildMutationErrorBanner } from "@/components/ui/error-banners";
+import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
 import { formatDate as formatLocaleDate, toDate } from "@/lib/format";
+import { useMailContext } from "@/lib/mail-context";
+import {
+	matchesOutboxSearch,
+	outboxQueryIsUnsupported,
+} from "@/lib/outbox-search";
 import { isOutboxListRow, isUnsendableStatus } from "@/lib/outbox-status";
+import { normalizeSearchQuery } from "@/lib/search-query";
+import { parseSearchTokens } from "@/lib/search-tokens";
 import { cn } from "@/lib/utils";
 
 /* ------------------------------------------------------------------ */
@@ -103,12 +111,31 @@ const formatRecipients = (message: RemitImapOutboxMessageResponse): string => {
 	return `${recipients[0]} +${recipients.length - 1}`;
 };
 
+/**
+ * What an empty outbox list says. A query that filtered everything out reads
+ * differently from an empty outbox, and a query the outbox cannot serve at all
+ * has to say so rather than look like a search that found nothing.
+ */
+const outboxEmptyMessage = (
+	hasQuery: boolean,
+	unsupportedQuery: boolean,
+): string => {
+	if (unsupportedQuery) return "The outbox cannot filter on those terms";
+	if (hasQuery) return "No matching outbox messages";
+	return "No outbox messages";
+};
+
 /* ------------------------------------------------------------------ */
 /* Context                                                              */
 /* ------------------------------------------------------------------ */
 
 interface OutboxPaneContextValue {
+	/** Outbox rows, narrowed by the search query when one is active. */
 	messages: RemitImapOutboxMessageResponse[];
+	/** True while a query is narrowing `messages` — the empty state differs. */
+	hasQuery: boolean;
+	/** True when that query asks for a filter the outbox cannot apply. */
+	unsupportedQuery: boolean;
 	isLoading: boolean;
 	selectedMessageId: string | undefined;
 	selectedMessage: RemitImapOutboxMessageResponse | undefined;
@@ -143,6 +170,20 @@ function OutboxPaneProvider({ children }: OutboxPaneProps) {
 		outboxOperationsListOutboxMessagesOptions(),
 	);
 
+	// The top bar's field scopes to this view (`in:outbox`), so a query typed
+	// here narrows these rows. The list is small and already fully loaded, so
+	// the narrowing is a filter over what is in hand — see lib/outbox-search.ts
+	// for which fields it matches and why the filter tokens are not honored.
+	// The query is parsed the same way every other engine parses it, and only
+	// the free text is used: `Q3 from:billing` still matches on "Q3" rather
+	// than searching the rows for the literal string "from:billing".
+	const { searchQuery } = useMailContext();
+	const tokenContext = useSearchTokenContext();
+	const normalizedQuery = normalizeSearchQuery(searchQuery);
+	const parsedQuery = parseSearchTokens(normalizedQuery, tokenContext);
+	const hasQuery = normalizedQuery.length > 0;
+	const unsupportedQuery = outboxQueryIsUnsupported(parsedQuery);
+
 	// Outbox surfaces in-flight + actionable rows only. `draft` lives in the
 	// Drafts view; `sent` rows are deleted by the IMAP append handler once
 	// the message lands in Sent (issue #178), but we filter defensively so a
@@ -150,10 +191,12 @@ function OutboxPaneProvider({ children }: OutboxPaneProps) {
 	// has not completed yet (issue #193).
 	const messages = useMemo(
 		() =>
-			(outboxResponse?.items ?? []).filter((item) =>
-				isOutboxListRow(item.status),
-			),
-		[outboxResponse],
+			unsupportedQuery
+				? []
+				: (outboxResponse?.items ?? [])
+						.filter((item) => isOutboxListRow(item.status))
+						.filter((item) => matchesOutboxSearch(item, parsedQuery.freeText)),
+		[outboxResponse, parsedQuery.freeText, unsupportedQuery],
 	);
 
 	const selectedMessage = useMemo(
@@ -176,6 +219,8 @@ function OutboxPaneProvider({ children }: OutboxPaneProps) {
 
 	const ctx: OutboxPaneContextValue = {
 		messages,
+		hasQuery,
+		unsupportedQuery,
 		isLoading,
 		selectedMessageId,
 		selectedMessage,
@@ -381,8 +426,14 @@ function OutboxMessageDetail({ message, onBack }: OutboxMessageDetailProps) {
  * Outbox list with datum bar header. Mount in the `list` slot of `AppShellSlotted`.
  */
 function OutboxList() {
-	const { messages, isLoading, selectedMessageId, onSelectMessage } =
-		useOutboxPane();
+	const {
+		messages,
+		hasQuery,
+		unsupportedQuery,
+		isLoading,
+		selectedMessageId,
+		onSelectMessage,
+	} = useOutboxPane();
 
 	if (isLoading) {
 		return (
@@ -395,7 +446,10 @@ function OutboxList() {
 	if (messages.length === 0) {
 		return (
 			<div className="flex h-full bg-surface">
-				<ReadingPaneEmpty message="No outbox messages" showHints={false} />
+				<ReadingPaneEmpty
+					message={outboxEmptyMessage(hasQuery, unsupportedQuery)}
+					showHints={false}
+				/>
 			</div>
 		);
 	}
@@ -462,6 +516,8 @@ function OutboxReading() {
 function OutboxPhone() {
 	const {
 		messages,
+		hasQuery,
+		unsupportedQuery,
 		isLoading,
 		selectedMessageId,
 		selectedMessage,
@@ -488,7 +544,10 @@ function OutboxPhone() {
 	if (messages.length === 0) {
 		return (
 			<div className="flex h-full bg-surface">
-				<ReadingPaneEmpty message="No outbox messages" showHints={false} />
+				<ReadingPaneEmpty
+					message={outboxEmptyMessage(hasQuery, unsupportedQuery)}
+					showHints={false}
+				/>
 			</div>
 		);
 	}

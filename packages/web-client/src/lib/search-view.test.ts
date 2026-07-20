@@ -109,3 +109,97 @@ describe("shouldMirrorQuery", () => {
 		assert.equal(shouldMirrorQuery("invoi", "inv", ""), false);
 	});
 });
+
+/**
+ * The three rules compose into the shell's behaviour (`routes/mail.tsx`): the
+ * field is re-seeded during render on a view change, and the mirror decides
+ * separately whether to write back. These check the composition, because the
+ * two ways search ends — a view change (#47) and the sidebar's own clear —
+ * both have to end it without ever writing over what the user is typing.
+ */
+interface Shell {
+	viewKey: string;
+	field: string;
+	debounced: string;
+	url: string;
+}
+
+/** One render of the shell for a location, returning the state it settles on. */
+const render = (shell: Shell, viewKey: string, url: string): Shell => {
+	const field =
+		viewKey === shell.viewKey
+			? shell.field
+			: (searchInputForView(shell.viewKey, viewKey, url) ?? shell.field);
+	return { ...shell, viewKey, field, url };
+};
+
+/** What the mirror effect would do after that render. */
+const mirror = (shell: Shell): Shell => {
+	const committed = committedSearchQuery(shell.field, shell.debounced);
+	if (!shouldMirrorQuery(shell.field, committed, shell.url)) return shell;
+	return { ...shell, url: committed };
+};
+
+const typing = (shell: Shell, text: string): Shell => ({
+	...shell,
+	field: text,
+});
+const settle = (shell: Shell): Shell => ({ ...shell, debounced: shell.field });
+
+describe("search across a view change", () => {
+	const searching: Shell = {
+		viewKey: mailViewKey(matches("/mail/$mailboxId", "inbox-1")),
+		field: "invoice",
+		debounced: "invoice",
+		url: "invoice",
+	};
+
+	it("ends the search when the user leaves the view", () => {
+		// The nav link drops `q`, so the destination carries none.
+		const next = mirror(
+			render(searching, mailViewKey(matches("/mail/$mailboxId", "sent-1")), ""),
+		);
+		assert.equal(next.field, "");
+		assert.equal(next.url, "");
+	});
+
+	it("does not put the query it just left onto the view it landed on", () => {
+		// The debounce still holds "invoice" for up to 200ms after the move. The
+		// mirror must not write it back — that is #47 returning by another route.
+		const landed = render(
+			searching,
+			mailViewKey(matches("/mail/$mailboxId", "sent-1")),
+			"",
+		);
+		assert.equal(landed.debounced, "invoice");
+		assert.equal(mirror(landed).url, "");
+	});
+
+	it("keeps a query the destination carries (scope chip removed)", () => {
+		// Dropping the scope chip navigates to the brief carrying the query, so
+		// the same words are searched with a wider scope.
+		const next = mirror(
+			render(searching, mailViewKey(matches("/mail/")), "invoice"),
+		);
+		assert.equal(next.field, "invoice");
+		assert.equal(next.url, "invoice");
+	});
+
+	it("never clobbers characters the user is still typing", () => {
+		// Opening a result and the q-mirror both re-render the same view. Neither
+		// is a view change, so neither may reach into the field.
+		const mailbox = mailViewKey(matches("/mail/$mailboxId", "inbox-1"));
+		let shell = typing(
+			{ ...searching, field: "", debounced: "", url: "" },
+			"i",
+		);
+		shell = mirror(render(shell, mailbox, shell.url));
+		shell = typing(shell, "inv");
+		shell = mirror(render(shell, mailbox, shell.url));
+		shell = typing(shell, "invoice");
+		shell = settle(mirror(render(shell, mailbox, shell.url)));
+		shell = mirror(render(shell, mailbox, shell.url));
+		assert.equal(shell.field, "invoice");
+		assert.equal(shell.url, "invoice");
+	});
+});
