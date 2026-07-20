@@ -18,20 +18,29 @@
 # (.github/workflows/images.yml) builds every target on push to main.
 
 ########################################################################
-# manifests — the repo's package.json/package-lock.json files with the rest
-# of the source pruned away, so the builder's npm ci layer below only busts
-# when a manifest actually changes, not on every source edit.
+# manifests — the repo's package.json/package-lock.json files and the
+# patch set, with the rest of the source pruned away, so the builder's npm ci
+# layer only busts when an install input actually changes, not on every source
+# edit.
+#
+# `patches/` is an install input, not source: npm ci's postinstall runs
+# patch-package, and the emitter patches it applies decide what the TypeSpec
+# codegen emits. Pruning them here left the builder installing unpatched
+# emitters, so every published image carried enum values with their escapes
+# eaten — `MessageSystemFlag.Flagged` was `Flagged` rather than `\Flagged`,
+# and nothing on the IMAP flag path matched the wire (#79).
 #
 # This is the portable stand-in for a `COPY --parents <manifest globs>`
 # (dockerfile:1-labs): plain multi-stage syntax the CI fleet's podman/buildah
 # also accept. `COPY --from` keys its layer cache on the copied content's
-# checksum, so the npm ci layer still only busts when a manifest changes —
-# the same cache property, without the labs frontend.
+# checksum, so the npm ci layer still only busts when an install input
+# changes — the same cache property, without the labs frontend.
 ########################################################################
 FROM docker.io/library/node:24 AS manifests
 WORKDIR /src
 COPY . .
-RUN find . -type f ! -name package.json ! -name package-lock.json -delete \
+RUN find . -type f ! -name package.json ! -name package-lock.json \
+	! -path './patches/*' -delete \
 	&& find . -type d -empty -delete
 
 ########################################################################

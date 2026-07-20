@@ -9,6 +9,7 @@ import type {
 	IThreadMessageRepository,
 	ThreadMessageItem,
 } from "@remit/data-ports";
+import { MessageSystemFlag } from "@remit/domain-enums";
 import type { ManagedConnectionFactory } from "./connection-factory.js";
 import { MessageSyncService } from "./message-sync.js";
 import type { ImapEnvelope } from "./types.js";
@@ -127,5 +128,30 @@ describe("message sync maps IMAP flags onto the created ThreadMessage", () => {
 		const input = await createThreadWithFlags(["\\Seen", "\\Flagged"]);
 		assert.equal(input.isRead, true);
 		assert.equal(input.hasStars, true);
+	});
+});
+
+// #79: the mapping above was correct and still shipped broken. The sync path
+// compares a server flag list against these members, so what they hold has to
+// be the spelling IMAP puts on the wire — a leading backslash and all. The
+// published images carried `Flagged`, the member's *name*, because the emitter
+// that generates them was installed unpatched and ate the escape. Every
+// comparison then quietly stopped matching: mail flagged on the server arrived
+// unstarred, and a star set in the app went out as a custom keyword no other
+// client reads. Asserted against literals rather than the enum, because the
+// enum is the thing under test.
+describe("the generated flag members carry the IMAP wire spelling", () => {
+	test("system flags keep their leading backslash", () => {
+		assert.equal(MessageSystemFlag.Flagged, "\\Flagged");
+		assert.equal(MessageSystemFlag.Seen, "\\Seen");
+		assert.equal(MessageSystemFlag.Answered, "\\Answered");
+		assert.equal(MessageSystemFlag.Deleted, "\\Deleted");
+		assert.equal(MessageSystemFlag.Draft, "\\Draft");
+	});
+
+	test("a member's name is never its value", () => {
+		for (const [name, value] of Object.entries(MessageSystemFlag)) {
+			assert.notEqual(value, name);
+		}
 	});
 });
