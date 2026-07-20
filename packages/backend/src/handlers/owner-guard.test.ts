@@ -16,14 +16,14 @@ const tmpRoot = join(
 	"owner-guard",
 );
 
-const metaMigrationSql = readFileSync(
-	fileURLToPath(
-		new URL(
-			"../../../../deploy/vps/migrations-sqlite/meta/0000_demonic_lilith.sql",
-			import.meta.url,
-		),
-	),
-	"utf8",
+const readMigrationSql = (relativePath: string): string =>
+	readFileSync(fileURLToPath(new URL(relativePath, import.meta.url)), "utf8");
+
+const authMigrationSql = readMigrationSql(
+	"../../../../deploy/vps/migrations-sqlite/auth/0000_rainy_iron_monger.sql",
+);
+const metaMigrationSql = readMigrationSql(
+	"../../../../deploy/vps/migrations-sqlite/meta/0000_demonic_lilith.sql",
 );
 
 let dbPath: string;
@@ -32,9 +32,16 @@ before(() => {
 	mkdirSync(tmpRoot, { recursive: true });
 	dbPath = join(mkdtempSync(join(tmpRoot, "db-")), "app.db");
 	const sqlite = new Database(dbPath);
-	for (const statement of metaMigrationSql.split("--> statement-breakpoint")) {
-		sqlite.exec(statement);
+	for (const sql of [authMigrationSql, metaMigrationSql]) {
+		for (const statement of sql.split("--> statement-breakpoint")) {
+			sqlite.exec(statement);
+		}
 	}
+	sqlite
+		.prepare(
+			"INSERT INTO auth_user (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?)",
+		)
+		.run("the-owner", "the-owner", "the-owner@example.com", 1000, 1000);
 	sqlite.close();
 	process.env.DATA_BACKEND = "sqlite";
 	process.env.SQLITE_DB_PATH = dbPath;

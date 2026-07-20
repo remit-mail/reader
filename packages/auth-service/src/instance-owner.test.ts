@@ -58,13 +58,18 @@ const provisionSchema = async (dbPath: string): Promise<void> => {
 	sqlite.close();
 };
 
-const insertUser = (dbPath: string, id: string, email: string): void => {
+const insertUser = (
+	dbPath: string,
+	id: string,
+	email: string,
+	createdAtMs: number = Date.now(),
+): void => {
 	const sqlite = new Database(dbPath);
 	sqlite
 		.prepare(
 			"INSERT INTO auth_user (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?)",
 		)
-		.run(id, email, email, Date.now(), Date.now());
+		.run(id, email, email, createdAtMs, createdAtMs);
 	sqlite.close();
 };
 
@@ -79,9 +84,11 @@ const userIdByEmail = (dbPath: string, email: string): string => {
 };
 
 describe("createInstanceOwnerStore (sqlite)", () => {
-	it("claims ownership for the first claimant and ignores later claims", async () => {
+	it("claims ownership for the first-registered user and ignores later claims", async () => {
 		const dbPath = makeDbPath();
 		await provisionSchema(dbPath);
+		insertUser(dbPath, "user-1", "first@example.com", 1000);
+		insertUser(dbPath, "user-2", "second@example.com", 2000);
 		const store = await createInstanceOwnerStore({
 			provider: "sqlite",
 			connectionString: dbPath,
@@ -98,6 +105,8 @@ describe("createInstanceOwnerStore (sqlite)", () => {
 	it("produces exactly one owner under concurrent first claims", async () => {
 		const dbPath = makeDbPath();
 		await provisionSchema(dbPath);
+		insertUser(dbPath, "user-a", "a@example.com", 1000);
+		insertUser(dbPath, "user-b", "b@example.com", 1000);
 		const store = await createInstanceOwnerStore({
 			provider: "sqlite",
 			connectionString: dbPath,
@@ -114,15 +123,71 @@ describe("createInstanceOwnerStore (sqlite)", () => {
 		await store.close();
 	});
 
+	it("a hook resolving out of order does not override the true first registrant", async () => {
+		const dbPath = makeDbPath();
+		await provisionSchema(dbPath);
+		insertUser(dbPath, "first-registered", "first@example.com", 1000);
+		insertUser(dbPath, "second-registered", "second@example.com", 2000);
+		const store = await createInstanceOwnerStore({
+			provider: "sqlite",
+			connectionString: dbPath,
+		});
+
+		// second-registered's hook lands first — simulating it winning a race —
+		// but it registered after first-registered, so it must not become owner.
+		await store.claimIfUnclaimed("second-registered");
+		await store.claimIfUnclaimed("first-registered");
+
+		assert.equal(await store.isOwner("first-registered"), true);
+		assert.equal(await store.isOwner("second-registered"), false);
+		await store.close();
+	});
+
+	it("a claim for a user that was never committed (a rolled-back registration) does not land", async () => {
+		const dbPath = makeDbPath();
+		await provisionSchema(dbPath);
+		const store = await createInstanceOwnerStore({
+			provider: "sqlite",
+			connectionString: dbPath,
+		});
+
+		await store.claimIfUnclaimed("rolled-back-user");
+		assert.equal(await store.isOwner("rolled-back-user"), false);
+
+		insertUser(dbPath, "real-user", "real@example.com", 1000);
+		await store.claimIfUnclaimed("real-user");
+		assert.equal(await store.isOwner("real-user"), true);
+		await store.close();
+	});
+
+	it("claiming again for the already-claimed owner is a harmless no-op", async () => {
+		const dbPath = makeDbPath();
+		await provisionSchema(dbPath);
+		insertUser(dbPath, "user-1", "first@example.com", 1000);
+		const store = await createInstanceOwnerStore({
+			provider: "sqlite",
+			connectionString: dbPath,
+		});
+
+		await store.claimIfUnclaimed("user-1");
+		await store.claimIfUnclaimed("user-1");
+		await store.claimIfUnclaimed("user-1");
+
+		assert.equal(await store.isOwner("user-1"), true);
+		await store.close();
+	});
+
 	it("REMIT_OWNER_EMAIL resolves to a user and ignores the stored claim", async () => {
 		const dbPath = makeDbPath();
 		await provisionSchema(dbPath);
-		insertUser(dbPath, "user-2", "second@example.com");
+		insertUser(dbPath, "user-1", "first@example.com", 1000);
+		insertUser(dbPath, "user-2", "second@example.com", 2000);
 		const store = await createInstanceOwnerStore({
 			provider: "sqlite",
 			connectionString: dbPath,
 		});
 		await store.claimIfUnclaimed("user-1");
+		assert.equal(await store.isOwner("user-1"), true);
 
 		assert.equal(await store.isOwner("user-1", "second@example.com"), false);
 		assert.equal(await store.isOwner("user-2", "second@example.com"), true);
@@ -132,11 +197,13 @@ describe("createInstanceOwnerStore (sqlite)", () => {
 	it("REMIT_OWNER_EMAIL naming no account makes every caller a non-owner", async () => {
 		const dbPath = makeDbPath();
 		await provisionSchema(dbPath);
+		insertUser(dbPath, "user-1", "first@example.com", 1000);
 		const store = await createInstanceOwnerStore({
 			provider: "sqlite",
 			connectionString: dbPath,
 		});
 		await store.claimIfUnclaimed("user-1");
+		assert.equal(await store.isOwner("user-1"), true);
 
 		assert.equal(await store.isOwner("user-1", "nobody@example.com"), false);
 		await store.close();
