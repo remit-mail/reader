@@ -102,6 +102,15 @@ function MailLayout() {
 	// chip was removed and sent the user to the brief to search everything.
 	// Without this the field kept text the URL no longer had, so the chip said
 	// one scope and the words came from another.
+	//
+	// Adjusted during render, not in an effect. This is React's documented
+	// "adjusting state when a prop changes" pattern: both updates are to this
+	// component's own state and are guarded by a changed value, so React
+	// re-runs the render before committing and nothing is painted with the
+	// stale query. An effect would commit one frame carrying the previous
+	// route's text, and the debounced mirror below would then read that frame
+	// and write the old query onto the new URL — which is the bug the mirror's
+	// own pathname guard exists to prevent.
 	const pathname = useRouterState({ select: (s) => s.location.pathname });
 	const [searchPathname, setSearchPathname] = useState(pathname);
 	if (searchPathname !== pathname) {

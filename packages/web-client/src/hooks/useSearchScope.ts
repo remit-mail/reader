@@ -2,7 +2,11 @@ import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { useMailContext } from "@/lib/mail-context";
-import { type SearchScopeState, searchScopeForRoute } from "@/lib/search-scope";
+import {
+	SEARCH_SCOPE_CHIP_ID,
+	type SearchScopeState,
+	searchScopeForRoute,
+} from "@/lib/search-scope";
 import { useCurrentMailboxName } from "./useCurrentMailboxName";
 
 /**
@@ -16,7 +20,7 @@ import { useCurrentMailboxName } from "./useCurrentMailboxName";
  */
 export function useSearchScope(accounts: RemitImapAccountResponse[]): {
 	scope: SearchScopeState;
-	clearScope: () => void;
+	clearScope: (chipId: string) => void;
 } {
 	const navigate = useNavigate();
 	const { searchInput } = useMailContext();
@@ -27,12 +31,19 @@ export function useSearchScope(accounts: RemitImapAccountResponse[]): {
 	const matches = useRouterState({ select: (s) => s.matches });
 	const scope = searchScopeForRoute(matches, mailboxName);
 
-	const clearScope = useCallback(() => {
-		navigate({
-			to: "/mail",
-			search: { q: searchInput || undefined, selectedMessageId: undefined },
-		});
-	}, [navigate, searchInput]);
+	// Takes the chip id the field removed rather than assuming which chip that
+	// was. The bar owns one chip today; keying on the id means a second one
+	// added later cannot silently drop the user out of their scope.
+	const clearScope = useCallback(
+		(chipId: string) => {
+			if (chipId !== SEARCH_SCOPE_CHIP_ID) return;
+			navigate({
+				to: "/mail",
+				search: { q: searchInput || undefined, selectedMessageId: undefined },
+			});
+		},
+		[navigate, searchInput],
+	);
 
 	return { scope, clearScope };
 }
