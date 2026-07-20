@@ -25,6 +25,22 @@ jobs:
       - name: Installer — shellcheck
         run: shellcheck install.sh
 
+      - name: Release scripts — shellcheck
+        run: |
+          shellcheck -x npm-scripts/release-tag.sh npm-scripts/release-check-tag.sh \
+            npm-scripts/lib/image-roster.sh npm-scripts/lib/manifest-check.sh \
+            npm-scripts/lib/summary-check.sh
+
+      # No workspace install needed: these test only the pure decision
+      # functions in npm-scripts/lib/*.sh (built-in node:child_process,
+      # node:fs, node:test — no @remit/* or third-party imports).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Release scripts — unit tests
+        run: npm run test:release-scripts-guard
+
       - name: Manifests — JSON syntax
         run: |
           python3 -c 'import json,sys; [json.load(open(f)) for f in sys.argv[1:]]' \
@@ -35,7 +51,7 @@ jobs:
           python3 -c 'import yaml,sys; [yaml.safe_load(open(f)) for f in sys.argv[1:]]' \
             .github/workflows/ci.yml .github/workflows/storybook-pages.yml \
             .github/workflows/images.yml .github/workflows/publish.yml \
-            .github/actions/setup/action.yml
+            .github/workflows/release.yml .github/actions/setup/action.yml
 
       - name: Deploy stack — SQLite compose validates
         run: |
