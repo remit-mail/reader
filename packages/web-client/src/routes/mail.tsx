@@ -30,8 +30,18 @@ import { useMailboxNameIndex } from "@/hooks/useMailboxNameIndex";
 import { useStaleAccountSync } from "@/hooks/useStaleAccountSync";
 import { writeIntelligencePref } from "@/lib/intelligence-pref";
 import { MailContext } from "@/lib/mail-context";
-import { isBriefRoute, isFlaggedRoute, isOutboxRoute } from "@/lib/mail-route";
+import {
+	isBriefRoute,
+	isFlaggedRoute,
+	isOutboxRoute,
+	mailViewKey,
+} from "@/lib/mail-route";
 import { buildAccountNameIndex } from "@/lib/search-token-index";
+import {
+	committedSearchQuery,
+	searchInputForView,
+	shouldMirrorQuery,
+} from "@/lib/search-view";
 import "@/lib/client";
 
 // `MailContext` / `useMailContext` live in `@/lib/mail-context` so the provider
@@ -86,19 +96,25 @@ function MailLayout() {
 		writeIntelligencePref(open);
 	}, []);
 
-	// URL `q` is a load-once seed for the input and a one-directional write
-	// target. The debounced local value is the source of truth and drives the
-	// search API; it is mirrored back to the URL but the URL is never read into
-	// state after mount.
+	// Within one view, URL `q` seeds the input and is a one-directional write
+	// target: the debounced local value drives the search API and is mirrored
+	// back. Across views the URL wins again — see the view-change effect below
+	// and `lib/search-view.ts` (#47).
 	const [searchInput, setSearchInput] = useState(searchQuery);
 	const debouncedSearchInput = useDebouncedValue(searchInput, 200);
+	const committedQuery = committedSearchQuery(
+		searchInput,
+		debouncedSearchInput,
+	);
 
 	const searchQueryRef = useRef(searchQuery);
 	searchQueryRef.current = searchQuery;
 
-	// Mirror the debounced search into the URL so links are shareable and a
-	// refresh restores the query. One-directional: the URL is never read back
-	// into state, so there is no sync loop.
+	// Mirror the settled search into the URL so links are shareable and a
+	// refresh restores the query. Within a view this is one-directional — the
+	// URL is not read back into state, so there is no sync loop — and it writes
+	// only once the debounce agrees with the field, so a query arriving by URL
+	// is never overwritten mid-debounce (`shouldMirrorQuery`).
 	// When a query *goes* active, also strip selectedMessageId so the reading
 	// pane closes (#539): an open message from the pre-search list is not
 	// meaningful in the search result set. Only strip on that transition though —
@@ -108,16 +124,17 @@ function MailLayout() {
 	// the row shows before the debounce settles, so this mirror can land just
 	// after the open and close it again.
 	useEffect(() => {
-		if (debouncedSearchInput === searchQueryRef.current) return;
+		if (!shouldMirrorQuery(searchInput, committedQuery, searchQueryRef.current))
+			return;
 		navigate({
 			to: ".",
 			search: (prev) => {
 				const queryAlreadyActive =
-					(prev as { q?: string }).q === debouncedSearchInput;
+					(prev as { q?: string }).q === committedQuery;
 				return {
 					...prev,
-					q: debouncedSearchInput || undefined,
-					...(debouncedSearchInput && !queryAlreadyActive
+					q: committedQuery || undefined,
+					...(committedQuery && !queryAlreadyActive
 						? {
 								selectedMessageId: undefined,
 								selectedThreadId: undefined,
@@ -128,7 +145,25 @@ function MailLayout() {
 			},
 			replace: true,
 		});
-	}, [debouncedSearchInput, navigate]);
+	}, [searchInput, committedQuery, navigate]);
+
+	// Search is a mode of the view it was typed in, so leaving that view re-seeds
+	// the field from wherever we land. The nav links already drop `q` when they
+	// switch mailbox, so this clears the query instead of silently re-running it
+	// against the new mailbox (#47), while a deep link or a saved search that
+	// carries `q` still arrives searching.
+	const viewKey = useRouterState({ select: (s) => mailViewKey(s.matches) });
+	const viewKeyRef = useRef(viewKey);
+	useEffect(() => {
+		const next = searchInputForView(
+			viewKeyRef.current,
+			viewKey,
+			searchQueryRef.current,
+		);
+		viewKeyRef.current = viewKey;
+		if (next === undefined) return;
+		setSearchInput(next);
+	}, [viewKey]);
 
 	const {
 		data: config,
@@ -250,10 +285,11 @@ function MailLayout() {
 		accounts,
 		mailboxNameIndex,
 		accountNameIndex,
-		// Debounced local value is the source of truth for search; it is
-		// mirrored to the URL one-directionally for shareable links.
-		searchQuery: debouncedSearchInput,
+		// The committed local value is the source of truth for search; it is
+		// mirrored to the URL for shareable links.
+		searchQuery: committedQuery,
 		searchInput,
+		searchViewKey: viewKey,
 		onSearchChange: handleSearchChange,
 		onSearchClear: handleSearchClear,
 		onSearchClearQuery: handleSearchClearQuery,

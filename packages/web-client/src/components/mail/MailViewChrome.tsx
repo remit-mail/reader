@@ -41,6 +41,9 @@ interface MailViewChromeProps {
 	relatedResults?: SearchResult[];
 	relatedLoading?: boolean;
 	onSelectSearchResult?: (result: SearchResult) => void;
+	/** Section headings; see `MailListHeader`. */
+	searchResultsLabel?: string;
+	relatedResultsLabel?: string;
 }
 
 export function MailViewChrome({
@@ -60,6 +63,8 @@ export function MailViewChrome({
 	relatedResults,
 	relatedLoading,
 	onSelectSearchResult,
+	searchResultsLabel,
+	relatedResultsLabel,
 }: MailViewChromeProps) {
 	const [expanded, setExpanded] = useState(false);
 
@@ -88,6 +93,8 @@ export function MailViewChrome({
 			relatedResults={relatedResults}
 			relatedLoading={relatedLoading}
 			onSelectSearchResult={onSelectSearchResult}
+			searchResultsLabel={searchResultsLabel}
+			relatedResultsLabel={relatedResultsLabel}
 		>
 			<FilterSheet {...filterConfig}>{children}</FilterSheet>
 		</MailListHeader>
