@@ -154,14 +154,30 @@ const expectSearchResultsCount = async (
  * calls the endpoint. Real items from the real backend are left untouched;
  * only a `continuationToken` is added when the response didn't already carry
  * one.
+ *
+ * Precondition: the query must match more rows than fill the viewport. The
+ * injected token is not a real cursor — the server decodes it to `null` and so
+ * answers the follow-up page with the first page again. That only stays
+ * harmless while nothing asks for a follow-up, and `MessageList` asks as soon
+ * as the list is scrolled within 200px of its own bottom, which a list shorter
+ * than the viewport always is. Under that condition the same rows are appended
+ * on a loop until the list finally outgrows the trigger, so a query used with
+ * this helper has to be seeded past a screenful (see `NPM_PARTIAL_COUNT`).
+ *
+ * Returns a release: from the next response on, the real `hasMore` is handed
+ * through untouched. A test that goes on to shrink the match set has to call
+ * it, because forcing `hasMore` past that point states something the shrunken
+ * set contradicts — see the call site in the partial-failure test.
  */
 const forceMoreMatchesThanLoaded = async (
 	page: Page,
 	query: string,
-): Promise<void> => {
+): Promise<() => void> => {
+	let forcing = true;
 	await page.route("**/threads/search?*", async (route) => {
 		const url = new URL(route.request().url());
 		if (
+			!forcing ||
 			url.searchParams.has("limit") ||
 			url.searchParams.get("query") !== query
 		) {
@@ -175,6 +191,9 @@ const forceMoreMatchesThanLoaded = async (
 		}
 		await route.fulfill({ response, json });
 	});
+	return () => {
+		forcing = false;
+	};
 };
 
 test.describe("Entering selection mode", () => {
@@ -415,7 +434,16 @@ test.describe("Search-scoped escalation and bulk delete", () => {
 	const RUN_TAG = `run${Date.now()}`;
 	const NPM_MAIN_COUNT = 105;
 	const NPM_LATE_COUNT = 5;
-	const NPM_PARTIAL_COUNT = 6;
+	// Big enough that the search results fill more than one screen. The
+	// partial-failure test drives `forceMoreMatchesThanLoaded`, whose forced
+	// `continuationToken` makes the list believe another page exists; a result
+	// set that fits on screen sits permanently inside `MessageList`'s 200px
+	// load-more trigger and pages that phantom token forever, appending the
+	// first page again on every pass. At 72px a row (`COMFORTABLE_ITEM_HEIGHT`)
+	// this clears an 844px viewport several times over, and it stays clear even
+	// at compact density's 32px.
+	const NPM_PARTIAL_COUNT = 40;
+	const NPM_PARTIAL_FAILURES = 2;
 	const mainSubject = (i: number) => `npmbulk publish notice ${RUN_TAG} #${i}`;
 	const partialSubject = (i: number) =>
 		`retrybatch partial notice ${RUN_TAG} #${i}`;
@@ -580,7 +608,10 @@ test.describe("Search-scoped escalation and bulk delete", () => {
 		run,
 		api,
 	}) => {
-		await forceMoreMatchesThanLoaded(page, "retrybatch");
+		const stopForcingHasMore = await forceMoreMatchesThanLoaded(
+			page,
+			"retrybatch",
+		);
 		let firstDeleteCall = true;
 		await page.route("**/messages/delete", async (route) => {
 			if (!firstDeleteCall) {
@@ -597,8 +628,8 @@ test.describe("Search-scoped escalation and bulk delete", () => {
 			// endpoint the app itself calls (`api`) — otherwise the mocked
 			// `successCount` would be a claim nothing backs, which is exactly the
 			// gap this suite exists to catch, not reproduce.
-			const failedIds = body.messageIds.slice(-2);
-			const succeededIds = body.messageIds.slice(0, -2);
+			const failedIds = body.messageIds.slice(-NPM_PARTIAL_FAILURES);
+			const succeededIds = body.messageIds.slice(0, -NPM_PARTIAL_FAILURES);
 			await api.deleteMessages(succeededIds);
 			await route.fulfill({
 				status: 200,
@@ -612,9 +643,7 @@ test.describe("Search-scoped escalation and bulk delete", () => {
 		});
 
 		await gotoSearch(page, run.inboxId, "retrybatch");
-		await expect(rows(page)).toHaveCount(NPM_PARTIAL_COUNT, {
-			timeout: 30_000,
-		});
+		await expectSearchResultsCount(page, "retrybatch", NPM_PARTIAL_COUNT);
 
 		await longPress(page, rows(page).first());
 		await selectAllCheckbox(page).click();
@@ -626,28 +655,46 @@ test.describe("Search-scoped escalation and bulk delete", () => {
 			{ timeout: 15_000 },
 		);
 
+		// The escalation offer has served its purpose — the selection is already
+		// escalated to the full predicate. Release the forced `hasMore` before the
+		// delete, because the delete is what makes it a lie: it leaves two
+		// matching messages, and a list of two that still claims more exist is a
+		// state the product cannot be in. `MessageList` ranks the escalation offer
+		// above the partial-failure Retry (the offer is the more actionable of the
+		// two), and those two are mutually exclusive in reality — an offer needs
+		// every loaded row selected AND more beyond them, which is never true of a
+		// selection that is only the ids a delete just failed on. Left forced, the
+		// stale claim keeps the offer on screen and the Retry never renders.
+		stopForcingHasMore();
+
 		await deleteButton(page).click();
 		await confirmDialog(page)
 			.getByRole("button", { name: "Move to Trash" })
 			.click();
 
+		const deleted = NPM_PARTIAL_COUNT - NPM_PARTIAL_FAILURES;
 		await expect(selectionNotice(page)).toContainText(
-			"4 moved to Trash. 2 couldn't be deleted.",
+			`${deleted} moved to Trash. ${NPM_PARTIAL_FAILURES} couldn't be deleted.`,
 			{ timeout: 15_000 },
 		);
 		// Failed ids stay selected — the count is what's left, not what
-		// disappeared.
-		await expect(selectionStatus(page)).toHaveText("2 messages selected");
+		// disappeared. The bar says "All … loaded" rather than a bare count
+		// because the delete's refetch leaves exactly those failures in the list,
+		// so the survivors and the selection are the same two rows.
+		await expect(selectionStatus(page)).toHaveText(
+			`All ${NPM_PARTIAL_FAILURES} loaded selected`,
+		);
+		await expect(rows(page)).toHaveCount(NPM_PARTIAL_FAILURES);
 
-		// The real backend agrees: only 4 of the 6 are actually gone yet.
+		// The real backend agrees: only the succeeded half is actually gone yet.
 		const afterFirstAttempt = await api.searchMatchingMessageIds(
 			run.inboxId,
 			"retrybatch",
 		);
-		expect(afterFirstAttempt).toHaveLength(2);
+		expect(afterFirstAttempt).toHaveLength(NPM_PARTIAL_FAILURES);
 
 		await selectionNotice(page)
-			.getByRole("button", { name: "Retry 2" })
+			.getByRole("button", { name: `Retry ${NPM_PARTIAL_FAILURES}` })
 			.click();
 
 		await expect(selectionBar(page)).toBeHidden({ timeout: 15_000 });
