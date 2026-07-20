@@ -112,6 +112,52 @@ const fakeMailbox = (path: string, exists: number) => ({
 	readOnly: true,
 });
 
+describe("ImapFlowConnection.search — the probe every stale-row reconcile rests on (#102)", () => {
+	const buildSearchConnection = (
+		result: unknown,
+		calls: Array<{ query: unknown; options: unknown }> = [],
+	): ImapFlowConnection => {
+		const connection = buildConnectionWithClient({
+			mailboxOpen: async (path: string) => fakeMailbox(path, 1),
+			search: async (query: unknown, options: unknown) => {
+				calls.push({ query, options });
+				return result;
+			},
+		});
+		return connection;
+	};
+
+	it("translates a UID criterion into a UID SEARCH answering UIDs, not sequence numbers", async () => {
+		const calls: Array<{ query: unknown; options: unknown }> = [];
+		const connection = buildSearchConnection([42], calls);
+		await connection.openBox("INBOX", true);
+
+		const result = await connection.search([["UID", "42"]]);
+
+		assert.deepStrictEqual(result, [42]);
+		assert.deepStrictEqual(calls, [
+			{ query: { uid: "42" }, options: { uid: true } },
+		]);
+	});
+
+	it("answers an empty array when the server matched nothing", async () => {
+		const connection = buildSearchConnection([]);
+		await connection.openBox("INBOX", true);
+
+		assert.deepStrictEqual(await connection.search([["UID", "42"]]), []);
+	});
+
+	it("throws on a failed SEARCH instead of reporting it as no matches", async () => {
+		const connection = buildSearchConnection(false);
+		await connection.openBox("INBOX", true);
+
+		await assert.rejects(
+			() => connection.search([["UID", "42"]]),
+			/SEARCH failed/,
+		);
+	});
+});
+
 describe("ImapFlowConnection.getMailboxStatus — deletedCount (#1042)", () => {
 	it("returns the SEARCH \\Deleted count alongside the STATUS counts", async () => {
 		const searchQueries: Array<Record<string, unknown>> = [];
@@ -152,7 +198,7 @@ describe("ImapFlowConnection.getMailboxStatus — deletedCount (#1042)", () => {
 				highestModseq: 0n,
 			}),
 			mailboxOpen: async (path: string) => fakeMailbox(path, 4),
-			search: async () => false,
+			search: async () => [],
 		});
 
 		const status = await connection.getMailboxStatus("INBOX");
@@ -173,7 +219,7 @@ describe("ImapFlowConnection.getMailboxStatus — deletedCount (#1042)", () => {
 				highestModseq: modseq,
 			}),
 			mailboxOpen: async (path: string) => fakeMailbox(path, 1),
-			search: async () => false,
+			search: async () => [],
 		});
 
 		const status = await connection.getMailboxStatus("INBOX");

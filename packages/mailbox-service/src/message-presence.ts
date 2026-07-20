@@ -14,6 +14,12 @@ import type { IImapConnection } from "./types.js";
  * `placement-move-push.ts` already uses as its verification probe. Only a
  * SEARCH that does not list the UID counts as gone; an empty FETCH the SEARCH
  * contradicts leaves the message present, and the caller treats it as such.
+ *
+ * The absence verdict rests on an empty SEARCH meaning the server matched
+ * nothing, so `IImapConnection.search` must throw when a SEARCH fails rather
+ * than answer `[]` — an implementation that reports failure as an empty array
+ * hands this function a deletion authority it cannot tell apart from a genuine
+ * miss.
  */
 export const isMessageGoneFromOpenMailbox = async (
 	connection: Pick<IImapConnection, "fetchMessages" | "search">,

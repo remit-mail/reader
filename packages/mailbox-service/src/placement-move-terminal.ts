@@ -35,9 +35,10 @@ export interface ResolveExhaustedPlacementMoveResult {
  *
  * 1. RECONCILED (expected) — the message no longer exists at its pending-move
  *    source on IMAP, confirmed by {@link isMessageGoneFromOpenMailbox} rather
- *    than by a FETCH coming back empty. Per invariant 2, an external delete supersedes the
- *    marker entirely: the marker is dropped and the stale Message/ThreadMessage
- *    rows are deleted via {@link reconcileStaleMessage}. This is also the
+ *    than by a FETCH coming back empty. Per invariant 2, an external delete
+ *    supersedes the marker entirely: the marker is dropped and the stale
+ *    Message/ThreadMessage rows are deleted via
+ *    {@link reconcileStaleMessage}. This is also the
  *    outcome for the (rarer, functionally indistinguishable from here) case
  *    where a foreign client moved the message elsewhere — either way, our
  *    prediction no longer holds, and the marker cannot be honoured. Metric
@@ -51,6 +52,15 @@ export interface ResolveExhaustedPlacementMoveResult {
  *    `alert`-shaped entry for an operator alarm; never re-thrown (terminal —
  *    the caller acks either way, since retrying a stale or permanently-broken
  *    move can never succeed).
+ *
+ * An operator reading `placement_move_failed` should know one case where the
+ * message is not actually at the source: a message another client expunged
+ * mid-session can answer an empty FETCH while the server still lists its UID
+ * in SEARCH, until it is allowed to send the untagged EXPUNGE. That message
+ * lands in BROKEN, and BROKEN is terminal — the marker stays pending and the
+ * alert stands until someone clears it. The reverse mistake deletes live
+ * mail, so the cost is paid deliberately: a stale alert is recoverable, a
+ * deleted message is not.
  */
 export const resolveExhaustedPlacementMoveFailure = async (
 	deps: ResolveExhaustedPlacementMoveDeps,
