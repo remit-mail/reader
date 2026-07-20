@@ -8,7 +8,7 @@ import {
 import { MobileSearchView } from "./mobile-search-view.js";
 import type { SearchChip } from "./search-chip-input.js";
 import type { SearchResult } from "./search-result-row.js";
-import type { SearchResultSection } from "./search-results.js";
+import type { SearchResultSection, SearchScope } from "./search-results.js";
 
 const phoneFrame: Decorator = (Story) => (
 	<div
@@ -97,6 +97,56 @@ const emptySections: SearchResultSection[] = [
 	{ id: "related", label: "Related", results: [] },
 ];
 
+/** Matches spread across ordinary folders, each carrying where it was read from. */
+const crossFolderMatches: SearchResult[] = [
+	{ ...topMatches[0], folder: { role: "inbox" } },
+	{ ...topMatches[1], folder: { role: "inbox" } },
+	{
+		id: "x1",
+		sender: "Mollie",
+		subject: "Invoice 2026-02 — archived",
+		snippet: "Filed last month; payment already settled.",
+		date: "Feb 24",
+		folder: { role: "archive" },
+	},
+	{
+		id: "x2",
+		sender: "Accountant",
+		subject: "Invoices for the quarter",
+		snippet: "The quarterly set, filed with the rest of the bookkeeping.",
+		date: "Jan 30",
+		folder: { providerPath: "Projects/Bookkeeping" },
+	},
+];
+
+/** Matches in the account's `\Junk` folder. */
+const spamMatches: SearchResult[] = [
+	{
+		id: "s1",
+		sender: "billing@unknown-vendor.test",
+		subject: "URGENT invoice attached",
+		snippet: "Wire the amount below within 24 hours to avoid suspension.",
+		date: "Feb 11",
+		folder: { role: "junk" },
+	},
+	{
+		id: "s2",
+		sender: "invoices@pay-now.test",
+		subject: "Outstanding invoice — final notice",
+		snippet: "Your account is overdue. Settle immediately.",
+		date: "Feb 4",
+		folder: { role: "junk" },
+	},
+];
+
+const acrossFoldersSections: SearchResultSection[] = [
+	{
+		id: "top",
+		label: "Top matches",
+		results: [...crossFolderMatches, ...spamMatches],
+	},
+];
+
 type Preset = "brief" | "inbox";
 
 function Harness({
@@ -105,12 +155,18 @@ function Harness({
 	loading,
 	sections,
 	preset,
+	scope,
+	spamMatchCount,
+	onScopeToSpam,
 }: {
 	initialValue?: string;
 	initialChips?: SearchChip[];
 	loading?: boolean;
 	sections?: SearchResultSection[];
 	preset: Preset;
+	scope?: SearchScope;
+	spamMatchCount?: number;
+	onScopeToSpam?: () => void;
 }) {
 	const [value, setValue] = useState(initialValue);
 	const [chips, setChips] = useState<SearchChip[]>(initialChips);
@@ -183,6 +239,9 @@ function Harness({
 			sections={sections}
 			loading={loading}
 			onSelectResult={setOpened}
+			scope={scope}
+			spamMatchCount={spamMatchCount}
+			onScopeToSpam={onScopeToSpam}
 		/>
 	);
 }
@@ -257,14 +316,70 @@ export const RelatedSelectable: Story = {
  * top bar uses, inside the full-screen takeover's own chrome. The chip is
  * removable in place — backspace at the start of the text reaches it just as it
  * does on desktop.
+ *
+ * The chip and the scope say the same thing, which is the point: an `in:spam`
+ * chip is what a Spam-scoped search looks like in the bar.
  */
 export const ScopedByChip: Story = {
 	render: () => (
 		<Harness
 			initialValue="invoice"
 			initialChips={[{ id: "in:spam", label: "in:spam" }]}
-			sections={resultSections}
+			sections={[{ id: "top", label: "Top matches", results: spamMatches }]}
+			scope={{ kind: "folder", role: "junk" }}
 			preset="inbox"
+		/>
+	),
+};
+
+/**
+ * Global search on the phone, holding spam out and offering it above the
+ * results — the same treatment the desktop list pane gives it, because both
+ * tiers render the one `SearchResults` body. Rows name the folder they came
+ * from; the two spam matches in the same data are not among them.
+ */
+export const GlobalAcrossFolders: Story = {
+	render: () => (
+		<Harness
+			initialValue="invoice"
+			sections={acrossFoldersSections}
+			scope={{ kind: "global" }}
+			onScopeToSpam={() => {}}
+			preset="brief"
+		/>
+	),
+};
+
+/**
+ * The same rows scoped to the inbox. No spam, no count, no offer, and no
+ * provenance labels — the chip in the bar already says where the search is
+ * looking.
+ */
+export const ScopedToInbox: Story = {
+	render: () => (
+		<Harness
+			initialValue="invoice"
+			initialChips={[{ id: "in:inbox", label: "in:inbox" }]}
+			sections={acrossFoldersSections}
+			scope={{ kind: "folder", role: "inbox" }}
+			onScopeToSpam={() => {}}
+			preset="inbox"
+		/>
+	),
+};
+
+/**
+ * A global phone search whose only matches are in Spam: the offer stands above
+ * the empty state rather than leaving the search looking fruitless.
+ */
+export const GlobalOnlySpamMatches: Story = {
+	render: () => (
+		<Harness
+			initialValue="invoice"
+			sections={[{ id: "top", label: "Top matches", results: spamMatches }]}
+			scope={{ kind: "global" }}
+			onScopeToSpam={() => {}}
+			preset="brief"
 		/>
 	),
 };

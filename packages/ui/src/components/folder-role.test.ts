@@ -38,6 +38,17 @@ describe("provenanceFolderLabel", () => {
 		);
 	});
 
+	it("refuses the googlemail.com spelling of the same namespace", () => {
+		assert.equal(
+			provenanceFolderLabel({ providerPath: "[Google Mail]/All Mail" }),
+			undefined,
+		);
+		assert.equal(
+			provenanceFolderLabel({ providerPath: "[Google Mail]/Starred" }),
+			undefined,
+		);
+	});
+
 	it("labels a user folder that merely mentions Gmail", () => {
 		assert.equal(provenanceFolderLabel({ providerPath: "Gmail" }), "Gmail");
 	});

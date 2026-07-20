@@ -85,8 +85,15 @@ export function isVirtualFolderRole(role: FolderRole): boolean {
  * account that appointed no role to them leaves the path as the only signal, so
  * the namespace is matched by name — the one place a name is the honest test,
  * because it is the provider's own reserved prefix and not a user's folder.
+ *
+ * Accounts provisioned under googlemail.com get the same namespace spelled
+ * `[Google Mail]`, so both forms count. A user folder plainly called `Gmail`
+ * does not — the brackets are what make the prefix reserved.
  */
-const GMAIL_NAMESPACE = "[Gmail]";
+const GMAIL_NAMESPACES: ReadonlySet<string> = new Set([
+	"[Gmail]",
+	"[Google Mail]",
+]);
 
 /**
  * Label for the folder a result came from, or `undefined` when that folder is a
@@ -102,7 +109,7 @@ export function provenanceFolderLabel(
 		return canonicalRoleLabel(folder.role);
 	}
 	if (!folder.providerPath) return undefined;
-	if (folder.providerPath.split("/")[0] === GMAIL_NAMESPACE) return undefined;
+	if (GMAIL_NAMESPACES.has(folder.providerPath.split("/")[0])) return undefined;
 	return providerLeaf(folder.providerPath);
 }
 

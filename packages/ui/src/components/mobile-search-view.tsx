@@ -4,7 +4,11 @@ import { FilterSheet, type FilterSheetProps } from "./filter-sheet.js";
 import { SearchBar } from "./search-bar.js";
 import type { SearchChip } from "./search-chip-input.js";
 import type { SearchResult } from "./search-result-row.js";
-import { type SearchResultSection, SearchResults } from "./search-results.js";
+import {
+	type SearchResultSection,
+	SearchResults,
+	type SearchScope,
+} from "./search-results.js";
 
 export interface MobileSearchViewProps {
 	value: string;
@@ -40,6 +44,12 @@ export interface MobileSearchViewProps {
 	 */
 	chips?: readonly SearchChip[];
 	onRemoveChip?: (id: string) => void;
+	/** What the search covers; see `SearchResultsProps`. Defaults to global. */
+	scope?: SearchScope;
+	/** Total spam matches found; see `SearchResultsProps`. */
+	spamMatchCount?: number;
+	/** Scope the search to Spam; see `SearchResultsProps`. */
+	onScopeToSpam?: () => void;
 }
 
 /**
@@ -52,6 +62,9 @@ export interface MobileSearchViewProps {
  * the inboxes use) so search carries identical filters; pass no `filter` to drop
  * the chrome. Desktop reuses the same `SearchResults` body in the list pane.
  * Presentational and prop-driven.
+ *
+ * Search scope passes straight through, so the phone tier holds spam out,
+ * offers it and labels provenance on exactly the same terms as desktop.
  */
 export function MobileSearchView({
 	value,
@@ -67,6 +80,9 @@ export function MobileSearchView({
 	tokens,
 	chips,
 	onRemoveChip,
+	scope,
+	spamMatchCount,
+	onScopeToSpam,
 }: MobileSearchViewProps) {
 	const body = (
 		<SearchResults
@@ -77,6 +93,9 @@ export function MobileSearchView({
 			loading={loading}
 			onSelectResult={onSelectResult}
 			tokens={tokens}
+			scope={scope}
+			spamMatchCount={spamMatchCount}
+			onScopeToSpam={onScopeToSpam}
 		/>
 	);
 
