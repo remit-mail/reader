@@ -179,15 +179,12 @@ export class ApiClient {
 	}
 
 	/**
-	 * Delete messages the same way the bulk-delete toolbar does. Specs use this
-	 * both to seed a real partial-failure retry (the ids the UI's mocked first
-	 * call reports as failed still have to actually go away on Retry) and to
+	 * Delete messages the same way the bulk-delete toolbar does. Specs use it to
 	 * clean up scratch fixtures a UI-driven delete didn't reach.
 	 */
 	deleteMessages(messageIds: string[]): Promise<{
 		successCount: number;
 		failureCount: number;
-		failedIds?: string[];
 	}> {
 		return this.json("POST", "/messages/delete", { messageIds });
 	}
