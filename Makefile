@@ -1,6 +1,7 @@
 all: build/remit-openapi3/openapi.json build/remit-client build/drizzle-entities/dist build/drizzle-entities-sqlite/dist build/zod-schemas/schemas.js
 
 build/remit-openapi3/openapi.json: $(shell find typespec/ -type f)
+	node npm-scripts/check-patches-applied.mjs
 	npx tsp compile ./typespec
 
 build/remit-client: build/remit-openapi3/openapi.json openapi-ts.config.js
@@ -13,6 +14,7 @@ build/drizzle-entities/dist: build/remit-openapi3/openapi.json
 	touch $@
 
 build/drizzle-entities-sqlite/schema.ts: $(shell find typespec/ -type f)
+	node npm-scripts/check-patches-applied.mjs
 	npx tsp compile ./typespec --config ./typespec/tspconfig.sqlite.yaml
 
 build/drizzle-entities-sqlite/dist: build/drizzle-entities-sqlite/schema.ts

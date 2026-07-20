@@ -28,6 +28,8 @@
     "check:consumer-typecheck": "node npm-scripts/check-consumer-typecheck.mjs",
     "check:web-client-consumer": "node npm-scripts/check-web-client-consumer.mjs",
     "test:closure-guard": "node --test npm-scripts/lib/publish-closure.test.mjs",
+    "check:patches-applied": "node npm-scripts/check-patches-applied.mjs",
+    "test:patch-guard": "node --test npm-scripts/lib/patches-applied.test.mjs",
     "bootstrap:publish-metadata": "node npm-scripts/set-publish-metadata.mjs",
     "images:publish": "bash npm-scripts/images-publish.sh",
     "test:ci": "node npm-scripts/test-parallel.mjs",
