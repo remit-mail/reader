@@ -225,12 +225,13 @@ describe("quarantine reports", () => {
 	// that fails to parse, so a long report is the common case, not the tail.
 	const entry: QuarantineEntry = {
 		...quarantineDemoEntries[0],
-		structure: {
-			contentType: "multipart/mixed",
-			parts: Array.from({ length: 200 }, () => ({
+		structure: [
+			{ depth: 0, contentType: "multipart/mixed" },
+			...Array.from({ length: 200 }, () => ({
+				depth: 1,
 				contentType: "application/octet-stream",
 			})),
-		},
+		],
 	};
 
 	const ctx = (over?: Partial<BugReportContext>): BugReportContext => ({

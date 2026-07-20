@@ -45,7 +45,12 @@ export type QuarantineFailureCode =
 	| "TruncatedBody";
 
 /**
- * A node in the message's MIME tree.
+ * One node of the message's MIME tree, in a pre-order walk.
+ *
+ * The tree arrives flat with an explicit `depth` rather than as nested
+ * children: a self-referential model is not expressible in the schema this
+ * comes from, and the tree is only ever rendered as an indented list, which a
+ * pre-order walk reproduces exactly.
  *
  * `contentType` is `type/subtype` only. BODYSTRUCTURE hands the type and its
  * parameters over separately, so a node is built from `type`/`subtype` and
@@ -53,8 +58,8 @@ export type QuarantineFailureCode =
  * `filename=`, which name the user's attachments.
  */
 export interface QuarantineMimeNode {
+	depth: number;
 	contentType: string;
-	parts?: readonly QuarantineMimeNode[];
 }
 
 /**
@@ -72,8 +77,12 @@ export interface QuarantineEntry {
 	mailboxId: string;
 	/** IMAP uid of the message that was not written. */
 	uid: number;
-	/** Canonical role of the folder it arrived in — travels in the report. */
-	mailboxRole: FolderRole;
+	/**
+	 * Canonical role of the folder it arrived in — travels in the report. Null
+	 * when the user appointed no role to that folder, which is the ordinary
+	 * state of a plain folder.
+	 */
+	mailboxRole: FolderRole | null;
 	/** The user's own folder name. Shown on screen, withheld from the report. */
 	mailboxPath: string;
 	failureStage: QuarantineFailureStage;
@@ -95,12 +104,12 @@ export interface QuarantineEntry {
 	transferEncoding: string;
 	/** Declared charset, or null when the message declared none. */
 	charset: string | null;
-	/** The MIME tree, structure only. */
-	structure: QuarantineMimeNode;
+	/** The MIME tree, structure only, as a pre-order walk. */
+	structure: readonly QuarantineMimeNode[];
 	/** SHA-256 of the Message-ID, `sha256:` prefixed. */
 	messageIdHash: string;
 	/** Build of the worker that failed to parse — a parse bug belongs to it. */
-	appVersion: string;
+	workerVersion: string;
 }
 
 const stageSummaries: Record<QuarantineFailureStage, string> = {
@@ -146,13 +155,10 @@ function renderNodeType(contentType: string): string {
 	return JSON.stringify(stripped);
 }
 
-function renderStructure(node: QuarantineMimeNode, depth = 0): string[] {
-	const line = `${"  ".repeat(depth)}- ${renderNodeType(node.contentType)}`;
-	const children = node.parts ?? [];
-	return [
-		line,
-		...children.flatMap((part) => renderStructure(part, depth + 1)),
-	];
+function renderStructure(nodes: readonly QuarantineMimeNode[]): string[] {
+	return nodes.map(
+		(node) => `${"  ".repeat(node.depth)}- ${renderNodeType(node.contentType)}`,
+	);
 }
 
 export const QUARANTINE_REPORT_DISCLAIMER =
@@ -182,10 +188,10 @@ export function quarantineReportSections(
 		`### Message quarantined at \`${entry.failureStage}\``,
 		"",
 		`- **Failure**: \`${entry.failureCode}\``,
-		`- **Folder role**: ${entry.mailboxRole}`,
+		`- **Folder role**: ${entry.mailboxRole ?? "_none appointed_"}`,
 		`- **Failing part**: ${entry.failurePartPath === null ? "_whole message_" : `\`${entry.failurePartPath}\``}`,
 		`- **Attempts before quarantine**: ${entry.attempts}`,
-		`- **Worker build**: ${entry.appVersion}`,
+		`- **Worker build**: ${entry.workerVersion}`,
 		`- **Message-ID hash**: \`${entry.messageIdHash}\``,
 		"",
 		"#### Message shape",

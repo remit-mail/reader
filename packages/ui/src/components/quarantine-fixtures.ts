@@ -3,7 +3,7 @@ import type { QuarantineEntry } from "./quarantine-report.js";
 /**
  * Demo entries backing the quarantine stories. Exported so the kit's own
  * stories and the workbench settings screen render the same data — they had
- * drifted on `appVersion` when each file carried its own copy.
+ * drifted on the worker build when each file carried its own copy.
  */
 export const quarantineDemoEntries: readonly QuarantineEntry[] = [
 	{
@@ -23,18 +23,15 @@ export const quarantineDemoEntries: readonly QuarantineEntry[] = [
 		contentType: "multipart/mixed",
 		transferEncoding: "7bit",
 		charset: "utf-8",
-		structure: {
-			contentType: "multipart/mixed",
-			parts: [
-				{
-					contentType: "multipart/alternative",
-					parts: [{ contentType: "text/plain" }, { contentType: "text/html" }],
-				},
-				{ contentType: "application/pdf" },
-			],
-		},
+		structure: [
+			{ depth: 0, contentType: "multipart/mixed" },
+			{ depth: 1, contentType: "multipart/alternative" },
+			{ depth: 2, contentType: "text/plain" },
+			{ depth: 2, contentType: "text/html" },
+			{ depth: 1, contentType: "application/pdf" },
+		],
 		messageIdHash: "sha256:6f1c4a9d20",
-		appVersion: "worker 1.0.0",
+		workerVersion: "worker 1.0.0",
 	},
 	{
 		quarantineId: "q-2",
@@ -53,17 +50,19 @@ export const quarantineDemoEntries: readonly QuarantineEntry[] = [
 		contentType: "text/plain",
 		transferEncoding: "quoted-printable",
 		charset: "x-user-defined",
-		structure: { contentType: "text/plain" },
+		structure: [{ depth: 0, contentType: "text/plain" }],
 		messageIdHash: "sha256:b31e0744af",
-		appVersion: "worker 1.0.0",
+		workerVersion: "worker 1.0.0",
 	},
 	{
 		quarantineId: "q-3",
 		accountId: "acct-1",
 		mailboxId: "mbx-junk",
 		uid: 40251,
-		mailboxRole: "junk",
-		mailboxPath: "Junk",
+		// A folder the user never appointed a role to — the ordinary state of a
+		// plain folder, and the reason mailboxRole is nullable.
+		mailboxRole: null,
+		mailboxPath: "Clients/Acme Holdings",
 		failureStage: "BodyParse",
 		failureCode: "TruncatedBody",
 		failureMessage: "stream ended before the declared body length",
@@ -74,8 +73,8 @@ export const quarantineDemoEntries: readonly QuarantineEntry[] = [
 		contentType: "text/html",
 		transferEncoding: "base64",
 		charset: null,
-		structure: { contentType: "text/html" },
+		structure: [{ depth: 0, contentType: "text/html" }],
 		messageIdHash: "sha256:0a77de1c05",
-		appVersion: "worker 1.0.0",
+		workerVersion: "worker 1.0.0",
 	},
 ];

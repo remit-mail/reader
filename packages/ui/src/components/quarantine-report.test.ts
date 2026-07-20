@@ -48,15 +48,13 @@ describe("formatQuarantineReport", () => {
 		const report = formatQuarantineReport({
 			...entry,
 			contentType: 'multipart/mixed; boundary="=_a1b2"',
-			structure: {
-				contentType: "multipart/mixed",
-				parts: [
-					{
-						contentType:
-							'application/octet-stream; name="Q3 payroll — Acme.pdf"',
-					},
-				],
-			},
+			structure: [
+				{ depth: 0, contentType: "multipart/mixed" },
+				{
+					depth: 1,
+					contentType: 'application/octet-stream; name="Q3 payroll — Acme.pdf"',
+				},
+			],
 		});
 		assert.doesNotMatch(report, /payroll/);
 		assert.doesNotMatch(report, /boundary/);
@@ -69,6 +67,11 @@ describe("formatQuarantineReport", () => {
 			formatQuarantineReport({ ...entry, failurePartPath: "1.2" }),
 			/Failing part.*`1\.2`/,
 		);
+	});
+
+	it("says no role was appointed rather than inventing one", () => {
+		const report = formatQuarantineReport({ ...entry, mailboxRole: null });
+		assert.match(report, /Folder role.*none appointed/);
 	});
 
 	it("marks an undeclared charset rather than omitting it", () => {
@@ -109,10 +112,10 @@ describe("sender-controlled BODYSTRUCTURE strings", () => {
 	it("keeps a hostile node type from closing the MIME fence", () => {
 		const report = formatQuarantineReport({
 			...entry,
-			structure: {
-				contentType: "multipart/mixed",
-				parts: [{ contentType: "```\n## Injected heading" }],
-			},
+			structure: [
+				{ depth: 0, contentType: "multipart/mixed" },
+				{ depth: 1, contentType: "```\n## Injected heading" },
+			],
 		});
 		assert.equal((report.match(/^```/gm) ?? []).length, 2);
 		assert.doesNotMatch(report, /^## Injected heading/m);

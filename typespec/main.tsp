@@ -61,6 +61,12 @@ namespace RemitApi {
     @get
     @route("/export/{exportId}")
     op getExport(@path exportId: string): AccountExportRequestResponse;
+
+    @doc("List every message the sync path could not read, for the current user across all of their mail accounts (issue #72). Backs the quarantine section in settings. Unpaginated: the list is small by design, and an entry is a defect waiting to be reported rather than a page of mail.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    @route("/quarantine")
+    op listQuarantine(): QuarantineListResponse;
   }
 
   // ============================================

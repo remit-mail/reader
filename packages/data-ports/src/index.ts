@@ -17,6 +17,7 @@ export type { IMessageLabelRepository } from "./interfaces/message-label.js";
 export type { IMessagePlacementMoveRepository } from "./interfaces/message-placement-move.js";
 export type { IOrganizeJobRequestRepository } from "./interfaces/organize-job-request.js";
 export type { IOutboxMessageRepository } from "./interfaces/outbox-message.js";
+export type { IQuarantineRepository } from "./interfaces/quarantine.js";
 export type { IThreadMessageRepository } from "./interfaces/thread-message.js";
 export type {
 	IUnitOfWork,
@@ -80,6 +81,8 @@ export type {
 	OutboxMessageItem,
 	PutMessageFlagPushInput,
 	PutMessagePlacementMoveInput,
+	QuarantineItem,
+	QuarantineMimeNodeItem,
 	RawMessageStorageItem,
 	ResultList,
 	SearchOptions,

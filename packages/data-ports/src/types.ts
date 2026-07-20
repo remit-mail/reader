@@ -22,6 +22,7 @@ import type {
 	MessageSchema,
 	OrganizeJobRequestSchema,
 	OutboxMessageSchema,
+	QuarantineSchema,
 	RawMessageStorageSchema,
 	ThreadMessageSchema,
 } from "@remit/api-zod-schemas";
@@ -85,6 +86,8 @@ export type MessagePlacementMoveItem = z.infer<
 	typeof MessagePlacementMoveSchema
 >;
 export type MessageFlagPushItem = z.infer<typeof MessageFlagPushSchema>;
+export type QuarantineItem = z.infer<typeof QuarantineSchema>;
+export type QuarantineMimeNodeItem = QuarantineItem["structure"][number];
 
 export type MailboxSpecialUseValue = z.infer<typeof MailboxSpecialUseSchema>;
 

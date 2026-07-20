@@ -103,3 +103,15 @@ export const deriveBodyPartParameterId = (
 		`bodypartparam:${messageId}:${partPath}:${parameterName.toLowerCase()}`,
 		REMIT_NAMESPACE,
 	);
+
+/**
+ * Identity of a quarantined message (issue #72). Derived rather than generated
+ * so re-quarantining the same message rewrites its own row: the sync path can
+ * write without first checking whether an entry already exists.
+ */
+export const deriveQuarantineId = (
+	accountId: string,
+	mailboxId: string,
+	uid: number,
+): string =>
+	base36uuidv5(`quarantine:${accountId}:${mailboxId}:${uid}`, REMIT_NAMESPACE);
