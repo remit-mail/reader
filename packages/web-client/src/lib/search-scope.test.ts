@@ -8,7 +8,7 @@ import {
 } from "./mail-route";
 import {
 	isScopedRoute,
-	resultsScopeForState,
+	resultsScopeForRoute,
 	SEARCH_SCOPE_CHIP_ID,
 	scopeLabelForMailboxName,
 	searchScopeForRoute,
@@ -197,22 +197,29 @@ describe("semanticMailboxScope — a chip binds every engine on the route", () =
 	});
 });
 
-describe("resultsScopeForState", () => {
+describe("resultsScopeForRoute", () => {
 	it("passes the global search through as global", () => {
-		assert.deepEqual(resultsScopeForState({ kind: "global" }), {
-			kind: "global",
-		});
+		assert.deepEqual(
+			resultsScopeForRoute(matches(MAIL_BRIEF_ROUTE_ID), { kind: "global" }),
+			{
+				kind: "global",
+			},
+		);
 	});
 
 	it("treats a mailbox whose name has not loaded as a folder, not global", () => {
-		assert.deepEqual(resultsScopeForState({ kind: "pending" }), {
-			kind: "folder",
-		});
+		assert.deepEqual(
+			resultsScopeForRoute(matches(MAIL_MAILBOX_ROUTE_ID), { kind: "pending" }),
+			{
+				kind: "folder",
+			},
+		);
 	});
 
 	it("carries the mailbox's role so a Spam search shows its rows", () => {
 		assert.deepEqual(
-			resultsScopeForState(
+			resultsScopeForRoute(
+				matches(MAIL_MAILBOX_ROUTE_ID),
 				{
 					kind: "scoped",
 					chip: { id: SEARCH_SCOPE_CHIP_ID, label: "in:spam" },
@@ -223,11 +230,21 @@ describe("resultsScopeForState", () => {
 		);
 	});
 
-	it("leaves the role off a collection scope like starred", () => {
+	it("calls starred a collection, so its spam is not dropped", () => {
 		assert.deepEqual(
-			resultsScopeForState({
+			resultsScopeForRoute(matches(MAIL_FLAGGED_ROUTE_ID), {
 				kind: "scoped",
 				chip: { id: SEARCH_SCOPE_CHIP_ID, label: "is:starred" },
+			}),
+			{ kind: "collection" },
+		);
+	});
+
+	it("keeps the outbox a folder — it is one queue, and never holds spam", () => {
+		assert.deepEqual(
+			resultsScopeForRoute(matches(MAIL_OUTBOX_ROUTE_ID), {
+				kind: "scoped",
+				chip: { id: SEARCH_SCOPE_CHIP_ID, label: "in:outbox" },
 			}),
 			{ kind: "folder" },
 		);

@@ -16,13 +16,18 @@ import {
 export function useResultFolderIndex(
 	accounts: RemitImapAccountResponse[],
 ): ResultFolderIndex {
-	const mailboxQueries = useQueries({
+	// `combine` reduces inside react-query, which memoizes on the query results
+	// themselves. Reducing outside would rebuild the index on every render —
+	// `useQueries` hands back a fresh array each time — and every search-result
+	// memo keyed on the index would rebuild with it.
+	const mailboxItems = useQueries({
 		queries: accounts.map((account) => ({
 			...mailboxOperationsListMailboxesOptions({
 				path: { accountId: account.accountId },
 			}),
 			staleTime: Infinity,
 		})),
+		combine: (results) => results.map((result) => result.data?.items ?? []),
 	});
 
 	return useMemo(
@@ -30,9 +35,9 @@ export function useResultFolderIndex(
 			buildResultFolderIndex(
 				accounts.map((account, i) => ({
 					folderAppointments: account.folderAppointments,
-					mailboxes: mailboxQueries[i]?.data?.items ?? [],
+					mailboxes: mailboxItems[i] ?? [],
 				})),
 			),
-		[accounts, mailboxQueries],
+		[accounts, mailboxItems],
 	);
 }

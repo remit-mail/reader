@@ -36,7 +36,7 @@ describe("spamOfferForResults", () => {
 		);
 	});
 
-	it("offers the Spam folder with the most matches when accounts compete", () => {
+	it("targets the Spam folder with the most matches when accounts compete", () => {
 		assert.deepEqual(
 			spamOfferForResults([
 				row("1", "mb-junk-a", "junk"),
@@ -55,6 +55,19 @@ describe("spamOfferForResults", () => {
 			]),
 			{ mailboxId: "mb-junk-a", count: 1 },
 		);
+	});
+
+	it("picks a destination without claiming to have counted every account", () => {
+		// Three spam rows across two accounts: the destination is the bigger folder,
+		// and its share is 2 — deliberately not the total, which the results list
+		// states for itself so the banner cannot under-report.
+		const offer = spamOfferForResults([
+			row("1", "mb-junk-a", "junk"),
+			row("2", "mb-junk-b", "junk"),
+			row("3", "mb-junk-b", "junk"),
+		]);
+		assert.equal(offer?.mailboxId, "mb-junk-b");
+		assert.equal(offer?.count, 2);
 	});
 
 	it("ignores a spam row that carries no mailbox to navigate to", () => {

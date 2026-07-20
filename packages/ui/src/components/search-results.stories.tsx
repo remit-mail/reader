@@ -343,3 +343,24 @@ export const WithFilterTokens: Story = {
 		/>
 	),
 };
+
+/**
+ * Starred search (`is:starred` in the bar), given the same rows as the global
+ * story. Starring is not a folder: the rows come from all over, so each keeps
+ * its provenance label, and the two Spam matches stay in the list rather than
+ * being held out. The user starred them; holding their own mail back from them
+ * would be the surprising behaviour, and there is no offer because nothing was
+ * taken away.
+ */
+export const StarredCollection: Story = {
+	render: () => (
+		<Harness
+			value="invoice"
+			scope={{ kind: "collection" }}
+			onScopeToSpam={() => {}}
+			sections={[
+				{ id: "top", label: "Top matches", results: globalTopMatches },
+			]}
+		/>
+	),
+};

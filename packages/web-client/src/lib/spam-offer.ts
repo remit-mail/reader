@@ -1,13 +1,11 @@
 /**
- * The Spam offer a global search makes: how many matches it held out, and the
- * mailbox that shows them.
+ * Where taking the Spam offer lands.
  *
- * Scoping is a route, and a route names one mailbox, so the offer has to land in
- * one Spam folder even when several accounts matched. The count is therefore the
- * count *of that folder* rather than the cross-account total: the offer says how
- * many results taking it will show, so it can never promise more than it
- * delivers. With one account — and with spam matches in only one account, which
- * is the ordinary case — the two are the same number.
+ * Scoping is a route and a route names one mailbox, so the offer has to pick a
+ * single Spam folder even when several accounts matched; it picks the one
+ * holding the most matches. `count` is that folder's share, used only to choose
+ * between folders — the banner states the full number of rows held out, which
+ * the results list counts for itself.
  */
 import { partitionSpamResults, type SearchResult } from "@remit/ui";
 

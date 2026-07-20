@@ -383,3 +383,22 @@ export const GlobalOnlySpamMatches: Story = {
 		/>
 	),
 };
+
+/**
+ * The same rows under a starred search. Starring spans folders, so the rows
+ * keep their provenance labels, and the spam among them stays in the list — the
+ * user starred it themselves, so there is nothing to hold back and no offer to
+ * make.
+ */
+export const StarredCollection: Story = {
+	render: () => (
+		<Harness
+			initialValue="invoice"
+			initialChips={[{ id: "is:starred", label: "is:starred" }]}
+			sections={acrossFoldersSections}
+			scope={{ kind: "collection" }}
+			onScopeToSpam={() => {}}
+			preset="brief"
+		/>
+	),
+};

@@ -18,12 +18,20 @@ export interface SearchResultSection {
 }
 
 /**
- * What the search currently covers. `global` is the unscoped search the daily
- * brief runs — every account, every folder, no chip in the bar. `folder` is a
- * search the sidebar narrowed to one place, which the bar shows as a chip.
+ * What the search currently covers.
+ *
+ * - `global` — the unscoped search the daily brief runs: every account, every
+ *   folder, no chip in the bar.
+ * - `folder` — narrowed to one place by the sidebar, which the bar shows as a
+ *   chip.
+ * - `collection` — narrowed by something that is not a folder, `is:starred`
+ *   being the one that exists. It still spans folders, so rows carry their
+ *   provenance; and because the narrowing is the user's own (they starred the
+ *   mail), spam is not held back from them.
  */
 export type SearchScope =
 	| { kind: "global" }
+	| { kind: "collection" }
 	| { kind: "folder"; role?: FolderRole };
 
 const GLOBAL_SCOPE: SearchScope = { kind: "global" };
@@ -177,12 +185,15 @@ function CollapsibleResultSection({
  *
  * - **Global** — spam rows are held out of the sections and offered instead, as
  *   a count with a way into a Spam-scoped search.
- * - **Scoped to anything else** — spam rows are held out and nothing is offered.
- *   A scoped search shows its own scope and no more.
+ * - **Scoped to a folder** — spam rows are held out and nothing is offered. A
+ *   scoped search shows its own scope and no more.
  * - **Scoped to Spam** — ordinary rows, rendered normally, no offer.
+ * - **A collection** (`is:starred`) — ordinary rows, spam included. The user
+ *   picked this mail out by hand; there is nothing to protect them from.
  *
- * Provenance labels follow the same logic: only a global search names the
- * folder each row came from, because a scoped one would repeat itself.
+ * Provenance labels follow whether the search reaches more than one folder: a
+ * global or collection search names the folder each row came from, a
+ * folder-scoped one would only repeat its own chip.
  */
 export function SearchResults({
 	value,
@@ -249,11 +260,17 @@ export function SearchResults({
 		);
 	}
 
-	const spamScoped = isSpamScope(scope);
 	const isGlobal = scope.kind === "global";
+	// Only a folder search holds spam back. Scoped to Spam there is nothing to
+	// hold back, and a collection is the user's own selection of mail rather than
+	// a place, so a starred spam message stays where the user put it.
+	const spamInline = isSpamScope(scope) || scope.kind === "collection";
+	// A search that reaches more than one folder names the folder each row came
+	// from; one confined to a single folder would repeat its own chip.
+	const spansFolders = isGlobal || scope.kind === "collection";
 
 	const partitioned = (sections ?? []).map((section) => {
-		if (spamScoped) return { section, spam: [] as SearchResult[] };
+		if (spamInline) return { section, spam: [] as SearchResult[] };
 		const { kept, spam } = partitionSpamResults(section.results);
 		return { section: { ...section, results: kept }, spam };
 	});
@@ -302,7 +319,7 @@ export function SearchResults({
 						key={section.id}
 						section={section}
 						query={value}
-						showFolder={isGlobal}
+						showFolder={spansFolders}
 						onSelectResult={onSelectResult}
 					/>
 				))}

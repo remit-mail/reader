@@ -157,23 +157,26 @@ export function searchScopeForRoute(
 /**
  * The route's scope as the results list understands it.
  *
- * The list knows two states, because two are all it acts on: a global search
- * names the folder each row came from and offers the spam it held out, and a
- * folder search does neither. The bar's third state, `pending`, is a mailbox
- * route whose name has not loaded — it maps to `folder` (with no role yet)
- * because the list underneath is already one mailbox, and calling it global for
- * that one frame would flash folder labels and a spam offer and then retract
- * them.
+ * `is:starred` is a collection, not a folder: it spans every folder a star can
+ * be set in, so its rows carry provenance, and it is the user's own hand-picked
+ * mail, so a starred spam message is shown rather than held back. Only a search
+ * confined to a folder drops spam.
+ *
+ * The bar's third state, `pending`, is a mailbox route whose name has not
+ * loaded. It maps to `folder` with no role yet, because the list underneath is
+ * already one mailbox; calling it global for that one frame would flash folder
+ * labels and a spam offer and then retract them.
  *
  * `role` is the appointed role of the mailbox the route is on, which is what
- * makes a search scoped to Spam show its rows instead of dropping them. Scoped
- * routes that are collections rather than folders (flagged, outbox) carry no
- * role, and neither does a folder nobody appointed.
+ * makes a search scoped to Spam show its rows instead of dropping them. A
+ * folder nobody appointed carries no role.
  */
-export function resultsScopeForState(
+export function resultsScopeForRoute(
+	matches: readonly MailRouteMatch[],
 	state: SearchScopeState,
 	role?: FolderRole,
 ): ResultsScope {
 	if (state.kind === "global") return { kind: "global" };
+	if (isFlaggedRoute(matches)) return { kind: "collection" };
 	return { kind: "folder", ...(role ? { role } : {}) };
 }

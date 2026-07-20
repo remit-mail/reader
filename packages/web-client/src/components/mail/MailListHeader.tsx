@@ -44,7 +44,7 @@ import { useSearchScope } from "@/hooks/useSearchScope";
 import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
 import { useMailContext } from "@/lib/mail-context";
 import { loadRecentSearches, saveRecentSearch } from "@/lib/recent-searches";
-import { resultsScopeForState, routeMailboxId } from "@/lib/search-scope";
+import { resultsScopeForRoute, routeMailboxId } from "@/lib/search-scope";
 import {
 	parseSearchTokens,
 	removeSearchToken,
@@ -153,7 +153,8 @@ export function MailListHeader({
 	const { scope } = useSearchScope(accounts);
 	const matches = useRouterState({ select: (s) => s.matches });
 	const scopedMailboxId = routeMailboxId(matches);
-	const resultsScope = resultsScopeForState(
+	const resultsScope = resultsScopeForRoute(
+		matches,
 		scope,
 		scopedMailboxId ? resultFolderIndex.get(scopedMailboxId)?.role : undefined,
 	);
@@ -180,9 +181,10 @@ export function MailListHeader({
 					},
 				})
 		: undefined;
+	// No `spamMatchCount`: the kit counts the rows it actually held out, which is
+	// the honest total across accounts. The offer only supplies the destination.
 	const spamProps = {
 		scope: resultsScope,
-		...(spamOffer ? { spamMatchCount: spamOffer.count } : {}),
 		...(onScopeToSpam ? { onScopeToSpam } : {}),
 	};
 
