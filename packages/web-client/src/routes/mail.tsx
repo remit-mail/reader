@@ -89,12 +89,25 @@ function MailLayout() {
 	// URL `q` is a load-once seed for the input and a one-directional write
 	// target. The debounced local value is the source of truth and drives the
 	// search API; it is mirrored back to the URL but the URL is never read into
-	// state after mount.
+	// state after mount — with one exception below, navigation.
 	const [searchInput, setSearchInput] = useState(searchQuery);
 	const debouncedSearchInput = useDebouncedValue(searchInput, 200);
 
 	const searchQueryRef = useRef(searchQuery);
 	searchQueryRef.current = searchQuery;
+
+	// Navigating re-scopes the search, so the field takes the destination's
+	// own `q`: empty when the sidebar dropped it (a folder switch starts that
+	// folder's search fresh), and the carried query when the top bar's scope
+	// chip was removed and sent the user to the brief to search everything.
+	// Without this the field kept text the URL no longer had, so the chip said
+	// one scope and the words came from another.
+	const pathname = useRouterState({ select: (s) => s.location.pathname });
+	const [searchPathname, setSearchPathname] = useState(pathname);
+	if (searchPathname !== pathname) {
+		setSearchPathname(pathname);
+		setSearchInput(searchQuery);
+	}
 
 	// Mirror the debounced search into the URL so links are shareable and a
 	// refresh restores the query. One-directional: the URL is never read back
@@ -107,7 +120,17 @@ function MailLayout() {
 	// pre-search leftover) and must survive. The strip otherwise raced the tap:
 	// the row shows before the debounce settles, so this mirror can land just
 	// after the open and close it again.
+	// The debounce lags a navigation by up to 200ms, so on the render right
+	// after a route change it still holds the previous route's query. Writing
+	// that would put the old query back on the new URL — and, when the scope
+	// chip cleared it, undo the clear. Skip one pass and let the debounce catch
+	// up; the effect re-runs when it does.
+	const mirroredPathnameRef = useRef(pathname);
 	useEffect(() => {
+		if (mirroredPathnameRef.current !== pathname) {
+			mirroredPathnameRef.current = pathname;
+			return;
+		}
 		if (debouncedSearchInput === searchQueryRef.current) return;
 		navigate({
 			to: ".",
@@ -128,7 +151,7 @@ function MailLayout() {
 			},
 			replace: true,
 		});
-	}, [debouncedSearchInput, navigate]);
+	}, [debouncedSearchInput, pathname, navigate]);
 
 	const {
 		data: config,

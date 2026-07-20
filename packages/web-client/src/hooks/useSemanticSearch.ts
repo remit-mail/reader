@@ -44,9 +44,15 @@ interface UseSemanticSearchParams {
  * account filter) — both still render as chips and narrow the literal engine,
  * but never reach the semantic request (`account:` is a documented gap, see
  * doc/design/flows/06-search.md — the semantic index is per account config).
- * `in:` resolves to a mailboxId and, when present, overrides the caller's
- * `mailboxId` — so typing `in:archive` re-scopes the semantic search to that
- * mailbox even from the cross-account daily brief.
+ * `in:` resolves to a mailboxId and applies only where the caller has no scope
+ * of its own, so typing `in:archive` re-scopes the search from the unscoped
+ * daily brief but cannot contradict a scoped view: on a mailbox route the route
+ * is the scope, the top bar's chip says so, and the two engines must not
+ * disagree about which mailbox the results came from.
+ *
+ * Without a `mailboxId` the request spans every mailbox of every account the
+ * caller owns: the backend partitions the vector index by accountConfigId (one
+ * per signed-in user, not per mail account), so unscoped is genuinely global.
  */
 export function useSemanticSearch({
 	mailboxId,
@@ -71,7 +77,7 @@ export function useSemanticSearch({
 	const afterToken = tokens.find((t) => t.type === "after");
 	const beforeToken = tokens.find((t) => t.type === "before");
 	const inToken = tokens.find((t) => t.type === "in");
-	const effectiveMailboxId = inToken?.mailboxId ?? mailboxId;
+	const effectiveMailboxId = mailboxId ?? inToken?.mailboxId;
 
 	const { data, isLoading } = useQuery({
 		...semanticSearchOperationsSemanticSearchOptions({

@@ -47,7 +47,10 @@ import { NavMenuButton } from "@/components/mail/NavMenuButton";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { buildMutationErrorBanner } from "@/components/ui/error-banners";
 import { formatDate as formatLocaleDate, toDate } from "@/lib/format";
+import { useMailContext } from "@/lib/mail-context";
+import { matchesOutboxSearch } from "@/lib/outbox-search";
 import { isOutboxListRow, isUnsendableStatus } from "@/lib/outbox-status";
+import { normalizeSearchQuery } from "@/lib/search-query";
 import { cn } from "@/lib/utils";
 
 /* ------------------------------------------------------------------ */
@@ -108,7 +111,10 @@ const formatRecipients = (message: RemitImapOutboxMessageResponse): string => {
 /* ------------------------------------------------------------------ */
 
 interface OutboxPaneContextValue {
+	/** Outbox rows, narrowed by the search query when one is active. */
 	messages: RemitImapOutboxMessageResponse[];
+	/** True while a query is narrowing `messages` — the empty state differs. */
+	hasQuery: boolean;
 	isLoading: boolean;
 	selectedMessageId: string | undefined;
 	selectedMessage: RemitImapOutboxMessageResponse | undefined;
@@ -143,6 +149,14 @@ function OutboxPaneProvider({ children }: OutboxPaneProps) {
 		outboxOperationsListOutboxMessagesOptions(),
 	);
 
+	// The top bar's field scopes to this view (`in:outbox`), so a query typed
+	// here narrows these rows. The list is small and already fully loaded, so
+	// the narrowing is a filter over what is in hand — see lib/outbox-search.ts
+	// for which fields it matches and why the filter tokens are not honored.
+	const { searchQuery } = useMailContext();
+	const freeText = normalizeSearchQuery(searchQuery);
+	const hasQuery = freeText.length > 0;
+
 	// Outbox surfaces in-flight + actionable rows only. `draft` lives in the
 	// Drafts view; `sent` rows are deleted by the IMAP append handler once
 	// the message lands in Sent (issue #178), but we filter defensively so a
@@ -150,10 +164,10 @@ function OutboxPaneProvider({ children }: OutboxPaneProps) {
 	// has not completed yet (issue #193).
 	const messages = useMemo(
 		() =>
-			(outboxResponse?.items ?? []).filter((item) =>
-				isOutboxListRow(item.status),
-			),
-		[outboxResponse],
+			(outboxResponse?.items ?? [])
+				.filter((item) => isOutboxListRow(item.status))
+				.filter((item) => matchesOutboxSearch(item, freeText)),
+		[outboxResponse, freeText],
 	);
 
 	const selectedMessage = useMemo(
@@ -176,6 +190,7 @@ function OutboxPaneProvider({ children }: OutboxPaneProps) {
 
 	const ctx: OutboxPaneContextValue = {
 		messages,
+		hasQuery,
 		isLoading,
 		selectedMessageId,
 		selectedMessage,
@@ -381,7 +396,7 @@ function OutboxMessageDetail({ message, onBack }: OutboxMessageDetailProps) {
  * Outbox list with datum bar header. Mount in the `list` slot of `AppShellSlotted`.
  */
 function OutboxList() {
-	const { messages, isLoading, selectedMessageId, onSelectMessage } =
+	const { messages, hasQuery, isLoading, selectedMessageId, onSelectMessage } =
 		useOutboxPane();
 
 	if (isLoading) {
@@ -395,7 +410,12 @@ function OutboxList() {
 	if (messages.length === 0) {
 		return (
 			<div className="flex h-full bg-surface">
-				<ReadingPaneEmpty message="No outbox messages" showHints={false} />
+				<ReadingPaneEmpty
+					message={
+						hasQuery ? "No matching outbox messages" : "No outbox messages"
+					}
+					showHints={false}
+				/>
 			</div>
 		);
 	}
@@ -462,6 +482,7 @@ function OutboxReading() {
 function OutboxPhone() {
 	const {
 		messages,
+		hasQuery,
 		isLoading,
 		selectedMessageId,
 		selectedMessage,
@@ -488,7 +509,12 @@ function OutboxPhone() {
 	if (messages.length === 0) {
 		return (
 			<div className="flex h-full bg-surface">
-				<ReadingPaneEmpty message="No outbox messages" showHints={false} />
+				<ReadingPaneEmpty
+					message={
+						hasQuery ? "No matching outbox messages" : "No outbox messages"
+					}
+					showHints={false}
+				/>
 			</div>
 		);
 	}
