@@ -12,6 +12,7 @@ e2e_compose() {
 	docker compose \
 		--project-directory "$DEPLOY_DIR" \
 		-f "$DEPLOY_DIR/docker-compose.sqlite.yml" \
+		-f "$DEPLOY_DIR/docker-compose.dovecot.yml" \
 		-f "$DEPLOY_DIR/docker-compose.e2e.yml" \
 		"$@"
 }

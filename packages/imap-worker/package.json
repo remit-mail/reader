@@ -1,60 +1,61 @@
 {
-	"name": "@remit/imap-worker",
-	"version": "0.0.1",
-	"type": "module",
-	"main": "dist/index.js",
-	"exports": {
-		".": {
-			"types": "./src/index.ts",
-			"default": "./src/index.ts"
-		},
-		"./scheduler": {
-			"types": "./src/scheduler/handler.ts",
-			"default": "./src/scheduler/handler.ts"
-		}
-	},
-	"bin": {
-		"remit-worker": "./dist/cli.js"
-	},
-	"scripts": {
-		"bundle": "esbuild src/index.ts --sourcemap --bundle --platform=node --format=esm --outfile=dist/index.js",
-		"cli": "node --env-file=../../localhost-dev-aws.env src/cli.ts",
-		"test:typecheck": "tsgo --noEmit",
-		"test:run": "node --env-file=../../localhost-test-unit.env --test 'src/**/*.test.ts'",
-		"test": "npm run test:typecheck && npm run test:run"
-	},
-	"devDependencies": {
-		"@aws-sdk/core": "*",
-		"@remit/storage-service": "*",
-		"aws-sdk-client-mock": "*",
-		"esbuild": "^0.27.7"
-	},
-	"dependencies": {
-		"@aws-sdk/client-s3": "^3.1055.0",
-		"nodemailer": "^9.0.3",
-		"@remit/data-ports": "*",
-		"@remit/logger-lambda": "*",
-		"@remit/mailbox-service": "*",
-		"@remit/search-index-worker": "*",
-		"@remit/sqs-client": "*",
-		"@remit/backend": "*",
-		"@remit/domain-enums": "*",
-		"@remit/mail-oauth-service": "*",
-		"@remit/secrets-service": "*",
-		"@aws-sdk/client-sqs": "*",
-		"@aws-sdk/client-ssm": "*",
-		"expect-env": "*",
-		"p-map": "*",
-		"@types/aws-lambda": "*",
-		"@types/nodemailer": "*"
-	},
-	"license": "MIT",
-	"publishConfig": {
-		"access": "public"
-	},
-	"repository": {
-		"type": "git",
-		"url": "git+https://github.com/remit-mail/reader.git",
-		"directory": "packages/imap-worker"
-	}
+  "name": "@remit/imap-worker",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./scheduler": {
+      "types": "./src/scheduler/handler.ts",
+      "default": "./src/scheduler/handler.ts"
+    }
+  },
+  "bin": {
+    "remit-worker": "./dist/cli.js"
+  },
+  "scripts": {
+    "bundle": "esbuild src/index.ts --sourcemap --bundle --platform=node --format=esm --outfile=dist/index.js",
+    "cli": "node --env-file=../../localhost-dev-aws.env src/cli.ts",
+    "test:typecheck": "tsgo --noEmit",
+    "test:run": "node --env-file=../../localhost-test-unit.env --test 'src/**/*.test.ts'",
+    "test": "npm run test:typecheck && npm run test:run",
+    "dev": "node --import tsx src/e2e-processor-shim.ts"
+  },
+  "devDependencies": {
+    "@aws-sdk/core": "*",
+    "@remit/storage-service": "*",
+    "aws-sdk-client-mock": "*",
+    "esbuild": "^0.27.7"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1055.0",
+    "nodemailer": "^9.0.3",
+    "@remit/data-ports": "*",
+    "@remit/logger-lambda": "*",
+    "@remit/mailbox-service": "*",
+    "@remit/search-index-worker": "*",
+    "@remit/sqs-client": "*",
+    "@remit/backend": "*",
+    "@remit/domain-enums": "*",
+    "@remit/mail-oauth-service": "*",
+    "@remit/secrets-service": "*",
+    "@aws-sdk/client-sqs": "*",
+    "@aws-sdk/client-ssm": "*",
+    "expect-env": "*",
+    "p-map": "*",
+    "@types/aws-lambda": "*",
+    "@types/nodemailer": "*"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/remit-mail/reader.git",
+    "directory": "packages/imap-worker"
+  }
 }

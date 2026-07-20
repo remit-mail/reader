@@ -11,13 +11,20 @@ source "$(dirname "${BASH_SOURCE[0]}")/e2e-compose.sh"
 E2E_DIR="$REPO_ROOT/e2e"
 
 # The running stack's own configuration is the suite's configuration, so the two
-# cannot point at different ports. The generated .env is preferred over the
-# committed template because it carries any override the caller applied; later
-# assignments in it win, which is how those overrides take effect. Only the E2E_*
-# keys are exported — the rest configures containers, and one of them
-# (NODE_ENV=production) would change how npm installs below.
+# cannot point at different ports. Each lane's `up` writes a generated env and
+# its `down` deletes it, so whichever file is present names the stack that is
+# actually running: the source-built lane's first, then the image lane's, then
+# the image lane's committed template as the last resort. A generated file is
+# preferred over a template because it carries any override the caller applied;
+# later assignments in it win, which is how those overrides take effect.
+#
+# Only the E2E_* keys are exported — the rest configures the stack, and one of
+# them (NODE_ENV=production) would change how npm installs below. E2E_STACK
+# rides along on that prefix, which is how a spec learns which deployment it is
+# looking at (e2e/src/stack.ts).
 env_source="$DEPLOY_DIR/e2e.env"
 [ -f "$DEPLOY_DIR/.env" ] && env_source="$DEPLOY_DIR/.env"
+[ -f "$REPO_ROOT/.remit/e2e-dev/.env" ] && env_source="$REPO_ROOT/.remit/e2e-dev/.env"
 while IFS= read -r line; do
 	export "${line?}"
 done < <(grep -E '^E2E_[A-Z_]+=' "$env_source")

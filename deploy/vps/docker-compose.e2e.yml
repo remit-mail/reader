@@ -3,39 +3,21 @@
 # is that the suite tests the published images as an operator gets them:
 #
 #   1. a Dovecot IMAP server on the compose network, so a real mailbox exists to
-#      sync from;
+#      sync from (docker-compose.dovecot.yml, shared with the source-built dev
+#      lane);
 #   2. the edge moved off :80/:443 onto a loopback port, so the suite can run
 #      next to anything else on the box.
 #
-# Always used together with the file it overlays:
-#   docker compose -f docker-compose.sqlite.yml -f docker-compose.e2e.yml up -d
+# Always used together with the files it overlays:
+#   docker compose -f docker-compose.sqlite.yml \
+#                  -f docker-compose.dovecot.yml \
+#                  -f docker-compose.e2e.yml up -d
 #
 # The project name differs from the base file's, so an e2e run and a real
 # deployment never share containers or volumes.
 name: remit-e2e
 
 services:
-  # The mail server under test. Every username authenticates with one shared
-  # password and gets its own empty maildir, so each run can claim a mailbox
-  # nobody has written to. The suite APPENDs the messages each spec needs.
-  dovecot:
-    image: dovecot/dovecot:2.3.21
-    entrypoint: ["/bin/sh", "/etc/dovecot/e2e-entrypoint.sh"]
-    environment:
-      E2E_IMAP_PASSWORD: ${E2E_IMAP_PASSWORD:?set E2E_IMAP_PASSWORD}
-    volumes:
-      - ../../docker/test/dovecot/dovecot.conf:/etc/dovecot/dovecot.conf:ro
-      - ../../docker/test/dovecot/entrypoint.sh:/etc/dovecot/e2e-entrypoint.sh:ro
-    ports:
-      # Published so the suite can APPEND from the host. The app reaches it as
-      # `dovecot:143` on the compose network instead.
-      - "127.0.0.1:${E2E_IMAP_PORT:-11143}:143"
-    healthcheck:
-      test: ["CMD", "doveadm", "service", "status"]
-      interval: 2s
-      timeout: 3s
-      retries: 30
-
   # `!override` replaces the base list instead of appending to it — compose
   # merges sequences, and inheriting 80/443 would collide with anything already
   # holding those ports.
