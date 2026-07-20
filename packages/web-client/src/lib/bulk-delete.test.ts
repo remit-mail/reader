@@ -6,6 +6,7 @@ import {
 	countMatches,
 	type DeleteBatchResult,
 	type FetchIdsPageResult,
+	honestProgress,
 	resolveSelectionAfterDelete,
 	runChunkedDelete,
 	runPredicateDelete,
@@ -452,5 +453,38 @@ describe("resolveSelectionAfterDelete", () => {
 			}),
 			{ exit: false, retryIds: ["x"] },
 		);
+	});
+});
+
+describe("honestProgress", () => {
+	// Regression for #109: `countMatches` and `runPredicateDelete` page the
+	// same predicate independently, so the delete can outrun the frozen
+	// `total` it started with when the result set grows in between.
+	test("leaves an on-track progress reading untouched", () => {
+		assert.deepEqual(honestProgress({ done: 50, total: 100 }), {
+			done: 50,
+			total: 100,
+		});
+	});
+
+	test("widens total to match done once done overtakes it, instead of reading past 100%", () => {
+		assert.deepEqual(honestProgress({ done: 1340, total: 1284 }), {
+			done: 1340,
+			total: 1340,
+		});
+	});
+
+	test("done equal to total stays put", () => {
+		assert.deepEqual(honestProgress({ done: 100, total: 100 }), {
+			done: 100,
+			total: 100,
+		});
+	});
+
+	test("never reports a total below zero-progress done", () => {
+		assert.deepEqual(honestProgress({ done: 0, total: 0 }), {
+			done: 0,
+			total: 0,
+		});
 	});
 });

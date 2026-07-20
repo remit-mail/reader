@@ -1,6 +1,10 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
-import { computeRange, nextFocusId } from "./useSelection.js";
+import {
+	computeRange,
+	intersectSelectedIds,
+	nextFocusId,
+} from "./useSelection.js";
 
 const ids = ["a", "b", "c", "d", "e"];
 
@@ -71,5 +75,62 @@ describe("nextFocusId", () => {
 
 	test("empty list returns undefined", () => {
 		assert.strictEqual(nextFocusId([], "a", 1), undefined);
+	});
+});
+
+describe("intersectSelectedIds", () => {
+	test("a refresh that drops some selected ids and adds new rows keeps only the survivors (#111)", () => {
+		// Regression for #111: the effect used to clear the WHOLE selection the
+		// moment any single selected id left the list. Here "b" leaves (deleted
+		// elsewhere) while "f" arrives (new mail) — "a" and "c" must survive.
+		const selected = new Set(["a", "b", "c"]);
+		const refreshedThreadIds = ["a", "c", "d", "f"];
+		assert.deepStrictEqual(
+			intersectSelectedIds(selected, refreshedThreadIds),
+			new Set(["a", "c"]),
+		);
+	});
+
+	test("never adds an id that wasn't already selected", () => {
+		const selected = new Set(["a"]);
+		assert.deepStrictEqual(
+			intersectSelectedIds(selected, ["a", "b", "c"]),
+			new Set(["a"]),
+		);
+	});
+
+	test("every selected id surviving is a no-op (same members, not just same size)", () => {
+		const selected = new Set(["a", "b"]);
+		assert.deepStrictEqual(
+			intersectSelectedIds(selected, ["a", "b", "z"]),
+			new Set(["a", "b"]),
+		);
+	});
+
+	test("a post-delete retry selection survives a refetch that still contains it, minus what actually left", () => {
+		// Mirrors processDeleteOutcome materializing the failed ids as the new
+		// selection, then the cache-invalidation refetch running this same
+		// intersection against the freshly reloaded `threads`. One retry id
+		// ("fail-2") is momentarily missing from the refreshed page; the other
+		// two must stay selected so the Retry notice (gated on
+		// `selectedCount > 0`) doesn't disappear with it.
+		const retrySelection = new Set(["fail-1", "fail-2", "fail-3"]);
+		const refetchedThreadIds = ["fail-1", "fail-3", "unrelated-1"];
+		assert.deepStrictEqual(
+			intersectSelectedIds(retrySelection, refetchedThreadIds),
+			new Set(["fail-1", "fail-3"]),
+		);
+	});
+
+	test("everything in the selection leaving empties it, rather than leaving stale ids behind", () => {
+		const selected = new Set(["a", "b"]);
+		assert.deepStrictEqual(intersectSelectedIds(selected, ["z"]), new Set());
+	});
+
+	test("an empty selection stays empty", () => {
+		assert.deepStrictEqual(
+			intersectSelectedIds(new Set(), ["a", "b"]),
+			new Set(),
+		);
 	});
 });

@@ -52,6 +52,12 @@ interface UseSelectionReturn {
 	 * nothing has been selected yet.
 	 */
 	anchorId: string | undefined;
+	/**
+	 * Narrows the selection to whatever in it is still present in `currentIds`
+	 * — drops ids that left, keeps every survivor. Never adds anything, and
+	 * never clears the selection just because one id is gone (#111).
+	 */
+	intersectWith: (currentIds: readonly string[]) => void;
 }
 
 /**
@@ -77,6 +83,25 @@ export const computeRange = (
 	const start = Math.min(anchorIndex, targetIndex);
 	const end = Math.max(anchorIndex, targetIndex);
 	return orderedIds.slice(start, end + 1);
+};
+
+/**
+ * The ids from `selectedIds` that are still present in `currentIds` — the
+ * survivor set after a list refresh. Only ever narrows: an id absent from
+ * `selectedIds` is never added just because it's in `currentIds`. Pure so the
+ * "drop what left, keep the rest" behavior (K-9's `selected.intersect
+ * (uniqueIds)`, cited by #92 D2) can be unit-tested without a DOM.
+ */
+export const intersectSelectedIds = (
+	selectedIds: ReadonlySet<string>,
+	currentIds: readonly string[],
+): Set<string> => {
+	const present = new Set(currentIds);
+	const next = new Set<string>();
+	for (const id of selectedIds) {
+		if (present.has(id)) next.add(id);
+	}
+	return next;
 };
 
 /**
@@ -174,6 +199,17 @@ export const useSelection = <T>(
 		setAnchorId(id);
 	}, []);
 
+	// Bails out to the same `prev` reference when nothing was dropped, so a
+	// caller can run this on every list refresh (e.g. an effect keyed on
+	// `threads`) without forcing a render each time.
+	const intersectWith = useCallback((currentIds: readonly string[]) => {
+		setSelectedIds((prev) => {
+			if (prev.size === 0) return prev;
+			const next = intersectSelectedIds(prev, currentIds);
+			return next.size === prev.size ? prev : next;
+		});
+	}, []);
+
 	const selectRange = useCallback(
 		(orderedIds: string[], targetId: string) => {
 			setSelectedIds((prev) => {
@@ -207,5 +243,6 @@ export const useSelection = <T>(
 		selectRange,
 		setAnchor,
 		anchorId,
+		intersectWith,
 	};
 };
