@@ -28,7 +28,18 @@ jobs:
       - name: Release scripts — shellcheck
         run: |
           shellcheck -x npm-scripts/release-tag.sh npm-scripts/release-check-tag.sh \
-            npm-scripts/lib/image-roster.sh
+            npm-scripts/lib/image-roster.sh npm-scripts/lib/manifest-check.sh \
+            npm-scripts/lib/summary-check.sh
+
+      # No workspace install needed: these test only the pure decision
+      # functions in npm-scripts/lib/*.sh (built-in node:child_process,
+      # node:fs, node:test — no @remit/* or third-party imports).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Release scripts — unit tests
+        run: npm run test:release-scripts-guard
 
       - name: Manifests — JSON syntax
         run: |
