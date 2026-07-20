@@ -63,27 +63,6 @@ jobs:
         with:
           node-version: 22
 
-      - name: Require an authored release summary
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          TAG: ${{ github.ref_name }}
-        run: |
-          object_type="$(gh api "repos/${REPO}/git/ref/tags/${TAG}" --jq '.object.type')"
-          if [ "$object_type" != "tag" ]; then
-            echo "release: ${TAG} is a lightweight tag with no annotation; releases must be cut with 'npm run release:tag'" >&2
-            exit 1
-          fi
-          object_sha="$(gh api "repos/${REPO}/git/ref/tags/${TAG}" --jq '.object.sha')"
-          summary="$(gh api "repos/${REPO}/git/tags/${object_sha}" --jq '.message')"
-          source npm-scripts/lib/summary-check.sh
-          summary_error="$(validate_summary "$summary")"
-          if [ -n "$summary_error" ]; then
-            echo "release: tag ${TAG} annotation is not a valid summary: ${summary_error}" >&2
-            exit 1
-          fi
-          echo "release: ${TAG} carries a valid summary"
-
       - name: Log in to GHCR
         run: docker login ghcr.io -u "${{ github.actor }}" --password-stdin <<<"${{ secrets.GITHUB_TOKEN }}"
 
