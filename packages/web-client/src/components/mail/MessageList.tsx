@@ -232,6 +232,16 @@ export const MessageList = ({
 	// leave this null, so the list never yanks focus out of the reading pane.
 	const pendingDomFocusRef = useRef<string | null>(null);
 
+	// Whether the cursor's last move came from a row taking DOM focus — a click,
+	// or the browser restoring focus — rather than from a command this list ran.
+	// The list scrolls the cursor into view only for its own moves. Scrolling for
+	// a click moves the row out from under the pointer between mousedown and the
+	// click event, so the click lands on the empty space the row left behind and
+	// nothing opens (#85). Only rows below the fold could hit it: the pointer has
+	// to have scrolled to reach them, and the list then scrolled again on top of
+	// that. Every command below resets this to false before moving the cursor.
+	const cursorMovedByPointerRef = useRef(false);
+
 	// The row the cursor was on when the delete confirmation opened. The dialog
 	// takes DOM focus for as long as it is up, so dismissing it has to give that
 	// focus back or the list is left with no cursor and the next shortcut acts on
@@ -281,6 +291,7 @@ export const MessageList = ({
 				return;
 			}
 			pendingDomFocusRef.current = thread.messageId;
+			cursorMovedByPointerRef.current = false;
 			setFocusedMessageId(thread.messageId);
 		},
 		[threads, isMultiSelectMode, toggleCheck],
@@ -367,6 +378,7 @@ export const MessageList = ({
 			// the selection from the anchor — the keyboard equivalent of
 			// shift-click.
 			pendingDomFocusRef.current = target;
+			cursorMovedByPointerRef.current = false;
 			setFocusedMessageId(target);
 		},
 		[orderedIds, focusedMessageId, selectRange],
@@ -466,6 +478,7 @@ export const MessageList = ({
 			// Same hand-back as cancelling, aimed at the surviving neighbour
 			// instead: confirming also closes a dialog that held DOM focus.
 			pendingDomFocusRef.current = nextFocus;
+			cursorMovedByPointerRef.current = false;
 			setFocusedMessageId(nextFocus);
 			navigate({
 				to: "/mail/$mailboxId",
@@ -493,6 +506,7 @@ export const MessageList = ({
 		setPendingDeleteIds(null);
 		if (restoreTo === null) return;
 		pendingDomFocusRef.current = restoreTo;
+		cursorMovedByPointerRef.current = false;
 		setFocusedMessageId(restoreTo);
 	}, []);
 
@@ -572,6 +586,10 @@ export const MessageList = ({
 	// Scroll the roving focus cursor into view as it moves (j/k). Falls back to
 	// the open thread when nothing is focused yet.
 	useEffect(() => {
+		// A row that took focus from the pointer is already where the user aimed,
+		// and scrolling it now would move it out from under the click still in
+		// flight (#85).
+		if (cursorMovedByPointerRef.current) return;
 		// On single-pane tiers, opening a thread swaps this list out for the
 		// conversation. Scrolling the list as it unmounts is both pointless (it's
 		// no longer visible) and unsafe: @tanstack/react-virtual's scrollToIndex
@@ -590,6 +608,9 @@ export const MessageList = ({
 	// sync on open while remaining independent during scanning.
 	useEffect(() => {
 		if (selectedMessageId) {
+			// A thread going open is the list's own move, whatever opened it — a
+			// deep link arrives with the row far down and has to be scrolled to.
+			cursorMovedByPointerRef.current = false;
 			setFocusedMessageId(selectedMessageId);
 		}
 	}, [selectedMessageId]);
@@ -818,6 +839,7 @@ export const MessageList = ({
 	// A row focused by Tab or click becomes the cursor, so the keys act on what
 	// the browser says is focused.
 	const handleRowFocus = useCallback((messageId: string) => {
+		cursorMovedByPointerRef.current = true;
 		setFocusedMessageId(messageId);
 	}, []);
 

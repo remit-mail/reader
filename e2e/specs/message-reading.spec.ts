@@ -65,6 +65,28 @@ test.describe("Message reading", () => {
 		await expect(article).toContainText(`Body of ${subject}.`);
 	});
 
+	// Issue #85. A row below the fold has to be scrolled to before it can be
+	// clicked, and the list used to scroll itself a second time when that row
+	// took focus — moving it out from under the click, which then landed on the
+	// empty space it left behind. The row took focus and nothing opened.
+	//
+	// Rows above the fold cannot catch this: no scroll happens, so nothing races.
+	// The row is addressed by index rather than by subject because which subject
+	// sits below the fold depends on the seed order.
+	test("a message below the fold opens on the first click", async ({
+		page,
+	}) => {
+		const rows = page.locator("a[href*='selectedMessageId']");
+		await expect(rows.nth(8)).toHaveCount(1, { timeout: 15_000 });
+
+		const target = rows.nth(8);
+		const messageId = await target.getAttribute("data-message-id");
+		await target.click();
+
+		await page.waitForURL(new RegExp(`selectedMessageId=${messageId}`));
+		await expect(page.getByRole("article")).toBeVisible({ timeout: 15_000 });
+	});
+
 	test("the reply and forward actions are offered on an open message", async ({
 		page,
 	}) => {
