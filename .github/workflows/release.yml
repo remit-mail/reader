@@ -1,0 +1,60 @@
+# Cuts an immutable release: publishes the image roster at a vX.Y.Z tag and
+# creates the matching GitHub release. Triggered by pushing the tag (see
+# npm-scripts/release-tag.sh / `npm run release:tag`), never by a branch push.
+#
+# A release tag is never re-pushed. The preflight queries the registry for
+# every image in the roster and fails before anything builds if the tag
+# already resolves — a botched release is fixed by cutting the next one.
+#
+# `:latest` belongs to main (see images.yml) and this workflow must not move
+# it, so images:publish runs here with PUSH_LATEST=0.
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Log in to GHCR
+        run: docker login ghcr.io -u "${{ github.actor }}" --password-stdin <<<"${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Refuse an already-published tag
+        run: npm run release:check-tag
+        env:
+          REGISTRY: ghcr.io/remit-mail/reader
+          TAG: ${{ github.ref_name }}
+
+      - name: Build and push the roster
+        run: npm run images:publish
+        env:
+          REGISTRY: ghcr.io/remit-mail/reader
+          TAG: ${{ github.ref_name }}
+          PUSH: "1"
+          PUSH_LATEST: "0"
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "${{ github.ref_name }}" --generate-notes
