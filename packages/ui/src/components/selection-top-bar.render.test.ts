@@ -64,4 +64,56 @@ describe("SelectionTopBar", () => {
 		);
 		assert.match(html, /Cross-account moves are not supported/);
 	});
+
+	it("renders statusLabel in place of the count copy when provided", () => {
+		const html = renderToString(
+			createElement(SelectionTopBar, {
+				...handlers,
+				count: 3412,
+				statusLabel: "Deleting 1,200 of 3,412…",
+			}),
+		);
+		assert.match(text(html), /Deleting 1,200 of 3,412…/);
+		assert.doesNotMatch(text(html), /3412 messages selected/);
+	});
+
+	it("falls back to the count copy when statusLabel is absent", () => {
+		const html = renderToString(
+			createElement(SelectionTopBar, { ...handlers, count: 2 }),
+		);
+		assert.match(text(html), /2 messages selected/);
+	});
+
+	it("renders failureHint when provided", () => {
+		const html = renderToString(
+			createElement(SelectionTopBar, {
+				...handlers,
+				count: 2,
+				failureHint: "340 failed to delete — retry?",
+			}),
+		);
+		assert.match(html, /340 failed to delete — retry\?/);
+	});
+
+	it("omits the select-all control when selectAll is absent", () => {
+		const html = renderToString(
+			createElement(SelectionTopBar, { ...handlers, count: 2 }),
+		);
+		assert.doesNotMatch(html, /aria-label="Select all"/);
+	});
+
+	it("renders the select-all control when provided", () => {
+		const html = renderToString(
+			createElement(SelectionTopBar, {
+				...handlers,
+				count: 2,
+				selectAll: {
+					checked: false,
+					indeterminate: true,
+					onChange: () => undefined,
+				},
+			}),
+		);
+		assert.match(html, /aria-label="Select all"/);
+	});
 });

@@ -1,6 +1,7 @@
 import { Loader2, MailOpen, Trash2, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { Button } from "./button.js";
+import { Checkbox } from "./checkbox.js";
 
 export interface SelectionTopBarProps {
 	count: number;
@@ -23,6 +24,30 @@ export interface SelectionTopBarProps {
 	 * shows a spinner; other actions no-op. Never disables controls.
 	 */
 	isBusy?: boolean;
+	/**
+	 * Select-all control rendered between cancel and the count label. Presence
+	 * of this prop is what renders the checkbox — omit it for a bar with no
+	 * select-all affordance. `indeterminate` renders the some-selected tri-state
+	 * (`Checkbox`'s dash), `checked` is the all-selected state.
+	 */
+	selectAll?: {
+		checked: boolean;
+		indeterminate?: boolean;
+		onChange: () => void;
+	};
+	/**
+	 * Overrides the "{count} messages selected" text. For states where the
+	 * count itself isn't the useful thing to show yet — "Counting…" while a
+	 * search result set is still paging, or "Deleting 1,200 of 3,412…" progress
+	 * during a bulk delete.
+	 */
+	statusLabel?: string;
+	/**
+	 * Danger-toned status line below the action row, for a partial failure
+	 * after a bulk operation (e.g. some batches failed to delete). Independent
+	 * of `moveDisabledHint` — a caller shows one or the other, never both.
+	 */
+	failureHint?: string;
 }
 
 /**
@@ -37,6 +62,9 @@ export function SelectionTopBar({
 	moveSlot,
 	moveDisabledHint,
 	isBusy = false,
+	selectAll,
+	statusLabel,
+	failureHint,
 }: SelectionTopBarProps) {
 	return (
 		<header className="flex shrink-0 flex-col border-b border-line bg-surface-sunken">
@@ -49,8 +77,18 @@ export function SelectionTopBar({
 					aria-label="Cancel selection"
 					className="-ml-1 shrink-0"
 				/>
+				{selectAll && (
+					<Checkbox
+						aria-label="Select all"
+						checked={selectAll.checked}
+						indeterminate={selectAll.indeterminate}
+						onChange={selectAll.onChange}
+						className="shrink-0"
+					/>
+				)}
 				<span className="min-w-0 flex-1 truncate text-sm font-medium text-fg">
-					{count} {count === 1 ? "message" : "messages"} selected
+					{statusLabel ??
+						`${count} ${count === 1 ? "message" : "messages"} selected`}
 				</span>
 				{onMarkRead && (
 					<Button
@@ -88,6 +126,16 @@ export function SelectionTopBar({
 					aria-live="polite"
 				>
 					{moveDisabledHint}
+				</p>
+			)}
+			{failureHint && (
+				// biome-ignore lint/a11y/useSemanticElements: <p> with role="status" preserves block layout; <output> is inline
+				<p
+					className="px-row-inset pb-2 text-xs text-danger"
+					role="status"
+					aria-live="polite"
+				>
+					{failureHint}
 				</p>
 			)}
 		</header>

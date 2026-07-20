@@ -74,3 +74,22 @@ export const Refreshing: Story = { args: { refreshing: true } };
 export const SelectionMode: Story = {
 	args: { selectionMode: true, checkedIds: new Set(["t1", "t3"]) },
 };
+
+/** Every row checked — the ceiling a select-all control drives toward. */
+export const SelectionModeAllChecked: Story = {
+	args: {
+		selectionMode: true,
+		checkedIds: new Set(
+			sections.flatMap((section) => section.threads.map((t) => t.id)),
+		),
+	},
+};
+
+/**
+ * Selection mode with nothing checked. `TouchListBody` itself has no floor —
+ * the auto-exit-at-zero contract belongs to the caller (`MessageListPane`,
+ * production `MessageList.tsx`), which this component doesn't own.
+ */
+export const SelectionModeNoneChecked: Story = {
+	args: { selectionMode: true, checkedIds: new Set<string>() },
+};

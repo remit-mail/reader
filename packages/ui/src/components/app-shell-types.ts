@@ -308,6 +308,13 @@ export interface AppShellProps {
 	 * fits or when the message view is showing.
 	 */
 	initialTouchState?: TouchSeed;
+	/**
+	 * Replaces the narrow-width list pane header when a selection is active —
+	 * forwarded to `MessageListPane`'s `selectionBar` slot. The caller owns
+	 * selection state and toolbar actions; when omitted, `initialTouchState`
+	 * still drives the pane's own built-in touch-triage bar.
+	 */
+	selectionBar?: ReactNode;
 	intelligence?: IntelligenceData;
 	/** Pane 4 visible. Defaults to true when intelligence is present. */
 	intelligenceOpen?: boolean;

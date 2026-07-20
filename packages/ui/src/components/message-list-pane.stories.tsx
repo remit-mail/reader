@@ -212,8 +212,15 @@ export const CustomListBody: Story = {
 	decorators: [desktopFrame],
 };
 
-/** External `selectionBar` slot — the pane delegates the header to the caller
- *  when a selection is active. */
+/**
+ * External `selectionBar` slot mechanism, exercised at desktop width with
+ * `SelectionTopBar` as a convenient stand-in node — any slot content works
+ * here, the point is that the pane header is replaced. This is NOT a
+ * production composition: the live desktop toolbar is `SelectionToolbar`
+ * (web-client only, not in this kit); `MessageList.tsx` only ever puts
+ * `SelectionTopBar` in this slot when `!isDesktop` — see `NarrowExternalSelectionBar`
+ * below for that production-accurate case.
+ */
 export const ExternalSelectionBar: Story = {
 	args: {
 		isDesktop: true,
@@ -228,6 +235,27 @@ export const ExternalSelectionBar: Story = {
 		),
 	},
 	decorators: [desktopFrame],
+};
+
+/**
+ * The production composition (`MessageList.tsx:798` gates on `!isDesktop`):
+ * `SelectionTopBar` in the `selectionBar` slot at narrow width. Desktop never
+ * renders this component in the slot — only `NarrowTouchList`'s width does.
+ */
+export const NarrowExternalSelectionBar: Story = {
+	args: {
+		isDesktop: false,
+		flatList: true,
+		selectionBar: (
+			<SelectionTopBar
+				count={2}
+				onCancel={() => undefined}
+				onMarkRead={() => undefined}
+				onDelete={() => undefined}
+			/>
+		),
+	},
+	decorators: [narrowFrame],
 };
 
 /** Fail-loud error state — the specific failure detail is surfaced under the

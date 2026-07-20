@@ -1,6 +1,12 @@
-import { AppShell, type AppShellProps, type ThreadData } from "@remit/ui";
+import {
+	AppShell,
+	type AppShellProps,
+	SelectionTopBar,
+	type ThreadData,
+} from "@remit/ui";
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
+import { expect, fireEvent, waitFor, within } from "storybook/test";
 import {
 	allThreads,
 	briefSections,
@@ -490,4 +496,56 @@ export const MobileSwipeToggleRead: Story = {
 	parameters: mobileParams,
 	decorators: [phoneFrame],
 	render: () => <PhoneShell {...flatInbox} initialTouchState="peek-leading" />,
+};
+
+/**
+ * Long-press ENTERS selection mode live — no `initialTouchState` seed. The
+ * `play()` function fires a real pointerDown and waits out the row's 500ms
+ * long-press timer, so this demonstrates the before→after transition
+ * (`MobileSelectionMode` above only shows the after, pre-seeded).
+ */
+export const MobileSelectionViaLongPress: Story = {
+	parameters: mobileParams,
+	decorators: [phoneFrame],
+	render: () => <PhoneShell {...flatInbox} />,
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const firstRowName = allThreads[0]?.fromName;
+		if (!firstRowName) throw new Error("no seeded rows to long-press");
+		const row = canvas.getByText(firstRowName).closest("button");
+		if (!row) throw new Error("row button not found for long-press");
+
+		await expect(canvas.queryByLabelText("Cancel selection")).toBeNull();
+		fireEvent.pointerDown(row);
+		await waitFor(
+			() =>
+				expect(canvas.getByLabelText("Cancel selection")).toBeInTheDocument(),
+			{ timeout: 2000 },
+		);
+	},
+};
+
+/**
+ * A `selectionBar` override carrying a running-progress `statusLabel` —
+ * `MessageList.tsx`'s live bulk-delete state (thousands of messages, deleted
+ * in batches) rendered through the real `AppShell`/`SelectionTopBar`, not a
+ * seed the pane derives internally.
+ */
+export const MobileBulkDeleteBusy: Story = {
+	parameters: mobileParams,
+	decorators: [phoneFrame],
+	render: () => (
+		<PhoneShell
+			{...flatInbox}
+			selectionBar={
+				<SelectionTopBar
+					count={3412}
+					onCancel={() => undefined}
+					onDelete={() => undefined}
+					statusLabel="Deleting 1,200 of 3,412…"
+					isBusy
+				/>
+			}
+		/>
+	),
 };
