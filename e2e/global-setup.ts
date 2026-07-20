@@ -5,6 +5,7 @@
  */
 import { writeFileSync } from "node:fs";
 import { ApiClient, fetchBearerToken, signUp, waitFor } from "./src/api.js";
+import { buildClassificationFixtures } from "./src/classification-fixtures.js";
 import { baseUrl, imap, imapFromStack, mintImapUser } from "./src/env.js";
 import { appendMessages, listServerSubjects } from "./src/imap.js";
 import {
@@ -125,6 +126,15 @@ const globalSetup = async (): Promise<void> => {
 		"Sent",
 	);
 
+	// Classification fixtures ride the same pre-onboarding append: they have to
+	// be on the server before the account is connected to reach the API at all.
+	const classificationFixtures = buildClassificationFixtures();
+	console.log("e2e setup: appending classification fixtures over IMAP");
+	await appendMessages(
+		imapUser,
+		classificationFixtures.map((fixture) => fixture.message),
+	);
+
 	console.log("e2e setup: creating the account against dovecot");
 	const { accountId } = await api.createAccount({
 		email: imapUser,
@@ -155,13 +165,26 @@ const globalSetup = async (): Promise<void> => {
 		accountId,
 		inboxId: inbox.mailboxId,
 		imapUser,
-		seededSubjects: [...SEEDED_SUBJECTS, CONVERSATION.receivedSubject],
+		// Everything this run appended to the INBOX, in one list. Specs that
+		// assert the inbox holds EXACTLY what was seeded read this, so a fixture
+		// added for one spec must appear here or it reads as an unexplained
+		// extra message. The conversation's reply is not here: it is appended to
+		// Sent, not the inbox.
+		seededSubjects: [
+			...SEEDED_SUBJECTS,
+			CONVERSATION.receivedSubject,
+			...classificationFixtures.map((fixture) => fixture.subject),
+		],
 		conversation: {
 			receivedSubject: CONVERSATION.receivedSubject,
 			receivedFromName: CONVERSATION.receivedFromName,
 			sentSubject: CONVERSATION.sentSubject,
 			sentFromName: CONVERSATION.sentFromName,
 		},
+		classificationExpectations: classificationFixtures.map((fixture) => ({
+			subject: fixture.subject,
+			expectedCategory: fixture.expectedCategory,
+		})),
 	});
 	console.log(
 		`e2e setup: ready (mailbox ${imapUser}, account ${accountId}, inbox ${inbox.mailboxId})`,

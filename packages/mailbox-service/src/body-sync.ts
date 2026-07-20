@@ -6,6 +6,8 @@ import type {
 	IMailboxSpecialUseRepository,
 	IMessageRepository,
 	IThreadMessageRepository,
+	MessageItem,
+	ThreadMessageItem,
 	UpdateMessageInput,
 } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
@@ -13,6 +15,7 @@ import { deriveAddressId } from "@remit/data-ports/id";
 import { isBulkSender } from "@remit/data-ports/wellknown";
 import {
 	MailboxSpecialUse,
+	MessageCategory,
 	PlacementAction,
 	PlacementConfidence,
 	SenderTrust,
@@ -51,6 +54,8 @@ const BODY_PART_STORE_CONCURRENCY = 4;
 type MessagePlacementVerdict = NonNullable<
 	UpdateMessageInput["placementVerdict"]
 >;
+
+type ThreadMessageCategory = ThreadMessageItem["category"];
 
 /**
  * Outcome of {@link BodySyncService.resolvePlacement}: the audit `verdict` to
@@ -240,10 +245,45 @@ export class BodySyncService {
 		// messageId so we can match FETCH rows back and re-enqueue any UID the
 		// server never returns.
 		const pending = new Map<number, string>();
+		// Messages that were skipped (body already stored) but whose backfill
+		// classification failed. They are NOT in `pending` — nothing about them
+		// needs fetching — so they are merged into failedMessageIds separately.
+		const backfillFailedMessageIds: string[] = [];
 		for (const messageId of messageIds) {
 			const message = await this.messageService.get(messageId);
 			if (message.bodyStorageKey && !force) {
 				this.log.debug?.({ messageId }, "Body already stored, skipping");
+				// The skip guard keys on the body, but classification is a separate
+				// derived field written by the same pass. A message that got its body
+				// before it got a classifier — or whose classifying pass failed after
+				// the body landed — is skipped here forever and stays `uncategorized`
+				// (issue #45). Classify it from the stored bytes: no IMAP, no
+				// placement/filter side effects, and it skips cleanly once done.
+				//
+				// Contained per-message: one unreadable body object must not abort a
+				// batch that has not fetched anything yet. The failure is loud and
+				// the id is requeued, but the other messages still get their bodies.
+				const backfillError = await this.backfillClassification(
+					message,
+					accountConfigId,
+				).then(
+					() => null,
+					(error: unknown) => error,
+				);
+				if (backfillError !== null) {
+					this.log.error?.(
+						{
+							messageId,
+							storageKey: message.bodyStorageKey,
+							errorName: (backfillError as { name?: string }).name,
+							errorCode: (backfillError as { Code?: string }).Code,
+							error: inspect(backfillError),
+						},
+						"Classification backfill failed for an already-stored body; leaving for requeue",
+					);
+					backfillFailedMessageIds.push(messageId);
+					continue;
+				}
 				skippedCount++;
 				continue;
 			}
@@ -251,7 +291,11 @@ export class BodySyncService {
 		}
 
 		if (pending.size === 0) {
-			return this.buildResult(syncedMessageIds, skippedCount, []);
+			return this.buildResult(
+				syncedMessageIds,
+				skippedCount,
+				backfillFailedMessageIds,
+			);
 		}
 
 		const connection = await getConnection();
@@ -321,7 +365,7 @@ export class BodySyncService {
 
 		// Anything still pending was never yielded (mid-stream drop or a UID the
 		// server silently omitted) — re-enqueue it.
-		const failedMessageIds = [...pending.values()];
+		const failedMessageIds = [...pending.values(), ...backfillFailedMessageIds];
 
 		this.log.info(
 			{
@@ -672,12 +716,64 @@ export class BodySyncService {
 	}
 
 	/**
+	 * Classify a message whose body is already stored but which carries no
+	 * decided category, reading the body from storage instead of IMAP.
+	 *
+	 * "No decided category" is `uncategorized` OR the field being absent: rows
+	 * written before the column existed have no value at all, and treating that
+	 * as already-classified would strand exactly the oldest mail this backfill
+	 * exists to reach.
+	 *
+	 * Deliberately narrower than {@link applyPostStoreSteps}: it writes the
+	 * derived classification fields and the denormalized ThreadMessage category,
+	 * and nothing else. Placement moves and filter actions are index-time
+	 * decisions that already ran (or were declined) when the body first landed;
+	 * re-running them here would move mail the user has since filed by hand.
+	 *
+	 * A storage or write failure propagates to the caller, which contains it per
+	 * message: the id lands in `failedMessageIds` and SQS requeues it, while the
+	 * rest of the batch still gets its bodies. An unreadable body object is an
+	 * infra fault, never absorbed — but it is also not a reason to abort a batch
+	 * that has fetched nothing yet.
+	 */
+	private async backfillClassification(
+		message: MessageItem,
+		accountConfigId: string,
+	): Promise<void> {
+		if (!message.bodyStorageKey) return;
+		if (
+			message.category !== undefined &&
+			message.category !== MessageCategory.uncategorized
+		) {
+			return;
+		}
+
+		const body = await this.storageService.retrieve(message.bodyStorageKey);
+		const parsed = await simpleParser(body);
+		const classification = this.classifyMessage(parsed);
+
+		await this.messageService.update(message.messageId, classification);
+		await this.denormalizeCategory(
+			accountConfigId,
+			message.messageId,
+			classification.category,
+		);
+
+		this.log.info(
+			{ messageId: message.messageId, category: classification.category },
+			"Backfilled classification for an already-stored body",
+		);
+	}
+
+	/**
 	 * Pure header classification. Returns the subset of the Message update that
 	 * carries the derived fields; the caller folds it into a single UpdateItem
 	 * alongside `bodyStorageKey`. Optional signals are omitted when absent so we
 	 * never overwrite an existing value with `undefined`.
 	 */
-	private classifyMessage(parsed: ParsedMail): UpdateMessageInput {
+	private classifyMessage(
+		parsed: ParsedMail,
+	): UpdateMessageInput & { category: ThreadMessageCategory } {
 		const category = classifyByHeaders(parsed);
 		const authenticity = extractAuthenticity(parsed);
 		const authResult = extractAuthResult(parsed);
@@ -1163,19 +1259,43 @@ export class BodySyncService {
 
 		const category = classifyByHeaders(parsed);
 
-		// Get the ThreadMessage by messageId (efficient GSI lookup). The write is
-		// keyed on messageId, so it does not depend on the RFC822 Message-ID
-		// header — a headerless message still gets its category/snippet
-		// denormalized, matching the unconditional Message.category write.
+		await this.denormalizeCategory(
+			accountConfigId,
+			messageId,
+			category,
+			snippet,
+		);
+
+		this.log.debug?.(
+			{ messageId, category, snippetLength: snippet?.length ?? 0 },
+			"ThreadMessage snippet + category updated",
+		);
+
+		return parsed;
+	}
+
+	/**
+	 * Write the denormalized `category` (and optionally the snippet) onto the
+	 * message's ThreadMessage row — the copy the list/search read path serves
+	 * without a per-row Message fetch.
+	 *
+	 * The ThreadMessage is looked up by messageId (GSI), so it does not depend
+	 * on the RFC822 Message-ID header — a headerless message still gets
+	 * denormalized, matching the unconditional Message.category write. The full
+	 * composite set is passed so that a future key-attribute addition touching
+	 * the lsi3/lsi4/lsi5/gsi2 sort keys keeps the index rows consistent.
+	 */
+	private async denormalizeCategory(
+		accountConfigId: string,
+		messageId: string,
+		category: ThreadMessageCategory,
+		snippet?: string,
+	): Promise<void> {
 		const threadMessage = await this.threadMessageService.getByMessageId(
 			accountConfigId,
 			messageId,
 		);
 
-		// Update ThreadMessage snippet + denormalized category.
-		// Pass the full composite set so that if a future key-attribute addition
-		// touches lsi3/lsi4/lsi5/gsi2 sort keys, the index rows remain consistent.
-		// The threadMessage was fetched just above, so the values are already in scope.
 		await this.threadMessageService.update(
 			accountConfigId,
 			threadMessage.threadMessageId,
@@ -1191,12 +1311,5 @@ export class BodySyncService {
 				},
 			},
 		);
-
-		this.log.debug?.(
-			{ messageId, category, snippetLength: snippet?.length ?? 0 },
-			"ThreadMessage snippet + category updated",
-		);
-
-		return parsed;
 	}
 }

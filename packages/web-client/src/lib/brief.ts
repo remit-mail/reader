@@ -10,9 +10,12 @@
  *  4. Marketing
  *  5. Social
  *  6. Automated
+ *  7. Unclassified
  *
  * Each row lands in the section for its category; a row with no category counts
- * as `personal` (the classifier's own fallback). Starred mail is not a section —
+ * as `uncategorized`, which is its own section rather than being folded into
+ * Personal — unclassified mail is missing work, not a decision (issue #45).
+ * Starred mail is not a section —
  * the star is a per-row marker, so a starred message stays in its category.
  *
  * Sender trust (vip/wellknown) no longer sections the brief — the signal is
@@ -87,6 +90,11 @@ const CATEGORY_SECTIONS: ReadonlyArray<{
 	{ id: "marketing", label: "Marketing", category: MessageCategory.marketing },
 	{ id: "social", label: "Social", category: MessageCategory.social },
 	{ id: "automated", label: "Automated", category: MessageCategory.automated },
+	{
+		id: "uncategorized",
+		label: "Unclassified",
+		category: MessageCategory.uncategorized,
+	},
 ];
 
 /**
@@ -104,9 +112,9 @@ export function groupBriefSections(rows: ThreadRowData[]): ThreadSection[] {
 	);
 
 	for (const row of rows) {
-		const category = row.category ?? MessageCategory.personal;
+		const category = row.category ?? MessageCategory.uncategorized;
 		const bucket =
-			byCategory.get(category) ?? byCategory.get(MessageCategory.personal);
+			byCategory.get(category) ?? byCategory.get(MessageCategory.uncategorized);
 		bucket?.push(row);
 	}
 

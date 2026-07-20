@@ -467,6 +467,12 @@ export class MessageMoveService {
 			status: MessageStatus.moving,
 			syncStatus: MessageSyncStatus.pending,
 			bodyStorageKey: sourceMessage.bodyStorageKey,
+			// The copy inherits the source's stored body, so body-sync's skip guard
+			// will never re-derive these. Carry them across or the copy is
+			// permanently `uncategorized` while its body says it is fully synced
+			// (issue #45).
+			category: sourceMessage.category,
+			hasListUnsubscribe: sourceMessage.hasListUnsubscribe,
 		});
 
 		// Copy ThreadMessage entry
