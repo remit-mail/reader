@@ -59,6 +59,7 @@ function MailScreen({
 	initialExpanded = false,
 	initialSearchOpen = false,
 	initialSearchValue = "",
+	showSearch = true,
 }: {
 	title: string;
 	unreadCount: number;
@@ -66,6 +67,7 @@ function MailScreen({
 	initialExpanded?: boolean;
 	initialSearchOpen?: boolean;
 	initialSearchValue?: string;
+	showSearch?: boolean;
 }) {
 	const [searchValue, setSearchValue] = useState(initialSearchValue);
 	const [searchOpen, setSearchOpen] = useState(initialSearchOpen);
@@ -85,6 +87,7 @@ function MailScreen({
 				title={title}
 				unreadCount={unreadCount}
 				isDesktop={false}
+				showSearch={showSearch}
 				onMenuClick={() => undefined}
 				searchValue={searchValue}
 				onSearchChange={setSearchValue}
@@ -184,6 +187,43 @@ export const InboxFilterExpanded: Story = {
 			unreadCount={42}
 			preset={inboxFilterConfig()}
 			initialExpanded
+		/>
+	),
+};
+
+/**
+ * `showSearch={false}` — the header on desktop, where the app's top bar owns
+ * the search field for the whole shell. Title and unread count only: no
+ * magnifier, nothing to expand. Two search inputs on one page would compete
+ * for focus and for the "/" shortcut, so the header yields.
+ *
+ * This is what a desktop mail pane renders. Every story below it is the
+ * below-desktop case, where there is no top bar and the header keeps its own
+ * compact field.
+ */
+export const SearchOwnedByTopBar: Story = {
+	render: () => (
+		<MailScreen
+			title="Daily brief"
+			unreadCount={15338}
+			preset={briefFilterConfig(accounts)}
+			showSearch={false}
+		/>
+	),
+};
+
+/**
+ * The same header for a mailbox rather than the brief — still no search
+ * affordance, because whether the header owns one is a property of the layout,
+ * not of which list is under it.
+ */
+export const SearchOwnedByTopBarInbox: Story = {
+	render: () => (
+		<MailScreen
+			title="Inbox"
+			unreadCount={42}
+			preset={inboxFilterConfig()}
+			showSearch={false}
 		/>
 	),
 };

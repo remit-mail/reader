@@ -90,6 +90,32 @@ export const TwoPaneOnly: Story = {
 };
 
 /**
+ * The `topBar` slot: a full-width row above every pane, the nav included.
+ *
+ * This is the arrangement the app actually mounts. Unlike `header`, which sits
+ * inside the pane group and only appears while the nav is a slide-over, the top
+ * bar spans the whole shell at every width — and that width is what makes the
+ * search field in it read as the app's search rather than the list's. The pane
+ * headers drop their own search field wherever it is mounted, so the page
+ * carries exactly one search input.
+ */
+export const WithTopBar: Story = {
+	render: () => (
+		<StatefulSlotted
+			topBar={
+				<div className="flex h-14 shrink-0 items-center gap-3 border-b border-line bg-canvas px-4">
+					<span className="text-sm font-semibold tracking-tight">remit</span>
+					<div className="mx-auto h-9 w-full max-w-xl rounded-lg border border-line bg-surface px-3 text-sm leading-9 text-fg-subtle">
+						Search all mail
+					</div>
+					<span className="text-xs text-fg-muted">actions</span>
+				</div>
+			}
+		/>
+	),
+};
+
+/**
  * Skeleton replaces the layout during a cold load (`isLoading=true`).
  * The nav / list / reading / intelligence slots are not rendered.
  */
