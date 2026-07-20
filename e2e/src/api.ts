@@ -25,6 +25,7 @@ export interface Thread {
 	subject?: string;
 	fromEmail?: string;
 	isRead?: boolean;
+	hasStars?: boolean;
 	/**
 	 * Header-derived category. Carries `uncategorized` until the message is
 	 * body-classified; omitted only when the underlying message row cannot be
@@ -200,6 +201,36 @@ export class ApiClient {
 			`/threads/${threadId}/messages?order=asc`,
 		);
 		return result.items ?? [];
+	}
+
+	/**
+	 * The cross-account unified listing. `starred: true` switches it to the
+	 * starred scope, which spans every non-muted mailbox rather than the INBOX
+	 * narrowing the default listing applies.
+	 *
+	 * Pages are followed to exhaustion: a page may come back short while still
+	 * carrying a continuation token, so "not on the first page" is not an answer
+	 * to whether a thread is listed.
+	 */
+	async listAllThreads(
+		query: { starred?: boolean; limit?: number } = {},
+	): Promise<Thread[]> {
+		const items: Thread[] = [];
+		let continuationToken: string | undefined;
+		do {
+			const params = new URLSearchParams();
+			if (query.starred !== undefined)
+				params.set("starred", String(query.starred));
+			if (query.limit !== undefined) params.set("limit", String(query.limit));
+			if (continuationToken) params.set("continuationToken", continuationToken);
+			const result = await this.json<ResultList<Thread>>(
+				"GET",
+				`/threads?${params.toString()}`,
+			);
+			items.push(...(result.items ?? []));
+			continuationToken = result.continuationToken;
+		} while (continuationToken);
+		return items;
 	}
 }
 

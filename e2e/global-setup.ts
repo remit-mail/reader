@@ -7,6 +7,7 @@ import { writeFileSync } from "node:fs";
 import { ApiClient, fetchBearerToken, signUp, waitFor } from "./src/api.js";
 import { buildClassificationFixtures } from "./src/classification-fixtures.js";
 import { baseUrl, imap, imapFromStack, mintImapUser } from "./src/env.js";
+import type { Message } from "./src/imap.js";
 import { appendMessages, listServerSubjects } from "./src/imap.js";
 import {
 	ensureStateDir,
@@ -14,11 +15,33 @@ import {
 	writeRunState,
 } from "./src/state.js";
 
-const SEEDED_SUBJECTS = [
-	"Quarterly numbers are in",
-	"Lunch on Thursday?",
-	"Your receipt from the hardware store",
+/**
+ * Carries `\Flagged` from the moment it lands on the server, before the account
+ * that will sync it exists. Seeded here rather than in a spec because the state
+ * under test is what the FIRST sync makes of a pre-flagged message — once the
+ * message has synced unflagged, that path cannot be replayed.
+ */
+const PRE_FLAGGED_SUBJECT = "Flagged before you ever saw it";
+
+const SEEDED_MESSAGES: Message[] = [
+	{ subject: "Quarterly numbers are in" },
+	{ subject: "Lunch on Thursday?" },
+	{ subject: "Your receipt from the hardware store" },
+	{ subject: PRE_FLAGGED_SUBJECT, flags: ["\\Flagged"] },
 ];
+
+const SEEDED_SUBJECTS = SEEDED_MESSAGES.map((message) => message.subject);
+
+/**
+ * A starred message filed somewhere other than INBOX. The starred view used to
+ * be the newest inbox page filtered in the browser, which structurally could
+ * not show this — the same case as a star past the end of that page, at the
+ * cost of one APPEND instead of fifty.
+ *
+ * Sent rather than Junk or Trash: those two are excluded from the starred scope
+ * on purpose, so a star there proves nothing about the window.
+ */
+const STARRED_ELSEWHERE_SUBJECT = "Filed away, and starred";
 
 /**
  * The conversation that spans two folders. The correspondent's message lands in
@@ -103,10 +126,7 @@ const globalSetup = async (): Promise<void> => {
 	}
 
 	console.log("e2e setup: appending seed messages over IMAP");
-	await appendMessages(
-		imapUser,
-		SEEDED_SUBJECTS.map((subject) => ({ subject })),
-	);
+	await appendMessages(imapUser, SEEDED_MESSAGES);
 	await appendMessages(
 		imapUser,
 		[
@@ -160,6 +180,22 @@ const globalSetup = async (): Promise<void> => {
 		classificationFixtures.map((fixture) => fixture.message),
 	);
 
+	// Starred, and filed outside INBOX. Pre-onboarding like the rest so the
+	// starred listing is asserted against mail that went through a first sync,
+	// not against a mid-run append.
+	console.log("e2e setup: appending the starred message filed in Sent");
+	await appendMessages(
+		imapUser,
+		[
+			{
+				subject: STARRED_ELSEWHERE_SUBJECT,
+				body: "Starred, and not in the inbox.",
+				flags: ["\\Flagged"],
+			},
+		],
+		"Sent",
+	);
+
 	console.log("e2e setup: creating the account against dovecot");
 	const { accountId } = await api.createAccount({
 		email: imapUser,
@@ -193,9 +229,11 @@ const globalSetup = async (): Promise<void> => {
 		// Everything this run appended to the INBOX, in one list. Specs that
 		// assert the inbox holds EXACTLY what was seeded read this, so a fixture
 		// added for one spec must appear here or it reads as an unexplained
-		// extra message. Two seeded messages are deliberately absent: the
-		// conversation's reply (appended to Sent) and the spam fixture (appended
-		// to Junk) — neither is in the inbox.
+		// extra message. Three seeded messages are deliberately absent: the
+		// conversation's reply (appended to Sent), the spam fixture (appended to
+		// Junk), and the starred message filed in Sent — none is in the inbox.
+		// The pre-flagged message IS listed: it is inbox mail that happens to
+		// carry \Flagged.
 		seededSubjects: [
 			...SEEDED_SUBJECTS,
 			CONVERSATION.receivedSubject,
@@ -214,6 +252,8 @@ const globalSetup = async (): Promise<void> => {
 		spamSubject: SPAM_SEED.subject,
 		spamSenderName: SPAM_SEED.senderName,
 		spamSenderEmail: SPAM_SEED.senderEmail,
+		preFlaggedSubject: PRE_FLAGGED_SUBJECT,
+		starredElsewhereSubject: STARRED_ELSEWHERE_SUBJECT,
 	});
 	console.log(
 		`e2e setup: ready (mailbox ${imapUser}, account ${accountId}, inbox ${inbox.mailboxId})`,
