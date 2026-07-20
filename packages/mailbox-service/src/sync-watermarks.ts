@@ -95,10 +95,7 @@ export interface ChangeCursor {
  * would not fit.
  */
 export const parseChangeCursor = (raw: string | undefined): ChangeCursor => {
-	// SQLite gives a numeric column back as a number whatever the declared
-	// type, so normalize before parsing rather than trusting the static type.
-	const text = raw === undefined || raw === null ? "" : String(raw);
-	const [left, right] = text.split(":");
+	const [left, right] = (raw ?? "").split(":");
 
 	if (right === undefined) {
 		return { modseq: parseModseq(left), group: 0n, uid: 0 };
