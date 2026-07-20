@@ -25,13 +25,17 @@ jobs:
   e2e-dev:
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    env:
+    steps:
       # Every host-wide name the stack claims — the compose project and its port
       # block — is derived from this. A runner runs one job at a time and reuses
       # its name, so concurrent runs get disjoint slots and an interrupted run's
       # containers are recreated by the next run rather than left behind.
-      E2E_DEV_SLOT: ${{ runner.name }}
-    steps:
+      #
+      # Written to the job environment rather than declared in `env:` because the
+      # `runner` context does not exist at job level.
+      - name: Claim a stack slot
+        run: echo "E2E_DEV_SLOT=${{ runner.name }}" >>"$GITHUB_ENV"
+
       - uses: actions/checkout@v4
 
       - uses: ./.github/actions/setup
