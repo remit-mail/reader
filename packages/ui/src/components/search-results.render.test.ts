@@ -198,7 +198,7 @@ describe("SearchResults spam handling", () => {
 				onScopeToSpam: noop,
 			}),
 		);
-		assert.match(html, /42/);
+		assert.match(html, />42</);
 	});
 });
 

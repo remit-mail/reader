@@ -197,30 +197,6 @@ export function SearchResults({
 	onScopeToSpam,
 }: SearchResultsProps) {
 	const hasQuery = value.trim().length > 0;
-	const spamScoped = isSpamScope(scope);
-	const isGlobal = scope.kind === "global";
-
-	const partitioned = (sections ?? []).map((section) => {
-		if (spamScoped) return { section, spam: [] as SearchResult[] };
-		const { kept, spam } = partitionSpamResults(section.results);
-		return { section: { ...section, results: kept }, spam };
-	});
-
-	const visibleSections = partitioned.map((entry) => entry.section);
-	const heldOutSpamCount = partitioned.reduce(
-		(total, entry) => total + entry.spam.length,
-		0,
-	);
-	const spamCount = spamMatchCount ?? heldOutSpamCount;
-	const spamOffer = isGlobal &&
-		spamCount > 0 &&
-		onScopeToSpam !== undefined && (
-			<SpamResultsOffer count={spamCount} onScopeToSpam={onScopeToSpam} />
-		);
-
-	const hasResults = visibleSections.some(
-		(section) => section.results.length > 0,
-	);
 
 	if (!hasQuery) {
 		if (recentSearches && recentSearches.length > 0) {
@@ -272,6 +248,31 @@ export function SearchResults({
 			</div>
 		);
 	}
+
+	const spamScoped = isSpamScope(scope);
+	const isGlobal = scope.kind === "global";
+
+	const partitioned = (sections ?? []).map((section) => {
+		if (spamScoped) return { section, spam: [] as SearchResult[] };
+		const { kept, spam } = partitionSpamResults(section.results);
+		return { section: { ...section, results: kept }, spam };
+	});
+
+	const visibleSections = partitioned.map((entry) => entry.section);
+	const heldOutSpamCount = partitioned.reduce(
+		(total, entry) => total + entry.spam.length,
+		0,
+	);
+	const spamCount = spamMatchCount ?? heldOutSpamCount;
+	const spamOffer = isGlobal &&
+		spamCount > 0 &&
+		onScopeToSpam !== undefined && (
+			<SpamResultsOffer count={spamCount} onScopeToSpam={onScopeToSpam} />
+		);
+
+	const hasResults = visibleSections.some(
+		(section) => section.results.length > 0,
+	);
 
 	if (!hasResults) {
 		return (

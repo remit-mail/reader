@@ -11,7 +11,7 @@ describe("SpamResultsOffer", () => {
 		const html = renderToString(
 			createElement(SpamResultsOffer, { count: 3, onScopeToSpam: noop }),
 		);
-		assert.match(html, /3/);
+		assert.match(html, />3</);
 		assert.match(html, /results from Spam/);
 		assert.match(html, /View them/);
 	});
