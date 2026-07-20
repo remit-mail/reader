@@ -51,7 +51,25 @@ const Actions = () => (
 
 const SCOPE: SearchChip = { id: "in:spam", label: "in:spam", tone: "scope" };
 
-const Bar = ({ initialChips = [] }: { initialChips?: SearchChip[] }) => {
+/**
+ * The placeholders the app pairs with each scope state. Only the unscoped brief
+ * may claim to search all mail; a scoped view says so, and a mailbox route
+ * whose name has not loaded yet gets neutral wording rather than a placeholder
+ * asserting the wrong scope.
+ */
+const PLACEHOLDER = {
+	global: "Search all mail",
+	pending: "Search mail",
+	scoped: "Search this folder",
+} as const;
+
+const Bar = ({
+	initialChips = [],
+	placeholder = PLACEHOLDER.global,
+}: {
+	initialChips?: SearchChip[];
+	placeholder?: string;
+}) => {
 	const [chips, setChips] = useState<SearchChip[]>(initialChips);
 	const [value, setValue] = useState("");
 	return (
@@ -71,7 +89,7 @@ const Bar = ({ initialChips = [] }: { initialChips?: SearchChip[] }) => {
 					}}
 					onClearQuery={() => setValue("")}
 					globalFocusKey={false}
-					placeholder="Search all mail"
+					placeholder={placeholder}
 				/>
 			}
 		/>
@@ -96,24 +114,67 @@ const WithPanes = ({ children }: { children: React.ReactNode }) => (
 	</div>
 );
 
-/** The daily brief's state: search unscoped, nothing narrowing it. */
+/**
+ * The daily brief's state: search unscoped, nothing narrowing it. No chip, and
+ * the only placeholder allowed to claim it searches all mail — which it now
+ * genuinely does, across every folder of every account.
+ */
 export const Unscoped: Story = {
 	render: () => <Bar />,
 };
 
 /**
  * A narrowing scope in the bar, tinted to mark it as the view the user is in
- * rather than a filter they typed. Removing it widens the search again.
+ * rather than a filter they typed. Removing it widens the search again — a
+ * navigation back to the brief, not an edit of the text, because the chip
+ * mirrors the route.
+ *
+ * The placeholder narrows with the chip. A scoped bar reading "Search all mail"
+ * is a state the app never produces.
  */
 export const Scoped: Story = {
-	render: () => <Bar initialChips={[SCOPE]} />,
+	render: () => <Bar initialChips={[SCOPE]} placeholder={PLACEHOLDER.scoped} />,
+};
+
+/**
+ * The third scope state: a mailbox route whose name has not resolved yet. The
+ * list underneath is already narrowed, so the bar must not claim to search
+ * everything — but a chip reading a raw uuid is worse than no chip, so it shows
+ * none and falls back to neutral wording until the name arrives.
+ */
+export const ScopePending: Story = {
+	render: () => <Bar placeholder={PLACEHOLDER.pending} />,
+};
+
+/**
+ * The virtual collections scope the bar too, and their chips read as whatever
+ * describes the collection. Flagged is a marker on the mail rather than a
+ * place, so it chips `is:starred`; the outbox is a place mail sits in and keeps
+ * the `in:` form.
+ */
+export const ScopedToFlagged: Story = {
+	render: () => (
+		<Bar
+			initialChips={[{ id: "is:starred", label: "is:starred", tone: "scope" }]}
+			placeholder={PLACEHOLDER.scoped}
+		/>
+	),
+};
+
+export const ScopedToOutbox: Story = {
+	render: () => (
+		<Bar
+			initialChips={[{ id: "in:outbox", label: "in:outbox", tone: "scope" }]}
+			placeholder={PLACEHOLDER.scoped}
+		/>
+	),
 };
 
 /** The arrangement: one bar over the nav, the list, and the message pane. */
 export const OverTheLayout: Story = {
 	render: () => (
 		<WithPanes>
-			<Bar initialChips={[SCOPE]} />
+			<Bar initialChips={[SCOPE]} placeholder={PLACEHOLDER.scoped} />
 		</WithPanes>
 	),
 };
