@@ -98,16 +98,6 @@ export const ServerFieldsStory: Story = {
 /** Phone width: the grid stacks so the Security select stays reachable (#780). */
 export const ServerFieldsPhone: Story = {
 	name: "ServerFields — phone",
-	parameters: {
-		viewport: {
-			options: {
-				phone390: {
-					name: "Phone 390",
-					styles: { width: "390px", height: "844px" },
-				},
-			},
-			defaultViewport: "phone390",
-		},
-	},
+	globals: { viewport: { value: "mobile" } },
 	render: () => <ServerFieldsDemo />,
 };

@@ -137,7 +137,7 @@ export const Inline: Story = {
 
 /** Mobile compose sheet (390). Full-screen, send within the viewport. */
 export const MobileComposeSheet: Story = {
-	parameters: { viewport: { defaultViewport: "mobile1" } },
+	globals: { viewport: { value: "mobile" } },
 	render: () => (
 		<div className="h-dvh">
 			<ComposeShell actionBar={<ActionBar saveStatus="saving" />} />

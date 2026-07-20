@@ -57,7 +57,6 @@ export const Refreshing: Story = {
 export const DesktopNoop: Story = {
 	name: "Desktop — gesture inert",
 	parameters: {
-		viewport: { defaultViewport: "desktop" },
 		docs: {
 			description: {
 				story:
@@ -65,6 +64,7 @@ export const DesktopNoop: Story = {
 			},
 		},
 	},
+	globals: { viewport: { value: "desktop" } },
 	args: {
 		onRefresh: () => Promise.resolve(),
 	},
