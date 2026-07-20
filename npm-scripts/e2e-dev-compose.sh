@@ -17,12 +17,44 @@ DEV_ENV="$DEV_STATE_DIR/.env"
 DEV_LOG_DIR="$DEV_STATE_DIR/logs"
 DEV_PID_DIR="$DEV_STATE_DIR/pids"
 
+# A run identifies its lane with E2E_DEV_SLOT. Unset — a developer's machine —
+# it is the single lane the committed template describes. Set, every host-wide
+# name this stack claims is derived from it: the compose project and the port
+# block. Two runs on one host therefore share nothing, and `down` can only reach
+# the containers its own slot created.
+#
+# The slot is stable rather than unique on purpose. CI passes the runner's name,
+# which that runner reuses, so a run interrupted before its teardown leaves
+# containers the next run on the same runner recreates instead of orphans.
+E2E_DEV_SLOT="${E2E_DEV_SLOT-}"
+E2E_DEV_PROJECT="remit-e2e-dev"
+if [ -n "$E2E_DEV_SLOT" ]; then
+	E2E_DEV_PROJECT="remit-e2e-dev-$(printf '%s' "$E2E_DEV_SLOT" |
+		tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '-' | cut -c1-40)"
+fi
+
 e2e_dev_compose() {
 	docker compose \
-		--project-name remit-e2e-dev \
+		--project-name "$E2E_DEV_PROJECT" \
 		--project-directory "$DEPLOY_DIR" \
 		-f "$DEPLOY_DIR/docker-compose.dovecot.yml" \
 		"$@"
+}
+
+# The four ports a slot claims, contiguous so one block per slot covers the whole
+# stack. 400 blocks is far more than a host runs concurrently; a hash collision
+# between two live slots is caught by e2e_dev_require_free_ports, which fails the
+# run rather than letting it attach to the other stack.
+e2e_dev_slot_ports() {
+	[ -n "$E2E_DEV_SLOT" ] || return 0
+	local index base
+	index=$(($(printf '%s' "$E2E_DEV_SLOT" | cksum | cut -d' ' -f1) % 400))
+	base=$((20000 + index * 4))
+	: "${E2E_HTTP_PORT:=$base}"
+	: "${SERVER_PORT:=$((base + 1))}"
+	: "${QUEUE_SIDECAR_PORT:=$((base + 2))}"
+	: "${E2E_IMAP_PORT:=$((base + 3))}"
+	echo "e2e-dev: slot $E2E_DEV_SLOT — project $E2E_DEV_PROJECT, ports $base-$((base + 3))"
 }
 
 # Resolve the committed template into the generated env this run uses, then load
@@ -34,6 +66,8 @@ e2e_dev_compose() {
 e2e_dev_install_env() {
 	mkdir -p "$DEV_STATE_DIR"
 	cp "$DEV_TEMPLATE" "$DEV_ENV"
+
+	e2e_dev_slot_ports
 
 	for name in E2E_HTTP_PORT E2E_IMAP_PORT SERVER_PORT QUEUE_SIDECAR_PORT; do
 		[ -n "${!name-}" ] || continue
