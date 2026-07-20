@@ -103,3 +103,13 @@ describe("resolveResultFolder", () => {
 		});
 	});
 });
+
+describe("buildResultFolderIndex before the mailbox list arrives", () => {
+	it("still knows the appointed role, so spam is never let through", () => {
+		const index = buildResultFolderIndex([
+			account([{ role: "Junk", mailboxId: "mb-junk" }], []),
+		]);
+
+		assert.deepEqual(index.get("mb-junk"), { role: "junk" });
+	});
+});

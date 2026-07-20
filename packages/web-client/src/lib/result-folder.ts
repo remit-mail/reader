@@ -31,12 +31,19 @@ export interface AccountMailboxes {
 	>[];
 }
 
+/**
+ * The appointments and the mailbox list arrive from two different queries, so
+ * the roles are seeded first and the provider paths laid over them. A role on
+ * its own is enough to hold spam out of a global search, which means the list
+ * loading late cannot let a Spam row through into the results.
+ */
 export function buildResultFolderIndex(
 	accounts: readonly AccountMailboxes[],
 ): ResultFolderIndex {
 	const index = new Map<string, ResultFolder>();
 	for (const account of accounts) {
 		const roles = buildMailboxRoleMap(account.folderAppointments);
+		for (const [mailboxId, role] of roles) index.set(mailboxId, { role });
 		for (const mailbox of account.mailboxes) {
 			const role = roles.get(mailbox.mailboxId);
 			index.set(mailbox.mailboxId, {

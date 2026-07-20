@@ -94,6 +94,7 @@ export function MailListHeader({
 	const {
 		accounts,
 		resultFolderIndex,
+		searchQuery,
 		searchInput,
 		onSearchChange,
 		onSearchClear,
@@ -164,13 +165,16 @@ export function MailListHeader({
 		resultsScope.kind === "global"
 			? spamOfferForResults([...topMatches, ...related])
 			: undefined;
+	// The offer counts results for the *committed* query, so that is the query it
+	// carries into Spam — taking the offer shows the matches it advertised, not
+	// whatever has been typed since.
 	const onScopeToSpam = spamOffer
 		? () =>
 				navigate({
 					to: "/mail/$mailboxId",
 					params: { mailboxId: spamOffer.mailboxId },
 					search: {
-						q: searchInput || undefined,
+						q: searchQuery || undefined,
 						selectedMessageId: undefined,
 						selectedThreadId: undefined,
 					},
