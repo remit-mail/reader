@@ -34,6 +34,7 @@ const REPO_ROOT = new URL("../../../", import.meta.url);
 const CONFIGS = [
 	"deploy/vps/migrate/drizzle.entities.sqlite.config.ts",
 	"deploy/vps/migrate/drizzle.auth.sqlite.config.ts",
+	"deploy/vps/migrate/drizzle.meta.sqlite.config.ts",
 ];
 
 type DrizzleConfig = { schema: string; out: string };
