@@ -50,6 +50,35 @@ export interface IThreadMessageRepository {
 		},
 	): Promise<ResultList<ThreadMessageItem>>;
 	/**
+	 * Search rows for a config across every mailbox in `mailboxIds`, newest
+	 * first — the cross-account, cross-folder counterpart of `searchByMailbox`.
+	 *
+	 * Backed by the same date-ordered access pattern as `listByDate`; the caller
+	 * supplies the mailbox scope, so a search reaching Archive, Sent, Spam and
+	 * custom folders is a matter of which set is passed. An empty or absent
+	 * `mailboxIds` means no narrowing (every mailbox of the config), which is why
+	 * handlers pass an explicitly built set rather than relying on the default.
+	 *
+	 * Matching follows `searchByMailbox`: `query` splits on whitespace and every
+	 * term must match subject OR From, case-insensitively. `limit` is a page size
+	 * over MATCHES, clamped server-side, so a short page means the matches ran
+	 * out — never that a read window was exhausted.
+	 *
+	 * Rows are per mailbox, not per conversation: the same mail filed in two
+	 * folders is two rows sharing a `threadId`.
+	 */
+	searchByDate(
+		accountConfigId: string,
+		search: SearchOptions,
+		options?: {
+			order?: "asc" | "desc";
+			limit?: number;
+			continuationToken?: string;
+			mailboxIds?: Set<string>;
+			excludeDeleted?: boolean;
+		},
+	): Promise<ResultList<ThreadMessageItem>>;
+	/**
 	 * List starred rows for a config, newest first, across every mailbox.
 	 *
 	 * Backed by the `byStarred` index (pk = accountConfigId, sk = hasStars +

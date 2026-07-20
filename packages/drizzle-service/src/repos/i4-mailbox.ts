@@ -33,15 +33,7 @@ export function rowToMailbox(
 		fullPath: row.fullPath,
 		uidValidity: row.uidValidity,
 		uidNext: row.uidNext,
-		// SQLite returns a column with numeric affinity as a number whatever the
-		// schema declares, and the shipped self-host migration still declares
-		// this one `integer` (reader#73). A cursor read back as a number is not
-		// merely awkward to parse: `"900" === 900` is false, so code comparing
-		// the value it just wrote against the value it read would conclude
-		// nothing had changed — which is how a stalled cursor goes unreported.
-		// Normalising here means every consumer sees the declared type instead
-		// of each one guarding separately.
-		highestModseq: String(row.highestModseq),
+		highestModseq: row.highestModseq,
 		messageCount: row.messageCount,
 		unseenCount: row.unseenCount,
 		deletedCount: row.deletedCount,

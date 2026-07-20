@@ -1,0 +1,32 @@
+# The mail server the black-box e2e suite syncs from, on its own so both lanes
+# can use it: the image lane composes it with docker-compose.sqlite.yml +
+# docker-compose.e2e.yml, and the source-built dev lane
+# (`npm run e2e:dev`) brings up this file alone and runs the app from the
+# worktree.
+#
+# Every username authenticates with one shared password and gets its own empty
+# maildir, so each run can claim a mailbox nobody has written to. The suite
+# APPENDs the messages each spec needs.
+#
+# The bind mounts are relative to this directory, so compose must be invoked
+# with `--project-directory deploy/vps` (see npm-scripts/e2e-compose.sh).
+
+services:
+  dovecot:
+    image: dovecot/dovecot:2.3.21
+    entrypoint: ["/bin/sh", "/etc/dovecot/e2e-entrypoint.sh"]
+    environment:
+      E2E_IMAP_PASSWORD: ${E2E_IMAP_PASSWORD:?set E2E_IMAP_PASSWORD}
+    volumes:
+      - ../../docker/test/dovecot/dovecot.conf:/etc/dovecot/dovecot.conf:ro
+      - ../../docker/test/dovecot/entrypoint.sh:/etc/dovecot/e2e-entrypoint.sh:ro
+    ports:
+      # Published so the suite can APPEND from the host. On the image lane the
+      # app reaches it as `dovecot:143` on the compose network instead; on the
+      # dev lane the app is a host process and uses this port too.
+      - "127.0.0.1:${E2E_IMAP_PORT:-11143}:143"
+    healthcheck:
+      test: ["CMD", "doveadm", "service", "status"]
+      interval: 2s
+      timeout: 3s
+      retries: 30

@@ -4,8 +4,18 @@
  */
 import { baseUrl } from "../src/env.js";
 import { expect, test } from "../src/fixtures.js";
+import { imageStackOnly } from "../src/stack.js";
 
 test.describe("API gateway", () => {
+	// The gateway is a property of the packaged deployment: Caddy in front,
+	// APISIX gating every business route on the JWT. The source-built stack
+	// serves the browser from vite and proxies to the backend directly, so
+	// there is no gateway there to answer for — a pass would be the backend's
+	// own behaviour wearing this suite's name.
+	imageStackOnly(
+		"there is no Caddy/APISIX edge in front of the source-built stack",
+	);
+
 	test("rejects an unauthenticated business request", async ({ run }) => {
 		const response = await fetch(
 			`${baseUrl}/api/mailboxes/${run.inboxId}/threads`,

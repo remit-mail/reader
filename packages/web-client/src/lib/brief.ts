@@ -68,6 +68,33 @@ export function toThreadRowData(
 }
 
 /**
+ * Union of the brief's own rows with the rows the server's cross-folder search
+ * returned, newest first.
+ *
+ * Both lists are needed. The server matches subject and From only, so a row
+ * whose snippet carries the term is found only by the client-side pass over the
+ * loaded brief rows; the server pass is the only one that reaches Archive,
+ * Sent, Spam and custom folders, which the brief list never loads. The two
+ * overlap on INBOX, so rows are deduped by id, the first occurrence winning.
+ *
+ * Rows without a `sentDate` sort last; the brief's own list is already newest
+ * first, so this only has to re-interleave the two sources.
+ */
+export function mergeSearchRows(
+	briefRows: ThreadRowData[],
+	searchRows: ThreadRowData[],
+): ThreadRowData[] {
+	const seen = new Set<string>();
+	const merged: ThreadRowData[] = [];
+	for (const row of [...briefRows, ...searchRows]) {
+		if (seen.has(row.id)) continue;
+		seen.add(row.id);
+		merged.push(row);
+	}
+	return merged.sort((a, b) => (b.sentDate ?? 0) - (a.sentDate ?? 0));
+}
+
+/**
  * Category sections in fixed display order. The `id`/`label` drive the rendered
  * section; `category` is the row category that routes into it.
  */
