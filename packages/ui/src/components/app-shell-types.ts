@@ -161,6 +161,7 @@ export interface NavLinkRenderProps {
 export type NavLinkComponent = (props: NavLinkRenderProps) => ReactElement;
 
 export type ThreadCategory =
+	| "uncategorized"
 	| "personal"
 	| "newsletter"
 	| "marketing"
@@ -182,6 +183,7 @@ export const briefCategories: ReadonlyArray<{
 }> = [
 	{ id: "all", label: "All" },
 	{ id: "personal", label: "Personal" },
+	{ id: "uncategorized", label: "Unclassified" },
 	{ id: "newsletter", label: "Newsletters" },
 	{ id: "marketing", label: "Marketing" },
 	{ id: "automated", label: "Automated" },
@@ -319,6 +321,7 @@ export const categoryTone: Record<
 	ThreadCategory,
 	"neutral" | "accent" | "positive" | "warning"
 > = {
+	uncategorized: "neutral",
 	personal: "accent",
 	newsletter: "neutral",
 	marketing: "neutral",

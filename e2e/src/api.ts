@@ -25,6 +25,12 @@ export interface Thread {
 	subject?: string;
 	fromEmail?: string;
 	isRead?: boolean;
+	/**
+	 * Header-derived category. Carries `uncategorized` until the message is
+	 * body-classified; omitted only when the underlying message row cannot be
+	 * resolved, which is why it stays optional here.
+	 */
+	category?: string;
 }
 
 export interface ThreadMessage {

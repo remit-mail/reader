@@ -145,11 +145,26 @@ describe("groupBriefSections", () => {
 
 	// --- Fallback to personal ---
 
-	test("missing category falls back to personal", () => {
+	test("missing category lands in its own Unclassified section", () => {
+		// Never folded into Personal: unclassified mail is work the classifier
+		// has not done, and hiding it inside Personal is what made issue #45
+		// look like a working classifier with a huge personal inbox.
 		const r = row({ id: "1" });
 		const sections = groupBriefSections([r]);
 		assert.strictEqual(sections.length, 1);
-		assert.strictEqual(sections[0].id, "personal");
+		assert.strictEqual(sections[0].id, "uncategorized");
+	});
+
+	test("uncategorized rows do not inflate the personal section", () => {
+		const sections = groupBriefSections([
+			row({ id: "1", category: "personal" }),
+			row({ id: "2", category: "uncategorized" }),
+			row({ id: "3", category: "uncategorized" }),
+		]);
+		const personal = sections.find((s) => s.id === "personal");
+		const unclassified = sections.find((s) => s.id === "uncategorized");
+		assert.strictEqual(personal?.threads.length, 1);
+		assert.strictEqual(unclassified?.threads.length, 2);
 	});
 
 	// --- Starred is a row marker, not a section (Flagged lives in the nav) ---
