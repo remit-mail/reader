@@ -1,0 +1,68 @@
+name: E2E (source)
+
+# The pull request half of the two-lane e2e split. This one assembles the stack
+# from the branch under review — queue sidecar, migrator, backend dev-server,
+# imap-worker, vite, SQLite, and the Dovecot container — and runs the black-box
+# suite against it. It is the regression gate: a spec that breaks does so on the
+# commit that broke it.
+#
+# The other lane is the `e2e` job in images.yml. That one runs on main against
+# the published roster and is the deploy gate. Neither replaces the other: this
+# lane has no packaged edge, so the Caddy and APISIX assertions are skipped by
+# name here (e2e/src/stack.ts) and only the image lane covers them.
+#
+# It is its own workflow rather than a job in ci.yml because ci.yml runs on main
+# as well, where this lane would re-test from source what images.yml is already
+# testing as shipped.
+on:
+  pull_request:
+
+concurrency:
+  group: e2e-dev-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e-dev:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # Every host-wide name the stack claims — the compose project and its port
+      # block — is derived from this. A runner runs one job at a time and reuses
+      # its name, so concurrent runs get disjoint slots and an interrupted run's
+      # containers are recreated by the next run rather than left behind.
+      E2E_DEV_SLOT: ${{ runner.name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup
+
+      - name: Start the source-built stack
+        run: npm run e2e:dev:up
+
+      - name: Black-box suite
+        run: npm run e2e:test
+
+      - name: Collect stack logs
+        if: failure()
+        env:
+          E2E_LOGS_TAIL: "400"
+        run: npm run e2e:dev:logs >e2e-dev-stack.log 2>&1
+
+      - name: Upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-dev-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            e2e-dev-stack.log
+            e2e/playwright-report/
+            e2e/test-results/
+          retention-days: 14
+          if-no-files-found: warn
+
+      # `always()` rather than `failure()`: a cancelled run leaves host processes
+      # and a Dovecot container holding this slot's ports, which the next run on
+      # the same runner would then collide with.
+      - name: Tear down
+        if: always()
+        run: npm run e2e:dev:down

@@ -35,6 +35,7 @@ jobs:
           python3 -c 'import yaml,sys; [yaml.safe_load(open(f)) for f in sys.argv[1:]]' \
             .github/workflows/ci.yml .github/workflows/storybook-pages.yml \
             .github/workflows/images.yml .github/workflows/publish.yml \
+            .github/workflows/e2e-dev.yml \
             .github/actions/setup/action.yml
 
       - name: Deploy stack — SQLite compose validates
