@@ -86,7 +86,7 @@ describe("MailboxRepo (sqlite, shipped migrations)", () => {
 	before(() => {
 		const sqlite = new Database(":memory:");
 		sqlite.exec(shippedTableDdl("0000_happy_roland_deschain", "mailbox"));
-		applyMigration(sqlite, "0003_highest_modseq_text");
+		applyMigration(sqlite, "0002_highest_modseq_text");
 		const db = drizzle(sqlite, { schema: { mailbox: mailboxTable } });
 		repo = new MailboxRepo(db as never);
 		close = async () => {
@@ -100,7 +100,7 @@ describe("MailboxRepo (sqlite, shipped migrations)", () => {
 
 	test("declares highest_modseq as text", () => {
 		assert.match(
-			shippedTableDdl("0003_highest_modseq_text", "__new_mailbox"),
+			shippedTableDdl("0002_highest_modseq_text", "__new_mailbox"),
 			/`highest_modseq` text NOT NULL/,
 		);
 	});
