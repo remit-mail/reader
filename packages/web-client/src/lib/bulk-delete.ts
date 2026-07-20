@@ -3,9 +3,16 @@
  *
  * The bulk endpoint caps a call at 100 ids (`BulkMessageInput.messageIds`,
  * `@maxItems(100)`); a delete over a search result can run to thousands. These
- * helpers sequence the calls and tally what actually happened rather than what
- * was requested, so a caller can always ask "what's still not deleted" instead
- * of trusting the request it sent.
+ * helpers sequence the calls and tally which ids the run actually reached, so a
+ * caller can always ask "what's still not deleted" instead of trusting the
+ * request it sent.
+ *
+ * The endpoint enqueues the IMAP delete and returns; it does not apply it. So a
+ * returned call means every id in it was accepted for deletion, not that the
+ * mail server removed it — there is no per-id success/failure in the response
+ * to read. The only failure this layer can observe is a thrown call: an
+ * infrastructure failure (auth, the write, or the enqueue) that takes out the
+ * whole batch and stops the run.
  *
  * Pure, framework-agnostic, and independently testable — no React, no fetch.
  * `useEscalatedDelete.ts` supplies the real `DeleteBatch`/`FetchIdsPage`
@@ -46,7 +53,6 @@ export const chunkIds = (
 export interface DeleteBatchResult {
 	successCount: number;
 	failureCount: number;
-	failedIds?: string[];
 }
 
 /** Sends one bulk-delete call for the given ids (≤100). */
@@ -64,9 +70,12 @@ export interface BulkDeleteOutcome {
 	/** Ids confirmed deleted (server-reported success, not merely "sent"). */
 	done: number;
 	/**
-	 * Ids not confirmed deleted: explicit per-batch failures. Does NOT include
-	 * ids from chunks the run never reached (cancelled or stopped by an
-	 * error) — see the per-function doc for how each source handles that.
+	 * Ids the run did not reach and are therefore not confirmed deleted: on
+	 * cancellation or a thrown error, the chunks the bounded run never attempted
+	 * (see `runChunkedDelete`). Empty in the predicate case, which re-resolves on
+	 * every run rather than handing back a remainder (see `runPredicateDelete`).
+	 * There is no per-id failure source: a returned batch call counts every id in
+	 * it as accepted (see the module header).
 	 */
 	failedIds: string[];
 	cancelled: boolean;
@@ -106,9 +115,7 @@ export const runChunkedDelete = async (
 			onProgress({ done, total });
 			return { done, failedIds, cancelled: false, error: attempted.error };
 		}
-		const failedInChunk = new Set(attempted.value.failedIds ?? []);
-		done += chunk.length - failedInChunk.size;
-		failedIds.push(...chunk.filter((id) => failedInChunk.has(id)));
+		done += chunk.length;
 		onProgress({ done, total });
 	}
 
@@ -165,9 +172,7 @@ export const runPredicateDelete = async (
 			if (!attempted.ok) {
 				return { done, failedIds, cancelled: false, error: attempted.error };
 			}
-			const failedInPage = new Set(attempted.value.failedIds ?? []);
-			done += page.ids.length - failedInPage.size;
-			failedIds.push(...page.ids.filter((id) => failedInPage.has(id)));
+			done += page.ids.length;
 			onProgress({ done, total });
 		}
 
@@ -232,11 +237,10 @@ export interface SelectionAfterDelete {
 
 /**
  * What a caller does with selection once a run ends, for any reason. Every id
- * not confirmed deleted — an explicit failure, or a chunk the run never
- * reached because it was stopped or errored — belongs in `retryIds`: it is
- * exactly what Retry should resend, and it is what stays selected so the
- * count on screen never claims more was deleted than actually was (#92
- * requirement 8).
+ * not confirmed deleted — a chunk the bounded run never reached because it was
+ * stopped or errored — belongs in `retryIds`: it is exactly what Retry should
+ * resend, and it is what stays selected so the count on screen never claims
+ * more was deleted than actually was (#92 requirement 8).
  */
 export const resolveSelectionAfterDelete = (
 	outcome: DeleteRunOutcome,

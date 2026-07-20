@@ -363,14 +363,11 @@ model MoveMessagesInput {
 
 @doc("Bulk operation result for message operations")
 model MessageBulkOperationResult {
-  @doc("Number of items successfully processed")
+  @doc("Number of items accepted for processing")
   successCount: int32;
 
-  @doc("Number of items that failed")
+  @doc("Number of items rejected before processing")
   failureCount: int32;
-
-  @doc("IDs of failed items")
-  failedIds?: UUID[];
 }
 
 // ============================================

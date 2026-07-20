@@ -4,7 +4,6 @@ import {
 	BULK_DELETE_CHUNK_SIZE,
 	chunkIds,
 	countMatches,
-	type DeleteBatchResult,
 	type FetchIdsPageResult,
 	resolveSelectionAfterDelete,
 	runChunkedDelete,
@@ -89,36 +88,16 @@ describe("runChunkedDelete", () => {
 		assert.deepEqual(outcome.failedIds, []);
 	});
 
-	test("the count deleted matches exactly what the batches reported succeeded", async () => {
+	test("a returned batch counts every id in it as accepted", async () => {
 		const input = ids(5);
 		const outcome = await runChunkedDelete(
 			input,
-			async (chunk) => ({
-				successCount: chunk.length - 2,
-				failureCount: 2,
-				failedIds: chunk.slice(0, 2),
-			}),
+			async (chunk) => ({ successCount: chunk.length, failureCount: 0 }),
 			noopProgress,
 			neverCancelled,
 		);
-		assert.equal(outcome.done, 3);
-		assert.deepEqual(outcome.failedIds, input.slice(0, 2));
-	});
-
-	test("partial failure: failed ids are reported, not rolled into done", async () => {
-		const input = ids(3);
-		const outcome = await runChunkedDelete(
-			input,
-			async (chunk) => ({
-				successCount: 2,
-				failureCount: 1,
-				failedIds: [chunk[1]],
-			}),
-			noopProgress,
-			neverCancelled,
-		);
-		assert.equal(outcome.done, 2);
-		assert.deepEqual(outcome.failedIds, [input[1]]);
+		assert.equal(outcome.done, input.length);
+		assert.deepEqual(outcome.failedIds, []);
 	});
 
 	test("cancelling mid-run folds every unreached chunk into failedIds", async () => {
@@ -263,27 +242,6 @@ describe("runPredicateDelete", () => {
 		assert.equal(outcome.done, 4);
 	});
 
-	test("partial failure across pages accumulates failedIds without rolling into done", async () => {
-		const fetch = pagedFetcher([
-			{ ids: ["a", "b"], continuationToken: "t1" },
-			{ ids: ["c"] },
-		]);
-		const outcome = await runPredicateDelete(
-			fetch,
-			3,
-			async (chunk): Promise<DeleteBatchResult> => {
-				if (chunk.includes("b")) {
-					return { successCount: 1, failureCount: 1, failedIds: ["b"] };
-				}
-				return { successCount: chunk.length, failureCount: 0 };
-			},
-			noopProgress,
-			neverCancelled,
-		);
-		assert.equal(outcome.done, 2);
-		assert.deepEqual(outcome.failedIds, ["b"]);
-	});
-
 	test("cancelling mid-delete stops paging without inventing failedIds for unfetched pages", async () => {
 		let fetchCalls = 0;
 		let cancelled = false;
@@ -408,7 +366,7 @@ describe("resolveSelectionAfterDelete", () => {
 		);
 	});
 
-	test("explicit failures stay selected for a precise retry, even alongside a clean stop", () => {
+	test("unreached ids stay selected for a precise retry, even alongside a clean stop", () => {
 		assert.deepEqual(
 			resolveSelectionAfterDelete({
 				done: 3072,
@@ -430,7 +388,7 @@ describe("resolveSelectionAfterDelete", () => {
 		);
 	});
 
-	test("an infra failure with no explicit per-item failures still keeps selection mode open", () => {
+	test("an infra failure with nothing left unreached still keeps selection mode open", () => {
 		assert.deepEqual(
 			resolveSelectionAfterDelete({
 				done: 0,
