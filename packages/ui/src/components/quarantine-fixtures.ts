@@ -1,0 +1,81 @@
+import type { QuarantineEntry } from "./quarantine-report.js";
+
+/**
+ * Demo entries backing the quarantine stories. Exported so the kit's own
+ * stories and the workbench settings screen render the same data — they had
+ * drifted on `appVersion` when each file carried its own copy.
+ */
+export const quarantineDemoEntries: readonly QuarantineEntry[] = [
+	{
+		quarantineId: "q-1",
+		accountId: "acct-1",
+		mailboxId: "mbx-inbox",
+		uid: 40217,
+		mailboxRole: "inbox",
+		mailboxPath: "INBOX",
+		failureStage: "BodyParse",
+		failureCode: "UnterminatedMultipartBoundary",
+		failureMessage: "multipart boundary was never closed",
+		failurePartPath: null,
+		quarantinedAt: Date.parse("2026-07-18T09:12:00Z"),
+		attempts: 3,
+		sizeBytes: 184_233,
+		contentType: "multipart/mixed",
+		transferEncoding: "7bit",
+		charset: "utf-8",
+		structure: {
+			contentType: "multipart/mixed",
+			parts: [
+				{
+					contentType: "multipart/alternative",
+					parts: [{ contentType: "text/plain" }, { contentType: "text/html" }],
+				},
+				{ contentType: "application/pdf" },
+			],
+		},
+		messageIdHash: "sha256:6f1c4a9d20",
+		appVersion: "worker 1.0.0",
+	},
+	{
+		quarantineId: "q-2",
+		accountId: "acct-1",
+		mailboxId: "mbx-archive",
+		uid: 40219,
+		mailboxRole: "archive",
+		mailboxPath: "Archive/2026",
+		failureStage: "BodyParse",
+		failureCode: "UnknownCharset",
+		failureMessage: "declared charset is not a known encoding",
+		failurePartPath: "1.2",
+		quarantinedAt: Date.parse("2026-07-18T14:40:00Z"),
+		attempts: 3,
+		sizeBytes: 9_812,
+		contentType: "text/plain",
+		transferEncoding: "quoted-printable",
+		charset: "x-user-defined",
+		structure: { contentType: "text/plain" },
+		messageIdHash: "sha256:b31e0744af",
+		appVersion: "worker 1.0.0",
+	},
+	{
+		quarantineId: "q-3",
+		accountId: "acct-1",
+		mailboxId: "mbx-junk",
+		uid: 40251,
+		mailboxRole: "junk",
+		mailboxPath: "Junk",
+		failureStage: "BodyParse",
+		failureCode: "TruncatedBody",
+		failureMessage: "stream ended before the declared body length",
+		failurePartPath: null,
+		quarantinedAt: Date.parse("2026-07-19T06:03:00Z"),
+		attempts: 1,
+		sizeBytes: 2_140,
+		contentType: "text/html",
+		transferEncoding: "base64",
+		charset: null,
+		structure: { contentType: "text/html" },
+		messageIdHash: "sha256:0a77de1c05",
+		appVersion: "worker 1.0.0",
+	},
+];

@@ -15,7 +15,7 @@ import { getRecentErrors } from "./console-errors";
 const MAX_ISSUE_URL_LENGTH = 7500;
 
 const TRUNCATION_MARKER =
-	"\n… (truncated — use “Copy full details” for the full stacktrace)";
+	"\n… (truncated — use “Copy full details” for the full report)";
 
 export interface BugReportContext {
 	appSha: string;
@@ -33,6 +33,13 @@ export interface BugReportContext {
 	stack?: string;
 	/** React component stack from the error boundary, when available. */
 	componentStack?: string;
+	/**
+	 * A quarantined message's diagnostics, when the report is filed from the
+	 * quarantine surface. Rendered by `formatQuarantineReport` in @remit/ui.
+	 */
+	quarantineReport?: string;
+	/** Overrides the derived title, e.g. for a quarantine report. */
+	title?: string;
 }
 
 /** Fields callers can seed from a caught error. */
@@ -40,6 +47,9 @@ export interface BugReportSeed {
 	errorMessage?: string;
 	stack?: string;
 	componentStack?: string;
+	quarantineReport?: string;
+	/** Overrides the derived title, e.g. for a quarantine report. */
+	title?: string;
 }
 
 export function buildBugReportContext(seed?: BugReportSeed): BugReportContext {
@@ -56,6 +66,8 @@ export function buildBugReportContext(seed?: BugReportSeed): BugReportContext {
 		errorMessage: seed?.errorMessage,
 		stack: seed?.stack,
 		componentStack: seed?.componentStack,
+		quarantineReport: seed?.quarantineReport,
+		title: seed?.title,
 	};
 }
 
@@ -63,7 +75,15 @@ function fencedBlock(content: string): string {
 	return ["```", content, "```"].join("\n");
 }
 
-function buildIssueBody(ctx: BugReportContext, stack?: string): string {
+interface BodyOverrides {
+	stack?: string;
+	quarantineReport?: string;
+}
+
+function buildIssueBody(
+	ctx: BugReportContext,
+	overrides?: BodyOverrides,
+): string {
 	const errorSection =
 		ctx.recentErrors.length > 0
 			? ctx.recentErrors.map((e) => `  - ${e}`).join("\n")
@@ -85,7 +105,13 @@ function buildIssueBody(ctx: BugReportContext, stack?: string): string {
 		lines.push("## Error", ctx.errorMessage, "");
 	}
 
-	const resolvedStack = stack ?? ctx.stack;
+	const resolvedQuarantine =
+		overrides?.quarantineReport ?? ctx.quarantineReport;
+	if (resolvedQuarantine) {
+		lines.push(resolvedQuarantine, "");
+	}
+
+	const resolvedStack = overrides?.stack ?? ctx.stack;
 	if (resolvedStack) {
 		lines.push("## Stacktrace", fencedBlock(resolvedStack), "");
 	}
@@ -111,6 +137,7 @@ function buildIssueBody(ctx: BugReportContext, stack?: string): string {
 }
 
 function buildIssueTitle(ctx: BugReportContext): string {
+	if (ctx.title) return ctx.title;
 	if (!ctx.errorMessage) return "Bug: ";
 	const firstLine = ctx.errorMessage.split("\n")[0].trim();
 	const clipped =
@@ -118,10 +145,10 @@ function buildIssueTitle(ctx: BugReportContext): string {
 	return `Bug: ${clipped}`;
 }
 
-function issueUrl(ctx: BugReportContext, stack?: string): string {
+function issueUrl(ctx: BugReportContext, overrides?: BodyOverrides): string {
 	const params = new URLSearchParams({
 		title: buildIssueTitle(ctx),
-		body: buildIssueBody(ctx, stack),
+		body: buildIssueBody(ctx, overrides),
 	});
 	return `${GITHUB_NEW_ISSUE_URL}?${params.toString()}`;
 }
@@ -146,22 +173,26 @@ export function buildGitHubIssueUrl(ctx: BugReportContext): string {
 	const full = issueUrl(ctx);
 	if (full.length <= MAX_ISSUE_URL_LENGTH) return full;
 
-	const stack = ctx.stack ?? "";
+	// Only one long section is ever present: a report seeded from a JS error
+	// carries a stack, one seeded from quarantine carries the diagnostics.
+	const field = ctx.stack !== undefined ? "stack" : "quarantineReport";
+	const long = ctx.stack ?? ctx.quarantineReport ?? "";
 	const withoutComponentStack: BugReportContext = {
 		...ctx,
 		componentStack: undefined,
 	};
+	const candidateFor = (text: string): string =>
+		issueUrl(withoutComponentStack, { [field]: text });
 
 	let lo = 0;
-	let hi = stack.length;
+	let hi = long.length;
 	let best = 0;
 	while (lo <= hi) {
 		const mid = (lo + hi) >> 1;
-		const candidate = issueUrl(
-			withoutComponentStack,
-			stack.slice(0, mid) + TRUNCATION_MARKER,
-		);
-		if (candidate.length <= MAX_ISSUE_URL_LENGTH) {
+		if (
+			candidateFor(long.slice(0, mid) + TRUNCATION_MARKER).length <=
+			MAX_ISSUE_URL_LENGTH
+		) {
 			best = mid;
 			lo = mid + 1;
 		} else {
@@ -169,8 +200,5 @@ export function buildGitHubIssueUrl(ctx: BugReportContext): string {
 		}
 	}
 
-	return issueUrl(
-		withoutComponentStack,
-		stack.slice(0, best) + TRUNCATION_MARKER,
-	);
+	return candidateFor(long.slice(0, best) + TRUNCATION_MARKER);
 }

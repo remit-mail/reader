@@ -211,3 +211,47 @@ describe("buildGitHubIssueUrl — truncation to fit the URL budget", () => {
 		);
 	});
 });
+
+describe("quarantine reports", () => {
+	const report = [
+		"### Message quarantined at `BodyParse`",
+		"- **Failure**: `UnterminatedMultipartBoundary`",
+	].join("\n");
+
+	const ctx: BugReportContext = {
+		...baseCtx,
+		title: "Message quarantined: UnterminatedMultipartBoundary at BodyParse",
+		quarantineReport: report,
+	};
+
+	it("carries the diagnostics section and the supplied title", () => {
+		const url = buildGitHubIssueUrl(ctx);
+		const decoded = decode(url);
+		assert.ok(decoded.includes("UnterminatedMultipartBoundary"));
+		assert.ok(decoded.includes("Message quarantined:"));
+		assert.doesNotThrow(() => new URL(url));
+	});
+
+	it("budgets a long report the same way it budgets a stacktrace", () => {
+		const huge: BugReportContext = {
+			...ctx,
+			quarantineReport: `${report}\n${"- text/plain\n".repeat(2000)}`,
+		};
+		const url = buildGitHubIssueUrl(huge);
+		assert.ok(
+			url.length <= 8000,
+			`Expected a URL under 8000 chars, got ${url.length}`,
+		);
+		assert.ok(decode(url).includes("truncated"));
+	});
+
+	it("Copy full details keeps the whole report", () => {
+		const huge: BugReportContext = {
+			...ctx,
+			quarantineReport: `${report}\n${"- text/plain\n".repeat(2000)}`,
+		};
+		const details = buildBugReportDetails(huge);
+		assert.ok(details.includes("- text/plain"));
+		assert.ok(details.length > buildGitHubIssueUrl(huge).length);
+	});
+});

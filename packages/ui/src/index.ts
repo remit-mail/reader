@@ -75,7 +75,12 @@ export {
 	BriefSections,
 	type BriefSectionsProps,
 } from "./components/brief-sections.js";
-export { Button, type ButtonProps } from "./components/button.js";
+export {
+	Button,
+	ButtonLink,
+	type ButtonLinkProps,
+	type ButtonProps,
+} from "./components/button.js";
 export {
 	Card,
 	CardBody,
@@ -247,12 +252,13 @@ export {
 	QuarantineEntryRow,
 	type QuarantineEntryRowProps,
 } from "./components/quarantine-entry-row.js";
+export { quarantineDemoEntries } from "./components/quarantine-fixtures.js";
 export {
 	formatQuarantineReport,
 	type QuarantineEntry,
 	type QuarantineFailureStage,
 	type QuarantineMimeNode,
-	quarantineIssueUrl,
+	quarantineIssueTitle,
 	quarantineSummary,
 } from "./components/quarantine-report.js";
 export {

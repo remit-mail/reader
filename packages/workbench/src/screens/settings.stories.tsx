@@ -10,6 +10,8 @@ import {
 	QuarantineBugDialog,
 	type QuarantineEntry,
 	QuarantineSection,
+	quarantineDemoEntries,
+	quarantineIssueTitle,
 	SegmentedControl,
 	SenderFlagRow,
 	SenderGroupSwitch,
@@ -916,65 +918,14 @@ const advancedHelp = (
 	</div>
 );
 
-const REPOSITORY_URL = "https://github.com/remit-mail/reader";
-
-const quarantineFixtures: QuarantineEntry[] = [
-	{
-		quarantineId: "q-1",
-		uid: 40217,
-		mailboxRole: "inbox",
-		mailboxPath: "INBOX",
-		failureStage: "MimeStructure",
-		failureCode: "UnterminatedMultipartBoundary",
-		failureMessage: "multipart boundary was never closed",
-		quarantinedAt: Date.parse("2026-07-18T09:12:00Z"),
-		attempts: 3,
-		sizeBytes: 184_233,
-		contentType: "multipart/mixed",
-		transferEncoding: "7bit",
-		charset: "utf-8",
-		structure: {
-			contentType: "multipart/mixed",
-			parts: [
-				{
-					contentType: "multipart/alternative",
-					parts: [{ contentType: "text/plain" }, { contentType: "text/html" }],
-				},
-				{ contentType: "application/pdf" },
-			],
-		},
-		headerNames: [
-			"Date",
-			"From",
-			"To",
-			"Subject",
-			"Message-ID",
-			"MIME-Version",
-			"Content-Type",
-		],
-		messageIdHash: "sha256:6f1c4a…9d20",
-		appVersion: "1.0.0",
-	},
-	{
-		quarantineId: "q-2",
-		uid: 40219,
-		mailboxRole: "archive",
-		mailboxPath: "Archive/2026",
-		failureStage: "CharsetDecode",
-		failureCode: "UnknownCharset",
-		failureMessage: "declared charset is not a known encoding",
-		quarantinedAt: Date.parse("2026-07-18T14:40:00Z"),
-		attempts: 3,
-		sizeBytes: 9_812,
-		contentType: "text/plain",
-		transferEncoding: "quoted-printable",
-		charset: "x-user-defined",
-		structure: { contentType: "text/plain" },
-		headerNames: ["Date", "From", "To", "Subject", "Content-Type"],
-		messageIdHash: "sha256:b31e07…44af",
-		appVersion: "1.0.0",
-	},
-];
+/**
+ * Stands in for the app's shared bug-report helper (`buildGitHubIssueUrl`),
+ * which owns the URL budget and the repository constant.
+ */
+const demoIssueUrl = (entry: QuarantineEntry): string =>
+	`https://github.com/remit-mail/reader/issues/new?title=${encodeURIComponent(
+		quarantineIssueTitle(entry),
+	)}`;
 
 function AdvancedPage({
 	quarantined = [],
@@ -983,7 +934,6 @@ function AdvancedPage({
 }) {
 	const [helpOpen, setHelpOpen] = useState(true);
 	const [reporting, setReporting] = useState<QuarantineEntry | null>(null);
-	const [retryingIds, setRetryingIds] = useState<string[]>([]);
 
 	return (
 		<SettingsShell
@@ -995,14 +945,7 @@ function AdvancedPage({
 			helpOpen={helpOpen}
 			onToggleHelp={() => setHelpOpen((v) => !v)}
 		>
-			<QuarantineSection
-				entries={quarantined}
-				onCutBug={setReporting}
-				onRetry={(entry) =>
-					setRetryingIds((ids) => [...ids, entry.quarantineId])
-				}
-				retryingIds={retryingIds}
-			/>
+			<QuarantineSection entries={quarantined} onCutBug={setReporting} />
 			<div className="mt-6 border-t border-line pt-4">
 				<p className="text-sm text-fg-muted">
 					Notification rules and data export are coming in a future release.
@@ -1014,7 +957,7 @@ function AdvancedPage({
 			</div>
 			<QuarantineBugDialog
 				entry={reporting}
-				repositoryUrl={REPOSITORY_URL}
+				issueUrl={reporting ? demoIssueUrl(reporting) : ""}
 				onClose={() => setReporting(null)}
 				onCopy={() => setReporting(null)}
 			/>
@@ -1029,10 +972,12 @@ export const Advanced: Story = {
 
 /** One message set aside — a fact on the page, not an incident. */
 export const AdvancedOneQuarantined: Story = {
-	render: () => <AdvancedPage quarantined={quarantineFixtures.slice(0, 1)} />,
+	render: () => (
+		<AdvancedPage quarantined={quarantineDemoEntries.slice(0, 1)} />
+	),
 };
 
 /** Two or more is a pattern, so the page raises an alert above the list. */
 export const AdvancedQuarantineAlert: Story = {
-	render: () => <AdvancedPage quarantined={quarantineFixtures} />,
+	render: () => <AdvancedPage quarantined={quarantineDemoEntries} />,
 };

@@ -3,47 +3,16 @@ import { describe, it } from "node:test";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import { QuarantineBugDialog } from "./quarantine-bug-dialog.js";
+import { quarantineDemoEntries } from "./quarantine-fixtures.js";
 import type { QuarantineEntry } from "./quarantine-report.js";
 import { QuarantineSection } from "./quarantine-section.js";
 
 const noop = () => {};
+const [base, second] = quarantineDemoEntries;
+const ISSUE_URL = "https://github.com/remit-mail/reader/issues/new?title=x";
 
-const base: QuarantineEntry = {
-	quarantineId: "q-1",
-	uid: 40217,
-	mailboxRole: "inbox",
-	mailboxPath: "INBOX",
-	failureStage: "MimeStructure",
-	failureCode: "UnterminatedMultipartBoundary",
-	failureMessage: "multipart boundary was never closed",
-	quarantinedAt: Date.parse("2026-07-18T09:12:00Z"),
-	attempts: 3,
-	sizeBytes: 184_233,
-	contentType: "multipart/mixed",
-	transferEncoding: "7bit",
-	charset: "utf-8",
-	structure: { contentType: "multipart/mixed" },
-	headerNames: ["Date", "From"],
-	messageIdHash: "sha256:6f1c4a",
-	appVersion: "0.14.2",
-};
-
-const second: QuarantineEntry = {
-	...base,
-	quarantineId: "q-2",
-	uid: 40219,
-	failureStage: "CharsetDecode",
-};
-
-const render = (entries: readonly QuarantineEntry[], retryingIds?: string[]) =>
-	renderToString(
-		createElement(QuarantineSection, {
-			entries,
-			onCutBug: noop,
-			onRetry: noop,
-			retryingIds,
-		}),
-	);
+const render = (entries: readonly QuarantineEntry[]) =>
+	renderToString(createElement(QuarantineSection, { entries, onCutBug: noop }));
 
 describe("QuarantineSection", () => {
 	it("reassures when nothing is set aside", () => {
@@ -55,7 +24,6 @@ describe("QuarantineSection", () => {
 	it("shows a single entry as a fact, without an alert", () => {
 		const html = render([base]);
 		assert.match(html, /uid 40217/);
-		assert.match(html, /could not take apart/);
 		assert.doesNotMatch(html, /role="alert"/);
 	});
 
@@ -65,16 +33,15 @@ describe("QuarantineSection", () => {
 		assert.match(html, /2 messages could not be read/);
 	});
 
-	it("offers both recovery affordances on every entry", () => {
+	it("shows the parser's own words on screen, where the report will not", () => {
 		const html = render([base]);
-		assert.match(html, /Cut a bug/);
-		assert.match(html, /Try again/);
+		assert.match(html, /multipart boundary was never closed/);
 	});
 
-	it("marks only the entry that is retrying", () => {
-		const html = render([base, second], ["q-1"]);
-		assert.match(html, /Retrying…/);
-		assert.equal(html.match(/Retrying…/g)?.length, 1);
+	it("offers reporting as the only per-row action", () => {
+		const html = render([base]);
+		assert.match(html, /Cut a bug/);
+		assert.doesNotMatch(html, /Try again|Retry/);
 	});
 });
 
@@ -85,13 +52,25 @@ describe("QuarantineBugDialog", () => {
 				entry: base,
 				onClose: noop,
 				onCopy: noop,
-				repositoryUrl: "https://github.com/remit-mail/reader",
+				issueUrl: ISSUE_URL,
 			}),
 		);
 		assert.match(html, /UnterminatedMultipartBoundary/);
-		assert.match(html, /never its contents, addresses, subject/);
-		assert.match(html, /issues\/new\?/);
+		assert.match(html, /attachment names, or the parser&#x27;s own error text/);
 		assert.match(html, /Copy report/);
+	});
+
+	it("files through the supplied url with hardened external rel", () => {
+		const html = renderToString(
+			createElement(QuarantineBugDialog, {
+				entry: base,
+				onClose: noop,
+				onCopy: noop,
+				issueUrl: ISSUE_URL,
+			}),
+		);
+		assert.match(html, /rel="noopener noreferrer"/);
+		assert.match(html, /focus-visible:ring-2/);
 	});
 
 	it("renders nothing without an entry", () => {
@@ -100,7 +79,7 @@ describe("QuarantineBugDialog", () => {
 				entry: null,
 				onClose: noop,
 				onCopy: noop,
-				repositoryUrl: "https://github.com/remit-mail/reader",
+				issueUrl: ISSUE_URL,
 			}),
 		);
 		assert.equal(html, "");

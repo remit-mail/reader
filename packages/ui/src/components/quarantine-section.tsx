@@ -6,9 +6,6 @@ import type { QuarantineEntry } from "./quarantine-report.js";
 export interface QuarantineSectionProps {
 	entries: readonly QuarantineEntry[];
 	onCutBug: (entry: QuarantineEntry) => void;
-	onRetry: (entry: QuarantineEntry) => void;
-	/** Ids of entries waiting on a re-queue. */
-	retryingIds?: readonly string[];
 }
 
 /**
@@ -22,11 +19,7 @@ export interface QuarantineSectionProps {
 export function QuarantineSection({
 	entries,
 	onCutBug,
-	onRetry,
-	retryingIds = [],
 }: QuarantineSectionProps) {
-	const retrying = new Set(retryingIds);
-
 	return (
 		<section className="space-y-3">
 			<header className="space-y-1">
@@ -34,6 +27,7 @@ export function QuarantineSection({
 				<p className="text-xs text-fg-muted">
 					Mail Remit could not read is set aside here instead of being skipped,
 					so nothing goes missing quietly. The rest of the folder keeps syncing.
+					Recovering a set-aside message is a re-sync, not a per-row action.
 				</p>
 			</header>
 
@@ -68,8 +62,6 @@ export function QuarantineSection({
 							key={entry.quarantineId}
 							entry={entry}
 							onCutBug={onCutBug}
-							onRetry={onRetry}
-							retrying={retrying.has(entry.quarantineId)}
 						/>
 					))}
 				</ul>

@@ -1,4 +1,8 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import type {
+	AnchorHTMLAttributes,
+	ButtonHTMLAttributes,
+	ReactNode,
+} from "react";
 import { cn } from "../lib/cn.js";
 
 type Variant = "primary" | "secondary" | "ghost" | "danger";
@@ -44,5 +48,39 @@ export function Button({
 			{icon}
 			{children}
 		</button>
+	);
+}
+
+export interface ButtonLinkProps
+	extends AnchorHTMLAttributes<HTMLAnchorElement> {
+	variant?: Variant;
+	size?: Size;
+	icon?: ReactNode;
+	/** Opens in a new tab with the repo's standard `rel` hardening. */
+	external?: boolean;
+}
+
+/**
+ * An anchor that carries the button styling — same base, so it keeps the
+ * focus-visible ring a hand-rolled `<a className="bg-accent …">` drops.
+ */
+export function ButtonLink({
+	variant = "primary",
+	size = "md",
+	icon,
+	external,
+	className,
+	children,
+	...props
+}: ButtonLinkProps) {
+	return (
+		<a
+			className={cn(base, variants[variant], sizes[size], className)}
+			{...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+			{...props}
+		>
+			{icon}
+			{children}
+		</a>
 	);
 }
