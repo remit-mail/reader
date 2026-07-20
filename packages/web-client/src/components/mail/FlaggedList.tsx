@@ -1,28 +1,28 @@
 /**
  * FlaggedList — a FLAT, cross-account inbox of starred mail.
  *
- * Reads GET /threads with `starred=true`, which is served by the `byStarred`
- * index and returns every starred thread in the config across all non-muted
- * mailboxes, paged. Starredness is decided server-side from `hasStars`; the
- * client neither re-filters nor caps the set, so a starred thread outside the
- * newest inbox page still appears. Rendered as one continuous list (no category
+ * Reads the starred listing through `useStarredThreads` — GET /threads with
+ * `starred=true`, served by the `byStarred` index — which returns every starred
+ * thread in the config across all non-muted mailboxes, paged. `FlaggedPane`
+ * resolves the open thread from that same hook, so every row rendered here can
+ * be opened. Starredness is decided server-side from `hasStars`; the client
+ * neither re-filters nor caps the set, so a starred thread outside the newest
+ * inbox page still appears. Rendered as one continuous list (no category
  * sections). The shared `MailViewChrome` owns the `MailHeader` + filter
  * expando; the kit `MessageListPane` (flat, no `briefFilters`) owns the loading
  * / empty / error chrome and keyboard hints, with a consumer-supplied
  * `listBody` so the real rows render at every width.
  */
-import { unifiedThreadOperationsListAllThreadsQueryKey } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
-import { unifiedThreadOperationsListAllThreads } from "@remit/api-http-client/sdk.gen.ts";
 import {
 	ComfortableRow,
 	flaggedFilterConfig,
 	MessageListPane,
 	type ThreadRowData,
 } from "@remit/ui";
-import { useInfiniteQuery } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
 import { formatErrorMessage } from "@/components/ui/ErrorState";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
+import { useStarredThreads } from "@/hooks/useStarredThreads";
 import {
 	matchesBriefSearch,
 	matchesSearchTokens,
@@ -72,7 +72,7 @@ export function FlaggedList({
 	}, []);
 
 	const {
-		data: threadsData,
+		threads,
 		isLoading,
 		isError,
 		error,
@@ -80,25 +80,7 @@ export function FlaggedList({
 		fetchNextPage,
 		hasNextPage,
 		isFetchingNextPage,
-	} = useInfiniteQuery({
-		queryKey: unifiedThreadOperationsListAllThreadsQueryKey({
-			query: { starred: true, order: "desc" },
-		}),
-		queryFn: async ({ pageParam }) => {
-			const { data } = await unifiedThreadOperationsListAllThreads({
-				query: {
-					starred: true,
-					order: "desc",
-					continuationToken: pageParam,
-				},
-				throwOnError: true,
-			});
-			return data;
-		},
-		initialPageParam: undefined as string | undefined,
-		getNextPageParam: (lastPage) => lastPage.continuationToken,
-		staleTime: 60_000,
-	});
+	} = useStarredThreads();
 
 	const { freeText: sq, tokens: queryTokens } = parseSearchTokens(
 		searchQuery.trim().toLowerCase(),
@@ -109,9 +91,7 @@ export function FlaggedList({
 		const predicates = Array.from(activeFilters)
 			.map((id) => FILTER_PREDICATES[id])
 			.filter((p): p is (t: ThreadRowData) => boolean => p != null);
-		return dedupeByThread(
-			(threadsData?.pages ?? []).flatMap((page) => page.items ?? []),
-		)
+		return dedupeByThread(threads)
 			.map(toThreadRowData)
 			.filter(
 				(t) =>
@@ -120,7 +100,7 @@ export function FlaggedList({
 					(!sq || matchesBriefSearch(t, sq)) &&
 					matchesSearchTokens(t, queryTokens),
 			);
-	}, [threadsData, selectedCategory, activeFilters, sq, queryTokens]);
+	}, [threads, selectedCategory, activeFilters, sq, queryTokens]);
 
 	const preset = useMemo(() => flaggedFilterConfig(), []);
 

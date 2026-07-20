@@ -16,6 +16,10 @@
  *     thread outside that window — or outside INBOX at all — structurally could
  *     not appear no matter how many stars were set correctly.
  *
+ * The last case also covers issue #70: listing a row and being able to open it
+ * are separate wirings, and the pane resolved its selection from the INBOX
+ * listing rather than the starred one that produced the row.
+ *
  * Locator note: the inbox renders rows as anchors carrying `selectedMessageId`,
  * which is what the other specs match. The Starred pane renders rows as
  * `<button>` (`ComfortableRow`). Reusing the anchor locator here matches zero
@@ -164,7 +168,7 @@ test.describe("Starred mail", () => {
 		});
 	});
 
-	test("a starred message outside INBOX is listed", async ({
+	test("a starred message outside INBOX is listed and opens", async ({
 		api,
 		page,
 		run,
@@ -194,5 +198,16 @@ test.describe("Starred mail", () => {
 
 		await openStarred(page, run);
 		await expect(starredRow(page, subject)).toHaveCount(1, { timeout: 30_000 });
+
+		// Issue #70: the row listed, but the pane resolved the selection from the
+		// unified INBOX listing, which by the assertion above cannot contain this
+		// message. Selecting it changed the URL and opened nothing.
+		await starredRow(page, subject).click();
+		await page.waitForURL(/selectedMessageId=/);
+		const article = page.getByRole("article").first();
+		await expect(article).toBeVisible({ timeout: 15_000 });
+		await expect(
+			article.getByRole("heading", { name: subject, exact: true }),
+		).toBeVisible({ timeout: 15_000 });
 	});
 });

@@ -2,9 +2,14 @@
  * FlaggedPane — compound component for the Flagged virtual mailbox
  * (/mail/flagged route).
  *
- * Mirrors BriefPane: it reads the unified cross-account thread list to resolve
- * the open thread and owns the list / reading / phone slots. The list itself is
- * a FLAT inbox of starred mail (see `FlaggedList`), not the sectioned brief.
+ * Mirrors BriefPane in shape: it resolves the open thread and owns the list /
+ * reading / phone slots. The list itself is a FLAT inbox of starred mail (see
+ * `FlaggedList`), not the sectioned brief.
+ *
+ * The selection resolves from the starred listing, the same query that produced
+ * the rows. The unified listing is INBOX-scoped, so resolving against it left
+ * every starred thread filed elsewhere — Sent, an archive folder, anything past
+ * the inbox window — visible in the list but impossible to open (issue #70).
  *
  *   <FlaggedPane selectedMessageId={...}>
  *     <AppShellSlotted
@@ -15,10 +20,8 @@
  *
  * On phone, use `<FlaggedPane.Phone />` instead.
  */
-import { unifiedThreadOperationsListAllThreadsOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import { ReadingPaneEmpty, useAppShellLayout } from "@remit/ui";
-import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import {
 	createContext,
@@ -32,6 +35,7 @@ import { ConversationView } from "@/components/mail/ConversationView";
 import { FlaggedList } from "@/components/mail/FlaggedList";
 import { IntelligencePane } from "@/components/mail/IntelligencePane";
 import { MessageToolbar } from "@/components/mail/MessageToolbar";
+import { useStarredThreads } from "@/hooks/useStarredThreads";
 import { useMailContext } from "@/lib/mail-context";
 
 /* ------------------------------------------------------------------ */
@@ -68,15 +72,12 @@ function FlaggedPaneProvider({
 }: FlaggedPaneProps) {
 	const navigate = useNavigate();
 
-	const { data: threadsData } = useQuery({
-		...unifiedThreadOperationsListAllThreadsOptions(),
-		staleTime: 60_000,
-	});
+	const { threads } = useStarredThreads();
 
 	const selectedThread = useMemo(() => {
 		if (!selectedMessageId) return undefined;
-		return threadsData?.items.find((t) => t.messageId === selectedMessageId);
-	}, [threadsData, selectedMessageId]);
+		return threads.find((t) => t.messageId === selectedMessageId);
+	}, [threads, selectedMessageId]);
 
 	const handleSelectMessage = useCallback(
 		(id: string) => {
