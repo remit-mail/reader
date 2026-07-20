@@ -1,15 +1,21 @@
 import {
 	messageOperationsUpdateMessageFlagsMutation,
 	threadDetailOperationsListThreadMessagesQueryKey,
-	threadOperationsListThreadsQueryKey,
-	threadOperationsSearchThreadsQueryKey,
-	unifiedThreadOperationsListAllThreadsQueryKey,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { formatErrorDetail } from "@/components/ui/error-banners";
-import { patchThreadListCache, type ThreadListCache } from "@/lib/thread-cache";
+import { patchThreadListCache } from "@/lib/thread-cache";
+import {
+	cancelThreadListQueries,
+	invalidateThreadListQueries,
+	patchThreadListQueries,
+	restoreThreadListQueries,
+	snapshotThreadListQueries,
+	type ThreadListSnapshotEntry,
+	threadListCacheKeys,
+} from "@/lib/thread-list-cache";
 
 interface UseToggleStarOptions {
 	threadId: string;
@@ -47,13 +53,6 @@ interface ThreadMessagesData {
 	[key: string]: unknown;
 }
 
-/**
- * Either shape a thread list/search query caches — the infinite mailbox list
- * or a single-shot page. `setQueriesData` matches by key prefix, so the
- * optimistic updater sees both.
- */
-type ThreadsListData = ThreadListCache;
-
 interface SnapshotEntry<T> {
 	queryKey: readonly unknown[];
 	data: T;
@@ -61,12 +60,9 @@ interface SnapshotEntry<T> {
 
 interface ToggleStarContext {
 	threadMessagesPrefix: readonly unknown[];
-	threadsListPrefix: readonly unknown[];
-	threadsSearchPrefix: readonly unknown[];
-	unifiedThreadsPrefix: readonly unknown[];
+	listPrefixes: ReadonlyArray<readonly unknown[]>;
 	previousThreadMessages: SnapshotEntry<ThreadMessagesData>[];
-	previousThreadsList: SnapshotEntry<ThreadsListData>[];
-	previousUnifiedThreads: SnapshotEntry<ThreadMessagesData>[];
+	previousThreadsList: ThreadListSnapshotEntry[];
 }
 
 export const toggleStarsInItems = (
@@ -100,29 +96,17 @@ export const useToggleStar = ({
 				threadDetailOperationsListThreadMessagesQueryKey({
 					path: { threadId },
 				});
-			const affectedMailboxId = resolveMailboxForMessage(
-				messageId,
-				messages,
-				mailboxId,
-			);
-			const threadsListPrefix = threadOperationsListThreadsQueryKey({
-				path: { mailboxId: affectedMailboxId },
-			});
-			const threadsSearchPrefix = threadOperationsSearchThreadsQueryKey({
-				path: { mailboxId: affectedMailboxId },
-			});
-			// The unified cross-account listing backs the daily brief and the
-			// Starred mailbox, so a star toggled from an inbox has to land there
-			// too — without this the starred view keeps serving a stale page for
-			// its whole staleTime and the message never appears.
-			const unifiedThreadsPrefix =
-				unifiedThreadOperationsListAllThreadsQueryKey();
+			// The list caches to patch: the message's own mailbox plus the unified
+			// cross-account listing that backs the daily brief and the Flagged view.
+			// Resolved from the shared source so this hook can never fall behind the
+			// others on which listings exist (#149).
+			const listPrefixes = threadListCacheKeys([
+				resolveMailboxForMessage(messageId, messages, mailboxId),
+			]);
 
 			await Promise.all([
 				queryClient.cancelQueries({ queryKey: threadMessagesPrefix }),
-				queryClient.cancelQueries({ queryKey: threadsListPrefix }),
-				queryClient.cancelQueries({ queryKey: threadsSearchPrefix }),
-				queryClient.cancelQueries({ queryKey: unifiedThreadsPrefix }),
+				cancelThreadListQueries(queryClient, listPrefixes),
 			]);
 
 			const previousThreadMessages = queryClient
@@ -133,69 +117,27 @@ export const useToggleStar = ({
 				)
 				.map(([queryKey, data]) => ({ queryKey, data }));
 
-			const previousThreadsList = queryClient
-				.getQueriesData<ThreadsListData>({ queryKey: threadsListPrefix })
-				.concat(
-					queryClient.getQueriesData<ThreadsListData>({
-						queryKey: threadsSearchPrefix,
-					}),
-				)
-				.filter(
-					(entry): entry is [readonly unknown[], ThreadsListData] =>
-						entry[1] !== undefined,
-				)
-				.map(([queryKey, data]) => ({ queryKey, data }));
+			const previousThreadsList = snapshotThreadListQueries(
+				queryClient,
+				listPrefixes,
+			);
 
-			const previousUnifiedThreads = queryClient
-				.getQueriesData<ThreadMessagesData>({ queryKey: unifiedThreadsPrefix })
-				.filter(
-					(entry): entry is [readonly unknown[], ThreadMessagesData] =>
-						entry[1] !== undefined,
-				)
-				.map(([queryKey, data]) => ({ queryKey, data }));
-
-			// The unified-threads prefix carries both shapes too: the Flagged view
-			// runs an infinite query on `listAllThreads({ starred: true })`, which
-			// sits under the same prefix as the single-shot readers. Patching it as
-			// a plain `{ items }` threw on that entry and failed the star before it
-			// was sent — the same defect as the mailbox list (issues #51, #55), so
-			// it goes through the same helper.
-			const patchItemsData = (old: unknown) =>
+			// The thread-detail cache carries the `{ items }` shape too, so it goes
+			// through the same shape-tolerant helper as the listings.
+			queryClient.setQueriesData({ queryKey: threadMessagesPrefix }, (old) =>
 				patchThreadListCache(old, (items) =>
 					toggleStarsInItems(items, messageId, nextStarred),
-				);
-
-			queryClient.setQueriesData(
-				{ queryKey: threadMessagesPrefix },
-				patchItemsData,
+				),
 			);
-			queryClient.setQueriesData(
-				{ queryKey: unifiedThreadsPrefix },
-				patchItemsData,
-			);
-
-			const patchListData = (old: unknown) =>
-				patchThreadListCache(old, (items) =>
-					toggleStarsInItems(items, messageId, nextStarred),
-				);
-
-			queryClient.setQueriesData(
-				{ queryKey: threadsListPrefix },
-				patchListData,
-			);
-			queryClient.setQueriesData(
-				{ queryKey: threadsSearchPrefix },
-				patchListData,
+			patchThreadListQueries(queryClient, listPrefixes, (items) =>
+				toggleStarsInItems(items, messageId, nextStarred),
 			);
 
 			return {
 				threadMessagesPrefix,
-				threadsListPrefix,
-				threadsSearchPrefix,
-				unifiedThreadsPrefix,
+				listPrefixes,
 				previousThreadMessages,
 				previousThreadsList,
-				previousUnifiedThreads,
 			};
 		},
 		onError: (err, vars, context) => {
@@ -203,12 +145,7 @@ export const useToggleStar = ({
 				for (const entry of context.previousThreadMessages) {
 					queryClient.setQueryData(entry.queryKey, entry.data);
 				}
-				for (const entry of context.previousThreadsList) {
-					queryClient.setQueryData(entry.queryKey, entry.data);
-				}
-				for (const entry of context.previousUnifiedThreads) {
-					queryClient.setQueryData(entry.queryKey, entry.data);
-				}
+				restoreThreadListQueries(queryClient, context.previousThreadsList);
 			}
 			const nextStarred = vars.body.isStarred ?? false;
 			pushError({
@@ -222,9 +159,7 @@ export const useToggleStar = ({
 		onSettled: (_data, _err, _vars, context) => {
 			if (!context) return;
 			queryClient.invalidateQueries({ queryKey: context.threadMessagesPrefix });
-			queryClient.invalidateQueries({ queryKey: context.threadsListPrefix });
-			queryClient.invalidateQueries({ queryKey: context.threadsSearchPrefix });
-			queryClient.invalidateQueries({ queryKey: context.unifiedThreadsPrefix });
+			invalidateThreadListQueries(queryClient, context.listPrefixes);
 		},
 	});
 
