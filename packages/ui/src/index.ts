@@ -382,12 +382,14 @@ export {
 export {
 	demoLogsCommand,
 	demoRelease,
+	demoRunId,
 	formatRelativeCheck,
 	formatReleaseDate,
 	type ReleaseInfo,
 	type SelfUpdateState,
 	type SelfUpdateStatus,
 	type UpdatePhase,
+	type UpdateRunId,
 	updatePhaseLabel,
 	updateWaitNote,
 } from "./components/self-update.js";

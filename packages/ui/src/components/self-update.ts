@@ -17,6 +17,14 @@ export interface ReleaseInfo {
 /** Where the operation is between consent and a reachable server again. */
 export type UpdatePhase = "preparing" | "restarting" | "reconnecting";
 
+/**
+ * Identifies one update attempt. The client hands this back after the restart
+ * to ask what became of the run it started — its own memory of the operation
+ * does not survive the operation. Without it a reload mid-update cannot tell an
+ * update in flight from an ordinary server blip.
+ */
+export type UpdateRunId = string;
+
 export type SelfUpdateState =
 	| { status: "upToDate"; version: string; checkedAt: number }
 	| { status: "checking"; version: string }
@@ -30,6 +38,7 @@ export type SelfUpdateState =
 	| { status: "available"; version: string; release: ReleaseInfo }
 	| {
 			status: "applying";
+			runId: UpdateRunId;
 			version: string;
 			target: string;
 			phase: UpdatePhase;
@@ -38,20 +47,24 @@ export type SelfUpdateState =
 	  }
 	| {
 			status: "succeeded";
+			runId: UpdateRunId;
 			version: string;
 			previousVersion: string;
 			releaseNotesUrl: string;
 	  }
 	| {
 			status: "rolledBack";
+			runId: UpdateRunId;
 			/** The version running now — the old one, restored. */
 			version: string;
 			attemptedVersion: string;
+			/** The server's own account of the failure, shown verbatim. */
 			reason: string;
 			logsCommand: string;
 	  }
 	| {
 			status: "unreachable";
+			runId: UpdateRunId;
 			previousVersion: string;
 			attemptedVersion: string;
 			elapsedSeconds: number;
@@ -71,14 +84,16 @@ export function updatePhaseLabel(phase: UpdatePhase): string {
 }
 
 /**
- * The restart takes the server away, so silence is expected for a while. Say
- * so before the wait feels like a hang, and stop promising once it does.
+ * The restart takes the server away, so silence is expected for a while. Say so
+ * before the wait feels like a hang, and stop promising once it does. Nothing
+ * here may describe what the server is doing — from a lost connection the
+ * client only knows how long it has been quiet.
  */
 export function updateWaitNote(elapsedSeconds: number): string {
 	if (elapsedSeconds < 90) return "This usually takes about a minute.";
 	if (elapsedSeconds < 240)
 		return "Longer than usual. Remit is still trying to reach the server.";
-	return "Still no answer. Your old version is kept, so there is a way back.";
+	return "Still no answer. Remit keeps trying.";
 }
 
 export function formatRelativeCheck(
@@ -108,3 +123,5 @@ export const demoRelease: ReleaseInfo = {
 };
 
 export const demoLogsCommand = "remit logs --since 10m";
+
+export const demoRunId = "upd_8f3c21a7";

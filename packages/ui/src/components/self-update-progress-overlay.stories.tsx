@@ -12,7 +12,11 @@ const meta: Meta<typeof SelfUpdateProgressOverlay> = {
 	args: { target: demoRelease.version },
 	decorators: [
 		(Story) => (
-			<div className="relative h-dvh w-full bg-canvas">
+			<div className="h-dvh w-full bg-canvas p-6">
+				<p className="text-sm text-fg-subtle">
+					Settings sits here. The overlay is fixed to the window, so this stays
+					covered and out of tab order.
+				</p>
 				<Story />
 			</div>
 		),
@@ -51,7 +55,10 @@ export const ReconnectingTakingLong: Story = {
 	args: { phase: "reconnecting", elapsedSeconds: 200 },
 };
 
-/** Long enough that the honest thing to surface is the way back. */
+/**
+ * Long silence. The copy still describes only what the client can observe —
+ * how long it has been quiet — and never what the server is doing about it.
+ */
 export const ReconnectingStillSilent: Story = {
 	args: { phase: "reconnecting", elapsedSeconds: 300 },
 };

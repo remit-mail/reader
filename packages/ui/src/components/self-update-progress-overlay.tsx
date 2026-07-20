@@ -1,4 +1,5 @@
 import { AlertOctagon, Check, Loader2 } from "lucide-react";
+import { type RefObject, useEffect, useRef } from "react";
 import { cn } from "../lib/cn.js";
 import { Button } from "./button.js";
 import {
@@ -8,6 +9,54 @@ import {
 } from "./self-update.js";
 
 const phaseOrder: UpdatePhase[] = ["preparing", "restarting", "reconnecting"];
+
+const FOCUSABLE =
+	'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
+/**
+ * A screen whose purpose is to stop interaction has to stop it for the
+ * keyboard too. Focus moves in on mount and Tab cycles inside, so nothing
+ * behind the overlay can be reached while the server is gone.
+ */
+function useBlockingFocus(ref: RefObject<HTMLDivElement | null>) {
+	useEffect(() => {
+		const container = ref.current;
+		if (!container) return;
+
+		const focusables = () =>
+			Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE));
+
+		(focusables()[0] ?? container).focus();
+
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (event.key !== "Tab") return;
+			const items = focusables();
+			if (items.length === 0) {
+				event.preventDefault();
+				container.focus();
+				return;
+			}
+			const first = items[0];
+			const last = items[items.length - 1];
+			const active = document.activeElement;
+			if (event.shiftKey && (active === first || !container.contains(active))) {
+				event.preventDefault();
+				last.focus();
+				return;
+			}
+			if (!event.shiftKey && (active === last || !container.contains(active))) {
+				event.preventDefault();
+				first.focus();
+			}
+		};
+
+		window.addEventListener("keydown", onKeyDown, true);
+		return () => window.removeEventListener("keydown", onKeyDown, true);
+	}, [ref]);
+}
+
+const overlayShell =
+	"fixed inset-0 z-50 flex flex-col items-center justify-center gap-6 bg-canvas p-6 text-center outline-none";
 
 export interface SelfUpdateProgressOverlayProps {
 	target: string;
@@ -25,16 +74,24 @@ export function SelfUpdateProgressOverlay({
 	phase,
 	elapsedSeconds,
 }: SelfUpdateProgressOverlayProps) {
+	const ref = useRef<HTMLDivElement>(null);
+	useBlockingFocus(ref);
 	const activeIndex = phaseOrder.indexOf(phase);
 
 	return (
 		<div
-			role="status"
-			aria-live="polite"
-			className="absolute inset-0 z-[1000] flex flex-col items-center justify-center gap-6 bg-canvas p-6 text-center"
+			ref={ref}
+			role="dialog"
+			aria-modal="true"
+			aria-labelledby="self-update-progress-title"
+			tabIndex={-1}
+			className={overlayShell}
 		>
 			<div className="max-w-md space-y-2">
-				<h1 className="text-lg font-semibold text-fg">
+				<h1
+					id="self-update-progress-title"
+					className="text-lg font-semibold text-fg"
+				>
 					Installing Remit {target}
 				</h1>
 				<p className="text-sm text-fg-muted">
@@ -73,7 +130,8 @@ export function SelfUpdateProgressOverlay({
 				})}
 			</ol>
 
-			<p className="max-w-md text-xs text-fg-subtle">
+			<p aria-live="polite" className="max-w-md text-xs text-fg-subtle">
+				<span className="sr-only">{`${updatePhaseLabel(phase)}. `}</span>
 				{updateWaitNote(elapsedSeconds)}
 			</p>
 		</div>
@@ -100,16 +158,25 @@ export function SelfUpdateUnreachableScreen({
 	logsCommand,
 	onRetryConnection,
 }: SelfUpdateUnreachableScreenProps) {
+	const ref = useRef<HTMLDivElement>(null);
+	useBlockingFocus(ref);
 	const minutes = Math.max(1, Math.round(elapsedSeconds / 60));
 
 	return (
 		<div
-			role="alert"
-			className="absolute inset-0 z-[1000] flex flex-col items-center justify-center gap-6 bg-canvas p-6 text-center"
+			ref={ref}
+			role="alertdialog"
+			aria-modal="true"
+			aria-labelledby="self-update-unreachable-title"
+			tabIndex={-1}
+			className={overlayShell}
 		>
 			<AlertOctagon className="size-12 shrink-0 text-danger" aria-hidden />
 			<div className="max-w-lg space-y-3">
-				<h1 className="text-lg font-semibold text-fg">
+				<h1
+					id="self-update-unreachable-title"
+					className="text-lg font-semibold text-fg"
+				>
 					Remit has not answered since the restart
 				</h1>
 				<p className="text-sm text-fg-muted">

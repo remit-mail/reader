@@ -3,6 +3,7 @@ import { useState } from "react";
 import {
 	demoLogsCommand,
 	demoRelease,
+	demoRunId,
 	type SelfUpdateState,
 } from "./self-update.js";
 import { SelfUpdateConfirmDialog } from "./self-update-confirm-dialog.js";
@@ -85,6 +86,7 @@ export const CheckFailedOffline: Story = {
 export const Succeeded: Story = {
 	args: withState({
 		status: "succeeded",
+		runId: demoRunId,
 		version: demoRelease.version,
 		previousVersion: CURRENT,
 		releaseNotesUrl: demoRelease.releaseNotesUrl,
@@ -92,17 +94,49 @@ export const Succeeded: Story = {
 };
 
 /**
- * The new version came up broken and the old one was restored on its own. It
- * says which version is running now, why the other failed in the server's own
- * words, and where the full log lives.
+ * The new version did not start and Remit reports having put the old one back.
+ * The pane repeats that report and no more: a failed migration is exactly the
+ * case where something was changed on the way, so "nothing was lost" is not a
+ * claim this screen is in any position to make.
  */
 export const RolledBack: Story = {
 	args: withState({
 		status: "rolledBack",
+		runId: demoRunId,
 		version: CURRENT,
 		attemptedVersion: demoRelease.version,
 		reason:
 			'migration 0042_add_thread_index failed: relation "threads" does not exist',
+		logsCommand: demoLogsCommand,
+	}),
+};
+
+/**
+ * An update is running. The blocking screen owns the window; the pane behind it
+ * still says what is going on rather than going blank.
+ */
+export const ApplyingBehindTheOverlay: Story = {
+	args: withState({
+		status: "applying",
+		runId: demoRunId,
+		version: CURRENT,
+		target: demoRelease.version,
+		phase: "restarting",
+		elapsedSeconds: 30,
+	}),
+};
+
+/**
+ * The server answered again after a silence the client could not see into. It
+ * says exactly that, and points at the log rather than guessing.
+ */
+export const RecoveredAfterUnreachable: Story = {
+	args: withState({
+		status: "unreachable",
+		runId: demoRunId,
+		previousVersion: CURRENT,
+		attemptedVersion: demoRelease.version,
+		elapsedSeconds: 420,
 		logsCommand: demoLogsCommand,
 	}),
 };
@@ -143,6 +177,7 @@ export const ConsentFlow: Story = {
 					}}
 					onCheck={() => {}}
 					onInstall={() => setOpen(true)}
+					onDismissResult={() => {}}
 				/>
 				{confirmed && (
 					<p className="mt-3 text-xs text-fg-subtle">

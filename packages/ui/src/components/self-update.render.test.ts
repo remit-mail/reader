@@ -5,6 +5,7 @@ import { renderToString } from "react-dom/server";
 import {
 	demoLogsCommand,
 	demoRelease,
+	demoRunId,
 	type SelfUpdateState,
 	updateWaitNote,
 } from "./self-update.js";
@@ -81,19 +82,74 @@ describe("SelfUpdateSection", () => {
 	it("says which version is running after a rollback, and where the log is", () => {
 		const html = section({
 			status: "rolledBack",
+			runId: demoRunId,
 			version: CURRENT,
 			attemptedVersion: "0.9.4",
 			reason: "migration 0042 failed",
 			logsCommand: demoLogsCommand,
 		});
-		assert.match(html, /back on 0\.9\.3/);
+		assert.match(html, /running 0\.9\.3 again/);
 		assert.match(html, /migration 0042 failed/);
 		assert.match(html, /remit logs --since 10m/);
+	});
+
+	it("attributes the rollback to the server rather than asserting it", () => {
+		const html = section({
+			status: "rolledBack",
+			runId: demoRunId,
+			version: CURRENT,
+			attemptedVersion: "0.9.4",
+			reason: "migration 0042 failed",
+			logsCommand: demoLogsCommand,
+		});
+		assert.match(html, /Remit reports that it put 0\.9\.3 back/);
+	});
+
+	it("never claims data survived a failed update", () => {
+		const html = section({
+			status: "rolledBack",
+			runId: demoRunId,
+			version: CURRENT,
+			attemptedVersion: "0.9.4",
+			reason: "migration 0042_add_thread_index failed",
+			logsCommand: demoLogsCommand,
+		});
+		// The server reported a rollback and a reason. It reported nothing about
+		// data, and a half-applied migration is exactly where that matters.
+		assert.doesNotMatch(html, /Nothing was lost/);
+		assert.doesNotMatch(html, /everything works/);
+		assert.match(html, /can still have changed things/);
+	});
+
+	it("renders every status rather than going blank", () => {
+		assert.match(
+			section({
+				status: "applying",
+				runId: demoRunId,
+				version: CURRENT,
+				target: "0.9.4",
+				phase: "restarting",
+				elapsedSeconds: 20,
+			}),
+			/Installing Remit 0\.9\.4/,
+		);
+		assert.match(
+			section({
+				status: "unreachable",
+				runId: demoRunId,
+				previousVersion: CURRENT,
+				attemptedVersion: "0.9.4",
+				elapsedSeconds: 420,
+				logsCommand: demoLogsCommand,
+			}),
+			/left the server unreachable/,
+		);
 	});
 
 	it("offers a way forward from every failure", () => {
 		const rolledBack = section({
 			status: "rolledBack",
+			runId: demoRunId,
 			version: CURRENT,
 			attemptedVersion: "0.9.4",
 			reason: "boom",
@@ -163,7 +219,38 @@ describe("SelfUpdateProgressOverlay", () => {
 	it("stops promising a minute once a minute has passed", () => {
 		assert.match(updateWaitNote(30), /about a minute/);
 		assert.doesNotMatch(updateWaitNote(200), /about a minute/);
-		assert.match(updateWaitNote(400), /there is a way back/);
+	});
+
+	it("never describes the server from a lost connection", () => {
+		// The unreachable screen refuses to claim the rollback ran; the timeout
+		// copy sits on the same dead connection and may not claim it either.
+		for (const seconds of [30, 120, 240, 600]) {
+			assert.doesNotMatch(updateWaitNote(seconds), /old version|way back|kept/);
+		}
+	});
+
+	it("blocks the window rather than its nearest positioned ancestor", () => {
+		const html = render(
+			createElement(SelfUpdateProgressOverlay, {
+				target: "0.9.4",
+				phase: "restarting",
+				elapsedSeconds: 20,
+			}),
+		);
+		assert.match(html, /fixed inset-0/);
+		assert.doesNotMatch(html, /absolute inset-0/);
+		assert.match(html, /aria-modal="true"/);
+	});
+
+	it("scopes the live region to the line that changes", () => {
+		const html = render(
+			createElement(SelfUpdateProgressOverlay, {
+				target: "0.9.4",
+				phase: "restarting",
+				elapsedSeconds: 20,
+			}),
+		);
+		assert.equal(html.match(/aria-live/g)?.length, 1);
 	});
 });
 
@@ -179,7 +266,8 @@ describe("SelfUpdateUnreachableScreen", () => {
 	);
 
 	it("raises an alert and never claims the rollback succeeded", () => {
-		assert.match(html, /role="alert"/);
+		assert.match(html, /role="alertdialog"/);
+		assert.match(html, /aria-modal="true"/);
 		assert.match(html, /cannot confirm that from here/);
 	});
 

@@ -1,6 +1,7 @@
 import {
 	demoLogsCommand,
 	demoRelease,
+	demoRunId,
 	SelfUpdateConfirmDialog,
 	SelfUpdateProgressOverlay,
 	SelfUpdateSection,
@@ -154,6 +155,7 @@ export const AdvancedSucceeded: Story = {
 		<AdvancedPage
 			state={{
 				status: "succeeded",
+				runId: demoRunId,
 				version: demoRelease.version,
 				previousVersion: CURRENT,
 				releaseNotesUrl: demoRelease.releaseNotesUrl,
@@ -167,6 +169,7 @@ export const AdvancedRolledBack: Story = {
 		<AdvancedPage
 			state={{
 				status: "rolledBack",
+				runId: demoRunId,
 				version: CURRENT,
 				attemptedVersion: demoRelease.version,
 				reason:
@@ -184,7 +187,7 @@ export const AdvancedRolledBack: Story = {
  */
 export const RestartInProgress: Story = {
 	render: () => (
-		<div className="relative h-dvh w-full bg-canvas">
+		<div className="h-dvh w-full bg-canvas">
 			<SelfUpdateProgressOverlay
 				target={demoRelease.version}
 				phase="reconnecting"
@@ -197,7 +200,7 @@ export const RestartInProgress: Story = {
 /** The server never answered again. */
 export const ServerNeverCameBack: Story = {
 	render: () => (
-		<div className="relative h-dvh w-full bg-canvas">
+		<div className="h-dvh w-full bg-canvas">
 			<SelfUpdateUnreachableScreen
 				attemptedVersion={demoRelease.version}
 				previousVersion={CURRENT}
