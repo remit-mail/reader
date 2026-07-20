@@ -81,6 +81,7 @@ import {
 	dropDeletedThreads,
 	useDeleteMessages,
 } from "@/hooks/useDeleteMessages";
+import type { EscalationSearchQuery } from "@/hooks/useEscalatedDelete";
 import { useIntelligenceData } from "@/hooks/useIntelligenceData";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { useLayoutTier } from "@/hooks/useLayoutTier";
@@ -183,6 +184,14 @@ interface MailboxPaneContextValue {
 	onClearFilters: () => void;
 	intelligenceOpen: boolean;
 	onToggleIntelligence: () => void;
+	/**
+	 * The active search predicate — undefined when not searching. Threaded
+	 * down so the mobile list can re-issue the identical filter while paging
+	 * past what's loaded (escalated select-all, issue #92); the display string
+	 * on `searchQuery`/`useMailContext` only carries what's shown in the
+	 * header, not enough to reproduce the query server-side.
+	 */
+	searchPredicate: EscalationSearchQuery | undefined;
 	// List actions
 	onDeleteMessages: (ids: string[]) => void;
 	onMoveMessages: (ids: string[], dest: string) => void;
@@ -866,6 +875,7 @@ function MailboxPaneProvider({
 		onClearFilters,
 		intelligenceOpen,
 		onToggleIntelligence,
+		searchPredicate: hasSearchQuery ? searchThreadsQuery : undefined,
 		onDeleteMessages: handleDeleteMessages,
 		onMoveMessages: handleMoveMessages,
 		isDeleting,
@@ -935,6 +945,7 @@ function MailboxList() {
 		onSelectFilterCategory,
 		onToggleFilterAttribute,
 		onClearFilters,
+		searchPredicate,
 	} = useMailboxPane();
 	const { searchQuery, searchInput, accounts } = useMailContext();
 	const tier = useLayoutTier();
@@ -1013,6 +1024,7 @@ function MailboxList() {
 			error={error}
 			onRetry={onRetry}
 			searchQuery={searchQuery}
+			searchPredicate={searchPredicate}
 			onDeleteMessages={onDeleteMessages}
 			onMoveMessages={onMoveMessages}
 			isDeleting={isDeleting}

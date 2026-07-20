@@ -193,6 +193,10 @@ export const formatList = (
 /**
  * Confirmation title for the move-to-Trash delete flow. Reflects that delete
  * moves messages to Trash (not a permanent delete) and pluralizes on count.
+ * Thousands-separated: at escalated-selection scale this is exactly the digit
+ * count someone checks against what they meant to select.
  */
 export const formatDeleteToTrashTitle = (count: number): string =>
-	count === 1 ? "Move 1 message to Trash?" : `Move ${count} messages to Trash?`;
+	count === 1
+		? "Move 1 message to Trash?"
+		: `Move ${formatNumber(count)} messages to Trash?`;
