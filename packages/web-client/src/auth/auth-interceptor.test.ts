@@ -1,5 +1,6 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
+import { AuthTokenError } from "./better-auth-config";
 import { type AuthProvider, noneAuthProvider } from "./provider";
 
 type RequestFn = (req: Request) => Promise<Request>;
@@ -47,7 +48,28 @@ describe("installAuthInterceptor", () => {
 		assert.equal(out.headers.get("Authorization"), "Bearer ID-TOKEN-123");
 	});
 
-	test("omits Authorization header when the provider returns no token", async () => {
+	test("abandons the request when the token cannot be minted — never sends it unauthenticated", async () => {
+		const mod = await loadInterceptor();
+		mod.installAuthInterceptor(
+			providerWithToken(async () => {
+				throw new AuthTokenError("Could not mint a session token: 429", 429);
+			}),
+		);
+		const fn = globalThis.__REMIT_CLIENT_MOCKS__?.requestFns[0];
+		assert.ok(fn);
+		const req = new Request("https://api.example.com/thing");
+		await assert.rejects(
+			() => fn(req),
+			(error: unknown) => {
+				assert.ok(error instanceof AuthTokenError);
+				assert.equal(error.status, 429);
+				return true;
+			},
+		);
+		assert.equal(req.headers.get("Authorization"), null);
+	});
+
+	test("omits Authorization header when the deployment presents no identity", async () => {
 		const mod = await loadInterceptor();
 		mod.installAuthInterceptor(providerWithToken(async () => null));
 		const fn = globalThis.__REMIT_CLIENT_MOCKS__?.requestFns[0];

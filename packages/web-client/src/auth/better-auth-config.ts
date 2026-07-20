@@ -51,11 +51,32 @@ const decodeExp = (token: string): number => {
 	}
 };
 
-const requestToken = async (): Promise<string | null> => {
+/**
+ * A session exists but no bearer token could be produced for it. Distinct from
+ * "signed out": there is nothing to fall back to, so the request that needed the
+ * token must not be sent. Carries the mint's HTTP status where there was one, so
+ * the shared classifier reads it like any other API failure.
+ */
+export class AuthTokenError extends Error {
+	readonly status: number | undefined;
+
+	constructor(message: string, status?: number) {
+		super(message);
+		this.name = "AuthTokenError";
+		this.status = status;
+	}
+}
+
+const requestToken = async (): Promise<string> => {
 	const res = await taggedFetch("/api/auth/token", {
 		credentials: "include",
 	});
-	if (!res.ok) return null;
+	if (!res.ok) {
+		throw new AuthTokenError(
+			`Could not mint a session token: ${res.status} ${res.statusText}`,
+			res.status,
+		);
+	}
 	const body: unknown = await res.json();
 	if (
 		body &&
@@ -65,7 +86,29 @@ const requestToken = async (): Promise<string | null> => {
 	) {
 		return (body as { token: string }).token;
 	}
-	return null;
+	throw new AuthTokenError("The token endpoint returned no token");
+};
+
+let inFlight: Promise<string> | null = null;
+
+/**
+ * One mint at a time. A cold load renders many screens at once and each of their
+ * requests needs the same token; without this every one of them mints its own,
+ * and the burst is large enough to spend the auth tier's rate-limit budget. The
+ * slot is released once the mint settles, so a failure is not replayed to later
+ * callers — they mint again.
+ */
+const mint = (): Promise<string> => {
+	if (inFlight) return inFlight;
+	inFlight = requestToken()
+		.then((token) => {
+			cached = { value: token, expiresAt: decodeExp(token) };
+			return token;
+		})
+		.finally(() => {
+			inFlight = null;
+		});
+	return inFlight;
 };
 
 /**
@@ -73,14 +116,16 @@ const requestToken = async (): Promise<string | null> => {
  * when the cached token is missing or within the skew window of expiry. The API
  * interceptor attaches it as a Bearer token; the backend verifies it against the
  * JWKS.
+ *
+ * Never resolves to null: a failed mint throws. Returning null would put the
+ * request on the wire without an Authorization header, and the backend answers
+ * that with a 401 that names a missing token rather than the mint that failed.
  */
-export const fetchBetterAuthToken = async (): Promise<string | null> => {
+export const fetchBetterAuthToken = async (): Promise<string> => {
 	if (cached && cached.expiresAt - EXPIRY_SKEW_SECONDS > nowSeconds()) {
 		return cached.value;
 	}
-	const token = await requestToken();
-	cached = token ? { value: token, expiresAt: decodeExp(token) } : null;
-	return token;
+	return mint();
 };
 
 export const resetBetterAuthTokenCache = (): void => {

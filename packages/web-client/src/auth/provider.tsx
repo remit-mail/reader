@@ -22,9 +22,14 @@ export interface AuthProvider {
 	/** Called once at boot, before render, to initialize the identity SDK. */
 	configure(): void;
 	/**
-	 * The current session's bearer token, or `null` when signed out. The API
-	 * interceptor and the raw content fetch read it through here, so the identity
-	 * SDK stays inside the provider.
+	 * The current session's bearer token. The API interceptor and the raw content
+	 * fetch read it through here, so the identity SDK stays inside the provider.
+	 *
+	 * `null` means this deployment has no identity to present — no identity system
+	 * is composed, or none is configured — and the request is expected to travel
+	 * unauthenticated. It never means the token could not be produced: a provider
+	 * that holds a session and fails to mint a token throws, because a request
+	 * that cannot be authenticated must not be sent.
 	 */
 	getToken(): Promise<string | null>;
 	/** Drop any cached token so the next `getToken` re-mints. */
