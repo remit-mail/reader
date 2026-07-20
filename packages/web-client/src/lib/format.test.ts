@@ -112,4 +112,11 @@ describe("formatDeleteToTrashTitle", () => {
 			"Move 0 messages to Trash?",
 		);
 	});
+
+	test("thousands-separates an escalated-selection-scale count", () => {
+		assert.strictEqual(
+			formatDeleteToTrashTitle(3412),
+			"Move 3,412 messages to Trash?",
+		);
+	});
 });

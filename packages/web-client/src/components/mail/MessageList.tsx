@@ -1,5 +1,10 @@
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
-import { type Density, MessageListPane, SelectionTopBar } from "@remit/ui";
+import {
+	Banner,
+	type Density,
+	MessageListPane,
+	SelectionTopBar,
+} from "@remit/ui";
 import { useNavigate } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Search, Sparkles } from "lucide-react";
@@ -7,6 +12,10 @@ import type { RefObject } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { formatErrorMessage } from "@/components/ui/ErrorState";
+import {
+	type EscalationSearchQuery,
+	useEscalatedDelete,
+} from "@/hooks/useEscalatedDelete";
 import { useToggleReadFor } from "@/hooks/useMarkAsRead";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import {
@@ -15,8 +24,17 @@ import {
 	useSelection,
 } from "@/hooks/useSelection";
 import { buildBugReportContext, buildGitHubIssueUrl } from "@/lib/bug-report";
-import { formatDeleteToTrashTitle } from "@/lib/format";
+import {
+	BULK_DELETE_CHUNK_SIZE,
+	resolveSelectionAfterDelete,
+} from "@/lib/bulk-delete";
+import {
+	escalatedStatusLabel,
+	escalationActionLabel,
+} from "@/lib/escalation-label";
+import { formatDeleteToTrashTitle, formatNumber } from "@/lib/format";
 import { tabStopId } from "@/lib/list-focus";
+import { cn } from "@/lib/utils";
 import { MoveToTrigger } from "./MoveToTrigger";
 import { OrganizeDialog } from "./organize/OrganizeDialog";
 import { SelectionToolbar } from "./SelectionToolbar";
@@ -58,6 +76,13 @@ interface MessageListProps {
 	error?: unknown;
 	onRetry?: () => void;
 	searchQuery?: string;
+	/**
+	 * The active search predicate (undefined when not searching). Re-issued
+	 * with fresh continuation tokens to page past what's loaded — the
+	 * escalated select-all flow (issue #92) — since `searchQuery` above is
+	 * only the display string.
+	 */
+	searchPredicate?: EscalationSearchQuery;
 	onDeleteMessages?: (messageIds: string[]) => void;
 	onMarkAsRead?: (messageIds: string[]) => void;
 	onMoveMessages?: (messageIds: string[], destinationMailboxId: string) => void;
@@ -156,6 +181,7 @@ export const MessageList = ({
 	error,
 	onRetry,
 	searchQuery,
+	searchPredicate,
 	onDeleteMessages,
 	onMarkAsRead,
 	onMoveMessages,
@@ -176,6 +202,7 @@ export const MessageList = ({
 	const isDesktop = useIsDesktop();
 	const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
 	const [organizeOpen, setOrganizeOpen] = useState(false);
+	const isSearching = !!searchQuery?.trim();
 
 	// Roving focus cursor (#429): the keyboard "where am I" pointer, distinct
 	// from the open thread (`selectedMessageId` in the URL). j/k move this
@@ -216,14 +243,47 @@ export const MessageList = ({
 		selectRange,
 		setAnchor,
 		selectAll,
+		toggleAll,
 	} = useSelection();
 
-	// Ids queued for deletion, awaiting confirmation. `null` means the dialog
-	// is closed. Snapshotted at request time so a selection change behind the
-	// dialog can't retarget the delete.
-	const [pendingDeleteIds, setPendingDeleteIds] = useState<string[] | null>(
+	// Pending delete, awaiting confirmation. `null` means the dialog is closed.
+	// `source: "ids"` snapshots the concrete ids at request time so a selection
+	// change behind the dialog can't retarget the delete — every keyboard/desktop
+	// entry point, and any bounded mobile delete, uses this. `source: "predicate"`
+	// is mobile-only: an escalated selection has no materialized id list to
+	// snapshot (D2, issue #92) — only the count it was confirmed against.
+	type PendingDelete =
+		| { source: "ids"; ids: string[] }
+		| { source: "predicate"; total: number };
+	const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(
 		null,
 	);
+
+	// Search-scoped escalated selection + chunked bulk delete (issue #92):
+	// mobile only, and only while search has more matches than are loaded.
+	// `orderedIds` below feeds `allLoadedSelected`; declared after this hook so
+	// its callback deps stay simple — see the `orderedIds`/`handleRowSelect`
+	// block.
+	const escalationEnabled = !isDesktop && isSearching && !!searchPredicate;
+	const predicateKey = `${mailboxId}|${JSON.stringify(searchPredicate ?? {})}`;
+	const escalation = useEscalatedDelete({
+		mailboxId,
+		accountId,
+		enabled: escalationEnabled,
+		predicateKey,
+		searchQuery: searchPredicate ?? {},
+	});
+	// Non-null exactly once a bounded/escalated run just ended with some ids
+	// still not confirmed deleted: the count that DID succeed in that run, so
+	// the partial-failure notice can say "N moved to Trash" alongside "Retry".
+	// `selectedIds` (materialized to the failed ids) is the source of truth for
+	// how many are left; this only supplies the other half of that sentence.
+	const [lastRunSucceeded, setLastRunSucceeded] = useState<number | null>(null);
+	// Transient, manually-dismissed success banner shown in place of the
+	// selection bar once a chunked/escalated delete finishes cleanly — see
+	// `processDeleteOutcome`. Honest about IMAP's async catch-up rather than
+	// claiming a finality the bulk endpoint's response doesn't have.
+	const [completionBanner, setCompletionBanner] = useState<string | null>(null);
 
 	// Set when a keyboard command moves the roving cursor. Real DOM focus then
 	// follows the cursor onto the row once the virtualizer has rendered it, so
@@ -253,7 +313,7 @@ export const MessageList = ({
 	// the route fall through to its own unconfirmed delete on a second Delete
 	// press. The route suspends the whole keyboard layer for the dialog instead.
 	const commandsAvailable = !isLoading && threads.length > 0;
-	const confirmOpen = pendingDeleteIds !== null;
+	const confirmOpen = pendingDelete !== null;
 
 	// Auto-exit multi-select when selection becomes empty
 	useEffect(() => {
@@ -261,6 +321,34 @@ export const MessageList = ({
 			setIsMultiSelectMode(false);
 		}
 	}, [isMultiSelectMode, selectedCount]);
+
+	// Single choke point for what selection looks like once a chunked/escalated
+	// run ends, for any reason (issue #92 requirement 10). A clean run with
+	// nothing left over exits selection mode and hands off to a transient
+	// completion banner instead of silently claiming a finality the bulk
+	// endpoint's response doesn't have (IMAP applies the move asynchronously).
+	// Anything left over becomes the new bounded selection — precisely what
+	// Retry resends, per `resolveSelectionAfterDelete`.
+	const processDeleteOutcome = useCallback(
+		(outcome: Parameters<typeof resolveSelectionAfterDelete>[0]) => {
+			const { exit, retryIds } = resolveSelectionAfterDelete(outcome);
+			if (exit) {
+				setCompletionBanner(
+					`${formatNumber(outcome.done)} moved to Trash. Your mail server is still catching up.`,
+				);
+				setLastRunSucceeded(null);
+				clearSelection();
+				return;
+			}
+			if (retryIds.length > 0) {
+				setLastRunSucceeded(outcome.done);
+				selectAll(retryIds);
+				return;
+			}
+			setLastRunSucceeded(null);
+		},
+		[clearSelection, selectAll],
+	);
 
 	const virtualizer = useVirtualizer({
 		count: threads.length,
@@ -359,10 +447,19 @@ export const MessageList = ({
 		(ids: string[]) => {
 			if (!onDeleteMessages || ids.length === 0) return;
 			focusBeforeConfirmRef.current = focusedMessageId ?? null;
-			setPendingDeleteIds(ids);
+			setPendingDelete({ source: "ids", ids });
 		},
 		[onDeleteMessages, focusedMessageId],
 	);
+
+	// Mobile-only: open the delete confirmation for the escalated predicate.
+	// `escalation.phase` must already be "escalated" — the caller (the mobile
+	// bar's onDelete) only wires this up in that state.
+	const requestEscalatedDelete = useCallback(() => {
+		if (escalation.phase.kind !== "escalated") return;
+		focusBeforeConfirmRef.current = focusedMessageId ?? null;
+		setPendingDelete({ source: "predicate", total: escalation.phase.total });
+	}, [escalation.phase, focusedMessageId]);
 
 	// Keyboard shift-arrow range extend: move focus one row in `direction` and
 	// extend the selection range from the existing anchor to the new focus —
@@ -402,7 +499,7 @@ export const MessageList = ({
 		// The confirmation is already asking about a delete: the keypress belongs
 		// to it, and answering it is the Confirm button's job. Claiming the press
 		// here is what stops a second Delete from reaching an unconfirmed delete.
-		if (pendingDeleteIds !== null) return true;
+		if (pendingDelete !== null) return true;
 		if (!onDeleteMessages) return false;
 		if (selectedCount > 0) {
 			requestDelete(Array.from(selectedIds));
@@ -414,7 +511,7 @@ export const MessageList = ({
 		}
 		return false;
 	}, [
-		pendingDeleteIds,
+		pendingDelete,
 		onDeleteMessages,
 		selectedCount,
 		selectedIds,
@@ -440,14 +537,47 @@ export const MessageList = ({
 		}
 	}, [requestDelete, selectedCount, selectedIds]);
 
+	// Confirm handler for the escalated predicate, or a bounded selection past
+	// the 100-id bulk-call cap (>100 loaded rows selected — rare, but the write
+	// side would 400 on a single call past that). Neither case gets the
+	// cursor-repositioning treatment below: the run takes real time and the
+	// user's attention is on the progress bar, not the roving cursor, and
+	// rows update via cache invalidation once the run ends rather than an
+	// optimistic per-row removal.
+	const runChunkedConfirmDelete = useCallback(
+		async (ids: string[] | undefined) => {
+			setPendingDelete(null);
+			focusBeforeConfirmRef.current = null;
+			const outcome = await escalation.runDelete(ids);
+			processDeleteOutcome(outcome);
+		},
+		[escalation, processDeleteOutcome],
+	);
+
 	// Confirm handler: run the actual bulk delete, then clear selection and
 	// move focus to a sensible neighbor (the row after the first deleted one).
 	const handleConfirmDelete = useCallback(() => {
-		if (!pendingDeleteIds || pendingDeleteIds.length === 0) {
-			setPendingDeleteIds(null);
+		if (!pendingDelete) return;
+
+		if (pendingDelete.source === "predicate") {
+			void runChunkedConfirmDelete(undefined);
 			return;
 		}
-		const deletedSet = new Set(pendingDeleteIds);
+
+		const { ids } = pendingDelete;
+		if (ids.length === 0) {
+			setPendingDelete(null);
+			return;
+		}
+		if (ids.length > BULK_DELETE_CHUNK_SIZE) {
+			// Selection stays put (still `ids`) for the duration of the run —
+			// `processDeleteOutcome` is the one place that clears it, on success,
+			// or replaces it with whatever's left to retry.
+			void runChunkedConfirmDelete(ids);
+			return;
+		}
+
+		const deletedSet = new Set(ids);
 		const firstDeletedIndex = threads.findIndex((t) =>
 			deletedSet.has(t.messageId),
 		);
@@ -469,10 +599,10 @@ export const MessageList = ({
 			}
 		}
 
-		onDeleteMessages?.(pendingDeleteIds);
+		onDeleteMessages?.(ids);
 		clearSelection();
 		focusBeforeConfirmRef.current = null;
-		setPendingDeleteIds(null);
+		setPendingDelete(null);
 
 		if (nextFocus !== undefined) {
 			// Same hand-back as cancelling, aimed at the surviving neighbour
@@ -488,12 +618,13 @@ export const MessageList = ({
 			});
 		}
 	}, [
-		pendingDeleteIds,
+		pendingDelete,
 		threads,
 		onDeleteMessages,
 		clearSelection,
 		navigate,
 		mailboxId,
+		runChunkedConfirmDelete,
 	]);
 
 	// Every way out of the confirmation that isn't the delete — Escape, Cancel,
@@ -503,7 +634,7 @@ export const MessageList = ({
 	const handleCancelDelete = useCallback(() => {
 		const restoreTo = focusBeforeConfirmRef.current;
 		focusBeforeConfirmRef.current = null;
-		setPendingDeleteIds(null);
+		setPendingDelete(null);
 		if (restoreTo === null) return;
 		pendingDomFocusRef.current = restoreTo;
 		cursorMovedByPointerRef.current = false;
@@ -583,6 +714,45 @@ export const MessageList = ({
 		clearSelection();
 	}, [clearSelection]);
 
+	// Mobile bar's Trash tap: an escalated selection has no materialized ids to
+	// hand `requestDelete`, so it opens the predicate confirmation instead.
+	const handleMobileDelete = useCallback(() => {
+		if (escalation.phase.kind === "escalated") {
+			requestEscalatedDelete();
+			return;
+		}
+		handleDelete();
+	}, [escalation.phase, requestEscalatedDelete, handleDelete]);
+
+	// Mobile bar's X: means "stop what's happening" throughout, not just
+	// "cancel selection" (issue #92 — the review flagged the X reading as
+	// ambiguous once a delete is running). Counting and deleting both stop at
+	// the next page boundary; an escalated-but-idle selection drops back to
+	// bounded on the way out, same as tapping "Clear selection" first.
+	const handleMobileCancel = useCallback(() => {
+		if (escalation.isDeleting || escalation.phase.kind === "counting") {
+			escalation.stop();
+			return;
+		}
+		if (escalation.phase.kind === "escalated") {
+			escalation.clear();
+		}
+		handleCancelMultiSelect();
+	}, [escalation, handleCancelMultiSelect]);
+
+	// The escalation notice's "Clear selection" action: drop back to the
+	// bounded (all-loaded) selection without touching selection mode itself.
+	const handleClearEscalation = useCallback(() => {
+		escalation.clear();
+	}, [escalation]);
+
+	// Partial-failure notice's Retry: resend exactly the ids that didn't
+	// confirm deleted last time (`selectedIds`, materialized there by
+	// `processDeleteOutcome`) — never the original selection.
+	const handleRetryFailed = useCallback(() => {
+		void runChunkedConfirmDelete(Array.from(selectedIds));
+	}, [runChunkedConfirmDelete, selectedIds]);
+
 	// Scroll the roving focus cursor into view as it moves (j/k). Falls back to
 	// the open thread when nothing is focused yet.
 	useEffect(() => {
@@ -659,8 +829,14 @@ export const MessageList = ({
 		[],
 	);
 
-	// Clear selection when threads change (e.g., after delete)
+	// Clear selection when threads change (e.g., after delete). Skipped while
+	// an escalated run is active: `selectedIds` there is a stale loaded-rows
+	// snapshot from the moment escalation started (the real selection is the
+	// predicate, D2), not something a background refetch reshuffling `threads`
+	// should be allowed to blow away out from under a count or a delete in
+	// progress — that would silently exit selection mode mid-run.
 	useEffect(() => {
+		if (escalation.phase.kind !== "idle" || escalation.isDeleting) return;
 		const threadIds = new Set(threads.map((t) => t.messageId));
 		const hasOrphanedSelection = Array.from(selectedIds).some(
 			(id) => !threadIds.has(id),
@@ -668,7 +844,13 @@ export const MessageList = ({
 		if (hasOrphanedSelection) {
 			clearSelection();
 		}
-	}, [threads, selectedIds, clearSelection]);
+	}, [
+		threads,
+		selectedIds,
+		clearSelection,
+		escalation.phase,
+		escalation.isDeleting,
+	]);
 
 	// Load more when scrolling near the bottom
 	useEffect(() => {
@@ -793,22 +975,124 @@ export const MessageList = ({
 			/>
 		) : undefined;
 
+	// Tier one of the two-tier select-all (issue #92, following Gmail web):
+	// every loaded row is checked. Computed against actual membership, not a
+	// count comparison, so a transient mismatch (mid-render, before the
+	// orphaned-selection effect settles) can't read as "all loaded" by
+	// coincidence.
+	const allLoadedSelected =
+		orderedIds.length > 0 && orderedIds.every((id) => selectedIds.has(id));
+
+	// Tier two: offered only once tier one is complete and search has more
+	// matches than are loaded — never a bare "Select all" (requirement 4).
+	const escalationAvailable =
+		escalationEnabled &&
+		hasMore &&
+		allLoadedSelected &&
+		!isDeleting &&
+		!isMoving &&
+		escalation.phase.kind === "idle" &&
+		!escalation.isDeleting;
+
+	const mobileIsBusy = isDeleting || isMoving || escalation.isDeleting;
+	const mobileCount =
+		escalation.phase.kind === "escalated"
+			? escalation.phase.total
+			: selectedCount;
+
+	const mobileStatusLabel = escalation.isDeleting
+		? `Deleting ${formatNumber(escalation.deleteProgress?.done ?? 0)} of ${formatNumber(escalation.deleteProgress?.total ?? 0)}…`
+		: escalation.phase.kind === "counting"
+			? escalation.phase.countSoFar >= 5000
+				? `Counting… ${formatNumber(escalation.phase.countSoFar)} so far. This is a big result set.`
+				: `Counting… ${formatNumber(escalation.phase.countSoFar)} so far`
+			: escalation.phase.kind === "escalated"
+				? escalatedStatusLabel(searchPredicate ?? {}, escalation.phase.total)
+				: undefined;
+
+	const mobileSelectAll =
+		escalation.phase.kind !== "escalated" && orderedIds.length > 0
+			? {
+					checked: allLoadedSelected,
+					indeterminate: selectedCount > 0 && !allLoadedSelected,
+					onChange: () => toggleAll(orderedIds),
+				}
+			: undefined;
+
+	// At most one notice at a time, ranked by how actionable it is: an
+	// in-progress counting/escalated state and its own action always wins;
+	// otherwise a fresh escalation offer; otherwise a just-finished partial
+	// failure's Retry; otherwise the (rare) cross-account move hint.
+	const mobileNotice =
+		escalation.phase.kind === "counting"
+			? {
+					tone: "info" as const,
+					text: "",
+					action: { label: "Stop", onClick: escalation.stop },
+				}
+			: escalation.phase.kind === "escalated" && !escalation.isDeleting
+				? {
+						tone: "info" as const,
+						text: "",
+						action: {
+							label: "Clear selection",
+							onClick: handleClearEscalation,
+						},
+					}
+				: escalationAvailable
+					? {
+							tone: "info" as const,
+							text: "",
+							action: {
+								label: escalationActionLabel(searchPredicate ?? {}),
+								onClick: escalation.escalate,
+							},
+						}
+					: lastRunSucceeded !== null && selectedCount > 0
+						? {
+								tone: "danger" as const,
+								text: `${formatNumber(lastRunSucceeded)} moved to Trash. ${formatNumber(selectedCount)} couldn't be deleted.`,
+								action: {
+									label: `Retry ${formatNumber(selectedCount)}`,
+									onClick: handleRetryFailed,
+								},
+							}
+						: moveDisabledHint
+							? { tone: "warning" as const, text: moveDisabledHint }
+							: undefined;
+
 	// Mobile multi-select bar replaces the pane header during selection mode.
 	const mobileSelectionBar =
 		isMultiSelectMode && !isDesktop ? (
 			<SelectionTopBar
-				count={selectedCount}
-				onCancel={handleCancelMultiSelect}
-				onDelete={handleDelete}
-				onMarkRead={onMarkAsRead ? handleMarkAsRead : undefined}
-				isBusy={isDeleting || isMoving}
-				notice={
-					moveDisabledHint
-						? { tone: "warning", text: moveDisabledHint }
+				count={mobileCount}
+				onCancel={handleMobileCancel}
+				onDelete={handleMobileDelete}
+				onMarkRead={
+					onMarkAsRead && escalation.phase.kind === "idle"
+						? handleMarkAsRead
 						: undefined
 				}
+				isBusy={mobileIsBusy}
+				isCounting={escalation.phase.kind === "counting"}
+				statusLabel={mobileStatusLabel}
+				selectAll={mobileSelectAll}
+				progress={
+					escalation.isDeleting && escalation.deleteProgress
+						? {
+								value: escalation.deleteProgress.done,
+								max: escalation.deleteProgress.total,
+								tone: "danger",
+							}
+						: undefined
+				}
+				notice={mobileNotice}
 				moveSlot={
-					onMoveMessages && accountId && mailboxId ? (
+					escalation.phase.kind === "idle" &&
+					!escalation.isDeleting &&
+					onMoveMessages &&
+					accountId &&
+					mailboxId ? (
 						<>
 							{!moveDisabledHint && (
 								<button
@@ -847,8 +1131,6 @@ export const MessageList = ({
 		setFocusedMessageId(messageId);
 	}, []);
 
-	const isSearching = !!searchQuery?.trim();
-
 	// The virtualized list body: rows + search header + load-more indicator.
 	// Passed to MessageListPane as `listBody` so the kit provides the chrome
 	// (pane header, loading / empty / error states, keyboard hints) while we
@@ -880,7 +1162,15 @@ export const MessageList = ({
 								role="presentation"
 								data-index={virtualRow.index}
 								ref={virtualizer.measureElement}
-								className="absolute left-0 top-0 w-full border-b border-line"
+								className={cn(
+									"absolute left-0 top-0 w-full border-b border-line",
+									// A chunked/escalated delete keeps every targeted row
+									// checked, dimmed and untappable for the whole run (issue
+									// #92) — the number in the bar and the rows underneath
+									// have to agree something is happening, and a row mid
+									// -delete must not be openable.
+									escalation.isDeleting && "pointer-events-none opacity-50",
+								)}
 								style={{ transform: `translateY(${virtualRow.start}px)` }}
 							>
 								<SwipeableMessageRow
@@ -914,8 +1204,24 @@ export const MessageList = ({
 		</>
 	);
 
+	const pendingDeleteCount = pendingDelete
+		? pendingDelete.source === "ids"
+			? pendingDelete.ids.length
+			: pendingDelete.total
+		: 0;
+
 	return (
 		<>
+			{completionBanner && !isDesktop && (
+				<Banner
+					tone="success"
+					variant="soft"
+					className="m-2 rounded-md"
+					onDismiss={() => setCompletionBanner(null)}
+				>
+					{completionBanner}
+				</Banner>
+			)}
 			<MessageListPane
 				listTitle={listTitle}
 				listMeta={listMeta}
@@ -942,8 +1248,8 @@ export const MessageList = ({
 				listBody={listState === "ready" ? virtualBody : undefined}
 			/>
 			<ConfirmDialog
-				isOpen={pendingDeleteIds !== null}
-				title={formatDeleteToTrashTitle(pendingDeleteIds?.length ?? 0)}
+				isOpen={pendingDelete !== null}
+				title={formatDeleteToTrashTitle(pendingDeleteCount)}
 				description="You can restore them from Trash later."
 				confirmLabel="Move to Trash"
 				destructive

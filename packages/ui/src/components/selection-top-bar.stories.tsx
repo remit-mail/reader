@@ -74,9 +74,15 @@ export const AllSelected: Story = {
 
 /**
  * The search has more matches than are loaded: an escalation notice offers a
- * real button (not prose) naming the total. Tapping it is what flips the
- * selection's identity from an id set to the search query (out of scope for
- * this kit — the caller supplies the count once paging resolves it).
+ * real button (not prose) naming the scope. Tapping it is what flips the
+ * selection's identity from an id set to the search query (`useEscalatedDelete`
+ * in web-client). No count in the label yet — the real client's own read path
+ * (`ThreadOperations.searchThreads`) only counts within a capped recency
+ * window short of paging the whole result set, and paging it just to seed a
+ * button label the user hasn't asked for yet would burn a request on every
+ * render of "all loaded selected" for a number that goes stale the moment new
+ * mail arrives. Tapping the button is what pays for the real count, via the
+ * counting state below.
  */
 export const EscalationAvailable: Story = {
 	args: {
@@ -90,7 +96,7 @@ export const EscalationAvailable: Story = {
 			tone: "info",
 			text: "",
 			action: {
-				label: 'Select all 3,412 matching "npm"',
+				label: 'Select all matching "npm"',
 				onClick: () => undefined,
 			},
 		},
