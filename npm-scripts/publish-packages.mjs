@@ -19,7 +19,7 @@
 //
 // Usage: publish-packages.mjs [--dry-run]
 //   --dry-run  compute and print each decision, pack-check, never publish.
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
 	mkdtempSync,
@@ -259,11 +259,19 @@ const stampGeneratedMetadata = ({ dir, peerDependencies }) => {
 	writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 };
 
-const publish = (pkgDir) =>
-	run("npm", ["publish", "--access", "public"], {
-		cwd: join(repoRoot, pkgDir),
-		stdio: "inherit",
-	});
+// One package failing must not abandon the rest of the run, so this reports the
+// outcome instead of throwing; the caller collects failures and exits non-zero.
+const publish = (pkgDir) => {
+	const { error, status, signal } = spawnSync(
+		"npm",
+		["publish", "--access", "public"],
+		{ cwd: join(repoRoot, pkgDir), stdio: "inherit" },
+	);
+	if (error) return { ok: false, error: error.message };
+	if (signal) return { ok: false, error: `npm publish killed by ${signal}` };
+	if (status !== 0) return { ok: false, error: `npm publish exited ${status}` };
+	return { ok: true };
+};
 
 const packCheck = (pkgDir) =>
 	run("npm", ["pack", "--dry-run", "--loglevel=error"], {
@@ -331,12 +339,9 @@ for (const pkg of packages) {
 		continue;
 	}
 	setVersion(pkg.dir, target);
-	try {
-		publish(pkg.dir);
-		console.log(`published ${pkg.name}@${target}`);
-	} catch (error) {
-		failures.push({ name: pkg.name, version: target, error: error.message });
-	}
+	const { ok, error } = publish(pkg.dir);
+	if (ok) console.log(`published ${pkg.name}@${target}`);
+	else failures.push({ name: pkg.name, version: target, error });
 }
 
 console.log(`\n${dryRun ? "Dry run" : "Publish"} decisions:`);

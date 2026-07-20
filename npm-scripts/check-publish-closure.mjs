@@ -32,7 +32,6 @@ for (const manifest of publishable) {
 		pkgDir,
 		workspaceNames,
 		manifests,
-		repoRoot,
 	});
 	if (undeclared.length || missingTypes.length || closed.length)
 		offenders.push({ name: manifest.name, undeclared, missingTypes, closed });

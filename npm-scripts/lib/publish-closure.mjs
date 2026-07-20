@@ -11,7 +11,7 @@
 // under it and collects the bare specifiers it imports. Test, spec, stories and
 // `test-*` harness files are the build-only surface and are skipped, so their
 // imports stay dev.
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const CODE_EXT = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"];
@@ -161,7 +161,6 @@ export const closureViolations = ({
 	pkgDir,
 	workspaceNames,
 	manifests,
-	repoRoot,
 }) => {
 	const runtimeDeclared = new Set([
 		...Object.keys(manifest.dependencies ?? {}),

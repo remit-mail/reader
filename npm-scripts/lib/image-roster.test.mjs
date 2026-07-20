@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -35,14 +35,9 @@ function roster(fixtureDir) {
 function assertNonemptyExitCode(fixtureDir) {
 	const script =
 		'cd "$1" && source "$2" && ALL_TARGETS=() && assert_roster_nonempty';
-	try {
-		execFileSync("bash", ["-c", script, "assert", fixtureDir, LIB], {
-			encoding: "utf8",
-		});
-		return 0;
-	} catch (error) {
-		return error.status;
-	}
+	return spawnSync("bash", ["-c", script, "assert", fixtureDir, LIB], {
+		encoding: "utf8",
+	}).status;
 }
 
 describe("image_roster", () => {

@@ -85,7 +85,6 @@ const violationsFor = (root, name) => {
 		pkgDir: join(root, workspaceNames.get(name)),
 		workspaceNames,
 		manifests,
-		repoRoot: root,
 	});
 };
 

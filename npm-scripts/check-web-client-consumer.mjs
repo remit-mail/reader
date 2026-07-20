@@ -25,10 +25,8 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
-const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const run = (cmd, args, opts = {}) =>
 	execFileSync(cmd, args, { encoding: "utf8", ...opts });
 

@@ -13,6 +13,7 @@
 //
 // The chosen provider can also be given via REMIT_AUTH_PROVIDER; the flag wins.
 import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "vite";
@@ -29,8 +30,13 @@ const parseArgs = (argv) => {
 		out: "dist",
 	};
 	for (let i = 0; i < argv.length; i += 1) {
-		if (argv[i] === "--auth") args.auth = argv[(i += 1)];
-		else if (argv[i] === "--out") args.out = argv[(i += 1)];
+		if (argv[i] === "--auth") {
+			args.auth = argv[i + 1];
+			i += 1;
+		} else if (argv[i] === "--out") {
+			args.out = argv[i + 1];
+			i += 1;
+		}
 	}
 	return args;
 };
@@ -102,11 +108,9 @@ const run = async () => {
 		// Never let cleanup replace the build's own failure. Removing the root is
 		// best-effort housekeeping on a throwaway directory; a build error is the
 		// thing the caller needs to see.
-		try {
-			rmSync(root, { recursive: true, force: true });
-		} catch (error) {
+		await rm(root, { recursive: true, force: true }).catch((error) => {
 			console.warn(`Could not remove ${root}: ${error.message}`);
-		}
+		});
 	}
 
 	console.log(
