@@ -3,15 +3,17 @@ namespace RemitImap;
 @doc("""
   The pipeline step that refused a quarantined message.
   
-  One member. No catch site on the sync path can currently tell a parse failure
-  from an infrastructure failure: the per-message frame in `body-sync.ts` wraps
-  the S3 body write, the parsed-body cache write, the body-part upserts, the
-  placement move and the label and counter writes alongside the `simpleParser`
-  call, and filters only connection drops out of it. A stage is added when a
-  try block is narrowed far enough to attribute it, never ahead of that — an
-  enum member that reached stored rows cannot be walked back.
+  A member exists only where a catch site can tell a message defect from an
+  infrastructure failure. Both members sit behind that narrowing: the body
+  parse is its own try block around the `simpleParser` call and nothing else,
+  and the envelope check reads a field that arrived on the FETCH result. What a
+  wider frame catches — S3, the queue, the database — propagates and is never
+  written here.
   """)
 enum QuarantineFailureStage {
   @doc("Parsing the fetched message body.")
   BodyParse: "BodyParse",
+
+  @doc("Reading the message's ENVELOPE off the FETCH result.")
+  MessageEnvelope: "MessageEnvelope",
 }

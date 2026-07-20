@@ -24,6 +24,8 @@ import {
 	AddressRole,
 	MailboxCursorState,
 	MessageSystemFlag,
+	QuarantineFailureCode,
+	QuarantineFailureStage,
 	StarColor,
 } from "@remit/domain-enums";
 import pMap from "p-map";
@@ -36,6 +38,11 @@ import {
 } from "./mailbox-cursor-rebuild.js";
 import { ROOT_PART_PATH, walkMimeStructure } from "./mime-walker.js";
 import { PassThroughUnitOfWork } from "./pass-through-unit-of-work.js";
+import {
+	type QuarantineContext,
+	type QuarantineService,
+	shapeFromImapMessage,
+} from "./quarantine.js";
 import { reconcileStaleMessage } from "./stale-message-reconcile.js";
 import {
 	advanceChangeCursor,
@@ -146,8 +153,11 @@ interface SaveMessageResult extends SyncedMessage {
 /**
  * Wrapper outcome for a single message in the batch. A `failed` outcome means
  * the save threw (and was caught) — its UID must NOT advance the watermark, so
- * the message is re-fetched and retried on the next cycle. `null` means the
- * message carried no envelope and was intentionally skipped (nothing to retry).
+ * the message is re-fetched and retried on the next cycle. A `saved` outcome
+ * with a `null` result is a UID this round finished with but created no row
+ * for: a cross-mailbox collision, a change applied to an existing row, or a
+ * message quarantined instead of applied (issue #72). Its watermark advances
+ * either way, because there is nothing left to retry.
  */
 type BatchOutcome =
 	| { kind: "saved"; uid: number; result: SaveMessageResult | null }
@@ -224,6 +234,13 @@ export class MessageSyncService {
 		 * flip is never dismissed as redundant.
 		 */
 		private messageFlagService?: IMessageFlagRepository,
+		/**
+		 * Writes the record a message becomes when it cannot be applied (issue
+		 * #72). Omitted, the sync path keeps its old behaviour of holding the
+		 * watermark below anything it could not save — correct, but the stall
+		 * this issue exists to end.
+		 */
+		private quarantineService?: QuarantineService,
 	) {
 		this.log = logger ?? noopLogger;
 		this.unitOfWork =
@@ -309,6 +326,10 @@ export class MessageSyncService {
 			});
 		}
 
+		// One read per round, not per message (issue #72). The list is small by
+		// design — a growing one is a bug being reported, not a page to paginate.
+		const quarantined = await this.quarantineService?.load(accountConfigId);
+
 		const allUids = await connection.search(["ALL"]);
 		const uids = selectUidsToSync(allUids, lastSyncUid, highWaterMarkUid);
 		const unseenCount = status.unseen;
@@ -350,7 +371,39 @@ export class MessageSyncService {
 
 		// Process only the first batch
 		const batchUids = uids.slice(0, batchSize);
-		const messages = await this.fetchMessageBatch(batchUids);
+
+		// A quarantined UID is not fetched again, but it stays in `batchUids` so
+		// the watermark still advances over it. Filtering it out of the selection
+		// instead would hold the watermark below a message that is already
+		// durably resolved, which is the stall by another route.
+		const context = this.quarantineContext(mailbox, accountConfigId, box);
+		const fetchUids = batchUids.filter(
+			(uid) => !quarantined?.has(mailboxId, box.uidvalidity, uid),
+		);
+		const messages =
+			fetchUids.length > 0 ? await this.fetchMessageBatch(fetchUids) : [];
+
+		// A UID the FETCH never returned a row for was not consumed by this
+		// round, so no watermark may pass it. The connection layer drops rows
+		// imapflow yields without a usable UID or INTERNALDATE (#408), and a
+		// message can be expunged between the SEARCH and the FETCH; both used to
+		// look identical to a successful save, and the watermark stepped over
+		// them. Leaving them out of the consumed set costs nothing when the
+		// message is genuinely gone — the next SEARCH will not list it — and
+		// keeps a live one selectable.
+		const returnedUids = new Set(messages.map((msg) => msg.uid));
+		const consumedUids = batchUids.filter(
+			(uid) =>
+				returnedUids.has(uid) ||
+				quarantined?.has(mailboxId, box.uidvalidity, uid),
+		);
+		const unreturnedCount = batchUids.length - consumedUids.length;
+		if (unreturnedCount > 0) {
+			this.log.warn(
+				{ mailboxId, mailboxPath, unreturnedCount },
+				"FETCH returned no row for some requested UIDs; holding the watermark below them",
+			);
+		}
 
 		// Process messages in parallel with concurrency limit. `stopOnError` stays
 		// at its default — but each message is saved through `trySaveMessage`,
@@ -359,7 +412,7 @@ export class MessageSyncService {
 		// poison pill that previously froze the mailbox, #817).
 		const outcomes = await pMap(
 			messages,
-			(msg) => this.trySaveMessage(mailboxId, accountId, accountConfigId, msg),
+			(msg) => this.trySaveMessage(context, msg),
 			{ concurrency: MESSAGE_SAVE_CONCURRENCY },
 		);
 
@@ -400,7 +453,7 @@ export class MessageSyncService {
 		// see `advanceUidWatermarks`.
 		const { highWaterMarkUid: newHighWaterMark, lastSyncUid: newLastSyncUid } =
 			advanceUidWatermarks({
-				batchUids,
+				batchUids: consumedUids,
 				failedUids,
 				lastSyncUid,
 				highWaterMarkUid,
@@ -413,8 +466,10 @@ export class MessageSyncService {
 		// enumeration work behind and lost no message to a failed save. Seeding
 		// it earlier would switch the mailbox to CHANGEDSINCE while UIDs it has
 		// never fetched still sit below the watermark, and those messages would
-		// never be discovered.
-		const enumerationComplete = !hasMore && failedUids.size === 0;
+		// never be discovered. A UID the FETCH did not return counts the same
+		// way: the round did not finish with it either.
+		const enumerationComplete =
+			!hasMore && failedUids.size === 0 && unreturnedCount === 0;
 
 		await this.mailboxService.update(accountId, mailboxId, {
 			lastSyncUid: newLastSyncUid,
@@ -587,9 +642,14 @@ export class MessageSyncService {
 
 		const newMessages =
 			newUids.length > 0 ? await this.fetchMessageBatch(newUids) : [];
+		const rebuildContext = this.quarantineContext(
+			mailbox,
+			accountConfigId,
+			box,
+		);
 		const outcomes = await pMap(
 			newMessages,
-			(msg) => this.trySaveMessage(mailboxId, accountId, accountConfigId, msg),
+			(msg) => this.trySaveMessage(rebuildContext, msg),
 			{ concurrency: MESSAGE_SAVE_CONCURRENCY },
 		);
 		const syncedMessages: SyncedMessage[] = outcomes.flatMap((o) =>
@@ -756,9 +816,17 @@ export class MessageSyncService {
 		const ordered = dropAppliedPrefix(orderByModseq(changed), cursor);
 		const batch = ordered.slice(0, batchSize);
 
+		// A quarantined UID stays in `batch`, so the cursor still advances over
+		// it; only the work of re-applying it is skipped.
+		const quarantined = await this.quarantineService?.load(accountConfigId);
+		const context = this.quarantineContext(mailbox, accountConfigId, box);
+		const applicable = batch.filter(
+			(msg) => !quarantined?.has(mailboxId, box.uidvalidity, msg.uid),
+		);
+
 		const outcomes = await pMap(
-			batch,
-			(msg) => this.tryApplyChange(mailboxId, accountId, accountConfigId, msg),
+			applicable,
+			(msg) => this.tryApplyChange(context, msg),
 			{ concurrency: MESSAGE_SAVE_CONCURRENCY },
 		);
 
@@ -862,11 +930,20 @@ export class MessageSyncService {
 	 * holds the watermark back instead of failing the round.
 	 */
 	private async tryApplyChange(
-		mailboxId: string,
-		accountId: string,
-		accountConfigId: string,
+		context: QuarantineContext,
 		msg: ImapMessage,
 	): Promise<BatchOutcome> {
+		const { mailboxId, accountId, accountConfigId } = context;
+
+		// Same reasoning as the enumeration path: a change carrying no ENVELOPE
+		// names no message, so it is set aside rather than skipped in silence.
+		if (!msg.envelope) {
+			const recorded = await this.quarantineMissingEnvelope(context, msg);
+			return recorded
+				? { kind: "saved", uid: msg.uid, result: null }
+				: { kind: "failed", uid: msg.uid };
+		}
+
 		return this.applyChange(mailboxId, accountId, accountConfigId, msg)
 			.then((result): BatchOutcome => ({ kind: "saved", uid: msg.uid, result }))
 			.catch((error): BatchOutcome => {
@@ -1063,11 +1140,24 @@ export class MessageSyncService {
 	 * permanently freezing the mailbox (#817).
 	 */
 	private async trySaveMessage(
-		mailboxId: string,
-		accountId: string,
-		accountConfigId: string,
+		context: QuarantineContext,
 		msg: ImapMessage,
 	): Promise<BatchOutcome> {
+		const { mailboxId, accountId, accountConfigId } = context;
+
+		// A message with no ENVELOPE has no sender, no date and no Message-ID, so
+		// nothing here can key it — it was skipped, counted as saved, and the
+		// watermark moved past it, which is the silent loss this feature exists to
+		// end. The defect is the message's own and came off the FETCH result, so
+		// it is quarantinable: record it, then let the watermark move past it for
+		// the same reason as before, only now with something to show for it.
+		if (!msg.envelope) {
+			const recorded = await this.quarantineMissingEnvelope(context, msg);
+			return recorded
+				? { kind: "saved", uid: msg.uid, result: null }
+				: { kind: "failed", uid: msg.uid };
+		}
+
 		return this.saveMessage(mailboxId, accountId, accountConfigId, msg)
 			.then((result): BatchOutcome => ({ kind: "saved", uid: msg.uid, result }))
 			.catch((error): BatchOutcome => {
@@ -1081,6 +1171,71 @@ export class MessageSyncService {
 					"Failed to save message; will retry on next sync",
 				);
 				return { kind: "failed", uid: msg.uid };
+			});
+	}
+
+	/**
+	 * The mailbox facts every quarantine record in this round shares.
+	 *
+	 * `attempts` is 1 because message sync has no per-message attempt state —
+	 * its unit is the mailbox round, and the SQS receive count belongs to the
+	 * round rather than to any message in it. That absence is why this feature
+	 * is a quarantine record rather than a retry ceiling.
+	 */
+	private quarantineContext(
+		mailbox: MailboxItem,
+		accountConfigId: string,
+		box: { uidvalidity: number },
+	): QuarantineContext {
+		return {
+			accountId: mailbox.accountId,
+			accountConfigId,
+			mailboxId: mailbox.mailboxId,
+			mailboxPath: mailbox.fullPath,
+			uidValidity: box.uidvalidity,
+			attempts: 1,
+		};
+	}
+
+	/**
+	 * Record a message that arrived without an ENVELOPE.
+	 *
+	 * Returns false when there is no quarantine writer, so the caller falls back
+	 * to holding the watermark rather than dropping the message with no record —
+	 * a stalled mailbox is recoverable, a silently skipped message is not.
+	 *
+	 * A failed write returns false for the same reason: the write is database
+	 * work, so its failure is infrastructure and must not be mistaken for the
+	 * message being resolved. The watermark stays put and the round retries.
+	 */
+	private async quarantineMissingEnvelope(
+		context: QuarantineContext,
+		msg: ImapMessage,
+	): Promise<boolean> {
+		if (!this.quarantineService) return false;
+
+		return this.quarantineService
+			.record(
+				context,
+				msg.uid,
+				{
+					stage: QuarantineFailureStage.MessageEnvelope,
+					code: QuarantineFailureCode.MissingEnvelope,
+					message: "FETCH returned the message with no ENVELOPE",
+				},
+				shapeFromImapMessage(msg),
+			)
+			.then(() => true)
+			.catch((error: unknown) => {
+				this.log.warn(
+					{
+						mailboxId: context.mailboxId,
+						uid: msg.uid,
+						error: error instanceof Error ? error.message : String(error),
+					},
+					"Could not record quarantine; holding the watermark below the message",
+				);
+				return false;
 			});
 	}
 
@@ -1231,6 +1386,12 @@ export class MessageSyncService {
 			order: number;
 		}> = [];
 
+		// An unusable address is dropped and the message is written anyway, and
+		// that stays deliberate under the quarantine rules (issue #72). What is
+		// lost is one envelope address, not the message: it is stored, listed and
+		// readable, and its body is untouched. Setting the whole message aside
+		// over a malformed From would take readable mail out of the mailbox to
+		// protect a display name.
 		for (let i = 0; i < addresses.length; i++) {
 			const addr = addresses[i];
 			if (!isParseableEmailAddress(addr)) continue;

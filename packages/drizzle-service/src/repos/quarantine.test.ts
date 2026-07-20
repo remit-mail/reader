@@ -1,5 +1,6 @@
 import assert from "node:assert";
 import { after, before, describe, test } from "node:test";
+import { deriveQuarantineId } from "@remit/data-ports/id";
 import { quarantineTable } from "../schema/quarantine.js";
 import { createTestDb, randomId, type TestDb } from "../test-db.js";
 import { QuarantineRepo } from "./quarantine.js";
@@ -26,7 +27,7 @@ describe("QuarantineRepo", () => {
 			quarantinedAt: now,
 			attempts: 3,
 			failureStage: "BodyParse",
-			failureCode: "UnterminatedMultipartBoundary",
+			failureCode: "UnreadableBody",
 			failureMessage: "multipart boundary was never closed",
 			workerVersion: "worker 1.0.0",
 			structure: [{ depth: 0, contentType: "multipart/mixed" }],
@@ -108,5 +109,84 @@ describe("QuarantineRepo", () => {
 		assert.equal(entry.transferEncoding, undefined);
 		assert.equal(entry.sizeBytes, undefined);
 		assert.equal(entry.messageIdHash, undefined);
+	});
+
+	test("re-quarantining the same message rewrites one row, never adds another", async () => {
+		const accountConfigId = randomId();
+		const identity = {
+			accountConfigId,
+			accountId: randomId(),
+			mailboxId: randomId(),
+			uidValidity: 1_712_000_000,
+			uid: 40217,
+			mailboxPath: "INBOX",
+			attempts: 1,
+			failureStage: "BodyParse" as const,
+			failureCode: "UnreadableBody" as const,
+			failureMessage: "the parser said no",
+			workerVersion: "sha-abc",
+		};
+
+		await repo.upsert({ ...identity, quarantinedAt: 1_000 });
+		await repo.upsert({ ...identity, quarantinedAt: 2_000, attempts: 4 });
+
+		const entries = await repo.listByAccountConfigId(accountConfigId);
+
+		assert.equal(entries.length, 1);
+		assert.equal(entries[0].attempts, 4);
+		assert.equal(entries[0].quarantinedAt, 2_000);
+	});
+
+	test("keeps the id derived from the message, not the random column default", async () => {
+		const accountConfigId = randomId();
+		const identity = {
+			accountConfigId,
+			accountId: randomId(),
+			mailboxId: randomId(),
+			uidValidity: 1_712_000_000,
+			uid: 40217,
+			mailboxPath: "INBOX",
+			quarantinedAt: 1_000,
+			attempts: 1,
+			failureStage: "BodyParse" as const,
+			failureCode: "UnreadableBody" as const,
+			failureMessage: "the parser said no",
+			workerVersion: "sha-abc",
+		};
+
+		await repo.upsert(identity);
+		const [entry] = await repo.listByAccountConfigId(accountConfigId);
+
+		assert.equal(
+			entry.quarantineId,
+			deriveQuarantineId(
+				identity.accountId,
+				identity.mailboxId,
+				identity.uidValidity,
+				identity.uid,
+			),
+		);
+	});
+
+	test("defaults the MIME tree to empty when the message failed before its shape was read", async () => {
+		const accountConfigId = randomId();
+		await repo.upsert({
+			accountConfigId,
+			accountId: randomId(),
+			mailboxId: randomId(),
+			uidValidity: 1_712_000_000,
+			uid: 1,
+			mailboxPath: "INBOX",
+			quarantinedAt: 1_000,
+			attempts: 1,
+			failureStage: "MessageEnvelope",
+			failureCode: "MissingEnvelope",
+			failureMessage: "FETCH returned the message with no ENVELOPE",
+			workerVersion: "sha-abc",
+		});
+
+		const [entry] = await repo.listByAccountConfigId(accountConfigId);
+
+		assert.deepEqual(entry.structure, []);
 	});
 });

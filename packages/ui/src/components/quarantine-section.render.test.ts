@@ -44,6 +44,15 @@ describe("QuarantineSection", () => {
 		assert.match(html, /Acme Holdings/);
 	});
 
+	it("summarises an envelope failure in the user's terms", () => {
+		const missingEnvelope = quarantineDemoEntries.find(
+			(entry) => entry.failureStage === "MessageEnvelope",
+		);
+		assert.ok(missingEnvelope);
+		const html = render([missingEnvelope]);
+		assert.match(html, /without a sender, date or subject/);
+	});
+
 	it("offers reporting as the only per-row action", () => {
 		const html = render([base]);
 		assert.match(html, /Cut a bug/);
@@ -61,7 +70,7 @@ describe("QuarantineBugDialog", () => {
 				issueUrl: ISSUE_URL,
 			}),
 		);
-		assert.match(html, /UnterminatedMultipartBoundary/);
+		assert.match(html, /UnreadableBody/);
 		assert.match(html, /attachment names, or the parser&#x27;s own error text/);
 		assert.match(html, /Copy report/);
 	});

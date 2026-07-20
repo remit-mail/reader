@@ -5,9 +5,11 @@ import type {
 	IAddressRepository,
 	IEnvelopeRepository,
 	IMailboxRepository,
+	IMailboxSpecialUseRepository,
 	IMessageFlagPushRepository,
 	IMessageFlagRepository,
 	IMessageRepository,
+	IQuarantineRepository,
 	IThreadMessageRepository,
 	IUnitOfWork,
 } from "@remit/data-ports";
@@ -19,6 +21,7 @@ import {
 	MailConnectionError,
 	type MailCredentials,
 	MessageSyncService,
+	QuarantineService,
 	type SyncedMessage,
 } from "@remit/mailbox-service";
 import pMap from "p-map";
@@ -31,6 +34,7 @@ import type {
 } from "../events.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
+import { workerVersion } from "../worker-version.js";
 
 // One SYNC_MESSAGE_BODY event maps to one ranged UID FETCH on the consumer.
 export const BODY_BATCH_SIZE = 200;
@@ -70,6 +74,8 @@ export const syncMessages = async (
 		address: addressService,
 		threadMessage: threadMessageService,
 		mailboxLock: mailboxLockService,
+		mailboxSpecialUse: mailboxSpecialUseService,
+		quarantine: quarantineService,
 		flagPush: flagPushMarkerService,
 		messageFlag: messageFlagService,
 		unitOfWork,
@@ -138,6 +144,8 @@ export const syncMessages = async (
 								envelopeService,
 								addressService,
 								threadMessageService,
+								mailboxSpecialUseService,
+								quarantineService,
 								flagPushMarkerService,
 								messageFlagService,
 								unitOfWork,
@@ -181,6 +189,8 @@ interface SyncDeps {
 	envelopeService: IEnvelopeRepository;
 	addressService: IAddressRepository;
 	threadMessageService: IThreadMessageRepository;
+	mailboxSpecialUseService: IMailboxSpecialUseRepository;
+	quarantineService: IQuarantineRepository;
 	flagPushMarkerService: IMessageFlagPushRepository;
 	messageFlagService: IMessageFlagRepository;
 	unitOfWork?: IUnitOfWork;
@@ -272,6 +282,8 @@ const syncMailboxMessages = async (
 		envelopeService,
 		addressService,
 		threadMessageService,
+		mailboxSpecialUseService,
+		quarantineService,
 		flagPushMarkerService,
 		messageFlagService,
 		unitOfWork,
@@ -307,6 +319,12 @@ const syncMailboxMessages = async (
 		unitOfWork,
 		flagPushMarkerService,
 		messageFlagService,
+		new QuarantineService(
+			quarantineService,
+			mailboxSpecialUseService,
+			workerVersion(),
+			log,
+		),
 	);
 
 	// Connect once, reuse for the entire sync operation

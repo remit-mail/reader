@@ -591,20 +591,23 @@ export class ImapFlowConnection {
 		for await (const msg of fetchIterator) {
 			// imapflow occasionally yields a row with undefined uid or internalDate
 			// on back-to-back FETCH calls (e.g. after a body-fetch on the same UID).
-			// Skipping the row is safe: the caller asked for a specific UID set and
-			// will simply not see that entry rather than the whole call crashing.
-			// See #408 for the investigation.
+			// See #408 for the investigation. This is the client library glitching,
+			// not the message being malformed, so the row is dropped rather than
+			// quarantined — recording it as a defective message would advance a
+			// cursor past mail that is fine (issue #72).
+			//
+			// Dropping it is only safe because the caller treats a requested UID
+			// with no row as unconsumed and holds its watermark below it. It used
+			// to advance regardless, which is how a transient client glitch turned
+			// into a message never fetched again.
 			if (msg.uid == null || msg.internalDate == null) {
 				continue;
 			}
 
 			// Coerce INTERNALDATE without ever throwing: a malformed value must not
-			// abort the whole fetch batch. `null` only for an absent value (already
-			// handled by the guard above); a bad value falls back to now.
-			const internalDate = toInternalDate(msg.internalDate);
-			if (internalDate === null) {
-				continue;
-			}
+			// abort the whole fetch batch. A bad value falls back to now; an absent
+			// one cannot reach here, having been dropped above.
+			const internalDate = toInternalDate(msg.internalDate) ?? new Date();
 
 			// Parse References header if present
 			const references = await this.parseReferencesHeader(msg.headers);

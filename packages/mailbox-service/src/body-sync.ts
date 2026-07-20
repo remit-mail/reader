@@ -18,6 +18,7 @@ import {
 	MessageCategory,
 	PlacementAction,
 	PlacementConfidence,
+	QuarantineFailureStage,
 	SenderTrust,
 } from "@remit/domain-enums";
 import {
@@ -27,6 +28,7 @@ import {
 } from "@remit/storage-service";
 import { type ParsedMail, simpleParser } from "mailparser";
 import pMap from "p-map";
+import { BodyParseError, parseMessageBody } from "./body-parse.js";
 import { mapBodyPartsToContent } from "./body-part-mapper.js";
 import type { FilterMessage } from "./filters/match.js";
 import {
@@ -46,6 +48,7 @@ import {
 	type FolderPlacement,
 } from "./heuristics/classifyPlacement.js";
 import type { PlacementMoveService } from "./placement-move.js";
+import { type QuarantineService, shapeFromMessageData } from "./quarantine.js";
 import { extractSnippetFromEmail } from "./snippet.js";
 import { type IImapConnection, MailConnectionError } from "./types.js";
 
@@ -186,6 +189,24 @@ export interface PlacementConfig {
 	placementMoveService: PlacementMoveService;
 }
 
+/**
+ * What body sync needs to set a message aside (issue #72). The mailbox facts
+ * are supplied by the caller because they are properties of the round, not of
+ * any one message.
+ */
+export interface QuarantineConfig {
+	quarantineService: QuarantineService;
+	mailboxId: string;
+	/**
+	 * The mailbox's stored UIDVALIDITY. Taken from the mailbox row rather than
+	 * from the open box because a round whose two disagree is paused by the
+	 * cursor guard before it reaches any UID.
+	 */
+	uidValidity: number;
+	/** Redeliveries of this batch so far, so the record says how hard we tried. */
+	attempts: number;
+}
+
 export class BodySyncService {
 	private log: BodySyncLogger;
 	private readonly filterPipeline?: FilterPipeline;
@@ -199,6 +220,7 @@ export class BodySyncService {
 		logger?: BodySyncLogger,
 		private readonly placementConfig?: PlacementConfig,
 		private readonly filterConfig?: FilterConfig,
+		private readonly quarantineConfig?: QuarantineConfig,
 	) {
 		this.log = logger ?? noopLogger;
 		this.filterPipeline = filterConfig
@@ -235,6 +257,7 @@ export class BodySyncService {
 	): Promise<SyncBodiesResult> {
 		const syncedMessageIds: string[] = [];
 		let skippedCount = 0;
+		const location = { accountId, accountConfigId, mailboxPath };
 
 		// Resolve every message up front so we can issue ONE ranged FETCH for the
 		// whole batch (the desktop-client pattern) instead of a SELECT + download
@@ -249,8 +272,34 @@ export class BodySyncService {
 		// classification failed. They are NOT in `pending` — nothing about them
 		// needs fetching — so they are merged into failedMessageIds separately.
 		const backfillFailedMessageIds: string[] = [];
+
+		// One read per round, not per message (issue #72). The list is small by
+		// design and almost always empty, so a lookup per message would put a
+		// query on the hot path for a state that is nearly never set.
+		const quarantined =
+			await this.quarantineConfig?.quarantineService.load(accountConfigId);
+
 		for (const messageId of messageIds) {
 			const message = await this.messageService.get(messageId);
+
+			// A quarantined message has no stored body, so nothing else here would
+			// stop it being fetched and re-parsed on every redelivery, forever.
+			if (
+				this.quarantineConfig &&
+				quarantined?.has(
+					this.quarantineConfig.mailboxId,
+					this.quarantineConfig.uidValidity,
+					message.uid,
+				)
+			) {
+				this.log.debug?.(
+					{ messageId, uid: message.uid },
+					"Message is quarantined, skipping",
+				);
+				skippedCount++;
+				continue;
+			}
+
 			if (message.bodyStorageKey && !force) {
 				this.log.debug?.({ messageId }, "Body already stored, skipping");
 				// The skip guard keys on the body, but classification is a separate
@@ -270,6 +319,17 @@ export class BodySyncService {
 					() => null,
 					(error: unknown) => error,
 				);
+				// The stored bytes will not parse, and they will not start parsing on
+				// a later attempt. Requeueing forever is the stall; set the message
+				// aside instead. Everything else this call can throw is storage or
+				// database work and stays on the requeue path below.
+				if (
+					backfillError instanceof BodyParseError &&
+					(await this.quarantineBodyParse(message, location, backfillError))
+				) {
+					skippedCount++;
+					continue;
+				}
 				if (backfillError !== null) {
 					this.log.error?.(
 						{
@@ -330,6 +390,26 @@ export class BodySyncService {
 					// batch requeues just this message. A dropped connection is handled
 					// by the outer catch (fail-fast on the whole remaining batch).
 					if (isConnectionDrop(error)) throw error;
+
+					// The one error in this frame that is the message's own fault. It
+					// reaches here from the parse call and nowhere else, so the S3, DDB
+					// and SQS work this same frame wraps cannot be mistaken for it and
+					// keeps requeueing below. The row is durable before the UID leaves
+					// `pending`, so the message is never let go of unrecorded.
+					if (
+						error instanceof BodyParseError &&
+						(await this.quarantineBodyParse(
+							await this.messageService.get(messageId),
+							location,
+							error,
+						))
+					) {
+						pending.delete(uid);
+						skippedCount++;
+						source.resume();
+						continue;
+					}
+
 					this.log.error?.(
 						{
 							messageId,
@@ -379,6 +459,55 @@ export class BodySyncService {
 		);
 
 		return this.buildResult(syncedMessageIds, skippedCount, failedMessageIds);
+	}
+
+	/**
+	 * Set a message aside because its body will not parse (issue #72).
+	 *
+	 * Returns false when this service was built without a quarantine writer, so
+	 * the caller falls back to requeueing rather than dropping a message no
+	 * record survives. The failure the row carries is the parser's, and only the
+	 * parser's — see {@link BodyParseError}.
+	 *
+	 * The fingerprint comes from the BodyPart rows metadata sync already wrote:
+	 * the body path streams raw bytes and has no FETCH result to read, and
+	 * re-reading headers the parser has just refused would be reading the very
+	 * thing that is broken.
+	 */
+	private async quarantineBodyParse(
+		message: MessageItem,
+		location: {
+			accountId: string;
+			accountConfigId: string;
+			mailboxPath: string;
+		},
+		error: BodyParseError,
+	): Promise<boolean> {
+		const config = this.quarantineConfig;
+		if (!config) return false;
+
+		const messageData = await this.envelopeService.getMessageData(
+			message.messageId,
+		);
+
+		await config.quarantineService.record(
+			{
+				accountId: location.accountId,
+				accountConfigId: location.accountConfigId,
+				mailboxId: config.mailboxId,
+				mailboxPath: location.mailboxPath,
+				uidValidity: config.uidValidity,
+				attempts: config.attempts,
+			},
+			message.uid,
+			{
+				stage: QuarantineFailureStage.BodyParse,
+				code: error.failureCode,
+				message: error.message,
+			},
+			shapeFromMessageData(message, messageData),
+		);
+		return true;
 	}
 
 	private buildResult(
@@ -749,7 +878,7 @@ export class BodySyncService {
 		}
 
 		const body = await this.storageService.retrieve(message.bodyStorageKey);
-		const parsed = await simpleParser(body);
+		const parsed = await parseMessageBody(body);
 		const classification = this.classifyMessage(parsed);
 
 		await this.messageService.update(message.messageId, classification);
@@ -1247,8 +1376,12 @@ export class BodySyncService {
 		accountConfigId: string,
 		body: Buffer,
 	): Promise<ParsedMail> {
-		// Parse the email body
-		const parsed = await simpleParser(body);
+		// The one operation on this path that can fail because of how the message
+		// is built. Its own try block lives in `parseMessageBody`, so the caller's
+		// frame — which also wraps the S3 body write, the parsed-body cache, the
+		// placement move, the label writes and the counter update — can tell the
+		// two apart and quarantine only this one (issue #72).
+		const parsed = await parseMessageBody(body);
 
 		// Extract snippet from text or HTML content
 		const snippet = extractSnippetFromEmail(
