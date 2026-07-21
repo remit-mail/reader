@@ -457,8 +457,13 @@ export class MessageMoveService {
 		// (issue #75).
 		const newMessageId = deriveCopyMessageId(messageId, destinationMailboxId);
 
-		// Create local copy with moving status (uid=0 until IMAP confirms)
-		await this.messageService.create({
+		// Upsert, not create: the id is deterministic, so a repeated copy or a
+		// retry after a partial failure (row written, event never delivered)
+		// re-derives the same id. create throws on the existing row and strands
+		// the copy at uid=0 with an undelivered event; upsert no-ops on the row
+		// and lets the event be re-enqueued below, keeping the operation
+		// idempotent and the copy re-drivable (issue #75).
+		await this.messageService.upsert({
 			messageId: newMessageId,
 			mailboxId: destinationMailboxId,
 			uid: 0, // Will be updated by worker after IMAP COPY
