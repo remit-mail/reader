@@ -159,19 +159,13 @@ const expectSearchResultsCount = async (
  * only a `continuationToken` is added when the response didn't already carry
  * one.
  *
- * Precondition: the query must match more rows than fill the viewport. The
- * injected token is not a real cursor — the server decodes it to `null` and so
- * answers the follow-up page with the first page again. That only stays
- * harmless while nothing asks for a follow-up, and `MessageList` asks as soon
- * as the list is scrolled within 200px of its own bottom, which a list shorter
- * than the viewport always is. Under that condition the same rows are appended
- * on a loop until the list finally outgrows the trigger, so a query used with
- * this helper has to be seeded past a screenful (see `NPM_MAIN_COUNT`).
- *
  * Returns a release: from the next response on, the real `hasMore` is handed
  * through untouched. A test that goes on to shrink the match set has to call
  * it, because forcing `hasMore` past that point states something the shrunken
  * set contradicts.
+ *
+ * Private to `searchWithMoreMatchesThanLoaded`, which pairs it with the
+ * fixture-size precondition it cannot be used safely without.
  */
 const forceMoreMatchesThanLoaded = async (
 	page: Page,
@@ -198,6 +192,88 @@ const forceMoreMatchesThanLoaded = async (
 	return () => {
 		forcing = false;
 	};
+};
+
+/** `MessageList`'s load-more threshold — it pages when scrolled this close to
+ * its own bottom. */
+const LOAD_MORE_TRIGGER_PX = 200;
+
+/** The virtualizer's scroll container: the one listbox holding message rows. */
+const messageListScroller = (page: Page): Locator =>
+	page
+		.locator('[role="listbox"]')
+		.filter({ has: page.locator("[data-message-row]") });
+
+/**
+ * The precondition `forceMoreMatchesThanLoaded` cannot enforce for itself, and
+ * the reason every query used with it has to be seeded past a screenful.
+ *
+ * The injected token is not a real cursor — the server decodes it to `null` and
+ * answers the follow-up page with the first page again. That stays harmless
+ * only while nothing asks for a follow-up, and `MessageList` asks as soon as
+ * the list is scrolled within `LOAD_MORE_TRIGGER_PX` of its own bottom, which a
+ * list shorter than its viewport always is. Below that size the same rows are
+ * appended on a loop until the list finally outgrows the trigger, and the spec
+ * fails somewhere downstream on a result count that looks arbitrary.
+ *
+ * Measured from `expectedCount` rather than the rows currently in the list,
+ * because the failure being guarded against is itself what inflates a live row
+ * count — a list already duplicating pages would measure as comfortably tall.
+ * Row height is read off the DOM, so a density or layout change moves the
+ * threshold with it.
+ */
+const expectListOutgrowsLoadMoreTrigger = async (
+	page: Page,
+	query: string,
+	expectedCount: number,
+): Promise<void> => {
+	const firstRow = rows(page).first();
+	await expect(firstRow).toBeVisible({ timeout: 30_000 });
+	const rowBox = await firstRow.boundingBox();
+	if (!rowBox || rowBox.height === 0) {
+		throw new Error("message row has no measurable height");
+	}
+	const viewportHeight = await messageListScroller(page).evaluate(
+		(el) => el.clientHeight,
+	);
+	const listHeight = rowBox.height * expectedCount;
+	const needed = viewportHeight + LOAD_MORE_TRIGGER_PX;
+	const rowsNeeded = Math.floor(needed / rowBox.height) + 1;
+	expect(
+		listHeight,
+		`The fixture for "${query}" is too small, so the list sits inside MessageList's ${LOAD_MORE_TRIGGER_PX}px load-more trigger: ` +
+			`${expectedCount} rows of ${rowBox.height}px come to ${listHeight}px, against a ${viewportHeight}px list viewport that needs ${needed}px cleared. ` +
+			"With hasMore forced, the list pages the phantom continuationToken forever and the server answers each pass with the first page again, " +
+			"so rows duplicate until the list outgrows the trigger and a later assertion fails on a count that looks arbitrary. " +
+			`Seed at least ${rowsNeeded} matching messages, or stop forcing hasMore for this query.`,
+	).toBeGreaterThan(needed);
+};
+
+/**
+ * Runs a search whose result set claims more matches exist beyond the loaded
+ * rows, which is the only state the escalation affordance appears in. Owns both
+ * halves of that: the forced `hasMore`, and the fixture size that makes forcing
+ * it safe. Returns `forceMoreMatchesThanLoaded`'s release.
+ */
+const searchWithMoreMatchesThanLoaded = async (
+	page: Page,
+	mailboxId: string,
+	query: string,
+	expectedCount: number,
+): Promise<() => void> => {
+	const release = await forceMoreMatchesThanLoaded(page, query);
+	try {
+		await gotoSearch(page, mailboxId, query);
+		await expectListOutgrowsLoadMoreTrigger(page, query, expectedCount);
+	} catch (error) {
+		// A list already inside the trigger keeps paging the phantom token for as
+		// long as it is forced, which buries the assertion above under a test
+		// timeout. Stop forcing so the failure reads as itself.
+		release();
+		throw error;
+	}
+	await expectSearchResultsCount(page, query, expectedCount);
+	return release;
 };
 
 test.describe("Entering selection mode", () => {
@@ -434,12 +510,13 @@ test.describe("Search-scoped escalation and bulk delete", () => {
 	// used only for seeding/cleanup bookkeeping.
 	const RUN_TAG = `run${Date.now()}`;
 	// Big enough that the search results fill more than one screen, which
-	// `forceMoreMatchesThanLoaded` requires: its forced `continuationToken` makes
-	// the list believe another page exists, and a result set that fits on screen
-	// sits permanently inside `MessageList`'s 200px load-more trigger and pages
-	// that phantom token forever, appending the first page again on every pass.
-	// At 72px a row (`COMFORTABLE_ITEM_HEIGHT`) this clears an 844px viewport
-	// several times over, and it stays clear even at compact density's 32px.
+	// `searchWithMoreMatchesThanLoaded` requires and checks: its forced
+	// `continuationToken` makes the list believe another page exists, and a
+	// result set that fits on screen sits permanently inside `MessageList`'s
+	// 200px load-more trigger and pages that phantom token forever, appending
+	// the first page again on every pass. At 72px a row (`COMFORTABLE_ITEM_HEIGHT`)
+	// this clears an 844px viewport several times over, and it stays clear even at
+	// compact density's 32px.
 	const NPM_MAIN_COUNT = 105;
 	const NPM_LATE_COUNT = 5;
 	const mainSubject = (i: number) => `npmbulk publish notice ${RUN_TAG} #${i}`;
@@ -491,9 +568,12 @@ test.describe("Search-scoped escalation and bulk delete", () => {
 		run,
 		api,
 	}) => {
-		await forceMoreMatchesThanLoaded(page, "npmbulk");
-		await gotoSearch(page, run.inboxId, "npmbulk");
-		await expectSearchResultsCount(page, "npmbulk", NPM_MAIN_COUNT);
+		await searchWithMoreMatchesThanLoaded(
+			page,
+			run.inboxId,
+			"npmbulk",
+			NPM_MAIN_COUNT,
+		);
 
 		await longPress(page, rows(page).first());
 		await selectAllCheckbox(page).click();
@@ -536,9 +616,12 @@ test.describe("Search-scoped escalation and bulk delete", () => {
 		run,
 		api,
 	}) => {
-		await forceMoreMatchesThanLoaded(page, "npmbulk");
-		await gotoSearch(page, run.inboxId, "npmbulk");
-		await expectSearchResultsCount(page, "npmbulk", NPM_MAIN_COUNT);
+		await searchWithMoreMatchesThanLoaded(
+			page,
+			run.inboxId,
+			"npmbulk",
+			NPM_MAIN_COUNT,
+		);
 
 		await longPress(page, rows(page).first());
 		await selectAllCheckbox(page).click();
