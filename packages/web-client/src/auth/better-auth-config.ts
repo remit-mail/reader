@@ -186,16 +186,18 @@ const isUsable = (token: CachedToken): boolean =>
 	token.expiresAt > nowSeconds();
 
 /**
- * A mint failure the held token is allowed to ride out: throttling (429), a
- * server-side fault (5xx), or a transport failure that never reached the server.
- * These say nothing about the session's validity, so keeping the token the tab
- * already holds is correct. A 4xx that is not 429 does not qualify — least of all
- * a 401/403, which is the server revoking the session.
+ * A mint failure the held token is allowed to ride out: a request timeout (408),
+ * throttling (429), a server-side fault (5xx), or a transport failure that never
+ * reached the server. These say nothing about the session's validity, so keeping
+ * the token the tab already holds is correct. A 4xx that is not 408 or 429 does
+ * not qualify — least of all a 401/403, which is the server revoking the session.
  */
 const isTransientMintFailure = (error: unknown): boolean => {
 	if (error instanceof NetworkError) return true;
 	if (error instanceof AuthTokenError) {
-		return error.status === 429 || (error.status ?? 0) >= 500;
+		return (
+			error.status === 408 || error.status === 429 || (error.status ?? 0) >= 500
+		);
 	}
 	return false;
 };

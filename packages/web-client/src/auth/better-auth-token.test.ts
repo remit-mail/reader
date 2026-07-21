@@ -230,6 +230,46 @@ describe("fetchBetterAuthToken", () => {
 		assert.equal(afterFault, held);
 	});
 
+	test("a 408 refresh keeps the still-valid token instead of discarding it", async () => {
+		const seed = stubTokenEndpoint(() =>
+			tokenResponse(nearExpiryJwt("still-valid")),
+		);
+		seed.release();
+		const held = await fetchBetterAuthToken();
+
+		const timedOut = stubTokenEndpoint(
+			() => new Response("", { status: 408, statusText: "Request Timeout" }),
+		);
+		timedOut.release();
+		const afterTimeout = await fetchBetterAuthToken();
+
+		assert.equal(timedOut.calls, 1);
+		assert.equal(afterTimeout, held);
+	});
+
+	test("an unclassified 4xx refresh throws without serving the held token", async () => {
+		const seed = stubTokenEndpoint(() =>
+			tokenResponse(nearExpiryJwt("still-valid")),
+		);
+		seed.release();
+		await fetchBetterAuthToken();
+
+		const rejected = stubTokenEndpoint(
+			() => new Response("", { status: 400, statusText: "Bad Request" }),
+		);
+		rejected.release();
+
+		await assert.rejects(
+			() => fetchBetterAuthToken(),
+			(error: unknown) => {
+				assert.ok(error instanceof AuthTokenError);
+				assert.equal(error.status, 400);
+				return true;
+			},
+		);
+		assert.equal(rejected.calls, 1);
+	});
+
 	test("a revoked mint (401) clears the held token and re-authenticates", async () => {
 		const seed = stubTokenEndpoint(() =>
 			tokenResponse(nearExpiryJwt("revoked-soon")),
