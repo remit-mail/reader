@@ -43,16 +43,11 @@ PUSH_LATEST="${PUSH_LATEST:-0}"
 CACHE_REF="${CACHE_REF:-}"
 CACHE_TO="${CACHE_TO:-1}"
 
-# The image roster, derived from the build contexts present in this tree — the
-# top-level apisix/ config and every docker/runtime/<service>. The open-core
-# export strips the Postgres-only pg-index-worker's runtime context, so it drops
-# out automatically and the exported roster matches the reader's compose without
-# editing this file.
-ALL_TARGETS=()
-[ -d apisix ] && ALL_TARGETS+=(apisix)
-for dir in docker/runtime/*/; do
-	ALL_TARGETS+=("$(basename "$dir")")
-done
+# shellcheck source=npm-scripts/lib/image-roster.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/image-roster.sh"
+image_roster
+assert_roster_nonempty
+echo "images-publish: roster is ${ALL_TARGETS[*]} (${#ALL_TARGETS[@]} targets)"
 
 # The node-service targets share the Dockerfile's ARG-parameterized
 # node-service-installed stage (SERVICE_NAME picks docker/runtime/<service>/

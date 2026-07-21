@@ -6,6 +6,7 @@ import type {
 	ThreadMessageItem,
 	UpdateThreadMessageInput,
 } from "@remit/data-ports";
+import { BadRequestError } from "@remit/data-ports/errors";
 import {
 	and,
 	asc,
@@ -23,6 +24,7 @@ import shortUuid from "short-uuid";
 import { v5 as uuidv5 } from "uuid";
 import type { Db } from "../db.js";
 import { NotFoundError } from "../error.js";
+import { decodeToken } from "../pagination.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import { fromMatch, subjectMatch } from "./thread-search-predicates.js";
 
@@ -64,12 +66,12 @@ function encodeDateCursor(sentDate: number, threadMessageId: string): string {
 	).toString("base64");
 }
 
-function decodeDateCursor(token: string): DateCursor | null {
-	try {
-		return JSON.parse(Buffer.from(token, "base64").toString()) as DateCursor;
-	} catch {
-		return null;
+function decodeDateCursor(token: string): DateCursor {
+	const decoded = decodeToken(token, "base64");
+	if (typeof decoded.s !== "number" || typeof decoded.id !== "string") {
+		throw new BadRequestError("Invalid continuationToken");
 	}
+	return { s: decoded.s, id: decoded.id };
 }
 
 function encodeAccountCursor(threadMessageId: string): string {
@@ -78,12 +80,12 @@ function encodeAccountCursor(threadMessageId: string): string {
 	);
 }
 
-function decodeAccountCursor(token: string): AccountCursor | null {
-	try {
-		return JSON.parse(Buffer.from(token, "base64").toString()) as AccountCursor;
-	} catch {
-		return null;
+function decodeAccountCursor(token: string): AccountCursor {
+	const decoded = decodeToken(token, "base64");
+	if (typeof decoded.id !== "string") {
+		throw new BadRequestError("Invalid continuationToken");
 	}
+	return { id: decoded.id };
 }
 
 // ─── Schema ──────────────────────────────────────────────────────────────────

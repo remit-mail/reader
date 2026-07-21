@@ -119,4 +119,31 @@ describe("formatDeleteToTrashTitle", () => {
 			"Move 3,412 messages to Trash?",
 		);
 	});
+
+	// #109: an escalated-predicate count is paged once by `countMatches` and
+	// re-paged independently by the delete itself — never provably the number
+	// that gets deleted. `isEstimate` says so instead of stating an exact
+	// number the run may not honour.
+	describe("isEstimate (#109 — an escalated-predicate count, not a materialized selection)", () => {
+		test("prefixes 'about' for a plural estimate", () => {
+			assert.strictEqual(
+				formatDeleteToTrashTitle(3412, true),
+				"Move about 3,412 messages to Trash?",
+			);
+		});
+
+		test("prefixes 'about' for a singular estimate", () => {
+			assert.strictEqual(
+				formatDeleteToTrashTitle(1, true),
+				"Move about 1 message to Trash?",
+			);
+		});
+
+		test("defaults to false — a bounded selection's count stays exact", () => {
+			assert.strictEqual(
+				formatDeleteToTrashTitle(3412),
+				formatDeleteToTrashTitle(3412, false),
+			);
+		});
+	});
 });

@@ -286,7 +286,7 @@ export function SwipeableRow({
 					e.stopPropagation();
 					onLongPress();
 				}}
-				className="inline-flex size-7 shrink-0 items-center justify-center rounded-full"
+				className="-m-2 inline-flex size-11 shrink-0 items-center justify-center rounded-full"
 			>
 				<Avatar name={thread.fromName} email={thread.fromEmail} size="sm" />
 			</button>

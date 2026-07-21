@@ -40,7 +40,7 @@ export const Default: Story = {
 
 /** Phone width (390 px): the same flat starred list, single-pane. */
 export const Phone: Story = {
-	parameters: { viewport: { defaultViewport: "mobile1" } },
+	globals: { viewport: { value: "mobile" } },
 	render: () => (
 		<AppShell
 			accounts={navAccounts}

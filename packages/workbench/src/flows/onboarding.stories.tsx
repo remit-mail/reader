@@ -19,20 +19,6 @@ export default meta;
 
 type Story = StoryObj;
 
-// Phone width called out in the parity audit (#780): the Servers grid must not
-// clip the Security select here.
-const phone390 = {
-	viewport: {
-		options: {
-			phone390: {
-				name: "Phone 390",
-				styles: { width: "390px", height: "844px" },
-			},
-		},
-		defaultViewport: "phone390",
-	},
-};
-
 /**
  * Click-through walkthrough: drives the real step components by their own
  * footer buttons. Next/Back advance the shared step index; the final "Go to
@@ -85,7 +71,7 @@ export const ConnectorPickerMicrosoft: Story = {
  * visible without scrolling (#849).
  */
 export const ConnectorPickerPhone: Story = {
-	parameters: phone390,
+	globals: { viewport: { value: "mobile" } },
 	render: () => <StepConnector />,
 };
 
@@ -93,7 +79,7 @@ export const ConnectorPickerPhone: Story = {
  * Microsoft tile selected at phone width — CTA bar must stay reachable (#849).
  */
 export const ConnectorPickerMicrosoftPhone: Story = {
-	parameters: phone390,
+	globals: { viewport: { value: "mobile" } },
 	render: () => <StepConnector selected="microsoft" />,
 };
 
@@ -122,7 +108,7 @@ export const ServerConfirm: Story = {
 
 /** Same Servers step at phone width — Security select must stay reachable. */
 export const ServerConfirmPhone: Story = {
-	parameters: phone390,
+	globals: { viewport: { value: "mobile" } },
 	render: () => <StepServers detected />,
 };
 

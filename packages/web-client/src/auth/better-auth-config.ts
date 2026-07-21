@@ -29,12 +29,78 @@ export const authClient = createAuthClient();
 
 const EXPIRY_SKEW_SECONDS = 60;
 
+// How long to stop reaching for the token endpoint after a mint is throttled.
+// A near-expiry token is still usable for `EXPIRY_SKEW_SECONDS`, so backing off
+// keeps a throttled window from turning every request into another mint attempt
+// against an endpoint that already said no.
+const REFRESH_BACKOFF_SECONDS = 30;
+
+// Survives page reloads and in-tab navigations so a fresh page load reuses the
+// session's token instead of minting a new one. Cleared on sign-out. Scoped to
+// the tab, not the origin: the token is short-lived and the httpOnly session
+// cookie remains the real credential.
+const STORAGE_KEY = "remit.better-auth.token";
+
 interface CachedToken {
 	value: string;
 	expiresAt: number;
 }
 
+const tokenStore = (): Storage | null => {
+	try {
+		return globalThis.sessionStorage ?? null;
+	} catch {
+		return null;
+	}
+};
+
+const readStore = (): CachedToken | null => {
+	const raw = tokenStore()?.getItem(STORAGE_KEY);
+	if (!raw) return null;
+	try {
+		const parsed: unknown = JSON.parse(raw);
+		if (
+			parsed &&
+			typeof parsed === "object" &&
+			typeof (parsed as CachedToken).value === "string" &&
+			typeof (parsed as CachedToken).expiresAt === "number"
+		) {
+			return {
+				value: (parsed as CachedToken).value,
+				expiresAt: (parsed as CachedToken).expiresAt,
+			};
+		}
+	} catch {
+		// A corrupt entry is treated as no token.
+	}
+	return null;
+};
+
+const writeStore = (token: CachedToken | null): void => {
+	const store = tokenStore();
+	if (!store) return;
+	try {
+		if (!token) {
+			store.removeItem(STORAGE_KEY);
+			return;
+		}
+		store.setItem(STORAGE_KEY, JSON.stringify(token));
+	} catch {
+		// Storage being unavailable (private mode, quota) is not fatal: the
+		// in-memory cache still serves the current page.
+	}
+};
+
 let cached: CachedToken | null = null;
+let backoffUntil = 0;
+
+// Hydrate the in-memory cache from storage on first read of a page load, so a
+// token minted before a reload is reused rather than re-minted.
+const currentCache = (): CachedToken | null => {
+	if (cached) return cached;
+	cached = readStore();
+	return cached;
+};
 
 const nowSeconds = (): number => Math.floor(Date.now() / 1000);
 
@@ -103,6 +169,8 @@ const mint = (): Promise<string> => {
 	inFlight = requestToken()
 		.then((token) => {
 			cached = { value: token, expiresAt: decodeExp(token) };
+			writeStore(cached);
+			backoffUntil = 0;
 			return token;
 		})
 		.finally(() => {
@@ -111,23 +179,49 @@ const mint = (): Promise<string> => {
 	return inFlight;
 };
 
+const isFresh = (token: CachedToken): boolean =>
+	token.expiresAt - EXPIRY_SKEW_SECONDS > nowSeconds();
+
+const isUsable = (token: CachedToken): boolean =>
+	token.expiresAt > nowSeconds();
+
 /**
  * Return a valid RS256 JWT for the current session, minting a fresh one only
  * when the cached token is missing or within the skew window of expiry. The API
  * interceptor attaches it as a Bearer token; the backend verifies it against the
  * JWKS.
  *
- * Never resolves to null: a failed mint throws. Returning null would put the
- * request on the wire without an Authorization header, and the backend answers
- * that with a 401 that names a missing token rather than the mint that failed.
+ * A throttled or failed refresh never discards a token that is still usable: the
+ * request keeps the session it already holds and the endpoint is left alone
+ * until the backoff clears. Only a mint with nothing usable to fall back to
+ * throws — returning null would put the request on the wire without an
+ * Authorization header, and the backend answers that with a 401 that names a
+ * missing token rather than the mint that failed.
  */
 export const fetchBetterAuthToken = async (): Promise<string> => {
-	if (cached && cached.expiresAt - EXPIRY_SKEW_SECONDS > nowSeconds()) {
-		return cached.value;
+	const current = currentCache();
+
+	if (current && isFresh(current)) {
+		return current.value;
 	}
-	return mint();
+
+	if (current && isUsable(current) && nowSeconds() < backoffUntil) {
+		return current.value;
+	}
+
+	try {
+		return await mint();
+	} catch (error) {
+		if (current && isUsable(current)) {
+			backoffUntil = nowSeconds() + REFRESH_BACKOFF_SECONDS;
+			return current.value;
+		}
+		throw error;
+	}
 };
 
 export const resetBetterAuthTokenCache = (): void => {
+	backoffUntil = 0;
+	writeStore(null);
 	cached = null;
 };

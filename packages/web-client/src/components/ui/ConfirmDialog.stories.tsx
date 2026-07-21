@@ -34,6 +34,21 @@ export const OneMessage: Story = {
 	},
 };
 
+/**
+ * An escalated (search-predicate) delete: the count was paged once by
+ * `countMatches` and the delete re-pages the same predicate independently, so
+ * it is not provably the number that gets deleted (#109). "about" and the
+ * description say so up front rather than stating an exact number the run may
+ * not honour.
+ */
+export const EscalatedEstimate: Story = {
+	args: {
+		title: "Move about 3,412 messages to Trash?",
+		description:
+			"This count is a snapshot — new mail arriving during the delete won't be included. You can restore what's deleted from Trash later.",
+	},
+};
+
 /** The mutation is in flight: the confirm button disables rather than
  *  allowing a second concurrent delete request. */
 export const Busy: Story = {

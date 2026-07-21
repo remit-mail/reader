@@ -17,6 +17,7 @@ import {
 	countMatches,
 	type DeleteRunOutcome,
 	type FetchIdsPage,
+	honestProgress,
 	runChunkedDelete,
 	runPredicateDelete,
 } from "@/lib/bulk-delete";
@@ -190,8 +191,11 @@ export const useEscalatedDelete = ({
 		async (ids?: string[]): Promise<DeleteRunOutcome> => {
 			cancelRef.current = false;
 			setIsDeleting(true);
+			// `honestProgress` widens `total` if `done` overtakes it (#109) — the
+			// predicate can match more by the time the delete re-pages it than
+			// `countMatches` saw, and the bar must never show more done than out of.
 			const onProgress = (progress: BulkDeleteProgress) =>
-				setDeleteProgress(progress);
+				setDeleteProgress(honestProgress(progress));
 
 			const outcome =
 				ids !== undefined

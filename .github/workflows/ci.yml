@@ -25,6 +25,30 @@ jobs:
       - name: Installer — shellcheck
         run: shellcheck install.sh
 
+      - name: Release scripts — shellcheck
+        run: |
+          shellcheck -x npm-scripts/release-tag.sh npm-scripts/release-check-tag.sh \
+            npm-scripts/release-check-annotation.sh \
+            npm-scripts/lib/image-roster.sh npm-scripts/lib/manifest-check.sh \
+            npm-scripts/lib/summary-check.sh npm-scripts/lib/tag-object-check.sh
+
+      # No workspace install needed: these test only the pure decision
+      # functions in the npm-scripts/lib/*.mjs suites (built-in
+      # node:child_process, node:fs, node:test — no @remit/* or third-party
+      # imports).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Release scripts — unit tests
+        run: npm run test:release-scripts-guard
+
+      - name: Publish closure guard — unit tests
+        run: npm run test:closure-guard
+
+      - name: Patch guard — unit tests
+        run: npm run test:patch-guard
+
       - name: Manifests — JSON syntax
         run: |
           python3 -c 'import json,sys; [json.load(open(f)) for f in sys.argv[1:]]' \
@@ -35,7 +59,7 @@ jobs:
           python3 -c 'import yaml,sys; [yaml.safe_load(open(f)) for f in sys.argv[1:]]' \
             .github/workflows/ci.yml .github/workflows/storybook-pages.yml \
             .github/workflows/images.yml .github/workflows/publish.yml \
-            .github/actions/setup/action.yml
+            .github/workflows/release.yml .github/actions/setup/action.yml
 
       - name: Deploy stack — SQLite compose validates
         run: |
@@ -141,6 +165,54 @@ jobs:
         if: always()
         run: npm run e2e:dev:down
 
+  # The pre-publish gate: pack every open-core package, check the publish
+  # closure, and install the result from the public registry into a clean
+  # directory. It lives here rather than beside the real publish job in
+  # publish.yml because only a job in this workflow can be a dependency of the
+  # gate below, and an advisory publish check is one a broken publish surface
+  # merges straight past.
+  #
+  # Pull requests only. On main the same content is published for real by
+  # publish.yml, and a dry run of a publish that is about to happen gates
+  # nothing. The gate below accepts this skip on push events alone.
+  #
+  # Installs directly rather than through .github/actions/setup: this job must
+  # resolve the published closure against a tree built the way a consumer's
+  # would be, not one restored from a workspace cache.
+  publish-dry-run:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund --loglevel=error
+      - run: make
+      - run: npm run release:dry-run
+      # Guards install-ability of the published set: a clean directory, outside
+      # the repo, installing @remit/backend alone must pull and resolve its full
+      # transitive @remit closure off the public registry — the failure mode this
+      # pipeline exists to prevent. Each manifest declares its @remit imports, so
+      # one package drags in the rest.
+      - name: Clean-install acceptance
+        run: |
+          tmp=$(mktemp -d)
+          cd "$tmp"
+          npm init -y >/dev/null
+          npm install @remit/backend --loglevel=error
+          node -e "for (const p of ['@remit/backend','@remit/data-ports','@remit/drizzle-service','@remit/domain-enums','@remit/api-openapi-types','@remit/mailbox-service','@remit/search-service','@remit/storage-service','@remit/auth-service','@remit/secrets-service','@remit/sqs-client','@remit/mail-oauth-service','@remit/logger-lambda','@remit/api-zod-schemas','@remit/drizzle-pg-schema','@remit/drizzle-sqlite-schema']) require.resolve(p)"
+
+      # Consumer-side acceptance for the web client's published build surface:
+      # off the packed tarball, assert the harness toolchain is declared (not
+      # devDependencies-only) and that `./vite-preset` plus its toolchain imports
+      # resolve in a clean dir with only the declared peers installed.
+      - name: Web client consumer acceptance
+        run: npm run check:web-client-consumer
+
   # The one status check branch protection requires. Every other job in this
   # workflow is a dependency, so jobs can be added, renamed, or split here
   # without ever touching the protection settings — add the job to `needs` and
@@ -149,14 +221,15 @@ jobs:
   # A `needs:` job is skipped, not failed, when a dependency fails, and a skipped
   # required check reads as passing to branch protection. Hence `always()` plus
   # an assertion per dependency: `failure`, `cancelled`, and any unaccounted-for
-  # `skipped` all fail here. The single legitimate skip is e2e-dev on main.
+  # `skipped` all fail here. The only legitimate skips are the two pull-request
+  # only jobs, e2e-dev and publish-dry-run, on main.
   #
   # The count guard is the backstop for the two-places problem: a job wired into
   # `needs` but not asserted below fails the gate rather than riding along
   # unchecked.
   gate:
     runs-on: ubuntu-latest
-    needs: [validate, lint, typecheck, test, e2e-dev]
+    needs: [validate, lint, typecheck, test, e2e-dev, publish-dry-run]
     if: always()
     steps:
       - name: Require every job to have succeeded
@@ -166,7 +239,8 @@ jobs:
           TYPECHECK: ${{ needs.typecheck.result }}
           TEST: ${{ needs.test.result }}
           E2E_DEV: ${{ needs['e2e-dev'].result }}
-          E2E_DEV_MAY_SKIP: ${{ github.event_name != 'pull_request' }}
+          PUBLISH_DRY_RUN: ${{ needs['publish-dry-run'].result }}
+          PR_ONLY_MAY_SKIP: ${{ github.event_name != 'pull_request' }}
           ALL_RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |
           set -u
@@ -194,7 +268,8 @@ jobs:
           require lint "$LINT"
           require typecheck "$TYPECHECK"
           require test "$TEST"
-          require e2e-dev "$E2E_DEV" "$E2E_DEV_MAY_SKIP"
+          require e2e-dev "$E2E_DEV" "$PR_ONLY_MAY_SKIP"
+          require publish-dry-run "$PUBLISH_DRY_RUN" "$PR_ONLY_MAY_SKIP"
 
           wired=0
           for _ in $ALL_RESULTS; do wired=$((wired + 1)); done

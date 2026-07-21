@@ -76,7 +76,7 @@ export const InlineReply: Story = {
 
 export const MobileSheet: Story = {
 	name: "Mobile sheet — Send within viewport",
-	parameters: { viewport: { defaultViewport: "mobile1" } },
+	globals: { viewport: { value: "mobile" } },
 	render: () => (
 		<div className="flex h-[95dvh] w-[390px] flex-col rounded-t-lg border border-line bg-canvas">
 			<div className="mx-auto mt-2 mb-1 h-1.5 w-12 rounded-full bg-fg-muted/30" />
