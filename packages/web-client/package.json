@@ -29,7 +29,7 @@
     "build:dist": "npm run generate:routes && node --import tsx harness/build.mjs",
     "preview": "vite preview",
     "test:typecheck": "npm run generate:routes && tsgo --noEmit",
-    "test:run": "node --import tsx --import ./test-support/register.mjs --test 'src/**/*.test.ts'",
+    "test:run": "node --import tsx --import ./test-support/register.mjs --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/**/*.test.tsx' --test-coverage-lines=50 --test 'src/**/*.test.ts'",
     "test": "npm run test:typecheck && npm run test:run"
   },
   "peerDependencies": {
