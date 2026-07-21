@@ -73,6 +73,29 @@ export const deriveMessageIdFromSource = (
 	source: MessageIdSource,
 ): string => deriveMessageId(accountId, normalizeMessageIdHeader(source));
 
+/**
+ * Identity of a message copied into another folder (issue #75). Derived from
+ * the source message and the destination mailbox so a copy is deterministic:
+ * copying the same mail into the same folder twice — a replayed COPY event or a
+ * repeated user copy — resolves to one row instead of a fresh unreachable
+ * duplicate each time. A random id, which is what the copy path used before,
+ * gave every attempt a new identity that no later sync or delete could reach.
+ *
+ * The destination mailbox is part of the name so a copy of one mail into two
+ * folders is two rows, one per folder. It also keeps this id out of the space
+ * sync assigns: sync keys a message on `deriveMessageId(accountId,
+ * messageIdHeader)`, which is folder-independent, so the copy row can never
+ * collide with, or be overwritten by, the canonical synced row.
+ */
+export const deriveCopyMessageId = (
+	sourceMessageId: string,
+	destinationMailboxId: string,
+): string =>
+	base36uuidv5(
+		`messagecopy:${sourceMessageId}:${destinationMailboxId}`,
+		REMIT_NAMESPACE,
+	);
+
 export const deriveThreadId = (
 	accountId: string,
 	rootMessageIdHeader: string,
