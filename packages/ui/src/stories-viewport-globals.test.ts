@@ -5,10 +5,10 @@ import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
 /**
- * Storybook 9 dropped `parameters.viewport.defaultViewport` (the Storybook
- * 6/7 API) — it is silently ignored, so a story written against it renders
- * full width instead of the intended breakpoint. The replacement is a
- * per-story viewport global: `globals: { viewport: { value: "mobile" } }`
+ * Storybook 9 dropped `parameters.viewport.defaultViewport` (present through
+ * Storybook 8) — it is silently ignored, so a story written against it
+ * renders full width instead of the intended breakpoint. The replacement is
+ * a per-story viewport global: `globals: { viewport: { value: "mobile" } }`
  * (#67, #68).
  */
 
@@ -32,7 +32,11 @@ const storyFiles = (root: string): string[] => {
 };
 
 describe("story files use the viewport globals pattern (#68)", () => {
-	const roots = [here, resolve(here, "../../workbench/src")];
+	const roots = [
+		here,
+		resolve(here, "../../workbench/src"),
+		resolve(here, "../../web-client/src"),
+	];
 
 	it("scans at least one story file", () => {
 		const files = roots.flatMap((root) => storyFiles(root));

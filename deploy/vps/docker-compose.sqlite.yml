@@ -114,18 +114,55 @@ services:
         condition: service_completed_successfully
       volume-init:
         condition: service_completed_successfully
+    # /health does a trivial read against the relational store (RFC 037 D5,
+    # R9) — this is what makes "healthy" mean the backend can actually reach
+    # its database, not just that the process is up. start_period covers a
+    # cold boot (better-auth's own connection, dynamic imports) on a modest
+    # VPS under load without weakening the check once it is past that.
+    healthcheck:
+      test:
+        ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:8080/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
     restart: unless-stopped
 
   apisix:
     image: ghcr.io/remit-mail/reader/apisix:${REMIT_TAG:-latest}
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    # No curl/wget/node in apache/apisix's debian base — resty (OpenResty's
+    # own Lua CLI, already on PATH) opens the cosocket itself and checks the
+    # generated /health route's status line, so this adds nothing to the image.
+    healthcheck:
+      test:
+        - CMD
+        - resty
+        - -e
+        - 'local sock = ngx.socket.tcp() sock:settimeout(2000) local ok = sock:connect("127.0.0.1", 9080) if not ok then os.exit(1) end local sent = sock:send("GET /health HTTP/1.0\r\nHost: localhost\r\n\r\n") if not sent then os.exit(1) end local line = sock:receive("*l") sock:close() if line and line:match("^HTTP/1%.[01]%s+200") then os.exit(0) else os.exit(1) end'
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
     restart: unless-stopped
 
   web:
     image: ghcr.io/remit-mail/reader/web:${REMIT_TAG:-latest}
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    # `/` (not the static server's own bare `/health`) so the check exercises
+    # the same file read a real page load does — a missing/unmounted dist/
+    # tree fails this the way it would fail a browser.
+    healthcheck:
+      test:
+        ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:8080/',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
     restart: unless-stopped
 
   caddy:
@@ -141,6 +178,11 @@ services:
       - ${TAILSCALED_SOCKET:-/dev/null}:/var/run/tailscale/tailscaled.sock
       - caddy_data:/data
       - caddy_config:/config
+    # Not gated on apisix/web being healthy: RFC 037 D5 requires caddy to stay
+    # up and serve 502s through an outage (it is the only thing the operator's
+    # browser talks to while a self-update is applying). Gating it here would
+    # mean a broken apisix/web on boot takes caddy down with it — no route to
+    # the UI, no way to reach the self-update surface to roll back.
     depends_on:
       - apisix
       - web
