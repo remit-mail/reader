@@ -41,9 +41,13 @@ function validate(summary) {
 }
 
 function readShellSummaryMaxLength() {
-	return execFileSync("bash", ["-c", 'source "$1"; echo "$SUMMARY_MAX_LENGTH"', "read", LIB], {
-		encoding: "utf8",
-	}).trim();
+	return execFileSync(
+		"bash",
+		["-c", 'source "$1"; echo "$SUMMARY_MAX_LENGTH"', "read", LIB],
+		{
+			encoding: "utf8",
+		},
+	).trim();
 }
 
 describe("validate_summary", () => {

@@ -104,7 +104,9 @@ function runUnit({ name, command: [file, args] }) {
 }
 
 async function main() {
-	const units = (await discoverWorkspaces()).sort((a, b) => b.weight - a.weight);
+	const units = (await discoverWorkspaces()).sort(
+		(a, b) => b.weight - a.weight,
+	);
 	const requested = Number.parseInt(process.env.TEST_CONCURRENCY ?? "", 10);
 	const limit = Number.isNaN(requested)
 		? Math.max(1, Math.min(availableParallelism(), 4))

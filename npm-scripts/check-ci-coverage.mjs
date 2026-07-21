@@ -77,7 +77,7 @@ if (violations.length > 0) {
 	for (const violation of violations) console.error(`  ${violation}`);
 	console.error(
 		"\nA suite or check that never runs reads as coverage and proves nothing.\n" +
-			'A script that genuinely cannot run in CI goes in package.json under\n' +
+			"A script that genuinely cannot run in CI goes in package.json under\n" +
 			'"ciCoverage": { "allowUnreachable": { "<script>": "<why>" } }, which is\n' +
 			"reviewable in the diff and fails once the reason stops holding.",
 	);
