@@ -4,6 +4,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { jwt } from "better-auth/plugins";
 import { drizzle as drizzlePg } from "drizzle-orm/node-postgres";
 import pg from "pg";
+import { createInstanceOwnerStore } from "./instance-owner.js";
 import * as authSchema from "./schema/auth-schema.js";
 import * as authSchemaSqlite from "./schema/auth-schema-sqlite.js";
 
@@ -80,6 +81,10 @@ export const createAuth = async (
 	config: AuthConfig,
 ): Promise<BetterAuthInstance> => {
 	const database = await buildAuthAdapter(config);
+	const instanceOwnerStore = await createInstanceOwnerStore({
+		provider: config.provider === "sqlite" ? "sqlite" : "pg",
+		connectionString: config.connectionString,
+	});
 
 	return betterAuth({
 		secret: config.secret,
@@ -119,6 +124,19 @@ export const createAuth = async (
 		session: { modelName: "auth_session" },
 		account: { modelName: "auth_account" },
 		verification: { modelName: "auth_verification" },
+		// RFC 037 D8: the instance owner is whoever registers first. Every
+		// successful user creation (self-signup or OAuth) attempts the claim;
+		// the singleton row's primary key is the conditional write, so only the
+		// first one to land keeps it.
+		databaseHooks: {
+			user: {
+				create: {
+					after: async (user) => {
+						await instanceOwnerStore.claimIfUnclaimed(user.id);
+					},
+				},
+			},
+		},
 		plugins: [
 			jwt({
 				schema: { jwks: { modelName: "auth_jwks" } },
