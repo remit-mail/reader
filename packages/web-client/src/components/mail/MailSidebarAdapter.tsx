@@ -128,6 +128,7 @@ function useSelectedNavId(): string {
 	const location = useLocation();
 	const params = useParams({ strict: false }) as { mailboxId?: string };
 
+	if (location.pathname.startsWith("/settings")) return "settings";
 	if (location.pathname.startsWith("/mail/outbox")) return "outbox";
 	if (location.pathname.startsWith("/mail/flagged")) return "flagged";
 	if (params.mailboxId) return params.mailboxId;
@@ -262,6 +263,19 @@ export function MailSidebarAdapter({
 				<Link
 					to="/mail/flagged"
 					search={{ q: undefined, selectedMessageId: undefined }}
+					onClick={() => onClick?.()}
+					className={className}
+					aria-label={ariaLabel}
+					title={title}
+				>
+					{children}
+				</Link>
+			);
+		}
+		if (navId === "settings") {
+			return (
+				<Link
+					to="/settings/accounts"
 					onClick={() => onClick?.()}
 					className={className}
 					aria-label={ariaLabel}
