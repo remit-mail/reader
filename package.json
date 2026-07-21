@@ -37,6 +37,7 @@
     "test:scripts": "node npm-scripts/test-script-suites.mjs",
     "manifest:write": "node npm-scripts/write-update-manifest.mjs",
     "manifest:copy-to-pages": "bash npm-scripts/copy-update-manifest.sh",
+    "coverage:audit": "node npm-scripts/coverage-audit.mjs",
     "test:ci": "node npm-scripts/test-parallel.mjs",
     "e2e": "npm run e2e:up && npm run e2e:test; status=$?; npm run e2e:down; exit $status",
     "e2e:up": "bash npm-scripts/e2e-up.sh",
