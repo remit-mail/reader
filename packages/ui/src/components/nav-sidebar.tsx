@@ -12,6 +12,7 @@ import {
 	Mails,
 	Search,
 	Send,
+	Settings,
 	Sparkles,
 	Star,
 	Trash2,
@@ -620,6 +621,17 @@ export function NavSidebar({
 			    starts at the top; the datum bar exists only over the
 			    list/reading/intelligence panes */}
 			{navBody}
+			<div className="border-t border-line px-2 py-2">
+				<NavItem
+					navId="settings"
+					linkComponent={linkComponent}
+					icon={<Settings className="size-4" />}
+					label="Settings"
+					ariaLabel="Settings"
+					active={selectedNavId === "settings"}
+					onClick={() => onSelectNav?.("settings")}
+				/>
+			</div>
 		</aside>
 	);
 }

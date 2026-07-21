@@ -77,6 +77,8 @@ export const Brief: Story = { args: { selectedNavId: "brief" } };
 
 export const Flagged: Story = { args: { selectedNavId: "flagged" } };
 
+export const Settings: Story = { args: { selectedNavId: "settings" } };
+
 export const ManyFolders: Story = {
 	args: {
 		accounts: [manyFoldersAccount],

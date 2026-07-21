@@ -155,6 +155,7 @@ describe("AppShell nav: pane vs slide-over by width (#784)", () => {
 	it("≥1024px: nav is a persistent pane, no trigger", () => {
 		const html = render({ flatList: true, initialWidth: 1100 });
 		assert.match(html, navMarker, "nav renders as a pane");
+		assert.match(html, /Settings/, "the desktop nav pins a Settings footer");
 		assert.doesNotMatch(
 			html,
 			navTriggerMarker,
