@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { deriveQuarantineId, quarantineMessageIdHash } from "./id.js";
+import {
+	deriveCopyMessageId,
+	deriveMessageId,
+	deriveQuarantineId,
+	quarantineMessageIdHash,
+} from "./id.js";
 
 const ACCOUNT = "acct-1";
 const MAILBOX = "mbx-1";
@@ -27,6 +32,38 @@ describe("deriveQuarantineId", () => {
 		const base = deriveQuarantineId(ACCOUNT, MAILBOX, 1, 40217);
 		assert.notEqual(base, deriveQuarantineId(ACCOUNT, "mbx-2", 1, 40217));
 		assert.notEqual(base, deriveQuarantineId("acct-2", MAILBOX, 1, 40217));
+	});
+});
+
+describe("deriveCopyMessageId", () => {
+	const SOURCE = deriveMessageId(ACCOUNT, "<abc@example.com>");
+	const DEST = "mbx-archive";
+
+	it("is stable for the same source and destination (idempotent copy)", () => {
+		assert.equal(
+			deriveCopyMessageId(SOURCE, DEST),
+			deriveCopyMessageId(SOURCE, DEST),
+		);
+	});
+
+	it("separates a copy of one mail into two folders", () => {
+		assert.notEqual(
+			deriveCopyMessageId(SOURCE, DEST),
+			deriveCopyMessageId(SOURCE, "mbx-other"),
+		);
+	});
+
+	it("separates copies of two different mails into one folder", () => {
+		assert.notEqual(
+			deriveCopyMessageId(SOURCE, DEST),
+			deriveCopyMessageId(deriveMessageId(ACCOUNT, "<xyz@example.com>"), DEST),
+		);
+	});
+
+	it("never equals the folder-independent id sync derives", () => {
+		// Sync keys a message on deriveMessageId; the copy id folds in the
+		// destination mailbox, so the two can never collide.
+		assert.notEqual(deriveCopyMessageId(SOURCE, DEST), SOURCE);
 	});
 });
 
