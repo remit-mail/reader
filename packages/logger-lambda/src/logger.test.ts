@@ -135,7 +135,7 @@ describe("remit-logger-lambda", () => {
 	it("trace maps to Powertools trace", () => {
 		const log = createLogger();
 		log.trace("trace me");
-		assert.deepEqual(lastCall(logTrace), ["PROOF-THIS-SUITE-RUNS"]);
+		assert.deepEqual(lastCall(logTrace), ["trace me"]);
 	});
 
 	it("child creates a Powertools child and appends bindings", () => {
