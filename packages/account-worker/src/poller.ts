@@ -9,11 +9,14 @@ import { fanoutHandler, finalizeHandler } from "./index.js";
  * CI (see AGENTS.md worker roster notes). This is the standalone
  * production entrypoint for the dedicated image.
  *
- * The fanout worker's Cognito sign-out and the finalize worker's CloudFront
- * invalidation are AWS-only calls with no portable counterpart yet — on a
- * non-AWS deployment those specific steps of the deletion cascade will
- * error if account deletion is exercised. That is a pre-existing gap in
- * the application code, not something this packaging change fixes.
+ * The deployment-specific steps of the cascade — sign-out, content
+ * invalidation, storage cleanup, and the row cascade — resolve through the
+ * deletion capabilities seam (deletion-capabilities.ts): AWS runs Cognito
+ * global sign-out and CloudFront invalidation; the relational self-host
+ * backends run the no-op counterparts and a filesystem/Drizzle cascade. The
+ * imap-worker stop signal is a no-op acknowledgement whose queue is optional,
+ * skipped where it is not provisioned. Account deletion completes on every
+ * deployment flavor.
  */
 const log = createLogger();
 

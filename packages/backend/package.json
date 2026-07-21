@@ -72,11 +72,15 @@
     "@remit/sqs-client": "*",
     "@aws-sdk/client-secrets-manager": "*",
     "@aws-sdk/client-sqs": "*",
+    "better-sqlite3": "^12.11.1",
     "drizzle-orm": "^0.45.2",
     "expect-env": "*",
     "openapi-backend": "*",
     "p-map": "*",
-    "@types/aws-lambda": "*"
+    "pg": "^8.0.0",
+    "@types/aws-lambda": "*",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/pg": "^8.0.0"
   },
   "publishConfig": {
     "access": "public"

@@ -16,6 +16,7 @@ import { serveContent } from "./content-handler.js";
 import { resolveContentPath } from "./content-path.js";
 import { parseAllowedOrigins, resolveAllowOrigin } from "./cors.js";
 import { createLambdaContext, createLambdaEvent } from "./lambda-helpers.js";
+import { checkRelationalStore } from "./relational-health.js";
 
 const app = express();
 
@@ -123,7 +124,12 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
 app.get("/.well-known/appspecific/com.chrome.devtools.json", () => ({}));
 
-app.get("/health", (_req: Request, res: Response) => {
+app.get("/health", async (_req: Request, res: Response) => {
+	const relationalStoreReachable = await checkRelationalStore();
+	if (!relationalStoreReachable) {
+		res.status(503).json({ status: "unhealthy" });
+		return;
+	}
 	res.json({
 		status: "ok",
 		timestamp: new Date().toISOString(),

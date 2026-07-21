@@ -270,11 +270,12 @@ export const buildListThreadMessagesOptions = (query: {
  * A ThreadMessage row is keyed by (threadId, messageId), and a messageId is
  * derived from the account plus the RFC 5322 Message-ID, so the same mail
  * synced from two folders is one row — the mailbox a thread spans is not what
- * duplicates it. `MessageMoveService.copyMessage` is the exception: it mints a
- * random id for the copy, so a copied message becomes a second row in the same
- * thread carrying the same `messageIdHeader`. Reading the whole thread rather
- * than one mailbox of it (#46) is what makes both rows visible at once, and two
- * entries for one message is never what a conversation should show.
+ * duplicates it. `MessageMoveService.copyMessage` is the exception: a copy is a
+ * per-folder placement with its own derived id (`deriveCopyMessageId`), so a
+ * copied message is a second row in the same thread carrying the same
+ * `messageIdHeader`. Reading the whole thread rather than one mailbox of it
+ * (#46) is what makes both rows visible at once, and two entries for one message
+ * is never what a conversation should show.
  *
  * The oldest row wins, so the original outlives the copy, with `threadMessageId`
  * breaking ties. Both are independent of sort order, so `asc` and `desc` keep

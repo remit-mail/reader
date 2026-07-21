@@ -28,8 +28,14 @@ export const getSqsClient = (queueUrl: string): SQSClient => {
 // sites.
 export const getSearchIndexQueueUrl = (): string =>
 	env.SQS_QUEUE_URL_SEARCH_INDEX;
-export const getImapWorkerQueueUrl = (): string =>
-	env.SQS_QUEUE_URL_IMAP_WORKER;
+// Optional, and read through `process.env` rather than expect-env so an unset
+// var yields undefined instead of throwing. IMAP_WORKER_STOP is a no-op
+// acknowledgement in the cascade contract — the account tombstone fence is what
+// actually halts the worker — so a deployment that never provisions a dedicated
+// imap-worker stop queue (the self-host compose stacks) skips the signal rather
+// than failing the whole fanout. AWS sets the var and keeps sending it.
+export const getImapWorkerQueueUrl = (): string | undefined =>
+	process.env.SQS_QUEUE_URL_IMAP_WORKER;
 export const getAccountFinalizeQueueUrl = (): string =>
 	env.SQS_QUEUE_URL_ACCOUNT_FINALIZE;
 export const getAccountPurgeDeleteQueueUrl = (): string =>
