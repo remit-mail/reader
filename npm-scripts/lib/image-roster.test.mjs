@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -20,20 +20,24 @@ function makeFixture(runtimeTargets, { withApisix = true } = {}) {
 function roster(fixtureDir) {
 	const out = execFileSync(
 		"bash",
-		["-c", 'cd "$1" && source "$2" && image_roster && printf "%s\\n" "${ALL_TARGETS[@]}"', "roster", fixtureDir, LIB],
+		[
+			"-c",
+			'cd "$1" && source "$2" && image_roster && printf "%s\\n" "${ALL_TARGETS[@]}"',
+			"roster",
+			fixtureDir,
+			LIB,
+		],
 		{ encoding: "utf8" },
 	);
 	return out.split("\n").filter(Boolean);
 }
 
 function assertNonemptyExitCode(fixtureDir) {
-	const script = 'cd "$1" && source "$2" && ALL_TARGETS=() && assert_roster_nonempty';
-	try {
-		execFileSync("bash", ["-c", script, "assert", fixtureDir, LIB], { encoding: "utf8" });
-		return 0;
-	} catch (error) {
-		return error.status;
-	}
+	const script =
+		'cd "$1" && source "$2" && ALL_TARGETS=() && assert_roster_nonempty';
+	return spawnSync("bash", ["-c", script, "assert", fixtureDir, LIB], {
+		encoding: "utf8",
+	}).status;
 }
 
 describe("image_roster", () => {
@@ -48,7 +52,12 @@ describe("image_roster", () => {
 		const fixture = makeFixture(["backend", "web", "smtp-worker"]);
 		try {
 			// docker/runtime/*/ globs in lexicographic order, not insertion order.
-			assert.deepEqual(roster(fixture), ["apisix", "backend", "smtp-worker", "web"]);
+			assert.deepEqual(roster(fixture), [
+				"apisix",
+				"backend",
+				"smtp-worker",
+				"web",
+			]);
 		} finally {
 			rmSync(fixture, { recursive: true, force: true });
 		}
@@ -88,7 +97,13 @@ describe("assert_roster_nonempty", () => {
 		try {
 			execFileSync(
 				"bash",
-				["-c", 'cd "$1" && source "$2" && image_roster && assert_roster_nonempty && echo ok', "assert", fixture, LIB],
+				[
+					"-c",
+					'cd "$1" && source "$2" && image_roster && assert_roster_nonempty && echo ok',
+					"assert",
+					fixture,
+					LIB,
+				],
 				{ encoding: "utf8" },
 			);
 		} finally {

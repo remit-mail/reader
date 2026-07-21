@@ -13,6 +13,7 @@
 //
 // The chosen provider can also be given via REMIT_AUTH_PROVIDER; the flag wins.
 import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "vite";
@@ -24,23 +25,45 @@ const harnessDir = dirname(fileURLToPath(import.meta.url));
 const packageDir = resolve(harnessDir, "..");
 
 const parseArgs = (argv) => {
-	const args = { auth: process.env.REMIT_AUTH_PROVIDER ?? "combined", out: "dist" };
+	const args = {
+		auth: process.env.REMIT_AUTH_PROVIDER ?? "combined",
+		out: "dist",
+	};
 	for (let i = 0; i < argv.length; i += 1) {
-		if (argv[i] === "--auth") args.auth = argv[(i += 1)];
-		else if (argv[i] === "--out") args.out = argv[(i += 1)];
+		if (argv[i] === "--auth") {
+			args.auth = argv[i + 1];
+			i += 1;
+		} else if (argv[i] === "--out") {
+			args.out = argv[i + 1];
+			i += 1;
+		}
 	}
 	return args;
 };
 
 const PROVIDERS = {
-	combined: { specifier: "@remit/web-client/auth/combined", name: "combinedAuthProvider", cognitoCss: true },
-	cognito: { specifier: "@remit/web-client/auth/cognito", name: "cognitoAuthProvider", cognitoCss: true },
-	"better-auth": { specifier: "@remit/web-client/auth/better-auth", name: "betterAuthProvider", cognitoCss: false },
+	combined: {
+		specifier: "@remit/web-client/auth/combined",
+		name: "combinedAuthProvider",
+		cognitoCss: true,
+	},
+	cognito: {
+		specifier: "@remit/web-client/auth/cognito",
+		name: "cognitoAuthProvider",
+		cognitoCss: true,
+	},
+	"better-auth": {
+		specifier: "@remit/web-client/auth/better-auth",
+		name: "betterAuthProvider",
+		cognitoCss: false,
+	},
 };
 
 const entrySource = (provider) =>
 	[
-		provider.cognitoCss ? 'import "@remit/web-client/styles/cognito.css";' : null,
+		provider.cognitoCss
+			? 'import "@remit/web-client/styles/cognito.css";'
+			: null,
 		'import { mountApp } from "@remit/web-client/shell";',
 		`import { ${provider.name} } from "${provider.specifier}";`,
 		"",
@@ -54,7 +77,9 @@ const run = async () => {
 	const { auth, out } = parseArgs(process.argv.slice(2));
 	const provider = PROVIDERS[auth];
 	if (!provider) {
-		console.error(`Unknown --auth "${auth}". Expected one of: ${Object.keys(PROVIDERS).join(", ")}.`);
+		console.error(
+			`Unknown --auth "${auth}". Expected one of: ${Object.keys(PROVIDERS).join(", ")}.`,
+		);
 		process.exit(1);
 	}
 
@@ -83,14 +108,14 @@ const run = async () => {
 		// Never let cleanup replace the build's own failure. Removing the root is
 		// best-effort housekeeping on a throwaway directory; a build error is the
 		// thing the caller needs to see.
-		try {
-			rmSync(root, { recursive: true, force: true });
-		} catch (error) {
+		await rm(root, { recursive: true, force: true }).catch((error) => {
 			console.warn(`Could not remove ${root}: ${error.message}`);
-		}
+		});
 	}
 
-	console.log(`Built web client (auth: ${auth}) to ${resolve(packageDir, out)}`);
+	console.log(
+		`Built web client (auth: ${auth}) to ${resolve(packageDir, out)}`,
+	);
 };
 
 run();

@@ -10,7 +10,8 @@ import {
 	typesPackageOf,
 } from "./publish-closure.mjs";
 
-const specs = (source) => importSpecifiers(source).map((s) => `${s.typeOnly ? "type " : ""}${s.spec}`);
+const specs = (source) =>
+	importSpecifiers(source).map((s) => `${s.typeOnly ? "type " : ""}${s.spec}`);
 
 describe("importSpecifiers", () => {
 	it("reads value and type-only imports", () => {
@@ -28,13 +29,22 @@ describe("importSpecifiers", () => {
 
 	it("does not treat a bare from/require token as an import", () => {
 		assert.deepEqual(specs(`const e = Buffer.from("FAKE:");`), []);
-		assert.deepEqual(specs("sql`select x from \"thread_message_fts\" where y`"), []);
+		assert.deepEqual(
+			specs('sql`select x from "thread_message_fts" where y`'),
+			[],
+		);
 		assert.deepEqual(specs(`const s = "select a from b";`), []);
 	});
 
 	it("ignores imports inside comments", () => {
-		assert.deepEqual(specs(`// import x from "commented";\nimport { a } from "real";`), ["real"]);
-		assert.deepEqual(specs(`/* from "block" */\nimport type { A } from "real";`), ["type real"]);
+		assert.deepEqual(
+			specs(`// import x from "commented";\nimport { a } from "real";`),
+			["real"],
+		);
+		assert.deepEqual(
+			specs(`/* from "block" */\nimport type { A } from "real";`),
+			["type real"],
+		);
 	});
 
 	it("treats a mixed inline-type import as a value import", () => {
@@ -45,7 +55,10 @@ describe("importSpecifiers", () => {
 describe("typesPackageOf", () => {
 	it("maps plain and scoped names", () => {
 		assert.equal(typesPackageOf("better-sqlite3"), "@types/better-sqlite3");
-		assert.equal(typesPackageOf("@aws-sdk/client-kms"), "@types/aws-sdk__client-kms");
+		assert.equal(
+			typesPackageOf("@aws-sdk/client-kms"),
+			"@types/aws-sdk__client-kms",
+		);
 	});
 });
 
@@ -72,7 +85,6 @@ const violationsFor = (root, name) => {
 		pkgDir: join(root, workspaceNames.get(name)),
 		workspaceNames,
 		manifests,
-		repoRoot: root,
 	});
 };
 
@@ -84,7 +96,8 @@ describe("closureViolations", () => {
 		return repo;
 	};
 	after(() => {
-		for (const repo of repos) rmSync(repo.root, { recursive: true, force: true });
+		for (const repo of repos)
+			rmSync(repo.root, { recursive: true, force: true });
 	});
 
 	it("passes when every imported module is declared", () => {
@@ -96,7 +109,9 @@ describe("closureViolations", () => {
 				dependencies: { "p-map": "^7", "@remit/leaf": "*" },
 				peerDependencies: { react: "^19" },
 			},
-			{ "index.ts": `import pMap from "p-map";\nimport "react";\nimport { x } from "@remit/leaf";` },
+			{
+				"index.ts": `import pMap from "p-map";\nimport "react";\nimport { x } from "@remit/leaf";`,
+			},
 		);
 		write("leaf", { name: "@remit/leaf" });
 		assert.deepEqual(violationsFor(root, "@remit/clean"), {
@@ -113,7 +128,9 @@ describe("closureViolations", () => {
 			{ name: "@remit/svc", devDependencies: { "openapi-backend": "*" } },
 			{ "index.ts": `import { OpenAPIBackend } from "openapi-backend";` },
 		);
-		assert.deepEqual(violationsFor(root, "@remit/svc").undeclared, ["openapi-backend"]);
+		assert.deepEqual(violationsFor(root, "@remit/svc").undeclared, [
+			"openapi-backend",
+		]);
 	});
 
 	it("flags an @types package that a runtime import needs but sits in dev", () => {
@@ -137,7 +154,9 @@ describe("closureViolations", () => {
 		write(
 			"lambda",
 			{ name: "@remit/lambda", devDependencies: { "@types/aws-lambda": "*" } },
-			{ "index.ts": `import type { SQSEvent } from "aws-lambda";\nexport type E = SQSEvent;` },
+			{
+				"index.ts": `import type { SQSEvent } from "aws-lambda";\nexport type E = SQSEvent;`,
+			},
 		);
 		const v = violationsFor(root, "@remit/lambda");
 		assert.deepEqual(v.undeclared, []);
@@ -149,9 +168,13 @@ describe("closureViolations", () => {
 		write(
 			"smithy",
 			{ name: "@remit/smithy" },
-			{ "index.ts": `import type { DocumentType } from "@smithy/types";\nexport type D = DocumentType;` },
+			{
+				"index.ts": `import type { DocumentType } from "@smithy/types";\nexport type D = DocumentType;`,
+			},
 		);
-		assert.deepEqual(violationsFor(root, "@remit/smithy").undeclared, ["@smithy/types"]);
+		assert.deepEqual(violationsFor(root, "@remit/smithy").undeclared, [
+			"@smithy/types",
+		]);
 	});
 
 	it("ignores test, spec and test-* harness files", () => {
@@ -171,9 +194,15 @@ describe("closureViolations", () => {
 
 	it("flags an import of a private workspace package", () => {
 		const { root, write } = build();
-		write("consumer", { name: "@remit/consumer" }, { "index.ts": `import { x } from "@remit/secret";` });
+		write(
+			"consumer",
+			{ name: "@remit/consumer" },
+			{ "index.ts": `import { x } from "@remit/secret";` },
+		);
 		write("secret", { name: "@remit/secret", private: true });
-		assert.deepEqual(violationsFor(root, "@remit/consumer").closed, ["@remit/secret"]);
+		assert.deepEqual(violationsFor(root, "@remit/consumer").closed, [
+			"@remit/secret",
+		]);
 	});
 
 	it("counts a module value-imported anywhere as a value import", () => {
@@ -187,6 +216,8 @@ describe("closureViolations", () => {
 				"run.ts": `export const load = () => import("drizzle-orm");`,
 			},
 		);
-		assert.deepEqual(violationsFor(root, "@remit/mixed").undeclared, ["drizzle-orm"]);
+		assert.deepEqual(violationsFor(root, "@remit/mixed").undeclared, [
+			"drizzle-orm",
+		]);
 	});
 });

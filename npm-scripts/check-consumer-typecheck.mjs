@@ -77,7 +77,11 @@ withTempDir((tmp) => {
 	mkdirSync(consumer);
 	writeFileSync(
 		join(consumer, "package.json"),
-		JSON.stringify({ name: "consumer", private: true, type: "module" }, null, 2),
+		JSON.stringify(
+			{ name: "consumer", private: true, type: "module" },
+			null,
+			2,
+		),
 	);
 	run(
 		"npm",
@@ -118,10 +122,19 @@ withTempDir((tmp) => {
 		`import * as Imported from "${IMPORTED}";\nexport type Probe = typeof Imported;\n`,
 	);
 
-	run("node", [join(consumer, "node_modules", "typescript", "bin", "tsc"), "--noEmit", "-p", "tsconfig.json"], {
-		cwd: consumer,
-		stdio: "inherit",
-	});
+	run(
+		"node",
+		[
+			join(consumer, "node_modules", "typescript", "bin", "tsc"),
+			"--noEmit",
+			"-p",
+			"tsconfig.json",
+		],
+		{
+			cwd: consumer,
+			stdio: "inherit",
+		},
+	);
 
 	console.log(
 		`Consumer typecheck OK: a clean install of ${IMPORTED} compiles a type import of it.`,

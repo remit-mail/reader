@@ -9,7 +9,14 @@ const LIB = join(dirname(fileURLToPath(import.meta.url)), "manifest-check.sh");
 function classify(status, output) {
 	return execFileSync(
 		"bash",
-		["-c", 'source "$1"; classify_manifest_check "$2" "$3"', "classify", LIB, String(status), output],
+		[
+			"-c",
+			'source "$1"; classify_manifest_check "$2" "$3"',
+			"classify",
+			LIB,
+			String(status),
+			output,
+		],
 		{ encoding: "utf8" },
 	).trim();
 }
@@ -44,7 +51,8 @@ describe("classify_manifest_check", () => {
 	});
 
 	it("reads denied for a never-published package as abort", () => {
-		const output = 'Get "https://ghcr.io/v2/remit-mail/reader/new-service/manifests/v1.0.0": denied';
+		const output =
+			'Get "https://ghcr.io/v2/remit-mail/reader/new-service/manifests/v1.0.0": denied';
 		assert.equal(classify(1, output), "abort");
 	});
 

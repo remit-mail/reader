@@ -13,7 +13,9 @@ import { discoverScriptSuites } from "./lib/test-suites.mjs";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const suites = await discoverScriptSuites(root);
 
-console.log(`running ${suites.length} script suites:\n  ${suites.join("\n  ")}\n`);
+console.log(
+	`running ${suites.length} script suites:\n  ${suites.join("\n  ")}\n`,
+);
 
 const { status } = spawnSync("node", ["--test", ...suites], {
 	cwd: root,

@@ -78,9 +78,9 @@ const serveFile = async (res, filePath, cacheControl) => {
 
 const server = http.createServer(async (req, res) => {
 	if (req.url === "/health") {
-		res.writeHead(200, { "Content-Type": "application/json" }).end(
-			JSON.stringify({ status: "ok" }),
-		);
+		res
+			.writeHead(200, { "Content-Type": "application/json" })
+			.end(JSON.stringify({ status: "ok" }));
 		return;
 	}
 
@@ -91,7 +91,9 @@ const server = http.createServer(async (req, res) => {
 	}
 
 	const looksLikeFile = extname(requested) !== "";
-	const candidate = requested.endsWith("/") ? join(requested, "index.html") : requested;
+	const candidate = requested.endsWith("/")
+		? join(requested, "index.html")
+		: requested;
 
 	// Hashed assets (dist/assets/*) are immutable; index.html and other
 	// top-level files are revalidated every time so a deploy is visible

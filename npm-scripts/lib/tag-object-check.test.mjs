@@ -4,12 +4,22 @@ import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
-const LIB = join(dirname(fileURLToPath(import.meta.url)), "tag-object-check.sh");
+const LIB = join(
+	dirname(fileURLToPath(import.meta.url)),
+	"tag-object-check.sh",
+);
 
 function classify(status, objectType) {
 	return execFileSync(
 		"bash",
-		["-c", 'source "$1"; classify_tag_object "$2" "$3"', "classify", LIB, String(status), objectType],
+		[
+			"-c",
+			'source "$1"; classify_tag_object "$2" "$3"',
+			"classify",
+			LIB,
+			String(status),
+			objectType,
+		],
 		{ encoding: "utf8" },
 	).trim();
 }
@@ -28,7 +38,10 @@ describe("classify_tag_object", () => {
 	// If the tag object was never fetched, cat-file fails, and treating that as
 	// "fine" would publish a release with no authored summary.
 	it("reads a failed lookup as abort, never as annotated", () => {
-		assert.equal(classify(128, "fatal: Not a valid object name refs/tags/v1.0.0"), "abort");
+		assert.equal(
+			classify(128, "fatal: Not a valid object name refs/tags/v1.0.0"),
+			"abort",
+		);
 	});
 
 	it("reads an empty answer as abort", () => {

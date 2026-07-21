@@ -20,11 +20,12 @@
  */
 
 const mocks = () => {
-	globalThis.__AMPLIFY_UI_REACT_MOCKS__ = globalThis.__AMPLIFY_UI_REACT_MOCKS__ ?? {
-		signOutCalls: 0,
-		authStatus: "authenticated",
-		user: { signInDetails: { loginId: "test@example.com" } },
-	};
+	globalThis.__AMPLIFY_UI_REACT_MOCKS__ =
+		globalThis.__AMPLIFY_UI_REACT_MOCKS__ ?? {
+			signOutCalls: 0,
+			authStatus: "authenticated",
+			user: { signInDetails: { loginId: "test@example.com" } },
+		};
 	return globalThis.__AMPLIFY_UI_REACT_MOCKS__;
 };
 

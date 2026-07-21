@@ -49,7 +49,11 @@ export function extractSummary(tagMessage) {
 export function readTagSummary(version, { execFile }) {
 	let tagType;
 	try {
-		tagType = execFile("git", ["cat-file", "-t", `refs/tags/${version}`]).trim();
+		tagType = execFile("git", [
+			"cat-file",
+			"-t",
+			`refs/tags/${version}`,
+		]).trim();
 	} catch (error) {
 		throw new Error(`could not read the tag ${version}: ${error.message}`);
 	}

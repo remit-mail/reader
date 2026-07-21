@@ -4,8 +4,8 @@ import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
-	DEFAULT_REGISTRY,
 	assertValidVersion,
+	DEFAULT_REGISTRY,
 	extractSummary,
 	readTagSummary,
 } from "./update-manifest.mjs";

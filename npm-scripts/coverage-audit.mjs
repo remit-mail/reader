@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
@@ -51,20 +51,17 @@ for (const name of readdirSync(packagesDir).sort()) {
 		continue;
 	}
 	const cmd = injectCoverage(testRun);
-	let output = "";
-	let ok = true;
-	try {
-		output = execSync(cmd, {
-			cwd: dir,
-			encoding: "utf8",
-			maxBuffer: 128 * 1024 * 1024,
-			stdio: ["ignore", "pipe", "pipe"],
-			shell: "/bin/bash",
-		});
-	} catch (e) {
-		ok = false;
-		output = `${e.stdout ?? ""}${e.stderr ?? ""}`;
-	}
+	const result = spawnSync(cmd, {
+		cwd: dir,
+		encoding: "utf8",
+		maxBuffer: 128 * 1024 * 1024,
+		stdio: ["ignore", "pipe", "pipe"],
+		shell: "/bin/bash",
+	});
+	const ok = result.status === 0;
+	const output = ok
+		? (result.stdout ?? "")
+		: `${result.stdout ?? ""}${result.stderr ?? ""}`;
 	const cov = parseAllFiles(output);
 	const r = { name, status: ok ? "ok" : "fail", cov, testRun };
 	results.push(r);

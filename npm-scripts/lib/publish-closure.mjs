@@ -11,7 +11,7 @@
 // under it and collects the bare specifiers it imports. Test, spec, stories and
 // `test-*` harness files are the build-only surface and are skipped, so their
 // imports stay dev.
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const CODE_EXT = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"];
@@ -21,7 +21,10 @@ const CODE_EXT = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"];
 const isAsset = (spec) =>
 	/\.(css|scss|sass|less|svg|png|jpe?g|gif|webp|avif|ico|woff2?|ttf|eot|json|html|txt|md|wasm)(\?.*)?$/.test(
 		spec,
-	) || spec.startsWith("virtual:") || spec.includes("?raw") || spec.includes("?url");
+	) ||
+	spec.startsWith("virtual:") ||
+	spec.includes("?raw") ||
+	spec.includes("?url");
 
 const packageNameOf = (spec) => {
 	const parts = spec.split("/");
@@ -35,7 +38,9 @@ export const typesPackageOf = (name) =>
 		: `@types/${name}`;
 
 const stripComments = (source) =>
-	source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:'"])\/\/[^\n]*/g, "$1");
+	source
+		.replace(/\/\*[\s\S]*?\*\//g, "")
+		.replace(/(^|[^:'"])\/\/[^\n]*/g, "$1");
 
 // Extract module specifiers from genuine import/export statements only, tagging
 // each as a value import or a type-only one (`import type …`, `export type …`).
@@ -59,9 +64,11 @@ export const importSpecifiers = (raw) => {
 		/\b(?:import|require)\s*\(\s*["']([^"']+)["']/g,
 	];
 	for (const re of typeOnly)
-		for (const m of source.matchAll(re)) out.push({ spec: m[1], typeOnly: true });
+		for (const m of source.matchAll(re))
+			out.push({ spec: m[1], typeOnly: true });
 	for (const re of value)
-		for (const m of source.matchAll(re)) out.push({ spec: m[1], typeOnly: false });
+		for (const m of source.matchAll(re))
+			out.push({ spec: m[1], typeOnly: false });
 	return out;
 };
 
@@ -154,7 +161,6 @@ export const closureViolations = ({
 	pkgDir,
 	workspaceNames,
 	manifests,
-	repoRoot,
 }) => {
 	const runtimeDeclared = new Set([
 		...Object.keys(manifest.dependencies ?? {}),
@@ -185,7 +191,11 @@ export const closureViolations = ({
 		if (noteClosed(name)) continue;
 		if (!runtimeDeclared.has(name)) undeclared.push(name);
 		const typesName = typesPackageOf(name);
-		if (typesName !== name && declaredAnywhere.has(typesName) && !runtimeDeclared.has(typesName))
+		if (
+			typesName !== name &&
+			declaredAnywhere.has(typesName) &&
+			!runtimeDeclared.has(typesName)
+		)
 			missingTypes.push(typesName);
 	}
 

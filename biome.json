@@ -1,5 +1,5 @@
 {
-	"$schema": "https://biomejs.dev/schemas/2.3.11/schema.json",
+	"$schema": "https://biomejs.dev/schemas/2.5.4/schema.json",
 	"plugins": [
 		"./plugins/no-logger-info.grit",
 		"./plugins/no-silent-catch.grit"
@@ -11,7 +11,7 @@
 	},
 	"files": {
 		"ignoreUnknown": true,
-		"includes": ["**/*.ts", "**/*.tsx", "**/*.js"]
+		"includes": ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.mjs"]
 	},
 	"formatter": {
 		"enabled": true,
@@ -19,7 +19,13 @@
 	},
 	"linter": {
 		"enabled": true,
-		"includes": ["**/*.ts", "**/*.tsx", "**/*.js", "!**/routeTree.gen.ts"],
+		"includes": [
+			"**/*.ts",
+			"**/*.tsx",
+			"**/*.js",
+			"**/*.mjs",
+			"!**/routeTree.gen.ts"
+		],
 		"rules": {
 			"recommended": true,
 			"correctness": {
@@ -47,5 +53,17 @@
 				"organizeImports": "on"
 			}
 		}
-	}
+	},
+	"overrides": [
+		{
+			"includes": ["npm-scripts/lib/*.test.mjs"],
+			"linter": {
+				"rules": {
+					"suspicious": {
+						"noTemplateCurlyInString": "off"
+					}
+				}
+			}
+		}
+	]
 }
