@@ -64,24 +64,21 @@ describe("checkRelationalStore", () => {
 		assert.equal(await checkRelationalStore(), false);
 	});
 
-	it("is false once a reachable file becomes unwritable while another connection in this process still holds it open", async () => {
+	it("is false when the file is readable but no longer writable", async () => {
 		dir = mkdtempSync(join(tmpdir(), "remit-health-"));
 		const dbPath = join(dir, "remit.db");
-		// A held-open connection, standing in for better-auth's own persistent
-		// handle to this same file (RFC 036 D3, one file). Without `access()` in
-		// pingSqlite, this reproduces the bug this check exists to catch: SQLite
-		// shares one already-validated handle per inode across same-process
-		// connections, so a fresh connection here would have kept succeeding.
-		const held = new Database(dbPath);
+		new Database(dbPath).close();
 
 		process.env.DATA_BACKEND = "sqlite";
 		process.env.SQLITE_DB_PATH = dbPath;
 		assert.equal(await checkRelationalStore(), true);
 
-		chmodSync(dbPath, 0o000);
+		// Readable, not writable: the read-only SELECT ping still opens and
+		// succeeds, so without `access(W_OK)` this reports healthy on a store the
+		// backend can no longer write to. This is the case the writability check
+		// exists to catch — dropping `access()` from pingSqlite fails this test.
+		chmodSync(dbPath, 0o400);
 		assert.equal(await checkRelationalStore(), false);
-
-		held.close();
 	});
 
 	it("is false when Postgres connection fails", async () => {

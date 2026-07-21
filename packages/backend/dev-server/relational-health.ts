@@ -1,13 +1,13 @@
 import { access, constants } from "node:fs/promises";
 import { isSelfHostSqlBackend } from "../src/data-backend.js";
 
-// better-auth holds its own connection to this same file for the process
-// lifetime (RFC 036 D3, one file), and SQLite's unix VFS shares one already-
-// validated file handle across same-process connections to the same inode —
-// so a *new* connection here can keep succeeding after the path stops being
-// reachable (permissions revoked, volume gone read-only). `access` is a fresh
-// syscall with no such sharing, so it is what actually re-checks reachability
-// on every call; the query after it still exercises the SQL engine itself.
+// The SELECT ping opens a read-only connection, so it keeps succeeding on a
+// file that can still be read but no longer written — permissions revoked to
+// read-only, or the volume remounted read-only under the process. The backend
+// must write (better-auth persists sessions to this same file, RFC 036 D3), so
+// a readable-but-unwritable store has to report unhealthy. `access(R_OK|W_OK)`
+// checks both bits in one fresh syscall; the read-only query never covers
+// writability. The query after it still exercises the SQL engine itself.
 const pingSqlite = async (): Promise<void> => {
 	const path = process.env.SQLITE_DB_PATH ?? "";
 	await access(path, constants.R_OK | constants.W_OK);

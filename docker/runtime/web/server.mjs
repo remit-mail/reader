@@ -49,12 +49,31 @@ const resolveSafePath = (urlPath) => {
 	return normalized;
 };
 
-const send = (res, status, filePath, cacheControl) => {
-	res.writeHead(status, {
+// Stats before writing anything, so a stream open failure (file gone between
+// the check and the read, dist/ unmounted) never lands after headers are
+// already committed — that left a missing SPA-fallback index.html crashing
+// the process on an unhandled stream error instead of answering a clean 500,
+// turning what should be a healthcheck failure into a restart loop.
+const serveFile = async (res, filePath, cacheControl) => {
+	let info;
+	try {
+		info = await stat(filePath);
+	} catch {
+		return false;
+	}
+	if (!info.isFile()) return false;
+
+	const stream = createReadStream(filePath);
+	stream.on("error", () => {
+		if (res.headersSent) res.destroy();
+		else res.writeHead(500).end("internal server error");
+	});
+	res.writeHead(200, {
 		"Content-Type": MIME_TYPES[extname(filePath)] ?? "application/octet-stream",
 		"Cache-Control": cacheControl,
 	});
-	createReadStream(filePath).pipe(res);
+	stream.pipe(res);
+	return true;
 };
 
 const server = http.createServer(async (req, res) => {
@@ -74,28 +93,21 @@ const server = http.createServer(async (req, res) => {
 	const looksLikeFile = extname(requested) !== "";
 	const candidate = requested.endsWith("/") ? join(requested, "index.html") : requested;
 
-	try {
-		const info = await stat(candidate);
-		if (info.isFile()) {
-			// Hashed assets (dist/assets/*) are immutable; index.html and other
-			// top-level files are revalidated every time so a deploy is visible
-			// without a hard refresh.
-			const cacheControl = candidate.includes(`${sep}assets${sep}`)
-				? "public, max-age=31536000, immutable"
-				: "no-cache";
-			send(res, 200, candidate, cacheControl);
-			return;
-		}
-	} catch {
-		// fall through to SPA fallback below
-	}
+	// Hashed assets (dist/assets/*) are immutable; index.html and other
+	// top-level files are revalidated every time so a deploy is visible
+	// without a hard refresh.
+	const cacheControl = candidate.includes(`${sep}assets${sep}`)
+		? "public, max-age=31536000, immutable"
+		: "no-cache";
+	if (await serveFile(res, candidate, cacheControl)) return;
 
 	if (looksLikeFile) {
 		res.writeHead(404).end("not found");
 		return;
 	}
 
-	send(res, 200, join(DIST_DIR, "index.html"), "no-cache");
+	if (await serveFile(res, join(DIST_DIR, "index.html"), "no-cache")) return;
+	res.writeHead(500).end("internal server error");
 });
 
 server.listen(PORT, "0.0.0.0", () => {
