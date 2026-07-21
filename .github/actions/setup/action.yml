@@ -51,6 +51,14 @@ runs:
       shell: bash
       run: npm ci --no-audit --no-fund --loglevel=error
 
+    # Asserted here rather than in one job because every job that consumes this
+    # action consumes the tree it just restored, and a cache hit skips the
+    # install whose postinstall applies the patches. `make` runs the same check,
+    # but only on a codegen miss, so it cannot be the thing that covers this.
+    - name: Verify patches are applied
+      shell: bash
+      run: npm run check:patches-applied
+
     # build/ is a pure function of the TypeSpec sources, the Makefile, the
     # openapi-ts config, the emitter versions pinned in the lockfile, and the
     # patches applied to those emitters — a patch changes the generated output
