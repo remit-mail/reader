@@ -61,6 +61,12 @@ const runPostgres = async (): Promise<void> => {
 			migrationsTable: "__drizzle_migrations_auth",
 		});
 
+		console.log("[migrate] applying instance-owner schema migrations");
+		await migrate(drizzle(pool), {
+			migrationsFolder: "migrations/meta",
+			migrationsTable: "__drizzle_migrations_meta",
+		});
+
 		console.log("[migrate] installing outbox notify trigger");
 		await pool.query(outboxTriggerSql);
 
@@ -107,6 +113,12 @@ const runSqlite = async (): Promise<void> => {
 		sqliteMigrate(db, {
 			migrationsFolder: "migrations-sqlite/auth",
 			migrationsTable: "__drizzle_migrations_auth",
+		});
+
+		console.log("[migrate] applying instance-owner schema migrations (sqlite)");
+		sqliteMigrate(db, {
+			migrationsFolder: "migrations-sqlite/meta",
+			migrationsTable: "__drizzle_migrations_meta",
 		});
 
 		// The external-content FTS5 trigram table + its thread_message
