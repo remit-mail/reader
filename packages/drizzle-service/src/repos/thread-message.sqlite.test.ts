@@ -520,4 +520,92 @@ describe("DrizzleThreadMessageRepository (sqlite)", () => {
 			"pages do not overlap",
 		);
 	});
+
+	describe("search continuation token", () => {
+		const acct = "acct-search-cursor";
+
+		before(async () => {
+			const base = Date.now();
+			for (let i = 0; i < 4; i++) {
+				await repo.create(
+					makeInput({
+						accountConfigId: acct,
+						subject: `cursor probe ${i}`,
+						sentDate: base - i,
+						internalDate: base - i,
+					}),
+				);
+			}
+		});
+
+		test("an absent token returns the first page", async () => {
+			const page = await repo.searchByMailboxWindow(
+				acct,
+				MAILBOX,
+				{ subject: "cursor probe" },
+				{ limit: 2, order: "desc" },
+			);
+			assert.equal(page.items.length, 2);
+			assert.equal(page.items[0]?.subject, "cursor probe 0");
+			assert.ok(page.continuationToken);
+		});
+
+		test("a server-minted token returns the next page", async () => {
+			const first = await repo.searchByMailboxWindow(
+				acct,
+				MAILBOX,
+				{ subject: "cursor probe" },
+				{ limit: 2, order: "desc" },
+			);
+			const second = await repo.searchByMailboxWindow(
+				acct,
+				MAILBOX,
+				{ subject: "cursor probe" },
+				{
+					limit: 2,
+					order: "desc",
+					continuationToken: first.continuationToken,
+				},
+			);
+			assert.equal(second.items.length, 2);
+			const firstIds = new Set(first.items.map((i) => i.threadMessageId));
+			assert.ok(
+				second.items.every((i) => !firstIds.has(i.threadMessageId)),
+				"pages do not overlap",
+			);
+		});
+
+		for (const [label, token] of [
+			["an unparseable", "not-a-cursor"],
+			["a non-object", Buffer.from("123").toString("base64")],
+			["an incomplete", Buffer.from('{"s":1}').toString("base64")],
+		] as const) {
+			test(`${label} token is a validation failure`, async () => {
+				await assert.rejects(
+					() =>
+						repo.searchByMailboxWindow(
+							acct,
+							MAILBOX,
+							{ subject: "cursor probe" },
+							{ limit: 2, continuationToken: token },
+						),
+					(error: unknown) => {
+						assert.equal((error as { statusCode?: number }).statusCode, 400);
+						assert.equal((error as Error).name, "BadRequestError");
+						return true;
+					},
+				);
+			});
+		}
+
+		test("an undecodable account cursor is a validation failure", async () => {
+			await assert.rejects(
+				() => repo.listByAccount(acct, { continuationToken: "not-a-cursor" }),
+				(error: unknown) => {
+					assert.equal((error as { statusCode?: number }).statusCode, 400);
+					return true;
+				},
+			);
+		});
+	});
 });

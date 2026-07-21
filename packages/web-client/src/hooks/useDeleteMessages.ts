@@ -2,15 +2,21 @@ import {
 	mailboxOperationsListMailboxesQueryKey,
 	messageBulkOperationsDeleteMessagesMutation,
 	threadDetailOperationsListThreadMessagesQueryKey,
-	threadOperationsListThreadsQueryKey,
-	threadOperationsSearchThreadsQueryKey,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { formatErrorDetail } from "@/components/ui/error-banners";
-import { patchThreadListCache, type ThreadListCache } from "@/lib/thread-cache";
+import {
+	cancelThreadListQueries,
+	invalidateThreadListQueries,
+	patchThreadListQueries,
+	restoreThreadListQueries,
+	snapshotThreadListQueries,
+	type ThreadListSnapshotEntry,
+	threadListCacheKeys,
+} from "@/lib/thread-list-cache";
 
 interface UseDeleteMessagesOptions {
 	mailboxId: string;
@@ -29,13 +35,6 @@ interface ThreadMessagesData {
 	[key: string]: unknown;
 }
 
-/**
- * Either shape a thread list/search query caches — the infinite mailbox list
- * or a single-shot page. `setQueriesData` matches by key prefix, so the
- * optimistic updater sees both.
- */
-type ThreadsListData = ThreadListCache;
-
 interface SnapshotEntry<T> {
 	queryKey: readonly unknown[];
 	data: T;
@@ -43,10 +42,9 @@ interface SnapshotEntry<T> {
 
 interface DeleteContext {
 	threadMessagesPrefix: readonly unknown[];
-	threadsListPrefix: readonly unknown[];
-	threadsSearchPrefix: readonly unknown[];
+	listPrefixes: ReadonlyArray<readonly unknown[]>;
 	previousThreadMessages: SnapshotEntry<ThreadMessagesData>[];
-	previousThreadsList: SnapshotEntry<ThreadsListData>[];
+	previousThreadsList: ThreadListSnapshotEntry[];
 }
 
 /**
@@ -94,17 +92,14 @@ export const useDeleteMessages = ({
 						path: { threadId },
 					})
 				: [];
-			const threadsListPrefix = threadOperationsListThreadsQueryKey({
-				path: { mailboxId },
-			});
-			const threadsSearchPrefix = threadOperationsSearchThreadsQueryKey({
-				path: { mailboxId },
-			});
+			// The browsed mailbox's lists plus the unified cross-account listing
+			// that backs the daily brief — deleting from the brief has to remove the
+			// row there too, not only from the per-mailbox lists (#140, part of #149).
+			const listPrefixes = threadListCacheKeys([mailboxId]);
 
 			await Promise.all([
 				queryClient.cancelQueries({ queryKey: threadMessagesPrefix }),
-				queryClient.cancelQueries({ queryKey: threadsListPrefix }),
-				queryClient.cancelQueries({ queryKey: threadsSearchPrefix }),
+				cancelThreadListQueries(queryClient, listPrefixes),
 			]);
 
 			const previousThreadMessages = threadId
@@ -119,18 +114,10 @@ export const useDeleteMessages = ({
 						.map(([queryKey, data]) => ({ queryKey, data }))
 				: [];
 
-			const previousThreadsList = queryClient
-				.getQueriesData<ThreadsListData>({ queryKey: threadsListPrefix })
-				.concat(
-					queryClient.getQueriesData<ThreadsListData>({
-						queryKey: threadsSearchPrefix,
-					}),
-				)
-				.filter(
-					(entry): entry is [readonly unknown[], ThreadsListData] =>
-						entry[1] !== undefined,
-				)
-				.map(([queryKey, data]) => ({ queryKey, data }));
+			const previousThreadsList = snapshotThreadListQueries(
+				queryClient,
+				listPrefixes,
+			);
 
 			if (threadId) {
 				queryClient.setQueriesData<ThreadMessagesData>(
@@ -145,26 +132,15 @@ export const useDeleteMessages = ({
 				);
 			}
 
-			const patchListData = (old: unknown) =>
-				patchThreadListCache(old, (items) =>
-					removeMessagesFromItems(items, messageIds),
-				);
-
-			queryClient.setQueriesData(
-				{ queryKey: threadsListPrefix },
-				patchListData,
-			);
-			queryClient.setQueriesData(
-				{ queryKey: threadsSearchPrefix },
-				patchListData,
+			patchThreadListQueries(queryClient, listPrefixes, (items) =>
+				removeMessagesFromItems(items, messageIds),
 			);
 
 			onAfterOptimisticRemove?.(Array.from(messageIds));
 
 			return {
 				threadMessagesPrefix,
-				threadsListPrefix,
-				threadsSearchPrefix,
+				listPrefixes,
 				previousThreadMessages,
 				previousThreadsList,
 			};
@@ -174,9 +150,7 @@ export const useDeleteMessages = ({
 				for (const entry of context.previousThreadMessages) {
 					queryClient.setQueryData(entry.queryKey, entry.data);
 				}
-				for (const entry of context.previousThreadsList) {
-					queryClient.setQueryData(entry.queryKey, entry.data);
-				}
+				restoreThreadListQueries(queryClient, context.previousThreadsList);
 			}
 			const count = vars.body.messageIds?.length ?? 0;
 			pushError({
@@ -195,8 +169,7 @@ export const useDeleteMessages = ({
 					queryKey: context.threadMessagesPrefix,
 				});
 			}
-			queryClient.invalidateQueries({ queryKey: context.threadsListPrefix });
-			queryClient.invalidateQueries({ queryKey: context.threadsSearchPrefix });
+			invalidateThreadListQueries(queryClient, context.listPrefixes);
 			if (accountId) {
 				queryClient.invalidateQueries({
 					queryKey: mailboxOperationsListMailboxesQueryKey({

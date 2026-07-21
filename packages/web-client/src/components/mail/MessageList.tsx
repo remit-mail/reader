@@ -244,6 +244,7 @@ export const MessageList = ({
 		setAnchor,
 		selectAll,
 		toggleAll,
+		intersectWith,
 	} = useSelection();
 
 	// Pending delete, awaiting confirmation. `null` means the dialog is closed.
@@ -422,7 +423,10 @@ export const MessageList = ({
 	const handleRowSelect = useCallback(
 		(messageId: string, modifiers: SelectionModifiers): boolean => {
 			if (modifiers.shiftKey) {
-				selectRange(orderedIds, messageId);
+				// The open/focused row is the fallback origin when the stored anchor
+				// has been filtered or searched out of the visible list, so the first
+				// shift-click still ranges from where the user is (#142, #144).
+				selectRange(orderedIds, messageId, focusedMessageId);
 				return true;
 			}
 			if (modifiers.metaKey || modifiers.ctrlKey) {
@@ -437,7 +441,14 @@ export const MessageList = ({
 			setAnchor(messageId);
 			return false;
 		},
-		[orderedIds, selectRange, toggleCheck, clearSelection, setAnchor],
+		[
+			orderedIds,
+			focusedMessageId,
+			selectRange,
+			toggleCheck,
+			clearSelection,
+			setAnchor,
+		],
 	);
 
 	// Open the delete confirmation for an explicit set of ids. All delete
@@ -829,28 +840,26 @@ export const MessageList = ({
 		[],
 	);
 
-	// Clear selection when threads change (e.g., after delete). Skipped while
-	// an escalated run is active: `selectedIds` there is a stale loaded-rows
-	// snapshot from the moment escalation started (the real selection is the
-	// predicate, D2), not something a background refetch reshuffling `threads`
-	// should be allowed to blow away out from under a count or a delete in
-	// progress — that would silently exit selection mode mid-run.
+	// Narrow the selection when threads change (e.g., after delete), dropping
+	// only the ids that left and keeping every survivor — K-9's
+	// `selected.intersect(uniqueIds)`, the reference behavior #92's D2 cites.
+	// Wiping the whole selection because one id left (#111) cost the other 49
+	// rows on an ordinary refresh, and could take the post-delete Retry
+	// selection with it: `processDeleteOutcome` materializes the failed ids as
+	// the new selection and resets this effect to live by returning escalation
+	// to idle, so the cache invalidation's refetch ran this same effect against
+	// the retry set — a clear here would have dropped the Retry notice
+	// (gated on `selectedCount > 0`) along with it.
+	// Skipped while an escalated run is active: `selectedIds` there is a stale
+	// loaded-rows snapshot from the moment escalation started (the real
+	// selection is the predicate, D2), not something a background refetch
+	// reshuffling `threads` should be allowed to narrow out from under a count
+	// or a delete in progress — that would silently exit selection mode
+	// mid-run.
 	useEffect(() => {
 		if (escalation.phase.kind !== "idle" || escalation.isDeleting) return;
-		const threadIds = new Set(threads.map((t) => t.messageId));
-		const hasOrphanedSelection = Array.from(selectedIds).some(
-			(id) => !threadIds.has(id),
-		);
-		if (hasOrphanedSelection) {
-			clearSelection();
-		}
-	}, [
-		threads,
-		selectedIds,
-		clearSelection,
-		escalation.phase,
-		escalation.isDeleting,
-	]);
+		intersectWith(threads.map((t) => t.messageId));
+	}, [threads, intersectWith, escalation.phase, escalation.isDeleting]);
 
 	// Load more when scrolling near the bottom
 	useEffect(() => {
@@ -1210,6 +1219,14 @@ export const MessageList = ({
 			: pendingDelete.total
 		: 0;
 
+	// The predicate case (#109): `pendingDelete.total` is `countMatches`'s
+	// frozen page-through, and the delete itself re-pages the same predicate a
+	// second, independent time. Mail arriving or leaving between the two can
+	// make them differ, so the dialog says "about" instead of promising an
+	// exact number it may not honour. A materialized (bounded) selection's
+	// count is exact — it's the delete's own input, not an estimate of it.
+	const pendingDeleteIsEstimate = pendingDelete?.source === "predicate";
+
 	return (
 		<>
 			{completionBanner && !isDesktop && (
@@ -1249,8 +1266,15 @@ export const MessageList = ({
 			/>
 			<ConfirmDialog
 				isOpen={pendingDelete !== null}
-				title={formatDeleteToTrashTitle(pendingDeleteCount)}
-				description="You can restore them from Trash later."
+				title={formatDeleteToTrashTitle(
+					pendingDeleteCount,
+					pendingDeleteIsEstimate,
+				)}
+				description={
+					pendingDeleteIsEstimate
+						? "This count is a snapshot — new mail arriving during the delete won't be included. You can restore what's deleted from Trash later."
+						: "You can restore them from Trash later."
+				}
 				confirmLabel="Move to Trash"
 				destructive
 				isBusy={isDeleting}

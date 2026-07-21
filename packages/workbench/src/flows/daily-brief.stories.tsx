@@ -146,9 +146,7 @@ export const KeyboardHints: Story = {
  * no footer strip at the bottom.
  */
 export const KeyboardHintsPhone: Story = {
-	parameters: {
-		viewport: { defaultViewport: "mobile1" },
-	},
+	globals: { viewport: { value: "mobile" } },
 	render: () => (
 		<AppShell
 			accounts={navAccounts}

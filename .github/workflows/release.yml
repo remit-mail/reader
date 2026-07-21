@@ -1,0 +1,86 @@
+# Cuts an immutable release: publishes the image roster at a vX.Y.Z tag and
+# creates the matching GitHub release. Triggered by pushing the tag (see
+# npm-scripts/release-tag.sh / `npm run release:tag`), never by a branch push.
+#
+# The trigger is a bare tag pattern, so any pushed vX.Y.Z tag reaches this
+# workflow — including a hand-pushed lightweight tag that never ran
+# release:tag. The first step re-checks the tag here rather than trusting the
+# script: it must be an annotated tag whose message is a valid summary (the
+# string rendered verbatim on the update consent screen, RFC 037 / the
+# manifest schema's `summary`), or the release is refused before anything is
+# built or published.
+#
+# A release tag is never re-pushed. The preflight queries the registry for
+# every image in the roster and fails before anything builds if the tag
+# already resolves — a botched release is fixed by cutting the next one.
+#
+# The trigger accepts any pushed v*.*.* tag, including one pushed by hand, so
+# the annotation gate is a step in this workflow rather than a check inside
+# npm-scripts/release-tag.sh. The tag's annotation is the summary shown
+# verbatim on the self-update consent screen; a lightweight tag has none, and
+# that surface has nothing legitimate to show.
+#
+# `:latest` belongs to main (see images.yml) and this workflow must not move
+# it, so images:publish runs here with PUSH_LATEST=0.
+#
+# The GitHub release object is the definition of a published version (RFC 037
+# D2, R1a) — never the presence of an image tag. Pushing eight images is not
+# atomic, so it runs last, on the default all-steps-must-succeed behaviour: no
+# `if: always()`, no continue-on-error, nothing that would create it after a
+# partial push. A run that fails partway leaves the tags it managed to push
+# and no release for them; that is permanent, because step 1 forbids
+# completing a partial set under the tag it started with. The fix is cutting
+# the next version, never resuming this one.
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # First, before any registry work: a tag with no authored annotation is
+      # not a release, and nothing should be built for one.
+      - name: Refuse a tag with no authored summary
+        run: npm run release:check-annotation
+        env:
+          TAG: ${{ github.ref_name }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Log in to GHCR
+        run: docker login ghcr.io -u "${{ github.actor }}" --password-stdin <<<"${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Refuse an already-published tag
+        run: npm run release:check-tag
+        env:
+          REGISTRY: ghcr.io/remit-mail/reader
+          TAG: ${{ github.ref_name }}
+
+      - name: Build and push the roster
+        run: npm run images:publish
+        env:
+          REGISTRY: ghcr.io/remit-mail/reader
+          TAG: ${{ github.ref_name }}
+          PUSH: "1"
+          PUSH_LATEST: "0"
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "${{ github.ref_name }}" --generate-notes
