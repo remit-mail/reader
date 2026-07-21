@@ -208,4 +208,23 @@ describe("MailboxRepo", () => {
 
 		await repo.delete(accountB, b.mailboxId);
 	});
+
+	describe("continuation token rejection (#172)", () => {
+		for (const [label, token] of [
+			["an unparseable", "not-a-cursor"],
+			["a bare number", Buffer.from("123").toString("base64url")],
+			["a JSON array", Buffer.from("[1,2]").toString("base64url")],
+		] as const) {
+			test(`${label} token is rejected as a 400`, async () => {
+				await assert.rejects(
+					() => repo.listByAccount(randomId(), { continuationToken: token }),
+					(error: unknown) => {
+						assert.equal((error as { statusCode?: number }).statusCode, 400);
+						assert.equal((error as Error).name, "BadRequestError");
+						return true;
+					},
+				);
+			});
+		}
+	});
 });
