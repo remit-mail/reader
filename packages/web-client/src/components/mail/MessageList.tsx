@@ -423,7 +423,10 @@ export const MessageList = ({
 	const handleRowSelect = useCallback(
 		(messageId: string, modifiers: SelectionModifiers): boolean => {
 			if (modifiers.shiftKey) {
-				selectRange(orderedIds, messageId);
+				// The open/focused row is the fallback origin when the stored anchor
+				// has been filtered or searched out of the visible list, so the first
+				// shift-click still ranges from where the user is (#142, #144).
+				selectRange(orderedIds, messageId, focusedMessageId);
 				return true;
 			}
 			if (modifiers.metaKey || modifiers.ctrlKey) {
@@ -438,7 +441,14 @@ export const MessageList = ({
 			setAnchor(messageId);
 			return false;
 		},
-		[orderedIds, selectRange, toggleCheck, clearSelection, setAnchor],
+		[
+			orderedIds,
+			focusedMessageId,
+			selectRange,
+			toggleCheck,
+			clearSelection,
+			setAnchor,
+		],
 	);
 
 	// Open the delete confirmation for an explicit set of ids. All delete

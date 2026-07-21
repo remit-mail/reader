@@ -12,7 +12,8 @@
 	},
 	"scripts": {
 		"test:typecheck": "tsgo --noEmit",
-		"test": "vitest run",
+		"test:run": "vitest run",
+		"test": "npm run test:typecheck && npm run test:run",
 		"build": "npm run test:typecheck"
 	},
 	"dependencies": {
