@@ -4,6 +4,7 @@ import { after, before, describe, it } from "node:test";
 import { pushSchema } from "drizzle-kit/api";
 import { drizzle } from "drizzle-orm/node-postgres";
 import EmbeddedPostgres from "embedded-postgres";
+import { Pool } from "pg";
 import { createAuth } from "./auth.js";
 import {
 	createInstanceOwnerStore,
@@ -35,6 +36,7 @@ describe("createAuth claims ownership on registration — postgres (RFC 037 D8)"
 	});
 	const connectionString = `postgresql://test:test@localhost:${port}/postgres`;
 	let store: InstanceOwnerStore;
+	let testPool: Pool;
 
 	before(async () => {
 		await pg.initialise();
@@ -57,9 +59,11 @@ describe("createAuth claims ownership on registration — postgres (RFC 037 D8)"
 			provider: "pg",
 			connectionString,
 		});
+		testPool = new Pool({ connectionString });
 	});
 
 	after(async () => {
+		await testPool.end();
 		await store.close();
 		await pg.stop();
 		try {
@@ -85,6 +89,17 @@ describe("createAuth claims ownership on registration — postgres (RFC 037 D8)"
 			}),
 		);
 
+	const resetTables = async (): Promise<void> => {
+		await testPool.query("DELETE FROM instance_owner");
+		await testPool.query("DELETE FROM auth_user");
+	};
+
+	const insertUser = (id: string, email: string, createdAt: Date) =>
+		testPool.query(
+			"INSERT INTO auth_user (id, name, email, email_verified, created_at, updated_at) VALUES ($1, $2, $3, false, $4, $4)",
+			[id, email, email, createdAt],
+		);
+
 	it("the first real Postgres signup succeeds and claims ownership; the second does not", async () => {
 		const auth = await createAuth({
 			provider: "pg",
@@ -104,5 +119,33 @@ describe("createAuth claims ownership on registration — postgres (RFC 037 D8)"
 
 		assert.equal(await store.isOwner(firstBody.user.id), true);
 		assert.equal(await store.isOwner(secondBody.user.id), false);
+	});
+
+	// The two cases below exercise `CLAIM_EARLIEST_USER_SQL_PG` directly — the
+	// pg twin of the sqlite gate tests — so a typo in the pg `WHERE` cannot ship
+	// silently and degrade the pg path to a bare conditional insert.
+	it("a hook resolving out of order does not override the true first registrant", async () => {
+		await resetTables();
+		await insertUser("first-registered", "first@example.com", new Date(1000));
+		await insertUser("second-registered", "second@example.com", new Date(2000));
+
+		// second-registered's hook lands first — simulating it winning a race —
+		// but it registered after first-registered, so it must not become owner.
+		await store.claimIfUnclaimed("second-registered");
+		await store.claimIfUnclaimed("first-registered");
+
+		assert.equal(await store.isOwner("first-registered"), true);
+		assert.equal(await store.isOwner("second-registered"), false);
+	});
+
+	it("a claim for a user that was never committed (a rolled-back registration) does not land", async () => {
+		await resetTables();
+
+		await store.claimIfUnclaimed("rolled-back-user");
+		assert.equal(await store.isOwner("rolled-back-user"), false);
+
+		await insertUser("real-user", "real@example.com", new Date(1000));
+		await store.claimIfUnclaimed("real-user");
+		assert.equal(await store.isOwner("real-user"), true);
 	});
 });
