@@ -12,7 +12,7 @@
 	},
 	"scripts": {
 		"test:typecheck": "tsgo --noEmit",
-		"test:run": "vitest run",
+		"test:run": "node --experimental-test-module-mocks --import tsx --test 'src/**/*.test.ts'",
 		"test": "npm run test:typecheck && npm run test:run",
 		"build": "npm run test:typecheck"
 	},
@@ -20,9 +20,6 @@
 		"@aws-lambda-powertools/logger": "^2",
 		"@aws-lambda-powertools/metrics": "^2",
 		"@types/aws-lambda": "*"
-	},
-	"devDependencies": {
-		"vitest": "*"
 	},
 	"license": "MIT",
 	"publishConfig": {
