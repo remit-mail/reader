@@ -99,6 +99,7 @@ import {
 	buildConversationTarget,
 	type ConversationTarget,
 } from "@/lib/conversation-target";
+import { dedupeThreadMessages } from "@/lib/dedupe-thread-messages";
 import { readIntelligencePref } from "@/lib/intelligence-pref";
 import { useMailContext } from "@/lib/mail-context";
 import { isRescueCandidate } from "@/lib/rescue-candidates";
@@ -370,7 +371,9 @@ function MailboxPaneProvider({
 		});
 
 	const rawThreads = dropDeletedThreads(
-		threadsData?.pages.flatMap((page) => page.items ?? []) ?? [],
+		dedupeThreadMessages(
+			threadsData?.pages.flatMap((page) => page.items ?? []) ?? [],
+		),
 	);
 
 	const [filterCategory, setFilterCategory] = useState("all");
