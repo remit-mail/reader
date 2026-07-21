@@ -1,50 +1,78 @@
+import assert from "node:assert/strict";
+import { beforeEach, describe, it, mock } from "node:test";
 import type { Context } from "aws-lambda";
-import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockPublishStoredMetrics = vi.fn();
-const mockAddMetric = vi.fn();
-const mockCaptureColdStartMetric = vi.fn();
-const mockAddContext = vi.fn();
-const mockLogTrace = vi.fn();
-const mockLogDebug = vi.fn();
-const mockLogInfo = vi.fn();
-const mockLogWarn = vi.fn();
-const mockLogError = vi.fn();
-const mockLogCritical = vi.fn();
-const mockAppendPersistentKeys = vi.fn();
-const mockCreateChild = vi.fn();
+const addMetric = mock.fn();
+const publishStoredMetrics = mock.fn();
+const captureColdStartMetric = mock.fn();
+const addContext = mock.fn();
+const logTrace = mock.fn();
+const logDebug = mock.fn();
+const logInfo = mock.fn();
+const logWarn = mock.fn();
+const logError = mock.fn();
+const logCritical = mock.fn();
+const appendPersistentKeys = mock.fn();
 
-vi.mock("@aws-lambda-powertools/metrics", () => {
-	class MockMetrics {
-		addMetric = mockAddMetric;
-		publishStoredMetrics = mockPublishStoredMetrics;
-		captureColdStartMetric = mockCaptureColdStartMetric;
-	}
+class MockLogger {
+	addContext = addContext;
+	trace = logTrace;
+	debug = logDebug;
+	info = logInfo;
+	warn = logWarn;
+	error = logError;
+	critical = logCritical;
+	appendPersistentKeys = appendPersistentKeys;
+	createChild = () => createChild();
+}
 
-	return {
+const createChild = mock.fn(() => new MockLogger());
+
+class MockMetrics {
+	addMetric = addMetric;
+	publishStoredMetrics = publishStoredMetrics;
+	captureColdStartMetric = captureColdStartMetric;
+}
+
+mock.module("@aws-lambda-powertools/logger", {
+	namedExports: { Logger: MockLogger },
+});
+
+mock.module("@aws-lambda-powertools/metrics", {
+	namedExports: {
 		Metrics: MockMetrics,
-		MetricUnit: {
-			Count: "Count",
-			Milliseconds: "Milliseconds",
-		},
-	};
+		MetricUnit: { Count: "Count", Milliseconds: "Milliseconds" },
+	},
 });
 
-vi.mock("@aws-lambda-powertools/logger", () => {
-	class MockLogger {
-		addContext = mockAddContext;
-		trace = mockLogTrace;
-		debug = mockLogDebug;
-		info = mockLogInfo;
-		warn = mockLogWarn;
-		error = mockLogError;
-		critical = mockLogCritical;
-		appendPersistentKeys = mockAppendPersistentKeys;
-		createChild = mockCreateChild;
-	}
+const { createLogger, metrics, withTelemetry } = await import("./logger.js");
+const { Metrics } = await import("@aws-lambda-powertools/metrics");
 
-	return { Logger: MockLogger };
-});
+type Recorded = { mock: { calls: { arguments: unknown[] }[] } };
+
+const calls = (fn: Recorded): unknown[][] =>
+	fn.mock.calls.map((call) => call.arguments);
+
+const lastCall = (fn: Recorded): unknown[] => {
+	const recorded = calls(fn);
+	assert.ok(recorded.length > 0, "expected the mock to have been called");
+	return recorded[recorded.length - 1];
+};
+
+const recorded = [
+	addMetric,
+	publishStoredMetrics,
+	captureColdStartMetric,
+	addContext,
+	logTrace,
+	logDebug,
+	logInfo,
+	logWarn,
+	logError,
+	logCritical,
+	appendPersistentKeys,
+	createChild,
+];
 
 const makeContext = (): Context =>
 	({
@@ -57,140 +85,118 @@ const makeContext = (): Context =>
 		getRemainingTimeInMillis: () => 30000,
 		callbackWaitsForEmptyEventLoop: false,
 		functionVersion: "$LATEST",
-		done: vi.fn(),
-		fail: vi.fn(),
-		succeed: vi.fn(),
+		done: () => {},
+		fail: () => {},
+		succeed: () => {},
 	}) as unknown as Context;
 
 describe("remit-logger-lambda", () => {
 	beforeEach(() => {
-		vi.clearAllMocks();
-		mockCreateChild.mockImplementation(() => {
-			const child = {
-				trace: mockLogTrace,
-				debug: mockLogDebug,
-				info: mockLogInfo,
-				warn: mockLogWarn,
-				error: mockLogError,
-				critical: mockLogCritical,
-				appendPersistentKeys: mockAppendPersistentKeys,
-				createChild: mockCreateChild,
-			};
-			return child;
-		});
+		for (const fn of recorded) fn.mock.resetCalls();
 	});
 
-	it("exports metrics as a Metrics instance", async () => {
-		const { metrics } = await import("./logger.js");
-		const { Metrics } = await import("@aws-lambda-powertools/metrics");
-		expect(metrics).toBeInstanceOf(Metrics);
+	it("exports metrics as a Metrics instance", () => {
+		assert.ok(metrics instanceof Metrics);
 	});
 
-	it("object-first call maps to Powertools message + attributes", async () => {
-		const { createLogger } = await import("./logger.js");
+	it("object-first call maps to Powertools message + attributes", () => {
 		const log = createLogger(makeContext());
 		log.error({ error: "boom", messageId: "m1" }, "Failed to parse message");
-		expect(mockLogError).toHaveBeenCalledWith("Failed to parse message", {
-			error: "boom",
-			messageId: "m1",
-		});
+		assert.deepEqual(lastCall(logError), [
+			"Failed to parse message",
+			{ error: "boom", messageId: "m1" },
+		]);
 	});
 
-	it("object-first call without message uses empty string", async () => {
-		const { createLogger } = await import("./logger.js");
+	it("object-first call without message uses empty string", () => {
 		const log = createLogger();
 		log.info({ count: 3 });
-		expect(mockLogInfo).toHaveBeenCalledWith("", { count: 3 });
+		assert.deepEqual(lastCall(logInfo), ["", { count: 3 }]);
 	});
 
-	it("string-first call passes message then attributes", async () => {
-		const { createLogger } = await import("./logger.js");
+	it("string-first call passes message then attributes", () => {
 		const log = createLogger();
 		log.warn("watch out", { reason: "slow" });
-		expect(mockLogWarn).toHaveBeenCalledWith("watch out", { reason: "slow" });
+		assert.deepEqual(lastCall(logWarn), ["watch out", { reason: "slow" }]);
 	});
 
-	it("string-first call without attributes passes only the message", async () => {
-		const { createLogger } = await import("./logger.js");
+	it("string-first call without attributes passes only the message", () => {
 		const log = createLogger();
 		log.debug("hello");
-		expect(mockLogDebug).toHaveBeenCalledWith("hello");
+		assert.deepEqual(lastCall(logDebug), ["hello"]);
 	});
 
-	it("fatal maps to Powertools critical", async () => {
-		const { createLogger } = await import("./logger.js");
+	it("fatal maps to Powertools critical", () => {
 		const log = createLogger();
 		log.fatal({ fatal: true }, "the end");
-		expect(mockLogCritical).toHaveBeenCalledWith("the end", { fatal: true });
+		assert.deepEqual(lastCall(logCritical), ["the end", { fatal: true }]);
 	});
 
-	it("trace maps to Powertools trace", async () => {
-		const { createLogger } = await import("./logger.js");
+	it("trace maps to Powertools trace", () => {
 		const log = createLogger();
 		log.trace("trace me");
-		expect(mockLogTrace).toHaveBeenCalledWith("trace me");
+		assert.deepEqual(lastCall(logTrace), ["trace me"]);
 	});
 
-	it("child creates a Powertools child and appends bindings", async () => {
-		const { createLogger } = await import("./logger.js");
+	it("child creates a Powertools child and appends bindings", () => {
 		const log = createLogger();
 		const child = log.child({ queue: "imap" });
-		expect(mockCreateChild).toHaveBeenCalledOnce();
-		expect(mockAppendPersistentKeys).toHaveBeenCalledWith({ queue: "imap" });
+		assert.equal(calls(createChild).length, 1);
+		assert.deepEqual(lastCall(appendPersistentKeys), [{ queue: "imap" }]);
 		child.info({ done: true }, "child log");
-		expect(mockLogInfo).toHaveBeenCalledWith("child log", { done: true });
+		assert.deepEqual(lastCall(logInfo), ["child log", { done: true }]);
 	});
 
-	it("setBindings appends persistent keys", async () => {
-		const { createLogger } = await import("./logger.js");
+	it("setBindings appends persistent keys", () => {
 		const log = createLogger();
 		log.setBindings({ requestId: "r1" });
-		expect(mockAppendPersistentKeys).toHaveBeenCalledWith({ requestId: "r1" });
+		assert.deepEqual(lastCall(appendPersistentKeys), [{ requestId: "r1" }]);
 	});
 
 	it("withTelemetry calls the handler and returns its result", async () => {
-		const { withTelemetry } = await import("./logger.js");
-		const handler = vi.fn().mockResolvedValue("hello");
+		const handler = mock.fn(async () => "hello");
 		const wrapped = withTelemetry(handler);
 		const result = await wrapped({ key: "value" }, makeContext());
-		expect(result).toBe("hello");
-		expect(handler).toHaveBeenCalledOnce();
+		assert.equal(result, "hello");
+		assert.equal(calls(handler).length, 1);
 	});
 
 	it("withTelemetry re-throws handler errors", async () => {
-		const { withTelemetry } = await import("./logger.js");
-		const boom = new Error("boom");
-		const handler = vi.fn().mockRejectedValue(boom);
+		const handler = mock.fn(async () => {
+			throw new Error("boom");
+		});
 		const wrapped = withTelemetry(handler);
-		await expect(wrapped({}, makeContext())).rejects.toThrow("boom");
+		await assert.rejects(wrapped({}, makeContext()), /boom/);
 	});
 
 	it("withTelemetry publishes metrics in finally even on error", async () => {
-		const { withTelemetry } = await import("./logger.js");
-		const handler = vi.fn().mockRejectedValue(new Error("fail"));
+		const handler = mock.fn(async () => {
+			throw new Error("fail");
+		});
 		const wrapped = withTelemetry(handler);
-		await expect(wrapped({}, makeContext())).rejects.toThrow();
-		expect(mockPublishStoredMetrics).toHaveBeenCalled();
+		await assert.rejects(wrapped({}, makeContext()));
+		assert.ok(calls(publishStoredMetrics).length > 0);
 	});
 
 	it("withTelemetry emits errorCount on handler failure", async () => {
-		const { withTelemetry } = await import("./logger.js");
-		const handler = vi.fn().mockRejectedValue(new Error("fail"));
+		const handler = mock.fn(async () => {
+			throw new Error("fail");
+		});
 		const wrapped = withTelemetry(handler);
-		await expect(wrapped({}, makeContext())).rejects.toThrow();
-		expect(mockAddMetric).toHaveBeenCalledWith("errorCount", "Count", 1);
+		await assert.rejects(wrapped({}, makeContext()));
+		assert.deepEqual(calls(addMetric), [["errorCount", "Count", 1]]);
 	});
 
 	it("withTelemetry emits invocationCount and invocationLatency on success", async () => {
-		const { withTelemetry } = await import("./logger.js");
-		const handler = vi.fn().mockResolvedValue(42);
+		const handler = mock.fn(async () => 42);
 		const wrapped = withTelemetry(handler);
 		await wrapped({}, makeContext());
-		expect(mockAddMetric).toHaveBeenCalledWith("invocationCount", "Count", 1);
-		expect(mockAddMetric).toHaveBeenCalledWith(
+		const [countCall, latencyCall] = calls(addMetric);
+		assert.deepEqual(countCall, ["invocationCount", "Count", 1]);
+		assert.deepEqual(latencyCall.slice(0, 2), [
 			"invocationLatency",
 			"Milliseconds",
-			expect.any(Number),
-		);
+		]);
+		assert.equal(typeof latencyCall[2], "number");
 	});
 });

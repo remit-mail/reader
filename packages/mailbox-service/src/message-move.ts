@@ -10,7 +10,7 @@ import type {
 	IMessageRepository,
 	IThreadMessageRepository,
 } from "@remit/data-ports";
-import { base36uuid } from "@remit/data-ports/id";
+import { deriveCopyMessageId } from "@remit/data-ports/id";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 import { createQueueProducer } from "@remit/sqs-client/producer";
 
@@ -450,11 +450,20 @@ export class MessageMoveService {
 			destinationMailboxId,
 		);
 
-		// Generate new ID for the copy
-		const newMessageId = base36uuid();
+		// Deterministic identity for the copy: derived from the source message and
+		// the destination mailbox, so a replayed COPY event or a repeated copy
+		// resolves to the same row instead of a fresh unreachable duplicate. A
+		// random id (the prior behaviour) left rows no sync or delete could reach
+		// (issue #75).
+		const newMessageId = deriveCopyMessageId(messageId, destinationMailboxId);
 
-		// Create local copy with moving status (uid=0 until IMAP confirms)
-		await this.messageService.create({
+		// Upsert, not create: the id is deterministic, so a repeated copy or a
+		// retry after a partial failure (row written, event never delivered)
+		// re-derives the same id. create throws on the existing row and strands
+		// the copy at uid=0 with an undelivered event; upsert no-ops on the row
+		// and lets the event be re-enqueued below, keeping the operation
+		// idempotent and the copy re-drivable (issue #75).
+		await this.messageService.upsert({
 			messageId: newMessageId,
 			mailboxId: destinationMailboxId,
 			uid: 0, // Will be updated by worker after IMAP COPY
