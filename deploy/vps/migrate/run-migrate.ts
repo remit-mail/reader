@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
@@ -36,7 +37,34 @@ import sqliteSearchIndexSql from "../../../npm-scripts/sqlite-search-index.sql";
  * future install carries forever.
  */
 
+/**
+ * `migrations/entities` and `migrations/auth` are the Postgres set the
+ * Dockerfile's builder stage stages conditionally (RFC 036 D5) — the
+ * open-core export ships only `migrations-sqlite`, so a backend image built
+ * from this tree never has the Postgres set to COPY. Checking for it here,
+ * before opening a connection, is what turns that into an explicit "unsupported"
+ * message instead of a migrator that connects, starts applying migrations, and
+ * dies partway when `migrationsFolder` resolves to nothing (reader#176).
+ */
+const requirePostgresMigrations = (): void => {
+	const missing = ["migrations/entities", "migrations/auth"].filter(
+		(folder) => !existsSync(folder),
+	);
+	if (missing.length === 0) {
+		return;
+	}
+
+	throw new Error(
+		`Postgres self-host is not supported in this build: ${missing.join(", ")} ${
+			missing.length > 1 ? "are" : "is"
+		} not shipped here. Use the SQLite backend instead ` +
+			"(DATA_BACKEND=sqlite, deploy/vps/docker-compose.sqlite.yml) — see README.md.",
+	);
+};
+
 const runPostgres = async (): Promise<void> => {
+	requirePostgresMigrations();
+
 	const connectionString = process.env.PG_CONNECTION_URL;
 	if (!connectionString) {
 		throw new Error("PG_CONNECTION_URL is required");
