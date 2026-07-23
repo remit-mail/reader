@@ -8,18 +8,30 @@
  * the brief now raises the same selection bar the mailbox list does and that
  * its Delete acts on the selection.
  *
- * Scratch messages, tagged per run, are appended and deleted through the UI so
- * the shared serial inbox other specs count exactly is left as it was.
+ * Driven at the tablet width the bug was reported on (800×1106): still a
+ * single-pane layout (< 1024px), so the phone brief renders, and wide enough
+ * (≥ 640px) that the row's leading selection toggle is laid out and tappable —
+ * so selection is entered with a tap on it, not a long press. Scratch messages,
+ * tagged per run, are appended and deleted through the UI so the shared serial
+ * inbox other specs count exactly is left as it was.
  */
 import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "../src/fixtures.js";
 import { appendMessages } from "../src/imap.js";
 
-const MOBILE = { width: 390, height: 844 };
-test.use({ viewport: MOBILE });
+const TABLET = { width: 800, height: 1106 };
+test.use({ viewport: TABLET });
 
 const briefRow = (page: Page, subject: string): Locator =>
 	page.locator("[data-message-row]").filter({ hasText: subject });
+
+/**
+ * The row's leading selection toggle — a `role="button"` labelled "Select
+ * message" / "Deselect message" (`ui/message-row.tsx`). Tapping it enters
+ * selection mode and toggles the row.
+ */
+const rowToggle = (row: Locator): Locator =>
+	row.getByRole("button", { name: /^(Select|Deselect) message$/ });
 
 /** SelectionToolbar's count label — the brief's bar, shared with desktop. */
 const selectionCount = (page: Page): Locator =>
@@ -29,19 +41,6 @@ const deleteButton = (page: Page): Locator =>
 	page.getByRole("button", { name: "Delete selected messages" });
 
 const confirmDialog = (page: Page): Locator => page.getByRole("dialog");
-
-/**
- * Long press with real pointer events — the same input the kit `useLongPress`
- * timer listens for. Chromium dispatches PointerEvents for mouse input.
- */
-const longPress = async (page: Page, row: Locator): Promise<void> => {
-	const box = await row.boundingBox();
-	if (!box) throw new Error("row has no bounding box to long-press");
-	await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-	await page.mouse.down();
-	await page.waitForTimeout(650);
-	await page.mouse.up();
-};
 
 test.describe("Daily brief selection (#203)", () => {
 	const tag = `briefsel${Date.now()}`;
@@ -78,16 +77,13 @@ test.describe("Daily brief selection (#203)", () => {
 		run,
 		api,
 	}) => {
-		// The brief's row toggle is hidden until selection mode, so entry is a long
-		// press — the same gesture the mailbox list uses on a phone.
-		await longPress(page, briefRow(page, subjects[0]));
+		await rowToggle(briefRow(page, subjects[0])).click();
 		await expect(selectionCount(page)).toHaveText("1 message selected");
 
 		// The action bar exists at all — the whole of #203.
 		await expect(deleteButton(page)).toBeVisible();
 
-		// A second row joins the selection with a plain tap while in selection mode.
-		await briefRow(page, subjects[1]).click();
+		await rowToggle(briefRow(page, subjects[1])).click();
 		await expect(selectionCount(page)).toHaveText("2 messages selected");
 		await expect(page).not.toHaveURL(/selectedMessageId=/);
 
