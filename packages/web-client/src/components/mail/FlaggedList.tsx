@@ -147,7 +147,6 @@ export function FlaggedList({
 
 	const listBody = (
 		<ThreadListInteraction
-			rows={rows}
 			selectedMessageId={selectedMessageId}
 			onOpen={(id) => onSelectMessage?.(id)}
 			onDeleteMessages={onDeleteMessages}
@@ -156,10 +155,7 @@ export function FlaggedList({
 		>
 			<div className="flex h-full min-h-0 flex-col">
 				{onDeleteMessages ? (
-					<ThreadListSelectionBar
-						onDelete={onDeleteMessages}
-						onMarkAsRead={onMarkMessagesRead}
-					/>
+					<ThreadListSelectionBar onMarkAsRead={onMarkMessagesRead} />
 				) : null}
 				<div className="flex-1 overflow-y-auto">
 					<div className="divide-y divide-line">

@@ -8,8 +8,14 @@
  * reaches the row through context instead. Both drive the same `useListCursor`
  * and publish the same `MessageListCommands`, so there is one definition of
  * what j/k, x, shift-arrow and ⌘A do (#149).
+ *
+ * The cursor walks the rows that are actually on screen, read from the DOM. The
+ * brief's sections cap themselves at ten rows behind "Show N more", apply their
+ * own attribute chips, and collapse from their headers — none of which the data
+ * the consumer passed describes. A cursor walking that data steps onto rows that
+ * are not rendered: focus stops moving, the highlight disappears, and the next
+ * verb acts on a message the user cannot see.
  */
-import type { ThreadRowData } from "@remit/ui";
 import {
 	createContext,
 	type ReactNode,
@@ -18,10 +24,15 @@ import {
 	useContext,
 	useEffect,
 	useMemo,
+	useRef,
+	useState,
 } from "react";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useListCursor } from "@/hooks/useListCursor";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import type { TriageContextUpdate } from "@/hooks/useTriageLayer";
+import { formatDeleteToTrashTitle } from "@/lib/format";
+import { tabStopId } from "@/lib/list-focus";
 import type { MessageListCommands } from "./MessageList";
 import type { MessageRowSelection } from "./MessageRow";
 import { SelectionToolbar } from "./SelectionToolbar";
@@ -29,6 +40,7 @@ import { SelectionToolbar } from "./SelectionToolbar";
 interface ThreadRowInteraction {
 	focused: boolean;
 	isTabStop: boolean;
+	isDesktop: boolean;
 	selection: MessageRowSelection;
 	onFocusRow: (messageId: string) => void;
 }
@@ -38,6 +50,8 @@ interface ThreadListInteractionValue {
 	selectedIds: Set<string>;
 	selectedCount: number;
 	exitSelection: () => void;
+	/** Opens the move-to-Trash confirmation for the current selection. */
+	requestDeleteSelection: () => void;
 }
 
 const ThreadListInteractionCtx =
@@ -55,9 +69,9 @@ export const useThreadRowInteraction = (
 };
 
 /** The list's current selection, for a selection toolbar mounted alongside. */
-export const useThreadListSelection = (): Pick<
+export const useThreadListSelection = (): Omit<
 	ThreadListInteractionValue,
-	"selectedIds" | "selectedCount" | "exitSelection"
+	"rowInteraction"
 > => {
 	const ctx = useContext(ThreadListInteractionCtx);
 	if (!ctx) {
@@ -68,29 +82,69 @@ export const useThreadListSelection = (): Pick<
 	return ctx;
 };
 
+const ROW_SELECTOR = "[data-message-id]";
+
+const readRowIds = (container: HTMLElement): string[] =>
+	Array.from(container.querySelectorAll<HTMLElement>(ROW_SELECTOR))
+		.map((row) => row.dataset.messageId)
+		.filter((id): id is string => id !== undefined);
+
+const sameIds = (a: string[], b: string[]): boolean =>
+	a.length === b.length && a.every((id, i) => id === b[i]);
+
+/**
+ * The ids of the rows currently in the DOM, in document order, kept in step
+ * with the rendered list. Sections expand, collapse and cap themselves without
+ * the consumer's data changing, so a render pass is not enough of a signal — a
+ * MutationObserver is.
+ */
+const useRenderedRowIds = (
+	containerRef: RefObject<HTMLElement | null>,
+): string[] => {
+	const [rowIds, setRowIds] = useState<string[]>([]);
+
+	useEffect(() => {
+		const container = containerRef.current;
+		if (!container) return;
+
+		const sync = () => {
+			const next = readRowIds(container);
+			setRowIds((prev) => (sameIds(prev, next) ? prev : next));
+		};
+
+		sync();
+		const observer = new MutationObserver(sync);
+		observer.observe(container, { childList: true, subtree: true });
+		return () => observer.disconnect();
+	}, [containerRef]);
+
+	return rowIds;
+};
+
 interface ThreadListInteractionProps {
-	rows: ThreadRowData[];
 	selectedMessageId: string | undefined;
 	/** Opens a row — the same navigation a click performs. */
 	onOpen: (messageId: string) => void;
 	/** Deletes a set of messages. Absent disables the delete key for this list. */
 	onDeleteMessages?: (messageIds: string[]) => void;
+	isDeleting?: boolean;
 	commandsRef?: RefObject<MessageListCommands | null>;
 	onTriageContextChange?: (context: TriageContextUpdate) => void;
 	children: ReactNode;
 }
 
 export function ThreadListInteraction({
-	rows,
 	selectedMessageId,
 	onOpen,
 	onDeleteMessages,
+	isDeleting = false,
 	commandsRef,
 	onTriageContextChange,
 	children,
 }: ThreadListInteractionProps) {
 	const isDesktop = useIsDesktop();
-	const orderedIds = useMemo(() => rows.map((row) => row.id), [rows]);
+	const containerRef = useRef<HTMLDivElement>(null);
+	const orderedIds = useRenderedRowIds(containerRef);
 	const cursor = useListCursor({
 		orderedIds,
 		isDesktop,
@@ -108,16 +162,22 @@ export function ThreadListInteraction({
 	} = cursor;
 	const { selectedIds, selectedCount, isSelected, toggle, select } = selection;
 
+	// A row that leaves the list — a chip filter, a collapsed section, a
+	// completed delete — cannot stay selected. Survivors keep their selection.
+	const { intersectWith } = selection;
+	useEffect(() => {
+		intersectWith(orderedIds);
+	}, [intersectWith, orderedIds]);
+
 	// Real browser focus follows the cursor, so Tab, Shift+Tab and the focus ring
 	// agree with what the list highlights.
 	useEffect(() => {
 		const pending = pendingDomFocusRef.current;
 		if (pending === null) return;
 		pendingDomFocusRef.current = null;
-		const row = document.querySelector<HTMLElement>(
-			`[data-message-id="${pending}"]`,
-		);
-		row?.focus();
+		containerRef.current
+			?.querySelector<HTMLElement>(`[data-message-id="${pending}"]`)
+			?.focus();
 	});
 
 	const handleFocusRow = useCallback(
@@ -139,25 +199,48 @@ export function ThreadListInteraction({
 		if (focusedMessageId) onOpen(focusedMessageId);
 	}, [focusedMessageId, onOpen]);
 
+	// Pending move-to-Trash, awaiting confirmation. The ids are snapshotted at
+	// request time so a selection change behind the dialog cannot retarget it —
+	// the same contract the mailbox list's delete has.
+	const [pendingDelete, setPendingDelete] = useState<string[] | null>(null);
+
+	const requestDeleteIds = useCallback(
+		(ids: string[]): boolean => {
+			if (!onDeleteMessages || ids.length === 0) return false;
+			setPendingDelete(ids);
+			return true;
+		},
+		[onDeleteMessages],
+	);
+
+	const requestDeleteSelection = useCallback(() => {
+		requestDeleteIds(Array.from(selectedIds));
+	}, [requestDeleteIds, selectedIds]);
+
 	const requestDelete = useCallback((): boolean => {
-		if (!onDeleteMessages) return false;
-		if (selectedCount > 0) {
-			onDeleteMessages(Array.from(selectedIds));
-			exitSelection();
-			return true;
-		}
-		if (focusedMessageId) {
-			onDeleteMessages([focusedMessageId]);
-			return true;
-		}
+		// The confirmation is already asking about a delete: the keypress belongs
+		// to it. Claiming the press here is what stops a second Delete from
+		// reaching an unconfirmed delete.
+		if (pendingDelete !== null) return true;
+		if (selectedCount > 0) return requestDeleteIds(Array.from(selectedIds));
+		if (focusedMessageId) return requestDeleteIds([focusedMessageId]);
 		return false;
 	}, [
-		onDeleteMessages,
+		pendingDelete,
 		selectedCount,
 		selectedIds,
 		focusedMessageId,
-		exitSelection,
+		requestDeleteIds,
 	]);
+
+	const confirmDelete = useCallback(() => {
+		if (pendingDelete === null) return;
+		onDeleteMessages?.(pendingDelete);
+		setPendingDelete(null);
+		exitSelection();
+	}, [pendingDelete, onDeleteMessages, exitSelection]);
+
+	const cancelDelete = useCallback(() => setPendingDelete(null), []);
 
 	const clearSelectionCommand = useCallback((): boolean => {
 		if (selectedCount === 0) return false;
@@ -165,7 +248,7 @@ export function ThreadListInteraction({
 		return true;
 	}, [selectedCount, exitSelection]);
 
-	const hasList = rows.length > 0;
+	const hasList = orderedIds.length > 0;
 
 	useEffect(() => {
 		if (!commandsRef) return;
@@ -209,13 +292,16 @@ export function ThreadListInteraction({
 	]);
 
 	const selectedIdList = useMemo(() => Array.from(selectedIds), [selectedIds]);
+	const confirmOpen = pendingDelete !== null;
 	useEffect(() => {
 		onTriageContextChange?.({
 			focusedMessageId,
 			selectedIds: selectedIdList,
 			orderedIds,
 			hasList,
-			blocksKeyboard: false,
+			// The dialog owns the keyboard while it is up, so the triage layer
+			// suspends rather than acting behind it.
+			blocksKeyboard: confirmOpen,
 		});
 	}, [
 		onTriageContextChange,
@@ -223,20 +309,21 @@ export function ThreadListInteraction({
 		selectedIdList,
 		orderedIds,
 		hasList,
+		confirmOpen,
 	]);
 
-	// The cursor's tab stop: the focused row, or the first row before the
-	// keyboard has been used, so Tab enters the list at one place.
-	const tabStopId = focusedMessageId ?? orderedIds[0];
+	const tabStop = tabStopId(orderedIds, focusedMessageId);
 
 	const value = useMemo<ThreadListInteractionValue>(
 		() => ({
 			selectedIds,
 			selectedCount,
 			exitSelection,
+			requestDeleteSelection,
 			rowInteraction: (messageId: string) => ({
 				focused: messageId === focusedMessageId,
-				isTabStop: messageId === tabStopId,
+				isTabStop: messageId === tabStop,
+				isDesktop,
 				onFocusRow: handleFocusRow,
 				selection: {
 					isChecked: isSelected(messageId),
@@ -251,8 +338,10 @@ export function ThreadListInteraction({
 			selectedIds,
 			selectedCount,
 			exitSelection,
+			requestDeleteSelection,
 			focusedMessageId,
-			tabStopId,
+			tabStop,
+			isDesktop,
 			handleFocusRow,
 			isSelected,
 			toggle,
@@ -264,13 +353,26 @@ export function ThreadListInteraction({
 
 	return (
 		<ThreadListInteractionCtx.Provider value={value}>
-			{children}
+			{/* `display: contents` so reading the rendered rows costs the layout
+			    nothing — the children lay out against their real parent. */}
+			<div ref={containerRef} className="contents">
+				{children}
+			</div>
+			<ConfirmDialog
+				isOpen={confirmOpen}
+				title={formatDeleteToTrashTitle(pendingDelete?.length ?? 0)}
+				description="You can restore them from Trash later."
+				confirmLabel="Move to Trash"
+				destructive
+				isBusy={isDeleting}
+				onConfirm={confirmDelete}
+				onCancel={cancelDelete}
+			/>
 		</ThreadListInteractionCtx.Provider>
 	);
 }
 
 interface ThreadListSelectionBarProps {
-	onDelete: (messageIds: string[]) => void;
 	onMarkAsRead?: (messageIds: string[]) => void;
 	isDeleting?: boolean;
 }
@@ -283,17 +385,11 @@ interface ThreadListSelectionBarProps {
  * where the messages go. Delete and mark-read carry no such scope.
  */
 export function ThreadListSelectionBar({
-	onDelete,
 	onMarkAsRead,
 	isDeleting,
 }: ThreadListSelectionBarProps) {
-	const { selectedIds, selectedCount, exitSelection } =
+	const { selectedIds, selectedCount, exitSelection, requestDeleteSelection } =
 		useThreadListSelection();
-
-	const handleDelete = useCallback(() => {
-		onDelete(Array.from(selectedIds));
-		exitSelection();
-	}, [onDelete, selectedIds, exitSelection]);
 
 	const handleMarkAsRead = useCallback(() => {
 		onMarkAsRead?.(Array.from(selectedIds));
@@ -303,7 +399,7 @@ export function ThreadListSelectionBar({
 	return (
 		<SelectionToolbar
 			selectedCount={selectedCount}
-			onDelete={handleDelete}
+			onDelete={requestDeleteSelection}
 			onClearSelection={exitSelection}
 			onMarkAsRead={onMarkAsRead ? handleMarkAsRead : undefined}
 			isDeleting={isDeleting}

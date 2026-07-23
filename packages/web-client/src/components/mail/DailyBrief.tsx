@@ -295,19 +295,6 @@ export function DailyBrief({
 		[filteredRows],
 	);
 
-	// The order the sections render in — the cursor walks the rows as shown, and
-	// next/previous in the reading pane follows the same order.
-	const visibleRows = useMemo<ThreadRowData[]>(
-		() =>
-			sections
-				.filter(
-					(section) =>
-						selectedCategory === "all" || section.id === selectedCategory,
-				)
-				.flatMap((section) => section.threads),
-		[sections, selectedCategory],
-	);
-
 	const accountSources = useMemo<FilterSheetSource[]>(() => {
 		if (nonMuted.length <= 1) return [];
 		return [
@@ -435,7 +422,6 @@ export function DailyBrief({
 		</div>
 	) : (
 		<ThreadListInteraction
-			rows={visibleRows}
 			selectedMessageId={selectedMessageId}
 			onOpen={(id) => onSelectMessage?.(id)}
 			onDeleteMessages={onDeleteMessages}
@@ -444,15 +430,13 @@ export function DailyBrief({
 		>
 			<div className="flex h-full min-h-0 flex-col">
 				{onDeleteMessages ? (
-					<ThreadListSelectionBar
-						onDelete={onDeleteMessages}
-						onMarkAsRead={onMarkMessagesRead}
-					/>
+					<ThreadListSelectionBar onMarkAsRead={onMarkMessagesRead} />
 				) : null}
 				<div className="min-h-0 flex-1">
 					<BriefSections
 						sections={sections}
 						Row={MessageRow}
+						manageFocus={false}
 						briefCategory={selectedCategory}
 						onSelectBriefCategory={setSelectedCategory}
 						sources={accountSources}

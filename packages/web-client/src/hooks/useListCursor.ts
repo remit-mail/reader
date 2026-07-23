@@ -179,10 +179,11 @@ export const useListCursor = ({
 		],
 	);
 
-	// Shift+arrow moves the cursor one row and extends the range from the
-	// existing anchor — the keyboard equivalent of shift-click. The anchor stays
-	// fixed across consecutive presses, so moving back toward it shrinks the
-	// range.
+	// Shift+arrow moves the cursor one row and adds the row it lands on to the
+	// range — the keyboard equivalent of shift-click. The first press seeds the
+	// anchor on that row; consecutive presses extend from it. The range only
+	// grows, so reversing direction ranges back through the anchor rather than
+	// giving rows up.
 	const extendRange = useCallback(
 		(direction: -1 | 1) => {
 			const target = nextFocusId(orderedIds, focusedMessageId, direction);

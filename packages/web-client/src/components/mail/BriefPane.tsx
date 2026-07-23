@@ -191,12 +191,18 @@ function BriefPaneProvider({ selectedMessageId, children }: BriefPaneProps) {
 
 	const triage = useTriageContext();
 
+	// A brief selection spans accounts and mailboxes, so the listings these
+	// patch are resolved from each message's own mailbox — the open thread's is
+	// only the fallback.
+	const briefThreads = useMemo(() => threadsData?.items ?? [], [threadsData]);
 	const { deleteMessages } = useDeleteMessages({
 		mailboxId: selectedThread?.mailboxId ?? "",
+		messages: briefThreads,
 		onAfterOptimisticRemove: handleDeselectIfRemoved,
 	});
 	const { toggleReadFor } = useToggleReadFor({
 		mailboxId: selectedThread?.mailboxId ?? "",
+		messages: briefThreads,
 	});
 	const handleMarkMessagesRead = useCallback(
 		(messageIds: string[]) => toggleReadFor(messageIds, true),

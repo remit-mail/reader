@@ -18,6 +18,7 @@ import {
 	compactRowClass,
 	type Density,
 	mergeProps,
+	type RowToggleEvent,
 	type ThreadRowData,
 	useLongPress,
 } from "@remit/ui";
@@ -89,7 +90,7 @@ const MessageRowComponent = ({
 	focused: focusedProp,
 	isTabStop: isTabStopProp,
 	density = "comfortable",
-	isDesktop = true,
+	isDesktop: isDesktopProp,
 	badge,
 	selection: selectionProp,
 	inListbox = false,
@@ -106,14 +107,17 @@ const MessageRowComponent = ({
 	const isTabStop = isTabStopProp ?? fromContext?.isTabStop ?? false;
 	const selection = selectionProp ?? fromContext?.selection;
 	const onFocusRow = onFocusRowProp ?? fromContext?.onFocusRow;
+	// The cursor and the row must agree on the device: the cursor's multi-select
+	// mode is derived from it, and the row's tap semantics branch on it.
+	const isDesktop = isDesktopProp ?? fromContext?.isDesktop ?? true;
 	const isChecked = selection?.isChecked ?? false;
 	const isMultiSelectMode = selection?.isMultiSelectMode ?? false;
 	const onToggleCheck = selection?.onToggleCheck;
 	const onRowSelect = selection?.onRowSelect;
 	const onLongPress = selection?.onLongPress;
 
-	const handleCheckboxClick = useCallback(
-		(e: MouseEvent) => {
+	const handleToggleCheck = useCallback(
+		(e: RowToggleEvent) => {
 			e.preventDefault();
 			e.stopPropagation();
 			onToggleCheck?.(messageId);
@@ -250,7 +254,7 @@ const MessageRowComponent = ({
 						? {
 								checked: isChecked,
 								alwaysVisible: isMultiSelectMode,
-								onToggle: handleCheckboxClick,
+								onToggle: handleToggleCheck,
 							}
 						: undefined
 				}

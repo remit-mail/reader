@@ -287,8 +287,14 @@ export const useMarkAsRead = ({
 export const useToggleReadFor = (options: {
 	mailboxId: string;
 	accountId?: string;
+	/**
+	 * The threads the ids may come from, when the caller has them. A selection in
+	 * the brief or Flagged spans mailboxes, so the listings to invalidate are the
+	 * ones each message actually lives in.
+	 */
+	messages?: RemitImapThreadMessageResponse[];
 }) => {
-	const { mailboxId, accountId } = options;
+	const { mailboxId, accountId, messages } = options;
 	const queryClient = useQueryClient();
 	const { pushError } = useErrorBanners();
 
@@ -302,10 +308,16 @@ export const useToggleReadFor = (options: {
 				error,
 			});
 		},
-		onSettled: () => {
+		onSettled: (_data, _error, variables) => {
 			invalidateThreadListQueries(
 				queryClient,
-				threadListCacheKeys([mailboxId]),
+				threadListCacheKeys(
+					resolveMailboxesForMessages(
+						variables.body.messageIds ?? [],
+						messages ?? [],
+						mailboxId,
+					),
+				),
 			);
 			if (accountId) {
 				queryClient.invalidateQueries({

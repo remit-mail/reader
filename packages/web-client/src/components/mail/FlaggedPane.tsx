@@ -131,12 +131,17 @@ function FlaggedPaneProvider({
 
 	const triage = useTriageContext();
 
+	// A Flagged selection spans accounts and mailboxes, so the listings these
+	// patch are resolved from each message's own mailbox — the open thread's is
+	// only the fallback.
 	const { deleteMessages } = useDeleteMessages({
 		mailboxId: selectedThread?.mailboxId ?? "",
+		messages: threads,
 		onAfterOptimisticRemove: handleDeselectIfRemoved,
 	});
 	const { toggleReadFor } = useToggleReadFor({
 		mailboxId: selectedThread?.mailboxId ?? "",
+		messages: threads,
 	});
 	const handleMarkMessagesRead = useCallback(
 		(messageIds: string[]) => toggleReadFor(messageIds, true),

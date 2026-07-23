@@ -1,121 +1,133 @@
 {
-  "name": "@remit/web-client",
-  "version": "1.0.0",
-  "type": "module",
-  "description": "Remit web client, published as composable primitives — the app shell, auth shells, and runtime config. A distributor imports what it composes and bundles it.",
-  "exports": {
-    "./shell": "./src/shell/index.tsx",
-    "./config": "./src/runtime-config.ts",
-    "./auth/provider": "./src/auth/provider.tsx",
-    "./auth/cognito": "./src/auth/cognito-provider.tsx",
-    "./auth/better-auth": "./src/auth/better-auth-provider.tsx",
-    "./auth/combined": "./src/auth/combined-provider.tsx",
-    "./styles/app.css": "./src/index.css",
-    "./styles/cognito.css": "./src/auth/cognito/cognito.css",
-    "./vite-preset": "./harness/vite-preset.ts"
-  },
-  "files": [
-    "src",
-    "harness",
-    "vite.base.ts",
-    "public",
-    "index.html"
-  ],
-  "scripts": {
-    "dev": "vite",
-    "generate:routes": "node scripts/generate-routes.mjs",
-    "prepack": "npm run generate:routes",
-    "build": "npm run generate:routes && tsc -b && vite build",
-    "build:dist": "npm run generate:routes && node --import tsx harness/build.mjs",
-    "preview": "vite preview",
-    "test:typecheck": "npm run generate:routes && tsgo --noEmit",
-    "test:run": "node --import tsx --import ./test-support/register.mjs --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/**/*.test.tsx' --test-coverage-lines=50 --test 'src/**/*.test.ts'",
-    "test": "npm run test:typecheck && npm run test:run"
-  },
-  "peerDependencies": {
-    "react": "^19",
-    "react-dom": "^19",
-    "vite": "^7",
-    "@vitejs/plugin-react": "^4",
-    "@tailwindcss/vite": "^4",
-    "tailwindcss": "^4",
-    "@tanstack/router-plugin": "^1",
-    "@types/react-dom": "^19"
-  },
-  "peerDependenciesMeta": {
-    "vite": { "optional": true },
-    "@vitejs/plugin-react": { "optional": true },
-    "@tailwindcss/vite": { "optional": true },
-    "tailwindcss": { "optional": true },
-    "@tanstack/router-plugin": { "optional": true }
-  },
-  "dependencies": {
-    "@hookform/resolvers": "*",
-    "@platejs/autoformat": "*",
-    "@platejs/basic-nodes": "*",
-    "@platejs/link": "*",
-    "@remit/api-http-client": "*",
-    "@remit/domain-enums": "*",
-    "@remit/ui": "*",
-    "@tanstack/react-query": "^5",
-    "@tanstack/react-query-devtools": "^5",
-    "@tanstack/react-router": "^1",
-    "@tanstack/react-virtual": "^3.13.18",
-    "@tanstack/zod-adapter": "^1",
-    "aws-amplify": "^6",
-    "@aws-amplify/ui-react": "^6",
-    "aws-rum-web": "^3",
-    "better-auth": "^1.6.23",
-    "clsx": "^2",
-    "dompurify": "^3.4.7",
-    "i18next": "^24",
-    "i18next-browser-languagedetector": "^8",
-    "i18next-http-backend": "^3.0.6",
-    "lucide-react": "^0.468",
-    "p-map": "*",
-    "platejs": "*",
-    "prop-types": "^15.8.1",
-    "react-hook-form": "*",
-    "react-i18next": "^15",
-    "react-resizable-panels": "^2.1.9",
-    "tailwind-merge": "^2",
-    "vaul": "^1.1.2",
-    "zod": "^3",
-    "@types/dompurify": "*"
-  },
-  "devDependencies": {
-    "@aws-sdk/client-dynamodb": "*",
-    "@aws-sdk/client-sqs": "*",
-    "@aws-sdk/lib-dynamodb": "*",
-    "@types/nodemailer": "*",
-    "nodemailer": "^9.0.3",
-    "@playwright/test": "1.58.2",
-    "@remit/drizzle-service": "*",
-    "@remit/electrodb-entities": "*",
-    "@remit/secrets-service": "*",
-    "@storybook/react-vite": "^9",
-    "@tailwindcss/vite": "^4",
-    "@tanstack/router-generator": "^1",
-    "@tanstack/router-plugin": "^1",
-    "@types/pngjs": "^6.0.5",
-    "@vitejs/plugin-react": "^4",
-    "electrodb": "*",
-    "esbuild": "*",
-    "expect-env": "*",
-    "pngjs": "^5",
-    "react": "^19",
-    "react-dom": "^19.2.4",
-    "tailwindcss": "^4",
-    "typescript": "*",
-    "vite": "^7.3.6"
-  },
-  "license": "MIT",
-  "publishConfig": {
-    "access": "public"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/remit-mail/reader.git",
-    "directory": "packages/web-client"
-  }
+	"name": "@remit/web-client",
+	"version": "1.0.0",
+	"type": "module",
+	"description": "Remit web client, published as composable primitives \u2014 the app shell, auth shells, and runtime config. A distributor imports what it composes and bundles it.",
+	"exports": {
+		"./shell": "./src/shell/index.tsx",
+		"./config": "./src/runtime-config.ts",
+		"./auth/provider": "./src/auth/provider.tsx",
+		"./auth/cognito": "./src/auth/cognito-provider.tsx",
+		"./auth/better-auth": "./src/auth/better-auth-provider.tsx",
+		"./auth/combined": "./src/auth/combined-provider.tsx",
+		"./styles/app.css": "./src/index.css",
+		"./styles/cognito.css": "./src/auth/cognito/cognito.css",
+		"./vite-preset": "./harness/vite-preset.ts"
+	},
+	"files": [
+		"src",
+		"harness",
+		"vite.base.ts",
+		"public",
+		"index.html"
+	],
+	"scripts": {
+		"dev": "vite",
+		"generate:routes": "node scripts/generate-routes.mjs",
+		"prepack": "npm run generate:routes",
+		"build": "npm run generate:routes && tsc -b && vite build",
+		"build:dist": "npm run generate:routes && node --import tsx harness/build.mjs",
+		"preview": "vite preview",
+		"test:typecheck": "npm run generate:routes && tsgo --noEmit",
+		"test:run": "node --import tsx --import ./test-support/register.mjs --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/**/*.test.tsx' --test-coverage-lines=50 --test 'src/**/*.test.ts'",
+		"test": "npm run test:typecheck && npm run test:run"
+	},
+	"peerDependencies": {
+		"react": "^19",
+		"react-dom": "^19",
+		"vite": "^7",
+		"@vitejs/plugin-react": "^4",
+		"@tailwindcss/vite": "^4",
+		"tailwindcss": "^4",
+		"@tanstack/router-plugin": "^1",
+		"@types/react-dom": "^19"
+	},
+	"peerDependenciesMeta": {
+		"vite": {
+			"optional": true
+		},
+		"@vitejs/plugin-react": {
+			"optional": true
+		},
+		"@tailwindcss/vite": {
+			"optional": true
+		},
+		"tailwindcss": {
+			"optional": true
+		},
+		"@tanstack/router-plugin": {
+			"optional": true
+		}
+	},
+	"dependencies": {
+		"@hookform/resolvers": "*",
+		"@platejs/autoformat": "*",
+		"@platejs/basic-nodes": "*",
+		"@platejs/link": "*",
+		"@remit/api-http-client": "*",
+		"@remit/domain-enums": "*",
+		"@remit/ui": "*",
+		"@tanstack/react-query": "^5",
+		"@tanstack/react-query-devtools": "^5",
+		"@tanstack/react-router": "^1",
+		"@tanstack/react-virtual": "^3.13.18",
+		"@tanstack/zod-adapter": "^1",
+		"aws-amplify": "^6",
+		"@aws-amplify/ui-react": "^6",
+		"aws-rum-web": "^3",
+		"better-auth": "^1.6.23",
+		"clsx": "^2",
+		"dompurify": "^3.4.7",
+		"i18next": "^24",
+		"i18next-browser-languagedetector": "^8",
+		"i18next-http-backend": "^3.0.6",
+		"lucide-react": "^0.468",
+		"p-map": "*",
+		"platejs": "*",
+		"prop-types": "^15.8.1",
+		"react-hook-form": "*",
+		"react-i18next": "^15",
+		"react-resizable-panels": "^2.1.9",
+		"tailwind-merge": "^2",
+		"vaul": "^1.1.2",
+		"zod": "^3",
+		"@types/dompurify": "*"
+	},
+	"devDependencies": {
+		"@aws-sdk/client-dynamodb": "*",
+		"@aws-sdk/client-sqs": "*",
+		"@aws-sdk/lib-dynamodb": "*",
+		"@playwright/test": "1.58.2",
+		"@remit/drizzle-service": "*",
+		"@remit/electrodb-entities": "*",
+		"@remit/secrets-service": "*",
+		"@storybook/react-vite": "^9",
+		"@tailwindcss/vite": "^4",
+		"@tanstack/router-generator": "^1",
+		"@tanstack/router-plugin": "^1",
+		"@types/jsdom": "^28.0.3",
+		"@types/nodemailer": "*",
+		"@types/pngjs": "^6.0.5",
+		"@vitejs/plugin-react": "^4",
+		"electrodb": "*",
+		"esbuild": "*",
+		"expect-env": "*",
+		"jsdom": "^29.1.1",
+		"nodemailer": "^9.0.3",
+		"pngjs": "^5",
+		"react": "^19",
+		"react-dom": "^19.2.4",
+		"tailwindcss": "^4",
+		"typescript": "*",
+		"vite": "^7.3.6"
+	},
+	"license": "MIT",
+	"publishConfig": {
+		"access": "public"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/remit-mail/reader.git",
+		"directory": "packages/web-client"
+	}
 }
