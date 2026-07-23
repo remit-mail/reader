@@ -60,10 +60,10 @@ export interface AppShellSlottedProps {
 	 */
 	header?: ReactNode;
 	/**
-	 * Full-width row above every pane, including the nav. Unlike `header` it is
-	 * rendered at whatever width the caller mounts it, and it spans the whole
-	 * shell rather than sitting inside a pane — that width is what makes the
-	 * search field in it read as the app's search rather than the list's.
+	 * Row above the list, reading and intelligence panes, spanning all three.
+	 * The nav column runs the full height beside it and is never covered, so the
+	 * bar starts on the list's left edge — its span is what makes the search
+	 * field in it read as the app's search rather than the list's.
 	 */
 	topBar?: ReactNode;
 	/**
@@ -176,6 +176,65 @@ export function AppShellSlotted({
 		showIntelligencePane: isWide,
 	};
 
+	/* Sizes are percentages of the group they sit in. This group excludes the nav
+	   column, so they are shares of the remaining ~83%, not of the whole shell. */
+	const contentPanes = (
+		<ResizablePanelGroup direction="horizontal" className="min-h-0 flex-1">
+			<ResizablePanel
+				id="list"
+				order={1}
+				defaultSize={showReadingPane ? (density === "compact" ? 43 : 33) : 100}
+				minSize={22}
+				maxSize={showReadingPane ? 58 : 100}
+				className="min-w-0"
+			>
+				{list}
+			</ResizablePanel>
+
+			{showReadingPane && (
+				<>
+					<ResizableHandle />
+					<ResizablePanel
+						id="reading"
+						order={2}
+						minSize={29}
+						className="min-w-0"
+					>
+						{reading}
+					</ResizablePanel>
+				</>
+			)}
+
+			{showIntelligencePanel && (
+				<>
+					<ResizableHandle />
+					<ResizablePanel
+						id="intelligence"
+						order={3}
+						defaultSize={25}
+						minSize={18}
+						maxSize={39}
+						className="min-w-0"
+					>
+						{intelligence}
+					</ResizablePanel>
+				</>
+			)}
+		</ResizablePanelGroup>
+	);
+
+	const content = (
+		<div className="flex min-h-0 min-w-0 flex-1 flex-col">
+			{topBar}
+
+			{/* Narrow top bar: rendered only when the nav is a slide-over
+			    (< 1024px). Desktop has no slim bar. */}
+			{!showNavPane && header && <div className="shrink-0">{header}</div>}
+
+			{contentPanes}
+		</div>
+	);
+
 	return (
 		<AppShellLayoutCtx.Provider value={layoutCtx}>
 			<div
@@ -186,75 +245,33 @@ export function AppShellSlotted({
 					skeleton
 				) : (
 					<>
-						{topBar}
-
-						{/* Narrow top bar: rendered only when the nav is a slide-over
-						    (< 1024px). Desktop has no slim bar. */}
-						{!showNavPane && header && <div className="shrink-0">{header}</div>}
-
-						<ResizablePanelGroup
-							direction="horizontal"
-							className="min-h-0 flex-1"
-						>
-							{showNavPane && (
-								<>
-									<ResizablePanel
-										id="nav"
-										order={1}
-										defaultSize={17}
-										minSize={12}
-										maxSize={24}
-										className="min-w-0"
-									>
-										{nav}
-									</ResizablePanel>
-									<ResizableHandle />
-								</>
-							)}
-
-							<ResizablePanel
-								id="list"
-								order={2}
-								defaultSize={
-									showReadingPane ? (density === "compact" ? 36 : 27) : 83
-								}
-								minSize={18}
-								maxSize={showReadingPane ? 48 : 88}
-								className="min-w-0"
+						{showNavPane ? (
+							<ResizablePanelGroup
+								direction="horizontal"
+								className="min-h-0 flex-1"
 							>
-								{list}
-							</ResizablePanel>
-
-							{showReadingPane && (
-								<>
-									<ResizableHandle />
-									<ResizablePanel
-										id="reading"
-										order={3}
-										minSize={24}
-										className="min-w-0"
-									>
-										{reading}
-									</ResizablePanel>
-								</>
-							)}
-
-							{showIntelligencePanel && (
-								<>
-									<ResizableHandle />
-									<ResizablePanel
-										id="intelligence"
-										order={4}
-										defaultSize={21}
-										minSize={15}
-										maxSize={32}
-										className="min-w-0"
-									>
-										{intelligence}
-									</ResizablePanel>
-								</>
-							)}
-						</ResizablePanelGroup>
+								<ResizablePanel
+									id="nav"
+									order={1}
+									defaultSize={17}
+									minSize={12}
+									maxSize={24}
+									className="min-w-0"
+								>
+									{nav}
+								</ResizablePanel>
+								<ResizableHandle />
+								<ResizablePanel
+									id="content"
+									order={2}
+									className="flex min-w-0 flex-col"
+								>
+									{content}
+								</ResizablePanel>
+							</ResizablePanelGroup>
+						) : (
+							content
+						)}
 
 						{/* Narrow nav: dismissible slide-over (#784). */}
 						{!showNavPane && (

@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { Bug, Menu, SquarePen } from "lucide-react";
+import { Bug, SquarePen } from "lucide-react";
 import { useState } from "react";
 import { AppTopBar } from "./app-top-bar.js";
 import { Avatar } from "./avatar.js";
@@ -14,20 +14,6 @@ const meta: Meta<typeof AppTopBar> = {
 export default meta;
 
 type Story = StoryObj<typeof AppTopBar>;
-
-const Brand = () => (
-	<>
-		<Button
-			variant="ghost"
-			icon={<Menu className="size-5" />}
-			aria-label="Menu"
-			className="px-0 lg:hidden"
-		/>
-		<span className="px-1 text-sm font-semibold tracking-tight text-fg">
-			remit
-		</span>
-	</>
-);
 
 const Actions = () => (
 	<>
@@ -74,7 +60,6 @@ const Bar = ({
 	const [value, setValue] = useState("");
 	return (
 		<AppTopBar
-			leading={<Brand />}
 			actions={<Actions />}
 			search={
 				<SearchChipInput
@@ -98,17 +83,19 @@ const Bar = ({
 
 /** Over the panes it spans, so the arrangement reads the way it will in the app. */
 const WithPanes = ({ children }: { children: React.ReactNode }) => (
-	<div className="flex h-96 flex-col bg-canvas">
-		{children}
-		<div className="flex min-h-0 flex-1">
-			<div className="w-56 shrink-0 border-r border-line bg-surface p-3 text-xs text-fg-muted">
-				Nav
-			</div>
-			<div className="w-72 shrink-0 border-r border-line bg-surface p-3 text-xs text-fg-muted">
-				Message list
-			</div>
-			<div className="min-w-0 flex-1 p-3 text-xs text-fg-muted">
-				Message pane — its own toolbar lives here, under the bar
+	<div className="flex h-96 bg-canvas">
+		<div className="w-56 shrink-0 border-r border-line bg-surface p-3 text-xs text-fg-muted">
+			Nav — full height, beside the bar
+		</div>
+		<div className="flex min-w-0 flex-1 flex-col">
+			{children}
+			<div className="flex min-h-0 flex-1">
+				<div className="w-72 shrink-0 border-r border-line bg-surface p-3 text-xs text-fg-muted">
+					Message list
+				</div>
+				<div className="min-w-0 flex-1 p-3 text-xs text-fg-muted">
+					Message pane — its own toolbar lives here, under the bar
+				</div>
 			</div>
 		</div>
 	</div>
@@ -170,7 +157,8 @@ export const ScopedToOutbox: Story = {
 	),
 };
 
-/** The arrangement: one bar over the nav, the list, and the message pane. */
+/** The arrangement: one bar over the list and the message pane, lined up with
+ *  the list's left edge, with the nav column running the full height beside it. */
 export const OverTheLayout: Story = {
 	render: () => (
 		<WithPanes>

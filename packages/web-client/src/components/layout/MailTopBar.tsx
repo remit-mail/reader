@@ -1,10 +1,11 @@
 /**
  * MailTopBar — the app's one search surface and its global actions.
  *
- * Mounted above every pane by the `/mail` shell, so the field spans the nav,
- * the list and the reading pane. It is the app's search, not the list's: the
- * list header drops its own field wherever this bar is mounted, so exactly one
- * search input exists on the page and the "/" shortcut has one target.
+ * Mounted by the `/mail` shell over the list, the reading pane and the
+ * intelligence rail, starting on the list's left edge. It is the app's search,
+ * not the list's: the list header drops its own field wherever this bar is
+ * mounted, so exactly one search input exists on the page and the "/" shortcut
+ * has one target.
  *
  * The actions here are the ones that belong to the app rather than to whatever
  * is currently listed or open — compose, bug report, account. Reply, delete,
@@ -54,11 +55,6 @@ export function MailTopBar({ accounts }: MailTopBarProps) {
 
 	return (
 		<AppTopBar
-			leading={
-				<span className="px-1 text-sm font-semibold tracking-tight text-fg">
-					remit
-				</span>
-			}
 			search={
 				<SearchBar
 					value={searchInput}

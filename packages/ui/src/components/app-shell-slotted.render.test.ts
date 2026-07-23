@@ -122,6 +122,18 @@ describe("AppShellSlotted slot rendering", () => {
 		}
 	});
 
+	it("keeps the nav column beside the top bar, not under it", () => {
+		const html = render({
+			initialWidth: 1400,
+			topBar: createElement("div", { "data-testid": "topbar" }, "Bar"),
+			reading: createElement("div", { "data-testid": "reading" }, "Reading"),
+		});
+		assert.ok(
+			html.indexOf('data-testid="nav"') < html.indexOf('data-testid="topbar"'),
+			"nav opens the layout so the bar starts on the list's edge",
+		);
+	});
+
 	it("omits the top bar when the caller passes none", () => {
 		const html = render({ initialWidth: 1100 });
 		assert.doesNotMatch(html, /data-testid="topbar"/);
