@@ -16,10 +16,12 @@
 import {
 	ComfortableRow,
 	flaggedFilterConfig,
+	LIST_ROW_SELECTOR,
 	MessageListPane,
 	type ThreadRowData,
+	useRovingFocus,
 } from "@remit/ui";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { formatErrorMessage } from "@/components/ui/ErrorState";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
@@ -53,6 +55,9 @@ export function FlaggedList({
 	const { searchQuery, resultFolderIndex } = useMailContext();
 	const tokenContext = useSearchTokenContext();
 	const isDesktop = useIsDesktop();
+
+	const listRef = useRef<HTMLDivElement>(null);
+	useRovingFocus({ containerRef: listRef, itemSelector: LIST_ROW_SELECTOR });
 
 	const [selectedCategory, setSelectedCategory] = useState("all");
 	const [activeFilters, setActiveFilters] = useState<ReadonlySet<string>>(
@@ -130,7 +135,7 @@ export function FlaggedList({
 	}, []);
 
 	const listBody = (
-		<div className="flex-1 overflow-y-auto">
+		<div ref={listRef} className="flex-1 overflow-y-auto">
 			<div className="divide-y divide-line">
 				{rows.map((thread) => (
 					<ComfortableRow

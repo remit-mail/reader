@@ -57,7 +57,7 @@ export function BriefSection({
 					type="button"
 					aria-expanded={!collapsed}
 					onClick={() => setCollapsed((v) => !v)}
-					className="sticky top-0 z-10 flex h-section-row w-full items-center gap-1.5 border-b border-line bg-surface-sunken px-row-inset text-left transition-colors hover:bg-surface"
+					className="sticky top-0 z-10 flex h-section-row w-full items-center gap-1.5 border-b border-line bg-surface-sunken px-row-inset text-left outline-none transition-colors hover:bg-surface focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
 				>
 					<span className="flex-1 text-2xs font-semibold uppercase tracking-wider text-fg-subtle">
 						{section.label}
@@ -89,7 +89,7 @@ export function BriefSection({
 						<button
 							type="button"
 							onClick={() => setExpanded((v) => !v)}
-							className="flex w-full items-center justify-center border-b border-line px-row-inset py-1.5 text-2xs font-medium text-accent transition-colors hover:bg-surface"
+							className="flex w-full items-center justify-center border-b border-line px-row-inset py-1.5 text-2xs font-medium text-accent outline-none transition-colors hover:bg-surface focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
 						>
 							{expanded ? "Show less" : `Show ${hiddenCount} more`}
 							{!expanded && <ChevronDown className="ml-1 size-3" />}

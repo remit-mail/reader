@@ -1,9 +1,14 @@
 import { Paperclip, ShieldAlert, Star } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "../lib/cn.js";
+import { LIST_ROW_ATTRIBUTE } from "../lib/roving-focus.js";
 import { categoryTone, type ThreadRowData } from "./app-shell-types.js";
 import { Avatar } from "./avatar.js";
 import { Badge } from "./badge.js";
+
+/** Visible keyboard-focus ring for a row reached by the list's arrow-key cursor. */
+const ROW_FOCUS_RING =
+	"outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset";
 
 /**
  * Returns the CSS classes for a compact row outer element.
@@ -18,6 +23,7 @@ export const compactRowClass = ({
 }) =>
 	cn(
 		"relative flex h-8 w-full items-center gap-2 px-row-inset text-left",
+		ROW_FOCUS_RING,
 		active
 			? "bg-accent-2-soft"
 			: focused
@@ -42,6 +48,7 @@ export const comfortableRowClass = ({
 	cn(
 		// full-bleed highlight; content inset with a clear unread-dot gutter
 		"relative flex w-full items-start gap-3 py-2 pl-5 pr-row-inset text-left transition-colors",
+		ROW_FOCUS_RING,
 		active
 			? "bg-accent-2-soft"
 			: focused
@@ -194,6 +201,7 @@ export function CompactRow({
 	return (
 		<button
 			type="button"
+			{...LIST_ROW_ATTRIBUTE}
 			onClick={onClick}
 			className={compactRowClass({ active })}
 		>
@@ -214,6 +222,7 @@ export function ComfortableRow({
 	return (
 		<button
 			type="button"
+			{...LIST_ROW_ATTRIBUTE}
 			onClick={onClick}
 			className={comfortableRowClass({ active })}
 		>

@@ -1,5 +1,6 @@
 import { RotateCcw, Send, Trash2 } from "lucide-react";
 import { cn } from "../lib/cn.js";
+import { LIST_ROW_ATTRIBUTE } from "../lib/roving-focus.js";
 import type { OutboxStatus } from "./outbox-status-badge.js";
 import { OutboxStatusBadge } from "./outbox-status-badge.js";
 import { RowActions } from "./row-actions.js";
@@ -59,6 +60,7 @@ export function OutboxRow({
 		>
 			<button
 				type="button"
+				{...LIST_ROW_ATTRIBUTE}
 				onClick={onSelect}
 				className="flex flex-1 min-w-0 items-start gap-3 text-left"
 			>
