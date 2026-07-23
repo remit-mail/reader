@@ -15,7 +15,7 @@
 	},
 	"scripts": {
 		"test:typecheck": "tsgo --noEmit",
-		"test:run": "node --env-file=../../localhost-test-unit.env --import tsx --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/**/*.test.tsx' --test-coverage-lines=70 --test 'src/**/*.test.ts'",
+		"test:run": "node --env-file=../../localhost-test-unit.env --import tsx --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/**/*.test.tsx' --test-coverage-lines=75 --test 'src/**/*.test.ts'",
 		"test:integ": "RUN_INTEG_TESTS=1 node --env-file=../../localhost-test-unit.env --import tsx --test 'src/**/*.integ.test.ts'",
 		"test": "npm run test:typecheck && npm run test:run"
 	},

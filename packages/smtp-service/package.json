@@ -5,7 +5,7 @@
 	"main": "src/index.ts",
 	"scripts": {
 		"test:typecheck": "tsgo --noEmit",
-		"test:run": "node --env-file=../../localhost-test-unit.env --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/**/*.test.tsx' --test-coverage-lines=70 --test 'src/**/*.test.ts'",
+		"test:run": "node --env-file=../../localhost-test-unit.env --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/**/*.test.tsx' --test-coverage-lines=75 --test 'src/**/*.test.ts'",
 		"test": "npm run test:typecheck && npm run test:run",
 		"test:integ": "RUN_INTEG_TESTS=true node --env-file=../../localhost-dev-aws.env --import tsx --test --test-force-exit 'src/**/*.integ.test.ts'"
 	},
