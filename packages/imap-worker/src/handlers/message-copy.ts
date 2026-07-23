@@ -12,6 +12,20 @@ import type { MessageCopyEvent } from "../events.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 
+export interface MessageCopyDeps {
+	getClient: typeof getClient;
+	buildLifecycleDeps: typeof buildLifecycleDeps;
+	withOAuthLifecycle: typeof withOAuthLifecycle;
+	createConnectionScope: typeof createConnectionScopeWithCredentials;
+}
+
+const defaultDeps: MessageCopyDeps = {
+	getClient,
+	buildLifecycleDeps,
+	withOAuthLifecycle,
+	createConnectionScope: createConnectionScopeWithCredentials,
+};
+
 /**
  * Handle MESSAGE_COPY events.
  * Executes IMAP COPY command and updates local state with new UID.
@@ -19,7 +33,15 @@ import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 export const handleMessageCopy = async (
 	event: MessageCopyEvent,
 	log: Logger,
+	deps: MessageCopyDeps = defaultDeps,
 ): Promise<void> => {
+	const {
+		getClient,
+		buildLifecycleDeps,
+		withOAuthLifecycle,
+		createConnectionScope: createConnectionScopeWithCredentials,
+	} = deps;
+
 	const {
 		account: accountService,
 		message: messageService,
