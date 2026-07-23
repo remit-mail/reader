@@ -13,6 +13,16 @@ import {
 } from "@/lib/organize/organize-model";
 
 /**
+ * The query key the filter list reads and both mutations invalidate on success.
+ * Extracted so create/delete invalidate exactly the key `useFilterList`
+ * subscribes to — a drift here would leave the settings list stale after a
+ * filter is created or deleted (the same contract `buildMailboxListKey` pins
+ * for trigger-sync).
+ */
+export const buildFilterListKey = (accountId: string) =>
+	filterOperationsListFiltersQueryKey({ path: { accountId } });
+
+/**
  * List the account's standing filters (Standing + Temporary). Expired
  * Temporary filters stay in the list — they are shown distinctly, never hidden
  * (RFC 034 Decision 1.2).
@@ -46,9 +56,7 @@ export const useCreateFilter = (accountId: string | undefined) => {
 		onSuccess: () => {
 			if (!accountId) return;
 			queryClient.invalidateQueries({
-				queryKey: filterOperationsListFiltersQueryKey({
-					path: { accountId },
-				}),
+				queryKey: buildFilterListKey(accountId),
 			});
 		},
 	});
@@ -86,9 +94,7 @@ export const useDeleteFilter = (accountId: string | undefined) => {
 		onSuccess: () => {
 			if (!accountId) return;
 			queryClient.invalidateQueries({
-				queryKey: filterOperationsListFiltersQueryKey({
-					path: { accountId },
-				}),
+				queryKey: buildFilterListKey(accountId),
 			});
 		},
 	});

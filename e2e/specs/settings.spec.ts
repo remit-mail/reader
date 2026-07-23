@@ -8,7 +8,9 @@
  * the content column scrolls, and adding an account is reachable.
  */
 import type { Locator } from "@playwright/test";
+import { ApiClient } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
+import { readRunState } from "../src/state.js";
 
 const DESKTOP = { width: 1512, height: 864 };
 
@@ -87,6 +89,41 @@ test.describe("Settings", () => {
 		await expect(
 			page.getByRole("heading", { name: /what's the email address/i }),
 		).toBeVisible({ timeout: 10_000 });
+	});
+
+	test("the Filters screen is reachable and lists the account's filters", async ({
+		api,
+		page,
+		run,
+	}) => {
+		const filter = await api.createFilter(run.accountId, {
+			name: "e2e settings filter",
+			scope: "Standing",
+			literalClauses: [{ field: "Subject", value: "newsletter" }],
+			actionMailboxId: run.inboxId,
+		});
+
+		try {
+			await page.goto("/settings/accounts");
+			await expect(
+				page.getByRole("button", { name: "Back to mail" }),
+			).toBeVisible({ timeout: 30_000 });
+
+			// Filters is one of the settings nav destinations, not a separate area.
+			await page.getByRole("button", { name: "Filters", exact: true }).click();
+			await expect(
+				page.getByRole("heading", { name: "Filters", exact: true }),
+			).toBeVisible({ timeout: 10_000 });
+
+			await expect(
+				page.getByRole("listitem").filter({ hasText: "e2e settings filter" }),
+			).toBeVisible({ timeout: 20_000 });
+		} finally {
+			await new ApiClient(readRunState().token).deleteFilter(
+				run.accountId,
+				filter.filterId,
+			);
+		}
 	});
 
 	test("the account edit panel opens over the screen and closes off it", async ({
