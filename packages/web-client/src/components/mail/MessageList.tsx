@@ -3,15 +3,17 @@ import {
 	Banner,
 	type Density,
 	MessageListPane,
-	SelectionTopBar,
+	SELECTION_SHEET_TEASER_HEIGHT,
+	SelectionSheet,
 } from "@remit/ui";
 import { useBlocker, useNavigate } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Search, Sparkles } from "lucide-react";
+import { Search } from "lucide-react";
 import type { RefObject } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { formatErrorMessage } from "@/components/ui/ErrorState";
+import { useJunkMailbox } from "@/hooks/useArchiveMailbox";
 import {
 	type EscalatedAction,
 	type EscalationSearchQuery,
@@ -45,6 +47,10 @@ import {
 	deriveIsMultiSelectMode,
 	shouldExitSelectionOnNavigate,
 } from "@/lib/selection-mode";
+import {
+	resolveSelectionSheetMode,
+	shouldShowSelectionSheet,
+} from "@/lib/selection-sheet-mode";
 import { cn } from "@/lib/utils";
 import { MoveToTrigger } from "./MoveToTrigger";
 import { OrganizeDialog } from "./organize/OrganizeDialog";
@@ -243,6 +249,10 @@ export const MessageList = ({
 
 	// Swipe-to-read toggle hook
 	const { toggleReadFor } = useToggleReadFor({ mailboxId });
+
+	// The Junk quick action moves the selection to the account's appointed Junk
+	// mailbox — the message-flags API has no `$Junk` field, so "junk" is a move.
+	const { junkMailboxId } = useJunkMailbox(accountId);
 
 	// Selection state
 	const {
@@ -742,6 +752,14 @@ export const MessageList = ({
 		],
 	);
 
+	// Junk quick action (mobile sheet): move the selection to the appointed Junk
+	// mailbox. Reuses the same bounded/escalated move path as any other move, so
+	// the chunked run and the cross-account guard apply unchanged.
+	const handleJunk = useCallback(() => {
+		if (!junkMailboxId) return;
+		handleMoveSelected(junkMailboxId);
+	}, [junkMailboxId, handleMoveSelected]);
+
 	// Cross-account guard: every selected thread row must belong to the
 	// same account as the current mailbox. The list is already scoped to
 	// one mailbox so in practice this is always single-account, but we
@@ -1174,61 +1192,69 @@ export const MessageList = ({
 							? { tone: "warning" as const, text: moveDisabledHint }
 							: undefined;
 
-	// Mobile multi-select bar replaces the pane header during selection mode.
-	const mobileSelectionBar =
-		isMultiSelectMode && !isDesktop ? (
-			<SelectionTopBar
-				count={mobileCount}
-				onCancel={handleMobileCancel}
-				onDelete={handleMobileDelete}
-				onMarkRead={
-					escalation.phase.kind === "counting" ? undefined : handleMarkAsRead
-				}
-				isBusy={mobileIsBusy}
-				isCounting={escalation.phase.kind === "counting"}
-				statusLabel={mobileStatusLabel}
-				selectAll={mobileSelectAll}
-				progress={
-					escalation.runningAction && escalation.progress
-						? {
-								value: escalation.progress.done,
-								max: escalation.progress.total,
-								tone: bulkActionProgressTone(escalation.runningAction.kind),
-							}
-						: undefined
-				}
-				notice={mobileNotice}
-				moveSlot={
-					escalation.phase.kind !== "counting" &&
-					!escalation.isRunning &&
-					(onMoveMessages || escalation.phase.kind === "escalated") &&
-					accountId &&
-					mailboxId ? (
-						<>
-							{escalation.phase.kind === "idle" && !moveDisabledHint && (
-								<button
-									type="button"
-									onClick={() => setOrganizeOpen(true)}
-									className="min-h-11 min-w-11 inline-flex shrink-0 items-center justify-center rounded text-fg-muted hover:bg-surface-raised"
-									aria-label="Organize similar messages"
-								>
-									<Sparkles className="size-4" />
-								</button>
-							)}
-							<MoveToTrigger
-								accountId={accountId}
-								currentMailboxId={mailboxId}
-								onMove={isDeleting || isMoving ? () => {} : handleMoveSelected}
-								disabledHint={moveDisabledHint}
-								label="Move selected messages"
-							/>
-						</>
-					) : undefined
-				}
+	// Mobile: which content the peeking sheet routes to, from the escalation
+	// machinery. `running` (a chunked delete/move/mark-read) and `counting` (a
+	// predicate still paging) replace the idle quick actions with status and
+	// progress; `escalated` keeps the verbs over the whole predicate.
+	const mobileMode = resolveSelectionSheetMode({
+		isRunning: escalation.isRunning,
+		isCounting: escalation.phase.kind === "counting",
+		isEscalated: escalation.phase.kind === "escalated",
+	});
+
+	// The sheet is the sole mobile selection surface. It rises at 2+ selected
+	// (the prototype threshold) or in any non-idle escalation state — a single
+	// selected row enters selection mode without raising it, matching today.
+	const showMobileSheet =
+		!isDesktop &&
+		isMultiSelectMode &&
+		shouldShowSelectionSheet(mobileCount, mobileMode);
+
+	const mobileMoveSlot =
+		(onMoveMessages || escalation.phase.kind === "escalated") &&
+		accountId &&
+		mailboxId ? (
+			<MoveToTrigger
+				accountId={accountId}
+				currentMailboxId={mailboxId}
+				onMove={isDeleting || isMoving ? () => {} : handleMoveSelected}
+				disabledHint={moveDisabledHint}
+				label="Move selected messages"
 			/>
 		) : undefined;
 
-	const activeSelectionBar = desktopSelectionBar ?? mobileSelectionBar;
+	const mobileSelectionSheet = showMobileSheet ? (
+		<SelectionSheet
+			count={mobileCount}
+			mode={mobileMode}
+			onCancel={handleMobileCancel}
+			onDelete={handleMobileDelete}
+			onJunk={
+				junkMailboxId && junkMailboxId !== mailboxId && !moveDisabledHint
+					? handleJunk
+					: undefined
+			}
+			onMarkRead={handleMarkAsRead}
+			onSelectSimilar={accountId ? () => setOrganizeOpen(true) : undefined}
+			onSomethingElse={accountId ? () => setOrganizeOpen(true) : undefined}
+			moveSlot={mobileMoveSlot}
+			isBusy={mobileIsBusy}
+			selectAll={mobileSelectAll}
+			statusLabel={mobileStatusLabel}
+			progress={
+				escalation.runningAction && escalation.progress
+					? {
+							value: escalation.progress.done,
+							max: escalation.progress.total,
+							tone: bulkActionProgressTone(escalation.runningAction.kind),
+						}
+					: undefined
+			}
+			notice={mobileNotice}
+		/>
+	) : undefined;
+
+	const activeSelectionBar = desktopSelectionBar;
 
 	// Roving tabindex: exactly one row is in the tab order, so Tab moves focus
 	// into the list at the cursor and Shift+Tab moves back out to the side panel
@@ -1257,6 +1283,13 @@ export const MessageList = ({
 				aria-multiselectable
 				aria-label={listTitle}
 				className="flex-1 overflow-y-auto"
+				// Pad the list so its last rows clear the peeking teaser (~56px)
+				// rather than hiding behind it.
+				style={
+					showMobileSheet
+						? { paddingBottom: SELECTION_SHEET_TEASER_HEIGHT }
+						: undefined
+				}
 			>
 				{/* Virtualizer scaffolding — presentational so the listbox sees the
 				    rows as its options rather than these positioning wrappers. */}
@@ -1364,6 +1397,7 @@ export const MessageList = ({
 				isDesktop={isDesktop}
 				hideHeader={hideHeader}
 				selectionBar={activeSelectionBar}
+				selectionSheet={mobileSelectionSheet}
 				listBody={listState === "ready" ? virtualBody : undefined}
 			/>
 			<ConfirmDialog

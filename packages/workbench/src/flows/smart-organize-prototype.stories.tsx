@@ -6,6 +6,7 @@ import {
 	INBOX_MESSAGES,
 	type MockMessage,
 	OrganizePanel,
+	PrototypeMoveSlot,
 	RealisticInbox,
 	SelectionSheet,
 	SmartOrganizeFlow,
@@ -132,7 +133,16 @@ export const SelectionSheetStory: Story = {
 					</div>
 				))}
 			</div>
-			<SelectionSheet count={3} onWiden={() => {}} onNarrow={() => {}} />
+			<SelectionSheet
+				count={3}
+				onCancel={() => {}}
+				onDelete={() => {}}
+				onJunk={() => {}}
+				onMarkRead={() => {}}
+				onSelectSimilar={() => {}}
+				onSomethingElse={() => {}}
+				moveSlot={<PrototypeMoveSlot />}
+			/>
 		</div>
 	),
 };
@@ -162,8 +172,13 @@ export const SelectionSheetExpanded: Story = {
 			</div>
 			<SelectionSheet
 				count={3}
-				onWiden={() => {}}
-				onNarrow={() => {}}
+				onCancel={() => {}}
+				onDelete={() => {}}
+				onJunk={() => {}}
+				onMarkRead={() => {}}
+				onSelectSimilar={() => {}}
+				onSomethingElse={() => {}}
+				moveSlot={<PrototypeMoveSlot />}
 				startExpanded
 			/>
 		</div>
