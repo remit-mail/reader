@@ -662,12 +662,26 @@ export const MessageList = ({
 			pendingDomFocusRef.current = nextFocus;
 			cursorMovedByPointerRef.current = false;
 			setFocusedMessageId(nextFocus);
-			navigate({
-				to: "/mail/$mailboxId",
-				params: { mailboxId },
-				search: (prev) => ({ ...prev, selectedMessageId: nextFocus }),
-				replace: true,
-			});
+			// Desktop is two-pane: opening the neighbour fills the reading pane
+			// beside the list. On a single-pane mobile layout the same navigation
+			// replaces the list with a full-screen message, so a bulk delete looks
+			// like it opened a random neighbour instead of removing the rows (#202).
+			// Mobile keeps the cursor move but stays on the list.
+			if (isDesktop) {
+				navigate({
+					to: "/mail/$mailboxId",
+					params: { mailboxId },
+					search: (prev) => ({ ...prev, selectedMessageId: nextFocus }),
+					replace: true,
+				});
+			}
+		}
+
+		// Mobile keeps the list up, so it needs its own signal the delete landed —
+		// the transient completion banner a chunked run already raises (#202). On
+		// desktop the rows leaving the list beside the reading pane is signal enough.
+		if (!isDesktop) {
+			setCompletionBanner(bulkActionCompletionText("delete", ids.length));
 		}
 	}, [
 		pendingDelete,
@@ -676,6 +690,7 @@ export const MessageList = ({
 		exitSelection,
 		navigate,
 		mailboxId,
+		isDesktop,
 		runChunkedConfirmDelete,
 	]);
 

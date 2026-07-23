@@ -183,6 +183,38 @@ test.describe("Multi-select", () => {
 		await expect(selectionCount(page)).toHaveText("3 messages selected");
 	});
 
+	test("shift-click ranges from the visible origin under an active filter (#142, #144)", async ({
+		page,
+		run,
+	}) => {
+		// Narrow the inbox to the classification fixtures, which all carry the same
+		// per-run tag in their subject. A filtered list is a different, shorter list
+		// than the full inbox, so the range has to anchor from a row that is
+		// actually visible in it — a stale anchor from the full list would build an
+		// empty or dead-end range (#142, #144).
+		const build = run.seededSubjects.find((subject) =>
+			subject.startsWith("Your build failed "),
+		);
+		if (!build) {
+			throw new Error("classification fixtures missing from seeded subjects");
+		}
+		const tag = build.slice("Your build failed ".length);
+
+		await page.goto(`/mail/${run.inboxId}?q=${encodeURIComponent(tag)}`);
+		// At least three rows must survive the filter for a three-row range.
+		await expect(rows(page).nth(2)).toBeVisible({ timeout: 30_000 });
+
+		// Plain-click the first visible row: it opens and becomes the range anchor.
+		await rows(page).nth(0).click();
+		await page.waitForURL(/selectedMessageId=/);
+
+		await rows(page)
+			.nth(2)
+			.click({ modifiers: ["Shift"] });
+
+		await expect(selectionCount(page)).toHaveText("3 messages selected");
+	});
+
 	test("shift-click selects rather than opening a second window", async ({
 		page,
 		context,
