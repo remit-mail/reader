@@ -1,6 +1,9 @@
 import type {
 	IntelligenceData,
 	NavAccount,
+	ResultFolder,
+	SearchResult,
+	SearchResultSection,
 	ThreadData,
 	ThreadRowData,
 	ThreadSection,
@@ -1195,4 +1198,88 @@ export const semanticResults: SemanticHit[] = [
 		matched: "body",
 		score: 0.62,
 	},
+];
+
+/* ------------------------------------------------------------------ */
+/* Search results: the two sections the app builds — literal matches   */
+/* first, semantic hits below, each row carrying the folder it was     */
+/* read from so a global search can say where a result came from.      */
+/* ------------------------------------------------------------------ */
+
+const resultFolders: Record<string, ResultFolder> = {
+	thr_phish: { role: "junk" },
+	thr_oldphish: { role: "junk" },
+	thr_bol: { role: "inbox" },
+	thr_arch_postnl: { role: "archive" },
+	thr_arch_dhl: { role: "archive" },
+	thr_arch_etsy: { providerPath: "Shopping/Orders" },
+	thr_arch_ups: { role: "archive" },
+	thr_arch_coolblue: { providerPath: "Shopping/Orders" },
+};
+
+const categoryLabels: Partial<
+	Record<NonNullable<ThreadRowData["category"]>, SearchResult["category"]>
+> = {
+	transactional: { label: "Transactional", tone: "positive" },
+	personal: { label: "Personal", tone: "accent" },
+	marketing: { label: "Marketing", tone: "warning" },
+	newsletter: { label: "Newsletter", tone: "neutral" },
+};
+
+function toSearchResult(
+	thread: ThreadRowData,
+	overrides: Partial<SearchResult> = {},
+): SearchResult {
+	return {
+		id: thread.id,
+		threadId: thread.id,
+		sender: thread.fromName,
+		subject: thread.subject,
+		snippet: thread.snippet,
+		date: thread.timeLabel,
+		unread: thread.isRead === false,
+		flagged: thread.starred,
+		category: thread.category ? categoryLabels[thread.category] : undefined,
+		folder: resultFolders[thread.id] ?? { role: "inbox" },
+		...overrides,
+	};
+}
+
+/** Literal matches — the section the instant engine fills. */
+export const topMatchResults: SearchResult[] = instantResults.map((thread) =>
+	toSearchResult(thread),
+);
+
+/** Semantic hits, each labelled with why it matched and how strongly. */
+export const relatedSearchResults: SearchResult[] = semanticResults.map((hit) =>
+	toSearchResult(hit.thread, {
+		matchedChunkLabel: hit.matched,
+		score: hit.score,
+	}),
+);
+
+/** Both sections, as `MailListHeader` assembles them for a live query. */
+export const searchSections: SearchResultSection[] = [
+	{ id: "top", label: "Top matches", results: topMatchResults },
+	{ id: "related", label: "Related", results: relatedSearchResults },
+];
+
+/** The same sections with every spam row dropped — a folder-scoped search. */
+export const searchSectionsWithoutSpam: SearchResultSection[] =
+	searchSections.map((section) => ({
+		...section,
+		results: section.results.filter((result) => result.folder?.role !== "junk"),
+	}));
+
+/** Queries the user ran before, offered when the field is empty. */
+export const recentSearches: string[] = [
+	"parcel delivery confirmation",
+	"from:stripe invoice",
+	"has:attachment contract",
+];
+
+/** Queries the user kept; the nav sidebar lists them under Saved searches. */
+export const savedSearches: string[] = [
+	"is:starred from:dana",
+	"in:archive tax",
 ];

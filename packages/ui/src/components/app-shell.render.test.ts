@@ -109,8 +109,9 @@ describe("AppShell render honors the pane layout (#784)", () => {
 		thread,
 		intelligence,
 	};
-	// The reading pane's toolbar is the only place "Search mail" renders.
-	const readingPaneMarker = /Search mail/;
+	// The desktop reading-pane toolbar keeps the kit's default shortcut hints;
+	// the mobile pane passes its own labels without them.
+	const readingPaneMarker = /title="Reply \(r\)"/;
 	// "Known sender" is the wellknown trust label, rendered only by the rail.
 	const intelligenceMarker = /Known sender/;
 
@@ -175,7 +176,7 @@ describe("AppShell narrow message view: width-gated in-place swap", () => {
 	// narrow single pane is showing the message view.
 	const messageViewMarker = /aria-label="Back to messages"/;
 	// The desktop reading-pane toolbar — present only at/above 1024.
-	const readingPaneMarker = /Search mail/;
+	const readingPaneMarker = /title="Reply \(r\)"/;
 
 	it("below 1024 defaults to the list, not the message view", () => {
 		const html = render({ ...withThread, initialWidth: 800 });

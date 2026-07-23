@@ -37,8 +37,16 @@ const inboxBase: Partial<AppShellProps> = {
 	flatList: true,
 };
 
+/**
+ * The kit's data-driven preview shell. It maps thread / section / intelligence
+ * data straight onto `AppShellSlotted`'s slots, which makes it the place to
+ * refine the list and reading surfaces against fixtures.
+ *
+ * It is not the app's own composition: the live route fills those slots itself
+ * and mounts the app top bar over them. `Screens/AppShell` is that screen.
+ */
 const meta: Meta<typeof AppShell> = {
-	title: "Screens/AppShell",
+	title: "Screens/Kit/AppShell",
 	component: AppShell,
 	parameters: { layout: "fullscreen" },
 };
