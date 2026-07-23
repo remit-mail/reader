@@ -36,6 +36,11 @@ ASSETS=(
 	"queues.json"
 	"remit.env.template"
 	"remit"
+	# The snapshot primitive `remit update` takes its pre-update snapshot with,
+	# shared with the backup sidecar (RFC 037 R8). The wrapper reads it from the
+	# install directory, so it ships with every install, backup profile or not.
+	"backup/snapshot-db.sh"
+	"backup/backup-sqlite.sh"
 	"caddy/routes.caddy"
 	"caddy/off.caddy"
 	"caddy/internal.caddy"
@@ -276,7 +281,7 @@ fetch_asset() {
 
 fetch_assets() {
 	say "Fetching deploy assets from $ASSET_BASE"
-	mkdir -p "$DIR/caddy" || die "cannot create $DIR — pick a writable --dir or run with the right permissions."
+	mkdir -p "$DIR/caddy" "$DIR/backup" || die "cannot create $DIR — pick a writable --dir or run with the right permissions."
 	[ -w "$DIR" ] || die "$DIR is not writable."
 	local a
 	for a in "${ASSETS[@]}"; do

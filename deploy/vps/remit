@@ -19,6 +19,47 @@ REMIT_DIR="${REMIT_DIR:-$DEFAULT_DIR}"
 
 PROG=remit
 
+# --- self-update configuration (RFC 037) ------------------------------------
+#
+# STATE_DIR is where a run's lock, breadcrumb, state and snapshots live: the
+# updater's own volume when this wrapper runs inside the updater container, a
+# directory beside .env when an operator runs it from a shell. Never remit.db —
+# a rollback restores that file to before the run, which would destroy the
+# record of the rollback describing it.
+#
+# STATE_MOUNT is the same location named the way the *host* docker daemon reads
+# it, because the helper containers below bind it. They are the same string
+# outside a container; inside the updater they are not, so #133's compose
+# service sets STATE_MOUNT to the volume it mounted.
+STATE_DIR="${REMIT_UPDATE_STATE_DIR:-$REMIT_DIR/.update}"
+STATE_MOUNT="${REMIT_UPDATE_STATE_MOUNT:-$STATE_DIR}"
+
+# The database lives on a named volume, so reading and writing it means a
+# container either way. alpine is what the backup sidecar already uses, and the
+# restore path deliberately needs nothing installed into it — a rollback must
+# not depend on the network that just failed.
+HELPER_IMAGE="${REMIT_UPDATE_HELPER_IMAGE:-alpine:3.23}"
+SQLITE_VOLUME="${REMIT_UPDATE_SQLITE_VOLUME:-remit_sqlite_data}"
+
+# 300 seconds from `up -d` returning. Generous on purpose: a release that
+# migrates a large mailbox index is the normal slow case, and rolling back a
+# healthy-but-slow upgrade is worse than waiting.
+GATE_BUDGET_SECONDS="${REMIT_UPDATE_GATE_BUDGET:-300}"
+
+# Condition 4 is three consecutive answers 5 seconds apart, which is also the
+# rhythm every other condition is re-read on.
+GATE_PROBE_INTERVAL="${REMIT_UPDATE_PROBE_INTERVAL:-5}"
+
+# Nothing is served and no worker runs between the snapshot and the verdict, so
+# nothing is written, sent, purged or indexed in the window. volume-init joins
+# by depends_on whether or not it is named.
+GATE_SET="queue migrate backend"
+
+# Scoped for gate conditions 2 and 3: migrate and volume-init are one-shots that
+# exit by design, and caddy and backup are stock upstream images a tag change
+# does not touch.
+GATE_SERVICES="queue backend"
+
 die() {
 	printf '%s: %s\n' "$PROG" "$1" >&2
 	exit 1
@@ -32,8 +73,17 @@ Usage: remit <command> [args]
                        the stack first.
   logs [service...]    Follow logs (last 100 lines).
   status               Services and the running tag, plus whether the origin
-                       resolves to this box and answers.
-  update [--tag TAG]   Pull images and apply them, then check the migration.
+                       resolves to this box and answers, the last update check
+                       and the last update's outcome.
+  update [--tag TAG]   Install a release. Against a running stack this is
+                       atomic: the databases are snapshotted while the old
+                       version is still live, the new one has to pass a health
+                       gate before anything is served, and a failure restores
+                       the snapshot and the previous tag.
+  update --check       Check for a newer release and report, changing nothing.
+  update --recover     Finish an update that was interrupted, committing or
+                       rolling back on the gate's verdict. Runs at the
+                       updater's start; safe to run by hand.
   down                 Stop serving: the site goes offline until 'remit
                        restart'. Accounts, mail and settings are untouched.
   purge --yes          Destroy the deployment: containers and every data
@@ -422,23 +472,819 @@ cmd_status() {
 	printf 'Tag:       %s\n' "$(get_var REMIT_TAG)"
 	printf 'Origin:    %s\n' "$_origin"
 	report_reachability "$_origin"
+	report_check
+	report_last_run
 	printf '\n'
 	compose ps
 }
 
-cmd_update() {
-	require_deployment
-	_tag=""
-	while [ $# -gt 0 ]; do
-		case "$1" in
-		--tag)
-			[ $# -ge 2 ] || die "update: --tag needs a value"
-			_tag=$2
-			shift 2
+# --- self-update ------------------------------------------------------------
+#
+# RFC 037 D5, D6, D6a, D6b. `remit update` against a running stack is atomic:
+# it snapshots the live databases before it stops anything, brings up a gate set
+# that serves nobody, and either commits or restores the snapshot and the
+# previous tag. There is one implementation of that sequence and this is it —
+# the updater container (#133) runs this same wrapper, so an operator at a shell
+# gets the same gate and the same rollback the app promises.
+#
+# Everything a run needs to survive its own death lives on the updater's volume:
+# the lock, the breadcrumb, state.json and the snapshots. None of it goes in
+# remit.db, because a rollback restores that file to before the run and would
+# destroy the record of the rollback describing it.
+
+RUN_ID=""
+RUN_FROM=""
+RUN_TARGET=""
+RUN_STARTED=""
+RUN_PHASE=""
+RUN_SERVICES=""
+RUN_MIGRATE_BEFORE=""
+GATE_REASON=""
+CHECK_VERSION=""
+CHECK_AVAILABLE=""
+
+epoch() { date -u +%s; }
+iso_now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+
+# The manifest URL is deployment configuration, so .env is where it lives; the
+# environment overrides it for a one-off check against a different origin.
+manifest_url() {
+	if [ -n "${REMIT_UPDATE_MANIFEST_URL:-}" ]; then
+		printf '%s' "$REMIT_UPDATE_MANIFEST_URL"
+		return 0
+	fi
+	get_var REMIT_UPDATE_MANIFEST_URL 2>/dev/null || true
+}
+
+# Fixed-shape JSON built with printf is the whole strategy: there is no jq on a
+# self-host box and every shape here is ours. Only the free-text fields need
+# care, and only for quotes, backslashes and newlines.
+json_escape() {
+	printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | tr '\n\r\t' '   '
+}
+
+# Reads one string field out of flat JSON. The manifest and the request file are
+# both flat and both ours to define, which is what makes this enough.
+json_string() {
+	printf '%s' "$1" | tr '\n' ' ' |
+		sed -n 's/.*"'"$2"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
+}
+
+# BRE alternation is a GNU extension, so this reads the two literals instead.
+json_bool() {
+	case "$(printf '%s' "$1" | tr '\n' ' ')" in
+	*"\"$2\":true"* | *"\"$2\": true"*) printf 'true' ;;
+	*) printf 'false' ;;
+	esac
+}
+
+new_run_id() {
+	_rand=$(od -An -N4 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
+	if [ -z "$_rand" ]; then _rand=$$; fi
+	printf '%s-%s' "$(date -u +%Y%m%dT%H%M%SZ)" "$_rand"
+}
+
+# Write-temp-then-rename is atomic but not durable, and the breadcrumb is the
+# whole recovery guarantee — a host that loses power after the stop has to find
+# it. The parent directory needs the same treatment: the rename is what has to
+# survive, not just the bytes.
+fsync_path() {
+	sync "$1" 2>/dev/null || sync
+}
+
+atomic_write() {
+	rm -f "$1.tmp"
+	(
+		umask 077
+		cat >"$1.tmp"
+	)
+	mv "$1.tmp" "$1"
+}
+
+# --- breadcrumb -------------------------------------------------------------
+
+breadcrumb_write() {
+	mkdir -p "$STATE_DIR"
+	{
+		printf 'runId=%s\n' "$RUN_ID"
+		printf 'fromVersion=%s\n' "$RUN_FROM"
+		printf 'targetVersion=%s\n' "$RUN_TARGET"
+		printf 'startedAt=%s\n' "$RUN_STARTED"
+		printf 'snapshot=%s\n' "$STATE_DIR/snapshots/$RUN_ID"
+		printf 'services=%s\n' "$RUN_SERVICES"
+		printf 'migrateBefore=%s\n' "$RUN_MIGRATE_BEFORE"
+		printf 'phase=%s\n' "$RUN_PHASE"
+	} | atomic_write "$STATE_DIR/breadcrumb"
+	fsync_path "$STATE_DIR/breadcrumb"
+	fsync_path "$STATE_DIR"
+}
+
+breadcrumb_get() {
+	[ -f "$STATE_DIR/breadcrumb" ] || return 1
+	_k=$1
+	_k="$_k" awk '
+		BEGIN { k = ENVIRON["_k"] }
+		index($0, k "=") == 1 { print substr($0, length(k) + 2); exit }
+	' "$STATE_DIR/breadcrumb"
+}
+
+breadcrumb_clear() {
+	rm -f "$STATE_DIR/breadcrumb"
+	fsync_path "$STATE_DIR"
+}
+
+# --- state.json -------------------------------------------------------------
+#
+# The check block and the run block are independent by construction — they are
+# separate files composed into one document — so a failed check renders as a
+# failed check and never as a failed update.
+#
+# phase is one of checking, pulling, snapshotting, stopping, starting,
+# verifying, committing, rollingBack, recovering. outcome is null while a run is
+# in flight, then succeeded, rolledBack, rollbackFailed, or abandoned — the last
+# for a run that ended having changed nothing, which is what an interrupted or
+# aborted run before the stop terminates as.
+
+state_render() {
+	mkdir -p "$STATE_DIR"
+	_check='{"status":"disabled"}'
+	if [ -f "$STATE_DIR/check.json" ]; then
+		_check=$(cat "$STATE_DIR/check.json")
+	fi
+	_run=null
+	if [ -f "$STATE_DIR/run.json" ]; then
+		_run=$(cat "$STATE_DIR/run.json")
+	fi
+	printf '{"currentVersion":"%s","check":%s,"run":%s}\n' \
+		"$(json_escape "$(get_var REMIT_TAG)")" "$_check" "$_run" |
+		atomic_write "$STATE_DIR/state.json"
+}
+
+# message and logCommand are rendered to the operator verbatim, so they are
+# written as a sentence and as a command that can be pasted into a shell — not
+# as debug output.
+run_state_write() {
+	_phase=$1
+	_outcome=$2
+	_message=$3
+	_logcmd=$4
+	mkdir -p "$STATE_DIR"
+	_outjson=null
+	if [ -n "$_outcome" ]; then
+		_outjson=$(printf '"%s"' "$(json_escape "$_outcome")")
+	fi
+	printf '{"runId":"%s","fromVersion":"%s","targetVersion":"%s","phase":"%s","outcome":%s,"startedAt":"%s","updatedAt":"%s","message":"%s","logCommand":"%s"}\n' \
+		"$(json_escape "$RUN_ID")" \
+		"$(json_escape "$RUN_FROM")" \
+		"$(json_escape "$RUN_TARGET")" \
+		"$(json_escape "$_phase")" \
+		"$_outjson" \
+		"$(json_escape "$RUN_STARTED")" \
+		"$(json_escape "$(iso_now)")" \
+		"$(json_escape "$_message")" \
+		"$(json_escape "$_logcmd")" |
+		atomic_write "$STATE_DIR/run.json"
+	state_render
+}
+
+phase() {
+	RUN_PHASE=$1
+	run_state_write "$1" "" "$2" "$3"
+	breadcrumb_write
+	if [ "${REMIT_QUIET:-0}" != "1" ]; then
+		printf '%s\n' "$2"
+	fi
+}
+
+terminate() {
+	run_state_write "$RUN_PHASE" "$1" "$2" "$3"
+	breadcrumb_clear
+	if [ "${REMIT_QUIET:-0}" != "1" ]; then
+		printf '%s\n' "$2"
+	fi
+}
+
+# --- lock -------------------------------------------------------------------
+#
+# flock, not a lockfile. A plain lockfile left behind by an updater killed at
+# the stop is still there when it restarts, so boot recovery would refuse to run
+# and leave an offline box needing a shell — reached through the mechanism built
+# to prevent exactly that. The kernel releases a flock when its holder dies, and
+# two racing recovery attempts then resolve for free.
+lock_acquire() {
+	mkdir -p "$STATE_DIR"
+	have flock || die "flock is not on this box, and an update must not run without a lock.
+Install util-linux (or busybox's flock) and try again."
+	exec 9>"$STATE_DIR/update.lock"
+	flock -n 9 ||
+		die "another update is already running on this box. Wait for it to finish, or see 'remit status'."
+}
+
+# --- manifest check (RFC 037 R4, R5) ----------------------------------------
+#
+# The manifest is the entire discovery mechanism. There is no registry tag
+# listing, no "does this tag exist" probe and no fallback that reads the
+# registry when the manifest is unreachable — image pushes are not atomic across
+# the roster, so a tag can be present and pullable for a version that was never
+# fully published and never can be. An unreachable manifest is a failed check
+# and no update offered; it is never a reason to look somewhere else.
+
+fetch_manifest() {
+	if have curl; then
+		curl -fsSL --max-time 20 --max-filesize 65536 "$1" 2>/dev/null
+		return
+	fi
+	if have wget; then
+		wget -q -T 20 -O - "$1" 2>/dev/null | head -c 65536
+		return
+	fi
+	return 127
+}
+
+version_valid() {
+	printf '%s' "$1" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'
+}
+
+# An operator may pin a sha-<sha> build or `latest`; those are tags, not
+# versions, and they are still allowed as an explicit --tag target. Anything
+# outside this set never reaches a docker command line.
+tag_valid() {
+	printf '%s' "$1" | grep -qE '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'
+}
+
+version_gt() {
+	_a=${1#v}
+	_b=${2#v}
+	_i=1
+	while [ "$_i" -le 3 ]; do
+		_x=$(printf '%s' "$_a" | cut -d. -f"$_i")
+		_y=$(printf '%s' "$_b" | cut -d. -f"$_i")
+		if [ "$_x" -gt "$_y" ]; then return 0; fi
+		if [ "$_x" -lt "$_y" ]; then return 1; fi
+		_i=$((_i + 1))
+	done
+	return 1
+}
+
+# The tag-parameterised images — the ones a release actually moves. caddy and
+# alpine are stock upstream images that a manifest has no say over.
+release_images() {
+	# shellcheck disable=SC2016 # ${REMIT_TAG} is compose's syntax, matched literally
+	sed -n 's/^[[:space:]]*image:[[:space:]]*\(.*\)$/\1/p' "$REMIT_DIR/$COMPOSE_FILE" |
+		grep '\${REMIT_TAG' |
+		sed 's/:\${REMIT_TAG.*$//' |
+		sort -u
+}
+
+images_under_registry() {
+	_outside=$(release_images | grep -v "^$1/" || true)
+	[ -z "$_outside" ]
+}
+
+check_failed() {
+	printf '{"status":"failed","lastCheckedAt":"%s","error":"%s"}\n' \
+		"$(iso_now)" "$(json_escape "$1")" | atomic_write "$STATE_DIR/check.json"
+	state_render
+	CHECK_VERSION=""
+	CHECK_AVAILABLE=false
+}
+
+# Sets CHECK_VERSION and CHECK_AVAILABLE, and writes the check block. Returns
+# non-zero only when the check itself failed — "no update available" is a
+# successful check.
+do_check() {
+	mkdir -p "$STATE_DIR"
+	CHECK_VERSION=""
+	CHECK_AVAILABLE=false
+	_url=$(manifest_url)
+	if [ -z "$_url" ]; then
+		printf '{"status":"disabled"}\n' | atomic_write "$STATE_DIR/check.json"
+		state_render
+		return 0
+	fi
+	_body=$(fetch_manifest "$_url" || true)
+	if [ -z "$_body" ]; then
+		check_failed "The update manifest at $_url could not be fetched."
+		return 1
+	fi
+	_ver=$(json_string "$_body" version)
+	_reg=$(json_string "$_body" registry)
+	if ! version_valid "$_ver"; then
+		check_failed "The update manifest at $_url does not name a vX.Y.Z version."
+		return 1
+	fi
+	if [ -z "$_reg" ]; then
+		check_failed "The update manifest at $_url does not name a registry."
+		return 1
+	fi
+	if ! images_under_registry "$_reg"; then
+		check_failed "This deployment runs images from outside $_reg, which the manifest does not cover."
+		return 1
+	fi
+	_cur=$(get_var REMIT_TAG)
+	# A tag that is not a version — `latest`, or a pinned sha- build — cannot be
+	# compared, so the published release is offered rather than hidden.
+	if ! version_valid "$_cur"; then
+		CHECK_AVAILABLE=true
+	elif version_gt "$_ver" "$_cur"; then
+		CHECK_AVAILABLE=true
+	fi
+	CHECK_VERSION=$_ver
+	write_check_ok "$(iso_now)" "$_ver" \
+		"$(json_string "$_body" publishedAt)" \
+		"$(json_string "$_body" summary)" \
+		"$(json_string "$_body" releaseNotesUrl)" \
+		"$CHECK_AVAILABLE"
+	return 0
+}
+
+write_check_ok() {
+	printf '{"status":"ok","lastCheckedAt":"%s","latestVersion":"%s","publishedAt":"%s","summary":"%s","releaseNotesUrl":"%s","updateAvailable":%s}\n' \
+		"$(json_escape "$1")" \
+		"$(json_escape "$2")" \
+		"$(json_escape "$3")" \
+		"$(json_escape "$4")" \
+		"$(json_escape "$5")" \
+		"$6" | atomic_write "$STATE_DIR/check.json"
+	state_render
+}
+
+# updateAvailable is a statement about the version that is running, so a run
+# that changed which version that is has to restate it. Nothing is fetched: the
+# manifest said what the latest release is and that has not changed.
+recheck_availability() {
+	[ -f "$STATE_DIR/check.json" ] || return 0
+	_c=$(cat "$STATE_DIR/check.json")
+	[ "$(json_string "$_c" status)" = "ok" ] || return 0
+	_latest=$(json_string "$_c" latestVersion)
+	_cur=$(get_var REMIT_TAG)
+	_avail=false
+	if ! version_valid "$_cur"; then
+		_avail=true
+	elif version_gt "$_latest" "$_cur"; then
+		_avail=true
+	fi
+	write_check_ok \
+		"$(json_string "$_c" lastCheckedAt)" \
+		"$_latest" \
+		"$(json_string "$_c" publishedAt)" \
+		"$(json_string "$_c" summary)" \
+		"$(json_string "$_c" releaseNotesUrl)" \
+		"$_avail"
+}
+
+# The control seam (#133): request.json is written wholly by the backend, so
+# under a compromised backend its entire content is attacker-controlled — not
+# only the field it is supposed to carry. The file is read bounded, exactly one
+# key is looked at, and the value has to match vX.Y.Z *and* the manifest's own
+# version before it is used anywhere. Every other key is ignored rather than
+# trusted.
+requested_target() {
+	[ -f "$STATE_DIR/request.json" ] || return 1
+	_raw=$(head -c 4096 "$STATE_DIR/request.json")
+	_want=$(json_string "$_raw" targetVersion)
+	if ! version_valid "$_want"; then
+		return 1
+	fi
+	if [ "$_want" != "$CHECK_VERSION" ]; then
+		return 1
+	fi
+	printf '%s' "$_want"
+}
+
+# --- snapshot and restore (RFC 037 R8, R8a) ---------------------------------
+#
+# The databases live on a named volume, so both directions run in a container
+# that mounts it. queue.db is on a different volume and is not mounted here at
+# all: restoring a work queue resurrects already-delivered outbound mail, which
+# is a correctness bug rather than a cost. Nothing in the gate window writes it,
+# so leaving it alone is right in both directions.
+
+volume_run() {
+	docker run --rm \
+		-v "$SQLITE_VOLUME:/data/sqlite" \
+		-v "$STATE_MOUNT:/state" \
+		-v "$REMIT_DIR/backup/snapshot-db.sh:/snapshot-db.sh:ro" \
+		--entrypoint sh "$HELPER_IMAGE" -c "$1"
+}
+
+# VACUUM INTO against the live databases, before anything is stopped. sqlite3 is
+# apk'd the way the backup sidecar already does; the snapshot runs as uid 1000
+# because opening a WAL database recreates its -shm/-wal sidecars when they are
+# absent, and a root-owned sidecar makes every app writer's next open fail.
+snapshot_databases() {
+	volume_run "set -eu
+apk add --no-cache sqlite su-exec >/dev/null
+mkdir -p /state/snapshots/$1
+chown 1000:1000 /state/snapshots/$1
+exec su-exec 1000:1000 sh -c '. /snapshot-db.sh
+snapshot_db /data/sqlite/remit.db /state/snapshots/$1/remit.db
+snapshot_db /data/sqlite/vec.db /state/snapshots/$1/vec.db'"
+}
+
+# Installs nothing: a rollback must not depend on the network whose failure it
+# may be recovering from. The unlinks are not tidiness — VACUUM INTO writes a
+# fresh file with its own salt, so a WAL left behind by the stop is a mismatched
+# sidecar beside a database that never wrote it. The chown is what keeps a
+# successful rollback from terminating as rollbackFailed: the updater is root,
+# every app container is uid 1000, and a root-owned file on that volume fails
+# the gate re-run with EACCES.
+restore_snapshot() {
+	volume_run "set -eu
+snap=/state/snapshots/$1
+if [ ! -f \"\$snap/remit.db\" ]; then
+  echo 'the snapshot for this run is missing' >&2
+  exit 1
+fi
+rm -f /data/sqlite/remit.db /data/sqlite/remit.db-wal /data/sqlite/remit.db-shm
+cp \"\$snap/remit.db\" /data/sqlite/remit.db
+if [ -f \"\$snap/vec.db\" ]; then
+  rm -f /data/sqlite/vec.db /data/sqlite/vec.db-wal /data/sqlite/vec.db-shm
+  cp \"\$snap/vec.db\" /data/sqlite/vec.db
+fi
+chown -R 1000:1000 /data/sqlite"
+}
+
+prune_snapshots() {
+	[ -d "$STATE_DIR/snapshots" ] || return 0
+	for _d in "$STATE_DIR/snapshots"/*; do
+		[ -d "$_d" ] || continue
+		_name=${_d##*/}
+		if [ "$_name" != "$1" ]; then
+			rm -rf "$_d"
+		fi
+	done
+}
+
+# --- the gate (RFC 037 D5, R9) ----------------------------------------------
+#
+# All four conditions within the budget, against a stack that is serving nobody.
+# A return of 2 from a condition is terminal — waiting cannot change it — and 1
+# means not yet.
+
+service_cid() {
+	compose ps -aq "$1" 2>/dev/null | tail -1
+}
+
+gate_baseline() {
+	: >"$STATE_DIR/gate-baseline"
+	for _svc in $GATE_SERVICES; do
+		_cid=$(service_cid "$_svc")
+		_rc=0
+		if [ -n "$_cid" ]; then
+			_rc=$(docker inspect -f '{{.RestartCount}}' "$_cid" 2>/dev/null || printf 0)
+		fi
+		printf '%s %s\n' "$_svc" "$_rc" >>"$STATE_DIR/gate-baseline"
+	done
+}
+
+baseline_of() {
+	_v=$(awk -v s="$1" '$1 == s { print $2; exit }' "$STATE_DIR/gate-baseline" 2>/dev/null || true)
+	if [ -z "$_v" ]; then _v=0; fi
+	printf '%s' "$_v"
+}
+
+# Condition 1. The container id has to have changed across the recreate before
+# the exit code counts: reading whatever `compose ps -aq migrate` finds is
+# satisfied by the previous run's exited container, so a recreate that silently
+# no-ops would read an old success and pass an update whose migration never ran.
+gate_migrate() {
+	_cid=$(service_cid migrate)
+	if [ -z "$_cid" ]; then
+		GATE_REASON="the database migration never ran"
+		return 2
+	fi
+	if [ -n "$1" ] && [ "$_cid" = "$1" ]; then
+		GATE_REASON="the database migration did not run — its container was never replaced"
+		return 2
+	fi
+	_status=$(docker inspect -f '{{.State.Status}}' "$_cid" 2>/dev/null || printf unknown)
+	if [ "$_status" != "exited" ]; then
+		GATE_REASON="the database migration has not finished"
+		return 1
+	fi
+	_code=$(docker inspect -f '{{.State.ExitCode}}' "$_cid" 2>/dev/null || printf 1)
+	if [ "$_code" != "0" ]; then
+		GATE_REASON="the database migration failed (exit $_code)"
+		return 2
+	fi
+	return 0
+}
+
+# Condition 2. A restart count that moved means the service exited and came back
+# — a crash loop, which waiting cannot fix.
+gate_running() {
+	for _svc in $GATE_SERVICES; do
+		_cid=$(service_cid "$_svc")
+		if [ -z "$_cid" ]; then
+			GATE_REASON="$_svc is not running"
+			return 1
+		fi
+		_running=$(docker inspect -f '{{.State.Running}}' "$_cid" 2>/dev/null || printf false)
+		if [ "$_running" != "true" ]; then
+			GATE_REASON="$_svc is not running"
+			return 1
+		fi
+		_rc=$(docker inspect -f '{{.RestartCount}}' "$_cid" 2>/dev/null || printf 0)
+		if [ "$_rc" -gt "$(baseline_of "$_svc")" ]; then
+			GATE_REASON="$_svc keeps restarting"
+			return 2
+		fi
+	done
+	return 0
+}
+
+# Condition 3. Services without a healthcheck report none and pass; the
+# healthchecks that make this more than "the port answers" are on backend,
+# apisix and web.
+gate_healthy() {
+	for _svc in $GATE_SERVICES; do
+		_cid=$(service_cid "$_svc")
+		if [ -z "$_cid" ]; then
+			GATE_REASON="$_svc is not running"
+			return 1
+		fi
+		_h=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$_cid" 2>/dev/null || printf unknown)
+		case "$_h" in
+		none | healthy) ;;
+		*)
+			GATE_REASON="$_svc is not healthy ($_h)"
+			return 1
 			;;
-		*) die "update: unknown option '$1'" ;;
 		esac
 	done
+	return 0
+}
+
+# Condition 4. The backend directly: APISIX is held down for the whole window,
+# so there is nothing else to ask. Joining the backend's own network namespace
+# avoids having to know what the compose network is called, and fails by itself
+# when the backend has no container.
+probe_backend() {
+	_cid=$(compose ps -q backend 2>/dev/null | tail -1)
+	if [ -z "$_cid" ]; then
+		return 1
+	fi
+	docker run --rm --network "container:$_cid" "$HELPER_IMAGE" \
+		wget -q -T 5 -O /dev/null http://127.0.0.1:8080/health >/dev/null 2>&1
+}
+
+run_gate() {
+	_migrate_before=$1
+	GATE_REASON="the new version did not answer within ${GATE_BUDGET_SECONDS}s"
+	_deadline=$(($(epoch) + GATE_BUDGET_SECONDS))
+	_probes=0
+	while :; do
+		_rc=0
+		gate_migrate "$_migrate_before" || _rc=$?
+		if [ "$_rc" = "0" ]; then
+			_rc=0
+			gate_running || _rc=$?
+		fi
+		if [ "$_rc" = "0" ]; then
+			_rc=0
+			gate_healthy || _rc=$?
+		fi
+		if [ "$_rc" = "2" ]; then
+			return 1
+		fi
+		if [ "$_rc" = "0" ]; then
+			if probe_backend; then
+				_probes=$((_probes + 1))
+				if [ "$_probes" -ge 3 ]; then
+					GATE_REASON=""
+					return 0
+				fi
+			else
+				_probes=0
+				GATE_REASON="the new backend did not answer /health"
+			fi
+		else
+			_probes=0
+		fi
+		if [ "$(epoch)" -ge "$_deadline" ]; then
+			return 1
+		fi
+		sleep "$GATE_PROBE_INTERVAL"
+	done
+}
+
+# --- the sequence -----------------------------------------------------------
+
+stack_is_running() {
+	_n=$(compose ps -q 2>/dev/null | wc -l)
+	[ "$_n" -gt 0 ]
+}
+
+running_services() {
+	compose ps --services --status running 2>/dev/null | grep -vx updater | tr '\n' ' '
+}
+
+# `backup` is the reason this is not a bare `compose stop`. It is a stock alpine
+# image under `restart: unless-stopped` behind a profile, so a stop scoped to the
+# active profiles leaves it running — and it opens remit.db read-write every
+# interval for its own VACUUM INTO, which is harmless during the gate window and
+# a collision during the restore. Anything still up after the stop is named and
+# stopped again.
+stop_everything() {
+	compose stop
+	_left=$(compose ps --services --status running 2>/dev/null | grep -vx updater | tr '\n' ' ')
+	if [ -n "$_left" ]; then
+		# shellcheck disable=SC2086 # a service list, split on purpose
+		compose stop $_left
+	fi
+}
+
+start_gate_set() {
+	RUN_MIGRATE_BEFORE=$(service_cid migrate)
+	breadcrumb_write
+	# shellcheck disable=SC2086 # GATE_SET is a service list, split on purpose
+	compose up -d $GATE_SET
+	gate_baseline
+}
+
+start_held_back() {
+	if [ -n "$RUN_SERVICES" ]; then
+		# shellcheck disable=SC2086 # the recorded service list, split on purpose
+		compose up -d $RUN_SERVICES
+	fi
+}
+
+# `compose up -d updater` recreates the container this is running in, so it is
+# the last thing that happens and the verdict is already durable before it does.
+# Being killed here loses nothing.
+replace_updater() {
+	if compose config --services 2>/dev/null | grep -qx updater; then
+		compose up -d updater || true
+	fi
+}
+
+commit_run() {
+	phase committing "Starting the rest of the services." "remit logs"
+	start_held_back
+	# This run's snapshot and the previous release's images are retained until
+	# the next successful update; every earlier run's snapshot goes.
+	prune_snapshots "$RUN_ID"
+	recheck_availability
+	terminate succeeded "This instance is now running $RUN_TARGET." "remit logs backend"
+	replace_updater
+}
+
+roll_back() {
+	_why=$1
+	phase rollingBack "$_why. Restoring $RUN_FROM and the database as it was before the update." "remit logs backend"
+	stop_everything
+	if ! restore_snapshot "$RUN_ID"; then
+		terminate rollbackFailed \
+			"$_why, and the database snapshot could not be restored. The snapshot is at $STATE_DIR/snapshots/$RUN_ID and the previous version is $RUN_FROM." \
+			"remit logs backend"
+		return 1
+	fi
+	set_var REMIT_TAG "$RUN_FROM"
+	REMIT_TAG=$RUN_FROM
+	export REMIT_TAG
+	recheck_availability
+	start_gate_set
+	if run_gate "$RUN_MIGRATE_BEFORE"; then
+		start_held_back
+		prune_snapshots "$RUN_ID"
+		terminate rolledBack \
+			"$_why. This instance was restored to $RUN_FROM and is serving again." \
+			"remit logs backend"
+		replace_updater
+		return 0
+	fi
+	terminate rollbackFailed \
+		"$_why, and $RUN_FROM did not come back either ($GATE_REASON). The snapshot taken before the update is at $STATE_DIR/snapshots/$RUN_ID." \
+		"remit logs backend"
+	return 1
+}
+
+run_update() {
+	_target=$1
+	RUN_ID=$(new_run_id)
+	RUN_FROM=$(get_var REMIT_TAG)
+	RUN_TARGET=$_target
+	RUN_STARTED=$(iso_now)
+	RUN_SERVICES=$(running_services)
+	RUN_MIGRATE_BEFORE=""
+	mkdir -p "$STATE_DIR"
+
+	phase checking "Preparing to update from $RUN_FROM to $_target." "remit status"
+
+	# Nothing running is touched by the pull, so a failure here — a registry
+	# refusal, a rate limit, a full disk — aborts having changed nothing and a
+	# retry is safe.
+	phase pulling "Downloading $_target." "remit logs"
+	REMIT_TAG=$_target
+	export REMIT_TAG
+	if ! (pull_images); then
+		REMIT_TAG=$RUN_FROM
+		export REMIT_TAG
+		terminate abandoned \
+			"$_target could not be downloaded, so nothing was changed and this instance is still running $RUN_FROM." \
+			"remit update"
+		rm -rf "$STATE_DIR/snapshots/$RUN_ID"
+		return 1
+	fi
+
+	# Against the live databases, before anything is stopped. A copy taken after
+	# the stop silently drops every transaction still in the write-ahead log,
+	# and the restore looks clean.
+	phase snapshotting "Taking a snapshot of the database." "remit status"
+	if ! snapshot_databases "$RUN_ID"; then
+		REMIT_TAG=$RUN_FROM
+		export REMIT_TAG
+		terminate abandoned \
+			"The database could not be snapshotted, so nothing was changed and this instance is still running $RUN_FROM." \
+			"remit status"
+		rm -rf "$STATE_DIR/snapshots/$RUN_ID"
+		return 1
+	fi
+
+	# Before the stop, never at commit. If the updater dies and the host
+	# reboots, the restart policy has to bring up binaries that match the
+	# migrated database.
+	set_var REMIT_TAG "$_target"
+
+	phase stopping "Stopping services." "remit status"
+	stop_everything
+
+	phase starting "Starting $_target." "remit logs backend"
+	start_gate_set
+
+	phase verifying "Waiting for $_target to answer." "remit logs backend"
+	if run_gate "$RUN_MIGRATE_BEFORE"; then
+		commit_run
+		return 0
+	fi
+	roll_back "$GATE_REASON"
+}
+
+# --- recovery (RFC 037 D6a, R11) --------------------------------------------
+#
+# Run at the updater's start. A breadcrumb with no terminal outcome means the
+# updater died mid-run, and the answer is neither to resume nor to sit still. It
+# branches on the recorded phase first and only then consults the gate, because
+# a bare gate re-run reaches two wrong verdicts: before the stop the old version
+# is still up and healthy, so the gate passes and success is reported for a
+# version that was never installed; and after a restore during a rollback the
+# stack may be up on the new tag against the reverted database, so a passing
+# /health commits an update that was deliberately undone.
+recover_run() {
+	if [ ! -f "$STATE_DIR/breadcrumb" ]; then
+		printf 'No interrupted update to recover.\n'
+		return 0
+	fi
+	RUN_ID=$(breadcrumb_get runId)
+	RUN_FROM=$(breadcrumb_get fromVersion)
+	RUN_TARGET=$(breadcrumb_get targetVersion)
+	RUN_STARTED=$(breadcrumb_get startedAt)
+	RUN_SERVICES=$(breadcrumb_get services)
+	RUN_MIGRATE_BEFORE=$(breadcrumb_get migrateBefore)
+	_was=$(breadcrumb_get phase)
+
+	case "$_was" in
+	checking | pulling | snapshotting)
+		RUN_PHASE=recovering
+		terminate abandoned \
+			"The update to $RUN_TARGET was interrupted before anything was changed; this instance is still running $RUN_FROM." \
+			"remit status"
+		rm -rf "$STATE_DIR/snapshots/$RUN_ID"
+		;;
+	stopping | starting | verifying | committing)
+		phase verifying "Checking whether $RUN_TARGET came up after an interrupted update." "remit logs backend"
+		# A fresh `compose up` here is what re-reads .env: `unless-stopped` does
+		# not restart containers that were explicitly stopped, so a host reboot
+		# between the stop and the start leaves the app plane down until this.
+		start_gate_set
+		if run_gate "$RUN_MIGRATE_BEFORE"; then
+			commit_run
+			return 0
+		fi
+		roll_back "$GATE_REASON"
+		;;
+	rollingBack)
+		# The only legal outcomes here are rolledBack and rollbackFailed,
+		# whatever the gate says.
+		roll_back "the update to $RUN_TARGET was interrupted while rolling back"
+		;;
+	*)
+		RUN_PHASE=recovering
+		terminate abandoned \
+			"An interrupted update was found in an unknown state and abandoned; this instance is running $(get_var REMIT_TAG)." \
+			"remit status"
+		;;
+	esac
+}
+
+# --- the command ------------------------------------------------------------
+
+# The legacy path, and still the right one: on a box with nothing running there
+# is no old version to snapshot, nothing to hold down and nothing to roll back
+# to. install.sh's first `remit update` lands here.
+plain_update() {
+	_tag=$1
 	# The tag reaches .env only once its images are on the box. Writing it
 	# first leaves .env naming a version that failed to pull, which is then
 	# what the next `up` — or the next operator reading it — believes is
@@ -458,6 +1304,120 @@ cmd_update() {
 		report_serving
 		printf 'Running tag %s.\n' "$(get_var REMIT_TAG)"
 	fi
+}
+
+cmd_update() {
+	require_deployment
+	_tag=""
+	_mode=update
+	while [ $# -gt 0 ]; do
+		case "$1" in
+		--tag)
+			[ $# -ge 2 ] || die "update: --tag needs a value"
+			_tag=$2
+			tag_valid "$_tag" || die "update: '$_tag' is not a usable image tag"
+			shift 2
+			;;
+		--check)
+			_mode=check
+			shift
+			;;
+		--recover)
+			_mode=recover
+			shift
+			;;
+		*) die "update: unknown option '$1'" ;;
+		esac
+	done
+
+	if [ "$_mode" = "recover" ]; then
+		lock_acquire
+		recover_run
+		return 0
+	fi
+
+	do_check || true
+
+	if [ "$_mode" = "check" ]; then
+		report_check
+		return 0
+	fi
+
+	lock_acquire
+
+	if [ -z "$_tag" ] && [ -f "$STATE_DIR/request.json" ]; then
+		_tag=$(requested_target || true)
+		# Consumed either way: a request that was refused must not be retried on
+		# every later run, and one that was taken is now the run's business.
+		rm -f "$STATE_DIR/request.json"
+		if [ -z "$_tag" ]; then
+			die "update: the update request on the control volume did not name the published version and was discarded"
+		fi
+	fi
+
+	# A box with nothing running has no old version to snapshot, nothing to hold
+	# down and nothing to roll back to, so it takes the plain path — this is
+	# install.sh's first `remit update`, and it is also why a manifest version is
+	# never adopted silently on a fresh install.
+	if ! stack_is_running; then
+		plain_update "$_tag"
+		return 0
+	fi
+
+	if [ -z "$_tag" ] && [ "$CHECK_AVAILABLE" = "true" ]; then
+		_tag=$CHECK_VERSION
+	fi
+	if [ -z "$_tag" ]; then
+		if [ -n "$(manifest_url)" ]; then
+			report_check
+			return 0
+		fi
+		plain_update ""
+		return 0
+	fi
+
+	run_update "$_tag"
+}
+
+report_check() {
+	if [ ! -f "$STATE_DIR/check.json" ]; then
+		printf 'Updates:   never checked — run '\''remit update --check'\''\n'
+		return 0
+	fi
+	_c=$(cat "$STATE_DIR/check.json")
+	case "$(json_string "$_c" status)" in
+	disabled)
+		printf 'Updates:   not configured (REMIT_UPDATE_MANIFEST_URL is unset)\n'
+		;;
+	failed)
+		printf 'Updates:   check failed — %s\n' "$(json_string "$_c" error)"
+		;;
+	*)
+		if [ "$(json_bool "$_c" updateAvailable)" = "true" ]; then
+			printf 'Updates:   %s is available — %s\n' \
+				"$(json_string "$_c" latestVersion)" "$(json_string "$_c" summary)"
+			printf "           Install it with: remit update\n"
+		else
+			printf 'Updates:   up to date (%s, checked %s)\n' \
+				"$(json_string "$_c" latestVersion)" "$(json_string "$_c" lastCheckedAt)"
+		fi
+		;;
+	esac
+}
+
+# The last run, as a sentence. message and logCommand are the same strings the
+# app renders, so a shell and a browser never tell the operator two stories.
+report_last_run() {
+	[ -f "$STATE_DIR/run.json" ] || return 0
+	_r=$(cat "$STATE_DIR/run.json")
+	_outcome=$(json_string "$_r" outcome)
+	if [ -z "$_outcome" ]; then
+		printf 'Update:    in progress (%s) — %s\n' \
+			"$(json_string "$_r" phase)" "$(json_string "$_r" message)"
+	else
+		printf 'Update:    %s — %s\n' "$_outcome" "$(json_string "$_r" message)"
+	fi
+	printf '           %s\n' "$(json_string "$_r" logCommand)"
 }
 
 cmd_down() {
@@ -611,4 +1571,8 @@ main() {
 	esac
 }
 
-main "$@"
+# $REMIT_LIB_ONLY lets the test suite source this file and exercise one function
+# at a time. It is the only reason it exists; nothing in the deployment sets it.
+if [ "${REMIT_LIB_ONLY:-0}" != "1" ]; then
+	main "$@"
+fi

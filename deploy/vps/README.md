@@ -64,7 +64,8 @@ it. It is the interface to the deployment and runs from anywhere:
 remit status              # what is running, and whether the origin reaches it
 remit logs [service…]     # follow the logs
 remit restart             # apply an edit to .env
-remit update              # pull the current images and apply them
+remit update              # install the current release, atomically
+remit update --check      # what is available, changing nothing
 remit down                # stop serving; remit restart brings it back
 remit config              # the effective configuration, secrets redacted
 remit cert                # export Caddy's root CA (TLS_MODE=internal)
@@ -253,26 +254,73 @@ or `tailscale` for private networks.
 ## Updating
 
 ```bash
-remit update                    # the tag already in .env
+remit update                    # install the current release
+remit update --check            # report what is available, change nothing
 remit update --tag sha-<git-sha>
+remit update --recover          # finish an update that was interrupted
 ```
 
-`--tag` writes `REMIT_TAG` back to `.env` only after its images are on the box,
-so a failed pull never leaves `.env` naming a version that is not there.
+Against a running stack an update is atomic. In order:
 
-`migrate` runs again (idempotent) before the app services restart. Published
-tags are listed on the `ghcr.io/remit-mail/reader/backend` package page in GitHub
-Packages; every image in the roster is built and tagged together, so the same
-`REMIT_TAG` value applies to all of them.
+1. The manifest at `REMIT_UPDATE_MANIFEST_URL` is fetched and validated. A
+   version at or below the running one is refused, as is a manifest naming
+   images from outside its own registry.
+2. Every image is pulled at the target version. A failure here — a registry
+   refusal, a full disk — has touched nothing and a retry is safe.
+3. Both databases are snapshotted with `VACUUM INTO` **while the old version is
+   still live**. The work queue is deliberately not part of the snapshot.
+4. `REMIT_TAG` is written to `.env`, before the stop, so a host that reboots
+   mid-update comes back on binaries that match the migrated database.
+5. Every service stops. The instance is offline from here.
+6. Only `queue`, `migrate` and `backend` start. APISIX, the web server and every
+   worker stay down, so nothing is served and nothing is sent, purged or indexed
+   between the snapshot and the verdict.
+7. The gate: this run's `migrate` exited `0`, every recreated service is up and
+   not restarting, every healthcheck reports healthy, and `/health` answers
+   three times in a row. 300 seconds, then the update has failed.
+8. On a pass the held-back services start and the update is done.
+9. On a failure the snapshot and the previous tag are restored, the gate runs
+   again, and the outcome is `rolledBack` — or `rollbackFailed`, which is the
+   one case that ends with you needing this shell.
 
-`latest` tracks `main` — convenient for a first install, but pin a specific
-`sha-…` tag once you are running for real so an update is a deliberate step.
+`remit status` reports the running version, the last check and the last run's
+outcome. Caddy stays up throughout and serves 502s, so a browser sees an
+instance that is restarting rather than a name that stopped resolving.
+
+Discovery is the manifest and nothing else. A `vX.Y.Z` tag can be present in the
+registry for a version that was never fully published — image pushes are not
+atomic across the roster — so a tag existing is not an offer. Clear
+`REMIT_UPDATE_MANIFEST_URL` and no check happens at all; point it at your own
+HTTPS URL serving the same JSON to hold releases back or run a fork.
+
+`--tag` still installs any tag directly, published release or not, and takes the
+same gate and the same rollback. On a box with nothing running yet — the
+installer's first update — there is no old version to snapshot and nothing to
+roll back to, so it pulls and starts, as before.
 
 ## Rollback
 
-`remit update --tag <previous working tag>`. This is also the disaster-recovery
-story for a bad release — practice it once, deliberately, before you need it for
-real.
+A failed update rolls itself back. The snapshot it restores was taken before
+anything stopped, so it carries the writes still in the write-ahead log, and the
+restored files are left owned by `1000:1000` — a root-owned file on
+`sqlite_data` makes every app writer fail with `EACCES`.
+
+To go back deliberately, `remit update --tag <previous working tag>`. Practise
+it once before you need it.
+
+If the updater is killed mid-run, it recovers on its next start rather than
+waiting for you: `remit update --recover` reads the breadcrumb on its volume and
+branches on the phase it recorded. Interrupted before anything stopped, the
+update is abandoned and the instance was never touched. Interrupted after, the
+gate decides, and an interrupted rollback can only end as rolled back or failed
+— never as a success. The lock is an `flock`, released by the kernel when its
+holder dies, so a killed updater never locks its own recovery out.
+
+`rollbackFailed` is the one outcome that needs you. The pre-update snapshot is
+still on the updater's volume under `snapshots/<runId>/` and the previous
+release's images are still pulled, so the repair is bounded: restore the
+snapshot over `sqlite_data` as uid 1000, put the previous tag back in `.env`,
+and `remit restart`.
 
 ## Podman
 

@@ -31,6 +31,12 @@ jobs:
       - name: Installer — shellcheck
         run: shellcheck install.sh
 
+      # The wrapper is the self-update sequence (RFC 037), running as root with
+      # the container socket, so POSIX sh is a hard constraint rather than a
+      # style rule.
+      - name: remit wrapper — shellcheck
+        run: shellcheck -s sh deploy/vps/remit deploy/vps/backup/snapshot-db.sh
+
       - name: Release scripts — shellcheck
         run: |
           shellcheck -x npm-scripts/release-tag.sh npm-scripts/release-check-tag.sh \

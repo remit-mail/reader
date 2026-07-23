@@ -280,6 +280,10 @@ services:
       ["sh", "-c", "apk add --no-cache sqlite age rclone su-exec >/dev/null && exec su-exec 1000:1000 sh /backup.sh"]
     volumes:
       - ./backup/backup-sqlite.sh:/backup.sh:ro
+      # The VACUUM INTO primitive, shared with `remit update` (RFC 037 R8).
+      # backup-sqlite.sh resolves it beside itself, so the two must land in the
+      # same directory here.
+      - ./backup/snapshot-db.sh:/snapshot-db.sh:ro
       # Read-write, not :ro — VACUUM INTO opens the live WAL database, which
       # needs write access to its -shm/-wal sidecars. The snapshot it writes
       # goes to /tmp; the source files are only read.
