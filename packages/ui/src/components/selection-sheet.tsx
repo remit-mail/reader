@@ -317,6 +317,12 @@ export function SelectionSheet({
 									variant="ghost"
 									size="touch"
 									icon={<MailOpen className="size-4" />}
+									// These buttons sit inside the grabber's drag surface. Its
+									// pointer-down capture would otherwise swallow the button's
+									// own click (the grabber ends up the click target and just
+									// toggles the snap), so stop the pointer-down here — the tap
+									// then lands on the button and runs its action.
+									onPointerDown={(e) => e.stopPropagation()}
 									onClick={(e) => {
 										e.stopPropagation();
 										onMarkRead();
@@ -329,6 +335,7 @@ export function SelectionSheet({
 								variant="ghost"
 								size="touch"
 								icon={<X className="size-4" />}
+								onPointerDown={(e) => e.stopPropagation()}
 								onClick={(e) => {
 									e.stopPropagation();
 									onCancel();

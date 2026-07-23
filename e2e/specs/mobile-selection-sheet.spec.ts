@@ -215,9 +215,8 @@ test.describe("Mobile selection sheet", () => {
 		await expandSheet(page);
 
 		await moveButton(page).click();
-		// Junk is always appointed on this account (the spam fixture seeds into
-		// it), so it is a reliable move destination through the picker.
-		await page.getByRole("option", { name: "Move to Junk" }).click();
+		// Archive is a standard destination in the picker on this account.
+		await page.getByRole("option", { name: "Move to Archive" }).click();
 
 		await expect(selectionSheet(page)).toBeHidden();
 		// The moved rows leave the inbox, restoring the baseline the suite expects.
@@ -231,16 +230,16 @@ test.describe("Mobile selection sheet", () => {
 			await expect(page.getByText(subject, { exact: true })).toBeHidden();
 		}
 
-		// Clean up the filed scratch out of Junk so the run leaves no scraps.
+		// Clean up the filed scratch out of Archive so the run leaves no scraps.
 		const mailboxes = await api.listMailboxes(run.accountId);
-		const junk = mailboxes.find((m) => m.fullPath === "Junk");
-		if (junk) {
+		const archive = mailboxes.find((m) => m.fullPath === "Archive");
+		if (archive) {
 			await waitFor(
-				() => api.searchMatchingMessageIds(junk.mailboxId, tag),
+				() => api.searchMatchingMessageIds(archive.mailboxId, tag),
 				(ids) => ids.length === subjects.length,
-				{ timeoutMs: 60_000, what: "the moved scratch to land in Junk" },
+				{ timeoutMs: 60_000, what: "the moved scratch to land in Archive" },
 			);
-			const ids = await api.searchMatchingMessageIds(junk.mailboxId, tag);
+			const ids = await api.searchMatchingMessageIds(archive.mailboxId, tag);
 			await api.deleteMessages(ids);
 		}
 	});
