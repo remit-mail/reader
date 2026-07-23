@@ -130,7 +130,7 @@ interface ThreadListInteractionProps {
 	isDeleting?: boolean;
 	commandsRef?: RefObject<MessageListCommands | null>;
 	onTriageContextChange?: (context: TriageContextUpdate) => void;
-	children: ReactNode;
+	children?: ReactNode;
 }
 
 export function ThreadListInteraction({

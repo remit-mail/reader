@@ -71,13 +71,16 @@ function mountList(options: {
 	const Harness = () => {
 		const [ids, set] = useState(options.initialIds);
 		setIds = set;
-		return createElement(ThreadListInteraction, {
-			selectedMessageId: undefined,
-			onOpen: () => undefined,
-			onDeleteMessages: options.onDeleteMessages,
-			commandsRef,
-			children: rowElements(ids),
-		});
+		return createElement(
+			ThreadListInteraction,
+			{
+				selectedMessageId: undefined,
+				onOpen: () => undefined,
+				onDeleteMessages: options.onDeleteMessages,
+				commandsRef,
+			},
+			...rowElements(ids),
+		);
 	};
 	act(() => root.render(createElement(Harness)));
 	return {
