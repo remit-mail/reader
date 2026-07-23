@@ -232,14 +232,21 @@ export function ExpandedMessage({
 			    exactly what the app renders, not a divergent inline-HTML mock
 			    (#940). `framed` fixtures map to the newsletter treatment (author
 			    colors preserved); the rest render plain. */}
-			{body ?? (
-				<MessageBodyView
-					className="mt-3"
-					html={message.bodyHtml}
-					category={message.framed ? "newsletter" : "personal"}
-					allowImages
-				/>
-			)}
+			{/* On a phone the email runs edge to edge: the negative margin cancels
+			    this block's `px-2` so no app canvas shows beside the body and the
+			    email doesn't read as sitting in a tinted frame (#763). The header
+			    keeps its inset. The blocked-images notice is app chrome, not part
+			    of the email, so it takes the gutter back. Desktop is unchanged. */}
+			<div className="-mx-2 [&_.message-body-notice]:px-2 lg:mx-0 lg:[&_.message-body-notice]:px-0">
+				{body ?? (
+					<MessageBodyView
+						className="mt-3"
+						html={message.bodyHtml}
+						category={message.framed ? "newsletter" : "personal"}
+						allowImages
+					/>
+				)}
+			</div>
 		</div>
 	);
 }

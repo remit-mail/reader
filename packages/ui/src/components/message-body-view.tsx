@@ -107,7 +107,15 @@ export const MessageBodyView = ({
 
 	return (
 		<div className={cn("message-body", className)}>
-			{blockedImageCount > 0 && renderBlockedNotice?.(blockedImageCount)}
+			{/* `message-body-notice` is a styling hook, not a style: a container
+			    that drops the body's horizontal inset (the mobile reading pane)
+			    uses it to give the gutter back to this notice, which is app
+			    chrome rather than part of the email. */}
+			{blockedImageCount > 0 && (
+				<div className="message-body-notice">
+					{renderBlockedNotice?.(blockedImageCount)}
+				</div>
+			)}
 
 			{sanitizedHtml ? (
 				// Email HTML renders inside a sandboxed iframe so its own CSS and any

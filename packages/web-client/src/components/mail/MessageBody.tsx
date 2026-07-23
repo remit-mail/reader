@@ -67,10 +67,9 @@ interface MessageBodyProps {
 	 */
 	category?: EmailRenderCategory;
 	/**
-	 * Extra classes for the `.message-body` wrapper. The single-message
-	 * reading view (`MessageDetail`) passes `px-4` here so the body shares
-	 * the header's horizontal inset (#729). `MessageCard` provides its own
-	 * `px-5` inset via the surrounding card and leaves this unset.
+	 * Extra classes for the `.message-body` wrapper. `MessageCard` leaves this
+	 * unset: the kit's `ExpandedMessage` runs the body edge to edge on a phone
+	 * and supplies the desktop inset itself.
 	 */
 	className?: string;
 }
