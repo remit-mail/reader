@@ -24,9 +24,17 @@
 # the condition of `if`/`!`/`&&`/`||`). A separate process aborts on the first
 # failure — a failed VACUUM, a failed age, a failed upload — and its exit code
 # is what the outer loop's `if !` sees, instead of silently "succeeding".
+#
+# The VACUUM INTO itself lives in snapshot-db.sh, shared with `remit update`
+# (RFC 037 R8). Both files are mounted beside each other, so $0's directory
+# resolves it in the container and in a checkout alike.
 if [ "${1:-}" = "--run-once" ]; then
 	set -eu
 	set -o pipefail
+
+	lib_dir="$(dirname "$0")"
+	if [ "$lib_dir" = "/" ]; then lib_dir=""; fi
+	. "${lib_dir}/snapshot-db.sh"
 
 	: "${SQLITE_DB_PATH:?set SQLITE_DB_PATH in .env}"
 	: "${LOCAL_VECTORDB_PATH:?set LOCAL_VECTORDB_PATH in .env}"
@@ -47,18 +55,13 @@ if [ "${1:-}" = "--run-once" ]; then
 		snapshot="$work_dir/remit-${label}-${timestamp}.db"
 		out_file="/tmp/remit-${label}-${timestamp}.db.gz.age"
 
-		# The vector file is created by the search-index-worker on its first
-		# embedding write, so on a fresh stack it does not exist yet. sqlite3
-		# opens read-write and would CREATE an empty database at the missing
-		# path on the shared volume, out from under the writer that owns it —
-		# skip until the writer has made the file.
 		if [ ! -f "$src" ]; then
-			echo "backup: ${src} (${label}) does not exist yet — skipping"
+			snapshot_db "$src" "$snapshot"
 			continue
 		fi
 
-		echo "backup: VACUUM INTO snapshot of ${src} (${label}) at ${timestamp}"
-		sqlite3 "$src" "VACUUM INTO '$snapshot'"
+		echo "backup: snapshot of ${src} (${label}) at ${timestamp}"
+		snapshot_db "$src" "$snapshot"
 
 		echo "backup: encrypting ${label} snapshot -> ${out_file}"
 		gzip -c "$snapshot" | age -r "$BACKUP_AGE_RECIPIENT" -o "$out_file"
