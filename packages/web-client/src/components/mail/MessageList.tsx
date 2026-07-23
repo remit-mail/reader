@@ -13,9 +13,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { formatErrorMessage } from "@/components/ui/ErrorState";
 import {
+	type EscalatedAction,
 	type EscalationSearchQuery,
-	useEscalatedDelete,
-} from "@/hooks/useEscalatedDelete";
+	useEscalatedActions,
+} from "@/hooks/useEscalatedActions";
 import { useToggleReadFor } from "@/hooks/useMarkAsRead";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import {
@@ -25,9 +26,15 @@ import {
 } from "@/hooks/useSelection";
 import { buildBugReportContext, buildGitHubIssueUrl } from "@/lib/bug-report";
 import {
-	BULK_DELETE_CHUNK_SIZE,
-	resolveSelectionAfterDelete,
-} from "@/lib/bulk-delete";
+	bulkActionCompletionText,
+	bulkActionPartialText,
+	bulkActionProgressLabel,
+	bulkActionProgressTone,
+} from "@/lib/bulk-action-copy";
+import {
+	BULK_ACTION_CHUNK_SIZE,
+	resolveSelectionAfterRun,
+} from "@/lib/bulk-actions";
 import {
 	escalatedStatusLabel,
 	escalationActionLabel,
@@ -88,7 +95,6 @@ interface MessageListProps {
 	 */
 	searchPredicate?: EscalationSearchQuery;
 	onDeleteMessages?: (messageIds: string[]) => void;
-	onMarkAsRead?: (messageIds: string[]) => void;
 	onMoveMessages?: (messageIds: string[], destinationMailboxId: string) => void;
 	isDeleting?: boolean;
 	isMoving?: boolean;
@@ -151,6 +157,11 @@ const COMPACT_ITEM_HEIGHT = 32;
 const OVERSCAN_COUNT = 5;
 const DENSITY_STORAGE_KEY = "remit:list-density";
 
+// Stable action values for the two bulk actions that carry no parameters, so
+// the callbacks running them keep stable dependencies.
+const DELETE_ACTION: EscalatedAction = { kind: "delete" };
+const MARK_READ_ACTION: EscalatedAction = { kind: "markRead" };
+
 const readStoredDensity = (): Density => {
 	try {
 		const stored = localStorage.getItem(DENSITY_STORAGE_KEY);
@@ -187,7 +198,6 @@ export const MessageList = ({
 	searchQuery,
 	searchPredicate,
 	onDeleteMessages,
-	onMarkAsRead,
 	onMoveMessages,
 	isDeleting = false,
 	isMoving = false,
@@ -275,7 +285,7 @@ export const MessageList = ({
 	// block.
 	const escalationEnabled = !isDesktop && isSearching && !!searchPredicate;
 	const predicateKey = `${mailboxId}|${JSON.stringify(searchPredicate ?? {})}`;
-	const escalation = useEscalatedDelete({
+	const escalation = useEscalatedActions({
 		mailboxId,
 		accountId,
 		enabled: escalationEnabled,
@@ -295,14 +305,18 @@ export const MessageList = ({
 	}, [clearSelection, clearEscalation, escalationPhaseKind]);
 
 	// Non-null exactly once a bounded/escalated run just ended with some ids
-	// still not confirmed deleted: the count that DID succeed in that run, so
-	// the partial-failure notice can say "N moved to Trash" alongside "Retry".
-	// `selectedIds` (materialized to the failed ids) is the source of truth for
-	// how many are left; this only supplies the other half of that sentence.
-	const [lastRunSucceeded, setLastRunSucceeded] = useState<number | null>(null);
+	// the action never reached: which action ran and the count that DID succeed,
+	// so the partial-failure notice can say "N moved to Trash" alongside
+	// "Retry" and Retry can resend the same action. `selectedIds` (materialized
+	// to the failed ids) is the source of truth for how many are left; this only
+	// supplies the other half of that sentence.
+	const [lastRun, setLastRun] = useState<{
+		action: EscalatedAction;
+		succeeded: number;
+	} | null>(null);
 	// Transient, manually-dismissed success banner shown in place of the
-	// selection bar once a chunked/escalated delete finishes cleanly — see
-	// `processDeleteOutcome`. Honest about IMAP's async catch-up rather than
+	// selection bar once a chunked/escalated run finishes cleanly — see
+	// `processRunOutcome`. Honest about IMAP's async catch-up rather than
 	// claiming a finality the bulk endpoint's response doesn't have.
 	const [completionBanner, setCompletionBanner] = useState<string | null>(null);
 
@@ -342,24 +356,27 @@ export const MessageList = ({
 	// completion banner instead of silently claiming a finality the bulk
 	// endpoint's response doesn't have (IMAP applies the move asynchronously).
 	// Anything left over becomes the new bounded selection — precisely what
-	// Retry resends, per `resolveSelectionAfterDelete`.
-	const processDeleteOutcome = useCallback(
-		(outcome: Parameters<typeof resolveSelectionAfterDelete>[0]) => {
-			const { exit, retryIds } = resolveSelectionAfterDelete(outcome);
+	// Retry resends, per `resolveSelectionAfterRun`.
+	const processRunOutcome = useCallback(
+		(
+			action: EscalatedAction,
+			outcome: Parameters<typeof resolveSelectionAfterRun>[0],
+		) => {
+			const { exit, retryIds } = resolveSelectionAfterRun(outcome);
 			if (exit) {
 				setCompletionBanner(
-					`${formatNumber(outcome.done)} moved to Trash. Your mail server is still catching up.`,
+					bulkActionCompletionText(action.kind, outcome.done),
 				);
-				setLastRunSucceeded(null);
+				setLastRun(null);
 				exitSelection();
 				return;
 			}
 			if (retryIds.length > 0) {
-				setLastRunSucceeded(outcome.done);
+				setLastRun({ action, succeeded: outcome.done });
 				selectAll(retryIds);
 				return;
 			}
-			setLastRunSucceeded(null);
+			setLastRun(null);
 		},
 		[exitSelection, selectAll],
 	);
@@ -568,14 +585,25 @@ export const MessageList = ({
 	// user's attention is on the progress bar, not the roving cursor, and
 	// rows update via cache invalidation once the run ends rather than an
 	// optimistic per-row removal.
+	// Runs one bulk action and hands its outcome to the single choke point that
+	// decides what selection looks like afterwards. `ids` omitted means the
+	// escalated predicate (#114) — delete, move and mark-read all take this
+	// path, so an escalated selection is never delete-only.
+	const runEscalatedAction = useCallback(
+		async (action: EscalatedAction, ids?: string[]) => {
+			const outcome = await escalation.runAction(action, ids);
+			processRunOutcome(action, outcome);
+		},
+		[escalation, processRunOutcome],
+	);
+
 	const runChunkedConfirmDelete = useCallback(
 		async (ids: string[] | undefined) => {
 			setPendingDelete(null);
 			focusBeforeConfirmRef.current = null;
-			const outcome = await escalation.runDelete(ids);
-			processDeleteOutcome(outcome);
+			await runEscalatedAction(DELETE_ACTION, ids);
 		},
-		[escalation, processDeleteOutcome],
+		[runEscalatedAction],
 	);
 
 	// Confirm handler: run the actual bulk delete, then clear selection and
@@ -593,9 +621,9 @@ export const MessageList = ({
 			setPendingDelete(null);
 			return;
 		}
-		if (ids.length > BULK_DELETE_CHUNK_SIZE) {
+		if (ids.length > BULK_ACTION_CHUNK_SIZE) {
 			// Selection stays put (still `ids`) for the duration of the run —
-			// `processDeleteOutcome` is the one place that clears it, on success,
+			// `processRunOutcome` is the one place that clears it, on success,
 			// or replaces it with whatever's left to retry.
 			void runChunkedConfirmDelete(ids);
 			return;
@@ -665,21 +693,38 @@ export const MessageList = ({
 		setFocusedMessageId(restoreTo);
 	}, []);
 
-	// Handle mark as read
+	// Mark read, bounded and escalated alike (#114). Both go through the same
+	// chunked run: the bulk flags call caps at 100 ids, so a selection past
+	// that would 400 as a single call, and an escalated selection has no id
+	// list at all — it pages its predicate instead.
 	const handleMarkAsRead = useCallback(() => {
-		if (onMarkAsRead && selectedCount > 0) {
-			onMarkAsRead(Array.from(selectedIds));
+		if (escalation.phase.kind === "escalated") {
+			void runEscalatedAction(MARK_READ_ACTION);
+			return;
 		}
-	}, [onMarkAsRead, selectedCount, selectedIds]);
+		if (selectedCount === 0) return;
+		void runEscalatedAction(MARK_READ_ACTION, Array.from(selectedIds));
+	}, [escalation.phase, runEscalatedAction, selectedCount, selectedIds]);
 
-	// Handle move
+	// Move to a chosen folder, escalated selections included (#114).
 	const handleMoveSelected = useCallback(
 		(destinationMailboxId: string) => {
+			if (escalation.phase.kind === "escalated") {
+				void runEscalatedAction({ kind: "move", destinationMailboxId });
+				return;
+			}
 			if (!onMoveMessages || selectedCount === 0) return;
 			onMoveMessages(Array.from(selectedIds), destinationMailboxId);
 			exitSelection();
 		},
-		[onMoveMessages, selectedCount, selectedIds, exitSelection],
+		[
+			escalation.phase,
+			runEscalatedAction,
+			onMoveMessages,
+			selectedCount,
+			selectedIds,
+			exitSelection,
+		],
 	);
 
 	// Cross-account guard: every selected thread row must belong to the
@@ -748,7 +793,7 @@ export const MessageList = ({
 	// the next page boundary; an escalated-but-idle selection drops back to
 	// bounded on the way out, same as tapping "Clear selection" first.
 	const handleMobileCancel = useCallback(() => {
-		if (escalation.isDeleting || escalation.phase.kind === "counting") {
+		if (escalation.isRunning || escalation.phase.kind === "counting") {
 			escalation.stop();
 			return;
 		}
@@ -761,12 +806,20 @@ export const MessageList = ({
 		escalation.clear();
 	}, [escalation]);
 
-	// Partial-failure notice's Retry: resend exactly the ids that didn't
-	// confirm deleted last time (`selectedIds`, materialized there by
-	// `processDeleteOutcome`) — never the original selection.
+	// Partial-failure notice's Retry: rerun the same action against exactly the
+	// ids it never reached last time (`selectedIds`, materialized there by
+	// `processRunOutcome`) — never the original selection. A retried delete
+	// keeps going through the confirmation path so the dialog's own state is
+	// cleared with it.
 	const handleRetryFailed = useCallback(() => {
-		void runChunkedConfirmDelete(Array.from(selectedIds));
-	}, [runChunkedConfirmDelete, selectedIds]);
+		if (!lastRun) return;
+		const ids = Array.from(selectedIds);
+		if (lastRun.action.kind === "delete") {
+			void runChunkedConfirmDelete(ids);
+			return;
+		}
+		void runEscalatedAction(lastRun.action, ids);
+	}, [lastRun, runChunkedConfirmDelete, runEscalatedAction, selectedIds]);
 
 	// Scroll the roving focus cursor into view as it moves (j/k). Falls back to
 	// the open thread when nothing is focused yet.
@@ -849,7 +902,7 @@ export const MessageList = ({
 	// `selected.intersect(uniqueIds)`, the reference behavior #92's D2 cites.
 	// Wiping the whole selection because one id left (#111) cost the other 49
 	// rows on an ordinary refresh, and could take the post-delete Retry
-	// selection with it: `processDeleteOutcome` materializes the failed ids as
+	// selection with it: `processRunOutcome` materializes the failed ids as
 	// the new selection and resets this effect to live by returning escalation
 	// to idle, so the cache invalidation's refetch ran this same effect against
 	// the retry set — a clear here would have dropped the Retry notice
@@ -861,9 +914,9 @@ export const MessageList = ({
 	// or a delete in progress — that would silently exit selection mode
 	// mid-run.
 	useEffect(() => {
-		if (escalation.phase.kind !== "idle" || escalation.isDeleting) return;
+		if (escalation.phase.kind !== "idle" || escalation.isRunning) return;
 		intersectWith(threads.map((t) => t.messageId));
-	}, [threads, intersectWith, escalation.phase, escalation.isDeleting]);
+	}, [threads, intersectWith, escalation.phase, escalation.isRunning]);
 
 	// Switching mailboxes exits selection outright, instead of leaving it to the
 	// intersect effect above to empty the set by coincidence — a different
@@ -1001,7 +1054,7 @@ export const MessageList = ({
 				selectedCount={selectedCount}
 				onDelete={handleDelete}
 				onClearSelection={exitSelection}
-				onMarkAsRead={onMarkAsRead ? handleMarkAsRead : undefined}
+				onMarkAsRead={handleMarkAsRead}
 				onMove={onMoveMessages ? handleMoveSelected : undefined}
 				onOrganize={() => setOrganizeOpen(true)}
 				isDeleting={isDeleting}
@@ -1029,16 +1082,20 @@ export const MessageList = ({
 		!isDeleting &&
 		!isMoving &&
 		escalation.phase.kind === "idle" &&
-		!escalation.isDeleting;
+		!escalation.isRunning;
 
-	const mobileIsBusy = isDeleting || isMoving || escalation.isDeleting;
+	const mobileIsBusy = isDeleting || isMoving || escalation.isRunning;
 	const mobileCount =
 		escalation.phase.kind === "escalated"
 			? escalation.phase.total
 			: selectedCount;
 
-	const mobileStatusLabel = escalation.isDeleting
-		? `Deleting ${formatNumber(escalation.deleteProgress?.done ?? 0)} of ${formatNumber(escalation.deleteProgress?.total ?? 0)}…`
+	const mobileStatusLabel = escalation.runningAction
+		? bulkActionProgressLabel(
+				escalation.runningAction.kind,
+				escalation.progress?.done ?? 0,
+				escalation.progress?.total ?? 0,
+			)
 		: escalation.phase.kind === "counting"
 			? escalation.phase.countSoFar >= 5000
 				? `Counting… ${formatNumber(escalation.phase.countSoFar)} so far. This is a big result set.`
@@ -1067,7 +1124,7 @@ export const MessageList = ({
 					text: "",
 					action: { label: "Stop", onClick: escalation.stop },
 				}
-			: escalation.phase.kind === "escalated" && !escalation.isDeleting
+			: escalation.phase.kind === "escalated" && !escalation.isRunning
 				? {
 						tone: "info" as const,
 						text: "",
@@ -1085,10 +1142,14 @@ export const MessageList = ({
 								onClick: escalation.escalate,
 							},
 						}
-					: lastRunSucceeded !== null && selectedCount > 0
+					: lastRun !== null && selectedCount > 0
 						? {
 								tone: "danger" as const,
-								text: `${formatNumber(lastRunSucceeded)} moved to Trash. ${formatNumber(selectedCount)} couldn't be deleted.`,
+								text: bulkActionPartialText(
+									lastRun.action.kind,
+									lastRun.succeeded,
+									selectedCount,
+								),
 								action: {
 									label: `Retry ${formatNumber(selectedCount)}`,
 									onClick: handleRetryFailed,
@@ -1106,32 +1167,30 @@ export const MessageList = ({
 				onCancel={handleMobileCancel}
 				onDelete={handleMobileDelete}
 				onMarkRead={
-					onMarkAsRead && escalation.phase.kind === "idle"
-						? handleMarkAsRead
-						: undefined
+					escalation.phase.kind === "counting" ? undefined : handleMarkAsRead
 				}
 				isBusy={mobileIsBusy}
 				isCounting={escalation.phase.kind === "counting"}
 				statusLabel={mobileStatusLabel}
 				selectAll={mobileSelectAll}
 				progress={
-					escalation.isDeleting && escalation.deleteProgress
+					escalation.runningAction && escalation.progress
 						? {
-								value: escalation.deleteProgress.done,
-								max: escalation.deleteProgress.total,
-								tone: "danger",
+								value: escalation.progress.done,
+								max: escalation.progress.total,
+								tone: bulkActionProgressTone(escalation.runningAction.kind),
 							}
 						: undefined
 				}
 				notice={mobileNotice}
 				moveSlot={
-					escalation.phase.kind === "idle" &&
-					!escalation.isDeleting &&
-					onMoveMessages &&
+					escalation.phase.kind !== "counting" &&
+					!escalation.isRunning &&
+					(onMoveMessages || escalation.phase.kind === "escalated") &&
 					accountId &&
 					mailboxId ? (
 						<>
-							{!moveDisabledHint && (
+							{escalation.phase.kind === "idle" && !moveDisabledHint && (
 								<button
 									type="button"
 									onClick={() => setOrganizeOpen(true)}
@@ -1206,7 +1265,7 @@ export const MessageList = ({
 									// #92) — the number in the bar and the rows underneath
 									// have to agree something is happening, and a row mid
 									// -delete must not be openable.
-									escalation.isDeleting && "pointer-events-none opacity-50",
+									escalation.isRunning && "pointer-events-none opacity-50",
 								)}
 								style={{ transform: `translateY(${virtualRow.start}px)` }}
 							>

@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
+import { FolderInput } from "lucide-react";
 import { SelectionTopBar } from "./selection-top-bar.js";
 
 const meta: Meta<typeof SelectionTopBar> = {
@@ -21,6 +22,18 @@ const meta: Meta<typeof SelectionTopBar> = {
 export default meta;
 
 type Story = StoryObj<typeof SelectionTopBar>;
+
+/** Stand-in for the caller's move-to-folder trigger, which owns its own
+ *  folder-picker data. The bar only reserves the slot. */
+const MoveSlot = () => (
+	<button
+		type="button"
+		aria-label="Move selected messages"
+		className="inline-flex size-11 shrink-0 items-center justify-center rounded text-fg-muted hover:bg-surface-raised"
+	>
+		<FolderInput className="size-4" />
+	</button>
+);
 
 export const One: Story = { args: { count: 1 } };
 
@@ -75,7 +88,7 @@ export const AllSelected: Story = {
 /**
  * The search has more matches than are loaded: an escalation notice offers a
  * real button (not prose) naming the scope. Tapping it is what flips the
- * selection's identity from an id set to the search query (`useEscalatedDelete`
+ * selection's identity from an id set to the search query (`useEscalatedActions`
  * in web-client). No count in the label yet — the real client's own read path
  * (`ThreadOperations.searchThreads`) only counts within a capped recency
  * window short of paging the whole result set, and paging it just to seed a
@@ -107,11 +120,19 @@ export const EscalationAvailable: Story = {
  * Selection has been escalated to the search query: the count names the
  * query's total, not a materialized id count, and the notice offers a way
  * back to the bounded selection.
+ *
+ * Every verb the bar carries stays available here (#114). An escalated
+ * selection is a predicate rather than an id list, so the web-client runs
+ * move and mark-read by paging that predicate the same way delete does —
+ * from the bar's side nothing changes, which is the point: an escalated
+ * selection that could only be deleted forced anyone wanting to file those
+ * messages back to the loaded page.
  */
 export const Escalated: Story = {
 	args: {
 		count: 3412,
 		statusLabel: 'All 3,412 matching "npm" selected',
+		moveSlot: <MoveSlot />,
 		notice: {
 			tone: "info",
 			text: "",
@@ -198,4 +219,45 @@ export const PartialFailure: Story = {
  */
 export const ZeroSelected: Story = {
 	args: { count: 0 },
+};
+
+/**
+ * A move over an escalated selection: same chunked run as a delete, worded for
+ * the action that is running and toned as ordinary progress rather than
+ * destructive. Mark-read and the move slot are hidden while it runs — nothing
+ * here can act mid-run.
+ */
+export const MovingWithProgress: Story = {
+	args: {
+		count: 3412,
+		statusLabel: "Moving 1,200 of 3,412…",
+		isBusy: true,
+		progress: { value: 1200, max: 3412, tone: "info" },
+	},
+};
+
+/** Mark-read over the same escalated selection. */
+export const MarkingReadWithProgress: Story = {
+	args: {
+		count: 3412,
+		statusLabel: "Marking 1,200 of 3,412 as read…",
+		isBusy: true,
+		progress: { value: 1200, max: 3412, tone: "info" },
+	},
+};
+
+/**
+ * Partial failure of a move rather than a delete: the notice names the action
+ * that ran, and Retry resends that same action against what is still selected.
+ */
+export const PartialFailureMove: Story = {
+	args: {
+		count: 340,
+		moveSlot: <MoveSlot />,
+		notice: {
+			tone: "danger",
+			text: "3,072 moved. 340 couldn't be moved.",
+			action: { label: "Retry 340", onClick: () => undefined },
+		},
+	},
 };

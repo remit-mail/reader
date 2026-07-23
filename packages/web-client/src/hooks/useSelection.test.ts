@@ -216,7 +216,7 @@ describe("intersectSelectedIds", () => {
 	});
 
 	test("a post-delete retry selection survives a refetch that still contains it, minus what actually left", () => {
-		// Mirrors processDeleteOutcome materializing the failed ids as the new
+		// Mirrors processRunOutcome materializing the failed ids as the new
 		// selection, then the cache-invalidation refetch running this same
 		// intersection against the freshly reloaded `threads`. One retry id
 		// ("fail-2") is momentarily missing from the refreshed page; the other

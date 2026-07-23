@@ -5,6 +5,8 @@ import {
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import {
 	messageBulkOperationsDeleteMessages,
+	messageBulkOperationsMoveMessages,
+	messageBulkOperationsUpdateFlags,
 	threadOperationsSearchThreads,
 } from "@remit/api-http-client/sdk.gen.ts";
 import type { ThreadOperationsSearchThreadsData } from "@remit/api-http-client/types.gen.ts";
@@ -13,24 +15,39 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { buildMutationErrorBanner } from "@/components/ui/error-banners";
 import {
-	type BulkDeleteProgress,
+	bulkActionFailureDetail,
+	bulkActionFailureTitle,
+} from "@/lib/bulk-action-copy";
+import {
+	type ApplyBatch,
+	type BulkActionProgress,
+	type BulkRunOutcome,
 	countMatches,
-	type DeleteRunOutcome,
 	type FetchIdsPage,
 	honestProgress,
-	runChunkedDelete,
-	runPredicateDelete,
-} from "@/lib/bulk-delete";
+	runChunkedAction,
+	runPredicateAction,
+} from "@/lib/bulk-actions";
 
-/** The predicate a search-scoped delete re-issues on every page — the same
+/** The predicate a search-scoped run re-issues on every page — the same
  *  filters the visible list is searching with, minus pagination/count knobs. */
 export type EscalationSearchQuery = Pick<
 	NonNullable<ThreadOperationsSearchThreadsData["query"]>,
 	"order" | "query" | "subject" | "from" | "unread" | "starred" | "attachments"
 >;
 
+/**
+ * What a bulk run applies to every batch it reaches (#114). Delete, move and
+ * mark-read differ only in the bulk call they issue and the caches that call
+ * invalidates; the paging, chunking, progress and cancellation are the same.
+ */
+export type EscalatedAction =
+	| { kind: "delete" }
+	| { kind: "move"; destinationMailboxId: string }
+	| { kind: "markRead" };
+
 /** Page size for both the counting and the execution loop. Set to the write
- *  side's own 100-id cap so an execution page IS a delete chunk — no
+ *  side's own 100-id cap so an execution page IS a write chunk — no
  *  in-memory accumulation step between reading ids and sending them. Counting
  *  doesn't have that constraint but reuses the same page size rather than
  *  adding a second one to reason about. */
@@ -41,7 +58,7 @@ export type EscalationPhase =
 	| { kind: "counting"; countSoFar: number }
 	| { kind: "escalated"; total: number };
 
-interface UseEscalatedDeleteOptions {
+interface UseEscalatedActionsOptions {
 	mailboxId: string;
 	/** Owning account, forwarded to the unseen-count invalidation on completion. */
 	accountId?: string;
@@ -54,51 +71,58 @@ interface UseEscalatedDeleteOptions {
 	searchQuery: EscalationSearchQuery;
 }
 
-export interface UseEscalatedDeleteResult {
+export interface UseEscalatedActionsResult {
 	phase: EscalationPhase;
 	/** Begin paging the predicate's full match set to find its total. */
 	escalate: () => void;
-	/** Stop whatever's running — counting or a delete — at the next page
+	/** Stop whatever's running — counting or an action — at the next page
 	 *  boundary. A no-op when nothing is running. */
 	stop: () => void;
 	/** Drop an escalated selection back to bounded without confirming anything. */
 	clear: () => void;
-	/** True while a chunked delete (bounded->100 ids, or the escalated
-	 *  predicate) is running. */
-	isDeleting: boolean;
-	deleteProgress: BulkDeleteProgress | undefined;
+	/** True while a chunked run (bounded->100 ids, or the escalated predicate)
+	 *  is in flight. */
+	isRunning: boolean;
+	/** The action currently in flight, for status and progress wording. */
+	runningAction: EscalatedAction | undefined;
+	progress: BulkActionProgress | undefined;
 	/**
-	 * Runs a chunked delete. Pass `ids` for a materialized (bounded) selection;
-	 * omit it to delete the escalated predicate (`phase` must be "escalated").
-	 * Resolves once the run ends for any reason — cancelled, errored, or
-	 * complete — with a `done`/`failedIds` outcome the caller feeds to
-	 * `resolveSelectionAfterDelete` to decide what selection looks like next.
+	 * Runs `action` in chunks. Pass `ids` for a materialized (bounded)
+	 * selection; omit it to run against the escalated predicate (`phase` must
+	 * be "escalated"). Resolves once the run ends for any reason — cancelled,
+	 * errored, or complete — with a `done`/`failedIds` outcome the caller feeds
+	 * to `resolveSelectionAfterRun` to decide what selection looks like next.
 	 * Infrastructure failures are reported through the app's existing
 	 * escalation seam (`pushError`, which itself escalates a 5xx/exception to
 	 * the fatal overlay) — not swallowed here.
 	 */
-	runDelete: (ids?: string[]) => Promise<DeleteRunOutcome>;
+	runAction: (
+		action: EscalatedAction,
+		ids?: string[],
+	) => Promise<BulkRunOutcome>;
 }
 
-export const useEscalatedDelete = ({
+export const useEscalatedActions = ({
 	mailboxId,
 	accountId,
 	enabled,
 	predicateKey,
 	searchQuery,
-}: UseEscalatedDeleteOptions): UseEscalatedDeleteResult => {
+}: UseEscalatedActionsOptions): UseEscalatedActionsResult => {
 	const [phase, setPhase] = useState<EscalationPhase>({ kind: "idle" });
-	const [isDeleting, setIsDeleting] = useState(false);
-	const [deleteProgress, setDeleteProgress] = useState<
-		BulkDeleteProgress | undefined
+	const [runningAction, setRunningAction] = useState<
+		EscalatedAction | undefined
 	>(undefined);
+	const [progress, setProgress] = useState<BulkActionProgress | undefined>(
+		undefined,
+	);
 	const cancelRef = useRef(false);
 	const queryClient = useQueryClient();
 	const { pushError } = useErrorBanners();
 
 	// A different search (or leaving search/desktop) makes any in-flight
 	// escalation meaningless — it would otherwise keep counting or offering to
-	// delete a predicate the visible list no longer reflects.
+	// act on a predicate the visible list no longer reflects.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: enabled/predicateKey are trigger-only — the reset itself is unconditional, not a value read from either.
 	useEffect(() => {
 		cancelRef.current = true;
@@ -127,29 +151,62 @@ export const useEscalatedDelete = ({
 		[mailboxId],
 	);
 
-	const deleteBatch = useCallback(async (ids: string[]) => {
-		const { data } = await messageBulkOperationsDeleteMessages({
-			body: { messageIds: ids },
-			throwOnError: true,
-		});
-		return data;
-	}, []);
+	const applyBatchFor = useCallback(
+		(action: EscalatedAction): ApplyBatch =>
+			async (ids: string[]) => {
+				if (action.kind === "move") {
+					const { data } = await messageBulkOperationsMoveMessages({
+						body: {
+							messageIds: ids,
+							destinationMailboxId: action.destinationMailboxId,
+						},
+						throwOnError: true,
+					});
+					return data;
+				}
+				if (action.kind === "markRead") {
+					const { data } = await messageBulkOperationsUpdateFlags({
+						body: { messageIds: ids, isRead: true },
+						throwOnError: true,
+					});
+					return data;
+				}
+				const { data } = await messageBulkOperationsDeleteMessages({
+					body: { messageIds: ids },
+					throwOnError: true,
+				});
+				return data;
+			},
+		[],
+	);
 
-	const invalidateAfterDelete = useCallback(() => {
-		queryClient.invalidateQueries({
-			queryKey: threadOperationsListThreadsQueryKey({ path: { mailboxId } }),
-		});
-		queryClient.invalidateQueries({
-			queryKey: threadOperationsSearchThreadsQueryKey({ path: { mailboxId } }),
-		});
-		if (accountId) {
+	const invalidateAfterRun = useCallback(
+		(action: EscalatedAction) => {
 			queryClient.invalidateQueries({
-				queryKey: mailboxOperationsListMailboxesQueryKey({
-					path: { accountId },
+				queryKey: threadOperationsListThreadsQueryKey({ path: { mailboxId } }),
+			});
+			queryClient.invalidateQueries({
+				queryKey: threadOperationsSearchThreadsQueryKey({
+					path: { mailboxId },
 				}),
 			});
-		}
-	}, [queryClient, mailboxId, accountId]);
+			if (action.kind === "move") {
+				queryClient.invalidateQueries({
+					queryKey: threadOperationsListThreadsQueryKey({
+						path: { mailboxId: action.destinationMailboxId },
+					}),
+				});
+			}
+			if (accountId) {
+				queryClient.invalidateQueries({
+					queryKey: mailboxOperationsListMailboxesQueryKey({
+						path: { accountId },
+					}),
+				});
+			}
+		},
+		[queryClient, mailboxId, accountId],
+	);
 
 	const escalate = useCallback(() => {
 		cancelRef.current = false;
@@ -187,53 +244,55 @@ export const useEscalatedDelete = ({
 		setPhase({ kind: "idle" });
 	}, []);
 
-	const runDelete = useCallback(
-		async (ids?: string[]): Promise<DeleteRunOutcome> => {
+	const runAction = useCallback(
+		async (
+			action: EscalatedAction,
+			ids?: string[],
+		): Promise<BulkRunOutcome> => {
 			cancelRef.current = false;
-			setIsDeleting(true);
+			setRunningAction(action);
 			// `honestProgress` widens `total` if `done` overtakes it (#109) — the
-			// predicate can match more by the time the delete re-pages it than
+			// predicate can match more by the time the run re-pages it than
 			// `countMatches` saw, and the bar must never show more done than out of.
-			const onProgress = (progress: BulkDeleteProgress) =>
-				setDeleteProgress(honestProgress(progress));
+			const onProgress = (next: BulkActionProgress) =>
+				setProgress(honestProgress(next));
+			const applyBatch = applyBatchFor(action);
 
 			const outcome =
 				ids !== undefined
-					? await runChunkedDelete(
+					? await runChunkedAction(
 							ids,
-							deleteBatch,
+							applyBatch,
 							onProgress,
 							() => cancelRef.current,
 						)
-					: await runPredicateDelete(
+					: await runPredicateAction(
 							fetchIdsPage,
 							phase.kind === "escalated" ? phase.total : 0,
-							deleteBatch,
+							applyBatch,
 							onProgress,
 							() => cancelRef.current,
 						);
 
-			setIsDeleting(false);
-			setDeleteProgress(undefined);
+			setRunningAction(undefined);
+			setProgress(undefined);
 			setPhase({ kind: "idle" });
 
 			if (outcome.error) {
 				pushError(
 					buildMutationErrorBanner(
-						outcome.done > 0
-							? `Stopped after ${outcome.done} — some messages weren't deleted`
-							: "Couldn't delete these messages",
-						"The delete didn't finish.",
+						bulkActionFailureTitle(action.kind, outcome.done),
+						bulkActionFailureDetail(action.kind),
 						outcome.error,
 					),
 				);
 			}
 			if (outcome.done > 0) {
-				invalidateAfterDelete();
+				invalidateAfterRun(action);
 			}
 			return outcome;
 		},
-		[deleteBatch, fetchIdsPage, phase, pushError, invalidateAfterDelete],
+		[applyBatchFor, fetchIdsPage, phase, pushError, invalidateAfterRun],
 	);
 
 	return {
@@ -241,8 +300,9 @@ export const useEscalatedDelete = ({
 		escalate,
 		stop,
 		clear,
-		isDeleting,
-		deleteProgress,
-		runDelete,
+		isRunning: runningAction !== undefined,
+		runningAction,
+		progress,
+		runAction,
 	};
 };

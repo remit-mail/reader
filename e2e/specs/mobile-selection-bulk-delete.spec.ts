@@ -154,7 +154,7 @@ const expectSearchResultsCount = async (
  * real messages that would trigger it honestly (see file header). Only the
  * general, unbounded list request for the given query is touched — identified
  * by having no `limit` param, which is how `MailboxPane`'s browsing query
- * (unlike `useEscalatedDelete`'s own 100-id-paged counting/delete requests)
+ * (unlike `useEscalatedActions`'s own 100-id-paged counting/delete requests)
  * calls the endpoint. Real items from the real backend are left untouched;
  * only a `continuationToken` is added when the response didn't already carry
  * one.
@@ -364,11 +364,13 @@ test.describe("Entering selection mode", () => {
 		await page.mouse.move(box.x + 10, y, { steps: 10 });
 		await page.mouse.up();
 
+		// Scoped to the row: the selection bar carries its own "Mark as read"
+		// verb for the whole selection, which is not a swipe action.
 		await expect(
-			page.getByRole("button", { name: "Delete message" }),
+			row.getByRole("button", { name: "Delete message" }),
 		).toBeHidden();
 		await expect(
-			page.getByRole("button", { name: /Mark as (un)?read/ }),
+			row.getByRole("button", { name: /Mark as (un)?read/ }),
 		).toBeHidden();
 		// The drag didn't fall through to a toggle either — selection mode
 		// renders no swipe gesture surface at all (it's a different component,
@@ -493,7 +495,7 @@ test.describe("Confirm dialog", () => {
 
 test.describe("Search-scoped escalation and bulk delete", () => {
 	// A completed delete invalidates and refetches the unbounded list query
-	// (`invalidateAfterDelete` in `useEscalatedDelete.ts`), which can still be
+	// (`invalidateAfterRun` in `useEscalatedActions.ts`), which can still be
 	// in flight through `forceMoreMatchesThanLoaded`'s route handler when a test
 	// ends and Playwright closes the page — an unrelated background refetch,
 	// not something under test. Cancel any route still pending rather than let

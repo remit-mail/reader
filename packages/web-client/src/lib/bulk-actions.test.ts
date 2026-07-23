@@ -1,15 +1,15 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import {
-	BULK_DELETE_CHUNK_SIZE,
+	BULK_ACTION_CHUNK_SIZE,
 	chunkIds,
 	countMatches,
 	type FetchIdsPageResult,
 	honestProgress,
-	resolveSelectionAfterDelete,
-	runChunkedDelete,
-	runPredicateDelete,
-} from "./bulk-delete.js";
+	resolveSelectionAfterRun,
+	runChunkedAction,
+	runPredicateAction,
+} from "./bulk-actions.js";
 
 const ids = (count: number, prefix = "m"): string[] =>
 	Array.from({ length: count }, (_, i) => `${prefix}${i}`);
@@ -20,20 +20,20 @@ describe("chunkIds", () => {
 	});
 
 	test("exactly one chunk's worth stays a single chunk", () => {
-		const got = chunkIds(ids(BULK_DELETE_CHUNK_SIZE));
+		const got = chunkIds(ids(BULK_ACTION_CHUNK_SIZE));
 		assert.equal(got.length, 1);
-		assert.equal(got[0].length, BULK_DELETE_CHUNK_SIZE);
+		assert.equal(got[0].length, BULK_ACTION_CHUNK_SIZE);
 	});
 
 	test("one over the boundary spills a second chunk of one", () => {
-		const got = chunkIds(ids(BULK_DELETE_CHUNK_SIZE + 1));
+		const got = chunkIds(ids(BULK_ACTION_CHUNK_SIZE + 1));
 		assert.equal(got.length, 2);
-		assert.equal(got[0].length, BULK_DELETE_CHUNK_SIZE);
+		assert.equal(got[0].length, BULK_ACTION_CHUNK_SIZE);
 		assert.equal(got[1].length, 1);
 	});
 
 	test("preserves order across chunk boundaries", () => {
-		const input = ids(BULK_DELETE_CHUNK_SIZE + 5);
+		const input = ids(BULK_ACTION_CHUNK_SIZE + 5);
 		const got = chunkIds(input).flat();
 		assert.deepEqual(got, input);
 	});
@@ -47,13 +47,13 @@ describe("chunkIds", () => {
 	});
 });
 
-describe("runChunkedDelete", () => {
+describe("runChunkedAction", () => {
 	const neverCancelled = () => false;
 	const noopProgress = () => undefined;
 
 	test("zero ids does nothing and reports done=0", async () => {
 		const calls: string[][] = [];
-		const outcome = await runChunkedDelete(
+		const outcome = await runChunkedAction(
 			[],
 			async (chunk) => {
 				calls.push(chunk);
@@ -71,9 +71,9 @@ describe("runChunkedDelete", () => {
 	});
 
 	test("sequences one call per 100-id chunk, in order", async () => {
-		const input = ids(BULK_DELETE_CHUNK_SIZE + 1);
+		const input = ids(BULK_ACTION_CHUNK_SIZE + 1);
 		const calls: string[][] = [];
-		const outcome = await runChunkedDelete(
+		const outcome = await runChunkedAction(
 			input,
 			async (chunk) => {
 				calls.push(chunk);
@@ -83,7 +83,7 @@ describe("runChunkedDelete", () => {
 			neverCancelled,
 		);
 		assert.equal(calls.length, 2);
-		assert.equal(calls[0].length, BULK_DELETE_CHUNK_SIZE);
+		assert.equal(calls[0].length, BULK_ACTION_CHUNK_SIZE);
 		assert.equal(calls[1].length, 1);
 		assert.equal(outcome.done, input.length);
 		assert.deepEqual(outcome.failedIds, []);
@@ -91,7 +91,7 @@ describe("runChunkedDelete", () => {
 
 	test("a returned batch counts every id in it as accepted", async () => {
 		const input = ids(5);
-		const outcome = await runChunkedDelete(
+		const outcome = await runChunkedAction(
 			input,
 			async (chunk) => ({ successCount: chunk.length, failureCount: 0 }),
 			noopProgress,
@@ -102,10 +102,10 @@ describe("runChunkedDelete", () => {
 	});
 
 	test("cancelling mid-run folds every unreached chunk into failedIds", async () => {
-		const input = ids(BULK_DELETE_CHUNK_SIZE * 3);
+		const input = ids(BULK_ACTION_CHUNK_SIZE * 3);
 		let calls = 0;
 		let cancelled = false;
-		const outcome = await runChunkedDelete(
+		const outcome = await runChunkedAction(
 			input,
 			async (chunk) => {
 				calls++;
@@ -117,15 +117,15 @@ describe("runChunkedDelete", () => {
 		);
 		assert.equal(outcome.cancelled, true);
 		assert.equal(calls, 1);
-		assert.equal(outcome.done, BULK_DELETE_CHUNK_SIZE);
+		assert.equal(outcome.done, BULK_ACTION_CHUNK_SIZE);
 		// The two chunks never attempted come back as not-yet-deleted.
-		assert.equal(outcome.failedIds.length, BULK_DELETE_CHUNK_SIZE * 2);
+		assert.equal(outcome.failedIds.length, BULK_ACTION_CHUNK_SIZE * 2);
 	});
 
 	test("an infra failure mid-run stops the run and reports the error", async () => {
-		const input = ids(BULK_DELETE_CHUNK_SIZE * 2);
+		const input = ids(BULK_ACTION_CHUNK_SIZE * 2);
 		const boom = new Error("network blip");
-		const outcome = await runChunkedDelete(
+		const outcome = await runChunkedAction(
 			input,
 			async () => {
 				throw boom;
@@ -139,22 +139,22 @@ describe("runChunkedDelete", () => {
 	});
 
 	test("reports progress after each chunk", async () => {
-		const input = ids(BULK_DELETE_CHUNK_SIZE + 1);
+		const input = ids(BULK_ACTION_CHUNK_SIZE + 1);
 		const progressCalls: { done: number; total: number }[] = [];
-		await runChunkedDelete(
+		await runChunkedAction(
 			input,
 			async (chunk) => ({ successCount: chunk.length, failureCount: 0 }),
 			(p) => progressCalls.push(p),
 			neverCancelled,
 		);
 		assert.deepEqual(progressCalls, [
-			{ done: BULK_DELETE_CHUNK_SIZE, total: input.length },
+			{ done: BULK_ACTION_CHUNK_SIZE, total: input.length },
 			{ done: input.length, total: input.length },
 		]);
 	});
 });
 
-describe("runPredicateDelete", () => {
+describe("runPredicateAction", () => {
 	const neverCancelled = () => false;
 	const noopProgress = () => undefined;
 
@@ -170,7 +170,7 @@ describe("runPredicateDelete", () => {
 
 	test("zero matches deletes nothing", async () => {
 		const fetch = pagedFetcher([{ ids: [] }]);
-		const outcome = await runPredicateDelete(
+		const outcome = await runPredicateAction(
 			fetch,
 			0,
 			async (chunk) => ({ successCount: chunk.length, failureCount: 0 }),
@@ -181,11 +181,11 @@ describe("runPredicateDelete", () => {
 	});
 
 	test("exactly 100 matches — a page size's worth — resolves in a single page with no continuation", async () => {
-		const fetch = pagedFetcher([{ ids: ids(BULK_DELETE_CHUNK_SIZE) }]);
+		const fetch = pagedFetcher([{ ids: ids(BULK_ACTION_CHUNK_SIZE) }]);
 		const deleteCalls: string[][] = [];
-		const outcome = await runPredicateDelete(
+		const outcome = await runPredicateAction(
 			fetch,
-			BULK_DELETE_CHUNK_SIZE,
+			BULK_ACTION_CHUNK_SIZE,
 			async (chunk) => {
 				deleteCalls.push(chunk);
 				return { successCount: chunk.length, failureCount: 0 };
@@ -194,7 +194,7 @@ describe("runPredicateDelete", () => {
 			neverCancelled,
 		);
 		assert.equal(deleteCalls.length, 1);
-		assert.equal(outcome.done, BULK_DELETE_CHUNK_SIZE);
+		assert.equal(outcome.done, BULK_ACTION_CHUNK_SIZE);
 	});
 
 	test("pages until the continuation token is exhausted, one delete call per page", async () => {
@@ -203,7 +203,7 @@ describe("runPredicateDelete", () => {
 			{ ids: ids(50, "b") },
 		]);
 		const deleteCalls: string[][] = [];
-		const outcome = await runPredicateDelete(
+		const outcome = await runPredicateAction(
 			fetch,
 			150,
 			async (chunk) => {
@@ -226,7 +226,7 @@ describe("runPredicateDelete", () => {
 			{ ids: ["new-c", "d"] }, // "b" is gone (filed away), "new-c" just arrived
 		]);
 		const deleteCalls: string[][] = [];
-		const outcome = await runPredicateDelete(
+		const outcome = await runPredicateAction(
 			fetch,
 			4,
 			async (chunk) => {
@@ -250,7 +250,7 @@ describe("runPredicateDelete", () => {
 			fetchCalls++;
 			return { ids: ["a", "b"], continuationToken: "more" };
 		};
-		const outcome = await runPredicateDelete(
+		const outcome = await runPredicateAction(
 			fetch,
 			1000,
 			async (chunk) => {
@@ -271,7 +271,7 @@ describe("runPredicateDelete", () => {
 		const fetch = async (): Promise<FetchIdsPageResult> => {
 			throw boom;
 		};
-		const outcome = await runPredicateDelete(
+		const outcome = await runPredicateAction(
 			fetch,
 			100,
 			async (chunk) => ({ successCount: chunk.length, failureCount: 0 }),
@@ -285,7 +285,7 @@ describe("runPredicateDelete", () => {
 	test("an infra failure from the delete call itself stops the run and reports the error", async () => {
 		const boom = new Error("500");
 		const fetch = pagedFetcher([{ ids: ["a"] }]);
-		const outcome = await runPredicateDelete(
+		const outcome = await runPredicateAction(
 			fetch,
 			1,
 			async () => {
@@ -355,10 +355,10 @@ describe("countMatches", () => {
 	});
 });
 
-describe("resolveSelectionAfterDelete", () => {
+describe("resolveSelectionAfterRun", () => {
 	test("a clean run with nothing failed exits selection mode", () => {
 		assert.deepEqual(
-			resolveSelectionAfterDelete({
+			resolveSelectionAfterRun({
 				done: 3412,
 				failedIds: [],
 				cancelled: false,
@@ -369,7 +369,7 @@ describe("resolveSelectionAfterDelete", () => {
 
 	test("unreached ids stay selected for a precise retry, even alongside a clean stop", () => {
 		assert.deepEqual(
-			resolveSelectionAfterDelete({
+			resolveSelectionAfterRun({
 				done: 3072,
 				failedIds: ["a", "b"],
 				cancelled: false,
@@ -380,7 +380,7 @@ describe("resolveSelectionAfterDelete", () => {
 
 	test("a clean cancel with nothing yet confirmed failed leaves nothing to retry, but does not exit", () => {
 		assert.deepEqual(
-			resolveSelectionAfterDelete({
+			resolveSelectionAfterRun({
 				done: 100,
 				failedIds: [],
 				cancelled: true,
@@ -391,7 +391,7 @@ describe("resolveSelectionAfterDelete", () => {
 
 	test("an infra failure with nothing left unreached still keeps selection mode open", () => {
 		assert.deepEqual(
-			resolveSelectionAfterDelete({
+			resolveSelectionAfterRun({
 				done: 0,
 				failedIds: [],
 				cancelled: false,
@@ -403,7 +403,7 @@ describe("resolveSelectionAfterDelete", () => {
 
 	test("failedIds wins over cancelled/error when both are present", () => {
 		assert.deepEqual(
-			resolveSelectionAfterDelete({
+			resolveSelectionAfterRun({
 				done: 10,
 				failedIds: ["x"],
 				cancelled: true,
@@ -415,7 +415,7 @@ describe("resolveSelectionAfterDelete", () => {
 });
 
 describe("honestProgress", () => {
-	// Regression for #109: `countMatches` and `runPredicateDelete` page the
+	// Regression for #109: `countMatches` and `runPredicateAction` page the
 	// same predicate independently, so the delete can outrun the frozen
 	// `total` it started with when the result set grows in between.
 	test("leaves an on-track progress reading untouched", () => {
