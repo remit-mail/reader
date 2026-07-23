@@ -103,7 +103,7 @@ export function MobileMessageActionBar({
 
 	return (
 		<div className={cn("relative", className)}>
-			<div className="flex h-12 shrink-0 items-center gap-0.5 border-y border-line bg-canvas px-1">
+			<div className="flex h-12 shrink-0 items-center gap-0.5 bg-canvas px-1">
 				<Button
 					variant="ghost"
 					size="sm"
@@ -165,7 +165,7 @@ export function MobileMessageActionBar({
 				// biome-ignore lint/a11y/useSemanticElements: <p> with role="status" preserves block layout; <output> is inline
 				<p
 					role="status"
-					className="border-b border-line bg-surface-sunken px-3 py-1 text-2xs text-fg-subtle"
+					className="bg-surface-sunken px-3 py-1 text-2xs text-fg-subtle"
 				>
 					{unavailableHint}
 				</p>

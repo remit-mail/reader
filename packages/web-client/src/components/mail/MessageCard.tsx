@@ -212,7 +212,7 @@ const ExpandedCard = ({
 	return (
 		<ExpandedMessage
 			message={message}
-			isFocused={isFocused}
+			isFocused={mobile ? false : isFocused}
 			onHeaderClick={onToggle}
 			senderBadge={isTrusted ? <TrustedSenderBadge /> : undefined}
 			trailing={
