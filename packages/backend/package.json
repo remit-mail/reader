@@ -34,7 +34,7 @@
   },
   "scripts": {
     "test:typecheck": "tsgo --noEmit",
-    "test:run": "node --env-file .env.test --import tsx --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/**/*.test.tsx' --test-coverage-lines=50 --test 'src/**/*.test.ts' 'dev-server/**/*.test.ts'",
+    "test:run": "node --env-file .env.test --import tsx --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/**/*.test.tsx' --test-coverage-lines=70 --test 'src/**/*.test.ts' 'dev-server/**/*.test.ts'",
     "test": "npm run test:typecheck && npm run test:run",
     "bundle": "esbuild 'src/index.ts' --sourcemap --bundle --platform=node --outfile=dist/index.js",
     "dev": "node --env-file .env.test --watch --import tsx dev-server/server.ts",

@@ -13,8 +13,8 @@
   },
   "scripts": {
     "test:typecheck": "tsgo --noEmit -p tsconfig.json",
-    "test:run:pg": "node --env-file=../../localhost-test-unit.env --import tsx --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/**/*.test.tsx' --test-coverage-lines=50 --test 'src/**/!(*.sqlite).test.ts'",
-    "test:run:sqlite": "node --env-file=../../localhost-test-unit-sqlite.env --import tsx --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/**/*.test.tsx' --test-coverage-lines=50 --test 'src/**/*.sqlite.test.ts'",
+    "test:run:pg": "node --env-file=../../localhost-test-unit.env --import tsx --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/**/*.test.tsx' --test-coverage-lines=70 --test 'src/**/!(*.sqlite).test.ts'",
+    "test:run:sqlite": "node --env-file=../../localhost-test-unit-sqlite.env --import tsx --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/**/*.test.tsx' --test-coverage-lines=70 --test 'src/**/*.sqlite.test.ts'",
     "test:run": "npm run test:run:pg && npm run test:run:sqlite",
     "test": "npm run test:typecheck && npm run test:run",
     "fix": "biome check --write src"
