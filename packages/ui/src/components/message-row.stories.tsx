@@ -112,10 +112,40 @@ export const Compact: Story = {
 export const States: Story = {
 	render: () => (
 		<List>
-			<ComfortableRow thread={unread} />
-			<ComfortableRow thread={read} />
+			<ComfortableRow thread={unread} active />
+			<ComfortableRow thread={read} focused />
 			<ComfortableRow thread={starred} />
 			<ComfortableRow thread={suspicious} />
+		</List>
+	),
+};
+
+/**
+ * Selectable rows. The checkbox layers over the avatar: hidden until hover
+ * while unchecked, pinned visible once checked or while the list is in
+ * multi-select mode. A row rendered without `selection` — the brief and
+ * Flagged before they gained selection — shows the avatar alone.
+ */
+export const Selectable: Story = {
+	render: () => (
+		<List>
+			<ComfortableRow
+				thread={unread}
+				selection={{ checked: true, onToggle: () => undefined }}
+			/>
+			<ComfortableRow
+				thread={read}
+				selection={{ checked: false, onToggle: () => undefined }}
+			/>
+			<ComfortableRow
+				thread={starred}
+				selection={{
+					checked: false,
+					alwaysVisible: true,
+					onToggle: () => undefined,
+				}}
+			/>
+			<ComfortableRow thread={withCategory} />
 		</List>
 	),
 };

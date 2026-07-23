@@ -21,17 +21,12 @@ import {
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
 import {
-	Avatar,
 	type BriefCategoryFilter,
 	BriefSections,
 	briefFilterConfig,
-	ComfortableRowTextContent,
-	cn,
-	comfortableRowClass,
 	type FilterSheetProps,
 	type FilterSheetSource,
 	KeyboardHintBar,
-	LIST_ROW_ATTRIBUTE,
 	type SearchResult,
 	type ThreadRowData,
 	type ThreadSection,
@@ -56,6 +51,7 @@ import { useMailContext } from "@/lib/mail-context";
 import { relatedSearchResults, rowToSearchResult } from "@/lib/search-result";
 import { parseSearchTokens } from "@/lib/search-tokens";
 import { MailListHeader } from "./MailListHeader";
+import { MessageRow } from "./MessageRow";
 
 /* The brief's attribute chips as predicates (mirrors the kit `briefFilterChips`
    ids) so the phone search takeover narrows results the same way the list does. */
@@ -121,36 +117,6 @@ const ErrorBanner = ({ accountEmail }: ErrorBannerProps) => {
 				Reconnect
 			</button>
 		</div>
-	);
-};
-
-// ---------------------------------------------------------------------------
-// Brief row — a navigation-aware row satisfying remit-ui's BriefRowComponent
-// ---------------------------------------------------------------------------
-
-const BriefRow = ({
-	thread,
-	active,
-	onClick,
-}: {
-	thread: ThreadRowData;
-	active?: boolean;
-	onClick?: () => void;
-}) => {
-	const unread = !thread.isRead;
-	return (
-		<button
-			type="button"
-			{...LIST_ROW_ATTRIBUTE}
-			onClick={onClick}
-			className={cn("group w-full", comfortableRowClass({ active }))}
-		>
-			{unread && (
-				<span className="absolute left-1.5 top-1/2 size-1.5 -translate-y-1/2 rounded-full bg-accent" />
-			)}
-			<Avatar name={thread.fromName} email={thread.fromEmail} size="sm" />
-			<ComfortableRowTextContent thread={thread} />
-		</button>
 	);
 };
 
@@ -441,7 +407,7 @@ export function DailyBrief({
 	) : (
 		<BriefSections
 			sections={sections}
-			Row={BriefRow}
+			Row={MessageRow}
 			briefCategory={selectedCategory}
 			onSelectBriefCategory={setSelectedCategory}
 			sources={accountSources}

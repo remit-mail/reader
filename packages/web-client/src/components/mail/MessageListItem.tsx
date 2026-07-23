@@ -1,31 +1,19 @@
-import { messageOperationsDescribeMessageOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+/**
+ * MessageListItem — the mailbox list's adapter onto the shared `MessageRow`.
+ *
+ * It maps an API thread to the row's `ThreadRowData` shape and supplies the two
+ * things only the mailbox list has: route-linking rows and the auto-moved
+ * badge. Everything visual and interactive lives in `MessageRow`, which the
+ * brief and Flagged render too.
+ */
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
-import {
-	Avatar,
-	ComfortableRowTextContent,
-	CompactRowBody,
-	comfortableRowClass,
-	compactRowClass,
-	type Density,
-	mergeProps,
-	type SenderTrustLevel,
-	type ThreadRowData,
-	useLongPress,
-} from "@remit/ui";
-import { useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
-import { Check } from "lucide-react";
-import { type MouseEvent, memo, useCallback } from "react";
+import type { Density, SenderTrustLevel, ThreadRowData } from "@remit/ui";
+import { memo } from "react";
 import type { SelectionModifiers } from "@/hooks/useSelection";
 import { toDisplayCategory } from "@/lib/display-category";
 import { formatEmailDate } from "@/lib/format";
-import { cn } from "@/lib/utils";
 import { AutoMovedIndicator } from "./AutoMovedIndicator";
-
-interface MailboxLinkSearch {
-	selectedMessageId?: string;
-	q?: string;
-}
+import { MessageRow } from "./MessageRow";
 
 interface MessageListItemProps {
 	thread: RemitImapThreadMessageResponse;
@@ -33,305 +21,94 @@ interface MessageListItemProps {
 	/** Owning account, used to resolve the Inbox/Junk mailboxes for the auto-moved badge's undo action. */
 	accountId?: string;
 	isSelected: boolean;
-	/**
-	 * Roving keyboard focus cursor (#429). Distinct from `isSelected` (the open
-	 * thread): a focused-but-not-open row shows the left accent rail; the open
-	 * row shows the full highlight. Both can be true (the open row stays focused).
-	 */
 	isFocused?: boolean;
-	/**
-	 * Whether this row holds the list's single tab stop (roving tabindex). Every
-	 * other row is `tabIndex={-1}`, so Tab enters the list at the cursor and
-	 * Shift+Tab leaves it rather than stepping through hundreds of rows.
-	 */
 	isTabStop?: boolean;
-	/** Called when the row takes DOM focus, so the roving cursor follows it. */
 	onFocusRow?: (messageId: string) => void;
 	isChecked: boolean;
 	onToggleCheck: (id: string) => void;
-	/**
-	 * Desktop mouse selection. Called from the row's onClick with the click
-	 * modifiers. Returns true when selection consumed the click (the row should
-	 * not navigate); false for a plain click (navigation proceeds).
-	 */
 	onRowSelect: (messageId: string, modifiers: SelectionModifiers) => boolean;
 	messageCount?: number;
-	/** When true, the checkbox is always visible (e.g. mobile multi-select mode). */
 	isMultiSelectMode?: boolean;
-	/** Called on long press (mobile only). Receives the row's messageId. */
 	onLongPress?: (messageId: string) => void;
-	/** Whether the current viewport is desktop size. */
 	isDesktop?: boolean;
-	/** Row density — comfortable (default) or compact (mutt mode). */
 	density?: Density;
 }
 
 /**
- * Map a RemitImapThreadMessageResponse to the ThreadRowData shape used by
- * remit-ui row body components.
+ * Map a RemitImapThreadMessageResponse to the ThreadRowData shape the shared
+ * row renders.
  */
-const toThreadRowData = (
+export const threadToRowData = (
 	thread: RemitImapThreadMessageResponse,
-	messageCount: number | undefined,
-): ThreadRowData => {
-	// Use the backend's authoritative DKIM-alignment verdict rather than
-	// re-deriving it in the view: dkimMismatch already accounts for the
-	// multi-signature / alignment semantics a single string compare misses.
-	const suspicious = thread.authenticity?.dkimMismatch === true;
-
-	return {
-		id: thread.messageId,
-		accountId: thread.accountConfigId,
-		fromName: thread.fromName ?? thread.fromEmail ?? "Unknown",
-		fromEmail: thread.fromEmail ?? "",
-		subject: thread.subject ?? "(No subject)",
-		snippet: thread.snippet ?? "",
-		timeLabel: formatEmailDate(thread.sentDate),
-		isRead: thread.isRead,
-		hasAttachment: thread.hasAttachment,
-		starred: thread.hasStars === true,
-		trust: thread.senderTrust as SenderTrustLevel,
-		category: toDisplayCategory(thread.category),
-		messageCount,
-		suspicious,
-	};
-};
+	messageCount?: number,
+): ThreadRowData => ({
+	id: thread.messageId,
+	accountId: thread.accountConfigId,
+	mailboxId: thread.mailboxId,
+	fromName: thread.fromName ?? thread.fromEmail ?? "Unknown",
+	fromEmail: thread.fromEmail ?? "",
+	subject: thread.subject ?? "(No subject)",
+	snippet: thread.snippet ?? "",
+	timeLabel: formatEmailDate(thread.sentDate),
+	isRead: thread.isRead,
+	hasAttachment: thread.hasAttachment,
+	starred: thread.hasStars === true,
+	trust: thread.senderTrust as SenderTrustLevel,
+	category: toDisplayCategory(thread.category),
+	messageCount,
+	// The backend's DKIM-alignment verdict is authoritative: it already accounts
+	// for the multi-signature / alignment semantics a single string compare
+	// misses.
+	suspicious: thread.authenticity?.dkimMismatch === true,
+});
 
 const MessageListItemComponent = ({
 	thread,
 	mailboxId,
 	accountId,
 	isSelected,
-	isFocused = false,
-	isTabStop = false,
+	isFocused,
+	isTabStop,
 	onFocusRow,
 	isChecked,
 	onToggleCheck,
 	onRowSelect,
 	messageCount,
-	isMultiSelectMode = false,
+	isMultiSelectMode,
 	onLongPress,
-	isDesktop = true,
-	density = "comfortable",
-}: MessageListItemProps) => {
-	const queryClient = useQueryClient();
-	const messageId = thread.messageId;
-	const rowData = toThreadRowData(thread, messageCount);
-
-	const handleCheckboxClick = (e: MouseEvent) => {
-		e.preventDefault();
-		e.stopPropagation();
-		onToggleCheck(thread.messageId);
-	};
-
-	// Desktop mouse selection semantics. Plain click falls through to the Link's
-	// navigation; shift / cmd / ctrl click is routed to selection and the
-	// navigation is suppressed.
-	//
-	// A modified click must preventDefault: the router skips navigation for any
-	// modified click and leaves the anchor's own default in place, which in a
-	// browser means shift-click opens a new window and cmd-click a new tab.
-	// Shift-click also drags a native text selection across the rows it spans,
-	// so drop it — the row highlight is the selection the user asked for.
-	//
-	// On mobile, once selection mode is active (#92) a plain tap toggles the
-	// row instead of opening it — the same tap-to-toggle contract every
-	// reference mail client uses once you're mid-selection. Outside selection
-	// mode a short tap still falls through to the Link's native navigation.
-	const handleRowClick = useCallback(
-		(e: MouseEvent) => {
-			if (!isDesktop) {
-				if (!isMultiSelectMode) return;
-				e.preventDefault();
-				e.stopPropagation();
-				onToggleCheck(messageId);
-				return;
-			}
-			const modifiers = {
-				shiftKey: e.shiftKey,
-				metaKey: e.metaKey,
-				ctrlKey: e.ctrlKey,
-			};
-			const handled = onRowSelect(messageId, modifiers);
-			if (!handled) return;
-			e.preventDefault();
-			e.stopPropagation();
-			if (modifiers.shiftKey) {
-				window.getSelection()?.removeAllRanges();
-			}
-		},
-		[isDesktop, isMultiSelectMode, onToggleCheck, onRowSelect, messageId],
-	);
-
-	// Shift-click starts a native text selection on mousedown; suppressing it
-	// there keeps the drag from painting a text range over the rows.
-	const handleRowMouseDown = useCallback(
-		(e: MouseEvent) => {
-			if (!isDesktop) return;
-			if (e.shiftKey) e.preventDefault();
-		},
-		[isDesktop],
-	);
-
-	const handleLongPress = useCallback(() => {
-		onLongPress?.(messageId);
-	}, [onLongPress, messageId]);
-
-	const { longPressProps } = useLongPress({
-		onLongPress: handleLongPress,
-		delayMs: 500,
-		accessibilityDescription: isChecked ? "Deselect message" : "Select message",
-	});
-
-	// Intent-based prefetch: by the time the user clicks, the body is in
-	// React Query's cache and the detail pane renders without a spinner.
-	const prefetchMessage = useCallback(() => {
-		queryClient.prefetchQuery(
-			messageOperationsDescribeMessageOptions({
-				path: { messageId: thread.messageId },
-			}),
-		);
-	}, [queryClient, thread.messageId]);
-
-	const handleRowFocus = useCallback(() => {
-		prefetchMessage();
-		onFocusRow?.(messageId);
-	}, [prefetchMessage, onFocusRow, messageId]);
-
-	// Listbox semantics + roving tabindex, shared by both densities. Merged
-	// (not spread) with the mobile long-press props: react-aria's pressProps
-	// carries its own onClick for its internal press bookkeeping, and a plain
-	// object spread would silently drop whichever onClick landed second
-	// instead of running both.
-	const rowInteractionProps = mergeProps(
-		{
-			"data-message-row": true,
-			"data-message-id": messageId,
-			role: "option" as const,
-			"aria-selected": isChecked,
-			tabIndex: isTabStop ? 0 : -1,
-			onClick: handleRowClick,
-			onMouseDown: handleRowMouseDown,
-			onMouseEnter: prefetchMessage,
-			onFocus: handleRowFocus,
-		},
-		isDesktop ? {} : longPressProps,
-	);
-
-	const unread = !thread.isRead;
-
-	if (density === "compact") {
-		return (
-			<Link
-				to="/mail/$mailboxId"
-				params={{ mailboxId }}
-				search={(prev: MailboxLinkSearch) => ({
-					...prev,
-					selectedMessageId: thread.messageId,
-				})}
-				{...rowInteractionProps}
-				className={cn(
-					compactRowClass({ active: isSelected, focused: isFocused }),
-					"outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset",
-					isChecked && "bg-accent-soft",
-					// Long-press enters selection mode; without these, Android Chrome
-					// opens the link context menu / starts text selection and iOS
-					// Safari fires the callout, racing the app's handler. react-aria
-					// suppresses contextmenu/text-selection but not iOS's callout —
-					// it fires no cancelable event, so CSS is the only lever.
-					!isDesktop && "min-h-11 select-none [-webkit-touch-callout:none]",
-				)}
-			>
-				<CompactRowBody thread={rowData} />
-			</Link>
-		);
-	}
-
-	// Comfortable density: avatar/checkbox leading slot + text content.
-	// The slot is a fixed 36px so the row never reflows when state changes.
-	// Unread dot is positioned absolute (left-1.5, vertically centered).
-	return (
-		<Link
-			to="/mail/$mailboxId"
-			params={{ mailboxId }}
-			search={(prev: MailboxLinkSearch) => ({
-				...prev,
-				selectedMessageId: thread.messageId,
-			})}
-			{...rowInteractionProps}
-			className={cn(
-				"group",
-				comfortableRowClass({ active: isSelected, focused: isFocused }),
-				"outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset",
-				isChecked && "bg-accent-soft",
-				// See the compact-density Link above for why both are required.
-				!isDesktop && "min-h-11 select-none [-webkit-touch-callout:none]",
-			)}
-		>
-			{/* Absolute unread dot — 6px gutter from the left pane hairline */}
-			{unread && (
-				<span className="absolute left-1.5 top-1/2 size-1.5 -translate-y-1/2 rounded-full bg-accent" />
-			)}
-
-			{/* Leading slot: avatar by default, checkbox on hover (desktop) or
-			    while checked / in multi-select mode. Fixed 28px slot (size-7,
-			    matching Avatar size="sm" in remit-ui ComfortableRow). */}
-			<div className="relative size-7 shrink-0">
-				<Avatar
-					name={thread.fromName ?? thread.fromEmail ?? "?"}
-					email={thread.fromEmail ?? undefined}
+	isDesktop,
+	density,
+}: MessageListItemProps) => (
+	<MessageRow
+		thread={threadToRowData(thread, messageCount)}
+		linkMailboxId={mailboxId}
+		inListbox
+		active={isSelected}
+		focused={isFocused}
+		isTabStop={isTabStop}
+		density={density}
+		isDesktop={isDesktop}
+		onFocusRow={onFocusRow}
+		selection={{
+			isChecked,
+			onToggleCheck,
+			onRowSelect,
+			isMultiSelectMode,
+			onLongPress,
+		}}
+		badge={
+			thread.autoMoved ? (
+				<AutoMovedIndicator
+					accountId={accountId}
+					messageId={thread.messageId}
+					threadId={thread.threadId}
+					mailboxId={thread.mailboxId}
+					autoMoved={thread.autoMoved}
 					size="sm"
-					className={cn(
-						"absolute inset-0",
-						"sm:group-hover:opacity-0 transition-opacity",
-						(isChecked || isMultiSelectMode) && "opacity-0",
-					)}
 				/>
-				<button
-					type="button"
-					// Out of the tab order: the row is the list's single tab stop, and
-					// this control is `opacity-0` until hover, so a tabbable one would
-					// put focus on something invisible on every row.
-					tabIndex={-1}
-					onClick={handleCheckboxClick}
-					className={cn(
-						"absolute inset-0 size-7 rounded-full border items-center justify-center transition-opacity",
-						isMultiSelectMode ? "flex" : "hidden sm:flex",
-						isChecked
-							? "bg-accent border-accent text-accent-fg opacity-100"
-							: isMultiSelectMode
-								? "border-fg-subtle/40 opacity-100 bg-canvas"
-								: "border-fg-subtle/40 opacity-0 group-hover:opacity-100 bg-canvas",
-					)}
-					aria-label={isChecked ? "Deselect message" : "Select message"}
-				>
-					{isChecked && <Check className="size-3" />}
-				</button>
-			</div>
+			) : undefined
+		}
+	/>
+);
 
-			{/* Text/glyph content block */}
-			<ComfortableRowTextContent
-				thread={rowData}
-				badge={
-					thread.autoMoved && (
-						<AutoMovedIndicator
-							accountId={accountId}
-							messageId={thread.messageId}
-							threadId={thread.threadId}
-							mailboxId={thread.mailboxId}
-							autoMoved={thread.autoMoved}
-							size="sm"
-						/>
-					)
-				}
-			/>
-		</Link>
-	);
-};
-
-// Wrapped in React.memo so virtualized rows don't re-render on every parent
-// state change. The `search` callback prop on Link is inline, but it gets a
-// stable reference because the parent itself is stable across re-renders
-// (mailboxId is a string from route params). React.memo with default shallow
-// equality is appropriate here since props are primitives + stable callback.
 export const MessageListItem = memo(MessageListItemComponent);

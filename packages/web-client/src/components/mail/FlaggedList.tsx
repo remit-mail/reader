@@ -14,7 +14,6 @@
  * `listBody` so the real rows render at every width.
  */
 import {
-	ComfortableRow,
 	flaggedFilterConfig,
 	LIST_ROW_SELECTOR,
 	MessageListPane,
@@ -37,6 +36,7 @@ import { rowToSearchResult } from "@/lib/search-result";
 import { parseSearchTokens } from "@/lib/search-tokens";
 import { dedupeByThread } from "@/lib/starred-rows";
 import { MailViewChrome } from "./MailViewChrome";
+import { MessageRow } from "./MessageRow";
 
 const FILTER_PREDICATES: Record<string, (t: ThreadRowData) => boolean> = {
 	unread: (t) => !t.isRead,
@@ -138,7 +138,7 @@ export function FlaggedList({
 		<div ref={listRef} className="flex-1 overflow-y-auto">
 			<div className="divide-y divide-line">
 				{rows.map((thread) => (
-					<ComfortableRow
+					<MessageRow
 						key={thread.id}
 						thread={thread}
 						active={thread.id === selectedMessageId}

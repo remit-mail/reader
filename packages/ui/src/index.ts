@@ -203,11 +203,13 @@ export {
 	type BriefRowComponent,
 	ComfortableRow,
 	ComfortableRowBody,
+	ComfortableRowLeading,
 	ComfortableRowTextContent,
 	CompactRow,
 	CompactRowBody,
 	comfortableRowClass,
 	compactRowClass,
+	type RowSelection,
 } from "./components/message-row.js";
 export {
 	type MobileMessageAction,

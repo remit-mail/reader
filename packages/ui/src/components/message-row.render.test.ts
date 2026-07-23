@@ -37,6 +37,32 @@ describe("ComfortableRow", () => {
 	});
 });
 
+describe("ComfortableRow selection slot", () => {
+	it("renders no checkbox without a selection (non-selectable mode)", () => {
+		const html = renderToString(
+			createElement(ComfortableRow, { thread: { ...base, isRead: true } }),
+		);
+		assert.doesNotMatch(html, /Select message/);
+	});
+
+	it("renders a checkbox reflecting the checked state", () => {
+		const unchecked = renderToString(
+			createElement(ComfortableRow, {
+				thread: { ...base, isRead: true },
+				selection: { checked: false, onToggle: () => undefined },
+			}),
+		);
+		const checked = renderToString(
+			createElement(ComfortableRow, {
+				thread: { ...base, isRead: true },
+				selection: { checked: true, onToggle: () => undefined },
+			}),
+		);
+		assert.match(unchecked, /Select message/);
+		assert.match(checked, /Deselect message/);
+	});
+});
+
 describe("CompactRow", () => {
 	it("renders fromName and subject", () => {
 		const html = renderToString(
