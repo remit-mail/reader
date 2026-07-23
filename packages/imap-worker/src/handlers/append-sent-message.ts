@@ -75,10 +75,32 @@ const buildRawMessage = async (outbox: OutboxMessageItem): Promise<Buffer> => {
 	return Buffer.concat(chunks);
 };
 
+export interface AppendSentMessageDeps {
+	getClient: typeof getClient;
+	buildLifecycleDeps: typeof buildLifecycleDeps;
+	withOAuthLifecycle: typeof withOAuthLifecycle;
+	createConnectionScope: typeof createConnectionScopeWithCredentials;
+}
+
+const defaultDeps: AppendSentMessageDeps = {
+	getClient,
+	buildLifecycleDeps,
+	withOAuthLifecycle,
+	createConnectionScope: createConnectionScopeWithCredentials,
+};
+
 export const handleAppendSentMessage = async (
 	event: AppendSentMessageEvent,
 	log: Logger,
+	deps: AppendSentMessageDeps = defaultDeps,
 ): Promise<void> => {
+	const {
+		getClient,
+		buildLifecycleDeps,
+		withOAuthLifecycle,
+		createConnectionScope: createConnectionScopeWithCredentials,
+	} = deps;
+
 	const {
 		account: accountService,
 		outboxMessage: outboxMessageService,

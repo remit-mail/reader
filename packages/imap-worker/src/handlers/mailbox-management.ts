@@ -13,13 +13,35 @@ import type {
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 
+export interface MailboxManagementDeps {
+	getClient: typeof getClient;
+	buildLifecycleDeps: typeof buildLifecycleDeps;
+	withOAuthLifecycle: typeof withOAuthLifecycle;
+	createConnectionScope: typeof createConnectionScopeWithCredentials;
+}
+
+const defaultDeps: MailboxManagementDeps = {
+	getClient,
+	buildLifecycleDeps,
+	withOAuthLifecycle,
+	createConnectionScope: createConnectionScopeWithCredentials,
+};
+
 /**
  * Handle MAILBOX_CREATE event
  */
 const handleCreate = async (
 	event: MailboxCreateEvent,
 	log: Logger,
+	deps: MailboxManagementDeps,
 ): Promise<void> => {
+	const {
+		getClient,
+		buildLifecycleDeps,
+		withOAuthLifecycle,
+		createConnectionScope: createConnectionScopeWithCredentials,
+	} = deps;
+
 	const {
 		account: accountService,
 		mailbox: mailboxService,
@@ -93,7 +115,15 @@ const handleCreate = async (
 const handleRename = async (
 	event: MailboxRenameEvent,
 	log: Logger,
+	deps: MailboxManagementDeps,
 ): Promise<void> => {
+	const {
+		getClient,
+		buildLifecycleDeps,
+		withOAuthLifecycle,
+		createConnectionScope: createConnectionScopeWithCredentials,
+	} = deps;
+
 	const {
 		account: accountService,
 		mailbox: mailboxService,
@@ -171,7 +201,15 @@ const handleRename = async (
 const handleDelete = async (
 	event: MailboxDeleteEvent,
 	log: Logger,
+	deps: MailboxManagementDeps,
 ): Promise<void> => {
+	const {
+		getClient,
+		buildLifecycleDeps,
+		withOAuthLifecycle,
+		createConnectionScope: createConnectionScopeWithCredentials,
+	} = deps;
+
 	const {
 		account: accountService,
 		mailbox: mailboxService,
@@ -254,13 +292,14 @@ const handleDelete = async (
 export const processMailboxManagement = async (
 	event: MailboxManagementEvent,
 	log: Logger,
+	deps: MailboxManagementDeps = defaultDeps,
 ): Promise<void> => {
 	switch (event.type) {
 		case "MAILBOX_CREATE":
-			return handleCreate(event, log);
+			return handleCreate(event, log, deps);
 		case "MAILBOX_RENAME":
-			return handleRename(event, log);
+			return handleRename(event, log, deps);
 		case "MAILBOX_DELETE":
-			return handleDelete(event, log);
+			return handleDelete(event, log, deps);
 	}
 };
