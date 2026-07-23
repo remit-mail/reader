@@ -13,7 +13,10 @@ import type { JSDOM } from "jsdom";
 import { act, createElement, createRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { MessageListCommands } from "./MessageList";
-import { ThreadListInteraction } from "./ThreadListInteraction";
+import {
+	ThreadListInteraction,
+	useThreadListSelection,
+} from "./ThreadListInteraction";
 
 let dom: JSDOM;
 let container: HTMLElement;
@@ -195,5 +198,82 @@ describe("ThreadListInteraction — delete confirms first", () => {
 		act(() => {
 			assert.equal(list.commands().requestDelete(), false);
 		});
+	});
+});
+
+/**
+ * A background refresh drops the ids that left and keeps every survivor — the
+ * same intersect-on-refresh guarantee `useSelection.test.ts` locks for the pure
+ * helper (#111), here through the live provider whose effect runs it whenever
+ * the rendered rows change (a chip filter, a collapsed section, mail deleted
+ * elsewhere).
+ */
+function mountSelectableList(initialIds: string[]) {
+	const commandsRef = createRef<MessageListCommands | null>();
+	let setIds: ((ids: string[]) => void) | undefined;
+	let selected: string[] = [];
+	const Probe = () => {
+		const { selectedIds } = useThreadListSelection();
+		selected = Array.from(selectedIds).sort();
+		return null;
+	};
+	const Harness = () => {
+		const [ids, set] = useState(initialIds);
+		setIds = set;
+		return createElement(
+			ThreadListInteraction,
+			{ selectedMessageId: undefined, onOpen: () => undefined, commandsRef },
+			...rowElements(ids),
+			createElement(Probe, { key: "probe" }),
+		);
+	};
+	act(() => root.render(createElement(Harness)));
+	return {
+		commands: () => {
+			const commands = commandsRef.current;
+			if (!commands) throw new Error("commands not published");
+			return commands;
+		},
+		render: async (ids: string[]) => {
+			await act(async () => {
+				setIds?.(ids);
+			});
+		},
+		selected: () => selected,
+	};
+}
+
+describe("ThreadListInteraction — selection survives a background refresh (#111)", () => {
+	it("keeps every survivor when a refresh drops one selected row", async () => {
+		const list = mountSelectableList(["m1", "m2", "m3"]);
+
+		// jsdom has no matchMedia, so the provider runs in mobile multi-select
+		// mode: focusFirst seeds the cursor, x toggles it in, and focusLast then
+		// toggles the row it lands on straight into the selection.
+		act(() => list.commands().focusFirst());
+		act(() => list.commands().toggleSelect());
+		act(() => list.commands().focusLast());
+		assert.deepEqual(list.selected(), ["m1", "m3"]);
+
+		// m3 leaves the rendered set (deleted elsewhere / filtered out); m2 is
+		// present but was never selected.
+		await list.render(["m1", "m2"]);
+
+		assert.deepEqual(
+			list.selected(),
+			["m1"],
+			"the survivor stays selected, the departed id is dropped, and nothing new is added",
+		);
+	});
+
+	it("empties the selection only when every selected row leaves", async () => {
+		const list = mountSelectableList(["m1", "m2"]);
+		act(() => list.commands().focusFirst());
+		act(() => list.commands().toggleSelect());
+		assert.deepEqual(list.selected(), ["m1"]);
+
+		await list.render(["m9"]);
+
+		assert.deepEqual(list.selected(), []);
 	});
 });

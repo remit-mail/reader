@@ -451,7 +451,7 @@ test.describe("Confirm dialog", () => {
 		await expect(rows(page)).toHaveCount(run.seededSubjects.length);
 	});
 
-	test("completing a delete exits selection mode and actually removes the row", async ({
+	test("completing a delete keeps the list, opens no message, and confirms it happened (#202)", async ({
 		page,
 		run,
 		api,
@@ -483,11 +483,20 @@ test.describe("Confirm dialog", () => {
 
 		await expect(selectionBar(page)).toBeHidden();
 
-		// A completed delete moves the roving cursor to the next surviving row
-		// and opens it (existing behavior, not specific to selection mode: mobile
-		// has no separate reading pane, so that navigation swaps the list out for
-		// the conversation view). Back to the list to see the row count.
-		await page.getByRole("button", { name: "Back to messages" }).click();
+		// Single-pane mobile stays on the list — the delete must not navigate into
+		// the surviving neighbour's conversation (#202), so there is no reading
+		// view to come back from and the rows are still on screen.
+		await expect(
+			page.getByRole("button", { name: "Back to messages" }),
+		).toBeHidden();
+		await expect(page).not.toHaveURL(/selectedMessageId=/);
+		// The completion banner is the signal the delete landed, since the list
+		// gives no navigation cue that anything changed.
+		await expect(
+			page.getByText(
+				"1 moved to Trash. Your mail server is still catching up.",
+			),
+		).toBeVisible();
 		await expect(rows(page)).toHaveCount(run.seededSubjects.length);
 		await expect(page.getByText(subject, { exact: true })).toBeHidden();
 	});

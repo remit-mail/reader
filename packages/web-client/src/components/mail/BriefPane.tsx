@@ -381,14 +381,12 @@ function BriefPhone() {
 	const {
 		selectedThread,
 		conversation,
-		selectedMessageId,
 		onSelectMessage,
-		onSelectSearchResult,
 		onCloseThread,
 		nextMessageId,
 		previousMessageId,
 	} = useBriefPane();
-	const { accounts, intelligenceOpen, onToggleIntelligence } = useMailContext();
+	const { intelligenceOpen, onToggleIntelligence } = useMailContext();
 
 	if (conversation) {
 		return (
@@ -427,14 +425,14 @@ function BriefPhone() {
 		);
 	}
 
+	// The same list slot the multi-pane layout mounts, so the phone brief wires
+	// the bulk verbs and the selection bar through `DailyBrief` exactly as the
+	// desktop list does. Rendering `DailyBrief` here directly dropped
+	// `onDeleteMessages`, so a phone selection raised no action bar (#203) — the
+	// same reuse `FlaggedPhone` already relies on.
 	return (
 		<div className="h-full">
-			<DailyBrief
-				accounts={accounts}
-				selectedMessageId={selectedMessageId}
-				onSelectMessage={onSelectMessage}
-				onSelectSearchResult={onSelectSearchResult}
-			/>
+			<BriefList />
 		</div>
 	);
 }

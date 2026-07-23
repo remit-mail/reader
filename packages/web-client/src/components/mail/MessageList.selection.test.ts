@@ -91,3 +91,27 @@ describe("MessageList escalated actions", () => {
 		);
 	});
 });
+
+/**
+ * A bounded confirm-delete used to open the surviving neighbour by writing
+ * `selectedMessageId` into the URL. On desktop that fills the reading pane
+ * beside the list; on a single-pane mobile layout the same navigation replaced
+ * the list with a full-screen message, so a bulk delete read as "jumped into a
+ * random message" rather than "the rows are gone" (#202). Mobile now stays on
+ * the list and raises the same completion banner a chunked run does.
+ */
+describe("MessageList bounded delete stays on the list on mobile (#202)", () => {
+	it("only the desktop two-pane opens the surviving neighbour after a delete", () => {
+		assert.match(
+			source,
+			/if \(isDesktop\) \{\s*navigate\(\{\s*to: "\/mail\/\$mailboxId",\s*params: \{ mailboxId \},\s*search: \(prev\) => \(\{ \.\.\.prev, selectedMessageId: nextFocus \}\),\s*replace: true,\s*\}\);\s*\}/,
+		);
+	});
+
+	it("raises a completion banner on mobile so the delete is not silent", () => {
+		assert.match(
+			source,
+			/if \(!isDesktop\) \{\s*setCompletionBanner\(\s*bulkActionCompletionText\("delete", ids\.length\),?\s*\);\s*\}/,
+		);
+	});
+});
