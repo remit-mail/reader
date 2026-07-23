@@ -1208,7 +1208,11 @@ export const MessageList = ({
 	const showMobileSheet =
 		!isDesktop &&
 		isMultiSelectMode &&
-		shouldShowSelectionSheet(mobileCount, mobileMode);
+		shouldShowSelectionSheet(
+			mobileCount,
+			mobileMode,
+			mobileNotice !== undefined,
+		);
 
 	const mobileMoveSlot =
 		(onMoveMessages || escalation.phase.kind === "escalated") &&

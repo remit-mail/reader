@@ -346,8 +346,13 @@ export function SelectionSheet({
 				</div>
 			</div>
 
-			{/* Expanded content — clipped by the translate when collapsed. */}
-			<div className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-4">
+			{/* Expanded content — clipped by the translate when collapsed. It stays
+			    in the DOM at the teaser, so `inert` when collapsed keeps its offscreen
+			    verbs out of the tab order and the a11y tree until the sheet opens. */}
+			<div
+				inert={!expanded ? true : undefined}
+				className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-4"
+			>
 				{progress && (
 					<div className="mb-3">
 						<ProgressBar

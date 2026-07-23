@@ -91,4 +91,15 @@ describe("shouldShowSelectionSheet", () => {
 		assert.equal(shouldShowSelectionSheet(1, "running"), true);
 		assert.equal(shouldShowSelectionSheet(0, "escalated"), true);
 	});
+
+	test("shows a pending notice at a single idle row so it is never dropped", () => {
+		// A bulk delete that leaves one message behind returns to idle at count 1
+		// with a "1 couldn't be deleted / Retry" notice; the escalation offer can
+		// likewise sit at one loaded row. The sheet must mount to surface either.
+		assert.equal(shouldShowSelectionSheet(1, "idle", true), true);
+	});
+
+	test("still hides a single idle row with no notice", () => {
+		assert.equal(shouldShowSelectionSheet(1, "idle", false), false);
+	});
 });

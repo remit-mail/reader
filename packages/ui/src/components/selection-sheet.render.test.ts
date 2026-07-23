@@ -20,6 +20,9 @@ describe("SelectionSheet", () => {
 		assert.match(html, /role="slider"/);
 		// Collapsed: no cancel/mark-read in the header yet.
 		assert.doesNotMatch(html, /aria-label="Cancel selection"/);
+		// The clipped body is inert while collapsed, so its offscreen verbs stay
+		// out of the tab order and the a11y tree.
+		assert.match(html, /inert=""/);
 	});
 
 	it("expanded shows the quick actions, cancel, and the smart-flow rows", () => {
@@ -41,6 +44,8 @@ describe("SelectionSheet", () => {
 		assert.match(html, /move-here/);
 		assert.match(html, /Select similar messages/);
 		assert.match(html, /Something else/);
+		// Expanded: the body is live, not inert.
+		assert.doesNotMatch(html, /inert=""/);
 	});
 
 	it("names the loaded scope and renders the select-all control", () => {
