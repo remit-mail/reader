@@ -33,6 +33,7 @@ import { ConversationView } from "@/components/mail/ConversationView";
 import { DailyBrief } from "@/components/mail/DailyBrief";
 import { IntelligencePane } from "@/components/mail/IntelligencePane";
 import { MessageToolbar } from "@/components/mail/MessageToolbar";
+import { type ThreadActions, useThreadActions } from "@/hooks/useThreadActions";
 import {
 	buildConversationTarget,
 	type ConversationTarget,
@@ -51,6 +52,11 @@ interface BriefPaneContextValue {
 	onSelectMessage: (id: string) => void;
 	onSelectSearchResult: (result: SearchResult) => void;
 	onCloseThread: () => void;
+	/**
+	 * Toolbar verbs for the open thread, keyed by the thread's own mailbox and
+	 * account — the brief spans accounts, so there is no route mailbox to key by.
+	 */
+	actions: ThreadActions;
 }
 
 const BriefPaneCtx = createContext<BriefPaneContextValue | null>(null);
@@ -136,6 +142,28 @@ function BriefPaneProvider({ selectedMessageId, children }: BriefPaneProps) {
 		[navigate, searchInput],
 	);
 
+	const handleDeselectIfRemoved = useCallback(
+		(removedIds: string[]) => {
+			if (!selectedMessageId) return;
+			if (!removedIds.includes(selectedMessageId)) return;
+			navigate({
+				to: "/mail",
+				search: (prev) => ({
+					...prev,
+					selectedMessageId: undefined,
+					selectedThreadId: undefined,
+					selectedMailboxId: undefined,
+				}),
+			});
+		},
+		[selectedMessageId, navigate],
+	);
+
+	const actions = useThreadActions({
+		thread: selectedThread,
+		onAfterOptimisticRemove: handleDeselectIfRemoved,
+	});
+
 	const handleCloseThread = useCallback(() => {
 		navigate({
 			to: "/mail",
@@ -155,6 +183,7 @@ function BriefPaneProvider({ selectedMessageId, children }: BriefPaneProps) {
 		onSelectMessage: handleSelectMessage,
 		onSelectSearchResult: handleSelectSearchResult,
 		onCloseThread: handleCloseThread,
+		actions,
 	};
 
 	return <BriefPaneCtx.Provider value={ctx}>{children}</BriefPaneCtx.Provider>;
@@ -187,7 +216,7 @@ function BriefList() {
  * Mount in the `reading` slot of `AppShellSlotted`. Only rendered ≥ 1024px.
  */
 function BriefReading() {
-	const { conversation } = useBriefPane();
+	const { conversation, actions } = useBriefPane();
 	const { intelligenceOpen, onToggleIntelligence } = useMailContext();
 	// The rail's own width gate, not the shell tier: between 1024 and 1280 the
 	// reading pane is mounted but the rail is not, so "enabled" would promise an
@@ -203,6 +232,25 @@ function BriefReading() {
 				intelligenceOpen={canToggleIntelligence && intelligenceOpen}
 				canToggleIntelligence={canToggleIntelligence}
 				onToggleIntelligence={onToggleIntelligence}
+				onReply={hasThread ? () => actions.requestCompose("reply") : undefined}
+				onReplyAll={
+					hasThread ? () => actions.requestCompose("reply_all") : undefined
+				}
+				onForward={
+					hasThread ? () => actions.requestCompose("forward") : undefined
+				}
+				onDelete={hasThread ? actions.deleteThread : undefined}
+				onToggleStar={hasThread ? actions.toggleStar : undefined}
+				isStarred={actions.isStarred}
+				moveContext={
+					hasThread && actions.accountId && actions.mailboxId
+						? {
+								accountId: actions.accountId,
+								currentMailboxId: actions.mailboxId,
+								onMove: actions.moveThread,
+							}
+						: undefined
+				}
 			/>
 			<div className="min-h-0 flex-1 overflow-hidden">
 				{conversation ? (
@@ -212,6 +260,8 @@ function BriefReading() {
 						subject={conversation.subject}
 						selectedMessageId={conversation.messageId}
 						authenticity={conversation.authenticity}
+						composeRequest={actions.composeRequest}
+						onComposeClose={actions.clearComposeRequest}
 					/>
 				) : (
 					<ReadingPaneEmpty />
