@@ -50,6 +50,25 @@ export interface Address {
 	displayName?: string;
 }
 
+export interface Filter {
+	filterId: string;
+	name: string;
+	scope: "Standing" | "Temporary";
+	state: "Active" | "Expired";
+	expiresAt?: string;
+	actionMailboxId: string;
+}
+
+export interface CreateFilterInput {
+	name: string;
+	scope: "Standing" | "Temporary";
+	expiresAt?: string;
+	matchOperator?: "And" | "Or";
+	literalClauses?: { field: "From" | "Subject" | "HasWords"; value: string }[];
+	actionLabelId?: string;
+	actionMailboxId?: string;
+}
+
 interface ResultList<T> {
 	items: T[];
 	continuationToken?: string;
@@ -237,6 +256,37 @@ export class ApiClient {
 			`/addresses/search?q=${encodeURIComponent(query)}&limit=10`,
 		);
 		return result.items ?? [];
+	}
+
+	/**
+	 * Seed a standing or temporary filter directly against the filter endpoint.
+	 * The organize sheet that creates one in the app widens the selection with a
+	 * semantic preview first; that vector index is deliberately not built on the
+	 * e2e lane, so the filter surface is exercised by seeding the same
+	 * `POST /accounts/{id}/filters` the sheet ultimately calls and driving the
+	 * Settings › Filters UI over the result. A purely-literal filter needs no
+	 * anchor, so no vectors.
+	 */
+	createFilter(accountId: string, input: CreateFilterInput): Promise<Filter> {
+		return this.json("POST", `/accounts/${accountId}/filters`, {
+			matchOperator: "And",
+			literalClauses: [],
+			actionLabelId: "None",
+			actionMailboxId: "None",
+			...input,
+		});
+	}
+
+	async listFilters(accountId: string): Promise<Filter[]> {
+		const result = await this.json<ResultList<Filter>>(
+			"GET",
+			`/accounts/${accountId}/filters`,
+		);
+		return result.items ?? [];
+	}
+
+	deleteFilter(accountId: string, filterId: string): Promise<Response> {
+		return this.request("DELETE", `/accounts/${accountId}/filters/${filterId}`);
 	}
 
 	async listThreads(mailboxId: string): Promise<Thread[]> {
