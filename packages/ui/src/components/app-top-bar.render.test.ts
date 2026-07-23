@@ -20,31 +20,25 @@ describe("AppTopBar", () => {
 		assert.match(render(), /data-testid="search"/);
 	});
 
-	it("renders the leading and action slots when supplied", () => {
-		const html = render({
-			leading: slot("leading"),
-			actions: slot("actions"),
-		});
-		assert.match(html, /data-testid="leading"/);
+	it("renders the action slot when supplied", () => {
+		const html = render({ actions: slot("actions") });
 		assert.match(html, /data-testid="actions"/);
 	});
 
-	it("omits the optional slots entirely rather than leaving empty boxes", () => {
-		const html = render();
-		assert.doesNotMatch(html, /data-testid="leading"/);
-		assert.doesNotMatch(html, /data-testid="actions"/);
+	it("omits the actions entirely rather than leaving an empty box", () => {
+		assert.doesNotMatch(render(), /data-testid="actions"/);
 	});
 
-	it("lays the bar out leading · search · actions", () => {
-		const html = render({
-			leading: slot("leading"),
-			actions: slot("actions"),
-		});
+	it("lays the bar out search · actions", () => {
+		const html = render({ actions: slot("actions") });
 		assert.ok(
-			html.indexOf("leading") < html.indexOf("search") &&
-				html.indexOf("search") < html.indexOf("actions"),
+			html.indexOf("search") < html.indexOf("actions"),
 			"slots render in reading order",
 		);
+	});
+
+	it("carries no brand mark — the bar is search, not a masthead", () => {
+		assert.doesNotMatch(render(), /remit/i);
 	});
 
 	it("is a banner landmark spanning the app, not a pane header", () => {

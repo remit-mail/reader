@@ -3,11 +3,6 @@ import { cn } from "../lib/cn.js";
 
 export interface AppTopBarProps {
 	/**
-	 * Leading slot — the brand mark, and on narrow widths the nav trigger.
-	 * Sits over the nav column, so keep it to the nav pane's width budget.
-	 */
-	leading?: ReactNode;
-	/**
 	 * The search field. Spans the bar's middle and is the only thing that
 	 * grows, so the bar reads as one search surface for the whole app.
 	 */
@@ -22,23 +17,20 @@ export interface AppTopBarProps {
 }
 
 /**
- * The application top bar: one full-width row above every pane, carrying
- * search and the global actions.
+ * The application top bar: one row over the list, reading and intelligence
+ * panes, carrying search and the global actions.
  *
  * Search sits here rather than over the message list because it is not the
- * list's search — it reads across the whole app, and the bar's width is what
- * says so. Leading brand and nav trigger, then the search field taking the
- * room it needs, then the global actions.
+ * list's search — it reads across the whole app, and the bar's span is what
+ * says so. It starts on the list's left edge: the nav column runs the full
+ * height beside the bar rather than under it, so the field lines up with the
+ * columns it searches. The search field takes the room it needs, then the
+ * global actions.
  *
  * Presentational and slot-driven; the host supplies the wired field and
  * action controls.
  */
-export function AppTopBar({
-	leading,
-	search,
-	actions,
-	className,
-}: AppTopBarProps) {
+export function AppTopBar({ search, actions, className }: AppTopBarProps) {
 	return (
 		<header
 			className={cn(
@@ -48,9 +40,6 @@ export function AppTopBar({
 				className,
 			)}
 		>
-			{leading && (
-				<div className="flex shrink-0 items-center gap-2">{leading}</div>
-			)}
 			<div className="flex min-w-0 flex-1 justify-start">
 				<div className="w-full max-w-2xl">{search}</div>
 			</div>
