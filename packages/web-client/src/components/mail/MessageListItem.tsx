@@ -82,6 +82,7 @@ const MessageListItemComponent = ({
 	<MessageRow
 		thread={threadToRowData(thread, messageCount)}
 		linkMailboxId={mailboxId}
+		inListbox
 		active={isSelected}
 		focused={isFocused}
 		isTabStop={isTabStop}

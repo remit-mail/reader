@@ -67,6 +67,13 @@ export interface MessageRowProps {
 	/** Extra chip after the category badge (e.g. the auto-moved indicator). */
 	badge?: ReactNode;
 	selection?: MessageRowSelection;
+	/**
+	 * The row sits inside a container with `role="listbox"` (the mailbox list),
+	 * so it carries `role="option"` and `aria-selected`. Off everywhere else:
+	 * the brief and Flagged render their rows in ordinary containers, where an
+	 * orphan `option` is invalid ARIA and costs the row its button semantics.
+	 */
+	inListbox?: boolean;
 	/** Mailbox whose route the row links to; omit for callback-driven rows. */
 	linkMailboxId?: string;
 	/** Called when the row is opened by a plain click on a non-linking row. */
@@ -84,6 +91,7 @@ const MessageRowComponent = ({
 	isDesktop = true,
 	badge,
 	selection,
+	inListbox = false,
 	linkMailboxId,
 	onClick,
 	onFocusRow,
@@ -196,8 +204,9 @@ const MessageRowComponent = ({
 			"data-list-row": "",
 			"data-message-row": true,
 			"data-message-id": messageId,
-			role: "option" as const,
-			"aria-selected": isChecked,
+			...(inListbox
+				? { role: "option" as const, "aria-selected": isChecked }
+				: {}),
 			tabIndex: isTabStop ? 0 : -1,
 			onClick: handleRowClick,
 			onMouseDown: handleRowMouseDown,
