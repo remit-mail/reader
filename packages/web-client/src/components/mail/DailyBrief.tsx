@@ -31,6 +31,7 @@ import {
 	type FilterSheetProps,
 	type FilterSheetSource,
 	KeyboardHintBar,
+	LIST_ROW_ATTRIBUTE,
 	type SearchResult,
 	type ThreadRowData,
 	type ThreadSection,
@@ -140,6 +141,7 @@ const BriefRow = ({
 	return (
 		<button
 			type="button"
+			{...LIST_ROW_ATTRIBUTE}
 			onClick={onClick}
 			className={cn("group w-full", comfortableRowClass({ active }))}
 		>

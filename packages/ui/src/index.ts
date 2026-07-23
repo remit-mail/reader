@@ -484,6 +484,14 @@ export {
 	sanitizeStyleElementCss,
 } from "./lib/email-sanitizer.js";
 export {
+	LIST_ROW_ATTRIBUTE,
+	LIST_ROW_SELECTOR,
+	type RovingOrientation,
+	rovingNextIndex,
+	type UseRovingFocusOptions,
+	useRovingFocus,
+} from "./lib/roving-focus.js";
+export {
 	type UseLongPressOptions,
 	type UseLongPressResult,
 	useLongPress,

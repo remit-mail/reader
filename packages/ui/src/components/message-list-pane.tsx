@@ -1,6 +1,7 @@
 import { Menu } from "lucide-react";
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { LIST_ROW_SELECTOR, useRovingFocus } from "../lib/roving-focus.js";
 import type { AppShellProps, TouchSeed } from "./app-shell-types.js";
 import { BriefSections } from "./brief-sections.js";
 import { Button } from "./button.js";
@@ -89,6 +90,11 @@ export function MessageListPane({
 	hideHeader?: boolean;
 }) {
 	const Row = density === "compact" ? CompactRow : ComfortableRow;
+	const flatListRef = useRef<HTMLDivElement>(null);
+	useRovingFocus({
+		containerRef: flatListRef,
+		itemSelector: LIST_ROW_SELECTOR,
+	});
 
 	const touchTriage = !isDesktop && !briefFilters && listState === "ready";
 	const seededRows = sections.flatMap((section) => section.threads);
@@ -212,7 +218,7 @@ export function MessageListPane({
 					refreshing={refreshing}
 				/>
 			) : (
-				<div className="flex-1 overflow-y-auto">
+				<div ref={flatListRef} className="flex-1 overflow-y-auto">
 					{sections.map((section) => (
 						<div key={section.id}>
 							{/* The plain flat mailbox suppresses section labels — it is one

@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { LIST_ROW_SELECTOR, useRovingFocus } from "../lib/roving-focus.js";
 import type {
 	BriefCategoryFilter,
 	ThreadRowData,
@@ -98,6 +99,8 @@ export function BriefSections({
 }: BriefSectionsProps) {
 	const [active, setActive] = useState<ReadonlySet<BriefFilterId>>(new Set());
 	const [sheetExpanded, setSheetExpanded] = useState(defaultExpanded);
+	const listRef = useRef<HTMLDivElement>(null);
+	useRovingFocus({ containerRef: listRef, itemSelector: LIST_ROW_SELECTOR });
 
 	const toggleFilter = (id: BriefFilterId) => {
 		setActive((prev) => {
@@ -142,7 +145,7 @@ export function BriefSections({
 	const empty = showSections ? filtered.length === 0 : flatRows.length === 0;
 
 	const listBody = (
-		<>
+		<div ref={listRef}>
 			{showSections ? (
 				filtered.map((section) => (
 					<BriefSection
@@ -170,7 +173,7 @@ export function BriefSections({
 					No threads match these filters.
 				</div>
 			)}
-		</>
+		</div>
 	);
 
 	// One source of truth for both breakpoints: a click-to-expand Filters bar

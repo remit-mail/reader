@@ -19,8 +19,9 @@ import {
 	X,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { cn } from "../lib/cn.js";
+import { useRovingFocus } from "../lib/roving-focus.js";
 import type {
 	AppShellProps,
 	NavAccount,
@@ -33,6 +34,13 @@ import type {
 /* Pane 1: navigation sidebar                                         */
 /* ------------------------------------------------------------------ */
 
+/** Every interactive row and toggle in the sidebar's arrow-key group. */
+const NAV_ITEM_SELECTOR = "button:not([disabled]), a[href]";
+
+/** Visible keyboard-focus ring shared by every item in that group. */
+const FOCUS_RING =
+	"outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-surface-sunken";
+
 function navItemClassName({
 	active,
 	dimmed,
@@ -44,6 +52,7 @@ function navItemClassName({
 }): string {
 	return cn(
 		"flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm transition-colors",
+		FOCUS_RING,
 		indent && "pl-7",
 		active
 			? "bg-accent-2-soft font-medium text-accent-2"
@@ -241,7 +250,10 @@ function SavedSearchRow({
 			<button
 				type="button"
 				onClick={onSelect}
-				className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1 text-left text-sm text-fg-muted transition-colors hover:text-fg"
+				className={cn(
+					"flex min-w-0 flex-1 items-center gap-2 px-2 py-1 text-left text-sm text-fg-muted transition-colors hover:text-fg",
+					FOCUS_RING,
+				)}
 			>
 				<Search className="size-4 shrink-0 text-fg-subtle" />
 				<span className="min-w-0 flex-1 truncate">{query}</span>
@@ -251,7 +263,10 @@ function SavedSearchRow({
 					type="button"
 					onClick={onRemove}
 					aria-label={`Remove saved search: ${query}`}
-					className="shrink-0 rounded-full p-1 text-fg-subtle opacity-0 transition-opacity hover:bg-surface-sunken hover:text-fg group-hover:opacity-100 focus-visible:opacity-100"
+					className={cn(
+						"shrink-0 rounded-full p-1 text-fg-subtle opacity-0 transition-opacity hover:bg-surface-sunken hover:text-fg group-hover:opacity-100 focus-visible:opacity-100",
+						FOCUS_RING,
+					)}
 				>
 					<X className="size-3.5" />
 				</button>
@@ -289,7 +304,10 @@ function SavedSearchesGroup({
 				<button
 					type="button"
 					onClick={onSaveCurrentSearch}
-					className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm text-accent transition-colors hover:bg-surface"
+					className={cn(
+						"flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm text-accent transition-colors hover:bg-surface",
+						FOCUS_RING,
+					)}
 				>
 					<BookmarkPlus className="size-4 shrink-0" />
 					<span className="min-w-0 flex-1 truncate">
@@ -368,6 +386,7 @@ function AccountNav({
 				aria-expanded={accountOpen}
 				className={cn(
 					"flex w-full items-center gap-1.5 px-2 pb-1 text-left transition-colors hover:text-fg",
+					FOCUS_RING,
 					account.muted && "opacity-55",
 				)}
 			>
@@ -465,7 +484,10 @@ function AccountNav({
 										type="button"
 										onClick={toggleFolders}
 										aria-expanded={foldersOpen}
-										className="mt-1 flex w-full items-center gap-1 px-2 py-1 text-left text-2xs font-semibold uppercase tracking-wider text-fg-subtle transition-colors hover:text-fg"
+										className={cn(
+											"mt-1 flex w-full items-center gap-1 px-2 py-1 text-left text-2xs font-semibold uppercase tracking-wider text-fg-subtle transition-colors hover:text-fg",
+											FOCUS_RING,
+										)}
 									>
 										{foldersOpen ? (
 											<ChevronDown className="size-3 shrink-0" />
@@ -499,7 +521,10 @@ function AccountNav({
 													<button
 														type="button"
 														onClick={() => setShowAllFolders((all) => !all)}
-														className="ml-7 flex items-center px-2 py-1 text-2xs font-medium text-accent transition-colors hover:underline"
+														className={cn(
+															"ml-7 flex items-center px-2 py-1 text-2xs font-medium text-accent transition-colors hover:underline",
+															FOCUS_RING,
+														)}
 													>
 														{showAllFolders
 															? "Show less"
@@ -559,11 +584,14 @@ export function NavSidebar({
 	onRemoveSavedSearch,
 	onSaveCurrentSearch,
 }: NavSidebarProps) {
+	const containerRef = useRef<HTMLElement>(null);
+	useRovingFocus({ containerRef, itemSelector: NAV_ITEM_SELECTOR });
+	const isDrawer = variant === "drawer";
+
 	const navBody = (
 		<nav
-			className={
-				variant === "drawer" ? "px-2 py-2" : "flex-1 overflow-y-auto px-2 py-2"
-			}
+			ref={isDrawer ? containerRef : undefined}
+			className={isDrawer ? "px-2 py-2" : "flex-1 overflow-y-auto px-2 py-2"}
 			aria-label="Mailboxes"
 		>
 			<NavItem
@@ -613,10 +641,13 @@ export function NavSidebar({
 		</nav>
 	);
 
-	if (variant === "drawer") return navBody;
+	if (isDrawer) return navBody;
 
 	return (
-		<aside className="flex h-full w-full flex-col bg-surface-sunken">
+		<aside
+			ref={containerRef}
+			className="flex h-full w-full flex-col bg-surface-sunken"
+		>
 			{/* no toolbar over the sidebar (Apple Mail-style): nav content
 			    starts at the top; the datum bar exists only over the
 			    list/reading/intelligence panes */}

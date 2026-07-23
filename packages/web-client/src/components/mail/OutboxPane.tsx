@@ -22,7 +22,12 @@ import type {
 	RemitImapOutboxMessageResponse,
 	RemitImapOutboxMessageStatus,
 } from "@remit/api-http-client/types.gen.ts";
-import { OutboxRow, ReadingPaneEmpty } from "@remit/ui";
+import {
+	LIST_ROW_SELECTOR,
+	OutboxRow,
+	ReadingPaneEmpty,
+	useRovingFocus,
+} from "@remit/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import {
@@ -40,6 +45,7 @@ import {
 	useCallback,
 	useContext,
 	useMemo,
+	useRef,
 } from "react";
 import { useCompose } from "@/components/compose/ComposeProvider";
 import { MessageBody } from "@/components/mail/MessageBody";
@@ -434,6 +440,8 @@ function OutboxList() {
 		selectedMessageId,
 		onSelectMessage,
 	} = useOutboxPane();
+	const listRef = useRef<HTMLDivElement>(null);
+	useRovingFocus({ containerRef: listRef, itemSelector: LIST_ROW_SELECTOR });
 
 	if (isLoading) {
 		return (
@@ -468,7 +476,7 @@ function OutboxList() {
 					{messages.length} {messages.length === 1 ? "message" : "messages"}
 				</span>
 			</header>
-			<div className="flex-1 overflow-y-auto">
+			<div ref={listRef} className="flex-1 overflow-y-auto">
 				{messages.map((message) => (
 					<OutboxMessageRow
 						key={message.outboxMessageId}
@@ -523,6 +531,8 @@ function OutboxPhone() {
 		selectedMessage,
 		onSelectMessage,
 	} = useOutboxPane();
+	const listRef = useRef<HTMLDivElement>(null);
+	useRovingFocus({ containerRef: listRef, itemSelector: LIST_ROW_SELECTOR });
 
 	if (isLoading) {
 		return (
@@ -563,7 +573,7 @@ function OutboxPhone() {
 					{messages.length} {messages.length === 1 ? "message" : "messages"}
 				</span>
 			</header>
-			<div className="flex-1 overflow-y-auto">
+			<div ref={listRef} className="flex-1 overflow-y-auto">
 				{messages.map((message) => (
 					<OutboxMessageRow
 						key={message.outboxMessageId}
