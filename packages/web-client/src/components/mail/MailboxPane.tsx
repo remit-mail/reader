@@ -18,7 +18,6 @@
 import {
 	outboxDetailOperationsDeleteOutboxMessageMutation,
 	outboxOperationsListOutboxMessagesQueryKey,
-	threadDetailOperationsListThreadMessagesQueryKey,
 	threadOperationsListThreadsQueryKey,
 	threadOperationsSearchThreadsQueryKey,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
@@ -91,6 +90,8 @@ import { useMoveMessages } from "@/hooks/useMoveMessages";
 import { useRescueCandidates } from "@/hooks/useRescueCandidates";
 import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
 import { useSemanticSearch } from "@/hooks/useSemanticSearch";
+import { useThreadActions } from "@/hooks/useThreadActions";
+import { useThreadMessageIds } from "@/hooks/useThreadMessageIds";
 import { useToggleStar } from "@/hooks/useToggleStar";
 import { useTriageKeyboard } from "@/hooks/useTriageKeyboard";
 import { useUpdateAddressFlags } from "@/hooks/useUpdateAddressFlags";
@@ -503,15 +504,9 @@ function MailboxPaneProvider({
 	const queryClient = useQueryClient();
 	const { pushError } = useErrorBanners();
 
-	const { deleteMessages: toolbarDelete } = useDeleteMessages({
+	const toolbarActions = useThreadActions({
+		thread: selectedThread,
 		mailboxId,
-		threadId: selectedThread?.threadId,
-		onAfterOptimisticRemove: handleDeselectIfRemoved,
-	});
-
-	const { moveMessages: toolbarMove } = useMoveMessages({
-		mailboxId,
-		threadId: selectedThread?.threadId,
 		accountId: mailboxAccountId,
 		onAfterOptimisticRemove: handleDeselectIfRemoved,
 	});
@@ -522,63 +517,19 @@ function MailboxPaneProvider({
 
 	const { archiveMailboxId } = useArchiveMailbox(mailboxAccountId);
 
-	// Get thread message ids from cache; fall back to representative message id.
-	const getThreadMessageIds = useCallback(
-		(thread: RemitImapThreadMessageResponse) => {
-			const threadKey = threadDetailOperationsListThreadMessagesQueryKey({
-				path: { threadId: thread.threadId },
-			});
-			const cached = queryClient.getQueriesData<{
-				items: { messageId: string }[];
-			}>({ queryKey: threadKey });
-			const ids = cached.flatMap(
-				([, data]) => data?.items.map((m) => m.messageId) ?? [],
-			);
-			return ids.length > 0 ? ids : [thread.messageId];
-		},
-		[queryClient],
-	);
+	const getThreadMessageIds = useThreadMessageIds();
 
-	const handleToolbarDelete = useCallback(() => {
-		if (!selectedThread) return;
-		const messageIds = getThreadMessageIds(selectedThread);
-		toolbarDelete(messageIds);
-	}, [selectedThread, getThreadMessageIds, toolbarDelete]);
-
-	const handleToolbarMove = useCallback(
-		(destMailboxId: string) => {
-			if (!selectedThread) return;
-			const messageIds = getThreadMessageIds(selectedThread);
-			toolbarMove(messageIds, destMailboxId);
-		},
-		[selectedThread, getThreadMessageIds, toolbarMove],
-	);
-
-	const { toggleStar: toolbarToggleStar } = useToggleStar({
-		threadId: selectedThread?.threadId ?? "",
-		mailboxId,
-	});
-
-	const handleToolbarStar = useCallback(() => {
-		if (!selectedThread) return;
-		toolbarToggleStar(selectedThread.messageId, selectedThread.hasStars);
-	}, [selectedThread, toolbarToggleStar]);
-
-	const [toolbarComposeRequest, setToolbarComposeRequest] =
-		useState<ComposeMode | null>(null);
+	const { requestCompose: setToolbarComposeRequest } = toolbarActions;
 
 	const handleToolbarReply = useCallback(() => {
 		setToolbarComposeRequest("reply");
-	}, []);
+	}, [setToolbarComposeRequest]);
 	const handleToolbarReplyAll = useCallback(() => {
 		setToolbarComposeRequest("reply_all");
-	}, []);
+	}, [setToolbarComposeRequest]);
 	const handleToolbarForward = useCallback(() => {
 		setToolbarComposeRequest("forward");
-	}, []);
-	const handleClearComposeRequest = useCallback(() => {
-		setToolbarComposeRequest(null);
-	}, []);
+	}, [setToolbarComposeRequest]);
 
 	const { state: composeState, openCompose, closeCompose } = useCompose();
 
@@ -688,15 +639,15 @@ function MailboxPaneProvider({
 	const triageReply = useCallback(() => {
 		if (ensureFocusedOpen()) return;
 		if (selectedThread) setToolbarComposeRequest("reply");
-	}, [ensureFocusedOpen, selectedThread]);
+	}, [ensureFocusedOpen, selectedThread, setToolbarComposeRequest]);
 	const triageReplyAll = useCallback(() => {
 		if (ensureFocusedOpen()) return;
 		if (selectedThread) setToolbarComposeRequest("reply_all");
-	}, [ensureFocusedOpen, selectedThread]);
+	}, [ensureFocusedOpen, selectedThread, setToolbarComposeRequest]);
 	const triageForward = useCallback(() => {
 		if (ensureFocusedOpen()) return;
 		if (selectedThread) setToolbarComposeRequest("forward");
-	}, [ensureFocusedOpen, selectedThread]);
+	}, [ensureFocusedOpen, selectedThread, setToolbarComposeRequest]);
 
 	const triageTargetMessageIds = useCallback((): string[] => {
 		if (triageSelectedIds.length > 0) return triageSelectedIds;
@@ -889,15 +840,15 @@ function MailboxPaneProvider({
 		onTriageContextChange: handleTriageContextChange,
 		listCommandsRef,
 		onRetry: () => refetch(),
-		toolbarComposeRequest,
+		toolbarComposeRequest: toolbarActions.composeRequest,
 		onToolbarReply: handleToolbarReply,
 		onToolbarReplyAll: handleToolbarReplyAll,
 		onToolbarForward: handleToolbarForward,
-		onClearComposeRequest: handleClearComposeRequest,
-		onToolbarDelete: handleToolbarDelete,
-		onToolbarStar: handleToolbarStar,
+		onClearComposeRequest: toolbarActions.clearComposeRequest,
+		onToolbarDelete: toolbarActions.deleteThread,
+		onToolbarStar: toolbarActions.toggleStar,
 		onToolbarDiscardDraft: handleToolbarDiscardDraft,
-		onToolbarMove: handleToolbarMove,
+		onToolbarMove: toolbarActions.moveThread,
 		composeState,
 		closeCompose,
 		hasRemitDraftOpen,
