@@ -26,6 +26,7 @@ import { Link } from "@tanstack/react-router";
 import { type MouseEvent, memo, type ReactNode, useCallback } from "react";
 import type { SelectionModifiers } from "@/hooks/useSelection";
 import { cn } from "@/lib/utils";
+import { useThreadRowInteraction } from "./ThreadListInteraction";
 
 interface MailboxLinkSearch {
 	selectedMessageId?: string;
@@ -85,19 +86,26 @@ export interface MessageRowProps {
 const MessageRowComponent = ({
 	thread,
 	active = false,
-	focused = false,
-	isTabStop = false,
+	focused: focusedProp,
+	isTabStop: isTabStopProp,
 	density = "comfortable",
 	isDesktop = true,
 	badge,
-	selection,
+	selection: selectionProp,
 	inListbox = false,
 	linkMailboxId,
 	onClick,
-	onFocusRow,
+	onFocusRow: onFocusRowProp,
 }: MessageRowProps) => {
 	const queryClient = useQueryClient();
 	const messageId = thread.id;
+	// A list that renders its own rows (the brief, Flagged) supplies the cursor
+	// and selection through context; the mailbox list passes them as props.
+	const fromContext = useThreadRowInteraction(messageId);
+	const focused = focusedProp ?? fromContext?.focused ?? false;
+	const isTabStop = isTabStopProp ?? fromContext?.isTabStop ?? false;
+	const selection = selectionProp ?? fromContext?.selection;
+	const onFocusRow = onFocusRowProp ?? fromContext?.onFocusRow;
 	const isChecked = selection?.isChecked ?? false;
 	const isMultiSelectMode = selection?.isMultiSelectMode ?? false;
 	const onToggleCheck = selection?.onToggleCheck;

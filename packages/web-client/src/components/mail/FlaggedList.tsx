@@ -15,16 +15,15 @@
  */
 import {
 	flaggedFilterConfig,
-	LIST_ROW_SELECTOR,
 	MessageListPane,
 	type ThreadRowData,
-	useRovingFocus,
 } from "@remit/ui";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { type RefObject, useCallback, useMemo, useState } from "react";
 import { formatErrorMessage } from "@/components/ui/ErrorState";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
 import { useStarredThreads } from "@/hooks/useStarredThreads";
+import type { TriageContextUpdate } from "@/hooks/useTriageLayer";
 import {
 	matchesBriefSearch,
 	matchesSearchTokens,
@@ -36,7 +35,12 @@ import { rowToSearchResult } from "@/lib/search-result";
 import { parseSearchTokens } from "@/lib/search-tokens";
 import { dedupeByThread } from "@/lib/starred-rows";
 import { MailViewChrome } from "./MailViewChrome";
+import type { MessageListCommands } from "./MessageList";
 import { MessageRow } from "./MessageRow";
+import {
+	ThreadListInteraction,
+	ThreadListSelectionBar,
+} from "./ThreadListInteraction";
 
 const FILTER_PREDICATES: Record<string, (t: ThreadRowData) => boolean> = {
 	unread: (t) => !t.isRead,
@@ -46,18 +50,25 @@ const FILTER_PREDICATES: Record<string, (t: ThreadRowData) => boolean> = {
 interface FlaggedListProps {
 	selectedMessageId?: string;
 	onSelectMessage?: (id: string) => void;
+	/** Where the list publishes the commands the keyboard layer drives. */
+	commandsRef?: RefObject<MessageListCommands | null>;
+	/** Cursor / selection / display order, reported up to the triage layer. */
+	onTriageContextChange?: (context: TriageContextUpdate) => void;
+	onDeleteMessages?: (messageIds: string[]) => void;
+	onMarkMessagesRead?: (messageIds: string[]) => void;
 }
 
 export function FlaggedList({
 	selectedMessageId,
 	onSelectMessage,
+	commandsRef,
+	onTriageContextChange,
+	onDeleteMessages,
+	onMarkMessagesRead,
 }: FlaggedListProps) {
 	const { searchQuery, resultFolderIndex } = useMailContext();
 	const tokenContext = useSearchTokenContext();
 	const isDesktop = useIsDesktop();
-
-	const listRef = useRef<HTMLDivElement>(null);
-	useRovingFocus({ containerRef: listRef, itemSelector: LIST_ROW_SELECTOR });
 
 	const [selectedCategory, setSelectedCategory] = useState("all");
 	const [activeFilters, setActiveFilters] = useState<ReadonlySet<string>>(
@@ -135,28 +146,45 @@ export function FlaggedList({
 	}, []);
 
 	const listBody = (
-		<div ref={listRef} className="flex-1 overflow-y-auto">
-			<div className="divide-y divide-line">
-				{rows.map((thread) => (
-					<MessageRow
-						key={thread.id}
-						thread={thread}
-						active={thread.id === selectedMessageId}
-						onClick={() => onSelectMessage?.(thread.id)}
+		<ThreadListInteraction
+			rows={rows}
+			selectedMessageId={selectedMessageId}
+			onOpen={(id) => onSelectMessage?.(id)}
+			onDeleteMessages={onDeleteMessages}
+			commandsRef={commandsRef}
+			onTriageContextChange={onTriageContextChange}
+		>
+			<div className="flex h-full min-h-0 flex-col">
+				{onDeleteMessages ? (
+					<ThreadListSelectionBar
+						onDelete={onDeleteMessages}
+						onMarkAsRead={onMarkMessagesRead}
 					/>
-				))}
+				) : null}
+				<div className="flex-1 overflow-y-auto">
+					<div className="divide-y divide-line">
+						{rows.map((thread) => (
+							<MessageRow
+								key={thread.id}
+								thread={thread}
+								active={thread.id === selectedMessageId}
+								onClick={() => onSelectMessage?.(thread.id)}
+							/>
+						))}
+					</div>
+					{hasNextPage ? (
+						<button
+							type="button"
+							className="w-full py-3 text-sm text-muted hover:text-fg disabled:opacity-50"
+							onClick={() => fetchNextPage()}
+							disabled={isFetchingNextPage}
+						>
+							{isFetchingNextPage ? "Loading…" : "Load more"}
+						</button>
+					) : null}
+				</div>
 			</div>
-			{hasNextPage ? (
-				<button
-					type="button"
-					className="w-full py-3 text-sm text-muted hover:text-fg disabled:opacity-50"
-					onClick={() => fetchNextPage()}
-					disabled={isFetchingNextPage}
-				>
-					{isFetchingNextPage ? "Loading…" : "Load more"}
-				</button>
-			) : null}
-		</div>
+		</ThreadListInteraction>
 	);
 
 	return (

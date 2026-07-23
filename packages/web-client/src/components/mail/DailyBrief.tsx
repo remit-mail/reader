@@ -34,10 +34,11 @@ import {
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { AlertCircle, RefreshCw, Sparkles } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { type RefObject, useCallback, useMemo, useState } from "react";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
 import { useSemanticSearch } from "@/hooks/useSemanticSearch";
+import type { TriageContextUpdate } from "@/hooks/useTriageLayer";
 import { sortAccountsByCreatedAt } from "@/lib/account-order";
 import {
 	groupBriefSections,
@@ -51,7 +52,12 @@ import { useMailContext } from "@/lib/mail-context";
 import { relatedSearchResults, rowToSearchResult } from "@/lib/search-result";
 import { parseSearchTokens } from "@/lib/search-tokens";
 import { MailListHeader } from "./MailListHeader";
+import type { MessageListCommands } from "./MessageList";
 import { MessageRow } from "./MessageRow";
+import {
+	ThreadListInteraction,
+	ThreadListSelectionBar,
+} from "./ThreadListInteraction";
 
 /* The brief's attribute chips as predicates (mirrors the kit `briefFilterChips`
    ids) so the phone search takeover narrows results the same way the list does. */
@@ -134,6 +140,12 @@ interface DailyBriefProps {
 	 * so it opens even when its message isn't in the loaded brief list.
 	 */
 	onSelectSearchResult?: (result: SearchResult) => void;
+	/** Where the list publishes the commands the keyboard layer drives. */
+	commandsRef?: RefObject<MessageListCommands | null>;
+	/** Cursor / selection / display order, reported up to the triage layer. */
+	onTriageContextChange?: (context: TriageContextUpdate) => void;
+	onDeleteMessages?: (messageIds: string[]) => void;
+	onMarkMessagesRead?: (messageIds: string[]) => void;
 }
 
 export function DailyBrief({
@@ -141,6 +153,10 @@ export function DailyBrief({
 	selectedMessageId,
 	onSelectMessage,
 	onSelectSearchResult,
+	commandsRef,
+	onTriageContextChange,
+	onDeleteMessages,
+	onMarkMessagesRead,
 }: DailyBriefProps) {
 	const { searchQuery, resultFolderIndex } = useMailContext();
 	const tokenContext = useSearchTokenContext();
@@ -279,6 +295,19 @@ export function DailyBrief({
 		[filteredRows],
 	);
 
+	// The order the sections render in — the cursor walks the rows as shown, and
+	// next/previous in the reading pane follows the same order.
+	const visibleRows = useMemo<ThreadRowData[]>(
+		() =>
+			sections
+				.filter(
+					(section) =>
+						selectedCategory === "all" || section.id === selectedCategory,
+				)
+				.flatMap((section) => section.threads),
+		[sections, selectedCategory],
+	);
+
 	const accountSources = useMemo<FilterSheetSource[]>(() => {
 		if (nonMuted.length <= 1) return [];
 		return [
@@ -405,17 +434,36 @@ export function DailyBrief({
 			<p className="text-xs text-fg-subtle">Nothing needs attention.</p>
 		</div>
 	) : (
-		<BriefSections
-			sections={sections}
-			Row={MessageRow}
-			briefCategory={selectedCategory}
-			onSelectBriefCategory={setSelectedCategory}
-			sources={accountSources}
-			sourcesNote={mutedCount > 0 ? `+${mutedCount} muted` : undefined}
-			onSelectSource={setSelectedAccountId}
-			selectedThreadId={selectedMessageId}
-			onSelectThread={onSelectMessage}
-		/>
+		<ThreadListInteraction
+			rows={visibleRows}
+			selectedMessageId={selectedMessageId}
+			onOpen={(id) => onSelectMessage?.(id)}
+			onDeleteMessages={onDeleteMessages}
+			commandsRef={commandsRef}
+			onTriageContextChange={onTriageContextChange}
+		>
+			<div className="flex h-full min-h-0 flex-col">
+				{onDeleteMessages ? (
+					<ThreadListSelectionBar
+						onDelete={onDeleteMessages}
+						onMarkAsRead={onMarkMessagesRead}
+					/>
+				) : null}
+				<div className="min-h-0 flex-1">
+					<BriefSections
+						sections={sections}
+						Row={MessageRow}
+						briefCategory={selectedCategory}
+						onSelectBriefCategory={setSelectedCategory}
+						sources={accountSources}
+						sourcesNote={mutedCount > 0 ? `+${mutedCount} muted` : undefined}
+						onSelectSource={setSelectedAccountId}
+						selectedThreadId={selectedMessageId}
+						onSelectThread={onSelectMessage}
+					/>
+				</div>
+			</div>
+		</ThreadListInteraction>
 	);
 
 	return (

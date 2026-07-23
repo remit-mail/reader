@@ -176,3 +176,43 @@ export const AccountSources: Story = {
 		);
 	},
 };
+
+/**
+ * (d) Multi-select and the keyboard cursor in the brief. The rows are the same
+ * `Row` the mailbox list renders, so a checked row carries the checkbox and the
+ * selected tint, and the keyboard cursor shows its left accent rail on the row
+ * it sits on — one row implementation across the brief, Flagged and the inbox.
+ */
+export const Selection: Story = {
+	render: (args) => {
+		const [checked, setChecked] = useState<ReadonlySet<string>>(
+			new Set(["p1", "f1"]),
+		);
+		const toggle = (id: string) =>
+			setChecked((prev) => {
+				const next = new Set(prev);
+				if (next.has(id)) next.delete(id);
+				else next.add(id);
+				return next;
+			});
+		return (
+			<div className="flex h-screen w-96 flex-col border-r border-line">
+				<BriefSections
+					{...args}
+					Row={({ thread, active, onClick }) => (
+						<ComfortableRow
+							thread={thread}
+							active={active}
+							focused={thread.id === "p1"}
+							selection={{
+								checked: checked.has(thread.id),
+								onToggle: () => toggle(thread.id),
+							}}
+							onClick={onClick}
+						/>
+					)}
+				/>
+			</div>
+		);
+	},
+};

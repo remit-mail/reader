@@ -35,8 +35,15 @@ import { ConversationView } from "@/components/mail/ConversationView";
 import { FlaggedList } from "@/components/mail/FlaggedList";
 import { IntelligencePane } from "@/components/mail/IntelligencePane";
 import { MessageToolbar } from "@/components/mail/MessageToolbar";
+import { useDeleteMessages } from "@/hooks/useDeleteMessages";
+import { useToggleReadFor } from "@/hooks/useMarkAsRead";
 import { useStarredThreads } from "@/hooks/useStarredThreads";
 import { type ThreadActions, useThreadActions } from "@/hooks/useThreadActions";
+import {
+	type TriageContext,
+	useTriageContext,
+	useTriageLayer,
+} from "@/hooks/useTriageLayer";
 import { useMailContext } from "@/lib/mail-context";
 
 /* ------------------------------------------------------------------ */
@@ -53,6 +60,12 @@ interface FlaggedPaneContextValue {
 	 * account — Flagged spans accounts, so there is no route mailbox to key by.
 	 */
 	actions: ThreadActions;
+	/** Keyboard, multi-select and next/previous, shared with the mailbox view. */
+	triage: TriageContext;
+	onDeleteMessages: (messageIds: string[]) => void;
+	onMarkMessagesRead: (messageIds: string[]) => void;
+	nextMessageId: string | undefined;
+	previousMessageId: string | undefined;
 }
 
 const FlaggedPaneCtx = createContext<FlaggedPaneContextValue | null>(null);
@@ -116,12 +129,68 @@ function FlaggedPaneProvider({
 		onAfterOptimisticRemove: handleDeselectIfRemoved,
 	});
 
+	const triage = useTriageContext();
+
+	const { deleteMessages } = useDeleteMessages({
+		mailboxId: selectedThread?.mailboxId ?? "",
+		onAfterOptimisticRemove: handleDeselectIfRemoved,
+	});
+	const { toggleReadFor } = useToggleReadFor({
+		mailboxId: selectedThread?.mailboxId ?? "",
+	});
+	const handleMarkMessagesRead = useCallback(
+		(messageIds: string[]) => toggleReadFor(messageIds, true),
+		[toggleReadFor],
+	);
+
+	const focusedThreadId = triage.focusedMessageId;
+	const focusedThread = useMemo(
+		() => threads.find((t) => t.messageId === focusedThreadId),
+		[threads, focusedThreadId],
+	);
+	const triageTarget = focusedThread ?? selectedThread;
+	const triageActions = useThreadActions({ thread: triageTarget });
+
+	const { nextMessageId, previousMessageId } = useTriageLayer({
+		context: triage,
+		orderedIds: triage.orderedIds,
+		selectedMessageId,
+		onClose: handleCloseThread,
+		handlers: {
+			reply: () => actions.requestCompose("reply"),
+			replyAll: () => actions.requestCompose("reply_all"),
+			forward: () => actions.requestCompose("forward"),
+			delete: () => {
+				if (triage.listCommandsRef.current?.requestDelete()) return;
+				triageActions.deleteThread();
+			},
+			toggleStar: triageActions.toggleStar,
+			toggleRead: () => {
+				const ids =
+					triage.selectedIds.length > 0
+						? triage.selectedIds
+						: triageTarget
+							? [triageTarget.messageId]
+							: [];
+				if (ids.length === 0) return;
+				toggleReadFor(ids, !(triageTarget?.isRead ?? false));
+			},
+			goBrief: () => navigate({ to: "/mail" }),
+			goSettings: () => navigate({ to: "/settings" }),
+		},
+	});
+
 	const ctx: FlaggedPaneContextValue = {
 		selectedMessageId,
 		selectedThread,
 		onSelectMessage: handleSelectMessage,
 		onCloseThread: handleCloseThread,
 		actions,
+		triage,
+		onDeleteMessages: deleteMessages,
+		onMarkMessagesRead: handleMarkMessagesRead,
+		nextMessageId,
+		previousMessageId,
 	};
 
 	return (
@@ -135,11 +204,21 @@ function FlaggedPaneProvider({
 
 /** Flat starred list. Mount in the `list` slot of `AppShellSlotted`. */
 function FlaggedListSlot() {
-	const { selectedMessageId, onSelectMessage } = useFlaggedPane();
+	const {
+		selectedMessageId,
+		onSelectMessage,
+		triage,
+		onDeleteMessages,
+		onMarkMessagesRead,
+	} = useFlaggedPane();
 	return (
 		<FlaggedList
 			selectedMessageId={selectedMessageId}
 			onSelectMessage={onSelectMessage}
+			commandsRef={triage.listCommandsRef}
+			onTriageContextChange={triage.onTriageContextChange}
+			onDeleteMessages={onDeleteMessages}
+			onMarkMessagesRead={onMarkMessagesRead}
 		/>
 	);
 }
@@ -223,7 +302,13 @@ function FlaggedIntelligence() {
 
 /** Phone view: ConversationView when a thread is open, else the flat list. */
 function FlaggedPhone() {
-	const { selectedThread, onCloseThread } = useFlaggedPane();
+	const {
+		selectedThread,
+		onCloseThread,
+		onSelectMessage,
+		nextMessageId,
+		previousMessageId,
+	} = useFlaggedPane();
 	const { intelligenceOpen, onToggleIntelligence } = useMailContext();
 
 	if (selectedThread) {
@@ -236,6 +321,15 @@ function FlaggedPhone() {
 					authenticity={selectedThread.authenticity}
 					onBack={onCloseThread}
 					onOpenIntelligence={onToggleIntelligence}
+					onSwipeNext={
+						nextMessageId ? () => onSelectMessage(nextMessageId) : undefined
+					}
+					onSwipePrevious={
+						previousMessageId
+							? () => onSelectMessage(previousMessageId)
+							: undefined
+					}
+					mobileIntelligenceOpen={intelligenceOpen}
 				/>
 				<Drawer
 					isOpen={intelligenceOpen}
