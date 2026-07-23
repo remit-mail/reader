@@ -1,5 +1,5 @@
-import { Paperclip, ShieldAlert, Star } from "lucide-react";
-import type { ReactNode } from "react";
+import { Check, Paperclip, ShieldAlert, Star } from "lucide-react";
+import type { ComponentType, ReactNode } from "react";
 import { cn } from "../lib/cn.js";
 import { LIST_ROW_ATTRIBUTE } from "../lib/roving-focus.js";
 import { categoryTone, type ThreadRowData } from "./app-shell-types.js";
@@ -173,18 +173,89 @@ export function ComfortableRowTextContent({
 }
 
 /**
- * Full inner body of a comfortable row (unread dot + avatar + text content).
- * Place inside any wrapper element that uses `comfortableRowClass()`.
+ * Checkbox state for a selectable row. Absent on a row that cannot be
+ * multi-selected (the brief and Flagged before they gained selection), which
+ * renders the avatar alone.
  */
-export function ComfortableRowBody({ thread }: { thread: ThreadRowData }) {
+export interface RowSelection {
+	checked: boolean;
+	/** Keep the checkbox visible instead of revealing it on hover (mobile). */
+	alwaysVisible?: boolean;
+	onToggle: (event: React.MouseEvent) => void;
+}
+
+/**
+ * Leading slot of a comfortable row: the avatar, with a checkbox layered over
+ * it when the row is selectable. Fixed 28px so the row never reflows as the
+ * checkbox appears.
+ */
+export function ComfortableRowLeading({
+	thread,
+	selection,
+}: {
+	thread: ThreadRowData;
+	selection?: RowSelection;
+}) {
+	if (!selection) {
+		return <Avatar name={thread.fromName} email={thread.fromEmail} size="sm" />;
+	}
+	const { checked, alwaysVisible } = selection;
+	return (
+		<span className="relative size-7 shrink-0">
+			<Avatar
+				name={thread.fromName}
+				email={thread.fromEmail}
+				size="sm"
+				className={cn(
+					"absolute inset-0 transition-opacity sm:group-hover:opacity-0",
+					(checked || alwaysVisible) && "opacity-0",
+				)}
+			/>
+			<button
+				type="button"
+				// Out of the tab order: the row is the list's single tab stop, and this
+				// control is `opacity-0` until hover, so a tabbable one would put focus
+				// on something invisible on every row.
+				tabIndex={-1}
+				onClick={selection.onToggle}
+				className={cn(
+					"absolute inset-0 size-7 items-center justify-center rounded-full border transition-opacity",
+					alwaysVisible ? "flex" : "hidden sm:flex",
+					checked
+						? "bg-accent border-accent text-accent-fg opacity-100"
+						: alwaysVisible
+							? "border-fg-subtle/40 bg-canvas opacity-100"
+							: "border-fg-subtle/40 bg-canvas opacity-0 group-hover:opacity-100",
+				)}
+				aria-label={checked ? "Deselect message" : "Select message"}
+			>
+				{checked && <Check className="size-3" />}
+			</button>
+		</span>
+	);
+}
+
+/**
+ * Full inner body of a comfortable row (unread dot + leading slot + text
+ * content). Place inside any wrapper element that uses `comfortableRowClass()`.
+ */
+export function ComfortableRowBody({
+	thread,
+	selection,
+	badge,
+}: {
+	thread: ThreadRowData;
+	selection?: RowSelection;
+	badge?: ReactNode;
+}) {
 	const unread = !thread.isRead;
 	return (
 		<>
 			{unread && (
 				<span className="absolute left-1.5 top-1/2 size-1.5 -translate-y-1/2 rounded-full bg-accent" />
 			)}
-			<Avatar name={thread.fromName} email={thread.fromEmail} size="sm" />
-			<ComfortableRowTextContent thread={thread} />
+			<ComfortableRowLeading thread={thread} selection={selection} />
+			<ComfortableRowTextContent thread={thread} badge={badge} />
 		</>
 	);
 }
@@ -192,10 +263,12 @@ export function ComfortableRowBody({ thread }: { thread: ThreadRowData }) {
 export function CompactRow({
 	thread,
 	active,
+	focused,
 	onClick,
 }: {
 	thread: ThreadRowData;
 	active?: boolean;
+	focused?: boolean;
 	onClick?: () => void;
 }) {
 	return (
@@ -203,7 +276,7 @@ export function CompactRow({
 			type="button"
 			{...LIST_ROW_ATTRIBUTE}
 			onClick={onClick}
-			className={compactRowClass({ active })}
+			className={compactRowClass({ active, focused })}
 		>
 			<CompactRowBody thread={thread} />
 		</button>
@@ -213,10 +286,14 @@ export function CompactRow({
 export function ComfortableRow({
 	thread,
 	active,
+	focused,
+	selection,
 	onClick,
 }: {
 	thread: ThreadRowData;
 	active?: boolean;
+	focused?: boolean;
+	selection?: RowSelection;
 	onClick?: () => void;
 }) {
 	return (
@@ -224,17 +301,17 @@ export function ComfortableRow({
 			type="button"
 			{...LIST_ROW_ATTRIBUTE}
 			onClick={onClick}
-			className={comfortableRowClass({ active })}
+			className={cn("group", comfortableRowClass({ active, focused }))}
 		>
-			<ComfortableRowBody thread={thread} />
+			<ComfortableRowBody thread={thread} selection={selection} />
 		</button>
 	);
 }
 
 /** A row renderer the brief drives — Comfortable/Compact rows or a consumer's
  *  own (e.g. the web client's navigation-aware row) all satisfy this shape. */
-export type BriefRowComponent = (props: {
+export type BriefRowComponent = ComponentType<{
 	thread: ThreadRowData;
 	active?: boolean;
 	onClick?: () => void;
-}) => React.ReactNode;
+}>;
