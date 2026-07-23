@@ -192,7 +192,7 @@ export class ApiClient {
 	/**
 	 * Every message id currently matching a free-text query in one mailbox,
 	 * paged to exhaustion at the write side's own 100-id cap — the same page
-	 * size `useEscalatedDelete` uses, so a spec can compute "how many actually
+	 * size `useEscalatedActions` uses, so a spec can compute "how many actually
 	 * match right now" independently of whatever the UI claims.
 	 */
 	async searchMatchingMessageIds(

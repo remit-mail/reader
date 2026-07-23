@@ -50,3 +50,44 @@ describe("MessageList selection mode", () => {
 		assert.match(source, /disabled: !hasSelection/);
 	});
 });
+
+/**
+ * An escalated selection is a predicate, so it has no id list to hand the
+ * optimistic move/mark-read mutations — before #114 the bar simply dropped
+ * both, leaving "select all 1,284 matching npm" able to delete and nothing
+ * else. All three actions now page the predicate through the same run.
+ */
+describe("MessageList escalated actions", () => {
+	it("routes move and mark-read through the predicate run when escalated", () => {
+		assert.match(
+			source,
+			/escalation\.phase\.kind === "escalated"\)\s*\{\s*void runEscalatedAction\(MARK_READ_ACTION\);/,
+		);
+		assert.match(
+			source,
+			/escalation\.phase\.kind === "escalated"\)\s*\{\s*void runEscalatedAction\(\{ kind: "move", destinationMailboxId \}\);/,
+		);
+	});
+
+	it("keeps mark-read and the move slot on an escalated selection", () => {
+		assert.match(
+			source,
+			/onMarkRead=\{\s*escalation\.phase\.kind === "counting" \? undefined : handleMarkAsRead/,
+		);
+		assert.match(
+			source,
+			/moveSlot=\{\s*escalation\.phase\.kind !== "counting"/,
+		);
+	});
+
+	it("words progress and completion per action instead of per delete", () => {
+		assert.match(
+			source,
+			/bulkActionProgressLabel\(\s*escalation\.runningAction\.kind,/,
+		);
+		assert.match(
+			source,
+			/bulkActionCompletionText\(action\.kind, outcome\.done\)/,
+		);
+	});
+});

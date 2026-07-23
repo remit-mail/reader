@@ -1,25 +1,26 @@
 /**
- * Chunked bulk-delete orchestration (issue #92).
+ * Chunked bulk-action orchestration (issues #92, #114).
  *
- * The bulk endpoint caps a call at 100 ids (`BulkMessageInput.messageIds`,
- * `@maxItems(100)`); a delete over a search result can run to thousands. These
+ * The bulk endpoints cap a call at 100 ids (`BulkMessageInput.messageIds`,
+ * `@maxItems(100)`); an action over a search result can run to thousands. These
  * helpers sequence the calls and tally which ids the run actually reached, so a
- * caller can always ask "what's still not deleted" instead of trusting the
- * request it sent.
+ * caller can always ask "what's still not done" instead of trusting the request
+ * it sent. Delete, move and mark-read all take this path — the action itself is
+ * the `ApplyBatch` the caller supplies.
  *
- * The endpoint enqueues the IMAP delete and returns; it does not apply it. So a
- * returned call means every id in it was accepted for deletion, not that the
- * mail server removed it — there is no per-id success/failure in the response
- * to read. The only failure this layer can observe is a thrown call: an
- * infrastructure failure (auth, the write, or the enqueue) that takes out the
- * whole batch and stops the run.
+ * The endpoints enqueue the IMAP write and return; they do not apply it. So a
+ * returned call means every id in it was accepted, not that the mail server
+ * applied it — there is no per-id success/failure in the response to read. The
+ * only failure this layer can observe is a thrown call: an infrastructure
+ * failure (auth, the write, or the enqueue) that takes out the whole batch and
+ * stops the run.
  *
  * Pure, framework-agnostic, and independently testable — no React, no fetch.
- * `useEscalatedDelete.ts` supplies the real `DeleteBatch`/`FetchIdsPage`
+ * `useEscalatedActions.ts` supplies the real `ApplyBatch`/`FetchIdsPage`
  * implementations (the generated SDK client) and owns the React state.
  */
 
-export const BULK_DELETE_CHUNK_SIZE = 100;
+export const BULK_ACTION_CHUNK_SIZE = 100;
 
 /**
  * Resolves a promise to a discriminated result instead of throwing, so a
@@ -40,7 +41,7 @@ const attempt = async <T>(
 /** Split `ids` into chunks of at most `size`. Empty input yields no chunks. */
 export const chunkIds = (
 	ids: readonly string[],
-	size = BULK_DELETE_CHUNK_SIZE,
+	size = BULK_ACTION_CHUNK_SIZE,
 ): string[][] => {
 	if (ids.length === 0) return [];
 	const chunks: string[][] = [];
@@ -50,30 +51,30 @@ export const chunkIds = (
 	return chunks;
 };
 
-export interface DeleteBatchResult {
+export interface BatchResult {
 	successCount: number;
 	failureCount: number;
 }
 
-/** Sends one bulk-delete call for the given ids (≤100). */
-export type DeleteBatch = (ids: string[]) => Promise<DeleteBatchResult>;
+/** Applies the action to one batch of ids (≤100) with a single bulk call. */
+export type ApplyBatch = (ids: string[]) => Promise<BatchResult>;
 
-export interface BulkDeleteProgress {
-	/** Ids confirmed deleted so far. */
+export interface BulkActionProgress {
+	/** Ids the action has been applied to so far. */
 	done: number;
 	/** The total the run was started against (may be an estimate for the
-	 *  predicate case — see `runPredicateDelete`). */
+	 *  predicate case — see `runPredicateAction`). */
 	total: number;
 }
 
-export interface BulkDeleteOutcome {
-	/** Ids confirmed deleted (server-reported success, not merely "sent"). */
+export interface BulkActionOutcome {
+	/** Ids the action was applied to (server-accepted, not merely "sent"). */
 	done: number;
 	/**
-	 * Ids the run did not reach and are therefore not confirmed deleted: on
+	 * Ids the run did not reach, so the action was never applied to them: on
 	 * cancellation or a thrown error, the chunks the bounded run never attempted
-	 * (see `runChunkedDelete`). Empty in the predicate case, which re-resolves on
-	 * every run rather than handing back a remainder (see `runPredicateDelete`).
+	 * (see `runChunkedAction`). Empty in the predicate case, which re-resolves on
+	 * every run rather than handing back a remainder (see `runPredicateAction`).
 	 * There is no per-id failure source: a returned batch call counts every id in
 	 * it as accepted (see the module header).
 	 */
@@ -89,15 +90,16 @@ export interface BulkDeleteOutcome {
  * or a "select all loaded" that grew past 100 rows). Chunked synchronously, so
  * on cancellation or a thrown error every chunk not yet attempted — including
  * the one in flight when an error was thrown — is folded into `failedIds`. The
- * caller always gets back exactly the ids still not confirmed deleted, ready
- * to retry as-is (deleting an already-trashed message is a safe no-op).
+ * caller always gets back exactly the ids the action never reached, ready to
+ * retry as-is: every action here is idempotent (re-trashing, re-moving or
+ * re-marking a message it already applied to is a no-op).
  */
-export const runChunkedDelete = async (
+export const runChunkedAction = async (
 	ids: readonly string[],
-	deleteBatch: DeleteBatch,
-	onProgress: (progress: BulkDeleteProgress) => void,
+	applyBatch: ApplyBatch,
+	onProgress: (progress: BulkActionProgress) => void,
 	isCancelled: () => boolean,
-): Promise<BulkDeleteOutcome> => {
+): Promise<BulkActionOutcome> => {
 	const chunks = chunkIds(ids);
 	const total = ids.length;
 	let done = 0;
@@ -109,7 +111,7 @@ export const runChunkedDelete = async (
 			return { done, failedIds, cancelled: true };
 		}
 		const chunk = chunks[i];
-		const attempted = await attempt(deleteBatch(chunk));
+		const attempted = await attempt(applyBatch(chunk));
 		if (!attempted.ok) {
 			failedIds.push(...chunks.slice(i).flat());
 			onProgress({ done, total });
@@ -134,7 +136,7 @@ export type FetchIdsPage = (
 
 /**
  * Escalated case: the selection is a predicate (D2), not a materialized list.
- * Each page is fetched immediately before the chunk it feeds is deleted — a
+ * Each page is fetched immediately before the chunk it feeds is acted on — a
  * page IS a chunk, sized to the same 100-id cap the write side enforces — so
  * ids are never held in memory beyond the batch in flight.
  *
@@ -142,16 +144,15 @@ export type FetchIdsPage = (
  * `failedIds` for the unreached remainder, because those ids were never
  * fetched — there is nothing to hand back. A predicate resolves fresh on
  * every run (D2), so resuming is re-invoking this same function with the same
- * predicate: already-deleted matches drop out of the search on their own and
- * are not re-sent.
+ * predicate.
  */
-export const runPredicateDelete = async (
+export const runPredicateAction = async (
 	fetchIdsPage: FetchIdsPage,
 	total: number,
-	deleteBatch: DeleteBatch,
-	onProgress: (progress: BulkDeleteProgress) => void,
+	applyBatch: ApplyBatch,
+	onProgress: (progress: BulkActionProgress) => void,
 	isCancelled: () => boolean,
-): Promise<BulkDeleteOutcome> => {
+): Promise<BulkActionOutcome> => {
 	let done = 0;
 	const failedIds: string[] = [];
 	let token: string | undefined;
@@ -168,7 +169,7 @@ export const runPredicateDelete = async (
 		const page = fetched.value;
 
 		if (page.ids.length > 0) {
-			const attempted = await attempt(deleteBatch(page.ids));
+			const attempted = await attempt(applyBatch(page.ids));
 			if (!attempted.ok) {
 				return { done, failedIds, cancelled: false, error: attempted.error };
 			}
@@ -184,8 +185,8 @@ export const runPredicateDelete = async (
 
 /**
  * Corrects a progress reading so its `total` can never read as less than
- * `done` (#109). `runPredicateDelete`'s `total` is `countMatches`'s frozen
- * page-through, taken before the delete re-pages the same predicate a second,
+ * `done` (#109). `runPredicateAction`'s `total` is `countMatches`'s frozen
+ * page-through, taken before the run re-pages the same predicate a second,
  * independent time; if more matches arrived in between, `done` can overtake
  * it mid-run and a raw "Deleting 1,340 of 1,284" would follow. Widening the
  * denominator to match keeps the bar's ratio sane (never past 100%) without
@@ -194,8 +195,8 @@ export const runPredicateDelete = async (
  * second count taken any later is no less stale than the first).
  */
 export const honestProgress = (
-	progress: BulkDeleteProgress,
-): BulkDeleteProgress => ({
+	progress: BulkActionProgress,
+): BulkActionProgress => ({
 	done: progress.done,
 	total: Math.max(progress.total, progress.done),
 });
@@ -239,15 +240,15 @@ export const countMatches = async (
 	return { total, cancelled: false };
 };
 
-export interface DeleteRunOutcome {
+export interface BulkRunOutcome {
 	done: number;
 	failedIds: string[];
 	cancelled: boolean;
 	error?: unknown;
 }
 
-export interface SelectionAfterDelete {
-	/** Everything targeted was confirmed deleted — selection mode should exit. */
+export interface SelectionAfterRun {
+	/** The action reached everything targeted — selection mode should exit. */
 	exit: boolean;
 	/** The bounded selection to leave in place, empty when exiting. */
 	retryIds: string[];
@@ -255,14 +256,14 @@ export interface SelectionAfterDelete {
 
 /**
  * What a caller does with selection once a run ends, for any reason. Every id
- * not confirmed deleted — a chunk the bounded run never reached because it was
+ * the action never reached — a chunk the bounded run skipped because it was
  * stopped or errored — belongs in `retryIds`: it is exactly what Retry should
  * resend, and it is what stays selected so the count on screen never claims
- * more was deleted than actually was (#92 requirement 8).
+ * more was done than actually was (#92 requirement 8).
  */
-export const resolveSelectionAfterDelete = (
-	outcome: DeleteRunOutcome,
-): SelectionAfterDelete => {
+export const resolveSelectionAfterRun = (
+	outcome: BulkRunOutcome,
+): SelectionAfterRun => {
 	if (outcome.failedIds.length > 0) {
 		return { exit: false, retryIds: outcome.failedIds };
 	}

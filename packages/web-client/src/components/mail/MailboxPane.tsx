@@ -81,7 +81,7 @@ import {
 	dropDeletedThreads,
 	useDeleteMessages,
 } from "@/hooks/useDeleteMessages";
-import type { EscalationSearchQuery } from "@/hooks/useEscalatedDelete";
+import type { EscalationSearchQuery } from "@/hooks/useEscalatedActions";
 import { useIntelligenceData } from "@/hooks/useIntelligenceData";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { useLayoutTier } from "@/hooks/useLayoutTier";
