@@ -5,7 +5,7 @@ import {
 	MessageListPane,
 	SelectionTopBar,
 } from "@remit/ui";
-import { useNavigate } from "@tanstack/react-router";
+import { useBlocker, useNavigate } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Search, Sparkles } from "lucide-react";
 import type { RefObject } from "react";
@@ -34,6 +34,10 @@ import {
 } from "@/lib/escalation-label";
 import { formatDeleteToTrashTitle, formatNumber } from "@/lib/format";
 import { tabStopId } from "@/lib/list-focus";
+import {
+	deriveIsMultiSelectMode,
+	shouldExitSelectionOnNavigate,
+} from "@/lib/selection-mode";
 import { cn } from "@/lib/utils";
 import { MoveToTrigger } from "./MoveToTrigger";
 import { OrganizeDialog } from "./organize/OrganizeDialog";
@@ -200,7 +204,6 @@ export const MessageList = ({
 	const parentRef = useRef<HTMLDivElement>(null);
 	const navigate = useNavigate();
 	const isDesktop = useIsDesktop();
-	const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
 	const [organizeOpen, setOrganizeOpen] = useState(false);
 	const isSearching = !!searchQuery?.trim();
 
@@ -247,6 +250,11 @@ export const MessageList = ({
 		intersectWith,
 	} = useSelection();
 
+	// The selection count is the only source of truth for whether the list is
+	// in multi-select mode (#115). A separate flag needs an effect to reconcile
+	// it back to the count, and across that render the two disagree.
+	const isMultiSelectMode = deriveIsMultiSelectMode(selectedCount, isDesktop);
+
 	// Pending delete, awaiting confirmation. `null` means the dialog is closed.
 	// `source: "ids"` snapshots the concrete ids at request time so a selection
 	// change behind the dialog can't retarget the delete — every keyboard/desktop
@@ -274,6 +282,18 @@ export const MessageList = ({
 		predicateKey,
 		searchQuery: searchPredicate ?? {},
 	});
+
+	// The one way selection mode ends (#115): cancel, a completed delete or
+	// move, a plain click that collapses a range, switching mailboxes, the back
+	// gesture. Nothing calls the selection hook's `clearSelection` directly, so
+	// an escalated selection can never survive the exit as a stale phase.
+	const escalationPhaseKind = escalation.phase.kind;
+	const clearEscalation = escalation.clear;
+	const exitSelection = useCallback(() => {
+		if (escalationPhaseKind === "escalated") clearEscalation();
+		clearSelection();
+	}, [clearSelection, clearEscalation, escalationPhaseKind]);
+
 	// Non-null exactly once a bounded/escalated run just ended with some ids
 	// still not confirmed deleted: the count that DID succeed in that run, so
 	// the partial-failure notice can say "N moved to Trash" alongside "Retry".
@@ -316,13 +336,6 @@ export const MessageList = ({
 	const commandsAvailable = !isLoading && threads.length > 0;
 	const confirmOpen = pendingDelete !== null;
 
-	// Auto-exit multi-select when selection becomes empty
-	useEffect(() => {
-		if (isMultiSelectMode && selectedCount === 0) {
-			setIsMultiSelectMode(false);
-		}
-	}, [isMultiSelectMode, selectedCount]);
-
 	// Single choke point for what selection looks like once a chunked/escalated
 	// run ends, for any reason (issue #92 requirement 10). A clean run with
 	// nothing left over exits selection mode and hands off to a transient
@@ -338,7 +351,7 @@ export const MessageList = ({
 					`${formatNumber(outcome.done)} moved to Trash. Your mail server is still catching up.`,
 				);
 				setLastRunSucceeded(null);
-				clearSelection();
+				exitSelection();
 				return;
 			}
 			if (retryIds.length > 0) {
@@ -348,7 +361,7 @@ export const MessageList = ({
 			}
 			setLastRunSucceeded(null);
 		},
-		[clearSelection, selectAll],
+		[exitSelection, selectAll],
 	);
 
 	const virtualizer = useVirtualizer({
@@ -437,7 +450,7 @@ export const MessageList = ({
 			// Plain click: collapse any multi-selection and let navigation proceed.
 			// The clicked row becomes the next anchor for a subsequent shift-click,
 			// but is NOT added to the checkbox set (no toolbar on a plain open).
-			clearSelection();
+			exitSelection();
 			setAnchor(messageId);
 			return false;
 		},
@@ -446,7 +459,7 @@ export const MessageList = ({
 			focusedMessageId,
 			selectRange,
 			toggleCheck,
-			clearSelection,
+			exitSelection,
 			setAnchor,
 		],
 	);
@@ -611,7 +624,7 @@ export const MessageList = ({
 		}
 
 		onDeleteMessages?.(ids);
-		clearSelection();
+		exitSelection();
 		focusBeforeConfirmRef.current = null;
 		setPendingDelete(null);
 
@@ -632,7 +645,7 @@ export const MessageList = ({
 		pendingDelete,
 		threads,
 		onDeleteMessages,
-		clearSelection,
+		exitSelection,
 		navigate,
 		mailboxId,
 		runChunkedConfirmDelete,
@@ -664,9 +677,9 @@ export const MessageList = ({
 		(destinationMailboxId: string) => {
 			if (!onMoveMessages || selectedCount === 0) return;
 			onMoveMessages(Array.from(selectedIds), destinationMailboxId);
-			clearSelection();
+			exitSelection();
 		},
-		[onMoveMessages, selectedCount, selectedIds, clearSelection],
+		[onMoveMessages, selectedCount, selectedIds, exitSelection],
 	);
 
 	// Cross-account guard: every selected thread row must belong to the
@@ -708,22 +721,16 @@ export const MessageList = ({
 		[toggleReadFor],
 	);
 
-	// Mobile: Enter multi-select mode on long press
+	// Mobile: a long press enters multi-select mode by starting a selection —
+	// the mode follows from the count, there is no flag to set.
 	const handleLongPress = useCallback(
 		(messageId: string) => {
 			if (!isDesktop) {
-				setIsMultiSelectMode(true);
 				select(messageId);
 			}
 		},
 		[isDesktop, select],
 	);
-
-	// Cancel multi-select mode
-	const handleCancelMultiSelect = useCallback(() => {
-		setIsMultiSelectMode(false);
-		clearSelection();
-	}, [clearSelection]);
 
 	// Mobile bar's Trash tap: an escalated selection has no materialized ids to
 	// hand `requestDelete`, so it opens the predicate confirmation instead.
@@ -745,11 +752,8 @@ export const MessageList = ({
 			escalation.stop();
 			return;
 		}
-		if (escalation.phase.kind === "escalated") {
-			escalation.clear();
-		}
-		handleCancelMultiSelect();
-	}, [escalation, handleCancelMultiSelect]);
+		exitSelection();
+	}, [escalation, exitSelection]);
 
 	// The escalation notice's "Clear selection" action: drop back to the
 	// bounded (all-loaded) selection without touching selection mode itself.
@@ -861,6 +865,30 @@ export const MessageList = ({
 		intersectWith(threads.map((t) => t.messageId));
 	}, [threads, intersectWith, escalation.phase, escalation.isDeleting]);
 
+	// Switching mailboxes exits selection outright, instead of leaving it to the
+	// intersect effect above to empty the set by coincidence — a different
+	// mailbox's threads happen to share none of the old ids.
+	const previousMailboxIdRef = useRef(mailboxId);
+	useEffect(() => {
+		if (previousMailboxIdRef.current === mailboxId) return;
+		previousMailboxIdRef.current = mailboxId;
+		exitSelection();
+	}, [mailboxId, exitSelection]);
+
+	// The back gesture (Android's back button, the browser's back) leaves
+	// selection mode rather than the route. Only `BACK` is intercepted, so a
+	// navigation the app itself starts — opening a message, switching mailboxes
+	// — is never blocked, and the blocker is off entirely with nothing selected.
+	useBlocker({
+		shouldBlockFn: ({ action }) => {
+			if (!shouldExitSelectionOnNavigate(action, hasSelection)) return false;
+			exitSelection();
+			return true;
+		},
+		enableBeforeUnload: false,
+		disabled: !hasSelection,
+	});
+
 	// Load more when scrolling near the bottom
 	useEffect(() => {
 		const scrollElement = parentRef.current;
@@ -918,7 +946,7 @@ export const MessageList = ({
 			selectAll: handleSelectAll,
 			clearSelection: () => {
 				if (!hasSelection) return false;
-				clearSelection();
+				exitSelection();
 				return true;
 			},
 			requestDelete: handleDeleteKey,
@@ -940,7 +968,7 @@ export const MessageList = ({
 		extendRangeUp,
 		handleSelectAll,
 		hasSelection,
-		clearSelection,
+		exitSelection,
 		handleDeleteKey,
 		toggleDensity,
 	]);
@@ -972,7 +1000,7 @@ export const MessageList = ({
 			<SelectionToolbar
 				selectedCount={selectedCount}
 				onDelete={handleDelete}
-				onClearSelection={clearSelection}
+				onClearSelection={exitSelection}
 				onMarkAsRead={onMarkAsRead ? handleMarkAsRead : undefined}
 				onMove={onMoveMessages ? handleMoveSelected : undefined}
 				onOrganize={() => setOrganizeOpen(true)}
