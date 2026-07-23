@@ -1,8 +1,4 @@
-import {
-	mailboxOperationsListMailboxesQueryKey,
-	threadOperationsListThreadsQueryKey,
-	threadOperationsSearchThreadsQueryKey,
-} from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import { mailboxOperationsListMailboxesQueryKey } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import {
 	messageBulkOperationsDeleteMessages,
 	messageBulkOperationsMoveMessages,
@@ -28,6 +24,10 @@ import {
 	runChunkedAction,
 	runPredicateAction,
 } from "@/lib/bulk-actions";
+import {
+	invalidateThreadListQueries,
+	threadListCacheKeys,
+} from "@/lib/thread-list-cache";
 
 /** The predicate a search-scoped run re-issues on every page — the same
  *  filters the visible list is searching with, minus pagination/count knobs. */
@@ -101,6 +101,18 @@ export interface UseEscalatedActionsResult {
 		ids?: string[],
 	) => Promise<BulkRunOutcome>;
 }
+
+/**
+ * The mailboxes whose cached listings a bulk run affects: the mailbox it ran
+ * over, plus a move's destination, which gains the messages the source loses.
+ */
+export const mailboxesTouchedBy = (
+	action: EscalatedAction,
+	mailboxId: string,
+): string[] =>
+	action.kind === "move"
+		? [mailboxId, action.destinationMailboxId]
+		: [mailboxId];
 
 export const useEscalatedActions = ({
 	mailboxId,
@@ -182,21 +194,10 @@ export const useEscalatedActions = ({
 
 	const invalidateAfterRun = useCallback(
 		(action: EscalatedAction) => {
-			queryClient.invalidateQueries({
-				queryKey: threadOperationsListThreadsQueryKey({ path: { mailboxId } }),
-			});
-			queryClient.invalidateQueries({
-				queryKey: threadOperationsSearchThreadsQueryKey({
-					path: { mailboxId },
-				}),
-			});
-			if (action.kind === "move") {
-				queryClient.invalidateQueries({
-					queryKey: threadOperationsListThreadsQueryKey({
-						path: { mailboxId: action.destinationMailboxId },
-					}),
-				});
-			}
+			invalidateThreadListQueries(
+				queryClient,
+				threadListCacheKeys(mailboxesTouchedBy(action, mailboxId)),
+			);
 			if (accountId) {
 				queryClient.invalidateQueries({
 					queryKey: mailboxOperationsListMailboxesQueryKey({

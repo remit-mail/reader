@@ -80,10 +80,14 @@ export const useMoveMessages = ({
 						path: { threadId },
 					})
 				: [];
-			// The source mailbox's lists plus the unified cross-account listing that
-			// backs the daily brief — moving from the brief has to remove the row
-			// there too, not only from the per-mailbox lists (#140, part of #149).
-			const listPrefixes = threadListCacheKeys([mailboxId]);
+			// The source and destination mailboxes' lists plus the unified
+			// cross-account listing that backs the daily brief — moving from the
+			// brief has to remove the row there too, not only from the per-mailbox
+			// lists (#140, part of #149).
+			const listPrefixes = threadListCacheKeys([
+				mailboxId,
+				variables.body.destinationMailboxId,
+			]);
 
 			// Only cancel the thread-messages query when we actually have a
 			// threadId — passing an empty queryKey here would match every

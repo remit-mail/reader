@@ -1,8 +1,6 @@
 import {
 	messageBulkOperationsUpdateFlagsMutation,
 	threadDetailOperationsListThreadMessagesQueryKey,
-	threadOperationsListThreadsQueryKey,
-	threadOperationsSearchThreadsQueryKey,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import { MobileMessageActionBar, type PopoverMenuItem } from "@remit/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -11,6 +9,10 @@ import { useCallback } from "react";
 import { useDeleteMessages } from "@/hooks/useDeleteMessages";
 import { useMoveMessages } from "@/hooks/useMoveMessages";
 import { useToggleTrusted } from "@/hooks/useToggleTrusted";
+import {
+	invalidateThreadListQueries,
+	threadListCacheKeys,
+} from "@/lib/thread-list-cache";
 import { MoveToTrigger } from "./MoveToTrigger";
 
 interface MobileMessageBarProps {
@@ -67,14 +69,10 @@ export const MobileMessageBar = ({
 					path: { threadId },
 				}),
 			});
-			queryClient.invalidateQueries({
-				queryKey: threadOperationsListThreadsQueryKey({ path: { mailboxId } }),
-			});
-			queryClient.invalidateQueries({
-				queryKey: threadOperationsSearchThreadsQueryKey({
-					path: { mailboxId },
-				}),
-			});
+			invalidateThreadListQueries(
+				queryClient,
+				threadListCacheKeys([mailboxId]),
+			);
 		},
 	});
 
