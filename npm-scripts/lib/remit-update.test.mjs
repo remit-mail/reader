@@ -243,11 +243,12 @@ describe("remit update — the new version never answers", () => {
 	const box = sandbox({ scenario: { probe: "fail", probe2: "ok" } });
 	const started = Date.now();
 	const result = box.run(["update"]);
+	const elapsedMs = Date.now() - started;
 
 	it("rolls back inside the budget plus a margin", () => {
 		assert.equal(result.status, 0, result.stderr);
 		assert.equal(box.stateJson().run.outcome, "rolledBack");
-		assert.ok(Date.now() - started < 30_000);
+		assert.ok(elapsedMs < 30_000, `rollback took ${elapsedMs}ms`);
 	});
 
 	it("says the backend did not answer", () => {
