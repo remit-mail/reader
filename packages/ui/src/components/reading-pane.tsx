@@ -1,17 +1,9 @@
-import {
-	ChevronDown,
-	ChevronRight,
-	Search,
-	ShieldAlert,
-	SquarePen,
-} from "lucide-react";
+import { ChevronDown, ChevronRight, ShieldAlert } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { cn } from "../lib/cn.js";
 import { isSelfRowActivation } from "../lib/row-keyboard.js";
 import type { ThreadData, ThreadMessageData } from "./app-shell-types.js";
 import { Avatar } from "./avatar.js";
-import { Button } from "./button.js";
-import { Input } from "./input.js";
 import { IntelligenceToggle } from "./intelligence-toggle.js";
 import { MailActionToolbar } from "./mail-action-toolbar.js";
 import { MessageBodyView } from "./message-body-view.js";
@@ -252,13 +244,14 @@ export function ExpandedMessage({
 }
 
 /**
- * Message action toolbar on the pane-header datum: the reading pane's
- * verbs (reply/reply-all/forward, delete/move/flag) plus search and
- * compose, Apple Mail-style above the message area. Built on the shared
- * `MailActionToolbar` so the mail verbs stay pressable with no
- * thread open and explain inline rather than greying out (the never-disable
- * tenet). The intelligence toggle is the exception: it holds its slot and greys
- * out when there is no rail to open (#52).
+ * Message action toolbar on the pane-header datum: the reading pane's verbs
+ * (reply/reply-all/forward, delete/move/flag) and the intelligence toggle.
+ * Everything here acts on the open message; search, compose and the account
+ * menu belong to the app and live in the `AppTopBar` above every pane. Built on
+ * the shared `MailActionToolbar` so the mail verbs stay pressable with no thread
+ * open and explain inline rather than greying out (the never-disable tenet). The
+ * intelligence toggle is the exception: it holds its slot and greys out when
+ * there is no rail to open (#52).
  */
 function MessageToolbar({
 	hasThread,
@@ -278,21 +271,6 @@ function MessageToolbar({
 			onUnavailable={() => setHint("Open a message first")}
 			unavailableHint={hint}
 		>
-			{/* Apple Mail geometry: search sits top-right over the message
-			    area but still filters the current list / brief */}
-			<Input
-				icon={<Search className="size-4" />}
-				placeholder="Search mail"
-				className="h-8 w-64 min-w-40 shrink"
-			/>
-			<span className="mx-1 h-4 w-px bg-line" aria-hidden />
-			<Button
-				variant="ghost"
-				size="sm"
-				icon={<SquarePen className="size-4" />}
-				title="Compose (⌘N)"
-				aria-label="Compose"
-			/>
 			<IntelligenceToggle
 				open={intelligenceOpen}
 				enabled={canToggleIntelligence}

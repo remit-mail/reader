@@ -53,9 +53,10 @@ describe("ReadingPane", () => {
 		assert.match(html, /Select a thread to read/);
 	});
 
-	it("renders the toolbar with the search input", () => {
+	it("renders the message verbs and no search field — search is the app top bar's", () => {
 		const html = renderToString(createElement(ReadingPane, { thread }));
-		assert.match(html, /Search mail/);
+		assert.match(html, /title="Reply \(r\)"/);
+		assert.doesNotMatch(html, /Search mail/);
 	});
 });
 
