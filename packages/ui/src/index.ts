@@ -377,6 +377,16 @@ export {
 } from "./components/segmented-control.js";
 export { Select, type SelectProps } from "./components/select.js";
 export {
+	resolveSheetSnap,
+	SELECTION_SHEET_TEASER_HEIGHT,
+	SelectionSheet,
+	type SelectionSheetMode,
+	type SelectionSheetNotice,
+	type SelectionSheetNoticeAction,
+	type SelectionSheetProps,
+	type SheetSnapInput,
+} from "./components/selection-sheet.js";
+export {
 	SelectionTopBar,
 	type SelectionTopBarNotice,
 	type SelectionTopBarNoticeAction,

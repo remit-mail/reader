@@ -70,13 +70,14 @@ describe("MessageList escalated actions", () => {
 	});
 
 	it("keeps mark-read and the move slot on an escalated selection", () => {
+		// The mobile sheet always carries the mark-read verb (it hides it itself
+		// while counting or busy); an escalated selection must never lose it.
+		assert.match(source, /onMarkRead=\{handleMarkAsRead\}/);
+		// The move slot is offered for a bounded selection or an escalated one —
+		// #114's rule that an escalated selection is never delete-only.
 		assert.match(
 			source,
-			/onMarkRead=\{\s*escalation\.phase\.kind === "counting" \? undefined : handleMarkAsRead/,
-		);
-		assert.match(
-			source,
-			/moveSlot=\{\s*escalation\.phase\.kind !== "counting"/,
+			/onMoveMessages \|\| escalation\.phase\.kind === "escalated"/,
 		);
 	});
 

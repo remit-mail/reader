@@ -1,13 +1,16 @@
-import { Avatar, Badge, BottomSheet, Button, cn, Input } from "@remit/ui";
 import {
-	type ReactNode,
-	useCallback,
-	useLayoutEffect,
-	useRef,
-	useState,
-} from "react";
+	Avatar,
+	Badge,
+	BottomSheet,
+	Button,
+	cn,
+	Input,
+	SELECTION_SHEET_TEASER_HEIGHT,
+	SelectionSheet,
+} from "@remit/ui";
+import { type ReactNode, useCallback, useState } from "react";
 
-export { BottomSheet };
+export { BottomSheet, SelectionSheet };
 
 // ── types ─────────────────────────────────────────────────────────────────────
 
@@ -232,18 +235,6 @@ function makeIcon(paths: ReactNode, sw = 1.5) {
 	};
 }
 
-const TrashIcon = makeIcon(
-	<path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m-9 0 1 12a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1l1-12" />,
-);
-const MoveIcon = makeIcon(
-	<path d="M3 7a1 1 0 0 1 1-1h5l2 2h8a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" />,
-);
-const JunkIcon = makeIcon(
-	<>
-		<path d="M12 3l9 16H3z" />
-		<path d="M12 10v4M12 17v.01" />
-	</>,
-);
 const HamburgerIcon = makeIcon(<path d="M4 6h16M4 12h16M4 18h16" />);
 
 const SearchIcon = makeIcon(
@@ -254,23 +245,6 @@ const SearchIcon = makeIcon(
 );
 
 const CheckIcon = makeIcon(<path d="M4 12l5 5L20 7" />, 2.5);
-
-function ChevronUpIcon({ className }: IconProps) {
-	return (
-		<svg
-			viewBox="0 0 24 24"
-			className={className}
-			fill="none"
-			stroke="currentColor"
-			strokeWidth={2}
-			strokeLinecap="round"
-			strokeLinejoin="round"
-			aria-hidden="true"
-		>
-			<path d="M18 15l-6-6-6 6" />
-		</svg>
-	);
-}
 
 function RefreshIcon({ className }: IconProps) {
 	return (
@@ -347,242 +321,6 @@ function ArrowUp({ className }: IconProps) {
 		>
 			<path d="M12 19V5M5 12l7-7 7 7" />
 		</svg>
-	);
-}
-
-// ── shared drag tuning (SelectionSheet) ─────────────────────────────────────────
-
-const SNAP_MS = 320;
-const SNAP_EASE = "cubic-bezier(0.32, 0.9, 0.3, 1)";
-const FLICK_VELOCITY = 0.5; // px/ms
-
-function rubberBand(overshoot: number): number {
-	return Math.sign(overshoot) * Math.sqrt(Math.abs(overshoot)) * 4;
-}
-
-// ── SelectionSheet — peeking two-snap bottom sheet ──────────────────────────────
-//
-// COLLAPSED = slim teaser row (~56px): grabber pip, count, chevron-up hint.
-// EXPANDED  = partial sheet (~min(38dvh, 320px)): grabber + quick actions +
-//             two smart-flow rows, all with comfortable thumb targets.
-//
-// Dragging snaps between the two heights (no dismiss). Tapping the teaser
-// expands; tapping the grabber when expanded collapses.
-
-const TEASER_HEIGHT = 56;
-const EXPANDED_MAX = 320; // px ceiling; CSS clamps to 38dvh below that
-
-const STANDARD_ACTIONS = [
-	{ id: "delete", label: "Delete", Icon: TrashIcon },
-	{ id: "move", label: "Move", Icon: MoveIcon },
-	{ id: "junk", label: "Junk", Icon: JunkIcon },
-] as const;
-
-export function SelectionSheet({
-	count,
-	onWiden,
-	onNarrow,
-	startExpanded = false,
-}: {
-	count: number;
-	onWiden: () => void;
-	onNarrow: () => void;
-	startExpanded?: boolean;
-}) {
-	const [expanded, setExpanded] = useState(startExpanded);
-	const containerRef = useRef<HTMLDivElement>(null);
-	const [expandedHeight, setExpandedHeight] = useState(EXPANDED_MAX);
-
-	// Measure the expanded height (the container when rendered at full size)
-	useLayoutEffect(() => {
-		const el = containerRef.current;
-		if (!el) return;
-		const measure = () => setExpandedHeight(el.offsetHeight);
-		measure();
-		const ro = new ResizeObserver(measure);
-		ro.observe(el);
-		return () => ro.disconnect();
-	}, []);
-
-	// Drag state: offset from the CURRENT snap position (positive = down)
-	const [dragOffset, setDragOffset] = useState<number | null>(null);
-
-	const pointer = useRef<{
-		startY: number;
-		lastY: number;
-		lastT: number;
-		velocity: number;
-	} | null>(null);
-
-	const onPointerDown = useCallback((e: React.PointerEvent) => {
-		(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-		pointer.current = {
-			startY: e.clientY,
-			lastY: e.clientY,
-			lastT: e.timeStamp,
-			velocity: 0,
-		};
-		setDragOffset(0);
-	}, []);
-
-	const onPointerMove = useCallback(
-		(e: React.PointerEvent) => {
-			const p = pointer.current;
-			if (!p) return;
-			const dt = e.timeStamp - p.lastT;
-			if (dt > 0) p.velocity = (e.clientY - p.lastY) / dt;
-			p.lastY = e.clientY;
-			p.lastT = e.timeStamp;
-			const delta = e.clientY - p.startY;
-			// Allow rubber-band upward drag, resist downward past range
-			const expandedH = expandedHeight;
-			const range = expandedH - TEASER_HEIGHT;
-			const clamped = expanded
-				? // expanded: dragging up (negative) is rubberband, down is allowed up to range
-					delta < 0
-					? rubberBand(delta)
-					: Math.min(delta, range + rubberBand(Math.max(0, delta - range)))
-				: // collapsed: dragging down is rubberband, up is allowed up to range
-					delta > 0
-					? rubberBand(delta)
-					: Math.max(delta, -range + rubberBand(Math.min(0, delta + range)));
-			setDragOffset(clamped);
-		},
-		[expanded, expandedHeight],
-	);
-
-	const finishDrag = useCallback(() => {
-		const p = pointer.current;
-		pointer.current = null;
-		if (!p) return;
-
-		const delta = p.lastY - p.startY;
-		const flick = Math.abs(p.velocity) > FLICK_VELOCITY;
-		const expandedH = expandedHeight;
-		const midpoint = (expandedH - TEASER_HEIGHT) / 2;
-
-		let nextExpanded: boolean;
-		if (flick) {
-			// flick up → expand, flick down → collapse
-			nextExpanded = p.velocity < 0;
-		} else {
-			// past midpoint: if expanded and dragged down past mid → collapse; vice versa
-			nextExpanded = expanded ? delta < midpoint : delta < -midpoint;
-		}
-
-		setDragOffset(null);
-		setExpanded(nextExpanded);
-	}, [expanded, expandedHeight]);
-
-	// Compute the visual translateY:
-	// In collapsed state the sheet sits with only TEASER_HEIGHT visible.
-	// expandedH = full height of container. translateY = expandedH - TEASER_HEIGHT keeps teaser visible.
-	// During drag, offset modifies that.
-	const collapsedTranslate = expandedHeight - TEASER_HEIGHT;
-	const baseTranslate = expanded ? 0 : collapsedTranslate;
-	const dragging = dragOffset !== null;
-	const translate = baseTranslate + (dragOffset ?? 0);
-	const transition = dragging ? "none" : `transform ${SNAP_MS}ms ${SNAP_EASE}`;
-
-	return (
-		<div
-			ref={containerRef}
-			className="absolute inset-x-0 bottom-0 flex select-none flex-col rounded-t-2xl border-t border-line bg-surface shadow-2xl shadow-black/40"
-			style={{
-				maxHeight: `min(${EXPANDED_MAX}px, 38dvh)`,
-				// ensure container has enough room to be measured at full height
-				minHeight: `${TEASER_HEIGHT}px`,
-				transform: `translateY(${translate}px)`,
-				transition,
-			}}
-		>
-			{/* ── grabber / teaser row — always visible at the peek ── */}
-			{/* biome-ignore lint/a11y/useKeyWithClickEvents: click-only interaction in prototype UI */}
-			<div
-				role="slider"
-				aria-label={
-					expanded ? "Collapse selection actions" : "Expand selection actions"
-				}
-				aria-valuemin={0}
-				aria-valuemax={1}
-				aria-valuenow={expanded ? 1 : 0}
-				tabIndex={0}
-				onPointerDown={onPointerDown}
-				onPointerMove={onPointerMove}
-				onPointerUp={finishDrag}
-				onPointerCancel={finishDrag}
-				onClick={() => {
-					if (!dragging) setExpanded((v) => !v);
-				}}
-				className="flex cursor-grab touch-none flex-col items-center pt-2 active:cursor-grabbing"
-			>
-				{/* pip */}
-				<div className="mb-1.5 h-1 w-10 rounded-full bg-fg-subtle/40" />
-
-				{/* teaser row — count on left, hint on right */}
-				<div className="flex w-full items-center px-4 pb-3">
-					<span className="text-sm font-semibold text-fg">
-						{count} selected
-					</span>
-					<span className="ml-auto flex items-center gap-1 text-xs text-fg-subtle">
-						{expanded ? (
-							<>
-								<span>Collapse</span>
-								<ChevronDown className="size-3" />
-							</>
-						) : (
-							<>
-								<span>Swipe up for actions</span>
-								<ChevronUpIcon className="size-4" />
-							</>
-						)}
-					</span>
-				</div>
-			</div>
-
-			{/* ── expanded content — clipped when collapsed by translateY ── */}
-			<div className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-4">
-				{/* Quick actions row */}
-				<div className="mb-3 flex items-center justify-around border-b border-line pb-3">
-					{STANDARD_ACTIONS.map(({ id, label, Icon }) => (
-						<Button
-							key={id}
-							variant="ghost"
-							aria-label={label}
-							icon={<Icon className="size-5" />}
-							className="h-auto flex-1 flex-col gap-1 px-0 py-1.5 text-[11px]"
-						>
-							{label}
-						</Button>
-					))}
-				</div>
-
-				{/* Smart-flow rows */}
-				<div className="flex flex-col gap-2">
-					<Button
-						variant="primary"
-						onClick={onWiden}
-						className="h-auto flex-col items-start gap-0 px-4 py-2.5 text-left"
-					>
-						<span className="text-sm font-semibold leading-tight">
-							Select similar messages
-						</span>
-						<span className="text-xs opacity-80">find more like these</span>
-					</Button>
-
-					<Button
-						variant="secondary"
-						onClick={onNarrow}
-						className="h-auto flex-col items-start gap-0 px-4 py-2.5 text-left"
-					>
-						<span className="text-sm font-medium leading-tight">
-							Something else
-						</span>
-						<span className="text-xs text-fg-subtle">just deal with these</span>
-					</Button>
-				</div>
-			</div>
-		</div>
 	);
 }
 
@@ -1100,6 +838,27 @@ export function OrganizePanel({
 
 // ── REALISTIC INTERACTIVE INBOX ──────────────────────────────────────────────────
 
+const MoveIcon = makeIcon(
+	<path d="M3 7a1 1 0 0 1 1-1h5l2 2h8a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" />,
+);
+
+/**
+ * Stand-in for the move-to-folder trigger the real client passes into the
+ * sheet's `moveSlot` (a `MoveToTrigger` that opens the folder picker). The
+ * prototype has no folder data, so it renders the affordance without wiring.
+ */
+export function PrototypeMoveSlot() {
+	return (
+		<button
+			type="button"
+			aria-label="Move selected messages"
+			className="inline-flex size-11 shrink-0 items-center justify-center rounded text-fg-muted hover:bg-surface-raised"
+		>
+			<MoveIcon className="size-5" />
+		</button>
+	);
+}
+
 type Stage = "inbox" | "widening" | "something-else" | "organize";
 
 export function RealisticInbox({
@@ -1162,7 +921,8 @@ export function RealisticInbox({
 			<div
 				className="min-h-0 flex-1 divide-y divide-line overflow-y-auto"
 				style={{
-					paddingBottom: showSheet && stage === "inbox" ? TEASER_HEIGHT : 0,
+					paddingBottom:
+						showSheet && stage === "inbox" ? SELECTION_SHEET_TEASER_HEIGHT : 0,
 				}}
 			>
 				{messages.map((msg) => (
@@ -1179,8 +939,13 @@ export function RealisticInbox({
 			{showSheet && stage === "inbox" && (
 				<SelectionSheet
 					count={selectionCount}
-					onWiden={widen}
-					onNarrow={() => setStage("something-else")}
+					onCancel={() => setSelected(new Set())}
+					onDelete={() => setSelected(new Set())}
+					onJunk={() => setSelected(new Set())}
+					onMarkRead={() => setSelected(new Set())}
+					onSelectSimilar={widen}
+					onSomethingElse={() => setStage("something-else")}
+					moveSlot={<PrototypeMoveSlot />}
 				/>
 			)}
 
@@ -1271,8 +1036,13 @@ export function SmartOrganizeFlow({
 			{stage === "inbox" && count >= 2 && (
 				<SelectionSheet
 					count={count}
-					onWiden={widen}
-					onNarrow={() => setStage("something-else")}
+					onCancel={() => setStage("inbox")}
+					onDelete={() => setStage("inbox")}
+					onJunk={() => setStage("inbox")}
+					onMarkRead={() => setStage("inbox")}
+					onSelectSimilar={widen}
+					onSomethingElse={() => setStage("something-else")}
+					moveSlot={<PrototypeMoveSlot />}
 				/>
 			)}
 

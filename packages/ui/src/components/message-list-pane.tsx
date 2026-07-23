@@ -40,6 +40,7 @@ export function MessageListPane({
 	isDesktop,
 	initialTouchState,
 	selectionBar,
+	selectionSheet,
 	listBody,
 	hideHeader = false,
 }: Pick<
@@ -72,6 +73,13 @@ export function MessageListPane({
 	 * When omitted the pane's built-in touch-triage selection bar is used.
 	 */
 	selectionBar?: ReactNode;
+	/**
+	 * The mobile multi-select surface: a peeking bottom sheet overlaid on the
+	 * list, distinct from `selectionBar` (which replaces the header at the top).
+	 * Rendered as the last child so it sits above the rows; the caller pads the
+	 * list's own bottom so no row hides behind the teaser.
+	 */
+	selectionSheet?: ReactNode;
 	/**
 	 * Overrides the row-rendering section of the non-brief list — the whole
 	 * scrollable body including virtualization, swipe-triage and any load-more
@@ -142,7 +150,7 @@ export function MessageListPane({
 		!selectionBar && touchTriage && selectionMode && checkedIds.size > 0;
 
 	return (
-		<section className="flex h-full w-full flex-col bg-surface">
+		<section className="relative flex h-full w-full flex-col bg-surface">
 			{selectionBar ??
 				(inBuiltinSelection ? (
 					<SelectionTopBar
@@ -249,6 +257,7 @@ export function MessageListPane({
 			)}
 
 			{isDesktop && <KeyboardHintBar />}
+			{selectionSheet}
 		</section>
 	);
 }
