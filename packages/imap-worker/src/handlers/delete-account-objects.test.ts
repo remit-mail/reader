@@ -1,81 +1,129 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
-import type { DeleteAccountObjectsEvent } from "./delete-account-objects.js";
+import { afterEach, describe, it } from "node:test";
+import {
+	DeleteObjectsCommand,
+	ListObjectsV2Command,
+	S3Client,
+} from "@aws-sdk/client-s3";
+import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
+import type { Logger } from "@remit/logger-lambda";
+import { mockClient } from "aws-sdk-client-mock";
+import {
+	type DeleteAccountObjectsEvent,
+	handleDeleteAccountObjects,
+} from "./delete-account-objects.js";
 
-describe("DeleteAccountObjects handler", () => {
-	it("event shape is correct", () => {
-		const event: DeleteAccountObjectsEvent = {
-			type: "DELETE_ACCOUNT_OBJECTS",
-			accountConfigId: "test-account-config-id-12345",
-		};
+const noopLog = {
+	info: () => {},
+	warn: () => {},
+	error: () => {},
+	debug: () => {},
+	fatal: () => {},
+	trace: () => {},
+	child: () => noopLog,
+} as unknown as Logger;
 
-		assert.equal(event.type, "DELETE_ACCOUNT_OBJECTS");
-		assert.equal(event.accountConfigId, "test-account-config-id-12345");
-		assert.equal(event.continuationToken, undefined);
+const s3Mock = mockClient(S3Client);
+const sqsMock = mockClient(SQSClient);
+
+const event: DeleteAccountObjectsEvent = {
+	type: "DELETE_ACCOUNT_OBJECTS",
+	accountConfigId: "cfg-1",
+};
+
+describe("handleDeleteAccountObjects", () => {
+	afterEach(() => {
+		s3Mock.reset();
+		sqsMock.reset();
 	});
 
-	it("event with continuation token is correct", () => {
-		const event: DeleteAccountObjectsEvent = {
-			type: "DELETE_ACCOUNT_OBJECTS",
-			accountConfigId: "test-account-config-id-12345",
-			continuationToken: "abc123",
-		};
+	it("lists and deletes every object under the account prefix in one page", async () => {
+		s3Mock.on(ListObjectsV2Command).resolves({
+			Contents: [
+				{ Key: "accounts/cfg-1/a.eml" },
+				{ Key: "accounts/cfg-1/b.eml" },
+			],
+			IsTruncated: false,
+		});
+		s3Mock.on(DeleteObjectsCommand).resolves({});
 
-		assert.equal(event.continuationToken, "abc123");
+		await handleDeleteAccountObjects(event, noopLog);
+
+		const listCall = s3Mock.commandCalls(ListObjectsV2Command)[0];
+		assert.equal(listCall.args[0].input.Prefix, "accounts/cfg-1/");
+
+		const deleteCall = s3Mock.commandCalls(DeleteObjectsCommand)[0];
+		assert.deepEqual(deleteCall.args[0].input.Delete?.Objects, [
+			{ Key: "accounts/cfg-1/a.eml" },
+			{ Key: "accounts/cfg-1/b.eml" },
+		]);
+		assert.equal(sqsMock.commandCalls(SendMessageCommand).length, 0);
 	});
 
-	it("S3 prefix follows expected pattern", () => {
-		const accountConfigId = "test-account-config-id-12345";
-		const prefix = `accounts/${accountConfigId}/`;
+	it("follows the continuation token across truncated pages", async () => {
+		s3Mock
+			.on(ListObjectsV2Command)
+			.resolvesOnce({
+				Contents: [{ Key: "accounts/cfg-1/p1.eml" }],
+				IsTruncated: true,
+				NextContinuationToken: "tok-2",
+			})
+			.resolvesOnce({
+				Contents: [{ Key: "accounts/cfg-1/p2.eml" }],
+				IsTruncated: false,
+			});
+		s3Mock.on(DeleteObjectsCommand).resolves({});
 
-		assert.ok(prefix.startsWith("accounts/"));
-		assert.ok(prefix.endsWith("/"));
-		assert.ok(prefix.includes(accountConfigId));
+		await handleDeleteAccountObjects(event, noopLog);
+
+		const listCalls = s3Mock.commandCalls(ListObjectsV2Command);
+		assert.equal(listCalls.length, 2);
+		assert.equal(listCalls[1]?.args[0].input.ContinuationToken, "tok-2");
+		assert.equal(s3Mock.commandCalls(DeleteObjectsCommand).length, 2);
 	});
 
-	it("batch size calculation respects limit", () => {
-		const BATCH_SIZE = 1_000;
-		const keys = Array.from({ length: 2500 }, (_, i) => `key-${i}`);
+	it("skips the delete call when a page holds no keys", async () => {
+		s3Mock.on(ListObjectsV2Command).resolves({ IsTruncated: false });
 
-		// Simulate batching
-		const batches: string[][] = [];
-		for (let i = 0; i < keys.length; i += BATCH_SIZE) {
-			batches.push(keys.slice(i, i + BATCH_SIZE));
-		}
+		await handleDeleteAccountObjects(event, noopLog);
 
-		assert.equal(batches.length, 3);
-		assert.equal(batches[0].length, 1000);
-		assert.equal(batches[1].length, 1000);
-		assert.equal(batches[2].length, 500);
+		assert.equal(s3Mock.commandCalls(DeleteObjectsCommand).length, 0);
 	});
 
-	it("re-enqueue event preserves continuation token", () => {
-		const accountConfigId = "test-id";
-		const continuationToken = "next-page-token";
+	it("re-enqueues with the continuation token when time is nearly up", async () => {
+		s3Mock.on(ListObjectsV2Command).resolves({ IsTruncated: false });
+		sqsMock.on(SendMessageCommand).resolves({});
 
-		const reenqueueEvent: DeleteAccountObjectsEvent = {
-			type: "DELETE_ACCOUNT_OBJECTS",
-			accountConfigId,
-			continuationToken,
-		};
+		await handleDeleteAccountObjects(
+			{ ...event, continuationToken: "tok-mid" },
+			noopLog,
+			() => 5_000,
+		);
 
-		const body = JSON.stringify(reenqueueEvent);
-		const parsed = JSON.parse(body) as DeleteAccountObjectsEvent;
-
-		assert.equal(parsed.type, "DELETE_ACCOUNT_OBJECTS");
-		assert.equal(parsed.accountConfigId, accountConfigId);
-		assert.equal(parsed.continuationToken, continuationToken);
+		assert.equal(
+			s3Mock.commandCalls(ListObjectsV2Command).length,
+			0,
+			"bails before starting a new page",
+		);
+		const send = sqsMock.commandCalls(SendMessageCommand)[0];
+		const body = JSON.parse(
+			send?.args[0].input.MessageBody ?? "{}",
+		) as DeleteAccountObjectsEvent;
+		assert.equal(body.type, "DELETE_ACCOUNT_OBJECTS");
+		assert.equal(body.accountConfigId, "cfg-1");
+		assert.equal(body.continuationToken, "tok-mid");
 	});
 
-	it("timeout detection triggers re-enqueue", () => {
-		const MIN_REMAINING_MS = 30_000;
+	it("keeps paging while time remains", async () => {
+		s3Mock.on(ListObjectsV2Command).resolves({
+			Contents: [{ Key: "accounts/cfg-1/x.eml" }],
+			IsTruncated: false,
+		});
+		s3Mock.on(DeleteObjectsCommand).resolves({});
 
-		// Simulate near-timeout scenario
-		const getRemainingTimeMs = () => 25_000;
-		assert.ok(getRemainingTimeMs() < MIN_REMAINING_MS);
+		await handleDeleteAccountObjects(event, noopLog, () => 120_000);
 
-		// Simulate enough time
-		const getRemainingTimeMsOk = () => 60_000;
-		assert.ok(getRemainingTimeMsOk() >= MIN_REMAINING_MS);
+		assert.equal(s3Mock.commandCalls(ListObjectsV2Command).length, 1);
+		assert.equal(sqsMock.commandCalls(SendMessageCommand).length, 0);
 	});
 });
