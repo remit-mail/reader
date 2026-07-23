@@ -1,9 +1,13 @@
 import assert from "node:assert";
-import { describe, it, mock } from "node:test";
+import { beforeEach, describe, it, mock } from "node:test";
 import type { ThreadMessageItem } from "@remit/data-ports";
+import type { Logger } from "@remit/logger-lambda";
+import type { MessageDeleteEvent } from "../events.js";
 import {
 	buildThreadMessageTrashUpdate,
 	deleteAllThreadMessagesForMessage,
+	handleMessageDelete,
+	type MessageDeleteDeps,
 } from "./message-delete.js";
 
 const sourceMailboxId = "source-mailbox-id-aaaaaaaaa";
@@ -172,5 +176,290 @@ describe("deleteAllThreadMessagesForMessage (#212)", () => {
 
 		assert.equal(count, 0);
 		assert.equal(deleteRow.mock.calls.length, 0);
+	});
+});
+
+const noopLog = {
+	info: () => {},
+	warn: () => {},
+	error: () => {},
+	debug: () => {},
+	fatal: () => {},
+	trace: () => {},
+	child: () => noopLog,
+} as unknown as Logger;
+
+interface Call {
+	method: string;
+	args: unknown[];
+}
+
+interface Connection {
+	openBox: (
+		path: string,
+		readOnly?: boolean,
+	) => Promise<{ uidvalidity: number }>;
+	moveMessages: (
+		uids: number[],
+		dest: string,
+	) => Promise<{ uidMap: Map<number, number> }>;
+	deleteMessages: (uids: number[]) => Promise<void>;
+	createMailbox: (path: string) => Promise<void>;
+}
+
+interface Harness {
+	calls: Call[];
+	account: {
+		accountId: string;
+		accountConfigId: string;
+		deletedAt?: number;
+	} | null;
+	mailbox: { mailboxId: string; uidValidity: number; cursorState?: string };
+	connection: Connection;
+	threadMessage: Record<string, unknown> | null;
+	allThreadMessages: { accountConfigId: string; threadMessageId: string }[];
+	getConnectionCount: number;
+	disconnectCount: number;
+}
+
+let h: Harness;
+
+const record =
+	(method: string) =>
+	async (...args: unknown[]) => {
+		h.calls.push({ method, args });
+	};
+
+const buildConnection = (): Connection => ({
+	openBox: async () => ({ uidvalidity: 1 }),
+	moveMessages: async () => ({ uidMap: new Map([[10, 20]]) }),
+	deleteMessages: record(
+		"connection.deleteMessages",
+	) as Connection["deleteMessages"],
+	createMailbox: record(
+		"connection.createMailbox",
+	) as Connection["createMailbox"],
+});
+
+const fresh = (): Harness => ({
+	calls: [],
+	account: { accountId: "acc-1", accountConfigId: "cfg-1" },
+	mailbox: { mailboxId: "src-mbx", uidValidity: 1, cursorState: undefined },
+	connection: buildConnection(),
+	threadMessage: {
+		...baseThreadMessage,
+		accountConfigId: "cfg-1",
+		threadMessageId: "tm-1",
+	},
+	allThreadMessages: [
+		{ accountConfigId: "cfg-1", threadMessageId: "tm-1" },
+		{ accountConfigId: "cfg-1", threadMessageId: "tm-2" },
+	],
+	getConnectionCount: 0,
+	disconnectCount: 0,
+});
+
+const deps = (): MessageDeleteDeps =>
+	({
+		getClient: async () => ({
+			account: {
+				get: async (accountId: string) => {
+					h.calls.push({ method: "account.get", args: [accountId] });
+					return h.account;
+				},
+			},
+			message: {
+				updateUid: record("message.updateUid"),
+				update: record("message.update"),
+				delete: record("message.delete"),
+			},
+			threadMessage: {
+				findByMessageId: async () => h.threadMessage,
+				findAllByMessageId: async () => h.allThreadMessages,
+				update: record("threadMessage.update"),
+				delete: record("threadMessage.delete"),
+			},
+			mailbox: {
+				get: async () => h.mailbox,
+				update: record("mailbox.update"),
+			},
+			secrets: {},
+		}),
+		buildLifecycleDeps: () => ({}),
+		withOAuthLifecycle: async (
+			_deps: unknown,
+			_account: unknown,
+			_log: unknown,
+			cb: (credentials: unknown) => Promise<void>,
+		) => cb({}),
+		createConnectionScope: () => ({
+			getConnection: async () => {
+				h.getConnectionCount += 1;
+				return h.connection;
+			},
+			disconnect: async () => {
+				h.disconnectCount += 1;
+			},
+		}),
+	}) as unknown as MessageDeleteDeps;
+
+const moveEvent: MessageDeleteEvent = {
+	type: "MESSAGE_DELETE",
+	accountId: "acc-1",
+	messageId: "msg-1",
+	mailboxId: "src-mbx",
+	mailboxPath: "INBOX",
+	uid: 10,
+	operation: "move_to_trash",
+	destinationMailboxId: "trash-mbx",
+	destinationMailboxPath: "Trash",
+} as MessageDeleteEvent;
+
+const permanentEvent: MessageDeleteEvent = {
+	type: "MESSAGE_DELETE",
+	accountId: "acc-1",
+	messageId: "msg-1",
+	mailboxId: "src-mbx",
+	mailboxPath: "INBOX",
+	uid: 10,
+	operation: "permanent_delete",
+} as MessageDeleteEvent;
+
+const called = (method: string): Call[] =>
+	h.calls.filter((c) => c.method === method);
+
+describe("handleMessageDelete", () => {
+	beforeEach(() => {
+		h = fresh();
+	});
+
+	it("moves to trash, rewrites the uid, and flips the thread row to deleted", async () => {
+		await handleMessageDelete(moveEvent, noopLog, deps());
+
+		assert.deepEqual(called("message.updateUid")[0]?.args, [
+			"msg-1",
+			20,
+			"trash-mbx",
+		]);
+		const update = called("threadMessage.update")[0];
+		assert.deepEqual(update?.args[2], {
+			uid: 20,
+			mailboxId: "trash-mbx",
+			isDeleted: true,
+		});
+		assert.equal(h.disconnectCount, 1);
+	});
+
+	it("marks the message failed when the MOVE returns no new uid", async () => {
+		h.connection.moveMessages = async () => ({ uidMap: new Map() });
+
+		await handleMessageDelete(moveEvent, noopLog, deps());
+
+		assert.equal(called("message.updateUid").length, 0);
+		assert.equal(
+			(called("message.update")[0]?.args[1] as { syncStatus?: string })
+				?.syncStatus,
+			"failed",
+		);
+	});
+
+	it("expunges on the server and removes every thread row before the message row", async () => {
+		await handleMessageDelete(permanentEvent, noopLog, deps());
+
+		assert.deepEqual(called("connection.deleteMessages")[0]?.args, [[10]]);
+		assert.equal(called("threadMessage.delete").length, 2);
+		assert.ok(
+			h.calls.findIndex((c) => c.method === "threadMessage.delete") <
+				h.calls.findIndex((c) => c.method === "message.delete"),
+			"thread rows go first so no row outlives its message",
+		);
+	});
+
+	it("cleans up locally and swallows the error when the message is already gone on IMAP", async () => {
+		h.connection.deleteMessages = async () => {
+			throw new Error("NONEXISTENT uid");
+		};
+
+		await handleMessageDelete(permanentEvent, noopLog, deps());
+
+		assert.equal(called("message.delete").length, 1);
+		assert.equal(called("threadMessage.delete").length, 2);
+	});
+
+	it("creates the trash mailbox and rethrows on TRYCREATE", async () => {
+		h.connection.moveMessages = async () => {
+			throw new Error("TRYCREATE: no such mailbox");
+		};
+
+		await assert.rejects(
+			handleMessageDelete(moveEvent, noopLog, deps()),
+			/TRYCREATE/,
+		);
+
+		assert.equal(called("connection.createMailbox")[0]?.args[0], "Trash");
+		assert.equal(h.getConnectionCount, 2, "reconnects to create the mailbox");
+	});
+
+	it("marks failed and rethrows on an unclassified IMAP error", async () => {
+		h.connection.moveMessages = async () => {
+			throw new Error("server exploded");
+		};
+
+		await assert.rejects(
+			handleMessageDelete(moveEvent, noopLog, deps()),
+			/server exploded/,
+		);
+
+		assert.equal(
+			(called("message.update")[0]?.args[1] as { syncStatus?: string })
+				?.syncStatus,
+			"failed",
+		);
+	});
+
+	it("pauses quietly when openBox trips a UIDVALIDITY mismatch", async () => {
+		h.connection.openBox = async () => ({ uidvalidity: 999 });
+
+		await handleMessageDelete(moveEvent, noopLog, deps());
+
+		assert.equal(
+			(called("mailbox.update")[0]?.args[2] as { cursorState?: string })
+				?.cursorState,
+			"cursor_invalid",
+		);
+		assert.equal(called("message.updateUid").length, 0);
+	});
+
+	it("skips without opening a connection when the cursor is rebuilding", async () => {
+		h.mailbox = {
+			mailboxId: "src-mbx",
+			uidValidity: 1,
+			cursorState: "rebuilding",
+		};
+
+		await handleMessageDelete(moveEvent, noopLog, deps());
+
+		assert.equal(h.getConnectionCount, 0);
+	});
+
+	it("returns early without connecting when the account is soft-deleted", async () => {
+		h.account = {
+			accountId: "acc-1",
+			accountConfigId: "cfg-1",
+			deletedAt: Date.now(),
+		};
+
+		await handleMessageDelete(moveEvent, noopLog, deps());
+
+		assert.equal(h.getConnectionCount, 0);
+	});
+
+	it("throws when the account no longer exists", async () => {
+		h.account = null;
+
+		await assert.rejects(
+			handleMessageDelete(moveEvent, noopLog, deps()),
+			/not found/,
+		);
 	});
 });

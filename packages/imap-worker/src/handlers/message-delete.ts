@@ -83,6 +83,20 @@ export const buildThreadMessageTrashUpdate = (
 	},
 });
 
+export interface MessageDeleteDeps {
+	getClient: typeof getClient;
+	buildLifecycleDeps: typeof buildLifecycleDeps;
+	withOAuthLifecycle: typeof withOAuthLifecycle;
+	createConnectionScope: typeof createConnectionScopeWithCredentials;
+}
+
+const defaultDeps: MessageDeleteDeps = {
+	getClient,
+	buildLifecycleDeps,
+	withOAuthLifecycle,
+	createConnectionScope: createConnectionScopeWithCredentials,
+};
+
 /**
  * Handle MESSAGE_DELETE events.
  * Either moves to Trash (IMAP MOVE) or permanently deletes (IMAP DELETE).
@@ -90,7 +104,15 @@ export const buildThreadMessageTrashUpdate = (
 export const handleMessageDelete = async (
 	event: MessageDeleteEvent,
 	log: Logger,
+	deps: MessageDeleteDeps = defaultDeps,
 ): Promise<void> => {
+	const {
+		getClient,
+		buildLifecycleDeps,
+		withOAuthLifecycle,
+		createConnectionScope: createConnectionScopeWithCredentials,
+	} = deps;
+
 	const {
 		account: accountService,
 		message: messageService,

@@ -11,6 +11,20 @@ import type { EmptyTrashEvent } from "../events.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 
+export interface EmptyTrashDeps {
+	getClient: typeof getClient;
+	buildLifecycleDeps: typeof buildLifecycleDeps;
+	withOAuthLifecycle: typeof withOAuthLifecycle;
+	createConnectionScope: typeof createConnectionScopeWithCredentials;
+}
+
+const defaultDeps: EmptyTrashDeps = {
+	getClient,
+	buildLifecycleDeps,
+	withOAuthLifecycle,
+	createConnectionScope: createConnectionScopeWithCredentials,
+};
+
 /**
  * Handle EMPTY_TRASH events.
  * Permanently deletes all messages in the Trash mailbox.
@@ -18,7 +32,15 @@ import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 export const handleEmptyTrash = async (
 	event: EmptyTrashEvent,
 	log: Logger,
+	deps: EmptyTrashDeps = defaultDeps,
 ): Promise<void> => {
+	const {
+		getClient,
+		buildLifecycleDeps,
+		withOAuthLifecycle,
+		createConnectionScope: createConnectionScopeWithCredentials,
+	} = deps;
+
 	const {
 		account: accountService,
 		message: messageService,
