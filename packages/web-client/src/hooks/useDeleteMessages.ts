@@ -8,6 +8,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { formatErrorDetail } from "@/components/ui/error-banners";
+import { resolveMailboxesForMessages } from "@/hooks/useMarkAsRead";
 import {
 	cancelThreadListQueries,
 	invalidateThreadListQueries,
@@ -22,6 +23,13 @@ interface UseDeleteMessagesOptions {
 	mailboxId: string;
 	threadId?: string;
 	accountId?: string;
+	/**
+	 * The threads the ids may come from, when the caller has them. A selection in
+	 * the brief or Flagged spans mailboxes and accounts, so the listings to patch
+	 * are the ones each message actually lives in — `mailboxId` alone would leave
+	 * every other mailbox's cached list holding a deleted row.
+	 */
+	messages?: RemitImapThreadMessageResponse[];
 	/**
 	 * Called once the optimistic removal has been applied. Use this to
 	 * navigate away from a now-empty thread (e.g. clear `selectedMessageId`)
@@ -77,6 +85,7 @@ export const useDeleteMessages = ({
 	mailboxId,
 	threadId,
 	accountId,
+	messages,
 	onAfterOptimisticRemove,
 }: UseDeleteMessagesOptions) => {
 	const queryClient = useQueryClient();
@@ -92,10 +101,13 @@ export const useDeleteMessages = ({
 						path: { threadId },
 					})
 				: [];
-			// The browsed mailbox's lists plus the unified cross-account listing
-			// that backs the daily brief — deleting from the brief has to remove the
-			// row there too, not only from the per-mailbox lists (#140, part of #149).
-			const listPrefixes = threadListCacheKeys([mailboxId]);
+			// Every mailbox the deleted messages live in, plus the unified
+			// cross-account listing that backs the daily brief — deleting from the
+			// brief has to remove the row there too, not only from the per-mailbox
+			// lists (#140, part of #149).
+			const listPrefixes = threadListCacheKeys(
+				resolveMailboxesForMessages(messageIds, messages ?? [], mailboxId),
+			);
 
 			await Promise.all([
 				queryClient.cancelQueries({ queryKey: threadMessagesPrefix }),

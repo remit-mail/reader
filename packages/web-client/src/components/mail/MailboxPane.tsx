@@ -93,9 +93,8 @@ import { useSemanticSearch } from "@/hooks/useSemanticSearch";
 import { useThreadActions } from "@/hooks/useThreadActions";
 import { useThreadMessageIds } from "@/hooks/useThreadMessageIds";
 import { useToggleStar } from "@/hooks/useToggleStar";
-import { useTriageKeyboard } from "@/hooks/useTriageKeyboard";
+import { useTriageContext, useTriageLayer } from "@/hooks/useTriageLayer";
 import { useUpdateAddressFlags } from "@/hooks/useUpdateAddressFlags";
-import { adjacentMessageId } from "@/lib/adjacent-message";
 import {
 	buildConversationTarget,
 	type ConversationTarget,
@@ -433,32 +432,13 @@ function MailboxPaneProvider({
 		],
 	);
 
-	const [triageFocusedId, setTriageFocusedId] = useState<string | undefined>(
-		undefined,
-	);
-	const [triageSelectedIds, setTriageSelectedIds] = useState<string[]>([]);
-	// The mounted message list publishes its navigation/selection commands here.
-	// Null whenever no list is mounted (reading-only phone view, drafts) — the
-	// keyboard layer then simply has nothing to drive.
-	const listCommandsRef = useRef<MessageListCommands | null>(null);
-	// Whether a message list is mounted and serving commands, and whether it has
-	// a modal that owns the keyboard. Both drive which keys this route claims.
-	const [hasList, setHasList] = useState(false);
-	const [listBlocksKeyboard, setListBlocksKeyboard] = useState(false);
-	const handleTriageContextChange = useCallback(
-		(context: {
-			focusedMessageId: string | undefined;
-			selectedIds: string[];
-			hasList: boolean;
-			blocksKeyboard: boolean;
-		}) => {
-			setTriageFocusedId(context.focusedMessageId);
-			setTriageSelectedIds(context.selectedIds);
-			setHasList(context.hasList);
-			setListBlocksKeyboard(context.blocksKeyboard);
-		},
-		[],
-	);
+	const triage = useTriageContext();
+	const {
+		listCommandsRef,
+		onTriageContextChange: handleTriageContextChange,
+		focusedMessageId: triageFocusedId,
+		selectedIds: triageSelectedIds,
+	} = triage;
 
 	const focusedThread =
 		threads.find((t) => t.messageId === triageFocusedId) ?? selectedThread;
@@ -564,22 +544,19 @@ function MailboxPaneProvider({
 		closeCompose,
 	]);
 
-	// Esc unwinds one step at a time: an active selection first, then the open
-	// thread.
-	const goBack = useCallback(() => {
-		if (listCommandsRef.current?.clearSelection()) return;
-		if (selectedMessageId) {
-			navigate({
-				to: "/mail/$mailboxId",
-				params: { mailboxId },
-				search: (prev: Record<string, unknown>) => ({
-					...prev,
-					selectedMessageId: undefined,
-					selectedThreadId: undefined,
-				}),
-			});
-		}
-	}, [selectedMessageId, mailboxId, navigate]);
+	// Esc unwinds one step at a time: an active selection first (handled by the
+	// triage layer), then the open thread.
+	const closeThread = useCallback(() => {
+		navigate({
+			to: "/mail/$mailboxId",
+			params: { mailboxId },
+			search: (prev: Record<string, unknown>) => ({
+				...prev,
+				selectedMessageId: undefined,
+				selectedThreadId: undefined,
+			}),
+		});
+	}, [mailboxId, navigate]);
 
 	const messageIdsForFocusedThread = useCallback(
 		(thread: typeof focusedThread): string[] => {
@@ -661,7 +638,7 @@ function MailboxPaneProvider({
 		if (listCommandsRef.current?.requestDelete()) return;
 		const ids = triageTargetMessageIds();
 		if (ids.length > 0) triageDelete(ids);
-	}, [triageTargetMessageIds, triageDelete]);
+	}, [listCommandsRef, triageTargetMessageIds, triageDelete]);
 
 	const triageMarkJunk = useCallback(() => {
 		if (!junkMailboxId) return;
@@ -749,31 +726,13 @@ function MailboxPaneProvider({
 		!!composeState.outboxMessageId &&
 		!selectedThread;
 
-	useTriageKeyboard({
-		// A modal owns the keyboard outright. Suspending the layer is what keeps a
-		// second Delete press from reaching a delete while the confirmation for
-		// the first one is still on screen.
-		enabled: !composeState.isOpen && !listBlocksKeyboard,
+	const { goBack, nextMessageId, previousMessageId } = useTriageLayer({
+		context: triage,
+		orderedIds: threads.map((t) => t.messageId),
+		selectedMessageId,
+		enabled: !composeState.isOpen,
+		onClose: closeThread,
 		handlers: {
-			// List navigation and selection, registered only while a list is
-			// mounted to serve them. An unregistered action is never
-			// preventDefault-ed, so with no list the browser keeps Enter, Space and
-			// ⌘A — select-all-text in the reading pane still works.
-			...(hasList
-				? {
-						focusNext: () => listCommandsRef.current?.focusNext(),
-						focusPrevious: () => listCommandsRef.current?.focusPrevious(),
-						focusFirst: () => listCommandsRef.current?.focusFirst(),
-						focusLast: () => listCommandsRef.current?.focusLast(),
-						openFocused: () => listCommandsRef.current?.openFocused(),
-						toggleSelect: () => listCommandsRef.current?.toggleSelect(),
-						extendSelectDown: () => listCommandsRef.current?.extendSelectDown(),
-						extendSelectUp: () => listCommandsRef.current?.extendSelectUp(),
-						selectAll: () => listCommandsRef.current?.selectAll(),
-						toggleDensity: () => listCommandsRef.current?.toggleDensity(),
-					}
-				: {}),
-			back: goBack,
 			reply: triageReply,
 			replyAll: triageReplyAll,
 			forward: triageForward,
@@ -798,14 +757,6 @@ function MailboxPaneProvider({
 		enabled: composeState.isOpen,
 		bindings: [{ key: "Escape", handler: closeCompose, preventDefault: true }],
 	});
-
-	const orderedMessageIds = threads.map((t) => t.messageId);
-	const nextMessageId =
-		adjacentMessageId(orderedMessageIds, selectedMessageId, "next") ??
-		undefined;
-	const previousMessageId =
-		adjacentMessageId(orderedMessageIds, selectedMessageId, "previous") ??
-		undefined;
 
 	const ctx: MailboxPaneContextValue = {
 		mailboxId,

@@ -210,6 +210,7 @@ export {
 	comfortableRowClass,
 	compactRowClass,
 	type RowSelection,
+	type RowToggleEvent,
 } from "./components/message-row.js";
 export {
 	type MobileMessageAction,

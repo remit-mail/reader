@@ -75,6 +75,17 @@ export interface BriefSectionsProps {
 	onSelectSource?: (id: string) => void;
 	/** Seeds the filter panel open on first render (stories / deep links). */
 	defaultExpanded?: boolean;
+	/**
+	 * Whether this component owns arrow-key traversal and the roving tabindex
+	 * over its rows. On by default so a consumer that only passes rows (the
+	 * Storybook prototype) still has a keyboard.
+	 *
+	 * The web client turns it off: its triage layer routes ↑/↓/Home/End through
+	 * one window-level dispatcher, and a container handler here would swallow
+	 * them first — taking Shift+↑/↓ with them, which the dispatcher needs for
+	 * range selection and `rovingNextIndex` ignores.
+	 */
+	manageFocus?: boolean;
 }
 
 /**
@@ -96,11 +107,16 @@ export function BriefSections({
 	sourcesNote,
 	onSelectSource,
 	defaultExpanded = false,
+	manageFocus = true,
 }: BriefSectionsProps) {
 	const [active, setActive] = useState<ReadonlySet<BriefFilterId>>(new Set());
 	const [sheetExpanded, setSheetExpanded] = useState(defaultExpanded);
 	const listRef = useRef<HTMLDivElement>(null);
-	useRovingFocus({ containerRef: listRef, itemSelector: LIST_ROW_SELECTOR });
+	useRovingFocus({
+		containerRef: listRef,
+		itemSelector: LIST_ROW_SELECTOR,
+		enabled: manageFocus,
+	});
 
 	const toggleFilter = (id: BriefFilterId) => {
 		setActive((prev) => {

@@ -1,5 +1,5 @@
 import { Check, Paperclip, ShieldAlert, Star } from "lucide-react";
-import type { ComponentType, ReactNode } from "react";
+import type { ComponentType, ReactNode, SyntheticEvent } from "react";
 import { cn } from "../lib/cn.js";
 import { LIST_ROW_ATTRIBUTE } from "../lib/roving-focus.js";
 import { categoryTone, type ThreadRowData } from "./app-shell-types.js";
@@ -177,11 +177,17 @@ export function ComfortableRowTextContent({
  * multi-selected (the brief and Flagged before they gained selection), which
  * renders the avatar alone.
  */
+/** What the toggle handler needs off the click or keypress that triggered it. */
+export type RowToggleEvent = Pick<
+	SyntheticEvent,
+	"preventDefault" | "stopPropagation"
+>;
+
 export interface RowSelection {
 	checked: boolean;
 	/** Keep the checkbox visible instead of revealing it on hover (mobile). */
 	alwaysVisible?: boolean;
-	onToggle: (event: React.MouseEvent) => void;
+	onToggle: (event: RowToggleEvent) => void;
 }
 
 /**
@@ -211,13 +217,24 @@ export function ComfortableRowLeading({
 					(checked || alwaysVisible) && "opacity-0",
 				)}
 			/>
-			<button
-				type="button"
+			{/* A span, not a <button>: the row itself is a button (the brief,
+			    Flagged) or a link (the mailbox list), and neither may nest an
+			    interactive element. The button role and label are what the user and
+			    the test suite address, so both stay. */}
+			{/* biome-ignore lint/a11y/useSemanticElements: a nested <button> inside the row's own button/link is invalid HTML */}
+			<span
+				role="button"
 				// Out of the tab order: the row is the list's single tab stop, and this
 				// control is `opacity-0` until hover, so a tabbable one would put focus
 				// on something invisible on every row.
 				tabIndex={-1}
 				onClick={selection.onToggle}
+				onKeyDown={(event) => {
+					if (event.key !== "Enter" && event.key !== " ") return;
+					event.preventDefault();
+					event.stopPropagation();
+					selection.onToggle(event);
+				}}
 				className={cn(
 					"absolute inset-0 size-7 items-center justify-center rounded-full border transition-opacity",
 					alwaysVisible ? "flex" : "hidden sm:flex",
@@ -230,7 +247,7 @@ export function ComfortableRowLeading({
 				aria-label={checked ? "Deselect message" : "Select message"}
 			>
 				{checked && <Check className="size-3" />}
-			</button>
+			</span>
 		</span>
 	);
 }

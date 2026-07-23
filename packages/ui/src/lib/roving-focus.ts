@@ -43,6 +43,11 @@ export interface UseRovingFocusOptions {
 	/** CSS selector, scoped to the container, matching every roving item. */
 	itemSelector: string;
 	orientation?: RovingOrientation;
+	/**
+	 * Off when a keyboard layer above the group owns the same keys — the hook
+	 * binds nothing and leaves the tabindex to whoever does. Defaults on.
+	 */
+	enabled?: boolean;
 }
 
 function rovingItems(
@@ -70,10 +75,12 @@ export function useRovingFocus({
 	containerRef,
 	itemSelector,
 	orientation = "vertical",
+	enabled = true,
 }: UseRovingFocusOptions): void {
 	// No dependency array: items appear and disappear as sections expand, rows
 	// load, or filters change, none of which this hook's own inputs describe.
 	useEffect(() => {
+		if (!enabled) return;
 		const container = containerRef.current;
 		if (!container) return;
 

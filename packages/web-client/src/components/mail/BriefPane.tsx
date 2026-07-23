@@ -33,7 +33,14 @@ import { ConversationView } from "@/components/mail/ConversationView";
 import { DailyBrief } from "@/components/mail/DailyBrief";
 import { IntelligencePane } from "@/components/mail/IntelligencePane";
 import { MessageToolbar } from "@/components/mail/MessageToolbar";
+import { useDeleteMessages } from "@/hooks/useDeleteMessages";
+import { useToggleReadFor } from "@/hooks/useMarkAsRead";
 import { type ThreadActions, useThreadActions } from "@/hooks/useThreadActions";
+import {
+	type TriageContext,
+	useTriageContext,
+	useTriageLayer,
+} from "@/hooks/useTriageLayer";
 import {
 	buildConversationTarget,
 	type ConversationTarget,
@@ -57,6 +64,12 @@ interface BriefPaneContextValue {
 	 * account — the brief spans accounts, so there is no route mailbox to key by.
 	 */
 	actions: ThreadActions;
+	/** Keyboard, multi-select and next/previous, shared with the mailbox view. */
+	triage: TriageContext;
+	onDeleteMessages: (messageIds: string[]) => void;
+	onMarkMessagesRead: (messageIds: string[]) => void;
+	nextMessageId: string | undefined;
+	previousMessageId: string | undefined;
 }
 
 const BriefPaneCtx = createContext<BriefPaneContextValue | null>(null);
@@ -176,6 +189,63 @@ function BriefPaneProvider({ selectedMessageId, children }: BriefPaneProps) {
 		});
 	}, [navigate]);
 
+	const triage = useTriageContext();
+
+	// A brief selection spans accounts and mailboxes, so the listings these
+	// patch are resolved from each message's own mailbox — the open thread's is
+	// only the fallback.
+	const briefThreads = useMemo(() => threadsData?.items ?? [], [threadsData]);
+	const { deleteMessages } = useDeleteMessages({
+		mailboxId: selectedThread?.mailboxId ?? "",
+		messages: briefThreads,
+		onAfterOptimisticRemove: handleDeselectIfRemoved,
+	});
+	const { toggleReadFor } = useToggleReadFor({
+		mailboxId: selectedThread?.mailboxId ?? "",
+		messages: briefThreads,
+	});
+	const handleMarkMessagesRead = useCallback(
+		(messageIds: string[]) => toggleReadFor(messageIds, true),
+		[toggleReadFor],
+	);
+
+	const focusedThreadId = triage.focusedMessageId;
+	const focusedThread = useMemo(
+		() => threadsData?.items.find((t) => t.messageId === focusedThreadId),
+		[threadsData, focusedThreadId],
+	);
+	const triageTarget = focusedThread ?? selectedThread;
+	const triageActions = useThreadActions({ thread: triageTarget });
+
+	const { nextMessageId, previousMessageId } = useTriageLayer({
+		context: triage,
+		orderedIds: triage.orderedIds,
+		selectedMessageId,
+		onClose: handleCloseThread,
+		handlers: {
+			reply: () => actions.requestCompose("reply"),
+			replyAll: () => actions.requestCompose("reply_all"),
+			forward: () => actions.requestCompose("forward"),
+			delete: () => {
+				if (triage.listCommandsRef.current?.requestDelete()) return;
+				triageActions.deleteThread();
+			},
+			toggleStar: triageActions.toggleStar,
+			toggleRead: () => {
+				const ids =
+					triage.selectedIds.length > 0
+						? triage.selectedIds
+						: triageTarget
+							? [triageTarget.messageId]
+							: [];
+				if (ids.length === 0) return;
+				toggleReadFor(ids, !(triageTarget?.isRead ?? false));
+			},
+			goFlagged: () => navigate({ to: "/mail/flagged" }),
+			goSettings: () => navigate({ to: "/settings" }),
+		},
+	});
+
 	const ctx: BriefPaneContextValue = {
 		selectedMessageId,
 		selectedThread,
@@ -184,6 +254,11 @@ function BriefPaneProvider({ selectedMessageId, children }: BriefPaneProps) {
 		onSelectSearchResult: handleSelectSearchResult,
 		onCloseThread: handleCloseThread,
 		actions,
+		triage,
+		onDeleteMessages: deleteMessages,
+		onMarkMessagesRead: handleMarkMessagesRead,
+		nextMessageId,
+		previousMessageId,
 	};
 
 	return <BriefPaneCtx.Provider value={ctx}>{children}</BriefPaneCtx.Provider>;
@@ -197,8 +272,14 @@ function BriefPaneProvider({ selectedMessageId, children }: BriefPaneProps) {
  * Daily brief list. Mount in the `list` slot of `AppShellSlotted`.
  */
 function BriefList() {
-	const { selectedMessageId, onSelectMessage, onSelectSearchResult } =
-		useBriefPane();
+	const {
+		selectedMessageId,
+		onSelectMessage,
+		onSelectSearchResult,
+		triage,
+		onDeleteMessages,
+		onMarkMessagesRead,
+	} = useBriefPane();
 	const { accounts } = useMailContext();
 
 	return (
@@ -207,6 +288,10 @@ function BriefList() {
 			selectedMessageId={selectedMessageId}
 			onSelectMessage={onSelectMessage}
 			onSelectSearchResult={onSelectSearchResult}
+			commandsRef={triage.listCommandsRef}
+			onTriageContextChange={triage.onTriageContextChange}
+			onDeleteMessages={onDeleteMessages}
+			onMarkMessagesRead={onMarkMessagesRead}
 		/>
 	);
 }
@@ -300,6 +385,8 @@ function BriefPhone() {
 		onSelectMessage,
 		onSelectSearchResult,
 		onCloseThread,
+		nextMessageId,
+		previousMessageId,
 	} = useBriefPane();
 	const { accounts, intelligenceOpen, onToggleIntelligence } = useMailContext();
 
@@ -314,6 +401,15 @@ function BriefPhone() {
 					authenticity={conversation.authenticity}
 					onBack={onCloseThread}
 					onOpenIntelligence={onToggleIntelligence}
+					onSwipeNext={
+						nextMessageId ? () => onSelectMessage(nextMessageId) : undefined
+					}
+					onSwipePrevious={
+						previousMessageId
+							? () => onSelectMessage(previousMessageId)
+							: undefined
+					}
+					mobileIntelligenceOpen={intelligenceOpen}
 				/>
 				<Drawer
 					isOpen={intelligenceOpen}

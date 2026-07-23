@@ -18,6 +18,7 @@ import {
 	compactRowClass,
 	type Density,
 	mergeProps,
+	type RowToggleEvent,
 	type ThreadRowData,
 	useLongPress,
 } from "@remit/ui";
@@ -26,6 +27,7 @@ import { Link } from "@tanstack/react-router";
 import { type MouseEvent, memo, type ReactNode, useCallback } from "react";
 import type { SelectionModifiers } from "@/hooks/useSelection";
 import { cn } from "@/lib/utils";
+import { useThreadRowInteraction } from "./ThreadListInteraction";
 
 interface MailboxLinkSearch {
 	selectedMessageId?: string;
@@ -85,27 +87,37 @@ export interface MessageRowProps {
 const MessageRowComponent = ({
 	thread,
 	active = false,
-	focused = false,
-	isTabStop = false,
+	focused: focusedProp,
+	isTabStop: isTabStopProp,
 	density = "comfortable",
-	isDesktop = true,
+	isDesktop: isDesktopProp,
 	badge,
-	selection,
+	selection: selectionProp,
 	inListbox = false,
 	linkMailboxId,
 	onClick,
-	onFocusRow,
+	onFocusRow: onFocusRowProp,
 }: MessageRowProps) => {
 	const queryClient = useQueryClient();
 	const messageId = thread.id;
+	// A list that renders its own rows (the brief, Flagged) supplies the cursor
+	// and selection through context; the mailbox list passes them as props.
+	const fromContext = useThreadRowInteraction(messageId);
+	const focused = focusedProp ?? fromContext?.focused ?? false;
+	const isTabStop = isTabStopProp ?? fromContext?.isTabStop ?? false;
+	const selection = selectionProp ?? fromContext?.selection;
+	const onFocusRow = onFocusRowProp ?? fromContext?.onFocusRow;
+	// The cursor and the row must agree on the device: the cursor's multi-select
+	// mode is derived from it, and the row's tap semantics branch on it.
+	const isDesktop = isDesktopProp ?? fromContext?.isDesktop ?? true;
 	const isChecked = selection?.isChecked ?? false;
 	const isMultiSelectMode = selection?.isMultiSelectMode ?? false;
 	const onToggleCheck = selection?.onToggleCheck;
 	const onRowSelect = selection?.onRowSelect;
 	const onLongPress = selection?.onLongPress;
 
-	const handleCheckboxClick = useCallback(
-		(e: MouseEvent) => {
+	const handleToggleCheck = useCallback(
+		(e: RowToggleEvent) => {
 			e.preventDefault();
 			e.stopPropagation();
 			onToggleCheck?.(messageId);
@@ -242,7 +254,7 @@ const MessageRowComponent = ({
 						? {
 								checked: isChecked,
 								alwaysVisible: isMultiSelectMode,
-								onToggle: handleCheckboxClick,
+								onToggle: handleToggleCheck,
 							}
 						: undefined
 				}
