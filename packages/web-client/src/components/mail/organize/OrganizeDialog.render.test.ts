@@ -18,7 +18,6 @@ const render = (open: boolean) =>
 			createElement(OrganizeDialog, {
 				open,
 				accountId: "acc-1",
-				mailboxId: "mbx-inbox",
 				selectedMessageIds: ["msg-1", "msg-2"],
 				selectedSenders: ["npm@github.com"],
 				onClose: () => undefined,

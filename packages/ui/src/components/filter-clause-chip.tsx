@@ -146,6 +146,12 @@ export interface ClauseEditorProps {
 	draft: ClauseDraft;
 	/** `add` seeds a new clause; `edit` amends an existing one. */
 	mode: "add" | "edit";
+	/**
+	 * The fields offered in the picker, in menu order. Defaults to the whole
+	 * vocabulary; a consumer narrows it to the fields its deployment can actually
+	 * match, so the editor never offers a clause the backend cannot evaluate.
+	 */
+	fields?: ClauseField[];
 	onChangeField?: (field: ClauseField) => void;
 	onChangeValue?: (value: string) => void;
 	onSubmit?: () => void;
@@ -160,6 +166,7 @@ export interface ClauseEditorProps {
 export function ClauseEditor({
 	draft,
 	mode,
+	fields = clauseFieldOrder,
 	onChangeField,
 	onChangeValue,
 	onSubmit,
@@ -173,7 +180,7 @@ export function ClauseEditor({
 				onChange={(e) => onChangeField?.(e.target.value as ClauseField)}
 				className="h-8 w-32 shrink-0"
 			>
-				{clauseFieldOrder.map((field) => (
+				{fields.map((field) => (
 					<option key={field} value={field}>
 						{clauseFieldLabel(field)}
 					</option>

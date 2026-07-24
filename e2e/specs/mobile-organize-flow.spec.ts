@@ -2,20 +2,20 @@
  * Guided mobile organize flow (issue #211).
  *
  * From the mobile selection sheet, "Select similar messages" widens the
- * selection with the read-only matcher, shows a brief widening state, then
- * opens the organize sentence inside a bottom sheet on that widened set; the
- * sentence commits at one of four scopes. This spec drives that surface end to
- * end on a mobile viewport.
+ * selection with the read-only matcher, shows a brief widening state, then opens
+ * the filter-rule chip editor (RFC 038 D1) inside a bottom sheet on that widened
+ * set. The editor commits at one of three scopes — apply once, keep doing this,
+ * or until a date. This spec drives that surface end to end on a mobile
+ * viewport.
  *
  * The widen is a semantic query, and the vector index is deliberately not built
  * on the e2e lane (see issue #219 and organize-standing-filter.spec.ts). So the
  * `POST /organize/preview` response is stubbed per scenario to control the
  * matched set — the semantic matcher itself is covered by the colocated
- * mobile-organize-flow unit tests. Downstream of the sentence, the "Just these"
- * move runs for real (it files the selection with the ordinary move endpoint);
- * the organize job and the standing filter, both of which re-run the same
- * absent index server-side, are stubbed so the flow's progress and success
- * states are exercised deterministically. Real filter CRUD is covered by
+ * mobile-organize-flow unit tests. Downstream of the editor, the one-time
+ * back-apply job and the standing filter, both of which re-run the same absent
+ * index server-side, are stubbed so the flow's progress and success states are
+ * exercised deterministically. Real filter CRUD is covered by
  * organize-standing-filter.spec.ts.
  *
  * Each test appends its own tagged scratch and cleans it up, so the serial
@@ -220,11 +220,11 @@ test.describe("Guided mobile organize flow", () => {
 			await selectSimilarButton(page).click();
 
 			await expect(page.getByText("Finding similar messages…")).toBeVisible();
-			await expect(page.getByText(/2 similar messages found/)).toBeVisible();
+			await expect(page.getByText(/2 messages match/)).toBeVisible();
 
 			await destinationSelect(page).selectOption({ label: "Archive" });
-			// "All like these" is the default scope.
-			await page.getByRole("button", { name: /Organize 2 messages/ }).click();
+			// One-time apply is the default scope.
+			await page.getByRole("button", { name: "Apply now" }).click();
 
 			await expect(page.getByText(/2 of 2 moved/)).toBeVisible({
 				timeout: 15_000,
@@ -266,14 +266,12 @@ test.describe("Guided mobile organize flow", () => {
 			await selectTwoAndExpand(page, first, second);
 			await selectSimilarButton(page).click();
 
-			await expect(page.getByText(/3 similar messages found/)).toBeVisible();
+			await expect(page.getByText(/3 messages match/)).toBeVisible();
 
 			await destinationSelect(page).selectOption({ label: "Archive" });
-			await page
-				.getByRole("button", { name: "These and new mail like this" })
-				.click();
-			await page.getByLabel("Filter name").fill(tag);
-			await page.getByRole("button", { name: "Always do this" }).click();
+			await page.getByRole("radio", { name: "Keep doing this" }).click();
+			await page.getByLabel("Rule name").fill(tag);
+			await page.getByRole("button", { name: "Save rule" }).click();
 
 			await expect(page.getByText("Filter saved")).toBeVisible({
 				timeout: 15_000,
@@ -285,7 +283,7 @@ test.describe("Guided mobile organize flow", () => {
 		}
 	});
 
-	test("a widen that matches nothing falls back to organizing the selection", async ({
+	test("a widen that matches nothing opens an honest, still-applicable rule", async ({
 		page,
 		run,
 		api,
@@ -294,31 +292,54 @@ test.describe("Guided mobile organize flow", () => {
 			page,
 			run,
 			api,
-			`organize-fallback ${Date.now()}`,
+			`organize-empty ${Date.now()}`,
 		);
 
 		await stubPreview(page, { matchedCount: 0, messageIds: [] });
+		// Applying an empty rule is still a one-time back-apply job; it just moves
+		// nothing. Stub it so the flow stays deterministic on the index-free lane.
+		await page.route(/\/organize$/, (route) =>
+			route.fulfill({
+				status: 200,
+				contentType: "application/json",
+				body: JSON.stringify({
+					organizeJobId: "job-1",
+					state: "Running",
+					matchedCount: 0,
+					appliedCount: 0,
+					failedCount: 0,
+				}),
+			}),
+		);
+		await page.route(/\/organize\/job-1$/, (route) =>
+			route.fulfill({
+				status: 200,
+				contentType: "application/json",
+				body: JSON.stringify({
+					organizeJobId: "job-1",
+					state: "Complete",
+					matchedCount: 0,
+					appliedCount: 0,
+					failedCount: 0,
+				}),
+			}),
+		);
 
 		try {
 			await selectTwoAndExpand(page, first, second);
 			await selectSimilarButton(page).click();
 
-			// No dead end: the sentence says it is organizing just the selection.
-			await expect(page.getByText(/No similar messages found/)).toBeVisible();
-			await expect(
-				page.getByText(/organizing just your 2 selected/),
-			).toBeVisible();
+			// No dead end: the editor opens and states the empty count plainly.
+			await expect(page.getByText(/No mail matches yet/)).toBeVisible();
 
 			await destinationSelect(page).selectOption({ label: "Archive" });
-			// The fallback defaults to the "Just these" scope — a real move.
-			await page.getByRole("button", { name: /Move 2 messages/ }).click();
+			await page.getByRole("button", { name: "Apply now" }).click();
 
-			await expect(selectionSheet(page)).toBeHidden();
-			// Single-pane mobile stays on the list — the move must not open a neighbour.
-			await expect(page).not.toHaveURL(/selectedMessageId=/);
-			await expect(rows(page)).toHaveCount(run.seededSubjects.length, {
+			await expect(page.getByText(/0 of 0 moved/)).toBeVisible({
 				timeout: 15_000,
 			});
+			await page.getByRole("button", { name: "Done" }).click();
+			await expect(selectionSheet(page)).toBeHidden();
 		} finally {
 			await cleanup();
 		}
@@ -350,14 +371,14 @@ test.describe("Guided mobile organize flow", () => {
 				page.getByPlaceholder("Tell Remit what to do…"),
 			).toBeVisible();
 
-			// A shortcut seeds the folder, then the flow widens into the sentence.
+			// A shortcut seeds the folder, then the flow widens into the editor.
 			await page.getByRole("button", { name: "File in Archive" }).click();
-			await expect(page.getByText(/5 similar messages found/)).toBeVisible();
+			await expect(page.getByText(/5 messages match/)).toBeVisible();
 
 			// The seeded folder carried through, so the commit is actionable
 			// without re-picking one.
 			await expect(
-				page.getByRole("button", { name: /Organize 5 messages/ }),
+				page.getByRole("button", { name: "Apply now" }),
 			).toBeEnabled();
 		} finally {
 			await cleanup();

@@ -5,18 +5,17 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { ErrorBannerProvider } from "@/components/ui/ErrorBannerProvider";
-import { OrganizePanel } from "./OrganizePanel";
+import { OrganizeRuleEditor } from "./OrganizeRuleEditor";
 import type { FolderOption } from "./SomethingElsePanel";
 import { SomethingElsePanel } from "./SomethingElsePanel";
 
 /**
- * `Flows/Smart Organize` — the guided select-similar → organize flow (issue
- * #211), rendered from the real web-client components, not a prototype copy:
- * the same {@link OrganizePanel} the desktop dialog and the mobile sheet use,
- * and the same {@link SomethingElsePanel} the flow seeds from. The prototype's
- * interactive `Inbox` / `Walkthrough` stories live alongside these in the
- * workbench; these show each in-sheet panel in isolation so they can't drift
- * from what ships.
+ * `Flows/Smart Organize` — the Organize surface as the chip editor (RFC 038 D1),
+ * rendered from the real web-client component the desktop dialog and the mobile
+ * sheet both mount, not a prototype copy. Each story opens the editor on a
+ * seeded state — a widen-anchored rule, the sender-fallback clauses (#251), a
+ * pre-seeded standing rule, and the capability-absent cases — so the surface
+ * can't drift from what ships.
  */
 
 const ACCOUNT_ID = "acc-1";
@@ -57,8 +56,8 @@ const FOLDER_OPTIONS: FolderOption[] = [
 ];
 
 /**
- * A QueryClient pre-seeded with the account's mailboxes, so the sentence's
- * folder picker renders its real options without a network round-trip.
+ * A QueryClient pre-seeded with the account's mailboxes, so the editor's folder
+ * picker renders its real options without a network round-trip.
  */
 function seededClient(): QueryClient {
 	const client = new QueryClient({
@@ -71,7 +70,7 @@ function seededClient(): QueryClient {
 	return client;
 }
 
-/** Phone frame + a bottom sheet holding the panel, mirroring the mobile home. */
+/** Phone frame + a bottom sheet holding the editor, mirroring the mobile home. */
 function SheetStage({ children }: { children: ReactNode }) {
 	return (
 		<QueryClientProvider client={seededClient()}>
@@ -109,44 +108,29 @@ export default meta;
 
 type Story = StoryObj;
 
-/** The organize sentence on a widened selection — folder picker + four scopes. */
+/** The rule editor on a widened selection — the widen chip and a live count. */
 export const Organize: Story = {
 	render: () => (
 		<SheetStage>
-			<OrganizePanel
+			<OrganizeRuleEditor
 				accountId={ACCOUNT_ID}
-				mailboxId="mbx-inbox"
 				selectedMessageIds={["msg-1", "msg-2", "msg-3"]}
-				matchPredicate={{
-					anchorMessageId: "msg-1",
-					matchOperator: "And",
-					literalClauses: [],
-				}}
-				matchedCount={47}
+				seedCount={47}
 				onClose={() => undefined}
 			/>
 		</SheetStage>
 	),
 };
 
-/**
- * A larger widen — the same sentence over a broad match set, as when the anchor
- * is a common sender.
- */
+/** A larger widen — the same editor over a broad match set. */
 export const FromSearch: Story = {
 	name: "From Search",
 	render: () => (
 		<SheetStage>
-			<OrganizePanel
+			<OrganizeRuleEditor
 				accountId={ACCOUNT_ID}
-				mailboxId="mbx-inbox"
 				selectedMessageIds={["msg-1"]}
-				matchPredicate={{
-					anchorMessageId: "msg-1",
-					matchOperator: "And",
-					literalClauses: [],
-				}}
-				matchedCount={412}
+				seedCount={412}
 				seedMailboxId="mbx-archive"
 				onClose={() => undefined}
 			/>
@@ -154,22 +138,16 @@ export const FromSearch: Story = {
 	),
 };
 
-/** The standing scope pre-selected — the "Always keep…" sentence + filter name. */
+/** The standing scope pre-selected — the rule that keeps working on new mail. */
 export const AlwaysRule: Story = {
 	name: "Always Rule",
 	render: () => (
 		<SheetStage>
-			<OrganizePanel
+			<OrganizeRuleEditor
 				accountId={ACCOUNT_ID}
-				mailboxId="mbx-inbox"
 				selectedMessageIds={["msg-1", "msg-2"]}
-				matchPredicate={{
-					anchorMessageId: "msg-1",
-					matchOperator: "And",
-					literalClauses: [],
-				}}
-				matchedCount={47}
-				initialScope="standing"
+				seedCount={47}
+				seedScope="standing"
 				seedMailboxId="mbx-travel"
 				onClose={() => undefined}
 			/>
@@ -177,47 +155,19 @@ export const AlwaysRule: Story = {
 	),
 };
 
-/** The widen matched nothing — the sentence organizes just the selection. */
-export const NoSimilarFound: Story = {
-	name: "No Similar Found",
-	render: () => (
-		<SheetStage>
-			<OrganizePanel
-				accountId={ACCOUNT_ID}
-				mailboxId="mbx-inbox"
-				selectedMessageIds={["msg-1", "msg-2"]}
-				matchPredicate={{
-					anchorMessageId: "msg-1",
-					matchOperator: "And",
-					literalClauses: [],
-				}}
-				matchedCount={0}
-				fallback
-				onClose={() => undefined}
-			/>
-		</SheetStage>
-	),
-};
-
 /**
- * The deployment ships no vector pipeline, so the server ran no semantic widen —
- * the sentence organizes just the selection and the heading names the real
- * reason (#226/#201).
+ * The deployment ships no vector pipeline and the selection has no senders to
+ * match on — the widen is not offered and the rule opens empty, awaiting a
+ * clause (#226/#201).
  */
 export const SemanticUnavailable: Story = {
 	name: "Semantic Unavailable",
 	render: () => (
 		<SheetStage>
-			<OrganizePanel
+			<OrganizeRuleEditor
 				accountId={ACCOUNT_ID}
-				mailboxId="mbx-inbox"
 				selectedMessageIds={["msg-1", "msg-2"]}
-				matchPredicate={{
-					anchorMessageId: "msg-1",
-					matchOperator: "And",
-					literalClauses: [],
-				}}
-				matchedCount={0}
+				seedCount={0}
 				semanticUnavailable
 				onClose={() => undefined}
 			/>
@@ -226,29 +176,19 @@ export const SemanticUnavailable: Story = {
 };
 
 /**
- * No vector pipeline, but the selection has senders to match on — the widen
- * fell back to matching all mail from those senders. The senders span different
- * domains, so the fallback keeps one `From` clause per address; the heading
- * names the senders and states the real semantics, and every commit scope
- * (including the standing filter) carries those clauses, so it reaches the
- * widened set and keeps working on future mail.
+ * No vector pipeline, but the selection has senders to match on — the widen fell
+ * back to the sender `From` clauses (#251). The senders span different domains,
+ * so the fallback keeps one editable `From` chip per address, combined with
+ * "or". Every commit carries exactly these clauses.
  */
 export const SenderFallback: Story = {
 	name: "Sender Fallback",
 	render: () => (
 		<SheetStage>
-			<OrganizePanel
+			<OrganizeRuleEditor
 				accountId={ACCOUNT_ID}
-				mailboxId="mbx-inbox"
 				selectedMessageIds={["msg-1", "msg-2"]}
-				matchPredicate={{
-					matchOperator: "Or",
-					literalClauses: [
-						{ field: "From", value: "npm@github.com" },
-						{ field: "From", value: "noreply@medium.com" },
-					],
-				}}
-				matchedCount={128}
+				seedCount={128}
 				semanticUnavailable
 				senders={["npm@github.com", "noreply@medium.com"]}
 				onClose={() => undefined}
@@ -260,23 +200,17 @@ export const SenderFallback: Story = {
 /**
  * The sender fallback where every selected sender shares one registrable domain
  * (RFC 038 D2): the per-address `From` chips collapse to a single `FromDomain`
- * clause, and the heading names the domain — "anyone at github.com" — rather
- * than listing addresses. Matches `sub.github.com` too, never a look-alike like
- * `github.com.evil.example`.
+ * chip — "anyone at github.com" — rather than listing addresses. Matches
+ * `sub.github.com` too, never a look-alike like `github.com.evil.example`.
  */
 export const SenderFallbackDomain: Story = {
 	name: "Sender Fallback (domain)",
 	render: () => (
 		<SheetStage>
-			<OrganizePanel
+			<OrganizeRuleEditor
 				accountId={ACCOUNT_ID}
-				mailboxId="mbx-inbox"
 				selectedMessageIds={["msg-1", "msg-2", "msg-3"]}
-				matchPredicate={{
-					matchOperator: "Or",
-					literalClauses: [{ field: "FromDomain", value: "github.com" }],
-				}}
-				matchedCount={342}
+				seedCount={342}
 				semanticUnavailable
 				senders={[
 					"npm@github.com",
@@ -289,29 +223,15 @@ export const SenderFallbackDomain: Story = {
 	),
 };
 
-/**
- * The sender fallback with a standing rule pre-selected — the "Always keep mail
- * from these senders" sentence, the filter that will match future mail at index
- * time.
- */
+/** The sender fallback with a standing rule pre-selected. */
 export const SenderFallbackStanding: Story = {
 	name: "Sender Fallback (standing)",
 	render: () => (
 		<SheetStage>
-			<OrganizePanel
+			<OrganizeRuleEditor
 				accountId={ACCOUNT_ID}
-				mailboxId="mbx-inbox"
 				selectedMessageIds={["msg-1", "msg-2", "msg-3", "msg-4"]}
-				matchPredicate={{
-					matchOperator: "Or",
-					literalClauses: [
-						{ field: "From", value: "npm@github.com" },
-						{ field: "From", value: "notifications@github.com" },
-						{ field: "From", value: "noreply@medium.com" },
-						{ field: "From", value: "digest@substack.com" },
-					],
-				}}
-				matchedCount={412}
+				seedCount={412}
 				semanticUnavailable
 				senders={[
 					"npm@github.com",
@@ -319,7 +239,7 @@ export const SenderFallbackStanding: Story = {
 					"noreply@medium.com",
 					"digest@substack.com",
 				]}
-				initialScope="standing"
+				seedScope="standing"
 				seedMailboxId="mbx-archive"
 				onClose={() => undefined}
 			/>

@@ -1,4 +1,5 @@
 import { mailboxOperationsListMailboxesOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import type { RuleScope } from "@remit/ui";
 import { BottomSheet, Button } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
@@ -12,13 +13,21 @@ import {
 	type PreviewStatus,
 	resolveOrganizeStage,
 } from "@/lib/organize/mobile-organize-flow";
-import { OrganizePanel } from "./OrganizePanel";
+import { OrganizeRuleEditor } from "./OrganizeRuleEditor";
 import { SomethingElsePanel } from "./SomethingElsePanel";
+
+/**
+ * Map a "Something else" seed's scope onto the rule editor's scope. Only the
+ * standing shortcut carries one; everything else lets the editor default.
+ */
+const seedRuleScope = (
+	seed: OrganizeSeed | undefined,
+): RuleScope | undefined =>
+	seed?.scope === "standing" ? "standing" : undefined;
 
 interface MobileOrganizeFlowProps {
 	entry: OrganizeEntry;
 	accountId: string;
-	mailboxId: string;
 	selectedMessageIds: string[];
 	/**
 	 * Sender addresses of the selected messages, driving the literal fallback on
@@ -53,7 +62,6 @@ const previewStatusOf = (
 export function MobileOrganizeFlow({
 	entry,
 	accountId,
-	mailboxId,
 	selectedMessageIds,
 	selectedSenders,
 	junkMailboxId,
@@ -67,7 +75,6 @@ export function MobileOrganizeFlow({
 		matchedCount,
 		semanticUnavailable,
 		senders,
-		matchPredicate,
 		isPending,
 		isError,
 		error,
@@ -125,15 +132,12 @@ export function MobileOrganizeFlow({
 			)}
 
 			{stage.kind === "organize" && (
-				<OrganizePanel
+				<OrganizeRuleEditor
 					accountId={accountId}
-					mailboxId={mailboxId}
 					selectedMessageIds={selectedMessageIds}
-					matchPredicate={matchPredicate}
-					matchedCount={stage.matchedCount}
-					initialScope={seed?.scope}
+					seedCount={stage.matchedCount}
+					seedScope={seedRuleScope(seed)}
 					seedMailboxId={seed?.moveMailboxId}
-					fallback={stage.fallback}
 					semanticUnavailable={semanticUnavailable}
 					senders={senders}
 					onClose={onClose}

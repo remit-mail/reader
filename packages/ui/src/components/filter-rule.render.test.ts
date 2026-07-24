@@ -306,6 +306,20 @@ describe("ClauseEditor", () => {
 		);
 		assert.match(html, />Save</);
 	});
+
+	it("offers only the fields a consumer allows, so it never proposes a clause the backend can't match", () => {
+		const html = render(
+			createElement(ClauseEditor, {
+				draft: { field: "From", value: "" },
+				mode: "add",
+				fields: ["From", "Subject", "HasWords"],
+			}),
+		);
+		assert.match(html, />From</);
+		assert.match(html, />Subject</);
+		assert.doesNotMatch(html, /value="ListId"/);
+		assert.doesNotMatch(html, /value="FromDomain"/);
+	});
 });
 
 describe("FilterPreviewCount", () => {
