@@ -142,3 +142,58 @@ describe("sqlite-vec store (integration)", { skip: !RUN }, () => {
 		assert.equal(hashes.size, 0);
 	});
 });
+
+/**
+ * The SQLITE_VEC_EXTENSION_PATH override branch — how the Alpine/musl backend
+ * image loads its own vec0.so instead of the npm package's glibc prebuilt. This
+ * suite runs on the glibc dev host, so it points the override at the npm
+ * package's own resolved loadable path: it proves the loader short-circuits
+ * getLoadablePath() and loads the extension via db.loadExtension(path), then
+ * drives the same vec0 read path (create table, upsert, cosine KNN) through it.
+ * The musl build of that .so is asserted to dlopen at image-build time in the
+ * Dockerfile's sqlite-vec-musl stage.
+ */
+describe("sqlite-vec store — SQLITE_VEC_EXTENSION_PATH override (integration)", {
+	skip: !RUN,
+}, () => {
+	let store: VectorStoreService;
+	let previous: string | undefined;
+
+	before(async () => {
+		previous = process.env.SQLITE_VEC_EXTENSION_PATH;
+		const { getLoadablePath } = await import("sqlite-vec");
+		process.env.SQLITE_VEC_EXTENSION_PATH = getLoadablePath();
+		store = createSqliteVectorStore({
+			path: ":memory:",
+			dimensions: DIMENSIONS,
+		});
+	});
+
+	after(async () => {
+		await store.close?.();
+		if (previous === undefined) {
+			delete process.env.SQLITE_VEC_EXTENSION_PATH;
+		} else {
+			process.env.SQLITE_VEC_EXTENSION_PATH = previous;
+		}
+	});
+
+	test("loads the extension from the override path and ranks by cosine", async () => {
+		await store.upsert([
+			record("o-x", [1, 0, 0, 0], { messageId: "m-ox", contentHash: "hx" }),
+			record("o-z", [0.9, 0.1, 0, 0], {
+				messageId: "m-oz",
+				contentHash: "hz",
+			}),
+			record("o-y", [0, 1, 0, 0], { messageId: "m-oy", contentHash: "hy" }),
+		]);
+
+		const matches = await store.query({ vector: [1, 0, 0, 0], topK: 3 });
+
+		assert.deepEqual(
+			matches.map((m) => m.chunkId),
+			["o-x", "o-z", "o-y"],
+		);
+		assert.ok(matches[0].score > 0.99);
+	});
+});

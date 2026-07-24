@@ -21,6 +21,24 @@ type SqliteVecModule = {
 	load: (db: Database) => void;
 };
 
+// `SQLITE_VEC_EXTENSION_PATH` overrides the npm `sqlite-vec` package's
+// getLoadablePath() with a pre-built loadable extension. That package resolves a
+// glibc-only prebuilt (`sqlite-vec-<platform>/vec0.so`) which cannot dlopen on
+// the Alpine/musl backend image, so that image bakes a musl-compiled `vec0.so`
+// and points this at it. better-sqlite3 derives the entry point from the
+// filename, and the `vec0` basename resolves to `sqlite3_vec_init` (SQLite drops
+// the digit). Unset keeps the npm resolution — the glibc search-index-worker
+// image sets nothing and loads the package unchanged.
+const loadSqliteVec = async (db: Database): Promise<void> => {
+	const overridePath = process.env.SQLITE_VEC_EXTENSION_PATH;
+	if (overridePath) {
+		db.loadExtension(overridePath);
+		return;
+	}
+	const sqliteVec = await runtimeImport<SqliteVecModule>("sqlite-vec");
+	sqliteVec.load(db);
+};
+
 /**
  * vec0 stores each chunk's vector alongside the scalar fields the query path
  * filters on, so equality / range filters are pushed into the KNN instead of
@@ -127,13 +145,12 @@ export const createSqliteVectorStore = (
 		dbPromise = (async () => {
 			const { default: Database } =
 				await runtimeImport<BetterSqlite3Module>("better-sqlite3");
-			const sqliteVec = await runtimeImport<SqliteVecModule>("sqlite-vec");
 			if (config.path !== ":memory:") {
 				mkdirSync(dirname(config.path), { recursive: true });
 			}
 			const db = new Database(config.path);
 			db.pragma("journal_mode = WAL");
-			sqliteVec.load(db);
+			await loadSqliteVec(db);
 			db.exec(CREATE_TABLE(dimensions));
 			return db;
 		})();

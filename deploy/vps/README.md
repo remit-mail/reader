@@ -182,16 +182,22 @@ Text search is the primary surface and works out of the box: FTS5 over subjects
 and senders. Queries of 1–2 characters run as an unindexed scan rather than
 through the index.
 
-Semantic (vector) search queries are not served. Answering one requires
-embedding the query in the API process, and the `backend` image deliberately
-ships without the embedding runtime (the model plus its dependencies would
-roughly quadruple the image and keep hundreds of MiB resident). The vector
-store's extension is additionally glibc-only, which the Alpine/musl backend
-cannot load. The `/search/semantic` endpoint detects the missing pipeline and
-returns empty results instead of erroring, so the web client's "Related"
-section is simply empty. The `search-index-worker` still indexes embeddings, so
-a future backend image that carries the query pipeline lights up semantic search
-without a re-index.
+Free-text semantic (vector) search queries are not served. Answering one
+requires embedding the query in the API process, and the `backend` image
+deliberately ships without the embedding runtime (the model plus its
+dependencies would roughly quadruple the image and keep hundreds of MiB
+resident). The `/search/semantic` endpoint detects the missing embedder and
+returns empty results instead of erroring, so the web client's "Related" section
+is simply empty. The `search-index-worker` still indexes embeddings, so a future
+backend image that carries the query pipeline lights up free-text semantic
+search without a re-index.
+
+The Organize "find similar" widen does work. It pools the vectors already stored
+for the anchor message and runs a nearest-neighbour read over the vector store —
+no query embedding, so it needs only `sqlite-vec`. The npm build of that
+extension is glibc-only and will not load on the Alpine/musl `backend` image, so
+the image carries a musl-compiled `vec0.so` and points the store's loader at it
+(`SQLITE_VEC_EXTENSION_PATH`).
 
 ## TLS
 

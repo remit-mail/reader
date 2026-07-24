@@ -103,6 +103,55 @@ RUN mkdir -p dist-docker/backend-migrations \
 	done
 
 ########################################################################
+# sqlite-vec-musl — compile the vec0 loadable extension against musl.
+#
+# The vector store's KNN read path — the Organize "find similar" widen
+# (packages/backend/src/service/organize.ts matchSemantic, pooling an anchor's
+# already-stored chunk vectors, no embedding model involved) — loads sqlite-vec
+# through better-sqlite3's loadExtension. The npm `sqlite-vec` package ships a
+# glibc-only prebuilt `vec0.so` (linked ld-linux / GLIBC_2.2.5) that cannot
+# dlopen on the Alpine/musl backend image, so the extension never loaded there
+# and semantic-capability.ts gated the widen off permanently. sqlite-vec is a
+# single-file C amalgamation; compile it against musl here and copy only the
+# ~140KB stripped `vec0.so` into the backend image — no model, no npm package,
+# no base-image switch.
+#
+# Pinned to the same version the search-index-worker image installs from npm
+# (docker/runtime/search-index-worker/package.json: sqlite-vec 0.1.9). The
+# GitHub release tarball is checksum-verified, so a moved or tampered asset
+# fails the build loudly instead of baking an unknown binary.
+#
+# `-D__COSMOPOLITAN__` disables one platform-guarded typedef block
+# (`typedef u_int8_t uint8_t;`) that assumes a glibc/BSD `u_int8_t` musl does not
+# provide; stdint.h already defines those types, so the block is redundant here.
+# That macro is referenced nowhere else in the amalgamation, so defining it is a
+# surgical off-switch for that block, not a claim about the target platform.
+# SIMD (AVX/NEON) stays off — it is opt-in via SQLITE_VEC_ENABLE_*, and the
+# portable scalar path needs no runtime CPU-feature guarantee. The basename
+# stays `vec0` so SQLite derives the `sqlite3_vec_init` entry point from the
+# filename (it copies only alphabetic characters, dropping the `0`).
+########################################################################
+FROM docker.io/library/alpine:3.23 AS sqlite-vec-musl
+ARG SQLITE_VEC_VERSION=0.1.9
+ARG SQLITE_VEC_SHA256=3acd67cb4aff080c7050926fd3cf8227905fe5b7ee3829d8ee5024ab1283cf61
+RUN apk add --no-cache build-base sqlite-dev sqlite curl
+WORKDIR /build
+RUN curl -fsSL -o amalgamation.tar.gz \
+		"https://github.com/asg017/sqlite-vec/releases/download/v${SQLITE_VEC_VERSION}/sqlite-vec-${SQLITE_VEC_VERSION}-amalgamation.tar.gz" \
+	&& echo "${SQLITE_VEC_SHA256}  amalgamation.tar.gz" | sha256sum -c - \
+	&& tar xzf amalgamation.tar.gz \
+	&& gcc -O2 -fPIC -shared -D__COSMOPOLITAN__ sqlite-vec.c -o vec0.so -lm \
+	&& strip vec0.so \
+	# Prove the stripped .so dlopens on musl and the `vec0` basename resolves the
+	# `sqlite3_vec_init` entry point, by creating the exact vec0 virtual table the
+	# store uses — offline (no network needed for the load). A musl ABI break, a
+	# renamed entry point, or a missing symbol fails the build here instead of
+	# shipping a backend image whose anchor widen 500s on first query.
+	&& sqlite3 :memory: ".load /build/vec0" \
+		"CREATE VIRTUAL TABLE t USING vec0(id TEXT PRIMARY KEY, embedding FLOAT[4] distance_metric=cosine)" \
+		"SELECT vec_version()"
+
+########################################################################
 # node-service-base — shared runtime layer for the six alpine-based images.
 #
 # Plain `alpine`, not `node:24-alpine`: the official node:*-alpine images
@@ -182,6 +231,14 @@ COPY --from=builder --chown=node:node /app/dist-docker/backend/migrate.mjs ./mig
 # picks one. The open-core export ships only the sqlite set — the builder stage
 # tolerates the Postgres set's absence, which a bare COPY cannot.
 COPY --from=builder --chown=node:node /app/dist-docker/backend-migrations/ ./
+# The musl-compiled sqlite-vec loadable extension (see the sqlite-vec-musl stage).
+# SQLITE_VEC_EXTENSION_PATH short-circuits the npm package's glibc-only
+# getLoadablePath() in the vector store's loader
+# (packages/search-service/src/backends/sqlite-vec.ts), so the Organize anchor
+# widen's KNN reads over vec.db work on this Alpine image. Free-text
+# /search/semantic stays gated — it needs the query embedder this image omits.
+COPY --from=sqlite-vec-musl --chown=node:node /build/vec0.so ./vec0.so
+ENV SQLITE_VEC_EXTENSION_PATH=/app/vec0.so
 ENV SERVER_PORT=8080
 EXPOSE 8080
 CMD ["node", "server.mjs"]
