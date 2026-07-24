@@ -31,6 +31,7 @@
     "check:ci-coverage": "node npm-scripts/check-ci-coverage.mjs",
     "bootstrap:publish-metadata": "node npm-scripts/set-publish-metadata.mjs",
     "images:publish": "bash npm-scripts/images-publish.sh",
+    "images:exists": "bash npm-scripts/images-exists.sh",
     "release:tag": "bash npm-scripts/release-tag.sh",
     "release:check-tag": "bash npm-scripts/release-check-tag.sh",
     "release:check-annotation": "bash npm-scripts/release-check-annotation.sh",

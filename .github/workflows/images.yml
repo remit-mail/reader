@@ -1,17 +1,28 @@
 name: Images
 
 # Builds and publishes the runtime container image roster to
-# ghcr.io/remit-mail/reader/* on every merge to main. Sequential builds share
-# one builder stage so the install/codegen/bundle cost is paid once.
+# ghcr.io/remit-mail/reader/*. Sequential builds share one builder stage so the
+# install/codegen/bundle cost is paid once.
 #
 # Drives `npm run images:publish` (npm-scripts/images-publish.sh), the same
 # entrypoint remit uses. That script and the docker/ build context (Dockerfile,
 # container-runtime.sh, per-service runtime manifests) must be carried by the
 # open-core export before this workflow can produce images; see the toolchain
 # staging notes.
+#
+# Trigger model: manual dispatch, plus a gated nightly — never every merge to
+# main. A merge does not build; a person builds a batch when they mean to
+# release, and an unattended nightly catches any main commit that landed with no
+# manual build. The nightly does nothing when the tip is already imaged, so a
+# batch built by hand during the day costs nothing overnight, and the nightly's
+# standing job is to keep the sha tag current and to keep exercising the
+# packaged-edge e2e that the source-built pull-request lane deliberately skips.
+#
+# 04:00 UTC is a quiet hour clear of the working day. The `decide` job below
+# turns that fixed cron into a no-op whenever there is nothing new to image.
 on:
-  push:
-    branches: [main]
+  schedule:
+    - cron: "0 4 * * *"
   workflow_dispatch: {}
 
 concurrency:
@@ -23,7 +34,50 @@ permissions:
   packages: write
 
 jobs:
+  # Decides whether this run has anything to build, so a nightly on an unchanged
+  # (already-imaged) tip ends green without rebuilding or republishing. It reads
+  # the registry with the same manifest-inspect primitive the release preflight
+  # uses, but inverts the verdict: there an existing tag is a fatal "refuse", here
+  # it is a clean "skip". A manual dispatch skips the read entirely and always
+  # builds — clicking Run means build now, even to re-run e2e on an imaged tip.
+  #
+  # This job only reads the registry, so it drops the workflow-level write.
+  decide:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      should_build: ${{ steps.decide.outputs.should_build }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Only the nightly queries the registry; a dispatch decides without a read,
+      # so it needs no login.
+      - name: Log in to GHCR
+        if: github.event_name == 'schedule'
+        run: docker login ghcr.io -u "${{ github.actor }}" --password-stdin <<<"${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Decide whether there is anything to build
+        id: decide
+        run: npm run images:exists
+        env:
+          REGISTRY: ghcr.io/remit-mail/reader
+          TAG: sha-${{ github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+
+  # Gated on `decide`: a skipped decision skips this job, and with it the e2e
+  # that needs it, so the run is a green no-op when there is nothing to release.
+  # A skip is not a failure — a genuine build error here still fails the run.
   build-and-push:
+    needs: decide
+    if: needs.decide.outputs.should_build == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
