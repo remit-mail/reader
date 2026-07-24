@@ -11,23 +11,51 @@
 #                   delivery; not part of the openapi/JWT-gated surface, so
 #                   it does not go through apisix's business routes)
 #   everything else -> the web static server (the SPA and its assets)
+#
+# Every upstream here is a single-replica container a redeploy replaces in
+# place: `docker compose up -d` stops the old container and starts the new one,
+# and for the seconds in between the service name does not dial. Caddy stays up
+# across that swap (it is not itself replaced), so without a retry window it
+# turns each in-flight request into a 502 — the ~1s of "dial tcp: lookup apisix
+# … server misbehaving" a routine redeploy dropped on background polls (#229,
+# #225). `lb_try_duration` holds each request at the proxy and re-dials every
+# `lb_try_interval` until the new container answers, so a routine redeploy
+# serves the request instead of failing it. A dial failure means nothing was
+# written upstream, so the retry is safe for every method, not only GETs, and
+# the window is bounded: an upstream that stays down past it still errors, which
+# is a real outage surfacing rather than a redeploy blip being hidden.
 route /api/auth/* {
-	reverse_proxy apisix:9080
+	reverse_proxy apisix:9080 {
+		lb_try_duration 30s
+		lb_try_interval 250ms
+	}
 }
 
 route /api/* {
 	uri strip_prefix /api
-	reverse_proxy apisix:9080
+	reverse_proxy apisix:9080 {
+		lb_try_duration 30s
+		lb_try_interval 250ms
+	}
 }
 
 route /content/* {
-	reverse_proxy backend:8080
+	reverse_proxy backend:8080 {
+		lb_try_duration 30s
+		lb_try_interval 250ms
+	}
 }
 
 route /health {
-	reverse_proxy apisix:9080
+	reverse_proxy apisix:9080 {
+		lb_try_duration 30s
+		lb_try_interval 250ms
+	}
 }
 
 route {
-	reverse_proxy web:8080
+	reverse_proxy web:8080 {
+		lb_try_duration 30s
+		lb_try_interval 250ms
+	}
 }
