@@ -25,12 +25,22 @@
 #
 # The GitHub release object is the definition of a published version (RFC 037
 # D2, R1a) — never the presence of an image tag. Pushing eight images is not
-# atomic, so it runs last, on the default all-steps-must-succeed behaviour: no
-# `if: always()`, no continue-on-error, nothing that would create it after a
-# partial push. A run that fails partway leaves the tags it managed to push
-# and no release for them; that is permanent, because step 1 forbids
-# completing a partial set under the tag it started with. The fix is cutting
-# the next version, never resuming this one.
+# atomic, so the release is cut as a draft first; the images are pushed; the
+# update manifest is uploaded as the release's `stable.json` asset; and only
+# then is the draft flipped to published. This runs on the default
+# all-steps-must-succeed behaviour: no `if: always()`, no continue-on-error. A
+# run that fails partway leaves a draft release and whatever tags it managed to
+# push. A draft is invisible to `releases/latest/download`, so a partial
+# release is never discoverable and never offered as an update; the fix is
+# cutting the next version, never resuming this one.
+#
+# The manifest ships as that release asset rather than a commit to `main`: `main`
+# requires a pull request and a passing `gate` check with no bypass, so a
+# workflow cannot push to it, and a PR opened with GITHUB_TOKEN never triggers
+# the checks that would let it merge. The release asset is atomic with the
+# release object and needs no write to a protected branch. Its published URL,
+# `releases/latest/download/stable.json`, resolves only the latest published,
+# non-prerelease release — exactly the discovery contract.
 name: Release
 
 on:
@@ -62,6 +72,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
 
       - name: Log in to GHCR
         run: docker login ghcr.io -u "${{ github.actor }}" --password-stdin <<<"${{ secrets.GITHUB_TOKEN }}"
@@ -72,6 +83,21 @@ jobs:
           REGISTRY: ghcr.io/remit-mail/reader
           TAG: ${{ github.ref_name }}
 
+      # Installed before any release side effect so a bad lockfile fails here,
+      # not after a draft and eight images already exist. The manifest writer
+      # imports @remit/data-ports for the shared schema, so the workspace has to
+      # be present.
+      - name: Install the workspace for the manifest writer
+        run: npm ci --no-audit --no-fund --loglevel=error
+
+      # A draft up front is invisible to `releases/latest/download`, so nothing
+      # is discoverable until the images and the manifest asset are in place and
+      # the final step flips it published.
+      - name: Create the GitHub release as a draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "${{ github.ref_name }}" --draft --generate-notes
+
       - name: Build and push the roster
         run: npm run images:publish
         env:
@@ -80,7 +106,25 @@ jobs:
           PUSH: "1"
           PUSH_LATEST: "0"
 
-      - name: Create the GitHub release
+      # RFC 037 D3 / #131. The manifest is published as the release's own
+      # `stable.json` asset — atomic with the release, needing no write to the
+      # protected main branch. write-update-manifest.mjs runs against this tag's
+      # checkout so deriveSchemaVersion reads the released ref's migration
+      # journals; --allow-draft lets it write for the draft it is about to
+      # publish while still refusing any other draft. The asset is uploaded
+      # before the release is published, so the published
+      # `releases/latest/download/stable.json` never 404s.
+      - name: Publish the update manifest as a release asset
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create "${{ github.ref_name }}" --generate-notes
+        run: |
+          npm run manifest:write -- "${{ github.ref_name }}" --allow-draft
+          gh release upload "${{ github.ref_name }}" deploy/updates/stable.json --clobber
+
+      # Last, and only if every step above succeeded: flipping the draft
+      # published is what makes the version — and its manifest asset — the one
+      # `releases/latest/download` resolves.
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${{ github.ref_name }}" --draft=false

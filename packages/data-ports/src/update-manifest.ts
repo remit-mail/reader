@@ -13,6 +13,12 @@ export const UpdateManifestSchema = z.object({
 			message: "releaseNotesUrl must be an https:// URL",
 		}),
 	registry: z.string().min(1),
+	// The highest schema migration the release applies, as a count of the
+	// migrations shipped at that release. The updater compares it against the
+	// running instance's version to tell whether installing this release runs a
+	// migration. Optional so a manifest published before this field validates and
+	// reads as an unknown schema version rather than an error.
+	schemaVersion: z.number().int().nonnegative().optional(),
 });
 
 export type UpdateManifest = z.infer<typeof UpdateManifestSchema>;

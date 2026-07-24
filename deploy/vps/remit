@@ -547,6 +547,14 @@ json_string() {
 		sed -n 's/.*"'"$2"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
 }
 
+# Reads one integer field out of flat JSON. schemaVersion is a number, not the
+# quoted string json_string reads, and an absent field yields nothing — an old
+# manifest without it renders no schemaVersion at all rather than a zero.
+json_number() {
+	printf '%s' "$1" | tr '\n' ' ' |
+		sed -n 's/.*"'"$2"'"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p'
+}
+
 # BRE alternation is a GNU extension, so this reads the two literals instead.
 json_bool() {
 	case "$(printf '%s' "$1" | tr '\n' ' ')" in
@@ -632,8 +640,19 @@ state_render() {
 	if [ -f "$STATE_DIR/run.json" ]; then
 		_run=$(cat "$STATE_DIR/run.json")
 	fi
-	printf '{"currentVersion":"%s","check":%s,"run":%s}\n' \
-		"$(json_escape "$(get_var REMIT_TAG)")" "$_check" "$_run" |
+	# currentSchemaVersion is the running instance's schema version, recorded at
+	# check time. Absent — never checked, or no database to read — is an unknown
+	# version and the field is omitted rather than rendered null. A database that
+	# exists but has not been migrated reads as 0, not absent.
+	_schema=""
+	if [ -f "$STATE_DIR/current-schema" ]; then
+		_cs=$(cat "$STATE_DIR/current-schema")
+		if [ -n "$_cs" ]; then
+			_schema=$(printf ',"currentSchemaVersion":%s' "$_cs")
+		fi
+	fi
+	printf '{"currentVersion":"%s"%s,"check":%s,"run":%s}\n' \
+		"$(json_escape "$(get_var REMIT_TAG)")" "$_schema" "$_check" "$_run" |
 		atomic_write "$CONTROL_DIR/state.json"
 	# state.json carries no secret and the backend reads it back across the uid
 	# boundary (the updater writes as root, the backend runs as 1000), so it is
@@ -775,6 +794,7 @@ check_failed() {
 # successful check.
 do_check() {
 	mkdir -p "$STATE_DIR"
+	record_current_schema
 	CHECK_VERSION=""
 	CHECK_AVAILABLE=false
 	_url=$(manifest_url)
@@ -815,18 +835,26 @@ do_check() {
 		"$(json_string "$_body" publishedAt)" \
 		"$(json_string "$_body" summary)" \
 		"$(json_string "$_body" releaseNotesUrl)" \
-		"$CHECK_AVAILABLE"
+		"$CHECK_AVAILABLE" \
+		"$(json_number "$_body" schemaVersion)"
 	return 0
 }
 
+# schemaVersion ($7) is the target release's schema version, straight from the
+# manifest. It is optional: a manifest without it produces a check block without
+# it, which reads as an unknown schema version rather than a zero.
 write_check_ok() {
-	printf '{"status":"ok","lastCheckedAt":"%s","latestVersion":"%s","publishedAt":"%s","summary":"%s","releaseNotesUrl":"%s","updateAvailable":%s}\n' \
+	_schema=""
+	if [ -n "${7:-}" ]; then
+		_schema=$(printf ',"schemaVersion":%s' "$7")
+	fi
+	printf '{"status":"ok","lastCheckedAt":"%s","latestVersion":"%s","publishedAt":"%s","summary":"%s","releaseNotesUrl":"%s","updateAvailable":%s%s}\n' \
 		"$(json_escape "$1")" \
 		"$(json_escape "$2")" \
 		"$(json_escape "$3")" \
 		"$(json_escape "$4")" \
 		"$(json_escape "$5")" \
-		"$6" | atomic_write "$STATE_DIR/check.json"
+		"$6" "$_schema" | atomic_write "$STATE_DIR/check.json"
 	state_render
 }
 
@@ -851,7 +879,8 @@ recheck_availability() {
 		"$(json_string "$_c" publishedAt)" \
 		"$(json_string "$_c" summary)" \
 		"$(json_string "$_c" releaseNotesUrl)" \
-		"$_avail"
+		"$_avail" \
+		"$(json_number "$_c" schemaVersion)"
 }
 
 # The control seam (#133): request.json is written wholly by the backend, so
@@ -1003,6 +1032,52 @@ prune_snapshots() {
 			rm -rf "$_d"
 		fi
 	done
+}
+
+# --- running schema version (reader#242) ------------------------------------
+#
+# The instance's schema version is how many migrations have been applied, read
+# from drizzle's own bookkeeping tables in the live database. The manifest's
+# schemaVersion is the same count at the target release (npm-scripts derives it
+# from the migration journals), so schemaVersion > currentSchemaVersion is
+# exactly "installing this release runs a migration" — no boolean is computed or
+# stored anywhere.
+#
+# It reads inside a helper container the way the snapshot does, and as uid 1000
+# for the same reason: a consistent count opens the live WAL database, and a
+# root-owned -wal/-shm sidecar left on the volume fails every app writer's next
+# open. An absent database is an unknown version — it prints nothing and is
+# never an error. A database that exists but holds none of the migration tables
+# is schema version 0, a pre-migration instance that every release migrates:
+# counting a table that does not exist yields 0 through the sqlite3 fallback,
+# and that zero total is emitted rather than folded back into unknown.
+read_schema_version() {
+	volume_run "set -eu
+command -v sqlite3 >/dev/null 2>&1 || apk add --no-cache sqlite >/dev/null 2>&1 || exit 0
+command -v su-exec >/dev/null 2>&1 || apk add --no-cache su-exec >/dev/null 2>&1 || exit 0
+[ -f /data/sqlite/remit.db ] || exit 0
+exec su-exec 1000:1000 sh -c 'total=0
+for t in __drizzle_migrations_entities __drizzle_migrations_auth __drizzle_migrations_meta; do
+  c=\$(sqlite3 /data/sqlite/remit.db \"SELECT count(*) FROM \$t\" 2>/dev/null || printf 0)
+  total=\$((total + c))
+done
+printf %s \"\$total\"'"
+}
+
+# Persisted so state_render can render it on every later write without opening a
+# container each time; refreshed on each check. A non-integer read — the helper
+# failed, the database is not there — clears it, so the field goes back to
+# unknown rather than reporting a stale version. Only do_check calls this, so
+# after an update migrates the database the recorded version stays at the
+# pre-update count until the next check refreshes it; that self-heals, and
+# updateAvailable is false in the interim, so no consumer is misled.
+record_current_schema() {
+	_sv=$(read_schema_version 2>/dev/null || true)
+	if printf '%s' "$_sv" | grep -qE '^[0-9]+$'; then
+		printf '%s' "$_sv" | atomic_write "$STATE_DIR/current-schema"
+	else
+		rm -f "$STATE_DIR/current-schema"
+	fi
 }
 
 # --- the gate (RFC 037 D5, R9) ----------------------------------------------

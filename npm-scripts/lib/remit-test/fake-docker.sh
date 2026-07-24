@@ -22,6 +22,15 @@
 #   restarts=N                RestartCount from the second inspect onwards
 #   services=...              services with a container, space separated
 #   all_services=...          what `compose config --services` lists
+#   current_schema=N          what the schema read returns (non-real mode)
+#   target_schema=N           the running schema after this run's migrate applies
+#   target_schema2=N          the same after a restore (rollback re-runs migrate)
+#
+# With FAKE_REAL_DB=1 the snapshot, restore and schema read run for real against
+# $FAKE_SQLITE_DIR/remit.db (a host directory standing in for the sqlite volume)
+# and `compose up ... migrate` applies the run's migration to it, so a
+# migration-update test asserts a real byte-restore and a real schema-version
+# transition. sqlite3/su-exec/apk/chown must be fakes on PATH.
 set -eu
 
 S="$FAKE_DOCKER_DIR"
@@ -48,6 +57,47 @@ pick() {
 		fi
 	fi
 	val "$1" "$2"
+}
+
+# --- real-database mode -----------------------------------------------------
+#
+# A helper container's script is run for real, its container paths rewritten to
+# the host paths the -v mounts named, so the snapshot VACUUMs and the restore
+# copies bytes back against a real database. FR_SQLITE/FR_STATE/FR_SNAPLIB are
+# set by run_cmd from the -v arguments before this is called.
+exec_real() {
+	printf '%s' "$1" | sed \
+		-e "s#/data/sqlite#$FR_SQLITE#g" \
+		-e "s#/snapshot-db.sh#$FR_SNAPLIB#g" \
+		-e "s#/state#$FR_STATE#g" |
+		sh
+}
+
+schema_total() {
+	_st=0
+	for _t in __drizzle_migrations_entities __drizzle_migrations_auth __drizzle_migrations_meta; do
+		_c=$(sqlite3 "$1" "SELECT count(*) FROM $_t" 2>/dev/null || printf 0)
+		[ -n "$_c" ] || _c=0
+		_st=$((_st + _c))
+	done
+	printf '%s' "$_st"
+}
+
+# The migrate one-shot, modelled: a passing migrate applies this run's schema
+# migration to the real database — a new column and a new bookkeeping row that
+# lifts the running schema total by one — but only while it is below the target,
+# so the forward-only migrate is idempotent and the rollback's re-run (target
+# back at the old version via `pick`) changes nothing.
+apply_migrate() {
+	[ -n "${FAKE_SQLITE_DIR:-}" ] || return 0
+	_db="$FAKE_SQLITE_DIR/remit.db"
+	[ -f "$_db" ] || return 0
+	[ "$(pick migrate_exit 0)" = "0" ] || return 0
+	_target=$(pick target_schema 0)
+	_cur=$(schema_total "$_db")
+	[ "$_cur" -lt "$_target" ] || return 0
+	sqlite3 "$_db" "ALTER TABLE message ADD COLUMN filter_move text" 2>/dev/null || true
+	sqlite3 "$_db" "INSERT INTO __drizzle_migrations_entities (id, hash, created_at) VALUES ($_cur, 'applied', $_cur)" 2>/dev/null || true
 }
 
 next_id() {
@@ -125,6 +175,11 @@ compose_cmd() {
 			recreate "$_s"
 			: >"$S/up-$_s"
 		done
+		if [ "${FAKE_REAL_DB:-0}" = "1" ]; then
+			case " $_svcs " in
+			*" migrate "*) apply_migrate ;;
+			esac
+		fi
 		# migrate and volume-init are one-shots: they exit, they do not stay up.
 		rm -f "$S/up-migrate" "$S/up-volume-init"
 		exit 0
@@ -231,35 +286,57 @@ inspect_cmd() {
 run_cmd() {
 	_script=""
 	_probe=0
+	FR_SQLITE=""
+	FR_STATE=""
+	FR_SNAPLIB=""
+	# The helper container's script is the last argument after -c; the -v
+	# arguments name the host paths real-database mode rewrites container paths to.
+	_prev=""
 	for _a in "$@"; do
 		case "$_a" in
 		container:*) _probe=1 ;;
 		esac
+		if [ "$_prev" = "-v" ]; then
+			_cpath=${_a#*:}
+			_cpath=${_cpath%:ro}
+			case "$_cpath" in
+			/data/sqlite) FR_SQLITE=${_a%%:*} ;;
+			/state) FR_STATE=${_a%%:*} ;;
+			/snapshot-db.sh) FR_SNAPLIB=${_a%%:*} ;;
+			esac
+		fi
+		if [ "$_prev" = "-c" ]; then _script=$_a; fi
+		_prev=$_a
 	done
 	if [ "$_probe" = "1" ]; then
 		log "run probe"
 		if [ "$(pick probe ok)" = "ok" ]; then exit 0; fi
 		exit 1
 	fi
-	# The helper container's script is the last argument after -c.
-	_prev=""
-	for _a in "$@"; do
-		if [ "$_prev" = "-c" ]; then _script=$_a; fi
-		_prev=$_a
-	done
 	{
 		printf -- '--- volume script ---\n'
 		printf '%s\n' "$_script"
 	} >>"$S/volume-scripts"
 	case "$_script" in
+	*__drizzle_migrations*)
+		log "run schema-read"
+		if [ "${FAKE_REAL_DB:-0}" = "1" ]; then
+			exec_real "$_script"
+			exit $?
+		fi
+		printf '%s' "$(pick current_schema "")"
+		exit 0
+		;;
 	*snapshot_db*)
 		log "run snapshot"
 		if [ "$(val snapshot ok)" != "ok" ]; then exit 1; fi
+		if [ "${FAKE_REAL_DB:-0}" = "1" ]; then exec_real "$_script" || exit 1; fi
 		exit 0
 		;;
 	*)
 		log "run restore"
 		if [ "$(val restore ok)" != "ok" ]; then exit 1; fi
+		if [ "${FAKE_REAL_DB:-0}" = "1" ]; then exec_real "$_script" || exit 1; fi
 		: >"$S/restored"
 		exit 0
 		;;
