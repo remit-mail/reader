@@ -59,6 +59,7 @@ export {
 	testImapConnection,
 	testSmtpConnection,
 } from "./connection-test.js";
+export { extractListId, normalizeListId } from "./filters/list-id.js";
 export {
 	buildMatchText,
 	clauseMatches,

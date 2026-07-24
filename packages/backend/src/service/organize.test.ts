@@ -213,7 +213,14 @@ const candidate = (
 	over: Partial<OrganizeCandidate["message"]> = {},
 ): OrganizeCandidate => ({
 	messageId,
-	message: { from: "", fromName: "", subject: "", text: "", ...over },
+	message: {
+		from: "",
+		fromName: "",
+		subject: "",
+		text: "",
+		listId: "",
+		...over,
+	},
 });
 
 describe("matchOrganize", () => {
@@ -595,5 +602,117 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 			matching.map((id): [string, string] => [id, "mbox-target"]),
 			"each message rests in the requested mailbox exactly once",
 		);
+	});
+});
+
+describe("matchOrganize with ListId and FromDomain clauses", () => {
+	const senderChunk = (
+		messageId: string,
+		fromEmail: string,
+		over: Partial<ChunkMetadata> = {},
+	): VectorRecord => ({
+		chunkId: `${messageId}#sender`,
+		vector: ANCHOR_VECTOR,
+		metadata: metadata({
+			messageId,
+			chunkType: "sender",
+			textPreview: fromEmail,
+			...over,
+		}),
+	});
+
+	it("matches a ListId clause exactly off the vector-free projection", async () => {
+		const deps = vectorlessDeps([
+			candidate("msg-1", { listId: "weekly.news.example.com" }),
+			candidate("msg-2", { listId: "news.example.com" }),
+			candidate("msg-3", {}),
+		]);
+
+		const { messageIds } = await matchOrganize(deps, ACCOUNT_CONFIG_ID, {
+			...predicate(),
+			anchorMessageId: "None",
+			literalClauses: [{ field: "ListId", value: "weekly.news.example.com" }],
+		});
+
+		assert.deepEqual(messageIds, ["msg-1"]);
+	});
+
+	it("matches a FromDomain clause public-suffix aware off the vector-free projection", async () => {
+		const deps = vectorlessDeps([
+			candidate("msg-1", { from: "notifications@github.com" }),
+			candidate("msg-2", { from: "ci@sub.github.com" }),
+			candidate("msg-3", { from: "attacker@github.com.evil.example" }),
+		]);
+
+		const { messageIds } = await matchOrganize(deps, ACCOUNT_CONFIG_ID, {
+			...predicate(),
+			anchorMessageId: "None",
+			literalClauses: [{ field: "FromDomain", value: "github.com" }],
+		});
+
+		assert.deepEqual(messageIds, ["msg-1", "msg-2"]);
+	});
+
+	it("round-trips ListId and FromDomain through the semantic-arm chunk projection", async () => {
+		const store = createMemoryVectorStore();
+		await store.upsert([
+			senderChunk("msg-1", "ci@github.com", {
+				listId: "actions.github.com",
+			}),
+			bodyChunk("msg-1", ANCHOR_VECTOR, { listId: "actions.github.com" }),
+			senderChunk("msg-2", "hi@othersender.example", {
+				listId: "other.list.example",
+			}),
+			bodyChunk("msg-2", ANCHOR_VECTOR, { listId: "other.list.example" }),
+		]);
+
+		const byListId = await matchOrganize(matchDeps(store), ACCOUNT_CONFIG_ID, {
+			...predicate(),
+			literalClauses: [{ field: "ListId", value: "actions.github.com" }],
+		});
+		assert.deepEqual(byListId.messageIds, ["msg-1"]);
+
+		const byFromDomain = await matchOrganize(
+			matchDeps(store),
+			ACCOUNT_CONFIG_ID,
+			{
+				...predicate(),
+				literalClauses: [{ field: "FromDomain", value: "github.com" }],
+			},
+		);
+		assert.deepEqual(byFromDomain.messageIds, ["msg-1"]);
+	});
+
+	it("applies a ListId predicate to exactly the previewed set (preview == apply)", async () => {
+		const deps = vectorlessDeps([
+			candidate("msg-1", { listId: "weekly.news.example.com" }),
+			candidate("msg-2", { listId: "weekly.news.example.com" }),
+			candidate("msg-3", { listId: "other.example.com" }),
+		]);
+		const p = predicate({
+			anchorMessageId: "None",
+			actionLabelId: "lbl-list",
+			literalClauses: [{ field: "ListId", value: "weekly.news.example.com" }],
+		});
+
+		const previewed = await matchOrganize(deps, ACCOUNT_CONFIG_ID, p);
+		const applied = await matchOrganize(deps, ACCOUNT_CONFIG_ID, p);
+		assert.deepEqual(previewed, applied);
+		assert.deepEqual(previewed.messageIds, ["msg-1", "msg-2"]);
+
+		const tracked = trackingClient();
+		const result = await applyOrganize(
+			{ client: tracked.client },
+			ACCOUNT_CONFIG_ID,
+			applied.messageIds,
+			p,
+		);
+
+		assert.equal(result.applied, 2);
+		assert.equal(result.failed, 0);
+		assert.deepEqual(tracked.labeled.map((row) => row.messageId).sort(), [
+			"msg-1",
+			"msg-2",
+		]);
 	});
 });

@@ -39,6 +39,7 @@
 		"mailparser": "^3.9.14",
 		"nodemailer": "^9.0.3",
 		"p-map": "^7.0.4",
+		"tldts": "^7.4.9",
 		"@remit/data-ports": "*",
 		"@remit/domain-enums": "*",
 		"@remit/mail-oauth-service": "*",

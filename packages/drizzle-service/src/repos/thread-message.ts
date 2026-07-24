@@ -122,6 +122,7 @@ function toItem(row: Row): ThreadMessageItem {
 		...(row.fromName !== null ? { fromName: row.fromName } : {}),
 		...(row.subject !== null ? { subject: row.subject } : {}),
 		...(row.snippet !== null ? { snippet: row.snippet } : {}),
+		...(row.listId !== null ? { listId: row.listId } : {}),
 	};
 }
 
@@ -237,6 +238,7 @@ export class DrizzleThreadMessageRepository
 			fromName: input.fromName ?? null,
 			subject: input.subject ?? null,
 			snippet: input.snippet ?? null,
+			listId: input.listId ?? null,
 			createdAt: now,
 			updatedAt: now,
 		};
@@ -321,6 +323,7 @@ export class DrizzleThreadMessageRepository
 		if (input.star !== undefined) set.star = input.star;
 		if (input.category !== undefined) set.category = input.category;
 		if (input.subject !== undefined) set.subject = input.subject;
+		if (input.listId !== undefined) set.listId = input.listId;
 		if (input.fromEmail !== undefined) set.fromEmail = input.fromEmail;
 		if (input.fromName !== undefined) set.fromName = input.fromName;
 		if (input.snippet !== undefined) set.snippet = input.snippet;

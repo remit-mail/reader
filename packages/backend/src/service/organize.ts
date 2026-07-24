@@ -131,11 +131,13 @@ const filterMessageFromChunks = (
 	let subject = "";
 	let fromName = "";
 	let from = "";
+	let listId = "";
 	const textParts: string[] = [];
 	for (const record of records) {
 		const meta = record.metadata;
 		if (meta.subject && !subject) subject = meta.subject;
 		if (meta.fromName && !fromName) fromName = meta.fromName;
+		if (meta.listId && !listId) listId = meta.listId;
 		if (meta.chunkType === "sender" && meta.textPreview && !from) {
 			from = meta.textPreview;
 		}
@@ -146,7 +148,7 @@ const filterMessageFromChunks = (
 			textParts.push(meta.textPreview);
 		}
 	}
-	return { from, fromName, subject, text: textParts.join("\n") };
+	return { from, fromName, subject, listId, text: textParts.join("\n") };
 };
 
 /**
@@ -355,8 +357,10 @@ const buildSemanticFromEnv = (): OrganizeSemanticDeps => {
  * deployment that ships no vector pipeline. Deduped by message id — the same
  * mail filed in two folders is one candidate.
  *
- * `From`/`Subject` come from the row verbatim (full fidelity). `text` (the body)
- * is left empty: the thread row carries only a truncated `snippet`, and matching
+ * `From`/`Subject`/`listId` come from the row verbatim (full fidelity), so a
+ * `From`, `Subject`, `FromDomain` or `ListId` clause matches here exactly as it
+ * does at index time. `text` (the body) is left empty: the thread row carries
+ * only a truncated `snippet`, and matching
  * a body-content clause against a preview would silently diverge from the live
  * index-time filter's full-body match. Body-content (`HasWords`) clauses are
  * rejected before this is read (see {@link assertNoBodyContentClause}), so the
@@ -384,6 +388,7 @@ const listAccountFilterMessagesFromClient =
 						fromName: row.fromName ?? "",
 						subject: row.subject ?? "",
 						text: "",
+						listId: row.listId ?? "",
 					},
 				});
 				if (candidates.length >= limit) return candidates;

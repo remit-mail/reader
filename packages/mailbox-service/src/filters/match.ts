@@ -1,5 +1,7 @@
 import type { FilterItem } from "@remit/data-ports";
 import { FilterClauseField, FilterMatchOperator } from "@remit/domain-enums";
+import { getDomain } from "tldts";
+import { normalizeListId } from "./list-id.js";
 
 type FilterClause = FilterItem["literalClauses"][number];
 
@@ -36,15 +38,32 @@ export interface FilterMessage {
 	fromName: string;
 	subject: string;
 	text: string;
+	/** Normalized `List-Id` header value (see `normalizeListId`); `""` when absent. */
+	listId: string;
 }
 
 const includesFold = (haystack: string, needle: string): boolean =>
 	haystack.toLowerCase().includes(needle.toLowerCase());
 
+const hostOf = (address: string): string => {
+	const at = address.lastIndexOf("@");
+	return at >= 0 ? address.slice(at + 1) : address;
+};
+
+/**
+ * The registrable, public-suffix-aware domain of an email address or host, or
+ * `null` when none resolves. `getDomain` folds case and applies the ICANN
+ * suffix list, so `github.com.evil.example` yields `evil.example`, never
+ * `github.com` — a `FromDomain` clause cannot be spoofed by a crafted subdomain.
+ */
+const registrableDomain = (addressOrHost: string): string | null =>
+	getDomain(hostOf(addressOrHost.trim()));
+
 /**
  * Whether one literal clause matches the message. From matches against the
  * sender address and display name; Subject against the subject; HasWords against
- * subject or body. An empty clause value never matches.
+ * subject or body; ListId against the exact normalized `List-Id`; FromDomain
+ * against the sender's registrable domain. An empty clause value never matches.
  */
 export const clauseMatches = (
 	clause: FilterClause,
@@ -59,6 +78,15 @@ export const clauseMatches = (
 			return includesFold(msg.subject, value);
 		case FilterClauseField.HasWords:
 			return includesFold(msg.subject, value) || includesFold(msg.text, value);
+		case FilterClauseField.ListId: {
+			const target = normalizeListId(value);
+			return target !== "" && normalizeListId(msg.listId) === target;
+		}
+		case FilterClauseField.FromDomain: {
+			const target = registrableDomain(value);
+			if (target === null) return false;
+			return registrableDomain(msg.from) === target;
+		}
 		default:
 			return false;
 	}
