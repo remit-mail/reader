@@ -194,6 +194,68 @@ describe("GET /system/update", () => {
 		assert.equal(result.check.status, "failed");
 		assert.deepEqual(result.run, run);
 	});
+
+	it("passes both schema-version fields through when the state file carries them", async () => {
+		writeState({
+			currentVersion: "v1.4.1",
+			currentSchemaVersion: 5,
+			check: { ...okState.check, schemaVersion: 6 },
+			run: null,
+		});
+
+		const result = (await getUpdate(buildEvent(OWNER))) as {
+			currentSchemaVersion?: number;
+			check: { schemaVersion?: number };
+		};
+
+		assert.equal(result.currentSchemaVersion, 5);
+		assert.equal(result.check.schemaVersion, 6);
+	});
+
+	it("omits both schema-version fields when the state file predates them", async () => {
+		writeState(okState);
+
+		const result = (await getUpdate(buildEvent(OWNER))) as {
+			currentSchemaVersion?: number;
+			check: { schemaVersion?: number };
+		};
+
+		assert.ok(!("currentSchemaVersion" in result));
+		assert.ok(!("schemaVersion" in result.check));
+	});
+
+	it("carries currentSchemaVersion alone when the check has no schema version", async () => {
+		writeState({
+			currentVersion: "v1.4.1",
+			currentSchemaVersion: 5,
+			check: okState.check,
+			run: null,
+		});
+
+		const result = (await getUpdate(buildEvent(OWNER))) as {
+			currentSchemaVersion?: number;
+			check: { schemaVersion?: number };
+		};
+
+		assert.equal(result.currentSchemaVersion, 5);
+		assert.ok(!("schemaVersion" in result.check));
+	});
+
+	it("carries check.schemaVersion alone when currentSchemaVersion is absent", async () => {
+		writeState({
+			currentVersion: "v1.4.1",
+			check: { ...okState.check, schemaVersion: 6 },
+			run: null,
+		});
+
+		const result = (await getUpdate(buildEvent(OWNER))) as {
+			currentSchemaVersion?: number;
+			check: { schemaVersion?: number };
+		};
+
+		assert.ok(!("currentSchemaVersion" in result));
+		assert.equal(result.check.schemaVersion, 6);
+	});
 });
 
 describe("POST /system/update", () => {
