@@ -28,7 +28,7 @@ function formatBuildTime(iso: string): string {
 
 function AppVersion({
 	sha = "abcdef1",
-	commitUrl = "https://github.com/remit-mail/reader/commit/abcdef1234567890",
+	commitUrl,
 	buildTime = new Date().toISOString(),
 }: AppVersionProps) {
 	return (
