@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { ApiError } from "./api";
 import {
+	BACKGROUND_POLL_ESCALATION_THRESHOLD,
 	getErrorStatus,
 	hasHttpStatus,
 	isAbortError,
+	isBackgroundPoll,
 	isClientBug,
 	isNetworkError,
 	isServerError,
@@ -277,5 +279,77 @@ describe("shouldEscalate (the fail-fast decision table — #1059)", () => {
 		const bug = new TypeError('can\'t access property "map", x is undefined');
 		assert.equal(shouldEscalate(bug), true);
 		assert.equal(shouldEscalate(bug, { softError: true }), true);
+	});
+});
+
+describe("isBackgroundPoll", () => {
+	it("is true only when meta.backgroundPoll === true", () => {
+		assert.equal(isBackgroundPoll({ backgroundPoll: true }), true);
+	});
+
+	it("is false for any other meta", () => {
+		assert.equal(isBackgroundPoll(undefined), false);
+		assert.equal(isBackgroundPoll({}), false);
+		assert.equal(isBackgroundPoll({ softError: true }), false);
+		assert.equal(isBackgroundPoll({ backgroundPoll: false }), false);
+	});
+});
+
+describe("shouldEscalate — background-poll 5xx softening (#225)", () => {
+	const poll = { backgroundPoll: true };
+	const blip = () => new ApiError("apisix unreachable", 502);
+
+	it("does NOT escalate a transient 5xx on a background poll (below the threshold)", () => {
+		assert.equal(shouldEscalate(blip(), poll), false);
+		assert.equal(
+			shouldEscalate(blip(), poll, { consecutiveFailures: 1 }),
+			false,
+		);
+		assert.equal(
+			shouldEscalate(blip(), poll, {
+				consecutiveFailures: BACKGROUND_POLL_ESCALATION_THRESHOLD - 1,
+			}),
+			false,
+		);
+	});
+
+	it("escalates a PERSISTENT 5xx on a background poll (at or above the threshold)", () => {
+		assert.equal(
+			shouldEscalate(blip(), poll, {
+				consecutiveFailures: BACKGROUND_POLL_ESCALATION_THRESHOLD,
+			}),
+			true,
+		);
+		assert.equal(
+			shouldEscalate(blip(), poll, {
+				consecutiveFailures: BACKGROUND_POLL_ESCALATION_THRESHOLD + 5,
+			}),
+			true,
+		);
+	});
+
+	it("still escalates a 5xx that is NOT a background poll on the first failure (#1059 preserved)", () => {
+		assert.equal(shouldEscalate(blip()), true);
+		assert.equal(shouldEscalate(blip(), { softError: true }), true);
+		assert.equal(shouldEscalate(blip(), {}, { consecutiveFailures: 1 }), true);
+	});
+
+	it("does NOT let the background-poll marker soften a client-side bug", () => {
+		const bug = new TypeError("cannot read property 'id' of undefined");
+		assert.equal(shouldEscalate(bug, poll), true);
+		assert.equal(shouldEscalate(bug, poll, { consecutiveFailures: 1 }), true);
+	});
+
+	it("does NOT let the background-poll marker soften a 4xx (only transient 5xx is softened)", () => {
+		assert.equal(shouldEscalate(new ApiError("forbidden", 403), poll), true);
+	});
+
+	it("keeps aborts and network blips soft on a background poll too", () => {
+		const aborted = abortError();
+		assert.equal(shouldEscalate(aborted, poll), false);
+		assert.equal(
+			shouldEscalate(new NetworkError(new TypeError("Failed to fetch")), poll),
+			false,
+		);
 	});
 });

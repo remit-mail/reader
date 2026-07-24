@@ -1,4 +1,8 @@
 import {
+	configOperationsGetConfigQueryKey,
+	outboxOperationsListOutboxMessagesQueryKey,
+} from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import {
 	MutationCache,
 	QueryCache,
 	QueryClient,
@@ -67,6 +71,19 @@ export const mountApp = ({
 				retry: 1,
 			},
 		},
+	});
+
+	// Config and the outbox list are passive background polls — refetched on
+	// focus/reconnect/interval, never triggered by a user action. A transient
+	// server blip on one (the 502s a ~1s stack redeploy drops on in-flight
+	// requests, #225) must not fault the whole app. Mark them so the classifier
+	// keeps a transient 5xx quiet and retries, escalating only a persistent
+	// outage. Attached centrally so every observer of these keys inherits it.
+	queryClient.setQueryDefaults(configOperationsGetConfigQueryKey(), {
+		meta: { backgroundPoll: true },
+	});
+	queryClient.setQueryDefaults(outboxOperationsListOutboxMessagesQueryKey(), {
+		meta: { backgroundPoll: true },
 	});
 
 	const router = createAppRouter(queryClient, telemetry);

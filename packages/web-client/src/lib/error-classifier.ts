@@ -105,17 +105,55 @@ const isSoftErrorMeta = (meta: Record<string, unknown> | undefined): boolean =>
 	meta?.softError === true;
 
 /**
+ * A query the user did not trigger: a passive background poll or interval/focus
+ * refetch (config, the outbox list). Declared per query via
+ * `meta.backgroundPoll === true` — parallel to `meta.softError` — and attached
+ * centrally with `setQueryDefaults` in the shell, so every observer of those
+ * keys inherits it. Never set on a mutation: a mutation is a user-initiated
+ * write, so it keeps the default #1059 escalation.
+ */
+export const isBackgroundPoll = (
+	meta: Record<string, unknown> | undefined,
+): boolean => meta?.backgroundPoll === true;
+
+/**
+ * Consecutive failed background polls before a quiet degrade becomes a visible
+ * fatal. Below this a transient blip stays silent and is retried; at or above
+ * it the poll has failed long enough to be a real outage, which must surface
+ * rather than be swallowed forever. The counting is per-query, reset on the
+ * poll's next success (see `query-error-handler.ts`).
+ */
+export const BACKGROUND_POLL_ESCALATION_THRESHOLD = 3;
+
+/** Extra signals the caller derives from the failing query. */
+export interface EscalationContext {
+	/**
+	 * Consecutive failures of a background poll, counted since its last success.
+	 * Only consulted for a `meta.backgroundPoll` 5xx: it lets a persistent outage
+	 * escalate while a single transient blip stays quiet. Absent (or `1`) means
+	 * "first failure in the streak".
+	 */
+	consecutiveFailures?: number;
+}
+
+/**
  * The single fail-fast decision: should this error escalate to the full-screen
  * fatal overlay? Default is YES — a non-2xx must never silently vanish.
  *
- * The contract (issue #1059):
+ * The contract (issues #1059, #225):
  *  1. DEFAULT = escalate.
- *  2. A 5xx (500–599) ALWAYS escalates — no opt-out, even on a background
- *     refetch, even when the call site marked `meta.softError`. Our API
+ *  2. A 5xx (500–599) escalates — no opt-out via `meta.softError`. Our API
  *     answered "I'm broken"; that is never benign.
- *  3. A client-side exception ALWAYS escalates, on the same terms. It is our
- *     bug; there is nothing for the user to retry and nothing to dismiss.
- *  4. The ONLY soft (do-NOT-escalate) exemptions:
+ *  3. A client-side exception ALWAYS escalates, on the same terms — background
+ *     poll or not. It is our bug; there is nothing for the user to retry and
+ *     nothing to dismiss.
+ *  4. EXCEPTION to rule 2 — a background poll (`meta.backgroundPoll === true`),
+ *     the passive config/outbox refetch the user did not trigger: a transient
+ *     5xx stays quiet and is retried, and only escalates once it has failed
+ *     `BACKGROUND_POLL_ESCALATION_THRESHOLD` consecutive times (a real outage,
+ *     not a ~1s deploy blip — #225). A user-initiated query or any mutation is
+ *     not a background poll and still escalates on the first 5xx.
+ *  5. The other soft (do-NOT-escalate) exemptions:
  *     a. aborts / cancellations — never a failure;
  *     b. network/offline errors — environmental, recovered by React Query's
  *        reconnect/retry;
@@ -126,11 +164,20 @@ const isSoftErrorMeta = (meta: Record<string, unknown> | undefined): boolean =>
 export const shouldEscalate = (
 	error: unknown,
 	meta?: Record<string, unknown>,
+	context?: EscalationContext,
 ): boolean => {
-	if (isServerError(error)) return true;
 	if (isAbortError(error)) return false;
 	if (isNetworkError(error)) return false;
-	if (isAlwaysFatal(error)) return true;
+	if (isClientBug(error)) return true;
+
+	if (isServerError(error)) {
+		if (isBackgroundPoll(meta)) {
+			const failures = context?.consecutiveFailures ?? 1;
+			return failures >= BACKGROUND_POLL_ESCALATION_THRESHOLD;
+		}
+		return true;
+	}
+
 	if (isSoftErrorMeta(meta)) return false;
 	return true;
 };

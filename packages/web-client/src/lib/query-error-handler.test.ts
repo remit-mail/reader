@@ -12,8 +12,9 @@ import {
 const fakeQuery = (
 	meta?: Record<string, unknown>,
 	dataUpdatedAt = 0,
+	dataUpdateCount = 0,
 ): Query<unknown, unknown, unknown> =>
-	({ meta, state: { dataUpdatedAt } }) as unknown as Query<
+	({ meta, state: { dataUpdatedAt, dataUpdateCount } }) as unknown as Query<
 		unknown,
 		unknown,
 		unknown
@@ -105,6 +106,54 @@ describe("handleQueryCacheError (fail-fast contract #1059)", () => {
 			new NetworkError(new TypeError("Failed to fetch")),
 			fakeQuery(),
 		);
+		assert.equal(escalated, false);
+	});
+});
+
+describe("handleQueryCacheError — background-poll streaks (#225)", () => {
+	const poll = () => fakeQuery({ backgroundPoll: true }, 123456, 1);
+	const blip = () => new ApiError("apisix unreachable", 502);
+
+	it("does NOT escalate the first transient 5xx on a background poll", () => {
+		let escalated = false;
+		subscribeFatalError(() => {
+			escalated = true;
+		});
+		handleQueryCacheError(blip(), poll());
+		assert.equal(escalated, false);
+	});
+
+	it("escalates once the same poll fails three times in a row", () => {
+		const seen = escalations();
+		// One stable Query object across polls — the streak accrues on it. Its
+		// success count never advances (every fetch fails), so nothing resets it.
+		const query = poll();
+		handleQueryCacheError(blip(), query);
+		handleQueryCacheError(blip(), query);
+		assert.deepEqual(seen, [], "quiet through the first two failures");
+		handleQueryCacheError(blip(), query);
+		assert.deepEqual(seen, ["apisix unreachable"]);
+	});
+
+	it("resets the streak when a success lands between failures", () => {
+		let escalated = false;
+		subscribeFatalError(() => {
+			escalated = true;
+		});
+		// Mutable success count: a poll that recovers advances dataUpdateCount,
+		// which breaks the consecutive-failure streak.
+		const state = { dataUpdatedAt: 123456, dataUpdateCount: 1 };
+		const query = {
+			meta: { backgroundPoll: true },
+			state,
+		} as unknown as Query<unknown, unknown, unknown>;
+
+		handleQueryCacheError(blip(), query); // streak 1
+		handleQueryCacheError(blip(), query); // streak 2
+		state.dataUpdateCount = 2; // a poll succeeded
+		handleQueryCacheError(blip(), query); // streak resets to 1
+		handleQueryCacheError(blip(), query); // streak 2 — never reaches 3
+
 		assert.equal(escalated, false);
 	});
 });

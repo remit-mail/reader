@@ -8,8 +8,13 @@
 
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
+import {
+	configOperationsGetConfigQueryKey,
+	outboxOperationsListOutboxMessagesQueryKey,
+} from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
 import { ApiError } from "./api";
+import { BACKGROUND_POLL_ESCALATION_THRESHOLD } from "./error-classifier";
 import { __resetFatalError, subscribeFatalError } from "./fatal-error";
 import { NetworkError } from "./network-error";
 import {
@@ -135,5 +140,118 @@ describe("global query/mutation escalation", () => {
 			.catch(() => {});
 
 		assert.equal(escalated, false);
+	});
+});
+
+describe("background-poll escalation (#225)", () => {
+	const markBackgroundPoll = (client: QueryClient) => {
+		// The exact wiring the shell installs: attach the background-poll marker to
+		// the real config/outbox query keys via setQueryDefaults, so a poll's
+		// transient 5xx is classified soft without touching any call site.
+		client.setQueryDefaults(configOperationsGetConfigQueryKey(), {
+			meta: { backgroundPoll: true },
+		});
+		client.setQueryDefaults(outboxOperationsListOutboxMessagesQueryKey(), {
+			meta: { backgroundPoll: true },
+		});
+	};
+
+	const explode500 = async () => {
+		throw new ApiError("apisix unreachable", 502);
+	};
+
+	it("a transient 5xx on the config poll does NOT escalate — the #225 blip", async () => {
+		let escalated = false;
+		subscribeFatalError(() => {
+			escalated = true;
+		});
+		const client = makeClient();
+		markBackgroundPoll(client);
+
+		await client
+			.fetchQuery({
+				queryKey: configOperationsGetConfigQueryKey(),
+				queryFn: explode500,
+			})
+			.catch(() => {});
+
+		assert.equal(escalated, false);
+	});
+
+	it("a transient 5xx on the outbox poll does NOT escalate — the #225 blip", async () => {
+		let escalated = false;
+		subscribeFatalError(() => {
+			escalated = true;
+		});
+		const client = makeClient();
+		markBackgroundPoll(client);
+
+		await client
+			.fetchQuery({
+				queryKey: outboxOperationsListOutboxMessagesQueryKey(),
+				queryFn: explode500,
+			})
+			.catch(() => {});
+
+		assert.equal(escalated, false);
+	});
+
+	it("a PERSISTENT 5xx on a poll escalates once it crosses the threshold", async () => {
+		const seen: string[] = [];
+		subscribeFatalError((fatal) => seen.push(fatal.message));
+		const client = makeClient();
+		markBackgroundPoll(client);
+		const queryKey = configOperationsGetConfigQueryKey();
+
+		// One failed poll below the threshold, then refetches until it is reached.
+		await client.fetchQuery({ queryKey, queryFn: explode500 }).catch(() => {});
+		for (let i = 1; i < BACKGROUND_POLL_ESCALATION_THRESHOLD; i += 1) {
+			assert.equal(seen.length, 0, `stayed quiet through failure ${i}`);
+			await client.refetchQueries({ queryKey }).catch(() => {});
+		}
+
+		assert.deepEqual(seen, ["apisix unreachable"]);
+	});
+
+	it("a success between failures resets the streak — no escalation", async () => {
+		let escalated = false;
+		subscribeFatalError(() => {
+			escalated = true;
+		});
+		const client = makeClient();
+		markBackgroundPoll(client);
+		const queryKey = configOperationsGetConfigQueryKey();
+		let calls = 0;
+		const flaky = async () => {
+			calls += 1;
+			// Fail, fail, succeed, fail, fail — never THRESHOLD in a row.
+			if (calls === 3) return { ok: true };
+			throw new ApiError("apisix unreachable", 502);
+		};
+
+		await client.fetchQuery({ queryKey, queryFn: flaky }).catch(() => {});
+		for (let i = 0; i < 4; i += 1) {
+			await client.refetchQueries({ queryKey }).catch(() => {});
+		}
+
+		assert.equal(escalated, false);
+	});
+
+	it("a statusless client bug on a poll ALWAYS escalates — the marker never softens our own crash", async () => {
+		const seen: string[] = [];
+		subscribeFatalError((fatal) => seen.push(fatal.message));
+		const client = makeClient();
+		markBackgroundPoll(client);
+
+		await client
+			.fetchQuery({
+				queryKey: configOperationsGetConfigQueryKey(),
+				queryFn: async () => {
+					throw new TypeError("cannot read property 'id' of undefined");
+				},
+			})
+			.catch(() => {});
+
+		assert.deepEqual(seen, ["cannot read property 'id' of undefined"]);
 	});
 });
