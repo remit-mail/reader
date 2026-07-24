@@ -631,6 +631,13 @@ describe("the lock", () => {
 		}
 		rmSync(join(box.fake, "hang-stop"));
 
+		// The wrapper's lock fd is inherited by the hung `docker stop` and its
+		// `sleep`, so the kernel releases the flock only once all three are
+		// reaped — which SIGKILL schedules but does not await. Recover's own
+		// `flock -n` would race that and spuriously report "already running",
+		// so wait until the lock is observably free before recovering.
+		await waitForLockFree(join(box.state, "update.lock"));
+
 		const result = box.run(["update", "--recover"]);
 		assert.equal(result.status, 0, result.stderr);
 		assert.ok(box.stateJson().run.outcome !== null);
@@ -740,4 +747,14 @@ async function waitFor(predicate, timeoutMs = 15_000) {
 		await new Promise((resolve) => setTimeout(resolve, 100));
 	}
 	throw new Error("timed out waiting for the wrapper to reach the phase");
+}
+
+// The lock is free once a non-blocking flock on it succeeds — the same acquire
+// the wrapper does, so it is the exact observable state recovery needs, not a
+// guess at how long reaping takes.
+async function waitForLockFree(lockPath) {
+	await waitFor(() => {
+		const probe = spawnSync("sh", ["-c", `exec 9>"${lockPath}"; flock -n 9`]);
+		return probe.status === 0;
+	});
 }
