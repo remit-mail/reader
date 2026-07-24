@@ -69,6 +69,27 @@ export type SelfUpdateState =
 			attemptedVersion: string;
 			elapsedSeconds: number;
 			logsCommand: string;
+	  }
+	| {
+			status: "rollbackFailed";
+			runId: UpdateRunId;
+			attemptedVersion: string;
+			previousVersion: string;
+			/** The server's own account of the failure, shown verbatim. */
+			reason: string;
+			/** The command to read the full log, shown verbatim. */
+			logsCommand: string;
+	  }
+	| {
+			status: "abandoned";
+			runId: UpdateRunId;
+			/** The version still running — the run changed nothing. */
+			version: string;
+			attemptedVersion: string;
+			/** The server's own account of why it stopped, shown verbatim. */
+			reason: string;
+			/** The command to read the full log, shown verbatim. */
+			logsCommand: string;
 	  };
 
 export type SelfUpdateStatus = SelfUpdateState["status"];

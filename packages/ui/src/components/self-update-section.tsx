@@ -82,7 +82,11 @@ export function SelfUpdateSection({
 	};
 
 	const handleInstall = () => {
-		if (!installable && state.status !== "rolledBack") {
+		if (
+			!installable &&
+			state.status !== "rolledBack" &&
+			state.status !== "abandoned"
+		) {
 			setNotice(
 				"There is no update to install. Check for updates first — if one is found it appears here.",
 			);
@@ -342,6 +346,103 @@ export function SelfUpdateSection({
 							<div className="flex justify-end">
 								<Button variant="ghost" size="sm" onClick={onDismissResult}>
 									Dismiss
+								</Button>
+							</div>
+						</div>
+					</SectionRow>
+				);
+
+			case "rollbackFailed":
+				return (
+					<SectionRow tone="danger">
+						<div className="space-y-3">
+							<div className="flex items-start gap-2">
+								<TriangleAlert
+									className="mt-0.5 size-4 shrink-0 text-danger"
+									aria-hidden
+								/>
+								<div className="min-w-0 space-y-1">
+									<p className="text-sm font-semibold text-fg">
+										Remit {state.attemptedVersion} did not start, and Remit
+										could not put {state.previousVersion} back.
+									</p>
+									<p className="text-sm text-fg-muted">
+										This is the one outcome Remit cannot resolve on its own. The
+										server is in a half-changed state and needs you at a shell.
+										The log below is the only account of where it stopped.
+									</p>
+								</div>
+							</div>
+							<div className="space-y-1">
+								<p className="text-xs text-fg-subtle">
+									What Remit reported as the failure
+								</p>
+								<code className="block rounded-xs bg-danger-soft px-2 py-1 text-2xs text-danger">
+									{state.reason}
+								</code>
+							</div>
+							<div className="space-y-1">
+								<p className="text-xs text-fg-subtle">
+									Read the full log on the server:
+								</p>
+								<code className="block rounded-xs bg-surface-sunken px-2 py-1 text-2xs text-fg-muted">
+									{state.logsCommand}
+								</code>
+							</div>
+							<div className="flex justify-end">
+								<Button variant="ghost" size="sm" onClick={onDismissResult}>
+									Dismiss
+								</Button>
+							</div>
+						</div>
+					</SectionRow>
+				);
+
+			case "abandoned":
+				return (
+					<SectionRow tone="danger">
+						<div className="space-y-3">
+							<div className="flex items-start gap-2">
+								<TriangleAlert
+									className="mt-0.5 size-4 shrink-0 text-fg-subtle"
+									aria-hidden
+								/>
+								<div className="min-w-0 space-y-1">
+									<p className="text-sm font-semibold text-fg">
+										Remit {state.attemptedVersion} was not installed. Nothing
+										changed.
+									</p>
+									<p className="text-sm text-fg-muted">
+										The update stopped before it altered anything. You are still
+										running {state.version}.
+									</p>
+								</div>
+							</div>
+							<div className="space-y-1">
+								<p className="text-xs text-fg-subtle">What Remit reported</p>
+								<code className="block rounded-xs bg-surface-sunken px-2 py-1 text-2xs text-fg-muted">
+									{state.reason}
+								</code>
+							</div>
+							<div className="space-y-1">
+								<p className="text-xs text-fg-subtle">
+									Read the full log before trying again:
+								</p>
+								<code className="block rounded-xs bg-surface-sunken px-2 py-1 text-2xs text-fg-muted">
+									{state.logsCommand}
+								</code>
+							</div>
+							<div className="flex flex-wrap items-center gap-2">
+								<Button
+									variant="secondary"
+									size="sm"
+									icon={<RotateCcw className="size-3.5" />}
+									onClick={handleInstall}
+								>
+									Try {state.attemptedVersion} again
+								</Button>
+								<Button variant="ghost" size="sm" onClick={onDismissResult}>
+									Stay on {state.version}
 								</Button>
 							</div>
 						</div>

@@ -112,6 +112,39 @@ export const RolledBack: Story = {
 };
 
 /**
+ * The new version did not start and the rollback to the old one failed too.
+ * The one outcome Remit cannot resolve on its own: it names the failure and the
+ * log verbatim, claims no running version, and sends the operator to a shell.
+ */
+export const RollbackFailed: Story = {
+	args: withState({
+		status: "rollbackFailed",
+		runId: demoRunId,
+		attemptedVersion: demoRelease.version,
+		previousVersion: CURRENT,
+		reason:
+			"migration 0042_add_thread_index failed and the snapshot restore errored: database is locked",
+		logsCommand: demoLogsCommand,
+	}),
+};
+
+/**
+ * The run stopped before it changed anything — a manifest that could not be
+ * fetched, a preflight that refused. Nothing was installed and nothing was
+ * touched, so the pane says exactly that and offers the retry.
+ */
+export const Abandoned: Story = {
+	args: withState({
+		status: "abandoned",
+		runId: demoRunId,
+		version: CURRENT,
+		attemptedVersion: demoRelease.version,
+		reason: "manifest fetch timed out before anything was pulled",
+		logsCommand: demoLogsCommand,
+	}),
+};
+
+/**
  * An update is running. The blocking screen owns the window; the pane behind it
  * still says what is going on rather than going blank.
  */
@@ -152,6 +185,24 @@ export const ConfirmBeforeInstalling: Story = {
 			open
 			currentVersion={CURRENT}
 			release={demoRelease}
+			onClose={() => {}}
+			onConfirm={() => {}}
+		/>
+	),
+};
+
+/**
+ * Consent for a release that also migrates the database. The extra line states
+ * the forward step is one-way but a failed start is still rolled back — shown
+ * only when the surface reports a higher schema version than the running one.
+ */
+export const ConfirmWithSchemaMigration: Story = {
+	render: () => (
+		<SelfUpdateConfirmDialog
+			open
+			currentVersion={CURRENT}
+			release={demoRelease}
+			appliesSchemaMigration
 			onClose={() => {}}
 			onConfirm={() => {}}
 		/>

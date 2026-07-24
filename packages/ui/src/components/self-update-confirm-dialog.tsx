@@ -7,6 +7,12 @@ export interface SelfUpdateConfirmDialogProps {
 	open: boolean;
 	currentVersion: string;
 	release: ReleaseInfo;
+	/**
+	 * Whether installing this release runs a database migration during the
+	 * offline window. Stated only when the surface reports both schema versions
+	 * and the new one is higher; silence otherwise.
+	 */
+	appliesSchemaMigration?: boolean;
 	onClose: () => void;
 	onConfirm: () => void;
 }
@@ -26,6 +32,7 @@ export function SelfUpdateConfirmDialog({
 	open,
 	currentVersion,
 	release,
+	appliesSchemaMigration = false,
 	onClose,
 	onConfirm,
 }: SelfUpdateConfirmDialogProps) {
@@ -53,6 +60,16 @@ export function SelfUpdateConfirmDialog({
 								<span>{line}</span>
 							</li>
 						))}
+						{appliesSchemaMigration && (
+							<li className="flex gap-2 text-sm text-fg-muted">
+								<span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-fg-subtle" />
+								<span>
+									This version updates the database while Remit is offline. The
+									step forward cannot be undone by hand, but a failed start is
+									still rolled back to the version and data you have now.
+								</span>
+							</li>
+						)}
 					</ul>
 					<p className="text-xs text-fg-subtle">
 						Good moment for this: when you are not waiting on a message.

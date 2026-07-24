@@ -10,14 +10,8 @@
  */
 import type { SettingsNavItem } from "@remit/ui";
 import { createFileRoute, Outlet } from "@tanstack/react-router";
-import {
-	Filter,
-	FolderTree,
-	Inbox,
-	Palette,
-	Users,
-	Wrench,
-} from "lucide-react";
+import { Filter, FolderTree, Inbox, Palette, Users } from "lucide-react";
+import { AdvancedNavIcon } from "@/components/settings/AdvancedNavIcon";
 
 /* ------------------------------------------------------------------ */
 /* Nav items — single source of truth shared by all settings pages    */
@@ -45,7 +39,7 @@ export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
 		label: "Appearance",
 		icon: <Palette className="size-4" />,
 	},
-	{ id: "advanced", label: "Advanced", icon: <Wrench className="size-4" /> },
+	{ id: "advanced", label: "Advanced", icon: <AdvancedNavIcon /> },
 ];
 
 export const SETTINGS_ID_TO_PATH: Record<string, string> = {
