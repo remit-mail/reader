@@ -33,6 +33,7 @@ import {
 	MailboxQueueService,
 	MessageMoveService,
 	OutboxQueueService,
+	PlacementMoveService,
 } from "@remit/mailbox-service";
 import { createSearchService, type SearchService } from "@remit/search-service";
 import {
@@ -287,6 +288,34 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 		bodySyncQueue,
 	} = deps;
 
+	// The read-path body backfill (describeMessage / getRawMessage →
+	// fetchAndGetBody) materializes a body that was never sync-synced, and must
+	// run the account's standing filters the same way the imap-worker's sync path
+	// does. Without this, a message a user opens before background body-sync is
+	// classified but never filter-evaluated — and once its body is stored the
+	// filter-capable sync path skips it, so an explicit standing filter silently
+	// never fires (issue #223). Only the explicit user-rule half is wired here;
+	// heuristic classifier placement stays on the sync path. Wired like
+	// `sync-message-body.ts`, over the message-management queue's local-first
+	// PlacementMoveService; filters stay off when that queue is unset.
+	const placementMoveQueueUrl = process.env.SQS_QUEUE_URL_MESSAGE_MGMT;
+	const placementMoveService = placementMoveQueueUrl
+		? new PlacementMoveService({
+				messageService: repositories.message,
+				threadMessageService: repositories.threadMessage,
+				markerService: repositories.placementMove,
+				sqsQueueUrl: placementMoveQueueUrl,
+			})
+		: undefined;
+	const filterConfig = placementMoveService
+		? {
+				filterService: repositories.filter,
+				filterAnchorService: repositories.filterAnchor,
+				messageLabelService: repositories.messageLabel,
+				placementMoveService,
+			}
+		: undefined;
+
 	const bodySync = new BodySyncService(
 		repositories.message,
 		storage,
@@ -294,6 +323,8 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 		repositories.address,
 		repositories.envelope,
 		logger,
+		undefined,
+		filterConfig,
 	);
 
 	const flagPushService = new FlagPushService({

@@ -74,6 +74,52 @@ describe("DrizzleMessageRepository (sqlite)", () => {
 		assert.deepEqual(item.authenticity, { spf: "pass" });
 	});
 
+	test("filterMove and placementVerdict JSONB columns round-trip through create and update", async () => {
+		// The auto-moved badge for a standing-filter move depends on this
+		// round-trip: body-sync writes `filterMove`, and both read paths project it
+		// back through `toMessageItem` for `deriveAutoMoved` (issue #223).
+		const AUTO_MOVED_ID = "00000000-0000-0000-2222-000000000003";
+		const filterMove = {
+			filterId: "00000000-0000-0000-2222-0000000000f1",
+			sourceMailboxId: "00000000-0000-0000-2222-0000000000f2",
+			destinationMailboxId: "00000000-0000-0000-2222-0000000000f3",
+			decidedAt: NOW,
+		};
+
+		const created = await repo.create({
+			...BASE_INPUT,
+			messageId: AUTO_MOVED_ID,
+			envelopeId: deriveEnvelopeId(AUTO_MOVED_ID),
+			rootBodyPartId: deriveRootBodyPartId(AUTO_MOVED_ID),
+			movedByRemit: true,
+			filterMove: filterMove as unknown as never,
+		});
+		assert.deepEqual(created.filterMove, filterMove);
+
+		const afterCreate = await repo.get(AUTO_MOVED_ID);
+		assert.equal(afterCreate.movedByRemit, true);
+		assert.deepEqual(afterCreate.filterMove, filterMove);
+
+		// A later placement update must not disturb the marker, and a new marker
+		// must overwrite the old one — the same JSONB-set path body-sync uses.
+		const nextFilterMove = { ...filterMove, destinationMailboxId: "mb-other" };
+		await repo.update(AUTO_MOVED_ID, {
+			filterMove: nextFilterMove as unknown as never,
+			placementVerdict: {
+				action: "MoveToInbox",
+				confidence: "Confident",
+				fromPlacement: "junk",
+				reasons: ["provider=spam"],
+				dryRun: false,
+				decidedAt: NOW,
+			} as unknown as never,
+		});
+
+		const afterUpdate = await repo.get(AUTO_MOVED_ID);
+		assert.deepEqual(afterUpdate.filterMove, nextFilterMove);
+		assert.equal(afterUpdate.placementVerdict?.action, "MoveToInbox");
+	});
+
 	test("duplicate messageId throws CreateFailedConflictError and rolls back the outbox row", async () => {
 		const before = await db
 			.select()
