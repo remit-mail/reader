@@ -131,4 +131,12 @@ describe("senderFallbackSummary", () => {
 		assert.match(summary, /isn't available on this server/);
 		assert.match(summary, /matching all mail from npm@github\.com instead/);
 	});
+
+	it("names the shared domain when the senders collapse to one FromDomain", () => {
+		const summary = senderFallbackSummary(["npm@github.com", "ci@github.com"]);
+		assert.match(
+			summary,
+			/matching all mail from anyone at github\.com instead/,
+		);
+	});
 });

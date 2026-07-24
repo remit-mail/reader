@@ -280,6 +280,7 @@ const prepareUpsert = async (
 			fromName: threadMessage.fromName ?? null,
 			subject: threadMessage.subject ?? "",
 			category: threadMessage.category,
+			...(threadMessage.listId ? { listId: threadMessage.listId } : {}),
 		},
 	});
 };

@@ -40,6 +40,8 @@ export interface ChunkMetadata {
 	subject?: string;
 	/** Header-derived category. Stored at index time; absent for pre-enrichment vectors. */
 	category?: MessageCategory;
+	/** Normalized `List-Id` header value. Stored at index time so the semantic-arm literal refine can match a `ListId` clause; absent for pre-enrichment vectors or non-list mail. */
+	listId?: string;
 	/**
 	 * sha256 over the embedding model/version id and the chunk's embeddable text.
 	 * Lets a re-index skip an unchanged chunk and re-embed only when content or the

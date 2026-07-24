@@ -30,6 +30,7 @@ import { type ParsedMail, simpleParser } from "mailparser";
 import pMap from "p-map";
 import { BodyParseError, parseMessageBody } from "./body-parse.js";
 import { mapBodyPartsToContent } from "./body-part-mapper.js";
+import { extractListId } from "./filters/list-id.js";
 import type { FilterMessage } from "./filters/match.js";
 import {
 	type FilterConfig,
@@ -134,6 +135,7 @@ const toFilterMessage = (parsed: ParsedMail): FilterMessage => ({
 	fromName: parsed.from?.value?.[0]?.name ?? "",
 	subject: parsed.subject ?? "",
 	text: parsed.text ?? "",
+	listId: extractListId(parsed),
 });
 
 export const toParsedBody = (parsed: ParsedMail): ParsedBody => ({
@@ -1423,10 +1425,11 @@ export class BodySyncService {
 	}
 
 	/**
-	 * Extract snippet and header category from the body and denormalize both
-	 * onto the ThreadMessage. `category` mirrors the Message: created as
-	 * `uncategorized` at metadata-sync and set to the classified value here, so
-	 * the list/search read path carries it without a per-row Message fetch.
+	 * Extract snippet, header category and the normalized `List-Id` from the body
+	 * and denormalize them onto the ThreadMessage. `category` mirrors the Message:
+	 * created as `uncategorized` at metadata-sync and set to the classified value
+	 * here; `listId` is written so the back-apply corpus projection can match a
+	 * `ListId` clause vector-free, off the same row the list/search path reads.
 	 * Returns the parsed mail so callers can reuse it (e.g., to write the
 	 * parsed-body cache) without paying for mailparser twice.
 	 */
@@ -1450,12 +1453,14 @@ export class BodySyncService {
 		);
 
 		const category = classifyByHeaders(parsed);
+		const listId = extractListId(parsed);
 
 		await this.denormalizeCategory(
 			accountConfigId,
 			messageId,
 			category,
 			snippet,
+			listId,
 		);
 
 		this.log.debug?.(
@@ -1482,6 +1487,7 @@ export class BodySyncService {
 		messageId: string,
 		category: ThreadMessageCategory,
 		snippet?: string,
+		listId?: string,
 	): Promise<void> {
 		const threadMessage = await this.threadMessageService.getByMessageId(
 			accountConfigId,
@@ -1491,7 +1497,11 @@ export class BodySyncService {
 		await this.threadMessageService.update(
 			accountConfigId,
 			threadMessage.threadMessageId,
-			{ category, ...(snippet ? { snippet } : {}) },
+			{
+				category,
+				...(snippet ? { snippet } : {}),
+				...(listId ? { listId } : {}),
+			},
 			{
 				composites: {
 					sentDate: threadMessage.sentDate,

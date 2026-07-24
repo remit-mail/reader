@@ -18,6 +18,7 @@ const message = (overrides: Partial<FilterMessage> = {}): FilterMessage => ({
 	fromName: "Alice Example",
 	subject: "Q3 invoice attached",
 	text: "Please find the invoice for the quarter attached.",
+	listId: "",
 	...overrides,
 });
 
@@ -66,6 +67,93 @@ describe("clauseMatches", () => {
 	it("never matches an empty clause value", () => {
 		assert.equal(
 			clauseMatches(clause(FilterClauseField.HasWords, "   "), message()),
+			false,
+		);
+	});
+
+	it("matches ListId exactly, never as a substring", () => {
+		const msg = message({ listId: "weekly.news.example.com" });
+		assert.equal(
+			clauseMatches(
+				clause(FilterClauseField.ListId, "weekly.news.example.com"),
+				msg,
+			),
+			true,
+		);
+		assert.equal(
+			clauseMatches(clause(FilterClauseField.ListId, "news.example.com"), msg),
+			false,
+		);
+		assert.equal(
+			clauseMatches(
+				clause(FilterClauseField.ListId, "weekly.news.example.com.other"),
+				msg,
+			),
+			false,
+		);
+	});
+
+	it("normalizes ListId brackets and case on both sides", () => {
+		const msg = message({ listId: "weekly.news.example.com" });
+		assert.equal(
+			clauseMatches(
+				clause(FilterClauseField.ListId, "<Weekly.News.Example.COM>"),
+				msg,
+			),
+			true,
+		);
+	});
+
+	it("never matches ListId on a message with no List-Id", () => {
+		assert.equal(
+			clauseMatches(
+				clause(FilterClauseField.ListId, "weekly.news.example.com"),
+				message({ listId: "" }),
+			),
+			false,
+		);
+	});
+
+	it("matches FromDomain on the registrable domain, including subdomains", () => {
+		assert.equal(
+			clauseMatches(
+				clause(FilterClauseField.FromDomain, "github.com"),
+				message({ from: "notifications@github.com" }),
+			),
+			true,
+		);
+		assert.equal(
+			clauseMatches(
+				clause(FilterClauseField.FromDomain, "github.com"),
+				message({ from: "notifications@sub.github.com" }),
+			),
+			true,
+		);
+	});
+
+	it("never matches FromDomain on a look-alike subdomain (public-suffix aware)", () => {
+		assert.equal(
+			clauseMatches(
+				clause(FilterClauseField.FromDomain, "github.com"),
+				message({ from: "attacker@github.com.evil.example" }),
+			),
+			false,
+		);
+	});
+
+	it("matches FromDomain across multi-level public suffixes", () => {
+		assert.equal(
+			clauseMatches(
+				clause(FilterClauseField.FromDomain, "example.co.uk"),
+				message({ from: "hr@mail.example.co.uk" }),
+			),
+			true,
+		);
+		assert.equal(
+			clauseMatches(
+				clause(FilterClauseField.FromDomain, "example.co.uk"),
+				message({ from: "hr@example.co.uk.evil.example" }),
+			),
 			false,
 		);
 	});

@@ -227,10 +227,11 @@ export const SemanticUnavailable: Story = {
 
 /**
  * No vector pipeline, but the selection has senders to match on — the widen
- * fell back to matching all mail from those senders. The heading names the
- * senders and states the real semantics, and every commit scope (including the
- * standing filter) carries the sender `From` clauses, so it reaches the widened
- * set and keeps working on future mail.
+ * fell back to matching all mail from those senders. The senders span different
+ * domains, so the fallback keeps one `From` clause per address; the heading
+ * names the senders and states the real semantics, and every commit scope
+ * (including the standing filter) carries those clauses, so it reaches the
+ * widened set and keeps working on future mail.
  */
 export const SenderFallback: Story = {
 	name: "Sender Fallback",
@@ -244,12 +245,44 @@ export const SenderFallback: Story = {
 					matchOperator: "Or",
 					literalClauses: [
 						{ field: "From", value: "npm@github.com" },
-						{ field: "From", value: "notifications@github.com" },
+						{ field: "From", value: "noreply@medium.com" },
 					],
 				}}
 				matchedCount={128}
 				semanticUnavailable
-				senders={["npm@github.com", "notifications@github.com"]}
+				senders={["npm@github.com", "noreply@medium.com"]}
+				onClose={() => undefined}
+			/>
+		</SheetStage>
+	),
+};
+
+/**
+ * The sender fallback where every selected sender shares one registrable domain
+ * (RFC 038 D2): the per-address `From` chips collapse to a single `FromDomain`
+ * clause, and the heading names the domain — "anyone at github.com" — rather
+ * than listing addresses. Matches `sub.github.com` too, never a look-alike like
+ * `github.com.evil.example`.
+ */
+export const SenderFallbackDomain: Story = {
+	name: "Sender Fallback (domain)",
+	render: () => (
+		<SheetStage>
+			<OrganizePanel
+				accountId={ACCOUNT_ID}
+				mailboxId="mbx-inbox"
+				selectedMessageIds={["msg-1", "msg-2", "msg-3"]}
+				matchPredicate={{
+					matchOperator: "Or",
+					literalClauses: [{ field: "FromDomain", value: "github.com" }],
+				}}
+				matchedCount={342}
+				semanticUnavailable
+				senders={[
+					"npm@github.com",
+					"notifications@github.com",
+					"ci@sub.github.com",
+				]}
 				onClose={() => undefined}
 			/>
 		</SheetStage>

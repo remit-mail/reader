@@ -74,6 +74,7 @@ describe("FilterPipeline — anchorless From/Or filter at index time", () => {
 			fromName: "npm",
 			subject: "A new version of left-pad is available",
 			text: "body",
+			listId: "",
 		});
 
 		assert.deepEqual(decision.move, {
@@ -92,6 +93,7 @@ describe("FilterPipeline — anchorless From/Or filter at index time", () => {
 			fromName: "Stripe",
 			subject: "Your receipt",
 			text: "body",
+			listId: "",
 		});
 
 		assert.equal(decision.move, undefined);
