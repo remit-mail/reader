@@ -14,7 +14,7 @@ import { OrganizePanel } from "./OrganizePanel";
 // so this shim only exists for the SSR test harness.
 (globalThis as { React?: typeof React }).React = React;
 
-const render = () =>
+const render = (overrides: Partial<Parameters<typeof OrganizePanel>[0]> = {}) =>
 	renderToString(
 		createElement(
 			QueryClientProvider,
@@ -29,6 +29,7 @@ const render = () =>
 					anchorMessageId: "msg-1",
 					matchedCount: 47,
 					onClose: () => undefined,
+					...overrides,
 				}),
 			),
 		) as never,
@@ -53,6 +54,18 @@ describe("OrganizePanel", () => {
 		assert.match(html, /All like these/);
 		assert.match(html, /These and new mail like this/);
 		assert.match(html, /Until a date/);
+	});
+
+	it("says it is organizing just the selection when the widen matched nothing (#211 — no dead end)", () => {
+		const html = render({ matchedCount: 0, fallback: true });
+		assert.match(html, /No similar messages found/);
+		assert.match(html, /organizing just your 2 selected/);
+	});
+
+	it("pre-selects the seeded scope (a 'Something else' shortcut seeds the sentence)", () => {
+		const html = render({ initialScope: "standing" });
+		// The standing scope's "Always keep" phrasing only renders when it is active.
+		assert.match(html, /Always keep/);
 	});
 });
 

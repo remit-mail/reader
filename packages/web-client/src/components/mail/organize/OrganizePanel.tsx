@@ -26,6 +26,22 @@ interface OrganizePanelProps {
 	anchorMessageId: string;
 	/** Similar messages the widen preview matched. */
 	matchedCount: number;
+	/**
+	 * Which scope is selected on open. Defaults to `all-like-these`; the
+	 * zero-match fallback and a "Something else" seed override it.
+	 */
+	initialScope?: OrganizeScope;
+	/**
+	 * Destination folder to pre-select — a "Something else" shortcut or a
+	 * plain-language input seeds this (issue #211).
+	 */
+	seedMailboxId?: string;
+	/**
+	 * The widen matched nothing, so the sentence organizes just the selection
+	 * rather than dead-ending. Changes the heading and defaults the scope to
+	 * `just-these`.
+	 */
+	fallback?: boolean;
 	onClose: () => void;
 }
 
@@ -58,10 +74,17 @@ export function OrganizePanel({
 	selectedMessageIds,
 	anchorMessageId,
 	matchedCount,
+	initialScope,
+	seedMailboxId,
+	fallback = false,
 	onClose,
 }: OrganizePanelProps) {
-	const [scope, setScope] = useState<OrganizeScope>("all-like-these");
-	const [moveMailboxId, setMoveMailboxId] = useState<string>("");
+	const [scope, setScope] = useState<OrganizeScope>(
+		initialScope ?? (fallback ? "just-these" : "all-like-these"),
+	);
+	const [moveMailboxId, setMoveMailboxId] = useState<string>(
+		seedMailboxId ?? "",
+	);
 	const [name, setName] = useState("");
 	const [pickedDate, setPickedDate] = useState("");
 
@@ -155,8 +178,11 @@ export function OrganizePanel({
 			<div className="border-b border-line px-5 py-3">
 				<h2 className="text-sm font-semibold text-fg">Organize</h2>
 				<p className="mt-0.5 text-xs text-fg-muted">
-					{matchedCount} similar message{matchedCount === 1 ? "" : "s"} found
-					{selectionCount > 0 ? ` from ${selectionCount} selected` : ""}.
+					{fallback
+						? `No similar messages found — organizing just your ${selectionCount} selected.`
+						: `${matchedCount} similar message${matchedCount === 1 ? "" : "s"} found${
+								selectionCount > 0 ? ` from ${selectionCount} selected` : ""
+							}.`}
 				</p>
 			</div>
 

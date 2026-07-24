@@ -53,6 +53,7 @@ import {
 } from "@/lib/selection-sheet-mode";
 import { cn } from "@/lib/utils";
 import { MoveToTrigger } from "./MoveToTrigger";
+import { MobileOrganizeFlow } from "./organize/MobileOrganizeFlow";
 import { OrganizeDialog } from "./organize/OrganizeDialog";
 import { SelectionToolbar } from "./SelectionToolbar";
 import { SwipeableMessageRow } from "./SwipeableMessageRow";
@@ -221,6 +222,12 @@ export const MessageList = ({
 	const navigate = useNavigate();
 	const isDesktop = useIsDesktop();
 	const [organizeOpen, setOrganizeOpen] = useState(false);
+	// Mobile only: which selection-sheet entry opened the guided organize flow
+	// (`null` when closed). Desktop uses `organizeOpen` + `OrganizeDialog`
+	// instead — a sheet is a touch pattern (issue #211).
+	const [mobileOrganizeEntry, setMobileOrganizeEntry] = useState<
+		"select-similar" | "something-else" | null
+	>(null);
 	const isSearching = !!searchQuery?.trim();
 
 	// Roving focus cursor (#429): the keyboard "where am I" pointer, distinct
@@ -274,6 +281,13 @@ export const MessageList = ({
 	// in multi-select mode (#115). A separate flag needs an effect to reconcile
 	// it back to the count, and across that render the two disagree.
 	const isMultiSelectMode = deriveIsMultiSelectMode(selectedCount, isDesktop);
+
+	// When the selection empties — cancel, a completed action, a mailbox switch —
+	// the guided organize entry must reset too, so a later re-selection doesn't
+	// reopen the flow on a stale entry (issue #211).
+	useEffect(() => {
+		if (selectedCount === 0) setMobileOrganizeEntry(null);
+	}, [selectedCount]);
 
 	// Pending delete, awaiting confirmation. `null` means the dialog is closed.
 	// `source: "ids"` snapshots the concrete ids at request time so a selection
@@ -1227,6 +1241,24 @@ export const MessageList = ({
 			/>
 		) : undefined;
 
+	// The guided organize flow (issue #211) overlays the same positioned pane
+	// ancestor as the sheet, so it is rendered from the sheet slot. The sheet
+	// stays mounted underneath as the flow's dimmed backdrop.
+	const mobileOrganizeFlow =
+		mobileOrganizeEntry && accountId && !isDesktop && selectedCount > 0 ? (
+			<MobileOrganizeFlow
+				entry={mobileOrganizeEntry}
+				accountId={accountId}
+				mailboxId={mailboxId}
+				selectedMessageIds={Array.from(selectedIds)}
+				junkMailboxId={junkMailboxId}
+				onClose={() => {
+					setMobileOrganizeEntry(null);
+					exitSelection();
+				}}
+			/>
+		) : undefined;
+
 	const mobileSelectionSheet = showMobileSheet ? (
 		<SelectionSheet
 			count={mobileCount}
@@ -1239,8 +1271,12 @@ export const MessageList = ({
 					: undefined
 			}
 			onMarkRead={handleMarkAsRead}
-			onSelectSimilar={accountId ? () => setOrganizeOpen(true) : undefined}
-			onSomethingElse={accountId ? () => setOrganizeOpen(true) : undefined}
+			onSelectSimilar={
+				accountId ? () => setMobileOrganizeEntry("select-similar") : undefined
+			}
+			onSomethingElse={
+				accountId ? () => setMobileOrganizeEntry("something-else") : undefined
+			}
 			moveSlot={mobileMoveSlot}
 			isBusy={mobileIsBusy}
 			selectAll={mobileSelectAll}
@@ -1257,6 +1293,16 @@ export const MessageList = ({
 			notice={mobileNotice}
 		/>
 	) : undefined;
+
+	// Both mobile overlays share the pane's positioned ancestor via the sheet
+	// slot: the peeking sheet, and the guided organize flow above it.
+	const mobileSelectionSurface =
+		mobileSelectionSheet || mobileOrganizeFlow ? (
+			<>
+				{mobileSelectionSheet}
+				{mobileOrganizeFlow}
+			</>
+		) : undefined;
 
 	const activeSelectionBar = desktopSelectionBar;
 
@@ -1401,7 +1447,7 @@ export const MessageList = ({
 				isDesktop={isDesktop}
 				hideHeader={hideHeader}
 				selectionBar={activeSelectionBar}
-				selectionSheet={mobileSelectionSheet}
+				selectionSheet={mobileSelectionSurface}
 				listBody={listState === "ready" ? virtualBody : undefined}
 			/>
 			<ConfirmDialog
