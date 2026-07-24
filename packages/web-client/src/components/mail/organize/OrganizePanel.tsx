@@ -179,6 +179,7 @@ export function OrganizePanel({
 			<JobProgress
 				progress={organizeJob.progress}
 				isDone={organizeJob.isDone}
+				senderFallback={senderFallback}
 				onClose={onClose}
 			/>
 		);
@@ -361,10 +362,12 @@ export function OrganizePanel({
 function JobProgress({
 	progress,
 	isDone,
+	senderFallback,
 	onClose,
 }: {
 	progress: ReturnType<typeof useOrganizeJob>["progress"];
 	isDone: boolean;
+	senderFallback: boolean;
 	onClose: () => void;
 }) {
 	const failed = progress.state === "Failed";
@@ -381,7 +384,11 @@ function JobProgress({
 			)}
 
 			{!isDone && (
-				<p className="text-sm font-medium text-fg">Organizing similar mail…</p>
+				<p className="text-sm font-medium text-fg">
+					{senderFallback
+						? "Organizing mail from these senders…"
+						: "Organizing similar mail…"}
+				</p>
 			)}
 
 			{isDone && !failed && (
