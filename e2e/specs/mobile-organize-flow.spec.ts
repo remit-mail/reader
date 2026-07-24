@@ -66,21 +66,32 @@ const somethingElseButton = (page: Page): Locator =>
 const destinationSelect = (page: Page): Locator =>
 	page.getByLabel("Destination folder");
 
+/**
+ * The X, which is only rendered while the sheet is expanded — so its presence is
+ * the reliable "expanded" signal. The smart-flow rows are not: the sheet keeps
+ * them mounted (translated off-screen and `inert`) while collapsed for the
+ * collapse animation, and Playwright's `isVisible` reports an off-screen element
+ * as visible, so gating on them leaves the sheet collapsed and the tap lands on
+ * an inert button.
+ */
+const cancelSelectionButton = (page: Page): Locator =>
+	page.getByRole("button", { name: "Cancel selection" });
+
 const gotoInbox = async (page: Page, mailboxId: string): Promise<void> => {
 	await page.goto(`/mail/${mailboxId}`);
 	await expect(rows(page).first()).toBeVisible({ timeout: 30_000 });
 };
 
-/** Expand the peeking sheet until the smart-flow rows are reachable. */
+/** Tap the grabber to expand the sheet until the smart-flow rows are actionable. */
 const expandSheet = async (page: Page): Promise<void> => {
 	if (
-		await selectSimilarButton(page)
+		await cancelSelectionButton(page)
 			.isVisible()
 			.catch(() => false)
 	)
 		return;
 	await grabber(page).click();
-	await expect(selectSimilarButton(page)).toBeVisible();
+	await expect(cancelSelectionButton(page)).toBeVisible();
 };
 
 /** Select the two given rows so the teaser rises, then expand it. */
