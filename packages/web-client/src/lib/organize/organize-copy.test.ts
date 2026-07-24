@@ -3,7 +3,9 @@ import { describe, it } from "node:test";
 import {
 	commitButtonLabel,
 	commitDisabledReason,
+	formatSenderList,
 	scopeActionCount,
+	senderFallbackSummary,
 } from "./organize-copy";
 import type { OrganizeDraft } from "./organize-model";
 
@@ -89,5 +91,44 @@ describe("scopeActionCount", () => {
 		assert.equal(scopeActionCount("just-these", 3, 48), 3);
 		assert.equal(scopeActionCount("all-like-these", 3, 48), 48);
 		assert.equal(scopeActionCount("standing", 3, 48), 48);
+	});
+});
+
+describe("formatSenderList", () => {
+	it("names a single sender bare", () => {
+		assert.equal(formatSenderList(["npm@github.com"]), "npm@github.com");
+	});
+
+	it("joins a couple with 'and'", () => {
+		assert.equal(
+			formatSenderList(["a@x.com", "b@y.com"]),
+			"a@x.com and b@y.com",
+		);
+	});
+
+	it("lists up to three in full", () => {
+		assert.equal(
+			formatSenderList(["a@x.com", "b@y.com", "c@z.com"]),
+			"a@x.com, b@y.com and c@z.com",
+		);
+	});
+
+	it("truncates past three, summing the rest", () => {
+		assert.equal(
+			formatSenderList(["a@x.com", "b@y.com", "c@z.com", "d@w.com"]),
+			"a@x.com, b@y.com, c@z.com and 1 other",
+		);
+		assert.equal(
+			formatSenderList(["a@x.com", "b@y.com", "c@z.com", "d@w.com", "e@v.com"]),
+			"a@x.com, b@y.com, c@z.com and 2 others",
+		);
+	});
+});
+
+describe("senderFallbackSummary", () => {
+	it("states it is matching all mail from the senders, never 'similar'", () => {
+		const summary = senderFallbackSummary(["npm@github.com"]);
+		assert.match(summary, /isn't available on this server/);
+		assert.match(summary, /matching all mail from npm@github\.com instead/);
 	});
 });
