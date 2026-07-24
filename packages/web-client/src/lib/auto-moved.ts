@@ -17,15 +17,15 @@ const FROM_PLACEMENT_LABEL: Record<string, string> = {
  * (verdict/confidence/dryRun never surface) — mirrors the no-jargon precedent
  * in `rescue-candidates.ts`.
  */
-export const autoMovedLabel = (fromPlacement: string): string =>
-	`Moved from ${FROM_PLACEMENT_LABEL[fromPlacement] ?? "another folder"} by Remit`;
+export const autoMovedLabel = (fromPlacement: string | undefined): string =>
+	`Moved from ${FROM_PLACEMENT_LABEL[fromPlacement ?? ""] ?? "another folder"} by Remit`;
 
 /**
  * The mailbox the verdict's `action` implies as the destination — where the
  * message should currently sit for the move to still be "in effect".
  */
 const impliedDestinationMailboxId = (
-	action: string,
+	action: string | undefined,
 	mailboxes: AutoMovedRoleMailboxes,
 ): string | undefined => {
 	if (action === PlacementAction.MoveToInbox) return mailboxes.inboxMailboxId;
@@ -59,7 +59,7 @@ export const isAutoMoveInEffect = (
  * account has no mailbox appointed to that role.
  */
 export const resolveUndoTargetMailboxId = (
-	fromPlacement: string,
+	fromPlacement: string | undefined,
 	mailboxes: AutoMovedRoleMailboxes,
 ): string | undefined => {
 	if (fromPlacement === "inbox") return mailboxes.inboxMailboxId;
