@@ -712,26 +712,37 @@ export class BodySyncService {
 		// rule wins the single mailbox a message occupies — so at most one move is
 		// enqueued. A non-confident/leave verdict with no filter move is a no-op.
 		let filterMove: MessageFilterMove | undefined;
+		let filterMoved = false;
 		if (filterDecision.move) {
+			const destinationMailboxId = filterDecision.move.destinationMailboxId;
 			// Capture the source mailbox BEFORE the move rewrites mailboxId, so the
 			// auto-moved badge can name where the filter took the message from and
-			// offer an undo back to it (issue #223). Persisted on the message rather
-			// than read from `originalMailboxId`, which a later user move would
-			// overwrite — the filter's source must survive an undo to stay derivable.
+			// offer an undo back to it (issue #223). Snapshotted into the marker
+			// rather than read from `originalMailboxId` at derive time, which a
+			// later user move would overwrite — the filter's source must survive an
+			// undo to stay derivable.
 			const sourceMailboxId = (await this.messageService.get(messageId))
 				.mailboxId;
 			await this.filterConfig?.placementMoveService.moveMessage(
 				accountConfigId,
 				messageId,
-				filterDecision.move.destinationMailboxId,
+				destinationMailboxId,
 				accountId,
 			);
-			filterMove = {
-				filterId: filterDecision.move.filterId,
-				sourceMailboxId,
-				destinationMailboxId: filterDecision.move.destinationMailboxId,
-				decidedAt: Date.now(),
-			};
+			// A filter matches by content, not location: a message delivered
+			// straight into the destination (a server-side rule) or already filed
+			// there matches but was not moved by Remit. `moveMessage` no-ops in that
+			// case; record neither the marker nor `movedByRemit`, so the badge never
+			// claims a move that did not happen and its Undo is never a no-op.
+			if (sourceMailboxId !== destinationMailboxId) {
+				filterMoved = true;
+				filterMove = {
+					filterId: filterDecision.move.filterId,
+					sourceMailboxId,
+					destinationMailboxId,
+					decidedAt: Date.now(),
+				};
+			}
 		} else if (resolved.move) {
 			await this.placementConfig?.placementMoveService.moveMessage(
 				accountConfigId,
@@ -754,7 +765,7 @@ export class BodySyncService {
 			});
 		}
 
-		const moved = Boolean(resolved.move || filterDecision.move);
+		const moved = Boolean(resolved.move || filterMoved);
 
 		// ONE Message UpdateItem per synced message: bodyStorageKey + every
 		// classification/derived field + the move flag + the audit verdict. Each
