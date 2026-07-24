@@ -43,6 +43,12 @@ export interface FilterRuleEditorProps {
 	 * widen still renders, marked inactive.
 	 */
 	semanticAvailable?: boolean;
+	/**
+	 * The clause fields the add/edit picker offers, in menu order. Defaults to the
+	 * whole vocabulary; a consumer narrows it to the fields its deployment can
+	 * match, so the editor never offers a clause the backend cannot evaluate.
+	 */
+	clauseFields?: ClauseField[];
 	/** The inline clause form, when adding or editing a clause. */
 	clauseEdit?: ClauseEditState;
 	onStartAddClause?: () => void;
@@ -79,6 +85,7 @@ export function FilterRuleEditor({
 	folders,
 	preview,
 	semanticAvailable = false,
+	clauseFields,
 	clauseEdit,
 	onStartAddClause,
 	onStartEditClause,
@@ -154,6 +161,7 @@ export function FilterRuleEditor({
 						<ClauseEditor
 							draft={clauseEdit.draft}
 							mode={clauseEdit.mode}
+							fields={clauseFields}
 							onChangeField={onChangeDraftField}
 							onChangeValue={onChangeDraftValue}
 							onSubmit={onSubmitClause}

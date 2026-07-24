@@ -1267,7 +1267,6 @@ export const MessageList = ({
 			<MobileOrganizeFlow
 				entry={mobileOrganizeEntry}
 				accountId={accountId}
-				mailboxId={mailboxId}
 				selectedMessageIds={Array.from(selectedIds)}
 				selectedSenders={selectedSenders}
 				junkMailboxId={junkMailboxId}
@@ -1509,7 +1508,6 @@ export const MessageList = ({
 				<OrganizeDialog
 					open={organizeOpen}
 					accountId={accountId}
-					mailboxId={mailboxId}
 					selectedMessageIds={Array.from(selectedIds)}
 					selectedSenders={selectedSenders}
 					onClose={() => setOrganizeOpen(false)}

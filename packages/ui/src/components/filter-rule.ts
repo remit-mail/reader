@@ -96,6 +96,23 @@ export function clauseFieldLabel(field: ClauseField): string {
 	return clauseFieldLabels[field];
 }
 
+const clauseFieldHints: Partial<Record<ClauseField, string>> = {
+	ListId:
+		"The mailing list's List-Id header, matched exactly. New mail is matched as it arrives — mail delivered before this was set up may not carry it yet.",
+	FromDomain:
+		"The sender's registrable domain — matches anyone at it, subdomains included (a look-alike like example.com.evil.test never matches).",
+};
+
+/**
+ * A one-line explanation of what a field matches, for the fields whose semantics
+ * aren't self-evident from the label. `From`, `Subject`, and `HasWords` read
+ * plainly and carry none. Never leave a control unexplained where it could
+ * surprise (ux.md).
+ */
+export function clauseFieldHint(field: ClauseField): string | undefined {
+	return clauseFieldHints[field];
+}
+
 /** The fields a new clause can be added as, in menu order. */
 export const clauseFieldOrder: ClauseField[] = [
 	"From",

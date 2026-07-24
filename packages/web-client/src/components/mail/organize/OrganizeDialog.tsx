@@ -2,12 +2,11 @@ import { Button, Dialog } from "@remit/ui";
 import { Loader2 } from "lucide-react";
 import { useEffect } from "react";
 import { useOrganizeWiden } from "@/hooks/useOrganizeWiden";
-import { OrganizePanel } from "./OrganizePanel";
+import { OrganizeRuleEditor } from "./OrganizeRuleEditor";
 
 interface OrganizeDialogProps {
 	open: boolean;
 	accountId: string;
-	mailboxId: string;
 	selectedMessageIds: string[];
 	/**
 	 * Sender addresses of the selected messages, driving the literal fallback on
@@ -19,14 +18,13 @@ interface OrganizeDialogProps {
 
 /**
  * Smart-organize flow entered from the selection toolbar. Widens the selection
- * to similar mail once (POST /organize/preview), then lets the user commit the
- * organize sentence at one of four scopes (RFC 034). The widen is the only
- * corpus-wide query; everything after acts on that result.
+ * once (POST /organize/preview) to seed the rule, then hands off to the chip
+ * editor (RFC 038 D1), which counts and commits over the same endpoints. The
+ * widen is only the opening count; the editor re-previews every edit.
  */
 export function OrganizeDialog({
 	open,
 	accountId,
-	mailboxId,
 	selectedMessageIds,
 	selectedSenders,
 	onClose,
@@ -38,7 +36,6 @@ export function OrganizeDialog({
 		matchedCount,
 		semanticUnavailable,
 		senders,
-		matchPredicate,
 		isPending,
 		isError,
 		error,
@@ -57,7 +54,7 @@ export function OrganizeDialog({
 	if (!open) return null;
 
 	return (
-		<Dialog open={open} onClose={handleClose} title="Organize similar mail">
+		<Dialog open={open} onClose={handleClose} title="Filter rule">
 			{isPending || matchedCount === undefined ? (
 				isError ? (
 					<div className="flex flex-col items-center gap-3 px-5 py-8 text-center">
@@ -80,12 +77,10 @@ export function OrganizeDialog({
 					</div>
 				)
 			) : (
-				<OrganizePanel
+				<OrganizeRuleEditor
 					accountId={accountId}
-					mailboxId={mailboxId}
 					selectedMessageIds={selectedMessageIds}
-					matchPredicate={matchPredicate}
-					matchedCount={matchedCount}
+					seedCount={matchedCount}
 					semanticUnavailable={semanticUnavailable}
 					senders={senders}
 					onClose={handleClose}

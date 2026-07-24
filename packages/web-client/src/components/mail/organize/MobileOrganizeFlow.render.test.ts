@@ -23,7 +23,6 @@ const render = (entry: OrganizeEntry) =>
 				createElement(MobileOrganizeFlow, {
 					entry,
 					accountId: "acc-1",
-					mailboxId: "mbx-inbox",
 					selectedMessageIds: ["msg-1", "msg-2"],
 					selectedSenders: ["npm@github.com"],
 					onClose: () => undefined,
