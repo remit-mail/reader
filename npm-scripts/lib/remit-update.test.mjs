@@ -71,6 +71,17 @@ function seedDatabase(path) {
 	db.close();
 }
 
+// A remit.db that exists but has none of the drizzle bookkeeping tables: the
+// window before the migrate one-shot has run, where every migration table
+// count falls through the sqlite3 fallback to 0. The instance is at schema 0,
+// not unknown.
+function seedBareDatabase(path) {
+	const db = new DatabaseSync(path);
+	db.exec("PRAGMA journal_mode = WAL");
+	db.exec("CREATE TABLE message (id INTEGER PRIMARY KEY, subject TEXT)");
+	db.close();
+}
+
 function schemaTotal(dbPath) {
 	const db = new DatabaseSync(dbPath);
 	let total = 0;
@@ -103,6 +114,7 @@ function sandbox({
 	manifest = MANIFEST,
 	env = {},
 	realDb = false,
+	bareDb = false,
 } = {}) {
 	const dir = mkdtempSync(join(TMP_ROOT, "remit-update-"));
 	sandboxes.push(dir);
@@ -168,7 +180,7 @@ function sandbox({
 	// node:sqlite, su-exec drops its uid argument and execs, apk and chown are
 	// no-ops (the sandbox is one uid, and there is no package index to hit).
 	if (realDb) {
-		seedDatabase(join(sqlite, "remit.db"));
+		(bareDb ? seedBareDatabase : seedDatabase)(join(sqlite, "remit.db"));
 		writeExecutable(
 			join(bin, "sqlite3"),
 			`#!/bin/sh\nexec node "${SQLITE_SHIM}" "$@"\n`,
@@ -952,6 +964,21 @@ describe("the check reports schema versions, never a computed flag", () => {
 		});
 		box.run(["update", "--check"]);
 		assert.ok(!("currentSchemaVersion" in box.stateJson()));
+	});
+
+	it("reads a database with no migration tables as schema 0, not unknown", () => {
+		// A real database file that exists but has never been migrated: every
+		// __drizzle_migrations_* count falls through the sqlite3 fallback to 0, so
+		// the instance is a pre-migration one at schema 0 that every release
+		// migrates — not an absent, unknown version.
+		const box = sandbox({
+			realDb: true,
+			bareDb: true,
+			scenario: { probe: "ok" },
+			manifest: { ...MANIFEST, schemaVersion: 9 },
+		});
+		box.run(["update", "--check"]);
+		assert.equal(box.stateJson().currentSchemaVersion, 0);
 	});
 
 	it("preserves the target schema across a re-check after a version change", () => {

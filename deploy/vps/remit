@@ -641,8 +641,9 @@ state_render() {
 		_run=$(cat "$STATE_DIR/run.json")
 	fi
 	# currentSchemaVersion is the running instance's schema version, recorded at
-	# check time. Absent — never checked, or the database has no schema yet — is
-	# an unknown version and the field is omitted rather than rendered null.
+	# check time. Absent — never checked, or no database to read — is an unknown
+	# version and the field is omitted rather than rendered null. A database that
+	# exists but has not been migrated reads as 0, not absent.
 	_schema=""
 	if [ -f "$STATE_DIR/current-schema" ]; then
 		_cs=$(cat "$STATE_DIR/current-schema")
@@ -1045,9 +1046,11 @@ prune_snapshots() {
 # It reads inside a helper container the way the snapshot does, and as uid 1000
 # for the same reason: a consistent count opens the live WAL database, and a
 # root-owned -wal/-shm sidecar left on the volume fails every app writer's next
-# open. A database that is absent, or has none of the tables yet, is an unknown
-# version — it prints nothing and is never an error. Counting a table that does
-# not exist yields 0 through the sqlite3 fallback rather than aborting the read.
+# open. An absent database is an unknown version — it prints nothing and is
+# never an error. A database that exists but holds none of the migration tables
+# is schema version 0, a pre-migration instance that every release migrates:
+# counting a table that does not exist yields 0 through the sqlite3 fallback,
+# and that zero total is emitted rather than folded back into unknown.
 read_schema_version() {
 	volume_run "set -eu
 command -v sqlite3 >/dev/null 2>&1 || apk add --no-cache sqlite >/dev/null 2>&1 || exit 0
@@ -1064,7 +1067,10 @@ printf %s \"\$total\"'"
 # Persisted so state_render can render it on every later write without opening a
 # container each time; refreshed on each check. A non-integer read — the helper
 # failed, the database is not there — clears it, so the field goes back to
-# unknown rather than reporting a stale version.
+# unknown rather than reporting a stale version. Only do_check calls this, so
+# after an update migrates the database the recorded version stays at the
+# pre-update count until the next check refreshes it; that self-heals, and
+# updateAvailable is false in the interim, so no consumer is misled.
 record_current_schema() {
 	_sv=$(read_schema_version 2>/dev/null || true)
 	if printf '%s' "$_sv" | grep -qE '^[0-9]+$'; then
