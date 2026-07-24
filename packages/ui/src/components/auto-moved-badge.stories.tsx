@@ -44,10 +44,11 @@ export const FilterMoveWithManageLink: Story = {
 };
 
 export const FilterMoveListRow: Story = {
+	// The list row is icon + label only — the app gates the Manage link (and
+	// Undo) to the reading-view `md` size, so no `filtersHref` here.
 	args: {
 		label: "Moved from Inbox by Remit",
 		size: "sm",
-		filtersHref: "/settings/filters",
 	},
 };
 
