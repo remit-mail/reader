@@ -183,6 +183,28 @@ export const NoSimilarFound: Story = {
 	),
 };
 
+/**
+ * The deployment ships no vector pipeline, so the server ran no semantic widen —
+ * the sentence organizes just the selection and the heading names the real
+ * reason (#226/#201).
+ */
+export const SemanticUnavailable: Story = {
+	name: "Semantic Unavailable",
+	render: () => (
+		<SheetStage>
+			<OrganizePanel
+				accountId={ACCOUNT_ID}
+				mailboxId="mbx-inbox"
+				selectedMessageIds={["msg-1", "msg-2"]}
+				anchorMessageId="msg-1"
+				matchedCount={0}
+				semanticUnavailable
+				onClose={() => undefined}
+			/>
+		</SheetStage>
+	),
+};
+
 /** The "Something else" fallback: shortcuts derived from folders + an input. */
 export const SomethingElse: Story = {
 	render: () => (

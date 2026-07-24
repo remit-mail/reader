@@ -39,7 +39,7 @@ export const processOrganizeJob = async (
 
 	try {
 		const predicate = predicateFromJob(job);
-		const messageIds = await matchOrganize(
+		const { messageIds, semanticUnavailable } = await matchOrganize(
 			buildOrganizeMatchDeps(client),
 			accountConfigId,
 			predicate,
@@ -65,6 +65,7 @@ export const processOrganizeJob = async (
 				matched: messageIds.length,
 				applied,
 				failed,
+				semanticUnavailable,
 			},
 			"Organize back-apply complete",
 		);

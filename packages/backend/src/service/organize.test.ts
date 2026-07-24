@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import { FilterMatchOperator } from "@remit/domain-enums";
 import type {
 	AnchorPayload,
@@ -11,9 +11,17 @@ import type { RemitClient } from "./dynamodb.js";
 import {
 	applyOrganize,
 	matchOrganize,
+	type OrganizeCandidate,
 	type OrganizeMatchDeps,
 	type OrganizePredicate,
 } from "./organize.js";
+import { _resetSemanticCapabilityForTest } from "./semantic-capability.js";
+
+const moduleNotFound = (): Error => {
+	const error = new Error("Cannot find package 'sqlite-vec' imported from …");
+	(error as Error & { code: string }).code = "ERR_MODULE_NOT_FOUND";
+	return error;
+};
 
 const ACCOUNT_CONFIG_ID = "cfg-1";
 const ANCHOR_VECTOR = [1, 0, 0, 0];
@@ -148,12 +156,64 @@ const trackingMoveService = () => {
 	};
 };
 
+/**
+ * Deps whose semantic side is the in-memory vector store — the vector-backed
+ * deployment. `listAccountFilterMessages` returns the given corpus (empty by
+ * default), and constructing the semantic side is tracked so a literal-only
+ * predicate can be shown never to build it.
+ */
 const matchDeps = (
 	store: ReturnType<typeof createMemoryVectorStore>,
-): OrganizeMatchDeps => ({
-	buildAnchor: async () => anchorPayload,
-	vectorStore: store,
-	listAccountMessageIds: async () => [],
+	corpus: OrganizeCandidate[] = [],
+): OrganizeMatchDeps & { semanticBuilds: () => number } => {
+	let semanticBuilds = 0;
+	return {
+		semantic: () => {
+			semanticBuilds += 1;
+			return { buildAnchor: async () => anchorPayload, vectorStore: store };
+		},
+		listAccountFilterMessages: async () => corpus,
+		semanticBuilds: () => semanticBuilds,
+	};
+};
+
+/**
+ * Deps modelling a deployment that ships no vector pipeline: any attempt to
+ * build or use the semantic side raises the missing-module shape, and the
+ * literal corpus is served from plain rows.
+ */
+const vectorlessDeps = (
+	corpus: OrganizeCandidate[],
+): OrganizeMatchDeps & { semanticUsed: () => boolean } => {
+	let semanticUsed = false;
+	return {
+		semantic: () => {
+			semanticUsed = true;
+			return {
+				buildAnchor: async () => {
+					throw moduleNotFound();
+				},
+				vectorStore: {
+					query: async () => {
+						throw moduleNotFound();
+					},
+					getByMessage: async () => {
+						throw moduleNotFound();
+					},
+				},
+			};
+		},
+		listAccountFilterMessages: async () => corpus,
+		semanticUsed: () => semanticUsed,
+	};
+};
+
+const candidate = (
+	messageId: string,
+	over: Partial<OrganizeCandidate["message"]> = {},
+): OrganizeCandidate => ({
+	messageId,
+	message: { from: "", fromName: "", subject: "", text: "", ...over },
 });
 
 describe("matchOrganize", () => {
@@ -165,25 +225,30 @@ describe("matchOrganize", () => {
 			bodyChunk("msg-miss", ORTHOGONAL_VECTOR),
 		]);
 
-		const matched = await matchOrganize(
+		const { messageIds, semanticUnavailable } = await matchOrganize(
 			matchDeps(store),
 			ACCOUNT_CONFIG_ID,
 			predicate({ actionLabelId: "lbl-1" }),
 		);
 
-		assert.deepEqual([...matched].sort(), matching);
+		assert.deepEqual([...messageIds].sort(), matching);
+		assert.equal(semanticUnavailable, false);
 	});
 
 	it("matches nothing when the predicate has neither an anchor nor a clause", async () => {
 		const store = createMemoryVectorStore();
 		await store.upsert([bodyChunk("msg-1", ANCHOR_VECTOR)]);
 
-		const matched = await matchOrganize(matchDeps(store), ACCOUNT_CONFIG_ID, {
-			...predicate(),
-			anchorMessageId: "None",
-		});
+		const { messageIds } = await matchOrganize(
+			matchDeps(store),
+			ACCOUNT_CONFIG_ID,
+			{
+				...predicate(),
+				anchorMessageId: "None",
+			},
+		);
 
-		assert.deepEqual(matched, []);
+		assert.deepEqual(messageIds, []);
 	});
 
 	it("refines the semantic set by literal clauses", async () => {
@@ -199,12 +264,128 @@ describe("matchOrganize", () => {
 			}),
 		]);
 
-		const matched = await matchOrganize(matchDeps(store), ACCOUNT_CONFIG_ID, {
+		const { messageIds } = await matchOrganize(
+			matchDeps(store),
+			ACCOUNT_CONFIG_ID,
+			{
+				...predicate(),
+				literalClauses: [{ field: "Subject", value: "reservation" }],
+			},
+		);
+
+		assert.deepEqual(messageIds, ["msg-1"]);
+	});
+
+	it("never builds the semantic side for a purely-literal predicate", async () => {
+		const store = createMemoryVectorStore();
+		const deps = matchDeps(store, [
+			candidate("msg-1", { subject: "Dinner reservation" }),
+			candidate("msg-2", { subject: "Newsletter" }),
+		]);
+
+		const { messageIds } = await matchOrganize(deps, ACCOUNT_CONFIG_ID, {
 			...predicate(),
+			anchorMessageId: "None",
 			literalClauses: [{ field: "Subject", value: "reservation" }],
 		});
 
-		assert.deepEqual(matched, ["msg-1"]);
+		assert.deepEqual(messageIds, ["msg-1"]);
+		assert.equal(
+			deps.semanticBuilds(),
+			0,
+			"a literal-only predicate must not construct the vector-backed side",
+		);
+	});
+});
+
+describe("matchOrganize on a deployment without the vector pipeline", () => {
+	const ORIGINAL = process.env.DATA_BACKEND;
+	beforeEach(() => {
+		process.env.DATA_BACKEND = "sqlite";
+		_resetSemanticCapabilityForTest();
+	});
+	afterEach(() => {
+		if (ORIGINAL === undefined) delete process.env.DATA_BACKEND;
+		else process.env.DATA_BACKEND = ORIGINAL;
+		_resetSemanticCapabilityForTest();
+	});
+
+	it("matches a literal predicate from the corpus without touching the vector store", async () => {
+		const deps = vectorlessDeps([
+			candidate("msg-1", { subject: "Dinner reservation" }),
+			candidate("msg-2", { subject: "Weekly newsletter" }),
+			candidate("msg-3", { subject: "Table reservation confirmed" }),
+		]);
+
+		const { messageIds, semanticUnavailable } = await matchOrganize(
+			deps,
+			ACCOUNT_CONFIG_ID,
+			{
+				...predicate(),
+				anchorMessageId: "None",
+				literalClauses: [{ field: "Subject", value: "reservation" }],
+			},
+		);
+
+		assert.deepEqual(messageIds, ["msg-1", "msg-3"]);
+		assert.equal(semanticUnavailable, false);
+		assert.equal(
+			deps.semanticUsed(),
+			false,
+			"a literal-only predicate must never reach the vector store",
+		);
+	});
+
+	it("degrades an anchor+clauses widen to the literal matches, flagged, instead of crashing", async () => {
+		const deps = vectorlessDeps([
+			candidate("msg-1", { subject: "Dinner reservation" }),
+			candidate("msg-2", { subject: "Weekly newsletter" }),
+		]);
+
+		const { messageIds, semanticUnavailable } = await matchOrganize(
+			deps,
+			ACCOUNT_CONFIG_ID,
+			{
+				...predicate(),
+				literalClauses: [{ field: "Subject", value: "reservation" }],
+			},
+		);
+
+		assert.deepEqual(messageIds, ["msg-1"]);
+		assert.equal(semanticUnavailable, true);
+	});
+
+	it("degrades an anchor-only widen to an empty flagged result instead of crashing", async () => {
+		const deps = vectorlessDeps([candidate("msg-1"), candidate("msg-2")]);
+
+		const { messageIds, semanticUnavailable } = await matchOrganize(
+			deps,
+			ACCOUNT_CONFIG_ID,
+			predicate(),
+		);
+
+		assert.deepEqual(messageIds, []);
+		assert.equal(semanticUnavailable, true);
+	});
+
+	it("propagates a genuine (non-capability) semantic failure loudly", async () => {
+		const deps: OrganizeMatchDeps = {
+			semantic: () => ({
+				buildAnchor: async () => {
+					throw new Error("SQLITE_BUSY");
+				},
+				vectorStore: {
+					query: async () => [],
+					getByMessage: async () => [],
+				},
+			}),
+			listAccountFilterMessages: async () => [],
+		};
+
+		await assert.rejects(
+			() => matchOrganize(deps, ACCOUNT_CONFIG_ID, predicate()),
+			/SQLITE_BUSY/,
+		);
 	});
 });
 
@@ -233,7 +414,7 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 		const result = await applyOrganize(
 			{ client: tracked.client },
 			ACCOUNT_CONFIG_ID,
-			applied,
+			applied.messageIds,
 			p,
 		);
 
@@ -260,7 +441,11 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 		await store.upsert([bodyChunk("msg-1", ANCHOR_VECTOR)]);
 		const p = predicate({ actionMailboxId: "mbox-target" });
 
-		const matched = await matchOrganize(matchDeps(store), ACCOUNT_CONFIG_ID, p);
+		const { messageIds: matched } = await matchOrganize(
+			matchDeps(store),
+			ACCOUNT_CONFIG_ID,
+			p,
+		);
 		const tracked = trackingClient();
 		const result = await applyOrganize(
 			{ client: tracked.client },
@@ -282,7 +467,11 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 		]);
 		const p = predicate({ actionMailboxId: "mbox-target" });
 
-		const matched = await matchOrganize(matchDeps(store), ACCOUNT_CONFIG_ID, p);
+		const { messageIds: matched } = await matchOrganize(
+			matchDeps(store),
+			ACCOUNT_CONFIG_ID,
+			p,
+		);
 		const tracked = trackingClient();
 		const mover = trackingMoveService();
 		const result = await applyOrganize(
@@ -324,7 +513,11 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 			actionMailboxId: "mbox-target",
 		});
 
-		const matched = await matchOrganize(matchDeps(store), ACCOUNT_CONFIG_ID, p);
+		const { messageIds: matched } = await matchOrganize(
+			matchDeps(store),
+			ACCOUNT_CONFIG_ID,
+			p,
+		);
 		const tracked = trackingClient();
 		const mover = trackingMoveService();
 		const result = await applyOrganize(
@@ -351,7 +544,11 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 		await store.upsert(matching.map((id) => bodyChunk(id, ANCHOR_VECTOR)));
 		const p = predicate({ actionMailboxId: "mbox-target" });
 
-		const matched = await matchOrganize(matchDeps(store), ACCOUNT_CONFIG_ID, p);
+		const { messageIds: matched } = await matchOrganize(
+			matchDeps(store),
+			ACCOUNT_CONFIG_ID,
+			p,
+		);
 		const tracked = trackingClient();
 		const mover = trackingMoveService();
 
