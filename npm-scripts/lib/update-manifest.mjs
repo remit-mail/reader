@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 export const RELEASE_TAG_PATTERN = /^v\d+\.\d+\.\d+$/;
 export const DEFAULT_REGISTRY = "ghcr.io/remit-mail/reader";
+export const REPO_SLUG = DEFAULT_REGISTRY.replace(/^ghcr\.io\//, "");
 
 // The SQLite migration sets the self-host stack applies, in the layout the
 // migrate one-shot reads (deploy/vps/migrate/run-migrate.ts). Each set is a
@@ -62,6 +63,13 @@ export function assertValidVersion(version) {
 	if (!RELEASE_TAG_PATTERN.test(version)) {
 		throw new Error(`"${version}" is not a valid release tag; expected vX.Y.Z`);
 	}
+}
+
+// Built from the tag rather than the release object's html_url: release.yml
+// writes the manifest while the release is still a draft, and a draft's
+// html_url is the untagged- placeholder GitHub assigns until it is published.
+export function deriveReleaseNotesUrl(version) {
+	return `https://github.com/${REPO_SLUG}/releases/tag/${version}`;
 }
 
 export function extractSummary(tagMessage) {

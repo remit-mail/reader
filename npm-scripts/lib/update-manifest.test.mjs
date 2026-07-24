@@ -6,8 +6,10 @@ import { fileURLToPath } from "node:url";
 import {
 	assertValidVersion,
 	DEFAULT_REGISTRY,
+	deriveReleaseNotesUrl,
 	deriveSchemaVersion,
 	extractSummary,
+	REPO_SLUG,
 	readTagSummary,
 	SQLITE_MIGRATION_SETS,
 } from "./update-manifest.mjs";
@@ -131,5 +133,26 @@ describe("DEFAULT_REGISTRY", () => {
 		const [, registry] =
 			script.match(/REGISTRY="\$\{REGISTRY:-([^}]+)\}"/) ?? [];
 		assert.equal(DEFAULT_REGISTRY, registry);
+	});
+});
+
+describe("deriveReleaseNotesUrl", () => {
+	it("builds the tag URL from the version", () => {
+		assert.equal(
+			deriveReleaseNotesUrl("v1.5.0"),
+			`https://github.com/${REPO_SLUG}/releases/tag/v1.5.0`,
+		);
+	});
+
+	// The regression this guards: release.yml writes the manifest while the
+	// release is still a draft, so the release object's html_url is GitHub's
+	// untagged- placeholder. The URL must come from the tag, never that field.
+	it("never carries a draft's untagged- URL", () => {
+		const url = deriveReleaseNotesUrl("v0.1.0");
+		assert.ok(!url.includes("untagged-"));
+		assert.equal(
+			url,
+			"https://github.com/remit-mail/reader/releases/tag/v0.1.0",
+		);
 	});
 });

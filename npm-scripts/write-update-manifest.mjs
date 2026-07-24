@@ -22,6 +22,7 @@ import { UpdateManifestSchema } from "@remit/data-ports/update-manifest";
 import {
 	assertValidVersion,
 	DEFAULT_REGISTRY,
+	deriveReleaseNotesUrl,
 	deriveSchemaVersion,
 	readTagSummary,
 } from "./lib/update-manifest.mjs";
@@ -48,7 +49,7 @@ async function main() {
 			"view",
 			version,
 			"--json",
-			"publishedAt,createdAt,url,tagName,isDraft,isPrerelease",
+			"publishedAt,createdAt,tagName,isDraft,isPrerelease",
 		]);
 		release = JSON.parse(raw);
 	} catch {
@@ -80,7 +81,7 @@ async function main() {
 		version,
 		publishedAt: release.publishedAt ?? release.createdAt,
 		summary,
-		releaseNotesUrl: release.url,
+		releaseNotesUrl: deriveReleaseNotesUrl(version),
 		registry: DEFAULT_REGISTRY,
 		schemaVersion: deriveSchemaVersion(repoRoot),
 	});
