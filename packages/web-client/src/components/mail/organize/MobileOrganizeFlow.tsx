@@ -56,8 +56,14 @@ export function MobileOrganizeFlow({
 	const anchorMessageId = selectedMessageIds[0];
 	const [seed, setSeed] = useState<OrganizeSeed | undefined>();
 
-	const { preview, matchedCount, isPending, isError, error } =
-		useOrganizePreview(accountId);
+	const {
+		preview,
+		matchedCount,
+		semanticUnavailable,
+		isPending,
+		isError,
+		error,
+	} = useOrganizePreview(accountId);
 
 	useEffect(() => {
 		if (!anchorMessageId) return;
@@ -121,6 +127,7 @@ export function MobileOrganizeFlow({
 					initialScope={seed?.scope}
 					seedMailboxId={seed?.moveMailboxId}
 					fallback={stage.fallback}
+					semanticUnavailable={semanticUnavailable}
 					onClose={onClose}
 				/>
 			)}

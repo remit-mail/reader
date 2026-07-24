@@ -26,8 +26,15 @@ export function OrganizeDialog({
 	onClose,
 }: OrganizeDialogProps) {
 	const anchorMessageId = selectedMessageIds[0];
-	const { preview, reset, matchedCount, isPending, isError, error } =
-		useOrganizePreview(accountId);
+	const {
+		preview,
+		reset,
+		matchedCount,
+		semanticUnavailable,
+		isPending,
+		isError,
+		error,
+	} = useOrganizePreview(accountId);
 
 	useEffect(() => {
 		if (!open || !anchorMessageId) return;
@@ -75,6 +82,7 @@ export function OrganizeDialog({
 					selectedMessageIds={selectedMessageIds}
 					anchorMessageId={anchorMessageId}
 					matchedCount={matchedCount}
+					semanticUnavailable={semanticUnavailable}
 					onClose={handleClose}
 				/>
 			)}

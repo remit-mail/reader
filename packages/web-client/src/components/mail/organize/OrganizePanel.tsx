@@ -42,6 +42,12 @@ interface OrganizePanelProps {
 	 * `just-these`.
 	 */
 	fallback?: boolean;
+	/**
+	 * The server ran no semantic widen because this deployment ships no vector
+	 * pipeline. Like {@link fallback} it organizes just the selection, but the
+	 * heading names the real reason rather than "no similar found".
+	 */
+	semanticUnavailable?: boolean;
 	onClose: () => void;
 }
 
@@ -77,10 +83,14 @@ export function OrganizePanel({
 	initialScope,
 	seedMailboxId,
 	fallback = false,
+	semanticUnavailable = false,
 	onClose,
 }: OrganizePanelProps) {
+	// A missing widen and an empty widen both organize just the selection; only
+	// the heading distinguishes them.
+	const noWiden = fallback || semanticUnavailable;
 	const [scope, setScope] = useState<OrganizeScope>(
-		initialScope ?? (fallback ? "just-these" : "all-like-these"),
+		initialScope ?? (noWiden ? "just-these" : "all-like-these"),
 	);
 	const [moveMailboxId, setMoveMailboxId] = useState<string>(
 		seedMailboxId ?? "",
@@ -178,11 +188,13 @@ export function OrganizePanel({
 			<div className="border-b border-line px-5 py-3">
 				<h2 className="text-sm font-semibold text-fg">Organize</h2>
 				<p className="mt-0.5 text-xs text-fg-muted">
-					{fallback
-						? `No similar messages found — organizing just your ${selectionCount} selected.`
-						: `${matchedCount} similar message${matchedCount === 1 ? "" : "s"} found${
-								selectionCount > 0 ? ` from ${selectionCount} selected` : ""
-							}.`}
+					{semanticUnavailable
+						? `Finding similar mail isn't available on this server — organizing just your ${selectionCount} selected.`
+						: fallback
+							? `No similar messages found — organizing just your ${selectionCount} selected.`
+							: `${matchedCount} similar message${matchedCount === 1 ? "" : "s"} found${
+									selectionCount > 0 ? ` from ${selectionCount} selected` : ""
+								}.`}
 				</p>
 			</div>
 
