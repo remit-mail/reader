@@ -194,6 +194,7 @@ CREATE TABLE IF NOT EXISTS message (
   has_list_unsubscribe    BOOLEAN NOT NULL DEFAULT false,
   moved_by_remit          BOOLEAN NOT NULL DEFAULT false,
   placement_verdict       JSONB,
+  filter_move             JSONB,
   created_at              BIGINT NOT NULL,
   updated_at              BIGINT NOT NULL
 );

@@ -8,7 +8,7 @@ interface AutoMovedIndicatorProps {
 	threadId: string;
 	mailboxId: string;
 	autoMoved: RemitImapAutoMovedInfo | undefined;
-	/** `md` (reading view) adds the inline Undo action; `sm` (list row) is icon + label only. */
+	/** `md` (reading view) adds the inline actions (Undo, and the Manage-filter link for a filter move); `sm` (list row) shows the icon + label. */
 	size?: "sm" | "md";
 }
 
@@ -43,6 +43,7 @@ export function AutoMovedIndicator({
 			size={size}
 			onUndo={badge.onUndo}
 			undoLabel={badge.isUndoing ? "Undoing…" : "Undo"}
+			filtersHref={size === "md" ? badge.filtersHref : undefined}
 		/>
 	);
 }

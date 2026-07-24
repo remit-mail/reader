@@ -1,0 +1,1 @@
+ALTER TABLE `message` ADD `filter_move` text;
