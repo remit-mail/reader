@@ -94,6 +94,60 @@ describe("MessageList escalated actions", () => {
 });
 
 /**
+ * Advanced selection is no longer mobile-only (#212): the escalation engine is
+ * opened to desktop, and the desktop `SelectionToolbar` renders the same
+ * offer → counting → escalated → progress → notice states the mobile sheet
+ * carries, from one shared set of derivations so the two surfaces never drift.
+ */
+describe("MessageList escalation reaches desktop (#212)", () => {
+	it("no longer gates the escalation engine on the mobile viewport", () => {
+		assert.match(
+			source,
+			/const escalationEnabled = isSearching && !!searchPredicate;/,
+		);
+		assert.doesNotMatch(
+			source,
+			/!isDesktop && isSearching && !!searchPredicate/,
+		);
+	});
+
+	it("feeds the desktop toolbar the shared escalation state", () => {
+		const toolbar = source.match(/<SelectionToolbar[\s\S]*?\/>/)?.[0] ?? "";
+		assert.match(toolbar, /statusLabel=\{selectionStatusLabel\}/);
+		assert.match(toolbar, /notice=\{escalationNotice\}/);
+		assert.match(toolbar, /progress=\{selectionProgress\}/);
+		// Desktop wires select-all only while searching — the mobile sheet carries
+		// it for any bounded selection.
+		assert.match(
+			toolbar,
+			/selectAll=\{escalationEnabled \? selectionSelectAll : undefined\}/,
+		);
+		assert.match(
+			toolbar,
+			/isCounting=\{escalation\.phase\.kind === "counting"\}/,
+		);
+	});
+
+	it("drives both surfaces from the same derivations", () => {
+		// The sheet and the toolbar read the same status label, select-all control
+		// and progress — a second copy for desktop is exactly the drift this
+		// guards against.
+		for (const shared of [
+			"selectionStatusLabel",
+			"selectionSelectAll",
+			"selectionProgress",
+			"selectionCount",
+		]) {
+			const uses = source.match(new RegExp(`\\b${shared}\\b`, "g")) ?? [];
+			assert.ok(
+				uses.length >= 3,
+				`${shared} should be defined once and read by both surfaces`,
+			);
+		}
+	});
+});
+
+/**
  * A bounded confirm-delete used to open the surviving neighbour by writing
  * `selectedMessageId` into the URL. On desktop that fills the reading pane
  * beside the list; on a single-pane mobile layout the same navigation replaced

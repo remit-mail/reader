@@ -88,6 +88,14 @@ const cancelSelectionButton = (page: Page): Locator =>
 const deleteButton = (page: Page): Locator =>
 	page.getByRole("button", { name: "Move selected messages to Trash" });
 
+/** The sheet's Move quick action (the move-to-folder trigger). */
+const moveButton = (page: Page): Locator =>
+	page.getByRole("button", { name: "Move selected messages", exact: true });
+
+/** The sheet's Mark-as-read verb, carried in the expanded grabber header. */
+const markReadButton = (page: Page): Locator =>
+	page.getByRole("button", { name: "Mark as read" });
+
 const selectAllCheckbox = (page: Page): Locator =>
 	page.getByRole("checkbox", { name: "Select all" });
 
@@ -755,6 +763,141 @@ test.describe("Search-scoped escalation and bulk delete", () => {
 				timeoutMs: 60_000,
 				what: "every npmbulk-matching message (including the late arrivals) to be deleted",
 			},
+		);
+	});
+});
+
+/**
+ * Verb parity over an escalated selection (#114, #212): an escalated selection
+ * is a predicate, not an id list, and every verb — not just delete — has to run
+ * by paging it. These drive mark-read and move over the whole matching set and
+ * verify the real backend, the same way the delete tests above do: the mark
+ * lands as read on the server, the move lands the messages in the destination.
+ */
+test.describe("Search-scoped escalated move and mark-read", () => {
+	test.afterEach(async ({ page }) => {
+		await page.unrouteAll({ behavior: "ignoreErrors" });
+	});
+
+	const RUN_TAG = `run${Date.now()}vp`;
+	// Enough that the results outrun the load-more trigger at comfortable density
+	// (the escalation precondition `searchWithMoreMatchesThanLoaded` checks), and
+	// under `listThreads`' 50-per-page default so the mark-read verification can
+	// read every fixture's read flag back in one page.
+	const COUNT = 40;
+	const QUERY = "npmverb";
+	const subjectFor = (i: number) => `${QUERY} weekly digest ${RUN_TAG} #${i}`;
+
+	test.beforeAll(async () => {
+		const run = readRunState();
+		const api = new ApiClient(run.token);
+		await appendMessages(
+			run.imapUser,
+			Array.from({ length: COUNT }, (_, i) => ({ subject: subjectFor(i + 1) })),
+		);
+		await api.triggerSync(run.accountId);
+		await waitFor(
+			() => api.searchMatchingMessageIds(run.inboxId, RUN_TAG),
+			(ids) => ids.length === COUNT,
+			{ timeoutMs: 90_000, what: "the npmverb fixtures to finish syncing" },
+		);
+	});
+
+	test.afterAll(async () => {
+		const run = readRunState();
+		const api = new ApiClient(run.token);
+		// The move test relocates the fixtures out of the inbox, so cleanup sweeps
+		// every mailbox rather than the inbox alone — a run leaves no scraps.
+		const mailboxes = await api.listMailboxes(run.accountId);
+		for (const mailbox of mailboxes) {
+			const leftover = await api.searchMatchingMessageIds(
+				mailbox.mailboxId,
+				RUN_TAG,
+			);
+			for (let i = 0; i < leftover.length; i += 100) {
+				await api.deleteMessages(leftover.slice(i, i + 100));
+			}
+		}
+	});
+
+	const escalate = async (page: Page): Promise<void> => {
+		await searchWithMoreMatchesThanLoaded(
+			page,
+			readRunState().inboxId,
+			QUERY,
+			COUNT,
+		);
+		await selectTwoFromTop(page);
+		await expandSheet(page);
+		await selectAllCheckbox(page).click();
+		await selectionNotice(page)
+			.getByRole("button", { name: `Select all matching "${QUERY}"` })
+			.click();
+		await expect(selectionStatus(page)).toHaveText(
+			`All ${COUNT} matching "${QUERY}" selected`,
+			{ timeout: 15_000 },
+		);
+	};
+
+	test("mark-read pages the predicate and lands every match read on the server", async ({
+		page,
+		run,
+		api,
+	}) => {
+		await escalate(page);
+
+		await markReadButton(page).click();
+
+		await expect(selectionSheet(page)).toBeHidden({ timeout: 30_000 });
+		await expect(
+			page.getByText(
+				`${COUNT} marked as read. Your mail server is still catching up.`,
+			),
+		).toBeVisible();
+
+		// The load-bearing check: the real backend, not the UI's own claim. Every
+		// fixture thread now reads as read.
+		await waitFor(
+			() => api.listThreads(run.inboxId),
+			(threads) => {
+				const mine = threads.filter((t) => t.subject?.includes(RUN_TAG));
+				return mine.length === COUNT && mine.every((t) => t.isRead === true);
+			},
+			{ timeoutMs: 60_000, what: "every npmverb fixture to be marked read" },
+		);
+	});
+
+	test("move pages the predicate and files every match in the destination", async ({
+		page,
+		run,
+		api,
+	}) => {
+		await escalate(page);
+
+		await moveButton(page).click();
+		// Archive is a standard destination in the picker on this account.
+		await page.getByRole("option", { name: "Move to Archive" }).click();
+
+		await expect(selectionSheet(page)).toBeHidden({ timeout: 30_000 });
+		await expect(
+			page.getByText(`${COUNT} moved. Your mail server is still catching up.`),
+		).toBeVisible();
+
+		// The move left the inbox empty of the fixtures and filled Archive with
+		// them — checked against the backend, paged independently of the UI.
+		await waitFor(
+			() => api.searchMatchingMessageIds(run.inboxId, QUERY),
+			(ids) => ids.length === 0,
+			{ timeoutMs: 60_000, what: "every npmverb fixture to leave the inbox" },
+		);
+		const mailboxes = await api.listMailboxes(run.accountId);
+		const archive = mailboxes.find((m) => m.fullPath === "Archive");
+		if (!archive)
+			throw new Error("the account has no Archive mailbox to move to");
+		await waitFor(
+			() => api.searchMatchingMessageIds(archive.mailboxId, QUERY),
+			(ids) => ids.length === COUNT,
+			{ timeoutMs: 60_000, what: "every npmverb fixture to land in Archive" },
 		);
 	});
 });

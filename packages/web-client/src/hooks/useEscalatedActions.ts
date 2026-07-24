@@ -62,8 +62,8 @@ interface UseEscalatedActionsOptions {
 	mailboxId: string;
 	/** Owning account, forwarded to the unseen-count invalidation on completion. */
 	accountId?: string;
-	/** Disables escalation entirely (e.g. not searching, or desktop — this is a
-	 *  mobile-only affordance). Resets any in-flight phase back to idle. */
+	/** Disables escalation entirely (e.g. not searching). Resets any in-flight
+	 *  phase back to idle. */
 	enabled: boolean;
 	/** Identifies the active predicate; escalation resets to idle whenever this
 	 *  changes (a different search is a different question). */
