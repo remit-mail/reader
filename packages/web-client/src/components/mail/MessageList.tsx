@@ -474,6 +474,19 @@ export const MessageList = ({
 	// handled the click (caller should preventDefault and skip navigation);
 	// false for a plain click (caller lets the Link navigate).
 	const orderedIds = useMemo(() => threads.map((t) => t.messageId), [threads]);
+
+	// Sender addresses of the checked rows, for the organize widen's literal
+	// fallback when this deployment ships no vector pipeline (the sheet matches
+	// all mail from these senders). Read off the already-loaded thread rows, so
+	// no extra round-trip; the widen hook dedupes.
+	const selectedSenders = useMemo(() => {
+		const emails: string[] = [];
+		for (const thread of threads) {
+			if (!selectedIds.has(thread.messageId)) continue;
+			if (thread.fromEmail) emails.push(thread.fromEmail);
+		}
+		return emails;
+	}, [threads, selectedIds]);
 	const handleRowSelect = useCallback(
 		(messageId: string, modifiers: SelectionModifiers): boolean => {
 			if (modifiers.shiftKey) {
@@ -1256,6 +1269,7 @@ export const MessageList = ({
 				accountId={accountId}
 				mailboxId={mailboxId}
 				selectedMessageIds={Array.from(selectedIds)}
+				selectedSenders={selectedSenders}
 				junkMailboxId={junkMailboxId}
 				onClose={() => {
 					setMobileOrganizeEntry(null);
@@ -1497,6 +1511,7 @@ export const MessageList = ({
 					accountId={accountId}
 					mailboxId={mailboxId}
 					selectedMessageIds={Array.from(selectedIds)}
+					selectedSenders={selectedSenders}
 					onClose={() => setOrganizeOpen(false)}
 				/>
 			)}

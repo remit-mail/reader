@@ -117,7 +117,11 @@ export const Organize: Story = {
 				accountId={ACCOUNT_ID}
 				mailboxId="mbx-inbox"
 				selectedMessageIds={["msg-1", "msg-2", "msg-3"]}
-				anchorMessageId="msg-1"
+				matchPredicate={{
+					anchorMessageId: "msg-1",
+					matchOperator: "And",
+					literalClauses: [],
+				}}
 				matchedCount={47}
 				onClose={() => undefined}
 			/>
@@ -137,7 +141,11 @@ export const FromSearch: Story = {
 				accountId={ACCOUNT_ID}
 				mailboxId="mbx-inbox"
 				selectedMessageIds={["msg-1"]}
-				anchorMessageId="msg-1"
+				matchPredicate={{
+					anchorMessageId: "msg-1",
+					matchOperator: "And",
+					literalClauses: [],
+				}}
 				matchedCount={412}
 				seedMailboxId="mbx-archive"
 				onClose={() => undefined}
@@ -155,7 +163,11 @@ export const AlwaysRule: Story = {
 				accountId={ACCOUNT_ID}
 				mailboxId="mbx-inbox"
 				selectedMessageIds={["msg-1", "msg-2"]}
-				anchorMessageId="msg-1"
+				matchPredicate={{
+					anchorMessageId: "msg-1",
+					matchOperator: "And",
+					literalClauses: [],
+				}}
 				matchedCount={47}
 				initialScope="standing"
 				seedMailboxId="mbx-travel"
@@ -174,7 +186,11 @@ export const NoSimilarFound: Story = {
 				accountId={ACCOUNT_ID}
 				mailboxId="mbx-inbox"
 				selectedMessageIds={["msg-1", "msg-2"]}
-				anchorMessageId="msg-1"
+				matchPredicate={{
+					anchorMessageId: "msg-1",
+					matchOperator: "And",
+					literalClauses: [],
+				}}
 				matchedCount={0}
 				fallback
 				onClose={() => undefined}
@@ -196,9 +212,82 @@ export const SemanticUnavailable: Story = {
 				accountId={ACCOUNT_ID}
 				mailboxId="mbx-inbox"
 				selectedMessageIds={["msg-1", "msg-2"]}
-				anchorMessageId="msg-1"
+				matchPredicate={{
+					anchorMessageId: "msg-1",
+					matchOperator: "And",
+					literalClauses: [],
+				}}
 				matchedCount={0}
 				semanticUnavailable
+				onClose={() => undefined}
+			/>
+		</SheetStage>
+	),
+};
+
+/**
+ * No vector pipeline, but the selection has senders to match on — the widen
+ * fell back to matching all mail from those senders. The heading names the
+ * senders and states the real semantics, and every commit scope (including the
+ * standing filter) carries the sender `From` clauses, so it reaches the widened
+ * set and keeps working on future mail.
+ */
+export const SenderFallback: Story = {
+	name: "Sender Fallback",
+	render: () => (
+		<SheetStage>
+			<OrganizePanel
+				accountId={ACCOUNT_ID}
+				mailboxId="mbx-inbox"
+				selectedMessageIds={["msg-1", "msg-2"]}
+				matchPredicate={{
+					matchOperator: "Or",
+					literalClauses: [
+						{ field: "From", value: "npm@github.com" },
+						{ field: "From", value: "notifications@github.com" },
+					],
+				}}
+				matchedCount={128}
+				semanticUnavailable
+				senders={["npm@github.com", "notifications@github.com"]}
+				onClose={() => undefined}
+			/>
+		</SheetStage>
+	),
+};
+
+/**
+ * The sender fallback with a standing rule pre-selected — the "Always keep mail
+ * from these senders" sentence, the filter that will match future mail at index
+ * time.
+ */
+export const SenderFallbackStanding: Story = {
+	name: "Sender Fallback (standing)",
+	render: () => (
+		<SheetStage>
+			<OrganizePanel
+				accountId={ACCOUNT_ID}
+				mailboxId="mbx-inbox"
+				selectedMessageIds={["msg-1", "msg-2", "msg-3", "msg-4"]}
+				matchPredicate={{
+					matchOperator: "Or",
+					literalClauses: [
+						{ field: "From", value: "npm@github.com" },
+						{ field: "From", value: "notifications@github.com" },
+						{ field: "From", value: "noreply@medium.com" },
+						{ field: "From", value: "digest@substack.com" },
+					],
+				}}
+				matchedCount={412}
+				semanticUnavailable
+				senders={[
+					"npm@github.com",
+					"notifications@github.com",
+					"noreply@medium.com",
+					"digest@substack.com",
+				]}
+				initialScope="standing"
+				seedMailboxId="mbx-archive"
 				onClose={() => undefined}
 			/>
 		</SheetStage>
