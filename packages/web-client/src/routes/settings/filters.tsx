@@ -6,11 +6,13 @@ import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.
 import { SettingsShell } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { FilterEditorSurface } from "@/components/settings/FilterEditorSurface";
 import { FiltersList } from "@/components/settings/FiltersList";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { useDeleteFilter, useFilterList } from "@/hooks/useFilters";
 import { getMailboxDisplayName } from "@/lib/folder-roles";
+import { buildMoveTargets } from "@/lib/move-targets";
 import { SETTINGS_ID_TO_PATH, SETTINGS_NAV_ITEMS } from "@/routes/settings";
 
 export const Route = createFileRoute("/settings/filters")({
@@ -36,6 +38,7 @@ function AccountFilters({ account }: { account: RemitImapAccountResponse }) {
 	const { filters, isPending, isError, error, refetch } =
 		useFilterList(accountId);
 	const { deleteFilter, deletingFilterId } = useDeleteFilter(accountId);
+	const [editingFilterId, setEditingFilterId] = useState<string | undefined>();
 
 	const { data: mailboxesData } = useQuery({
 		...mailboxOperationsListMailboxesOptions({ path: { accountId } }),
@@ -52,9 +55,30 @@ function AccountFilters({ account }: { account: RemitImapAccountResponse }) {
 		[mailboxesData?.items],
 	);
 
+	const folders = useMemo(
+		() =>
+			buildMoveTargets(mailboxesData?.items ?? []).map((mailbox) => ({
+				id: mailbox.mailboxId,
+				label: getMailboxDisplayName(mailbox.fullPath),
+			})),
+		[mailboxesData?.items],
+	);
+
+	const editingFilter = filters.find(
+		(filter) => filter.filterId === editingFilterId,
+	);
+
 	return (
 		<section className="space-y-2">
 			<h2 className="text-sm font-semibold text-fg">{account.email}</h2>
+			{editingFilter && (
+				<FilterEditorSurface
+					accountId={accountId}
+					filter={editingFilter}
+					folders={folders}
+					onClose={() => setEditingFilterId(undefined)}
+				/>
+			)}
 			{isPending ? (
 				// biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-label on loading skeleton provides useful context for assistive tech
 				<div
@@ -75,6 +99,7 @@ function AccountFilters({ account }: { account: RemitImapAccountResponse }) {
 				<FiltersList
 					filters={filters}
 					mailboxName={mailboxName}
+					onEdit={setEditingFilterId}
 					onDelete={deleteFilter}
 					deletingFilterId={deletingFilterId}
 				/>
