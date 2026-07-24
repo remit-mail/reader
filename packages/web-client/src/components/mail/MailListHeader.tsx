@@ -209,19 +209,21 @@ export function MailListHeader({
 
 	// Make-this-a-filter (RFC 038 D5): convert the current search to a pre-filled
 	// rule and open the shared chip editor. The filter is created for the account
-	// an `account:` facet names, else the primary account; the top result seeds the
-	// deployment's semantic-capability read. Offered whenever a query is active,
-	// disabled with a reason when the search has no clause to filter on (only
-	// non-clause facets, or a bare folder scope).
+	// an `account:` facet names, else the primary account. The literal filter
+	// cannot reproduce the search's semantic reach, so the conversion states it
+	// whenever the search surfaced a "Related" section — a direct signal, read
+	// here from the semantic results, never a capability probe. Offered whenever a
+	// query is active, disabled with a reason when the search has no clause to
+	// filter on (only non-clause facets, or a bare folder scope).
 	const accountToken = parsed.tokens.find((token) => token.type === "account");
 	const targetAccountId = accountToken?.accountId ?? accounts[0]?.accountId;
-	const probeMessageId = topMatches[0]?.id ?? related[0]?.id;
+	const searchHadSemanticReach = related.length > 0;
 	const makeFilter =
 		hasQuery && targetAccountId
 			? {
 					onClick: () => setFilterOpen(true),
 					disabledReason: isConvertible(
-						convertSearchToRule(parsed, { semanticAvailable: true }),
+						convertSearchToRule(parsed, { searchHadSemanticReach }),
 					)
 						? undefined
 						: "Add a sender or words to filter on",
@@ -233,7 +235,7 @@ export function MailListHeader({
 				open={filterOpen}
 				accountId={targetAccountId}
 				parsed={parsed}
-				probeMessageId={probeMessageId}
+				searchHadSemanticReach={searchHadSemanticReach}
 				onClose={() => setFilterOpen(false)}
 			/>
 		) : null;

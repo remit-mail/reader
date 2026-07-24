@@ -14,9 +14,9 @@ export interface SearchConversionNotice {
 	/** Facet labels with no clause equivalent (e.g. "Has attachment", "Before 2026-01-01"). */
 	droppedFacets?: string[];
 	/**
-	 * Free text was kept as a literal `HasWords` clause, but this deployment
-	 * cannot match it by meaning (RFC 038 D5) — the "similar mail" reach the
-	 * search had is not in the filter.
+	 * Free text was kept as a literal `HasWords` clause, and the search had
+	 * surfaced similar mail by meaning that the literal filter cannot reproduce
+	 * (RFC 038 D5) — the "similar mail" reach is not part of the filter.
 	 */
 	droppedSemantic?: boolean;
 }
@@ -50,6 +50,10 @@ export function droppedFacetsCopy(facets: string[]): string {
 	} left out — the filter still matches everything else you searched for.`;
 }
 
-/** No "similar" claim where the deployment cannot embed the query (RFC 038 D5). */
+/**
+ * States the filter is literal-only, so the search's similar-mail reach is not
+ * carried (RFC 038 D5). Shown only where that reach existed — a capable search
+ * that surfaced similar mail — so it never claims a reach the filter had.
+ */
 export const DROPPED_SEMANTIC_COPY =
-	"Your words become a literal match. This deployment can't match mail by meaning, so the filter finds mail containing these words — not other mail that means the same thing.";
+	"The filter matches these words literally. Your search also found similar mail by meaning — a filter can't carry that, so it won't catch mail that means the same thing without these words.";

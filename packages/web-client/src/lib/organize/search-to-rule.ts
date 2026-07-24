@@ -50,16 +50,23 @@ export interface SearchConversion {
 	/** The search carried free-text terms, kept as a `HasWords` clause. */
 	keptTerms: boolean;
 	/**
-	 * Free text was kept literally but this deployment cannot embed the query at
-	 * request time, so the semantic "similar mail" widening is dropped (RFC 038
-	 * D5). False when there is no free text or the deployment can serve it.
+	 * The filter this conversion builds is always literal-only — free text has no
+	 * anchor message for a semantic widen — so the search's semantic "similar mail"
+	 * reach is dropped whenever the search had one (RFC 038 D5). True exactly when
+	 * free text was kept AND the search surfaced semantically-similar mail; on a
+	 * deployment with no semantic reach there was nothing to drop, so no note.
 	 */
 	droppedSemantic: boolean;
 }
 
 interface ConvertOptions {
-	/** Whether the deployment can serve request-time semantic matching (existing signal). */
-	semanticAvailable: boolean;
+	/**
+	 * Whether the current search surfaced semantically-similar mail (a non-empty
+	 * "Related" section). This is the reach the literal filter cannot reproduce —
+	 * the direct existing signal, read from the search's own semantic results, not
+	 * a probe of deployment capability.
+	 */
+	searchHadSemanticReach: boolean;
 }
 
 const FACET_HAS_NO_CLAUSE: ReadonlySet<SearchToken["type"]> = new Set([
@@ -78,7 +85,7 @@ const FACET_HAS_NO_CLAUSE: ReadonlySet<SearchToken["type"]> = new Set([
  */
 export const convertSearchToRule = (
 	parsed: ParsedSearchQuery,
-	{ semanticAvailable }: ConvertOptions,
+	{ searchHadSemanticReach }: ConvertOptions,
 ): SearchConversion => {
 	const clauses: SearchConversion["clauses"] = [];
 	const droppedFacets: DroppedFacet[] = [];
@@ -114,7 +121,7 @@ export const convertSearchToRule = (
 		droppedFacets,
 		targetAccountId,
 		keptTerms,
-		droppedSemantic: keptTerms && !semanticAvailable,
+		droppedSemantic: keptTerms && searchHadSemanticReach,
 	};
 };
 

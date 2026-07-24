@@ -46,8 +46,10 @@ const CONTEXT: SearchTokenContext = {
 	accountsByName: new Map(),
 };
 
-const conversion = (query: string, semanticAvailable = true) =>
-	convertSearchToRule(parseSearchTokens(query, CONTEXT), { semanticAvailable });
+const conversion = (query: string, searchHadSemanticReach = false) =>
+	convertSearchToRule(parseSearchTokens(query, CONTEXT), {
+		searchHadSemanticReach,
+	});
 
 type Responder = (call: HttpCall) => unknown;
 
@@ -81,7 +83,7 @@ const previewCounts = (counts: number[]): Responder => {
 const mount = (
 	query: string,
 	responder: Responder = previewCounts([12]),
-	semanticAvailable = true,
+	searchHadSemanticReach = false,
 ): DomHarness => {
 	http = mockFetch(responder);
 	harness = createDomHarness();
@@ -92,7 +94,7 @@ const mount = (
 	harness.renderApp(
 		createElement(SearchFilterEditor, {
 			accountId: ACCOUNT_ID,
-			conversion: conversion(query, semanticAvailable),
+			conversion: conversion(query, searchHadSemanticReach),
 			seedCount: 12,
 			onClose: () => undefined,
 		}),
@@ -142,10 +144,17 @@ describe("SearchFilterEditor — conversion honesty (RFC 038 D5)", () => {
 		assert.match(dom.text(), /left out/);
 	});
 
-	it("states the dropped semantic reach, claiming no similarity", () => {
-		const dom = mount("things like this", previewCounts([12]), false);
-		assert.match(dom.text(), /can't match mail by meaning/i);
+	it("states the dropped semantic reach when the search surfaced similar mail", () => {
+		const dom = mount("things like this", previewCounts([12]), true);
+		assert.match(dom.text(), /matches these words literally/i);
+		assert.match(dom.text(), /similar mail/i);
+		// The widen chip is never offered on a search-derived rule.
 		assert.doesNotMatch(dom.text(), /and anything similar/i);
+	});
+
+	it("says nothing about semantics when the search had no similar mail", () => {
+		const dom = mount("things like this", previewCounts([12]), false);
+		assert.doesNotMatch(dom.text(), /similar mail/i);
 	});
 });
 

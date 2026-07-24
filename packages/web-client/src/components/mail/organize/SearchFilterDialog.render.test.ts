@@ -19,7 +19,7 @@ const render = (open: boolean) =>
 				open,
 				accountId: "acc-1",
 				parsed: parseSearchTokens("receipts", {}),
-				probeMessageId: "msg-1",
+				searchHadSemanticReach: true,
 				onClose: () => undefined,
 			}),
 		) as never,

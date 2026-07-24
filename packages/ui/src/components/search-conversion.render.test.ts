@@ -31,9 +31,10 @@ describe("search-conversion copy", () => {
 		assert.match(copy, /Has attachment, Unread and Before 2026 aren't/);
 	});
 
-	it("makes no similarity claim in the dropped-semantic copy", () => {
-		assert.doesNotMatch(DROPPED_SEMANTIC_COPY, /similar/i);
-		assert.match(DROPPED_SEMANTIC_COPY, /can't match mail by meaning/i);
+	it("states the filter is literal-only and the reach is not carried", () => {
+		assert.match(DROPPED_SEMANTIC_COPY, /matches these words literally/i);
+		// Never claims the filter itself matches by meaning.
+		assert.match(DROPPED_SEMANTIC_COPY, /a filter can't carry that/i);
 	});
 
 	it("has nothing to say when nothing was dropped", () => {
@@ -64,7 +65,7 @@ describe("SearchConversionNoticeView", () => {
 		assert.match(html, /limited to Archive/);
 		assert.match(html, /Has attachment/);
 		assert.match(html, /left out/);
-		assert.match(html, /match mail by meaning/i);
+		assert.match(html, /matches these words literally/i);
 	});
 
 	it("renders nothing when there is nothing to state", () => {

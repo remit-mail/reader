@@ -17,53 +17,39 @@ interface SearchFilterDialogProps {
 	/** The current search, already split into free text and facets. */
 	parsed: ParsedSearchQuery;
 	/**
-	 * The search's top result — the one message on this surface with indexed
-	 * vectors, used to read the deployment's semantic capability (RFC 038 D5).
-	 * Absent when the search has no results to anchor the capability read on.
+	 * The search surfaced semantically-similar mail (a non-empty "Related"
+	 * section). The literal filter cannot reproduce that reach, so the conversion
+	 * states it — read from the search's own results, never probed (RFC 038 D5).
 	 */
-	probeMessageId?: string;
+	searchHadSemanticReach: boolean;
 	onClose: () => void;
 }
 
 /**
- * "Make this a filter" (RFC 038 D5). Converts the current search to clauses,
- * reads the deployment's semantic capability from the existing Organize preview
- * signal, and hands off to the shared chip editor pre-filled. No new endpoint:
- * the seed count and the capability read both ride `POST /organize/preview`.
+ * "Make this a filter" (RFC 038 D5). Converts the current search to clauses and
+ * hands off to the shared chip editor pre-filled. No new endpoint: the seed
+ * count rides `POST /organize/preview` and the commit drives the existing filter
+ * CRUD.
  */
 export function SearchFilterDialog({
 	open,
 	accountId,
 	parsed,
-	probeMessageId,
+	searchHadSemanticReach,
 	onClose,
 }: SearchFilterDialogProps) {
-	// The clause set does not depend on semantic capability, only the dropped-
-	// semantic note does; convert once for the predicate, then fold the resolved
-	// capability into the notice below.
-	const base = useMemo(
-		() => convertSearchToRule(parsed, { semanticAvailable: true }),
-		[parsed],
+	const conversion = useMemo(
+		() => convertSearchToRule(parsed, { searchHadSemanticReach }),
+		[parsed, searchHadSemanticReach],
 	);
 	const literalPredicate = useMemo(
-		() => rulePredicate(buildSearchRule(base)),
-		[base],
+		() => rulePredicate(buildSearchRule(conversion)),
+		[conversion],
 	);
 
-	const { seedCount, semanticAvailable, isPending, isError, retry } =
-		useSearchFilterSeed(
-			open ? accountId : undefined,
-			literalPredicate,
-			base.keptTerms,
-			probeMessageId,
-		);
-
-	const conversion = useMemo(
-		() => ({
-			...base,
-			droppedSemantic: base.keptTerms && !semanticAvailable,
-		}),
-		[base, semanticAvailable],
+	const { seedCount, isPending, isError, retry } = useSearchFilterSeed(
+		open ? accountId : undefined,
+		literalPredicate,
 	);
 
 	if (!open) return null;

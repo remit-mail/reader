@@ -14,10 +14,10 @@ const CONTEXT: SearchTokenContext = {
 
 const convert = (
 	query: string,
-	options: { semanticAvailable?: boolean } = {},
+	options: { searchHadSemanticReach?: boolean } = {},
 ) =>
 	convertSearchToRule(parseSearchTokens(query, CONTEXT), {
-		semanticAvailable: options.semanticAvailable ?? true,
+		searchHadSemanticReach: options.searchHadSemanticReach ?? false,
 	});
 
 describe("convertSearchToRule — facet → clause mapping", () => {
@@ -86,9 +86,10 @@ describe("convertSearchToRule — facets with no clause equivalent", () => {
 });
 
 describe("convertSearchToRule — semantic honesty (RFC 038 D5)", () => {
-	it("drops the semantic reach when the deployment cannot embed the query", () => {
+	it("states the dropped reach when the search surfaced similar mail", () => {
+		// The literal filter cannot reproduce the reach the search just showed.
 		const conversion = convert("things like this", {
-			semanticAvailable: false,
+			searchHadSemanticReach: true,
 		});
 		assert.equal(conversion.droppedSemantic, true);
 		// The literal words are still kept.
@@ -97,13 +98,17 @@ describe("convertSearchToRule — semantic honesty (RFC 038 D5)", () => {
 		]);
 	});
 
-	it("claims nothing dropped when the deployment can match by meaning", () => {
-		const conversion = convert("things like this", { semanticAvailable: true });
+	it("says nothing when the search had no semantic reach to drop", () => {
+		const conversion = convert("things like this", {
+			searchHadSemanticReach: false,
+		});
 		assert.equal(conversion.droppedSemantic, false);
 	});
 
 	it("never reports dropped semantics for a facet-only search", () => {
-		const conversion = convert("from:a@b.com", { semanticAvailable: false });
+		const conversion = convert("from:a@b.com", {
+			searchHadSemanticReach: true,
+		});
 		assert.equal(conversion.keptTerms, false);
 		assert.equal(conversion.droppedSemantic, false);
 	});
