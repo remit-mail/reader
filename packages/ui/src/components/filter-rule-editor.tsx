@@ -49,6 +49,15 @@ export interface FilterRuleEditorProps {
 	 * match, so the editor never offers a clause the backend cannot evaluate.
 	 */
 	clauseFields?: ClauseField[];
+	/**
+	 * Render the scope and expiry read-only (RFC 038 D6). A persisted filter's
+	 * scope, expiry, and semantic anchor are fixed at creation — the update
+	 * endpoint carries none of them — so editing a filter shows them as a static
+	 * summary with a note rather than live controls that would silently discard
+	 * the change (reader #266 tracks lifting this). The name and the literal
+	 * predicate stay editable.
+	 */
+	lifecycleLocked?: boolean;
 	/** The inline clause form, when adding or editing a clause. */
 	clauseEdit?: ClauseEditState;
 	onStartAddClause?: () => void;
@@ -86,6 +95,7 @@ export function FilterRuleEditor({
 	preview,
 	semanticAvailable = false,
 	clauseFields,
+	lifecycleLocked = false,
 	clauseEdit,
 	onStartAddClause,
 	onStartEditClause,
@@ -211,14 +221,22 @@ export function FilterRuleEditor({
 
 				<section className="space-y-2">
 					<p className="text-xs font-medium text-fg-muted">How long</p>
-					<SegmentedControl
-						name="rule-scope"
-						size="sm"
-						aria-label="Rule scope"
-						options={scopeOptions}
-						value={rule.scope}
-						onChange={(value) => onChangeScope?.(value)}
-					/>
+					{lifecycleLocked ? (
+						<p className="text-xs text-fg">
+							{rule.scope === "until"
+								? `Until ${rule.until ?? ""}`
+								: "Always — runs on matching mail"}
+						</p>
+					) : (
+						<SegmentedControl
+							name="rule-scope"
+							size="sm"
+							aria-label="Rule scope"
+							options={scopeOptions}
+							value={rule.scope}
+							onChange={(value) => onChangeScope?.(value)}
+						/>
+					)}
 					{needsName && (
 						<Input
 							value={rule.name ?? ""}
@@ -228,7 +246,7 @@ export function FilterRuleEditor({
 							className="w-full"
 						/>
 					)}
-					{rule.scope === "until" && (
+					{!lifecycleLocked && rule.scope === "until" && (
 						<div className="flex items-center gap-2 text-xs text-fg-muted">
 							<span>Until</span>
 							<Input
@@ -239,6 +257,13 @@ export function FilterRuleEditor({
 								className="flex-1"
 							/>
 						</div>
+					)}
+					{lifecycleLocked && (
+						<p className="text-2xs text-fg-subtle">
+							{rule.widen
+								? "The scope, expiry, and similar-mail match are set when a filter is created."
+								: "The scope and expiry are set when a filter is created."}
+						</p>
 					)}
 				</section>
 

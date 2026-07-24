@@ -46,7 +46,11 @@ const makeFilter = (
 	...overrides,
 });
 
-/** A client whose preview never resolves, so the editor holds its opening count. */
+/**
+ * A bare client with no backend. The editor opens on `loading` and its preview
+ * settles to the count region's error state — these stories exercise the editor
+ * chrome (chips, read-only lifecycle, the widen chip), not the live count.
+ */
 function seededClient(): QueryClient {
 	return new QueryClient({
 		defaultOptions: { queries: { retry: false }, mutations: { retry: false } },

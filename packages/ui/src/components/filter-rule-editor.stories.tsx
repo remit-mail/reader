@@ -227,6 +227,26 @@ export const DegradedStandingWiden: Story = {
 	},
 };
 
+/**
+ * Editing a persisted filter (RFC 038 D6): scope and expiry render read-only,
+ * with a note that they — and the semantic anchor — are fixed at creation. The
+ * name and the literal clauses stay editable; the widen chip is display-only.
+ */
+export const LifecycleLocked: Story = {
+	args: {
+		rule: {
+			...demoRule,
+			scope: "until",
+			until: "2027-09-01",
+			name: "Conference",
+		},
+		folders: demoFolders,
+		preview: READY(31),
+		semanticAvailable: false,
+		lifecycleLocked: true,
+	},
+};
+
 /** Nothing to match yet — the commit says why it is blocked. */
 export const BlockedEmpty: Story = {
 	args: {

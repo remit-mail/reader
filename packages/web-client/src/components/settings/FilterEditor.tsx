@@ -8,7 +8,6 @@ import {
 	type FolderOption,
 	type MatchOperator,
 	previewCountSummary,
-	type RuleScope,
 } from "@remit/ui";
 import { CheckCircle2, Loader2 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
@@ -129,9 +128,6 @@ export function FilterEditor({
 			clauses: current.clauses.filter((clause) => clause.id !== clauseId),
 		}));
 
-	const removeWiden = () =>
-		setRule((current) => ({ ...current, widen: undefined }));
-
 	const changeMatchOperator = (matchOperator: MatchOperator) =>
 		setRule((current) => ({ ...current, matchOperator }));
 
@@ -141,14 +137,8 @@ export function FilterEditor({
 			moveMailboxId: mailboxId || undefined,
 		}));
 
-	const changeScope = (scope: RuleScope) =>
-		setRule((current) => ({ ...current, scope }));
-
 	const changeName = (name: string) =>
 		setRule((current) => ({ ...current, name }));
-
-	const changeUntil = (until: string) =>
-		setRule((current) => ({ ...current, until }));
 
 	const commit = () => {
 		const predicateChanged = ruleChangesPredicateOrAction(rule, original);
@@ -196,8 +186,13 @@ export function FilterEditor({
 			rule={rule}
 			folders={folders}
 			preview={preview}
+			// The update endpoint carries no anchor, so a widen can be neither added
+			// nor removed here: the "…and similar" add is never offered, and the
+			// existing chip is display-only (no onRemoveWiden). `semanticUnavailable`
+			// only drives the chip's inactive styling via `filterToRule`.
 			semanticAvailable={false}
 			clauseFields={SUPPORTED_CLAUSE_FIELDS}
+			lifecycleLocked
 			clauseEdit={clauseEdit}
 			onStartAddClause={startAddClause}
 			onStartEditClause={startEditClause}
@@ -206,12 +201,9 @@ export function FilterEditor({
 			onChangeDraftValue={changeDraftValue}
 			onSubmitClause={submitClause}
 			onCancelClause={() => setClauseEdit(undefined)}
-			onRemoveWiden={rule.widen?.inactive ? removeWiden : undefined}
 			onChangeMatchOperator={changeMatchOperator}
 			onChangeMove={changeMove}
-			onChangeScope={changeScope}
 			onChangeName={changeName}
-			onChangeUntil={changeUntil}
 			onCommit={commit}
 			onCancel={onClose}
 		/>

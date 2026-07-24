@@ -60,13 +60,37 @@ const filterFixture = (
 
 type Responder = (call: HttpCall) => unknown;
 
-const backend = (previewCount = 8): Responder => {
+/** Fields whose presence in a patch bumps `ruleChangedAt` (RFC 034 Decision 3.2). */
+const PREDICATE_OR_ACTION = [
+	"matchOperator",
+	"literalClauses",
+	"actionLabelId",
+	"actionMailboxId",
+];
+
+/**
+ * A backend that echoes the real update contract: the patch merges over the
+ * stored filter, `hasAnchor` survives it (the update endpoint carries no anchor
+ * field — `sanitizePatch` drops it), and `ruleChangedAt` advances only when the
+ * patch touches a predicate or action field.
+ */
+const backend = (
+	filter: RemitImapFilterResponse,
+	previewCount = 8,
+): Responder => {
 	return (call) => {
 		if (call.path.endsWith("/organize/preview")) {
 			return { matchedCount: previewCount, messageIds: [] };
 		}
 		if (call.path.endsWith("/filters/f-1") && call.method === "PATCH") {
-			return { ...filterFixture(), ruleChangedAt: 200 };
+			const body = call.body ?? {};
+			const bumped = PREDICATE_OR_ACTION.some((field) => field in body);
+			return {
+				...filter,
+				...body,
+				hasAnchor: filter.hasAnchor,
+				ruleChangedAt: bumped ? filter.ruleChangedAt + 1 : filter.ruleChangedAt,
+			};
 		}
 		if (call.path.endsWith("/organize") && call.method === "POST") {
 			return { organizeJobId: "job-1", state: "Running" };
@@ -86,10 +110,10 @@ const backend = (previewCount = 8): Responder => {
 
 const mount = (
 	filter: RemitImapFilterResponse,
-	responder: Responder = backend(),
+	responder?: Responder,
 	semanticUnavailable = false,
 ): DomHarness => {
-	http = mockFetch(responder);
+	http = mockFetch(responder ?? backend(filter));
 	harness = createDomHarness();
 	harness.renderApp(
 		createElement(FilterEditor, {
@@ -217,24 +241,41 @@ describe("FilterEditor — rule change offers the re-back-apply", () => {
 });
 
 describe("FilterEditor — degraded semantic filter (RFC 038 D4)", () => {
-	it("lists the widen inactive and lets the user remove it as a rule change", async () => {
-		const dom = mount(filterFixture({ hasAnchor: true }), backend(), true);
+	it("lists the widen inactive and display-only — the anchor is fixed at creation", async () => {
+		const dom = mount(filterFixture({ hasAnchor: true }), undefined, true);
 		await settlePreview(dom);
 
 		// The anchor this deployment cannot evaluate lists inactive.
 		assert.match(dom.text(), /not available here/i);
 
-		dom.click(dom.byLabel("Remove the similar-mail widen"));
+		// The update endpoint carries no anchor, so the chip cannot be removed here:
+		// no remove affordance, and a note says the anchor is fixed at creation.
+		assert.equal(
+			dom.query('[aria-label="Remove the similar-mail widen"]'),
+			null,
+		);
+		assert.match(dom.text(), /set when a filter is created/i);
+	});
+});
+
+describe("FilterEditor — scope and expiry are read-only (reader #266)", () => {
+	it("shows an until-a-date filter's scope statically, with no scope or date control", async () => {
+		const dom = mount(
+			filterFixture({
+				scope: "Temporary",
+				expiresAt: "2027-09-01T23:59:59+00:00",
+			}),
+		);
 		await settlePreview(dom);
 
-		dom.click(primaryButton(dom, "Save rule"));
-		await dom.flush();
+		// The live scope segmented control and the date input are gone — a
+		// scope/date change cannot be persisted, so it is never offered.
+		assert.equal(dom.query('input[name="rule-scope"]'), null);
+		assert.equal(dom.query('[aria-label="Expiry date"]'), null);
+		assert.match(dom.text(), /Until 2027-09-01/);
+		assert.match(dom.text(), /set when a filter is created/i);
 
-		// Taking the dead anchor off is a rule change: the patch reasserts the
-		// predicate and the editor offers the re-apply.
-		const patch = patchCalls();
-		assert.equal(patch.length, 1);
-		assert.equal(patch[0].body?.matchOperator, "And");
-		assert.match(dom.text(), /Move existing mail/);
+		// The name stays editable.
+		assert.ok(dom.byLabel("Rule name"));
 	});
 });

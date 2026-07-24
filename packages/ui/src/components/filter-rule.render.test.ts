@@ -554,6 +554,37 @@ describe("FilterRuleEditor", () => {
 	it("shows the live preview region", () => {
 		assert.match(editor(), /47 messages match/);
 	});
+
+	it("renders scope and expiry read-only when the lifecycle is locked", () => {
+		const html = editor({
+			rule: { ...demoRule, scope: "until", until: "2027-09-01" },
+			lifecycleLocked: true,
+		});
+		// No live scope toggle, no editable date input — a static summary and a note.
+		assert.doesNotMatch(html, /aria-label="Rule scope"/);
+		assert.doesNotMatch(html, /aria-label="Expiry date"/);
+		assert.match(html, /Until 2027-09-01/);
+		assert.match(html, /set when a filter is created/);
+		// The name stays editable.
+		assert.match(html, /aria-label="Rule name"/);
+	});
+
+	it("names the similar-mail match in the locked note only when a widen is present", () => {
+		const withWiden = editor({
+			rule: { ...demoRule, widen: { anchorCount: 2 } },
+			lifecycleLocked: true,
+		});
+		assert.match(
+			withWiden,
+			/similar-mail match are set when a filter is created/,
+		);
+		const literal = editor({
+			rule: { ...demoRule, widen: undefined },
+			lifecycleLocked: true,
+		});
+		assert.match(literal, /scope and expiry are set when a filter is created/);
+		assert.doesNotMatch(literal, /similar-mail match/);
+	});
 });
 
 describe("FilterRuleDialog", () => {
