@@ -347,3 +347,45 @@ ENV PORT=8080
 ENV WEB_DIST_DIR=/app/dist
 EXPOSE 8080
 CMD ["node", "server.mjs"]
+
+########################################################################
+# updater — the remit wrapper in a container (RFC 037 D4, #133).
+#
+# The app triggers a self-update by writing request.json onto a private volume;
+# this container watches for it and runs the same deploy/vps/remit the host
+# operator runs — one implementation of the atomic update, gate and rollback,
+# never a second. It binds no port: the volume mount is the whole authentication
+# story, reachable only by the two services that mount it (RFC 037 D4).
+#
+# Minimal on purpose, and independent of the builder stage above. It carries the
+# wrapper, a container CLI with the compose plugin, and sqlite3 + su-exec baked
+# in — so the pre-update snapshot never waits on an apk install at the moment it
+# is most needed, which may be a recovery from the very network that install
+# would use. flock backs the wrapper's run lock.
+#
+# The wrapper drives the stack over the mounted docker socket and spawns its
+# snapshot/restore/health helpers as containers off this same image (its
+# entrypoint points REMIT_UPDATE_HELPER_IMAGE at itself), so /snapshot-db.sh is
+# baked in rather than bind-mounted: a container path would not resolve against
+# the host daemon those helpers talk to.
+########################################################################
+FROM docker.io/library/alpine:3.23 AS updater
+RUN apk add --no-cache docker-cli docker-cli-compose sqlite su-exec flock
+# The same wrapper file the host installs, and the same VACUUM INTO primitive
+# the backup sidecar and the host wrapper already share.
+COPY deploy/vps/remit /usr/local/bin/remit
+COPY deploy/vps/backup/snapshot-db.sh /snapshot-db.sh
+COPY docker/runtime/updater/entrypoint.sh /usr/local/bin/updater-entrypoint
+RUN chmod +x /usr/local/bin/remit /usr/local/bin/updater-entrypoint
+# The deployment directory, the run's private state volume and the control seam,
+# as the compose service mounts them. STATE_MOUNT is the volume *name* the host
+# daemon knows, because the helper containers bind it by that name. SNAPSHOT_LIB
+# is cleared so the wrapper sources the baked /snapshot-db.sh and attempts no
+# bind mount.
+ENV REMIT_DIR=/deployment
+ENV REMIT_UPDATE_STATE_DIR=/data/updater
+ENV REMIT_UPDATE_STATE_MOUNT=remit_updater_state
+ENV REMIT_UPDATE_CONTROL_DIR=/data/control
+ENV REMIT_UPDATE_SNAPSHOT_LIB=""
+ENV REMIT_UPDATER_IMAGE_REPO=ghcr.io/remit-mail/reader/updater
+ENTRYPOINT ["/usr/local/bin/updater-entrypoint"]

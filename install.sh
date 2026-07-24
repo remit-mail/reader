@@ -412,7 +412,7 @@ manage_block() {
 	printf '%s %-8s What is running, and whether the origin reaches it.\n' "$remit" status
 	printf '%s%s %-8s Follow the logs.\n' "$indent" "$remit" logs
 	printf '%s%s %-8s Apply an edit to .env.\n' "$indent" "$remit" restart
-	printf '%s%s %-8s Pull the current images and apply them.\n' "$indent" "$remit" update
+	printf '%s%s %-8s Install a release. Atomic: gated, rolls back on failure.\n' "$indent" "$remit" update
 	printf '%s%s %-8s Stop serving; %s restart brings it back.\n' "$indent" "$remit" down "$remit"
 	printf '%s%s %-8s Every command, including the destructive one.\n' "$indent" "$remit" help
 }
@@ -439,6 +439,14 @@ EOF
 
 EOF
 	manage_block
+	cat <<EOF
+
+  Updates     This instance can update itself. The owner — the first account to
+              register — is offered each release in the app and installs it with
+              a click; '$remit update --check' reports the same from a shell. An
+              update is atomic and rolls back on failure, and clearing
+              REMIT_UPDATE_MANIFEST_URL in .env turns the feature off entirely.
+EOF
 	if [ -z "$WRAPPER_ON_PATH" ]; then
 		cat <<EOF
 

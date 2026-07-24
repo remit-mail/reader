@@ -107,6 +107,10 @@ services:
     volumes:
       - message_storage:/data/storage
       - sqlite_data:/data/sqlite
+      # The self-update seam (RFC 037 D4): the backend writes request.json here
+      # and reads state.json back. Shared with the updater and nothing else — no
+      # port is opened, so a compromised worker has no path to trigger an update.
+      - updater_control:/data/control
     depends_on:
       queue:
         condition: service_healthy
@@ -293,6 +297,40 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  # ---------------------------------------------------------------------
+  # Self-update driver (RFC 037 D4) — the remit wrapper in a container. The app
+  # asks for an update by writing request.json onto updater_control; this
+  # service watches that file and runs the same deploy/vps/remit an operator
+  # runs at a shell, so there is one implementation of the atomic update, gate
+  # and rollback. It binds no port and has no Caddy route: the volume mount is
+  # the authentication, reachable only by the services that mount it.
+  #
+  # Its four mounts, and their blast radius:
+  #   /var/run/docker.sock  the host daemon — it drives compose and spawns its
+  #                         snapshot/restore/health helpers as containers, and
+  #                         through them writes sqlite_data read-write during a
+  #                         rollback restore. This is the real privilege here.
+  #   . -> /deployment      the deployment directory, read-write: it rewrites
+  #                         REMIT_TAG in .env and reads the compose file.
+  #   updater_state         its own private volume: the run lock, the recovery
+  #                         breadcrumb, run/check state and the pre-update
+  #                         snapshots. Shared with no other service, so a
+  #                         rollback cannot erase the record of itself.
+  #   updater_control       the seam shared with backend and nothing else —
+  #                         request.json in, state.json out.
+  #
+  # restart: unless-stopped is load-bearing: it brings the container back after
+  # a crash or host reboot so `remit update --recover` finishes an interrupted
+  # update without an operator.
+  updater:
+    image: ghcr.io/remit-mail/reader/updater:${REMIT_TAG:-latest}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - .:/deployment
+      - updater_state:/data/updater
+      - updater_control:/data/control
+    restart: unless-stopped
+
 volumes:
   message_storage:
   # Local disk only — WAL's shared-memory coordination does not work over a
@@ -304,3 +342,10 @@ volumes:
   queue_data:
   caddy_data:
   caddy_config:
+  # The updater's own state (RFC 037): the run lock, recovery breadcrumb and the
+  # pre-update snapshots. Kept off remit.db so a rollback cannot erase the record
+  # of the run that performed it.
+  updater_state:
+  # The backend<->updater control seam: request.json and state.json, and nothing
+  # else. Mounted into those two services only.
+  updater_control:
