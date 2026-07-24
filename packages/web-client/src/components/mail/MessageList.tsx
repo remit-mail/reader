@@ -302,12 +302,12 @@ export const MessageList = ({
 		null,
 	);
 
-	// Search-scoped escalated selection + chunked bulk delete (issue #92):
-	// mobile only, and only while search has more matches than are loaded.
-	// `orderedIds` below feeds `allLoadedSelected`; declared after this hook so
-	// its callback deps stay simple — see the `orderedIds`/`handleRowSelect`
-	// block.
-	const escalationEnabled = !isDesktop && isSearching && !!searchPredicate;
+	// Search-scoped escalated selection + chunked bulk actions (issues #92, #212):
+	// available on both surfaces, and only while search has more matches than
+	// are loaded. `orderedIds` below feeds `allLoadedSelected`; declared after
+	// this hook so its callback deps stay simple — see the
+	// `orderedIds`/`handleRowSelect` block.
+	const escalationEnabled = isSearching && !!searchPredicate;
 	const predicateKey = `${mailboxId}|${JSON.stringify(searchPredicate ?? {})}`;
 	const escalation = useEscalatedActions({
 		mailboxId,
@@ -517,9 +517,9 @@ export const MessageList = ({
 		[onDeleteMessages, focusedMessageId],
 	);
 
-	// Mobile-only: open the delete confirmation for the escalated predicate.
-	// `escalation.phase` must already be "escalated" — the caller (the mobile
-	// bar's onDelete) only wires this up in that state.
+	// Open the delete confirmation for the escalated predicate. `escalation.phase`
+	// must already be "escalated" — the selection bar's onDelete (both surfaces)
+	// only wires this up in that state.
 	const requestEscalatedDelete = useCallback(() => {
 		if (escalation.phase.kind !== "escalated") return;
 		focusBeforeConfirmRef.current = focusedMessageId ?? null;
@@ -824,9 +824,10 @@ export const MessageList = ({
 		[isDesktop, select],
 	);
 
-	// Mobile bar's Trash tap: an escalated selection has no materialized ids to
-	// hand `requestDelete`, so it opens the predicate confirmation instead.
-	const handleMobileDelete = useCallback(() => {
+	// The selection bar's Trash tap (both surfaces): an escalated selection has
+	// no materialized ids to hand `requestDelete`, so it opens the predicate
+	// confirmation instead.
+	const handleSelectionDelete = useCallback(() => {
 		if (escalation.phase.kind === "escalated") {
 			requestEscalatedDelete();
 			return;
@@ -834,12 +835,12 @@ export const MessageList = ({
 		handleDelete();
 	}, [escalation.phase, requestEscalatedDelete, handleDelete]);
 
-	// Mobile bar's X: means "stop what's happening" throughout, not just
-	// "cancel selection" (issue #92 — the review flagged the X reading as
-	// ambiguous once a delete is running). Counting and deleting both stop at
-	// the next page boundary; an escalated-but-idle selection drops back to
-	// bounded on the way out, same as tapping "Clear selection" first.
-	const handleMobileCancel = useCallback(() => {
+	// The selection bar's X (both surfaces): means "stop what's happening"
+	// throughout, not just "cancel selection" (issue #92 — the review flagged
+	// the X reading as ambiguous once a run is going). Counting and a chunked
+	// run both stop at the next page boundary; an escalated-but-idle selection
+	// drops back to bounded on the way out, same as tapping "Clear selection".
+	const handleSelectionCancel = useCallback(() => {
 		if (escalation.isRunning || escalation.phase.kind === "counting") {
 			escalation.stop();
 			return;
@@ -1094,24 +1095,6 @@ export const MessageList = ({
 	// Single flat section — the mailbox view doesn't group by date.
 	const sections = [{ id: "inbox", threads: [] }];
 
-	// Desktop selection toolbar replaces the pane header when any rows are selected.
-	const desktopSelectionBar =
-		hasSelection && isDesktop ? (
-			<SelectionToolbar
-				selectedCount={selectedCount}
-				onDelete={handleDelete}
-				onClearSelection={exitSelection}
-				onMarkAsRead={handleMarkAsRead}
-				onMove={onMoveMessages ? handleMoveSelected : undefined}
-				onOrganize={() => setOrganizeOpen(true)}
-				isDeleting={isDeleting}
-				isMoving={isMoving}
-				accountId={accountId}
-				currentMailboxId={mailboxId}
-				moveDisabledHint={moveDisabledHint}
-			/>
-		) : undefined;
-
 	// Tier one of the two-tier select-all (issue #92, following Gmail web):
 	// every loaded row is checked. Computed against actual membership, not a
 	// count comparison, so a transient mismatch (mid-render, before the
@@ -1131,13 +1114,15 @@ export const MessageList = ({
 		escalation.phase.kind === "idle" &&
 		!escalation.isRunning;
 
-	const mobileIsBusy = isDeleting || isMoving || escalation.isRunning;
-	const mobileCount =
+	// The escalation-derived surface state — viewport-independent, fed to both
+	// the mobile sheet and the desktop toolbar so the two never diverge (#212).
+	const selectionIsBusy = isDeleting || isMoving || escalation.isRunning;
+	const selectionCount =
 		escalation.phase.kind === "escalated"
 			? escalation.phase.total
 			: selectedCount;
 
-	const mobileStatusLabel = escalation.runningAction
+	const selectionStatusLabel = escalation.runningAction
 		? bulkActionProgressLabel(
 				escalation.runningAction.kind,
 				escalation.progress?.done ?? 0,
@@ -1151,7 +1136,10 @@ export const MessageList = ({
 				? escalatedStatusLabel(searchPredicate ?? {}, escalation.phase.total)
 				: undefined;
 
-	const mobileSelectAll =
+	// The select-all-loaded control. The mobile sheet carries it for any bounded
+	// selection; the desktop toolbar only wires it while searching (below), where
+	// escalating past the loaded page is possible.
+	const selectionSelectAll =
 		escalation.phase.kind !== "escalated" && orderedIds.length > 0
 			? {
 					checked: allLoadedSelected,
@@ -1160,11 +1148,22 @@ export const MessageList = ({
 				}
 			: undefined;
 
-	// At most one notice at a time, ranked by how actionable it is: an
-	// in-progress counting/escalated state and its own action always wins;
+	const selectionProgress =
+		escalation.runningAction && escalation.progress
+			? {
+					value: escalation.progress.done,
+					max: escalation.progress.total,
+					tone: bulkActionProgressTone(escalation.runningAction.kind),
+				}
+			: undefined;
+
+	// At most one escalation notice at a time, ranked by how actionable it is:
+	// an in-progress counting/escalated state and its own action always wins;
 	// otherwise a fresh escalation offer; otherwise a just-finished partial
-	// failure's Retry; otherwise the (rare) cross-account move hint.
-	const mobileNotice =
+	// failure's Retry. The (rare) cross-account move hint is layered on per
+	// surface below — the desktop toolbar shows it inline, the mobile sheet
+	// folds it in as the lowest-priority notice.
+	const escalationNotice =
 		escalation.phase.kind === "counting"
 			? {
 					tone: "info" as const,
@@ -1202,9 +1201,15 @@ export const MessageList = ({
 									onClick: handleRetryFailed,
 								},
 							}
-						: moveDisabledHint
-							? { tone: "warning" as const, text: moveDisabledHint }
-							: undefined;
+						: undefined;
+
+	// The mobile sheet has no inline hint slot, so the cross-account move
+	// restriction rides in as the lowest-priority notice.
+	const mobileNotice =
+		escalationNotice ??
+		(moveDisabledHint
+			? { tone: "warning" as const, text: moveDisabledHint }
+			: undefined);
 
 	// Mobile: which content the peeking sheet routes to, from the escalation
 	// machinery. `running` (a chunked delete/move/mark-read) and `counting` (a
@@ -1223,7 +1228,7 @@ export const MessageList = ({
 		!isDesktop &&
 		isMultiSelectMode &&
 		shouldShowSelectionSheet(
-			mobileCount,
+			selectionCount,
 			mobileMode,
 			mobileNotice !== undefined,
 		);
@@ -1261,10 +1266,10 @@ export const MessageList = ({
 
 	const mobileSelectionSheet = showMobileSheet ? (
 		<SelectionSheet
-			count={mobileCount}
+			count={selectionCount}
 			mode={mobileMode}
-			onCancel={handleMobileCancel}
-			onDelete={handleMobileDelete}
+			onCancel={handleSelectionCancel}
+			onDelete={handleSelectionDelete}
 			onJunk={
 				junkMailboxId && junkMailboxId !== mailboxId && !moveDisabledHint
 					? handleJunk
@@ -1278,18 +1283,10 @@ export const MessageList = ({
 				accountId ? () => setMobileOrganizeEntry("something-else") : undefined
 			}
 			moveSlot={mobileMoveSlot}
-			isBusy={mobileIsBusy}
-			selectAll={mobileSelectAll}
-			statusLabel={mobileStatusLabel}
-			progress={
-				escalation.runningAction && escalation.progress
-					? {
-							value: escalation.progress.done,
-							max: escalation.progress.total,
-							tone: bulkActionProgressTone(escalation.runningAction.kind),
-						}
-					: undefined
-			}
+			isBusy={selectionIsBusy}
+			selectAll={selectionSelectAll}
+			statusLabel={selectionStatusLabel}
+			progress={selectionProgress}
 			notice={mobileNotice}
 		/>
 	) : undefined;
@@ -1302,6 +1299,33 @@ export const MessageList = ({
 				{mobileSelectionSheet}
 				{mobileOrganizeFlow}
 			</>
+		) : undefined;
+
+	// Desktop selection toolbar replaces the pane header when any rows are
+	// selected. It gains the same search-escalation states the mobile sheet
+	// carries (issue #212) — the offer, counting, the escalated predicate and a
+	// chunked run's progress — from the shared derivations above; the
+	// cross-account move hint stays inline (the toolbar has a slot for it).
+	const desktopSelectionBar =
+		hasSelection && isDesktop ? (
+			<SelectionToolbar
+				selectedCount={selectionCount}
+				onDelete={handleSelectionDelete}
+				onClearSelection={handleSelectionCancel}
+				onMarkAsRead={handleMarkAsRead}
+				onMove={onMoveMessages ? handleMoveSelected : undefined}
+				onOrganize={() => setOrganizeOpen(true)}
+				isDeleting={isDeleting}
+				isMoving={isMoving}
+				accountId={accountId}
+				currentMailboxId={mailboxId}
+				moveDisabledHint={moveDisabledHint}
+				selectAll={escalationEnabled ? selectionSelectAll : undefined}
+				statusLabel={selectionStatusLabel}
+				isCounting={escalation.phase.kind === "counting"}
+				progress={selectionProgress}
+				notice={escalationNotice}
+			/>
 		) : undefined;
 
 	const activeSelectionBar = desktopSelectionBar;
