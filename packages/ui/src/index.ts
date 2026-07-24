@@ -122,6 +122,53 @@ export {
 	type FieldLabelProps,
 } from "./components/field-label.js";
 export {
+	AddChipButton,
+	type AddChipButtonProps,
+	ClauseChip,
+	type ClauseChipProps,
+	type ClauseDraft,
+	ClauseEditor,
+	type ClauseEditorProps,
+	WidenChip,
+	type WidenChipProps,
+} from "./components/filter-clause-chip.js";
+export {
+	FilterPreviewCount,
+	type FilterPreviewCountProps,
+} from "./components/filter-preview-count.js";
+export {
+	type ClauseField,
+	clauseFieldLabel,
+	clauseFieldOrder,
+	commitBlockedReason,
+	commitLabel,
+	demoFolders,
+	demoRule,
+	demoSenderFallbackRule,
+	demoVocabularyRule,
+	type FilterRule,
+	type FolderOption,
+	type MatchOperator,
+	matchJoinWord,
+	matchOperatorLabel,
+	type PreviewCount,
+	previewCountSummary,
+	type RuleClause,
+	type RuleScope,
+	type RuleWiden,
+	scopeLabel,
+	widenChipLabel,
+} from "./components/filter-rule.js";
+export {
+	type ClauseEditState,
+	FilterRuleDialog,
+	type FilterRuleDialogProps,
+	FilterRuleEditor,
+	type FilterRuleEditorProps,
+	FilterRuleSheet,
+	type FilterRuleSheetProps,
+} from "./components/filter-rule-editor.js";
+export {
 	FilterSheet,
 	type FilterSheetCategory,
 	type FilterSheetFilter,
