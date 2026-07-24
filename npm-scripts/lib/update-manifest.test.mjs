@@ -6,11 +6,14 @@ import { fileURLToPath } from "node:url";
 import {
 	assertValidVersion,
 	DEFAULT_REGISTRY,
+	deriveSchemaVersion,
 	extractSummary,
 	readTagSummary,
+	SQLITE_MIGRATION_SETS,
 } from "./update-manifest.mjs";
 
 const scriptsDir = join(dirname(fileURLToPath(import.meta.url)), "..");
+const repoRoot = join(scriptsDir, "..");
 
 describe("assertValidVersion", () => {
 	it("accepts vX.Y.Z", () => {
@@ -92,6 +95,33 @@ describe("readTagSummary", () => {
 			() => readTagSummary("v9.9.9", { execFile }),
 			/could not read the tag v9\.9\.9/,
 		);
+	});
+});
+
+describe("deriveSchemaVersion", () => {
+	it("sums the drizzle journal entries across every sqlite migration set", () => {
+		const expected = SQLITE_MIGRATION_SETS.reduce((sum, set) => {
+			const journal = JSON.parse(
+				readFileSync(
+					join(
+						repoRoot,
+						"deploy/vps/migrations-sqlite",
+						set,
+						"meta",
+						"_journal.json",
+					),
+					"utf8",
+				),
+			);
+			return sum + journal.entries.length;
+		}, 0);
+		assert.equal(deriveSchemaVersion(repoRoot), expected);
+		// One migration per set at least, so the count clears the set count.
+		assert.ok(deriveSchemaVersion(repoRoot) >= SQLITE_MIGRATION_SETS.length);
+	});
+
+	it("throws rather than guessing when a set's journal is missing", () => {
+		assert.throws(() => deriveSchemaVersion("/no/such/repo/root"));
 	});
 });
 
