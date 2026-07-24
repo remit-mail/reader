@@ -1,7 +1,7 @@
 import { Button, Dialog } from "@remit/ui";
 import { Loader2 } from "lucide-react";
 import { useEffect } from "react";
-import { useOrganizePreview } from "@/hooks/useOrganizePreview";
+import { useOrganizeWiden } from "@/hooks/useOrganizeWiden";
 import { OrganizePanel } from "./OrganizePanel";
 
 interface OrganizeDialogProps {
@@ -9,6 +9,11 @@ interface OrganizeDialogProps {
 	accountId: string;
 	mailboxId: string;
 	selectedMessageIds: string[];
+	/**
+	 * Sender addresses of the selected messages, driving the literal fallback on
+	 * a deployment without the vector pipeline (semantic-capability.ts).
+	 */
+	selectedSenders: string[];
 	onClose: () => void;
 }
 
@@ -23,6 +28,7 @@ export function OrganizeDialog({
 	accountId,
 	mailboxId,
 	selectedMessageIds,
+	selectedSenders,
 	onClose,
 }: OrganizeDialogProps) {
 	const anchorMessageId = selectedMessageIds[0];
@@ -31,19 +37,17 @@ export function OrganizeDialog({
 		reset,
 		matchedCount,
 		semanticUnavailable,
+		senders,
+		matchPredicate,
 		isPending,
 		isError,
 		error,
-	} = useOrganizePreview(accountId);
+	} = useOrganizeWiden(accountId, anchorMessageId, selectedSenders);
 
 	useEffect(() => {
-		if (!open || !anchorMessageId) return;
-		preview({
-			anchorMessageId,
-			matchOperator: "And",
-			literalClauses: [],
-		});
-	}, [open, anchorMessageId, preview]);
+		if (!open) return;
+		preview();
+	}, [open, preview]);
 
 	const handleClose = () => {
 		reset();
@@ -80,9 +84,10 @@ export function OrganizeDialog({
 					accountId={accountId}
 					mailboxId={mailboxId}
 					selectedMessageIds={selectedMessageIds}
-					anchorMessageId={anchorMessageId}
+					matchPredicate={matchPredicate}
 					matchedCount={matchedCount}
 					semanticUnavailable={semanticUnavailable}
+					senders={senders}
 					onClose={handleClose}
 				/>
 			)}

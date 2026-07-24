@@ -13,17 +13,25 @@ import {
 	commitButtonLabel,
 	commitDisabledReason,
 	scopeActionCount,
+	senderFallbackSummary,
 } from "@/lib/organize/organize-copy";
 import type {
 	OrganizeDraft,
 	OrganizeScope,
 } from "@/lib/organize/organize-model";
+import type { OrganizeMatchPredicate } from "@/lib/organize/sender-fallback";
 
 interface OrganizePanelProps {
 	accountId: string;
 	mailboxId: string;
 	selectedMessageIds: string[];
-	anchorMessageId: string;
+	/**
+	 * The predicate the widen previewed — the semantic anchor, or the
+	 * sender-derived literal clauses when the vector pipeline is absent. Every
+	 * commit scope carries exactly this, so the previewed set equals the set the
+	 * scope acts on.
+	 */
+	matchPredicate: OrganizeMatchPredicate;
 	/** Similar messages the widen preview matched. */
 	matchedCount: number;
 	/**
@@ -44,10 +52,17 @@ interface OrganizePanelProps {
 	fallback?: boolean;
 	/**
 	 * The server ran no semantic widen because this deployment ships no vector
-	 * pipeline. Like {@link fallback} it organizes just the selection, but the
-	 * heading names the real reason rather than "no similar found".
+	 * pipeline. With senders to match on ({@link senders}) the widen fell back to
+	 * matching all mail from those senders; with none it organizes just the
+	 * selection. Either way the heading names the real reason, never "similar".
 	 */
 	semanticUnavailable?: boolean;
+	/**
+	 * Distinct sender addresses driving the sender fallback. Non-empty only when
+	 * {@link semanticUnavailable} and the fallback produced a literal match set;
+	 * named in the heading and folder line so the copy states the real semantics.
+	 */
+	senders?: string[];
 	onClose: () => void;
 }
 
@@ -78,17 +93,22 @@ export function OrganizePanel({
 	accountId,
 	mailboxId,
 	selectedMessageIds,
-	anchorMessageId,
+	matchPredicate,
 	matchedCount,
 	initialScope,
 	seedMailboxId,
 	fallback = false,
 	semanticUnavailable = false,
+	senders = [],
 	onClose,
 }: OrganizePanelProps) {
+	// The vector pipeline is absent but the selection has senders to match on:
+	// the widen fell back to sender matching, which produces a real widened set
+	// the commit scopes reach — unlike a missing or empty widen.
+	const senderFallback = semanticUnavailable && senders.length > 0;
 	// A missing widen and an empty widen both organize just the selection; only
-	// the heading distinguishes them.
-	const noWiden = fallback || semanticUnavailable;
+	// the heading distinguishes them. The sender fallback is a real widen.
+	const noWiden = (fallback || semanticUnavailable) && !senderFallback;
 	const [scope, setScope] = useState<OrganizeScope>(
 		initialScope ?? (noWiden ? "just-these" : "all-like-these"),
 	);
@@ -113,14 +133,12 @@ export function OrganizePanel({
 
 	const draft: OrganizeDraft = useMemo(
 		() => ({
-			anchorMessageId,
-			matchOperator: "And",
-			literalClauses: [],
+			...matchPredicate,
 			moveMailboxId: moveMailboxId || undefined,
 			expiresAt:
 				scope === "temporary" ? pickedDateToExpiresAt(pickedDate) : undefined,
 		}),
-		[anchorMessageId, moveMailboxId, scope, pickedDate],
+		[matchPredicate, moveMailboxId, scope, pickedDate],
 	);
 
 	const { moveMessages } = useMoveMessages({ mailboxId, accountId });
@@ -188,13 +206,17 @@ export function OrganizePanel({
 			<div className="border-b border-line px-5 py-3">
 				<h2 className="text-sm font-semibold text-fg">Organize</h2>
 				<p className="mt-0.5 text-xs text-fg-muted">
-					{semanticUnavailable
-						? `Finding similar mail isn't available on this server — organizing just your ${selectionCount} selected.`
-						: fallback
-							? `No similar messages found — organizing just your ${selectionCount} selected.`
-							: `${matchedCount} similar message${matchedCount === 1 ? "" : "s"} found${
-									selectionCount > 0 ? ` from ${selectionCount} selected` : ""
-								}.`}
+					{senderFallback
+						? `${senderFallbackSummary(senders)} ${matchedCount} match${
+								matchedCount === 1 ? "" : "es"
+							}.`
+						: semanticUnavailable
+							? `Finding similar mail isn't available on this server — organizing just your ${selectionCount} selected.`
+							: fallback
+								? `No similar messages found — organizing just your ${selectionCount} selected.`
+								: `${matchedCount} similar message${matchedCount === 1 ? "" : "s"} found${
+										selectionCount > 0 ? ` from ${selectionCount} selected` : ""
+									}.`}
 				</p>
 			</div>
 
@@ -205,7 +227,12 @@ export function OrganizePanel({
 							<span className="font-semibold text-fg">Always keep </span>
 						)}
 						{scope === "standing" ? "" : "Keep "}
-						{scope === "just-these" ? "these" : "emails like these"} in
+						{scope === "just-these"
+							? "these"
+							: senderFallback
+								? "mail from these senders"
+								: "emails like these"}{" "}
+						in
 					</p>
 					<Select
 						aria-label="Destination folder"
@@ -232,6 +259,10 @@ export function OrganizePanel({
 				<section className="space-y-1.5">
 					{SCOPE_OPTIONS.map((option) => {
 						const active = scope === option.id;
+						const caption =
+							senderFallback && option.id === "all-like-these"
+								? "including others from these senders"
+								: option.caption;
 						return (
 							<button
 								key={option.id}
@@ -263,7 +294,7 @@ export function OrganizePanel({
 										{option.label}
 									</span>
 									<span className="block text-xs text-fg-subtle">
-										{option.caption}
+										{caption}
 									</span>
 								</span>
 							</button>

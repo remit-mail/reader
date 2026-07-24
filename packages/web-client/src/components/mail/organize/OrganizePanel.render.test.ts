@@ -26,7 +26,11 @@ const render = (overrides: Partial<Parameters<typeof OrganizePanel>[0]> = {}) =>
 					accountId: "acc-1",
 					mailboxId: "mbx-inbox",
 					selectedMessageIds: ["msg-1", "msg-2"],
-					anchorMessageId: "msg-1",
+					matchPredicate: {
+						anchorMessageId: "msg-1",
+						matchOperator: "And",
+						literalClauses: [],
+					},
 					matchedCount: 47,
 					onClose: () => undefined,
 					...overrides,
@@ -62,10 +66,36 @@ describe("OrganizePanel", () => {
 		assert.match(html, /organizing just your 2 selected/);
 	});
 
-	it("names the missing vector pipeline and organizes just the selection when the widen is unavailable (#226/#201)", () => {
+	it("names the missing vector pipeline and organizes just the selection when the widen is unavailable and no senders are known (#226/#201)", () => {
 		const html = render({ matchedCount: 0, semanticUnavailable: true });
 		assert.match(html, /available on this server/);
 		assert.match(html, /organizing just your 2 selected/);
+	});
+
+	it("names the senders and states it is matching all mail from them when the widen fell back (no vector pipeline)", () => {
+		const html = render({
+			matchedCount: 128,
+			semanticUnavailable: true,
+			senders: ["npm@github.com", "notifications@github.com"],
+			matchPredicate: {
+				matchOperator: "Or",
+				literalClauses: [
+					{ field: "From", value: "npm@github.com" },
+					{ field: "From", value: "notifications@github.com" },
+				],
+			},
+		});
+		assert.match(html, /matching all mail from/);
+		assert.match(html, /npm@github\.com/);
+		assert.match(html, /notifications@github\.com/);
+		assert.match(html, /128 matches/);
+		// Never claims the matched set is semantically similar (only denies that
+		// similar-mail matching is available).
+		assert.doesNotMatch(html, /similar message/i);
+		assert.doesNotMatch(html, /similar ones found/i);
+		// The sender fallback is a real widen: the scopes reach it, so the
+		// default scope is "all like these", not "just these".
+		assert.match(html, /All like these/);
 	});
 
 	it("pre-selects the seeded scope (a 'Something else' shortcut seeds the sentence)", () => {

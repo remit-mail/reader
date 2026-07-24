@@ -59,3 +59,32 @@ export const scopeActionCount = (
 	selectionCount: number,
 	matchedCount: number,
 ): number => (scope === "just-these" ? selectionCount : matchedCount);
+
+/** How many sender addresses are named before the rest are summed as "N others". */
+const MAX_SENDERS_SHOWN = 3;
+
+/**
+ * The sender addresses read out in prose: all of them when there are a few, or
+ * the first {@link MAX_SENDERS_SHOWN} and a count of the rest so a long selection
+ * stays legible in the sheet.
+ */
+export const formatSenderList = (senders: readonly string[]): string => {
+	if (senders.length === 0) return "these senders";
+	if (senders.length === 1) return senders[0];
+	if (senders.length <= MAX_SENDERS_SHOWN) {
+		return `${senders.slice(0, -1).join(", ")} and ${senders[senders.length - 1]}`;
+	}
+	const shown = senders.slice(0, MAX_SENDERS_SHOWN);
+	const rest = senders.length - MAX_SENDERS_SHOWN;
+	return `${shown.join(", ")} and ${rest} other${rest === 1 ? "" : "s"}`;
+};
+
+/**
+ * The heading when the widen fell back to sender matching (no vector pipeline on
+ * this server). States the actual semantics — matching every mail from these
+ * senders — and never claims semantic similarity.
+ */
+export const senderFallbackSummary = (senders: readonly string[]): string =>
+	`Similar-mail matching isn't available on this server — matching all mail from ${formatSenderList(
+		senders,
+	)} instead.`;
