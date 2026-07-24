@@ -44,6 +44,12 @@ interface MailViewChromeProps {
 	/** Section headings; see `MailListHeader`. */
 	searchResultsLabel?: string;
 	relatedResultsLabel?: string;
+	/**
+	 * The body renders the committed search as a selectable list itself; see
+	 * `MailListHeader`. The mailbox route sets this so a committed search yields
+	 * its multi-select `MessageList` (#212); flagged leaves it unset.
+	 */
+	searchResultsInBody?: boolean;
 }
 
 export function MailViewChrome({
@@ -65,6 +71,7 @@ export function MailViewChrome({
 	onSelectSearchResult,
 	searchResultsLabel,
 	relatedResultsLabel,
+	searchResultsInBody,
 }: MailViewChromeProps) {
 	const [expanded, setExpanded] = useState(false);
 
@@ -95,6 +102,7 @@ export function MailViewChrome({
 			onSelectSearchResult={onSelectSearchResult}
 			searchResultsLabel={searchResultsLabel}
 			relatedResultsLabel={relatedResultsLabel}
+			searchResultsInBody={searchResultsInBody}
 		>
 			<FilterSheet {...filterConfig}>{children}</FilterSheet>
 		</MailListHeader>

@@ -46,6 +46,7 @@ import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
 import { useMailContext } from "@/lib/mail-context";
 import { loadRecentSearches, saveRecentSearch } from "@/lib/recent-searches";
 import { resultsScopeForRoute, routeMailboxId } from "@/lib/search-scope";
+import { showInlineSearchResults } from "@/lib/search-surface";
 import {
 	parseSearchTokens,
 	removeSearchToken,
@@ -76,6 +77,17 @@ interface MailListHeaderProps {
 	 */
 	searchResultsLabel?: string;
 	relatedResultsLabel?: string;
+	/**
+	 * The body renders the committed search itself as a selectable list — the
+	 * mailbox route's `MessageList` filters to the search results and hosts the
+	 * multi-select toolbar and the "Select all N matching" escalation (#212).
+	 * When set, a committed query keeps the body on tablet/desktop instead of
+	 * swapping in the read-only two-engine `SearchResults` panel; the panel still
+	 * shows while the query is being typed (uncommitted). Views whose body is not
+	 * a search-result list (the brief, flagged, global search) leave this unset
+	 * and keep the panel for every query.
+	 */
+	searchResultsInBody?: boolean;
 }
 
 export function MailListHeader({
@@ -91,6 +103,7 @@ export function MailListHeader({
 	onSelectSearchResult,
 	searchResultsLabel = "Top matches",
 	relatedResultsLabel = "Related",
+	searchResultsInBody = false,
 }: MailListHeaderProps) {
 	const {
 		accounts,
@@ -209,10 +222,19 @@ export function MailListHeader({
 		);
 	}
 
-	// Tablet + desktop keep the inline toolbar search; once a query is present the
-	// list-pane body swaps to the same sectioned results the phone takeover shows,
-	// under the same FilterSheet. Clearing the query restores the normal list.
-	const showInlineResults = tier !== "phone" && hasQuery;
+	// Tablet + desktop keep the inline toolbar search; while a query is being
+	// typed the list-pane body swaps to the same sectioned results the phone
+	// takeover shows, under the same FilterSheet. A view whose own body renders
+	// the committed search as a selectable list (`searchResultsInBody`, the
+	// mailbox route) keeps the panel only until the query commits to the URL,
+	// then hands back to its `MessageList` so the multi-select toolbar and the
+	// escalation are reachable (#212). Clearing the query restores the normal list.
+	const showInlineResults = showInlineSearchResults({
+		tier,
+		hasLiveInput: hasQuery,
+		hasCommittedQuery: searchQuery.trim().length > 0,
+		bodyRendersCommittedResults: searchResultsInBody,
+	});
 	const handleSelectInlineResult = (result: SearchResult) => {
 		setRecentSearches(saveRecentSearch(searchInput));
 		onSelectSearchResult?.(result);

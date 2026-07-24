@@ -985,6 +985,11 @@ function MailboxList() {
 			relatedResults={relatedResults}
 			relatedLoading={relatedLoading}
 			onSelectSearchResult={handleSelectSearchResult}
+			// A committed mailbox search renders in the body's own `MessageList`
+			// (its threads filter to the results), so the multi-select toolbar and
+			// the "Select all N matching" escalation are reachable on desktop (#212).
+			// The typing/uncommitted state still shows the two-engine panel.
+			searchResultsInBody
 		>
 			{body}
 		</MailViewChrome>
