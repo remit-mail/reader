@@ -1,11 +1,17 @@
 import type { QuarantineReportSections } from "@remit/ui";
 import {
 	APP_BUILD_TIME,
-	APP_SHA,
 	APP_SHORT_SHA,
+	GITHUB_COMMIT_URL,
 	GITHUB_NEW_ISSUE_URL,
 } from "./app-info";
 import { getRecentErrors } from "./console-errors";
+import {
+	getFailingRequest,
+	getRecentRequests,
+	type RequestBreadcrumb,
+} from "./request-breadcrumbs";
+import { getRecentRoutes, type RouteBreadcrumb } from "./route-breadcrumbs";
 
 /**
  * A GitHub new-issue URL is capped (~8 KB). We budget below that so the stack
@@ -19,8 +25,9 @@ const TRUNCATION_MARKER =
 	"\n… (truncated — the copy action on this screen has the full report)";
 
 export interface BugReportContext {
-	appSha: string;
 	appShortSha: string;
+	/** Commit URL for the build, or undefined for a local "dev" build (no link). */
+	appCommitUrl?: string;
 	appBuildTime: string;
 	userAgent: string;
 	viewport: string;
@@ -28,6 +35,12 @@ export interface BugReportContext {
 	timezone: string;
 	href: string;
 	recentErrors: readonly string[];
+	/** Recent API calls, metadata only — method/path/status/duration/correlation. */
+	requests: readonly RequestBreadcrumb[];
+	/** Recent in-app navigations, oldest first. */
+	routes: readonly RouteBreadcrumb[];
+	/** The request that most likely triggered the report (transport or >= 400). */
+	failingRequest?: RequestBreadcrumb;
 	/** The message of the error that triggered the report, when seeded from one. */
 	errorMessage?: string;
 	/** The error's stacktrace, when available. */
@@ -56,8 +69,8 @@ export interface BugReportSeed {
 
 export function buildBugReportContext(seed?: BugReportSeed): BugReportContext {
 	return {
-		appSha: APP_SHA,
 		appShortSha: APP_SHORT_SHA,
+		appCommitUrl: GITHUB_COMMIT_URL,
 		appBuildTime: APP_BUILD_TIME,
 		userAgent: navigator.userAgent,
 		viewport: `${window.innerWidth}×${window.innerHeight}`,
@@ -65,6 +78,9 @@ export function buildBugReportContext(seed?: BugReportSeed): BugReportContext {
 		timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
 		href: window.location.href,
 		recentErrors: getRecentErrors(),
+		requests: getRecentRequests(),
+		routes: getRecentRoutes(),
+		failingRequest: getFailingRequest(),
 		errorMessage: seed?.errorMessage,
 		stack: seed?.stack,
 		componentStack: seed?.componentStack,
@@ -75,6 +91,59 @@ export function buildBugReportContext(seed?: BugReportSeed): BugReportContext {
 
 function fencedBlock(content: string): string {
 	return ["```", content, "```"].join("\n");
+}
+
+/** `2024-06-12T08:00:01.234Z` → `08:00:01` — the wall-clock time, compact. */
+function clockTime(iso: string): string {
+	const match = /T(\d{2}:\d{2}:\d{2})/.exec(iso);
+	return match ? match[1] : iso;
+}
+
+function versionLine(ctx: BugReportContext): string {
+	const version = ctx.appCommitUrl
+		? `[\`${ctx.appShortSha}\`](${ctx.appCommitUrl})`
+		: `\`${ctx.appShortSha}\``;
+	return `- **Version**: ${version} built ${ctx.appBuildTime}`;
+}
+
+function failingRequestSection(request: RequestBreadcrumb): string[] {
+	const status =
+		request.status === 0
+			? "no response (transport failure)"
+			: `${request.status}`;
+	return [
+		"## Failing request",
+		`- **Endpoint**: \`${request.path}\``,
+		`- **Method**: ${request.method}`,
+		`- **Status**: ${status}`,
+		`- **Correlation id**: ${request.correlationId ?? "(none)"}`,
+		"",
+	];
+}
+
+function requestsSection(requests: readonly RequestBreadcrumb[]): string[] {
+	if (requests.length === 0) {
+		return ["## Recent API requests", "(none)", ""];
+	}
+	const rows = requests.map((r) => {
+		const status = r.status === 0 ? "ERR" : `${r.status}`;
+		return `| ${clockTime(r.timestamp)} | ${r.method} | \`${r.path}\` | ${status} | ${r.durationMs}ms | ${r.correlationId ?? ""} |`;
+	});
+	return [
+		"## Recent API requests",
+		"| Time | Method | Path | Status | Duration | Correlation |",
+		"| --- | --- | --- | --- | --- | --- |",
+		...rows,
+		"",
+	];
+}
+
+function navigationSection(routes: readonly RouteBreadcrumb[]): string[] {
+	if (routes.length === 0) {
+		return ["## Navigation trail", "(none)", ""];
+	}
+	const rows = routes.map((r) => `- ${clockTime(r.timestamp)} \`${r.path}\``);
+	return ["## Navigation trail", ...rows, ""];
 }
 
 interface BodyOverrides {
@@ -94,7 +163,7 @@ function buildIssueBody(
 
 	const lines: string[] = [
 		"## Environment",
-		`- **Version**: [\`${ctx.appShortSha}\`](https://github.com/remit-mail/reader/commit/${ctx.appSha}) built ${ctx.appBuildTime}`,
+		versionLine(ctx),
 		`- **Browser**: ${ctx.userAgent}`,
 		`- **Viewport**: ${ctx.viewport}`,
 		`- **Time**: ${ctx.timestamp} (${ctx.timezone})`,
@@ -106,6 +175,10 @@ function buildIssueBody(
 
 	if (ctx.errorMessage) {
 		lines.push("## Error", ctx.errorMessage, "");
+	}
+
+	if (ctx.failingRequest) {
+		lines.push(...failingRequestSection(ctx.failingRequest));
 	}
 
 	if (ctx.quarantine) {
@@ -129,6 +202,9 @@ function buildIssueBody(
 	if (ctx.componentStack) {
 		lines.push("## Component stack", fencedBlock(ctx.componentStack), "");
 	}
+
+	lines.push(...requestsSection(ctx.requests));
+	lines.push(...navigationSection(ctx.routes));
 
 	lines.push(
 		"## Recent console errors",

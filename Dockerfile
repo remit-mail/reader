@@ -63,6 +63,15 @@ COPY . .
 # `make` regenerates build/ from the TypeSpec source in-repo (RFC 035 D2).
 RUN make
 
+# The build commit, threaded in from the publisher (images-publish.sh) because
+# `.git` is dockerignored — without it the web client's `resolveGitSha` falls
+# back to the literal "dev" and every bug report links a dead `/commit/dev` URL.
+# `resolveGitSha` reads GITHUB_SHA. Declared here, immediately before the vite
+# build, so a per-commit SHA busts only this layer — never the npm ci or make
+# layers above it.
+ARG GIT_SHA=""
+ENV GITHUB_SHA=${GIT_SHA}
+
 # Compose the web client from the primitives with the better-auth shell only —
 # the self-host stack is a distributor and omits the Cognito shell entirely.
 # Same-origin relative API base (packages/web-client/src/lib/client.ts defaults

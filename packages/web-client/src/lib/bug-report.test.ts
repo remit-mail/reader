@@ -9,10 +9,13 @@ import {
 } from "@remit/ui";
 import type { BugReportContext } from "./bug-report";
 import { buildBugReportDetails, buildGitHubIssueUrl } from "./bug-report";
+import type { RequestBreadcrumb } from "./request-breadcrumbs";
+import type { RouteBreadcrumb } from "./route-breadcrumbs";
 
 const baseCtx: BugReportContext = {
-	appSha: "abcdef1234567890abcdef1234567890abcdef12",
 	appShortSha: "abcdef1",
+	appCommitUrl:
+		"https://github.com/remit-mail/reader/commit/abcdef1234567890abcdef1234567890abcdef12",
 	appBuildTime: "2024-01-15T10:30:00.000Z",
 	userAgent: "Mozilla/5.0 (Test Browser)",
 	viewport: "1440×900",
@@ -20,6 +23,8 @@ const baseCtx: BugReportContext = {
 	timezone: "Europe/Amsterdam",
 	href: "https://app.example.com/mail/inbox?q=test",
 	recentErrors: [],
+	requests: [],
+	routes: [],
 };
 
 /**
@@ -144,6 +149,144 @@ describe("buildGitHubIssueUrl", () => {
 		};
 		const url = buildGitHubIssueUrl(ctx);
 		assert.doesNotThrow(() => new URL(url), "URL must be valid");
+	});
+
+	it("links the short SHA to the build commit", () => {
+		const decoded = decode(buildGitHubIssueUrl(baseCtx));
+		assert.ok(
+			decoded.includes(
+				"[`abcdef1`](https://github.com/remit-mail/reader/commit/abcdef1234567890abcdef1234567890abcdef12)",
+			),
+			"Expected the version to link the commit",
+		);
+	});
+
+	it("renders the version unlinked when the build has no real SHA", () => {
+		const decoded = decode(
+			buildGitHubIssueUrl({
+				...baseCtx,
+				appShortSha: "dev",
+				appCommitUrl: undefined,
+			}),
+		);
+		assert.ok(
+			decoded.includes("**Version**: `dev`"),
+			"Expected an unlinked dev version",
+		);
+		assert.ok(
+			!decoded.includes("/commit/dev"),
+			"A dev build must not produce a dead commit link",
+		);
+	});
+});
+
+describe("buildGitHubIssueUrl — request breadcrumbs", () => {
+	const requests: RequestBreadcrumb[] = [
+		{
+			method: "GET",
+			path: "/api/messages/abc-123",
+			status: 200,
+			durationMs: 42,
+			correlationId: "corr-ok",
+			timestamp: "2024-06-12T08:00:01.000Z",
+		},
+		{
+			method: "POST",
+			path: "/api/messages/abc-123/move",
+			status: 500,
+			durationMs: 130,
+			correlationId: "corr-fail",
+			timestamp: "2024-06-12T08:00:02.000Z",
+		},
+	];
+
+	it("renders a table of recent API requests", () => {
+		const decoded = decode(buildGitHubIssueUrl({ ...baseCtx, requests }));
+		assert.ok(decoded.includes("## Recent API requests"));
+		assert.ok(decoded.includes("/api/messages/abc-123/move"));
+		assert.ok(
+			decoded.includes("corr-fail"),
+			"Expected the correlation id in the table",
+		);
+		assert.ok(decoded.includes("| GET |"));
+	});
+
+	it("shows (none) when no requests were captured", () => {
+		const decoded = decode(buildGitHubIssueUrl({ ...baseCtx, requests: [] }));
+		assert.ok(decoded.includes("## Recent API requests"));
+	});
+
+	it("calls out the failing request in its own section", () => {
+		const failingRequest = requests[1];
+		const decoded = decode(
+			buildGitHubIssueUrl({ ...baseCtx, requests, failingRequest }),
+		);
+		assert.ok(decoded.includes("## Failing request"));
+		assert.ok(decoded.includes("**Endpoint**: `/api/messages/abc-123/move`"));
+		assert.ok(decoded.includes("**Method**: POST"));
+		assert.ok(decoded.includes("**Status**: 500"));
+		assert.ok(decoded.includes("**Correlation id**: corr-fail"));
+	});
+
+	it("describes a transport failure as no response", () => {
+		const failingRequest: RequestBreadcrumb = {
+			method: "GET",
+			path: "/api/messages",
+			status: 0,
+			durationMs: 5000,
+			timestamp: "2024-06-12T08:00:03.000Z",
+		};
+		const decoded = decode(buildGitHubIssueUrl({ ...baseCtx, failingRequest }));
+		assert.ok(decoded.includes("no response (transport failure)"));
+		assert.ok(decoded.includes("**Correlation id**: (none)"));
+	});
+
+	it("no breadcrumb ever carries a query string or a body", () => {
+		// A breadcrumb path is redacted at capture (request-breadcrumbs.ts), so
+		// even if the fetch layer saw a `?q=` search or a request body, the
+		// assembled requests table carries neither. Scope the check to that
+		// section — the `## URL` section legitimately keeps the full href.
+		const requestsWithQueryShaped: RequestBreadcrumb[] = [
+			{
+				method: "POST",
+				path: "/api/search",
+				status: 200,
+				durationMs: 5,
+				correlationId: "c1",
+				timestamp: "2024-06-12T08:00:01.000Z",
+			},
+		];
+		const decoded = decode(
+			buildGitHubIssueUrl({ ...baseCtx, requests: requestsWithQueryShaped }),
+		);
+		const section = decoded.slice(decoded.indexOf("## Recent API requests"));
+		assert.ok(
+			!section.includes("?"),
+			"A breadcrumb path must never carry a query string",
+		);
+		assert.ok(
+			!/"password"|"subject"|"body":/.test(section),
+			"A breadcrumb must never carry a request/response body",
+		);
+	});
+});
+
+describe("buildGitHubIssueUrl — navigation trail", () => {
+	const routes: RouteBreadcrumb[] = [
+		{ path: "/mail/inbox", timestamp: "2024-06-12T07:59:58.000Z" },
+		{ path: "/mail/message/abc-123", timestamp: "2024-06-12T08:00:00.000Z" },
+	];
+
+	it("renders the navigation trail so Steps to reproduce has context", () => {
+		const decoded = decode(buildGitHubIssueUrl({ ...baseCtx, routes }));
+		assert.ok(decoded.includes("## Navigation trail"));
+		assert.ok(decoded.includes("/mail/inbox"));
+		assert.ok(decoded.includes("/mail/message/abc-123"));
+	});
+
+	it("still emits the Steps to reproduce template", () => {
+		const decoded = decode(buildGitHubIssueUrl({ ...baseCtx, routes }));
+		assert.ok(decoded.includes("## Steps to reproduce"));
 	});
 });
 

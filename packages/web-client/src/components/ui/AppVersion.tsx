@@ -7,7 +7,10 @@ import {
 export interface AppVersionProps {
 	/** Override SHA for testing/Storybook. Defaults to the build-time constant. */
 	sha?: string;
-	/** Override commit URL. Defaults to the GitHub commit link. */
+	/**
+	 * Override commit URL. Defaults to the GitHub commit link, which is undefined
+	 * for a local "dev" build with no real SHA — the version renders unlinked then.
+	 */
 	commitUrl?: string;
 	/** Override build time ISO string. Defaults to the build-time constant. */
 	buildTime?: string;
@@ -35,14 +38,18 @@ export function AppVersion({
 	return (
 		<p className="text-xs text-fg-subtle">
 			Version{" "}
-			<a
-				href={commitUrl}
-				target="_blank"
-				rel="noopener noreferrer"
-				className="font-mono hover:text-fg-muted hover:underline"
-			>
-				{sha}
-			</a>
+			{commitUrl ? (
+				<a
+					href={commitUrl}
+					target="_blank"
+					rel="noopener noreferrer"
+					className="font-mono hover:text-fg-muted hover:underline"
+				>
+					{sha}
+				</a>
+			) : (
+				<span className="font-mono">{sha}</span>
+			)}
 			{" · "}
 			<span>Built {formatBuildTime(buildTime)}</span>
 		</p>

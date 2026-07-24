@@ -43,6 +43,17 @@ PUSH_LATEST="${PUSH_LATEST:-0}"
 CACHE_REF="${CACHE_REF:-}"
 CACHE_TO="${CACHE_TO:-1}"
 
+# The build commit baked into the web client (bug-report version link). `.git`
+# is dockerignored, so the build cannot resolve it itself — pass it as a build
+# arg. Prefer the checkout's HEAD; fall back to the `sha-<sha>` TAG the Images
+# workflow sets. Empty is fine: the build then labels itself "dev".
+GIT_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
+if [ -z "$GIT_SHA" ]; then
+	case "$TAG" in
+	sha-*) GIT_SHA="${TAG#sha-}" ;;
+	esac
+fi
+
 # shellcheck source=npm-scripts/lib/image-roster.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/image-roster.sh"
 image_roster
@@ -84,7 +95,8 @@ cache_args() {
 
 echo "images-publish: building shared builder stage once"
 mapfile -t builder_cache < <(cache_args builder)
-"$CR" build --target builder "${builder_cache[@]}" -t "remit-builder:${TAG}" .
+"$CR" build --target builder --build-arg "GIT_SHA=${GIT_SHA}" \
+	"${builder_cache[@]}" -t "remit-builder:${TAG}" .
 
 for target in "${ALL_TARGETS[@]}"; do
 	echo "images-publish: building ${target}"
@@ -94,7 +106,10 @@ for target in "${ALL_TARGETS[@]}"; do
 	if [ "$PUSH_LATEST" = "1" ]; then
 		tags+=(-t "${REGISTRY}/${target}:latest")
 	fi
-	"$CR" build --target "$target" "${build_args[@]}" "${target_cache[@]}" "${tags[@]}" .
+	# GIT_SHA must match the builder-stage build above, or targets that rebuild
+	# that stage (web) miss its cache and fall back to a "dev" version.
+	"$CR" build --target "$target" --build-arg "GIT_SHA=${GIT_SHA}" \
+		"${build_args[@]}" "${target_cache[@]}" "${tags[@]}" .
 done
 
 if [ "$PUSH" != "1" ]; then
