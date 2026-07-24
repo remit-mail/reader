@@ -5,6 +5,11 @@ import { fileURLToPath } from "node:url";
 export const RELEASE_TAG_PATTERN = /^v\d+\.\d+\.\d+$/;
 export const DEFAULT_REGISTRY = "ghcr.io/remit-mail/reader";
 
+// The SQLite migration sets the self-host stack applies, in the layout the
+// migrate one-shot reads (deploy/vps/migrate/run-migrate.ts). Each set is a
+// drizzle folder whose meta/_journal.json lists one entry per migration.
+export const SQLITE_MIGRATION_SETS = ["auth", "entities", "meta"];
+
 // Read from the schema source as text, not imported: this module runs in the
 // install-free CI suite (npm-scripts/test-script-suites.mjs in ci.yml's
 // validate job) where @remit/data-ports does not resolve as a package. Reading
@@ -26,6 +31,32 @@ function readSummaryMaxLength() {
 }
 
 const SUMMARY_MAX_LENGTH = readSummaryMaxLength();
+
+// The release's schema version, derived from the migrations directory rather
+// than authored: the sum of the drizzle journal entries across every SQLite
+// migration set. A fully-migrated instance holds exactly one row per journal
+// entry in the matching __drizzle_migrations_<set> table, so this number is the
+// same count the wrapper reads back off the live database — schemaVersion >
+// currentSchemaVersion is exactly "installing this release runs a migration". A
+// hand-authored number drifts the moment a migration is added; this cannot.
+export function deriveSchemaVersion(repoRoot) {
+	let total = 0;
+	for (const set of SQLITE_MIGRATION_SETS) {
+		const journalPath = join(
+			repoRoot,
+			"deploy/vps/migrations-sqlite",
+			set,
+			"meta",
+			"_journal.json",
+		);
+		const journal = JSON.parse(readFileSync(journalPath, "utf8"));
+		if (!Array.isArray(journal.entries)) {
+			throw new Error(`${journalPath} has no entries array`);
+		}
+		total += journal.entries.length;
+	}
+	return total;
+}
 
 export function assertValidVersion(version) {
 	if (!RELEASE_TAG_PATTERN.test(version)) {

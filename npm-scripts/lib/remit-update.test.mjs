@@ -12,11 +12,13 @@ import {
 	copyFileSync,
 	mkdirSync,
 	mkdtempSync,
+	readdirSync,
 	readFileSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { after, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -26,6 +28,7 @@ const REMIT = join(ROOT, "deploy", "vps", "remit");
 const COMPOSE = join(ROOT, "deploy", "vps", "docker-compose.sqlite.yml");
 const SNAPSHOT_LIB = join(ROOT, "deploy", "vps", "backup", "snapshot-db.sh");
 const FAKES = join(HERE, "remit-test");
+const SQLITE_SHIM = join(FAKES, "sqlite3-shim.mjs");
 
 const TMP_ROOT = join(ROOT, ".tmp");
 mkdirSync(TMP_ROOT, { recursive: true });
@@ -45,14 +48,77 @@ const MANIFEST = {
 const ALL_SERVICES =
 	"queue backend caddy web apisix imap-worker smtp-worker account-worker search-index-worker";
 
-function sandbox({ scenario = {}, manifest = MANIFEST, env = {} } = {}) {
+// A real remit.db at schema total 8 (6 entity migrations, 1 auth, 1 meta), the
+// tables named exactly as the migrate one-shot writes them, so the wrapper's own
+// schema read and the fake migrate operate on the layout production runs.
+function seedDatabase(path) {
+	const db = new DatabaseSync(path);
+	db.exec("PRAGMA journal_mode = WAL");
+	db.exec("CREATE TABLE message (id INTEGER PRIMARY KEY, subject TEXT)");
+	db.exec("INSERT INTO message VALUES (1, 'hello')");
+	for (const [table, rows] of [
+		["__drizzle_migrations_entities", 6],
+		["__drizzle_migrations_auth", 1],
+		["__drizzle_migrations_meta", 1],
+	]) {
+		db.exec(
+			`CREATE TABLE ${table} (id INTEGER PRIMARY KEY, hash TEXT, created_at INTEGER)`,
+		);
+		for (let i = 0; i < rows; i += 1) {
+			db.exec(`INSERT INTO ${table} VALUES (${i}, 'h${i}', ${i})`);
+		}
+	}
+	db.close();
+}
+
+function schemaTotal(dbPath) {
+	const db = new DatabaseSync(dbPath);
+	let total = 0;
+	for (const table of [
+		"__drizzle_migrations_entities",
+		"__drizzle_migrations_auth",
+		"__drizzle_migrations_meta",
+	]) {
+		const { n } = db.prepare(`SELECT count(*) AS n FROM ${table}`).get();
+		total += n;
+	}
+	db.close();
+	return total;
+}
+
+function hasFilterMoveColumn(dbPath) {
+	const db = new DatabaseSync(dbPath);
+	const columns = db.prepare("PRAGMA table_info(message)").all();
+	db.close();
+	return columns.some((c) => c.name === "filter_move");
+}
+
+function writeExecutable(path, body) {
+	writeFileSync(path, body);
+	spawnSync("chmod", ["+x", path]);
+}
+
+function sandbox({
+	scenario = {},
+	manifest = MANIFEST,
+	env = {},
+	realDb = false,
+} = {}) {
 	const dir = mkdtempSync(join(TMP_ROOT, "remit-update-"));
 	sandboxes.push(dir);
 	const deployment = join(dir, "deployment");
 	const state = join(dir, "state");
 	const fake = join(dir, "fake");
 	const bin = join(dir, "bin");
-	for (const d of [deployment, join(deployment, "backup"), state, fake, bin]) {
+	const sqlite = join(dir, "sqlite");
+	for (const d of [
+		deployment,
+		join(deployment, "backup"),
+		state,
+		fake,
+		bin,
+		sqlite,
+	]) {
 		mkdirSync(d, { recursive: true });
 	}
 	copyFileSync(COMPOSE, join(deployment, "docker-compose.sqlite.yml"));
@@ -97,6 +163,21 @@ function sandbox({ scenario = {}, manifest = MANIFEST, env = {} } = {}) {
 		spawnSync("chmod", ["+x", dest]);
 	}
 
+	// Real-database mode: the helper containers run their scripts for real, so
+	// the tools they call inside the container are shimmed onto PATH — sqlite3 is
+	// node:sqlite, su-exec drops its uid argument and execs, apk and chown are
+	// no-ops (the sandbox is one uid, and there is no package index to hit).
+	if (realDb) {
+		seedDatabase(join(sqlite, "remit.db"));
+		writeExecutable(
+			join(bin, "sqlite3"),
+			`#!/bin/sh\nexec node "${SQLITE_SHIM}" "$@"\n`,
+		);
+		writeExecutable(join(bin, "su-exec"), '#!/bin/sh\nshift\nexec "$@"\n');
+		writeExecutable(join(bin, "apk"), "#!/bin/sh\nexit 0\n");
+		writeExecutable(join(bin, "chown"), "#!/bin/sh\nexit 0\n");
+	}
+
 	const baseEnv = {
 		PATH: `${bin}:${process.env.PATH}`,
 		HOME: dir,
@@ -105,15 +186,40 @@ function sandbox({ scenario = {}, manifest = MANIFEST, env = {} } = {}) {
 		REMIT_UPDATE_STATE_DIR: state,
 		REMIT_UPDATE_GATE_BUDGET: "2",
 		REMIT_UPDATE_PROBE_INTERVAL: "0",
+		...(realDb
+			? {
+					FAKE_REAL_DB: "1",
+					FAKE_SQLITE_DIR: sqlite,
+					REMIT_UPDATE_SQLITE_VOLUME: sqlite,
+				}
+			: {}),
 		...env,
 	};
 
+	const liveDb = join(sqlite, "remit.db");
 	return {
 		dir,
 		deployment,
 		state,
 		fake,
+		sqlite,
+		liveDb,
 		env: baseEnv,
+		liveSchema() {
+			return schemaTotal(liveDb);
+		},
+		liveHasFilterMove() {
+			return hasFilterMoveColumn(liveDb);
+		},
+		liveBytes() {
+			return readFileSync(liveDb);
+		},
+		snapshotDb() {
+			const snapDir = join(state, "snapshots");
+			const runs = readdirSync(snapDir);
+			assert.equal(runs.length, 1, `expected one snapshot, saw ${runs.length}`);
+			return join(snapDir, runs[0], "remit.db");
+		},
 		run(args, extra = {}) {
 			return spawnSync("sh", [REMIT, ...args], {
 				env: { ...baseEnv, ...extra },
@@ -799,6 +905,126 @@ describe("a box with nothing running", () => {
 		// install.sh's first update must not silently adopt the manifest's
 		// version over the tag it was asked to install.
 		assert.equal(box.dotenv("REMIT_TAG"), "v1.0.0");
+	});
+});
+
+describe("the check reports schema versions, never a computed flag", () => {
+	// Versions cross the seam: the running instance's currentSchemaVersion and
+	// the target release's schemaVersion. A consumer derives "runs a migration"
+	// as schemaVersion > currentSchemaVersion; nothing here decides it.
+	it("carries both versions when the manifest names a higher schema", () => {
+		const box = sandbox({
+			scenario: { probe: "ok", current_schema: 8 },
+			manifest: { ...MANIFEST, schemaVersion: 9 },
+		});
+		box.run(["update", "--check"]);
+		const state = box.stateJson();
+		assert.equal(state.currentSchemaVersion, 8);
+		assert.equal(state.check.schemaVersion, 9);
+	});
+
+	it("carries equal versions when the manifest is at the running schema", () => {
+		const box = sandbox({
+			scenario: { probe: "ok", current_schema: 8 },
+			manifest: { ...MANIFEST, schemaVersion: 8 },
+		});
+		box.run(["update", "--check"]);
+		const state = box.stateJson();
+		assert.equal(state.currentSchemaVersion, 8);
+		assert.equal(state.check.schemaVersion, 8);
+	});
+
+	it("omits the target schema for a manifest published without one", () => {
+		const box = sandbox({
+			scenario: { probe: "ok", current_schema: 8 },
+			manifest: MANIFEST,
+		});
+		box.run(["update", "--check"]);
+		const state = box.stateJson();
+		assert.equal(state.currentSchemaVersion, 8);
+		assert.ok(!("schemaVersion" in state.check));
+	});
+
+	it("omits the running schema when the database has none to read", () => {
+		const box = sandbox({
+			scenario: { probe: "ok" },
+			manifest: { ...MANIFEST, schemaVersion: 9 },
+		});
+		box.run(["update", "--check"]);
+		assert.ok(!("currentSchemaVersion" in box.stateJson()));
+	});
+
+	it("preserves the target schema across a re-check after a version change", () => {
+		const box = sandbox({
+			scenario: { probe: "ok", current_schema: 8 },
+			manifest: { ...MANIFEST, schemaVersion: 9 },
+		});
+		box.run(["update"]);
+		// The update commits, recheck_availability rewrites the check block, and
+		// schemaVersion must survive that round-trip rather than being dropped.
+		assert.equal(box.stateJson().check.schemaVersion, 9);
+	});
+});
+
+describe("remit update — a release that runs a schema migration", () => {
+	const box = sandbox({
+		realDb: true,
+		scenario: { probe: "ok", migrate_exit: 0, target_schema: 9 },
+		manifest: { ...MANIFEST, schemaVersion: 9 },
+	});
+	const preSchema = box.liveSchema();
+	const result = box.run(["update"]);
+	const snapshot = box.snapshotDb();
+
+	it("starts from the seeded schema version", () => {
+		assert.equal(preSchema, 8);
+	});
+
+	it("succeeds and records both schema versions", () => {
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(box.stateJson().run.outcome, "succeeded");
+		assert.equal(box.stateJson().currentSchemaVersion, 8);
+		assert.equal(box.stateJson().check.schemaVersion, 9);
+	});
+
+	it("snapshots the database before the migration runs", () => {
+		// The snapshot is the old schema without the new column, proving it was
+		// taken before the migrate step lifted the live database.
+		assert.equal(schemaTotal(snapshot), 8);
+		assert.equal(hasFilterMoveColumn(snapshot), false);
+	});
+
+	it("leaves the live database migrated to the new version", () => {
+		assert.equal(box.liveSchema(), 9);
+		assert.equal(box.liveHasFilterMove(), true);
+	});
+});
+
+describe("remit update — a migrating release whose gate fails", () => {
+	const box = sandbox({
+		realDb: true,
+		scenario: {
+			probe: "fail",
+			probe2: "ok",
+			migrate_exit: 0,
+			target_schema: 9,
+			target_schema2: 8,
+		},
+		manifest: { ...MANIFEST, schemaVersion: 9 },
+	});
+	box.run(["update"]);
+	const snapshot = box.snapshotDb();
+
+	it("rolls back", () => {
+		assert.equal(box.stateJson().run.outcome, "rolledBack");
+	});
+
+	it("byte-restores the pre-migration database", () => {
+		// The live file is byte-for-byte the snapshot taken before the migration,
+		// read before any assertion opens the database.
+		assert.deepEqual(box.liveBytes(), readFileSync(snapshot));
+		assert.equal(box.liveSchema(), 8);
+		assert.equal(box.liveHasFilterMove(), false);
 	});
 });
 

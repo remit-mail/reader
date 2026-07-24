@@ -97,4 +97,34 @@ describe("UpdateManifestSchema", () => {
 		const { summary, ...rest } = GOOD_MANIFEST;
 		assert.throws(() => UpdateManifestSchema.parse(rest));
 	});
+
+	it("accepts a non-negative integer schemaVersion", () => {
+		const withSchema = { ...GOOD_MANIFEST, schemaVersion: 9 };
+		assert.deepEqual(UpdateManifestSchema.parse(withSchema), withSchema);
+	});
+
+	it("accepts a manifest without a schemaVersion", () => {
+		assert.equal(
+			UpdateManifestSchema.parse(GOOD_MANIFEST).schemaVersion,
+			undefined,
+		);
+	});
+
+	it("rejects a non-integer schemaVersion", () => {
+		assert.throws(() =>
+			UpdateManifestSchema.parse({ ...GOOD_MANIFEST, schemaVersion: 9.5 }),
+		);
+	});
+
+	it("rejects a negative schemaVersion", () => {
+		assert.throws(() =>
+			UpdateManifestSchema.parse({ ...GOOD_MANIFEST, schemaVersion: -1 }),
+		);
+	});
+
+	it("rejects a schemaVersion that is not a number", () => {
+		assert.throws(() =>
+			UpdateManifestSchema.parse({ ...GOOD_MANIFEST, schemaVersion: "9" }),
+		);
+	});
 });

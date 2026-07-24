@@ -15,6 +15,7 @@ import { UpdateManifestSchema } from "@remit/data-ports/update-manifest";
 import {
 	assertValidVersion,
 	DEFAULT_REGISTRY,
+	deriveSchemaVersion,
 	readTagSummary,
 } from "./lib/update-manifest.mjs";
 
@@ -70,6 +71,7 @@ async function main() {
 		summary,
 		releaseNotesUrl: release.url,
 		registry: DEFAULT_REGISTRY,
+		schemaVersion: deriveSchemaVersion(repoRoot),
 	});
 
 	const outPath = join(repoRoot, "deploy/updates/stable.json");

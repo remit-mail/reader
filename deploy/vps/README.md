@@ -304,6 +304,14 @@ Against a running stack an update is atomic. In order:
 outcome. Caddy stays up throughout and serves 502s, so a browser sees an
 instance that is restarting rather than a name that stopped resolving.
 
+The check reports two schema versions: the running instance's, read from the
+database, and the target release's, carried in the manifest. A target whose
+schema version is higher than the running one applies a schema migration during
+the offline window; a rollback restores the pre-migration database, so the
+schema version returns to what it was. Neither number is a verdict — the update
+runs the same atomic sequence either way — but a higher target schema is the
+signal that this update changes the database, not only the binaries.
+
 Discovery is the manifest and nothing else. A `vX.Y.Z` tag can be present in the
 registry for a version that was never fully published — image pushes are not
 atomic across the roster — so a tag existing is not an offer. Clear
