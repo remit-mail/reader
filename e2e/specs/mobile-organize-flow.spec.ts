@@ -269,7 +269,9 @@ test.describe("Guided mobile organize flow", () => {
 			await expect(page.getByText(/3 messages match/)).toBeVisible();
 
 			await destinationSelect(page).selectOption({ label: "Archive" });
-			await page.getByRole("radio", { name: "Keep doing this" }).click();
+			// The scope control's radios are sr-only; the visible label is the click
+			// surface (what a user taps), so drive it, not the hidden input.
+			await page.getByText("Keep doing this", { exact: true }).click();
 			await page.getByLabel("Rule name").fill(tag);
 			await page.getByRole("button", { name: "Save rule" }).click();
 
