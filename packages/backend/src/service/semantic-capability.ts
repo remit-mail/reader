@@ -4,14 +4,23 @@ import { isSelfHostSqlBackend } from "../data-backend.js";
 /**
  * Semantic-search capability gate for the self-host compose profiles.
  *
- * The backend container image ships neither `@huggingface/transformers` (query
- * embedding) nor `sqlite-vec` (the vector store's loadable extension, glibc-only
- * on top of that — see npm-scripts/docker-bundle.mjs and deploy/vps/README.md).
- * Both are reached lazily through `runtimeImport`, so the first semantic query —
- * not startup — hits ERR_MODULE_NOT_FOUND. Without this gate every search the
- * web client issues fires a `/search/semantic` request that 500s (the client
- * fetches semantic hits alongside every literal search), retried by the client
- * on top.
+ * This gates the free-text `/search/semantic` path only. Answering that query
+ * means embedding it in-process, and the backend container image ships without
+ * `@huggingface/transformers` (the model plus its dependencies would roughly
+ * quadruple the image — see npm-scripts/docker-bundle.mjs and
+ * deploy/vps/README.md). The embedder is reached lazily through `runtimeImport`,
+ * so the first semantic query — not startup — hits ERR_MODULE_NOT_FOUND. Without
+ * this gate every search the web client issues fires a `/search/semantic`
+ * request that 500s (the client fetches semantic hits alongside every literal
+ * search), retried by the client on top.
+ *
+ * The vector STORE is a separate capability and is NOT gated here. The Organize
+ * anchor widen (organize.ts matchSemantic) pools an anchor message's already
+ * stored chunk vectors and runs a KNN read over the vector store — no embedding
+ * model involved — so it needs only `sqlite-vec`, which the backend image now
+ * carries as a musl build (Dockerfile sqlite-vec-musl stage,
+ * SQLITE_VEC_EXTENSION_PATH). matchOrganize never consults the memoized flag
+ * below; a missing embedder therefore never disables the widen.
  *
  * The e2e-dev lane runs this backend from source rather than the container, so
  * `@huggingface/transformers` IS present and the local embedder instead tries to

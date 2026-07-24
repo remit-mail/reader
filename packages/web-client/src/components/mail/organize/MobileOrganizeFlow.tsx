@@ -3,7 +3,7 @@ import { BottomSheet, Button } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { useOrganizePreview } from "@/hooks/useOrganizePreview";
+import { useOrganizeWiden } from "@/hooks/useOrganizeWiden";
 import { getMailboxDisplayName } from "@/lib/folder-roles";
 import { buildMoveTargets } from "@/lib/move-targets";
 import {
@@ -20,6 +20,11 @@ interface MobileOrganizeFlowProps {
 	accountId: string;
 	mailboxId: string;
 	selectedMessageIds: string[];
+	/**
+	 * Sender addresses of the selected messages, driving the literal fallback on
+	 * a deployment without the vector pipeline (semantic-capability.ts).
+	 */
+	selectedSenders: string[];
 	junkMailboxId?: string;
 	/** Close the flow and return to the list — dismiss, "Not now", and Done all use it. */
 	onClose: () => void;
@@ -50,6 +55,7 @@ export function MobileOrganizeFlow({
 	accountId,
 	mailboxId,
 	selectedMessageIds,
+	selectedSenders,
 	junkMailboxId,
 	onClose,
 }: MobileOrganizeFlowProps) {
@@ -60,15 +66,16 @@ export function MobileOrganizeFlow({
 		preview,
 		matchedCount,
 		semanticUnavailable,
+		senders,
+		matchPredicate,
 		isPending,
 		isError,
 		error,
-	} = useOrganizePreview(accountId);
+	} = useOrganizeWiden(accountId, anchorMessageId, selectedSenders);
 
 	useEffect(() => {
-		if (!anchorMessageId) return;
-		preview({ anchorMessageId, matchOperator: "And", literalClauses: [] });
-	}, [anchorMessageId, preview]);
+		preview();
+	}, [preview]);
 
 	const { data: mailboxesData } = useQuery({
 		...mailboxOperationsListMailboxesOptions({ path: { accountId } }),
@@ -122,12 +129,13 @@ export function MobileOrganizeFlow({
 					accountId={accountId}
 					mailboxId={mailboxId}
 					selectedMessageIds={selectedMessageIds}
-					anchorMessageId={anchorMessageId}
+					matchPredicate={matchPredicate}
 					matchedCount={stage.matchedCount}
 					initialScope={seed?.scope}
 					seedMailboxId={seed?.moveMailboxId}
 					fallback={stage.fallback}
 					semanticUnavailable={semanticUnavailable}
+					senders={senders}
 					onClose={onClose}
 				/>
 			)}

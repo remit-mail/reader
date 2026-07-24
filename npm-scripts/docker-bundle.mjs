@@ -89,18 +89,23 @@ const SQLITE = "better-sqlite3";
 // installed into the runtime image instead. On DATA_BACKEND=sqlite (RFC 036)
 // this is the live vector path: search-index-worker WRITES embeddings, so its
 // runtime image (docker/runtime/search-index-worker/package.json) pins
-// `sqlite-vec`. That image is the glibc node:24-slim base — sqlite-vec ships a
-// glibc-only loadable extension (`vec0.so`), which would not dlopen on the
-// Alpine/musl backend image anyway.
+// `sqlite-vec` and runs on the glibc node:24-slim base, where the npm package's
+// glibc `vec0.so` loads directly.
 //
-// The backend image serves no semantic-search READS on either compose profile:
-// answering a query means embedding it in-process, and @huggingface/transformers
-// plus the model are deliberately absent from that image (they would roughly
-// quadruple it and park the model's ~300 MiB in the API container). The
-// /search/semantic endpoint capability-gates to empty results instead of
-// erroring — see remit-backend/src/service/semantic-capability.ts and
-// deploy/vps/README.md; FTS/trigram text search covers the primary search
-// contract on both profiles.
+// The backend image serves the READ side of the vector store — the Organize
+// "find similar" widen pools an anchor message's stored vectors and runs a KNN
+// query (no embedding model). The npm `vec0.so` is glibc-only and will not
+// dlopen on the Alpine/musl backend image, so that image compiles `vec0.so`
+// against musl (Dockerfile sqlite-vec-musl stage) and the store's loader reads
+// it via SQLITE_VEC_EXTENSION_PATH.
+//
+// It does NOT serve free-text /search/semantic READS: answering that query means
+// embedding it in-process, and @huggingface/transformers plus the model are
+// deliberately absent from that image (they would roughly quadruple it and park
+// the model's ~300 MiB in the API container). The /search/semantic endpoint
+// capability-gates to empty results instead of erroring — see
+// remit-backend/src/service/semantic-capability.ts and deploy/vps/README.md;
+// FTS/trigram text search covers the primary search contract on both profiles.
 const SEARCH_NATIVE = ["@huggingface/transformers"];
 
 /** @type {Array<{name: string, entry: string, outfile?: string, external?: string[], loader?: Record<string, string>}>} */
