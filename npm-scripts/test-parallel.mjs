@@ -38,12 +38,33 @@ async function countTestFiles(dir) {
 // manifest here would quietly remove that workspace's whole suite from a run
 // that still reports green.
 async function discoverWorkspaces() {
+	const excluded = new Set(
+		(process.env.TEST_EXCLUDE ?? "")
+			.split(",")
+			.map((name) => name.trim())
+			.filter(Boolean),
+	);
 	const names = await readdir(packagesDir);
+	for (const name of excluded) {
+		if (!names.includes(name)) {
+			throw new Error(
+				`TEST_EXCLUDE names "${name}", which is not a workspace under packages/`,
+			);
+		}
+	}
 	const found = [];
 	const skipped = [];
 	for (const name of names) {
 		const dir = join(packagesDir, name);
 		if (!(await stat(dir)).isDirectory()) continue;
+		// A workspace whose suite runs elsewhere (web-client fans out across the
+		// shard matrix) is excluded here so it is not run a second time. Named
+		// rather than inferred: an unknown name in the list is a typo that would
+		// silently drop nothing, so it must match a real workspace.
+		if (excluded.has(name)) {
+			skipped.push(`${name} (excluded)`);
+			continue;
+		}
 		const manifestPath = join(dir, "package.json");
 		let manifest;
 		try {

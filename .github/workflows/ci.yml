@@ -102,13 +102,72 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-  test:
+  # Every workspace suite except web-client. web-client dominated the single
+  # `test` job — its 113-file suite was the whole critical path — so it fans out
+  # across the shard matrix below and is excluded here to keep it from running
+  # twice. Every other package keeps its own native coverage floor untouched;
+  # test-parallel runs them three-wide.
+  test-rest:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
       - name: Unit tests
+        env:
+          TEST_EXCLUDE: web-client
         run: npm run test:ci
+
+  # web-client's suite, split into four deterministic shards by test-file size so
+  # each runner carries a quarter of the wall time. A shard runs only its slice
+  # and emits node's own LCOV coverage with no floor: a shard sees only the files
+  # its tests load, so the 86% line floor cannot be enforced until the slices are
+  # merged. coverage-web-client does that merge and enforces the floor once.
+  #
+  # SHARD_TOTAL must equal the matrix length; a mismatch would drop or duplicate
+  # files. The two are kept in step here by hand.
+  test-web-client:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Unit tests — shard ${{ matrix.shard }}/4
+        env:
+          SHARD_INDEX: ${{ matrix.shard }}
+          SHARD_TOTAL: 4
+        run: node packages/web-client/scripts/test-shard.mjs
+      - name: Upload shard coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-client-lcov-${{ matrix.shard }}
+          path: packages/web-client/coverage/shard-${{ matrix.shard }}.lcov
+          if-no-files-found: error
+          retention-days: 7
+
+  # The floor gate for web-client. It ingests every shard's LCOV and enforces the
+  # 86% line floor on the union — the same files the native single-process runner
+  # measured before the suite was sharded, so the floor gates every pull request
+  # exactly as it did. The merge is pure stdlib, so this job skips the workspace
+  # install and reports within seconds of the shards finishing.
+  coverage-web-client:
+    runs-on: ubuntu-latest
+    needs: [test-web-client]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Download shard coverage
+        uses: actions/download-artifact@v4
+        with:
+          pattern: web-client-lcov-*
+          path: web-client-lcov
+          merge-multiple: true
+      - name: Merge coverage and enforce the line floor
+        run: node packages/web-client/scripts/coverage-merge.mjs web-client-lcov/*.lcov
 
   # The pull request half of the two-lane e2e split. This one assembles the stack
   # from the branch under review — queue sidecar, migrator, backend dev-server,
@@ -238,7 +297,17 @@ jobs:
   # unchecked.
   gate:
     runs-on: ubuntu-latest
-    needs: [validate, lint, typecheck, test, e2e-dev, publish-dry-run]
+    needs:
+      [
+        validate,
+        lint,
+        typecheck,
+        test-rest,
+        test-web-client,
+        coverage-web-client,
+        e2e-dev,
+        publish-dry-run,
+      ]
     if: always()
     steps:
       - name: Require every job to have succeeded
@@ -246,7 +315,11 @@ jobs:
           VALIDATE: ${{ needs.validate.result }}
           LINT: ${{ needs.lint.result }}
           TYPECHECK: ${{ needs.typecheck.result }}
-          TEST: ${{ needs.test.result }}
+          TEST_REST: ${{ needs['test-rest'].result }}
+          # A matrix job is one entry in the needs context: this result is success
+          # only when every shard succeeded.
+          TEST_WEB_CLIENT: ${{ needs['test-web-client'].result }}
+          COVERAGE_WEB_CLIENT: ${{ needs['coverage-web-client'].result }}
           E2E_DEV: ${{ needs['e2e-dev'].result }}
           PUBLISH_DRY_RUN: ${{ needs['publish-dry-run'].result }}
           PR_ONLY_MAY_SKIP: ${{ github.event_name != 'pull_request' }}
@@ -276,7 +349,9 @@ jobs:
           require validate "$VALIDATE"
           require lint "$LINT"
           require typecheck "$TYPECHECK"
-          require test "$TEST"
+          require test-rest "$TEST_REST"
+          require test-web-client "$TEST_WEB_CLIENT"
+          require coverage-web-client "$COVERAGE_WEB_CLIENT"
           require e2e-dev "$E2E_DEV" "$PR_ONLY_MAY_SKIP"
           require publish-dry-run "$PUBLISH_DRY_RUN" "$PR_ONLY_MAY_SKIP"
 
