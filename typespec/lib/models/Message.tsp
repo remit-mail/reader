@@ -70,13 +70,37 @@ model MessagePlacementVerdict {
   decidedAt: int64;
 }
 
-@doc("Present only when Remit auto-moved this message on body-sync (a confident, non-dry-run move). Absent means the message was not auto-moved by Remit — clients treat absence as no indicator.")
-model AutoMovedInfo {
-  @doc("Direction Remit moved the message: MoveToInbox | MoveToJunk. The implied destination lets the client tell whether the move is still in effect.")
-  action: PlacementAction;
+@doc("Recorded when a standing filter (RFC 034) moved this message at body-sync time. Present only for a real, index-time filter move, so the client can render the badge naming the destination, offer an undo back to the source folder, and link to the filter in Settings. A retroactive back-apply move attributes to no filter and never writes this (RFC 034 Decision 3.3).")
+model MessageFilterMove {
+  @doc("The standing filter that moved the message — lets the client link the badge to Settings › Filters.")
+  filterId: UUID;
 
-  @doc("Folder role the message was moved from: inbox | junk | other. Used to render \"moved from Junk\" and to resolve the undo target client-side via MailboxRole.")
-  fromPlacement: string;
+  @doc("The mailbox the message was in before the filter moved it. The undo target: undo returns the message here and does not disable the filter.")
+  sourceMailboxId: UUID;
+
+  @doc("The mailbox the filter moved the message into. The move is still in effect while the message sits here; any move away (undo or manual) clears the badge.")
+  destinationMailboxId: UUID;
+
+  @doc("Body-sync timestamp the move was decided at (epoch millis).")
+  decidedAt: int64;
+}
+
+@doc("Present only when Remit auto-moved this message on body-sync. Two shapes share this model: a classifier placement move carries `action` + `fromPlacement` (Inbox/Junk direction); a standing-filter move carries `fromMailboxId` + `destinationMailboxId` + `filterId` (an arbitrary destination folder). Absent means the message was not auto-moved by Remit — clients treat absence as no indicator.")
+model AutoMovedInfo {
+  @doc("Classifier move only: direction Remit moved the message — MoveToInbox | MoveToJunk. Absent for a standing-filter move, which names its destination via `destinationMailboxId` instead.")
+  action?: PlacementAction;
+
+  @doc("Classifier move only: folder role the message was moved from — inbox | junk | other. Used to render \"moved from Junk\" and to resolve the undo target via MailboxRole. Absent for a standing-filter move, which names its source via `fromMailboxId`.")
+  fromPlacement?: string;
+
+  @doc("Standing-filter move only: the mailbox the message was moved out of. The undo target — the client resolves its display name for the badge and moves the message back here.")
+  fromMailboxId?: UUID;
+
+  @doc("Standing-filter move only: the mailbox the filter moved the message into. The move is still in effect while the message sits here.")
+  destinationMailboxId?: UUID;
+
+  @doc("Standing-filter move only: the filter that moved the message, for the Settings › Filters link. Undo does not disable it.")
+  filterId?: UUID;
 }
 
 @doc("Core message entity. The combination of Mailbox.uidValidity + Message.uid uniquely identifies a message forever per RFC 9051 Section 2.3.1.1.")
@@ -193,6 +217,10 @@ model Message {
   @doc("Remit's placement verdict, recorded when Remit decided to act (action != leave). Absent means left-in-place or synced before placement rolled out. Recorded in dry-run too, so the dark-ship distribution is queryable.")
   @visibility(Lifecycle.Read)
   placementVerdict?: MessagePlacementVerdict;
+
+  @doc("Recorded when a standing filter moved this message at body-sync time (RFC 034). Absent means no filter moved it — a classifier move records `placementVerdict` instead, and a retroactive back-apply records neither. Drives the arbitrary-destination auto-moved badge and its undo.")
+  @visibility(Lifecycle.Read)
+  filterMove?: MessageFilterMove;
 
   @visibility(Lifecycle.Read)
   @createdAt
