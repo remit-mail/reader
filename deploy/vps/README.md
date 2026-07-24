@@ -253,12 +253,29 @@ or `tailscale` for private networks.
 
 ## Updating
 
+An update can come from two places, and both run the same sequence. In the app,
+the instance owner — the first account to register, or `REMIT_OWNER_EMAIL` — is
+offered the release and installs it with a click. At a shell:
+
 ```bash
 remit update                    # install the current release
 remit update --check            # report what is available, change nothing
 remit update --tag sha-<git-sha>
 remit update --recover          # finish an update that was interrupted
 ```
+
+The app path goes through the `updater` container, which watches a private
+volume the app writes a version string onto and runs this same `remit`. It binds
+no port; the volume is the only way to reach it, and only the backend and the
+updater mount it. What the app hands across is a version and nothing else — the
+registry and every image reference come from the manifest the updater fetches
+itself, so a compromised app cannot redirect an update at another registry.
+
+An update takes the instance offline for a few minutes. Nothing is served and no
+worker runs between the snapshot and the verdict, so nothing is lost if it rolls
+back — a rollback returns the instance to the exact release and database it was
+running before. Caddy stays up throughout and serves 502s, so a browser sees an
+instance restarting rather than a name that stopped resolving.
 
 Against a running stack an update is atomic. In order:
 

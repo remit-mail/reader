@@ -467,7 +467,25 @@ describe("the control seam", () => {
 		assert.ok(!box.log().includes("compose stop"));
 	});
 
-	it("ignores every key other than targetVersion", () => {
+	it("takes a request carrying only the four fields the backend writes", () => {
+		const box = sandbox({ scenario: { probe: "ok" } });
+		writeFileSync(
+			join(box.state, "request.json"),
+			JSON.stringify({
+				runId: "r-1",
+				targetVersion: "v1.5.0",
+				requestedAt: "2026-07-20T08:00:00Z",
+				requestedBy: "owner@example.test",
+			}),
+		);
+		box.run(["update"]);
+		assert.equal(box.stateJson().run.outcome, "succeeded");
+	});
+
+	it("rejects a file naming a registry, an image or a digest, and does nothing", () => {
+		// The acceptance criterion: a registry/image/digest never crosses the
+		// seam because the whole file is refused, not because the extra field is
+		// ignored. No partial action — no pull, no stop.
 		const box = sandbox({ scenario: { probe: "ok" } });
 		writeFileSync(
 			join(box.state, "request.json"),
@@ -477,10 +495,65 @@ describe("the control seam", () => {
 				image: "evil:latest",
 			}),
 		);
-		box.run(["update"]);
-		assert.equal(box.stateJson().run.outcome, "succeeded");
+		const result = box.run(["update"]);
+		assert.notEqual(result.status, 0);
+		assert.equal(box.stateJson().run, null);
+		assert.ok(!box.log().includes("compose pull"));
+		assert.ok(!box.log().includes("compose stop"));
 		assert.ok(!box.log().includes("attacker"));
 		assert.ok(!box.volumeScripts().includes("attacker"));
+	});
+
+	it("rejects an over-sized file whole, taking no partial action", () => {
+		// Oversized is refused on read rather than truncated to a parseable head:
+		// a truncated parse of an attacker-controlled file is a partial honouring.
+		const box = sandbox({ scenario: { probe: "ok" } });
+		const padding = "x".repeat(8192);
+		writeFileSync(
+			join(box.state, "request.json"),
+			JSON.stringify({ targetVersion: "v1.5.0", pad: padding }),
+		);
+		const result = box.run(["update"]);
+		assert.notEqual(result.status, 0);
+		assert.equal(box.stateJson().run, null);
+		assert.ok(!box.log().includes("compose pull"));
+		assert.ok(!box.log().includes("compose stop"));
+		assert.ok(!box.log().includes("run snapshot"));
+	});
+
+	it("rejects a nested or non-flat object", () => {
+		const box = sandbox({ scenario: { probe: "ok" } });
+		writeFileSync(
+			join(box.state, "request.json"),
+			JSON.stringify({ targetVersion: "v1.5.0", meta: { via: "api" } }),
+		);
+		const result = box.run(["update"]);
+		assert.notEqual(result.status, 0);
+		assert.ok(!box.log().includes("compose pull"));
+	});
+
+	it("reads the request off the control volume, separate from the state volume", () => {
+		// The updater mounts request.json/state.json on a volume shared with the
+		// backend, while the run's lock, breadcrumb and snapshots stay on its own
+		// volume out of the backend's reach.
+		const box = sandbox({ scenario: { probe: "ok" } });
+		const control = join(box.dir, "control");
+		mkdirSync(control, { recursive: true });
+		writeFileSync(
+			join(control, "request.json"),
+			JSON.stringify({ targetVersion: "v1.5.0" }),
+		);
+		const result = box.run(["update"], {
+			...box.env,
+			REMIT_UPDATE_CONTROL_DIR: control,
+		});
+		assert.equal(result.status, 0, result.stderr);
+		const state = JSON.parse(readFileSync(join(control, "state.json"), "utf8"));
+		assert.equal(state.run.outcome, "succeeded");
+		// The request is consumed on the control volume; the breadcrumb and its
+		// snapshots never land there.
+		assert.throws(() => readFileSync(join(control, "request.json")));
+		assert.throws(() => readFileSync(join(control, "breadcrumb")));
 	});
 
 	it("refuses a version the manifest does not name", () => {

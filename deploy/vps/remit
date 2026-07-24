@@ -34,12 +34,29 @@ PROG=remit
 STATE_DIR="${REMIT_UPDATE_STATE_DIR:-$REMIT_DIR/.update}"
 STATE_MOUNT="${REMIT_UPDATE_STATE_MOUNT:-$STATE_DIR}"
 
+# CONTROL_DIR is the seam the app drives through (#133): the backend writes
+# request.json here and reads state.json back, on a volume shared with the
+# updater and nothing else. It is separate from STATE_DIR — the run's lock,
+# breadcrumb and snapshots stay on the updater's private volume, out of the
+# backend's reach. An operator at a shell has no second volume, so it defaults
+# to STATE_DIR and the two are one directory.
+CONTROL_DIR="${REMIT_UPDATE_CONTROL_DIR:-$STATE_DIR}"
+
 # The database lives on a named volume, so reading and writing it means a
 # container either way. alpine is what the backup sidecar already uses, and the
 # restore path deliberately needs nothing installed into it — a rollback must
-# not depend on the network that just failed.
+# not depend on the network that just failed. The updater container overrides
+# this with its own image, which bakes sqlite3 in so a snapshot never waits on
+# an apk install (#133).
 HELPER_IMAGE="${REMIT_UPDATE_HELPER_IMAGE:-alpine:3.23}"
 SQLITE_VOLUME="${REMIT_UPDATE_SQLITE_VOLUME:-remit_sqlite_data}"
+
+# The VACUUM INTO primitive the helper container sources. An operator at a shell
+# bind-mounts it from the install directory; the updater image bakes it at
+# /snapshot-db.sh and clears this so no bind mount is attempted — a container
+# path would not resolve against the host daemon the helper `docker run` talks
+# to. Unset falls back to the install-directory copy; empty skips the mount.
+SNAPSHOT_LIB_MOUNT="${REMIT_UPDATE_SNAPSHOT_LIB-$REMIT_DIR/backup/snapshot-db.sh}"
 
 # 300 seconds from `up -d` returning. Generous on purpose: a release that
 # migrates a large mailbox index is the normal slow case, and rolling back a
@@ -606,7 +623,7 @@ breadcrumb_clear() {
 # aborted run before the stop terminates as.
 
 state_render() {
-	mkdir -p "$STATE_DIR"
+	mkdir -p "$STATE_DIR" "$CONTROL_DIR"
 	_check='{"status":"disabled"}'
 	if [ -f "$STATE_DIR/check.json" ]; then
 		_check=$(cat "$STATE_DIR/check.json")
@@ -617,7 +634,11 @@ state_render() {
 	fi
 	printf '{"currentVersion":"%s","check":%s,"run":%s}\n' \
 		"$(json_escape "$(get_var REMIT_TAG)")" "$_check" "$_run" |
-		atomic_write "$STATE_DIR/state.json"
+		atomic_write "$CONTROL_DIR/state.json"
+	# state.json carries no secret and the backend reads it back across the uid
+	# boundary (the updater writes as root, the backend runs as 1000), so it is
+	# made readable rather than left at atomic_write's 0600.
+	chmod 0644 "$CONTROL_DIR/state.json" 2>/dev/null || true
 }
 
 # message and logCommand are rendered to the operator verbatim, so they are
@@ -835,13 +856,77 @@ recheck_availability() {
 
 # The control seam (#133): request.json is written wholly by the backend, so
 # under a compromised backend its entire content is attacker-controlled — not
-# only the field it is supposed to carry. The file is read bounded, exactly one
-# key is looked at, and the value has to match vX.Y.Z *and* the manifest's own
-# version before it is used anywhere. Every other key is ignored rather than
-# trusted.
+# only the field it is supposed to carry. It is a bounded, wholly-untrusted
+# file. Oversized, it is rejected whole rather than truncated and parsed — a
+# truncated parse is a partial honouring. Carrying any key beyond the four the
+# backend writes, it is rejected whole rather than having the extras ignored. A
+# registry, an image or a digest never crosses the seam because a file naming
+# one is refused, not stripped. The only value read is targetVersion, and it
+# still has to match vX.Y.Z *and* the manifest's own version before it is used.
+REQUEST_MAX_BYTES=4096
+ALLOWED_REQUEST_KEYS=" runId targetVersion requestedAt requestedBy "
+
+# Emits each top-level key of a flat JSON object, one per line, tracking string
+# escapes and depth so a value that contains `":` does not read as a key. Any
+# nesting, or an array, emits the sentinel __INVALID__ — which is not a
+# whitelisted key, so the caller rejects the whole file. This is deliberately
+# stricter than a JSON parser: the request is a flat object of strings and
+# anything else is refused.
+request_keys() {
+	printf '%s' "$1" | tr '\n\r' '  ' | awk '
+		{
+			s = $0
+			n = length(s)
+			depth = 0; instr = 0; esc = 0; expectkey = 0
+			collecting = 0; key = ""; invalid = 0
+			for (i = 1; i <= n; i++) {
+				c = substr(s, i, 1)
+				if (instr) {
+					if (esc) { esc = 0; if (collecting) key = key c; continue }
+					if (c == "\\") { esc = 1; if (collecting) key = key c; continue }
+					if (c == "\"") {
+						instr = 0
+						if (collecting) { print key; collecting = 0; key = "" }
+						continue
+					}
+					if (collecting) key = key c
+					continue
+				}
+				if (c == "\"") {
+					instr = 1
+					if (depth == 1 && expectkey) { collecting = 1; key = ""; expectkey = 0 }
+					continue
+				}
+				if (c == "{") { depth++; if (depth == 1) { expectkey = 1 } else { invalid = 1 } ; continue }
+				if (c == "[") { invalid = 1; continue }
+				if (c == "}") { depth--; continue }
+				if (c == "]") { invalid = 1; continue }
+				if (c == "," && depth == 1) { expectkey = 1; continue }
+			}
+			if (invalid || depth != 0) print "__INVALID__"
+		}
+	'
+}
+
 requested_target() {
-	[ -f "$STATE_DIR/request.json" ] || return 1
-	_raw=$(head -c 4096 "$STATE_DIR/request.json")
+	[ -f "$CONTROL_DIR/request.json" ] || return 1
+	_bytes=$(wc -c <"$CONTROL_DIR/request.json" 2>/dev/null || printf '%s' "$((REQUEST_MAX_BYTES + 1))")
+	if [ "$_bytes" -gt "$REQUEST_MAX_BYTES" ]; then
+		return 1
+	fi
+	_raw=$(cat "$CONTROL_DIR/request.json")
+	_saw_target=0
+	while IFS= read -r _k; do
+		[ -n "$_k" ] || continue
+		case "$ALLOWED_REQUEST_KEYS" in
+		*" $_k "*) ;;
+		*) return 1 ;;
+		esac
+		if [ "$_k" = "targetVersion" ]; then _saw_target=1; fi
+	done <<EOF
+$(request_keys "$_raw")
+EOF
+	[ "$_saw_target" = "1" ] || return 1
 	_want=$(json_string "$_raw" targetVersion)
 	if ! version_valid "$_want"; then
 		return 1
@@ -861,11 +946,14 @@ requested_target() {
 # so leaving it alone is right in both directions.
 
 volume_run() {
-	docker run --rm \
+	_vr_script=$1
+	set -- \
 		-v "$SQLITE_VOLUME:/data/sqlite" \
-		-v "$STATE_MOUNT:/state" \
-		-v "$REMIT_DIR/backup/snapshot-db.sh:/snapshot-db.sh:ro" \
-		--entrypoint sh "$HELPER_IMAGE" -c "$1"
+		-v "$STATE_MOUNT:/state"
+	if [ -n "$SNAPSHOT_LIB_MOUNT" ]; then
+		set -- "$@" -v "$SNAPSHOT_LIB_MOUNT:/snapshot-db.sh:ro"
+	fi
+	docker run --rm "$@" --entrypoint sh "$HELPER_IMAGE" -c "$_vr_script"
 }
 
 # VACUUM INTO against the live databases, before anything is stopped. sqlite3 is
@@ -874,7 +962,8 @@ volume_run() {
 # absent, and a root-owned sidecar makes every app writer's next open fail.
 snapshot_databases() {
 	volume_run "set -eu
-apk add --no-cache sqlite su-exec >/dev/null
+command -v sqlite3 >/dev/null 2>&1 || apk add --no-cache sqlite >/dev/null
+command -v su-exec >/dev/null 2>&1 || apk add --no-cache su-exec >/dev/null
 mkdir -p /state/snapshots/$1
 chown 1000:1000 /state/snapshots/$1
 exec su-exec 1000:1000 sh -c '. /snapshot-db.sh
@@ -1345,13 +1434,13 @@ cmd_update() {
 
 	lock_acquire
 
-	if [ -z "$_tag" ] && [ -f "$STATE_DIR/request.json" ]; then
+	if [ -z "$_tag" ] && [ -f "$CONTROL_DIR/request.json" ]; then
 		_tag=$(requested_target || true)
 		# Consumed either way: a request that was refused must not be retried on
 		# every later run, and one that was taken is now the run's business.
-		rm -f "$STATE_DIR/request.json"
+		rm -f "$CONTROL_DIR/request.json"
 		if [ -z "$_tag" ]; then
-			die "update: the update request on the control volume did not name the published version and was discarded"
+			die "update: the update request on the control volume was rejected and discarded — it was oversized, carried a field other than a target version, or did not name the published release"
 		fi
 	fi
 
