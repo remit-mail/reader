@@ -1,5 +1,5 @@
 import type { RemitImapFilterResponse } from "@remit/api-http-client/types.gen.ts";
-import { Badge, Button } from "@remit/ui";
+import { Badge, Button, WidenChip } from "@remit/ui";
 import { Trash2 } from "lucide-react";
 import {
 	filterDisplayStatus,
@@ -11,21 +11,34 @@ interface FiltersListProps {
 	filters: RemitImapFilterResponse[];
 	/** Resolve a destination mailbox id to a folder name for display. */
 	mailboxName: (mailboxId: string) => string | undefined;
+	/** Open the row's rule in the editor (RFC 038 D6). */
+	onEdit: (filterId: string) => void;
 	onDelete: (filterId: string) => void;
 	deletingFilterId?: string;
+	/**
+	 * This deployment ships no vector pipeline (RFC 038 D4). A filter carrying a
+	 * semantic anchor lists with its widen chip inactive — it matches by its
+	 * literal clauses only.
+	 */
+	semanticUnavailable?: boolean;
 	/** Injected for deterministic status in tests; defaults to now. */
 	now?: number;
 }
 
 /**
- * The account's standing filters. Expired temporary filters stay listed and
- * are marked Expired distinctly rather than hidden (RFC 034 Decision 1.2).
+ * The account's standing filters, each opening its rule in the editor (RFC 038
+ * D6). Expired temporary filters stay listed and are marked Expired distinctly
+ * rather than hidden (RFC 034 Decision 1.2). A filter with a semantic anchor
+ * shows the widen chip — inactive where this deployment cannot evaluate it
+ * (D4), so the list says honestly that it matches by literal clauses only.
  */
 export function FiltersList({
 	filters,
 	mailboxName,
+	onEdit,
 	onDelete,
 	deletingFilterId,
+	semanticUnavailable = false,
 	now = Date.now(),
 }: FiltersListProps) {
 	if (filters.length === 0) {
@@ -53,7 +66,12 @@ export function FiltersList({
 						key={filter.filterId}
 						className="flex items-start gap-3 px-3 py-2.5"
 					>
-						<div className="min-w-0 flex-1">
+						<button
+							type="button"
+							onClick={() => onEdit(filter.filterId)}
+							aria-label={`Edit filter ${filter.name}`}
+							className="min-w-0 flex-1 rounded-sm text-left hover:opacity-80"
+						>
 							<div className="flex items-center gap-2">
 								<span
 									className={`truncate text-sm font-medium ${
@@ -76,7 +94,17 @@ export function FiltersList({
 										? " · always"
 										: ""}
 							</p>
-						</div>
+							{filter.hasAnchor && (
+								<div className="mt-1.5 flex flex-wrap gap-1.5">
+									<WidenChip
+										widen={{
+											anchorCount: 1,
+											...(semanticUnavailable ? { inactive: true } : {}),
+										}}
+									/>
+								</div>
+							)}
+						</button>
 						<Button
 							variant="ghost"
 							size="sm"

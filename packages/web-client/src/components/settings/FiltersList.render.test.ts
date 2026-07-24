@@ -31,12 +31,17 @@ const filter = (
 	...overrides,
 });
 
-const render = (filters: RemitImapFilterResponse[]) =>
+const render = (
+	filters: RemitImapFilterResponse[],
+	semanticUnavailable = false,
+) =>
 	renderToString(
 		createElement(FiltersList, {
 			filters,
 			mailboxName: (id: string) => (id === "mbx-travel" ? "Travel" : undefined),
+			onEdit: () => undefined,
 			onDelete: () => undefined,
+			semanticUnavailable,
 			now: NOW,
 		}) as never,
 	);
@@ -52,6 +57,27 @@ describe("FiltersList", () => {
 		assert.match(html, /Active/);
 		assert.match(html, /Moves matches to Travel/);
 		assert.match(html, /always/);
+	});
+
+	it("opens the row's rule in the editor", () => {
+		const html = render([filter({})]);
+		assert.match(html, /Edit filter Travel/);
+	});
+
+	it("shows the widen chip for an anchored filter where the deployment can serve it", () => {
+		const html = render([filter({ hasAnchor: true })]);
+		assert.match(html, /and anything similar/i);
+	});
+
+	it("lists the widen chip inactive on a deployment that cannot evaluate it (D4)", () => {
+		const html = render([filter({ hasAnchor: true })], true);
+		assert.match(html, /not available here/i);
+		assert.doesNotMatch(html, /and anything similar/i);
+	});
+
+	it("shows no widen chip for a purely literal filter", () => {
+		const html = render([filter({ hasAnchor: false })]);
+		assert.doesNotMatch(html, /similar/i);
 	});
 
 	it("keeps an expired temporary filter visible and marks it Expired (RFC 034 Decision 1.2)", () => {

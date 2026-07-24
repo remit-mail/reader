@@ -22,20 +22,25 @@ import type { OrganizeMatchPredicate } from "@/lib/organize/sender-fallback";
  * updates the count, so a slow early preview never overwrites a newer one. The
  * server bounds the match, so a broad predicate over a large mailbox stays a
  * single cheap request; the debounce is what keeps rapid edits from spamming it.
+ *
+ * `seedCount` is the opening count a widen probe already knows; omit it (as the
+ * settings editor does, having no probe) to open on `loading` and preview the
+ * loaded predicate immediately.
  */
 export const useRulePreview = (
 	accountId: string | undefined,
 	predicate: OrganizeMatchPredicate,
-	seedCount: number,
+	seedCount?: number,
 ): PreviewCount => {
 	const mutation = useMutation(organizeOperationsPreviewOrganizeMutation());
 	const { mutateAsync } = mutation;
 	const currentSignature = predicateSignature(predicate);
 
-	const [state, setState] = useState<PreviewState>(() => ({
-		count: seedCount,
-		previewedSignature: currentSignature,
-	}));
+	const [state, setState] = useState<PreviewState>(() =>
+		seedCount === undefined
+			? {}
+			: { count: seedCount, previewedSignature: currentSignature },
+	);
 
 	const predicateRef = useRef(predicate);
 	predicateRef.current = predicate;
