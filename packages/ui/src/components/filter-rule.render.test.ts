@@ -127,47 +127,80 @@ describe("commitBlockedReason", () => {
 		moveMailboxId: "mbx-archive",
 		scope: "once",
 	};
+	const fresh: PreviewCount = { status: "ready", count: 5 };
 
-	it("clears when a one-time rule has a matcher and a folder", () => {
-		assert.equal(commitBlockedReason(base), undefined);
+	it("clears when a one-time rule has a matcher, a folder, and a settled count", () => {
+		assert.equal(commitBlockedReason(base, fresh), undefined);
 	});
 
-	it("a widen alone is a matcher", () => {
+	it("an active widen alone is a matcher", () => {
 		assert.equal(
-			commitBlockedReason({
-				...base,
-				clauses: [],
-				widen: { anchorCount: 2 },
-			}),
+			commitBlockedReason(
+				{ ...base, clauses: [], widen: { anchorCount: 2 } },
+				fresh,
+			),
 			undefined,
+		);
+	});
+
+	it("an inactive widen alone is not a matcher", () => {
+		assert.match(
+			commitBlockedReason(
+				{ ...base, clauses: [], widen: { anchorCount: 2, inactive: true } },
+				fresh,
+			) ?? "",
+			/Add a clause/,
 		);
 	});
 
 	it("asks for a matcher when there is none", () => {
 		assert.match(
-			commitBlockedReason({ ...base, clauses: [] }) ?? "",
+			commitBlockedReason({ ...base, clauses: [] }, fresh) ?? "",
 			/Add a clause/,
 		);
 	});
 
 	it("asks for a folder when none is chosen", () => {
 		assert.match(
-			commitBlockedReason({ ...base, moveMailboxId: undefined }) ?? "",
+			commitBlockedReason({ ...base, moveMailboxId: undefined }, fresh) ?? "",
 			/Pick a folder/,
 		);
 	});
 
 	it("asks a standing rule for a name", () => {
 		assert.match(
-			commitBlockedReason({ ...base, scope: "standing", name: "  " }) ?? "",
+			commitBlockedReason({ ...base, scope: "standing", name: "  " }, fresh) ??
+				"",
 			/Name this rule/,
 		);
 	});
 
 	it("asks a timed rule for a date", () => {
 		assert.match(
-			commitBlockedReason({ ...base, scope: "until", name: "x" }) ?? "",
+			commitBlockedReason({ ...base, scope: "until", name: "x" }, fresh) ?? "",
 			/date this rule should stop/,
+		);
+	});
+
+	it("blocks a well-formed rule while the count is still loading", () => {
+		assert.match(
+			commitBlockedReason(base, { status: "loading" }) ?? "",
+			/count settles/,
+		);
+	});
+
+	it("blocks a well-formed rule while the count is stale", () => {
+		assert.match(
+			commitBlockedReason(base, { status: "ready", count: 5, stale: true }) ??
+				"",
+			/count settles/,
+		);
+	});
+
+	it("does not gate on a preview error — the count region raises that", () => {
+		assert.equal(
+			commitBlockedReason(base, { status: "error", reason: "boom" }),
+			undefined,
 		);
 	});
 });
@@ -231,15 +264,16 @@ describe("WidenChip", () => {
 		assert.match(html, /aria-label="Remove the similar-mail widen"/);
 	});
 
-	it("marks a degraded widen inactive and offers no removal", () => {
+	it("marks a degraded widen inactive but keeps it removable", () => {
 		const html = render(
 			createElement(WidenChip, {
 				widen: { anchorCount: 2, inactive: true },
+				onRemove: () => {},
 			}),
 		);
 		assert.match(html, /not available here/);
 		assert.match(html, /line-through/);
-		assert.doesNotMatch(html, /aria-label="Remove the similar-mail widen"/);
+		assert.match(html, /aria-label="Remove the similar-mail widen"/);
 	});
 });
 
@@ -372,6 +406,39 @@ describe("FilterRuleEditor", () => {
 			semanticAvailable: false,
 		});
 		assert.match(html, /not available here/);
+	});
+
+	it("drops the join word before an inactive widen chip", () => {
+		const joins = (html: string) =>
+			html.match(/uppercase text-fg-subtle">and</g)?.length ?? 0;
+		assert.equal(joins(editor()), 2);
+		assert.equal(
+			joins(
+				editor({
+					rule: { ...demoRule, widen: { anchorCount: 2, inactive: true } },
+					semanticAvailable: false,
+				}),
+			),
+			1,
+		);
+	});
+
+	it("keeps a degraded widen removable in the editor", () => {
+		const html = editor({
+			rule: { ...demoRule, widen: { anchorCount: 2, inactive: true } },
+			semanticAvailable: false,
+			onRemoveWiden: () => {},
+		});
+		assert.match(html, /aria-label="Remove the similar-mail widen"/);
+	});
+
+	it("blocks the commit while the previewed set is recounting", () => {
+		const html = editor({
+			preview: { status: "ready", count: 47, stale: true },
+		});
+		assert.match(html, /role="status"/);
+		assert.match(html, /count settles/);
+		assert.match(html, /disabled/);
 	});
 
 	it("renders the sender-fallback From chips as ordinary editable chips", () => {

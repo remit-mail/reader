@@ -154,12 +154,21 @@ export function commitLabel(scope: RuleScope): string {
 
 /**
  * Why the rule cannot be saved yet, or `undefined` when it is ready. A rule
- * needs at least one way to match, a folder to move into (the only wired
+ * needs at least one live way to match, a folder to move into (the only wired
  * action), and — for the two persisted scopes — a name and, for `until`, a
- * date. Never disable a control without saying why (ux.md).
+ * date. It also needs a settled preview: the rule is committable only when the
+ * count on screen is the count that will be applied. That makes RFC 038's
+ * previewed-set-equals-applied-set contract structural — a consumer cannot save
+ * a rule whose match count is still moving. Never disable a control without
+ * saying why (ux.md).
  */
-export function commitBlockedReason(rule: FilterRule): string | undefined {
-	const hasMatch = rule.clauses.length > 0 || rule.widen !== undefined;
+export function commitBlockedReason(
+	rule: FilterRule,
+	preview: PreviewCount,
+): string | undefined {
+	const hasMatch =
+		rule.clauses.length > 0 ||
+		(rule.widen !== undefined && !rule.widen.inactive);
 	if (!hasMatch) return "Add a clause so the rule has something to match.";
 	if (!rule.moveMailboxId)
 		return "Pick a folder to move matches into — labeling isn't available yet.";
@@ -170,6 +179,10 @@ export function commitBlockedReason(rule: FilterRule): string | undefined {
 		return "Name this rule so you can find it later.";
 	if (rule.scope === "until" && !rule.until)
 		return "Pick the date this rule should stop on.";
+	if (preview.status === "loading")
+		return "Counting matches — save once the count settles.";
+	if (preview.status === "ready" && preview.stale)
+		return "Recounting matches — save once the count settles.";
 	return undefined;
 }
 

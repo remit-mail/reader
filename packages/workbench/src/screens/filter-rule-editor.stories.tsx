@@ -36,13 +36,11 @@ const READY = (count: number, stale?: boolean): PreviewCount => ({
 function useRuleEditor(initialRule: FilterRule) {
 	const [rule, setRule] = useState<FilterRule>(initialRule);
 	const [clauseEdit, setClauseEdit] = useState<ClauseEditState | undefined>();
-	const [dirty, setDirty] = useState(false);
 
 	const preview = useMemo<PreviewCount>(
-		() => READY(rule.clauses.length * 23 + (rule.widen ? 40 : 0), dirty),
-		[rule, dirty],
+		() => READY(rule.clauses.length * 23 + (rule.widen ? 40 : 0)),
+		[rule],
 	);
-	const touch = () => setDirty(true);
 
 	return {
 		rule,
@@ -65,7 +63,6 @@ function useRuleEditor(initialRule: FilterRule) {
 				...r,
 				clauses: r.clauses.filter((c) => c.id !== clauseId),
 			}));
-			touch();
 		},
 		onChangeDraftField: (field: ClauseField) =>
 			setClauseEdit((e) => (e ? { ...e, draft: { ...e.draft, field } } : e)),
@@ -94,20 +91,16 @@ function useRuleEditor(initialRule: FilterRule) {
 				});
 				return undefined;
 			});
-			touch();
 		},
 		onCancelClause: () => setClauseEdit(undefined),
 		onAddWiden: () => {
 			setRule((r) => ({ ...r, widen: { anchorCount: 2 } }));
-			touch();
 		},
 		onRemoveWiden: () => {
 			setRule((r) => ({ ...r, widen: undefined }));
-			touch();
 		},
 		onChangeMatchOperator: (matchOperator: FilterRule["matchOperator"]) => {
 			setRule((r) => ({ ...r, matchOperator }));
-			touch();
 		},
 		onChangeMove: (moveMailboxId: string) =>
 			setRule((r) => ({ ...r, moveMailboxId: moveMailboxId || undefined })),

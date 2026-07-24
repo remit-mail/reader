@@ -1,5 +1,6 @@
 import { Fragment, type ReactNode } from "react";
 import { BottomSheet } from "./bottom-sheet.js";
+import { Button } from "./button.js";
 import { Dialog } from "./dialog.js";
 import {
 	AddChipButton,
@@ -21,6 +22,7 @@ import {
 	type PreviewCount,
 	type RuleScope,
 } from "./filter-rule.js";
+import { Input } from "./input.js";
 import { SegmentedControl } from "./segmented-control.js";
 import { Select } from "./select.js";
 
@@ -99,7 +101,7 @@ export function FilterRuleEditor({
 	const matcherCount = rule.clauses.length + activeWiden;
 	const showOperator = matcherCount >= 2;
 	const join = matchJoinWord(rule.matchOperator);
-	const blockedReason = commitBlockedReason(rule);
+	const blockedReason = commitBlockedReason(rule, preview);
 	const needsName = rule.scope === "standing" || rule.scope === "until";
 
 	return (
@@ -131,7 +133,7 @@ export function FilterRuleEditor({
 
 						{rule.widen && (
 							<>
-								{rule.clauses.length > 0 && (
+								{rule.clauses.length > 0 && !rule.widen.inactive && (
 									<span className="text-2xs font-medium uppercase text-fg-subtle">
 										{join}
 									</span>
@@ -210,25 +212,25 @@ export function FilterRuleEditor({
 						onChange={(value) => onChangeScope?.(value)}
 					/>
 					{needsName && (
-						<input
+						<Input
 							value={rule.name ?? ""}
 							onChange={(e) => onChangeName?.(e.target.value)}
 							placeholder="Name this rule (e.g. Receipts)"
 							aria-label="Rule name"
-							className="h-9 w-full rounded-md border border-line bg-surface-sunken px-3 text-sm text-fg outline-none placeholder:text-fg-subtle focus:border-line-strong"
+							className="w-full"
 						/>
 					)}
 					{rule.scope === "until" && (
-						<label className="flex items-center gap-2 text-xs text-fg-muted">
-							Until
-							<input
+						<div className="flex items-center gap-2 text-xs text-fg-muted">
+							<span>Until</span>
+							<Input
 								type="date"
 								value={rule.until ?? ""}
 								onChange={(e) => onChangeUntil?.(e.target.value)}
 								aria-label="Expiry date"
-								className="rounded-md border border-line bg-surface-sunken px-2 py-1 text-sm text-fg"
+								className="flex-1"
 							/>
-						</label>
+						</div>
 					)}
 				</section>
 
@@ -243,21 +245,17 @@ export function FilterRuleEditor({
 						{blockedReason}
 					</p>
 				)}
-				<button
-					type="button"
+				<Button
+					variant="primary"
 					onClick={onCommit}
 					disabled={blockedReason !== undefined}
-					className="h-9 w-full rounded-md bg-accent text-sm font-medium text-accent-fg hover:bg-accent-hover disabled:pointer-events-none disabled:opacity-50"
+					className="w-full"
 				>
 					{commitLabel(rule.scope)}
-				</button>
-				<button
-					type="button"
-					onClick={onCancel}
-					className="h-9 w-full rounded-md text-sm font-medium text-fg-muted hover:bg-surface-sunken hover:text-fg"
-				>
+				</Button>
+				<Button variant="ghost" onClick={onCancel} className="w-full">
 					Not now
-				</button>
+				</Button>
 			</div>
 		</div>
 	);

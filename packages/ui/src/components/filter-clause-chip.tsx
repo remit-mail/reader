@@ -1,5 +1,6 @@
 import { Plus, Sparkles, X } from "lucide-react";
 import { cn } from "../lib/cn.js";
+import { Button } from "./button.js";
 import {
 	type ClauseField,
 	clauseFieldLabel,
@@ -63,11 +64,25 @@ export interface WidenChipProps {
 	onRemove?: () => void;
 }
 
+function WidenRemoveButton({ onRemove }: { onRemove: () => void }) {
+	return (
+		<button
+			type="button"
+			onClick={onRemove}
+			aria-label="Remove the similar-mail widen"
+			className="flex size-4 items-center justify-center rounded-full hover:bg-fg-subtle/20"
+		>
+			<X className="size-3" />
+		</button>
+	);
+}
+
 /**
  * The semantic widen as one chip (RFC 038 D3). Active it reads "…and anything
- * similar" with the anchor count and can be removed; inactive it says the
- * deployment cannot evaluate it and the rule matches by its literal clauses
- * only (D4) — no remove, because there is nothing running to stop.
+ * similar" with the anchor count; inactive it says the deployment cannot
+ * evaluate it and the rule matches by its literal clauses only (D4). Either
+ * way it is removable like any other chip — a dead anchor is exactly what a
+ * user needs to be able to take off a degraded rule.
  */
 export function WidenChip({ widen, onRemove }: WidenChipProps) {
 	if (widen.inactive) {
@@ -81,6 +96,7 @@ export function WidenChip({ widen, onRemove }: WidenChipProps) {
 				<Sparkles className="size-3 shrink-0" aria-hidden="true" />
 				<span className="line-through">{widenChipLabel(widen)}</span>
 				<span className="text-2xs">not available here</span>
+				{onRemove && <WidenRemoveButton onRemove={onRemove} />}
 			</span>
 		);
 	}
@@ -95,16 +111,7 @@ export function WidenChip({ widen, onRemove }: WidenChipProps) {
 			<Sparkles className="size-3 shrink-0" aria-hidden="true" />
 			<span className="font-medium">…and anything similar</span>
 			<span className="text-2xs opacity-80">{widenChipLabel(widen)}</span>
-			{onRemove && (
-				<button
-					type="button"
-					onClick={onRemove}
-					aria-label="Remove the similar-mail widen"
-					className="flex size-4 items-center justify-center rounded-full hover:bg-accent-2/15"
-				>
-					<X className="size-3" />
-				</button>
-			)}
+			{onRemove && <WidenRemoveButton onRemove={onRemove} />}
 		</span>
 	);
 }
@@ -182,22 +189,23 @@ export function ClauseEditor({
 				}}
 				className="h-8 min-w-40 flex-1"
 			/>
-			<button
-				type="button"
+			<Button
+				variant="primary"
+				size="sm"
 				onClick={onSubmit}
 				disabled={draft.value.trim() === ""}
-				className="h-8 shrink-0 rounded-md bg-accent px-3 text-xs font-medium text-accent-fg disabled:opacity-50"
+				className="shrink-0"
 			>
 				{mode === "add" ? "Add" : "Save"}
-			</button>
-			<button
-				type="button"
+			</Button>
+			<Button
+				variant="ghost"
+				size="sm"
 				onClick={onCancel}
 				aria-label="Cancel clause edit"
-				className="flex size-8 shrink-0 items-center justify-center rounded-md text-fg-subtle hover:bg-surface-sunken"
-			>
-				<X className="size-4" />
-			</button>
+				icon={<X className="size-4" />}
+				className="shrink-0 px-2"
+			/>
 		</div>
 	);
 }

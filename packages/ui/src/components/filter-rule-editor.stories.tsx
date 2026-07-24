@@ -43,8 +43,9 @@ const READY = (count: number, stale?: boolean): PreviewCount => ({
 
 /**
  * A fully wired editor so every affordance is live in the story — add, edit and
- * remove clauses, toggle the operator and scope, watch the count go stale on a
- * change. State is local to the story; no app, no network.
+ * remove clauses, toggle the operator and scope, watch the count follow. The
+ * count settles instantly here so the commit stays usable; the loading and
+ * recounting states have their own stories. State is local; no app, no network.
  */
 function LiveEditor({
 	initialRule,
@@ -55,14 +56,11 @@ function LiveEditor({
 }) {
 	const [rule, setRule] = useState<FilterRule>(initialRule);
 	const [clauseEdit, setClauseEdit] = useState<ClauseEditState | undefined>();
-	const [dirtyAt, setDirtyAt] = useState(0);
 
 	const preview = useMemo<PreviewCount>(
-		() => READY(rule.clauses.length * 23 + (rule.widen ? 40 : 0), dirtyAt > 0),
-		[rule, dirtyAt],
+		() => READY(rule.clauses.length * 23 + (rule.widen ? 40 : 0)),
+		[rule],
 	);
-
-	const touch = () => setDirtyAt((n) => n + 1);
 
 	const handlers: Partial<FilterRuleEditorProps> = {
 		onStartAddClause: () =>
@@ -81,7 +79,6 @@ function LiveEditor({
 				...r,
 				clauses: r.clauses.filter((c) => c.id !== clauseId),
 			}));
-			touch();
 		},
 		onChangeDraftField: (field) =>
 			setClauseEdit((e) => (e ? { ...e, draft: { ...e.draft, field } } : e)),
@@ -110,20 +107,16 @@ function LiveEditor({
 				});
 				return undefined;
 			});
-			touch();
 		},
 		onCancelClause: () => setClauseEdit(undefined),
 		onAddWiden: () => {
 			setRule((r) => ({ ...r, widen: { anchorCount: 2 } }));
-			touch();
 		},
 		onRemoveWiden: () => {
 			setRule((r) => ({ ...r, widen: undefined }));
-			touch();
 		},
 		onChangeMatchOperator: (matchOperator) => {
 			setRule((r) => ({ ...r, matchOperator }));
-			touch();
 		},
 		onChangeMove: (moveMailboxId) =>
 			setRule((r) => ({ ...r, moveMailboxId: moveMailboxId || undefined })),
@@ -248,7 +241,7 @@ export const BlockedEmpty: Story = {
 	},
 };
 
-/** The live count while it recomputes. */
+/** The live count while it recomputes — the commit waits for it to settle. */
 export const PreviewLoading: Story = {
 	args: {
 		rule: demoRule,
@@ -258,7 +251,11 @@ export const PreviewLoading: Story = {
 	},
 };
 
-/** The previewed set changed under the rule — recounting, never blank. */
+/**
+ * The previewed set changed under the rule — recounting, never blank, and the
+ * "Save rule" button is held disabled until the count that will be applied is
+ * the count on screen (RFC 038's previewed-set-equals-applied-set contract).
+ */
 export const PreviewStale: Story = {
 	args: {
 		rule: demoRule,
