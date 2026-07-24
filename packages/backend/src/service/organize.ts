@@ -1,4 +1,5 @@
 import type { FilterItem, OrganizeJobRequestItem } from "@remit/data-ports";
+import { FilterClauseField } from "@remit/domain-enums";
 import {
 	DEFAULT_SEMANTIC_MATCH_THRESHOLD,
 	type FilterMessage,
@@ -203,10 +204,36 @@ const matchSemantic = async (
 };
 
 /**
+ * A `HasWords` clause matches the message body (RFC 031, `clauseMatches`). The
+ * live index-time filter evaluates it against the full parsed body
+ * (`body-sync.ts` `toFilterMessage`); the vector-free corpus slice carries only
+ * `From`/`Subject` at full fidelity and no faithful body, so it cannot serve a
+ * body-content clause without silently narrowing the match to whatever preview
+ * happened to be indexed. Body-content matching therefore requires the widen
+ * (vector) path — {@link matchSemantic} reconstructs body text from chunk
+ * previews there. This guard keeps the two matchers from diverging silently: a
+ * body-content clause reaching the vector-free path fails loud instead of
+ * returning a wrong set. It is unreachable today — no product surface emits a
+ * `HasWords` clause (the organize UI sends empty `literalClauses`, the filter
+ * builder emits none) — and stays a fail-fast for any future surface that does.
+ */
+const assertNoBodyContentClause = (
+	clauses: OrganizePredicate["literalClauses"],
+): void => {
+	if (clauses.some((clause) => clause.field === FilterClauseField.HasWords)) {
+		throw new Error(
+			"Organize literal matching cannot evaluate a body-content (HasWords) clause without the vector pipeline — it requires the semantic widen path",
+		);
+	}
+};
+
+/**
  * The literal-only arm: scan a bounded, vector-free slice of the corpus and keep
  * the messages whose literal clauses match. Used both for a purely-literal
  * predicate and as the degraded fallback when a widen is requested on a
- * deployment without the vector pipeline.
+ * deployment without the vector pipeline. Serves `From`/`Subject` clauses at
+ * full fidelity from the core thread rows; body-content (`HasWords`) clauses are
+ * rejected up front (see {@link assertNoBodyContentClause}).
  */
 const matchLiteral = async (
 	deps: OrganizeMatchDeps,
@@ -214,11 +241,12 @@ const matchLiteral = async (
 	predicate: OrganizePredicate,
 	limit: number,
 ): Promise<string[]> => {
+	const clauses = predicate.literalClauses;
+	assertNoBodyContentClause(clauses);
 	const candidates = await deps.listAccountFilterMessages(
 		accountConfigId,
 		limit,
 	);
-	const clauses = predicate.literalClauses;
 	if (clauses.length === 0) {
 		return candidates.slice(0, limit).map((c) => c.messageId);
 	}
@@ -323,9 +351,16 @@ const buildSemanticFromEnv = (): OrganizeSemanticDeps => {
 /**
  * A bounded, vector-free corpus slice for a literal back-apply: the account's
  * messages projected onto the literal-match fields, gathered newest-first across
- * every mailbox and capped. Reads the core thread rows (subject / sender /
- * snippet), so it runs on a deployment that ships no vector pipeline. Deduped by
- * message id — the same mail filed in two folders is one candidate.
+ * every mailbox and capped. Reads the core thread rows, so it runs on a
+ * deployment that ships no vector pipeline. Deduped by message id — the same
+ * mail filed in two folders is one candidate.
+ *
+ * `From`/`Subject` come from the row verbatim (full fidelity). `text` (the body)
+ * is left empty: the thread row carries only a truncated `snippet`, and matching
+ * a body-content clause against a preview would silently diverge from the live
+ * index-time filter's full-body match. Body-content (`HasWords`) clauses are
+ * rejected before this is read (see {@link assertNoBodyContentClause}), so the
+ * empty `text` is never matched against.
  */
 const listAccountFilterMessagesFromClient =
 	(client: RemitClient): OrganizeMatchDeps["listAccountFilterMessages"] =>
@@ -348,7 +383,7 @@ const listAccountFilterMessagesFromClient =
 						from: row.fromEmail ?? "",
 						fromName: row.fromName ?? "",
 						subject: row.subject ?? "",
-						text: row.snippet ?? "",
+						text: "",
 					},
 				});
 				if (candidates.length >= limit) return candidates;

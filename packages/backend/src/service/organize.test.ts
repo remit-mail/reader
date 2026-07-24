@@ -336,6 +336,24 @@ describe("matchOrganize on a deployment without the vector pipeline", () => {
 		);
 	});
 
+	it("fails loud on a body-content (HasWords) clause rather than matching it against a preview", async () => {
+		const deps = vectorlessDeps([
+			candidate("msg-1", { subject: "Dinner reservation" }),
+		]);
+
+		await assert.rejects(
+			() =>
+				matchOrganize(deps, ACCOUNT_CONFIG_ID, {
+					...predicate(),
+					anchorMessageId: "None",
+					literalClauses: [{ field: "HasWords", value: "invoice" }],
+				}),
+			/HasWords/,
+			"the vector-free literal path must not silently narrow a body match to a preview",
+		);
+		assert.equal(deps.semanticUsed(), false);
+	});
+
 	it("degrades an anchor+clauses widen to the literal matches, flagged, instead of crashing", async () => {
 		const deps = vectorlessDeps([
 			candidate("msg-1", { subject: "Dinner reservation" }),
