@@ -180,4 +180,7 @@ model OrganizePreviewResponse {
 
   @doc("Ids of the matching messages, bounded to the same cap the apply pass uses")
   messageIds: string[];
+
+  @doc("True when the semantic widen could not run because this deployment ships no vector pipeline (self-host without sqlite-vec / the embedding model). The matched set is then the literal matches only, or empty for an anchor-only predicate; literal search is unaffected. Absent on deployments where the widen ran.")
+  semanticUnavailable?: boolean;
 }
