@@ -36,6 +36,9 @@ import "./AccountExportRequest.tsp";
 // Smart Organize back-apply job (RFC 034, #1278)
 import "./OrganizeJobRequest.tsp";
 
+// Standalone self-update (RFC 037)
+import "./SystemUpdate.tsp";
+
 // Smart Organize (RFC 030, RFC 034)
 import "./Label.tsp";
 import "./MessageLabel.tsp";
