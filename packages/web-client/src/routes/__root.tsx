@@ -7,11 +7,13 @@ import { Suspense } from "react";
 import { useTranslation } from "react-i18next";
 import { ComposeProvider } from "@/components/compose/ComposeProvider";
 import { AppShellSkeleton } from "@/components/layout/AppShellSkeleton";
+import { SelfUpdateOverlay } from "@/components/self-update/SelfUpdateOverlay";
 import { ErrorBannerProvider } from "@/components/ui/ErrorBannerProvider";
 import {
 	FatalErrorOverlay,
 	FatalErrorScreen,
 } from "@/components/ui/FatalErrorOverlay";
+import { SelfUpdateProvider } from "@/hooks/use-system-update";
 import { isServerError } from "@/lib/error-classifier";
 import { reportFatalError } from "@/lib/fatal-error";
 import type { RouterContext } from "@/router";
@@ -55,14 +57,17 @@ const SkipLink = () => {
 function RootLayout() {
 	return (
 		<ErrorBannerProvider>
-			<ComposeProvider>
-				<SkipLink />
-				<main id="main-content" className="h-dvh overflow-hidden">
-					<Suspense fallback={<AppShellSkeleton />}>
-						<Outlet />
-					</Suspense>
-				</main>
-			</ComposeProvider>
+			<SelfUpdateProvider>
+				<ComposeProvider>
+					<SkipLink />
+					<main id="main-content" className="h-dvh overflow-hidden">
+						<Suspense fallback={<AppShellSkeleton />}>
+							<Outlet />
+						</Suspense>
+					</main>
+				</ComposeProvider>
+				<SelfUpdateOverlay />
+			</SelfUpdateProvider>
 			<FatalErrorOverlay />
 		</ErrorBannerProvider>
 	);

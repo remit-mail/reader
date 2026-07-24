@@ -1,0 +1,517 @@
+import assert from "node:assert/strict";
+import { beforeEach, describe, test } from "node:test";
+import type {
+	RemitImapSystemUpdateResponse,
+	RemitImapSystemUpdateRun,
+} from "@remit/api-http-client/types.gen.ts";
+import { ApiError } from "./api";
+import {
+	APPLY_BUDGET_SECONDS,
+	appliesSchemaMigration,
+	clearStoredRun,
+	type DeriveInput,
+	deriveUpdateSurface,
+	type HeldRun,
+	isSurfaceAbsent,
+	loadHeldRun,
+	mapUpdatePhase,
+	NEVER_CAME_BACK_MARGIN_SECONDS,
+	releaseFromCheck,
+	SELF_UPDATE_RUN_KEY,
+	saveHeldRun,
+} from "./self-update-state";
+
+const NOW = Date.parse("2026-07-20T12:00:00.000Z");
+const BUDGET_MS =
+	(APPLY_BUDGET_SECONDS + NEVER_CAME_BACK_MARGIN_SECONDS) * 1000;
+
+function run(
+	overrides: Partial<RemitImapSystemUpdateRun> = {},
+): RemitImapSystemUpdateRun {
+	return {
+		runId: "upd_1",
+		fromVersion: "0.9.3",
+		targetVersion: "0.9.4",
+		phase: "starting",
+		outcome: null,
+		startedAt: "2026-07-20T11:59:30.000Z",
+		updatedAt: "2026-07-20T11:59:45.000Z",
+		message: "Restarting Remit on 0.9.4.",
+		logCommand: "remit logs --since 10m",
+		...overrides,
+	};
+}
+
+function response(
+	overrides: Partial<RemitImapSystemUpdateResponse> = {},
+): RemitImapSystemUpdateResponse {
+	return {
+		currentVersion: "0.9.3",
+		check: { status: "ok", updateAvailable: false, ...overrides.check },
+		run: overrides.run ?? null,
+		...("currentSchemaVersion" in overrides
+			? { currentSchemaVersion: overrides.currentSchemaVersion }
+			: {}),
+	};
+}
+
+function held(overrides: Partial<HeldRun> = {}): HeldRun {
+	return {
+		runId: "upd_1",
+		attemptedVersion: "0.9.4",
+		previousVersion: "0.9.3",
+		startedAt: NOW - 10_000,
+		...overrides,
+	};
+}
+
+function input(overrides: Partial<DeriveInput> = {}): DeriveInput {
+	return {
+		data: undefined,
+		isError: false,
+		error: undefined,
+		isFetching: false,
+		held: null,
+		dismissedRunId: null,
+		checkRequested: false,
+		now: NOW,
+		...overrides,
+	};
+}
+
+describe("isSurfaceAbsent", () => {
+	test("401, 403 and 404 all read as no entry point", () => {
+		for (const status of [401, 403, 404]) {
+			assert.equal(isSurfaceAbsent(new ApiError("nope", status)), true);
+		}
+	});
+
+	test("a 500 or a network blip is not an absent surface", () => {
+		assert.equal(isSurfaceAbsent(new ApiError("boom", 500)), false);
+		assert.equal(isSurfaceAbsent(new Error("offline")), false);
+	});
+});
+
+describe("appliesSchemaMigration", () => {
+	test("true only when both versions are present and the release is higher", () => {
+		assert.equal(
+			appliesSchemaMigration(
+				response({
+					currentSchemaVersion: 4,
+					check: { status: "ok", updateAvailable: true, schemaVersion: 5 },
+				}),
+			),
+			true,
+		);
+	});
+
+	test("false when the release is on the same or a lower schema", () => {
+		assert.equal(
+			appliesSchemaMigration(
+				response({
+					currentSchemaVersion: 5,
+					check: { status: "ok", updateAvailable: true, schemaVersion: 5 },
+				}),
+			),
+			false,
+		);
+	});
+
+	test("silent when either version is absent", () => {
+		assert.equal(
+			appliesSchemaMigration(
+				response({ check: { status: "ok", schemaVersion: 5 } }),
+			),
+			false,
+		);
+		assert.equal(
+			appliesSchemaMigration(response({ currentSchemaVersion: 4 })),
+			false,
+		);
+		assert.equal(appliesSchemaMigration(undefined), false);
+	});
+});
+
+describe("mapUpdatePhase", () => {
+	test("folds the nine server phases into the three the UI shows", () => {
+		assert.equal(mapUpdatePhase("pulling"), "preparing");
+		assert.equal(mapUpdatePhase("stopping"), "restarting");
+		assert.equal(mapUpdatePhase("verifying"), "reconnecting");
+		assert.equal(mapUpdatePhase("recovering"), "reconnecting");
+	});
+});
+
+describe("releaseFromCheck", () => {
+	test("builds a release when the check reports one", () => {
+		const release = releaseFromCheck(
+			response({
+				check: {
+					status: "ok",
+					updateAvailable: true,
+					latestVersion: "0.9.4",
+					publishedAt: "2026-07-14T09:00:00.000Z",
+					summary: "Faster sync.",
+					releaseNotesUrl: "https://example.test/notes",
+				},
+			}),
+			NOW,
+		);
+		assert.equal(release?.version, "0.9.4");
+		assert.equal(release?.summary, "Faster sync.");
+		assert.equal(release?.releaseNotesUrl, "https://example.test/notes");
+	});
+
+	test("undefined when no update is available or the check failed", () => {
+		assert.equal(releaseFromCheck(response(), NOW), undefined);
+		assert.equal(
+			releaseFromCheck(
+				response({ check: { status: "failed", error: "no route" } }),
+				NOW,
+			),
+			undefined,
+		);
+	});
+});
+
+describe("deriveUpdateSurface — the surface without a run", () => {
+	test("a 404 with no held run renders nothing anywhere", () => {
+		const result = deriveUpdateSurface(
+			input({ isError: true, error: new ApiError("off", 404) }),
+		);
+		assert.equal(result.surface.status, "absent");
+	});
+
+	test("no data and no error is loading, not absent", () => {
+		const result = deriveUpdateSurface(input());
+		assert.equal(result.surface.status, "loading");
+	});
+
+	test("an available update reads from the check block", () => {
+		const result = deriveUpdateSurface(
+			input({
+				data: response({
+					check: {
+						status: "ok",
+						updateAvailable: true,
+						latestVersion: "0.9.4",
+						summary: "Faster sync.",
+					},
+				}),
+			}),
+		);
+		assert.equal(result.surface.status, "ready");
+		if (result.surface.status !== "ready") return;
+		assert.equal(result.surface.section.status, "available");
+	});
+
+	test("no update available reads as up to date", () => {
+		const result = deriveUpdateSurface(
+			input({
+				data: response({
+					check: {
+						status: "ok",
+						updateAvailable: false,
+						lastCheckedAt: "2026-07-20T11:40:00.000Z",
+					},
+				}),
+			}),
+		);
+		assert.equal(
+			result.surface.status === "ready" && result.surface.section.status,
+			"upToDate",
+		);
+	});
+
+	test("a configured surface that has not checked yet is checking", () => {
+		const result = deriveUpdateSurface(
+			input({ data: response({ check: { status: "disabled" } }) }),
+		);
+		assert.equal(
+			result.surface.status === "ready" && result.surface.section.status,
+			"checking",
+		);
+	});
+
+	test("a pressed check shows checking while the refetch is in flight", () => {
+		const result = deriveUpdateSurface(
+			input({
+				data: response(),
+				checkRequested: true,
+				isFetching: true,
+			}),
+		);
+		assert.equal(
+			result.surface.status === "ready" && result.surface.section.status,
+			"checking",
+		);
+	});
+});
+
+describe("deriveUpdateSurface — check and run stay independent", () => {
+	test("a failed check renders as a failed check, never a failed update", () => {
+		const result = deriveUpdateSurface(
+			input({
+				data: response({
+					check: { status: "failed", error: "no route to github.com" },
+					run: null,
+				}),
+			}),
+		);
+		assert.equal(result.surface.status, "ready");
+		if (result.surface.status !== "ready") return;
+		assert.equal(result.surface.section.status, "checkFailed");
+	});
+
+	test("a failed check does not override a run that finished", () => {
+		const result = deriveUpdateSurface(
+			input({
+				data: response({
+					check: { status: "failed", error: "no route to github.com" },
+					run: run({ outcome: "succeeded" }),
+				}),
+			}),
+		);
+		assert.equal(
+			result.surface.status === "ready" && result.surface.section.status,
+			"succeeded",
+		);
+	});
+});
+
+describe("deriveUpdateSurface — terminal outcomes", () => {
+	test("a rolledBack run renders message and command verbatim and clears the id", () => {
+		const result = deriveUpdateSurface(
+			input({
+				data: response({
+					run: run({
+						outcome: "rolledBack",
+						message: "migration 0042 failed",
+						logCommand: "remit logs --since 30m",
+					}),
+				}),
+			}),
+		);
+		assert.equal(result.clearStoredRun, true);
+		assert.equal(result.surface.status, "ready");
+		if (result.surface.status !== "ready") return;
+		const section = result.surface.section;
+		assert.equal(section.status, "rolledBack");
+		if (section.status !== "rolledBack") return;
+		assert.equal(section.reason, "migration 0042 failed");
+		assert.equal(section.logsCommand, "remit logs --since 30m");
+	});
+
+	test("a rollbackFailed run renders message and command verbatim", () => {
+		const result = deriveUpdateSurface(
+			input({
+				data: response({
+					run: run({
+						outcome: "rollbackFailed",
+						message: "restore errored: database is locked",
+						logCommand: "remit logs --since 1h",
+					}),
+				}),
+			}),
+		);
+		assert.equal(result.surface.status, "ready");
+		if (result.surface.status !== "ready") return;
+		const section = result.surface.section;
+		assert.equal(section.status, "rollbackFailed");
+		if (section.status !== "rollbackFailed") return;
+		assert.equal(section.reason, "restore errored: database is locked");
+		assert.equal(section.logsCommand, "remit logs --since 1h");
+	});
+
+	test("an abandoned run reports the running version unchanged", () => {
+		const result = deriveUpdateSurface(
+			input({ data: response({ run: run({ outcome: "abandoned" }) }) }),
+		);
+		const section =
+			result.surface.status === "ready" ? result.surface.section : null;
+		assert.equal(section?.status, "abandoned");
+		assert.equal(section?.status === "abandoned" && section.version, "0.9.3");
+	});
+
+	test("a dismissed result falls back to the check block", () => {
+		const result = deriveUpdateSurface(
+			input({
+				data: response({
+					check: { status: "ok", updateAvailable: false },
+					run: run({ runId: "upd_9", outcome: "succeeded" }),
+				}),
+				dismissedRunId: "upd_9",
+			}),
+		);
+		assert.equal(
+			result.surface.status === "ready" && result.surface.section.status,
+			"upToDate",
+		);
+	});
+});
+
+describe("deriveUpdateSurface — a run this client never started", () => {
+	test("an in-flight run renders applying, no held id needed", () => {
+		const result = deriveUpdateSurface(
+			input({ data: response({ run: run({ outcome: null }) }) }),
+		);
+		assert.equal(result.surface.status, "ready");
+		if (result.surface.status !== "ready") return;
+		assert.equal(result.surface.section.status, "applying");
+		assert.equal(result.surface.overlay.kind, "applying");
+	});
+});
+
+describe("deriveUpdateSurface — a held run across a restart", () => {
+	test("a failed request with a held run is applying, not unreachable", () => {
+		const result = deriveUpdateSurface(
+			input({
+				isError: true,
+				error: new Error("connection refused"),
+				held: held({ startedAt: NOW - 20_000 }),
+			}),
+		);
+		assert.equal(result.surface.status, "ready");
+		if (result.surface.status !== "ready") return;
+		assert.equal(result.surface.section.status, "applying");
+		assert.equal(result.surface.overlay.kind, "applying");
+		assert.equal(result.clearStoredRun, false);
+	});
+
+	test("a failed request without a held run is a check-level failure", () => {
+		const result = deriveUpdateSurface(
+			input({
+				data: response(),
+				isError: true,
+				error: new Error("connection refused"),
+			}),
+		);
+		assert.equal(
+			result.surface.status === "ready" && result.surface.section.status,
+			"checkFailed",
+		);
+	});
+
+	test("the budget plus margin elapsing flips applying to never-came-back", () => {
+		const result = deriveUpdateSurface(
+			input({
+				isError: true,
+				error: new Error("connection refused"),
+				held: held({ startedAt: NOW - BUDGET_MS - 60_000 }),
+			}),
+		);
+		assert.equal(result.surface.status, "ready");
+		if (result.surface.status !== "ready") return;
+		assert.equal(result.surface.overlay.kind, "neverCameBack");
+		assert.equal(result.clearStoredRun, true);
+	});
+
+	test("never-came-back never claims the rollback ran", () => {
+		const result = deriveUpdateSurface(
+			input({
+				isError: true,
+				error: new Error("connection refused"),
+				held: held({ startedAt: NOW - BUDGET_MS - 60_000 }),
+			}),
+		);
+		if (
+			result.surface.status !== "ready" ||
+			result.surface.overlay.kind !== "neverCameBack"
+		) {
+			assert.fail("expected the never-came-back overlay");
+		}
+		// The overlay carries only what is known: attempted and previous versions,
+		// and a command. No success, no rollback verdict.
+		assert.equal(result.surface.overlay.attemptedVersion, "0.9.4");
+		assert.equal(result.surface.overlay.previousVersion, "0.9.3");
+	});
+
+	test("the server answering with the matching run in flight shows its phase", () => {
+		const result = deriveUpdateSurface(
+			input({
+				data: response({ run: run({ phase: "verifying", outcome: null }) }),
+				held: held(),
+			}),
+		);
+		if (
+			result.surface.status !== "ready" ||
+			result.surface.overlay.kind !== "applying"
+		) {
+			assert.fail("expected the applying overlay");
+		}
+		assert.equal(result.surface.overlay.phase, "reconnecting");
+	});
+
+	test("the matching run resolving terminally clears the held id", () => {
+		const result = deriveUpdateSurface(
+			input({
+				data: response({ run: run({ outcome: "succeeded" }) }),
+				held: held(),
+			}),
+		);
+		assert.equal(result.releaseHeld, true);
+		assert.equal(result.clearStoredRun, true);
+		assert.equal(
+			result.surface.status === "ready" && result.surface.section.status,
+			"succeeded",
+		);
+	});
+
+	test("a long silence that the server cannot account for reads as unreachable", () => {
+		const result = deriveUpdateSurface(
+			input({
+				data: response({ run: null }),
+				held: held({ startedAt: NOW - BUDGET_MS - 60_000 }),
+			}),
+		);
+		assert.equal(
+			result.surface.status === "ready" && result.surface.section.status,
+			"unreachable",
+		);
+		assert.equal(result.releaseHeld, true);
+	});
+
+	test("an early server answer with no run yet keeps applying", () => {
+		const result = deriveUpdateSurface(
+			input({ data: response({ run: null }), held: held() }),
+		);
+		assert.equal(
+			result.surface.status === "ready" && result.surface.overlay.kind,
+			"applying",
+		);
+	});
+});
+
+function installMemoryStorage(): void {
+	const store = new Map<string, string>();
+	globalThis.localStorage = {
+		getItem: (k: string) => store.get(k) ?? null,
+		setItem: (k: string, v: string) => void store.set(k, v),
+		removeItem: (k: string) => void store.delete(k),
+		clear: () => store.clear(),
+		key: () => null,
+		length: 0,
+	} as Storage;
+}
+
+describe("held-run persistence", () => {
+	beforeEach(installMemoryStorage);
+
+	test("saves, loads and clears under the documented key", () => {
+		const record = held();
+		saveHeldRun(record);
+		assert.equal(
+			localStorage.getItem(SELF_UPDATE_RUN_KEY),
+			JSON.stringify(record),
+		);
+		assert.deepEqual(loadHeldRun(), record);
+		clearStoredRun();
+		assert.equal(loadHeldRun(), null);
+	});
+
+	test("ignores a malformed stored value", () => {
+		localStorage.setItem(SELF_UPDATE_RUN_KEY, "{not json");
+		assert.equal(loadHeldRun(), null);
+		localStorage.setItem(SELF_UPDATE_RUN_KEY, JSON.stringify({ runId: 1 }));
+		assert.equal(loadHeldRun(), null);
+	});
+});

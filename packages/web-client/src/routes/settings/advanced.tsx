@@ -1,10 +1,12 @@
 /**
- * Advanced settings — stub page. Notification rules, export, and
- * diagnostics are future scope; this keeps the nav item from 404-ing.
+ * Advanced settings. Updates live here — and only here — with a full pane in
+ * Settings › Advanced. Notification rules, export, and diagnostics are future
+ * scope.
  */
 import { SettingsShell } from "@remit/ui";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { SelfUpdatePanel } from "@/components/settings/SelfUpdatePanel";
 import { AppVersion } from "@/components/ui/AppVersion";
 import { SETTINGS_ID_TO_PATH, SETTINGS_NAV_ITEMS } from "@/routes/settings";
 
@@ -42,9 +44,10 @@ function AdvancedSettings() {
 			onSelect={handleSelectNav}
 			onBackToMail={() => void navigate({ to: "/mail" })}
 		>
+			<SelfUpdatePanel />
 			<p className="text-sm text-fg-muted">
-				Advanced options — notification rules, data export, and raw sync
-				diagnostics — are coming in a future release.
+				Notification rules, data export, and raw sync diagnostics are coming in
+				a future release.
 			</p>
 			<div className="border-t border-line pt-4 mt-4">
 				<p className="text-sm font-medium text-fg mb-1">About</p>

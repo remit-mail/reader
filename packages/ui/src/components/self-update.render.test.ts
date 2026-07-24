@@ -164,6 +164,41 @@ describe("SelfUpdateSection", () => {
 		assert.match(html, /Check again/);
 		assert.doesNotMatch(html, /disabled=/);
 	});
+
+	it("renders a failed rollback verbatim and never claims a version is running", () => {
+		const html = section({
+			status: "rollbackFailed",
+			runId: demoRunId,
+			attemptedVersion: "0.9.4",
+			previousVersion: CURRENT,
+			reason: "migration 0042 failed and the snapshot restore errored",
+			logsCommand: demoLogsCommand,
+		});
+		assert.match(html, /could not put 0\.9\.3 back/);
+		assert.match(html, /needs you at a shell/);
+		assert.match(
+			html,
+			/migration 0042 failed and the snapshot restore errored/,
+		);
+		assert.match(html, /remit logs --since 10m/);
+		// The rollback itself failed — the pane must not assert a running version.
+		assert.doesNotMatch(html, /running 0\.9\.3 again/);
+	});
+
+	it("renders an abandoned run as a no-op that changed nothing", () => {
+		const html = section({
+			status: "abandoned",
+			runId: demoRunId,
+			version: CURRENT,
+			attemptedVersion: "0.9.4",
+			reason: "manifest fetch timed out before anything was pulled",
+			logsCommand: demoLogsCommand,
+		});
+		assert.match(html, /Nothing changed/);
+		assert.match(html, /still\s+running 0\.9\.3/);
+		assert.match(html, /manifest fetch timed out/);
+		assert.match(html, /Try 0\.9\.4 again/);
+	});
 });
 
 describe("SelfUpdateConfirmDialog", () => {
@@ -200,6 +235,25 @@ describe("SelfUpdateConfirmDialog", () => {
 			),
 			"",
 		);
+	});
+
+	it("says nothing about a migration by default", () => {
+		assert.doesNotMatch(html, /updates the database/);
+	});
+
+	it("warns about a migration only when the release carries one", () => {
+		const withMigration = render(
+			createElement(SelfUpdateConfirmDialog, {
+				open: true,
+				currentVersion: CURRENT,
+				release: demoRelease,
+				appliesSchemaMigration: true,
+				onClose: noop,
+				onConfirm: noop,
+			}),
+		);
+		assert.match(withMigration, /updates the database while Remit is offline/);
+		assert.match(withMigration, /rolled back to the version and data you have/);
 	});
 });
 

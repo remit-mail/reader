@@ -181,6 +181,64 @@ export const AdvancedRolledBack: Story = {
 };
 
 /**
+ * The one outcome that cannot be resolved from the app: the new version failed
+ * to start and the rollback failed too. Message and command verbatim, no
+ * running version claimed, and the operator sent to a shell.
+ */
+export const AdvancedRollbackFailed: Story = {
+	render: () => (
+		<AdvancedPage
+			state={{
+				status: "rollbackFailed",
+				runId: demoRunId,
+				attemptedVersion: demoRelease.version,
+				previousVersion: CURRENT,
+				reason:
+					"migration 0042_add_thread_index failed and the snapshot restore errored: database is locked",
+				logsCommand: demoLogsCommand,
+			}}
+		/>
+	),
+};
+
+/**
+ * The run stopped before changing anything — a manifest that would not fetch, a
+ * preflight that refused. Nothing installed, nothing touched.
+ */
+export const AdvancedAbandoned: Story = {
+	render: () => (
+		<AdvancedPage
+			state={{
+				status: "abandoned",
+				runId: demoRunId,
+				version: CURRENT,
+				attemptedVersion: demoRelease.version,
+				reason: "manifest fetch timed out before anything was pulled",
+				logsCommand: demoLogsCommand,
+			}}
+		/>
+	),
+};
+
+/**
+ * Consent for a release that also migrates the database. The extra line is
+ * shown only when the surface reports a higher schema version than the running
+ * one; the client derives it from the two versions.
+ */
+export const ConsentWithSchemaMigration: Story = {
+	render: () => (
+		<SelfUpdateConfirmDialog
+			open
+			currentVersion={CURRENT}
+			release={demoRelease}
+			appliesSchemaMigration
+			onClose={() => {}}
+			onConfirm={() => {}}
+		/>
+	),
+};
+
+/**
  * Once consent is given the app is genuinely unusable — the server it reads
  * mail from is restarting — so the restart screen takes the whole window
  * rather than spinning quietly over a mailbox that cannot load.
