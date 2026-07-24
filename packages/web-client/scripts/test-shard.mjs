@@ -5,40 +5,60 @@
 // because it only sees the files its own tests load. So a shard emits node's own
 // LCOV coverage (node's line arithmetic, not a third-party reinterpretation of
 // the raw V8 output — those diverge from the native figure by several points)
-// and enforces no floor. coverage-merge.mjs sums every shard's LCOV and checks
-// the floor once, on the same blocks the native single-process runner measured.
+// and enforces no floor. coverage-merge.mjs unions every shard's LCOV per line
+// and checks the floor once.
 //
 // Partitioning is by descending file size into the lightest bin (greedy), so
 // the slowest shard is as light as the set allows and assignment is a pure
 // function of the discovered file list — every shard computes the same bins and
 // claims exactly one, with no overlap and no gaps.
+//
+// The gate is only as complete as the file discovery: a test the walk misses
+// vanishes from both the sharded run and the merged floor with nothing failing.
+// Two guards make that loud — the walk is cross-checked against an independent
+// glob, and the partition is checked to assign exactly the discovered set.
 import { spawn } from "node:child_process";
-import { mkdirSync, readdirSync, statSync } from "node:fs";
+import { globSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const TEST_FILE_SUFFIXES = [".test.ts", ".test.tsx"];
+const PRUNED_DIRS = new Set(["node_modules", "dist"]);
 
 function discoverTestFiles(dir) {
 	const found = [];
 	const walk = (current) => {
 		for (const entry of readdirSync(current, { withFileTypes: true })) {
-			if (entry.name === "node_modules" || entry.name === "dist") continue;
+			if (PRUNED_DIRS.has(entry.name)) continue;
 			const full = join(current, entry.name);
 			if (entry.isDirectory()) {
 				walk(full);
 				continue;
 			}
-			if (entry.name.endsWith(".test.ts") || entry.name.endsWith(".test.tsx")) {
+			if (TEST_FILE_SUFFIXES.some((suffix) => entry.name.endsWith(suffix))) {
 				found.push(full);
 			}
 		}
 	};
 	walk(dir);
-	return found;
+	return found.sort();
 }
 
-function binFor(files, total, index) {
+// Independent of the walk above (node's own globbing), so a future edit that
+// narrows one but not the other fails here instead of silently dropping files.
+function globTestFiles(dir) {
+	return TEST_FILE_SUFFIXES.flatMap((suffix) =>
+		globSync(`**/*${suffix}`, { cwd: dir }),
+	)
+		.filter(
+			(rel) => !rel.split("/").some((segment) => PRUNED_DIRS.has(segment)),
+		)
+		.map((rel) => join(dir, rel))
+		.sort();
+}
+
+function partition(files, total) {
 	const weighted = files
 		.map((file) => ({ file, size: statSync(file).size }))
 		.sort((a, b) => b.size - a.size || a.file.localeCompare(b.file));
@@ -50,7 +70,7 @@ function binFor(files, total, index) {
 		lightest.load += size;
 		lightest.files.push(file);
 	}
-	return bins[index].files.sort();
+	return bins.map((bin) => bin.files.sort());
 }
 
 function positiveInt(name) {
@@ -71,8 +91,28 @@ if (index > total) {
 	);
 }
 
-const allFiles = discoverTestFiles(join(packageRoot, "src"));
-const files = binFor(allFiles, total, index - 1);
+const srcDir = join(packageRoot, "src");
+const allFiles = discoverTestFiles(srcDir);
+
+const globbed = globTestFiles(srcDir);
+if (
+	allFiles.length !== globbed.length ||
+	allFiles.some((file, i) => file !== globbed[i])
+) {
+	throw new Error(
+		`test-file discovery disagrees with an independent glob: the walk found ${allFiles.length} files, the glob found ${globbed.length} — one of them is missing a suffix or pruning a directory the other keeps`,
+	);
+}
+
+const bins = partition(allFiles, total);
+const assigned = bins.reduce((sum, bin) => sum + bin.length, 0);
+if (assigned !== allFiles.length) {
+	throw new Error(
+		`partition assigned ${assigned} files but ${allFiles.length} were discovered — the bins drop or duplicate files`,
+	);
+}
+
+const files = bins[index - 1];
 if (files.length === 0) {
 	throw new Error(
 		`shard ${index}/${total} selected no files from ${allFiles.length} discovered — bins outnumber test files`,
