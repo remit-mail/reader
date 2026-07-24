@@ -53,27 +53,14 @@ test.describe("Auto-moved filter badge", () => {
 		});
 		filterId = filter.filterId;
 
-		// Deliver a matching message to INBOX and sync it; the standing filter
-		// moves it to Junk at body-sync and records the auto-moved marker.
+		// Deliver a matching message to INBOX. The standing filter moves it to
+		// Junk at body-sync — but the sync is triggered and awaited in the test
+		// body, not here: a post-onboarding sync can be coalesced with an
+		// in-flight one, so the wait re-triggers until it lands, and that can
+		// outlast the fixed 60s beforeAll hook cap.
 		await appendMessages(run.imapUser, [
 			{ subject: token, body: "Filter target." },
 		]);
-		await api.triggerSync(run.accountId);
-
-		await waitFor(
-			() => api.listThreads(junkId),
-			(items) =>
-				items.some(
-					(thread) =>
-						thread.subject === token &&
-						thread.autoMoved?.destinationMailboxId === junkId &&
-						thread.autoMoved?.filterId === filterId,
-				),
-			{
-				timeoutMs: 90_000,
-				what: `"${token}" to be filter-moved into Junk with an auto-moved marker`,
-			},
-		);
 	});
 
 	test.afterAll(async () => {
@@ -100,6 +87,32 @@ test.describe("Auto-moved filter badge", () => {
 		page,
 		run,
 	}) => {
+		// The filter fires at body-sync; delivering the message and waiting for the
+		// move to land can outrun the default per-test timeout on a busy lane.
+		test.setTimeout(180_000);
+
+		// Re-trigger the sync each poll: the first trigger can be coalesced with a
+		// sync already in flight for this account, so the appended message only
+		// body-syncs (and the filter moves it) once a fresh round runs.
+		await waitFor(
+			async () => {
+				await api.triggerSync(run.accountId).catch(() => {});
+				return api.listThreads(junkId);
+			},
+			(items) =>
+				items.some(
+					(thread) =>
+						thread.subject === token &&
+						thread.autoMoved?.destinationMailboxId === junkId &&
+						thread.autoMoved?.filterId === filterId,
+				),
+			{
+				timeoutMs: 120_000,
+				intervalMs: 3_000,
+				what: `"${token}" to be filter-moved into Junk with an auto-moved marker`,
+			},
+		);
+
 		await page.goto(`/mail/${junkId}`);
 
 		const row = page.getByText(token, { exact: true }).first();
