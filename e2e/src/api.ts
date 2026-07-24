@@ -18,6 +18,19 @@ export interface Mailbox {
 	messageCount?: number;
 }
 
+export interface AutoMoved {
+	/** Classifier move: MoveToInbox | MoveToJunk. Absent for a filter move. */
+	action?: string;
+	/** Classifier move: inbox | junk | other. Absent for a filter move. */
+	fromPlacement?: string;
+	/** Filter move: the mailbox the message was moved out of (undo target). */
+	fromMailboxId?: string;
+	/** Filter move: the mailbox the filter moved the message into. */
+	destinationMailboxId?: string;
+	/** Filter move: the standing filter that moved the message. */
+	filterId?: string;
+}
+
 export interface Thread {
 	threadId: string;
 	messageId: string;
@@ -32,6 +45,8 @@ export interface Thread {
 	 * resolved, which is why it stays optional here.
 	 */
 	category?: string;
+	/** Present only when Remit auto-moved this message on body-sync. */
+	autoMoved?: AutoMoved;
 }
 
 export interface ThreadMessage {

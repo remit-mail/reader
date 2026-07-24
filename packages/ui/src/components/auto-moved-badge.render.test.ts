@@ -39,4 +39,27 @@ describe("AutoMovedBadge", () => {
 		);
 		assert.match(html, /Move back to Junk/);
 	});
+
+	it("renders no filter link when filtersHref is omitted (classifier move)", () => {
+		const html = renderToString(
+			createElement(AutoMovedBadge, {
+				label: "Moved from Junk by Remit",
+				onUndo: () => undefined,
+			}),
+		);
+		assert.doesNotMatch(html, /Manage filter/);
+		assert.doesNotMatch(html, /settings\/filters/);
+	});
+
+	it("renders a Manage filter link to Settings when filtersHref is set", () => {
+		const html = renderToString(
+			createElement(AutoMovedBadge, {
+				label: "Moved from Inbox by Remit",
+				onUndo: () => undefined,
+				filtersHref: "/settings/filters",
+			}),
+		);
+		assert.match(html, /Manage filter/);
+		assert.match(html, /href="\/settings\/filters"/);
+	});
 });

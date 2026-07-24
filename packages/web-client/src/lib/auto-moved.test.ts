@@ -14,23 +14,65 @@ const ROLE_MAILBOXES: AutoMovedRoleMailboxes = {
 	junkMailboxId: "mb-junk",
 };
 
+const classifierMove = (
+	action: RemitImapAutoMovedInfo["action"],
+	fromPlacement: string,
+): RemitImapAutoMovedInfo => ({ action, fromPlacement });
+
+const filterMove = (
+	fromMailboxId: string,
+	destinationMailboxId: string,
+): RemitImapAutoMovedInfo => ({
+	fromMailboxId,
+	destinationMailboxId,
+	filterId: "flt-1",
+});
+
 describe("autoMovedLabel", () => {
-	test("reads 'Moved from Junk by Remit'", () => {
-		assert.equal(autoMovedLabel("junk"), "Moved from Junk by Remit");
+	test("classifier move reads 'Moved from Junk by Remit'", () => {
+		assert.equal(
+			autoMovedLabel(classifierMove(PlacementAction.MoveToInbox, "junk")),
+			"Moved from Junk by Remit",
+		);
 	});
 
-	test("reads 'Moved from Inbox by Remit'", () => {
-		assert.equal(autoMovedLabel("inbox"), "Moved from Inbox by Remit");
+	test("classifier move reads 'Moved from Inbox by Remit'", () => {
+		assert.equal(
+			autoMovedLabel(classifierMove(PlacementAction.MoveToJunk, "inbox")),
+			"Moved from Inbox by Remit",
+		);
 	});
 
-	test("falls back to plain language for an unrecognized placement", () => {
-		assert.equal(autoMovedLabel("other"), "Moved from another folder by Remit");
+	test("classifier move falls back to plain language for an unrecognized placement", () => {
+		assert.equal(
+			autoMovedLabel(classifierMove(PlacementAction.MoveToInbox, "other")),
+			"Moved from another folder by Remit",
+		);
+	});
+
+	test("filter move names the resolved source folder", () => {
+		assert.equal(
+			autoMovedLabel(filterMove("mb-inbox", "mb-travel"), "Travel"),
+			"Moved from Travel by Remit",
+		);
+	});
+
+	test("filter move falls back to 'another folder' before the name resolves", () => {
+		assert.equal(
+			autoMovedLabel(filterMove("mb-inbox", "mb-travel")),
+			"Moved from another folder by Remit",
+		);
 	});
 
 	test("never leaks verdict jargon", () => {
-		for (const placement of ["inbox", "junk", "other"]) {
+		const cases = [
+			classifierMove(PlacementAction.MoveToInbox, "junk"),
+			classifierMove(PlacementAction.MoveToJunk, "inbox"),
+			filterMove("mb-inbox", "mb-travel"),
+		];
+		for (const autoMoved of cases) {
 			assert.doesNotMatch(
-				autoMovedLabel(placement),
+				autoMovedLabel(autoMoved),
 				/confiden|dry.?run|verdict/i,
 			);
 		}
@@ -46,94 +88,138 @@ describe("isAutoMoveInEffect", () => {
 	});
 
 	test("false when currentMailboxId is absent", () => {
-		const autoMoved: RemitImapAutoMovedInfo = {
-			action: PlacementAction.MoveToInbox,
-			fromPlacement: "junk",
-		};
 		assert.equal(
-			isAutoMoveInEffect(autoMoved, undefined, ROLE_MAILBOXES),
+			isAutoMoveInEffect(
+				classifierMove(PlacementAction.MoveToInbox, "junk"),
+				undefined,
+				ROLE_MAILBOXES,
+			),
 			false,
 		);
 	});
 
-	test("true when a MoveToInbox message currently sits in the Inbox mailbox", () => {
-		const autoMoved: RemitImapAutoMovedInfo = {
-			action: PlacementAction.MoveToInbox,
-			fromPlacement: "junk",
-		};
+	test("classifier: true when a MoveToInbox message sits in the Inbox mailbox", () => {
 		assert.equal(
-			isAutoMoveInEffect(autoMoved, "mb-inbox", ROLE_MAILBOXES),
+			isAutoMoveInEffect(
+				classifierMove(PlacementAction.MoveToInbox, "junk"),
+				"mb-inbox",
+				ROLE_MAILBOXES,
+			),
 			true,
 		);
 	});
 
-	test("true when a MoveToJunk message currently sits in the Junk mailbox", () => {
-		const autoMoved: RemitImapAutoMovedInfo = {
-			action: PlacementAction.MoveToJunk,
-			fromPlacement: "inbox",
-		};
+	test("classifier: true when a MoveToJunk message sits in the Junk mailbox", () => {
 		assert.equal(
-			isAutoMoveInEffect(autoMoved, "mb-junk", ROLE_MAILBOXES),
+			isAutoMoveInEffect(
+				classifierMove(PlacementAction.MoveToJunk, "inbox"),
+				"mb-junk",
+				ROLE_MAILBOXES,
+			),
 			true,
 		);
 	});
 
-	test("false once the message has moved elsewhere (self-hide on reconcile)", () => {
-		const autoMoved: RemitImapAutoMovedInfo = {
-			action: PlacementAction.MoveToInbox,
-			fromPlacement: "junk",
-		};
+	test("classifier: false once the message has moved elsewhere", () => {
+		const autoMoved = classifierMove(PlacementAction.MoveToInbox, "junk");
 		assert.equal(
 			isAutoMoveInEffect(autoMoved, "mb-archive", ROLE_MAILBOXES),
 			false,
 		);
-		// Undone back to Junk — no longer in the implied destination.
 		assert.equal(
 			isAutoMoveInEffect(autoMoved, "mb-junk", ROLE_MAILBOXES),
 			false,
 		);
 	});
 
-	test("false when the implied destination mailbox hasn't resolved yet", () => {
-		const autoMoved: RemitImapAutoMovedInfo = {
-			action: PlacementAction.MoveToInbox,
-			fromPlacement: "junk",
-		};
+	test("filter: true while the message sits in the filter's destination", () => {
 		assert.equal(
-			isAutoMoveInEffect(autoMoved, "mb-inbox", {
+			isAutoMoveInEffect(
+				filterMove("mb-inbox", "mb-travel"),
+				"mb-travel",
+				ROLE_MAILBOXES,
+			),
+			true,
+		);
+	});
+
+	test("filter: false once undone back to the source folder", () => {
+		assert.equal(
+			isAutoMoveInEffect(
+				filterMove("mb-inbox", "mb-travel"),
+				"mb-inbox",
+				ROLE_MAILBOXES,
+			),
+			false,
+		);
+	});
+
+	test("filter: in-effect does not depend on the Inbox/Junk role mailboxes", () => {
+		assert.equal(
+			isAutoMoveInEffect(filterMove("mb-inbox", "mb-travel"), "mb-travel", {
 				inboxMailboxId: undefined,
-				junkMailboxId: "mb-junk",
+				junkMailboxId: undefined,
 			}),
+			true,
+		);
+	});
+
+	test("classifier: false when the implied destination mailbox hasn't resolved yet", () => {
+		assert.equal(
+			isAutoMoveInEffect(
+				classifierMove(PlacementAction.MoveToInbox, "junk"),
+				"mb-inbox",
+				{ inboxMailboxId: undefined, junkMailboxId: "mb-junk" },
+			),
 			false,
 		);
 	});
 });
 
 describe("resolveUndoTargetMailboxId", () => {
-	test("resolves the Junk mailbox for fromPlacement='junk'", () => {
-		assert.equal(resolveUndoTargetMailboxId("junk", ROLE_MAILBOXES), "mb-junk");
+	test("classifier: resolves the Junk mailbox for fromPlacement='junk'", () => {
+		assert.equal(
+			resolveUndoTargetMailboxId(
+				classifierMove(PlacementAction.MoveToInbox, "junk"),
+				ROLE_MAILBOXES,
+			),
+			"mb-junk",
+		);
 	});
 
-	test("resolves the Inbox mailbox for fromPlacement='inbox'", () => {
+	test("classifier: resolves the Inbox mailbox for fromPlacement='inbox'", () => {
 		assert.equal(
-			resolveUndoTargetMailboxId("inbox", ROLE_MAILBOXES),
+			resolveUndoTargetMailboxId(
+				classifierMove(PlacementAction.MoveToJunk, "inbox"),
+				ROLE_MAILBOXES,
+			),
 			"mb-inbox",
 		);
 	});
 
-	test("undefined for an unresolvable placement", () => {
+	test("classifier: undefined when the role mailbox hasn't resolved yet", () => {
 		assert.equal(
-			resolveUndoTargetMailboxId("other", ROLE_MAILBOXES),
+			resolveUndoTargetMailboxId(
+				classifierMove(PlacementAction.MoveToInbox, "junk"),
+				{ inboxMailboxId: "mb-inbox", junkMailboxId: undefined },
+			),
 			undefined,
 		);
 	});
 
-	test("undefined when the role mailbox hasn't resolved yet", () => {
+	test("filter: undo targets the recorded source mailbox verbatim", () => {
 		assert.equal(
-			resolveUndoTargetMailboxId("junk", {
-				inboxMailboxId: "mb-inbox",
-				junkMailboxId: undefined,
-			}),
+			resolveUndoTargetMailboxId(
+				filterMove("mb-work", "mb-travel"),
+				ROLE_MAILBOXES,
+			),
+			"mb-work",
+		);
+	});
+
+	test("undefined when autoMoved is absent", () => {
+		assert.equal(
+			resolveUndoTargetMailboxId(undefined, ROLE_MAILBOXES),
 			undefined,
 		);
 	});
