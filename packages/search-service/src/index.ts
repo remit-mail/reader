@@ -36,6 +36,7 @@ export {
 	createLocalEmbeddingService,
 	type DeterministicEmbeddingConfig,
 	DeterministicEmbeddingService,
+	EmbeddingModelUnavailableError,
 	type EmbeddingService,
 	type LocalEmbeddingConfig,
 	LocalEmbeddingService,
