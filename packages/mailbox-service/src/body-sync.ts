@@ -58,6 +58,8 @@ type MessagePlacementVerdict = NonNullable<
 	UpdateMessageInput["placementVerdict"]
 >;
 
+type MessageFilterMove = NonNullable<UpdateMessageInput["filterMove"]>;
+
 type ThreadMessageCategory = ThreadMessageItem["category"];
 
 /**
@@ -709,13 +711,27 @@ export class BodySyncService {
 		// classifier's placement move (RFC 034 Decision 3.1) — an explicit user
 		// rule wins the single mailbox a message occupies — so at most one move is
 		// enqueued. A non-confident/leave verdict with no filter move is a no-op.
+		let filterMove: MessageFilterMove | undefined;
 		if (filterDecision.move) {
+			// Capture the source mailbox BEFORE the move rewrites mailboxId, so the
+			// auto-moved badge can name where the filter took the message from and
+			// offer an undo back to it (issue #223). Persisted on the message rather
+			// than read from `originalMailboxId`, which a later user move would
+			// overwrite — the filter's source must survive an undo to stay derivable.
+			const sourceMailboxId = (await this.messageService.get(messageId))
+				.mailboxId;
 			await this.filterConfig?.placementMoveService.moveMessage(
 				accountConfigId,
 				messageId,
 				filterDecision.move.destinationMailboxId,
 				accountId,
 			);
+			filterMove = {
+				filterId: filterDecision.move.filterId,
+				sourceMailboxId,
+				destinationMailboxId: filterDecision.move.destinationMailboxId,
+				decidedAt: Date.now(),
+			};
 		} else if (resolved.move) {
 			await this.placementConfig?.placementMoveService.moveMessage(
 				accountConfigId,
@@ -753,6 +769,7 @@ export class BodySyncService {
 			...classification,
 			...(moved ? { movedByRemit: true } : {}),
 			...(resolved.verdict ? { placementVerdict: resolved.verdict } : {}),
+			...(filterMove ? { filterMove } : {}),
 		};
 		await this.messageService.update(messageId, update);
 		this.log.info({ messageId, storageKey: bodyRef.uri }, "Body stored");

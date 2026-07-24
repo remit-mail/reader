@@ -13,21 +13,31 @@ export interface AutoMovedBadgeProps {
 	 */
 	onUndo?: () => void;
 	undoLabel?: string;
+	/**
+	 * Settings › Filters link, present only for a standing-filter move: undo
+	 * returns the message but never disables the filter, so the badge offers a
+	 * way to reach the filter that keeps moving mail. Omit for a classifier move.
+	 */
+	filtersHref?: string;
+	manageLabel?: string;
 	className?: string;
 }
 
 /**
  * Unobtrusive indicator that Remit auto-moved this message, with an optional
- * inline one-click undo. Purely presentational — the label text and whether
- * the move is still in effect (so the badge should render at all) are the
- * caller's responsibility; this component has no notion of placement/mailbox
- * state.
+ * inline one-click undo and, for a standing-filter move, a link to the filter
+ * in Settings. Purely presentational — the label text, whether the move is
+ * still in effect (so the badge should render at all), and whether a filter
+ * link applies are the caller's responsibility; this component has no notion of
+ * placement/mailbox state.
  */
 export function AutoMovedBadge({
 	label,
 	size = "sm",
 	onUndo,
 	undoLabel = "Undo",
+	filtersHref,
+	manageLabel = "Manage filter",
 	className,
 }: AutoMovedBadgeProps) {
 	return (
@@ -51,6 +61,17 @@ export function AutoMovedBadge({
 				>
 					{undoLabel}
 				</button>
+			)}
+			{filtersHref && (
+				<a
+					href={filtersHref}
+					onClick={(event) => {
+						event.stopPropagation();
+					}}
+					className="font-semibold underline decoration-dotted underline-offset-2 hover:decoration-solid"
+				>
+					{manageLabel}
+				</a>
 			)}
 		</Badge>
 	);
