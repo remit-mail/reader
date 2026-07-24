@@ -15,6 +15,8 @@
  * boundary makes the question decidable and the browser's wording irrelevant.
  */
 
+import { recordRequest } from "./request-breadcrumbs";
+
 /** A request that never reached a server. Always soft — never escalated. */
 export class NetworkError extends Error {
 	constructor(cause: unknown) {
@@ -47,12 +49,26 @@ const isDeliberateAbort = (error: unknown): boolean =>
  * `fetch`, with transport failures tagged. Every app-owned request goes through
  * this — the generated client is configured with it, and the hand-written
  * wrapper calls it — so a `NetworkError` downstream is a fact, not an inference.
+ *
+ * It is also the one place every request is seen, so it records a metadata-only
+ * breadcrumb (method, path, status, duration, correlation id) for bug reports.
+ * A deliberate abort is not a request outcome worth reporting, so it is
+ * re-thrown before any breadcrumb is written.
  */
 export const taggedFetch: typeof fetch = async (input, init) => {
+	const startedAt = performance.now();
 	try {
-		return await fetch(input, init);
+		const response = await fetch(input, init);
+		recordRequest({
+			input,
+			init,
+			response,
+			durationMs: performance.now() - startedAt,
+		});
+		return response;
 	} catch (error) {
 		if (isDeliberateAbort(error)) throw error;
+		recordRequest({ input, init, durationMs: performance.now() - startedAt });
 		throw new NetworkError(error);
 	}
 };

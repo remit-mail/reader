@@ -34,14 +34,18 @@ function AppVersion({
 	return (
 		<p className="text-xs text-fg-subtle">
 			Version{" "}
-			<a
-				href={commitUrl}
-				target="_blank"
-				rel="noopener noreferrer"
-				className="font-mono hover:text-fg-muted hover:underline"
-			>
-				{sha}
-			</a>
+			{commitUrl ? (
+				<a
+					href={commitUrl}
+					target="_blank"
+					rel="noopener noreferrer"
+					className="font-mono hover:text-fg-muted hover:underline"
+				>
+					{sha}
+				</a>
+			) : (
+				<span className="font-mono">{sha}</span>
+			)}
 			{" · "}
 			<span>Built {formatBuildTime(buildTime)}</span>
 		</p>
@@ -71,11 +75,14 @@ export const Default: Story = {
 	},
 };
 
-/** Dev build: SHA is "dev" and commit URL points at the repo root. */
+/**
+ * Dev build: SHA is "dev" and there is no commit URL, so the version renders
+ * unlinked rather than as a dead `/commit/dev` link.
+ */
 export const DevBuild: Story = {
 	args: {
 		sha: "dev",
-		commitUrl: "https://github.com/remit-mail/reader",
+		commitUrl: undefined,
 		buildTime: new Date().toISOString(),
 	},
 };
