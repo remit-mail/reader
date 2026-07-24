@@ -1,16 +1,11 @@
-import { Button } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { useState } from "react";
 import {
-	BottomSheet,
 	INBOX_MESSAGES,
 	type MockMessage,
-	OrganizePanel,
 	PrototypeMoveSlot,
 	RealisticInbox,
 	SelectionSheet,
 	SmartOrganizeFlow,
-	SomethingElse,
 } from "./smart-organize-prototype.js";
 
 const meta: Meta = {
@@ -37,45 +32,13 @@ const BOOKINGS: MockMessage[] = [
 	{ sender: "Expedia", subject: "Itinerary for your upcoming trip" },
 ];
 
-/** Open a panel inside a re-openable bottom sheet for the isolated stories. */
-function SheetStage({
-	children,
-}: {
-	children: (close: () => void) => React.ReactNode;
-}) {
-	const [open, setOpen] = useState(true);
-	return (
-		<div className="relative h-full overflow-hidden bg-surface">
-			{/* realistic inbox as non-interactive backdrop */}
-			<div className="divide-y divide-line opacity-50">
-				{INBOX_MESSAGES.slice(0, 10).map((msg) => (
-					<div
-						key={msg.id}
-						className="flex items-start gap-3 px-row-inset py-2.5"
-					>
-						<div className="mt-0.5 size-7 shrink-0 rounded-full bg-surface-sunken" />
-						<div className="min-w-0 flex-1 space-y-1">
-							<div className="h-2.5 w-1/3 rounded bg-surface-sunken" />
-							<div className="h-2 w-2/3 rounded bg-surface-sunken" />
-						</div>
-					</div>
-				))}
-			</div>
-			{!open && (
-				<Button
-					variant="primary"
-					onClick={() => setOpen(true)}
-					className="absolute inset-x-0 bottom-0 m-3 h-11 font-semibold"
-				>
-					Reopen sheet
-				</Button>
-			)}
-			<BottomSheet open={open} onClose={() => setOpen(false)}>
-				{children(() => setOpen(false))}
-			</BottomSheet>
-		</div>
-	);
-}
+/**
+ * The isolated in-sheet organize panels — `Organize`, `From Search`,
+ * `Always Rule`, `SomethingElse` — render the real web-client components and
+ * live in `packages/web-client/src/components/mail/organize/`, under this same
+ * `Flows/Smart Organize` group. The interactive prototype below is the design
+ * reference; the app's own stories are the source of truth for what ships.
+ */
 
 /**
  * PRIMARY STORY — fully interactive hi-fi Remit inbox.
@@ -182,58 +145,5 @@ export const SelectionSheetExpanded: Story = {
 				startExpanded
 			/>
 		</div>
-	),
-};
-
-/** Beat 2b — the "Something else" sheet: smart shortcuts + plain-language input. */
-export const SomethingElseStory: Story = {
-	name: "SomethingElse",
-	render: () => (
-		<SheetStage>{() => <SomethingElse onPick={() => {}} />}</SheetStage>
-	),
-};
-
-/** Beat 3 — the organize habit sentence from a 3-message selection. */
-export const Organize: Story = {
-	render: () => (
-		<SheetStage>
-			{() => (
-				<OrganizePanel
-					selectedMessages={BOOKINGS}
-					similarCount={47}
-					initialScope="all-like-these"
-				/>
-			)}
-		</SheetStage>
-	),
-};
-
-/** Organize anchored on a plain search — no clauses, just the count + sentence. */
-export const FromSearch: Story = {
-	render: () => (
-		<SheetStage>
-			{() => (
-				<OrganizePanel
-					search={{ query: "airbnb", count: 49 }}
-					similarCount={47}
-					initialScope="all-like-these"
-				/>
-			)}
-		</SheetStage>
-	),
-};
-
-/** Organize with future-mail scope — the "Always keep…" sentence + caption. */
-export const AlwaysRule: Story = {
-	render: () => (
-		<SheetStage>
-			{() => (
-				<OrganizePanel
-					selectedMessages={BOOKINGS}
-					similarCount={47}
-					initialScope="future-mail"
-				/>
-			)}
-		</SheetStage>
 	),
 };
