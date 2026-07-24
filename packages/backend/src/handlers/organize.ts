@@ -157,14 +157,19 @@ export const OrganizeOperations: Record<
 		const client = await getClient();
 		await assertAccount(client, accountId, accountConfigId, "read");
 
-		const messageIds = await matchOrganize(
+		const { messageIds, semanticUnavailable } = await matchOrganize(
 			buildOrganizeMatchDeps(client),
 			accountConfigId,
 			predicateFromInput(input),
 			ORGANIZE_MATCH_LIMIT,
 		);
 
-		return { matchedCount: messageIds.length, messageIds };
+		const response: OrganizePreviewResponse = {
+			matchedCount: messageIds.length,
+			messageIds,
+		};
+		if (semanticUnavailable) response.semanticUnavailable = true;
+		return response;
 	},
 };
 

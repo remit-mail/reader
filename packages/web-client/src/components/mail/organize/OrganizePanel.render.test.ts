@@ -62,6 +62,12 @@ describe("OrganizePanel", () => {
 		assert.match(html, /organizing just your 2 selected/);
 	});
 
+	it("names the missing vector pipeline and organizes just the selection when the widen is unavailable (#226/#201)", () => {
+		const html = render({ matchedCount: 0, semanticUnavailable: true });
+		assert.match(html, /available on this server/);
+		assert.match(html, /organizing just your 2 selected/);
+	});
+
 	it("pre-selects the seeded scope (a 'Something else' shortcut seeds the sentence)", () => {
 		const html = render({ initialScope: "standing" });
 		// The standing scope's "Always keep" phrasing only renders when it is active.

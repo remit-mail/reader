@@ -33,6 +33,9 @@ export const useOrganizePreview = (accountId: string | undefined) => {
 		reset: mutation.reset,
 		matchedCount: mutation.data?.matchedCount,
 		messageIds: mutation.data?.messageIds,
+		// True when the server ran no semantic widen because this deployment
+		// ships no vector pipeline — the matched set is literal-only (or empty).
+		semanticUnavailable: mutation.data?.semanticUnavailable ?? false,
 		isPending: mutation.isPending,
 		isError: mutation.isError,
 		error: mutation.error,
