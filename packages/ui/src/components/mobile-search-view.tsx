@@ -46,6 +46,8 @@ export interface MobileSearchViewProps {
 	onRemoveChip?: (id: string) => void;
 	/** What the search covers; see `SearchResultsProps`. Defaults to global. */
 	scope?: SearchScope;
+	/** "Make this a filter" affordance; see `SearchResultsProps`. */
+	makeFilter?: { onClick: () => void; disabledReason?: string };
 }
 
 /**
@@ -77,6 +79,7 @@ export function MobileSearchView({
 	chips,
 	onRemoveChip,
 	scope,
+	makeFilter,
 }: MobileSearchViewProps) {
 	const body = (
 		<SearchResults
@@ -88,6 +91,7 @@ export function MobileSearchView({
 			onSelectResult={onSelectResult}
 			tokens={tokens}
 			scope={scope}
+			makeFilter={makeFilter}
 		/>
 	);
 

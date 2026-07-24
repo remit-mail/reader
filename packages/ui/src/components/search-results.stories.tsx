@@ -167,6 +167,31 @@ export const NoResults: Story = {
 	render: () => <Harness value="asdfqwer" sections={emptySections} />,
 };
 
+/** "Make this a filter" offered above active results (RFC 038 D5). */
+export const WithMakeFilter: Story = {
+	render: () => (
+		<Harness
+			value="invoice"
+			sections={resultSections}
+			makeFilter={{ onClick: () => {} }}
+		/>
+	),
+};
+
+/** The filter offer disabled — a search of only non-clause facets has nothing to convert. */
+export const MakeFilterDisabled: Story = {
+	render: () => (
+		<Harness
+			value="has:attachment"
+			sections={resultSections}
+			makeFilter={{
+				onClick: () => {},
+				disabledReason: "Add a sender or words to filter on",
+			}}
+		/>
+	),
+};
+
 /** Results still loading. */
 export const Loading: Story = {
 	render: () => <Harness value="invoice" loading />,

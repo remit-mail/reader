@@ -391,6 +391,17 @@ export {
 	type SearchChipInputProps,
 } from "./components/search-chip-input.js";
 export {
+	DROPPED_SEMANTIC_COPY,
+	droppedFacetsCopy,
+	hasConversionNotice,
+	type SearchConversionNotice,
+	scopedOutCopy,
+} from "./components/search-conversion.js";
+export {
+	type SearchConversionNoticeProps,
+	SearchConversionNoticeView,
+} from "./components/search-conversion-notice.js";
+export {
 	type SearchResult,
 	SearchResultRow,
 	type SearchResultRowProps,

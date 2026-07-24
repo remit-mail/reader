@@ -1,4 +1,4 @@
-import { ChevronDown, Clock } from "lucide-react";
+import { ChevronDown, Clock, Filter } from "lucide-react";
 import { useState } from "react";
 import { cn } from "../lib/cn.js";
 import type { FolderRole } from "./folder-role.js";
@@ -84,6 +84,48 @@ export interface SearchResultsProps {
 	tokens?: { label: string; onRemove: () => void }[];
 	/** What the search covers. Defaults to the unscoped, global search. */
 	scope?: SearchScope;
+	/**
+	 * "Make this a filter" (RFC 038 D5) — offered above the results while a query
+	 * is active, converting the search to a pre-filled rule. Omit to drop the
+	 * affordance; a `disabledReason` renders it inert with the reason (a search of
+	 * only non-clause facets has nothing to convert).
+	 */
+	makeFilter?: { onClick: () => void; disabledReason?: string };
+}
+
+/** "Make this a filter" — the conversion entry offered above active search results. */
+function MakeFilterButton({
+	onClick,
+	disabledReason,
+}: {
+	onClick: () => void;
+	disabledReason?: string;
+}) {
+	const disabled = disabledReason !== undefined;
+	return (
+		<div className="border-b border-line px-row-inset py-1.5">
+			<button
+				type="button"
+				onClick={onClick}
+				disabled={disabled}
+				title={disabledReason}
+				className={cn(
+					"flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs font-medium transition-colors",
+					disabled
+						? "cursor-not-allowed text-fg-subtle"
+						: "text-accent hover:bg-surface-sunken",
+				)}
+			>
+				<Filter className="size-3.5 shrink-0" aria-hidden="true" />
+				<span>Make this a filter</span>
+				{disabled && (
+					<span className="ml-auto truncate text-2xs font-normal text-fg-subtle">
+						{disabledReason}
+					</span>
+				)}
+			</button>
+		</div>
+	);
 }
 
 /**
@@ -195,6 +237,7 @@ export function SearchResults({
 	onSelectResult,
 	tokens,
 	scope = GLOBAL_SCOPE,
+	makeFilter,
 }: SearchResultsProps) {
 	const hasQuery = value.trim().length > 0;
 
@@ -231,10 +274,17 @@ export function SearchResults({
 	const chips = tokens && tokens.length > 0 && (
 		<SearchTokenChips tokens={tokens} />
 	);
+	const filterAction = makeFilter && (
+		<MakeFilterButton
+			onClick={makeFilter.onClick}
+			disabledReason={makeFilter.disabledReason}
+		/>
+	);
 
 	if (loading) {
 		return (
 			<div className="flex flex-col">
+				{filterAction}
 				{chips}
 				<div className="flex flex-col gap-3 px-row-inset py-4">
 					{[0, 1, 2, 3].map((row) => (
@@ -286,6 +336,7 @@ export function SearchResults({
 	if (!hasResults) {
 		return (
 			<div className="flex flex-col">
+				{filterAction}
 				{chips}
 				{spamOffer}
 				<div className="px-row-inset py-10 text-center">
@@ -302,6 +353,7 @@ export function SearchResults({
 
 	return (
 		<div className="flex flex-col">
+			{filterAction}
 			{chips}
 			{spamOffer}
 			{visibleSections

@@ -86,6 +86,42 @@ describe("SearchResults", () => {
 		);
 		assert.doesNotMatch(html, /Remove filter/);
 	});
+
+	it("offers 'Make this a filter' above active results", () => {
+		const html = renderToString(
+			createElement(SearchResults, {
+				value: "invoice",
+				sections,
+				makeFilter: { onClick: noop },
+			}),
+		);
+		assert.match(html, /Make this a filter/);
+		assert.doesNotMatch(html, /disabled=""/);
+	});
+
+	it("disables the filter offer with its reason when nothing converts", () => {
+		const html = renderToString(
+			createElement(SearchResults, {
+				value: "has:attachment",
+				sections: [{ id: "results", label: "Results", results: [] }],
+				makeFilter: { onClick: noop, disabledReason: "Add a sender or words" },
+			}),
+		);
+		assert.match(html, /Make this a filter/);
+		assert.match(html, /disabled/);
+		assert.match(html, /Add a sender or words/);
+	});
+
+	it("never offers the filter on the empty-query recent-searches view", () => {
+		const html = renderToString(
+			createElement(SearchResults, {
+				value: "",
+				recentSearches: ["invoice"],
+				makeFilter: { onClick: noop },
+			}),
+		);
+		assert.doesNotMatch(html, /Make this a filter/);
+	});
 });
 
 const spamResult: SearchResult = {

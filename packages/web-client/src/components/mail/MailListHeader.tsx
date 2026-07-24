@@ -39,11 +39,15 @@ import {
 	useAppShellLayout,
 } from "@remit/ui";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { isSinglePaneTier, useLayoutTier } from "@/hooks/useLayoutTier";
 import { useSearchScope } from "@/hooks/useSearchScope";
 import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
 import { useMailContext } from "@/lib/mail-context";
+import {
+	convertSearchToRule,
+	isConvertible,
+} from "@/lib/organize/search-to-rule";
 import { loadRecentSearches, saveRecentSearch } from "@/lib/recent-searches";
 import { resultsScopeForRoute, routeMailboxId } from "@/lib/search-scope";
 import { showInlineSearchResults } from "@/lib/search-surface";
@@ -53,6 +57,7 @@ import {
 	searchTokenLabel,
 } from "@/lib/search-tokens";
 import { spamOfferForResults } from "@/lib/spam-offer";
+import { SearchFilterDialog } from "./organize/SearchFilterDialog";
 
 interface MailListHeaderProps {
 	title: string;
@@ -120,6 +125,7 @@ export function MailListHeader({
 	const tier = useLayoutTier();
 	const [searchOpen, setSearchOpen] = useState(false);
 	const [recentSearches, setRecentSearches] = useState(loadRecentSearches);
+	const [filterOpen, setFilterOpen] = useState(false);
 
 	// Leaving the view ends the search: the shell drops the query, and the chrome
 	// it opened — the phone takeover, the expanded tablet field — closes with it
@@ -138,12 +144,18 @@ export function MailListHeader({
 	// parse runs through `useSearchTokenContext`, the same one the engines use,
 	// so a chip appears only for a term that is actually being applied — on a
 	// scoped view `in:` is not resolved and so is never chipped here.
-	const tokenChips = parseSearchTokens(searchInput, tokenContext).tokens.map(
-		(token) => ({
-			label: searchTokenLabel(token),
-			onRemove: () => onSearchChange(removeSearchToken(searchInput, token)),
-		}),
+	// Memoized on the stable name indexes (not the fresh context object) so the
+	// filter dialog receives a stable parse and does not re-run its seed preview
+	// every render.
+	const { mailboxesByName, accountsByName } = tokenContext;
+	const parsed = useMemo(
+		() => parseSearchTokens(searchInput, { mailboxesByName, accountsByName }),
+		[searchInput, mailboxesByName, accountsByName],
 	);
+	const tokenChips = parsed.tokens.map((token) => ({
+		label: searchTokenLabel(token),
+		onRemove: () => onSearchChange(removeSearchToken(searchInput, token)),
+	}));
 	const topMatches = searchResults ?? [];
 	const related = relatedResults ?? [];
 	// Always offer both sections while a query is present; the kit drops the empty
@@ -195,6 +207,39 @@ export function MailListHeader({
 			}
 		: routeScope;
 
+	// Make-this-a-filter (RFC 038 D5): convert the current search to a pre-filled
+	// rule and open the shared chip editor. The filter is created for the account
+	// an `account:` facet names, else the primary account. The literal filter
+	// cannot reproduce the search's semantic reach, so the conversion states it
+	// whenever the search surfaced a "Related" section — a direct signal, read
+	// here from the semantic results, never a capability probe. Offered whenever a
+	// query is active, disabled with a reason when the search has no clause to
+	// filter on (only non-clause facets, or a bare folder scope).
+	const accountToken = parsed.tokens.find((token) => token.type === "account");
+	const targetAccountId = accountToken?.accountId ?? accounts[0]?.accountId;
+	const searchHadSemanticReach = related.length > 0;
+	const makeFilter =
+		hasQuery && targetAccountId
+			? {
+					onClick: () => setFilterOpen(true),
+					disabledReason: isConvertible(
+						convertSearchToRule(parsed, { searchHadSemanticReach }),
+					)
+						? undefined
+						: "Add a sender or words to filter on",
+				}
+			: undefined;
+	const filterDialog =
+		filterOpen && targetAccountId ? (
+			<SearchFilterDialog
+				open={filterOpen}
+				accountId={targetAccountId}
+				parsed={parsed}
+				searchHadSemanticReach={searchHadSemanticReach}
+				onClose={() => setFilterOpen(false)}
+			/>
+		) : null;
+
 	if (tier === "phone" && searchOpen) {
 		const handleSelectResult = (result: SearchResult) => {
 			setRecentSearches(saveRecentSearch(searchInput));
@@ -202,23 +247,27 @@ export function MailListHeader({
 			onSelectSearchResult?.(result);
 		};
 		return (
-			<MobileSearchView
-				value={searchInput}
-				onChange={onSearchChange}
-				onClear={onSearchClear}
-				onCancel={() => {
-					setSearchOpen(false);
-					onSearchClear();
-				}}
-				filter={searchFilter}
-				recentSearches={recentSearches}
-				onPickRecent={onSearchChange}
-				sections={sections}
-				loading={resultsLoading}
-				onSelectResult={handleSelectResult}
-				tokens={tokenChips}
-				scope={resultsScope}
-			/>
+			<>
+				<MobileSearchView
+					value={searchInput}
+					onChange={onSearchChange}
+					onClear={onSearchClear}
+					onCancel={() => {
+						setSearchOpen(false);
+						onSearchClear();
+					}}
+					filter={searchFilter}
+					recentSearches={recentSearches}
+					onPickRecent={onSearchChange}
+					makeFilter={makeFilter}
+					sections={sections}
+					loading={resultsLoading}
+					onSelectResult={handleSelectResult}
+					tokens={tokenChips}
+					scope={resultsScope}
+				/>
+				{filterDialog}
+			</>
 		);
 	}
 
@@ -247,6 +296,7 @@ export function MailListHeader({
 			onSelectResult={handleSelectInlineResult}
 			tokens={tokenChips}
 			scope={resultsScope}
+			makeFilter={makeFilter}
 		/>
 	);
 	const body = !showInlineResults ? (
@@ -280,6 +330,7 @@ export function MailListHeader({
 			/>
 			<div className="min-h-0 flex-1">{body}</div>
 			{footer}
+			{filterDialog}
 		</section>
 	);
 }
