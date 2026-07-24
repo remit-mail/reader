@@ -38,6 +38,12 @@ export interface FilterRuleEditorProps {
 	folders: FolderOption[];
 	preview: PreviewCount;
 	/**
+	 * Content rendered above the clause chips — the filter-from-search conversion
+	 * notice (RFC 038 D5) uses it to state what the search carried that the rule
+	 * cannot. Absent on the Organize surface, which converts nothing.
+	 */
+	notice?: ReactNode;
+	/**
 	 * Whether the deployment can serve the semantic widen (RFC 038 D4). When
 	 * false the "…and anything similar" chip is never offered — an already-present
 	 * widen still renders, marked inactive.
@@ -84,6 +90,7 @@ export function FilterRuleEditor({
 	rule,
 	folders,
 	preview,
+	notice,
 	semanticAvailable = false,
 	clauseFields,
 	clauseEdit,
@@ -121,6 +128,7 @@ export function FilterRuleEditor({
 			</div>
 
 			<div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
+				{notice}
 				<section className="space-y-3">
 					<div className="flex flex-wrap items-center gap-1.5">
 						{rule.clauses.map((clause, index) => (
