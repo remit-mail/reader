@@ -12,6 +12,8 @@ export type OperationIds =
 	| "MeOperations_getExport"
 	| "MeOperations_listQuarantine"
 	| "ConfigOperations_getConfig"
+	| "SystemOperations_getSystemUpdate"
+	| "SystemOperations_applySystemUpdate"
 	| "AccountOperations_createAccount"
 	| "AccountOperations_testConnection"
 	| "AccountDetailOperations_updateAccount"
@@ -59,6 +61,8 @@ export type OperationIds =
 export type MeOperationIds = MatchPrefix<"MeOperations_", OperationIds>;
 
 export type ConfigOperationIds = MatchPrefix<"ConfigOperations_", OperationIds>;
+
+export type SystemOperationIds = MatchPrefix<"SystemOperations_", OperationIds>;
 
 export type AccountOperationIds = MatchPrefix<
 	"AccountOperations_",

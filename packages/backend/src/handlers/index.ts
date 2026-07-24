@@ -16,6 +16,7 @@ import { OrganizeJobDetailOperations, OrganizeOperations } from "./organize.js";
 import { OutboxDetailOperations, OutboxOperations } from "./outbox.js";
 import { SemanticSearchOperations } from "./search.js";
 import { SyncOperations } from "./sync.js";
+import { SystemOperations } from "./system-update.js";
 import { ThreadDetailOperations, ThreadOperations } from "./thread.js";
 import { UnifiedThreadOperations } from "./unified-threads.js";
 
@@ -23,6 +24,7 @@ import { UnifiedThreadOperations } from "./unified-threads.js";
 export const handlers: Record<OperationIds, OperationHandler<any>> = {
 	...MeOperations,
 	...ConfigOperations,
+	...SystemOperations,
 	...AccountOperations,
 	...AccountDetailOperations,
 	...MicrosoftOAuthOperations,
