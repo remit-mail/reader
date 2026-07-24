@@ -91,6 +91,24 @@ export interface LocalEmbeddingConfig {
 const DEFAULT_LOCAL_MODEL_ID = "Xenova/all-MiniLM-L6-v2";
 const DEFAULT_LOCAL_DIMENSIONS = 384;
 
+/**
+ * The local embedder could not load its model. Raised when Transformers.js fails
+ * to resolve the model files — the common cause is `from_pretrained` lazily
+ * fetching the weights from HuggingFace and the network fetch failing
+ * (`TypeError: fetch failed`), which otherwise surfaces as an opaque 500.
+ *
+ * The `code` is the contract consumers match on (mirroring Node's own error
+ * codes) to degrade the semantic path to empty results instead of crashing,
+ * without importing this class or string-matching undici internals.
+ */
+export class EmbeddingModelUnavailableError extends Error {
+	readonly code = "ERR_EMBEDDING_MODEL_UNAVAILABLE";
+	constructor(modelId: string, options?: { cause?: unknown }) {
+		super(`Embedding model "${modelId}" could not be loaded`, options);
+		this.name = "EmbeddingModelUnavailableError";
+	}
+}
+
 type TransformersModule = { pipeline: typeof PipelineFn };
 
 /**
@@ -122,15 +140,34 @@ export class LocalEmbeddingService implements EmbeddingService {
 
 	private getPipeline = async (): Promise<FeatureExtractionPipeline> => {
 		if (this.pipelinePromise) return this.pipelinePromise;
-		this.pipelinePromise = (async () => {
-			const { pipeline } = await runtimeImport<TransformersModule>(
-				"@huggingface/transformers",
-			);
-			return pipeline("feature-extraction", this.modelId, {
+		const promise = this.loadPipeline();
+		this.pipelinePromise = promise;
+		try {
+			return await promise;
+		} catch (error) {
+			// A failed load (module absent, or the model could not be fetched) must
+			// not poison the instance: clear the memo so a later call retries rather
+			// than returning the same rejected promise for the process lifetime.
+			if (this.pipelinePromise === promise) this.pipelinePromise = null;
+			throw error;
+		}
+	};
+
+	// Import boundary kept overridable so a load failure can be exercised without
+	// the network; the default resolves Transformers.js lazily via runtimeImport.
+	protected importTransformers(): Promise<TransformersModule> {
+		return runtimeImport<TransformersModule>("@huggingface/transformers");
+	}
+
+	private loadPipeline = async (): Promise<FeatureExtractionPipeline> => {
+		const { pipeline } = await this.importTransformers();
+		try {
+			return await pipeline("feature-extraction", this.modelId, {
 				dtype: this.dtype,
 			});
-		})();
-		return this.pipelinePromise;
+		} catch (error) {
+			throw new EmbeddingModelUnavailableError(this.modelId, { cause: error });
+		}
 	};
 
 	embed = async (texts: string[]): Promise<number[][]> => {

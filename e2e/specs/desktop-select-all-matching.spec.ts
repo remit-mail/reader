@@ -10,10 +10,10 @@
  * two-pane layout and its top `SelectionToolbar` render — no viewport override.
  *
  * Search is driven through the literal `threads/search` path (a committed `q=`
- * URL), never the semantic engine: the e2e lane builds no vector index and
- * `/search/semantic` lazily fetches an embedding model at test time, whose
- * transient failure raises the fatal-error overlay (#219). Nothing here depends
- * on that path.
+ * URL), never the semantic engine: the e2e lane builds no vector index and runs
+ * the deterministic in-process embedder rather than the HuggingFace model
+ * (#219), so `/search/semantic` returns empty here. Nothing here depends on that
+ * path.
  */
 import type { Locator, Page } from "@playwright/test";
 import { ApiClient, waitFor } from "../src/api.js";

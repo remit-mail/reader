@@ -13,6 +13,15 @@ import { isSelfHostSqlBackend } from "../data-backend.js";
  * fetches semantic hits alongside every literal search), retried by the client
  * on top.
  *
+ * The e2e-dev lane runs this backend from source rather than the container, so
+ * `@huggingface/transformers` IS present and the local embedder instead tries to
+ * lazily download the model from HuggingFace; a transient `fetch failed` there
+ * surfaces the same way. The search-service raises it as a typed
+ * `EmbeddingModelUnavailableError` (code ERR_EMBEDDING_MODEL_UNAVAILABLE), which
+ * this gate treats as the same capability absence — the model is not available,
+ * empty semantic results are the truthful answer, and the lane never depends on
+ * a live external download.
+ *
  * When the pipeline is genuinely absent, empty hits are the truthful answer:
  * the FTS/literal engine is the primary search surface on these profiles and is
  * unaffected. The absence is remembered so subsequent requests short-circuit.
@@ -29,6 +38,7 @@ const CAPABILITY_ABSENCE_CODES = new Set([
 	"ERR_MODULE_NOT_FOUND",
 	"MODULE_NOT_FOUND",
 	"ERR_DLOPEN_FAILED",
+	"ERR_EMBEDDING_MODEL_UNAVAILABLE",
 ]);
 
 let semanticUnavailable = false;

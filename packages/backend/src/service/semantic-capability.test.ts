@@ -14,6 +14,14 @@ const moduleNotFound = (): Error => {
 	return error;
 };
 
+const modelUnavailable = (): Error => {
+	const error = new Error(
+		'Embedding model "Xenova/paraphrase-multilingual-MiniLM-L12-v2" could not be loaded',
+	);
+	(error as Error & { code: string }).code = "ERR_EMBEDDING_MODEL_UNAVAILABLE";
+	return error;
+};
+
 describe("noteSemanticCapabilityAbsence", () => {
 	const ORIGINAL = process.env.DATA_BACKEND;
 	beforeEach(() => {
@@ -44,6 +52,16 @@ describe("noteSemanticCapabilityAbsence", () => {
 		assert.equal(noteSemanticCapabilityAbsence(error), true);
 	});
 
+	it("absorbs an embedding-model load failure (e2e-dev from source, HuggingFace fetch failed) and remembers it", () => {
+		for (const backend of ["sqlite", "postgres"]) {
+			_resetSemanticCapabilityForTest();
+			process.env.DATA_BACKEND = backend;
+			assert.equal(isSemanticSearchUnavailable(), false);
+			assert.equal(noteSemanticCapabilityAbsence(modelUnavailable()), true);
+			assert.equal(isSemanticSearchUnavailable(), true);
+		}
+	});
+
 	it("rethrows genuine query errors on the self-host SQL backends", () => {
 		process.env.DATA_BACKEND = "sqlite";
 		assert.equal(
@@ -57,8 +75,10 @@ describe("noteSemanticCapabilityAbsence", () => {
 	it("never engages on the AWS DynamoDB path — a missing module there is a broken deploy", () => {
 		delete process.env.DATA_BACKEND;
 		assert.equal(noteSemanticCapabilityAbsence(moduleNotFound()), false);
+		assert.equal(noteSemanticCapabilityAbsence(modelUnavailable()), false);
 		process.env.DATA_BACKEND = "dynamodb";
 		assert.equal(noteSemanticCapabilityAbsence(moduleNotFound()), false);
+		assert.equal(noteSemanticCapabilityAbsence(modelUnavailable()), false);
 		assert.equal(isSemanticSearchUnavailable(), false);
 	});
 });
