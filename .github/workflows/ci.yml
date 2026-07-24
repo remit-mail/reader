@@ -103,7 +103,8 @@ jobs:
         run: npm run typecheck
 
   # Every workspace suite except web-client. web-client dominated the single
-  # `test` job — its 113-file suite was the whole critical path — so it fans out
+  # `test` job — its single-process coverage run was the whole critical path — so
+  # it fans out
   # across the shard matrix below and is excluded here to keep it from running
   # twice. Every other package keeps its own native coverage floor untouched;
   # test-parallel runs them three-wide.
