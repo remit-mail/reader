@@ -76,18 +76,18 @@ describe("OrganizePanel", () => {
 		const html = render({
 			matchedCount: 128,
 			semanticUnavailable: true,
-			senders: ["npm@github.com", "notifications@github.com"],
+			senders: ["npm@github.com", "digest@substack.com"],
 			matchPredicate: {
 				matchOperator: "Or",
 				literalClauses: [
 					{ field: "From", value: "npm@github.com" },
-					{ field: "From", value: "notifications@github.com" },
+					{ field: "From", value: "digest@substack.com" },
 				],
 			},
 		});
 		assert.match(html, /matching all mail from/);
 		assert.match(html, /npm@github\.com/);
-		assert.match(html, /notifications@github\.com/);
+		assert.match(html, /digest@substack\.com/);
 		assert.match(html, /128 matches/);
 		// Never claims the matched set is semantically similar (only denies that
 		// similar-mail matching is available).
@@ -96,6 +96,25 @@ describe("OrganizePanel", () => {
 		// The sender fallback is a real widen: the scopes reach it, so the
 		// default scope is "all like these", not "just these".
 		assert.match(html, /All like these/);
+	});
+
+	it("names the shared domain when every fallback sender shares one (RFC 038 D2 collapse)", () => {
+		const html = render({
+			matchedCount: 342,
+			semanticUnavailable: true,
+			senders: [
+				"npm@github.com",
+				"notifications@github.com",
+				"ci@sub.github.com",
+			],
+			matchPredicate: {
+				matchOperator: "Or",
+				literalClauses: [{ field: "FromDomain", value: "github.com" }],
+			},
+		});
+		assert.match(html, /matching all mail from anyone at github\.com/);
+		assert.match(html, /342 matches/);
+		assert.doesNotMatch(html, /similar message/i);
 	});
 
 	it("pre-selects the seeded scope (a 'Something else' shortcut seeds the sentence)", () => {

@@ -1,5 +1,6 @@
 import type { OrganizeScope } from "./organize-model";
 import { hasCommittableAction, type OrganizeDraft } from "./organize-model";
+import { collapsibleDomain } from "./sender-fallback";
 
 export interface CommitContext {
 	draft: OrganizeDraft;
@@ -82,9 +83,13 @@ export const formatSenderList = (senders: readonly string[]): string => {
 /**
  * The heading when the widen fell back to sender matching (no vector pipeline on
  * this server). States the actual semantics — matching every mail from these
- * senders — and never claims semantic similarity.
+ * senders, or from anyone at their shared domain when the clauses collapsed to a
+ * single `FromDomain` (RFC 038 D2) — and never claims semantic similarity.
  */
-export const senderFallbackSummary = (senders: readonly string[]): string =>
-	`Similar-mail matching isn't available on this server — matching all mail from ${formatSenderList(
-		senders,
-	)} instead.`;
+export const senderFallbackSummary = (senders: readonly string[]): string => {
+	const domain = collapsibleDomain(senders);
+	const target = domain
+		? `anyone at ${domain}`
+		: `${formatSenderList(senders)}`;
+	return `Similar-mail matching isn't available on this server — matching all mail from ${target} instead.`;
+};

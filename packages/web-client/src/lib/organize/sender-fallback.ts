@@ -2,6 +2,7 @@ import type {
 	RemitImapFilterClause,
 	RemitImapOrganizeInput,
 } from "@remit/api-http-client/types.gen.ts";
+import { getDomain } from "tldts";
 import type { OrganizeDraft } from "./organize-model";
 
 /**
@@ -31,15 +32,47 @@ export const distinctSenders = (senders: readonly string[]): string[] => {
 	return out;
 };
 
+const hostOf = (address: string): string => {
+	const at = address.lastIndexOf("@");
+	return at >= 0 ? address.slice(at + 1) : address;
+};
+
 /**
- * One `From` literal clause per distinct sender address. A `From` clause matches
- * the sender address or display name (match.ts `clauseMatches`), so the address
- * is the precise, stable key.
+ * The single registrable domain the whole selection collapses to, or `null` when
+ * it does not collapse. A collapse needs at least two distinct senders that all
+ * resolve to one registrable domain (public-suffix aware, via tldts `getDomain`)
+ * — the "anyone at this domain" signal (RFC 038 D2). One sender stays a precise
+ * `From` clause rather than widening a single address to its whole domain, and a
+ * sender whose domain can't be resolved blocks the collapse.
+ */
+export const collapsibleDomain = (
+	senders: readonly string[],
+): string | null => {
+	const distinct = distinctSenders(senders);
+	if (distinct.length < 2) return null;
+	let shared: string | null = null;
+	for (const sender of distinct) {
+		const domain = getDomain(hostOf(sender));
+		if (domain === null) return null;
+		if (shared === null) shared = domain;
+		else if (shared !== domain) return null;
+	}
+	return shared;
+};
+
+/**
+ * The literal clauses standing in for the selection. When every sender shares one
+ * registrable domain, a single `FromDomain` clause replaces the per-address `From`
+ * chips (RFC 038 D2); otherwise one `From` clause per distinct sender, each
+ * matching the sender address or display name (match.ts `clauseMatches`).
  */
 export const deriveSenderClauses = (
 	senders: readonly string[],
-): RemitImapFilterClause[] =>
-	distinctSenders(senders).map((value) => ({ field: "From", value }));
+): RemitImapFilterClause[] => {
+	const domain = collapsibleDomain(senders);
+	if (domain !== null) return [{ field: "FromDomain", value: domain }];
+	return distinctSenders(senders).map((value) => ({ field: "From", value }));
+};
 
 /**
  * The literal predicate that stands in for the semantic anchor: the sender `From`
