@@ -19,6 +19,7 @@ import { getMailboxDisplayName } from "@/lib/folder-roles";
 import { buildMoveTargets } from "@/lib/move-targets";
 import {
 	buildInitialRule,
+	normalizeClauseValue,
 	rulePredicate,
 	ruleToDraft,
 	SUPPORTED_CLAUSE_FIELDS,
@@ -129,9 +130,9 @@ export function OrganizeRuleEditor({
 
 	const submitClause = () => {
 		if (!clauseEdit) return;
-		const value = clauseEdit.draft.value.trim();
-		if (value === "") return;
 		const field = clauseEdit.draft.field;
+		const value = normalizeClauseValue(field, clauseEdit.draft.value);
+		if (value === "") return;
 		setRule((current) => {
 			if (clauseEdit.mode === "edit" && clauseEdit.clauseId) {
 				return {

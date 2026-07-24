@@ -3,6 +3,7 @@ import { cn } from "../lib/cn.js";
 import { Button } from "./button.js";
 import {
 	type ClauseField,
+	clauseFieldHint,
 	clauseFieldLabel,
 	clauseFieldOrder,
 	type RuleClause,
@@ -172,47 +173,51 @@ export function ClauseEditor({
 	onSubmit,
 	onCancel,
 }: ClauseEditorProps) {
+	const hint = clauseFieldHint(draft.field);
 	return (
-		<div className="flex flex-wrap items-center gap-2 rounded-lg border border-accent-2 bg-surface p-2">
-			<Select
-				aria-label="Clause field"
-				value={draft.field}
-				onChange={(e) => onChangeField?.(e.target.value as ClauseField)}
-				className="h-8 w-32 shrink-0"
-			>
-				{fields.map((field) => (
-					<option key={field} value={field}>
-						{clauseFieldLabel(field)}
-					</option>
-				))}
-			</Select>
-			<Input
-				aria-label="Clause value"
-				value={draft.value}
-				placeholder="value…"
-				onChange={(e) => onChangeValue?.(e.target.value)}
-				onKeyDown={(e) => {
-					if (e.key === "Enter") onSubmit?.();
-				}}
-				className="h-8 min-w-40 flex-1"
-			/>
-			<Button
-				variant="primary"
-				size="sm"
-				onClick={onSubmit}
-				disabled={draft.value.trim() === ""}
-				className="shrink-0"
-			>
-				{mode === "add" ? "Add" : "Save"}
-			</Button>
-			<Button
-				variant="ghost"
-				size="sm"
-				onClick={onCancel}
-				aria-label="Cancel clause edit"
-				icon={<X className="size-4" />}
-				className="shrink-0 px-2"
-			/>
+		<div className="space-y-1.5 rounded-lg border border-accent-2 bg-surface p-2">
+			<div className="flex flex-wrap items-center gap-2">
+				<Select
+					aria-label="Clause field"
+					value={draft.field}
+					onChange={(e) => onChangeField?.(e.target.value as ClauseField)}
+					className="h-8 w-32 shrink-0"
+				>
+					{fields.map((field) => (
+						<option key={field} value={field}>
+							{clauseFieldLabel(field)}
+						</option>
+					))}
+				</Select>
+				<Input
+					aria-label="Clause value"
+					value={draft.value}
+					placeholder="value…"
+					onChange={(e) => onChangeValue?.(e.target.value)}
+					onKeyDown={(e) => {
+						if (e.key === "Enter") onSubmit?.();
+					}}
+					className="h-8 min-w-40 flex-1"
+				/>
+				<Button
+					variant="primary"
+					size="sm"
+					onClick={onSubmit}
+					disabled={draft.value.trim() === ""}
+					className="shrink-0"
+				>
+					{mode === "add" ? "Add" : "Save"}
+				</Button>
+				<Button
+					variant="ghost"
+					size="sm"
+					onClick={onCancel}
+					aria-label="Cancel clause edit"
+					icon={<X className="size-4" />}
+					className="shrink-0 px-2"
+				/>
+			</div>
+			{hint && <p className="px-0.5 text-2xs text-fg-subtle">{hint}</p>}
 		</div>
 	);
 }

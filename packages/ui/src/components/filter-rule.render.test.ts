@@ -11,6 +11,7 @@ import {
 import { FilterPreviewCount } from "./filter-preview-count.js";
 import {
 	type ClauseField,
+	clauseFieldHint,
 	clauseFieldLabel,
 	clauseFieldOrder,
 	commitBlockedReason,
@@ -319,6 +320,48 @@ describe("ClauseEditor", () => {
 		assert.match(html, />Subject</);
 		assert.doesNotMatch(html, /value="ListId"/);
 		assert.doesNotMatch(html, /value="FromDomain"/);
+	});
+
+	it("shows the ListId hint — what it matches and the forward-only caveat", () => {
+		const html = render(
+			createElement(ClauseEditor, {
+				draft: { field: "ListId", value: "" },
+				mode: "add",
+			}),
+		);
+		assert.match(html, /List-Id/);
+		assert.match(html, /matched as it arrives/i);
+	});
+
+	it("shows the FromDomain hint — the registrable domain, look-alikes excluded", () => {
+		const html = render(
+			createElement(ClauseEditor, {
+				draft: { field: "FromDomain", value: "" },
+				mode: "add",
+			}),
+		);
+		assert.match(html, /registrable domain/i);
+	});
+
+	it("carries no hint for the self-evident fields", () => {
+		const html = render(
+			createElement(ClauseEditor, {
+				draft: { field: "Subject", value: "" },
+				mode: "add",
+			}),
+		);
+		assert.doesNotMatch(html, /registrable domain/i);
+		assert.doesNotMatch(html, /List-Id/);
+	});
+});
+
+describe("clauseFieldHint", () => {
+	it("explains ListId and FromDomain, and leaves the plain fields unexplained", () => {
+		assert.match(clauseFieldHint("ListId") ?? "", /List-Id/);
+		assert.match(clauseFieldHint("FromDomain") ?? "", /registrable domain/i);
+		assert.equal(clauseFieldHint("From"), undefined);
+		assert.equal(clauseFieldHint("Subject"), undefined);
+		assert.equal(clauseFieldHint("HasWords"), undefined);
 	});
 });
 

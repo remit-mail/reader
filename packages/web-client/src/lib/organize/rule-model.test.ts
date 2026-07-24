@@ -11,6 +11,8 @@ import { buildOrganizeInput } from "./organize-model";
 import {
 	buildInitialRule,
 	derivePreview,
+	normalizeClauseValue,
+	normalizeListId,
 	predicateSignature,
 	rulePredicate,
 	ruleToDraft,
@@ -18,13 +20,37 @@ import {
 } from "./rule-model";
 
 describe("SUPPORTED_CLAUSE_FIELDS", () => {
-	it("offers only the fields the backend matcher evaluates today", () => {
-		assert.deepEqual(SUPPORTED_CLAUSE_FIELDS, ["From", "Subject", "HasWords"]);
+	it("offers every field the backend matcher now evaluates, ListId and FromDomain included (#262)", () => {
+		assert.deepEqual(SUPPORTED_CLAUSE_FIELDS, [
+			"From",
+			"Subject",
+			"HasWords",
+			"ListId",
+			"FromDomain",
+		]);
+	});
+});
+
+describe("normalizeListId", () => {
+	it("strips the bracketed identifier, trims, and case-folds — matching the backend", () => {
+		assert.equal(
+			normalizeListId("<Weekly.News.Example.com>"),
+			"weekly.news.example.com",
+		);
+		assert.equal(normalizeListId("  Weekly.News  "), "weekly.news");
+		assert.equal(normalizeListId(""), "");
 	});
 
-	it("withholds ListId and FromDomain until their matcher ships (D2 not yet wired)", () => {
-		assert.ok(!SUPPORTED_CLAUSE_FIELDS.includes("ListId"));
-		assert.ok(!SUPPORTED_CLAUSE_FIELDS.includes("FromDomain"));
+	it("only normalizes the ListId field, trimming the rest", () => {
+		assert.equal(
+			normalizeClauseValue("ListId", "<List.Example.COM>"),
+			"list.example.com",
+		);
+		assert.equal(normalizeClauseValue("From", "  a@x.com  "), "a@x.com");
+		assert.equal(
+			normalizeClauseValue("FromDomain", " github.com "),
+			"github.com",
+		);
 	});
 });
 
@@ -61,6 +87,23 @@ describe("buildInitialRule", () => {
 				{ field: "From", value: "a@x.com", derived: true },
 				{ field: "From", value: "b@y.com", derived: true },
 			],
+		);
+	});
+
+	it("collapses senders sharing a registrable domain to one derived FromDomain chip (#262)", () => {
+		const rule = buildInitialRule({
+			semanticUnavailable: true,
+			senders: ["npm@github.com", "ci@sub.github.com"],
+			selectionCount: 2,
+		});
+		assert.equal(rule.matchOperator, "any");
+		assert.deepEqual(
+			rule.clauses.map((clause) => ({
+				field: clause.field,
+				value: clause.value,
+				derived: clause.derived,
+			})),
+			[{ field: "FromDomain", value: "github.com", derived: true }],
 		);
 	});
 

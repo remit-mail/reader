@@ -138,6 +138,7 @@ export {
 } from "./components/filter-preview-count.js";
 export {
 	type ClauseField,
+	clauseFieldHint,
 	clauseFieldLabel,
 	clauseFieldOrder,
 	commitBlockedReason,

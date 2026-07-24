@@ -144,23 +144,83 @@ describe("OrganizeRuleEditor — capability gating", () => {
 		assert.doesNotMatch(dom.text(), /similar/i);
 	});
 
-	it("offers only the fields the backend can match — never ListId or FromDomain", () => {
+	it("offers every field the backend now matches, ListId and FromDomain included (#262)", () => {
 		const dom = mount({});
 		dom.click(primaryButton(dom, "Add clause"));
 		const options = [...dom.byLabel("Clause field").querySelectorAll("option")];
 		const labels = options.map((option) => option.textContent);
-		assert.deepEqual(labels, ["From", "Subject", "Has the words"]);
+		assert.deepEqual(labels, [
+			"From",
+			"Subject",
+			"Has the words",
+			"List",
+			"Domain",
+		]);
+	});
+
+	it("explains what a ListId clause matches, including the forward-only caveat (#263)", () => {
+		const dom = mount({});
+		dom.click(primaryButton(dom, "Add clause"));
+		dom.select(dom.byLabel("Clause field"), "ListId");
+		assert.match(dom.text(), /List-Id/);
+		assert.match(dom.text(), /matched as it arrives/i);
+	});
+
+	it("explains a FromDomain clause matches the registrable domain", () => {
+		const dom = mount({});
+		dom.click(primaryButton(dom, "Add clause"));
+		dom.select(dom.byLabel("Clause field"), "FromDomain");
+		assert.match(dom.text(), /registrable domain/i);
+	});
+});
+
+describe("OrganizeRuleEditor — ListId normalization (#262)", () => {
+	it("normalizes a ListId clause value to the backend's canonical form on add", async () => {
+		const dom = mount({}, previewCounts([9]));
+		dom.select(dom.byLabel("Destination folder"), "mbx-archive");
+		await dom.flush();
+
+		dom.click(primaryButton(dom, "Add clause"));
+		dom.select(dom.byLabel("Clause field"), "ListId");
+		dom.type(dom.byLabel("Clause value"), "<Weekly.News.EXAMPLE.com>");
+		dom.click(primaryButton(dom, "Add"));
+		await settlePreview(dom);
+
+		// The chip and the previewed predicate carry the normalized value.
+		assert.match(dom.text(), /weekly\.news\.example\.com/);
+		assert.doesNotMatch(dom.text(), /Weekly\.News\.EXAMPLE/);
+		const preview = http?.to("/organize/preview") ?? [];
+		assert.deepEqual(preview[0].body?.literalClauses, [
+			{ field: "ListId", value: "weekly.news.example.com" },
+		]);
+	});
+});
+
+describe("OrganizeRuleEditor — sender fallback collapse (#262)", () => {
+	it("renders a single derived FromDomain chip when the senders share a domain", () => {
+		const dom = mount({
+			semanticUnavailable: true,
+			senders: [
+				"npm@github.com",
+				"notifications@github.com",
+				"ci@sub.github.com",
+			],
+			seedCount: 342,
+		});
+		assert.match(dom.text(), /github\.com/);
+		assert.doesNotMatch(dom.text(), /notifications@github\.com/);
+		assert.match(dom.text(), /Domain/);
 	});
 });
 
 describe("OrganizeRuleEditor — sender fallback (#251)", () => {
-	it("renders the derived sender addresses as visible, editable From chips", () => {
+	it("renders the derived sender addresses as visible, editable From chips when domains differ", () => {
 		const dom = mount({
 			semanticUnavailable: true,
-			senders: ["npm@github.com", "notifications@github.com"],
+			senders: ["npm@github.com", "noreply@medium.com"],
 		});
 		assert.match(dom.text(), /npm@github\.com/);
-		assert.match(dom.text(), /notifications@github\.com/);
+		assert.match(dom.text(), /noreply@medium\.com/);
 		assert.match(dom.text(), /from sender/i);
 	});
 });

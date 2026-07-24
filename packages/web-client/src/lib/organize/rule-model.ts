@@ -8,22 +8,44 @@ import type {
 } from "@remit/ui";
 import { pickedDateToExpiresAt } from "./filter-status";
 import type { OrganizeDraft } from "./organize-model";
-import type { OrganizeMatchPredicate } from "./sender-fallback";
+import {
+	deriveSenderClauses,
+	type OrganizeMatchPredicate,
+} from "./sender-fallback";
 
 /**
  * The clause fields the Organize editor may offer (RFC 038 D2). Gated on what
- * the backend matcher evaluates — From, Subject, HasWords today — not on what
- * the generated enum carries. `ListId` and `FromDomain` are in the vocabulary
- * (and in {@link ClauseField}) but their matchers land with the vocabulary
- * ticket; offering a chip the back-apply cannot honor would break the
- * previewed-equals-applied contract, so they are withheld until the matcher
- * ships.
+ * the backend matcher evaluates, not on what the generated enum carries: every
+ * one of these is honored by the literal matcher and the back-apply corpus
+ * projection (match.ts), so a chip never previews a set the apply can't
+ * reproduce. `ListId` and `FromDomain` joined once their matcher shipped (#262).
  */
 export const SUPPORTED_CLAUSE_FIELDS: ClauseField[] = [
 	"From",
 	"Subject",
 	"HasWords",
+	"ListId",
+	"FromDomain",
 ];
+
+/**
+ * Canonical form of a `ListId` clause value, matching the backend's
+ * `normalizeListId` (list-id.ts): the bracketed identifier when present,
+ * otherwise the whole value, trimmed and case-folded. Normalizing at input keeps
+ * the chip the user sees identical to the value the matcher compares, so
+ * `<weekly.news.example.com>` and `Weekly.News.Example.com` are one list.
+ */
+export const normalizeListId = (value: string): string => {
+	const trimmed = value.trim();
+	const bracketed = trimmed.match(/<([^>]+)>/);
+	return (bracketed ? bracketed[1] : trimmed).trim().toLowerCase();
+};
+
+/** Canonicalize a clause value for its field before it becomes a chip. */
+export const normalizeClauseValue = (
+	field: ClauseField,
+	value: string,
+): string => (field === "ListId" ? normalizeListId(value) : value.trim());
 
 const toApiOperator = (operator: MatchOperator): "And" | "Or" =>
 	operator === "all" ? "And" : "Or";
@@ -56,12 +78,17 @@ export interface InitialRuleInput {
 export const buildInitialRule = (input: InitialRuleInput): FilterRule => {
 	const scope = input.seedScope ?? "once";
 	if (input.semanticUnavailable) {
-		const clauses: RuleClause[] = input.senders.map((value, index) => ({
-			id: `sender-${index}`,
-			field: "From",
-			value,
-			derived: true,
-		}));
+		// The same derivation the widen fallback runs (#251, #262): one `From`
+		// clause per sender, or a single `FromDomain` clause when they share a
+		// registrable domain. Surfaced as ordinary editable chips.
+		const clauses: RuleClause[] = deriveSenderClauses(input.senders).map(
+			(clause, index) => ({
+				id: `derived-${index}`,
+				field: clause.field,
+				value: clause.value,
+				derived: true,
+			}),
+		);
 		return {
 			clauses,
 			matchOperator: "any",
