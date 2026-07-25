@@ -163,8 +163,12 @@ function MoveDestinationField({
 				setName("");
 				setPending(false);
 			})
-			.catch(() => {
-				setError("Couldn't create that folder. Please try again.");
+			.catch((error: unknown) => {
+				setError(
+					error instanceof Error
+						? error.message
+						: "Couldn't create that folder. Please try again.",
+				);
 				setPending(false);
 			});
 	};

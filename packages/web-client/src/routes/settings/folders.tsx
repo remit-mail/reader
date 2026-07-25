@@ -288,7 +288,7 @@ function AccountFolderRoles({
 				onRename={handleRename}
 			/>
 			<NewFolder accountId={accountId} mailboxes={data.items} />
-			<ul className="space-y-1">
+			<ul className="space-y-1" aria-label={`All folders for ${account.email}`}>
 				{data.items.map((mailbox) => {
 					const guard = guardFolderDeletion(
 						mailbox,

@@ -67,6 +67,17 @@ describe("validateNewFolderName", () => {
 		);
 	});
 
+	it("rejects a root name that collides with an existing top-level fullPath", () => {
+		assert.match(
+			validateNewFolderName({
+				delimiter: "/",
+				existingPaths: ["Work"],
+				name: "Work",
+			}) ?? "",
+			/already exists/,
+		);
+	});
+
 	it("treats INBOX case-insensitively for collisions", () => {
 		assert.match(
 			validateNewFolderName({
