@@ -211,8 +211,10 @@ export const MoveMailboxPicker = ({
 				onSelect(folder.id);
 				setCreating(false);
 			})
-			.catch(() => {
-				setCreateError(text.createError);
+			.catch((error: unknown) => {
+				setCreateError(
+					error instanceof Error ? error.message : text.createError,
+				);
 				setCreating(false);
 			});
 	}, [onCreateFolder, query, onSelect, text.createError]);
