@@ -183,12 +183,45 @@ describe("FilterRuleEditor new-folder option", () => {
 		assert.deepEqual(moved, ["mbx-created"]);
 	});
 
+<<<<<<< HEAD
 	it("keeps the name field open and shows an error when create fails", async () => {
+=======
+	it("keeps the name field open and surfaces the rejection message when create fails", async () => {
+>>>>>>> origin/main
 		const moved: string[] = [];
 		mount({
 			onChangeMove: (id) => moved.push(id),
 			onCreateFolder: async () => {
+<<<<<<< HEAD
 				throw new Error("nope");
+=======
+				throw new Error("A folder with that name already exists.");
+			},
+		});
+		chooseCreateOption();
+		const nameInput = container.querySelector(
+			'input[aria-label="New folder name"]',
+		) as HTMLInputElement;
+		setInput(nameInput, "Archive");
+		await act(async () => {
+			button("Create folder")?.click();
+		});
+		assert.deepEqual(moved, []);
+		assert.ok(
+			container.querySelector('input[aria-label="New folder name"]'),
+			"the name field stays open",
+		);
+		assert.match(
+			container.querySelector('[role="alert"]')?.textContent ?? "",
+			/already exists/,
+		);
+	});
+
+	it("falls back to the generic message for a non-Error rejection", async () => {
+		mount({
+			onCreateFolder: async () => {
+				throw "opaque";
+>>>>>>> origin/main
 			},
 		});
 		chooseCreateOption();
@@ -199,11 +232,14 @@ describe("FilterRuleEditor new-folder option", () => {
 		await act(async () => {
 			button("Create folder")?.click();
 		});
+<<<<<<< HEAD
 		assert.deepEqual(moved, []);
 		assert.ok(
 			container.querySelector('input[aria-label="New folder name"]'),
 			"the name field stays open",
 		);
+=======
+>>>>>>> origin/main
 		assert.match(
 			container.querySelector('[role="alert"]')?.textContent ?? "",
 			/Couldn't create that folder/,
