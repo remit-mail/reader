@@ -891,6 +891,87 @@ describe("the updater replaces itself last", () => {
 	});
 });
 
+describe("the updater never stops itself (reader#271)", () => {
+	// In-container the wrapper IS the updater, and a bare `compose stop` would
+	// stop the container this code runs in — the run dies with the site down and
+	// no process left to finish or roll back. The stop set is by-name and excludes
+	// the updater, so the old bug is structurally prevented, not recovered from.
+	const box = sandbox({
+		scenario: {
+			probe: "ok",
+			services: `${ALL_SERVICES} updater`,
+			all_services: `${ALL_SERVICES} updater`,
+		},
+	});
+	box.run(["update"]);
+	const stops = box
+		.log()
+		.split("\n")
+		.filter((l) => l.startsWith("compose stop"));
+
+	it("issues at least one stop", () => {
+		assert.ok(stops.length > 0, "nothing was stopped");
+	});
+
+	it("never names the updater in any stop set", () => {
+		for (const line of stops) {
+			assert.ok(
+				!line.split(/\s+/).includes("updater"),
+				`a stop named the updater: ${line}`,
+			);
+		}
+	});
+
+	it("never issues a bare stop that would take the updater down with everything", () => {
+		// A bare `compose stop` stops every service, updater included; every stop
+		// here is scoped to a named service list instead.
+		for (const line of stops) {
+			assert.notEqual(line.trim(), "compose stop");
+		}
+	});
+});
+
+describe("the updater proves its mount before serving (reader#272)", () => {
+	it("passes when the deployment directory is mounted at its host path", () => {
+		const box = sandbox({ scenario: { probe: "ok" } });
+		const result = box.run(["update", "--preflight"]);
+		assert.equal(result.status, 0, result.stderr);
+	});
+
+	it("hands the daemon an absolute host path, never a container-local one", () => {
+		// The identity probe binds the deployment directory the same way a real
+		// helper container does; the source it sends must be an absolute host path,
+		// which is the whole point of the identity mount.
+		const box = sandbox({ scenario: { probe: "ok" } });
+		box.run(["update", "--preflight"]);
+		const identity = box
+			.log()
+			.split("\n")
+			.find((l) => l.startsWith("run identity "));
+		assert.ok(identity, "the identity probe never ran");
+		const src = identity.replace(/^run identity src=/, "");
+		assert.ok(src.startsWith("/"), `bind source is not absolute: ${src}`);
+		assert.equal(src, box.deployment);
+	});
+
+	it("refuses and records a renderable failure when the mount is wrong", () => {
+		// A mount that is not the host path: the marker written here never comes
+		// back through the daemon, so the wrapper records a failed check on the seam
+		// and exits non-zero. The app renders the failure; no update is driven.
+		const box = sandbox({
+			scenario: { probe: "ok", mount_identity: "broken" },
+		});
+		const result = box.run(["update", "--preflight"]);
+		assert.notEqual(result.status, 0);
+		const state = box.stateJson();
+		assert.equal(state.check.status, "failed");
+		assert.match(state.check.error, /272/);
+		// It refused before driving anything: no stop, no pull.
+		assert.ok(!box.log().includes("compose stop"));
+		assert.ok(!box.log().includes("compose pull"));
+	});
+});
+
 describe("the backup sidecar", () => {
 	// It is a stock image behind a profile under `restart: unless-stopped`, so an
 	// unscoped stop leaves it running — and it opens remit.db read-write every

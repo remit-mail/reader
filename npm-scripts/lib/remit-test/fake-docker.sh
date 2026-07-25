@@ -286,6 +286,7 @@ inspect_cmd() {
 run_cmd() {
 	_script=""
 	_probe=0
+	_bindsrc=""
 	FR_SQLITE=""
 	FR_STATE=""
 	FR_SNAPLIB=""
@@ -297,6 +298,7 @@ run_cmd() {
 		container:*) _probe=1 ;;
 		esac
 		if [ "$_prev" = "-v" ]; then
+			_bindsrc=${_a%%:*}
 			_cpath=${_a#*:}
 			_cpath=${_cpath%:ro}
 			case "$_cpath" in
@@ -313,6 +315,19 @@ run_cmd() {
 		if [ "$(pick probe ok)" = "ok" ]; then exit 0; fi
 		exit 1
 	fi
+	# The bind-identity probe (reader#272): the wrapper writes a marker into the
+	# deployment directory and reads it back through the daemon at the same path.
+	# `src=` records the bind source it handed the daemon so a test can assert it
+	# is absolute. mount_identity=broken models a mount that is not the host path —
+	# the helper sees a different directory, so the marker never comes back.
+	case "$_script" in
+	*remit-mount-identity*)
+		log "run identity src=$_bindsrc"
+		[ "$(pick mount_identity ok)" = "broken" ] && exit 0
+		eval "$_script"
+		exit 0
+		;;
+	esac
 	{
 		printf -- '--- volume script ---\n'
 		printf '%s\n' "$_script"

@@ -36,6 +36,10 @@ after(() => {
 const STUB_REMIT = `#!/bin/sh
 printf '%s helper=%s\\n' "$*" "\${REMIT_UPDATE_HELPER_IMAGE:-}" >> "$REMIT_STUB_LOG"
 case "$*" in
+"update --preflight")
+	[ "\${STUB_PREFLIGHT_FAIL:-0}" = "1" ] && exit 1
+	exit 0
+	;;
 "update --recover" | "update --check") ;;
 *update*) rm -f "$REMIT_UPDATE_CONTROL_DIR/request.json" ;;
 esac
@@ -107,8 +111,13 @@ describe("the updater entrypoint", () => {
 			process.kill(-child.pid, "SIGKILL");
 		}
 		const calls = box.calls();
+		// The mount is proven first, then recovery, then the request is served.
 		assert.equal(
 			calls[0],
+			"update --preflight helper=ghcr.io/remit-mail/reader/updater:v1.2.3",
+		);
+		assert.equal(
+			calls[1],
 			"update --recover helper=ghcr.io/remit-mail/reader/updater:v1.2.3",
 		);
 		assert.ok(calls.some((c) => c.startsWith("update helper=")));
@@ -119,6 +128,42 @@ describe("the updater entrypoint", () => {
 					(c) => c === "update helper=ghcr.io/remit-mail/reader/updater:v1.2.3",
 				),
 		);
+	});
+
+	it("idles without touching the stack when the mount is wrong (reader#272)", async () => {
+		// A failed preflight means driving compose would corrupt host files. The
+		// entrypoint records nothing further and never recovers, checks or serves —
+		// it idles, so restart:unless-stopped does not spin and a fixed .env takes
+		// effect on the next recreate.
+		const box = sandbox();
+		writeFileSync(
+			join(box.control, "request.json"),
+			JSON.stringify({ targetVersion: "v1.5.0" }),
+		);
+		const child = spawn("sh", [ENTRYPOINT], {
+			env: { ...box.env, STUB_PREFLIGHT_FAIL: "1" },
+			detached: true,
+			stdio: "ignore",
+		});
+		try {
+			await waitFor(() =>
+				box.calls().some((c) => c.startsWith("update --preflight")),
+			);
+			// Give the loop several intervals to prove nothing else runs.
+			await new Promise((r) => setTimeout(r, 3000));
+		} finally {
+			process.kill(-child.pid, "SIGKILL");
+		}
+		const calls = box.calls();
+		assert.ok(calls.every((c) => c.startsWith("update --preflight")));
+		assert.equal(
+			calls.filter((c) => c.startsWith("update --recover")).length,
+			0,
+		);
+		assert.equal(calls.filter((c) => c.startsWith("update --check")).length, 0);
+		assert.equal(calls.filter((c) => c.startsWith("update helper=")).length, 0);
+		// The request is left untouched — nothing consumed it.
+		assert.ok(box.calls().length >= 1);
 	});
 
 	it("runs a check right after recovery, so state lands without a request", async () => {
@@ -136,9 +181,13 @@ describe("the updater entrypoint", () => {
 			process.kill(-child.pid, "SIGKILL");
 		}
 		const calls = box.calls();
-		// Recovery is still first; the initial check follows it and needs no
-		// request on the seam to fire.
-		assert.ok(calls[0].startsWith("update --recover helper="));
+		// The preflight is first, recovery follows it, and the initial check follows
+		// that — the check needs no request on the seam to fire.
+		assert.ok(calls[0].startsWith("update --preflight helper="));
+		assert.ok(
+			calls.findIndex((c) => c.startsWith("update --preflight")) <
+				calls.findIndex((c) => c.startsWith("update --recover")),
+		);
 		assert.ok(
 			calls.findIndex((c) => c.startsWith("update --recover")) <
 				calls.findIndex((c) => c.startsWith("update --check")),

@@ -439,6 +439,12 @@ RUN chmod +x /usr/local/bin/remit /usr/local/bin/updater-entrypoint
 # daemon knows, because the helper containers bind it by that name. SNAPSHOT_LIB
 # is cleared so the wrapper sources the baked /snapshot-db.sh and attempts no
 # bind mount.
+#
+# REMIT_DIR is the last-resort default for a bare `docker run`; the compose
+# service overrides it with the deployment directory's absolute *host* path
+# (${REMIT_DEPLOY_DIR}), which is what makes socket-driven bind resolution
+# identical inside the container and on the host (reader#272). The entrypoint
+# proves that identity before serving.
 ENV REMIT_DIR=/deployment
 ENV REMIT_UPDATE_STATE_DIR=/data/updater
 ENV REMIT_UPDATE_STATE_MOUNT=remit_updater_state
