@@ -24,7 +24,17 @@ const controlDir = (): string =>
 const manifestUrl = (): string | undefined =>
 	process.env.REMIT_UPDATE_MANIFEST_URL;
 
-const currentVersion = (): string => process.env.REMIT_TAG ?? "unknown";
+/**
+ * The running version is a fact the updater owns: it reads the tag from `.env`
+ * and writes it into `state.json`, which is the only honest source across an
+ * update that rewrites that tag underneath a long-lived backend process. When no
+ * state file exists yet the backend has nothing authoritative to report, so it
+ * reports the version as unknown rather than fabricating one from its own
+ * process environment — a value captured at container start that drifts from the
+ * real running tag the moment an update lands. The first updater check writes a
+ * real `currentVersion` within seconds of the stack coming up.
+ */
+const UNKNOWN_VERSION = "unknown";
 
 const notFound = (): APIGatewayProxyResult => ({
 	statusCode: 404,
@@ -65,7 +75,7 @@ const readState = (): SystemUpdateResponse | null => {
 };
 
 const emptyResource = (): SystemUpdateResponse => ({
-	currentVersion: currentVersion(),
+	currentVersion: UNKNOWN_VERSION,
 	check: { status: "disabled" },
 	run: null,
 });
@@ -115,7 +125,7 @@ const requestedResource = (
 	targetVersion: string,
 	requestedAt: string,
 ): SystemUpdateResponse => {
-	const from = state?.currentVersion ?? currentVersion();
+	const from = state?.currentVersion ?? UNKNOWN_VERSION;
 	return {
 		currentVersion: from,
 		check: state?.check ?? { status: "disabled" },

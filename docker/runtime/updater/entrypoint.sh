@@ -14,6 +14,22 @@ set -eu
 : "${REMIT_UPDATER_IMAGE_REPO:=ghcr.io/remit-mail/reader/updater}"
 WATCH_INTERVAL="${REMIT_UPDATE_WATCH_INTERVAL:-5}"
 
+# How often the updater checks for a newer release on its own. The default is six
+# hours: often enough that a self-hoster learns of a security release the same
+# day, rare enough that it is invisible on the manifest host's logs. Override
+# REMIT_UPDATE_CHECK_INTERVAL (seconds) to change it; the check never installs
+# anything, so a short interval only costs one manifest fetch.
+CHECK_INTERVAL="${REMIT_UPDATE_CHECK_INTERVAL:-21600}"
+
+# Floored at five minutes: a fat-fingered small value — or a non-numeric one —
+# would otherwise poll the manifest host on every watch tick. The floor is a
+# clamp, not a rejection, so a bad value degrades to a sane cadence rather than
+# stopping the updater.
+case "$CHECK_INTERVAL" in
+*[!0-9]* | "") CHECK_INTERVAL=300 ;;
+*) if [ "$CHECK_INTERVAL" -lt 300 ]; then CHECK_INTERVAL=300; fi ;;
+esac
+
 mkdir -p "$REMIT_UPDATE_CONTROL_DIR" "$REMIT_UPDATE_STATE_DIR"
 
 # The backend runs as uid 1000 and writes request.json onto the control volume,
@@ -34,6 +50,15 @@ export REMIT_UPDATE_HELPER_IMAGE="${REMIT_UPDATER_IMAGE_REPO}:${_tag}"
 # verdict without an operator. No interrupted run is a no-op.
 remit update --recover || true
 
+# The first check writes state.json onto the control volume the moment the
+# updater starts, so the app has an update status to show instead of a spinner
+# that never resolves. Nothing else writes state.json until an update is asked
+# for, and the owner cannot ask until a check has offered a version — so without
+# this the surface is stuck before it begins. A failed check records itself in
+# state.json and is not fatal to the watcher.
+remit update --check || true
+_last_check=$(date +%s)
+
 # Watch for the backend's request. `remit update` validates it, consumes it, and
 # either installs the release or records the rejection in state.json; a rejected
 # or failed request must not crash the watcher, so its status is not fatal.
@@ -41,6 +66,17 @@ _request="$REMIT_UPDATE_CONTROL_DIR/request.json"
 while :; do
 	if [ -f "$_request" ]; then
 		remit update || true
+		# An update runs a check as its first step, so the cadence clock restarts
+		# here rather than firing a second check on its heels.
+		_last_check=$(date +%s)
+	fi
+	# The periodic check shares the watch loop so it never adds to request
+	# latency: the loop still wakes every WATCH_INTERVAL for request.json, and a
+	# check is spent only once CHECK_INTERVAL has elapsed since the last one.
+	_now=$(date +%s)
+	if [ "$((_now - _last_check))" -ge "$CHECK_INTERVAL" ]; then
+		remit update --check || true
+		_last_check=$(date +%s)
 	fi
 	sleep "$WATCH_INTERVAL"
 done

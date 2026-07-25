@@ -1,5 +1,6 @@
 import {
 	CheckCircle2,
+	Clock,
 	CloudOff,
 	Download,
 	ExternalLink,
@@ -147,6 +148,39 @@ export function SelfUpdateSection({
 								onClick={handleCheck}
 							>
 								Check again
+							</Button>
+						</div>
+					</SectionRow>
+				);
+
+			case "neverChecked":
+				return (
+					<SectionRow>
+						<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+							<div className="flex min-w-0 items-start gap-2">
+								<Clock
+									className="mt-0.5 size-4 shrink-0 text-fg-subtle"
+									aria-hidden
+								/>
+								<p className="text-sm text-fg-muted">
+									No update check has run yet. Remit checks for updates on its
+									own in the background.
+									{state.lastCheckedAt !== undefined && (
+										<span className="text-fg-subtle">
+											{" "}
+											Last checked{" "}
+											{formatRelativeCheck(state.lastCheckedAt, now)}.
+										</span>
+									)}
+								</p>
+							</div>
+							<Button
+								variant="secondary"
+								size="sm"
+								className="shrink-0"
+								onClick={handleCheck}
+							>
+								Check now
 							</Button>
 						</div>
 					</SectionRow>

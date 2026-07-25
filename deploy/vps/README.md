@@ -277,6 +277,11 @@ updater mount it. What the app hands across is a version and nothing else — th
 registry and every image reference come from the manifest the updater fetches
 itself, so a compromised app cannot redirect an update at another registry.
 
+The updater also checks the manifest on its own — once at startup and every six
+hours after, so the app shows an available release without anyone opening a
+shell. Override the cadence with `REMIT_UPDATE_CHECK_INTERVAL` (seconds); the
+check only reports and never installs.
+
 An update takes the instance offline for a few minutes. Nothing is served and no
 worker runs between the snapshot and the verdict, so nothing is lost if it rolls
 back — a rollback returns the instance to the exact release and database it was

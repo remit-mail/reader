@@ -292,10 +292,12 @@ function checkSection(
 		};
 	}
 
-	// A configured surface that has not run its first check yet reads as looking,
-	// not as up to date — the client has no basis to claim the latest.
+	// A configured surface that has not run its first check yet is never-checked,
+	// not checking: the updater runs the check on a cadence and has not written a
+	// result. A spinner here would run forever, since nothing on this poll is in
+	// flight. Only a genuine refetch (handled above) shows the spinner.
 	if (check.status === "disabled") {
-		return { status: "checking", version: data.currentVersion };
+		return { status: "neverChecked", version: data.currentVersion };
 	}
 
 	const release = releaseFromCheck(data, now);

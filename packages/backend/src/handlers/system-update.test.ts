@@ -130,11 +130,14 @@ describe("GET /system/update", () => {
 		assert.deepEqual(result, okState);
 	});
 
-	it("returns a disabled, empty resource when no state file exists", async () => {
+	it("reports an unknown version, not its own process env, when no state file exists", async () => {
+		// The updater owns the running version and writes it into state.json; with
+		// no state file the backend has nothing authoritative, so it says unknown
+		// rather than surfacing REMIT_TAG, which drifts from the real running tag.
 		const result = await getUpdate(buildEvent(USER));
 
 		assert.deepEqual(result, {
-			currentVersion: "v1.4.1",
+			currentVersion: "unknown",
 			check: { status: "disabled" },
 			run: null,
 		});
