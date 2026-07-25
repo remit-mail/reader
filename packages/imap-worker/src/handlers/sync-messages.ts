@@ -53,9 +53,22 @@ export const batchSyncedMessages = (
 	return batches;
 };
 
+export interface SyncMessagesDeps {
+	getClient: typeof getClient;
+	withOAuthLifecycle: typeof withOAuthLifecycle;
+	buildLifecycleDeps: typeof buildLifecycleDeps;
+}
+
+const defaultDeps: SyncMessagesDeps = {
+	getClient,
+	withOAuthLifecycle,
+	buildLifecycleDeps,
+};
+
 export const syncMessages = async (
 	event: SyncMessagesEvent,
 	log: Logger,
+	deps: SyncMessagesDeps = defaultDeps,
 ): Promise<void> => {
 	log.info(
 		{
@@ -80,7 +93,7 @@ export const syncMessages = async (
 		messageFlag: messageFlagService,
 		unitOfWork,
 		secrets,
-	} = await getClient();
+	} = await deps.getClient();
 
 	// A deleted account never has its DDB row purged in lockstep with the queued
 	// SYNC_MESSAGES triggers, so a trigger can outlive its account. The lookup
@@ -118,11 +131,40 @@ export const syncMessages = async (
 		return;
 	}
 
+	// A SYNC_MESSAGES trigger can outlive the mailbox it targets. Deleting a
+	// mailbox that has held mail leaves already-queued events — a `hasMore`
+	// next-batch, a periodic sync tick — pointing at a row that is now gone. The
+	// lookup then throws a named NotFoundError that can never succeed on retry,
+	// and the account's per-group FIFO ordering lets that one poison message
+	// stall the whole account's message pipeline forever (issue #287). A mailbox
+	// the user deliberately deleted is an expected terminal outcome, not an infra
+	// failure: ack the event with a WARN. Any other error — a transient read, a
+	// NotFoundError from elsewhere — still propagates to be retried.
+	const mailboxExists = await mailboxService
+		.get(event.accountId, event.mailboxId)
+		.then(() => true)
+		.catch((err) => {
+			if ((err as { name?: string })?.name === "NotFoundError") return false;
+			throw err;
+		});
+	if (!mailboxExists) {
+		log.warn(
+			{
+				accountId: event.accountId,
+				mailboxId: event.mailboxId,
+				eventId: event.eventId,
+				event: event.type,
+			},
+			"Skipping SYNC_MESSAGES: mailbox no longer exists (deleted)",
+		);
+		return;
+	}
+
 	// withOAuthLifecycle owns the reauth/ACK contract (skip-if-reauth, resolve
 	// credentials, flip on terminal auth failure, rethrow transient). The
 	// mailbox lock and the actual sync run inside the wrapper callback.
-	await withOAuthLifecycle(
-		buildLifecycleDeps(secrets, accountService),
+	await deps.withOAuthLifecycle(
+		deps.buildLifecycleDeps(secrets, accountService),
 		account,
 		log,
 		async (credentials) => {
