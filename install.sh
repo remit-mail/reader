@@ -283,6 +283,10 @@ fetch_assets() {
 	say "Fetching deploy assets from $ASSET_BASE"
 	mkdir -p "$DIR/caddy" "$DIR/backup" || die "cannot create $DIR — pick a writable --dir or run with the right permissions."
 	[ -w "$DIR" ] || die "$DIR is not writable."
+	# Canonicalise to an absolute path now the directory exists: the wrapper's
+	# DEFAULT_DIR and REMIT_DEPLOY_DIR (the updater's identity mount, reader#272)
+	# both need a host-absolute path, not a relative --dir.
+	DIR="$(cd "$DIR" && pwd)"
 	local a
 	for a in "${ASSETS[@]}"; do
 		fetch_asset "$a" "$DIR/$a"
@@ -341,6 +345,11 @@ write_env() {
 	set_var PUBLIC_ORIGIN "$ORIGIN" "$f"
 	set_var TLS_MODE "$TLS_MODE" "$f"
 	set_var REMIT_TAG "$TAG" "$f"
+	# The updater mounts the deployment directory at this absolute host path so a
+	# socket-driven compose resolves relative binds identically inside the
+	# container and on the host (reader#272). Rewritten on every run, so an
+	# existing .env from a pre-#272 install picks it up when re-run here.
+	set_var REMIT_DEPLOY_DIR "$DIR" "$f"
 	if [ "$TLS_MODE" = "tailscale" ]; then
 		set_var TAILSCALED_SOCKET "${TAILSCALED_SOCKET:-/var/run/tailscale/tailscaled.sock}" "$f"
 	fi

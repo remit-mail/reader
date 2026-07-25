@@ -58,7 +58,11 @@ function serviceVolumes(source) {
 	return result;
 }
 
-const source = (entry) => entry.split(":")[0];
+// Collapse a compose interpolation default (`${VAR:?msg}`, `${VAR:-x}`) back to
+// `${VAR}` so a mount source carrying one still splits on the mount's own colon.
+const normalize = (entry) =>
+	entry.replace(/\$\{([A-Za-z0-9_]+)(:[-?][^}]*)?\}/g, "${$1}");
+const source = (entry) => normalize(entry).split(":")[0];
 const volumes = serviceVolumes(text);
 const mounts = (svc) => (volumes[svc] ?? []).map(source);
 const mountsOf = (name) =>
@@ -97,7 +101,7 @@ describe("the updater compose surface", () => {
 	it("gives the updater exactly its four documented mounts", () => {
 		const u = mounts("updater").sort();
 		assert.deepEqual(u, [
-			".",
+			"${REMIT_DEPLOY_DIR}",
 			"/var/run/docker.sock",
 			"updater_control",
 			"updater_state",
@@ -105,6 +109,21 @@ describe("the updater compose surface", () => {
 		// It reaches sqlite_data read-write through the socket, never as a direct
 		// mount — that is the whole reason the socket is the real privilege here.
 		assert.ok(!u.includes("sqlite_data"));
+	});
+
+	it("mounts the deployment directory at the same host path on both sides (reader#272)", () => {
+		// Identity, not just presence: a socket-driven compose resolves this file's
+		// relative binds against the host path, so the source and target of the
+		// deployment mount must be the same absolute path — REMIT_DEPLOY_DIR — and
+		// the wrapper's project directory must be pointed there too.
+		const deploymentMount = (volumes.updater ?? [])
+			.map(normalize)
+			.find((v) => v.startsWith("${REMIT_DEPLOY_DIR}"));
+		assert.equal(
+			deploymentMount,
+			"${REMIT_DEPLOY_DIR}:${REMIT_DEPLOY_DIR}",
+			"the deployment mount must be host-path to the same host-path",
+		);
 	});
 
 	it("declares the two new volumes", () => {
@@ -134,5 +153,13 @@ describe("the updater service definition", () => {
 
 	it("opens no port", () => {
 		assert.ok(!/^ {4}ports:/m.test(block));
+	});
+
+	it("points the wrapper's project directory at the host path, and demands it", () => {
+		// REMIT_DIR overrides the image's /deployment default with the host path,
+		// and working_dir puts compose's project directory there. Both use :? so an
+		// unset REMIT_DEPLOY_DIR fails the stack loud rather than mounting wrong.
+		assert.match(block, /REMIT_DIR:\s*\$\{REMIT_DEPLOY_DIR:\?/);
+		assert.match(block, /^ {4}working_dir:\s*\$\{REMIT_DEPLOY_DIR:\?/m);
 	});
 });

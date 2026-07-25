@@ -1,1 +1,4 @@
 .env
+# The updater's bind-identity probe writes and deletes this on each boot; a kill
+# mid-write can leave one behind. It never belongs in git.
+.remit-mount-identity

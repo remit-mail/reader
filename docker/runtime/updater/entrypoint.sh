@@ -45,6 +45,17 @@ _tag=$(awk -F= '/^REMIT_TAG=/{print $2; exit}' "$REMIT_DIR/.env" 2>/dev/null || 
 [ -n "$_tag" ] || _tag="${REMIT_TAG:-latest}"
 export REMIT_UPDATE_HELPER_IMAGE="${REMIT_UPDATER_IMAGE_REPO}:${_tag}"
 
+# Prove the mount before touching the stack. Socket-driven compose resolves this
+# deployment's relative binds against $REMIT_DIR as a host path, so a mount that
+# is not the deployment directory's host path would have the daemon corrupt host
+# files on the first recreate (reader#272). On a mismatch the wrapper records the
+# failure on the control seam for the app to render; idle rather than serve, so
+# `restart: unless-stopped` does not spin and a fixed .env takes effect on the
+# next recreate. Recovery and the request watch never run against a bad mount.
+if ! remit update --preflight; then
+	while :; do sleep "$WATCH_INTERVAL"; done
+fi
+
 # Boot recovery. This is what restart:unless-stopped buys: a container killed
 # mid-update — or the whole host rebooted — comes back and reaches a terminal
 # verdict without an operator. No interrupted run is a no-op.

@@ -310,8 +310,16 @@ services:
   #                         snapshot/restore/health helpers as containers, and
   #                         through them writes sqlite_data read-write during a
   #                         rollback restore. This is the real privilege here.
-  #   . -> /deployment      the deployment directory, read-write: it rewrites
-  #                         REMIT_TAG in .env and reads the compose file.
+  #   ${REMIT_DEPLOY_DIR}   the deployment directory, read-write, mounted at the
+  #     -> same path        SAME absolute path it has on the host: it rewrites
+  #                         REMIT_TAG in .env and reads the compose file. Compose
+  #                         drives the stack over the socket, so every relative
+  #                         bind in this file resolves against that path as a host
+  #                         path — mounting it anywhere else has the daemon create
+  #                         root-owned junk on the host where ./queues.json should
+  #                         be (reader#272). REMIT_DEPLOY_DIR is this directory's
+  #                         absolute path; install.sh writes it, and the entrypoint
+  #                         proves the identity before it serves a request.
   #   updater_state         its own private volume: the run lock, the recovery
   #                         breadcrumb, run/check state and the pre-update
   #                         snapshots. Shared with no other service, so a
@@ -324,9 +332,16 @@ services:
   # update without an operator.
   updater:
     image: ghcr.io/remit-mail/reader/updater:${REMIT_TAG:-latest}
+    # The wrapper's project directory and its own view of the deployment must be
+    # the host path, so socket-driven bind resolution is identical on both sides
+    # (reader#272). :? fails the stack loud if REMIT_DEPLOY_DIR is unset rather
+    # than mounting the wrong path — a wrong mount must never reach an update.
+    environment:
+      REMIT_DIR: ${REMIT_DEPLOY_DIR:?set REMIT_DEPLOY_DIR to the deployment directory's absolute path in .env — install.sh writes it}
+    working_dir: ${REMIT_DEPLOY_DIR:?set REMIT_DEPLOY_DIR to the deployment directory's absolute path in .env — install.sh writes it}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - .:/deployment
+      - ${REMIT_DEPLOY_DIR:?set REMIT_DEPLOY_DIR to the deployment directory's absolute path in .env — install.sh writes it}:${REMIT_DEPLOY_DIR:?set REMIT_DEPLOY_DIR to the deployment directory's absolute path in .env — install.sh writes it}
       - updater_state:/data/updater
       - updater_control:/data/control
     restart: unless-stopped

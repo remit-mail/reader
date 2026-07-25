@@ -134,9 +134,16 @@ cd deploy/vps
 cp remit.env.template .env
 chmod 600 .env
 $EDITOR .env            # fill in every value marked SECRET — see the file
+                        # and set REMIT_DEPLOY_DIR to this directory: "$(pwd)"
 docker compose -f docker-compose.sqlite.yml --env-file .env up -d
 docker compose -f docker-compose.sqlite.yml --env-file .env logs -f migrate
 ```
+
+`REMIT_DEPLOY_DIR` is the one value the installer sets that you must set by hand
+here: the absolute path of this directory. The updater mounts it at the same
+path on both sides of the docker socket so a self-update resolves relative binds
+against the right host path (reader#272); the `updater` service refuses to start
+until it is set, rather than mount the wrong path.
 
 `remit` still works against a directory set up this way — it just does not know
 where that is, so point it there once: `export REMIT_DIR=$PWD`.

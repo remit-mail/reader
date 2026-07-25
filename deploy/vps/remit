@@ -101,6 +101,9 @@ Usage: remit <command> [args]
   update --recover     Finish an update that was interrupted, committing or
                        rolling back on the gate's verdict. Runs at the
                        updater's start; safe to run by hand.
+  update --preflight   Prove the updater is mounted at the deployment
+                       directory's host path before it drives an update. Runs
+                       at the updater's start; records a failure for the app.
   down                 Stop serving: the site goes offline until 'remit
                        restart'. Accounts, mail and settings are untouched.
   purge --yes          Destroy the deployment: containers and every data
@@ -1244,14 +1247,46 @@ running_services() {
 	compose ps --services --status running 2>/dev/null | grep -vx updater | tr '\n' ' '
 }
 
-# `backup` is the reason this is not a bare `compose stop`. It is a stock alpine
-# image under `restart: unless-stopped` behind a profile, so a stop scoped to the
-# active profiles leaves it running — and it opens remit.db read-write every
-# interval for its own VACUUM INTO, which is harmless during the gate window and
-# a collision during the restore. Anything still up after the stop is named and
-# stopped again.
+# --- bind-path identity (reader#272) ----------------------------------------
+#
+# Socket-driven compose resolves this file's relative binds against the project
+# directory as a *host* path. In the updater that only holds when the deployment
+# directory is mounted at the same absolute path the host knows it by; a mismatch
+# has the daemon create a root-owned directory on the host where ./queues.json
+# should be a file, and the stack crash-loops with EISDIR. Prove the identity
+# before serving anything: the project directory has to hold the compose file,
+# and a marker written into it here has to come back through the daemon at the
+# same path — the exact resolution a relative bind gets. A wrong or missing mount
+# fails this at boot, never at update time.
+assert_bind_identity() {
+	[ -f "$REMIT_DIR/$COMPOSE_FILE" ] || return 1
+	_id_marker="$REMIT_DIR/.remit-mount-identity"
+	_id_token="identity-$(epoch)-$$"
+	printf '%s' "$_id_token" >"$_id_marker" 2>/dev/null || return 1
+	_id_seen=$(docker run --rm -v "$REMIT_DIR:$REMIT_DIR" --entrypoint sh "$HELPER_IMAGE" \
+		-c "cat '$REMIT_DIR/.remit-mount-identity' 2>/dev/null" 2>/dev/null || true)
+	rm -f "$_id_marker"
+	[ "$_id_seen" = "$_id_token" ]
+}
+
+# Every service except the updater, by name. Never a bare `compose stop`: in the
+# updater container that stops the very service this code runs in, and
+# `restart: unless-stopped` does not resurrect an explicitly-stopped container —
+# the run dies with the site down and no process left to finish or roll back
+# (reader#271). The updater is excluded here for the same reason the gate and
+# come-up sets never name it: it drives the update and replaces itself last.
+#
+# Two passes, because the stop set is not one list. `compose config --services`
+# names the always-on services; `backup` sits behind an inactive profile and is
+# only seen by `ps`, yet it must stop too — it is a stock alpine image under
+# `restart: unless-stopped` that opens remit.db read-write every interval, a
+# collision during the restore.
 stop_everything() {
-	compose stop
+	_stopset=$(compose config --services 2>/dev/null | grep -vx updater | tr '\n' ' ')
+	if [ -n "$_stopset" ]; then
+		# shellcheck disable=SC2086 # a service list, split on purpose
+		compose stop $_stopset
+	fi
 	_left=$(compose ps --services --status running 2>/dev/null | grep -vx updater | tr '\n' ' ')
 	if [ -n "$_left" ]; then
 		# shellcheck disable=SC2086 # a service list, split on purpose
@@ -1471,7 +1506,6 @@ plain_update() {
 }
 
 cmd_update() {
-	require_deployment
 	_tag=""
 	_mode=update
 	while [ $# -gt 0 ]; do
@@ -1490,9 +1524,29 @@ cmd_update() {
 			_mode=recover
 			shift
 			;;
+		--preflight)
+			_mode=preflight
+			shift
+			;;
 		*) die "update: unknown option '$1'" ;;
 		esac
 	done
+
+	# The updater runs this at boot before it touches the stack: if its mount is
+	# not the deployment directory's host path, driving compose would corrupt host
+	# files (reader#272), so record the failure where the app renders it and
+	# refuse. Runs before require_deployment because a broken mount is exactly the
+	# case where the compose file may not be where it is expected.
+	if [ "$_mode" = "preflight" ]; then
+		mkdir -p "$STATE_DIR"
+		if assert_bind_identity; then
+			return 0
+		fi
+		check_failed "The updater is not mounted at the deployment directory's host path, so an update would corrupt host files (reader#272). Set REMIT_DEPLOY_DIR in .env to this directory's absolute path and recreate the stack — re-running install.sh does both."
+		return 1
+	fi
+
+	require_deployment
 
 	if [ "$_mode" = "recover" ]; then
 		lock_acquire

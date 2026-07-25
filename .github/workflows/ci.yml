@@ -72,7 +72,7 @@ jobs:
 
       - name: Deploy stack — SQLite compose validates
         run: |
-          printf 'PUBLIC_ORIGIN=https://ci.invalid\nTLS_MODE=off\n' > deploy/vps/.env
+          printf 'PUBLIC_ORIGIN=https://ci.invalid\nTLS_MODE=off\nREMIT_DEPLOY_DIR=%s/deploy/vps\n' "$PWD" > deploy/vps/.env
           docker compose -f deploy/vps/docker-compose.sqlite.yml \
             --env-file deploy/vps/.env config -q
           rm -f deploy/vps/.env

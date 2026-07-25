@@ -30,6 +30,12 @@ E2E_OVERRIDABLE=(REMIT_TAG E2E_HTTP_PORT E2E_IMAP_PORT)
 e2e_install_env() {
 	cp "$DEPLOY_DIR/e2e.env" "$DEPLOY_DIR/.env"
 
+	# The updater mounts the deployment directory at its host path (reader#272)
+	# and refuses to start without it, so the same directory compose runs from is
+	# the absolute path both sides of the socket agree on. This is the identity
+	# the built-image updater proves at boot, exercised by the e2e stack for free.
+	printf 'REMIT_DEPLOY_DIR=%s\n' "$DEPLOY_DIR" >>"$DEPLOY_DIR/.env"
+
 	for name in "${E2E_OVERRIDABLE[@]}"; do
 		[ -n "${!name-}" ] || continue
 		printf '%s=%s\n' "$name" "${!name}" >>"$DEPLOY_DIR/.env"
