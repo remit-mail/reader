@@ -22,9 +22,12 @@ import {
 } from "@remit/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { Trash2 } from "lucide-react";
 import { useState } from "react";
+import { DeleteFolderDialog } from "@/components/settings/DeleteFolderDialog";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { useCreateMailbox } from "@/hooks/useCreateMailbox";
+import { guardFolderDeletion } from "@/lib/delete-folder";
 import {
 	CANONICAL_TO_NAV_ROLE,
 	getMailboxDisplayName,
@@ -209,6 +212,8 @@ function AccountFolderRoles({
 		},
 	});
 
+	const [deletingMailboxId, setDeletingMailboxId] = useState<string>();
+
 	const handleAppoint = (role: FolderRole, mailboxId: string | null) => {
 		appointMutation.mutate({
 			path: { accountId, role: NAV_ROLE_TO_CANONICAL[role] },
@@ -284,20 +289,53 @@ function AccountFolderRoles({
 			/>
 			<NewFolder accountId={accountId} mailboxes={data.items} />
 			<ul className="space-y-1">
-				{data.items.map((mailbox) => (
-					<li
-						key={mailbox.mailboxId}
-						className="flex items-center justify-between rounded-sm px-2 py-1 text-sm text-fg"
-					>
-						<span className="truncate">
-							{getMailboxDisplayName(mailbox.fullPath)}
-						</span>
-						<span className="shrink-0 text-xs text-fg-muted">
-							{mailbox.fullPath}
-						</span>
-					</li>
-				))}
+				{data.items.map((mailbox) => {
+					const guard = guardFolderDeletion(
+						mailbox,
+						data.items,
+						account.folderAppointments,
+					);
+					const name = getMailboxDisplayName(mailbox.fullPath);
+					return (
+						<li
+							key={mailbox.mailboxId}
+							className="flex items-center gap-2 rounded-sm px-2 py-1 text-sm text-fg"
+						>
+							<span className="truncate">{name}</span>
+							<span className="ml-auto shrink-0 text-xs text-fg-muted">
+								{mailbox.fullPath}
+							</span>
+							<Button
+								variant="ghost"
+								size="sm"
+								icon={<Trash2 className="size-3.5" />}
+								aria-label={`Delete ${name}`}
+								disabled={!guard.deletable}
+								title={guard.deletable ? undefined : guard.message}
+								onClick={() => setDeletingMailboxId(mailbox.mailboxId)}
+								className={guard.deletable ? undefined : "opacity-40"}
+							/>
+						</li>
+					);
+				})}
 			</ul>
+			{deletingMailboxId &&
+				(() => {
+					const folder = data.items.find(
+						(box) => box.mailboxId === deletingMailboxId,
+					);
+					if (!folder) return null;
+					return (
+						<DeleteFolderDialog
+							open
+							accountId={accountId}
+							folder={folder}
+							mailboxes={data.items}
+							appointments={account.folderAppointments}
+							onClose={() => setDeletingMailboxId(undefined)}
+						/>
+					);
+				})()}
 		</div>
 	);
 }
