@@ -4,7 +4,7 @@ import type {
 } from "@remit/api-openapi-types";
 import type { IAccountSettingRepository, MailboxItem } from "@remit/data-ports";
 import { ForbiddenError, NotFoundError } from "@remit/data-ports/errors";
-import { MessageSystemFlag } from "@remit/domain-enums";
+import { MailboxSyncStatus, MessageSystemFlag } from "@remit/domain-enums";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { getAccountConfigIdFromEvent } from "../auth.js";
 import {
@@ -185,6 +185,24 @@ const toMailboxResponse = (
 	updatedAt: mailbox.updatedAt,
 });
 
+/**
+ * Drop folders the user has deleted but the imap-worker has not yet reaped.
+ *
+ * A delete is a soft delete: the row lives on with syncStatus=deleting until the
+ * worker confirms the IMAP delete and removes it (mailbox-queue.deleteMailbox).
+ * The list is the settings view a client refetches right after confirming, so a
+ * still-`deleting` row here would keep a deleted folder on screen until the
+ * worker finishes. Hiding it makes the folder leave the list the moment the
+ * delete is confirmed; a delete that fails restores the row off `deleting`,
+ * which brings the folder back on the next read.
+ */
+export const excludeDeletingMailboxes = (
+	mailboxes: readonly MailboxItem[],
+): MailboxItem[] =>
+	mailboxes.filter(
+		(mailbox) => mailbox.syncStatus !== MailboxSyncStatus.deleting,
+	);
+
 export const MailboxOperations: Record<
 	MailboxOperationIds,
 	OperationHandler<MailboxOperationIds>
@@ -205,6 +223,8 @@ export const MailboxOperations: Record<
 			continuationToken,
 		});
 
+		const visibleItems = excludeDeletingMailboxes(result.items);
+
 		// Overrides (mute / display-name / role) live in per-mailbox AccountSetting
 		// rows (RFC 032). Load the whole config's set in one query and key it by
 		// mailboxId so each mailbox surfaces its overrides without an N+1.
@@ -222,7 +242,7 @@ export const MailboxOperations: Record<
 			accountId,
 		);
 		const items = applyPendingMoveCountPrediction(
-			result.items,
+			visibleItems,
 			pendingMoves,
 			pendingUnseenFlagPushes,
 		);
