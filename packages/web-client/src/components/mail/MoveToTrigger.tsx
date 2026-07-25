@@ -14,6 +14,7 @@ import { useTranslation } from "react-i18next";
 import { Drawer } from "vaul";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { useFolderAppointments } from "@/hooks/useArchiveMailbox";
+import { useCreateMailbox } from "@/hooks/useCreateMailbox";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { buildMailboxRoleMap, labelForMailbox } from "@/lib/folder-roles";
 import { buildMoveTargets } from "@/lib/move-targets";
@@ -95,6 +96,7 @@ export const MoveToTrigger = ({
 		enabled: isOpen,
 	});
 	const folderAppointments = useFolderAppointments(accountId);
+	const { createFolder } = useCreateMailbox(accountId);
 
 	const options = useMemo<MoveMailboxOption[]>(() => {
 		const targets = buildMoveTargets(
@@ -125,6 +127,14 @@ export const MoveToTrigger = ({
 			onMove(destinationMailboxId);
 		},
 		[onMove],
+	);
+
+	const handleCreateFolder = useCallback(
+		async (name: string): Promise<MoveMailboxOption> => {
+			const folder = await createFolder(name);
+			return { id: folder.id, label: folder.label };
+		},
+		[createFolder],
 	);
 
 	// Desktop popover: dismiss on outside click + Escape.
@@ -190,9 +200,11 @@ export const MoveToTrigger = ({
 		<MoveMailboxPicker
 			mailboxes={options}
 			onSelect={handleSelect}
+			onCreateFolder={handleCreateFolder}
 			onCancel={() => setIsOpen(false)}
 			autoFocus={!isDesktop}
 			labels={{
+				createLabel: (folderName) => `Create "${folderName}"`,
 				searchPlaceholder: t("move_picker_placeholder", {
 					defaultValue: "Move to…",
 				}),

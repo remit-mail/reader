@@ -7,6 +7,7 @@ import {
 } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
+import { useCreateMailbox } from "@/hooks/useCreateMailbox";
 import { useCreateFilter } from "@/hooks/useFilters";
 import { useOrganizeJob } from "@/hooks/useOrganizeJob";
 import { useRuleEditorState } from "@/hooks/useRuleEditorState";
@@ -104,6 +105,7 @@ export function OrganizeRuleEditor({
 
 	const organizeJob = useOrganizeJob(accountId);
 	const createFilter = useCreateFilter(accountId);
+	const { createFolder } = useCreateMailbox(accountId);
 
 	const commit = () => {
 		const draft = ruleToDraft(rule, anchorMessageId);
@@ -153,6 +155,7 @@ export function OrganizeRuleEditor({
 			semanticAvailable={!semanticUnavailable}
 			clauseFields={SUPPORTED_CLAUSE_FIELDS}
 			{...handlers}
+			onCreateFolder={createFolder}
 			onCommit={commit}
 			onCancel={onClose}
 		/>

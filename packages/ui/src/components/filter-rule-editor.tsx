@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode } from "react";
+import { Fragment, type ReactNode, useMemo, useState } from "react";
 import { BottomSheet } from "./bottom-sheet.js";
 import { Button } from "./button.js";
 import { Dialog } from "./dialog.js";
@@ -77,6 +77,13 @@ export interface FilterRuleEditorProps {
 	onRemoveWiden?: () => void;
 	onChangeMatchOperator?: (operator: MatchOperator) => void;
 	onChangeMove?: (mailboxId: string) => void;
+	/**
+	 * Create a new destination folder from within the editor. Given a folder
+	 * name, resolves to the created folder once the backend has queued it. When
+	 * absent, the "New folder…" option is not offered — the editor stays
+	 * data-agnostic, so stories and consumers without wiring render unchanged.
+	 */
+	onCreateFolder?: (name: string) => Promise<FolderOption>;
 	onChangeScope?: (scope: RuleScope) => void;
 	onChangeName?: (name: string) => void;
 	onChangeUntil?: (date: string) => void;
@@ -94,6 +101,149 @@ const scopeOptions: { value: RuleScope; label: string }[] = [
 	{ value: "standing", label: "Keep doing this" },
 	{ value: "until", label: "Until a date" },
 ];
+
+const CREATE_FOLDER_VALUE = "__filter_create_folder__";
+
+/**
+ * The move-to destination select, plus an inline "New folder…" affordance when
+ * the consumer wires `onCreateFolder`. Selecting the create option reveals a
+ * name field; on resolve the new folder is added to the local option set (so it
+ * is selectable even before the caller's folder list refetches) and picked as
+ * the destination. Without `onCreateFolder` this is the bare select.
+ */
+function MoveDestinationField({
+	folders,
+	value,
+	onChangeMove,
+	onCreateFolder,
+}: {
+	folders: FolderOption[];
+	value: string;
+	onChangeMove?: (mailboxId: string) => void;
+	onCreateFolder?: (name: string) => Promise<FolderOption>;
+}) {
+	const [creating, setCreating] = useState(false);
+	const [name, setName] = useState("");
+	const [pending, setPending] = useState(false);
+	const [error, setError] = useState<string>();
+	const [createdFolders, setCreatedFolders] = useState<FolderOption[]>([]);
+
+	const options = useMemo(() => {
+		const known = new Set(folders.map((folder) => folder.id));
+		return [
+			...folders,
+			...createdFolders.filter((folder) => !known.has(folder.id)),
+		];
+	}, [folders, createdFolders]);
+
+	const handleSelectChange = (next: string) => {
+		if (next === CREATE_FOLDER_VALUE) {
+			setError(undefined);
+			setCreating(true);
+			return;
+		}
+		onChangeMove?.(next);
+	};
+
+	const submit = () => {
+		if (!onCreateFolder) return;
+		const trimmed = name.trim();
+		if (trimmed === "") return;
+		setPending(true);
+		setError(undefined);
+		onCreateFolder(trimmed)
+			.then((folder) => {
+				setCreatedFolders((prev) =>
+					prev.some((entry) => entry.id === folder.id)
+						? prev
+						: [...prev, folder],
+				);
+				onChangeMove?.(folder.id);
+				setCreating(false);
+				setName("");
+				setPending(false);
+			})
+			.catch((error: unknown) => {
+				setError(
+					error instanceof Error
+						? error.message
+						: "Couldn't create that folder. Please try again.",
+				);
+				setPending(false);
+			});
+	};
+
+	const cancel = () => {
+		setCreating(false);
+		setName("");
+		setError(undefined);
+	};
+
+	return (
+		<div className="space-y-2">
+			<Select
+				aria-label="Destination folder"
+				value={value}
+				onChange={(event) => handleSelectChange(event.target.value)}
+			>
+				<option value="">Choose a folder…</option>
+				{options.map((folder) => (
+					<option key={folder.id} value={folder.id}>
+						{folder.label}
+					</option>
+				))}
+				{onCreateFolder && (
+					<option value={CREATE_FOLDER_VALUE}>＋ New folder…</option>
+				)}
+			</Select>
+			{creating && (
+				<div className="space-y-2 rounded-md border border-line bg-surface-sunken p-2">
+					<Input
+						value={name}
+						onChange={(event) => setName(event.target.value)}
+						placeholder="Folder name"
+						aria-label="New folder name"
+						disabled={pending}
+						autoFocus
+						onKeyDown={(event) => {
+							if (event.key === "Enter") {
+								event.preventDefault();
+								submit();
+							}
+							if (event.key === "Escape") {
+								event.preventDefault();
+								cancel();
+							}
+						}}
+					/>
+					{error && (
+						<p className="text-2xs text-danger" role="alert">
+							{error}
+						</p>
+					)}
+					<div className="flex gap-2">
+						<Button
+							variant="primary"
+							size="sm"
+							onClick={submit}
+							disabled={pending || name.trim() === ""}
+						>
+							{pending ? "Creating…" : "Create folder"}
+						</Button>
+						<Button
+							variant="ghost"
+							size="sm"
+							onClick={cancel}
+							disabled={pending}
+						>
+							Cancel
+						</Button>
+					</div>
+				</div>
+			)}
+		</div>
+	);
+}
 
 export function FilterRuleEditor({
 	rule,
@@ -115,6 +265,7 @@ export function FilterRuleEditor({
 	onRemoveWiden,
 	onChangeMatchOperator,
 	onChangeMove,
+	onCreateFolder,
 	onChangeScope,
 	onChangeName,
 	onChangeUntil,
@@ -204,18 +355,12 @@ export function FilterRuleEditor({
 
 				<section className="space-y-2">
 					<p className="text-xs font-medium text-fg-muted">Move matches to</p>
-					<Select
-						aria-label="Destination folder"
+					<MoveDestinationField
+						folders={folders}
 						value={rule.moveMailboxId ?? ""}
-						onChange={(e) => onChangeMove?.(e.target.value)}
-					>
-						<option value="">Choose a folder…</option>
-						{folders.map((folder) => (
-							<option key={folder.id} value={folder.id}>
-								{folder.label}
-							</option>
-						))}
-					</Select>
+						onChangeMove={onChangeMove}
+						onCreateFolder={onCreateFolder}
+					/>
 					<div className="flex items-center gap-2 pt-0.5">
 						<span className="inline-flex items-center gap-1.5 rounded-full bg-surface-sunken px-2 py-0.5 text-2xs font-medium text-fg-muted">
 							label them…

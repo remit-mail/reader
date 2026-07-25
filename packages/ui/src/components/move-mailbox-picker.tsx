@@ -42,6 +42,12 @@ export interface MoveMailboxPickerLabels {
 	emptyMessage?: (query: string) => string;
 	/** Builds the accessible label for a selectable row, e.g. `Move to X`. */
 	optionLabel?: (label: string) => string;
+	/** Builds the label for the create-and-move row, e.g. `Create "Receipts"`. */
+	createLabel?: (query: string) => string;
+	/** Shown on the create row while the folder is being created. */
+	createPending?: string;
+	/** Shown when creating the folder fails. */
+	createError?: string;
 }
 
 export interface MoveMailboxPickerProps {
@@ -51,6 +57,13 @@ export interface MoveMailboxPickerProps {
 	 */
 	mailboxes: readonly MoveMailboxOption[];
 	onSelect: (mailboxId: string) => void;
+	/**
+	 * Create a folder named by the current search query. When provided and the
+	 * query names no existing folder, a create-and-move row is offered at the
+	 * bottom of the list; resolving it yields the new folder, which is selected
+	 * (moved into) immediately. Absent means no create affordance renders.
+	 */
+	onCreateFolder?: (name: string) => Promise<MoveMailboxOption>;
 	/**
 	 * Called when the user dismisses the picker via Escape. Trigger consumers
 	 * use this to close their popover/drawer; the picker never owns
@@ -78,6 +91,9 @@ const defaultLabels: Required<MoveMailboxPickerLabels> = {
 	currentTag: "current",
 	emptyMessage: (query) => `No folders match "${query}"`,
 	optionLabel: (label) => `Move to ${label}`,
+	createLabel: (query) => `Create "${query}"`,
+	createPending: "Creating folder…",
+	createError: "Couldn't create that folder. Please try again.",
 };
 
 const findFirstSelectable = (options: readonly MoveMailboxOption[]): number => {
@@ -123,12 +139,15 @@ const matchesQuery = (option: MoveMailboxOption, query: string): boolean => {
 export const MoveMailboxPicker = ({
 	mailboxes,
 	onSelect,
+	onCreateFolder,
 	onCancel,
 	autoFocus = false,
 	labels,
 }: MoveMailboxPickerProps) => {
 	const text = { ...defaultLabels, ...labels };
 	const [query, setQuery] = useState("");
+	const [creating, setCreating] = useState(false);
+	const [createError, setCreateError] = useState<string>();
 	const [focusedIndex, setFocusedIndex] = useState<number>(() =>
 		findFirstSelectable(mailboxes),
 	);
@@ -175,6 +194,30 @@ export const MoveMailboxPicker = ({
 		if (!target || target.isCurrent) return;
 		onSelect(target.id);
 	}, [focusedIndex, filtered, onSelect]);
+
+	const showCreate =
+		!!onCreateFolder &&
+		trimmedQuery.length > 0 &&
+		!mailboxes.some((mailbox) => mailbox.label.toLowerCase() === trimmedQuery);
+
+	const handleCreate = useCallback(() => {
+		if (!onCreateFolder) return;
+		const name = query.trim();
+		if (name === "") return;
+		setCreating(true);
+		setCreateError(undefined);
+		onCreateFolder(name)
+			.then((folder) => {
+				onSelect(folder.id);
+				setCreating(false);
+			})
+			.catch((error: unknown) => {
+				setCreateError(
+					error instanceof Error ? error.message : text.createError,
+				);
+				setCreating(false);
+			});
+	}, [onCreateFolder, query, onSelect, text.createError]);
 
 	const handleListKeyDown = useCallback(
 		(event: ReactKeyboardEvent<HTMLElement>) => {
@@ -307,6 +350,28 @@ export const MoveMailboxPicker = ({
 					})
 				)}
 			</div>
+			{showCreate && (
+				<div className="border-t border-line p-1">
+					<button
+						type="button"
+						onClick={handleCreate}
+						disabled={creating}
+						className={cn(
+							ROW_BASE,
+							"font-medium text-accent-2 hover:bg-surface-raised disabled:opacity-60",
+						)}
+					>
+						<span className="truncate">
+							{creating ? text.createPending : text.createLabel(query.trim())}
+						</span>
+					</button>
+					{createError && (
+						<p className="px-3 py-1 text-xs text-danger" role="alert">
+							{createError}
+						</p>
+					)}
+				</div>
+			)}
 		</div>
 	);
 };
