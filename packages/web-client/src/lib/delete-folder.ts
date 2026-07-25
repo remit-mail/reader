@@ -82,19 +82,6 @@ export function guardFolderDeletion(
 	return { deletable: true };
 }
 
-/** Split ids into fixed-size batches; the API moves at most 100 per call. */
-export function chunkIds(
-	ids: readonly string[],
-	size: number = MOVE_BATCH_SIZE,
-): string[][] {
-	if (size <= 0) throw new Error("chunk size must be positive");
-	const batches: string[][] = [];
-	for (let i = 0; i < ids.length; i += size) {
-		batches.push(ids.slice(i, i + size));
-	}
-	return batches;
-}
-
 /** Destinations with the folder being deleted removed. */
 export function excludeFolder<T extends { mailboxId: string }>(
 	targets: readonly T[],

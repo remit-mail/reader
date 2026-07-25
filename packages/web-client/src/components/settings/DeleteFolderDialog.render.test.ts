@@ -60,6 +60,23 @@ interface FetchCall {
 type FetchRoute = (call: FetchCall) => Response;
 let route: FetchRoute = () => new Response("{}", { status: 200 });
 
+const json = (body: unknown): Response =>
+	new Response(JSON.stringify(body), {
+		status: 200,
+		headers: { "Content-Type": "application/json" },
+	});
+
+const threadItems = (ids: readonly string[]) => ({
+	items: ids.map((id) => ({
+		threadMessageId: `t-${id}`,
+		threadId: "th",
+		messageId: id,
+		accountConfigId: "acc-1",
+		mailboxId: "receipts",
+		isDeleted: false,
+	})),
+});
+
 beforeEach(() => {
 	container = document.createElement("div");
 	document.body.appendChild(container);
@@ -279,5 +296,172 @@ describe("DeleteFolderDialog", () => {
 		await flush();
 		assert.match(container.textContent ?? "", /stay moved/);
 		assert.equal(closed, false);
+	});
+
+	const clickMoveToArchive = async () => {
+		act(() => buttonByText(/Move them to another folder/)?.click());
+		await act(async () => {
+			(
+				container.querySelector('button[aria-label="Move to Archive"]') as
+					| HTMLButtonElement
+					| undefined
+			)?.click();
+		});
+	};
+
+	it("iterates multiple batches and deletes only after the folder drains", async () => {
+		let deleted = false;
+		const moveCalls: string[][] = [];
+		let threadRound = 0;
+		route = ({ url, method, body: reqBody }) => {
+			if (method === "DELETE") {
+				deleted = true;
+				return new Response(null, { status: 204 });
+			}
+			if (url.includes("/messages/move")) {
+				const body = JSON.parse(reqBody) as { messageIds: string[] };
+				moveCalls.push(body.messageIds);
+				return json({ moved: body.messageIds.length });
+			}
+			if (url.includes("/threads")) {
+				threadRound += 1;
+				if (threadRound === 1) return json(threadItems(["m1", "m2"]));
+				if (threadRound === 2) return json(threadItems(["m3", "m4"]));
+				return json(threadItems([]));
+			}
+			return json({ items: mailboxes });
+		};
+		render({ open: true, folder: mailboxes[1] as RemitImapMailboxResponse });
+		await clickMoveToArchive();
+		await flush();
+		assert.equal(moveCalls.length, 2, "two move calls, one per batch");
+		assert.deepEqual(moveCalls[0], ["m1", "m2"]);
+		assert.deepEqual(moveCalls[1], ["m3", "m4"]);
+		assert.equal(deleted, true, "delete fires only after drain and recheck");
+	});
+
+	it("does not delete or error when the dialog is closed mid-move", async () => {
+		let deleted = false;
+		let closed = false;
+		const moveCalls: string[][] = [];
+		route = ({ url, method, body: reqBody }) => {
+			if (method === "DELETE") {
+				deleted = true;
+				return new Response(null, { status: 204 });
+			}
+			if (url.includes("/messages/move")) {
+				const body = JSON.parse(reqBody) as { messageIds: string[] };
+				moveCalls.push(body.messageIds);
+				container
+					.querySelector<HTMLButtonElement>('button[aria-label="Cancel"]')
+					?.click();
+				return json({ moved: body.messageIds.length });
+			}
+			if (url.includes("/threads")) return json(threadItems(["m1", "m2"]));
+			return json({ items: mailboxes });
+		};
+		render({
+			open: true,
+			folder: mailboxes[1] as RemitImapMailboxResponse,
+			onClose: () => {
+				closed = true;
+			},
+		});
+		await clickMoveToArchive();
+		await flush();
+		assert.equal(closed, true, "closing the dialog aborts the run");
+		assert.equal(moveCalls.length, 1, "the in-flight batch completes");
+		assert.equal(deleted, false, "abort never reaches the delete");
+		assert.doesNotMatch(
+			container.textContent ?? "",
+			/went wrong|still syncing|stay moved/,
+			"aborting is a cancel, not an error",
+		);
+	});
+
+	it("refuses the delete when an independent recheck still sees mail", async () => {
+		let deleted = false;
+		const moveCalls: string[][] = [];
+		route = ({ url, method, body: reqBody }) => {
+			if (method === "DELETE") {
+				deleted = true;
+				return new Response(null, { status: 204 });
+			}
+			if (url.includes("/messages/move")) {
+				const body = JSON.parse(reqBody) as { messageIds: string[] };
+				moveCalls.push(body.messageIds);
+				return json({ moved: body.messageIds.length });
+			}
+			if (url.includes("/threads")) return json(threadItems(["m1"]));
+			return json({ items: mailboxes });
+		};
+		render({ open: true, folder: mailboxes[1] as RemitImapMailboxResponse });
+		await clickMoveToArchive();
+		await flush();
+		assert.equal(
+			moveCalls.length,
+			1,
+			"m1 moves once, then the drain filters it",
+		);
+		assert.equal(
+			deleted,
+			false,
+			"a live message still listed blocks the delete",
+		);
+		assert.match(container.textContent ?? "", /still syncing/);
+	});
+
+	it("resumes after re-open and skips already-moved mail", async () => {
+		let deleted = false;
+		const moveCalls: string[][] = [];
+		const movedOnServer = new Set<string>();
+		const folderIds = ["m1", "m2"];
+		let interruptNextMove = true;
+		route = ({ url, method, body: reqBody }) => {
+			if (method === "DELETE") {
+				deleted = true;
+				return new Response(null, { status: 204 });
+			}
+			if (url.includes("/messages/move")) {
+				const body = JSON.parse(reqBody) as { messageIds: string[] };
+				moveCalls.push(body.messageIds);
+				for (const id of body.messageIds) movedOnServer.add(id);
+				if (interruptNextMove) {
+					interruptNextMove = false;
+					container
+						.querySelector<HTMLButtonElement>('button[aria-label="Cancel"]')
+						?.click();
+				}
+				return json({ moved: body.messageIds.length });
+			}
+			if (url.includes("/threads"))
+				return json(
+					threadItems(folderIds.filter((id) => !movedOnServer.has(id))),
+				);
+			return json({ items: mailboxes });
+		};
+		render({ open: true, folder: mailboxes[1] as RemitImapMailboxResponse });
+		await clickMoveToArchive();
+		await flush();
+		assert.deepEqual(
+			moveCalls,
+			[["m1", "m2"]],
+			"run one moves the first batch",
+		);
+		assert.equal(deleted, false, "the interrupted run does not delete");
+
+		folderIds.push("m3");
+		render({ open: false, folder: mailboxes[1] as RemitImapMailboxResponse });
+		render({ open: true, folder: mailboxes[1] as RemitImapMailboxResponse });
+		await clickMoveToArchive();
+		await flush();
+
+		const secondRunIds = moveCalls.slice(1).flat();
+		assert.deepEqual(
+			secondRunIds,
+			["m3"],
+			"the resumed run moves only what is left, skipping already-moved ids",
+		);
+		assert.equal(deleted, true, "the resumed run drains and deletes");
 	});
 });

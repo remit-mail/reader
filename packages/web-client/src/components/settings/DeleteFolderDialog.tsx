@@ -10,7 +10,7 @@ import {
 	MoveMailboxPicker,
 } from "@remit/ui";
 import { AlertTriangle, FolderInput, Loader2, Trash2, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useCreateMailbox } from "@/hooks/useCreateMailbox";
 import { useDeleteFolder } from "@/hooks/useDeleteFolder";
 import {
@@ -67,6 +67,7 @@ export function DeleteFolderDialog({
 		errorMessage,
 		deleteMailbox,
 		moveThenDelete,
+		cancel,
 		reset,
 	} = useDeleteFolder({
 		accountId,
@@ -79,6 +80,13 @@ export function DeleteFolderDialog({
 		setStage(initialStage(folder.messageCount));
 		reset();
 	}, [open, folder.messageCount, reset]);
+
+	useEffect(() => cancel, [cancel]);
+
+	const handleClose = useCallback(() => {
+		cancel();
+		onClose();
+	}, [cancel, onClose]);
 
 	const destinations = useMemo<MoveMailboxOption[]>(
 		() =>
@@ -140,7 +148,7 @@ export function DeleteFolderDialog({
 						</p>
 					)}
 					<div className="flex justify-end">
-						<Button variant="secondary" size="sm" onClick={onClose}>
+						<Button variant="secondary" size="sm" onClick={handleClose}>
 							Close
 						</Button>
 					</div>
@@ -158,7 +166,7 @@ export function DeleteFolderDialog({
 						</p>
 					</div>
 					<footer className="flex items-center justify-end gap-2 border-t border-line px-5 py-3">
-						<Button variant="secondary" size="sm" onClick={onClose}>
+						<Button variant="secondary" size="sm" onClick={handleClose}>
 							Cancel
 						</Button>
 						<Button
@@ -217,7 +225,7 @@ export function DeleteFolderDialog({
 						</div>
 					</div>
 					<footer className="flex items-center justify-end gap-2 border-t border-line px-5 py-3">
-						<Button variant="secondary" size="sm" onClick={onClose}>
+						<Button variant="secondary" size="sm" onClick={handleClose}>
 							Cancel
 						</Button>
 					</footer>
@@ -282,7 +290,7 @@ export function DeleteFolderDialog({
 	})();
 
 	return (
-		<Dialog open={open} onClose={onClose} title={title}>
+		<Dialog open={open} onClose={handleClose} title={title}>
 			<header className="flex items-center gap-2 border-b border-line px-5 py-3">
 				<AlertTriangle className="size-4 shrink-0 text-danger" />
 				<span className="flex-1 text-sm font-semibold text-fg">{title}</span>
@@ -290,7 +298,7 @@ export function DeleteFolderDialog({
 					variant="ghost"
 					size="sm"
 					icon={<X className="size-3.5" />}
-					onClick={onClose}
+					onClick={handleClose}
 					aria-label="Cancel"
 				/>
 			</header>

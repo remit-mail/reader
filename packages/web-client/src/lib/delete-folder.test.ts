@@ -4,7 +4,6 @@ import {
 	advanceMove,
 	appointedRole,
 	beginMove,
-	chunkIds,
 	excludeFolder,
 	type FolderNode,
 	failMove,
@@ -120,35 +119,6 @@ describe("appointedRole", () => {
 			appointedRole("a", [{ role: "Trash", mailboxId: "b" }]),
 			undefined,
 		);
-	});
-});
-
-describe("chunkIds", () => {
-	it("returns no batches for an empty list", () => {
-		assert.deepEqual(chunkIds([]), []);
-	});
-
-	it("splits an exact multiple into full batches", () => {
-		const ids = Array.from({ length: 200 }, (_, i) => `m${i}`);
-		const batches = chunkIds(ids);
-		assert.equal(batches.length, 2);
-		assert.equal(batches[0]?.length, 100);
-		assert.equal(batches[1]?.length, 100);
-	});
-
-	it("keeps the remainder in a final short batch", () => {
-		const ids = Array.from({ length: 250 }, (_, i) => `m${i}`);
-		const batches = chunkIds(ids);
-		assert.equal(batches.length, 3);
-		assert.equal(batches[2]?.length, 50);
-	});
-
-	it("honours a custom size", () => {
-		assert.deepEqual(chunkIds(["a", "b", "c"], 2), [["a", "b"], ["c"]]);
-	});
-
-	it("rejects a non-positive size", () => {
-		assert.throws(() => chunkIds(["a"], 0), /positive/);
 	});
 });
 

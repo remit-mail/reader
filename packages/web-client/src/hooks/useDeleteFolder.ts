@@ -9,7 +9,7 @@ import {
 	threadOperationsListThreads,
 } from "@remit/api-http-client/sdk.gen.ts";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
 	advanceMove,
 	beginMove,
@@ -46,10 +46,12 @@ const collectMovableIds = async (
 	mailboxId: string,
 	alreadyMoved: ReadonlySet<string>,
 	limit: number,
+	signal: AbortSignal,
 ): Promise<string[]> => {
 	const ids: string[] = [];
 	let continuationToken: string | undefined;
 	for (let page = 0; page < PAGE_CAP; page += 1) {
+		if (signal.aborted) return ids;
 		const { data } = await threadOperationsListThreads({
 			path: { mailboxId },
 			query: { order: "desc", continuationToken },
@@ -66,6 +68,35 @@ const collectMovableIds = async (
 		continuationToken = data.continuationToken;
 	}
 	return ids;
+};
+
+/**
+ * Count live messages still listed in the mailbox with no `moved`-set filtering,
+ * an independent read the move loop cannot fool. The delete gates on this: if any
+ * message still shows here — including one that lags in the source listing after a
+ * move — the folder is not emptied yet and must not be deleted.
+ */
+const liveMessageCount = async (
+	mailboxId: string,
+	signal: AbortSignal,
+): Promise<number> => {
+	let count = 0;
+	let continuationToken: string | undefined;
+	for (let page = 0; page < PAGE_CAP; page += 1) {
+		if (signal.aborted) return count;
+		const { data } = await threadOperationsListThreads({
+			path: { mailboxId },
+			query: { order: "desc", continuationToken },
+			throwOnError: true,
+		});
+		for (const item of data.items) {
+			if (item.isDeleted) continue;
+			count += 1;
+		}
+		if (!data.continuationToken) break;
+		continuationToken = data.continuationToken;
+	}
+	return count;
 };
 
 export type DeleteFolderPhase =
@@ -90,6 +121,7 @@ export function useDeleteFolder({
 	const [phase, setPhase] = useState<DeleteFolderPhase>("idle");
 	const [progress, setProgress] = useState<MoveProgress | null>(null);
 	const [errorMessage, setErrorMessage] = useState<string>();
+	const abortRef = useRef<AbortController | null>(null);
 
 	const invalidate = useCallback(() => {
 		queryClient.invalidateQueries({
@@ -131,12 +163,20 @@ export function useDeleteFolder({
 		[accountId, mailboxId],
 	);
 
+	const cancel = useCallback(() => {
+		abortRef.current?.abort();
+	}, []);
+
 	const moveThenDelete = useCallback(
 		async (destinationMailboxId: string) => {
+			const controller = new AbortController();
+			abortRef.current = controller;
+			const { signal } = controller;
 			setPhase("moving");
 			setErrorMessage(undefined);
 
 			const counted = await attempt(remainingCount());
+			if (signal.aborted) return;
 			if (!counted.ok) {
 				setErrorMessage(counted.error);
 				setPhase("error");
@@ -147,9 +187,11 @@ export function useDeleteFolder({
 
 			const moved = new Set<string>();
 			while (true) {
+				if (signal.aborted) return;
 				const collected = await attempt(
-					collectMovableIds(mailboxId, moved, MOVE_BATCH_SIZE),
+					collectMovableIds(mailboxId, moved, MOVE_BATCH_SIZE, signal),
 				);
+				if (signal.aborted) return;
 				if (!collected.ok) {
 					current = failMove(current, collected.error);
 					setProgress(current);
@@ -166,6 +208,7 @@ export function useDeleteFolder({
 						throwOnError: true,
 					}),
 				);
+				if (signal.aborted) return;
 				if (!movedBatch.ok) {
 					current = failMove(current, movedBatch.error);
 					setProgress(current);
@@ -178,12 +221,35 @@ export function useDeleteFolder({
 				setProgress(current);
 			}
 
+			const remaining = await attempt(liveMessageCount(mailboxId, signal));
+			if (signal.aborted) return;
+			if (!remaining.ok) {
+				current = failMove(current, remaining.error);
+				setProgress(current);
+				setErrorMessage(remaining.error);
+				setPhase("error");
+				return;
+			}
+			if (remaining.value > 0) {
+				const message = `${remaining.value} ${
+					remaining.value === 1 ? "email is" : "emails are"
+				} still syncing. Re-open delete to finish removing this folder.`;
+				current = failMove(current, message);
+				setProgress(current);
+				setErrorMessage(message);
+				setPhase("error");
+				invalidate();
+				return;
+			}
+
 			await deleteMailbox();
 		},
-		[mailboxId, remainingCount, deleteMailbox],
+		[mailboxId, remainingCount, deleteMailbox, invalidate],
 	);
 
 	const reset = useCallback(() => {
+		abortRef.current?.abort();
+		abortRef.current = null;
 		setPhase("idle");
 		setProgress(null);
 		setErrorMessage(undefined);
@@ -195,6 +261,7 @@ export function useDeleteFolder({
 		errorMessage,
 		deleteMailbox,
 		moveThenDelete,
+		cancel,
 		reset,
 	};
 }
