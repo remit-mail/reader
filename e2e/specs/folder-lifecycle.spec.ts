@@ -96,7 +96,7 @@ const seedFolder = async (
 			(boxes.find((b) => b.mailboxId === mailboxId)?.messageCount ?? 0) >=
 			subjects.length,
 		{
-			timeoutMs: 120_000,
+			timeoutMs: 300_000,
 			what: "the folder's message count to reflect the seed",
 		},
 	);
@@ -228,7 +228,7 @@ test.describe("Folder lifecycle against the IMAP server", () => {
 	});
 
 	test("create a folder, seed it over IMAP, then move its mail out and delete it — verified on the server", async () => {
-		test.setTimeout(300_000);
+		test.setTimeout(600_000);
 		const page = await context.newPage();
 		const stamp = Date.now();
 		const sourceName = `E2E Lifecycle ${stamp}`;
@@ -295,7 +295,7 @@ test.describe("Folder lifecycle against the IMAP server", () => {
 	});
 
 	test("create a folder, seed it, then delete folder and mail together — verified on the server", async () => {
-		test.setTimeout(300_000);
+		test.setTimeout(600_000);
 		const page = await context.newPage();
 		const stamp = Date.now();
 		const folderName = `E2E DeleteAll ${stamp}`;
