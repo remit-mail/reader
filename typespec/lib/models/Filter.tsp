@@ -57,12 +57,12 @@ model Filter {
   @visibility(Lifecycle.Create, Lifecycle.Read, Lifecycle.Update)
   name: String256;
 
-  @doc("Standing (permanent) or Temporary (expires). Governs whether expiresAt/ttl are present (RFC 034 Decision 1).")
-  @visibility(Lifecycle.Create, Lifecycle.Read)
+  @doc("Standing (permanent) or Temporary (expires). Governs whether expiresAt/ttl are present (RFC 034 Decision 1). Mutable on update (reader #266): switching scope re-derives ttl and re-evaluates state from expiresAt, and bumps ruleChangedAt so a lapsed filter's back-application can be offered again. The semantic anchor stays immutable regardless — repointing it would silently change what a saved filter matches with nothing visible changing, which deserves a new filter instead.")
+  @visibility(Lifecycle.Create, Lifecycle.Read, Lifecycle.Update)
   scope: FilterScope;
 
-  @doc("ISO 8601 date-time with zone offset, present only when scope is Temporary (RFC 034 Decision 1.1) — a business date, not an epoch instant. Every evaluation compares `now` against this value directly; it is the source of truth for whether a Temporary filter is still active, independent of `state` or row existence.")
-  @visibility(Lifecycle.Create, Lifecycle.Read)
+  @doc("ISO 8601 date-time with zone offset, present only when scope is Temporary (RFC 034 Decision 1.1) — a business date, not an epoch instant. Every evaluation compares `now` against this value directly; it is the source of truth for whether a Temporary filter is still active, independent of `state` or row existence. Mutable on update (reader #266), alongside scope — moving the date bumps ruleChangedAt the same way a scope change does.")
+  @visibility(Lifecycle.Create, Lifecycle.Read, Lifecycle.Update)
   expiresAt?: string;
 
   @doc("Epoch seconds derived from expiresAt, present only when scope is Temporary. Drives the table-wide DynamoDB TTL delete (RFC 034 Decision 1.3) — the same reserved `ttl` attribute name MailboxLock uses. Must stay absent for Standing filters: DynamoDB treats any attribute literally named `ttl` as eligible for automatic deletion once its value is in the past, so there is no safe non-optional sentinel for \"never expires\" here (RFC 034 Decision 1.4).")
@@ -127,7 +127,21 @@ model CreateFilterInput {
   anchorMessageId?: UUID;
 }
 
-@doc("Input for updating a filter (RFC 034). Only the mutable name/predicate/action fields are updatable — `scope`, `expiresAt`, and `ttl` are fixed at creation, and `state`/`hasAnchor`/`ruleChangedAt`/`filterId` are server-derived. A patch touching a predicate or action field bumps `ruleChangedAt`; a name-only rename never does (RFC 034 Decision 3.2).")
+@doc("""
+  Input for updating a filter (RFC 034, reader #266). The name, predicate,
+  action, scope, and expiresAt are all updatable; `ttl` is always
+  server-derived from `scope`/`expiresAt`, never client-supplied, and
+  `state`/`hasAnchor`/`ruleChangedAt`/`filterId` are server-derived too. A
+  patch touching the predicate, the action, `scope`, or `expiresAt` bumps
+  `ruleChangedAt`; a name-only rename never does (RFC 034 Decision 3.2, reader
+  #266).
+  
+  The semantic anchor has no field here at all — it is set once, from
+  `anchorMessageId`, only on `CreateFilterInput`. Repointing an anchor would
+  silently change what a saved filter matches with nothing visible changing;
+  that deserves a new filter, so the server rejects any attempt to smuggle an
+  anchor change through this body (reader #266).
+  """)
 model UpdateFilterInput is Update<Filter>;
 
 // ============================================

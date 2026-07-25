@@ -5,7 +5,11 @@ import type {
 	ResultList,
 	UpdateFilterInput,
 } from "@remit/data-ports";
-import { FilterMatchOperator, FilterState } from "@remit/domain-enums";
+import {
+	FilterMatchOperator,
+	FilterScope,
+	FilterState,
+} from "@remit/domain-enums";
 import { and, asc, eq, gt, or } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { NotFoundError } from "../error.js";
@@ -15,22 +19,28 @@ import { filterTable } from "../schema.js";
 
 type DB = NodePgDatabase<Record<string, unknown>>;
 
-const PREDICATE_OR_ACTION_FIELDS = [
+const RULE_ASSERTION_FIELDS = [
 	"hasAnchor",
 	"matchOperator",
 	"literalClauses",
 	"actionLabelId",
 	"actionMailboxId",
+	"scope",
+	"expiresAt",
 ] as const satisfies readonly (keyof UpdateFilterInput)[];
 
 const nowSeconds = (): number => Math.floor(Date.now() / 1000);
 
 /**
- * Whether `input` touches the predicate or the action (RFC 034 Decision
- * 3.2) — a plain rename (`name` only) must not bump `ruleChangedAt`.
+ * Whether `input` touches the predicate, the action, the scope, or the
+ * expiry (RFC 034 Decision 3.2, reader #266) — a plain rename (`name` only)
+ * must not bump `ruleChangedAt`. Scope and expiry count as a rule assertion
+ * alongside the predicate/action: re-asserting how long a filter runs is the
+ * same kind of "the user just told Remit something new" moment, and it is
+ * what lets a lapsed filter's back-application be offered again.
  */
-const changesPredicateOrAction = (input: UpdateFilterInput): boolean =>
-	PREDICATE_OR_ACTION_FIELDS.some((field) => field in input);
+const changesRuleAssertion = (input: UpdateFilterInput): boolean =>
+	RULE_ASSERTION_FIELDS.some((field) => field in input);
 
 function rowToFilter(row: typeof filterTable.$inferSelect): FilterItem {
 	return {
@@ -102,20 +112,38 @@ export class FilterRepo implements IFilterRepository {
 	}
 
 	/**
-	 * `ruleChangedAt` only advances when `input` touches the predicate or the
-	 * action — never on a cosmetic `name` edit (RFC 034 Decision 3.2).
+	 * `ruleChangedAt` only advances when `input` touches the predicate, the
+	 * action, the scope, or the expiry — never on a cosmetic `name` edit (RFC
+	 * 034 Decision 3.2, reader #266).
+	 *
+	 * A patch moving `scope` to `Standing` clears `expiresAt`/`ttl` at the SQL
+	 * layer regardless of what `input` carries for them: the caller (the
+	 * backend handler's `resolveFilterScopeExpiry`) already resolved `input` to
+	 * `undefined` for both, but `undefined` in a `.set()` value means "leave
+	 * column alone," not "clear it" — only an explicit `null` does that. This
+	 * keeps the Filter model's invariant that a `Standing` filter never carries
+	 * `expiresAt`/`ttl` (RFC 034 Decision 1.4) true at the storage layer itself,
+	 * not just by caller convention.
 	 */
 	async update(
 		accountConfigId: string,
 		filterId: string,
 		input: UpdateFilterInput,
 	): Promise<FilterItem> {
-		const patch = changesPredicateOrAction(input)
+		const patch = changesRuleAssertion(input)
 			? { ...input, ruleChangedAt: nowSeconds() }
 			: input;
+		const updates: Partial<typeof filterTable.$inferInsert> = {
+			...patch,
+			updatedAt: Date.now(),
+		};
+		if (patch.scope === FilterScope.Standing) {
+			updates.expiresAt = null;
+			updates.ttl = null;
+		}
 		const [row] = await this.db
 			.update(filterTable)
-			.set({ ...patch, updatedAt: Date.now() })
+			.set(updates)
 			.where(
 				and(
 					eq(filterTable.accountConfigId, accountConfigId),

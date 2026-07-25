@@ -60,12 +60,17 @@ const filterFixture = (
 
 type Responder = (call: HttpCall) => unknown;
 
-/** Fields whose presence in a patch bumps `ruleChangedAt` (RFC 034 Decision 3.2). */
-const PREDICATE_OR_ACTION = [
+/**
+ * Fields whose presence in a patch bumps `ruleChangedAt` (RFC 034 Decision
+ * 3.2, reader #266).
+ */
+const RULE_ASSERTION_FIELDS = [
 	"matchOperator",
 	"literalClauses",
 	"actionLabelId",
 	"actionMailboxId",
+	"scope",
+	"expiresAt",
 ];
 
 /**
@@ -84,7 +89,7 @@ const backend = (
 		}
 		if (call.path.endsWith("/filters/f-1") && call.method === "PATCH") {
 			const body = call.body ?? {};
-			const bumped = PREDICATE_OR_ACTION.some((field) => field in body);
+			const bumped = RULE_ASSERTION_FIELDS.some((field) => field in body);
 			return {
 				...filter,
 				...body,
@@ -254,12 +259,12 @@ describe("FilterEditor — degraded semantic filter (RFC 038 D4)", () => {
 			dom.query('[aria-label="Remove the similar-mail widen"]'),
 			null,
 		);
-		assert.match(dom.text(), /set when a filter is created/i);
+		assert.match(dom.text(), /similar-mail match is fixed to the message/i);
 	});
 });
 
-describe("FilterEditor — scope and expiry are read-only (reader #266)", () => {
-	it("shows an until-a-date filter's scope statically, with no scope or date control", async () => {
+describe("FilterEditor — scope and expiry are editable (reader #266)", () => {
+	it("keeps the scope toggle and date input live, minus the once option", async () => {
 		const dom = mount(
 			filterFixture({
 				scope: "Temporary",
@@ -268,14 +273,56 @@ describe("FilterEditor — scope and expiry are read-only (reader #266)", () => 
 		);
 		await settlePreview(dom);
 
-		// The live scope segmented control and the date input are gone — a
-		// scope/date change cannot be persisted, so it is never offered.
-		assert.equal(dom.query('input[name="rule-scope"]'), null);
-		assert.equal(dom.query('[aria-label="Expiry date"]'), null);
-		assert.match(dom.text(), /Until 2027-09-01/);
-		assert.match(dom.text(), /set when a filter is created/i);
+		assert.ok(dom.query('input[name="rule-scope"]'));
+		assert.ok(dom.byLabel("Expiry date"));
+		assert.doesNotMatch(dom.text(), /Just once/);
 
-		// The name stays editable.
+		// The name stays editable too.
 		assert.ok(dom.byLabel("Rule name"));
+	});
+
+	it("moves a standing filter to until-a-date, patches scope and expiresAt, and offers the re-apply", async () => {
+		const dom = mount(filterFixture());
+		await settlePreview(dom);
+
+		dom.click(dom.byText("label", "Until a date"));
+		dom.type(dom.byLabel("Expiry date"), "2027-09-01");
+		await dom.flush();
+
+		dom.click(primaryButton(dom, "Save until then"));
+		await dom.flush();
+
+		const patch = patchCalls();
+		assert.equal(patch.length, 1);
+		assert.equal(patch[0].body?.scope, "Temporary");
+		assert.match(String(patch[0].body?.expiresAt ?? ""), /^2027-09-01T/);
+		// The predicate/action and the name are untouched, so neither travels.
+		assert.equal("matchOperator" in (patch[0].body ?? {}), false);
+		assert.equal("name" in (patch[0].body ?? {}), false);
+
+		// A scope/expiry change is a rule reassertion too — it offers the
+		// re-apply exactly like a predicate/action change does.
+		assert.match(dom.text(), /Move existing mail/);
+	});
+
+	it("moves an until-a-date filter back to standing and clears the expiry", async () => {
+		const dom = mount(
+			filterFixture({
+				scope: "Temporary",
+				expiresAt: "2027-09-01T23:59:59+00:00",
+			}),
+		);
+		await settlePreview(dom);
+
+		dom.click(dom.byText("label", "Keep doing this"));
+		await dom.flush();
+
+		dom.click(primaryButton(dom, "Save rule"));
+		await dom.flush();
+
+		const patch = patchCalls();
+		assert.equal(patch.length, 1);
+		assert.equal(patch[0].body?.scope, "Standing");
+		assert.equal("expiresAt" in (patch[0].body ?? {}), false);
 	});
 });

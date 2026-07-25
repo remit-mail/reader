@@ -8,6 +8,7 @@ import {
 	type FolderOption,
 	type MatchOperator,
 	previewCountSummary,
+	type RuleScope,
 } from "@remit/ui";
 import { CheckCircle2, Loader2 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
@@ -19,6 +20,7 @@ import {
 	buildUpdateFilterInput,
 	filterToRule,
 	ruleChangesPredicateOrAction,
+	ruleChangesScopeOrExpiry,
 } from "@/lib/organize/filter-edit-model";
 import {
 	normalizeClauseValue,
@@ -43,11 +45,14 @@ interface FilterEditorProps {
 /**
  * Editing a standing filter in the same chip editor the Organize surface uses
  * (RFC 038 D6). The row's persisted rule opens in the editor — clauses, match
- * operator, move action, scope, and the semantic anchor as a widen chip. Saving
- * a predicate or action change bumps `ruleChangedAt` and offers, never runs, a
- * re-back-apply over existing mail; a cosmetic rename does neither (RFC 034
- * Decision 3.2). The re-apply carries exactly the previewed predicate and is
- * held behind the same settled-count commit gate as creation.
+ * operator, move action, scope, expiry, and the semantic anchor as a widen
+ * chip. Saving a predicate, action, scope, or expiry change bumps
+ * `ruleChangedAt` and offers, never runs, a re-back-apply over existing mail;
+ * a cosmetic rename does neither (RFC 034 Decision 3.2, reader #266). The
+ * re-apply carries exactly the previewed predicate and is held behind the
+ * same settled-count commit gate as creation. The anchor stays fixed at
+ * creation regardless — repointing it would silently change what the filter
+ * matches, which deserves a new filter instead.
  */
 export function FilterEditor({
 	accountId,
@@ -142,14 +147,26 @@ export function FilterEditor({
 	const changeName = (name: string) =>
 		setRule((current) => ({ ...current, name }));
 
+	const changeScope = (scope: RuleScope) =>
+		setRule((current) => ({
+			...current,
+			scope,
+			until: scope === "until" ? current.until : undefined,
+		}));
+
+	const changeUntil = (until: string) =>
+		setRule((current) => ({ ...current, until }));
+
 	const commit = () => {
-		const predicateChanged = ruleChangesPredicateOrAction(rule, original);
+		const rulesChanged =
+			ruleChangesPredicateOrAction(rule, original) ||
+			ruleChangesScopeOrExpiry(rule, original);
 		const body = buildUpdateFilterInput(rule, original);
 		if (Object.keys(body).length === 0) {
 			onClose();
 			return;
 		}
-		setOfferReapply(predicateChanged);
+		setOfferReapply(rulesChanged);
 		update.updateFilter(body);
 	};
 
@@ -188,13 +205,15 @@ export function FilterEditor({
 			rule={rule}
 			folders={folders}
 			preview={preview}
-			// The update endpoint carries no anchor, so a widen can be neither added
-			// nor removed here: the "…and similar" add is never offered, and the
-			// existing chip is display-only (no onRemoveWiden). `semanticUnavailable`
-			// only drives the chip's inactive styling via `filterToRule`.
+			// The update endpoint carries no anchor field at all (reader #266), so a
+			// widen can be neither added nor removed here: the "…and similar" add is
+			// never offered, and the existing chip is display-only (no
+			// onRemoveWiden — anchorLocked enforces that regardless).
+			// `semanticUnavailable` only drives the chip's inactive styling via
+			// `filterToRule`.
 			semanticAvailable={false}
 			clauseFields={SUPPORTED_CLAUSE_FIELDS}
-			lifecycleLocked
+			anchorLocked
 			clauseEdit={clauseEdit}
 			onStartAddClause={startAddClause}
 			onStartEditClause={startEditClause}
@@ -207,6 +226,8 @@ export function FilterEditor({
 			onChangeMove={changeMove}
 			onCreateFolder={createFolder}
 			onChangeName={changeName}
+			onChangeScope={changeScope}
+			onChangeUntil={changeUntil}
 			onCommit={commit}
 			onCancel={onClose}
 		/>

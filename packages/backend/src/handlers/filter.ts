@@ -1,11 +1,11 @@
 import type {
 	CreateFilterInput,
 	FilterResponse,
-	UpdateFilterInput,
+	UpdateFilterInput as UpdateFilterRequestBody,
 } from "@remit/api-openapi-types";
-import type { FilterItem } from "@remit/data-ports";
-import { ClientError } from "@remit/data-ports/errors";
-import { FilterScope } from "@remit/domain-enums";
+import type { FilterItem, UpdateFilterInput } from "@remit/data-ports";
+import { BadRequestError } from "@remit/data-ports/errors";
+import { FilterScope, FilterState } from "@remit/domain-enums";
 import type { AnchorPayload } from "@remit/search-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { getAccountConfigIdFromEvent } from "../auth.js";
@@ -40,7 +40,7 @@ export interface FilterCrudDeps {
 		update(
 			accountConfigId: string,
 			filterId: string,
-			input: Partial<UpdateFilterInput>,
+			input: UpdateFilterInput,
 		): Promise<FilterItem>;
 		delete(accountConfigId: string, filterId: string): Promise<void>;
 		refreshExpiry(item: FilterItem): Promise<FilterItem>;
@@ -78,24 +78,30 @@ export const deriveFilterTtl = (
 	if (scope !== FilterScope.Temporary || !expiresAt) return undefined;
 	const ms = new Date(expiresAt).getTime();
 	if (Number.isNaN(ms)) {
-		throw new ClientError(`Invalid expiresAt: ${expiresAt}`);
+		throw new BadRequestError(`Invalid expiresAt: ${expiresAt}`);
 	}
 	return Math.floor(ms / 1000);
 };
 
 /**
- * Reduce a PATCH body to the fields a filter update may set (RFC 034). Preserves
- * absence: a key not present in the body is not present in the patch, so a
- * name-only rename yields `{ name }` and never touches a predicate/action field
- * — the service's `changesPredicateOrAction` guard then leaves `ruleChangedAt`
- * untouched (Decision 3.2). Any field outside this set — most notably a
- * server-derived `state`/`ruleChangedAt` smuggled into the body — is dropped.
+ * Reduce a PATCH body to the fields a filter update may set (RFC 034, reader
+ * #266). Preserves absence: a key not present in the body is not present in
+ * the patch, so a name-only rename yields `{ name }` and never touches a
+ * predicate/action/scope/expiresAt field — the service's
+ * `changesRuleAssertion` guard then leaves `ruleChangedAt` untouched (Decision
+ * 3.2). Any field outside this set — most notably a server-derived
+ * `state`/`ttl`/`hasAnchor`/`ruleChangedAt` smuggled into the body — is
+ * dropped. `scope`/`expiresAt` land here as the caller sent them; a patch that
+ * touches either still needs `resolveFilterScopeExpiry` to merge them against
+ * the stored row and derive `ttl`/`state` before this reaches the repo.
  */
 export const pickFilterUpdate = (
-	body: Partial<UpdateFilterInput>,
+	body: Partial<UpdateFilterRequestBody>,
 ): Partial<UpdateFilterInput> => {
 	const patch: Partial<UpdateFilterInput> = {};
 	if (Object.hasOwn(body, "name")) patch.name = body.name;
+	if (Object.hasOwn(body, "scope")) patch.scope = body.scope;
+	if (Object.hasOwn(body, "expiresAt")) patch.expiresAt = body.expiresAt;
 	if (Object.hasOwn(body, "matchOperator")) {
 		patch.matchOperator = body.matchOperator;
 	}
@@ -109,6 +115,91 @@ export const pickFilterUpdate = (
 		patch.actionMailboxId = body.actionMailboxId;
 	}
 	return patch;
+};
+
+/**
+ * A filter's semantic anchor is set once, from `anchorMessageId`, only on
+ * `CreateFilterInput` (RFC 034 Decision 2) — the generated `UpdateFilterInput`
+ * carries no anchor field at all, so a well-behaved client cannot express this.
+ * This only catches a caller handing the raw PATCH body an anchor field
+ * anyway, and rejects it loudly rather than silently dropping it (reader
+ * #266): repointing an anchor would silently change what a saved filter
+ * matches with nothing visible changing, and that deserves a new filter
+ * instead — scope and expiry cover the rest of what changed here.
+ */
+const ANCHOR_MUTATION_FIELDS = ["anchorMessageId"] as const;
+
+export const rejectAnchorMutation = (body: Record<string, unknown>): void => {
+	const attempted = ANCHOR_MUTATION_FIELDS.find((field) =>
+		Object.hasOwn(body, field),
+	);
+	if (!attempted) return;
+	throw new BadRequestError(
+		"A filter's semantic anchor can't change after creation — create a new filter instead.",
+	);
+};
+
+export interface ResolvedScopeExpiry {
+	scope: FilterItem["scope"];
+	expiresAt?: string;
+	ttl?: number;
+	state: FilterItem["state"];
+}
+
+/**
+ * Merge a PATCH body's `scope`/`expiresAt` against the filter's stored values
+ * and resolve the full set the row must land on (reader #266). Only called
+ * when the patch touches `scope` or `expiresAt` — one that touches neither
+ * leaves both, and `ttl`/`state`, untouched exactly as before this ticket.
+ *
+ * A `Temporary` result always carries a defined `expiresAt` — moving to
+ * `Temporary` without one is rejected, matching the Filter model's invariant
+ * that a Temporary filter always has an expiry (RFC 034 Decision 1.1). Moving
+ * to `Standing` clears `expiresAt`/`ttl`, matching the model's invariant that
+ * both stay absent outside `Temporary` (RFC 034 Decision 1.4) — the reserved
+ * `ttl` attribute must never linger once a filter is no longer temporary.
+ *
+ * `state` is recomputed the same comparison `refreshExpiry` runs, so a filter
+ * extended past a lapsed `expiresAt` (or switched to `Standing`) reads Active
+ * immediately — the index-time worker's `byAccountAndState` query needs that
+ * now, not on whatever read happens to touch the row next.
+ */
+export const resolveFilterScopeExpiry = (
+	current: Pick<FilterItem, "scope" | "expiresAt">,
+	patch: Partial<UpdateFilterInput>,
+): ResolvedScopeExpiry => {
+	const scope = patch.scope ?? current.scope;
+
+	if (scope !== FilterScope.Temporary) {
+		if (Object.hasOwn(patch, "expiresAt") && patch.expiresAt) {
+			throw new BadRequestError(
+				"expiresAt only applies to a Temporary filter — switch scope to Temporary to set one.",
+			);
+		}
+		return {
+			scope,
+			expiresAt: undefined,
+			ttl: undefined,
+			state: FilterState.Active,
+		};
+	}
+
+	const expiresAt = Object.hasOwn(patch, "expiresAt")
+		? patch.expiresAt
+		: current.expiresAt;
+	if (!expiresAt) {
+		throw new BadRequestError(
+			"A Temporary filter needs expiresAt — pick a date, or switch scope to Standing.",
+		);
+	}
+
+	const ttl = deriveFilterTtl(scope, expiresAt);
+	const state =
+		new Date(expiresAt).getTime() > Date.now()
+			? FilterState.Active
+			: FilterState.Expired;
+
+	return { scope, expiresAt, ttl, state };
 };
 
 const toFilterResponse = (item: FilterItem): FilterResponse => ({
@@ -260,17 +351,31 @@ export const FilterDetailOperations: Record<
 			accountId: string;
 			filterId: string;
 		};
-		const body = context.request.requestBody as Partial<UpdateFilterInput>;
+		const body = context.request.requestBody as Record<string, unknown>;
+		rejectAnchorMutation(body);
 
 		const client = await getClient();
 		const account = await client.account.get(accountId);
 		assertAccountOwnership(account, accountConfigId, "act");
 
 		const { filter } = client;
+		const patch = pickFilterUpdate(body as Partial<UpdateFilterRequestBody>);
+		const touchesScopeOrExpiry =
+			Object.hasOwn(patch, "scope") || Object.hasOwn(patch, "expiresAt");
+		const resolvedPatch: Partial<UpdateFilterInput> = touchesScopeOrExpiry
+			? {
+					...patch,
+					...resolveFilterScopeExpiry(
+						await filter.get(accountConfigId, filterId),
+						patch,
+					),
+				}
+			: patch;
+
 		const updated = await filter.update(
 			accountConfigId,
 			filterId,
-			pickFilterUpdate(body),
+			resolvedPatch,
 		);
 		return toFilterResponse(updated);
 	},

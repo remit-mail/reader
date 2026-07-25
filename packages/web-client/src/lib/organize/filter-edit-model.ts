@@ -3,6 +3,7 @@ import type {
 	RemitImapUpdateFilterInput,
 } from "@remit/api-http-client/types.gen.ts";
 import type { FilterRule, RuleClause } from "@remit/ui";
+import { pickedDateToExpiresAt } from "./filter-status";
 import { NO_ACTION } from "./organize-model";
 
 /**
@@ -79,13 +80,34 @@ export const ruleChangesPredicateOrAction = (
 	original: FilterRule,
 ): boolean => predicateActionKey(rule) !== predicateActionKey(original);
 
+const scopeExpiryKey = (rule: FilterRule): string =>
+	JSON.stringify({
+		scope: rule.scope === "until" ? "until" : "standing",
+		until: rule.scope === "until" ? (rule.until ?? "") : "",
+	});
+
+/**
+ * Whether the edited rule changes scope (standing ↔ until-a-date) or the date
+ * itself, versus the one it was loaded from (reader #266). Scope and expiry
+ * are mutable on an existing filter, unlike the anchor, and a change here
+ * bumps `ruleChangedAt` the same way a predicate/action change does — moving a
+ * lapsed filter back to Standing (or extending its date) is the same kind of
+ * "the user just reasserted this rule" moment, and re-offers the back-apply so
+ * mail delivered while the filter sat inactive can be caught up.
+ */
+export const ruleChangesScopeOrExpiry = (
+	rule: FilterRule,
+	original: FilterRule,
+): boolean => scopeExpiryKey(rule) !== scopeExpiryKey(original);
+
 /**
  * The PATCH body for an edited filter. A cosmetic rename sends `{ name }` only,
- * so the server's `changesPredicateOrAction` guard leaves `ruleChangedAt`
+ * so the server's `changesRuleAssertion` guard leaves `ruleChangedAt`
  * untouched (RFC 034 Decision 3.2). A predicate or action change sends the
- * operator, clauses, and move target, which bumps `ruleChangedAt`. Fields the
- * editor never touches — the label action, the immutable scope/expiry — are
- * absent from the patch, so the partial update preserves them.
+ * operator, clauses, and move target; a scope or expiry change sends `scope`
+ * and, for the `until` scope, `expiresAt` (reader #266) — either bumps
+ * `ruleChangedAt`. The label action and the anchor are never in the editor's
+ * gift, so they never enter the patch; the partial update preserves them.
  */
 export const buildUpdateFilterInput = (
 	rule: FilterRule,
@@ -101,6 +123,12 @@ export const buildUpdateFilterInput = (
 			value: clause.value,
 		}));
 		body.actionMailboxId = rule.moveMailboxId ?? NO_ACTION;
+	}
+	if (ruleChangesScopeOrExpiry(rule, original)) {
+		body.scope = rule.scope === "until" ? "Temporary" : "Standing";
+		if (rule.scope === "until") {
+			body.expiresAt = pickedDateToExpiresAt(rule.until ?? "");
+		}
 	}
 	return body;
 };

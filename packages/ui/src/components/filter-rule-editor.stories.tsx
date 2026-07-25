@@ -254,11 +254,13 @@ export const DegradedStandingWiden: Story = {
 };
 
 /**
- * Editing a persisted filter (RFC 038 D6): scope and expiry render read-only,
- * with a note that they — and the semantic anchor — are fixed at creation. The
- * name and the literal clauses stay editable; the widen chip is display-only.
+ * Editing a persisted filter (RFC 038 D6, reader #266): scope and expiry stay
+ * live and editable — a standing filter can move to "until a date" and back,
+ * or its date can change. The semantic anchor is the one thing fixed at
+ * creation: the widen chip renders display-only with a one-line note, and
+ * "Just once" drops out of the scope toggle since no saved filter can hold it.
  */
-export const LifecycleLocked: Story = {
+export const AnchorLocked: Story = {
 	args: {
 		rule: {
 			...demoRule,
@@ -269,7 +271,7 @@ export const LifecycleLocked: Story = {
 		folders: demoFolders,
 		preview: READY(31),
 		semanticAvailable: false,
-		lifecycleLocked: true,
+		anchorLocked: true,
 	},
 };
 
