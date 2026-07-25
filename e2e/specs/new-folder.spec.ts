@@ -19,7 +19,7 @@ test.describe("Create folder from settings", () => {
 		await page.goto("/settings/folders");
 
 		await expect(
-			page.getByRole("heading", { name: "Folder roles" }),
+			page.getByRole("heading", { name: "Folder roles", exact: true }),
 		).toBeVisible({ timeout: 30_000 });
 
 		const name = `E2E Folder ${Date.now()}`;
