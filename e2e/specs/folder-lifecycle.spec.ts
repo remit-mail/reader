@@ -17,7 +17,7 @@
  *
  * This runs as its own throwaway user, not the shared onboarded one. Deleting a
  * folder that has held mail leaves the account's message queue holding stale
- * events for a mailbox that no longer exists; that is contained to the account
+ * events for a mailbox that no longer exists (#287); that is contained to the account
  * it happened on, so isolating the churn here keeps every other spec's reads of
  * the shared mailbox clean (see `src/provision.ts`).
  *
@@ -56,7 +56,7 @@ const nudgeUntil = async <T>(
 ): Promise<void> => {
 	const deadline = Date.now() + timeoutMs;
 	while (Date.now() < deadline) {
-		await api.triggerSync(accountId);
+		await api.triggerSync(accountId).catch(() => undefined);
 		const ok = await waitFor(read, accept, {
 			timeoutMs: 30_000,
 			intervalMs: 3_000,

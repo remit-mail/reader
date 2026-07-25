@@ -10,7 +10,7 @@
  * check is that the create-and-move wiring works end to end through the API.
  *
  * Runs as its own throwaway user (see `src/provision.ts`): its cleanup deletes a
- * folder that has held mail, which parks that account's message queue, so it
+ * folder that has held mail, which parks that account's message queue (#287), so it
  * must not be the shared onboarded account other specs read. A fresh account's
  * inbox holds only the one message this spec appends, so the message is
  * selectable without a search.
@@ -64,7 +64,7 @@ test.describe("Create folder from the move picker", () => {
 		const deadline = Date.now() + 120_000;
 		let landed = false;
 		while (Date.now() < deadline) {
-			await api.triggerSync(run.accountId);
+			await api.triggerSync(run.accountId).catch(() => undefined);
 			landed = await waitFor(
 				() => api.listThreads(run.inboxId),
 				(threads) => threads.some((t) => t.subject === SUBJECT),
