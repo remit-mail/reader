@@ -268,6 +268,22 @@ describe("the updater entrypoint", () => {
 		assert.equal(updates.length, 0);
 	});
 
+	it("execs its arguments instead of entering the daemon loop (reader#284)", () => {
+		// The health, snapshot and restore helpers run as `docker run <updater-image>
+		// <cmd>` and rely on --entrypoint to shadow this one. If a caller forgets it,
+		// an ignored ENTRYPOINT would fold the command into the watch loop and the
+		// container would never exit — the ghost probe that hung a verify for hours.
+		// Given any arguments, the entrypoint must become them and exit when they do.
+		const result = spawnSync("sh", [ENTRYPOINT, "printf", "GHOST_BUSTED"], {
+			encoding: "utf8",
+			timeout: 5000,
+			env: { PATH: process.env.PATH },
+		});
+		assert.equal(result.signal, null, "the entrypoint never exited on its own");
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(result.stdout, "GHOST_BUSTED");
+	});
+
 	it("is clean under shellcheck's POSIX sh", () => {
 		const probe = spawnSync("shellcheck", ["--version"], { encoding: "utf8" });
 		if (probe.error) return;
