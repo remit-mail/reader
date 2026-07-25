@@ -260,8 +260,8 @@ or `tailscale` for private networks.
 ## Updating
 
 An update can come from two places, and both run the same sequence. In the app,
-the instance owner — the first account to register, or `REMIT_OWNER_EMAIL` — is
-offered the release and installs it with a click. At a shell:
+any signed-in user of the instance is offered the release and installs it with a
+click. At a shell:
 
 ```bash
 remit update                    # install the current release
@@ -464,13 +464,10 @@ once you understand why it failed.
 
 ## Security notes
 
-- **Instance owner.** A later self-update feature (RFC 037) restricts
-  triggering it to one account: whoever registers first. On a fresh install
-  that is automatic. On a box that already has users — or one where signup
-  stays closed and accounts are provisioned out-of-band — nobody claims
-  ownership on its own; set `REMIT_OWNER_EMAIL` in `.env` to the account that
-  should hold it. It overrides the stored claim outright, including naming
-  someone other than whoever registered first.
+- **Self-update.** The self-update feature (RFC 037) is available to any
+  signed-in user of the instance — the account list is the trust boundary of a
+  self-hosted box. It stays off entirely on deployments that leave the update
+  manifest URL unset (the hosted service), so it never appears there at all.
 - `.env` holds real secrets (the better-auth JWT signing key and the IMAP
   credential encryption key). `chmod 600` it and never commit it —
   `deploy/vps/.gitignore` already excludes it.

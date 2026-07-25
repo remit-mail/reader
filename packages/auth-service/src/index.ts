@@ -12,11 +12,6 @@ export {
 	type VerifierConfig,
 } from "./config.js";
 export {
-	createInstanceOwnerStore,
-	type InstanceOwnerStore,
-	isInstanceOwner,
-} from "./instance-owner.js";
-export {
 	createJwtVerifier,
 	extractBearerToken,
 	type JwtClaims,

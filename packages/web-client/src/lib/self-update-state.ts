@@ -112,9 +112,10 @@ export function mapUpdatePhase(phase: RemitImapSystemUpdatePhase): UpdatePhase {
 
 /**
  * The surface has no entry point for this caller: `404` (no manifest URL
- * configured), `403` (authenticated but not the instance owner), or `401` (not
- * authenticated). All three render nothing and stop the poll, so a probe cannot
- * tell an off surface from a forbidden one.
+ * configured) or `401` (not authenticated). Both render nothing and stop the
+ * poll. `403` is treated the same way as defensive cover for any authenticated
+ * edge state, though the backend no longer distinguishes callers once the
+ * surface is on.
  */
 export function isSurfaceAbsent(error: unknown): boolean {
 	const status = getErrorStatus(error);

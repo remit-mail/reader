@@ -1,7 +1,7 @@
 /**
  * The self-update surface in Settings › Advanced — the only place that talks
- * about updates. Renders nothing when the surface is absent (no manifest URL,
- * not the owner, not signed in), so there is no entry point at all in that case.
+ * about updates. Renders nothing when the surface is absent (no manifest URL, or
+ * not signed in), so there is no entry point at all in that case.
  */
 import { SelfUpdateConfirmDialog, SelfUpdateSection } from "@remit/ui";
 import { useState } from "react";
