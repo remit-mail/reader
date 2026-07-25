@@ -32,6 +32,12 @@ const notFound = (): APIGatewayProxyResult => ({
 	body: JSON.stringify({ message: "Not found" }),
 });
 
+const unauthorized = (): APIGatewayProxyResult => ({
+	statusCode: 401,
+	headers: { "Content-Type": "application/json" },
+	body: JSON.stringify({ message: "Unauthorized" }),
+});
+
 /**
  * The self-update seam is off unless a manifest URL is configured (RFC 037 D8),
  * which the hosted deployment leaves unset. Both endpoints answer 404 in that
@@ -133,10 +139,13 @@ export const SystemOperations: Record<
 > = {
 	SystemOperations_getSystemUpdate: async (
 		_context: Context,
-		..._args: unknown[]
+		...args: unknown[]
 	): Promise<SystemUpdateResponse | APIGatewayProxyResult> => {
 		const offSurface = guardManifestConfigured();
 		if (offSurface) return offSurface;
+
+		const event = args[0] as APIGatewayProxyEvent;
+		if (!getSubFromEvent(event)) return unauthorized();
 
 		return readState() ?? emptyResource();
 	},
@@ -149,6 +158,9 @@ export const SystemOperations: Record<
 		if (offSurface) return offSurface;
 
 		const event = args[0] as APIGatewayProxyEvent;
+		const sub = getSubFromEvent(event);
+		if (!sub) return unauthorized();
+
 		const { targetVersion } = context.request.requestBody as {
 			targetVersion: string;
 		};
@@ -170,7 +182,7 @@ export const SystemOperations: Record<
 			runId,
 			targetVersion,
 			requestedAt,
-			requestedBy: getSubFromEvent(event) ?? "",
+			requestedBy: sub,
 		});
 
 		return {

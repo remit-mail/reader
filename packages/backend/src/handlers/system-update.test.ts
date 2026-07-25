@@ -106,6 +106,14 @@ describe("GET /system/update", () => {
 		assert.ok(hasStatus(result, 404));
 	});
 
+	it("returns 401 when the caller is not authenticated", async () => {
+		writeState(okState);
+
+		const result = await getUpdate(buildEvent());
+
+		assert.ok(hasStatus(result, 401));
+	});
+
 	it("returns 200 for any authenticated caller", async () => {
 		writeState(okState);
 
@@ -233,6 +241,15 @@ describe("POST /system/update", () => {
 		const result = await applyUpdate("v1.5.0", buildEvent(USER));
 
 		assert.ok(hasStatus(result, 404));
+	});
+
+	it("returns 401 without writing request.json when the caller is not authenticated", async () => {
+		writeState(okState);
+
+		const result = await applyUpdate("v1.5.0", buildEvent());
+
+		assert.ok(hasStatus(result, 401));
+		assert.throws(() => readFileSync(join(controlDir, "request.json"), "utf8"));
 	});
 
 	it("returns 202 for any authenticated caller and records that identity", async () => {
