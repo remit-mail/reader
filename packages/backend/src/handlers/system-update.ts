@@ -10,7 +10,6 @@ import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { getSubFromEvent } from "../auth.js";
 import type { OperationHandler, SystemOperationIds } from "../types.js";
-import { requireInstanceOwner } from "./owner-guard.js";
 
 class TargetVersionMismatchError extends HTTPError {
 	name = "TargetVersionMismatchError";
@@ -33,11 +32,17 @@ const notFound = (): APIGatewayProxyResult => ({
 	body: JSON.stringify({ message: "Not found" }),
 });
 
+const unauthorized = (): APIGatewayProxyResult => ({
+	statusCode: 401,
+	headers: { "Content-Type": "application/json" },
+	body: JSON.stringify({ message: "Unauthorized" }),
+});
+
 /**
  * The self-update seam is off unless a manifest URL is configured (RFC 037 D8),
  * which the hosted deployment leaves unset. Both endpoints answer 404 in that
- * case — before the owner guard, so a probe cannot tell an off surface from a
- * forbidden one.
+ * case. Where it is on, any authenticated caller may use it — the account list
+ * is the trust boundary of a self-hosted instance.
  */
 const guardManifestConfigured = (): APIGatewayProxyResult | null =>
 	manifestUrl() ? null : notFound();
@@ -140,8 +145,7 @@ export const SystemOperations: Record<
 		if (offSurface) return offSurface;
 
 		const event = args[0] as APIGatewayProxyEvent;
-		const forbidden = await requireInstanceOwner(event);
-		if (forbidden) return forbidden;
+		if (!getSubFromEvent(event)) return unauthorized();
 
 		return readState() ?? emptyResource();
 	},
@@ -154,8 +158,8 @@ export const SystemOperations: Record<
 		if (offSurface) return offSurface;
 
 		const event = args[0] as APIGatewayProxyEvent;
-		const forbidden = await requireInstanceOwner(event);
-		if (forbidden) return forbidden;
+		const sub = getSubFromEvent(event);
+		if (!sub) return unauthorized();
 
 		const { targetVersion } = context.request.requestBody as {
 			targetVersion: string;
@@ -178,7 +182,7 @@ export const SystemOperations: Record<
 			runId,
 			targetVersion,
 			requestedAt,
-			requestedBy: getSubFromEvent(event) ?? "",
+			requestedBy: sub,
 		});
 
 		return {
