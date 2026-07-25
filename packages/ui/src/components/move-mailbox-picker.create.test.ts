@@ -162,11 +162,7 @@ describe("MoveMailboxPicker create-and-move", () => {
 		assert.deepEqual(selected, ["created-taxes"]);
 	});
 
-<<<<<<< HEAD
-	it("surfaces a create failure inline without selecting anything", async () => {
-=======
 	it("surfaces a validation rejection message inline without selecting anything", async () => {
->>>>>>> origin/main
 		const selected: string[] = [];
 		act(() => {
 			root.render(
@@ -174,9 +170,6 @@ describe("MoveMailboxPicker create-and-move", () => {
 					mailboxes,
 					onSelect: (id: string) => selected.push(id),
 					onCreateFolder: async () => {
-<<<<<<< HEAD
-						throw new Error("nope");
-=======
 						throw new Error('A folder name can\'t contain "/".');
 					},
 				}),
@@ -201,7 +194,6 @@ describe("MoveMailboxPicker create-and-move", () => {
 					onSelect: () => {},
 					onCreateFolder: async () => {
 						throw "opaque";
->>>>>>> origin/main
 					},
 				}),
 			);
@@ -210,10 +202,6 @@ describe("MoveMailboxPicker create-and-move", () => {
 		await act(async () => {
 			createRow()?.click();
 		});
-<<<<<<< HEAD
-		assert.deepEqual(selected, []);
-=======
->>>>>>> origin/main
 		assert.match(
 			container.querySelector('[role="alert"]')?.textContent ?? "",
 			/Couldn't create that folder/,

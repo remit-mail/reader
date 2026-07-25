@@ -14,10 +14,7 @@ test.describe("Create folder from settings", () => {
 
 	test("a new folder created from settings appears in the folder list", async ({
 		page,
-<<<<<<< HEAD
-=======
 		run,
->>>>>>> origin/main
 	}) => {
 		await page.goto("/settings/folders");
 
@@ -34,16 +31,11 @@ test.describe("Create folder from settings", () => {
 
 		await page.getByRole("button", { name: "Create folder" }).first().click();
 
-<<<<<<< HEAD
-		await expect(
-			page.getByRole("listitem").filter({ hasText: name }),
-=======
 		const folderList = page.getByRole("list", {
 			name: `All folders for ${run.imapUser}`,
 		});
 		await expect(
 			folderList.getByRole("listitem").filter({ hasText: name }),
->>>>>>> origin/main
 		).toBeVisible({ timeout: 30_000 });
 	});
 });
