@@ -246,6 +246,27 @@ export class ApiClient {
 	}
 
 	/**
+	 * Create a folder the same way the Settings form and the pickers do. Specs
+	 * use it to stand up a move destination without driving the create UI a
+	 * second time — the create surface itself is proven in the folder-lifecycle
+	 * spec.
+	 */
+	createMailbox(accountId: string, fullPath: string): Promise<Mailbox> {
+		return this.json("POST", `/accounts/${accountId}/mailboxes`, {
+			fullPath,
+			namespaceType: "personal",
+		});
+	}
+
+	/** Delete a folder by id — the same endpoint the delete wizard calls. Specs use it to sweep scratch folders in cleanup. */
+	deleteMailbox(accountId: string, mailboxId: string): Promise<Response> {
+		return this.request(
+			"DELETE",
+			`/accounts/${accountId}/mailboxes/${mailboxId}`,
+		);
+	}
+
+	/**
 	 * The lookup every per-sender action depends on: given a sender's address,
 	 * find that sender's address record. Quick actions PATCH the row this
 	 * returns, so a miss here disables them (issue #51).
