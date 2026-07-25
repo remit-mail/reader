@@ -74,3 +74,41 @@ export const Autofocus: Story = {
 		<MoveMailboxPicker mailboxes={mailboxes} onSelect={() => {}} autoFocus />
 	),
 };
+
+let createdSeq = 0;
+const mockCreateFolder = (name: string): Promise<MoveMailboxOption> =>
+	new Promise((resolve) => {
+		createdSeq += 1;
+		setTimeout(
+			() => resolve({ id: `created-${createdSeq}`, label: name }),
+			400,
+		);
+	});
+
+const CreatePicker = () => {
+	const [moved, setMoved] = useState<string | null>(null);
+	return (
+		<div className="flex flex-col">
+			<MoveMailboxPicker
+				mailboxes={mailboxes}
+				onSelect={setMoved}
+				onCreateFolder={mockCreateFolder}
+			/>
+			{moved && (
+				<p className="border-t border-line px-3 py-2 text-xs text-fg-muted">
+					Moved to {moved}
+				</p>
+			)}
+		</div>
+	);
+};
+
+/**
+ * With `onCreateFolder` wired, a search that names no existing folder offers a
+ * create-and-move row at the bottom. Type e.g. "Taxes", then pick the create
+ * row — the folder is created and the message moved into it in one step.
+ */
+export const CreateAndMove: Story = {
+	name: "Create folder from search",
+	render: () => <CreatePicker />,
+};

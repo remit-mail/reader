@@ -10,6 +10,7 @@ import {
 	demoSenderFallbackRule,
 	demoVocabularyRule,
 	type FilterRule,
+	type FolderOption,
 	type PreviewCount,
 	type RuleClause,
 } from "./filter-rule.js";
@@ -50,9 +51,11 @@ const READY = (count: number, stale?: boolean): PreviewCount => ({
 function LiveEditor({
 	initialRule,
 	semanticAvailable = true,
+	onCreateFolder,
 }: {
 	initialRule: FilterRule;
 	semanticAvailable?: boolean;
+	onCreateFolder?: (name: string) => Promise<FolderOption>;
 }) {
 	const [rule, setRule] = useState<FilterRule>(initialRule);
 	const [clauseEdit, setClauseEdit] = useState<ClauseEditState | undefined>();
@@ -132,6 +135,7 @@ function LiveEditor({
 			preview={preview}
 			semanticAvailable={semanticAvailable}
 			clauseEdit={clauseEdit}
+			onCreateFolder={onCreateFolder}
 			onCommit={() => {}}
 			onCancel={() => {}}
 			{...handlers}
@@ -142,6 +146,28 @@ function LiveEditor({
 /** The full editor, interactive — the shape ticket B and the app consume. */
 export const Interactive: Story = {
 	render: () => <LiveEditor initialRule={demoRule} />,
+};
+
+let newFolderSeq = 0;
+const mockCreateFolder = (name: string): Promise<FolderOption> =>
+	new Promise((resolve) => {
+		newFolderSeq += 1;
+		setTimeout(
+			() => resolve({ id: `mbx-new-${newFolderSeq}`, label: name }),
+			400,
+		);
+	});
+
+/**
+ * The move destination offers a "＋ New folder…" option because `onCreateFolder`
+ * is wired. Choosing it reveals a name field; on resolve the folder is added to
+ * the select and picked as the destination. Without the prop the option never
+ * shows — the editor stays data-agnostic.
+ */
+export const WithNewFolderOption: Story = {
+	render: () => (
+		<LiveEditor initialRule={demoRule} onCreateFolder={mockCreateFolder} />
+	),
 };
 
 /** Literal clauses joined with "or", including the ticket-B ListId and FromDomain fields. */

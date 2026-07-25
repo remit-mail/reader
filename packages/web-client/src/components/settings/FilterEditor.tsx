@@ -11,6 +11,7 @@ import {
 } from "@remit/ui";
 import { CheckCircle2, Loader2 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
+import { useCreateMailbox } from "@/hooks/useCreateMailbox";
 import { useOrganizeJob } from "@/hooks/useOrganizeJob";
 import { useRulePreview } from "@/hooks/useRulePreview";
 import { useUpdateFilter } from "@/hooks/useUpdateFilter";
@@ -67,6 +68,7 @@ export function FilterEditor({
 	const preview = useRulePreview(accountId, rulePredicate(rule));
 	const update = useUpdateFilter(accountId, filter.filterId);
 	const organizeJob = useOrganizeJob(accountId);
+	const { createFolder } = useCreateMailbox(accountId);
 
 	const startAddClause = () =>
 		setClauseEdit({
@@ -203,6 +205,7 @@ export function FilterEditor({
 			onCancelClause={() => setClauseEdit(undefined)}
 			onChangeMatchOperator={changeMatchOperator}
 			onChangeMove={changeMove}
+			onCreateFolder={createFolder}
 			onChangeName={changeName}
 			onCommit={commit}
 			onCancel={onClose}

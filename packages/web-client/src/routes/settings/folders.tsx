@@ -6,22 +6,35 @@ import {
 	mailboxOperationsListMailboxesOptions,
 	mailboxOperationsListMailboxesQueryKey,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
-import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
+import type {
+	RemitImapAccountResponse,
+	RemitImapMailboxResponse,
+} from "@remit/api-http-client/types.gen.ts";
 import {
 	Banner,
+	Button,
 	type CandidateFolder,
 	type FolderRole,
+	Input,
 	RoleAppointmentList,
+	Select,
 	SettingsShell,
 } from "@remit/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { ErrorState } from "@/components/ui/ErrorState";
+import { useCreateMailbox } from "@/hooks/useCreateMailbox";
 import {
 	CANONICAL_TO_NAV_ROLE,
+	getMailboxDisplayName,
 	NAV_ROLE_TO_CANONICAL,
 } from "@/lib/folder-roles";
+import {
+	composeFolderPath,
+	type FolderTarget,
+	validateNewFolderName,
+} from "@/lib/new-folder";
 import { SETTINGS_ID_TO_PATH, SETTINGS_NAV_ITEMS } from "@/routes/settings";
 
 export const Route = createFileRoute("/settings/folders")({
@@ -47,6 +60,121 @@ const foldersHelp = (
 		</p>
 	</div>
 );
+
+/**
+ * Create a folder for one account. A name, an optional parent to nest under,
+ * and a create button. The new folder is queued on the server with a pending
+ * sync and appears in the list below once it refetches.
+ */
+function NewFolder({
+	accountId,
+	mailboxes,
+}: {
+	accountId: string;
+	mailboxes: RemitImapMailboxResponse[];
+}) {
+	const { mutation } = useCreateMailbox(accountId);
+	const [name, setName] = useState("");
+	const [parentId, setParentId] = useState("");
+	const [validationError, setValidationError] = useState<string>();
+
+	const accountDelimiter = mailboxes[0]?.hierarchyDelimiter ?? "/";
+	const parentMailbox = mailboxes.find((box) => box.mailboxId === parentId);
+	const parent: FolderTarget | undefined = parentMailbox
+		? {
+				fullPath: parentMailbox.fullPath,
+				hierarchyDelimiter: parentMailbox.hierarchyDelimiter,
+			}
+		: undefined;
+	const delimiter = parent?.hierarchyDelimiter ?? accountDelimiter;
+
+	const handleCreate = () => {
+		const problem = validateNewFolderName({
+			name,
+			delimiter,
+			parent,
+			existingPaths: mailboxes.map((box) => box.fullPath),
+		});
+		if (problem) {
+			setValidationError(problem);
+			return;
+		}
+		setValidationError(undefined);
+		mutation.mutate(
+			{
+				path: { accountId },
+				body: {
+					fullPath: composeFolderPath(name, parent),
+					namespaceType: "personal",
+				},
+			},
+			{
+				onSuccess: () => {
+					setName("");
+					setParentId("");
+				},
+			},
+		);
+	};
+
+	return (
+		<div className="space-y-2 rounded-sm border border-line bg-surface p-3">
+			<p className="text-sm font-medium text-fg">New folder</p>
+			<div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+				<div className="flex-1 space-y-1">
+					<span className="text-xs text-fg-muted">Name</span>
+					<Input
+						value={name}
+						onChange={(event) => {
+							setName(event.target.value);
+							if (validationError) setValidationError(undefined);
+						}}
+						placeholder="e.g. Receipts"
+						aria-label="Folder name"
+						onKeyDown={(event) => {
+							if (event.key === "Enter") {
+								event.preventDefault();
+								handleCreate();
+							}
+						}}
+					/>
+				</div>
+				<div className="flex-1 space-y-1">
+					<span className="text-xs text-fg-muted">Inside (optional)</span>
+					<Select
+						value={parentId}
+						onChange={(event) => setParentId(event.target.value)}
+						aria-label="Parent folder"
+					>
+						<option value="">No parent — top level</option>
+						{mailboxes.map((box) => (
+							<option key={box.mailboxId} value={box.mailboxId}>
+								{box.fullPath}
+							</option>
+						))}
+					</Select>
+				</div>
+				<Button
+					variant="primary"
+					onClick={handleCreate}
+					disabled={mutation.isPending || name.trim() === ""}
+				>
+					{mutation.isPending ? "Creating…" : "Create folder"}
+				</Button>
+			</div>
+			{validationError && (
+				<p className="text-xs text-danger" role="alert">
+					{validationError}
+				</p>
+			)}
+			{mutation.isError && (
+				<Banner tone="danger" variant="soft">
+					Couldn't create that folder. Please try again.
+				</Banner>
+			)}
+		</div>
+	);
+}
 
 /** One account's folder roles, fed to the kit list. Owns its own queries + mutations. */
 function AccountFolderRoles({
@@ -154,6 +282,22 @@ function AccountFolderRoles({
 				onAppoint={handleAppoint}
 				onRename={handleRename}
 			/>
+			<NewFolder accountId={accountId} mailboxes={data.items} />
+			<ul className="space-y-1">
+				{data.items.map((mailbox) => (
+					<li
+						key={mailbox.mailboxId}
+						className="flex items-center justify-between rounded-sm px-2 py-1 text-sm text-fg"
+					>
+						<span className="truncate">
+							{getMailboxDisplayName(mailbox.fullPath)}
+						</span>
+						<span className="shrink-0 text-xs text-fg-muted">
+							{mailbox.fullPath}
+						</span>
+					</li>
+				))}
+			</ul>
 		</div>
 	);
 }
