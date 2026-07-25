@@ -53,6 +53,16 @@ export const Checking: Story = {
 };
 
 /**
+ * A fresh, configured instance before its first automatic check has landed. The
+ * honest resting state, not a spinner: it says a check has not run and that Remit
+ * checks on its own, and offers a manual check. This is what every install shows
+ * until the updater writes its first result.
+ */
+export const NeverChecked: Story = {
+	args: withState({ status: "neverChecked", version: "unknown" }),
+};
+
+/**
  * An update exists. It is stated — version, date, one line of what changes, a
  * link to the full notes — and then it waits. Nothing here follows the user
  * back to their mail.

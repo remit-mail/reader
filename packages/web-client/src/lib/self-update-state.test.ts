@@ -222,13 +222,13 @@ describe("deriveUpdateSurface — the surface without a run", () => {
 		);
 	});
 
-	test("a configured surface that has not checked yet is checking", () => {
+	test("a configured surface that has not checked yet is never-checked, not a spinner", () => {
 		const result = deriveUpdateSurface(
 			input({ data: response({ check: { status: "disabled" } }) }),
 		);
 		assert.equal(
 			result.surface.status === "ready" && result.surface.section.status,
-			"checking",
+			"neverChecked",
 		);
 	});
 

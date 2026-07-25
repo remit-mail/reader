@@ -28,6 +28,12 @@ export type UpdateRunId = string;
 export type SelfUpdateState =
 	| { status: "upToDate"; version: string; checkedAt: number }
 	| { status: "checking"; version: string }
+	/**
+	 * A configured instance whose first automatic check has not landed yet. It is
+	 * its own resting state, never a spinner: the updater checks on a cadence, and
+	 * this is the honest account of the gap before the first result arrives.
+	 */
+	| { status: "neverChecked"; version: string; lastCheckedAt?: number }
 	| {
 			status: "checkFailed";
 			version: string;

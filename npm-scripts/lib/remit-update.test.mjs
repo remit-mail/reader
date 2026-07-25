@@ -674,6 +674,25 @@ describe("the control seam", () => {
 		assert.throws(() => readFileSync(join(control, "breadcrumb")));
 	});
 
+	it("writes state.json to the control volume on a check, not the private state volume", () => {
+		// This is the path the updater container runs on its cadence: a check must
+		// land the composed document on the seam the backend reads, carrying the
+		// running tag as currentVersion, while the raw check block stays on the
+		// updater's own volume.
+		const box = sandbox({ scenario: { probe: "ok" } });
+		const control = join(box.dir, "control");
+		mkdirSync(control, { recursive: true });
+		const result = box.run(["update", "--check"], {
+			...box.env,
+			REMIT_UPDATE_CONTROL_DIR: control,
+		});
+		assert.equal(result.status, 0, result.stderr);
+		const state = JSON.parse(readFileSync(join(control, "state.json"), "utf8"));
+		assert.equal(state.check.status, "ok");
+		assert.equal(state.currentVersion, "v1.0.0");
+		assert.throws(() => readFileSync(join(box.state, "state.json")));
+	});
+
 	it("refuses a version the manifest does not name", () => {
 		const box = sandbox({ scenario: { probe: "ok" } });
 		writeFileSync(

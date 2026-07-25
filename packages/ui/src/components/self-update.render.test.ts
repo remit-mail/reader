@@ -165,6 +165,25 @@ describe("SelfUpdateSection", () => {
 		assert.doesNotMatch(html, /disabled=/);
 	});
 
+	it("states a never-checked instance without a spinner or an alert", () => {
+		// The version is the literal the backend emits before any check has run —
+		// no state file, so no authoritative version yet.
+		const html = section({ status: "neverChecked", version: "unknown" });
+		assert.match(html, /No update check has run yet/);
+		assert.match(html, /Check now/);
+		assert.doesNotMatch(html, /animate-spin/);
+		assert.doesNotMatch(html, /role="alert"/);
+	});
+
+	it("shows the last-checked time on a never-checked state when one is known", () => {
+		const html = section({
+			status: "neverChecked",
+			version: "unknown",
+			lastCheckedAt: NOW - 3_600_000,
+		});
+		assert.match(html, /Last checked/);
+	});
+
 	it("renders a failed rollback verbatim and never claims a version is running", () => {
 		const html = section({
 			status: "rollbackFailed",

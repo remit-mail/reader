@@ -30,12 +30,14 @@ after(() => {
 });
 
 // A stub `remit` that records every call and its resolved helper image, and
-// consumes request.json on an `update` the way the real wrapper does — so the
-// watch loop settles after one update instead of firing forever.
+// consumes request.json only on a plain `update` the way the real wrapper does —
+// so the watch loop settles after one update. `--recover` and `--check` leave the
+// request alone: the check runs on its own cadence and never touches the seam.
 const STUB_REMIT = `#!/bin/sh
 printf '%s helper=%s\\n' "$*" "\${REMIT_UPDATE_HELPER_IMAGE:-}" >> "$REMIT_STUB_LOG"
 case "$*" in
-*update*) [ "$*" = "update --recover" ] || rm -f "$REMIT_UPDATE_CONTROL_DIR/request.json" ;;
+"update --recover" | "update --check") ;;
+*update*) rm -f "$REMIT_UPDATE_CONTROL_DIR/request.json" ;;
 esac
 exit 0
 `;
@@ -117,6 +119,84 @@ describe("the updater entrypoint", () => {
 					(c) => c === "update helper=ghcr.io/remit-mail/reader/updater:v1.2.3",
 				),
 		);
+	});
+
+	it("runs a check right after recovery, so state lands without a request", async () => {
+		const box = sandbox();
+		const child = spawn("sh", [ENTRYPOINT], {
+			env: box.env,
+			detached: true,
+			stdio: "ignore",
+		});
+		try {
+			await waitFor(() =>
+				box.calls().some((c) => c.startsWith("update --check helper=")),
+			);
+		} finally {
+			process.kill(-child.pid, "SIGKILL");
+		}
+		const calls = box.calls();
+		// Recovery is still first; the initial check follows it and needs no
+		// request on the seam to fire.
+		assert.ok(calls[0].startsWith("update --recover helper="));
+		assert.ok(
+			calls.findIndex((c) => c.startsWith("update --recover")) <
+				calls.findIndex((c) => c.startsWith("update --check")),
+		);
+	});
+
+	it("clamps a sub-floor check interval so it never polls every watch tick", async () => {
+		// A fat-fingered REMIT_UPDATE_CHECK_INTERVAL=1 must not poll the manifest
+		// host on every watch tick. The entrypoint floors the interval, so across
+		// several ticks only the boot check has run, not one per tick.
+		const box = sandbox();
+		const child = spawn("sh", [ENTRYPOINT], {
+			env: { ...box.env, REMIT_UPDATE_CHECK_INTERVAL: "1" },
+			detached: true,
+			stdio: "ignore",
+		});
+		try {
+			await waitFor(() =>
+				box.calls().some((c) => c.startsWith("update --check helper=")),
+			);
+			// WATCH_INTERVAL is 1s here, so this is several ticks: a per-tick poll
+			// would stack checks up, while the floor keeps it at the boot check.
+			await new Promise((r) => setTimeout(r, 4000));
+		} finally {
+			process.kill(-child.pid, "SIGKILL");
+		}
+		const checks = box
+			.calls()
+			.filter((c) => c.startsWith("update --check helper="));
+		assert.equal(checks.length, 1);
+		// It never installs anything on its own — no plain update was triggered.
+		assert.equal(
+			box.calls().filter((c) => c.startsWith("update helper=")).length,
+			0,
+		);
+	});
+
+	it("serves a request without waiting on the check cadence", async () => {
+		// A long check interval must not delay request handling: the watch loop
+		// still wakes every WATCH_INTERVAL for request.json.
+		const box = sandbox();
+		writeFileSync(
+			join(box.control, "request.json"),
+			JSON.stringify({ targetVersion: "v1.5.0" }),
+		);
+		const child = spawn("sh", [ENTRYPOINT], {
+			env: { ...box.env, REMIT_UPDATE_CHECK_INTERVAL: "86400" },
+			detached: true,
+			stdio: "ignore",
+		});
+		try {
+			await waitFor(() =>
+				box.calls().some((c) => c.startsWith("update helper=")),
+			);
+		} finally {
+			process.kill(-child.pid, "SIGKILL");
+		}
+		assert.ok(box.calls().some((c) => c.startsWith("update helper=")));
 	});
 
 	it("stays idle when there is no request, and does not update", async () => {
