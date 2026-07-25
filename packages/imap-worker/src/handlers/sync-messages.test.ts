@@ -4,30 +4,40 @@ import type {
 	AccountItem,
 	IMessageFlagPushRepository,
 } from "@remit/data-ports";
+import { NotFoundError } from "@remit/data-ports/errors";
 import type { Logger } from "@remit/logger-lambda";
-import { drainPendingFlagPushes } from "./sync-messages.js";
+import type { SyncMessagesEvent } from "../events.js";
+import {
+	drainPendingFlagPushes,
+	type SyncMessagesDeps,
+	syncMessages,
+} from "./sync-messages.js";
 
 const buildLogger = (): {
 	log: Logger;
 	infos: Array<{ fields: Record<string, unknown>; msg: string }>;
+	warns: Array<{ fields: Record<string, unknown>; msg: string }>;
 	errors: Array<{ fields: Record<string, unknown>; msg: string }>;
 } => {
 	const infos: Array<{ fields: Record<string, unknown>; msg: string }> = [];
+	const warns: Array<{ fields: Record<string, unknown>; msg: string }> = [];
 	const errors: Array<{ fields: Record<string, unknown>; msg: string }> = [];
 	const log = {
 		info: (fields: Record<string, unknown>, msg: string) => {
 			infos.push({ fields, msg });
 		},
+		warn: (fields: Record<string, unknown>, msg: string) => {
+			warns.push({ fields, msg });
+		},
 		error: (fields: Record<string, unknown>, msg: string) => {
 			errors.push({ fields, msg });
 		},
-		warn: () => {},
 		debug: () => {},
 		fatal: () => {},
 		trace: () => {},
 		child: () => log,
 	} as unknown as Logger;
-	return { log, infos, errors };
+	return { log, infos, warns, errors };
 };
 
 const account = {
@@ -239,5 +249,124 @@ describe("drainPendingFlagPushes — periodic per-mailbox re-arm (issue #1273)",
 			(emitted[0] as { messageId: string }).messageId,
 			"will-succeed",
 		);
+	});
+});
+
+const liveAccount = {
+	accountId: "acc-1",
+	accountConfigId: "acc-cfg-1",
+	imapHost: "localhost",
+	username: "user@localhost",
+} as unknown as AccountItem;
+
+const syncEvent = (mailboxId: string): SyncMessagesEvent => ({
+	type: "SYNC_MESSAGES",
+	accountId: "acc-1",
+	mailboxId,
+	eventId: `evt-${mailboxId}`,
+	timestamp: 1,
+});
+
+/**
+ * A deps factory whose `withOAuthLifecycle` is a spy that records the call but
+ * never invokes the sync callback — the only thing under test here is the
+ * terminal gate BEFORE the lifecycle, so reaching (or not reaching) the spy is
+ * the observable outcome.
+ */
+const buildSyncDeps = (opts: {
+	mailboxGet: () => Promise<unknown>;
+	accountGet?: () => Promise<AccountItem>;
+}): { deps: SyncMessagesDeps; lifecycleCalls: number } => {
+	const state = { lifecycleCalls: 0 };
+	const deps = {
+		getClient: async () => ({
+			account: {
+				get: opts.accountGet ?? (async () => liveAccount),
+			},
+			mailbox: {
+				get: opts.mailboxGet,
+			},
+			secrets: {},
+		}),
+		buildLifecycleDeps: () => ({}),
+		withOAuthLifecycle: async () => {
+			state.lifecycleCalls += 1;
+		},
+	} as unknown as SyncMessagesDeps;
+	return {
+		deps,
+		get lifecycleCalls() {
+			return state.lifecycleCalls;
+		},
+	};
+};
+
+describe("syncMessages — terminal handling of events for a deleted mailbox (issue #287)", () => {
+	it("acks a SYNC_MESSAGES event whose mailbox row is gone — resolves without throwing, never connects", async () => {
+		const { log, warns } = buildLogger();
+		const harness = buildSyncDeps({
+			mailboxGet: async () => {
+				throw new NotFoundError("Mailbox not found: mbx-gone");
+			},
+		});
+
+		await assert.doesNotReject(
+			syncMessages(syncEvent("mbx-gone"), log, harness.deps),
+		);
+
+		assert.equal(
+			harness.lifecycleCalls,
+			0,
+			"a deleted mailbox must short-circuit before the OAuth/connection lifecycle",
+		);
+		const skip = warns.find((w) => w.msg.includes("mailbox no longer exists"));
+		assert.ok(skip, "expected a WARN naming the skipped deleted mailbox");
+		assert.equal(skip.fields.accountId, "acc-1");
+		assert.equal(skip.fields.mailboxId, "mbx-gone");
+		assert.equal(skip.fields.event, "SYNC_MESSAGES");
+	});
+
+	it("propagates a non-NotFound failure from the mailbox lookup — a transient read stays loud", async () => {
+		const { log } = buildLogger();
+		const harness = buildSyncDeps({
+			mailboxGet: async () => {
+				throw new Error("connection reset by peer");
+			},
+		});
+
+		await assert.rejects(
+			syncMessages(syncEvent("mbx-1"), log, harness.deps),
+			/connection reset by peer/,
+		);
+		assert.equal(harness.lifecycleCalls, 0);
+	});
+
+	it("proceeds to the sync lifecycle for a live mailbox", async () => {
+		const { log } = buildLogger();
+		const harness = buildSyncDeps({
+			mailboxGet: async () => ({ mailboxId: "mbx-1", fullPath: "INBOX" }),
+		});
+
+		await syncMessages(syncEvent("mbx-1"), log, harness.deps);
+
+		assert.equal(harness.lifecycleCalls, 1);
+	});
+
+	it("a deleted-mailbox event does not stall the group — a following live-mailbox event still processes", async () => {
+		const { log } = buildLogger();
+		const gone = buildSyncDeps({
+			mailboxGet: async () => {
+				throw new NotFoundError("Mailbox not found: mbx-gone");
+			},
+		});
+		const live = buildSyncDeps({
+			mailboxGet: async () => ({ mailboxId: "mbx-live", fullPath: "INBOX" }),
+		});
+
+		await syncMessages(syncEvent("mbx-gone"), log, gone.deps);
+		await syncMessages(syncEvent("mbx-live"), log, live.deps);
+
+		assert.equal(gone.lifecycleCalls, 0);
+		assert.equal(live.lifecycleCalls, 1);
 	});
 });
