@@ -854,23 +854,45 @@ describe("the lock", () => {
 	});
 });
 
-describe("the updater replaces itself last", () => {
-	it("never names updater in an up -d before the verdict is durable", () => {
-		const box = sandbox({
-			scenario: {
-				probe: "ok",
-				all_services: `${ALL_SERVICES} migrate volume-init updater`,
-			},
-		});
-		box.run(["update"]);
-		const lines = box.log().split("\n");
-		const updaterUp = lines.findIndex((l) => l === "compose up -d updater");
-		assert.ok(updaterUp >= 0, "the updater was never replaced");
+describe("the updater self-replace survives the wrapper (reader#291)", () => {
+	// The recreate cannot be issued from the updater's own process: compose kills
+	// that container mid-recreate and leaves the replacement `Created` under a temp
+	// name. It is handed to a detached one-shot container instead, launched only
+	// after the verdict is durable, and the handoff is recorded for a boot recover.
+	const box = sandbox({
+		scenario: {
+			probe: "ok",
+			all_services: `${ALL_SERVICES} migrate volume-init updater`,
+		},
+	});
+	box.run(["update"]);
+	const lines = box.log().split("\n");
+
+	it("never recreates the updater from this process", () => {
+		// The old bug: `compose up -d updater` run in-process. It must not appear —
+		// the wrapper is the container that call would kill.
+		assert.ok(!lines.includes("compose up -d updater"));
+	});
+
+	it("hands the recreate to a detached container, after the gate", () => {
+		const recreate = lines.findIndex((l) =>
+			l.startsWith("run updater-recreate"),
+		);
+		assert.ok(
+			recreate >= 0,
+			"the updater was never handed off for replacement",
+		);
+		assert.match(lines[recreate], /detached=1/);
+		assert.match(lines[recreate], /entrypoint=sh/);
 		const gateUp = lines.findIndex((l) =>
 			l.includes("up -d queue migrate backend"),
 		);
-		assert.ok(gateUp >= 0 && gateUp < updaterUp);
-		assert.equal(updaterUp, lines.length - 2);
+		assert.ok(gateUp >= 0 && gateUp < recreate);
+	});
+
+	it("records the handoff on the state volume for a boot recover to read", () => {
+		const handoff = readFileSync(join(box.state, "updater-handoff"), "utf8");
+		assert.match(handoff, /tag=v1\.5\.0/);
 	});
 
 	it("keeps the updater out of the services it brings back", () => {
@@ -888,6 +910,168 @@ describe("the updater replaces itself last", () => {
 			.filter((l) => l.startsWith("compose up -d ") && l.includes("apisix"));
 		assert.equal(held.length, 1);
 		assert.ok(!held[0].includes("updater"));
+	});
+});
+
+describe("a boot recover verifies the updater self-replace (reader#291)", () => {
+	const withHandoff = (fields, { done = false, scenario = {} } = {}) => {
+		const box = sandbox({ scenario: { probe: "ok", ...scenario } });
+		mkdirSync(box.state, { recursive: true });
+		writeFileSync(
+			join(box.state, "updater-handoff"),
+			`${Object.entries(fields)
+				.map(([k, v]) => `${k}=${v}`)
+				.join("\n")}\n`,
+		);
+		if (done) writeFileSync(join(box.state, "updater-handoff.done"), "");
+		return box;
+	};
+
+	it("clears a confirmed handoff and says so", () => {
+		const box = withHandoff(
+			{ runId: "run-1", tag: "v1.5.0", at: "2026-07-20T08:00:00Z" },
+			{ done: true },
+		);
+		const result = box.run(["update", "--recover"]);
+		assert.equal(result.status, 0, result.stderr);
+		assert.match(
+			result.stdout,
+			/self-replace for run-1 \(v1\.5\.0\) completed/,
+		);
+		assert.throws(() => readFileSync(join(box.state, "updater-handoff")));
+		assert.throws(() => readFileSync(join(box.state, "updater-handoff.done")));
+	});
+
+	it("re-issues an unconfirmed handoff, then clears it", () => {
+		const box = withHandoff(
+			{ runId: "run-2", tag: "v1.5.0", at: "2026-07-20T08:00:00Z" },
+			{ scenario: { all_services: `${ALL_SERVICES} updater` } },
+		);
+		const result = box.run(["update", "--recover"]);
+		assert.equal(result.status, 0, result.stderr);
+		assert.match(
+			result.stdout,
+			/finishing an unconfirmed updater self-replace/,
+		);
+		assert.ok(
+			box
+				.log()
+				.split("\n")
+				.some((l) => l.startsWith("run updater-recreate")),
+		);
+		assert.throws(() => readFileSync(join(box.state, "updater-handoff")));
+	});
+
+	it("does nothing when there is no handoff", () => {
+		const box = sandbox({ scenario: { probe: "ok" } });
+		const result = box.run(["update", "--recover"]);
+		assert.equal(result.status, 0, result.stderr);
+		assert.ok(!box.log().includes("run updater-recreate"));
+	});
+});
+
+describe("the health probe cannot ghost (reader#284)", () => {
+	it("runs the probe with an explicit wget entrypoint, never the image default", () => {
+		// Without --entrypoint the updater image runs its own ENTRYPOINT and the wget
+		// arguments become ignored daemon arguments; the probe container never exits
+		// and the verify hangs. The entrypoint the fake records must be wget.
+		const box = sandbox({ scenario: { probe: "ok" } });
+		box.run(["update"]);
+		const probes = box
+			.log()
+			.split("\n")
+			.filter((l) => l.startsWith("run probe"));
+		assert.ok(probes.length > 0, "the backend was never probed");
+		for (const line of probes) {
+			assert.match(line, /entrypoint=wget/);
+		}
+	});
+
+	it("caps every helper docker run with a timeout in the wrapper", () => {
+		// The cap is a parent process around `docker run`, so it leaves no trace the
+		// fake docker can see — the source is where it is asserted. Every helper run
+		// goes through capped_run; a bare `docker run` that skips it is the defect.
+		const wrapper = readFileSync(REMIT, "utf8");
+		assert.ok(
+			/capped_run\(\)\s*\{[^}]*timeout\b/.test(wrapper),
+			"capped_run does not wrap the command in timeout",
+		);
+		const bareRuns = wrapper
+			.split("\n")
+			.filter((l) => !l.trimStart().startsWith("#"))
+			.filter((l) => /\bdocker run\b/.test(l) && !/capped_run/.test(l));
+		assert.deepEqual(
+			bareRuns,
+			[],
+			`a helper docker run is not capped: ${bareRuns.join(" | ")}`,
+		);
+	});
+
+	it("reaches a terminal outcome even when the probe never answers", () => {
+		// probe=hang makes the fake probe block like the ghost did. The wrapper's
+		// per-probe timeout has to end each one so the gate's budget deadline is
+		// reached and a verdict written, rather than the verify sitting forever.
+		const box = sandbox({ scenario: { probe: "hang", probe2: "ok" } });
+		const started = Date.now();
+		const result = box.run(["update"], {
+			...box.env,
+			REMIT_UPDATE_PROBE_RUN_TIMEOUT: "1",
+			FAKE_PROBE_HANG: "8",
+		});
+		const elapsedMs = Date.now() - started;
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(box.stateJson().run.outcome, "rolledBack");
+		assert.ok(elapsedMs < 30_000, `verify took ${elapsedMs}ms`);
+	});
+});
+
+describe("the update lock reclaims a dead holder (reader#285)", () => {
+	it("takes over a lock whose recorded container is gone, and says so", () => {
+		// A live fd still holds the flock — a wedged holder that never released it —
+		// but the identity names a container the daemon reports gone. That is proof
+		// of a dead logical holder, so the lock is reclaimed rather than refused.
+		const box = sandbox({ scenario: { probe: "ok" } });
+		mkdirSync(box.state, { recursive: true });
+		const lockPath = join(box.state, "update.lock");
+		const holder = spawn(
+			"sh",
+			["-c", `exec 9>"${lockPath}"; flock 9; sleep 20`],
+			{ detached: true, stdio: "ignore" },
+		);
+		try {
+			spawnSync("sh", ["-c", "sleep 1"]);
+			// The wedged holder's own recorded identity: a container the fake reports
+			// not-running, so lock_holder_dead resolves it dead.
+			writeFileSync(
+				lockPath,
+				"pid=999999\nkind=container\ncontainer=cdead\nstartedAt=2026-07-20T08:00:00Z\nepoch=1\n",
+			);
+			const result = box.run(["update", "--recover"]);
+			assert.equal(result.status, 0, result.stderr);
+			assert.match(result.stderr, /reclaimed a stale update lock left by/);
+		} finally {
+			process.kill(-holder.pid, "SIGKILL");
+		}
+	});
+
+	it("still refuses when the holder cannot be placed dead", () => {
+		// The identity-less holder of the flock test above: no pid, no container to
+		// resolve, age under the ceiling. Conservative — it is refused, not stolen.
+		const box = sandbox({ scenario: { probe: "ok" } });
+		mkdirSync(box.state, { recursive: true });
+		const holder = spawn(
+			"sh",
+			["-c", `exec 9>"${join(box.state, "update.lock")}"; flock 9; sleep 20`],
+			{ detached: true, stdio: "ignore" },
+		);
+		try {
+			spawnSync("sh", ["-c", "sleep 1"]);
+			const result = box.run(["update"]);
+			assert.notEqual(result.status, 0);
+			assert.match(result.stderr, /already running/);
+		} finally {
+			process.kill(-holder.pid, "SIGKILL");
+		}
 	});
 });
 

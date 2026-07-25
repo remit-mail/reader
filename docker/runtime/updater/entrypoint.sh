@@ -14,6 +14,17 @@ set -eu
 : "${REMIT_UPDATER_IMAGE_REPO:=ghcr.io/remit-mail/reader/updater}"
 WATCH_INTERVAL="${REMIT_UPDATE_WATCH_INTERVAL:-5}"
 
+# Given a command, be that command. The health, snapshot, restore and self-
+# replace helpers run as `docker run <updater-image> <cmd...>`, relying on an
+# explicit --entrypoint to shadow this one. When one is passed without it, an
+# ignored ENTRYPOINT would fold the command into the daemon loop below and the
+# container would never exit — a health probe that way became an immortal ghost
+# that hung a verify for hours (reader#284). Exec the arguments instead, so the
+# helper is the command it asked for and exits when the command does.
+if [ "$#" -gt 0 ]; then
+	exec "$@"
+fi
+
 # How often the updater checks for a newer release on its own. The default is six
 # hours: often enough that a self-hoster learns of a security release the same
 # day, rare enough that it is invisible on the manifest host's logs. Override
