@@ -18,11 +18,12 @@ test.describe("Delete folder from settings", () => {
 
 	test("an empty folder created from settings can be deleted again", async ({
 		page,
+		run,
 	}) => {
 		await page.goto("/settings/folders");
 
 		await expect(
-			page.getByRole("heading", { name: "Folder roles" }),
+			page.getByRole("heading", { name: "Folder roles", exact: true }),
 		).toBeVisible({ timeout: 30_000 });
 
 		const name = `E2E Delete ${Date.now()}`;
@@ -33,7 +34,10 @@ test.describe("Delete folder from settings", () => {
 		await nameField.fill(name);
 		await page.getByRole("button", { name: "Create folder" }).first().click();
 
-		const row = page.getByRole("listitem").filter({ hasText: name });
+		const folderList = page.getByRole("list", {
+			name: `All folders for ${run.imapUser}`,
+		});
+		const row = folderList.getByRole("listitem").filter({ hasText: name });
 		await expect(row).toBeVisible({ timeout: 30_000 });
 
 		await row.getByRole("button", { name: `Delete ${name}` }).click();
