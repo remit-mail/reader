@@ -804,10 +804,18 @@ lock_holder_dead() {
 	_hp=$(lock_field pid || true)
 	_hc=$(lock_field container || true)
 	if [ "$_hk" = "container" ] && [ -n "$_hc" ]; then
-		_hs=$(docker inspect -f '{{.State.Running}}' "$_hc" 2>/dev/null || printf gone)
+		# Capped, and death needs positive proof: a timed-out or erroring
+		# daemon is indeterminate, and reclaiming on indeterminate would break
+		# a live holder's lock.
+		_hs=$(capped_run "$PROBE_RUN_TIMEOUT" docker inspect -f '{{.State.Running}}' "$_hc" 2>&1) || {
+			case "$_hs" in
+			*"No such object"*) return 0 ;;
+			esac
+			return 1
+		}
 		case "$_hs" in
 		true) return 1 ;;
-		false | gone) return 0 ;;
+		false) return 0 ;;
 		esac
 	elif [ "$_hk" = "shell" ] && [ -n "$_hp" ]; then
 		if kill -0 "$_hp" 2>/dev/null; then return 1; fi

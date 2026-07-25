@@ -1007,6 +1007,24 @@ describe("the health probe cannot ghost (reader#284)", () => {
 		);
 	});
 
+	it("caps the lock holder's docker inspect while the guard is held", () => {
+		// lock_holder_dead runs under the blocking guard flock: an uncapped
+		// docker inspect there hangs every future `remit update` on a wedged
+		// daemon — the #284 hang class in the lock path.
+		const wrapper = readFileSync(REMIT, "utf8");
+		const fn = wrapper.match(/lock_holder_dead\(\)\s*\{[\s\S]*?\n\}/)?.[0];
+		assert.ok(fn, "lock_holder_dead not found");
+		const inspects = fn
+			.split("\n")
+			.filter((l) => !l.trimStart().startsWith("#"))
+			.filter((l) => /\bdocker inspect\b/.test(l) && !/capped_run/.test(l));
+		assert.deepEqual(
+			inspects,
+			[],
+			`lock_holder_dead has an uncapped docker inspect: ${inspects.join(" | ")}`,
+		);
+	});
+
 	it("reaches a terminal outcome even when the probe never answers", () => {
 		// probe=hang makes the fake probe block like the ghost did. The wrapper's
 		// per-probe timeout has to end each one so the gate's budget deadline is
