@@ -135,25 +135,36 @@ export class MailboxManagementService {
 
 		const result = await connection.createMailbox(path);
 
+		// The server is free to materialize the requested path under a namespace
+		// prefix — a Dovecot INBOX namespace turns "Notifications" into
+		// "INBOX/Notifications". `mailboxCreate` reports the canonical path the
+		// server assigned; adopt it as this row's identity so the next mailbox
+		// reconcile matches it by fullPath and updates it in place, rather than
+		// inserting a fresh row for the prefixed path and deleting this one — which
+		// would strand every filter and placement that references this mailboxId.
+		const serverPath = result.path;
+		const pathUpdate = serverPath !== path ? { fullPath: serverPath } : {};
+
 		this.log.info(
-			{ mailboxId, path, created: result.created },
+			{ mailboxId, path, serverPath, created: result.created },
 			"Created mailbox on IMAP server",
 		);
 
 		if (subscribe) {
-			await connection.subscribeMailbox(path);
-			this.log.info({ mailboxId, path }, "Subscribed to mailbox");
+			await connection.subscribeMailbox(serverPath);
+			this.log.info({ mailboxId, path: serverPath }, "Subscribed to mailbox");
 		}
 
 		// Refresh mailbox list to get UIDVALIDITY and other attributes
 		const mailboxes = await connection.listMailboxes();
-		const mailboxInfo = mailboxes.find((m) => m.fullPath === path);
+		const mailboxInfo = mailboxes.find((m) => m.fullPath === serverPath);
 
 		if (mailboxInfo) {
 			// Open the mailbox to get UIDVALIDITY and other status info
-			const status = await connection.openBox(path, true);
+			const status = await connection.openBox(serverPath, true);
 
 			await this.mailboxService.update(accountId, mailboxId, {
+				...pathUpdate,
 				uidValidity: status.uidvalidity,
 				uidNext: status.uidnext,
 				messageCount: status.messages.total,
@@ -164,6 +175,7 @@ export class MailboxManagementService {
 		} else {
 			// Mark as synced even if we couldn't get full info
 			await this.mailboxService.update(accountId, mailboxId, {
+				...pathUpdate,
 				syncStatus: MailboxSyncStatus.synced,
 			});
 		}
