@@ -56,7 +56,7 @@ test.describe("Spam rescue", () => {
 	// does nothing when the message never left Junk.
 	test.afterAll(async () => {
 		const run = readRunState();
-		const api = new ApiClient(run.token);
+		const api = new ApiClient(run);
 		const junkId = await junkMailboxId(api, run.accountId);
 
 		const inbox = await api.listThreads(run.inboxId);

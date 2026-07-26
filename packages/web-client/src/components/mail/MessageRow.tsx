@@ -236,9 +236,9 @@ const MessageRowComponent = ({
 		isChecked && "bg-accent-soft",
 		// Long-press enters selection mode; without these, Android Chrome opens
 		// the link context menu / starts text selection and iOS Safari fires the
-		// callout, racing the app's handler. react-aria suppresses
-		// contextmenu/text-selection but not iOS's callout — it fires no
-		// cancelable event, so CSS is the only lever.
+		// callout, racing the app's handler. useLongPress suppresses the
+		// touch-fired contextmenu; the callout fires no cancelable event, so
+		// `select-none` / `-webkit-touch-callout: none` are the only lever left.
 		!isDesktop && "min-h-11 select-none [-webkit-touch-callout:none]",
 	);
 

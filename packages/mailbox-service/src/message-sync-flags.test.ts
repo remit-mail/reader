@@ -9,7 +9,7 @@ import type {
 	IThreadMessageRepository,
 	ThreadMessageItem,
 } from "@remit/data-ports";
-import { MessageSystemFlag } from "@remit/domain-enums";
+import { MessageCategory, MessageSystemFlag } from "@remit/domain-enums";
 import type { ManagedConnectionFactory } from "./connection-factory.js";
 import { MessageSyncService } from "./message-sync.js";
 import type { ImapEnvelope } from "./types.js";
@@ -72,6 +72,7 @@ type CreateThreadForMessage = (
 	sentDate: number,
 	envelope: ImapEnvelope,
 	flags: string[],
+	category: ThreadMessageItem["category"],
 	references?: string[],
 	hasAttachment?: boolean,
 ) => Promise<void>;
@@ -103,6 +104,7 @@ const createThreadWithFlags = async (
 		now,
 		envelope,
 		flags,
+		MessageCategory.uncategorized,
 	);
 
 	assert.equal(inputs.length, 1);

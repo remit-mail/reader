@@ -215,6 +215,7 @@ interface Harness {
 		deletedAt?: number;
 	} | null;
 	mailbox: { mailboxId: string; uidValidity: number; cursorState?: string };
+	mailboxError?: Error;
 	connection: Connection;
 	threadMessage: Record<string, unknown> | null;
 	allThreadMessages: { accountConfigId: string; threadMessageId: string }[];
@@ -280,7 +281,10 @@ const deps = (): MessageDeleteDeps =>
 				delete: record("threadMessage.delete"),
 			},
 			mailbox: {
-				get: async () => h.mailbox,
+				get: async () => {
+					if (h.mailboxError) throw h.mailboxError;
+					return h.mailbox;
+				},
 				update: record("mailbox.update"),
 			},
 			secrets: {},
@@ -440,6 +444,18 @@ describe("handleMessageDelete", () => {
 		await handleMessageDelete(moveEvent, noopLog, deps());
 
 		assert.equal(h.getConnectionCount, 0);
+	});
+
+	it("acks terminally without connecting when the mailbox was deleted", async () => {
+		h.mailboxError = Object.assign(new Error("Mailbox not found: src-mbx"), {
+			name: "NotFoundError",
+		});
+
+		await handleMessageDelete(moveEvent, noopLog, deps());
+
+		assert.equal(h.getConnectionCount, 0);
+		assert.equal(called("message.updateUid").length, 0);
+		assert.equal(called("message.delete").length, 0);
 	});
 
 	it("returns early without connecting when the account is soft-deleted", async () => {

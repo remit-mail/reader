@@ -319,7 +319,9 @@ describe("syncMessages — terminal handling of events for a deleted mailbox (is
 			0,
 			"a deleted mailbox must short-circuit before the OAuth/connection lifecycle",
 		);
-		const skip = warns.find((w) => w.msg.includes("mailbox no longer exists"));
+		const skip = warns.find((w) =>
+			w.msg.includes("the server does not hold this folder"),
+		);
 		assert.ok(skip, "expected a WARN naming the skipped deleted mailbox");
 		assert.equal(skip.fields.accountId, "acc-1");
 		assert.equal(skip.fields.mailboxId, "mbx-gone");
@@ -352,6 +354,30 @@ describe("syncMessages — terminal handling of events for a deleted mailbox (is
 		assert.equal(harness.lifecycleCalls, 1);
 	});
 
+	for (const syncStatus of ["pending", "deleting"]) {
+		it(`acks a SYNC_MESSAGES event for a \`${syncStatus}\` mailbox — the row exists, the server folder does not`, async () => {
+			const { log, warns } = buildLogger();
+			const harness = buildSyncDeps({
+				mailboxGet: async () => ({
+					mailboxId: "mbx-unsettled",
+					fullPath: "Archive",
+					syncStatus,
+				}),
+			});
+
+			await assert.doesNotReject(
+				syncMessages(syncEvent("mbx-unsettled"), log, harness.deps),
+			);
+
+			assert.equal(harness.lifecycleCalls, 0);
+			assert.ok(
+				warns.find((w) =>
+					w.msg.includes("the server does not hold this folder"),
+				),
+			);
+		});
+	}
+
 	it("a deleted-mailbox event does not stall the group — a following live-mailbox event still processes", async () => {
 		const { log } = buildLogger();
 		const gone = buildSyncDeps({
@@ -368,5 +394,153 @@ describe("syncMessages — terminal handling of events for a deleted mailbox (is
 
 		assert.equal(gone.lifecycleCalls, 0);
 		assert.equal(live.lifecycleCalls, 1);
+	});
+});
+
+/**
+ * A deps factory that runs the lifecycle and the mailbox lock for real, so the
+ * sync body — and the failure handling around it — is what gets exercised.
+ * `mailboxGet` is called per lookup, which is how a delete landing mid-round is
+ * expressed: the guard's read succeeds, a later one does not.
+ */
+const buildRunningSyncDeps = (
+	mailboxGet: (call: number) => Promise<unknown>,
+): {
+	deps: SyncMessagesDeps;
+	accountUpdates: Array<Record<string, unknown>>;
+} => {
+	const accountUpdates: Array<Record<string, unknown>> = [];
+	let calls = 0;
+	const deps = {
+		getClient: async () => ({
+			account: {
+				get: async () => liveAccount,
+				update: async (_id: string, input: Record<string, unknown>) => {
+					accountUpdates.push(input);
+				},
+			},
+			mailbox: {
+				get: async () => {
+					calls += 1;
+					return mailboxGet(calls);
+				},
+			},
+			mailboxLock: {
+				withMailboxLock: async (
+					_mailboxId: string,
+					_operation: string,
+					_accountId: string,
+					run: () => Promise<void>,
+				) => {
+					await run();
+					return { executed: true };
+				},
+			},
+			flagPush: { listByMailboxId: async () => [] },
+			secrets: {},
+		}),
+		buildLifecycleDeps: () => ({}),
+		withOAuthLifecycle: async (
+			_lifecycleDeps: unknown,
+			_account: AccountItem,
+			_log: Logger,
+			run: (credentials: unknown) => Promise<void>,
+		) => {
+			await run({ type: "password", password: "pw" });
+		},
+	} as unknown as SyncMessagesDeps;
+	return { deps, accountUpdates };
+};
+
+describe("syncMessages — a delete that lands mid-round (issue #339)", () => {
+	it("resolves terminally when the mailbox went away while the sync was in flight, and records no error phase", async () => {
+		const { log, warns } = buildLogger();
+		const harness = buildRunningSyncDeps(async (call) => {
+			if (call === 1) return { mailboxId: "mbx-1", fullPath: "Archive" };
+			throw new NotFoundError("Mailbox not found: mbx-1");
+		});
+
+		await assert.doesNotReject(
+			syncMessages(syncEvent("mbx-1"), log, harness.deps),
+		);
+
+		const resolved = warns.find((w) =>
+			w.msg.includes("left the server while the sync was in flight"),
+		);
+		assert.ok(
+			resolved,
+			"expected a WARN naming the folder that left mid-round",
+		);
+		assert.equal(resolved.fields.mailboxId, "mbx-1");
+		assert.deepEqual(
+			harness.accountUpdates,
+			[],
+			"one folder leaving must not put the account into an error phase",
+		);
+	});
+
+	it("resolves terminally when the failure is on the server and the row is only marked deleting", async () => {
+		const { log, warns } = buildLogger();
+		const harness = buildRunningSyncDeps(async (call) => {
+			if (call === 1) return { mailboxId: "mbx-1", fullPath: "Archive" };
+			if (call === 2) throw new Error("IMAP SEARCH failed in mailbox null");
+			return {
+				mailboxId: "mbx-1",
+				fullPath: "Archive",
+				syncStatus: "deleting",
+			};
+		});
+
+		await assert.doesNotReject(
+			syncMessages(syncEvent("mbx-1"), log, harness.deps),
+		);
+
+		assert.ok(
+			warns.find((w) =>
+				w.msg.includes("left the server while the sync was in flight"),
+			),
+		);
+		assert.deepEqual(harness.accountUpdates, []);
+	});
+
+	/**
+	 * The classifying read must not become the reported failure. A throttled or
+	 * unreachable repository during the catch previously propagated in place of
+	 * the real IMAP error, and the `syncPhase: error` write below it never ran —
+	 * the let-it-crash contract lost both the diagnosis and the state.
+	 */
+	it("reports the real failure, and still records the error phase, when the classifying read itself fails", async () => {
+		const { log } = buildLogger();
+		const harness = buildRunningSyncDeps(async (call) => {
+			if (call === 1) return { mailboxId: "mbx-1", fullPath: "Archive" };
+			if (call === 2) throw new Error("IMAP SEARCH failed in mailbox null");
+			throw new Error("dynamodb throttled");
+		});
+
+		await assert.rejects(
+			syncMessages(syncEvent("mbx-1"), log, harness.deps),
+			/IMAP SEARCH failed in mailbox null/,
+		);
+		assert.equal(harness.accountUpdates.length, 1);
+		assert.equal(harness.accountUpdates[0]?.syncPhase, "error");
+		assert.match(
+			String(harness.accountUpdates[0]?.lastError),
+			/IMAP SEARCH failed in mailbox null/,
+		);
+	});
+
+	it("still fails loudly when the mailbox is live — the failure is the account's, not a deletion", async () => {
+		const { log } = buildLogger();
+		const harness = buildRunningSyncDeps(async (call) => {
+			if (call === 2) throw new Error("connection reset by peer");
+			return { mailboxId: "mbx-1", fullPath: "Archive" };
+		});
+
+		await assert.rejects(
+			syncMessages(syncEvent("mbx-1"), log, harness.deps),
+			/connection reset by peer/,
+		);
+		assert.equal(harness.accountUpdates.length, 1);
+		assert.equal(harness.accountUpdates[0]?.syncPhase, "error");
 	});
 });

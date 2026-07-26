@@ -302,6 +302,54 @@ describe("syncMessageBody — DLQ propagation (integrated, #1270)", () => {
 		);
 	});
 
+	test("deleted mailbox: acks-and-skips without ever calling BodySyncService.syncBodies (#287/#289)", async () => {
+		// A SYNC_MESSAGE_BODY trigger outlived the folder it targeted. The mailbox
+		// lookup throws NotFoundError, which would poison the account's per-group
+		// body FIFO forever; the handler must resolve it terminally instead.
+		mockClient(SSMClient)
+			.on(GetParameterCommand)
+			.resolves({ Parameter: { Value: "true" } });
+
+		mock.method((await getClient()).account, "get", async () =>
+			cappedAccount(),
+		);
+		mock.method((await getClient()).mailbox, "get", async () => {
+			throw Object.assign(new Error(`Mailbox not found: ${mailboxId}`), {
+				name: "NotFoundError",
+			});
+		});
+		mock.method(
+			(await getClient()).secrets,
+			"decrypt",
+			async () => "fake-password",
+		);
+		const syncBodies = mock.method(
+			BodySyncService.prototype,
+			"syncBodies",
+			async () => {
+				throw new Error("must not be called for a deleted mailbox");
+			},
+		);
+
+		const event: SyncMessageBodyEvent = {
+			...baseEvent,
+			accountId,
+			mailboxId,
+			messageIds: ["msg-1"],
+			messages: [{ messageId: "msg-1", uid: 101 }],
+		};
+
+		// Must resolve, not reject — a deleted folder is an expected terminal
+		// outcome, not a fault to retry/DLQ.
+		await syncMessageBody(event, silentLogger, 1);
+
+		assert.equal(
+			syncBodies.mock.calls.length,
+			0,
+			"a deleted mailbox must never reach the body fetch",
+		);
+	});
+
 	test("cursor_invalid: acks-and-skips without ever calling BodySyncService.syncBodies (#1272)", async () => {
 		// The cheap pre-check (isCursorRebuildNeeded, run before borrowing any
 		// connection — frugal, epic #1281 invariant 6) catches an already-paused

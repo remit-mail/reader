@@ -1,11 +1,29 @@
 import assert from "node:assert";
-import { describe, it, mock } from "node:test";
-import type { ThreadMessageItem } from "@remit/data-ports";
+import { afterEach, describe, it, mock } from "node:test";
+import { getClient } from "@remit/backend/client";
+import type { AccountItem, ThreadMessageItem } from "@remit/data-ports";
+import type { Logger } from "@remit/logger-lambda";
+import type { MessageMoveEvent } from "../events.js";
 import {
 	buildThreadMessageMoveUpdate,
 	emitMoveResync,
+	handleMessageMove,
 	moveThenResync,
 } from "./message-move.js";
+
+const silentLogger = (() => {
+	const noop = () => {};
+	const log = {
+		info: noop,
+		warn: noop,
+		error: noop,
+		debug: noop,
+		fatal: noop,
+		trace: noop,
+		child: () => log,
+	} as unknown as Logger;
+	return log;
+})();
 
 const sourceMailboxId = "source-mailbox-id-aaaaaaaaa";
 const destinationMailboxId = "destination-mailbox-aaaaa";
@@ -164,5 +182,63 @@ describe("moveThenResync (#1031)", () => {
 		);
 
 		assert.equal(resync.mock.calls.length, 0);
+	});
+});
+
+describe("handleMessageMove — deleted mailbox is terminal (#287/#289)", () => {
+	const acctId = "mm-acc-zzz";
+
+	const cappedAccount = (): AccountItem =>
+		({
+			accountId: acctId,
+			accountConfigId: "mm-cfg-zzz",
+			connectionState: "authenticated",
+			username: "mm@imap.example.com",
+			imapHost: "imap.example.com",
+			imapPort: 993,
+			imapTls: true,
+			passwordHash: JSON.stringify({
+				encryptedDek: "",
+				encryptedData: "",
+				iv: "",
+				authTag: "",
+			}),
+		}) as unknown as AccountItem;
+
+	const event: MessageMoveEvent = {
+		type: "MESSAGE_MOVE",
+		accountId: acctId,
+		accountConfigId: "mm-cfg-zzz",
+		messageId: "mm-msg-zzz",
+		sourceMailboxId: "mm-src-zzz",
+		sourceMailboxPath: "INBOX",
+		destinationMailboxId: "mm-dst-zzz",
+		destinationMailboxPath: "Archive",
+		uid: 10,
+		eventId: "mm-evt-zzz",
+		timestamp: 1700000000000,
+	} as MessageMoveEvent;
+
+	afterEach(() => mock.restoreAll());
+
+	it("acks without connecting when the source mailbox was deleted", async () => {
+		const client = await getClient();
+		mock.method(client.account, "get", async () => cappedAccount());
+		mock.method(client.secrets, "decrypt", async () => "fake-password");
+		mock.method(client.mailbox, "get", async () => {
+			throw Object.assign(new Error("Mailbox not found: mm-src-zzz"), {
+				name: "NotFoundError",
+			});
+		});
+		const updateUid = mock.method(client.message, "updateUid", async () => {});
+
+		// Must resolve, not reject — a deleted source folder makes the move moot.
+		await handleMessageMove(event, silentLogger);
+
+		assert.equal(
+			updateUid.mock.calls.length,
+			0,
+			"a deleted mailbox never reaches the IMAP move",
+		);
 	});
 });

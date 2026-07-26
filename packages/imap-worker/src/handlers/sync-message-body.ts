@@ -3,9 +3,9 @@ import type { Logger } from "@remit/logger-lambda";
 import { MetricUnit, metrics } from "@remit/logger-lambda";
 import {
 	BodySyncService,
-	type FilterConfig,
 	guardConnectionCursor,
 	isCursorRebuildNeeded,
+	isFolderOffServer,
 	MailboxCursorPausedError,
 	PlacementMoveService,
 	QuarantineService,
@@ -19,6 +19,8 @@ import {
 	createConnectionScopeWithCredentials,
 } from "../connection-scope.js";
 import type { SyncMessageBodyEvent } from "../events.js";
+import { buildFilterConfig } from "../filter-config.js";
+import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import { workerVersion } from "../worker-version.js";
@@ -184,7 +186,28 @@ export const syncMessageBody = async (
 		account,
 		log,
 		async (credentials) => {
-			const mailbox = await mailboxService.get(accountId, mailboxId);
+			// A SYNC_MESSAGE_BODY trigger can outlive the mailbox it targets: deleting
+			// a folder that held mail leaves already-queued body events pointing at a
+			// row that is now gone, and the lookup then throws NotFoundError forever.
+			// Since the body queue carries MessageGroupId=accountId, that head message
+			// stalls the account's whole body pipeline (issues #287, #289, #290). A
+			// deleted folder is an expected terminal outcome: ack with a WARN.
+			const mailbox = await mailboxService
+				.get(accountId, mailboxId)
+				.catch((error: unknown) => {
+					if (isNotFoundError(error)) return null;
+					throw error;
+				});
+			// A folder still `pending` is terminal for the same reason: the batch
+			// was cut before the folder reached the server, so there is nothing
+			// there to fetch from and no retry that changes it.
+			if (!mailbox || isFolderOffServer(mailbox)) {
+				log.warn(
+					{ accountId, mailboxId, eventId: event.eventId },
+					"Skipping SYNC_MESSAGE_BODY: the server does not hold this folder",
+				);
+				return;
+			}
 
 			// Cheap frugal skip (epic #1281 invariant 6): a mailbox already known
 			// paused never even borrows a connection. This is an optimization only
@@ -218,16 +241,14 @@ export const syncMessageBody = async (
 
 			// A matched filter's actions (label upsert, exclusive move) apply on
 			// the same body-sync pass, reusing the placement mover for the move
-			// (RFC 034 Decision 3.1). Absent the placement mover there is no move
-			// path, so filters stay off — the two share the same enqueue plumbing.
-			const filterConfig: FilterConfig | undefined = placementMoveService
-				? {
-						filterService,
-						filterAnchorService,
-						messageLabelService,
-						placementMoveService,
-					}
-				: undefined;
+			// (RFC 034 Decision 3.1). The env-provisioned embedder lets a semantic
+			// (anchor-only) filter match here instead of being silently skipped.
+			const filterConfig = buildFilterConfig({
+				filterService,
+				filterAnchorService,
+				messageLabelService,
+				placementMoveService,
+			});
 
 			const bodySyncService = new BodySyncService(
 				messageService,
