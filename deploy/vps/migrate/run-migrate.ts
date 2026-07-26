@@ -16,8 +16,9 @@ import {
 	checkThreadMessageCategory,
 	formatCheckReport,
 	formatRepairResult,
+	formatRepairSkipped,
 	type RepairSqlClient,
-	readDivergence,
+	readResidual,
 	repairThreadMessageCategory,
 } from "../../../packages/drizzle-service/src/repair/thread-message-category.js";
 
@@ -95,19 +96,31 @@ const logReport = (report: CategoryDivergenceReport): void => {
 };
 
 /**
- * Report first, then repair, then re-read only the divergence figures. The
- * before-numbers are the evidence an upgrade leaves behind, and the single
- * re-read is what distinguishes "nothing to do" from "did not run".
+ * Report first, then repair only if the report found something to write, then
+ * re-read the residual. The before-numbers are the evidence an upgrade leaves
+ * behind, the skip is what keeps a steady-state boot from taking SQLite's write
+ * lock, and the re-read is what distinguishes "nothing to do" from "did not run"
+ * — a repair that never ran logs no `[migrate:category-repair]` line at all.
  */
 const repairThreadMessageCategoryStep = async (
 	client: RepairSqlClient,
 ): Promise<void> => {
-	logReport(await checkThreadMessageCategory(client));
-	const result = await repairThreadMessageCategory(client);
-	const residual = await readDivergence(client);
-	for (const line of formatRepairResult(result, residual)) {
-		console.log(`[migrate:category-repair] ${line}`);
+	const report = await checkThreadMessageCategory(client);
+	logReport(report);
+
+	const log = (lines: readonly string[]): void => {
+		for (const line of lines) {
+			console.log(`[migrate:category-repair] ${line}`);
+		}
+	};
+
+	if (report.repairable === 0) {
+		log(formatRepairSkipped(report));
+		return;
 	}
+
+	const result = await repairThreadMessageCategory(client);
+	log(formatRepairResult(result, await readResidual(client)));
 };
 
 /**
@@ -151,7 +164,15 @@ const runPostgres = async (mode: Mode): Promise<void> => {
 		throw new Error("PG_CONNECTION_URL is required");
 	}
 
-	const pool = new pg.Pool({ connectionString });
+	// `--check` gets a session the server itself refuses writes on, the counterpart
+	// of the SQLite path's read-only open: "writes nothing" is then a property of
+	// the connection rather than a claim about the queries.
+	const pool = new pg.Pool({
+		connectionString,
+		...(mode === "check"
+			? { options: "-c default_transaction_read_only=on" }
+			: {}),
+	});
 	const repairClient = postgresRepairClient(pool);
 	try {
 		if (mode === "check") {

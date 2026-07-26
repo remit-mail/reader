@@ -190,17 +190,24 @@ kept on the row so the filter can be a SQL predicate over the whole folder rathe
 than a pass over the pages a browser happens to hold. The `migrate` one-shot
 repairs any row whose copy disagrees, and logs what it found before and after —
 so an upgrade leaves the numbers behind instead of an assumption. It runs one
-statement, writes only rows that need it, and is a no-op on every later start.
+statement, writes only rows that need it, and issues no write at all once there
+is nothing left to repair.
 
-The same entrypoint reports without writing anything. It opens the database
-read-only, applies no migrations, and prints each figure with the cause it
-measures and the result a healthy instance is expected to produce — most of them
-zero, for reasons it states:
+To look without waiting for an update:
 
 ```bash
-docker compose -f docker-compose.sqlite.yml --env-file .env \
-  run --rm migrate node migrate.mjs --check
+remit check-categories
 ```
+
+That reports and changes nothing — the database is opened read-only on SQLite and
+the session refuses writes on Postgres — and prints each figure with the cause it
+measures and the result a healthy instance is expected to produce. Most of them
+are zero, for reasons the output states. Two are not defects:
+
+- **ahead** counts rows classified while their message is still pending. That is
+  a classification in flight, so on a syncing instance it is expected and clears
+  itself. Those rows are left alone.
+- **not-yet-classified** counts mail the classifier has not reached.
 
 ## Search
 

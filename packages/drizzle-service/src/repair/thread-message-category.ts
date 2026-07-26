@@ -9,18 +9,27 @@
  * before that read path goes live — otherwise the filter under-returns mail
  * with nothing masking it.
  *
- * One set-based statement per dialect. The value is a primary-key probe away
- * in the same database, so there is no checkpointing, batching or resumability
- * here: an interrupted run leaves a consistent table and the next start
- * finishes the job.
+ * One set-based statement per dialect. The value it copies is reachable through
+ * `message`'s primary key, so the write is single-valued by construction and
+ * there is no checkpointing, batching or resumability here: an interrupted run
+ * leaves a consistent table and the next start finishes the job.
+ *
+ * The statement runs only when the check found something to repair. SQLite takes
+ * its exclusive write lock when an UPDATE begins, before it can know the WHERE
+ * matches nothing, so an unconditional statement would take that lock on every
+ * boot forever — and a lock it cannot acquire within the migrator's
+ * `busy_timeout` fails the migration and holds every gated service down. The
+ * steady state after the first run is zero, so the skip is the normal path.
  *
  * Two things the statement will not do, both because the repair must never
  * leave a row worse than it found it:
  *
  *  - It never copies `uncategorized` over a classified row. `message` is the
- *    authority, and a pending message holds nothing to copy; overwriting would
- *    discard the only classification the instance has. Reported as `reverse`
- *    instead.
+ *    authority, but a pending message holds nothing to copy, and after #326
+ *    body-sync writes the row before the message, so a classification in flight
+ *    is legitimately `ahead` of its message for a moment. Pushing it back would
+ *    undo a correct classification and, on the read path #328 builds, serve
+ *    `Unclassified` for mail that is already classified. Counted as `ahead`.
  *  - It never overwrites a row that was written after the statement began. The
  *    migrate one-shot normally runs with every app service stopped, but
  *    `docker compose up -d` can restart it while workers still run, so the
@@ -30,9 +39,18 @@
  *    re-evaluates its WHERE clause against the version a concurrent
  *    transaction just committed, but still reads other tables at its original
  *    snapshot — so without the `updated_at` guard it could write a
- *    pre-classification value over the fresh one. The guard makes that row
- *    fail the re-check and body-sync's value wins; the row is repaired on the
- *    next start if it needed it.
+ *    pre-classification value over the fresh one. The guard makes that row fail
+ *    the re-check and the writer's value stands.
+ *
+ * The guard covers a writer whose transaction begins after the statement. A
+ * writer that began before it and commits during it carries an older stamp and
+ * passes, which would revert its write — but only for a message being
+ * *re*-classified, and no write path does that: `backfillClassification`
+ * returns early once `message.category` is decided, so a message is classified
+ * exactly once, `uncategorized` to a value. On today's write paths the pending
+ * exclusion above already refuses every in-flight row, so the window is
+ * unreachable. It becomes reachable the day re-classification is added, and the
+ * `crossed` figure is what would report it.
  *
  * The statement does not touch `updated_at`. That column means "when the app
  * last wrote this row", which is what the guard above reads, and a repair that
@@ -102,6 +120,21 @@ FROM (
 	HAVING count(*) > 1
 ) fan_out`;
 
+/**
+ * The residual after a repair, split by why the row was left. A row skipped
+ * because a writer touched it during the statement is repaired on the next run;
+ * a row whose `updated_at` is ahead of the database clock fails the guard on
+ * every run until the stamp is corrected, which is a different thing to tell an
+ * operator and would otherwise be indistinguishable in the output.
+ */
+const residualSql = (dialect: RepairDialect): string =>
+	`SELECT count(*) AS row_count,
+	coalesce(sum(CASE WHEN t.updated_at > ${nowMillis(dialect)} THEN 1 ELSE 0 END), 0) AS ahead_of_clock
+FROM thread_message t
+JOIN message m ON m.message_id = t.message_id
+WHERE m.category <> t.category
+  AND m.category <> '${PENDING}'`;
+
 export type CategoryCount = {
 	readonly category: string;
 	readonly rows: number;
@@ -113,19 +146,33 @@ export type MailboxCount = {
 };
 
 /**
- * Divergence split by cause, so a zero is a measurement rather than an
- * ambiguity. A repair that never ran and a corpus that was already correct both
- * report `divergent: 0`; only the per-cause figures tell them apart, and only
- * the per-cause expectations say which zeros are the healthy answer.
+ * Divergence split by direction, because the direction is the cause. A repair
+ * that never ran and a corpus that was already correct both report
+ * `divergent: 0`; only the per-cause figures tell them apart, and only the
+ * per-cause expectations say which zeros are the healthy answer.
+ *
+ *  - `behind` — the row is pending, its message is classified. Every one of the
+ *    three write-path defects #326 fixes lands here, and this is the cohort the
+ *    repair exists for.
+ *  - `crossed` — both classified, differently. No current write path produces
+ *    it: `message.category` moves from pending to a decided value exactly once.
+ *  - `ahead` — the row is classified, its message is pending. After #326 that is
+ *    a classification in flight, so on a live instance it is expected and
+ *    transient. Not repaired.
  */
 export type CategoryDivergence = {
 	readonly rowsWithMessage: number;
 	readonly divergent: number;
 	readonly repairable: number;
-	readonly historical: number;
+	readonly behind: number;
 	readonly crossed: number;
-	readonly reverse: number;
+	readonly ahead: number;
 	readonly notYetClassified: number;
+};
+
+export type CategoryResidual = {
+	readonly repairable: number;
+	readonly aheadOfClock: number;
 };
 
 export type CategoryDivergenceReport = CategoryDivergence & {
@@ -199,7 +246,7 @@ export const readDivergence = async (
 		predicate: (bucket: (typeof buckets)[number]) => boolean,
 	): number => sum(buckets.filter(predicate).map((bucket) => bucket.rows));
 
-	const historical = total(
+	const behind = total(
 		(bucket) =>
 			bucket.rowCategory === PENDING && bucket.messageCategory !== PENDING,
 	);
@@ -209,7 +256,7 @@ export const readDivergence = async (
 			bucket.messageCategory !== PENDING &&
 			bucket.rowCategory !== bucket.messageCategory,
 	);
-	const reverse = total(
+	const ahead = total(
 		(bucket) =>
 			bucket.rowCategory !== PENDING && bucket.messageCategory === PENDING,
 	);
@@ -217,10 +264,10 @@ export const readDivergence = async (
 	return {
 		rowsWithMessage: total(() => true),
 		divergent: total((bucket) => bucket.rowCategory !== bucket.messageCategory),
-		repairable: historical + crossed,
-		historical,
+		repairable: behind + crossed,
+		behind,
 		crossed,
-		reverse,
+		ahead,
 		notYetClassified: total(
 			(bucket) =>
 				bucket.rowCategory === PENDING && bucket.messageCategory === PENDING,
@@ -266,24 +313,34 @@ export const repairThreadMessageCategory = async (
 	return { rowsWritten, elapsedMs: Date.now() - startedAt };
 };
 
+export const readResidual = async (
+	client: RepairSqlClient,
+): Promise<CategoryResidual> => {
+	const [row] = await client.all(residualSql(client.dialect));
+	return {
+		repairable: countOf(row, "row_count"),
+		aheadOfClock: countOf(row, "ahead_of_clock"),
+	};
+};
+
 const plural = (rows: number): string => (rows === 1 ? "row" : "rows");
 
 /**
  * Every figure carries the cause it measures and the result a healthy instance
- * is expected to produce, because most of these are legitimately zero: both
- * derived ids are mailbox-independent, so a message in two mailboxes collapses
- * to one `thread_message` row and the multi-row fan-out is structurally absent.
- * A bare `0` cannot distinguish that from a repair that never ran.
+ * is expected to produce. Most of them are legitimately zero, so a bare `0`
+ * cannot be told apart from a repair that never ran — and a cause an operator
+ * can rule out by inspection is worse than no cause at all, because it reads as
+ * a broken figure.
  */
 export const formatCheckReport = (
 	report: CategoryDivergenceReport,
 ): string[] => [
 	`thread_message rows: ${report.rows} (${report.rowsWithMessage} with a message row)`,
 	`divergent (thread_message.category <> message.category): ${report.divergent}, of which ${report.repairable} repairable`,
-	`  historical: ${report.historical} ${plural(report.historical)} pending against a classified message — mail classified before the denormalized column landed (2026-07-08), plus any Postgres instance whose column was added with its 'uncategorized' default and stamped without consulting message.category. Repaired. Expected non-zero on an instance that classified mail before that date, zero on a newer install.`,
-	`  crossed: ${report.crossed} ${plural(report.crossed)} classified differently from the message — a denormalize that never completed (#326). Repaired. Expected zero.`,
-	`  reverse: ${report.reverse} ${plural(report.reverse)} classified against a pending message — not repaired, message is the authority and holds nothing to copy. Expected zero.`,
-	`fan-out: ${report.fanOutMessages} messages holding ${report.fanOutRows} thread_message rows — the multi-row shape #326 hardens against. Expected zero: deriveMessageId and deriveThreadMessageId are both mailbox-independent, so a message in two mailboxes collapses to one row.`,
+	`  behind: ${report.behind} ${plural(report.behind)} pending against a classified message — the copy of a decided category never landed. All three of the write-path defects #326 fixes end here: a retro classification stranded between its two writes, a denormalize that wrote one of several rows for a message, and a row created for a message that was already classified. Repaired, and this is the cohort the repair exists for. Expected non-zero on an instance where any of those fired, zero otherwise.`,
+	`  crossed: ${report.crossed} ${plural(report.crossed)} classified differently from the message — no current write path produces this: message.category moves from pending to a decided value exactly once, because backfillClassification returns early once it is decided. Repaired. Expected zero; a non-zero means a classification changed without its copy following, so either a re-classification path landed without denormalizing or the database was edited outside the app.`,
+	`  ahead: ${report.ahead} ${plural(report.ahead)} classified against a pending message — after #326 body-sync writes the row before the message, so this is a classification in flight. Not repaired: pushing it back to pending would undo a correct classification and serve Unclassified for mail that is already classified. Expected non-zero on a live instance mid-sync, zero on a quiescent one.`,
+	`fan-out: ${report.fanOutMessages} messages holding ${report.fanOutRows} thread_message rows — the multi-row shape #326 hardens against. Expected zero: deriveMessageId and deriveThreadMessageId are both mailbox-independent, so a message in two mailboxes collapses to one row, and the reachable case is thread-root drift.`,
 	`orphans: ${report.orphanRows} ${plural(report.orphanRows)} with no message row — not repaired, nothing to copy. Expected zero.`,
 	`not-yet-classified: ${report.notYetClassified} ${plural(report.notYetClassified)} pending against a pending message — not classified yet. Not a defect, not touched by the repair, and unchanged by it. Expected non-zero on a live instance.`,
 	`divergent per mailbox: ${
@@ -302,18 +359,49 @@ export const formatCheckReport = (
 	}`,
 ];
 
+/**
+ * The next run of the repair is the next start of the migrate one-shot, which on
+ * a self-host instance means the next `remit update` — weeks, not minutes. A
+ * residual is therefore named as something an operator may have to act on, not
+ * as something that clears itself shortly.
+ */
 export const formatRepairResult = (
 	result: RepairResult,
-	residual: CategoryDivergence,
+	residual: CategoryResidual,
 ): string[] => {
 	const lines = [
 		`repair wrote ${result.rowsWritten} ${plural(result.rowsWritten)} in ${result.elapsedMs}ms`,
 		`residual repairable divergence: ${residual.repairable} (expected zero)`,
 	];
-	if (residual.repairable > 0) {
+	if (residual.repairable === 0) {
+		return lines;
+	}
+
+	const concurrent = residual.repairable - residual.aheadOfClock;
+	if (concurrent > 0) {
 		lines.push(
-			`WARNING: divergence remains on ${residual.repairable} ${plural(residual.repairable)}. A row written while the repair ran is skipped so the concurrent writer's value stands; it is repaired on the next start.`,
+			`WARNING: ${concurrent} ${plural(concurrent)} skipped because a writer touched them while the repair ran. The writer's value stands, which is correct, but the copy is only rechecked the next time this one-shot runs — the next 'remit update' — and until then the mail list serves that row's category as it now stands.`,
+		);
+	}
+	if (residual.aheadOfClock > 0) {
+		lines.push(
+			`WARNING: ${residual.aheadOfClock} ${plural(residual.aheadOfClock)} carry an updated_at ahead of the database clock, so they fail the repair's guard on every run, not just this one. That is a clock that jumped, a restored backup, or a host whose time was wrong — not a concurrent writer. They stay divergent until the stamp is corrected.`,
 		);
 	}
 	return lines;
 };
+
+/**
+ * The repair is skipped outright when the check found nothing to write, because
+ * SQLite takes the exclusive write lock when an UPDATE begins — before it can
+ * know the WHERE matches nothing. The steady state is zero, so without this
+ * every boot would take that lock, and a lock it cannot acquire within
+ * busy_timeout fails the migration and holds every gated service down. The
+ * figures the skip is decided on were just read; a row that diverges in the
+ * moment between is skipped by the guard anyway and repaired on the next run.
+ */
+export const formatRepairSkipped = (
+	divergence: CategoryDivergence,
+): string[] => [
+	`repair skipped: nothing repairable (${divergence.divergent} divergent, ${divergence.ahead} of them a classification in flight). No write, so no write lock is taken.`,
+];

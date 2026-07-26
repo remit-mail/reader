@@ -14,7 +14,9 @@ import {
 	checkThreadMessageCategory,
 	formatCheckReport,
 	formatRepairResult,
+	formatRepairSkipped,
 	type RepairSqlClient,
+	readResidual,
 	repairThreadMessageCategory,
 } from "./thread-message-category.js";
 
@@ -160,7 +162,7 @@ export const describeRepairContract = (
 			assert.equal(before.rows, 2);
 			assert.equal(before.divergent, 1);
 			assert.equal(before.repairable, 1);
-			assert.equal(before.historical, 1);
+			assert.equal(before.behind, 1);
 			assert.equal(before.crossed, 0);
 
 			const result = await repairThreadMessageCategory(harness.client);
@@ -194,7 +196,7 @@ export const describeRepairContract = (
 
 			const before = await check();
 			assert.equal(before.crossed, 1);
-			assert.equal(before.historical, 0);
+			assert.equal(before.behind, 0);
 			assert.equal(before.repairable, 1);
 
 			await repairThreadMessageCategory(harness.client);
@@ -226,17 +228,18 @@ export const describeRepairContract = (
 			assert.equal((await check()).notYetClassified, 1);
 		});
 
-		// `uncategorized` is a declared pending state, not absence (#45), and
-		// `message` is the authority. A classified row against a pending message is
-		// not derivable from the authority, so copying would discard the only
-		// classification the instance holds.
+		// `uncategorized` is a declared pending state, not absence (#45). After #326
+		// body-sync writes the row before the message, so a row classified against a
+		// pending message is a classification in flight — pushing it back would undo
+		// a correct classification and serve Unclassified for classified mail. This
+		// is #326's closing question, answered: the row is left alone, not converged.
 		test("never copies pending over a classified row", async () => {
 			await seed(
-				[{ messageId: "msg-reverse", category: "uncategorized" }],
+				[{ messageId: "msg-ahead", category: "uncategorized" }],
 				[
 					{
-						threadMessageId: "tm-reverse",
-						messageId: "msg-reverse",
+						threadMessageId: "tm-ahead",
+						messageId: "msg-ahead",
 						category: "personal",
 					},
 				],
@@ -244,14 +247,18 @@ export const describeRepairContract = (
 
 			const before = await check();
 			assert.equal(before.divergent, 1);
-			assert.equal(before.reverse, 1);
+			assert.equal(before.ahead, 1);
 			assert.equal(before.repairable, 0);
 
 			const result = await repairThreadMessageCategory(harness.client);
 			assert.equal(result.rowsWritten, 0);
 
 			const rows = await readRows(harness.client);
-			assert.equal(categoryOf(rows, "tm-reverse"), "personal");
+			assert.equal(categoryOf(rows, "tm-ahead"), "personal");
+			assert.match(
+				formatCheckReport(await check()).join("\n"),
+				/ahead: 1 row .*Expected non-zero on a live instance mid-sync/,
+			);
 		});
 
 		test("leaves a row with no message row alone and counts it", async () => {
@@ -338,19 +345,21 @@ export const describeRepairContract = (
 			assert.deepEqual(await readRows(harness.client), afterFirst);
 		});
 
-		// The guard that makes a mid-sync run safe: a row written after the
-		// statement began fails the WHERE clause, so the concurrent writer's value
-		// stands and the repair does not roll it back.
-		test("does not overwrite a row written after the repair began", async () => {
+		// The guard's mechanics: a row whose stamp is beyond the statement's clock
+		// fails the WHERE clause and is left alone. A row stamped that far ahead is
+		// not a concurrent writer — it is a clock that jumped or a restored backup —
+		// and the residual has to say so, because that row fails the guard on every
+		// run and no later start will fix it.
+		test("skips a row stamped beyond the statement's clock and says why", async () => {
 			await seed(
 				[
-					{ messageId: "msg-raced", category: "newsletter" },
+					{ messageId: "msg-ahead-clock", category: "newsletter" },
 					{ messageId: "msg-quiet", category: "newsletter" },
 				],
 				[
 					{
-						threadMessageId: "tm-raced",
-						messageId: "msg-raced",
+						threadMessageId: "tm-ahead-clock",
+						messageId: "msg-ahead-clock",
 						category: "uncategorized",
 						updatedAt: Date.now() + 600_000,
 					},
@@ -366,14 +375,61 @@ export const describeRepairContract = (
 			assert.equal(result.rowsWritten, 1);
 
 			const rows = await readRows(harness.client);
-			assert.equal(categoryOf(rows, "tm-raced"), "uncategorized");
+			assert.equal(categoryOf(rows, "tm-ahead-clock"), "uncategorized");
 			assert.equal(categoryOf(rows, "tm-quiet"), "newsletter");
 
-			const residual = await check();
-			assert.equal(residual.repairable, 1);
+			const residual = await readResidual(harness.client);
+			assert.deepEqual(residual, { repairable: 1, aheadOfClock: 1 });
+
+			const reported = formatRepairResult(result, residual).join("\n");
+			assert.match(reported, /ahead of the database clock/);
+			assert.match(reported, /every run, not just this one/);
+			assert.ok(
+				!reported.includes("skipped because a writer touched them"),
+				"a clock-ahead row must not be reported as a concurrent writer",
+			);
+		});
+
+		test("names the concurrent writer and the update cadence when a run leaves a residual", () => {
+			const reported = formatRepairResult(
+				{ rowsWritten: 4, elapsedMs: 7 },
+				{ repairable: 2, aheadOfClock: 0 },
+			).join("\n");
+			assert.match(reported, /2 rows skipped because a writer touched them/);
+			assert.match(reported, /the next 'remit update'/);
+			assert.ok(!reported.includes("ahead of the database clock"));
+		});
+
+		test("a clean run reports no warning at all", () => {
+			assert.deepEqual(
+				formatRepairResult(
+					{ rowsWritten: 3, elapsedMs: 2 },
+					{ repairable: 0, aheadOfClock: 0 },
+				),
+				[
+					"repair wrote 3 rows in 2ms",
+					"residual repairable divergence: 0 (expected zero)",
+				],
+			);
+		});
+
+		test("a skipped repair says no write lock was taken", async () => {
+			await seed(
+				[{ messageId: "msg-clean", category: "personal" }],
+				[
+					{
+						threadMessageId: "tm-clean",
+						messageId: "msg-clean",
+						category: "personal",
+					},
+				],
+			);
+
+			const report = await check();
+			assert.equal(report.repairable, 0);
 			assert.match(
-				formatRepairResult(result, residual).join("\n"),
-				/WARNING: divergence remains on 1 row\./,
+				formatRepairSkipped(report).join("\n"),
+				/repair skipped: nothing repairable .*No write, so no write lock is taken\./,
 			);
 		});
 
@@ -411,9 +467,9 @@ export const describeRepairContract = (
 			const text = lines.join("\n");
 
 			for (const cause of [
-				"historical:",
+				"behind:",
 				"crossed:",
-				"reverse:",
+				"ahead:",
 				"fan-out:",
 				"orphans:",
 				"not-yet-classified:",
@@ -427,6 +483,25 @@ export const describeRepairContract = (
 				6,
 			);
 			assert.match(text, /category tally: uncategorized=1/);
+		});
+
+		// The causes are the deliverable, so each one names something that can
+		// actually happen on the deployment this repair ships to. A cause an
+		// operator can rule out by inspection reads as a broken figure.
+		test("no figure cites a cause that cannot occur on this deployment", async () => {
+			const text = formatCheckReport(await check()).join("\n");
+			for (const stale of [
+				"2026-07-08",
+				"drizzle push",
+				"Postgres instance whose column was added",
+			]) {
+				assert.ok(
+					!text.includes(stale),
+					`the report still cites ${stale}, which no SQLite instance can have experienced`,
+				);
+			}
+			assert.match(text, /behind: .*write-path defects #326 fixes end here/);
+			assert.match(text, /crossed: .*no current write path produces this/);
 		});
 	});
 };

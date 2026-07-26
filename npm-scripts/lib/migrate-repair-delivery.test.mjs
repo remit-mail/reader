@@ -86,10 +86,14 @@ describe("the category repair ships inside the migrate entrypoint", () => {
 		);
 	});
 
-	// If the repair needs a compose change to run, it does not ship: an operator
-	// who runs `remit update` would get the new client, the new server, and no
-	// repair.
-	it("appears in no compose file", () => {
+	// The real guard against a compose-level delivery is the pair of dialect-path
+	// assertions above: if the repair moved out of this entrypoint they fail,
+	// whatever it were renamed to. This adds the one thing they cannot see — that
+	// no compose file gained a second way to invoke the migrate image, which is the
+	// shape the rejected design had. It names the module and the flag rather than
+	// the word "repair", so a service called `category-fix` is caught and a comment
+	// mentioning "repaired" is not.
+	it("no compose file invokes the entrypoint a second way", () => {
 		for (const file of [
 			["deploy", "vps", "docker-compose.sqlite.yml"],
 			["deploy", "vps", "docker-compose.e2e.yml"],
@@ -97,10 +101,38 @@ describe("the category repair ships inside the migrate entrypoint", () => {
 			["docker-compose.localhost-dev-generic.yml"],
 		]) {
 			const compose = read(...file);
-			assert.ok(
-				!/repair/i.test(compose),
-				`${file.join("/")} must not carry the repair`,
-			);
+			for (const smell of [
+				"thread-message-category",
+				"--check",
+				"migrate.mjs ",
+			]) {
+				assert.ok(
+					!compose.includes(smell),
+					`${file.join("/")} carries "${smell}" — a repair a compose file has to invoke reaches nobody already installed`,
+				);
+			}
 		}
+	});
+
+	// The steady state is zero divergence, and SQLite takes its exclusive write
+	// lock when an UPDATE begins — before it can know the WHERE matches nothing. An
+	// unconditional statement would contend for that lock on every boot of a
+	// healthy instance, and losing it fails the migration and holds the app plane
+	// down.
+	it("issues no write when the check found nothing to repair", () => {
+		assert.match(RUN_MIGRATE, /report\.repairable === 0/);
+		assert.match(RUN_MIGRATE, /formatRepairSkipped\(report\)/);
+	});
+
+	// `compose run` starts the service's dependencies unless told not to, and
+	// migrate depends on volume-init, which chowns the data volumes as root. A
+	// read-only report must not do that on the operator's behalf.
+	it("is reachable through the wrapper without starting a dependency", () => {
+		const wrapper = read("deploy", "vps", "remit");
+		assert.match(wrapper, /check-categories\) cmd_check_categories/);
+		assert.match(
+			wrapper,
+			/compose run --rm --no-deps migrate node migrate\.mjs --check/,
+		);
 	});
 });
