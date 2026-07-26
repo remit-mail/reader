@@ -1,7 +1,6 @@
 import type {
 	CreateFilterInput,
 	FilterResponse,
-	UpdateFilterInput as UpdateFilterRequestBody,
 } from "@remit/api-openapi-types";
 import type { FilterItem, UpdateFilterInput } from "@remit/data-ports";
 import { BadRequestError } from "@remit/data-ports/errors";
@@ -94,9 +93,19 @@ export const deriveFilterTtl = (
  * dropped. `scope`/`expiresAt` land here as the caller sent them; a patch that
  * touches either still needs `resolveFilterScopeExpiry` to merge them against
  * the stored row and derive `ttl`/`state` before this reaches the repo.
+ *
+ * Typed against the internal `@remit/data-ports` `UpdateFilterInput`, not the
+ * generated `@remit/api-openapi-types` one: that package publishes separately
+ * from this repo, so a PR that both widens the TypeSpec model and reads the
+ * new field in the same change would typecheck in-tree (fresh local codegen)
+ * but fail `check-consumer-typecheck`/`release:dry-run`, which resolve
+ * generated `@remit/*` packages off the registry, not the local `build/`
+ * output. The data-ports shape carries every field this reads regardless —
+ * it derives from the full `Filter` row, which has never gated `scope` or
+ * `expiresAt` behind an API-visibility distinction.
  */
 export const pickFilterUpdate = (
-	body: Partial<UpdateFilterRequestBody>,
+	body: Partial<UpdateFilterInput>,
 ): Partial<UpdateFilterInput> => {
 	const patch: Partial<UpdateFilterInput> = {};
 	if (Object.hasOwn(body, "name")) patch.name = body.name;
@@ -359,7 +368,7 @@ export const FilterDetailOperations: Record<
 		assertAccountOwnership(account, accountConfigId, "act");
 
 		const { filter } = client;
-		const patch = pickFilterUpdate(body as Partial<UpdateFilterRequestBody>);
+		const patch = pickFilterUpdate(body as Partial<UpdateFilterInput>);
 		const touchesScopeOrExpiry =
 			Object.hasOwn(patch, "scope") || Object.hasOwn(patch, "expiresAt");
 		const resolvedPatch: Partial<UpdateFilterInput> = touchesScopeOrExpiry

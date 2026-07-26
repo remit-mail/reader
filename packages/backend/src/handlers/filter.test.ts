@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { UpdateFilterInput as UpdateFilterRequestBody } from "@remit/api-openapi-types";
+import type { UpdateFilterInput } from "@remit/data-ports";
 import { FilterScope, FilterState } from "@remit/domain-enums";
 import {
 	pickFilterUpdate,
@@ -35,7 +35,7 @@ describe("pickFilterUpdate", () => {
 			ruleChangedAt: 999,
 			filterId: "sneaky",
 		};
-		const patch = pickFilterUpdate(raw as Partial<UpdateFilterRequestBody>);
+		const patch = pickFilterUpdate(raw as Partial<UpdateFilterInput>);
 		assert.deepEqual(patch, { name: "Receipts" });
 	});
 });
