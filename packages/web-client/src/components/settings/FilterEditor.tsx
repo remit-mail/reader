@@ -6,6 +6,7 @@ import {
 	type FilterRule,
 	FilterRuleEditor,
 	type FolderOption,
+	type LabelOption,
 	type MatchOperator,
 	previewCountSummary,
 	type RuleScope,
@@ -13,6 +14,7 @@ import {
 import { CheckCircle2, Loader2 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { useCreateMailbox } from "@/hooks/useCreateMailbox";
+import { useCreateLabel } from "@/hooks/useLabels";
 import { useOrganizeJob } from "@/hooks/useOrganizeJob";
 import { useRulePreview } from "@/hooks/useRulePreview";
 import { useUpdateFilter } from "@/hooks/useUpdateFilter";
@@ -33,6 +35,7 @@ interface FilterEditorProps {
 	accountId: string;
 	filter: RemitImapFilterResponse;
 	folders: FolderOption[];
+	labels: LabelOption[];
 	/**
 	 * This deployment ships no vector pipeline, so a semantic anchor cannot be
 	 * evaluated (RFC 038 D4). The filter's widen chip lists inactive and the rule
@@ -58,6 +61,7 @@ export function FilterEditor({
 	accountId,
 	filter,
 	folders,
+	labels,
 	semanticUnavailable = false,
 	onClose,
 }: FilterEditorProps) {
@@ -74,6 +78,11 @@ export function FilterEditor({
 	const update = useUpdateFilter(accountId, filter.filterId);
 	const organizeJob = useOrganizeJob(accountId);
 	const { createFolder } = useCreateMailbox(accountId);
+	const { createLabel } = useCreateLabel(accountId);
+	const onCreateLabel = async (name: string): Promise<LabelOption> => {
+		const label = await createLabel(name);
+		return { id: label.labelId, name: label.name, color: label.color };
+	};
 
 	const startAddClause = () =>
 		setClauseEdit({
@@ -144,6 +153,12 @@ export function FilterEditor({
 			moveMailboxId: mailboxId || undefined,
 		}));
 
+	const changeLabel = (labelId: string) =>
+		setRule((current) => ({
+			...current,
+			labelId: labelId || undefined,
+		}));
+
 	const changeName = (name: string) =>
 		setRule((current) => ({ ...current, name }));
 
@@ -204,6 +219,7 @@ export function FilterEditor({
 		<FilterRuleEditor
 			rule={rule}
 			folders={folders}
+			labels={labels}
 			preview={preview}
 			// The update endpoint carries no anchor field at all (reader #266), so a
 			// widen can be neither added nor removed here: the "…and similar" add is
@@ -225,6 +241,8 @@ export function FilterEditor({
 			onChangeMatchOperator={changeMatchOperator}
 			onChangeMove={changeMove}
 			onCreateFolder={createFolder}
+			onChangeLabel={changeLabel}
+			onCreateLabel={onCreateLabel}
 			onChangeName={changeName}
 			onChangeScope={changeScope}
 			onChangeUntil={changeUntil}

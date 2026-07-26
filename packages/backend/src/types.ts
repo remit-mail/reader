@@ -31,6 +31,11 @@ export type OperationIds =
 	| "FilterDetailOperations_getFilter"
 	| "FilterDetailOperations_updateFilter"
 	| "FilterDetailOperations_deleteFilter"
+	| "LabelOperations_listLabels"
+	| "LabelOperations_createLabel"
+	| "LabelDetailOperations_getLabel"
+	| "LabelDetailOperations_updateLabel"
+	| "LabelDetailOperations_deleteLabel"
 	| "OrganizeOperations_createOrganizeJob"
 	| "OrganizeOperations_previewOrganize"
 	| "OrganizeJobDetailOperations_getOrganizeJob"
@@ -48,6 +53,7 @@ export type OperationIds =
 	| "MessageBulkOperations_moveMessages"
 	| "MessageBulkOperations_updateFlags"
 	| "MessageBulkOperations_copyMessages"
+	| "MessageBulkOperations_updateMessageLabels"
 	| "TrashOperations_emptyTrash"
 	| "OutboxOperations_createOutboxMessage"
 	| "OutboxOperations_listOutboxMessages"
@@ -93,6 +99,13 @@ export type FilterOperationIds = MatchPrefix<"FilterOperations_", OperationIds>;
 
 export type FilterDetailOperationIds = MatchPrefix<
 	"FilterDetailOperations_",
+	OperationIds
+>;
+
+export type LabelOperationIds = MatchPrefix<"LabelOperations_", OperationIds>;
+
+export type LabelDetailOperationIds = MatchPrefix<
+	"LabelDetailOperations_",
 	OperationIds
 >;
 

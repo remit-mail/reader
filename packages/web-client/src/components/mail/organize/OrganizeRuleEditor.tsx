@@ -3,12 +3,14 @@ import {
 	type FilterRule,
 	FilterRuleEditor,
 	type FolderOption,
+	type LabelOption,
 	type RuleScope,
 } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useCreateMailbox } from "@/hooks/useCreateMailbox";
 import { useCreateFilter } from "@/hooks/useFilters";
+import { useCreateLabel, useLabelList } from "@/hooks/useLabels";
 import { useOrganizeJob } from "@/hooks/useOrganizeJob";
 import { useRuleEditorState } from "@/hooks/useRuleEditorState";
 import { useRulePreview } from "@/hooks/useRulePreview";
@@ -104,6 +106,22 @@ export function OrganizeRuleEditor({
 		[mailboxesData?.items],
 	);
 
+	const { labels: labelItems } = useLabelList(accountId);
+	const labels: LabelOption[] = useMemo(
+		() =>
+			labelItems.map((label) => ({
+				id: label.labelId,
+				name: label.name,
+				color: label.color,
+			})),
+		[labelItems],
+	);
+	const { createLabel } = useCreateLabel(accountId);
+	const onCreateLabel = async (name: string): Promise<LabelOption> => {
+		const label = await createLabel(name);
+		return { id: label.labelId, name: label.name, color: label.color };
+	};
+
 	const preview = useRulePreview(
 		accountId,
 		rulePredicate(rule, anchorMessageId),
@@ -198,11 +216,13 @@ export function OrganizeRuleEditor({
 		<FilterRuleEditor
 			rule={rule}
 			folders={folders}
+			labels={labels}
 			preview={preview}
 			semanticAvailable={!semanticUnavailable}
 			clauseFields={SUPPORTED_CLAUSE_FIELDS}
 			{...handlers}
 			onCreateFolder={createFolder}
+			onCreateLabel={onCreateLabel}
 			onCommit={commit}
 			onCancel={onClose}
 		/>

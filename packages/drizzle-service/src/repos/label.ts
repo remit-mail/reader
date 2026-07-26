@@ -2,12 +2,14 @@ import type {
 	CreateLabelInput,
 	ILabelRepository,
 	LabelItem,
+	ResultList,
 	UpdateLabelInput,
 } from "@remit/data-ports";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, gt, or } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { NotFoundError } from "../error.js";
 import { randomId } from "../id.js";
+import { decodeToken, resultList } from "../pagination.js";
 import { labelTable } from "../schema.js";
 
 type DB = NodePgDatabase<Record<string, unknown>>;
@@ -105,6 +107,58 @@ export class LabelRepo implements ILabelRepository {
 			.where(eq(labelTable.accountConfigId, accountConfigId))
 			.orderBy(labelTable.createdAt);
 		return rows.map(rowToLabel);
+	}
+
+	/**
+	 * A single signed page of an account config's labels (issue #26), mirroring
+	 * `FilterRepo.listPageByAccountConfig`: a `(createdAt, labelId)` keyset
+	 * cursor that round-trips through `continuationToken`.
+	 */
+	async listPageByAccountConfig(
+		accountConfigId: string,
+		options?: { limit?: number; continuationToken?: string },
+	): Promise<ResultList<LabelItem>> {
+		const limit = options?.limit ?? 100;
+		const cursor = options?.continuationToken
+			? decodeToken(options.continuationToken)
+			: undefined;
+		const after = cursor
+			? {
+					createdAt: cursor.createdAt as number,
+					labelId: cursor.labelId as string,
+				}
+			: undefined;
+
+		const rows = await this.db
+			.select()
+			.from(labelTable)
+			.where(
+				and(
+					eq(labelTable.accountConfigId, accountConfigId),
+					after
+						? or(
+								gt(labelTable.createdAt, after.createdAt),
+								and(
+									eq(labelTable.createdAt, after.createdAt),
+									gt(labelTable.labelId, after.labelId),
+								),
+							)
+						: undefined,
+				),
+			)
+			.orderBy(asc(labelTable.createdAt), asc(labelTable.labelId))
+			.limit(limit + 1);
+
+		const hasMore = rows.length > limit;
+		const items = rows.slice(0, limit).map(rowToLabel);
+		const lastItem = items[items.length - 1];
+		return resultList(
+			items,
+			limit,
+			hasMore && lastItem
+				? { createdAt: lastItem.createdAt, labelId: lastItem.labelId }
+				: undefined,
+		);
 	}
 
 	async findByNormalizedName(

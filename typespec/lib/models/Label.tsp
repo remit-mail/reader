@@ -51,3 +51,32 @@ model Label {
   @updatedAt
   updatedAt: int64;
 }
+
+// ============================================
+// API Input Models
+// ============================================
+
+@doc("Input for creating a label (RFC 030). `normalizedName` is server-derived from `name` and excluded by its Read-only visibility.")
+model CreateLabelInput is Create<Label>;
+
+@doc("Input for updating a label (RFC 030). Only `name` and `color` are mutable.")
+model UpdateLabelInput is Update<Label>;
+
+// ============================================
+// API Response Models
+// ============================================
+
+@doc("Label item returned by list/get/create/update operations (RFC 030). `filterCount` is computed at read time so a client can name the blast radius before confirming a delete — the delete itself never blocks on it (issue #26).")
+model LabelResponse {
+  ...OmitProperties<Label, "normalizedName">;
+
+  @doc("Number of the account's filters whose `actionLabelId` is this label. Deleting the label deletes every one of them (issue #26) — a client shows this count in its delete confirmation.")
+  filterCount: int32;
+}
+
+@doc("The id, name, and color of a label applied to a message — embedded on message/thread read responses (issue #26). Never the full LabelResponse: a read-time attachment carries no filterCount.")
+model LabelSummaryResponse {
+  labelId: UUID;
+  name: String140;
+  color: LabelColor;
+}

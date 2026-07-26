@@ -14,8 +14,9 @@ import { NO_ACTION } from "./organize-model";
  * cannot evaluate it (D4) — the rule then matches by its literal clauses only.
  *
  * The scope maps `Standing` → "standing" and `Temporary` → "until"; a persisted
- * filter is never the one-time "once" scope. `moveMailboxId` drops the `"None"`
- * sentinel to `undefined` so an empty folder select reads as "no move action".
+ * filter is never the one-time "once" scope. `moveMailboxId` and `labelId` both
+ * drop the `"None"` sentinel to `undefined` so an empty select reads as "no
+ * action" (issue #26).
  */
 export const filterToRule = (
 	filter: RemitImapFilterResponse,
@@ -34,6 +35,8 @@ export const filterToRule = (
 			: undefined,
 		moveMailboxId:
 			filter.actionMailboxId !== NO_ACTION ? filter.actionMailboxId : undefined,
+		labelId:
+			filter.actionLabelId !== NO_ACTION ? filter.actionLabelId : undefined,
 		scope: filter.scope === "Temporary" ? "until" : "standing",
 		until:
 			filter.scope === "Temporary"
@@ -65,15 +68,16 @@ const predicateActionKey = (rule: FilterRule): string =>
 		clauses: rule.clauses.map((clause) => [clause.field, clause.value]),
 		operator: rule.matchOperator,
 		move: rule.moveMailboxId ?? null,
+		label: rule.labelId ?? null,
 		widen: rule.widen ? (rule.widen.inactive ? "inactive" : "active") : "none",
 	});
 
 /**
  * Whether the edited rule changes the predicate or the action versus the one it
- * was loaded from — the clauses, the match operator, the move target, or the
- * widen's presence. A change here is what bumps `ruleChangedAt` and offers the
- * re-back-apply (RFC 034 Decision 3.2); the name is deliberately excluded, so a
- * cosmetic rename is not a rule change.
+ * was loaded from — the clauses, the match operator, the move target, the
+ * label target, or the widen's presence. A change here is what bumps
+ * `ruleChangedAt` and offers the re-back-apply (RFC 034 Decision 3.2); the name
+ * is deliberately excluded, so a cosmetic rename is not a rule change.
  */
 export const ruleChangesPredicateOrAction = (
 	rule: FilterRule,
@@ -104,10 +108,10 @@ export const ruleChangesScopeOrExpiry = (
  * The PATCH body for an edited filter. A cosmetic rename sends `{ name }` only,
  * so the server's `changesRuleAssertion` guard leaves `ruleChangedAt`
  * untouched (RFC 034 Decision 3.2). A predicate or action change sends the
- * operator, clauses, and move target; a scope or expiry change sends `scope`
- * and, for the `until` scope, `expiresAt` (reader #266) — either bumps
- * `ruleChangedAt`. The label action and the anchor are never in the editor's
- * gift, so they never enter the patch; the partial update preserves them.
+ * operator, clauses, move target, and label target; a scope or expiry change
+ * sends `scope` and, for the `until` scope, `expiresAt` (reader #266) —
+ * either bumps `ruleChangedAt`. The anchor is never in the editor's gift, so
+ * it never enters the patch; the partial update preserves it.
  */
 export const buildUpdateFilterInput = (
 	rule: FilterRule,
@@ -123,6 +127,7 @@ export const buildUpdateFilterInput = (
 			value: clause.value,
 		}));
 		body.actionMailboxId = rule.moveMailboxId ?? NO_ACTION;
+		body.actionLabelId = rule.labelId ?? NO_ACTION;
 	}
 	if (ruleChangesScopeOrExpiry(rule, original)) {
 		body.scope = rule.scope === "until" ? "Temporary" : "Standing";

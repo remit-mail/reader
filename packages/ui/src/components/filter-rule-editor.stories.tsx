@@ -6,11 +6,13 @@ import {
 	type ClauseField,
 	clauseFieldLabel,
 	demoFolders,
+	demoLabels,
 	demoRule,
 	demoSenderFallbackRule,
 	demoVocabularyRule,
 	type FilterRule,
 	type FolderOption,
+	type LabelOption,
 	type PreviewCount,
 	type RuleClause,
 } from "./filter-rule.js";
@@ -51,14 +53,18 @@ const READY = (count: number, stale?: boolean): PreviewCount => ({
 function LiveEditor({
 	initialRule,
 	semanticAvailable = true,
+	labels = demoLabels,
 	onCreateFolder,
+	onCreateLabel,
 }: {
 	initialRule: FilterRule;
 	semanticAvailable?: boolean;
+	labels?: LabelOption[];
 	onCreateFolder?: (
 		name: string,
 		signal?: AbortSignal,
 	) => Promise<FolderOption>;
+	onCreateLabel?: (name: string) => Promise<LabelOption>;
 }) {
 	const [rule, setRule] = useState<FilterRule>(initialRule);
 	const [clauseEdit, setClauseEdit] = useState<ClauseEditState | undefined>();
@@ -126,6 +132,8 @@ function LiveEditor({
 		},
 		onChangeMove: (moveMailboxId) =>
 			setRule((r) => ({ ...r, moveMailboxId: moveMailboxId || undefined })),
+		onChangeLabel: (labelId) =>
+			setRule((r) => ({ ...r, labelId: labelId || undefined })),
 		onChangeScope: (scope) => setRule((r) => ({ ...r, scope })),
 		onChangeName: (name) => setRule((r) => ({ ...r, name })),
 		onChangeUntil: (until) => setRule((r) => ({ ...r, until })),
@@ -135,10 +143,12 @@ function LiveEditor({
 		<FilterRuleEditor
 			rule={rule}
 			folders={demoFolders}
+			labels={labels}
 			preview={preview}
 			semanticAvailable={semanticAvailable}
 			clauseEdit={clauseEdit}
 			onCreateFolder={onCreateFolder}
+			onCreateLabel={onCreateLabel}
 			onCommit={() => {}}
 			onCancel={() => {}}
 			{...handlers}
@@ -347,6 +357,83 @@ export const NewFolderCreateCancelledMidWait: Story = {
 		).find((button) => button.textContent?.trim() === "Cancel");
 		cancel?.click();
 	},
+};
+
+/** No labels exist yet in the account — the select offers only "No label". */
+export const NoLabels: Story = {
+	render: () => <LiveEditor initialRule={demoRule} labels={[]} />,
+};
+
+/** A rule that already applies a label — the chip renders next to the select. */
+export const WithLabelSelected: Story = {
+	render: () => (
+		<LiveEditor initialRule={{ ...demoRule, labelId: "lbl-receipts" }} />
+	),
+};
+
+/** Many labels in the account — the select scrolls rather than the layout growing. */
+export const ManyLabels: Story = {
+	render: () => (
+		<LiveEditor
+			initialRule={demoRule}
+			labels={Array.from({ length: 20 }, (_, i) => ({
+				id: `lbl-${i}`,
+				name: `Label ${i + 1}`,
+				color: demoLabels[i % demoLabels.length].color,
+			}))}
+		/>
+	),
+};
+
+/** A long label name truncates in the chip rather than overflowing the row. */
+export const LongLabelNames: Story = {
+	render: () => (
+		<LiveEditor
+			initialRule={{ ...demoRule, labelId: "lbl-long" }}
+			labels={[
+				{
+					id: "lbl-long",
+					name: "Quarterly compliance filings that need a second look",
+					color: "Purple",
+				},
+				...demoLabels,
+			]}
+		/>
+	),
+};
+
+let newLabelSeq = 0;
+const mockCreateLabel = (name: string): Promise<LabelOption> =>
+	new Promise((resolve) => {
+		newLabelSeq += 1;
+		setTimeout(
+			() => resolve({ id: `lbl-new-${newLabelSeq}`, name, color: "Default" }),
+			400,
+		);
+	});
+
+/**
+ * The label select offers a "＋ New label…" option because `onCreateLabel` is
+ * wired (issue #26). Choosing it reveals a name field; on resolve the label is
+ * added to the select and picked as the action. Without the prop the option
+ * never shows — the editor stays data-agnostic.
+ */
+export const WithNewLabelOption: Story = {
+	render: () => (
+		<LiveEditor initialRule={demoRule} onCreateLabel={mockCreateLabel} />
+	),
+};
+
+const mockCreateLabelFailure = (): Promise<LabelOption> =>
+	new Promise((_resolve, reject) => {
+		setTimeout(() => reject(new Error("That name is already taken.")), 400);
+	});
+
+/** Creating a label from the picker can fail — the field stays open with the reason. */
+export const LabelCreateError: Story = {
+	render: () => (
+		<LiveEditor initialRule={demoRule} onCreateLabel={mockCreateLabelFailure} />
+	),
 };
 
 /** Literal clauses joined with "or", including the ticket-B ListId and FromDomain fields. */

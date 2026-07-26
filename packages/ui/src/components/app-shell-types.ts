@@ -191,6 +191,12 @@ export const briefCategories: ReadonlyArray<{
 	{ id: "social", label: "Social" },
 ];
 
+export interface ThreadRowLabel {
+	labelId: string;
+	name: string;
+	color: string;
+}
+
 export interface ThreadRowData {
 	id: string;
 	accountId: string;
@@ -212,6 +218,8 @@ export interface ThreadRowData {
 	messageCount?: number;
 	/** Authenticity heuristics flagged this row (DKIM/From mismatch). */
 	suspicious?: boolean;
+	/** Labels applied to this message (issue #26) — filter-, organize-, and manually-applied alike. */
+	labels?: ThreadRowLabel[];
 }
 
 export interface ThreadSection {

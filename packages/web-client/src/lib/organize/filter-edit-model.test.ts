@@ -58,6 +58,16 @@ describe("filterToRule", () => {
 		assert.equal(rule.moveMailboxId, undefined);
 	});
 
+	it("loads a label action (issue #26)", () => {
+		const rule = filterToRule(filter({ actionLabelId: "lbl-1" }));
+		assert.equal(rule.labelId, "lbl-1");
+	});
+
+	it("maps the None label sentinel to no action", () => {
+		const rule = filterToRule(filter({ actionLabelId: "None" }));
+		assert.equal(rule.labelId, undefined);
+	});
+
 	it("loads a Temporary filter as an until-a-date rule", () => {
 		const rule = filterToRule(
 			filter({ scope: "Temporary", expiresAt: "2027-03-04T23:59:59+00:00" }),
@@ -128,6 +138,13 @@ describe("ruleChangesPredicateOrAction", () => {
 				{ ...base, clauses: [{ id: "c", field: "Subject", value: "x" }] },
 				base,
 			),
+			true,
+		);
+	});
+
+	it("is true when the label target changes (issue #26)", () => {
+		assert.equal(
+			ruleChangesPredicateOrAction({ ...base, labelId: "lbl-new" }, base),
 			true,
 		);
 	});
@@ -210,6 +227,27 @@ describe("buildUpdateFilterInput", () => {
 		};
 		const body = buildUpdateFilterInput(changed, original);
 		assert.equal(body.actionMailboxId, "None");
+	});
+
+	it("sends a chosen label target (issue #26)", () => {
+		const changed: FilterRule = {
+			...original,
+			labelId: "lbl-receipts",
+			matchOperator: "any",
+		};
+		const body = buildUpdateFilterInput(changed, original);
+		assert.equal(body.actionLabelId, "lbl-receipts");
+	});
+
+	it("drops a cleared label target to the None sentinel", () => {
+		const withLabel = { ...original, labelId: "lbl-receipts" };
+		const changed = {
+			...withLabel,
+			labelId: undefined,
+			matchOperator: "any" as const,
+		};
+		const body = buildUpdateFilterInput(changed, withLabel);
+		assert.equal(body.actionLabelId, "None");
 	});
 
 	it("is empty when nothing changed", () => {

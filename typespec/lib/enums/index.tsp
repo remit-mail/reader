@@ -51,6 +51,7 @@ import "./FilterState.tsp";
 import "./FilterMatchOperator.tsp";
 import "./FilterClauseField.tsp";
 import "./LabelColor.tsp";
+import "./LabelAction.tsp";
 
 // Message quarantine (issue #72)
 import "./QuarantineFailureStage.tsp";

@@ -1,5 +1,5 @@
 import type { RemitImapFilterResponse } from "@remit/api-http-client/types.gen.ts";
-import { BottomSheet, type FolderOption } from "@remit/ui";
+import { BottomSheet, type FolderOption, type LabelOption } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -22,6 +22,11 @@ const FOLDERS: FolderOption[] = [
 	{ id: "mbx-archive", label: "Archive" },
 	{ id: "mbx-receipts", label: "Receipts" },
 	{ id: "mbx-travel", label: "Travel" },
+];
+
+const LABELS: LabelOption[] = [
+	{ id: "lbl-receipts", name: "Receipts", color: "Blue" },
+	{ id: "lbl-travel", name: "Travel", color: "Green" },
 ];
 
 const makeFilter = (
@@ -104,6 +109,7 @@ export const EditStandingRule: Story = {
 				accountId={ACCOUNT_ID}
 				filter={makeFilter()}
 				folders={FOLDERS}
+				labels={LABELS}
 				onClose={() => undefined}
 			/>
 		</SheetStage>
@@ -119,6 +125,7 @@ export const EditAnchoredRule: Story = {
 				accountId={ACCOUNT_ID}
 				filter={makeFilter({ hasAnchor: true, name: "GitHub" })}
 				folders={FOLDERS}
+				labels={LABELS}
 				onClose={() => undefined}
 			/>
 		</SheetStage>
@@ -138,6 +145,7 @@ export const EditUntilADate: Story = {
 					expiresAt: "2027-09-01T23:59:59+00:00",
 				})}
 				folders={FOLDERS}
+				labels={LABELS}
 				onClose={() => undefined}
 			/>
 		</SheetStage>
@@ -157,6 +165,7 @@ export const DegradedAnchor: Story = {
 				accountId={ACCOUNT_ID}
 				filter={makeFilter({ hasAnchor: true, name: "Newsletters" })}
 				folders={FOLDERS}
+				labels={LABELS}
 				semanticUnavailable
 				onClose={() => undefined}
 			/>
