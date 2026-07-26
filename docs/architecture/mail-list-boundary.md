@@ -93,6 +93,14 @@ Neither is denormalized here. The only shipped surface that filters on them is t
 
 Buys: the correction stays inside one release with no data migration beyond an index. Gives up: the off-row path survives, so those two filters keep returning short pages, now with the D3 bound visible instead of implied.
 
+### D8 — every user-visible state lands in Storybook before the app wires it
+
+Storybook is the first landing place for a changed or new UI state, not a mirror of one. A story that renders the state comes first, in its own change, and the app wiring depends on it. Where a slice alters an existing component's states, the existing stories are updated in that same story-first change rather than afterwards.
+
+This bug is the argument for the rule. The defect is a list that renders empty when it should not, and an empty list is indistinguishable from a correct empty result unless someone has looked at both side by side. The states that must exist as stories before any of this is wired are: a filtered list with results, a filtered list that is genuinely empty, a filtered list fetching a further page, and whatever represents a count that is bounded or absent under D3 and D4. A count marker with no story is a marker nobody has seen.
+
+Buys: each state is reviewable in isolation before app code depends on it, the app and the kit cannot drift, and the filtered-empty case gets looked at deliberately instead of being discovered in production. Gives up: an extra hop for every slice with a surface — the story issue must land before the wiring issue starts, which serializes work that could otherwise proceed in one pass.
+
 ## Audit
 
 Every place the web client derives, filters, counts, sorts, groups or dedupes mail-list data. "Window" is the data the derivation runs over.
@@ -152,7 +160,7 @@ The claim of documented *per-port* divergence does not hold in the sense it was 
 
 ## What needs UX design
 
-Three of the corrections have a user-visible surface and need a design answer before they are built. This document does not propose one.
+Three of the corrections have a user-visible surface and need a design answer before they are built. This document does not propose one. Under D8 each answer lands as a story before the app wiring that depends on it.
 
 The result header when a count is absent (D4): what the header says for a filtered list whose count could not be computed. The question it answers is how the UI states "more than this page" without inventing a number.
 
@@ -175,6 +183,8 @@ The escalated-selection count (#5): the count arrives in one request instead of 
 **Why keep both `listThreads` and `searchThreads`?** Because collapsing them is issue #197's decision, not this one's, and the bug does not need it. D5 narrows the gap — the filtered path now uses `searchThreads` — so whoever takes #197 has one fewer difference to reconcile.
 
 **What happens to `uncategorized` mail?** It stays its own filterable value and its own section. It is a real category with a default on the entity, not a missing value, and D6 exists so that D1 cannot quietly fold it into `personal`.
+
+**Why does the Storybook story have to land before the app change?** Because an empty list looks the same whether it is correct or broken, and this bug is exactly that. Reviewing the filtered-empty and filtered-with-results states next to each other, before any app code depends on either, is the only cheap way to tell them apart. It costs an extra hop per slice with a surface.
 
 **Why isn't `dkimMismatch` moved on-row at the same time?** No shipped surface paginates it — the one caller is a bounded 500-row panel — and doing it would add a backfill over every existing message. D7 states the cost so the decision can be revisited when a surface needs it.
 
