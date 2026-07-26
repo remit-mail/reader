@@ -164,7 +164,7 @@ test.describe("Desktop select-all-matching over search results", () => {
 	// build their own client — the same pattern the mobile escalation spec uses.
 	test.beforeAll(async () => {
 		const run = readRunState();
-		const api = new ApiClient(run.token);
+		const api = new ApiClient(run);
 		await appendMessages(
 			run.imapUser,
 			Array.from({ length: COUNT }, (_, i) => ({ subject: subjectFor(i + 1) })),
@@ -179,7 +179,7 @@ test.describe("Desktop select-all-matching over search results", () => {
 
 	test.afterAll(async () => {
 		const run = readRunState();
-		const api = new ApiClient(run.token);
+		const api = new ApiClient(run);
 		// The move relocates the fixtures out of the inbox, so sweep every mailbox.
 		const mailboxes = await api.listMailboxes(run.accountId);
 		for (const mailbox of mailboxes) {
