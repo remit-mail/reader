@@ -37,11 +37,14 @@ describeRepairContract("postgres", async () => ({
 // transaction just changed re-evaluates its WHERE clause against the new version
 // of that row, but keeps reading other tables at its original snapshot.
 //
-// Both cases need a *re*-classification to be observable at all: `message`
-// moving from one decided category to another. No write path does that today
-// (`backfillClassification` returns early once the category is decided), which
-// is why the uncovered case below is unreachable in the shipped product rather
-// than merely rare. The seeds are therefore deliberately synthetic.
+// Both cases need a *re*-classification to be observable at all: `message` moving
+// from one decided category to another. `backfillClassification` cannot do that
+// (it returns early once the category is decided), but the primary path is
+// re-enterable — `if (message.bodyStorageKey && !force)`, where `force` is the
+// read-miss re-arm cue — and a forced re-fetch decides differently across a
+// release that changed the classifier. So the uncovered case below is
+// effectively unreachable rather than impossible. The seeds are synthetic
+// because reproducing it otherwise would mean changing the classifier.
 describe("thread_message.category repair — a writer racing the statement", () => {
 	const insertMessage = async (
 		messageId: string,
@@ -178,11 +181,13 @@ describe("thread_message.category repair — a writer racing the statement", () 
 		assert.deepEqual(await categories(), { "ddd-catchup": "newsletter" });
 	});
 
-	// The known limit, pinned so it cannot silently widen. Reaching it needs all
-	// three of: an unrepaired `behind` row, a writer whose transaction began before
-	// the statement, and that writer *re*-classifying the message — moving
-	// message.category from one decided value to another. Nothing does the third,
-	// so this is unreachable in the shipped product; the seed is synthetic and the
+	// The known limit, pinned so it cannot silently widen. Reaching it needs four
+	// things at once: an unrepaired `behind` row, a writer whose transaction began
+	// before the statement, that writer's row write committing before the statement
+	// while its message write commits after, and that writer moving
+	// message.category from one decided value to a different one. Only a forced
+	// re-fetch across a classifier change does the fourth, which makes this
+	// effectively unreachable rather than impossible; the seed is synthetic and the
 	// assertion records the loss rather than endorsing it. If this test ever fails,
 	// the guard got stronger and D16 and the module header should say so.
 	test("a writer that began before the statement is outside the guard", async () => {

@@ -501,7 +501,7 @@ export const describeRepairContract = (
 				);
 			}
 			assert.match(text, /behind: .*write-path defects #326 fixes end here/);
-			assert.match(text, /crossed: .*no current write path produces this/);
+			assert.match(text, /crossed: .*no write path leaves a row here/);
 		});
 	});
 };

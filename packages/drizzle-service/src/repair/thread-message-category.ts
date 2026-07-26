@@ -44,13 +44,31 @@
  *
  * The guard covers a writer whose transaction begins after the statement. A
  * writer that began before it and commits during it carries an older stamp and
- * passes, which would revert its write — but only for a message being
- * *re*-classified, and no write path does that: `backfillClassification`
- * returns early once `message.category` is decided, so a message is classified
- * exactly once, `uncategorized` to a value. On today's write paths the pending
- * exclusion above already refuses every in-flight row, so the window is
- * unreachable. It becomes reachable the day re-classification is added, and the
- * `crossed` figure is what would report it.
+ * passes, which would revert its write. Four things have to hold at once for
+ * that to lose anything:
+ *
+ *  1. a row the statement's WHERE matches, so an unrepaired `behind` row;
+ *  2. a writer overlapping the statement;
+ *  3. that writer's row write committing before the statement began while its
+ *     message write commits after it — the two are separate commits;
+ *  4. the writer moving `message.category` from one decided value to a
+ *     *different* decided value. A first classification cannot lose anything:
+ *     `message.category` is still `uncategorized`, so the pending exclusion
+ *     above refuses the row outright.
+ *
+ * Only the fourth is interesting, and it is not impossible. It is unreachable
+ * through `backfillClassification`, which returns early once the category is
+ * decided. It is reachable through the primary path, which is re-enterable: the
+ * skip guard is `if (message.bodyStorageKey && !force)` (`body-sync.ts`), and
+ * `force` is a live event flag — the read-miss re-arm cue, resolved in the
+ * imap-worker's `sync-message-body.ts`. A forced re-fetch re-runs
+ * `classifyByHeaders` over the same bytes, so it normally rewrites the value it
+ * already held; it decides *differently* only across a release that changed the
+ * classifier, which #62 was.
+ *
+ * So: effectively unreachable, needing a forced re-fetch of a message whose
+ * stored classification predates a classifier change, overlapping this
+ * statement. Not impossible, and the `crossed` figure is what reports it.
  *
  * The statement does not touch `updated_at`. That column means "when the app
  * last wrote this row", which is what the guard above reads, and a repair that
@@ -154,8 +172,9 @@ export type MailboxCount = {
  *  - `behind` — the row is pending, its message is classified. Every one of the
  *    three write-path defects #326 fixes lands here, and this is the cohort the
  *    repair exists for.
- *  - `crossed` — both classified, differently. No current write path produces
- *    it: `message.category` moves from pending to a decided value exactly once.
+ *  - `crossed` — both classified, differently. No write path leaves a row here:
+ *    the row and the message take the same `classifyByHeaders` value off the
+ *    same bytes in the same pass, so a re-classification moves both.
  *  - `ahead` — the row is classified, its message is pending. After #326 that is
  *    a classification in flight, so on a live instance it is expected and
  *    transient. Not repaired.
@@ -338,7 +357,7 @@ export const formatCheckReport = (
 	`thread_message rows: ${report.rows} (${report.rowsWithMessage} with a message row)`,
 	`divergent (thread_message.category <> message.category): ${report.divergent}, of which ${report.repairable} repairable`,
 	`  behind: ${report.behind} ${plural(report.behind)} pending against a classified message — the copy of a decided category never landed. All three of the write-path defects #326 fixes end here: a retro classification stranded between its two writes, a denormalize that wrote one of several rows for a message, and a row created for a message that was already classified. Repaired, and this is the cohort the repair exists for. Expected non-zero on an instance where any of those fired, zero otherwise.`,
-	`  crossed: ${report.crossed} ${plural(report.crossed)} classified differently from the message — no current write path produces this: message.category moves from pending to a decided value exactly once, because backfillClassification returns early once it is decided. Repaired. Expected zero; a non-zero means a classification changed without its copy following, so either a re-classification path landed without denormalizing or the database was edited outside the app.`,
+	`  crossed: ${report.crossed} ${plural(report.crossed)} classified differently from the message — no write path leaves a row here: both take the same classifyByHeaders value off the same bytes in the same pass, so a re-classification moves the row and the message together. Repaired. Expected zero; a non-zero means the pair was interrupted between its two writes — a forced re-fetch that re-decided the category and died before the message write — or the database was edited outside the app.`,
 	`  ahead: ${report.ahead} ${plural(report.ahead)} classified against a pending message — after #326 body-sync writes the row before the message, so this is a classification in flight. Not repaired: pushing it back to pending would undo a correct classification and serve Unclassified for mail that is already classified. Expected non-zero on a live instance mid-sync, zero on a quiescent one.`,
 	`fan-out: ${report.fanOutMessages} messages holding ${report.fanOutRows} thread_message rows — the multi-row shape #326 hardens against. Expected zero: deriveMessageId and deriveThreadMessageId are both mailbox-independent, so a message in two mailboxes collapses to one row, and the reachable case is thread-root drift.`,
 	`orphans: ${report.orphanRows} ${plural(report.orphanRows)} with no message row — not repaired, nothing to copy. Expected zero.`,
