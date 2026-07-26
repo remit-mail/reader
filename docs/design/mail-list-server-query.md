@@ -121,6 +121,8 @@ Every `listAllThreads` mode is scoped by `mailbox_id IN (...)` (`packages/backen
 
 Whoever takes #312 has to either scope the count so it can be answered from an index, or cost seven counts honestly and justify them. I1's equivalent claim is unaffected: I1 covers every column in its predicate.
 
+Buys: the largest table gains one index rather than two, and a wrong cost estimate is corrected before anyone builds on it. Gives up: the cross-account filtered list stays unindexed, so #308 and #312 start from an unanswered cost question rather than a designed index.
+
 ## Part 2 — the numbers
 
 ### D13 — `count` is exact and free on the SQL port, and is not built here
@@ -132,6 +134,8 @@ Recorded because it is settled and cheap; deferred because nothing in the trimme
 When #305 is picked up, `count` stays opt-in and these are requirements, not advice: its own query keyed on the criteria **without** the cursor, so a page fetch can never trigger it; `staleTime` of 60 seconds; requested immediately for chip-driven criteria; and **never for a free-text query under three characters**, because `npm-scripts/sqlite-search-index.sql` documents that sub-three-character queries fall back to an unindexed folded `LIKE` scan, and a count over a predicate the index cannot serve is a mailbox scan per character.
 
 `count` is already `count?: int32` on `ThreadSearchResponse`. An absent count therefore needs no new field and no new surface, which is what makes the "no new API surface" claim true rather than nearly true.
+
+Buys: the epic ships without touching the API, and the count's cheapness is recorded while it is fresh rather than rediscovered. Gives up: a number that is free on the SQL port stays unused, and five surfaces keep showing page lengths until #305 and #307 are scheduled.
 
 ### D14 — withdrawn: the bounded-read contract is documented, not built
 
