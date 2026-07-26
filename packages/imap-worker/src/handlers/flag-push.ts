@@ -10,6 +10,7 @@ import {
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import type { FlagPushEvent } from "../events.js";
+import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 
@@ -113,7 +114,25 @@ export const handleFlagPush = async (
 	// died mid-flight already left it here).
 	await markerService.updateState(messageId, flagName, "processing");
 
-	const mailbox = await mailboxService.get(accountId, message.mailboxId);
+	// The folder can be deleted between enqueue and this push, leaving a marker
+	// pointing at a gone row. The lookup then throws NotFoundError forever, and
+	// on the account's per-group FIFO that head message stalls the whole pipeline
+	// (issues #287, #289, #290). The push is moot — drop the orphaned marker (as
+	// the message-gone branch above already does) and ack with a WARN.
+	const mailbox = await mailboxService
+		.get(accountId, message.mailboxId)
+		.catch((error: unknown) => {
+			if (isNotFoundError(error)) return null;
+			throw error;
+		});
+	if (!mailbox) {
+		await markerService.delete(messageId, flagName);
+		log.warn(
+			{ messageId, flagName, accountId, mailboxId: message.mailboxId },
+			"Skipping FLAG_PUSH: mailbox no longer exists (deleted); marker dropped",
+		);
+		return;
+	}
 
 	// Cheap frugal skip (epic #1281 invariant 6): a mailbox already known
 	// paused never even borrows a connection. Optimization only — the
