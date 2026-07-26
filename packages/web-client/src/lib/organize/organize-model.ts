@@ -61,6 +61,17 @@ export const hasCommittableAction = (draft: OrganizeDraft): boolean =>
 	draft.moveMailboxId !== undefined && draft.moveMailboxId !== NO_ACTION;
 
 /**
+ * Whether the draft's predicate can be back-applied over the existing corpus. A
+ * `HasWords` clause matches the full message body, which only the live
+ * index-time filter and the vector widen evaluate — the vector-free back-apply
+ * projection carries no body and rejects it (`assertNoBodyContentClause`,
+ * organize.ts). A rule that carries one is still a valid standing filter for
+ * incoming mail, so the back-apply is skipped, not run into that guard.
+ */
+export const canBackApplyDraft = (draft: OrganizeDraft): boolean =>
+	!draft.literalClauses.some((clause) => clause.field === "HasWords");
+
+/**
  * Build the read-only preview / back-apply matcher input. The action fields do
  * not affect which messages match — the preview returns exactly the set a job
  * with the same predicate would apply to — so a widen preview can pass this
