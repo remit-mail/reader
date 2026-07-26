@@ -38,17 +38,17 @@ Row detail line: `Couldn’t delete this folder. Nothing was removed.`
 
 In the sidebar, where there is no room for row actions, a failed folder carries the badge and links to Settings › Folders. The retry lives in one place.
 
-`Keep this name` and `Keep this folder` are T10 — they return the folder to healthy and leave it exactly as it is. They are not undo; nothing happened on the server to undo.
+`Keep this name` and `Keep this folder` are T10 and T11 — they return the folder to healthy and leave it exactly as it is. They are not undo; nothing happened on the server to undo.
 
 ## The blocking dialog
 
-Rename and delete block (D3 note: the blocking is a UX choice; correctness comes from the conditional transition). The dialog owns four states. Its `Close` never cancels the mutation — the intent is recorded and settles on its own — so no state offers a Cancel.
+Rename and delete block. The blocking is a UX choice on top of the conditional transition, not the correctness mechanism (D3), which is why the dialog's `Close` must never read as a cancel: the intent is recorded and settles whether or not the dialog is open. No state offers a Cancel.
 
 ### Rename
 
 **Waiting** — title `Renaming folder`, body `Renaming “Receipts” to “Q3 Receipts” on the mail server…`, spinner. Button: `Close`.
 
-**Timed out** (30s, matching the create wait in PR #348) — title `Still renaming`, body `“Receipts” is still being renamed. It will finish on its own — you can close this and keep working. The folder shows “Renaming…” until it does.` Button: `Close`.
+**Timed out** — title `Still renaming`, body `“Receipts” is still being renamed. It will finish on its own — you can close this and keep working. The folder shows “Renaming…” until it does.` Button: `Close`.
 
 **Failed** — title `Rename failed`, body `Couldn’t rename “Receipts”. The mail server refused: <server message>. The folder is unchanged.` Buttons: `Try again`, `Close`.
 
@@ -66,12 +66,29 @@ Success closes the dialog. The list shows the new name.
 
 **Conflict (409)** — as rename, with `deleting or renaming`.
 
-**Refused (400)** — no dialog; the action is unavailable before it is attempted, with the reason in the disabled control's tooltip:
-- INBOX: `The inbox can’t be deleted.`
-- has children: `“Receipts” has folders inside it. Delete those first.`
-- INBOX rename: `The inbox can’t be renamed.`
+The 30s threshold and the poll interval are `MAILBOX_SYNC_TIMEOUT_MS` and `MAILBOX_SYNC_POLL_INTERVAL_MS`, already exported from `packages/web-client/src/lib/mailbox-sync-wait.ts` by #348. Reuse them; do not restate the number.
 
-A 400 arriving anyway (another client created a child folder in the meantime) renders in the dialog's failed state with the server's message.
+## Refusals that never reach a dialog
+
+400 (D4, D16) means the request can never succeed as posed, so the control is unavailable before it is attempted and the reason is in the disabled control's tooltip:
+
+- INBOX delete: `The inbox can’t be deleted.`
+- INBOX rename: `The inbox can’t be renamed.`
+- has children: `“Receipts” has folders inside it. Delete those first.`
+- reserved leaf name, shown inline on the rename field as it is typed: `“Archive” is reserved for a system folder. Pick another name.`
+- bound references (D16), shown on the delete control: `“Receipts” is used by 2 filters and the Archive role. Change those first.` The tooltip names them; the dialog is never opened.
+
+A 400 arriving anyway — another client created a child folder or a filter in the meantime — renders in the dialog's failed state with the server's message.
+
+### 422: the folder you pointed at is not ready
+
+Distinct from 409 and deliberately different copy (D4). 409 means *this* folder is already being changed; 422 means the folder you are binding *to* has not settled. It surfaces where the binding is made, not on the folder list:
+
+- filter destination: `“Receipts” isn’t ready yet — the mail server hasn’t confirmed it. Try again in a moment.`
+- move destination: same sentence.
+- role appointment: `“Receipts” isn’t ready yet. Confirm it on the mail server before giving it a role.`
+
+Inline on the field, with the submit control staying enabled so a retry is one click. No dialog.
 
 ## Rename entry point
 
@@ -83,17 +100,23 @@ Static context above the field, when the folder has a parent: `Inside: Archive/2
 Helper text: `Renaming a folder keeps its mail. Folders inside it move with it.`
 Submit: `Rename`. Cancel: `Cancel`.
 
-Validation reuses `validateNewFolderName` / `composeFolderPath`. Two refusals are shown inline before submitting, not as a round trip: an empty name, and a name colliding with a sibling. The INBOX row's `Rename` and `Delete` are both disabled with the tooltips above.
+Validation reuses `validateNewFolderName` / `composeFolderPath`. Three refusals are shown inline before submitting: an empty name, a name colliding with a sibling, and a reserved leaf name. The INBOX row's `Rename` and `Delete` are both disabled with the tooltips above.
 
 ## Delete wizard
 
 `DeleteFolderDialog` keeps its stages. Two changes:
 
-The empty-check gate reads the mailbox row's `messageCount` rather than paging threads (D13) — the folder is empty when the server says it is empty.
+The empty-check gate reads the mailbox row's `messageCount` rather than paging threads (D13). That figure is as fresh as the last completed sweep round, not live, so the wizard drives a sync round and then reads it — and the copy must not imply otherwise. `Waiting for the mail server to confirm the moved mail…` while the round runs; on the count not reaching zero, the existing copy: `Some mail is still in “Receipts”. Re-open delete to finish removing this folder.`
 
-Between the last confirmed move and the delete, the wizard shows `Waiting for the mail server to confirm the moved mail…`. If the count does not reach zero within the wait: `Some mail is still in “Receipts”. Re-open delete to finish removing this folder.` — the existing copy, now reached from a server-reported count.
+This dialog has no stories today. It gets them, covering every stage plus the waiting-for-confirmation and conflict states.
 
-This dialog has no stories today. It gets them, covering every stage plus the two states above.
+## Two surfaces that also read a folder path
+
+Both sit inside D2's stated give-up — during a rename, `fullPath` is the pre-rename path — and both are silent about it today.
+
+`packages/backend/src/handlers/sync.ts:118` returns per-mailbox `fullPath` and a derived `phase` in the sync-progress response, with no `pendingPath`. A folder mid-rename reports its old path with no indication the name is moving. Either carry `pendingPath` alongside it or state that the progress view names folders by their confirmed path; pick one and say so where the response is built.
+
+`packages/web-client/src/lib/search-token-index.ts:46-52` keys the `in:<folder>` token index on the lower-cased `fullPath` and its leaf segment, so during a rename `in:<new name>` silently resolves to nothing while `in:<old name>` still works. Index both `fullPath` and `pendingPath` so the name the user just typed into the rename field is searchable immediately. (Unrelated but adjacent: the leaf split there is hardcoded to `/` rather than the mailbox's `hierarchyDelimiter`.)
 
 ## Copy rules used here
 
