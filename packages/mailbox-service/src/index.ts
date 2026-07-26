@@ -160,6 +160,10 @@ export {
 	validateMailboxPath,
 } from "./mailbox-management.js";
 export {
+	isFolderOffServer,
+	isMailboxNotOnServer,
+} from "./mailbox-presence.js";
+export {
 	type CreateMailboxQueueInput,
 	type MailboxQueueConfig,
 	type MailboxQueueLogger,

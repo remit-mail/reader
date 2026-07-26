@@ -9,6 +9,7 @@ import {
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import type { MessageCopyEvent } from "../events.js";
+import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 
@@ -87,7 +88,24 @@ export const handleMessageCopy = async (
 		account,
 		log,
 		async (credentials) => {
-			const mailbox = await mailboxService.get(accountId, sourceMailboxId);
+			// The source folder can be deleted between enqueue and this sync, leaving
+			// a queued event pointing at a gone row. The lookup then throws
+			// NotFoundError forever, and on the account's per-group FIFO that head
+			// message stalls the whole pipeline (issues #287, #289, #290). A deleted
+			// source mailbox makes the copy moot: ack with a WARN.
+			const mailbox = await mailboxService
+				.get(accountId, sourceMailboxId)
+				.catch((error: unknown) => {
+					if (isNotFoundError(error)) return null;
+					throw error;
+				});
+			if (!mailbox) {
+				log.warn(
+					{ accountId, sourceMessageId, mailboxId: sourceMailboxId },
+					"Skipping MESSAGE_COPY: source mailbox no longer exists (deleted)",
+				);
+				return;
+			}
 
 			// Cheap frugal skip (epic #1281 invariant 6): a mailbox already known
 			// paused never even opens a connection. Optimization only — the

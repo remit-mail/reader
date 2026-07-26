@@ -286,6 +286,9 @@ inspect_cmd() {
 run_cmd() {
 	_script=""
 	_probe=0
+	_detached=0
+	_entry=""
+	_statesrc=""
 	_bindsrc=""
 	FR_SQLITE=""
 	FR_STATE=""
@@ -296,7 +299,9 @@ run_cmd() {
 	for _a in "$@"; do
 		case "$_a" in
 		container:*) _probe=1 ;;
+		-d) _detached=1 ;;
 		esac
+		if [ "$_prev" = "--entrypoint" ]; then _entry=$_a; fi
 		if [ "$_prev" = "-v" ]; then
 			_bindsrc=${_a%%:*}
 			_cpath=${_a#*:}
@@ -306,15 +311,34 @@ run_cmd() {
 			/state) FR_STATE=${_a%%:*} ;;
 			/snapshot-db.sh) FR_SNAPLIB=${_a%%:*} ;;
 			esac
+			case "$_cpath" in
+			/state) _statesrc=${_a%%:*} ;;
+			esac
 		fi
 		if [ "$_prev" = "-c" ]; then _script=$_a; fi
 		_prev=$_a
 	done
 	if [ "$_probe" = "1" ]; then
-		log "run probe"
-		if [ "$(pick probe ok)" = "ok" ]; then exit 0; fi
+		log "run probe entrypoint=$_entry"
+		_pv=$(pick probe ok)
+		# hang models the reader#284 ghost: a probe container that never returns.
+		# The wrapper's timeout is what has to end it, so the fake just blocks (with
+		# its fds detached, so nothing waiting on this run's output blocks with it).
+		if [ "$_pv" = "hang" ]; then
+			sleep "${FAKE_PROBE_HANG:-8}" >/dev/null 2>&1
+			exit 1
+		fi
+		if [ "$_pv" = "ok" ]; then exit 0; fi
 		exit 1
 	fi
+	# The detached one-shot that recreates the updater (reader#291): it drives
+	# compose rather than a volume, so it is matched by its script, not a mount.
+	case "$_script" in
+	*"up -d updater"*)
+		log "run updater-recreate detached=$_detached entrypoint=$_entry statesrc=$_statesrc"
+		exit 0
+		;;
+	esac
 	# The bind-identity probe (reader#272): the wrapper writes a marker into the
 	# deployment directory and reads it back through the daemon at the same path.
 	# `src=` records the bind source it handed the daemon so a test can assert it

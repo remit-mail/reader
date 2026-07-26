@@ -51,6 +51,28 @@ CONTROL_DIR="${REMIT_UPDATE_CONTROL_DIR:-$STATE_DIR}"
 HELPER_IMAGE="${REMIT_UPDATE_HELPER_IMAGE:-alpine:3.23}"
 SQLITE_VOLUME="${REMIT_UPDATE_SQLITE_VOLUME:-remit_sqlite_data}"
 
+# The host docker socket, for the one helper that drives compose rather than a
+# volume: the detached container that recreates the updater service (reader#291).
+DOCKER_SOCKET="${REMIT_UPDATE_DOCKER_SOCKET:-/var/run/docker.sock}"
+
+# A hard ceiling on any helper `docker run`. A `docker run` bounds nothing by
+# itself: an updater image whose ENTRYPOINT ignored its arguments turned a health
+# probe into an immortal daemon and hung a verify for eight hours (reader#284),
+# and a wedged docker CLI does the same to any phase. timeout is coreutils or
+# busybox and ships in the updater image; where it is absent the command runs
+# uncapped, which is no worse than before. The probe ceiling is tighter than the
+# volume one because a probe is a single HTTP GET, not a VACUUM over a mailbox
+# index that a first snapshot can legitimately spend a minute on.
+HELPER_RUN_TIMEOUT="${REMIT_UPDATE_HELPER_TIMEOUT:-120}"
+PROBE_RUN_TIMEOUT="${REMIT_UPDATE_PROBE_RUN_TIMEOUT:-15}"
+
+# The staleness ceiling for a lock whose holder cannot be placed alive or dead by
+# pid or container (a legacy identity-less lock, or one written by a holder that
+# died before its identity landed). It is a last-resort backstop — a live holder
+# is recognised by its pid or its container long before this — so it is set well
+# beyond any real update, pull included.
+LOCK_STALE_CEILING="${REMIT_UPDATE_LOCK_STALE:-3600}"
+
 # The VACUUM INTO primitive the helper container sources. An operator at a shell
 # bind-mounts it from the install directory; the updater image bakes it at
 # /snapshot-db.sh and clears this so no bind mount is attempted — a container
@@ -709,18 +731,145 @@ terminate() {
 
 # --- lock -------------------------------------------------------------------
 #
-# flock, not a lockfile. A plain lockfile left behind by an updater killed at
-# the stop is still there when it restarts, so boot recovery would refuse to run
-# and leave an offline box needing a shell — reached through the mechanism built
-# to prevent exactly that. The kernel releases a flock when its holder dies, and
-# two racing recovery attempts then resolve for free.
+# flock is the fast path: the kernel drops it when its holder dies, so a run
+# killed at the stop leaves no lock and boot recovery proceeds for free. But that
+# guarantee only holds while the holder is truly gone. A probe that wedged the
+# updater (reader#284) kept an inherited lock fd open for hours, and a container
+# stopped on some volume backends does not always release cleanly — either way
+# the next run read "another update is already running" against a holder that was
+# not (reader#285). So the lock also carries the holder's identity, and when the
+# flock is held the acquirer places that holder alive or dead before it either
+# refuses or reclaims. A reclaim is loud: it says whose lock it broke.
+
+LOCK_FILE="$STATE_DIR/update.lock"
+
+# Docker sets a container's hostname to its short id, which is the id every helper
+# `docker run` reports and the one a foreign holder is inspected by; at a shell it
+# is the machine's name, where the pid is what carries liveness instead.
+in_container() {
+	[ -f /.dockerenv ] && return 0
+	grep -qaE '(docker|containerd|kubepods)' /proc/1/cgroup 2>/dev/null && return 0
+	return 1
+}
+
+self_kind() {
+	if in_container; then printf container; else printf shell; fi
+}
+
+self_host() {
+	if [ -n "${HOSTNAME:-}" ]; then
+		printf '%s' "$HOSTNAME"
+		return 0
+	fi
+	hostname 2>/dev/null || printf unknown
+}
+
+lock_identity() {
+	printf 'pid=%s\nkind=%s\ncontainer=%s\nstartedAt=%s\nepoch=%s\n' \
+		"$$" "$(self_kind)" "$(self_host)" "$(iso_now)" "$(epoch)"
+}
+
+lock_field() {
+	_lf=$1
+	[ -f "$LOCK_FILE" ] || return 1
+	_lf="$_lf" awk '
+		BEGIN { k = ENVIRON["_lf"] }
+		index($0, k "=") == 1 { print substr($0, length(k) + 2); exit }
+	' "$LOCK_FILE"
+}
+
+# Names the recorded holder for a refusal or a reclaim, so neither is silent about
+# who it found.
+lock_owner_desc() {
+	_od_pid=$(lock_field pid || true)
+	_od_host=$(lock_field container || true)
+	_od_at=$(lock_field startedAt || true)
+	if [ -z "$_od_pid" ] && [ -z "$_od_host" ]; then
+		printf 'an unidentified holder'
+		return 0
+	fi
+	printf 'pid %s on %s (since %s)' "${_od_pid:-?}" "${_od_host:-?}" "${_od_at:-?}"
+}
+
+# Is the recorded holder provably gone? Conservative on purpose: only positive
+# proof of death reclaims, so two updaters never run at once. A pid still present
+# in this namespace, or a container the daemon reports running, is alive; a
+# container the daemon reports stopped or absent, or a pid this namespace no
+# longer has, is dead. When neither can be read — a legacy lock with no identity,
+# or one whose holder died mid-write — the age is the last resort, and only an age
+# past the ceiling counts as dead.
+lock_holder_dead() {
+	[ -f "$LOCK_FILE" ] || return 0
+	_hk=$(lock_field kind || true)
+	_hp=$(lock_field pid || true)
+	_hc=$(lock_field container || true)
+	if [ "$_hk" = "container" ] && [ -n "$_hc" ]; then
+		# Capped, and death needs positive proof: a timed-out or erroring
+		# daemon is indeterminate, and reclaiming on indeterminate would break
+		# a live holder's lock.
+		_hs=$(capped_run "$PROBE_RUN_TIMEOUT" docker inspect -f '{{.State.Running}}' "$_hc" 2>&1) || {
+			case "$_hs" in
+			*"No such object"*) return 0 ;;
+			esac
+			return 1
+		}
+		case "$_hs" in
+		true) return 1 ;;
+		false) return 0 ;;
+		esac
+	elif [ "$_hk" = "shell" ] && [ -n "$_hp" ]; then
+		if kill -0 "$_hp" 2>/dev/null; then return 1; fi
+		return 0
+	fi
+	_he=$(lock_field epoch || true)
+	if [ -n "$_he" ] && [ "$(($(epoch) - _he))" -gt "$LOCK_STALE_CEILING" ]; then
+		return 0
+	fi
+	return 1
+}
+
 lock_acquire() {
 	mkdir -p "$STATE_DIR"
 	have flock || die "flock is not on this box, and an update must not run without a lock.
 Install util-linux (or busybox's flock) and try again."
-	exec 9>"$STATE_DIR/update.lock"
-	flock -n 9 ||
-		die "another update is already running on this box. Wait for it to finish, or see 'remit status'."
+	# A brief guard serialises acquisition and any reclaim, so two starts that both
+	# find a dead holder cannot both break the lock. It is dropped the moment the
+	# run's own lock (fd 9) is held — fd 9 is what carries mutual exclusion for the
+	# whole run, and the kernel releases it when this process dies.
+	exec 8>"$STATE_DIR/update.lock.guard"
+	flock 8
+	_reclaimed=""
+	if [ -f "$LOCK_FILE" ]; then
+		# Read+write without O_TRUNC, so probing the flock never erases a live
+		# holder's identity.
+		exec 9<>"$LOCK_FILE"
+		if flock -n 9; then
+			lock_identity >"$LOCK_FILE"
+			exec 8>&-
+			return 0
+		fi
+		if ! lock_holder_dead; then
+			exec 9>&-
+			exec 8>&-
+			die "another update is already running on this box. Wait for it to finish, or see 'remit status'."
+		fi
+		_reclaimed=$(lock_owner_desc)
+		# Break the stuck lock by replacing the inode: the dead holder's flock is on
+		# the old, now-unlinked file, and every new acquirer races the fresh one
+		# under the guard held above.
+		exec 9>&-
+		rm -f "$LOCK_FILE"
+	fi
+	exec 9>"$LOCK_FILE"
+	if ! flock -n 9; then
+		exec 8>&-
+		die "the update lock could not be taken. See 'remit status'."
+	fi
+	lock_identity >"$LOCK_FILE"
+	if [ -n "$_reclaimed" ] && [ "${REMIT_QUIET:-0}" != "1" ]; then
+		printf '%s: reclaimed a stale update lock left by %s.\n' "$PROG" "$_reclaimed" >&2
+	fi
+	exec 8>&-
 }
 
 # --- manifest check (RFC 037 R4, R5) ----------------------------------------
@@ -977,6 +1126,22 @@ EOF
 # is a correctness bug rather than a cost. Nothing in the gate window writes it,
 # so leaving it alone is right in both directions.
 
+# Every helper `docker run` goes through here, so none can outlive its phase.
+# timeout is the parent, not a flag inside the container, because the failure it
+# guards against is the container never returning at all — an entrypoint that
+# ignores its command, or a daemon that stops answering. Its exit status is the
+# command's, so callers read a real pass or fail; a deadline hit surfaces as
+# timeout's own non-zero, which every caller already treats as failure.
+capped_run() {
+	_crt=$1
+	shift
+	if have timeout; then
+		timeout "$_crt" "$@"
+		return $?
+	fi
+	"$@"
+}
+
 volume_run() {
 	_vr_script=$1
 	set -- \
@@ -985,7 +1150,7 @@ volume_run() {
 	if [ -n "$SNAPSHOT_LIB_MOUNT" ]; then
 		set -- "$@" -v "$SNAPSHOT_LIB_MOUNT:/snapshot-db.sh:ro"
 	fi
-	docker run --rm "$@" --entrypoint sh "$HELPER_IMAGE" -c "$_vr_script"
+	capped_run "$HELPER_RUN_TIMEOUT" docker run --rm "$@" --entrypoint sh "$HELPER_IMAGE" -c "$_vr_script"
 }
 
 # VACUUM INTO against the live databases, before anything is stopped. sqlite3 is
@@ -1187,13 +1352,20 @@ gate_healthy() {
 # so there is nothing else to ask. Joining the backend's own network namespace
 # avoids having to know what the compose network is called, and fails by itself
 # when the backend has no container.
+#
+# --entrypoint wget, always, and the id resolved here rather than captured
+# earlier: without the explicit entrypoint the updater image runs its own
+# ENTRYPOINT and the wget arguments become ignored daemon arguments, so the probe
+# container never exits and the whole verify hangs (reader#284). capped_run bounds
+# the `docker run` from outside; wget's own -T only ever bounded the request.
 probe_backend() {
 	_cid=$(compose ps -q backend 2>/dev/null | tail -1)
 	if [ -z "$_cid" ]; then
 		return 1
 	fi
-	docker run --rm --network "container:$_cid" "$HELPER_IMAGE" \
-		wget -q -T 5 -O /dev/null http://127.0.0.1:8080/health >/dev/null 2>&1
+	capped_run "$PROBE_RUN_TIMEOUT" docker run --rm --network "container:$_cid" \
+		--entrypoint wget "$HELPER_IMAGE" \
+		-q -T 5 -O /dev/null http://127.0.0.1:8080/health >/dev/null 2>&1
 }
 
 run_gate() {
@@ -1263,7 +1435,7 @@ assert_bind_identity() {
 	_id_marker="$REMIT_DIR/.remit-mount-identity"
 	_id_token="identity-$(epoch)-$$"
 	printf '%s' "$_id_token" >"$_id_marker" 2>/dev/null || return 1
-	_id_seen=$(docker run --rm -v "$REMIT_DIR:$REMIT_DIR" --entrypoint sh "$HELPER_IMAGE" \
+	_id_seen=$(capped_run "$HELPER_RUN_TIMEOUT" docker run --rm -v "$REMIT_DIR:$REMIT_DIR" --entrypoint sh "$HELPER_IMAGE" \
 		-c "cat '$REMIT_DIR/.remit-mount-identity' 2>/dev/null" 2>/dev/null || true)
 	rm -f "$_id_marker"
 	[ "$_id_seen" = "$_id_token" ]
@@ -1309,13 +1481,87 @@ start_held_back() {
 	fi
 }
 
-# `compose up -d updater` recreates the container this is running in, so it is
-# the last thing that happens and the verdict is already durable before it does.
-# Being killed here loses nothing.
+# The self-replace recreates the updater service, and compose kills the container
+# this wrapper runs in as it does. Issued from this process, the recreate dies
+# half-done and leaves the replacement `Created` under a temp name with no updater
+# running (reader#291). So it is handed to a detached one-shot container that
+# outlives this one: it recreates the updater and records the swap on the state
+# volume. The verdict is already durable before any of this, so being killed the
+# instant the detached helper reaches the recreate loses nothing.
+UPDATER_RECREATE_ISSUED=0
+
+updater_handoff_write() {
+	mkdir -p "$STATE_DIR"
+	rm -f "$STATE_DIR/updater-handoff.done"
+	{
+		printf 'runId=%s\n' "$RUN_ID"
+		printf 'tag=%s\n' "$(get_var REMIT_TAG)"
+		printf 'at=%s\n' "$(iso_now)"
+	} | atomic_write "$STATE_DIR/updater-handoff"
+	fsync_path "$STATE_DIR/updater-handoff"
+	fsync_path "$STATE_DIR"
+}
+
+updater_handoff_field() {
+	_uf=$1
+	[ -f "$STATE_DIR/updater-handoff" ] || return 1
+	_uf="$_uf" awk '
+		BEGIN { k = ENVIRON["_uf"] }
+		index($0, k "=") == 1 { print substr($0, length(k) + 2); exit }
+	' "$STATE_DIR/updater-handoff"
+}
+
+# The detached container recreates the updater and, on success, drops the done
+# marker on the shared state volume — /state here is the same storage the updater
+# reads as STATE_DIR, so the marker lands where a later boot recover looks. The
+# helper mounts the docker socket because it drives compose, not a volume;
+# --entrypoint sh per reader#284; -d so it survives this container's replacement.
+launch_updater_recreate() {
+	_ur_script="docker compose --project-directory '$REMIT_DIR' -f '$REMIT_DIR/$COMPOSE_FILE' --env-file '$REMIT_DIR/.env' up -d updater && : >/state/updater-handoff.done"
+	capped_run "$HELPER_RUN_TIMEOUT" docker run -d --rm \
+		-v "$DOCKER_SOCKET:/var/run/docker.sock" \
+		-v "$REMIT_DIR:$REMIT_DIR" \
+		-v "$STATE_MOUNT:/state" \
+		--entrypoint sh "$HELPER_IMAGE" -c "$_ur_script" >/dev/null 2>&1 || true
+	UPDATER_RECREATE_ISSUED=1
+}
+
 replace_updater() {
-	if compose config --services 2>/dev/null | grep -qx updater; then
-		compose up -d updater || true
+	compose config --services 2>/dev/null | grep -qx updater || return 0
+	updater_handoff_write
+	launch_updater_recreate
+}
+
+# Run at boot, after recover_run. A handoff left from a previous boot means the
+# updater's own last act was to hand its recreate to a detached helper; that this
+# fresh updater is running to read it is itself proof the recreate reached a
+# started container. A done marker confirms the helper saw compose succeed. With
+# neither — the helper never recorded success — the recreate is re-issued so the
+# service matches its definition, then the handoff is cleared; a later boot
+# re-running this finds nothing to do. Skipped when this same boot just issued a
+# handoff of its own (a recovered run that committed), which has nothing prior to
+# verify.
+verify_updater_handoff() {
+	[ "$UPDATER_RECREATE_ISSUED" = "1" ] && return 0
+	[ -f "$STATE_DIR/updater-handoff" ] || return 0
+	_hrun=$(updater_handoff_field runId || true)
+	_htag=$(updater_handoff_field tag || true)
+	if [ -f "$STATE_DIR/updater-handoff.done" ]; then
+		if [ "${REMIT_QUIET:-0}" != "1" ]; then
+			printf '%s: the updater self-replace for %s (%s) completed.\n' "$PROG" "$_hrun" "$_htag"
+		fi
+		rm -f "$STATE_DIR/updater-handoff" "$STATE_DIR/updater-handoff.done"
+		fsync_path "$STATE_DIR"
+		return 0
 	fi
+	if [ "${REMIT_QUIET:-0}" != "1" ]; then
+		printf '%s: finishing an unconfirmed updater self-replace for %s (%s).\n' "$PROG" "$_hrun" "$_htag"
+	fi
+	if compose config --services 2>/dev/null | grep -qx updater; then
+		launch_updater_recreate
+	fi
+	rm -f "$STATE_DIR/updater-handoff" "$STATE_DIR/updater-handoff.done"
+	fsync_path "$STATE_DIR"
 }
 
 commit_run() {
@@ -1551,6 +1797,7 @@ cmd_update() {
 	if [ "$_mode" = "recover" ]; then
 		lock_acquire
 		recover_run
+		verify_updater_handoff
 		return 0
 	fi
 
