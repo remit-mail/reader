@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
+import { UNCLASSIFIED_CATEGORY } from "../filter-presets.js";
 import {
 	FilterSheet,
 	type FilterSheetCategory,
@@ -10,7 +11,7 @@ import {
 const CATEGORIES: FilterSheetCategory[] = [
 	{ id: "all", label: "All", tone: "neutral" },
 	{ id: "personal", label: "Personal", tone: "positive" },
-	{ id: "uncategorized", label: "Unclassified", tone: "neutral" },
+	UNCLASSIFIED_CATEGORY,
 	{ id: "newsletters", label: "Newsletters", tone: "accent" },
 	{ id: "marketing", label: "Marketing", tone: "warning" },
 	{ id: "automated", label: "Automated", tone: "neutral" },
@@ -135,7 +136,10 @@ export const CollapsedWithActiveFilters: Story = {
  */
 export const CollapsedWithUnclassified: Story = {
 	render: () => (
-		<ControlledShell initialExpanded={false} initialCategory="uncategorized" />
+		<ControlledShell
+			initialExpanded={false}
+			initialCategory={UNCLASSIFIED_CATEGORY.id}
+		/>
 	),
 };
 

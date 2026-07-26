@@ -538,6 +538,7 @@ export {
 	type FilterPreset,
 	flaggedFilterConfig,
 	inboxFilterConfig,
+	UNCLASSIFIED_CATEGORY,
 } from "./filter-presets.js";
 export {
 	buildCidResolver,

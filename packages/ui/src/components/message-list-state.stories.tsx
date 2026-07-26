@@ -1,11 +1,12 @@
 import type { Decorator, Meta, StoryObj } from "@storybook/react";
 import type { ReactNode } from "react";
-import { inboxFilterConfig } from "../filter-presets.js";
+import { inboxFilterConfig, UNCLASSIFIED_CATEGORY } from "../filter-presets.js";
 import type { ThreadRowData } from "./app-shell-types.js";
 import { FilterSheet } from "./filter-sheet.js";
 import {
 	MessageListEmpty,
 	MessageListError,
+	type MessageListFilter,
 	MessageListLoading,
 	MessageListLoadingMore,
 } from "./message-list-state.js";
@@ -42,6 +43,17 @@ const longRow: ThreadRowData = {
 		"Following up on the earlier thread about the reconciliation, the appendices have been consolidated into a single document that now runs to sixty-two pages, and we would appreciate your review before the end of the week.",
 };
 
+const personalFilter: MessageListFilter = {
+	label: "Personal",
+	reach: "whole-folder",
+	onClear: () => undefined,
+};
+
+/**
+ * One list pane at its real width. Applied per story rather than on the meta:
+ * Storybook composes decorators and a story cannot shed a meta one, so a story
+ * that needs a different frame has to be the only thing framing itself.
+ */
 const paneFrame: Decorator = (Story) => (
 	<div className="h-screen w-96 overflow-hidden border border-line">
 		<Story />
@@ -77,7 +89,7 @@ function FilteredShell({
 	return (
 		<div className="flex h-full flex-col">
 			<FilterSheet
-				categories={preset.categories}
+				categories={[...preset.categories, UNCLASSIFIED_CATEGORY]}
 				filters={preset.filters}
 				selectedCategory={category}
 				activeFilters={new Set<string>()}
@@ -93,26 +105,64 @@ function FilteredShell({
 	);
 }
 
+/**
+ * The review this issue is for: an unfiltered empty mailbox next to a filtered
+ * empty one. If these two ever look the same, the fix is invisible.
+ *
+ * Both panels share the width instead of taking a fixed one, so neither can be
+ * pushed off the edge of whatever frames the story. Rendered by the story below
+ * and asserted by `message-list-state.render.test.ts`.
+ */
+export function EmptyStateComparison() {
+	return (
+		<div className="flex h-screen w-full gap-4 p-4">
+			<div className="min-w-0 flex-1 overflow-hidden border border-line">
+				<MessageListEmpty />
+			</div>
+			<div className="min-w-0 flex-1 overflow-hidden border border-line">
+				<FilteredShell>
+					<MessageListEmpty filter={personalFilter} scopeLabel="Inbox" />
+				</FilteredShell>
+			</div>
+		</div>
+	);
+}
+
 const meta: Meta<typeof MessageListEmpty> = {
 	title: "Screens/Kit/MessageListState",
 	component: MessageListEmpty,
-	parameters: { layout: "centered" },
-	decorators: [paneFrame],
+	parameters: { layout: "fullscreen" },
+	excludeStories: ["EmptyStateComparison"],
 };
 export default meta;
 
 type Story = StoryObj<typeof MessageListEmpty>;
+
+/** A bare empty state, and a filtered one, each in one pane. */
+const inPane = { decorators: [paneFrame] };
+
+/** A filtered list: the collapsed chip summary above the state under test. */
+const inFilteredPane = {
+	decorators: [paneFrame],
+	render: (args: Parameters<typeof MessageListEmpty>[0]) => (
+		<FilteredShell>
+			<MessageListEmpty {...args} />
+		</FilteredShell>
+	),
+};
 
 /**
  * S1 — an empty mailbox with no filter. One plain line, no completeness claim:
  * nothing was narrowed, so there is nothing to reassure the reader about.
  */
 export const EmptyMailbox: Story = {
+	...inPane,
 	args: {},
 };
 
 /** S1 with a search query and no category filter — unchanged search copy. */
 export const EmptyMailboxSearching: Story = {
+	...inPane,
 	args: { searchQuery: "invoice" },
 };
 
@@ -121,6 +171,7 @@ export const EmptyMailboxSearching: Story = {
  * "this mailbox" was never true for it; its own states are #310.
  */
 export const NamedCollectionEmpty: Story = {
+	...inPane,
 	args: { scopeLabel: "Starred" },
 };
 
@@ -130,24 +181,30 @@ export const NamedCollectionEmpty: Story = {
  * screen can no longer mean "we only looked at the newest page".
  */
 export const FilteredEmpty: Story = {
-	args: {
-		filter: { label: "Personal", onClear: () => undefined },
-		scopeLabel: "Inbox",
-	},
-	render: (args) => (
-		<FilteredShell>
-			<MessageListEmpty {...args} />
-		</FilteredShell>
-	),
+	...inFilteredPane,
+	args: { filter: personalFilter, scopeLabel: "Inbox" },
 };
 
 /** S2 with a search query on top of the filter — same completeness sentence. */
 export const FilteredEmptySearching: Story = {
-	...FilteredEmpty,
+	...inFilteredPane,
 	args: {
-		filter: { label: "Personal", onClear: () => undefined },
+		filter: personalFilter,
 		scopeLabel: "Inbox",
 		searchQuery: "invoice",
+	},
+};
+
+/**
+ * A filter that could only be applied to the pages fetched so far claims only
+ * that. D19-S3's case: the off-row criteria page with a continuation token, so
+ * "every message was checked" would be a lie there.
+ */
+export const FilteredEmptyBoundedReach: Story = {
+	...inFilteredPane,
+	args: {
+		filter: { ...personalFilter, reach: "loaded-pages" },
+		scopeLabel: "Inbox",
 	},
 };
 
@@ -157,12 +214,13 @@ export const FilteredEmptySearching: Story = {
  * reachable and distinct from `FilteredEmpty`.
  */
 export const FilteredEmptyUnclassified: Story = {
+	decorators: [paneFrame],
 	args: {
-		filter: { label: "Unclassified", onClear: () => undefined },
+		filter: { ...personalFilter, label: "Unclassified" },
 		scopeLabel: "Inbox",
 	},
 	render: (args) => (
-		<FilteredShell category="uncategorized">
+		<FilteredShell category={UNCLASSIFIED_CATEGORY.id}>
 			<MessageListEmpty {...args} />
 		</FilteredShell>
 	),
@@ -170,34 +228,16 @@ export const FilteredEmptyUnclassified: Story = {
 
 /** Long filter and folder names — the copy wraps rather than overflowing. */
 export const FilteredEmptyLongLabels: Story = {
-	...FilteredEmpty,
+	...inFilteredPane,
 	args: {
-		filter: { label: "Transactional", onClear: () => undefined },
+		filter: { ...personalFilter, label: "Transactional" },
 		scopeLabel: "Archive/2024/Suppliers/Netherlands Enterprise Agency",
 	},
 };
 
-/**
- * The review this issue is for: an unfiltered empty mailbox next to a filtered
- * empty one. If these two ever look the same, the fix is invisible.
- */
+/** Both empties side by side, full width — no pane frame to clip either one. */
 export const EmptyVersusFilteredEmpty: Story = {
-	decorators: [],
-	render: () => (
-		<div className="flex h-screen gap-4">
-			<div className="w-96 overflow-hidden border border-line">
-				<MessageListEmpty />
-			</div>
-			<div className="w-96 overflow-hidden border border-line">
-				<FilteredShell>
-					<MessageListEmpty
-						filter={{ label: "Personal", onClear: () => undefined }}
-						scopeLabel="Inbox"
-					/>
-				</FilteredShell>
-			</div>
-		</div>
-	),
+	render: () => <EmptyStateComparison />,
 };
 
 /**
@@ -205,6 +245,7 @@ export const EmptyVersusFilteredEmpty: Story = {
  * previous predicate's rows and never an empty state.
  */
 export const FilterChangedRestarting: Story = {
+	decorators: [paneFrame],
 	render: () => (
 		<FilteredShell>
 			<MessageListLoading />
@@ -214,6 +255,7 @@ export const FilterChangedRestarting: Story = {
 
 /** S5 — the filter is active and rows came back. */
 export const FilteredWithResults: Story = {
+	decorators: [paneFrame],
 	render: () => (
 		<FilteredShell>
 			<Rows count={6} />
@@ -226,6 +268,7 @@ export const FilteredWithResults: Story = {
  * spinner: "not fetched yet" must not read as "nothing there".
  */
 export const FilteredFetchingMore: Story = {
+	decorators: [paneFrame],
 	render: () => (
 		<FilteredShell>
 			<Rows count={12} />
@@ -234,18 +277,9 @@ export const FilteredFetchingMore: Story = {
 	),
 };
 
-/** The affordance on its own. */
-export const LoadingMore: Story = {
-	decorators: [],
-	render: () => (
-		<div className="w-96 border border-line">
-			<MessageListLoadingMore />
-		</div>
-	),
-};
-
 /** A filter that matches most of a large mailbox — scrolling, no truncation. */
 export const FilteredManyResults: Story = {
+	decorators: [paneFrame],
 	render: () => (
 		<FilteredShell>
 			<Rows count={60} />
@@ -255,6 +289,7 @@ export const FilteredManyResults: Story = {
 
 /** Long subjects, senders and snippets under an active filter. */
 export const FilteredLongContent: Story = {
+	decorators: [paneFrame],
 	render: () => (
 		<FilteredShell>
 			<Rows
@@ -266,6 +301,7 @@ export const FilteredLongContent: Story = {
 
 /** S7 — fail-hard error: the detail, a way back, and somewhere for it to go. */
 export const ErrorState: Story = {
+	decorators: [paneFrame],
 	render: () => (
 		<FilteredShell>
 			<MessageListError
@@ -279,6 +315,7 @@ export const ErrorState: Story = {
 
 /** A long underlying failure message still wraps inside the frame. */
 export const ErrorStateLongMessage: Story = {
+	decorators: [paneFrame],
 	render: () => (
 		<FilteredShell>
 			<MessageListError

@@ -100,6 +100,7 @@ import {
 	type ConversationTarget,
 } from "@/lib/conversation-target";
 import { dedupeThreadMessages } from "@/lib/dedupe-thread-messages";
+import { applyInboxFilters } from "@/lib/inbox-filters";
 import { readIntelligencePref } from "@/lib/intelligence-pref";
 import { useMailContext } from "@/lib/mail-context";
 import { isRescueCandidate } from "@/lib/rescue-candidates";
@@ -116,40 +117,6 @@ import {
 import { parseSearchTokens } from "@/lib/search-tokens";
 import { useTelemetry } from "@/lib/telemetry-context";
 import { MailViewChrome } from "./MailViewChrome";
-
-/* ------------------------------------------------------------------ */
-/* Inbox filter predicates — the inbox preset offers Unread / Starred /
-   Has attachment (never accounts; an inbox is one account already).
-   The `flagged` id is the wire name for IMAP \Flagged; the label is
-   "Starred".                                                           */
-/* ------------------------------------------------------------------ */
-
-const INBOX_FILTER_PREDICATES: Record<
-	string,
-	(t: RemitImapThreadMessageResponse) => boolean
-> = {
-	unread: (t) => !t.isRead,
-	flagged: (t) => t.hasStars === true,
-	attachment: (t) => Boolean(t.hasAttachment),
-};
-
-function applyInboxFilters(
-	threads: RemitImapThreadMessageResponse[],
-	category: string,
-	attributes: ReadonlySet<string>,
-): RemitImapThreadMessageResponse[] {
-	const predicates = Array.from(attributes)
-		.map((id) => INBOX_FILTER_PREDICATES[id])
-		.filter(
-			(p): p is (t: RemitImapThreadMessageResponse) => boolean => p != null,
-		);
-	if (category === "all" && predicates.length === 0) return threads;
-	return threads.filter(
-		(t) =>
-			(category === "all" || t.category === category) &&
-			predicates.every((p) => p(t)),
-	);
-}
 
 /* ------------------------------------------------------------------ */
 /* Context                                                              */

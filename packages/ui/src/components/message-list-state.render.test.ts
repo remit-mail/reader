@@ -6,17 +6,24 @@ import {
 	MessageListEmpty,
 	type MessageListEmptyProps,
 	MessageListError,
+	type MessageListFilter,
 	MessageListLoading,
 	MessageListLoadingMore,
 } from "./message-list-state.js";
+import { EmptyStateComparison } from "./message-list-state.stories.js";
 
 const COMPLETENESS = "Every message in this folder was checked.";
+const BOUNDED = "Only the messages loaded so far were checked.";
 
 function empty(props: MessageListEmptyProps = {}): string {
 	return renderToString(createElement(MessageListEmpty, props));
 }
 
-const personal = { label: "Personal", onClear: () => undefined };
+const personal: MessageListFilter = {
+	label: "Personal",
+	reach: "whole-folder",
+	onClear: () => undefined,
+};
 
 describe("MessageListLoading", () => {
 	const html = renderToString(createElement(MessageListLoading));
@@ -75,17 +82,42 @@ describe("MessageListEmpty under a filter", () => {
 		assert.match(html, new RegExp(COMPLETENESS));
 	});
 
-	it("carries the completeness sentence in every filtered variant", () => {
+	it("carries a completeness sentence in every filtered variant", () => {
 		const variants: MessageListEmptyProps[] = [
 			{ filter: personal },
 			{ filter: personal, scopeLabel: "Inbox" },
 			{ filter: personal, searchQuery: "invoice" },
 			{ filter: personal, scopeLabel: "Inbox", searchQuery: "invoice" },
-			{ filter: { label: "Unclassified", onClear: () => undefined } },
+			{ filter: { ...personal, label: "Unclassified" } },
+			{ filter: { ...personal, reach: "loaded-pages" } },
+			{ filter: { ...personal, reach: "loaded-pages" }, scopeLabel: "Inbox" },
 		];
 		for (const props of variants) {
-			assert.match(empty(props), new RegExp(COMPLETENESS));
+			assert.match(empty(props), new RegExp(`${COMPLETENESS}|${BOUNDED}`));
 		}
+	});
+
+	it("claims the whole folder only when the filter reached it", () => {
+		const bounded = empty({
+			filter: { ...personal, reach: "loaded-pages" },
+			scopeLabel: "Inbox",
+		});
+		assert.match(bounded, new RegExp(BOUNDED));
+		assert.doesNotMatch(
+			bounded,
+			new RegExp(COMPLETENESS),
+			"a bounded read must not claim the folder was fully checked",
+		);
+	});
+
+	it("renders the two reaches distinguishably", () => {
+		const whole = empty({ filter: personal, scopeLabel: "Inbox" });
+		const bounded = empty({
+			filter: { ...personal, reach: "loaded-pages" },
+			scopeLabel: "Inbox",
+		});
+		assert.notEqual(whole, bounded);
+		assert.doesNotMatch(whole, new RegExp(BOUNDED));
 	});
 
 	it("leads with the query when searching inside a filter", () => {
@@ -120,11 +152,26 @@ describe("MessageListEmpty under a filter", () => {
 
 	it("renders unclassified as itself, never as personal (#45)", () => {
 		const unclassified = empty({
-			filter: { label: "Unclassified", onClear: () => undefined },
+			filter: { ...personal, label: "Unclassified" },
 			scopeLabel: "Inbox",
 		});
 		assert.match(unclassified, /No Unclassified mail in Inbox/);
 		assert.doesNotMatch(unclassified, /Personal/);
+	});
+});
+
+describe("the side-by-side comparison story", () => {
+	const html = renderToString(createElement(EmptyStateComparison));
+
+	it("renders both empty states, not one", () => {
+		assert.match(html, /No messages in this mailbox/);
+		assert.match(html, /No Personal mail in Inbox/);
+		assert.match(html, new RegExp(COMPLETENESS));
+	});
+
+	it("gives neither panel a fixed width, so a frame cannot clip one away", () => {
+		assert.doesNotMatch(html, /\bw-9\d\b/);
+		assert.equal((html.match(/flex-1/g) ?? []).length >= 2, true);
 	});
 });
 

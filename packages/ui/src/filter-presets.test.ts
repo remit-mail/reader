@@ -5,6 +5,7 @@ import {
 	type FilterAccount,
 	flaggedFilterConfig,
 	inboxFilterConfig,
+	UNCLASSIFIED_CATEGORY,
 } from "./filter-presets.js";
 
 const accounts: FilterAccount[] = [
@@ -22,7 +23,6 @@ describe("briefFilterConfig", () => {
 			[
 				"all",
 				"personal",
-				"uncategorized",
 				"transactional",
 				"newsletter",
 				"marketing",
@@ -30,22 +30,6 @@ describe("briefFilterConfig", () => {
 				"automated",
 			],
 		);
-	});
-
-	it("offers uncategorized right after personal, as its own chip", () => {
-		const { categories } = briefFilterConfig();
-		const personal = categories.findIndex((c) => c.id === "personal");
-		const uncategorized = categories.findIndex((c) => c.id === "uncategorized");
-		assert.equal(uncategorized, personal + 1);
-	});
-
-	it("keeps uncategorized visually distinct from personal (#45)", () => {
-		const byId = new Map(briefFilterConfig().categories.map((c) => [c.id, c]));
-		const personal = byId.get("personal");
-		const uncategorized = byId.get("uncategorized");
-		assert.equal(uncategorized?.label, "Unclassified");
-		assert.notEqual(uncategorized?.label, personal?.label);
-		assert.notEqual(uncategorized?.tone, personal?.tone);
 	});
 
 	it("offers the BriefSections chip set", () => {
@@ -91,12 +75,6 @@ describe("inboxFilterConfig", () => {
 		);
 	});
 
-	it("can ask the server for unclassified mail", () => {
-		assert.ok(
-			inboxFilterConfig().categories.some((c) => c.id === "uncategorized"),
-		);
-	});
-
 	it("never offers an accounts source group", () => {
 		assert.equal(inboxFilterConfig().sources, undefined);
 	});
@@ -119,5 +97,29 @@ describe("flaggedFilterConfig", () => {
 
 	it("never offers an accounts source group", () => {
 		assert.equal(flaggedFilterConfig().sources, undefined);
+	});
+});
+
+describe("UNCLASSIFIED_CATEGORY", () => {
+	it("is held out of every shipped preset until the server filters it", () => {
+		for (const preset of [
+			briefFilterConfig(),
+			inboxFilterConfig(),
+			flaggedFilterConfig(),
+		]) {
+			assert.equal(
+				preset.categories.some((c) => c.id === UNCLASSIFIED_CATEGORY.id),
+				false,
+			);
+		}
+	});
+
+	it("carries its own label and tone, never personal's (#45)", () => {
+		const personal = briefFilterConfig().categories.find(
+			(c) => c.id === "personal",
+		);
+		assert.equal(UNCLASSIFIED_CATEGORY.label, "Unclassified");
+		assert.notEqual(UNCLASSIFIED_CATEGORY.label, personal?.label);
+		assert.notEqual(UNCLASSIFIED_CATEGORY.tone, personal?.tone);
 	});
 });

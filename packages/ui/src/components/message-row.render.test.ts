@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import type { ThreadRowData } from "./app-shell-types.js";
+import { categoryTone, type ThreadRowData } from "./app-shell-types.js";
 import { ComfortableRow, CompactRow } from "./message-row.js";
 
 const base: ThreadRowData = {
@@ -45,19 +45,36 @@ describe("ComfortableRow category presentation", () => {
 			}),
 		);
 
-	it("renders no category marker for personal", () => {
-		assert.doesNotMatch(render("personal"), /personal/i);
+	/** The category Badge's own class signature, so no other span matches. */
+	const badgeClass = (html: string): string | undefined =>
+		html.match(
+			/class="([^"]*rounded-full px-2 py-0\.5 text-2xs font-medium[^"]*)"/,
+		)?.[1];
+
+	it("renders no category badge for personal", () => {
+		assert.equal(badgeClass(render("personal")), undefined);
 	});
 
 	it("renders uncategorized as neither personal nor nothing (#45)", () => {
 		const uncategorized = render("uncategorized");
-		const personal = render("personal");
-		assert.notEqual(uncategorized, personal);
-		assert.doesNotMatch(uncategorized, /personal/i);
-		assert.match(
-			uncategorized,
-			/uncategorized|unclassified/i,
-			"a message the classifier has not reached carries its own marker",
+		assert.notEqual(uncategorized, render("personal"));
+		assert.ok(
+			badgeClass(uncategorized),
+			"a message the classifier has not reached carries its own badge",
+		);
+		assert.match(uncategorized, /uncategorized|unclassified/i);
+	});
+
+	it("keeps the uncategorized badge off personal's tone (#45)", () => {
+		assert.notEqual(
+			categoryTone.uncategorized,
+			categoryTone.personal,
+			"the tone table must not give unclassified mail personal's colour",
+		);
+		assert.doesNotMatch(
+			badgeClass(render("uncategorized")) ?? "",
+			/accent/,
+			"the row badge must not render personal's accent tone",
 		);
 	});
 });

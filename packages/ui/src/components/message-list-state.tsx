@@ -35,12 +35,29 @@ export function MessageListLoading() {
 }
 
 /**
- * The active category filter and the way out of it. Both or neither: a filtered
- * empty list always offers its escape, so the label cannot arrive without it.
+ * How much of the collection the filter was applied to.
+ *
+ * `whole-folder` is a SQL `where` over the mailbox — an empty result means the
+ * folder holds no matching mail. `loaded-pages` is a criterion evaluated over
+ * the rows fetched so far, which D19-S3 keeps alive for the off-row criteria
+ * (`senderTrust`, `dkimMismatch`) that page with a continuation token: an empty
+ * result there means nothing matched yet, not that nothing matches.
+ *
+ * A value rather than a `complete` flag, so the day a third reach exists the
+ * copy is a case to add and not a boolean to reinterpret.
+ */
+export type FilterReach = "whole-folder" | "loaded-pages";
+
+/**
+ * The active category filter, the way out of it, and how far it reached. All
+ * three together: the label cannot arrive without its escape, and the reach
+ * cannot be left to a default, because it decides which completeness sentence
+ * is true.
  */
 export interface MessageListFilter {
 	/** Display label of the active category, e.g. "Personal". */
 	label: string;
+	reach: FilterReach;
 	onClear: () => void;
 }
 
@@ -63,10 +80,9 @@ export interface MessageListEmptyProps {
  *
  * Under a filter it says how much was read (design D19). An empty list looks
  * identical whether it is correct or broken, which is how #315's bug survived
- * a mailbox holding thousands of matching messages. The predicate is a `where`
- * over the whole mailbox, so a filtered empty result means the folder holds no
- * matching mail — the completeness sentence states that, and a filtered empty
- * state without one is not a permitted state.
+ * a mailbox holding thousands of matching messages. The sentence comes from the
+ * filter's own reach, so a filtered empty state always carries one and never
+ * claims more than the query did.
  */
 export function MessageListEmpty({
 	filter,
@@ -89,7 +105,7 @@ export function MessageListEmpty({
 				{filteredHeadline(filter.label, scopeLabel, query)}
 			</p>
 			<p className="mt-1 text-sm text-fg-muted">
-				Every message in this folder was checked.
+				{COMPLETENESS_COPY[filter.reach]}
 			</p>
 			<Button
 				variant="secondary"
@@ -102,6 +118,16 @@ export function MessageListEmpty({
 		</EmptyFrame>
 	);
 }
+
+/**
+ * The one sentence a filtered empty list always carries. `loaded-pages` states
+ * what is true of a bounded read and nothing more; the wording it should settle
+ * on belongs with whoever moves the off-row criteria on-row (D7).
+ */
+const COMPLETENESS_COPY: Record<FilterReach, string> = {
+	"whole-folder": "Every message in this folder was checked.",
+	"loaded-pages": "Only the messages loaded so far were checked.",
+};
 
 function unfilteredCopy(
 	query: string | undefined,
