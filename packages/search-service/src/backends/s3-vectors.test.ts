@@ -247,6 +247,58 @@ describe("S3VectorsBackend.getByMessage (GetVectors by deterministic key, no sca
 		);
 	});
 
+	it("round-trips a chunk's embeddingId (#349) so a pooling anchor can recover which model produced it", async () => {
+		const subjectMetadata = {
+			messageId: MESSAGE_ID,
+			threadId: "thread-1",
+			accountConfigId: "acct-1",
+			mailboxIds: ["mb-inbox"],
+			chunkType: "subject",
+			sentDate: 1_700_000_000,
+			isRead: false,
+			hasAttachment: false,
+			hasStars: false,
+			embeddingId: "amazon.titan-embed-text-v1@1024",
+		};
+		const bodyMetadata = {
+			messageId: MESSAGE_ID,
+			threadId: "thread-1",
+			accountConfigId: "acct-1",
+			mailboxIds: ["mb-inbox"],
+			chunkType: "body",
+			sentDate: 1_700_000_000,
+			isRead: false,
+			hasAttachment: false,
+			hasStars: false,
+		};
+		s3vMock.on(GetVectorsCommand).resolves({
+			vectors: [
+				{
+					key: `${MESSAGE_ID}::subject`,
+					data: { float32: [1, 0, 0] },
+					metadata: subjectMetadata,
+				},
+				{
+					key: `${MESSAGE_ID}::body-0`,
+					data: { float32: [0, 1, 0] },
+					metadata: bodyMetadata,
+				},
+			],
+		});
+
+		const records = await buildBackend().getByMessage(MESSAGE_ID);
+		const byId = new Map(records.map((r) => [r.chunkId, r]));
+
+		assert.equal(
+			byId.get(`${MESSAGE_ID}::subject`)?.metadata.embeddingId,
+			"amazon.titan-embed-text-v1@1024",
+		);
+		assert.equal(
+			byId.get(`${MESSAGE_ID}::body-0`)?.metadata.embeddingId,
+			undefined,
+		);
+	});
+
 	it("requests vector data and metadata, addressing vectors by candidate key", async () => {
 		s3vMock.on(GetVectorsCommand).resolves({ vectors: [] });
 

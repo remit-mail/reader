@@ -341,10 +341,7 @@ const buildSemanticFromEnv = (): OrganizeSemanticDeps => {
 	const store = buildVectorStoreFromEnv(embedder.dimensions);
 	cachedSemantic = {
 		buildAnchor: (accountConfigId, anchorMessageId) =>
-			buildMessageAnchor(
-				{ store, embedder },
-				{ accountConfigId, anchorMessageId },
-			),
+			buildMessageAnchor({ store }, { accountConfigId, anchorMessageId }),
 		vectorStore: store,
 	};
 	return cachedSemantic;
