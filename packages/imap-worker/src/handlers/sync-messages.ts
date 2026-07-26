@@ -32,6 +32,7 @@ import type {
 	SyncMessageBodyEvent,
 	SyncMessagesEvent,
 } from "../events.js";
+import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import { workerVersion } from "../worker-version.js";
@@ -104,7 +105,7 @@ export const syncMessages = async (
 	// other errors and still propagate to be retried.
 	let account: AccountItem;
 	const rawAccount = await accountService.get(event.accountId).catch((err) => {
-		if ((err as { name?: string })?.name === "NotFoundError") return null;
+		if (isNotFoundError(err)) return null;
 		throw err;
 	});
 	if (!rawAccount) {
@@ -144,7 +145,7 @@ export const syncMessages = async (
 		.get(event.accountId, event.mailboxId)
 		.then(() => true)
 		.catch((err) => {
-			if ((err as { name?: string })?.name === "NotFoundError") return false;
+			if (isNotFoundError(err)) return false;
 			throw err;
 		});
 	if (!mailboxExists) {

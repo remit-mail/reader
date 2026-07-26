@@ -19,6 +19,7 @@ import {
 } from "../connection-scope.js";
 import type { SyncMessageBodyEvent } from "../events.js";
 import { buildFilterConfig } from "../filter-config.js";
+import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import { workerVersion } from "../worker-version.js";
@@ -184,7 +185,25 @@ export const syncMessageBody = async (
 		account,
 		log,
 		async (credentials) => {
-			const mailbox = await mailboxService.get(accountId, mailboxId);
+			// A SYNC_MESSAGE_BODY trigger can outlive the mailbox it targets: deleting
+			// a folder that held mail leaves already-queued body events pointing at a
+			// row that is now gone, and the lookup then throws NotFoundError forever.
+			// Since the body queue carries MessageGroupId=accountId, that head message
+			// stalls the account's whole body pipeline (issues #287, #289, #290). A
+			// deleted folder is an expected terminal outcome: ack with a WARN.
+			const mailbox = await mailboxService
+				.get(accountId, mailboxId)
+				.catch((error: unknown) => {
+					if (isNotFoundError(error)) return null;
+					throw error;
+				});
+			if (!mailbox) {
+				log.warn(
+					{ accountId, mailboxId, eventId: event.eventId },
+					"Skipping SYNC_MESSAGE_BODY: mailbox no longer exists (deleted)",
+				);
+				return;
+			}
 
 			// Cheap frugal skip (epic #1281 invariant 6): a mailbox already known
 			// paused never even borrows a connection. This is an optimization only
