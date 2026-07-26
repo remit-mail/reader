@@ -281,6 +281,14 @@ The one guard that ships now: a test asserting a row whose category is `uncatego
 
 Buys: D6 is satisfied in the same release that makes the filter work. Gives up: the inbox chip row and the brief chip row keep two spellings of the same list until #314.
 
+### D22 and D24 — withdrawn with the slices they described
+
+Both numbers were cited on issues before this revision, so they resolve here rather than dangling.
+
+**D22** designed the brief as section-paginated with per-section server counts. Its pagination answer survives — the brief paginates by section, not as a page, and `Show N more` fetches — and is recorded on #312, which must still answer #197. Its read-cost claim did not survive: see D12.
+
+**D24** moved the selection count, the delete confirmation and the Spam offer onto exact counts. Its copy decisions survive on #307 and #313: `Counting…` with no number, the `≥ 5000` "big result set" variant deleted, `about` dropped from the delete title while the snapshot sentence stays, and the Spam offer rendering no number rather than a page share.
+
 ### D23 — the states land in Storybook first
 
 Per D8, #309 lands before #306 and #306 consumes what it defines. In scope: `message-list-state.tsx`, which has a render test and **no story file** today and which renders the empty state this epic is about; the `Loading more…` affordance, which joins it there rather than staying inline in a 1450-line web-client file; and the `uncategorized` chip on `filter-sheet.tsx`'s existing stories.
