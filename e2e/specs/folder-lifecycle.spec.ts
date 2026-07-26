@@ -27,7 +27,12 @@
  * to completion rather than assuming the single pass lands.
  */
 import type { BrowserContext, Page } from "@playwright/test";
-import { ApiClient, waitFor } from "../src/api.js";
+import {
+	type AccountSyncStatus,
+	ApiClient,
+	type MailboxSyncProgress,
+	waitFor,
+} from "../src/api.js";
 import { baseUrl } from "../src/env.js";
 import { expect, test } from "../src/fixtures.js";
 import {
@@ -39,41 +44,138 @@ import { type IsolatedRun, provisionIsolatedRun } from "../src/provision.js";
 
 const DESKTOP = { width: 1512, height: 864 };
 
+/** Which folder in the sync status a wait is about — by id, or by path when the point is that it goes away. */
+type FolderRef = { mailboxId: string } | { fullPath: string };
+
+const findFolder = (
+	status: AccountSyncStatus,
+	ref: FolderRef,
+): MailboxSyncProgress | undefined =>
+	status.mailboxes.find((folder) =>
+		"mailboxId" in ref
+			? folder.mailboxId === ref.mailboxId
+			: folder.fullPath === ref.fullPath,
+	);
+
+const describeError = (error: unknown): string =>
+	error instanceof Error ? error.message : String(error);
+
 /**
- * Trigger one sync, then poll before triggering again. Explicit syncs must not
- * overlap: the account's mailbox operations run on one ordered queue, and two
- * reconciles in flight at once can race — one removing a row the other still
- * expects. Spacing the triggers past a sync's own duration keeps each one
- * uncontended, which is the difference between settling in seconds and a
- * hammered queue that never catches up.
+ * How many messages the app itself holds in a folder, counted per message.
+ *
+ * `listThreads` collapses similar subjects into one thread, so its length is not
+ * a message count; expanding each thread and keeping the messages filed in this
+ * folder is. This is the app's own ingested state — distinct from the folder's
+ * `messagesTotal`, which is what the IMAP server reported.
  */
-const nudgeUntil = async <T>(
+const countAppMessages = async (
 	api: ApiClient,
-	accountId: string,
-	read: () => Promise<T>,
-	accept: (value: T) => boolean,
-	{ timeoutMs, what }: { timeoutMs: number; what: string },
-): Promise<void> => {
-	const deadline = Date.now() + timeoutMs;
-	while (Date.now() < deadline) {
-		await api.triggerSync(accountId).catch(() => undefined);
-		const ok = await waitFor(read, accept, {
-			timeoutMs: 30_000,
-			intervalMs: 3_000,
-			what,
-		})
-			.then(() => true)
-			.catch(() => false);
-		if (ok) return;
-	}
-	throw new Error(`timed out waiting for ${what}`);
+	mailboxId: string,
+): Promise<number> => {
+	const threads = await api.listThreads(mailboxId);
+	const perThread = await Promise.all(
+		threads.map((thread) => api.listThreadMessages(thread.threadId)),
+	);
+	return perThread.flat().filter((message) => message.mailboxId === mailboxId)
+		.length;
 };
 
 /**
- * Append a handful of tagged messages into a folder and wait for the sync to
- * carry them to the API. Gates on the mailbox's message count, not on
- * `listThreads`: the latter returns threads, and similar subjects collapse into
- * one, so an every-subject check can never settle. The count is per-message.
+ * What a wait looks at each round: the deployment's own account of the folder,
+ * and — when the wait names a folder by id — how many messages the app holds in
+ * it. Both, because the two answer different questions: `messagesTotal` is the
+ * server's count, `appMessages` is what synced.
+ */
+interface FolderObservation {
+	folder?: MailboxSyncProgress;
+	appMessages?: number;
+}
+
+const observe = async (
+	api: ApiClient,
+	accountId: string,
+	ref: FolderRef,
+): Promise<FolderObservation> => {
+	const folder = findFolder(await api.getSyncStatus(accountId), ref);
+	if (!("mailboxId" in ref)) return { folder };
+	return { folder, appMessages: await countAppMessages(api, ref.mailboxId) };
+};
+
+/**
+ * Trigger one sync, then wait for that sync to reach the folder before
+ * triggering another.
+ *
+ * Explicit syncs must not overlap: the account's mailbox operations run on one
+ * ordered queue, and two reconciles in flight at once can race — one removing a
+ * row the other still expects. What paces the triggers here is the deployment's
+ * own per-mailbox sync cursor rather than an interval chosen to be longer than a
+ * round: `lastSyncedAt` moves on every message-sync round for that folder, empty
+ * rounds included, so an advance of it is the moment asking again is worth
+ * anything.
+ *
+ * A wait that never settles reports the folder as the deployment last described
+ * it — its phase, the count it read off the server, how far its messages got,
+ * when it last synced, how many the app holds — and how many rounds were asked
+ * for. That is what separates a seed that never landed from a sync that never ran
+ * from a sync that ran and disagrees.
+ */
+const nudgeUntil = async (
+	api: ApiClient,
+	accountId: string,
+	ref: FolderRef,
+	accept: (observation: FolderObservation) => boolean,
+	{ timeoutMs, what }: { timeoutMs: number; what: string },
+): Promise<void> => {
+	const deadline = Date.now() + timeoutMs;
+	let rounds = 0;
+	let observed: FolderObservation | undefined;
+	let lastError: unknown;
+	let cursor = await observe(api, accountId, ref)
+		.then((observation) => observation.folder?.lastSyncedAt ?? 0)
+		.catch(() => 0);
+
+	while (Date.now() < deadline) {
+		await api.triggerSync(accountId).catch(() => undefined);
+		rounds += 1;
+
+		const observation = await waitFor(
+			() => observe(api, accountId, ref),
+			(current) =>
+				accept(current) || (current.folder?.lastSyncedAt ?? 0) > cursor,
+			{ timeoutMs: 30_000, intervalMs: 1_000, what },
+		).then(
+			(value) => value,
+			(error: unknown) => {
+				lastError = error;
+				return undefined;
+			},
+		);
+
+		if (!observation) continue;
+		lastError = undefined;
+		observed = observation;
+		if (accept(observed)) return;
+		cursor = Math.max(cursor, observed.folder?.lastSyncedAt ?? 0);
+	}
+
+	const seen = lastError
+		? `last read failed: ${describeError(lastError)}`
+		: `last observed: ${JSON.stringify(observed ?? null)}`;
+	throw new Error(
+		`timed out after ${timeoutMs}ms waiting for ${what}, over ${rounds} sync round(s); ${seen}`,
+	);
+};
+
+/**
+ * Append a handful of tagged messages into a folder and wait until both the
+ * server and the app hold them.
+ *
+ * Both halves are needed, and neither substitutes for the other. The server's
+ * count says the mail arrived; it is written by the mailbox sweep as well as by
+ * message sync, so on its own it can be satisfied while the messages are still
+ * unsynced. The app's own per-message count is what everything downstream of a
+ * seed acts on: the delete wizard offers a choice about mail the app knows
+ * exists, and moves the messages it has.
  */
 const seedFolder = async (
 	api: ApiClient,
@@ -91,13 +193,13 @@ const seedFolder = async (
 	await nudgeUntil(
 		api,
 		run.accountId,
-		() => api.listMailboxes(run.accountId),
-		(boxes) =>
-			(boxes.find((b) => b.mailboxId === mailboxId)?.messageCount ?? 0) >=
-			subjects.length,
+		{ mailboxId },
+		({ folder, appMessages }) =>
+			(appMessages ?? 0) >= subjects.length &&
+			(folder?.messagesTotal ?? 0) >= subjects.length,
 		{
 			timeoutMs: 300_000,
-			what: "the folder's message count to reflect the seed",
+			what: "the server and the app to both hold the seed",
 		},
 	);
 };
@@ -175,11 +277,8 @@ const deleteFolderCompletely = async (
 	await nudgeUntil(
 		api,
 		run.accountId,
-		() => api.listMailboxes(run.accountId),
-		(boxes) => {
-			const box = boxes.find((b) => b.fullPath === name);
-			return !box || (box.messageCount ?? 0) === 0;
-		},
+		{ fullPath: name },
+		({ folder }) => !folder || folder.messagesTotal === 0,
 		{ timeoutMs: 120_000, what: `"${name}" to empty or be removed` },
 	);
 
@@ -272,10 +371,8 @@ test.describe("Folder lifecycle against the IMAP server", () => {
 		await nudgeUntil(
 			api,
 			run.accountId,
-			() => api.listMailboxes(run.accountId),
-			(boxes) =>
-				(boxes.find((b) => b.mailboxId === dest.mailboxId)?.messageCount ??
-					0) >= subjects.length,
+			{ mailboxId: dest.mailboxId },
+			({ folder }) => (folder?.messagesTotal ?? 0) >= subjects.length,
 			{
 				timeoutMs: 120_000,
 				what: "every moved message to land in the destination",

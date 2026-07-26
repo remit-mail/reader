@@ -18,6 +18,30 @@ export interface Mailbox {
 	messageCount?: number;
 }
 
+/**
+ * One mailbox's entry in the account's sync status. This is the deployment's
+ * own account of a folder: how far its message sync got, and when it last ran.
+ * `lastSyncedAt` is stamped on every message-sync round, empty round included,
+ * so it is a cursor a spec can wait for an advance of rather than guessing how
+ * long a round takes.
+ */
+export interface MailboxSyncProgress {
+	mailboxId: string;
+	fullPath: string;
+	phase: string;
+	messagesTotal: number;
+	messagesSynced: number;
+	lastSyncedAt?: number;
+}
+
+export interface AccountSyncStatus {
+	accountId: string;
+	syncPhase?: string;
+	mailboxCountTotal?: number;
+	mailboxCountSynced?: number;
+	mailboxes: MailboxSyncProgress[];
+}
+
 export interface Thread {
 	threadId: string;
 	messageId: string;
@@ -240,6 +264,16 @@ export class ApiClient {
 
 	triggerSync(accountId: string): Promise<unknown> {
 		return this.json("POST", `/accounts/${accountId}/sync`);
+	}
+
+	/**
+	 * What the deployment believes about its own sync. A spec waiting on synced
+	 * state reads this rather than only the thing it wants to see appear: it
+	 * carries whether the sync ran at all, so a wait that does not settle can say
+	 * which of the two happened.
+	 */
+	getSyncStatus(accountId: string): Promise<AccountSyncStatus> {
+		return this.json("GET", `/accounts/${accountId}/sync/status`);
 	}
 
 	/**

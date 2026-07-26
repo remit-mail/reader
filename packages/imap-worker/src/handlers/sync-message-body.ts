@@ -5,6 +5,7 @@ import {
 	BodySyncService,
 	guardConnectionCursor,
 	isCursorRebuildNeeded,
+	isFolderOffServer,
 	MailboxCursorPausedError,
 	PlacementMoveService,
 	QuarantineService,
@@ -197,10 +198,13 @@ export const syncMessageBody = async (
 					if (isNotFoundError(error)) return null;
 					throw error;
 				});
-			if (!mailbox) {
+			// A folder still `pending` is terminal for the same reason: the batch
+			// was cut before the folder reached the server, so there is nothing
+			// there to fetch from and no retry that changes it.
+			if (!mailbox || isFolderOffServer(mailbox)) {
 				log.warn(
 					{ accountId, mailboxId, eventId: event.eventId },
-					"Skipping SYNC_MESSAGE_BODY: mailbox no longer exists (deleted)",
+					"Skipping SYNC_MESSAGE_BODY: the server does not hold this folder",
 				);
 				return;
 			}
