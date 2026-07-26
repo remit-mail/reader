@@ -4,7 +4,12 @@ import type {
 	IMailboxRepository,
 	IMailboxSpecialUseRepository,
 } from "@remit/data-ports";
-import { MailboxCursorState, MailboxSpecialUse } from "@remit/domain-enums";
+import { NotFoundError } from "@remit/data-ports/errors";
+import {
+	MailboxCursorState,
+	MailboxSpecialUse,
+	MailboxSyncStatus,
+} from "@remit/domain-enums";
 import { parseImapAttributes } from "./attribute-mapper.js";
 import { MailboxSyncService } from "./mailbox-sync.js";
 import type { IImapConnection, ImapNamespaces } from "./types.js";
@@ -178,5 +183,288 @@ describe("MailboxSyncService.syncMailboxes — UIDVALIDITY cursor detection (#12
 		const uidValidityUpdate = updateCalls.find((c) => "uidValidity" in c);
 		assert.ok(uidValidityUpdate);
 		assert.equal("cursorState" in (uidValidityUpdate ?? {}), false);
+	});
+});
+
+describe("MailboxSyncService.syncMailboxes — reconcile does not delete pending folders (#290)", () => {
+	const namespaces: ImapNamespaces = {
+		personal: [{ prefix: "", delimiter: "/" }],
+		other: [],
+		shared: [],
+	};
+
+	// The server lists only INBOX: neither user folder is on it yet.
+	const serverConnection = (): IImapConnection =>
+		({
+			getNamespaces: async () => namespaces,
+			listMailboxes: async () => [
+				{
+					fullPath: "INBOX",
+					name: "INBOX",
+					delimiter: "/",
+					attributes: [],
+					parentPath: null,
+				},
+			],
+			getMailboxStatus: async () => ({
+				messages: 0,
+				recent: 0,
+				unseen: 0,
+				uidNext: 1,
+				uidValidity: 1,
+				highestModseq: "0",
+				deletedCount: 0,
+			}),
+		}) as unknown as IImapConnection;
+
+	const buildServices = (
+		existing: Array<{
+			mailboxId: string;
+			fullPath: string;
+			syncStatus?: string;
+		}>,
+	) => {
+		const deleted: string[] = [];
+		const mailboxService = {
+			listByAccount: async () => ({
+				items: existing.map((m) => ({
+					mailboxId: m.mailboxId,
+					fullPath: m.fullPath,
+					uidNext: 1,
+					uidValidity: 1,
+					messageCount: 0,
+					unseenCount: 0,
+					deletedCount: 0,
+					highestModseq: "0",
+					specialUse: undefined,
+					syncStatus: m.syncStatus,
+				})),
+				continuationToken: undefined,
+			}),
+			update: async () => ({}),
+			delete: async (_accountId: string, mailboxId: string) => {
+				deleted.push(mailboxId);
+			},
+			create: async () => ({}),
+		} as unknown as IMailboxRepository;
+
+		const specialUseService = {
+			listByMailboxId: async () => [],
+			deleteByMailboxId: async () => undefined,
+			createMany: async () => undefined,
+		} as unknown as IMailboxSpecialUseRepository;
+
+		return { mailboxService, specialUseService, deleted };
+	};
+
+	it("keeps a pending folder the server has not listed yet", async () => {
+		// The folder was just created locally; MAILBOX_CREATE has not reached the
+		// server, so the LIST omits it. Deleting the row here races the create and
+		// wedges the account's mailbox-sync FIFO group for a full visibility window.
+		const { mailboxService, specialUseService, deleted } = buildServices([
+			{
+				mailboxId: "inbox",
+				fullPath: "INBOX",
+				syncStatus: MailboxSyncStatus.synced,
+			},
+			{
+				mailboxId: "pending-folder",
+				fullPath: "New Folder",
+				syncStatus: MailboxSyncStatus.pending,
+			},
+		]);
+		const service = new MailboxSyncService(mailboxService, specialUseService);
+
+		const result = await service.syncMailboxes(
+			{ accountId: "acc-1" },
+			serverConnection(),
+		);
+
+		assert.deepEqual(deleted, []);
+		assert.equal(result.deleted, 0);
+	});
+
+	it("still deletes a synced folder that has left the server", async () => {
+		// A folder that was confirmed on the server and is now gone is a genuine
+		// server-side deletion; the reconcile must still reap it.
+		const { mailboxService, specialUseService, deleted } = buildServices([
+			{
+				mailboxId: "inbox",
+				fullPath: "INBOX",
+				syncStatus: MailboxSyncStatus.synced,
+			},
+			{
+				mailboxId: "synced-gone",
+				fullPath: "Old Folder",
+				syncStatus: MailboxSyncStatus.synced,
+			},
+		]);
+		const service = new MailboxSyncService(mailboxService, specialUseService);
+
+		const result = await service.syncMailboxes(
+			{ accountId: "acc-1" },
+			serverConnection(),
+		);
+
+		assert.deepEqual(deleted, ["synced-gone"]);
+		assert.equal(result.deleted, 1);
+	});
+});
+
+/**
+ * The folder set can also change under a running sweep: a delete asked for while
+ * the account is enumerating lands between the LIST and one folder's STATUS.
+ * Failing the whole account's enumeration over that one folder stalls every
+ * later sync for the account, on a per-account FIFO queue, for the queue's whole
+ * visibility window (issue #339).
+ */
+describe("MailboxSyncService.syncMailboxes — a folder leaving mid-sweep (#339)", () => {
+	const namespaces: ImapNamespaces = {
+		personal: [{ prefix: "", delimiter: "/" }],
+		other: [],
+		shared: [],
+	};
+
+	const status = () => ({
+		messages: 3,
+		recent: 0,
+		unseen: 0,
+		uidNext: 100,
+		uidValidity: 1,
+		highestModseq: "0",
+		deletedCount: 0,
+	});
+
+	const buildConnection = (
+		statusFor: (path: string) => Promise<ReturnType<typeof status>>,
+	): { connection: IImapConnection; statusPaths: string[] } => {
+		const statusPaths: string[] = [];
+		const connection = {
+			getNamespaces: async () => namespaces,
+			listMailboxes: async () =>
+				["INBOX", "Doomed"].map((fullPath) => ({
+					fullPath,
+					name: fullPath,
+					delimiter: "/",
+					attributes: [],
+					parentPath: null,
+				})),
+			getMailboxStatus: async (path: string) => {
+				statusPaths.push(path);
+				return statusFor(path);
+			},
+		} as unknown as IImapConnection;
+		return { connection, statusPaths };
+	};
+
+	const buildServices = (options: {
+		doomedSyncStatus?: string;
+		getDoomed?: () => Promise<unknown>;
+	}) => {
+		const updatedIds: string[] = [];
+		const row = (mailboxId: string, fullPath: string, syncStatus?: string) => ({
+			mailboxId,
+			fullPath,
+			uidNext: 1,
+			uidValidity: 1,
+			messageCount: 0,
+			unseenCount: 0,
+			deletedCount: 0,
+			highestModseq: "0",
+			specialUse: undefined,
+			syncStatus,
+		});
+
+		const mailboxService = {
+			listByAccount: async () => ({
+				items: [
+					row("mbx-inbox", "INBOX", MailboxSyncStatus.synced),
+					row("mbx-doomed", "Doomed", options.doomedSyncStatus),
+				],
+				continuationToken: undefined,
+			}),
+			get: async (_accountId: string, mailboxId: string) => {
+				if (mailboxId === "mbx-doomed" && options.getDoomed) {
+					return options.getDoomed();
+				}
+				return row(mailboxId, mailboxId, MailboxSyncStatus.synced);
+			},
+			update: async (
+				_accountId: string,
+				mailboxId: string,
+				_patch: Record<string, unknown>,
+			) => {
+				updatedIds.push(mailboxId);
+				return {};
+			},
+			delete: async () => undefined,
+			create: async () => ({}),
+		} as unknown as IMailboxRepository;
+
+		const specialUseService = {
+			listByMailboxId: async () => [],
+			deleteByMailboxId: async () => undefined,
+			createMany: async () => undefined,
+		} as unknown as IMailboxSpecialUseRepository;
+
+		return { mailboxService, specialUseService, updatedIds };
+	};
+
+	for (const syncStatus of [
+		MailboxSyncStatus.pending,
+		MailboxSyncStatus.deleting,
+	]) {
+		it(`leaves a \`${syncStatus}\` folder untouched — no STATUS, no write`, async () => {
+			const { mailboxService, specialUseService, updatedIds } = buildServices({
+				doomedSyncStatus: syncStatus,
+			});
+			const { connection, statusPaths } = buildConnection(async () => status());
+			const service = new MailboxSyncService(mailboxService, specialUseService);
+
+			await service.syncMailboxes({ accountId: "acc-1" }, connection);
+
+			assert.deepEqual(statusPaths, ["INBOX"]);
+			assert.deepEqual(updatedIds, ["mbx-inbox"]);
+		});
+	}
+
+	it("finishes the sweep when a folder's STATUS fails and that folder has since been deleted", async () => {
+		const { mailboxService, specialUseService, updatedIds } = buildServices({
+			doomedSyncStatus: MailboxSyncStatus.synced,
+			getDoomed: async () => {
+				throw new NotFoundError("Mailbox not found: mbx-doomed");
+			},
+		});
+		const { connection } = buildConnection(async (path) => {
+			if (path === "Doomed") throw new Error("Mailbox doesn't exist: Doomed");
+			return status();
+		});
+		const service = new MailboxSyncService(mailboxService, specialUseService);
+
+		await assert.doesNotReject(
+			service.syncMailboxes({ accountId: "acc-1" }, connection),
+		);
+		assert.deepEqual(updatedIds, ["mbx-inbox"]);
+	});
+
+	it("fails the sweep when a folder's STATUS fails and the folder is still live", async () => {
+		const { mailboxService, specialUseService } = buildServices({
+			doomedSyncStatus: MailboxSyncStatus.synced,
+			getDoomed: async () => ({
+				mailboxId: "mbx-doomed",
+				fullPath: "Doomed",
+				syncStatus: MailboxSyncStatus.synced,
+			}),
+		});
+		const { connection } = buildConnection(async (path) => {
+			if (path === "Doomed") throw new Error("connection reset by peer");
+			return status();
+		});
+		const service = new MailboxSyncService(mailboxService, specialUseService);
+
+		await assert.rejects(
+			service.syncMailboxes({ accountId: "acc-1" }, connection),
+			/connection reset by peer/,
+		);
 	});
 });

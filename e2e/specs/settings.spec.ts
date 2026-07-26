@@ -119,7 +119,7 @@ test.describe("Settings", () => {
 				page.getByRole("listitem").filter({ hasText: "e2e settings filter" }),
 			).toBeVisible({ timeout: 20_000 });
 		} finally {
-			await new ApiClient(readRunState().token).deleteFilter(
+			await new ApiClient(readRunState()).deleteFilter(
 				run.accountId,
 				filter.filterId,
 			);

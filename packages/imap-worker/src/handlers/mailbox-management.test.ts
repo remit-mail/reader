@@ -51,10 +51,16 @@ interface Harness {
 		deletedAt?: number;
 	} | null;
 	connection: Connection;
+	mailboxUpdateError?: Error;
 	disconnectCount: number;
 }
 
 let h: Harness;
+
+const notFoundError = (): Error =>
+	Object.assign(new Error("Mailbox not found: mbx-1"), {
+		name: "NotFoundError",
+	});
 
 const record =
 	(method: string) =>
@@ -96,7 +102,10 @@ const deps = (): MailboxManagementDeps =>
 				},
 			},
 			mailbox: {
-				update: record("mailbox.update"),
+				update: async (...args: unknown[]) => {
+					h.calls.push({ method: "mailbox.update", args });
+					if (h.mailboxUpdateError) throw h.mailboxUpdateError;
+				},
 				delete: record("mailbox.delete"),
 			},
 			secrets: {},
@@ -207,6 +216,16 @@ describe("processMailboxManagement — MAILBOX_CREATE", () => {
 		assert.equal(h.disconnectCount, 1);
 	});
 
+	it("acks terminally without rethrowing when the mailbox row was deleted mid-create (#289)", async () => {
+		// The status write-back throws NotFoundError because the row is gone; the
+		// create is moot and must not poison the account's FIFO.
+		h.mailboxUpdateError = notFoundError();
+
+		await processMailboxManagement(createEvent, noopLog, deps());
+
+		assert.equal(h.disconnectCount, 1, "the scope is still disconnected");
+	});
+
 	it("returns early without connecting when the account is soft-deleted", async () => {
 		h.account = {
 			accountId: "acc-1",
@@ -256,6 +275,17 @@ describe("processMailboxManagement — MAILBOX_RENAME", () => {
 
 		assert.deepEqual(called("mailbox.delete")[0]?.args, ["acc-1", "mbx-1"]);
 		assert.equal(called("mailbox.update").length, 0);
+	});
+
+	it("acks terminally without rethrowing when the rollback write finds the row gone", async () => {
+		h.connection.renameMailbox = async () => {
+			throw new Error("server exploded");
+		};
+		h.mailboxUpdateError = notFoundError();
+
+		await processMailboxManagement(renameEvent, noopLog, deps());
+
+		assert.equal(h.disconnectCount, 1, "the scope is still disconnected");
 	});
 
 	it("rolls the local path back and rethrows on any other rename error", async () => {
@@ -320,5 +350,122 @@ describe("processMailboxManagement — MAILBOX_DELETE", () => {
 		);
 
 		assert.deepEqual(lastUpdate(), { syncStatus: "failed" });
+	});
+
+	it("acks terminally without rethrowing when the rollback write finds the row gone", async () => {
+		h.connection.deleteMailbox = async () => {
+			throw new Error("server exploded");
+		};
+		h.mailboxUpdateError = notFoundError();
+
+		await processMailboxManagement(deleteEvent, noopLog, deps());
+
+		assert.equal(h.disconnectCount, 1, "the scope is still disconnected");
+	});
+});
+
+describe("processMailboxManagement — a tagged NO the server means as success (#339)", () => {
+	beforeEach(() => {
+		h = fresh();
+	});
+
+	/**
+	 * Dovecot answers `NO [NONEXISTENT] Mailbox doesn't exist`, which ImapFlow
+	 * raises as a bare "Command failed" carrying the code on the error. Reading
+	 * only the message treated an already-absent folder as a failure: the row was
+	 * marked failed and the event left poisoning the account's queue.
+	 */
+	it("treats it as the delete already having happened, and drops the local row", async () => {
+		h.connection.deleteMailbox = async () => {
+			throw Object.assign(new Error("Command failed"), {
+				serverResponseCode: "NONEXISTENT",
+				responseText: "Mailbox doesn't exist: Archive",
+			});
+		};
+
+		await assert.doesNotReject(
+			processMailboxManagement(deleteEvent, noopLog, deps()),
+		);
+		assert.deepEqual(called("mailbox.delete")[0]?.args, ["acc-1", "mbx-1"]);
+		assert.equal(called("mailbox.update").length, 0);
+	});
+
+	it("still marks failed and rethrows when the server fails for any other reason", async () => {
+		h.connection.deleteMailbox = async () => {
+			throw Object.assign(new Error("Command failed"), {
+				serverResponseCode: "SERVERBUG",
+				responseText: "Internal error",
+			});
+		};
+
+		await assert.rejects(
+			processMailboxManagement(deleteEvent, noopLog, deps()),
+			/Command failed/,
+		);
+		assert.deepEqual(lastUpdate(), { syncStatus: "failed" });
+	});
+
+	/**
+	 * Dovecot answers `NO [ALREADYEXISTS]` when the folder is already there — a
+	 * folder another client made, or a redelivered create. That is the create
+	 * having happened. Reading it as a failure marked the row `failed` and
+	 * rethrew, holding back every later sync on the account's FIFO group.
+	 */
+	it("reads ALREADYEXISTS on a CREATE as the folder already being there", async () => {
+		h.connection.createMailbox = async () => {
+			throw Object.assign(new Error("Command failed"), {
+				serverResponseCode: "ALREADYEXISTS",
+				responseText: "Mailbox already exists: Archive",
+			});
+		};
+
+		await assert.doesNotReject(
+			processMailboxManagement(createEvent, noopLog, deps()),
+		);
+		assert.deepEqual(lastUpdate(), { syncStatus: "synced" });
+	});
+
+	it("still marks failed and rethrows when a CREATE fails for any other reason", async () => {
+		h.connection.createMailbox = async () => {
+			throw Object.assign(new Error("Command failed"), {
+				serverResponseCode: "SERVERBUG",
+				responseText: "Internal error",
+			});
+		};
+
+		await assert.rejects(
+			processMailboxManagement(createEvent, noopLog, deps()),
+			/Command failed/,
+		);
+		assert.deepEqual(lastUpdate(), { syncStatus: "failed" });
+	});
+
+	it("reads NONEXISTENT on a RENAME as the source folder being gone", async () => {
+		h.connection.renameMailbox = async () => {
+			throw Object.assign(new Error("Command failed"), {
+				serverResponseCode: "NONEXISTENT",
+				responseText: "Mailbox doesn't exist: Archive",
+			});
+		};
+
+		await assert.doesNotReject(
+			processMailboxManagement(renameEvent, noopLog, deps()),
+		);
+		assert.deepEqual(called("mailbox.delete")[0]?.args, ["acc-1", "mbx-1"]);
+	});
+
+	it("still rolls back and rethrows when a RENAME fails for any other reason", async () => {
+		h.connection.renameMailbox = async () => {
+			throw Object.assign(new Error("Command failed"), {
+				serverResponseCode: "SERVERBUG",
+				responseText: "Internal error",
+			});
+		};
+
+		await assert.rejects(
+			processMailboxManagement(renameEvent, noopLog, deps()),
+			/Command failed/,
+		);
+		assert.equal(lastUpdate()?.syncStatus, "failed");
 	});
 });

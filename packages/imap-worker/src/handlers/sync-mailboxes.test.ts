@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { MAILBOX_FRESHNESS_MS, mailboxNeedsSync } from "./sync-mailboxes.js";
+import {
+	DEFAULT_MAILBOX_FRESHNESS_MS,
+	MAILBOX_FRESHNESS_MS,
+	mailboxNeedsSync,
+	resolveMailboxFreshnessMs,
+} from "./sync-mailboxes.js";
 
 const NOW = 1_700_000_000_000;
 
@@ -42,6 +47,40 @@ describe("mailboxNeedsSync", () => {
 		assert.equal(
 			mailboxNeedsSync({ lastMessageSyncAt: 0 }, sideEffect, NOW),
 			true,
+		);
+	});
+});
+
+describe("resolveMailboxFreshnessMs", () => {
+	it("defaults to the production window when unset", () => {
+		assert.equal(resolveMailboxFreshnessMs({}), DEFAULT_MAILBOX_FRESHNESS_MS);
+		assert.equal(DEFAULT_MAILBOX_FRESHNESS_MS, 60_000);
+	});
+
+	it("honors a valid override", () => {
+		assert.equal(resolveMailboxFreshnessMs({ MAILBOX_FRESHNESS_MS: "0" }), 0);
+		assert.equal(
+			resolveMailboxFreshnessMs({ MAILBOX_FRESHNESS_MS: "1000" }),
+			1000,
+		);
+	});
+
+	it("falls back to the default for a non-numeric or negative value", () => {
+		assert.equal(
+			resolveMailboxFreshnessMs({ MAILBOX_FRESHNESS_MS: "" }),
+			DEFAULT_MAILBOX_FRESHNESS_MS,
+		);
+		assert.equal(
+			resolveMailboxFreshnessMs({ MAILBOX_FRESHNESS_MS: "abc" }),
+			DEFAULT_MAILBOX_FRESHNESS_MS,
+		);
+		assert.equal(
+			resolveMailboxFreshnessMs({ MAILBOX_FRESHNESS_MS: "-5" }),
+			DEFAULT_MAILBOX_FRESHNESS_MS,
+		);
+		assert.equal(
+			resolveMailboxFreshnessMs({ MAILBOX_FRESHNESS_MS: "1.5" }),
+			DEFAULT_MAILBOX_FRESHNESS_MS,
 		);
 	});
 });

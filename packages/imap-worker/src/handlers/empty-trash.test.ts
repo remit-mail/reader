@@ -36,6 +36,7 @@ interface Harness {
 		deletedAt?: number;
 	} | null;
 	mailbox: { mailboxId: string; uidValidity: number; cursorState?: string };
+	mailboxError?: Error;
 	connection: Connection;
 	localMessages: { messageId: string }[];
 	threadMessage: { accountConfigId: string; threadMessageId: string } | null;
@@ -88,7 +89,10 @@ const deps = (): EmptyTrashDeps =>
 				delete: record("threadMessage.delete"),
 			},
 			mailbox: {
-				get: async () => h.mailbox,
+				get: async () => {
+					if (h.mailboxError) throw h.mailboxError;
+					return h.mailbox;
+				},
 				update: record("mailbox.update"),
 			},
 			secrets: {},
@@ -184,6 +188,17 @@ describe("handleEmptyTrash", () => {
 			uidValidity: 1,
 			cursorState: "rebuilding",
 		};
+
+		await handleEmptyTrash(event, noopLog, deps());
+
+		assert.equal(h.getConnectionCount, 0);
+		assert.equal(called("message.delete").length, 0);
+	});
+
+	it("acks terminally without connecting when the Trash mailbox was deleted", async () => {
+		h.mailboxError = Object.assign(new Error("Mailbox not found: trash-mbx"), {
+			name: "NotFoundError",
+		});
 
 		await handleEmptyTrash(event, noopLog, deps());
 
