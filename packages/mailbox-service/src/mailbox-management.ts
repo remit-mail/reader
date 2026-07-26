@@ -142,7 +142,12 @@ export class MailboxManagementService {
 		// reconcile matches it by fullPath and updates it in place, rather than
 		// inserting a fresh row for the prefixed path and deleting this one — which
 		// would strand every filter and placement that references this mailboxId.
-		const serverPath = result.path;
+		// Fall back to the requested path when the result carries no usable path,
+		// so a thin result never blanks the row's fullPath to undefined.
+		const serverPath =
+			typeof result.path === "string" && result.path.length > 0
+				? result.path
+				: path;
 		const pathUpdate = serverPath !== path ? { fullPath: serverPath } : {};
 
 		this.log.info(
