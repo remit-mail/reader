@@ -2,6 +2,7 @@ import { BottomSheet } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { ReactNode } from "react";
 import {
+	BackApplyError,
 	CommitError,
 	FilterSaved,
 	JobProgress,
@@ -106,6 +107,21 @@ export const BackApplyFailed: Story = {
 				runningLabel="Organizing mail from these senders…"
 				onClose={() => undefined}
 			/>
+		</SheetStage>
+	),
+};
+
+/**
+ * The filter saved, but the back-apply's own request never got off the ground
+ * (a 5xx or dropped connection on start). The rule is live for new mail; moving
+ * the existing mail is what failed, and it is offered again — never swallowed
+ * behind a plain "saved".
+ */
+export const BackApplyStartFailed: Story = {
+	name: "Back-apply start failed",
+	render: () => (
+		<SheetStage>
+			<BackApplyError onRetry={() => undefined} onClose={() => undefined} />
 		</SheetStage>
 	),
 };
