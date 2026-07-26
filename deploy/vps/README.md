@@ -467,6 +467,50 @@ this deployment errors partway through the cascade. This is a pre-existing
 application gap, not something particular to this deployment — flagged here so
 it is not a surprise.
 
+## Logs
+
+Every service writes one JSON object per line to stdout — the queue sidecar puts
+its failures on stderr, and `remit logs` shows both. Nothing writes a log file,
+and nothing rotates one, so the container runtime's log driver is the only
+shipping mechanism involved.
+
+These field names are the contract. They are what a Vector, Alloy, Fluent Bit or
+Promtail pipeline parses, and they do not change without a note in the release:
+
+| Field | Always present | What it is |
+|---|---|---|
+| `level` | yes | `trace`, `debug`, `info`, `warn`, `error` or `fatal`, lowercase. |
+| `time` | yes | When the line was written, RFC 3339 with millisecond precision, always UTC (`2026-01-30T09:12:44.117Z`). |
+| `service` | yes | Which service wrote it: `backend`, `imap-worker`, `smtp-worker`, `account-worker`, `search-index-worker`, `queue-sidecar`. Stamped into the image at build time, so it is the service and not the container name. |
+| `msg` | yes | The human-readable message. An empty string on a line that carries only fields. |
+| `err` | no | A serialised error — `type`, `message`, `stack`. |
+
+Everything else on a line is a field the call site added, at the top level, never
+nested: `accountId`, `mailboxId`, `messageId`, `queue`, `requestId`, `path`,
+`method`. Treat the set as open — a new field appears without warning, a
+documented one does not disappear without a note.
+
+There is no `pid` and no `hostname`. One container runs one service, and the
+container name and id already reach the collector from the log driver.
+
+Two consequences worth planning a pipeline around. **A message body, a subject
+and an address never appear in a field of their own**, but a message that a
+handler failed on can put an address inside `msg` or inside `err.message`, so
+treat log lines as personal data and give them the retention you give the
+mailbox. And **lines are not ordered across services** — `time` is each
+container's own clock, so sort on it rather than on arrival.
+
+`LOG_LEVEL` in `.env` sets the threshold for the application services; unset it
+is `info`, which drops `debug` and `trace`. `silent` turns logging off entirely.
+A value that is not a level name is reported on one `warn` line at startup and
+the service logs at `info`. The queue sidecar has no threshold — it writes only
+`info` and `error`.
+
+```bash
+remit logs backend | jq -c 'select(.level=="error")'
+remit logs | jq -r 'select(.accountId=="…") | "\(.time) \(.service) \(.msg)"'
+```
+
 ## Queue failures: watch the dead-letter queues
 
 Every worker queue in `queues.json` has a dead-letter queue (`<queue>-dlq`,

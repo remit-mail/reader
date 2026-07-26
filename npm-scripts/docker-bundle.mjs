@@ -35,6 +35,15 @@ const BUILD_DEFINES = {
 	"process.env.REMIT_WORKER_SHA": JSON.stringify(resolveWorkerSha()),
 };
 
+// The `service` field on every log line (see deploy/vps/README.md, "Logs").
+// Stamped per bundle for the same reason the SHA is: which service a line came
+// from is a property of the build, and one image is one entrypoint. Read from
+// the environment it would be one more thing for a compose file to get wrong,
+// and every service shares one env_file here.
+const serviceDefine = (name) => ({
+	"process.env.REMIT_SERVICE_NAME": JSON.stringify(name),
+});
+
 const CJS_REQUIRE_BANNER =
 	"import{createRequire as __remitCreateRequire}from 'module';const require=__remitCreateRequire(import.meta.url);";
 
@@ -204,7 +213,11 @@ async function main() {
 			minify: true,
 			sourcemap: false,
 			banner: { js: CJS_REQUIRE_BANNER },
-			define: { ...DIRNAME_DEFINES, ...BUILD_DEFINES },
+			define: {
+				...DIRNAME_DEFINES,
+				...BUILD_DEFINES,
+				...serviceDefine(target.name),
+			},
 			external: target.external ?? [],
 			loader: target.loader ?? {},
 			logLevel: "warning",

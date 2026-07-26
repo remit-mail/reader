@@ -17,9 +17,9 @@
 		"build": "npm run test:typecheck"
 	},
 	"dependencies": {
-		"@aws-lambda-powertools/logger": "^2",
 		"@aws-lambda-powertools/metrics": "^2",
-		"@types/aws-lambda": "*"
+		"@types/aws-lambda": "*",
+		"pino": "^10"
 	},
 	"license": "MIT",
 	"publishConfig": {

@@ -2,41 +2,20 @@ import assert from "node:assert/strict";
 import { beforeEach, describe, it, mock } from "node:test";
 import type { Context } from "aws-lambda";
 
+// The logging half of this package is covered by log-output.test.ts against its
+// real stdout output; this file is the telemetry wrapper, so the logger is
+// silenced and only the metric calls are observed.
+process.env.LOG_LEVEL = "silent";
+
 const addMetric = mock.fn();
 const publishStoredMetrics = mock.fn();
 const captureColdStartMetric = mock.fn();
-const addContext = mock.fn();
-const logTrace = mock.fn();
-const logDebug = mock.fn();
-const logInfo = mock.fn();
-const logWarn = mock.fn();
-const logError = mock.fn();
-const logCritical = mock.fn();
-const appendPersistentKeys = mock.fn();
-
-class MockLogger {
-	addContext = addContext;
-	trace = logTrace;
-	debug = logDebug;
-	info = logInfo;
-	warn = logWarn;
-	error = logError;
-	critical = logCritical;
-	appendPersistentKeys = appendPersistentKeys;
-	createChild = () => createChild();
-}
-
-const createChild = mock.fn(() => new MockLogger());
 
 class MockMetrics {
 	addMetric = addMetric;
 	publishStoredMetrics = publishStoredMetrics;
 	captureColdStartMetric = captureColdStartMetric;
 }
-
-mock.module("@aws-lambda-powertools/logger", {
-	namedExports: { Logger: MockLogger },
-});
 
 mock.module("@aws-lambda-powertools/metrics", {
 	namedExports: {
@@ -45,7 +24,7 @@ mock.module("@aws-lambda-powertools/metrics", {
 	},
 });
 
-const { createLogger, metrics, withTelemetry } = await import("./logger.js");
+const { metrics, withTelemetry } = await import("./logger.js");
 const { Metrics } = await import("@aws-lambda-powertools/metrics");
 
 type Recorded = { mock: { calls: { arguments: unknown[] }[] } };
@@ -53,26 +32,7 @@ type Recorded = { mock: { calls: { arguments: unknown[] }[] } };
 const calls = (fn: Recorded): unknown[][] =>
 	fn.mock.calls.map((call) => call.arguments);
 
-const lastCall = (fn: Recorded): unknown[] => {
-	const recorded = calls(fn);
-	assert.ok(recorded.length > 0, "expected the mock to have been called");
-	return recorded[recorded.length - 1];
-};
-
-const recorded = [
-	addMetric,
-	publishStoredMetrics,
-	captureColdStartMetric,
-	addContext,
-	logTrace,
-	logDebug,
-	logInfo,
-	logWarn,
-	logError,
-	logCritical,
-	appendPersistentKeys,
-	createChild,
-];
+const recorded = [addMetric, publishStoredMetrics, captureColdStartMetric];
 
 const makeContext = (): Context =>
 	({
@@ -97,60 +57,6 @@ describe("remit-logger-lambda", () => {
 
 	it("exports metrics as a Metrics instance", () => {
 		assert.ok(metrics instanceof Metrics);
-	});
-
-	it("object-first call maps to Powertools message + attributes", () => {
-		const log = createLogger(makeContext());
-		log.error({ error: "boom", messageId: "m1" }, "Failed to parse message");
-		assert.deepEqual(lastCall(logError), [
-			"Failed to parse message",
-			{ error: "boom", messageId: "m1" },
-		]);
-	});
-
-	it("object-first call without message uses empty string", () => {
-		const log = createLogger();
-		log.info({ count: 3 });
-		assert.deepEqual(lastCall(logInfo), ["", { count: 3 }]);
-	});
-
-	it("string-first call passes message then attributes", () => {
-		const log = createLogger();
-		log.warn("watch out", { reason: "slow" });
-		assert.deepEqual(lastCall(logWarn), ["watch out", { reason: "slow" }]);
-	});
-
-	it("string-first call without attributes passes only the message", () => {
-		const log = createLogger();
-		log.debug("hello");
-		assert.deepEqual(lastCall(logDebug), ["hello"]);
-	});
-
-	it("fatal maps to Powertools critical", () => {
-		const log = createLogger();
-		log.fatal({ fatal: true }, "the end");
-		assert.deepEqual(lastCall(logCritical), ["the end", { fatal: true }]);
-	});
-
-	it("trace maps to Powertools trace", () => {
-		const log = createLogger();
-		log.trace("trace me");
-		assert.deepEqual(lastCall(logTrace), ["trace me"]);
-	});
-
-	it("child creates a Powertools child and appends bindings", () => {
-		const log = createLogger();
-		const child = log.child({ queue: "imap" });
-		assert.equal(calls(createChild).length, 1);
-		assert.deepEqual(lastCall(appendPersistentKeys), [{ queue: "imap" }]);
-		child.info({ done: true }, "child log");
-		assert.deepEqual(lastCall(logInfo), ["child log", { done: true }]);
-	});
-
-	it("setBindings appends persistent keys", () => {
-		const log = createLogger();
-		log.setBindings({ requestId: "r1" });
-		assert.deepEqual(lastCall(appendPersistentKeys), [{ requestId: "r1" }]);
 	});
 
 	it("withTelemetry calls the handler and returns its result", async () => {
