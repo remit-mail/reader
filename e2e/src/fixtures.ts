@@ -17,7 +17,7 @@ export const test = base.extend<Fixtures>({
 		await use(readRunState());
 	},
 	api: async ({ run }, use) => {
-		await use(new ApiClient(run.token));
+		await use(new ApiClient(run));
 	},
 });
 

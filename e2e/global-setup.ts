@@ -112,7 +112,7 @@ const globalSetup = async (): Promise<void> => {
 	console.log(`e2e setup: signing up ${credentials.email} at ${baseUrl}`);
 	const cookie = await signUp(credentials);
 	const token = await fetchBearerToken(cookie);
-	const api = new ApiClient(token);
+	const api = new ApiClient({ ...credentials, token });
 
 	// Checked, not assumed. If this mailbox ever came back non-empty the
 	// isolation this suite depends on would be gone, and every downstream

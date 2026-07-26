@@ -37,7 +37,7 @@ test.describe("Create folder from the move picker", () => {
 
 	test.beforeAll(async ({ browser }) => {
 		run = await provisionIsolatedRun("E2E Move Picker");
-		api = new ApiClient(run.token);
+		api = new ApiClient(run);
 		context = await browser.newContext({
 			storageState: run.storageState,
 			baseURL: baseUrl,
