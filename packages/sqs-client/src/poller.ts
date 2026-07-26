@@ -8,6 +8,7 @@ import type {
 	SQSEvent,
 	SQSHandler,
 } from "aws-lambda";
+import { createHeartbeat, type Heartbeat } from "./heartbeat.js";
 import { createQueueProducer } from "./producer.js";
 
 /**
@@ -41,6 +42,8 @@ export interface RunQueuePollerOptions {
 	readonly targets: readonly QueuePollerTarget[];
 	readonly log: QueuePollerLog;
 	readonly signals?: readonly NodeJS.Signals[];
+	/** Defaults to the file named by `WORKER_HEARTBEAT_FILE`, or nothing. */
+	readonly heartbeat?: Heartbeat;
 }
 
 const DEFAULT_MAX_MESSAGES = 10; // SQS API limit
@@ -50,6 +53,7 @@ const pollTarget = async (
 	target: QueuePollerTarget,
 	log: QueuePollerLog,
 	isShuttingDown: () => boolean,
+	heartbeat: Heartbeat,
 ): Promise<void> => {
 	const queueName = new URL(target.queueUrl).pathname.split("/").pop();
 	const sqs = createQueueProducer({ queueUrl: target.queueUrl });
@@ -68,6 +72,13 @@ const pollTarget = async (
 	const LONG_POLL_WAIT_SECONDS = 20;
 
 	while (!isShuttingDown()) {
+		// Top of the receive attempt, before the long poll: every target in the
+		// container writes the same file, so the container's heartbeat is fresh
+		// while any of its loops is turning. A container whose loops all wedge —
+		// inside a socket read, or in a handler that never returns — stops
+		// writing, and that is what the healthcheck reads.
+		await heartbeat();
+
 		const response = await sqs.send(
 			new ReceiveMessageCommand({
 				QueueUrl: target.queueUrl,
@@ -161,12 +172,17 @@ const pollTarget = async (
  * received (default: SIGINT, SIGTERM), then lets each loop finish its
  * current iteration and returns. Rejects (crashes the process) if any loop
  * throws — a stuck poller should exit loudly, not degrade silently.
+ *
+ * Every loop writes the container's heartbeat file (see heartbeat.ts) at the
+ * top of its receive attempt, which is how a loop that hangs instead of
+ * throwing — the case this cannot make loud by itself — becomes visible.
  */
 export const runQueuePoller = async (
 	options: RunQueuePollerOptions,
 ): Promise<void> => {
 	const { targets, log } = options;
 	const signals = options.signals ?? ["SIGINT", "SIGTERM"];
+	const heartbeat = options.heartbeat ?? createHeartbeat();
 
 	if (targets.length === 0) {
 		throw new Error("runQueuePoller: no targets configured");
@@ -185,6 +201,6 @@ export const runQueuePoller = async (
 	log.info({ queues: targets.map((t) => t.queueUrl) }, "poller: starting");
 
 	await Promise.all(
-		targets.map((target) => pollTarget(target, log, isShuttingDown)),
+		targets.map((target) => pollTarget(target, log, isShuttingDown, heartbeat)),
 	);
 };

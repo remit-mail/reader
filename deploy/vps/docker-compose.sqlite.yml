@@ -22,7 +22,12 @@ name: remit
 x-app-env: &app-env
   env_file:
     - .env
-  environment:
+  # Anchored separately from the block above so a service that needs one extra
+  # variable can merge this map into its own `environment:` — the four workers
+  # do, for their heartbeat file. A plain `environment:` key on a service that
+  # takes `<<: *app-env` REPLACES this map rather than extending it, which would
+  # silently drop DATA_BACKEND and both database paths.
+  environment: &app-environment
     BETTER_AUTH_URL: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in .env}
     BETTER_AUTH_TRUSTED_ORIGINS: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in .env}
     CONTENT_DELIVERY_DOMAIN: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in .env}
@@ -92,11 +97,12 @@ services:
     image: ghcr.io/remit-mail/reader/backend:${REMIT_TAG:-latest}
     user: root
     entrypoint:
-      ["sh", "-c", "mkdir -p /data/storage /data/sqlite /data/queue && chown -R node:node /data/storage /data/sqlite /data/queue"]
+      ["sh", "-c", "mkdir -p /data/storage /data/sqlite /data/queue /data/heartbeat && chown -R node:node /data/storage /data/sqlite /data/queue /data/heartbeat"]
     volumes:
       - message_storage:/data/storage
       - sqlite_data:/data/sqlite
       - queue_data:/data/queue
+      - heartbeat:/data/heartbeat
 
   # ---------------------------------------------------------------------
   # App plane
@@ -196,13 +202,34 @@ services:
   # Workers — the same queue pollers as the Postgres profile. Each opens the
   # shared SQLite file (WAL) for its writes; no pg-index-worker exists here
   # (RFC 036 D2) — search-index-worker drains the outbox on a 2 s poll instead.
+  #
+  # All four are healthchecked on a heartbeat file (D1 of
+  # docs/design/standalone-observability.md): the poll loop
+  # rewrites /data/heartbeat/<service> at the top of every receive attempt, and
+  # the check reads that file's age from inside the container. A worker that
+  # wedges in a socket read never exits, so `restart: unless-stopped` never
+  # fires and `docker compose ps` reports it up while mail stops moving — the
+  # heartbeat is what makes that state visible. Nothing restarts on it: an
+  # unhealthy container is reported, and what to do stays the operator's.
+  #
+  # The 360 s threshold sits above the longest legitimate quiet stretch: a
+  # 300 s handler (body sync, search indexing) plus the 20 s long poll, plus
+  # slack. Lower and a slow mailbox reads as a hang. Absent file is unhealthy —
+  # statSync throws and node exits non-zero — because a check that cannot look
+  # must never report healthy. The file also lands on the shared `heartbeat`
+  # volume, which is what lets a future checker service read the same
+  # timestamps without any worker opening a port.
   # ---------------------------------------------------------------------
   imap-worker:
     image: ghcr.io/remit-mail/reader/imap-worker:${REMIT_TAG:-latest}
     <<: *app-env
+    environment:
+      <<: *app-environment
+      WORKER_HEARTBEAT_FILE: /data/heartbeat/imap-worker
     volumes:
       - message_storage:/data/storage
       - sqlite_data:/data/sqlite
+      - heartbeat:/data/heartbeat
     depends_on:
       queue:
         condition: service_healthy
@@ -210,15 +237,26 @@ services:
         condition: service_completed_successfully
       volume-init:
         condition: service_completed_successfully
+    healthcheck:
+      test:
+        ["CMD", "node", "-e", "process.exit(Date.now()-require('node:fs').statSync('/data/heartbeat/imap-worker').mtimeMs<360000?0:1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     stop_grace_period: 30s
     restart: unless-stopped
 
   smtp-worker:
     image: ghcr.io/remit-mail/reader/smtp-worker:${REMIT_TAG:-latest}
     <<: *app-env
+    environment:
+      <<: *app-environment
+      WORKER_HEARTBEAT_FILE: /data/heartbeat/smtp-worker
     volumes:
       - message_storage:/data/storage
       - sqlite_data:/data/sqlite
+      - heartbeat:/data/heartbeat
     depends_on:
       queue:
         condition: service_healthy
@@ -226,15 +264,26 @@ services:
         condition: service_completed_successfully
       volume-init:
         condition: service_completed_successfully
+    healthcheck:
+      test:
+        ["CMD", "node", "-e", "process.exit(Date.now()-require('node:fs').statSync('/data/heartbeat/smtp-worker').mtimeMs<360000?0:1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     stop_grace_period: 30s
     restart: unless-stopped
 
   account-worker:
     image: ghcr.io/remit-mail/reader/account-worker:${REMIT_TAG:-latest}
     <<: *app-env
+    environment:
+      <<: *app-environment
+      WORKER_HEARTBEAT_FILE: /data/heartbeat/account-worker
     volumes:
       - message_storage:/data/storage
       - sqlite_data:/data/sqlite
+      - heartbeat:/data/heartbeat
     depends_on:
       queue:
         condition: service_healthy
@@ -242,6 +291,13 @@ services:
         condition: service_completed_successfully
       volume-init:
         condition: service_completed_successfully
+    healthcheck:
+      test:
+        ["CMD", "node", "-e", "process.exit(Date.now()-require('node:fs').statSync('/data/heartbeat/account-worker').mtimeMs<360000?0:1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     stop_grace_period: 30s
     restart: unless-stopped
 
@@ -252,9 +308,13 @@ services:
   search-index-worker:
     image: ghcr.io/remit-mail/reader/search-index-worker:${REMIT_TAG:-latest}
     <<: *app-env
+    environment:
+      <<: *app-environment
+      WORKER_HEARTBEAT_FILE: /data/heartbeat/search-index-worker
     volumes:
       - message_storage:/data/storage
       - sqlite_data:/data/sqlite
+      - heartbeat:/data/heartbeat
     depends_on:
       queue:
         condition: service_healthy
@@ -262,6 +322,17 @@ services:
         condition: service_completed_successfully
       volume-init:
         condition: service_completed_successfully
+    # The heartbeat covers the queue poll loop only. The outbox drain is a
+    # separate timer in this same container, and a drain that stops while the
+    # poll loop turns leaves this healthy — search falling behind is a backlog
+    # signal, not a liveness one.
+    healthcheck:
+      test:
+        ["CMD", "node", "-e", "process.exit(Date.now()-require('node:fs').statSync('/data/heartbeat/search-index-worker').mtimeMs<360000?0:1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     stop_grace_period: 30s
     restart: unless-stopped
 
@@ -450,3 +521,7 @@ volumes:
   # that mounts it. Safe to remove: it holds a reconstructible view of the past,
   # never state the stack reads back. `remit purge` destroys it with the rest.
   victoriametrics_data:
+  # One timestamp file per worker (D1). Shared rather than per-service so a
+  # checker container can mount it read-only and read all four ages at once; the
+  # workers themselves never read each other's files.
+  heartbeat:

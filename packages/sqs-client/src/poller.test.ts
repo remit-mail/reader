@@ -81,6 +81,51 @@ describe("runQueuePoller", () => {
 		assert.deepEqual(deletedReceiptHandles, ["receipt-m1"]);
 	});
 
+	it("beats the heartbeat at the top of every receive attempt, on every target", async () => {
+		const beats: number[] = [];
+		let receiveCalls = 0;
+
+		const sendMock = mock.method(
+			SQSClient.prototype,
+			"send",
+			// biome-ignore lint/suspicious/noExplicitAny: minimal SDK command shape, not worth typing per-command here
+			async function (this: SQSClient, command: any) {
+				if (command.constructor.name !== "ReceiveMessageCommand") {
+					throw new Error(`unexpected command: ${command.constructor.name}`);
+				}
+				// Two empty receives per target, then shut down: the heartbeat has
+				// to be written before the receive, and on an empty poll too — an
+				// idle queue is the normal state of a healthy worker.
+				receiveCalls++;
+				if (receiveCalls >= 4) process.emit("SIGWINCH", "SIGWINCH");
+				return { Messages: [] };
+			},
+		);
+
+		try {
+			await runQueuePoller({
+				targets: [
+					{ queueUrl: QUEUE_URL, handler: async () => {}, functionName: "a" },
+					{
+						queueUrl: `${QUEUE_URL}-2`,
+						handler: async () => {},
+						functionName: "b",
+					},
+				],
+				log: buildLog(),
+				signals: ["SIGWINCH"],
+				heartbeat: async () => {
+					beats.push(Date.now());
+				},
+			});
+		} finally {
+			sendMock.mock.restore();
+		}
+
+		assert.ok(receiveCalls >= 4, `only ${receiveCalls} receives ran`);
+		assert.equal(beats.length, receiveCalls);
+	});
+
 	it("throws when constructed with no targets", async () => {
 		await assert.rejects(
 			() => runQueuePoller({ targets: [], log: buildLog() }),

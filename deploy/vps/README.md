@@ -188,6 +188,19 @@ model in `search-index-worker` as the largest resident once indexing has run.
 The `observability` profile adds about 30 MB resident on top of that, measured
 rather than estimated — see [Looking at the box](#looking-at-the-box).
 
+Each worker's health is a heartbeat: it rewrites a timestamp file on the
+`heartbeat` volume once per poll cycle, and `docker compose ps` reports it
+unhealthy when its own file has not moved for six minutes — comfortably longer
+than the slowest legitimate handler, so a slow mailbox never reads as a hang.
+This is the failure nothing else reports: a poll loop wedged inside a socket
+read never exits, so the container stays up, `restart: unless-stopped` never
+fires, and mail quietly stops moving. Nothing restarts on it. An unhealthy
+worker is a condition to look at — `remit logs <service>`, then
+`docker compose restart <service>` if you want it recycled.
+
+A healthy worker means its loop is turning, not that the work is succeeding. For
+that, see [Queue failures](#queue-failures-watch-the-dead-letter-queues).
+
 ## The category repair
 
 The mail list filters on `thread_message.category`, a copy of `message.category`
