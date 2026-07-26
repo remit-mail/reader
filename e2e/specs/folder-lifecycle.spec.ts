@@ -209,7 +209,7 @@ test.describe("Folder lifecycle against the IMAP server", () => {
 
 	test.beforeAll(async ({ browser }) => {
 		run = await provisionIsolatedRun("E2E Folder Lifecycle");
-		api = new ApiClient(run.token);
+		api = new ApiClient(run);
 		context = await browser.newContext({
 			storageState: run.storageState,
 			baseURL: baseUrl,

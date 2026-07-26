@@ -32,6 +32,8 @@ export interface StorageState {
 }
 
 export interface IsolatedRun {
+	email: string;
+	password: string;
 	token: string;
 	accountId: string;
 	imapUser: string;
@@ -67,7 +69,7 @@ export const provisionIsolatedRun = async (
 	};
 	const cookie = await signUp(credentials);
 	const token = await fetchBearerToken(cookie);
-	const api = new ApiClient(token);
+	const api = new ApiClient({ ...credentials, token });
 
 	const imapUser = mintImapUser();
 	const { accountId } = await api.createAccount({
@@ -90,6 +92,8 @@ export const provisionIsolatedRun = async (
 	if (!inbox) throw new Error("unreachable: INBOX matched but not found");
 
 	return {
+		email: credentials.email,
+		password: credentials.password,
 		token,
 		accountId,
 		imapUser,

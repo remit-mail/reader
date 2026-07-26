@@ -13,6 +13,7 @@ import type {
 import {
 	MailboxCursorState,
 	MailboxSpecialUse,
+	MailboxSyncStatus,
 	NamespaceType,
 } from "@remit/domain-enums";
 import pMap from "p-map";
@@ -198,13 +199,21 @@ export class MailboxSyncService {
 
 		// Handle deleted mailboxes (exist in DB but not on server)
 		for (const existing of existingMailboxes) {
-			if (!seenPaths.has(existing.fullPath)) {
-				await this.mailboxService.delete(account.accountId, existing.mailboxId);
-				console.info(
-					`Deleted mailbox: ${existing.mailboxId} (${existing.fullPath})`,
-				);
-				result.deleted++;
-			}
+			if (seenPaths.has(existing.fullPath)) continue;
+			// A `pending` row is a folder the user just created (or renamed) whose
+			// MAILBOX_CREATE/RENAME has not yet reached the server, so its absence
+			// from the LIST is expected, not a server-side deletion. Deleting it
+			// races the create: the row vanishes, then MAILBOX_CREATE fails with
+			// NotFoundError trying to mark it synced, and — sharing this account's
+			// mailboxes FIFO group — that un-acked failure stalls every later
+			// mailbox sync for the queue's whole visibility window (#290). Leave
+			// pending rows to the create/rename flow that owns them.
+			if (existing.syncStatus === MailboxSyncStatus.pending) continue;
+			await this.mailboxService.delete(account.accountId, existing.mailboxId);
+			console.info(
+				`Deleted mailbox: ${existing.mailboxId} (${existing.fullPath})`,
+			);
+			result.deleted++;
 		}
 
 		return result;
