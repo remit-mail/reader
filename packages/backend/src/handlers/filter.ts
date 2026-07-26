@@ -3,7 +3,11 @@ import type {
 	FilterResponse,
 	UpdateFilterInput as UpdateFilterRequestBody,
 } from "@remit/api-openapi-types";
-import type { FilterItem, UpdateFilterInput } from "@remit/data-ports";
+import type {
+	FilterItem,
+	IFilterAnchorTransaction,
+	UpdateFilterInput,
+} from "@remit/data-ports";
 import { BadRequestError } from "@remit/data-ports/errors";
 import { FilterScope, FilterState } from "@remit/domain-enums";
 import type { AnchorPayload } from "@remit/search-service";
@@ -19,46 +23,18 @@ import type {
 import { assertAccountOwnership } from "./account-ownership.js";
 
 /**
- * Minimal filter-service surface the CRUD handlers need — declared as a `Pick`
- * so tests can stub it without a live table.
+ * Minimal filter-service surface the create handler needs — declared as a
+ * `Pick` so tests can stub it without a live table.
  */
 export interface FilterCrudDeps {
-	filter: {
-		create(input: {
-			accountConfigId: string;
-			name: string;
-			scope: FilterItem["scope"];
-			expiresAt?: string;
-			ttl?: number;
-			matchOperator: FilterItem["matchOperator"];
-			literalClauses: FilterItem["literalClauses"];
-			actionLabelId: string;
-			actionMailboxId: string;
-			hasAnchor: boolean;
-		}): Promise<FilterItem>;
-		get(accountConfigId: string, filterId: string): Promise<FilterItem>;
-		update(
-			accountConfigId: string,
-			filterId: string,
-			input: UpdateFilterInput,
-		): Promise<FilterItem>;
-		delete(accountConfigId: string, filterId: string): Promise<void>;
-		refreshExpiry(item: FilterItem): Promise<FilterItem>;
-		listPageByAccountConfig(
-			accountConfigId: string,
-			options?: { limit?: number; continuationToken?: string },
-		): Promise<{ items: FilterItem[]; continuationToken: string | undefined }>;
-	};
-	filterAnchor: {
-		put(input: {
-			accountConfigId: string;
-			filterId: string;
-			anchorMessageId: string;
-			anchorEmbedding: number[];
-			anchorEmbeddingId: string;
-			anchorSourceText: string;
-		}): Promise<unknown>;
-	};
+	/**
+	 * Creates the `Filter` row and its optional sibling `FilterAnchor` row in
+	 * one transaction (#351) — a failure on the anchor write can never leave a
+	 * `Filter` durably marked `hasAnchor: true` with no matching anchor row,
+	 * and it surfaces as a failed create request rather than a silently
+	 * broken filter.
+	 */
+	filterAnchorTransaction: IFilterAnchorTransaction;
 	buildAnchor(
 		accountConfigId: string,
 		anchorMessageId: string,
@@ -221,12 +197,11 @@ const toFilterResponse = (item: FilterItem): FilterResponse => ({
 
 /**
  * Create a filter, wiring the semantic anchor when `anchorMessageId` is set
- * (RFC 034 Decision 2). The anchor is built first, before the row is written,
- * so `hasAnchor` is set correctly at creation and the sibling `FilterAnchor`
- * row is written against the new `filterId` — never a second round-trip that
- * would bump `ruleChangedAt`. A message with no indexed chunks yields no anchor:
- * the filter is created as purely literal (`hasAnchor: false`) rather than with
- * an empty anchor.
+ * (RFC 034 Decision 2). The anchor is built first, then the `Filter` row and
+ * its sibling `FilterAnchor` row are written together in one transaction
+ * (#351) — never as two independent writes a partial failure could split. A
+ * message with no indexed chunks yields no anchor: the filter is created as
+ * purely literal (`hasAnchor: false`) rather than with an empty anchor.
  */
 export const createFilterWithAnchor = async (
 	deps: FilterCrudDeps,
@@ -238,31 +213,29 @@ export const createFilterWithAnchor = async (
 		? await deps.buildAnchor(accountConfigId, anchorMessageId)
 		: null;
 
-	const filter = await deps.filter.create({
-		accountConfigId,
-		name: input.name,
-		scope: input.scope,
-		expiresAt: input.expiresAt,
-		ttl: deriveFilterTtl(input.scope, input.expiresAt),
-		matchOperator: input.matchOperator,
-		literalClauses: input.literalClauses,
-		actionLabelId: input.actionLabelId,
-		actionMailboxId: input.actionMailboxId,
-		hasAnchor: anchor !== null,
-	});
-
-	if (anchor && anchorMessageId) {
-		await deps.filterAnchor.put({
+	return deps.filterAnchorTransaction.createWithAnchor(
+		{
 			accountConfigId,
-			filterId: filter.filterId,
-			anchorMessageId,
-			anchorEmbedding: anchor.anchorEmbedding,
-			anchorEmbeddingId: anchor.anchorEmbeddingId,
-			anchorSourceText: anchor.anchorSourceText,
-		});
-	}
-
-	return filter;
+			name: input.name,
+			scope: input.scope,
+			expiresAt: input.expiresAt,
+			ttl: deriveFilterTtl(input.scope, input.expiresAt),
+			matchOperator: input.matchOperator,
+			literalClauses: input.literalClauses,
+			actionLabelId: input.actionLabelId,
+			actionMailboxId: input.actionMailboxId,
+			hasAnchor: anchor !== null,
+		},
+		anchor && anchorMessageId
+			? {
+					accountConfigId,
+					anchorMessageId,
+					anchorEmbedding: anchor.anchorEmbedding,
+					anchorEmbeddingId: anchor.anchorEmbeddingId,
+					anchorSourceText: anchor.anchorSourceText,
+				}
+			: null,
+	);
 };
 
 export const FilterOperations: Record<
@@ -311,8 +284,7 @@ export const FilterOperations: Record<
 
 		const filter = await createFilterWithAnchor(
 			{
-				filter: client.filter,
-				filterAnchor: client.filterAnchor,
+				filterAnchorTransaction: client.filterAnchorTransaction,
 				buildAnchor: buildFilterAnchor,
 			},
 			accountConfigId,

@@ -10,6 +10,7 @@ export {
 export { DrizzleEnvelopeRepository } from "./repos/envelope.js";
 export { FilterRepo } from "./repos/filter.js";
 export { FilterAnchorRepo } from "./repos/filter-anchor.js";
+export { DrizzleFilterAnchorTransaction } from "./repos/filter-anchor-transaction.js";
 export * from "./repos/i4-account.js";
 export * from "./repos/i4-account-config.js";
 export * from "./repos/i4-account-export-request.js";
