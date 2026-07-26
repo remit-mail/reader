@@ -19,6 +19,7 @@ import {
 import pMap from "p-map";
 import { isNoSelect, parseImapAttributes } from "./attribute-mapper.js";
 import { isCursorRebuildNeeded } from "./mailbox-cursor.js";
+import { isMailboxNotOnServer } from "./mailbox-presence.js";
 import type {
 	FlatMailboxInfo,
 	IImapConnection,
@@ -175,12 +176,39 @@ export class MailboxSyncService {
 				const existing = existingByPath.get(mailboxInfo.fullPath);
 
 				if (existing) {
+					// A folder at either end of its lifecycle is left alone: the worker
+					// that establishes or removes it writes its own identity back, and
+					// reading its status meanwhile is work whose only possible outcome is
+					// a failure that fails this whole account's fan-out with it.
+					if (
+						existing.syncStatus === MailboxSyncStatus.pending ||
+						existing.syncStatus === MailboxSyncStatus.deleting
+					) {
+						return;
+					}
+					// The folder set can change under this sweep. A delete that lands
+					// between the LIST above and this mailbox's STATUS fails on the
+					// server or on the row, and that would abort the enumeration of every
+					// other folder and the SYNC_MESSAGES fan-out behind it — on a
+					// per-account FIFO queue, for the whole visibility window (issue
+					// #339). One folder leaving is not a failed account sync. Anything
+					// else still propagates.
 					const updated = await this.updateMailbox(
 						account.accountId,
 						existing,
 						mailboxInfo,
 						connection,
-					);
+					).catch(async (error: unknown) => {
+						// The read only classifies the failure in hand; one that cannot
+						// answer must not replace it.
+						const gone = await isMailboxNotOnServer(
+							this.mailboxService,
+							account.accountId,
+							existing.mailboxId,
+						).catch(() => false);
+						if (gone) return null;
+						throw error;
+					});
 					if (updated) {
 						result.updated++;
 					}

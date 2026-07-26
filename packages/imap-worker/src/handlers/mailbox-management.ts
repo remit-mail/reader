@@ -28,6 +28,44 @@ const defaultDeps: MailboxManagementDeps = {
 	createConnectionScope: createConnectionScopeWithCredentials,
 };
 
+const stringField = (value: unknown, key: string): string => {
+	if (!(value instanceof Object)) return "";
+	const field = Reflect.get(value, key);
+	return typeof field === "string" ? field : "";
+};
+
+/**
+ * Read a tagged-NO outcome out of an IMAP failure.
+ *
+ * The two outcomes below are each a folder operation finding the server already
+ * in the state it was asked for — the operation having happened, not failing.
+ * Reading them as failures marks the row `failed` and rethrows, and since folder
+ * management shares the account's per-account FIFO group with mailbox sync, that
+ * un-acked rethrow holds back every later sync for the account.
+ *
+ * Both places the server can say so are read. `message` carries it when the
+ * client raises the error itself; RFC 5530's response code and its text carry it
+ * when the server does. ImapFlow surfaces a tagged NO as a bare "Command failed"
+ * with the code on the error, which is why matching the message alone never
+ * caught a real Dovecot answer.
+ */
+const saidByServer = (error: Error): string =>
+	`${error.message} ${stringField(error, "responseText")}`;
+
+/** The folder is not on the server: a delete has nothing left to do. */
+const isMailboxAbsentUpstream = (error: unknown): boolean => {
+	if (!(error instanceof Error)) return false;
+	if (stringField(error, "serverResponseCode") === "NONEXISTENT") return true;
+	return /not found|does ?n.?t exist/i.test(saidByServer(error));
+};
+
+/** The folder is already on the server: a create has nothing left to do. */
+const isMailboxPresentUpstream = (error: unknown): boolean => {
+	if (!(error instanceof Error)) return false;
+	if (stringField(error, "serverResponseCode") === "ALREADYEXISTS") return true;
+	return /already exists/i.test(saidByServer(error));
+};
+
 /**
  * Pinned invariant for the whole-chain terminal guards below.
  *
@@ -112,10 +150,7 @@ const handleCreate = async (
 					})
 					.catch(async (error) => {
 						// Check if mailbox already exists (idempotent)
-						if (
-							error instanceof Error &&
-							error.message.includes("already exists")
-						) {
+						if (isMailboxPresentUpstream(error)) {
 							log.info(
 								{ accountId, mailboxId, path },
 								"Mailbox already exists, marking as synced",
@@ -223,7 +258,7 @@ const handleRename = async (
 					})
 					.catch(async (error) => {
 						// If source not found, delete local mailbox
-						if (error instanceof Error && error.message.includes("not found")) {
+						if (isMailboxAbsentUpstream(error)) {
 							log.info(
 								{ accountId, mailboxId, oldPath },
 								"Source mailbox not found, deleting local",
@@ -321,7 +356,7 @@ const handleDelete = async (
 					})
 					.catch(async (error) => {
 						// If mailbox not found, it's already deleted (idempotent)
-						if (error instanceof Error && error.message.includes("not found")) {
+						if (isMailboxAbsentUpstream(error)) {
 							log.info(
 								{ accountId, mailboxId, path },
 								"Mailbox not found on IMAP, deleting local",

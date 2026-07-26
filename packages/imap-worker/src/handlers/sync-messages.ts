@@ -18,6 +18,7 @@ import { type Logger, MetricUnit, metrics } from "@remit/logger-lambda";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
 import {
 	createManagedConnectionFactory,
+	isMailboxNotOnServer,
 	MailConnectionError,
 	type MailCredentials,
 	MessageSyncService,
@@ -132,23 +133,18 @@ export const syncMessages = async (
 		return;
 	}
 
-	// A SYNC_MESSAGES trigger can outlive the mailbox it targets. Deleting a
-	// mailbox that has held mail leaves already-queued events — a `hasMore`
-	// next-batch, a periodic sync tick — pointing at a row that is now gone. The
-	// lookup then throws a named NotFoundError that can never succeed on retry,
-	// and the account's per-group FIFO ordering lets that one poison message
-	// stall the whole account's message pipeline forever (issue #287). A mailbox
-	// the user deliberately deleted is an expected terminal outcome, not an infra
-	// failure: ack the event with a WARN. Any other error — a transient read, a
-	// NotFoundError from elsewhere — still propagates to be retried.
-	const mailboxExists = await mailboxService
-		.get(event.accountId, event.mailboxId)
-		.then(() => true)
-		.catch((err) => {
-			if (isNotFoundError(err)) return false;
-			throw err;
-		});
-	if (!mailboxExists) {
+	// A SYNC_MESSAGES trigger can address a folder the server does not hold: the
+	// fan-out enqueues one for a folder whose own create has not landed yet, and
+	// a `hasMore` next-batch or a periodic tick outlives a folder the user
+	// deleted. Such an event can never succeed on retry, and the account's
+	// per-group FIFO ordering lets that one poison message stall the
+	// whole account's message pipeline for the full visibility window (issue
+	// #287, #339). A folder the server does not hold — not yet created, or being
+	// deleted — is an expected terminal outcome, not an infra failure: ack the
+	// event with a WARN.
+	if (
+		await isMailboxNotOnServer(mailboxService, event.accountId, event.mailboxId)
+	) {
 		log.warn(
 			{
 				accountId: event.accountId,
@@ -156,7 +152,7 @@ export const syncMessages = async (
 				eventId: event.eventId,
 				event: event.type,
 			},
-			"Skipping SYNC_MESSAGES: mailbox no longer exists (deleted)",
+			"Skipping SYNC_MESSAGES: the server does not hold this folder",
 		);
 		return;
 	}
@@ -202,6 +198,39 @@ export const syncMessages = async (
 							(err instanceof MailConnectionError && err.kind === "auth")
 						) {
 							throw err;
+						}
+						// The guard above is a check-then-act: a delete asked for while
+						// this round was in flight lands inside it, and the round then
+						// fails somewhere deeper — on the row (NotFoundError from the
+						// service's own re-read) or on the server (the SELECTed folder
+						// vanished, so the next command runs against no mailbox). Both are
+						// the same expected outcome as an event that arrived after the
+						// delete, so they resolve the same way rather than head-of-line
+						// blocking the account's FIFO group (issue #339). Recording an
+						// error phase is skipped too: the account is healthy, one of its
+						// folders is not there.
+						//
+						// This read only classifies the failure already in hand, so it must
+						// never become the failure that is reported. A read that cannot answer
+						// leaves the round on the loud path below, with the real error and the
+						// state write that goes with it intact.
+						const folderIsGone = await isMailboxNotOnServer(
+							mailboxService,
+							event.accountId,
+							event.mailboxId,
+						).catch(() => false);
+						if (folderIsGone) {
+							log.warn(
+								{
+									accountId: event.accountId,
+									mailboxId: event.mailboxId,
+									eventId: event.eventId,
+									event: event.type,
+									error: err instanceof Error ? err.message : String(err),
+								},
+								"Resolving SYNC_MESSAGES: the folder left the server while the sync was in flight",
+							);
+							return;
 						}
 						// Record the terminal error phase before crashing (let-it-crash:
 						// record state, then rethrow so the event is retried/DLQ'd).
