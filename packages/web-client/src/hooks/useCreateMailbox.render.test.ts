@@ -27,7 +27,9 @@ const ACCOUNT = "acc-1";
 
 let harness: DomHarness | undefined;
 let http: HttpMock | undefined;
-let createFolder: ((name: string) => Promise<FolderOption>) | undefined;
+let createFolder:
+	| ((name: string, signal?: AbortSignal) => Promise<FolderOption>)
+	| undefined;
 
 afterEach(() => {
 	harness?.close();
@@ -157,5 +159,72 @@ describe("useCreateMailbox.createFolder validation", () => {
 		});
 		assert.ok(caught instanceof Error);
 		assert.equal(caught.message, MAILBOX_SYNC_FAILED_MESSAGE);
+	});
+
+	it("retry resumes the wait on the folder it already made — no second create, no 'already exists'", async () => {
+		// The created folder is reported failed on the first attempt, then synced.
+		let status: RemitImapMailboxResponse["syncStatus"] = MailboxSyncStatus.failed;
+		const created: RemitImapMailboxResponse[] = [];
+		http = mockFetch((call) => {
+			if (call.method === "POST") {
+				const body = call.body as { fullPath: string };
+				created.push({
+					mailboxId: `mbx-${body.fullPath}`,
+					accountId: ACCOUNT,
+					fullPath: body.fullPath,
+				} as RemitImapMailboxResponse);
+				return { mailboxId: `mbx-${body.fullPath}`, fullPath: body.fullPath };
+			}
+			return {
+				items: [
+					mailbox("INBOX", "/"),
+					...created.map((entry) => ({ ...entry, syncStatus: status })),
+				],
+			};
+		});
+		harness = createDomHarness();
+		harness.queryClient.setQueryData<MailboxOperationsListMailboxesResponse>(
+			mailboxOperationsListMailboxesQueryKey({ path: { accountId: ACCOUNT } }),
+			{ items: [mailbox("INBOX", "/")] },
+		);
+		harness.renderApp(createElement(Probe));
+
+		let first: unknown;
+		await act(async () => {
+			first = await createFolder?.("Taxes").then(
+				() => undefined,
+				(error: unknown) => error,
+			);
+		});
+		assert.ok(first instanceof Error);
+		assert.equal(first.message, MAILBOX_SYNC_FAILED_MESSAGE);
+
+		// The server confirms; the user presses "Create folder" again, same name.
+		status = MailboxSyncStatus.synced;
+		let result: FolderOption | undefined;
+		await act(async () => {
+			result = await createFolder?.("Taxes");
+		});
+		assert.equal(result?.label, "Taxes");
+
+		// Exactly one create across both attempts — the retry resumed, it did not
+		// re-validate (which would throw "already exists") or re-POST.
+		const posts = (http?.calls ?? []).filter((call) => call.method === "POST");
+		assert.equal(posts.length, 1);
+	});
+
+	it("abort stops the wait so a folder that confirms later never resolves", async () => {
+		mount([mailbox("INBOX", "/")], MailboxSyncStatus.pending);
+		const controller = new AbortController();
+		let caught: unknown;
+		await act(async () => {
+			const promise = createFolder?.("Taxes", controller.signal);
+			controller.abort();
+			caught = await promise?.then(
+				() => undefined,
+				(error: unknown) => error,
+			);
+		});
+		assert.equal((caught as { name?: string })?.name, "AbortError");
 	});
 });

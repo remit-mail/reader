@@ -114,4 +114,73 @@ describe("waitForMailboxSynced", () => {
 				error instanceof Error && error.message === MAILBOX_SYNC_FAILED_MESSAGE,
 		);
 	});
+
+	const isAbort = (error: unknown): boolean =>
+		typeof error === "object" &&
+		error !== null &&
+		(error as { name?: unknown }).name === "AbortError";
+
+	it("rejects without polling when the signal is already aborted", async () => {
+		const controller = new AbortController();
+		controller.abort();
+		let fetches = 0;
+		await assert.rejects(
+			waitForMailboxSynced({
+				mailboxId: "mbx-1",
+				signal: controller.signal,
+				fetchMailboxes: async () => {
+					fetches += 1;
+					return [row("mbx-1", MailboxSyncStatus.pending)];
+				},
+				delay: noDelay,
+			}),
+			isAbort,
+		);
+		assert.equal(fetches, 0);
+	});
+
+	it("stops polling and rejects when the signal aborts mid-wait", async () => {
+		const controller = new AbortController();
+		let fetches = 0;
+		await assert.rejects(
+			waitForMailboxSynced({
+				mailboxId: "mbx-1",
+				signal: controller.signal,
+				fetchMailboxes: async () => {
+					fetches += 1;
+					if (fetches === 2) controller.abort();
+					return [row("mbx-1", MailboxSyncStatus.pending)];
+				},
+				delay: noDelay,
+			}),
+			isAbort,
+		);
+		assert.equal(fetches, 2);
+	});
+
+	it("resolves across the real timer delay between polls", async () => {
+		const responses = [
+			[row("mbx-1", MailboxSyncStatus.pending)],
+			[row("mbx-1", MailboxSyncStatus.synced)],
+		];
+		let call = 0;
+		const result = await waitForMailboxSynced({
+			mailboxId: "mbx-1",
+			pollIntervalMs: 1,
+			fetchMailboxes: async () => responses[call++],
+		});
+		assert.equal(result.syncStatus, MailboxSyncStatus.synced);
+	});
+
+	it("aborts an in-progress real timer delay", async () => {
+		const controller = new AbortController();
+		const pending = waitForMailboxSynced({
+			mailboxId: "mbx-1",
+			signal: controller.signal,
+			pollIntervalMs: 10_000,
+			fetchMailboxes: async () => [row("mbx-1", MailboxSyncStatus.pending)],
+		});
+		setTimeout(() => controller.abort(), 5);
+		await assert.rejects(pending, isAbort);
+	});
 });

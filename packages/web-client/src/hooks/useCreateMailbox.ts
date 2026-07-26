@@ -5,7 +5,7 @@ import {
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { FolderOption } from "@remit/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { getMailboxDisplayName } from "@/lib/folder-roles";
 import { waitForMailboxSynced } from "@/lib/mailbox-sync-wait";
 import { composeFolderPath, validateNewFolderName } from "@/lib/new-folder";
@@ -26,9 +26,19 @@ import { composeFolderPath, validateNewFolderName } from "@/lib/new-folder";
  * existence and cannot report a create that fails. It resolves with the confirmed
  * folder (carrying the path the server normalized to), rejects with a distinct
  * message when the create fails or never confirms, and the kit surfaces that
- * render either the "Creating folder…" wait or the failure inline. `mutation` is
- * exposed for callers that drive their own form state and want the optimistic,
- * non-waiting create (the standalone settings create).
+ * render either the "Creating folder…" wait or the failure inline.
+ *
+ * Retry is a resume, not a re-create: a create that timed out or failed leaves
+ * the row already made, so pressing "Create folder" again calls `createFolder`
+ * with the same name — which resumes the wait on the mailboxId it already made
+ * rather than re-validating (the pending row would collide as "already exists")
+ * and re-POSTing. The mailboxId is carried per-name until the folder confirms.
+ *
+ * `createFolder` takes an `AbortSignal` the surface aborts on unmount/cancel/
+ * close, so a folder that confirms after the surface is gone resolves nothing.
+ *
+ * `mutation` is exposed for callers that drive their own form state and want the
+ * optimistic, non-waiting create (the standalone settings create).
  */
 export function useCreateMailbox(accountId: string) {
 	const queryClient = useQueryClient();
@@ -48,22 +58,33 @@ export function useCreateMailbox(accountId: string) {
 		},
 	});
 
+	// fullPath -> mailboxId for a folder created but not yet confirmed, so a retry
+	// resumes the wait on it instead of re-creating. Cleared once it confirms.
+	const pendingByPath = useRef(new Map<string, string>());
+
 	const createFolder = useCallback(
-		async (name: string): Promise<FolderOption> => {
-			const items = data?.items ?? [];
-			const delimiter = items[0]?.hierarchyDelimiter ?? "/";
-			const problem = validateNewFolderName({
-				name,
-				delimiter,
-				existingPaths: items.map((item) => item.fullPath),
-			});
-			if (problem) throw new Error(problem);
-			const mailbox = await mutation.mutateAsync({
-				path: { accountId },
-				body: { fullPath: composeFolderPath(name), namespaceType: "personal" },
-			});
+		async (name: string, signal?: AbortSignal): Promise<FolderOption> => {
+			const fullPath = composeFolderPath(name);
+			let mailboxId = pendingByPath.current.get(fullPath);
+			if (!mailboxId) {
+				const items = data?.items ?? [];
+				const delimiter = items[0]?.hierarchyDelimiter ?? "/";
+				const problem = validateNewFolderName({
+					name,
+					delimiter,
+					existingPaths: items.map((item) => item.fullPath),
+				});
+				if (problem) throw new Error(problem);
+				const mailbox = await mutation.mutateAsync({
+					path: { accountId },
+					body: { fullPath, namespaceType: "personal" },
+				});
+				mailboxId = mailbox.mailboxId;
+				pendingByPath.current.set(fullPath, mailboxId);
+			}
 			const confirmed = await waitForMailboxSynced({
-				mailboxId: mailbox.mailboxId,
+				mailboxId,
+				signal,
 				fetchMailboxes: async () => {
 					const response = await queryClient.fetchQuery({
 						...mailboxOperationsListMailboxesOptions({ path: { accountId } }),
@@ -72,6 +93,7 @@ export function useCreateMailbox(accountId: string) {
 					return response.items ?? [];
 				},
 			});
+			pendingByPath.current.delete(fullPath);
 			return {
 				id: confirmed.mailboxId,
 				label: getMailboxDisplayName(confirmed.fullPath),

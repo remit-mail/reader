@@ -14,6 +14,10 @@ type MailboxSyncStatusValue =
  *
  * The standalone create (a folder made in settings with no dependent write) does
  * not use this — it may stay optimistic. The wait is only for the dependent case.
+ *
+ * The wait honours an `AbortSignal`: the surface that started the create passes
+ * one and aborts it on unmount/cancel/close, so a folder that confirms after the
+ * surface is gone never resolves and never fires the dependent bind or move.
  */
 
 /** The read fields the wait needs off a mailbox row. */
@@ -27,12 +31,14 @@ export interface WaitForMailboxSyncedOptions<T extends MailboxSyncSignal> {
 	fetchMailboxes: () => Promise<readonly T[]>;
 	/** The row to wait on. */
 	mailboxId: string;
+	/** Aborts the wait; a late confirmation after abort resolves nothing. */
+	signal?: AbortSignal;
 	/** How long to wait for confirmation before giving up. */
 	timeoutMs?: number;
 	/** Gap between polls. */
 	pollIntervalMs?: number;
 	/** Injectable clock/sleep for tests. */
-	delay?: (ms: number) => Promise<void>;
+	delay?: (ms: number, signal?: AbortSignal) => Promise<void>;
 	now?: () => number;
 }
 
@@ -42,21 +48,37 @@ export const MAILBOX_SYNC_POLL_INTERVAL_MS = 1_000;
 export const MAILBOX_SYNC_FAILED_MESSAGE =
 	"The folder couldn't be created on the mail server. Please try again.";
 export const MAILBOX_SYNC_TIMEOUT_MESSAGE =
-	"Creating the folder is taking longer than expected. Please try again.";
+	"The folder was created but the mail server hasn't confirmed it yet, so nothing was attached to it. It's in your folder list — try again in a moment.";
 
-const defaultDelay = (ms: number): Promise<void> =>
-	new Promise((resolve) => setTimeout(resolve, ms));
+const defaultDelay = (ms: number, signal?: AbortSignal): Promise<void> =>
+	new Promise((resolve, reject) => {
+		if (signal?.aborted) {
+			reject(signal.reason);
+			return;
+		}
+		const timer = setTimeout(() => {
+			signal?.removeEventListener("abort", onAbort);
+			resolve();
+		}, ms);
+		const onAbort = () => {
+			clearTimeout(timer);
+			reject(signal?.reason);
+		};
+		signal?.addEventListener("abort", onAbort, { once: true });
+	});
 
 /**
  * Resolve with the mailbox row once its `syncStatus` reaches `synced` — the
  * server-confirmed row, carrying the path the server normalized the create to.
- * Reject with a failure message when the create is reported `failed`, and with a
- * distinct timeout message when it never confirms within `timeoutMs`. A row that
- * is still `pending` (or not yet in the list) keeps the poll running.
+ * Reject with a failure message when the create is reported `failed`, with a
+ * distinct timeout message when it never confirms within `timeoutMs`, and with
+ * the signal's reason (an `AbortError`) when `signal` aborts. A row that is still
+ * `pending` (or not yet in the list) keeps the poll running.
  */
 export async function waitForMailboxSynced<T extends MailboxSyncSignal>({
 	fetchMailboxes,
 	mailboxId,
+	signal,
 	timeoutMs = MAILBOX_SYNC_TIMEOUT_MS,
 	pollIntervalMs = MAILBOX_SYNC_POLL_INTERVAL_MS,
 	delay = defaultDelay,
@@ -64,12 +86,13 @@ export async function waitForMailboxSynced<T extends MailboxSyncSignal>({
 }: WaitForMailboxSyncedOptions<T>): Promise<T> {
 	const deadline = now() + timeoutMs;
 	for (;;) {
+		signal?.throwIfAborted();
 		const mailboxes = await fetchMailboxes();
 		const mailbox = mailboxes.find((entry) => entry.mailboxId === mailboxId);
 		if (mailbox?.syncStatus === MailboxSyncStatus.synced) return mailbox;
 		if (mailbox?.syncStatus === MailboxSyncStatus.failed)
 			throw new Error(MAILBOX_SYNC_FAILED_MESSAGE);
 		if (now() >= deadline) throw new Error(MAILBOX_SYNC_TIMEOUT_MESSAGE);
-		await delay(pollIntervalMs);
+		await delay(pollIntervalMs, signal);
 	}
 }
