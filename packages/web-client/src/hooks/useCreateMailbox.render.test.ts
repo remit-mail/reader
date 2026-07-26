@@ -1,9 +1,11 @@
 /**
- * useCreateMailbox.createFolder — the shared create seam the kit surfaces call.
- * It validates the typed name against the account's current folders with the
- * same IMAP-aware rules the settings form uses, and rejects with the
- * human-readable reason before any request. The mailbox list is seeded into the
- * query cache the hook reads, so validation runs against real paths.
+ * useCreateMailbox.createFolder — the shared create seam the kit surfaces call
+ * for a dependent write. It validates the typed name against the account's
+ * current folders with the same IMAP-aware rules the settings form uses, rejects
+ * with the human-readable reason before any request, then waits for the mail
+ * server to confirm the folder before resolving — so a filter or a move never
+ * binds to a still-pending row. The mailbox list is seeded into the query cache
+ * the hook reads, so validation runs against real paths.
  */
 
 import assert from "node:assert/strict";
@@ -13,8 +15,10 @@ import type {
 	MailboxOperationsListMailboxesResponse,
 	RemitImapMailboxResponse,
 } from "@remit/api-http-client/types.gen.ts";
+import { MailboxSyncStatus } from "@remit/domain-enums";
 import type { FolderOption } from "@remit/ui";
 import { act, createElement } from "react";
+import { MAILBOX_SYNC_FAILED_MESSAGE } from "../lib/mailbox-sync-wait";
 import { createDomHarness, type DomHarness } from "../test-support/dom";
 import { type HttpMock, mockFetch } from "../test-support/http";
 import { useCreateMailbox } from "./useCreateMailbox";
@@ -49,13 +53,23 @@ function Probe() {
 	return null;
 }
 
-const mount = (items: RemitImapMailboxResponse[]) => {
+const mount = (
+	items: RemitImapMailboxResponse[],
+	createdSyncStatus: RemitImapMailboxResponse["syncStatus"] = MailboxSyncStatus.synced,
+) => {
+	const created: RemitImapMailboxResponse[] = [];
 	http = mockFetch((call) => {
 		if (call.method === "POST") {
 			const body = call.body as { fullPath: string };
+			created.push({
+				mailboxId: `mbx-${body.fullPath}`,
+				accountId: ACCOUNT,
+				fullPath: body.fullPath,
+				syncStatus: createdSyncStatus,
+			} as RemitImapMailboxResponse);
 			return { mailboxId: `mbx-${body.fullPath}`, fullPath: body.fullPath };
 		}
-		return { items };
+		return { items: [...items, ...created] };
 	});
 	harness = createDomHarness();
 	harness.queryClient.setQueryData<MailboxOperationsListMailboxesResponse>(
@@ -114,7 +128,7 @@ describe("useCreateMailbox.createFolder validation", () => {
 		assert.equal(postCount(), 0);
 	});
 
-	it("passes a valid name through to the create request and maps the result", async () => {
+	it("passes a valid name through and resolves once the folder is confirmed synced", async () => {
 		mount([mailbox("INBOX", "/")]);
 		let result: FolderOption | undefined;
 		await act(async () => {
@@ -126,6 +140,22 @@ describe("useCreateMailbox.createFolder validation", () => {
 			fullPath: "Taxes",
 			namespaceType: "personal",
 		});
+		// It polled the list after the create to confirm the folder before resolving.
+		const gets = (http?.calls ?? []).filter((call) => call.method === "GET");
+		assert.ok(gets.length >= 1, "polls the mailbox list for confirmation");
 		assert.equal(result?.label, "Taxes");
+	});
+
+	it("rejects — no folder to bind a dependent write to — when the create is reported failed", async () => {
+		mount([mailbox("INBOX", "/")], MailboxSyncStatus.failed);
+		let caught: unknown;
+		await act(async () => {
+			caught = await createFolder?.("Taxes").then(
+				() => undefined,
+				(error: unknown) => error,
+			);
+		});
+		assert.ok(caught instanceof Error);
+		assert.equal(caught.message, MAILBOX_SYNC_FAILED_MESSAGE);
 	});
 });
