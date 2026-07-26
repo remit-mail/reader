@@ -59,16 +59,25 @@ function mount(props: {
 	return row;
 }
 
-function pointerDown(row: Element) {
+function pointerDown(row: Element, pointerType = "touch") {
 	row.dispatchEvent(
 		new dom.window.PointerEvent("pointerdown", {
 			bubbles: true,
-			pointerType: "touch",
+			pointerType,
 			pointerId: 1,
 			clientX: 10,
 			clientY: 10,
 		}),
 	);
+}
+
+function dispatchContextMenu(row: Element) {
+	const event = new dom.window.MouseEvent("contextmenu", {
+		bubbles: true,
+		cancelable: true,
+	});
+	row.dispatchEvent(event);
+	return event;
 }
 
 function pointerUp() {
@@ -192,29 +201,36 @@ describe("useLongPress (react-aria wrapper)", () => {
 			"long press must have fired for this to be meaningful",
 		);
 
-		const contextMenuEvent = new dom.window.MouseEvent("contextmenu", {
-			bubbles: true,
-			cancelable: true,
-		});
-		row.dispatchEvent(contextMenuEvent);
-
 		assert.equal(
-			contextMenuEvent.defaultPrevented,
+			dispatchContextMenu(row).defaultPrevented,
 			true,
-			"react-aria suppresses the link context menu that Android/Chrome fires after a touch long press",
+			"the link context menu Android/Chrome fires after a touch long press is suppressed",
 		);
 	});
 
-	it("does not suppress contextmenu when no long press occurred", async () => {
+	it("suppresses the touch contextmenu even before the long-press threshold", async () => {
+		// Android Chrome can raise the link menu at its own threshold, ahead of
+		// the app's long press; keying suppression to the pointer type rather
+		// than to a fired long press covers that race.
+		const row = mount({ onLongPress: () => undefined });
+
+		pointerDown(row, "touch");
+		assert.equal(dispatchContextMenu(row).defaultPrevented, true);
+	});
+
+	it("does not suppress contextmenu from a mouse right-click", async () => {
+		// Desktop right-click must keep its native context menu; a mouse
+		// pointerdown precedes the contextmenu, so the pointer type is known.
+		const row = mount({ onLongPress: () => undefined });
+
+		pointerDown(row, "mouse");
+		assert.equal(dispatchContextMenu(row).defaultPrevented, false);
+	});
+
+	it("does not suppress contextmenu when no pointer interaction preceded it", async () => {
 		mount({ onLongPress: () => undefined });
 		const row = dom.window.document.getElementById("row") as Element;
 
-		const contextMenuEvent = new dom.window.MouseEvent("contextmenu", {
-			bubbles: true,
-			cancelable: true,
-		});
-		row.dispatchEvent(contextMenuEvent);
-
-		assert.equal(contextMenuEvent.defaultPrevented, false);
+		assert.equal(dispatchContextMenu(row).defaultPrevented, false);
 	});
 });
