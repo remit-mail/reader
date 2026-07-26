@@ -32,48 +32,30 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { GENERATED_PACKAGES } from "./lib/generated-packages.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dryRun = process.argv.includes("--dry-run");
 
 const repositoryUrl = "git+https://github.com/remit-mail/reader.git";
 
-// TypeSpec-generated packages, in dependency order (all are leaves).
+// The TypeSpec-generated packages (dir/name mapping shared with
+// check-consumer-typecheck.mjs via lib/generated-packages.mjs), in dependency
+// order (all are leaves), plus two data packages built by other tooling.
 // `peerDependencies` names the runtime libraries the built output imports but
 // expects the consumer to supply — merged onto whatever the emitter declared so
 // a standalone install resolves them.
+const generatedPeerDependencies = {
+	"@remit/api-zod-schemas": { zod: "^3.0.0" },
+	"@remit/electrodb-entities": { electrodb: ">=3.0.0" },
+	"@remit/api-http-client": { "@tanstack/react-query": "^5.0.0" },
+};
 const generated = [
-	{ dir: "build/ts-enums", name: "@remit/domain-enums", peerDependencies: {} },
-	{
-		dir: "build/openapi-types",
-		name: "@remit/api-openapi-types",
-		peerDependencies: {},
-	},
-	{
-		dir: "build/zod-schemas",
-		name: "@remit/api-zod-schemas",
-		peerDependencies: { zod: "^3.0.0" },
-	},
-	{
-		dir: "build/ddb-entities",
-		name: "@remit/electrodb-entities",
-		peerDependencies: { electrodb: ">=3.0.0" },
-	},
-	{
-		dir: "build/remit-client",
-		name: "@remit/api-http-client",
-		peerDependencies: { "@tanstack/react-query": "^5.0.0" },
-	},
-	{
-		dir: "build/drizzle-entities",
-		name: "@remit/drizzle-pg-schema",
-		peerDependencies: {},
-	},
-	{
-		dir: "build/drizzle-entities-sqlite",
-		name: "@remit/drizzle-sqlite-schema",
-		peerDependencies: {},
-	},
+	...GENERATED_PACKAGES.map(({ dir, name }) => ({
+		dir,
+		name,
+		peerDependencies: generatedPeerDependencies[name] ?? {},
+	})),
 	// The @typespec/openapi3 emitter writes only openapi.json, no manifest, so
 	// the publish tool synthesizes one. The spec ships as a data package: the
 	// closed platform resolves openapi.json from it instead of a local build tree.
