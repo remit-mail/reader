@@ -39,12 +39,18 @@ interface Harness {
 		deletedAt?: number;
 	} | null;
 	mailbox: { mailboxId: string; uidValidity: number; cursorState?: string };
+	mailboxError?: Error;
 	connection: Connection;
 	getConnectionCount: number;
 	disconnectCount: number;
 }
 
 let h: Harness;
+
+const notFoundError = (): Error =>
+	Object.assign(new Error("Mailbox not found: src-mbx"), {
+		name: "NotFoundError",
+	});
 
 const record =
 	(method: string) =>
@@ -94,7 +100,10 @@ const deps = (): MessageCopyDeps =>
 				update: record("threadMessage.update"),
 			},
 			mailbox: {
-				get: async () => h.mailbox,
+				get: async () => {
+					if (h.mailboxError) throw h.mailboxError;
+					return h.mailbox;
+				},
 				update: record("mailbox.update"),
 			},
 			secrets: {},
@@ -187,6 +196,16 @@ describe("handleMessageCopy", () => {
 			handleMessageCopy(event, noopLog, deps()),
 			/not found/,
 		);
+	});
+
+	it("acks terminally without connecting when the source mailbox was deleted", async () => {
+		h.mailboxError = notFoundError();
+
+		await handleMessageCopy(event, noopLog, deps());
+
+		assert.equal(h.getConnectionCount, 0);
+		assert.equal(called("message.updateUid").length, 0);
+		assert.equal(called("message.update").length, 0);
 	});
 
 	it("skips the copy without opening a connection when the cursor is rebuilding", async () => {

@@ -108,8 +108,8 @@ export function SwipeableRow({
 	} | null>(null);
 	const [dragX, setDragX] = useState<number | null>(null);
 
-	// Long-press timing/threshold and contextmenu/text-selection suppression
-	// are owned by react-aria; this component only arbitrates the swipe axis.
+	// Long-press timing/threshold and touch contextmenu suppression are owned
+	// by useLongPress; this component only arbitrates the swipe axis.
 	const { longPressProps } = useLongPress({
 		onLongPress,
 		isDisabled: selectionMode,
@@ -228,9 +228,9 @@ export function SwipeableRow({
 		"relative touch-pan-y bg-surface",
 		// This row's long press enters selection mode; without these, Android
 		// Chrome opens the link context menu / starts text selection and iOS
-		// Safari fires the callout, racing the app's handler. react-aria
-		// suppresses contextmenu/text-selection but not iOS's callout — it
-		// fires no cancelable event, so CSS is the only lever.
+		// Safari fires the callout, racing the app's handler. useLongPress
+		// suppresses the touch-fired contextmenu; the callout fires no
+		// cancelable event, so CSS is the only lever left for it.
 		"select-none [-webkit-touch-callout:none]",
 		comfortableRowClass({ active: checked || active }),
 	);

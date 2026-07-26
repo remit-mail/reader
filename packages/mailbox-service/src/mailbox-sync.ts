@@ -13,11 +13,13 @@ import type {
 import {
 	MailboxCursorState,
 	MailboxSpecialUse,
+	MailboxSyncStatus,
 	NamespaceType,
 } from "@remit/domain-enums";
 import pMap from "p-map";
 import { isNoSelect, parseImapAttributes } from "./attribute-mapper.js";
 import { isCursorRebuildNeeded } from "./mailbox-cursor.js";
+import { isMailboxNotOnServer } from "./mailbox-presence.js";
 import type {
 	FlatMailboxInfo,
 	IImapConnection,
@@ -174,12 +176,39 @@ export class MailboxSyncService {
 				const existing = existingByPath.get(mailboxInfo.fullPath);
 
 				if (existing) {
+					// A folder at either end of its lifecycle is left alone: the worker
+					// that establishes or removes it writes its own identity back, and
+					// reading its status meanwhile is work whose only possible outcome is
+					// a failure that fails this whole account's fan-out with it.
+					if (
+						existing.syncStatus === MailboxSyncStatus.pending ||
+						existing.syncStatus === MailboxSyncStatus.deleting
+					) {
+						return;
+					}
+					// The folder set can change under this sweep. A delete that lands
+					// between the LIST above and this mailbox's STATUS fails on the
+					// server or on the row, and that would abort the enumeration of every
+					// other folder and the SYNC_MESSAGES fan-out behind it — on a
+					// per-account FIFO queue, for the whole visibility window (issue
+					// #339). One folder leaving is not a failed account sync. Anything
+					// else still propagates.
 					const updated = await this.updateMailbox(
 						account.accountId,
 						existing,
 						mailboxInfo,
 						connection,
-					);
+					).catch(async (error: unknown) => {
+						// The read only classifies the failure in hand; one that cannot
+						// answer must not replace it.
+						const gone = await isMailboxNotOnServer(
+							this.mailboxService,
+							account.accountId,
+							existing.mailboxId,
+						).catch(() => false);
+						if (gone) return null;
+						throw error;
+					});
 					if (updated) {
 						result.updated++;
 					}
@@ -198,13 +227,21 @@ export class MailboxSyncService {
 
 		// Handle deleted mailboxes (exist in DB but not on server)
 		for (const existing of existingMailboxes) {
-			if (!seenPaths.has(existing.fullPath)) {
-				await this.mailboxService.delete(account.accountId, existing.mailboxId);
-				console.info(
-					`Deleted mailbox: ${existing.mailboxId} (${existing.fullPath})`,
-				);
-				result.deleted++;
-			}
+			if (seenPaths.has(existing.fullPath)) continue;
+			// A `pending` row is a folder the user just created (or renamed) whose
+			// MAILBOX_CREATE/RENAME has not yet reached the server, so its absence
+			// from the LIST is expected, not a server-side deletion. Deleting it
+			// races the create: the row vanishes, then MAILBOX_CREATE fails with
+			// NotFoundError trying to mark it synced, and — sharing this account's
+			// mailboxes FIFO group — that un-acked failure stalls every later
+			// mailbox sync for the queue's whole visibility window (#290). Leave
+			// pending rows to the create/rename flow that owns them.
+			if (existing.syncStatus === MailboxSyncStatus.pending) continue;
+			await this.mailboxService.delete(account.accountId, existing.mailboxId);
+			console.info(
+				`Deleted mailbox: ${existing.mailboxId} (${existing.fullPath})`,
+			);
+			result.deleted++;
 		}
 
 		return result;

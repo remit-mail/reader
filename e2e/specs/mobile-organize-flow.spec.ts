@@ -236,7 +236,7 @@ test.describe("Guided mobile organize flow", () => {
 		}
 	});
 
-	test("Select similar commits a standing filter", async ({
+	test("Select similar commits a standing filter, then back-applies it", async ({
 		page,
 		run,
 		api,
@@ -261,6 +261,36 @@ test.describe("Guided mobile organize flow", () => {
 				}),
 			}),
 		);
+		// Creating a standing filter now runs the retroactive back-apply, so the
+		// commit flows into the same job the one-time scope runs. The job re-uses
+		// the absent index server-side, so it is stubbed exactly as the one-time
+		// case above: create returns a running job, the poll returns it complete.
+		await page.route(/\/organize$/, (route) =>
+			route.fulfill({
+				status: 200,
+				contentType: "application/json",
+				body: JSON.stringify({
+					organizeJobId: "job-1",
+					state: "Running",
+					matchedCount: 3,
+					appliedCount: 0,
+					failedCount: 0,
+				}),
+			}),
+		);
+		await page.route(/\/organize\/job-1$/, (route) =>
+			route.fulfill({
+				status: 200,
+				contentType: "application/json",
+				body: JSON.stringify({
+					organizeJobId: "job-1",
+					state: "Complete",
+					matchedCount: 3,
+					appliedCount: 3,
+					failedCount: 0,
+				}),
+			}),
+		);
 
 		try {
 			await selectTwoAndExpand(page, first, second);
@@ -275,7 +305,9 @@ test.describe("Guided mobile organize flow", () => {
 			await page.getByLabel("Rule name").fill(tag);
 			await page.getByRole("button", { name: "Save rule" }).click();
 
-			await expect(page.getByText("Filter saved")).toBeVisible({
+			// The rule saved, then its back-apply moved the mail already matching —
+			// the summary the standing scope now reaches, not a bare "Filter saved".
+			await expect(page.getByText(/3 of 3 moved/)).toBeVisible({
 				timeout: 15_000,
 			});
 			await page.getByRole("button", { name: "Done" }).click();
