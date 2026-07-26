@@ -37,6 +37,31 @@ describe("ComfortableRow", () => {
 	});
 });
 
+describe("ComfortableRow category presentation", () => {
+	const render = (category: ThreadRowData["category"]): string =>
+		renderToString(
+			createElement(ComfortableRow, {
+				thread: { ...base, isRead: true, category },
+			}),
+		);
+
+	it("renders no category marker for personal", () => {
+		assert.doesNotMatch(render("personal"), /personal/i);
+	});
+
+	it("renders uncategorized as neither personal nor nothing (#45)", () => {
+		const uncategorized = render("uncategorized");
+		const personal = render("personal");
+		assert.notEqual(uncategorized, personal);
+		assert.doesNotMatch(uncategorized, /personal/i);
+		assert.match(
+			uncategorized,
+			/uncategorized|unclassified/i,
+			"a message the classifier has not reached carries its own marker",
+		);
+	});
+});
+
 describe("ComfortableRow selection slot", () => {
 	it("renders no checkbox without a selection (non-selectable mode)", () => {
 		const html = renderToString(

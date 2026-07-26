@@ -10,6 +10,7 @@ import {
 const CATEGORIES: FilterSheetCategory[] = [
 	{ id: "all", label: "All", tone: "neutral" },
 	{ id: "personal", label: "Personal", tone: "positive" },
+	{ id: "uncategorized", label: "Unclassified", tone: "neutral" },
 	{ id: "newsletters", label: "Newsletters", tone: "accent" },
 	{ id: "marketing", label: "Marketing", tone: "warning" },
 	{ id: "automated", label: "Automated", tone: "neutral" },
@@ -124,6 +125,17 @@ export const CollapsedWithActiveFilters: Story = {
 			initialCategory="personal"
 			initialFilters={new Set(["unread", "today"])}
 		/>
+	),
+};
+
+/**
+ * Unclassified selected. Mail the classifier has not reached is a filterable
+ * value of its own and never folds into Personal (issue #45), so the chip and
+ * its collapsed summary carry their own label and tone.
+ */
+export const CollapsedWithUnclassified: Story = {
+	render: () => (
+		<ControlledShell initialExpanded={false} initialCategory="uncategorized" />
 	),
 };
 

@@ -22,6 +22,7 @@ describe("briefFilterConfig", () => {
 			[
 				"all",
 				"personal",
+				"uncategorized",
 				"transactional",
 				"newsletter",
 				"marketing",
@@ -29,6 +30,22 @@ describe("briefFilterConfig", () => {
 				"automated",
 			],
 		);
+	});
+
+	it("offers uncategorized right after personal, as its own chip", () => {
+		const { categories } = briefFilterConfig();
+		const personal = categories.findIndex((c) => c.id === "personal");
+		const uncategorized = categories.findIndex((c) => c.id === "uncategorized");
+		assert.equal(uncategorized, personal + 1);
+	});
+
+	it("keeps uncategorized visually distinct from personal (#45)", () => {
+		const byId = new Map(briefFilterConfig().categories.map((c) => [c.id, c]));
+		const personal = byId.get("personal");
+		const uncategorized = byId.get("uncategorized");
+		assert.equal(uncategorized?.label, "Unclassified");
+		assert.notEqual(uncategorized?.label, personal?.label);
+		assert.notEqual(uncategorized?.tone, personal?.tone);
 	});
 
 	it("offers the BriefSections chip set", () => {
@@ -71,6 +88,12 @@ describe("inboxFilterConfig", () => {
 		assert.deepEqual(
 			inboxFilterConfig().filters.map((f) => f.label),
 			["Unread", "Starred", "Has attachment"],
+		);
+	});
+
+	it("can ask the server for unclassified mail", () => {
+		assert.ok(
+			inboxFilterConfig().categories.some((c) => c.id === "uncategorized"),
 		);
 	});
 

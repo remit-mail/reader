@@ -244,8 +244,11 @@ export { MessageListPane } from "./components/message-list-pane.js";
 export {
 	type ListState,
 	MessageListEmpty,
+	type MessageListEmptyProps,
 	MessageListError,
+	type MessageListFilter,
 	MessageListLoading,
+	MessageListLoadingMore,
 } from "./components/message-list-state.js";
 export {
 	type BriefRowComponent,

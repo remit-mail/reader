@@ -31,10 +31,16 @@ export interface FilterPreset {
  * Content-type categories, mirroring the `MessageCategory` enum
  * (@remit/remit-imap) by value. The leading "all" clears the category. Per
  * message, not per mailbox — so they apply in the brief and an inbox alike.
+ *
+ * `uncategorized` is a filterable value of its own, ordered after `Personal` to
+ * match `briefCategories`. It never folds into `personal` (issue #45): a
+ * message the classifier has not reached is not a message the classifier
+ * decided was personal, so the two carry different labels and different tones.
  */
 const MESSAGE_CATEGORIES: FilterSheetCategory[] = [
 	{ id: "all", label: "All", tone: "neutral" },
 	{ id: "personal", label: "Personal", tone: "accent" },
+	{ id: "uncategorized", label: "Unclassified", tone: "neutral" },
 	{ id: "transactional", label: "Transactional", tone: "positive" },
 	{ id: "newsletter", label: "Newsletter", tone: "neutral" },
 	{ id: "marketing", label: "Marketing", tone: "warning" },
