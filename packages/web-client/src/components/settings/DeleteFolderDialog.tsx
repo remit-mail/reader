@@ -103,8 +103,9 @@ export function DeleteFolderDialog({
 
 	const handleCreateFolder = async (
 		name: string,
+		signal?: AbortSignal,
 	): Promise<MoveMailboxOption> => {
-		const created = await createFolder(name);
+		const created = await createFolder(name, signal);
 		return { id: created.id, label: created.label };
 	};
 
