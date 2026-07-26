@@ -168,7 +168,7 @@ itself (Settings → Add account).
 | `backend` | `ghcr.io/remit-mail/reader/backend` | The API. Also the image the `migrate` and `volume-init` one-shots run. |
 | `imap-worker`, `smtp-worker`, `account-worker`, `search-index-worker` | `ghcr.io/remit-mail/reader/*` | Queue pollers: sync mail, push flag and folder changes back, send outgoing mail, and build the search index. |
 | `queue` | `ghcr.io/remit-mail/reader/queue-sidecar` | The SQS-compatible queue seam: a SQLite-backed sidecar speaking the SQS wire protocol, persisting enqueued work to its own volume. |
-| `migrate` | `ghcr.io/remit-mail/reader/backend` (command override) | One-shot: applies the SQLite migrations and the FTS5 search index before any app service starts. |
+| `migrate` | `ghcr.io/remit-mail/reader/backend` (command override) | One-shot: applies the SQLite migrations, repairs `thread_message.category`, and installs the FTS5 search index before any app service starts. See [The category repair](#the-category-repair). |
 | `volume-init` | `ghcr.io/remit-mail/reader/backend` (entrypoint override) | One-shot: fixes ownership of the data volumes so the non-root app user can write them. |
 | `backup` | `alpine:3.23` | Off by default (`profiles: ["backup"]`). Nightly encrypted database snapshot. See [Backups](#backups). |
 
@@ -182,6 +182,25 @@ backed up by the nightly snapshot below (see [Backups](#backups)).
 
 The idle footprint stays small: removing a database server leaves the embedding
 model in `search-index-worker` as the largest resident once indexing has run.
+
+## The category repair
+
+The mail list filters on `thread_message.category`, a copy of `message.category`
+kept on the row so the filter can be a SQL predicate over the whole folder rather
+than a pass over the pages a browser happens to hold. The `migrate` one-shot
+repairs any row whose copy disagrees, and logs what it found before and after —
+so an upgrade leaves the numbers behind instead of an assumption. It runs one
+statement, writes only rows that need it, and is a no-op on every later start.
+
+The same entrypoint reports without writing anything. It opens the database
+read-only, applies no migrations, and prints each figure with the cause it
+measures and the result a healthy instance is expected to produce — most of them
+zero, for reasons it states:
+
+```bash
+docker compose -f docker-compose.sqlite.yml --env-file .env \
+  run --rm migrate node migrate.mjs --check
+```
 
 ## Search
 

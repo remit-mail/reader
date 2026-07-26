@@ -8,6 +8,18 @@ import pg from "pg";
 import outboxTriggerSql from "../../../npm-scripts/pg-outbox-trigger.sql";
 import searchIndexSql from "../../../npm-scripts/pg-search-index.sql";
 import sqliteSearchIndexSql from "../../../npm-scripts/sqlite-search-index.sql";
+// Reached by relative path for the same reason the .sql files above are: this
+// entrypoint is bundled by esbuild, not resolved as a workspace dependency, and
+// the repair module imports nothing so bundling it drags in no schema or driver.
+import {
+	type CategoryDivergenceReport,
+	checkThreadMessageCategory,
+	formatCheckReport,
+	formatRepairResult,
+	type RepairSqlClient,
+	readDivergence,
+	repairThreadMessageCategory,
+} from "../../../packages/drizzle-service/src/repair/thread-message-category.js";
 
 /**
  * One-shot migrator for the VPS/self-host compose stack (RFC 035 D8). Runs
@@ -27,15 +39,76 @@ import sqliteSearchIndexSql from "../../../npm-scripts/sqlite-search-index.sql";
  */
 
 /**
- * This migrator applies generated schema migrations and installs the
- * idempotent DDL objects around them. It does not rewrite row content.
+ * This migrator applies generated schema migrations, installs the idempotent
+ * DDL objects around them, and rewrites row content in exactly one place.
  *
- * When a column's MEANING changes, rows written under the old meaning are
- * stale rather than convertible, and the remedy is `remit purge` followed by a
- * re-sync — the mail is on the server, and re-fetching it is cheaper to
- * operate and to reason about than a bespoke one-shot rewrite that every
- * future install carries forever.
+ * That last clause is an amendment (#321, D16). This file used to state that it
+ * never rewrites row content, and the rule behind it still holds: when a
+ * column's MEANING changes, rows written under the old meaning are stale rather
+ * than convertible, and the remedy is `remit purge` followed by a re-sync — the
+ * mail is on the server, and re-fetching it is cheaper to operate and to reason
+ * about than a bespoke one-shot rewrite that every future install carries
+ * forever.
+ *
+ * The exception is `thread_message.category`, and the reason is delivery. It is
+ * a denormalized copy of `message.category` that nothing has ever read, so its
+ * write path was never load-bearing and the column drifted; #304 turns it into
+ * the SQL predicate behind the inbox category filter. The correction therefore
+ * has to be on every existing instance before that read path goes live, and the
+ * image is the only artefact an update delivers: `remit update` moves an image
+ * tag and runs `compose pull` against the compose file already on disk, so a
+ * compose-level step reaches nobody who is already installed (#281). This
+ * entrypoint is in the image, six services gate on it, and `check_migrate()`
+ * enforces it again — so the repair lives here. A doc comment does not outrank
+ * the repair running.
+ *
+ * The repair is bounded to a value that is a primary-key probe away in the same
+ * database: it copies `message.category` onto rows that disagree with it, and
+ * nothing else. It is not a precedent for converting rows whose meaning changed.
  */
+
+/**
+ * `--check` is the read-only mode of this same entrypoint (D17): it reports what
+ * the repair would do and applies nothing at all, migrations included, so it can
+ * be pointed at a live instance. Anything else is refused rather than ignored —
+ * a mistyped flag that silently ran the full migration is the failure mode this
+ * guards.
+ */
+type Mode = "migrate" | "check";
+
+const parseMode = (argv: readonly string[]): Mode => {
+	if (argv.length === 0) {
+		return "migrate";
+	}
+	if (argv.length === 1 && argv[0] === "--check") {
+		return "check";
+	}
+	throw new Error(
+		`unrecognised argument: ${argv.join(" ")} — the only option is --check`,
+	);
+};
+
+const logReport = (report: CategoryDivergenceReport): void => {
+	for (const line of formatCheckReport(report)) {
+		console.log(`[migrate:category-check] ${line}`);
+	}
+};
+
+/**
+ * Report first, then repair, then re-read only the divergence figures. The
+ * before-numbers are the evidence an upgrade leaves behind, and the single
+ * re-read is what distinguishes "nothing to do" from "did not run".
+ */
+const repairThreadMessageCategoryStep = async (
+	client: RepairSqlClient,
+): Promise<void> => {
+	logReport(await checkThreadMessageCategory(client));
+	const result = await repairThreadMessageCategory(client);
+	const residual = await readDivergence(client);
+	for (const line of formatRepairResult(result, residual)) {
+		console.log(`[migrate:category-repair] ${line}`);
+	}
+};
 
 /**
  * `migrations/entities` and `migrations/auth` are the Postgres set the
@@ -62,8 +135,16 @@ const requirePostgresMigrations = (): void => {
 	);
 };
 
-const runPostgres = async (): Promise<void> => {
-	requirePostgresMigrations();
+const postgresRepairClient = (pool: pg.Pool): RepairSqlClient => ({
+	dialect: "postgres",
+	all: async (sql) => (await pool.query(sql)).rows,
+	run: async (sql) => (await pool.query(sql)).rowCount ?? 0,
+});
+
+const runPostgres = async (mode: Mode): Promise<void> => {
+	if (mode === "migrate") {
+		requirePostgresMigrations();
+	}
 
 	const connectionString = process.env.PG_CONNECTION_URL;
 	if (!connectionString) {
@@ -71,7 +152,13 @@ const runPostgres = async (): Promise<void> => {
 	}
 
 	const pool = new pg.Pool({ connectionString });
+	const repairClient = postgresRepairClient(pool);
 	try {
+		if (mode === "check") {
+			logReport(await checkThreadMessageCategory(repairClient));
+			return;
+		}
+
 		console.log("[migrate] enabling extensions: vector, unaccent, pg_trgm");
 		await pool.query("CREATE EXTENSION IF NOT EXISTS vector;");
 		await pool.query("CREATE EXTENSION IF NOT EXISTS unaccent;");
@@ -95,6 +182,10 @@ const runPostgres = async (): Promise<void> => {
 			migrationsTable: "__drizzle_migrations_meta",
 		});
 
+		// Same position as on the SQLite path: after the generated migrations that
+		// supply the column and the filter's index, before the idempotent DDL step.
+		await repairThreadMessageCategoryStep(repairClient);
+
 		console.log("[migrate] installing outbox notify trigger");
 		await pool.query(outboxTriggerSql);
 
@@ -105,7 +196,7 @@ const runPostgres = async (): Promise<void> => {
 	}
 };
 
-const runSqlite = async (): Promise<void> => {
+const runSqlite = async (mode: Mode): Promise<void> => {
 	const dbPath = process.env.SQLITE_DB_PATH;
 	if (!dbPath) {
 		throw new Error("SQLITE_DB_PATH is required when DATA_BACKEND=sqlite");
@@ -120,8 +211,21 @@ const runSqlite = async (): Promise<void> => {
 		"drizzle-orm/better-sqlite3/migrator"
 	);
 
-	const sqlite = new Database(dbPath);
+	// `--check` opens the file read-only, so "writes nothing" is enforced by the
+	// engine rather than by reading the queries — that is what makes it safe to
+	// point at a live instance.
+	const sqlite = new Database(dbPath, { readonly: mode === "check" });
+	const sqliteRepairClient: RepairSqlClient = {
+		dialect: "sqlite",
+		all: async (sql) => sqlite.prepare(sql).all(),
+		run: async (sql) => sqlite.prepare(sql).run().changes,
+	};
 	try {
+		if (mode === "check") {
+			logReport(await checkThreadMessageCategory(sqliteRepairClient));
+			return;
+		}
+
 		// WAL + busy_timeout are the cross-process write coordination RFC 036 D3
 		// requires; set them on the migrator connection too so a concurrent app
 		// boot never trips on a fresh database file.
@@ -148,6 +252,14 @@ const runSqlite = async (): Promise<void> => {
 			migrationsFolder: "migrations-sqlite/meta",
 			migrationsTable: "__drizzle_migrations_meta",
 		});
+
+		// After the generated migrations, which is where the column and the
+		// filter's index come from, and before the FTS transaction: the repair
+		// does not depend on either index and must not be inside a transaction
+		// that also builds one. Its own UPDATE touches only `category`, and the
+		// FTS trigger fires on `subject`/`from_name`/`from_email` only, so the
+		// repair re-tokenizes nothing.
+		await repairThreadMessageCategoryStep(sqliteRepairClient);
 
 		// The external-content FTS5 trigram table + its thread_message
 		// maintenance triggers, the final idempotent step (RFC 036 D4) — the
@@ -190,12 +302,13 @@ const runSqlite = async (): Promise<void> => {
 };
 
 const run = async (): Promise<void> => {
+	const mode = parseMode(process.argv.slice(2));
 	if (process.env.DATA_BACKEND === "sqlite") {
-		await runSqlite();
+		await runSqlite(mode);
 	} else {
-		await runPostgres();
+		await runPostgres(mode);
 	}
-	console.log("[migrate] done");
+	console.log(`[migrate] done (${mode})`);
 };
 
 run()

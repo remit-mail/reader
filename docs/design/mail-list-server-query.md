@@ -176,10 +176,17 @@ WHERE EXISTS (
 	SELECT 1 FROM message m
 	WHERE m.message_id = thread_message.message_id
 	  AND m.category <> thread_message.category
-);
+	  AND m.category <> 'uncategorized'
+)
+  AND thread_message.updated_at <= <the statement's start, in ms>;
 ```
 
 `message.message_id` is the primary key and `message.category` is `NOT NULL`, so the join is a PK probe, the `<>` never sees a NULL, and a not-yet-classified row correctly writes nothing. Re-running finishes an interrupted run; afterwards the `WHERE` matches nothing.
+
+**Two predicates were added when this was built (#321), both so the repair can never leave a row worse than it found it.** The clock is `unixepoch('subsec') * 1000` on SQLite and `EXTRACT(EPOCH FROM now()) * 1000` on Postgres; both are fixed for the duration of the statement, so no parameter is bound and the statement stays one string per dialect.
+
+- `m.category <> 'uncategorized'`. Without it the statement copies the pending state over a classified row whenever `message` is pending and `thread_message` is not — the one direction the original did not consider. `uncategorized` is a declared pending state, not absence (#45), and `message` is the authority, so a pending message holds nothing to copy and overwriting discards the only classification the instance has. That shape is reported as `reverse` and expected to be zero.
+- `thread_message.updated_at <= <statement start>`. See the mid-sync paragraph below.
 
 **Where it runs is the part the first version got wrong.** It proposed a second entrypoint invoked by the compose one-shot. That cannot reach an existing instance. `remit` fetches nothing — the compose file is only ever read from `$REMIT_DIR` on disk (`deploy/vps/remit:149-156`), `update` moves an image tag and runs `compose pull` (`:1608-1653`), and the repository-root `install.sh:25-49` is the only thing that ever downloads `docker-compose.sqlite.yml`. Open issue **#281** states the general case: *"Self-update delivers images only — compose and env changes never reach instances … any release whose fix lives in compose/env/wrapper cannot ship through the UI update."* So the first version's mechanism was #292's manual command with extra steps, wearing the argument against itself.
 
@@ -189,7 +196,13 @@ That amends `run-migrate.ts`'s header, which currently says it "does not rewrite
 
 Orchestration stays where it belongs: `remit update` already invokes the migrate step and already gates on it, so the wrapper's own tests cover that an update runs the repair. Nothing is added to the wrapper.
 
-**An instance mid-sync.** The one-shot runs before the app and workers start, so there is no concurrent writer. It is safe with one anyway: it writes only what body-sync would write, so a row touched by both gets the same value twice. A row whose message has no body yet has nothing to copy and stays `uncategorized`, correctly — body-sync will fill it, and after #320 it will fill every row for that message.
+**An instance mid-sync.** `remit update` stops every service before it starts the gate set (`remit:1655-1656`), so the repair normally runs with no concurrent writer at all. The quiet window is not assumed, because `compose up -d` without a stop re-runs the completed one-shot while unchanged app containers keep running, and the row a writer touches is then the row the statement is writing.
+
+`thread_message.updated_at <= <statement start>` is what makes that safe (#321). On SQLite writers are serialized, so a concurrent body-sync write lands wholly before or wholly after the statement and both orders converge — the guard is redundant there and costs nothing. On Postgres it is load-bearing: under READ COMMITTED an UPDATE that meets a row a concurrent transaction just committed re-evaluates its `WHERE` clause against the new version of that row, but still reads other tables at its original snapshot, so without the guard it can write a pre-classification `message.category` over the value body-sync just wrote. The guard makes that row fail the re-check, body-sync's value stands, and the row is repaired on the next start if it still needs it. A concurrent write for an unrelated reason — a read flag — is skipped the same way, which is why `--check` reports the residual under its own label rather than as a failure.
+
+What the guard does not cover, stated rather than left to be found: a write that began before the statement and commits during it carries a timestamp older than the statement's start, so it passes. In the dominant case that write is a first classification, where `message.category` is still `uncategorized` and the pending exclusion above already refuses the row. What is left is a re-classification committing inside the statement's window — one row, transient, reported by the next `--check` and repaired by the next start.
+
+A row whose message has no body yet has nothing to copy and stays `uncategorized`, correctly — body-sync will fill it, and after #326 it will fill every row for that message.
 
 Buys: the filter cannot go live against a stale column on any instance, by any upgrade path. Gives up: a stated invariant in `run-migrate.ts` is amended rather than preserved, and every update pays a join scan that finds nothing after the first.
 
@@ -201,9 +214,13 @@ The same entrypoint takes `--check`, writes nothing, and reports: rows where `th
 
 The runtime is logged, not estimated. Earlier drafts asserted "milliseconds" and "seconds"; those were guesses, and the log makes them measurements.
 
-Verification is the live instance, not a fixture: `--check`, record, repair, `--check` again, expecting zero divergence and an unchanged not-yet-classified cohort. The architecture doc's measurement predicts near-zero divergence for INBOX, and D15's defects 2 and 3 predict non-zero divergence in mailboxes holding a second copy of an INBOX message — Archive and label folders. `--check` settles which. If divergence is zero everywhere that is the result and it gets reported; the repair still ships, because the defects are in the write path and untested instances are not this instance.
+**The prediction of non-zero divergence in Archive and label folders was wrong, and the correct answer is zero.** `deriveMessageId` and `deriveThreadMessageId` are both mailbox-independent, so a message in INBOX and Archive collapses to one `thread_message` row via `onConflictDoNothing` and `applyChange` never reaches `saveMessage` (`packages/mailbox-service/src/message-move.ts:709-717`). The multi-row fan-out D15's defects 2 and 3 describe is schema-legal but not normally produced, which is why #326 keeps it as hardening. So most of what `--check` reports is legitimately zero, and a bare `0` cannot be told apart from a repair that never ran.
 
-Buys: the repair's effect is a recorded number on a real corpus rather than a claim. Gives up: a second read pass on every update.
+`--check` therefore reports each figure with the cause it measures and the result a healthy instance is expected to produce (#321): `historical` — a row pending against a classified message, which is the cohort this repair genuinely exists for, expected non-zero on an instance that classified mail before 2026-07-08 and zero on a newer install; `crossed`, `reverse`, `fan-out` and `orphans` — each expected zero, for a stated structural reason; `not-yet-classified` — expected non-zero on a live instance and untouched by the repair. After the repair it re-reads the divergence figures alone, so "nothing to do" is distinguishable from "did not run".
+
+**Measured on the owner's instance, read-only, 2026-07-26.** 17,795 `thread_message` rows across seven mailboxes (14,187 in INBOX): zero divergence in every bucket, zero orphans, zero fan-out, and no `uncategorized` rows at all — `newsletter=5197 personal=5192 marketing=4111 automated=2759 transactional=440 social=96`, matching `message` exactly. The oldest row on the instance was created 2026-07-19, after the denormalized column landed, so every row was written by a path that already denormalized: the zero is explained rather than merely observed. The repair ships regardless — untested instances are not this instance, and an instance whose corpus predates 2026-07-08 is the case the historical figure exists to catch.
+
+Buys: the repair's effect is a recorded number on a real corpus rather than a claim, and each zero is attributable. Gives up: a second read pass on every update.
 
 ## Part 4 — the cutover
 
@@ -307,7 +324,7 @@ Buys: the component that renders this epic's symptom finally has a story, review
 
 **Why is the epic so much smaller than the audit?** One derivation causes the reported bug and fifteen are debt. The debt is filed, not forgotten. Shipping the fix does not require shipping the migration.
 
-**If the live instance's INBOX already agrees on every row, why repair anything?** Nothing has ever read the column, so nothing has ever depended on its write path, and three of the four defects produce divergence in mailboxes holding a second copy of a message — Archive and label folders, not INBOX. `--check` reports the real number before anything is written.
+**If the live instance's INBOX already agrees on every row, why repair anything?** Because the instance that agrees is not the instance the repair is for. Nothing has ever read the column, so nothing has ever depended on its write path, and the cohort at risk is mail classified between 2026-05-01 and 2026-07-08 plus any Postgres instance whose column was added with its default and stamped without consulting `message.category`. The owner's corpus postdates both, which is why it measures zero. `--check` reports the real number, per cause, before anything is written.
 
 **Why is this repair automatic when the `listId` backfill is manual?** Forward-only matching was an accepted outcome for `listId` (#263 says so). Skipping this one means the filter goes live against a stale column and the reported bug persists with nothing masking it.
 
