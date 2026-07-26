@@ -48,6 +48,7 @@ const THREAD_LIST_ATTRIBUTES: ReadonlyArray<keyof ThreadMessageItem> = [
 	"hasStars",
 	"isDeleted",
 	"snippet",
+	"category",
 	"createdAt",
 	"updatedAt",
 ];
@@ -109,6 +110,7 @@ type ThreadSearch = {
 	unread?: boolean;
 	starred?: boolean;
 	attachments?: boolean;
+	category?: MessageCategory[];
 };
 
 /**
@@ -174,10 +176,10 @@ export const executeThreadSearch = async (
 		unread: params.unread,
 		starred: params.starred,
 		attachments: params.attachments,
+		category: params.category,
 	};
 	const offRow = {
 		senderTrust: params.senderTrust,
-		category: params.category,
 		dkimMismatch: params.dkimMismatch,
 	};
 	const wantCount = params.count === true;

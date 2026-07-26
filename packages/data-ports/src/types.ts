@@ -462,6 +462,14 @@ export type SearchOptions = {
 	unread?: boolean;
 	starred?: boolean;
 	attachments?: boolean;
+	/**
+	 * Any-of set over the denormalized `category` column on the ThreadMessage
+	 * row. An empty or absent set means no category filter. `uncategorized` is
+	 * a member like any other — the column is NOT NULL with that default, so it
+	 * names the not-yet-classified state rather than standing for absence
+	 * (issue #45).
+	 */
+	category?: ThreadMessageItem["category"][];
 };
 
 export type CreateLabelInput = Omit<

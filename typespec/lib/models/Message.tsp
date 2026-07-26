@@ -331,8 +331,8 @@ model EnvelopeResponse {
   @doc("Reply-To addresses")
   replyTo: EnvelopeAddressResponse[];
 
-  @doc("Header-derived category for the message. Absent for messages synced before classification rolled out.")
-  category?: MessageCategory;
+  @doc("Header-derived category for the message. Always present: `Message.category` is NOT NULL with an `uncategorized` default, and `uncategorized` names the not-yet-classified state rather than standing for absence (issue #45).")
+  category: MessageCategory;
 
   @doc("Trust level for the From address, derived from AddressFlags at read time.")
   senderTrust: SenderTrust;

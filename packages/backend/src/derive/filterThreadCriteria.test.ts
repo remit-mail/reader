@@ -25,6 +25,7 @@ const row = (
 	star: StarColor.None,
 	isDeleted: false,
 	snippet: "",
+	category: MessageCategory.uncategorized,
 	createdAt: 0,
 	updatedAt: 0,
 	senderTrust: SenderTrust.Unknown,
@@ -37,7 +38,7 @@ describe("hasOffRowCriteria", () => {
 	});
 
 	it("is false for empty arrays", () => {
-		assert.equal(hasOffRowCriteria({ senderTrust: [], category: [] }), false);
+		assert.equal(hasOffRowCriteria({ senderTrust: [] }), false);
 	});
 
 	it("is true when any criterion is set", () => {
@@ -65,17 +66,12 @@ describe("filterByOffRowCriteria", () => {
 		assert.ok(result.every((r) => r.senderTrust !== SenderTrust.Unknown));
 	});
 
-	it("filters by category any-of and excludes rows with no category", () => {
+	it("leaves category alone — it is a SQL predicate, not an off-row criterion", () => {
 		const rows = [
 			row({ category: MessageCategory.newsletter }),
 			row({ category: MessageCategory.personal }),
-			row({ category: undefined }),
 		];
-		const result = filterByOffRowCriteria(rows, {
-			category: [MessageCategory.newsletter],
-		});
-		assert.equal(result.length, 1);
-		assert.equal(result[0].category, MessageCategory.newsletter);
+		assert.equal(filterByOffRowCriteria(rows, {}).length, 2);
 	});
 
 	it("filters by dkimMismatch and never matches rows lacking an authenticity signal", () => {
