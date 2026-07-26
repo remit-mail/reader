@@ -6,7 +6,7 @@ import {
 	type RuleScope,
 } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useCreateMailbox } from "@/hooks/useCreateMailbox";
 import { useCreateFilter } from "@/hooks/useFilters";
 import { useOrganizeJob } from "@/hooks/useOrganizeJob";
@@ -14,7 +14,10 @@ import { useRuleEditorState } from "@/hooks/useRuleEditorState";
 import { useRulePreview } from "@/hooks/useRulePreview";
 import { getMailboxDisplayName } from "@/lib/folder-roles";
 import { buildMoveTargets } from "@/lib/move-targets";
-import type { OrganizeDraft } from "@/lib/organize/organize-model";
+import {
+	canBackApplyDraft,
+	type OrganizeDraft,
+} from "@/lib/organize/organize-model";
 import {
 	buildInitialRule,
 	rulePredicate,
@@ -22,6 +25,7 @@ import {
 	SUPPORTED_CLAUSE_FIELDS,
 } from "@/lib/organize/rule-model";
 import {
+	BackApplyError,
 	CommitError,
 	FilterSaved,
 	JobProgress,
@@ -113,9 +117,14 @@ export function OrganizeRuleEditor({
 	// Creating a filter also moves the mail that already matches, not only the
 	// mail that arrives next: the same retroactive back-apply the one-time scope
 	// runs. The filter is created first so the rule is live before the pass, then
-	// the pass runs over the existing corpus. Held until the create succeeds so a
-	// failed create never leaves an orphaned back-apply.
+	// the pass runs over the existing corpus. `backApplyDraft` is the predicate
+	// to run once the create succeeds, and is undefined when the rule cannot be
+	// back-applied (a `HasWords` clause the vector-free pass can't evaluate — the
+	// filter still saves and applies to incoming mail). It is kept, not cleared,
+	// so a failed start can be retried; `backApplyStarted` guards the one-shot
+	// auto-start against re-firing on re-render.
 	const [backApplyDraft, setBackApplyDraft] = useState<OrganizeDraft>();
+	const backApplyStarted = useRef(false);
 
 	const commit = () => {
 		const draft = ruleToDraft(rule, anchorMessageId);
@@ -123,7 +132,8 @@ export function OrganizeRuleEditor({
 			organizeJob.start(draft);
 			return;
 		}
-		setBackApplyDraft(draft);
+		backApplyStarted.current = false;
+		setBackApplyDraft(canBackApplyDraft(draft) ? draft : undefined);
 		createFilter.createFilter(
 			draft,
 			rule.scope === "standing" ? "standing" : "temporary",
@@ -132,10 +142,15 @@ export function OrganizeRuleEditor({
 	};
 
 	useEffect(() => {
-		if (!backApplyDraft || !createFilter.isSuccess) return;
+		if (!backApplyDraft || backApplyStarted.current || !createFilter.isSuccess)
+			return;
+		backApplyStarted.current = true;
 		organizeJob.start(backApplyDraft);
-		setBackApplyDraft(undefined);
 	}, [backApplyDraft, createFilter.isSuccess, organizeJob.start]);
+
+	const retryBackApply = () => {
+		if (backApplyDraft) organizeJob.start(backApplyDraft);
+	};
 
 	if (organizeJob.isStarting || organizeJob.isRunning || organizeJob.isDone) {
 		return (
@@ -152,6 +167,15 @@ export function OrganizeRuleEditor({
 		);
 	}
 
+	// The filter saved, but the back-apply's own request failed (a 5xx or dropped
+	// connection on start, or a failed retry) — no job id was ever assigned, so no
+	// JobProgress state holds. Surface it distinctly instead of falling through to
+	// "Filter saved" and swallowing it: the rule is live, the move is what to
+	// retry.
+	if (createFilter.isSuccess && organizeJob.isError) {
+		return <BackApplyError onRetry={retryBackApply} onClose={onClose} />;
+	}
+
 	if (createFilter.isPending) {
 		return <SavingState />;
 	}
@@ -159,7 +183,9 @@ export function OrganizeRuleEditor({
 	if (createFilter.isSuccess) {
 		// The filter is saved; the back-apply is about to start (the effect hands
 		// off to the job on the next tick). Keep the saving state until it takes
-		// over so the success screen never flashes between them.
+		// over so the success screen never flashes between them. When the rule
+		// can't be back-applied, `backApplyDraft` is undefined and this is the
+		// terminal state — saved, applying to incoming mail only.
 		if (backApplyDraft) return <SavingState />;
 		return <FilterSaved onClose={onClose} />;
 	}

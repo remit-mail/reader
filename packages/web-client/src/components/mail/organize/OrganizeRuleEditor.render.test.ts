@@ -18,6 +18,7 @@ import { makeMailbox } from "../../../test-support/fixtures";
 import {
 	type HttpCall,
 	type HttpMock,
+	httpError,
 	mockFetch,
 } from "../../../test-support/http";
 import { OrganizeRuleEditor } from "./OrganizeRuleEditor";
@@ -345,6 +346,120 @@ describe("OrganizeRuleEditor — scope mapping", () => {
 		assert.equal(created.length, 1);
 		assert.equal(created[0].body?.scope, "Temporary");
 		assert.ok(String(created[0].body?.expiresAt).startsWith("2999-01-02"));
+	});
+});
+
+describe("OrganizeRuleEditor — back-apply gating and failure", () => {
+	async function flushUntil(
+		dom: DomHarness,
+		holds: () => boolean,
+	): Promise<void> {
+		for (let attempt = 0; attempt < 40; attempt += 1) {
+			await dom.flush();
+			if (holds()) return;
+			await dom.wait(5);
+		}
+	}
+
+	it("skips the back-apply for a HasWords rule, saving it for incoming mail only", async () => {
+		const dom = mount(
+			{
+				semanticUnavailable: true,
+				senders: [],
+				seedScope: "standing",
+				seedMailboxId: "mbx-archive",
+			},
+			previewCounts([5]),
+		);
+		await dom.flush();
+
+		// A body-content clause: the vector-free back-apply can't evaluate it.
+		dom.click(primaryButton(dom, "Add clause"));
+		dom.select(dom.byLabel("Clause field"), "HasWords");
+		dom.type(dom.byLabel("Clause value"), "invoice");
+		dom.click(primaryButton(dom, "Add"));
+		await settlePreview(dom);
+
+		dom.type(dom.byLabel("Rule name"), "Invoices");
+		dom.click(primaryButton(dom, "Save rule"));
+		await dom.flush();
+		await dom.flush();
+
+		// The filter is created and carries the clause.
+		const created = (http?.calls ?? []).filter((call) =>
+			call.path.endsWith("/filters"),
+		);
+		assert.equal(created.length, 1);
+		assert.deepEqual(created[0].body?.literalClauses, [
+			{ field: "HasWords", value: "invoice" },
+		]);
+
+		// No back-apply is attempted — the guard is never reached.
+		const backApply = (http?.calls ?? []).filter(
+			(call) => call.path.endsWith("/organize") && call.method === "POST",
+		);
+		assert.equal(backApply.length, 0);
+		assert.match(dom.text(), /Filter saved/);
+	});
+
+	it("surfaces a failed back-apply start distinctly, and retries it", async () => {
+		const failStart: Responder = (call) => {
+			if (call.path.endsWith("/organize/preview")) {
+				return { matchedCount: 2, messageIds: [] };
+			}
+			if (call.path.endsWith("/filters")) {
+				return { filterId: "filter-1", name: "R", scope: "Standing" };
+			}
+			if (call.path.endsWith("/organize") && call.method === "POST") {
+				return httpError(500);
+			}
+			return {};
+		};
+		const dom = mount(
+			{
+				semanticUnavailable: true,
+				senders: ["npm@github.com"],
+				seedScope: "standing",
+				seedMailboxId: "mbx-archive",
+				seedCount: 128,
+			},
+			failStart,
+		);
+		await dom.flush();
+
+		dom.type(dom.byLabel("Rule name"), "GitHub");
+		dom.click(primaryButton(dom, "Save rule"));
+
+		await flushUntil(dom, () => /Move existing mail/.test(dom.text()));
+
+		// The filter saved and the start was attempted once, then failed.
+		const created = (http?.calls ?? []).filter((call) =>
+			call.path.endsWith("/filters"),
+		);
+		assert.equal(created.length, 1);
+		const firstStart = (http?.calls ?? []).filter(
+			(call) => call.path.endsWith("/organize") && call.method === "POST",
+		);
+		assert.equal(firstStart.length, 1);
+
+		// The failure is honest: the rule saved, the move is what to retry — never
+		// a bare "Filter saved" that hides it.
+		assert.match(dom.text(), /Rule saved/);
+		assert.doesNotMatch(dom.text(), /Filter saved/);
+
+		// Retrying re-issues the back-apply start.
+		dom.click(primaryButton(dom, "Move existing mail"));
+		await flushUntil(
+			dom,
+			() =>
+				(http?.calls ?? []).filter(
+					(call) => call.path.endsWith("/organize") && call.method === "POST",
+				).length >= 2,
+		);
+		const afterRetry = (http?.calls ?? []).filter(
+			(call) => call.path.endsWith("/organize") && call.method === "POST",
+		);
+		assert.ok(afterRetry.length >= 2);
 	});
 });
 
