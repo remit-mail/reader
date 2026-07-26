@@ -1,4 +1,12 @@
-import { Fragment, type ReactNode, useMemo, useState } from "react";
+import {
+	Fragment,
+	type ReactNode,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
+import { isAbortError } from "../lib/abort.js";
 import { BottomSheet } from "./bottom-sheet.js";
 import { Button } from "./button.js";
 import { Dialog } from "./dialog.js";
@@ -84,12 +92,16 @@ export interface FilterRuleEditorProps {
 	onChangeMatchOperator?: (operator: MatchOperator) => void;
 	onChangeMove?: (mailboxId: string) => void;
 	/**
-	 * Create a new destination folder from within the editor. Given a folder
-	 * name, resolves to the created folder once the backend has queued it. When
-	 * absent, the "New folder…" option is not offered — the editor stays
-	 * data-agnostic, so stories and consumers without wiring render unchanged.
+	 * Create a new destination folder from within the editor. Given a folder name
+	 * and an abort signal, resolves to the created folder once the mail server
+	 * confirms it. The editor aborts the signal on unmount or cancel. When absent,
+	 * the "New folder…" option is not offered — the editor stays data-agnostic, so
+	 * stories and consumers without wiring render unchanged.
 	 */
-	onCreateFolder?: (name: string) => Promise<FolderOption>;
+	onCreateFolder?: (
+		name: string,
+		signal?: AbortSignal,
+	) => Promise<FolderOption>;
 	onChangeScope?: (scope: RuleScope) => void;
 	onChangeName?: (name: string) => void;
 	onChangeUntil?: (date: string) => void;
@@ -116,6 +128,13 @@ const CREATE_FOLDER_VALUE = "__filter_create_folder__";
  * name field; on resolve the new folder is added to the local option set (so it
  * is selectable even before the caller's folder list refetches) and picked as
  * the destination. Without `onCreateFolder` this is the bare select.
+ *
+ * The destination is a dependent write: the filter this editor commits binds to
+ * the folder, so `onCreateFolder` resolves only once the folder is confirmed on
+ * the mail server, not when the create is merely queued. The pending state holds
+ * "Creating folder…" for that whole wait, and a create that fails or never
+ * confirms rejects with its own message here — the folder is never selected, so
+ * the caller cannot commit a filter against a folder that does not exist.
  */
 function MoveDestinationField({
 	folders,
@@ -126,13 +145,21 @@ function MoveDestinationField({
 	folders: FolderOption[];
 	value: string;
 	onChangeMove?: (mailboxId: string) => void;
-	onCreateFolder?: (name: string) => Promise<FolderOption>;
+	onCreateFolder?: (
+		name: string,
+		signal?: AbortSignal,
+	) => Promise<FolderOption>;
 }) {
 	const [creating, setCreating] = useState(false);
 	const [name, setName] = useState("");
 	const [pending, setPending] = useState(false);
 	const [error, setError] = useState<string>();
 	const [createdFolders, setCreatedFolders] = useState<FolderOption[]>([]);
+	// The create waits for the mail server to confirm the folder; abort it on
+	// unmount or cancel so a late confirmation never binds the destination after
+	// the editor is gone or the sub-form dismissed.
+	const createAbort = useRef<AbortController | null>(null);
+	useEffect(() => () => createAbort.current?.abort(), []);
 
 	const options = useMemo(() => {
 		const known = new Set(folders.map((folder) => folder.id));
@@ -157,7 +184,10 @@ function MoveDestinationField({
 		if (trimmed === "") return;
 		setPending(true);
 		setError(undefined);
-		onCreateFolder(trimmed)
+		createAbort.current?.abort();
+		const controller = new AbortController();
+		createAbort.current = controller;
+		onCreateFolder(trimmed, controller.signal)
 			.then((folder) => {
 				setCreatedFolders((prev) =>
 					prev.some((entry) => entry.id === folder.id)
@@ -170,6 +200,7 @@ function MoveDestinationField({
 				setPending(false);
 			})
 			.catch((error: unknown) => {
+				if (isAbortError(error)) return;
 				setError(
 					error instanceof Error
 						? error.message
@@ -180,9 +211,11 @@ function MoveDestinationField({
 	};
 
 	const cancel = () => {
+		createAbort.current?.abort();
 		setCreating(false);
 		setName("");
 		setError(undefined);
+		setPending(false);
 	};
 
 	return (
@@ -234,7 +267,7 @@ function MoveDestinationField({
 							onClick={submit}
 							disabled={pending || name.trim() === ""}
 						>
-							{pending ? "Creating…" : "Create folder"}
+							{pending ? "Creating folder…" : "Create folder"}
 						</Button>
 						<Button
 							variant="ghost"

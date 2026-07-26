@@ -179,6 +179,7 @@ const toMailboxResponse = (
 	lastSyncUid: mailbox.lastSyncUid,
 	highWaterMarkUid: mailbox.highWaterMarkUid,
 	lastMessageSyncAt: mailbox.lastMessageSyncAt,
+	syncStatus: mailbox.syncStatus,
 	muted: overrides.muted,
 	displayNameOverride: overrides.displayNameOverride,
 	createdAt: mailbox.createdAt,

@@ -16,6 +16,8 @@ export interface Mailbox {
 	fullPath: string;
 	specialUse?: string;
 	messageCount?: number;
+	/** `pending` until the imap-worker confirms the folder on the server, then `synced`. */
+	syncStatus?: "synced" | "pending" | "failed" | "deleting";
 }
 
 /**
