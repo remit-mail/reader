@@ -1,178 +1,168 @@
 # Design: the mail list as a server-side query
 
 Status: proposed
-Follows: [`docs/architecture/mail-list-boundary.md`](../architecture/mail-list-boundary.md) (PR #303), epic #315
-Scope: the query shape per port, count semantics, the correctness of `thread_message.category`, the cutover, and every user-visible state the correction changes.
+Follows: [`docs/architecture/mail-list-boundary.md`](../architecture/mail-list-boundary.md), epic #315
+Scope: the filtered query and the index it needs, the correctness of `thread_message.category`, the cutover, and the list states a filtered mailbox renders.
 
-The architecture doc sets the boundary and decides D1–D8. This document decides how the queries are written, what the numbers mean, how the column they depend on is made correct, and what the user sees. Decision numbering continues from the architecture doc: D1–D8 live there, D9 onward here, so an issue can cite a decision without ambiguity.
+The architecture doc sets the boundary and decides D1–D8. This document decides how the filtered query is written, how the column it depends on is made correct and delivered, and what the user sees. Decision numbering continues from it: D1–D8 live there, D9 onward here.
 
-Three of the architect's issues are corrected here rather than worked around. They are D9 (the index cannot live in the generated schema), D15 (the column the predicate depends on is not correct today), and #313's premise (the number on the Spam offer does not come from where the issue says it does). Each correction says what is wrong and why.
+This is the second revision. Two independent reviews cut it down. The first version designed a bounded-read contract, honest counts on five surfaces, a cross-account index and a category presentation table. All of that is withdrawn or deferred. What survives is the smallest thing that closes the reported bug and leaves the column it stands on trustworthy.
 
-## What is in flight
+## What this covers, and what it does not
 
-Re-checked against `origin/main` and open PRs before designing.
+The audit behind the architecture doc found 31 client-side derivations and judged 16 misplaced. **One of them causes the reported bug.** The other fifteen are real and are tracked as standalone issues, prioritised on their own merits rather than carried by this ticket.
 
-- **PR #294** — filters: scope and expiry editable. Touches `packages/data-ports/src/types.ts` (a different type in the same file) and `packages/ui/src/components/filter-rule-editor.tsx`. #304 edits `SearchOptions` in that file; textual conflict only.
-- **PR #292** — `listId` backfill for pre-upgrade mail. Establishes the shape a data repair ships in: an alternate entrypoint baked into the backend image, documented in `deploy/vps/README.md`, resumable, not a schema migration. D15 follows its reasoning and departs from its mechanism, for a stated reason.
-- **PR #297** — semantic filters on incoming mail. `packages/imap-worker` only; no overlap.
-- **PR #303** — the architecture doc. Not yet merged; this document references it by path and both land before any implementation.
+In scope — #304, #320, #321, #322, #309, #306:
 
-Nothing in flight touches `MailboxPane`, `FlaggedList`, `enrichThreadRows`, `thread.ts`, or the drizzle `thread_message` repo.
+- `category` becomes a SQL predicate, with the index that makes it cheap.
+- The write path that maintains `thread_message.category` is corrected, its history repaired, and its round-trip finally tested.
+- The mailbox list asks the server for the filtered page, and a filtered empty list is distinguishable from an empty mailbox.
+- `uncategorized` becomes filterable from the inbox, which D6 requires and no surface currently offers.
+
+Not in scope, tracked separately — #305, #307, #308, #310, #311, #312, #313, #314:
+
+Exact counts and every surface that would render one; the Flagged and brief filters; the brief's sections; the Spam offer's number; the four duplicated predicate tables and the five duplicated category tables. Each is genuine rot. None of it is required to make a filtered inbox return the mail it holds.
+
+One consequence to state plainly rather than discover later: **`SearchResultsHeader` keeps rendering a page length as a result count** (`MessageList.tsx:1364-1366`). #306 does not make that worse — before and after, the number is the length of the loaded pages — and it does not make it better. #307 owns it.
+
+## Corrections to issues in this epic
+
+Three, each verified in the code:
+
+1. **#304 point 3 names the wrong mechanism** for the index. D9.
+2. **`thread_message.category` is not correct today**, and no issue covered it. D15, and the reason the column looks healthy is that nothing has ever read it.
+3. **#313 names the wrong source** for its number: the rendered figure is `heldOutSpamCount` (`packages/ui/src/components/search-results.tsx:318`), not `spamOfferForResults`, and the copy is `N results from Spam`, not `N in Spam`. That issue is deferred; the correction is recorded on it.
+
+## Amendments to the merged architecture doc
+
+Three of its decisions go stale here. A merged decision record that quietly stops being true is worse than one that says where it was amended.
+
+- **D1's gives-up clause** says the cost is "a schema index on `category` and a migration to add it". That is now what happens, by a mechanism D1 did not know about (D9). Its Prior-art paragraph — "D1 does not need this mechanism" — is right, and more strongly than it argued.
+- **D2's refill loop and D3 in full** describe a bounded-read contract for a port that does not exist in this repository. Not implemented. D14 states why and what would have to be true to revisit it.
+- **D4's `count` semantics** stand as a decision and are not implemented here. The read-bound fields it leans on are withdrawn.
 
 ## Part 1 — the query
 
-### D9 — the category index is an out-of-schema index object, not a schema index
+### D9 — the index is declared in TypeSpec with `@indexDef`, which is a SQL index and nothing else
 
-Issue #304 point 3 asks for "a schema index covering `(account_config_id, mailbox_id, category, sent_date)`, in the drizzle schema with a migration", and explicitly rules out `npm-scripts/*-search-index.sql` as "for FTS and trigram only". That is not implementable as written.
+Issue #304 point 3 asks for the index "in the drizzle schema with a migration" and rules out `npm-scripts/*-search-index.sql`. The first half is right and the mechanism was missing.
 
-`packages/drizzle-service/src/schema/thread-message.ts` is one line — it re-exports generated entities. The drizzle schema is emitted from the `@index` decorators on `typespec/lib/models/ThreadMessage.tsp:13-86` by `@kattebak/typespec-drizzle-orm-generator`. The same decorators are read by `typespec-electrodb-emitter`, so declaring an index in TypeSpec mints a DynamoDB GSI as well as a SQL index. D2 says the DynamoDB port answers this predicate with a `FilterExpression`; a GSI would impose write amplification on every message write in a port that did not ask for one, to serve an index it will not use.
+The drizzle schema is not hand-written. `packages/drizzle-service/src/schema/thread-message.ts` re-exports generated entities, emitted from `typespec/lib/models/ThreadMessage.tsp` by `@kattebak/typespec-drizzle-orm-generator`. The obvious move — add an `@index` decorator — is wrong, and not marginally: `@index` is read by `typespec-electrodb-emitter` too, and `ThreadMessage.tsp:47-85` already occupies `lsi1` through `lsi5`. Its own note at `:87-91` closes the door:
 
-The index therefore ships where the repo already puts SQL-only index objects: `npm-scripts/sqlite-search-index.sql` and `npm-scripts/pg-search-index.sql`, as `CREATE INDEX IF NOT EXISTS`. Those files are applied idempotently by the migrator as its final step (`deploy/vps/migrate/run-migrate.ts`) and by the repo test harness (`packages/drizzle-service/src/test-db-sqlite.ts`), whose own header states the reason: "so repos run the exact search path they ship on". A category filter is a search index; the file's name is already accurate.
+> A "byDeletedStatus" LSI6 was removed here (see #516) — it was never provisioned (the table only has lsi1–lsi5) and DynamoDB's 5-LSI hard limit means it can never be added as an LSI.
 
-**I1**, in `sqlite-search-index.sql` and its Postgres twin:
+So a TypeSpec `@index` for `category` could only be a GSI: write amplification on every message write, on a port D2 says answers this predicate with a `FilterExpression` and which does not exist in this tree.
 
-```sql
-CREATE INDEX IF NOT EXISTS tm_by_mailbox_category_date ON thread_message
-	(account_config_id, mailbox_id, category, is_deleted, sent_date);
+The generator has a decorator for exactly this. `@indexDef` declares a **SQL index only** — it belongs to the drizzle generator, is held in its own state key, and the electrodb emitter never sees it. Verified present in the pinned build (`@kattebak/typespec-drizzle-orm-generator@3.8.3`: `tsp/main.tsp:20`, `dist/decorators.js:41`, through `dist/ir/builder.js:141` to `dist/generators/index-generator.js`), with two examples in its README. Nothing in this repo uses it yet.
+
+**I1**, on `ThreadMessage`:
+
+```tsp
+@indexDef("tm_by_mailbox_category_date",
+  [ThreadMessage.accountConfigId, ThreadMessage.mailboxId,
+   ThreadMessage.category, ThreadMessage.isDeleted, ThreadMessage.sentDate])
 ```
 
-`is_deleted` sits before `sent_date` because every read in `packages/backend/src/handlers/thread.ts` passes `excludeDeleted: true` and none of them lets a caller turn it off — it is an equality, so it does not break the range, and including it makes a filtered count index-only.
+`isDeleted` sits before `sentDate` because every read in `packages/backend/src/handlers/thread.ts` hardcodes `excludeDeleted: true` (`:72`, `:89`, `:239`, `:264`) and no caller can turn it off. It is an equality, so it does not break the range, and including it lets a filtered count be answered from the index alone.
 
-Buys: a filtered page and an exact filtered count at constant cost for any category, no GSI on the out-of-tree port, no migration file, and the index is present in unit tests by construction. Gives up: the index is invisible to `vps-migrations-drift.sqlite.test.ts`, so nothing fails if someone deletes it — which is why D9 carries a query-plan assertion rather than trusting review.
+Buys: TypeSpec stays the single source of truth, the index arrives through a generated migration, and it is present in every harness that derives its schema from the generated tables — which is what makes the guard below real on both dialects. Gives up: a decorator with no precedent in this repo, so its emitted output has to be inspected once rather than assumed.
 
-Failure case: the index is absent or the planner ignores it, and a rare-category page silently costs a mailbox scan. The guard is a test that asserts `EXPLAIN QUERY PLAN` for the filtered window and the filtered count both name `tm_by_mailbox_category_date`. No `ANALYZE` is required: the index offers four equality columns against `thread_message_by_mailbox_id`'s two, so SQLite prefers it without statistics.
+**Verification, before anything depends on it.** Run `npm run codegen` and confirm three things: the sqlite and pg drizzle schemas both emit the index, a migration is generated into `deploy/vps/migrations-sqlite/entities`, and the electrodb output is **byte-identical** — no new GSI. If the third fails, `@indexDef` is not the isolated decorator it appears to be, and the fallback is `npm-scripts/{sqlite,pg}-search-index.sql`, where objects the schema cannot express already live (the FTS5 table, the trigram GIN indexes, each for a reason its own header gives). That fallback is weaker — invisible to `vps-migrations-drift.sqlite.test.ts`, applied by the sqlite test harness only under an opt-in flag with one call site (`packages/drizzle-service/src/test-db-sqlite.ts:60-66`) and never by the pg unit harness at all — so it is a fallback, not a preference.
+
+**The guard.** A test asserting the planner uses the index, on both dialects: `EXPLAIN QUERY PLAN` on SQLite, `EXPLAIN` on Postgres, each asserting the index name appears for the filtered window and the filtered count. There are **zero** `EXPLAIN` assertions in the repo today, so this is a new kind of test and #304 says so. The SQLite reasoning needs no `ANALYZE`: I1 offers four equality columns against `thread_message_by_mailbox_id`'s two. The Postgres assertion runs in the `RUN_INTEG_TESTS` lane, the only place a real Postgres exists.
+
+Failure case: the index is absent or ignored and a rare-category page silently costs a mailbox scan. Without the guard nothing fails, which is why the guard is specified before the index is used.
+
+**Upgrade cost.** Building I1 on an existing table is one full index build during the migrate one-shot, with every app service gated behind it (`docker-compose.sqlite.yml:117, 209, 225, 241, 261, 296`). It runs in the generated migration, before the FTS transaction at `run-migrate.ts:168-186`, not inside it. On 14,187 rows it is not noticeable; on a 500,000-row corpus it is seconds, alongside D16's repair scan. Both are logged rather than estimated (D17).
 
 ### D10 — the query is the existing keyset window with one more equality
 
-`searchByMailboxWindow` and `countByMailbox` are unchanged in structure. `buildSearchConditions` (`packages/drizzle-service/src/repos/thread-message.ts:139-164`) gains one clause:
-
-```
-category IN (:categories)   -- when search.category is non-empty
-```
-
-Ordering, the `sent_date` + `thread_message_id` tiebreak and the cursor condition are untouched. `SearchOptions` (`packages/data-ports/src/types.ts:458-465`) gains `category?: MessageCategory[]`.
-
-The ordering is `sent_date <order>, thread_message_id ASC` — a mixed direction that no index can serve as a pure seek. I1 satisfies the leading term, and both engines sort only within a tie group (SQLite block sort, Postgres incremental sort). A tie group is the messages sharing one `sent_date` in one mailbox and one category, which is one to three rows. Aligning the tiebreak with the order direction would remove the residual sort and is deliberately not done: it changes which row follows a cursor inside a tie group, so a user mid-pagination across the upgrade could see one duplicate or one skip. The residual sort is cheaper than that.
+`buildSearchConditions` (`packages/drizzle-service/src/repos/thread-message.ts:139-164`) gains one clause, `category IN (:categories)`, when `search.category` is non-empty. `SearchOptions` (`packages/data-ports/src/types.ts:458-465`) gains `category?: MessageCategory[]`. Ordering, the `sent_date` + `thread_message_id` tiebreak and `sentDateCursorCond` are untouched.
 
 **Read cost, against the real instance** — INBOX holds 14,187 non-deleted thread messages: 4,753 `personal`, 88 `social`. Page size is 50.
 
-| | fill one page of `personal` | fill one page of `social` | show all 88 `social` | exact `social` count |
+| | one page of `personal` | one page of `social` | all 88 `social` | exact `social` count |
 |---|---|---|---|---|
 | today, browser filter | 3 pages, 150 rows + 3 enrichment batches | 162 pages, 8,060 rows + 162 batches | 284 pages, 14,187 rows + 284 batches | not available |
 | SQL predicate, no index | ~150 index entries + 150 row reads | ~8,060 | 14,187 | 14,187 row reads |
 | SQL predicate, I1 | 50 index entries, 50 row reads | 50, 50 | 88, 88 | 88 index entries, no row reads |
 
-The middle row is why the index is part of the same slice as the predicate and not a follow-up: a correct filter without an index turns a rare category into a mailbox scan, which is the cost profile the frugality rule exists to prevent.
+I1 covers every column in the predicate, so the count column of that table is index-only. The middle row is why the index ships with the predicate rather than after it: a correct filter without an index turns a rare category into a mailbox scan.
 
-Buys: a filtered page costs the same for a common category and a rare one, and the existing cursor, ordering and tiebreak are untouched. Gives up: a residual sort inside each tie group on both engines, and one more clause in a predicate builder four read paths share.
+Buys: a filtered page costs the same for a common category and a rare one. Gives up: a residual sort inside each tie group on both engines, and one more clause in a predicate builder four read paths share.
 
-Failure case: `category` is added to `buildSearchConditions` but the handler keeps routing it to `offRow`, so the SQL clause is dead and the filter still runs over a window. The guard is a handler test asserting `category` reaches `search` and that a category-only query takes the no-off-row branch.
+**The mixed ordering.** `sent_date <order>, thread_message_id ASC` cannot be a pure index seek. I1 satisfies the leading term and both engines sort only within a tie group — SQLite block sort, Postgres incremental sort — where a tie group is the messages sharing one `sent_date` in one mailbox and category, so one to three rows. **Do not align the tiebreak with the order direction to remove that sort**: it changes which row follows a cursor inside a tie group, so a user mid-pagination across the upgrade sees a duplicate or a skip.
 
-**The DynamoDB port.** There is no DynamoDB implementation in this repository — `DrizzleThreadMessageRepository` is the only implementation of `IThreadMessageRepository` and the DynamoDB composition is injected from outside through `setClient()` — so what follows is the contract that port must meet, not code this epic writes. D2 fixes the shape: `category` becomes a `FilterExpression` over the item the query already reads, with a refill loop so a page is full rather than short. Its `Query` is unchanged — the same partition and the same `sent_date` key condition — and `ExclusiveStartKey` continues to page it. Two consequences it must honour: the loop pays read capacity for rows the filter discards, which for a rare category on a large mailbox is a real charge; and because the loop has to stop somewhere, that port is the one that reports a `readLimit` (D14) while the SQL port omits it. A count on that port is a full partition read, which is why D13 keeps `count` opt-in rather than always-on.
+**Known edge: `category` plus an off-row criterion.** `category` leaves `OffRowCriteria`, but `senderTrust` and `dkimMismatch` stay, so a request carrying `category` **and** one of those still takes the off-row branch (`packages/backend/src/handlers/thread.ts:184-199`). The category predicate is applied in SQL either way — it is in `search` now — so the window is category-filtered before enrichment, which is strictly better than today. What survives is D7's known cost: the off-row filter runs over that window, so the page can come back short with a continuation token. Not reachable from the inbox chips, which offer no off-row filter, but one chip away. The named guard is a handler test asserting that with `category` **and** `senderTrust` set, `category` reaches `search` and not `offRow`, so a later refactor cannot quietly send it back.
+
+Failure case: `category` is added to `buildSearchConditions` but the handler keeps routing it to `offRow`, leaving the SQL clause dead and the filter still running over a window. Same guard.
 
 ### D11 — `category` on the response comes from the row, and stops being optional
 
-`THREAD_LIST_ATTRIBUTES` (`thread.ts:35-53`) does not list `category`, and `toResponse` (`enrichThreadRows.ts:29-48`) does not map it, so `enrichThreadRows` batch-fetches the `message` table for a value already sitting on the row it just read. Note that `options.attributes` is accepted and ignored by the drizzle repo — every read is `select()` — so the projection list is documentation for the DynamoDB port, not a behaviour. Updating it alone changes nothing; the mapping in `toResponse` is the change that matters.
+`THREAD_LIST_ATTRIBUTES` (`thread.ts:35-53`) does not list `category` and `toResponse` (`enrichThreadRows.ts:29-48`) does not map it, so `enrichThreadRows` batch-fetches the `message` table for a value already on the row it just read. Note `options.attributes` is accepted and **ignored** by the drizzle repo — every read is `select()` — so updating the projection list alone changes nothing; add it for the DynamoDB port, but the change that matters is mapping `category` in `toResponse` and deleting `categoryByMessageId` (`enrichThreadRows.ts:122-127`). The `message` batch-fetch stays for `authenticity` and `autoMoved`.
 
-After #304 the served `category` is the `thread_message` value, the same value the `where` filters on. Filter and badge cannot disagree, because there is one source. The `message` batch-fetch stays for `authenticity` and `autoMoved`.
+After this, the served `category` and the filtered `category` are the same value from the same row. Filter and badge cannot disagree.
 
-`ThreadMessageResponse.category` becomes required. It is `NOT NULL DEFAULT 'uncategorized'` on the row, so the server can always supply it, and its current `@doc` instructs the opposite of settled behaviour:
+`ThreadMessageResponse.category` becomes required. The column is `NOT NULL DEFAULT 'uncategorized'`, so the server can always supply it, and the field's current `@doc` instructs the opposite of settled behaviour:
 
-> "Absent for messages synced before classification rolled out — clients should treat this as `personal`."
+> Absent for messages synced before classification rolled out — clients should treat this as `personal`.
 
-That is the exact collapse issue #45 closed and `packages/web-client/src/lib/display-category.ts` deliberately contradicts. A doc that tells a client to fold unclassified mail into personal is a live invitation to regress D6. Once the field is required the instruction has nothing to describe and the `undefined` branch in `toDisplayCategory` becomes unreachable.
+That is the collapse #45 closed and `packages/web-client/src/lib/display-category.ts` deliberately contradicts, sitting in the contract as an instruction. Two more places say the stale thing and are corrected with it: the **model** doc at `ThreadMessage.tsp:196` ("`category` and `senderTrust` are attached at read time via batch-fetch" — only `senderTrust` will be), and the `category` query-param doc at `typespec/main.tsp:463`, which documents the defect as intended.
 
-Buys: one source for the value, and the #45 instruction deleted rather than left in the contract. Gives up: an optional-to-required change on a response field. Generated TypeScript consumers get a narrower type, which no current caller breaks on; `toDisplayCategory` keeps its `| undefined` parameter so the seam stays tolerant.
+`toDisplayCategory` loses its `| undefined` parameter and its `undefined` branch. Leaving a dead branch behind a required field is how the next reader concludes the field is optional.
 
-### D12 — the cross-account filter needs a second index; the starred path needs none
+Buys: one source for the value, and the #45 instruction deleted from the contract rather than contradicted in a comment. Gives up: an optional-to-required change on a response field, and a signature change on `toDisplayCategory` that touches its callers.
 
-#308 adds `category`, `unread` and `attachments` to `listAllThreads`. That handler has three modes (`packages/backend/src/handlers/unified-threads.ts:388-404`), each scoped by `mailbox_id IN (...)`:
+### D12 — the cross-account index is deferred, and the claim made for it was wrong
 
-- `listByStarred` — served by `(account_config_id, has_stars, sent_date)`. A starred collection is hundreds of rows, so `category` is a filter over an already-small ordered scan. **No index.**
-- `listByDate` — served by `(account_config_id, sent_date)`. A per-category cross-mailbox query walks newest-first and discards non-matches: for `social`, ~1,600 rows to find 10. The brief needs seven of these plus seven counts on every load.
-- `searchByDate` — the free-text mode, already trigram/FTS served.
+I2, `(account_config_id, category, is_deleted, sent_date)`, belonged with #308 and #312. Both are deferred, and the cost claim attached to it does not hold — recorded here so whoever picks them up does not inherit it.
 
-**I2**, in the same two files, for the `listByDate` mode:
+Every `listAllThreads` mode is scoped by `mailbox_id IN (...)` (`packages/backend/src/handlers/unified-threads.ts:374-405`), and I2 deliberately left `mailbox_id` out so `sent_date` stayed the ordered trailing column. That makes `mailbox_id` a residual filter, so **a count over I2 is not index-only** — every candidate entry needs its row fetched to test the mailbox. Across seven brief sections that is every row in the brief's scope: roughly 14,187 row reads per brief load against 250 today. The earlier version of this document called that "fewer rows read than today". It is a read increase of about fifty-six times.
 
-```sql
-CREATE INDEX IF NOT EXISTS tm_by_category_date ON thread_message
-	(account_config_id, category, is_deleted, sent_date);
-```
-
-`mailbox_id` stays a filter rather than an index column so `sent_date` remains the ordered trailing term across an `IN` list. I2 is not a prefix of I1 and I1 is not a prefix of I2; they answer different questions — one mailbox with a category, and one category across mailboxes.
-
-Buys: the brief's sections cost a bounded seek each instead of a scan each. Gives up: a second index on the largest table, and I2 lands in #308 rather than #304, so #312's cost claim depends on #308 having shipped.
+Whoever takes #312 has to either scope the count so it can be answered from an index, or cost seven counts honestly and justify them. I1's equivalent claim is unaffected: I1 covers every column in its predicate.
 
 ## Part 2 — the numbers
 
-### D13 — `count` is the exact number of matching rows, independent of the cursor and of `results`
+### D13 — `count` is exact and free on the SQL port, and is not built here
 
-`countByMailbox` already runs a full `COUNT(*)` and then discards the answer with `Math.min(count, cap)` at `thread-message.ts:912`. Dropping the clamp removes a line and costs nothing: the scan already happens. It also already omits the cursor condition, so the number is the whole match set and does not shrink as the user pages. Both properties become stated contract rather than accident.
+Recorded because it is settled and cheap; deferred because nothing in the trimmed scope renders a number.
 
-`executeThreadSearch` stops setting `count = items.length` and issues the count query whenever `count: true`, with or without `results`.
+`countByMailbox` (`packages/drizzle-service/src/repos/thread-message.ts:899-912`) already runs the full `COUNT(*)` and then discards the answer with `Math.min(count, cap)` at `:912`. It also already omits the cursor condition, so the number is the whole match set and does not shrink as the user pages. Dropping the clamp removes a line and costs nothing: the scan already happens. Both properties are accidents today and become contract in #305.
 
-`count` is **absent** when `senderTrust` or `dkimMismatch` is present, per D4. It is not absent for `category`, which is why #304 must land first.
+When #305 is picked up, `count` stays opt-in and these are requirements, not advice: its own query keyed on the criteria **without** the cursor, so a page fetch can never trigger it; `staleTime` of 60 seconds; requested immediately for chip-driven criteria; and **never for a free-text query under three characters**, because `npm-scripts/sqlite-search-index.sql` documents that sub-three-character queries fall back to an unindexed folded `LIKE` scan, and a count over a predicate the index cannot serve is a mailbox scan per character.
 
-**The frugality rule, concretely.** `count` is one additional read over a whole match set, so it is requested per criteria set, never per page and never per keystroke:
+`count` is already `count?: int32` on `ThreadSearchResponse`. An absent count therefore needs no new field and no new surface, which is what makes the "no new API surface" claim true rather than nearly true.
 
-1. The count is its own query, keyed on the criteria **without** the continuation token. A page fetch cannot trigger it.
-2. `staleTime` of 60 seconds, matching `useStarredThreads`.
-3. For chip-driven criteria the count is requested immediately — a chip is one deliberate act.
-4. For free-text criteria the count is requested only for the same settled query string the list uses, and **never for a query under three characters**. `npm-scripts/sqlite-search-index.sql` documents that sub-three-character queries fall back to an unindexed folded `LIKE` scan; a count over a predicate the index cannot serve is a mailbox scan per character. Nothing may request a count the index cannot answer.
+### D14 — withdrawn: the bounded-read contract is documented, not built
 
-Buys: a number every surface can show without hedging, at no new cost on the SQL port, and the removal of a browser page-through that existed only to learn a total. Gives up: one extra query per counted request, and a count that is genuinely expensive on DynamoDB rather than cheap and wrong.
+The first version of this document added `rowsRead` and `readLimit` to `ThreadSearchResponse` and a three-state client helper to resolve them. All of it is withdrawn. Both reviews reached that independently, from different directions.
 
-Failure case: a count request leaks into the list's own query options and fires once per page, or onto a per-keystroke path. The guard is a test asserting that fetching page two issues no count request, and that a two-character query issues none at all.
+It was unnecessary. Its only purpose was to let a port that bounds its reads say so, and there is no such port here: `DrizzleThreadMessageRepository` is the only implementation of `IThreadMessageRepository`, the DynamoDB composition is injected through `setClient()` with no in-tree caller, and the SQL port's reads are unbounded. A contract with no second party is one nobody can be wrong about.
 
-### D14 — the read bound is reported as two values, and one helper derives the predicate
+It was also incorrect. `readLimit` on the off-row path is the request `limit`, not a fixed 500 — and #306 mandates `limit: 50` — so the copy it was designed to produce, "only the newest 500 messages were checked", was wrong for every caller except `useRescueCandidates`. The value it carried was one page's post-filter length, so a header derived from it would render a page length as a total, go *down* as the user paged, and vanish on the last page when the window stopped filling. That is the shape the same document forbade one section later.
 
-`ThreadSearchResponse` gains two fields, and `ResultList<T>` is left alone:
+What replaces it: nothing. The SQL port answers over the whole match set, so `count` is a number when requested and absent when not derivable. The port divergence stays documented — in the merged D3, and here — as the thing to design **when a second port lands**, with one note attached: the honest unit is the criteria evaluation, not the page. The first version got that distinction right and the values wrong.
 
-```tsp
-@doc("Rows the server read while evaluating the criteria, including candidates it discarded. Pair with readLimit to tell a complete evaluation from a bounded one.")
-rowsRead: int32;
-
-@doc("Maximum rows the server was willing to read while evaluating the criteria. Absent means the criteria were evaluated over every row that could match, so any count is exact and no matches were left unexamined. This is not the page size — pagination is expressed by continuationToken.")
-readLimit?: int32;
-```
-
-The distinction that makes the pair useful: `readLimit` bounds **criteria evaluation**, not pagination. A 50-row page of an on-row query has read exactly the rows it returns and discarded nothing, so `rowsRead` is 50 and `readLimit` is absent — the answer is complete for its page and the next page is reachable by token. The off-row path (`senderTrust`, `dkimMismatch`) reads a candidate window, enriches it and throws rows away, so `rowsRead` is the candidate count and `readLimit` is the window cap it used. If the window did not fill, `rowsRead < readLimit` and the evaluation was complete after all.
-
-No boolean crosses the seam. One consumer-side helper derives the predicate once, in `packages/web-client/src/lib/result-count.ts`:
-
-```ts
-export type ResultCount =
-	| { kind: "exact"; value: number }
-	| { kind: "atLeast"; value: number; examined: number }
-	| { kind: "unknown" };
-```
-
-`exact` when `count` is present. `atLeast` when `count` is absent and `readLimit !== undefined && rowsRead >= readLimit`, carrying the rows that did match and the number examined. `unknown` when no count was requested. Every surface renders a `ResultCount`; no surface reads `rowsRead` directly and no component re-derives the predicate.
-
-Buys: one contract, no flag, and a single place where "was this bounded" is decided. Gives up: two fields on every search response including the many that will never be bounded, and a redundant `rowsRead` on the on-row path.
-
-Deliberately not taken: letting the off-row path report an exact count when its window did not fill. It is derivable, and it would give the same criteria two behaviours depending on data volume. D4's "absent" stands.
+Buys: three fields, one helper, one new response model on `listAllThreads` and a false empty-state sentence all disappear; "no new API surface" becomes literally true. Gives up: when a bounded port arrives this has to be designed then, against a real caller, instead of now against an imagined one.
 
 ## Part 3 — the column the predicate depends on
 
-### D15 — the denormalized column is not correct today, and it is repaired before it becomes the predicate
+### D15 — the denormalized column is not correct today
 
-The architecture doc states that `thread_message.category` is written by body-sync as the copy the read path serves, and measured that on the live instance's INBOX it agrees with `message.category` on every row. Both are true. Neither makes the column trustworthy, because the read path has never used it — `enrichThreadRows` goes to the `message` table — so nothing has ever depended on the write path being complete. Four defects survive in it, verified against `origin/main`:
+The architecture doc states that `thread_message.category` is written by body-sync as the copy the read path serves, and measured that on the live instance's INBOX it agrees with `message.category` on every row. Both are true. Neither makes the column trustworthy: the read path has never used it — `enrichThreadRows` goes to the `message` table — so nothing has ever depended on its write path being complete. Four defects survive, all verified.
 
-1. **Inverted write order in the retro path.** `backfillClassification` (`packages/mailbox-service/src/body-sync.ts:929`) writes `Message` at `:945` and then `ThreadMessage` at `:946`, while its skip guard at `:933-938` keys off `message.category`. A crash or throw between the two leaves `message.category` decided and `thread_message.category` stranded at `uncategorized` forever: the caller captures the error at `:319`, requeues the id, and the retry hits a now-satisfied guard. The live path has the opposite order and says why — `applyPostStoreSteps` writes the ThreadMessage at `:652` and the Message last at `:787`, with the comment "Written LAST so bodyStorageKey — the skip-guard signal — is only durable once the parsed cache AND the move (when any) are." The retro path contradicts its own file.
-2. **One arbitrary row per message.** `denormalizeCategory` (`:1485`) resolves the row through `getByMessageId` → `findByMessageId` (`packages/drizzle-service/src/repos/thread-message.ts:666-681`), a `.limit(1)` with no `orderBy`. A message in two mailboxes has two rows; one gets the category and the other keeps `uncategorized`, and which one is planner-dependent. The codebase treats multiplicity as normal everywhere else — `flag-queue.ts:121` and `:182` iterate `findAllByMessageId`, with the reason stated at `:166-169`.
-3. **A row created after classification never gets the value.** `createThreadForMessage` (`packages/mailbox-service/src/message-sync.ts:1404`) creates thread messages without a category, so they default to `uncategorized`. That is correct when the message is new and unclassified. It is wrong when metadata sync discovers an already-classified message in a second mailbox: the new row starts `uncategorized` and `denormalizeCategory` will not run again, because the guard sees the message already classified.
-4. **No test asserts the column round-trips.** The Postgres integration DDL at `packages/drizzle-service/src/repos/thread-message.test.ts:31-63` is `CREATE TABLE IF NOT EXISTS` and omits both `category` and `list_id`, so it silently reuses whatever table exists. `packages/data-ports/src/conformance/` has three files and covers labels only; there is no thread-message conformance suite at all.
+1. **Inverted write order in the retro path.** `backfillClassification` (`packages/mailbox-service/src/body-sync.ts:929`) writes `Message` at `:944` and `ThreadMessage` at `:945`, while its skip guard at `:932-938` keys off `message.category`. A throw between them leaves `message.category` decided and `thread_message.category` stranded at `uncategorized` permanently: the caller captures the error at `:319`, requeues, and the retry hits a satisfied guard. The live path has the opposite order and says why — ThreadMessage at `:652`, Message last at `:787`, "Written LAST so bodyStorageKey — the skip-guard signal — is only durable once the parsed cache AND the move (when any) are."
+2. **One arbitrary row per message.** `denormalizeCategory` (`:1485`) resolves its row through `getByMessageId` → `findByMessageId` (`packages/drizzle-service/src/repos/thread-message.ts:666-681`), a `.limit(1)` with no `orderBy`. A message in two mailboxes has two rows; one gets the category, the other keeps `uncategorized`, and which one is planner-dependent. `flag-queue.ts:121` and `:182` iterate `findAllByMessageId` for exactly this reason.
+3. **A row created after classification never gets the value.** `createThreadForMessage` (`packages/mailbox-service/src/message-sync.ts:1404`) creates without a category. Correct for a new unclassified message; wrong when metadata sync finds an already-classified message in a second mailbox, because `denormalizeCategory` will not run again.
+4. **No test asserts the column round-trips.** The integration DDL at `packages/drizzle-service/src/repos/thread-message.test.ts:31-63` is `CREATE TABLE IF NOT EXISTS` and omits both `category` and `list_id`. `packages/data-ports/src/conformance/` is three files covering labels only.
 
-Adjacent, and not fixed by any of the above: `create()` is `onConflictDoNothing` over a deterministic `threadMessageId` (`thread-message.ts:245-257`), so re-creating an existing row discards a supplied `category` and returns the existing row. A replayed sync therefore never repairs anything. Repair is the business of D16, not of `create()`; making `create` upsert would change insert semantics for every field to fix one.
+Adjacent and deliberately not fixed: `create()` is `onConflictDoNothing` over a deterministic `threadMessageId` (`thread-message.ts:245-257`), so re-creating an existing row discards a supplied `category` and returns the existing row. A replayed sync repairs nothing. Repair is D16's business; making `create` upsert would change insert semantics for every field to fix one. #322 pins the current behaviour so a later change to upsert cannot pass silently.
 
-The four defects are fixed in the write path before the client depends on it: the retro path writes ThreadMessage first, `denormalizeCategory` iterates `findAllByMessageId`, and `createThreadForMessage` carries the category its caller already holds from the Message it just saved — which is `uncategorized` on the common path, so no read is added.
+Buys: the column becomes as correct going forward as the value it copies. Gives up: three write-path changes in a package this epic did not otherwise touch.
 
-Buys: the column becomes as correct going forward as the value it copies. Gives up: three write-path changes in a package the epic did not otherwise touch, and the retro path's guard has to move to a signal written last.
+### D16 — the repair runs inside `migrate.mjs`, because that is the only artefact that reaches an instance
 
-### D16 — the historical repair is one SQL statement in a one-shot that runs before the app
-
-PR #292's `listId` backfill is a resumable, checkpointed, paged pass because it re-derives a value from raw stored bytes, one message at a time, off the storage backend. Category needs none of that: the value already exists in the same database, one join away. The repair is set-based:
+The repair is one idempotent statement — the value is a join away in the same database, so none of PR #292's checkpointing, batching or resumability applies:
 
 ```sql
 UPDATE thread_message SET category = (
@@ -185,217 +175,140 @@ WHERE EXISTS (
 );
 ```
 
-No checkpointing, no resumability, no batching — an interrupted run leaves a consistent table and re-running finishes the job. It is idempotent by construction: after it runs the `WHERE` matches nothing, and it only ever writes the value body-sync would write.
+`message.message_id` is the primary key and `message.category` is `NOT NULL`, so the join is a PK probe, the `<>` never sees a NULL, and a not-yet-classified row correctly writes nothing. Re-running finishes an interrupted run; afterwards the `WHERE` matches nothing.
 
-Where it runs is the part #292 gets to decide differently. #292 ships as a documented manual command, which is right for `listId` — #263 accepted forward-only matching as a fallback. It is wrong here. If an admin skips this command, an upgraded instance sends `category` to a server that filters on a stale column, and the reported bug returns in a new costume: a filtered list that under-returns old mail, now with no client-side filter to mask it. Correctness cannot be opt-in.
+**Where it runs is the part the first version got wrong.** It proposed a second entrypoint invoked by the compose one-shot. That cannot reach an existing instance. `remit` fetches nothing — the compose file is only ever read from `$REMIT_DIR` on disk (`deploy/vps/remit:149-156`), `update` moves an image tag and runs `compose pull` (`:1608-1653`), and the repository-root `install.sh:25-49` is the only thing that ever downloads `docker-compose.sqlite.yml`. Open issue **#281** states the general case: *"Self-update delivers images only — compose and env changes never reach instances … any release whose fix lives in compose/env/wrapper cannot ship through the UI update."* So the first version's mechanism was #292's manual command with extra steps, wearing the argument against itself.
 
-The repair ships as its own entrypoint bundled into the backend image, in the same shape as `migrate.mjs` and #292's script, and is invoked by the same compose one-shot that runs the migration, immediately after it. `deploy/vps/migrate/run-migrate.ts` keeps its stated contract — "This migrator applies generated schema migrations and installs the idempotent DDL objects around them. It does not rewrite row content" — untouched and true.
+The repair therefore runs as a step **inside the existing migrate entrypoint**. The on-disk compose file already pins `image: ghcr.io/…/backend:${REMIT_TAG}` with `command: ["node", "migrate.mjs"]` (`docker-compose.sqlite.yml:70-85`), `remit update` pulls a new backend image for that tag, six services gate on the one-shot completing, and `check_migrate()` (`remit:236-250`) enforces it again. A new step in that file reaches every installed instance with no host-side action.
 
-**An instance mid-sync.** The one-shot runs after migrate and before the app and workers start, so there is no concurrent writer during an update. The statement is safe even with one: it writes only what body-sync would write, so a row updated by both gets the same value twice. A row whose message has no body yet has nothing to copy and stays `uncategorized`, which is correct — body-sync will fill it, and with D15's fixes it will fill every row for that message.
+That amends `run-migrate.ts`'s header, which currently says it "does not rewrite row content". The amendment is explicit, in the file, with the reason: a data repair the filter's correctness depends on has to arrive with the image, and this is the only path that does. A doc comment does not outrank the repair running. The alternative — depend on #281 landing first — buys the comment and blocks the bug fix behind an unstarted design, of which #278's staging redesign is the other half.
 
-Cost: one join scan of `thread_message` per update. 14,187 rows is milliseconds; a 500,000-row corpus is seconds, once per update, with the app already down.
+Orchestration stays where it belongs: `remit update` already invokes the migrate step and already gates on it, so the wrapper's own tests cover that an update runs the repair. Nothing is added to the wrapper.
 
-Buys: the filter cannot go live against a stale column, and the repair is small enough to read in one sitting. Gives up: every update pays a scan that will find nothing after the first, and a second command in the update path.
+**An instance mid-sync.** The one-shot runs before the app and workers start, so there is no concurrent writer. It is safe with one anyway: it writes only what body-sync would write, so a row touched by both gets the same value twice. A row whose message has no body yet has nothing to copy and stays `uncategorized`, correctly — body-sync will fill it, and after #320 it will fill every row for that message.
 
-### D17 — the repair is verified by a divergence count on real data
+Buys: the filter cannot go live against a stale column on any instance, by any upgrade path. Gives up: a stated invariant in `run-migrate.ts` is amended rather than preserved, and every update pays a join scan that finds nothing after the first.
 
-The same entrypoint takes `--check`, which writes nothing and reports:
+Failure case: the repair is added to the compose file instead of the image, and an operator who runs `remit update` gets the new client, the new server and no repair. The guard is that #321 touches no compose file.
 
-- rows where `thread_message.category <> message.category`, total and per mailbox
-- rows whose `message` row is missing
-- rows still `uncategorized` **whose message is also `uncategorized`** — the not-yet-classified cohort, reported separately so it cannot be mistaken for a failed repair
-- the per-category tally, before and after
+### D17 — the repair reports what it did, on real data
 
-`--check` runs on every update alongside the repair and logs its numbers, so an upgrade leaves evidence rather than an assumption.
+The same entrypoint takes `--check`, writes nothing, and reports: rows where `thread_message.category <> message.category`, total and per mailbox; rows whose `message` row is missing; rows still `uncategorized` **whose message is also `uncategorized`**, reported separately so the not-yet-classified cohort cannot be mistaken for a failed repair; and the per-category tally. It runs on every update alongside the repair and logs its numbers, so an upgrade leaves evidence.
 
-Buys: the repair's effect is a recorded number on a real corpus rather than a claim, and the not-yet-classified cohort is separated from failure. Gives up: a second read pass over the same table on every update, and a reporting mode that has to be kept honest as the schema changes.
+The runtime is logged, not estimated. Earlier drafts asserted "milliseconds" and "seconds"; those were guesses, and the log makes them measurements.
 
-Verification on real data is the live instance, not a fixture: run `--check` before the repair, record the divergence, run the repair, re-run `--check` and expect zero divergence and an unchanged not-yet-classified cohort. The architecture doc's measurement predicts near-zero divergence for INBOX on that instance; defect 2 and 3 in D15 predict non-zero divergence in mailboxes that hold a second copy of an INBOX message, such as Archive and the Gmail-style label folders. `--check` settles which is true. If divergence is zero everywhere, that is a real result and it is reported, not hidden — the repair still ships, because the defects that produce divergence are in the write path and untested instances are not this instance.
+Verification is the live instance, not a fixture: `--check`, record, repair, `--check` again, expecting zero divergence and an unchanged not-yet-classified cohort. The architecture doc's measurement predicts near-zero divergence for INBOX, and D15's defects 2 and 3 predict non-zero divergence in mailboxes holding a second copy of an INBOX message — Archive and label folders. `--check` settles which. If divergence is zero everywhere that is the result and it gets reported; the repair still ships, because the defects are in the write path and untested instances are not this instance.
+
+Buys: the repair's effect is a recorded number on a real corpus rather than a claim. Gives up: a second read pass on every update.
 
 ## Part 4 — the cutover
 
-### D18 — every deploy skew degrades to today's behaviour, and the only true gate is the repair
+### D18 — every deploy skew degrades to today's behaviour; the repair is the only gate
 
-There is no window where the list is wrong, and the reason is that the client-side predicate is idempotent over a server-filtered set. Filtering `personal` twice yields the same rows as filtering once.
+The client-side predicate is idempotent over a server-filtered set — `applyInboxFilters` is a pure predicate over `t.category`, so filtering twice yields what filtering once yields.
 
 | | old server | new server |
 |---|---|---|
-| **old client** | today | today — the client sends no `category`, so nothing changes |
-| **new client** | the server ignores `category`, the client's own filter still applies: today's behaviour | fixed |
+| **old client** | today | today; the client sends no `category` |
+| **new client** | server ignores `category`, the local filter still applies: today's behaviour | fixed |
 
-The bottom-left cell is the important one: a new client against an old server is not a broken list, it is the current bug. That holds during a rolling update and holds if a slice lands out of order.
+A new client against an old server is the current bug, not a broken list. So `applyInboxFilters` is deleted in the same change that starts sending `category`: no flag, no dual-path period.
 
-The ordering that does matter:
+Order: #304, #320 and #322 are additive and can land in any sequence; #321 must precede #306; #309 must precede #306, which renders states #309 defines.
 
-1. **#304 and the D15 write-path fixes** — additive; no client sends `category` yet.
-2. **D16's repair** — must be in the same release as #304 or earlier, and must run before the app serves traffic. It is the only hard gate.
-3. **#305** — count semantics; additive.
-4. **#309** — the states, as stories.
-5. **#306** — the client sends `category` and its local filter is deleted in the same change.
+Two client-side hazards this creates, neither of which existed while the filter was local:
 
-Deleting `applyInboxFilters` in the same change that starts sending `category` is safe precisely because running both would have been safe too. There is no flag and no dual-path period.
+**The previous predicate's rows must never render under the new filter.** The list re-keys on the filter, and `placeholderData: keepPreviousData` (`MailboxPane.tsx:337`) then renders the old predicate's rows while the new page is in flight — a visibly wrong list for one round trip. On a filter change the list renders the transition state (S4), not stale rows. Pagination *within* one filter keeps `keepPreviousData`. `listState` (`MessageList.tsx:1090-1097`) must not resolve to `empty` while a fetch for the current criteria is in flight.
 
-Two client-side hazards the cutover creates, neither of which existed while the filter was local:
+**The open thread must survive a filter change.** `resolveSelectedThread(rawThreads, …)` (`MailboxPane.tsx:406-411`) resolves the reading pane against the unfiltered set, with the comment saying it does so "so a filter never closes the reading pane". After the cutover there is no unfiltered set in the client. Snapshot the selected row into state on selection and resolve the pane from that snapshot before falling back to the list — a derivation over what the user selected, which the boundary keeps client-side.
 
-**The previous predicate's rows must never render under the new filter.** The list query re-keys on the filter, and `placeholderData: keepPreviousData` (`MailboxPane.tsx:336`) then renders the old predicate's rows while the new page is in flight — a list that is visibly wrong for one round trip, which is the exact failure this epic is about. On a filter change the list renders the transition state (Part 5, S4), not stale rows. Pagination within one filter keeps `keepPreviousData`.
+Buys: no flag, no dual-path period, and a partially-updated stack degrades to the bug it replaces. Gives up: one hard ordering constraint, and two hazards that have to be designed out rather than discovered.
 
-**The open thread must survive a filter change.** `MailboxPane.tsx:407-411` resolves the reading pane against the unfiltered `rawThreads` "so a filter never closes the reading pane". After the cutover there is no unfiltered set in the client. The selected row is snapshotted into state when the user selects it, and the reading pane resolves from that snapshot before falling back to the list. This is a derivation over what the user selected, which the boundary keeps client-side. Proof: select a thread, apply a filter it does not match, the reading pane stays open.
+Failure case: #306 lands before #321 on an instance whose column diverges, and the list under-returns old mail with nothing masking it. The guard is the dependency, and the `--check` numbers recorded before #306 ships.
 
-Buys: no flag, no dual-path period, and a partially-updated stack degrades to the bug it is replacing rather than to a wrong list. Gives up: one hard ordering constraint — the repair must precede the client — and two client-side hazards that have to be designed out rather than discovered.
+## Part 5 — the states a filtered list renders
 
-Failure case: #306 lands before #321 on an instance whose column diverges. The list then under-returns old mail with no client-side filter left to mask it, which is the original bug with a worse diagnosis. The guard is the dependency on #321 and the `--check` numbers recorded before #306 ships.
+### D19 — a filtered empty list states that the whole folder was checked
 
-## Part 5 — the user-visible states
+An empty list looks the same whether it is correct or broken, which is how this bug survived. So the filtered empty state says how much was read.
 
-The bug renders as an empty list. So the empty states are the design.
-
-### D19 — an empty filtered list states how much was read; that is what makes it different from the bug
-
-A user cannot distinguish "no personal mail" from "we only looked at the newest 50" by looking at an empty list, and no amount of correct backend work fixes that on its own. Every filtered empty state therefore carries a completeness sentence, and there are exactly two things it can say: everything was checked, or a stated bound was checked. A filtered empty state with no completeness sentence is not an acceptable state.
+There is one thing it can say, and the query is what makes it true: the predicate is a SQL `where` over the mailbox, unbounded, so a filtered empty result means the folder holds no matching mail. No number is needed to assert that, and none is available in this scope (D13).
 
 **S1 — unfiltered, empty mailbox.** Unchanged: `No messages in this mailbox`.
 
-**S2 — filtered, complete read, no matches.**
-
+**S2 — filtered, no matches.**
 > **No Personal mail in Inbox**
 > Every message in this folder was checked.
 > `Clear filter`
 
 With a search query as well: headline `No results for “invoice” in Personal`, same body.
 
-**S3 — filtered, bounded read, no matches.**
+**S3 — withdrawn.** The earlier bounded variant ("only the newest 500 messages were checked") named a number the code does not produce and made a completeness claim that was false where it was reachable — the off-row branch returns a continuation token, so older mail is reachable by paging. A category filter can never reach it: `category` is on-row, `hasOffRowCriteria` is false, the branch is not taken. Where it *is* reachable — `category` plus `senderTrust` or `dkimMismatch`, per D10 — the honest statement is that the page was bounded and there is more to check, and that belongs with whoever moves those criteria on-row (D7). The inbox chips offer no off-row filter, so nothing in this epic renders it.
 
-> **No matches in the newest 500 messages**
-> Older mail was not checked — this filter can only look at the newest 500 messages.
-> `Clear filter`
+**S4 — filter changed, pagination restarted.** The loading skeleton. Never the previous predicate's rows, never an empty state.
 
-Reachable only through `senderTrust` or `dkimMismatch`, which D7 leaves off-row. The mailbox list cannot produce it today; the state exists and is storied because D7 keeps the path alive and the next filter to arrive may land on it.
+**S5 — filtered, with results.** Rows. The filter's identity is already visible in the collapsed chip summary (`packages/ui/src/components/filter-sheet.tsx:155-180`), so no new header is introduced — and the existing `SearchResultsHeader` count stays as wrong as it is today, owned by #307.
 
-**S4 — filter changed, pagination restarted.** The loading skeleton, never the previous predicate's rows and never an empty state. `listState` must not resolve to `empty` while a fetch for the current criteria is in flight.
-
-**S5 — filtered, with results.** Rows, plus the result header (D20). The filter's identity is visible in the header so a filtered list is never mistaken for the mailbox.
-
-**S6 — filtered, fetching a further page.** Rows already rendered plus a footer that says so in words. Today the footer is a bare spinner (`MessageList.tsx:1429-1433`), which is one of the ways "not fetched yet" currently reads as "nothing there": `Loading more…`.
+**S6 — filtered, fetching a further page.** Rows plus `Loading more…`. Today it is a bare spinner (`MessageList.tsx:1429-1433`), which is one of the ways "not fetched yet" reads as "nothing there".
 
 **S7 — error.** Unchanged: `Couldn't load messages` / `Retry` / `Report a problem`.
 
-`FlaggedList` uses the same kit empty state and therefore shows `No messages in this mailbox` for a cross-account collection that is not a mailbox. The empty component takes its scope label from the caller: `No starred mail`, and filtered, `No starred Personal mail` with the same completeness sentence.
+Buys: the state that hid this bug becomes self-describing, and a future filter returning nothing cannot hide behind an ambiguous screen. Gives up: more copy in an empty state than one usually carries, and a completeness claim the query now has to keep true.
 
-Buys: the state that made this bug invisible for as long as it existed becomes self-describing, and a future filter that returns nothing cannot hide behind an ambiguous screen. Gives up: more copy in an empty state than an empty state usually carries, and a completeness claim the backend now has to keep true.
+Failure case: a surface renders the plain empty state under an active filter because the filter is not among the component's props. The guard is a test that the filtered-empty and unfiltered-empty states render distinguishably.
 
-Failure case: a surface renders the plain empty state under an active filter because the filter lives outside the component's props. The guard is a test that the filtered-empty state and the unfiltered one render distinguishable output, per D23.
+### D20 — the trimmed scope renders no number, and says so
 
-### D20 — the count reaches a component as a resolved value, and the header states the total the footer counts against
+No count request, no result-header change, no footer total. `Showing 50 of 4,753` was the best cure for this class of bug and it needs an exact count, so it goes to #305 and #307 with the rest.
 
-A new `packages/ui/src/components/list-result-header.tsx` replaces the module-private `SearchResultsHeader` (`MessageList.tsx:182`), which has no story and no test. It takes a `ResultCount` from D14 and a scope, and renders:
+What that costs, stated rather than hidden: after #306 a user with an active filter sees a correct list and, if they are also searching, a header whose number is still the count of loaded pages. The filtered-empty case — the reported bug — is fully addressed, because S2 needs no number. The partially-loaded case is not improved.
 
-| `ResultCount` | scope | copy |
-|---|---|---|
-| `exact` | filter only | `4,753 Personal messages` · `1 Personal message` |
-| `exact` | search only | `312 results for “invoice”` |
-| `exact` | both | `312 results for “invoice” in Personal` |
-| `atLeast` | any | `12+ results` — then, muted: `only the newest 500 messages were checked` |
-| `unknown` | search only | `Results for “invoice”` and no number |
+Buys: the epic ships without a count on any seam, and the "no new API surface" claim holds literally. Gives up: the honest-number work that motivated half the audit is deferred, and one wrong number stays on screen in the search case.
 
-A bare number is never rendered for a bounded read. Numbers go through `formatNumber`, so a five-figure total reads `14,187`.
+### D21 — `uncategorized` becomes filterable now; the rest of the category cleanup is deferred
 
-The footer states progress against that total, which is the durable cure for this class of bug — the difference between "50 shown" and "50 exist" is on screen at all times:
+D6 requires `uncategorized` to be filterable, and `MESSAGE_CATEGORIES` (`packages/ui/src/filter-presets.ts:35-43`) has no entry for it, so the inbox cannot ask for unclassified mail at all. Shipping #306 without that would give the inbox a correct server-side category filter and no way to reach one of its categories.
 
-- more remain, exact total: `Showing 50 of 4,753`
-- more remain, bounded: `Showing 50 · only the newest 500 messages were checked`
-- fetching: `Loading more…`
-- exhausted: nothing; the header total already equals what is rendered
+In scope: the chip. `{ id: "uncategorized", label: "Unclassified" }`, placed after `Personal` to match `briefCategories`' order, landing in #309 with its story before #306 wires it.
 
-Buys: the difference between "50 shown" and "50 exist" is on screen at all times, and no component can render a page length as a total because none accepts one. Gives up: a header and a footer that both depend on a count request, so a surface that declines to request one shows less than it used to.
+Deferred to #314: collapsing the five category tables (`MESSAGE_CATEGORIES`, `categoryTone`, `briefCategories`, `CATEGORY_LABELS`, `CATEGORY_SECTIONS`) plus the two hand-rolled category unions in the kit (`app-shell-types.ts:163`, `category-badge.tsx:3`, whose own comment says the generated enum is not importable from the UI build — so collapsing "keyed by `MessageCategory`" is blocked on that, not free). Also deferred: `message-row.tsx:164` rendering the raw enum where `CategoryBadge` renders a title, and the copy decisions bundled with it — `notification` versus `Automated`, `receipt` versus `Transactional`, `marketing`'s tone moving from `warning` to `neutral`. Those are user-visible copy choices, not drift-collapsing, and each needs a decision and a story rather than a rename. **#314 gets a story issue in front of it before any of it lands.**
 
-### D21 — one category presentation table
+The one guard that ships now: a test asserting a row whose category is `uncategorized` renders neither the personal presentation nor nothing at all. That is the mechanical check #45 never had — both `display-category.ts` and `category-badge.tsx` hold the line by comment only.
 
-Five independent category tables exist and have drifted:
+Buys: D6 is satisfied in the same release that makes the filter work. Gives up: the inbox chip row and the brief chip row keep two spellings of the same list until #314.
 
-- `packages/ui/src/filter-presets.ts:35` `MESSAGE_CATEGORIES` — inbox chips. **No `uncategorized` entry**, so unclassified mail is not filterable from the inbox at all, which D6 requires it to be. `marketing` is `warning` here.
-- `packages/ui/src/components/app-shell-types.ts:327` `categoryTone` — the only colour mapping. `marketing` is `neutral` here.
-- `packages/ui/src/components/app-shell-types.ts:180` `briefCategories` — brief chips, label `Unclassified`.
-- `packages/ui/src/components/category-badge.tsx:25` `CATEGORY_LABELS` — label `unclassified`, plus `notification` and `receipt` for `automated` and `transactional`.
-- `packages/web-client/src/lib/brief.ts:101` `CATEGORY_SECTIONS` — label `Unclassified`.
+### D23 — the states land in Storybook first
 
-Separately, `message-row.tsx:164` renders the raw enum string rather than calling `getCategoryLabel`, so a row badge reads `uncategorized` while `CategoryBadge` renders `unclassified` for the same value.
+Per D8, #309 lands before #306 and #306 consumes what it defines. In scope: `message-list-state.tsx`, which has a render test and **no story file** today and which renders the empty state this epic is about; the `Loading more…` affordance, which joins it there rather than staying inline in a 1450-line web-client file; and the `uncategorized` chip on `filter-sheet.tsx`'s existing stories.
 
-One table in `packages/ui`, keyed by `MessageCategory`, carrying label and tone; every surface reads it. Labels: `Personal`, `Unclassified`, `Newsletter`, `Marketing`, `Automated`, `Transactional`, `Social`. Tones follow `categoryTone`: `personal` accent, `transactional` positive, `social` warning, the rest neutral. `personal` still renders no badge on a row. `uncategorized` keeps its own label and its own section everywhere, and one test asserts that a row whose category is `uncategorized` renders neither the personal label nor no label at all — the mechanical guard for #45 that D6 asks for and nothing currently provides.
+`message-list-state.tsx` also needs a scope label from its caller, because `FlaggedList` renders `No messages in this mailbox` for a cross-account collection that is not a mailbox. Only the parameter lands here; Flagged's own states are #310.
 
-The inbox chip row gains `{ id: "uncategorized", label: "Unclassified" }` after `Personal`, matching the brief's order.
+Render tests follow the existing convention exactly — `.render.test.ts`, never `.tsx`, since the `packages/ui` glob is `src/**/*.test.ts` and a `.tsx` test silently never runs. `node:test` plus `renderToString`, state through `initial*` props, assertions on literal copy. Coverage gate is 90% lines.
 
-Buys: the drift closes, and `uncategorized` becomes filterable where D6 says it must be. Gives up: a table move touching several kit components, inside an epic that is otherwise about queries.
+Asserted rather than reviewed by eye: S2 against S1 (filtered-empty versus empty mailbox), S2 against S4 (empty versus fetching), and the `uncategorized` guard above.
 
-### D22 — the brief paginates by section, not as a page; each section is a bounded top-N with an honest total
-
-#312 must answer the question #197 left open and record it there. The answer:
-
-The brief does not paginate as a whole. Each category section is its own query — `listAllThreads` with `category`, `limit: SECTION_ROW_CAP` — plus one `count: true` request for its true size. `Show N more` stops slicing loaded rows and fetches that section's next page. `groupBriefSections` becomes a pure regrouping of complete per-section responses, and `mergeSearchRows` operates on complete result sets or goes away.
-
-The alternative — one unified page plus seven counts — is rejected because it produces a section header reading `Marketing 3,942` above zero rows whenever that category's mail is older than the unified window. That is more misleading than today's understated number, not less.
-
-**Read cost.** Today: one 50-row read and one 200-row read, 250 rows plus two enrichment batches. After: seven 10-row seeks, 70 rows, plus seven index-only counts. The counts read one I2 index entry per message in the brief's scope, once per brief load with a 60-second `staleTime` — 14,187 entries on this instance, no row reads. That is fourteen small requests where there were two, and fewer rows read. It is not free and it is not per keystroke.
-
-A section whose count is bounded or absent renders no number rather than a bare one, per D20.
-
-Buys: a section header states the size of a category rather than the size of a window, and a category whose mail is all older than the newest 50 stops rendering as empty. Gives up: fourteen requests on brief load where there were two, and a section that can now show a total far larger than the rows beneath it — which is honest, and is a shape the component has to be designed for rather than one it inherits.
-
-### D23 — the stories come first, and the components live in the kit
-
-Per D8, in wave order: `list-result-header.tsx` (new), `message-list-state.tsx` (which has a render test and **no story file** today), the list footer, `brief-section.tsx`, and the category table all get stories before any app change consumes them. `message-list-state.tsx` gaining its first story is not optional: it is the component that renders the empty state this whole epic is about.
-
-Story render tests follow the existing convention exactly — `.render.test.ts`, never `.tsx`, `node:test` plus `renderToString`, asserting on the literal user-facing copy, state reached through `initial*` props. The `packages/ui` test glob is `src/**/*.test.ts`, so a `.tsx` test never runs.
-
-The states that must render distinguishably, asserted in tests rather than reviewed by eye: S2 against S3 (complete versus bounded), S2 against S4 (empty versus fetching), S2 against S1 (filtered-empty versus empty mailbox), and an `atLeast` count against an `exact` one.
-
-Buys: each state is reviewable in isolation before app code depends on it, and the component that renders this epic's headline symptom finally has a story. Gives up: an extra hop before three of the wiring slices can start.
-
-### D24 — the selection count arrives in one request, so the running count goes
-
-`countMatches` (`packages/web-client/src/lib/bulk-actions.ts:210`) is deleted with its progressive `Counting… 1,284 so far` label and the `≥ 5000` variant that appends `This is a big result set.` The replacement is a plain in-flight label with no number — `Counting…` — resolving to the existing `All 1,284 matching your search selected`. An exact total is its own warning; a threshold sentence on top of it is noise.
-
-The delete confirmation loses `about` and nothing else: `Move 1,284 messages to Trash?`. The snapshot sentence stays for predicate-sourced selections, because it was never about count accuracy — mail still arrives during a delete.
-
-The Spam offer's copy is unchanged; only its number changes. Note that #313's premise is off: the number rendered is `heldOutSpamCount` (`packages/ui/src/components/search-results.tsx:318`), summed across held-out sections, and `spamOfferForResults` only picks the destination folder. So the fix is that `heldOutSpamCount` becomes a sum of server counts over the junk mailboxes in scope, not that `spamOfferForResults` counts differently. When any of those counts is absent the offer renders `Results from Spam` with no number and keeps its `Go to Spam` action.
-
-Buys: three hedged numbers become exact, and a progressive counter that only existed to make a page-through feel alive is deleted rather than reworded. Gives up: the reassurance of a rising number during a long count, replaced by a single wait with no progress to show.
-
-## Gaps closed with new issues
-
-- **#304 correction** — the index is out-of-schema (D9), and the read-side change includes mapping `category` in `toResponse` and making it required (D11), neither of which the issue mentions.
-- **New: the write path for `thread_message.category`** — D15's four defects. No existing issue covers any of them.
-- **New: the historical repair and its verification** — D16, D17. Blocks #306.
-- **New: thread-message conformance and integration DDL** — D15 defect 4. The integration test applies `deploy/vps/migrations-sqlite/entities` through the drizzle migrator instead of hand-written DDL, which makes drift structurally impossible rather than merely fixed.
-- **#314 extension** — D21's category table, alongside the predicate tables the issue already collapses.
-
-Adjacent and not in scope: `message-move.ts:493-514` carries `category` to a copied row but not `listId`, so a copy loses the denormalization `ListId` filter clauses match on. That belongs to #263 and is noted there.
+Buys: the component that renders this epic's symptom finally has a story, reviewable next to the correct-empty case. Gives up: one hop before #306 can start.
 
 ## FAQ
 
-**Why not just filter by joining to `message.category` and skip the denormalized column entirely?** Because the join has to happen before the limit. To find 50 `social` rows the planner would probe the `message` table for every candidate in the mailbox — 8,060 probes for one page, 14,187 to exhaust the category. The on-row predicate exists so the engine can seek. D1 is right.
+**Why not filter by joining to `message.category` and skip the denormalized column?** The join has to happen before the limit, so the planner would probe `message` for every candidate in the mailbox — 8,060 probes for one page of `social`, 14,187 to exhaust it. The on-row predicate exists so the engine can seek.
 
-**If the live instance's INBOX already agrees on every row, why bother with a repair?** Because nothing has ever read the column, so nothing has ever depended on the write path being complete, and three of its four defects produce divergence in mailboxes that hold a second copy of a message — Archive and label folders, not INBOX. `--check` reports the real number before the repair writes anything. If it is zero, that is the result and it gets reported.
+**Why is the epic so much smaller than the audit?** One derivation causes the reported bug and fifteen are debt. The debt is filed, not forgotten. Shipping the fix does not require shipping the migration.
 
-**Why is the repair automatic when the `listId` backfill is a manual command?** Because forward-only matching was an accepted outcome for `listId` and is not one here. Skipping this repair means an upgraded instance filters on a stale column and the reported bug comes back with the client-side filter no longer masking it.
+**If the live instance's INBOX already agrees on every row, why repair anything?** Nothing has ever read the column, so nothing has ever depended on its write path, and three of the four defects produce divergence in mailboxes holding a second copy of a message — Archive and label folders, not INBOX. `--check` reports the real number before anything is written.
 
-**Why not put the repair in the migrator?** `run-migrate.ts` states that it applies DDL and never rewrites row content. Breaking that to save a line in a compose file trades a clear contract for convenience. The one-shot that runs migrate runs this immediately after, which gives the same ordering guarantee.
+**Why is this repair automatic when the `listId` backfill is manual?** Forward-only matching was an accepted outcome for `listId` (#263 says so). Skipping this one means the filter goes live against a stale column and the reported bug persists with nothing masking it.
 
-**Does the exact count make a large mailbox slow?** The count already runs today as a full `COUNT(*)`; the change is that the answer stops being thrown away. With I1 it is an index-only range count — 88 entries for `social`, 4,753 for `personal`. What would make it slow is coupling it to keystrokes, which D13 forbids in four specific ways, including never counting a query shorter than the trigram floor.
+**Why amend `run-migrate.ts`'s "never rewrites row content" instead of respecting it?** Because a compose-level step does not reach an installed instance (#281) and the image does. The invariant was worth stating and is worth amending in the open, with the reason in the file.
 
-**Why two indexes?** They answer different questions: one mailbox filtered by category, and one category across mailboxes. Neither is a prefix of the other, and the second only becomes necessary when #308 gives `listAllThreads` a category filter.
+**Why `@indexDef` rather than the `.sql` files?** All five LSI slots are used and `ThreadMessage.tsp` says a sixth can never be added, so a TypeSpec `@index` could only be a GSI. `@indexDef` is the drizzle generator's SQL-only decorator, so the index reaches the schema, a migration and both test harnesses without touching the DynamoDB entity. The `.sql` files remain the home for objects the schema cannot express, which a five-column b-tree is not.
 
-**Why does the index live in a `.sql` file instead of the schema?** The drizzle schema is generated from TypeSpec `@index` decorators, and those same decorators mint a DynamoDB GSI. Declaring the index in the schema would charge write amplification to a port that D2 says answers this predicate with a `FilterExpression`.
+**Why does an exact count not ship with the filter, when the doc says it is free?** It is free on the SQL port and it is not needed to close the bug — S2 asserts completeness from the query, not from a number. Counts touch five surfaces and each needs its own honest treatment; that is #305 and #307.
 
-**Why not a `truncated` flag instead of two numbers?** Because a flag has to be recomputed by whoever wrote the port and believed by everyone downstream, and it cannot distinguish "the cap was hit" from "the cap existed and was not reached". `rowsRead` with `readLimit` carries both, and exactly one client-side helper turns the pair into the three cases a UI can render.
+**What happened to `rowsRead` and `readLimit`?** Withdrawn. They existed to let a bounded port report its bound, there is no such port in this repository, and the values they carried would have rendered a page length as a total. D14 has the detail.
 
-**Why is `readLimit` absent rather than a large number on the SQL path?** There is no honest number for "no bound". Absence is the same convention D4 already chose for `count`.
+**Do the filters survive a reload?** No. `filterCategory` and `filterAttributes` stay local component state; the URL carries `selectedMessageId`, `selectedThreadId` and `q`. Putting filters in the URL is a real improvement and is not this correction.
 
-**How does a user tell "no personal mail" from "we only looked at the newest 50"?** The empty state says which. Complete reads say every message in the folder was checked; bounded reads name the bound. An empty filtered state with neither sentence is not a state this design permits.
+**Can a user filter to more than one category at once?** No. The chips are single-select today and stay single-select; the array parameter receives one element.
 
-**Do the filters survive a reload?** No. `filterCategory` and `filterAttributes` are local component state and stay that way — the URL carries `selectedMessageId`, `selectedThreadId` and `q` today. Putting filters in the URL is a real improvement and it is not this correction; nothing in the bug or the fix depends on it.
-
-**Can a user filter to more than one category at once?** No. The chips are single-select today and stay single-select; the server parameter is an array and receives one element. Multi-select is a UX change with no defect behind it.
-
-**Fourteen requests to load the brief — is that not the runaway pattern?** They are seven bounded seeks and seven index-only counts, issued once per brief load with a 60-second `staleTime`, replacing two requests that read 250 rows. Fewer rows are read than today. The rule the frugality guard actually protects is that nothing scans per keystroke, and nothing here is on a keystroke path.
-
-**What happens to `uncategorized` mail?** It gains a chip it never had in the inbox, keeps its own label and its own brief section, and gets a test that fails if it ever renders as personal or as nothing.
+**What happens to `uncategorized` mail?** It gains the inbox chip it never had, keeps its own label and its own brief section, and gets the test that fails if it ever renders as personal or as nothing.
