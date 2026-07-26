@@ -14,6 +14,7 @@ import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import { emitEvent } from "../emit.js";
 import type { PlacementMovePushEvent } from "../events.js";
+import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import {
@@ -227,14 +228,32 @@ export const handlePlacementMovePush = async (
 	// died mid-flight already left it here).
 	await markerService.updateState(messageId, "processing");
 
-	const sourceMailbox = await mailboxService.get(
-		accountId,
-		marker.sourceMailboxId,
-	);
-	const destinationMailbox = await mailboxService.get(
-		accountId,
-		marker.destinationMailboxId,
-	);
+	// Either folder can be deleted between enqueue and this push, leaving a
+	// marker pointing at a gone row. The lookup then throws NotFoundError forever,
+	// and on the account's per-group FIFO that head message stalls the whole
+	// pipeline (issues #287, #289, #290). The move is moot — drop the marker (as
+	// the superseded branch above does) and ack with a WARN.
+	const mailboxes = await Promise.all([
+		mailboxService.get(accountId, marker.sourceMailboxId),
+		mailboxService.get(accountId, marker.destinationMailboxId),
+	]).catch((error: unknown) => {
+		if (isNotFoundError(error)) return null;
+		throw error;
+	});
+	if (!mailboxes) {
+		await markerService.delete(messageId);
+		log.warn(
+			{
+				messageId,
+				accountId,
+				sourceMailboxId: marker.sourceMailboxId,
+				destinationMailboxId: marker.destinationMailboxId,
+			},
+			"Skipping PLACEMENT_MOVE_PUSH: a mailbox no longer exists (deleted); marker dropped",
+		);
+		return;
+	}
+	const [sourceMailbox, destinationMailbox] = mailboxes;
 
 	// Cheap frugal skip (epic #1281 invariant 6): either mailbox already known
 	// paused never even borrows a connection. Optimization only — the

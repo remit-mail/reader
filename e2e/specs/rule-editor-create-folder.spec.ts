@@ -45,7 +45,7 @@ test.describe("Create folder from the rule editor", () => {
 
 	test.afterAll(async () => {
 		const run = readRunState();
-		const api = new ApiClient(run.token);
+		const api = new ApiClient(run);
 		const live = await api.listFilters(run.accountId);
 		const ours = new Set(seededFilters);
 		await Promise.all(

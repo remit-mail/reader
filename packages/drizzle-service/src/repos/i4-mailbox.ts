@@ -6,7 +6,7 @@ import type {
 	ResultList,
 	UpdateMailboxInput,
 } from "@remit/data-ports";
-import { MailboxCursorState } from "@remit/domain-enums";
+import { MailboxCursorState, MailboxSyncStatus } from "@remit/domain-enums";
 import { and, asc, eq, gt, inArray, or } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import shortUuid from "short-uuid";
@@ -341,7 +341,13 @@ export class MailboxRepo implements IMailboxRepository {
 		const children = await this.findByPathPrefix(accountId, oldPath, delimiter);
 		for (const child of children) {
 			const newChildPath = child.fullPath.replace(oldPath, newPath);
-			await this.update(accountId, child.mailboxId, { fullPath: newChildPath });
+			// Mark the child pending, like the renamed parent: its new path is not
+			// on the server until MAILBOX_RENAME lands, so a reconcile running in
+			// that window must not reap it as server-deleted (#290).
+			await this.update(accountId, child.mailboxId, {
+				fullPath: newChildPath,
+				syncStatus: MailboxSyncStatus.pending,
+			});
 		}
 	}
 }

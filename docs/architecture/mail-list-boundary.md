@@ -41,6 +41,8 @@ The cost of not fixing it is the same number read the other way. To fill one scr
 
 Buys: an exact filter over the whole mailbox, a full page of matches per request, and a count that can be computed in SQL. Gives up: a schema index on `category` and a migration to add it, plus one more predicate the out-of-tree DynamoDB port must implement as a `FilterExpression` over the item it already reads.
 
+Amended by [`docs/design/mail-list-server-query.md`](../design/mail-list-server-query.md) D9: the index is declared with the drizzle generator's `@indexDef`, which emits SQL only. A TypeSpec `@index` was not an option — all five LSI slots are taken and this file's own note says a sixth can never be added, so it could only have been a GSI.
+
 ### D2 — the port seam promises filtered, ordered, paginated rows; each port implements it natively
 
 The alternative was for the seam to promise rows and have a shared layer filter them. That is what `executeThreadSearch` does today and it is the reason a filtered page can come back empty with a continuation token attached.
@@ -57,6 +59,8 @@ The response carries the read bound that produced it as a value — the number o
 
 Buys: a single documented contract; a client that never has to know which backend it is talking to; no silent truncation. Gives up: two additive fields on the search response, and every port now has to report its read bound honestly rather than inheriting a shared cap.
 
+**Not implemented.** [`docs/design/mail-list-server-query.md`](../design/mail-list-server-query.md) D14 withdraws the two response fields and the refill loop in D2: there is no second port in this repository to disagree with the SQL one, and the values the fields would have carried were a page length rather than a bound. The divergence stays documented here as the thing to design when a second port lands.
+
 This supersedes the current arrangement, in which `countByMailbox` computes the exact SQL count and then discards it with `Math.min(count, cap)` (`packages/drizzle-service/src/repos/thread-message.ts:883`) purely to imitate DynamoDB's window semantics.
 
 ### D4 — `count` means the exact number of matching rows in the mailbox
@@ -68,6 +72,8 @@ This supersedes the current arrangement, in which `countByMailbox` computes the 
 `count` stays opt-in (`count: true`), because it is an additional read over the whole match set. It must not be coupled to keystrokes: on this mailbox an exact count is one index range scan on SQLite, and a full partition read on DynamoDB.
 
 Buys: a number the UI can show without hedging, and the removal of `countMatches` (`packages/web-client/src/lib/bulk-actions.ts:218`), which today pages an entire result set through the browser to learn its size. Gives up: one extra query per counted request, and a count that is genuinely expensive on DynamoDB rather than cheap and wrong.
+
+Stands as a decision; not implemented in the slice that fixes the reported bug. It moves to #305 with every surface that would render a number — see [`docs/design/mail-list-server-query.md`](../design/mail-list-server-query.md) D13 and D20. The read-bound fields this decision leans on are withdrawn (D14); an absent `count` needs no new field, since `count` is already optional.
 
 ### D5 — the inbox filter needs no new endpoint and no new parameter
 
