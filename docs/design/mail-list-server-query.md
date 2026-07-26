@@ -6,7 +6,7 @@ Scope: the query shape per port, count semantics, the correctness of `thread_mes
 
 The architecture doc sets the boundary and decides D1–D8. This document decides how the queries are written, what the numbers mean, how the column they depend on is made correct, and what the user sees. Decision numbering continues from the architecture doc: D1–D8 live there, D9 onward here, so an issue can cite a decision without ambiguity.
 
-Three of the architect's issues are corrected here rather than worked around. They are D9 (the index cannot live in the generated schema), D14 (the column the predicate depends on is not correct today), and #313's premise (the number on the Spam offer does not come from where the issue says it does). Each correction says what is wrong and why.
+Three of the architect's issues are corrected here rather than worked around. They are D9 (the index cannot live in the generated schema), D15 (the column the predicate depends on is not correct today), and #313's premise (the number on the Spam offer does not come from where the issue says it does). Each correction says what is wrong and why.
 
 ## What is in flight
 
@@ -64,6 +64,12 @@ The ordering is `sent_date <order>, thread_message_id ASC` — a mixed direction
 
 The middle row is why the index is part of the same slice as the predicate and not a follow-up: a correct filter without an index turns a rare category into a mailbox scan, which is the cost profile the frugality rule exists to prevent.
 
+Buys: a filtered page costs the same for a common category and a rare one, and the existing cursor, ordering and tiebreak are untouched. Gives up: a residual sort inside each tie group on both engines, and one more clause in a predicate builder four read paths share.
+
+Failure case: `category` is added to `buildSearchConditions` but the handler keeps routing it to `offRow`, so the SQL clause is dead and the filter still runs over a window. The guard is a handler test asserting `category` reaches `search` and that a category-only query takes the no-off-row branch.
+
+**The DynamoDB port.** There is no DynamoDB implementation in this repository — `DrizzleThreadMessageRepository` is the only implementation of `IThreadMessageRepository` and the DynamoDB composition is injected from outside through `setClient()` — so what follows is the contract that port must meet, not code this epic writes. D2 fixes the shape: `category` becomes a `FilterExpression` over the item the query already reads, with a refill loop so a page is full rather than short. Its `Query` is unchanged — the same partition and the same `sent_date` key condition — and `ExclusiveStartKey` continues to page it. Two consequences it must honour: the loop pays read capacity for rows the filter discards, which for a rare category on a large mailbox is a real charge; and because the loop has to stop somewhere, that port is the one that reports a `readLimit` (D14) while the SQL port omits it. A count on that port is a full partition read, which is why D13 keeps `count` opt-in rather than always-on.
+
 ### D11 — `category` on the response comes from the row, and stops being optional
 
 `THREAD_LIST_ATTRIBUTES` (`thread.ts:35-53`) does not list `category`, and `toResponse` (`enrichThreadRows.ts:29-48`) does not map it, so `enrichThreadRows` batch-fetches the `message` table for a value already sitting on the row it just read. Note that `options.attributes` is accepted and ignored by the drizzle repo — every read is `select()` — so the projection list is documentation for the DynamoDB port, not a behaviour. Updating it alone changes nothing; the mapping in `toResponse` is the change that matters.
@@ -114,7 +120,9 @@ Buys: the brief's sections cost a bounded seek each instead of a scan each. Give
 3. For chip-driven criteria the count is requested immediately — a chip is one deliberate act.
 4. For free-text criteria the count is requested only for the same settled query string the list uses, and **never for a query under three characters**. `npm-scripts/sqlite-search-index.sql` documents that sub-three-character queries fall back to an unindexed folded `LIKE` scan; a count over a predicate the index cannot serve is a mailbox scan per character. Nothing may request a count the index cannot answer.
 
-Failure case: a count request leaks into the list's own query options and fires once per page. The guard is a test asserting that fetching page two issues no count request.
+Buys: a number every surface can show without hedging, at no new cost on the SQL port, and the removal of a browser page-through that existed only to learn a total. Gives up: one extra query per counted request, and a count that is genuinely expensive on DynamoDB rather than cheap and wrong.
+
+Failure case: a count request leaks into the list's own query options and fires once per page, or onto a per-keystroke path. The guard is a test asserting that fetching page two issues no count request, and that a two-character query issues none at all.
 
 ### D14 — the read bound is reported as two values, and one helper derives the predicate
 
@@ -200,6 +208,8 @@ The same entrypoint takes `--check`, which writes nothing and reports:
 
 `--check` runs on every update alongside the repair and logs its numbers, so an upgrade leaves evidence rather than an assumption.
 
+Buys: the repair's effect is a recorded number on a real corpus rather than a claim, and the not-yet-classified cohort is separated from failure. Gives up: a second read pass over the same table on every update, and a reporting mode that has to be kept honest as the schema changes.
+
 Verification on real data is the live instance, not a fixture: run `--check` before the repair, record the divergence, run the repair, re-run `--check` and expect zero divergence and an unchanged not-yet-classified cohort. The architecture doc's measurement predicts near-zero divergence for INBOX on that instance; defect 2 and 3 in D15 predict non-zero divergence in mailboxes that hold a second copy of an INBOX message, such as Archive and the Gmail-style label folders. `--check` settles which is true. If divergence is zero everywhere, that is a real result and it is reported, not hidden — the repair still ships, because the defects that produce divergence are in the write path and untested instances are not this instance.
 
 ## Part 4 — the cutover
@@ -229,7 +239,11 @@ Two client-side hazards the cutover creates, neither of which existed while the 
 
 **The previous predicate's rows must never render under the new filter.** The list query re-keys on the filter, and `placeholderData: keepPreviousData` (`MailboxPane.tsx:336`) then renders the old predicate's rows while the new page is in flight — a list that is visibly wrong for one round trip, which is the exact failure this epic is about. On a filter change the list renders the transition state (Part 5, S4), not stale rows. Pagination within one filter keeps `keepPreviousData`.
 
-**The open thread must survive a filter change.** `MailboxPane.tsx:407-411` resolves the reading pane against the unfiltered `rawThreads` "so a filter never closes the reading pane". After the cutover there is no unfiltered set in the client. The selected row is snapshotted into state when the user selects it, and the reading pane resolves from that snapshot before falling back to the list. This is a derivation over what the user selected, which D-boundary keeps client-side. Proof: select a thread, apply a filter it does not match, the reading pane stays open.
+**The open thread must survive a filter change.** `MailboxPane.tsx:407-411` resolves the reading pane against the unfiltered `rawThreads` "so a filter never closes the reading pane". After the cutover there is no unfiltered set in the client. The selected row is snapshotted into state when the user selects it, and the reading pane resolves from that snapshot before falling back to the list. This is a derivation over what the user selected, which the boundary keeps client-side. Proof: select a thread, apply a filter it does not match, the reading pane stays open.
+
+Buys: no flag, no dual-path period, and a partially-updated stack degrades to the bug it is replacing rather than to a wrong list. Gives up: one hard ordering constraint — the repair must precede the client — and two client-side hazards that have to be designed out rather than discovered.
+
+Failure case: #306 lands before #321 on an instance whose column diverges. The list then under-returns old mail with no client-side filter left to mask it, which is the original bug with a worse diagnosis. The guard is the dependency on #321 and the `--check` numbers recorded before #306 ships.
 
 ## Part 5 — the user-visible states
 
@@ -267,6 +281,10 @@ Reachable only through `senderTrust` or `dkimMismatch`, which D7 leaves off-row.
 
 `FlaggedList` uses the same kit empty state and therefore shows `No messages in this mailbox` for a cross-account collection that is not a mailbox. The empty component takes its scope label from the caller: `No starred mail`, and filtered, `No starred Personal mail` with the same completeness sentence.
 
+Buys: the state that made this bug invisible for as long as it existed becomes self-describing, and a future filter that returns nothing cannot hide behind an ambiguous screen. Gives up: more copy in an empty state than an empty state usually carries, and a completeness claim the backend now has to keep true.
+
+Failure case: a surface renders the plain empty state under an active filter because the filter lives outside the component's props. The guard is a test that the filtered-empty state and the unfiltered one render distinguishable output, per D23.
+
 ### D20 — the count reaches a component as a resolved value, and the header states the total the footer counts against
 
 A new `packages/ui/src/components/list-result-header.tsx` replaces the module-private `SearchResultsHeader` (`MessageList.tsx:182`), which has no story and no test. It takes a `ResultCount` from D14 and a scope, and renders:
@@ -287,6 +305,8 @@ The footer states progress against that total, which is the durable cure for thi
 - more remain, bounded: `Showing 50 · only the newest 500 messages were checked`
 - fetching: `Loading more…`
 - exhausted: nothing; the header total already equals what is rendered
+
+Buys: the difference between "50 shown" and "50 exist" is on screen at all times, and no component can render a page length as a total because none accepts one. Gives up: a header and a footer that both depend on a count request, so a surface that declines to request one shows less than it used to.
 
 ### D21 — one category presentation table
 
@@ -318,6 +338,8 @@ The alternative — one unified page plus seven counts — is rejected because i
 
 A section whose count is bounded or absent renders no number rather than a bare one, per D20.
 
+Buys: a section header states the size of a category rather than the size of a window, and a category whose mail is all older than the newest 50 stops rendering as empty. Gives up: fourteen requests on brief load where there were two, and a section that can now show a total far larger than the rows beneath it — which is honest, and is a shape the component has to be designed for rather than one it inherits.
+
 ### D23 — the stories come first, and the components live in the kit
 
 Per D8, in wave order: `list-result-header.tsx` (new), `message-list-state.tsx` (which has a render test and **no story file** today), the list footer, `brief-section.tsx`, and the category table all get stories before any app change consumes them. `message-list-state.tsx` gaining its first story is not optional: it is the component that renders the empty state this whole epic is about.
@@ -326,6 +348,8 @@ Story render tests follow the existing convention exactly — `.render.test.ts`,
 
 The states that must render distinguishably, asserted in tests rather than reviewed by eye: S2 against S3 (complete versus bounded), S2 against S4 (empty versus fetching), S2 against S1 (filtered-empty versus empty mailbox), and an `atLeast` count against an `exact` one.
 
+Buys: each state is reviewable in isolation before app code depends on it, and the component that renders this epic's headline symptom finally has a story. Gives up: an extra hop before three of the wiring slices can start.
+
 ### D24 — the selection count arrives in one request, so the running count goes
 
 `countMatches` (`packages/web-client/src/lib/bulk-actions.ts:210`) is deleted with its progressive `Counting… 1,284 so far` label and the `≥ 5000` variant that appends `This is a big result set.` The replacement is a plain in-flight label with no number — `Counting…` — resolving to the existing `All 1,284 matching your search selected`. An exact total is its own warning; a threshold sentence on top of it is noise.
@@ -333,6 +357,8 @@ The states that must render distinguishably, asserted in tests rather than revie
 The delete confirmation loses `about` and nothing else: `Move 1,284 messages to Trash?`. The snapshot sentence stays for predicate-sourced selections, because it was never about count accuracy — mail still arrives during a delete.
 
 The Spam offer's copy is unchanged; only its number changes. Note that #313's premise is off: the number rendered is `heldOutSpamCount` (`packages/ui/src/components/search-results.tsx:318`), summed across held-out sections, and `spamOfferForResults` only picks the destination folder. So the fix is that `heldOutSpamCount` becomes a sum of server counts over the junk mailboxes in scope, not that `spamOfferForResults` counts differently. When any of those counts is absent the offer renders `Results from Spam` with no number and keeps its `Go to Spam` action.
+
+Buys: three hedged numbers become exact, and a progressive counter that only existed to make a page-through feel alive is deleted rather than reworded. Gives up: the reassurance of a rising number during a long count, replaced by a single wait with no progress to show.
 
 ## Gaps closed with new issues
 
