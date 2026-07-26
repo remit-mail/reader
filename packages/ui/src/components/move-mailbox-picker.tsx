@@ -7,6 +7,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { isAbortError } from "../lib/abort.js";
 import { cn } from "../lib/cn.js";
 import { Input } from "./input.js";
 
@@ -60,10 +61,15 @@ export interface MoveMailboxPickerProps {
 	/**
 	 * Create a folder named by the current search query. When provided and the
 	 * query names no existing folder, a create-and-move row is offered at the
-	 * bottom of the list; resolving it yields the new folder, which is selected
-	 * (moved into) immediately. Absent means no create affordance renders.
+	 * bottom of the list; resolving it — once the mail server confirms the folder
+	 * — yields the new folder, which is selected (moved into). The picker aborts
+	 * the passed signal on unmount, so a folder that confirms after the picker is
+	 * closed never fires the move. Absent means no create affordance renders.
 	 */
-	onCreateFolder?: (name: string) => Promise<MoveMailboxOption>;
+	onCreateFolder?: (
+		name: string,
+		signal?: AbortSignal,
+	) => Promise<MoveMailboxOption>;
 	/**
 	 * Called when the user dismisses the picker via Escape. Trigger consumers
 	 * use this to close their popover/drawer; the picker never owns
@@ -153,6 +159,11 @@ export const MoveMailboxPicker = ({
 	);
 	const inputRef = useRef<HTMLInputElement>(null);
 	const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+	// The create waits for the mail server to confirm the folder; abort it when
+	// the picker unmounts (its popover/drawer closes) so a late confirmation never
+	// fires the move after the picker is gone.
+	const createAbort = useRef<AbortController | null>(null);
+	useEffect(() => () => createAbort.current?.abort(), []);
 
 	useEffect(() => {
 		if (autoFocus) inputRef.current?.focus();
@@ -206,12 +217,16 @@ export const MoveMailboxPicker = ({
 		if (name === "") return;
 		setCreating(true);
 		setCreateError(undefined);
-		onCreateFolder(name)
+		createAbort.current?.abort();
+		const controller = new AbortController();
+		createAbort.current = controller;
+		onCreateFolder(name, controller.signal)
 			.then((folder) => {
 				onSelect(folder.id);
 				setCreating(false);
 			})
 			.catch((error: unknown) => {
+				if (isAbortError(error)) return;
 				setCreateError(
 					error instanceof Error ? error.message : text.createError,
 				);

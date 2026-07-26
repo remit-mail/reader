@@ -55,7 +55,10 @@ function LiveEditor({
 }: {
 	initialRule: FilterRule;
 	semanticAvailable?: boolean;
-	onCreateFolder?: (name: string) => Promise<FolderOption>;
+	onCreateFolder?: (
+		name: string,
+		signal?: AbortSignal,
+	) => Promise<FolderOption>;
 }) {
 	const [rule, setRule] = useState<FilterRule>(initialRule);
 	const [clauseEdit, setClauseEdit] = useState<ClauseEditState | undefined>();
@@ -208,11 +211,39 @@ async function openCreateAndSubmit(
 /** Matches the internal CREATE_FOLDER_VALUE option in the destination select. */
 const CREATE_FOLDER_STORY_VALUE = "__filter_create_folder__";
 
+/** Mirrors the web-client wait's honest timeout copy. */
+const TIMEOUT_MESSAGE =
+	"The folder was created but the mail server hasn't confirmed it yet, so nothing was attached to it. It's in your folder list — try again in a moment.";
+
+const tick = () => new Promise((resolve) => setTimeout(resolve, 60));
+
 const neverResolvesCreateFolder = (): Promise<FolderOption> =>
 	new Promise<FolderOption>(() => undefined);
 
 const rejectingCreateFolder = (message: string) => (): Promise<FolderOption> =>
 	Promise.reject(new Error(message));
+
+/** Rejects the first attempt, resolves the retry — the resume the hook performs. */
+const failThenSucceedCreateFolder = () => {
+	let attempts = 0;
+	return (name: string): Promise<FolderOption> => {
+		attempts += 1;
+		return attempts === 1
+			? Promise.reject(new Error(TIMEOUT_MESSAGE))
+			: Promise.resolve({ id: "mbx-created", label: name });
+	};
+};
+
+/** Never resolves on its own; rejects with an AbortError when the signal aborts. */
+const abortAwareCreateFolder = (
+	_name: string,
+	signal?: AbortSignal,
+): Promise<FolderOption> =>
+	new Promise<FolderOption>((_resolve, reject) => {
+		signal?.addEventListener("abort", () =>
+			reject(new DOMException("Aborted", "AbortError")),
+		);
+	});
 
 /**
  * The folder is a dependent write for the filter, so creating it waits for the
@@ -263,13 +294,58 @@ export const NewFolderCreateTimedOut: Story = {
 	render: () => (
 		<LiveEditor
 			initialRule={demoRule}
-			onCreateFolder={rejectingCreateFolder(
-				"Creating the folder is taking longer than expected. Please try again.",
-			)}
+			onCreateFolder={rejectingCreateFolder(TIMEOUT_MESSAGE)}
 		/>
 	),
 	play: async ({ canvasElement }) => {
 		await openCreateAndSubmit(canvasElement, "Receipts");
+	},
+};
+
+/**
+ * Retry is a resume: the first attempt times out (the folder was made but not yet
+ * confirmed), and pressing "Create folder" again with the same name resolves —
+ * the hook re-waits on the folder it already made rather than re-creating it, so
+ * the retry the failure message points at actually works.
+ */
+export const NewFolderCreateRetrySucceeds: Story = {
+	name: "New folder — retry resumes and succeeds",
+	render: () => (
+		<LiveEditor
+			initialRule={demoRule}
+			onCreateFolder={failThenSucceedCreateFolder()}
+		/>
+	),
+	play: async ({ canvasElement }) => {
+		await openCreateAndSubmit(canvasElement, "Receipts");
+		await tick();
+		const retry = Array.from(
+			canvasElement.querySelectorAll<HTMLButtonElement>("button"),
+		).find((button) => button.textContent?.trim() === "Create folder");
+		retry?.click();
+	},
+};
+
+/**
+ * Cancelling while "Creating folder…" is in flight aborts the wait: the create
+ * promise rejects with an AbortError the field swallows, so no destination binds
+ * after the user backed out — the sub-form just closes.
+ */
+export const NewFolderCreateCancelledMidWait: Story = {
+	name: "New folder — cancel aborts the wait",
+	render: () => (
+		<LiveEditor
+			initialRule={demoRule}
+			onCreateFolder={abortAwareCreateFolder}
+		/>
+	),
+	play: async ({ canvasElement }) => {
+		await openCreateAndSubmit(canvasElement, "Receipts");
+		await tick();
+		const cancel = Array.from(
+			canvasElement.querySelectorAll<HTMLButtonElement>("button"),
+		).find((button) => button.textContent?.trim() === "Cancel");
+		cancel?.click();
 	},
 };
 

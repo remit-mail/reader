@@ -135,12 +135,40 @@ async function typeAndCreate(canvasElement: HTMLElement, folderName: string) {
 	createButton?.click();
 }
 
+/** Mirrors the web-client wait's honest timeout copy. */
+const TIMEOUT_MESSAGE =
+	"The folder was created but the mail server hasn't confirmed it yet, so nothing was attached to it. It's in your folder list — try again in a moment.";
+
+const tick = () => new Promise((resolve) => setTimeout(resolve, 60));
+
 const neverResolvesCreateFolder = (): Promise<MoveMailboxOption> =>
 	new Promise<MoveMailboxOption>(() => undefined);
 
 const rejectingCreateFolder =
 	(message: string) => (): Promise<MoveMailboxOption> =>
 		Promise.reject(new Error(message));
+
+/** Rejects the first attempt, resolves the retry — the resume the hook performs. */
+const failThenSucceedCreateFolder = () => {
+	let attempts = 0;
+	return (name: string): Promise<MoveMailboxOption> => {
+		attempts += 1;
+		return attempts === 1
+			? Promise.reject(new Error(TIMEOUT_MESSAGE))
+			: Promise.resolve({ id: "mbx-created", label: name });
+	};
+};
+
+/** Never resolves on its own; rejects with an AbortError when the signal aborts. */
+const abortAwareCreateFolder = (
+	_name: string,
+	signal?: AbortSignal,
+): Promise<MoveMailboxOption> =>
+	new Promise<MoveMailboxOption>((_resolve, reject) => {
+		signal?.addEventListener("abort", () =>
+			reject(new DOMException("Aborted", "AbortError")),
+		);
+	});
 
 /**
  * The move is a dependent write on the folder: the create-and-move row does not
@@ -191,12 +219,95 @@ export const CreateFolderTimedOut: Story = {
 		<MoveMailboxPicker
 			mailboxes={mailboxes}
 			onSelect={() => undefined}
-			onCreateFolder={rejectingCreateFolder(
-				"Creating the folder is taking longer than expected. Please try again.",
-			)}
+			onCreateFolder={rejectingCreateFolder(TIMEOUT_MESSAGE)}
 		/>
 	),
 	play: async ({ canvasElement }) => {
 		await typeAndCreate(canvasElement, "Taxes");
+	},
+};
+
+/**
+ * Retry is a resume: the first create times out, and pressing the create row
+ * again with the same name resolves and moves — the hook re-waits on the folder
+ * it already made rather than re-creating it.
+ */
+export const CreateFolderRetrySucceeds: Story = {
+	name: "Create folder — retry resumes and moves",
+	render: () => {
+		const RetryStage = () => {
+			const [moved, setMoved] = useState<string | null>(null);
+			return (
+				<div className="flex flex-col">
+					<MoveMailboxPicker
+						mailboxes={mailboxes}
+						onSelect={setMoved}
+						onCreateFolder={failThenSucceedCreateFolder()}
+					/>
+					{moved && (
+						<p className="border-t border-line px-3 py-2 text-xs text-fg-muted">
+							Moved to {moved}
+						</p>
+					)}
+				</div>
+			);
+		};
+		return <RetryStage />;
+	},
+	play: async ({ canvasElement }) => {
+		await typeAndCreate(canvasElement, "Taxes");
+		await tick();
+		const retry = Array.from(
+			canvasElement.querySelectorAll<HTMLButtonElement>("button"),
+		).find((button) => button.textContent?.includes('Create "Taxes"'));
+		retry?.click();
+	},
+};
+
+/**
+ * Closing the picker while "Creating folder…" is in flight aborts the wait: the
+ * create promise rejects with an AbortError, so a folder that would confirm later
+ * never fires the move after the picker is gone. Here "Close picker" unmounts it
+ * mid-wait; no "Moved to" line appears.
+ */
+export const CreateFolderClosedMidWait: Story = {
+	name: "Create folder — closing aborts the move",
+	render: () => {
+		const AbortStage = () => {
+			const [open, setOpen] = useState(true);
+			const [moved, setMoved] = useState<string | null>(null);
+			return (
+				<div className="flex flex-col">
+					<button
+						type="button"
+						onClick={() => setOpen(false)}
+						className="border-b border-line px-3 py-2 text-left text-xs text-fg-muted"
+					>
+						Close picker
+					</button>
+					{open && (
+						<MoveMailboxPicker
+							mailboxes={mailboxes}
+							onSelect={setMoved}
+							onCreateFolder={abortAwareCreateFolder}
+						/>
+					)}
+					{moved && (
+						<p className="border-t border-line px-3 py-2 text-xs text-fg-muted">
+							Moved to {moved}
+						</p>
+					)}
+				</div>
+			);
+		};
+		return <AbortStage />;
+	},
+	play: async ({ canvasElement }) => {
+		await typeAndCreate(canvasElement, "Taxes");
+		await tick();
+		const close = Array.from(
+			canvasElement.querySelectorAll<HTMLButtonElement>("button"),
+		).find((button) => button.textContent?.trim() === "Close picker");
+		close?.click();
 	},
 };
