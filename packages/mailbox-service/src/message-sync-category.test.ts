@@ -1,13 +1,18 @@
 /**
  * A ThreadMessage row created for a message that is already classified used to
  * start at `uncategorized` and stay there: `denormalizeCategory` runs at
- * body-sync, and body-sync skips a message whose body is already stored. So the
- * second mailbox a message appears in got a permanently stale row (issue #320).
+ * body-sync, and body-sync skips a message whose body is already stored (issue
+ * #320). A second mailbox does not produce such a row — the ids are
+ * mailbox-independent — but thread-root drift does: the same message re-saved
+ * under different `References` mints a second threadId, so a new row for a
+ * Message whose category is already decided.
  *
- * The row now carries the category of the Message the same save just wrote. The
- * negative case matters as much as the positive one: a genuinely new,
- * unclassified message must still land `uncategorized` — the declared pending
- * state, which is not `personal` (issue #45).
+ * The row now carries the category of the Message the same save just wrote.
+ * These pin the create input, which is where the threading can go wrong; the
+ * stored round-trip belongs to #322's conformance suite. The negative case is
+ * here because parameter threading is exactly the change that starts writing the
+ * wrong value when a caller's variable is undefined — and `uncategorized` is the
+ * declared pending state, never to be folded into `personal` (issue #45).
  */
 
 import assert from "node:assert/strict";
@@ -123,10 +128,5 @@ describe("a created ThreadMessage carries the Message's category", () => {
 	it("leaves a row for a new, unclassified message at uncategorized", async () => {
 		const input = await saveIntoMailbox(MessageCategory.uncategorized);
 		assert.equal(input.category, MessageCategory.uncategorized);
-	});
-
-	it("never substitutes personal for the pending state", async () => {
-		const input = await saveIntoMailbox(MessageCategory.uncategorized);
-		assert.notEqual(input.category, MessageCategory.personal);
 	});
 });

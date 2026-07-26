@@ -1318,10 +1318,13 @@ export class MessageSyncService {
 				envelope,
 				msg.flags,
 				// The category of the Message this same save just wrote. A new
-				// message is `uncategorized` until body-sync classifies it; a message
-				// already classified in another mailbox carries its decided value, so
-				// the second row does not sit stale forever waiting for a body-sync
-				// pass that will skip it (issue #320).
+				// message is `uncategorized` until body-sync classifies it; a row
+				// created for a Message that is ALREADY classified takes the decided
+				// value rather than sitting stale forever behind a body-sync pass that
+				// will skip it. That happens on thread-root drift — the same message
+				// re-saved under different `References` mints a second threadId and so
+				// a second row — not on a second mailbox, which resolves to the row
+				// that already exists (issue #320).
 				item.category,
 				msg.references,
 				hasAttachment,
