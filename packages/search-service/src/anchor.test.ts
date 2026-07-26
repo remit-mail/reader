@@ -3,14 +3,17 @@ import { describe, it } from "node:test";
 import {
 	buildAnchorSourceText,
 	buildMessageAnchor,
+	deriveAnchorEmbeddingId,
 	poolChunkVectors,
+	UNKNOWN_CHUNK_EMBEDDING_ID,
 } from "./anchor.js";
 import { createMemoryVectorStore } from "./backends/memory.js";
-import { createDeterministicEmbeddingService } from "./embeddings.js";
 import type { ChunkMetadata, VectorRecord } from "./types.js";
 
 const l2Norm = (vector: number[]): number =>
 	Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0));
+
+const CURRENT_MODEL = "deterministic@8";
 
 const baseMetadata = (
 	overrides: Partial<ChunkMetadata> = {},
@@ -24,6 +27,7 @@ const baseMetadata = (
 	isRead: false,
 	hasAttachment: false,
 	hasStars: false,
+	embeddingId: CURRENT_MODEL,
 	...overrides,
 });
 
@@ -93,8 +97,6 @@ describe("buildAnchorSourceText", () => {
 });
 
 describe("buildMessageAnchor", () => {
-	const embedder = createDeterministicEmbeddingService({ dimensions: 8 });
-
 	const putRecord = async (
 		store: ReturnType<typeof createMemoryVectorStore>,
 		record: VectorRecord,
@@ -120,12 +122,12 @@ describe("buildMessageAnchor", () => {
 		});
 
 		const anchor = await buildMessageAnchor(
-			{ store, embedder },
+			{ store },
 			{ accountConfigId: "acct-1", anchorMessageId: "msg-1" },
 		);
 
 		assert.ok(anchor);
-		assert.equal(anchor.anchorEmbeddingId, embedder.embeddingId);
+		assert.equal(anchor.anchorEmbeddingId, CURRENT_MODEL);
 		assert.equal(anchor.anchorEmbedding.length, 8);
 		assert.ok(Math.abs(l2Norm(anchor.anchorEmbedding) - 1) < 1e-9);
 		assert.equal(
@@ -137,7 +139,7 @@ describe("buildMessageAnchor", () => {
 	it("returns null when the message has no indexed chunks", async () => {
 		const store = createMemoryVectorStore();
 		const anchor = await buildMessageAnchor(
-			{ store, embedder },
+			{ store },
 			{ accountConfigId: "acct-1", anchorMessageId: "absent" },
 		);
 		assert.equal(anchor, null);
@@ -156,9 +158,104 @@ describe("buildMessageAnchor", () => {
 		});
 
 		const anchor = await buildMessageAnchor(
-			{ store, embedder },
+			{ store },
 			{ accountConfigId: "acct-1", anchorMessageId: "msg-1" },
 		);
 		assert.equal(anchor, null);
+	});
+
+	it("stamps the model the pooled chunks were actually embedded under, not a caller-supplied current model (#349)", async () => {
+		const store = createMemoryVectorStore();
+		await putRecord(store, {
+			chunkId: "msg-1::subject",
+			vector: [1, 0, 0, 0, 0, 0, 0, 0],
+			metadata: baseMetadata({
+				chunkType: "subject",
+				embeddingId: "amazon.titan-embed-text-v1@1024",
+				textPreview: "booking confirmed",
+			}),
+		});
+
+		const anchor = await buildMessageAnchor(
+			{ store },
+			{ accountConfigId: "acct-1", anchorMessageId: "msg-1" },
+		);
+
+		assert.ok(anchor);
+		assert.equal(anchor.anchorEmbeddingId, "amazon.titan-embed-text-v1@1024");
+		assert.notEqual(anchor.anchorEmbeddingId, CURRENT_MODEL);
+	});
+
+	it("throws when a message's chunks disagree on which model produced them", async () => {
+		const store = createMemoryVectorStore();
+		await putRecord(store, {
+			chunkId: "msg-1::subject",
+			vector: [1, 0, 0, 0, 0, 0, 0, 0],
+			metadata: baseMetadata({
+				chunkType: "subject",
+				embeddingId: "model-a@8",
+				textPreview: "booking confirmed",
+			}),
+		});
+		await putRecord(store, {
+			chunkId: "msg-1::body-0",
+			vector: [0, 1, 0, 0, 0, 0, 0, 0],
+			metadata: baseMetadata({
+				chunkType: "body",
+				embeddingId: "model-b@8",
+				textPreview: "your trip is booked",
+			}),
+		});
+
+		await assert.rejects(
+			buildMessageAnchor(
+				{ store },
+				{ accountConfigId: "acct-1", anchorMessageId: "msg-1" },
+			),
+			/mismatch/,
+		);
+	});
+
+	it("treats chunks with no recorded embeddingId as an unknown model, never the current one", async () => {
+		const store = createMemoryVectorStore();
+		await putRecord(store, {
+			chunkId: "msg-1::subject",
+			vector: [1, 0, 0, 0, 0, 0, 0, 0],
+			metadata: baseMetadata({
+				chunkType: "subject",
+				embeddingId: undefined,
+				textPreview: "booking confirmed",
+			}),
+		});
+
+		const anchor = await buildMessageAnchor(
+			{ store },
+			{ accountConfigId: "acct-1", anchorMessageId: "msg-1" },
+		);
+
+		assert.ok(anchor);
+		assert.equal(anchor.anchorEmbeddingId, UNKNOWN_CHUNK_EMBEDDING_ID);
+	});
+});
+
+describe("deriveAnchorEmbeddingId", () => {
+	const record = (embeddingId: string | undefined): VectorRecord => ({
+		chunkId: "c",
+		vector: [1],
+		metadata: baseMetadata({ embeddingId }),
+	});
+
+	it("returns the shared id when every record agrees", () => {
+		assert.equal(
+			deriveAnchorEmbeddingId([record("a@1"), record("a@1")]),
+			"a@1",
+		);
+	});
+
+	it("throws on disagreement between a known id and an unknown one", () => {
+		assert.throws(
+			() => deriveAnchorEmbeddingId([record("a@1"), record(undefined)]),
+			/mismatch/,
+		);
 	});
 });
