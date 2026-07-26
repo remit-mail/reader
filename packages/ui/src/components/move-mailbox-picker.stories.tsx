@@ -112,3 +112,91 @@ export const CreateAndMove: Story = {
 	name: "Create folder from search",
 	render: () => <CreatePicker />,
 };
+
+/**
+ * Type a folder name into the search box and press the create-and-move row —
+ * used by the pending and error stories so each lands in its state without a
+ * manual click-through.
+ */
+async function typeAndCreate(canvasElement: HTMLElement, folderName: string) {
+	const setInputValue = Object.getOwnPropertyDescriptor(
+		HTMLInputElement.prototype,
+		"value",
+	)?.set;
+	const input = canvasElement.querySelector<HTMLInputElement>(
+		'input[type="search"]',
+	);
+	if (!input) return;
+	setInputValue?.call(input, folderName);
+	input.dispatchEvent(new Event("input", { bubbles: true }));
+	const createButton = Array.from(
+		canvasElement.querySelectorAll<HTMLButtonElement>("button"),
+	).find((button) => button.textContent?.includes(`Create "${folderName}"`));
+	createButton?.click();
+}
+
+const neverResolvesCreateFolder = (): Promise<MoveMailboxOption> =>
+	new Promise<MoveMailboxOption>(() => undefined);
+
+const rejectingCreateFolder =
+	(message: string) => (): Promise<MoveMailboxOption> =>
+		Promise.reject(new Error(message));
+
+/**
+ * The move is a dependent write on the folder: the create-and-move row does not
+ * resolve until the mail server confirms the folder, so the move never races the
+ * folder into existence. The wait shows as "Creating folder…".
+ */
+export const CreateFolderInFlight: Story = {
+	name: "Create folder — waiting for the server",
+	render: () => (
+		<MoveMailboxPicker
+			mailboxes={mailboxes}
+			onSelect={() => undefined}
+			onCreateFolder={neverResolvesCreateFolder}
+		/>
+	),
+	play: async ({ canvasElement }) => {
+		await typeAndCreate(canvasElement, "Taxes");
+	},
+};
+
+/**
+ * The folder create failed on the mail server. No move runs; the error is shown
+ * inline and the create row can be pressed again to retry.
+ */
+export const CreateFolderFailed: Story = {
+	name: "Create folder — failed (retry)",
+	render: () => (
+		<MoveMailboxPicker
+			mailboxes={mailboxes}
+			onSelect={() => undefined}
+			onCreateFolder={rejectingCreateFolder(
+				"The folder couldn't be created on the mail server. Please try again.",
+			)}
+		/>
+	),
+	play: async ({ canvasElement }) => {
+		await typeAndCreate(canvasElement, "Taxes");
+	},
+};
+
+/**
+ * The folder create was never confirmed within the wait bound — the timeout is
+ * named distinctly, and no move runs.
+ */
+export const CreateFolderTimedOut: Story = {
+	name: "Create folder — timed out (retry)",
+	render: () => (
+		<MoveMailboxPicker
+			mailboxes={mailboxes}
+			onSelect={() => undefined}
+			onCreateFolder={rejectingCreateFolder(
+				"Creating the folder is taking longer than expected. Please try again.",
+			)}
+		/>
+	),
+	play: async ({ canvasElement }) => {
+		await typeAndCreate(canvasElement, "Taxes");
+	},
+};

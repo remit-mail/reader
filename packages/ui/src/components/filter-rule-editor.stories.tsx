@@ -170,6 +170,109 @@ export const WithNewFolderOption: Story = {
 	),
 };
 
+/**
+ * Drive the destination field into its create sub-form: pick "＋ New folder…",
+ * type a name, and press "Create folder". Used by the pending and error stories
+ * below so each lands in the state it documents without a manual click-through.
+ */
+async function openCreateAndSubmit(
+	canvasElement: HTMLElement,
+	folderName: string,
+) {
+	const setSelectValue = Object.getOwnPropertyDescriptor(
+		HTMLSelectElement.prototype,
+		"value",
+	)?.set;
+	const setInputValue = Object.getOwnPropertyDescriptor(
+		HTMLInputElement.prototype,
+		"value",
+	)?.set;
+	const select = canvasElement.querySelector<HTMLSelectElement>(
+		'select[aria-label="Destination folder"]',
+	);
+	if (!select) return;
+	setSelectValue?.call(select, CREATE_FOLDER_STORY_VALUE);
+	select.dispatchEvent(new Event("change", { bubbles: true }));
+	const input = canvasElement.querySelector<HTMLInputElement>(
+		'input[aria-label="New folder name"]',
+	);
+	if (!input) return;
+	setInputValue?.call(input, folderName);
+	input.dispatchEvent(new Event("input", { bubbles: true }));
+	const createButton = Array.from(
+		canvasElement.querySelectorAll<HTMLButtonElement>("button"),
+	).find((button) => button.textContent?.trim() === "Create folder");
+	createButton?.click();
+}
+
+/** Matches the internal CREATE_FOLDER_VALUE option in the destination select. */
+const CREATE_FOLDER_STORY_VALUE = "__filter_create_folder__";
+
+const neverResolvesCreateFolder = (): Promise<FolderOption> =>
+	new Promise<FolderOption>(() => undefined);
+
+const rejectingCreateFolder = (message: string) => (): Promise<FolderOption> =>
+	Promise.reject(new Error(message));
+
+/**
+ * The folder is a dependent write for the filter, so creating it waits for the
+ * mail server to confirm the folder before it can be picked as the destination.
+ * The wait shows as "Creating folder…" — held for the whole confirmation, not
+ * just a fast optimistic round-trip.
+ */
+export const NewFolderCreating: Story = {
+	name: "New folder — creating (waiting for the server)",
+	render: () => (
+		<LiveEditor
+			initialRule={demoRule}
+			onCreateFolder={neverResolvesCreateFolder}
+		/>
+	),
+	play: async ({ canvasElement }) => {
+		await openCreateAndSubmit(canvasElement, "Receipts");
+	},
+};
+
+/**
+ * The folder create failed on the mail server. The rule is not committed against
+ * a folder that does not exist: the error is surfaced inline with the create form
+ * still open, so the create can be retried or cancelled.
+ */
+export const NewFolderCreateFailed: Story = {
+	name: "New folder — create failed (retry / cancel)",
+	render: () => (
+		<LiveEditor
+			initialRule={demoRule}
+			onCreateFolder={rejectingCreateFolder(
+				"The folder couldn't be created on the mail server. Please try again.",
+			)}
+		/>
+	),
+	play: async ({ canvasElement }) => {
+		await openCreateAndSubmit(canvasElement, "Receipts");
+	},
+};
+
+/**
+ * The folder create was never confirmed within the wait bound. Distinct from a
+ * hard failure — the message names the timeout — and, like a failure, leaves no
+ * folder selected, so no filter is written against it.
+ */
+export const NewFolderCreateTimedOut: Story = {
+	name: "New folder — create timed out (retry / cancel)",
+	render: () => (
+		<LiveEditor
+			initialRule={demoRule}
+			onCreateFolder={rejectingCreateFolder(
+				"Creating the folder is taking longer than expected. Please try again.",
+			)}
+		/>
+	),
+	play: async ({ canvasElement }) => {
+		await openCreateAndSubmit(canvasElement, "Receipts");
+	},
+};
+
 /** Literal clauses joined with "or", including the ticket-B ListId and FromDomain fields. */
 export const AnyOfTheseClauses: Story = {
 	render: () => <LiveEditor initialRule={demoVocabularyRule} />,

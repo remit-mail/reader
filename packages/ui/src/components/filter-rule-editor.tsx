@@ -110,6 +110,13 @@ const CREATE_FOLDER_VALUE = "__filter_create_folder__";
  * name field; on resolve the new folder is added to the local option set (so it
  * is selectable even before the caller's folder list refetches) and picked as
  * the destination. Without `onCreateFolder` this is the bare select.
+ *
+ * The destination is a dependent write: the filter this editor commits binds to
+ * the folder, so `onCreateFolder` resolves only once the folder is confirmed on
+ * the mail server, not when the create is merely queued. The pending state holds
+ * "Creating folder…" for that whole wait, and a create that fails or never
+ * confirms rejects with its own message here — the folder is never selected, so
+ * the caller cannot commit a filter against a folder that does not exist.
  */
 function MoveDestinationField({
 	folders,
@@ -228,7 +235,7 @@ function MoveDestinationField({
 							onClick={submit}
 							disabled={pending || name.trim() === ""}
 						>
-							{pending ? "Creating…" : "Create folder"}
+							{pending ? "Creating folder…" : "Create folder"}
 						</Button>
 						<Button
 							variant="ghost"
