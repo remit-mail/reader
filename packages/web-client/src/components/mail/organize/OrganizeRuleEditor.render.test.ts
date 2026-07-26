@@ -276,7 +276,7 @@ describe("OrganizeRuleEditor — the previewed set equals the applied set", () =
 });
 
 describe("OrganizeRuleEditor — scope mapping", () => {
-	it("saves a standing filter carrying the sender fallback clauses", async () => {
+	it("saves a standing filter, then back-applies it over the existing mail", async () => {
 		const dom = mount({
 			semanticUnavailable: true,
 			senders: ["npm@github.com"],
@@ -288,7 +288,14 @@ describe("OrganizeRuleEditor — scope mapping", () => {
 
 		dom.type(dom.byLabel("Rule name"), "GitHub");
 		dom.click(primaryButton(dom, "Save rule"));
-		await dom.flush();
+
+		// The filter is created, then the same predicate is back-applied over the
+		// mail already in the mailbox — not only the mail that arrives next.
+		for (let attempt = 0; attempt < 40; attempt += 1) {
+			await dom.flush();
+			if (/moved/.test(dom.text())) break;
+			await dom.wait(5);
+		}
 
 		const created = (http?.calls ?? []).filter((call) =>
 			call.path.endsWith("/filters"),
@@ -300,7 +307,25 @@ describe("OrganizeRuleEditor — scope mapping", () => {
 		assert.deepEqual(created[0].body?.literalClauses, [
 			{ field: "From", value: "npm@github.com" },
 		]);
-		assert.match(dom.text(), /Filter saved/);
+
+		// The back-apply carries exactly the filter's predicate and runs after it.
+		const backApply = (http?.calls ?? []).filter(
+			(call) => call.path.endsWith("/organize") && call.method === "POST",
+		);
+		assert.equal(backApply.length, 1);
+		assert.equal(backApply[0].body?.matchOperator, "Or");
+		assert.deepEqual(backApply[0].body?.literalClauses, [
+			{ field: "From", value: "npm@github.com" },
+		]);
+		assert.ok(
+			(http?.calls ?? []).indexOf(created[0]) <
+				(http?.calls ?? []).indexOf(backApply[0]),
+			"the filter is created before the back-apply runs",
+		);
+
+		// The flow lands on the back-apply's done summary, not a bare saved screen.
+		assert.match(dom.text(), /Done/);
+		assert.doesNotMatch(dom.text(), /Filter saved/);
 	});
 
 	it("saves an until-a-date filter with the derived expiry", async () => {
