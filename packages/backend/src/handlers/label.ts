@@ -1,4 +1,9 @@
 import type {
+	CreateLabelInput as CreateLabelRequestBody,
+	LabelResponse,
+	UpdateLabelInput as UpdateLabelRequestBody,
+} from "@remit/api-openapi-types";
+import type {
 	CreateLabelInput,
 	FilterItem,
 	LabelItem,
@@ -56,15 +61,13 @@ export const findFiltersForLabel = async (
 };
 
 /**
- * Not typed against the generated `@remit/api-openapi-types` `LabelResponse`:
- * that package publishes separately from this repo, so a PR that both adds
- * the TypeSpec model and reads it in the same change would typecheck in-tree
- * (fresh local codegen) but fail `check-consumer-typecheck`/`release:dry-run`,
- * which resolve generated `@remit/*` packages off the registry, not the local
- * `build/` output. The internal `LabelItem` (already published) carries every
- * field this needs; `filterCount` is computed here, not stored.
+ * `filterCount` is computed here, not stored (issue #26) — every other field
+ * comes straight off the `LabelItem` row.
  */
-const toLabelResponse = (item: LabelItem, filterCount: number) => ({
+const toLabelResponse = (
+	item: LabelItem,
+	filterCount: number,
+): LabelResponse => ({
 	labelId: item.labelId,
 	accountConfigId: item.accountConfigId,
 	name: item.name,
@@ -135,10 +138,7 @@ export const LabelOperations: Record<
 		const event = args[0] as APIGatewayProxyEvent;
 		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const { accountId } = context.request.params as { accountId: string };
-		const input = context.request.requestBody as {
-			name: string;
-			color?: LabelItem["color"];
-		};
+		const input = context.request.requestBody as CreateLabelRequestBody;
 
 		const client = await getClient();
 		const account = await client.account.get(accountId);
@@ -181,10 +181,7 @@ export const LabelDetailOperations: Record<
 			accountId: string;
 			labelId: string;
 		};
-		const body = context.request.requestBody as {
-			name?: string;
-			color?: LabelItem["color"];
-		};
+		const body = context.request.requestBody as Partial<UpdateLabelRequestBody>;
 
 		const client = await getClient();
 		const account = await client.account.get(accountId);
