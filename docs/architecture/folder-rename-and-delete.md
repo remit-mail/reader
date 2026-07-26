@@ -119,7 +119,7 @@ Each handler proceeds only if the row still carries the intent it was enqueued f
 
 This is not a substitute for the tagged-NO handling from #346. Another client can still change the server under an intent that is current, so `NONEXISTENT` and `ALREADYEXISTS` stay classified as they are — with `NONEXISTENT` during a rename routed to D8's removal rather than deleting the mailbox row on its own.
 
-One guard belongs with this: `ImapFlow.mailboxRename` returns `undefined` when the connection is not AUTHENTICATED or SELECTED, and `imapflow-connection.ts:1038-1039` dereferences the result unguarded. Today the value is discarded so the crash is latent; D2 makes it load-bearing. An absent result means RENAME was never issued and must settle as a failure, not raise a `TypeError`.
+One guard belongs with this: `ImapFlow.mailboxRename` returns `undefined` when the connection is not AUTHENTICATED or SELECTED, and `imapflow-connection.ts:1038-1039` dereferences the result unguarded. Today the value is discarded so the crash is latent; D2 reads it, so it becomes reachable. An absent result means RENAME was never issued and must settle as a failure, not raise a `TypeError`.
 
 *Buys:* redelivery is safe and cannot re-issue a mutation against a moved target, and no settle can poison the account's queue. *Gives up:* one extra row read per job, and a genuinely lost settle is indistinguishable from a superseded one in the logs beyond the recorded outcome.
 
