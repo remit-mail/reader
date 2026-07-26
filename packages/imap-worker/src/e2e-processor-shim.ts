@@ -14,6 +14,7 @@ import type {
 	SQSHandler,
 } from "aws-lambda";
 import { env } from "expect-env";
+import { receiveVisibilitySeconds } from "./e2e-processor-visibility.js";
 import { handler } from "./index.js";
 
 /**
@@ -150,7 +151,13 @@ if (cluster.isPrimary) {
 					QueueUrl: queueUrl,
 					MaxNumberOfMessages: maxMessages,
 					WaitTimeSeconds: waitTime,
-					VisibilityTimeout: 300,
+					// A failed message is left un-deleted and only redelivers when this
+					// window lapses; on the per-account FIFO sync queues that window is
+					// also how long a single failure head-of-line blocks the account's
+					// whole pipeline (#290). Keep it short for FIFO, long for the
+					// standard queues whose slower work needs it. See
+					// `receiveVisibilitySeconds`.
+					VisibilityTimeout: receiveVisibilitySeconds(queueUrl),
 					MessageSystemAttributeNames: ["ApproximateReceiveCount"],
 				}),
 			);
