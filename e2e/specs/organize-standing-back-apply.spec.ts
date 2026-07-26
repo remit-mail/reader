@@ -43,7 +43,7 @@ test.describe("Standing filter back-applies over existing mail", () => {
 
 	test.beforeAll(async () => {
 		run = await provisionIsolatedRun("E2E Standing Back-Apply");
-		api = new ApiClient(run.token);
+		api = new ApiClient(run);
 	});
 
 	test("creating a standing rule with a new folder enters the back-apply and points the filter at the folder", async ({
