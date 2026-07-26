@@ -138,6 +138,23 @@ const toFilterMessage = (parsed: ParsedMail): FilterMessage => ({
 	listId: extractListId(parsed),
 });
 
+/**
+ * A row is skipped only when every field the denormalization would write
+ * already matches. `snippet` and `listId` are absent from the update when the
+ * message has neither, and an absent field is not a mismatch.
+ */
+const alreadyDenormalized = (
+	row: ThreadMessageItem,
+	update: {
+		category: ThreadMessageCategory;
+		snippet?: string;
+		listId?: string;
+	},
+): boolean =>
+	row.category === update.category &&
+	(update.snippet === undefined || row.snippet === update.snippet) &&
+	(update.listId === undefined || row.listId === update.listId);
+
 export const toParsedBody = (parsed: ParsedMail): ParsedBody => ({
 	text: parsed.text ?? null,
 	html: typeof parsed.html === "string" ? parsed.html : null,
@@ -942,12 +959,18 @@ export class BodySyncService {
 		const parsed = await parseMessageBody(body);
 		const classification = this.classifyMessage(parsed);
 
-		await this.messageService.update(message.messageId, classification);
+		// Same order as {@link applyPostStoreSteps}, for the same reason: the
+		// signal the skip guard reads is written last. `message.category` is that
+		// signal here, so a failure between the two writes leaves both undone and
+		// the requeued retry redoes both. Writing the Message first strands the
+		// denormalized row at `uncategorized` forever — the guard is satisfied and
+		// the retry returns early (issue #320).
 		await this.denormalizeCategory(
 			accountConfigId,
 			message.messageId,
 			classification.category,
 		);
+		await this.messageService.update(message.messageId, classification);
 
 		this.log.info(
 			{ messageId: message.messageId, category: classification.category },
@@ -1472,15 +1495,23 @@ export class BodySyncService {
 	}
 
 	/**
-	 * Write the denormalized `category` (and optionally the snippet) onto the
-	 * message's ThreadMessage row — the copy the list/search read path serves
-	 * without a per-row Message fetch.
+	 * Write the denormalized `category` (and optionally the snippet and the
+	 * normalized `List-Id`) onto EVERY ThreadMessage row the message has — the
+	 * copy the list/search read path serves without a per-row Message fetch.
 	 *
-	 * The ThreadMessage is looked up by messageId (GSI), so it does not depend
-	 * on the RFC822 Message-ID header — a headerless message still gets
-	 * denormalized, matching the unconditional Message.category write. The full
-	 * composite set is passed so that a future key-attribute addition touching
-	 * the lsi3/lsi4/lsi5/gsi2 sort keys keeps the index rows consistent.
+	 * A message can occupy more than one mailbox, so it can have more than one
+	 * row (`message-move.ts`, `message-delete.ts`), and all three fields are
+	 * properties of the message rather than of a mailbox. Resolving a single row
+	 * left the others at `uncategorized` (issue #320); `flag-queue.ts` iterates
+	 * `findAllByMessageId` for the same reason.
+	 *
+	 * Rows are looked up by messageId, so this does not depend on the RFC822
+	 * Message-ID header — a headerless message still gets denormalized, matching
+	 * the unconditional Message.category write. The composite set is built per
+	 * row, never reused: `mailboxId` and `isRead` differ between a message's rows
+	 * by definition, and it is passed at all so that a future key-attribute
+	 * addition touching the lsi3/lsi4/lsi5/gsi2 sort keys keeps the index rows
+	 * consistent.
 	 */
 	private async denormalizeCategory(
 		accountConfigId: string,
@@ -1489,29 +1520,39 @@ export class BodySyncService {
 		snippet?: string,
 		listId?: string,
 	): Promise<void> {
-		const threadMessage = await this.threadMessageService.getByMessageId(
+		const rows = await this.threadMessageService.findAllByMessageId(
 			accountConfigId,
 			messageId,
 		);
+		if (rows.length === 0) {
+			throw new NotFoundError(
+				`ThreadMessage not found for message ${messageId}`,
+			);
+		}
 
-		await this.threadMessageService.update(
-			accountConfigId,
-			threadMessage.threadMessageId,
-			{
-				category,
-				...(snippet ? { snippet } : {}),
-				...(listId ? { listId } : {}),
-			},
-			{
-				composites: {
-					sentDate: threadMessage.sentDate,
-					mailboxId: threadMessage.mailboxId,
-					isRead: threadMessage.isRead,
-					isDeleted: threadMessage.isDeleted,
-					hasStars: threadMessage.hasStars,
-					hasAttachment: threadMessage.hasAttachment,
+		const update = {
+			category,
+			...(snippet ? { snippet } : {}),
+			...(listId ? { listId } : {}),
+		};
+
+		for (const row of rows) {
+			if (alreadyDenormalized(row, update)) continue;
+			await this.threadMessageService.update(
+				accountConfigId,
+				row.threadMessageId,
+				update,
+				{
+					composites: {
+						sentDate: row.sentDate,
+						mailboxId: row.mailboxId,
+						isRead: row.isRead,
+						isDeleted: row.isDeleted,
+						hasStars: row.hasStars,
+						hasAttachment: row.hasAttachment,
+					},
 				},
-			},
-		);
+			);
+		}
 	}
 }

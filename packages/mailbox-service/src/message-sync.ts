@@ -1317,6 +1317,12 @@ export class MessageSyncService {
 				sentDate,
 				envelope,
 				msg.flags,
+				// The category of the Message this same save just wrote. A new
+				// message is `uncategorized` until body-sync classifies it; a message
+				// already classified in another mailbox carries its decided value, so
+				// the second row does not sit stale forever waiting for a body-sync
+				// pass that will skip it (issue #320).
+				item.category,
 				msg.references,
 				hasAttachment,
 			);
@@ -1400,6 +1406,10 @@ export class MessageSyncService {
 	 * 3. Fall back to Message-ID (this message is a thread root)
 	 *
 	 * This ensures proper threading even when messages arrive out of order.
+	 *
+	 * `category` is the value the caller already holds from the Message it just
+	 * wrote, so the row starts out agreeing with it rather than defaulting to
+	 * `uncategorized` behind an already-classified message.
 	 */
 	private async createThreadForMessage(
 		threadMessageService: IThreadMessageRepository,
@@ -1412,6 +1422,7 @@ export class MessageSyncService {
 		sentDate: number,
 		envelope: ImapEnvelope,
 		flags: string[],
+		category: ThreadMessageItem["category"],
 		references?: string[],
 		hasAttachment = false,
 	): Promise<void> {
@@ -1484,6 +1495,7 @@ export class MessageSyncService {
 				hasAttachment,
 				hasStars,
 				star: hasStars ? StarColor.Yellow : StarColor.None,
+				category,
 			})
 			.catch((error: unknown) => {
 				// Ignore conflict errors (idempotent create)
