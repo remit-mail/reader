@@ -64,11 +64,22 @@ export function useLongPress({
 		pointerTypeRef.current = event.pointerType;
 	}, []);
 
+	// A press that lifts without raising a menu disarms suppression, so a later
+	// keyboard-invoked menu can't inherit its pointer type. Not cleared on
+	// pointercancel: on Android the browser (and react-aria's own long-press
+	// timer) can fire pointercancel before the long-press contextmenu, which
+	// would race the suppression away.
+	const onPointerUp = useCallback(() => {
+		pointerTypeRef.current = "";
+	}, []);
+
 	const onContextMenu = useCallback((event: { preventDefault: () => void }) => {
-		if (
-			pointerTypeRef.current === "touch" ||
-			pointerTypeRef.current === "pen"
-		) {
+		// Consume the armed pointer type. A keyboard-invoked menu (Context-Menu
+		// key / Shift+F10) fires no pointerdown, so without spending the type on
+		// use it would inherit the last touch press's and be wrongly suppressed.
+		const pointerType = pointerTypeRef.current;
+		pointerTypeRef.current = "";
+		if (pointerType === "touch" || pointerType === "pen") {
 			event.preventDefault();
 		}
 	}, []);
@@ -76,6 +87,7 @@ export function useLongPress({
 	return {
 		longPressProps: mergeProps(longPressProps, {
 			onPointerDown,
+			onPointerUp,
 			onContextMenu,
 		}),
 	};

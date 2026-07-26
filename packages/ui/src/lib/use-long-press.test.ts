@@ -92,6 +92,18 @@ function pointerUp() {
 	);
 }
 
+function pointerUpOn(row: Element) {
+	row.dispatchEvent(
+		new dom.window.PointerEvent("pointerup", {
+			bubbles: true,
+			pointerType: "touch",
+			pointerId: 1,
+			clientX: 10,
+			clientY: 10,
+		}),
+	);
+}
+
 function pointerCancel(row: Element) {
 	row.dispatchEvent(
 		new dom.window.PointerEvent("pointercancel", { bubbles: true }),
@@ -230,6 +242,42 @@ describe("useLongPress (react-aria wrapper)", () => {
 	it("does not suppress contextmenu when no pointer interaction preceded it", async () => {
 		mount({ onLongPress: () => undefined });
 		const row = dom.window.document.getElementById("row") as Element;
+
+		assert.equal(dispatchContextMenu(row).defaultPrevented, false);
+	});
+
+	it("does not suppress the keyboard menu that follows a touch long press", async () => {
+		// The reported a11y regression: the touch press's pointer type must not
+		// linger and suppress the keyboard-invoked menu (Context-Menu key /
+		// Shift+F10), which fires with no preceding pointerdown.
+		const row = mount({ onLongPress: () => undefined });
+
+		pointerDown(row, "touch");
+		assert.equal(
+			dispatchContextMenu(row).defaultPrevented,
+			true,
+			"the touch long-press menu is still suppressed",
+		);
+		pointerUpOn(row);
+		await wait(THRESHOLD);
+
+		assert.equal(
+			dispatchContextMenu(row).defaultPrevented,
+			false,
+			"the later keyboard-invoked menu must not inherit the touch press's type",
+		);
+	});
+
+	it("does not suppress the keyboard menu after a touch tap that raised no menu", async () => {
+		// A tap that lifts without a menu must still disarm suppression. The wait
+		// clears react-aria's own transient post-touch contextmenu listener,
+		// which it removes shortly after pointerup — in a browser a keyboard menu
+		// arrives long after that window, so only this hook's ref decides.
+		const row = mount({ onLongPress: () => undefined });
+
+		pointerDown(row, "touch");
+		pointerUpOn(row);
+		await wait(THRESHOLD);
 
 		assert.equal(dispatchContextMenu(row).defaultPrevented, false);
 	});
