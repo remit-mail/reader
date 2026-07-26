@@ -12,7 +12,10 @@
  * What this lane proves, in server truth: the standing filter is created and
  * points at the newly-created folder (not a dangling row), the folder is
  * materialized on Dovecot, and the save enters the back-apply rather than the old
- * immediate "Filter saved". What it does not run to completion is the move: the
+ * immediate "Filter saved". The destination binds only after the folder reports
+ * `syncStatus: synced` — the editor waits for the mail server to confirm the
+ * folder before the filter can be committed against it, so the dependent write
+ * never binds to a pending row. What it does not run to completion is the move: the
  * back-apply job is processed by the account-worker, which the source-built
  * e2e-dev stack does not start (only backend, imap-worker and web), so the job
  * stays queued here. The move/apply logic and the folder-identity fix are covered
@@ -121,9 +124,17 @@ test.describe("Standing filter back-applies over existing mail", () => {
 			);
 			const folder = created.find((b) => b.fullPath === FOLDER_NAME);
 			if (!folder) throw new Error("unreachable: folder matched but not found");
+
+			// The destination is a dependent write: the editor holds "Creating
+			// folder…" and binds the destination only once the folder is confirmed
+			// on the server, so the filter saved next cannot point at a pending row.
 			await expect(destination).toHaveValue(folder.mailboxId, {
-				timeout: 15_000,
+				timeout: 60_000,
 			});
+			const atBind = await api.listMailboxes(run.accountId);
+			expect(
+				atBind.find((b) => b.mailboxId === folder.mailboxId)?.syncStatus,
+			).toBe("synced");
 
 			// Keep doing this — a standing rule, named.
 			await page.getByText("Keep doing this", { exact: true }).click();
