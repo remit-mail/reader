@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
+import { MailboxSyncStatus } from "@remit/domain-enums";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { mailboxTable } from "../schema.js";
@@ -65,6 +66,33 @@ describe("MailboxRepo (sqlite)", () => {
 		assert.equal(updated.highestModseq, "9007199254740993");
 		const reread = await repo.get(accountId, created.mailboxId);
 		assert.equal(reread.highestModseq, "9007199254740993");
+	});
+
+	test("renameChildPaths marks each child pending along with its new path (#290)", async () => {
+		// A renamed parent is set pending by the caller; its children's new paths
+		// are equally absent from the server until MAILBOX_RENAME lands, so they
+		// must be pending too — otherwise a reconcile in that window reaps the
+		// child as server-deleted.
+		const accountId = randomUUID();
+		const parent = await repo.create({
+			...makeMailboxInput(accountId, "Work"),
+			syncStatus: MailboxSyncStatus.pending,
+		});
+		const child = await repo.create({
+			...makeMailboxInput(accountId, "Work/sub"),
+			syncStatus: MailboxSyncStatus.synced,
+		});
+
+		await repo.renameChildPaths(accountId, "Work", "Projects", "/");
+
+		const renamedChild = await repo.get(accountId, child.mailboxId);
+		assert.equal(renamedChild.fullPath, "Projects/sub");
+		assert.equal(renamedChild.syncStatus, MailboxSyncStatus.pending);
+
+		// The parent row is untouched by this call (its own path/status is the
+		// caller's job).
+		const parentRow = await repo.get(accountId, parent.mailboxId);
+		assert.equal(parentRow.fullPath, "Work");
 	});
 });
 
