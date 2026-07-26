@@ -24,6 +24,7 @@ import {
 	commitLabel,
 	type FilterRule,
 	type FolderOption,
+	type LabelOption,
 	type MatchOperator,
 	matchJoinWord,
 	matchOperatorLabel,
@@ -31,6 +32,7 @@ import {
 	type RuleScope,
 } from "./filter-rule.js";
 import { Input } from "./input.js";
+import { LabelChip } from "./label-chip.js";
 import { SegmentedControl } from "./segmented-control.js";
 import { Select } from "./select.js";
 
@@ -44,6 +46,8 @@ export interface ClauseEditState {
 export interface FilterRuleEditorProps {
 	rule: FilterRule;
 	folders: FolderOption[];
+	/** The account's labels the apply-label action can target (issue #26). */
+	labels?: LabelOption[];
 	preview: PreviewCount;
 	/**
 	 * Content rendered above the clause chips — the filter-from-search conversion
@@ -102,6 +106,13 @@ export interface FilterRuleEditorProps {
 		name: string,
 		signal?: AbortSignal,
 	) => Promise<FolderOption>;
+	onChangeLabel?: (labelId: string) => void;
+	/**
+	 * Create a new label from within the editor (issue #26). Given a label
+	 * name, resolves to the created label once the backend has saved it. When
+	 * absent, the "New label…" option is not offered.
+	 */
+	onCreateLabel?: (name: string) => Promise<LabelOption>;
 	onChangeScope?: (scope: RuleScope) => void;
 	onChangeName?: (name: string) => void;
 	onChangeUntil?: (date: string) => void;
@@ -121,6 +132,7 @@ const scopeOptions: { value: RuleScope; label: string }[] = [
 ];
 
 const CREATE_FOLDER_VALUE = "__filter_create_folder__";
+const CREATE_LABEL_VALUE = "__filter_create_label__";
 
 /**
  * The move-to destination select, plus an inline "New folder…" affordance when
@@ -284,9 +296,157 @@ function MoveDestinationField({
 	);
 }
 
+/**
+ * The apply-label select, plus an inline "New label…" affordance when the
+ * consumer wires `onCreateLabel` (issue #26). Mirrors `MoveDestinationField`:
+ * selecting the create option reveals a name field, and the created label is
+ * added to the local option set and picked immediately, before the caller's
+ * label list refetches.
+ */
+function LabelDestinationField({
+	labels,
+	value,
+	onChangeLabel,
+	onCreateLabel,
+}: {
+	labels: LabelOption[];
+	value: string;
+	onChangeLabel?: (labelId: string) => void;
+	onCreateLabel?: (name: string) => Promise<LabelOption>;
+}) {
+	const [creating, setCreating] = useState(false);
+	const [name, setName] = useState("");
+	const [pending, setPending] = useState(false);
+	const [error, setError] = useState<string>();
+	const [createdLabels, setCreatedLabels] = useState<LabelOption[]>([]);
+
+	const options = useMemo(() => {
+		const known = new Set(labels.map((label) => label.id));
+		return [
+			...labels,
+			...createdLabels.filter((label) => !known.has(label.id)),
+		];
+	}, [labels, createdLabels]);
+
+	const selected = options.find((label) => label.id === value);
+
+	const handleSelectChange = (next: string) => {
+		if (next === CREATE_LABEL_VALUE) {
+			setError(undefined);
+			setCreating(true);
+			return;
+		}
+		onChangeLabel?.(next);
+	};
+
+	const submit = () => {
+		if (!onCreateLabel) return;
+		const trimmed = name.trim();
+		if (trimmed === "") return;
+		setPending(true);
+		setError(undefined);
+		onCreateLabel(trimmed)
+			.then((label) => {
+				setCreatedLabels((prev) =>
+					prev.some((entry) => entry.id === label.id) ? prev : [...prev, label],
+				);
+				onChangeLabel?.(label.id);
+				setCreating(false);
+				setName("");
+				setPending(false);
+			})
+			.catch((error: unknown) => {
+				setError(
+					error instanceof Error
+						? error.message
+						: "Couldn't create that label. Please try again.",
+				);
+				setPending(false);
+			});
+	};
+
+	const cancel = () => {
+		setCreating(false);
+		setName("");
+		setError(undefined);
+	};
+
+	return (
+		<div className="space-y-2">
+			<div className="flex items-center gap-2">
+				<Select
+					aria-label="Label to apply"
+					value={value}
+					onChange={(event) => handleSelectChange(event.target.value)}
+					className="flex-1"
+				>
+					<option value="">No label</option>
+					{options.map((label) => (
+						<option key={label.id} value={label.id}>
+							{label.name}
+						</option>
+					))}
+					{onCreateLabel && (
+						<option value={CREATE_LABEL_VALUE}>＋ New label…</option>
+					)}
+				</Select>
+				{selected && (
+					<LabelChip label={{ ...selected, labelId: selected.id }} />
+				)}
+			</div>
+			{creating && (
+				<div className="space-y-2 rounded-md border border-line bg-surface-sunken p-2">
+					<Input
+						value={name}
+						onChange={(event) => setName(event.target.value)}
+						placeholder="Label name"
+						aria-label="New label name"
+						disabled={pending}
+						autoFocus
+						onKeyDown={(event) => {
+							if (event.key === "Enter") {
+								event.preventDefault();
+								submit();
+							}
+							if (event.key === "Escape") {
+								event.preventDefault();
+								cancel();
+							}
+						}}
+					/>
+					{error && (
+						<p className="text-2xs text-danger" role="alert">
+							{error}
+						</p>
+					)}
+					<div className="flex gap-2">
+						<Button
+							variant="primary"
+							size="sm"
+							onClick={submit}
+							disabled={pending || name.trim() === ""}
+						>
+							{pending ? "Creating…" : "Create label"}
+						</Button>
+						<Button
+							variant="ghost"
+							size="sm"
+							onClick={cancel}
+							disabled={pending}
+						>
+							Cancel
+						</Button>
+					</div>
+				</div>
+			)}
+		</div>
+	);
+}
+
 export function FilterRuleEditor({
 	rule,
 	folders,
+	labels = [],
 	preview,
 	notice,
 	semanticAvailable = false,
@@ -305,6 +465,8 @@ export function FilterRuleEditor({
 	onChangeMatchOperator,
 	onChangeMove,
 	onCreateFolder,
+	onChangeLabel,
+	onCreateLabel,
 	onChangeScope,
 	onChangeName,
 	onChangeUntil,
@@ -419,15 +581,16 @@ export function FilterRuleEditor({
 						onChangeMove={onChangeMove}
 						onCreateFolder={onCreateFolder}
 					/>
-					<div className="flex items-center gap-2 pt-0.5">
-						<span className="inline-flex items-center gap-1.5 rounded-full bg-surface-sunken px-2 py-0.5 text-2xs font-medium text-fg-muted">
-							label them…
-						</span>
-						<span className="text-2xs text-fg-subtle">
-							Labeling isn't available yet — arrives with mail-labeling (RFC
-							031).
-						</span>
-					</div>
+				</section>
+
+				<section className="space-y-2">
+					<p className="text-xs font-medium text-fg-muted">Apply a label</p>
+					<LabelDestinationField
+						labels={labels}
+						value={rule.labelId ?? ""}
+						onChangeLabel={onChangeLabel}
+						onCreateLabel={onCreateLabel}
+					/>
 				</section>
 
 				<section className="space-y-2">

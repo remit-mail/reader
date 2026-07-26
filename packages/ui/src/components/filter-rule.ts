@@ -62,6 +62,11 @@ export interface FilterRule {
 	widen?: RuleWiden;
 	/** The move-to-folder action's destination. Absent leaves mail in place. */
 	moveMailboxId?: string;
+	/**
+	 * The apply-label action's target (issue #26) — additive, so it can be set
+	 * alongside `moveMailboxId`. Absent applies no label.
+	 */
+	labelId?: string;
 	scope: RuleScope;
 	/** ISO 8601 civil date (`YYYY-MM-DD`) for the `until` scope. */
 	until?: string;
@@ -72,6 +77,12 @@ export interface FilterRule {
 export interface FolderOption {
 	id: string;
 	label: string;
+}
+
+export interface LabelOption {
+	id: string;
+	name: string;
+	color: string;
 }
 
 /**
@@ -171,13 +182,13 @@ export function commitLabel(scope: RuleScope): string {
 
 /**
  * Why the rule cannot be saved yet, or `undefined` when it is ready. A rule
- * needs at least one live way to match, a folder to move into (the only wired
- * action), and — for the two persisted scopes — a name and, for `until`, a
- * date. It also needs a settled preview: the rule is committable only when the
- * count on screen is the count that will be applied. That makes RFC 038's
- * previewed-set-equals-applied-set contract structural — a consumer cannot save
- * a rule whose match count is still moving. Never disable a control without
- * saying why (ux.md).
+ * needs at least one live way to match, at least one action — move and/or
+ * label, either satisfies this (issue #26) — and, for the two persisted
+ * scopes, a name and, for `until`, a date. It also needs a settled preview:
+ * the rule is committable only when the count on screen is the count that
+ * will be applied. That makes RFC 038's previewed-set-equals-applied-set
+ * contract structural — a consumer cannot save a rule whose match count is
+ * still moving. Never disable a control without saying why (ux.md).
  */
 export function commitBlockedReason(
 	rule: FilterRule,
@@ -187,8 +198,8 @@ export function commitBlockedReason(
 		rule.clauses.length > 0 ||
 		(rule.widen !== undefined && !rule.widen.inactive);
 	if (!hasMatch) return "Add a clause so the rule has something to match.";
-	if (!rule.moveMailboxId)
-		return "Pick a folder to move matches into — labeling isn't available yet.";
+	if (!rule.moveMailboxId && !rule.labelId)
+		return "Pick a folder to move into, or a label to apply.";
 	if (
 		(rule.scope === "standing" || rule.scope === "until") &&
 		(rule.name ?? "").trim() === ""
@@ -209,6 +220,12 @@ export const demoFolders: FolderOption[] = [
 	{ id: "mbx-receipts", label: "Receipts" },
 	{ id: "mbx-travel", label: "Travel" },
 	{ id: "mbx-junk", label: "Junk" },
+];
+
+export const demoLabels: LabelOption[] = [
+	{ id: "lbl-receipts", name: "Receipts", color: "Blue" },
+	{ id: "lbl-travel", name: "Travel", color: "Green" },
+	{ id: "lbl-urgent", name: "Urgent", color: "Red" },
 ];
 
 export const demoRule: FilterRule = {

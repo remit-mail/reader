@@ -21,6 +21,7 @@ import {
 	demoVocabularyRule,
 	type FilterRule,
 	type FolderOption,
+	type LabelOption,
 	matchJoinWord,
 	matchOperatorLabel,
 	type PreviewCount,
@@ -43,6 +44,11 @@ const render = (element: Parameters<typeof renderToString>[0]) =>
 const FOLDERS: FolderOption[] = [
 	{ id: "mbx-inbox", label: "Inbox" },
 	{ id: "mbx-archive", label: "Archive" },
+];
+
+const LABELS: LabelOption[] = [
+	{ id: "lbl-receipts", name: "Receipts", color: "Blue" },
+	{ id: "lbl-travel", name: "Travel", color: "Green" },
 ];
 
 const READY: PreviewCount = { status: "ready", count: 47 };
@@ -161,10 +167,20 @@ describe("commitBlockedReason", () => {
 		);
 	});
 
-	it("asks for a folder when none is chosen", () => {
+	it("asks for a folder or a label when neither action is chosen", () => {
 		assert.match(
 			commitBlockedReason({ ...base, moveMailboxId: undefined }, fresh) ?? "",
-			/Pick a folder/,
+			/Pick a folder to move into, or a label to apply/,
+		);
+	});
+
+	it("a label alone is a sufficient action, no folder needed", () => {
+		assert.equal(
+			commitBlockedReason(
+				{ ...base, moveMailboxId: undefined, labelId: "lbl-1" },
+				fresh,
+			),
+			undefined,
 		);
 	});
 
@@ -505,10 +521,33 @@ describe("FilterRuleEditor", () => {
 		assert.match(html, /from sender/);
 	});
 
-	it("reserves a disabled label slot next to the move action", () => {
-		const html = editor();
-		assert.match(html, /label them…/);
-		assert.match(html, /Labeling isn.+available yet/);
+	it("offers the account's labels as the apply-label action", () => {
+		const html = editor({ labels: LABELS });
+		assert.match(html, /aria-label="Label to apply"/);
+		assert.match(html, /Receipts/);
+		assert.match(html, /Travel/);
+	});
+
+	it("renders a chip for the selected label", () => {
+		const html = editor({
+			labels: LABELS,
+			rule: { ...demoRule, labelId: "lbl-receipts" },
+		});
+		assert.match(html, /Receipts/);
+	});
+
+	it("offers no create option without onCreateLabel", () => {
+		const html = editor({ labels: LABELS });
+		assert.doesNotMatch(html, /New label…/);
+	});
+
+	it("offers the create option when onCreateLabel is wired", () => {
+		const html = editor({
+			labels: LABELS,
+			onCreateLabel: () =>
+				Promise.resolve({ id: "lbl-new", name: "New", color: "Default" }),
+		});
+		assert.match(html, /New label…/);
 	});
 
 	it("shows the scope toggle and names a standing rule", () => {

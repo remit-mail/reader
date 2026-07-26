@@ -3,7 +3,7 @@ import {
 	mailboxOperationsListMailboxesOptions,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
-import { SettingsShell } from "@remit/ui";
+import { type LabelOption, SettingsShell } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback, useMemo, useState } from "react";
@@ -11,6 +11,7 @@ import { FilterEditorSurface } from "@/components/settings/FilterEditorSurface";
 import { FiltersList } from "@/components/settings/FiltersList";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { useDeleteFilter, useFilterList } from "@/hooks/useFilters";
+import { useLabelList } from "@/hooks/useLabels";
 import { getMailboxDisplayName } from "@/lib/folder-roles";
 import { buildMoveTargets } from "@/lib/move-targets";
 import { SETTINGS_ID_TO_PATH, SETTINGS_NAV_ITEMS } from "@/routes/settings";
@@ -64,6 +65,21 @@ function AccountFilters({ account }: { account: RemitImapAccountResponse }) {
 		[mailboxesData?.items],
 	);
 
+	const { labels: labelItems } = useLabelList(accountId);
+	const labels: LabelOption[] = useMemo(
+		() =>
+			labelItems.map((label) => ({
+				id: label.labelId,
+				name: label.name,
+				color: label.color,
+			})),
+		[labelItems],
+	);
+	const labelById = useMemo(
+		() => new Map(labels.map((label) => [label.id, label])),
+		[labels],
+	);
+
 	const editingFilter = filters.find(
 		(filter) => filter.filterId === editingFilterId,
 	);
@@ -76,6 +92,7 @@ function AccountFilters({ account }: { account: RemitImapAccountResponse }) {
 					accountId={accountId}
 					filter={editingFilter}
 					folders={folders}
+					labels={labels}
 					onClose={() => setEditingFilterId(undefined)}
 				/>
 			)}
@@ -99,6 +116,7 @@ function AccountFilters({ account }: { account: RemitImapAccountResponse }) {
 				<FiltersList
 					filters={filters}
 					mailboxName={mailboxName}
+					labelById={labelById}
 					onEdit={setEditingFilterId}
 					onDelete={deleteFilter}
 					deletingFilterId={deletingFilterId}

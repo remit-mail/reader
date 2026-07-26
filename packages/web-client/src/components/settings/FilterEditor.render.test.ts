@@ -125,6 +125,7 @@ const mount = (
 			accountId: ACCOUNT_ID,
 			filter,
 			folders: FOLDERS,
+			labels: [],
 			semanticUnavailable,
 			onClose: () => undefined,
 		}),

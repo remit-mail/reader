@@ -1,7 +1,9 @@
 import type { ThreadMessageResponse } from "@remit/api-openapi-types";
 import type {
 	AddressItem,
+	LabelItem,
 	MessageItem,
+	MessageLabelItem,
 	ThreadMessageItem,
 } from "@remit/data-ports";
 import { deriveAddressId } from "@remit/data-ports/id";
@@ -23,6 +25,12 @@ export interface EnrichClient {
 			accountConfigId: string,
 			addressIds: string[],
 		): Promise<AddressItem[]>;
+	};
+	messageLabel: {
+		listByMessageIds(messageIds: string[]): Promise<MessageLabelItem[]>;
+	};
+	label: {
+		listByAccountConfig(accountConfigId: string): Promise<LabelItem[]>;
 	};
 }
 
@@ -102,22 +110,53 @@ export const planBatchFetch = (rows: ThreadMessageItem[]): BatchPlan => {
  * Message with no stored category coalesces to `uncategorized` (RFC 032 Tier 2).
  * `senderTrust` defaults to `"unknown"`. `autoMoved` is omitted whenever the
  * move isn't a real, in-effect auto-move (or the Message row is absent).
+ *
+ * Not annotated `Promise<ThreadMessageResponse[]>`: `labels` is a new field on
+ * it in this same PR, and that package publishes separately from this repo —
+ * an explicit annotation here would contextually type the literal below
+ * against the currently-*published* shape (which lacks `labels`) and fail
+ * `check-consumer-typecheck`/`release:dry-run`. Callers assign the (wider,
+ * inferred) result into an already-typed `ThreadMessageResponse[]` property,
+ * which is a plain assignability check, not an excess-property one.
  */
 export const enrichThreadRows = async (
 	rows: ThreadMessageItem[],
 	client: EnrichClient,
 	accountConfigId: string,
-): Promise<ThreadMessageResponse[]> => {
+) => {
 	if (rows.length === 0) return [];
 
 	const plan = planBatchFetch(rows);
 
-	const [messages, addresses] = await Promise.all([
+	const [messages, addresses, messageLabels, labels] = await Promise.all([
 		plan.messageIds.length ? client.message.get(plan.messageIds) : [],
 		plan.addressIds.length
 			? client.address.getAddress(accountConfigId, plan.addressIds)
 			: [],
+		client.messageLabel.listByMessageIds(plan.messageIds),
+		client.label.listByAccountConfig(accountConfigId),
 	]);
+
+	const labelById = new Map(labels.map((label) => [label.labelId, label]));
+	const labelsByMessageId = new Map<
+		string,
+		{ labelId: string; name: string; color: LabelItem["color"] }[]
+	>();
+	for (const messageLabel of messageLabels) {
+		const label = labelById.get(messageLabel.labelId);
+		if (!label) continue;
+		const entry = {
+			labelId: label.labelId,
+			name: label.name,
+			color: label.color,
+		};
+		const existing = labelsByMessageId.get(messageLabel.messageId);
+		if (existing) {
+			existing.push(entry);
+		} else {
+			labelsByMessageId.set(messageLabel.messageId, [entry]);
+		}
+	}
 
 	const categoryByMessageId = new Map(
 		messages.map((m) => [
@@ -144,11 +183,13 @@ export const enrichThreadRows = async (
 		const senderTrust = addressId
 			? (trustByAddressId.get(addressId) ?? SenderTrust.Unknown)
 			: SenderTrust.Unknown;
+		const labels = labelsByMessageId.get(row.messageId);
 		return {
 			...base,
 			...(category !== undefined ? { category } : {}),
 			...(authenticity !== undefined ? { authenticity } : {}),
 			...(autoMoved !== undefined ? { autoMoved } : {}),
+			...(labels !== undefined ? { labels } : {}),
 			senderTrust,
 		};
 	});

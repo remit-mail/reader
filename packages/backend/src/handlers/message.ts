@@ -2,7 +2,6 @@ import type {
 	BodyPartResponse,
 	EnvelopeAddressResponse,
 	EnvelopeResponse,
-	MessageSummaryResponse,
 } from "@remit/api-openapi-types";
 import type { MailboxItem } from "@remit/data-ports";
 import {
@@ -351,7 +350,26 @@ export const MessageOperations: Record<
 		const envelope = description.envelope[0];
 
 		const autoMoved = deriveAutoMoved(message);
-		const messageSummary: MessageSummaryResponse = {
+
+		// Labels applied to this message (issue #26) — filter-, organize-, and
+		// manually-applied alike. A message rarely carries more than a handful, so
+		// a `get` per label id (not a batch fetch) is the whole cost.
+		const messageLabelRows = await client.messageLabel.listByMessageId(
+			message.messageId,
+		);
+		const labels = await Promise.all(
+			messageLabelRows.map(async (row) => {
+				const label = await client.label.get(accountConfigId, row.labelId);
+				return { labelId: label.labelId, name: label.name, color: label.color };
+			}),
+		);
+
+		// Not typed against the generated `MessageSummaryResponse`: `labels` is a
+		// new field on it in this same PR, and that package publishes separately
+		// from this repo — a local-codegen-only field would fail
+		// `check-consumer-typecheck`/`release:dry-run`, which resolve generated
+		// `@remit/*` packages off the registry, not the local `build/` output.
+		const messageSummary = {
 			messageId: message.messageId,
 			mailboxId: message.mailboxId,
 			uid: message.uid,
@@ -360,6 +378,7 @@ export const MessageOperations: Record<
 			messageIdHeader: message.messageIdHeader,
 			authenticity: message.authenticity,
 			...(autoMoved ? { autoMoved } : {}),
+			...(labels.length > 0 ? { labels } : {}),
 		};
 
 		// Batch-fetch the resolved Address rows so each EnvelopeAddressResponse can
@@ -877,6 +896,51 @@ export const MessageBulkOperations: Record<
 			destinationMailboxId,
 			accountId,
 		);
+
+		return {
+			successCount: messageIds.length,
+			failureCount: 0,
+		};
+	},
+
+	MessageBulkOperations_updateMessageLabels: async (
+		context,
+		...args: unknown[]
+	) => {
+		const event = args[0] as APIGatewayProxyEvent;
+		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const { messageIds, labelId, action } = context.request.requestBody as {
+			messageIds: string[];
+			labelId: string;
+			action: "Apply" | "Remove";
+		};
+
+		if (messageIds.length === 0) {
+			return { successCount: 0, failureCount: 0 };
+		}
+
+		const client = await getClient();
+		await assertMessagesOwned(client, messageIds, accountConfigId, "act");
+
+		// Scoped by accountConfigId (RFC 030) — a foreign labelId 404s here rather
+		// than silently applying to messages under someone else's label.
+		await client.label.get(accountConfigId, labelId);
+
+		// `appliedByFilterId` stays absent — this is the manual "just these" scope
+		// (RFC 034 Decision 3.3), never filter-attributed.
+		if (action === "Apply") {
+			for (const messageId of messageIds) {
+				await client.messageLabel.apply({
+					accountConfigId,
+					messageId,
+					labelId,
+				});
+			}
+		} else {
+			for (const messageId of messageIds) {
+				await client.messageLabel.remove(messageId, labelId);
+			}
+		}
 
 		return {
 			successCount: messageIds.length,

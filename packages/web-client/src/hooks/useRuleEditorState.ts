@@ -28,6 +28,7 @@ export interface RuleEditorState {
 		onRemoveWiden: () => void;
 		onChangeMatchOperator: (matchOperator: MatchOperator) => void;
 		onChangeMove: (mailboxId: string) => void;
+		onChangeLabel: (labelId: string) => void;
 		onChangeScope: (scope: RuleScope) => void;
 		onChangeName: (name: string) => void;
 		onChangeUntil: (until: string) => void;
@@ -141,6 +142,12 @@ export const useRuleEditorState = ({
 			moveMailboxId: mailboxId || undefined,
 		}));
 
+	const changeLabel = (labelId: string) =>
+		setRuleState((current) => ({
+			...current,
+			labelId: labelId || undefined,
+		}));
+
 	const changeScope = (scope: RuleScope) =>
 		setRuleState((current) => ({ ...current, scope }));
 
@@ -166,6 +173,7 @@ export const useRuleEditorState = ({
 			onRemoveWiden: removeWiden,
 			onChangeMatchOperator: changeMatchOperator,
 			onChangeMove: changeMove,
+			onChangeLabel: changeLabel,
 			onChangeScope: changeScope,
 			onChangeName: changeName,
 			onChangeUntil: changeUntil,

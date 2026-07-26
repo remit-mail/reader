@@ -247,6 +247,11 @@ describe("the previewed set equals the applied set", () => {
 			"mbx-archive",
 		);
 	});
+
+	it("carries the label target into the draft (issue #26)", () => {
+		const labeled = { ...semanticRule, labelId: "lbl-receipts" };
+		assert.equal(ruleToDraft(labeled, "msg-1").labelId, "lbl-receipts");
+	});
 });
 
 describe("derivePreview", () => {

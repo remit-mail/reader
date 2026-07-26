@@ -107,4 +107,55 @@ describe("MessageLabelRepo", () => {
 		const messageIds = rows.map((r) => r.messageId).sort();
 		assert.deepEqual(messageIds, [messageIdA, messageIdB].sort());
 	});
+
+	test("listByMessageIds batch-fetches across several messages in one call", async () => {
+		const accountConfigId = randomId();
+		const messageIdA = randomId();
+		const messageIdB = randomId();
+		const messageIdC = randomId();
+		const labelId = randomId();
+
+		await repo.apply({ accountConfigId, messageId: messageIdA, labelId });
+		await repo.apply({ accountConfigId, messageId: messageIdB, labelId });
+
+		const rows = await repo.listByMessageIds([
+			messageIdA,
+			messageIdB,
+			messageIdC,
+		]);
+		const messageIds = rows.map((r) => r.messageId).sort();
+		assert.deepEqual(messageIds, [messageIdA, messageIdB].sort());
+	});
+
+	test("listByMessageIds returns nothing for an empty list", async () => {
+		const rows = await repo.listByMessageIds([]);
+		assert.deepEqual(rows, []);
+	});
+
+	test("removeAllByLabelId clears every MessageLabel row for the label, scoped to the account", async () => {
+		const accountConfigId = randomId();
+		const labelId = randomId();
+		const messageIdA = randomId();
+		const messageIdB = randomId();
+		const foreignAccountConfigId = randomId();
+		const foreignMessageId = randomId();
+
+		await repo.apply({ accountConfigId, messageId: messageIdA, labelId });
+		await repo.apply({ accountConfigId, messageId: messageIdB, labelId });
+		await repo.apply({
+			accountConfigId: foreignAccountConfigId,
+			messageId: foreignMessageId,
+			labelId,
+		});
+
+		await repo.removeAllByLabelId(accountConfigId, labelId);
+
+		assert.deepEqual(await repo.listByMessageId(messageIdA), []);
+		assert.deepEqual(await repo.listByMessageId(messageIdB), []);
+		const foreignRows = await repo.listByLabelId(
+			foreignAccountConfigId,
+			labelId,
+		);
+		assert.equal(foreignRows.length, 1);
+	});
 });
