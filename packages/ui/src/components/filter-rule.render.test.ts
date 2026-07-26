@@ -555,35 +555,48 @@ describe("FilterRuleEditor", () => {
 		assert.match(editor(), /47 messages match/);
 	});
 
-	it("renders scope and expiry read-only when the lifecycle is locked", () => {
+	it("keeps scope and expiry live and editable on an anchor-locked (existing) filter (reader #266)", () => {
 		const html = editor({
 			rule: { ...demoRule, scope: "until", until: "2027-09-01" },
-			lifecycleLocked: true,
+			anchorLocked: true,
 		});
-		// No live scope toggle, no editable date input — a static summary and a note.
-		assert.doesNotMatch(html, /aria-label="Rule scope"/);
-		assert.doesNotMatch(html, /aria-label="Expiry date"/);
-		assert.match(html, /Until 2027-09-01/);
-		assert.match(html, /set when a filter is created/);
-		// The name stays editable.
+		assert.match(html, /aria-label="Rule scope"/);
+		assert.match(html, /aria-label="Expiry date"/);
 		assert.match(html, /aria-label="Rule name"/);
 	});
 
-	it("names the similar-mail match in the locked note only when a widen is present", () => {
+	it("drops the once option from the scope toggle on an anchor-locked filter", () => {
+		const locked = editor({ anchorLocked: true });
+		assert.doesNotMatch(locked, />Just once</);
+		const unlocked = editor({ anchorLocked: false });
+		assert.match(unlocked, />Just once</);
+	});
+
+	it("locks the widen chip and explains why only when one is present", () => {
 		const withWiden = editor({
 			rule: { ...demoRule, widen: { anchorCount: 2 } },
-			lifecycleLocked: true,
+			anchorLocked: true,
 		});
-		assert.match(
+		assert.doesNotMatch(
 			withWiden,
-			/similar-mail match are set when a filter is created/,
+			/aria-label="Remove the similar-mail widen"/,
 		);
+		assert.match(withWiden, /similar-mail match is fixed to the message/);
+
 		const literal = editor({
 			rule: { ...demoRule, widen: undefined },
-			lifecycleLocked: true,
+			anchorLocked: true,
 		});
-		assert.match(literal, /scope and expiry are set when a filter is created/);
-		assert.doesNotMatch(literal, /similar-mail match/);
+		assert.doesNotMatch(literal, /similar-mail match is fixed/);
+	});
+
+	it("never offers to add a widen on an anchor-locked filter, even when the deployment can serve it", () => {
+		const html = editor({
+			rule: { ...demoRule, widen: undefined },
+			anchorLocked: true,
+			semanticAvailable: true,
+		});
+		assert.doesNotMatch(html, /…and similar/);
 	});
 });
 

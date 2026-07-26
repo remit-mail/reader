@@ -7,6 +7,7 @@ import {
 	expiresAtToPickedDate,
 	filterToRule,
 	ruleChangesPredicateOrAction,
+	ruleChangesScopeOrExpiry,
 } from "./filter-edit-model";
 
 const filter = (
@@ -132,6 +133,48 @@ describe("ruleChangesPredicateOrAction", () => {
 	});
 });
 
+describe("ruleChangesScopeOrExpiry (reader #266)", () => {
+	const base = filterToRule(filter());
+
+	it("is false for an identical rule and for a rename only", () => {
+		assert.equal(ruleChangesScopeOrExpiry(base, base), false);
+		assert.equal(
+			ruleChangesScopeOrExpiry({ ...base, name: "New name" }, base),
+			false,
+		);
+	});
+
+	it("is true when scope moves to until-a-date", () => {
+		assert.equal(
+			ruleChangesScopeOrExpiry(
+				{ ...base, scope: "until", until: "2027-01-01" },
+				base,
+			),
+			true,
+		);
+	});
+
+	it("is true when only the until date changes", () => {
+		const untilBase = filterToRule(
+			filter({ scope: "Temporary", expiresAt: "2027-01-01T23:59:59+00:00" }),
+		);
+		assert.equal(
+			ruleChangesScopeOrExpiry(
+				{ ...untilBase, until: "2027-06-01" },
+				untilBase,
+			),
+			true,
+		);
+	});
+
+	it("is false when moving between standing and once-equivalent scopes with no until set", () => {
+		assert.equal(
+			ruleChangesScopeOrExpiry({ ...base, scope: "standing" }, base),
+			false,
+		);
+	});
+});
+
 describe("buildUpdateFilterInput", () => {
 	const original = filterToRule(filter());
 
@@ -171,5 +214,48 @@ describe("buildUpdateFilterInput", () => {
 
 	it("is empty when nothing changed", () => {
 		assert.deepEqual(buildUpdateFilterInput(original, original), {});
+	});
+
+	it("sends scope Temporary and a derived expiresAt when moving to until-a-date (reader #266)", () => {
+		const changed: FilterRule = {
+			...original,
+			scope: "until",
+			until: "2027-03-04",
+		};
+		const body = buildUpdateFilterInput(changed, original);
+		assert.equal(body.scope, "Temporary");
+		assert.match(body.expiresAt ?? "", /^2027-03-04T/);
+		assert.equal("matchOperator" in body, false);
+		assert.equal("name" in body, false);
+	});
+
+	it("sends scope Standing with no expiresAt when moving off a Temporary filter", () => {
+		const temporaryOriginal = filterToRule(
+			filter({ scope: "Temporary", expiresAt: "2027-01-01T23:59:59+00:00" }),
+		);
+		const changed: FilterRule = { ...temporaryOriginal, scope: "standing" };
+		const body = buildUpdateFilterInput(changed, temporaryOriginal);
+		assert.equal(body.scope, "Standing");
+		assert.equal("expiresAt" in body, false);
+	});
+
+	it("sends scope and the new expiresAt when only the date changes", () => {
+		const temporaryOriginal = filterToRule(
+			filter({ scope: "Temporary", expiresAt: "2027-01-01T23:59:59+00:00" }),
+		);
+		const changed: FilterRule = { ...temporaryOriginal, until: "2027-06-01" };
+		const body = buildUpdateFilterInput(changed, temporaryOriginal);
+		assert.equal(body.scope, "Temporary");
+		assert.match(body.expiresAt ?? "", /^2027-06-01T/);
+	});
+
+	it("carries no anchor field — the editor never has one to send (reader #266)", () => {
+		const changed: FilterRule = {
+			...original,
+			scope: "until",
+			until: "2027-03-04",
+		};
+		const body = buildUpdateFilterInput(changed, original);
+		assert.equal("anchorMessageId" in body, false);
 	});
 });
