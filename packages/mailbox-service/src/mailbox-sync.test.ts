@@ -4,7 +4,11 @@ import type {
 	IMailboxRepository,
 	IMailboxSpecialUseRepository,
 } from "@remit/data-ports";
-import { MailboxCursorState, MailboxSpecialUse } from "@remit/domain-enums";
+import {
+	MailboxCursorState,
+	MailboxSpecialUse,
+	MailboxSyncStatus,
+} from "@remit/domain-enums";
 import { parseImapAttributes } from "./attribute-mapper.js";
 import { MailboxSyncService } from "./mailbox-sync.js";
 import type { IImapConnection, ImapNamespaces } from "./types.js";
@@ -178,5 +182,130 @@ describe("MailboxSyncService.syncMailboxes — UIDVALIDITY cursor detection (#12
 		const uidValidityUpdate = updateCalls.find((c) => "uidValidity" in c);
 		assert.ok(uidValidityUpdate);
 		assert.equal("cursorState" in (uidValidityUpdate ?? {}), false);
+	});
+});
+
+describe("MailboxSyncService.syncMailboxes — reconcile does not delete pending folders (#290)", () => {
+	const namespaces: ImapNamespaces = {
+		personal: [{ prefix: "", delimiter: "/" }],
+		other: [],
+		shared: [],
+	};
+
+	// The server lists only INBOX: neither user folder is on it yet.
+	const serverConnection = (): IImapConnection =>
+		({
+			getNamespaces: async () => namespaces,
+			listMailboxes: async () => [
+				{
+					fullPath: "INBOX",
+					name: "INBOX",
+					delimiter: "/",
+					attributes: [],
+					parentPath: null,
+				},
+			],
+			getMailboxStatus: async () => ({
+				messages: 0,
+				recent: 0,
+				unseen: 0,
+				uidNext: 1,
+				uidValidity: 1,
+				highestModseq: "0",
+				deletedCount: 0,
+			}),
+		}) as unknown as IImapConnection;
+
+	const buildServices = (
+		existing: Array<{
+			mailboxId: string;
+			fullPath: string;
+			syncStatus?: string;
+		}>,
+	) => {
+		const deleted: string[] = [];
+		const mailboxService = {
+			listByAccount: async () => ({
+				items: existing.map((m) => ({
+					mailboxId: m.mailboxId,
+					fullPath: m.fullPath,
+					uidNext: 1,
+					uidValidity: 1,
+					messageCount: 0,
+					unseenCount: 0,
+					deletedCount: 0,
+					highestModseq: "0",
+					specialUse: undefined,
+					syncStatus: m.syncStatus,
+				})),
+				continuationToken: undefined,
+			}),
+			update: async () => ({}),
+			delete: async (_accountId: string, mailboxId: string) => {
+				deleted.push(mailboxId);
+			},
+			create: async () => ({}),
+		} as unknown as IMailboxRepository;
+
+		const specialUseService = {
+			listByMailboxId: async () => [],
+			deleteByMailboxId: async () => undefined,
+			createMany: async () => undefined,
+		} as unknown as IMailboxSpecialUseRepository;
+
+		return { mailboxService, specialUseService, deleted };
+	};
+
+	it("keeps a pending folder the server has not listed yet", async () => {
+		// The folder was just created locally; MAILBOX_CREATE has not reached the
+		// server, so the LIST omits it. Deleting the row here races the create and
+		// wedges the account's mailbox-sync FIFO group for a full visibility window.
+		const { mailboxService, specialUseService, deleted } = buildServices([
+			{
+				mailboxId: "inbox",
+				fullPath: "INBOX",
+				syncStatus: MailboxSyncStatus.synced,
+			},
+			{
+				mailboxId: "pending-folder",
+				fullPath: "New Folder",
+				syncStatus: MailboxSyncStatus.pending,
+			},
+		]);
+		const service = new MailboxSyncService(mailboxService, specialUseService);
+
+		const result = await service.syncMailboxes(
+			{ accountId: "acc-1" },
+			serverConnection(),
+		);
+
+		assert.deepEqual(deleted, []);
+		assert.equal(result.deleted, 0);
+	});
+
+	it("still deletes a synced folder that has left the server", async () => {
+		// A folder that was confirmed on the server and is now gone is a genuine
+		// server-side deletion; the reconcile must still reap it.
+		const { mailboxService, specialUseService, deleted } = buildServices([
+			{
+				mailboxId: "inbox",
+				fullPath: "INBOX",
+				syncStatus: MailboxSyncStatus.synced,
+			},
+			{
+				mailboxId: "synced-gone",
+				fullPath: "Old Folder",
+				syncStatus: MailboxSyncStatus.synced,
+			},
+		]);
+		const service = new MailboxSyncService(mailboxService, specialUseService);
+
+		const result = await service.syncMailboxes(
+			{ accountId: "acc-1" },
+			serverConnection(),
+		);
+
+		assert.deepEqual(deleted, ["synced-gone"]);
+		assert.equal(result.deleted, 1);
 	});
 });
