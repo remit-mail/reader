@@ -163,7 +163,8 @@ describe("useCreateMailbox.createFolder validation", () => {
 
 	it("retry resumes the wait on the folder it already made — no second create, no 'already exists'", async () => {
 		// The created folder is reported failed on the first attempt, then synced.
-		let status: RemitImapMailboxResponse["syncStatus"] = MailboxSyncStatus.failed;
+		let status: RemitImapMailboxResponse["syncStatus"] =
+			MailboxSyncStatus.failed;
 		const created: RemitImapMailboxResponse[] = [];
 		http = mockFetch((call) => {
 			if (call.method === "POST") {
