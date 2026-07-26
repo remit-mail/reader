@@ -35,7 +35,25 @@ const EVENT_EMIT_CONCURRENCY = 20;
  * (`MIN_POLL_INTERVAL_MS` in useStaleAccountSync), so the one caller that
  * skips this gate on a timer still cannot drive a fan-out faster than it.
  */
-export const MAILBOX_FRESHNESS_MS = 60_000;
+export const DEFAULT_MAILBOX_FRESHNESS_MS = 60_000;
+
+/**
+ * Resolve the freshness window from the environment, defaulting to production's
+ * {@link DEFAULT_MAILBOX_FRESHNESS_MS}. Deployments that drive sync from a test
+ * harness rather than a real client set `MAILBOX_FRESHNESS_MS` low so their
+ * explicit nudges are never no-oped by the gate; nothing else touches it, so
+ * production keeps the default.
+ */
+export const resolveMailboxFreshnessMs = (
+	env: NodeJS.ProcessEnv = process.env,
+): number => {
+	const value = env.MAILBOX_FRESHNESS_MS?.trim();
+	if (!value) return DEFAULT_MAILBOX_FRESHNESS_MS;
+	const raw = Number(value);
+	return Number.isInteger(raw) && raw >= 0 ? raw : DEFAULT_MAILBOX_FRESHNESS_MS;
+};
+
+export const MAILBOX_FRESHNESS_MS = resolveMailboxFreshnessMs();
 
 /**
  * Whether this fan-out should enqueue a mailbox.
