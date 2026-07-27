@@ -11,6 +11,7 @@ import { buildOrganizeInput } from "./organize-model";
 import {
 	buildInitialRule,
 	derivePreview,
+	isEvaluablePredicate,
 	normalizeClauseValue,
 	normalizeListId,
 	predicateSignature,
@@ -297,6 +298,62 @@ describe("derivePreview", () => {
 				signature,
 			),
 			{ status: "ready", count: 5 },
+		);
+	});
+});
+
+describe("isEvaluablePredicate", () => {
+	it("accepts literal clauses the vector-free matcher can read off the index", () => {
+		assert.equal(
+			isEvaluablePredicate({
+				matchOperator: "And",
+				literalClauses: [
+					{ field: "From", value: "npm@github.com" },
+					{ field: "Subject", value: "Invoice" },
+				],
+			}),
+			true,
+		);
+	});
+
+	it("rejects a body clause with no anchor — the shape that answered 500", () => {
+		assert.equal(
+			isEvaluablePredicate({
+				matchOperator: "And",
+				literalClauses: [{ field: "HasWords", value: "receipt" }],
+			}),
+			false,
+		);
+	});
+
+	it("rejects it however it is mixed in with clauses that are evaluable", () => {
+		assert.equal(
+			isEvaluablePredicate({
+				matchOperator: "Or",
+				literalClauses: [
+					{ field: "From", value: "npm@github.com" },
+					{ field: "HasWords", value: "receipt" },
+				],
+			}),
+			false,
+		);
+	});
+
+	it("accepts a body clause once an anchor puts the matcher on the semantic arm", () => {
+		assert.equal(
+			isEvaluablePredicate({
+				anchorMessageId: "msg-1",
+				matchOperator: "And",
+				literalClauses: [{ field: "HasWords", value: "receipt" }],
+			}),
+			true,
+		);
+	});
+
+	it("accepts an empty predicate", () => {
+		assert.equal(
+			isEvaluablePredicate({ matchOperator: "And", literalClauses: [] }),
+			true,
 		);
 	});
 });
