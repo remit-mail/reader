@@ -82,7 +82,7 @@ type Mode = "migrate" | "check";
 // this one-shot's output is the only record that it ran and what it did — it
 // must not sit below the default threshold. One wrapper so the exception is one
 // decision rather than one per step.
-const report = (fields: Record<string, unknown>, msg: string): void => {
+const logStep = (fields: Record<string, unknown>, msg: string): void => {
 	// biome-ignore lint/plugin/no-logger-info: a migration step is an audit-grade signal
 	logger.info(fields, msg);
 };
@@ -101,7 +101,7 @@ const parseMode = (argv: readonly string[]): Mode => {
 
 const logReport = (report: CategoryDivergenceReport): void => {
 	for (const line of formatCheckReport(report)) {
-		report({ step: "category-check" }, line);
+		logStep({ step: "category-check" }, line);
 	}
 };
 
@@ -120,7 +120,7 @@ const repairThreadMessageCategoryStep = async (
 
 	const log = (lines: readonly string[]): void => {
 		for (const line of lines) {
-			report({ step: "category-repair" }, line);
+			logStep({ step: "category-repair" }, line);
 		}
 	};
 
@@ -190,24 +190,24 @@ const runPostgres = async (mode: Mode): Promise<void> => {
 			return;
 		}
 
-		report({}, "enabling extensions: vector, unaccent, pg_trgm");
+		logStep({}, "enabling extensions: vector, unaccent, pg_trgm");
 		await pool.query("CREATE EXTENSION IF NOT EXISTS vector;");
 		await pool.query("CREATE EXTENSION IF NOT EXISTS unaccent;");
 		await pool.query("CREATE EXTENSION IF NOT EXISTS pg_trgm;");
 
-		report({}, "applying entity schema migrations");
+		logStep({}, "applying entity schema migrations");
 		await migrate(drizzle(pool), {
 			migrationsFolder: "migrations/entities",
 			migrationsTable: "__drizzle_migrations_entities",
 		});
 
-		report({}, "applying auth schema migrations");
+		logStep({}, "applying auth schema migrations");
 		await migrate(drizzle(pool), {
 			migrationsFolder: "migrations/auth",
 			migrationsTable: "__drizzle_migrations_auth",
 		});
 
-		report({}, "applying instance-owner schema migrations");
+		logStep({}, "applying instance-owner schema migrations");
 		await migrate(drizzle(pool), {
 			migrationsFolder: "migrations/meta",
 			migrationsTable: "__drizzle_migrations_meta",
@@ -217,10 +217,10 @@ const runPostgres = async (mode: Mode): Promise<void> => {
 		// supply the column and the filter's index, before the idempotent DDL step.
 		await repairThreadMessageCategoryStep(repairClient);
 
-		report({}, "installing outbox notify trigger");
+		logStep({}, "installing outbox notify trigger");
 		await pool.query(outboxTriggerSql);
 
-		report({}, "installing search index objects");
+		logStep({}, "installing search index objects");
 		await pool.query(searchIndexSql);
 	} finally {
 		await pool.end();
@@ -266,19 +266,19 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 
 		const db = sqliteDrizzle(sqlite);
 
-		report({}, "applying entity schema migrations (sqlite)");
+		logStep({}, "applying entity schema migrations (sqlite)");
 		sqliteMigrate(db, {
 			migrationsFolder: "migrations-sqlite/entities",
 			migrationsTable: "__drizzle_migrations_entities",
 		});
 
-		report({}, "applying auth schema migrations (sqlite)");
+		logStep({}, "applying auth schema migrations (sqlite)");
 		sqliteMigrate(db, {
 			migrationsFolder: "migrations-sqlite/auth",
 			migrationsTable: "__drizzle_migrations_auth",
 		});
 
-		report({}, "applying instance-owner schema migrations (sqlite)");
+		logStep({}, "applying instance-owner schema migrations (sqlite)");
 		sqliteMigrate(db, {
 			migrationsFolder: "migrations-sqlite/meta",
 			migrationsTable: "__drizzle_migrations_meta",
@@ -308,7 +308,7 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 		// every row. An external-content index cannot be scanned bare (its
 		// computed `sender` has no content-table column), so the guard, not a
 		// NOT-IN diff, is what keeps this from double-indexing.
-		report({}, "installing FTS5 search index objects (sqlite)");
+		logStep({}, "installing FTS5 search index objects (sqlite)");
 		const installSearchIndex = sqlite.transaction(() => {
 			const ftsExisted = sqlite
 				.prepare(
@@ -317,7 +317,7 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 				.get();
 			sqlite.exec(sqliteSearchIndexSql);
 			if (!ftsExisted) {
-				report({}, "backfilling FTS5 index from existing threads");
+				logStep({}, "backfilling FTS5 index from existing threads");
 				sqlite.exec(
 					`INSERT INTO thread_message_fts(rowid, subject, sender)
 					 SELECT rowid, coalesce(subject, ''),
@@ -339,7 +339,7 @@ const run = async (): Promise<void> => {
 	} else {
 		await runPostgres(mode);
 	}
-	report({ mode }, "migrate done");
+	logStep({ mode }, "migrate done");
 };
 
 run()

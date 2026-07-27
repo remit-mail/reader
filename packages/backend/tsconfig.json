@@ -3,5 +3,16 @@
 	"compilerOptions": {
 		"outDir": "dist"
 	},
-	"include": ["src/**/*.ts", "dev-server/**/*.ts", "scripts/**/*.ts"]
+	"include": [
+		"src/**/*.ts",
+		"dev-server/**/*.ts",
+		"scripts/**/*.ts",
+		// The backend image's third entrypoint. `migrate.mjs` and
+		// `backfill-list-id.mjs` ship inside this image alongside `server.mjs`
+		// (npm-scripts/docker-bundle.mjs), so they belong to the same typecheck —
+		// living under deploy/ is where it sits in the tree, not a different
+		// deliverable. Unchecked, it shipped a container entrypoint with two hard
+		// type errors.
+		"../../deploy/vps/migrate/**/*.ts"
+	]
 }
