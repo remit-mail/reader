@@ -1,0 +1,118 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import { exitCodeFor, renderJson, renderLines } from "./report.js";
+import type { CheckResult } from "./verdict.js";
+
+const degraded: CheckResult = {
+	verdict: "degraded",
+	checkedAt: "2026-07-27T10:00:00.000Z",
+	summary: "remit is degraded",
+	reasons: [
+		{
+			code: "account_sync_stalled",
+			summary: "1 of 3 accounts have not completed a sync in over 3h",
+			detail: "0f8a: 40000s",
+		},
+		{
+			code: "dead_letter_queue_not_empty",
+			summary:
+				"2 messages are quarantined on 1 dead-letter queue (imap-sync-dlq)",
+			detail: undefined,
+		},
+	],
+	counters: {},
+};
+
+const healthy: CheckResult = {
+	verdict: "healthy",
+	checkedAt: "2026-07-27T10:00:00.000Z",
+	summary: "remit is healthy",
+	reasons: [],
+	counters: {},
+};
+
+/** The parse the wrapper does: first token is the key, the rest is the value. */
+const parseLines = (out: string): [string, string][] =>
+	out
+		.split("\n")
+		.filter((line) => line !== "")
+		.map((line) => {
+			const space = line.indexOf(" ");
+			return [line.slice(0, space), line.slice(space + 1)] as [string, string];
+		});
+
+describe("the line format", () => {
+	it("opens with the verdict, the timestamp and the headline", () => {
+		const records = parseLines(renderLines(degraded));
+		assert.deepEqual(records.slice(0, 3), [
+			["verdict", "degraded"],
+			["checked-at", "2026-07-27T10:00:00.000Z"],
+			["summary", "remit is degraded"],
+		]);
+	});
+
+	it("carries one record per reason, then the details", () => {
+		const records = parseLines(renderLines(degraded));
+		assert.deepEqual(
+			records.filter(([key]) => key === "reason").map(([, value]) => value),
+			[
+				"account_sync_stalled 1 of 3 accounts have not completed a sync in over 3h",
+				"dead_letter_queue_not_empty 2 messages are quarantined on 1 dead-letter queue (imap-sync-dlq)",
+			],
+		);
+		assert.deepEqual(
+			records.filter(([key]) => key === "detail").map(([, value]) => value),
+			["account_sync_stalled 0f8a: 40000s"],
+		);
+	});
+
+	it("uses a closed key vocabulary, so an unknown key is a version skew and not a value", () => {
+		const keys = new Set(parseLines(renderLines(degraded)).map(([key]) => key));
+		assert.deepEqual([...keys].sort(), [
+			"checked-at",
+			"detail",
+			"reason",
+			"summary",
+			"verdict",
+		]);
+	});
+
+	it("puts no reason records in a healthy report", () => {
+		const records = parseLines(renderLines(healthy));
+		assert.equal(records.length, 3);
+	});
+
+	it("never wraps a record, so one line is always one record", () => {
+		for (const line of renderLines(degraded).trimEnd().split("\n")) {
+			assert.ok(line.length > 0);
+			assert.ok(!line.includes("\n"));
+		}
+	});
+});
+
+describe("the json format", () => {
+	it("parses, and carries the same verdict and reasons", () => {
+		const parsed = JSON.parse(renderJson(degraded)) as {
+			verdict: string;
+			reasons: { code: string; summary: string; detail: string | null }[];
+		};
+		assert.equal(parsed.verdict, "degraded");
+		assert.deepEqual(
+			parsed.reasons.map((reason) => reason.code),
+			["account_sync_stalled", "dead_letter_queue_not_empty"],
+		);
+		assert.equal(parsed.reasons[1].detail, null);
+	});
+
+	it("renders a healthy verdict as an empty reason list, not an absent key", () => {
+		const parsed = JSON.parse(renderJson(healthy)) as { reasons: unknown[] };
+		assert.deepEqual(parsed.reasons, []);
+	});
+});
+
+describe("exit codes", () => {
+	it("is zero on healthy and non-zero on degraded, so cron can use it directly", () => {
+		assert.equal(exitCodeFor(healthy), 0);
+		assert.equal(exitCodeFor(degraded), 1);
+	});
+});

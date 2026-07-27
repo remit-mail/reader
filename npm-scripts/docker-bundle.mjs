@@ -158,6 +158,23 @@ export const TARGETS = [
 		entry: "packages/queue-sidecar/src/main.ts",
 		external: [SQLITE],
 	},
+	// The checker (standalone-observability D9). No `external`: it imports
+	// nothing outside Node's standard library, which is what lets its runtime
+	// image install no packages at all.
+	{
+		name: "doctor",
+		entry: "packages/doctor/src/main.ts",
+	},
+	// The exec seam `remit doctor` drives, baked into the same image as an
+	// alternate entrypoint — the same "one image, two commands" shape as the
+	// backend's migrate.mjs, and for the same reason: it is the identical
+	// verdict code, and a second image to keep in step would be one more way
+	// for the two to disagree.
+	{
+		name: "doctor-check",
+		entry: "packages/doctor/src/cli.ts",
+		outfile: "dist-docker/doctor/check.mjs",
+	},
 	// Ships inside the backend image (dist-docker/backend/migrate.mjs) as an
 	// alternate entrypoint — "the backend image with a migrate command"
 	// (RFC 035 D8) — not a ninth image. The compose `migrate` one-shot

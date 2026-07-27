@@ -1,0 +1,7 @@
+{
+	"name": "remit-runtime-doctor",
+	"private": true,
+	"version": "0.0.0",
+	"comment": "No dependencies, deliberately. The checker is the container that has to keep working when the rest of the stack does not, so its bundle reaches nothing outside Node's standard library — no metrics parser, no HTTP client, no logger. This file exists because the image roster is derived from the directories here.",
+	"dependencies": {}
+}

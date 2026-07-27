@@ -393,6 +393,32 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=60s \
 CMD ["node", "server.mjs"]
 
 ########################################################################
+# doctor — the checker (D7 to D12 of docs/design/standalone-observability.md).
+#
+# Runs the same check on an interval that `remit doctor` runs on demand, and
+# posts a settled change of verdict to a webhook. Its own container because an
+# alerter inside the backend dies with the thing it is meant to report.
+#
+# NO DOCKER SOCKET, and no way to need one: worker liveness is a file on the
+# heartbeat volume precisely so that reading it does not require the daemon. A
+# second socket-mounting container on a mail server, added for an alert, is a
+# cost this design does not pay.
+#
+# Two entrypoints in one image, the same shape as the backend's migrate.mjs:
+# server.mjs is the loop, check.mjs is the exec seam `remit doctor` drives. The
+# verdict is one implementation read three ways — at a shell, as an exit code,
+# and as an alert.
+#
+# No EXPOSE and no HEALTHCHECK. It listens on nothing, and nothing watches it
+# from inside the box: its liveness rests entirely on the dead-man's switch,
+# which is why that switch is not optional.
+########################################################################
+FROM node-service-installed AS doctor
+COPY --from=builder --chown=node:node /app/dist-docker/doctor/server.mjs ./server.mjs
+COPY --from=builder --chown=node:node /app/dist-docker/doctor/check.mjs ./check.mjs
+CMD ["node", "server.mjs"]
+
+########################################################################
 # apisix — stock image, generated route table baked in (RFC 035 D5 parity).
 ########################################################################
 FROM docker.io/apache/apisix:3.13.0-debian AS apisix

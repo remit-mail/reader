@@ -171,6 +171,7 @@ itself (Settings → Add account).
 | `queue` | `ghcr.io/remit-mail/reader/queue-sidecar` | The SQS-compatible queue seam: a SQLite-backed sidecar speaking the SQS wire protocol, persisting enqueued work to its own volume. |
 | `migrate` | `ghcr.io/remit-mail/reader/backend` (command override) | One-shot: applies the SQLite migrations, repairs `thread_message.category`, and installs the FTS5 search index before any app service starts. See [The category repair](#the-category-repair). |
 | `volume-init` | `ghcr.io/remit-mail/reader/backend` (entrypoint override) | One-shot: fixes ownership of the data volumes so the non-root app user can write them. |
+| `doctor` | `ghcr.io/remit-mail/reader/doctor` | The checker: reads the signals below on an interval, computes one verdict, and posts a settled change of it to a webhook. Mounts no docker socket and publishes no port. See [Alerts](#alerts). |
 | `backup` | `alpine:3.23` | Off by default (`profiles: ["backup"]`). Nightly encrypted database snapshot. See [Backups](#backups). |
 | `dozzle` | `amir20/dozzle` | Off by default (`profiles: ["observability"]`). Live log tail and search. Binds `127.0.0.1` only. See [Looking at the box](#looking-at-the-box). |
 | `victoriametrics` | `victoriametrics/victoria-metrics` | Off by default (`profiles: ["observability"]`). Scrapes the `/metrics` endpoints, stores the series, serves the query UI. Binds `127.0.0.1` only. |
@@ -636,6 +637,134 @@ Read a series from the host with `docker compose exec`:
 docker compose -f docker-compose.sqlite.yml --env-file .env exec queue \
   node -e 'require("http").get("http://127.0.0.1:9324/metrics",r=>r.pipe(process.stdout))'
 ```
+
+## Alerts
+
+The `doctor` container runs a check every 60 seconds and computes one verdict:
+`healthy` or `degraded`. Set two URLs in `.env` and a settled change of that
+verdict is posted to a webhook. Set neither and the check still runs — it is what
+answers when you ask.
+
+It is degraded when any of these is true:
+
+| Reason | Threshold |
+|---|---|
+| `scrape_failed` | A service is not answering `/metrics` |
+| `worker_heartbeat_stale` | A worker's slowest poll loop has not written for 7 minutes, or has written nothing at all |
+| `account_sync_stalled` | An account has not completed a sync round in 3 hours |
+| `mail_auth_failing` | An IMAP or SMTP authentication failure counter rose since the previous check |
+| `dead_letter_queue_not_empty` | Anything is quarantined on any DLQ |
+
+A signal that cannot be evaluated is degraded, never skipped. An endpoint that
+refuses the connection, a heartbeat file that is absent, a scrape that times out
+— each of them reads as a problem, because a `healthy` produced by a check that
+failed to look is the worst answer available.
+
+### Turn it on
+
+```dotenv
+DOCTOR_WEBHOOK_URL=https://hooks.slack.com/services/T000/B000/XXXX
+DOCTOR_HEARTBEAT_URL=https://hc-ping.com/your-uuid
+```
+
+Then `remit restart`. Both are required together: setting the webhook without
+the heartbeat fails the container at startup, and it is not a mistake in the
+check — read [The dead-man's switch](#the-dead-mans-switch) before you work
+around it.
+
+For ntfy, or anything else that takes a raw body, add one line:
+
+```dotenv
+DOCTOR_WEBHOOK_URL=https://ntfy.sh/your-topic
+DOCTOR_WEBHOOK_CONTENT_TYPE=text/plain
+```
+
+There is no per-provider integration. The default payload is Slack-shaped JSON,
+which Mattermost and Discord also accept; `text/plain` covers the rest. If your
+target wants a different document, write it:
+
+```dotenv
+DOCTOR_WEBHOOK_TEMPLATE={"title":"remit {{verdict}}","message":"{{summary}}\n{{reasons}}"}
+```
+
+`{{verdict}}` is `healthy` or `degraded`, `{{summary}}` is the one-line headline,
+and `{{reasons}}` is the bullet list. Substituted values are escaped for the
+content type — a JSON template gets JSON string escaping, so a value containing a
+quote or a newline cannot break the document. In a plain-text template a literal
+`\n` becomes a newline, since a `.env` file cannot carry a real one.
+
+### When it sends
+
+On a change of verdict that has held for three consecutive checks, and never on
+an unchanged verdict however long it persists. Two messages per incident: one
+when it breaks, one when it clears.
+
+The dwell is what makes the channel readable. Transition-only firing on its own
+is the loudest possible response to a flapping signal — a verdict that oscillates
+every check sends two messages per cycle, which is worse than posting on a timer.
+A dead-letter message you replay that fails again produces exactly that shape.
+
+**The cost is three check intervals of latency.** At the default 60 second
+interval an outage is reported up to three minutes after it starts, and a
+recovery up to three minutes after it clears. Nobody acts inside three minutes on
+a mailbox that stopped syncing, and the dead-man's switch is unaffected — it pings
+on every completed check, settled or not.
+
+The last announced verdict is on the checker's own volume, so a reboot or a
+`remit update` does not re-announce a condition already reported.
+
+The dwell is also what covers a restart. A stack coming back up reads as degraded
+for a check or two while the workers reach their queues, and that is short of the
+three it takes to announce. An update whose downtime runs past three minutes will
+report degraded and then recover, which is accurate — mail was not moving for
+three minutes. Raise `DOCTOR_DWELL_CHECKS` if you would rather not hear about it.
+
+### What a payload carries
+
+Counts, service names, queue names and the verdict. Never an address, a subject,
+a sender, a message id, a folder name or an account id. "2 of 5 accounts have not
+completed a sync in over 3h", not which two.
+
+This is a mail server and the payload goes to a third-party service over the
+internet. To find out which account, run `remit doctor` on the box — the account
+ids are in its output and never in a payload.
+
+The container holds nothing else worth sending, either: it takes no `.env`, only
+the `DOCTOR_*` variables above, so it has no database path, no auth secret and no
+provider credential to leak.
+
+### The dead-man's switch
+
+`DOCTOR_HEARTBEAT_URL` is pinged with a GET on every completed check, whatever
+the verdict. Point it at healthchecks.io, Cronitor, or an Uptime Kuma push
+monitor, and configure that service to alert you when the pings stop.
+
+It is required whenever the webhook is set, and the container refuses to start
+without it. If the VM is off, the disk is full, the network is gone or the checker
+crashed, no alert fires — and an operator with only a webhook cannot tell that
+apart from a week with nothing wrong. That is the silent failure this removes, and
+behind a second optional variable the common half-configuration is the unsafe one.
+
+A check that produced a verdict pings, including a `degraded` verdict computed
+from signals it could not read: a scrape failure degrades the verdict and still
+pings, because the checker is working. A check that threw before producing one
+does not.
+
+Delivery is best-effort. If Slack is down, or your template is rejected with a
+400, that transition is spent and the next thing you hear is the recovery — the
+failure is on one `error` line in `remit logs doctor`, and a webhook path that has
+stopped working is what the dead-man's switch is for.
+
+### Reading the verdict by hand
+
+```bash
+docker compose -f docker-compose.sqlite.yml --env-file .env exec -T doctor node check.mjs
+docker compose -f docker-compose.sqlite.yml --env-file .env exec -T doctor node check.mjs --json
+```
+
+Both run a fresh check and exit `0` when healthy, `1` when degraded, and `2` when
+the checker could not produce a verdict at all. The first prints one record per
+line; the second prints the same verdict as a JSON object.
 
 ## Looking at the box
 
