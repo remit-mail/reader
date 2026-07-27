@@ -59,7 +59,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.5.4",
     "@hey-api/openapi-ts": "^0.90.10",
-    "@kattebak/typespec-drizzle-orm-generator": "^3.8.3",
+    "@kattebak/typespec-drizzle-orm-generator": "^4.0.0",
     "@kattebak/typespec-enum-emitter": "^1.2.2",
     "@kattebak/typespec-openapi-types-emitter": "^1.0.0",
     "@kattebak/typespec-zod-emitter": "^2.0.3",
