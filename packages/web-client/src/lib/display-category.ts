@@ -11,8 +11,10 @@ import type { ThreadCategory } from "@remit/ui";
  * decided was personal, so a classification gap read as a large personal inbox
  * rather than as missing work (issue #45).
  *
- * Pre-migration rows that read `undefined` carry no category either, so they
- * map to `uncategorized` the same way.
+ * Both response fields that feed this are required, so no caller reaches the
+ * `undefined` branch. The parameter stays tolerant anyway: this is the one place
+ * an absent category is turned into a value, and the answer has to be
+ * `uncategorized` rather than a crash or a `personal` default.
  */
 export function toDisplayCategory(
 	category: RemitImapMessageCategory | undefined,

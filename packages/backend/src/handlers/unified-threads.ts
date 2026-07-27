@@ -325,7 +325,7 @@ export const dedupeByMessageId = <T extends { messageId: string }>(
 /**
  * Attach accountId to each enriched ThreadMessageResponse row using the
  * mailboxId→accountId map built from inbox discovery. Same read-time-attach
- * pattern as senderTrust/category in enrichThreadRows.
+ * pattern as senderTrust in enrichThreadRows.
  */
 export const attachAccountIds = (
 	rows: Awaited<ReturnType<typeof enrichThreadRows>>,

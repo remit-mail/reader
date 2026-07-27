@@ -1,3 +1,4 @@
+import "@kattebak/typespec-drizzle-orm-generator";
 import "typespec-electrodb-emitter";
 
 import "../enums/MessageCategory.tsp";
@@ -89,6 +90,28 @@ namespace RemitImap;
 // means it can never be added as an LSI. If a trash-view access pattern is
 // needed in the future, implement it as a GSI (e.g. gsi3), which can be
 // added to a live table without a destructive replacement.
+//
+// The filtered-mailbox read path (a category predicate inside the keyset
+// window) is served by a SQL-only index instead: @Drizzle.indexDef emits a
+// drizzle index and nothing on the DynamoDB side, because the drizzle generator
+// holds it in its own state key and the electrodb emitter never reads it.
+// Referenced qualified rather than through `using Drizzle;`: this file's
+// @createdAt/@updatedAt are the electrodb emitter's and its @minValue is
+// TypeSpec's own, and the Drizzle namespace declares all three.
+//
+// isDeleted sits before sentDate because every read hardcodes excludeDeleted, so
+// it is an equality that does not break the range and lets a filtered count be
+// answered from the index alone.
+@Drizzle.indexDef(
+  "tm_by_mailbox_category_date",
+  [
+    ThreadMessage.accountConfigId,
+    ThreadMessage.mailboxId,
+    ThreadMessage.category,
+    ThreadMessage.isDeleted,
+    ThreadMessage.sentDate
+  ]
+)
 model ThreadMessage {
   @doc("Primary identifier")
   @visibility(Lifecycle.Read)
@@ -193,7 +216,7 @@ model ThreadMessage {
 // API Response Models
 // ============================================
 
-@doc("Thread message item returned by list/search operations. `category` and `senderTrust` are attached at read time via batch-fetch so the inbox row can render badges without a per-row round trip.")
+@doc("Thread message item returned by list/search operations. `senderTrust` is attached at read time via batch-fetch so the inbox row can render its badge without a per-row round trip. `category` is served from the ThreadMessage row itself, which is also the row the category filter matches, so the badge and the filter cannot disagree.")
 model ThreadMessageResponse {
   ...PickProperties<
     ThreadMessage,
@@ -217,8 +240,8 @@ model ThreadMessageResponse {
       | "updatedAt"
   >;
 
-  @doc("Header-derived category for the message (from the underlying Message). Absent for messages synced before classification rolled out — clients should treat this as `personal`.")
-  category?: MessageCategory;
+  @doc("Header-derived category for the message, served from the ThreadMessage row. Always present: the column is NOT NULL with an `uncategorized` default, and `uncategorized` is a named value for the not-yet-classified state, never a stand-in for `personal` (issue #45).")
+  category: MessageCategory;
 
   @doc("Trust level for the From address, derived from AddressFlags at read time. Defaults to `unknown` when no Address row resolves.")
   senderTrust: SenderTrust;

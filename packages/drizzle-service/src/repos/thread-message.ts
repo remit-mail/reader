@@ -158,6 +158,13 @@ function buildSearchConditions(search: SearchOptions): SQL[] {
 	if (search.attachments !== undefined) {
 		conditions.push(eq(threadMessageTable.hasAttachment, search.attachments));
 	}
+	// An equality over a column on the row, so it sits inside the keyset window
+	// rather than filtering what the window returned: a page is a full page of
+	// matches however rare the category is. Served by
+	// tm_by_mailbox_category_date.
+	if (search.category?.length) {
+		conditions.push(inArray(threadMessageTable.category, search.category));
+	}
 
 	return conditions;
 }

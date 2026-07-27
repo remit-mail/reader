@@ -3,6 +3,13 @@ import { after, before, describe, test } from "node:test";
 import type { CreateThreadMessageInput } from "@remit/data-ports";
 import { threadMessageTable } from "../schema/thread-message.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
+import {
+	BASE_DATE,
+	type Category,
+	categoryFixtureRows,
+	LIVE_TOTALS,
+	totalRows,
+} from "./category-fixture.js";
 import { DrizzleThreadMessageRepository } from "./thread-message.js";
 
 // The thread-message repo on sqlite (RFC 036 D1): CRUD, keyset pagination, and
@@ -36,11 +43,12 @@ function makeInput(
 
 describe("DrizzleThreadMessageRepository (sqlite)", () => {
 	let db: Awaited<ReturnType<typeof createSqliteTestDb>>["db"];
+	let sqlite: Awaited<ReturnType<typeof createSqliteTestDb>>["sqlite"];
 	let close: () => Promise<void>;
 	let repo: DrizzleThreadMessageRepository;
 
 	before(async () => {
-		({ db, close } = await createSqliteTestDb(
+		({ db, sqlite, close } = await createSqliteTestDb(
 			{
 				threadMessage: threadMessageTable,
 			},
@@ -606,6 +614,362 @@ describe("DrizzleThreadMessageRepository (sqlite)", () => {
 					return true;
 				},
 			);
+		});
+	});
+
+	// ─── category as a SQL predicate (#304) ───────────────────────────────────
+	//
+	// The shape is the owner's instance, not a convenience fixture — see
+	// ./category-fixture.ts. A filter applied to the page the server happens to
+	// return is empty or near-empty on that shape whatever the page size, which
+	// is the reported bug.
+	describe("category filter over the whole mailbox", () => {
+		const CAT_ACCOUNT = "acct-category";
+		const CAT_MAILBOX = "mbx-category";
+
+		before(async () => {
+			const rows = categoryFixtureRows({
+				totals: LIVE_TOTALS,
+				accountConfigId: CAT_ACCOUNT,
+				mailboxId: CAT_MAILBOX,
+			});
+			assert.equal(rows.length, totalRows(LIVE_TOTALS));
+			for (let i = 0; i < rows.length; i += 500) {
+				await db.insert(threadMessageTable).values(rows.slice(i, i + 500));
+			}
+		});
+
+		const walk = async (
+			category: Category[],
+			pageSize: number,
+		): Promise<string[]> => {
+			const seen: string[] = [];
+			let continuationToken: string | undefined;
+			do {
+				const page = await repo.searchByMailboxWindow(
+					CAT_ACCOUNT,
+					CAT_MAILBOX,
+					{ category },
+					{
+						limit: pageSize,
+						order: "desc",
+						excludeDeleted: true,
+						continuationToken,
+					},
+				);
+				seen.push(...page.items.map((item) => item.threadMessageId));
+				continuationToken = page.continuationToken;
+			} while (continuationToken);
+			return seen;
+		};
+
+		test("the newest page holds almost none of the rare categories", async () => {
+			const newest = await repo.searchByMailboxWindow(
+				CAT_ACCOUNT,
+				CAT_MAILBOX,
+				{},
+				{ limit: 50, order: "desc", excludeDeleted: true },
+			);
+			assert.equal(newest.items.length, 50);
+			const count = (category: Category) =>
+				newest.items.filter((item) => item.category === category).length;
+			assert.ok(
+				count("social") <= 2,
+				"at most 2 social rows in the newest page",
+			);
+			assert.ok(
+				count("personal") <= 2,
+				"at most 2 personal rows in the newest page",
+			);
+		});
+
+		// The regression the epic turns on. A filter resolved over the returned
+		// page cannot produce this answer: on this mailbox the newest 50 rows hold
+		// two personal messages, so the old path returned two rows (or none, for
+		// social) with a continuation token attached.
+		test("a filtered page is a full page of matches, however far back they sit", async () => {
+			const personal = await repo.searchByMailboxWindow(
+				CAT_ACCOUNT,
+				CAT_MAILBOX,
+				{ category: ["personal"] },
+				{ limit: 50, order: "desc", excludeDeleted: true },
+			);
+			assert.equal(personal.items.length, 50);
+			assert.ok(
+				personal.items.every((item) => item.category === "personal"),
+				"every row on the page matches the filter",
+			);
+
+			const social = await repo.searchByMailboxWindow(
+				CAT_ACCOUNT,
+				CAT_MAILBOX,
+				{ category: ["social"] },
+				{ limit: 50, order: "desc", excludeDeleted: true },
+			);
+			assert.equal(social.items.length, 50);
+			assert.ok(social.items.every((item) => item.category === "social"));
+		});
+
+		test("the filtered page keeps newest-first order and the id tiebreak", async () => {
+			const page = await repo.searchByMailboxWindow(
+				CAT_ACCOUNT,
+				CAT_MAILBOX,
+				{ category: ["social"] },
+				{ limit: 50, order: "desc", excludeDeleted: true },
+			);
+			for (let i = 1; i < page.items.length; i++) {
+				const previous = page.items[i - 1];
+				const current = page.items[i];
+				assert.ok(
+					previous.sentDate > current.sentDate ||
+						(previous.sentDate === current.sentDate &&
+							previous.threadMessageId < current.threadMessageId),
+					"rows descend by sentDate, ascending by id inside a tie group",
+				);
+			}
+		});
+
+		test("a continuation token walks the whole match set without repeats or gaps", async () => {
+			const seen = await walk(["social"], 25);
+			assert.equal(seen.length, LIVE_TOTALS.social);
+			assert.equal(new Set(seen).size, LIVE_TOTALS.social);
+		});
+
+		test("multiple categories behave as a union", async () => {
+			const page = await repo.searchByMailboxWindow(
+				CAT_ACCOUNT,
+				CAT_MAILBOX,
+				{ category: ["social", "transactional"] },
+				{ limit: 50, order: "desc", excludeDeleted: true },
+			);
+			assert.equal(page.items.length, 50);
+			assert.ok(
+				page.items.every(
+					(item) =>
+						item.category === "social" || item.category === "transactional",
+				),
+			);
+
+			const seen = await walk(["social", "transactional"], 200);
+			assert.equal(seen.length, LIVE_TOTALS.social + LIVE_TOTALS.transactional);
+		});
+
+		// No `limit`: countByMailbox still clamps its answer to the clamped limit,
+		// which is what #305 changes. What this asserts is the predicate — the
+		// count is over the mailbox rather than over a page of it.
+		test("countByMailbox counts the matches in the mailbox, not the page", async () => {
+			assert.equal(
+				await repo.countByMailbox(
+					CAT_ACCOUNT,
+					CAT_MAILBOX,
+					{ category: ["social"] },
+					{ excludeDeleted: true },
+				),
+				LIVE_TOTALS.social,
+			);
+		});
+
+		test("the category predicate composes with the other filters", async () => {
+			const page = await repo.searchByMailboxWindow(
+				CAT_ACCOUNT,
+				CAT_MAILBOX,
+				{ category: ["social"], unread: true },
+				{ limit: 50, order: "desc", excludeDeleted: true },
+			);
+			assert.equal(page.items.length, 50);
+			assert.ok(
+				page.items.every(
+					(item) => item.category === "social" && item.isRead === false,
+				),
+			);
+
+			const none = await repo.searchByMailboxWindow(
+				CAT_ACCOUNT,
+				CAT_MAILBOX,
+				{ category: ["social"], starred: true },
+				{ limit: 50, order: "desc", excludeDeleted: true },
+			);
+			assert.equal(none.items.length, 0);
+		});
+
+		test("an empty category set is not a filter", async () => {
+			const page = await repo.searchByMailboxWindow(
+				CAT_ACCOUNT,
+				CAT_MAILBOX,
+				{ category: [] },
+				{ limit: 50, order: "desc", excludeDeleted: true },
+			);
+			assert.equal(page.items.length, 50);
+			assert.ok(
+				page.items.some((item) => item.category !== page.items[0]?.category),
+				"the page is unfiltered, so it holds more than one category",
+			);
+		});
+
+		// #45: `uncategorized` is the not-yet-classified state as a named value.
+		// Folding it into `personal` made a classification gap read as a large
+		// personal inbox, so the filter has to be able to ask for it and must
+		// never answer with the other.
+		test("uncategorized is its own filterable value", async () => {
+			const account = "acct-category-default";
+			const mailbox = "mbx-category-default";
+			const base = BASE_DATE;
+			await repo.create(
+				makeInput({
+					accountConfigId: account,
+					mailboxId: mailbox,
+					messageId: "m-default",
+					subject: "not yet classified",
+					sentDate: base,
+					internalDate: base,
+				}),
+			);
+			await repo.create(
+				makeInput({
+					accountConfigId: account,
+					mailboxId: mailbox,
+					messageId: "m-personal",
+					subject: "classified personal",
+					category: "personal",
+					sentDate: base - 1000,
+					internalDate: base - 1000,
+				}),
+			);
+
+			const uncategorized = await repo.searchByMailboxWindow(
+				account,
+				mailbox,
+				{ category: ["uncategorized"] },
+				{ limit: 50, order: "desc", excludeDeleted: true },
+			);
+			assert.deepEqual(
+				uncategorized.items.map((item) => item.subject),
+				["not yet classified"],
+			);
+
+			const personal = await repo.searchByMailboxWindow(
+				account,
+				mailbox,
+				{ category: ["personal"] },
+				{ limit: 50, order: "desc", excludeDeleted: true },
+			);
+			assert.deepEqual(
+				personal.items.map((item) => item.subject),
+				["classified personal"],
+			);
+		});
+
+		test("soft-deleted rows stay out of a filtered page", async () => {
+			const account = "acct-category-deleted";
+			const mailbox = "mbx-category-deleted";
+			await repo.create(
+				makeInput({
+					accountConfigId: account,
+					mailboxId: mailbox,
+					messageId: "m-live-social",
+					subject: "live",
+					category: "social",
+				}),
+			);
+			await repo.create(
+				makeInput({
+					accountConfigId: account,
+					mailboxId: mailbox,
+					messageId: "m-trashed-social",
+					subject: "trashed",
+					category: "social",
+					isDeleted: true,
+				}),
+			);
+
+			const page = await repo.searchByMailboxWindow(
+				account,
+				mailbox,
+				{ category: ["social"] },
+				{ limit: 50, order: "desc", excludeDeleted: true },
+			);
+			assert.deepEqual(
+				page.items.map((item) => item.subject),
+				["live"],
+			);
+		});
+
+		// The guard on I1. Without it a rare-category page silently costs a
+		// mailbox scan and no test notices: the index is invisible to
+		// vps-migrations-drift.sqlite.test.ts, which compares the committed
+		// migration set against the same generated schema the index comes from.
+		//
+		// The statements are the ones the repo itself issued, captured from the
+		// driver, so this cannot pass against a query the repo does not run. Each
+		// assertion names the category column as well as the index: SQLite picks
+		// this index on its (account_config_id, mailbox_id) prefix alone, so an
+		// index-only assertion would still pass with the predicate removed.
+		describe("query plan", () => {
+			const selectsDuring = async (
+				run: () => Promise<unknown>,
+			): Promise<string[]> => {
+				const captured: string[] = [];
+				const original = sqlite.prepare.bind(sqlite);
+				const record = (source: string) => {
+					captured.push(source);
+					return original(source);
+				};
+				sqlite.prepare = record as typeof sqlite.prepare;
+				try {
+					await run();
+				} finally {
+					sqlite.prepare = original as typeof sqlite.prepare;
+				}
+				return captured.filter((source) => /^\s*select/i.test(source));
+			};
+
+			const plansFor = (statements: string[]): string[] => {
+				assert.ok(statements.length > 0, "the repo issued a select");
+				return statements.flatMap((source) => {
+					const parameters = new Array((source.match(/\?/g) ?? []).length).fill(
+						0,
+					);
+					const rows = sqlite
+						.prepare(`EXPLAIN QUERY PLAN ${source}`)
+						.all(...parameters) as Array<{ detail: string }>;
+					return rows.map((row) => row.detail);
+				});
+			};
+
+			const assertServedByIndex = (plan: string[]): void => {
+				assert.ok(
+					plan.some(
+						(detail) =>
+							detail.includes("tm_by_mailbox_category_date") &&
+							detail.includes("category=?"),
+					),
+					`no plan step matched on category through the index: ${plan.join(" | ")}`,
+				);
+			};
+
+			test("the filtered window is served by tm_by_mailbox_category_date", async () => {
+				const statements = await selectsDuring(() =>
+					repo.searchByMailboxWindow(
+						CAT_ACCOUNT,
+						CAT_MAILBOX,
+						{ category: ["social"] },
+						{ limit: 50, order: "desc", excludeDeleted: true },
+					),
+				);
+				assertServedByIndex(plansFor(statements));
+			});
+
+			test("the filtered count is served by tm_by_mailbox_category_date", async () => {
+				const statements = await selectsDuring(() =>
+					repo.countByMailbox(
+						CAT_ACCOUNT,
+						CAT_MAILBOX,
+						{ category: ["social"] },
+						{ excludeDeleted: true },
+					),
+				);
+				assertServedByIndex(plansFor(statements));
+			});
 		});
 	});
 });

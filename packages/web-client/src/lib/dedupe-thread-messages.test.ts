@@ -16,6 +16,7 @@ function threadMessage(
 		fromEmail: "sender@example.com",
 		subject: "Subject",
 		snippet: "Snippet",
+		category: "uncategorized",
 		sentDate: 1767225600,
 		isRead: false,
 		isDeleted: false,

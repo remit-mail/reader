@@ -71,6 +71,7 @@ export const makeThreadMessage = (
 	fromEmail: "alice@example.com",
 	sentDate: 1_767_225_600_000,
 	snippet: "",
+	category: "uncategorized",
 	isRead: false,
 	hasAttachment: false,
 	star: "none",

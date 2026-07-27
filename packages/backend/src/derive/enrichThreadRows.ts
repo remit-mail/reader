@@ -7,7 +7,7 @@ import type {
 	ThreadMessageItem,
 } from "@remit/data-ports";
 import { deriveAddressId } from "@remit/data-ports/id";
-import { MessageCategory, SenderTrust, StarColor } from "@remit/domain-enums";
+import { SenderTrust, StarColor } from "@remit/domain-enums";
 import { deriveAutoMoved } from "./autoMoved.js";
 import { deriveSenderTrust } from "./senderTrust.js";
 
@@ -50,6 +50,7 @@ const toResponse = (item: ThreadMessageItem): ThreadMessageResponse => ({
 	hasStars: item.hasStars,
 	isDeleted: item.isDeleted,
 	snippet: item.snippet,
+	category: item.category,
 	createdAt: item.createdAt,
 	updatedAt: item.updatedAt,
 	senderTrust: SenderTrust.Unknown,
@@ -97,19 +98,20 @@ export const planBatchFetch = (rows: ThreadMessageItem[]): BatchPlan => {
 };
 
 /**
- * Enrich a page of ThreadMessage rows with `category` (from the underlying
- * Message), `senderTrust` (derived from the From Address's flags map) and
- * `autoMoved` (projected from the Message's internal placement verdict, see
- * `deriveAutoMoved`).
+ * Enrich a page of ThreadMessage rows with `senderTrust` (derived from the From
+ * Address's flags map), `authenticity` and `autoMoved` (both projected from the
+ * Message row, see `deriveAutoMoved`).
+ *
+ * `category` is not enriched: it is denormalized onto the ThreadMessage row and
+ * carried straight through by `toResponse`, so the value a client renders is the
+ * value the category filter matched.
  *
  * Two BatchGetItem calls per page, regardless of page size — see
  * `planBatchFetch` for the dedup contract.
  *
- * Missing rows fall back gracefully: `category` is omitted only when the
- * underlying Message row is absent (clients treat as `personal`); a present
- * Message with no stored category coalesces to `uncategorized` (RFC 032 Tier 2).
- * `senderTrust` defaults to `"unknown"`. `autoMoved` is omitted whenever the
- * move isn't a real, in-effect auto-move (or the Message row is absent).
+ * Missing rows fall back gracefully: `senderTrust` defaults to `"unknown"`, and
+ * `authenticity` / `autoMoved` are omitted whenever the Message row is absent or
+ * the move isn't a real, in-effect auto-move.
  *
  * Not annotated `Promise<ThreadMessageResponse[]>`: `labels` is a new field on
  * it in this same PR, and that package publishes separately from this repo —
@@ -158,12 +160,6 @@ export const enrichThreadRows = async (
 		}
 	}
 
-	const categoryByMessageId = new Map(
-		messages.map((m) => [
-			m.messageId,
-			m.category ?? MessageCategory.uncategorized,
-		]),
-	);
 	const authenticityByMessageId = new Map(
 		messages.map((m) => [m.messageId, m.authenticity]),
 	);
@@ -176,7 +172,6 @@ export const enrichThreadRows = async (
 
 	return rows.map((row) => {
 		const base = toResponse(row);
-		const category = categoryByMessageId.get(row.messageId);
 		const authenticity = authenticityByMessageId.get(row.messageId);
 		const autoMoved = autoMovedByMessageId.get(row.messageId);
 		const addressId = plan.addressIdByRow.get(row.threadMessageId);
@@ -186,7 +181,6 @@ export const enrichThreadRows = async (
 		const labels = labelsByMessageId.get(row.messageId);
 		return {
 			...base,
-			...(category !== undefined ? { category } : {}),
 			...(authenticity !== undefined ? { authenticity } : {}),
 			...(autoMoved !== undefined ? { autoMoved } : {}),
 			...(labels !== undefined ? { labels } : {}),

@@ -1,0 +1,1 @@
+CREATE INDEX `tm_by_mailbox_category_date` ON `thread_message` (`account_config_id`,`mailbox_id`,`category`,`is_deleted`,`sent_date`);
