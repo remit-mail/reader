@@ -24,7 +24,7 @@ x-app-env: &app-env
     - .env
   # Anchored separately from the block above so a service that needs one extra
   # variable can merge this map into its own `environment:` — the four workers
-  # do, for their heartbeat file. A plain `environment:` key on a service that
+  # do, for their heartbeat path. A plain `environment:` key on a service that
   # takes `<<: *app-env` REPLACES this map rather than extending it, which would
   # silently drop DATA_BACKEND and both database paths.
   environment: &app-environment
@@ -203,29 +203,45 @@ services:
   # shared SQLite file (WAL) for its writes; no pg-index-worker exists here
   # (RFC 036 D2) — search-index-worker drains the outbox on a 2 s poll instead.
   #
-  # All four are healthchecked on a heartbeat file (D1 of
-  # docs/design/standalone-observability.md): the poll loop
-  # rewrites /data/heartbeat/<service> at the top of every receive attempt, and
-  # the check reads that file's age from inside the container. A worker that
-  # wedges in a socket read never exits, so `restart: unless-stopped` never
-  # fires and `docker compose ps` reports it up while mail stops moving — the
-  # heartbeat is what makes that state visible. Nothing restarts on it: an
-  # unhealthy container is reported, and what to do stays the operator's.
+  # All four are healthchecked on heartbeat files (D1 of
+  # docs/design/standalone-observability.md), one per poll loop:
+  # /data/heartbeat/<service>.<queue>, rewritten at the top of every receive
+  # attempt. A worker that wedges never exits, so `restart: unless-stopped`
+  # never fires and `docker compose ps` reports it up while mail stops moving.
+  # Nothing restarts on the verdict either: the condition is reported, and what
+  # to do about it stays the operator's.
   #
-  # The 360 s threshold sits above the longest legitimate quiet stretch: a
-  # 300 s handler (body sync, search indexing) plus the 20 s long poll, plus
-  # slack. Lower and a slow mailbox reads as a hang. Absent file is unhealthy —
-  # statSync throws and node exits non-zero — because a check that cannot look
-  # must never report healthy. The file also lands on the shared `heartbeat`
-  # volume, which is what lets a future checker service read the same
-  # timestamps without any worker opening a port.
+  # The check reads the age of the OLDEST of a service's files, so one wedged
+  # queue is enough. A worker runs a loop per queue — imap-worker six,
+  # account-worker three — and a receive loop only ever talks to the queue
+  # sidecar, so a single container-wide file would stay fresh through exactly
+  # the failure this exists to catch: one handler hung in an IMAP read while its
+  # five siblings long-poll. No files at all is unhealthy too (readdirSync
+  # throws, node exits non-zero): a check that cannot look must never report
+  # healthy.
+  #
+  # The threshold is the longest a healthy loop can legitimately stay silent:
+  # one record (the poller takes one message per receive) plus the 20 s long
+  # poll, plus slack. The per-record ceiling is 300 s for all four, from a
+  # different bound in each case — imapflow's default socket timeout per
+  # command, nodemailer's `socketTimeout` per send, and for account-worker and
+  # search-index-worker the 300 s visibility timeout the poller sets, past which
+  # the record is redelivered and a second run starts anyway. So 420 s
+  # everywhere, and a rise in any one of those bounds moves only its own
+  # service. Marked unhealthy after three consecutive failing checks: about nine
+  # minutes after a loop stops.
+  #
+  # The files land on the shared `heartbeat` volume, which is what lets a future
+  # checker service read the same timestamps without any worker opening a port.
+  # Each check is declared in the image too (see the Dockerfile) so a
+  # non-compose run of these images keeps it; the two must stay identical.
   # ---------------------------------------------------------------------
   imap-worker:
     image: ghcr.io/remit-mail/reader/imap-worker:${REMIT_TAG:-latest}
     <<: *app-env
     environment:
       <<: *app-environment
-      WORKER_HEARTBEAT_FILE: /data/heartbeat/imap-worker
+      WORKER_HEARTBEAT_PREFIX: /data/heartbeat/imap-worker
     volumes:
       - message_storage:/data/storage
       - sqlite_data:/data/sqlite
@@ -239,7 +255,7 @@ services:
         condition: service_completed_successfully
     healthcheck:
       test:
-        ["CMD", "node", "-e", "process.exit(Date.now()-require('node:fs').statSync('/data/heartbeat/imap-worker').mtimeMs<360000?0:1)"]
+        ["CMD", "node", "-e", "const fs=require('node:fs'),d='/data/heartbeat',p='imap-worker.',f=fs.readdirSync(d).filter(n=>n.startsWith(p));process.exit(f.length&&f.every(n=>Date.now()-fs.statSync(d+'/'+n).mtimeMs<420000)?0:1)"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -252,7 +268,7 @@ services:
     <<: *app-env
     environment:
       <<: *app-environment
-      WORKER_HEARTBEAT_FILE: /data/heartbeat/smtp-worker
+      WORKER_HEARTBEAT_PREFIX: /data/heartbeat/smtp-worker
     volumes:
       - message_storage:/data/storage
       - sqlite_data:/data/sqlite
@@ -266,7 +282,7 @@ services:
         condition: service_completed_successfully
     healthcheck:
       test:
-        ["CMD", "node", "-e", "process.exit(Date.now()-require('node:fs').statSync('/data/heartbeat/smtp-worker').mtimeMs<360000?0:1)"]
+        ["CMD", "node", "-e", "const fs=require('node:fs'),d='/data/heartbeat',p='smtp-worker.',f=fs.readdirSync(d).filter(n=>n.startsWith(p));process.exit(f.length&&f.every(n=>Date.now()-fs.statSync(d+'/'+n).mtimeMs<420000)?0:1)"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -279,7 +295,7 @@ services:
     <<: *app-env
     environment:
       <<: *app-environment
-      WORKER_HEARTBEAT_FILE: /data/heartbeat/account-worker
+      WORKER_HEARTBEAT_PREFIX: /data/heartbeat/account-worker
     volumes:
       - message_storage:/data/storage
       - sqlite_data:/data/sqlite
@@ -293,7 +309,7 @@ services:
         condition: service_completed_successfully
     healthcheck:
       test:
-        ["CMD", "node", "-e", "process.exit(Date.now()-require('node:fs').statSync('/data/heartbeat/account-worker').mtimeMs<360000?0:1)"]
+        ["CMD", "node", "-e", "const fs=require('node:fs'),d='/data/heartbeat',p='account-worker.',f=fs.readdirSync(d).filter(n=>n.startsWith(p));process.exit(f.length&&f.every(n=>Date.now()-fs.statSync(d+'/'+n).mtimeMs<420000)?0:1)"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -310,7 +326,7 @@ services:
     <<: *app-env
     environment:
       <<: *app-environment
-      WORKER_HEARTBEAT_FILE: /data/heartbeat/search-index-worker
+      WORKER_HEARTBEAT_PREFIX: /data/heartbeat/search-index-worker
     volumes:
       - message_storage:/data/storage
       - sqlite_data:/data/sqlite
@@ -328,7 +344,7 @@ services:
     # signal, not a liveness one.
     healthcheck:
       test:
-        ["CMD", "node", "-e", "process.exit(Date.now()-require('node:fs').statSync('/data/heartbeat/search-index-worker').mtimeMs<360000?0:1)"]
+        ["CMD", "node", "-e", "const fs=require('node:fs'),d='/data/heartbeat',p='search-index-worker.',f=fs.readdirSync(d).filter(n=>n.startsWith(p));process.exit(f.length&&f.every(n=>Date.now()-fs.statSync(d+'/'+n).mtimeMs<420000)?0:1)"]
       interval: 30s
       timeout: 5s
       retries: 3

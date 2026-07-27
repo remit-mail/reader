@@ -1,63 +1,102 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, stat } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, it } from "node:test";
-import { createHeartbeat } from "./heartbeat.js";
+import { clearHeartbeats, createHeartbeat } from "./heartbeat.js";
 
-const heartbeatFile = async (): Promise<string> => {
+const heartbeatPrefix = async (): Promise<string> => {
 	const dir = await mkdtemp(join(tmpdir(), "remit-heartbeat-"));
 	return join(dir, "imap-worker");
 };
 
 describe("createHeartbeat", () => {
 	afterEach(() => {
-		delete process.env.WORKER_HEARTBEAT_FILE;
+		delete process.env.WORKER_HEARTBEAT_PREFIX;
 	});
 
-	it("creates the file on the first beat and advances its mtime on the next", async () => {
-		const path = await heartbeatFile();
-		const heartbeat = createHeartbeat(path);
+	it("writes one file per queue and advances its mtime on the next beat", async () => {
+		const prefix = await heartbeatPrefix();
+		const body = createHeartbeat("remit-body", prefix);
+		const flags = createHeartbeat("remit-flags.fifo", prefix);
 
-		await heartbeat();
-		const first = await stat(path);
-		const firstContents = await readFile(path, "utf8");
+		await body();
+		await flags();
+		assert.deepEqual((await readdir(dirname(prefix))).sort(), [
+			"imap-worker.remit-body",
+			"imap-worker.remit-flags.fifo",
+		]);
+
+		const contents = await readFile(`${prefix}.remit-body`, "utf8");
 		assert.ok(
-			!Number.isNaN(Date.parse(firstContents.trim())),
-			`heartbeat contents should be a timestamp, got ${firstContents}`,
+			!Number.isNaN(Date.parse(contents.trim())),
+			`heartbeat contents should be a timestamp, got ${contents}`,
 		);
 
 		// The healthcheck reads mtime and nothing else, so a rewrite that leaves
 		// the file byte-identical would have to advance it anyway.
+		const first = await stat(`${prefix}.remit-body`);
 		await new Promise((resolve) => setTimeout(resolve, 20));
-		await heartbeat();
-		const second = await stat(path);
+		await body();
+		const second = await stat(`${prefix}.remit-body`);
 		assert.ok(
 			second.mtimeMs > first.mtimeMs,
 			`the second beat did not advance mtime: ${second.mtimeMs} <= ${first.mtimeMs}`,
 		);
 	});
 
-	it("writes the file named by WORKER_HEARTBEAT_FILE when no path is given", async () => {
-		const path = await heartbeatFile();
-		process.env.WORKER_HEARTBEAT_FILE = path;
+	it("writes under WORKER_HEARTBEAT_PREFIX when no prefix is given", async () => {
+		const prefix = await heartbeatPrefix();
+		process.env.WORKER_HEARTBEAT_PREFIX = prefix;
 
-		await createHeartbeat()();
+		await createHeartbeat("remit-smtp")();
 
-		assert.equal((await stat(path)).isFile(), true);
+		assert.equal((await stat(`${prefix}.remit-smtp`)).isFile(), true);
 	});
 
-	it("writes nothing when WORKER_HEARTBEAT_FILE is unset", async () => {
-		const path = await heartbeatFile();
+	it("writes nothing when WORKER_HEARTBEAT_PREFIX is unset", async () => {
+		const prefix = await heartbeatPrefix();
 
-		await createHeartbeat()();
+		await createHeartbeat("remit-smtp")();
 
-		await assert.rejects(() => stat(path), /ENOENT/);
+		assert.deepEqual(await readdir(dirname(prefix)), []);
 	});
 
-	it("fails loudly when the heartbeat directory does not exist", async () => {
-		const heartbeat = createHeartbeat("/nonexistent/remit/heartbeat/worker");
+	it("rejects when the heartbeat directory does not exist", async () => {
+		const heartbeat = createHeartbeat(
+			"remit-smtp",
+			"/nonexistent/remit/worker",
+		);
 
 		await assert.rejects(() => heartbeat(), /ENOENT/);
+	});
+});
+
+describe("clearHeartbeats", () => {
+	afterEach(() => {
+		delete process.env.WORKER_HEARTBEAT_PREFIX;
+	});
+
+	it("removes this service's files and leaves every other service's alone", async () => {
+		const prefix = await heartbeatPrefix();
+		const directory = dirname(prefix);
+		await writeFile(`${prefix}.remit-body`, "stale\n");
+		await writeFile(`${prefix}.remit-retired-queue`, "stale\n");
+		await writeFile(join(directory, "smtp-worker.remit-smtp"), "fresh\n");
+
+		await clearHeartbeats(prefix);
+
+		assert.deepEqual(await readdir(directory), ["smtp-worker.remit-smtp"]);
+	});
+
+	it("does nothing when WORKER_HEARTBEAT_PREFIX is unset", async () => {
+		await clearHeartbeats();
+	});
+
+	it("rejects when the heartbeat directory does not exist", async () => {
+		await assert.rejects(
+			() => clearHeartbeats("/nonexistent/remit/worker"),
+			/ENOENT/,
+		);
 	});
 });
