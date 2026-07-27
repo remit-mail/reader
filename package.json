@@ -29,6 +29,7 @@
     "check:web-client-consumer": "node npm-scripts/check-web-client-consumer.mjs",
     "check:patches-applied": "node npm-scripts/check-patches-applied.mjs",
     "check:ci-coverage": "node npm-scripts/check-ci-coverage.mjs",
+    "check:typecheck-coverage": "node npm-scripts/check-typecheck-coverage.mjs",
     "bootstrap:publish-metadata": "node npm-scripts/set-publish-metadata.mjs",
     "images:publish": "bash npm-scripts/images-publish.sh",
     "images:exists": "bash npm-scripts/images-exists.sh",

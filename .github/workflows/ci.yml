@@ -106,6 +106,14 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      # What the step above is worth depends on what it reaches, and it reaches
+      # only the workspaces. This proves that is every TypeScript file in the
+      # tree (#440). It belongs to this job because it expands the tsconfigs
+      # with the compiler's own resolver, so it needs the install — the
+      # install-free `validate` job carries only the pure decisions it rests on.
+      - name: Typecheck reaches every TypeScript file
+        run: npm run check:typecheck-coverage
+
   # Every workspace suite except web-client. web-client dominated the single
   # `test` job — its single-process coverage run was the whole critical path — so
   # it fans out

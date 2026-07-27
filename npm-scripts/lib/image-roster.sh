@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# The image roster, derived from the build contexts present in this tree — the
-# top-level apisix/ config and every docker/runtime/<service>. The open-core
+# The image roster, derived from the build contexts present in this tree —
+# packages/apisix and every docker/runtime/<service>. The open-core
 # export strips the Postgres-only pg-index-worker's runtime context, so it
 # drops out automatically and the roster matches the reader's compose without
 # editing this file. Shared by images-publish.sh and the release preflight so
@@ -12,7 +12,7 @@
 # call can't. Run from the repo root.
 image_roster() {
 	ALL_TARGETS=()
-	[ -d apisix ] && ALL_TARGETS+=(apisix)
+	[ -d packages/apisix ] && ALL_TARGETS+=(apisix)
 	for dir in docker/runtime/*/; do
 		ALL_TARGETS+=("$(basename "$dir")")
 	done
