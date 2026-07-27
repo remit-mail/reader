@@ -27,6 +27,7 @@ import {
 	inboxFilterConfig,
 	type SearchChip,
 	type SearchScope,
+	type Suggestion,
 } from "@remit/ui";
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
 import {
@@ -52,6 +53,8 @@ type Story = StoryObj;
 const PHONE_WIDTH = 390;
 /** The wider Android phone the brief takeover is checked against. */
 const WIDE_PHONE_WIDTH = 411;
+/** Below the desktop tier, so the field is the list header's own. */
+const TABLET_WIDTH = 820;
 
 const framedAt =
 	(width: number): Decorator =>
@@ -85,6 +88,21 @@ const globalScope: SearchScope = {
 	onScopeToSpam: () => undefined,
 };
 const folderScope: SearchScope = { kind: "folder", role: "inbox" };
+
+/** The vocabulary itself, offered while a bare word is being typed. */
+const tokenSuggestions: Suggestion[] = [
+	{ value: "in:", label: "in:", hint: "Folder" },
+	{ value: "is:unread", label: "Unread", hint: "is:unread" },
+	{ value: "is:read", label: "Read", hint: "is:read" },
+];
+
+/** The folders `in:` can name, once the token name is committed. */
+const folderSuggestions: Suggestion[] = [
+	{ value: "in:Archive", label: "Archive", hint: "matthijs@ischen.nl" },
+	{ value: "in:Inbox", label: "Inbox", hint: "matthijs@ischen.nl" },
+	{ value: 'in:"Sent Items"', label: "Sent Items", hint: "work@acme.test" },
+	{ value: "in:Spam", label: "Spam", hint: "matthijs@ischen.nl" },
+];
 
 const brief = {
 	listTitle: "Daily brief",
@@ -213,6 +231,34 @@ export const WithFilterTokens: Story = {
 	),
 };
 
+/**
+ * The tokens the search speaks, offered while a bare word is being typed. The
+ * vocabulary is otherwise invisible — the field takes `in:`, `is:unread` and the
+ * rest, and nothing on screen says so.
+ *
+ * The list sits under the field rather than over the results, and picking a row
+ * only inserts: an unknown token stays free text, and a term with nothing to
+ * offer leaves the plain text box this always is.
+ */
+export const SuggestingTokens: Story = {
+	parameters: { layout: "centered" as const },
+	decorators: [framedAt(TABLET_WIDTH)],
+	render: () => (
+		<MailShell
+			width={TABLET_WIDTH}
+			selectedNavId="mbx_personal_inbox"
+			listTitle="Inbox"
+			unreadCount={9}
+			sections={flatInbox}
+			preset={inboxFilterConfig()}
+			query="in"
+			searchSections={searchSectionsWithoutSpam}
+			searchScope={folderScope}
+			searchSuggestions={tokenSuggestions}
+		/>
+	),
+};
+
 /** Both engines still out: the sections are replaced by their skeleton. */
 export const Loading: Story = {
 	render: () => (
@@ -307,6 +353,36 @@ export const PhoneFolderTakeover: Story = {
 			query={searchQuery}
 			searchSections={searchSectionsWithoutSpam}
 			searchScope={folderScope}
+			recentSearches={recentSearches}
+			searchOpen
+		/>
+	),
+};
+
+/**
+ * A committed token name on the phone, at 411px: the folders `in:` can name,
+ * each one the shortest spelling that still resolves to it, with the account it
+ * belongs to beside it.
+ *
+ * The list takes its own space between the field and the results. A soft
+ * keyboard owns the lower half of the screen here, so a list floating over the
+ * field would cover the query it is completing.
+ */
+export const PhoneSuggestingFolders: Story = {
+	parameters: phoneParams,
+	decorators: [framedAt(WIDE_PHONE_WIDTH)],
+	render: () => (
+		<MailShell
+			width={WIDE_PHONE_WIDTH}
+			selectedNavId="mbx_personal_inbox"
+			listTitle="Inbox"
+			unreadCount={9}
+			sections={flatInbox}
+			preset={inboxFilterConfig()}
+			query="in:"
+			searchSections={searchSectionsWithoutSpam}
+			searchScope={folderScope}
+			searchSuggestions={folderSuggestions}
 			recentSearches={recentSearches}
 			searchOpen
 		/>

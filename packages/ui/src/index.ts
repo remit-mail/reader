@@ -414,9 +414,11 @@ export {
 } from "./components/row-actions.js";
 export { SearchBar, type SearchBarProps } from "./components/search-bar.js";
 export {
+	type SearchCaretRequest,
 	type SearchChip,
 	SearchChipInput,
 	type SearchChipInputProps,
+	type SearchFieldSuggest,
 } from "./components/search-chip-input.js";
 export {
 	DROPPED_SEMANTIC_COPY,

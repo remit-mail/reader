@@ -1,6 +1,7 @@
 import { Search, X } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { cn } from "../lib/cn.js";
+import type { ComboboxProps } from "../lib/use-suggest-list.js";
 import {
 	type ChipFocusTarget,
 	focusAfterRemoval,
@@ -19,6 +20,41 @@ export interface SearchChip {
 	label: string;
 	/** `scope` marks the view the user navigated into. See `SearchChipTone`. */
 	tone?: SearchChipTone;
+}
+
+/**
+ * Where the caret must land, as one object per request. Identity is the signal —
+ * the field applies a request once and never again, so a caret the host asked
+ * for cannot fight the one the user moved afterwards.
+ */
+export interface SearchCaretRequest {
+	cursor: number;
+}
+
+/**
+ * The completion wiring a search field carries when its host offers suggestions
+ * for what is being typed.
+ *
+ * The host owns the list: what is on it, what picking one means, and where it
+ * renders — under the field, in flow, so a soft keyboard cannot hide what was
+ * typed. The field owns only the input element, and gives the host the three
+ * things that live there: where the caret is, first refusal on the keys the
+ * list uses, and the ARIA the combobox pattern needs.
+ *
+ * Keys go to the list before the field's own handling, so Escape closes the
+ * list and leaves the query standing; a second Escape clears it as always.
+ */
+export interface SearchFieldSuggest {
+	/** ARIA wiring for the input, from `useSuggestList`. */
+	comboboxProps: ComboboxProps;
+	/** Returns true when the list consumed the key and the field should stop. */
+	onKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => boolean;
+	/** The caret moved — the host recomputes the term under it. */
+	onCaretChange: (cursor: number) => void;
+	/** Focus left or entered the field; an unfocused field offers nothing. */
+	onFocusChange?: (focused: boolean) => void;
+	/** Where to put the caret after the host applied a suggestion. */
+	caret?: SearchCaretRequest;
 }
 
 export interface SearchChipInputProps {
@@ -71,6 +107,11 @@ export interface SearchChipInputProps {
 	inputId?: string;
 	/** Accessible name for the chip grid. */
 	chipsLabel?: string;
+	/**
+	 * Completions for what is being typed. Omit for a field that offers none;
+	 * see {@link SearchFieldSuggest} for what the field and the host each own.
+	 */
+	suggest?: SearchFieldSuggest;
 	className?: string;
 }
 
@@ -105,6 +146,12 @@ const isEditableTarget = (target: EventTarget | null): boolean => {
  *   - After a removal, focus lands on the chip that took its place, else the
  *     one before it, else the text input.
  *
+ * **Completions.** With `suggest`, the field reports its caret and hands the
+ * list first refusal on each key; the host builds the offer and renders it. The
+ * offer is a shortcut and never a constraint — nothing on the list can change
+ * what was typed, and a term with no matches leaves the plain text field this
+ * always is.
+ *
  * Removal is never keyboard-only: every chip carries a remove button, which is
  * what touch and soft-keyboard users need (a soft keyboard gives no reliable
  * Backspace-into-chip signal).
@@ -129,6 +176,7 @@ export const SearchChipInput = ({
 	size = "sm",
 	inputId,
 	chipsLabel = "Search filters",
+	suggest,
 	className,
 }: SearchChipInputProps) => {
 	// The field wraps itself in a <label for>, and `for` binds to the FIRST
@@ -169,6 +217,24 @@ export const SearchChipInput = ({
 		chipRefs.current[target]?.focus();
 	});
 
+	/** The caret request already honoured; a new object is a new request. */
+	const appliedCaret = useRef<SearchCaretRequest | undefined>(undefined);
+	useEffect(() => {
+		const request = suggest?.caret;
+		if (!request || request === appliedCaret.current) return;
+		appliedCaret.current = request;
+		const input = inputRef.current;
+		// Only while the field holds focus — applying a suggestion never takes the
+		// caret away from wherever the user has since gone.
+		if (!input || input.ownerDocument.activeElement !== input) return;
+		input.setSelectionRange(request.cursor, request.cursor);
+		suggest?.onCaretChange(request.cursor);
+	});
+
+	const reportCaret = (input: HTMLInputElement) => {
+		suggest?.onCaretChange(input.selectionStart ?? input.value.length);
+	};
+
 	const moveFocus = useCallback((target: ChipFocusTarget) => {
 		setFocusedChip(target);
 		pendingFocus.current = target;
@@ -197,6 +263,9 @@ export const SearchChipInput = ({
 	const handleInputKeyDown = useCallback(
 		(event: React.KeyboardEvent<HTMLInputElement>) => {
 			const input = event.currentTarget;
+			// The list gets the key first: while it is open, Escape closes it and the
+			// query stands, and Enter takes the highlighted completion.
+			if (suggest?.onKeyDown(event)) return;
 			const action = resolveChipInputKey({
 				key: event.key,
 				shiftKey: event.shiftKey,
@@ -221,7 +290,7 @@ export const SearchChipInput = ({
 					return;
 			}
 		},
-		[chips.length, value, clearQuery, moveFocus],
+		[chips.length, value, clearQuery, moveFocus, suggest],
 	);
 
 	const handleChipKeyDown = useCallback(
@@ -333,9 +402,22 @@ export const SearchChipInput = ({
 					autoComplete="off"
 					value={value}
 					tabIndex={focusedChip === null ? 0 : -1}
-					onChange={(e) => onChange(e.target.value)}
+					onChange={(e) => {
+						onChange(e.target.value);
+						reportCaret(e.target);
+					}}
 					onKeyDown={handleInputKeyDown}
-					onFocus={() => setFocusedChip(null)}
+					// Arrow keys and clicks move the caret without changing the text, and
+					// the term under it is what the list completes.
+					onKeyUp={(e) => reportCaret(e.currentTarget)}
+					onClick={(e) => reportCaret(e.currentTarget)}
+					onFocus={(e) => {
+						setFocusedChip(null);
+						suggest?.onFocusChange?.(true);
+						reportCaret(e.currentTarget);
+					}}
+					onBlur={() => suggest?.onFocusChange?.(false)}
+					{...suggest?.comboboxProps}
 					// Once the expression carries chips the field is self-describing; a
 					// placeholder there would read as another term.
 					placeholder={hasChips ? undefined : placeholder}

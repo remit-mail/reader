@@ -1,8 +1,9 @@
 import { X } from "lucide-react";
+import type { ReactNode } from "react";
 import { Button } from "./button.js";
 import { FilterSheet, type FilterSheetProps } from "./filter-sheet.js";
 import { SearchBar } from "./search-bar.js";
-import type { SearchChip } from "./search-chip-input.js";
+import type { SearchChip, SearchFieldSuggest } from "./search-chip-input.js";
 import type { SearchResult } from "./search-result-row.js";
 import {
 	type MakeFilterActionProps,
@@ -51,6 +52,15 @@ export interface MobileSearchViewProps {
 	scope?: SearchScope;
 	/** "Make this a filter" affordance; see `SearchResultsProps`. */
 	makeFilter?: MakeFilterActionProps;
+	/** Completions for what is being typed; see `SearchChipInput`. */
+	suggest?: SearchFieldSuggest;
+	/**
+	 * The suggestion list itself, rendered directly under the field and above
+	 * the results. In flow rather than over them: on a phone the soft keyboard
+	 * takes the lower half of the screen, and a list floating over the field
+	 * would hide the query it is completing.
+	 */
+	suggestList?: ReactNode;
 }
 
 /**
@@ -68,6 +78,9 @@ export interface MobileSearchViewProps {
  * the same place, so the filter chrome belongs to the empty field: it covers the
  * recent searches, and the moment something is typed the results and their
  * affordance take the space. Clearing the field brings it back.
+ *
+ * Completions for what is being typed sit between the field and the body, so
+ * the list takes its own space rather than covering either of them.
  *
  * Search scope passes straight through, so the phone tier holds spam out,
  * offers it and labels provenance on exactly the same terms as desktop.
@@ -88,6 +101,8 @@ export function MobileSearchView({
 	onRemoveChip,
 	scope,
 	makeFilter,
+	suggest,
+	suggestList,
 }: MobileSearchViewProps) {
 	const body = (
 		<SearchResults
@@ -115,6 +130,7 @@ export function MobileSearchView({
 						onRemoveChip={onRemoveChip}
 						globalFocusKey={false}
 						showClearButton={false}
+						suggest={suggest}
 					/>
 				</div>
 				<Button
@@ -126,6 +142,8 @@ export function MobileSearchView({
 					className="-mr-1 shrink-0"
 				/>
 			</header>
+
+			{suggestList}
 
 			{filter && value.trim().length === 0 ? (
 				<FilterSheet {...filter}>{body}</FilterSheet>

@@ -14,6 +14,11 @@
  * `SearchResults` sections. Consumers feed the filter chrome and query-narrowed
  * results; both tiers render identical rows.
  *
+ * The field offers what the search API can be told: token names for a bare word,
+ * that token's values once its name is committed. The list sits under the field
+ * on both tiers, in flow, so it takes its own space instead of covering the
+ * query it completes.
+ *
  * An active query owns the pane. The filter chrome is not rendered while one is
  * present — the two narrow the same list by the same intent and would sit in the
  * same place — and its place is taken by `MakeFilterAction`, which the pane mounts
@@ -38,16 +43,29 @@ import {
 	MailHeader,
 	MakeFilterAction,
 	MobileSearchView,
+	type SearchCaretRequest,
+	type SearchFieldSuggest,
 	type SearchResult,
 	type SearchResultSection,
 	SearchResults,
 	type SearchScope,
+	type Suggestion,
+	SuggestList,
 	useAppShellLayout,
+	useSuggestList,
 } from "@remit/ui";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import {
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { isSinglePaneTier, useLayoutTier } from "@/hooks/useLayoutTier";
 import { useSearchScope } from "@/hooks/useSearchScope";
+import { useSearchSuggestions } from "@/hooks/useSearchSuggestions";
 import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
 import { useMailContext } from "@/lib/mail-context";
 import {
@@ -56,6 +74,7 @@ import {
 } from "@/lib/organize/search-to-rule";
 import { loadRecentSearches, saveRecentSearch } from "@/lib/recent-searches";
 import { resultsScopeForRoute, routeMailboxId } from "@/lib/search-scope";
+import { applySearchSuggestion } from "@/lib/search-suggestions";
 import { showInlineSearchResults } from "@/lib/search-surface";
 import {
 	parseSearchTokens,
@@ -155,6 +174,68 @@ export function MailListHeader({
 		searchViewRef.current = searchViewKey;
 		setSearchOpen(false);
 	}, [searchViewKey]);
+
+	// What the box offers for the term being typed. The field says where the
+	// caret is; the caret decides whether the offer is a token name or one
+	// token's values, and picking one replaces that term and leaves the caret
+	// ready for the next. Typing always wins — the list only ever inserts, and a
+	// term it has nothing for leaves the field the plain text box it is.
+	//
+	// An empty field belongs to the recent searches and the filter row, as it
+	// does everywhere else in this pane, so the offer starts with the first
+	// character typed. The caret on the whitespace after a finished token is a
+	// term of its own, which is where the whole vocabulary is offered again.
+	const [caretPosition, setCaretPosition] = useState(0);
+	const [fieldFocused, setFieldFocused] = useState(false);
+	const [caretRequest, setCaretRequest] = useState<
+		SearchCaretRequest | undefined
+	>(undefined);
+	const suggestions = useSearchSuggestions({
+		query: searchInput,
+		cursor: caretPosition,
+		enabled: fieldFocused && searchInput.trim().length > 0,
+	});
+	const applySuggestion = useCallback(
+		(suggestion: Suggestion) => {
+			const applied = applySearchSuggestion(
+				searchInput,
+				caretPosition,
+				suggestion,
+			);
+			onSearchChange(applied.query);
+			setCaretRequest({ cursor: applied.cursor });
+		},
+		[searchInput, caretPosition, onSearchChange],
+	);
+	const suggest = useSuggestList({
+		count: suggestions.length,
+		onAccept: (index) => {
+			const suggestion = suggestions[index];
+			if (suggestion) applySuggestion(suggestion);
+		},
+	});
+	const searchSuggest: SearchFieldSuggest = {
+		comboboxProps: suggest.comboboxProps,
+		onKeyDown: suggest.handleKeyDown,
+		onCaretChange: setCaretPosition,
+		onFocusChange: setFieldFocused,
+		...(caretRequest ? { caret: caretRequest } : {}),
+	};
+	// Under the field and in flow, on both tiers: a phone's soft keyboard owns
+	// the lower half of the screen, and a list floating over the field would
+	// cover the query it is completing.
+	const suggestList = suggest.open ? (
+		<SuggestList
+			id={suggest.listId}
+			suggestions={suggestions}
+			activeIndex={suggest.activeIndex}
+			optionId={suggest.optionId}
+			onPick={applySuggestion}
+			onHighlight={suggest.setActiveIndex}
+			label="Search suggestions"
+			className="mx-row-inset mt-1 shrink-0"
+		/>
+	) : null;
 
 	const hasQuery = searchInput.trim().length > 0;
 	// Filter tokens (`from:`, `has:attachment`, `account:`, …) parsed live from
@@ -298,6 +379,8 @@ export function MailListHeader({
 					onSelectResult={handleSelectResult}
 					tokens={tokenChips}
 					scope={resultsScope}
+					suggest={searchSuggest}
+					suggestList={suggestList}
 				/>
 				{filterDialog}
 			</>
@@ -360,8 +443,10 @@ export function MailListHeader({
 					onSearchClear={onSearchClear}
 					searchOpen={searchOpen}
 					onSearchOpenChange={setSearchOpen}
+					searchSuggest={searchSuggest}
 				/>
 			)}
+			{suggestList}
 			{makeFilterAction}
 			<div className="min-h-0 flex-1">{body}</div>
 			{footer}

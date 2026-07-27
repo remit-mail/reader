@@ -6,7 +6,9 @@ import type {
 } from "@remit/api-http-client/types.gen.ts";
 import {
 	buildAccountNameIndex,
+	buildAccountSuggestionValues,
 	buildMailboxNameIndex,
+	buildMailboxSuggestionValues,
 } from "./search-token-index.js";
 
 const account = (
@@ -108,5 +110,102 @@ describe("buildMailboxNameIndex", () => {
 
 	it("empty input yields an empty index", () => {
 		assert.deepEqual(buildMailboxNameIndex([]), new Map());
+	});
+});
+
+describe("buildMailboxSuggestionValues", () => {
+	it("offers the leaf when no other folder shares it", () => {
+		const [offer] = buildMailboxSuggestionValues([
+			[mailbox({ mailboxId: "mb-1", fullPath: "INBOX/Archive" })],
+		]);
+		assert.equal(offer?.value, "Archive");
+		assert.equal(offer?.label, "Archive");
+	});
+
+	it("offers the full path where the leaf would be ambiguous", () => {
+		const offers = buildMailboxSuggestionValues([
+			[mailbox({ mailboxId: "mb-1", fullPath: "INBOX/Archive" })],
+			[mailbox({ mailboxId: "mb-2", fullPath: "Work/archive" })],
+		]);
+		assert.deepEqual(
+			offers.map((offer) => offer.value),
+			["INBOX/Archive", "Work/archive"],
+		);
+	});
+
+	it("every offer resolves back through the index it was built beside", () => {
+		const lists = [
+			[
+				mailbox({ mailboxId: "mb-1", fullPath: "INBOX" }),
+				mailbox({ mailboxId: "mb-2", fullPath: "INBOX/Archive" }),
+			],
+			[mailbox({ mailboxId: "mb-3", fullPath: "Team/Archive" })],
+		];
+		const index = buildMailboxNameIndex(lists);
+		for (const offer of buildMailboxSuggestionValues(lists)) {
+			assert.ok(index.has(offer.value.toLowerCase()), offer.value);
+		}
+	});
+
+	it("reads the folder's own name, a rename winning over the path", () => {
+		const [offer] = buildMailboxSuggestionValues([
+			[
+				mailbox({
+					mailboxId: "mb-1",
+					fullPath: "INBOX/Archief",
+					displayNameOverride: " Archive ",
+				}),
+			],
+		]);
+		assert.equal(offer?.value, "Archief");
+		assert.equal(offer?.label, "Archive");
+	});
+
+	it("names the account only where more than one is loaded", () => {
+		const lists = [[mailbox({ mailboxId: "mb-1", fullPath: "Archive" })]];
+		const accounts = [
+			account({ accountId: "account-1", email: "me@example.com" }),
+		];
+		assert.equal(
+			buildMailboxSuggestionValues(lists, accounts)[0]?.hint,
+			undefined,
+		);
+		assert.equal(
+			buildMailboxSuggestionValues(lists, [
+				...accounts,
+				account({ accountId: "account-2", email: "work@example.com" }),
+			])[0]?.hint,
+			"me@example.com",
+		);
+	});
+});
+
+describe("buildAccountSuggestionValues", () => {
+	it("offers the local part, read as the account's own name", () => {
+		const [offer] = buildAccountSuggestionValues([
+			account({
+				accountId: "acct-1",
+				email: "work@company.com",
+				displayName: "Work",
+			}),
+		]);
+		assert.equal(offer?.value, "work");
+		assert.equal(offer?.label, "Work");
+		assert.equal(offer?.hint, "work@company.com");
+	});
+
+	it("offers the whole address where the local part is ambiguous", () => {
+		const offers = buildAccountSuggestionValues([
+			account({ accountId: "acct-1", email: "work@company.com" }),
+			account({ accountId: "acct-2", email: "work@other.com" }),
+		]);
+		assert.deepEqual(
+			offers.map((offer) => offer.value),
+			["work@company.com", "work@other.com"],
+		);
+		assert.deepEqual(
+			offers.map((offer) => offer.label),
+			["work@company.com", "work@other.com"],
+		);
 	});
 });
