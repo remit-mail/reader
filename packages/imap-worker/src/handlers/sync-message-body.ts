@@ -157,6 +157,7 @@ export const syncMessageBody = async (
 		secrets,
 		mailboxSpecialUse: mailboxSpecialUseRepository,
 		quarantine: quarantineRepository,
+		flagQueue: flagQueueService,
 	} = await getClient();
 
 	const account = await accountService.get(accountId);
@@ -270,6 +271,7 @@ export const syncMessageBody = async (
 					uidValidity: mailbox.uidValidity ?? 0,
 					attempts: receiveCount,
 				},
+				{ flagQueueService },
 			);
 
 			// Guard at the openBox choke point (epic #1281 invariants 3 & 5). The
