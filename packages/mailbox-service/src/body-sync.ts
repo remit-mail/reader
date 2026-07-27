@@ -37,6 +37,7 @@ import {
 	type FilterDecision,
 	FilterPipeline,
 } from "./filters/pipeline.js";
+import type { FlagQueueService } from "./flag-queue.js";
 import {
 	classifyByHeaders,
 	extractAuthenticity,
@@ -256,6 +257,17 @@ export interface QuarantineConfig {
 	attempts: number;
 }
 
+/**
+ * What body sync needs to auto-mark-read a message from an unsubscribed
+ * sender (issue #302, RFC 039 Decision 3). Reuses the same
+ * `FlagQueueService.markAsRead` a manual mark-as-read already goes through —
+ * local `\Seen` + `ThreadMessage.isRead` + a durable pending IMAP flag-push
+ * marker — so this fires the same round-trip, not a second primitive.
+ */
+export interface UnsubscribeConfig {
+	flagQueueService: FlagQueueService;
+}
+
 export class BodySyncService {
 	private log: BodySyncLogger;
 	private readonly filterPipeline?: FilterPipeline;
@@ -270,6 +282,7 @@ export class BodySyncService {
 		private readonly placementConfig?: PlacementConfig,
 		private readonly filterConfig?: FilterConfig,
 		private readonly quarantineConfig?: QuarantineConfig,
+		private readonly unsubscribeConfig?: UnsubscribeConfig,
 	) {
 		this.log = logger ?? noopLogger;
 		this.filterPipeline = filterConfig
@@ -812,6 +825,18 @@ export class BodySyncService {
 			});
 		}
 
+		// `flags.unsubscribed` (issue #302, RFC 039 Decision 3): auto-mark-read,
+		// reusing the same FlagQueueService.markAsRead round-trip a manual
+		// mark-as-read goes through — idempotent on a retry (flipFlag no-ops when
+		// the message is already \Seen), so a failure here safely re-fires on the
+		// next attempt rather than being lost behind the bodyStorageKey skip guard.
+		await this.applyUnsubscribedAutoRead(
+			messageId,
+			accountId,
+			accountConfigId,
+			parsed,
+		);
+
 		const moved = Boolean(resolved.move || filterMoved);
 
 		// ONE Message UpdateItem per synced message: bodyStorageKey + every
@@ -1091,6 +1116,59 @@ export class BodySyncService {
 			if (!(err instanceof NotFoundError)) throw err;
 		}
 		return SenderTrust.Unknown;
+	}
+
+	/**
+	 * `flags.unsubscribed` (issue #302, RFC 039 Decision 3): "auto-mark-read
+	 * until sender stops" — fires on every new message from that sender for as
+	 * long as the flag stays set, per the flag's own doc comment; there is no
+	 * separate expiry mechanism, and no caching of the decision beyond this
+	 * per-message `Address` read. A no-op when body sync was built without an
+	 * {@link UnsubscribeConfig} or the message carries no `From` address.
+	 */
+	private async applyUnsubscribedAutoRead(
+		messageId: string,
+		accountId: string,
+		accountConfigId: string,
+		parsed: ParsedMail,
+	): Promise<void> {
+		if (!this.unsubscribeConfig) return;
+
+		const fromEmail = extractPrimaryFromEmail(parsed);
+		if (!fromEmail) return;
+
+		const unsubscribed = await this.deriveSenderUnsubscribed(
+			accountConfigId,
+			fromEmail,
+		);
+		if (!unsubscribed) return;
+
+		await this.unsubscribeConfig.flagQueueService.markAsRead(
+			accountConfigId,
+			messageId,
+			accountId,
+		);
+	}
+
+	private async deriveSenderUnsubscribed(
+		accountConfigId: string,
+		fromEmail: string,
+	): Promise<boolean> {
+		try {
+			const addressId = deriveAddressId(accountConfigId, fromEmail);
+			const address = await this.addressService.getAddress(
+				accountConfigId,
+				addressId,
+			);
+			return address.flags?.unsubscribed?.value === true;
+		} catch (err) {
+			// A genuinely-absent address means "not unsubscribed". Any other
+			// failure (AccessDenied, throttle, infra) must NOT be silently
+			// downgraded — let it crash so the read-state decision isn't made on
+			// bad data.
+			if (!(err instanceof NotFoundError)) throw err;
+			return false;
+		}
 	}
 
 	/**

@@ -316,6 +316,24 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 			}
 		: undefined;
 
+	const flagPushService = new FlagPushService({
+		markerService: repositories.flagPush,
+		sqsQueueUrl,
+		logger,
+	});
+
+	// Shared with the returned `flagQueue` below (issue #302): body sync
+	// auto-marks-read a message from an unsubscribed sender through the exact
+	// same `FlagQueueService.markAsRead` a manual mark-as-read goes through, not
+	// a second instance or a second primitive.
+	const flagQueueService = new FlagQueueService({
+		messageFlagService: repositories.messageFlag,
+		messageService: repositories.message,
+		threadMessageService: repositories.threadMessage,
+		flagPushService,
+		logger,
+	});
+
 	const bodySync = new BodySyncService(
 		repositories.message,
 		storage,
@@ -325,13 +343,9 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 		logger,
 		undefined,
 		filterConfig,
+		undefined,
+		{ flagQueueService },
 	);
-
-	const flagPushService = new FlagPushService({
-		markerService: repositories.flagPush,
-		sqsQueueUrl,
-		logger,
-	});
 
 	return {
 		accountConfig: repositories.accountConfig,
@@ -364,13 +378,7 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 		placementMove: repositories.placementMove,
 		flagPush: repositories.flagPush,
 
-		flagQueue: new FlagQueueService({
-			messageFlagService: repositories.messageFlag,
-			messageService: repositories.message,
-			threadMessageService: repositories.threadMessage,
-			flagPushService,
-			logger,
-		}),
+		flagQueue: flagQueueService,
 		mailboxQueue: new MailboxQueueService({
 			mailboxService: repositories.mailbox,
 			sqsQueueUrl,
