@@ -104,3 +104,26 @@ export const exitCodeFor = (result: CheckResult): number =>
 	result.verdict === "healthy" ? 0 : 1;
 
 export const NO_VERDICT_EXIT_CODE = 2;
+
+/**
+ * The verdict has to have left the process before it exits.
+ *
+ * `process.exit` does not flush a pending write, and stdout is a pipe under
+ * `compose exec -T`, so a write the kernel could not take in one go is
+ * discarded — silently, and only for the verdicts long enough to fill the
+ * buffer, which are the degraded ones carrying several reasons. The reader
+ * then sees a document that stops mid-token with an exit code saying it is
+ * complete. Waiting for the drain and keeping the explicit exit is what closes
+ * that without letting a lingering socket hold the process open instead.
+ */
+export const writeVerdict = (
+	stream: NodeJS.WritableStream,
+	text: string,
+): Promise<void> =>
+	new Promise((resolve) => {
+		if (stream.write(text)) {
+			resolve();
+			return;
+		}
+		stream.once("drain", () => resolve());
+	});

@@ -134,6 +134,12 @@ Usage: remit <command> [args]
   purge --yes          Destroy the deployment: containers and every data
                        volume, accounts included. Without --yes it only says
                        what would go. Use 'down' to merely stop serving.
+  doctor [--json]      Report whether anything is wrong: work quarantined on a
+                       dead-letter queue, an account that stopped syncing, a
+                       worker that stopped polling, mail authentication
+                       failing. Exits 0 healthy, 1 degraded, 2 when no verdict
+                       could be produced, so cron or an external monitor can
+                       call it directly.
   config               Print the effective configuration, secrets redacted.
   check-categories     Report whether the mail list's category column agrees
                        with the messages it copies, per cause. Reads the
@@ -2285,6 +2291,168 @@ cmd_check_categories() {
 	compose run --rm --no-deps migrate node migrate.mjs --check
 }
 
+# --- doctor (docs/design/standalone-observability.md D4) --------------------
+#
+# The verdict is computed in the `doctor` container and nowhere else. The
+# signals behind it are on the compose network and this is a POSIX shell script
+# whose only tool is docker, so this command scrapes nothing and decides
+# nothing: it execs the checker, prints what comes back verbatim, and carries
+# its exit code out.
+#
+# One fresh check per invocation. Not the alerting loop's last verdict — that
+# is the settled one the dwell rule announces, deliberately up to three checks
+# behind what is true now, and "is anything wrong" is a question about now.
+DOCTOR_SERVICE=doctor
+
+# A ceiling on the exec, for the same reason every helper `docker run` has one
+# (reader#284): the checker bounds its own scrapes, and nothing bounds the
+# docker CLI in front of it. An uncapped exec against a wedged daemon prints
+# nothing and never returns, which defeats D4 as thoroughly as answering
+# `healthy` would — and behind the README's `*/5` cron line it stacks a new
+# process every five minutes. Set above the checker's own scrape budget so a
+# slow check is never cut off; what this catches is a docker that has stopped
+# answering at all.
+DOCTOR_RUN_TIMEOUT="${REMIT_DOCTOR_TIMEOUT:-90}"
+
+# timeout(1) needs a real command and `compose` is a shell function, so the
+# capped call spells the argv out. It is the same invocation; the duplication is
+# the price of the ceiling.
+doctor_exec() {
+	capped_run "$DOCTOR_RUN_TIMEOUT" docker compose \
+		--project-directory "$REMIT_DIR" \
+		-f "$REMIT_DIR/$COMPOSE_FILE" \
+		--env-file "$REMIT_DIR/.env" \
+		exec -T "$DOCTOR_SERVICE" node check.mjs "$@"
+}
+
+# The verdict's value, out of whichever rendering was asked for, or nothing.
+# The value is what decides; whether the field is merely present decides
+# nothing, because a truncated document and a container that printed half a
+# line both have the field.
+doctor_verdict() {
+	if [ "$1" = "1" ]; then
+		sed -n 's/.*"verdict"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$2" | head -n 1
+	else
+		sed -n 's/^verdict \(.*\)$/\1/p' "$2" | head -n 1
+	fi
+}
+
+# A JSON document that did not finish arriving. `--json` exists for a caller
+# piping into jq, and a half-written object satisfies any test for the field it
+# happens to start with: the checker writes stdout and then exits, which drops a
+# pending write when stdout is a pipe, and `compose exec -T` makes it one. The
+# verdict long enough to fill that buffer is the degraded one worth reading, so
+# the document has to open and close before anything in it is trusted.
+doctor_json_closed() {
+	[ "$(awk 'NF { print; exit }' "$1")" = "{" ] &&
+		[ "$(awk 'NF { _l = $0 } END { print _l }' "$1")" = "}" ]
+}
+
+# What docker said, cut to its first non-empty line with control characters
+# removed. The line format is one record per line and a JSON string carries no
+# raw newline, so a multi-line complaint is cut rather than escaped into
+# either; its first line is the part that names the cause.
+doctor_first_line() {
+	awk 'NF { print; exit }' "$1" 2>/dev/null | tr -d '[:cntrl:]'
+}
+
+# A check that could not look reports `degraded`, never healthy and never a
+# stack trace: an exec that does not answer is itself the finding. Rendered in
+# the checker's own two formats, so a caller parsing either does not have to
+# special-case the one answer it most needs to read. The exit code is what
+# separates this from a verdict the checker produced.
+doctor_no_verdict() {
+	_summary="remit is degraded: the health checker produced no verdict"
+	_why="no usable verdict came back from the doctor container, so nothing about this stack was checked"
+	if [ "$1" = "1" ]; then
+		if [ -n "$2" ]; then
+			_detail=$(printf '"%s"' "$(json_escape "$2")")
+		else
+			_detail=null
+		fi
+		printf '{\n  "verdict": "degraded",\n  "checkedAt": "%s",\n  "summary": "%s",\n  "reasons": [\n    {\n      "code": "checker_unreachable",\n      "summary": "%s",\n      "detail": %s\n    }\n  ]\n}\n' \
+			"$(iso_now)" "$_summary" "$_why" "$_detail"
+		return 0
+	fi
+	printf 'verdict degraded\n'
+	printf 'checked-at %s\n' "$(iso_now)"
+	printf 'summary %s\n' "$_summary"
+	printf 'reason checker_unreachable %s\n' "$_why"
+	if [ -n "$2" ]; then
+		printf 'detail checker_unreachable %s\n' "$2"
+	fi
+}
+
+cmd_doctor() {
+	require_deployment
+	_json=0
+	while [ $# -gt 0 ]; do
+		case "$1" in
+		--json) _json=1 ;;
+		*) die "doctor: unknown option '$1'" ;;
+		esac
+		shift
+	done
+
+	_out=$(mktemp) || die "doctor: cannot create a temporary file for the verdict"
+	_err=$(mktemp) || die "doctor: cannot create a temporary file for the log"
+	_rc=0
+	if [ "$_json" = "1" ]; then
+		doctor_exec --json >"$_out" 2>"$_err" || _rc=$?
+	else
+		doctor_exec >"$_out" 2>"$_err" || _rc=$?
+	fi
+	# The checker logs to stderr precisely so a log line cannot corrupt what is
+	# parsed on stdout, and docker's own complaints arrive the same way. Both
+	# belong in front of the operator; neither belongs in the verdict.
+	cat "$_err" >&2
+
+	# The verdict on stdout and the exit code the exec came back with have to be
+	# the same answer, or there is no answer. `verdict degraded` from an exec
+	# that exited 0 is the case that matters: the operator reads degraded while
+	# `remit doctor || alert` never fires, and the exit code is the whole reason
+	# this command exists. A value outside the closed vocabulary, a JSON document
+	# that did not close, and an exec that died some other way after printing all
+	# land in the same place — each is a reason to stop trusting the output
+	# rather than a reason to print it.
+	_verdict=$(doctor_verdict "$_json" "$_out")
+	_expected=""
+	case "$_verdict" in
+	healthy) _expected=0 ;;
+	degraded) _expected=1 ;;
+	esac
+	if [ -n "$_expected" ] && [ "$_expected" = "$_rc" ] &&
+		{ [ "$_json" = "0" ] || doctor_json_closed "$_out"; }; then
+		cat "$_out"
+		rm -f "$_out" "$_err"
+		exit "$_rc"
+	fi
+
+	# Which of the three it was. The operator reading this has an exit code that
+	# says "no verdict" and needs to know whether the container is missing, the
+	# daemon is wedged, or the answer arrived and could not be trusted.
+	_detail=$(doctor_first_line "$_err")
+	if [ "$_rc" = "124" ] && have timeout; then
+		_detail="'compose exec' did not answer within ${DOCTOR_RUN_TIMEOUT}s"
+	elif [ -z "$_expected" ] && [ -n "$_verdict" ]; then
+		_detail="the checker printed a verdict this wrapper does not know: '$_verdict'"
+	elif [ -n "$_expected" ] && [ "$_expected" != "$_rc" ]; then
+		_detail="the checker printed the verdict '$_verdict' and exited $_rc"
+	elif [ -n "$_expected" ]; then
+		_detail="the checker's JSON document did not close — it arrived truncated"
+	fi
+	rm -f "$_out" "$_err"
+	doctor_no_verdict "$_json" "$_detail"
+	# The hint goes to stderr because stdout above is a closed vocabulary a
+	# caller parses. `doctor` is an always-on service, not one of the optional
+	# profiles, so getting it back is a plain restart of the stack.
+	printf "%s: '%s status' shows what is running and '%s logs %s' what the checker said.\n" \
+		"$PROG" "$PROG" "$PROG" "$DOCTOR_SERVICE" >&2
+	printf "The '%s' service is part of the stack, not behind a profile, so '%s restart' starts it.\n" \
+		"$DOCTOR_SERVICE" "$PROG" >&2
+	exit 2
+}
+
 main() {
 	[ $# -gt 0 ] || {
 		usage >&2
@@ -2299,6 +2467,7 @@ main() {
 	update) cmd_update "$@" ;;
 	down) cmd_down "$@" ;;
 	purge) cmd_purge "$@" ;;
+	doctor) cmd_doctor "$@" ;;
 	config) cmd_config "$@" ;;
 	check-categories) cmd_check_categories "$@" ;;
 	cert) cmd_cert "$@" ;;

@@ -6,6 +6,7 @@ import {
 	NO_VERDICT_EXIT_CODE,
 	renderJson,
 	renderLines,
+	writeVerdict,
 } from "./report.js";
 import { readState } from "./state.js";
 
@@ -31,7 +32,10 @@ const check = async (): Promise<number> => {
 	setLogLevel(config.logLevel);
 	const state = await readState(config.stateDir);
 	const result = await runCheck(config, state.counters);
-	process.stdout.write(json ? renderJson(result) : renderLines(result));
+	await writeVerdict(
+		process.stdout,
+		json ? renderJson(result) : renderLines(result),
+	);
 	return exitCodeFor(result);
 };
 

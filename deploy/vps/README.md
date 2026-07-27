@@ -63,6 +63,7 @@ it. It is the interface to the deployment and runs from anywhere:
 
 ```bash
 remit status              # what is running, and whether the origin reaches it
+remit doctor              # whether anything is wrong; non-zero when it is
 remit logs [service…]     # follow the logs
 remit restart             # apply an edit to .env
 remit update              # install the current release, atomically
@@ -205,7 +206,7 @@ to look at: `remit logs <service>`, then `docker compose restart <service>` if
 you want it recycled.
 
 A healthy worker means its loops are turning, not that the work is succeeding.
-For that, see [Queue failures](#queue-failures-watch-the-dead-letter-queues).
+For that, run [`remit doctor`](#is-anything-wrong-remit-doctor).
 
 ## The category repair
 
@@ -672,6 +673,7 @@ It is degraded when any of these is true:
 | `mail_auth_failing` | An IMAP or SMTP authentication failure counter has gone up in the last 3 hours |
 | `dead_letter_queue_not_empty` | Anything is quarantined on any DLQ |
 | `signal_missing` | A service answered `/metrics` but exported none of the series the check reads |
+| `checker_unreachable` | No usable verdict came back from the checker at all. Produced by `remit doctor`, never by the checker, so it never reaches a webhook — see [Is anything wrong](#is-anything-wrong-remit-doctor) |
 
 A signal that cannot be evaluated is degraded, never skipped. An endpoint that
 refuses the connection, a heartbeat file that is absent, a scrape that times out,
@@ -813,14 +815,7 @@ covers is the checker itself not running.
 
 ### Reading the verdict by hand
 
-```bash
-docker compose -f docker-compose.sqlite.yml --env-file .env exec -T doctor node check.mjs
-docker compose -f docker-compose.sqlite.yml --env-file .env exec -T doctor node check.mjs --json
-```
-
-Both run a fresh check and exit `0` when healthy, `1` when degraded, and `2` when
-the checker could not produce a verdict at all. The first prints one record per
-line; the second prints the same verdict as a JSON object.
+`remit doctor`, from anywhere — see [Is anything wrong](#is-anything-wrong-remit-doctor).
 
 ## Looking at the box
 
@@ -958,6 +953,60 @@ Metrics live on their own `victoriametrics_data` volume and are never backed up.
 They are a reconstructible view of the past; losing them costs history, not
 state.
 
+## Is anything wrong: `remit doctor`
+
+`remit status` answers what is running. `remit doctor` answers whether anything
+is wrong:
+
+```bash
+remit doctor
+```
+
+```
+verdict degraded
+checked-at 2026-07-27T08:50:01.029Z
+summary remit is degraded
+reason dead_letter_queue_not_empty 2 messages are quarantined on 1 dead-letter queue (remit-body-dlq)
+reason account_sync_stalled 1 of 3 accounts has not completed a sync in over 3h
+detail account_sync_stalled 0f8a…: 40122s
+```
+
+It checks the same conditions the alert fires on — a service not answering
+`/metrics` or answering without the series, a worker's poll loop gone stale, an
+account that has not completed a sync round, mail authentication failing,
+anything quarantined on a dead-letter queue ([the table](#alerts)) — and it
+reports the account ids behind them, which an alert payload never carries. Each
+run is a fresh check, not the alerter's last verdict.
+
+**The exit code is the point.** `0` healthy, `1` degraded, `2` when no verdict
+could be produced, so it is a monitoring check as it stands:
+
+```
+*/5 * * * * remit doctor >/dev/null || logger -t remit "degraded"
+```
+
+A signal that cannot be evaluated is `degraded`, never healthy — and so is a
+verdict the wrapper cannot stand behind. Exit `2` with the reason
+`checker_unreachable` covers all of it: the `doctor` container is not running,
+docker refuses the exec, the exec does not come back at all (it is capped;
+raise `REMIT_DOCTOR_TIMEOUT` if your box needs longer), the verdict on stdout
+disagrees with the exit code the exec returned, or the `--json` document
+arrives truncated. In every one of those the checker's output is discarded
+rather than printed. A healthy verdict from a check that failed to look, or an
+exit `0` under the word `degraded`, are the two answers this command never
+gives.
+
+`checker_unreachable` is the wrapper's own code, and the only one not in the
+[reason table](#alerts) — nothing in the alert path can produce it, because it
+describes the checker rather than the stack.
+
+`--json` emits the same verdict as `{ verdict, checkedAt, summary, reasons }`,
+including for that case, so a script parses one shape whatever happened. The
+checker's own logs go to stderr; stdout carries only the verdict.
+
+Nothing here needs configuring. Point it somewhere to be told without asking —
+see [Alerts](#alerts).
+
 ## Queue failures: watch the dead-letter queues
 
 Every worker queue in `queues.json` has a dead-letter queue (`<queue>-dlq`,
@@ -968,21 +1017,28 @@ the worker. This stops one bad message from taking a whole queue's throughput
 down, but a message that lands in a DLQ is not automatically retried or drained
 — it sits there until an operator looks at it.
 
-Check depth periodically — any SQS-compatible client against the queue you care
-about works. The `queue` image ships `node`, so a one-liner from inside the
-container reads a queue's depth over the SQS wire protocol. This is an escape
-hatch — `remit` has no command for it; run it from the install directory:
+`remit doctor` reports a non-empty dead-letter queue by name, across all of
+them, and exits non-zero. That is how to find out; run it from anywhere.
+
+Per-queue depth, rather than the total, is `remit_queue_messages{queue,role}` in
+the [metrics](#metrics) endpoint.
+
+A non-zero DLQ is a signal to look at, not a resolved failure. Draining one is
+manual SQS work: `ReceiveMessage` on the `-dlq` queue for the body, then
+`SendMessage` back to the source queue and `DeleteMessage` from the DLQ once you
+have fixed the bug or the bad data — or `DeleteMessage` alone to discard it. Any
+SQS-compatible client works. The `queue` image ships `node`, so the wire
+protocol is reachable from inside the container; the actions are form-encoded
+POSTs, unlike the plain GET the metrics read uses:
 
 ```bash
 docker compose -f docker-compose.sqlite.yml --env-file .env exec queue \
-  node -e 'const b="Action=GetQueueAttributes&QueueUrl=http://localhost:9324/000000000000/remit-body-dlq&AttributeName.1=ApproximateNumberOfMessages&Version=2012-11-05";const r=require("http").request("http://localhost:9324/",{method:"POST"},s=>{let d="";s.on("data",c=>d+=c);s.on("end",()=>console.log(d))});r.end(b)'
+  node -e 'const b="Action=ReceiveMessage&QueueUrl=http://localhost:9324/000000000000/remit-body-dlq&Version=2012-11-05";const r=require("http").request("http://localhost:9324/",{method:"POST",headers:{"content-type":"application/x-www-form-urlencoded"}},s=>{let d="";s.on("data",c=>d+=c);s.on("end",()=>console.log(d))});r.end(b)'
 ```
 
-A non-zero DLQ is a signal to look at, not a resolved failure: inspect the
-message body (`Action=ReceiveMessage` against the `-dlq` queue), fix the
-underlying bug or bad data, then either move it back to the source queue by hand
-(`SendMessage` to the original queue, `DeleteMessage` from the DLQ) or discard it
-once you understand why it failed.
+`SendMessage` adds `&MessageBody=…`, `DeleteMessage` takes `&ReceiptHandle=…`
+from the receive. This is an escape hatch — `remit` has no command for it; run
+it from the install directory.
 
 ## Security notes
 

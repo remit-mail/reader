@@ -10,6 +10,7 @@ export {
 	NO_VERDICT_EXIT_CODE,
 	renderJson,
 	renderLines,
+	writeVerdict,
 } from "./report.js";
 export type { DoctorState } from "./state.js";
 export { initialState, readState, writeState } from "./state.js";

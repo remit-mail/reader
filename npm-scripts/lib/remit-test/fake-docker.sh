@@ -354,6 +354,50 @@ compose_cmd() {
 		done
 		exit 0
 		;;
+	exec)
+		# The D4 seam `remit doctor` drives: `exec -T doctor node check.mjs
+		# [--json]`. What the checker printed comes from $S/exec-out (or
+		# exec-out-json), what it logged from $S/exec-err, and what it exited
+		# with from the scenario. A service with no live container is refused
+		# the way compose refuses it — non-zero, a complaint on stderr, and
+		# nothing at all on stdout.
+		# The service is the first operand, which means the value-taking flags
+		# have to be consumed by name — reading "the first argument that does
+		# not start with a dash" makes `exec -u node doctor …` refuse `node`
+		# instead of `doctor`, and a fake that silently stops refusing is worse
+		# than one that never refused.
+		_svc=""
+		_wantjson=0
+		while [ $# -gt 0 ]; do
+			case "$1" in
+			-e | --env | -u | --user | -w | --workdir | --index)
+				shift 2
+				continue
+				;;
+			--json) _wantjson=1 ;;
+			-*) ;;
+			*)
+				if [ -z "$_svc" ]; then _svc=$1; fi
+				;;
+			esac
+			shift
+		done
+		# A docker that accepts the exec and never comes back. The wrapper's own
+		# ceiling is what has to end it, so the fake simply becomes the sleep —
+		# `exec` so the process timeout(1) signals is the one that is waiting.
+		if [ "$(val exec_mode run)" = "hang" ]; then
+			exec sleep "${FAKE_EXEC_HANG:-30}"
+		fi
+		if [ ! -f "$S/up-$_svc" ]; then
+			printf 'service "%s" is not running container #1\n' "$_svc" >&2
+			exit 1
+		fi
+		_outfile="$S/exec-out"
+		if [ "$_wantjson" = "1" ]; then _outfile="$S/exec-out-json"; fi
+		if [ -f "$_outfile" ]; then cat "$_outfile"; fi
+		if [ -f "$S/exec-err" ]; then cat "$S/exec-err" >&2; fi
+		exit "$(val exec_exit 0)"
+		;;
 	*) exit 0 ;;
 	esac
 }
