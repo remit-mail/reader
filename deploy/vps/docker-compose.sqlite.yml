@@ -537,7 +537,8 @@ volumes:
   # that mounts it. Safe to remove: it holds a reconstructible view of the past,
   # never state the stack reads back. `remit purge` destroys it with the rest.
   victoriametrics_data:
-  # One timestamp file per worker (D1). Shared rather than per-service so a
-  # checker container can mount it read-only and read all four ages at once; the
-  # workers themselves never read each other's files.
+  # One timestamp file per poll loop (D1), so eleven across the four workers.
+  # Shared rather than per-service so a checker container can mount it read-only
+  # and read every age at once; the workers themselves never read each other's
+  # files.
   heartbeat:
