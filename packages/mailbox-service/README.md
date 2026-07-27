@@ -1,11 +1,11 @@
 # @remit/mailbox-service
 
-IMAP mailbox synchronization service for Remit. Provides connection management, mailbox discovery, and message sync with DynamoDB persistence.
+IMAP mailbox synchronization service for Remit. Provides connection management, mailbox discovery, and message sync. Persistence is injected: the service takes repository ports, never a database client.
 
 ## Features
 
 - **ImapFlow-based**: Modern async/await IMAP client with native envelope parsing
-- **Mailbox Sync**: Discovers and syncs mailbox metadata from IMAP to DynamoDB
+- **Mailbox Sync**: Discovers and syncs mailbox metadata from IMAP into the mailbox repository
 - **Message Sync**: Newest-first sync strategy with dual-watermark tracking
 - **Address Extraction**: Parses and stores envelope addresses with role tracking
 
@@ -55,10 +55,11 @@ await connection.disconnect();
 ```typescript
 import { MailboxSyncService } from "@remit/mailbox-service";
 
-const syncService = new MailboxSyncService({
-  client: dynamoDBClient,
-  table: "remit-table",
-});
+const syncService = new MailboxSyncService(
+  mailboxRepository,
+  mailboxSpecialUseRepository,
+  logger,
+);
 
 const result = await syncService.syncMailboxes(
   { accountId: "acc-123" },
@@ -103,7 +104,7 @@ const synced = await messageSyncService.syncMessages(
 
 | Export               | Description                               |
 | -------------------- | ----------------------------------------- |
-| `MailboxSyncService` | Syncs mailbox list from IMAP to DynamoDB  |
+| `MailboxSyncService` | Syncs mailbox list from IMAP into the store |
 | `MessageSyncService` | Syncs messages with newest-first strategy |
 
 ### Types

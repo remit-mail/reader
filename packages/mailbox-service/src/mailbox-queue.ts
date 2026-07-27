@@ -83,7 +83,7 @@ export interface MailboxQueueConfig {
  * Service for mailbox management with automatic IMAP sync queueing.
  *
  * Implements optimistic local-first pattern:
- * 1. Updates local DynamoDB state immediately
+ * 1. Updates local state immediately
  * 2. Enqueues mailbox management event to SQS for worker to sync to IMAP
  *
  * This follows the same pattern as FlagQueueService (RFC 014).

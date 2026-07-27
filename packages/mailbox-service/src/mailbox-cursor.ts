@@ -33,8 +33,8 @@ export interface MailboxCursorGuardDeps {
 /**
  * `cursorState` is total per RFC 032 (defaults to `normal`) — but that default
  * only applies to rows written after this field existed. A row persisted
- * before this migration (DynamoDB attribute never written / Postgres column
- * genuinely NULL) reads back with the attribute absent despite the type
+ * before this migration (the column genuinely NULL) reads back absent
+ * despite the type
  * saying otherwise, so every consumer here treats `undefined` the same as
  * `normal` defensively rather than trusting the type.
  */

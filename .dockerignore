@@ -2,7 +2,6 @@
 .github
 .claude
 .tmp
-.dynamodb
 .remit
 node_modules
 **/node_modules

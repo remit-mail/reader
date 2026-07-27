@@ -264,8 +264,8 @@ export interface StorageService {
 
 // Path builders - centralized path formatting per RFC 011 + #224.
 // The outer segment is `accountConfigId` (Cognito-derived tenant scope) so
-// the Lambda@Edge can verify cross-tenant isolation at the URL prefix without
-// loading any DynamoDB record. The inner `accountId` distinguishes between
+// the edge can verify cross-tenant isolation at the URL prefix without
+// loading any database record. The inner `accountId` distinguishes between
 // multiple IMAP-account records owned by the same tenant.
 export const buildMessageBodyKey = (
 	accountConfigId: string,

@@ -266,8 +266,8 @@ const toRecord = (
  * **Part-path uniqueness**: some IMAP servers (and the `message/rfc822`
  * inner-body convention) return child nodes with an empty `part` field.
  * Assigning ROOT_PART_PATH to every such node would produce duplicate keys
- * and cause a DynamoDB "multiple operations on one item" error in
- * `upsertBodyParts`. Non-root nodes without a `part` therefore receive a
+ * and make `upsertBodyParts` write the same body part twice. Non-root nodes
+ * without a `part` therefore receive a
  * synthetic path `<parentPath>.<siblingIndex>` that is stable across
  * repeated syncs of the same message.
  */
@@ -287,7 +287,7 @@ export const walkMimeStructure = (root: MimeNode): BodyPartRecord[] => {
 			partPath = ROOT_PART_PATH;
 		} else {
 			// Non-root node without an IMAP part path — synthesise one so
-			// the DynamoDB keys remain unique. This happens most commonly
+			// the body-part keys remain unique. This happens most commonly
 			// for the body of a message/rfc822 attachment, whose inner
 			// structure imapflow attaches as a childNode with part="".
 			partPath = `${parentPath}.${siblingIndex}`;

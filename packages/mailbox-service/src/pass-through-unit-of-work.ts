@@ -2,9 +2,9 @@ import type { IUnitOfWork, UnitOfWorkRepositories } from "@remit/data-ports";
 
 /**
  * Runs the write set against fixed repositories with no surrounding
- * transaction. For backends (DynamoDB) that have no cross-entity transaction:
- * the writes are not atomic, matching that backend's own guarantees. The
- * Postgres path injects a real transactional unit of work instead.
+ * transaction: the writes are not atomic. For a backend that has no
+ * cross-entity transaction this matches its own guarantees; the SQLite path
+ * injects a real transactional unit of work instead.
  */
 export class PassThroughUnitOfWork implements IUnitOfWork {
 	constructor(private repos: UnitOfWorkRepositories) {}

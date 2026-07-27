@@ -115,7 +115,7 @@ export interface DeleteOptions {
  * Service for moving, copying, and deleting messages.
  *
  * Implements optimistic local-first pattern:
- * 1. Updates local DynamoDB state immediately (Message + ThreadMessage)
+ * 1. Updates local state immediately (Message + ThreadMessage)
  * 2. Enqueues event to SQS for worker to sync to IMAP
  *
  * Following RFC 016 for message deletion and moving.
