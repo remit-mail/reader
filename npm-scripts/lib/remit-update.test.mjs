@@ -1357,6 +1357,42 @@ describe("remit update — a migrating release whose gate fails", () => {
 	});
 });
 
+// `remit check-categories` (#321). The wrapper is the self-host interface, so the
+// read-only mode of the migrate entrypoint gets a command rather than a compose
+// line in the README — and the command is where --no-deps lives, because without
+// it `compose run` starts volume-init, which chowns the data volumes as root.
+describe("remit check-categories", () => {
+	const box = sandbox({ scenario: { probe: "ok" } });
+	const result = box.run(["check-categories"]);
+
+	it("runs the migrate entrypoint's read-only mode", () => {
+		assert.equal(result.status, 0, result.stderr);
+		assert.ok(
+			box
+				.log()
+				.split("\n")
+				.some(
+					(line) =>
+						line ===
+						"compose run --rm --no-deps migrate node migrate.mjs --check",
+				),
+			`no read-only migrate run in:\n${box.log()}`,
+		);
+	});
+
+	it("starts no dependency, so nothing writes on the operator's behalf", () => {
+		const log = box.log();
+		assert.ok(!log.includes("compose up"), log);
+		assert.ok(!log.includes("volume-init"), log);
+	});
+
+	it("takes no arguments", () => {
+		const rejected = box.run(["check-categories", "--repair"]);
+		assert.equal(rejected.status, 1);
+		assert.match(rejected.stderr, /takes no arguments/);
+	});
+});
+
 describe("shellcheck", () => {
 	it("is clean on the wrapper under POSIX sh", () => {
 		const probe = spawnSync("shellcheck", ["--version"], { encoding: "utf8" });

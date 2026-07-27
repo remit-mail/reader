@@ -166,7 +166,7 @@ Buys: the column becomes as correct going forward as the value it copies. Gives 
 
 ### D16 — the repair runs inside `migrate.mjs`, because that is the only artefact that reaches an instance
 
-The repair is one idempotent statement — the value is a join away in the same database, so none of PR #292's checkpointing, batching or resumability applies:
+The repair is one idempotent statement, run only when the check that precedes it found something to write — the value is a join away in the same database, so none of PR #292's checkpointing, batching or resumability applies:
 
 ```sql
 UPDATE thread_message SET category = (
@@ -176,10 +176,19 @@ WHERE EXISTS (
 	SELECT 1 FROM message m
 	WHERE m.message_id = thread_message.message_id
 	  AND m.category <> thread_message.category
-);
+	  AND m.category <> 'uncategorized'
+)
+  AND thread_message.updated_at <= <the statement's start, in ms>;
 ```
 
-`message.message_id` is the primary key and `message.category` is `NOT NULL`, so the join is a PK probe, the `<>` never sees a NULL, and a not-yet-classified row correctly writes nothing. Re-running finishes an interrupted run; afterwards the `WHERE` matches nothing.
+`message.message_id` is the primary key and `message.category` is `NOT NULL`, so the scalar subquery is single-valued by construction, the `<>` never sees a NULL, and a not-yet-classified row correctly writes nothing. Re-running finishes an interrupted run; afterwards the `WHERE` matches nothing.
+
+That is a correctness argument, not a plan. Measured on 200,000 rows, Postgres answers it as a hash join over two sequential scans with an 8.5 MB temp spill rather than a per-row primary-key probe — 2.7 s, `dirtied=45` pages for 2,000 repaired rows, so only diverging rows are written. SQLite: 400 ms with 2,000 divergent, 219 ms with none.
+
+**Two predicates were added when this was built (#321), both so the repair can never leave a row worse than it found it.** The clock is `unixepoch('subsec') * 1000` on SQLite and `EXTRACT(EPOCH FROM now()) * 1000` on Postgres; both are fixed for the duration of the statement, so no parameter is bound and the statement stays one string per dialect.
+
+- `m.category <> 'uncategorized'`. Without it the statement copies the pending state over a classified row whenever `message` is pending and `thread_message` is not — the one direction the original did not consider. `uncategorized` is a declared pending state, not absence (#45). #326 orders body-sync's writes row-first, message-second, so a classification in flight legitimately puts the row *ahead* of its message for a moment; pushing it back would undo a correct classification and make the read path D11 builds serve `Unclassified` for mail that is already classified. This answers the question #326 leaves for this slice: the row is not converged, it is left alone and counted as `ahead`, which is a figure a live instance is expected to carry.
+- `thread_message.updated_at <= <statement start>`. See the mid-sync paragraph below.
 
 **Where it runs is the part the first version got wrong.** It proposed a second entrypoint invoked by the compose one-shot. That cannot reach an existing instance. `remit` fetches nothing — the compose file is only ever read from `$REMIT_DIR` on disk (`deploy/vps/remit:149-156`), `update` moves an image tag and runs `compose pull` (`:1608-1653`), and the repository-root `install.sh:25-49` is the only thing that ever downloads `docker-compose.sqlite.yml`. Open issue **#281** states the general case: *"Self-update delivers images only — compose and env changes never reach instances … any release whose fix lives in compose/env/wrapper cannot ship through the UI update."* So the first version's mechanism was #292's manual command with extra steps, wearing the argument against itself.
 
@@ -189,9 +198,28 @@ That amends `run-migrate.ts`'s header, which currently says it "does not rewrite
 
 Orchestration stays where it belongs: `remit update` already invokes the migrate step and already gates on it, so the wrapper's own tests cover that an update runs the repair. Nothing is added to the wrapper.
 
-**An instance mid-sync.** The one-shot runs before the app and workers start, so there is no concurrent writer. It is safe with one anyway: it writes only what body-sync would write, so a row touched by both gets the same value twice. A row whose message has no body yet has nothing to copy and stays `uncategorized`, correctly — body-sync will fill it, and after #320 it will fill every row for that message.
+**An instance mid-sync.** `remit update` stops every service before it starts the gate set (`remit:1655-1656`), so the repair normally runs with no concurrent writer at all. The quiet window is not assumed, because `compose up -d` without a stop re-runs the completed one-shot while unchanged app containers keep running, and the row a writer touches is then the row the statement is writing.
 
-Buys: the filter cannot go live against a stale column on any instance, by any upgrade path. Gives up: a stated invariant in `run-migrate.ts` is amended rather than preserved, and every update pays a join scan that finds nothing after the first.
+`thread_message.updated_at <= <statement start>` is what makes that safe (#321). On SQLite writers are serialized, so a concurrent body-sync write lands wholly before or wholly after the statement and both orders converge — the guard is redundant there and costs nothing. On Postgres it is load-bearing: under READ COMMITTED an UPDATE that meets a row a concurrent transaction just committed re-evaluates its `WHERE` clause against the new version of that row, but still reads other tables at its original snapshot, so without the guard it can write a pre-classification `message.category` over the value the writer just wrote. The guard makes that row fail the re-check and the writer's value stands. All three interleavings are driven with two real connections in `packages/drizzle-service/src/repair/thread-message-category.test.ts`, and removing the guard fails the covered one.
+
+What the guard covers is a writer whose transaction *begins after* the statement. A writer that began before it carries an older stamp and passes, so the boundary is worth stating exactly. Losing a write needs four things at once:
+
+1. an unrepaired `behind` row, so the statement's `WHERE` matches it;
+2. a writer overlapping the statement;
+3. that writer's row write committing before the statement began while its message write commits after — they are separate commits;
+4. that writer moving `message.category` from one decided value to a **different** decided value.
+
+The fourth is the whole question, and it is not impossible. It is unreachable through `backfillClassification`, which returns early once the category is decided. It *is* reachable through the primary path, which is re-enterable: the skip guard is `if (message.bodyStorageKey && !force)` (`body-sync.ts:338`) and `force` is a live event flag — the read-miss re-arm cue, resolved at `packages/imap-worker/src/handlers/sync-message-body.ts:75`. A forced re-fetch re-runs `classifyByHeaders` over the same bytes, so it normally rewrites the value already stored; it decides *differently* only across a release that changed the classifier, and #62 was such a release.
+
+So the window is **effectively unreachable** — it needs a forced re-fetch of a message whose stored classification predates a classifier change, overlapping this statement — rather than closed. An earlier revision of this decision said "nothing does the third", which was true of `backfillClassification` and not of the primary path. The concurrent case that actually occurs, body-sync filling in the copy of a category the message already holds, makes the row *agree* on the re-check and is written by neither party. `crossed` is the figure that reports the loss if it ever happens.
+
+A residual is not silent, and it is not promised a quick end. The next run of the repair is the next start of the migrate one-shot, which on a self-host instance means the next `remit update` — weeks, not minutes — so the residual is reported split by cause: rows a writer touched during the statement, whose value is correct and merely unchecked, and rows whose `updated_at` is ahead of the database clock, which fail the guard on *every* run until the stamp is corrected. A clock that jumped before NTP settled, or a restored backup, produces the second; conflating the two would promise a self-healing that never comes.
+
+A row whose message has no body yet has nothing to copy and stays `uncategorized`, correctly — body-sync will fill it, and after #326 it will fill every row for that message.
+
+**The write only happens when there is something to write.** SQLite takes its exclusive write lock when an `UPDATE` begins, before it can know the `WHERE` matches nothing — measured: with zero divergence and another connection holding the lock, the statement raises `SQLITE_BUSY`. Since the steady state after the first run *is* zero, an unconditional statement would contend for that lock on every boot forever, and a lock it cannot acquire within the migrator's `busy_timeout = 5000` fails the migration and holds all six gated services down. The check that precedes the repair already produces the number, so the repair is skipped when it is zero. Reads take no write lock, so the check itself is safe against a live writer.
+
+Buys: the filter cannot go live against a stale column on any instance, by any upgrade path, and a healthy instance's boot costs two aggregate reads and no lock. Gives up: a stated invariant in `run-migrate.ts` is amended rather than preserved, and every update pays those reads.
 
 Failure case: the repair is added to the compose file instead of the image, and an operator who runs `remit update` gets the new client, the new server and no repair. The guard is that #321 touches no compose file.
 
@@ -201,9 +229,27 @@ The same entrypoint takes `--check`, writes nothing, and reports: rows where `th
 
 The runtime is logged, not estimated. Earlier drafts asserted "milliseconds" and "seconds"; those were guesses, and the log makes them measurements.
 
-Verification is the live instance, not a fixture: `--check`, record, repair, `--check` again, expecting zero divergence and an unchanged not-yet-classified cohort. The architecture doc's measurement predicts near-zero divergence for INBOX, and D15's defects 2 and 3 predict non-zero divergence in mailboxes holding a second copy of an INBOX message — Archive and label folders. `--check` settles which. If divergence is zero everywhere that is the result and it gets reported; the repair still ships, because the defects are in the write path and untested instances are not this instance.
+**The prediction of non-zero divergence in Archive and label folders was wrong, and the correct answer is zero.** `deriveMessageId` and `deriveThreadMessageId` are both mailbox-independent, so a message in INBOX and Archive collapses to one `thread_message` row via `onConflictDoNothing` and `applyChange` never reaches `saveMessage` (`packages/mailbox-service/src/message-move.ts:709-717`). The multi-row fan-out D15's defects 2 and 3 describe is schema-legal but not normally produced, which is why #326 keeps it as hardening. So most of what `--check` reports is legitimately zero, and a bare `0` cannot be told apart from a repair that never ran.
 
-Buys: the repair's effect is a recorded number on a real corpus rather than a claim. Gives up: a second read pass on every update.
+`--check` therefore reports each figure with the cause it measures and the result a healthy instance is expected to produce (#321), and the causes are split by *direction*, because the direction is the cause:
+
+1. **`behind`** — the row is pending, its message is classified: the copy of a decided category never landed. All three of the write-path defects #326 fixes end here, and only here. This is the cohort the repair exists for. Expected non-zero on an instance where any of them fired.
+2. **`crossed`** — both classified, differently. No write path leaves a row here: the row and the message take the same `classifyByHeaders` value off the same bytes in the same pass (`updateSnippets` then the single Message update), so a re-classification moves both — which is why the re-enterable `force` path does not make this expectation weaker. Repaired. Expected zero; a non-zero means the pair was interrupted between its two writes — a forced re-fetch that re-decided the category and died before the message write — or a database edited outside the app.
+3. **`ahead`** — the row is classified, its message is pending. After #326 that is a classification in flight. Not repaired. Expected **non-zero on a live instance mid-sync**, zero on a quiescent one.
+4. **`fan-out`**, **`orphans`** — expected zero, each for a stated structural reason.
+5. **`not-yet-classified`** — expected non-zero on a live instance, and untouched by the repair.
+
+**An earlier revision of this document, and of #321, gave `behind` the wrong cohort**: mail classified before 2026-07-08 plus a Postgres instance whose column arrived by `drizzle push` with its default. Neither can occur on the deployment this ships to. `ThreadMessage.category` landed 2026-07-08; the SQLite backend and its baseline migration both landed 2026-07-18 with `category text DEFAULT 'uncategorized' NOT NULL` already inside `CREATE TABLE`, so no SQLite instance ever saw an `ADD COLUMN … DEFAULT` and none has a corpus predating the column. `requirePostgresMigrations()` makes Postgres self-host unsupported in this build, so the stamped-by-push cohort is a deployment this repair never meets. A cause an operator can rule out by inspection is worse than no cause at all: it reads as a broken figure, which is the misreading this decision exists to prevent, pointing the other way.
+
+After the repair it re-reads only the residual, so "nothing to do" is distinguishable from "did not run" — a repair that never ran logs no repair line at all.
+
+**Measured on the owner's instance, read-only, 2026-07-26.** 17,795 `thread_message` rows across seven mailboxes (14,187 in INBOX): zero divergence in every bucket, zero orphans, zero fan-out, and no `uncategorized` rows at all — `newsletter=5197 personal=5192 marketing=4111 automated=2759 transactional=440 social=96`, matching `message` exactly.
+
+**What explains that zero is that none of #326's three defects has fired on this corpus.** Post-dating the column is necessary and not sufficient: the paths that denormalize are exactly the three that are still defective on `main`, so a row written after 2026-07-08 is not therefore a correct row. Each defect needs an uncommon trigger — a failure between two writes, thread-root drift producing a second row for one message, or a row created for a message that was already classified — and none of them has occurred here.
+
+So the repair is a **no-op on this instance**, and that is the right result. The install it is for is one where a defect did fire, which is the whole live cohort of the SQLite self-host product: the `ADD COLUMN … DEFAULT` cohort is a Postgres story and Postgres self-host is unsupported in this build. That is a good reason to ship it, and a different one from the reason first written down.
+
+Buys: the repair's effect is a recorded number on a real corpus rather than a claim, and each zero is attributable. Gives up: a second read pass on every update.
 
 ## Part 4 — the cutover
 
@@ -307,7 +353,7 @@ Buys: the component that renders this epic's symptom finally has a story, review
 
 **Why is the epic so much smaller than the audit?** One derivation causes the reported bug and fifteen are debt. The debt is filed, not forgotten. Shipping the fix does not require shipping the migration.
 
-**If the live instance's INBOX already agrees on every row, why repair anything?** Nothing has ever read the column, so nothing has ever depended on its write path, and three of the four defects produce divergence in mailboxes holding a second copy of a message — Archive and label folders, not INBOX. `--check` reports the real number before anything is written.
+**If the live instance's INBOX already agrees on every row, why repair anything?** Because the instance that agrees is not the instance the repair is for. Nothing has ever read the column, so nothing has ever depended on its write path, and the rows at risk are the ones a #326 defect touched: a classification stranded between its two writes, a denormalize that wrote one of several rows for a message, or a row created for a message that was already classified. Each needs an uncommon trigger, none has fired on the owner's corpus, and every one of them is silent until #328 makes the column the predicate. `--check` reports the real number, per cause, before anything is written.
 
 **Why is this repair automatic when the `listId` backfill is manual?** Forward-only matching was an accepted outcome for `listId` (#263 says so). Skipping this one means the filter goes live against a stale column and the reported bug persists with nothing masking it.
 

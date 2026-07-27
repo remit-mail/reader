@@ -169,7 +169,7 @@ itself (Settings → Add account).
 | `backend` | `ghcr.io/remit-mail/reader/backend` | The API. Also the image the `migrate` and `volume-init` one-shots run. |
 | `imap-worker`, `smtp-worker`, `account-worker`, `search-index-worker` | `ghcr.io/remit-mail/reader/*` | Queue pollers: sync mail, push flag and folder changes back, send outgoing mail, and build the search index. |
 | `queue` | `ghcr.io/remit-mail/reader/queue-sidecar` | The SQS-compatible queue seam: a SQLite-backed sidecar speaking the SQS wire protocol, persisting enqueued work to its own volume. |
-| `migrate` | `ghcr.io/remit-mail/reader/backend` (command override) | One-shot: applies the SQLite migrations and the FTS5 search index before any app service starts. |
+| `migrate` | `ghcr.io/remit-mail/reader/backend` (command override) | One-shot: applies the SQLite migrations, repairs `thread_message.category`, and installs the FTS5 search index before any app service starts. See [The category repair](#the-category-repair). |
 | `volume-init` | `ghcr.io/remit-mail/reader/backend` (entrypoint override) | One-shot: fixes ownership of the data volumes so the non-root app user can write them. |
 | `backup` | `alpine:3.23` | Off by default (`profiles: ["backup"]`). Nightly encrypted database snapshot. See [Backups](#backups). |
 | `dozzle` | `amir20/dozzle` | Off by default (`profiles: ["observability"]`). Live log tail and search. Binds `127.0.0.1` only. See [Looking at the box](#looking-at-the-box). |
@@ -187,6 +187,32 @@ The idle footprint stays small: removing a database server leaves the embedding
 model in `search-index-worker` as the largest resident once indexing has run.
 The `observability` profile adds about 30 MB resident on top of that, measured
 rather than estimated — see [Looking at the box](#looking-at-the-box).
+
+## The category repair
+
+The mail list filters on `thread_message.category`, a copy of `message.category`
+kept on the row so the filter can be a SQL predicate over the whole folder rather
+than a pass over the pages a browser happens to hold. The `migrate` one-shot
+repairs any row whose copy disagrees, and logs what it found before and after —
+so an upgrade leaves the numbers behind instead of an assumption. It runs one
+statement, writes only rows that need it, and issues no write at all once there
+is nothing left to repair.
+
+To look without waiting for an update:
+
+```bash
+remit check-categories
+```
+
+That reports and changes nothing — the database is opened read-only on SQLite and
+the session refuses writes on Postgres — and prints each figure with the cause it
+measures and the result a healthy instance is expected to produce. Most of them
+are zero, for reasons the output states. Two are not defects:
+
+- **ahead** counts rows classified while their message is still pending. That is
+  a classification in flight, so on a syncing instance it is expected and clears
+  itself. Those rows are left alone.
+- **not-yet-classified** counts mail the classifier has not reached.
 
 ## Search
 
