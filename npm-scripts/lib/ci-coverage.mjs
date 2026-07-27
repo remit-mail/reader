@@ -20,6 +20,22 @@
 //   3. every `*.test.mjs` file is either collected by the runner `test:ci`
 //      drives or reached directly, so a suite nothing runs is an error.
 //
+// Claim 2 counts what CI actually collects, not what the runner would collect
+// if CI asked for everything. `test:ci` takes a `TEST_EXCLUDE` list from the
+// workflow that runs it and drops those packages from the run, so the guard
+// reads that list out of the same workflow files it reads the job steps from
+// (#448). Seeding the guard with an unexcluded discovery let one word in
+// `ci.yml` delete a package's whole suite and still report green — the hole the
+// guard exists to close, one level up.
+//
+// An excluded package is not automatically uncovered: web-client is excluded
+// because its suite fans out across the shard matrix, which runs
+// `packages/web-client/scripts/test-shard.mjs` rather than `npm run test:run -w`.
+// That is coverage by another route, so the guard learns it from the runner file
+// CI reaches rather than from an allow-list naming the package. Naming it would
+// claim the suite cannot run, which is false, and would re-bury #448 under an
+// exemption.
+//
 // Claim 2 is per package, never per name. `npm run test:unit` reaches whichever
 // package the invocation names — `-w`, `--workspace`, or `--prefix`, by
 // directory or by package name — and `--workspaces` reaches all of them. An
@@ -34,6 +50,8 @@
 // script that runs no tests satisfies this guard in silence. Reaching for it as
 // proof that a suite has tests is a misread — it proves only that a suite with
 // tests would have run them.
+import { WORKSPACE_SCRIPT } from "./workspace-suites.mjs";
+
 // The script name plus the rest of its command, which is where the flags that
 // say *which* package it runs in live. Cut at the first shell separator so a
 // second command on the same line cannot lend its `-w` to the first.
@@ -49,6 +67,14 @@ const FILE_ARGUMENT = /[\w./-]+\.(?:mjs|cjs|js|sh)/g;
 // script, and the command form above cannot see across the argument array.
 const QUOTED_PATH = /["'`]([\w./-]+\.(?:mjs|cjs|js|sh))["'`]/g;
 const GUARDED_PREFIXES = ["test:", "check:"];
+// The env var `test-parallel.mjs` reads, wherever a workflow sets it. Only a
+// literal value is legible: a list built from a repository variable or a matrix
+// expression is invisible to a textual guard, and reaches `discoverWorkspaces`
+// as a name matching no workspace, which is an error rather than a silent pass.
+const TEST_EXCLUDE = /^[^\S\n]*TEST_EXCLUDE:[^\S\n]*(\S.*)$/gm;
+// node's own test runner, spawned as an argument. `--test-reporter` and
+// `--test-coverage-include` are not it.
+const DRIVES_NODE_TEST = /(?:^|[^\w-])--test(?![\w-])/;
 
 // A `#` line in a workflow, or a `//` line in a script, names work without
 // running it: `images.yml` documents `npm run images:publish` in its header
@@ -61,6 +87,64 @@ export function stripComments(text, kind) {
 		.replace(/\/\*[\s\S]*?\*\//g, "")
 		.replace(/^\s*\/\/.*$/gm, "")
 		.replace(/(\s)\/\/.*$/gm, "$1");
+}
+
+// The packages CI hands to `test:ci` as `TEST_EXCLUDE`, read from the workflow
+// files rather than taken as an argument so the guard and the runner cannot
+// drift — drifting is the failure this closes, not a side effect of it.
+//
+// The union across every occurrence, because a name CI drops anywhere is a name
+// the guard must account for. Two jobs excluding different packages would
+// over-report, and that is the safe direction: over-reporting is visible on the
+// commit that adds the second job, an unrun suite is not.
+export function testExclusions(workflowSources) {
+	const names = new Set();
+	for (const source of workflowSources) {
+		for (const [, value] of stripComments(source, "yaml").matchAll(
+			TEST_EXCLUDE,
+		)) {
+			for (const name of value.replace(/^["']|["']$/g, "").split(",")) {
+				if (name.trim()) names.add(name.trim());
+			}
+		}
+	}
+	return [...names].sort();
+}
+
+// Exclusions the runner was handed that no workflow file declares. The guard
+// reads `TEST_EXCLUDE` out of the workflow text, so an exclusion arriving any
+// other way — a repository variable, an exported shell var, a composite action
+// — is one the guard cannot see, and it would drop a package's whole suite from
+// a run that still reports green. Checked in the direction that leaves local
+// runs alone: excluding less than the workflows declare is fine, excluding
+// something they do not is the hole.
+export function undeclaredExclusions(exclude, workflowSources) {
+	const declared = new Set(testExclusions(workflowSources));
+	return exclude.filter((name) => !declared.has(name));
+}
+
+// The packages whose suite a reached runner file runs. A package's tests do not
+// have to arrive through `npm run test:run -w <package>`: web-client's arrive
+// through the shard matrix, which runs a file inside the package. The file has
+// to be reached by CI and has to drive node's test runner, so a build script or
+// a coverage merger that happens to sit in the package excuses nothing.
+export function workspacesWithReachedRunner({
+	workspaces,
+	reachedFiles,
+	readFile,
+}) {
+	const covered = new Set();
+	for (const file of reachedFiles) {
+		const source = readFile(file);
+		if (source === null) continue;
+		if (!DRIVES_NODE_TEST.test(stripComments(source, "js"))) continue;
+		// The innermost package containing the runner owns it.
+		const owner = workspaces
+			.filter((workspace) => file.startsWith(`${workspace.dir}/`))
+			.sort((a, b) => b.dir.length - a.dir.length)[0];
+		if (owner) covered.add(owner);
+	}
+	return [...covered];
 }
 
 // Where an `npm run` lands: `"*"` for every workspace, a package's directory or
@@ -153,6 +237,7 @@ export function coverageViolations({
 	testFiles,
 	collectedFiles,
 	collectedScripts = [],
+	excludedWorkspaces = [],
 	readFile = () => null,
 	allowUnreachable = {},
 }) {
@@ -179,6 +264,7 @@ export function coverageViolations({
 	const isTargeted = (run, workspace) =>
 		run.target === "*" || targets(workspace).includes(run.target);
 
+	const excludedSet = new Set(excludedWorkspaces);
 	const reachedInWorkspace = new Set(collectedScripts);
 	const reach = (workspace, name) => {
 		const id = workspaceScriptId(workspace.dir, name);
@@ -187,6 +273,13 @@ export function coverageViolations({
 		return true;
 	};
 
+	for (const workspace of workspacesWithReachedRunner({
+		workspaces,
+		reachedFiles,
+		readFile,
+	})) {
+		reach(workspace, WORKSPACE_SCRIPT);
+	}
 	for (const workspace of workspaces) {
 		for (const run of workspaceRuns) {
 			if (isTargeted(run, workspace)) reach(workspace, run.name);
@@ -223,6 +316,10 @@ export function coverageViolations({
 			Object.keys(workspace.scripts).map((name) => ({
 				id: workspaceScriptId(workspace.dir, name),
 				name,
+				excluded:
+					name === WORKSPACE_SCRIPT && excludedSet.has(workspace.dir)
+						? workspace.dir
+						: null,
 				reached: () =>
 					reachedInWorkspace.has(workspaceScriptId(workspace.dir, name)),
 			})),
@@ -242,6 +339,15 @@ export function coverageViolations({
 		}
 		// A missing reason is reported once, below, rather than twice here.
 		if (entry.id in allowUnreachable) continue;
+		// An excluded package's suite reads as wired — `test:ci` is in a job step
+		// — while running nowhere, so the message has to name the exclusion or the
+		// reader goes looking for a step that is already there (#448).
+		if (entry.excluded) {
+			violations.push(
+				`script "${entry.id}" runs nowhere: TEST_EXCLUDE drops ${entry.excluded} from test:ci and no runner CI reaches runs its tests — take it out of TEST_EXCLUDE, or point a job at a runner inside the package`,
+			);
+			continue;
+		}
 		violations.push(
 			`script "${entry.id}" is not reached by any workflow: name it in a job step, or drop it`,
 		);
