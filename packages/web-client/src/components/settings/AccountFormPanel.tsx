@@ -6,7 +6,14 @@ import {
 	configOperationsGetConfigQueryKey,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
-import { Button, Input, Select, SlidePanel, securityToApi } from "@remit/ui";
+import {
+	Button,
+	Input,
+	PasswordInput,
+	Select,
+	SlidePanel,
+	securityToApi,
+} from "@remit/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, Loader2, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -580,12 +587,11 @@ export const AccountFormPanel = ({
 							>
 								Password
 							</label>
-							<Input
+							<PasswordInput
 								id="account-password"
 								{...form.register("password", {
 									onChange: () => setPasswordModified(true),
 								})}
-								type="password"
 								onFocus={() => {
 									// Clear placeholder when user focuses the field
 									if (isEditing && !passwordModified) {
@@ -862,10 +868,9 @@ export const AccountFormPanel = ({
 									>
 										SMTP Password
 									</label>
-									<Input
+									<PasswordInput
 										id="smtp-password"
 										{...form.register("smtpPassword")}
-										type="password"
 									/>
 								</div>
 							</>

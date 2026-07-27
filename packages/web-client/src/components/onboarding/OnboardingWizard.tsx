@@ -34,6 +34,7 @@ import {
 	FieldLabel,
 	Input,
 	Kbd,
+	PasswordInput,
 	Select,
 	ServerFields,
 	securityToApi,
@@ -766,9 +767,8 @@ function StepCredentials({
 					<FieldLabel htmlFor="credentials-password">
 						Password or app password
 					</FieldLabel>
-					<Input
+					<PasswordInput
 						id="credentials-password"
-						type="password"
 						value={localPassword}
 						onChange={(e) => {
 							setLocalPassword(e.target.value);

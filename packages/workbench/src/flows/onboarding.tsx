@@ -7,6 +7,7 @@ import {
 	FieldLabel,
 	Input,
 	Kbd,
+	PasswordInput,
 	Select,
 	ServerFields,
 	WizardShell,
@@ -368,10 +369,9 @@ export function StepCredentials({ onBack, onNext }: StepNav = {}) {
 					<FieldLabel htmlFor="credentials-password">
 						Password or app password
 					</FieldLabel>
-					<Input
+					<PasswordInput
 						id="credentials-password"
-						type="password"
-						defaultValue="••••••••••••"
+						defaultValue="hunter2-app-password"
 					/>
 				</div>
 				<AppPasswordHint url="#app-passwords" />

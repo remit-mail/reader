@@ -153,10 +153,13 @@ export {
 	type LabelOption,
 	type MatchOperator,
 	matchJoinWord,
+	matchModeHint,
+	matchModeLabel,
 	matchOperatorLabel,
 	type PreviewCount,
 	previewCountSummary,
 	type RuleClause,
+	type RuleMatchMode,
 	type RuleScope,
 	type RuleWiden,
 	scopeLabel,
@@ -302,6 +305,10 @@ export {
 	type OutboxStatusBadgeProps,
 	outboxStatusConfig,
 } from "./components/outbox-status-badge.js";
+export {
+	PasswordInput,
+	type PasswordInputProps,
+} from "./components/password-input.js";
 export {
 	PopoverMenu,
 	type PopoverMenuItem,

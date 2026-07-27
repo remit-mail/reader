@@ -5,6 +5,7 @@ import {
 	Banner,
 	Button,
 	Input,
+	PasswordInput,
 } from "@remit/ui";
 import { type FormEvent, type ReactNode, useState } from "react";
 import { AppShellSkeleton } from "@/components/layout/AppShellSkeleton";
@@ -161,9 +162,8 @@ export const SignInForm = () => {
 						<label htmlFor="ba-password" className="text-fg-muted">
 							Password
 						</label>
-						<Input
+						<PasswordInput
 							id="ba-password"
-							type="password"
 							autoComplete={
 								activeMode === "signUp" ? "new-password" : "current-password"
 							}

@@ -12,6 +12,11 @@ export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
 	 * rows where the surrounding container owns the chrome.
 	 */
 	variant?: InputVariant;
+	/**
+	 * Optional trailing control rendered inside the field, after the input —
+	 * it takes its own space in the row, so it never covers the typed value.
+	 */
+	trailing?: ReactNode;
 	/** Forwarded to the underlying `<input>`. */
 	ref?: Ref<HTMLInputElement>;
 }
@@ -28,6 +33,7 @@ export function Input({
 	icon,
 	className,
 	variant = "default",
+	trailing,
 	ref,
 	...props
 }: InputProps) {
@@ -39,6 +45,7 @@ export function Input({
 				className="min-w-0 flex-1 bg-transparent text-fg placeholder:text-fg-subtle outline-none"
 				{...props}
 			/>
+			{trailing}
 		</div>
 	);
 }
