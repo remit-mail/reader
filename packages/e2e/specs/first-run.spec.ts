@@ -6,6 +6,10 @@
  * One sign-up per run, on purpose — better-auth rate-limits registration, and a
  * spec that trips that limit fails for a reason that has nothing to do with what
  * it is testing.
+ *
+ * The password field is located exactly: it sits next to the reveal toggle,
+ * whose accessible name is "Show password" / "Hide password", so a substring
+ * match on "Password" is ambiguous.
  */
 import { expect, test } from "../src/fixtures.js";
 
@@ -23,7 +27,9 @@ test.describe("First run", () => {
 
 		await page.getByLabel("Name").fill("First Run");
 		await page.getByLabel("Email").fill(`first-run-${Date.now()}@remit.test`);
-		await page.getByLabel("Password").fill("first-run-password-1234");
+		await page
+			.getByLabel("Password", { exact: true })
+			.fill("first-run-password-1234");
 		await page.locator('form button[type="submit"]').click();
 
 		// No account is connected, so the app must offer to connect one rather
@@ -50,7 +56,7 @@ test.describe("First run", () => {
 	}) => {
 		await page.goto("/");
 		await page.getByLabel("Email").fill(run.email);
-		await page.getByLabel("Password").fill(run.password);
+		await page.getByLabel("Password", { exact: true }).fill(run.password);
 		await page.locator('form button[type="submit"]').click();
 
 		await expect(

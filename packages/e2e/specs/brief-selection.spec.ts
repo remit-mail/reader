@@ -4,16 +4,17 @@
  * The brief renders its own rows through the kit's section components, a
  * different surface from the mailbox list's virtualizer. The phone brief used
  * to mount those rows without the bulk verbs, so a selection could be made but
- * raised no action bar — selectable, and nothing to do with it. These assert
- * the brief now raises the same selection bar the mailbox list does and that
- * its Delete acts on the selection.
+ * raised no action bar — selectable, and nothing to do with it. The brief now
+ * mounts the mailbox list's selection surface, so these assert the brief's
+ * selection behaves exactly as the inbox's does: the peeking sheet rises at two
+ * selected and not at one, and its Delete acts on the selection.
  *
  * Driven at the tablet width the bug was reported on (800×1106): still a
- * single-pane layout (< 1024px), so the phone brief renders, and wide enough
- * (≥ 640px) that the row's leading selection toggle is laid out and tappable —
- * so selection is entered with a tap on it, not a long press. Scratch messages,
- * tagged per run, are appended and deleted through the UI so the shared serial
- * inbox other specs count exactly is left as it was.
+ * single-pane layout (< 1024px), so the touch selection sheet is the surface,
+ * and wide enough (≥ 640px) that the row's leading selection toggle is laid out
+ * and tappable — so selection is entered with a tap on it, not a long press.
+ * Scratch messages, tagged per run, are appended and deleted through the UI so
+ * the shared serial inbox other specs count exactly is left as it was.
  */
 import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "../src/fixtures.js";
@@ -33,14 +34,36 @@ const briefRow = (page: Page, subject: string): Locator =>
 const rowToggle = (row: Locator): Locator =>
 	row.getByRole("button", { name: /^(Select|Deselect) message$/ });
 
-/** SelectionToolbar's count label — the brief's bar, shared with desktop. */
-const selectionCount = (page: Page): Locator =>
-	page.getByText(/\d+ messages? selected/);
+/** The peeking sheet, identified by its stable data hook. */
+const selectionSheet = (page: Page): Locator =>
+	page.locator("[data-selection-sheet]");
+
+/** The sheet's count/status line (its first `role="status"`). */
+const selectionStatus = (page: Page): Locator =>
+	selectionSheet(page).getByRole("status").first();
+
+const grabber = (page: Page): Locator =>
+	page.getByRole("slider", { name: /(Expand|Collapse) selection actions/ });
+
+const cancelSelectionButton = (page: Page): Locator =>
+	page.getByRole("button", { name: "Cancel selection" });
 
 const deleteButton = (page: Page): Locator =>
-	page.getByRole("button", { name: "Delete selected messages" });
+	page.getByRole("button", { name: "Move selected messages to Trash" });
 
 const confirmDialog = (page: Page): Locator => page.getByRole("dialog");
+
+/** Tap the grabber to expand the sheet, until the in-sheet actions are reachable. */
+const expandSheet = async (page: Page): Promise<void> => {
+	if (
+		await cancelSelectionButton(page)
+			.isVisible()
+			.catch(() => false)
+	)
+		return;
+	await grabber(page).click();
+	await expect(cancelSelectionButton(page)).toBeVisible();
+};
 
 test.describe("Daily brief selection (#203)", () => {
 	const tag = `briefsel${Date.now()}`;
@@ -72,30 +95,35 @@ test.describe("Daily brief selection (#203)", () => {
 		if (leftover.length > 0) await api.deleteMessages(leftover);
 	});
 
-	test("selecting in the brief raises the action bar and Delete acts on the selection", async ({
+	test("selecting in the brief raises the action sheet and Delete acts on the selection", async ({
 		page,
 		run,
 		api,
 	}) => {
 		await rowToggle(briefRow(page, subjects[0])).click();
-		await expect(selectionCount(page)).toHaveText("1 message selected");
-
-		// The action bar exists at all — the whole of #203.
-		await expect(deleteButton(page)).toBeVisible();
+		// One selected: selection mode is entered but the sheet stays down — the
+		// mailbox list's threshold, which the brief now shares.
+		await expect(rowToggle(briefRow(page, subjects[0]))).toHaveAccessibleName(
+			"Deselect message",
+		);
+		await expect(selectionSheet(page)).toBeHidden();
 
 		await rowToggle(briefRow(page, subjects[1])).click();
-		await expect(selectionCount(page)).toHaveText("2 messages selected");
+		// The action sheet exists at all — the whole of #203.
+		await expect(selectionSheet(page)).toBeVisible();
+		await expect(selectionStatus(page)).toHaveText("2 messages selected");
 		await expect(page).not.toHaveURL(/selectedMessageId=/);
 
+		await expandSheet(page);
 		await deleteButton(page).click();
-		await confirmDialog(page)
-			.getByRole("button", { name: "Move to Trash" })
-			.click();
+		const dialog = confirmDialog(page);
+		await expect(dialog).toHaveAccessibleName("Move 2 messages to Trash?");
+		await dialog.getByRole("button", { name: "Move to Trash" }).click();
 
 		// The brief stays on the list — no message opens — and the selected rows
 		// leave it.
 		await expect(page).not.toHaveURL(/selectedMessageId=/);
-		await expect(selectionCount(page)).toBeHidden();
+		await expect(selectionSheet(page)).toBeHidden();
 		await expect(briefRow(page, subjects[0])).toBeHidden();
 		await expect(briefRow(page, subjects[1])).toBeHidden();
 
