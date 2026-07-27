@@ -990,10 +990,20 @@ could be produced, so it is a monitoring check as it stands:
 */5 * * * * remit doctor >/dev/null || logger -t remit "degraded"
 ```
 
-A signal that cannot be evaluated is `degraded`, never healthy. If the `doctor`
-container is not running, or docker refuses the exec, that is what you get —
-`degraded`, exit `2`, and the reason `checker_unreachable`. A healthy verdict
-from a check that failed to look is the one answer this command never gives.
+A signal that cannot be evaluated is `degraded`, never healthy — and so is a
+verdict the wrapper cannot stand behind. Exit `2` with the reason
+`checker_unreachable` covers all of it: the `doctor` container is not running,
+docker refuses the exec, the exec does not come back at all (it is capped;
+raise `REMIT_DOCTOR_TIMEOUT` if your box needs longer), the verdict on stdout
+disagrees with the exit code the exec returned, or the `--json` document
+arrives truncated. In every one of those the checker's output is discarded
+rather than printed. A healthy verdict from a check that failed to look, or an
+exit `0` under the word `degraded`, are the two answers this command never
+gives.
+
+`checker_unreachable` is the wrapper's own code, and the only one not in the
+[reason table](#alerts) — nothing in the alert path can produce it, because it
+describes the checker rather than the stack.
 
 `--json` emits the same verdict as `{ verdict, checkedAt, summary, reasons }`,
 including for that case, so a script parses one shape whatever happened. The
@@ -1015,13 +1025,25 @@ down, but a message that lands in a DLQ is not automatically retried or drained
 `remit doctor` reports a non-empty dead-letter queue by name, across all of
 them, and exits non-zero. That is how to find out; run it from anywhere.
 
+Per-queue depth, rather than the total, is `remit_queue_messages{queue,role}` in
+the [metrics](#metrics) endpoint.
+
 A non-zero DLQ is a signal to look at, not a resolved failure. Draining one is
-still manual SQS work against the `queue` container — `Action=ReceiveMessage`
-on the `-dlq` queue for the message body, then `SendMessage` back to the source
-queue and `DeleteMessage` from the DLQ once you have fixed the bug or the bad
-data, or `DeleteMessage` alone to discard it. Any SQS-compatible client works;
-the container's own `node` speaks the wire protocol over `http://localhost:9324`
-in the same shape the [metrics](#metrics) read above uses.
+manual SQS work: `ReceiveMessage` on the `-dlq` queue for the body, then
+`SendMessage` back to the source queue and `DeleteMessage` from the DLQ once you
+have fixed the bug or the bad data — or `DeleteMessage` alone to discard it. Any
+SQS-compatible client works. The `queue` image ships `node`, so the wire
+protocol is reachable from inside the container; the actions are form-encoded
+POSTs, unlike the plain GET the metrics read uses:
+
+```bash
+docker compose -f docker-compose.sqlite.yml --env-file .env exec queue \
+  node -e 'const b="Action=ReceiveMessage&QueueUrl=http://localhost:9324/000000000000/remit-body-dlq&Version=2012-11-05";const r=require("http").request("http://localhost:9324/",{method:"POST",headers:{"content-type":"application/x-www-form-urlencoded"}},s=>{let d="";s.on("data",c=>d+=c);s.on("end",()=>console.log(d))});r.end(b)'
+```
+
+`SendMessage` adds `&MessageBody=…`, `DeleteMessage` takes `&ReceiptHandle=…`
+from the receive. This is an escape hatch — `remit` has no command for it; run
+it from the install directory.
 
 ## Security notes
 

@@ -72,7 +72,8 @@ const DEGRADED_JSON = `${JSON.stringify(
 
 /**
  * @param {{ checkerRunning?: boolean, lines?: string, json?: string,
- *   stderr?: string, exitCode?: number }} options
+ *   stderr?: string, exitCode?: number, hang?: boolean, timeout?: number,
+ *   hangSeconds?: number }} options
  */
 function sandbox({
 	checkerRunning = true,
@@ -80,6 +81,9 @@ function sandbox({
 	json = "",
 	stderr = "",
 	exitCode = 0,
+	hang = false,
+	timeout = 0,
+	hangSeconds = 0,
 } = {}) {
 	const dir = mkdtempSync(join(TMP_ROOT, "remit-doctor-"));
 	sandboxes.push(dir);
@@ -94,7 +98,12 @@ function sandbox({
 	const services = ["queue", "backend", "caddy", "doctor"];
 	writeFileSync(
 		join(fake, "scenario"),
-		[`services=${services.join(" ")}`, `exec_exit=${exitCode}`, ""].join("\n"),
+		[
+			`services=${services.join(" ")}`,
+			`exec_exit=${exitCode}`,
+			`exec_mode=${hang ? "hang" : "run"}`,
+			"",
+		].join("\n"),
 	);
 	for (const [index, svc] of services.entries()) {
 		writeFileSync(join(fake, `cid-${svc}`), `c${svc}${index}`);
@@ -116,9 +125,12 @@ function sandbox({
 		HOME: dir,
 		FAKE_DOCKER_DIR: fake,
 		REMIT_DIR: deployment,
+		...(timeout ? { REMIT_DOCTOR_TIMEOUT: String(timeout) } : {}),
+		...(hangSeconds ? { FAKE_EXEC_HANG: String(hangSeconds) } : {}),
 	};
 
 	return {
+		env,
 		run(args) {
 			return spawnSync("sh", [REMIT, ...args], { env, encoding: "utf8" });
 		},
@@ -306,18 +318,172 @@ describe("the checker dies before producing a verdict", () => {
 	});
 });
 
+describe("the verdict on stdout and the exit code disagree", () => {
+	// The one that matters. An exec that prints `degraded` and exits 0 makes
+	// `remit doctor || alert` a line that never fires while the operator's
+	// screen says the stack is broken. Neither answer can be trusted over the
+	// other, so both are discarded and the disagreement is the finding.
+	const box = sandbox({ lines: DEGRADED_LINES, exitCode: 0 });
+	const result = box.run(["doctor"]);
+
+	it("never exits 0 while printing degraded", () => {
+		assert.equal(result.status, 2);
+	});
+
+	it("discards the output it will not stand behind", () => {
+		assert.doesNotMatch(result.stdout, /dead_letter_queue_not_empty/);
+		assert.match(result.stdout, /^reason checker_unreachable /m);
+	});
+
+	it("names the disagreement", () => {
+		assert.match(
+			result.stdout,
+			/^detail checker_unreachable the checker printed the verdict 'degraded' and exited 0$/m,
+		);
+	});
+});
+
 describe("the exec is killed after the verdict is printed", () => {
-	// 137 is not a verdict code. A stack that printed `degraded` and then lost
-	// its exec is still not healthy, so the exit code is not passed through raw.
+	// 137 is not a verdict code either, and a verdict from a process that did
+	// not finish normally is not one to hand a monitor.
 	const box = sandbox({ lines: DEGRADED_LINES, exitCode: 137 });
 	const result = box.run(["doctor"]);
 
-	it("reports non-zero, in the vocabulary the exit codes define", () => {
-		assert.equal(result.status, 1);
+	it("reports no verdict", () => {
+		assert.equal(result.status, 2);
+		assert.match(result.stdout, /exited 137/);
+	});
+});
+
+describe("a healthy verdict from an exec that exited non-zero", () => {
+	const box = sandbox({ lines: HEALTHY_LINES, exitCode: 1 });
+	const result = box.run(["doctor"]);
+
+	it("is never reported as healthy", () => {
+		assert.equal(result.status, 2);
+		assert.match(result.stdout, /^verdict degraded$/m);
+		assert.match(
+			result.stdout,
+			/^detail checker_unreachable the checker printed the verdict 'healthy' and exited 1$/m,
+		);
+	});
+});
+
+describe("the verdict value is outside the vocabulary", () => {
+	for (const [label, value] of [
+		["empty", ""],
+		["unknown", "is not a thing"],
+	]) {
+		describe(label, () => {
+			const box = sandbox({
+				lines: `verdict ${value}\nchecked-at 2026-07-27T08:50:01.029Z\nsummary x\n`,
+				exitCode: 0,
+			});
+			const result = box.run(["doctor"]);
+
+			it("exits 2 rather than reading the record's presence as healthy", () => {
+				assert.equal(result.status, 2);
+				assert.match(result.stdout, /^reason checker_unreachable /m);
+			});
+		});
+	}
+});
+
+describe("the JSON document arrives truncated", () => {
+	// The checker writes stdout and then exits, which drops a pending write on
+	// a pipe — and `compose exec -T` makes stdout a pipe. The verdict long
+	// enough to hit that is a degraded one with several reasons on it, so a
+	// half-object must not read as the healthy verdict it happens to start with.
+	const box = sandbox({
+		json: '{\n  "verdict": "healthy",\n  "reas',
+		exitCode: 0,
+	});
+	const result = box.run(["doctor", "--json"]);
+
+	it("exits 2", () => {
+		assert.equal(result.status, 2);
 	});
 
-	it("still prints what the checker managed to say", () => {
-		assert.equal(result.stdout, DEGRADED_LINES);
+	it("emits a document that parses, instead of the fragment", () => {
+		const parsed = JSON.parse(result.stdout);
+		assert.equal(parsed.verdict, "degraded");
+		assert.equal(parsed.reasons[0].code, "checker_unreachable");
+		assert.match(parsed.reasons[0].detail, /did not close/);
+	});
+});
+
+describe("the exec succeeds and says nothing", () => {
+	// Exit 0 on purpose: the only other empty-stdout case here carries the
+	// checker's own 2, so without this the wrapper could start trusting the
+	// exit code and nothing would notice.
+	it("reports no verdict rather than a healthy stack", () => {
+		const result = sandbox({ lines: "", exitCode: 0 }).run(["doctor"]);
+		assert.equal(result.status, 2);
+		assert.match(result.stdout, /^reason checker_unreachable /m);
+	});
+
+	it("reports no verdict when only the log came back", () => {
+		const result = sandbox({
+			lines: "",
+			exitCode: 0,
+			stderr: '{"level":"info","msg":"doctor: starting"}\n',
+		}).run(["doctor"]);
+		assert.equal(result.status, 2);
+		assert.match(result.stdout, /^verdict degraded$/m);
+	});
+
+	it("reports no verdict on an empty JSON stream", () => {
+		const result = sandbox({ json: "", exitCode: 0 }).run(["doctor", "--json"]);
+		assert.equal(result.status, 2);
+		assert.equal(JSON.parse(result.stdout).verdict, "degraded");
+	});
+});
+
+describe("docker accepts the exec and never comes back", () => {
+	// A command that never answers defeats D4 as thoroughly as one that answers
+	// healthy, and behind the README's `*/5` cron line it stacks a process
+	// every five minutes. The checker bounds its own scrapes; nothing bounds
+	// the docker CLI in front of it.
+	const box = sandbox({ hang: true, timeout: 1, hangSeconds: 30 });
+	const started = Date.now();
+	const result = box.run(["doctor"]);
+	const elapsed = Date.now() - started;
+
+	it("answers, well inside the hang", () => {
+		assert.ok(elapsed < 15000, `took ${elapsed}ms`);
+	});
+
+	it("exits 2 and says the deadline was the cause", () => {
+		assert.equal(result.status, 2);
+		assert.match(result.stdout, /^verdict degraded$/m);
+		assert.match(result.stdout, /did not answer within 1s/);
+	});
+});
+
+describe("the harness models compose's own flag grammar", () => {
+	// The service is the first operand. A fake that read "the first argument
+	// without a dash" would take a value-taking flag's value for the service
+	// name and silently stop refusing an absent container.
+	it("still refuses an absent service behind a value-taking flag", () => {
+		const box = sandbox({ checkerRunning: false });
+		const result = spawnSync(
+			"sh",
+			[
+				join(FAKES, "fake-docker.sh"),
+				"compose",
+				"exec",
+				"-T",
+				"-u",
+				"node",
+				"doctor",
+				"node",
+				"check.mjs",
+			],
+			{ env: box.env, encoding: "utf8" },
+		);
+		assert.equal(result.status, 1);
+		assert.match(result.stderr, /service "doctor" is not running/);
+		assert.equal(result.stdout, "");
 	});
 });
 
