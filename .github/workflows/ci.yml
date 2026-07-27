@@ -70,11 +70,15 @@ jobs:
             .github/workflows/images.yml .github/workflows/publish.yml \
             .github/workflows/release.yml .github/actions/setup/action.yml
 
-      - name: Deploy stack — SQLite compose validates
+      # --profile '*' because an unscoped `config` walks past every service
+      # behind a profile: without it `backup` and the observability containers
+      # are the only part of this file nothing validates, and a malformed one
+      # reaches main and fails on the operator's box instead.
+      - name: Deploy stack — SQLite compose validates, profiles included
         run: |
           printf 'PUBLIC_ORIGIN=https://ci.invalid\nTLS_MODE=off\nREMIT_DEPLOY_DIR=%s/deploy/vps\n' "$PWD" > deploy/vps/.env
           docker compose -f deploy/vps/docker-compose.sqlite.yml \
-            --env-file deploy/vps/.env config -q
+            --env-file deploy/vps/.env --profile '*' config -q
           rm -f deploy/vps/.env
 
       - name: Deploy stack — dev compose validates

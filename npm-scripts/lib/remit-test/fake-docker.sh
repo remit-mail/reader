@@ -220,7 +220,16 @@ compose_cmd() {
 			*) _svcs="$_svcs $_a" ;;
 			esac
 		done
-		if [ -z "$_svcs" ]; then _svcs=$(val services "queue backend caddy web apisix"); fi
+		# An unscoped `up` with no service names skips a service behind an
+		# inactive profile — the same asymmetry `stop`, `down` and `config` have.
+		# Naming one on the command line enables its profile, so an explicit list
+		# starts what it names whatever the profile state.
+		if [ -z "$_svcs" ]; then
+			for _s in $(val services "queue backend caddy web apisix"); do
+				if [ "$_all_profiles" = "0" ] && is_profile_service "$_s"; then continue; fi
+				_svcs="$_svcs $_s"
+			done
+		fi
 		for _s in $_svcs; do
 			recreate "$_s"
 			: >"$S/up-$_s"

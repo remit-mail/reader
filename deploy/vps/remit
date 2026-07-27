@@ -291,14 +291,29 @@ apply() {
 
 cmd_restart() {
 	require_deployment
-	if [ "${1:-}" = "--hard" ]; then
-		compose stop
-	elif [ -n "${1:-}" ]; then
+	if [ -n "${1:-}" ] && [ "$1" != "--hard" ]; then
 		die "restart: unknown option '$1'"
+	fi
+	# Recorded before anything moves and brought back after, the same shape
+	# `update` uses for the services it holds down. An unscoped `up` never names
+	# a service behind a profile, so without this the line printed at the end is
+	# false for the observability containers: a raised REMIT_METRICS_RETENTION
+	# never reaches VictoriaMetrics and the operator keeps losing data at the old
+	# retention with nothing to see. Only services already running are restored,
+	# so a profile nobody turned on stays off.
+	_profiled=$(running_profile_services)
+	if [ "${1:-}" = "--hard" ]; then
+		# All profiles, or --hard stops the always-on services and leaves the
+		# optional ones up on the configuration it just claimed to replace.
+		compose_all stop
 	fi
 	# up -d, never `compose restart`: restart reuses existing containers and
 	# ignores .env changes, so config edits appear to apply but do not.
 	apply
+	if [ -n "$_profiled" ]; then
+		# shellcheck disable=SC2086 # the recorded service list, split on purpose
+		compose up -d $_profiled
+	fi
 	report_serving
 	printf 'Configuration in %s/.env is live.\n' "$REMIT_DIR"
 }

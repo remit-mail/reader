@@ -673,7 +673,9 @@ remit_victoriametrics_data` discards the history.
 
 `remit down` stops these two along with everything else and prints the command
 to bring them back — `remit restart` starts the always-on services only, because
-nothing behind a profile is started for you. `remit purge` destroys both
+nothing behind a profile is started for you. While they are running, `remit
+restart` does apply an `.env` edit to them like it does to everything else, so a
+changed `REMIT_METRICS_RETENTION` takes effect. `remit purge` destroys both
 containers and the metrics volume with the rest of the deployment.
 
 ### Reach them
