@@ -24,9 +24,13 @@ const formatCount = (n: number): string => n.toLocaleString();
 
 /** The peek height of the collapsed teaser row (px). */
 export const SELECTION_SHEET_TEASER_HEIGHT = 56;
-/** Ceiling on the expanded sheet height (px); CSS clamps to a third of the
- *  viewport below this. */
-const EXPANDED_MAX = 320;
+/** Ceiling on the expanded sheet height, as a share of the dynamic viewport.
+ *  The sheet is otherwise sized by its own content, so the ceiling binds only on
+ *  a viewport too short to hold the actions — and there they scroll. */
+const EXPANDED_MAX_DVH = 70;
+/** Assumed expanded height until the sheet has been measured; only sets the
+ *  collapsed translate for the first frame. */
+const EXPANDED_HEIGHT_FALLBACK = 320;
 
 const SNAP_MS = 320;
 const SNAP_EASE = "cubic-bezier(0.32, 0.9, 0.3, 1)";
@@ -131,11 +135,16 @@ export interface SelectionSheetProps {
 
 /**
  * The mobile multi-select surface: a peeking bottom sheet that teases at ~56px
- * with the selection count, and expands by drag or tap to a third-height sheet
- * carrying the bulk verbs (Delete / Move / Junk), the select-similar → organize
- * entries, and every escalation state (counting, running progress,
- * partial-failure) the selection can be in. Drag or tap the grabber to collapse
- * back to the teaser; the selection is untouched.
+ * with the selection count, and expands by drag or tap to carry the bulk verbs
+ * (Delete / Move / Junk), the select-similar → organize entries, and every
+ * escalation state (counting, running progress, partial-failure) the selection
+ * can be in. Drag or tap the grabber to collapse back to the teaser; the
+ * selection is untouched.
+ *
+ * Expanded, it takes the height its own content needs, up to
+ * {@link EXPANDED_MAX_DVH}% of the dynamic viewport, past which the actions
+ * scroll. A fixed ceiling sat below the content on a short phone viewport and
+ * cut the last action off with no way to reach it (#405).
  *
  * Sits absolutely against the bottom of the nearest positioned ancestor, so the
  * list it belongs to must be a `relative` container and pad its own bottom by
@@ -160,7 +169,9 @@ export function SelectionSheet({
 }: SelectionSheetProps) {
 	const [expanded, setExpanded] = useState(startExpanded);
 	const containerRef = useRef<HTMLDivElement>(null);
-	const [expandedHeight, setExpandedHeight] = useState(EXPANDED_MAX);
+	const [expandedHeight, setExpandedHeight] = useState(
+		EXPANDED_HEIGHT_FALLBACK,
+	);
 
 	// A run or a live count owns the sheet: it stays open so the progress and
 	// status can't be dragged out of sight mid-operation.
@@ -265,7 +276,7 @@ export function SelectionSheet({
 			data-selection-sheet=""
 			className="absolute inset-x-0 bottom-0 z-30 flex select-none flex-col rounded-t-2xl border-t border-line bg-surface shadow-2xl shadow-black/40"
 			style={{
-				maxHeight: `min(${EXPANDED_MAX}px, 38dvh)`,
+				maxHeight: `${EXPANDED_MAX_DVH}dvh`,
 				minHeight: `${SELECTION_SHEET_TEASER_HEIGHT}px`,
 				transform: `translateY(${translate}px)`,
 				transition,
@@ -355,10 +366,12 @@ export function SelectionSheet({
 
 			{/* Expanded content — clipped by the translate when collapsed. It stays
 			    in the DOM at the teaser, so `inert` when collapsed keeps its offscreen
-			    verbs out of the tab order and the a11y tree until the sheet opens. */}
+			    verbs out of the tab order and the a11y tree until the sheet opens.
+			    Scrolls rather than clips, so every verb stays reachable on a viewport
+			    the actions don't fit in (#405). */}
 			<div
 				inert={!expanded ? true : undefined}
-				className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-4"
+				className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pb-4"
 			>
 				{progress && (
 					<div className="mb-3">

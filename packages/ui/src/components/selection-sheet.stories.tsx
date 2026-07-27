@@ -66,6 +66,27 @@ export const Expanded: Story = {
 	args: { startExpanded: true, moveSlot: <MoveSlot /> },
 };
 
+/**
+ * The same expanded sheet on the shortest phone viewport a real device reports
+ * (411×759 — Android Chrome with its address bar and system nav showing). This
+ * is the tallest the content ever gets: select-all, all three quick actions and
+ * both smart-flow rows. A fixed height ceiling cut "Something else" off here
+ * with no way to reach it (#405); the sheet now takes the height its content
+ * needs, and scrolls only when the viewport genuinely can't hold it.
+ */
+export const ExpandedShortViewport: Story = {
+	globals: { viewport: { value: "mobileShort" } },
+	args: {
+		startExpanded: true,
+		moveSlot: <MoveSlot />,
+		selectAll: {
+			checked: false,
+			indeterminate: true,
+			onChange: () => undefined,
+		},
+	},
+};
+
 /** While a search result set pages to its total: the count isn't known, the
  *  quick actions are replaced by the running total and an explicit Stop. */
 export const Counting: Story = {

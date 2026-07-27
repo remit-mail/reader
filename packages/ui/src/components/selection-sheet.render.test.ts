@@ -120,6 +120,36 @@ describe("SelectionSheet", () => {
 		assert.doesNotMatch(html, /Select similar messages/);
 	});
 
+	/**
+	 * jsdom lays nothing out, so these assert the constraint itself rather than a
+	 * measured height: the sheet must not carry a fixed pixel ceiling (which sat
+	 * below its own content at 411×759 and clipped the last action), and its body
+	 * must scroll rather than clip whatever the ceiling does cut off (#405).
+	 */
+	it("caps the expanded height against the viewport, not a fixed pixel ceiling", () => {
+		const html = renderToString(
+			createElement(SelectionSheet, { ...base, startExpanded: true }),
+		);
+		assert.match(html, /max-height:70dvh/);
+		assert.doesNotMatch(html, /max-height:min\(/);
+	});
+
+	it("scrolls the expanded actions instead of clipping them", () => {
+		const html = renderToString(
+			createElement(SelectionSheet, {
+				...base,
+				startExpanded: true,
+				onSelectSimilar: noop,
+				onSomethingElse: noop,
+			}),
+		);
+		assert.match(html, /class="flex min-h-0 flex-1 flex-col overflow-y-auto /);
+		assert.doesNotMatch(
+			html,
+			/class="flex min-h-0 flex-1 flex-col overflow-hidden /,
+		);
+	});
+
 	it("renders a partial-failure notice with a Retry action", () => {
 		const html = renderToString(
 			createElement(SelectionSheet, {
