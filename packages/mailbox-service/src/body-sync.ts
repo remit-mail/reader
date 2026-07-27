@@ -47,6 +47,7 @@ import {
 import {
 	classifyPlacement,
 	type FolderPlacement,
+	resolveBlockedVsTrust,
 } from "./heuristics/classifyPlacement.js";
 import type { PlacementMoveService } from "./placement-move.js";
 import { type QuarantineService, shapeFromMessageData } from "./quarantine.js";
@@ -1071,26 +1072,68 @@ export class BodySyncService {
 		);
 	}
 
-	private async deriveSenderTrust(
+	/**
+	 * The per-sender signals {@link computePlacement} needs, from ONE `Address`
+	 * fetch (RFC 039 Decision 3/3a, issue #300): the trust reads exactly as
+	 * `deriveSenderTrust` always did — `vip → wellknown → unknown`, untouched by
+	 * `blocked` — plus `blocked`/`autoArchive` off the same row. `trustSetAt` is
+	 * the `setAt` of whichever flag produced the trust value, needed by
+	 * {@link resolveBlockedVsTrust}'s tie-break; it stays local to placement and
+	 * never reaches `deriveSenderTrust`'s own contract (the trust badge).
+	 */
+	private async deriveSenderPlacementSignals(
 		accountConfigId: string,
 		fromEmail: string,
-	): Promise<(typeof SenderTrust)[keyof typeof SenderTrust]> {
+	): Promise<{
+		trust: (typeof SenderTrust)[keyof typeof SenderTrust];
+		trustSetAt?: number;
+		blocked: boolean;
+		blockedSetAt?: number;
+		autoArchive: boolean;
+	}> {
+		const unknown = {
+			trust: SenderTrust.Unknown,
+			blocked: false,
+			autoArchive: false,
+		} as const;
 		try {
 			const addressId = deriveAddressId(accountConfigId, fromEmail);
 			const address = await this.addressService.getAddress(
 				accountConfigId,
 				addressId,
 			);
-			if (address.flags?.vip?.value === true) return SenderTrust.Vip;
-			if (address.flags?.wellknown?.value === true)
-				return SenderTrust.Wellknown;
+			const flags = address.flags;
+			if (flags?.vip?.value === true) {
+				return {
+					trust: SenderTrust.Vip,
+					trustSetAt: flags.vip.setAt,
+					blocked: flags.blocked?.value === true,
+					blockedSetAt: flags.blocked?.setAt,
+					autoArchive: flags.autoArchive?.value === true,
+				};
+			}
+			if (flags?.wellknown?.value === true) {
+				return {
+					trust: SenderTrust.Wellknown,
+					trustSetAt: flags.wellknown.setAt,
+					blocked: flags.blocked?.value === true,
+					blockedSetAt: flags.blocked?.setAt,
+					autoArchive: flags.autoArchive?.value === true,
+				};
+			}
+			return {
+				...unknown,
+				blocked: flags?.blocked?.value === true,
+				blockedSetAt: flags?.blocked?.setAt,
+				autoArchive: flags?.autoArchive?.value === true,
+			};
 		} catch (err) {
-			// A genuinely-absent address means "unknown trust". Any other failure
-			// (AccessDenied, throttle, infra) must NOT be silently downgraded to
-			// Unknown — let it crash so the rescue decision isn't made on bad data.
+			// A genuinely-absent address means "no signals". Any other failure
+			// (AccessDenied, throttle, infra) must NOT be silently downgraded — let
+			// it crash so the placement decision isn't made on bad data.
 			if (!(err instanceof NotFoundError)) throw err;
 		}
-		return SenderTrust.Unknown;
+		return unknown;
 	}
 
 	/**
@@ -1199,19 +1242,42 @@ export class BodySyncService {
 					: "other";
 
 		const fromEmail = extractPrimaryFromEmail(parsed);
-		const senderTrust = fromEmail
-			? await this.deriveSenderTrust(accountConfigId, fromEmail)
-			: SenderTrust.Unknown;
+		const signals = fromEmail
+			? await this.deriveSenderPlacementSignals(accountConfigId, fromEmail)
+			: {
+					trust: SenderTrust.Unknown,
+					blocked: false,
+					autoArchive: false,
+				};
+
+		const { senderTrust, senderBlocked } = resolveBlockedVsTrust(
+			{ trust: signals.trust, setAt: signals.trustSetAt },
+			{ blocked: signals.blocked, setAt: signals.blockedSetAt },
+		);
 
 		// The verdict needs the classification signals (providerSpam,
 		// authResult, authenticity) that this body-sync pass just derived; the
 		// stored row does not carry them yet, so overlay them onto the message.
 		const candidate = { ...message, ...classification };
-		const verdict = classifyPlacement(candidate, placement, senderTrust);
+		const verdict = classifyPlacement(
+			candidate,
+			placement,
+			senderTrust,
+			senderBlocked,
+		);
 
-		// A `leave` verdict carries no audit record and no move.
+		// A `leave` verdict — including "nothing confident to say" — carries no
+		// audit record of its own. `flags.autoArchive` (issue #300) is a distinct,
+		// lower-priority filing preference: it only files a message away when
+		// `blocked`/DKIM/DMARC had nothing to say, never overriding a confident
+		// junk/inbox verdict computed above.
 		if (verdict.action === "leave") {
-			return {};
+			return this.resolveAutoArchive(
+				mailboxSpecialUseService,
+				message,
+				accountId,
+				signals.autoArchive,
+			);
 		}
 
 		// Audit verdict — recorded for every actionable verdict (both
@@ -1262,6 +1328,55 @@ export class BodySyncService {
 			move: {
 				destinationMailboxId: target.mailboxId,
 				destinationPath: target.fullPath,
+			},
+		};
+	}
+
+	/**
+	 * `flags.autoArchive` (issue #300, RFC 039 Decision 3): file a message
+	 * straight to Archive, skipping Inbox. Only reached from
+	 * {@link computePlacement} when {@link classifyPlacement} had no confident
+	 * junk/inbox verdict of its own — `blocked`/DKIM/DMARC always take priority
+	 * over this filing preference.
+	 *
+	 * No {@link MessagePlacementVerdict} is recorded: `PlacementAction` (the
+	 * audit enum) has only `MoveToInbox`/`MoveToJunk` — issue #300 is scoped to
+	 * no TypeSpec change, so an archive move carries no audit verdict, same as
+	 * a matched filter's move. The move itself reuses the same
+	 * `placementMoveService.moveMessage` path as every other confident move.
+	 *
+	 * Idempotent the same way {@link classifyPlacement}'s own branches are: a
+	 * message already sitting in Archive is left alone, not moved again.
+	 */
+	private async resolveAutoArchive(
+		mailboxSpecialUseService: IMailboxSpecialUseRepository,
+		message: MessageItem,
+		accountId: string,
+		autoArchive: boolean,
+	): Promise<PlacementOutcome> {
+		if (!autoArchive) return {};
+
+		const archiveMailbox = await mailboxSpecialUseService.findBySpecialUse(
+			accountId,
+			MailboxSpecialUse.Archive,
+		);
+		if (!archiveMailbox || message.mailboxId === archiveMailbox.mailboxId) {
+			return {};
+		}
+
+		this.log.info(
+			{
+				messageId: message.messageId,
+				accountId,
+				destinationMailboxId: archiveMailbox.mailboxId,
+			},
+			"Auto-archive verdict",
+		);
+
+		return {
+			move: {
+				destinationMailboxId: archiveMailbox.mailboxId,
+				destinationPath: archiveMailbox.fullPath,
 			},
 		};
 	}

@@ -34,7 +34,7 @@ model TrustedFlag extends AddressFlagBase {
   value: boolean;
 }
 
-@doc("Sender is blocked: never load images, even on explicit click")
+@doc("Sender is blocked: mail is placed in Junk, and images never load, even on explicit click")
 model BlockedFlag extends AddressFlagBase {
   value: boolean;
 }
