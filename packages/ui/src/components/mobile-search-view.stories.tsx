@@ -30,6 +30,7 @@ const topMatches: SearchResult[] = [
 	{
 		id: "r1",
 		sender: "Stripe",
+		senderEmail: "receipts@stripe.com",
 		subject: "Your invoice for March is ready",
 		snippet: "Invoice #4821 — €149.00 paid on Visa ending 4242.",
 		date: "9:42",
@@ -39,6 +40,7 @@ const topMatches: SearchResult[] = [
 	{
 		id: "r2",
 		sender: "Hetzner Online",
+		senderEmail: "billing@hetzner.com",
 		subject: "Invoice 2026-03 available in your account",
 		snippet: "Dear customer, your invoice for the period is attached.",
 		date: "Mar 3",
@@ -47,6 +49,7 @@ const topMatches: SearchResult[] = [
 	{
 		id: "r3",
 		sender: "Anna de Vries",
+		senderEmail: "anna@devries.nl",
 		subject: "Re: Q1 invoice approval",
 		snippet: "Approved — can you forward the PDF invoice to finance?",
 		date: "Mar 1",
@@ -55,6 +58,7 @@ const topMatches: SearchResult[] = [
 	{
 		id: "r4",
 		sender: "AWS Billing",
+		senderEmail: "no-reply@aws.amazon.com",
 		subject: "Your invoice is now available",
 		snippet: "Your total for February was $312.55 across 6 services.",
 		date: "Feb 28",
@@ -104,6 +108,7 @@ const crossFolderMatches: SearchResult[] = [
 	{
 		id: "x1",
 		sender: "Mollie",
+		senderEmail: "info@mollie.com",
 		subject: "Invoice 2026-02 — archived",
 		snippet: "Filed last month; payment already settled.",
 		date: "Feb 24",
@@ -112,6 +117,7 @@ const crossFolderMatches: SearchResult[] = [
 	{
 		id: "x2",
 		sender: "Accountant",
+		senderEmail: "jan@boekhouding.example",
 		subject: "Invoices for the quarter",
 		snippet: "The quarterly set, filed with the rest of the bookkeeping.",
 		date: "Jan 30",
@@ -124,6 +130,7 @@ const spamMatches: SearchResult[] = [
 	{
 		id: "s1",
 		sender: "billing@unknown-vendor.test",
+		senderEmail: "billing@unknown-vendor.test",
 		subject: "URGENT invoice attached",
 		snippet: "Wire the amount below within 24 hours to avoid suspension.",
 		date: "Feb 11",
@@ -132,6 +139,7 @@ const spamMatches: SearchResult[] = [
 	{
 		id: "s2",
 		sender: "invoices@pay-now.test",
+		senderEmail: "invoices@pay-now.test",
 		subject: "Outstanding invoice — final notice",
 		snippet: "Your account is overdue. Settle immediately.",
 		date: "Feb 4",

@@ -7,12 +7,18 @@
  * the results are the same `SearchResults` sections under the same filter sheet,
  * so the tiers cannot drift apart.
  *
+ * A result is the same row as an unsearched one — one `ComfortableRowBody`, so
+ * the sender avatar, the unread dot and the star are there whether a message was
+ * found or scrolled to. What only a search knows rides in the row's badge slot:
+ * the folder it was read from, why a semantic hit matched, how strongly.
+ *
  * What the search covers is on screen rather than implied: the field carries the
  * view's scope as a chip, rows from a search that spans folders say which folder
  * they came from, and spam is held out of a global search and offered back as a
  * count with a way into a Spam-scoped search.
  */
 import {
+	briefFilterConfig,
 	inboxFilterConfig,
 	type SearchChip,
 	type SearchScope,
@@ -39,15 +45,21 @@ export default meta;
 type Story = StoryObj;
 
 const PHONE_WIDTH = 390;
+/** The wider Android phone the brief takeover is checked against. */
+const WIDE_PHONE_WIDTH = 411;
 
-const phoneFrame: Decorator = (Story) => (
-	<div
-		className="relative overflow-hidden rounded-lg border border-line"
-		style={{ width: PHONE_WIDTH, height: 844 }}
-	>
-		<Story />
-	</div>
-);
+const framedAt =
+	(width: number): Decorator =>
+	(Story) => (
+		<div
+			className="relative overflow-hidden rounded-lg border border-line"
+			style={{ width, height: 844 }}
+		>
+			<Story />
+		</div>
+	);
+
+const phoneFrame = framedAt(PHONE_WIDTH);
 
 const phoneParams = {
 	layout: "centered" as const,
@@ -192,6 +204,29 @@ export const PhoneTakeover: Story = {
 			unreadCount={9}
 			sections={flatInbox}
 			preset={inboxFilterConfig()}
+			query={searchQuery}
+			searchSections={searchSections}
+			searchScope={globalScope}
+			recentSearches={recentSearches}
+			searchOpen
+		/>
+	),
+};
+
+/**
+ * The brief's search on a phone, where the takeover covers the list it searches.
+ * The rows are the brief's own rows — avatar, unread dot, star, snippet — so the
+ * takeover reads as the same list narrowed, not as a second list that resembles
+ * it. Framed at 411px, the wider Android phone.
+ */
+export const PhoneBriefTakeover: Story = {
+	parameters: phoneParams,
+	decorators: [framedAt(WIDE_PHONE_WIDTH)],
+	render: () => (
+		<MailShell
+			{...brief}
+			width={WIDE_PHONE_WIDTH}
+			preset={briefFilterConfig()}
 			query={searchQuery}
 			searchSections={searchSections}
 			searchScope={globalScope}

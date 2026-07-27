@@ -1234,6 +1234,7 @@ function toSearchResult(
 		id: thread.id,
 		threadId: thread.id,
 		sender: thread.fromName,
+		senderEmail: thread.fromEmail,
 		subject: thread.subject,
 		snippet: thread.snippet,
 		date: thread.timeLabel,
