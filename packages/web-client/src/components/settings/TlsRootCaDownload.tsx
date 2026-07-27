@@ -1,11 +1,8 @@
 /**
- * Settings > Advanced: only when this deployment terminates TLS with Caddy's
- * own locally-trusted CA (TLS_MODE=internal). That CA's leaf certificate is
- * reissued every 12 hours, so a browser click-through exception (pinned to
- * the leaf) breaks twice a day — the fix is trusting the root once per
- * device. This downloads the same file `remit cert` copies out of the caddy
- * container (deploy/vps/caddy/internal.caddy serves it), just reachable
- * in-app instead of over SSH.
+ * Settings > Advanced, shown only for TLS_MODE=internal (deploy/vps/README.md,
+ * "TLS", has the rationale). Downloads the same root CA `remit cert` exports,
+ * served by deploy/vps/caddy/internal.caddy — reachable in-app instead of
+ * over SSH.
  */
 import { ButtonLink } from "@remit/ui";
 import { ShieldCheck } from "lucide-react";

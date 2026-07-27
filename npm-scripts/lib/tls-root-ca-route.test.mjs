@@ -1,11 +1,10 @@
 // The Settings > Advanced download row (packages/web-client) fetches the
-// deployment's TLS root CA from a stable Caddy route. Only TLS_MODE=internal
-// has a local root CA worth serving — acme and tailscale are already publicly
-// trusted, and off is plain HTTP — so the route must exist in internal.caddy
-// and nowhere else, and it must be declared before the routes.caddy import so
-// the catch-all reverse_proxy there never swallows it.
+// deployment's TLS root CA from a stable Caddy route (deploy/vps/README.md,
+// "TLS", has the rationale). Guards: the route exists in internal.caddy only,
+// ordered before the routes.caddy import so its catch-all cannot swallow it,
+// and it never rewrites to a key file instead of the certificate.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -13,16 +12,22 @@ import { fileURLToPath } from "node:url";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..", "..");
 const CADDY_DIR = join(ROOT, "deploy", "vps", "caddy");
-const MODE_FILES = [
-	"internal.caddy",
-	"acme.caddy",
-	"off.caddy",
-	"tailscale.caddy",
-];
+// Discovered, not hardcoded — a mode file added later must pass this guard
+// too, not be silently exempt from it.
+const MODE_FILES = readdirSync(CADDY_DIR).filter(
+	(name) => name.endsWith(".caddy") && name !== "routes.caddy",
+);
 
 const read = (name) => readFileSync(join(CADDY_DIR, name), "utf8");
 
 describe("the TLS root CA route", () => {
+	it("finds the mode files this suite reasons about", () => {
+		assert.ok(
+			MODE_FILES.includes("internal.caddy"),
+			"discovery found no *.caddy files under deploy/vps/caddy — the walk broke",
+		);
+	});
+
 	it("exists only in internal.caddy", () => {
 		for (const file of MODE_FILES) {
 			const hasRoute = read(file).includes("/tls-root-ca.crt");
@@ -54,7 +59,19 @@ describe("the TLS root CA route", () => {
 	it("points at the root CA Caddy's own PKI storage, not the leaf", () => {
 		const source = read("internal.caddy");
 		assert.match(source, /\/data\/caddy\/pki\/authorities\/local/);
-		assert.match(source, /root\.crt/);
+	});
+
+	// The Content-Disposition filename also contains the substring "root.crt"
+	// (reader-root.crt), so a bare `/root\.crt/` match is satisfied by that
+	// header alone and never looks at what `rewrite` actually serves. Anchored
+	// to the `rewrite` line specifically, with an explicit negative: a
+	// same-directory swap to root.key/intermediate.key (the CA private keys)
+	// would otherwise pass every other assertion here and publish a key at this
+	// unauthenticated, guessable URL.
+	it("rewrites to the root certificate specifically, never a key file", () => {
+		const source = read("internal.caddy");
+		assert.match(source, /rewrite \* \/root\.crt$/m);
+		assert.doesNotMatch(source, /rewrite \* \/\S*\.key\b/);
 	});
 
 	it("serves it as a download with an x509 CA content type", () => {

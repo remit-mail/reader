@@ -929,12 +929,7 @@ const demoIssueUrl = (entry: QuarantineEntry): string =>
 		quarantineIssueTitle(entry),
 	)}`;
 
-/**
- * Only shown for TLS_MODE=internal (packages/web-client's TlsRootCaDownload):
- * the deployment signs its own certificate, and the leaf renews every 12
- * hours, so a browser click-through breaks twice a day. Importing the root CA
- * once per device is the fix.
- */
+/** Mirrors packages/web-client's TlsRootCaDownload (deploy/vps/README.md, "TLS", has the rationale). */
 function TlsRootCaRow() {
 	return (
 		<div className="border-t border-line pt-4 mt-4">
