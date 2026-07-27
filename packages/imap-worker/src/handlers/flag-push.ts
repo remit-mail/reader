@@ -1,6 +1,6 @@
 import { getClient } from "@remit/backend/client";
 import type { Logger } from "@remit/logger-lambda";
-import { MetricUnit, metrics } from "@remit/logger-lambda";
+import { recordImapFailure } from "@remit/logger-lambda";
 import {
 	guardConnectionCursor,
 	isCursorRebuildNeeded,
@@ -222,15 +222,12 @@ export const handleFlagPush = async (
 					);
 
 					if (outcome === "reconciled") {
-						metrics.addMetric(
-							"flagPushStaleRowReconciled",
-							MetricUnit.Count,
-							1,
-						);
 						return;
 					}
 
-					metrics.addMetric("flagPushFailed", MetricUnit.Count, 1);
+					// Terminal and never re-thrown, so the handler-outcome series
+					// records this record as a success. Counted here or it is invisible.
+					recordImapFailure("FLAG_PUSH_EXHAUSTED", "other");
 					log.error(
 						{ error: error instanceof Error ? error.message : String(error) },
 						"Flag push retry exhausted; message still exists at its mailbox",

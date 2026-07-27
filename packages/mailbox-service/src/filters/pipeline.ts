@@ -26,6 +26,15 @@ import {
  */
 export interface MessageEmbedder {
 	embed(text: string): Promise<number[]>;
+	/**
+	 * `<modelId>@<dimensions>` identifier of the model currently configured —
+	 * the same scheme `EmbeddingService.embeddingId`
+	 * (`packages/search-service/src/embeddings.ts`) derives. Compared against
+	 * `FilterAnchor.anchorEmbeddingId` to detect a model drift a same-dimension
+	 * swap would otherwise pass through silently (RFC 039 Decision 1a, reader
+	 * #295).
+	 */
+	readonly embeddingId: string;
 }
 
 export interface FilterLogger {
@@ -215,7 +224,7 @@ export class FilterPipeline {
 		// One deterministic point read per semantic candidate that survived the
 		// literal pre-filter — never a scan, never the anchor message itself
 		// (RFC 034 Decision 2.3).
-		const anchor = await this.config.filterAnchorService.get(
+		let anchor = await this.config.filterAnchorService.get(
 			accountConfigId,
 			filter.filterId,
 		);
@@ -225,6 +234,27 @@ export class FilterPipeline {
 				"Filter marked hasAnchor but no FilterAnchor row found; skipping semantic match",
 			);
 			return false;
+		}
+
+		const embedder = this.config.embedder;
+		if (embedder && anchor.anchorEmbeddingId !== embedder.embeddingId) {
+			// The embedding model has drifted since this anchor was last written
+			// (RFC 039 Decision 1a) — re-embed the already-persisted
+			// `anchorSourceText` and write it back in place, lazily, on this read.
+			// No migration job walks these rows proactively; a re-embed failure
+			// here propagates to the per-filter catch in `match()`, which logs and
+			// skips this filter for this one evaluation exactly as an unrecoverable
+			// stale anchor does today — never a terminal state, so the next
+			// message that reaches this filter retries.
+			const anchorEmbedding = await embedder.embed(anchor.anchorSourceText);
+			anchor = await this.config.filterAnchorService.put({
+				accountConfigId,
+				filterId: filter.filterId,
+				anchorEmbedding,
+				anchorEmbeddingId: embedder.embeddingId,
+				anchorSourceText: anchor.anchorSourceText,
+				anchorMessageId: anchor.anchorMessageId,
+			});
 		}
 
 		const vector = await embed();

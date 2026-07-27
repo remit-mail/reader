@@ -1,5 +1,11 @@
 import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
-import { createLogger, type Logger, withTelemetry } from "@remit/logger-lambda";
+import {
+	createLogger,
+	type Logger,
+	queueNameFromEventSource,
+	recordQueueEvent,
+	withTelemetry,
+} from "@remit/logger-lambda";
 import type { SQSBatchResponse, SQSEvent, SQSHandler } from "aws-lambda";
 import type { CascadeServices } from "../cascade.js";
 import { enumerateCascadeEntities } from "../cascade.js";
@@ -157,6 +163,7 @@ export const handler: SQSHandler = withTelemetry(
 				"Processing account fanout event",
 			);
 
+			const start = Date.now();
 			const failed = await processAccountFanout(fanoutEvent, log)
 				.then(() => false)
 				.catch((error) => {
@@ -166,6 +173,13 @@ export const handler: SQSHandler = withTelemetry(
 					);
 					return true;
 				});
+
+			recordQueueEvent({
+				queue: queueNameFromEventSource(record.eventSourceARN),
+				eventType: fanoutEvent.type,
+				outcome: failed ? "failure" : "success",
+				durationMs: Date.now() - start,
+			});
 
 			if (failed) {
 				batchItemFailures.push({ itemIdentifier: record.messageId });

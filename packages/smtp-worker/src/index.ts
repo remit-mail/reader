@@ -1,12 +1,14 @@
 import { inspect } from "node:util";
 import {
 	createLogger,
-	MetricUnit,
-	metrics,
+	queueNameFromEventSource,
+	recordQueueEvent,
+	recordSmtpFailure,
 	withTelemetry,
 } from "@remit/logger-lambda";
 import type { SQSBatchResponse, SQSEvent } from "aws-lambda";
 import type { SmtpEvent } from "./events.js";
+import { smtpFailureKind } from "./failure-kind.js";
 import { processEvent } from "./processor.js";
 
 const log = createLogger();
@@ -22,14 +24,16 @@ export const handler = withTelemetry(
 				eventId: smtpEvent.eventId,
 			});
 
+			const queue = queueNameFromEventSource(record.eventSourceARN);
 			const sendStart = Date.now();
 			const failed = await processEvent(smtpEvent, log)
 				.then(() => {
-					metrics.addMetric(
-						"smtpSendLatency",
-						MetricUnit.Milliseconds,
-						Date.now() - sendStart,
-					);
+					recordQueueEvent({
+						queue,
+						eventType: smtpEvent.type,
+						outcome: "success",
+						durationMs: Date.now() - sendStart,
+					});
 					return false;
 				})
 				.catch((error) => {
@@ -37,7 +41,13 @@ export const handler = withTelemetry(
 						error: inspect(error),
 						messageId: record.messageId,
 					});
-					metrics.addMetric("smtpSendFailures", MetricUnit.Count, 1);
+					recordQueueEvent({
+						queue,
+						eventType: smtpEvent.type,
+						outcome: "failure",
+						durationMs: Date.now() - sendStart,
+					});
+					recordSmtpFailure(smtpFailureKind(error));
 					return true;
 				});
 

@@ -524,6 +524,57 @@ remit logs | jq -r 'select(.accountId=="…") | "\(.time) \(.service) \(.msg)"'
 remit logs imap-worker | jq -r 'select(.error) | .error.stack // .stack // .error'
 ```
 
+## Metrics
+
+Every service that owns a signal serves `/metrics` in Prometheus/OpenMetrics text
+format on the container network. `backend` and `queue` serve it on the port they
+already listen on; the four workers serve it on `9464`. Nothing is published to
+the host, nothing is routed through Caddy, and there are no credentials — the only
+host ports remain caddy's 80 and 443.
+
+Point any scraper you already run at the containers: Prometheus, VictoriaMetrics,
+Grafana Alloy, a Datadog agent, an OpenTelemetry collector. Nothing is ever
+pushed, so an operator who runs no scraper pays for an unused route and the box
+makes no outbound connection.
+
+| Series | From |
+|---|---|
+| `remit_queue_messages{queue,role}` | `queue` — depth per queue; `role="dead_letter"` is a DLQ |
+| `remit_account_sync_age_seconds{account_id}` | `backend` — seconds since that account last completed a message-sync round |
+| `remit_imap_failures_total{operation,kind}` | `imap-worker` — `kind="auth"` is counted apart from other failures |
+| `remit_smtp_failures_total{kind}` | `smtp-worker` — same split |
+| `remit_queue_event_duration_seconds{queue,event_type,outcome}` | each worker — per-message duration and outcome |
+| `remit_handler_duration_seconds{handler,outcome}` | each worker — per-invocation duration and outcome |
+| `remit_search_index_backlog_rows` | `search-index-worker` — outbox rows not yet relayed; present only on the backend that has an outbox |
+
+Host CPU, memory, disk and network are not here: the agent you already run reports
+those, and it cannot know whether mail is arriving. Per-account series are labelled
+by account id and never by address — a scraped label travels wherever the scrape
+goes. Update state is not here either; it lives on the `updater_state` volume and
+`remit status` prints it.
+
+`remit_account_sync_age_seconds` sawtooths rather than sitting flat. A sync that
+was not explicitly requested skips a mailbox stamped inside the freshness window
+(`MAILBOX_FRESHNESS_MS`, 60 s by default), so on a healthy account the value
+climbs to that window plus the scheduler's tick interval before dropping back.
+Set an alert threshold above their sum or it fires on an account that is fine.
+
+A scrape that cannot evaluate a signal answers 500 rather than a number. The
+queue depths fail that way when the sidecar's database holds no queues, and the
+sync ages when the relational store cannot be read — a series that renders `0`
+because nothing could look is the failure this endpoint exists to remove.
+
+The endpoint has no credentials, so any container on the compose network can read
+it, per-account sync ages included. Weigh that before adding a container to the
+stack; nothing outside the network can reach it.
+
+Read a series from the host with `docker compose exec`:
+
+```bash
+docker compose -f docker-compose.sqlite.yml --env-file .env exec queue \
+  node -e 'require("http").get("http://127.0.0.1:9324/metrics",r=>r.pipe(process.stdout))'
+```
+
 ## Queue failures: watch the dead-letter queues
 
 Every worker queue in `queues.json` has a dead-letter queue (`<queue>-dlq`,

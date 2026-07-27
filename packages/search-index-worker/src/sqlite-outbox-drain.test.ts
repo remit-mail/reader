@@ -87,4 +87,29 @@ describe("SqliteOutboxStore", () => {
 		assert.deepEqual(pending, ["r2"], "the mid-flight row stays pending");
 		db.close();
 	});
+
+	test("counts undrained rows as the exported search index backlog", async () => {
+		const db = makeOutboxDb();
+		const store = new SqliteOutboxStore(db as unknown as never);
+		assert.equal(await store.countUnprocessedRows(), 0);
+
+		// Two rows for one message count as two: the backlog is outstanding work,
+		// not the number of messages it concerns.
+		insertRow(db, "r1", "m1", "message.body_synced");
+		insertRow(db, "r2", "m1", "message.body_synced");
+		insertRow(db, "r3", "m2", "message.moved");
+		assert.equal(await store.countUnprocessedRows(), 3);
+
+		await store.markRowsProcessed(["r1", "r2"]);
+		assert.equal(await store.countUnprocessedRows(), 1);
+		db.close();
+	});
+
+	test("ignores an event the drain does not relay", async () => {
+		const db = makeOutboxDb();
+		const store = new SqliteOutboxStore(db as unknown as never);
+		insertRow(db, "r1", "m1", "message.something_else");
+		assert.equal(await store.countUnprocessedRows(), 0);
+		db.close();
+	});
 });

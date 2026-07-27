@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { Metrics, MetricUnit } from "@aws-lambda-powertools/metrics";
 import type { Context } from "aws-lambda";
 import { pino, stdSerializers } from "pino";
+import { recordHandlerOutcome } from "./metrics.js";
 
 type LogBindings = Record<string, unknown>;
 
@@ -157,11 +157,6 @@ const createAdapter = (target: PinoLogger, persistent: LogBindings): Logger => {
 
 export const logger: Logger = createAdapter(root, {});
 
-export const metrics = new Metrics({
-	namespace: process.env.POWERTOOLS_METRICS_NAMESPACE ?? "Remit",
-	serviceName: process.env.POWERTOOLS_SERVICE_NAME ?? "remit",
-});
-
 export const createLogger = (): Logger => createAdapter(root, {});
 
 export const withTelemetry = <TEvent, TResult>(
@@ -172,24 +167,24 @@ export const withTelemetry = <TEvent, TResult>(
 			functionName: context.functionName,
 		});
 
-		metrics.captureColdStartMetric();
-
 		const start = Date.now();
 
 		try {
 			const result = await handler(event, context);
-			const duration = Date.now() - start;
-
-			metrics.addMetric("invocationCount", MetricUnit.Count, 1);
-			metrics.addMetric("invocationLatency", MetricUnit.Milliseconds, duration);
-
+			recordHandlerOutcome({
+				handler: context.functionName,
+				outcome: "success",
+				durationMs: Date.now() - start,
+			});
 			return result;
 		} catch (err) {
-			metrics.addMetric("errorCount", MetricUnit.Count, 1);
+			recordHandlerOutcome({
+				handler: context.functionName,
+				outcome: "failure",
+				durationMs: Date.now() - start,
+			});
 			logger.error("Lambda invocation failed", { error: err });
 			throw err;
-		} finally {
-			metrics.publishStoredMetrics();
 		}
 	};
 };
