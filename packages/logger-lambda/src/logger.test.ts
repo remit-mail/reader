@@ -4,35 +4,16 @@ import type { Context } from "aws-lambda";
 
 // The logging half of this package is covered by log-output.test.ts against its
 // real stdout output; this file is the telemetry wrapper, so the logger is
-// silenced and only the metric calls are observed.
+// silenced and only what reaches the metric registry is observed.
 process.env.LOG_LEVEL = "silent";
 
-const addMetric = mock.fn();
-const publishStoredMetrics = mock.fn();
-const captureColdStartMetric = mock.fn();
-
-class MockMetrics {
-	addMetric = addMetric;
-	publishStoredMetrics = publishStoredMetrics;
-	captureColdStartMetric = captureColdStartMetric;
-}
-
-mock.module("@aws-lambda-powertools/metrics", {
-	namedExports: {
-		Metrics: MockMetrics,
-		MetricUnit: { Count: "Count", Milliseconds: "Milliseconds" },
-	},
-});
-
-const { metrics, withTelemetry } = await import("./logger.js");
-const { Metrics } = await import("@aws-lambda-powertools/metrics");
+const { withTelemetry } = await import("./logger.js");
+const { registry, resetMetrics } = await import("./metrics.js");
 
 type Recorded = { mock: { calls: { arguments: unknown[] }[] } };
 
 const calls = (fn: Recorded): unknown[][] =>
 	fn.mock.calls.map((call) => call.arguments);
-
-const recorded = [addMetric, publishStoredMetrics, captureColdStartMetric];
 
 const makeContext = (): Context =>
 	({
@@ -50,14 +31,34 @@ const makeContext = (): Context =>
 		succeed: () => {},
 	}) as unknown as Context;
 
-describe("remit-logger-lambda", () => {
-	beforeEach(() => {
-		for (const fn of recorded) fn.mock.resetCalls();
-	});
+type HistogramValue = {
+	metricName?: string;
+	labels: Record<string, string | number>;
+	value: number;
+};
 
-	it("exports metrics as a Metrics instance", () => {
-		assert.ok(metrics instanceof Metrics);
-	});
+const handlerAggregate = async (
+	suffix: string,
+	labels: Record<string, string>,
+): Promise<number> => {
+	const metric = registry.getSingleMetric("remit_handler_duration_seconds");
+	assert.ok(metric, "expected the handler duration histogram to be registered");
+	const { values } = (await metric.get()) as { values: HistogramValue[] };
+	const match = values.find(
+		(value) =>
+			value.metricName === `remit_handler_duration_seconds_${suffix}` &&
+			value.labels.handler === labels.handler &&
+			value.labels.outcome === labels.outcome,
+	);
+	assert.ok(
+		match,
+		`expected a _${suffix} sample for ${JSON.stringify(labels)}`,
+	);
+	return match.value;
+};
+
+describe("remit-logger-lambda", () => {
+	beforeEach(() => resetMetrics());
 
 	it("withTelemetry calls the handler and returns its result", async () => {
 		const handler = mock.fn(async () => "hello");
@@ -75,34 +76,20 @@ describe("remit-logger-lambda", () => {
 		await assert.rejects(wrapped({}, makeContext()), /boom/);
 	});
 
-	it("withTelemetry publishes metrics in finally even on error", async () => {
+	it("withTelemetry records a failed invocation against the registry", async () => {
 		const handler = mock.fn(async () => {
 			throw new Error("fail");
 		});
-		const wrapped = withTelemetry(handler);
-		await assert.rejects(wrapped({}, makeContext()));
-		assert.ok(calls(publishStoredMetrics).length > 0);
+		await assert.rejects(withTelemetry(handler)({}, makeContext()));
+		const labels = { handler: "test-function", outcome: "failure" };
+		assert.equal(await handlerAggregate("count", labels), 1);
 	});
 
-	it("withTelemetry emits errorCount on handler failure", async () => {
-		const handler = mock.fn(async () => {
-			throw new Error("fail");
-		});
-		const wrapped = withTelemetry(handler);
-		await assert.rejects(wrapped({}, makeContext()));
-		assert.deepEqual(calls(addMetric), [["errorCount", "Count", 1]]);
-	});
-
-	it("withTelemetry emits invocationCount and invocationLatency on success", async () => {
+	it("withTelemetry records a successful invocation and its duration", async () => {
 		const handler = mock.fn(async () => 42);
-		const wrapped = withTelemetry(handler);
-		await wrapped({}, makeContext());
-		const [countCall, latencyCall] = calls(addMetric);
-		assert.deepEqual(countCall, ["invocationCount", "Count", 1]);
-		assert.deepEqual(latencyCall.slice(0, 2), [
-			"invocationLatency",
-			"Milliseconds",
-		]);
-		assert.equal(typeof latencyCall[2], "number");
+		await withTelemetry(handler)({}, makeContext());
+		const labels = { handler: "test-function", outcome: "success" };
+		assert.equal(await handlerAggregate("count", labels), 1);
+		assert.equal(typeof (await handlerAggregate("sum", labels)), "number");
 	});
 });

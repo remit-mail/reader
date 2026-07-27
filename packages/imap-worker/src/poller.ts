@@ -1,4 +1,4 @@
-import { createLogger } from "@remit/logger-lambda";
+import { createLogger, startMetricsServer } from "@remit/logger-lambda";
 import { runQueuePoller } from "@remit/sqs-client/poller";
 import { env } from "expect-env";
 import { handler } from "./index.js";
@@ -11,6 +11,11 @@ import { handler } from "./index.js";
  * onto this same process for test convenience.
  */
 const log = createLogger();
+
+// /metrics and nothing else, on the compose network (standalone-observability
+// D2). No health route on it: worker liveness is a heartbeat file, which keeps
+// answering when this server does not.
+startMetricsServer();
 
 await runQueuePoller({
 	log,

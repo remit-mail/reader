@@ -3,8 +3,8 @@ import { NotFoundError } from "@remit/data-ports/errors";
 import {
 	createLogger,
 	type Logger,
-	MetricUnit,
-	metrics,
+	queueNameFromEventSource,
+	recordQueueEvent,
 	withTelemetry,
 } from "@remit/logger-lambda";
 import type { VectorRecord } from "@remit/search-service";
@@ -38,26 +38,27 @@ export const processBatch = async (
 	log: Logger,
 ): Promise<SQSBatchResponse> => {
 	const batchItemFailures: { itemIdentifier: string }[] = [];
-	const processingStart = Date.now();
 
 	for (const record of records) {
 		const message = parseQueueMessage(record.body);
+		const start = Date.now();
 
 		const failed =
 			message.kind === "delete"
 				? await deleteMessage(message, services, log)
 				: await upsertMessage(message, services, log);
 
+		recordQueueEvent({
+			queue: queueNameFromEventSource(record.eventSourceARN),
+			eventType: message.kind,
+			outcome: failed ? "failure" : "success",
+			durationMs: Date.now() - start,
+		});
+
 		if (failed) {
 			batchItemFailures.push({ itemIdentifier: record.messageId });
 		}
 	}
-
-	metrics.addMetric(
-		"searchIndexProcessingDuration",
-		MetricUnit.Milliseconds,
-		Date.now() - processingStart,
-	);
 
 	return { batchItemFailures };
 };
@@ -71,7 +72,6 @@ const deleteMessage = async (
 		.delete(message.messageId)
 		.then(() => {
 			log.info("Deleted search vectors", { messageId: message.messageId });
-			metrics.addMetric("searchIndexProcessed", MetricUnit.Count, 1);
 			return false;
 		})
 		.catch((error) => {
@@ -79,7 +79,6 @@ const deleteMessage = async (
 				error: inspect(error),
 				messageId: message.messageId,
 			});
-			metrics.addMetric("searchIndexFailures", MetricUnit.Count, 1);
 			return true;
 		});
 
@@ -105,7 +104,6 @@ export const upsertMessage = async (
 				accountId: message.accountId,
 				messageId: message.messageId,
 			});
-			metrics.addMetric("searchIndexFailures", MetricUnit.Count, 1);
 			return true;
 		});
 
@@ -152,8 +150,6 @@ const indexMessage = async (
 		upserted,
 		skipped,
 	});
-	metrics.addMetric("searchIndexProcessed", MetricUnit.Count, upserted);
-	metrics.addMetric("searchIndexSkipped", MetricUnit.Count, skipped);
 	services.onIndexOutcome?.({ status: "indexed", upserted, skipped });
 };
 

@@ -1,6 +1,6 @@
 import { getClient } from "@remit/backend/client";
 import type { Logger } from "@remit/logger-lambda";
-import { MetricUnit, metrics } from "@remit/logger-lambda";
+import { recordImapFailure } from "@remit/logger-lambda";
 import {
 	BodySyncService,
 	guardConnectionCursor,
@@ -322,35 +322,29 @@ export const syncMessageBody = async (
 				// never a steady state (epic #1281 invariant 3). Resolve every
 				// failed id into exactly one of the two terminal outcomes instead of
 				// letting the record dead-letter with no diagnosis.
-				const { reconciledMessageIds, brokenMessageIds } =
-					await resolveExhaustedBodySyncFailures(
-						{
-							messageService,
-							threadMessageService,
-							storageService: storage,
-							log,
-						},
-						{
-							accountId,
-							accountConfigId: account.accountConfigId,
-							mailboxId,
-							mailboxPath: mailbox.fullPath,
-							failedMessageIds: result.failedMessageIds,
-							getConnection: getConnectionChecked,
-						},
-					);
+				const { brokenMessageIds } = await resolveExhaustedBodySyncFailures(
+					{
+						messageService,
+						threadMessageService,
+						storageService: storage,
+						log,
+					},
+					{
+						accountId,
+						accountConfigId: account.accountConfigId,
+						mailboxId,
+						mailboxPath: mailbox.fullPath,
+						failedMessageIds: result.failedMessageIds,
+						getConnection: getConnectionChecked,
+					},
+				);
 
-				if (reconciledMessageIds.length > 0) {
-					metrics.addMetric(
-						"bodySyncStaleRowReconciled",
-						MetricUnit.Count,
-						reconciledMessageIds.length,
-					);
-				}
+				// A broken body is terminal on a record the handler acks, so the
+				// handler-outcome series never sees it.
 				if (brokenMessageIds.length > 0) {
-					metrics.addMetric(
-						"bodySyncMessageBroken",
-						MetricUnit.Count,
+					recordImapFailure(
+						"SYNC_MESSAGE_BODY_BROKEN",
+						"other",
 						brokenMessageIds.length,
 					);
 				}

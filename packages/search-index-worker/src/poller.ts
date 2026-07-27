@@ -1,7 +1,8 @@
-import { createLogger } from "@remit/logger-lambda";
+import { createLogger, startMetricsServer } from "@remit/logger-lambda";
 import { runQueuePoller } from "@remit/sqs-client/poller";
 import { env } from "expect-env";
 import { handler } from "./index.js";
+import { registerSearchIndexBacklog } from "./metrics.js";
 import { maybeStartSqliteOutboxDrain } from "./sqlite-outbox-drain.js";
 
 /** Production queue poller — no e2e shim exists for this queue today (the
@@ -14,6 +15,18 @@ const log = createLogger();
 // process consumes. A no-op on every other backend. Started before the poll
 // loop, which blocks until shutdown, then stopped after it returns.
 const drain = await maybeStartSqliteOutboxDrain(log);
+
+// The backlog is a count of rows in the shared file, so it is read when a
+// scrape arrives rather than tracked as work moves. Registered only where there
+// is an outbox to count, so on every other backend the series is absent rather
+// than a zero nothing computed.
+if (drain) {
+	registerSearchIndexBacklog(() => drain.countBacklog());
+}
+
+// /metrics and nothing else, on the compose network (D2). Started before the
+// poll loop, which blocks until shutdown.
+startMetricsServer();
 
 try {
 	await runQueuePoller({

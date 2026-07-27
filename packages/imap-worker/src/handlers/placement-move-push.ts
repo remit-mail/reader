@@ -1,6 +1,6 @@
 import { getClient } from "@remit/backend/client";
 import type { Logger } from "@remit/logger-lambda";
-import { MetricUnit, metrics } from "@remit/logger-lambda";
+import { recordImapFailure } from "@remit/logger-lambda";
 import {
 	guardConnectionCursor,
 	type IImapConnection,
@@ -428,11 +428,6 @@ export const handlePlacementMovePush = async (
 					);
 
 					if (outcome === "reconciled") {
-						metrics.addMetric(
-							"placementMoveStaleRowReconciled",
-							MetricUnit.Count,
-							1,
-						);
 						await emitMoveResync(emitEvent, {
 							accountId,
 							sourceMailboxId: marker.sourceMailboxId,
@@ -441,7 +436,9 @@ export const handlePlacementMovePush = async (
 						return;
 					}
 
-					metrics.addMetric("placementMoveFailed", MetricUnit.Count, 1);
+					// Terminal and never re-thrown, so the handler-outcome series
+					// records this record as a success. Counted here or it is invisible.
+					recordImapFailure("PLACEMENT_MOVE_EXHAUSTED", "other");
 					log.error(
 						{ error: error instanceof Error ? error.message : String(error) },
 						"Placement move retry exhausted; message still exists at its source",
