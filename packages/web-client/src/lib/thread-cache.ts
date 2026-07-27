@@ -37,7 +37,7 @@ export const isInfiniteThreadData = (
 	data !== null &&
 	Array.isArray((data as { pages?: unknown }).pages);
 
-const isThreadItemsPage = (data: unknown): data is ThreadItemsPage =>
+export const isThreadItemsPage = (data: unknown): data is ThreadItemsPage =>
 	typeof data === "object" &&
 	data !== null &&
 	Array.isArray((data as { items?: unknown }).items);

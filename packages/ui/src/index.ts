@@ -147,6 +147,7 @@ export {
 	demoLabels,
 	demoRule,
 	demoSenderFallbackRule,
+	demoSubjectPrefillRule,
 	demoVocabularyRule,
 	type FilterRule,
 	type FolderOption,

@@ -35,6 +35,35 @@ export interface RuleClause {
 export type MatchOperator = "all" | "any";
 
 /**
+ * What the rule matches on (RFC 038 D2/D3). `similar` rides the semantic widen
+ * off the messages the rule was started from; `properties` uses literal clauses
+ * only — sender, subject, list — and needs no vector pipeline at all. A surface
+ * that offers both opens on `similar` wherever the deployment can serve it.
+ */
+export type RuleMatchMode = "similar" | "properties";
+
+const matchModeLabels: Record<RuleMatchMode, string> = {
+	similar: "Anything similar",
+	properties: "Its properties",
+};
+
+export function matchModeLabel(mode: RuleMatchMode): string {
+	return matchModeLabels[mode];
+}
+
+const matchModeHints: Record<RuleMatchMode, string> = {
+	similar: "Reads the messages you picked and finds more that read like them.",
+	properties:
+		"Matches on what the messages say about themselves — sender, subject, list. No reading involved.",
+};
+
+/** One line saying what a match mode actually does, so the choice is never a
+ *  guess (ux.md). */
+export function matchModeHint(mode: RuleMatchMode): string {
+	return matchModeHints[mode];
+}
+
+/**
  * When the rule stops (RFC 038 D1). `once` is a one-time action, `standing`
  * persists, `until` expires on a picked date.
  */
@@ -250,6 +279,20 @@ export const demoVocabularyRule: FilterRule = {
 	moveMailboxId: "mbx-archive",
 	scope: "standing",
 	name: "Python lists",
+};
+
+/**
+ * The properties mode's opening rule when the selection's senders differ: the
+ * part their subjects share, prefilled as an ordinary editable `Subject` chip.
+ */
+export const demoSubjectPrefillRule: FilterRule = {
+	clauses: [
+		{ id: "c1", field: "Subject", value: "Your receipt from", derived: true },
+	],
+	matchOperator: "any",
+	moveMailboxId: "mbx-receipts",
+	scope: "once",
+	name: "",
 };
 
 export const demoSenderFallbackRule: FilterRule = {

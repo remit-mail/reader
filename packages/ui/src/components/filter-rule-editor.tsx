@@ -27,8 +27,11 @@ import {
 	type LabelOption,
 	type MatchOperator,
 	matchJoinWord,
+	matchModeHint,
+	matchModeLabel,
 	matchOperatorLabel,
 	type PreviewCount,
+	type RuleMatchMode,
 	type RuleScope,
 } from "./filter-rule.js";
 import { Input } from "./input.js";
@@ -61,6 +64,14 @@ export interface FilterRuleEditorProps {
 	 * widen still renders, marked inactive.
 	 */
 	semanticAvailable?: boolean;
+	/**
+	 * What the rule matches on, when the surface lets the user choose (RFC 038
+	 * D2/D3). Present only where both modes are reachable — the Organize flow on
+	 * a deployment that can serve the widen. Absent leaves the mode control off
+	 * entirely, which is every other entry point onto this editor.
+	 */
+	matchMode?: RuleMatchMode;
+	onChangeMatchMode?: (mode: RuleMatchMode) => void;
 	/**
 	 * The clause fields the add/edit picker offers, in menu order. Defaults to the
 	 * whole vocabulary; a consumer narrows it to the fields its deployment can
@@ -123,6 +134,11 @@ export interface FilterRuleEditorProps {
 const matchOptions: { value: MatchOperator; label: string }[] = [
 	{ value: "all", label: matchOperatorLabel("all") },
 	{ value: "any", label: matchOperatorLabel("any") },
+];
+
+const matchModeOptions: { value: RuleMatchMode; label: string }[] = [
+	{ value: "similar", label: matchModeLabel("similar") },
+	{ value: "properties", label: matchModeLabel("properties") },
 ];
 
 const scopeOptions: { value: RuleScope; label: string }[] = [
@@ -450,6 +466,8 @@ export function FilterRuleEditor({
 	preview,
 	notice,
 	semanticAvailable = false,
+	matchMode,
+	onChangeMatchMode,
 	clauseFields,
 	anchorLocked = false,
 	clauseEdit,
@@ -497,6 +515,24 @@ export function FilterRuleEditor({
 
 			<div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
 				{notice}
+
+				{matchMode && (
+					<section className="space-y-1.5">
+						<p className="text-xs font-medium text-fg-muted">Match on</p>
+						<SegmentedControl
+							name="rule-match-mode"
+							size="sm"
+							aria-label="What the rule matches on"
+							options={matchModeOptions}
+							value={matchMode}
+							onChange={(value) => onChangeMatchMode?.(value)}
+						/>
+						<p className="text-2xs text-fg-subtle">
+							{matchModeHint(matchMode)}
+						</p>
+					</section>
+				)}
+
 				<section className="space-y-3">
 					<div className="flex flex-wrap items-center gap-1.5">
 						{rule.clauses.map((clause, index) => (
@@ -534,6 +570,7 @@ export function FilterRuleEditor({
 						{!rule.widen &&
 							!anchorLocked &&
 							semanticAvailable &&
+							matchMode !== "properties" &&
 							!clauseEdit && (
 								<AddChipButton label="…and similar" onClick={onAddWiden} />
 							)}

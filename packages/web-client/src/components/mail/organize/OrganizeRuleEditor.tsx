@@ -4,6 +4,7 @@ import {
 	FilterRuleEditor,
 	type FolderOption,
 	type LabelOption,
+	type RuleMatchMode,
 	type RuleScope,
 } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
@@ -14,6 +15,7 @@ import { useCreateLabel, useLabelList } from "@/hooks/useLabels";
 import { useOrganizeJob } from "@/hooks/useOrganizeJob";
 import { useRuleEditorState } from "@/hooks/useRuleEditorState";
 import { useRulePreview } from "@/hooks/useRulePreview";
+import { useSelectedSubjects } from "@/hooks/useSelectedSubjects";
 import { getMailboxDisplayName } from "@/lib/folder-roles";
 import { buildMoveTargets } from "@/lib/move-targets";
 import {
@@ -22,6 +24,8 @@ import {
 } from "@/lib/organize/organize-model";
 import {
 	buildInitialRule,
+	defaultMatchMode,
+	matchersForMode,
 	rulePredicate,
 	ruleToDraft,
 	SUPPORTED_CLAUSE_FIELDS,
@@ -46,6 +50,12 @@ interface OrganizeRuleEditorProps {
 	semanticUnavailable?: boolean;
 	/** Distinct sender addresses, for the fallback clauses and the progress copy. */
 	senders?: string[];
+	/**
+	 * The mode the editor opens on. Omitted, it opens on the semantic widen
+	 * wherever the deployment can run it — a caller passes `properties` only to
+	 * enter the flow on a rule built from the selection's own properties.
+	 */
+	seedMatchMode?: RuleMatchMode;
 	/** A folder a "Something else" shortcut pre-picked. */
 	seedMailboxId?: string;
 	/** A scope a "Something else" shortcut pre-picked. */
@@ -70,27 +80,56 @@ export function OrganizeRuleEditor({
 	seedCount,
 	semanticUnavailable = false,
 	senders = [],
+	seedMatchMode,
 	seedMailboxId,
 	seedScope,
 	onClose,
 }: OrganizeRuleEditorProps) {
 	const anchorMessageId = selectedMessageIds[0];
 	const senderFallback = semanticUnavailable && senders.length > 0;
+	const subjects = useSelectedSubjects(selectedMessageIds);
+
+	// Semantic stays the default wherever the deployment can serve it; the
+	// properties mode is the third way in, not a replacement (RFC 038 D2).
+	const [matchMode, setMatchMode] = useState<RuleMatchMode>(
+		() => seedMatchMode ?? defaultMatchMode(semanticUnavailable),
+	);
 
 	const [initialRule] = useState<FilterRule>(() =>
 		buildInitialRule({
 			anchorMessageId,
 			semanticUnavailable,
+			matchMode,
 			senders,
+			subjects,
 			selectionCount: selectedMessageIds.length,
 			seedMailboxId,
 			seedScope,
 		}),
 	);
-	const { rule, handlers } = useRuleEditorState({
+	const { rule, setRule, handlers } = useRuleEditorState({
 		initialRule,
 		widenAnchorCount: selectedMessageIds.length,
 	});
+
+	// Switching mode rebuilds only what the rule matches on — the derived chips
+	// and the widen. The destination, label, scope, name, and any clause the user
+	// typed themselves survive, so the choice stays reversible.
+	const changeMatchMode = (next: RuleMatchMode) => {
+		if (next === matchMode) return;
+		setMatchMode(next);
+		setRule((current) => ({
+			...current,
+			...matchersForMode(next, {
+				anchorMessageId,
+				senders,
+				subjects,
+				selectionCount: selectedMessageIds.length,
+				keepClauses: current.clauses.filter((clause) => !clause.derived),
+				currentOperator: current.matchOperator,
+			}),
+		}));
+	};
 
 	const { data: mailboxesData } = useQuery({
 		...mailboxOperationsListMailboxesOptions({ path: { accountId } }),
@@ -178,7 +217,9 @@ export function OrganizeRuleEditor({
 				runningLabel={
 					senderFallback
 						? "Organizing mail from these senders…"
-						: "Organizing similar mail…"
+						: matchMode === "properties"
+							? "Organizing matching mail…"
+							: "Organizing similar mail…"
 				}
 				onClose={onClose}
 			/>
@@ -219,6 +260,10 @@ export function OrganizeRuleEditor({
 			labels={labels}
 			preview={preview}
 			semanticAvailable={!semanticUnavailable}
+			// A deployment without the vector pipeline has only one mode to be in,
+			// so it gets no choice to make — the rule already matches on properties.
+			matchMode={semanticUnavailable ? undefined : matchMode}
+			onChangeMatchMode={changeMatchMode}
 			clauseFields={SUPPORTED_CLAUSE_FIELDS}
 			{...handlers}
 			onCreateFolder={createFolder}

@@ -4,12 +4,14 @@ import {
 	demoFolders,
 	demoRule,
 	demoSenderFallbackRule,
+	demoSubjectPrefillRule,
 	demoVocabularyRule,
 	type FilterRule,
 	FilterRuleDialog,
 	FilterRuleSheet,
 	type PreviewCount,
 	type RuleClause,
+	type RuleMatchMode,
 } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useMemo, useState } from "react";
@@ -33,8 +35,13 @@ const READY = (count: number, stale?: boolean): PreviewCount => ({
  * the same editor drives the mobile sheet and the desktop dialog (RFC 038 D1),
  * so the two can never drift.
  */
-function useRuleEditor(initialRule: FilterRule) {
+function useRuleEditor(
+	initialRule: FilterRule,
+	initialMatchMode?: RuleMatchMode,
+	propertyRule: FilterRule = demoSenderFallbackRule,
+) {
 	const [rule, setRule] = useState<FilterRule>(initialRule);
+	const [matchMode, setMatchMode] = useState(initialMatchMode);
 	const [clauseEdit, setClauseEdit] = useState<ClauseEditState | undefined>();
 
 	const preview = useMemo<PreviewCount>(
@@ -44,6 +51,7 @@ function useRuleEditor(initialRule: FilterRule) {
 
 	return {
 		rule,
+		matchMode,
 		folders: demoFolders,
 		clauseEdit,
 		preview,
@@ -102,6 +110,26 @@ function useRuleEditor(initialRule: FilterRule) {
 		onChangeMatchOperator: (matchOperator: FilterRule["matchOperator"]) => {
 			setRule((r) => ({ ...r, matchOperator }));
 		},
+		onChangeMatchMode: (mode: RuleMatchMode) => {
+			setMatchMode(mode);
+			// Only the matchers are rebuilt — the destination, scope and name the
+			// user already picked survive the switch, as they do in the app.
+			setRule((r) =>
+				mode === "properties"
+					? {
+							...r,
+							clauses: propertyRule.clauses,
+							matchOperator: "any",
+							widen: undefined,
+						}
+					: {
+							...r,
+							clauses: initialRule.clauses,
+							matchOperator: initialRule.matchOperator,
+							widen: initialRule.widen ?? { anchorCount: 2 },
+						},
+			);
+		},
 		onChangeMove: (moveMailboxId: string) =>
 			setRule((r) => ({ ...r, moveMailboxId: moveMailboxId || undefined })),
 		onChangeScope: (scope: FilterRule["scope"]) =>
@@ -139,11 +167,15 @@ function PhoneFrame({ children }: { children: React.ReactNode }) {
 function MobileStory({
 	initialRule,
 	semanticAvailable = true,
+	matchMode,
+	propertyRule,
 }: {
 	initialRule: FilterRule;
 	semanticAvailable?: boolean;
+	matchMode?: RuleMatchMode;
+	propertyRule?: FilterRule;
 }) {
-	const editor = useRuleEditor(initialRule);
+	const editor = useRuleEditor(initialRule, matchMode, propertyRule);
 	return (
 		<PhoneFrame>
 			<FilterRuleSheet
@@ -159,11 +191,15 @@ function MobileStory({
 function DesktopStory({
 	initialRule,
 	semanticAvailable = true,
+	matchMode,
+	propertyRule,
 }: {
 	initialRule: FilterRule;
 	semanticAvailable?: boolean;
+	matchMode?: RuleMatchMode;
+	propertyRule?: FilterRule;
 }) {
-	const editor = useRuleEditor(initialRule);
+	const editor = useRuleEditor(initialRule, matchMode, propertyRule);
 	return (
 		<div className="h-dvh w-full bg-canvas">
 			<FilterRuleDialog
@@ -189,6 +225,35 @@ export const DesktopDialog: Story = {
 /** Any-of clauses with the ticket-B ListId and FromDomain fields, on desktop. */
 export const DesktopAnyOfClauses: Story = {
 	render: () => <DesktopStory initialRule={demoVocabularyRule} />,
+};
+
+/**
+ * The Organize surface on a phone, where the rule can be matched either way.
+ * It opens on "Anything similar"; "Its properties" swaps the widen for clauses
+ * derived from the messages that were selected — a rule with no semantics in it.
+ */
+export const MobileMatchMode: Story = {
+	render: () => (
+		<MobileStory
+			initialRule={{ ...demoRule, clauses: [] }}
+			matchMode="similar"
+			propertyRule={demoSenderFallbackRule}
+		/>
+	),
+};
+
+/**
+ * Properties matching where the selection's senders differ: the prefill falls
+ * back to the part the subjects share, on desktop.
+ */
+export const DesktopMatchOnSubject: Story = {
+	render: () => (
+		<DesktopStory
+			initialRule={demoSubjectPrefillRule}
+			matchMode="properties"
+			propertyRule={demoSubjectPrefillRule}
+		/>
+	),
 };
 
 /** The sender-fallback (#251) rendered as editable From chips, on mobile. */

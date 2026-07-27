@@ -4,14 +4,13 @@ import type {
 	MatchOperator,
 	PreviewCount,
 	RuleClause,
+	RuleMatchMode,
 	RuleScope,
 } from "@remit/ui";
 import { pickedDateToExpiresAt } from "./filter-status";
 import type { OrganizeDraft } from "./organize-model";
-import {
-	deriveSenderClauses,
-	type OrganizeMatchPredicate,
-} from "./sender-fallback";
+import { derivePropertyClauses } from "./property-prefill";
+import type { OrganizeMatchPredicate } from "./sender-fallback";
 
 /**
  * The clause fields the Organize editor may offer (RFC 038 D2). Gated on what
@@ -55,11 +54,19 @@ export interface InitialRuleInput {
 	anchorMessageId?: string;
 	/**
 	 * The deployment ships no vector pipeline, so the widen cannot run. The rule
-	 * opens on the sender-derived literal clauses instead of an anchor.
+	 * opens on the property-derived literal clauses instead of an anchor.
 	 */
 	semanticUnavailable: boolean;
-	/** Distinct sender addresses of the selection, for the fallback clauses. */
+	/**
+	 * How the rule opens. Defaults to `properties` when the deployment cannot
+	 * serve the widen, `similar` otherwise — semantic stays the default wherever
+	 * it can run.
+	 */
+	matchMode?: RuleMatchMode;
+	/** Distinct sender addresses of the selection, for the derived clauses. */
 	senders: readonly string[];
+	/** Subjects of the selected messages, for the shared-subject prefill. */
+	subjects?: readonly string[];
 	/** How many messages the selection holds — the widen's anchor count. */
 	selectionCount: number;
 	/** A folder a "Something else" shortcut pre-picked. */
@@ -68,41 +75,96 @@ export interface InitialRuleInput {
 	seedScope?: RuleScope;
 }
 
+export const defaultMatchMode = (
+	semanticUnavailable: boolean,
+): RuleMatchMode => (semanticUnavailable ? "properties" : "similar");
+
+/** The property prefill as editor chips, flagged as derived so a mode switch
+ *  can take back its own guesses without touching a clause the user wrote. */
+const derivedClauses = (
+	senders: readonly string[],
+	subjects: readonly string[],
+): RuleClause[] =>
+	derivePropertyClauses(senders, subjects).map((clause, index) => ({
+		id: `derived-${index}`,
+		field: clause.field,
+		value: clause.value,
+		derived: true,
+	}));
+
+export interface RuleMatchers {
+	clauses: RuleClause[];
+	matchOperator: MatchOperator;
+	widen?: FilterRule["widen"];
+}
+
+export interface MatchersInput {
+	anchorMessageId?: string;
+	senders: readonly string[];
+	subjects: readonly string[];
+	selectionCount: number;
+	/** Clauses the user wrote, carried across a mode switch untouched. */
+	keepClauses?: RuleClause[];
+	/** The operator to keep when the user already has clauses of their own. */
+	currentOperator?: MatchOperator;
+}
+
 /**
- * The rule the editor opens on, built from the widen probe. A semantic-capable
- * deployment opens on the widen chip (the anchor, no literal clauses); one
- * without the vector pipeline opens on the sender-fallback `From` chips (#251),
- * visible and editable, matched with `Or`. Either way the move destination and
- * scope come from any "Something else" seed.
+ * What a rule matches on in a given mode, with the action and scope left alone.
+ *
+ * - `similar` — the semantic widen chip, the anchor doing the work.
+ * - `properties` — no anchor at all: the selection's own sender or shared
+ *   subject as ordinary literal chips ({@link derivePropertyClauses}).
+ *
+ * Both keep clauses the user added by hand, so switching mode is never
+ * destructive of their own edits.
  */
-export const buildInitialRule = (input: InitialRuleInput): FilterRule => {
-	const scope = input.seedScope ?? "once";
-	if (input.semanticUnavailable) {
-		// The same derivation the widen fallback runs (#251, #262): one `From`
-		// clause per sender, or a single `FromDomain` clause when they share a
-		// registrable domain. Surfaced as ordinary editable chips.
-		const clauses: RuleClause[] = deriveSenderClauses(input.senders).map(
-			(clause, index) => ({
-				id: `derived-${index}`,
-				field: clause.field,
-				value: clause.value,
-				derived: true,
-			}),
+export const matchersForMode = (
+	mode: RuleMatchMode,
+	input: MatchersInput,
+): RuleMatchers => {
+	const kept = input.keepClauses ?? [];
+	if (mode === "properties") {
+		const prefill = derivedClauses(input.senders, input.subjects).filter(
+			(clause) =>
+				!kept.some(
+					(existing) =>
+						existing.field === clause.field && existing.value === clause.value,
+				),
 		);
 		return {
-			clauses,
-			matchOperator: "any",
-			moveMailboxId: input.seedMailboxId,
-			scope,
-			name: "",
+			clauses: [...kept, ...prefill],
+			matchOperator: kept.length > 0 ? (input.currentOperator ?? "any") : "any",
+			widen: undefined,
 		};
 	}
 	return {
-		clauses: [],
-		matchOperator: "all",
+		clauses: kept,
+		matchOperator: kept.length > 0 ? (input.currentOperator ?? "all") : "all",
 		widen: input.anchorMessageId
 			? { anchorCount: Math.max(input.selectionCount, 1) }
 			: undefined,
+	};
+};
+
+/**
+ * The rule the editor opens on, built from the widen probe. A semantic-capable
+ * deployment opens on the widen chip (the anchor, no literal clauses); one
+ * without the vector pipeline, or a user who picked properties matching, opens
+ * on the derived `From` / `FromDomain` / `Subject` chips (#251), visible and
+ * editable, matched with `Or`. Either way the move destination and scope come
+ * from any "Something else" seed.
+ */
+export const buildInitialRule = (input: InitialRuleInput): FilterRule => {
+	const scope = input.seedScope ?? "once";
+	const mode = input.matchMode ?? defaultMatchMode(input.semanticUnavailable);
+	return {
+		...matchersForMode(mode, {
+			anchorMessageId: input.anchorMessageId,
+			senders: input.senders,
+			subjects: input.subjects ?? [],
+			selectionCount: input.selectionCount,
+		}),
 		moveMailboxId: input.seedMailboxId,
 		scope,
 		name: "",
