@@ -86,7 +86,7 @@ test("re-mints once on 401 and replays the request", async () => {
 	expect(counts.signIn).toBe(1);
 	expect(counts.tokenExchange).toBe(1);
 	// The first attempt (401) plus the replay after re-mint.
-	expect(counts.business).toBe(99);
+	expect(counts.business).toBe(2);
 });
 
 test("does not re-mint on a non-401 failure", async () => {
