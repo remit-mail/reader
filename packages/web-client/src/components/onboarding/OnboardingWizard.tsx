@@ -1033,6 +1033,13 @@ function StepTest({
 	);
 }
 
+/**
+ * How long the sync step holds "Go to inbox" shut while it waits for the first
+ * messages. Long enough for a normal IMAP handshake and first batch, short
+ * enough that a stalled or silent sync never becomes a dead end.
+ */
+const INBOX_GATE_MAX_WAIT_MS = 20_000;
+
 function StepSync({
 	email,
 	displayName,
@@ -1121,7 +1128,7 @@ function StepSync({
 	// Poll sync status every 2s once account is created. Stop polling once the
 	// account reaches a terminal phase (complete/error) so we don't hammer the
 	// endpoint while the user lingers on this step (pattern from ComposeProvider).
-	const { data: syncStatus } = useQuery({
+	const { data: syncStatus, isError: syncStatusUnavailable } = useQuery({
 		...syncOperationsGetSyncStatusOptions({
 			path: { accountId: accountId ?? "" },
 		}),
@@ -1187,6 +1194,33 @@ function StepSync({
 				? "running"
 				: "ok";
 
+	// The inbox has something to show once the first messages have landed, the
+	// INBOX mailbox is drained, or the account's sync reached a terminal phase.
+	// Until then "Go to inbox" leads to an empty list, so it does not offer (#452).
+	const inboxHasArrived =
+		inboxSynced > 0 ||
+		inboxMailbox?.phase === "complete" ||
+		syncPhase === "complete" ||
+		syncErrored;
+
+	// Nothing above is allowed to strand the user: if the first messages have not
+	// landed within the wait, or the status endpoint cannot answer at all, the
+	// button opens regardless. The brief tells the truth about an empty list on
+	// the other side, so an early exit costs a wait, not a lie.
+	const [waitedLongEnough, setWaitedLongEnough] = useState(false);
+	useEffect(() => {
+		if (!accountId) return;
+		const timer = setTimeout(
+			() => setWaitedLongEnough(true),
+			INBOX_GATE_MAX_WAIT_MS,
+		);
+		return () => clearTimeout(timer);
+	}, [accountId]);
+
+	const canGoToInbox =
+		!!accountId &&
+		(inboxHasArrived || syncStatusUnavailable || waitedLongEnough);
+
 	if (createError) {
 		return (
 			<WizardShell
@@ -1243,12 +1277,22 @@ function StepSync({
 					<span className="text-2xs text-fg-subtle">
 						Sync continues in the background
 					</span>
-					<Button
-						variant="primary"
-						onClick={() => accountId && onGoToInbox(accountId)}
-					>
-						Go to inbox
-					</Button>
+					{canGoToInbox ? (
+						<Button
+							variant="primary"
+							onClick={() => accountId && onGoToInbox(accountId)}
+						>
+							Go to inbox
+						</Button>
+					) : (
+						<Button
+							variant="primary"
+							disabled
+							icon={<Loader2 className="size-3.5 animate-spin" />}
+						>
+							Getting your mail…
+						</Button>
+					)}
 				</>
 			}
 		>

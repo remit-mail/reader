@@ -156,9 +156,24 @@ export const TestConnectionNetworkFailure: Story = {
 	render: () => <StepTest mode="network-failure" />,
 };
 
-/** Initial sync with live counts; "Go to inbox" enabled mid-sync. */
+/** Initial sync with live counts; "Go to inbox" enabled once mail has landed. */
 export const SyncProgress: Story = {
 	render: () => <StepSync />,
+};
+
+/**
+ * The seconds before the first messages land. There is no inbox to go to yet,
+ * so the CTA waits instead of handing the user an empty list (#452). It opens
+ * on its own once mail arrives, or after a short wait if nothing does.
+ */
+export const SyncWaitingForFirstMail: Story = {
+	render: () => <StepSync mode="waiting" />,
+};
+
+/** Phone width — the gated CTA and its hint share a 411 px footer row. */
+export const SyncWaitingForFirstMailPhone: Story = {
+	globals: { viewport: { value: "mobile" } },
+	render: () => <StepSync mode="waiting" />,
 };
 
 /** Account creation failed: "Couldn't create account" + raw error + Retry. */

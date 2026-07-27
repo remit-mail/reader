@@ -476,7 +476,7 @@ export function StepTest({
 export function StepSync({
 	mode = "progress",
 	onNext,
-}: { mode?: "progress" | "create-error" | "stalled" } & StepNav) {
+}: { mode?: "progress" | "waiting" | "create-error" | "stalled" } & StepNav) {
 	if (mode === "create-error") {
 		return (
 			<WizardShell
@@ -499,6 +499,9 @@ export function StepSync({
 	}
 
 	const stalled = mode === "stalled";
+	// Nothing has arrived yet, so there is no inbox to go to — the CTA waits
+	// rather than dropping the user on an empty list (#452).
+	const waiting = mode === "waiting";
 
 	return (
 		<WizardShell
@@ -511,34 +514,48 @@ export function StepSync({
 					<span className="text-2xs text-fg-subtle">
 						Sync continues in the background
 					</span>
-					<Button variant="primary" onClick={onNext}>
-						Go to inbox
-					</Button>
+					{waiting ? (
+						<Button
+							variant="primary"
+							disabled
+							icon={<Loader2 className="size-3.5 animate-spin" />}
+						>
+							Getting your mail…
+						</Button>
+					) : (
+						<Button variant="primary" onClick={onNext}>
+							Go to inbox
+						</Button>
+					)}
 				</>
 			}
 		>
 			<div className="space-y-3">
-				<div>
-					<div className="flex items-baseline justify-between text-xs">
-						<span className="font-medium text-fg">INBOX</span>
-						<span className="text-fg-subtle tabular-nums">
-							812 / 4,210 messages
-						</span>
+				{!waiting && (
+					<div>
+						<div className="flex items-baseline justify-between text-xs">
+							<span className="font-medium text-fg">INBOX</span>
+							<span className="text-fg-subtle tabular-nums">
+								812 / 4,210 messages
+							</span>
+						</div>
+						<div className="mt-1 h-1.5 overflow-hidden rounded-full bg-surface-sunken">
+							<div className="h-full w-1/5 rounded-full bg-accent" />
+						</div>
 					</div>
-					<div className="mt-1 h-1.5 overflow-hidden rounded-full bg-surface-sunken">
-						<div className="h-full w-1/5 rounded-full bg-accent" />
-					</div>
-				</div>
+				)}
 				<div className="divide-y divide-line">
 					<CheckRow
 						label="Mailboxes discovered"
-						detail="7 mailboxes found"
-						state={stalled ? "failed" : "ok"}
+						detail={waiting ? "Discovering…" : "7 mailboxes found"}
+						state={stalled ? "failed" : waiting ? "running" : "ok"}
 					/>
 					<CheckRow
 						label="INBOX"
-						detail={stalled ? "Stalled" : "Syncing newest first…"}
-						state={stalled ? "failed" : "running"}
+						detail={
+							stalled ? "Stalled" : waiting ? "Queued" : "Syncing newest first…"
+						}
+						state={stalled ? "failed" : waiting ? "pending" : "running"}
 					/>
 					<CheckRow
 						label="Archive, Sent, Drafts…"
