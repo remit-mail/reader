@@ -51,3 +51,27 @@ describe("story files use the viewport globals pattern (#68)", () => {
 		assert.deepEqual(offenders, []);
 	});
 });
+
+/**
+ * Storybook composes decorators story → component → global, so a story-level
+ * `decorators: []` adds nothing. It reads as "this story opts out of the meta's
+ * frame" and silently does the opposite, which clipped a story down to half its
+ * content. A story that needs a different frame carries the frame itself.
+ */
+describe("story files never claim to shed a meta decorator", () => {
+	const roots = [
+		here,
+		resolve(here, "../../workbench/src"),
+		resolve(here, "../../web-client/src"),
+	];
+
+	it("never uses an empty story-level decorators array", () => {
+		const offenders = roots
+			.flatMap((root) => storyFiles(root))
+			.filter((file) =>
+				/decorators:\s*\[\s*\]/.test(readFileSync(file, "utf8")),
+			)
+			.map((file) => relative(here, file));
+		assert.deepEqual(offenders, []);
+	});
+});
