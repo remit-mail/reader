@@ -100,7 +100,7 @@ export const validateMailboxOperation = (
  * Service for managing mailbox operations (create, rename, delete).
  *
  * Implements an optimistic local-first pattern:
- * 1. Updates are applied locally first (DynamoDB)
+ * 1. Updates are applied locally first
  * 2. Changes are queued for IMAP sync via SQS
  * 3. Worker processes queue and syncs to IMAP server
  */
@@ -244,7 +244,7 @@ export class MailboxManagementService {
 
 		this.log.info({ mailboxId, path }, "Deleted mailbox on IMAP server");
 
-		// Delete the mailbox entity from DynamoDB
+		// Delete the mailbox entity from the local store
 		await this.mailboxService.delete(accountId, mailboxId);
 
 		return { success: true };

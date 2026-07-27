@@ -109,8 +109,8 @@ if (cluster.isPrimary) {
 	const queueName = new URL(queueUrl).pathname.split("/").pop();
 	const log = createLogger().child({ queue: queueName });
 
-	// The search-index queue carries DynamoDB-stream-shaped events and is owned
-	// by the search-index-worker handler; every other queue is an imap operation.
+	// The search-index queue is owned by the search-index-worker handler; every
+	// other queue is an imap operation.
 	const activeHandler: SQSHandler =
 		queueUrl === searchIndexQueueUrl ? searchIndexHandler : handler;
 

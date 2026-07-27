@@ -47,7 +47,8 @@ npm run cli -- -t SYNC_MESSAGE_BODY -a <accountId> -m <mailboxId> --messageIds i
 
 | Variable                      | Required | Description                                              |
 | ----------------------------- | -------- | -------------------------------------------------------- |
-| `DYNAMODB_TABLE_NAME`         | Yes      | Name of the DynamoDB table for Remit data                |
+| `DATA_BACKEND`                | Yes      | Relational backend to run against (`sqlite`)             |
+| `SQLITE_DB_PATH`              | Yes      | Path to the shared SQLite database file                  |
 | `SQS_QUEUE_URL_MAILBOXES`     | Yes      | FIFO queue URL for `SYNC_MAILBOXES` events               |
 | `SQS_QUEUE_URL_MESSAGES`      | Yes      | FIFO queue URL for `SYNC_MESSAGES` events                |
 | `SQS_QUEUE_URL_BODY`          | Yes      | FIFO queue URL for `SYNC_MESSAGE_BODY` events            |

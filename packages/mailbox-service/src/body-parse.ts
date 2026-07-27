@@ -9,7 +9,7 @@ type FailureCode = QuarantineItem["failureCode"];
  *
  * This type is the whole reason the sync path can quarantine anything. Before
  * it, every catch site on the body path saw one undifferentiated `unknown`
- * covering mailparser, S3, DynamoDB and SQS alike, so "the message is built in
+ * covering mailparser, S3, the database and SQS alike, so "the message is built in
  * a way Remit could not read" was indistinguishable from "S3 returned a 503".
  * Recording the second as the first advances the cursor past mail that is
  * perfectly fine and never fetches it again.

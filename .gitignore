@@ -65,7 +65,6 @@ typings/
 build
 **/dist
 .elasticmq/
-.dynamodb/
 .remit/
 .tmux/
 .DS_Store
