@@ -29,6 +29,7 @@ import type {
 	UpdateMessageInput,
 	UpdateThreadMessageInput,
 } from "@remit/data-ports";
+import { NotFoundError } from "@remit/data-ports/errors";
 import { MessageCategory } from "@remit/domain-enums";
 import type { StorageService } from "@remit/storage-service";
 import { BodySyncService } from "./body-sync.js";
@@ -171,7 +172,12 @@ const buildHarness = (
 		messageService,
 		storageService,
 		threadMessageService,
-		{ incrementInboundCount: async () => {} } as unknown as IAddressRepository,
+		{
+			getAddress: async () => {
+				throw new NotFoundError("Address not found");
+			},
+			incrementInboundCount: async () => {},
+		} as unknown as IAddressRepository,
 		{ listBodyParts: async () => [] } as unknown as IEnvelopeRepository,
 		{ info: () => {}, error: () => {} },
 	);
