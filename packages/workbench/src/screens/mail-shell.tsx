@@ -11,7 +11,8 @@
  * - the list pane is a `MailHeader` over the pane body, and the header shows a
  *   search field only where the top bar is absent, so the page never has two;
  * - a query swaps the list body for the same `SearchResults` sections the phone
- *   takeover renders, under the same `FilterSheet`;
+ *   takeover renders, takes the filter sheet down, and puts "Make this a filter"
+ *   in the pane above whichever body is showing;
  * - below 1024px the shell is one pane: the nav is a slide-over, compose is the
  *   FAB, and the phone's magnifier opens the full-screen `MobileSearchView`.
  *
@@ -28,13 +29,13 @@ import {
 	type IntelligenceData,
 	IntelligencePanel,
 	MailHeader,
+	MakeFilterAction,
 	MessageListPane,
 	MobileSearchView,
 	NavSidebar,
 	ReadingPane,
 	SearchBar,
 	type SearchChip,
-	type SearchResult,
 	type SearchResultSection,
 	SearchResults,
 	type SearchScope,
@@ -79,6 +80,12 @@ export interface MailShellProps {
 	searchScope?: SearchScope;
 	/** Filter tokens parsed out of the query, shown above the results. */
 	searchTokens?: string[];
+	/**
+	 * Renders "Make this a filter" inert and states why — a query of only
+	 * non-clause facets has nothing to convert. The affordance itself is offered
+	 * for every active query, as the route does.
+	 */
+	makeFilterDisabledReason?: string;
 	recentSearches?: string[];
 	savedSearches?: string[];
 	/** Phone: open the full-screen search takeover instead of the list. */
@@ -97,6 +104,8 @@ interface SearchState {
 	scope?: SearchScope;
 	tokens: { label: string; onRemove: () => void }[];
 	recentSearches?: string[];
+	/** "Make this a filter" — the pane offers it for every active query. */
+	makeFilter?: { onClick: () => void; disabledReason?: string };
 }
 
 function TopBar({ search }: { search: SearchState }) {
@@ -226,6 +235,7 @@ function ListPane({
 				chips={search.chips}
 				onRemoveChip={search.removeChip}
 				scope={search.scope}
+				makeFilter={search.makeFilter}
 			/>
 		);
 	}
@@ -251,11 +261,15 @@ function ListPane({
 		/>
 	);
 	const inner: ReactNode = hasQuery ? results : rows;
-	const body = filterConfig ? (
-		<FilterSheet {...filterConfig}>{inner}</FilterSheet>
-	) : (
-		<div className="h-full overflow-y-auto">{inner}</div>
-	);
+	// A query owns the pane: the filter sheet stands down and the search's own
+	// affordance takes its place, in the pane rather than in the results body, so
+	// it stays put when the body swaps between the panel and the list's own rows.
+	const body =
+		filterConfig && !hasQuery ? (
+			<FilterSheet {...filterConfig}>{inner}</FilterSheet>
+		) : (
+			<div className="h-full overflow-y-auto">{inner}</div>
+		);
 
 	return (
 		<section className="flex h-full w-full flex-col bg-surface">
@@ -271,6 +285,9 @@ function ListPane({
 				searchOpen={searchOpen}
 				onSearchOpenChange={onSearchOpenChange}
 			/>
+			{hasQuery && search.makeFilter && (
+				<MakeFilterAction {...search.makeFilter} />
+			)}
 			<div className="min-h-0 flex-1">{body}</div>
 		</section>
 	);
@@ -295,6 +312,7 @@ export function MailShell({
 	searchLoading,
 	searchScope,
 	searchTokens = [],
+	makeFilterDisabledReason,
 	recentSearches,
 	savedSearches = [],
 	searchOpen: searchOpenSeed = false,
@@ -322,6 +340,10 @@ export function MailShell({
 			onRemove: () => setTokens((prev) => prev.filter((t) => t !== label)),
 		})),
 		recentSearches,
+		makeFilter: {
+			onClick: () => undefined,
+			disabledReason: makeFilterDisabledReason,
+		},
 	};
 
 	const trimmed = searchQuery.trim();

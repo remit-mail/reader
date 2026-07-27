@@ -164,6 +164,7 @@ function Harness({
 	sections,
 	preset,
 	scope,
+	makeFilterDisabledReason,
 }: {
 	initialValue?: string;
 	initialChips?: SearchChip[];
@@ -171,6 +172,8 @@ function Harness({
 	sections?: SearchResultSection[];
 	preset: Preset;
 	scope?: SearchScope;
+	/** Renders the conversion inert with a reason; it is offered either way. */
+	makeFilterDisabledReason?: string;
 }) {
 	const [value, setValue] = useState(initialValue);
 	const [chips, setChips] = useState<SearchChip[]>(initialChips);
@@ -244,6 +247,10 @@ function Harness({
 			loading={loading}
 			onSelectResult={setOpened}
 			scope={scope}
+			makeFilter={{
+				onClick: () => undefined,
+				disabledReason: makeFilterDisabledReason,
+			}}
 		/>
 	);
 }
@@ -259,9 +266,10 @@ export default meta;
 type Story = StoryObj<typeof MobileSearchView>;
 
 /**
- * Global search — the daily-brief preset, so the FilterSheet carries the account
- * source row (matthijs@ / work@acme) on top of the shared categories + filters.
- * The header carries a single X that clears the query AND dismisses the takeover.
+ * Global search — the daily-brief preset. The filter chrome is not up: a query
+ * supersedes it, and the row above the results belongs to the conversion the
+ * search itself offers. The header carries a single X that clears the query AND
+ * dismisses the takeover.
  */
 export const GlobalSearch: Story = {
 	render: () => (
@@ -270,8 +278,9 @@ export const GlobalSearch: Story = {
 };
 
 /**
- * Scoped search — a single inbox, so the inbox preset drops the account row
- * entirely (the view is already scoped); same categories and filters otherwise.
+ * Scoped search — a single inbox. It reads exactly like the global one above:
+ * search is scoped by where the user is and differs in nothing else, so the
+ * conversion is offered here too.
  */
 export const ScopedSearch: Story = {
 	render: () => (
@@ -279,7 +288,26 @@ export const ScopedSearch: Story = {
 	),
 };
 
-/** Empty query: recent searches under the brief filter chrome. */
+/**
+ * A query with nothing a filter could match on: the conversion is offered inert
+ * with the reason, rather than withheld and leaving the row to appear and vanish
+ * as the user types.
+ */
+export const NothingToConvert: Story = {
+	render: () => (
+		<Harness
+			initialValue="has:attachment"
+			sections={resultSections}
+			preset="inbox"
+			makeFilterDisabledReason="Add a sender or words to filter on"
+		/>
+	),
+};
+
+/**
+ * Empty query: recent searches under the brief filter chrome. Nothing is being
+ * searched, so the filter sheet has the row — typing hands it to the results.
+ */
 export const Idle: Story = {
 	render: () => <Harness preset="brief" />,
 };

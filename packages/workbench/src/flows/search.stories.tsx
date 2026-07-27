@@ -16,6 +16,11 @@
  * view's scope as a chip, rows from a search that spans folders say which folder
  * they came from, and spam is held out of a global search and offered back as a
  * count with a way into a Spam-scoped search.
+ *
+ * A query owns the pane. The filter sheet is down for as long as one is active —
+ * filtering and searching narrow the same list by the same intent — and its row
+ * belongs to "Make this a filter", which the pane offers for every search on
+ * every view, the brief and a mailbox alike.
  */
 import {
 	briefFilterConfig,
@@ -112,6 +117,10 @@ export const Global: Story = {
  * Scoped to a folder by the sidebar: the field shows the scope as a chip and the
  * rows drop their folder labels, which would only repeat that chip. Spam is out
  * of reach here, so nothing is offered.
+ *
+ * The mailbox offers the conversion on the same terms the brief does — search is
+ * scoped by where the user is and behaves the same everywhere else — and the
+ * inbox's filter sheet, which sat in that row, is down for the search.
  */
 export const ScopedToFolder: Story = {
 	render: () => (
@@ -125,6 +134,47 @@ export const ScopedToFolder: Story = {
 			query={searchQuery}
 			searchSections={searchSectionsWithoutSpam}
 			searchScope={folderScope}
+		/>
+	),
+};
+
+/**
+ * The inbox before anything is typed: the filter sheet has the row, and there is
+ * no conversion to offer. This is the state `ScopedToFolder` returns to when the
+ * query is cleared — the sheet keeps its category and toggles across the search.
+ */
+export const UnsearchedFolder: Story = {
+	render: () => (
+		<MailShell
+			selectedNavId="mbx_personal_inbox"
+			listTitle="Inbox"
+			unreadCount={9}
+			sections={flatInbox}
+			preset={inboxFilterConfig()}
+			scopeChip={inboxScope}
+		/>
+	),
+};
+
+/**
+ * A query of only non-clause facets: there is nothing a filter could match on, so
+ * the conversion is offered inert with the reason rather than withheld — the
+ * affordance is where the user expects it, and it says what the search is missing.
+ */
+export const NothingToConvert: Story = {
+	render: () => (
+		<MailShell
+			selectedNavId="mbx_personal_inbox"
+			listTitle="Inbox"
+			unreadCount={9}
+			sections={flatInbox}
+			preset={inboxFilterConfig()}
+			scopeChip={inboxScope}
+			query="has:attachment"
+			searchSections={searchSectionsWithoutSpam}
+			searchScope={folderScope}
+			searchTokens={["has: attachment"]}
+			makeFilterDisabledReason="Add a sender or words to filter on"
 		/>
 	),
 };
@@ -189,9 +239,10 @@ export const NoMatches: Story = {
 };
 
 /**
- * Phone: the magnifier opens the full-screen takeover. The field, the filter
- * sheet and the result sections are the same components desktop mounts; the one
- * X clears the query and closes the takeover together.
+ * Phone: the magnifier opens the full-screen takeover. The field and the result
+ * sections are the same components desktop mounts; the one X clears the query and
+ * closes the takeover together. The takeover's filter sheet belongs to the empty
+ * field (see `PhoneRecentSearches`) — with a query up, the conversion has the row.
  */
 export const PhoneTakeover: Story = {
 	parameters: phoneParams,
@@ -236,7 +287,36 @@ export const PhoneBriefTakeover: Story = {
 	),
 };
 
-/** The takeover with an empty field: the searches the user ran before. */
+/**
+ * The mailbox takeover on the wider Android phone, at 411px. The conversion row
+ * fits above the sections at the narrowest width the app supports, and the inbox
+ * filter sheet that would otherwise sit there is down for the search.
+ */
+export const PhoneFolderTakeover: Story = {
+	parameters: phoneParams,
+	decorators: [framedAt(WIDE_PHONE_WIDTH)],
+	render: () => (
+		<MailShell
+			width={WIDE_PHONE_WIDTH}
+			selectedNavId="mbx_personal_inbox"
+			listTitle="Inbox"
+			unreadCount={9}
+			sections={flatInbox}
+			preset={inboxFilterConfig()}
+			scopeChip={inboxScope}
+			query={searchQuery}
+			searchSections={searchSectionsWithoutSpam}
+			searchScope={folderScope}
+			recentSearches={recentSearches}
+			searchOpen
+		/>
+	),
+};
+
+/**
+ * The takeover with an empty field: the searches the user ran before, under the
+ * filter sheet. Nothing is being searched, so the sheet keeps the row.
+ */
 export const PhoneRecentSearches: Story = {
 	parameters: phoneParams,
 	decorators: [phoneFrame],

@@ -11,8 +11,14 @@
  * On phone the magnifier opens a full-screen `MobileSearchView` takeover instead
  * of expanding over the title; tablet and desktop keep the inline header search
  * and, once a query is present, swap the list-pane body to the same kit
- * `SearchResults` sections under the shared `FilterSheet`. Consumers feed the
- * filter chrome and query-narrowed results; both tiers render identical rows.
+ * `SearchResults` sections. Consumers feed the filter chrome and query-narrowed
+ * results; both tiers render identical rows.
+ *
+ * An active query owns the pane. The filter chrome is not rendered while one is
+ * present — the two narrow the same list by the same intent and would sit in the
+ * same place — and its place is taken by `MakeFilterAction`, which the pane mounts
+ * itself so it is there for every search on every view, whichever body is showing
+ * the results.
  *
  * Results split into two sections, one per engine: literal/instant and semantic.
  * The consumer dedupes them — a thread in both appears only under the literal
@@ -28,9 +34,9 @@
  * `resultsScopeForRoute` and `lib/spam-offer.ts`.
  */
 import {
-	FilterSheet,
 	type FilterSheetProps,
 	MailHeader,
+	MakeFilterAction,
 	MobileSearchView,
 	type SearchResult,
 	type SearchResultSection,
@@ -225,9 +231,19 @@ export function MailListHeader({
 	// an `account:` facet names, else the primary account. The literal filter
 	// cannot reproduce the search's semantic reach, so the conversion states it
 	// whenever the search surfaced a "Related" section — a direct signal, read
-	// here from the semantic results, never a capability probe. Offered whenever a
-	// query is active, disabled with a reason when the search has no clause to
-	// filter on (only non-clause facets, or a bare folder scope).
+	// here from the semantic results, never a capability probe. Disabled with a
+	// reason when the search has no clause to filter on (only non-clause facets,
+	// or a bare folder scope).
+	//
+	// It belongs to the search, not to any one way of showing it. The affordance
+	// therefore sits in the pane, above whichever body is up — the read-only
+	// results panel, or a list whose own rows narrow to the committed query — and
+	// is mounted on the same condition as the query itself. Rendering it inside the
+	// results panel made it a mailbox's flash: the panel shows while the query is
+	// being typed and hands back to `MessageList` the moment the query commits to
+	// the URL, taking the affordance down with it a few hundred milliseconds after
+	// it appeared, and leaving the brief (which keeps the panel for any query) as
+	// the only place it survived.
 	const accountToken = parsed.tokens.find((token) => token.type === "account");
 	const targetAccountId = accountToken?.accountId ?? accounts[0]?.accountId;
 	const searchHadSemanticReach = related.length > 0;
@@ -242,6 +258,10 @@ export function MailListHeader({
 						: "Add a sender or words to filter on",
 				}
 			: undefined;
+	// A selection replaces the header with its bulk-action bar and owns the pane;
+	// the search affordance stands down until the selection clears.
+	const makeFilterAction =
+		makeFilter && !selectionBar ? <MakeFilterAction {...makeFilter} /> : null;
 	const filterDialog =
 		filterOpen && targetAccountId ? (
 			<SearchFilterDialog
@@ -309,15 +329,14 @@ export function MailListHeader({
 			onSelectResult={handleSelectInlineResult}
 			tokens={tokenChips}
 			scope={resultsScope}
-			makeFilter={makeFilter}
 		/>
 	);
-	const body = !showInlineResults ? (
-		children
-	) : searchFilter ? (
-		<FilterSheet {...searchFilter}>{results}</FilterSheet>
-	) : (
+	// The filter chrome is not rendered while a query is active — see `makeFilter`
+	// above — so the results panel gets the plain scroll container either way.
+	const body = showInlineResults ? (
 		<div className="h-full overflow-y-auto">{results}</div>
+	) : (
+		children
 	);
 
 	return (
@@ -343,6 +362,7 @@ export function MailListHeader({
 					onSearchOpenChange={setSearchOpen}
 				/>
 			)}
+			{makeFilterAction}
 			<div className="min-h-0 flex-1">{body}</div>
 			{footer}
 			{filterDialog}

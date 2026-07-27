@@ -7,6 +7,12 @@
  * category / attribute / source selection state. The same filter config feeds
  * the phone search takeover (via `MailListHeader`), so filters carry across.
  *
+ * An active search takes the sheet down. Filtering and searching narrow the same
+ * list by the same intent, and the sheet and the search's "Make this a filter"
+ * affordance want the same row above the list, so only one of them is up at a
+ * time. The selection state is held here and survives, so clearing the query
+ * restores the sheet exactly as it was.
+ *
  * The daily brief no longer uses this: it composes `MailListHeader` with the kit
  * `BriefSections`, which owns its own filter row (so there is exactly one filter
  * surface and the section headers flatten correctly when filtered).
@@ -18,6 +24,7 @@ import {
 	type SearchResult,
 } from "@remit/ui";
 import { type ReactNode, useState } from "react";
+import { useMailContext } from "@/lib/mail-context";
 import { MailListHeader } from "./MailListHeader";
 
 interface MailViewChromeProps {
@@ -74,6 +81,12 @@ export function MailViewChrome({
 	searchResultsInBody,
 }: MailViewChromeProps) {
 	const [expanded, setExpanded] = useState(false);
+	// A query owns the pane: the filter chrome and the search's own affordance
+	// narrow the same list from the same place, so the filter sheet stands down
+	// for as long as something is being searched. Its state survives — clearing
+	// the query brings the sheet back with the same category and toggles.
+	const { searchInput } = useMailContext();
+	const searching = searchInput.trim().length > 0;
 
 	const filterConfig: Omit<FilterSheetProps, "children"> = {
 		categories: preset.categories,
@@ -104,7 +117,11 @@ export function MailViewChrome({
 			relatedResultsLabel={relatedResultsLabel}
 			searchResultsInBody={searchResultsInBody}
 		>
-			<FilterSheet {...filterConfig}>{children}</FilterSheet>
+			{searching ? (
+				<div className="h-full overflow-y-auto">{children}</div>
+			) : (
+				<FilterSheet {...filterConfig}>{children}</FilterSheet>
+			)}
 		</MailListHeader>
 	);
 }

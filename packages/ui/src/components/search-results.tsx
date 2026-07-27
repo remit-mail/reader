@@ -90,17 +90,29 @@ export interface SearchResultsProps {
 	 * affordance; a `disabledReason` renders it inert with the reason (a search of
 	 * only non-clause facets has nothing to convert).
 	 */
-	makeFilter?: { onClick: () => void; disabledReason?: string };
+	makeFilter?: MakeFilterActionProps;
 }
 
-/** "Make this a filter" — the conversion entry offered above active search results. */
-function MakeFilterButton({
+export interface MakeFilterActionProps {
+	onClick: () => void;
+	/** Renders the action inert and states why, e.g. nothing in the query converts. */
+	disabledReason?: string;
+}
+
+/**
+ * "Make this a filter" — the conversion entry offered while a search is active.
+ *
+ * A standalone row rather than a part of the results body, because a search is
+ * shown in more than one way: the read-only `SearchResults` panel, and a list
+ * view whose own rows narrow to the query. The affordance belongs to the search,
+ * not to either rendering, so the caller mounts it above whichever body is up and
+ * it stays put when the body swaps. `SearchResults` renders it inline as a
+ * convenience for callers that show only the panel.
+ */
+export function MakeFilterAction({
 	onClick,
 	disabledReason,
-}: {
-	onClick: () => void;
-	disabledReason?: string;
-}) {
+}: MakeFilterActionProps) {
 	const disabled = disabledReason !== undefined;
 	return (
 		<div className="border-b border-line px-row-inset py-1.5">
@@ -275,7 +287,7 @@ export function SearchResults({
 		<SearchTokenChips tokens={tokens} />
 	);
 	const filterAction = makeFilter && (
-		<MakeFilterButton
+		<MakeFilterAction
 			onClick={makeFilter.onClick}
 			disabledReason={makeFilter.disabledReason}
 		/>

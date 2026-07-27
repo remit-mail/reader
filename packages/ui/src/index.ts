@@ -435,6 +435,8 @@ export {
 	type SearchResultTone,
 } from "./components/search-result-row.js";
 export {
+	MakeFilterAction,
+	type MakeFilterActionProps,
 	partitionSpamResults,
 	type SearchResultSection,
 	SearchResults,
