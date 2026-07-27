@@ -195,6 +195,23 @@ export const rulePredicate = (
 };
 
 /**
+ * Whether the matcher behind `/organize/preview` can evaluate this predicate at
+ * all. Without an anchor it takes the vector-free literal arm, which reads no
+ * message body and rejects a `HasWords` clause rather than narrowing the match
+ * silently (`assertNoBodyContentClause`, backend/service/organize.ts). Asking it
+ * anyway is a 500, so the caller must not ask.
+ */
+export const isEvaluablePredicate = (
+	predicate: OrganizeMatchPredicate,
+): boolean =>
+	predicate.anchorMessageId !== undefined ||
+	!predicate.literalClauses.some((clause) => clause.field === "HasWords");
+
+/** What the count says when the predicate cannot be counted at all. */
+export const UNCOUNTABLE_PREDICATE_REASON =
+	"Can't count matches — “has the words” reads message bodies, which only a saved rule does.";
+
+/**
  * A stable key for a predicate's match set. Two predicates with the same key
  * match the same messages; a change to the key is what marks the live count
  * stale and schedules the next preview.

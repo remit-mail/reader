@@ -120,8 +120,19 @@ describe("SearchFilterEditor — pre-filled conversion", () => {
 	});
 
 	it("seeds the live count from the converted predicate", () => {
-		const dom = mount("receipts");
+		const dom = mount("from:receipts@stripe.com");
 		assert.match(dom.text(), /12 messages match/);
+	});
+
+	it("never asks the matcher to count a body-text rule it cannot evaluate", async () => {
+		// A free-text search converts to a `HasWords` clause and carries no anchor,
+		// so the vector-free matcher rejects it outright (organize.ts
+		// `assertNoBodyContentClause`). The count is unavailable and says so; the
+		// request is never sent.
+		const dom = mount("receipts");
+		await settlePreview(dom);
+		assert.match(dom.text(), /can't count matches/i);
+		assert.equal((http?.to("/organize/preview") ?? []).length, 0);
 	});
 
 	it("does not offer the semantic widen on a search-derived rule", () => {
@@ -186,7 +197,7 @@ describe("SearchFilterEditor — commit gate", () => {
 	it("stales the count on an edit and holds the save until it settles", async () => {
 		// The seed count (12) is passed directly; the first network preview is the
 		// re-count after the edit, so it returns 40.
-		const dom = mount("receipts", previewCounts([40]));
+		const dom = mount("from:receipts@stripe.com", previewCounts([40]));
 		dom.select(dom.byLabel("Destination folder"), "mbx-archive");
 		await dom.flush();
 		dom.type(dom.byLabel("Rule name"), "Receipts");
@@ -208,7 +219,7 @@ describe("SearchFilterEditor — commit gate", () => {
 	});
 
 	it("runs a one-time apply as a back-apply job when the scope is 'just once'", async () => {
-		const dom = mount("receipts");
+		const dom = mount("from:receipts@stripe.com");
 		dom.select(dom.byLabel("Destination folder"), "mbx-archive");
 		await dom.flush();
 		const radio = dom.query('input[name="rule-scope"][value="once"]');
@@ -222,5 +233,28 @@ describe("SearchFilterEditor — commit gate", () => {
 			(call) => call.method === "POST",
 		);
 		assert.equal(jobs.length, 1);
+	});
+
+	it("holds the one-time apply for a body-text rule, offering the saved rule instead", async () => {
+		// The one-time apply runs the same vector-free matcher the count does. A
+		// `HasWords` clause has no reader there, so the apply is held with the
+		// reason stated — saved as a standing rule the same clause works, because
+		// the index-time matcher reads the whole body.
+		const dom = mount("receipts");
+		dom.select(dom.byLabel("Destination folder"), "mbx-archive");
+		await dom.flush();
+		const radio = dom.query('input[name="rule-scope"][value="once"]');
+		if (!radio) throw new Error("no once scope option");
+		dom.click(radio);
+		await dom.flush();
+
+		assert.equal(primaryButton(dom, "Apply now").disabled, true);
+		assert.match(dom.text(), /can't read message bodies/i);
+		assert.equal(
+			(http?.calls ?? []).filter(
+				(call) => call.path.endsWith("/organize") && call.method === "POST",
+			).length,
+			0,
+		);
 	});
 });

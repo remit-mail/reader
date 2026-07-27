@@ -5,9 +5,11 @@ import { useEffect, useRef, useState } from "react";
 import { buildOrganizeInput } from "@/lib/organize/organize-model";
 import {
 	derivePreview,
+	isEvaluablePredicate,
 	PREVIEW_DEBOUNCE_MS,
 	type PreviewState,
 	predicateSignature,
+	UNCOUNTABLE_PREDICATE_REASON,
 } from "@/lib/organize/rule-model";
 import type { OrganizeMatchPredicate } from "@/lib/organize/sender-fallback";
 
@@ -45,9 +47,13 @@ export const useRulePreview = (
 	const predicateRef = useRef(predicate);
 	predicateRef.current = predicate;
 	const latestRequested = useRef(currentSignature);
+	// A predicate the matcher rejects outright is never sent — the request would
+	// 500, and a 500 is not a count. The editor says so instead and holds the
+	// commit for the scopes that would run this same matcher.
+	const countable = isEvaluablePredicate(predicate);
 
 	useEffect(() => {
-		if (!accountId) return;
+		if (!accountId || !countable) return;
 		if (currentSignature === state.previewedSignature) return;
 		if (currentSignature === state.errorSignature) return;
 
@@ -81,11 +87,15 @@ export const useRulePreview = (
 		return () => clearTimeout(handle);
 	}, [
 		accountId,
+		countable,
 		currentSignature,
 		state.previewedSignature,
 		state.errorSignature,
 		mutateAsync,
 	]);
 
+	if (!countable) {
+		return { status: "error", reason: UNCOUNTABLE_PREDICATE_REASON };
+	}
 	return derivePreview(state, currentSignature);
 };

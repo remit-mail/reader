@@ -156,8 +156,10 @@ export {
 	demoVocabularyRule,
 	type FilterRule,
 	type FolderOption,
+	hasActiveWiden,
 	type LabelOption,
 	type MatchOperator,
+	matchesBodyText,
 	matchJoinWord,
 	matchModeHint,
 	matchModeLabel,
@@ -169,6 +171,7 @@ export {
 	type RuleScope,
 	type RuleWiden,
 	scopeLabel,
+	unreadableBodyClauses,
 	widenChipLabel,
 } from "./components/filter-rule.js";
 export {

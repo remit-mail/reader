@@ -153,6 +153,36 @@ export function clauseFieldHint(field: ClauseField): string | undefined {
 	return clauseFieldHints[field];
 }
 
+/**
+ * Whether a clause field matches on message body text, which only the live
+ * index-time filter and the semantic widen can read.
+ *
+ * The vector-free matcher serves `From`/`Subject` from the core thread rows and
+ * carries no faithful body, so it rejects a body-text clause outright rather
+ * than narrowing the match silently (`assertNoBodyContentClause`,
+ * backend/service/organize.ts). A rule with no active widen therefore cannot be
+ * counted or applied one-time with such a clause in it — it can only be a
+ * standing rule, where the index-time matcher reads the whole body.
+ */
+export function matchesBodyText(field: ClauseField): boolean {
+	return field === "HasWords";
+}
+
+/** Whether the rule's semantic widen is present and evaluable. */
+export function hasActiveWiden(rule: FilterRule): boolean {
+	return rule.widen !== undefined && !rule.widen.inactive;
+}
+
+/**
+ * The rule's body-text clauses that nothing on its current match path can read
+ * — a `HasWords` chip with no active widen behind it. Empty for every rule the
+ * literal matcher can evaluate.
+ */
+export function unreadableBodyClauses(rule: FilterRule): RuleClause[] {
+	if (hasActiveWiden(rule)) return [];
+	return rule.clauses.filter((clause) => matchesBodyText(clause.field));
+}
+
 /** The fields a new clause can be added as, in menu order. */
 export const clauseFieldOrder: ClauseField[] = [
 	"From",
@@ -227,6 +257,11 @@ export function commitBlockedReason(
 		rule.clauses.length > 0 ||
 		(rule.widen !== undefined && !rule.widen.inactive);
 	if (!hasMatch) return "Add a clause so the rule has something to match.";
+	// A one-time apply runs the vector-free matcher, which cannot read message
+	// bodies. Saved as a rule the same clause works, so say that rather than
+	// refusing the clause outright.
+	if (rule.scope === "once" && unreadableBodyClauses(rule).length > 0)
+		return "Applying once can't read message bodies. Save this as a rule instead, or drop the “has the words” clause.";
 	if (!rule.moveMailboxId && !rule.labelId)
 		return "Pick a folder to move into, or a label to apply.";
 	if (
