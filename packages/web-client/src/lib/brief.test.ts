@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import type { ThreadRowData } from "@remit/ui";
 import {
+	excludeMutedSenders,
 	groupBriefSections,
 	matchesBriefSearch,
 	matchesSearchTokens,
@@ -32,6 +33,7 @@ function threadResponse(
 		hasStars: false,
 		star: "none",
 		senderTrust: "unknown",
+		muted: false,
 		createdAt: 0,
 		updatedAt: 0,
 		...overrides,
@@ -262,6 +264,81 @@ describe("groupBriefSections", () => {
 		assert.strictEqual(allIds.length, rows.length);
 		const uniqueIds = new Set(allIds);
 		assert.strictEqual(uniqueIds.size, rows.length);
+	});
+});
+
+// issue #301: `Address.flags.muted` is denormalized onto each row as
+// `muted`; the brief excludes those rows before grouping into sections.
+describe("excludeMutedSenders", () => {
+	test("drops a row whose sender is muted", () => {
+		const kept = threadResponse({ threadMessageId: "keep" });
+		const muted = threadResponse({ threadMessageId: "mute-me", muted: true });
+		const result = excludeMutedSenders([kept, muted]);
+		assert.deepStrictEqual(
+			result.map((t) => t.threadMessageId),
+			["keep"],
+		);
+	});
+
+	test("keeps rows whose sender is not muted", () => {
+		const rows = [
+			threadResponse({ threadMessageId: "a", muted: false }),
+			threadResponse({ threadMessageId: "b" }),
+		];
+		assert.strictEqual(excludeMutedSenders(rows).length, 2);
+	});
+
+	test("returns an empty array when every sender is muted", () => {
+		const rows = [
+			threadResponse({ threadMessageId: "a", muted: true }),
+			threadResponse({ threadMessageId: "b", muted: true }),
+		];
+		assert.deepStrictEqual(excludeMutedSenders(rows), []);
+	});
+
+	test("a muted sender's message is excluded from every section, not folded into uncategorized", () => {
+		const rows = [
+			threadResponse({
+				threadMessageId: "muted-personal",
+				messageId: "muted-personal",
+				category: "personal",
+				muted: true,
+			}),
+			threadResponse({
+				threadMessageId: "kept-personal",
+				messageId: "kept-personal",
+				category: "personal",
+			}),
+		];
+		const sections = groupBriefSections(
+			excludeMutedSenders(rows).map(toThreadRowData),
+		);
+		const allIds = sections.flatMap((s) => s.threads.map((t) => t.id));
+		assert.deepStrictEqual(allIds, ["kept-personal"]);
+		for (const section of sections) {
+			assert.ok(!section.threads.some((t) => t.id === "muted-personal"));
+		}
+	});
+
+	test("muting every candidate row leaves no sections (brief empty state)", () => {
+		const rows = [
+			threadResponse({
+				threadMessageId: "a",
+				messageId: "a",
+				category: "personal",
+				muted: true,
+			}),
+			threadResponse({
+				threadMessageId: "b",
+				messageId: "b",
+				category: "newsletter",
+				muted: true,
+			}),
+		];
+		const sections = groupBriefSections(
+			excludeMutedSenders(rows).map(toThreadRowData),
+		);
+		assert.deepStrictEqual(sections, []);
 	});
 });
 

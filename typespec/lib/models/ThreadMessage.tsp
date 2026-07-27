@@ -246,6 +246,9 @@ model ThreadMessageResponse {
   @doc("Trust level for the From address, derived from AddressFlags at read time. Defaults to `unknown` when no Address row resolves.")
   senderTrust: SenderTrust;
 
+  @doc("Whether the From address is muted, derived from AddressFlags at read time. Defaults to `false` when no Address row resolves. Muting hides the sender from the daily brief; it does not affect mailbox listings.")
+  muted: boolean;
+
   @doc("Structured sender-authenticity signal derived from DKIM headers at classification time (from the underlying Message). Absent for messages classified before this field was introduced — absence means no signal.")
   authenticity?: MessageAuthenticity;
 
