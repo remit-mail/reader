@@ -652,6 +652,23 @@ describe("a Compose too old to select every profile drops nothing", () => {
 	});
 });
 
+// What the guard above reads as "'--profile *' selected nothing" is the two
+// service listings agreeing. That is the same answer a compose file declaring
+// no profile at all gives, on any Compose version — and there the guard is
+// wrong: nothing would ever be dropped and reader#412 comes back whole. The
+// premise is a property of the shipped file, so it is asserted here rather than
+// paid for in the wrapper, where the direct question ('config --profiles')
+// fails open on exactly the old Compose the guard exists for.
+describe("the shipped compose file declares a profile", () => {
+	it("keeps the restore able to tell a removed service from a profiled one", () => {
+		assert.match(
+			readFileSync(COMPOSE, "utf8"),
+			/^\s*profiles:/m,
+			"no service sits behind a profile any more, so 'remit restart' can no longer drop a service the compose file lost (reader#412)",
+		);
+	});
+});
+
 // After 'remit down' every profile container is stopped on purpose, and the
 // contract is that restart leaves them that way. Nothing to report.
 describe("a stack brought back after remit down says nothing about profiles", () => {

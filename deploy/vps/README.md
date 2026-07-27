@@ -59,9 +59,11 @@ selects no profile, so `remit down`, `remit purge` and `remit restart --hard`
 skip the optional profiles while reporting that they covered everything, and
 `remit restart` cannot tell a service that was removed from the compose file
 from one sitting behind a profile — so it keeps a name it can never start in
-its restart record instead of clearing it. Both are silent, which is why the
-installer refuses rather than warns. Update the compose plugin and run it
-again.
+its restart record instead of clearing it. One such name is enough to hold the
+whole optional profile down: the restore brings the record back in a single
+command, and Compose refuses that command outright over one name it does not
+know. Both are silent, which is why the installer refuses rather than warns.
+Update the compose plugin and run it again.
 
 Then visit `$REMIT_ORIGIN` — the installer prints it when it finishes. The first
 sign-up on that page creates your account; every subsequent IMAP account is

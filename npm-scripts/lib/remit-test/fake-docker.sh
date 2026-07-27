@@ -314,12 +314,24 @@ compose_cmd() {
 			# the wrong list to derive "everything" from. Under `--profile '*'` it
 			# lists the whole project, which is what makes it the right list to ask
 			# whether a name is a service at all.
-			for _s in $(val all_services "queue migrate volume-init backend apisix web caddy imap-worker smtp-worker account-worker search-index-worker"); do
-				printf '%s\n' "$_s"
-			done
+			#
+			# The order varies from call to call, because Compose's does: real
+			# 2.40.3 gave five distinct orderings over twenty runs of the same
+			# command. A caller that compares two of these listings as strings has
+			# to sort them first, and one that forgets is a comparison that never
+			# matches — a check that silently does nothing. A stand-in that emits a
+			# fixed order cannot fail that caller (reader#412).
+			_list=$(val all_services "queue migrate volume-init backend apisix web caddy imap-worker smtp-worker account-worker search-index-worker")
 			if [ "$_all_profiles" = "1" ]; then
-				for _s in $(profile_services); do printf '%s\n' "$_s"; done
+				_list="$_list $(profile_services)"
 			fi
+			_n=$(cat "$S/config-seq" 2>/dev/null || printf 0)
+			printf '%s' $((_n + 1)) >"$S/config-seq"
+			# shellcheck disable=SC2086 # a service list, split on purpose
+			printf '%s\n' $_list | awk -v n="$_n" '
+				{ line[NR] = $0 }
+				END { for (i = 0; i < NR; i++) print line[(i + n) % NR + 1] }
+			'
 			;;
 		*" --volumes "*)
 			volume_names
