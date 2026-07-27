@@ -38,10 +38,11 @@ and `--dry-run`. `--dry-run` runs the host checks, fetches the assets, writes
 anything.
 
 The installer checks the host before it changes anything: a container engine
-and the Compose v2 plugin (real Compose, not podman-compose), amd64 (no arm64
-image is built), and ports 80 and 443. It also normalizes `--origin` against
-`--tls-mode` — an `http://` origin is upgraded to `https://` under the default
-`internal` mode, and `--tls-mode off` requires an `http://` origin.
+and the Compose v2 plugin (real Compose, not podman-compose, 2.30 or newer),
+amd64 (no arm64 image is built), and ports 80 and 443. It also normalizes
+`--origin` against `--tls-mode` — an `http://` origin is upgraded to `https://`
+under the default `internal` mode, and `--tls-mode off` requires an `http://`
+origin.
 
 Re-running is safe for your data. An existing `.env` is kept, and a secret that
 already has a value is never regenerated: `.env` holds `FAKE_KMS_DATAKEY`, the
@@ -50,6 +51,19 @@ installer re-downloads the deploy assets on every run, so edits to the compose
 file or the Caddy files are replaced — pin the image version through
 `REMIT_TAG` in `.env` (which is kept across runs), not by editing the compose
 file.
+
+The host checks run on every invocation, existing install or not, and there is
+one that stops a re-run against a deployment that is serving: a Compose plugin
+older than 2.30. Nothing is changed when it does. Below 2.30 `--profile '*'`
+selects no profile, so `remit down`, `remit purge` and `remit restart --hard`
+skip the optional profiles while reporting that they covered everything, and
+`remit restart` cannot tell a service that was removed from the compose file
+from one sitting behind a profile — so it keeps a name it can never start in
+its restart record instead of clearing it. One such name is enough to hold the
+whole optional profile down: the restore brings the record back in a single
+command, and Compose refuses that command outright over one name it does not
+know. Both are silent, which is why the installer refuses rather than warns.
+Update the compose plugin and run it again.
 
 Then visit `$REMIT_ORIGIN` — the installer prints it when it finishes. The first
 sign-up on that page creates your account; every subsequent IMAP account is

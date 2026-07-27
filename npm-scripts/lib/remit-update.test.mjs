@@ -903,7 +903,7 @@ describe("the updater self-replace survives the wrapper (reader#291)", () => {
 			scenario: {
 				probe: "ok",
 				services: `${ALL_SERVICES} updater`,
-				all_services: `${ALL_SERVICES} updater`,
+				all_services: `${ALL_SERVICES} migrate volume-init updater`,
 			},
 		});
 		box.run(["update"]);
