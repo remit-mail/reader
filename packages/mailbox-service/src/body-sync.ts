@@ -705,14 +705,22 @@ export class BodySyncService {
 		body: Buffer,
 		bodyRef: { uri: string },
 	): Promise<ParsedMail> {
-		// Snippet + thread update; reuses the parsed mail for the steps below.
-		// This is a ThreadMessage write — a different entity — so it does NOT
-		// trigger the Message-filtered stream bridge and stays separate.
-		const parsed = await this.updateSnippets(messageId, accountConfigId, body);
+		// The one operation on this path that can fail because of how the message
+		// is built. Its own try block lives in `parseMessageBody`, so this frame —
+		// which also wraps the S3 body write, the parsed-body cache, the placement
+		// move, the label writes and the counter update — can tell the two apart
+		// and quarantine only this one (issue #72). The ThreadMessage write these
+		// feed happens later, alongside the Message write (see below), once the
+		// write-once category is decided.
+		const parsed = await parseMessageBody(body);
+		const snippet = extractSnippet(parsed);
+		const listId = extractListId(parsed);
 
-		// Compute the header classification once. The derived fields are folded
-		// into the single Message update below — they are NOT written here.
-		const classification = this.classifyMessage(parsed);
+		// Compute the header classification once, folding in the sender's
+		// `flags.category` override when one applies (issue #299). The derived
+		// fields are folded into the single Message update below — they are NOT
+		// written here.
+		const classification = await this.classifyMessage(accountConfigId, parsed);
 
 		// Decide the placement move from the in-memory classification before the
 		// write, so its `movedByRemit` flag and audit verdict join the same
@@ -855,13 +863,29 @@ export class BodySyncService {
 		// fallback in `fetchAndGetBody` and `syncBodies(..., force: true)` — so a
 		// real, previously-decided category is carried forward unchanged instead
 		// of the just-recomputed one, the same rule `backfillClassification` uses.
+		// This also protects a `flags.category` override (issue #299): without
+		// this guard a re-entrant pass would let a *later* override silently
+		// rewrite a category already decided on an earlier message, which is
+		// exactly the churn RFC 030's GSI-safety argument forbids.
 		const existingMessage = await this.messageService.get(messageId);
+		const finalCategory = hasDecidedCategory(existingMessage.category)
+			? existingMessage.category
+			: classification.category;
+
+		// Thread-list denormalization, using the same write-once category as the
+		// Message update below — the two rows must never disagree on category.
+		await this.denormalizeCategory(
+			accountConfigId,
+			messageId,
+			finalCategory,
+			snippet,
+			listId,
+		);
+
 		const update: UpdateMessageInput = {
 			bodyStorageKey: bodyRef.uri,
 			...classification,
-			category: hasDecidedCategory(existingMessage.category)
-				? existingMessage.category
-				: classification.category,
+			category: finalCategory,
 			...(moved ? { movedByRemit: true } : {}),
 			...(resolved.verdict ? { placementVerdict: resolved.verdict } : {}),
 			...(filterMove ? { filterMove } : {}),
@@ -1017,7 +1041,7 @@ export class BodySyncService {
 
 		const body = await this.storageService.retrieve(message.bodyStorageKey);
 		const parsed = await parseMessageBody(body);
-		const classification = this.classifyMessage(parsed);
+		const classification = await this.classifyMessage(accountConfigId, parsed);
 
 		// Same order as {@link applyPostStoreSteps}, for the same reason: the
 		// signal the skip guard reads is written last. `message.category` is that
@@ -1025,12 +1049,13 @@ export class BodySyncService {
 		// the requeued retry redoes both. Writing the Message first strands the
 		// denormalized row at `uncategorized` forever — the guard is satisfied and
 		// the retry returns early (issue #320).
-		// The same three denormalized fields `updateSnippets` writes on the
-		// full body-store path, not just the category. A copied message inherits
-		// `bodyStorageKey` and a decided category from its source, so it reaches
-		// neither that path nor this one's classification — but nothing else ever
-		// writes `listId`, so leaving it out here made a copy's `list_id`
-		// permanently NULL. Both are derived from the same bytes already in hand.
+		// The same three denormalized fields the full body-store path writes (see
+		// `applyPostStoreSteps`), not just the category. A copied message
+		// inherits `bodyStorageKey` and a decided category from its source, so it
+		// reaches neither that path nor this one's classification — but nothing
+		// else ever writes `listId`, so leaving it out here made a copy's
+		// `list_id` permanently NULL. Both are derived from the same bytes
+		// already in hand.
 		await this.denormalizeCategory(
 			accountConfigId,
 			message.messageId,
@@ -1047,26 +1072,74 @@ export class BodySyncService {
 	}
 
 	/**
-	 * Pure header classification. Returns the subset of the Message update that
-	 * carries the derived fields; the caller folds it into a single UpdateItem
-	 * alongside `bodyStorageKey`. Optional signals are omitted when absent so we
-	 * never overwrite an existing value with `undefined`.
+	 * Header classification, with the sender's `Address.flags.category`
+	 * override (issue #299, RFC 039 Decision 3) substituted for the
+	 * header-derived category when one is set. Returns the subset of the
+	 * Message update that carries the derived fields; the caller folds it into
+	 * a single UpdateItem alongside `bodyStorageKey`. Optional signals are
+	 * omitted when absent so we never overwrite an existing value with
+	 * `undefined`.
+	 *
+	 * The override wins outright rather than blending with the heuristic — RFC
+	 * 039 Decision 3 treats a direct reclassification as final, the same as
+	 * `flags.blocked`/`vip` already override placement. Both callers
+	 * (`applyPostStoreSteps`, `backfillClassification`) already gate on
+	 * `hasDecidedCategory` before this result reaches a write, so a message
+	 * that already carries a real category is never re-touched regardless of
+	 * what this returns.
 	 */
-	private classifyMessage(
+	private async classifyMessage(
+		accountConfigId: string,
 		parsed: ParsedMail,
-	): UpdateMessageInput & { category: ThreadMessageCategory } {
-		const category = classifyByHeaders(parsed);
+	): Promise<UpdateMessageInput & { category: ThreadMessageCategory }> {
+		const headerCategory = classifyByHeaders(parsed);
 		const authenticity = extractAuthenticity(parsed);
 		const authResult = extractAuthResult(parsed);
 		const providerSpam = extractProviderSpam(parsed);
 		const hasListUnsubscribe = extractHasListUnsubscribe(parsed);
+
+		const fromEmail = extractPrimaryFromEmail(parsed);
+		const categoryOverride = fromEmail
+			? await this.resolveCategoryOverride(accountConfigId, fromEmail)
+			: undefined;
+
 		return {
-			category,
+			category: categoryOverride ?? headerCategory,
 			hasListUnsubscribe,
 			...(authenticity !== null ? { authenticity } : {}),
 			...(authResult !== null ? { authResult } : {}),
 			...(providerSpam !== null ? { providerSpam } : {}),
 		};
+	}
+
+	/**
+	 * The one-sided half of `Address.flags.category` (issue #299, RFC 039
+	 * Decision 3): a real value here overrides `classifyByHeaders` outright.
+	 * A second, separate `Address` read from `deriveSenderPlacementSignals`'s
+	 * (issue #300) — sharing one fetch was not practical, because the two have
+	 * different failure contracts: placement's read is best-effort (a failure
+	 * is caught and logged, never failing the sync), while this one feeds the
+	 * write-once `Message.category` at the moment it is decided, where a
+	 * masked infra failure would silently classify by headers when the user
+	 * asked for something else. Only a genuinely-absent Address is "no
+	 * override" — any other failure (throttle, infra) propagates, matching the
+	 * existing `deriveSenderPlacementSignals` convention.
+	 */
+	private async resolveCategoryOverride(
+		accountConfigId: string,
+		fromEmail: string,
+	): Promise<ThreadMessageCategory | undefined> {
+		try {
+			const addressId = deriveAddressId(accountConfigId, fromEmail);
+			const address = await this.addressService.getAddress(
+				accountConfigId,
+				addressId,
+			);
+			return address.flags?.category?.value;
+		} catch (err) {
+			if (!(err instanceof NotFoundError)) throw err;
+			return undefined;
+		}
 	}
 
 	private async incrementInboundCount(
@@ -1680,47 +1753,6 @@ export class BodySyncService {
 			);
 			throw err;
 		}
-	}
-
-	/**
-	 * Extract snippet, header category and the normalized `List-Id` from the body
-	 * and denormalize them onto the ThreadMessage. `category` mirrors the Message:
-	 * created as `uncategorized` at metadata-sync and set to the classified value
-	 * here; `listId` is written so the back-apply corpus projection can match a
-	 * `ListId` clause vector-free, off the same row the list/search path reads.
-	 * Returns the parsed mail so callers can reuse it (e.g., to write the
-	 * parsed-body cache) without paying for mailparser twice.
-	 */
-	private async updateSnippets(
-		messageId: string,
-		accountConfigId: string,
-		body: Buffer,
-	): Promise<ParsedMail> {
-		// The one operation on this path that can fail because of how the message
-		// is built. Its own try block lives in `parseMessageBody`, so the caller's
-		// frame — which also wraps the S3 body write, the parsed-body cache, the
-		// placement move, the label writes and the counter update — can tell the
-		// two apart and quarantine only this one (issue #72).
-		const parsed = await parseMessageBody(body);
-
-		const snippet = extractSnippet(parsed);
-		const category = classifyByHeaders(parsed);
-		const listId = extractListId(parsed);
-
-		await this.denormalizeCategory(
-			accountConfigId,
-			messageId,
-			category,
-			snippet,
-			listId,
-		);
-
-		this.log.debug?.(
-			{ messageId, category, snippetLength: snippet?.length ?? 0 },
-			"ThreadMessage snippet + category updated",
-		);
-
-		return parsed;
 	}
 
 	/**

@@ -28,6 +28,7 @@ import type {
 	MessageItem,
 	UpdateMessageInput,
 } from "@remit/data-ports";
+import { NotFoundError } from "@remit/data-ports/errors";
 import {
 	FilterClauseField,
 	FilterMatchOperator,
@@ -123,6 +124,9 @@ const buildHarness = (
 	} as unknown as StorageService;
 
 	const addressService = {
+		getAddress: async () => {
+			throw new NotFoundError("Address not found");
+		},
 		incrementInboundCount: async () => {},
 	} as unknown as IAddressRepository;
 
