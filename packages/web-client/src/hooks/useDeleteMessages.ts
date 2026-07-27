@@ -9,6 +9,7 @@ import { useCallback } from "react";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { formatErrorDetail } from "@/components/ui/error-banners";
 import { resolveMailboxesForMessages } from "@/hooks/useMarkAsRead";
+import { runChunkedMutation } from "@/lib/bulk-actions";
 import {
 	cancelThreadListQueries,
 	invalidateThreadListQueries,
@@ -91,7 +92,7 @@ export const useDeleteMessages = ({
 	const queryClient = useQueryClient();
 	const { pushError } = useErrorBanners();
 
-	const { mutate, isPending } = useMutation({
+	const { mutateAsync, isPending } = useMutation({
 		...messageBulkOperationsDeleteMessagesMutation(),
 		onMutate: async (variables): Promise<DeleteContext> => {
 			const messageIds = new Set(variables.body.messageIds ?? []);
@@ -195,9 +196,11 @@ export const useDeleteMessages = ({
 	const deleteMessages = useCallback(
 		(messageIds: string[]) => {
 			if (messageIds.length === 0) return;
-			mutate({ body: { messageIds } });
+			void runChunkedMutation(messageIds, (chunk) =>
+				mutateAsync({ body: { messageIds: chunk } }),
+			);
 		},
-		[mutate],
+		[mutateAsync],
 	);
 
 	return { deleteMessages, isPending };

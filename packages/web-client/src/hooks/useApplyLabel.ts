@@ -8,6 +8,7 @@ import { useCallback } from "react";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { formatErrorDetail } from "@/components/ui/error-banners";
 import { resolveMailboxesForMessages } from "@/hooks/useMarkAsRead";
+import { runChunkedMutation } from "@/lib/bulk-actions";
 import {
 	invalidateThreadListQueries,
 	threadListCacheKeys,
@@ -30,7 +31,7 @@ export const useApplyLabel = (options: {
 	const queryClient = useQueryClient();
 	const { pushError } = useErrorBanners();
 
-	const { mutate, isPending } = useMutation({
+	const { mutateAsync, isPending } = useMutation({
 		...messageBulkOperationsUpdateMessageLabelsMutation(),
 		onError: (error, variables) => {
 			pushError({
@@ -59,9 +60,11 @@ export const useApplyLabel = (options: {
 	const applyLabel = useCallback(
 		(messageIds: string[], labelId: string, action: RemitImapLabelAction) => {
 			if (messageIds.length === 0) return;
-			mutate({ body: { messageIds, labelId, action } });
+			void runChunkedMutation(messageIds, (chunk) =>
+				mutateAsync({ body: { messageIds: chunk, labelId, action } }),
+			);
 		},
-		[mutate],
+		[mutateAsync],
 	);
 
 	return { applyLabel, isPending };

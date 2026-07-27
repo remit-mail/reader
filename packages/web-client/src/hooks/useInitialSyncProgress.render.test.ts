@@ -17,8 +17,10 @@ import { createElement } from "react";
 import { createDomHarness, type DomHarness } from "../test-support/dom";
 import { type HttpMock, httpError, mockFetch } from "../test-support/http";
 import {
+	ANSWER_DEADLINE_MS,
 	type InitialSyncProgress,
 	isSyncingPhase,
+	POLL_MS,
 	useInitialSyncProgress,
 } from "./useInitialSyncProgress";
 
@@ -199,6 +201,66 @@ describe("useInitialSyncProgress", () => {
 			total: 0,
 		});
 		assert.deepEqual(http?.calls ?? [], []);
+	});
+
+	it("stops asking once every account has answered and none is syncing", async () => {
+		// The caught-up user's answer cannot change by being asked again.
+		const dom = await mount(["acc-1", "acc-2"], (accountId) =>
+			status(accountId, "complete"),
+		);
+		const asked = http?.calls.length ?? 0;
+		assert.equal(asked, 2);
+
+		await dom.wait(POLL_MS + 500);
+
+		assert.equal(http?.calls.length, asked);
+		assert.equal(progress(dom).resolved, true);
+	});
+
+	it("keeps asking while an account is still syncing", async () => {
+		const dom = await mount(["acc-1"], (accountId) =>
+			status(accountId, "syncing_inbox", [{ synced: 5, total: 50 }]),
+		);
+
+		await dom.wait(POLL_MS + 500);
+
+		assert.ok(
+			(http?.calls.length ?? 0) > 1,
+			"progress has to keep arriving while the sync runs",
+		);
+	});
+
+	it("answers without an account that never responds", async () => {
+		const original = globalThis.fetch;
+		try {
+			globalThis.fetch = ((input: RequestInfo | URL) => {
+				const url = input instanceof Request ? input.url : String(input);
+				if (url.includes("acc-2")) return new Promise<Response>(() => {});
+				return Promise.resolve(
+					new Response(JSON.stringify(status("acc-1", "complete")), {
+						status: 200,
+						headers: { "content-type": "application/json" },
+					}),
+				);
+			}) as typeof globalThis.fetch;
+			harness = createDomHarness();
+			harness.renderApp(
+				createElement(Probe, { accountIds: ["acc-1", "acc-2"], enabled: true }),
+			);
+			await harness.flush();
+			assert.equal(progress(harness).resolved, false);
+
+			await harness.wait(ANSWER_DEADLINE_MS + 500);
+
+			assert.deepEqual(progress(harness), {
+				syncing: false,
+				resolved: true,
+				synced: 0,
+				total: 0,
+			});
+		} finally {
+			globalThis.fetch = original;
+		}
 	});
 
 	it("asks nothing and claims nothing while disabled", async () => {

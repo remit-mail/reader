@@ -8,6 +8,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { formatErrorDetail } from "@/components/ui/error-banners";
+import { runChunkedMutation } from "@/lib/bulk-actions";
 import {
 	cancelThreadListQueries,
 	invalidateThreadListQueries,
@@ -70,7 +71,7 @@ export const useMoveMessages = ({
 	const queryClient = useQueryClient();
 	const { pushError } = useErrorBanners();
 
-	const { mutate, isPending } = useMutation({
+	const { mutateAsync, isPending } = useMutation({
 		...messageBulkOperationsMoveMessagesMutation(),
 		onMutate: async (variables): Promise<MoveContext> => {
 			const messageIds = new Set(variables.body.messageIds ?? []);
@@ -181,9 +182,11 @@ export const useMoveMessages = ({
 	const moveMessages = useCallback(
 		(messageIds: string[], destinationMailboxId: string) => {
 			if (messageIds.length === 0) return;
-			mutate({ body: { messageIds, destinationMailboxId } });
+			void runChunkedMutation(messageIds, (chunk) =>
+				mutateAsync({ body: { messageIds: chunk, destinationMailboxId } }),
+			);
 		},
-		[mutate],
+		[mutateAsync],
 	);
 
 	return { moveMessages, isPending };

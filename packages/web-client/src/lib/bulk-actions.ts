@@ -124,6 +124,35 @@ export const runChunkedAction = async (
 	return { done, failedIds, cancelled: false };
 };
 
+/**
+ * The same bounded run, adapted to the optimistic mutation hooks (#453).
+ *
+ * A selection is not always assembled by a surface that owns a progress bar —
+ * the daily brief's toolbar and sheet hand a raw id list to `useDeleteMessages`,
+ * `useMoveMessages`, `useToggleReadFor` and `useApplyLabel`, and select-all over
+ * a 200-row search would send all 200 in one call, which the endpoint rejects
+ * outright. Splitting the send inside those hooks puts the cap where the call is
+ * made, so every caller is covered by construction rather than by remembering.
+ *
+ * Each chunk is a full mutation of its own, so it keeps that hook's optimistic
+ * patch, rollback and error banner. The run stops at the first rejected chunk
+ * and reports nothing itself: the hook that owns the call has already raised it.
+ */
+export const runChunkedMutation = async (
+	ids: readonly string[],
+	send: (chunk: string[]) => Promise<unknown>,
+): Promise<void> => {
+	await runChunkedAction(
+		ids,
+		async (chunk) => {
+			await send(chunk);
+			return { successCount: chunk.length, failureCount: 0 };
+		},
+		() => {},
+		() => false,
+	);
+};
+
 export interface FetchIdsPageResult {
 	ids: string[];
 	continuationToken?: string;

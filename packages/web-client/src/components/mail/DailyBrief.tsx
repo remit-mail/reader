@@ -380,6 +380,21 @@ function BriefSelectionChrome({
 	const canJunk =
 		scoped && !!junkMailboxId && junkMailboxId !== scope.mailboxId;
 
+	// One select-all for both surfaces: the desktop toolbar and the touch sheet
+	// offer the same control over the same rendered rows, so the verb a phone
+	// can reach is the verb a desktop can reach.
+	const selectAll = useMemo(
+		() =>
+			orderedIds.length > 0
+				? {
+						checked: allSelected,
+						indeterminate: selectedCount > 0 && !allSelected,
+						onChange: toggleAllLoaded,
+					}
+				: undefined,
+		[orderedIds.length, allSelected, selectedCount, toggleAllLoaded],
+	);
+
 	const selectionBar =
 		isDesktop && selectedCount > 0 ? (
 			<SelectionToolbar
@@ -394,6 +409,7 @@ function BriefSelectionChrome({
 				currentMailboxId={scope.mailboxId}
 				selectedMessageIds={selectedMessageIds}
 				moveDisabledHint={scope.moveDisabledHint}
+				selectAll={selectAll}
 			/>
 		) : undefined;
 
@@ -456,15 +472,7 @@ function BriefSelectionChrome({
 							) : undefined
 						}
 						isBusy={isMoving}
-						selectAll={
-							orderedIds.length > 0
-								? {
-										checked: allSelected,
-										indeterminate: selectedCount > 0 && !allSelected,
-										onChange: toggleAllLoaded,
-									}
-								: undefined
-						}
+						selectAll={selectAll}
 						notice={notice}
 					/>
 				)}

@@ -8,6 +8,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { formatErrorDetail } from "@/components/ui/error-banners";
+import { runChunkedMutation } from "@/lib/bulk-actions";
 import {
 	cancelThreadListQueries,
 	invalidateThreadListQueries,
@@ -298,7 +299,7 @@ export const useToggleReadFor = (options: {
 	const queryClient = useQueryClient();
 	const { pushError } = useErrorBanners();
 
-	const { mutate, isPending } = useMutation({
+	const { mutateAsync, isPending } = useMutation({
 		...messageBulkOperationsUpdateFlagsMutation(),
 		onError: (error, variables) => {
 			const isRead = variables.body.isRead ?? true;
@@ -332,9 +333,11 @@ export const useToggleReadFor = (options: {
 	const toggleReadFor = useCallback(
 		(messageIds: string[], isRead: boolean) => {
 			if (messageIds.length === 0) return;
-			mutate({ body: { messageIds, isRead } });
+			void runChunkedMutation(messageIds, (chunk) =>
+				mutateAsync({ body: { messageIds: chunk, isRead } }),
+			);
 		},
-		[mutate],
+		[mutateAsync],
 	);
 
 	return { toggleReadFor, isPending };
