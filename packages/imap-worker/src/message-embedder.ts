@@ -22,6 +22,7 @@ export const getMessageEmbedder = (): MessageEmbedder => {
 			const [vector] = await service.embed([text]);
 			return vector;
 		},
+		embeddingId: service.embeddingId,
 	};
 	return cached;
 };
