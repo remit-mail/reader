@@ -41,6 +41,10 @@ ASSETS=(
 	# install directory, so it ships with every install, backup profile or not.
 	"backup/snapshot-db.sh"
 	"backup/backup-sqlite.sh"
+	# The scrape target list the `observability` profile's VictoriaMetrics reads.
+	# Ships with every install, profile on or not — a missing bind mount would
+	# have the daemon create a directory where this file belongs.
+	"observability/scrape.yml"
 	"caddy/routes.caddy"
 	"caddy/off.caddy"
 	"caddy/internal.caddy"
@@ -281,13 +285,21 @@ fetch_asset() {
 
 fetch_assets() {
 	say "Fetching deploy assets from $ASSET_BASE"
-	mkdir -p "$DIR/caddy" "$DIR/backup" || die "cannot create $DIR — pick a writable --dir or run with the right permissions."
+	# The directories to create are derived from the asset list rather than named
+	# again here. A second hardcoded list turns every asset in a new
+	# subdirectory into a mid-install `cp` failure, after the install has already
+	# started writing.
+	local dir_list=("$DIR")
+	local a
+	for a in "${ASSETS[@]}"; do
+		dir_list+=("$DIR/$(dirname "$a")")
+	done
+	mkdir -p "${dir_list[@]}" || die "cannot create $DIR — pick a writable --dir or run with the right permissions."
 	[ -w "$DIR" ] || die "$DIR is not writable."
 	# Canonicalise to an absolute path now the directory exists: the wrapper's
 	# DEFAULT_DIR and REMIT_DEPLOY_DIR (the updater's identity mount, reader#272)
 	# both need a host-absolute path, not a relative --dir.
 	DIR="$(cd "$DIR" && pwd)"
-	local a
 	for a in "${ASSETS[@]}"; do
 		fetch_asset "$a" "$DIR/$a"
 	done
