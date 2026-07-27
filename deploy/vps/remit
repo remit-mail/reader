@@ -135,6 +135,10 @@ Usage: remit <command> [args]
                        volume, accounts included. Without --yes it only says
                        what would go. Use 'down' to merely stop serving.
   config               Print the effective configuration, secrets redacted.
+  check-categories     Report whether the mail list's category column agrees
+                       with the messages it copies, per cause. Reads the
+                       database and writes nothing. The repair itself runs on
+                       every start; this is how to look without waiting for one.
   cert                 Export Caddy's root CA to the current directory, so
                        browsers stop warning (TLS_MODE=internal only).
   probe-host <origin>  Report how a name resolves from this box. Used by
@@ -2089,6 +2093,17 @@ cmd_config() {
 	' "$REMIT_DIR/.env"
 }
 
+# The migrate entrypoint's read-only mode. --no-deps is load-bearing: without it
+# `compose run` starts the service's dependencies, which means volume-init
+# chowning the data volumes as root — writes, from a command whose whole promise
+# is that it does not write. The one-shot's image is the backend image, already
+# pulled, so nothing else is needed.
+cmd_check_categories() {
+	require_deployment
+	[ $# -eq 0 ] || die "check-categories: takes no arguments"
+	compose run --rm --no-deps migrate node migrate.mjs --check
+}
+
 main() {
 	[ $# -gt 0 ] || {
 		usage >&2
@@ -2104,6 +2119,7 @@ main() {
 	down) cmd_down "$@" ;;
 	purge) cmd_purge "$@" ;;
 	config) cmd_config "$@" ;;
+	check-categories) cmd_check_categories "$@" ;;
 	cert) cmd_cert "$@" ;;
 	probe-host)
 		[ $# -eq 1 ] || die "probe-host: needs one origin or hostname"

@@ -5,6 +5,7 @@ import {
 	type FilterAccount,
 	flaggedFilterConfig,
 	inboxFilterConfig,
+	UNCLASSIFIED_CATEGORY,
 } from "./filter-presets.js";
 
 const accounts: FilterAccount[] = [
@@ -96,5 +97,29 @@ describe("flaggedFilterConfig", () => {
 
 	it("never offers an accounts source group", () => {
 		assert.equal(flaggedFilterConfig().sources, undefined);
+	});
+});
+
+describe("UNCLASSIFIED_CATEGORY", () => {
+	it("is held out of every shipped preset until the server filters it", () => {
+		for (const preset of [
+			briefFilterConfig(),
+			inboxFilterConfig(),
+			flaggedFilterConfig(),
+		]) {
+			assert.equal(
+				preset.categories.some((c) => c.id === UNCLASSIFIED_CATEGORY.id),
+				false,
+			);
+		}
+	});
+
+	it("carries its own label and tone, never personal's (#45)", () => {
+		const personal = briefFilterConfig().categories.find(
+			(c) => c.id === "personal",
+		);
+		assert.equal(UNCLASSIFIED_CATEGORY.label, "Unclassified");
+		assert.notEqual(UNCLASSIFIED_CATEGORY.label, personal?.label);
+		assert.notEqual(UNCLASSIFIED_CATEGORY.tone, personal?.tone);
 	});
 });

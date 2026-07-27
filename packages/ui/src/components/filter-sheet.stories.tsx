@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
+import { UNCLASSIFIED_CATEGORY } from "../filter-presets.js";
 import {
 	FilterSheet,
 	type FilterSheetCategory,
@@ -10,6 +11,7 @@ import {
 const CATEGORIES: FilterSheetCategory[] = [
 	{ id: "all", label: "All", tone: "neutral" },
 	{ id: "personal", label: "Personal", tone: "positive" },
+	UNCLASSIFIED_CATEGORY,
 	{ id: "newsletters", label: "Newsletters", tone: "accent" },
 	{ id: "marketing", label: "Marketing", tone: "warning" },
 	{ id: "automated", label: "Automated", tone: "neutral" },
@@ -123,6 +125,20 @@ export const CollapsedWithActiveFilters: Story = {
 			initialExpanded={false}
 			initialCategory="personal"
 			initialFilters={new Set(["unread", "today"])}
+		/>
+	),
+};
+
+/**
+ * Unclassified selected. Mail the classifier has not reached is a filterable
+ * value of its own and never folds into Personal (issue #45), so the chip and
+ * its collapsed summary carry their own label and tone.
+ */
+export const CollapsedWithUnclassified: Story = {
+	render: () => (
+		<ControlledShell
+			initialExpanded={false}
+			initialCategory={UNCLASSIFIED_CATEGORY.id}
 		/>
 	),
 };

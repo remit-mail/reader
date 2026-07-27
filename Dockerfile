@@ -252,6 +252,14 @@ CMD ["node", "server.mjs"]
 ########################################################################
 FROM node-service-installed AS imap-worker
 COPY --from=builder --chown=node:node /app/dist-docker/imap-worker/server.mjs ./server.mjs
+# Liveness is a heartbeat file per poll loop, checked for the age of the oldest
+# (D1 of docs/design/standalone-observability.md): a wedged loop stops rewriting
+# its own file while the process stays alive, which is the failure `restart:
+# unless-stopped` cannot see. No listener and no port. Declared here so a
+# non-compose run of this image keeps the check; deploy/vps/docker-compose.sqlite.yml
+# repeats it verbatim and the two must stay identical.
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=60s \
+	CMD ["node", "-e", "const fs=require('node:fs'),d='/data/heartbeat',p='imap-worker.',f=fs.readdirSync(d).filter(n=>n.startsWith(p));process.exit(f.length&&f.every(n=>Date.now()-fs.statSync(d+'/'+n).mtimeMs<420000)?0:1)"]
 CMD ["node", "server.mjs"]
 
 ########################################################################
@@ -259,6 +267,8 @@ CMD ["node", "server.mjs"]
 ########################################################################
 FROM node-service-installed AS smtp-worker
 COPY --from=builder --chown=node:node /app/dist-docker/smtp-worker/server.mjs ./server.mjs
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=60s \
+	CMD ["node", "-e", "const fs=require('node:fs'),d='/data/heartbeat',p='smtp-worker.',f=fs.readdirSync(d).filter(n=>n.startsWith(p));process.exit(f.length&&f.every(n=>Date.now()-fs.statSync(d+'/'+n).mtimeMs<420000)?0:1)"]
 CMD ["node", "server.mjs"]
 
 ########################################################################
@@ -266,6 +276,8 @@ CMD ["node", "server.mjs"]
 ########################################################################
 FROM node-service-installed AS account-worker
 COPY --from=builder --chown=node:node /app/dist-docker/account-worker/server.mjs ./server.mjs
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=60s \
+	CMD ["node", "-e", "const fs=require('node:fs'),d='/data/heartbeat',p='account-worker.',f=fs.readdirSync(d).filter(n=>n.startsWith(p));process.exit(f.length&&f.every(n=>Date.now()-fs.statSync(d+'/'+n).mtimeMs<420000)?0:1)"]
 CMD ["node", "server.mjs"]
 
 ########################################################################
@@ -376,6 +388,8 @@ COPY --from=builder --chown=node:node /app/dist-docker/search-index-worker/serve
 ENV SEARCH_EMBEDDING_PROVIDER=local
 ENV SEARCH_EMBEDDING_MODEL_ID=Xenova/paraphrase-multilingual-MiniLM-L12-v2
 ENV SEARCH_EMBEDDING_DTYPE=q8
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=60s \
+	CMD ["node", "-e", "const fs=require('node:fs'),d='/data/heartbeat',p='search-index-worker.',f=fs.readdirSync(d).filter(n=>n.startsWith(p));process.exit(f.length&&f.every(n=>Date.now()-fs.statSync(d+'/'+n).mtimeMs<420000)?0:1)"]
 CMD ["node", "server.mjs"]
 
 ########################################################################

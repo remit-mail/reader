@@ -9,6 +9,7 @@ import { KeyboardHintBar } from "./keyboard-hint-bar.js";
 import {
 	MessageListEmpty,
 	MessageListError,
+	type MessageListFilter,
 	MessageListLoading,
 } from "./message-list-state.js";
 import { ComfortableRow, CompactRow } from "./message-row.js";
@@ -28,6 +29,8 @@ export function MessageListPane({
 	flatList,
 	listState = "ready",
 	searchQuery,
+	listFilter,
+	listScopeLabel,
 	errorMessage,
 	onRetry,
 	onReportError,
@@ -61,6 +64,15 @@ export function MessageListPane({
 	| "onSelectThread"
 	| "onSelectBriefCategory"
 > & {
+	/**
+	 * The active category filter, when the caller has one. Without it the empty
+	 * state cannot know it is filtered, and a narrowed list renders the plain
+	 * "No messages in this mailbox" — D19's stated failure case. Absent means
+	 * unfiltered, so a surface that filters must pass this.
+	 */
+	listFilter?: MessageListFilter;
+	/** Name of the collection, e.g. "Inbox". Passed to the empty state. */
+	listScopeLabel?: string;
 	/** When set, the list header shows a folders/menu button that opens the nav
 	 *  slide-over (list-only widths, where the nav is not a persistent pane). */
 	onOpenNav?: () => void;
@@ -190,7 +202,11 @@ export function MessageListPane({
 					<MessageListLoading />
 				</div>
 			) : listState === "empty" ? (
-				<MessageListEmpty searchQuery={searchQuery} />
+				<MessageListEmpty
+					filter={listFilter}
+					scopeLabel={listScopeLabel}
+					searchQuery={searchQuery}
+				/>
 			) : listState === "error" ? (
 				<MessageListError
 					message={errorMessage}
