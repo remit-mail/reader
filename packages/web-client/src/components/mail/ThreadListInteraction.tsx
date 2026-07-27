@@ -52,6 +52,12 @@ interface ThreadListInteractionValue {
 	exitSelection: () => void;
 	/** Opens the move-to-Trash confirmation for the current selection. */
 	requestDeleteSelection: () => void;
+	/** Rendered rows in display order — the same order a shift-range spans. */
+	orderedIds: string[];
+	/** Whether every rendered row is selected, for a select-all control. */
+	allSelected: boolean;
+	/** Select every rendered row, or clear when they already all are. */
+	toggleAllLoaded: () => void;
 }
 
 const ThreadListInteractionCtx =
@@ -160,7 +166,14 @@ export function ThreadListInteraction({
 		exitSelection,
 		handleRowSelect,
 	} = cursor;
-	const { selectedIds, selectedCount, isSelected, toggle, select } = selection;
+	const { selectedIds, selectedCount, isSelected, toggle, select, toggleAll } =
+		selection;
+
+	const allSelected =
+		orderedIds.length > 0 && orderedIds.every((id) => selectedIds.has(id));
+	const toggleAllLoaded = useCallback(() => {
+		if (orderedIds.length > 0) toggleAll(orderedIds);
+	}, [orderedIds, toggleAll]);
 
 	// A row that leaves the list — a chip filter, a collapsed section, a
 	// completed delete — cannot stay selected. Survivors keep their selection.
@@ -320,6 +333,9 @@ export function ThreadListInteraction({
 			selectedCount,
 			exitSelection,
 			requestDeleteSelection,
+			orderedIds,
+			allSelected,
+			toggleAllLoaded,
 			rowInteraction: (messageId: string) => ({
 				focused: messageId === focusedMessageId,
 				isTabStop: messageId === tabStop,
@@ -339,6 +355,9 @@ export function ThreadListInteraction({
 			selectedCount,
 			exitSelection,
 			requestDeleteSelection,
+			orderedIds,
+			allSelected,
+			toggleAllLoaded,
 			focusedMessageId,
 			tabStop,
 			isDesktop,
@@ -378,11 +397,13 @@ interface ThreadListSelectionBarProps {
 }
 
 /**
- * Selection bar for a list inside `ThreadListInteraction`.
+ * Reduced selection bar for Flagged, mounted inside `ThreadListInteraction`.
  *
- * Move is not offered here: the brief and Flagged span accounts and mailboxes,
- * and a move picker needs one account and one source folder to be honest about
- * where the messages go. Delete and mark-read carry no such scope.
+ * Move is not offered here: Flagged spans accounts and mailboxes, and a move
+ * picker needs one account and one source folder to be honest about where the
+ * messages go. Delete and mark-read carry no such scope. The brief resolves
+ * that scope from the selection instead and mounts the mailbox list's full
+ * `SelectionToolbar` — see `DailyBrief`.
  */
 export function ThreadListSelectionBar({
 	onMarkAsRead,

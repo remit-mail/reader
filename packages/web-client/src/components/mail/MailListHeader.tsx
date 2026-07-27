@@ -59,11 +59,22 @@ import {
 import { spamOfferForResults } from "@/lib/spam-offer";
 import { SearchFilterDialog } from "./organize/SearchFilterDialog";
 
-interface MailListHeaderProps {
+export interface MailListHeaderProps {
 	title: string;
 	unreadCount: number;
 	/** The list body (filter sheet / sections / virtualized rows). */
 	children: ReactNode;
+	/**
+	 * Replaces the header for as long as a selection is active — the same slot
+	 * contract the kit `MessageListPane` gives the mailbox list, so every list
+	 * puts its bulk-action bar in the same place.
+	 */
+	selectionBar?: ReactNode;
+	/**
+	 * Overlay anchored to the bottom of the pane (the mobile selection sheet).
+	 * The pane is the positioned ancestor the sheet measures against.
+	 */
+	selectionSheet?: ReactNode;
 	/** Pinned below the scrollable list (e.g. the keyboard hint bar). */
 	footer?: ReactNode;
 	/** Filter chrome for the phone search takeover. Omit to drop the filter row. */
@@ -99,6 +110,8 @@ export function MailListHeader({
 	title,
 	unreadCount,
 	children,
+	selectionBar,
+	selectionSheet,
 	footer,
 	searchFilter,
 	searchResults,
@@ -308,29 +321,32 @@ export function MailListHeader({
 	);
 
 	return (
-		<section className="flex h-full w-full flex-col bg-surface">
-			<MailHeader
-				title={title}
-				unreadCount={unreadCount}
-				// Desktop mounts the app top bar, which owns search for the whole
-				// shell — the list header shows no field there, so the page never
-				// has two search inputs competing for "/" and for focus. Below
-				// desktop the header keeps a compact magnifier: on phone it opens
-				// the full-screen takeover above, on tablet it expands over the
-				// title. `isSinglePaneTier` is the same predicate the shell gates
-				// the top bar on, so the two cannot drift into zero or two fields.
-				isDesktop={false}
-				showSearch={isSinglePaneTier(tier)}
-				onMenuClick={() => layout?.openNav()}
-				searchValue={searchInput}
-				onSearchChange={onSearchChange}
-				onSearchClear={onSearchClear}
-				searchOpen={searchOpen}
-				onSearchOpenChange={setSearchOpen}
-			/>
+		<section className="relative flex h-full w-full flex-col bg-surface">
+			{selectionBar ?? (
+				<MailHeader
+					title={title}
+					unreadCount={unreadCount}
+					// Desktop mounts the app top bar, which owns search for the whole
+					// shell — the list header shows no field there, so the page never
+					// has two search inputs competing for "/" and for focus. Below
+					// desktop the header keeps a compact magnifier: on phone it opens
+					// the full-screen takeover above, on tablet it expands over the
+					// title. `isSinglePaneTier` is the same predicate the shell gates
+					// the top bar on, so the two cannot drift into zero or two fields.
+					isDesktop={false}
+					showSearch={isSinglePaneTier(tier)}
+					onMenuClick={() => layout?.openNav()}
+					searchValue={searchInput}
+					onSearchChange={onSearchChange}
+					onSearchClear={onSearchClear}
+					searchOpen={searchOpen}
+					onSearchOpenChange={setSearchOpen}
+				/>
+			)}
 			<div className="min-h-0 flex-1">{body}</div>
 			{footer}
 			{filterDialog}
+			{selectionSheet}
 		</section>
 	);
 }

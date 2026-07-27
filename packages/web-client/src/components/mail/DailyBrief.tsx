@@ -4,12 +4,26 @@
  * Renders one section per message category (Personal / Transactional /
  * Newsletter / Marketing / Social / Automated) from the GET /threads endpoint.
  * Starred mail is not a section — Flagged is a virtual mailbox in the nav. The
- * brief defaults to the cross-account aggregate; the kit `BriefSections` owns
- * the filter row (categories + attribute chips + the account source group) and
- * the flatten-when-filtered behavior, while `MailListHeader` provides the title,
- * unread count, and search. Account switching also lives in the nav sidebar —
- * the account source group only appears when more than one account feeds the
- * brief.
+ * brief defaults to the cross-account aggregate, and `MailListHeader` provides
+ * the title, unread count, and search.
+ *
+ * The list's filter control (categories + attribute chips + the account source
+ * group) is hidden — the brief is being tried without it. The kit
+ * `BriefSections` renders that control above the list body, so the body is
+ * rendered here by `BriefListBody` instead; every input the control consumed is
+ * still computed below, so bringing it back is swapping `BriefListBody` for
+ * `<BriefSections … />`. Account switching also lives in the nav sidebar, and
+ * the phone search takeover keeps its own copy of the filter sheet.
+ *
+ * Multi-select is the mailbox list's, not a copy of it: the same
+ * `ThreadListInteraction` cursor and `useSelection` state, the same
+ * `SelectionToolbar` replacing the pane header on desktop, and the same
+ * peeking `SelectionSheet` on touch. A shift-range spans the rendered rows in
+ * document order, so it crosses category sections exactly as the eye reads
+ * them and never picks up a row hidden behind "Show N more" or a collapsed
+ * header. Folder-scoped verbs (Move, Apply label, Organize) resolve their
+ * account and source folder from the selection — see
+ * `resolveBriefSelectionScope`.
  *
  * Loading: skeleton rows on first paint, patch-in-place on refetch.
  * Error: per-section; the brief still renders other sections.
@@ -22,20 +36,31 @@ import {
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
 import {
 	type BriefCategoryFilter,
-	BriefSections,
+	BriefSection,
 	briefFilterConfig,
 	type FilterSheetProps,
 	type FilterSheetSource,
 	KeyboardHintBar,
+	SELECTION_SHEET_TEASER_HEIGHT,
 	type SearchResult,
+	SelectionSheet,
 	type ThreadRowData,
 	type ThreadSection,
 } from "@remit/ui";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { AlertCircle, RefreshCw, Sparkles } from "lucide-react";
-import { type RefObject, useCallback, useMemo, useState } from "react";
+import {
+	type ReactNode,
+	type RefObject,
+	useCallback,
+	useEffect,
+	useMemo,
+	useState,
+} from "react";
+import { useJunkMailbox } from "@/hooks/useArchiveMailbox";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
+import { useMoveMessages } from "@/hooks/useMoveMessages";
 import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
 import { useSemanticSearch } from "@/hooks/useSemanticSearch";
 import type { TriageContextUpdate } from "@/hooks/useTriageLayer";
@@ -52,12 +77,17 @@ import { isServerError } from "@/lib/error-classifier";
 import { useMailContext } from "@/lib/mail-context";
 import { relatedSearchResults, rowToSearchResult } from "@/lib/search-result";
 import { parseSearchTokens } from "@/lib/search-tokens";
-import { MailListHeader } from "./MailListHeader";
+import { shouldShowSelectionSheet } from "@/lib/selection-sheet-mode";
+import { MailListHeader, type MailListHeaderProps } from "./MailListHeader";
 import type { MessageListCommands } from "./MessageList";
 import { MessageRow } from "./MessageRow";
+import { MoveToTrigger } from "./MoveToTrigger";
+import { MobileOrganizeFlow } from "./organize/MobileOrganizeFlow";
+import { OrganizeDialog } from "./organize/OrganizeDialog";
+import { SelectionToolbar } from "./SelectionToolbar";
 import {
 	ThreadListInteraction,
-	ThreadListSelectionBar,
+	useThreadListSelection,
 } from "./ThreadListInteraction";
 
 /* The brief's attribute chips as predicates (mirrors the kit `briefFilterChips`
@@ -128,6 +158,347 @@ const ErrorBanner = ({ accountEmail }: ErrorBannerProps) => {
 };
 
 // ---------------------------------------------------------------------------
+// List body (the kit `BriefSections` body without its filter control)
+// ---------------------------------------------------------------------------
+
+interface BriefListBodyProps {
+	sections: ThreadSection[];
+	/** Category scope. "all" keeps the per-category sections; anything else flattens. */
+	briefCategory: BriefCategoryFilter;
+	selectedThreadId?: string;
+	onSelectThread?: (id: string) => void;
+}
+
+/**
+ * The brief's list body: one capped section per category at the "all" scope, a
+ * headerless flat list once narrowed to a single category (the section headers
+ * are redundant there).
+ *
+ * This is the kit `BriefSections` body minus the filter control it renders above
+ * it. The category scope still arrives from the brief — the phone search
+ * takeover's filter sheet sets it — so the flatten path stays reachable; the
+ * attribute chips are part of the hidden control and narrow nothing here.
+ */
+function BriefListBody({
+	sections,
+	briefCategory,
+	selectedThreadId,
+	onSelectThread,
+}: BriefListBodyProps) {
+	const showSections = briefCategory === "all";
+	const flatRows = sections
+		.flatMap((section) => section.threads)
+		.filter((thread) => thread.category === briefCategory);
+	const empty = showSections ? sections.length === 0 : flatRows.length === 0;
+
+	return (
+		<div className="h-full overflow-y-auto">
+			{showSections ? (
+				sections.map((section) => (
+					<BriefSection
+						key={section.id}
+						section={section}
+						Row={MessageRow}
+						selectedThreadId={selectedThreadId}
+						onSelectThread={onSelectThread}
+					/>
+				))
+			) : (
+				<div className="divide-y divide-line">
+					{flatRows.map((thread) => (
+						<MessageRow
+							key={thread.id}
+							thread={thread}
+							active={thread.id === selectedThreadId}
+							onClick={() => onSelectThread?.(thread.id)}
+						/>
+					))}
+				</div>
+			)}
+			{empty && (
+				<div className="px-row-inset py-6 text-center text-2xs text-fg-subtle">
+					No threads match these filters.
+				</div>
+			)}
+		</div>
+	);
+}
+
+// ---------------------------------------------------------------------------
+// Selection surface (the mailbox list's, mounted on the brief)
+// ---------------------------------------------------------------------------
+
+export interface BriefSelectionScope {
+	/** Owning account, when every selected row shares one. */
+	accountId?: string;
+	/** Source folder, when every selected row shares one. */
+	mailboxId?: string;
+	/** Why folder-scoped verbs are withheld, in the toolbar's own words. */
+	moveDisabledHint?: string;
+}
+
+/**
+ * The account and source folder a brief selection resolves to.
+ *
+ * The mailbox list gets these from the route and scopes Move, Apply label and
+ * Organize to them. The brief spans accounts and folders, so it resolves them
+ * from the selection itself and withholds those verbs — with the reason on
+ * screen — whenever the selection spans more than one. Delete and mark-read
+ * carry no such scope and are always offered.
+ *
+ * Pure so the guard is unit-testable without a DOM.
+ */
+export const resolveBriefSelectionScope = (
+	rows: readonly ThreadRowData[],
+	selectedIds: ReadonlySet<string>,
+): BriefSelectionScope => {
+	if (selectedIds.size === 0) return {};
+	const accountIds = new Set<string>();
+	const mailboxIds = new Set<string>();
+	for (const row of rows) {
+		if (!selectedIds.has(row.id)) continue;
+		accountIds.add(row.accountId);
+		if (row.mailboxId) mailboxIds.add(row.mailboxId);
+	}
+	if (accountIds.size > 1) {
+		return {
+			moveDisabledHint:
+				"Move only works within one account — clear selection or pick messages from a single account",
+		};
+	}
+	const accountId = accountIds.size === 1 ? [...accountIds][0] : undefined;
+	if (mailboxIds.size > 1) {
+		return {
+			accountId,
+			moveDisabledHint: `Move only works within one folder — this selection spans ${mailboxIds.size} folders`,
+		};
+	}
+	return {
+		accountId,
+		mailboxId: mailboxIds.size === 1 ? [...mailboxIds][0] : undefined,
+	};
+};
+
+interface BriefSelectionChromeProps {
+	/** Everything the header needs when no selection is active. */
+	header: Omit<
+		MailListHeaderProps,
+		"children" | "selectionBar" | "selectionSheet"
+	>;
+	/** The rows the list is showing, for resolving the selection's scope. */
+	rows: readonly ThreadRowData[];
+	isDesktop: boolean;
+	onMarkMessagesRead?: (messageIds: string[]) => void;
+	children: ReactNode;
+}
+
+/**
+ * The brief's selection chrome: the same two surfaces the mailbox list raises,
+ * in the same places. Desktop replaces the pane header with `SelectionToolbar`;
+ * touch leaves the header alone and raises the peeking `SelectionSheet` at two
+ * or more selected. The selection itself comes from the enclosing
+ * `ThreadListInteraction`, so the brief and the mailbox list run one model.
+ */
+function BriefSelectionChrome({
+	header,
+	rows,
+	isDesktop,
+	onMarkMessagesRead,
+	children,
+}: BriefSelectionChromeProps) {
+	const {
+		selectedIds,
+		selectedCount,
+		exitSelection,
+		requestDeleteSelection,
+		orderedIds,
+		allSelected,
+		toggleAllLoaded,
+	} = useThreadListSelection();
+
+	const scope = useMemo(
+		() => resolveBriefSelectionScope(rows, selectedIds),
+		[rows, selectedIds],
+	);
+	const { junkMailboxId } = useJunkMailbox(scope.accountId);
+	const { moveMessages, isPending: isMoving } = useMoveMessages({
+		mailboxId: scope.mailboxId ?? "",
+		accountId: scope.accountId,
+	});
+
+	const [organizeOpen, setOrganizeOpen] = useState(false);
+	const [mobileOrganizeEntry, setMobileOrganizeEntry] = useState<
+		"select-similar" | "something-else" | null
+	>(null);
+
+	// An emptied selection takes the flows it opened with it, so a later
+	// re-selection can't reopen one on a stale entry.
+	useEffect(() => {
+		if (selectedCount > 0) return;
+		setOrganizeOpen(false);
+		setMobileOrganizeEntry(null);
+	}, [selectedCount]);
+
+	const selectedMessageIds = useMemo(
+		() => Array.from(selectedIds),
+		[selectedIds],
+	);
+	const selectedSenders = useMemo(() => {
+		const emails: string[] = [];
+		for (const row of rows) {
+			if (selectedIds.has(row.id) && row.fromEmail) emails.push(row.fromEmail);
+		}
+		return emails;
+	}, [rows, selectedIds]);
+
+	const handleMarkAsRead = useCallback(() => {
+		onMarkMessagesRead?.(selectedMessageIds);
+		exitSelection();
+	}, [onMarkMessagesRead, selectedMessageIds, exitSelection]);
+
+	const handleMove = useCallback(
+		(destinationMailboxId: string) => {
+			if (selectedMessageIds.length === 0) return;
+			moveMessages(selectedMessageIds, destinationMailboxId);
+			exitSelection();
+		},
+		[moveMessages, selectedMessageIds, exitSelection],
+	);
+
+	const handleJunk = useCallback(() => {
+		if (junkMailboxId) handleMove(junkMailboxId);
+	}, [junkMailboxId, handleMove]);
+
+	const scoped = !!scope.accountId && !!scope.mailboxId;
+	const canJunk =
+		scoped && !!junkMailboxId && junkMailboxId !== scope.mailboxId;
+
+	const selectionBar =
+		isDesktop && selectedCount > 0 ? (
+			<SelectionToolbar
+				selectedCount={selectedCount}
+				onDelete={requestDeleteSelection}
+				onClearSelection={exitSelection}
+				onMarkAsRead={onMarkMessagesRead ? handleMarkAsRead : undefined}
+				onMove={scoped ? handleMove : undefined}
+				onOrganize={() => setOrganizeOpen(true)}
+				isMoving={isMoving}
+				accountId={scope.accountId}
+				currentMailboxId={scope.mailboxId}
+				selectedMessageIds={selectedMessageIds}
+				moveDisabledHint={scope.moveDisabledHint}
+			/>
+		) : undefined;
+
+	// The mobile sheet has no inline hint slot, so the scope restriction rides
+	// in as a notice — the same fold-in the mailbox list does.
+	const notice = scope.moveDisabledHint
+		? { tone: "warning" as const, text: scope.moveDisabledHint }
+		: undefined;
+	const showSheet =
+		!isDesktop &&
+		selectedCount > 0 &&
+		shouldShowSelectionSheet(selectedCount, "idle", notice !== undefined);
+
+	const organizeFlow =
+		mobileOrganizeEntry &&
+		scope.accountId &&
+		!isDesktop &&
+		selectedCount > 0 ? (
+			<MobileOrganizeFlow
+				entry={mobileOrganizeEntry}
+				accountId={scope.accountId}
+				selectedMessageIds={selectedMessageIds}
+				selectedSenders={selectedSenders}
+				junkMailboxId={junkMailboxId}
+				onClose={() => {
+					setMobileOrganizeEntry(null);
+					exitSelection();
+				}}
+			/>
+		) : undefined;
+
+	const selectionSheet =
+		showSheet || organizeFlow ? (
+			<>
+				{showSheet && (
+					<SelectionSheet
+						count={selectedCount}
+						onCancel={exitSelection}
+						onDelete={requestDeleteSelection}
+						onJunk={canJunk ? handleJunk : undefined}
+						onMarkRead={onMarkMessagesRead ? handleMarkAsRead : undefined}
+						onSelectSimilar={
+							scoped
+								? () => setMobileOrganizeEntry("select-similar")
+								: undefined
+						}
+						onSomethingElse={
+							scoped
+								? () => setMobileOrganizeEntry("something-else")
+								: undefined
+						}
+						moveSlot={
+							scoped && scope.accountId && scope.mailboxId ? (
+								<MoveToTrigger
+									accountId={scope.accountId}
+									currentMailboxId={scope.mailboxId}
+									onMove={isMoving ? () => {} : handleMove}
+									label="Move selected messages"
+								/>
+							) : undefined
+						}
+						isBusy={isMoving}
+						selectAll={
+							orderedIds.length > 0
+								? {
+										checked: allSelected,
+										indeterminate: selectedCount > 0 && !allSelected,
+										onChange: toggleAllLoaded,
+									}
+								: undefined
+						}
+						notice={notice}
+					/>
+				)}
+				{organizeFlow}
+			</>
+		) : undefined;
+
+	return (
+		<>
+			<MailListHeader
+				{...header}
+				selectionBar={selectionBar}
+				selectionSheet={selectionSheet}
+			>
+				{/* Shrink the body by the teaser's height rather than letting the
+				    last rows hide behind it. */}
+				<div
+					className="h-full"
+					style={
+						showSheet
+							? { paddingBottom: SELECTION_SHEET_TEASER_HEIGHT }
+							: undefined
+					}
+				>
+					{children}
+				</div>
+			</MailListHeader>
+			{organizeOpen && scope.accountId && (
+				<OrganizeDialog
+					open={organizeOpen}
+					accountId={scope.accountId}
+					selectedMessageIds={selectedMessageIds}
+					selectedSenders={selectedSenders}
+					onClose={() => setOrganizeOpen(false)}
+				/>
+			)}
+		</>
+	);
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -168,19 +539,18 @@ export function DailyBrief({
 		[accounts],
 	);
 
-	// "all" = the cross-account aggregate (the brief's default). Account
-	// switching also lives in the nav sidebar; this source group is a convenience
-	// shown only when more than one account feeds the brief. The category axis and
-	// attribute chips are owned by the kit `BriefSections` filter row; the brief
-	// only controls the category (so it can drive the flatten-when-filtered path)
-	// and the account source.
+	// "all" = the cross-account aggregate (the brief's default), and "all"
+	// categories = the full set of sections. Both stay at their default while the
+	// list's filter control is hidden; the phone search takeover still drives them
+	// (the category also drives the flatten-when-filtered path), and account
+	// switching lives in the nav sidebar.
 	const [selectedAccountId, setSelectedAccountId] = useState("all");
 	const [selectedCategory, setSelectedCategory] =
 		useState<BriefCategoryFilter>("all");
 
-	// Attribute chips for the phone search takeover. The brief list's own chips
-	// live inside the kit `BriefSections`; the takeover is a separate surface, so
-	// it carries its own additive set (category + account are shared above).
+	// Attribute chips for the phone search takeover — a separate surface from the
+	// list, so it carries its own additive set (category + account are shared
+	// above) and keeps its filter sheet while the list's control is hidden.
 	const [searchAttributes, setSearchAttributes] = useState<ReadonlySet<string>>(
 		new Set(),
 	);
@@ -272,9 +642,8 @@ export function DailyBrief({
 	// Convert API rows to ThreadRowData, narrowing only by the selected account
 	// and the free-text search plus any filter tokens (`from:`, `has:attachment`,
 	// `is:unread`, `before:`/`after:`, `in:`, `account:`) parsed out of the
-	// query. The category axis and the attribute chips are the kit
-	// `BriefSections` filter row's job, so the full per-category sections are
-	// handed to it; it groups, narrows, and flattens.
+	// query. The category axis is applied further down, on the grouped sections,
+	// so the list body can flatten them when narrowed to one category.
 	const filteredRows = useMemo<ThreadRowData[]>(() => {
 		const briefRows = excludeMutedSenders(threadsData?.items ?? []).map(
 			toThreadRowData,
@@ -395,7 +764,7 @@ export function DailyBrief({
 
 	// The brief is genuinely empty (caught up) only when nothing is narrowing the
 	// view: no account source and no search. When a source/search yields nothing,
-	// the BriefSections filter row stays so the user can clear it.
+	// the list says so instead, so the narrowing is still visible as the reason.
 	const caughtUp =
 		sections.length === 0 && selectedAccountId === "all" && sq.length === 0;
 
@@ -424,6 +793,18 @@ export function DailyBrief({
 			<p className="text-xs text-fg-subtle">Nothing needs attention.</p>
 		</div>
 	) : (
+		<BriefListBody
+			sections={sections}
+			briefCategory={selectedCategory}
+			selectedThreadId={selectedMessageId}
+			onSelectThread={onSelectMessage}
+		/>
+	);
+
+	// The cursor and selection wrap the whole pane, not just the list body: the
+	// selection toolbar takes the header's place while rows are selected, so it
+	// has to sit inside the same provider the rows do.
+	return (
 		<ThreadListInteraction
 			selectedMessageId={selectedMessageId}
 			onOpen={(id) => onSelectMessage?.(id)}
@@ -431,50 +812,33 @@ export function DailyBrief({
 			commandsRef={commandsRef}
 			onTriageContextChange={onTriageContextChange}
 		>
-			<div className="flex h-full min-h-0 flex-col">
-				{onDeleteMessages ? (
-					<ThreadListSelectionBar onMarkAsRead={onMarkMessagesRead} />
-				) : null}
-				<div className="min-h-0 flex-1">
-					<BriefSections
-						sections={sections}
-						Row={MessageRow}
-						manageFocus={false}
-						briefCategory={selectedCategory}
-						onSelectBriefCategory={setSelectedCategory}
-						sources={accountSources}
-						sourcesNote={mutedCount > 0 ? `+${mutedCount} muted` : undefined}
-						onSelectSource={setSelectedAccountId}
-						selectedThreadId={selectedMessageId}
-						onSelectThread={onSelectMessage}
-					/>
+			<BriefSelectionChrome
+				header={{
+					title: "Daily brief",
+					unreadCount: totalUnseen,
+					footer: isDesktop ? <KeyboardHintBar /> : undefined,
+					searchFilter: searchFilterConfig,
+					searchResults,
+					searchLoading: isLoading || searchFetching,
+					relatedResults,
+					relatedLoading,
+					onSelectSearchResult,
+				}}
+				rows={filteredRows}
+				isDesktop={isDesktop}
+				onMarkMessagesRead={onMarkMessagesRead}
+			>
+				<div className="flex h-full flex-col">
+					{failedAccounts.map((account) => (
+						<ErrorBanner
+							key={account.accountId}
+							accountEmail={account.email}
+							accountId={account.accountId}
+						/>
+					))}
+					<div className="min-h-0 flex-1">{stateBody}</div>
 				</div>
-			</div>
+			</BriefSelectionChrome>
 		</ThreadListInteraction>
-	);
-
-	return (
-		<MailListHeader
-			title="Daily brief"
-			unreadCount={totalUnseen}
-			footer={isDesktop ? <KeyboardHintBar /> : undefined}
-			searchFilter={searchFilterConfig}
-			searchResults={searchResults}
-			searchLoading={isLoading || searchFetching}
-			relatedResults={relatedResults}
-			relatedLoading={relatedLoading}
-			onSelectSearchResult={onSelectSearchResult}
-		>
-			<div className="flex h-full flex-col">
-				{failedAccounts.map((account) => (
-					<ErrorBanner
-						key={account.accountId}
-						accountEmail={account.email}
-						accountId={account.accountId}
-					/>
-				))}
-				<div className="min-h-0 flex-1">{stateBody}</div>
-			</div>
-		</MailListHeader>
 	);
 }

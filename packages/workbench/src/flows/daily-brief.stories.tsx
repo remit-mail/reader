@@ -1,16 +1,20 @@
 import {
 	AppShell,
 	type BriefCategoryFilter,
-	BriefSections,
+	BriefSection,
 	ComfortableRow,
 	defaultKeyboardHints,
 	KeyboardHintBar,
 	MailHeader,
+	SELECTION_SHEET_TEASER_HEIGHT,
+	SelectionSheet,
+	SelectionTopBar,
+	type ThreadRowData,
+	type ThreadSection,
 } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { useState } from "react";
+import { createContext, useContext, useMemo, useState } from "react";
 import {
-	briefChips,
 	briefSections,
 	briefSectionsLong,
 	briefUnseen,
@@ -165,25 +169,29 @@ export const KeyboardHintsPhone: Story = {
 };
 
 /**
- * The aggregate brief behind its filter: the MailHeader top row, then the kit
- * `BriefSections` — which owns the FilterSheet bar (categories + attribute chips
- * + the accounts group) and flattens to a headerless list when narrowed to one
- * category. Fast account switching is the nav sidebar, so there is no header chip
- * row. The web client composes these exact blocks.
+ * The aggregate brief as the web client composes it: the MailHeader top row,
+ * then the brief list body straight underneath.
+ *
+ * The list's filter control (categories + attribute chips + the accounts group)
+ * is hidden — the brief is being tried without it — so this screen renders the
+ * kit `BriefSection`s directly rather than wrapping them in `BriefSections`,
+ * which owns that control. The category scope still flattens the list to a
+ * headerless one when it is narrowed; the phone search takeover is what sets it.
+ * The control itself is still covered by the kit's own `BriefSections` stories.
+ * Fast account switching is the nav sidebar, so there is no header chip row.
  */
 function BriefScreen({
 	initialCategory = "all",
-	defaultExpanded = false,
 }: {
 	initialCategory?: BriefCategoryFilter;
-	defaultExpanded?: boolean;
 }) {
 	const [searchValue, setSearchValue] = useState("");
 	const [searchOpen, setSearchOpen] = useState(false);
-	const [category, setCategory] =
-		useState<BriefCategoryFilter>(initialCategory);
-	const [source, setSource] = useState("all");
-	const sources = briefChips().map((s) => ({ ...s, active: s.id === source }));
+	const [category] = useState<BriefCategoryFilter>(initialCategory);
+	const sections = briefSections();
+	const flatRows = sections
+		.flatMap((section) => section.threads)
+		.filter((thread) => thread.category === category);
 
 	return (
 		<div
@@ -201,24 +209,31 @@ function BriefScreen({
 				onSearchOpenChange={setSearchOpen}
 			/>
 			<div className="min-h-0 flex-1">
-				<BriefSections
-					sections={briefSections()}
-					Row={ComfortableRow}
-					briefCategory={category}
-					onSelectBriefCategory={setCategory}
-					sources={sources}
-					sourcesNote="+1 muted"
-					onSelectSource={setSource}
-					defaultExpanded={defaultExpanded}
-				/>
+				<div className="h-full overflow-y-auto">
+					{category === "all" ? (
+						sections.map((section) => (
+							<BriefSection
+								key={section.id}
+								section={section}
+								Row={ComfortableRow}
+							/>
+						))
+					) : (
+						<div className="divide-y divide-line">
+							{flatRows.map((thread) => (
+								<ComfortableRow key={thread.id} thread={thread} />
+							))}
+						</div>
+					)}
+				</div>
 			</div>
 		</div>
 	);
 }
 
 /**
- * (a) "All" scope: header + the FilterSheet bar over the brief, every category
- * section rendered with its header.
+ * (a) "All" scope: header straight onto the brief, every category section
+ * rendered with its header and no filter bar between them.
  */
 export const WithFilter: Story = {
 	parameters: { layout: "centered" },
@@ -226,7 +241,7 @@ export const WithFilter: Story = {
 };
 
 /**
- * (b) Single-category filter: narrowed to Newsletter, the brief renders FLAT
+ * (b) Single-category scope: narrowed to Newsletter, the brief renders FLAT
  * with NO section header.
  */
 export const FilteredToCategory: Story = {
@@ -234,13 +249,167 @@ export const FilteredToCategory: Story = {
 	render: () => <BriefScreen initialCategory="newsletter" />,
 };
 
+/* ------------------------------------------------------------------ */
+/* Multi-select                                                        */
+/* ------------------------------------------------------------------ */
+
+interface BriefChecked {
+	checked: ReadonlySet<string>;
+	toggle: (id: string) => void;
+}
+
+const BriefCheckedContext = createContext<BriefChecked>({
+	checked: new Set<string>(),
+	toggle: () => undefined,
+});
+
 /**
- * (c) Account sources (n>1): the filter opens onto the accounts group — three
- * accounts feed the brief, so the source pill row appears above the categories.
+ * A brief row that reads its checked state from context — the same shape the
+ * web client uses, where the row is handed the selection by the list's
+ * interaction provider rather than by the section that renders it.
  */
-export const WithAccountSources: Story = {
+function SelectableBriefRow({
+	thread,
+	active,
+	onClick,
+}: {
+	thread: ThreadRowData;
+	active?: boolean;
+	onClick?: () => void;
+}) {
+	const { checked, toggle } = useContext(BriefCheckedContext);
+	return (
+		<ComfortableRow
+			thread={thread}
+			active={active}
+			onClick={onClick}
+			selection={{
+				checked: checked.has(thread.id),
+				alwaysVisible: true,
+				onToggle: () => toggle(thread.id),
+			}}
+		/>
+	);
+}
+
+/**
+ * A shift-range that crosses a section boundary: the last row of the first
+ * section through the first two of the next, in the order the rows are on
+ * screen. Section membership is not part of the range — the visible row order
+ * is.
+ */
+function crossSectionRange(sections: ThreadSection[]): string[] {
+	const [first, second] = sections;
+	const tail = first?.threads.at(-1)?.id;
+	const head = second?.threads.slice(0, 2).map((t) => t.id) ?? [];
+	return tail ? [tail, ...head] : head;
+}
+
+function BriefMultiSelectScreen({ touch = false }: { touch?: boolean }) {
+	const [searchValue, setSearchValue] = useState("");
+	const [searchOpen, setSearchOpen] = useState(false);
+	const sections = useMemo(() => briefSections(), []);
+	const [checked, setChecked] = useState<ReadonlySet<string>>(
+		() => new Set(crossSectionRange(sections)),
+	);
+	const value = useMemo<BriefChecked>(
+		() => ({
+			checked,
+			toggle: (id: string) =>
+				setChecked((prev) => {
+					const next = new Set(prev);
+					if (!next.delete(id)) next.add(id);
+					return next;
+				}),
+		}),
+		[checked],
+	);
+	const clear = () => setChecked(new Set());
+
+	return (
+		<BriefCheckedContext.Provider value={value}>
+			<div
+				className="relative flex h-[760px] flex-col overflow-hidden border border-line bg-canvas"
+				style={{ width: touch ? 390 : 420 }}
+			>
+				{touch ? (
+					<MailHeader
+						title="Daily brief"
+						unreadCount={briefUnseen}
+						isDesktop={false}
+						onMenuClick={() => undefined}
+						searchValue={searchValue}
+						onSearchChange={setSearchValue}
+						searchOpen={searchOpen}
+						onSearchOpenChange={setSearchOpen}
+					/>
+				) : (
+					<SelectionTopBar
+						count={checked.size}
+						onCancel={clear}
+						onDelete={clear}
+						onMarkRead={clear}
+					/>
+				)}
+				<div
+					className="min-h-0 flex-1"
+					style={
+						touch ? { paddingBottom: SELECTION_SHEET_TEASER_HEIGHT } : undefined
+					}
+				>
+					<div className="h-full overflow-y-auto">
+						{sections.map((section) => (
+							<BriefSection
+								key={section.id}
+								section={section}
+								Row={SelectableBriefRow}
+							/>
+						))}
+					</div>
+				</div>
+				{touch && checked.size > 0 && (
+					<SelectionSheet
+						count={checked.size}
+						onCancel={clear}
+						onDelete={clear}
+						onMarkRead={clear}
+						onSelectSimilar={() => undefined}
+						onSomethingElse={() => undefined}
+					/>
+				)}
+			</div>
+		</BriefCheckedContext.Provider>
+	);
+}
+
+/**
+ * Desktop multi-select on the brief. The bar takes the header's place for as
+ * long as rows are selected — the same slot, verbs and copy the mailbox list
+ * raises, because it is the same bar. (`SelectionTopBar` is the kit twin of the
+ * web client's `SelectionToolbar`; the account-scoped Move and Apply-label
+ * triggers need live folder data and are covered by the web client's own
+ * `SelectionToolbar` stories.)
+ *
+ * The checked rows span two category sections: a range follows the rows in the
+ * order they are on screen, so it crosses a section header rather than stopping
+ * at it.
+ */
+export const MultiSelect: Story = {
 	parameters: { layout: "centered" },
-	render: () => <BriefScreen defaultExpanded />,
+	render: () => <BriefMultiSelectScreen />,
+};
+
+/**
+ * Touch multi-select on the brief: the header stays, and the peeking selection
+ * sheet carries the verbs. It rises at two or more selected — a single row
+ * enters selection mode (checkboxes on the rows) without taking over the
+ * chrome. The list pads its own bottom by the teaser's height so no row hides
+ * behind it.
+ */
+export const MultiSelectPhone: Story = {
+	parameters: { layout: "centered" },
+	globals: { viewport: { value: "mobile" } },
+	render: () => <BriefMultiSelectScreen touch />,
 };
 
 /**
