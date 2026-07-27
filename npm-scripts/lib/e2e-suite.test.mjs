@@ -1,7 +1,8 @@
 // The e2e suite's location is written down twice — once in `e2e-suite.sh` as the
 // path the install cds into, once in `test:e2e-unit` as the literal the
 // reachability guard reads to learn which package that step runs. Moving the
-// suite means changing both, and #445 moves it: `e2e` becomes `packages/e2e`.
+// suite means changing both, and #445 already moved it once: `e2e` became
+// `packages/e2e`.
 //
 // A half-applied move is silent in both directions. Change only the shell and
 // the guard reports a suite nothing reaches (loud, harmless). Change only the
@@ -59,9 +60,9 @@ describe("the e2e suite's location is one path, written twice", () => {
 	});
 });
 
-// #445 makes the suite a workspace of the root project, at which point a bare
-// `npm ci` in its directory installs the entire monorepo instead — npm walks up
-// to the manifest that declares the workspace and takes that as the project. The
+// The suite is a workspace of the root project (#445), so a bare `npm ci` in its
+// directory installs the entire monorepo instead — npm walks up to the manifest
+// that declares the workspace and takes that as the project. The
 // install has to name its own project outright. Nothing about the failure is
 // visible to the reachability guard, so it is asserted here.
 describe("the e2e install names its own project", () => {
