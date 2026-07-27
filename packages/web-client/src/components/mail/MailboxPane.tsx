@@ -104,6 +104,7 @@ import {
 	filterReach,
 	hasInboxFilter,
 	type InboxFilterCriteria,
+	type InboxFilterParams,
 	inboxFilterParams,
 	sameInboxFilter,
 } from "@/lib/inbox-filters";
@@ -123,6 +124,10 @@ import {
 } from "@/lib/search-result";
 import { parseSearchTokens } from "@/lib/search-tokens";
 import { useTelemetry } from "@/lib/telemetry-context";
+import {
+	applyResidualTokens,
+	threadSearchTokens,
+} from "@/lib/thread-search-tokens";
 import { MailViewChrome } from "./MailViewChrome";
 
 /* ------------------------------------------------------------------ */
@@ -260,17 +265,19 @@ function MailboxPaneProvider({
 
 	const normalizedSearchQuery = normalizeSearchQuery(searchQuery);
 	const hasSearchQuery = normalizedSearchQuery.length > 0;
-	// Filter tokens (`from:`, `has:attachment`, `is:unread`) narrow this literal
-	// search to the params `threadOperationsSearchThreads` supports; `before:`/
-	// `after:`/`account:` have no equivalent on this endpoint and are left for
-	// the semantic section only (see `useSemanticSearch`). `in:` never reaches
-	// here at all: this view is scoped to one mailbox by its route, so
-	// `useSearchTokenContext` does not resolve the term and it stays free text.
+	// Filter tokens narrow this literal search to the params
+	// `threadOperationsSearchThreads` supports (`from`, `subject`, `category`,
+	// `unread`, `starred`, `attachments`). What the endpoint has no parameter for
+	// — `before:`/`after:`/`account:`, and any second value for a parameter that
+	// takes one — comes back as residue and is applied over the returned rows
+	// below, because a token neither sent nor applied silently widens the result
+	// to mail the user asked to exclude. `in:` never reaches here at all: this
+	// view is scoped to one mailbox by its route, so `useSearchTokenContext` does
+	// not resolve the term and it stays free text.
 	const { freeText, tokens: searchTokens } = parseSearchTokens(
 		normalizedSearchQuery,
 		tokenContext,
 	);
-	const fromToken = searchTokens.find((t) => t.type === "from");
 
 	const [filterCategory, setFilterCategory] = useState("all");
 	const [filterAttributes, setFilterAttributes] = useState<ReadonlySet<string>>(
@@ -291,20 +298,29 @@ function MailboxPaneProvider({
 	// active chip routes the listing through `searchThreads` — one predicate, one
 	// query key, so the key and the branch below cannot diverge.
 	const hasServerFilter = hasSearchQuery || hasInboxFilter(filterCriteria);
+	// The chips are spread last: where a chip and a token set the same parameter
+	// the visible control decides, and the token drops to the residue.
+	const { params: tokenParams, residual: residualTokens } = threadSearchTokens(
+		searchTokens,
+		filterParams,
+	);
 	const searchThreadsQuery = {
 		order: "desc" as const,
 		// Explicit: an unspecified limit clamps to THREAD_SEARCH_MAX_LIMIT (500),
 		// so switching paths without it multiplies the page size by ten.
 		limit: THREADS_PAGE_SIZE,
 		...(freeText ? { query: freeText } : {}),
-		...(fromToken ? { from: fromToken.value } : {}),
-		...(searchTokens.some((t) => t.type === "hasAttachment")
-			? { attachments: true }
-			: {}),
-		...(searchTokens.some((t) => t.type === "isUnread")
-			? { unread: true }
-			: {}),
+		...tokenParams,
 		...filterParams,
+	};
+	// What the request actually narrows by, whoever set it. `placeholderData`
+	// keeps the previous rows only under the same predicate, and a token
+	// narrowing the list is as much that predicate as a chip is.
+	const activeFilterParams: InboxFilterParams = {
+		category: searchThreadsQuery.category,
+		unread: searchThreadsQuery.unread,
+		starred: searchThreadsQuery.starred,
+		attachments: searchThreadsQuery.attachments,
 	};
 
 	const queryKey = hasServerFilter
@@ -354,7 +370,7 @@ function MailboxPaneProvider({
 		// skeleton rather than showing the old predicate's mail under the new
 		// chip for one round trip.
 		placeholderData: (previousData, previousQuery) =>
-			sameInboxFilter(previousQuery?.queryKey, filterParams)
+			sameInboxFilter(previousQuery?.queryKey, activeFilterParams)
 				? previousData
 				: undefined,
 	});
@@ -395,10 +411,18 @@ function MailboxPaneProvider({
 	// The server answered the active predicate, so these rows are the list: the
 	// dedupe spans pages and the deleted drop repeats the server's own
 	// `excludeDeleted`, and neither result changes when another page loads.
-	const threads = dropDeletedThreads(
-		dedupeThreadMessages(
-			threadsData?.pages.flatMap((page) => page.items ?? []) ?? [],
+	// Residual tokens are the exception — the request could not carry them, so
+	// they are applied here over what came back. That thins a page rather than
+	// answering over the whole mailbox, which is why the empty state stops
+	// claiming the folder was read and the escalation predicate is withheld.
+	const threads = applyResidualTokens(
+		dropDeletedThreads(
+			dedupeThreadMessages(
+				threadsData?.pages.flatMap((page) => page.items ?? []) ?? [],
+			),
 		),
+		residualTokens,
+		mailboxAccountId,
 	);
 
 	const onSelectFilterCategory = useCallback((id: string) => {
@@ -424,7 +448,10 @@ function MailboxPaneProvider({
 	const listFilter: MessageListFilter | undefined = filterLabel
 		? {
 				label: filterLabel,
-				reach: filterReach(searchThreadsQuery),
+				reach:
+					residualTokens.length > 0
+						? "loaded-pages"
+						: filterReach(searchThreadsQuery),
 				onClear: onClearFilters,
 			}
 		: undefined;
@@ -823,7 +850,15 @@ function MailboxPaneProvider({
 		listFilter,
 		intelligenceOpen,
 		onToggleIntelligence,
-		searchPredicate: hasSearchQuery ? searchThreadsQuery : undefined,
+		// Escalation ("select all N matching") re-issues this predicate server-side
+		// and acts on every match, so it is only offered when the predicate IS the
+		// search: a residual token narrows the rows on screen but not the request,
+		// and a bulk delete over the broader set would reach mail the search
+		// excluded.
+		searchPredicate:
+			hasSearchQuery && residualTokens.length === 0
+				? searchThreadsQuery
+				: undefined,
 		onDeleteMessages: handleDeleteMessages,
 		onMoveMessages: handleMoveMessages,
 		isDeleting,
