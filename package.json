@@ -41,6 +41,7 @@
     "manifest:copy-to-pages": "bash npm-scripts/copy-update-manifest.sh",
     "coverage:audit": "node npm-scripts/coverage-audit.mjs",
     "test:ci": "node npm-scripts/test-parallel.mjs",
+    "test:e2e-unit": "bash npm-scripts/e2e-unit.sh",
     "e2e": "npm run e2e:up && npm run e2e:test; status=$?; npm run e2e:down; exit $status",
     "e2e:up": "bash npm-scripts/e2e-up.sh",
     "e2e:test": "bash npm-scripts/e2e-test.sh",
@@ -51,6 +52,14 @@
     "e2e:dev:logs": "bash npm-scripts/e2e-dev-logs.sh",
     "e2e:dev:down": "bash npm-scripts/e2e-dev-down.sh",
     "e2e:dev:migrate": "node npm-scripts/docker-bundle.mjs backend-migrate && cd deploy/vps && node ../../dist-docker/backend/migrate.mjs"
+  },
+  "ciCoverage": {
+    "allowUnreachable": {
+      "packages/mailbox-service#test:integ": "needs the mailfuzz Dovecot server on MAILFUZZ_PORT; no CI job stands one up, and the black-box e2e lanes cover IMAP against the shipped stack instead",
+      "packages/mailbox-service#test:e2e": "needs the mailfuzz Dovecot server on MAILFUZZ_PORT; no CI job stands one up, and the black-box e2e lanes cover IMAP against the shipped stack instead",
+      "packages/search-service#test:integ": "needs a Postgres with the vector extension on PG_CONNECTION_URL; the unit suite runs the same store against the in-memory backend",
+      "packages/smtp-service#test:integ": "needs a mokapi SMTP relay on MOKAPI_SMTP_PORT and AWS credentials"
+    }
   },
   "dependencies": {
     "@remit/api-http-client": "file:build/remit-client",

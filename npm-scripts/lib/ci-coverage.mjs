@@ -9,12 +9,21 @@
 // and a guard that under-reports manufactures busywork that looks like rigor,
 // which is worse than the hole it replaces.
 //
-// Two claims are enforced:
+// Three claims are enforced:
 //
 //   1. every `test:*` and `check:*` script in the root manifest is reached,
 //      whether by name or through the file it runs;
-//   2. every `*.test.mjs` file is either collected by the runner `test:ci`
+//   2. every `test:*` and `check:*` script in a workspace manifest is reached,
+//      either by a runner that collects it or by name — the root manifest was
+//      the whole guard once, and a suite living in a package was invisible to
+//      it (#446);
+//   3. every `*.test.mjs` file is either collected by the runner `test:ci`
 //      drives or reached directly, so a suite nothing runs is an error.
+//
+// A workspace script is matched by name alone, because that is how the
+// invocations that reach one are written: `npm run test:typecheck --workspaces`
+// names no package, and a script that cds into its own directory names none
+// either. Two packages sharing a script name therefore stand or fall together.
 //
 // Reachability is textual, so it proves wiring rather than that a job's
 // conditions let it run. The wiring is the part people forget.
@@ -62,10 +71,15 @@ export function invocations(source) {
 export function reachable({ scripts, workflowSources, readFile }) {
 	const reachedScripts = new Set();
 	const reachedFiles = new Set();
+	// Every script name an expanded source invokes, whether or not the root
+	// manifest defines it. `npm run test:typecheck --workspaces` names a script
+	// that exists only in the packages, and that naming is what reaches them.
+	const namedScripts = new Set();
 	const queue = [];
 
 	const visit = ({ scripts: named, files }) => {
 		for (const name of named) {
+			namedScripts.add(name);
 			if (name in scripts && !reachedScripts.has(name)) {
 				reachedScripts.add(name);
 				queue.push({ kind: "script", id: name });
@@ -91,23 +105,31 @@ export function reachable({ scripts, workflowSources, readFile }) {
 		const source = readFile(node.id);
 		if (source !== null) visit(invocations(stripComments(source, "js")));
 	}
-	return { reachedScripts, reachedFiles };
+	return { reachedScripts, reachedFiles, namedScripts };
 }
 
 export function isGuarded(name) {
 	return GUARDED_PREFIXES.some((prefix) => name.startsWith(prefix));
 }
 
+// A workspace script is identified by the directory it lives in, so the
+// allow-list can name one package's `test:integ` without excusing another's.
+export function workspaceScriptId(workspace, name) {
+	return `${workspace}#${name}`;
+}
+
 export function coverageViolations({
 	scripts,
+	workspaceScripts = {},
 	workflowSources,
 	testFiles,
 	collectedFiles,
+	collectedScripts = [],
 	readFile = () => null,
 	allowUnreachable = {},
 }) {
 	const violations = [];
-	const { reachedScripts, reachedFiles } = reachable({
+	const { reachedScripts, reachedFiles, namedScripts } = reachable({
 		scripts,
 		workflowSources,
 		readFile,
@@ -115,39 +137,77 @@ export function coverageViolations({
 
 	// A script CI never names, whose file CI runs directly, is covered: the
 	// script is an alias for work that happens either way.
-	const isReached = (name) =>
+	const isRootReached = (name) =>
 		reachedScripts.has(name) ||
 		[...invocations(scripts[name]).files].some((file) =>
 			reachedFiles.has(file),
 		);
 
-	for (const name of Object.keys(scripts)) {
-		if (!isGuarded(name)) continue;
-		if (isReached(name)) {
-			if (name in allowUnreachable) {
+	const collected = new Set(collectedScripts);
+	const isWorkspaceReached = (workspace, name) =>
+		collected.has(workspaceScriptId(workspace, name)) || namedScripts.has(name);
+
+	// A reached workspace script names further scripts of its own — the split
+	// dialect runs in drizzle-service are `test:run:pg` and `test:run:sqlite`,
+	// reached by nothing but the `test:run` the runner collects. Expanded to a
+	// fixpoint so a chain of them is followed, not just the first link.
+	for (let grew = true; grew; ) {
+		grew = false;
+		for (const [workspace, manifest] of Object.entries(workspaceScripts)) {
+			for (const [name, body] of Object.entries(manifest)) {
+				if (!isWorkspaceReached(workspace, name)) continue;
+				for (const next of invocations(body).scripts) {
+					if (namedScripts.has(next)) continue;
+					namedScripts.add(next);
+					grew = true;
+				}
+			}
+		}
+	}
+
+	const entries = [
+		...Object.keys(scripts).map((name) => ({
+			id: name,
+			name,
+			reached: () => isRootReached(name),
+		})),
+		...Object.entries(workspaceScripts).flatMap(([workspace, manifest]) =>
+			Object.keys(manifest).map((name) => ({
+				id: workspaceScriptId(workspace, name),
+				name,
+				reached: () => isWorkspaceReached(workspace, name),
+			})),
+		),
+	];
+	const known = new Set(entries.map((entry) => entry.id));
+
+	for (const entry of entries) {
+		if (!isGuarded(entry.name)) continue;
+		if (entry.reached()) {
+			if (entry.id in allowUnreachable) {
 				violations.push(
-					`script "${name}" is allow-listed as unreachable but CI reaches it: drop the entry`,
+					`script "${entry.id}" is allow-listed as unreachable but CI reaches it: drop the entry`,
 				);
 			}
 			continue;
 		}
 		// A missing reason is reported once, below, rather than twice here.
-		if (name in allowUnreachable) continue;
+		if (entry.id in allowUnreachable) continue;
 		violations.push(
-			`script "${name}" is not reached by any workflow: name it in a job step, or drop it`,
+			`script "${entry.id}" is not reached by any workflow: name it in a job step, or drop it`,
 		);
 	}
 
-	const collected = new Set(collectedFiles);
+	const collectedFileSet = new Set(collectedFiles);
 	for (const file of testFiles) {
-		if (collected.has(file) || reachedFiles.has(file)) continue;
+		if (collectedFileSet.has(file) || reachedFiles.has(file)) continue;
 		violations.push(
 			`suite "${file}" is collected by no runner: move it where discovery finds it, or drop it`,
 		);
 	}
 
 	for (const name of Object.keys(allowUnreachable)) {
-		if (!(name in scripts)) {
+		if (!known.has(name)) {
 			violations.push(
 				`script "${name}" is allow-listed as unreachable but no longer exists: drop the entry`,
 			);

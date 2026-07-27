@@ -225,3 +225,108 @@ describe("coverageViolations", () => {
 		assert.match(violations[0], /no longer exists/);
 	});
 });
+
+// The hole this half closes: `packages/e2e` carried a four-test suite behind
+// `test:unit` that nothing ran, and the guard reported green because it read
+// only the root manifest (#446).
+describe("coverageViolations across workspaces", () => {
+	it("flags a workspace test script nothing reaches", () => {
+		const violations = coverageViolations({
+			scripts: {},
+			workspaceScripts: { "packages/e2e": { "test:unit": "playwright test" } },
+			workflowSources: [],
+			...noSuites,
+		});
+		assert.equal(violations.length, 1);
+		assert.match(violations[0], /"packages\/e2e#test:unit" is not reached/);
+	});
+
+	it("counts a workspace script a reached root script names", () => {
+		const violations = coverageViolations({
+			scripts: { "test:e2e-unit": "npm run test:unit -w packages/e2e" },
+			workspaceScripts: { "packages/e2e": { "test:unit": "playwright test" } },
+			workflowSources: ["npm run test:e2e-unit"],
+			...noSuites,
+		});
+		assert.deepEqual(violations, []);
+	});
+
+	// `npm run test:typecheck --workspaces --if-present` is how every package's
+	// typecheck runs, and it names no package at all.
+	it("counts a workspace script a --workspaces invocation names", () => {
+		const violations = coverageViolations({
+			scripts: { typecheck: "npm run test:typecheck --workspaces" },
+			workspaceScripts: {
+				"packages/a": { "test:typecheck": "tsgo --noEmit" },
+				"packages/b": { "test:typecheck": "tsgo --noEmit" },
+			},
+			workflowSources: ["npm run typecheck"],
+			...noSuites,
+		});
+		assert.deepEqual(violations, []);
+	});
+
+	it("counts a workspace script the runner collects", () => {
+		const violations = coverageViolations({
+			scripts: {},
+			workspaceScripts: { "packages/a": { "test:run": "node --test" } },
+			workflowSources: [],
+			collectedScripts: ["packages/a#test:run"],
+			...noSuites,
+		});
+		assert.deepEqual(violations, []);
+	});
+
+	it("follows a collected workspace script into the scripts it runs", () => {
+		const violations = coverageViolations({
+			scripts: {},
+			workspaceScripts: {
+				"packages/a": {
+					"test:run": "npm run test:run:pg && npm run test:run:sqlite",
+					"test:run:pg": "node --test",
+					"test:run:sqlite": "node --test",
+				},
+			},
+			workflowSources: [],
+			collectedScripts: ["packages/a#test:run"],
+			...noSuites,
+		});
+		assert.deepEqual(violations, []);
+	});
+
+	it("allows a workspace script with a stated reason", () => {
+		const violations = coverageViolations({
+			scripts: {},
+			workspaceScripts: { "packages/a": { "test:integ": "node --test" } },
+			workflowSources: [],
+			allowUnreachable: {
+				"packages/a#test:integ": "needs a Postgres no runner has",
+			},
+			...noSuites,
+		});
+		assert.deepEqual(violations, []);
+	});
+
+	it("rejects a workspace allow-list entry for a script that no longer exists", () => {
+		const violations = coverageViolations({
+			scripts: {},
+			workspaceScripts: { "packages/a": { "test:run": "node --test" } },
+			workflowSources: [],
+			collectedScripts: ["packages/a#test:run"],
+			allowUnreachable: { "packages/a#test:gone": "obsolete" },
+			...noSuites,
+		});
+		assert.equal(violations.length, 1);
+		assert.match(violations[0], /no longer exists/);
+	});
+
+	it("ignores a workspace script outside the guarded prefixes", () => {
+		const violations = coverageViolations({
+			scripts: {},
+			workspaceScripts: { "packages/a": { build: "tsc", start: "node ." } },
+			workflowSources: [],
+			...noSuites,
+		});
+		assert.deepEqual(violations, []);
+	});
+});
