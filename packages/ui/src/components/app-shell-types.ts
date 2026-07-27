@@ -199,7 +199,14 @@ export interface ThreadRowLabel {
 
 export interface ThreadRowData {
 	id: string;
-	accountId: string;
+	/**
+	 * Owning IMAP account — the `accountId` path parameter of the account API,
+	 * never the caller's `accountConfigId`. Optional because rows from
+	 * per-mailbox listings do not carry it; a required field forced producers to
+	 * substitute the always-present `accountConfigId`, which 404s every
+	 * `/accounts/{accountId}/…` call made with it.
+	 */
+	accountId?: string;
 	/** Owning mailbox — used by the `in:` search-token filter. */
 	mailboxId?: string;
 	fromName: string;

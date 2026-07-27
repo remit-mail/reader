@@ -46,7 +46,7 @@ const toThreadRowData = (
 	const suspicious = thread.authenticity?.dkimMismatch === true;
 	return {
 		id: thread.messageId,
-		accountId: thread.accountConfigId,
+		accountId: thread.accountId,
 		fromName: thread.fromName ?? thread.fromEmail ?? "Unknown",
 		fromEmail: thread.fromEmail ?? "",
 		subject: thread.subject ?? "(No subject)",

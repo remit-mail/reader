@@ -43,7 +43,7 @@ export const threadToRowData = (
 	messageCount?: number,
 ): ThreadRowData => ({
 	id: thread.messageId,
-	accountId: thread.accountConfigId,
+	accountId: thread.accountId,
 	mailboxId: thread.mailboxId,
 	fromName: thread.fromName ?? thread.fromEmail ?? "Unknown",
 	fromEmail: thread.fromEmail ?? "",

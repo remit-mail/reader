@@ -54,7 +54,7 @@ export function toThreadRowData(
 	const suspicious = thread.authenticity?.dkimMismatch === true;
 	return {
 		id: thread.messageId,
-		accountId: thread.accountId ?? thread.accountConfigId,
+		accountId: thread.accountId,
 		mailboxId: thread.mailboxId,
 		fromName: thread.fromName ?? thread.fromEmail ?? "Unknown",
 		fromEmail: thread.fromEmail ?? "",
