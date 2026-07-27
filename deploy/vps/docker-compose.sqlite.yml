@@ -1,17 +1,9 @@
-# Reference self-host deployment, SQLite backend (RFC 036 D6). The same
-# published images as docker-compose.yml, the same single .env file, two
-# residents fewer: no postgres server and no pg-index-worker. All relational
-# state is two files on one local volume — the app/auth database and the
-# sqlite-vec vector store.
+# Reference self-host deployment (RFC 036 D6). One .env file, no database
+# server: all relational state is two files on one local volume — the app/auth
+# database and the sqlite-vec vector store.
 #
-# Pick this file instead of docker-compose.yml when you want the fewest moving
-# parts (see README.md, "Which backend"):
 #   cp remit.env.template .env   # fill in the secrets, then:
 #   docker compose -f docker-compose.sqlite.yml up -d
-#
-# Compose profiles cannot drop an always-on service, so the SQLite variant is a
-# separate file rather than a `--profile` toggle on docker-compose.yml. Run one
-# or the other, never both — they share the project name and would collide.
 #
 # The shared SQLite volume MUST be local disk (RFC 036 D3): WAL's cross-process
 # coordination uses a shared-memory file next to the database that does not work
@@ -223,9 +215,8 @@ services:
     restart: unless-stopped
 
   # ---------------------------------------------------------------------
-  # Workers — the same queue pollers as the Postgres profile. Each opens the
-  # shared SQLite file (WAL) for its writes; no pg-index-worker exists here
-  # (RFC 036 D2) — search-index-worker drains the outbox on a 2 s poll instead.
+  # Workers — the queue pollers. Each opens the shared SQLite file (WAL) for its
+  # writes, and search-index-worker drains the outbox on a 2 s poll (RFC 036 D2).
   #
   # All four are healthchecked on heartbeat files (D1 of
   # docs/design/standalone-observability.md), one per poll loop:
@@ -447,8 +438,8 @@ services:
   # ---------------------------------------------------------------------
   # Backup sidecar (RFC 036 D6) — off by default. Enable with
   # `docker compose -f docker-compose.sqlite.yml --profile backup up -d`.
-  # VACUUM INTO snapshots of the two database files, then age + rclone,
-  # the same shipping as the Postgres profile (see remit.env.template).
+  # VACUUM INTO snapshots of the two database files, then age + rclone
+  # (see remit.env.template).
   # ---------------------------------------------------------------------
   backup:
     image: alpine:3.23

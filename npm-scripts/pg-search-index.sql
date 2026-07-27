@@ -6,12 +6,14 @@
 -- match is an accent- and case-insensitive substring lookup over the WHOLE
 -- mailbox, served by trigram GIN indexes.
 --
--- Kept out of the drizzle schema on purpose (same reason as
--- pg-outbox-trigger.sql): `drizzle-kit push` and the extension-less embedded
--- Postgres unit harness both push the drizzle schema, and these objects need
--- the immutable unaccent wrapper plus the pg_trgm/unaccent extensions. Applied
--- idempotently after push; the extensions themselves are enabled in the pg
--- setup scripts (pg-start.sh / pg-reset.sh), alongside pgvector.
+-- Kept out of the drizzle schema on purpose: `drizzle-kit push` and the
+-- extension-less embedded Postgres unit harness both push the drizzle schema,
+-- and these objects need the immutable unaccent wrapper plus the
+-- pg_trgm/unaccent extensions. Applied idempotently after push.
+--
+-- Only the Postgres unit harness (packages/drizzle-service) reads this file.
+-- The shipped stack is SQLite and installs npm-scripts/sqlite-search-index.sql
+-- instead.
 
 CREATE EXTENSION IF NOT EXISTS unaccent;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;

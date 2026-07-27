@@ -238,8 +238,8 @@ To look without waiting for an update:
 remit check-categories
 ```
 
-That reports and changes nothing — the database is opened read-only on SQLite and
-the session refuses writes on Postgres — and prints each figure with the cause it
+That reports and changes nothing — the database is opened read-only — and prints
+each figure with the cause it
 measures and the result a healthy instance is expected to produce. Most of them
 are zero, for reasons the output states. Two are not defects:
 
@@ -577,7 +577,7 @@ Promtail pipeline parses, and they do not change without a note in the release:
 | `name` | no | An exception class name, on the same backend paths. |
 
 `service` is one of `backend`, `imap-worker`, `smtp-worker`, `account-worker`,
-`search-index-worker`, `queue-sidecar`, `pg-index-worker`, or — from the
+`search-index-worker`, `queue-sidecar`, or — from the
 one-shot commands that run out of the backend image — `backend-migrate` and
 `backend-backfill-list-id`. Migrations log under their own name, not the
 backend's.

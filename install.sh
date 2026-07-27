@@ -371,9 +371,8 @@ write_env() {
 		cp "$DIR/remit.env.template" "$f"
 	fi
 	chmod 600 "$f"
-	# SQLite needs no Postgres password. The identity signing key and the
-	# IMAP-credential encryption key are the two secrets this stack cannot run
-	# without.
+	# The identity signing key and the IMAP-credential encryption key are the two
+	# secrets this stack cannot run without.
 	ensure_secret BETTER_AUTH_SECRET 32 "$f"
 	ensure_secret FAKE_KMS_DATAKEY 32 "$f"
 	set_var PUBLIC_ORIGIN "$ORIGIN" "$f"

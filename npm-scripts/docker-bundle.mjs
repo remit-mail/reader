@@ -82,14 +82,10 @@ const PG = "pg";
 // JS would still leave its `.node` require unresolvable next to the bundle.
 const SQLITE = "better-sqlite3";
 
-// The embedding model path. remit-search-index-worker is the process that
-// actually calls buildEmbeddingServiceFromEnv()/pgvector when
-// DATA_BACKEND=postgres (see packages/search-index-worker/src/services.ts).
-// remit-pg-index-worker is a Postgres LISTEN/NOTIFY -> SQS relay with no
-// embedding of its own (packages/remit-pg-index-worker/src/worker.ts) — despite
-// what RFC 035's D2/FAQ says, the model belongs in the search-index-worker
-// image, not pg-index-worker. Stated here, and in the PR description, as a
-// deliberate correction rather than a silent fix.
+// The embedding model path. search-index-worker is the process that actually
+// calls buildEmbeddingServiceFromEnv() (see
+// packages/search-index-worker/src/services.ts), so the model belongs in its
+// image and no other.
 //
 // better-sqlite3/sqlite-vec back the LOCAL_VECTORDB_PATH vector store, reached
 // only through `runtimeImport` (a dynamic `import(variable)` esbuild cannot see,
@@ -143,11 +139,6 @@ export const TARGETS = [
 		name: "search-index-worker",
 		entry: "packages/search-index-worker/src/poller.ts",
 		external: [PG, SQLITE, ...SEARCH_NATIVE],
-	},
-	{
-		name: "pg-index-worker",
-		entry: "packages/remit-pg-index-worker/src/run-worker.ts",
-		external: [PG],
 	},
 	// The self-host queue backend (ADR: SQLite-backed SQS sidecar). better-sqlite3
 	// is a native module reached through @remit/queue-sidecar's store; keep it
@@ -203,18 +194,17 @@ export const TARGETS = [
 
 async function main() {
 	const only = process.argv[2];
-	// Only bundle targets whose entrypoint ships in this tree. The open-core
-	// export strips the Postgres-only pg-index-worker package, so its target
-	// drops out automatically here instead of failing on the missing entry —
-	// the exported roster matches the reader's compose without editing this file.
-	const present = TARGETS.filter((t) => existsSync(t.entry));
-	const targets = only ? present.filter((t) => t.name === only) : present;
-	if (targets.length === 0) {
+	// Every target's entrypoint ships in this tree, so a missing one is a mistake
+	// and must fail the build rather than quietly shorten the image roster.
+	const missing = TARGETS.filter((t) => !existsSync(t.entry));
+	if (missing.length > 0) {
 		throw new Error(
-			only
-				? `docker-bundle: no present target named "${only}"`
-				: "docker-bundle: no target entrypoints present in this tree",
+			`docker-bundle: missing entrypoints: ${missing.map((t) => t.entry).join(", ")}`,
 		);
+	}
+	const targets = only ? TARGETS.filter((t) => t.name === only) : TARGETS;
+	if (targets.length === 0) {
+		throw new Error(`docker-bundle: no target named "${only}"`);
 	}
 
 	for (const target of targets) {

@@ -17,11 +17,10 @@ export interface SearchIndexDataPorts {
 	 * one — this hook is `undefined` there, and the handler uses the message's
 	 * own `accountId` unchanged (see `prepareUpsert` in handler.ts).
 	 *
-	 * The Postgres outbox trigger fires from a plain `message_id`, so the pg
-	 * relay (`remit-pg-index-worker`) has no accountId to attach; this hook
-	 * derives it from the message's mailbox at consume time instead. Returns
-	 * null when the mailbox can't be resolved (the message is skipped, not
-	 * retried — see handler.ts).
+	 * The outbox carries a plain `message_id`, so the relational drain has no
+	 * accountId to attach; this hook derives it from the message's mailbox at
+	 * consume time instead. Returns null when the mailbox can't be resolved (the
+	 * message is skipped, not retried — see handler.ts).
 	 */
 	resolveAccountId?: (messageId: string) => Promise<string | null>;
 }

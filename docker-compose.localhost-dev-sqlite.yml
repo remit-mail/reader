@@ -1,14 +1,13 @@
 # One-command local SQLite + better-auth Remit stack.
 #
-# The SQLite sibling of docker-compose.localhost-dev-generic.yml, and the reason
-# to prefer it: SQLite is the backend the product ships (deploy/vps/docker-compose.sqlite.yml),
-# so a dev session here exercises the code path a real install runs. The Postgres
-# stack's outbox relay lives outside this repository, which is why semantic search
-# never indexed anything there; on this stack the relay is the `search-index-worker`
-# service below and the vector index fills as mail arrives.
+# The development stack. SQLite is the backend the product ships
+# (deploy/vps/docker-compose.sqlite.yml), so a dev session here exercises the
+# code path a real install runs, semantic indexing included: the outbox relay is
+# the `search-index-worker` service below and the vector index fills as mail
+# arrives.
 #
-# Same ports as the Postgres stack — web on 4123, backend on 4124 — because the
-# TLS front-end on 4143 proxies to 4123 and bookmarks point at it.
+# Web on 4123, backend on 4124 — the TLS front-end on 4143 proxies to 4123 and
+# bookmarks point at it.
 #
 # App containers run in dev mode straight from the bind-mounted worktree with host
 # networking, so every service is reachable on localhost and vite serves HMR from
@@ -150,6 +149,32 @@ services:
       - --import
       - tsx
       - packages/search-index-worker/src/poller.ts
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      elasticmq:
+        condition: service_started
+    restart: unless-stopped
+
+  # Drains `remit-account-fanout`, which carries the account-scoped fan-out work
+  # an organize apply, a settings change, or an account deletion enqueues. Without
+  # it those requests fail at the producer, so the queue is not optional here.
+  account-worker:
+    image: node:24
+    container_name: remit-sqlite-dev-account-worker
+    user: "1000:1000"
+    working_dir: /app
+    network_mode: host
+    env_file:
+      - localhost-dev-sqlite.env
+    volumes:
+      - .:/app
+    command:
+      - node
+      - --env-file=localhost-dev-sqlite.env
+      - --import
+      - tsx
+      - packages/account-worker/src/poller.ts
     depends_on:
       migrate:
         condition: service_completed_successfully

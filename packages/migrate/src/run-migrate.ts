@@ -1,12 +1,6 @@
-import { existsSync } from "node:fs";
-import { drizzle } from "drizzle-orm/node-postgres";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
-import pg from "pg";
-// esbuild bundles these as text (see npm-scripts/docker-bundle.mjs's ".sql"
-// loader) so the migrate step runs the exact SQL pg-schema-push.sh applies
-// for local dev — one source of truth, two consumers.
-import outboxTriggerSql from "../../../npm-scripts/pg-outbox-trigger.sql";
-import searchIndexSql from "../../../npm-scripts/pg-search-index.sql";
+// esbuild bundles this as text (see npm-scripts/docker-bundle.mjs's ".sql"
+// loader) so the migrate step runs the exact SQL the test harness applies —
+// one source of truth, two consumers.
 import sqliteSearchIndexSql from "../../../npm-scripts/sqlite-search-index.sql";
 import {
 	type CategoryDivergenceReport,
@@ -29,15 +23,12 @@ import { logger } from "../../logger-lambda/src/logger.js";
  * (`condition: service_completed_successfully`) — one migrator, ordered
  * first, instead of N app containers racing to migrate on boot.
  *
- * It branches on `DATA_BACKEND` (RFC 036 D5): the Postgres path applies the
- * pg migration sets and installs the extensions + NOTIFY trigger + search
- * index; the SQLite path applies the sqlite migration sets against the local
- * database file. Both share the same structure — extensions/DDL steps that do
- * not exist on SQLite are simply skipped.
+ * SQLite is the only backend this stack deploys, so `DATA_BACKEND` is checked
+ * rather than dispatched on: it applies the sqlite migration sets against the
+ * local database file and installs the idempotent DDL objects around them.
  *
- * pgvector's own table (message_embedding) is intentionally NOT created here —
- * remit-search-service self-provisions it on first use, and the sqlite-vec
- * store owns its own file the same way; neither is this migrator's concern.
+ * The sqlite-vec store's own file is intentionally NOT created here — the
+ * search service owns it and provisions it on first use.
  */
 
 /**
@@ -133,109 +124,14 @@ const repairThreadMessageCategoryStep = async (
 	log(formatRepairResult(result, await readResidual(client)));
 };
 
-/**
- * `migrations/entities` and `migrations/auth` are the Postgres set the
- * Dockerfile's builder stage stages conditionally (RFC 036 D5) — the
- * open-core export ships only `migrations-sqlite`, so a backend image built
- * from this tree never has the Postgres set to COPY. Checking for it here,
- * before opening a connection, is what turns that into an explicit "unsupported"
- * message instead of a migrator that connects, starts applying migrations, and
- * dies partway when `migrationsFolder` resolves to nothing (reader#176).
- */
-const requirePostgresMigrations = (): void => {
-	const missing = ["migrations/entities", "migrations/auth"].filter(
-		(folder) => !existsSync(folder),
-	);
-	if (missing.length === 0) {
-		return;
-	}
-
-	throw new Error(
-		`Postgres self-host is not supported in this build: ${missing.join(", ")} ${
-			missing.length > 1 ? "are" : "is"
-		} not shipped here. Use the SQLite backend instead ` +
-			"(DATA_BACKEND=sqlite, deploy/vps/docker-compose.sqlite.yml) — see README.md.",
-	);
-};
-
-const postgresRepairClient = (pool: pg.Pool): RepairSqlClient => ({
-	dialect: "postgres",
-	all: async (sql) => (await pool.query(sql)).rows,
-	run: async (sql) => (await pool.query(sql)).rowCount ?? 0,
-});
-
-const runPostgres = async (mode: Mode): Promise<void> => {
-	if (mode === "migrate") {
-		requirePostgresMigrations();
-	}
-
-	const connectionString = process.env.PG_CONNECTION_URL;
-	if (!connectionString) {
-		throw new Error("PG_CONNECTION_URL is required");
-	}
-
-	// `--check` gets a session the server itself refuses writes on, the counterpart
-	// of the SQLite path's read-only open: "writes nothing" is then a property of
-	// the connection rather than a claim about the queries.
-	const pool = new pg.Pool({
-		connectionString,
-		...(mode === "check"
-			? { options: "-c default_transaction_read_only=on" }
-			: {}),
-	});
-	const repairClient = postgresRepairClient(pool);
-	try {
-		if (mode === "check") {
-			logReport(await checkThreadMessageCategory(repairClient));
-			return;
-		}
-
-		logStep({}, "enabling extensions: vector, unaccent, pg_trgm");
-		await pool.query("CREATE EXTENSION IF NOT EXISTS vector;");
-		await pool.query("CREATE EXTENSION IF NOT EXISTS unaccent;");
-		await pool.query("CREATE EXTENSION IF NOT EXISTS pg_trgm;");
-
-		logStep({}, "applying entity schema migrations");
-		await migrate(drizzle(pool), {
-			migrationsFolder: "migrations/entities",
-			migrationsTable: "__drizzle_migrations_entities",
-		});
-
-		logStep({}, "applying auth schema migrations");
-		await migrate(drizzle(pool), {
-			migrationsFolder: "migrations/auth",
-			migrationsTable: "__drizzle_migrations_auth",
-		});
-
-		logStep({}, "applying instance-owner schema migrations");
-		await migrate(drizzle(pool), {
-			migrationsFolder: "migrations/meta",
-			migrationsTable: "__drizzle_migrations_meta",
-		});
-
-		// Same position as on the SQLite path: after the generated migrations that
-		// supply the column and the filter's index, before the idempotent DDL step.
-		await repairThreadMessageCategoryStep(repairClient);
-
-		logStep({}, "installing outbox notify trigger");
-		await pool.query(outboxTriggerSql);
-
-		logStep({}, "installing search index objects");
-		await pool.query(searchIndexSql);
-	} finally {
-		await pool.end();
-	}
-};
-
 const runSqlite = async (mode: Mode): Promise<void> => {
 	const dbPath = process.env.SQLITE_DB_PATH;
 	if (!dbPath) {
 		throw new Error("SQLITE_DB_PATH is required when DATA_BACKEND=sqlite");
 	}
 
-	// Dynamic imports so the Postgres path never loads the native better-sqlite3
-	// binding, and the module stays bundleable with better-sqlite3 marked
-	// external (see npm-scripts/docker-bundle.mjs).
+	// Dynamic imports so the module stays bundleable with the native
+	// better-sqlite3 binding marked external (see npm-scripts/docker-bundle.mjs).
 	const { default: Database } = await import("better-sqlite3");
 	const { drizzle: sqliteDrizzle } = await import("drizzle-orm/better-sqlite3");
 	const { migrate: sqliteMigrate } = await import(
@@ -293,8 +189,8 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 		await repairThreadMessageCategoryStep(sqliteRepairClient);
 
 		// The external-content FTS5 trigram table + its thread_message
-		// maintenance triggers, the final idempotent step (RFC 036 D4) — the
-		// sqlite counterpart of pg-search-index.sql. The triggers keep the index
+		// maintenance triggers, the final idempotent step (RFC 036 D4). The
+		// triggers keep the index
 		// in sync on every write from here on; a database that already had thread
 		// rows before this table existed (an upgrade from the wave-1 folded-LIKE
 		// build) needs a one-time backfill, since the triggers only see writes
@@ -332,13 +228,20 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 	}
 };
 
+// The stack this migrator belongs to is SQLite (deploy/vps/docker-compose.sqlite.yml
+// pins `DATA_BACKEND: sqlite`), and it is the only backend the migration sets in
+// the image cover. Any other value is a misconfiguration, refused here before a
+// connection is opened rather than part-way through applying migrations.
 const run = async (): Promise<void> => {
 	const mode = parseMode(process.argv.slice(2));
-	if (process.env.DATA_BACKEND === "sqlite") {
-		await runSqlite(mode);
-	} else {
-		await runPostgres(mode);
+	const backend = process.env.DATA_BACKEND;
+	if (backend !== "sqlite") {
+		throw new Error(
+			`DATA_BACKEND=${backend ?? "(unset)"} is not supported: this stack runs ` +
+				"SQLite. Set DATA_BACKEND=sqlite — see deploy/vps/docker-compose.sqlite.yml.",
+		);
 	}
+	await runSqlite(mode);
 	logStep({ mode }, "migrate done");
 };
 

@@ -21,6 +21,9 @@ npm run build --workspaces --if-present
 npm test --workspaces --if-present
 ```
 
+`npm run dev:sqlite` brings the app up from the worktree on the backend it
+ships. See the README for the rest of the dev commands.
+
 ## Reporting bugs and security issues
 
 For ordinary bugs, open an issue with steps to reproduce. For anything with a

@@ -327,8 +327,7 @@ app.listen(Number(port), "0.0.0.0", () => {
 		{
 			port: Number(port),
 			url: `http://localhost:${port}`,
-			dynamodbPort: env.DYNAMODB_PORT,
-			dynamodbTable: env.DYNAMODB_TABLE_NAME,
+			dataBackend: process.env.DATA_BACKEND,
 			nodeEnv: env.NODE_ENV,
 			...(isSelfHostBackend
 				? {}
