@@ -39,6 +39,7 @@ const makeFilter = (
 	state: "Active",
 	hasAnchor: false,
 	ruleChangedAt: 0,
+	actionChangedAt: 0,
 	matchOperator: "And",
 	literalClauses: [
 		{ field: "From", value: "receipts@stripe.com" },

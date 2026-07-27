@@ -36,6 +36,10 @@ describe("FilterRepo", () => {
 			filter.ruleChangedAt > 0,
 			"ruleChangedAt should be set on create",
 		);
+		assert.ok(
+			filter.actionChangedAt > 0,
+			"actionChangedAt should be set on create",
+		);
 		assert.equal(filter.expiresAt, undefined);
 		assert.equal(filter.ttl, undefined);
 	});
@@ -97,9 +101,14 @@ describe("FilterRepo", () => {
 			filter.ruleChangedAt,
 			"a name-only edit must not move ruleChangedAt (RFC 034 Decision 3.2)",
 		);
+		assert.equal(
+			renamed.actionChangedAt,
+			filter.actionChangedAt,
+			"a name-only edit must not move actionChangedAt either",
+		);
 	});
 
-	test("update bumps ruleChangedAt when the action changes", async () => {
+	test("update bumps both ruleChangedAt and actionChangedAt when the action changes", async () => {
 		const accountConfigId = randomId();
 		const filter = await repo.create({
 			accountConfigId,
@@ -117,9 +126,13 @@ describe("FilterRepo", () => {
 			updated.ruleChangedAt > filter.ruleChangedAt,
 			"an action edit must move ruleChangedAt forward",
 		);
+		assert.ok(
+			updated.actionChangedAt > filter.actionChangedAt,
+			"an action edit must move actionChangedAt forward too — it is what a matching message's exclusive move goes by",
+		);
 	});
 
-	test("update bumps ruleChangedAt when scope changes (reader #266)", async () => {
+	test("update bumps ruleChangedAt but NOT actionChangedAt when scope changes (reader #266, #384)", async () => {
 		const accountConfigId = randomId();
 		const filter = await repo.create({
 			accountConfigId,
@@ -141,11 +154,16 @@ describe("FilterRepo", () => {
 		assert.equal(updated.expiresAt, expiresAt);
 		assert.ok(
 			updated.ruleChangedAt > filter.ruleChangedAt,
-			"a scope edit must move ruleChangedAt forward",
+			"a scope edit must move ruleChangedAt forward, so a lapsed filter's back-application can be offered again",
+		);
+		assert.equal(
+			updated.actionChangedAt,
+			filter.actionChangedAt,
+			"a scope edit changes the filter's lifecycle, not what it matches or does — it must not move actionChangedAt, or it would wrongly promote the filter to move-winner",
 		);
 	});
 
-	test("update bumps ruleChangedAt when only expiresAt changes (reader #266)", async () => {
+	test("update bumps ruleChangedAt but NOT actionChangedAt when only expiresAt changes (reader #266, #384)", async () => {
 		const accountConfigId = randomId();
 		const initialExpiresAt = "2026-08-01T00:00:00+00:00";
 		const filter = await repo.create({
@@ -168,6 +186,11 @@ describe("FilterRepo", () => {
 		assert.ok(
 			updated.ruleChangedAt > filter.ruleChangedAt,
 			"an expiresAt edit must move ruleChangedAt forward",
+		);
+		assert.equal(
+			updated.actionChangedAt,
+			filter.actionChangedAt,
+			"extending a filter's expiry alone must not promote it to move-winner (reader #384) — actionChangedAt must not move",
 		);
 	});
 

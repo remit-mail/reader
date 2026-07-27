@@ -49,6 +49,7 @@ const filterFixture = (
 	state: "Active",
 	hasAnchor: false,
 	ruleChangedAt: 100,
+	actionChangedAt: 100,
 	matchOperator: "And",
 	literalClauses: [{ field: "From", value: "receipts@stripe.com" }],
 	actionLabelId: "None",

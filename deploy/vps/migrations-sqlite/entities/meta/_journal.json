@@ -64,6 +64,13 @@
       "when": 1785137793891,
       "tag": "0008_little_scarlet_spider",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1785146376374,
+      "tag": "0010_lyrical_ink",
+      "breakpoints": true
     }
   ]
 }

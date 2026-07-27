@@ -228,14 +228,17 @@ describe("cosineSimilarity", () => {
 });
 
 describe("selectMoveWinner", () => {
-	const filter = (filterId: string, ruleChangedAt: number): FilterItem =>
-		({ filterId, ruleChangedAt }) as FilterItem;
+	const filter = (
+		filterId: string,
+		actionChangedAt: number,
+		ruleChangedAt = actionChangedAt,
+	): FilterItem => ({ filterId, actionChangedAt, ruleChangedAt }) as FilterItem;
 
 	it("returns undefined with no candidates", () => {
 		assert.equal(selectMoveWinner([]), undefined);
 	});
 
-	it("picks the most-recently-changed filter", () => {
+	it("picks the most-recently action-changed filter", () => {
 		const winner = selectMoveWinner([
 			filter("a", 100),
 			filter("b", 300),
@@ -244,13 +247,30 @@ describe("selectMoveWinner", () => {
 		assert.equal(winner?.filterId, "b");
 	});
 
-	it("tie-breaks on filterId when ruleChangedAt is identical", () => {
+	it("tie-breaks on filterId when actionChangedAt is identical", () => {
 		const winner = selectMoveWinner([
 			filter("a", 100),
 			filter("c", 100),
 			filter("b", 100),
 		]);
 		assert.equal(winner?.filterId, "c");
+	});
+
+	it("ignores a ruleChangedAt-only bump — extending scope/expiry alone must not promote a filter to move-winner (reader #384)", () => {
+		// filter A's predicate/action last changed at 10:00 (actionChangedAt).
+		// filter B was created at 09:00 and never had its predicate/action
+		// touched since, but a user extended its expiry at 11:00 — bumping only
+		// its ruleChangedAt (RFC 034 Decision 3.2 / #294), not what it matches or
+		// does. B must not out-rank A.
+		const filterA = filter("filter-a", 10_00);
+		const filterB = filter("filter-b", 9_00, 11_00);
+
+		const winner = selectMoveWinner([filterA, filterB]);
+		assert.equal(
+			winner?.filterId,
+			"filter-a",
+			"A still wins: its actionChangedAt (10:00) beats B's (09:00), even though B's ruleChangedAt (11:00) is later",
+		);
 	});
 });
 

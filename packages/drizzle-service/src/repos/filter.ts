@@ -29,6 +29,20 @@ const RULE_ASSERTION_FIELDS = [
 	"expiresAt",
 ] as const satisfies readonly (keyof UpdateFilterInput)[];
 
+/**
+ * The subset of {@link RULE_ASSERTION_FIELDS} that changes what a filter
+ * matches or what it does — excluding `scope`/`expiresAt`, which only change
+ * how long the filter runs. Backs `actionChangedAt` (reader #384), the
+ * narrower signal `selectMoveWinner` reads for exclusive-move precedence.
+ */
+const ACTION_ASSERTION_FIELDS = [
+	"hasAnchor",
+	"matchOperator",
+	"literalClauses",
+	"actionLabelId",
+	"actionMailboxId",
+] as const satisfies readonly (keyof UpdateFilterInput)[];
+
 const nowSeconds = (): number => Math.floor(Date.now() / 1000);
 
 /**
@@ -38,9 +52,23 @@ const nowSeconds = (): number => Math.floor(Date.now() / 1000);
  * alongside the predicate/action: re-asserting how long a filter runs is the
  * same kind of "the user just told Remit something new" moment, and it is
  * what lets a lapsed filter's back-application be offered again.
+ *
+ * This is deliberately broader than {@link changesActionAssertion} — it backs
+ * `ruleChangedAt`, the settings UI's back-apply-offer signal, not exclusive-
+ * move precedence (reader #384).
  */
 const changesRuleAssertion = (input: UpdateFilterInput): boolean =>
 	RULE_ASSERTION_FIELDS.some((field) => field in input);
+
+/**
+ * Whether `input` touches the predicate or the action — never `scope` or
+ * `expiresAt` (reader #384). Backs `actionChangedAt`, which `selectMoveWinner`
+ * reads to decide an exclusive-move conflict: extending a filter's expiry or
+ * flipping Standing/Temporary changes its lifecycle, not where a matching
+ * message goes, so it must not promote the filter to move-winner.
+ */
+const changesActionAssertion = (input: UpdateFilterInput): boolean =>
+	ACTION_ASSERTION_FIELDS.some((field) => field in input);
 
 function rowToFilter(row: typeof filterTable.$inferSelect): FilterItem {
 	return {
@@ -53,6 +81,7 @@ function rowToFilter(row: typeof filterTable.$inferSelect): FilterItem {
 		state: row.state,
 		hasAnchor: row.hasAnchor,
 		ruleChangedAt: row.ruleChangedAt,
+		actionChangedAt: row.actionChangedAt,
 		matchOperator: row.matchOperator,
 		literalClauses: row.literalClauses as FilterItem["literalClauses"],
 		actionLabelId: row.actionLabelId,
@@ -66,12 +95,13 @@ export class FilterRepo implements IFilterRepository {
 	constructor(private db: DB) {}
 
 	/**
-	 * `ruleChangedAt` is set to the same instant as creation: a new filter's
-	 * predicate/action is, by definition, freshly asserted (RFC 034 Decision
-	 * 3.2).
+	 * `ruleChangedAt` and `actionChangedAt` are both set to the same instant as
+	 * creation: a new filter's predicate/action (and its scope/expiry) are, by
+	 * definition, freshly asserted (RFC 034 Decision 3.2).
 	 */
 	async create(input: CreateFilterInput): Promise<FilterItem> {
 		const now = Date.now();
+		const createdRuleChangedAt = nowSeconds();
 		const [row] = await this.db
 			.insert(filterTable)
 			.values({
@@ -83,7 +113,8 @@ export class FilterRepo implements IFilterRepository {
 				ttl: input.ttl ?? null,
 				state: input.state ?? FilterState.Active,
 				hasAnchor: input.hasAnchor ?? false,
-				ruleChangedAt: nowSeconds(),
+				ruleChangedAt: createdRuleChangedAt,
+				actionChangedAt: createdRuleChangedAt,
 				matchOperator: input.matchOperator ?? FilterMatchOperator.And,
 				literalClauses: input.literalClauses ?? [],
 				actionLabelId: input.actionLabelId ?? "None",
@@ -112,9 +143,13 @@ export class FilterRepo implements IFilterRepository {
 	}
 
 	/**
-	 * `ruleChangedAt` only advances when `input` touches the predicate, the
-	 * action, the scope, or the expiry — never on a cosmetic `name` edit (RFC
-	 * 034 Decision 3.2, reader #266).
+	 * `ruleChangedAt` advances when `input` touches the predicate, the action,
+	 * the scope, or the expiry — never on a cosmetic `name` edit (RFC 034
+	 * Decision 3.2, reader #266). `actionChangedAt` advances only for the
+	 * narrower predicate/action subset (reader #384): a scope/expiresAt-only
+	 * edit bumps `ruleChangedAt` (so a lapsed filter's back-application can be
+	 * offered again) without touching `actionChangedAt`, so it cannot flip
+	 * `selectMoveWinner`'s exclusive-move precedence.
 	 *
 	 * A patch moving `scope` to `Standing` clears `expiresAt`/`ttl` at the SQL
 	 * layer regardless of what `input` carries for them: the caller (the
@@ -130,9 +165,12 @@ export class FilterRepo implements IFilterRepository {
 		filterId: string,
 		input: UpdateFilterInput,
 	): Promise<FilterItem> {
-		const patch = changesRuleAssertion(input)
-			? { ...input, ruleChangedAt: nowSeconds() }
-			: input;
+		const changedAt = nowSeconds();
+		const patch = {
+			...input,
+			...(changesRuleAssertion(input) ? { ruleChangedAt: changedAt } : {}),
+			...(changesActionAssertion(input) ? { actionChangedAt: changedAt } : {}),
+		};
 		const updates: Partial<typeof filterTable.$inferInsert> = {
 			...patch,
 			updatedAt: Date.now(),

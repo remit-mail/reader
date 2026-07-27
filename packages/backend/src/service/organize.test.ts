@@ -79,6 +79,7 @@ const filterItem = (over: Partial<FilterItem> = {}): FilterItem => ({
 	state: FilterState.Active,
 	hasAnchor: false,
 	ruleChangedAt: 0,
+	actionChangedAt: 0,
 	matchOperator: FilterMatchOperator.And,
 	literalClauses: [],
 	actionLabelId: "None",
@@ -780,6 +781,7 @@ describe("applyOrganize resolves move precedence against current Active filters 
 		const newerFilter = filterItem({
 			filterId: "filter-newer",
 			ruleChangedAt: 1_000,
+			actionChangedAt: 1_000,
 			actionMailboxId: "mbox-new",
 			literalClauses: [{ field: "Subject", value: "reservation" }],
 		});
@@ -828,6 +830,7 @@ describe("applyOrganize resolves move precedence against current Active filters 
 		const agreeingFilter = filterItem({
 			filterId: "filter-agrees",
 			ruleChangedAt: 1_000,
+			actionChangedAt: 1_000,
 			actionMailboxId: "mbox-target",
 			literalClauses: [{ field: "Subject", value: "reservation" }],
 		});
@@ -869,6 +872,7 @@ describe("applyOrganize resolves move precedence against current Active filters 
 		const newerSemanticFilter = filterItem({
 			filterId: "filter-newer-semantic",
 			ruleChangedAt: 1_000,
+			actionChangedAt: 1_000,
 			actionMailboxId: "mbox-new",
 			hasAnchor: true,
 		});

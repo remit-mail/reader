@@ -34,6 +34,7 @@ const filter = (
 		state: "Active",
 		hasAnchor: false,
 		ruleChangedAt: 0,
+		actionChangedAt: 0,
 		matchOperator: "And",
 		literalClauses: [],
 		actionLabelId: "None",
