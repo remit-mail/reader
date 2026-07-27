@@ -1477,7 +1477,6 @@ export const MessageList = ({
 								<SwipeableMessageRow
 									thread={thread}
 									mailboxId={mailboxId}
-									accountId={accountId}
 									isSelected={selectedMessageId === thread.messageId}
 									isFocused={focusedMessageId === thread.messageId}
 									isTabStop={tabStopMessageId === thread.messageId}

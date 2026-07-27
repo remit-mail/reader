@@ -20,8 +20,6 @@ interface MailboxLinkSearch {
 interface SwipeableMessageRowProps {
 	thread: RemitImapThreadMessageResponse;
 	mailboxId: string;
-	/** Owning account, forwarded to `MessageListItem` for the auto-moved badge's undo action. */
-	accountId?: string;
 	isSelected: boolean;
 	/** Roving keyboard focus cursor — renders the left accent rail (#429). */
 	isFocused?: boolean;
@@ -64,7 +62,6 @@ const toThreadRowData = (
 export const SwipeableMessageRow = ({
 	thread,
 	mailboxId,
-	accountId,
 	isSelected,
 	isFocused,
 	isTabStop,
@@ -107,7 +104,6 @@ export const SwipeableMessageRow = ({
 			<MessageListItem
 				thread={thread}
 				mailboxId={mailboxId}
-				accountId={accountId}
 				isSelected={isSelected}
 				isFocused={isFocused}
 				isTabStop={isTabStop}

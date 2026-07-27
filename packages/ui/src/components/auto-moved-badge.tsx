@@ -5,8 +5,6 @@ import { Badge } from "./badge.js";
 export interface AutoMovedBadgeProps {
 	/** Plain-language description, e.g. "Moved from Junk by Remit". */
 	label: string;
-	/** `md` adds an inline Undo action for the open-message header; `sm` (list row) is icon + label only. */
-	size?: "sm" | "md";
 	/**
 	 * Present only when undo is available for this message. Omit to render the
 	 * indicator without an action (e.g. the target folder can't be resolved).
@@ -24,16 +22,15 @@ export interface AutoMovedBadgeProps {
 }
 
 /**
- * Unobtrusive indicator that Remit auto-moved this message, with an optional
- * inline one-click undo and, for a standing-filter move, a link to the filter
- * in Settings. Purely presentational — the label text, whether the move is
- * still in effect (so the badge should render at all), and whether a filter
- * link applies are the caller's responsibility; this component has no notion of
- * placement/mailbox state.
+ * Indicator that Remit auto-moved this message, with an optional inline
+ * one-click undo and, for a standing-filter move, a link to the filter in
+ * Settings. Sized for a message header, not a list row. Purely presentational —
+ * the label text, whether the move is still in effect (so the badge should
+ * render at all), and whether a filter link applies are the caller's
+ * responsibility; this component has no notion of placement/mailbox state.
  */
 export function AutoMovedBadge({
 	label,
-	size = "sm",
 	onUndo,
 	undoLabel = "Undo",
 	filtersHref,
@@ -41,14 +38,8 @@ export function AutoMovedBadge({
 	className,
 }: AutoMovedBadgeProps) {
 	return (
-		<Badge
-			tone="accent"
-			className={cn(size === "md" && "py-1 text-xs", className)}
-		>
-			<Undo2
-				className={cn(size === "sm" ? "size-3" : "size-3.5", "shrink-0")}
-				aria-hidden
-			/>
+		<Badge tone="accent" className={cn("py-1 text-xs", className)}>
+			<Undo2 className="size-3.5 shrink-0" aria-hidden />
 			<span>{label}</span>
 			{onUndo && (
 				<button

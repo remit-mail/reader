@@ -205,7 +205,6 @@ const ExpandedCard = ({
 			threadId={threadMessage.threadId}
 			mailboxId={threadMessage.mailboxId}
 			autoMoved={threadMessage.autoMoved}
-			size="md"
 		/>
 	) : null;
 
