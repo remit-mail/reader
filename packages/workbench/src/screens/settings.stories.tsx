@@ -3,6 +3,7 @@ import {
 	Badge,
 	Banner,
 	Button,
+	ButtonLink,
 	DangerZoneSection,
 	Dialog,
 	Input,
@@ -27,6 +28,7 @@ import {
 	Palette,
 	Plus,
 	Search,
+	ShieldCheck,
 	Users,
 	Wrench,
 	X,
@@ -927,10 +929,40 @@ const demoIssueUrl = (entry: QuarantineEntry): string =>
 		quarantineIssueTitle(entry),
 	)}`;
 
+/**
+ * Only shown for TLS_MODE=internal (packages/web-client's TlsRootCaDownload):
+ * the deployment signs its own certificate, and the leaf renews every 12
+ * hours, so a browser click-through breaks twice a day. Importing the root CA
+ * once per device is the fix.
+ */
+function TlsRootCaRow() {
+	return (
+		<div className="border-t border-line pt-4 mt-4">
+			<p className="text-sm font-medium text-fg mb-1">TLS root certificate</p>
+			<p className="text-sm text-fg-muted mb-2">
+				This deployment signs its own certificate. Import it into the trust
+				store of each device you browse from, and the browser warning stops for
+				good.
+			</p>
+			<ButtonLink
+				href="/tls-root-ca.crt"
+				download
+				variant="secondary"
+				size="sm"
+				icon={<ShieldCheck className="size-3.5" />}
+			>
+				Download root certificate
+			</ButtonLink>
+		</div>
+	);
+}
+
 function AdvancedPage({
 	quarantined = [],
+	tlsMode = "off",
 }: {
 	quarantined?: readonly QuarantineEntry[];
+	tlsMode?: "internal" | "acme" | "tailscale" | "off";
 }) {
 	const [helpOpen, setHelpOpen] = useState(true);
 	const [reporting, setReporting] = useState<QuarantineEntry | null>(null);
@@ -951,6 +983,7 @@ function AdvancedPage({
 					Notification rules and data export are coming in a future release.
 				</p>
 			</div>
+			{tlsMode === "internal" && <TlsRootCaRow />}
 			<div className="mt-4 border-t border-line pt-4">
 				<p className="mb-1 text-sm font-medium text-fg">About</p>
 				<p className="text-xs text-fg-subtle">Version 1.0.0 · built today</p>
@@ -980,4 +1013,9 @@ export const AdvancedOneQuarantined: Story = {
 /** Two or more is a pattern, so the page raises an alert above the list. */
 export const AdvancedQuarantineAlert: Story = {
 	render: () => <AdvancedPage quarantined={quarantineDemoEntries} />,
+};
+
+/** TLS_MODE=internal — the root CA download row appears, above About. */
+export const AdvancedTlsInternal: Story = {
+	render: () => <AdvancedPage tlsMode="internal" />,
 };

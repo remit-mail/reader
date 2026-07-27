@@ -5,5 +5,21 @@
 # and its host is the name on the certificate.
 {$PUBLIC_ORIGIN} {
 	tls internal
+
+	# The root CA the leaf above is signed from (10-year lifetime, unlike the
+	# 12-hour leaf) — the same file `remit cert` copies out of this container.
+	# Serving it lets Settings > Advanced offer the same download in-app, so a
+	# device only needs one trust-store import instead of a browser
+	# click-through every 12 hours. Declared before the routes.caddy import so
+	# it is evaluated before that file's catch-all reverse_proxy would
+	# otherwise swallow it.
+	route /tls-root-ca.crt {
+		root * /data/caddy/pki/authorities/local
+		header Content-Disposition "attachment; filename=\"reader-root.crt\""
+		header Content-Type "application/x-x509-ca-cert"
+		rewrite * /root.crt
+		file_server
+	}
+
 	import /etc/caddy/routes.caddy
 }

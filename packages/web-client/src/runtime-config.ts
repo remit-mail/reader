@@ -19,6 +19,18 @@ export interface RumConfig {
 	region: string;
 }
 
+/**
+ * The deployment's TLS termination, mirroring TLS_MODE (deploy/vps/remit.env.template).
+ * "internal" is the only mode with a locally-signed root CA worth offering for
+ * download — the others are already publicly trusted or plain HTTP.
+ */
+export type TlsMode = "internal" | "acme" | "tailscale" | "off";
+
+const TLS_MODES: readonly TlsMode[] = ["internal", "acme", "tailscale", "off"];
+
+const isTlsMode = (value: unknown): value is TlsMode =>
+	typeof value === "string" && (TLS_MODES as readonly string[]).includes(value);
+
 export interface RemitRuntimeConfig {
 	apiUrl: string;
 	appOrigin: string;
@@ -27,6 +39,7 @@ export interface RemitRuntimeConfig {
 	rum: RumConfig;
 	mailboxPollIntervalSeconds?: string;
 	disableDevtools: boolean;
+	tlsMode: TlsMode;
 }
 
 interface RawRuntimeConfig {
@@ -37,6 +50,7 @@ interface RawRuntimeConfig {
 	rum?: Partial<RumConfig>;
 	mailboxPollIntervalSeconds?: string | number;
 	disableDevtools?: boolean;
+	tlsMode?: string;
 }
 
 declare global {
@@ -71,5 +85,6 @@ export const getRuntimeConfig = (): RemitRuntimeConfig => {
 				? String(raw.mailboxPollIntervalSeconds)
 				: undefined,
 		disableDevtools: raw.disableDevtools ?? false,
+		tlsMode: isTlsMode(raw.tlsMode) ? raw.tlsMode : "off",
 	};
 };

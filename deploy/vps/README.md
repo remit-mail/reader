@@ -297,6 +297,9 @@ Windows cert store, `/usr/local/share/ca-certificates` +
 `update-ca-certificates` on Linux, or the browser's own authorities). Skipping
 this is fine — it only means the browser warning stays.
 
+The same file is also a download in the app: Settings › Advanced offers it
+directly, for a client that has no shell access to the box.
+
 `tailscale` needs two things beyond `TLS_MODE`: enable HTTPS for your tailnet
 (Tailscale admin console → DNS → **Enable HTTPS**), and set `TAILSCALED_SOCKET`
 in `.env` to the host's `tailscaled` socket (usually

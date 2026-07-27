@@ -8,12 +8,27 @@
 // doesn't look like a file (no extension in its last path segment) serves
 // index.html, so client-side routes (TanStack Router) resolve on refresh.
 import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
+import { stat, writeFile } from "node:fs/promises";
 import http from "node:http";
 import { extname, join, normalize, sep } from "node:path";
 
 const DIST_DIR = process.env.WEB_DIST_DIR ?? "/app/dist";
 const PORT = Number(process.env.PORT ?? "8080");
+
+// packages/web-client/public/config.js bakes a build-time default
+// (betterAuthEnabled: true) into dist/ — fine for that flag, which never
+// varies for this image, but TLS_MODE is chosen per-deployment in .env at
+// `docker compose up` time, long after the image was built. Rewriting
+// config.js from this container's own environment, once at startup before it
+// starts serving, is what gets that value to the runtime-config seam
+// (src/runtime-config.ts) without a rebuild.
+await writeFile(
+	join(DIST_DIR, "config.js"),
+	`window.__REMIT_CONFIG__ = ${JSON.stringify({
+		betterAuthEnabled: true,
+		tlsMode: process.env.TLS_MODE ?? "off",
+	})};\n`,
+);
 
 const MIME_TYPES = {
 	".html": "text/html; charset=utf-8",
