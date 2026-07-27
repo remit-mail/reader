@@ -14,6 +14,11 @@ initialize({
  * can be flipped between them from the toolbar. Widths match the real
  * breakpoints: desktop ≥1024 (multi-pane), tablet 768–1023 (two-pane, no
  * intelligence rail), phone (single-pane list↔conversation, iPhone 14 frame).
+ *
+ * `mobileShort` is the same phone tier at the smallest height a real device
+ * leaves for the page — Android Chrome with its address bar and the system nav
+ * showing (411×759, from #405). Anything sized off the viewport height is
+ * tightest here, so a surface with a `dvh` ceiling gets a story pinned to it.
  */
 const appViewports = {
 	desktop: {
@@ -30,6 +35,11 @@ const appViewports = {
 		name: "Mobile",
 		type: "mobile",
 		styles: { width: "390px", height: "844px" },
+	},
+	mobileShort: {
+		name: "Mobile (short)",
+		type: "mobile",
+		styles: { width: "411px", height: "759px" },
 	},
 } as const;
 
