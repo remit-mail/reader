@@ -5,8 +5,12 @@ import { readFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { coverageViolations } from "./lib/ci-coverage.mjs";
+import { coverageViolations, workspaceScriptId } from "./lib/ci-coverage.mjs";
 import { discoverScriptSuites } from "./lib/test-suites.mjs";
+import {
+	discoverWorkspaces,
+	WORKSPACE_SCRIPT,
+} from "./lib/workspace-suites.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const IGNORED_DIRS = new Set([
@@ -45,6 +49,36 @@ const manifest = JSON.parse(
 	await readFile(join(repoRoot, "package.json"), "utf8"),
 );
 
+// Every manifest in the tree except the root's. A test script is guarded
+// wherever it lives, so which directories happen to be npm workspaces today is
+// not the question — `e2e` is its own project and its suite still has to run.
+// The package name rides along because an invocation may name a package either
+// way: `npm run generate:routes -w @remit/web-client` and `-w packages/web-client`
+// reach the same scripts.
+async function collectWorkspaces() {
+	const manifests = await collectFiles(
+		repoRoot,
+		(name) => name === "package.json",
+	);
+	const found = [];
+	for (const file of manifests) {
+		if (file === "package.json") continue;
+		const parsed = JSON.parse(await readFile(join(repoRoot, file), "utf8"));
+		if (!parsed.scripts) continue;
+		found.push({
+			dir: dirname(file),
+			packageName: parsed.name,
+			scripts: parsed.scripts,
+		});
+	}
+	return found;
+}
+
+// What the runner behind `test:ci` would execute. Asking the runner rather than
+// asserting the workflow's shape keeps the guard honest about the one thing it
+// cannot read off a workflow file: which packages that runner picks up.
+const { suites } = await discoverWorkspaces(repoRoot);
+
 const workflowFiles = await collectFiles(
 	join(repoRoot, ".github"),
 	(name) => name.endsWith(".yml") || name.endsWith(".yaml"),
@@ -65,9 +99,13 @@ const readSource = (file) => {
 
 const violations = coverageViolations({
 	scripts: manifest.scripts ?? {},
+	workspaces: await collectWorkspaces(),
 	workflowSources,
 	testFiles: await collectFiles(repoRoot, (name) => name.endsWith(".test.mjs")),
 	collectedFiles: await discoverScriptSuites(repoRoot),
+	collectedScripts: suites.map((suite) =>
+		workspaceScriptId(suite.workspace, WORKSPACE_SCRIPT),
+	),
 	readFile: readSource,
 	allowUnreachable: manifest.ciCoverage?.allowUnreachable ?? {},
 });
@@ -85,5 +123,5 @@ if (violations.length > 0) {
 }
 
 console.log(
-	`CI coverage OK: ${workflowFiles.length} workflow files reach every test:*/check:* script, every suite is collected.`,
+	`CI coverage OK: ${workflowFiles.length} workflow files reach every test:*/check:* script in the root manifest and in every workspace, every suite is collected.`,
 );

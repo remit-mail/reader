@@ -7,7 +7,7 @@
  * Gated behind RUN_INTEG_TESTS because it loads the native better-sqlite3 and
  * sqlite-vec binaries, matching the pgvector integration suite.
  *
- *   npm run test:integ -w packages/search-service
+ *   npm run test:integ:local -w packages/search-service
  */
 import assert from "node:assert";
 import { after, before, describe, test } from "node:test";

@@ -8,7 +8,7 @@
  * Gated behind RUN_INTEG_TESTS. Point PG_CONNECTION_URL at a database whose
  * `vector` extension is enabled (default: local remit_test).
  *
- *   npm run test:integ -w packages/search-service
+ *   npm run test:integ:pg -w packages/search-service
  */
 import assert from "node:assert";
 import { randomUUID } from "node:crypto";

@@ -130,6 +130,22 @@ jobs:
           TEST_EXCLUDE: web-client
         run: npm run test:ci
 
+      # The e2e suite's own unit checks. They stub `fetch`, so they need neither
+      # a deployment nor a browser and belong with the unit tests rather than in
+      # either e2e lane — but the suite is a separate npm project from the
+      # workspace root, which is why it is a step of its own and not something
+      # test-parallel collects.
+      - name: e2e suite — unit checks
+        run: npm run test:e2e-unit
+
+      # sqlite-vec is the vector backend the self-host default ships
+      # (docker-compose.sqlite.yml), and this suite is its only coverage against
+      # a real vec0 table. It sits behind RUN_INTEG_TESTS with the suites that
+      # need a Postgres or a model download, so it needs naming here — the
+      # binaries it loads come from `npm ci` and nothing else.
+      - name: search-service — sqlite-vec backend
+        run: npm run test:integ:local -w packages/search-service
+
   # web-client's suite, split into four deterministic shards by test-file size so
   # each runner carries a quarter of the wall time. A shard runs only its slice
   # and emits node's own LCOV coverage with no floor: a shard sees only the files

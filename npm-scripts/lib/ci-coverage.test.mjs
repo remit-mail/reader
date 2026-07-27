@@ -4,6 +4,7 @@ import {
 	coverageViolations,
 	invocations,
 	reachable,
+	runTarget,
 	stripComments,
 } from "./ci-coverage.mjs";
 
@@ -223,5 +224,206 @@ describe("coverageViolations", () => {
 		});
 		assert.equal(violations.length, 1);
 		assert.match(violations[0], /no longer exists/);
+	});
+});
+
+// The hole this half closes: the e2e suite carried four tests behind `test:unit`
+// that nothing ran, and the guard reported green because it read only the root
+// manifest (#446).
+const pkg = (dir, scripts, packageName) => ({ dir, packageName, scripts });
+
+describe("coverageViolations across workspaces", () => {
+	it("flags a workspace test script nothing reaches", () => {
+		const violations = coverageViolations({
+			scripts: {},
+			workspaces: [pkg("packages/e2e", { "test:unit": "playwright test" })],
+			workflowSources: [],
+			...noSuites,
+		});
+		assert.equal(violations.length, 1);
+		assert.match(violations[0], /"packages\/e2e#test:unit" is not reached/);
+	});
+
+	it("counts a workspace script a reached root script names with -w", () => {
+		const violations = coverageViolations({
+			scripts: { "test:e2e-unit": "npm run test:unit -w packages/e2e" },
+			workspaces: [pkg("packages/e2e", { "test:unit": "playwright test" })],
+			workflowSources: ["npm run test:e2e-unit"],
+			...noSuites,
+		});
+		assert.deepEqual(violations, []);
+	});
+
+	it("counts a workspace script named by --prefix", () => {
+		const violations = coverageViolations({
+			scripts: { "test:e2e-unit": "npm run test:unit --prefix e2e" },
+			workspaces: [pkg("e2e", { "test:unit": "playwright test" })],
+			workflowSources: ["npm run test:e2e-unit"],
+			...noSuites,
+		});
+		assert.deepEqual(violations, []);
+	});
+
+	it("counts a workspace named by its package name rather than its directory", () => {
+		const violations = coverageViolations({
+			scripts: { "test:x": "npm run test:unit -w @remit/e2e" },
+			workspaces: [
+				pkg("packages/e2e", { "test:unit": "playwright test" }, "@remit/e2e"),
+			],
+			workflowSources: ["npm run test:x"],
+			...noSuites,
+		});
+		assert.deepEqual(violations, []);
+	});
+
+	// The bug this replaced: reachability by bare name let one package's wiring
+	// excuse every other package's script of the same name, so copying the
+	// naming convention this guard introduced reopened #446.
+	it("does not let one package's wiring reach another package's script", () => {
+		const violations = coverageViolations({
+			scripts: { "test:e2e-unit": "npm run test:unit --prefix e2e" },
+			workspaces: [
+				pkg("e2e", { "test:unit": "playwright test" }),
+				pkg("packages/backend", { "test:unit": "node --test src/x.test.ts" }),
+			],
+			workflowSources: ["npm run test:e2e-unit"],
+			...noSuites,
+		});
+		assert.equal(violations.length, 1);
+		assert.match(violations[0], /"packages\/backend#test:unit" is not reached/);
+	});
+
+	// `npm run test:typecheck --workspaces --if-present` is how every package's
+	// typecheck runs, and it names no package at all.
+	it("counts a workspace script a --workspaces invocation names", () => {
+		const violations = coverageViolations({
+			scripts: { typecheck: "npm run test:typecheck --workspaces" },
+			workspaces: [
+				pkg("packages/a", { "test:typecheck": "tsgo --noEmit" }),
+				pkg("packages/b", { "test:typecheck": "tsgo --noEmit" }),
+			],
+			workflowSources: ["npm run typecheck"],
+			...noSuites,
+		});
+		assert.deepEqual(violations, []);
+	});
+
+	// A second command on the same line must not lend its target to the first.
+	it("does not carry a target across a shell separator", () => {
+		const violations = coverageViolations({
+			scripts: { "test:both": "npm run test:unit && npm run other -w b" },
+			workspaces: [pkg("b", { "test:unit": "node --test", other: "true" })],
+			workflowSources: ["npm run test:both"],
+			...noSuites,
+		});
+		assert.equal(violations.length, 1);
+		assert.match(violations[0], /"b#test:unit" is not reached/);
+	});
+
+	it("counts a workspace script the runner collects", () => {
+		const violations = coverageViolations({
+			scripts: {},
+			workspaces: [pkg("packages/a", { "test:run": "node --test" })],
+			workflowSources: [],
+			collectedScripts: ["packages/a#test:run"],
+			...noSuites,
+		});
+		assert.deepEqual(violations, []);
+	});
+
+	it("follows a collected workspace script into its own further scripts", () => {
+		const violations = coverageViolations({
+			scripts: {},
+			workspaces: [
+				pkg("packages/a", {
+					"test:run": "npm run test:run:pg && npm run test:run:sqlite",
+					"test:run:pg": "node --test",
+					"test:run:sqlite": "node --test",
+				}),
+			],
+			workflowSources: [],
+			collectedScripts: ["packages/a#test:run"],
+			...noSuites,
+		});
+		assert.deepEqual(violations, []);
+	});
+
+	// The same leak by another route: drizzle-service's dialect split must not
+	// hand a free name to every other package.
+	it("does not leak a package's own further scripts to other packages", () => {
+		const violations = coverageViolations({
+			scripts: {},
+			workspaces: [
+				pkg("packages/a", {
+					"test:run": "npm run test:run:pg",
+					"test:run:pg": "node --test",
+				}),
+				pkg("packages/b", {
+					"test:run": "node --test",
+					"test:run:pg": "node --test",
+				}),
+			],
+			workflowSources: [],
+			collectedScripts: ["packages/a#test:run", "packages/b#test:run"],
+			...noSuites,
+		});
+		assert.equal(violations.length, 1);
+		assert.match(violations[0], /"packages\/b#test:run:pg" is not reached/);
+	});
+
+	it("allows a workspace script with a stated reason", () => {
+		const violations = coverageViolations({
+			scripts: {},
+			workspaces: [pkg("packages/a", { "test:integ": "node --test" })],
+			workflowSources: [],
+			allowUnreachable: {
+				"packages/a#test:integ": "needs a Postgres no runner has",
+			},
+			...noSuites,
+		});
+		assert.deepEqual(violations, []);
+	});
+
+	it("rejects a workspace allow-list entry for a script that no longer exists", () => {
+		const violations = coverageViolations({
+			scripts: {},
+			workspaces: [pkg("packages/a", { "test:run": "node --test" })],
+			workflowSources: [],
+			collectedScripts: ["packages/a#test:run"],
+			allowUnreachable: { "packages/a#test:gone": "obsolete" },
+			...noSuites,
+		});
+		assert.equal(violations.length, 1);
+		assert.match(violations[0], /no longer exists/);
+	});
+
+	it("ignores a workspace script outside the guarded prefixes", () => {
+		const violations = coverageViolations({
+			scripts: {},
+			workspaces: [pkg("packages/a", { build: "tsc", start: "node ." })],
+			workflowSources: [],
+			...noSuites,
+		});
+		assert.deepEqual(violations, []);
+	});
+});
+
+describe("runTarget", () => {
+	it("reads --workspaces as every package", () => {
+		assert.equal(runTarget(" --workspaces --if-present"), "*");
+	});
+
+	it("reads -w, --workspace and --prefix as one package", () => {
+		assert.equal(runTarget(" -w packages/a"), "packages/a");
+		assert.equal(runTarget(" --workspace=packages/a"), "packages/a");
+		assert.equal(runTarget(" --prefix e2e"), "e2e");
+	});
+
+	it("reads a bare invocation as the manifest it sits in", () => {
+		assert.equal(runTarget(" --silent"), null);
+	});
+
+	it("stops at a shell separator", () => {
+		assert.equal(runTarget(" && npm run other -w packages/a"), null);
 	});
 });

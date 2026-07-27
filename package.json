@@ -41,6 +41,7 @@
     "manifest:copy-to-pages": "bash npm-scripts/copy-update-manifest.sh",
     "coverage:audit": "node npm-scripts/coverage-audit.mjs",
     "test:ci": "node npm-scripts/test-parallel.mjs",
+    "test:e2e-unit": "bash npm-scripts/e2e-install.sh && npm run test:unit --prefix packages/e2e",
     "e2e": "npm run e2e:up && npm run e2e:test; status=$?; npm run e2e:down; exit $status",
     "e2e:up": "bash npm-scripts/e2e-up.sh",
     "e2e:test": "bash npm-scripts/e2e-test.sh",
@@ -51,6 +52,15 @@
     "e2e:dev:logs": "bash npm-scripts/e2e-dev-logs.sh",
     "e2e:dev:down": "bash npm-scripts/e2e-dev-down.sh",
     "e2e:dev:migrate": "node npm-scripts/docker-bundle.mjs backend-migrate && cd deploy/vps && node ../../dist-docker/backend/migrate.mjs"
+  },
+  "ciCoverage": {
+    "allowUnreachable": {
+      "packages/mailbox-service#test:integ": "speaks IMAP to a mokapi server on localhost:143, and this repository has no mokapi: no compose service, no image, and no start:mokapi script for the one its header cites",
+      "packages/mailbox-service#test:e2e": "reads a mailfuzz corpus already delivered to INBOX. Run against the e2e Dovecot 19 of its 22 tests pass and 3 fail on an empty search(ALL) — that Dovecot hands every user an empty maildir on purpose (docker-compose.dovecot.yml), so wiring it needs the suite to APPEND the mail it reads",
+      "packages/search-service#test:integ:pg": "needs a Postgres with the vector extension on PG_CONNECTION_URL, which no job runs; sqlite-vec, the backend the self-host default ships, is covered by test:integ:local in test-rest",
+      "packages/search-service#test:integ:model": "fetches 87MB of MiniLM weights from huggingface.co on first run, which is a third-party dependency taken mid-test rather than declared in the lockfile",
+      "packages/smtp-service#test:integ": "speaks SMTP to a mokapi server on localhost:2525, and this repository has no mokapi: no compose service, no image, and no start:mokapi script for the one its header cites"
+    }
   },
   "dependencies": {
     "@remit/api-http-client": "file:build/remit-client",
