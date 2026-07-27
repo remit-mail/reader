@@ -9,6 +9,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import {
+	chmodSync,
 	copyFileSync,
 	existsSync,
 	mkdirSync,
@@ -16,6 +17,7 @@ import {
 	readdirSync,
 	readFileSync,
 	rmSync,
+	statSync,
 	writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
@@ -1441,6 +1443,108 @@ describe("shellcheck", () => {
 			encoding: "utf8",
 		});
 		assert.equal(result.status, 0, result.stdout);
+	});
+});
+
+// reader#273: in the updater container this wrapper runs as root against the
+// bind-mounted deployment directory, so a naive rewrite of .env lands it
+// root:root and locks the host user out of their own file. set_var must capture
+// the original owner and mode and restore them onto the replacement before the
+// rename. The suite runs as one uid, so a real uid change cannot be exercised;
+// what is proved instead is that the wrapper *emits* the chown/chmod that carry
+// the original owner and mode onto the temp file — the exact commands that are
+// no-ops here and load-bearing under root. The pre-fix wrapper emits neither.
+describe("set_var preserves .env ownership (reader#273)", () => {
+	function ownershipSandbox() {
+		const dir = mkdtempSync(join(TMP_ROOT, "remit-ownership-"));
+		sandboxes.push(dir);
+		const deployment = join(dir, "deployment");
+		const bin = join(dir, "bin");
+		mkdirSync(deployment, { recursive: true });
+		mkdirSync(bin, { recursive: true });
+
+		const envPath = join(deployment, ".env");
+		writeFileSync(
+			envPath,
+			["REMIT_TAG=v1.0.0", "PUBLIC_ORIGIN=https://mail.example.test", ""].join(
+				"\n",
+			),
+		);
+		// A mode that is not the write's own 077 default, so preserving it is a
+		// visible act rather than a coincidence.
+		chmodSync(envPath, 0o640);
+		// Captured before the rewrite: the shims below do not apply the mode, so
+		// the file's mode after set_var is the temp file's, not the original's.
+		const before = statSync(envPath);
+		const original = {
+			uid: before.uid,
+			gid: before.gid,
+			mode: (before.mode & 0o777).toString(8),
+		};
+
+		// chown/chmod shims that record their arguments rather than apply them:
+		// under this test's single uid an applied chown is a no-op, so the emitted
+		// command is the only observable proof the wrapper restores ownership.
+		const ownerLog = join(dir, "owner.log");
+		for (const name of ["chown", "chmod"]) {
+			writeExecutable(
+				join(bin, name),
+				`#!/bin/sh\nprintf '${name} %s\\n' "$*" >> "${ownerLog}"\nexit 0\n`,
+			);
+		}
+
+		const result = spawnSync(
+			"sh",
+			["-c", '. "$0"\nset_var REMIT_TAG v9.9.9', REMIT],
+			{
+				env: {
+					...process.env,
+					PATH: `${bin}:${process.env.PATH}`,
+					REMIT_LIB_ONLY: "1",
+					REMIT_DIR: deployment,
+				},
+				encoding: "utf8",
+			},
+		);
+
+		return {
+			result,
+			envPath,
+			original,
+			ownerLines: existsSync(ownerLog)
+				? readFileSync(ownerLog, "utf8").trim().split("\n").filter(Boolean)
+				: [],
+			dotenv(key) {
+				const line = readFileSync(envPath, "utf8")
+					.split("\n")
+					.find((l) => l.startsWith(`${key}=`));
+				return line ? line.slice(key.length + 1) : null;
+			},
+		};
+	}
+
+	it("rewrites the value it was asked to", () => {
+		const box = ownershipSandbox();
+		assert.equal(box.result.status, 0, box.result.stderr);
+		assert.equal(box.dotenv("REMIT_TAG"), "v9.9.9");
+		assert.equal(box.dotenv("PUBLIC_ORIGIN"), "https://mail.example.test");
+	});
+
+	it("restores the original owner onto the replacement before the rename", () => {
+		const box = ownershipSandbox();
+		const { uid, gid } = box.original;
+		const chown = box.ownerLines.find((l) => l.startsWith("chown "));
+		assert.ok(chown, `no chown emitted:\n${box.ownerLines.join("\n")}`);
+		// The captured owner, applied to the temp file — never the live .env, so
+		// the restore happens before the atomic rename.
+		assert.equal(chown, `chown ${uid}:${gid} ${box.envPath}.tmp`);
+	});
+
+	it("restores the original mode onto the replacement", () => {
+		const box = ownershipSandbox();
+		const chmod = box.ownerLines.find((l) => l.startsWith("chmod "));
+		assert.ok(chmod, `no chmod emitted:\n${box.ownerLines.join("\n")}`);
+		assert.equal(chmod, `chmod ${box.original.mode} ${box.envPath}.tmp`);
 	});
 });
 
