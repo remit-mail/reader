@@ -91,6 +91,9 @@ function toMessageItem(row: typeof messageTable.$inferSelect): MessageItem {
 		...(row.filterMove !== null
 			? { filterMove: row.filterMove as MessageItem["filterMove"] }
 			: {}),
+		...(row.placementDecidedAt !== null
+			? { placementDecidedAt: row.placementDecidedAt }
+			: {}),
 	};
 }
 
@@ -192,6 +195,7 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			providerSpam: input.providerSpam ?? null,
 			placementVerdict: input.placementVerdict ?? null,
 			filterMove: input.filterMove ?? null,
+			placementDecidedAt: input.placementDecidedAt ?? null,
 			createdAt: now,
 			updatedAt: now,
 		};
@@ -380,6 +384,9 @@ export class DrizzleMessageRepository implements IMessageRepository {
 				: {}),
 			...(input.filterMove !== undefined
 				? { filterMove: input.filterMove }
+				: {}),
+			...(input.placementDecidedAt !== undefined
+				? { placementDecidedAt: input.placementDecidedAt }
 				: {}),
 			...(input.messageIdHeader !== undefined
 				? { messageIdHeader: input.messageIdHeader }

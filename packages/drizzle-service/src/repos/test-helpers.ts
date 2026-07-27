@@ -195,6 +195,7 @@ CREATE TABLE IF NOT EXISTS message (
   moved_by_remit          BOOLEAN NOT NULL DEFAULT false,
   placement_verdict       JSONB,
   filter_move             JSONB,
+  placement_decided_at    BIGINT,
   created_at              BIGINT NOT NULL,
   updated_at              BIGINT NOT NULL
 );
