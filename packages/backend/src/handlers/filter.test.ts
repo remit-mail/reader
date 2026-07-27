@@ -1,8 +1,23 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
-import type { UpdateFilterInput as UpdateFilterRequestBody } from "@remit/api-openapi-types";
-import { FilterScope, FilterState } from "@remit/domain-enums";
+import { describe, it, mock } from "node:test";
+import type {
+	CreateFilterInput,
+	UpdateFilterInput as UpdateFilterRequestBody,
+} from "@remit/api-openapi-types";
+import type {
+	CreateFilterAnchorInput,
+	CreateFilterInput as FilterAnchorTxCreateInput,
+	FilterItem,
+} from "@remit/data-ports";
 import {
+	FilterMatchOperator,
+	FilterScope,
+	FilterState,
+} from "@remit/domain-enums";
+import type { AnchorPayload } from "@remit/search-service";
+import {
+	createFilterWithAnchor,
+	type FilterCrudDeps,
 	pickFilterUpdate,
 	rejectAnchorMutation,
 	resolveFilterScopeExpiry,
@@ -160,6 +175,142 @@ describe("resolveFilterScopeExpiry (reader #266)", () => {
 				assert.equal((error as { statusCode?: number }).statusCode, 400);
 				return true;
 			},
+		);
+	});
+});
+
+describe("createFilterWithAnchor (#351)", () => {
+	const ACCOUNT_CONFIG_ID = "acct-1";
+
+	const baseInput: CreateFilterInput = {
+		name: "Booking confirmations",
+		scope: FilterScope.Standing,
+		matchOperator: FilterMatchOperator.And,
+		literalClauses: [],
+		actionLabelId: "None",
+		actionMailboxId: "None",
+	};
+
+	const baseFilter: FilterItem = {
+		filterId: "filter-1",
+		accountConfigId: ACCOUNT_CONFIG_ID,
+		name: baseInput.name,
+		scope: FilterScope.Standing,
+		state: FilterState.Active,
+		hasAnchor: false,
+		ruleChangedAt: 1_700_000_000,
+		matchOperator: FilterMatchOperator.And,
+		literalClauses: [],
+		actionLabelId: "None",
+		actionMailboxId: "None",
+		createdAt: 1_700_000_000_000,
+		updatedAt: 1_700_000_000_000,
+	};
+
+	const anchorPayload: AnchorPayload = {
+		anchorEmbedding: [0.1, 0.2, 0.3],
+		anchorEmbeddingId: "amazon.titan-embed-text-v2:0@1024",
+		anchorSourceText: "Your booking is confirmed",
+	};
+
+	type AnchorArg = Omit<CreateFilterAnchorInput, "filterId"> | null;
+	const createWithAnchorMock = (
+		impl: (
+			filter: FilterAnchorTxCreateInput,
+			anchor: AnchorArg,
+		) => Promise<FilterItem>,
+	) => mock.fn(impl);
+
+	it("creates a purely-literal filter through one atomic call when there is no anchor message", async () => {
+		const createWithAnchor = createWithAnchorMock(async () => baseFilter);
+		const deps: FilterCrudDeps = {
+			filterAnchorTransaction: { createWithAnchor },
+			buildAnchor: mock.fn(async () => null),
+		};
+
+		const filter = await createFilterWithAnchor(
+			deps,
+			ACCOUNT_CONFIG_ID,
+			baseInput,
+		);
+
+		assert.equal(filter, baseFilter);
+		assert.equal(createWithAnchor.mock.calls.length, 1);
+		const [filterArg, anchorArg] = createWithAnchor.mock.calls[0].arguments;
+		assert.equal(filterArg.hasAnchor, false);
+		assert.equal(anchorArg, null);
+	});
+
+	it("passes the built anchor and the new hasAnchor flag to the same atomic call", async () => {
+		const createWithAnchor = createWithAnchorMock(async () => ({
+			...baseFilter,
+			hasAnchor: true,
+		}));
+		const buildAnchor = mock.fn(async () => anchorPayload);
+		const deps: FilterCrudDeps = {
+			filterAnchorTransaction: { createWithAnchor },
+			buildAnchor,
+		};
+		const input: CreateFilterInput = {
+			...baseInput,
+			anchorMessageId: "msg-1",
+		};
+
+		const filter = await createFilterWithAnchor(deps, ACCOUNT_CONFIG_ID, input);
+
+		assert.equal(filter.hasAnchor, true);
+		assert.equal(buildAnchor.mock.calls.length, 1);
+		assert.deepEqual(buildAnchor.mock.calls[0].arguments, [
+			ACCOUNT_CONFIG_ID,
+			"msg-1",
+		]);
+
+		assert.equal(createWithAnchor.mock.calls.length, 1);
+		const [filterArg, anchorArg] = createWithAnchor.mock.calls[0].arguments;
+		assert.equal(filterArg.hasAnchor, true);
+		assert.deepEqual(anchorArg, {
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			anchorMessageId: "msg-1",
+			anchorEmbedding: anchorPayload.anchorEmbedding,
+			anchorEmbeddingId: anchorPayload.anchorEmbeddingId,
+			anchorSourceText: anchorPayload.anchorSourceText,
+		});
+	});
+
+	it("creates a purely-literal filter when the anchor message has no indexed chunks", async () => {
+		const createWithAnchor = createWithAnchorMock(async () => baseFilter);
+		const deps: FilterCrudDeps = {
+			filterAnchorTransaction: { createWithAnchor },
+			buildAnchor: mock.fn(async () => null),
+		};
+		const input: CreateFilterInput = {
+			...baseInput,
+			anchorMessageId: "msg-with-no-chunks",
+		};
+
+		await createFilterWithAnchor(deps, ACCOUNT_CONFIG_ID, input);
+
+		const [filterArg, anchorArg] = createWithAnchor.mock.calls[0].arguments;
+		assert.equal(filterArg.hasAnchor, false);
+		assert.equal(anchorArg, null);
+	});
+
+	it("propagates a failed atomic write as a failed create request, not a silent partial success", async () => {
+		const createWithAnchor = createWithAnchorMock(async () => {
+			throw new Error("anchor write failed");
+		});
+		const deps: FilterCrudDeps = {
+			filterAnchorTransaction: { createWithAnchor },
+			buildAnchor: mock.fn(async () => anchorPayload),
+		};
+		const input: CreateFilterInput = {
+			...baseInput,
+			anchorMessageId: "msg-1",
+		};
+
+		await assert.rejects(
+			createFilterWithAnchor(deps, ACCOUNT_CONFIG_ID, input),
+			/anchor write failed/,
 		);
 	});
 });

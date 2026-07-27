@@ -6,6 +6,7 @@ export type { IAddressRepository } from "./interfaces/address.js";
 export type { IEnvelopeRepository } from "./interfaces/envelope.js";
 export type { IFilterRepository } from "./interfaces/filter.js";
 export type { IFilterAnchorRepository } from "./interfaces/filter-anchor.js";
+export type { IFilterAnchorTransaction } from "./interfaces/filter-anchor-transaction.js";
 export type { ILabelRepository } from "./interfaces/label.js";
 export type { IMailboxRepository } from "./interfaces/mailbox.js";
 export type { IMailboxLockRepository } from "./interfaces/mailbox-lock.js";

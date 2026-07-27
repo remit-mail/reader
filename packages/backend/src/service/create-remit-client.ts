@@ -6,6 +6,7 @@ import type {
 	IAddressRepository,
 	IEnvelopeRepository,
 	IFilterAnchorRepository,
+	IFilterAnchorTransaction,
 	IFilterRepository,
 	ILabelRepository,
 	IMailboxLockRepository,
@@ -90,6 +91,11 @@ export interface RemitClient {
 	// on the row still existing, so the missing reaper is housekeeping only.
 	filter: IFilterRepository;
 	filterAnchor: IFilterAnchorRepository;
+
+	// Atomically creates a Filter and its optional sibling FilterAnchor row in
+	// one transaction (#351) — a failed anchor write can never leave a Filter
+	// durably marked hasAnchor: true with no matching FilterAnchor row.
+	filterAnchorTransaction: IFilterAnchorTransaction;
 	label: ILabelRepository;
 	messageLabel: IMessageLabelRepository;
 
@@ -163,6 +169,7 @@ export interface RemitClientRepositories {
 	flagPush: IMessageFlagPushRepository;
 	filter: IFilterRepository;
 	filterAnchor: IFilterAnchorRepository;
+	filterAnchorTransaction: IFilterAnchorTransaction;
 	label: ILabelRepository;
 	messageLabel: IMessageLabelRepository;
 	unitOfWork?: IUnitOfWork;
@@ -365,6 +372,7 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 		organizeJobRequest: repositories.organizeJobRequest,
 		filter: repositories.filter,
 		filterAnchor: repositories.filterAnchor,
+		filterAnchorTransaction: repositories.filterAnchorTransaction,
 		label: repositories.label,
 		messageLabel: repositories.messageLabel,
 		unitOfWork: repositories.unitOfWork,
