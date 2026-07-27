@@ -1455,7 +1455,7 @@ describe("shellcheck", () => {
 // the original owner and mode onto the temp file — the exact commands that are
 // no-ops here and load-bearing under root. The pre-fix wrapper emits neither.
 describe("set_var preserves .env ownership (reader#273)", () => {
-	function ownershipSandbox() {
+	function ownershipSandbox({ statFails = false } = {}) {
 		const dir = mkdtempSync(join(TMP_ROOT, "remit-ownership-"));
 		sandboxes.push(dir);
 		const deployment = join(dir, "deployment");
@@ -1491,6 +1491,12 @@ describe("set_var preserves .env ownership (reader#273)", () => {
 				join(bin, name),
 				`#!/bin/sh\nprintf '${name} %s\\n' "$*" >> "${ownerLog}"\nexit 0\n`,
 			);
+		}
+
+		// A stat that is absent or broken must not abort the rewrite under set -eu:
+		// shim it to fail so the capture yields nothing and the restore is skipped.
+		if (statFails) {
+			writeExecutable(join(bin, "stat"), "#!/bin/sh\nexit 127\n");
 		}
 
 		const result = spawnSync(
@@ -1545,6 +1551,21 @@ describe("set_var preserves .env ownership (reader#273)", () => {
 		const chmod = box.ownerLines.find((l) => l.startsWith("chmod "));
 		assert.ok(chmod, `no chmod emitted:\n${box.ownerLines.join("\n")}`);
 		assert.equal(chmod, `chmod ${box.original.mode} ${box.envPath}.tmp`);
+	});
+
+	// Under set -eu a stat that cannot run must not abort set_var before the tag
+	// is written: the capture is best-effort, so an unreadable owner degrades to
+	// the pre-fix behaviour (the rewrite lands, root-owned) rather than aborting
+	// the whole update with no tag change and no message.
+	it("still rewrites the value when stat is unavailable", () => {
+		const box = ownershipSandbox({ statFails: true });
+		assert.equal(box.result.status, 0, box.result.stderr);
+		assert.equal(box.dotenv("REMIT_TAG"), "v9.9.9");
+		assert.deepEqual(
+			box.ownerLines,
+			[],
+			`no owner should be restored when stat fails:\n${box.ownerLines.join("\n")}`,
+		);
 	});
 });
 

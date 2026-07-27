@@ -222,24 +222,13 @@ get_var() {
 # unprivileged shell, where the operator already owns everything anyway.
 
 # Emits "uid gid mode" for a path, coreutils `-c` first and BSD `-f` as the
-# fallback. Empty when stat is absent, which leaves the caller with no owner to
-# restore — no worse than before this existed.
-stat_owner_mode() {
+# fallback. Always succeeds: a stat that is absent or errors yields nothing and
+# still returns 0, so under set -eu it degrades to a no-op restore — the rewrite
+# still lands (root-owned, as before this existed) rather than aborting the whole
+# update before the tag is even written (reader#273).
+owner_mode_of() {
 	stat -c '%u %g %a' "$1" 2>/dev/null && return 0
-	stat -f '%u %g %Lp' "$1" 2>/dev/null
-}
-
-# The owner and mode to stamp onto a rewrite of a file: the file's own when it
-# exists, else the containing directory's uid:gid (no mode, so the write's umask
-# stands) so a freshly created file inherits the operator rather than root.
-owner_mode_for() {
-	if [ -e "$1" ]; then
-		stat_owner_mode "$1"
-		return 0
-	fi
-	_dir=$(dirname "$1")
-	stat -c '%u %g' "$_dir" 2>/dev/null && return 0
-	stat -f '%u %g' "$_dir" 2>/dev/null
+	stat -f '%u %g %Lp' "$1" 2>/dev/null || return 0
 }
 
 # Restores a captured "uid gid [mode]" onto a path, before it is renamed into
@@ -265,7 +254,7 @@ restore_owner_mode() {
 set_var() {
 	_k=$1
 	_v=$2
-	_own=$(owner_mode_for "$REMIT_DIR/.env")
+	_own=$(owner_mode_of "$REMIT_DIR/.env")
 	rm -f "$REMIT_DIR/.env.tmp"
 	(
 		umask 077
