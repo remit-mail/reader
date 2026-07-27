@@ -31,11 +31,22 @@ const searchRule = (clauses: RuleClause[]): FilterRule => ({
 	name: "",
 });
 
+/**
+ * What the count region says for a rule the vector-free matcher refuses to
+ * evaluate. Mirrors `UNCOUNTABLE_PREDICATE_REASON`
+ * (web-client/src/lib/organize/rule-model.ts).
+ */
+const UNCOUNTABLE =
+	"Can't count matches — “has the words” reads message bodies, which only a saved rule does.";
+
 /** The editor state, threaded into whichever shell the story renders. */
-function useSearchRuleEditor(initialRule: FilterRule) {
+function useSearchRuleEditor(
+	initialRule: FilterRule,
+	previewOverride?: PreviewCount,
+) {
 	const [rule, setRule] = useState<FilterRule>(initialRule);
 	const [clauseEdit, setClauseEdit] = useState<ClauseEditState | undefined>();
-	const preview = useMemo<PreviewCount>(
+	const derivedPreview = useMemo<PreviewCount>(
 		() => READY(rule.clauses.length * 18),
 		[rule],
 	);
@@ -43,7 +54,7 @@ function useSearchRuleEditor(initialRule: FilterRule) {
 		rule,
 		folders: demoFolders,
 		clauseEdit,
-		preview,
+		preview: previewOverride ?? derivedPreview,
 		semanticAvailable: false,
 		onStartAddClause: () =>
 			setClauseEdit({ mode: "add", draft: { field: "From", value: "" } }),
@@ -124,11 +135,13 @@ const notice = (n: SearchConversionNotice) => (
 function DesktopStory({
 	rule,
 	conversionNotice,
+	preview,
 }: {
 	rule: FilterRule;
 	conversionNotice: SearchConversionNotice;
+	preview?: PreviewCount;
 }) {
-	const editor = useSearchRuleEditor(rule);
+	const editor = useSearchRuleEditor(rule, preview);
 	return (
 		<div className="h-dvh w-full bg-canvas">
 			<FilterRuleDialog
@@ -144,11 +157,13 @@ function DesktopStory({
 function MobileStory({
 	rule,
 	conversionNotice,
+	preview,
 }: {
 	rule: FilterRule;
 	conversionNotice: SearchConversionNotice;
+	preview?: PreviewCount;
 }) {
-	const editor = useSearchRuleEditor(rule);
+	const editor = useSearchRuleEditor(rule, preview);
 	return (
 		<PhoneFrame>
 			<FilterRuleSheet
@@ -204,6 +219,40 @@ export const DesktopDroppedSemantic: Story = {
 				{ id: "c1", field: "HasWords", value: "things like this" },
 			])}
 			conversionNotice={{ droppedSemantic: true }}
+		/>
+	),
+};
+
+/**
+ * What "Make this a filter" actually opens on for a search by words. The
+ * `HasWords` clause reads message bodies, which only a saved rule does, so
+ * there is no count to show — the count region says so, the rule is fully
+ * editable, and "Keep doing this" saves. Only the one-time apply is held, with
+ * its own reason. The editor opening at all is the point: this used to be a
+ * failed count and a dead-end "Try again".
+ */
+export const DesktopUncountableWords: Story = {
+	render: () => (
+		<DesktopStory
+			rule={searchRule([
+				{ id: "c1", field: "HasWords", value: "quarterly report" },
+			])}
+			conversionNotice={{}}
+			preview={{ status: "error", reason: UNCOUNTABLE }}
+		/>
+	),
+};
+
+/** The same uncountable rule on the mobile sheet. */
+export const MobileUncountableWords: Story = {
+	render: () => (
+		<MobileStory
+			rule={{
+				...searchRule([{ id: "c1", field: "HasWords", value: "receipts" }]),
+				scope: "once",
+			}}
+			conversionNotice={{}}
+			preview={{ status: "error", reason: UNCOUNTABLE }}
 		/>
 	),
 };

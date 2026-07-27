@@ -1,8 +1,8 @@
-import { Flag } from "lucide-react";
-import type { ReactNode } from "react";
 import { cn } from "../lib/cn.js";
+import type { ThreadRowData } from "./app-shell-types.js";
 import { Badge } from "./badge.js";
 import { provenanceFolderLabel, type ResultFolder } from "./folder-role.js";
+import { ComfortableRowBody, comfortableRowClass } from "./message-row.js";
 
 export type SearchResultTone =
 	| "neutral"
@@ -14,6 +14,12 @@ export type SearchResultTone =
 export interface SearchResult {
 	id: string;
 	sender: string;
+	/**
+	 * Sender address. The avatar's color is keyed on it, so a message keeps the
+	 * same circle in a search result as in the list it came from. Absent for
+	 * semantic hits, whose index carries no address; those key on the name.
+	 */
+	senderEmail?: string;
 	subject: string;
 	snippet: string;
 	date: string;
@@ -58,35 +64,37 @@ export interface SearchResultRowProps {
 	showFolder?: boolean;
 }
 
-function highlight(text: string, query?: string): ReactNode {
-	const term = query?.trim();
-	if (!term) return text;
-	const lower = text.toLowerCase();
-	const needle = term.toLowerCase();
-	const parts: ReactNode[] = [];
-	let cursor = 0;
-	let match = lower.indexOf(needle, cursor);
-	let key = 0;
-	while (match !== -1) {
-		if (match > cursor) parts.push(text.slice(cursor, match));
-		parts.push(
-			<mark key={key++} className="bg-transparent font-semibold text-fg">
-				{text.slice(match, match + needle.length)}
-			</mark>,
-		);
-		cursor = match + needle.length;
-		match = lower.indexOf(needle, cursor);
-	}
-	if (cursor < text.length) parts.push(text.slice(cursor));
-	return parts;
+/**
+ * A search result as list-row data. The engines return less than a list row
+ * holds — no attachment flag, no thread count, no labels — so those fall away
+ * rather than being invented. The category is not mapped here: the search
+ * carries its own labelled chip, which the row renders in the badge slot.
+ */
+function searchResultRowData(result: SearchResult): ThreadRowData {
+	return {
+		id: result.id,
+		fromName: result.sender,
+		fromEmail: result.senderEmail ?? result.sender,
+		subject: result.subject,
+		snippet: result.snippet,
+		timeLabel: result.date,
+		isRead: !result.unread,
+		starred: result.flagged,
+		...(result.mailboxId ? { mailboxId: result.mailboxId } : {}),
+	};
 }
 
 /**
- * One tappable search result. Mirrors the collapsed reading-pane row rhythm:
- * sender + right-aligned date on the top line, the subject, then a one-line
- * truncated snippet, with an optional category Badge and a flag indicator. The
- * sender bolds when unread. Presentational and prop-driven; the app supplies
- * `onClick` and the optional `query` to bold literal matches.
+ * One tappable search result — the same row the lists render.
+ *
+ * Search is a mode of the list, not a separate surface, so the row body is the
+ * shared `ComfortableRowBody`: the sender avatar, the unread dot, the star and
+ * the sender/subject/snippet rhythm all come from one implementation, and a
+ * message looks the same whether it was found or scrolled to. Everything only a
+ * search knows — the folder a row was read from, the search's own category
+ * chip, why a semantic hit matched and how strongly — rides in the row's badge
+ * slot. Presentational and prop-driven; the app supplies `onClick` and the
+ * optional `query` to bold literal matches.
  */
 export function SearchResultRow({
 	result,
@@ -102,61 +110,39 @@ export function SearchResultRow({
 		<button
 			type="button"
 			onClick={onClick}
-			className="flex w-full flex-col gap-0.5 border-b border-line px-row-inset py-2.5 text-left transition-colors hover:bg-surface-sunken"
+			className={cn("group", comfortableRowClass({}), "border-b border-line")}
 		>
-			<div className="flex items-baseline gap-2">
-				<span
-					className={cn(
-						"min-w-0 flex-1 truncate text-sm",
-						result.unread
-							? "font-semibold text-fg"
-							: "font-medium text-fg-muted",
-					)}
-				>
-					{result.sender}
-				</span>
-				<span className="shrink-0 text-2xs text-fg-subtle tabular-nums">
-					{result.date}
-				</span>
-			</div>
-			<div className="flex items-center gap-1.5">
-				<span
-					className={cn(
-						"min-w-0 flex-1 truncate text-sm",
-						result.unread ? "text-fg" : "text-fg-muted",
-					)}
-				>
-					{highlight(result.subject, query)}
-				</span>
-				{result.flagged && (
-					<Flag className="size-3.5 shrink-0 fill-warning text-warning" />
-				)}
-			</div>
-			<div className="flex items-center gap-2">
-				<span className="min-w-0 flex-1 truncate text-xs text-fg-subtle">
-					{highlight(result.snippet, query)}
-				</span>
-				{folderLabel && (
-					<Badge tone="neutral" className="shrink-0">
-						{folderLabel}
-					</Badge>
-				)}
-				{result.category && (
-					<Badge tone={result.category.tone ?? "neutral"} className="shrink-0">
-						{result.category.label}
-					</Badge>
-				)}
-				{result.matchedChunkLabel && (
-					<Badge tone="neutral" className="shrink-0">
-						{`matched: ${result.matchedChunkLabel}`}
-					</Badge>
-				)}
-				{result.score != null && (
-					<span className="shrink-0 text-2xs text-fg-subtle tabular-nums">
-						{result.score.toFixed(2)}
-					</span>
-				)}
-			</div>
+			<ComfortableRowBody
+				thread={searchResultRowData(result)}
+				highlightQuery={query}
+				badge={
+					<>
+						{folderLabel && (
+							<Badge tone="neutral" className="shrink-0">
+								{folderLabel}
+							</Badge>
+						)}
+						{result.category && (
+							<Badge
+								tone={result.category.tone ?? "neutral"}
+								className="shrink-0"
+							>
+								{result.category.label}
+							</Badge>
+						)}
+						{result.matchedChunkLabel && (
+							<Badge tone="neutral" className="shrink-0">
+								{`matched: ${result.matchedChunkLabel}`}
+							</Badge>
+						)}
+						{result.score != null && (
+							<span className="shrink-0 text-2xs text-fg-subtle tabular-nums">
+								{result.score.toFixed(2)}
+							</span>
+						)}
+					</>
+				}
+			/>
 		</button>
 	);
 }

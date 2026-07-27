@@ -1,10 +1,9 @@
 /**
  * MessageListItem — the mailbox list's adapter onto the shared `MessageRow`.
  *
- * It maps an API thread to the row's `ThreadRowData` shape and supplies the two
- * things only the mailbox list has: route-linking rows and the auto-moved
- * badge. Everything visual and interactive lives in `MessageRow`, which the
- * brief and Flagged render too.
+ * It maps an API thread to the row's `ThreadRowData` shape and supplies the one
+ * thing only the mailbox list has: route-linking rows. Everything visual and
+ * interactive lives in `MessageRow`, which the brief and Flagged render too.
  */
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import type { Density, SenderTrustLevel, ThreadRowData } from "@remit/ui";
@@ -12,14 +11,11 @@ import { memo } from "react";
 import type { SelectionModifiers } from "@/hooks/useSelection";
 import { toDisplayCategory } from "@/lib/display-category";
 import { formatEmailDate } from "@/lib/format";
-import { AutoMovedIndicator } from "./AutoMovedIndicator";
 import { MessageRow } from "./MessageRow";
 
 interface MessageListItemProps {
 	thread: RemitImapThreadMessageResponse;
 	mailboxId: string;
-	/** Owning account, used to resolve the Inbox/Junk mailboxes for the auto-moved badge's undo action. */
-	accountId?: string;
 	isSelected: boolean;
 	isFocused?: boolean;
 	isTabStop?: boolean;
@@ -43,7 +39,7 @@ export const threadToRowData = (
 	messageCount?: number,
 ): ThreadRowData => ({
 	id: thread.messageId,
-	accountId: thread.accountConfigId,
+	accountId: thread.accountId,
 	mailboxId: thread.mailboxId,
 	fromName: thread.fromName ?? thread.fromEmail ?? "Unknown",
 	fromEmail: thread.fromEmail ?? "",
@@ -66,7 +62,6 @@ export const threadToRowData = (
 const MessageListItemComponent = ({
 	thread,
 	mailboxId,
-	accountId,
 	isSelected,
 	isFocused,
 	isTabStop,
@@ -97,18 +92,6 @@ const MessageListItemComponent = ({
 			isMultiSelectMode,
 			onLongPress,
 		}}
-		badge={
-			thread.autoMoved ? (
-				<AutoMovedIndicator
-					accountId={accountId}
-					messageId={thread.messageId}
-					threadId={thread.threadId}
-					mailboxId={thread.mailboxId}
-					autoMoved={thread.autoMoved}
-					size="sm"
-				/>
-			) : undefined
-		}
 	/>
 );
 

@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 # The image roster, derived from the build contexts present in this tree —
-# packages/apisix and every docker/runtime/<service>. The open-core
-# export strips the Postgres-only pg-index-worker's runtime context, so it
-# drops out automatically and the roster matches the reader's compose without
-# editing this file. Shared by images-publish.sh and the release preflight so
-# the two never drift.
+# packages/apisix and every docker/runtime/<service>. Adding a service's runtime
+# context is what puts it on the roster; there is no second list to update.
+# Shared by images-publish.sh and the release preflight so the two never drift.
 #
 # Populates ALL_TARGETS directly in the caller's shell — call it as a plain
 # statement, never through `$(...)` or `<(...)`. A subshell can fail (or, worse,

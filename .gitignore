@@ -98,3 +98,4 @@ dist-docker/
 
 # Scratch dir for local tooling (drizzle migration drift check, etc.)
 .tmp/
+localhost-dev-sqlite.local.env

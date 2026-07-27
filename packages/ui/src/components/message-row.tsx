@@ -102,6 +102,34 @@ export function CompactRowBody({ thread }: { thread: ThreadRowData }) {
 }
 
 /**
+ * Bold the literal (case-insensitive) occurrences of `query` in `text`. Used by
+ * the search rows so a match is visible in the subject and snippet it was found
+ * in; an absent or blank query leaves the text alone.
+ */
+function highlightMatches(text: string, query?: string): ReactNode {
+	const term = query?.trim();
+	if (!term) return text;
+	const lower = text.toLowerCase();
+	const needle = term.toLowerCase();
+	const parts: ReactNode[] = [];
+	let cursor = 0;
+	let match = lower.indexOf(needle, cursor);
+	let key = 0;
+	while (match !== -1) {
+		if (match > cursor) parts.push(text.slice(cursor, match));
+		parts.push(
+			<mark key={key++} className="bg-transparent font-semibold text-fg">
+				{text.slice(match, match + needle.length)}
+			</mark>,
+		);
+		cursor = match + needle.length;
+		match = lower.indexOf(needle, cursor);
+	}
+	if (cursor < text.length) parts.push(text.slice(cursor));
+	return parts;
+}
+
+/**
  * Text/glyph content block of a comfortable row (everything after the leading
  * avatar/slot). Consumers provide their own leading element (Avatar, checkbox,
  * etc.) and the unread dot (via the absolute-positioned sibling). Use this with
@@ -110,10 +138,13 @@ export function CompactRowBody({ thread }: { thread: ThreadRowData }) {
 export function ComfortableRowTextContent({
 	thread,
 	badge,
+	highlightQuery,
 }: {
 	thread: ThreadRowData;
 	/** Extra chip rendered after the category badge (e.g. an auto-moved indicator). */
 	badge?: ReactNode;
+	/** Bold this term where it occurs literally in the subject and snippet. */
+	highlightQuery?: string;
 }) {
 	const unread = !thread.isRead;
 	return (
@@ -146,7 +177,7 @@ export function ComfortableRowTextContent({
 						unread ? "text-fg" : "text-fg-muted",
 					)}
 				>
-					{thread.subject}
+					{highlightMatches(thread.subject, highlightQuery)}
 				</span>
 				{thread.suspicious && (
 					<ShieldAlert className="size-3.5 shrink-0 text-danger" />
@@ -160,7 +191,7 @@ export function ComfortableRowTextContent({
 			</span>
 			<span className="flex items-center gap-1.5">
 				<span className="line-clamp-1 min-w-0 flex-1 text-xs text-fg-subtle">
-					{thread.snippet}
+					{highlightMatches(thread.snippet, highlightQuery)}
 				</span>
 				{thread.category && thread.category !== "personal" && (
 					<Badge tone={categoryTone[thread.category]} className="shrink-0">
@@ -264,10 +295,13 @@ export function ComfortableRowBody({
 	thread,
 	selection,
 	badge,
+	highlightQuery,
 }: {
 	thread: ThreadRowData;
 	selection?: RowSelection;
 	badge?: ReactNode;
+	/** Bold this term where it occurs literally in the subject and snippet. */
+	highlightQuery?: string;
 }) {
 	const unread = !thread.isRead;
 	return (
@@ -276,7 +310,11 @@ export function ComfortableRowBody({
 				<span className="absolute left-1.5 top-1/2 size-1.5 -translate-y-1/2 rounded-full bg-accent" />
 			)}
 			<ComfortableRowLeading thread={thread} selection={selection} />
-			<ComfortableRowTextContent thread={thread} badge={badge} />
+			<ComfortableRowTextContent
+				thread={thread}
+				badge={badge}
+				highlightQuery={highlightQuery}
+			/>
 		</>
 	);
 }

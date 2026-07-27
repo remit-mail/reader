@@ -28,6 +28,7 @@ import {
 	useState,
 } from "react";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { useFollowFocusOpen } from "@/hooks/useFollowFocusOpen";
 import { useListCursor } from "@/hooks/useListCursor";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import type { TriageContextUpdate } from "@/hooks/useTriageLayer";
@@ -52,6 +53,12 @@ interface ThreadListInteractionValue {
 	exitSelection: () => void;
 	/** Opens the move-to-Trash confirmation for the current selection. */
 	requestDeleteSelection: () => void;
+	/** Rendered rows in display order — the same order a shift-range spans. */
+	orderedIds: string[];
+	/** Whether every rendered row is selected, for a select-all control. */
+	allSelected: boolean;
+	/** Select every rendered row, or clear when they already all are. */
+	toggleAllLoaded: () => void;
 }
 
 const ThreadListInteractionCtx =
@@ -121,10 +128,19 @@ const useRenderedRowIds = (
 	return rowIds;
 };
 
+/**
+ * How a row was opened. `replace: true` marks a reading-pane preview the cursor
+ * produced rather than a navigation the user asked for, so Back still leaves the
+ * list instead of walking the cursor's path back up it.
+ */
+export interface OpenMessageOptions {
+	replace?: boolean;
+}
+
 interface ThreadListInteractionProps {
 	selectedMessageId: string | undefined;
 	/** Opens a row — the same navigation a click performs. */
-	onOpen: (messageId: string) => void;
+	onOpen: (messageId: string, options?: OpenMessageOptions) => void;
 	/** Deletes a set of messages. Absent disables the delete key for this list. */
 	onDeleteMessages?: (messageIds: string[]) => void;
 	isDeleting?: boolean;
@@ -160,7 +176,14 @@ export function ThreadListInteraction({
 		exitSelection,
 		handleRowSelect,
 	} = cursor;
-	const { selectedIds, selectedCount, isSelected, toggle, select } = selection;
+	const { selectedIds, selectedCount, isSelected, toggle, select, toggleAll } =
+		selection;
+
+	const allSelected =
+		orderedIds.length > 0 && orderedIds.every((id) => selectedIds.has(id));
+	const toggleAllLoaded = useCallback(() => {
+		if (orderedIds.length > 0) toggleAll(orderedIds);
+	}, [orderedIds, toggleAll]);
 
 	// A row that leaves the list — a chip filter, a collapsed section, a
 	// completed delete — cannot stay selected. Survivors keep their selection.
@@ -198,6 +221,20 @@ export function ThreadListInteraction({
 	const openFocused = useCallback(() => {
 		if (focusedMessageId) onOpen(focusedMessageId);
 	}, [focusedMessageId, onOpen]);
+
+	// The reading pane follows the cursor on desktop. Suspended while rows are
+	// selected: the cursor is then picking out a set, and the selection bar — not
+	// a message — is what the user is looking at.
+	const followOpen = useCallback(
+		(messageId: string) => onOpen(messageId, { replace: true }),
+		[onOpen],
+	);
+	useFollowFocusOpen({
+		keyboardFocusedMessageId: cursor.keyboardFocusedMessageId,
+		openMessageId: selectedMessageId,
+		enabled: isDesktop && selectedCount === 0,
+		open: followOpen,
+	});
 
 	// Pending move-to-Trash, awaiting confirmation. The ids are snapshotted at
 	// request time so a selection change behind the dialog cannot retarget it —
@@ -320,6 +357,9 @@ export function ThreadListInteraction({
 			selectedCount,
 			exitSelection,
 			requestDeleteSelection,
+			orderedIds,
+			allSelected,
+			toggleAllLoaded,
 			rowInteraction: (messageId: string) => ({
 				focused: messageId === focusedMessageId,
 				isTabStop: messageId === tabStop,
@@ -339,6 +379,9 @@ export function ThreadListInteraction({
 			selectedCount,
 			exitSelection,
 			requestDeleteSelection,
+			orderedIds,
+			allSelected,
+			toggleAllLoaded,
 			focusedMessageId,
 			tabStop,
 			isDesktop,
@@ -378,11 +421,13 @@ interface ThreadListSelectionBarProps {
 }
 
 /**
- * Selection bar for a list inside `ThreadListInteraction`.
+ * Reduced selection bar for Flagged, mounted inside `ThreadListInteraction`.
  *
- * Move is not offered here: the brief and Flagged span accounts and mailboxes,
- * and a move picker needs one account and one source folder to be honest about
- * where the messages go. Delete and mark-read carry no such scope.
+ * Move is not offered here: Flagged spans accounts and mailboxes, and a move
+ * picker needs one account and one source folder to be honest about where the
+ * messages go. Delete and mark-read carry no such scope. The brief resolves
+ * that scope from the selection instead and mounts the mailbox list's full
+ * `SelectionToolbar` — see `DailyBrief`.
  */
 export function ThreadListSelectionBar({
 	onMarkAsRead,

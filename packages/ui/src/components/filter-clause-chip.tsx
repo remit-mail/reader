@@ -1,5 +1,6 @@
 import { Plus, Sparkles, X } from "lucide-react";
 import { cn } from "../lib/cn.js";
+import { useSuggestList } from "../lib/use-suggest-list.js";
 import { Button } from "./button.js";
 import {
 	type ClauseField,
@@ -12,6 +13,7 @@ import {
 } from "./filter-rule.js";
 import { Input } from "./input.js";
 import { Select } from "./select.js";
+import { type Suggestion, SuggestList } from "./suggest-list.js";
 
 const chipShell =
 	"inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs";
@@ -153,6 +155,13 @@ export interface ClauseEditorProps {
 	 * match, so the editor never offers a clause the backend cannot evaluate.
 	 */
 	fields?: ClauseField[];
+	/**
+	 * Values worth offering for the field being edited — known senders for a
+	 * `From` clause, their domains for a `FromDomain` one. A shortcut and never a
+	 * constraint: whatever is typed stands, matches or not, and a field with
+	 * nothing to offer is a plain text box.
+	 */
+	suggestions?: readonly Suggestion[];
 	onChangeField?: (field: ClauseField) => void;
 	onChangeValue?: (value: string) => void;
 	onSubmit?: () => void;
@@ -163,17 +172,26 @@ export interface ClauseEditorProps {
  * Inline form for adding or editing one clause — field picker plus a value
  * input, from the design-system primitives so it never drifts from the rest of
  * the editor. The chip it produces renders through {@link ClauseChip}.
+ *
+ * The suggestion list sits under the row in normal flow rather than floating
+ * over it, so on a phone a soft keyboard can never hide the field the list
+ * belongs to.
  */
 export function ClauseEditor({
 	draft,
 	mode,
 	fields = clauseFieldOrder,
+	suggestions = [],
 	onChangeField,
 	onChangeValue,
 	onSubmit,
 	onCancel,
 }: ClauseEditorProps) {
 	const hint = clauseFieldHint(draft.field);
+	const suggest = useSuggestList({
+		count: suggestions.length,
+		onAccept: (index) => onChangeValue?.(suggestions[index].value),
+	});
 	return (
 		<div className="space-y-1.5 rounded-lg border border-accent-2 bg-surface p-2">
 			<div className="flex flex-wrap items-center gap-2">
@@ -193,11 +211,17 @@ export function ClauseEditor({
 					aria-label="Clause value"
 					value={draft.value}
 					placeholder="value…"
-					onChange={(e) => onChangeValue?.(e.target.value)}
+					autoComplete="off"
+					onChange={(e) => {
+						suggest.reopen();
+						onChangeValue?.(e.target.value);
+					}}
 					onKeyDown={(e) => {
+						if (suggest.handleKeyDown(e)) return;
 						if (e.key === "Enter") onSubmit?.();
 					}}
 					className="h-8 min-w-40 flex-1"
+					{...suggest.comboboxProps}
 				/>
 				<Button
 					variant="primary"
@@ -217,6 +241,20 @@ export function ClauseEditor({
 					className="shrink-0 px-2"
 				/>
 			</div>
+			{suggest.open && (
+				<SuggestList
+					id={suggest.listId}
+					suggestions={suggestions}
+					activeIndex={suggest.activeIndex}
+					optionId={suggest.optionId}
+					onPick={(suggestion) => {
+						onChangeValue?.(suggestion.value);
+						suggest.dismiss();
+					}}
+					onHighlight={suggest.setActiveIndex}
+					label={`${clauseFieldLabel(draft.field)} suggestions`}
+				/>
+			)}
 			{hint && <p className="px-0.5 text-2xs text-fg-subtle">{hint}</p>}
 		</div>
 	);

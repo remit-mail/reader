@@ -8,8 +8,8 @@
 // who is already installed.
 //
 // These assertions are the guard D16 names: the repair is inside the migrate
-// entrypoint that the image already carries, on both dialect paths, and it is
-// nowhere in any compose file.
+// entrypoint that the image already carries, and it is nowhere in any compose
+// file.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -40,18 +40,6 @@ describe("the category repair ships inside the migrate entrypoint", () => {
 		assert.ok(
 			sqlite.includes(REPAIR_CALL),
 			"runSqlite must run the repair: sqlite is the backend every self-host instance uses",
-		);
-	});
-
-	it("runs on the postgres path", () => {
-		const postgres = section(
-			RUN_MIGRATE,
-			"const runPostgres = async",
-			"const runSqlite = async",
-		);
-		assert.ok(
-			postgres.includes(REPAIR_CALL),
-			"runPostgres must run the repair too, or a Postgres instance upgrades onto a stale column",
 		);
 	});
 
@@ -98,7 +86,7 @@ describe("the category repair ships inside the migrate entrypoint", () => {
 			["deploy", "vps", "docker-compose.sqlite.yml"],
 			["deploy", "vps", "docker-compose.e2e.yml"],
 			["deploy", "vps", "docker-compose.dovecot.yml"],
-			["docker-compose.localhost-dev-generic.yml"],
+			["docker-compose.localhost-dev-sqlite.yml"],
 		]) {
 			const compose = read(...file);
 			for (const smell of [

@@ -6,13 +6,13 @@
 #   npm run docker:build -- backend
 #
 # (`docker build --target backend -t remit/backend .` works the same way for
-# apisix/web/search-index-worker; the other five targets share an
+# apisix/web/search-index-worker; the other targets share an
 # ARG-parameterized install stage and need
 # `--build-arg SERVICE_NAME=backend` added when invoked directly instead of
 # through the npm script or docker-bake.hcl, both of which set it.)
 #
 # Roster (RFC 035 D1): apisix, backend, imap-worker, smtp-worker,
-# account-worker, pg-index-worker, search-index-worker, web.
+# account-worker, search-index-worker, web.
 #
 # `npm run docker:build -- <target>` wraps this for local use; CI
 # (.github/workflows/images.yml) builds every target on push to main.
@@ -89,18 +89,11 @@ RUN APISIX_BACKEND_HOST=backend APISIX_BACKEND_PORT=8080 \
 # dependency notes.
 RUN node npm-scripts/docker-bundle.mjs
 
-# Stage whichever migration sets ship in this tree into one directory so the
-# backend image COPYs it unconditionally — a Dockerfile COPY cannot skip a
-# missing path. Both sets ship here (Postgres `migrations` + `migrations-sqlite`,
-# RFC 036 D5); the open-core export strips the Postgres set, and this loop
-# tolerates its absence. Directory names are preserved, so the backend image's
-# ./migrations and ./migrations-sqlite are byte-identical to a direct COPY.
+# Stage the migration set into its own directory so the backend image COPYs one
+# stable path. Directory names are preserved, so the backend image's
+# ./migrations-sqlite is byte-identical to a direct COPY.
 RUN mkdir -p dist-docker/backend-migrations \
-	&& for set in migrations migrations-sqlite; do \
-		if [ -d "deploy/vps/$set" ]; then \
-			cp -a "deploy/vps/$set" "dist-docker/backend-migrations/$set"; \
-		fi; \
-	done
+	&& cp -a deploy/vps/migrations-sqlite dist-docker/backend-migrations/migrations-sqlite
 
 ########################################################################
 # sqlite-vec-musl — compile the vec0 loadable extension against musl.
@@ -184,13 +177,13 @@ ENV NODE_ENV=production
 ENV PORT=8080
 
 ########################################################################
-# node-service-installed — shared dependency-install stage for the five
-# plain node-service images (backend, imap-worker, smtp-worker,
-# account-worker, pg-index-worker). Each only differs by which
+# node-service-installed — shared dependency-install stage for the plain
+# node-service images (backend, imap-worker, smtp-worker, account-worker,
+# queue-sidecar, doctor). Each only differs by which
 # docker/runtime/<service>/package.json it installs; SERVICE_NAME picks it.
 # `docker-bake.hcl` sets SERVICE_NAME per target, and `npm run docker:build`
 # (npm-scripts/docker-build.sh) passes it for direct
-# `docker build --target <name>` use too — building one of these five
+# `docker build --target <name>` use too — building one of these
 # targets straight from `docker build` (bypassing both) needs
 # `--build-arg SERVICE_NAME=<name>` added manually.
 ########################################################################
@@ -229,11 +222,8 @@ COPY --from=builder --chown=node:node /app/dist-docker/backend/migrate.mjs ./mig
 # alternate entrypoint, never wired into a compose one-shot — see
 # packages/backend/scripts/backfill-list-id.ts.
 COPY --from=builder --chown=node:node /app/dist-docker/backend/backfill-list-id.mjs ./backfill-list-id.mjs
-# Both migration sets, staged in the builder into one directory so this COPY is
-# unconditional. The migrate entrypoint applies ./migrations (Postgres) or
-# ./migrations-sqlite by DATA_BACKEND (RFC 036 D5); the compose `migrate` service
-# picks one. The open-core export ships only the sqlite set — the builder stage
-# tolerates the Postgres set's absence, which a bare COPY cannot.
+# The migration set, staged in the builder into one directory so this COPY has a
+# single stable source. The migrate entrypoint applies ./migrations-sqlite.
 COPY --from=builder --chown=node:node /app/dist-docker/backend-migrations/ ./
 # The musl-compiled sqlite-vec loadable extension (see the sqlite-vec-musl stage).
 # SQLITE_VEC_EXTENSION_PATH short-circuits the npm package's glibc-only
@@ -278,14 +268,6 @@ FROM node-service-installed AS account-worker
 COPY --from=builder --chown=node:node /app/dist-docker/account-worker/server.mjs ./server.mjs
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=60s \
 	CMD ["node", "-e", "const fs=require('node:fs'),d='/data/heartbeat',p='account-worker.',f=fs.readdirSync(d).filter(n=>n.startsWith(p));process.exit(f.length&&f.every(n=>Date.now()-fs.statSync(d+'/'+n).mtimeMs<420000)?0:1)"]
-CMD ["node", "server.mjs"]
-
-########################################################################
-# pg-index-worker — Postgres LISTEN/NOTIFY -> SQS relay (no embedding model;
-# see npm-scripts/docker-bundle.mjs for why this differs from the RFC text).
-########################################################################
-FROM node-service-installed AS pg-index-worker
-COPY --from=builder --chown=node:node /app/dist-docker/pg-index-worker/server.mjs ./server.mjs
 CMD ["node", "server.mjs"]
 
 ########################################################################

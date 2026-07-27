@@ -51,7 +51,10 @@
     "e2e:dev:up": "bash npm-scripts/e2e-dev-up.sh",
     "e2e:dev:logs": "bash npm-scripts/e2e-dev-logs.sh",
     "e2e:dev:down": "bash npm-scripts/e2e-dev-down.sh",
-    "e2e:dev:migrate": "node npm-scripts/docker-bundle.mjs backend-migrate && cd deploy/vps && node ../../dist-docker/backend/migrate.mjs"
+    "e2e:dev:migrate": "node npm-scripts/docker-bundle.mjs backend-migrate && cd deploy/vps && node ../../dist-docker/backend/migrate.mjs",
+    "dev:sqlite": "REMIT_DEV_UID=$(id -u) REMIT_DEV_GID=$(id -g) docker compose -f docker-compose.localhost-dev-sqlite.yml up -d --wait",
+    "dev:sqlite:down": "REMIT_DEV_UID=$(id -u) REMIT_DEV_GID=$(id -g) docker compose -f docker-compose.localhost-dev-sqlite.yml down",
+    "dev:sqlite:logs": "docker compose -f docker-compose.localhost-dev-sqlite.yml logs -f"
   },
   "ciCoverage": {
     "allowUnreachable": {

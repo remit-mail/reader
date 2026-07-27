@@ -369,6 +369,39 @@ describe("ClauseEditor", () => {
 		assert.doesNotMatch(html, /registrable domain/i);
 		assert.doesNotMatch(html, /List-Id/);
 	});
+
+	it("is a plain text box when there is nothing to suggest", () => {
+		const html = render(
+			createElement(ClauseEditor, {
+				draft: { field: "From", value: "" },
+				mode: "add",
+			}),
+		);
+		assert.doesNotMatch(html, /role="listbox"/);
+		assert.match(html, /aria-expanded="false"/);
+	});
+
+	it("offers the suggestions under the row, named for the field being edited", () => {
+		const html = render(
+			createElement(ClauseEditor, {
+				draft: { field: "From", value: "" },
+				mode: "add",
+				suggestions: [
+					{
+						value: "receipts@stripe.com",
+						label: "Stripe",
+						hint: "receipts@stripe.com",
+						source: "selected",
+					},
+					{ value: "rides@lyft.com" },
+				],
+			}),
+		);
+		assert.match(html, /role="listbox"/);
+		assert.match(html, /aria-label="From suggestions"/);
+		assert.match(html, /aria-expanded="true"/);
+		assert.match(html, /receipts@stripe\.com/);
+	});
 });
 
 describe("clauseFieldHint", () => {

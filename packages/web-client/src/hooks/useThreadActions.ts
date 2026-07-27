@@ -4,12 +4,13 @@
  * Delete, move, star and the compose requests (reply / reply-all / forward),
  * over the same mutation hooks the mailbox list uses. The mailbox view keys
  * them by its route; the brief and Flagged are cross-account, so they key by
- * the open thread's own `mailboxId` / `accountConfigId` (#149).
+ * the open thread's own `mailboxId` / `accountId` (#149).
  */
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import { useCallback, useState } from "react";
 import type { ComposeMode } from "@/components/compose/ComposeProvider";
 import { useDeleteMessages } from "@/hooks/useDeleteMessages";
+import { useMailboxAccount } from "@/hooks/useMailboxAccount";
 import { useMoveMessages } from "@/hooks/useMoveMessages";
 import { useThreadMessageIds } from "@/hooks/useThreadMessageIds";
 import { useToggleStar } from "@/hooks/useToggleStar";
@@ -42,7 +43,15 @@ export const useThreadActions = ({
 	onAfterOptimisticRemove,
 }: UseThreadActionsOptions): ThreadActions => {
 	const resolvedMailboxId = mailboxId ?? thread?.mailboxId;
-	const resolvedAccountId = accountId ?? thread?.accountConfigId;
+	// `accountConfigId` is the caller's own identity, not an account: every
+	// `/accounts/{accountId}/…` call made with it 404s. The row carries a real
+	// `accountId` only when it came from the unified listing, so anything else
+	// resolves through the mailbox cache.
+	const knownAccountId = accountId ?? thread?.accountId;
+	const { accountId: mailboxAccountId } = useMailboxAccount(
+		knownAccountId ? undefined : resolvedMailboxId,
+	);
+	const resolvedAccountId = knownAccountId ?? mailboxAccountId;
 	const threadMessageIds = useThreadMessageIds();
 
 	const { deleteMessages } = useDeleteMessages({

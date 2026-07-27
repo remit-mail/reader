@@ -81,10 +81,10 @@ jobs:
             --env-file deploy/vps/.env --profile '*' config -q
           rm -f deploy/vps/.env
 
-      - name: Deploy stack — dev compose validates
+      - name: Dev stack — SQLite compose validates
         run: |
-          docker compose -f docker-compose.localhost-dev-generic.yml \
-            --env-file localhost-dev-generic.env config -q
+          docker compose -f docker-compose.localhost-dev-sqlite.yml \
+            --env-file localhost-dev-sqlite.env config -q
 
   # Biome reads the source tree and never the generated output, so this job
   # skips the codegen restore and reports within a minute of the push.

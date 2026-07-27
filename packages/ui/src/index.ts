@@ -72,6 +72,11 @@ export {
 	type BottomSheetProps,
 } from "./components/bottom-sheet.js";
 export {
+	BriefEmpty,
+	type BriefEmptyProps,
+	type BriefSyncProgress,
+} from "./components/brief-empty.js";
+export {
 	BriefSection,
 	type BriefSectionProps,
 	SECTION_ROW_CAP,
@@ -143,23 +148,31 @@ export {
 	clauseFieldOrder,
 	commitBlockedReason,
 	commitLabel,
+	demoClauseSuggestions,
 	demoFolders,
 	demoLabels,
 	demoRule,
 	demoSenderFallbackRule,
+	demoSubjectPrefillRule,
 	demoVocabularyRule,
 	type FilterRule,
 	type FolderOption,
+	hasActiveWiden,
 	type LabelOption,
 	type MatchOperator,
+	matchesBodyText,
 	matchJoinWord,
+	matchModeHint,
+	matchModeLabel,
 	matchOperatorLabel,
 	type PreviewCount,
 	previewCountSummary,
 	type RuleClause,
+	type RuleMatchMode,
 	type RuleScope,
 	type RuleWiden,
 	scopeLabel,
+	unreadableBodyClauses,
 	widenChipLabel,
 } from "./components/filter-rule.js";
 export {
@@ -303,6 +316,10 @@ export {
 	outboxStatusConfig,
 } from "./components/outbox-status-badge.js";
 export {
+	PasswordInput,
+	type PasswordInputProps,
+} from "./components/password-input.js";
+export {
 	PopoverMenu,
 	type PopoverMenuItem,
 	type PopoverMenuProps,
@@ -397,9 +414,11 @@ export {
 } from "./components/row-actions.js";
 export { SearchBar, type SearchBarProps } from "./components/search-bar.js";
 export {
+	type SearchCaretRequest,
 	type SearchChip,
 	SearchChipInput,
 	type SearchChipInputProps,
+	type SearchFieldSuggest,
 } from "./components/search-chip-input.js";
 export {
 	DROPPED_SEMANTIC_COPY,
@@ -419,6 +438,8 @@ export {
 	type SearchResultTone,
 } from "./components/search-result-row.js";
 export {
+	MakeFilterAction,
+	type MakeFilterActionProps,
 	partitionSpamResults,
 	type SearchResultSection,
 	SearchResults,
@@ -524,6 +545,11 @@ export {
 	type SpamResultsOfferProps,
 } from "./components/spam-results-offer.js";
 export {
+	type Suggestion,
+	SuggestList,
+	type SuggestListProps,
+} from "./components/suggest-list.js";
+export {
 	commitPeek,
 	SwipeableRow,
 	type SwipeableRowOpenProps,
@@ -581,7 +607,18 @@ export {
 	useRovingFocus,
 } from "./lib/roving-focus.js";
 export {
+	type SuggestAction,
+	type SuggestKeyState,
+	suggestKeyAction,
+} from "./lib/suggest-keys.js";
+export {
 	type UseLongPressOptions,
 	type UseLongPressResult,
 	useLongPress,
 } from "./lib/use-long-press.js";
+export {
+	type ComboboxProps,
+	type SuggestListState,
+	type UseSuggestListInput,
+	useSuggestList,
+} from "./lib/use-suggest-list.js";

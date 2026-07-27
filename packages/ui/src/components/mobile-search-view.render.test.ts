@@ -37,6 +37,37 @@ const base = {
 	sections,
 };
 
+const filter = {
+	categories: [{ id: "all", label: "All" }],
+	filters: [{ id: "unread", label: "Unread" }],
+	selectedCategory: "all",
+	activeFilters: new Set<string>(),
+	onSelectCategory: noop,
+	onToggleFilter: noop,
+	onClear: noop,
+};
+
+describe("MobileSearchView filter chrome", () => {
+	it("gives the filter row up to the search once a query is typed", () => {
+		const html = renderToString(
+			createElement(MobileSearchView, { ...base, filter }),
+		);
+		assert.doesNotMatch(html, /Expand filters/);
+	});
+
+	it("keeps the filter row while the field is empty", () => {
+		const html = renderToString(
+			createElement(MobileSearchView, {
+				...base,
+				value: "",
+				sections: [],
+				filter,
+			}),
+		);
+		assert.match(html, /Expand filters/);
+	});
+});
+
 describe("MobileSearchView search scope", () => {
 	it("offers held-out spam on the phone tier too", () => {
 		const html = renderToString(

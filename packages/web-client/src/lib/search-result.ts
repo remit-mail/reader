@@ -44,6 +44,7 @@ export function threadToSearchResult(
 	return {
 		id: thread.messageId,
 		sender: thread.fromName ?? thread.fromEmail ?? "Unknown",
+		...(thread.fromEmail ? { senderEmail: thread.fromEmail } : {}),
 		subject: thread.subject ?? "(No subject)",
 		snippet: thread.snippet ?? "",
 		date: formatEmailDate(thread.sentDate),
@@ -66,6 +67,7 @@ export function rowToSearchResult(
 	return {
 		id: row.id,
 		sender: row.fromName,
+		...(row.fromEmail ? { senderEmail: row.fromEmail } : {}),
 		subject: row.subject,
 		snippet: row.snippet,
 		date: row.timeLabel,

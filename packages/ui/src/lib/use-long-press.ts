@@ -1,6 +1,58 @@
 import type { DOMAttributes } from "@react-types/shared";
-import { type PointerEvent, useCallback, useRef } from "react";
+import { type PointerEvent, useCallback } from "react";
 import { mergeProps, useLongPress as useAriaLongPress } from "react-aria";
+
+/**
+ * Suppression lives on the document, not on the row.
+ *
+ * There is one pointer, and the element under it does not survive the press: a
+ * long press on a mailbox row enters selection mode, which swaps the swipeable
+ * row for the plain one *while the finger is still down*. A handler on the row
+ * that armed the press is torn down with it, and Android Chrome then raises its
+ * link menu over the selection the press just made. A capture-phase listener on
+ * the document sees the menu whichever node ends up under the finger.
+ *
+ * Set while a touch or pen press is down. A press that never delivers its
+ * `pointerup` — the browser took the gesture, the tab went to the background —
+ * would leave suppression armed forever, so arming is bounded by this timer as
+ * well as by the release.
+ */
+let armedTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** Longer than any press a human holds before the browser ends the gesture. */
+const MAX_ARMED_MS = 5_000;
+
+/**
+ * One press raises at most one menu, so suppression is spent on use. The
+ * release disarms too, which is what keeps a keyboard-invoked menu
+ * (Context-Menu key / Shift+F10) raised later from inheriting a press that is
+ * long over. Deliberately keyed to `pointerup` and not to `pointercancel`: on
+ * Android the browser — and react-aria's own long-press timer — can cancel the
+ * pointer before the `contextmenu` it raised arrives, which would race the
+ * suppression away.
+ */
+function suppressContextMenu(event: Event): void {
+	event.preventDefault();
+	disarm();
+}
+
+function disarm(): void {
+	if (armedTimer === undefined) return;
+	clearTimeout(armedTimer);
+	armedTimer = undefined;
+	document.removeEventListener("contextmenu", suppressContextMenu, true);
+	document.removeEventListener("pointerup", disarm, true);
+}
+
+function arm(): void {
+	if (armedTimer === undefined) {
+		document.addEventListener("contextmenu", suppressContextMenu, true);
+		document.addEventListener("pointerup", disarm, true);
+	} else {
+		clearTimeout(armedTimer);
+	}
+	armedTimer = setTimeout(disarm, MAX_ARMED_MS);
+}
 
 export interface UseLongPressOptions {
 	/** Called once the threshold elapses while the press stays over the target. */
@@ -32,14 +84,17 @@ export interface UseLongPressResult {
  * `-webkit-touch-callout: none` in CSS at the call site, since iOS fires no
  * cancelable event for it.
  *
- * The `contextmenu` suppression is keyed to the active pointer's type, tracked
- * off `pointerdown` on the same element: a touch or pen press suppresses the
- * menu Android Chrome and iOS Safari raise on a long press over a link, while a
- * mouse right-click is left alone so the desktop context menu keeps working. It
- * does not delegate this to react-aria's own suppression — that listener is
- * transient (added on press start, scoped to the touched node, and torn down
- * shortly after pointerup), so a press ended early by the swipe gesture's axis
- * arbitration, or a menu raised over a descendant node, slips past it.
+ * The `contextmenu` suppression is armed by a touch or pen `pointerdown` and
+ * runs on the document in the capture phase: a touch press suppresses the menu
+ * Android Chrome and iOS Safari raise on a long press over a link, while a mouse
+ * right-click is left alone so the desktop context menu keeps working. Two
+ * reasons it is neither react-aria's own suppression nor a handler on the row.
+ * react-aria's listener is transient — added on press start, scoped to the
+ * touched node, torn down shortly after pointerup — so a press ended early by
+ * the swipe gesture's axis arbitration slips past it. And the row itself does
+ * not survive the press: the long press enters selection mode, which replaces
+ * the swipeable row with the plain one while the finger is still down, so a
+ * handler bound to the pressed node is gone by the time the menu arrives.
  *
  * Single source of truth for the app's long-press threshold — both mobile
  * row consumers (the plain row and the swipeable row) go through this hook
@@ -58,37 +113,15 @@ export function useLongPress({
 		onLongPress,
 	});
 
-	const pointerTypeRef = useRef<string>("");
-
+	// Only a touch or pen press arms it: a mouse right-click, and a keyboard menu
+	// (Context-Menu key / Shift+F10) that is preceded by no press at all, keep
+	// the native menu.
 	const onPointerDown = useCallback((event: PointerEvent) => {
-		pointerTypeRef.current = event.pointerType;
-	}, []);
-
-	// A press that lifts without raising a menu disarms suppression, so a later
-	// keyboard-invoked menu can't inherit its pointer type. Not cleared on
-	// pointercancel: on Android the browser (and react-aria's own long-press
-	// timer) can fire pointercancel before the long-press contextmenu, which
-	// would race the suppression away.
-	const onPointerUp = useCallback(() => {
-		pointerTypeRef.current = "";
-	}, []);
-
-	const onContextMenu = useCallback((event: { preventDefault: () => void }) => {
-		// Consume the armed pointer type. A keyboard-invoked menu (Context-Menu
-		// key / Shift+F10) fires no pointerdown, so without spending the type on
-		// use it would inherit the last touch press's and be wrongly suppressed.
-		const pointerType = pointerTypeRef.current;
-		pointerTypeRef.current = "";
-		if (pointerType === "touch" || pointerType === "pen") {
-			event.preventDefault();
-		}
+		if (event.pointerType !== "touch" && event.pointerType !== "pen") return;
+		arm();
 	}, []);
 
 	return {
-		longPressProps: mergeProps(longPressProps, {
-			onPointerDown,
-			onPointerUp,
-			onContextMenu,
-		}),
+		longPressProps: mergeProps(longPressProps, { onPointerDown }),
 	};
 }

@@ -1,10 +1,12 @@
 import { X } from "lucide-react";
+import type { ReactNode } from "react";
 import { Button } from "./button.js";
 import { FilterSheet, type FilterSheetProps } from "./filter-sheet.js";
 import { SearchBar } from "./search-bar.js";
-import type { SearchChip } from "./search-chip-input.js";
+import type { SearchChip, SearchFieldSuggest } from "./search-chip-input.js";
 import type { SearchResult } from "./search-result-row.js";
 import {
+	type MakeFilterActionProps,
 	type SearchResultSection,
 	SearchResults,
 	type SearchScope,
@@ -22,8 +24,10 @@ export interface MobileSearchViewProps {
 	onCancel: () => void;
 	/**
 	 * The shared FilterSheet config (categories + Unread/Flagged/attachment, plus
-	 * the brief-only account source row). Feed it `briefFilterConfig(accounts)` or
-	 * `inboxFilterConfig()` from `filter-presets`. Omit to drop the filter chrome.
+	 * the brief-only account source row), shown over the recent searches while the
+	 * field is empty. Feed it `briefFilterConfig(accounts)` or `inboxFilterConfig()`
+	 * from `filter-presets`. Omit to drop the filter chrome. A query supersedes it —
+	 * see the component doc.
 	 */
 	filter?: Omit<FilterSheetProps, "children">;
 	/** Recent searches shown when the query is empty. */
@@ -47,7 +51,16 @@ export interface MobileSearchViewProps {
 	/** What the search covers; see `SearchResultsProps`. Defaults to global. */
 	scope?: SearchScope;
 	/** "Make this a filter" affordance; see `SearchResultsProps`. */
-	makeFilter?: { onClick: () => void; disabledReason?: string };
+	makeFilter?: MakeFilterActionProps;
+	/** Completions for what is being typed; see `SearchChipInput`. */
+	suggest?: SearchFieldSuggest;
+	/**
+	 * The suggestion list itself, rendered directly under the field and above
+	 * the results. In flow rather than over them: on a phone the soft keyboard
+	 * takes the lower half of the screen, and a list floating over the field
+	 * would hide the query it is completing.
+	 */
+	suggestList?: ReactNode;
 }
 
 /**
@@ -57,9 +70,17 @@ export interface MobileSearchViewProps {
  * there is exactly one X). Below the bar the shared `SearchResults` body rides
  * inside the shared `FilterSheet` (the
  * same categories, Unread/Flagged/attachment toggles, and brief-only account row
- * the inboxes use) so search carries identical filters; pass no `filter` to drop
- * the chrome. Desktop reuses the same `SearchResults` body in the list pane.
- * Presentational and prop-driven.
+ * the inboxes use); pass no `filter` to drop the chrome. Desktop reuses the same
+ * `SearchResults` body in the list pane. Presentational and prop-driven.
+ *
+ * A query supersedes the filter row. The two narrow the same list by the same
+ * intent, and the row and the search's own "Make this a filter" affordance sit in
+ * the same place, so the filter chrome belongs to the empty field: it covers the
+ * recent searches, and the moment something is typed the results and their
+ * affordance take the space. Clearing the field brings it back.
+ *
+ * Completions for what is being typed sit between the field and the body, so
+ * the list takes its own space rather than covering either of them.
  *
  * Search scope passes straight through, so the phone tier holds spam out,
  * offers it and labels provenance on exactly the same terms as desktop.
@@ -80,6 +101,8 @@ export function MobileSearchView({
 	onRemoveChip,
 	scope,
 	makeFilter,
+	suggest,
+	suggestList,
 }: MobileSearchViewProps) {
 	const body = (
 		<SearchResults
@@ -107,6 +130,7 @@ export function MobileSearchView({
 						onRemoveChip={onRemoveChip}
 						globalFocusKey={false}
 						showClearButton={false}
+						suggest={suggest}
 					/>
 				</div>
 				<Button
@@ -119,7 +143,9 @@ export function MobileSearchView({
 				/>
 			</header>
 
-			{filter ? (
+			{suggestList}
+
+			{filter && value.trim().length === 0 ? (
 				<FilterSheet {...filter}>{body}</FilterSheet>
 			) : (
 				<div className="flex-1 overflow-y-auto">{body}</div>

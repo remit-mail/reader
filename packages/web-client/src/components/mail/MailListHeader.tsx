@@ -11,8 +11,19 @@
  * On phone the magnifier opens a full-screen `MobileSearchView` takeover instead
  * of expanding over the title; tablet and desktop keep the inline header search
  * and, once a query is present, swap the list-pane body to the same kit
- * `SearchResults` sections under the shared `FilterSheet`. Consumers feed the
- * filter chrome and query-narrowed results; both tiers render identical rows.
+ * `SearchResults` sections. Consumers feed the filter chrome and query-narrowed
+ * results; both tiers render identical rows.
+ *
+ * The field offers what the search API can be told: token names for a bare word,
+ * that token's values once its name is committed. The list sits under the field
+ * on both tiers, in flow, so it takes its own space instead of covering the
+ * query it completes.
+ *
+ * An active query owns the pane. The filter chrome is not rendered while one is
+ * present — the two narrow the same list by the same intent and would sit in the
+ * same place — and its place is taken by `MakeFilterAction`, which the pane mounts
+ * itself so it is there for every search on every view, whichever body is showing
+ * the results.
  *
  * Results split into two sections, one per engine: literal/instant and semantic.
  * The consumer dedupes them — a thread in both appears only under the literal
@@ -28,20 +39,33 @@
  * `resultsScopeForRoute` and `lib/spam-offer.ts`.
  */
 import {
-	FilterSheet,
 	type FilterSheetProps,
 	MailHeader,
+	MakeFilterAction,
 	MobileSearchView,
+	type SearchCaretRequest,
+	type SearchFieldSuggest,
 	type SearchResult,
 	type SearchResultSection,
 	SearchResults,
 	type SearchScope,
+	type Suggestion,
+	SuggestList,
 	useAppShellLayout,
+	useSuggestList,
 } from "@remit/ui";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import {
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { isSinglePaneTier, useLayoutTier } from "@/hooks/useLayoutTier";
 import { useSearchScope } from "@/hooks/useSearchScope";
+import { useSearchSuggestions } from "@/hooks/useSearchSuggestions";
 import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
 import { useMailContext } from "@/lib/mail-context";
 import {
@@ -50,6 +74,7 @@ import {
 } from "@/lib/organize/search-to-rule";
 import { loadRecentSearches, saveRecentSearch } from "@/lib/recent-searches";
 import { resultsScopeForRoute, routeMailboxId } from "@/lib/search-scope";
+import { applySearchSuggestion } from "@/lib/search-suggestions";
 import { showInlineSearchResults } from "@/lib/search-surface";
 import {
 	parseSearchTokens,
@@ -59,11 +84,22 @@ import {
 import { spamOfferForResults } from "@/lib/spam-offer";
 import { SearchFilterDialog } from "./organize/SearchFilterDialog";
 
-interface MailListHeaderProps {
+export interface MailListHeaderProps {
 	title: string;
 	unreadCount: number;
 	/** The list body (filter sheet / sections / virtualized rows). */
 	children: ReactNode;
+	/**
+	 * Replaces the header for as long as a selection is active — the same slot
+	 * contract the kit `MessageListPane` gives the mailbox list, so every list
+	 * puts its bulk-action bar in the same place.
+	 */
+	selectionBar?: ReactNode;
+	/**
+	 * Overlay anchored to the bottom of the pane (the mobile selection sheet).
+	 * The pane is the positioned ancestor the sheet measures against.
+	 */
+	selectionSheet?: ReactNode;
 	/** Pinned below the scrollable list (e.g. the keyboard hint bar). */
 	footer?: ReactNode;
 	/** Filter chrome for the phone search takeover. Omit to drop the filter row. */
@@ -99,6 +135,8 @@ export function MailListHeader({
 	title,
 	unreadCount,
 	children,
+	selectionBar,
+	selectionSheet,
 	footer,
 	searchFilter,
 	searchResults,
@@ -136,6 +174,68 @@ export function MailListHeader({
 		searchViewRef.current = searchViewKey;
 		setSearchOpen(false);
 	}, [searchViewKey]);
+
+	// What the box offers for the term being typed. The field says where the
+	// caret is; the caret decides whether the offer is a token name or one
+	// token's values, and picking one replaces that term and leaves the caret
+	// ready for the next. Typing always wins — the list only ever inserts, and a
+	// term it has nothing for leaves the field the plain text box it is.
+	//
+	// An empty field belongs to the recent searches and the filter row, as it
+	// does everywhere else in this pane, so the offer starts with the first
+	// character typed. The caret on the whitespace after a finished token is a
+	// term of its own, which is where the whole vocabulary is offered again.
+	const [caretPosition, setCaretPosition] = useState(0);
+	const [fieldFocused, setFieldFocused] = useState(false);
+	const [caretRequest, setCaretRequest] = useState<
+		SearchCaretRequest | undefined
+	>(undefined);
+	const suggestions = useSearchSuggestions({
+		query: searchInput,
+		cursor: caretPosition,
+		enabled: fieldFocused && searchInput.trim().length > 0,
+	});
+	const applySuggestion = useCallback(
+		(suggestion: Suggestion) => {
+			const applied = applySearchSuggestion(
+				searchInput,
+				caretPosition,
+				suggestion,
+			);
+			onSearchChange(applied.query);
+			setCaretRequest({ cursor: applied.cursor });
+		},
+		[searchInput, caretPosition, onSearchChange],
+	);
+	const suggest = useSuggestList({
+		count: suggestions.length,
+		onAccept: (index) => {
+			const suggestion = suggestions[index];
+			if (suggestion) applySuggestion(suggestion);
+		},
+	});
+	const searchSuggest: SearchFieldSuggest = {
+		comboboxProps: suggest.comboboxProps,
+		onKeyDown: suggest.handleKeyDown,
+		onCaretChange: setCaretPosition,
+		onFocusChange: setFieldFocused,
+		...(caretRequest ? { caret: caretRequest } : {}),
+	};
+	// Under the field and in flow, on both tiers: a phone's soft keyboard owns
+	// the lower half of the screen, and a list floating over the field would
+	// cover the query it is completing.
+	const suggestList = suggest.open ? (
+		<SuggestList
+			id={suggest.listId}
+			suggestions={suggestions}
+			activeIndex={suggest.activeIndex}
+			optionId={suggest.optionId}
+			onPick={applySuggestion}
+			onHighlight={suggest.setActiveIndex}
+			label="Search suggestions"
+			className="mx-row-inset mt-1 shrink-0"
+		/>
+	) : null;
 
 	const hasQuery = searchInput.trim().length > 0;
 	// Filter tokens (`from:`, `has:attachment`, `account:`, …) parsed live from
@@ -212,9 +312,19 @@ export function MailListHeader({
 	// an `account:` facet names, else the primary account. The literal filter
 	// cannot reproduce the search's semantic reach, so the conversion states it
 	// whenever the search surfaced a "Related" section — a direct signal, read
-	// here from the semantic results, never a capability probe. Offered whenever a
-	// query is active, disabled with a reason when the search has no clause to
-	// filter on (only non-clause facets, or a bare folder scope).
+	// here from the semantic results, never a capability probe. Disabled with a
+	// reason when the search has no clause to filter on (only non-clause facets,
+	// or a bare folder scope).
+	//
+	// It belongs to the search, not to any one way of showing it. The affordance
+	// therefore sits in the pane, above whichever body is up — the read-only
+	// results panel, or a list whose own rows narrow to the committed query — and
+	// is mounted on the same condition as the query itself. Rendering it inside the
+	// results panel made it a mailbox's flash: the panel shows while the query is
+	// being typed and hands back to `MessageList` the moment the query commits to
+	// the URL, taking the affordance down with it a few hundred milliseconds after
+	// it appeared, and leaving the brief (which keeps the panel for any query) as
+	// the only place it survived.
 	const accountToken = parsed.tokens.find((token) => token.type === "account");
 	const targetAccountId = accountToken?.accountId ?? accounts[0]?.accountId;
 	const searchHadSemanticReach = related.length > 0;
@@ -229,6 +339,10 @@ export function MailListHeader({
 						: "Add a sender or words to filter on",
 				}
 			: undefined;
+	// A selection replaces the header with its bulk-action bar and owns the pane;
+	// the search affordance stands down until the selection clears.
+	const makeFilterAction =
+		makeFilter && !selectionBar ? <MakeFilterAction {...makeFilter} /> : null;
 	const filterDialog =
 		filterOpen && targetAccountId ? (
 			<SearchFilterDialog
@@ -265,6 +379,8 @@ export function MailListHeader({
 					onSelectResult={handleSelectResult}
 					tokens={tokenChips}
 					scope={resultsScope}
+					suggest={searchSuggest}
+					suggestList={suggestList}
 				/>
 				{filterDialog}
 			</>
@@ -296,41 +412,46 @@ export function MailListHeader({
 			onSelectResult={handleSelectInlineResult}
 			tokens={tokenChips}
 			scope={resultsScope}
-			makeFilter={makeFilter}
 		/>
 	);
-	const body = !showInlineResults ? (
-		children
-	) : searchFilter ? (
-		<FilterSheet {...searchFilter}>{results}</FilterSheet>
-	) : (
+	// The filter chrome is not rendered while a query is active — see `makeFilter`
+	// above — so the results panel gets the plain scroll container either way.
+	const body = showInlineResults ? (
 		<div className="h-full overflow-y-auto">{results}</div>
+	) : (
+		children
 	);
 
 	return (
-		<section className="flex h-full w-full flex-col bg-surface">
-			<MailHeader
-				title={title}
-				unreadCount={unreadCount}
-				// Desktop mounts the app top bar, which owns search for the whole
-				// shell — the list header shows no field there, so the page never
-				// has two search inputs competing for "/" and for focus. Below
-				// desktop the header keeps a compact magnifier: on phone it opens
-				// the full-screen takeover above, on tablet it expands over the
-				// title. `isSinglePaneTier` is the same predicate the shell gates
-				// the top bar on, so the two cannot drift into zero or two fields.
-				isDesktop={false}
-				showSearch={isSinglePaneTier(tier)}
-				onMenuClick={() => layout?.openNav()}
-				searchValue={searchInput}
-				onSearchChange={onSearchChange}
-				onSearchClear={onSearchClear}
-				searchOpen={searchOpen}
-				onSearchOpenChange={setSearchOpen}
-			/>
+		<section className="relative flex h-full w-full flex-col bg-surface">
+			{selectionBar ?? (
+				<MailHeader
+					title={title}
+					unreadCount={unreadCount}
+					// Desktop mounts the app top bar, which owns search for the whole
+					// shell — the list header shows no field there, so the page never
+					// has two search inputs competing for "/" and for focus. Below
+					// desktop the header keeps a compact magnifier: on phone it opens
+					// the full-screen takeover above, on tablet it expands over the
+					// title. `isSinglePaneTier` is the same predicate the shell gates
+					// the top bar on, so the two cannot drift into zero or two fields.
+					isDesktop={false}
+					showSearch={isSinglePaneTier(tier)}
+					onMenuClick={() => layout?.openNav()}
+					searchValue={searchInput}
+					onSearchChange={onSearchChange}
+					onSearchClear={onSearchClear}
+					searchOpen={searchOpen}
+					onSearchOpenChange={setSearchOpen}
+					searchSuggest={searchSuggest}
+				/>
+			)}
+			{suggestList}
+			{makeFilterAction}
 			<div className="min-h-0 flex-1">{body}</div>
 			{footer}
 			{filterDialog}
+			{selectionSheet}
 		</section>
 	);
 }

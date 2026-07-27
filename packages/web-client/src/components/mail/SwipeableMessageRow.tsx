@@ -11,6 +11,7 @@ import type { SelectionModifiers } from "@/hooks/useSelection";
 import { toDisplayCategory } from "@/lib/display-category";
 import { formatEmailDate } from "@/lib/format";
 import { MessageListItem } from "./MessageListItem";
+import { useModifierSelect } from "./useModifierSelect";
 
 interface MailboxLinkSearch {
 	selectedMessageId?: string;
@@ -20,8 +21,6 @@ interface MailboxLinkSearch {
 interface SwipeableMessageRowProps {
 	thread: RemitImapThreadMessageResponse;
 	mailboxId: string;
-	/** Owning account, forwarded to `MessageListItem` for the auto-moved badge's undo action. */
-	accountId?: string;
 	isSelected: boolean;
 	/** Roving keyboard focus cursor — renders the left accent rail (#429). */
 	isFocused?: boolean;
@@ -46,7 +45,7 @@ const toThreadRowData = (
 	const suspicious = thread.authenticity?.dkimMismatch === true;
 	return {
 		id: thread.messageId,
-		accountId: thread.accountConfigId,
+		accountId: thread.accountId,
 		fromName: thread.fromName ?? thread.fromEmail ?? "Unknown",
 		fromEmail: thread.fromEmail ?? "",
 		subject: thread.subject ?? "(No subject)",
@@ -64,7 +63,6 @@ const toThreadRowData = (
 export const SwipeableMessageRow = ({
 	thread,
 	mailboxId,
-	accountId,
 	isSelected,
 	isFocused,
 	isTabStop,
@@ -102,12 +100,16 @@ export const SwipeableMessageRow = ({
 		onToggleCheck(thread.messageId);
 	}, [onToggleCheck, thread.messageId]);
 
+	// The swipe row is the layout tier's row, not the input device's: a mouse at
+	// a narrow width still gets it, and a shift or cmd click on it belongs to
+	// selection rather than to the anchor's own new-window/new-tab gesture.
+	const modifierSelect = useModifierSelect(thread.messageId, onRowSelect);
+
 	if (isDesktop || isMultiSelectMode) {
 		return (
 			<MessageListItem
 				thread={thread}
 				mailboxId={mailboxId}
-				accountId={accountId}
 				isSelected={isSelected}
 				isFocused={isFocused}
 				isTabStop={isTabStop}
@@ -145,7 +147,12 @@ export const SwipeableMessageRow = ({
 						selectedMessageId: thread.messageId,
 					})}
 					data-message-row
-					onClick={onOpenClick}
+					onMouseDown={modifierSelect.onMouseDown}
+					onContextMenu={modifierSelect.onContextMenu}
+					onClick={(e) => {
+						if (modifierSelect.claimClick(e)) return;
+						onOpenClick(e);
+					}}
 				>
 					{children}
 				</Link>

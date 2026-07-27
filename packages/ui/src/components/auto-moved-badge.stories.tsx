@@ -10,14 +10,9 @@ export default meta;
 
 type Story = StoryObj<typeof AutoMovedBadge>;
 
-export const ListRow: Story = {
-	args: { label: "Moved from Junk by Remit", size: "sm" },
-};
-
-export const ReadingViewWithUndo: Story = {
+export const WithUndo: Story = {
 	args: {
 		label: "Moved from Junk by Remit",
-		size: "md",
 		onUndo: () => alert("Undo"),
 	},
 };
@@ -25,45 +20,32 @@ export const ReadingViewWithUndo: Story = {
 export const MovedToJunk: Story = {
 	args: {
 		label: "Moved from Inbox by Remit",
-		size: "md",
 		onUndo: () => alert("Undo"),
 	},
 };
 
 export const WithoutUndoAction: Story = {
-	args: { label: "Moved from Junk by Remit", size: "md" },
+	args: { label: "Moved from Junk by Remit" },
 };
 
 export const FilterMoveWithManageLink: Story = {
 	args: {
 		label: "Moved from Inbox by Remit",
-		size: "md",
 		onUndo: () => alert("Undo"),
 		filtersHref: "/settings/filters",
-	},
-};
-
-export const FilterMoveListRow: Story = {
-	// The list row is icon + label only — the app gates the Manage link (and
-	// Undo) to the reading-view `md` size, so no `filtersHref` here.
-	args: {
-		label: "Moved from Inbox by Remit",
-		size: "sm",
 	},
 };
 
 export const SideBySide: Story = {
 	render: () => (
 		<div className="flex flex-col items-start gap-3">
-			<AutoMovedBadge label="Moved from Junk by Remit" size="sm" />
+			<AutoMovedBadge label="Moved from Junk by Remit" />
 			<AutoMovedBadge
 				label="Moved from Junk by Remit"
-				size="md"
 				onUndo={() => undefined}
 			/>
 			<AutoMovedBadge
 				label="Moved from Inbox by Remit"
-				size="md"
 				onUndo={() => undefined}
 				filtersHref="/settings/filters"
 			/>

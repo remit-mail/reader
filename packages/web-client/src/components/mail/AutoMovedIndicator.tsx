@@ -8,15 +8,15 @@ interface AutoMovedIndicatorProps {
 	threadId: string;
 	mailboxId: string;
 	autoMoved: RemitImapAutoMovedInfo | undefined;
-	/** `md` (reading view) adds the inline actions (Undo, and the Manage-filter link for a filter move); `sm` (list row) shows the icon + label. */
-	size?: "sm" | "md";
 }
 
 /**
- * Renders the "auto-moved by Remit" badge only while the move is still in
- * effect (current mailbox matches the verdict's implied destination) — see
- * `useAutoMovedBadge`. Mount this only when `autoMoved` is present on the row
- * (callers gate with `thread.autoMoved &&`) so rows without a move never pay
+ * Renders the "auto-moved by Remit" badge on the open message only while the
+ * move is still in effect (current mailbox matches the verdict's implied
+ * destination) — see `useAutoMovedBadge`. Mailbox list rows deliberately do not
+ * show it: there the move is noise, and here it carries the Undo and
+ * Manage-filter actions. Mount this only when `autoMoved` is present (callers
+ * gate with `threadMessage.autoMoved &&`) so messages without a move never pay
  * for the Inbox/Junk mailbox lookups.
  */
 export function AutoMovedIndicator({
@@ -25,7 +25,6 @@ export function AutoMovedIndicator({
 	threadId,
 	mailboxId,
 	autoMoved,
-	size = "sm",
 }: AutoMovedIndicatorProps) {
 	const badge = useAutoMovedBadge({
 		accountId,
@@ -40,10 +39,9 @@ export function AutoMovedIndicator({
 	return (
 		<AutoMovedBadge
 			label={badge.label}
-			size={size}
 			onUndo={badge.onUndo}
 			undoLabel={badge.isUndoing ? "Undoing…" : "Undo"}
-			filtersHref={size === "md" ? badge.filtersHref : undefined}
+			filtersHref={badge.filtersHref}
 		/>
 	);
 }

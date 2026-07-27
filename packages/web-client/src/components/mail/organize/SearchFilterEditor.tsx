@@ -34,8 +34,14 @@ interface SearchFilterEditorProps {
 	accountId: string;
 	/** The converted search — its clauses seed the rule, its drops seed the notice. */
 	conversion: SearchConversion;
-	/** The converted literal predicate's live count, seeding the editor without a re-fetch. */
-	seedCount: number;
+	/**
+	 * The converted literal predicate's live count, seeding the editor without a
+	 * re-fetch. Absent when the predicate is one the vector-free matcher refuses —
+	 * a `HasWords` clause from the search's free text — in which case the count
+	 * region says so and the one-time apply is held; saving it as a standing rule
+	 * still works, since the index-time matcher does read message bodies.
+	 */
+	seedCount?: number;
 	onClose: () => void;
 }
 

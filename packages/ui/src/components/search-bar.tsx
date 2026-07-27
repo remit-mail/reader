@@ -2,6 +2,7 @@ import {
 	type SearchChip,
 	SearchChipInput,
 	type SearchChipInputProps,
+	type SearchFieldSuggest,
 } from "./search-chip-input.js";
 
 export type { SearchChip };
@@ -46,6 +47,12 @@ export interface SearchBarProps {
 	 * enclosing label.
 	 */
 	inputId?: string;
+	/**
+	 * Completions for what is being typed; see `SearchChipInput`. The host
+	 * renders the list under the field, so the field itself takes only the
+	 * caret, the keys and the ARIA.
+	 */
+	suggest?: SearchFieldSuggest;
 	className?: string;
 }
 
@@ -67,6 +74,7 @@ export const SearchBar = ({
 	showClearButton = true,
 	size,
 	inputId,
+	suggest,
 	className,
 }: SearchBarProps) => (
 	<SearchChipInput
@@ -81,6 +89,7 @@ export const SearchBar = ({
 		showClearButton={showClearButton}
 		size={size}
 		inputId={inputId}
+		suggest={suggest}
 		className={className}
 	/>
 );

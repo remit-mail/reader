@@ -38,6 +38,7 @@ import { MailViewChrome } from "./MailViewChrome";
 import type { MessageListCommands } from "./MessageList";
 import { MessageRow } from "./MessageRow";
 import {
+	type OpenMessageOptions,
 	ThreadListInteraction,
 	ThreadListSelectionBar,
 } from "./ThreadListInteraction";
@@ -49,7 +50,7 @@ const FILTER_PREDICATES: Record<string, (t: ThreadRowData) => boolean> = {
 
 interface FlaggedListProps {
 	selectedMessageId?: string;
-	onSelectMessage?: (id: string) => void;
+	onSelectMessage?: (id: string, options?: OpenMessageOptions) => void;
 	/** Where the list publishes the commands the keyboard layer drives. */
 	commandsRef?: RefObject<MessageListCommands | null>;
 	/** Cursor / selection / display order, reported up to the triage layer. */
@@ -148,7 +149,7 @@ export function FlaggedList({
 	const listBody = (
 		<ThreadListInteraction
 			selectedMessageId={selectedMessageId}
-			onOpen={(id) => onSelectMessage?.(id)}
+			onOpen={(id, options) => onSelectMessage?.(id, options)}
 			onDeleteMessages={onDeleteMessages}
 			commandsRef={commandsRef}
 			onTriageContextChange={onTriageContextChange}

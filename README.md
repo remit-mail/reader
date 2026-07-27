@@ -64,11 +64,20 @@ npm run build --workspaces --if-present
 npm test --workspaces --if-present
 ```
 
-A local development stack (the app plus its queue) runs with Docker Compose:
+A local development stack runs the whole app from the worktree — SQLite, the
+queue, the migrator, the backend, the mail workers, the search indexer and the
+web client:
 
 ```
-docker compose -f docker-compose.localhost-dev-generic.yml up
+npm run dev:sqlite         # start
+npm run dev:sqlite:logs    # tail every service
+npm run dev:sqlite:down    # stop
 ```
+
+It is the shape a real install runs, so what you develop against is what ships.
+Open the URL it serves on 4123, sign up, then add your own mailbox from
+**Settings -> Add account**. State lives under `.remit/dev-sqlite`; deleting
+that directory resets the stack.
 
 ## How it fits together
 
@@ -76,8 +85,8 @@ Reader talks to your mailbox over IMAP and SMTP. A small set of queue workers
 sync mail, push flag and folder changes back, send outgoing mail, and build the
 search index. All relational state — messages, accounts, identities — lives in
 SQLite; message bodies are cached on disk and can always be re-synced from IMAP.
-The queue is an SQS-compatible seam served locally by ElasticMQ, so nothing here
-depends on any cloud provider.
+The queue is an SQS-compatible seam served by a SQLite-backed sidecar, so
+nothing here depends on any cloud provider.
 
 ## License
 

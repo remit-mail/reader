@@ -34,6 +34,13 @@ interface UseListCursorOptions {
 export interface ListCursor {
 	focusedMessageId: string | undefined;
 	setFocusedMessageId: (id: string | undefined) => void;
+	/**
+	 * The row a keyboard command last moved the cursor onto, and `undefined`
+	 * whenever the cursor last moved some other way. Drives the reading pane
+	 * following the cursor (`useFollowFocusOpen`) — a click and Enter open on
+	 * their own, so only a bare cursor move is left to follow.
+	 */
+	keyboardFocusedMessageId: string | undefined;
 	focusIndex: number;
 	pendingDomFocusRef: React.RefObject<string | null>;
 	cursorMovedByPointerRef: React.RefObject<boolean>;
@@ -67,12 +74,31 @@ export const useListCursor = ({
 	onExitSelection,
 }: UseListCursorOptions): ListCursor => {
 	// The keyboard "where am I" pointer, distinct from the open thread
-	// (`selectedMessageId` in the URL). j/k move this cursor without opening;
-	// Enter opens the focused row. It seeds from the open thread so opening a
+	// (`selectedMessageId` in the URL). j/k move this cursor; Enter opens the
+	// focused row, and on desktop the reading pane follows the cursor of its own
+	// accord (`useFollowFocusOpen`). It seeds from the open thread so opening a
 	// message also focuses its row.
-	const [focusedMessageId, setFocusedMessageId] = useState<string | undefined>(
+	const [focusedMessageId, setFocusedId] = useState<string | undefined>(
 		initialFocusedId,
 	);
+
+	// Which of those moves came from a keyboard command, so the reading pane can
+	// follow the cursor without following a click that already opened its own row.
+	const [keyboardFocusedMessageId, setKeyboardFocusedMessageId] = useState<
+		string | undefined
+	>();
+
+	// Every non-keyboard move — a click, Tab, a thread opening, a refetch snapping
+	// the cursor to a survivor — drops the keyboard mark, so nothing follows it.
+	// A row taking DOM focus as the *consequence* of a keyboard move arrives here
+	// with the id that move just set; keeping the mark in that case is what stops
+	// the browser's own focus event from cancelling the load the move started.
+	const setFocusedMessageId = useCallback((id: string | undefined) => {
+		setKeyboardFocusedMessageId((current) =>
+			current === id ? current : undefined,
+		);
+		setFocusedId(id);
+	}, []);
 
 	const selection = useSelection();
 	const {
@@ -122,7 +148,8 @@ export const useListCursor = ({
 			}
 			pendingDomFocusRef.current = messageId;
 			cursorMovedByPointerRef.current = false;
-			setFocusedMessageId(messageId);
+			setKeyboardFocusedMessageId(messageId);
+			setFocusedId(messageId);
 		},
 		[orderedIds, isMultiSelectMode, toggleCheck],
 	);
@@ -191,7 +218,10 @@ export const useListCursor = ({
 			selectRange(orderedIds, target);
 			pendingDomFocusRef.current = target;
 			cursorMovedByPointerRef.current = false;
-			setFocusedMessageId(target);
+			// Shift+arrow is building a range, not reading. The reading pane stays on
+			// whatever is open rather than chasing the growing edge of the selection.
+			setKeyboardFocusedMessageId(undefined);
+			setFocusedId(target);
 		},
 		[orderedIds, focusedMessageId, selectRange],
 	);
@@ -206,6 +236,7 @@ export const useListCursor = ({
 	return {
 		focusedMessageId,
 		setFocusedMessageId,
+		keyboardFocusedMessageId,
 		focusIndex,
 		pendingDomFocusRef,
 		cursorMovedByPointerRef,

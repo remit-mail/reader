@@ -7,6 +7,7 @@ import { Card, CardBody, CardHeader, CardTitle } from "./card.js";
 import { FieldLabel } from "./field-label.js";
 import { Input } from "./input.js";
 import { ListItem } from "./list-item.js";
+import { PasswordInput } from "./password-input.js";
 import { SecuritySelect } from "./security-select.js";
 import { Select } from "./select.js";
 
@@ -70,6 +71,33 @@ export const Inputs: Story = {
 		<div className="max-w-sm space-y-3 p-8">
 			<Input placeholder="Plain input" />
 			<Input icon={<Search className="size-4" />} placeholder="Search mail" />
+		</div>
+	),
+};
+
+export const PasswordInputs: Story = {
+	render: () => (
+		<div className="max-w-sm space-y-3 p-8">
+			<div>
+				<FieldLabel htmlFor="pw-empty">Password</FieldLabel>
+				<PasswordInput
+					id="pw-empty"
+					autoComplete="current-password"
+					placeholder="Your password"
+				/>
+			</div>
+			<div>
+				<FieldLabel htmlFor="pw-filled">Password or app password</FieldLabel>
+				<PasswordInput
+					id="pw-filled"
+					autoComplete="current-password"
+					defaultValue="hunter2-app-password"
+				/>
+			</div>
+			<p className="text-xs text-fg-subtle">
+				The toggle starts hidden. Its hit area is 44px square and sits beside
+				the value, never over it.
+			</p>
 		</div>
 	),
 };

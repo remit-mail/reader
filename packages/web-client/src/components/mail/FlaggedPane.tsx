@@ -35,6 +35,7 @@ import { ConversationView } from "@/components/mail/ConversationView";
 import { FlaggedList } from "@/components/mail/FlaggedList";
 import { IntelligencePane } from "@/components/mail/IntelligencePane";
 import { MessageToolbar } from "@/components/mail/MessageToolbar";
+import type { OpenMessageOptions } from "@/components/mail/ThreadListInteraction";
 import { useDeleteMessages } from "@/hooks/useDeleteMessages";
 import { useToggleReadFor } from "@/hooks/useMarkAsRead";
 import { useStarredThreads } from "@/hooks/useStarredThreads";
@@ -53,7 +54,7 @@ import { useMailContext } from "@/lib/mail-context";
 interface FlaggedPaneContextValue {
 	selectedMessageId: string | undefined;
 	selectedThread: RemitImapThreadMessageResponse | undefined;
-	onSelectMessage: (id: string) => void;
+	onSelectMessage: (id: string, options?: OpenMessageOptions) => void;
 	onCloseThread: () => void;
 	/**
 	 * Toolbar verbs for the open thread, keyed by the thread's own mailbox and
@@ -99,10 +100,11 @@ function FlaggedPaneProvider({
 	}, [threads, selectedMessageId]);
 
 	const handleSelectMessage = useCallback(
-		(id: string) => {
+		(id: string, options?: OpenMessageOptions) => {
 			navigate({
 				to: "/mail/flagged",
 				search: (prev) => ({ ...prev, selectedMessageId: id }),
+				replace: options?.replace,
 			});
 		},
 		[navigate],

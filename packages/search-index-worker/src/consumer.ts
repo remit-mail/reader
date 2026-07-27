@@ -50,10 +50,9 @@ export interface SqsConsumerConfig {
  * via `processBatch` (a batch of one) — the same per-message logic the AWS
  * Lambda handler runs, reused so the two deployment shapes (Lambda event
  * source mapping vs. a long-running container/pm2 process) share one
- * indexing implementation. Used by the Postgres-parity stack, where the
- * search-index queue has no Lambda event source; `remit-pg-index-worker`
- * only relays committed outbox events onto this queue (the producer side —
- * see its `worker.ts`), it does not consume them.
+ * indexing implementation. Used by the self-host stack, where the search-index
+ * queue has no Lambda event source: the outbox drain relays committed events
+ * onto this queue (the producer side) and this consumer takes them off it.
  *
  * A message is deleted only when `processBatch` reports no failure for it;
  * a failure leaves it on the queue so its visibility timeout lapses and SQS

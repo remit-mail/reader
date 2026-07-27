@@ -7,6 +7,8 @@
  * Naming tracks the RFC: rule, clause, widen, scope.
  */
 
+import type { Suggestion } from "./suggest-list.js";
+
 /**
  * The clause fields (RFC 038 D2). `From`, `Subject`, `HasWords` ship now;
  * `ListId` and `FromDomain` arrive with the vocabulary ticket. Every variant
@@ -33,6 +35,35 @@ export interface RuleClause {
 
 /** How the clauses combine. Maps to the API's `And` / `Or`. */
 export type MatchOperator = "all" | "any";
+
+/**
+ * What the rule matches on (RFC 038 D2/D3). `similar` rides the semantic widen
+ * off the messages the rule was started from; `properties` uses literal clauses
+ * only — sender, subject, list — and needs no vector pipeline at all. A surface
+ * that offers both opens on `similar` wherever the deployment can serve it.
+ */
+export type RuleMatchMode = "similar" | "properties";
+
+const matchModeLabels: Record<RuleMatchMode, string> = {
+	similar: "Anything similar",
+	properties: "Its properties",
+};
+
+export function matchModeLabel(mode: RuleMatchMode): string {
+	return matchModeLabels[mode];
+}
+
+const matchModeHints: Record<RuleMatchMode, string> = {
+	similar: "Reads the messages you picked and finds more that read like them.",
+	properties:
+		"Matches on what the messages say about themselves — sender, subject, list. No reading involved.",
+};
+
+/** One line saying what a match mode actually does, so the choice is never a
+ *  guess (ux.md). */
+export function matchModeHint(mode: RuleMatchMode): string {
+	return matchModeHints[mode];
+}
 
 /**
  * When the rule stops (RFC 038 D1). `once` is a one-time action, `standing`
@@ -124,6 +155,36 @@ export function clauseFieldHint(field: ClauseField): string | undefined {
 	return clauseFieldHints[field];
 }
 
+/**
+ * Whether a clause field matches on message body text, which only the live
+ * index-time filter and the semantic widen can read.
+ *
+ * The vector-free matcher serves `From`/`Subject` from the core thread rows and
+ * carries no faithful body, so it rejects a body-text clause outright rather
+ * than narrowing the match silently (`assertNoBodyContentClause`,
+ * backend/service/organize.ts). A rule with no active widen therefore cannot be
+ * counted or applied one-time with such a clause in it — it can only be a
+ * standing rule, where the index-time matcher reads the whole body.
+ */
+export function matchesBodyText(field: ClauseField): boolean {
+	return field === "HasWords";
+}
+
+/** Whether the rule's semantic widen is present and evaluable. */
+export function hasActiveWiden(rule: FilterRule): boolean {
+	return rule.widen !== undefined && !rule.widen.inactive;
+}
+
+/**
+ * The rule's body-text clauses that nothing on its current match path can read
+ * — a `HasWords` chip with no active widen behind it. Empty for every rule the
+ * literal matcher can evaluate.
+ */
+export function unreadableBodyClauses(rule: FilterRule): RuleClause[] {
+	if (hasActiveWiden(rule)) return [];
+	return rule.clauses.filter((clause) => matchesBodyText(clause.field));
+}
+
 /** The fields a new clause can be added as, in menu order. */
 export const clauseFieldOrder: ClauseField[] = [
 	"From",
@@ -198,6 +259,11 @@ export function commitBlockedReason(
 		rule.clauses.length > 0 ||
 		(rule.widen !== undefined && !rule.widen.inactive);
 	if (!hasMatch) return "Add a clause so the rule has something to match.";
+	// A one-time apply runs the vector-free matcher, which cannot read message
+	// bodies. Saved as a rule the same clause works, so say that rather than
+	// refusing the clause outright.
+	if (rule.scope === "once" && unreadableBodyClauses(rule).length > 0)
+		return "Applying once can't read message bodies. Save this as a rule instead, or drop the “has the words” clause.";
 	if (!rule.moveMailboxId && !rule.labelId)
 		return "Pick a folder to move into, or a label to apply.";
 	if (
@@ -252,6 +318,20 @@ export const demoVocabularyRule: FilterRule = {
 	name: "Python lists",
 };
 
+/**
+ * The properties mode's opening rule when the selection's senders differ: the
+ * part their subjects share, prefilled as an ordinary editable `Subject` chip.
+ */
+export const demoSubjectPrefillRule: FilterRule = {
+	clauses: [
+		{ id: "c1", field: "Subject", value: "Your receipt from", derived: true },
+	],
+	matchOperator: "any",
+	moveMailboxId: "mbx-receipts",
+	scope: "once",
+	name: "",
+};
+
 export const demoSenderFallbackRule: FilterRule = {
 	clauses: [
 		{ id: "c1", field: "From", value: "receipts@stripe.com", derived: true },
@@ -262,3 +342,64 @@ export const demoSenderFallbackRule: FilterRule = {
 	scope: "standing",
 	name: "Receipts",
 };
+
+/**
+ * Stand-in for what the app offers in a clause value field: the addresses of the
+ * messages that were selected, then addresses a lookup knows about. The app
+ * derives the same shape from its selection and the address search — the story
+ * only needs the shape, not the source.
+ */
+const demoAddressPool: Suggestion[] = [
+	{
+		value: "receipts@stripe.com",
+		label: "Stripe",
+		hint: "receipts@stripe.com",
+		source: "selected",
+	},
+	{
+		value: "receipts@lyft.com",
+		label: "Lyft",
+		hint: "receipts@lyft.com",
+		source: "selected",
+	},
+	{
+		value: "no-reply@booking.com",
+		label: "Booking.com",
+		hint: "no-reply@booking.com",
+	},
+	{
+		value: "invoice@digitalocean.com",
+		label: "DigitalOcean",
+		hint: "invoice@digitalocean.com",
+	},
+	{ value: "billing@github.com", label: "GitHub", hint: "billing@github.com" },
+];
+
+const demoDomainPool: Suggestion[] = [
+	{ value: "stripe.com", source: "selected" },
+	{ value: "lyft.com", source: "selected" },
+	{ value: "booking.com" },
+	{ value: "digitalocean.com" },
+	{ value: "github.com" },
+];
+
+/**
+ * The suggestions a story's clause value field offers, matching the app's rule:
+ * address fields draw on known senders, every other field is free text, and what
+ * is typed narrows the list without ever constraining it.
+ */
+export function demoClauseSuggestions(
+	field: ClauseField,
+	value: string,
+): Suggestion[] {
+	if (field !== "From" && field !== "FromDomain") return [];
+	const pool = field === "From" ? demoAddressPool : demoDomainPool;
+	const needle = value.trim().toLowerCase();
+	return pool.filter(
+		(suggestion) =>
+			suggestion.value.toLowerCase() !== needle &&
+			(needle === "" ||
+				suggestion.value.toLowerCase().includes(needle) ||
+				(suggestion.label ?? "").toLowerCase().includes(needle)),
+	);
+}

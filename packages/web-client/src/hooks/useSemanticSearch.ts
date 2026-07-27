@@ -6,7 +6,7 @@ import { useRouterState } from "@tanstack/react-router";
 import { useMailContext } from "@/lib/mail-context";
 import { normalizeSearchQuery } from "@/lib/search-query";
 import { semanticMailboxScope } from "@/lib/search-scope";
-import { parseSearchTokens } from "@/lib/search-tokens";
+import { parseSearchTokens, type SearchToken } from "@/lib/search-tokens";
 import { useSearchTokenContext } from "./useSearchTokenContext";
 
 /** Cap the "Related" section; the literal "Top matches" is the primary surface. */
@@ -21,6 +21,17 @@ const toCategoryParam = (
 	filterCategory !== undefined && MESSAGE_CATEGORIES.has(filterCategory)
 		? (filterCategory as (typeof MessageCategory)[keyof typeof MessageCategory])
 		: undefined;
+
+/**
+ * `isRead` for the read-state tokens. `is:unread` and `is:read` are opposites,
+ * so a query carrying both asks for nothing; unread wins, being the narrower
+ * ask and the one the chips also offer.
+ */
+const readStateParam = (tokens: SearchToken[]): boolean | undefined => {
+	if (tokens.some((t) => t.type === "isUnread")) return false;
+	if (tokens.some((t) => t.type === "isRead")) return true;
+	return undefined;
+};
 
 interface UseSemanticSearchParams {
 	/**
@@ -43,10 +54,11 @@ interface UseSemanticSearchParams {
  * chip means this engine respects it like every other. Disabled until the query
  * is non-empty so an empty field issues no request.
  *
- * Filter tokens (`has:attachment`, `is:unread`, `before:`/`after:`) parsed from
- * the query map onto the search API's own filter params. `from:` and
- * `account:` have no equivalent on `GET /search/semantic` (no sender or
- * account filter) — both still render as chips and narrow the literal engine,
+ * Filter tokens (`has:attachment`, `is:unread`/`is:read`, `is:starred`,
+ * `category:`, `before:`/`after:`) parsed from the query map onto the search
+ * API's own filter params. `from:`, `subject:` and `account:` have no
+ * equivalent on `GET /search/semantic` (no sender, subject or
+ * account filter) — all still render as chips and narrow the literal engine,
  * but never reach the semantic request (`account:` is a documented gap, see
  * doc/design/flows/06-search.md — the semantic index is per account config).
  * `in:` resolves to a mailboxId, so typing `in:archive` re-scopes the search
@@ -77,11 +89,17 @@ export function useSemanticSearch({
 	// to rank.
 	const enabled = freeText.length > 0;
 
-	const category = toCategoryParam(filterCategory);
+	// The chip wins over the token: it is the visible narrowing, and the two can
+	// only disagree when the user set both.
+	const categoryToken = tokens.find((t) => t.type === "category");
+	const category = toCategoryParam(filterCategory) ?? categoryToken?.category;
 	const hasAttachment = tokens.some((t) => t.type === "hasAttachment")
 		? true
 		: undefined;
-	const isRead = tokens.some((t) => t.type === "isUnread") ? false : undefined;
+	const hasStars = tokens.some((t) => t.type === "isStarred")
+		? true
+		: undefined;
+	const isRead = readStateParam(tokens);
 	const afterToken = tokens.find((t) => t.type === "after");
 	const beforeToken = tokens.find((t) => t.type === "before");
 	const inToken = tokens.find((t) => t.type === "in");
@@ -100,6 +118,7 @@ export function useSemanticSearch({
 				limit: SEMANTIC_RESULT_LIMIT,
 				...(category !== undefined ? { category } : {}),
 				...(hasAttachment !== undefined ? { hasAttachment } : {}),
+				...(hasStars !== undefined ? { hasStars } : {}),
 				...(isRead !== undefined ? { isRead } : {}),
 				...(afterToken ? { sentDateFrom: afterToken.epochSeconds } : {}),
 				...(beforeToken ? { sentDateTo: beforeToken.epochSeconds } : {}),

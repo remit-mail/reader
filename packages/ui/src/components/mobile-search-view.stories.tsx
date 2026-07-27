@@ -5,10 +5,12 @@ import {
 	type FilterAccount,
 	inboxFilterConfig,
 } from "../filter-presets.js";
+import { useSuggestList } from "../lib/use-suggest-list.js";
 import { MobileSearchView } from "./mobile-search-view.js";
 import type { SearchChip } from "./search-chip-input.js";
 import type { SearchResult } from "./search-result-row.js";
 import type { SearchResultSection, SearchScope } from "./search-results.js";
+import { type Suggestion, SuggestList } from "./suggest-list.js";
 
 const phoneFrame: Decorator = (Story) => (
 	<div
@@ -30,6 +32,7 @@ const topMatches: SearchResult[] = [
 	{
 		id: "r1",
 		sender: "Stripe",
+		senderEmail: "receipts@stripe.com",
 		subject: "Your invoice for March is ready",
 		snippet: "Invoice #4821 — €149.00 paid on Visa ending 4242.",
 		date: "9:42",
@@ -39,6 +42,7 @@ const topMatches: SearchResult[] = [
 	{
 		id: "r2",
 		sender: "Hetzner Online",
+		senderEmail: "billing@hetzner.com",
 		subject: "Invoice 2026-03 available in your account",
 		snippet: "Dear customer, your invoice for the period is attached.",
 		date: "Mar 3",
@@ -47,6 +51,7 @@ const topMatches: SearchResult[] = [
 	{
 		id: "r3",
 		sender: "Anna de Vries",
+		senderEmail: "anna@devries.nl",
 		subject: "Re: Q1 invoice approval",
 		snippet: "Approved — can you forward the PDF invoice to finance?",
 		date: "Mar 1",
@@ -55,6 +60,7 @@ const topMatches: SearchResult[] = [
 	{
 		id: "r4",
 		sender: "AWS Billing",
+		senderEmail: "no-reply@aws.amazon.com",
 		subject: "Your invoice is now available",
 		snippet: "Your total for February was $312.55 across 6 services.",
 		date: "Feb 28",
@@ -104,6 +110,7 @@ const crossFolderMatches: SearchResult[] = [
 	{
 		id: "x1",
 		sender: "Mollie",
+		senderEmail: "info@mollie.com",
 		subject: "Invoice 2026-02 — archived",
 		snippet: "Filed last month; payment already settled.",
 		date: "Feb 24",
@@ -112,6 +119,7 @@ const crossFolderMatches: SearchResult[] = [
 	{
 		id: "x2",
 		sender: "Accountant",
+		senderEmail: "jan@boekhouding.example",
 		subject: "Invoices for the quarter",
 		snippet: "The quarterly set, filed with the rest of the bookkeeping.",
 		date: "Jan 30",
@@ -124,6 +132,7 @@ const spamMatches: SearchResult[] = [
 	{
 		id: "s1",
 		sender: "billing@unknown-vendor.test",
+		senderEmail: "billing@unknown-vendor.test",
 		subject: "URGENT invoice attached",
 		snippet: "Wire the amount below within 24 hours to avoid suspension.",
 		date: "Feb 11",
@@ -132,6 +141,7 @@ const spamMatches: SearchResult[] = [
 	{
 		id: "s2",
 		sender: "invoices@pay-now.test",
+		senderEmail: "invoices@pay-now.test",
 		subject: "Outstanding invoice — final notice",
 		snippet: "Your account is overdue. Settle immediately.",
 		date: "Feb 4",
@@ -147,6 +157,26 @@ const acrossFoldersSections: SearchResultSection[] = [
 	},
 ];
 
+/** The folders `in:` can name, as the app's search vocabulary offers them. */
+const folderSuggestions: Suggestion[] = [
+	{ value: "in:Archive", label: "Archive", hint: "matthijs@ischen.nl" },
+	{ value: "in:Inbox", label: "Inbox", hint: "matthijs@ischen.nl" },
+	{ value: 'in:"Sent Items"', label: "Sent Items", hint: "work@acme.test" },
+	{ value: "in:Spam", label: "Spam", hint: "matthijs@ischen.nl" },
+];
+
+/**
+ * Replace the last term with the completion. The app does this over the caret
+ * and the parsed query (`lib/search-suggestions.ts`); the harness keeps the
+ * shape so a story shows what picking a row does.
+ */
+const completeTerm = (value: string, suggestion: Suggestion): string => {
+	const head = value.slice(0, value.search(/\S*$/));
+	return suggestion.value.endsWith(":")
+		? head + suggestion.value
+		: `${head + suggestion.value} `;
+};
+
 type Preset = "brief" | "inbox";
 
 function Harness({
@@ -156,6 +186,8 @@ function Harness({
 	sections,
 	preset,
 	scope,
+	makeFilterDisabledReason,
+	suggestions = [],
 }: {
 	initialValue?: string;
 	initialChips?: SearchChip[];
@@ -163,6 +195,10 @@ function Harness({
 	sections?: SearchResultSection[];
 	preset: Preset;
 	scope?: SearchScope;
+	/** Renders the conversion inert with a reason; it is offered either way. */
+	makeFilterDisabledReason?: string;
+	/** Completions for the term being typed. */
+	suggestions?: Suggestion[];
 }) {
 	const [value, setValue] = useState(initialValue);
 	const [chips, setChips] = useState<SearchChip[]>(initialChips);
@@ -171,6 +207,14 @@ function Harness({
 	const [activeSource, setActiveSource] = useState("personal");
 	const [expanded, setExpanded] = useState(false);
 	const [opened, setOpened] = useState<SearchResult | null>(null);
+
+	const suggest = useSuggestList({
+		count: suggestions.length,
+		onAccept: (index) => {
+			const suggestion = suggestions[index];
+			if (suggestion) setValue((current) => completeTerm(current, suggestion));
+		},
+	});
 
 	const base =
 		preset === "brief"
@@ -236,6 +280,31 @@ function Harness({
 			loading={loading}
 			onSelectResult={setOpened}
 			scope={scope}
+			makeFilter={{
+				onClick: () => undefined,
+				disabledReason: makeFilterDisabledReason,
+			}}
+			suggest={{
+				comboboxProps: suggest.comboboxProps,
+				onKeyDown: suggest.handleKeyDown,
+				onCaretChange: () => undefined,
+			}}
+			suggestList={
+				suggest.open ? (
+					<SuggestList
+						id={suggest.listId}
+						suggestions={suggestions}
+						activeIndex={suggest.activeIndex}
+						optionId={suggest.optionId}
+						onPick={(suggestion) =>
+							setValue((current) => completeTerm(current, suggestion))
+						}
+						onHighlight={suggest.setActiveIndex}
+						label="Search suggestions"
+						className="mx-row-inset mt-1 shrink-0"
+					/>
+				) : null
+			}
 		/>
 	);
 }
@@ -251,9 +320,10 @@ export default meta;
 type Story = StoryObj<typeof MobileSearchView>;
 
 /**
- * Global search — the daily-brief preset, so the FilterSheet carries the account
- * source row (matthijs@ / work@acme) on top of the shared categories + filters.
- * The header carries a single X that clears the query AND dismisses the takeover.
+ * Global search — the daily-brief preset. The filter chrome is not up: a query
+ * supersedes it, and the row above the results belongs to the conversion the
+ * search itself offers. The header carries a single X that clears the query AND
+ * dismisses the takeover.
  */
 export const GlobalSearch: Story = {
 	render: () => (
@@ -262,8 +332,9 @@ export const GlobalSearch: Story = {
 };
 
 /**
- * Scoped search — a single inbox, so the inbox preset drops the account row
- * entirely (the view is already scoped); same categories and filters otherwise.
+ * Scoped search — a single inbox. It reads exactly like the global one above:
+ * search is scoped by where the user is and differs in nothing else, so the
+ * conversion is offered here too.
  */
 export const ScopedSearch: Story = {
 	render: () => (
@@ -271,7 +342,45 @@ export const ScopedSearch: Story = {
 	),
 };
 
-/** Empty query: recent searches under the brief filter chrome. */
+/**
+ * A query with nothing a filter could match on: the conversion is offered inert
+ * with the reason, rather than withheld and leaving the row to appear and vanish
+ * as the user types.
+ */
+export const NothingToConvert: Story = {
+	render: () => (
+		<Harness
+			initialValue="has:attachment"
+			sections={resultSections}
+			preset="inbox"
+			makeFilterDisabledReason="Add a sender or words to filter on"
+		/>
+	),
+};
+
+/**
+ * A committed token name: the folders `in:` can name, offered under the field.
+ *
+ * The list takes its own space between the field and the results rather than
+ * floating over them — a soft keyboard owns the lower half of this screen, and a
+ * list over the field would cover the query it is completing. Arrows move the
+ * highlight, Enter takes it, Escape closes the list and leaves the query.
+ */
+export const SuggestingFolders: Story = {
+	render: () => (
+		<Harness
+			initialValue="in:"
+			sections={resultSections}
+			preset="inbox"
+			suggestions={folderSuggestions}
+		/>
+	),
+};
+
+/**
+ * Empty query: recent searches under the brief filter chrome. Nothing is being
+ * searched, so the filter sheet has the row — typing hands it to the results.
+ */
 export const Idle: Story = {
 	render: () => <Harness preset="brief" />,
 };

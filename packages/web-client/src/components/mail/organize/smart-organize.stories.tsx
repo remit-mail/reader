@@ -1,4 +1,7 @@
-import { mailboxOperationsListMailboxesQueryKey } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import {
+	mailboxOperationsListMailboxesQueryKey,
+	threadOperationsListThreadsQueryKey,
+} from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapMailboxResponse } from "@remit/api-http-client/types.gen.ts";
 import { BottomSheet } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
@@ -57,9 +60,14 @@ const FOLDER_OPTIONS: FolderOption[] = [
 
 /**
  * A QueryClient pre-seeded with the account's mailboxes, so the editor's folder
- * picker renders its real options without a network round-trip.
+ * picker renders its real options without a network round-trip, and optionally
+ * with the thread rows the properties prefill reads its subjects off — the same
+ * rows the mailbox list renders behind the sheet.
  */
-function seededClient(): QueryClient {
+function seededClient(
+	subjects?: Record<string, string>,
+	senderEmail = "receipts@example.com",
+): QueryClient {
 	const client = new QueryClient({
 		defaultOptions: { queries: { retry: false } },
 	});
@@ -67,13 +75,32 @@ function seededClient(): QueryClient {
 		mailboxOperationsListMailboxesQueryKey({ path: { accountId: ACCOUNT_ID } }),
 		{ items: MAILBOXES },
 	);
+	if (subjects) {
+		client.setQueryData(
+			threadOperationsListThreadsQueryKey({ path: { mailboxId: "mbx-inbox" } }),
+			{
+				items: Object.entries(subjects).map(([messageId, subject]) => ({
+					messageId,
+					threadId: messageId,
+					subject,
+					fromEmail: senderEmail,
+				})),
+			},
+		);
+	}
 	return client;
 }
 
 /** Phone frame + a bottom sheet holding the editor, mirroring the mobile home. */
-function SheetStage({ children }: { children: ReactNode }) {
+function SheetStage({
+	children,
+	subjects,
+}: {
+	children: ReactNode;
+	subjects?: Record<string, string>;
+}) {
 	return (
-		<QueryClientProvider client={seededClient()}>
+		<QueryClientProvider client={seededClient(subjects)}>
 			<ErrorBannerProvider>
 				<div className="relative mx-auto h-dvh w-full shrink-0 overflow-hidden bg-surface sm:my-6 sm:h-[760px] sm:w-[390px] sm:rounded-[2rem] sm:border sm:border-line sm:shadow-sm">
 					<div className="divide-y divide-line opacity-50">
@@ -241,6 +268,60 @@ export const SenderFallbackStanding: Story = {
 				]}
 				seedScope="standing"
 				seedMailboxId="mbx-archive"
+				onClose={() => undefined}
+			/>
+		</SheetStage>
+	),
+};
+
+/**
+ * Matching on properties instead of similarity — the third way to build a rule,
+ * with no semantics in it at all. Every selected message came from one sender,
+ * so the rule opens on a single editable `From` chip. The mode control stays on
+ * screen: "Anything similar" is one tap away and is still where the flow opens.
+ */
+export const MatchOnPropertiesSender: Story = {
+	name: "Match on Properties (sender)",
+	render: () => (
+		<SheetStage>
+			<OrganizeRuleEditor
+				accountId={ACCOUNT_ID}
+				selectedMessageIds={["msg-1", "msg-2", "msg-3"]}
+				seedCount={47}
+				seedMatchMode="properties"
+				senders={["receipts@example.com"]}
+				onClose={() => undefined}
+			/>
+		</SheetStage>
+	),
+};
+
+/**
+ * The same mode where the selection's senders differ: there is no one sender to
+ * name, so the prefill drops to the part the subjects share — "Your receipt
+ * from" out of three differently-numbered receipts — as an ordinary `Subject`
+ * chip the user can widen or narrow.
+ */
+export const MatchOnPropertiesSubject: Story = {
+	name: "Match on Properties (subject)",
+	render: () => (
+		<SheetStage
+			subjects={{
+				"msg-1": "Your receipt from Blue Bottle #4821",
+				"msg-2": "Re: Your receipt from Ritual Coffee #119",
+				"msg-3": "Your receipt from Sightglass #77",
+			}}
+		>
+			<OrganizeRuleEditor
+				accountId={ACCOUNT_ID}
+				selectedMessageIds={["msg-1", "msg-2", "msg-3"]}
+				seedCount={62}
+				seedMatchMode="properties"
+				senders={[
+					"receipts@bluebottle.example",
+					"hello@ritual.example",
+					"no-reply@sightglass.example",
+				]}
 				onClose={() => undefined}
 			/>
 		</SheetStage>

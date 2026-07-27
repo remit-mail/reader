@@ -1,6 +1,7 @@
 import { Menu, Search, X } from "lucide-react";
 import { Button } from "./button.js";
 import { SearchBar } from "./search-bar.js";
+import type { SearchFieldSuggest } from "./search-chip-input.js";
 
 export interface MailHeaderProps {
 	/** Top-row title — the view name, e.g. "Daily brief" or "Inbox". */
@@ -28,6 +29,13 @@ export interface MailHeaderProps {
 	 * the page never mounts two search inputs competing for the same focus.
 	 */
 	showSearch?: boolean;
+	/**
+	 * Completions for what is being typed; see `SearchChipInput`. The list is
+	 * not rendered here — the header is a fixed-height row, so the consumer
+	 * renders it in the pane directly below, where it takes its own space
+	 * instead of covering the field.
+	 */
+	searchSuggest?: SearchFieldSuggest;
 }
 
 /**
@@ -51,6 +59,7 @@ export function MailHeader({
 	searchOpen,
 	onSearchOpenChange,
 	showSearch = true,
+	searchSuggest,
 }: MailHeaderProps) {
 	const unreadLabel = `${unreadCount.toLocaleString()} unread`;
 	const clearSearch = onSearchClear ?? (() => onSearchChange(""));
@@ -66,6 +75,7 @@ export function MailHeader({
 			onClear={clearSearch}
 			globalFocusKey={false}
 			showClearButton={showClearButton}
+			suggest={searchSuggest}
 		/>
 	);
 

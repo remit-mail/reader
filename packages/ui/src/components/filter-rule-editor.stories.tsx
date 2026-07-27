@@ -5,16 +5,19 @@ import { FilterPreviewCount } from "./filter-preview-count.js";
 import {
 	type ClauseField,
 	clauseFieldLabel,
+	demoClauseSuggestions,
 	demoFolders,
 	demoLabels,
 	demoRule,
 	demoSenderFallbackRule,
+	demoSubjectPrefillRule,
 	demoVocabularyRule,
 	type FilterRule,
 	type FolderOption,
 	type LabelOption,
 	type PreviewCount,
 	type RuleClause,
+	type RuleMatchMode,
 } from "./filter-rule.js";
 import {
 	type ClauseEditState,
@@ -53,12 +56,22 @@ const READY = (count: number, stale?: boolean): PreviewCount => ({
 function LiveEditor({
 	initialRule,
 	semanticAvailable = true,
+	initialMatchMode,
+	propertyRule,
 	labels = demoLabels,
+	initialClauseEdit,
 	onCreateFolder,
 	onCreateLabel,
 }: {
 	initialRule: FilterRule;
 	semanticAvailable?: boolean;
+	/** Offers the match-mode control; omit to render the editor without one. */
+	initialMatchMode?: RuleMatchMode;
+	/** Opens on the clause form, for the stories about editing a clause. */
+	initialClauseEdit?: ClauseEditState;
+	/** What the properties mode prefills — the app derives this from the
+	 *  selection's senders and subjects. */
+	propertyRule?: FilterRule;
 	labels?: LabelOption[];
 	onCreateFolder?: (
 		name: string,
@@ -67,7 +80,10 @@ function LiveEditor({
 	onCreateLabel?: (name: string) => Promise<LabelOption>;
 }) {
 	const [rule, setRule] = useState<FilterRule>(initialRule);
-	const [clauseEdit, setClauseEdit] = useState<ClauseEditState | undefined>();
+	const [matchMode, setMatchMode] = useState(initialMatchMode);
+	const [clauseEdit, setClauseEdit] = useState<ClauseEditState | undefined>(
+		initialClauseEdit,
+	);
 
 	const preview = useMemo<PreviewCount>(
 		() => READY(rule.clauses.length * 23 + (rule.widen ? 40 : 0)),
@@ -130,6 +146,26 @@ function LiveEditor({
 		onChangeMatchOperator: (matchOperator) => {
 			setRule((r) => ({ ...r, matchOperator }));
 		},
+		onChangeMatchMode: (mode) => {
+			setMatchMode(mode);
+			// The app rebuilds only the matchers, keeping the action and scope; the
+			// story does the same with its two fixture rules.
+			setRule((r) =>
+				mode === "properties"
+					? {
+							...r,
+							clauses: (propertyRule ?? demoSenderFallbackRule).clauses,
+							matchOperator: "any",
+							widen: undefined,
+						}
+					: {
+							...r,
+							clauses: initialRule.clauses,
+							matchOperator: initialRule.matchOperator,
+							widen: initialRule.widen ?? { anchorCount: 2 },
+						},
+			);
+		},
 		onChangeMove: (moveMailboxId) =>
 			setRule((r) => ({ ...r, moveMailboxId: moveMailboxId || undefined })),
 		onChangeLabel: (labelId) =>
@@ -146,7 +182,16 @@ function LiveEditor({
 			labels={labels}
 			preview={preview}
 			semanticAvailable={semanticAvailable}
+			matchMode={matchMode}
 			clauseEdit={clauseEdit}
+			clauseSuggestions={
+				clauseEdit
+					? demoClauseSuggestions(
+							clauseEdit.draft.field,
+							clauseEdit.draft.value,
+						)
+					: undefined
+			}
 			onCreateFolder={onCreateFolder}
 			onCreateLabel={onCreateLabel}
 			onCommit={() => {}}
@@ -159,6 +204,123 @@ function LiveEditor({
 /** The full editor, interactive — the shape ticket B and the app consume. */
 export const Interactive: Story = {
 	render: () => <LiveEditor initialRule={demoRule} />,
+};
+
+/**
+ * The Organize surface, where the rule can be matched either way. It opens on
+ * "Anything similar" — semantic is still the default — and switching to
+ * "Its properties" drops the widen for the clauses derived from the messages
+ * that were selected. Switch back and the widen returns.
+ */
+export const MatchModeSemanticDefault: Story = {
+	render: () => (
+		<LiveEditor
+			initialRule={{ ...demoRule, clauses: [] }}
+			initialMatchMode="similar"
+			propertyRule={demoSenderFallbackRule}
+		/>
+	),
+};
+
+/**
+ * Properties matching with one sender behind the whole selection — a single
+ * `From` chip, no semantics involved. Editable like any other chip.
+ */
+export const MatchOnSenderProperty: Story = {
+	render: () => (
+		<LiveEditor
+			initialRule={{
+				...demoSenderFallbackRule,
+				clauses: demoSenderFallbackRule.clauses.slice(0, 1),
+				scope: "once",
+				name: "",
+			}}
+			initialMatchMode="properties"
+			propertyRule={demoSenderFallbackRule}
+		/>
+	),
+};
+
+/**
+ * Properties matching when the senders differ: the prefill falls back to the
+ * part the selected subjects share, so the rule still starts somewhere useful.
+ */
+export const MatchOnSubjectProperty: Story = {
+	render: () => (
+		<LiveEditor
+			initialRule={demoSubjectPrefillRule}
+			initialMatchMode="properties"
+			propertyRule={demoSubjectPrefillRule}
+		/>
+	),
+};
+
+/**
+ * Adding a `From` clause, with the value field offering what it knows: the
+ * senders of the messages that were selected lead the list — marked "selected",
+ * and there before a key is pressed — followed by other known addresses. Typing
+ * narrows it; anything typed still stands, match or no match.
+ */
+export const ClauseValueSuggestions: Story = {
+	render: () => (
+		<LiveEditor
+			initialRule={{ ...demoRule, widen: undefined }}
+			semanticAvailable={false}
+			initialClauseEdit={{ mode: "add", draft: { field: "From", value: "" } }}
+		/>
+	),
+};
+
+/**
+ * The same field on a `Domain` clause: the addresses collapse to registrable
+ * domains, so the value offered is exactly the string the matcher compares.
+ */
+export const DomainClauseSuggestions: Story = {
+	render: () => (
+		<LiveEditor
+			initialRule={{ ...demoRule, widen: undefined }}
+			semanticAvailable={false}
+			initialClauseEdit={{
+				mode: "add",
+				draft: { field: "FromDomain", value: "" },
+			}}
+		/>
+	),
+};
+
+/**
+ * Typing something no known sender matches. The list simply goes away — no
+ * empty panel, no warning, no block on the value. A clause for an address that
+ * has not written yet is a legitimate rule.
+ */
+export const ClauseValueNoMatches: Story = {
+	render: () => (
+		<LiveEditor
+			initialRule={{ ...demoRule, widen: undefined }}
+			semanticAvailable={false}
+			initialClauseEdit={{
+				mode: "add",
+				draft: { field: "From", value: "someone@nowhere.test" },
+			}}
+		/>
+	),
+};
+
+/**
+ * A free-text field is left alone: `Subject` has nothing to draw suggestions
+ * from, so it stays the plain box it was.
+ */
+export const SubjectClauseStaysFreeText: Story = {
+	render: () => (
+		<LiveEditor
+			initialRule={{ ...demoRule, widen: undefined }}
+			semanticAvailable={false}
+			initialClauseEdit={{
+				mode: "add",
+				draft: { field: "Subject", value: "receipt" },
+			}}
+		/>
+	),
 };
 
 let newFolderSeq = 0;

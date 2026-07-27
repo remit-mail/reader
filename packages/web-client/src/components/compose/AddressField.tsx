@@ -1,10 +1,14 @@
 import { addressOperationsSearchAddressesOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapAddressResponse } from "@remit/api-http-client/types.gen.ts";
-import { AddressTag } from "@remit/ui";
+import {
+	AddressTag,
+	type Suggestion,
+	SuggestList,
+	useSuggestList,
+} from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
-import { cn } from "@/lib/utils";
 
 export interface AddressEntry {
 	email: string;
@@ -18,12 +22,8 @@ interface AddressFieldProps {
 	placeholder?: string;
 }
 
-const formatSuggestion = (addr: RemitImapAddressResponse): string => {
-	if (addr.displayName) {
-		return `${addr.displayName} <${addr.normalizedEmail}>`;
-	}
-	return addr.normalizedEmail;
-};
+/** Beyond Enter, the keys that take the highlighted suggestion in a chips field. */
+const ACCEPT_KEYS = ["Tab", ","] as const;
 
 const isValidEmail = (value: string): boolean =>
 	/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
@@ -50,10 +50,7 @@ export const AddressField = ({
 	placeholder,
 }: AddressFieldProps) => {
 	const [inputValue, setInputValue] = useState("");
-	const [highlightedIndex, setHighlightedIndex] = useState(-1);
-	const [isOpen, setIsOpen] = useState(false);
 	const inputRef = useRef<HTMLInputElement>(null);
-	const listRef = useRef<HTMLUListElement>(null);
 
 	const debouncedQuery = useDebouncedValue(inputValue, 200);
 
@@ -66,21 +63,18 @@ export const AddressField = ({
 
 	const suggestions = suggestionsData?.items ?? [];
 	const existingEmails = new Set(addresses.map((a) => a.email.toLowerCase()));
-	const filteredSuggestions = suggestions.filter(
-		(s) => !existingEmails.has(s.normalizedEmail.toLowerCase()),
-	);
-
-	useEffect(() => {
-		setHighlightedIndex(-1);
-		setIsOpen(filteredSuggestions.length > 0 && inputValue.length >= 2);
-	}, [filteredSuggestions.length, inputValue.length]);
+	const filteredSuggestions =
+		inputValue.length >= 2
+			? suggestions.filter(
+					(s) => !existingEmails.has(s.normalizedEmail.toLowerCase()),
+				)
+			: [];
 
 	const addAddress = useCallback(
 		(entry: AddressEntry) => {
 			if (existingEmails.has(entry.email.toLowerCase())) return;
 			onChange([...addresses, entry]);
 			setInputValue("");
-			setIsOpen(false);
 		},
 		[addresses, existingEmails, onChange],
 	);
@@ -110,6 +104,24 @@ export const AddressField = ({
 		}
 	}, [inputValue, addAddress]);
 
+	// The open state, the highlight, and the arrow/Enter/Escape handling are the
+	// app's one typeahead behaviour, shared with the filter-rule value field.
+	const suggest = useSuggestList({
+		count: filteredSuggestions.length,
+		acceptKeys: ACCEPT_KEYS,
+		onAccept: (index) => selectSuggestion(filteredSuggestions[index]),
+	});
+
+	const options = useMemo<Suggestion[]>(
+		() =>
+			filteredSuggestions.map((suggestion) => ({
+				value: suggestion.normalizedEmail,
+				label: suggestion.displayName ?? suggestion.normalizedEmail,
+				...(suggestion.displayName ? { hint: suggestion.normalizedEmail } : {}),
+			})),
+		[filteredSuggestions],
+	);
+
 	const handleKeyDown = useCallback(
 		(e: React.KeyboardEvent<HTMLInputElement>) => {
 			if (e.key === "Backspace" && inputValue === "" && addresses.length > 0) {
@@ -117,48 +129,20 @@ export const AddressField = ({
 				return;
 			}
 
+			if (suggest.handleKeyDown(e)) return;
+
 			if (e.key === "Enter" || e.key === "Tab" || e.key === ",") {
-				if (highlightedIndex >= 0 && filteredSuggestions[highlightedIndex]) {
-					e.preventDefault();
-					selectSuggestion(filteredSuggestions[highlightedIndex]);
-					return;
-				}
 				if (inputValue.trim()) {
 					e.preventDefault();
 					commitInput();
 				}
-				return;
-			}
-
-			if (e.key === "ArrowDown" && isOpen) {
-				e.preventDefault();
-				setHighlightedIndex((prev) =>
-					prev < filteredSuggestions.length - 1 ? prev + 1 : 0,
-				);
-				return;
-			}
-
-			if (e.key === "ArrowUp" && isOpen) {
-				e.preventDefault();
-				setHighlightedIndex((prev) =>
-					prev > 0 ? prev - 1 : filteredSuggestions.length - 1,
-				);
-				return;
-			}
-
-			if (e.key === "Escape") {
-				setIsOpen(false);
-				setHighlightedIndex(-1);
 			}
 		},
 		[
 			inputValue,
 			addresses.length,
-			highlightedIndex,
-			filteredSuggestions,
-			isOpen,
 			removeAddress,
-			selectSuggestion,
+			suggest.handleKeyDown,
 			commitInput,
 		],
 	);
@@ -166,9 +150,9 @@ export const AddressField = ({
 	const handleBlur = useCallback(() => {
 		setTimeout(() => {
 			commitInput();
-			setIsOpen(false);
+			suggest.dismiss();
 		}, 150);
-	}, [commitInput]);
+	}, [commitInput, suggest.dismiss]);
 
 	return (
 		<div className="relative">
@@ -200,37 +184,36 @@ export const AddressField = ({
 						id={`address-field-${label}`}
 						type="text"
 						value={inputValue}
-						onChange={(e) => setInputValue(e.target.value)}
+						onChange={(e) => {
+							suggest.reopen();
+							setInputValue(e.target.value);
+						}}
 						onKeyDown={handleKeyDown}
 						onBlur={handleBlur}
 						placeholder={addresses.length === 0 ? placeholder : ""}
 						className="flex-1 min-w-[120px] bg-transparent outline-none text-sm py-0.5"
+						autoComplete="off"
+						{...suggest.comboboxProps}
 					/>
 				</div>
 			</div>
 
-			{isOpen && filteredSuggestions.length > 0 && (
-				<ul
-					ref={listRef}
-					className="absolute left-12 right-0 mt-1 bg-surface border border-line rounded-md shadow-lg z-50 max-h-[200px] overflow-auto"
-				>
-					{filteredSuggestions.map((suggestion, index) => (
-						<li
-							key={suggestion.addressId}
-							className={cn(
-								"px-3 py-2 text-sm cursor-pointer transition-colors",
-								index === highlightedIndex && "bg-accent-2-soft",
-							)}
-							onMouseDown={(e) => {
-								e.preventDefault();
-								selectSuggestion(suggestion);
-							}}
-							onMouseEnter={() => setHighlightedIndex(index)}
-						>
-							{formatSuggestion(suggestion)}
-						</li>
-					))}
-				</ul>
+			{suggest.open && (
+				<SuggestList
+					id={suggest.listId}
+					suggestions={options}
+					activeIndex={suggest.activeIndex}
+					optionId={suggest.optionId}
+					onPick={(option) => {
+						const picked = filteredSuggestions.find(
+							(suggestion) => suggestion.normalizedEmail === option.value,
+						);
+						if (picked) selectSuggestion(picked);
+					}}
+					onHighlight={suggest.setActiveIndex}
+					label={`${label} suggestions`}
+					className="absolute left-12 right-0 z-50 mt-1 max-h-[200px] shadow-lg"
+				/>
 			)}
 		</div>
 	);

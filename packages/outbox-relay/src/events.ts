@@ -1,8 +1,6 @@
 // The transactional-outbox event vocabulary, shared by every search-index
-// producer regardless of backend (RFC 036 D2). The Postgres relay
-// (remit-pg-index-worker) and the SQLite drain (remit-search-index-worker) read
-// the same event strings off the same-named outbox columns, so the drain logic
-// lives here once instead of in each worker.
+// producer (RFC 036 D2). The drain reads these event strings off the outbox
+// columns, so the logic lives here once rather than in each worker.
 
 /** Body-synced: the parsed body just landed, so the message has new content. */
 export const BODY_SYNCED_EVENT = "message.body_synced";
