@@ -51,6 +51,8 @@ export function SearchFilterDialog({
 		open ? accountId : undefined,
 		literalPredicate,
 	);
+	// A search kept as a `HasWords` clause has no seed count and never will; the
+	// editor opens on the uncountable reason rather than a dead end.
 
 	if (!open) return null;
 
@@ -71,7 +73,7 @@ export function SearchFilterDialog({
 						</Button>
 					</div>
 				</div>
-			) : isPending || seedCount === undefined ? (
+			) : isPending ? (
 				<div className="flex flex-col items-center gap-3 px-5 py-10 text-center">
 					<Loader2 className="size-8 animate-spin text-accent-2" />
 					<p className="text-sm font-medium text-fg">

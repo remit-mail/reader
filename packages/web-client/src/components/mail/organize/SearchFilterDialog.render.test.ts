@@ -10,7 +10,7 @@ import { SearchFilterDialog } from "./SearchFilterDialog";
 // runtime, which references a global `React`.
 (globalThis as { React?: typeof React }).React = React;
 
-const render = (open: boolean) =>
+const render = (open: boolean, query = "from:receipts@stripe.com") =>
 	renderToString(
 		createElement(
 			QueryClientProvider,
@@ -18,7 +18,7 @@ const render = (open: boolean) =>
 			createElement(SearchFilterDialog, {
 				open,
 				accountId: "acc-1",
-				parsed: parseSearchTokens("receipts", {}),
+				parsed: parseSearchTokens(query, {}),
 				searchHadSemanticReach: true,
 				onClose: () => undefined,
 			}),
@@ -32,5 +32,16 @@ describe("SearchFilterDialog", () => {
 
 	it("shows the conversion step while the seed preview is in flight", () => {
 		assert.match(render(true), /Turning your search into a filter/);
+	});
+
+	it("opens the editor for a free-text search instead of failing to count it", () => {
+		// The free text converts to a `HasWords` clause, which the vector-free
+		// matcher refuses outright. Asking for a count is a 500, so nothing is
+		// asked: the editor opens and the count region carries the reason.
+		const html = render(true, "receipts");
+		assert.doesNotMatch(html, /Turning your search into a filter/);
+		assert.doesNotMatch(html, /Couldn't build the filter/);
+		assert.match(html, /These chips are the whole rule/);
+		assert.match(html, /reads message bodies/);
 	});
 });
