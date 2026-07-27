@@ -60,6 +60,7 @@ export const threadToRowData = (
 	// for the multi-signature / alignment semantics a single string compare
 	// misses.
 	suspicious: thread.authenticity?.dkimMismatch === true,
+	labels: thread.labels,
 });
 
 const MessageListItemComponent = ({

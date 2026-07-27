@@ -138,6 +138,51 @@ const toFilterMessage = (parsed: ParsedMail): FilterMessage => ({
 	listId: extractListId(parsed),
 });
 
+const SNIPPET_LENGTH = 256;
+
+/**
+ * The snippet the list row shows, from whichever body part carries text. Shared
+ * by both paths that denormalize onto the ThreadMessage so they cannot derive it
+ * differently.
+ */
+const extractSnippet = (parsed: ParsedMail): string =>
+	extractSnippetFromEmail(
+		parsed.text,
+		typeof parsed.html === "string" ? parsed.html : undefined,
+		SNIPPET_LENGTH,
+	);
+
+/**
+ * A row is skipped only when every field the denormalization would write
+ * already matches. `snippet` and `listId` are absent from the update when the
+ * message has neither, and an absent field is not a mismatch.
+ */
+const alreadyDenormalized = (
+	row: ThreadMessageItem,
+	update: {
+		category: ThreadMessageCategory;
+		snippet?: string;
+		listId?: string;
+	},
+): boolean =>
+	row.category === update.category &&
+	(update.snippet === undefined || row.snippet === update.snippet) &&
+	(update.listId === undefined || row.listId === update.listId);
+
+/**
+ * RFC 034 Decision 3.1: `Message.category` is written once and never mutated
+ * after — RFC 030's message-list GSI sort key depends on it never churning.
+ * "Already decided" is any real category; `uncategorized` and the field being
+ * absent (rows written before the column existed) both mean "not yet decided"
+ * and must still classify. The one rule every re-entrant classification path
+ * shares — {@link BodySyncService.backfillClassification} and
+ * {@link BodySyncService.applyPostStoreSteps} both defer to it.
+ */
+const hasDecidedCategory = (
+	category: ThreadMessageCategory | undefined,
+): boolean =>
+	category !== undefined && category !== MessageCategory.uncategorized;
+
 export const toParsedBody = (parsed: ParsedMail): ParsedBody => ({
 	text: parsed.text ?? null,
 	html: typeof parsed.html === "string" ? parsed.html : null,
@@ -777,9 +822,20 @@ export class BodySyncService {
 		// a filter); the verdict is folded in whenever Remit decided to act.
 		// Written LAST so bodyStorageKey — the skip-guard signal — is only durable
 		// once the parsed cache AND the move (when any) are.
+		//
+		// `category` is RFC 034 D3.1's write-once field (RFC 030's message-list
+		// GSI sort key depends on it never churning). This step re-enters on an
+		// already-classified message through two shipped paths — the `NoSuchKey`
+		// fallback in `fetchAndGetBody` and `syncBodies(..., force: true)` — so a
+		// real, previously-decided category is carried forward unchanged instead
+		// of the just-recomputed one, the same rule `backfillClassification` uses.
+		const existingMessage = await this.messageService.get(messageId);
 		const update: UpdateMessageInput = {
 			bodyStorageKey: bodyRef.uri,
 			...classification,
+			category: hasDecidedCategory(existingMessage.category)
+				? existingMessage.category
+				: classification.category,
 			...(moved ? { movedByRemit: true } : {}),
 			...(resolved.verdict ? { placementVerdict: resolved.verdict } : {}),
 			...(filterMove ? { filterMove } : {}),
@@ -931,23 +987,32 @@ export class BodySyncService {
 		accountConfigId: string,
 	): Promise<void> {
 		if (!message.bodyStorageKey) return;
-		if (
-			message.category !== undefined &&
-			message.category !== MessageCategory.uncategorized
-		) {
-			return;
-		}
+		if (hasDecidedCategory(message.category)) return;
 
 		const body = await this.storageService.retrieve(message.bodyStorageKey);
 		const parsed = await parseMessageBody(body);
 		const classification = this.classifyMessage(parsed);
 
-		await this.messageService.update(message.messageId, classification);
+		// Same order as {@link applyPostStoreSteps}, for the same reason: the
+		// signal the skip guard reads is written last. `message.category` is that
+		// signal here, so a failure between the two writes leaves both undone and
+		// the requeued retry redoes both. Writing the Message first strands the
+		// denormalized row at `uncategorized` forever — the guard is satisfied and
+		// the retry returns early (issue #320).
+		// The same three denormalized fields `updateSnippets` writes on the
+		// full body-store path, not just the category. A copied message inherits
+		// `bodyStorageKey` and a decided category from its source, so it reaches
+		// neither that path nor this one's classification — but nothing else ever
+		// writes `listId`, so leaving it out here made a copy's `list_id`
+		// permanently NULL. Both are derived from the same bytes already in hand.
 		await this.denormalizeCategory(
 			accountConfigId,
 			message.messageId,
 			classification.category,
+			extractSnippet(parsed),
+			extractListId(parsed),
 		);
+		await this.messageService.update(message.messageId, classification);
 
 		this.log.info(
 			{ messageId: message.messageId, category: classification.category },
@@ -1445,13 +1510,7 @@ export class BodySyncService {
 		// two apart and quarantine only this one (issue #72).
 		const parsed = await parseMessageBody(body);
 
-		// Extract snippet from text or HTML content
-		const snippet = extractSnippetFromEmail(
-			parsed.text,
-			typeof parsed.html === "string" ? parsed.html : undefined,
-			256,
-		);
-
+		const snippet = extractSnippet(parsed);
 		const category = classifyByHeaders(parsed);
 		const listId = extractListId(parsed);
 
@@ -1472,15 +1531,30 @@ export class BodySyncService {
 	}
 
 	/**
-	 * Write the denormalized `category` (and optionally the snippet) onto the
-	 * message's ThreadMessage row — the copy the list/search read path serves
-	 * without a per-row Message fetch.
+	 * Write the denormalized `category` (and optionally the snippet and the
+	 * normalized `List-Id`) onto EVERY ThreadMessage row the message has — the
+	 * copy the list/search read path serves without a per-row Message fetch.
 	 *
-	 * The ThreadMessage is looked up by messageId (GSI), so it does not depend
-	 * on the RFC822 Message-ID header — a headerless message still gets
-	 * denormalized, matching the unconditional Message.category write. The full
-	 * composite set is passed so that a future key-attribute addition touching
-	 * the lsi3/lsi4/lsi5/gsi2 sort keys keeps the index rows consistent.
+	 * More than one row per messageId is schema-legal but not normally produced,
+	 * and this iterates for the same reason `message-move.ts` does (see the model
+	 * stated at its `deleteThreadMessagesForMessage`): the key permits it and
+	 * nothing enforces otherwise. It is NOT the second mailbox a message appears
+	 * in — `deriveMessageId` and `deriveThreadMessageId` are both
+	 * mailbox-independent, so INBOX and Archive resolve to one row, and a copy
+	 * gets its own messageId. The reachable case is thread-root drift: the same
+	 * message re-saved under different `References`, which mints a second
+	 * threadId and so a second row. Iterating is therefore hardening against a
+	 * legal state, not a repair for one the sync path manufactures, which is why
+	 * the tree's other single-row `messageId` lookups are correct as they stand.
+	 * `flag-queue.ts` iterates the same list.
+	 *
+	 * Rows are looked up by messageId, so this does not depend on the RFC822
+	 * Message-ID header — a headerless message still gets denormalized, matching
+	 * the unconditional Message.category write. The composite set is built per
+	 * row, never reused: `mailboxId` and `isRead` can differ between two rows for
+	 * one message, and it is passed at all so that a future key-attribute
+	 * addition touching the lsi3/lsi4/lsi5/gsi2 sort keys keeps the index rows
+	 * consistent.
 	 */
 	private async denormalizeCategory(
 		accountConfigId: string,
@@ -1489,29 +1563,39 @@ export class BodySyncService {
 		snippet?: string,
 		listId?: string,
 	): Promise<void> {
-		const threadMessage = await this.threadMessageService.getByMessageId(
+		const rows = await this.threadMessageService.findAllByMessageId(
 			accountConfigId,
 			messageId,
 		);
+		if (rows.length === 0) {
+			throw new NotFoundError(
+				`ThreadMessage not found for message ${messageId}`,
+			);
+		}
 
-		await this.threadMessageService.update(
-			accountConfigId,
-			threadMessage.threadMessageId,
-			{
-				category,
-				...(snippet ? { snippet } : {}),
-				...(listId ? { listId } : {}),
-			},
-			{
-				composites: {
-					sentDate: threadMessage.sentDate,
-					mailboxId: threadMessage.mailboxId,
-					isRead: threadMessage.isRead,
-					isDeleted: threadMessage.isDeleted,
-					hasStars: threadMessage.hasStars,
-					hasAttachment: threadMessage.hasAttachment,
+		const update = {
+			category,
+			...(snippet ? { snippet } : {}),
+			...(listId ? { listId } : {}),
+		};
+
+		for (const row of rows) {
+			if (alreadyDenormalized(row, update)) continue;
+			await this.threadMessageService.update(
+				accountConfigId,
+				row.threadMessageId,
+				update,
+				{
+					composites: {
+						sentDate: row.sentDate,
+						mailboxId: row.mailboxId,
+						isRead: row.isRead,
+						isDeleted: row.isDeleted,
+						hasStars: row.hasStars,
+						hasAttachment: row.hasAttachment,
+					},
 				},
-			},
-		);
+			);
+		}
 	}
 }

@@ -165,6 +165,12 @@ const toMetadata = (raw: unknown): ChunkMetadata => {
 	// treat as absent (score-neutral re-rank), same as the other display fields.
 	const textPreview =
 		typeof obj.textPreview === "string" ? obj.textPreview : undefined;
+	// embeddingId is absent on vectors written before this provenance field
+	// existed (#349); treat as absent so a pooling consumer (buildMessageAnchor)
+	// can tell "unknown model" apart from a real id, rather than losing the real
+	// id this backend actually stored.
+	const embeddingId =
+		typeof obj.embeddingId === "string" ? obj.embeddingId : undefined;
 	return {
 		messageId: obj.messageId,
 		threadId: obj.threadId,
@@ -180,6 +186,7 @@ const toMetadata = (raw: unknown): ChunkMetadata => {
 		...(subject !== undefined ? { subject } : {}),
 		...(category !== undefined ? { category } : {}),
 		...(textPreview !== undefined ? { textPreview } : {}),
+		...(embeddingId !== undefined ? { embeddingId } : {}),
 	};
 };
 

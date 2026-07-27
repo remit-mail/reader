@@ -231,6 +231,9 @@ model ThreadMessageResponse {
 
   @doc("Present only when Remit auto-moved this message on body-sync. Absent means the message was not auto-moved by Remit.")
   autoMoved?: AutoMovedInfo;
+
+  @doc("Labels applied to this message — filter-, organize-, and manually-applied alike (issue #26). Absent/empty means no label is applied.")
+  labels?: LabelSummaryResponse[];
 }
 
 @doc("""

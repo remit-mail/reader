@@ -1,6 +1,7 @@
 import "typespec-electrodb-emitter";
 
 import "../enums/AuthResultVerdict.tsp";
+import "../enums/LabelAction.tsp";
 import "../enums/MessageCategory.tsp";
 import "../enums/MessageFlag.tsp";
 import "../enums/MessageStatus.tsp";
@@ -10,6 +11,7 @@ import "../enums/PlacementConfidence.tsp";
 import "../enums/SenderTrust.tsp";
 import "../enums/StarColor.tsp";
 import "../scalars/string.tsp";
+import "./Label.tsp";
 
 namespace RemitImap;
 
@@ -295,6 +297,9 @@ model MessageSummaryResponse {
 
   @doc("Present only when Remit auto-moved this message on body-sync. Absent means the message was not auto-moved by Remit.")
   autoMoved?: AutoMovedInfo;
+
+  @doc("Labels applied to this message — filter-, organize-, and manually-applied alike (issue #26). Absent/empty means no label is applied.")
+  labels?: LabelSummaryResponse[];
 }
 
 @doc("Message envelope (header metadata)")
@@ -447,6 +452,21 @@ model CopyMessagesInput {
 
   @doc("Destination mailbox ID")
   destinationMailboxId: UUID;
+}
+
+// ============================================
+// Manual Label Apply/Remove (issue #26)
+// ============================================
+
+@doc("Input for a manual bulk label action — the \"just these\" scope (RFC 034 recap). `appliedByFilterId` never gets set on the resulting `MessageLabel` rows; that provenance is reserved for filter/organize applies (RFC 034 Decision 3.3).")
+model UpdateMessageLabelsInput {
+  ...BulkMessageInput;
+
+  @doc("Label to apply or remove")
+  labelId: UUID;
+
+  @doc("Whether to apply or remove the label")
+  action: LabelAction;
 }
 
 // ============================================

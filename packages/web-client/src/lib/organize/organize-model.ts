@@ -27,9 +27,10 @@ export const NO_ACTION = "None";
 
 /**
  * The user's in-progress organize decision, independent of which scope they
- * land on. The anchor and predicate drive the match set; `moveMailboxId` is the
- * one committable action today (labeling has no backend yet — see
- * `labelPlaceholder`).
+ * land on. The anchor and predicate drive the match set; `moveMailboxId` and
+ * `labelId` are the two committable actions (issue #26) — independent of each
+ * other, since a move is exclusive and a label is additive (RFC 034 Decision
+ * 3.1).
  */
 export interface OrganizeDraft {
 	/** Semantic anchor — "mail like this one". The first selected message. */
@@ -44,6 +45,11 @@ export interface OrganizeDraft {
 	 */
 	moveMailboxId?: string;
 	/**
+	 * Label applied to the match set — the additive action (RFC 034 Decision
+	 * 3.1, issue #26). Absent applies no label.
+	 */
+	labelId?: string;
+	/**
 	 * ISO 8601 date-time with zone offset. Present only for the `temporary`
 	 * scope; a plain picked date (RFC 034 non-goal: no event-based expiry).
 	 */
@@ -51,20 +57,30 @@ export interface OrganizeDraft {
 }
 
 /**
- * Whether the draft carries a committable action. Labeling is not wired yet
- * (no Label API — RFC 030's `Label`/`MessageLabel` entities exist in TypeSpec
- * but have no CRUD endpoint), so a move target is the only real action. A draft
- * with no move target has nothing to commit; the caller disables the CTA and
- * says why (ux.md).
+ * Whether the draft carries a committable action — a move destination and/or
+ * a label (issue #26), either satisfies this. A draft with neither has
+ * nothing to commit; the caller disables the CTA and says why (ux.md).
  */
 export const hasCommittableAction = (draft: OrganizeDraft): boolean =>
-	draft.moveMailboxId !== undefined && draft.moveMailboxId !== NO_ACTION;
+	(draft.moveMailboxId !== undefined && draft.moveMailboxId !== NO_ACTION) ||
+	(draft.labelId !== undefined && draft.labelId !== NO_ACTION);
+
+/**
+ * Whether the draft's predicate can be back-applied over the existing corpus. A
+ * `HasWords` clause matches the full message body, which only the live
+ * index-time filter and the vector widen evaluate — the vector-free back-apply
+ * projection carries no body and rejects it (`assertNoBodyContentClause`,
+ * organize.ts). A rule that carries one is still a valid standing filter for
+ * incoming mail, so the back-apply is skipped, not run into that guard.
+ */
+export const canBackApplyDraft = (draft: OrganizeDraft): boolean =>
+	!draft.literalClauses.some((clause) => clause.field === "HasWords");
 
 /**
  * Build the read-only preview / back-apply matcher input. The action fields do
  * not affect which messages match — the preview returns exactly the set a job
  * with the same predicate would apply to — so a widen preview can pass this
- * before the user has chosen a folder.
+ * before the user has chosen a folder or a label.
  */
 export const buildOrganizeInput = (
 	draft: OrganizeDraft,
@@ -72,7 +88,7 @@ export const buildOrganizeInput = (
 	...(draft.anchorMessageId ? { anchorMessageId: draft.anchorMessageId } : {}),
 	matchOperator: draft.matchOperator,
 	literalClauses: draft.literalClauses,
-	actionLabelId: NO_ACTION,
+	actionLabelId: draft.labelId ?? NO_ACTION,
 	actionMailboxId: draft.moveMailboxId ?? NO_ACTION,
 });
 
@@ -96,7 +112,7 @@ export const buildCreateFilterInput = (
 			: {}),
 		matchOperator: draft.matchOperator,
 		literalClauses: draft.literalClauses,
-		actionLabelId: NO_ACTION,
+		actionLabelId: draft.labelId ?? NO_ACTION,
 		actionMailboxId: draft.moveMailboxId ?? NO_ACTION,
 		...(draft.anchorMessageId
 			? { anchorMessageId: draft.anchorMessageId }

@@ -88,6 +88,33 @@ export function FilterSaved({ onClose }: { onClose: () => void }) {
 	);
 }
 
+export function BackApplyError({
+	onRetry,
+	onClose,
+}: {
+	onRetry: () => void;
+	onClose: () => void;
+}) {
+	return (
+		<div className="flex flex-col items-center gap-3 px-5 py-8 text-center">
+			<CheckCircle2 className="size-8 text-positive" />
+			<p className="text-sm font-medium text-fg">Rule saved</p>
+			<p className="max-w-xs text-xs text-fg-muted">
+				New mail follows it automatically. Moving the mail already in your
+				mailbox didn't run — try again?
+			</p>
+			<div className="mt-2 flex gap-2">
+				<Button variant="primary" onClick={onRetry}>
+					Move existing mail
+				</Button>
+				<Button variant="ghost" onClick={onClose}>
+					Not now
+				</Button>
+			</div>
+		</div>
+	);
+}
+
 export function CommitError({
 	onRetry,
 	onClose,

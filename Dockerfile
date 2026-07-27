@@ -225,6 +225,10 @@ COPY --from=builder --chown=node:node /app/build/remit-openapi3/openapi.json ./o
 # The deploy/vps/docker-compose.yml `migrate` one-shot service overrides CMD
 # to run it instead of server.mjs.
 COPY --from=builder --chown=node:node /app/dist-docker/backend/migrate.mjs ./migrate.mjs
+# Same shape, for the one-time ListId backfill (issue #263): a manually-run
+# alternate entrypoint, never wired into a compose one-shot — see
+# packages/backend/scripts/backfill-list-id.ts.
+COPY --from=builder --chown=node:node /app/dist-docker/backend/backfill-list-id.mjs ./backfill-list-id.mjs
 # Both migration sets, staged in the builder into one directory so this COPY is
 # unconditional. The migrate entrypoint applies ./migrations (Postgres) or
 # ./migrations-sqlite by DATA_BACKEND (RFC 036 D5); the compose `migrate` service

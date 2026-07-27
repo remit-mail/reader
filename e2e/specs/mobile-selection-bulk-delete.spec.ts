@@ -607,7 +607,7 @@ test.describe("Search-scoped escalation and bulk delete", () => {
 	// below actually delete anything.
 	test.beforeAll(async () => {
 		const run = readRunState();
-		const api = new ApiClient(run.token);
+		const api = new ApiClient(run);
 		const main = Array.from({ length: NPM_MAIN_COUNT }, (_, i) => ({
 			subject: mainSubject(i + 1),
 		}));
@@ -623,7 +623,7 @@ test.describe("Search-scoped escalation and bulk delete", () => {
 
 	test.afterAll(async () => {
 		const run = readRunState();
-		const api = new ApiClient(run.token);
+		const api = new ApiClient(run);
 		const leftover = await api.searchMatchingMessageIds(run.inboxId, RUN_TAG);
 		for (let i = 0; i < leftover.length; i += 100) {
 			await api.deleteMessages(leftover.slice(i, i + 100));
@@ -790,7 +790,7 @@ test.describe("Search-scoped escalated move and mark-read", () => {
 
 	test.beforeAll(async () => {
 		const run = readRunState();
-		const api = new ApiClient(run.token);
+		const api = new ApiClient(run);
 		await appendMessages(
 			run.imapUser,
 			Array.from({ length: COUNT }, (_, i) => ({ subject: subjectFor(i + 1) })),
@@ -805,7 +805,7 @@ test.describe("Search-scoped escalated move and mark-read", () => {
 
 	test.afterAll(async () => {
 		const run = readRunState();
-		const api = new ApiClient(run.token);
+		const api = new ApiClient(run);
 		// The move test relocates the fixtures out of the inbox, so cleanup sweeps
 		// every mailbox rather than the inbox alone — a run leaves no scraps.
 		const mailboxes = await api.listMailboxes(run.accountId);

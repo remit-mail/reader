@@ -37,6 +37,7 @@
     "@remit/logger-lambda": "*",
     "@remit/mailbox-service": "*",
     "@remit/search-index-worker": "*",
+    "@remit/search-service": "*",
     "@remit/sqs-client": "*",
     "@remit/backend": "*",
     "@remit/domain-enums": "*",

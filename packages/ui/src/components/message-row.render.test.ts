@@ -35,6 +35,30 @@ describe("ComfortableRow", () => {
 		assert.notEqual(unread, read);
 		assert.match(unread, /font-semibold/);
 	});
+
+	it("renders a chip for every label applied to the message (issue #26)", () => {
+		const html = renderToString(
+			createElement(ComfortableRow, {
+				thread: {
+					...base,
+					isRead: true,
+					labels: [
+						{ labelId: "l1", name: "Receipts", color: "Blue" },
+						{ labelId: "l2", name: "Travel", color: "Green" },
+					],
+				},
+			}),
+		);
+		assert.match(html, /Receipts/);
+		assert.match(html, /Travel/);
+	});
+
+	it("renders no label chip when the message carries none", () => {
+		const html = renderToString(
+			createElement(ComfortableRow, { thread: { ...base, isRead: true } }),
+		);
+		assert.doesNotMatch(html, /Remove label/);
+	});
 });
 
 describe("ComfortableRow category presentation", () => {

@@ -15,6 +15,11 @@ import { SelectionToolbar } from "./SelectionToolbar";
  * its visual is covered by the kit `SelectionTopBar` stories' move slot. The
  * escalated stories below still assert verb parity through the mark-read and
  * delete verbs remaining available over the predicate.
+ *
+ * The apply-label verb (issue #26) needs the same account-scoped query
+ * (`LabelApplyTrigger` lists the account's labels), so it is withheld here for
+ * the identical reason and omitted from `args` — none of these stories pass
+ * `selectedMessageIds`, which keeps the trigger from rendering.
  */
 const meta: Meta<typeof SelectionToolbar> = {
 	title: "Screens/WebClient/SelectionToolbar",

@@ -164,6 +164,15 @@ export const TARGETS = [
 		external: [PG, SQLITE],
 		loader: { ".sql": "text" },
 	},
+	// Same "backend image with a command" shape as backend-migrate, for the
+	// one-time ListId backfill (issue #263) — never wired into a compose
+	// one-shot, run by hand once per install.
+	{
+		name: "backend-backfill-list-id",
+		entry: "packages/backend/scripts/backfill-list-id.ts",
+		outfile: "dist-docker/backend/backfill-list-id.mjs",
+		external: [PG, SQLITE],
+	},
 ];
 
 async function main() {

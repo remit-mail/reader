@@ -240,6 +240,7 @@ export class DefaultSearchService implements SearchService {
 				...metadata,
 				chunkType: chunk.chunkType,
 				contentHash: computeContentHash(embeddingId, chunk.text),
+				embeddingId,
 				textPreview: buildTextPreview(chunk.text),
 				...(chunk.chunkType === "attachment" && fileTypes.length > 0
 					? { fileTypes }
@@ -335,6 +336,7 @@ export class DefaultSearchService implements SearchService {
 				...metadata,
 				chunkType: h.chunk.chunkType,
 				contentHash: h.contentHash,
+				embeddingId,
 				textPreview: buildTextPreview(h.chunk.text),
 				...(h.chunk.chunkType === "attachment" && fileTypes.length > 0
 					? { fileTypes }

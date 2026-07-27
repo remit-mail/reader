@@ -1,4 +1,12 @@
-import { Fragment, type ReactNode, useMemo, useState } from "react";
+import {
+	Fragment,
+	type ReactNode,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
+import { isAbortError } from "../lib/abort.js";
 import { BottomSheet } from "./bottom-sheet.js";
 import { Button } from "./button.js";
 import { Dialog } from "./dialog.js";
@@ -16,6 +24,7 @@ import {
 	commitLabel,
 	type FilterRule,
 	type FolderOption,
+	type LabelOption,
 	type MatchOperator,
 	matchJoinWord,
 	matchOperatorLabel,
@@ -23,6 +32,7 @@ import {
 	type RuleScope,
 } from "./filter-rule.js";
 import { Input } from "./input.js";
+import { LabelChip } from "./label-chip.js";
 import { SegmentedControl } from "./segmented-control.js";
 import { Select } from "./select.js";
 
@@ -36,6 +46,8 @@ export interface ClauseEditState {
 export interface FilterRuleEditorProps {
 	rule: FilterRule;
 	folders: FolderOption[];
+	/** The account's labels the apply-label action can target (issue #26). */
+	labels?: LabelOption[];
 	preview: PreviewCount;
 	/**
 	 * Content rendered above the clause chips — the filter-from-search conversion
@@ -56,14 +68,20 @@ export interface FilterRuleEditorProps {
 	 */
 	clauseFields?: ClauseField[];
 	/**
-	 * Render the scope and expiry read-only (RFC 038 D6). A persisted filter's
-	 * scope, expiry, and semantic anchor are fixed at creation — the update
-	 * endpoint carries none of them — so editing a filter shows them as a static
-	 * summary with a note rather than live controls that would silently discard
-	 * the change (reader #266 tracks lifting this). The name and the literal
-	 * predicate stay editable.
+	 * Whether the semantic anchor is fixed and cannot be added, removed, or
+	 * repointed (RFC 038 D6, reader #266). True for an existing, persisted
+	 * filter — the update endpoint carries no anchor field at all, so
+	 * repointing one would silently change what a saved filter matches with
+	 * nothing visible changing, and that deserves a new filter instead. The
+	 * widen chip renders display-only (no remove affordance regardless of
+	 * `onRemoveWiden`) and carries a one-line note explaining why.
+	 *
+	 * Scope and expiry are NOT covered by this flag — they stay editable even
+	 * on an existing filter (reader #266). The only other thing this locks is
+	 * the "Just once" scope option, meaningless for an already-persisted
+	 * filter, which is dropped from the scope toggle.
 	 */
-	lifecycleLocked?: boolean;
+	anchorLocked?: boolean;
 	/** The inline clause form, when adding or editing a clause. */
 	clauseEdit?: ClauseEditState;
 	onStartAddClause?: () => void;
@@ -78,12 +96,23 @@ export interface FilterRuleEditorProps {
 	onChangeMatchOperator?: (operator: MatchOperator) => void;
 	onChangeMove?: (mailboxId: string) => void;
 	/**
-	 * Create a new destination folder from within the editor. Given a folder
-	 * name, resolves to the created folder once the backend has queued it. When
-	 * absent, the "New folder…" option is not offered — the editor stays
-	 * data-agnostic, so stories and consumers without wiring render unchanged.
+	 * Create a new destination folder from within the editor. Given a folder name
+	 * and an abort signal, resolves to the created folder once the mail server
+	 * confirms it. The editor aborts the signal on unmount or cancel. When absent,
+	 * the "New folder…" option is not offered — the editor stays data-agnostic, so
+	 * stories and consumers without wiring render unchanged.
 	 */
-	onCreateFolder?: (name: string) => Promise<FolderOption>;
+	onCreateFolder?: (
+		name: string,
+		signal?: AbortSignal,
+	) => Promise<FolderOption>;
+	onChangeLabel?: (labelId: string) => void;
+	/**
+	 * Create a new label from within the editor (issue #26). Given a label
+	 * name, resolves to the created label once the backend has saved it. When
+	 * absent, the "New label…" option is not offered.
+	 */
+	onCreateLabel?: (name: string) => Promise<LabelOption>;
 	onChangeScope?: (scope: RuleScope) => void;
 	onChangeName?: (name: string) => void;
 	onChangeUntil?: (date: string) => void;
@@ -103,6 +132,7 @@ const scopeOptions: { value: RuleScope; label: string }[] = [
 ];
 
 const CREATE_FOLDER_VALUE = "__filter_create_folder__";
+const CREATE_LABEL_VALUE = "__filter_create_label__";
 
 /**
  * The move-to destination select, plus an inline "New folder…" affordance when
@@ -110,6 +140,13 @@ const CREATE_FOLDER_VALUE = "__filter_create_folder__";
  * name field; on resolve the new folder is added to the local option set (so it
  * is selectable even before the caller's folder list refetches) and picked as
  * the destination. Without `onCreateFolder` this is the bare select.
+ *
+ * The destination is a dependent write: the filter this editor commits binds to
+ * the folder, so `onCreateFolder` resolves only once the folder is confirmed on
+ * the mail server, not when the create is merely queued. The pending state holds
+ * "Creating folder…" for that whole wait, and a create that fails or never
+ * confirms rejects with its own message here — the folder is never selected, so
+ * the caller cannot commit a filter against a folder that does not exist.
  */
 function MoveDestinationField({
 	folders,
@@ -120,13 +157,21 @@ function MoveDestinationField({
 	folders: FolderOption[];
 	value: string;
 	onChangeMove?: (mailboxId: string) => void;
-	onCreateFolder?: (name: string) => Promise<FolderOption>;
+	onCreateFolder?: (
+		name: string,
+		signal?: AbortSignal,
+	) => Promise<FolderOption>;
 }) {
 	const [creating, setCreating] = useState(false);
 	const [name, setName] = useState("");
 	const [pending, setPending] = useState(false);
 	const [error, setError] = useState<string>();
 	const [createdFolders, setCreatedFolders] = useState<FolderOption[]>([]);
+	// The create waits for the mail server to confirm the folder; abort it on
+	// unmount or cancel so a late confirmation never binds the destination after
+	// the editor is gone or the sub-form dismissed.
+	const createAbort = useRef<AbortController | null>(null);
+	useEffect(() => () => createAbort.current?.abort(), []);
 
 	const options = useMemo(() => {
 		const known = new Set(folders.map((folder) => folder.id));
@@ -151,7 +196,10 @@ function MoveDestinationField({
 		if (trimmed === "") return;
 		setPending(true);
 		setError(undefined);
-		onCreateFolder(trimmed)
+		createAbort.current?.abort();
+		const controller = new AbortController();
+		createAbort.current = controller;
+		onCreateFolder(trimmed, controller.signal)
 			.then((folder) => {
 				setCreatedFolders((prev) =>
 					prev.some((entry) => entry.id === folder.id)
@@ -164,6 +212,7 @@ function MoveDestinationField({
 				setPending(false);
 			})
 			.catch((error: unknown) => {
+				if (isAbortError(error)) return;
 				setError(
 					error instanceof Error
 						? error.message
@@ -174,9 +223,11 @@ function MoveDestinationField({
 	};
 
 	const cancel = () => {
+		createAbort.current?.abort();
 		setCreating(false);
 		setName("");
 		setError(undefined);
+		setPending(false);
 	};
 
 	return (
@@ -228,7 +279,154 @@ function MoveDestinationField({
 							onClick={submit}
 							disabled={pending || name.trim() === ""}
 						>
-							{pending ? "Creating…" : "Create folder"}
+							{pending ? "Creating folder…" : "Create folder"}
+						</Button>
+						<Button
+							variant="ghost"
+							size="sm"
+							onClick={cancel}
+							disabled={pending}
+						>
+							Cancel
+						</Button>
+					</div>
+				</div>
+			)}
+		</div>
+	);
+}
+
+/**
+ * The apply-label select, plus an inline "New label…" affordance when the
+ * consumer wires `onCreateLabel` (issue #26). Mirrors `MoveDestinationField`:
+ * selecting the create option reveals a name field, and the created label is
+ * added to the local option set and picked immediately, before the caller's
+ * label list refetches.
+ */
+function LabelDestinationField({
+	labels,
+	value,
+	onChangeLabel,
+	onCreateLabel,
+}: {
+	labels: LabelOption[];
+	value: string;
+	onChangeLabel?: (labelId: string) => void;
+	onCreateLabel?: (name: string) => Promise<LabelOption>;
+}) {
+	const [creating, setCreating] = useState(false);
+	const [name, setName] = useState("");
+	const [pending, setPending] = useState(false);
+	const [error, setError] = useState<string>();
+	const [createdLabels, setCreatedLabels] = useState<LabelOption[]>([]);
+
+	const options = useMemo(() => {
+		const known = new Set(labels.map((label) => label.id));
+		return [
+			...labels,
+			...createdLabels.filter((label) => !known.has(label.id)),
+		];
+	}, [labels, createdLabels]);
+
+	const selected = options.find((label) => label.id === value);
+
+	const handleSelectChange = (next: string) => {
+		if (next === CREATE_LABEL_VALUE) {
+			setError(undefined);
+			setCreating(true);
+			return;
+		}
+		onChangeLabel?.(next);
+	};
+
+	const submit = () => {
+		if (!onCreateLabel) return;
+		const trimmed = name.trim();
+		if (trimmed === "") return;
+		setPending(true);
+		setError(undefined);
+		onCreateLabel(trimmed)
+			.then((label) => {
+				setCreatedLabels((prev) =>
+					prev.some((entry) => entry.id === label.id) ? prev : [...prev, label],
+				);
+				onChangeLabel?.(label.id);
+				setCreating(false);
+				setName("");
+				setPending(false);
+			})
+			.catch((error: unknown) => {
+				setError(
+					error instanceof Error
+						? error.message
+						: "Couldn't create that label. Please try again.",
+				);
+				setPending(false);
+			});
+	};
+
+	const cancel = () => {
+		setCreating(false);
+		setName("");
+		setError(undefined);
+	};
+
+	return (
+		<div className="space-y-2">
+			<div className="flex items-center gap-2">
+				<Select
+					aria-label="Label to apply"
+					value={value}
+					onChange={(event) => handleSelectChange(event.target.value)}
+					className="flex-1"
+				>
+					<option value="">No label</option>
+					{options.map((label) => (
+						<option key={label.id} value={label.id}>
+							{label.name}
+						</option>
+					))}
+					{onCreateLabel && (
+						<option value={CREATE_LABEL_VALUE}>＋ New label…</option>
+					)}
+				</Select>
+				{selected && (
+					<LabelChip label={{ ...selected, labelId: selected.id }} />
+				)}
+			</div>
+			{creating && (
+				<div className="space-y-2 rounded-md border border-line bg-surface-sunken p-2">
+					<Input
+						value={name}
+						onChange={(event) => setName(event.target.value)}
+						placeholder="Label name"
+						aria-label="New label name"
+						disabled={pending}
+						autoFocus
+						onKeyDown={(event) => {
+							if (event.key === "Enter") {
+								event.preventDefault();
+								submit();
+							}
+							if (event.key === "Escape") {
+								event.preventDefault();
+								cancel();
+							}
+						}}
+					/>
+					{error && (
+						<p className="text-2xs text-danger" role="alert">
+							{error}
+						</p>
+					)}
+					<div className="flex gap-2">
+						<Button
+							variant="primary"
+							size="sm"
+							onClick={submit}
+							disabled={pending || name.trim() === ""}
+						>
+							{pending ? "Creating…" : "Create label"}
 						</Button>
 						<Button
 							variant="ghost"
@@ -248,11 +446,12 @@ function MoveDestinationField({
 export function FilterRuleEditor({
 	rule,
 	folders,
+	labels = [],
 	preview,
 	notice,
 	semanticAvailable = false,
 	clauseFields,
-	lifecycleLocked = false,
+	anchorLocked = false,
 	clauseEdit,
 	onStartAddClause,
 	onStartEditClause,
@@ -266,6 +465,8 @@ export function FilterRuleEditor({
 	onChangeMatchOperator,
 	onChangeMove,
 	onCreateFolder,
+	onChangeLabel,
+	onCreateLabel,
 	onChangeScope,
 	onChangeName,
 	onChangeUntil,
@@ -278,6 +479,12 @@ export function FilterRuleEditor({
 	const join = matchJoinWord(rule.matchOperator);
 	const blockedReason = commitBlockedReason(rule, preview);
 	const needsName = rule.scope === "standing" || rule.scope === "until";
+	// A persisted filter is always Standing or Temporary — "once" was never a
+	// scope a saved row could hold, so an existing filter's editor never offers
+	// it (reader #266).
+	const availableScopeOptions = anchorLocked
+		? scopeOptions.filter((option) => option.value !== "once")
+		: scopeOptions;
 
 	return (
 		<div className="flex min-h-0 flex-col">
@@ -314,16 +521,22 @@ export function FilterRuleEditor({
 										{join}
 									</span>
 								)}
-								<WidenChip widen={rule.widen} onRemove={onRemoveWiden} />
+								<WidenChip
+									widen={rule.widen}
+									onRemove={anchorLocked ? undefined : onRemoveWiden}
+								/>
 							</>
 						)}
 
 						{!clauseEdit && (
 							<AddChipButton label="Add clause" onClick={onStartAddClause} />
 						)}
-						{!rule.widen && semanticAvailable && !clauseEdit && (
-							<AddChipButton label="…and similar" onClick={onAddWiden} />
-						)}
+						{!rule.widen &&
+							!anchorLocked &&
+							semanticAvailable &&
+							!clauseEdit && (
+								<AddChipButton label="…and similar" onClick={onAddWiden} />
+							)}
 					</div>
 
 					{clauseEdit && (
@@ -336,6 +549,13 @@ export function FilterRuleEditor({
 							onSubmit={onSubmitClause}
 							onCancel={onCancelClause}
 						/>
+					)}
+
+					{anchorLocked && rule.widen && (
+						<p className="text-2xs text-fg-subtle">
+							This filter's similar-mail match is fixed to the message it was
+							created from — create a new filter to change it.
+						</p>
 					)}
 
 					{showOperator && (
@@ -361,35 +581,28 @@ export function FilterRuleEditor({
 						onChangeMove={onChangeMove}
 						onCreateFolder={onCreateFolder}
 					/>
-					<div className="flex items-center gap-2 pt-0.5">
-						<span className="inline-flex items-center gap-1.5 rounded-full bg-surface-sunken px-2 py-0.5 text-2xs font-medium text-fg-muted">
-							label them…
-						</span>
-						<span className="text-2xs text-fg-subtle">
-							Labeling isn't available yet — arrives with mail-labeling (RFC
-							031).
-						</span>
-					</div>
+				</section>
+
+				<section className="space-y-2">
+					<p className="text-xs font-medium text-fg-muted">Apply a label</p>
+					<LabelDestinationField
+						labels={labels}
+						value={rule.labelId ?? ""}
+						onChangeLabel={onChangeLabel}
+						onCreateLabel={onCreateLabel}
+					/>
 				</section>
 
 				<section className="space-y-2">
 					<p className="text-xs font-medium text-fg-muted">How long</p>
-					{lifecycleLocked ? (
-						<p className="text-xs text-fg">
-							{rule.scope === "until"
-								? `Until ${rule.until ?? ""}`
-								: "Always — runs on matching mail"}
-						</p>
-					) : (
-						<SegmentedControl
-							name="rule-scope"
-							size="sm"
-							aria-label="Rule scope"
-							options={scopeOptions}
-							value={rule.scope}
-							onChange={(value) => onChangeScope?.(value)}
-						/>
-					)}
+					<SegmentedControl
+						name="rule-scope"
+						size="sm"
+						aria-label="Rule scope"
+						options={availableScopeOptions}
+						value={rule.scope}
+						onChange={(value) => onChangeScope?.(value)}
+					/>
 					{needsName && (
 						<Input
 							value={rule.name ?? ""}
@@ -399,7 +612,7 @@ export function FilterRuleEditor({
 							className="w-full"
 						/>
 					)}
-					{!lifecycleLocked && rule.scope === "until" && (
+					{rule.scope === "until" && (
 						<div className="flex items-center gap-2 text-xs text-fg-muted">
 							<span>Until</span>
 							<Input
@@ -410,13 +623,6 @@ export function FilterRuleEditor({
 								className="flex-1"
 							/>
 						</div>
-					)}
-					{lifecycleLocked && (
-						<p className="text-2xs text-fg-subtle">
-							{rule.widen
-								? "The scope, expiry, and similar-mail match are set when a filter is created."
-								: "The scope and expiry are set when a filter is created."}
-						</p>
 					)}
 				</section>
 

@@ -15,13 +15,15 @@ const baseDraft = (overrides: Partial<OrganizeDraft> = {}): OrganizeDraft => ({
 });
 
 describe("hasCommittableAction", () => {
-	it("is false when no move target is chosen — labeling has no backend yet, so a keep-in-place draft has nothing to commit", () => {
+	it("is false when neither a move nor a label is chosen — a keep-in-place draft has nothing to commit", () => {
 		assert.equal(hasCommittableAction(baseDraft()), false);
 	});
 
-	it("is false for the None sentinel", () => {
+	it("is false for the None sentinel on both actions", () => {
 		assert.equal(
-			hasCommittableAction(baseDraft({ moveMailboxId: NO_ACTION })),
+			hasCommittableAction(
+				baseDraft({ moveMailboxId: NO_ACTION, labelId: NO_ACTION }),
+			),
 			false,
 		);
 	});
@@ -32,10 +34,23 @@ describe("hasCommittableAction", () => {
 			true,
 		);
 	});
+
+	it("is true once a real label is chosen, with no move target (issue #26)", () => {
+		assert.equal(hasCommittableAction(baseDraft({ labelId: "lbl-1" })), true);
+	});
+
+	it("is true when both a move and a label are chosen", () => {
+		assert.equal(
+			hasCommittableAction(
+				baseDraft({ moveMailboxId: "mbx-1", labelId: "lbl-1" }),
+			),
+			true,
+		);
+	});
 });
 
 describe("buildOrganizeInput", () => {
-	it("carries the anchor and defaults the action to None when no move is set", () => {
+	it("carries the anchor and defaults both actions to None when neither is set", () => {
 		const input = buildOrganizeInput(baseDraft({ anchorMessageId: "msg-1" }));
 		assert.equal(input.anchorMessageId, "msg-1");
 		assert.equal(input.actionMailboxId, NO_ACTION);
@@ -53,12 +68,16 @@ describe("buildOrganizeInput", () => {
 		assert.equal("anchorMessageId" in input, false);
 	});
 
-	it("labels the label action None even when a move target is set — label writes have no endpoint", () => {
+	it("carries the move and label actions independently (issue #26)", () => {
 		const input = buildOrganizeInput(
-			baseDraft({ anchorMessageId: "msg-1", moveMailboxId: "mbx-9" }),
+			baseDraft({
+				anchorMessageId: "msg-1",
+				moveMailboxId: "mbx-9",
+				labelId: "lbl-9",
+			}),
 		);
 		assert.equal(input.actionMailboxId, "mbx-9");
-		assert.equal(input.actionLabelId, NO_ACTION);
+		assert.equal(input.actionLabelId, "lbl-9");
 	});
 });
 
@@ -100,5 +119,14 @@ describe("buildCreateFilterInput", () => {
 			"Trip",
 		);
 		assert.equal("ttl" in input, false);
+	});
+
+	it("carries a label action (issue #26)", () => {
+		const input = buildCreateFilterInput(
+			baseDraft({ labelId: "lbl-1" }),
+			"standing",
+			"Receipts",
+		);
+		assert.equal(input.actionLabelId, "lbl-1");
 	});
 });

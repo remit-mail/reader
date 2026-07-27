@@ -81,6 +81,30 @@ export function labelRepositoryConformance(
 			assert.equal(missing, null);
 		});
 
+		test("listPageByAccountConfig pages through an account's labels, scoped to the account", async () => {
+			const accountConfigId = harness.makeId();
+			const other = harness.makeId();
+
+			const first = await repo.create({ accountConfigId, name: "First" });
+			const second = await repo.create({ accountConfigId, name: "Second" });
+			await repo.create({ accountConfigId: other, name: "Foreign" });
+
+			const page1 = await repo.listPageByAccountConfig(accountConfigId, {
+				limit: 1,
+			});
+			assert.equal(page1.items.length, 1);
+			assert.equal(page1.items[0]?.labelId, first.labelId);
+			assert.ok(page1.continuationToken);
+
+			const page2 = await repo.listPageByAccountConfig(accountConfigId, {
+				limit: 1,
+				continuationToken: page1.continuationToken,
+			});
+			assert.equal(page2.items.length, 1);
+			assert.equal(page2.items[0]?.labelId, second.labelId);
+			assert.equal(page2.continuationToken, undefined);
+		});
+
 		test("delete removes the row", async () => {
 			const accountConfigId = harness.makeId();
 			const label = await repo.create({ accountConfigId, name: "Gone" });

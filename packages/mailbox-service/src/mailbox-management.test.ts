@@ -1,10 +1,18 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
+import type { IMailboxRepository } from "@remit/data-ports";
+import { MailboxSyncStatus } from "@remit/domain-enums";
 import {
+	MailboxManagementService,
 	parseMailboxPath,
 	validateMailboxOperation,
 	validateMailboxPath,
 } from "./mailbox-management.js";
+import type {
+	FlatMailboxInfo,
+	IImapConnection,
+	ImapBoxStatus,
+} from "./types.js";
 
 describe("parseMailboxPath", () => {
 	it("parses simple path", () => {
@@ -73,6 +81,161 @@ describe("validateMailboxPath", () => {
 
 	it("accepts valid nested path", () => {
 		assert.doesNotThrow(() => validateMailboxPath("Work/Projects/ClientA"));
+	});
+});
+
+const boxStatus = (path: string): ImapBoxStatus => ({
+	name: path,
+	readOnly: true,
+	uidvalidity: 42,
+	uidnext: 7,
+	flags: [],
+	permFlags: [],
+	persistentUIDs: true,
+	messages: { total: 0, new: 0 },
+	newKeywords: false,
+});
+
+const recordingRepo = () => {
+	const updates: Array<{ mailboxId: string; patch: Record<string, unknown> }> =
+		[];
+	const repo = {
+		update: async (
+			_accountId: string,
+			mailboxId: string,
+			patch: Record<string, unknown>,
+		) => {
+			updates.push({ mailboxId, patch });
+			return {} as never;
+		},
+	} as unknown as IMailboxRepository;
+	return { repo, updates };
+};
+
+const stubConnection = (
+	createdPath: string,
+	listed: string[],
+): { connection: IImapConnection; opened: string[] } => {
+	const opened: string[] = [];
+	const connection = {
+		createMailbox: async (_path: string) => ({
+			path: createdPath,
+			created: true,
+		}),
+		subscribeMailbox: async () => undefined,
+		listMailboxes: async (): Promise<FlatMailboxInfo[]> =>
+			listed.map((fullPath) => ({
+				fullPath,
+				name: fullPath.split("/").pop() ?? fullPath,
+				delimiter: "/",
+				attributes: [],
+				parentPath: null,
+			})),
+		openBox: async (path: string) => {
+			opened.push(path);
+			return boxStatus(path);
+		},
+		closeBox: async () => undefined,
+	} as unknown as IImapConnection;
+	return { connection, opened };
+};
+
+describe("MailboxManagementService.syncCreate — server path normalization", () => {
+	it("adopts the server-materialized path as the row's identity when it is prefixed", async () => {
+		const { repo, updates } = recordingRepo();
+		const { connection, opened } = stubConnection("INBOX/Notifications", [
+			"INBOX/Notifications",
+		]);
+		const service = new MailboxManagementService(repo);
+
+		const result = await service.syncCreate(
+			"acc-1",
+			"mbx-1",
+			"Notifications",
+			async () => connection,
+		);
+
+		assert.strictEqual(result.success, true);
+		// The mailbox is opened at the server's path, not the requested leaf.
+		assert.deepStrictEqual(opened, ["INBOX/Notifications"]);
+		assert.strictEqual(updates.length, 1);
+		// The row keeps its id and takes on the prefixed path, so the next reconcile
+		// updates it in place instead of insert+delete — every reference survives.
+		assert.strictEqual(updates[0].mailboxId, "mbx-1");
+		assert.strictEqual(updates[0].patch.fullPath, "INBOX/Notifications");
+		assert.strictEqual(updates[0].patch.syncStatus, MailboxSyncStatus.synced);
+	});
+
+	it("leaves the path untouched when the server keeps it as requested", async () => {
+		const { repo, updates } = recordingRepo();
+		const { connection } = stubConnection("Work", ["Work"]);
+		const service = new MailboxManagementService(repo);
+
+		await service.syncCreate("acc-1", "mbx-2", "Work", async () => connection);
+
+		assert.strictEqual(updates.length, 1);
+		assert.ok(!("fullPath" in updates[0].patch));
+		assert.strictEqual(updates[0].patch.syncStatus, MailboxSyncStatus.synced);
+	});
+
+	it("still adopts the server path when the fresh list cannot resolve it", async () => {
+		const { repo, updates } = recordingRepo();
+		const { connection, opened } = stubConnection("INBOX/Notifications", []);
+		const service = new MailboxManagementService(repo);
+
+		await service.syncCreate(
+			"acc-1",
+			"mbx-3",
+			"Notifications",
+			async () => connection,
+		);
+
+		assert.deepStrictEqual(opened, []);
+		assert.strictEqual(updates.length, 1);
+		assert.strictEqual(updates[0].patch.fullPath, "INBOX/Notifications");
+		assert.strictEqual(updates[0].patch.syncStatus, MailboxSyncStatus.synced);
+	});
+
+	it("falls back to the requested path when the create result carries none", async () => {
+		const { repo, updates } = recordingRepo();
+		const opened: string[] = [];
+		const subscribed: string[] = [];
+		const connection = {
+			createMailbox: async (_path: string) => ({ created: true }),
+			subscribeMailbox: async (p: string) => {
+				subscribed.push(p);
+			},
+			listMailboxes: async (): Promise<FlatMailboxInfo[]> => [
+				{
+					fullPath: "Archive",
+					name: "Archive",
+					delimiter: "/",
+					attributes: [],
+					parentPath: null,
+				},
+			],
+			openBox: async (p: string) => {
+				opened.push(p);
+				return boxStatus(p);
+			},
+			closeBox: async () => undefined,
+		} as unknown as IImapConnection;
+		const service = new MailboxManagementService(repo);
+
+		await service.syncCreate(
+			"acc-1",
+			"mbx-4",
+			"Archive",
+			async () => connection,
+			true,
+		);
+
+		// A thin result never blanks fullPath — the requested path is used throughout.
+		assert.deepStrictEqual(subscribed, ["Archive"]);
+		assert.deepStrictEqual(opened, ["Archive"]);
+		assert.strictEqual(updates.length, 1);
+		assert.ok(!("fullPath" in updates[0].patch));
+		assert.strictEqual(updates[0].patch.syncStatus, MailboxSyncStatus.synced);
 	});
 });
 

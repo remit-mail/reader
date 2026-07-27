@@ -102,15 +102,17 @@ const buildHarness = (
 	} as unknown as IMessageRepository;
 
 	const threadMessageService = {
-		getByMessageId: async () => ({
-			threadMessageId: "tm-1",
-			sentDate: 1,
-			mailboxId: message.mailboxId,
-			isRead: false,
-			isDeleted: false,
-			hasStars: false,
-			hasAttachment: false,
-		}),
+		findAllByMessageId: async () => [
+			{
+				threadMessageId: "tm-1",
+				sentDate: 1,
+				mailboxId: message.mailboxId,
+				isRead: false,
+				isDeleted: false,
+				hasStars: false,
+				hasAttachment: false,
+			},
+		],
 		update: async () => {},
 	} as unknown as IThreadMessageRepository;
 

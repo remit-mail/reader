@@ -3,17 +3,23 @@ import {
 	type FilterRule,
 	FilterRuleEditor,
 	type FolderOption,
+	type LabelOption,
 	type RuleScope,
 } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useCreateMailbox } from "@/hooks/useCreateMailbox";
 import { useCreateFilter } from "@/hooks/useFilters";
+import { useCreateLabel, useLabelList } from "@/hooks/useLabels";
 import { useOrganizeJob } from "@/hooks/useOrganizeJob";
 import { useRuleEditorState } from "@/hooks/useRuleEditorState";
 import { useRulePreview } from "@/hooks/useRulePreview";
 import { getMailboxDisplayName } from "@/lib/folder-roles";
 import { buildMoveTargets } from "@/lib/move-targets";
+import {
+	canBackApplyDraft,
+	type OrganizeDraft,
+} from "@/lib/organize/organize-model";
 import {
 	buildInitialRule,
 	rulePredicate,
@@ -21,6 +27,7 @@ import {
 	SUPPORTED_CLAUSE_FIELDS,
 } from "@/lib/organize/rule-model";
 import {
+	BackApplyError,
 	CommitError,
 	FilterSaved,
 	JobProgress,
@@ -50,7 +57,9 @@ interface OrganizeRuleEditorProps {
  * The Organize surface as the chip editor (RFC 038 D1). The rule is rendered and
  * edited over the existing preview/apply endpoints: clause chips, a
  * match-operator toggle, a move action, and a scope that maps one-time apply to
- * a back-apply job and standing/until to a `Filter`. The count is live and the
+ * a back-apply job and standing/until to a `Filter`. Creating a filter also runs
+ * the back-apply once, so the rule reaches the mail already in the mailbox and
+ * not only the mail that arrives next. The count is live and the
  * commit gate holds apply until it settles, so the set the editor shows is the
  * set a commit acts on. Rendered inside the desktop dialog and the mobile sheet
  * alike, so the two cannot drift.
@@ -97,6 +106,22 @@ export function OrganizeRuleEditor({
 		[mailboxesData?.items],
 	);
 
+	const { labels: labelItems } = useLabelList(accountId);
+	const labels: LabelOption[] = useMemo(
+		() =>
+			labelItems.map((label) => ({
+				id: label.labelId,
+				name: label.name,
+				color: label.color,
+			})),
+		[labelItems],
+	);
+	const { createLabel } = useCreateLabel(accountId);
+	const onCreateLabel = async (name: string): Promise<LabelOption> => {
+		const label = await createLabel(name);
+		return { id: label.labelId, name: label.name, color: label.color };
+	};
+
 	const preview = useRulePreview(
 		accountId,
 		rulePredicate(rule, anchorMessageId),
@@ -107,17 +132,42 @@ export function OrganizeRuleEditor({
 	const createFilter = useCreateFilter(accountId);
 	const { createFolder } = useCreateMailbox(accountId);
 
+	// Creating a filter also moves the mail that already matches, not only the
+	// mail that arrives next: the same retroactive back-apply the one-time scope
+	// runs. The filter is created first so the rule is live before the pass, then
+	// the pass runs over the existing corpus. `backApplyDraft` is the predicate
+	// to run once the create succeeds, and is undefined when the rule cannot be
+	// back-applied (a `HasWords` clause the vector-free pass can't evaluate — the
+	// filter still saves and applies to incoming mail). It is kept, not cleared,
+	// so a failed start can be retried; `backApplyStarted` guards the one-shot
+	// auto-start against re-firing on re-render.
+	const [backApplyDraft, setBackApplyDraft] = useState<OrganizeDraft>();
+	const backApplyStarted = useRef(false);
+
 	const commit = () => {
 		const draft = ruleToDraft(rule, anchorMessageId);
 		if (rule.scope === "once") {
 			organizeJob.start(draft);
 			return;
 		}
+		backApplyStarted.current = false;
+		setBackApplyDraft(canBackApplyDraft(draft) ? draft : undefined);
 		createFilter.createFilter(
 			draft,
 			rule.scope === "standing" ? "standing" : "temporary",
 			(rule.name ?? "").trim(),
 		);
+	};
+
+	useEffect(() => {
+		if (!backApplyDraft || backApplyStarted.current || !createFilter.isSuccess)
+			return;
+		backApplyStarted.current = true;
+		organizeJob.start(backApplyDraft);
+	}, [backApplyDraft, createFilter.isSuccess, organizeJob.start]);
+
+	const retryBackApply = () => {
+		if (backApplyDraft) organizeJob.start(backApplyDraft);
 	};
 
 	if (organizeJob.isStarting || organizeJob.isRunning || organizeJob.isDone) {
@@ -135,11 +185,26 @@ export function OrganizeRuleEditor({
 		);
 	}
 
+	// The filter saved, but the back-apply's own request failed (a 5xx or dropped
+	// connection on start, or a failed retry) — no job id was ever assigned, so no
+	// JobProgress state holds. Surface it distinctly instead of falling through to
+	// "Filter saved" and swallowing it: the rule is live, the move is what to
+	// retry.
+	if (createFilter.isSuccess && organizeJob.isError) {
+		return <BackApplyError onRetry={retryBackApply} onClose={onClose} />;
+	}
+
 	if (createFilter.isPending) {
 		return <SavingState />;
 	}
 
 	if (createFilter.isSuccess) {
+		// The filter is saved; the back-apply is about to start (the effect hands
+		// off to the job on the next tick). Keep the saving state until it takes
+		// over so the success screen never flashes between them. When the rule
+		// can't be back-applied, `backApplyDraft` is undefined and this is the
+		// terminal state — saved, applying to incoming mail only.
+		if (backApplyDraft) return <SavingState />;
 		return <FilterSaved onClose={onClose} />;
 	}
 
@@ -151,11 +216,13 @@ export function OrganizeRuleEditor({
 		<FilterRuleEditor
 			rule={rule}
 			folders={folders}
+			labels={labels}
 			preview={preview}
 			semanticAvailable={!semanticUnavailable}
 			clauseFields={SUPPORTED_CLAUSE_FIELDS}
 			{...handlers}
 			onCreateFolder={createFolder}
+			onCreateLabel={onCreateLabel}
 			onCommit={commit}
 			onCancel={onClose}
 		/>

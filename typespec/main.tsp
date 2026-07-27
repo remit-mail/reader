@@ -204,6 +204,50 @@ namespace RemitApi {
   }
 
   // ============================================
+  // Label Operations (RFC 030 labels, #26)
+  // ============================================
+
+  @route("/accounts/{accountId}/labels")
+  namespace LabelOperations {
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    op listLabels(
+      @path accountId: UUID,
+
+      @query(#{ explode: true })
+      @continuationToken
+      continuationToken?: string,
+    ): ResultList<LabelResponse>;
+
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    op createLabel(
+      @path accountId: UUID,
+      @body input: CreateLabelInput,
+    ): LabelResponse;
+  }
+
+  @route("/accounts/{accountId}/labels/{labelId}")
+  namespace LabelDetailOperations {
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    op getLabel(@path accountId: UUID, @path labelId: UUID): LabelResponse;
+
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @patch(#{ implicitOptionality: true })
+    op updateLabel(
+      @path accountId: UUID,
+      @path labelId: UUID,
+      @body input: UpdateLabelInput,
+    ): LabelResponse;
+
+    @doc("Delete a label. Cascades in both directions (issue #26): every `MessageLabel` row for it is removed, and every filter whose `actionLabelId` is this label is deleted outright — never left dangling, never blocking the delete. The client is expected to confirm first, naming `LabelResponse.filterCount` as the number of filters that will go with it.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @delete
+    op deleteLabel(@path accountId: UUID, @path labelId: UUID): void;
+  }
+
+  // ============================================
   // Smart Organize Back-Apply Operations (RFC 034 "all like these", #1278)
   // ============================================
 
@@ -668,5 +712,13 @@ namespace RemitApi {
     @post
     @route("/copy")
     op copyMessages(@body input: CopyMessagesInput): MessageBulkOperationResult;
+
+    @doc("Apply or remove a label on multiple messages — the manual \"just these\" scope (RFC 034 recap, issue #26). `appliedByFilterId` stays absent on the resulting `MessageLabel` rows; that provenance is reserved for filter/organize applies.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    @route("/labels")
+    op updateMessageLabels(
+      @body input: UpdateMessageLabelsInput,
+    ): MessageBulkOperationResult;
   }
 }

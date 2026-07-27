@@ -16,6 +16,32 @@ export interface Mailbox {
 	fullPath: string;
 	specialUse?: string;
 	messageCount?: number;
+	/** `pending` until the imap-worker confirms the folder on the server, then `synced`. */
+	syncStatus?: "synced" | "pending" | "failed" | "deleting";
+}
+
+/**
+ * One mailbox's entry in the account's sync status. This is the deployment's
+ * own account of a folder: how far its message sync got, and when it last ran.
+ * `lastSyncedAt` is stamped on every message-sync round, empty round included,
+ * so it is a cursor a spec can wait for an advance of rather than guessing how
+ * long a round takes.
+ */
+export interface MailboxSyncProgress {
+	mailboxId: string;
+	fullPath: string;
+	phase: string;
+	messagesTotal: number;
+	messagesSynced: number;
+	lastSyncedAt?: number;
+}
+
+export interface AccountSyncStatus {
+	accountId: string;
+	syncPhase?: string;
+	mailboxCountTotal?: number;
+	mailboxCountSynced?: number;
+	mailboxes: MailboxSyncProgress[];
 }
 
 export interface Thread {
@@ -62,6 +88,16 @@ export interface Filter {
 export interface CreateFilterInput {
 	name: string;
 	scope: "Standing" | "Temporary";
+	expiresAt?: string;
+	matchOperator?: "And" | "Or";
+	literalClauses?: { field: "From" | "Subject" | "HasWords"; value: string }[];
+	actionLabelId?: string;
+	actionMailboxId?: string;
+}
+
+export interface UpdateFilterInput {
+	name?: string;
+	scope?: "Standing" | "Temporary";
 	expiresAt?: string;
 	matchOperator?: "And" | "Or";
 	literalClauses?: { field: "From" | "Subject" | "HasWords"; value: string }[];
@@ -132,10 +168,51 @@ export const fetchBearerToken = async (cookie: string): Promise<string> => {
 	return body.token;
 };
 
-export class ApiClient {
-	constructor(private readonly token: string) {}
+/**
+ * Mint a fresh bearer from stored credentials: sign in for a session cookie,
+ * then exchange it for the token — the same two-step global setup ran once. The
+ * client calls this to recover after its bearer expires mid-run.
+ */
+export const login = (
+	credentials: Pick<Credentials, "email" | "password">,
+): Promise<string> => signIn(credentials).then(fetchBearerToken);
 
+/**
+ * What the client needs to keep talking to the gateway for a whole run: the
+ * bearer it starts with, and the credentials to mint a new one when that bearer
+ * expires. Both the shared `RunState` and an isolated run satisfy this shape.
+ */
+export interface ApiSession {
+	email: string;
+	password: string;
+	token: string;
+}
+
+export class ApiClient {
+	private token: string;
+	private reminting?: Promise<string>;
+
+	constructor(private readonly session: ApiSession) {
+		this.token = session.token;
+	}
+
+	/**
+	 * The gateway-verified bearer lives 15 minutes; a saturated run outlasts it,
+	 * after which every request comes back 401. Re-mint once and replay — only a
+	 * 401 triggers this, so any other failure still surfaces on the first try.
+	 */
 	async request(
+		method: string,
+		path: string,
+		body?: unknown,
+	): Promise<Response> {
+		const response = await this.send(method, path, body);
+		if (response.status !== 401) return response;
+		await this.reauthenticate();
+		return this.send(method, path, body);
+	}
+
+	private send(
 		method: string,
 		path: string,
 		body?: unknown,
@@ -149,6 +226,26 @@ export class ApiClient {
 			},
 			...(body === undefined ? {} : { body: JSON.stringify(body) }),
 		});
+	}
+
+	/**
+	 * Concurrent pollers all see the same expired bearer at once; the in-flight
+	 * promise is a latch so they share one re-mint instead of stampeding the
+	 * sign-in endpoint. The latch clears when the re-mint settles, so a later
+	 * expiry mints again.
+	 */
+	private reauthenticate(): Promise<string> {
+		if (!this.reminting) {
+			this.reminting = login(this.session)
+				.then((token) => {
+					this.token = token;
+					return token;
+				})
+				.finally(() => {
+					this.reminting = undefined;
+				});
+		}
+		return this.reminting;
 	}
 
 	private async json<T>(
@@ -179,6 +276,16 @@ export class ApiClient {
 
 	triggerSync(accountId: string): Promise<unknown> {
 		return this.json("POST", `/accounts/${accountId}/sync`);
+	}
+
+	/**
+	 * What the deployment believes about its own sync. A spec waiting on synced
+	 * state reads this rather than only the thing it wants to see appear: it
+	 * carries whether the sync ran at all, so a wait that does not settle can say
+	 * which of the two happened.
+	 */
+	getSyncStatus(accountId: string): Promise<AccountSyncStatus> {
+		return this.json("GET", `/accounts/${accountId}/sync/status`);
 	}
 
 	/**
@@ -304,6 +411,23 @@ export class ApiClient {
 			`/accounts/${accountId}/filters`,
 		);
 		return result.items ?? [];
+	}
+
+	/**
+	 * Patch a filter's mutable fields (reader #266: scope and expiresAt joined
+	 * name/predicate/action as updatable; the anchor stayed out of the update
+	 * surface entirely).
+	 */
+	updateFilter(
+		accountId: string,
+		filterId: string,
+		input: UpdateFilterInput,
+	): Promise<Filter> {
+		return this.json(
+			"PATCH",
+			`/accounts/${accountId}/filters/${filterId}`,
+			input,
+		);
 	}
 
 	deleteFilter(accountId: string, filterId: string): Promise<Response> {

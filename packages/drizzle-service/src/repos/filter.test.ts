@@ -119,6 +119,82 @@ describe("FilterRepo", () => {
 		);
 	});
 
+	test("update bumps ruleChangedAt when scope changes (reader #266)", async () => {
+		const accountConfigId = randomId();
+		const filter = await repo.create({
+			accountConfigId,
+			name: "Trip out-of-office",
+			scope: FilterScope.Standing,
+		});
+
+		await new Promise((resolve) => setTimeout(resolve, 1100));
+
+		const expiresAt = "2027-01-01T00:00:00+00:00";
+		const updated = await repo.update(accountConfigId, filter.filterId, {
+			scope: FilterScope.Temporary,
+			expiresAt,
+			ttl: Math.floor(new Date(expiresAt).getTime() / 1000),
+			state: FilterState.Active,
+		});
+
+		assert.equal(updated.scope, FilterScope.Temporary);
+		assert.equal(updated.expiresAt, expiresAt);
+		assert.ok(
+			updated.ruleChangedAt > filter.ruleChangedAt,
+			"a scope edit must move ruleChangedAt forward",
+		);
+	});
+
+	test("update bumps ruleChangedAt when only expiresAt changes (reader #266)", async () => {
+		const accountConfigId = randomId();
+		const initialExpiresAt = "2026-08-01T00:00:00+00:00";
+		const filter = await repo.create({
+			accountConfigId,
+			name: "Until my trip",
+			scope: FilterScope.Temporary,
+			expiresAt: initialExpiresAt,
+			ttl: Math.floor(new Date(initialExpiresAt).getTime() / 1000),
+		});
+
+		await new Promise((resolve) => setTimeout(resolve, 1100));
+
+		const extendedExpiresAt = "2026-09-01T00:00:00+00:00";
+		const updated = await repo.update(accountConfigId, filter.filterId, {
+			expiresAt: extendedExpiresAt,
+			ttl: Math.floor(new Date(extendedExpiresAt).getTime() / 1000),
+		});
+
+		assert.equal(updated.expiresAt, extendedExpiresAt);
+		assert.ok(
+			updated.ruleChangedAt > filter.ruleChangedAt,
+			"an expiresAt edit must move ruleChangedAt forward",
+		);
+	});
+
+	test("update to Standing clears expiresAt and ttl at the storage layer, even if the caller didn't null them (reader #266)", async () => {
+		const accountConfigId = randomId();
+		const expiresAt = "2026-08-01T00:00:00+00:00";
+		const filter = await repo.create({
+			accountConfigId,
+			name: "Until my trip",
+			scope: FilterScope.Temporary,
+			expiresAt,
+			ttl: Math.floor(new Date(expiresAt).getTime() / 1000),
+		});
+
+		const updated = await repo.update(accountConfigId, filter.filterId, {
+			scope: FilterScope.Standing,
+		});
+
+		assert.equal(updated.scope, FilterScope.Standing);
+		assert.equal(updated.expiresAt, undefined);
+		assert.equal(updated.ttl, undefined);
+
+		const reread = await repo.get(accountConfigId, filter.filterId);
+		assert.equal(reread.expiresAt, undefined);
+		assert.equal(reread.ttl, undefined);
+	});
+
 	test("update throws NotFoundError for a missing filter", async () => {
 		await assert.rejects(
 			repo.update(randomId(), randomId(), { name: "x" }),

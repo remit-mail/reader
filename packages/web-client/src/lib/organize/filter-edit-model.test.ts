@@ -7,6 +7,7 @@ import {
 	expiresAtToPickedDate,
 	filterToRule,
 	ruleChangesPredicateOrAction,
+	ruleChangesScopeOrExpiry,
 } from "./filter-edit-model";
 
 const filter = (
@@ -55,6 +56,16 @@ describe("filterToRule", () => {
 	it("maps the None move sentinel to no action", () => {
 		const rule = filterToRule(filter({ actionMailboxId: "None" }));
 		assert.equal(rule.moveMailboxId, undefined);
+	});
+
+	it("loads a label action (issue #26)", () => {
+		const rule = filterToRule(filter({ actionLabelId: "lbl-1" }));
+		assert.equal(rule.labelId, "lbl-1");
+	});
+
+	it("maps the None label sentinel to no action", () => {
+		const rule = filterToRule(filter({ actionLabelId: "None" }));
+		assert.equal(rule.labelId, undefined);
 	});
 
 	it("loads a Temporary filter as an until-a-date rule", () => {
@@ -130,6 +141,55 @@ describe("ruleChangesPredicateOrAction", () => {
 			true,
 		);
 	});
+
+	it("is true when the label target changes (issue #26)", () => {
+		assert.equal(
+			ruleChangesPredicateOrAction({ ...base, labelId: "lbl-new" }, base),
+			true,
+		);
+	});
+});
+
+describe("ruleChangesScopeOrExpiry (reader #266)", () => {
+	const base = filterToRule(filter());
+
+	it("is false for an identical rule and for a rename only", () => {
+		assert.equal(ruleChangesScopeOrExpiry(base, base), false);
+		assert.equal(
+			ruleChangesScopeOrExpiry({ ...base, name: "New name" }, base),
+			false,
+		);
+	});
+
+	it("is true when scope moves to until-a-date", () => {
+		assert.equal(
+			ruleChangesScopeOrExpiry(
+				{ ...base, scope: "until", until: "2027-01-01" },
+				base,
+			),
+			true,
+		);
+	});
+
+	it("is true when only the until date changes", () => {
+		const untilBase = filterToRule(
+			filter({ scope: "Temporary", expiresAt: "2027-01-01T23:59:59+00:00" }),
+		);
+		assert.equal(
+			ruleChangesScopeOrExpiry(
+				{ ...untilBase, until: "2027-06-01" },
+				untilBase,
+			),
+			true,
+		);
+	});
+
+	it("is false when moving between standing and once-equivalent scopes with no until set", () => {
+		assert.equal(
+			ruleChangesScopeOrExpiry({ ...base, scope: "standing" }, base),
+			false,
+		);
+	});
 });
 
 describe("buildUpdateFilterInput", () => {
@@ -169,7 +229,71 @@ describe("buildUpdateFilterInput", () => {
 		assert.equal(body.actionMailboxId, "None");
 	});
 
+	it("sends a chosen label target (issue #26)", () => {
+		const changed: FilterRule = {
+			...original,
+			labelId: "lbl-receipts",
+			matchOperator: "any",
+		};
+		const body = buildUpdateFilterInput(changed, original);
+		assert.equal(body.actionLabelId, "lbl-receipts");
+	});
+
+	it("drops a cleared label target to the None sentinel", () => {
+		const withLabel = { ...original, labelId: "lbl-receipts" };
+		const changed = {
+			...withLabel,
+			labelId: undefined,
+			matchOperator: "any" as const,
+		};
+		const body = buildUpdateFilterInput(changed, withLabel);
+		assert.equal(body.actionLabelId, "None");
+	});
+
 	it("is empty when nothing changed", () => {
 		assert.deepEqual(buildUpdateFilterInput(original, original), {});
+	});
+
+	it("sends scope Temporary and a derived expiresAt when moving to until-a-date (reader #266)", () => {
+		const changed: FilterRule = {
+			...original,
+			scope: "until",
+			until: "2027-03-04",
+		};
+		const body = buildUpdateFilterInput(changed, original);
+		assert.equal(body.scope, "Temporary");
+		assert.match(body.expiresAt ?? "", /^2027-03-04T/);
+		assert.equal("matchOperator" in body, false);
+		assert.equal("name" in body, false);
+	});
+
+	it("sends scope Standing with no expiresAt when moving off a Temporary filter", () => {
+		const temporaryOriginal = filterToRule(
+			filter({ scope: "Temporary", expiresAt: "2027-01-01T23:59:59+00:00" }),
+		);
+		const changed: FilterRule = { ...temporaryOriginal, scope: "standing" };
+		const body = buildUpdateFilterInput(changed, temporaryOriginal);
+		assert.equal(body.scope, "Standing");
+		assert.equal("expiresAt" in body, false);
+	});
+
+	it("sends scope and the new expiresAt when only the date changes", () => {
+		const temporaryOriginal = filterToRule(
+			filter({ scope: "Temporary", expiresAt: "2027-01-01T23:59:59+00:00" }),
+		);
+		const changed: FilterRule = { ...temporaryOriginal, until: "2027-06-01" };
+		const body = buildUpdateFilterInput(changed, temporaryOriginal);
+		assert.equal(body.scope, "Temporary");
+		assert.match(body.expiresAt ?? "", /^2027-06-01T/);
+	});
+
+	it("carries no anchor field — the editor never has one to send (reader #266)", () => {
+		const changed: FilterRule = {
+			...original,
+			scope: "until",
+			until: "2027-03-04",
+		};
+		const body = buildUpdateFilterInput(changed, original);
+		assert.equal("anchorMessageId" in body, false);
 	});
 });

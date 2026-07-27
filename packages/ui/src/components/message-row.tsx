@@ -5,6 +5,7 @@ import { LIST_ROW_ATTRIBUTE } from "../lib/roving-focus.js";
 import { categoryTone, type ThreadRowData } from "./app-shell-types.js";
 import { Avatar } from "./avatar.js";
 import { Badge } from "./badge.js";
+import { LabelChip } from "./label-chip.js";
 
 /** Visible keyboard-focus ring for a row reached by the list's arrow-key cursor. */
 const ROW_FOCUS_RING =
@@ -166,6 +167,9 @@ export function ComfortableRowTextContent({
 						{thread.category}
 					</Badge>
 				)}
+				{thread.labels?.map((label) => (
+					<LabelChip key={label.labelId} label={label} className="max-w-20" />
+				))}
 				{badge}
 			</span>
 		</span>

@@ -1332,6 +1332,7 @@ export const MessageList = ({
 				isMoving={isMoving}
 				accountId={accountId}
 				currentMailboxId={mailboxId}
+				selectedMessageIds={Array.from(selectedIds)}
 				moveDisabledHint={moveDisabledHint}
 				selectAll={escalationEnabled ? selectionSelectAll : undefined}
 				statusLabel={selectionStatusLabel}
