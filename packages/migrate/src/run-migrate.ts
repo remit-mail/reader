@@ -17,11 +17,11 @@ import {
 	type RepairSqlClient,
 	readResidual,
 	repairThreadMessageCategory,
-} from "../../../packages/drizzle-service/src/repair/thread-message-category.js";
-// Reached by relative path for the same reason the .sql files above are: this
-// entrypoint is bundled by esbuild, not resolved as a workspace dependency, and
-// the repair module imports nothing so bundling it drags in no schema or driver.
-import { logger } from "../../../packages/logger-lambda/src/logger.js";
+} from "../../drizzle-service/src/repair/thread-message-category.js";
+// Reached by module path rather than through either package's entry point: this
+// entrypoint is bundled by esbuild, and the repair module imports nothing, so
+// bundling it drags in no schema or driver.
+import { logger } from "../../logger-lambda/src/logger.js";
 
 /**
  * One-shot migrator for the VPS/self-host compose stack (RFC 035 D8). Runs

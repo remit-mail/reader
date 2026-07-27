@@ -28,7 +28,7 @@
 		"build": "npm run generate:routes && tsc -b && vite build",
 		"build:dist": "npm run generate:routes && node --import tsx harness/build.mjs",
 		"preview": "vite preview",
-		"test:typecheck": "npm run generate:routes && tsgo --noEmit",
+		"test:typecheck": "npm run generate:routes && tsgo --noEmit && tsgo --noEmit -p tsconfig.node.json",
 		"test:run": "node --import tsx --import ./test-support/register.mjs --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/**/*.test.tsx' --test-coverage-exclude='src/test-support/**' --test-coverage-lines=86 --test 'src/**/*.test.ts'",
 		"test": "npm run test:typecheck && npm run test:run"
 	},

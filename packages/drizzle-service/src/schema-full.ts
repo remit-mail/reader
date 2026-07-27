@@ -1,5 +1,5 @@
 // Complete Postgres drizzle schema for committed-migration GENERATION only —
-// consumed by deploy/vps/migrate/drizzle.entities.config.ts and the drift guard
+// consumed by packages/migrate/drizzle.entities.config.ts and the drift guard
 // (npm-scripts/check-vps-migrations.mjs), never by `pushSchema`.
 //
 // It pulls the generated entity package in wholesale, so a new TypeSpec entity

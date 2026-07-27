@@ -1,0 +1,12 @@
+{
+  // The build-tooling half of this package: the Vite configs and the harness
+  // preset the workbench builds on. `tsc -b` emits the app from tsconfig.json
+  // with `rootDir: src`, so these cannot be folded into that include — but they
+  // are shipped source like any other, and #440 is what happens when a build
+  // entrypoint is compiled by nothing. `test:typecheck` runs both configs.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "."
+  },
+  "include": ["vite.base.ts", "vite.config.ts", "harness/**/*.ts"]
+}

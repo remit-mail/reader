@@ -5,6 +5,7 @@
 	"type": "module",
 	"description": "Black-box end-to-end suite for the published self-host stack.",
 	"scripts": {
+		"test:typecheck": "tsgo --noEmit",
 		"test:unit": "playwright test -c unit.config.ts"
 	},
 	"devDependencies": {

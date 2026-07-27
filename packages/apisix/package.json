@@ -1,0 +1,15 @@
+{
+	"name": "@remit/apisix",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"description": "APISIX edge route table, generated from the OpenAPI spec and baked into the apisix image.",
+	"scripts": {
+		"generate": "node --import tsx generate-config.ts",
+		"test:typecheck": "tsgo --noEmit"
+	},
+	"dependencies": {
+		"@remit/auth-service": "*"
+	},
+	"license": "MIT"
+}

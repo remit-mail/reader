@@ -1,0 +1,23 @@
+{
+	"name": "@remit/migrate",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"description": "One-shot schema migrator for the self-host stack, bundled into the backend image as migrate.mjs.",
+	"scripts": {
+		"test:typecheck": "tsgo --noEmit"
+	},
+	"dependencies": {
+		"@remit/drizzle-service": "*",
+		"@remit/logger-lambda": "*",
+		"@types/better-sqlite3": "^7.6.13",
+		"@types/pg": "^8.0.0",
+		"better-sqlite3": "^12.11.1",
+		"drizzle-orm": "^0.45.2",
+		"pg": "^8.0.0"
+	},
+	"devDependencies": {
+		"drizzle-kit": "^0.31.1"
+	},
+	"license": "MIT"
+}

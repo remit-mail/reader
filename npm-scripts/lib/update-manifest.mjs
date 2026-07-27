@@ -7,7 +7,7 @@ export const DEFAULT_REGISTRY = "ghcr.io/remit-mail/reader";
 export const REPO_SLUG = DEFAULT_REGISTRY.replace(/^ghcr\.io\//, "");
 
 // The SQLite migration sets the self-host stack applies, in the layout the
-// migrate one-shot reads (deploy/vps/migrate/run-migrate.ts). Each set is a
+// migrate one-shot reads (packages/migrate/src/run-migrate.ts). Each set is a
 // drizzle folder whose meta/_journal.json lists one entry per migration.
 export const SQLITE_MIGRATION_SETS = ["auth", "entities", "meta"];
 
