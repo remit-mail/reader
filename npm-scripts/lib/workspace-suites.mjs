@@ -7,6 +7,14 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 export const WORKSPACE_SCRIPT = "test:run";
+export const PACKAGES_DIR = "packages";
+
+// The directory a `TEST_EXCLUDE` name refers to. The list is written as bare
+// package directory names, and every other consumer works in repo-relative
+// paths, so the translation lives with the discovery that defines it.
+export function workspaceDir(name) {
+	return `${PACKAGES_DIR}/${name}`;
+}
 
 export async function countTestFiles(dir) {
 	let total = 0;
@@ -38,7 +46,7 @@ export async function countTestFiles(dir) {
 // manifest here would quietly remove that workspace's whole suite from a run
 // that still reports green.
 export async function discoverWorkspaces(root, { exclude = [] } = {}) {
-	const packagesDir = join(root, "packages");
+	const packagesDir = join(root, PACKAGES_DIR);
 	const excluded = new Set(exclude);
 	const names = await readdir(packagesDir);
 	for (const name of excluded) {
@@ -80,13 +88,13 @@ export async function discoverWorkspaces(root, { exclude = [] } = {}) {
 			// suite nothing collects: the workspace drops out of a green run.
 			if (weight > 0) {
 				throw new Error(
-					`packages/${name} has ${weight} test files but no ${WORKSPACE_SCRIPT} script: add one, or delete the tests`,
+					`${workspaceDir(name)} has ${weight} test files but no ${WORKSPACE_SCRIPT} script: add one, or delete the tests`,
 				);
 			}
 			skipped.push(`${name} (no tests)`);
 			continue;
 		}
-		suites.push({ name, weight, workspace: `packages/${name}` });
+		suites.push({ name, weight, workspace: workspaceDir(name) });
 	}
 	if (suites.length === 0) {
 		throw new Error(

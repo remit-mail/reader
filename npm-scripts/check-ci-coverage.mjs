@@ -5,14 +5,25 @@ import { readFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { coverageViolations, workspaceScriptId } from "./lib/ci-coverage.mjs";
+import {
+	coverageViolations,
+	testExclusions,
+	workspaceScriptId,
+} from "./lib/ci-coverage.mjs";
 import { discoverScriptSuites } from "./lib/test-suites.mjs";
+import { readWorkflowSources } from "./lib/workflows.mjs";
 import {
 	discoverWorkspaces,
 	WORKSPACE_SCRIPT,
+	workspaceDir,
 } from "./lib/workspace-suites.mjs";
 
-const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+// The tree to check, this repo unless a path is given. The guard's own suite
+// points it at fixture trees: the seeding done here is where #448 lived, not in
+// the decisions lib/ci-coverage.mjs makes, so it has to be exercised end to end.
+const repoRoot = resolve(
+	process.argv[2] ?? join(dirname(fileURLToPath(import.meta.url)), ".."),
+);
 const IGNORED_DIRS = new Set([
 	"node_modules",
 	".git",
@@ -74,18 +85,17 @@ async function collectWorkspaces() {
 	return found;
 }
 
-// What the runner behind `test:ci` would execute. Asking the runner rather than
-// asserting the workflow's shape keeps the guard honest about the one thing it
-// cannot read off a workflow file: which packages that runner picks up.
-const { suites } = await discoverWorkspaces(repoRoot);
+const { files: workflowFiles, sources: workflowSources } =
+	await readWorkflowSources(repoRoot);
 
-const workflowFiles = await collectFiles(
-	join(repoRoot, ".github"),
-	(name) => name.endsWith(".yml") || name.endsWith(".yaml"),
-);
-const workflowSources = await Promise.all(
-	workflowFiles.map((file) => readFile(join(repoRoot, file), "utf8")),
-);
+// What the runner behind `test:ci` executes in CI, asked of the runner with the
+// arguments CI hands it. Asking the runner rather than asserting the workflow's
+// shape keeps the guard honest about which packages it picks up; passing the
+// workflow's own `TEST_EXCLUDE` keeps it honest about which ones it drops.
+// `discoverWorkspaces` rejects a name matching no workspace, so a typo in the
+// list fails here rather than silently excluding nothing.
+const exclude = testExclusions(workflowSources);
+const { suites } = await discoverWorkspaces(repoRoot, { exclude });
 
 // Only files the repo tracks are followed; a path a script builds at runtime, or
 // one outside the tree, simply reaches nothing further.
@@ -106,6 +116,7 @@ const violations = coverageViolations({
 	collectedScripts: suites.map((suite) =>
 		workspaceScriptId(suite.workspace, WORKSPACE_SCRIPT),
 	),
+	excludedWorkspaces: exclude.map(workspaceDir),
 	readFile: readSource,
 	allowUnreachable: manifest.ciCoverage?.allowUnreachable ?? {},
 });
@@ -122,6 +133,11 @@ if (violations.length > 0) {
 	process.exit(1);
 }
 
+const dropped =
+	exclude.length > 0
+		? ` TEST_EXCLUDE drops ${exclude.join(", ")} from test:ci, each run by a runner CI reaches instead.`
+		: "";
+
 console.log(
-	`CI coverage OK: ${workflowFiles.length} workflow files reach every test:*/check:* script in the root manifest and in every workspace, every suite is collected.`,
+	`CI coverage OK: ${workflowFiles.length} workflow files reach every test:*/check:* script in the root manifest and in every workspace, every suite is collected.${dropped}`,
 );
