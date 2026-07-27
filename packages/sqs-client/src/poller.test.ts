@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it, mock } from "node:test";
 import { SQSClient } from "@aws-sdk/client-sqs";
-import type { SQSBatchResponse, SQSEvent } from "aws-lambda";
+import type { Context, SQSBatchResponse, SQSEvent } from "aws-lambda";
 import { runQueuePoller } from "./poller.js";
 
 const QUEUE_URL = "http://localhost:9324/000000000000/remit-test";
@@ -229,6 +229,67 @@ describe("runQueuePoller", () => {
 		);
 		assert.equal(failures.length, receiveCalls);
 		assert.match(String(failures[0]?.arguments[0]?.error), /ENOSPC/);
+	});
+
+	// The `requestId` every line of one invocation is grouped by
+	// (deploy/vps/README.md, "Logs") is minted here, and it has to reach both the
+	// handler and the poller's own bracketing lines — otherwise grouping on it
+	// stops right before the line saying what happened to the message.
+	it("gives each batch its own requestId, on the handler context and on its own lines", async () => {
+		let receiveCalls = 0;
+		const sendMock = mock.method(
+			SQSClient.prototype,
+			"send",
+			// biome-ignore lint/suspicious/noExplicitAny: minimal SDK command shape, not worth typing per-command here
+			async function (this: SQSClient, command: any) {
+				if (command.constructor.name === "ReceiveMessageCommand") {
+					receiveCalls++;
+					if (receiveCalls >= 2) process.emit("SIGWINCH", "SIGWINCH");
+					return { Messages: [buildMessage(`m${receiveCalls}`)] };
+				}
+				if (command.constructor.name === "DeleteMessageCommand") return {};
+				throw new Error(`unexpected command: ${command.constructor.name}`);
+			},
+		);
+
+		const handler = mock.fn(
+			async (
+				_event: SQSEvent,
+				_context: Context,
+			): Promise<SQSBatchResponse> => ({ batchItemFailures: [] }),
+		);
+		const log = buildLog();
+
+		try {
+			await runQueuePoller({
+				targets: [{ queueUrl: QUEUE_URL, handler, functionName: "test-fn" }],
+				log,
+				signals: ["SIGWINCH"],
+				createHeartbeat: () => async () => {},
+			});
+		} finally {
+			sendMock.mock.restore();
+		}
+
+		const requestIds = handler.mock.calls.map(
+			(call) => call.arguments[1].awsRequestId,
+		);
+		assert.equal(requestIds.length, 2);
+		for (const requestId of requestIds)
+			assert.match(requestId, /^[0-9a-f-]{36}$/);
+		assert.notEqual(requestIds[0], requestIds[1]);
+
+		const bracketing = ["poller: invoking handler", "poller: batch processed"];
+		for (const message of bracketing) {
+			const lines = log.info.mock.calls.filter(
+				(call) => call.arguments[1] === message,
+			);
+			assert.equal(lines.length, 2, `expected two ${message} lines`);
+			assert.deepEqual(
+				lines.map((call) => call.arguments[0].requestId),
+				requestIds,
+			);
+		}
 	});
 
 	it("throws when constructed with no targets", async () => {

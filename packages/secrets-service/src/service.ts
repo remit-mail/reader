@@ -145,7 +145,10 @@ const getFakeDataKey = (): Buffer => {
 
 const createFakeDataKeyProvider = (): DataKeyProvider => ({
 	async generateDataKey() {
-		logger.warn("Using the fake KMS data key provider; not for production");
+		// `error`, not `warn`: this is a security-posture statement about the key
+		// protecting every stored credential, and at `warn` an operator setting
+		// LOG_LEVEL=error turns it off without meaning to.
+		logger.error("Using the fake KMS data key provider; not for production");
 		// Use the fixed data key derived from FAKE_KMS_DATAKEY
 		const plaintext = getFakeDataKey();
 
@@ -158,7 +161,10 @@ const createFakeDataKeyProvider = (): DataKeyProvider => ({
 	},
 
 	async decryptDataKey(encrypted: Uint8Array) {
-		logger.warn("Using the fake KMS data key provider; not for production");
+		// `error`, not `warn`: this is a security-posture statement about the key
+		// protecting every stored credential, and at `warn` an operator setting
+		// LOG_LEVEL=error turns it off without meaning to.
+		logger.error("Using the fake KMS data key provider; not for production");
 		const buf = Buffer.from(encrypted);
 
 		// Check for our marker prefix

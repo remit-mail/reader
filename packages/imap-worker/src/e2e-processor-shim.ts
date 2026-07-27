@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import cluster from "node:cluster";
+import { randomUUID } from "node:crypto";
 import {
 	DeleteMessageCommand,
 	ReceiveMessageCommand,
@@ -129,11 +130,16 @@ if (cluster.isPrimary) {
 		isShuttingDown = true;
 	});
 
-	// Minimal Lambda Context: `withTelemetry` only reads `functionName`, for the
-	// line it logs per invocation; the prod handler never touches the rest.
-	const lambdaContext = {
-		functionName: `e2e-imap-worker-${queueName}`,
-	} as Context;
+	// Minimal Lambda Context: `withTelemetry` reads `functionName` for the line it
+	// logs per invocation and `awsRequestId` for the scope it opens around it, so
+	// every line one batch produces shares a `requestId` (deploy/vps/README.md,
+	// "Logs"). Minted per batch, like the production poller does — a context built
+	// once would put the whole run under one id, which correlates nothing.
+	const nextContext = (): Context =>
+		({
+			functionName: `e2e-imap-worker-${queueName}`,
+			awsRequestId: randomUUID(),
+		}) as Context;
 
 	const pollQueue = async (): Promise<void> => {
 		log.info({ maxMessages }, "Worker started, polling...");
@@ -200,7 +206,7 @@ if (cluster.isPrimary) {
 				})),
 			};
 
-			const result = (await activeHandler(event, lambdaContext, () => {})) as
+			const result = (await activeHandler(event, nextContext(), () => {})) as
 				| SQSBatchResponse
 				| undefined;
 

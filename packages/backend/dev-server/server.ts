@@ -318,15 +318,21 @@ const port = env.SERVER_PORT;
 // logger for the same reason every other line does: one JSON object per line is
 // the contract in deploy/vps/README.md, and a banner printed alongside it is a
 // line the pipeline cannot parse.
+//
+// This is also the everyday `npm run dev` server, so the addresses stay whole
+// and clickable — `url`, not a port a developer has to assemble one themselves.
 app.listen(Number(port), "0.0.0.0", () => {
 	// biome-ignore lint/plugin/no-logger-info: the configuration a container came up on is an audit-grade signal
 	logger.info(
 		{
 			port: Number(port),
+			url: `http://localhost:${port}`,
 			dynamodbPort: env.DYNAMODB_PORT,
 			dynamodbTable: env.DYNAMODB_TABLE_NAME,
 			nodeEnv: env.NODE_ENV,
-			...(isSelfHostBackend ? {} : { apiDocsPath: "/api-docs" }),
+			...(isSelfHostBackend
+				? {}
+				: { apiDocsUrl: `http://localhost:${port}/api-docs` }),
 		},
 		"Backend listening",
 	);

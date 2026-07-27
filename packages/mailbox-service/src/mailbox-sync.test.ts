@@ -11,7 +11,10 @@ import {
 	MailboxSyncStatus,
 } from "@remit/domain-enums";
 import { parseImapAttributes } from "./attribute-mapper.js";
-import { MailboxSyncService } from "./mailbox-sync.js";
+import { type MailboxSyncLogger, MailboxSyncService } from "./mailbox-sync.js";
+
+const silentLogger: MailboxSyncLogger = { info: () => {}, debug: () => {} };
+
 import type { IImapConnection, ImapNamespaces } from "./types.js";
 
 describe("parseImapAttributes – locale invariance (#194)", () => {
@@ -121,7 +124,11 @@ describe("MailboxSyncService.syncMailboxes — UIDVALIDITY cursor detection (#12
 
 	it("trips cursor_invalid when the STATUS sweep observes a changed UIDVALIDITY", async () => {
 		const { mailboxService, specialUseService, updateCalls } = buildServices(1);
-		const service = new MailboxSyncService(mailboxService, specialUseService);
+		const service = new MailboxSyncService(
+			mailboxService,
+			specialUseService,
+			silentLogger,
+		);
 		const connection = buildConnection(2);
 
 		await service.syncMailboxes({ accountId: "acc-1" }, connection);
@@ -136,7 +143,11 @@ describe("MailboxSyncService.syncMailboxes — UIDVALIDITY cursor detection (#12
 
 	it("does not write anything when UIDVALIDITY (and everything else) is unchanged", async () => {
 		const { mailboxService, specialUseService, updateCalls } = buildServices(1);
-		const service = new MailboxSyncService(mailboxService, specialUseService);
+		const service = new MailboxSyncService(
+			mailboxService,
+			specialUseService,
+			silentLogger,
+		);
 		const connection = buildConnection(1);
 
 		await service.syncMailboxes({ accountId: "acc-1" }, connection);
@@ -150,7 +161,11 @@ describe("MailboxSyncService.syncMailboxes — UIDVALIDITY cursor detection (#12
 		// the server's current value would step it over every change message sync
 		// had not yet applied.
 		const { mailboxService, specialUseService, updateCalls } = buildServices(1);
-		const service = new MailboxSyncService(mailboxService, specialUseService);
+		const service = new MailboxSyncService(
+			mailboxService,
+			specialUseService,
+			silentLogger,
+		);
 		const connection = buildConnection(2, "99999");
 
 		await service.syncMailboxes({ accountId: "acc-1" }, connection);
@@ -162,7 +177,11 @@ describe("MailboxSyncService.syncMailboxes — UIDVALIDITY cursor detection (#12
 
 	it("does not sweep-write a mailbox whose only difference is the server mod-sequence", async () => {
 		const { mailboxService, specialUseService, updateCalls } = buildServices(1);
-		const service = new MailboxSyncService(mailboxService, specialUseService);
+		const service = new MailboxSyncService(
+			mailboxService,
+			specialUseService,
+			silentLogger,
+		);
 		const connection = buildConnection(1, "4242");
 
 		await service.syncMailboxes({ accountId: "acc-1" }, connection);
@@ -175,7 +194,11 @@ describe("MailboxSyncService.syncMailboxes — UIDVALIDITY cursor detection (#12
 			1,
 			MailboxCursorState.cursor_invalid,
 		);
-		const service = new MailboxSyncService(mailboxService, specialUseService);
+		const service = new MailboxSyncService(
+			mailboxService,
+			specialUseService,
+			silentLogger,
+		);
 		const connection = buildConnection(2);
 
 		await service.syncMailboxes({ accountId: "acc-1" }, connection);
@@ -273,7 +296,11 @@ describe("MailboxSyncService.syncMailboxes — reconcile does not delete pending
 				syncStatus: MailboxSyncStatus.pending,
 			},
 		]);
-		const service = new MailboxSyncService(mailboxService, specialUseService);
+		const service = new MailboxSyncService(
+			mailboxService,
+			specialUseService,
+			silentLogger,
+		);
 
 		const result = await service.syncMailboxes(
 			{ accountId: "acc-1" },
@@ -299,7 +326,11 @@ describe("MailboxSyncService.syncMailboxes — reconcile does not delete pending
 				syncStatus: MailboxSyncStatus.synced,
 			},
 		]);
-		const service = new MailboxSyncService(mailboxService, specialUseService);
+		const service = new MailboxSyncService(
+			mailboxService,
+			specialUseService,
+			silentLogger,
+		);
 
 		const result = await service.syncMailboxes(
 			{ accountId: "acc-1" },
@@ -419,7 +450,11 @@ describe("MailboxSyncService.syncMailboxes — a folder leaving mid-sweep (#339)
 				doomedSyncStatus: syncStatus,
 			});
 			const { connection, statusPaths } = buildConnection(async () => status());
-			const service = new MailboxSyncService(mailboxService, specialUseService);
+			const service = new MailboxSyncService(
+				mailboxService,
+				specialUseService,
+				silentLogger,
+			);
 
 			await service.syncMailboxes({ accountId: "acc-1" }, connection);
 
@@ -439,7 +474,11 @@ describe("MailboxSyncService.syncMailboxes — a folder leaving mid-sweep (#339)
 			if (path === "Doomed") throw new Error("Mailbox doesn't exist: Doomed");
 			return status();
 		});
-		const service = new MailboxSyncService(mailboxService, specialUseService);
+		const service = new MailboxSyncService(
+			mailboxService,
+			specialUseService,
+			silentLogger,
+		);
 
 		await assert.doesNotReject(
 			service.syncMailboxes({ accountId: "acc-1" }, connection),
@@ -460,7 +499,11 @@ describe("MailboxSyncService.syncMailboxes — a folder leaving mid-sweep (#339)
 			if (path === "Doomed") throw new Error("connection reset by peer");
 			return status();
 		});
-		const service = new MailboxSyncService(mailboxService, specialUseService);
+		const service = new MailboxSyncService(
+			mailboxService,
+			specialUseService,
+			silentLogger,
+		);
 
 		await assert.rejects(
 			service.syncMailboxes({ accountId: "acc-1" }, connection),

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { randomUUID } from "node:crypto";
 import {
 	DeleteMessageCommand,
 	ReceiveMessageCommand,
@@ -46,11 +47,16 @@ process.on("SIGTERM", () => {
 	isShuttingDown = true;
 });
 
-// Minimal Lambda Context: `withTelemetry` only reads `functionName`, for the
-// line it logs per invocation; the prod handler never touches the rest.
-const lambdaContext = {
-	functionName: `e2e-smtp-worker-${queueName}`,
-} as Context;
+// Minimal Lambda Context: `withTelemetry` reads `functionName` for the line it
+// logs per invocation and `awsRequestId` for the scope it opens around it, so
+// every line one batch produces shares a `requestId` (deploy/vps/README.md,
+// "Logs"). Minted per batch, like the production poller does — a context built
+// once would put the whole run under one id, which correlates nothing.
+const nextContext = (): Context =>
+	({
+		functionName: `e2e-smtp-worker-${queueName}`,
+		awsRequestId: randomUUID(),
+	}) as Context;
 
 const pollQueue = async (): Promise<void> => {
 	log.info("Worker started, polling...", { maxMessages });
@@ -115,7 +121,7 @@ const pollQueue = async (): Promise<void> => {
 			})),
 		};
 
-		const result = (await handler(event, lambdaContext)) as
+		const result = (await handler(event, nextContext())) as
 			| SQSBatchResponse
 			| undefined;
 

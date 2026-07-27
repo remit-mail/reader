@@ -536,6 +536,11 @@ plain-text progress from the `migrate` one-shot. Nothing writes a log file, and
 nothing rotates one, so the container runtime's log driver is the only shipping
 mechanism involved.
 
+One exception, and it is not a container: `remit-worker`, the hand-run CLI that
+enqueues a sync event for an account, writes plain text for a terminal. It is not
+an entrypoint of any image and never runs under the log driver, so nothing a
+pipeline reads is affected.
+
 These field names are the contract. They are what a Vector, Alloy, Fluent Bit or
 Promtail pipeline parses, and they do not change without a note in the release:
 
@@ -560,10 +565,15 @@ nested: `accountId`, `mailboxId`, `messageId`, `queue`, `requestId`, `path`,
 `method`. Treat the set as open — a new field appears without warning, a
 documented one does not disappear without a note.
 
-`requestId` is the correlation key, and it covers a whole invocation: every line
-a request or a queue message produces carries the same value, including the
-`Lambda invocation failed` line written after the handler has already given up.
-Grouping on it yields the complete story of one unit of work.
+`requestId` is the correlation key, and the unit it covers is one handler
+invocation — one HTTP request on the backend, one batch of queue messages on a
+worker. A batch is one message by default, so on today's configuration the id is
+per message, but a target that raises its batch size puts that whole batch under
+one id. Every line the invocation produces carries the value, from the poller's
+`poller: invoking handler` through the handler's own lines to
+`poller: batch processed`, including the `Lambda invocation failed` line written
+after the handler has already given up. Grouping on it yields the complete story
+of one unit of work, outcome included.
 
 `level`, `time`, `service` and `msg` are reserved. A call-site field using one of
 those names is dropped rather than written, so a line is always one well-formed

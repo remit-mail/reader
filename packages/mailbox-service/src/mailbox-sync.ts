@@ -78,15 +78,24 @@ export interface SyncAccountInfo {
 }
 
 /**
- * Logger interface for MailboxSyncService
+ * Logger interface for MailboxSyncService.
+ *
+ * `info` is reserved here for the three mailbox lifecycle events — created,
+ * updated, deleted — and is the argued exception to `plugins/no-logger-info.grit`
+ * that the rest of this repo writes as a suppression. (The plugin matches the
+ * bare `logger` identifier, so it does not see an injected logger; the reasoning
+ * is written out instead of being silently absent.) A folder disappearing from
+ * someone's mail is destructive and irreversible from this service's side, and
+ * the only record that this process did it is the line it writes. That must not
+ * sit below the default threshold.
+ *
+ * Everything else this service has to say — a special-use flag it synced, a
+ * duplicate folder it skipped — is a routine trace and goes to `debug`.
  */
 export interface MailboxSyncLogger {
 	info(obj: Record<string, unknown>, msg: string): void;
+	debug(obj: Record<string, unknown>, msg: string): void;
 }
-
-const noopLogger: MailboxSyncLogger = {
-	info: () => {},
-};
 
 /**
  * Service for synchronizing mailbox metadata between IMAP and the data backend.
@@ -96,14 +105,17 @@ export class MailboxSyncService {
 	private specialUseService: IMailboxSpecialUseRepository;
 	private log: MailboxSyncLogger;
 
+	// Required, with no no-op default: the lines below are the only record that a
+	// mailbox was created or destroyed, and a default would let the next call site
+	// lose them with no error and no failing test.
 	constructor(
 		mailboxService: IMailboxRepository,
 		specialUseService: IMailboxSpecialUseRepository,
-		logger?: MailboxSyncLogger,
+		logger: MailboxSyncLogger,
 	) {
 		this.mailboxService = mailboxService;
 		this.specialUseService = specialUseService;
-		this.log = logger ?? noopLogger;
+		this.log = logger;
 	}
 
 	/**
@@ -597,7 +609,7 @@ export class MailboxSyncService {
 
 		if (parsed.specialUse.length > 0) {
 			await this.specialUseService.createMany(mailboxId, parsed.specialUse);
-			this.log.info(
+			this.log.debug(
 				{ fullPath: mailboxInfo.fullPath, specialUse: parsed.specialUse },
 				"Synced special-use",
 			);
@@ -660,7 +672,7 @@ export class MailboxSyncService {
 		}
 
 		// This is a duplicate - another folder has the attribute
-		this.log.info(
+		this.log.debug(
 			{
 				fullPath: mailbox.fullPath,
 				claimedPath,
