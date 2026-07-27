@@ -144,14 +144,13 @@ is_profile_service() {
 }
 
 # Every service this project declares, whatever profile it sits behind: what
-# `config --services` lists, plus the profile-only ones, plus anything this
-# stack has a container for. Compose validates the names on the command line
-# against this set, so it is also what tells a name it has never heard of from
-# one it merely keeps out of an unscoped listing.
+# `config --services` lists, plus the profile-only ones. Compose validates the
+# names on the command line against the compose file and nothing else — an
+# orphan container left by a service that was removed is still `no such
+# service` — so a container is not evidence here either.
 is_known_service() {
-	[ -f "$S/cid-$1" ] && return 0
 	for _k in $(val all_services "queue migrate volume-init backend apisix web caddy imap-worker smtp-worker account-worker search-index-worker") \
-		$(profile_services) $(val services ""); do
+		$(profile_services); do
 		[ "$_k" = "$1" ] && return 0
 	done
 	return 1
@@ -188,7 +187,11 @@ compose_cmd() {
 	while [ $# -gt 0 ]; do
 		case "$1" in
 		--profile)
-			[ "$2" = "*" ] && _all_profiles=1
+			# `profile_star=ignored` is Compose below 2.30, where `*` is a profile
+			# name like any other and matches none: the flag is accepted and
+			# selects nothing, so every command whose contract is "everything"
+			# quietly covers the always-on services only.
+			[ "$2" = "*" ] && [ "$(val profile_star "")" != "ignored" ] && _all_profiles=1
 			shift 2
 			;;
 		--project-directory | -f | --env-file) shift 2 ;;

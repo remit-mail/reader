@@ -198,7 +198,7 @@ running_profile_services() {
 	_always=$(compose config --services 2>/dev/null)
 	compose_all ps --services --status running --status restarting 2>/dev/null | while IFS= read -r _svc; do
 		[ -n "$_svc" ] || continue
-		printf '%s\n' "$_always" | grep -qx "$_svc" || printf '%s ' "$_svc"
+		printf '%s\n' "$_always" | grep -qxF "$_svc" || printf '%s ' "$_svc"
 	done
 }
 
@@ -208,7 +208,7 @@ running_profile_services() {
 stopped_among() {
 	_live=$(compose_all ps --services --status running --status restarting 2>/dev/null)
 	for _svc in $1; do
-		printf '%s\n' "$_live" | grep -qx "$_svc" || printf '%s ' "$_svc"
+		printf '%s\n' "$_live" | grep -qxF "$_svc" || printf '%s ' "$_svc"
 	done
 }
 
@@ -222,8 +222,8 @@ stopped_profile_services() {
 	_live=$(compose_all ps --services --status running --status restarting 2>/dev/null)
 	compose_all ps -a --services 2>/dev/null | while IFS= read -r _svc; do
 		[ -n "$_svc" ] || continue
-		printf '%s\n' "$_always" | grep -qx "$_svc" && continue
-		printf '%s\n' "$_live" | grep -qx "$_svc" && continue
+		printf '%s\n' "$_always" | grep -qxF "$_svc" && continue
+		printf '%s\n' "$_live" | grep -qxF "$_svc" && continue
 		printf '%s ' "$_svc"
 	done
 }
@@ -252,10 +252,11 @@ PROFILE_HOLD="$REMIT_DIR/.remit-profiles-held"
 # Written the same way as .env: into a temp file that replaces the record in one
 # rename, carrying the original's owner and mode. A truncate-then-write is a
 # window where a killed run leaves the record empty — and this record exists
-# precisely to survive a killed run.
+# precisely to survive a killed run. Clearing it takes the temp with it, so a
+# run killed inside that window leaves nothing behind a `down` or a `purge`.
 profile_hold_write() {
 	if [ -z "$1" ]; then
-		rm -f "$PROFILE_HOLD"
+		rm -f "$PROFILE_HOLD" "$PROFILE_HOLD.tmp"
 		return 0
 	fi
 	_own=$(owner_mode_of "$PROFILE_HOLD")
@@ -288,18 +289,32 @@ uniq_services() {
 # `--profile '*'`, because the record is about the optional profiles and an
 # unscoped `config --services` does not list them.
 #
-# A `config` that lists nothing is a compose file this wrapper cannot read, not
-# a deployment with no services. Nothing is dropped on it: the restore fails on
-# its own terms rather than discarding a record over a file the operator is
-# about to fix.
+# Two listings this cannot be derived from, and on both nothing is dropped:
+#
+# Nothing at all is a compose file this wrapper cannot read, not a deployment
+# with no services. The restore fails on its own terms rather than discarding a
+# record over a file the operator is about to fix.
+#
+# The same listing as the unscoped one is `--profile '*'` selecting no profile,
+# which is what it does below Compose 2.30 — every optional service missing from
+# a list this then reads as the whole project, so every name in the record looks
+# removed and the restore drops services that are sitting in the compose file.
+# install.sh refuses to install below 2.30, so this is a floor under a host that
+# went backwards, not a supported configuration; the compose file always
+# declares a profile, so the two listings agreeing means the flag did nothing.
+#
+# Both listings are sorted before they are compared: `config --services` emits
+# in no particular order, and two runs of the same command differ. The match is
+# fixed-string, because a compose service name may contain a `.` and a name that
+# matches by accident is a dead name kept forever.
 known_services() {
-	_known=$(compose_all config --services 2>/dev/null)
-	if [ -z "$_known" ]; then
+	_known=$(compose_all config --services 2>/dev/null | sort)
+	if [ -z "$_known" ] || [ "$_known" = "$(compose config --services 2>/dev/null | sort)" ]; then
 		printf '%s' "$1"
 		return 0
 	fi
 	for _svc in $1; do
-		printf '%s\n' "$_known" | grep -qx "$_svc" && printf '%s ' "$_svc"
+		printf '%s\n' "$_known" | grep -qxF "$_svc" && printf '%s ' "$_svc"
 	done
 	return 0
 }

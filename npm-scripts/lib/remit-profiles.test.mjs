@@ -20,6 +20,7 @@ import {
 	mkdtempSync,
 	readFileSync,
 	rmSync,
+	statSync,
 	writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
@@ -131,6 +132,18 @@ function sandbox({ profileRunning = true, stopped = [], scenario = {} } = {}) {
 		},
 		holdTmpLeft() {
 			return existsSync(join(deployment, ".remit-profiles-held.tmp"));
+		},
+		leakTmp() {
+			writeFileSync(join(deployment, ".remit-profiles-held.tmp"), "dozzle\n");
+		},
+		// Which file the record is, not what is in it. A rename puts a different
+		// file where the old one was; a truncate-and-write keeps the same one.
+		holdInode() {
+			try {
+				return statSync(join(deployment, ".remit-profiles-held")).ino;
+			} catch {
+				return null;
+			}
 		},
 		// The record a restart leaves beside .env so the next one can finish what
 		// it started.
@@ -529,10 +542,6 @@ describe("a record naming a service the compose file no longer has", () => {
 		assert.match(result.stdout, /grafana/);
 	});
 
-	it("leaves no half-written record beside it", () => {
-		assert.equal(box.holdTmpLeft(), false);
-	});
-
 	it("so the next restart has nothing left to fail on", () => {
 		const again = box.run(["restart"]);
 		assert.equal(again.status, 0, again.stderr);
@@ -571,11 +580,75 @@ describe("a record naming only services the compose file no longer has", () => {
 describe("a service that exists and failed to start stays in the record", () => {
 	const box = sandbox({ scenario: { up_fail: "victoriametrics" } });
 	box.hold(["dozzle", "victoriametrics", "grafana"]);
+	const before = box.holdInode();
 	const result = box.run(["restart", "--hard"]);
 
 	it("keeps the one that exists, drops the one that does not", () => {
 		assert.equal(result.status, 0, result.stderr);
 		assert.deepEqual(box.held(), ["victoriametrics"]);
+	});
+
+	// The record is what a killed run leaves for the next one, so the write that
+	// replaces it must not be a window where it is empty. Written to a temp file
+	// and renamed over: the record on disk is the old list or the new one, never
+	// a truncated one, which is a different file where the old one was.
+	it("replaces the record rather than truncating it in place", () => {
+		assert.notEqual(box.holdInode(), before);
+		assert.equal(box.holdTmpLeft(), false);
+	});
+});
+
+// A temp file is all a run killed between the write and the rename leaves. The
+// next write clears it, but 'remit down' and 'remit purge' say nothing is left
+// behind, and that has to include the file this wrapper wrote itself.
+describe("clearing the record takes a temp file left by a killed run with it", () => {
+	const box = sandbox();
+	box.leakTmp();
+	const result = box.run(["down"]);
+
+	it("leaves neither the record nor the temp", () => {
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(box.held(), null);
+		assert.equal(box.holdTmpLeft(), false);
+	});
+});
+
+// Below Compose 2.30 `--profile '*'` is a profile name that matches nothing, so
+// `compose_all config --services` answers with the always-on services only —
+// non-empty, and every optional service missing from it. Read as the whole
+// project it says the profile services were removed, and the restore drops
+// services that are sitting in the compose file, on a record the operator has
+// no other copy of. install.sh refuses to install below 2.30; a host that went
+// backwards under an existing install still must not lose the profile.
+describe("a Compose too old to select every profile drops nothing", () => {
+	const box = sandbox({
+		scenario: { profile_star: "ignored" },
+		stopped: PROFILE_SERVICES.split(" "),
+	});
+	box.hold(PROFILE_SERVICES.split(" "));
+	const result = box.run(["restart"]);
+
+	it("still serves", () => {
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(box.isUp("backend"), true);
+	});
+
+	it("brings the profile services back — naming one starts it whatever the version", () => {
+		for (const service of PROFILE_SERVICES.split(" ")) {
+			assert.equal(
+				box.isUp(service),
+				true,
+				`${service} was dropped as removed by a Compose that cannot list it`,
+			);
+		}
+	});
+
+	it("says nothing about services that are in the compose file", () => {
+		assert.doesNotMatch(result.stdout, /no longer a service/);
+	});
+
+	it("clears the record, because everything in it came back", () => {
+		assert.equal(box.held(), null);
 	});
 });
 

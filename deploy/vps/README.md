@@ -56,9 +56,12 @@ The host checks run on every invocation, existing install or not, and there is
 one that stops a re-run against a deployment that is serving: a Compose plugin
 older than 2.30. Nothing is changed when it does. Below 2.30 `--profile '*'`
 selects no profile, so `remit down`, `remit purge` and `remit restart --hard`
-skip the optional profiles while reporting that they covered everything —
-silently, which is why the installer refuses rather than warns. Update the
-compose plugin and run it again.
+skip the optional profiles while reporting that they covered everything, and
+`remit restart` cannot tell a service that was removed from the compose file
+from one sitting behind a profile — so it keeps a name it can never start in
+its restart record instead of clearing it. Both are silent, which is why the
+installer refuses rather than warns. Update the compose plugin and run it
+again.
 
 Then visit `$REMIT_ORIGIN` — the installer prints it when it finishes. The first
 sign-up on that page creates your account; every subsequent IMAP account is
