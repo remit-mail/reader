@@ -121,6 +121,17 @@ function sandbox({ profileRunning = true, stopped = [], scenario = {} } = {}) {
 				return null;
 			}
 		},
+		// The record a killed restart left behind, written by hand: what an
+		// interrupted run leaves for the next one to consume.
+		hold(services) {
+			writeFileSync(
+				join(deployment, ".remit-profiles-held"),
+				`${services.join(" ")}\n`,
+			);
+		},
+		holdTmpLeft() {
+			return existsSync(join(deployment, ".remit-profiles-held.tmp"));
+		},
 		// The record a restart leaves beside .env so the next one can finish what
 		// it started.
 		held() {
@@ -475,6 +486,96 @@ describe("a half-stopped profile is named, not shed quietly", () => {
 		assert.match(result.stdout, /did not bring them back/);
 		assert.match(result.stdout, /victoriametrics/);
 		assert.match(result.stdout, /--profile observability up -d/);
+	});
+});
+
+// The record outlives the compose file it was written against. Rename or drop a
+// service while a record naming it exists — an update spanning the change is the
+// realistic path — and `compose up -d dozzle victoriametrics grafana` refuses the
+// whole invocation on the one name it does not know rather than starting the
+// rest. The restore then records every name it failed to start, the dead one
+// included, so one stale name holds the entire profile down and writes itself
+// back on every restart after that (reader#412).
+describe("a record naming a service the compose file no longer has", () => {
+	const box = sandbox({ stopped: PROFILE_SERVICES.split(" ") });
+	box.hold(["dozzle", "victoriametrics", "grafana"]);
+	const result = box.run(["restart"]);
+
+	it("still serves", () => {
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(box.isUp("backend"), true);
+	});
+
+	it("starts the services that do exist rather than refusing all of them", () => {
+		for (const service of PROFILE_SERVICES.split(" ")) {
+			assert.equal(
+				box.isUp(service),
+				true,
+				`${service} stayed down because a name beside it in the record is not a service any more`,
+			);
+		}
+	});
+
+	it("drops the dead name instead of writing it back", () => {
+		assert.equal(
+			box.held(),
+			null,
+			"the record survived the restart that restored everything in it that exists",
+		);
+	});
+
+	it("says which name it dropped, and that it is not a service any more", () => {
+		assert.match(result.stdout, /no longer a service/);
+		assert.match(result.stdout, /grafana/);
+	});
+
+	it("leaves no half-written record beside it", () => {
+		assert.equal(box.holdTmpLeft(), false);
+	});
+
+	it("so the next restart has nothing left to fail on", () => {
+		const again = box.run(["restart"]);
+		assert.equal(again.status, 0, again.stderr);
+		assert.doesNotMatch(again.stdout, /grafana/);
+		assert.equal(box.isUp("dozzle"), true);
+	});
+});
+
+// The same record with nothing left in it that can be started. Restoring
+// nothing is the whole job, and `compose up -d` with no service names is not
+// that — unscoped, it starts the always-on stack and reports as though it
+// restored a profile.
+describe("a record naming only services the compose file no longer has", () => {
+	const box = sandbox({ profileRunning: false });
+	box.hold(["grafana"]);
+	const result = box.run(["restart"]);
+
+	it("still serves", () => {
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(box.isUp("backend"), true);
+	});
+
+	it("clears the record", () => {
+		assert.equal(box.held(), null);
+	});
+
+	it("starts no profile container off the back of it", () => {
+		for (const service of PROFILE_SERVICES.split(" ")) {
+			assert.equal(box.exists(service), false);
+		}
+	});
+});
+
+// Dropping a name that is not a service must not turn into dropping a name that
+// is: a service that exists and failed to start is the case the record is for.
+describe("a service that exists and failed to start stays in the record", () => {
+	const box = sandbox({ scenario: { up_fail: "victoriametrics" } });
+	box.hold(["dozzle", "victoriametrics", "grafana"]);
+	const result = box.run(["restart", "--hard"]);
+
+	it("keeps the one that exists, drops the one that does not", () => {
+		assert.equal(result.status, 0, result.stderr);
+		assert.deepEqual(box.held(), ["victoriametrics"]);
 	});
 });
 

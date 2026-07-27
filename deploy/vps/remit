@@ -249,12 +249,20 @@ profile_recovery_hint() {
 # recover subcommand, so the next run of the command itself is the consumer.
 PROFILE_HOLD="$REMIT_DIR/.remit-profiles-held"
 
+# Written the same way as .env: into a temp file that replaces the record in one
+# rename, carrying the original's owner and mode. A truncate-then-write is a
+# window where a killed run leaves the record empty — and this record exists
+# precisely to survive a killed run.
 profile_hold_write() {
 	if [ -z "$1" ]; then
 		rm -f "$PROFILE_HOLD"
 		return 0
 	fi
-	printf '%s\n' "$1" >"$PROFILE_HOLD"
+	_own=$(owner_mode_of "$PROFILE_HOLD")
+	rm -f "$PROFILE_HOLD.tmp"
+	printf '%s\n' "$1" >"$PROFILE_HOLD.tmp"
+	restore_owner_mode "$PROFILE_HOLD.tmp" "$_own"
+	mv "$PROFILE_HOLD.tmp" "$PROFILE_HOLD"
 }
 
 profile_hold_read() {
@@ -264,6 +272,47 @@ profile_hold_read() {
 # Each name once, order preserved.
 uniq_services() {
 	for _svc in $1; do printf '%s\n' "$_svc"; done | awk '!seen[$0]++' | tr '\n' ' '
+}
+
+# Of a list of services, the ones the compose file still defines.
+#
+# The record outlives the compose file it was written against: a service renamed
+# or removed by an update leaves its old name behind. `compose up -d a b c`
+# refuses the whole invocation on one name it does not know rather than starting
+# the rest, and the restore then records every name it failed to start — the
+# dead one included — so one stale name holds the whole profile down and writes
+# itself back on every restart after that (reader#412). The compose file is the
+# authority on what can be started, and a name it no longer has does not belong
+# in a record of what to bring back.
+#
+# `--profile '*'`, because the record is about the optional profiles and an
+# unscoped `config --services` does not list them.
+#
+# A `config` that lists nothing is a compose file this wrapper cannot read, not
+# a deployment with no services. Nothing is dropped on it: the restore fails on
+# its own terms rather than discarding a record over a file the operator is
+# about to fix.
+known_services() {
+	_known=$(compose_all config --services 2>/dev/null)
+	if [ -z "$_known" ]; then
+		printf '%s' "$1"
+		return 0
+	fi
+	for _svc in $1; do
+		printf '%s\n' "$_known" | grep -qx "$_svc" && printf '%s ' "$_svc"
+	done
+	return 0
+}
+
+# Of a list of services, the ones a second list does not name.
+services_not_in() {
+	for _svc in $1; do
+		case " $2 " in
+		*" $_svc "*) ;;
+		*) printf '%s ' "$_svc" ;;
+		esac
+	done
+	return 0
 }
 
 require_deployment() {
@@ -449,6 +498,7 @@ cmd_restart() {
 	printf 'Configuration in %s/.env is live.\n' "$REMIT_DIR"
 	# Last, because it is the one line here the operator has to act on, and the
 	# address still leads the part that says the command worked.
+	report_profiles_gone
 	report_profiles_down
 }
 
@@ -463,15 +513,28 @@ cmd_restart() {
 # — every profile container stopped on purpose — says nothing.
 PROFILES_DOWN=""
 
+# Names the record carries that the compose file no longer defines. Reported
+# once, as they are dropped: the operator asked for a service that this
+# deployment does not have any more, and the profile advice below is not the
+# answer to that.
+PROFILES_GONE=""
+
 restore_profiles() {
 	PROFILES_DOWN=""
+	PROFILES_GONE=""
 	if [ -z "$1" ]; then
 		profile_hold_write ""
 		return 0
 	fi
-	# shellcheck disable=SC2086 # the recorded service list, split on purpose
-	compose up -d $1 || true
-	profile_hold_write "$(stopped_among "$1")"
+	_startable=$(known_services "$1")
+	PROFILES_GONE=$(services_not_in "$1" "$_startable")
+	if [ -n "$_startable" ]; then
+		# shellcheck disable=SC2086 # the recorded service list, split on purpose
+		compose up -d $_startable || true
+	fi
+	# Only what could be started is recorded again, so a name this deployment can
+	# never start leaves the record on the run that finds it gone.
+	profile_hold_write "$(stopped_among "$_startable")"
 	PROFILES_DOWN=$(stopped_profile_services)
 }
 
@@ -479,6 +542,12 @@ report_profiles_down() {
 	[ -n "$PROFILES_DOWN" ] || return 0
 	printf "\nStopped, and this restart did not bring them back:\n"
 	profile_recovery_hint "$PROFILES_DOWN"
+}
+
+report_profiles_gone() {
+	[ -n "$PROFILES_GONE" ] || return 0
+	printf "\nDropped from the restart record — no longer a service in %s:\n" "$COMPOSE_FILE"
+	printf '  %s\n' "${PROFILES_GONE% }"
 }
 
 cmd_logs() {

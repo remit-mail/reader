@@ -143,6 +143,20 @@ is_profile_service() {
 	return 1
 }
 
+# Every service this project declares, whatever profile it sits behind: what
+# `config --services` lists, plus the profile-only ones, plus anything this
+# stack has a container for. Compose validates the names on the command line
+# against this set, so it is also what tells a name it has never heard of from
+# one it merely keeps out of an unscoped listing.
+is_known_service() {
+	[ -f "$S/cid-$1" ] && return 0
+	for _k in $(val all_services "queue migrate volume-init backend apisix web caddy imap-worker smtp-worker account-worker search-index-worker") \
+		$(profile_services) $(val services ""); do
+		[ "$_k" = "$1" ] && return 0
+	done
+	return 1
+}
+
 # What `ps --status` filters on. A container under `restart: unless-stopped`
 # whose process keeps exiting is reported `restarting`, never `running` — the
 # state a wrapper that only asks for `running` walks straight past, and then
@@ -259,6 +273,16 @@ compose_cmd() {
 				_svcs="$_svcs $_s"
 			done
 		fi
+		# One name compose does not know refuses the invocation before anything
+		# starts — the other services named alongside it included. That is what
+		# makes a single stale name in a restore list hold down every service in
+		# it (reader#412).
+		for _s in $_svcs; do
+			if ! is_known_service "$_s"; then
+				printf 'no such service: %s\n' "$_s" >&2
+				exit 1
+			fi
+		done
 		_failed=0
 		for _s in $_svcs; do
 			if up_refuses "$_s"; then
@@ -282,12 +306,17 @@ compose_cmd() {
 	config)
 		case " $* " in
 		*" --services "*)
-			# Never the profile services: compose omits them from an unscoped
-			# config, which is what makes `config --services` the wrong list to
-			# derive "everything" from.
+			# Not the profile services unless the profiles are named: compose omits
+			# them from an unscoped config, which is what makes `config --services`
+			# the wrong list to derive "everything" from. Under `--profile '*'` it
+			# lists the whole project, which is what makes it the right list to ask
+			# whether a name is a service at all.
 			for _s in $(val all_services "queue migrate volume-init backend apisix web caddy imap-worker smtp-worker account-worker search-index-worker"); do
 				printf '%s\n' "$_s"
 			done
+			if [ "$_all_profiles" = "1" ]; then
+				for _s in $(profile_services); do printf '%s\n' "$_s"; done
+			fi
 			;;
 		*" --volumes "*)
 			volume_names
