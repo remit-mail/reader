@@ -148,6 +148,7 @@ export {
 	clauseFieldOrder,
 	commitBlockedReason,
 	commitLabel,
+	demoClauseSuggestions,
 	demoFolders,
 	demoLabels,
 	demoRule,
@@ -542,6 +543,11 @@ export {
 	type SpamResultsOfferProps,
 } from "./components/spam-results-offer.js";
 export {
+	type Suggestion,
+	SuggestList,
+	type SuggestListProps,
+} from "./components/suggest-list.js";
+export {
 	commitPeek,
 	SwipeableRow,
 	type SwipeableRowOpenProps,
@@ -599,7 +605,18 @@ export {
 	useRovingFocus,
 } from "./lib/roving-focus.js";
 export {
+	type SuggestAction,
+	type SuggestKeyState,
+	suggestKeyAction,
+} from "./lib/suggest-keys.js";
+export {
 	type UseLongPressOptions,
 	type UseLongPressResult,
 	useLongPress,
 } from "./lib/use-long-press.js";
+export {
+	type ComboboxProps,
+	type SuggestListState,
+	type UseSuggestListInput,
+	useSuggestList,
+} from "./lib/use-suggest-list.js";

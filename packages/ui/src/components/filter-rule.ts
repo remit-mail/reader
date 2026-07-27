@@ -7,6 +7,8 @@
  * Naming tracks the RFC: rule, clause, widen, scope.
  */
 
+import type { Suggestion } from "./suggest-list.js";
+
 /**
  * The clause fields (RFC 038 D2). `From`, `Subject`, `HasWords` ship now;
  * `ListId` and `FromDomain` arrive with the vocabulary ticket. Every variant
@@ -340,3 +342,64 @@ export const demoSenderFallbackRule: FilterRule = {
 	scope: "standing",
 	name: "Receipts",
 };
+
+/**
+ * Stand-in for what the app offers in a clause value field: the addresses of the
+ * messages that were selected, then addresses a lookup knows about. The app
+ * derives the same shape from its selection and the address search — the story
+ * only needs the shape, not the source.
+ */
+const demoAddressPool: Suggestion[] = [
+	{
+		value: "receipts@stripe.com",
+		label: "Stripe",
+		hint: "receipts@stripe.com",
+		source: "selected",
+	},
+	{
+		value: "receipts@lyft.com",
+		label: "Lyft",
+		hint: "receipts@lyft.com",
+		source: "selected",
+	},
+	{
+		value: "no-reply@booking.com",
+		label: "Booking.com",
+		hint: "no-reply@booking.com",
+	},
+	{
+		value: "invoice@digitalocean.com",
+		label: "DigitalOcean",
+		hint: "invoice@digitalocean.com",
+	},
+	{ value: "billing@github.com", label: "GitHub", hint: "billing@github.com" },
+];
+
+const demoDomainPool: Suggestion[] = [
+	{ value: "stripe.com", source: "selected" },
+	{ value: "lyft.com", source: "selected" },
+	{ value: "booking.com" },
+	{ value: "digitalocean.com" },
+	{ value: "github.com" },
+];
+
+/**
+ * The suggestions a story's clause value field offers, matching the app's rule:
+ * address fields draw on known senders, every other field is free text, and what
+ * is typed narrows the list without ever constraining it.
+ */
+export function demoClauseSuggestions(
+	field: ClauseField,
+	value: string,
+): Suggestion[] {
+	if (field !== "From" && field !== "FromDomain") return [];
+	const pool = field === "From" ? demoAddressPool : demoDomainPool;
+	const needle = value.trim().toLowerCase();
+	return pool.filter(
+		(suggestion) =>
+			suggestion.value.toLowerCase() !== needle &&
+			(needle === "" ||
+				suggestion.value.toLowerCase().includes(needle) ||
+				(suggestion.label ?? "").toLowerCase().includes(needle)),
+	);
+}

@@ -31,11 +31,16 @@ export function Dialog({
 
 	const handleKeyDown = useCallback(
 		(e: KeyboardEvent) => {
-			if (e.key === "Escape") {
-				e.preventDefault();
-				e.stopImmediatePropagation();
-				onClose();
-			}
+			if (e.key !== "Escape") return;
+			// A control inside the dialog can own Escape while it has something of
+			// its own to close — an open suggestion list. Escape closes that first;
+			// the next Escape closes the dialog.
+			const focused = document.activeElement;
+			if (focused instanceof Element && focused.closest("[data-escape-owner]"))
+				return;
+			e.preventDefault();
+			e.stopImmediatePropagation();
+			onClose();
 		},
 		[onClose],
 	);

@@ -38,6 +38,7 @@ import { Input } from "./input.js";
 import { LabelChip } from "./label-chip.js";
 import { SegmentedControl } from "./segmented-control.js";
 import { Select } from "./select.js";
+import type { Suggestion } from "./suggest-list.js";
 
 export interface ClauseEditState {
 	mode: "add" | "edit";
@@ -93,6 +94,13 @@ export interface FilterRuleEditorProps {
 	 * filter, which is dropped from the scope toggle.
 	 */
 	anchorLocked?: boolean;
+	/**
+	 * Values worth offering for the clause being edited — the consumer derives
+	 * them from the field and what has been typed so far (known senders for
+	 * `From`, their domains for `FromDomain`). Absent leaves the value a plain
+	 * text box, which is what a surface with nothing to suggest should be.
+	 */
+	clauseSuggestions?: readonly Suggestion[];
 	/** The inline clause form, when adding or editing a clause. */
 	clauseEdit?: ClauseEditState;
 	onStartAddClause?: () => void;
@@ -470,6 +478,7 @@ export function FilterRuleEditor({
 	onChangeMatchMode,
 	clauseFields,
 	anchorLocked = false,
+	clauseSuggestions,
 	clauseEdit,
 	onStartAddClause,
 	onStartEditClause,
@@ -581,6 +590,7 @@ export function FilterRuleEditor({
 							draft={clauseEdit.draft}
 							mode={clauseEdit.mode}
 							fields={clauseFields}
+							suggestions={clauseSuggestions}
 							onChangeField={onChangeDraftField}
 							onChangeValue={onChangeDraftValue}
 							onSubmit={onSubmitClause}

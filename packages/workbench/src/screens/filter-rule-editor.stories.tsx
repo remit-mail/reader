@@ -1,6 +1,7 @@
 import {
 	type ClauseEditState,
 	type ClauseField,
+	demoClauseSuggestions,
 	demoFolders,
 	demoRule,
 	demoSenderFallbackRule,
@@ -39,10 +40,13 @@ function useRuleEditor(
 	initialRule: FilterRule,
 	initialMatchMode?: RuleMatchMode,
 	propertyRule: FilterRule = demoSenderFallbackRule,
+	initialClauseEdit?: ClauseEditState,
 ) {
 	const [rule, setRule] = useState<FilterRule>(initialRule);
 	const [matchMode, setMatchMode] = useState(initialMatchMode);
-	const [clauseEdit, setClauseEdit] = useState<ClauseEditState | undefined>();
+	const [clauseEdit, setClauseEdit] = useState<ClauseEditState | undefined>(
+		initialClauseEdit,
+	);
 
 	const preview = useMemo<PreviewCount>(
 		() => READY(rule.clauses.length * 23 + (rule.widen ? 40 : 0)),
@@ -54,6 +58,9 @@ function useRuleEditor(
 		matchMode,
 		folders: demoFolders,
 		clauseEdit,
+		clauseSuggestions: clauseEdit
+			? demoClauseSuggestions(clauseEdit.draft.field, clauseEdit.draft.value)
+			: undefined,
 		preview,
 		onStartAddClause: () =>
 			setClauseEdit({ mode: "add", draft: { field: "From", value: "" } }),
@@ -140,26 +147,67 @@ function useRuleEditor(
 	};
 }
 
-/** A phone frame with a faint mailbox behind the sheet, matching the mobile home. */
-function PhoneFrame({ children }: { children: React.ReactNode }) {
+/**
+ * A soft keyboard taking the bottom of the screen. The frame shortens by exactly
+ * this much when it is up, which is what a phone browser does to the visual
+ * viewport — so what the story shows above it is what the user can actually see.
+ */
+function SoftKeyboard() {
 	return (
-		<div className="relative mx-auto h-dvh w-full shrink-0 overflow-hidden bg-surface sm:my-6 sm:h-[760px] sm:w-[390px] sm:rounded-[2rem] sm:border sm:border-line sm:shadow-sm">
-			<div className="divide-y divide-line opacity-50">
-				{Array.from({ length: 8 }).map((_, index) => (
-					<div
-						// biome-ignore lint/suspicious/noArrayIndexKey: static backdrop skeleton, no ids
-						key={index}
-						className="flex items-start gap-3 px-row-inset py-2.5"
-					>
-						<div className="mt-0.5 size-7 shrink-0 rounded-full bg-surface-sunken" />
-						<div className="min-w-0 flex-1 space-y-1">
-							<div className="h-2.5 w-1/3 rounded bg-surface-sunken" />
-							<div className="h-2 w-2/3 rounded bg-surface-sunken" />
-						</div>
-					</div>
-				))}
+		<div className="shrink-0 space-y-1.5 border-t border-line bg-surface-sunken px-1.5 py-2">
+			{[10, 9, 7].map((keys) => (
+				<div key={keys} className="flex justify-center gap-1">
+					{Array.from({ length: keys }).map((_, index) => (
+						<div
+							// biome-ignore lint/suspicious/noArrayIndexKey: static keyboard skeleton, no ids
+							key={index}
+							className="h-8 w-7 rounded bg-surface shadow-sm"
+						/>
+					))}
+				</div>
+			))}
+			<div className="flex justify-center">
+				<div className="h-8 w-40 rounded bg-surface shadow-sm" />
 			</div>
-			{children}
+		</div>
+	);
+}
+
+/** A phone frame with a faint mailbox behind the sheet, matching the mobile home. */
+function PhoneFrame({
+	children,
+	width,
+	keyboard = false,
+}: {
+	children: React.ReactNode;
+	/** Screen width in CSS pixels. Defaults to the frame's own 390. */
+	width?: number;
+	keyboard?: boolean;
+}) {
+	return (
+		<div
+			className="mx-auto flex h-dvh w-full shrink-0 flex-col overflow-hidden bg-surface sm:my-6 sm:h-[760px] sm:w-[390px] sm:rounded-[2rem] sm:border sm:border-line sm:shadow-sm"
+			style={width ? { width, maxWidth: "100%" } : undefined}
+		>
+			<div className="relative min-h-0 flex-1 overflow-hidden">
+				<div className="divide-y divide-line opacity-50">
+					{Array.from({ length: 8 }).map((_, index) => (
+						<div
+							// biome-ignore lint/suspicious/noArrayIndexKey: static backdrop skeleton, no ids
+							key={index}
+							className="flex items-start gap-3 px-row-inset py-2.5"
+						>
+							<div className="mt-0.5 size-7 shrink-0 rounded-full bg-surface-sunken" />
+							<div className="min-w-0 flex-1 space-y-1">
+								<div className="h-2.5 w-1/3 rounded bg-surface-sunken" />
+								<div className="h-2 w-2/3 rounded bg-surface-sunken" />
+							</div>
+						</div>
+					))}
+				</div>
+				{children}
+			</div>
+			{keyboard && <SoftKeyboard />}
 		</div>
 	);
 }
@@ -169,15 +217,27 @@ function MobileStory({
 	semanticAvailable = true,
 	matchMode,
 	propertyRule,
+	clauseEdit,
+	width,
+	keyboard,
 }: {
 	initialRule: FilterRule;
 	semanticAvailable?: boolean;
 	matchMode?: RuleMatchMode;
 	propertyRule?: FilterRule;
+	/** Opens on the clause form, for the stories about editing a clause. */
+	clauseEdit?: ClauseEditState;
+	width?: number;
+	keyboard?: boolean;
 }) {
-	const editor = useRuleEditor(initialRule, matchMode, propertyRule);
+	const editor = useRuleEditor(
+		initialRule,
+		matchMode,
+		propertyRule,
+		clauseEdit,
+	);
 	return (
-		<PhoneFrame>
+		<PhoneFrame width={width} keyboard={keyboard}>
 			<FilterRuleSheet
 				open
 				onClose={() => {}}
@@ -193,13 +253,20 @@ function DesktopStory({
 	semanticAvailable = true,
 	matchMode,
 	propertyRule,
+	clauseEdit,
 }: {
 	initialRule: FilterRule;
 	semanticAvailable?: boolean;
 	matchMode?: RuleMatchMode;
 	propertyRule?: FilterRule;
+	clauseEdit?: ClauseEditState;
 }) {
-	const editor = useRuleEditor(initialRule, matchMode, propertyRule);
+	const editor = useRuleEditor(
+		initialRule,
+		matchMode,
+		propertyRule,
+		clauseEdit,
+	);
 	return (
 		<div className="h-dvh w-full bg-canvas">
 			<FilterRuleDialog
@@ -272,6 +339,57 @@ export const DesktopSemanticUnavailable: Story = {
 		<DesktopStory
 			initialRule={{ ...demoRule, widen: undefined }}
 			semanticAvailable={false}
+		/>
+	),
+};
+
+/**
+ * Typing a `From` clause on a 411px phone with the keyboard up. The suggestions
+ * take their own space directly under the value field rather than floating over
+ * it, so the keyboard cannot hide the field the list belongs to and there is
+ * nothing to scroll past to see what was typed. The selection's own senders lead
+ * the list, marked "selected".
+ */
+export const MobileClauseSuggestions: Story = {
+	render: () => (
+		<MobileStory
+			initialRule={{ ...demoRule, widen: undefined }}
+			semanticAvailable={false}
+			width={411}
+			keyboard
+			clauseEdit={{ mode: "add", draft: { field: "From", value: "" } }}
+		/>
+	),
+};
+
+/**
+ * The same field once the typed value matches no known sender: the list is gone
+ * and the value stands. A clause for an address that has not written yet is a
+ * legitimate rule, so nothing blocks or corrects it.
+ */
+export const MobileClauseSuggestionsNoMatches: Story = {
+	render: () => (
+		<MobileStory
+			initialRule={{ ...demoRule, widen: undefined }}
+			semanticAvailable={false}
+			width={411}
+			keyboard
+			clauseEdit={{
+				mode: "add",
+				draft: { field: "From", value: "someone@nowhere.test" },
+			}}
+		/>
+	),
+};
+
+/** The domain clause's suggestions on desktop — addresses collapsed to their
+ *  registrable domain, the string the matcher compares. */
+export const DesktopDomainClauseSuggestions: Story = {
+	render: () => (
+		<DesktopStory
+			initialRule={{ ...demoRule, widen: undefined }}
+			semanticAvailable={false}
+			clauseEdit={{ mode: "add", draft: { field: "FromDomain", value: "" } }}
 		/>
 	),
 };

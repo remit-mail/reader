@@ -38,6 +38,16 @@ const hostOf = (address: string): string => {
 };
 
 /**
+ * The registrable domain behind a sender address, public-suffix aware (tldts
+ * `getDomain`), or `null` when the address carries none. The one place an
+ * address is turned into a `FromDomain` value — a clause the prefill derives and
+ * a domain the value field suggests must be the same string, or the suggestion
+ * would offer a domain the matcher never produces.
+ */
+export const senderDomain = (address: string): string | null =>
+	getDomain(hostOf(address.trim()));
+
+/**
  * The single registrable domain the whole selection collapses to, or `null` when
  * it does not collapse. A collapse needs at least two distinct senders that all
  * resolve to one registrable domain (public-suffix aware, via tldts `getDomain`)
@@ -52,7 +62,7 @@ export const collapsibleDomain = (
 	if (distinct.length < 2) return null;
 	let shared: string | null = null;
 	for (const sender of distinct) {
-		const domain = getDomain(hostOf(sender));
+		const domain = senderDomain(sender);
 		if (domain === null) return null;
 		if (shared === null) shared = domain;
 		else if (shared !== domain) return null;

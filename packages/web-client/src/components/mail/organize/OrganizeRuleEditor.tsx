@@ -9,6 +9,7 @@ import {
 } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useClauseSuggestions } from "@/hooks/useClauseSuggestions";
 import { useCreateMailbox } from "@/hooks/useCreateMailbox";
 import { useCreateFilter } from "@/hooks/useFilters";
 import { useCreateLabel, useLabelList } from "@/hooks/useLabels";
@@ -130,6 +131,14 @@ export function OrganizeRuleEditor({
 			}),
 		}));
 	};
+
+	// The selection's own senders are the likeliest values for an address clause
+	// and are already in hand, so they lead the list before anything is typed.
+	const clauseSuggestions = useClauseSuggestions(
+		handlers.clauseEdit?.draft.field,
+		handlers.clauseEdit?.draft.value ?? "",
+		senders,
+	);
 
 	const { data: mailboxesData } = useQuery({
 		...mailboxOperationsListMailboxesOptions({ path: { accountId } }),
@@ -265,6 +274,7 @@ export function OrganizeRuleEditor({
 			matchMode={semanticUnavailable ? undefined : matchMode}
 			onChangeMatchMode={changeMatchMode}
 			clauseFields={SUPPORTED_CLAUSE_FIELDS}
+			clauseSuggestions={clauseSuggestions}
 			{...handlers}
 			onCreateFolder={createFolder}
 			onCreateLabel={onCreateLabel}
